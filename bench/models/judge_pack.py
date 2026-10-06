@@ -134,6 +134,9 @@ def context_text(it):
 def cmd_pack(a):
     items = {i['id']: i for i in items_all()}
     picked = pick_items(list(items.values()))
+    if a.only_ids:      # e.g. the 54-item slow subset: judge exactly those stuck/overseer items
+        keep = {l.strip() for l in open(os.path.join(HERE, a.only_ids)) if l.strip()}
+        picked = [items[i] for i in sorted(keep) if i in items and items[i]['set'] in ('stuck', 'overseer', 'brain')]
     runs = {}
     for p in a.runs:
         recs = {}
@@ -299,6 +302,7 @@ def main():
     ap = argparse.ArgumentParser()
     sub = ap.add_subparsers(dest='cmd')
     p = sub.add_parser('pack'); p.add_argument('runs', nargs='+'); p.add_argument('--dir', required=True)
+    p.add_argument('--only-ids', default='')
     m = sub.add_parser('merge'); m.add_argument('--dir', required=True); m.add_argument('--scores', action='append', required=True)
     a = ap.parse_args()
     {'pack': cmd_pack, 'merge': cmd_merge}[a.cmd](a)

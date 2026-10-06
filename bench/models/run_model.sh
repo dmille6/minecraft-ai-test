@@ -9,6 +9,8 @@ set -u
 cd "$(dirname "$0")"
 # LM Studio lines: "lmstudio <model-key> <label> <bt> <st> [parallel] [ctx]" -> the A4 runtime factor script
 if [ "${1:-}" = lmstudio ]; then exec ./lms_factor.sh "$2" "$3" "${6:-4}" "${7:-16384}" "$4" "$5" "${8:-screen}"; fi
+# "pause <tag>": hold the GPU for a Stage C series (closedloop/cl_series.py --wait-pause starts when it sees this)
+if [ "${1:-}" = pause ]; then echo "pause-$2" > out/GPU_RESERVED; echo "=== $(date -u +%FT%TZ) pause-$2 (GPU held for Stage C) done" | tee -a out/driver.log; exit 0; fi
 # A5 LM Studio serving: "serve-lms <lms-key> <label> <worker-think> - - [bots] [minutes]" (worker only; stability run)
 if [ "${1:-}" = serve-lms ]; then
   echo "lms-$3" > out/GPU_RESERVED

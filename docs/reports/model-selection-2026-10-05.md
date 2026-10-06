@@ -452,3 +452,42 @@ measured with 1 and 8 simultaneous decisions on the same real prompts.
 
   The same model is **100% valid as the overseer** on both versions, so this is the fleet schema with a reasoning
   model, not gpt-oss in general. Its LM Studio MLX run and a native-tool-call run are queued.
+
+### Slow roles: overseer, stuck escalation, allocation, planning, with thinking (as of 03:40Z on 10-06)
+
+All models below answered the same 54 items:
+- 12 stuck episodes;
+- 12 overseer snapshots;
+- 15 allocation problems with a known optimum;
+- 15 planning tasks checked by the simulator.
+
+The judge columns are the blind mean scores (1-5) from Claude and Codex. Seconds are per answer with 4 requests in
+flight on Ollama.
+
+| config | thinking | overseer valid (12) | allocation exact (15) | allocation violations | plan reaches goal (15) | stuck: good / bad action (12) | judge overseer C / X | judge stuck C / X | s per answer |
+|---|---|---|---|---|---|---|---|---|---|
+| **qwen3.8:27b** | low | 100% | 14 | 0 | **12** | 8 / 3 | **4.67 / 4.67** | **3.75 / 4.08** | 304 |
+| **gpt-oss:120b** | medium | 100% | **15** | 0 | **12** | 6 / 3 | 4.17 / 4.67 | 3.08 / 3.42 | **43** |
+| gpt-oss:120b | low | 100% | 14 | 0 | 10 | 9 / 3 | 3.67 / 3.83 | 3.00 / 3.25 | 24 |
+| qwen3.6:35b-a3b | on | 100% | 13 | 2 | 2 | 6 / 5 | 4.25 / 4.33 | 3.75 / 4.00 | 174 |
+| qwen3.5:122b-a10b | on | 67% | 9 | 6 | 11 | 8 / 3 | 3.50 / 3.50 | 3.25 / 3.75 | 456 |
+| nemotron-3.5-lightning | on | 75% | 13 | 2 | 10 | 4 / 8 | 3.42 / 3.58 | 2.58 / 2.92 | 200 |
+| gemma4:26b | off | 100% | 4 | 5 | 4 | 6 / 4 | 3.33 / 3.67 | 3.00 / 3.25 | 6 |
+| qwen2.5:7b (fleet) | - | 25% | 2 | 10 | 2 | 1 / 8 | 1.83 / 1.75 | 2.08 / 2.17 | 7 |
+
+**What the slow-role table shows**
+- **Reasoning is what wins the slow roles.** Without it, every model is at or below a 10-line greedy rule on
+  allocation (greedy: 47 of 60 exact). With it, qwen3.8:27b and gpt-oss:120b get 14-15 of 15 exact and reach the
+  planning goal 12 times in 15.
+- **The two leaders trade speed for memory:**
+
+  | | qwen3.8:27b (low) | gpt-oss:120b (medium) |
+  |---|---|---|
+  | memory | ~18 GB | ~65 GB |
+  | time per answer | ~76 s alone, 304 s at 4 in flight (serial) | ~11 s alone, 43 s at 4 in flight |
+  | judges | preferred | close behind |
+  | can sit next to a gemma4 worker? | yes, even beside today's co-tenants | only if the co-tenants move |
+
+- **Judge agreement on the slow roles:** Spearman 0.87, within one point 97%.
+- **Judge self-consistency**, with the copies judged in a separate session this time: 81-96% identical scores on
+  a repeated or order-swapped item, and 98-100% within one point.

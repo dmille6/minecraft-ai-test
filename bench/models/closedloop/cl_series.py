@@ -46,8 +46,13 @@ def main():
     ap.add_argument('--arms', required=True); ap.add_argument('--starts', type=int, default=3)
     ap.add_argument('--bots', type=int, default=8); ap.add_argument('--minutes', type=float, default=90)
     ap.add_argument('--server', default='sandbox4'); ap.add_argument('--seed', type=int, default=1006)
+    ap.add_argument('--wait-pause', action='store_true')
     a = ap.parse_args()
     arms = json.load(open(a.arms))
+    if a.wait_pause:            # start only when the Stage A queue reaches its "pause" line (GPU held for us)
+        while not ssh('cat ~/mbench/out/GPU_RESERVED 2>/dev/null').startswith('pause'):
+            time.sleep(120)
+        print('queue paused; starting', flush=True)
     rng = random.Random(a.seed)
     order = []
     for b in range(a.starts):
