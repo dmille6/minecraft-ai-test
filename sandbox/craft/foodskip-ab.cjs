@@ -6,7 +6,7 @@
 // to the food. Control (the fleet build): walks to everything. Oracle: the item entities on the ground after the trial,
 // the bag (server slots), the `_food_skip` row and the pickup rows (`_junk_pickup` sought/passive).
 //
-//   node foodskip-ab.cjs <arm: cand|ctrl> <botRoot> <reps> <scene,...> [server]     scenes: food | food_off
+//   node foodskip-ab.cjs <arm: cand|ctrl> <botRoot> <reps> <scene,...> [server]     scenes: food | food_off | apples | apples_off | apples_easy
 //   food_off runs the CANDIDATE with FOOD_SKIP=off: the owner's switch -- food is chased again.
 'use strict'
 const { execFileSync, spawn } = require('child_process')
@@ -41,9 +41,16 @@ const STAND = { x: 700.5, y: 120, z: 700.5 }
 const HOME = { x: 700, y: 120, z: 700 }
 const LOG = { x: 702, y: 120, z: 700 }
 const DROPS = [['apple', 704.5, 703.5], ['bread', 698.5, 704.5], ['cobblestone', 696.5, 705.5]]
+// THE APPLE SCENES (owner 10-06, the peaceful food policy): a town bot at 35/36 holding 10 apples (34 wool), a composter
+// and a chest at town; NOTHING is queued -- compost is a town order. Expected: peaceful 6 composted, 4 kept; FOOD_SKIP=off
+// and a non-peaceful world (`difficulty easy` by RCON on the sandbox, restored to peaceful after the trial): none.
+const WOOL34 = Array.from({ length: 34 }, () => ['white_wool', 1])
 const SPEC = {
   food: { bag: [['white_wool', 1]], cmd: 'gather 1 oak_log' },
   food_off: { bag: [['white_wool', 1]], cmd: 'gather 1 oak_log', env: { FOOD_SKIP: 'off' } },
+  apples: { bag: [['apple', 10], ...WOOL34], compost: true },
+  apples_off: { bag: [['apple', 10], ...WOOL34], compost: true, env: { FOOD_SKIP: 'off' } },
+  apples_easy: { bag: [['apple', 10], ...WOOL34], compost: true, difficulty: 'easy' },
 }
 const WINDOW_MS = 120000
 function arenaCmds () {
@@ -51,7 +58,8 @@ function arenaCmds () {
     'fill 688 120 688 712 130 712 minecraft:air', 'fill 688 119 688 712 119 712 minecraft:stone']
 }
 const itemArg = (id, dmg) => `minecraft:${id}${dmg != null ? `[damage=${dmg}]` : ''}`
-function sceneCmds () {
+function sceneCmds (spec) {
+  if (spec.compost) return ['setblock 696 120 696 minecraft:composter', 'setblock 702 120 700 minecraft:chest[facing=west]']
   return [`setblock ${LOG.x} ${LOG.y} ${LOG.z} minecraft:oak_log`,
     ...DROPS.map(([id, x, z]) => `summon minecraft:item ${x} 120.1 ${z} {Item:{id:"minecraft:${id}",count:3},PickupDelay:0s,Age:-32768s}`)]
 }
@@ -146,25 +154,35 @@ async function runTrial (scene, k) {
   for (const a of ['X', 'Y', 'Z']) { set(`HOME_${a}`, HOME[a.toLowerCase()]); set(`BOARD_${a}`, HOME[a.toLowerCase()]) }
   fs.writeFileSync(`${R}/${envRel}`, env + '\n')
   brainQueue = []; brainLog = `${OUTDIR}/brain-${tag}.log`
+  if (spec.difficulty) rcon(`difficulty ${spec.difficulty}`)
   const diffReply = rcon('difficulty')[0]?.reply || ''
-  if (!/Peaceful/i.test(diffReply)) throw new Error('the sandbox world is not peaceful: ' + diffReply)
+  if (!new RegExp(spec.difficulty ?? 'Peaceful', 'i').test(diffReply)) throw new Error('the sandbox difficulty is not what the scene needs: ' + diffReply)
   const bo = fs.openSync(botOut, 'a')
   bot = spawn('bash', [`${R}/sandbox/run-bot.sh`, envRel], { cwd: R, env: { ...process.env, BOT_ROOT, NODE_OPTIONS: `--require ${path.join(D, 'trace.cjs')}`, CRAFT_TRACE: trace }, stdio: ['ignore', bo, bo] })
   if (!await waitFor(() => lines(botOut).some(l => /spawned pos=/.test(l)), 90000, 300)) { await stopBot(); throw new Error('no spawn') }
   rcon(`gamemode survival ${NAME}`, `tp ${NAME} ${STAND.x} ${STAND.y} ${STAND.z}`, `effect clear ${NAME}`)
   await sleep(3000)
-  const built = [...rcon(...arenaCmds()), ...rcon(...bagCmds(spec)), ...rcon(...sceneCmds())]
+  const built = [...rcon(...arenaCmds()), ...rcon(...bagCmds(spec)), ...rcon(...sceneCmds(spec))]
   const bad = built.filter(x => /not loaded|Cannot place|Unknown|Incorrect|Expected/i.test(x.reply) && !/^kill /.test(x.cmd))
   if (bad.length) { await stopBot(); throw new Error('arena not built: ' + bad.map(x => x.cmd + ' => ' + x.reply).join('; ')) }
   await sleep(1500)
   const before = snapshot()
   const t0 = Date.now()
-  brainQueue.push(spec.cmd)
-  const done = await waitFor(() => ended(botOut, skillLog, 'gather'), WINDOW_MS)
-  await sleep(4000)
+  let done
+  if (spec.compost) {
+    // compost is a TOWN ORDER: watch for it (the first town scan can wait 30 s plus a decision's cadence)
+    done = await waitFor(() => ended(botOut, skillLog, 'compost'), 100000)
+    await sleep(4000)
+  } else {
+    brainQueue.push(spec.cmd)
+    done = await waitFor(() => ended(botOut, skillLog, 'gather'), WINDOW_MS)
+    await sleep(4000)
+  }
   const after = snapshot()
   const rows = skillRows(skillLog)
+  const composterNow = spec.compost ? (rcon('data get block 696 120 696')[0]?.reply || '').slice(0, 160) : null
   await stopBot()
+  if (spec.difficulty) rcon('difficulty peaceful')
   await sleep(1500)
   try { fs.unlinkSync(`${R}/${envRel}`) } catch {}
   const tr = traceEv(trace).filter(e => e.ts >= t0)
@@ -172,11 +190,12 @@ async function runTrial (scene, k) {
   const junk = lines(skillLog).map(l => { try { return JSON.parse(l) } catch { return null } }).filter(r => r && r.skill && r.skill.name === '_junk_pickup').map(r => r.skill.args)
   const r = { id: `${ARM}:${scene}:${k}`, arm: ARM, scene, k, tag, sha: execFileSync('git', ['-C', BOT_ROOT, 'rev-parse', '--short', 'HEAD'], { encoding: 'utf8' }).trim(),
     gatherEnded: !!done, difficulty: diffReply.trim(), before: { ...before, totals: tb }, after: { ...after, totals: ta },
-    foodSkipRows: rows.filter(x => x.name === '_food_skip').map(x => x.detail), junk,
+    foodSkipRows: rows.filter(x => x.name === '_food_skip').map(x => x.detail), junk, composterNow,
+    compostRows: rows.filter(x => x.name === '_compost' || x.name === 'compost').map(x => `${x.status}:${x.detail.slice(0, 200)}`),
     rows: rows.filter(x => /gather|_pickup|_food_skip|_junk/.test(x.name)),
     trace: { pickups: tr.filter(e => e.pkt === 'collect' && e.self).map(e => ({ t: e.ts - t0, n: e.n })) } }
   fs.appendFileSync(RES, JSON.stringify(r) + '\n')
-  console.log(`${r.id.padEnd(18)} gather=${r.gatherEnded} bag{${diff(tb.bag, ta.bag)}} ground-before[${before.ground.map(g => g.id + 'x' + g.count).join(',')}] ground-after[${after.ground.map(g => g.id + 'x' + g.count).join(',')}] food_skip=${JSON.stringify(r.foodSkipRows)} junk=${JSON.stringify(junk.map(j => `${j.item}:${j.mode}${j.sought_by ? '(' + j.sought_by + ')' : ''}`))} | ${rows.filter(x => x.name === 'gather').map(x => x.status + ':' + x.detail.slice(0, 100)).join(' || ')}`)
+  console.log(`${r.id.padEnd(18)} ${spec.compost ? `compost=${r.gatherEnded} apples ${tb.bag.apple ?? 0}->${ta.bag.apple ?? 0} bone_meal ${ta.bag.bone_meal ?? 0} compost_rows=${JSON.stringify(r.compostRows)} ` : ''}gather=${r.gatherEnded} bag{${diff(tb.bag, ta.bag)}} ground-before[${before.ground.map(g => g.id + 'x' + g.count).join(',')}] ground-after[${after.ground.map(g => g.id + 'x' + g.count).join(',')}] food_skip=${JSON.stringify(r.foodSkipRows)} junk=${JSON.stringify(junk.map(j => `${j.item}:${j.mode}${j.sought_by ? '(' + j.sought_by + ')' : ''}`))} | ${rows.filter(x => x.name === 'gather').map(x => x.status + ':' + x.detail.slice(0, 100)).join(' || ')}`)
 }
 
 async function main () {
@@ -196,6 +215,7 @@ async function cleanup () {
   await stopBot().catch(() => {})
   try { brainServer.close() } catch {}
   try { fs.unlinkSync(`${R}/sandbox/.env.fsab-${ARM}`) } catch {}
+  try { rcon('difficulty peaceful') } catch {}   // a non-peaceful scene never leaves the sandbox hard
   try { rcon('kill @e[type=!player,x=700,y=120,z=700,distance=..30]', 'fill 688 120 688 712 130 712 minecraft:air', 'fill 688 119 688 712 119 712 minecraft:stone') } catch {}
 }
 let cleaning = false

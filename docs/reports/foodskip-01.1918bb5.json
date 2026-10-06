@@ -1,10 +1,10 @@
 {
  "run_id": "foodskip-01",
- "sha": "e7f9a16",
+ "sha": "41fa406",
  "registered_at": "2026-10-05T20:00:00Z",
  "ladder_change": false,
  "promotion": "fleet-wide",
- "notes": "[foodskip-01. Variant for fleet 1918bb5, branch fs-on-1918bb5 @ e7f9a16 (Codex APPROVE round 2; suite 225/225; 10 anchored mutants killed 10). NOT LAUNCHED. Independent of towndeposit; rebase onto whichever baseline lands first.] OWNER 10-05 ~18:30Z: 'lets just not pickup [food] for now, but have the option to turn that off if we turn the world to a not peaceful world'. MEASURED (bag-creep report): food ~2.1 slots/bot (apples 1.09, 73 bots, median 45), hunger 20 in all 778,498 snapshots; the bank and the composter refuse food. THE CHANGE (bots/src/foodskip.mjs + skills.mjs pickupNearbyItems): FOOD_SKIP=auto|on|off env (default auto; unreadable -> auto). auto skips food only while the server's difficulty is 'peaceful' -- read from the raw `difficulty` packet by our own listener (foodskip.mjs attachDifficulty, wired in index.mjs), because MINECRAFT 1.21.8 + MINEFLAYER 4.37.1 NEVER SET bot.game.difficulty: the 1.21.8 codec decodes the field to a name and mineflayer indexes its name table with it (undefined). Found on the Paper sandbox: the first build (96e4a5d/ae25990, which Codex had approved) said difficulty=unknown active=0 in a peaceful world and chased food like the control; e7f9a16 fixes it (tests run the real codec and mineflayer's real game plugin). Unknown -> food is picked up; on always; off never. Food = minecraft-data foodsByName. The sweep no longer WALKS to a food drop; the SERVER STILL HANDS OVER any item within ~1 block of the bot, so this removes chasing, not arrival. One _food_skip row per process per change of (decision, difficulty). Codex review: APPROVE (96e4a5d; the row test hardened in ae25990 after its mutant). DRY RUN 10-05 (3 h, 70 control bots): apples sought by the sweep 15 (0.07/bot-h), passive 16 -- the skip can remove about HALF of a small inflow (~1.5 apples/bot-day); the existing ~2 slots of food have no exit and stay, so the slot effect in a 6 h canary is expected ~0. NOT IN THIS VARIABLE (listed): an exit for food (apples are compostable in vanilla; or the well), and stopping the model's ~3,300/day 'deposit apple' proposals (an admission refusal before the walk; Codex: a separate change). PAPER (sandbox, peaceful, server read-back; sandbox/craft/foodskip-ab.cjs): an oak_log beside the bot, 3 apples / 3 bread / 3 cobblestone lying 4-6 blocks away, `gather 1 oak_log` queued. e7f9a16 2/2: row 'food skip ON: mode=auto difficulty=peaceful active=1', the apples left on the ground, cobblestone collected -- but the bread was still RECEIVED, not chased: the walk to the cobblestone passed within reach of it (the arrival this change cannot stop). FOOD_SKIP=off 1/1: everything chased (apple sought by the sweep). Control (1918bb5) 2/2: everything chased. The first build (ae25990) on Paper: difficulty=unknown active=0, everything chased (the mineflayer bug).",
+ "notes": "[foodskip-01 = THE PEACEFUL FOOD POLICY (no food chasing + apples composted above 4), one variable under one switch. Variant for fleet 1918bb5, branch fs-on-1918bb5 @ 41fa406. Trial cherry-pick onto 47110e8 (now the fleet) is clean and its foodskip/composter tests pass; rebase onto the line's tip when its turn comes. NOT LAUNCHED. Independent of towndeposit; rebase onto whichever baseline lands first.] OWNER 10-05 ~18:30Z: 'lets just not pickup [food] for now, but have the option to turn that off if we turn the world to a not peaceful world'. MEASURED (bag-creep report): food ~2.1 slots/bot (apples 1.09, 73 bots, median 45), hunger 20 in all 778,498 snapshots; the bank and the composter refuse food. THE CHANGE (bots/src/foodskip.mjs + skills.mjs pickupNearbyItems): FOOD_SKIP=auto|on|off env (default auto; unreadable -> auto). auto skips food only while the server's difficulty is 'peaceful' -- read from the raw `difficulty` packet by our own listener (foodskip.mjs attachDifficulty, wired in index.mjs), because MINECRAFT 1.21.8 + MINEFLAYER 4.37.1 NEVER SET bot.game.difficulty: the 1.21.8 codec decodes the field to a name and mineflayer indexes its name table with it (undefined). Found on the Paper sandbox: the first build (96e4a5d/ae25990, which Codex had approved) said difficulty=unknown active=0 in a peaceful world and chased food like the control; e7f9a16 fixes it (tests run the real codec and mineflayer's real game plugin). Unknown -> food is picked up; on always; off never. Food = minecraft-data foodsByName. The sweep no longer WALKS to a food drop; the SERVER STILL HANDS OVER any item within ~1 block of the bot, so this removes chasing, not arrival. One _food_skip row per process per change of (decision, difficulty). Codex review: APPROVE (96e4a5d; the row test hardened in ae25990 after its mutant). DRY RUN 10-05 (3 h, 70 control bots): apples sought by the sweep 15 (0.07/bot-h), passive 16 -- the skip can remove about HALF of a small inflow (~1.5 apples/bot-day); the existing ~2 slots of food have no exit and stay, so the slot effect in a 6 h canary is expected ~0. NOT IN THIS VARIABLE (listed): an exit for food (apples are compostable in vanilla; or the well), and stopping the model's ~3,300/day 'deposit apple' proposals (an admission refusal before the walk; Codex: a separate change). PAPER (sandbox, peaceful, server read-back; sandbox/craft/foodskip-ab.cjs): an oak_log beside the bot, 3 apples / 3 bread / 3 cobblestone lying 4-6 blocks away, `gather 1 oak_log` queued. e7f9a16 2/2: row 'food skip ON: mode=auto difficulty=peaceful active=1', the apples left on the ground, cobblestone collected -- but the bread was still RECEIVED, not chased: the walk to the cobblestone passed within reach of it (the arrival this change cannot stop). FOOD_SKIP=off 1/1: everything chased (apple sought by the sweep). Control (1918bb5) 2/2: everything chased. The first build (ae25990) on Paper: difficulty=unknown active=0, everything chased (the mineflayer bug). APPLES (OWNER 10-06 ~03:30Z: 'sure lets do it for peaceful worlds'; same variable, same switch): while the policy is active the town composter takes apples above APPLE_RESERVE = 4 (vanilla 65%); no other food (bread, cookie, pumpkin_pie, baked_potato, carrot, potato, beetroot, melon_slice, sweet/glow berries, dried_kelp are compostable in vanilla and NOT approved -- never composted). Off or non-peaceful: every function and row is today's (pure tests compare the two; a regression test pins the visit's miss count, which Codex found the first apple build had changed). Bone meal from apples = the visit's apple_levels / 7 (reported; bone meal still has no exit -- TREEFARM_BONEMEAL is a separate change). PAPER (sandbox, server read-back): peaceful 2/2 -> a town bot at 35/36 with 10 apples composted 6 and kept 4 (apple_levels 5); FOOD_SKIP=off 1/1 -> 10 kept; difficulty easy (set by RCON on the sandbox, restored) 1/1 -> 10 kept, row 'difficulty=easy active=0'; control 1/1 -> 10 kept. A 36/36 bag holding only apples starts no fill (the composter's rule: a fill must free a slot for the bone meal). Dry run 10-06: 24 control compost visits in 3 h by bots holding > 4 apples. Codex: CHANGE on b90bc2d (the miss count) -> APPROVE 41fa406. Paper re-run on 41fa406: peaceful 1/1 -> 10 -> 4 (apple_levels 4), FOOD_SKIP=off 1/1 -> 10 kept; the sandbox left peaceful. Suite 226/226; 18 anchored mutants killed 18.",
  "licence": {
   "class": "kind",
   "kind": "_food_skip",
@@ -38,7 +38,7 @@
   "read": "foodskipread",
   "field": "exposure_ready",
   "min": 1,
-  "note": "Ready = the control's apples sought by the sweep >= 20 (the positive control; 15 in a 3 h dry run on 70 bots) AND >= 1 canary _food_skip active=1 row."
+  "note": "Ready = the control's apples sought by the sweep >= 20 (the positive control; 15 in a 3 h dry run on 70 bots) AND >= 1 canary _food_skip active=1 row. And >= 1 control compost visit by a bot holding > 4 apples (the apple half's positive control)."
  },
  "own_lines": [
   {
@@ -82,12 +82,55 @@
    "value": 1,
    "on_fail": "REVERT",
    "note": "POSITIVE CONTROL: the control's apples sought by the sweep are visible to this query. BLOCKS KEEP."
+  },
+  {
+   "read": "foodskipread",
+   "field": "breach_apples_off",
+   "op": "<=",
+   "value": 0,
+   "on_fail": "REVERT",
+   "evidence": "defect",
+   "note": "A1 OFF MEANS OFF: a canary _compost row composting apples while that bot's latest _food_skip row said active=0 (or none yet), or any control _compost row composting apples."
+  },
+  {
+   "read": "foodskipread",
+   "field": "breach_apple_reserve",
+   "op": "<=",
+   "value": 0,
+   "on_fail": "REVERT",
+   "evidence": "defect",
+   "note": "A2 THE RESERVE: a canary _compost row that composted apples whose END snapshot holds fewer than 4 apples."
+  },
+  {
+   "read": "foodskipread",
+   "field": "breach_other_food",
+   "op": "<=",
+   "value": 0,
+   "on_fail": "REVERT",
+   "evidence": "defect",
+   "note": "A3 ONLY APPLES: a canary _compost row that composted any other food."
+  },
+  {
+   "read": "foodskipread",
+   "field": "apples_composted_canary",
+   "op": ">=",
+   "value": 1,
+   "on_fail": "REVERT",
+   "note": "LIVENESS (apples): canary apples composted. BLOCKS KEEP (INCONCLUSIVE). Expected ~7 visits per 10 bots per 6 h from the dry run."
+  },
+  {
+   "read": "foodskipread",
+   "field": "instrument_apples_control",
+   "op": ">=",
+   "value": 1,
+   "on_fail": "REVERT",
+   "note": "POSITIVE CONTROL (apples): control compost visits by bots holding > 4 apples are visible (24 in a 3 h dry run). BLOCKS KEEP."
   }
  ],
  "primary": {
   "read": "foodskipread",
   "field": "food_slots_did",
-  "note": "REPORTED, NOT GATED: food slots per bot DiD (time-weighted, corrected estimator), all slots/bot DiD, share at >= 34 DiD, food gained per bot-h (sought and passive), gather success DiD (the sweep also collects logs), hunger < 20 snapshots (a world that is not peaceful), rows naming another difficulty, deaths named. Expected ~0 slots in 6 h: the stock has no exit; this removes about half of a ~1.5/bot-day apple inflow. NOISE BAND (two no-change dry runs 10-05, hive-b+placebo-c as the 'canary', 3 h each): share at >= 34 DiD +0.013 and -0.218, slots/bot DiD +0.11 and -1.37 -- a single 6 h read of 10 bots cannot resolve a 2-4 slot-per-stay effect into a fleet slot DiD; served stays and slots freed per run are the direct measures."
+  "note": "REPORTED, NOT GATED: food slots per bot DiD (time-weighted, corrected estimator), all slots/bot DiD, share at >= 34 DiD, food gained per bot-h (sought and passive), gather success DiD (the sweep also collects logs), hunger < 20 snapshots (a world that is not peaceful), rows naming another difficulty, deaths named. Expected ~0 slots in 6 h: the stock has no exit; this removes about half of a ~1.5/bot-day apple inflow. NOISE BAND (two no-change dry runs 10-05, hive-b+placebo-c as the 'canary', 3 h each): share at >= 34 DiD +0.013 and -0.218, slots/bot DiD +0.11 and -1.37 -- a single 6 h read of 10 bots cannot resolve a 2-4 slot-per-stay effect into a fleet slot DiD; served stays and slots freed per run are the direct measures. APPLES (reported): apples composted, visits with apples, apple_levels and the bone meal they imply (/7), bone meal on apple visits."
  },
  "harm": {
   "note": "Unchanged: the two-death floor (OWNER 2026-09-11) and gather_ratio < 0.43 of control, from immobiledid."

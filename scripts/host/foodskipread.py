@@ -20,11 +20,21 @@
 #                   has >= 20 (the positive control). Not "any": an item entity whose metadata has not arrived yet cannot
 #                   be named at the filter and is chased as before. Dry run 10-05 (3 h, 70 control bots): control 15
 #                   sought apples (0.07/bot-h), so a 10-bot canary expects ~4 in 6 h if the skip did nothing.
+#                APPLES (owner 10-06, the same variable: the town composter takes apples above a reserve of 4 while the
+#                policy is on; composter.mjs APPLE_RESERVE; `_compost` rows: items=apple:N, apple_levels=N):
+#                A1 OFF MEANS OFF: a canary `_compost` row that composted apples while that bot's latest `_food_skip` row
+#                   said active=0 (or before any row), or ANY control `_compost` row that composted apples.
+#                A2 THE RESERVE: a canary `_compost` row that composted apples whose END snapshot holds fewer than 4.
+#                INSTRUMENT: control compost visits by bots holding > 4 apples (the visits the policy would use).
+#                A3 ONLY APPLES: a canary `_compost` row that composted any other food (bread, carrot, cookie...).
 #   TRIPWIRES    canary hunger below 20 (a world that is not peaceful), canary `_food_skip` rows naming another difficulty,
 #                food sought by any other path (sought_by != pickup; summary 'sought' groups), deaths (named; the two-death
 #                floor is canary-report.py's), gather success DiD (the sweep also collects logs; skipping food must not
 #                cost them).
 #   INSTRUMENT   (positive control) control apple pickups sought by pickupNearbyItems (>= 1): the chasing exists.
+#   REPORTED     apples composted (canary), compost visits with apples, apple_levels and the bone meal they imply
+#                (apple_levels / 7: bone meal has no exit yet -- the tree farm's TREEFARM_BONEMEAL is a separate change),
+#                bone meal slots per bot DiD.
 #   PRIMARY      food slots per bot and all slots per bot, time-weighted (gaps capped at 120 s), corrected estimator
 #                (bag-creep report), DiD vs the same-length pre-window; share of bot-time at >= 34. Also food items
 #                gained per bot-hour (pickups, sought and passive). REPORTED.
@@ -79,6 +89,24 @@ def pool_of(b):
     return '-'.join((b or '').split('-')[:2])
 
 
+APPLE_RESERVE = 4
+CDET = re.compile(r'apple_levels=(\d+)')
+
+
+def compost_items(d):
+    """`_compost` detail -> ({item: n}, apple_levels or None, bonemeal)."""
+    items = {}
+    m = re.search(r' items=(\S+)', d or '')
+    if m and m.group(1) != '-':
+        for kv in m.group(1).split(','):
+            k, _, v = kv.partition(':')
+            if v.isdigit():
+                items[k] = int(v)
+    a = CDET.search(d or '')
+    b = re.search(r'bonemeal=(\d+)', d or '')
+    return items, (int(a.group(1)) if a else None), (int(b.group(1)) if b else 0)
+
+
 SKIPRE = re.compile(r'^food skip (ON|off): mode=(\w+).*? difficulty=(\w+) active=([01])')
 SUMRE = re.compile(r'([a-z0-9_]+) (\d+) (\S+) (sought|passive)')
 
@@ -100,11 +128,14 @@ assert SKIPRE.match('food skip off: mode=auto (FOOD_SKIP=yes unreadable, using a
 assert summary_food('cobblestone 30 mine:y-20 passive; bread 2 gather:oak_log sought | 32 items in 2 pickups in 60s') == [('bread', 2, 'sought')]
 assert summary_food('apple 3 gather:oak_log passive | 3 items') == [('apple', 3, 'passive')]
 assert slots({'apple': 65, 'bread': 3, 'cobblestone': 10}, FOODS) == 3 and stack('honey_bottle') == 16
+assert compost_items('slots=35->35 level=0->4 bonemeal=0 n=6 apple_levels=4 stop=done items=apple:6') == ({'apple': 6}, 4, 0)
+assert compost_items('slots=36->33 level=0->4 bonemeal=1 n=67 stop=done items=leaf_litter:64,wheat_seeds:3') == ({'leaf_litter': 64, 'wheat_seeds': 3}, None, 1)
 
 tw = defaultdict(lambda: [0.0, 0.0, 0.0, 0.0])        # (period, arm) -> [seconds, at >= 34, slot-seconds, food-slot-seconds]
 skiprows = Counter(); offbuild = 0; f1 = []; other_diff = Counter()
 sought = Counter(); soughtother = Counter(); passive = Counter(); summ = Counter()
 hunger_low = Counter(); deaths = []; gathers = defaultdict(Counter)
+inst_apples = 0; a1 = []; a2 = []; a3 = []; apples_out = Counter(); apple_visits = Counter(); apple_levels = Counter(); bm_apple_visits = Counter()
 rows_walked = Counter()
 bots = sorted(d for d in os.listdir('/var/log/mcai') if not d.startswith('_') and os.path.isdir('/var/log/mcai/' + d))
 for b in bots:
@@ -121,7 +152,7 @@ for b in bots:
         seen.add(k); rs.append(r)
     rs.sort(key=lambda r: r['t'])
     arm = 'canary' if pool_of(b) in CANS else 'control'
-    prev_t = None; prev = None
+    prev_t = None; prev = None; active_now = None
     for r in rs:
         t = r['t']; raw = r.get('raw') or {}; bot = raw.get('bot') or {}; sk = raw.get('skill') or {}
         period = 'post' if t >= CUT else 'pre'
@@ -143,8 +174,25 @@ for b in bots:
             if k == '_food_skip':
                 offbuild += 1
             continue
+        if k == '_compost' and period == 'post':
+            items_c, lv, bm = compost_items(d)
+            # INSTRUMENT (apples): control compost visits by a bot still holding more than the reserve -- the visits the
+            # policy would have put apples into.
+            if arm == 'control' and isinstance(inv, dict) and int(inv.get('apple', 0) or 0) > APPLE_RESERVE:
+                inst_apples += 1
+            if items_c.get('apple'):
+                apples_out[arm] += items_c['apple']; apple_visits[arm] += 1; bm_apple_visits[arm] += bm
+                apple_levels[arm] += lv or 0
+                if arm == 'control' or active_now != '1':
+                    a1.append((arm, b, str(t)[11:19], d[:100]))
+                if arm == 'canary' and isinstance(inv, dict) and int(inv.get('apple', 0) or 0) < APPLE_RESERVE:
+                    a2.append((b, str(t)[11:19], inv.get('apple', 0)))
+            other_food = [n for n in items_c if n in FOODS and n != 'apple']
+            if arm == 'canary' and other_food:
+                a3.append((b, str(t)[11:19], other_food))
         if k == '_food_skip':
             m = SKIPRE.match(d)
+            active_now = m.group(4) if m else active_now
             skiprows[(period, arm, m.group(4) if m else '?')] += 1
             if arm == 'canary' and period == 'post':
                 if not m or m.group(2) != 'auto' or (m.group(3) == 'peaceful' and m.group(4) != '1'):
@@ -197,12 +245,14 @@ print('LIVENESS     canary _food_skip active=1 rows %d (>= 1) | control rows %d 
 print('CORRECTNESS  F1 mode/decision wrong %d | F2 sought-by-sweep food/bot-h canary %.2f vs control %.2f ratio %.3f (breach: canary n >= %d and ratio > %.2f; judged=%s, canary n=%d, control n=%d)' % (
     len(f1), sr.get(('post', 'canary'), float('nan')), sr.get(('post', 'control'), float('nan')), ratio, F2_MIN_CANARY, F2_RATIO, f2_judged,
     sought[('post', 'canary')], sought[('post', 'control')]))
+print('APPLES       A1 composted while off/control %d | A2 reserve (< %d left) %d | A3 other food composted %d | apples composted canary %d in %d visits (control %d) | apple_levels %d -> bone meal ~%.1f; bone meal on apple visits %d' % (
+    len(a1), APPLE_RESERVE, len(a2), len(a3), apples_out['canary'], apple_visits['canary'], apples_out['control'], apple_levels['canary'], apple_levels['canary'] / 7, bm_apple_visits['canary']))
 print('TRIPWIRES    canary rows naming another difficulty %s | hunger < 20 snapshots canary %d control %d | food sought by other paths canary %d control %d | summary food sought canary %d control %d' % (
     dict(other_diff), hunger_low['canary'], hunger_low['control'], soughtother[('post', 'canary')], soughtother[('post', 'control')],
     summ[('post', 'canary', 'sought')], summ[('post', 'control', 'sought')]))
 print('             gather success DiD %+.3f | deaths %s' % (gdid, deaths[:6]))
-print('INSTRUMENT   control apple pickups sought by the sweep (post) %d (>= 1); passive canary %d control %d' % (
-    sought[('post', 'control')], passive[('post', 'canary')], passive[('post', 'control')]))
+print('INSTRUMENT   control apple pickups sought by the sweep (post) %d (>= 1); passive canary %d control %d | control compost visits holding > %d apples %d (>= 1)' % (
+    sought[('post', 'control')], passive[('post', 'canary')], passive[('post', 'control')], APPLE_RESERVE, inst_apples))
 print('PRIMARY      food slots/bot canary %.2f -> %.2f control %.2f -> %.2f DiD %+.2f | slots/bot DiD %+.2f | share >= 34 DiD %+.3f' % (
     per(('pre', 'canary'), 3), per(('post', 'canary'), 3), per(('pre', 'control'), 3), per(('post', 'control'), 3), did(3), did(2), did(1)))
 print('             food gained/bot-h (apple rows + summaries) canary %.2f -> %.2f control %.2f -> %.2f | bot-h %s' % (
@@ -213,6 +263,9 @@ print('             food gained/bot-h (apple rows + summaries) canary %.2f -> %.
     {'%s/%s' % k: round(v, 1) for k, v in bh.items()}))
 for x in f1[:3]:
     print('  breach F1:', x)
+for nm, xs in (('A1', a1), ('A2', a2), ('A3', a3)):
+    for x in xs[:3]:
+        print('  breach %s:' % nm, x)
 nan = lambda x: None if x != x else round(x, 4)
 try:
     if ovr:
@@ -225,8 +278,11 @@ try:
         'offbuild_canary': offbuild, 'breach_mode': len(f1), 'breach_chasing': f2, 'chasing_ratio': nan(ratio),
         'sought_control': sought[('post', 'control')], 'sought_canary': sought[('post', 'canary')],
         'hunger_low_canary': hunger_low['canary'], 'other_difficulty_rows': sum(other_diff.values()),
+        'breach_apples_off': len(a1), 'breach_apple_reserve': len(a2), 'breach_other_food': len(a3),
+        'instrument_apples_control': inst_apples, 'apples_composted_canary': apples_out['canary'], 'apple_visits_canary': apple_visits['canary'],
+        'apple_levels_canary': apple_levels['canary'], 'bonemeal_from_apples_est': round(apple_levels['canary'] / 7, 2),
         'food_slots_did': nan(did(3)), 'slots_did': nan(did(2)), 'full_share_did': nan(did(1)), 'gather_success_did': nan(gdid),
-        'exposure_ready': int(f2_judged and skiprows[('post', 'canary', '1')] >= 1),
+        'exposure_ready': int(f2_judged and skiprows[('post', 'canary', '1')] >= 1 and inst_apples >= 1),
     })
 except Exception as e:
     print('emit failed:', e)
