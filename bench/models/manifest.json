@@ -1,0 +1,447 @@
+{
+ "frozen": "2026-10-05/06",
+ "host": "Mac Studio M4 Max 128 GB, macOS 26.6.2",
+ "models": [
+  {
+   "runtime": "ollama 0.35.1 (0.33.3 before 2026-10-05T18:00Z)",
+   "tag": "qwen3-next:80b",
+   "id": "b2ebb986e4e9",
+   "size": "50 GB",
+   "architecture": "qwen3next",
+   "parameters": "79.7B",
+   "quantization": "Q4_K_M"
+  },
+  {
+   "runtime": "ollama 0.35.1 (0.33.3 before 2026-10-05T18:00Z)",
+   "tag": "qwen3.6:27b",
+   "id": "bcbdbd4bcf86",
+   "size": "17 GB",
+   "architecture": "qwen35",
+   "parameters": "27.3B",
+   "quantization": "Q4_K_M"
+  },
+  {
+   "runtime": "ollama 0.35.1 (0.33.3 before 2026-10-05T18:00Z)",
+   "tag": "muse-glimmer:30b",
+   "id": "de878ce33ad8",
+   "size": "18 GB",
+   "architecture": "muse-glimmer",
+   "parameters": "27.9B",
+   "quantization": "Q4_K_M"
+  },
+  {
+   "runtime": "ollama 0.35.1 (0.33.3 before 2026-10-05T18:00Z)",
+   "tag": "granite4.2:8b",
+   "id": "f586c02fdecd",
+   "size": "5.3 GB",
+   "architecture": "granite",
+   "parameters": "8.8B",
+   "quantization": "Q4_K_M"
+  },
+  {
+   "runtime": "ollama 0.35.1 (0.33.3 before 2026-10-05T18:00Z)",
+   "tag": "granite4.2:30b",
+   "id": "be22829aa92a",
+   "size": "17 GB",
+   "architecture": "granite",
+   "parameters": "29.3B",
+   "quantization": "Q4_K_M"
+  },
+  {
+   "runtime": "ollama 0.35.1 (0.33.3 before 2026-10-05T18:00Z)",
+   "tag": "phi4:14b",
+   "id": "ac896e5b8b34",
+   "size": "9.1 GB",
+   "architecture": "phi3",
+   "parameters": "14.7B",
+   "quantization": "Q4_K_M"
+  },
+  {
+   "runtime": "ollama 0.35.1 (0.33.3 before 2026-10-05T18:00Z)",
+   "tag": "ministral-3:8b",
+   "id": "1922accd5827",
+   "size": "6.0 GB",
+   "architecture": "mistral3",
+   "parameters": "8.9B",
+   "quantization": "Q4_K_M"
+  },
+  {
+   "runtime": "ollama 0.35.1 (0.33.3 before 2026-10-05T18:00Z)",
+   "tag": "ministral-3:14b",
+   "id": "4760c35aeb9d",
+   "size": "9.1 GB",
+   "architecture": "mistral3",
+   "parameters": "13.9B",
+   "quantization": "Q4_K_M"
+  },
+  {
+   "runtime": "ollama 0.35.1 (0.33.3 before 2026-10-05T18:00Z)",
+   "tag": "devstral-small-2:24b",
+   "id": "24277f07f62d",
+   "size": "15 GB",
+   "architecture": "mistral3",
+   "parameters": "24.0B",
+   "quantization": "Q4_K_M"
+  },
+  {
+   "runtime": "ollama 0.35.1 (0.33.3 before 2026-10-05T18:00Z)",
+   "tag": "mistral-small3.2:24b",
+   "id": "5a408ab55df5",
+   "size": "15 GB",
+   "architecture": "mistral3",
+   "parameters": "24.0B",
+   "quantization": "Q4_K_M"
+  },
+  {
+   "runtime": "ollama 0.35.1 (0.33.3 before 2026-10-05T18:00Z)",
+   "tag": "gemma4:31b",
+   "id": "17ba34c06c80",
+   "size": "20 GB",
+   "architecture": "gemma4",
+   "parameters": "30.7B",
+   "quantization": "Q4_K_M"
+  },
+  {
+   "runtime": "ollama 0.35.1 (0.33.3 before 2026-10-05T18:00Z)",
+   "tag": "lfm2:24b",
+   "id": "d6c816d74887",
+   "size": "14 GB",
+   "architecture": "lfm2moe",
+   "parameters": "23.8B",
+   "quantization": "Q4_K_M"
+  },
+  {
+   "runtime": "ollama 0.35.1 (0.33.3 before 2026-10-05T18:00Z)",
+   "tag": "nemotron-3-nano:30b",
+   "id": "b725f1117407",
+   "size": "24 GB",
+   "architecture": "nemotron_h_moe",
+   "parameters": "31.6B",
+   "quantization": "Q4_K_M"
+  },
+  {
+   "runtime": "ollama 0.35.1 (0.33.3 before 2026-10-05T18:00Z)",
+   "tag": "glm-4.7-flash:latest",
+   "id": "4475827791a2",
+   "size": "19 GB",
+   "architecture": "glm4moelite",
+   "parameters": "29.9B",
+   "quantization": "Q4_K_M"
+  },
+  {
+   "runtime": "ollama 0.35.1 (0.33.3 before 2026-10-05T18:00Z)",
+   "tag": "qwen3:30b-instruct",
+   "id": "19e422b02313",
+   "size": "18 GB",
+   "architecture": "qwen3moe",
+   "parameters": "30.5B",
+   "quantization": "Q4_K_M"
+  },
+  {
+   "runtime": "ollama 0.35.1 (0.33.3 before 2026-10-05T18:00Z)",
+   "tag": "nemotron-3-super:120b",
+   "id": "95acc78b3ffd",
+   "size": "86 GB",
+   "architecture": "nemotron_h_moe",
+   "parameters": "123.6B",
+   "quantization": "Q4_K_M"
+  },
+  {
+   "runtime": "ollama 0.35.1 (0.33.3 before 2026-10-05T18:00Z)",
+   "tag": "gpt-oss:20b",
+   "id": "17052f91a42e",
+   "size": "13 GB",
+   "architecture": "gptoss",
+   "parameters": "20.9B",
+   "quantization": "MXFP4"
+  },
+  {
+   "runtime": "ollama 0.35.1 (0.33.3 before 2026-10-05T18:00Z)",
+   "tag": "gemma4:12b",
+   "id": "6114515d63c1",
+   "size": "8.0 GB",
+   "architecture": "gemma4",
+   "parameters": "11.9B",
+   "quantization": "Q4_K_M"
+  },
+  {
+   "runtime": "ollama 0.35.1 (0.33.3 before 2026-10-05T18:00Z)",
+   "tag": "gemma4:26b",
+   "id": "001e5dafc3c7",
+   "size": "18 GB",
+   "architecture": "gemma4",
+   "parameters": "25.2B",
+   "quantization": "Q4_K_M"
+  },
+  {
+   "runtime": "ollama 0.35.1 (0.33.3 before 2026-10-05T18:00Z)",
+   "tag": "nemotron-3.5-lightning:30b-a3b",
+   "id": "e7a64ff15fb1",
+   "size": "25 GB",
+   "architecture": "nemotron_h_moe",
+   "parameters": "32.9B",
+   "quantization": "Q4_K_M"
+  },
+  {
+   "runtime": "ollama 0.35.1 (0.33.3 before 2026-10-05T18:00Z)",
+   "tag": "qwen2.5:7b-pg",
+   "id": "845dbda0ea48",
+   "size": "4.7 GB",
+   "architecture": "qwen2",
+   "parameters": "7.6B",
+   "quantization": "Q4_K_M"
+  },
+  {
+   "runtime": "ollama 0.35.1 (0.33.3 before 2026-10-05T18:00Z)",
+   "tag": "qwen2.5:0.5b-instruct",
+   "id": "a8b0c5157701",
+   "size": "397 MB",
+   "architecture": "qwen2",
+   "parameters": "494.03M",
+   "quantization": "Q4_K_M"
+  },
+  {
+   "runtime": "ollama 0.35.1 (0.33.3 before 2026-10-05T18:00Z)",
+   "tag": "qwen3-coder:30b",
+   "id": "06c1097efce0",
+   "size": "18 GB",
+   "architecture": "qwen3moe",
+   "parameters": "30.5B",
+   "quantization": "Q4_K_M"
+  },
+  {
+   "runtime": "ollama 0.35.1 (0.33.3 before 2026-10-05T18:00Z)",
+   "tag": "qwen3.6:35b-a3b",
+   "id": "096fdbd02fe6",
+   "size": "22 GB",
+   "architecture": "qwen35moe",
+   "parameters": "35.5B",
+   "quantization": "Q4_K_M"
+  },
+  {
+   "runtime": "ollama 0.35.1 (0.33.3 before 2026-10-05T18:00Z)",
+   "tag": "qwen3.8:27b",
+   "id": "22130167c4c2",
+   "size": "17 GB",
+   "architecture": "qwen35",
+   "parameters": "27.3B",
+   "quantization": "Q4_K_M"
+  },
+  {
+   "runtime": "ollama 0.35.1 (0.33.3 before 2026-10-05T18:00Z)",
+   "tag": "qwen3.5:9b",
+   "id": "6488c96fa5fa",
+   "size": "6.6 GB",
+   "architecture": "qwen35",
+   "parameters": "9.7B",
+   "quantization": "Q4_K_M"
+  },
+  {
+   "runtime": "ollama 0.35.1 (0.33.3 before 2026-10-05T18:00Z)",
+   "tag": "qwen2.5:7b-instruct",
+   "id": "845dbda0ea48",
+   "size": "4.7 GB",
+   "architecture": "qwen2",
+   "parameters": "7.6B",
+   "quantization": "Q4_K_M"
+  },
+  {
+   "runtime": "ollama 0.35.1 (0.33.3 before 2026-10-05T18:00Z)",
+   "tag": "hermes-cti-64k:latest",
+   "id": "9f088b28698a",
+   "size": "29 GB",
+   "architecture": "seed_oss",
+   "parameters": "36.2B",
+   "quantization": "Q6_K"
+  },
+  {
+   "runtime": "ollama 0.35.1 (0.33.3 before 2026-10-05T18:00Z)",
+   "tag": "nomic-embed-text:latest",
+   "id": "0a109f422b47",
+   "size": "274 MB",
+   "architecture": "nomic-bert",
+   "parameters": "137M",
+   "quantization": "F16"
+  },
+  {
+   "runtime": "ollama 0.35.1 (0.33.3 before 2026-10-05T18:00Z)",
+   "tag": "qwen3-vl-pipe:latest",
+   "id": "c1b0b958022c",
+   "size": "19 GB",
+   "architecture": "qwen3vlmoe",
+   "parameters": "31.1B",
+   "quantization": "Q4_K_M"
+  },
+  {
+   "runtime": "ollama 0.35.1 (0.33.3 before 2026-10-05T18:00Z)",
+   "tag": "qwen3-vl:30b",
+   "id": "eda0be100877",
+   "size": "19 GB",
+   "architecture": "qwen3vlmoe",
+   "parameters": "31.1B",
+   "quantization": "Q4_K_M"
+  },
+  {
+   "runtime": "ollama 0.35.1 (0.33.3 before 2026-10-05T18:00Z)",
+   "tag": "gpt-oss:120b",
+   "id": "a951a23b46a1",
+   "size": "65 GB",
+   "architecture": "gptoss",
+   "parameters": "116.8B",
+   "quantization": "MXFP4"
+  },
+  {
+   "runtime": "ollama 0.35.1 (0.33.3 before 2026-10-05T18:00Z)",
+   "tag": "qwen2.5:72b-instruct",
+   "id": "424bad2cc13f",
+   "size": "47 GB",
+   "architecture": "qwen2",
+   "parameters": "72.7B",
+   "quantization": "Q4_K_M"
+  },
+  {
+   "runtime": "ollama 0.35.1 (0.33.3 before 2026-10-05T18:00Z)",
+   "tag": "qwen3.5:122b-a10b",
+   "id": "8b9d11d807c5",
+   "size": "81 GB",
+   "architecture": "qwen35moe",
+   "parameters": "125.1B",
+   "quantization": "Q4_K_M"
+  },
+  {
+   "runtime": "ollama 0.35.1 (0.33.3 before 2026-10-05T18:00Z)",
+   "tag": "llama3.3:70b",
+   "id": "a6eb4748fd29",
+   "size": "42 GB",
+   "architecture": "llama",
+   "parameters": "70.6B",
+   "quantization": "Q4_K_M"
+  },
+  {
+   "runtime": "ollama 0.35.1 (0.33.3 before 2026-10-05T18:00Z)",
+   "tag": "hf.co/NousResearch/Hermes-4.3-36B-GGUF:Q6_K",
+   "id": "a232d3f79355",
+   "size": "29 GB",
+   "architecture": "seed_oss",
+   "parameters": "36.2B",
+   "quantization": "Q6_K"
+  },
+  {
+   "runtime": "ollama 0.35.1 (0.33.3 before 2026-10-05T18:00Z)",
+   "tag": "qwen3.5:27b",
+   "id": "7653528ba5cb",
+   "size": "17 GB",
+   "architecture": "qwen35",
+   "parameters": "27.8B",
+   "quantization": "Q4_K_M"
+  },
+  {
+   "runtime": "ollama 0.35.1 (0.33.3 before 2026-10-05T18:00Z)",
+   "tag": "qwen2.5:72b",
+   "id": "424bad2cc13f",
+   "size": "47 GB",
+   "architecture": "qwen2",
+   "parameters": "72.7B",
+   "quantization": "Q4_K_M"
+  },
+  {
+   "runtime": "ollama 0.35.1 (0.33.3 before 2026-10-05T18:00Z)",
+   "tag": "maxwell1500/ornith-35b:Q5_K_M",
+   "id": "062d753f197f",
+   "size": "24 GB",
+   "architecture": "qwen35moe",
+   "parameters": "34.7B",
+   "quantization": "Q5_K_M"
+  },
+  {
+   "runtime": "ollama 0.35.1 (0.33.3 before 2026-10-05T18:00Z)",
+   "tag": "sparksammy/ornith-1.0-9b:latest",
+   "id": "7344b560ed1f",
+   "size": "6.5 GB",
+   "architecture": "qwen35",
+   "parameters": "8.95B",
+   "quantization": "Q5_K_M"
+  },
+  {
+   "runtime": "ollama 0.35.1 (0.33.3 before 2026-10-05T18:00Z)",
+   "tag": "deepseek-r1:70b",
+   "id": "d37b54d01a76",
+   "size": "42 GB",
+   "architecture": "llama",
+   "parameters": "70.6B",
+   "quantization": "Q4_K_M"
+  },
+  {
+   "runtime": "ollama 0.35.1 (0.33.3 before 2026-10-05T18:00Z)",
+   "tag": "qwen2.5:32b",
+   "id": "9f13ba1299af",
+   "size": "19 GB",
+   "architecture": "qwen2",
+   "parameters": "32.8B",
+   "quantization": "Q4_K_M"
+  },
+  {
+   "runtime": "ollama 0.35.1 (0.33.3 before 2026-10-05T18:00Z)",
+   "tag": "qwen2.5:14b-instruct",
+   "id": "7cdf5a0187d5",
+   "size": "9.0 GB",
+   "architecture": "qwen2",
+   "parameters": "14.8B",
+   "quantization": "Q4_K_M"
+  },
+  {
+   "runtime": "ollama 0.35.1 (0.33.3 before 2026-10-05T18:00Z)",
+   "tag": "qwen2.5-coder:7b",
+   "id": "dae161e27b0e",
+   "size": "4.7 GB",
+   "architecture": "qwen2",
+   "parameters": "7.6B",
+   "quantization": "Q4_K_M"
+  },
+  {
+   "runtime": "ollama 0.35.1 (0.33.3 before 2026-10-05T18:00Z)",
+   "tag": "qwen2.5-coder:14b",
+   "id": "9ec8897f747e",
+   "size": "9.0 GB",
+   "architecture": "qwen2",
+   "parameters": "14.8B",
+   "quantization": "Q4_K_M"
+  },
+  {
+   "runtime": "lmstudio 1.1.7 (mlx-llm 1.11.0 / llama.cpp 2.50.0)",
+   "tag": "gemma-4-26b-a4b-it@8bit",
+   "path": "mlx-community/gemma-4-26b-a4b-it-8bit",
+   "size_bytes": 27986021905,
+   "architecture": "gemma4",
+   "quantization": "8bit",
+   "format": "safetensors"
+  },
+  {
+   "runtime": "lmstudio 1.1.7 (mlx-llm 1.11.0 / llama.cpp 2.50.0)",
+   "tag": "gemma-4-26b-a4b-it@4bit",
+   "path": "mlx-community/gemma-4-26b-a4b-it-4bit",
+   "size_bytes": 15373586252,
+   "architecture": "gemma4",
+   "quantization": "4bit",
+   "format": "safetensors"
+  },
+  {
+   "runtime": "lmstudio 1.1.7 (mlx-llm 1.11.0 / llama.cpp 2.50.0)",
+   "tag": "qwen3.8-27b-mlx",
+   "path": "lmstudio-community/Qwen3.8-27B-MLX-8bit",
+   "size_bytes": 29528174882,
+   "architecture": "qwen3_5",
+   "quantization": "8bit",
+   "format": "safetensors"
+  },
+  {
+   "runtime": "lmstudio 1.1.7 (mlx-llm 1.11.0 / llama.cpp 2.50.0)",
+   "tag": "qwen3.6-35b-a3b-mlx",
+   "path": "lmstudio-community/Qwen3.6-35B-A3B-MLX-4bit",
+   "size_bytes": 20429174878,
+   "architecture": "qwen3_5_moe",
+   "quantization": "4bit",
+   "format": "safetensors"
+  }
+ ]
+}
