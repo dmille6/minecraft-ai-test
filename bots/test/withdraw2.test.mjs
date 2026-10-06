@@ -74,6 +74,7 @@ await t('RANK: tier first (netherite > diamond > iron > stone > golden > wooden)
   assert.deepEqual(r.map(c => `${c.name}:${c.slot}`), ['diamond_pickaxe:4', 'iron_pickaxe:5', 'iron_pickaxe:1', 'stone_pickaxe:2', 'golden_pickaxe:3', 'wooden_pickaxe:0'])
   assert.equal(W.bestToolCopy([p('iron_pickaxe', 245, 0), p('wooden_pickaxe', 0, 1)]).name, 'wooden_pickaxe', 'a spent iron (5 left) is never taken')
   assert.equal(W.bestToolCopy([p('netherite_pickaxe', 0, 0), p('diamond_pickaxe', 0, 1)]).name, 'netherite_pickaxe')
+  assert.deepEqual(W.rankCopies([p('iron_pickaxe', 245, 0), p('wooden_pickaxe', 0, 1)]).map(c => c.name), ['wooden_pickaxe'], 'rankCopies itself drops a spent copy')
 })
 
 await t('TIERS: the bag\'s best USABLE pickaxe tier; spent ones do not count', () => {
@@ -222,6 +223,16 @@ await t('NO BETTER: a bot holding stone beside wooden and stone copies takes not
   assert.match(lastRow().detail, /^outcome=no_better /)
 })
 
+await t('FALLBACK NEVER BELOW HELD: holding a wooden, the better stone is gone at the take -- the other wooden copy is NOT taken', async () => {
+  const w = withServer(town([p('wooden_pickaxe', 0)], [p('stone_pickaxe', 0), p('wooden_pickaxe', 0)]))
+  const open = w.bot.openContainer
+  let n = 0
+  w.bot.openContainer = async b => { if (++n === 2) w.containers.get('5,64,0').slots[0] = null; return open(b) }   // the stone, taken by another bot
+  const r = await pick(w.bot)
+  assert.notEqual(r.status, 'success', r.detail)
+  assert.equal(count(w.bag, 'wooden_pickaxe'), 1, 'still only its own wooden'); assert.equal(n >= 2, true, 'positive control: the take visit happened')
+})
+
 await t('IRON PATH: stone held, 5 ingots and sticks in the chest, a table in reach -> exactly 3 ingots + 2 sticks taken, an iron pickaxe crafted, verified', async () => {
   const w = withServer(town([p('stone_pickaxe', 0)], [stack('iron_ingot', 5), stack('stick', 10)]))
   w.set(6, 64, 2, 'crafting_table')
@@ -340,6 +351,21 @@ await t('C1 P1: the sticks vanish before the take -- NOTHING is taken at that ch
     assert.notEqual(r.status, 'success', r.detail)
     assert.equal(count(w.bag, 'iron_ingot'), 0, 'no ingots taken'); assert.equal(calls.length, 0, 'no craft')
     assert.equal(lastRow().detail.split(' ')[0], 'outcome=iron_take_failed')
+  } finally { SKILLS.craft.run = realCraft }
+})
+
+await t('C7: the INGOTS (the last take) shrink before the take visit -- nothing is taken, not the sticks and not a part of the ingots', async () => {
+  const w = withServer(town([p('stone_pickaxe', 0)], [stack('iron_ingot', 3), stack('stick', 2)]))
+  w.set(6, 64, 2, 'crafting_table')
+  const calls = craftStub(w, 'honest')
+  const open = w.bot.openContainer
+  let n = 0
+  w.bot.openContainer = async b => { if (++n === 2) w.containers.get('5,64,0').slots[0].count = 1; return open(b) }
+  try {
+    const r = await pick(w.bot)
+    assert.notEqual(r.status, 'success', r.detail)
+    assert.equal(count(w.bag, 'iron_ingot'), 0); assert.equal(count(w.bag, 'stick'), 0); assert.equal(calls.length, 0)
+    assert.equal(n, 2, 'positive control: the take visit opened the chest')
   } finally { SKILLS.craft.run = realCraft }
 })
 
