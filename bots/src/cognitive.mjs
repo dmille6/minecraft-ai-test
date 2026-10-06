@@ -21,6 +21,7 @@ import { wearOutPlan, isHousekeeping } from './hygiene.mjs'
 import { compostPlan, townOrder, townOrderOutcome, boneMealRoom, composterLevel, TOWN_ORDERS, STORAGE_NEAR, TOWN_RADIUS } from './composter.mjs'
 import { hasUsablePick, roomPlan, pickTakes, roomKeep } from './withdrawpick.mjs'
 import { townDepositOrder, townDepositOutcome, townDepositPlan } from './towndeposit.mjs'
+import { bankClosed } from './chestfull.mjs'
 /** One wear-out order per bot per two minutes at most. */
 export const WEAR_OUT_COOLDOWN_MS = 2 * 60 * 1000
 /** After a wear-out that destroyed nothing, wait this long before the next order. */
@@ -670,7 +671,8 @@ export class CognitiveLoop {
       const r = townDepositOrder({
         now: Date.now(), slots: items.length, pos: bot.entity?.position ?? null,
         home: { x: config.world.homeX, y: config.world.homeY, z: config.world.homeZ },
-        plan, container: () => townContainers(bot).length > 0, state: this.townDepositState ?? {},
+        // A CLOSED BANK (chestfull.mjs bankClosed) is not a town chest to bank into: the deposit's own closure, respected.
+        plan, container: () => !bankClosed(bot) && townContainers(bot).length > 0, state: this.townDepositState ?? {},
       })
       this.townDepositState = r.state
       if (r.order) bot.townDepositWanted = wanted ?? []
