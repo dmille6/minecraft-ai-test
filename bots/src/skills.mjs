@@ -5722,7 +5722,7 @@ export function townContainers (bot, max = TD_MAX_CONTAINERS) {
     const out = []
     for (const p of found) {
       if (out.length >= max) break
-      if (['full', 'unavailable', 'unusable'].includes(containerStatus(mem[posKey(p)]))) continue
+      if (['full', 'unavailable', 'unusable', 'backoff'].includes(containerStatus(mem[posKey(p)]))) continue
       const b = bot.blockAt(p)
       if (!b || !isTownContainer(bot, b)) continue
       const chestLike = blockNameOf(bot, b) !== 'barrel'
@@ -5890,7 +5890,9 @@ async function townDeposit (ctx, _args, signal) {
       } finally {
         settled = await settleCursor(bot, win)
         if (settled.state === 'unresolved') holdUnsettled(bot, win, settled, own)
-        else { own.close(); invalidateClicks(bot, 'town deposit end'); own.restore() }
+        // A WINDOW THE SERVER ALREADY CLOSED is not closed again (Codex round 2): mineflayer's close copies the window
+        // into the bag and clears currentWindow, which would overwrite the server's correction or a newer window.
+        else { if (bot.currentWindow === win) own.close(); invalidateClicks(bot, 'town deposit end'); own.restore() }
       }
       if (settled.state === 'unresolved') {
         // HELD: no re-open (the window is still open, held by withdraw's hold) and nothing else this run.
@@ -5918,17 +5920,19 @@ async function townDeposit (ctx, _args, signal) {
   }
   const n = Object.values(banked).reduce((a, b) => a + b, 0)
   const slotsAfter = items().length
+  // A HELD CURSOR OUTRANKS AN EARLIER SUCCESS (Codex round 2): the window is still open and owned; the row keeps the
+  // verified tally of the containers before it.
+  if (unsettled) {
+    row('failed')
+    return { status: 'failed', failClass: 'transfer_unsettled',
+             detail: `a stack could not be put back from the cursor at the town chest (${n} item(s) were banked before it); the window is held open until it is (nothing else runs meanwhile)` }
+  }
   if (n > 0) {
     row('success')
     return { status: 'success', detail: `banked ${n} item(s) in ${stacks} whole stack(s) at the town chest, read back from the server (${slotsBefore} -> ${slotsAfter} slots); the stockpile, scaffold, iron and best tools stay` }
   }
   // NOT `unknown`: the runner promotes an unknown with an inventory loss to success, and the loss here is mineflayer's own
   // prediction copied into the bag at the close -- exactly what could not be confirmed (Codex round 3). Failed: backs off.
-  if (unsettled) {
-    row('failed')
-    return { status: 'failed', failClass: 'transfer_unsettled',
-             detail: 'a stack could not be put back from the cursor at the town chest; the window is held open until it is (nothing else runs meanwhile)' }
-  }
   if (unverified) {
     row('failed')
     return { status: 'failed', failClass: 'town_deposit_unverified', detail: 'moved stacks into the town chest but could not open it again to confirm them; the town deposit waits' }
