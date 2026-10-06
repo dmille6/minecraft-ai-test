@@ -697,6 +697,88 @@ await t('MUTANT KILLED: the give-up arm without the wet-ceiling skip is caught',
 })
 
 // ================================================================================================================
+// F. climbflood-02: ICE, THE WHOLE FALLING COLUMN, THE SERVER'S ANSWER, SIDEWAYS BEFORE THE OWN CELL (fleet 10-06)
+// ================================================================================================================
+
+await t('ICE IS LATENT WATER: ice over a solid block refuses; ice over air (a ceiling) does not melt; packed ice is stone', () => {
+  // fleet 10-06 04:59Z hive-d-Alpha: a ramp step broke ice that sat on sand and the cell was water 1.6 s later
+  const w = TOMB({ '0,2,0': 'air', '0,3,0': 'air', '1,2,0': 'ice', '1,1,0': 'sand' })
+  assert.match(String(overheadBreakRisk({ at: atCell(w, 1, 2, 0) })), /ice overhead melts into water/)
+  assert.strictEqual(overheadBreakRisk({ at: atCell(TOMB({ '0,2,0': 'ice' }), 0, 2, 0) }), null,
+    'a ceiling of ice over the bot\'s own (air) head cell vanishes when broken -- vanilla does not melt it')
+  assert.strictEqual(overheadBreakRisk({ at: atCell(TOMB({ '1,2,0': 'packed_ice', '1,1,0': 'sand' }), 1, 2, 0) }), null,
+    'packed ice never melts')
+  assert.match(String(overheadBreakRisk({ at: atCell(TOMB({ '0,3,0': 'ice' }), 0, 2, 0) })), /liquid above the block overhead \(ice\)/,
+    'ice beside or above an opened cell counts as water (conservative: the next dig or light melts it)')
+  assert.strictEqual(overheadBreakRisk({ at: atCell(TOMB({ '1,2,0': 'ice', '1,1,0': 'sand' }), 1, 2, 0), submerged: true }), null,
+    'the submerged exemption covers ice as it covers water')
+})
+
+await t('THE FLEET RAMP STEP (04:59:31Z): an ice headroom cell on sand closes the bearing; nothing on it is dug', async () => {
+  const cells = { '0,0,0': 'air', '0,1,0': 'air', '0,2,0': 'air', '0,3,0': 'air', '1,2,0': 'ice', '1,1,0': 'sand' }
+  for (const [x, z] of [[-1, 0], [0, 1], [0, -1]]) { cells[`${x},1,${z}`] = 'bedrock'; cells[`${x},2,${z}`] = 'bedrock' }
+  const step = stairUpStep({ at: atFeet(world(cells)), bear: { x: 1, z: 0 } })
+  assert.strictEqual(step.ok, false); assert.strictEqual(step.flood, true); assert.match(step.reason, /ice overhead melts/)
+  const bot = makeBot(world(cells))
+  const r = await escapeStairUp(bot, { maxSteps: 1, budgetMs: 20_000 })
+  assert.ok(!bot.digs.some(d => d.cell === '1,2,0' || d.cell === '1,1,0'), `it dug the ice or the sand under it: ${JSON.stringify(bot.digs)}`)
+  assert.strictEqual(r.flood, 'ramp_step')
+})
+
+await t('THE WHOLE FALLING COLUMN (03:09Z): sand three deep with water on top refuses; dry on top digs', () => {
+  const wet = TOMB({ '0,2,0': 'sand', '0,3,0': 'sand', '0,4,0': 'sand', '0,5,0': 'water' })
+  assert.match(String(overheadBreakRisk({ at: atCell(wet, 0, 2, 0) })), /over the falling block above the block overhead \(water\)/)
+  const dry = TOMB({ '0,2,0': 'sand', '0,3,0': 'sand', '0,4,0': 'sand' })
+  assert.strictEqual(overheadBreakRisk({ at: atCell(dry, 0, 2, 0) }), null, 'POSITIVE CONTROL: a dry column is dug')
+  const side = TOMB({ '0,2,0': 'stone', '0,3,0': 'gravel', '0,4,0': 'gravel', '0,5,0': 'gravel', '1,5,0': 'water' })
+  assert.match(String(overheadBreakRisk({ at: atCell(side, 0, 2, 0) })), /beside the falling block above/,
+    'water beside the third block of the column: it is a face of the shaft once the column drops')
+})
+
+await t('THE SERVER\'S ANSWER (04:59:35Z): water arriving AFTER the dig resolved stops the next dig of the plan', async () => {
+  // mineflayer marks the dug cell air at once; the melt/flow arrives later. 100 ms here, inside FLOW_SETTLE_MS.
+  const cells = { '0,0,0': 'air', '0,1,0': 'air', '0,2,0': 'air', '0,3,0': 'air' }
+  for (const [x, z] of [[-1, 0], [0, 1], [0, -1]]) { cells[`${x},1,${z}`] = 'bedrock'; cells[`${x},2,${z}`] = 'bedrock' }
+  const late = (cell, ww) => { if (cell === '1,3,0') setTimeout(() => ww.set(1, 3, 0, 'water'), 100) }
+  const bot = makeBot(world(cells), { onDig: late })
+  await escapeStairUp(bot, { maxSteps: 1, budgetMs: 20_000 })
+  assert.deepStrictEqual(bot.digs.map(d => d.cell), ['1,3,0'], `it dug under water the server sent after the dig: ${JSON.stringify(bot.digs)}`)
+  await withMutant(REFLEX_PATH, '    if (!failed) await sleep(FLOW_SETTLE_MS)', '', async mod => {
+    const m = makeBot(world({ ...cells }), { onDig: late })
+    await mod.escapeStairUp(m, { maxSteps: 1, budgetMs: 20_000 })
+    assert.ok(m.digs.some(d => d.cell === '1,2,0'), `the mutant still waited: ${JSON.stringify(m.digs)}`)
+  })
+})
+
+await t('BURIED UNDER A WET FALLING COLUMN WITH A DRY SIDE: it leaves sideways and never digs its own cell (03:10Z)', async () => {
+  const w = TOMB({ '0,1,0': 'gravel', '0,2,0': 'gravel', '0,3,0': 'water' })
+  const bot = makeBot(w, { inv: [PICK(), COBBLE(64)] })
+  const r = await escapeStairUp(bot, { maxSteps: 1, budgetMs: 30_000 })
+  assert.strictEqual(r.sidestepped, 1, r.stopped)
+  assert.ok(!bot.digs.some(d => d.cell === '0,1,0' || d.cell === '0,2,0'), `it dug into the wet column: ${JSON.stringify(bot.digs)}`)
+  await withMutant(REFLEX_PATH, '        if (buriedNow() && !(sideFirst && sideFirst.ok)) {', '        if (buriedNow()) {', async mod => {
+    const m = makeBot(TOMB({ '0,1,0': 'gravel', '0,2,0': 'gravel', '0,3,0': 'water' }), { inv: [PICK(), COBBLE(64)] })
+    await mod.escapeStairUp(m, { maxSteps: 1, budgetMs: 30_000 })
+    assert.ok(m.digs.some(d => d.cell === '0,1,0'), 'the mutant did not dig the own cell first')
+  })
+})
+
+const M_ICE_T = '  if (isMeltingIce(target) && !submerged) {'
+const M_ICE_N = '  const wet = b => (isWaterCell(b) || isMeltingIce(b)) && !submerged'
+const M_COL = '    while (k <= FALLING_COLUMN_CAP && isFallingBlock(at(0, k, 0))) k++'
+await t('MUTANTS KILLED: ice target, ice neighbour, the column walk', async () => {
+  await withMutant(SCAFFOLD_PATH, M_ICE_T, '  if (false) {', async mod => {
+    assert.strictEqual(mod.overheadBreakRisk({ at: atCell(TOMB({ '1,2,0': 'ice', '1,1,0': 'sand' }), 1, 2, 0) }), null)
+  })
+  await withMutant(SCAFFOLD_PATH, M_ICE_N, '  const wet = b => isWaterCell(b) && !submerged', async mod => {
+    assert.strictEqual(mod.overheadBreakRisk({ at: atCell(TOMB({ '0,3,0': 'ice' }), 0, 2, 0) }), null)
+  })
+  await withMutant(SCAFFOLD_PATH, M_COL, '    if (isFallingBlock(at(0, 1, 0))) k = 2', async mod => {
+    assert.strictEqual(mod.overheadBreakRisk({ at: atCell(TOMB({ '0,2,0': 'sand', '0,3,0': 'sand', '0,4,0': 'sand', '0,5,0': 'water' }), 0, 2, 0) }), null)
+  })
+})
+
+// ================================================================================================================
 // E. MUTANTS ON THE DECISIONS. Each must change the answer of a test above.
 // ================================================================================================================
 
@@ -736,9 +818,9 @@ await t('MUTANT KILLED: ignoring waterlogged blocks', async () => {
   })
 })
 
-const M_SUB = '  const wet = b => isWaterCell(b) && !submerged'
+const M_SUB = '  const wet = b => (isWaterCell(b) || isMeltingIce(b)) && !submerged'
 await t('MUTANT KILLED: removing the submerged exemption traps a flooded bot (the 2026-09-07 dead end)', async () => {
-  await withMutant(SCAFFOLD_PATH, M_SUB, '  const wet = b => isWaterCell(b)', async mod => {
+  await withMutant(SCAFFOLD_PATH, M_SUB, '  const wet = b => (isWaterCell(b) || isMeltingIce(b))', async mod => {
     assert.ok(mod.overheadBreakRisk({ at: atCell(TOMB({ '0,3,0': 'water' }), 0, 2, 0), submerged: true }))
   })
 })
@@ -1006,7 +1088,7 @@ await t('BURIED UNDER A WET COLUMN, THROUGH THE REAL RAMP AND BRANCH, every side
   assert.ok(dry.digs.some(d => d.cell === '0,2,0'), 'POSITIVE CONTROL: a dry overhead is taken')
 })
 
-const M_UNBURY_FIRST = "        if ([1, 0].some(dy => { const own = at(0, dy, 0); return own && isFallingBlock(own) && !bodyPassable(own) })) {"
+const M_UNBURY_FIRST = "        if (buriedNow() && !(sideFirst && sideFirst.ok)) {"
 await t('MUTANT KILLED: the flood refusal exit without unburying the body first', async () => {
   await withMutant(REFLEX_PATH, M_UNBURY_FIRST, '        if (false) {', async mod => {
     const bot = makeBot(TOMB({ ...WET_ALL, '0,1,0': 'gravel', '0,2,0': 'gravel' }))
