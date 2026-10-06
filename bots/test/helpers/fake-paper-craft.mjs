@@ -137,6 +137,12 @@ export class FakePaper {
   onClick ({ windowId: w, stateId, slot, mouseButton, mode }) {
     this.clicks++
     this.release(r => r.at <= this.clicks)         // earlier refreshes the burst has now overtaken
+    if (mode === 3) {                              // a survival clone: a no-op, answered with the window's full state
+      if (w !== 0 && w !== this.tableId) return      // (Paper 1.21.8, measured on the sandbox -- craftsync's cursor probe)
+      this.sid[w] = (this.sid[w] ?? 0) + 1
+      this.send([['window_items', { windowId: w, stateId: this.sid[w], items: this.slotsOf(w).map(notch), carriedItem: notch(this.cursor) }]])
+      return
+    }
     if (mode !== 0) throw new Error(`fake server: mode ${mode} not modelled`)
     if (w !== 0 && w !== this.tableId) return
     const stale = stateId !== this.sid[w]

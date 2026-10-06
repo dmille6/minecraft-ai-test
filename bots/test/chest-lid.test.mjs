@@ -37,7 +37,9 @@ t('the lid is dug only on positive evidence: unknown neighbours, liquid beside i
   assert.equal(lidSafeToBreak({}, p), false, 'no blockAt at all fails closed')
 })
 t('MUTANT: opening without the lid check is caught', () => {
-  const c = strip(readFileSync(new URL('../src/skills.mjs', import.meta.url), 'utf8')); const anchor = 'if (isChest && lid && chestLidBlocked(lid)) {'
+  // (2026-10-04) withdraw looks at the lid the same way, so the anchor is taken inside deposit, to its closing brace.
+  const all = strip(readFileSync(new URL('../src/skills.mjs', import.meta.url), 'utf8')); const s = all.indexOf('async function deposit(')
+  const c = all.slice(s, all.indexOf('\n}\n', s)); const anchor = 'if (isChest && lid && chestLidBlocked(lid)) {'
   assert.equal(c.split(anchor).length - 1, 1, 'ANCHOR MISSING or not unique')
   const bad = c.replace(anchor, 'if (false) {')
   assert.ok(!bad.includes(anchor))

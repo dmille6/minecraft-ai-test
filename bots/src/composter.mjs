@@ -23,6 +23,7 @@ import fs from 'node:fs'
 import path from 'node:path'
 import { NEVER_KEEP, TRIGGER_SLOTS } from './hygiene.mjs'
 import { chainPeak } from './craftroom.mjs'
+import { WITHDRAW_COOLDOWN_MS, WITHDRAW_BACKOFF_MS, WITHDRAW_NO_BACKOFF } from './withdrawpick.mjs'
 
 /**
  * VERIFIED COMPOSTING CHANCES, Java 1.21.x -- the probability that ONE inserted item raises the level by one.
@@ -532,7 +533,7 @@ export const BUILD_BACKOFF_MS = 30 * 60 * 1000
 export const BUILD_NO_ROOM_BACKOFF_MS = BUILD_COOLDOWN_MS
 /** World scans (storage, composter, table) at most this often per bot, however often it decides. */
 export const TOWN_SCAN_MS = 30 * 1000
-export const TOWN_ORDERS = new Set(['compost', 'build_composter'])
+export const TOWN_ORDERS = new Set(['compost', 'build_composter', 'withdraw_pick'])
 
 const lazy = v => (typeof v === 'function' ? v() : v)
 
@@ -545,10 +546,14 @@ const lazy = v => (typeof v === 'function' ? v() : v)
  * Compost: at town, >= TRIGGER_SLOTS, junk, a composter around home. Build: at town, NO composter around home, a plan
  * from wood held, and freeSlots >= plan.slotsNeeded -- independent of the compost threshold. Cooldowns are charged
  * when an order is ISSUED (and a deferral counts as a visit).
+ * WITHDRAW_PICK (withdrawpick.mjs, 10-04): at town, the bag holds NO usable pickaxe (`pickNeeded`), the town has not
+ * found none in the last 15 min (`pickMiss`, the shared memory), and room for one can be made here without banking
+ * anything deposit would not (`pickRoom`, roomPlan). After compost -- which frees slots -- and before a build.
  */
 export function townOrder ({ now = 0, slots = 0, freeSlots = 0, junk = 0, distHome = Infinity, storageNear = false,
                              composterAtTown = false, buildPlan = null, myName = '', peers = [], state = {},
-                             room = false, composterRipe = false } = {}) {
+                             room = false, composterRipe = false, pickNeeded = false, pickMiss = false, pickRoom = false,
+                             ingredientMiss = false } = {}) {
   const s = { ...state }
   const none = () => ({ order: null, state: s })
   if (!(distHome <= TOWN_RADIUS)) return none()
@@ -557,11 +562,13 @@ export function townOrder ({ now = 0, slots = 0, freeSlots = 0, junk = 0, distHo
   // ANY bot at town with room may empty a ripe composter -- a full one cannot, and it would wait for a 34-slot bot.
   const harvestReady = cooled && !!room
   const buildReady = now - (s.lastBuildAt ?? -Infinity) >= BUILD_COOLDOWN_MS && now >= (s.buildBackoffUntil ?? 0)
-  if (!compostReady && !harvestReady && !buildReady) return none()
+  const withdrawReady = !!pickNeeded && now - (s.lastWithdrawAt ?? -Infinity) >= WITHDRAW_COOLDOWN_MS && now >= (s.withdrawBackoffUntil ?? 0)
+  if (!compostReady && !harvestReady && !buildReady && !withdrawReady) return none()
   if (now - (s.lastScanAt ?? -Infinity) < TOWN_SCAN_MS) return none()
   s.lastScanAt = now
   if (!lazy(storageNear)) return none()
-  if (lazy(composterAtTown)) {
+  const composterHere = !!lazy(composterAtTown)
+  if (composterHere) {
     if (compostReady) {
       s.lastCompostAt = now
       return { order: { skill: 'compost', args: {}, why: `at town with ${slots} of 36 slots used; ${junk} compostable item(s)` }, state: s }
@@ -570,9 +577,19 @@ export function townOrder ({ now = 0, slots = 0, freeSlots = 0, junk = 0, distHo
       s.lastCompostAt = now
       return { order: { skill: 'compost', args: {}, why: 'at town with room, and the town composter is ripe: take the bone meal out' }, state: s }
     }
-    return none()
   }
-  if (!buildReady) return none()
+  // A PICKAXE-ONLY MISS BLOCKS ONLY THE PICKAXE BRANCH (withdraw-habit review): with no pickaxe in town the order still
+  // runs for the ingredients, unless they too are ruled out everywhere (ingredientMiss: their own evidence).
+  if (withdrawReady && lazy(pickRoom)) {
+    const pickRuledOut = !!lazy(pickMiss)
+    if (!pickRuledOut || !lazy(ingredientMiss)) {
+      s.lastWithdrawAt = now
+      return { order: { skill: 'withdraw_pick', args: {}, why: pickRuledOut
+        ? 'at town with no usable pickaxe; the town chests showed none recently, but may hold what one stone pickaxe is made from'
+        : 'at town with no usable pickaxe; the town chests may hold one' }, state: s }
+    }
+  }
+  if (composterHere || !buildReady) return none()
   const plan = lazy(buildPlan)
   if (!plan) return none()
   if (freeSlots < plan.slotsNeeded) return none()
@@ -590,8 +607,12 @@ export const RUNNER_DECLINED = new Set(['runner_paused', 'runner_busy', 'body_he
 export function townOrderOutcome (skill, status, now = 0, state = {}, failClass = null) {
   const s = { ...state }
   if (!TOWN_ORDERS.has(skill) || status === 'no_effect' || status === 'aborted' || RUNNER_DECLINED.has(failClass)) return s
-  const key = skill === 'compost' ? 'compostBackoffUntil' : 'buildBackoffUntil'
-  const backoff = skill === 'compost' ? COMPOST_BACKOFF_MS : failClass === 'composter_no_room' ? BUILD_NO_ROOM_BACKOFF_MS : BUILD_BACKOFF_MS
+  // NOTHING MOVED, NOTHING WRONG WITH THE TOWN (withdrawpick.mjs): the server's bag could not be read first, or every
+  // chest in sight was full. The cooldown charged at issue is the only wait.
+  if (skill === 'withdraw_pick' && WITHDRAW_NO_BACKOFF.has(failClass)) return s
+  const key = skill === 'compost' ? 'compostBackoffUntil' : skill === 'withdraw_pick' ? 'withdrawBackoffUntil' : 'buildBackoffUntil'
+  const backoff = skill === 'compost' ? COMPOST_BACKOFF_MS : skill === 'withdraw_pick' ? WITHDRAW_BACKOFF_MS
+    : failClass === 'composter_no_room' ? BUILD_NO_ROOM_BACKOFF_MS : BUILD_BACKOFF_MS
   s[key] = status === 'success' ? 0 : now + backoff
   return s
 }
