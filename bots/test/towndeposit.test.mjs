@@ -277,7 +277,7 @@ test('registered: a chatOnly housekeeping skill with an inventory_loss contract'
  *   openNever        openContainer stays pending until st.late() resolves it with the window
  *   fillDest(slot)   another bot fills that container slot while the bot is picking up (the pickup click's wait)
  */
-function world ({ items, containers, botAt = new Vec3(3, 70, 0), failDest = null, refuse = null, cursorStuck = false, onClick = null, openNever = false, fillDest = null, reopenFails = false, stealOnClose = false }) {
+function world ({ items, containers, botAt = new Vec3(3, 70, 0), failDest = null, refuse = null, cursorStuck = false, onClick = null, openNever = false, fillDest = null, reopenFails = false, stealOnClose = false, swapAfter = null }) {
   const bagSlots = Array(46).fill(null)                      // the CLIENT's bag (bot.inventory)
   for (const it of items) bagSlots[it.slot] = { ...it }
   const server = { bag: bagSlots.map(x => (x ? { ...x } : null)) }
@@ -360,11 +360,12 @@ function world ({ items, containers, botAt = new Vec3(3, 70, 0), failDest = null
       const win = bot.currentWindow
       assert.equal(btn, 0); assert.equal(mode, 0, 'left clicks only')
       st.clicks++
+      if (win?.foreign) { st.foreignClicks = (st.foreignClicks ?? 0) + 1; return }
       if (onClick) onClick(slot, win)
       const cur = win.selectedItem
       if (!cur && fillDest) { const d = fillDest(slot, win); if (d != null) { win.slots[d] = item('dirt', 64, d); win.server.slots[d] = item('dirt', 64, d) } }
       if (cur && slot < win.inventoryStart && failDest && failDest(cur)) throw new Error('simulated click failure')
-      if (cur && slot >= win.inventoryStart && !win.slots[slot] && cursorStuck) return
+      if (cur && !win.slots[slot] && cursorStuck && (slot >= win.inventoryStart || failDest?.(cur))) return   // the stuck stack goes nowhere
       const refused = cur && slot < win.inventoryStart && !win.slots[slot] && refuse && refuse(cur)
       left(win, slot)
       if (refused) {   // the server keeps the stack in its source slot: put its cursor back there
@@ -372,6 +373,10 @@ function world ({ items, containers, botAt = new Vec3(3, 70, 0), failDest = null
         win.server.slots[src] = { ...win.server.selectedItem, slot: src }; win.server.selectedItem = null
       } else left(win.server, slot)
     },
+  }
+  if (swapAfter) {   // after click N lands, another window becomes the open one (a late open, a server-opened screen)
+    const inner = bot.clickWindow
+    bot.clickWindow = async (...a) => { await inner(...a); if (st.clicks === swapAfter) bot.currentWindow = { foreign: true, slots: [], selectedItem: null } }
   }
   return { bot, st, bagSlots, server }
 }
@@ -672,4 +677,31 @@ test('CHAIN, BANK CLOSED: a bot whose bank chestfull closed gets no town deposit
   bot.bankClosed = { until: Date.now() + 600_000, at: Date.now(), why: 'the town chests are full', kind: 'full' }
   const { ran } = await decisions(bot, 1)
   assert.equal(ran[0].skill, 'craft', JSON.stringify(ran))
+})
+
+test('THE WINDOW CHANGED under the run (another window opened): no click goes into it, nothing is credited, nothing dropped', async () => {
+  const items = fullBag()
+  const c = chestAt(2)
+  const w = world({ items, containers: [c], swapAfter: 1 })
+  const r = await run(w.bot)
+  assert.equal(w.st.foreignClicks ?? 0, 0, 'no click went into the other window')
+  assert.notEqual(r.status, 'success')
+  assert.equal(w.st.dropped, 0)
+})
+
+test('A HELD CURSOR OUTRANKS AN EARLIER SUCCESS: chest A takes a stack, chest B holds the cursor -> transfer_unsettled', async () => {
+  const a = filledChest(2, 1), b = chestAt(-5)   // -5: the memory test above marked -4,70,0 full in this file's town
+  const w = world({ items: fullBag(), containers: [a, b], failDest: cur => cur.name === 'oak_log', cursorStuck: true })
+  const { out: r, rows } = await rowsOf(() => run(w.bot))
+  try {
+    assert.equal(r.failClass, 'transfer_unsettled', JSON.stringify(r) + ' ' + rows.map(x => x.skill.detail).join(' | ') + ' opened=' + w.st.opened); assert.match(r.detail, /\d+ item\(s\) were banked before it/)
+  } finally { w.bot.inventoryUnsettled?.stop?.() }
+})
+
+test('BACKOFF: a container in its backoff after a failure is skipped like a full one', async () => {
+  const dir = process.env.POOL_STATE_DIR, key = CF.townKey(new Vec3(0, 70, 0))
+  CF.updateTownMemory(dir, key, null, e => { e['6,70,0'] = CF.recordOutcome(undefined, 'unknown') })
+  const w = world({ items: fullBag(), containers: [chestAt(6)] })
+  const r = await run(w.bot)
+  assert.equal(r.status, 'no_effect'); assert.equal(w.st.opened.length, 0)
 })
