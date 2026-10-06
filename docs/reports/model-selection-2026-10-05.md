@@ -491,3 +491,34 @@ flight on Ollama.
 - **Judge agreement on the slow roles:** Spearman 0.87, within one point 97%.
 - **Judge self-consistency**, with the copies judged in a separate session this time: 81-96% identical scores on
   a repeated or order-swapped item, and 98-100% within one point.
+
+### A5: sustained mixed load, 8 simulated bots (10-06, 03:54-05:50Z)
+
+**Setup**
+- Each simulated bot asks for a decision, waits for the answer, then "works" for a random 30-60 s before asking
+  again (the fleet's cadence).
+- "Overseer" means a real shadow-mayor snapshot every 5 min.
+- "Escalation" means a real stuck episode every 3 min.
+- Both are served by the second model, CO-RESIDENT with the worker.
+- 15 min per row (30 min for the LM Studio row). Ollama 0.35.1 unless noted.
+
+| worker (+ overseer/escalation model) | worker decisions | worker p50 / p95 | misses the bots' 45 s timeout | overseer time | escalation p50 / p95 | swap |
+|---|---|---|---|---|---|---|
+| gemma4:26b alone | 140 | 3.5 s / 31 s | 2.9% | - | - | none |
+| **gemma4:26b + gpt-oss:120b (medium)** | 147 | **4.2 s / 9.0 s** | **0%** | **60 s** | 23 s / 44 s | none |
+| qwen3.6:35b + gpt-oss:120b (medium) | 153 | 2.4 s / 7.9 s | 0.7% | 38 s | 19 s / 38 s | none |
+| gemma4:26b + qwen3.8:27b (low) | 126 | 9.4 s / 44 s | 4.0% | **403 s** | 389 s | none |
+| **gemma4:26b MLX 8-bit on LM Studio** (30 min) | 295 | **2.5 s / 7.0 s** | 0.7% | - | - | - |
+| qwen2.5:7b alone (fleet today) | 147 | 3.0 s / 8.7 s | 0% | - | - | none |
+
+**What the serving table shows**
+- **gpt-oss:120b can sit next to the 8-bot worker without hurting it.** The worker's p95 stays under 10 s, and an
+  overseer call takes about a minute.
+- **qwen3.8:27b with thinking cannot share the GPU under load.** The 8 bots' decisions push an overseer call to
+  nearly 7 minutes, and its own long reasoning pushes the bots to a 44 s p95. On judged quality it is the best
+  overseer, but only on a machine where it does not compete with the bots.
+- **The 31 s p95 of "gemma4 alone" came from a co-tenant, not from gemma.** The fleet analyst's qwen3.8 call at
+  :03 evicted the model mid-run.
+- **The gpt-oss tool-call format fixes it as a worker.** Native tool calls instead of the JSON grammar: 96% valid
+  on Ollama 0.35.1, against 21% with the grammar. gemma4 does WORSE through tool calls: it repeats the failed
+  action 38% of the time against 13%. The grammar stays for gemma.
