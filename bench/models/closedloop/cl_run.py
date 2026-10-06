@@ -129,7 +129,7 @@ def main():
             'options': {'num_ctx': 8192, 'num_predict': 4}}
     if a.think not in ('none', ''):
         warm['think'] = {'true': True, 'false': False}.get(a.think, a.think)
-    if 'ticrcorp' in a.endpoint:
+    if 'ticrcorp' in a.endpoint or ':11502' in a.endpoint:
         sh(STUDIO, "curl -s -m 600 localhost:11434/api/chat -d %s >/dev/null" % shlex.quote(json.dumps(warm)), check=False, timeout=700)
     subprocess.run(['scp', '-q', os.path.join(HERE, 'cl_world.sh'), WORLDS_HOST + ':/tmp/mbench-cl_world.sh'], check=True)
     with sandbox_lock('model-selection agent: %s world reset for %s' % (a.server, run_id)):

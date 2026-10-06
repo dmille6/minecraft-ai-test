@@ -7,9 +7,10 @@ ENVF="${1:?env file}"
 set -a; source "$ENVF"; set +a
 [[ "${MINECRAFT_HOST:-}" == "10.0.0.30" && "${MINECRAFT_PORT:-}" =~ ^(25599|25600|25601|25602)$ ]] || { echo "refusing: not a sandbox server"; exit 3; }
 # The Studio's Ollama, or the Studio's LM Studio through the bench translating proxy (ollama2openai.py on the
-# Studio, forwarded by an ssh tunnel on the Mac mini at 10.0.0.70:11501). Nothing else.
+# Studio, forwarded by an ssh tunnel on the Mac mini at 10.0.0.70:11501), or the Studio's Ollama through the same
+# kind of tunnel at 10.0.0.70:11502 (the WAN forward of :11434 disappeared 10-06 ~15:50Z). Nothing else.
 EP="${OLLAMA_BASE_URL:-}"
-[[ "$EP" == "http://ai.ticrcorp.com:11434" || "$EP" == "http://10.0.0.70:11501" ]] || { echo "refusing: model endpoint is not the Studio"; exit 3; }
+[[ "$EP" == "http://ai.ticrcorp.com:11434" || "$EP" == "http://10.0.0.70:11501" || "$EP" == "http://10.0.0.70:11502" ]] || { echo "refusing: model endpoint is not the Studio"; exit 3; }
 [[ "${OLLAMA_BASE_URLS:-$EP}" == "$EP" ]] || { echo "refusing: a fallback endpoint is configured"; exit 3; }
 [[ "${LOG_DIR:-}" == "$HOME/mbench-cl/runs/"* && "${STATE_DIR:-}" == "$HOME/mbench-cl/runs/"* ]] || { echo "refusing: logs/state must live under ~/mbench-cl/runs"; exit 3; }
 [[ "${BOT_NAME:-}" == mbench* ]] || { echo "refusing: BOT_NAME must start with mbench"; exit 3; }

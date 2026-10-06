@@ -47,6 +47,10 @@ def main():
     ap.add_argument('--bots', type=int, default=8); ap.add_argument('--minutes', type=float, default=90)
     ap.add_argument('--server', default='sandbox4'); ap.add_argument('--seed', type=int, default=1006)
     ap.add_argument('--wait-pause', action='store_true')
+    ap.add_argument('--order', default='', help='explicit arm order for ONE block, e.g. "a,b,c" (resume a broken block)')
+    ap.add_argument('--block', type=int, default=0, help='block number for --order')
+    ap.add_argument('--ollama-endpoint', default='http://ai.ticrcorp.com:11434',
+                    help='http://10.0.0.70:11502 = the Studio Ollama via an ssh tunnel on this mini (started here)')
     a = ap.parse_args()
     arms = json.load(open(a.arms))
     if a.wait_pause:            # start only when the Stage A queue reaches its "pause" line (GPU held for us)
@@ -58,10 +62,18 @@ def main():
     for b in range(a.starts):
         blk = list(arms); rng.shuffle(blk)
         order += [(b, x) for x in blk]
+    if a.order:
+        byname = {x['arm']: x for x in arms}
+        order = [(a.block, byname[n]) for n in a.order.split(',')]
+    otun = None
+    if '10.0.0.70:11502' in a.ollama_endpoint:
+        otun = subprocess.Popen(['ssh', '-o', 'BatchMode=yes', '-o', 'ExitOnForwardFailure=yes', '-o', 'ServerAliveInterval=30',
+                                 '-g', '-N', '-L', '11502:127.0.0.1:11434', STUDIO], stdin=subprocess.DEVNULL)
+        time.sleep(4)
     print('ORDER', [(b, x['arm']) for b, x in order], flush=True)
     for i, (b, arm) in enumerate(order):
         tun = None
-        endpoint = 'http://ai.ticrcorp.com:11434'
+        endpoint = a.ollama_endpoint
         if arm.get('lms_key'):
             tun = lms_up(arm['lms_key'], a.bots)
             endpoint = 'http://10.0.0.70:11501'
@@ -73,6 +85,11 @@ def main():
         finally:
             if tun:
                 lms_down(tun)
+    if otun:
+        otun.terminate()
+    # put the sandbox back to its own world (its owners' fixtures live there)
+    subprocess.run(['ssh', '-o', 'BatchMode=yes', 'mike@10.0.0.30', 'bash /tmp/mbench-cl_world.sh %s restore' % a.server],
+                   stdin=subprocess.DEVNULL, check=False)
     ssh('rm -f ~/mbench/out/GPU_RESERVED')
     print('SERIES DONE', flush=True)
 

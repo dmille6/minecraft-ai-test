@@ -11,3 +11,200 @@ list -> There are 0 of a max of 12 players online:
 [2026-10-06T06:25:22Z] started mbench-s4-Fox
 [2026-10-06T06:25:34Z] started mbench-s4-Golf
 [2026-10-06T06:25:46Z] started mbench-s4-Hotel
+[2026-10-06T06:30:59Z] bots: 8 up
+[2026-10-06T06:36:00Z] bots: 8 up
+[2026-10-06T06:41:00Z] bots: 8 up
+[2026-10-06T06:46:01Z] bots: 8 up
+[2026-10-06T06:51:01Z] bots: 8 up
+[2026-10-06T06:56:02Z] bots: 8 up
+[2026-10-06T07:01:02Z] bots: 8 up
+[2026-10-06T07:06:03Z] bots: 8 up
+[2026-10-06T07:11:04Z] bots: 8 up
+[2026-10-06T07:16:04Z] bots: 8 up
+[2026-10-06T07:21:05Z] bots: 8 up
+[2026-10-06T07:26:05Z] bots: 8 up
+[2026-10-06T07:31:06Z] bots: 8 up
+[2026-10-06T07:36:06Z] bots: 8 up
+[2026-10-06T07:41:07Z] bots: 8 up
+[2026-10-06T07:46:08Z] bots: 8 up
+[2026-10-06T07:51:08Z] bots: 8 up
+[2026-10-06T07:55:59Z] bots: 8 up
+[2026-10-06T07:56:04Z] stopped; computing metrics
+[2026-10-06T07:56:04Z] RESULT cl-gemma4-26b-mlx8-sandbox4-1006T0623-b0 {"team_output_per_h": 251.58, "mean_output_per_bot_h": 31.45, "milestone_bots": {"crafting_table": 8, "wooden_pickaxe": 8, "stone_pickaxe": 7, "furnace": 5, "raw_iron": 4, "iron_ingot": 3, "iron_pickaxe": 0}, "pickless_share": 0.425, "stuck_min_per_bot": 25.6, "loops_per_bot_h": 2.3, "deaths": 0, "decisions_per_bot_h": 69.0, "latency_p50_med": 2.18}
+[2026-10-06T07:56:07Z] run cl-q25-7b-sandbox4-1006T0756-b0: 8 bots, qwen2.5:7b-instruct (think=none) on sandbox4 for 90 min
+[2026-10-06T08:10:30Z] time set 1000 -> Set the time to 1000
+list -> There are 0 of a max of 12 players online:
+[2026-10-06T08:10:31Z] started mbench-s4-Alpha
+[2026-10-06T08:10:43Z] started mbench-s4-Bravo
+[2026-10-06T08:10:55Z] started mbench-s4-Comet
+[2026-10-06T08:11:08Z] started mbench-s4-Delta
+[2026-10-06T08:11:20Z] started mbench-s4-Echo
+[2026-10-06T08:11:32Z] started mbench-s4-Fox
+[2026-10-06T08:11:44Z] started mbench-s4-Golf
+[2026-10-06T08:11:57Z] started mbench-s4-Hotel
+[2026-10-06T08:17:10Z] bots: 8 up
+[2026-10-06T08:22:10Z] bots: 8 up
+[2026-10-06T08:27:11Z] bots: 8 up
+[2026-10-06T08:32:11Z] bots: 8 up
+[2026-10-06T08:37:12Z] bots: 8 up
+[2026-10-06T08:42:13Z] bots: 8 up
+[2026-10-06T08:47:13Z] bots: 8 up
+[2026-10-06T08:52:14Z] bots: 8 up
+[2026-10-06T08:57:14Z] bots: 8 up
+[2026-10-06T09:02:15Z] bots: 8 up
+[2026-10-06T09:07:15Z] bots: 8 up
+[2026-10-06T09:12:15Z] bots: 8 up
+[2026-10-06T09:17:16Z] bots: 8 up
+[2026-10-06T09:22:16Z] bots: 8 up
+[2026-10-06T09:27:17Z] bots: 8 up
+[2026-10-06T09:32:17Z] bots: 8 up
+[2026-10-06T09:37:18Z] bots: 8 up
+[2026-10-06T09:42:10Z] bots: 8 up
+[2026-10-06T09:42:14Z] stopped; computing metrics
+[2026-10-06T09:42:15Z] RESULT cl-q25-7b-sandbox4-1006T0756-b0 {"team_output_per_h": 117.43, "mean_output_per_bot_h": 14.68, "milestone_bots": {"crafting_table": 7, "wooden_pickaxe": 7, "stone_pickaxe": 3, "furnace": 4, "raw_iron": 1, "iron_ingot": 1, "iron_pickaxe": 0}, "pickless_share": 0.531, "stuck_min_per_bot": 48.9, "loops_per_bot_h": 6.6, "deaths": 0, "decisions_per_bot_h": 82.6, "latency_p50_med": 2.9050000000000002}
+[2026-10-06T09:42:16Z] run cl-gemma4-26b-sandbox4-1006T0942-b0: 8 bots, gemma4:26b (think=false) on sandbox4 for 90 min
+[2026-10-06T09:42:58Z] time set 1000 -> Set the time to 1000
+list -> There are 0 of a max of 12 players online:
+[2026-10-06T09:42:59Z] started mbench-s4-Alpha
+[2026-10-06T09:43:12Z] started mbench-s4-Bravo
+[2026-10-06T09:43:24Z] started mbench-s4-Comet
+[2026-10-06T09:43:36Z] started mbench-s4-Delta
+[2026-10-06T09:43:48Z] started mbench-s4-Echo
+[2026-10-06T09:44:00Z] started mbench-s4-Fox
+[2026-10-06T09:44:13Z] started mbench-s4-Golf
+[2026-10-06T09:44:25Z] started mbench-s4-Hotel
+[2026-10-06T09:49:38Z] bots: 8 up
+[2026-10-06T09:54:39Z] bots: 8 up
+[2026-10-06T09:59:40Z] bots: 8 up
+[2026-10-06T10:04:40Z] bots: 8 up
+[2026-10-06T10:09:41Z] bots: 8 up
+[2026-10-06T10:14:41Z] bots: 8 up
+[2026-10-06T10:19:42Z] bots: 8 up
+[2026-10-06T10:24:42Z] bots: 8 up
+[2026-10-06T10:29:43Z] bots: 8 up
+[2026-10-06T10:34:44Z] bots: 8 up
+[2026-10-06T10:39:44Z] bots: 8 up
+[2026-10-06T10:44:45Z] bots: 8 up
+[2026-10-06T10:49:45Z] bots: 8 up
+[2026-10-06T10:54:46Z] bots: 8 up
+[2026-10-06T10:59:46Z] bots: 8 up
+[2026-10-06T11:04:47Z] bots: 8 up
+[2026-10-06T11:09:48Z] bots: 8 up
+[2026-10-06T11:14:38Z] bots: 8 up
+[2026-10-06T11:14:42Z] stopped; computing metrics
+[2026-10-06T11:14:43Z] RESULT cl-gemma4-26b-sandbox4-1006T0942-b0 {"team_output_per_h": 354.52, "mean_output_per_bot_h": 44.32, "milestone_bots": {"crafting_table": 8, "wooden_pickaxe": 8, "stone_pickaxe": 7, "furnace": 4, "raw_iron": 4, "iron_ingot": 2, "iron_pickaxe": 0}, "pickless_share": 0.414, "stuck_min_per_bot": 19.8, "loops_per_bot_h": 6.2, "deaths": 2, "decisions_per_bot_h": 73.0, "latency_p50_med": 1.87}
+[2026-10-06T11:14:58Z] run cl-gemma4-26b-mlx8-sandbox4-1006T1114-b1: 8 bots, gemma4:26b (think=false) on sandbox4 for 90 min
+[2026-10-06T11:15:32Z] time set 1000 -> Set the time to 1000
+list -> There are 0 of a max of 12 players online:
+[2026-10-06T11:15:33Z] started mbench-s4-Alpha
+[2026-10-06T11:15:45Z] started mbench-s4-Bravo
+[2026-10-06T11:15:57Z] started mbench-s4-Comet
+[2026-10-06T11:16:10Z] started mbench-s4-Delta
+[2026-10-06T11:16:22Z] started mbench-s4-Echo
+[2026-10-06T11:16:34Z] started mbench-s4-Fox
+[2026-10-06T11:16:46Z] started mbench-s4-Golf
+[2026-10-06T11:16:58Z] started mbench-s4-Hotel
+[2026-10-06T11:22:11Z] bots: 8 up
+[2026-10-06T11:27:11Z] bots: 8 up
+[2026-10-06T11:32:12Z] bots: 8 up
+[2026-10-06T11:37:12Z] bots: 8 up
+[2026-10-06T11:42:12Z] bots: 8 up
+[2026-10-06T11:47:12Z] bots: 8 up
+[2026-10-06T11:52:12Z] bots: 8 up
+[2026-10-06T11:57:13Z] bots: 8 up
+[2026-10-06T12:02:13Z] bots: 8 up
+[2026-10-06T12:07:13Z] bots: 8 up
+[2026-10-06T12:12:13Z] bots: 8 up
+[2026-10-06T12:17:13Z] bots: 8 up
+[2026-10-06T12:22:14Z] bots: 8 up
+[2026-10-06T12:27:14Z] bots: 8 up
+[2026-10-06T12:32:14Z] bots: 8 up
+[2026-10-06T12:37:14Z] bots: 8 up
+[2026-10-06T12:42:14Z] bots: 8 up
+[2026-10-06T12:47:11Z] bots: 8 up
+[2026-10-06T12:47:15Z] stopped; computing metrics
+[2026-10-06T12:47:16Z] RESULT cl-gemma4-26b-mlx8-sandbox4-1006T1114-b1 {"team_output_per_h": 190.73, "mean_output_per_bot_h": 23.84, "milestone_bots": {"crafting_table": 7, "wooden_pickaxe": 7, "stone_pickaxe": 6, "furnace": 2, "raw_iron": 1, "iron_ingot": 1, "iron_pickaxe": 0}, "pickless_share": 0.595, "stuck_min_per_bot": 13.9, "loops_per_bot_h": 3.9, "deaths": 0, "decisions_per_bot_h": 71.4, "latency_p50_med": 2.135}
+[2026-10-06T12:47:19Z] run cl-gemma4-26b-sandbox4-1006T1247-b1: 8 bots, gemma4:26b (think=false) on sandbox4 for 90 min
+[2026-10-06T12:48:00Z] time set 1000 -> Set the time to 1000
+list -> There are 0 of a max of 12 players online:
+[2026-10-06T12:48:00Z] started mbench-s4-Alpha
+[2026-10-06T12:48:13Z] started mbench-s4-Bravo
+[2026-10-06T12:48:25Z] started mbench-s4-Comet
+[2026-10-06T12:48:37Z] started mbench-s4-Delta
+[2026-10-06T12:48:49Z] started mbench-s4-Echo
+[2026-10-06T12:49:01Z] started mbench-s4-Fox
+[2026-10-06T12:49:13Z] started mbench-s4-Golf
+[2026-10-06T12:49:26Z] started mbench-s4-Hotel
+[2026-10-06T12:54:39Z] bots: 8 up
+[2026-10-06T12:59:39Z] bots: 8 up
+[2026-10-06T13:04:39Z] bots: 8 up
+[2026-10-06T13:09:39Z] bots: 8 up
+[2026-10-06T13:14:39Z] bots: 8 up
+[2026-10-06T13:19:40Z] bots: 8 up
+[2026-10-06T13:24:40Z] bots: 8 up
+[2026-10-06T13:29:40Z] bots: 8 up
+[2026-10-06T13:34:40Z] bots: 8 up
+[2026-10-06T13:39:40Z] bots: 8 up
+[2026-10-06T13:44:41Z] bots: 8 up
+[2026-10-06T13:49:41Z] bots: 8 up
+[2026-10-06T13:54:41Z] bots: 8 up
+[2026-10-06T13:59:41Z] bots: 8 up
+[2026-10-06T14:04:41Z] bots: 8 up
+[2026-10-06T14:09:42Z] bots: 8 up
+[2026-10-06T14:14:42Z] bots: 8 up
+[2026-10-06T14:19:39Z] bots: 8 up
+[2026-10-06T14:19:43Z] stopped; computing metrics
+[2026-10-06T14:19:44Z] RESULT cl-gemma4-26b-sandbox4-1006T1247-b1 {"team_output_per_h": 171.18, "mean_output_per_bot_h": 21.4, "milestone_bots": {"crafting_table": 7, "wooden_pickaxe": 6, "stone_pickaxe": 3, "furnace": 3, "raw_iron": 2, "iron_ingot": 1, "iron_pickaxe": 0}, "pickless_share": 0.692, "stuck_min_per_bot": 24.4, "loops_per_bot_h": 9.2, "deaths": 0, "decisions_per_bot_h": 76.9, "latency_p50_med": 1.84}
+[2026-10-06T14:19:45Z] run cl-q25-7b-sandbox4-1006T1419-b1: 8 bots, qwen2.5:7b-instruct (think=none) on sandbox4 for 90 min
+[2026-10-06T14:20:24Z] time set 1000 -> Set the time to 1000
+list -> There are 0 of a max of 12 players online:
+[2026-10-06T14:20:25Z] started mbench-s4-Alpha
+[2026-10-06T14:20:37Z] started mbench-s4-Bravo
+[2026-10-06T14:20:49Z] started mbench-s4-Comet
+[2026-10-06T14:21:01Z] started mbench-s4-Delta
+[2026-10-06T14:21:13Z] started mbench-s4-Echo
+[2026-10-06T14:21:26Z] started mbench-s4-Fox
+[2026-10-06T14:21:38Z] started mbench-s4-Golf
+[2026-10-06T14:21:50Z] started mbench-s4-Hotel
+[2026-10-06T14:27:03Z] bots: 8 up
+[2026-10-06T14:32:03Z] bots: 8 up
+[2026-10-06T14:37:03Z] bots: 8 up
+[2026-10-06T14:42:03Z] bots: 8 up
+[2026-10-06T14:47:04Z] bots: 8 up
+[2026-10-06T14:52:04Z] bots: 8 up
+[2026-10-06T14:57:04Z] bots: 8 up
+[2026-10-06T15:02:04Z] bots: 8 up
+[2026-10-06T15:07:04Z] bots: 8 up
+[2026-10-06T15:12:05Z] bots: 8 up
+[2026-10-06T15:17:05Z] bots: 8 up
+[2026-10-06T15:22:05Z] bots: 8 up
+[2026-10-06T15:27:05Z] bots: 8 up
+[2026-10-06T15:32:05Z] bots: 8 up
+[2026-10-06T15:37:06Z] bots: 8 up
+[2026-10-06T15:42:06Z] bots: 8 up
+[2026-10-06T15:47:06Z] bots: 8 up
+[2026-10-06T15:52:03Z] bots: 8 up
+[2026-10-06T15:52:07Z] stopped; computing metrics
+[2026-10-06T15:52:07Z] RESULT cl-q25-7b-sandbox4-1006T1419-b1 {"team_output_per_h": 143.14, "mean_output_per_bot_h": 17.89, "milestone_bots": {"crafting_table": 8, "wooden_pickaxe": 8, "stone_pickaxe": 3, "furnace": 4, "raw_iron": 1, "iron_ingot": 1, "iron_pickaxe": 0}, "pickless_share": 0.448, "stuck_min_per_bot": 41.9, "loops_per_bot_h": 7.7, "deaths": 0, "decisions_per_bot_h": 84.9, "latency_p50_med": 2.05}
+[2026-10-06T15:52:08Z] run cl-gemma4-26b-sandbox4-1006T1552-b2: 8 bots, gemma4:26b (think=false) on sandbox4 for 90 min
+[2026-10-06T15:52:45Z] time set 1000 -> Set the time to 1000
+list -> There are 0 of a max of 12 players online:
+[2026-10-06T15:52:46Z] started mbench-s4-Alpha
+[2026-10-06T15:52:58Z] started mbench-s4-Bravo
+[2026-10-06T15:53:10Z] started mbench-s4-Comet
+[2026-10-06T15:53:23Z] started mbench-s4-Delta
+[2026-10-06T15:53:35Z] started mbench-s4-Echo
+[2026-10-06T15:53:47Z] started mbench-s4-Fox
+[2026-10-06T15:53:59Z] started mbench-s4-Golf
+[2026-10-06T15:54:11Z] started mbench-s4-Hotel
+[2026-10-06T15:59:24Z] bots: 8 up
+[2026-10-06T16:04:24Z] bots: 8 up
+[2026-10-06T16:09:25Z] bots: 8 up
+[2026-10-06T16:14:25Z] bots: 8 up
+[2026-10-06T16:19:25Z] bots: 8 up
+[2026-10-06T16:24:25Z] bots: 8 up
+[2026-10-06T16:29:25Z] bots: 8 up
+[2026-10-06T16:34:26Z] bots: 8 up
+[2026-10-06T16:39:26Z] bots: 8 up
+[2026-10-06T16:44:26Z] bots: 8 up
+[2026-10-06T16:49:26Z] bots: 8 up

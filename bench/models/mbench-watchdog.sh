@@ -6,7 +6,10 @@
 cd "$(dirname "$0")"
 while true; do
   sleep 120
-  pgrep -f "run_bench.py|throughput.py|serving.py" >/dev/null || continue
+  pgrep -f "run_bench.py|throughput.py" >/dev/null || continue
+  # serving.py writes nothing until it ends: never judge a wedge while it runs (a false trip restarted Ollama
+  # in the middle of serve-q36-8+gptoss on 10-06 at 04:35Z)
+  pgrep -f "serving.py" >/dev/null && continue
   newest=$(ls -t out/*.jsonl 2>/dev/null | head -1); [ -z "$newest" ] && continue
   age=$(( $(date +%s) - $(stat -f %m "$newest") ))
   [ "$age" -lt 1200 ] && continue

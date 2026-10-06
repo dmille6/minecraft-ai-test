@@ -562,3 +562,28 @@ flight on Ollama.
 - **The gpt-oss tool-call format fixes it as a worker.** Native tool calls instead of the JSON grammar: 96% valid
   on Ollama 0.35.1, against 21% with the grammar. gemma4 does WORSE through tool calls: it repeats the failed
   action 38% of the time against 13%. The grammar stays for gemma.
+
+### Contamination ledger: co-tenants and infrastructure (added 10-06 ~17:10Z)
+
+The owner cleared the Studio of other projects on 10-06, at about 17:00Z.
+- The LCIA keep-warm and the LCIA caching proxy are gone.
+- The fleet's own analyst cron is paused: its qwen3.8:27b call at :03 and :33 on 10.0.0.31 is commented out,
+  backup `~/crontab.bak-20261006-analyst`.
+- **Until then, the Studio was shared.** Every effect of that sharing found so far:
+
+| when (UTC) | what | cause | effect on results | handled |
+|---|---|---|---|---|
+| 10-05 12:38 | Ollama scheduler wedged; every load hung for about 20 min | a qwen3.8 thinking request at the analyst's 262k default context, next to the co-tenants | 4 stuck items of the 7B timed out | Ollama restarted; the items were re-run |
+| 10-05 14:03 | 8 GPU out-of-memory errors (gpt-oss-120b screen) | the analyst loaded qwen3.8 (20 GB) next to gpt-oss (65 GB) and the keep-warm's coder (12 GB) | errors only, not wrong answers | re-run |
+| 10-05 19:03 | 6 GPU out-of-memory errors (gpt-oss-120b on 0.35.1) | the same | errors only | re-run queued |
+| 10-05, all day | the LCIA keep-warm held qwen2.5-coder:7b (12 GB) on the GPU | co-tenant | less memory headroom; no effect on answers | - |
+| 10-05 to 10-06, every :03 and :33 | the analyst's call evicted or competed with the benchmark model | co-tenant | **latency only**: every A1/A2 "p50 @4" figure and throughput sweep that crossed one of these windows reads high (requests that paid a reload are excluded; those queued behind the analyst are not) | latency figures are kept, with this caveat |
+| 10-06 03:54-04:10 | "gemma4 alone" serving run: p95 31 s, 2.9% misses | the analyst at 04:03 evicted gemma mid-run | this row's tail latency | superseded by the clean re-test below |
+| 10-06 04:35 | the benchmark's own watchdog restarted Ollama during serve-q36+gpt-oss | **self-inflicted** false trip: serving.py writes nothing until it ends | 1 error in that row | watchdog fixed |
+| 10-06 C1 runs 06:23-15:52 | the bots' decision latency in the analyst windows: p95 17-25 s, against about 4 s otherwise | the analyst | **all arms alike**, the LM Studio arm included (the GPU is shared); medians barely move | reported; output compared within blocks |
+| 10-06 15:32 onward | `ai.ticrcorp.com:11434` stopped answering from the LAN (WAN forward gone; ssh still works) | infrastructure change during the clean-up | the C1 run q25-7b block 1 lost its brain for its last 20 of 90 min; the gemma4 Ollama block-2 run (15:52) never got a decision | q25 b1 is read over 14:19-15:32 only and flagged; the gemma4 b2 run is invalid and is being redone through an ssh tunnel on the mini (10.0.0.70:11502 → Studio :11434) |
+
+**No QUALITY metric was touched.**
+- Validity, infeasibility, repeats, judge scores and the Stage B suites depend only on the model's answers, not
+  on timing.
+- Errored items were re-run, not counted as answers.

@@ -32,9 +32,13 @@ def main():
     ap.add_argument('--deadline', type=float, default=45); ap.add_argument('--label', required=True)
     ap.add_argument('--url', default=None); ap.add_argument('--temperature', type=float, default=0.7)
     ap.add_argument('--engine', choices=('ollama', 'openai'), default='ollama')
+    ap.add_argument('--overseer-engine', choices=('ollama', 'openai'), default=None, help='default: --engine')
+    ap.add_argument('--overseer-url', default=None)
     ap.add_argument('--timeout', type=float, default=600)
     a = ap.parse_args()
     a.url = a.url or ('http://127.0.0.1:11434' if a.engine == 'ollama' else 'http://127.0.0.1:1234')
+    a.overseer_engine = a.overseer_engine or a.engine
+    a.overseer_url = a.overseer_url or ('http://127.0.0.1:11434' if a.overseer_engine == 'ollama' else 'http://127.0.0.1:1234')
     sysp = json.load(open(os.path.join(HERE, 'data', 'system_prompts.json')))
     items = R.load_jsonl(os.path.join(HERE, 'data', 'mbench-sample-x.jsonl'))
     brain = [i for i in items if i['set'] == 'brain']
@@ -51,9 +55,10 @@ def main():
     class Args:  # what call_ollama reads from its first argument
         pass
 
-    def call(model, think, msgs, schema, ctx, npred):
-        aa = Args(); aa.model = model; aa.url = a.url; aa.temperature = a.temperature; aa.timeout = a.timeout
-        return (R.call_ollama if a.engine == 'ollama' else R.call_openai)(aa, msgs, schema, ctx, npred, R.think_value(think))
+    def call(model, think, msgs, schema, ctx, npred, role='worker'):
+        eng, url = (a.engine, a.url) if role == 'worker' else (a.overseer_engine, a.overseer_url)
+        aa = Args(); aa.model = model; aa.url = url; aa.temperature = a.temperature; aa.timeout = a.timeout
+        return (R.call_ollama if eng == 'ollama' else R.call_openai)(aa, msgs, schema, ctx, npred, R.think_value(think))
 
     def record(role, t0, r=None, err=None):
         with lock:
@@ -81,7 +86,7 @@ def main():
             msgs, schema = builder(it)
             t0 = time.time()
             try:
-                r = call(a.overseer, a.overseer_think, msgs, schema, 16384, 8192 if a.overseer_think not in ('none', 'false') else 1024)
+                r = call(a.overseer, a.overseer_think, msgs, schema, 16384, 8192 if a.overseer_think not in ('none', 'false') else 1024, role)
                 record(role, t0, r)
             except Exception as e:
                 record(role, t0, err=str(e)[:120])
@@ -91,8 +96,8 @@ def main():
 
     def sampler():
         while time.time() < stop_at:
-            ps = subprocess.run(['/Applications/Ollama.app/Contents/Resources/ollama', 'ps'] if a.engine == 'ollama' else
-                                [os.path.expanduser('~/.lmstudio/bin/lms'), 'ps'], capture_output=True, text=True).stdout
+            ps = subprocess.run(['/Applications/Ollama.app/Contents/Resources/ollama', 'ps'], capture_output=True, text=True).stdout + \
+                subprocess.run([os.path.expanduser('~/.lmstudio/bin/lms'), 'ps'], capture_output=True, text=True).stdout
             vm = subprocess.run(['vm_stat'], capture_output=True, text=True).stdout
             so = [l for l in vm.splitlines() if 'Swapouts' in l]
             mem.append({'t': time.time(), 'ps': ps.strip().splitlines()[1:], 'swapouts': so[0].split(':')[1].strip(' .') if so else None})
