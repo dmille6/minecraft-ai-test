@@ -29,10 +29,8 @@ def lms_up(key, bots):
         '$L unload --all; $L load "%s" -y --context-length 16384 --parallel %d --identifier bench; '
         'cd ~/mbench && (nohup python3 ollama2openai.py --listen 127.0.0.1:11501 > out/proxy.log 2>&1 &)' % (key, bots))
     subprocess.run(['scp', '-q', os.path.join(HERE, 'ollama2openai.py'), STUDIO + ':mbench/'], check=False)
-    tun = subprocess.Popen(['ssh', '-o', 'BatchMode=yes', '-o', 'ExitOnForwardFailure=yes', '-g', '-N', '-L',
-                            '11501:127.0.0.1:11501', STUDIO], stdin=subprocess.DEVNULL)
-    time.sleep(5)
-    return tun
+    time.sleep(5)       # 10.0.0.70:11501 is carried by the supervised launchd tunnel (com.mbench.tunnel)
+    return None
 
 
 def lms_down(tun):
@@ -65,11 +63,7 @@ def main():
     if a.order:
         byname = {x['arm']: x for x in arms}
         order = [(a.block, byname[n]) for n in a.order.split(',')]
-    otun = None
-    if '10.0.0.70:11502' in a.ollama_endpoint:
-        otun = subprocess.Popen(['ssh', '-o', 'BatchMode=yes', '-o', 'ExitOnForwardFailure=yes', '-o', 'ServerAliveInterval=30',
-                                 '-g', '-N', '-L', '11502:127.0.0.1:11434', STUDIO], stdin=subprocess.DEVNULL)
-        time.sleep(4)
+    otun = None         # 10.0.0.70:11502 is the supervised launchd tunnel (com.mbench.tunnel); nothing to start
     print('ORDER', [(b, x['arm']) for b, x in order], flush=True)
     for i, (b, arm) in enumerate(order):
         tun = None

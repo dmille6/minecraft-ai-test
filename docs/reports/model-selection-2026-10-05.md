@@ -22,15 +22,12 @@ Runner-ups:
 | overseer / escalation | **qwen3.8:27b at reasoning "low"** | both judges' favourite and only 18 GB, but a call takes about 7 min while 8 bots share the GPU; viable only off-peak or on its own machine |
 
 **What the owner has to decide or do before a live test**
-1. **Memory.**
-   - The pair needs about 93 GB: gemma 8-bit is 28 GB and gpt-oss is 65 GB.
-   - Today's Studio co-tenants take about 32 GB: the LCIA keep-warm's qwen2.5-coder:7b (12 GB) and the fleet
-     analyst's qwen3.8:27b (20 GB). Together that is past the ~107 GiB GPU budget, and it already caused GPU
-     out-of-memory errors during this benchmark.
-   - The options:
-     - move or retire the co-tenants;
-     - or use gemma4 Q4 on Ollama (18 GB);
-     - or use qwen3.8:27b as the overseer and accept its speed.
+1. **Memory: RESOLVED 10-06.** The owner cleared the Studio. The pair (about 93 GB) was re-tested co-loaded under
+   an 8-bot load, with no swap and 0% missed decisions.
+   - The fleet analyst cron stays paused while the benchmark runs. If it returns, it must not load a model on
+     the Studio next to this pair.
+   - The Studio's :11434 WAN forward has been closed since 15:32Z. The benchmark uses an ssh tunnel; the owner is
+     fixing the forward.
 2. **C2 (overseer and escalation inside real bots on the sandbox)** needs a small bench-only bot-code hook. Both
    engines reviewed the design (`bench/models/closedloop/C2-DESIGN-DRAFT.md`, rev 2) and want it.
 3. **Then the live A/B**: 4-8 bots on the chosen stack as their own canary, against a matched control.
@@ -587,3 +584,33 @@ The owner cleared the Studio of other projects on 10-06, at about 17:00Z.
 - Validity, infeasibility, repeats, judge scores and the Stage B suites depend only on the model's answers, not
   on timing.
 - Errored items were re-run, not counted as answers.
+
+**Additions to the ledger, 10-06 evening:**
+
+| when (UTC) | what | effect | handled |
+|---|---|---|---|
+| 10-06 15:52 | C1 block-2 run "gemma4 on Ollama": no model decision ever arrived (WAN :11434 gone) | **invalid** (folder renamed `INVALID-wan11434-down-…`) | re-run 20:20Z through the supervised tunnel |
+| 10-06 06:21 | first C1 attempt: bot name `mbench-s4-Charlie` is 17 characters and was kicked (the limit is 16) | **invalid**, 7 of 8 bots | names fixed; restarted 06:23Z |
+| 10-06 16:55-20:20 | C1 deliberately stopped (WAN), then the power outage: the bots host and the world host were down 17:07-19:50Z, and the Mac mini rebooted about 20:06Z | **no C1 run was in progress at 17:07Z**, so none was cut by the outage; the Studio stayed up, so the co-load re-test (16:52-17:36Z) is unaffected | block 2 (3 runs) re-run from 20:20Z |
+| from 10-06 20:19 | the bots reach the Studio through a **supervised ssh tunnel on the Mac mini**: launchd agent `com.mbench.tunnel`, ServerAliveInterval 10 / CountMax 3, ExitOnForwardFailure, KeepAlive; it reconnects in about 3 s when killed (tested) and costs 5 MB | every start and DROP is logged in `~/Library/Logs/mbench-tunnel.log` | the runner checks the endpoint from the bots host before each run and waits instead of burning it; it re-checks every 5 min; any drop or failed check inside a run is written to that run's record as `flag` |
+
+The sandbox4 world after the unclean shutdown:
+- It is still in benchmark mode (`level-name=mbench-world`).
+- Every C1 run starts by restoring the pristine snapshot (`mbench-pristine-sandbox4.tgz`, intact), so the
+  shutdown cannot carry over into a run.
+- The C1 series now puts the sandbox back to its own world when it finishes.
+
+### Co-loading re-tested on the cleared Studio (10-06 16:52-17:36Z)
+
+Setup: no co-tenants, analyst paused, 8 simulated bots, an overseer call every 5 min, an escalation every 3 min,
+20 min per configuration.
+
+| worker + overseer/escalation | worker decisions | worker p50 / p95 / p99 | misses the 45 s timeout | overseer p50 | escalation p50 / p95 | swap |
+|---|---|---|---|---|---|---|
+| **gemma4 MLX 8-bit (LM Studio) + gpt-oss:120b medium (Ollama)** | 201 | **2.7 / 8.7 / 15.5 s** | 0% | **29 s** | 17 / 56 s | none |
+| gemma4:26b + gpt-oss:120b medium (both on Ollama) | 197 | 3.9 / 12.6 / 15.9 s | 0% | 50 s | 22 / 34 s | none |
+
+**The recommended pair now fits and runs together without swapping.** That is about 93 GB resident across two
+runtimes.
+
+**The earlier out-of-memory errors and latency spikes were co-tenant contamination** (see the ledger above).

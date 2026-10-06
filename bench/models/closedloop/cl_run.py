@@ -125,6 +125,17 @@ def main():
             log('waiting for the Studio benchmark queue to finish its current model')
             time.sleep(60)
     log('run %s: %d bots, %s (think=%s) on %s for %.0f min' % (run_id, a.bots, a.model, a.think, a.server, a.minutes))
+    # ENDPOINT PREFLIGHT from the bots host: pause (never burn a run) while the model endpoint is unreachable
+    waited = 0
+    while True:
+        ok = sh(BOTS_HOST, 'curl -s -m 8 %s/api/version >/dev/null && echo OK || echo DOWN' % a.endpoint, check=False).strip()
+        if ok == 'OK':
+            break
+        if waited % 300 == 0:
+            log('endpoint %s unreachable from the bots host; waiting (run not started)' % a.endpoint)
+        time.sleep(30); waited += 30
+        if waited > 4 * 3600:
+            raise SystemExit('endpoint down for 4 h; giving up before starting %s' % run_id)
     warm = {'model': a.model, 'messages': [{'role': 'user', 'content': 'ok'}], 'stream': False, 'keep_alive': '30m',
             'options': {'num_ctx': 8192, 'num_predict': 4}}
     if a.think not in ('none', ''):
@@ -153,11 +164,15 @@ def main():
             'think': a.think, 'server': a.server, 'bots': a.bots,
             'minutes': a.minutes, 'timeout_ms': a.timeout_ms, 'start': t_start, 'names': names}
     sh(BOTS_HOST, 'cat > ~/mbench-cl/runs/%s/meta.json <<"EOF"\n%s\nEOF' % (run_id, json.dumps(meta)))
+    endpoint_down_checks = []
     end_at = time.time() + a.minutes * 60
     while time.time() < end_at:
         time.sleep(min(300, max(1, end_at - time.time())))
         alive = sh(BOTS_HOST, 'for p in ~/mbench-cl/runs/%s/*.pid; do kill -0 $(cat $p) 2>/dev/null && echo up || echo DOWN; done | sort | uniq -c' % run_id, check=False)
         log('bots: ' + ' '.join(alive.split()))
+        ep = sh(BOTS_HOST, 'curl -s -m 8 %s/api/version >/dev/null && echo OK || echo DOWN' % a.endpoint, check=False).strip()
+        if ep != 'OK':
+            endpoint_down_checks.append(now()); log('ENDPOINT DOWN during the run (%s)' % a.endpoint)
     t_end = now()
     census = sh(WORLDS_HOST, 'bash /tmp/mbench-cl_world.sh %s census %s' % (a.server, ' '.join(names)), check=False, timeout=300)
     meta['census'] = parse_census(census)
@@ -165,7 +180,13 @@ def main():
     log('stopped; computing metrics')
     out = sh(BOTS_HOST, 'python3 ~/mbench-cl/cl_metrics.py ~/mbench-cl/runs/%s --start %s --end %s' % (run_id, t_start, t_end), timeout=900)
     m = json.loads(out)
-    meta.update(end=t_end, metrics=m)
+    # TUNNEL DROPS inside the run window (the mini's supervised tunnel log): flagged, never silently pooled
+    drops = []
+    tl = os.path.expanduser('~/Library/Logs/mbench-tunnel.log')
+    if os.path.exists(tl):
+        drops = [l.split()[0] for l in open(tl) if 'DROP' in l and t_start <= l.split()[0] <= t_end]
+    meta.update(end=t_end, metrics=m, tunnel_drops=drops, endpoint_down_checks=endpoint_down_checks,
+                flag=('TUNNEL/ENDPOINT INTERRUPTION' if (drops or endpoint_down_checks) else None))
     os.makedirs(os.path.join(HERE, 'results'), exist_ok=True)
     with open(os.path.join(HERE, 'results', 'runs.jsonl'), 'a') as fh:
         fh.write(json.dumps(meta) + '\n')

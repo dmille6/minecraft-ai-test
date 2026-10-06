@@ -1,0 +1,13 @@
+ORDER [(2, 'gemma4-26b'), (2, 'gemma4-26b-mlx8'), (2, 'q25-7b')]
+[2026-10-06T20:20:08Z] run cl-gemma4-26b-sandbox4-1006T2020-b2: 8 bots, gemma4:26b (think=false) on sandbox4 for 90 min
+[2026-10-06T20:23:59Z] time set 1000 -> Set the time to 1000
+list -> There are 0 of a max of 12 players online:
+[2026-10-06T20:23:59Z] started mbench-s4-Alpha
+[2026-10-06T20:24:12Z] started mbench-s4-Bravo
+[2026-10-06T20:24:24Z] started mbench-s4-Comet
+[2026-10-06T20:24:36Z] started mbench-s4-Delta
+[2026-10-06T20:24:48Z] started mbench-s4-Echo
+[2026-10-06T20:25:00Z] started mbench-s4-Fox
+[2026-10-06T20:25:12Z] started mbench-s4-Golf
+[2026-10-06T20:25:25Z] started mbench-s4-Hotel
+[2026-10-06T20:30:38Z] bots: 8 up
