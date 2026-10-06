@@ -138,6 +138,12 @@ the same farm: ctrl 15,16 logs vs cand 21,23 (no harm). Bone meal arm built, OFF
 Bags: 76/80 bots hold >= 6 farm saplings, 62/80 carry torches. Design + follow-ons (WORKSHOP, SAFE MINESHAFT, designed
 not built): docs/reports/blueprint-builder-design-2026-10-05.md.
 
+## 10-06 09:16Z — climbflood-02 READY and CHAINED after withdraw-01 (variants 47110e8 -> cf2 6ca31e9, b54e22c -> c902d6f;
+main 3dd0b75). Root causes of climbflood-01's 3 rows, each reproduced on Paper with the old build: ice melts to water
+when broken (scene H: old 3/3 flooded, new 0/3); a second dig trusted mineflayer's stale "air" before the server's water
+arrived (300 ms settle added); a 3-deep sand column with water on top (whole column now read; flood exit sidesteps
+before unburying). Codex APPROVE. withdraw-01 +180 NOT_YET (deaths 1 vs 5, same rate).
+
 ## 10-06 06:30Z — CLIMBFLOOD-01 INCONCLUSIVE (+360, 05:11Z), torn down 05:15Z (fleet stays 47110e8). Exposure met (202 opps);
 20 s endpoint canary 1.36% -> 0.00% vs control 1.19% -> 1.54% (E0 3.6, 0 observed); harm not detected; BUT correctness
 caught 2 real breaches (hive-d-Alpha 04:59Z, caller=ramp_step: dug ICE -- ice melts to water when broken -- then sand
