@@ -1,8 +1,48 @@
-# Which model should run 4-8 smart bots, the overseer, and stuck escalation? (2026-10-05)
+# Which model should run 4-8 smart bots, the overseer, and stuck escalation? (2026-10-05/06)
 
-> **STATUS: INTERIM — the merged test plan is below; Stage A is running on the Mac Studio.** This file is updated
-> as results land. Nothing here has changed the live fleet. The recommendation section is filled in last.
+> **STATUS: CHECKPOINT after Stage A (replay) and Stage B (scenario suites), 10-06 06:30Z.**
+> - **Stage C1 (closed loop) is running on the sandbox**, 06:24Z to about 21:00Z.
+> - The long-tail model screens are queued after it.
+> - Nothing here has changed the live fleet.
+> - Recommendations below are **provisional until C1 reads out**.
 
+## Provisional recommendation (one per role)
+
+| role | model | how to run it | why (evidence below) |
+|---|---|---|---|
+| **per-bot brain (4-8 bots)** | **gemma4:26b** (Gemma 4 26B-A4B MoE) | thinking OFF; the fleet's JSON-schema grammar, not native tool calls; **LM Studio MLX 8-bit** (Ollama Q4_K_M is equal in quality at about half the throughput) | best on every deterministic measure (table below); top of both blind judges; 0 of 36 adversarial baits taken; 8 bots at p50 2.5 s / p95 7 s on LM Studio |
+| **overseer** | **gpt-oss:120b**, reasoning **medium** | Ollama, with the shadow mayor's JSON schema | 100% validator-clean; exact optimum on 15 of 15 allocation problems and 55 of 60 at "low"; plans reach the goal 12 of 15; about 60 s per call **while** 8 bots run, without slowing them |
+| **stuck escalation** | **gpt-oss:120b**, reasoning low or medium (the same loaded model) | as above | 20-45 s per call under load; picks an executable remedy as often as anything tested (9 of 12 at "low") |
+
+Runner-ups:
+
+| role | runner-up | why it is not first |
+|---|---|---|
+| brain | qwen3.6:35b-a3b | close behind gemma4, but worse on repeats, infeasible crafts and loops (paired, significant) |
+| overseer / escalation | **qwen3.8:27b at reasoning "low"** | both judges' favourite and only 18 GB, but a call takes about 7 min while 8 bots share the GPU; viable only off-peak or on its own machine |
+
+**What the owner has to decide or do before a live test**
+1. **Memory.**
+   - The pair needs about 93 GB: gemma 8-bit is 28 GB and gpt-oss is 65 GB.
+   - Today's Studio co-tenants take about 32 GB: the LCIA keep-warm's qwen2.5-coder:7b (12 GB) and the fleet
+     analyst's qwen3.8:27b (20 GB). Together that is past the ~107 GiB GPU budget, and it already caused GPU
+     out-of-memory errors during this benchmark.
+   - The options:
+     - move or retire the co-tenants;
+     - or use gemma4 Q4 on Ollama (18 GB);
+     - or use qwen3.8:27b as the overseer and accept its speed.
+2. **C2 (overseer and escalation inside real bots on the sandbox)** needs a small bench-only bot-code hook. Both
+   engines reviewed the design (`bench/models/closedloop/C2-DESIGN-DRAFT.md`, rev 2) and want it.
+3. **Then the live A/B**: 4-8 bots on the chosen stack as their own canary, against a matched control.
+
+**What NOT to use**
+
+| model / setting | why |
+|---|---|
+| gpt-oss as the per-bot brain with the grammar on Ollama | 21-68% valid, on both 0.33.3 and 0.35.1. Native tool calls fix it (96% valid), but it is no better than gemma4 there. |
+| nemotron-3.5-lightning | repeats the 4x loop 53-65% of the time |
+| dense 27-36B models as the brain | 30-54 s per decision with 4 bots asking, because Ollama serialises them |
+| qwen2.5:7b, kept | it is the worst of everything tested |
 ## The question
 
 Owner, 10-05 ~12:30Z: "I'd be fine with 4-8 really smart bots roaming a world ... the overseer using a larger

@@ -17,7 +17,7 @@ from datetime import datetime, timezone
 HERE = os.path.dirname(os.path.abspath(__file__))
 BOTS_HOST, WORLDS_HOST, STUDIO = 'mike@10.0.0.31', 'mike@10.0.0.30', 'mike@ai.ticrcorp.com'
 PORTS = {'sandbox': 25599, 'sandbox2': 25600, 'sandbox3': 25601, 'sandbox4': 25602}
-NAMES = ['Alpha', 'Bravo', 'Charlie', 'Delta', 'Echo', 'Fox', 'Golf', 'Hotel']
+NAMES = ['Alpha', 'Bravo', 'Comet', 'Delta', 'Echo', 'Fox', 'Golf', 'Hotel']   # Minecraft names <= 16 chars: 'mbench-s4-Charlie' (17) was kicked
 
 
 def sh(host, cmd, check=True, timeout=600):
