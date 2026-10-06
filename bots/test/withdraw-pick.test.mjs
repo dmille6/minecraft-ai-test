@@ -55,13 +55,14 @@ const { updateTownMemory, townKey } = await import('../src/chestfull.mjs')
 const updateMem = fn => updateTownMemory(process.env.POOL_STATE_DIR, townKey({ x: 0, y: 64, z: 0 }), null, fn)
 
 // ---------------------------------------------------------------- which copy ---
-await t('bestToolCopy: never a spent copy; a trip\'s worth of uses first, then tier, then uses left', () => {
+await t('bestToolCopy (withdraw2): never a spent copy; the best TIER first, then uses left', () => {
   const p = (name, used, slot) => ({ ...tool(name, used), slot })
   assert.equal(bestToolCopy([p('stone_pickaxe', 131 - FLOOR, 0)]), null, 'at FLOOR uses: spent, never taken')
   assert.equal(bestToolCopy([p('stone_pickaxe', 131 - FLOOR - 1, 0)])?.slot, 0, 'one use above FLOOR: usable')
   assert.equal(bestToolCopy([p('stone_pickaxe', 10, 0), p('iron_pickaxe', 10, 1)]).name, 'iron_pickaxe', 'iron over stone')
   assert.equal(bestToolCopy([p('stone_pickaxe', 100, 0), p('stone_pickaxe', 20, 1)]).slot, 1, 'more uses left')
-  assert.equal(bestToolCopy([p('iron_pickaxe', 230, 0), p('stone_pickaxe', 20, 1)]).name, 'stone_pickaxe', 'a 111-use stone over a 20-use iron: a trip\'s worth first')
+  assert.equal(bestToolCopy([p('iron_pickaxe', 230, 0), p('stone_pickaxe', 20, 1)]).name, 'iron_pickaxe', 'a 20-use iron over a 111-use stone: tier first (withdraw2)')
+  assert.equal(bestToolCopy([p('wooden_pickaxe', 0, 0), p('iron_pickaxe', 225, 1)]).name, 'iron_pickaxe', 'a fresh wooden never beats a usable iron')
   assert.equal(bestToolCopy([p('wooden_pickaxe', 0, 0), p('stone_pickaxe', 0, 1)]).name, 'stone_pickaxe')
   assert.equal(hasUsablePick([tool('stone_pickaxe', 125)]), false); assert.equal(hasUsablePick([tool('stone_pickaxe', 100)]), true)
 })
@@ -540,11 +541,13 @@ await t('CHEST2 THE WALK (structural: dig-watching cannot be driven here): a wit
 await t('R1.7 MISSES PER CONTAINER: a container shown empty of pickaxes is skipped; the town-wide miss needs every container', async () => {
   const w = withServer(town([stack('crafting_table', 1), stack('cobblestone', 3), stack('stick', 2)], [stack('dirt', 5)]))
   w.set(-5, 64, 0, 'chest'); w.stock(-5, 64, 0, [tool('stone_pickaxe', 30)])
-  updateMem(e => { e._pick_miss = { '5,64,0': Date.now() - 60_000 } })
+  // withdraw2: a pickaxe miss alone no longer skips a container while an iron pickaxe could be made -- it is skipped when
+  // it is ALSO freshly known to hold no ingots (withdraw2.test.mjs covers the other half).
+  updateMem(e => { e._pick_miss = { '5,64,0': Date.now() - 60_000 }; e._ingot_seen = { '5,64,0': { at: Date.now() - 60_000, count: 0 } } })
   assert.equal(townPickMiss(w.bot), false, 'one of two containers missed: no town-wide miss')
   const r = await pick(w.bot)
   assert.equal(r.status, 'success', r.detail)
-  assert.ok(!w.spy.opened.includes('5,64,0'), 'the missed container was not opened')
+  assert.ok(!w.spy.opened.includes('5,64,0'), 'the missed container (no pickaxe, no ingots) was not opened')
   assert.equal(count(w.bag, 'stone_pickaxe'), 1)
 })
 

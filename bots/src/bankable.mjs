@@ -1,5 +1,5 @@
 import { PATHFINDER_SCAFFOLD } from './scaffold.mjs'
-import { remaining, FLOOR } from './toolfor.mjs'
+import { remaining, FLOOR, tier, TOOL_TIER } from './toolfor.mjs'
 // WHAT IS ACTUALLY WORTH BANKING.
 //
 // "deposited items per bot-hour" is a CO-PRIMARY endpoint of this experiment and
@@ -122,7 +122,22 @@ export const EXCLUSION_PHRASE = Object.freeze({
   scaffold_reserve: 'scaffold reserve',
   last_of_tool_family: 'last of its tool family',
   the_only_station: 'the only station',
+  iron_upgrade_reserve: 'kept for an iron pickaxe',
 })
+
+/**
+ * THE IRON-UPGRADE RESERVE (withdraw2, Codex design check): while the bag's best USABLE pickaxe is below iron, up to
+ * this many iron_ingot stay out of every deposit -- one iron pickaxe's worth. A craft that failed after withdraw2 took
+ * the ingots leaves them where the next attempt (or the model's own craft) can use them, instead of banking them and
+ * withdrawing them again. Inline tier test: withdrawpick.mjs imports this module.
+ */
+export const IRON_UPGRADE_KEEP = 3
+const ironUpgradePending = items => {
+  const iron = TOOL_TIER.indexOf('iron')
+  let best = -1
+  for (const it of items) if (/_pickaxe$/.test(it?.name ?? '') && remaining(it) > FLOOR) best = Math.max(best, tier(it.name))
+  return best < iron
+}
 
 const TOOL_RE = /_(pickaxe|axe|shovel|sword|hoe)$/
 /** One of each of these stays in the bot's hands whatever the wants say: the stations and the bucket are how it
@@ -162,6 +177,7 @@ export function bankableInventory (items = [], { wants = [], creditCap = 64,
 
   const scaffoldReserve = scaffoldKeep(counts, reserveScaffold)
   const hold = withdrawHolds()
+  const ironKeep = ironUpgradePending(items) ? IRON_UPGRADE_KEEP : 0
   const detail = {}
   // name -> the rule that removed it, recorded HERE so no second route can disagree with the
   // decision. Only the subtraction that actually zeroed the item is named: the reserve when it
@@ -183,8 +199,11 @@ export function bankableInventory (items = [], { wants = [], creditCap = 64,
     // JUST WITHDRAWN (withdrawpick.mjs): held back like a reserve, so the next deposit cannot hand it straight back.
     const held = Math.min(Math.max(0, avail), hold[name] ?? 0)
     avail -= held
+    const ironKept = name === 'iron_ingot' ? Math.min(Math.max(0, avail), ironKeep) : 0
+    avail -= ironKept
     if (avail <= 0) {
       excluded[name] = held > 0 ? 'withdraw_hold'
+        : ironKept > 0 ? 'iron_upgrade_reserve'
         : reserved >= n ? 'scaffold_reserve'
         : m ? 'last_of_tool_family'
         : KEEP_ONE.has(name) ? 'the_only_station'
@@ -219,6 +238,13 @@ export function withdrawHolds (now = Date.now()) {
   return out
 }
 export function clearWithdrawHolds () { HOLDS = {} }
+/** Give back part of a hold (withdraw2's scoped holds: what an iron attempt took is held only while it runs). */
+export function releaseWithdrawHold (name, count) {
+  const h = HOLDS[name]
+  if (!h || !(count > 0)) return
+  h.count -= count
+  if (!(h.count > 0)) delete HOLDS[name]
+}
 
 /**
  * Should this bot deposit NOW?
