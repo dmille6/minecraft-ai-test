@@ -5665,9 +5665,12 @@ async function compost(ctx, _args, signal) {
       await ticks(2)
       let after = countOf(stack.name)
       if (after >= before) { await ticks(4); after = countOf(stack.name) }
-      if (after < before) { taken[stack.name] = (taken[stack.name] ?? 0) + (before - after); inserted += before - after; misses = 0 }
-      if (after < before && stack.name === 'apple') { const lv1 = composterLevel(at()); if (lv0 != null && lv1 != null && lv1 > lv0) appleLevels += lv1 - lv0 }
-      else if (++misses >= 3) { stop = `took no ${stack.name} in 3 tries`; break }
+      if (after < before) {
+        taken[stack.name] = (taken[stack.name] ?? 0) + (before - after); inserted += before - after; misses = 0
+        // THE LEVELS AN APPLE RAISED (the peaceful food policy's bone meal: apple_levels / 7). Inside the success branch, so
+        // the miss count below is exactly the old one (Codex review: a sibling `if` had captured its `else`).
+        if (stack.name === 'apple') { const lv1 = composterLevel(at()); if (lv0 != null && lv1 != null && lv1 > lv0) appleLevels += lv1 - lv0 }
+      } else if (++misses >= 3) { stop = `took no ${stack.name} in 3 tries`; break }
     }
   } finally {
     if (stationary && bot.stationaryUntil === stationary) bot.stationaryUntil = 0
