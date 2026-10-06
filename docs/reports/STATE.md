@@ -138,6 +138,13 @@ the same farm: ctrl 15,16 logs vs cand 21,23 (no harm). Bone meal arm built, OFF
 Bags: 76/80 bots hold >= 6 farm saplings, 62/80 carry torches. Design + follow-ons (WORKSHOP, SAFE MINESHAFT, designed
 not built): docs/reports/blueprint-builder-design-2026-10-05.md.
 
+## 10-06 21:40Z — CLIMBFLOOD-02 KEPT (+360; deaths 0/63.7 bot-h vs 9/191) and PROMOTED: FLEET c902d6f (21:01Z), 80/80 live.
+withdraw live 6 h: 15 orders, 14 ok, 13 pickaxes out (7 wooden). Scoreboard 11:19-21:19Z (incl. the outage): no usable
+pickaxe 18 -> 8, trip pickaxes 32 -> 41. Iron pickaxes: 69 crafted / 72 h, 31 of 80 hold one; 105 of 137 failed crafts
+were short iron_ingot while the banks held ~806. OWNER: build `withdraw2` (best-first pickaxe selection + take 3 ingots
++ 2 sticks and craft an iron pickaxe at town) -- queued after towndeposit and foodskip. Slot is FREE now; towndeposit
+(round-3 checks) launches next.
+
 ## 10-06 20:25Z — POWER OUTAGE (owner's UPS failed): fleet host 10.0.0.31 and world host 10.0.0.30 down 17:07-19:50Z (2h43m;
 the host came back on kernel 6.8.0-142), Mac mini rebooted ~20:06Z, Studio unaffected (up 32 days). Recovery checked:
 80/80 mcbot units active, canary pools on c902d6f, LLM decisions flowing (10.0.0.72 fine), filebeat up, 16 worlds + sandboxes
