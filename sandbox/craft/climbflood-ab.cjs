@@ -15,6 +15,11 @@
 //   E  lava source above the ceiling (700 43 700)
 //   F  dry: a 5x5x3 air room at 44..46 above the ceiling (the regression arm: must climb out)
 //   G  gravel above the ceiling (700 43 700), water source above the gravel (700 44 700)
+//   H  A + ICE in every side head cell (701/699 41 700, 700 41 701/699, stone below): a sidestep that breaks ice makes water
+//   I  an ICE ceiling (700 42 700) over the bot's own air head cell: vanilla removes it, no water (the boundary)
+//   J  ICE beside the stone ceiling (701 42 700): exposure alone does not melt ice (the candidate refuses it conservatively)
+//   K  INVALID (kept to name it): a sand CEILING over the bot's air head cell falls the moment it is set, in every arm
+//   L  stone ceiling; SAND at 43, 44, 45 and water at 46: digging the ceiling drops a 3-deep column with water behind it
 // Kit (design): stone_pickaxe at ~100 uses (damage 31), 64 cobblestone, an empty bucket.
 'use strict'
 const { execFileSync, spawn } = require('child_process')
@@ -54,6 +59,15 @@ const SPEC = {
   E: { setup: ['setblock 700 43 700 minecraft:lava'], secs: 120 },
   F: { setup: ['fill 698 44 698 702 46 702 minecraft:air'], secs: 120 },
   G: { setup: ['setblock 700 43 700 minecraft:gravel', 'setblock 700 44 700 minecraft:water'], secs: 120 },
+  // climbflood-02 (fleet 10-06): ICE is latent water; a deep falling column
+  H: { setup: ['fill 700 43 700 701 44 701 minecraft:water', 'setblock 701 41 700 minecraft:ice', 'setblock 699 41 700 minecraft:ice',
+               'setblock 700 41 701 minecraft:ice', 'setblock 700 41 699 minecraft:ice'], secs: 120 },   // A + ice in every side head cell (on stone)
+  I: { setup: ['setblock 700 42 700 minecraft:ice'], secs: 120 },                                          // an ice CEILING over the bot's (air) head cell
+  J: { setup: ['setblock 701 42 700 minecraft:ice'], secs: 120 },                                          // ice BESIDE the stone ceiling
+  K: { setup: ['setblock 700 42 700 minecraft:sand', 'setblock 700 43 700 minecraft:sand', 'setblock 700 44 700 minecraft:sand',
+               'setblock 700 45 700 minecraft:water'], secs: 120 },                                        // INVALID FIXTURE (10-06): a sand CEILING over air falls at once; kept only to name the bug
+  L: { setup: ['setblock 700 43 700 minecraft:sand', 'setblock 700 44 700 minecraft:sand', 'setblock 700 45 700 minecraft:sand',
+               'setblock 700 46 700 minecraft:water'], secs: 120 },                                        // stone ceiling under a 3-deep sand column under water (03:09Z)
 }
 function arenaCmds (spec) {
   const c = ['kill @e[type=item,x=700,y=40,z=700,distance=..20]',

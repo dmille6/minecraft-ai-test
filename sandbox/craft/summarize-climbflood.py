@@ -18,6 +18,11 @@ EXPECT = {
     'E': 'candidate refuses; never digs the ceiling under the lava',
     'F': 'both climb out identically (regression arm)',
     'G': 'control floods; candidate refuses the gravel/ceiling digs',
+    'H': 'ice in every side head cell under A: climbflood-01 (old) sidesteps into ice -> water; climbflood-02 refuses it',
+    'I': 'ice ceiling over the air head cell: no melt in any arm (the boundary)',
+    'J': 'ice beside the ceiling: no melt on exposure; climbflood-02 refuses it conservatively',
+    'K': 'INVALID fixture (a sand ceiling over air falls at once in every arm)',
+    'L': 'a 3-deep sand column under water over a stone ceiling: control and old dig and flood; climbflood-02 refuses',
 }
 rows = []
 for f in sys.argv[1:]:
@@ -30,7 +35,7 @@ for r in rows:
     by[(r['scene'], r['arm'])].append(r)
 print('%-5s %-5s %-8s %3s %8s %7s %7s %6s %6s %7s %9s %s' % ('scene', 'arm', 'sha', 'n', 'flooded', 'died', 'ceiling', 'out', 'alive', 'prereq', 'refusals', 'flood rows (kinds)'))
 for scene in sorted({s for s, _ in by}):
-    for arm in ('ctrl', 'cand'):
+    for arm in sorted({a for _, a in by}, key=lambda a: (a.rstrip('0123456789') != 'ctrl', a != 'old', a)):
         rs = by.get((scene, arm))
         if not rs:
             continue
