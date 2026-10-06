@@ -1,0 +1,137 @@
+{
+ "run_id": "treefarm-01",
+ "sha": "453cd07",
+ "registered_at": "2026-10-06T00:10:00Z",
+ "ladder_change": false,
+ "promotion": "fleet-wide",
+ "notes": "[treefarm-01 (OWNER 10-05 ~19:00Z: blueprint builder proven first on a tree farm; queue position LAST, after the junk well re-run and the cobble rule). Branch bp-on-1918bb5 @ 453cd07 on the 1918bb5 base; REBASE onto the fleet sha when its turn comes (rebase rule: chest-full's chestSiteRefusal and the junk well's site search must refuse farmIndex cells) and re-register.] THE CHANGE: one tree farm per town (3x3 sapling plots 4 apart, 4 growth torches, 6-30 from home), founded and tended by a deterministic town order tend_farm (HOUSEKEEPING, never the model's): plant from the bag (birch first, then oak), restore lost soil, clear LEFTOVER logs (<= 6 above) from plot columns, place torches it carries; bone meal only with TREEFARM_BONEMEAL=on (OFF). The ordinary gather harvests the trees. Every mutation counted only on a server block_change at that cell; one builder per town by a lease whose generation is a fencing token, the record written only under it; every movement profile excludes farm soil from breaking and plot columns/torch cells/missing soil from scaffolding; gather/place/roomVeto/planting obligation/composter site refuse farm cells. MEASURED ON PAPER (sandbox4): growth rtick 30 noon 32/32 (median 99 s -> ~16 min at rtick 3), midnight dark 0/18, midnight with this torch layout 32/32; a sapling under six leaf blocks 16/16 (leaves do not block). E2E on the final sha: build 9/9 + 4/4 confirmed, 0 off-plan, bag exact; SIGKILL after the 3rd planting then restart completes 9/9 + 4/4; a foreign live lease -> no record, 0 placements, takeover after expiry; the real bot's gather/place/goto around the farm leave every reserved cell intact; grow -> ordinary gather (10 birch + 10 oak) -> clear leftovers -> replant under leaves closes the loop; harvest A/B on the same farm: logs gathered ctrl 15,16 vs cand 21,23 (n=2: no harm); bone meal arm consumes exactly what it reports. CODEX: six rounds, APPROVE. FLEET BAGS 10-05 19:30Z: 76/80 bots hold >= 6 birch+oak saplings, 62/80 carry torches. Design: docs/reports/blueprint-builder-design-2026-10-05.md.",
+ "licence": {
+  "class": "kind",
+  "kind": "_farm_tend",
+  "min_rows": 1,
+  "note": "Written only by this build: one row per tend_farm visit, including no_effect skips (held lease, nothing to do, unloaded plots). The fleet (1918bb5) has no farm module and no _farm_* row of any kind."
+ },
+ "reads": [
+  "treefarmread",
+  "immobiledid"
+ ],
+ "read_minutes": [
+  180,
+  360
+ ],
+ "deadline_min": 780,
+ "change_rows": [
+  "farm_tend",
+  "farm_place"
+ ],
+ "linkage_extra": [],
+ "draw_exposure": {
+  "hours": 3,
+  "require": [
+   {
+    "name": "town deposit visits (bots reach town, where the farm order runs)",
+    "kind": "deposit",
+    "min": 8
+   }
+  ],
+  "note": "The order runs only at town (<= 48 of home) for a bot holding >= 6 birch/oak saplings (founding) or with work at an existing farm. 100% of sampled bots hold saplings (memory: the-place-read-back-scores-solidity); deposits are the proxy for being at town."
+ },
+ "exposure": {
+  "read": "treefarmread",
+  "field": "exposure_ready",
+  "min": 1,
+  "note": "Ready = >= 9 server-confirmed plantings on the canary (a farm founded and planted) AND >= 20 control log gathers with logs > 0 (the instrument). Growth needs a median ~16 min per sapling in light at rtick 3 (Paper, design doc), so +180 can already show grown farm trees."
+ },
+ "own_lines": [
+  {
+   "read": "treefarmread",
+   "field": "c1_offplan",
+   "op": "<=",
+   "value": 0,
+   "on_fail": "REVERT",
+   "evidence": "defect",
+   "note": "C1: a confirmed _farm_place at a cell outside every generation of its town's record on disk (/var/lib/mcai/_pool-<pool>/treefarm-*.g<N>.json), or a visit with offplan > 0."
+  },
+  {
+   "read": "treefarmread",
+   "field": "c2_two_builders",
+   "op": "<=",
+   "value": 0,
+   "on_fail": "REVERT",
+   "evidence": "defect",
+   "note": "C2: two mutating _farm_tend visits by different bots of one pool whose spans [t0, t] overlap (the lease failed)."
+  },
+  {
+   "read": "treefarmread",
+   "field": "c3_lost",
+   "op": "<=",
+   "value": 0,
+   "on_fail": "REVERT",
+   "evidence": "defect",
+   "note": "C3: a visit whose bag lost anything that is not a sapling, log, dirt, torch, bone meal, stick, apple or leaves (what a farm visit plants, places, digs or gets from a tree)."
+  },
+  {
+   "read": "treefarmread",
+   "field": "c4_double_founding",
+   "op": "<=",
+   "value": 0,
+   "on_fail": "REVERT",
+   "evidence": "defect",
+   "note": "C4: more than one _farm_site row in a pool without replaced= (two farms founded in one town)."
+  },
+  {
+   "read": "treefarmread",
+   "field": "bonemeal_used",
+   "op": "<=",
+   "value": 0,
+   "on_fail": "REVERT",
+   "evidence": "defect",
+   "note": "The bone meal arm is OFF (TREEFARM_BONEMEAL unset; not an owner decision). Any bone meal applied by a farm visit is a defect."
+  },
+  {
+   "read": "treefarmread",
+   "field": "rows_control",
+   "op": "<=",
+   "value": 0,
+   "on_fail": "REVERT",
+   "note": "Arms: control _farm_* rows. BLOCKS KEEP."
+  },
+  {
+   "read": "treefarmread",
+   "field": "rows_canary",
+   "op": ">=",
+   "value": 1,
+   "on_fail": "REVERT",
+   "note": "LIVENESS: canary _farm_* rows on the canary build (restart-lag rows excluded). BLOCKS KEEP (INCONCLUSIVE)."
+  },
+  {
+   "read": "treefarmread",
+   "field": "instrument_control",
+   "op": ">=",
+   "value": 20,
+   "on_fail": "REVERT",
+   "note": "POSITIVE CONTROL: control log gathers with logs > 0 are visible to this query (352 in the 3 h dry run, 10-05 15:24Z). BLOCKS KEEP."
+  }
+ ],
+ "primary": {
+  "read": "treefarmread",
+  "field": "logs_per_bh_did",
+  "note": "REPORTED, NOT GATED: logs gathered per bot-hour DiD; also near-town logs per bot-hour DiD, the median distance from home of a successful log gather DiD (66 -> 80 in four days before the farm), gather seconds per log DiD, the farm census (trees seen per visit), plantings, cleared leftover logs, torches, and the share of canary rows within 96 of home (the farm only grows while someone is that near). NULL SPREAD: the dry run with chestfull-02's pools as 'canary' (a change unrelated to wood) read logs/bot-h DiD +1.90 and gather-distance DiD +35 -- a gate here would act on noise; a REVERT never rests on these."
+ },
+ "harm": {
+  "note": "Unchanged: the two-death floor (OWNER 2026-09-11) and gather_ratio < 0.43 of control, from immobiledid."
+ },
+ "teardown": {
+  "note": "THREE STEPS: drop-ins, clear canary_pool, restart the pool's bots 12 s apart; then confirm the live versions. The farm records and lease files in /var/lib/mcai/_pool-<pool> are bot state and stay; the planted farms stay in the world (saplings and torches; no world edit is needed or allowed)."
+ },
+ "amendments": [],
+ "extension": {
+  "until_exposure": true,
+  "extra_reads": [
+   540,
+   720
+  ],
+  "final_on_zero_exposure": "INCONCLUSIVE",
+  "note": "Exposure needs bots at town holding saplings; +360 should normally decide."
+ }
+}

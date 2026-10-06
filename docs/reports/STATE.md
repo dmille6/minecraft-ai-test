@@ -125,6 +125,19 @@ refusal: craftsync baseline_unanswered), budget refusal chain 2/2 (admission ref
 deposit), roomy 2/2 = control, site 2/2 (no path floor, off table cells), far 2/2 nothing placed; nothing dropped anywhere.
 chestread now streams (memory 294 MB for a 12 h walk) -- the other reads still hold every row via Events.load.
 
+## 10-06 ~00:15Z — TREEFARM-01 (blueprint builder + town tree farm) BUILT, REVIEWED, REGISTERED, NOT LAUNCHED. Queue: LAST
+(owner 10-05 ~19:00Z). Branch bp-on-1918bb5 @ 453cd07 (base 1918bb5; REBASE onto the fleet sha when its turn comes --
+chestSiteRefusal and the junk well's site search must then refuse farmIndex cells). Registration main
+docs/reports/treefarm-01.1918bb5.json; read scripts/host/treefarmread.py (staged /tmp/treefarmread.py on 10.0.0.31; dry run
+37 s, positive control 352 control log gathers; changerowcheck/licencecheck/v30 preflights dry-run OK). Codex APPROVE r6.
+MEASURED (Paper sandbox4): saplings grow a median ~16 min at rtick 3 in light, 0 at night without light, at daylight
+speed at night with the farm's torch layout; leaves in a column do NOT block growth (16/16) -- and a harvested tree's
+leaves never decay while a neighbour stands, so this mattered. E2E on the final sha: build 9/9 + 4/4 confirmed, SIGKILL
+resume, foreign lease, other skills around it, grow -> ordinary gather -> clear -> replant loop closed; harvest A/B on
+the same farm: ctrl 15,16 logs vs cand 21,23 (no harm). Bone meal arm built, OFF by default (owner decision pending).
+Bags: 76/80 bots hold >= 6 farm saplings, 62/80 carry torches. Design + follow-ons (WORKSHOP, SAFE MINESHAFT, designed
+not built): docs/reports/blueprint-builder-design-2026-10-05.md.
+
 ## 10-05 ~23:30Z — TOWNDEPOSIT + FOODSKIP built, reviewed (Codex APPROVE), registered (main d7aafcf), NOT launched; both on
 1918bb5 and need rebasing (trial picks onto 47110e8 and withdraw pass). towndeposit Paper: full bag 3/3 banked exactly
 the surplus (60-use spare pickaxe, cobble 20, logs 10, raw copper 7), kept spent+best pickaxe, iron, coal, stockpile
