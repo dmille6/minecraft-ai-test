@@ -6662,6 +6662,10 @@ async function transferIn (bot, win, { deposit = [], swap = null, tool = null, t
           took[take.name] = (took[take.name] ?? 0) + m
           left -= m
         }
+        // A TAKE THAT FELL SHORT STOPS THE TRANSFER before any LATER take (withdraw2, Codex round 2: the sticks vanished
+        // after the room-making clicks and the ingots -- always listed last -- were taken anyway). The last take may end
+        // short, as before (what moved is verified by the server).
+        if (left > 0 && take !== takes[takes.length - 1]) throw stop(`only ${take.count - left} of ${take.count} ${take.name} were there: nothing after it is taken`)
       }
     }, { deadline, signal })
   } catch (e) {
@@ -6859,13 +6863,13 @@ function withdrawRowOut (bot, r, fields, args = null) {
 }
 /** THE ROW OF A THROWN VISIT (both reviews, round 2): an abort or error still reports what THIS transfer did -- the
  *  cursor, what moved and what was planned to leave -- from the state transferIn attached, never an earlier visit's. */
-function withdrawThrowRow (bot, e, { verb, need, uses = null, bagBefore = 0, tried = [] }) {
+function withdrawThrowRow (bot, e, { verb, need, uses = null, bagBefore = 0, tried = [] }, args = null) {
   const ws = e?.withdrawState ?? {}, wd = e?.withdrawDiag ?? {}
   withdrawRowOut(bot, { status: 'failed' }, {
     outcome: e?.aborted ? 'aborted' : 'error', need, uses, verification: wd.verification ?? '-', cursor: ws.cursor ?? wd.cursor ?? '-',
     err: String(e?.message ?? e), chestRoom: wd.chestRoom ?? null, plan: wd.plan ?? '-', srv: '-', bagBefore, bagAfter: bagTotal(bot.inventory?.items?.() ?? []),
     deposited: Object.entries(ws.gave ?? {}).map(([name, count]) => ({ name, count })),
-    took: { ...(ws.took ?? {}), ...(ws.tool ? { [ws.tool.name]: 1 } : {}) }, verb, tried })
+    took: { ...(ws.took ?? {}), ...(ws.tool ? { [ws.tool.name]: 1 } : {}) }, verb, tried }, args)
 }
 
 /**
@@ -6994,23 +6998,26 @@ async function withdrawPick (ctx, _args, signal) {
   // THE ROW WITH ITS LEDGER (withdraw2, Codex design check): the detail stays readable (and may be cut at 300); the
   // gates read `args` -- what the WHOLE order moved, the server's cumulative change from one baseline to one final
   // recount, and complete=true only when both were the server's.
-  const finish = async (r, outcome) => {
-    st.written = true
+  const ledgerArgs = (finalBag, outcome) => {
     let srv = null
-    if (st.base) {
-      const fin = await recountBag(bot, withdrawClock(ctx).msLeft)
-      if (fin.source === 'server') {
-        const sum = list => { const o = {}; for (const it of list) o[it.name] = (o[it.name] ?? 0) + (it.count ?? 0); return o }
-        const a = sum(st.base), b = sum(fin.bag)
-        srv = {}
-        for (const k of new Set([...Object.keys(a), ...Object.keys(b)])) if ((b[k] ?? 0) !== (a[k] ?? 0)) srv[k] = (b[k] ?? 0) - (a[k] ?? 0)
-      }
+    if (st.base && finalBag) {
+      const sum = list => { const o = {}; for (const it of list) o[it.name] = (o[it.name] ?? 0) + (it.count ?? 0); return o }
+      const a = sum(st.base), b = sum(finalBag)
+      srv = {}
+      for (const k of new Set([...Object.keys(a), ...Object.keys(b)])) if ((b[k] ?? 0) !== (a[k] ?? 0)) srv[k] = (b[k] ?? 0) - (a[k] ?? 0)
     }
     const L = st.ledger
     const standing = (st.cands ?? []).filter(c => !(st.gone ?? []).includes(c))
     L.best_valid = tierName(standing.length ? tier(standing[0].name) : -1)
     L.gone = (st.gone ?? []).map(c => tierName(tier(c.name)))
-    const args = { ...L, srv, plan: Object.keys(L.gave), complete: !!srv, outcome }
+    return { ...L, srv, plan: Object.keys(L.gave), complete: !!srv, outcome }
+  }
+  const finish = async (r, outcome) => {
+    st.written = true
+    let finalBag = null
+    if (st.base) { const fin = await recountBag(bot, withdrawClock(ctx).msLeft); if (fin.source === 'server') finalBag = fin.bag }
+    const L = st.ledger
+    const args = ledgerArgs(finalBag, outcome)
     return withdrawRowOut(bot, r, { outcome, need: st.need, uses: st.uses, ...st.diag, bagBefore, bagAfter: bagTotal(bot.inventory.items()),
       deposited: Object.entries(L.gave).map(([name, count]) => ({ name, count })), took: L.took, verb: 'withdraw_pick', tried,
       held: L.held, tookTier: L.took_tier, bestValid: L.best_valid, craft: L.craft }, args)
@@ -7018,7 +7025,10 @@ async function withdrawPick (ctx, _args, signal) {
   try {
     return await withdrawPickRun(ctx, signal, tried, st, finish)
   } catch (e) {
-    if (!st.written) withdrawThrowRow(bot, e, { verb: 'withdraw_pick', need: st.need, uses: st.uses, bagBefore, tried })
+    // A THROWN ORDER KEEPS ITS LEDGER (Codex round 2): what moved, the craft, and the cumulative change measured after the
+    // craft when there was one (no new recount on the way out of an abort).
+    if (!st.written) withdrawThrowRow(bot, e, { verb: 'withdraw_pick', need: st.need, uses: st.uses, bagBefore, tried },
+      ledgerArgs(st.finalBag ?? null, e?.aborted ? 'aborted' : 'error'))
     throw e
   }
 }
@@ -7097,7 +7107,8 @@ async function withdrawPickRun (ctx, signal, tried, st, finish) {
   // 1. INSPECT (best-first, Codex design check): up to three containers, read, nothing taken; their evidence written.
   // A container known to hold no usable pickaxe is still looked in while the iron path is possible -- unless it is also
   // freshly known to hold no ingots (a town with no pickaxes is exactly where the ingots matter).
-  const ironOk = held < TIER_IRON && ironAllowed(bot)
+  // Iron is possible only while the cooldown allows it AND the town's ingots are not ruled out (complete coverage).
+  const ironOk = held < TIER_IRON && ironAllowed(bot) && !townIronRuledOut(bot)
   const noWood = (mem, k) => ['stick', 'planks', 'log'].every(n => containerIngredientMiss(mem, k, n))
   const sweep = withdrawSweep(bot, { town: true, skipIf: (mem, k) => containerPickMiss(mem, k) && (!ironOk || (containerIngotsNone(mem, k) && noWood(mem, k))) })
   const survey = []
@@ -7242,17 +7253,21 @@ async function ironPath (ctx, signal, { survey, keep, msLeft, deadline, record, 
     const pre = await recountBag(bot, msLeft)
     try { cr = await SKILLS.craft.run(ctx, { item: 'iron_pickaxe', count: 1 }, signal) } catch (e) { thrown = e; cr = { status: 'failed', detail: String(e?.message ?? e) } }
     const after = await recountBag(bot, msLeft)
+    if (after.source === 'server') st.finalBag = after.bag   // an abort below still reports the cumulative change
     const n = (bag, name) => (bag ?? []).reduce((k, it) => k + (it.name === name ? it.count ?? 1 : 0), 0)
     made = after.source === 'server' && st.base ? n(after.bag, 'iron_pickaxe') - n(st.base, 'iron_pickaxe') : null
     // THE NEW PICKAXE IS HELD as soon as the server shows it -- also when the craft threw afterwards (Codex P2).
     if (made > 0) setWithdrawHold('iron_pickaxe', made, Date.now() + HOLD_MS)
     if (pre.source === 'server' && after.source === 'server') {
       const names = new Set([...pre.bag, ...after.bag].map(it => it.name))
-      st.ledger.transform = [...names].filter(k => k !== 'iron_pickaxe' && n(after.bag, k) < n(pre.bag, k))
+      // ONLY THE RECIPE CHAIN (Codex round 2: an unrelated fall during the craft must stay visible to G1): ingots, sticks,
+      // planks, logs and a table -- what an iron pickaxe and its sticks and table are made of.
+      const recipe = k => k === 'iron_ingot' || k === 'stick' || k === 'crafting_table' || /_(planks|log|stem)$/.test(k)
+      st.ledger.transform = [...names].filter(k => recipe(k) && n(after.bag, k) < n(pre.bag, k))
     }
-    if (thrown && (thrown.aborted || signal?.aborted)) throw thrown
     st.ledger.produced = made ?? '?'
-    st.ledger.craft = cr?.status === 'success' && cr.verification === 'server' ? 'server' : cr?.status === 'success' ? 'unverified' : 'failed'
+    st.ledger.craft = cr?.status === 'success' && cr.verification === 'server' ? 'server' : cr?.status === 'success' ? 'unverified' : thrown ? 'thrown' : 'failed'
+    if (thrown && (thrown.aborted || signal?.aborted)) throw thrown
     if (st.ledger.craft === 'server' && Number(cr.produced) >= 1 && made >= 1) {
       st.ledger.took_tier = 'iron'
       return { result: { status: 'success', detail: `crafted an iron pickaxe from ${takes.length ? takes.map(t => `${t.count}x ${t.name}`).join(', ') + ' withdrawn' : 'what the bag held'}, verified by the server` }, outcome: 'crafted_iron' }
