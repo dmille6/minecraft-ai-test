@@ -6299,6 +6299,11 @@ const slotAt = (win, s) => (typeof win.get === 'function' ? win.get(s) : win.slo
 async function transferIn (bot, win, { deposit = [], swap = null, tool = null, takes = [] }, { deadline, signal }) {
   const took = {}, gave = {}
   let toolTaken = null, err = null
+  // WHAT THE BAG HELD OF EACH TAKE BEFORE ANY CLICK (withdraw2, Codex round 4): an interrupted part-stack take has placed
+  // some of its items (and the settle may rescue the cursor into the bag) before `took` is updated; on an error exit the
+  // bag's own change is what this transfer moved.
+  const bagCount = name => { let n = 0; for (let s = win.inventoryStart; s < win.inventoryEnd; s++) { const x = slotAt(win, s); if (x?.name === name) n += x.count ?? 0 } return n }
+  const startCount = Object.fromEntries(takes.map(t => [t.name, bagCount(t.name)]))
   try {
     await lockstepClicks(bot, async raw => {
       // EVERY CLICK hears the cancel (craftsync's lockstep refuses one after an abort; this says so without it too).
@@ -6416,6 +6421,7 @@ async function transferIn (bot, win, { deposit = [], swap = null, tool = null, t
   // EVERY EXIT: an empty cursor, synchronised, before the caller closes the window -- or the unresolved handoff.
   const settled = await settleCursor(bot, win)
   const bad = settled.state !== 'empty' && settled.state !== 'rescued'
+  if (err) for (const t of takes) { const d = bagCount(t.name) - startCount[t.name]; if (d > (took[t.name] ?? 0)) took[t.name] = d }
   const state = { took, gave, tool: toolTaken, cursor: bad ? `${settled.state}:${settled.why}` : settled.state,
                   unresolved: settled.state === 'unresolved' ? settled : null, err: err ? String(err.message ?? err).slice(0, 80) : null }
   // AN ABORT CARRIES WHAT HAPPENED (Claude round 2), so both verbs' rows report THIS transfer, not an earlier visit.
