@@ -6768,7 +6768,14 @@ async function withdrawPick (ctx, _args, signal) {
     return await withdrawPickRun(ctx, signal, tried, st, finish)
   } catch (e) {
     // A THROWN ORDER KEEPS ITS LEDGER (Codex round 2): what moved, the craft, and the cumulative change measured after the
-    // craft when there was one (no new recount on the way out of an abort).
+    // craft when there was one (no new recount on the way out of an abort). The INTERRUPTED transfer never reached
+    // record(), so what it moved (its own withdrawState) is merged in here (Codex round 3); complete stays false without
+    // a final server recount.
+    const ws = e?.withdrawState
+    if (!st.written && ws) {
+      for (const [k, v] of Object.entries(ws.took ?? {})) st.ledger.took[k] = (st.ledger.took[k] ?? 0) + v
+      for (const [k, v] of Object.entries(ws.gave ?? {})) st.ledger.gave[k] = (st.ledger.gave[k] ?? 0) + v
+    }
     if (!st.written) withdrawThrowRow(bot, e, { verb: 'withdraw_pick', need: st.need, uses: st.uses, bagBefore, tried },
       ledgerArgs(st.finalBag ?? null, e?.aborted ? 'aborted' : 'error'))
     throw e
