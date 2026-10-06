@@ -467,6 +467,23 @@ await t('C3 P2: an order ABORTED mid-transfer keeps what that transfer moved in 
   } finally { SKILLS.craft.run = realCraft }
 })
 
+await t('C4 P2: an abort in the middle of a PART-STACK take keeps what reached the bag (placed + rescued) in the ledger', async () => {
+  const w = withServer(town([p('stone_pickaxe', 0)], [stack('stick', 10), stack('iron_ingot', 3)]))
+  w.set(6, 64, 2, 'crafting_table')
+  const calls = craftStub(w, 'honest')
+  const ac = new AbortController(); const click = w.bot.clickWindow.bind(w.bot)
+  let n = 0
+  w.bot.clickWindow = async (...a) => { const r = await click(...a); if (++n === 3) ac.abort(); return r }   // pickup, 1 placed, 1 placed -> abort
+  try {
+    await assert.rejects(SKILLS.withdraw_pick.run({ bot: w.bot }, {}, ac.signal))
+    const inBag = count(w.bag, 'stick')
+    assert.ok(inBag > 0, `positive control: sticks reached the bag (${inBag})`); assert.equal(calls.length, 0)
+    const a = lastRow().args
+    assert.equal(a.took.stick, inBag, `ledger took ${JSON.stringify(a.took)} vs ${inBag} in the bag`)
+    assert.equal(a.complete, false)
+  } finally { SKILLS.craft.run = realCraft }
+})
+
 await t('EVIDENCE AFTER A LOOK: nothing better and no ingots in the only chest -> the gate\'s two "ruled out"s are true', async () => {
   const w = withServer(town([p('stone_pickaxe', 0)], [p('wooden_pickaxe', 0), stack('dirt', 5)]))
   assert.equal(townBetterPickMiss(w.bot), false, 'positive control: not yet known')
