@@ -138,6 +138,19 @@ the same farm: ctrl 15,16 logs vs cand 21,23 (no harm). Bone meal arm built, OFF
 Bags: 76/80 bots hold >= 6 farm saplings, 62/80 carry torches. Design + follow-ons (WORKSHOP, SAFE MINESHAFT, designed
 not built): docs/reports/blueprint-builder-design-2026-10-05.md.
 
+## 10-06 20:25Z — POWER OUTAGE (owner's UPS failed): fleet host 10.0.0.31 and world host 10.0.0.30 down 17:07-19:50Z (2h43m;
+the host came back on kernel 6.8.0-142), Mac mini rebooted ~20:06Z, Studio unaffected (up 32 days). Recovery checked:
+80/80 mcbot units active, canary pools on c902d6f, LLM decisions flowing (10.0.0.72 fine), filebeat up, 16 worlds + sandboxes
+up. FIXED BY HAND: (1) /tmp on 10.0.0.31 lost the read scripts -> climbflood-02's loop exited "reads-missing"; restored
+immobiledid.py (main e8cd891) and every queued read (towndeposit, foodskip, gridfix, bamboo, treefarm, well, withdraw,
+chest) to /tmp AND ~/mcai-analysis/ (canarywatch's HEAL looks there); relaunched the loop 20:14Z (resumed, no
+redeploy) -> +180 read done: NOT_YET, deaths 0 vs 6, exposure 167/100. (2) shadow mayor recorder (transient unit) was
+gone: restarted 20:18Z as uid mike (mcbot cannot traverse /home/mike). (3) sandbox 1 (block2-sandbox, :25599) is DISABLED
+at boot: started by hand. (4) the model benchmark's C1 runner + SSH tunnel on the mini died; agent resuming with a
+reboot-proof tunnel. Agents interrupted by a network failure were resumed. FOLLOW-UPS for the owner: make the mayor a
+persistent unit; enable block2-sandbox at boot; keep read scripts out of /tmp (tmpfs) -- the loop deliberately refuses
+to auto-copy.
+
 ## 10-06 ~17:05Z — OWNER: the M4 Studio is cleared of other projects; unload unused models freely. Verified: LCIA keepwarm +
 llmcache gone (com.lcia.ollama-env remains: NUM_PARALLEL=4, KEEP_ALIVE=30m). PAUSED this project's tier-1 shadow
 analyst cron on 10.0.0.31 (~/analyst.py at :03/:33 calling qwen3.8:27b on the Studio) for the model benchmark --
