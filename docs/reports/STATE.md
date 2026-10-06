@@ -138,6 +138,14 @@ the same farm: ctrl 15,16 logs vs cand 21,23 (no harm). Bone meal arm built, OFF
 Bags: 76/80 bots hold >= 6 farm saplings, 62/80 carry torches. Design + follow-ons (WORKSHOP, SAFE MINESHAFT, designed
 not built): docs/reports/blueprint-builder-design-2026-10-05.md.
 
+## 10-06 23:00Z — towndeposit-01 CHAINED (22:13Z) but its DRAW was crashing: drawrec.sh runs /tmp/poolrank2.py, which existed
+ONLY in /tmp (never committed) and was wiped by the outage reboot. RECONSTRUCTED as scripts/host/poolrank2.py from
+halfdid.py's documented exact reproduction (120-min window, declared_code_version filter, -d pools = 3090 half); installed
+to /tmp and ~/mcai-analysis. The draw now runs: only placebo-b passes draw_exposure (>= 8 compost rows in 6 h -- the outage
+gap thins the window) and five pools are inside their 12 h post-canary exclusion; the loop redraws every 20 min and will
+deploy when two qualify. foodskip-01 CHAINED after it (variants 56aa04a / c902d6f). Other /tmp-only scripts referenced by
+host tooling: quickstatus.py, modelshare.py, cooldid4.py (nightwatch/halfdid) -- check before relying on them.
+
 ## 10-06 21:40Z — CLIMBFLOOD-02 KEPT (+360; deaths 0/63.7 bot-h vs 9/191) and PROMOTED: FLEET c902d6f (21:01Z), 80/80 live.
 withdraw live 6 h: 15 orders, 14 ok, 13 pickaxes out (7 wooden). Scoreboard 11:19-21:19Z (incl. the outage): no usable
 pickaxe 18 -> 8, trip pickaxes 32 -> 41. Iron pickaxes: 69 crafted / 72 h, 31 of 80 hold one; 105 of 137 failed crafts
