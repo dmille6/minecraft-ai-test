@@ -138,6 +138,13 @@ the same farm: ctrl 15,16 logs vs cand 21,23 (no harm). Bone meal arm built, OFF
 Bags: 76/80 bots hold >= 6 farm saplings, 62/80 carry torches. Design + follow-ons (WORKSHOP, SAFE MINESHAFT, designed
 not built): docs/reports/blueprint-builder-design-2026-10-05.md.
 
+## 10-06 ~23:30Z — WITHDRAW2 READY (not chained): wd2-on-c902d6f @ c4e9c47, Codex APPROVE (round 7), 49/49 mutants; registration
+withdraw2-01.c902d6f.json on main 2df5fc4 (read + reg on the host in /tmp and ~/mcai-analysis). Paper: best tier taken 2/2
+where the control took wooden; iron pickaxe crafted from exactly 3 ingots + 2 sticks, server-confirmed 4/4; full-bag
+trade conserved. Live confirmation of the problem: control withdrawals in 3 h were wooden 8, stone 4, iron 1. Queue:
+after towndeposit + foodskip (rebase + check iron retention vs towndeposit's at that point). Mutant drivers now kept in
+scripts/mutants/ (the scratchpad copies were lost once).
+
 ## 10-06 23:00Z — towndeposit-01 CHAINED (22:13Z) but its DRAW was crashing: drawrec.sh runs /tmp/poolrank2.py, which existed
 ONLY in /tmp (never committed) and was wiped by the outage reboot. RECONSTRUCTED as scripts/host/poolrank2.py from
 halfdid.py's documented exact reproduction (120-min window, declared_code_version filter, -d pools = 3090 half); installed
