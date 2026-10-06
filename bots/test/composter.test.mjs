@@ -539,6 +539,38 @@ await t('WIRED compost: levels cycle 0..8, every insert verified, bone meal conf
   assert.match(row?.skill?.detail ?? '', /^slots=36->3[0-5] level=0->\d bonemeal=\d+ n=80 stop=done items=/)
 })
 
+// ---- THE PEACEFUL FOOD POLICY (owner 10-06, foodskip.mjs): apples above 4 are compostable only while it is active ----
+await t('APPLES pure: off (the default) is today exactly; on keeps APPLE_RESERVE; other food never, on or off', () => {
+  const bag = [S('apple', 10), S('leaf_litter', 20), S('bread', 9), S('carrot', 9), S('cookie', 9), S('melon_slice', 9), S('sweet_berries', 9),
+               S('baked_potato', 9), S('pumpkin_pie', 9), S('dried_kelp', 9), S('beetroot', 9), S('potato', 9), S('glow_berries', 9), ...filler(20)]
+  assert.equal(C.APPLE_RESERVE, 4); assert.equal(C.APPLE_CHANCE, 0.65)
+  assert.deepEqual(C.compostAllowance(bag), C.compostAllowance(bag, { apples: false }))
+  assert.deepEqual(C.compostPlan(bag), C.compostPlan(bag, { apples: false }))
+  assert.deepEqual(C.compostAllowance(bag), { leaf_litter: 20 }, 'off: no food at all')
+  assert.deepEqual(C.compostAllowance(bag, { apples: true }), { leaf_litter: 20, apple: 6 }, 'on: apples above 4, no other food')
+  assert.deepEqual(C.compostAllowance([S('apple', 4)], { apples: true }), {}, 'the reserve: 4 apples are never composted')
+  assert.deepEqual(C.compostAllowance([S('apple', 3), S('apple', 3)], { apples: true }), { apple: 2 }, 'the reserve is a TOTAL over stacks')
+  assert.equal(C.isCompostJunk('apple'), false, 'apple is not junk: only the policy admits it')
+  assert.equal(C.nextInsert([S('apple', 10), ...filler(30)], { room: true }), null)
+  assert.equal(C.nextInsert([S('apple', 10), ...filler(30)], { room: true, apples: true })?.n, 6)
+})
+
+for (const [why, setup, composted] of [['PEACEFUL (packet read)', b => { b.serverDifficulty = 'peaceful' }, 6],
+                                        ['HARD world', b => { b.serverDifficulty = 'hard' }, 0],
+                                        ['difficulty unknown', () => {}, 0]]) {
+  await t(`APPLES WIRED, ${why}: a town bot at 35/36 with 10 apples composts ${composted} and keeps ${10 - composted}`, async () => {
+    const { bot, count } = fakeTown({ hand: PICK, rolls: () => 0.1, items: [S('apple', 10), S('leaf_litter', 5), ...filler(33)] })
+    setup(bot)
+    const r = await run('compost', bot)
+    assert.equal(r.status, 'success', r.detail)
+    assert.equal(count('leaf_litter'), 0, 'the ordinary junk went either way')
+    assert.equal(count('apple'), 10 - composted)
+    const row = (await rows('_compost')).at(-1)?.skill?.detail ?? ''
+    if (composted) assert.match(row, / apple_levels=\d+ stop=.* items=.*apple:6/)
+    else assert.ok(!/apple/.test(row), 'policy off: the row is the old row (no apple_levels, no apple item)')
+  })
+}
+
 await t('#2 compost uses the composter around HOME, never one that is merely near the bot', async () => {
   const far = new Vec3(HOME.x + 70, HOME.y, HOME.z)
   // One slot free, so a fill WOULD start at any composter the search returned.

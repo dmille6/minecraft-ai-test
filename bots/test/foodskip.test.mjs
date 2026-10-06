@@ -201,3 +201,15 @@ test('WIRED: index.mjs attaches the difficulty reader right after createBot', ()
   assert.match(src, /\n\s*attachDifficulty\(bot\)\n/)
   assert.match(src, /import \{ attachDifficulty \} from '\.\/foodskip\.mjs'/)
 })
+
+test('APPLES: a compost visit that only lost apples is the composter\'s effect only while the policy is on (runner evidence)', async () => {
+  const { classifyOutcome } = await import('../src/skills.mjs')
+  const { setPeacefulFood } = await import('../src/foodskip.mjs')
+  try {
+    setPeacefulFood(false)
+    assert.deepEqual(classifyOutcome('compost', 'success', { inventory: { apple: -6 } }).because, [], 'off: an apple loss is not compost evidence (today\'s rule)')
+    setPeacefulFood(true)
+    assert.match(classifyOutcome('compost', 'success', { inventory: { apple: -6 } }).because.join(';'), /inventory_loss: apple -6/)
+    assert.deepEqual(classifyOutcome('compost', 'success', { inventory: { bread: -6 } }).because, [], 'other food never')
+  } finally { setPeacefulFood(false) }
+})

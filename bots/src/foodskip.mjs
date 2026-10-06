@@ -93,6 +93,15 @@ export function skipFoodDrop (entity, { active = false, foodsByName = null } = {
   try { return isFoodName(entity?.getDroppedItem?.()?.name, foodsByName) } catch { return false }
 }
 
+/**
+ * THE POLICY'S LAST DECISION IN THIS PROCESS (one bot per process): foodSkipNow (skills.mjs) records it, so the runner's
+ * outcome classifier -- which has no bot -- can count an apple lost in a compost visit as the composter's own effect only
+ * while apples are composted at all. False until the first decision.
+ */
+let peaceful = false
+export function setPeacefulFood (active) { peaceful = !!active }
+export function peacefulFoodActive () { return peaceful }
+
 /** The row's detail: mode, what the env said, the difficulty read, and the decision. No digits beyond the flag. */
 export function foodSkipDetail ({ mode, raw = null, valid = true, difficulty = null, active = false } = {}) {
   return `food skip ${active ? 'ON' : 'off'}: mode=${mode}${valid ? '' : ` (FOOD_SKIP=${String(raw).slice(0, 20)} unreadable, using auto)`} difficulty=${difficulty ?? 'unknown'} active=${active ? 1 : 0}`
