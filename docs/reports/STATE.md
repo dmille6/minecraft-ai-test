@@ -138,6 +138,19 @@ the same farm: ctrl 15,16 logs vs cand 21,23 (no harm). Bone meal arm built, OFF
 Bags: 76/80 bots hold >= 6 farm saplings, 62/80 carry torches. Design + follow-ons (WORKSHOP, SAFE MINESHAFT, designed
 not built): docs/reports/blueprint-builder-design-2026-10-05.md.
 
+## 10-06 06:30Z — CLIMBFLOOD-01 INCONCLUSIVE (+360, 05:11Z), torn down 05:15Z (fleet stays 47110e8). Exposure met (202 opps);
+20 s endpoint canary 1.36% -> 0.00% vs control 1.19% -> 1.54% (E0 3.6, 0 observed); harm not detected; BUT correctness
+caught 2 real breaches (hive-d-Alpha 04:59Z, caller=ramp_step: dug ICE -- ice melts to water when broken -- then sand
+over water 4 s later) + 1 refusal written wet. Fix round (ice/frosted ice as water; ramp_step re-check; Paper ice scenes)
+-> climbflood-02. CANARY LIVE: withdraw-01 on board-b,placebo-a (10 bots) since 05:22:41Z (variant 47110e8 = b54e22c);
+reads ~08:22Z / ~11:22Z.
+MODEL SELECTION checkpoint (Stage A+B, report on main): brain gemma4:26b (LM Studio MLX 8-bit, thinking off, grammar);
+overseer + stuck gpt-oss:120b (reasoning medium, Ollama). C1 closed-loop (7B vs gemma Ollama vs gemma LM Studio; 8 bots,
+90 min, 3 blocks) running from 06:23Z (orchestrator on the mini, bots on 10.0.0.31). Ollama upgraded 0.33.3 -> 0.35.1.
+OWNER DECISIONS PENDING: (1) Studio memory: gemma 8-bit + gpt-oss ~93 GB + co-tenants ~32 GB (LCIA keepwarm coder:7b;
+THIS project's own tier-1 shadow analyst cron on 10.0.0.31, ~/analyst.py at :03/:33 calling qwen3.8:27b) exceeds the GPU
+budget; (2) C2 needs a bench-only bot-code hook (never deployed), both engines reviewed.
+
 ## 10-06 ~04:30Z — READY (not launched): towndeposit td-on-1918bb5 @ 09415cc and foodskip+apples fs-on-1918bb5 @ 41fa406 (Codex
 APPROVE; Paper: apples 6 composted / 4 kept x4 in peaceful, 0 with the switch off / on easy / on control); registrations
 + reads on main 419dca1 and on the host; both trial-merge cleanly onto 47110e8 -- rebase onto the fleet sha when their
