@@ -138,6 +138,13 @@ the same farm: ctrl 15,16 logs vs cand 21,23 (no harm). Bone meal arm built, OFF
 Bags: 76/80 bots hold >= 6 farm saplings, 62/80 carry torches. Design + follow-ons (WORKSHOP, SAFE MINESHAFT, designed
 not built): docs/reports/blueprint-builder-design-2026-10-05.md.
 
+## 10-06 ~03:30Z — OWNER: compost APPLES in peaceful worlds (same switch as foodskip, keep 4, apples only) -- folded into
+foodskip-01 as one "peaceful food policy" variable; builder updating fs-on-1918bb5 + read/registration. Bone meal on the
+tree farm offered as the sink; not yet explicitly approved. Model selection A2 (1,008 real decisions): bot brain
+gemma4:26b (infeasible 1.3% vs 13.3%, repeats-failed 21% vs 73.5%, 4x loop 28% vs 90%; top blind-judge scores);
+overseer gpt-oss:120b (100% valid, 55/60 optimal allocations, 1 rule violation); LM Studio MLX beats Ollama under load
+(gemma 8 concurrent: 8.8 s vs 17.1 s; 43 vs 25 decisions/min). Stage C closed-loop runner prepared.
+
 ## 10-05 ~23:30Z — TOWNDEPOSIT + FOODSKIP built, reviewed (Codex APPROVE), registered (main d7aafcf), NOT launched; both on
 1918bb5 and need rebasing (trial picks onto 47110e8 and withdraw pass). towndeposit Paper: full bag 3/3 banked exactly
 the surplus (60-use spare pickaxe, cobble 20, logs 10, raw copper 7), kept spent+best pickaxe, iron, coal, stockpile
