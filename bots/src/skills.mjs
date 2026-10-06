@@ -31,7 +31,7 @@ import { nearDeathSite, lineHitsDeathSite, DEATH_SITE_TARGET_RADIUS } from './de
 import { applyToolPolicy, remaining, spentEquipOutcome, handHarvests, emptyHand, TOOL_RE as DIG_TOOL_RE, HARD_STOP } from './toolfor.mjs'
 import { wearOutPlan, wearTarget, wearRank, wearRefusals, slotObservation, neverPickUp } from './hygiene.mjs'
 import { noteSought } from './pickuplog.mjs'
-import { foodSkipMode, foodSkipActive, skipFoodDrop, foodSkipDetail, difficultyOf } from './foodskip.mjs'
+import { foodSkipMode, foodSkipActive, skipFoodDrop, foodSkipDetail, difficultyOf, setPeacefulFood, peacefulFoodActive } from './foodskip.mjs'
 import { inPickupBox, pickupGoalClass, pickupGoal, standHeight } from './pickupbox.mjs'
 import { BAG_SLOTS, roomRecipe, admitRoom, pickupNearest, heldLine, collectDecision, placeStackOf, depositTarget, roomAdvice, craftArrived, craftRoomRemedy, wearKeepsSlot, bagFill, placeableBlock, roomForOne, executionVerdict } from './craftroom.mjs'
 import { compostPlan, nextInsert, boneMealRoom, fillDecision, composterLevel, compostDetail, composterBuildPlan,
@@ -1413,6 +1413,7 @@ let foodSkipSaid = null
 export function foodSkipNow (bot) {
   const difficulty = difficultyOf(bot)
   const active = foodSkipActive(FOOD_SKIP.mode, difficulty)
+  setPeacefulFood(active)
   const said = `${active}|${difficulty}`
   if (said !== foodSkipSaid) {
     foodSkipSaid = said
@@ -5587,12 +5588,14 @@ async function compost(ctx, _args, signal) {
   const pos = comp.position, centre = pos.offset(0.5, 0.5, 0.5), at = () => bot.blockAt(pos)
   const levelBefore = composterLevel(at())
   const ripe = levelBefore >= 7 && boneMealRoom(items())
-  if (!compostPlan(items()).junk && !ripe) return skip(`nothing compostable at ${slotsBefore} of 36 slots and nothing to harvest`)
+  // THE PEACEFUL FOOD POLICY (foodskip.mjs, owner 10-06): apples above APPLE_RESERVE go in too, only while it is active.
+  const apples = foodSkipNow(bot).active
+  if (!compostPlan(items(), { apples }).junk && !ripe) return skip(`nothing compostable at ${slotsBefore} of 36 slots and nothing to harvest`)
   const was = handOf(bot.heldItem)
   const g = hkGuards(bot, signal)
   const ticks = n => g.bound(bot.waitForTicks?.(n), n * 50 + HK_AWAIT_MS, 'tick wait')
   const taken = {}
-  let bonemeal = 0, stop = null, inserted = 0, uncollected = false, noRoom = false, stationary = 0
+  let bonemeal = 0, stop = null, inserted = 0, uncollected = false, noRoom = false, stationary = 0, appleLevels = 0
   try {
     if (bot.entity.position.distanceTo(centre) > STATION_REACH) {
       try { await composterWalk(bot, () => g.bound(bot.pathfinder.goto(new goals.GoalNear(pos.x, pos.y, pos.z, 2)), HK_PATH_MS, 'pathfinding', { path: true })) } catch (e) { if (e?.aborted || signal?.aborted) throw e }
@@ -5643,7 +5646,7 @@ async function compost(ctx, _args, signal) {
       check(signal)
       if (Date.now() > deadline) { stop = 'budget'; break }
       const room = boneMealRoom(items())
-      const next = inserted < MAX_ITEMS_PER_VISIT ? nextInsert(items(), { room }) : null
+      const next = inserted < MAX_ITEMS_PER_VISIT ? nextInsert(items(), { room, apples }) : null
       const act = fillDecision({ level: composterLevel(at()), room, smallest: next?.n ?? 0 })
       if (act === 'done') break
       if (act === 'gone') { stop = 'composter gone'; break }
@@ -5657,11 +5660,13 @@ async function compost(ctx, _args, signal) {
         if (bot.heldItem?.name !== stack.name) { stop = `could not hold ${stack.name}`; break }
       }
       const before = countOf(stack.name)
+      const lv0 = composterLevel(at())
       try { await g.bound(bot.activateBlock(at()), HK_AWAIT_MS, 'use the composter') } catch (e) { if (e?.aborted) throw e }
       await ticks(2)
       let after = countOf(stack.name)
       if (after >= before) { await ticks(4); after = countOf(stack.name) }
       if (after < before) { taken[stack.name] = (taken[stack.name] ?? 0) + (before - after); inserted += before - after; misses = 0 }
+      if (after < before && stack.name === 'apple') { const lv1 = composterLevel(at()); if (lv0 != null && lv1 != null && lv1 > lv0) appleLevels += lv1 - lv0 }
       else if (++misses >= 3) { stop = `took no ${stack.name} in 3 tries`; break }
     }
   } finally {
@@ -5670,7 +5675,7 @@ async function compost(ctx, _args, signal) {
   }
   const n = Object.values(taken).reduce((a, b) => a + b, 0)
   const slotsAfter = items().length
-  const f = { levelBefore, levelAfter: composterLevel(at()), bonemeal, items: taken, stop: stop ?? 'done' }
+  const f = { levelBefore, levelAfter: composterLevel(at()), bonemeal, items: taken, stop: stop ?? 'done', appleLevels: taken.apple ? appleLevels : null }
   if (n || bonemeal) {
     row('success', f)
     return { status: 'success',
@@ -8993,7 +8998,7 @@ export function classifyOutcome(skillName, status, delta = {}, wanted = null) {
   if (expects.includes('compost_effect')) {
     const bm = inv.bone_meal ?? 0
     if (bm > 0) because.push(`inventory_gain: bone_meal +${bm}`)
-    const l = Object.entries(inv).filter(([k, n]) => n < 0 && isCompostInput(k))
+    const l = Object.entries(inv).filter(([k, n]) => n < 0 && (isCompostInput(k) || (k === 'apple' && peacefulFoodActive())))
     if (l.length) because.push(`inventory_loss: ${l.map(([k, n]) => `${k} ${n}`).join(', ')}`)
   }
   if (expects.includes('position') && (delta.distance ?? 0) >= 2) {

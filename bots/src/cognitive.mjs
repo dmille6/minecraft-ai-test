@@ -10,7 +10,7 @@
 // keeps a bad generation from becoming a bad action.
 
 import { HARD_STOP } from './toolfor.mjs'
-import { SKILLS, classifyOutcome, SKILL_CONTRACTS, plantableSpotNear, findTownComposter, townBuildPlan, townPickMiss, townIngredientMiss } from './skills.mjs'
+import { SKILLS, classifyOutcome, SKILL_CONTRACTS, plantableSpotNear, findTownComposter, townBuildPlan, townPickMiss, townIngredientMiss, foodSkipNow } from './skills.mjs'
 import { smeltInputsFor } from './smelting.mjs'
 import { makeClient, skillSchema } from './llm.mjs'
 import { buildSystemPrompt, buildUserPrompt, makeSentinel, WorkingMemory } from './prompt.mjs'
@@ -786,7 +786,8 @@ export class CognitiveLoop {
         const bot = this.bot
         const items = bot.inventory?.items?.() ?? []
         const p = bot.entity?.position
-        const plan = compostPlan(items)
+        // THE PEACEFUL FOOD POLICY (foodskip.mjs, owner 10-06): apples above the reserve count as compostable only while it is active.
+        const plan = compostPlan(items, { apples: foodSkipNow(bot).active })
         const home = { x: config.world.homeX, z: config.world.homeZ }
         const r = townOrder({
           now: Date.now(), slots: plan.slots, freeSlots: 36 - plan.slots, junk: plan.junk,
