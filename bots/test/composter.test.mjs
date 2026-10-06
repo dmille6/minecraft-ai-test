@@ -555,6 +555,17 @@ await t('APPLES pure: off (the default) is today exactly; on keeps APPLE_RESERVE
   assert.equal(C.nextInsert([S('apple', 10), ...filler(30)], { room: true, apples: true })?.n, 6)
 })
 
+await t('POLICY OFF IS TODAY: success, two unconfirmed inserts, success -- the visit goes on (three misses in a row stop it, not two)', async () => {
+  const { bot, count } = fakeTown({ hand: PICK, rolls: () => 0.9, items: [S('leaf_litter', 10), ...filler(30)] })
+  const real = bot.activateBlock; let k = 0
+  bot.activateBlock = async b => { k++; if (k === 2 || k === 3) return; return real(b) }   // the 2nd and 3rd inserts are not taken
+  const r = await run('compost', bot)
+  assert.equal(r.status, 'success', r.detail)
+  assert.equal(count('leaf_litter'), 0, 'the visit kept going after two misses')
+  const row = (await rows('_compost')).at(-1)?.skill?.detail ?? ''
+  assert.match(row, / stop=done items=leaf_litter:10$/)
+})
+
 for (const [why, setup, composted] of [['PEACEFUL (packet read)', b => { b.serverDifficulty = 'peaceful' }, 6],
                                         ['HARD world', b => { b.serverDifficulty = 'hard' }, 0],
                                         ['difficulty unknown', () => {}, 0]]) {
