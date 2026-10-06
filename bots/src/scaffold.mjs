@@ -214,6 +214,14 @@ export function isWaterCell (b) {
  * `flowing_lava` on older registries; the guard this replaced matched
  * `name === 'lava'` only (Codex, underground-safety design pass 2).
  */
+/** Ice that turns into a water source when broken (vanilla IceBlock: ice and frosted_ice; packed/blue ice do not). */
+export function isMeltingIce (b) {
+  return !!b && (b.name === 'ice' || b.name === 'frosted_ice')
+}
+
+/** How many stacked falling blocks the flood check follows up before refusing (climbflood-02). */
+export const FALLING_COLUMN_CAP = 64
+
 export function isLavaCell (b) {
   return !!b && /lava/.test(b.name ?? '')
 }
@@ -262,9 +270,22 @@ export function isLavaCell (b) {
  * @returns a refusal reason, or null when the dig may go ahead
  */
 export function overheadBreakRisk ({ at = () => null, submerged = false } = {}) {
-  const wet = b => isWaterCell(b) && !submerged
+  // ICE IS LATENT WATER (climbflood-02; fleet 10-06 04:59Z, hive-d-Alpha: a ramp step dug ice and the cell was water
+  // 1.6 s later). Vanilla turns a broken ice / frosted_ice block into a water SOURCE when the block below it blocks
+  // motion or is liquid; packed and blue ice never melt. So a neighbour of ice is treated as wet, conservatively --
+  // the next dig, or light, can melt it -- and the target itself is water when it would melt (below).
+  const wet = b => (isWaterCell(b) || isMeltingIce(b)) && !submerged
   const target = at(0, 0, 0)
   if (!target) return 'terrain not loaded at the block overhead'
+  if (isMeltingIce(target) && !submerged) {
+    const below = at(0, -1, 0)
+    // unknown below is a refusal; air below (a ceiling over the bot's own head) is not a melt -- the block vanishes
+    if (!below) return 'terrain not loaded below the ice overhead'
+    if (below.boundingBox === 'block' || isWaterCell(below) || isLavaCell(below)) {
+      return `ice overhead melts into water when broken (${target.name} over ${below.name})`
+    }
+    // air below: the block vanishes, and the cell it leaves is read like any other opened cell (below)
+  }
   // A FLOOD GUARD MUST NOT FIRE WHEN THE BOT IS ALREADY FLOODED.
   //
   // The rule is right for a bot with its head in air: digging into water puts
@@ -279,7 +300,8 @@ export function overheadBreakRisk ({ at = () => null, submerged = false } = {}) 
   //
   // LAVA STILL REFUSES, ALWAYS. Breaking into lava from water is a NEW harm --
   // the two meet, and the bot is standing where they meet.
-  if (isLavaCell(target) || wet(target)) return `liquid overhead (${target.name})`
+  // the target's own ice was decided above (it melts only over a solid or liquid cell)
+  if (isLavaCell(target) || (isWaterCell(target) && !submerged)) return `liquid overhead (${target.name})`
   // A WATERLOGGED BLOCK IS STILL A BLOCK (Codex r1): it is broken, so its
   // neighbours are read like any other -- a submerged bot breaking waterlogged
   // stairs beside lava must be refused for the lava.
@@ -292,9 +314,18 @@ export function overheadBreakRisk ({ at = () => null, submerged = false } = {}) 
     // A FALLING COLUMN OPENS THE CELLS IT LEAVES. Gravel above the ceiling
     // drops through the hole into the bot's own cells, and whatever sat on the
     // gravel -- water, in the measured case -- follows it down.
-    faces.push([0, 2, 0, 'over the falling block above'],
-               ...SIDES.map(([x, z]) => [x, 2, z, 'over the falling block above']),
-               ...SIDES.map(([x, z]) => [x, 1, z, 'beside the falling block above']))
+    //
+    // THE WHOLE COLUMN, NOT ONE CELL OF IT (climbflood-02; fleet 10-06 03:09Z, hive-d-Alpha: a sand column three
+    // deep with water on top was read only to feet+4, dug, and dropped into the bot's head cell with the water behind
+    // it). Every falling block stacked above the opened cell moves; the sides of each one and the first cell above
+    // the column's top (and its sides) are read. Deeper than FALLING_COLUMN_CAP is a refusal, never a guess.
+    let k = 1
+    while (k <= FALLING_COLUMN_CAP && isFallingBlock(at(0, k, 0))) k++
+    if (k > FALLING_COLUMN_CAP) return `a falling column deeper than ${FALLING_COLUMN_CAP} above the block overhead`
+    const top = Math.max(k, 2)
+    for (let y = 1; y < top; y++) faces.push(...SIDES.map(([x, z]) => [x, y, z, 'beside the falling block above']))
+    faces.push([0, top, 0, 'over the falling block above'],
+               ...SIDES.map(([x, z]) => [x, top, z, 'over the falling block above']))
   }
   for (const [x, y, z, where] of faces) {
     const c = at(x, y, z)

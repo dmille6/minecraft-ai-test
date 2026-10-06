@@ -4311,6 +4311,11 @@ export async function escapeStairUp (bot, {
     const before = b.name
     const failed = await digWithin(b)
     if (!failed && cell) watchClimbDig(bot, { caller, cell, submerged, before })
+    // LET THE SERVER ANSWER BEFORE THE NEXT CHECK (climbflood-02; fleet 10-06 04:59:35Z): mineflayer marks a dug cell
+    // AIR on its own completion, and the server's correction -- the water an ice block melts into, water flowing in --
+    // arrives after it. The next dig of the same plan was checked against that stale air and broke the sand under
+    // the new water. Water moves one cell per 5 ticks (250 ms); a round trip is on top of that.
+    if (!failed) await sleep(FLOW_SETTLE_MS)
     return failed
   }
 
@@ -4403,10 +4408,15 @@ export async function escapeStairUp (bot, {
       stopped = plan.reason
       if (plan.flood) {
         logFloodGuard(bot, { caller: 'ramp_breach', reason: plan.reason, cell: p.offset(...(plan.cell ?? [0, 2, 0])), submerged })
-        // A BURIED BODY FIRST (Codex r4): a falling block in the bot's own head or feet cell is dug out before this
-        // refusal can end the ramp -- the overhead stays refused (unburyDigFor never breaks it), but suffocation is
-        // not left untreated behind a flood refusal.
-        if ([1, 0].some(dy => { const own = at(0, dy, 0); return own && isFallingBlock(own) && !bodyPassable(own) })) {
+        // A BURIED BODY IS NOT LEFT BEHIND A FLOOD REFUSAL (Codex r4) -- BUT SIDEWAYS FIRST (climbflood-02; fleet
+        // 10-06 03:10Z, hive-d-Alpha): digging a falling block out of the bot's own cell drops the column resting on
+        // it, and when that column is the one refused for the water on top, each dig brings the water one cell
+        // closer -- three digs and it arrived (the bot survived at 11/20 air). Leaving the cell sideways ends the
+        // burial without opening the column; the own-cell dig remains the last resort when no side cell qualifies.
+        const buriedNow = () => [1, 0].some(dy => { const own = at(0, dy, 0); return own && isFallingBlock(own) && !bodyPassable(own) })
+        const sideFirst = buriedNow() && sidestepped === 0
+          ? chooseFloodSidestep({ at, bearings: escapeBearings(bot.entity.yaw), canBreak, submerged }) : null
+        if (buriedNow() && !(sideFirst && sideFirst.ok)) {
           await unburySelf(bot, { deadline, digWithin: unburyDigFor(bot, { digChecked, digWithin }) })
           if ((yielded = yieldTo())) { stopped = `yielded the body to ${yielded}`; return finish() }
         }
@@ -4620,6 +4630,9 @@ export async function escapeStairUp (bot, {
  * before the escape ramp existed; this is that number, named once.
  */
 export const FALLING_SETTLE_MS = 500
+
+/** After a completed escape dig, how long before the next flood check trusts the world (climbflood-02). */
+export const FLOW_SETTLE_MS = 300
 
 /** How many times the ceiling breach may re-plan against a settling column. */
 export const BREACH_MAX_SWINGS = 6
