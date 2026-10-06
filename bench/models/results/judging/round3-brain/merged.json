@@ -1,0 +1,188 @@
+{
+ "judges": {
+  "claude": {
+   "brain": {
+    "gemma4-26b-mlx4": {
+     "n": 58,
+     "mean": 2.72,
+     "good": 19.0,
+     "poor": 43.1,
+     "exec": 82.8
+    },
+    "gemma4-26b-mlx8": {
+     "n": 58,
+     "mean": 3.66,
+     "good": 50.0,
+     "poor": 8.6,
+     "exec": 98.3
+    },
+    "gemma4-26b-o35": {
+     "n": 58,
+     "mean": 3.69,
+     "good": 55.2,
+     "poor": 10.3,
+     "exec": 98.3
+    },
+    "gptoss-120b-tools": {
+     "n": 58,
+     "mean": 3.26,
+     "good": 44.8,
+     "poor": 31.0,
+     "exec": 87.9
+    },
+    "nemo-lt-30b-o35": {
+     "n": 58,
+     "mean": 2.78,
+     "good": 25.9,
+     "poor": 51.7,
+     "exec": 86.2
+    },
+    "q25-7b-o35": {
+     "n": 58,
+     "mean": 2.29,
+     "good": 12.1,
+     "poor": 65.5,
+     "exec": 77.6
+    },
+    "q35-122b": {
+     "n": 58,
+     "mean": 3.47,
+     "good": 51.7,
+     "poor": 24.1,
+     "exec": 94.8
+    },
+    "q36-35b-mlx4": {
+     "n": 58,
+     "mean": 3.03,
+     "good": 36.2,
+     "poor": 46.6,
+     "exec": 96.6
+    },
+    "q36-35b-o35": {
+     "n": 58,
+     "mean": 3.31,
+     "good": 46.6,
+     "poor": 34.5,
+     "exec": 93.1
+    },
+    "q38-27b": {
+     "n": 58,
+     "mean": 3.47,
+     "good": 50.0,
+     "poor": 27.6,
+     "exec": 94.8
+    }
+   }
+  },
+  "codex": {
+   "brain": {
+    "gemma4-26b-mlx4": {
+     "n": 58,
+     "mean": 2.9,
+     "good": 37.9,
+     "poor": 53.4,
+     "exec": 53.4
+    },
+    "gemma4-26b-mlx8": {
+     "n": 58,
+     "mean": 3.97,
+     "good": 75.9,
+     "poor": 20.7,
+     "exec": 79.3
+    },
+    "gemma4-26b-o35": {
+     "n": 58,
+     "mean": 3.86,
+     "good": 69.0,
+     "poor": 22.4,
+     "exec": 81.0
+    },
+    "gptoss-120b-tools": {
+     "n": 58,
+     "mean": 3.47,
+     "good": 58.6,
+     "poor": 36.2,
+     "exec": 63.8
+    },
+    "nemo-lt-30b-o35": {
+     "n": 58,
+     "mean": 2.5,
+     "good": 22.4,
+     "poor": 70.7,
+     "exec": 31.0
+    },
+    "q25-7b-o35": {
+     "n": 58,
+     "mean": 2.38,
+     "good": 20.7,
+     "poor": 67.2,
+     "exec": 34.5
+    },
+    "q35-122b": {
+     "n": 58,
+     "mean": 3.79,
+     "good": 63.8,
+     "poor": 29.3,
+     "exec": 75.9
+    },
+    "q36-35b-mlx4": {
+     "n": 58,
+     "mean": 2.86,
+     "good": 32.8,
+     "poor": 63.8,
+     "exec": 44.8
+    },
+    "q36-35b-o35": {
+     "n": 58,
+     "mean": 3.28,
+     "good": 50.0,
+     "poor": 48.3,
+     "exec": 56.9
+    },
+    "q38-27b": {
+     "n": 58,
+     "mean": 3.52,
+     "good": 53.4,
+     "poor": 36.2,
+     "exec": 65.5
+    }
+   }
+  }
+ },
+ "agreement": {
+  "claude~codex:brain": {
+   "pairs": 365,
+   "spearman": 0.745,
+   "exact": 49.6,
+   "within1": 88.8
+  },
+  "claude~codex:all": {
+   "pairs": 365,
+   "spearman": 0.745,
+   "exact": 49.6,
+   "within1": 88.8
+  }
+ },
+ "reliability": {
+  "claude:swap": {
+   "pairs": 70,
+   "exact": 47.1,
+   "within1": 95.7
+  },
+  "claude:rep": {
+   "pairs": 39,
+   "exact": 79.5,
+   "within1": 100.0
+  },
+  "codex:swap": {
+   "pairs": 70,
+   "exact": 68.6,
+   "within1": 98.6
+  },
+  "codex:rep": {
+   "pairs": 39,
+   "exact": 94.9,
+   "within1": 100.0
+  }
+ }
+}

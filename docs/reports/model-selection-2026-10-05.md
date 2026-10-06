@@ -614,3 +614,47 @@ Setup: no co-tenants, analyst paused, 8 simulated bots, an overseer call every 5
 runtimes.
 
 **The earlier out-of-memory errors and latency spikes were co-tenant contamination** (see the ledger above).
+
+### Blind judging, brain round 2: runtimes and quantization (10-06 ~20:40Z)
+
+Setup:
+- 58 screen decisions;
+- 10 configurations;
+- reliability copies judged in a **separate session**;
+- scores and key in `bench/models/results/judging/round3-brain/`.
+
+| config | Claude mean / share ≥4 | Codex mean / share ≥4 |
+|---|---|---|
+| **gemma4:26b, Ollama Q4_K_M** | **3.69** / 55% | 3.86 / 69% |
+| **gemma4:26b, LM Studio MLX 8-bit** | 3.66 / 50% | **3.97** / 75% |
+| qwen3.5:122b-a10b (Ollama) | 3.47 / 51% | 3.79 / 63% |
+| qwen3.8:27b (Ollama, no thinking) | 3.47 / 50% | 3.52 / 53% |
+| qwen3.6:35b-a3b (Ollama) | 3.31 / 46% | 3.28 / 50% |
+| gpt-oss:120b, native tool calls | 3.26 / 44% | 3.47 / 58% |
+| qwen3.6:35b-a3b, LM Studio MLX 4-bit | 3.03 / 36% | 2.86 / 32% |
+| nemotron-3.5-lightning | 2.78 / 25% | 2.50 / 22% |
+| gemma4:26b, LM Studio MLX **4-bit** | 2.72 / 19% | 2.90 / 37% |
+| qwen2.5:7b (fleet today) | 2.29 / 12% | 2.38 / 20% |
+
+**What round 2 shows**
+- **Both judges put the two 8-bit-or-better gemma4 builds on top.** They also both put the MLX **4-bit** gemma near
+  the bottom: **4-bit MLX costs real decision quality, 8-bit does not.**
+- **Agreement:** Spearman 0.75; within one point 89%.
+- **Self-consistency, now measured in a separate session:**
+
+  | | repeated item, same score | order-swapped item, same score |
+  |---|---|---|
+  | Claude | 79% | 47% (96% within one point) |
+  | Codex | 95% | 69% |
+
+- So candidate order shifts single scores, Claude's more than Codex's. The rankings above are means over many
+  items and both judges, and they agree at the top and the bottom.
+
+**Lost artifacts (mini reboot, 10-06 ~20:06Z).** The Mac mini's scratchpad (/tmp) was wiped. Lost:
+- the raw score files of judging rounds 1 and 2 (brain round 1; overseer and stuck);
+- Claude's research note (restored from the session record: `docs/reports/model-research-claude-2026-10-05.md`);
+- Codex's test-plan and method-review outputs, whose content is merged into this report.
+
+The merged numbers of rounds 1 and 2 were already recorded above. Their packets and keys survive on the Studio
+(`~/mbench/judge1`, `~/mbench/judge2`). From now on, judge outputs are copied to the Studio and committed under
+`bench/models/results/`.
