@@ -750,16 +750,39 @@ await t('THE SERVER\'S ANSWER (04:59:35Z): water arriving AFTER the dig resolved
   })
 })
 
-await t('BURIED UNDER A WET FALLING COLUMN WITH A DRY SIDE: it leaves sideways and never digs its own cell (03:10Z)', async () => {
-  const w = TOMB({ '0,1,0': 'gravel', '0,2,0': 'gravel', '0,3,0': 'water' })
-  const bot = makeBot(w, { inv: [PICK(), COBBLE(64)] })
+await t('BURIED UNDER A WET FALLING COLUMN WITH AN OPEN SIDE: it steps out and never digs its own cell (03:10Z)', async () => {
+  const open = () => TOMB({ '0,1,0': 'gravel', '0,2,0': 'gravel', '0,3,0': 'water', '-1,0,0': 'air', '-1,1,0': 'air' })
+  const bot = makeBot(open(), { inv: [PICK(), COBBLE(64)] })
   const r = await escapeStairUp(bot, { maxSteps: 1, budgetMs: 30_000 })
   assert.strictEqual(r.sidestepped, 1, r.stopped)
   assert.ok(!bot.digs.some(d => d.cell === '0,1,0' || d.cell === '0,2,0'), `it dug into the wet column: ${JSON.stringify(bot.digs)}`)
-  await withMutant(REFLEX_PATH, '        if (buriedNow() && !(sideFirst && sideFirst.ok)) {', '        if (buriedNow()) {', async mod => {
-    const m = makeBot(TOMB({ '0,1,0': 'gravel', '0,2,0': 'gravel', '0,3,0': 'water' }), { inv: [PICK(), COBBLE(64)] })
+  await withMutant(REFLEX_PATH, '        if (buriedAt() && !openSide) {', '        if (buriedAt()) {', async mod => {
+    const m = makeBot(open(), { inv: [PICK(), COBBLE(64)] })
     await mod.escapeStairUp(m, { maxSteps: 1, budgetMs: 30_000 })
     assert.ok(m.digs.some(d => d.cell === '0,1,0'), 'the mutant did not dig the own cell first')
+  })
+})
+
+await t('BURIED, AND THE ONLY SIDE MUST BE DUG FIRST: the own cell is dug BEFORE any side swing (Codex: ~15 s buried is not a rescue)', async () => {
+  const bot = makeBot(TOMB({ '0,1,0': 'gravel', '0,2,0': 'gravel', '0,3,0': 'water' }), { inv: [PICK(), COBBLE(64)] })
+  await escapeStairUp(bot, { maxSteps: 1, budgetMs: 30_000 })
+  const own = bot.digs.findIndex(d => d.cell === '0,1,0')
+  assert.ok(own === 0, `the first dig must be the bot's own head cell: ${JSON.stringify(bot.digs)}`)
+})
+
+await t('A FAILED SIDESTEP STILL UNBURIES: an open side the bot cannot walk into leaves the own-cell fallback to run', async () => {
+  // the side is open in the world but the walk never lands (the fake refuses to move: a mob, a stale block)
+  const bot = makeBot(TOMB({ '0,1,0': 'gravel', '0,2,0': 'gravel', '0,3,0': 'water', '-1,0,0': 'air', '-1,1,0': 'air' }), { inv: [PICK()] })
+  bot.setControlState = (name, on) => { bot.controls.push(`${name}:${on}`) }
+  const r = await escapeStairUp(bot, { maxSteps: 1, budgetMs: 30_000 })
+  assert.match(String(r.stopped), /sidestep failed/)
+  assert.ok(bot.digs.some(d => d.cell === '0,1,0'), `the buried head cell was left after the failed sidestep: ${JSON.stringify(bot.digs)}`)
+  const FALLBACK = "            if (buriedAt() && await unburyHere()) { stopped = `yielded the body to ${yielded}`; return finish() }"
+  await withMutant(REFLEX_PATH, FALLBACK, '', async mod => {
+    const m = makeBot(TOMB({ '0,1,0': 'gravel', '0,2,0': 'gravel', '0,3,0': 'water', '-1,0,0': 'air', '-1,1,0': 'air' }), { inv: [PICK()] })
+    m.setControlState = (name, on) => { m.controls.push(`${name}:${on}`) }
+    await mod.escapeStairUp(m, { maxSteps: 1, budgetMs: 30_000 })
+    assert.ok(!m.digs.some(d => d.cell === '0,1,0'), 'the mutant still unburied')
   })
 })
 
@@ -1088,7 +1111,7 @@ await t('BURIED UNDER A WET COLUMN, THROUGH THE REAL RAMP AND BRANCH, every side
   assert.ok(dry.digs.some(d => d.cell === '0,2,0'), 'POSITIVE CONTROL: a dry overhead is taken')
 })
 
-const M_UNBURY_FIRST = "        if (buriedNow() && !(sideFirst && sideFirst.ok)) {"
+const M_UNBURY_FIRST = "        if (buriedAt() && !openSide) {"
 await t('MUTANT KILLED: the flood refusal exit without unburying the body first', async () => {
   await withMutant(REFLEX_PATH, M_UNBURY_FIRST, '        if (false) {', async mod => {
     const bot = makeBot(TOMB({ ...WET_ALL, '0,1,0': 'gravel', '0,2,0': 'gravel' }))
