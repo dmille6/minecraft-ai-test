@@ -6557,11 +6557,12 @@ const slotAt = (win, s) => (typeof win.get === 'function' ? win.get(s) : win.slo
 async function transferIn (bot, win, { deposit = [], swap = null, tool = null, takes = [] }, { deadline, signal }) {
   const took = {}, gave = {}
   let toolTaken = null, err = null
-  // WHAT THE BAG HELD OF EACH TAKE BEFORE ANY CLICK (withdraw2, Codex round 4): an interrupted part-stack take has placed
-  // some of its items (and the settle may rescue the cursor into the bag) before `took` is updated; on an error exit the
-  // bag's own change is what this transfer moved.
-  const bagCount = name => { let n = 0; for (let s = win.inventoryStart; s < win.inventoryEnd; s++) { const x = slotAt(win, s); if (x?.name === name) n += x.count ?? 0 } return n }
-  const startCount = Object.fromEntries(takes.map(t => [t.name, bagCount(t.name)]))
+  // AN INTERRUPTED PART-STACK TAKE (withdraw2, Codex rounds 4-5): `took` is updated when the take finishes, so an error
+  // between its placement clicks would drop what was already placed and what the settle then rescues into the bag. Each
+  // placement is counted as its click lands (`part.placed`); the cursor's share is attributed after the settle by the
+  // CHEST side (what went back into the chest is not taken) -- never by the bag's change, which auto-pickups also move.
+  let part = null
+  const chestCount = name => { let n = 0; for (let s = 0; s < win.inventoryStart; s++) { const x = slotAt(win, s); if (x?.name === name) n += x.count ?? 0 } return n }
   try {
     await lockstepClicks(bot, async raw => {
       // EVERY CLICK hears the cancel (craftsync's lockstep refuses one after an abort; this says so without it too).
@@ -6647,6 +6648,7 @@ async function transferIn (bot, win, { deposit = [], swap = null, tool = null, t
           // picks up HALF (rounded up) when that covers m; the exact amount goes in with ONE left-click when one slot
           // takes it all; otherwise one at a time.
           const half = Math.ceil(have / 2)
+          part = { name: take.name, placed: 0 }
           await click(src.slot, m <= half ? 1 : 0, 0)
           if (win.selectedItem?.name !== take.name) throw stop(`picked up ${win.selectedItem?.name ?? 'nothing'}, not ${take.name}`)
           let placed = 0
@@ -6660,11 +6662,12 @@ async function transferIn (bot, win, { deposit = [], swap = null, tool = null, t
             if (x && (x.name !== take.name || (x.count ?? 0) >= 64)) throw stop(`bag slot ${slot} was filled before the ${take.name} could go in`)
             await click(slot, button, 0)
           }
-          if (one != null) { await into(one, 0); placed = m }
-          for (const p of a.partial) for (let i = 0; i < p.n && placed < m; i++) { await into(p.slot, 1); placed++ }
-          for (let f = 0; f < a.fresh; f++) for (let i = 0; i < 64 && placed < m; i++) { await into(empties[f], 1); placed++ }
+          if (one != null) { await into(one, 0); placed = m; part.placed = m }
+          for (const p of a.partial) for (let i = 0; i < p.n && placed < m; i++) { await into(p.slot, 1); placed++; part.placed++ }
+          for (let f = 0; f < a.fresh; f++) for (let i = 0; i < 64 && placed < m; i++) { await into(empties[f], 1); placed++; part.placed++ }
           if (win.selectedItem) await click(src.slot, 0, 0)   // the rest back where it came from
           took[take.name] = (took[take.name] ?? 0) + m
+          part = null
           left -= m
         }
         // A TAKE THAT FELL SHORT STOPS THE TRANSFER before any LATER take (withdraw2, Codex round 2: the sticks vanished
@@ -6677,9 +6680,16 @@ async function transferIn (bot, win, { deposit = [], swap = null, tool = null, t
     err = e
   }
   // EVERY EXIT: an empty cursor, synchronised, before the caller closes the window -- or the unresolved handoff.
+  const onCursor = part && win.selectedItem?.name === part.name ? (win.selectedItem.count ?? 0) : 0
+  const chestBefore = part ? chestCount(part.name) : 0
   const settled = await settleCursor(bot, win)
   const bad = settled.state !== 'empty' && settled.state !== 'rescued'
-  if (err) for (const t of takes) { const d = bagCount(t.name) - startCount[t.name]; if (d > (took[t.name] ?? 0)) took[t.name] = d }
+  if (part) {
+    const stillHeld = win.selectedItem?.name === part.name ? (win.selectedItem.count ?? 0) : 0
+    const back = Math.max(0, chestCount(part.name) - chestBefore)
+    const rescued = Math.max(0, onCursor - back - stillHeld)
+    if (part.placed + rescued > 0) took[part.name] = (took[part.name] ?? 0) + part.placed + rescued
+  }
   const state = { took, gave, tool: toolTaken, cursor: bad ? `${settled.state}:${settled.why}` : settled.state,
                   unresolved: settled.state === 'unresolved' ? settled : null, err: err ? String(err.message ?? err).slice(0, 80) : null }
   // AN ABORT CARRIES WHAT HAPPENED (Claude round 2), so both verbs' rows report THIS transfer, not an earlier visit.
