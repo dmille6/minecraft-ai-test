@@ -43,6 +43,17 @@ export const COMPOST_CHANCE = Object.freeze({
   short_grass: 0.3, seagrass: 0.3, tall_grass: 0.5, fern: 0.65, large_fern: 0.65,
   vine: 0.5,
 })
+/**
+ * APPLES, IN A PEACEFUL WORLD ONLY (owner 10-06 ~03:30Z: "sure lets do it for peaceful worlds"; one "peaceful food
+ * policy" variable with foodskip.mjs, under the same FOOD_SKIP switch). Vanilla chance 65% (the wiki's Java table).
+ * NOT in COMPOST_CHANCE and still in NEVER_COMPOST, so isCompostJunk(apple) stays false and every caller that does not
+ * pass `apples: true` behaves exactly as before. With it, the bag keeps APPLE_RESERVE and composts the rest.
+ * Other compostable foods (bread, cookie, pumpkin_pie, baked_potato, carrot, potato, beetroot, melon_slice,
+ * sweet_berries, glow_berries, dried_kelp ...) were NOT approved and are never composted.
+ */
+export const APPLE_CHANCE = 0.65
+export const APPLE_RESERVE = 4
+
 /** Every `_sapling` item in 1.21.11 (oak, spruce, birch, jungle, acacia, cherry, dark_oak, pale_oak): 30%. */
 export const SAPLING_CHANCE = 0.3
 
@@ -70,16 +81,19 @@ export function isCompostJunk (name) {
 /** Could this item have gone INTO the composter (the planner's inputs: junk, and saplings -- only ever above the reserve)? */
 export const isCompostInput = name => isCompostJunk(name) || isSapling(name)
 
-/** name -> how many of it may be composted from this bag: all of the junk, saplings only above SAPLING_RESERVE. */
-export function compostAllowance (items = []) {
+/**
+ * name -> how many of it may be composted from this bag: all of the junk, saplings only above SAPLING_RESERVE, and --
+ * only when `apples` (the peaceful food policy is active) -- apples above APPLE_RESERVE.
+ */
+export function compostAllowance (items = [], { apples = false } = {}) {
   const totals = {}
   for (const it of (Array.isArray(items) ? items : [])) {
-    if (!it?.name || !(isCompostJunk(it.name) || isSapling(it.name))) continue
+    if (!it?.name || !(isCompostJunk(it.name) || isSapling(it.name) || (apples && it.name === 'apple'))) continue
     totals[it.name] = (totals[it.name] ?? 0) + (it.count ?? 0)
   }
   const out = {}
   for (const [name, n] of Object.entries(totals)) {
-    const a = isSapling(name) ? n - SAPLING_RESERVE : n
+    const a = isSapling(name) ? n - SAPLING_RESERVE : name === 'apple' ? n - APPLE_RESERVE : n
     if (a > 0) out[name] = a
   }
   return out
@@ -94,9 +108,9 @@ export const VISIT_BUDGET_MS = 45_000
  * compostPlan(items) -> { slots, junk, take: [{ name, count }] }  -- what could go, in planner order, capped.
  * Pure. `junk` is what the trigger counts.
  */
-export function compostPlan (items = [], { maxItems = MAX_ITEMS_PER_VISIT } = {}) {
+export function compostPlan (items = [], { maxItems = MAX_ITEMS_PER_VISIT, apples = false } = {}) {
   const list = (Array.isArray(items) ? items : []).filter(it => it?.name)
-  const allow = compostAllowance(list)
+  const allow = compostAllowance(list, { apples })
   const junk = Object.values(allow).reduce((a, b) => a + b, 0)
   let left = Math.max(0, maxItems)
   const take = []
@@ -116,9 +130,9 @@ export function compostPlan (items = [], { maxItems = MAX_ITEMS_PER_VISIT } = {}
  * covers all of it), because only an emptied slot can take the bone meal at the end of the fill.
  * `n` is how many of that stack may go: the whole stack, or a sapling stack down to the reserve.
  */
-export function nextInsert (items = [], { room = true } = {}) {
+export function nextInsert (items = [], { room = true, apples = false } = {}) {
   const list = (Array.isArray(items) ? items : []).filter(it => it?.name && (it.count ?? 0) > 0)
-  const allow = compostAllowance(list)
+  const allow = compostAllowance(list, { apples })
   const stacks = list.filter(it => (allow[it.name] ?? 0) > 0)
   if (!stacks.length) return null
   if (room) {
@@ -689,10 +703,12 @@ export function composterSafeMovements (base, keep) {
  *   slots=36->33 level=0->4 bonemeal=1 n=67 stop=done items=leaf_litter:64,wheat_seeds:3
  * `n` is the VERIFIED count (inventory fell by that much at the composter), never the number of clicks.
  */
-export function compostDetail ({ slotsBefore, slotsAfter, levelBefore, levelAfter, bonemeal = 0, items = {}, stop = 'done', built = null } = {}) {
+export function compostDetail ({ slotsBefore, slotsAfter, levelBefore, levelAfter, bonemeal = 0, items = {}, stop = 'done', built = null, appleLevels = null } = {}) {
   const n = Object.values(items).reduce((a, b) => a + b, 0)
   const list = Object.entries(items).filter(([, c]) => c > 0).map(([k, c]) => `${k}:${c}`).join(',') || '-'
   // stop= BEFORE items=: the row is cut at 300 characters and a long item list must not cut the reason off.
+  // apple_levels= (the levels apple inserts raised: bone meal from apples is that / 7) only on a visit that composted
+  // apples, so a row with the policy off is byte-identical to the old one.
   return (`slots=${slotsBefore}->${slotsAfter} level=${levelBefore ?? '?'}->${levelAfter ?? '?'} bonemeal=${bonemeal} n=${n}` +
-          `${built ? ` built=${built}` : ''} stop=${String(stop).replace(/\s+/g, '_').slice(0, 80)} items=${list}`).slice(0, 300)
+          `${built ? ` built=${built}` : ''}${appleLevels != null ? ` apple_levels=${appleLevels}` : ''} stop=${String(stop).replace(/\s+/g, '_').slice(0, 80)} items=${list}`).slice(0, 300)
 }
