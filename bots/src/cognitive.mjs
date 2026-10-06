@@ -10,7 +10,7 @@
 // keeps a bad generation from becoming a bad action.
 
 import { HARD_STOP } from './toolfor.mjs'
-import { SKILLS, classifyOutcome, SKILL_CONTRACTS, plantableSpotNear, findTownComposter, townBuildPlan, townPickMiss, townIngredientMiss, foodSkipNow, townContainers } from './skills.mjs'
+import { SKILLS, classifyOutcome, SKILL_CONTRACTS, plantableSpotNear, findTownComposter, townBuildPlan, townPickMiss, townIngredientMiss, foodSkipNow, townContainers, townBetterPickMiss, townIronRuledOut } from './skills.mjs'
 import { smeltInputsFor } from './smelting.mjs'
 import { makeClient, skillSchema } from './llm.mjs'
 import { buildSystemPrompt, buildUserPrompt, makeSentinel, WorkingMemory } from './prompt.mjs'
@@ -19,7 +19,7 @@ import { MilestoneController, servesRung, NO_PROGRESS_MS, RUNNER_REFUSALS } from
 import { orderFor, readyFor, plantingOrder, plantingEnabled, PLANT_COOLDOWN_MS } from './workorder.mjs'
 import { wearOutPlan, isHousekeeping } from './hygiene.mjs'
 import { compostPlan, townOrder, townOrderOutcome, boneMealRoom, composterLevel, TOWN_ORDERS, STORAGE_NEAR, TOWN_RADIUS } from './composter.mjs'
-import { hasUsablePick, roomPlan, pickTakes, roomKeep } from './withdrawpick.mjs'
+import { hasUsablePick, roomPlan, pickTakes, roomKeep, heldPickTier, TIER_IRON } from './withdrawpick.mjs'
 import { townDepositOrder, townDepositOutcome, townDepositPlan } from './towndeposit.mjs'
 import { bankClosed } from './chestfull.mjs'
 /** One wear-out order per bot per two minutes at most. */
@@ -840,6 +840,10 @@ export class CognitiveLoop {
           ingredientMiss: () => townIngredientMiss(bot),
           // The SAME keep as at the chest (withdrawPick): the goal's wants and the stone-pickaxe ingredients.
           pickRoom: () => roomPlan(items, pickTakes(), { keep: roomKeep(bot.currentWants ?? []) }).ok,
+          // withdraw2: a usable pickaxe below iron -> an upgrade, while a better copy or an iron one is still possible.
+          upgradeNeeded: (t => t >= 0 && t < TIER_IRON)(heldPickTier(items)),
+          betterMiss: () => townBetterPickMiss(bot),
+          ironMiss: () => townIronRuledOut(bot),
           state: this.townState ?? {},
         })
         this.townState = r.state
