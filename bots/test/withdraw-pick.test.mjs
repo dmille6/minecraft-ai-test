@@ -428,6 +428,7 @@ await t('CHEST2 THE TOWN ORDER LOOKS ONLY AT TOWN CONTAINERS: a usable pickaxe i
   const w = withServer(town([stack('crafting_table', 1), stack('cobblestone', 3), stack('stick', 2)], [stack('dirt', 5)]))
   w.set(5, 50, 0, 'chest'); w.stock(5, 50, 0, [tool('stone_pickaxe', 10)])     // deep: |dy| = 14 > 12
   w.set(22, 64, 0, 'chest'); w.stock(22, 64, 0, [tool('stone_pickaxe', 10)])   // within reach of the bot, not in town
+  w.set(18, 64, 0, 'chest'); w.stock(18, 64, 0, [tool('stone_pickaxe', 10)])   // within the home scan (18 < 20), outside town (18 > 16)
   const r = await pick(w.bot)
   assert.notEqual(r.status, 'success', r.detail)
   assert.equal(count(w.bag, 'stone_pickaxe'), 0, 'neither pickaxe taken')
@@ -435,14 +436,24 @@ await t('CHEST2 THE TOWN ORDER LOOKS ONLY AT TOWN CONTAINERS: a usable pickaxe i
   assert.equal(townPickMiss(w.bot), true, 'complete coverage is over the TOWN set: the deep and far chests are not in it')
 })
 
+/** A chest underground with an air cell beside it (the fake's walk needs one to arrive) and air above it (the lid), the bot in that cell. */
+const mineChest = (w, y, stacks) => { w.set(5, y, 0, 'chest'); w.stock(5, y, 0, stacks); w.set(6, y, 0, 'air'); w.set(5, y + 1, 0, 'air'); w.bot.entity.position = w.bot.entity.position.offset(0, y - 64, 0) }
+
 await t('CHEST2 THE VERB NEVER USES A DEEP CHEST: from beside a chest 14 below home, withdraw passes over it', async () => {
   const w = withServer(town([], []))
-  w.set(5, 50, 0, 'chest'); w.stock(5, 50, 0, [stack('stick', 20)])
-  w.bot.entity.position = w.bot.entity.position.offset(0, -13, 0)              // in the mine, beside it
+  mineChest(w, 50, [stack('stick', 20)])                                       // in the mine, beside it (|dy| 14)
   const r = await withdraw(w.bot, { item: 'stick', count: 2 })
   assert.notEqual(r.status, 'success', r.detail)
   assert.ok(!w.spy.opened.includes('5,50,0'), 'the deep chest was not opened')
   assert.equal(count(w.bag, 'stick'), 0)
+})
+
+await t('CHEST2 positive control for the verb: the same mine chest 4 below home (not deep) IS used', async () => {
+  const w = withServer(town([], []))
+  mineChest(w, 60, [stack('stick', 20)])
+  const r = await withdraw(w.bot, { item: 'stick', count: 2 })
+  assert.equal(r.status, 'success', r.detail)
+  assert.ok(w.spy.opened.includes('5,60,0')); assert.equal(count(w.bag, 'stick'), 2)
 })
 
 await t('CHEST2 positive control: the same pickaxe in a TOWN chest 8 above home and 12 out (20 from the bot, found around HOME) IS taken by the order', async () => {
