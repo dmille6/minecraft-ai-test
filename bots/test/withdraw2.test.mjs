@@ -484,6 +484,34 @@ await t('C4 P2: an abort in the middle of a PART-STACK take keeps what reached t
   } finally { SKILLS.craft.run = realCraft }
 })
 
+await t('C5 P2: AUTO-PICKUPS are not withdrawals -- a failed part-stack take counts only what left the chest (placed + rescued)', async () => {
+  // (a) 8 ingots auto-picked up into the planned stick slot after the sticks were lifted: the take stops; the 5 lifted
+  //     sticks are rescued into the bag (they did leave the chest); NO ingot was taken and the chest's 3 stay evidence.
+  {
+    const w = withServer(town([p('stone_pickaxe', 0)], [stack('stick', 10), stack('iron_ingot', 3)]))
+    w.set(6, 64, 2, 'crafting_table')
+    const click = w.bot.clickWindow.bind(w.bot); let n = 0
+    w.bot.clickWindow = async (...a) => { const r = await click(...a); if (++n === 1) w.bag[1] = stack('iron_ingot', 8); return r }
+    await pick(w.bot)
+    const a = lastRow().args
+    const chestSticks = count(w.containers.get('5,64,0').slots, 'stick')
+    assert.equal(count(w.containers.get('5,64,0').slots, 'iron_ingot'), 3, 'positive control: the chest kept its ingots')
+    assert.equal(a.took.iron_ingot ?? 0, 0, `took ${JSON.stringify(a.took)}`)
+    assert.equal(a.took.stick ?? 0, 10 - chestSticks, 'exactly what left the chest')
+    assert.equal(W.townIngotsRuledOut(await readMem(), ['5,64,0'], 3), false, 'the 3 ingots are still evidence for the next bot')
+  }
+  // (b) the bag fills (dirt + 64 auto-picked sticks) after the lift: the cursor goes back to the chest; nothing taken.
+  {
+    const w = withServer(town([p('stone_pickaxe', 0)], [stack('stick', 10), stack('iron_ingot', 3)]))
+    w.set(6, 64, 2, 'crafting_table')
+    const click = w.bot.clickWindow.bind(w.bot); let n = 0
+    w.bot.clickWindow = async (...a) => { const r = await click(...a); if (++n === 1) { for (let i = 2; i < 36; i++) w.bag[i] = stack('dirt', 64); w.bag[1] = stack('stick', 64) } return r }
+    await pick(w.bot)
+    assert.equal(count(w.containers.get('5,64,0').slots, 'stick'), 10, 'positive control: every lifted stick went back')
+    assert.deepEqual(lastRow().args.took, {}, 'the 64 auto-picked sticks are not a withdrawal')
+  }
+})
+
 await t('EVIDENCE AFTER A LOOK: nothing better and no ingots in the only chest -> the gate\'s two "ruled out"s are true', async () => {
   const w = withServer(town([p('stone_pickaxe', 0)], [p('wooden_pickaxe', 0), stack('dirt', 5)]))
   assert.equal(townBetterPickMiss(w.bot), false, 'positive control: not yet known')
