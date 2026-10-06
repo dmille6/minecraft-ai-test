@@ -512,6 +512,46 @@ await t('C5 P2: AUTO-PICKUPS are not withdrawals -- a failed part-stack take cou
   }
 })
 
+await t('C6 P2 (a): a destination with room for FEWER than planned -- the ledger and the evidence count what left the chest', async () => {
+  const w = withServer(town([p('stone_pickaxe', 0), stack('iron_ingot', 1), stack('stick', 2)], [stack('iron_ingot', 3)]))
+  w.set(6, 64, 2, 'crafting_table'); craftStub(w, 'fails')
+  const click = w.bot.clickWindow.bind(w.bot); let n = 0
+  w.bot.clickWindow = async (...a) => { const r = await click(...a); if (++n === 1) w.bag[1].count = 63; return r }   // an auto-pickup tops the planned stack
+  try {
+    await pick(w.bot)
+    const a = lastRow().args, chest = count(w.containers.get('5,64,0').slots, 'iron_ingot')
+    assert.ok(chest > 0, `positive control: not every planned ingot left (${chest} remain)`)
+    assert.equal(a.took.iron_ingot, 3 - chest, `took ${JSON.stringify(a.took)}`)
+    assert.equal((await readMem())._ingot_seen['5,64,0'].count, chest)
+  } finally { SKILLS.craft.run = realCraft }
+})
+
+await t('C6 P2 (b): the ingot evidence after a take is THIS visit\'s contents (the chest was refilled since the inspection)', async () => {
+  const w = withServer(town([p('stone_pickaxe', 0), stack('stick', 2)], [stack('iron_ingot', 3)]))
+  w.set(6, 64, 2, 'crafting_table'); craftStub(w, 'fails')
+  const open = w.bot.openContainer; let n = 0
+  w.bot.openContainer = async b => { if (++n === 2) w.containers.get('5,64,0').slots[0].count = 6; return open(b) }
+  try {
+    await pick(w.bot)
+    const chest = count(w.containers.get('5,64,0').slots, 'iron_ingot')
+    assert.equal(chest, 3, 'positive control: 6 at the take, 3 taken')
+    assert.equal((await readMem())._ingot_seen['5,64,0'].count, 3)
+  } finally { SKILLS.craft.run = realCraft }
+})
+
+await t('C6 P2 (c): the source slot refilled before the return click -- the rest is rescued into the bag AND counted', async () => {
+  const w = withServer(town([p('stone_pickaxe', 0), stack('stick', 2)], [stack('iron_ingot', 10)]))
+  w.set(6, 64, 2, 'crafting_table'); craftStub(w, 'fails')
+  const click = w.bot.clickWindow.bind(w.bot); let n = 0
+  w.bot.clickWindow = async (...a) => { const r = await click(...a); if (++n === 4) w.containers.get('5,64,0').slots[0].count = 64; return r }
+  try {
+    await pick(w.bot)
+    const inBag = count(w.bag, 'iron_ingot')
+    assert.ok(inBag > 3, `positive control: more than the 3 planned reached the bag (${inBag})`)
+    assert.equal(lastRow().args.took.iron_ingot, inBag)
+  } finally { SKILLS.craft.run = realCraft }
+})
+
 await t('EVIDENCE AFTER A LOOK: nothing better and no ingots in the only chest -> the gate\'s two "ruled out"s are true', async () => {
   const w = withServer(town([p('stone_pickaxe', 0)], [p('wooden_pickaxe', 0), stack('dirt', 5)]))
   assert.equal(townBetterPickMiss(w.bot), false, 'positive control: not yet known')
