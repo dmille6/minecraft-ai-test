@@ -7,6 +7,9 @@
 //
 //   node withdraw-ab.cjs <arm: cand|ctrl> <botRoot> <reps> <scene,scene,...> [server]
 //
+// withdraw2 (10-06): the control build (c902d6f) HAS a withdraw_pick order (withdraw-01, KEPT), so for the withdraw2
+// scenes both arms are watched the same way: WDAB_WATCH_ORDER=1 makes the control wait for the order like the candidate.
+//
 // Town for the bot: within 48 of HOME (= the stand), a chest within 16 (the chest is 2 blocks east of the stand).
 'use strict'
 const { execFileSync, spawn } = require('child_process')
@@ -76,18 +79,47 @@ const SPEC = {
   'holdroom': { bag: FULL_BAG, chest: FULL_CHEST, cmd: 'withdraw stone_pickaxe', feathers: true, afterHold: 'room' },
   // (f3) the same hold, then a survival release (`damage` 2): the close is loaded and the bag is full -- what happens?
   'holdfull': { bag: FULL_BAG, chest: FULL_CHEST, cmd: 'withdraw stone_pickaxe', feathers: true, afterHold: 'damage' },
+  // ---- withdraw2 (best-first + iron upgrade). Durability: wooden 59, stone 131, iron 250 (damage 20 = 230 left).
+  // (w1) no pickaxe in the bag; the chest holds a fresh WOODEN (59 uses, slot 0), a stone (111) and an iron (230):
+  //      best-first takes the iron; withdraw-01 took the first copy with >= 40 uses.
+  'tiers': { bag: stacks('andesite', 20), chest: [['wooden_pickaxe', 1, 0], ['stone_pickaxe', 1, 20], ['iron_pickaxe', 1, 20], ...INGREDIENTS], cmd: 'withdraw iron_pickaxe' },
+  // (w1b) the discriminating version: the iron has FEWER uses (50) than the stone (111). withdraw-01 ranked uses first
+  //      among copies with >= 40 and took the stone; best-first takes the iron.
+  'tiers2': { bag: stacks('andesite', 20), chest: [['wooden_pickaxe', 1, 0], ['stone_pickaxe', 1, 20], ['iron_pickaxe', 1, 200], ...INGREDIENTS], cmd: 'withdraw iron_pickaxe' },
+  // (w1c) THE RANKING THAT SEPARATES THE ARMS in one chest: the iron has 35 uses (usable, but under withdraw-01's 40-use
+  //      preference band), the stone 111: withdraw-01 takes the stone, best-first the iron.
+  'tiers40': { bag: stacks('andesite', 20), chest: [['wooden_pickaxe', 1, 0], ['stone_pickaxe', 1, 20], ['iron_pickaxe', 1, 215], ...INGREDIENTS], cmd: 'withdraw iron_pickaxe' },
+  // (w1d) THE LIVE FAILURE (7 of 13 withdrawn were wooden): a fresh wooden in the NEAR chest, the iron in a second chest
+  //      4 blocks south; withdraw-01 took at the first container with any usable copy, best-first inspects both.
+  //      (The second chest is not in the snapshot's chest totals: conserved= shows the iron arriving.)
+  'twochest': { bag: stacks('andesite', 20), chest: [['wooden_pickaxe', 1, 0], ...INGREDIENTS], chest2: [['iron_pickaxe', 1, 20]], cmd: 'withdraw iron_pickaxe' },
+  // (w2) the bag HOLDS a wooden pickaxe (an upgrade order, not a pickaxe-needed one); same chest: the iron is taken.
+  'tiersup': { bag: [['wooden_pickaxe', 1, 0], ...stacks('andesite', 20)], chest: [['wooden_pickaxe', 1, 0], ['stone_pickaxe', 1, 20], ['iron_pickaxe', 1, 20], ...INGREDIENTS], cmd: 'withdraw iron_pickaxe' },
+  // (w3) the bag holds a stone pickaxe; the chest holds 5 iron_ingot and 16 sticks, no pickaxe; a crafting table 2 west
+  //      of the stand: take exactly 3 ingots + 2 sticks, craft an iron_pickaxe at the table, server-verified.
+  'ironcraft': { bag: [['stone_pickaxe', 1, 20], ...stacks('andesite', 20)], chest: [['iron_ingot', 5], ['stick', 16]], table: true, cmd: 'craft iron_pickaxe' },
+  // (w4) the bag holds a stone pickaxe; the chest holds sticks, cobblestone and a worse (wooden) pickaxe, NO ingots:
+  //      nothing is taken (the order may inspect once and record the evidence; then it is ruled out).
+  'noingots': { bag: [['stone_pickaxe', 1, 20], ...stacks('andesite', 20)], chest: [['wooden_pickaxe', 1, 0], ['stick', 16], ['cobblestone', 64]], table: true, cmd: 'craft iron_pickaxe' },
+  // (w5) 36/36 bag with a WOODEN pickaxe in it, 27/27 chest with ONE iron_pickaxe: the verified trade swaps the wooden
+  //      out for the iron (never a bankable stack banked into a full chest, nothing dropped).
+  'fullbag': { bag: [['wooden_pickaxe', 1, 0], ...stacks('stone', 19), ...stacks('andesite', 16)], chest: [...stacks('diorite', 13), ['iron_pickaxe', 1, 20], ...stacks('diorite', 13)], cmd: 'withdraw iron_pickaxe' },
 }
+const TABLE = '698 120 700'
+const CHEST2 = '700 120 704'
 const WINDOW_MS = 100000        // the first town scan can wait TOWN_SCAN_MS (30 s) plus a decision's cadence
 const CTRL_WINDOW_MS = 60000    // the control: no order is expected; then the model's verb
 function arenaCmds () {
   return ['kill @e[type=!player,x=700,y=120,z=700,distance=..30]',
     'fill 688 120 688 712 130 712 minecraft:air', 'fill 688 119 688 712 119 712 minecraft:stone']
 }
+const extraCmds = spec => spec.table ? [`setblock ${TABLE} minecraft:crafting_table`] : []
 const itemArg = (id, dmg) => `minecraft:${id}${dmg != null ? `[damage=${dmg}]` : ''}`
 function chestCmds (spec) {
   // The chest goes down LAST, filled in the same batch: an order scanning an EMPTY chest would record a town miss
   // (15 min) and never come back; one scanning before the bag is set would act on the previous trial's bag.
-  return [`setblock ${CH} minecraft:chest[facing=west]`, ...spec.chest.map(([id, n, dmg], s) => `item replace block ${CH} container.${s} with ${itemArg(id, dmg)} ${n}`)]
+  const two = spec.chest2 ? [`setblock ${CHEST2} minecraft:chest[facing=north]`, ...spec.chest2.map(([id, n, dmg], s) => `item replace block ${CHEST2} container.${s} with ${itemArg(id, dmg)} ${n}`)] : []
+  return [`setblock ${CH} minecraft:chest[facing=west]`, ...spec.chest.map(([id, n, dmg], s) => `item replace block ${CH} container.${s} with ${itemArg(id, dmg)} ${n}`), ...two]
 }
 function bagCmds (spec) {
   const c = [`clear ${NAME}`, `tp ${NAME} ${STAND.x} ${STAND.y} ${STAND.z}`]
@@ -183,7 +215,7 @@ async function runTrial (scene, k) {
   if (!await waitFor(() => lines(botOut).some(l => /spawned pos=/.test(l)), 90000, 300)) { await stopBot(); throw new Error('no spawn') }
   rcon(`gamemode survival ${NAME}`, `tp ${NAME} ${STAND.x} ${STAND.y} ${STAND.z}`, `effect clear ${NAME}`)
   await sleep(3000)
-  const built = [...rcon(...arenaCmds()), ...rcon(...bagCmds(spec)), ...rcon(...chestCmds(spec))]
+  const built = [...rcon(...arenaCmds(), ...extraCmds(spec)), ...rcon(...bagCmds(spec)), ...rcon(...chestCmds(spec))]
   const bad = built.filter(x => /not loaded|Cannot place|Unknown|Incorrect|Expected/i.test(x.reply) && !/^kill /.test(x.cmd))
   if (bad.length) { await stopBot(); throw new Error('arena not built: ' + bad.map(x => x.cmd + ' => ' + x.reply).join('; ')) }
   if (spec.feathers) rcon(...[0, 1, 2].map(() => `summon minecraft:item ${STAND.x} 120.1 ${STAND.z} {Item:{id:"minecraft:feather",count:1},PickupDelay:0s}`))
@@ -198,7 +230,7 @@ async function runTrial (scene, k) {
     const kt = Date.now(); const r = rcon(`kick ${NAME} sandbox withdraw interruption test`)
     marks.kick = { clickAtMs: c.ts - t0, kickAtMs: kt - t0, reply: (r[0]?.reply || '').slice(0, 80) }
   }
-  if (ARM === 'cand') {
+  if (ARM === 'cand' || process.env.WDAB_WATCH_ORDER === '1') {
     // KICK: the first click into the chest window after the order starts (trace.cjs), then RCON kick at once.
     const kicker = spec.kickAfterClick ? kickOnClick(WINDOW_MS) : null
     started = await waitFor(() => skillRows(skillLog).some(r => r.name === 'withdraw_pick' || r.name === '_withdraw_pick') || lines(botOut).some(l => /withdraw_pick/.test(l)), WINDOW_MS)
@@ -254,7 +286,8 @@ async function runTrial (scene, k) {
     before: { ...before, totals: tb }, mid: { ...mid, totals: tm }, hold: holdSnap && { ...holdSnap, totals: totals(holdSnap) }, after: { ...after, totals: ta },
     afterLogout: { chest: afterLogout.chest, ground: afterLogout.ground, totals: { chest: tl.chest, ground: tl.ground } },
     conserved: diff(all(tb), all(ta)) || 'yes',
-    rows: rows.filter(x => /withdraw|deposit|click_|_undefined|craft_sync|_work_order|_town|unsettled|_pickups|_death|reflex|_stuck/.test(x.name)),
+    rows: rows.filter(x => /withdraw|deposit|click_|_undefined|craft|_work_order|_town|unsettled|_pickups|_death|reflex|_stuck/.test(x.name)),
+    ledger: lines(skillLog).map(l => { try { return JSON.parse(l) } catch { return null } }).filter(x => x?.skill?.name === '_withdraw_pick').map(x => x.args || x.skill?.args || null),
     trace: { clicks: tr.filter(e => e.pkt === 'click').map(e => ({ t: e.ts - t0, win: e.win, slot: e.slot, mode: e.mode, btn: e.btn })),
       closes: tr.filter(e => /close_window/.test(e.pkt)).map(e => ({ t: e.ts - t0, pkt: e.pkt, win: e.win })),
       pickups: tr.filter(e => e.pkt === 'collect' && e.self).map(e => ({ t: e.ts - t0, n: e.n })), spawns: tr.filter(e => e.pkt === 'spawn_item').map(e => ({ t: e.ts - t0, x: e.x, y: e.y, z: e.z })) },

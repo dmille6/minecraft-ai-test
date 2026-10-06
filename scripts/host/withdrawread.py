@@ -1,5 +1,19 @@
 #!/usr/bin/env python3
-# withdrawread.py [window_min] -- the read for canary `withdraw-01` (branch wd-on-<fleet>: withdraw_pick, rounds 1-6).
+# withdrawread.py [window_min] -- the read for canaries `withdraw-01` (wd-on-<fleet>) and `withdraw2-01` (wd2-on-<fleet>).
+#
+# WITHDRAW2 (owner 10-06, docs/reports/withdraw2-design.md): BEST-FIRST pickaxe withdrawal (tier first, never spent,
+# never worse than a copy observed and not proven gone) and the IRON UPGRADE (a bot whose best usable pickaxe is below
+# iron takes exactly 3 ingots + 2 sticks (or wood) and crafts an iron pickaxe, verified by the server). withdraw-01 is
+# on the whole fleet now, so the CONTROL writes `_withdraw_pick` rows too: canary rows are told apart by their
+# structured ledger (logEvent args: held, took_tier, took_uses, best_seen, best_valid, gone, craft, produced, srv, plan,
+# transform, iron, complete). GATES on the canary (each REVERTS):
+#   G1 unplanned loss -- args srv (cumulative server change) falls of a name not in plan nor transform (complete rows);
+#   G2 spent tool taken -- args took_uses <= 10 for a taken pickaxe (or detail uses=, the withdraw-01 field);
+#   G5 worse tier taken -- args took_tier below best_valid (the best observed copy not proven gone);
+#   G6 iron without a server-confirmed craft -- outcome=crafted_iron without craft=server, srv iron_pickaxe +1, complete.
+# A canary row without a complete ledger is UNKNOWN for G1/G6 (counted and reported; never a pass).
+# REPORTED (DiD): share of withdrawn pickaxes by tier (iron or better), iron pickaxes per bot-hour (confirmed
+# iron_pickaxe crafts), bots holding iron or better. INSTRUMENT: control bots at town with a usable pickaxe below iron.
 # CANARY_DRYRUN=pool[,pool]:sha:iso for dry runs (never emits).
 #
 # THE CHANGE: a deterministic `withdraw_pick` town order (composter.mjs townOrder) for a bot AT TOWN (<= 48 of home) whose
@@ -66,6 +80,9 @@ TOWN = 48            # composter.mjs TOWN_RADIUS
 FLOOR = 10           # toolfor.mjs FLOOR: usable = more than 10 uses left
 GAP_CAP = 120.0      # seconds a snapshot may stand for when the next row is late
 TOOL = re.compile(r'_(pickaxe|axe|shovel|sword|hoe)$')
+TIERS = ['wooden', 'golden', 'stone', 'iron', 'diamond', 'netherite']     # toolfor.mjs TOOL_TIER
+tier_of = lambda name: next((i for i, t in enumerate(TIERS) if str(name or '').startswith(t + '_') or str(name or '') == t), -1)
+IRON = TIERS.index('iron')
 KV = re.compile(r'(\w+)=(\S*)')
 
 
@@ -148,6 +165,49 @@ def usable_pick(tools):
     return any(e.get('max', 0) - e.get('used', 0) > FLOOR for k, v in (tools or {}).items() if k.endswith('_pickaxe') for e in v)
 
 
+def args_of(r):
+    a = ((r.get('raw') or {}).get('skill') or {}).get('args')
+    return a if isinstance(a, dict) and a else None
+
+
+def g1_args(a):
+    """G1 on the withdraw2 ledger: a fall of a name not in plan nor transform -> [(name, delta)]; None = unknown."""
+    if not a.get('complete') or not isinstance(a.get('srv'), dict):
+        return None
+    ok = set(a.get('plan') or []) | set(a.get('transform') or [])
+    return [(n, d) for n, d in a['srv'].items() if isinstance(d, (int, float)) and d < 0 and n not in ok]
+
+
+def g2_args(a):
+    u = a.get('took_uses')
+    return a.get('took_tier') not in (None, '-', 'none') and isinstance(u, (int, float)) and u <= FLOOR
+
+
+def g5_args(a):
+    return a.get('took_tier') not in (None, '-', 'none') and tier_of(a.get('took_tier')) < tier_of(a.get('best_valid'))
+
+
+def g6_args(a, outcome):
+    """True = a breach; None = unknown (incomplete ledger)."""
+    if outcome != 'crafted_iron':
+        return False
+    if not a.get('complete'):
+        return None
+    return not (a.get('craft') == 'server' and (a.get('srv') or {}).get('iron_pickaxe', 0) >= 1)
+
+
+def best_pick_tier(tools):
+    return max([tier_of(k) for k, v in (tools or {}).items() if k.endswith('_pickaxe') for e in v if e.get('max', 0) - e.get('used', 0) > FLOOR] or [-1])
+
+
+_A1 = {'held': 'stone', 'took_tier': 'iron', 'took_uses': 50, 'best_valid': 'iron', 'craft': 'none', 'srv': {'iron_pickaxe': 1}, 'plan': [], 'transform': [], 'complete': True}
+assert g1_args(_A1) == [] and not g2_args(_A1) and not g5_args(_A1) and g6_args(_A1, 'took_pick') is False
+assert g5_args(dict(_A1, took_tier='stone')) and g2_args(dict(_A1, took_uses=6)) and g1_args(dict(_A1, complete=False)) is None
+_A2 = {'craft': 'server', 'srv': {'iron_ingot': -3, 'stick': -2, 'iron_pickaxe': 1}, 'plan': [], 'transform': ['iron_ingot', 'stick'], 'complete': True, 'took_tier': 'iron', 'best_valid': 'none'}
+assert g1_args(_A2) == [] and g6_args(_A2, 'crafted_iron') is False and g1_args(dict(_A2, transform=[])) == [('iron_ingot', -3), ('stick', -2)]
+assert g6_args(dict(_A2, craft='unverified'), 'crafted_iron') and g6_args(dict(_A2, srv={}), 'crafted_iron') and g6_args(dict(_A2, complete=False), 'crafted_iron') is None
+assert tier_of('iron_pickaxe') == IRON and best_pick_tier({'stone_pickaxe': [{'used': 0, 'max': 131}], 'iron_pickaxe': [{'used': 245, 'max': 250}]}) == 2
+
 # POSITIVE CONTROL for the parsers: rows exactly as withdrawpick.mjs withdrawRow writes them (node, 2691727).
 _R1 = ('outcome=took_pick need=pickaxe uses=111 verification=server cursor=empty err=- chest_room=0 plan=stone '
        'srv=stone:-64,stone_pickaxe:+1 bag=1280->1217 deposited=stone:64 took=stone_pickaxe:1 verb=withdraw_pick tried=[702,120,700:acted]')
@@ -172,6 +232,13 @@ assert len(HOME) >= 40, 'home table not read (%d bots): the at-town split would 
 wp = defaultdict(Counter)            # arm -> outcome counts (canary build only for the canary)
 wp_verbs = Counter(); offbuild = 0
 g1, g2, g3, g4 = [], [], [], []
+g5, g6, unknown = [], [], Counter()   # withdraw2's gates; unknown = canary rows whose ledger is incomplete
+canary_args_rows = 0; canary_noargs_rows = 0; ctrl_ledger = 0
+tiers_taken = defaultdict(Counter)    # (period, arm) -> tier name of withdrawn pickaxes
+iron_crafts = defaultdict(Counter)    # period -> arm -> confirmed iron_pickaxe crafts
+crafted_iron = Counter()              # arm -> withdraw2 crafted_iron rows (canary only in practice)
+latest_iron = defaultdict(dict)       # period -> bot -> holds iron or better
+inst_below = set()
 unsettled_unanswered = []
 settled = Counter(); interventions = Counter(); hold_max = 0; loaded_closes = []; drains = 0
 clicks = defaultdict(Counter)        # arm -> kind -> n
@@ -208,12 +275,24 @@ for r in rows:
             bucket['town_nopick'] += gap * (p[4] and not p[3])
         last_state[b] = (t, period, arm, u, at_town)
         latest[period][b] = u
+        latest_iron[period][b] = best_pick_tier(tools) >= IRON
+        if period == 'post' and arm == 'control' and at_town and 0 <= best_pick_tier(tools) < IRON:
+            inst_below.add(b)
         if period == 'post' and at_town and not u:
             (inst_bots if arm == 'control' else expo_bots).add(b)
     if k == '_craft_sync' and not other:
         a = ((r.get('raw') or {}).get('skill') or {}).get('args') or {}
         if a.get('item') == 'stone_pickaxe' and str(a.get('confirmed')) == 'yes':
             crafts[period][arm] += 1
+        if a.get('item') == 'iron_pickaxe' and str(a.get('confirmed')) == 'yes':
+            iron_crafts[period][arm] += 1
+    if k == '_withdraw_pick' and not other:
+        f0 = fields(d)
+        if f0.get('outcome') == 'took_pick':
+            for part in (f0.get('took') or '-').split(','):
+                n0 = part.split(':')[0]
+                if n0.endswith('_pickaxe'):
+                    tiers_taken[(period, arm)][TIERS[tier_of(n0)] if tier_of(n0) >= 0 else '?'] += 1
     if period != 'post':
         continue
     if k in ('_click_refused', '_click_dropped', '_click_drop_repair', '_undefined'):
@@ -228,14 +307,38 @@ for r in rows:
     st = r.get('status') or ((r.get('raw') or {}).get('skill') or {}).get('status')
     if k == '_withdraw_pick':
         wp[arm][f.get('outcome', '?')] += 1
+        if arm == 'control' and args_of(r) and 'complete' in args_of(r):
+            ctrl_ledger += 1          # ARMS: only the withdraw2 build writes the ledger
         if arm == 'control':
             continue
         wp_verbs[f.get('verb', '?')] += 1
-        loss = unplanned_loss(f)
-        if loss:
-            g1.append((b, t, loss, d[:120]))
-        if spent_taken(f):
-            g2.append((b, t.strftime('%H:%M:%S'), d[:120]))
+        A = args_of(r) if f.get('verb') == 'withdraw_pick' else None
+        if f.get('verb') == 'withdraw_pick':
+            if A: canary_args_rows += 1
+            elif f.get('outcome') not in ('aborted', 'error'): canary_noargs_rows += 1   # a thrown order's row has no ledger
+        if A:
+            loss = g1_args(A)
+            if loss is None:
+                unknown['g1'] += 1
+            elif loss:
+                g1.append((b, t, loss, d[:120]))
+            if g2_args(A) or spent_taken(f):
+                g2.append((b, t.strftime('%H:%M:%S'), d[:120]))
+            if g5_args(A):
+                g5.append((b, t.strftime('%H:%M:%S'), A.get('took_tier'), A.get('best_valid'), d[:100]))
+            b6 = g6_args(A, f.get('outcome'))
+            if b6 is None:
+                unknown['g6'] += 1
+            elif b6:
+                g6.append((b, t.strftime('%H:%M:%S'), A.get('craft'), (A.get('srv') or {}).get('iron_pickaxe'), d[:100]))
+            if f.get('outcome') == 'crafted_iron':
+                crafted_iron[arm] += 1
+        else:
+            loss = unplanned_loss(f)
+            if loss:
+                g1.append((b, t, loss, d[:120]))
+            if spent_taken(f):
+                g2.append((b, t.strftime('%H:%M:%S'), d[:120]))
         if f.get('outcome') == 'transfer_unsettled' and 'no_server_evidence' in (f.get('cursor') or ''):
             # SANDBOX 10-05 (kick mid-swap, 2/2): a disconnect while a stack is on the cursor DROPS it on Paper whatever
             # the room (AbstractContainerMenu.removed -> drop when hasDisconnected); the row then reads this, srv=-, and
@@ -312,11 +415,42 @@ ctrl_new = sum(n for o, n in wp['control'].items())
 took = wp['canary'].get('took_pick', 0) + wp['canary'].get('took_ingredients', 0)
 nan = lambda x: x != x
 print('-' * 78)
-print('LIVENESS     canary withdraw_pick orders %d (>= 1) | model-verb rows %d | control _withdraw_pick/_settled rows %d (must be 0) | other build %d'
-      % (canary_orders, wp_verbs.get('withdraw', 0), ctrl_new, offbuild))
+print('LIVENESS     canary withdraw_pick orders %d (>= 1; with the withdraw2 ledger %d, WITHOUT %d -- must be 0) | model-verb rows %d | control rows %d (withdraw-01 on the fleet) | other build %d'
+      % (canary_orders, canary_args_rows, canary_noargs_rows, wp_verbs.get('withdraw', 0), ctrl_new, offbuild))
 print('             canary outcomes %s' % dict(wp['canary']))
 print('CORRECTNESS  G1 unplanned server-counted loss %d (excused by a death within 60 s: %d) | G2 spent tool withdrawn %d | G3 success without the server %d | G4 closed loaded in hold mode %d'
       % (len(g1), len(g1_excused), len(g2), len(g3), len(g4)))
+print('WITHDRAW2    G5 worse tier taken %d | G6 crafted_iron without a server-confirmed craft %d | ledger UNKNOWN (incomplete) g1 %d g6 %d | crafted_iron rows %d'
+      % (len(g5), len(g6), unknown['g1'], unknown['g6'], crafted_iron['canary']))
+
+
+def tier_share(period, arm):
+    c = tiers_taken[(period, arm)]; n = sum(c.values())
+    return (sum(v for k2, v in c.items() if tier_of(k2) >= IRON) / n if n else float('nan')), n
+
+
+def iron_rate(period, arm):
+    hrs = time_[(period, arm)]['all'] / 3600.0
+    return iron_crafts[period][arm] / hrs if hrs else float('nan')
+
+
+def iron_holders(period, arm):
+    v = [u for b, u in latest_iron[period].items() if (pool_of(b) in CANS) == (arm == 'canary')]
+    return sum(v) / len(v) if v else float('nan')
+
+
+ts = {(p_, a_): tier_share(p_, a_) for p_ in ('pre', 'post') for a_ in ('canary', 'control')}
+tier_did = (ts[('post', 'canary')][0] - ts[('pre', 'canary')][0]) - (ts[('post', 'control')][0] - ts[('pre', 'control')][0])
+iron_did = (iron_rate('post', 'canary') - iron_rate('pre', 'canary')) - (iron_rate('post', 'control') - iron_rate('pre', 'control'))
+ironh_did = (iron_holders('post', 'canary') - iron_holders('pre', 'canary')) - (iron_holders('post', 'control') - iron_holders('pre', 'control'))
+print('             withdrawn pickaxes by tier: canary pre %s post %s | control pre %s post %s'
+      % (dict(tiers_taken[('pre', 'canary')]), dict(tiers_taken[('post', 'canary')]), dict(tiers_taken[('pre', 'control')]), dict(tiers_taken[('post', 'control')])))
+print('             share iron+ of withdrawn: canary %.2f (n %d) -> %.2f (n %d) control %.2f (n %d) -> %.2f (n %d) DiD %+.3f'
+      % (ts[('pre', 'canary')][0], ts[('pre', 'canary')][1], ts[('post', 'canary')][0], ts[('post', 'canary')][1],
+         ts[('pre', 'control')][0], ts[('pre', 'control')][1], ts[('post', 'control')][0], ts[('post', 'control')][1], tier_did))
+print('             confirmed iron_pickaxe crafts/bot-h: canary %.3f -> %.3f control %.3f -> %.3f DiD %+.3f | bots holding iron+: DiD %+.3f'
+      % (iron_rate('pre', 'canary'), iron_rate('post', 'canary'), iron_rate('pre', 'control'), iron_rate('post', 'control'), iron_did, ironh_did))
+print('INSTRUMENT2  control bots at town with a usable pickaxe below iron (post) %d (>= 1) | control rows with the withdraw2 ledger %d (must be 0)' % (len(inst_below), ctrl_ledger))
 print('REPORTED     _withdraw_settled %s | intervention_needed %d rows on %d bots, longest hold %.0f s | drain_timeout %d'
       % (dict(settled), sum(interventions.values()), len(interventions), hold_max / 1000.0, drains))
 print('             loaded closes (survival release / server close / disconnect with a stack on the cursor) %d %s'
@@ -339,7 +473,7 @@ print('             bots holding a usable pickaxe (latest snapshot): canary %.2f
 print('             confirmed stone_pickaxe crafts/bot-h: canary %.3f -> %.3f control %.3f -> %.3f'
       % (craft_rate('pre', 'canary'), craft_rate('post', 'canary'), craft_rate('pre', 'control'), craft_rate('post', 'control')))
 print('             canary bot-hours %.1f control %.1f (post)' % (time_[('post', 'canary')]['all'] / 3600, time_[('post', 'control')]['all'] / 3600))
-for x in (g1 + g2 + g3 + g4)[:6]:
+for x in (g1 + g2 + g3 + g4 + g5 + g6)[:6]:
     print('  breach:', x)
 try:
     if ovr:
@@ -359,6 +493,11 @@ try:
         'nopick_time_did': r3(did('nopick')), 'town_nopick_time_did': r3(did('town_nopick')),
         'holders_did': r3((hc1 - hc0) - (hk1 - hk0)),
         'exposure_ready': int(canary_orders >= 5 and len(inst_bots) >= 1),
+        'g5_worse_tier': len(g5), 'g6_iron_unconfirmed': len(g6), 'ledger_unknown_g1': unknown['g1'], 'ledger_unknown_g6': unknown['g6'],
+        'canary_rows_without_ledger': canary_noargs_rows, 'control_rows_with_ledger': ctrl_ledger, 'crafted_iron_canary': crafted_iron['canary'],
+        'iron_share_did': r3(tier_did), 'iron_crafts_per_bot_h_did': r3(iron_did), 'iron_holders_did': r3(ironh_did),
+        'instrument_below_iron_control': len(inst_below),
+        'exposure2_ready': int(canary_orders >= 5 and len(inst_below) >= 1),
     })
 except Exception as e:
     print('emit failed:', e)
