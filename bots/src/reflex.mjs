@@ -4393,29 +4393,42 @@ export async function escapeStairUp (bot, {
       stopped = plan.reason
       if (plan.flood) {
         logFloodGuard(bot, { caller: 'ramp_breach', reason: plan.reason, cell: p.offset(...(plan.cell ?? [0, 2, 0])), submerged })
-        // A BURIED BODY IS NOT LEFT BEHIND A FLOOD REFUSAL (Codex r4) -- BUT SIDEWAYS FIRST (climbflood-02; fleet
-        // 10-06 03:10Z, hive-d-Alpha): digging a falling block out of the bot's own cell drops the column resting on
-        // it, and when that column is the one refused for the water on top, each dig brings the water one cell
-        // closer -- three digs and it arrived (the bot survived at 11/20 air). Leaving the cell sideways ends the
-        // burial without opening the column; the own-cell dig remains the last resort when no side cell qualifies.
-        const buriedNow = () => [1, 0].some(dy => { const own = at(0, dy, 0); return own && isFallingBlock(own) && !bodyPassable(own) })
-        const sideFirst = buriedNow() && sidestepped === 0
-          ? chooseFloodSidestep({ at, bearings: escapeBearings(bot.entity.yaw), canBreak, submerged }) : null
-        if (buriedNow() && !(sideFirst && sideFirst.ok)) {
+        // A BURIED BODY IS NOT LEFT BEHIND A FLOOD REFUSAL (Codex r4) -- SIDEWAYS FIRST ONLY WHEN THE WAY IS ALREADY
+        // OPEN (climbflood-02; fleet 10-06 03:10Z, hive-d-Alpha, and Codex on 55cd658). Digging a falling block out of
+        // the bot's own cell drops the column resting on it, and under a refused wet column each dig brought the water
+        // one cell closer (three digs; the bot survived at 11/20 air). Stepping into an ALREADY-OPEN side cell ends the
+        // burial without opening the column and costs no swing. A side that must first be dug is not a rescue: two
+        // bare-handed stone digs are ~15 s with the head inside a block, so then the own cell is dug first, as before.
+        // And a sidestep that fails leaves the own-cell fallback to run from wherever the bot now stands.
+        const buriedAt = () => {
+          const q = bot.entity.position
+          return [1, 0].some(dy => { const own = bot.blockAt(q.offset(0, dy, 0)); return own && isFallingBlock(own) && !bodyPassable(own) })
+        }
+        const unburyHere = async () => {
           await unburySelf(bot, { deadline, digWithin: unburyDigFor(bot, { digChecked, digWithin }) })
-          if ((yielded = yieldTo())) { stopped = `yielded the body to ${yielded}`; return finish() }
+          return (yielded = yieldTo())
+        }
+        const openSide = buriedAt() && sidestepped === 0
+          ? escapeBearings(bot.entity.yaw)
+            .map(bear => ({ bear, ...floodSidestep({ at, bear, canBreak, submerged }) }))
+            .find(r => r.ok && r.dig.length === 0) ?? null
+          : null
+        if (buriedAt() && !openSide) {
+          if (await unburyHere()) { stopped = `yielded the body to ${yielded}`; return finish() }
         }
         // THE REFUSED CEILING IS NEVER RE-BREACHED; THE BOT LEAVES FROM UNDER IT.
         // One step sideways into a column whose own ceiling the same check
         // allows, then the breach is planned again from there (scene A/B). If
         // no side column qualifies (scene C) the bot stays where it is, dry.
         if (sidestepped === 0) {
-          const side = chooseFloodSidestep({ at, bearings: escapeBearings(bot.entity.yaw), canBreak, submerged })
+          const side = openSide ?? chooseFloodSidestep({ at, bearings: escapeBearings(bot.entity.yaw), canBreak, submerged })
           if (side.ok) {
             const moved = await takeSidestep(side)
             if (yielded) { stopped = `yielded the body to ${yielded}`; return finish() }
             if (moved === true) { sidestepped++; continue }
             stopped = `${plan.reason}; the sidestep failed: ${moved}`
+            // THE FALLBACK STILL RUNS (Codex on 55cd658): a failed sidestep must not leave a buried body untreated.
+            if (buriedAt() && await unburyHere()) { stopped = `yielded the body to ${yielded}`; return finish() }
           } else {
             stopped = `${plan.reason}; no dry side column (${side.reason})`
           }
