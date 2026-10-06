@@ -56,10 +56,11 @@ const craftStub = (w, mode) => {
   SKILLS.craft.run = async (_ctx, args) => {
     calls.push(args)
     if (mode === 'fails') return { status: 'failed', failClass: 'not_craftable', detail: 'missing ingredients or need a crafting_table nearby' }
-    if (mode === 'honest') {
+    if (mode === 'honest' || mode === 'abortAfter') {
       const take = (name, n) => { for (const it of w.bag) { if (!it || it.name !== name || n <= 0) continue; const k = Math.min(n, it.count); it.count -= k; n -= k } for (let i = 0; i < w.bag.length; i++) if (w.bag[i] && w.bag[i].count <= 0) w.bag[i] = null }
       take('iron_ingot', 3); take('stick', 2)
       const i = w.bag.findIndex(x => !x); if (i >= 0) w.bag[i] = tool('iron_pickaxe', 0); else w.bag.push(tool('iron_pickaxe', 0))
+      if (mode === 'abortAfter') throw Object.assign(new Error('aborted during the table retake'), { aborted: true })
     }
     return { status: 'success', produced: 1, requested: 1, verification: 'server', detail: 'crafted 1x iron_pickaxe' }
   }
@@ -151,6 +152,7 @@ await t('BEST-FIRST ACROSS CHESTS: a fresh wooden in the nearest chest, a worn i
   assert.deepEqual(w.spy.opened, ['5,64,0', '-5,64,0', '-5,64,0'], 'both inspected, then the winner revisited')
   const a = lastRow().args
   assert.equal(a.took_tier, 'iron'); assert.equal(a.best_seen, 'iron'); assert.equal(a.best_valid, 'iron'); assert.equal(a.complete, true)
+  assert.equal(a.took_uses, 50, 'the taken copy\'s uses left are in args (G2 reads them)')
 })
 
 await t('FALLBACK: the iron is GONE at the take (another bot) -- re-ranked, the next best still standing is taken, and the row says so', async () => {
@@ -164,6 +166,30 @@ await t('FALLBACK: the iron is GONE at the take (another bot) -- re-ranked, the 
   assert.equal(count(w.bag, 'stone_pickaxe'), 1, 'the stone, not the wooden')
   const a = lastRow().args
   assert.equal(a.took_tier, 'stone'); assert.equal(a.best_seen, 'iron'); assert.equal(a.best_valid, 'stone', 'the iron was proven gone')
+  assert.deepEqual(a.gone, ['iron'])
+})
+
+await t('REVALIDATION BY IDENTITY: the iron at the take is now a SPENT iron of the same name -- not taken; the next best is', async () => {
+  const w = withServer(town([], [p('stone_pickaxe', 0)]))
+  w.set(-5, 64, 0, 'chest'); w.stock(-5, 64, 0, [p('iron_pickaxe', 200)])
+  const open = w.bot.openContainer
+  let n = 0
+  w.bot.openContainer = async b => { if (++n === 3) w.containers.get('-5,64,0').slots[0] = p('iron_pickaxe', 245); return open(b) }   // 5 uses left: spent
+  const r = await pick(w.bot)
+  assert.equal(r.status, 'success', r.detail)
+  assert.equal(count(w.bag, 'iron_pickaxe'), 0, 'the spent iron was not taken'); assert.equal(count(w.bag, 'stone_pickaxe'), 1)
+})
+
+await t('THE BEST COPY\'S CHEST CANNOT BE REACHED at the take: the order STOPS -- never a worse copy instead', async () => {
+  const w = withServer(town([], [p('wooden_pickaxe', 0)]))
+  w.set(-5, 64, 0, 'chest'); w.stock(-5, 64, 0, [p('iron_pickaxe', 200)])
+  const goto = w.bot.pathfinder.goto
+  let toB = 0
+  w.bot.pathfinder.goto = async goal => { if (goal.x === -5 && ++toB === 2) throw new Error('No path to the goal!'); return goto(goal) }
+  const r = await pick(w.bot)
+  assert.notEqual(r.status, 'success', r.detail)
+  assert.equal(count(w.bag, 'wooden_pickaxe'), 0, 'no worse copy instead'); assert.equal(count(w.bag, 'iron_pickaxe'), 0)
+  assert.equal(lastRow().args.best_valid, 'iron', 'the iron was not proven gone')
 })
 
 await t('UPGRADE WITH ROOM: a bot holding a wooden pickaxe takes the iron; the wooden one stays', async () => {
@@ -209,6 +235,7 @@ await t('IRON PATH: stone held, 5 ingots and sticks in the chest, a table in rea
     const a = lastRow().args
     assert.equal(lastRow().detail.split(' ')[0], 'outcome=crafted_iron')
     assert.equal(a.craft, 'server'); assert.equal(a.produced, 1); assert.equal(a.srv.iron_pickaxe, 1); assert.equal(a.complete, true)
+    assert.deepEqual([...a.transform].sort(), ['iron_ingot', 'stick'], 'what the craft consumed, measured')
     assert.equal(withdrawHolds().iron_pickaxe, 1, 'the new pickaxe is held from deposit')
     assert.equal(withdrawHolds().iron_ingot ?? 0, 0, 'the scoped holds were released')
   } finally { SKILLS.craft.run = realCraft }
@@ -239,6 +266,21 @@ await t('A TOWN WITH NO PICKAXES (every chest a recent pickaxe miss): the iron p
     const r = await pick(w.bot)
     assert.equal(r.status, 'success', r.detail); assert.equal(calls.length, 1)
     assert.equal(lastRow().detail.split(' ')[0], 'outcome=crafted_iron')
+  } finally { SKILLS.craft.run = realCraft }
+})
+
+await t('RE-PLAN BEFORE THE INGOTS: the bag picked up an ingot after the sticks\' visit -- only the remaining 2 are taken', async () => {
+  const w = withServer(town([p('stone_pickaxe', 0)], [stack('stick', 10)]))
+  w.set(-5, 64, 0, 'chest'); w.stock(-5, 64, 0, [stack('iron_ingot', 4)])
+  w.set(6, 64, 2, 'crafting_table')
+  craftStub(w, 'honest')
+  const open = w.bot.openContainer
+  let n = 0
+  w.bot.openContainer = async b => { if (++n === 3) { const i = w.bag.findIndex(x => !x); w.bag[i >= 0 ? i : w.bag.length] = stack('iron_ingot', 1) } return open(b) }   // an auto-pickup during the sticks' visit
+  try {
+    const r = await pick(w.bot)
+    assert.equal(r.status, 'success', r.detail)
+    assert.equal(w.containers.get('-5,64,0').slots.filter(Boolean).find(x => x.name === 'iron_ingot').count, 2, 'exactly the remaining deficit taken')
   } finally { SKILLS.craft.run = realCraft }
 })
 
@@ -281,6 +323,97 @@ await t('NOT ENOUGH INGOTS IN ONE CHEST: the iron path is declined -- nothing ta
     assert.equal(r.status, 'no_effect', r.detail)
     assert.equal(calls.length, 0); assert.equal(count(w.bag, 'iron_ingot'), 0); assert.equal(count(w.bag, 'stick'), 0)
     assert.match(lastRow().args.iron, /^declined:/)
+  } finally { SKILLS.craft.run = realCraft }
+})
+
+// ---------------------------------------------------------------- Codex code review, round 1 ---
+await t('C1 P1: the sticks vanish before the take -- NOTHING is taken at that chest (no ingots without their sticks)', async () => {
+  const w = withServer(town([p('stone_pickaxe', 0)], [stack('iron_ingot', 3), stack('stick', 2)]))
+  w.set(6, 64, 2, 'crafting_table')
+  const calls = craftStub(w, 'honest')
+  const open = w.bot.openContainer
+  let n = 0
+  w.bot.openContainer = async b => { if (++n === 2) w.containers.get('5,64,0').slots[1] = null; return open(b) }
+  try {
+    const r = await pick(w.bot)
+    assert.notEqual(r.status, 'success', r.detail)
+    assert.equal(count(w.bag, 'iron_ingot'), 0, 'no ingots taken'); assert.equal(calls.length, 0, 'no craft')
+    assert.equal(lastRow().detail.split(' ')[0], 'outcome=iron_take_failed')
+  } finally { SKILLS.craft.run = realCraft }
+})
+
+await t('C1 P2: held planks make the sticks -- stick/plank misses in town do not rule the iron path out', async () => {
+  const w = withServer(town([p('stone_pickaxe', 0), stack('oak_planks', 2)], [stack('iron_ingot', 3)]))
+  w.set(6, 64, 2, 'crafting_table')
+  updateMem(e => { e._ingredient_miss = { '5,64,0': { stick: Date.now() - 1000, planks: Date.now() - 1000 } }; e._ingot_seen = { '5,64,0': { at: Date.now() - 1000, count: 3 } } })
+  assert.equal(townIronRuledOut(w.bot), false)
+})
+
+await t('C1 P2: a chest known to hold no pickaxe and no ingots, but sticks, is still looked in -- and supplies them', async () => {
+  const w = withServer(town([p('stone_pickaxe', 0)], [stack('stick', 2)]))
+  w.set(-5, 64, 0, 'chest'); w.stock(-5, 64, 0, [stack('iron_ingot', 3)])
+  w.set(6, 64, 2, 'crafting_table')
+  updateMem(e => { e._pick_miss = { '5,64,0': Date.now() - 1000 }; e._ingot_seen = { '5,64,0': { at: Date.now() - 1000, count: 0 } } })
+  const calls = craftStub(w, 'honest')
+  try {
+    const r = await pick(w.bot)
+    assert.equal(r.status, 'success', r.detail); assert.equal(calls.length, 1)
+    assert.ok(w.spy.opened.includes('5,64,0'))
+  } finally { SKILLS.craft.run = realCraft }
+})
+
+await t('C1 P2: the room for BOTH visits must fit the first chest -- else declined before anything moves', async () => {
+  // deposit credits at most 64 of a name, so the room-making stacks are of different bankable names
+  const bag = [p('stone_pickaxe', 0), ...Array.from({ length: 32 }, () => stack('dirt', 64)), stack('coal', 64), stack('diamond', 64), stack('raw_iron', 64)]
+  const w = withServer(town(bag, [...Array.from({ length: 25 }, () => stack('dirt', 64)), stack('stick', 10)]))   // 1 empty slot
+  w.set(-5, 64, 0, 'chest'); w.stock(-5, 64, 0, [...Array.from({ length: 26 }, () => stack('dirt', 64)), stack('iron_ingot', 3)])   // full
+  w.set(6, 64, 2, 'crafting_table')
+  const calls = craftStub(w, 'honest')
+  try {
+    const r = await pick(w.bot)
+    assert.notEqual(r.status, 'success', r.detail)
+    assert.match(lastRow().args.iron, /^declined:no room in the chest/)
+    assert.equal(count(w.bag, 'stick'), 0); assert.equal(count(w.bag, 'coal') + count(w.bag, 'diamond') + count(w.bag, 'raw_iron'), 3 * 64, 'nothing moved'); assert.equal(calls.length, 0)
+  } finally { SKILLS.craft.run = realCraft }
+})
+
+await t('C1 P2 positive: with room in the first chest, room for BOTH visits is made there -- then sticks, then ingots, then the craft', async () => {
+  const bag = [p('stone_pickaxe', 0), ...Array.from({ length: 32 }, () => stack('dirt', 64)), stack('coal', 64), stack('diamond', 64), stack('raw_iron', 64)]
+  const w = withServer(town(bag, [stack('stick', 10)]))                                                           // plenty of room
+  w.set(-5, 64, 0, 'chest'); w.stock(-5, 64, 0, [...Array.from({ length: 26 }, () => stack('dirt', 64)), stack('iron_ingot', 3)])   // full
+  w.set(6, 64, 2, 'crafting_table')
+  const calls = craftStub(w, 'honest')
+  try {
+    const r = await pick(w.bot)
+    assert.equal(r.status, 'success', r.detail); assert.equal(calls.length, 1)
+    assert.equal(Object.values(lastRow().args.gave).reduce((a, b) => a + b, 0), 128, 'two stacks banked at the first chest')
+  } finally { SKILLS.craft.run = realCraft }
+})
+
+await t('C1 P2: ONE take-visit budget per order: a diamond proven gone spends a visit, so a two-visit iron plan is declined', async () => {
+  const w = withServer(town([p('stone_pickaxe', 0)], [p('diamond_pickaxe', 0)]))
+  w.set(-5, 64, 0, 'chest'); w.stock(-5, 64, 0, [stack('stick', 10)])
+  w.set(0, 64, 5, 'chest'); w.stock(0, 64, 5, [stack('iron_ingot', 3)])
+  w.set(6, 64, 2, 'crafting_table')
+  const calls = craftStub(w, 'honest')
+  const open = w.bot.openContainer
+  let n = 0
+  w.bot.openContainer = async b => { if (++n === 4) w.containers.get('5,64,0').slots[0] = null; return open(b) }   // the diamond is gone at its revisit
+  try {
+    await pick(w.bot)
+    assert.equal(lastRow().args.iron, 'declined:visit budget'); assert.equal(calls.length, 0)
+    assert.equal(w.spy.opened.length, 4, 'three looks and one take visit')
+  } finally { SKILLS.craft.run = realCraft }
+})
+
+await t('C1 P2: an ABORT after the pickaxe was made (during the table retake): the new pickaxe is still held from deposit', async () => {
+  const w = withServer(town([p('stone_pickaxe', 0)], [stack('iron_ingot', 5), stack('stick', 10)]))
+  w.set(6, 64, 2, 'crafting_table')
+  craftStub(w, 'abortAfter')
+  try {
+    await assert.rejects(pick(w.bot), /aborted/)
+    assert.equal(count(w.bag, 'iron_pickaxe'), 1)
+    assert.equal(withdrawHolds().iron_pickaxe, 1, 'held although the craft threw')
   } finally { SKILLS.craft.run = realCraft }
 })
 
