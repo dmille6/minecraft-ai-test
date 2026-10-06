@@ -56,10 +56,11 @@ const craftStub = (w, mode) => {
   SKILLS.craft.run = async (_ctx, args) => {
     calls.push(args)
     if (mode === 'fails') return { status: 'failed', failClass: 'not_craftable', detail: 'missing ingredients or need a crafting_table nearby' }
-    if (mode === 'honest' || mode === 'abortAfter') {
+    if (mode === 'honest' || mode === 'abortAfter' || mode === 'honestLosesDiamonds') {
       const take = (name, n) => { for (const it of w.bag) { if (!it || it.name !== name || n <= 0) continue; const k = Math.min(n, it.count); it.count -= k; n -= k } for (let i = 0; i < w.bag.length; i++) if (w.bag[i] && w.bag[i].count <= 0) w.bag[i] = null }
       take('iron_ingot', 3); take('stick', 2)
       const i = w.bag.findIndex(x => !x); if (i >= 0) w.bag[i] = tool('iron_pickaxe', 0); else w.bag.push(tool('iron_pickaxe', 0))
+      if (mode === 'honestLosesDiamonds') take('diamond', 8)   // an unrelated loss during the craft
       if (mode === 'abortAfter') throw Object.assign(new Error('aborted during the table retake'), { aborted: true })
     }
     return { status: 'success', produced: 1, requested: 1, verification: 'server', detail: 'crafted 1x iron_pickaxe' }
@@ -414,6 +415,39 @@ await t('C1 P2: an ABORT after the pickaxe was made (during the table retake): t
     await assert.rejects(pick(w.bot), /aborted/)
     assert.equal(count(w.bag, 'iron_pickaxe'), 1)
     assert.equal(withdrawHolds().iron_pickaxe, 1, 'held although the craft threw')
+    const row = lastRow()
+    assert.equal(row.detail.split(' ')[0], 'outcome=aborted')
+    assert.equal(row.args.produced, 1, 'the thrown row keeps the ledger (Codex round 2)'); assert.equal(row.args.srv.iron_pickaxe, 1); assert.equal(row.args.complete, true)
+    assert.equal(row.args.took.iron_ingot, 3)
+  } finally { SKILLS.craft.run = realCraft }
+})
+
+// ---------------------------------------------------------------- Codex code review, round 2 ---
+await t('C2 P1: the sticks vanish AFTER the room-making click in the same transfer -- the ingots are not taken', async () => {
+  const bag = [p('stone_pickaxe', 0), ...Array.from({ length: 32 }, () => stack('dirt', 64)), stack('coal', 64), stack('diamond', 64), stack('raw_iron', 64)]
+  const w = withServer(town(bag, [stack('iron_ingot', 3), stack('stick', 2)]))
+  w.set(6, 64, 2, 'crafting_table')
+  const calls = craftStub(w, 'honest')
+  const click = w.bot.clickWindow.bind(w.bot)
+  let n = 0
+  w.bot.clickWindow = async (slot, button, mode) => { const r = await click(slot, button, mode); if (++n === 1) w.containers.get('5,64,0').slots[1] = null; return r }
+  try {
+    const r = await pick(w.bot)
+    assert.notEqual(r.status, 'success', r.detail)
+    assert.equal(count(w.bag, 'iron_ingot'), 0, 'no ingots without their sticks'); assert.equal(calls.length, 0)
+  } finally { SKILLS.craft.run = realCraft }
+})
+
+await t('C2 P2: an unrelated loss during the craft is NOT exempted as recipe consumption (G1 still sees it)', async () => {
+  const w = withServer(town([p('stone_pickaxe', 0), stack('diamond', 8)], [stack('iron_ingot', 5), stack('stick', 10)]))
+  w.set(6, 64, 2, 'crafting_table')
+  craftStub(w, 'honestLosesDiamonds')
+  try {
+    await pick(w.bot)
+    const a = lastRow().args
+    assert.equal(a.srv.diamond, -8, 'positive control: the loss is in the ledger')
+    assert.ok(!a.transform.includes('diamond'), `transform ${a.transform}`)
+    assert.ok(!a.plan.includes('diamond'))
   } finally { SKILLS.craft.run = realCraft }
 })
 

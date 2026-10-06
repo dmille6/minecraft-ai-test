@@ -374,7 +374,7 @@ await t('INGREDIENT EVIDENCE (pure): per container and per need, complete covera
   const e = {}
   noteIngredientMisses(e, ['a'], ingredientNeedsAbsent([stack('dirt', 5)]), now - 1000)            // a: none of anything
   noteIngredientMisses(e, ['b'], ingredientNeedsAbsent([stack('cobblestone', 9)]), now - 1000)     // b: has cobblestone
-  assert.deepEqual(ingredientNeedsAbsent([stack('cobblestone', 9)]).sort(), ['planks', 'stick'])
+  assert.deepEqual(ingredientNeedsAbsent([stack('cobblestone', 9)]).sort(), ['log', 'planks', 'stick'])   // withdraw2: logs are a need
   assert.equal(townIngredientMissComplete(e, ['a', 'b'], ['stick'], now), true, 'no stick anywhere')
   assert.equal(townIngredientMissComplete(e, ['a', 'b'], ['cobblestone', 'stick'], now), false, 'b holds cobblestone: worth the trip')
   assert.equal(townIngredientMissComplete(e, ['a', 'b', 'c'], ['stick'], now), false, 'c was never looked in: no complete coverage')
@@ -542,8 +542,13 @@ await t('R1.7 MISSES PER CONTAINER: a container shown empty of pickaxes is skipp
   const w = withServer(town([stack('crafting_table', 1), stack('cobblestone', 3), stack('stick', 2)], [stack('dirt', 5)]))
   w.set(-5, 64, 0, 'chest'); w.stock(-5, 64, 0, [tool('stone_pickaxe', 30)])
   // withdraw2: a pickaxe miss alone no longer skips a container while an iron pickaxe could be made -- it is skipped when
-  // it is ALSO freshly known to hold no ingots (withdraw2.test.mjs covers the other half).
-  updateMem(e => { e._pick_miss = { '5,64,0': Date.now() - 60_000 }; e._ingot_seen = { '5,64,0': { at: Date.now() - 60_000, count: 0 } } })
+  // it is ALSO freshly known to hold no ingots and no sticks/wood (the other container's ingots are unknown, so this one's
+  // wood could still feed the iron plan; withdraw2.test.mjs covers that half).
+  updateMem(e => {
+    const at = Date.now() - 60_000
+    e._pick_miss = { '5,64,0': at }; e._ingot_seen = { '5,64,0': { at, count: 0 } }
+    e._ingredient_miss = { '5,64,0': { stick: at, planks: at, log: at } }
+  })
   assert.equal(townPickMiss(w.bot), false, 'one of two containers missed: no town-wide miss')
   const r = await pick(w.bot)
   assert.equal(r.status, 'success', r.detail)
