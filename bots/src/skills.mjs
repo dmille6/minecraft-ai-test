@@ -6657,18 +6657,29 @@ async function transferIn (bot, win, { deposit = [], swap = null, tool = null, t
             : null
           // EVERY DESTINATION AGAIN, before its click (round 7): an auto-pickup can fill a planned slot after the pickup, and
           // a blind click there would swap stacks. Taken -> stop; the settle puts the cursor back or holds it.
+          // WHAT A CLICK PLACED IS WHAT LEFT THE CURSOR (Codex round 6): an auto-pickup can leave a destination room for
+          // fewer than planned; the cursor's own fall is exact, and pickups never touch the cursor.
+          const onCur = () => (win.selectedItem?.name === take.name ? (win.selectedItem.count ?? 0) : 0)
           const into = async (slot, button) => {
             const x = slotAt(win, slot)
             if (x && (x.name !== take.name || (x.count ?? 0) >= 64)) throw stop(`bag slot ${slot} was filled before the ${take.name} could go in`)
+            const c0 = onCur()
             await click(slot, button, 0)
+            const d = Math.max(0, c0 - onCur())
+            placed += d; part.placed += d
+            return d
           }
-          if (one != null) { await into(one, 0); placed = m; part.placed = m }
-          for (const p of a.partial) for (let i = 0; i < p.n && placed < m; i++) { await into(p.slot, 1); placed++; part.placed++ }
-          for (let f = 0; f < a.fresh; f++) for (let i = 0; i < 64 && placed < m; i++) { await into(empties[f], 1); placed++; part.placed++ }
+          if (one != null) await into(one, 0)
+          for (const p of a.partial) for (let i = 0; i < p.n && placed < m; i++) await into(p.slot, 1)
+          for (let f = 0; f < a.fresh; f++) for (let i = 0; i < 64 && placed < m; i++) await into(empties[f], 1)
           if (win.selectedItem) await click(src.slot, 0, 0)   // the rest back where it came from
-          took[take.name] = (took[take.name] ?? 0) + m
+          // ACCOUNTING STAYS OPEN until the cursor is empty (Codex round 6): when the source slot was refilled with another
+          // item the rest cannot go back; the settle resolves it and counts what it rescues into the bag.
+          if (win.selectedItem) throw stop(`the rest of the ${take.name} could not go back to chest slot ${src.slot}`)
+          took[take.name] = (took[take.name] ?? 0) + placed
           part = null
-          left -= m
+          left -= placed
+          if (placed < m) throw stop(`only ${placed} of the ${m} ${take.name} could be placed`)
         }
         // A TAKE THAT FELL SHORT STOPS THE TRANSFER before any LATER take (withdraw2, Codex round 2: the sticks vanished
         // after the room-making clicks and the ingots -- always listed last -- were taken anyway). The last take may end
@@ -6689,6 +6700,7 @@ async function transferIn (bot, win, { deposit = [], swap = null, tool = null, t
     const back = Math.max(0, chestCount(part.name) - chestBefore)
     const rescued = Math.max(0, onCursor - back - stillHeld)
     if (part.placed + rescued > 0) took[part.name] = (took[part.name] ?? 0) + part.placed + rescued
+    part = null
   }
   const state = { took, gave, tool: toolTaken, cursor: bad ? `${settled.state}:${settled.why}` : settled.state,
                   unresolved: settled.state === 'unresolved' ? settled : null, err: err ? String(err.message ?? err).slice(0, 80) : null }
@@ -7266,7 +7278,8 @@ async function ironPath (ctx, signal, { survey, keep, msLeft, deadline, record, 
       record(v, where.block)
       for (const [name, n] of Object.entries(v.moved?.took ?? {})) heldBack.push([name, n])
       if (v.moved?.took?.iron_ingot) updateTownMemory(townDir(), homeTownKey(), bot.worldId ?? null, e => {
-        const left = (where.saw ?? []).reduce((k, it) => k + (it.name === 'iron_ingot' ? it.count : 0), 0) - v.moved.took.iron_ingot
+        // WHAT THIS VISIT SAW minus what it took (Codex round 6: the inspection's count is stale once the chest was refilled)
+        const left = (v.saw ?? []).reduce((k, it) => k + (it.name === 'iron_ingot' ? it.count : 0), 0) - v.moved.took.iron_ingot
         noteIngotsSeen(e, [step.key], Math.max(0, left))
       })
       if (v.result?.status !== 'success') return { result: v.result ?? { status: 'failed', failClass: 'container_short', detail: 'the planned items were not all there: nothing taken at that chest' }, outcome: 'iron_take_failed' }
