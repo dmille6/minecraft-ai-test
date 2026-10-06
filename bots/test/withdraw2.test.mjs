@@ -451,6 +451,22 @@ await t('C2 P2: an unrelated loss during the craft is NOT exempted as recipe con
   } finally { SKILLS.craft.run = realCraft }
 })
 
+await t('C3 P2: an order ABORTED mid-transfer keeps what that transfer moved in its ledger (complete stays false)', async () => {
+  const w = withServer(town([p('stone_pickaxe', 0)], [stack('stick', 2), stack('iron_ingot', 3)]))
+  w.set(6, 64, 2, 'crafting_table')
+  const calls = craftStub(w, 'honest')
+  const ac = new AbortController(); const click = w.bot.clickWindow.bind(w.bot)
+  w.bot.clickWindow = async (...a) => { const r = await click(...a); ac.abort(); return r }   // abort right after the sticks' click
+  try {
+    await assert.rejects(SKILLS.withdraw_pick.run({ bot: w.bot }, {}, ac.signal))
+    assert.equal(count(w.bag, 'stick'), 2, 'positive control: the sticks did move'); assert.equal(calls.length, 0)
+    const a = lastRow().args
+    assert.equal(a.outcome, 'aborted')
+    assert.equal(a.took.stick, 2, `ledger took ${JSON.stringify(a.took)}`)
+    assert.equal(a.complete, false, 'no final server recount on the way out of an abort')
+  } finally { SKILLS.craft.run = realCraft }
+})
+
 await t('EVIDENCE AFTER A LOOK: nothing better and no ingots in the only chest -> the gate\'s two "ruled out"s are true', async () => {
   const w = withServer(town([p('stone_pickaxe', 0)], [p('wooden_pickaxe', 0), stack('dirt', 5)]))
   assert.equal(townBetterPickMiss(w.bot), false, 'positive control: not yet known')
