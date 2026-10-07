@@ -45,6 +45,20 @@ SETS = {
         ('moved credits another depositor\'s gain (uncapped)', 'bots/src/skills.mjs',
          'const got = Math.max(0, Math.min(s.count, inChest(chest, name) - had))   // capped',
          'const got = Math.max(0, inChest(chest, name) - had)   // capped', ['test/cobble-rule.test.mjs']),
+        ('cap: an incomplete count below the cap admits (overshoot on a partial count)', 'bots/src/cobblecap.mjs',
+         "  if (!view?.complete) return 'unknown'\n", '', ['test/cobble-rule.test.mjs']),
+        ('cap: others\' reservations ignored', 'bots/src/cobblecap.mjs',
+         '  const base = (Number(view?.lb) || 0) + (Number(view?.reservedOthers) || 0)\n', '  const base = (Number(view?.lb) || 0)\n', ['test/cobble-rule.test.mjs']),
+        ('cap: no lock (a racing read-modify-write)', 'bots/src/cobblecap.mjs',
+         "    try { fd = fs.openSync(lock, 'wx') } catch (e) {", "    try { fd = fs.openSync(lock, 'w') } catch (e) {", ['test/cobble-rule.test.mjs']),
+        ('cap: the transfer skips the authoritative admission', 'bots/src/skills.mjs',
+         "          if (adm.decision !== 'bank') {", "          if (false) {", ['test/cobble-rule.test.mjs']),
+        ('cap: the plan ignores the town view', 'bots/src/bankable.mjs',
+         '  const admitted = town ? admitStacks(town, cobbleStacks.map(s => s.count)) : null\n', '  const admitted = null\n', ['test/cobble-rule.test.mjs']),
+        ('cap: the deposit never observes on open', 'bots/src/skills.mjs',
+         '  cobbleObserve(bot, chestBlock.position, chest)\n', '', ['test/cobble-rule.test.mjs']),
+        ('cap (town deposit, 92bc84f only): its transfer skips the admission', 'bots/src/skills.mjs',
+         "          if (adm.decision !== 'bank') { capRefused[", "          if (false) { capRefused[", ['test/towndeposit.test.mjs'], 'optional'),
         ('admission walks an empty requested plan', 'bots/src/admission.mjs',
          '      if (!depositPlan(items, args?.item ?? null, { wants }).length) {',
          '      if (false) {', ['test/cobble-rule.test.mjs']),
@@ -67,10 +81,15 @@ def run(root, files):
 def main():
     root, which = sys.argv[1], sys.argv[2]
     killed = survived = 0
-    for name, rel, old, new, files in SETS[which]:
+    for entry in SETS[which]:
+        name, rel, old, new, files = entry[:5]
+        optional = len(entry) > 5 and entry[5] == 'optional'
         path = os.path.join(root, rel)
         src = open(path).read()
         n = src.count(old)
+        if n == 0 and optional:
+            print(f'SKIPPED   {name}  (not in this variant)')
+            continue
         assert n == 1, f'ANCHOR {"MISSING" if n == 0 else "NOT UNIQUE (%d)" % n}: {name}'
         base_bad = run(root, files)
         assert not base_bad, f'baseline already fails {base_bad}: the mutant cannot be judged'
