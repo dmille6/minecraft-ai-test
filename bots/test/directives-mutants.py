@@ -18,6 +18,7 @@ M=[
  ('hold drops the trigger','src/cognitive.mjs',"if (trigger && trigger !== 'idle') this.#raiseTrigger(trigger)","void 0"),
  ('orphan success logged failed','src/directives.mjs',"if (ev.status === 'orphan_outcome') return /^done success/.test(ev.detail) ? 'success' : 'failed'","if (ev.status === 'orphan_outcome') return 'failed'"),
  ('wait cap removed','src/directives.mjs',"d.retryAt = Math.min(d.waitUntil, now + (secs + 5) * 1000)","d.retryAt = now + (secs + 5) * 1000"),
+ ('releaseAll does not retire','src/directives.mjs',"this.#emit('released', this.active, why, now); this.#retire(this.active)","this.#emit('released', this.active, why, now); this.active = null"),
  ('dispatched note removed','src/cognitive.mjs',"if (dstep) directives.note(dstep.gen, 'dispatched'","if (false) directives.note(dstep.gen, 'dispatched'"),
 ]
 for name,f,old,new in M:
