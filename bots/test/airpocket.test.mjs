@@ -508,7 +508,7 @@ function wiring (src) {
                code.indexOf("kind: 'air_pocket_start'") > 0 && code.indexOf("kind: 'air_pocket_start'") < code.indexOf('r = await airPocketStep(') &&
                /msSinceClosing: Date\.now\(\) - lastClosingAt/.test(code) && /if \(closingOnAir\) lastClosingAt = Date\.now\(\)/.test(code) &&
                /guard: \(\) => \{ try \{ if \(runner\?\.isBusy\?\.\(\)\) runner\.interrupt\('air_pocket'\); if \(bot\.pathfinder\?\.goal\) haltPath\(bot\)/.test(code) &&
-               /stepWouldRun: \(\) => prepareAirPocket\(\)\.ok \}\)\) \{/.test(code) && /Date\.now\(\) - airPocketWants < AP_WANT_LAPSE_MS/.test(code) &&
+               /stepWouldRun: \(\) => prepareAirPocket\(\)\.ok \}\)\) \{/.test(code) && /\} else if \(rescuing && route\.sealed === true && route\.dir !== 'up' && \(escaping \|\| marooned\) && !pocketing && !airPocketing &&\s*throttled\('air_pocket_held_off'/.test(code) && /Date\.now\(\) - airPocketWants < AP_WANT_LAPSE_MS/.test(code) &&
                /airPocketWants = 0 {16}\/\/ a refused step/.test(src) && /finally \{ airPocketing = false; airPocketWants = 0 \}/.test(code) &&
                /const ran = await runAirPocket\(route, Date\.now\(\) - seizedAt\)\s*if \(ran\) return/.test(code) &&
                code.indexOf('airPocketPreempt({ rescuing, routeDir: route.dir') > 0 && code.indexOf('airPocketPreempt({ rescuing, routeDir: route.dir') < trigger &&
@@ -539,6 +539,7 @@ for (const [name, old, neu] of [
   ['the skill guard', "guard: () => { try { if (runner?.isBusy?.()) runner.interrupt('air_pocket'); if (bot.pathfinder?.goal) haltPath(bot) } catch {} return null }", 'guard: () => null'],
   ['the pre-empt asking the plan first', 'stepWouldRun: () => prepareAirPocket().ok })) {', 'stepWouldRun: () => true })) {'],
   ['the request lapse', 'Date.now() - airPocketWants < AP_WANT_LAPSE_MS', 'Date.now() - airPocketWants < 30_000'],
+  ['the held-off refusal row', "throttled('air_pocket_held_off', 30_000)) {", "false) {"],
   ['clearing the request on refusal', '      airPocketWants = 0                // a refused step never keeps an escape held off\n', ''],
   ['clearing the request after the step', 'finally { airPocketing = false; airPocketWants = 0 }', 'finally { airPocketing = false }'],
   ['the return after a step', '            if (ran) return\n', ''],
