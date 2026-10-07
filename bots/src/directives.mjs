@@ -8,13 +8,21 @@
 // refusal returns before any row is written. Here the cognitive loop takes the next step as a PROPOSAL, exactly like
 // a work order: the admission gate vets it, the outcome is recorded and fed back, and one decision row is logged.
 //
-// Pure: no I/O, no clock reads (`now` is passed in), so every rule below is unit-tested.
+// rev b (both reviews of b41e8cc): reports match a per-delivery GENERATION, never the caller's id (a same-id resend
+// could otherwise be "completed" by the previous execution); a runner PAUSE is waited out until the runner's own
+// auto-resume (pause recovery + one tick), not dropped after three ticks; every lifecycle step is logged AT ONCE
+// through a sink with its own timestamp (requested / duplicate / admitted / started / waiting / step_done /
+// completed / refused / released / expired / superseded / parse_failed); a new connection releases what the old
+// one held.
+//
+// Pure apart from the optional sink: no clock reads (`now` is passed in), so every rule below is unit-tested.
 
 export const ORIGINS = ['escalation', 'overseer']          // priority order: escalation pre-empts overseer
 export const MAX_STEPS = 4
 export const DEFAULT_LEASE_S = 600
 export const MAX_LEASE_S = 900
-export const MAX_REFUSALS = 3                              // runner refusals (paused/busy) before the directive is dropped
+export const MAX_REFUSALS = 3            // busy / body_held refusals before the directive is released
+export const PAUSE_WAIT_MS = 120_000 + 30_000   // runner.mjs pauseRecoveryMs (120 s) + one decision tick of slack
 
 const SKILL_RE = /^[a-z_]{2,24}$/
 
@@ -39,37 +47,45 @@ export function parseDirective (id, json, { knownSkills = null, now = 0 } = {}) 
   }
   const lease = Math.min(MAX_LEASE_S, Math.max(30, Number(d.l ?? d.lease_s ?? DEFAULT_LEASE_S) || DEFAULT_LEASE_S))
   return { ok: true, directive: { id: String(id), origin, steps: clean, why: String(d.w ?? d.why ?? '').slice(0, 120),
-                                  receivedAt: now, expiresAt: now + lease * 1000, step: 0, refusals: 0 } }
+                                  receivedAt: now, expiresAt: now + lease * 1000, step: 0, refusals: 0, waitUntil: null } }
 }
 
 export class DirectiveQueue {
-  constructor () { this.active = null; this.events = [] }
+  constructor () { this.active = null; this.events = []; this.gen = 0; this.sink = null }
 
-  #emit (status, d, detail = '') {
-    this.events.push({ status, id: d.id, origin: d.origin, step: d.step, of: d.steps.length, detail: String(detail).slice(0, 160) })
+  /** A sink receives each lifecycle event immediately (the cognitive loop writes it as a row). Without one, events
+   *  buffer for drain(). */
+  setSink (fn) { this.sink = fn }
+
+  #emit (status, d, detail = '', now = 0) {
+    const ev = { status, id: d.id, gen: d.gen ?? 0, origin: d.origin, step: d.step, of: d.steps?.length ?? 0, at: now,
+                 detail: String(detail).slice(0, 160) }
+    if (this.sink) { try { this.sink(ev) } catch { this.events.push(ev) } } else this.events.push(ev)
   }
 
-  /** Offer a parsed directive. A directive of higher-or-equal priority replaces the active one (the old one is
-   *  logged `superseded`); a lower-priority one is refused while a higher one is active, and says so. */
+  /** Offer a parsed directive. Higher-or-equal priority replaces the active one (logged `superseded`); lower priority
+   *  is refused while a higher one is active; the SAME id while it is active is a duplicate and is refused. */
   offer (d, now) {
     this.#expire(now)
     if (this.active) {
+      if (d.id === this.active.id) { this.#emit('duplicate', d, `id ${d.id} is already active`, now); return false }
       const rank = o => ORIGINS.indexOf(o)
       if (rank(d.origin) <= rank(this.active.origin)) {
-        this.#emit('superseded', this.active, `by ${d.origin} ${d.id}`)
+        this.#emit('superseded', this.active, `by ${d.origin} ${d.id}`, now)
       } else {
-        this.#emit('refused', d, `busy with ${this.active.origin} ${this.active.id}`)
+        this.#emit('refused', d, `busy with ${this.active.origin} ${this.active.id}`, now)
         return false
       }
     }
+    d.gen = ++this.gen
     this.active = d
-    this.#emit('requested', d, d.why)
+    this.#emit('requested', d, d.why, now)
     return true
   }
 
   #expire (now) {
     if (this.active && now >= this.active.expiresAt) {
-      this.#emit('expired', this.active, `lease ended at step ${this.active.step + 1} of ${this.active.steps.length}`)
+      this.#emit('expired', this.active, `lease ended at step ${this.active.step + 1} of ${this.active.steps.length}`, now)
       this.active = null
     }
   }
@@ -81,39 +97,57 @@ export class DirectiveQueue {
     const d = this.active
     if (!d) return null
     const st = d.steps[d.step]
-    return { id: d.id, origin: d.origin, step: d.step, of: d.steps.length, skill: st.skill, args: st.args, why: d.why }
+    return { id: d.id, gen: d.gen, origin: d.origin, step: d.step, of: d.steps.length, skill: st.skill, args: st.args, why: d.why }
   }
 
-  /** Report what happened to the step `next` returned.
-   *  kind: 'rejected' (admission refused) | 'runner_refusal' (paused/busy/body_held: never ran) | 'done' (ran;
-   *  status = the skill's outcome status). A rejected or failed step RELEASES CONTROL at once (CLAUDE.md: a refusal
-   *  must leave the bot a legal move -- the brain decides next). A runner refusal keeps the directive for the
-   *  runner's own auto-resume, up to MAX_REFUSALS, then releases. */
-  report (id, kind, status = null, detail = '') {
+  /** A lifecycle note for the step `next` returned (admitted / started); ignored if that delivery is gone. */
+  note (gen, status, detail = '', now = 0) {
     const d = this.active
-    if (!d || d.id !== id) return
-    if (kind === 'rejected') { this.#emit('refused', d, `admission: ${detail}`); this.active = null; return }
+    if (d && d.gen === gen) this.#emit(status, d, detail, now)
+  }
+
+  /** Report what happened to the step `next` returned, matched by GENERATION.
+   *  kind: 'rejected' (admission refused) | 'runner_refusal' (never ran; refusal = the runner's failClass) |
+   *  'done' (ran; status = the skill's outcome status). A rejected or failed step RELEASES CONTROL at once (CLAUDE.md:
+   *  a refusal must leave the bot a legal move -- the brain decides next). A runner PAUSE is waited out until the
+   *  runner's own auto-resume; busy / body_held are retried up to MAX_REFUSALS; the lease bounds both. */
+  report (gen, kind, status = null, detail = '', now = 0, refusal = null) {
+    const d = this.active
+    if (!d || d.gen !== gen) return
+    if (kind === 'rejected') { this.#emit('refused', d, `admission: ${detail}`, now); this.active = null; return }
     if (kind === 'runner_refusal') {
+      if (refusal === 'runner_paused') {
+        if (d.waitUntil == null) d.waitUntil = now + PAUSE_WAIT_MS
+        if (now > d.waitUntil) { this.#emit('refused', d, `runner paused past its auto-resume: ${detail}`, now); this.active = null; return }
+        this.#emit('waiting', d, `runner paused; waiting for its auto-resume until +${Math.round((d.waitUntil - now) / 1000)} s`, now)
+        return
+      }
       d.refusals++
-      if (d.refusals >= MAX_REFUSALS) { this.#emit('refused', d, `runner: ${detail} x${d.refusals}`); this.active = null }
+      if (d.refusals >= MAX_REFUSALS) { this.#emit('refused', d, `runner: ${refusal ?? detail} x${d.refusals}`, now); this.active = null; return }
+      this.#emit('waiting', d, `runner: ${refusal ?? detail} (${d.refusals} of ${MAX_REFUSALS})`, now)
       return
     }
     if (status === 'success') {
-      this.#emit('step_done', d, detail)
-      d.step++
-      if (d.step >= d.steps.length) { this.#emit('completed', d, detail); this.active = null }
+      this.#emit('step_done', d, detail, now)
+      d.step++; d.refusals = 0; d.waitUntil = null
+      if (d.step >= d.steps.length) { this.#emit('completed', d, detail, now); this.active = null }
       return
     }
-    this.#emit('released', d, `${status}: ${detail}`)     // failed / unknown / no_effect / aborted
+    this.#emit('released', d, `${status}: ${detail}`, now)     // failed / unknown / no_effect / aborted
     this.active = null
   }
 
-  /** A directive that never parsed still gets a row (it was sent; the bot refused it). */
-  noteParseFailure (id, why) {
-    this.events.push({ status: 'parse_failed', id: String(id ?? '?').slice(0, 24), origin: '?', step: 0, of: 0, detail: why })
+  /** Release whatever is active (a new connection: what the old one held is stale). */
+  releaseAll (why, now = 0) {
+    if (this.active) { this.#emit('released', this.active, why, now); this.active = null }
   }
 
-  /** Drain lifecycle events for logging (the caller writes them as rows). */
+  /** A directive that never parsed still gets a row (it was sent; the bot refused it). */
+  noteParseFailure (id, why, now = 0) {
+    this.#emit('parse_failed', { id: String(id ?? '?').slice(0, 24), origin: '?', step: 0, steps: [] }, why, now)
+  }
+
+  /** Drain buffered lifecycle events (only when no sink is set). */
   drain () { const e = this.events; this.events = []; return e }
 }
 
