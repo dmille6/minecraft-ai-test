@@ -31,6 +31,7 @@ export const AP_ICE_ENABLED = true             // the ice branch (break, then ri
 export const AP_EQUIP_MS = 1500               // equip is bounded too (Codex r1): it runs before the dig's deadline
 export const AP_NOT_CLOSING_MS = 4000         // a non-sealed rescue must have stopped closing on air this long
 export const AP_WANT_LAPSE_MS = 3000          // a pre-empt request lapses unless renewed (it is renewed every tick)
+export const AP_BREATHE_HOLD_MS = 10_000      // after a pocket opens, no escape starts for 10 s (air refills to 300 in ~4 s)
 
 import { difficultyOf } from './foodskip.mjs'
 
@@ -209,7 +210,10 @@ export function airPocketInputs (bot) {
  */
 export function airPocketAfter (ok, state, now = Date.now()) {
   // `ok` is true for a success AND for an OPENED pocket: either way the place now has air.
-  if (ok) return { ...state, drownFails: 0, drownFailPos: null, drownFailHealth: null, seizedAt: now, lastProgressAt: now }
+  // BREATHE FIRST (Paper sandbox bf99227/aca3063 A): ~2 s after success the entombed escape fired, its pillar seized the
+  // body and released the float, and the bot sank with Air at 46-58 of 300 (~2 s of breath) until the rescue lifted it.
+  // So escapes and maroon climbs do not start until AP_BREATHE_HOLD_MS after the pocket opens.
+  if (ok) return { ...state, drownFails: 0, drownFailPos: null, drownFailHealth: null, seizedAt: now, lastProgressAt: now, breatheUntil: now + AP_BREATHE_HOLD_MS }
   return { ...state, cooldownUntil: now + AP_FAIL_COOLDOWN_MS }
 }
 

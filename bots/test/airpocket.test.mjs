@@ -473,12 +473,12 @@ await t('K8 MUTANT KILLED: without the after-sleep check the pre-empted climb st
 // ---------------------------------------------------------------- J. the rescue state after a step, and the busy guard
 await t('J1 after SUCCESS the fail memory is cleared and the clocks restart; after FAILURE a 60-s cooldown, memory kept', () => {
   const st = { drownFails: 3, drownFailPos: { x: 1 }, drownFailHealth: 12, seizedAt: 5, lastProgressAt: 5, cooldownUntil: 0 }
-  assert.deepEqual(airPocketAfter(true, st, 1000), { ...st, drownFails: 0, drownFailPos: null, drownFailHealth: null, seizedAt: 1000, lastProgressAt: 1000 })
+  assert.deepEqual(airPocketAfter(true, st, 1000), { ...st, drownFails: 0, drownFailPos: null, drownFailHealth: null, seizedAt: 1000, lastProgressAt: 1000, breatheUntil: 11000 })
   assert.deepEqual(airPocketAfter(false, st, 1000), { ...st, cooldownUntil: 1000 + AP_FAIL_COOLDOWN_MS })
 })
 await t('J2 MUTANT KILLED: a success that keeps the fail memory leaves the rescue suppressed at the pocket (J1 catches it)', () =>
-  withMutant(AP_PATH, 'if (ok) return { ...state, drownFails: 0, drownFailPos: null, drownFailHealth: null, seizedAt: now, lastProgressAt: now }',
-    'if (ok) return { ...state, seizedAt: now, lastProgressAt: now }', m => {
+  withMutant(AP_PATH, 'if (ok) return { ...state, drownFails: 0, drownFailPos: null, drownFailHealth: null, seizedAt: now, lastProgressAt: now, breatheUntil: now + AP_BREATHE_HOLD_MS }',
+    'if (ok) return { ...state, seizedAt: now, lastProgressAt: now, breatheUntil: now + AP_BREATHE_HOLD_MS }', m => {
       assert.equal(m.airPocketAfter(true, { drownFails: 3 }, 1).drownFails, 3)
     }))
 await t('J3 the trigger waits while an escape / the rung / a maroon climb is in flight', () => {
@@ -508,7 +508,8 @@ function wiring (src) {
                code.indexOf("kind: 'air_pocket_start'") > 0 && code.indexOf("kind: 'air_pocket_start'") < code.indexOf('r = await airPocketStep(') &&
                /msSinceClosing: Date\.now\(\) - lastClosingAt/.test(code) && /if \(closingOnAir\) lastClosingAt = Date\.now\(\)/.test(code) &&
                /guard: \(\) => \{ try \{ if \(runner\?\.isBusy\?\.\(\)\) runner\.interrupt\('air_pocket'\); if \(bot\.pathfinder\?\.goal\) haltPath\(bot\)/.test(code) &&
-               /stepWouldRun: \(\) => prepareAirPocket\(\)\.ok \}\)\) \{/.test(code) && /\} else if \(rescuing && route\.sealed === true && route\.dir !== 'up' && \(escaping \|\| marooned\) && !pocketing && !airPocketing &&\s*throttled\('air_pocket_held_off'/.test(code) && /Date\.now\(\) - airPocketWants < AP_WANT_LAPSE_MS/.test(code) &&
+               /stepWouldRun: \(\) => prepareAirPocket\(\)\.ok \}\)\) \{/.test(code) &&
+               /isEntombed\(bot\) && Date\.now\(\) >= airPocketBreatheUntil &&/.test(code) && /!runner\.isBusy\(\) && Date\.now\(\) >= airPocketBreatheUntil &&/.test(code) && /\} else if \(rescuing && route\.sealed === true && route\.dir !== 'up' && \(escaping \|\| marooned\) && !pocketing && !airPocketing &&\s*throttled\('air_pocket_held_off'/.test(code) && /Date\.now\(\) - airPocketWants < AP_WANT_LAPSE_MS/.test(code) &&
                /airPocketWants = 0 {16}\/\/ a refused step/.test(src) && /finally \{ airPocketing = false; airPocketWants = 0 \}/.test(code) &&
                /const ran = await runAirPocket\(route, Date\.now\(\) - seizedAt\)\s*if \(ran\) return/.test(code) &&
                code.indexOf('airPocketPreempt({ rescuing, routeDir: route.dir') > 0 && code.indexOf('airPocketPreempt({ rescuing, routeDir: route.dir') < trigger &&
@@ -540,6 +541,8 @@ for (const [name, old, neu] of [
   ['the pre-empt asking the plan first', 'stepWouldRun: () => prepareAirPocket().ok })) {', 'stepWouldRun: () => true })) {'],
   ['the request lapse', 'Date.now() - airPocketWants < AP_WANT_LAPSE_MS', 'Date.now() - airPocketWants < 30_000'],
   ['the held-off refusal row', "throttled('air_pocket_held_off', 30_000)) {", "false) {"],
+  ['the breathe hold on the entombed arm', 'isEntombed(bot) && Date.now() >= airPocketBreatheUntil &&', 'isEntombed(bot) &&'],
+  ['the breathe hold on the maroon arm', '!runner.isBusy() && Date.now() >= airPocketBreatheUntil &&', '!runner.isBusy() &&'],
   ['clearing the request on refusal', '      airPocketWants = 0                // a refused step never keeps an escape held off\n', ''],
   ['clearing the request after the step', 'finally { airPocketing = false; airPocketWants = 0 }', 'finally { airPocketing = false }'],
   ['the return after a step', '            if (ran) return\n', ''],

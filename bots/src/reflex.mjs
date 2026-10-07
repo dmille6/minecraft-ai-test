@@ -1415,9 +1415,9 @@ export function startReflexes(bot, runner, lessons = null, worldFacts = null) {
     logEvent({ kind: 'air_pocket', status: r.ok ? 'success' : r.outcome === 'opened' ? 'no_effect' : 'failed',
                detail: `id=${attemptId} ${airPocketDetail(r)} | required_ms=${Math.round(admit.requiredMs)} budget_ms=${Math.round(admit.budgetMs)} ` +
                        `difficulty=${inputs.difficulty} hunger=${inputs.hungerActive ? 1 : 0} ${trig}`, snapshot: snapshot(bot) })
-    const st = airPocketAfter(r.ok || r.outcome === 'opened', { drownFails, drownFailPos, drownFailHealth, seizedAt, lastProgressAt, cooldownUntil: airPocketCooldownUntil })
+    const st = airPocketAfter(r.ok || r.outcome === 'opened', { drownFails, drownFailPos, drownFailHealth, seizedAt, lastProgressAt, cooldownUntil: airPocketCooldownUntil, breatheUntil: airPocketBreatheUntil })
     drownFails = st.drownFails; drownFailPos = st.drownFailPos; drownFailHealth = st.drownFailHealth
-    seizedAt = st.seizedAt; lastProgressAt = st.lastProgressAt; airPocketCooldownUntil = st.cooldownUntil
+    seizedAt = st.seizedAt; lastProgressAt = st.lastProgressAt; airPocketCooldownUntil = st.cooldownUntil; airPocketBreatheUntil = st.breatheUntil
     return true
   }
   const rescueExpired = () => {
@@ -1448,6 +1448,7 @@ export function startReflexes(bot, runner, lessons = null, worldFacts = null) {
   // owns the body and every other tick returns at the top; a refusal or a failure cools down here.
   let airPocketing = false
   let airPocketCooldownUntil = 0
+  let airPocketBreatheUntil = 0   // after a pocket opens, escapes and maroon climbs wait (air refills first)
   // when the step last asked an in-flight escape / maroon climb to yield (a sealed rescue); their `alive` reads it
   let airPocketWants = 0
   // a SHORT lapse: the pre-empt renews it every tick (500 ms) while it holds, so a request whose step never follows (the
@@ -2475,7 +2476,7 @@ export function startReflexes(bot, runner, lessons = null, worldFacts = null) {
       // a journey begin at all", which is what the trap denies and what
       // canStartAPath() measures. Cheap guards first, because that call runs a
       // real search and this loop ticks twice a second.
-        if (!escaping && !marooned && !runner.isBusy() &&
+        if (!escaping && !marooned && !runner.isBusy() && Date.now() >= airPocketBreatheUntil &&
           Date.now() - lastMaroonCheck > MAROON_CHECK_MS) {
         lastMaroonCheck = Date.now()
         const above = bot.blockAt(bot.entity.position.offset(0, 2, 0))
@@ -2881,7 +2882,7 @@ export function startReflexes(bot, runner, lessons = null, worldFacts = null) {
       // by design, and pillaring out of it is the descent's undoing.
       if (!escaping && entombedGrant) { giveBody(runner, entombedGrant, 'entombed arm ended'); entombedGrant = null }   // released within one tick of the arm's finally
       const climbing = !!runner?.bodyClaimFor?.('climb') || !!runner?.bodyClaimFor?.('stair')
-      if (!escaping && !marooned && !climbing && !inDanger && isEntombed(bot) &&
+      if (!escaping && !marooned && !climbing && !inDanger && isEntombed(bot) && Date.now() >= airPocketBreatheUntil &&
           !pocketing && !pocketPending && Date.now() - lastEscapeAt > ESCAPE_MIN_INTERVAL_MS) {
         // A WET CEILING IS NOT A MISSING PICKAXE (climbflood-01, Codex r1): with
         // failures already counted, this arm would ask for a tool BEFORE the
