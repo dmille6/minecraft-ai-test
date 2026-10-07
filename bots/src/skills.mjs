@@ -2700,15 +2700,18 @@ async function deposit(ctx, { item = null }, signal, { noRecovery = false, prefe
         const usable = (chest.items?.() ?? []).filter(x => x?.name === name && remaining(x) > FLOOR)
           .map(x => ({ slot: x.slot, used: x.durabilityUsed ?? 0, left: remaining(x) })).sort((a, b) => a.left - b.left || a.slot - b.slot)
         const keepOne = bankEveryCopy(name, swords) ? 0 : 1   // a sword under the peaceful kit keeps none
+        // What the BASE rule alone would hand over of this name (Claude r3: a hold can stop the slice short of the best copy).
+        const baseAllow = keepOne === 0 ? (depositPlan(planItems, item, { wants: bot.currentWants ?? [], swords: false }).find(e => e.name === name)?.count ?? 0) : Infinity
+        let here = 0
         for (const c of usable.slice(0, Math.max(0, Math.min(count, usable.length - keepOne)))) {
           check(signal)
           const same = x => !!x && x.name === name && (x.durabilityUsed ?? 0) === c.used
           if (!same(slotAt(chest, c.slot))) continue
-          eligible += 1
-          if (keepOne === 0 && c === usable[usable.length - 1]) kitOnly += 1   // the copy the base rule keeps
+          eligible += 1; here += 1
           await bot.clickWindow(c.slot, 0, 1)
           if (!same(slotAt(chest, c.slot))) moved += 1
         }
+        kitOnly += Math.max(0, here - baseAllow)   // copies the kit alone made eligible
         continue
       }
       const stacks = bot.inventory.items().filter(it => it.name === name)
@@ -5609,7 +5612,7 @@ async function compost(ctx, _args, signal) {
   // visit's items= list can pass that, so the read gates on args.items (name -> verified count), never on cut prose.
   // `peaceful` is the switch's reading for this visit (set below, before any insert).
   let peaceful = null
-  const row = (status, f) => logEvent({ kind: 'compost', status, snapshot: snapshot(bot), args: { items: { ...(f?.items ?? {}) }, peaceful, ...(f?.incomplete ? { incomplete: 1 } : {}) },
+  const row = (status, f) => logEvent({ kind: 'compost', status, snapshot: snapshot(bot), args: { items: { ...(f?.items ?? {}) }, peaceful, ...(f?.inflight ? { incomplete: 1, inflight: f.inflight } : {}) },
                                         detail: compostDetail({ slotsBefore, slotsAfter: items().length, ...f }) })
   const skip = (why, f = {}) => { row('no_effect', { stop: why, ...f }); return { status: 'no_effect', detail: why } }
   // ANOTHER SUBSYSTEM'S SNEAK IS NOT OURS TO RELEASE, and a sneaking use is an item use, not a block use.
@@ -5629,9 +5632,11 @@ async function compost(ctx, _args, signal) {
   const ticks = n => g.bound(bot.waitForTicks?.(n), n * 50 + HK_AWAIT_MS, 'tick wait')
   const taken = {}
   let bonemeal = 0, stop = null, inserted = 0, uncollected = false, noRoom = false, stationary = 0, appleLevels = 0
-  // AN INTERRUPTED VISIT STILL WRITES ITS ROW (Codex review r2): the map of what went in, and whether an insert was in
-  // flight when it stopped (its count is reconciled from the settled bag, and the row says it may be incomplete).
-  let inflight = null, thrown = null
+  // AN INTERRUPTED VISIT STILL WRITES ITS ROW (Codex review r2/r3): the VERIFIED map of what went in, and -- when an
+  // insert was in flight -- its NAME, flagged incomplete. Never reconciled from the bag after the stop: a death, a
+  // disconnect or a late inventory update would be counted as composted (Codex r3). The read treats the name as maybe
+  // composted and does not judge a reserve on such a row.
+  let inflight = null
   try {
     if (bot.entity.position.distanceTo(centre) > STATION_REACH) {
       try { await composterWalk(bot, () => g.bound(bot.pathfinder.goto(new goals.GoalNear(pos.x, pos.y, pos.z, 2)), HK_PATH_MS, 'pathfinding', { path: true })) } catch (e) { if (e?.aborted || signal?.aborted) throw e }
@@ -5702,6 +5707,9 @@ async function compost(ctx, _args, signal) {
       await ticks(2)
       let after = countOf(stack.name)
       if (after >= before) { await ticks(4); after = countOf(stack.name) }
+      // ONE USE CONSUMES ONE ITEM (vanilla ComposterBlock: itemStack.consume(1)). A larger fall is not the composter's --
+      // a death, a toss, a server resync -- so it is never credited, and the visit stops (Codex review r3).
+      if (before - after > 1) { inflight = null; stop = `the bag changed by ${before - after} ${stack.name} during one insert`; break }
       if (after < before) {
         taken[stack.name] = (taken[stack.name] ?? 0) + (before - after); inserted += before - after; misses = 0
         // THE LEVELS AN APPLE RAISED (the peaceful food policy's bone meal: apple_levels / 7). Inside the success branch, so
@@ -5711,18 +5719,15 @@ async function compost(ctx, _args, signal) {
       inflight = null
     }
   } catch (e) {
-    thrown = e
+    // Written HERE, before the hand is restored (Claude r3: a failing restore must not lose the row).
+    try {
+      row('aborted', { levelBefore, levelAfter: composterLevel(at()), bonemeal, items: taken, stop: `interrupted: ${String(e?.message ?? e).slice(0, 40)}`,
+                       inflight: inflight?.name ?? null, appleLevels: taken.apple ? appleLevels : null })
+    } catch { /* a row must never mask the interruption */ }
     throw e
   } finally {
     if (stationary && bot.stationaryUntil === stationary) bot.stationaryUntil = 0
     await settleAndRestore(bot, was, g, 'compost')
-    if (thrown) {
-      try {
-        if (inflight) { const d = inflight.before - countOf(inflight.name); if (d > 0) taken[inflight.name] = (taken[inflight.name] ?? 0) + d }
-        row('aborted', { levelBefore, levelAfter: composterLevel(at()), bonemeal, items: taken, stop: `interrupted: ${String(thrown?.message ?? thrown).slice(0, 40)}`,
-                         incomplete: !!inflight, appleLevels: taken.apple ? appleLevels : null })
-      } catch { /* a row must never mask the interruption */ }
-    }
   }
   const n = Object.values(taken).reduce((a, b) => a + b, 0)
   const slotsAfter = items().length
