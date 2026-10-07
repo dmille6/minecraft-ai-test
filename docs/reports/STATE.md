@@ -138,6 +138,16 @@ the same farm: ctrl 15,16 logs vs cand 21,23 (no harm). Bone meal arm built, OFF
 Bags: 76/80 bots hold >= 6 farm saplings, 62/80 carry torches. Design + follow-ons (WORKSHOP, SAFE MINESHAFT, designed
 not built): docs/reports/blueprint-builder-design-2026-10-05.md.
 
+## 10-07 01:15Z — ORDER SWAP: towndeposit-01's draw stalled (only placebo-b passed draw_exposure after the outage; five pools in
+12 h exclusion) -> its loop stopped by the operator (journalled), foodskip-01 (c902d6f variant, draws 4 pools now) launched
+first; towndeposit re-chains after it (needs a rebase onto fs c6e91a8). Lesson: `pkill -f` from an ssh command line kills
+the ssh session itself (memory pgrep-f-matches-itself) and an orphaned `sleep 1200` child keeps the flock on
+/tmp/mcai-canary.lock -- kill loops by PID and kill their children. MODEL C1 (3 blocks, 8 bots, 70 min): gemma4:26b halves
+stuck time (35.0 -> 14.9 min/bot, 9/9 pairs), stone pickaxe 2.3 -> 4.0 of 8; team output inconclusive (2.95x/0.59x/0.96x);
+gemma-Ollama 4 deaths vs 0 (watch); co-load fine on the cleared Studio (gemma LMS 8-bit + gpt-oss Ollama: 2.7 s / 29 s);
+blind round 2: 8-bit good, 4-bit worse. OWNER APPROVED C2 (bench-only overseer/stuck hook, never deployed). Persistent
+Studio tunnel on the mini (launchd com.mbench.tunnel).
+
 ## 10-06 ~23:30Z — WITHDRAW2 READY (not chained): wd2-on-c902d6f @ c4e9c47, Codex APPROVE (round 7), 49/49 mutants; registration
 withdraw2-01.c902d6f.json on main 2df5fc4 (read + reg on the host in /tmp and ~/mcai-analysis). Paper: best tier taken 2/2
 where the control took wooden; iron pickaxe crafted from exactly 3 ingots + 2 sticks, server-confirmed 4/4; full-bag
