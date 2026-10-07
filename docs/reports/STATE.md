@@ -138,6 +138,36 @@ the same farm: ctrl 15,16 logs vs cand 21,23 (no harm). Bone meal arm built, OFF
 Bags: 76/80 bots hold >= 6 farm saplings, 62/80 carry torches. Design + follow-ons (WORKSHOP, SAFE MINESHAFT, designed
 not built): docs/reports/blueprint-builder-design-2026-10-05.md.
 
+## 10-07 ~19:40Z — PEACEFULKIT-01 READY (not launched): pk-on-c6e91a8 @ da3e38d / pk-on-92bc84f @ 7ae5e0f
+The owner's 10-07 items (3) swords and (4) compost more, under foodskip's ONE switch (FOOD_SKIP auto|on|off; auto = the
+server's difficulty packet says peaceful). Design docs/reports/peacefulkit-design-2026-10-07.md (measurements, cited prior
+art, the Paper compost table, 5 review rounds, owner decisions); registrations docs/reports/peacefulkit-01.c6e91a8.json and
+peacefulkit-01.92bc84f.json (also in ~/mcai-analysis/); read scripts/host/peacefulkitread.py = ~/mcai-analysis = /tmp, md5
+22a14034 (`--selftest` runs at every read); mutants scripts/mutants/mutants-pk.py (39/39 JS + 20/20 read killed).
+- SWORDS: admission + the craft skill refuse a sword craft while active (remedy: craft a pickaxe/axe/shovel or gather), the
+  prompt stops offering one, the sweep never walks to a sword drop, a RUNNING deposit keeps no usable sword (spent never);
+  admission/advice/milestones/the town-deposit trigger keep the base count (no new trip); a sword-only full chest never
+  starts the recovery. COMPOST: 30 kit plants WHOLE (each consumed 64/64 by a real Paper 1.21.8-60 composter, RCON hopper
+  test; negatives 0); saplings > 16 and apples > 4 unchanged; dried_kelp/glow_berries/bush/firefly_bush/moss/bread NOT
+  approved; full bags get an order only when a fill can start (startableJunk at the composter's level -- also applies to
+  the food policy's apples while on); `_compost` rows carry args.items (+ `aborted` rows on interruption, args.incomplete).
+- PAPER (sandbox3, the real bot, server read-back): craft refused 2+2/2+2 (control crafts), easy crafts 2/2; deposit banks
+  both swords 2+2/2+2 keeping the better pickaxe (control keeps both), FOOD_SKIP=off and easy keep them; compost 2+2: all 69
+  kit items consumed, apples 10->4, saplings 20->16, bread/dried_kelp/sword kept (control: kit untouched); off/easy untouched;
+  sword drop never chased 5/5 (control chases it).
+- REVIEWS: Claude r1 APPROVE, r2 CHANGE (the read's clock: skill rows are stamped at START), r3/r4 APPROVE; Codex r1-r4
+  CHANGE (K2 ledger, truncated compost rows, exposure power, interrupted visits, unverified X2) -> r5 APPROVE; Codex rebase
+  confirmation of the 92bc84f variant APPROVE. Suite 237/237 (c6e91a8 line), 238/238 (92bc84f line).
+- DRY RUNS: every gate 0, every instrument fired on the control (6 h: tool crafts 126, bank-explained pickaxe falls 41,
+  bank rows emptying a name 91, reserve checks 45 ...), CALIBRATION 0, control sword ledger lost 0; licencecheck (kind
+  _peaceful_kit, baseline silent) and drawexposure (9 pools eligible) OK.
+- EXPOSURE is per BOT (swords are stock): joint P(X1 >= 3 and X2 >= 3) 0.35-0.94 at 6 h with 2 pools, 0.87 at 12 h, 0.99
+  at 24 h -> reads 180/360 + extension 540/720/1080/1440, deadline 1680 -> INCONCLUSIVE. DRAW >= 2 POOLS.
+- OWNER DECISIONS: sapling reserve (recommend keep 16: every holder has ONE stack per species, so no reserve > 0 frees a
+  slot); spent swords (never banked now; census found none); the unapproved compostables; accept startableJunk's apple
+  effect inside this canary; a 2+ pool draw.
+Queue position (18:00Z entry): after toolhygiene. Not deployed, nothing launched, no world edits outside the sandboxes.
+
 ## 10-07 ~19:15Z — QUEUED (not launched): junkwell-02, gridfix-01, bamboo-01, stonecap-01 -- each with a c6e91a8 AND a 92bc84f variant
 Pick the variant by the fleet sha when its turn comes (92bc84f only if towndeposit-02 is KEPT and promoted). Registrations on
 main docs/reports/<run>.<base>.json and on the host ~/mcai-analysis/; reads in ~/mcai-analysis/ and /tmp/ (md5s below).
