@@ -48,8 +48,15 @@
 #                its clicks, written right after offlist= so the 300-char cap cannot cut it) whose least reserve left
 #                (stone=) is missing or < 64. The END snapshot's reserve stone below 56 on such a visit is a tripwire.
 #                C8 (junkwell-02, OWNER 10-07 "no reason to store swords") SWORDS ONLY IN A PEACEFUL WORLD: a visit that
-#                clicked swords (swords= > 0) whose peaceful= (the switch read at the click) is not 1, or a sword name in
-#                items= on a row that clicked none. INSTRUMENT: control bots at >= 34 slots at town carrying a sword.
+#                clicked swords (swords= > 0) whose peaceful= (the switch read at the clicks) is not 1; a visit whose server
+#                bag lost more swords than it clicked (sword_lost= > swords=, independent of the clicks). peaceful= is the
+#                bot's report on itself -- in an all-peaceful fleet the first clause is 0 by construction; sword_lost= is the
+#                server's account. TRIPWIRE, not a gate (Codex r2: _food_skip rows are written only when foodSkipNow runs, so
+#                the latest one can predate a switch to peaceful): a sword visit by a bot whose latest _food_skip row names
+#                easy/normal/hard ('unknown' never fires, Claude r2); the count of sword visits with a known difficulty is
+#                printed beside it. INSTRUMENT: control compost runs (at town, >= 34 slots) whose bot carried a sword.
+#                EXPOSURE needs >= 1 canary sword visit -- in a fleet where no canary bot ever carries a sword to the well
+#                the read stays NOT READY on that alone (the C8 gate would have nothing to judge).
 #   DEATH-GATE CONCERN (junkwell-01's revert; REPORTED, the two-death floor decides): mine actions per bot DiD (01 was
 #                +34.3 against -8.2..+5.0 on seven other canaries; flagged MINING SHIFT above +15) and every post-window
 #                death below y 60 by mechanism, per arm.
@@ -204,13 +211,24 @@ SWORD = re.compile(r'_sword$')
 
 
 def c8_breach(f):
-    """C8 for one _well_dispose row -> evidence, or None: swords clicked without a peaceful reading at the click, or a sword
-    lost with no sword clicked (the server took one the bot never chose)."""
+    """C8 for one _well_dispose row -> evidence, or None: swords clicked without a peaceful reading at the clicks; the server
+    bag losing more swords than were clicked (sword_lost=, the server's account)."""
     if num(f, 'swords') > 0 and f.get('peaceful') != '1':
         return {'swords': num(f, 'swords'), 'peaceful': f.get('peaceful')}
-    lost = sorted(n for n in f['items'] if SWORD.search(n))
-    if lost and num(f, 'swords') == 0:
-        return {'sword_lost_unclicked': lost}
+    if num(f, 'sword_lost') > num(f, 'swords'):
+        return {'sword_lost': num(f, 'sword_lost'), 'swords': num(f, 'swords')}
+    return None
+
+
+HOSTILE_DIFFICULTY = ('easy', 'normal', 'hard')
+
+
+def c8_tripwire(f, last_difficulty=None):
+    """C8's TRIPWIRE (reported, never a verdict): a sword visit by a bot whose latest _food_skip row named a hostile
+    difficulty. That row can predate the switch (it is written only when foodSkipNow runs), so disagreement is a lead to
+    read, not proof; 'unknown' or no row never fires."""
+    if num(f, 'swords') > 0 and last_difficulty in HOSTILE_DIFFICULTY:
+        return {'swords': num(f, 'swords'), 'food_skip_difficulty': last_difficulty}
     return None
 
 
@@ -274,7 +292,14 @@ assert c7_breach(kv('slots=36->35 offlist=0 gclicked=3 offlist_items=- server=re
 # C8 POSITIVE CONTROLS: swords clicked in a world read as easy fire; peaceful does not; a lost unclicked sword fires
 assert c8_breach(kv('slots=36->34 offlist=0 gclicked=0 swords=2 peaceful=0 offlist_items=- stop=done items=stone_sword:1,wooden_sword:1')) == {'swords': 2, 'peaceful': '0'}
 assert c8_breach(kv('slots=36->34 offlist=0 gclicked=0 swords=2 peaceful=1 offlist_items=- stop=done items=stone_sword:1,wooden_sword:1')) is None
-assert c8_breach(kv('slots=36->35 offlist=0 gclicked=0 swords=0 offlist_items=- stop=done items=stone_sword:1')) is not None
+assert c8_breach(kv('slots=36->35 offlist=0 gclicked=0 swords=0 sword_lost=1 sword_kept=0 offlist_items=- stop=done items=egg:16')) is not None, 'lost, never clicked'
+assert c8_breach(kv('slots=36->34 offlist=0 gclicked=0 swords=1 peaceful=1 sword_lost=1 offlist_items=- stop=done items=stone_sword:1')) is None
+assert c8_breach(kv('slots=36->34 offlist=0 gclicked=0 swords=1 peaceful=1 sword_lost=1 offlist_items=- stop=done items=stone_sword:1')) is None, 'a peaceful click is never a breach'
+# the tripwire: a hostile food_skip difficulty fires; 'unknown', None and peaceful do not; a visit without swords never does
+_sw = kv('slots=36->34 offlist=0 gclicked=0 swords=1 peaceful=1 sword_lost=1 offlist_items=- stop=done items=stone_sword:1')
+assert c8_tripwire(_sw, 'easy') is not None and c8_tripwire(_sw, 'hard') is not None
+assert c8_tripwire(_sw, 'unknown') is None and c8_tripwire(_sw, None) is None and c8_tripwire(_sw, 'peaceful') is None
+assert c8_tripwire(kv('slots=36->35 offlist=0 gclicked=0 swords=0 offlist_items=- stop=done items=egg:16'), 'easy') is None
 assert c3_breach(kv('slots=36->34 offlist=0 gclicked=0 swords=1 peaceful=1 offlist_items=- nonlisted=0 stop=done items=stone_sword:1,egg:16')) is None
 assert c3_breach(kv('slots=36->34 offlist=0 gclicked=0 swords=0 offlist_items=- nonlisted=0 stop=done items=stone_sword:1,egg:16')) is not None
 # a glass-only visit whose retake walk placed one diorite as scaffold: NOT a breach (Claude r2), a named tripwire
@@ -297,7 +322,7 @@ c1 = []; c3 = []; c4 = []; misses = retaken = 0; built = defaultdict(Counter); b
 visits = 0; items_out = 0; freed = []; refused = Counter(); resynced = 0; pit = 0; deaths = Counter(); unresolved = 0
 opens = []; closes = []; closed_open = []; other_loss = 0; unnamed = 0; pit_open = []; aborted_misses = 0
 orders = Counter(); refused_pool = defaultdict(Counter); death_pos = []; well_cells = set(); inside_rows = []
-c7 = []; c8 = []; sword_visits = 0; g_unclicked = []; guard_low_end = []; mines = defaultdict(Counter); deep_deaths = defaultdict(Counter); deep_list = []
+c7 = []; c8 = []; c8_trip = []; sword_known = 0; sword_visits = 0; inst_swords_town = 0; last_diff = {}; g_unclicked = []; guard_low_end = []; mines = defaultdict(Counter); deep_deaths = defaultdict(Counter); deep_list = []
 deaths_nopos = Counter(); qual = defaultdict(set)
 botsets = defaultdict(lambda: defaultdict(set)); last = defaultdict(dict); totals = Counter()
 for r in ev_rows:
@@ -329,6 +354,12 @@ for r in ev_rows:
                 deep_list.append((arm, b, round(pos['y']), mechanism(d)))
     if k == '_work_order' and period == 'post' and arm == 'canary' and d.startswith('dispose_well'):
         orders[pool_of(b)] += 1
+    if k == '_food_skip':
+        m_ = re.search(r'difficulty=(\w+)', d)
+        if m_:
+            last_diff[b] = m_.group(1)
+    if k == '_compost' and period == 'post' and arm == 'control' and isinstance(inv, dict) and any(SWORD.search(n) and c for n, c in inv.items()):
+        inst_swords_town += 1
     if k not in WELL_KINDS or period != 'post':
         continue
     if other:
@@ -372,8 +403,13 @@ for r in ev_rows:
         w8 = c8_breach(f)
         if w8:
             c8.append((b, w8, d[:100]))
+        t8 = c8_tripwire(f, last_diff.get(b))
+        if t8:
+            c8_trip.append((b, t8, d[:100]))
         if num(f, 'swords') > 0:
             sword_visits += 1
+            if last_diff.get(b) not in (None, 'unknown'):
+                sword_known += 1
         gu = guarded_unclicked(f)
         if gu:
             g_unclicked.append((b, gu))
@@ -428,8 +464,9 @@ mine_blind = mine_rows[('pre', 'control')] == 0 or mine_rows[('post', 'control')
 mine_did = float('nan') if mine_blind else (mpb[('post', 'canary')] - mpb[('pre', 'canary')]) - (mpb[('post', 'control')] - mpb[('pre', 'control')])
 did = lambda nm: (v[('post', 'canary', nm)] - v[('pre', 'canary', nm)]) - (v[('post', 'control', nm)] - v[('pre', 'control', nm)])
 inst = sum(1 for b, inv in last['post'].items() if pool_of(b) not in CANS and occupancy(inv) >= 34 and junk_slots(inv) > 0)
-# C8's POSITIVE CONTROL: control bots at >= 34 slots carrying a sword (the population a peaceful well would take swords from)
-inst_swords = sum(1 for b, inv in last['post'].items() if pool_of(b) not in CANS and occupancy(inv) >= 34 and any(SWORD.search(n) and c for n, c in inv.items()))
+# C8's POSITIVE CONTROL, at the well's place: control compost runs (the at-town, >= 34-slot gate a dispose order uses) whose
+# bot carried a sword (Codex: latest inventories anywhere are not exposure at the well)
+inst_swords = inst_swords_town
 def active_wells(built_cells, retired_cells):
     return set(built_cells) - set(retired_cells)
 
@@ -483,8 +520,10 @@ print('             mine rows (bots) pre canary %d (%d) control %d (%d) | post c
       % (mine_rows[('pre', 'canary')], len(qual[('pre', 'canary')]), mine_rows[('pre', 'control')], len(qual[('pre', 'control')]),
          mine_rows[('post', 'canary')], len(qual[('post', 'canary')]), mine_rows[('post', 'control')], len(qual[('post', 'control')]),
          '  ** MINE QUERY BLIND: the control shows no mine rows -- the DiD is unknown, not zero **' if mine_blind else ''))
-print('INSTRUMENT   control bots at >= 34 slots holding listed junk: %d (>= 1) | carrying a sword: %d (>= 1, C8\'s positive control)' % (inst, inst_swords))
+print('INSTRUMENT   control bots at >= 34 slots holding listed junk: %d (>= 1) | control compost runs at town carrying a sword: %d (>= 1, C8\'s positive control)' % (inst, inst_swords))
 print('             C8 swords thrown outside a peaceful world (or lost unclicked) %d %s | visits that threw swords %d' % (len(c8), c8[:3], sword_visits))
+print('             C8 TRIPWIRE (not a gate) sword visits whose latest _food_skip row says easy/normal/hard %d %s | sword visits with a known difficulty %d of %d'
+      % (len(c8_trip), c8_trip[:3], sword_known, sword_visits))
 print('PRIMARY      listed-junk slots/bot canary %.2f -> %.2f control %.2f -> %.2f DiD %+.2f | share at >= 34 DiD %+.3f | items out %d | slots freed/visit %s'
       % (v[('pre', 'canary', 'junk')], v[('post', 'canary', 'junk')], v[('pre', 'control', 'junk')], v[('post', 'control', 'junk')],
          did('junk'), did('full'), items_out, ('%.2f' % (sum(freed) / len(freed))) if freed else '-'))
@@ -501,7 +540,7 @@ try:
         'rows_canary': rows['canary'], 'rows_control': rows['control'], 'offbuild_canary': offbuild,
         'breach_recollected': len(c1), 'breach_left_open': len(c2), 'breach_nonlisted': len(c3), 'breach_inside': len(c4),
         'breach_misses_left': c5, 'breach_multi_well': len(c6), 'open_unresolved': unresolved, 'open_pending': len(c2_pending),
-        'breach_sword_not_peaceful': len(c8), 'sword_visits': sword_visits, 'instrument_swords_control': inst_swords,
+        'breach_sword_not_peaceful': len(c8), 'tripwire_sword_food_skip': len(c8_trip), 'sword_visits_known_difficulty': sword_known, 'sword_visits': sword_visits, 'instrument_swords_control': inst_swords,
         'breach_stone_guard': len(c7), 'guard_low_end': len(guard_low_end), 'guarded_unclicked': len(g_unclicked),
         'mine_did': None if mine_did != mine_did else round(mine_did, 2),
         'deep_deaths_canary': sum(deep_deaths['canary'].values()), 'deep_deaths_control': sum(deep_deaths['control'].values()),
@@ -512,7 +551,7 @@ try:
         'dispose_visits_canary': visits, 'wells_built_canary': sum(len(c) for c in built.values()), 'instrument_control': inst,
         'junk_slots_did': None if did('junk') != did('junk') else round(did('junk'), 3),
         'full_share_did': None if did('full') != did('full') else round(did('full'), 4),
-        'exposure_ready': int(visits >= 3 and inst >= 1),
+        'exposure_ready': int(visits >= 3 and inst >= 1 and sword_visits >= 1 and inst_swords >= 1),
     })
 except Exception as e:
     print('emit failed:', e)
