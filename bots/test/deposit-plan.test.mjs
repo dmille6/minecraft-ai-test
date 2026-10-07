@@ -50,9 +50,11 @@ t('the deposit skill hands over the plan (source anchor) and a mutant that depos
   // deposit patch refused in review. What is pinned here is unchanged: `plan`
   // comes from depositPlan, and the raw-inventory mutant is still caught.
   assert.match(f, /planItems = bot\.inventory\.items\(\)/, 'the snapshot the plan and the refusal share')
-  assert.match(f, /const plan = depositPlan\(planItems, item, \{ wants: bot\.currentWants \?\? \[\] \}\)/, 'the loop is driven by the plan, with the wants admission judged with')
+  // (2026-10-07, peacefulkit) the plan also carries the peaceful kit's ONE reading of the switch (`swords`), which the tool
+  // transfer below reuses, so plan and transfer cannot disagree.
+  assert.match(f, /const plan = depositPlan\(planItems, item, \{ wants: bot\.currentWants \?\? \[\], swords \}\)/, 'the loop is driven by the plan, with the wants admission judged with')
   assert.ok(!/for \(const it of bot\.inventory\.items\(\)\) \{\s*check\(signal\)\s*if \(item && it\.name !== item\) continue/.test(f), 'the old everything loop is gone')
-  const anchor = 'const plan = depositPlan(planItems, item, { wants: bot.currentWants ?? [] })'
+  const anchor = 'const plan = depositPlan(planItems, item, { wants: bot.currentWants ?? [], swords })'
   assert.equal(c.split(anchor).length - 1, 1, 'ANCHOR MISSING or not unique')
   const bad = c.replace(anchor, "const plan = planItems.map(it => ({ name: it.name, count: it.count }))")
   assert.ok(!bad.includes(anchor))
