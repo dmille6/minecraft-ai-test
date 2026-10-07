@@ -21,7 +21,7 @@ const ID = { raw_iron: 1, iron_ingot: 2, coal: 3, furnace: 4, oak_planks: 8, woo
 const NAME = Object.fromEntries(Object.entries(ID).map(([k, v]) => [v, k]))
 const TICKS = { coal: 1600, oak_planks: 300, wooden_sword: 200 }
 
-function makeBot (inv, difficulty, { tickMs = 4, onBurn = null, warm = 0, fuelUnknown = false, holdIgnition = false, filler = 0 } = {}) {
+function makeBot (inv, difficulty, { tickMs = 4, onBurn = null, warm = 0, fuelUnknown = false, litUnknown = false, holdIgnition = false, filler = 0 } = {}) {
   const bag = { ...inv }
   const give = (n, c) => { bag[n] = (bag[n] ?? 0) + c }
   const take = (n, c) => { bag[n] = (bag[n] ?? 0) - c; if (bag[n] <= 0) delete bag[n] }
@@ -72,7 +72,10 @@ function makeBot (inv, difficulty, { tickMs = 4, onBurn = null, warm = 0, fuelUn
       /_sword$/.test(name) ? Array.from({ length: count }, () => ({ name, count: 1, type: ID[name] })) : [{ name, count, type: ID[name] }]),
                  emptySlotCount: () => Math.max(0, 36 - stacks()) },
     findBlock ({ matching }) { const blk = { type: 90, name: 'furnace', position: V(1, 64, 0) }; return matching(blk) ? blk : null },
-    blockAt: p => ({ name: p.y < 64 ? 'stone' : 'air', position: p, boundingBox: p.y < 64 ? 'block' : 'empty' }),
+    // the furnace block's `lit` state (what the skill reads when mineflayer's furnace.fuel was never reported)
+    blockAt: p => (p.x === 1 && p.y === 64 && p.z === 0
+      ? { name: 'furnace', position: p, boundingBox: 'block', getProperties: () => (litUnknown ? {} : { lit: burnLeft > 0 ? 'true' : 'false' }) }
+      : { name: p.y < 64 ? 'stone' : 'air', position: p, boundingBox: p.y < 64 ? 'block' : 'empty' }),
     async equip () {}, async lookAt () {}, pathfinder: { async goto () {}, setGoal () {}, stop () {} },
     async openFurnace () { return furnace },
   }
@@ -158,8 +161,15 @@ test('A WARM FURNACE (residual burn from an earlier job): the sword waits until 
   assert.equal(m.burnt.wooden_sword, 1); assert.equal(m.bag.iron_ingot, 3)
 })
 
-test('NO BURN READING from the server: the swords give way to ordinary fuel (no stalled job), and stay in the bag', async () => {
+test('MINEFLAYER NEVER REPORTS furnace.fuel (Paper, 10-07): the block\'s `lit` state says cold, and the swords burn', async () => {
   const m = makeBot({ raw_iron: 2, coal: 1, wooden_sword: 2 }, 'peaceful', { fuelUnknown: true })
+  const r = await run(m.bot, 2)
+  assert.equal(r.status, 'success', r.detail)
+  assert.equal(m.burnt.wooden_sword, 2); assert.equal(m.bag.iron_ingot, 2); assert.deepEqual(m.stagedWhileBurning, [])
+})
+
+test('NO BURN READING AT ALL (no fuel, no lit): the swords give way to ordinary fuel (no stalled job), and stay in the bag', async () => {
+  const m = makeBot({ raw_iron: 2, coal: 1, wooden_sword: 2 }, 'peaceful', { fuelUnknown: true, litUnknown: true })
   const r = await run(m.bot, 2)
   assert.equal(r.status, 'success', r.detail)
   assert.equal(m.bag.wooden_sword, 2); assert.equal(m.burnt.coal, 1); assert.equal(m.bag.iron_ingot, 2)
