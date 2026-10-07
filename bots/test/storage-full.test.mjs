@@ -67,7 +67,7 @@ test('the recovery cannot re-enter itself: a new chest that also takes nothing e
 
 test('every failure branch reports storage_full and names what happened', async () => {
   // could not make one: no chest carried, nothing to craft it from
-  const a = town([stack('oak_log', 64)])
+  const a = town([stack('stone', 64)])   // nothing to craft a chest from (Claude review: oak_log could make one)
   const ra = await run(a.bot)
   assert.equal(ra.failClass, 'storage_full'); assert.match(ra.detail, /no chest could be crafted/)
   // could not put it down: every placement is refused and the cell never changes

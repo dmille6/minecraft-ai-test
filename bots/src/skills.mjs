@@ -2556,13 +2556,15 @@ async function deposit(ctx, { item = null }, signal, { noRecovery = false, prefe
   const viaRecovery = (res, outcome, firstStatus = null) => {
     if (noRecovery) return res
     const plan = depositPlan(bot.inventory.items(), item, { wants: bot.currentWants ?? [] })
-    if (!plan.length) return res
+    if (!plan.length || plan.every(e => isCobble(e.name))) return res   // cobble never grows the bank
     return fullChestRecovery(ctx, { item, signal, first: chestBlock, firstOutcome: outcome, firstStatus, firstFail: res, exclude,
                                     eligible: plan.reduce((n, e) => n + e.count, 0), bagBefore, startedAt })
   }
   if (!noRecovery) {
     const st = townStatus(bot, chestBlock.position)
-    if (st && st !== 'visit' && depositPlan(bot.inventory.items(), item, { wants: bot.currentWants ?? [] }).length) {
+    const plan0 = depositPlan(bot.inventory.items(), item, { wants: bot.currentWants ?? [] })
+    // a cobble-only plan never starts the recovery (cobble never grows the bank): it tries this chest as it is
+    if (st && st !== 'visit' && plan0.length && !plan0.every(e => isCobble(e.name))) {
       const p = chestBlock.position
       return viaRecovery({ status: 'failed', failClass: 'storage_full', detail: `the town remembers the chest at ${p.x},${p.y},${p.z} as ${st}` }, 'memory', st)
     }
@@ -2648,6 +2650,9 @@ async function deposit(ctx, { item = null }, signal, { noRecovery = false, prefe
   }
   let moved = 0
   let cursorLost = false
+  // THE COBBLE RULE's bookkeeping: what cobble the transfer counted eligible, and one record per cobble name tried
+  let cobbleEligible = 0
+  const cobbleRows = []
   // Which container this was, for the full-chest sweep: a double chest is ONE inventory at two coordinates.
   meta.at = chestBlock.position
   meta.double = (chest.inventoryStart ?? 27) >= 54
@@ -2694,29 +2699,42 @@ async function deposit(ctx, { item = null }, signal, { noRecovery = false, prefe
         }
         continue
       }
-      // COBBLE GOES BY SLOT, A WHOLE STACK AT A TIME (the cobble rule, bankable.mjs cobbleBankStacks): the stacks the plan
-      // counted -- smallest first, the reserve kept -- re-chosen from the window's own bag just before the clicks, each
-      // shift-clicked only when the container has room for ALL of it (a stack that would go in part frees no slot and
-      // stays), and counted banked only by what left its slot. One _cobble_bank row per name per container.
+      // COBBLE GOES A WHOLE STACK AT A TIME (the cobble rule, bankable.mjs cobbleBankStacks): the stacks the plan counted --
+      // smallest first, the reserve kept -- re-chosen from the window's own bag just before they move. Each is moved by
+      // mineflayer's OWN transfer (the function chest.deposit calls), with its source range narrowed to that one slot, so
+      // the actuator, its errors and the cursor rescue below are the deposit's existing ones (both reviews 10-07: no new
+      // click path). A stack the container cannot take WHOLE is not started (a partial would free no slot): it is eligible
+      // -- a full container -- and stays. The rows are written after the close, from the server's bag (cobbleRows).
       if (isCobble(name)) {
         const chosen = cobbleBankStacks(chest.items?.() ?? []).filter(s => s.name === name)
-        let budget = count, clicked = 0, went = 0, noRoom = 0
+        const row = { name, planned: count, tried: [], went: 0, noRoom: 0 }
+        cobbleRows.push(row)
+        let budget = count
         for (const s of chosen) {
           check(signal)
           if (s.count > budget) continue
           const cur = slotAt(chest, s.slot)
           if (!cur || cur.name !== name || cur.count !== s.count) continue
-          eligible += s.count                                // eligible either way: a container with no room for it is a full one
-          if (cobbleRoom(chest, name) < s.count) { noRoom++; continue }
-          clicked++
-          await bot.clickWindow(s.slot, 0, 1)
-          const after = slotAt(chest, s.slot)
-          const gone = after && after.name === name ? Math.max(0, s.count - (after.count ?? 0)) : s.count
-          moved += gone; went += gone; budget -= gone
+          eligible += s.count; cobbleEligible += s.count
+          if (cobbleRoom(chest, name) < s.count) { row.noRoom++; continue }
+          row.tried.push(s.count)
+          const had = inChest(chest, name)
+          try {
+            await bot.transfer({ window: chest, itemType: cur.type, metadata: null, count: s.count,
+                                 sourceStart: s.slot, sourceEnd: s.slot + 1, destStart: 0, destEnd: chest.inventoryStart })
+            const got = Math.max(0, inChest(chest, name) - had)
+            moved += got; row.went += got; budget -= got
+          } catch (e) {
+            const got = Math.max(0, Math.min(s.count, inChest(chest, name) - had))
+            moved += got; row.went += got; budget -= got
+            const back = await returnCursor(bot, chest)
+            logEvent({ kind: 'deposit_cursor_rescue', status: back.returned ? 'success' : back.reason === 'cursor empty' ? 'no_effect' : 'failed',
+                       detail: `${name}: ${String(e?.message ?? e).slice(0, 40)} -- ` +
+                               (back.returned ? `returned to slot ${back.slot}` : `not returned: ${back.reason}`), snapshot: snapshot(bot) })
+            if (!back.returned && back.reason !== 'cursor empty') { cursorLost = true; break }
+          }
         }
-        const keptNow = (chest.items?.() ?? []).reduce((n, it) => n + (isCobble(it?.name) ? (it.count ?? 0) : 0), 0)
-        logEvent({ kind: 'cobble_bank', status: went > 0 ? 'success' : 'no_effect', snapshot: snapshot(bot),
-                   detail: `name=${name} planned=${count} stacks=${chosen.map(s => s.count).join(',') || '-'} clicked=${clicked} moved=${went} kept=${keptNow} reserve=${COBBLE_RESERVE} no_room=${noRoom}` })
+        if (cursorLost) break
         continue
       }
       const stacks = bot.inventory.items().filter(it => it.name === name)
@@ -2745,6 +2763,22 @@ async function deposit(ctx, { item = null }, signal, { noRecovery = false, prefe
     }
   } finally {
     chest.close()
+  }
+  // THE COBBLE RULE'S ROWS, from the SERVER's bag after the close (craftsync's recount; 'none' without craftsync): one
+  // _cobble_bank row per cobble name the plan named -- the stacks tried, what the window gained, what the bag keeps.
+  if (cobbleRows.length) {
+    const sb = await recountBag(bot, msLeft)
+    const kept = (sb.bag ?? bot.inventory.items()).reduce((t, x) => t + (isCobble(x?.name) ? (x.count ?? 0) : 0), 0)
+    for (const r of cobbleRows) {
+      logEvent({ kind: 'cobble_bank', status: r.went > 0 ? 'success' : 'no_effect', snapshot: snapshot(bot),
+                 detail: `name=${r.name} planned=${r.planned} tried=${r.tried.join(',') || '-'} moved=${r.went} kept=${kept} src=${sb.source} reserve=${COBBLE_RESERVE} no_room=${r.noRoom}` })
+    }
+  }
+  // COBBLE NEVER GROWS THE BANK (the 10-04 SYNTHESIS: existing storage only; both reviews 10-07): when everything this
+  // deposit could not place was cobble, the chests are simply full for it -- no recovery, no new chest, no bank closure.
+  if (!cursorLost && moved === 0 && eligible > 0 && cobbleEligible === eligible) {
+    return { status: 'no_effect', failClass: null,
+             detail: `the cobble stays: no container here has room for a whole stack, and cobble never opens a new chest (cobble reserve)` }
   }
   // AN UNSETTLED TRANSFER IS NOT A FULL CHEST (Codex): a stack may still be on the cursor, so nothing else is attempted
   // -- no other container, no new chest -- until a later deposit starts from a settled bag.
