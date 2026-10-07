@@ -16,7 +16,7 @@ import { gunzipSync } from 'node:zlib'
 import { airPocketInputs, airPocketAfter, airPocketPreempt, AP_FAIL_COOLDOWN_MS } from '../src/airpocket.mjs'
 import { airPocketPlan, airPocketEnvelope, airPocketAdmit, airPocketBudgetMs, envelopeBreached, airPocketConfirmed,
          airPocketTrigger, pickFastestTool, airPocketStep, airPocketDetail, AP_TRIGGER_AFTER_MS,
-         standGate, standInPocket, digGate } from '../src/airpocket.mjs'
+         standGate, standInPocket, digGate, standRef } from '../src/airpocket.mjs'
 
 let pass = 0, fail = 0
 const t = (name, fn) => Promise.resolve()
@@ -369,17 +369,23 @@ await t('J5 an OPENED pocket clears the fail memory like a success (the reflex p
   assert.ok(readFileSync(REFLEX_PATH, 'utf8').includes("const st = airPocketAfter(r.ok || r.outcome === 'opened', {"))
 })
 
-await t('F14 on a FLOOR the bot stands on a placed block with its eye in the pocket (A-floor); deep water places none', async () => {
+await t('F14 on a FLOOR the bot stands on a placed block with its eye in the pocket (A-floor); in a DEEP column it places against the wall; open water places none', async () => {
   const floorCells = { ...HIVE_C, '0,-1,0': 'stone' }   // stone under the feet cell: the A-floor geometry
   const bot = fakeBot({ cells: floorCells, riseTo: 1.1 })
   const r = await airPocketStep(bot, airPocketPlan(world(floorCells)), deps({ standItem: () => ({ name: 'cobblestone' }) }))
   clearInterval(bot._healthTimer)
   assert.equal(r.ok, true, r.why); assert.equal(r.stand, 'placed:1'); assert.deepEqual(bot.sends.map(x => x.y), [60])
   const deepCells = { ...HIVE_C, '0,-1,0': 'water', '0,-2,0': 'water' }   // deep water under the feet cell (hive-c column)
-  const deep = fakeBot({ cells: deepCells })
+  const deep = fakeBot({ cells: deepCells, riseTo: 1.1 })   // the column's sides at the feet cell are stone (the default)
   const r2 = await airPocketStep(deep, airPocketPlan(world(deepCells)), deps({ standItem: () => ({ name: 'cobblestone' }) }))
   clearInterval(deep._healthTimer)
-  assert.equal(r2.ok, true, r2.why); assert.equal(r2.stand, 'none')
+  assert.equal(r2.ok, true, r2.why); assert.equal(r2.stand, 'placed:1'); assert.deepEqual(deep.sends.map(x => x.y), [60])
+  // open water at the feet: water below AND on every side -> nothing to place against -> none, nothing sent
+  const open = { ...deepCells, '1,0,0': 'water', '-1,0,0': 'water', '0,0,1': 'water', '0,0,-1': 'water' }
+  const ow = fakeBot({ cells: open, riseTo: 1.1 })
+  const r3 = await airPocketStep(ow, airPocketPlan(world(open)), deps({ standItem: () => ({ name: 'cobblestone' }) }))
+  clearInterval(ow._healthTimer)
+  assert.equal(r3.ok, true, r3.why); assert.equal(r3.stand, 'none'); assert.equal(ow.sends.length, 0)
 })
 await t('F15 the stand stops (and says why) when no block is held or the place does not read back solid', async () => {
   const floorCells = { ...HIVE_C, '0,-1,0': 'stone' }
@@ -391,6 +397,23 @@ await t('F15 the stand stops (and says why) when no block is held or the place d
   assert.equal(r2.ok, true); assert.match(r2.stand, /did not turn solid/)
 })
 
+await t('F24 standRef (pure): the floor first; else a solid side wall, with the face that touches the cell; else none', () => {
+  const S = B('stone'), W = B('water')
+  assert.deepEqual(standRef({ below: S, sides: [[1, 0, S]] }), { dx: 0, dy: -1, dz: 0, face: [0, 1, 0] })
+  assert.deepEqual(standRef({ below: W, sides: [[1, 0, W], [-1, 0, S]] }), { dx: -1, dy: 0, dz: 0, face: [1, 0, 0] })
+  assert.deepEqual(standRef({ below: W, sides: [[0, 1, S]] }), { dx: 0, dy: 0, dz: 1, face: [0, 0, -1] })
+  assert.equal(standRef({ below: W, sides: [[1, 0, W], [-1, 0, W], [0, 1, W], [0, -1, W]] }), null)
+  assert.equal(standRef({ below: null, sides: [] }), null)
+})
+await t('F25 mutant: a stand that only uses a floor leaves the deep column floating (the Paper sink-back)', async () => {
+  const deepCells = { ...HIVE_C, '0,-1,0': 'water', '0,-2,0': 'water' }
+  await withMutant(AP_PATH, '  for (const [dx, dz, b] of sides ?? []) if (isSolid(b)) return { dx, dy: 0, dz, face: [-dx, 0, -dz] }\n', '', async m => {
+    const deep = fakeBot({ cells: deepCells, riseTo: 1.1 })
+    const r = await m.airPocketStep(deep, m.airPocketPlan(world(deepCells)), deps({ standItem: () => ({ name: 'cobblestone' }) }))
+    clearInterval(deep._healthTimer)
+    assert.equal(r.stand, 'none'); assert.equal(deep.sends.length, 0)
+  })
+})
 await t('F16 standGate (pure): aborted, wrong item in hand, off the column, feet below the cell each refuse; all clear passes', () => {
   const ok = { aborted: null, held: 'cobblestone', want: 'cobblestone', pos: { x: 100.5, y: 61.1, z: 100.5 }, fx: 100, fz: 100, cellY: 60 }
   assert.equal(standGate(ok), null)

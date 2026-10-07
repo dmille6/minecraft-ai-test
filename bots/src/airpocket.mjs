@@ -358,9 +358,12 @@ export async function airPocketStep (bot, plan, { Vec3, predict, sleep = ms => n
 /**
  * STAND WITH THE EYE IN THE POCKET (Paper sandbox e142b8f, A-floor). On a floor, once the rescue releases the controls
  * the bot sinks back onto the floor with its eye in water again (Air fell to 83 of 300 before the rescue lifted it).
- * So after success, when the cell under the original feet is SOLID, place blocks under the rising bot -- one per cell
- * between the feet and the air cell, the pillar's own jump-and-place -- until it STANDS with its eye in air. Deep water
- * with no floor needs none (the bot floats at the pocket). Every placement is read back; a failure stops and is reported.
+ * So after success, place blocks under the rising bot -- one per cell between the feet and the air cell, the pillar's
+ * own jump-and-place -- until it STANDS with its eye in air. Every placement is read back; a failure stops and is reported.
+ * DEEP WATER TOO (Paper sandbox 9ad287a/a56b648 A, sandbox2): with no floor the bot only floats at the pocket while
+ * something holds jump; in 3 of 3 such trials the jump was dropped after success and the bot sank 6 blocks with Air at
+ * 42-56 of 300 before the rescue caught it. So when the cell below is water the block is placed against a solid SIDE
+ * wall of the column (`standRef`); only a cell with no solid neighbour at all is left alone.
  * Never throws. Returns 'none' | 'placed:N' | 'stopped:<why>'.
  *
  * NO PLACE AFTER RETURN (Codex r4): racing `bot.placeBlock` against a timeout bounds the WAIT, not the send --
@@ -373,8 +376,7 @@ export async function standInPocket (bot, plan, { fx, fy, fz, Vec3, sleep, now, 
   try {
     const airY = fy + plan.dy + (plan.kind === 'ice' ? 1 : 0)   // the cell the eye must be in
     const need = airY - fy - 1                                  // blocks to stand on so feet sit at airY - 1
-    const floor = bot.blockAt(new Vec3(fx, fy - 1, fz))
-    if (!(need > 0) || !isSolid(floor)) return 'none'
+    if (!(need > 0)) return 'none'
     let placed = 0
     for (let k = 0; k < need; k++) {
       const cellY = fy + k
@@ -387,14 +389,17 @@ export async function standInPocket (bot, plan, { fx, fy, fz, Vec3, sleep, now, 
       while (now() < by && bot.entity.position.y < cellY + 1.05 && !isAborted()) await sleep(50)
       if (isAborted()) return `stopped:aborted: ${isAborted()} (${placed} placed)`
       if (bot.entity.position.y < cellY + 1.05) return `stopped:did not rise above y=${cellY} (${placed} placed)`
-      const ref = bot.blockAt(new Vec3(fx, cellY - 1, fz))
-      if (!isSolid(ref)) return `stopped:no reference under y=${cellY} (${placed} placed)`
-      try { await Promise.race([bot.lookAt(ref.position.offset(0.5, 1, 0.5), true), sleep(500)]) } catch { /* a late look moves only the head */ }
+      const pick = standRef({ below: bot.blockAt(new Vec3(fx, cellY - 1, fz)),
+                              sides: SIDES.map(([dx, dz]) => [dx, dz, bot.blockAt(new Vec3(fx + dx, cellY, fz + dz))]) })
+      if (!pick) return placed === 0 ? 'none' : `stopped:no reference for y=${cellY} (${placed} placed)`
+      const ref = bot.blockAt(new Vec3(fx + pick.dx, cellY + pick.dy, fz + pick.dz))
+      const face = new Vec3(pick.face[0], pick.face[1], pick.face[2])
+      try { await Promise.race([bot.lookAt(ref.position.offset(0.5 + face.x * 0.5, 0.5 + face.y * 0.5, 0.5 + face.z * 0.5), true), sleep(500)]) } catch { /* a late look moves only the head */ }
       const no = standGate({ aborted: isAborted(), held: bot.heldItem?.name ?? null, want: item.name, pos: bot.entity.position, fx, fz, cellY })
       if (no) return `stopped:${no} (${placed} placed)`
       if (typeof bot._placeBlockWithOptions !== 'function') return `stopped:no place primitive (${placed} placed)`
       // SENT HERE, synchronously: forceLook 'ignore' leaves no await before mineflayer writes the place packet
-      const answer = bot._placeBlockWithOptions(ref, new Vec3(0, 1, 0), { swingArm: 'right', forceLook: 'ignore' })
+      const answer = bot._placeBlockWithOptions(ref, face, { swingArm: 'right', forceLook: 'ignore' })
       Promise.resolve(answer).catch(() => {})   // its 5-s answer timeout must not surface as an unhandled rejection
       try { await Promise.race([answer, sleep(1500)]) } catch { /* read back */ }
       if (!isSolid(bot.blockAt(new Vec3(fx, cellY, fz)))) return `stopped:y=${cellY} did not turn solid (${placed} placed)`
@@ -403,6 +408,18 @@ export async function standInPocket (bot, plan, { fx, fy, fz, Vec3, sleep, now, 
     }
     return `placed:${placed}`
   } catch (e) { return `stopped:threw ${String(e?.message ?? e).slice(0, 40)}` }
+}
+
+const SIDES = [[1, 0], [-1, 0], [0, 1], [0, -1]]
+/**
+ * What to place the stand block AGAINST. Pure. The block below when it is solid (a floor, or the last stand block);
+ * else the first solid horizontal neighbour of the cell (a deep column's wall). null when neither exists.
+ * Returns the reference's offset from the cell and the face of the reference that touches the cell.
+ */
+export function standRef ({ below, sides }) {
+  if (isSolid(below)) return { dx: 0, dy: -1, dz: 0, face: [0, 1, 0] }
+  for (const [dx, dz, b] of sides ?? []) if (isSolid(b)) return { dx, dy: 0, dz, face: [-dx, 0, -dz] }
+  return null
 }
 
 /**
