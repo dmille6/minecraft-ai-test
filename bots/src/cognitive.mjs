@@ -792,7 +792,7 @@ export class CognitiveLoop {
         const home = { x: config.world.homeX, z: config.world.homeZ }
         const r = townOrder({
           // while the switch is on, a full bag only gets the order when a fill can start (composter.mjs startableJunk)
-          now: Date.now(), slots: plan.slots, freeSlots: 36 - plan.slots, junk: peaceful ? startableJunk(items, { apples: peaceful, plants: peaceful }) : plan.junk,
+          now: Date.now(), slots: plan.slots, freeSlots: 36 - plan.slots, junk: peaceful ? startableJunk(items, { apples: peaceful, plants: peaceful, level: () => composterLevel(findTownComposter(bot)) }) : plan.junk,
           distHome: p ? Math.hypot(home.x - p.x, home.z - p.z) : Infinity,
           storageNear: () => !!bot.findBlock?.({ matching: b => ['chest', 'barrel', 'trapped_chest'].includes(bot.registry?.blocks?.[b.type]?.name), maxDistance: STORAGE_NEAR }),
           composterAtTown: () => !!findTownComposter(bot),

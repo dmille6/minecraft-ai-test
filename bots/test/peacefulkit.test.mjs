@@ -134,6 +134,14 @@ test('startableJunk: a full bag whose every kit stack is above 7 starts no order
   assert.equal(C.startableJunk(small, { plants: true }), 33)
   assert.equal(C.startableJunk(big.slice(0, 35), { plants: true }), 39, 'a free slot: room for the bone meal')
   assert.equal(C.startableJunk(big, {}), 0, 'off: nothing compostable')
+  // THE COMPOSTER'S LEVEL (Codex r2): a stack of 3 empties before 7 only from level <= 4; at 7 and 8 a full bag cannot start
+  for (const [level, want] of [[0, 33], [4, 33], [5, 0], [6, 0], [7, 0], [8, 0], [null, 33]]) {
+    assert.equal(C.startableJunk(small, { plants: true, level }), want, `level ${level}`)
+    assert.equal(C.startableJunk(small, { plants: true, level: () => level }), want, `lazy level ${level}`)
+  }
+  let asked = 0
+  C.startableJunk(big.slice(0, 35), { plants: true, level: () => { asked++; return 8 } })
+  assert.equal(asked, 0, 'a bag with room never asks the world for the level')
 })
 
 // ---- the bank: pure ----------------------------------------------------------------------------------------------------
@@ -201,6 +209,19 @@ test('DEPOSIT WIRED: a NAMED deposit of a sword under the kit banks every usable
   assert.equal(r.status, 'success', r.detail)
   assert.equal(inChest(w, 'stone_sword'), 2)
   assert.equal(w.bag.filter(s => s?.name === 'stone_sword').map(s => s.durabilityUsed).join(), '125', 'the spent copy is not the bank\'s')
+})
+
+test('DEPOSIT WIRED: a FULL chest and nothing but the kit\'s swords to hand over -> no_effect; no new chest, no bank closure (Claude r2)', async () => {
+  const { bankClosed } = await import('../src/chestfull.mjs')
+  const w = townWith([tool('stone_sword'), tool('stone_pickaxe', 30), stack('dirt', 5)], 'peaceful')
+  w.fill(5, 64, 0)
+  const r = await runDeposit(w.bot)
+  assert.equal(r.status, 'no_effect', r.detail)
+  assert.match(r.detail, /swords; they wait for the next deposit/)
+  assert.equal(w.spy.placed.length, 0, 'no chest built for one sword')
+  assert.equal(w.spy.craft + w.spy.recipesFor, 0)
+  assert.equal(bankClosed(w.bot), '', 'the bank is not closed for one sword')
+  assert.equal(inBag(w, 'stone_sword'), 1); assert.deepEqual(w.dropped, [])
 })
 
 // ---- the craft: admission and the skill -----------------------------------------------------------------------------------

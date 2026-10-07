@@ -2668,6 +2668,9 @@ async function deposit(ctx, { item = null }, signal, { noRecovery = false, prefe
   // no-op that succeeded, eligible>0 with moved=0 is a chest that would not take
   // it, which is a real environmental failure worth a different remedy.
   let eligible = 0
+  // Copies the PEACEFUL KIT alone made eligible (a sword the base would keep): they ride on a deposit that has its own
+  // reason, and never start the full-chest recovery or close the bank on their own (Claude review r2).
+  let kitOnly = 0
   // ONE SNAPSHOT, shared with the refusal sentence below: a reason computed from a
   // second read of the inventory can contradict the plan that was actually run.
   let planItems = []
@@ -2698,6 +2701,7 @@ async function deposit(ctx, { item = null }, signal, { noRecovery = false, prefe
           const same = x => !!x && x.name === name && (x.durabilityUsed ?? 0) === c.used
           if (!same(slotAt(chest, c.slot))) continue
           eligible += 1
+          if (keepOne === 0 && c === usable[usable.length - 1]) kitOnly += 1   // the copy the base rule keeps
           await bot.clickWindow(c.slot, 0, 1)
           if (!same(slotAt(chest, c.slot))) moved += 1
         }
@@ -2790,6 +2794,11 @@ async function deposit(ctx, { item = null }, signal, { noRecovery = false, prefe
   // lack of it. This is also the only version of the fix that respects the
   // owner's standing rule: adding chests by RCON would be changing the world to
   // fix a bot; teaching bots to build storage is a capability.
+  // ONLY THE KIT'S SWORDS AND THE CHEST TOOK NONE: the base would have had nothing to hand over here (no_effect), so the
+  // recovery -- a new chest, a bank closure -- never runs for them. They wait for the next deposit.
+  if (eligible > 0 && eligible === kitOnly) {
+    return { status: 'no_effect', failClass: null, detail: 'the chest took none of the swords; they wait for the next deposit -- nothing else to hand over' }
+  }
   if (!noRecovery) return fullChestRecovery(ctx, { item, signal, first: chestBlock, firstMeta: meta, exclude, eligible, bagBefore, startedAt })
   return { status: 'failed', failClass: 'storage_full',
            detail: `had ${eligible} item(s) to hand over and the chest took none — it is full` }
@@ -5594,7 +5603,7 @@ async function compost(ctx, _args, signal) {
   // visit's items= list can pass that, so the read gates on args.items (name -> verified count), never on cut prose.
   // `peaceful` is the switch's reading for this visit (set below, before any insert).
   let peaceful = null
-  const row = (status, f) => logEvent({ kind: 'compost', status, snapshot: snapshot(bot), args: { items: { ...(f?.items ?? {}) }, peaceful },
+  const row = (status, f) => logEvent({ kind: 'compost', status, snapshot: snapshot(bot), args: { items: { ...(f?.items ?? {}) }, peaceful, ...(f?.incomplete ? { incomplete: 1 } : {}) },
                                         detail: compostDetail({ slotsBefore, slotsAfter: items().length, ...f }) })
   const skip = (why, f = {}) => { row('no_effect', { stop: why, ...f }); return { status: 'no_effect', detail: why } }
   // ANOTHER SUBSYSTEM'S SNEAK IS NOT OURS TO RELEASE, and a sneaking use is an item use, not a block use.
@@ -5614,6 +5623,9 @@ async function compost(ctx, _args, signal) {
   const ticks = n => g.bound(bot.waitForTicks?.(n), n * 50 + HK_AWAIT_MS, 'tick wait')
   const taken = {}
   let bonemeal = 0, stop = null, inserted = 0, uncollected = false, noRoom = false, stationary = 0, appleLevels = 0
+  // AN INTERRUPTED VISIT STILL WRITES ITS ROW (Codex review r2): the map of what went in, and whether an insert was in
+  // flight when it stopped (its count is reconciled from the settled bag, and the row says it may be incomplete).
+  let inflight = null, thrown = null
   try {
     if (bot.entity.position.distanceTo(centre) > STATION_REACH) {
       try { await composterWalk(bot, () => g.bound(bot.pathfinder.goto(new goals.GoalNear(pos.x, pos.y, pos.z, 2)), HK_PATH_MS, 'pathfinding', { path: true })) } catch (e) { if (e?.aborted || signal?.aborted) throw e }
@@ -5679,6 +5691,7 @@ async function compost(ctx, _args, signal) {
       }
       const before = countOf(stack.name)
       const lv0 = composterLevel(at())
+      inflight = { name: stack.name, before }
       try { await g.bound(bot.activateBlock(at()), HK_AWAIT_MS, 'use the composter') } catch (e) { if (e?.aborted) throw e }
       await ticks(2)
       let after = countOf(stack.name)
@@ -5688,11 +5701,22 @@ async function compost(ctx, _args, signal) {
         // THE LEVELS AN APPLE RAISED (the peaceful food policy's bone meal: apple_levels / 7). Inside the success branch, so
         // the miss count below is exactly the old one (Codex review: a sibling `if` had captured its `else`).
         if (stack.name === 'apple') { const lv1 = composterLevel(at()); if (lv0 != null && lv1 != null && lv1 > lv0) appleLevels += lv1 - lv0 }
-      } else if (++misses >= 3) { stop = `took no ${stack.name} in 3 tries`; break }
+      } else if (++misses >= 3) { inflight = null; stop = `took no ${stack.name} in 3 tries`; break }
+      inflight = null
     }
+  } catch (e) {
+    thrown = e
+    throw e
   } finally {
     if (stationary && bot.stationaryUntil === stationary) bot.stationaryUntil = 0
     await settleAndRestore(bot, was, g, 'compost')
+    if (thrown) {
+      try {
+        if (inflight) { const d = inflight.before - countOf(inflight.name); if (d > 0) taken[inflight.name] = (taken[inflight.name] ?? 0) + d }
+        row('aborted', { levelBefore, levelAfter: composterLevel(at()), bonemeal, items: taken, stop: `interrupted: ${String(thrown?.message ?? thrown).slice(0, 40)}`,
+                         incomplete: !!inflight, appleLevels: taken.apple ? appleLevels : null })
+      } catch { /* a row must never mask the interruption */ }
+    }
   }
   const n = Object.values(taken).reduce((a, b) => a + b, 0)
   const slotsAfter = items().length
