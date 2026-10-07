@@ -1,7 +1,6 @@
 import { PATHFINDER_SCAFFOLD } from './scaffold.mjs'
 import { remaining, FLOOR } from './toolfor.mjs'
-// The peaceful kit: the food policy's decision (one switch) and the sword rule.
-import { peacefulFoodActive } from './foodskip.mjs'
+// The peaceful kit's sword rule (the deposit skill passes the switch's reading as `swords`).
 import { bankEveryCopy } from './peacefulkit.mjs'
 // WHAT IS ACTUALLY WORTH BANKING.
 //
@@ -144,7 +143,7 @@ export const KEEP_ONE = new Set(['crafting_table', 'furnace', 'blast_furnace', '
  * tables is worth at most what the goals actually want, not 99.
  */
 export function bankableInventory (items = [], { wants = [], creditCap = 64,
-                                                 reserveScaffold = 8, swords = peacefulFoodActive() } = {}) {
+                                                 reserveScaffold = 8, swords = false } = {}) {
   const want = new Set([...wants, ...STANDING_TARGETS].filter(Boolean))
   const counts = {}
   const usable = {}   // tool name -> copies above toolfor's FLOOR
@@ -181,7 +180,9 @@ export function bankableInventory (items = [], { wants = [], creditCap = 64,
     // usable copy none are: spent tools never move either way.
     // THE PEACEFUL KIT (peacefulkit.mjs, owner 10-07): while the food policy's switch is active a SWORD keeps no copy --
     // every usable one may go to the bank (none is ever crafted or chased then). Spent copies still never move.
-    // `swords` defaults to the policy's current decision (foodskip.mjs, refreshed by the difficulty packet).
+    // `swords` is FALSE BY DEFAULT (Codex review): admission's depositDue, the prompt's CARRYING line and the deposit
+    // milestone count with the base rule, so a sword never makes a deposit due that was not due already -- no new trip.
+    // Only the deposit skill itself, once a deposit is running, passes the switch's reading.
     if (m) avail = bankEveryCopy(name, swords) ? (usable[name] ?? 0) : Math.min(n - 1, (usable[name] ?? 0) - 1)
     if (KEEP_ONE.has(name)) avail -= 1      // and one of each station / bucket, even when wanted
     const reserved = scaffoldReserve[name] ?? 0
