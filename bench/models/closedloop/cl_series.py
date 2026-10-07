@@ -76,7 +76,10 @@ def main():
         try:
             subprocess.run([sys.executable, os.path.join(HERE, 'cl_run.py'), '--arm', arm['arm'], '--model', arm['model'],
                             '--think', arm.get('think', 'none'), '--server', a.server, '--bots', str(a.bots),
-                            '--minutes', str(a.minutes), '--endpoint', endpoint, '--tag', 'b%d' % b, '--keep-reservation'],
+                            '--minutes', str(a.minutes), '--endpoint', endpoint, '--tag', 'b%d' % b, '--keep-reservation']
+                           + (['--c2-arm', arm['c2_arm'], '--ov-model', arm.get('ov_model', 'gpt-oss:120b'),
+                               '--ov-think', arm.get('ov_think', 'medium'), '--esc-model', arm.get('esc_model', 'gpt-oss:120b'),
+                               '--esc-think', arm.get('esc_think', 'medium')] if arm.get('c2_arm') else []),
                            check=False)
         finally:
             if tun:

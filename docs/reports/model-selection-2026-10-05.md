@@ -28,8 +28,9 @@ Runner-ups:
      the Studio next to this pair.
    - The Studio's :11434 WAN forward has been closed since 15:32Z. The benchmark uses an ssh tunnel; the owner is
      fixing the forward.
-2. **C2 (overseer and escalation inside real bots on the sandbox)** needs a small bench-only bot-code hook. Both
-   engines reviewed the design (`bench/models/closedloop/C2-DESIGN-DRAFT.md`, rev 2) and want it.
+2. **C2 (overseer and escalation inside real bots on the sandbox): APPROVED by the owner 10-07 ~01:15Z.** The
+   bench-only hook is built on branch `bench-c2` (never main, never the fleet) and is in review by both engines;
+   the metrics are pre-registered below, before any run.
 3. **Then the live A/B**: 4-8 bots on the chosen stack as their own canary, against a matched control.
 
 **What NOT to use**
@@ -693,4 +694,49 @@ The merged numbers of rounds 1 and 2 were already recorded above. Their packets 
 **Next for C**
 - More blocks (3-6 more, about 5 h each) to resolve output, queued after the long-tail screens and the physical
   trap fixtures.
-- C2 (overseer and escalation in the loop) is still waiting on the owner.
+- C2 (overseer and escalation in the loop): approved 10-07; see the pre-registration below.
+
+### C2: pre-registration (written 10-07 ~01:35Z, BEFORE any C2 run)
+
+**What runs.** Sandbox4 only (10.0.0.30:25602, restored from the pristine archive before every run). 8 bots on
+10.0.0.31 under bench names, from the bench-only tree `bench-c2` (hook reviewed by both engines before the first
+run; the deployed sha is written into each run's meta as `bot_code`). Brain in every arm: **gemma4:26b 8-bit MLX on
+LM Studio**, thinking off. 90-min runs; metrics read at the **70-min horizon**, as in C1. Same seeded starts and the
+same randomized-block design as C1: each block runs every arm once in a random order.
+
+**Arms** (all four run the same tree with the director set and the `mbench-Mayor` client present, silent where it
+has no role):
+
+| arm | allocator | stuck escalation |
+|---|---|---|
+| c2-none (control) | none | none |
+| c2-det | the deterministic shadow-mayor assigner (pinned, md5 fa27084...) | none |
+| c2-ov | gpt-oss:120b, reasoning medium, on Ollama, one call per new mayor snapshot | none |
+| c2-esc | none | gpt-oss:120b, reasoning medium |
+
+Optional fifth arm, only if time allows: qwen3.8:27b ("low") as the overseer.
+
+**Delivery.** A directive is a chat line from the whitelisted director to one bot. The bot treats each step as a
+**proposal** before the work order, so the admission gate, the outcome classifier, the milestone counter and the
+decision row all apply unchanged. A refused step releases control to the bot's own model at once (no dead end).
+
+**Escalation trigger** (computed in every arm, intent-to-treat): at most 8 blocks moved in 5 min AND at least 3
+failed/aborted/unknown model outcomes; 300 s cooldown; at most 3 calls per episode; an episode ends once the bot
+has moved at least 8 blocks.
+
+**Metrics, fixed now:**
+- **PRIMARY:** team output at 70 min (the C1 resource-value ledger; crafting priced at its inputs).
+- **Secondary:** stuck minutes per bot; bots reaching a stone pickaxe and an iron ingot; deaths (a tripwire, not a
+  verdict); the bots' own decision latency p50 (does a co-resident 120B overseer slow the brain?).
+- **Mechanism:** the directive funnel from the bots' own rows (requested -> dispatched -> step_done/completed vs
+  refused/released/expired/superseded/orphan_outcome); overseer calls, seconds, validator-clean share; escalation
+  episodes per arm and the share ending within 10 min. **Dose is read from the bot-side rows**, not from what the
+  director sent.
+- **Contrasts:** det vs none (does any allocator plus actuator help); ov vs det (does the LLM allocate better than
+  the rule); esc vs none (rescue). Paired within blocks; the run is the unit.
+
+**What 3 blocks can show.** Only large effects. C1's output ratios spanned 0.59-2.95 across blocks on one change,
+so a team-output difference inside that band will be reported as INCONCLUSIVE, not as a result. Stuck time and
+milestones separated cleanly in C1 and are the likelier readable signals.
+
+**Analysis:** `bench/models/closedloop/c2_analyze.py results/runs.jsonl --horizon 70`.

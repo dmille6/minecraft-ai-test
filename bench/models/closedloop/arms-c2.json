@@ -1,0 +1,4 @@
+[{"arm": "c2-none", "c2_arm": "none", "model": "gemma4:26b", "think": "false", "lms_key": "gemma-4-26b-a4b-it@8bit"},
+ {"arm": "c2-det", "c2_arm": "det", "model": "gemma4:26b", "think": "false", "lms_key": "gemma-4-26b-a4b-it@8bit"},
+ {"arm": "c2-ov", "c2_arm": "ov", "model": "gemma4:26b", "think": "false", "lms_key": "gemma-4-26b-a4b-it@8bit"},
+ {"arm": "c2-esc", "c2_arm": "esc", "model": "gemma4:26b", "think": "false", "lms_key": "gemma-4-26b-a4b-it@8bit"}]

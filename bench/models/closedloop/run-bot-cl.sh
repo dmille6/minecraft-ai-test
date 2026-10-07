@@ -15,4 +15,8 @@ EP="${OLLAMA_BASE_URL:-}"
 [[ "${LOG_DIR:-}" == "$HOME/mbench-cl/runs/"* && "${STATE_DIR:-}" == "$HOME/mbench-cl/runs/"* ]] || { echo "refusing: logs/state must live under ~/mbench-cl/runs"; exit 3; }
 [[ "${BOT_NAME:-}" == mbench* ]] || { echo "refusing: BOT_NAME must start with mbench"; exit 3; }
 mkdir -p "$LOG_DIR" "$STATE_DIR"
-cd "$HOME/mbench-cl/tree/bots" && exec nice -n 5 node --max-old-space-size=768 src/index.mjs
+# BOT_TREE: the bench tree to run (~/mbench-cl/tree = bench-closedloop; ~/mbench-c2/tree = bench-c2 with the directive
+# hook). Never the fleet's /srv/mcbots or /opt/minecraft-ai.
+TREE="${BOT_TREE:-$HOME/mbench-cl/tree}"
+[[ "$TREE" == "$HOME/mbench-cl/tree" || "$TREE" == "$HOME/mbench-c2/tree" ]] || { echo "refusing: BOT_TREE $TREE"; exit 3; }
+cd "$TREE/bots" && exec nice -n 5 node --max-old-space-size=768 src/index.mjs

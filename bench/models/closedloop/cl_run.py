@@ -16,6 +16,7 @@ from datetime import datetime, timezone
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 BOTS_HOST, WORLDS_HOST, STUDIO = 'mike@10.0.0.31', 'mike@10.0.0.30', 'mike@ai.ticrcorp.com'
+C2_OLLAMA = 'http://10.0.0.70:11502'      # the overseer/escalation model: the Studio's Ollama via the mini's supervised tunnel
 PORTS = {'sandbox': 25599, 'sandbox2': 25600, 'sandbox3': 25601, 'sandbox4': 25602}
 NAMES = ['Alpha', 'Bravo', 'Comet', 'Delta', 'Echo', 'Fox', 'Golf', 'Hotel']   # Minecraft names <= 16 chars: 'mbench-s4-Charlie' (17) was kicked
 
@@ -80,6 +81,9 @@ def env_for(a, run_id, i):
     }
     if a.think not in ('none', ''):
         e['OLLAMA_THINK'] = a.think
+    if getattr(a, 'c2_arm', None):        # C2: the bench-c2 tree with the directive hook, the Mayor as the director
+        e['BOT_TREE'] = '$HOME/mbench-c2/tree'
+        e['C2_DIRECTOR'] = 'mbench-Mayor'
     return name, e
 
 
@@ -112,6 +116,9 @@ def main():
     ap.add_argument('--allow-contention', action='store_true')
     ap.add_argument('--keep-reservation', action='store_true', help='leave the GPU reserved for the next run (a series)')
     ap.add_argument('--tag', default='')
+    ap.add_argument('--c2-arm', default=None, choices=(None, 'none', 'det', 'ov', 'esc', 'ov+esc'))
+    ap.add_argument('--ov-model', default='gpt-oss:120b'); ap.add_argument('--ov-think', default='medium')
+    ap.add_argument('--esc-model', default='gpt-oss:120b'); ap.add_argument('--esc-think', default='medium')
     ap.add_argument('--endpoint', default='http://ai.ticrcorp.com:11434',
                     help='or http://10.0.0.70:11501 = LM Studio via the translating proxy (start it first)')
     a = ap.parse_args()
@@ -140,6 +147,13 @@ def main():
             'options': {'num_ctx': 8192, 'num_predict': 4}}
     if a.think not in ('none', ''):
         warm['think'] = {'true': True, 'false': False}.get(a.think, a.think)
+    if a.c2_arm:
+        # C2: the overseer/escalation model resident in EVERY arm (equal memory pressure; only its CALLS differ)
+        for m in sorted({a.ov_model, a.esc_model}):
+            ow = {'model': m, 'messages': [{'role': 'user', 'content': 'ok'}], 'stream': False, 'keep_alive': '120m',
+                  'options': {'num_ctx': 16384, 'num_predict': 4}}
+            sh(STUDIO, "curl -s -m 600 localhost:11434/api/chat -d %s >/dev/null" % shlex.quote(json.dumps(ow)), check=False, timeout=700)
+            log('C2: %s resident on the Studio Ollama' % m)
     if 'ticrcorp' in a.endpoint or ':11502' in a.endpoint:
         sh(STUDIO, "curl -s -m 600 localhost:11434/api/chat -d %s >/dev/null" % shlex.quote(json.dumps(warm)), check=False, timeout=700)
     subprocess.run(['scp', '-q', os.path.join(HERE, 'cl_world.sh'), WORLDS_HOST + ':/tmp/mbench-cl_world.sh'], check=True)
@@ -160,7 +174,20 @@ def main():
         log('started %s' % name)
         time.sleep(12)
     digest = sh(STUDIO, "/Applications/Ollama.app/Contents/Resources/ollama list | awk '$1==\"%s\"{print $2}'" % a.model, check=False).strip()
-    meta = {'run_id': run_id, 'arm': a.arm, 'model': a.model, 'model_digest': digest, 'bot_code': 'bench-closedloop@8e80080',
+    if a.c2_arm:
+        c2 = '~/mbench-c2/%s' % run_id
+        links = ' '.join('ln -sfn ~/mbench-cl/runs/%s/%s-state %s/facts/%s;' % (run_id, n, c2, n) for n in names)
+        sh(BOTS_HOST, 'mkdir -p %s/mayor %s/facts && %s touch %s/outbox.jsonl && cd ~/mbench-c2/director && '
+           '(setsid nohup python3 c2_director.py --run-dir ~/mbench-cl/runs/%s --arm %s --world mbench-%s --endpoint %s '
+           '--ov-model %s --ov-think %s --esc-model %s --esc-think %s --outbox %s/outbox.jsonl --log %s/director.jsonl '
+           '--mayor-out %s/mayor > %s/director.out 2>&1 < /dev/null & echo $! > %s/director.pid) && '
+           '(BOT_TREE_REQUIRE=$HOME/mbench-c2/tree/bots/package.json setsid nohup node c2_chat.mjs 10.0.0.30 %d %s/outbox.jsonl %s/chat.jsonl '
+           '> %s/chat.out 2>&1 < /dev/null & echo $! > %s/chat.pid)'
+           % (c2, c2, links, c2, run_id, shlex.quote(a.c2_arm), run_id, C2_OLLAMA, a.ov_model, a.ov_think, a.esc_model,
+              a.esc_think, c2, c2, c2, c2, c2, PORTS[a.server], c2, c2, c2, c2))
+        log('C2 director (%s) and mbench-Mayor started' % a.c2_arm)
+    bot_code = sh(BOTS_HOST, 'cat %s/.bench-sha 2>/dev/null || echo unknown' % ('~/mbench-c2/tree' if a.c2_arm else '~/mbench-cl/tree'), check=False).strip()
+    meta = {'run_id': run_id, 'arm': a.arm, 'c2_arm': a.c2_arm, 'model': a.model, 'model_digest': digest, 'bot_code': bot_code,
             'think': a.think, 'server': a.server, 'bots': a.bots,
             'minutes': a.minutes, 'timeout_ms': a.timeout_ms, 'start': t_start, 'names': names}
     sh(BOTS_HOST, 'cat > ~/mbench-cl/runs/%s/meta.json <<"EOF"\n%s\nEOF' % (run_id, json.dumps(meta)))
@@ -174,6 +201,8 @@ def main():
         if ep != 'OK':
             endpoint_down_checks.append(now()); log('ENDPOINT DOWN during the run (%s)' % a.endpoint)
     t_end = now()
+    if a.c2_arm:
+        sh(BOTS_HOST, 'for p in ~/mbench-c2/%s/*.pid; do kill $(cat $p) 2>/dev/null; done; sleep 2; true' % run_id, check=False)
     census = sh(WORLDS_HOST, 'bash /tmp/mbench-cl_world.sh %s census %s' % (a.server, ' '.join(names)), check=False, timeout=300)
     meta['census'] = parse_census(census)
     sh(BOTS_HOST, 'for p in ~/mbench-cl/runs/%s/*.pid; do kill -- -$(cat $p) 2>/dev/null || kill $(cat $p) 2>/dev/null; done; sleep 3; pkill -f "mbench-cl/runs/%s/" || true' % (run_id, run_id), check=False)
