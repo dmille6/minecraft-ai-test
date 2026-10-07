@@ -705,3 +705,22 @@ test('BACKOFF: a container in its backoff after a failure is skipped like a full
   const r = await run(w.bot)
   assert.equal(r.status, 'no_effect'); assert.equal(w.st.opened.length, 0)
 })
+
+// THE COBBLE RULE x THE TOWN DEPOSIT (stonecap on 92bc84f): the town deposit reads its allowance from depositPlan, which
+// now holds cobble to whole stacks above a 64 reserve; its own plan banks whole stacks smallest first and keeps 64 of the
+// stone family. The two must agree: never a partial cobble stack, never under 64 cobble + deepslate.
+test('COBBLE RULE: the town deposit banks only whole cobble stacks above the 64 reserve', () => {
+  const it = (name, count, slot) => ({ name, count, slot })
+  const fill = Array.from({ length: 30 }, (_, i) => it('dirt', 64, 12 + i))
+  const cobbleSteps = bag => TD.townDepositPlan([...bag, ...fill]).steps.filter(s => /^cobble/.test(s.name)).map(s => `${s.name}:${s.count}`)
+  assert.deepEqual(cobbleSteps([it('cobblestone', 64, 9), it('cobblestone', 30, 10)]), ['cobblestone:30'])
+  assert.deepEqual(cobbleSteps([it('cobblestone', 64, 9)]), [], 'exactly the reserve: nothing')
+  assert.deepEqual(cobbleSteps([it('cobblestone', 64, 9), it('cobblestone', 64, 10), it('cobblestone', 20, 11)]), ['cobblestone:20'])
+  assert.deepEqual(cobbleSteps([it('cobblestone', 30, 9), it('cobblestone', 40, 11)]), [], '70 held: no whole stack leaves 64')
+  for (const bag of [[it('cobblestone', 64, 9), it('cobblestone', 30, 10)], [it('cobblestone', 64, 9), it('cobbled_deepslate', 64, 10), it('cobblestone', 5, 11)]]) {
+    const all = [...bag, ...fill]
+    const left = all.reduce((n, x) => n + (/^cobble/.test(x.name) ? x.count : 0), 0) -
+      TD.townDepositPlan(all).steps.reduce((n, s) => n + (/^cobble/.test(s.name) ? s.count : 0), 0)
+    assert.ok(left >= 64, `kept ${left}`)
+  }
+})
