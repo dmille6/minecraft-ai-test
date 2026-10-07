@@ -74,11 +74,26 @@ const statuses = q => q.drain().map(e => e.status)
   const ev = q.drain(); assert.deepStrictEqual(ev, [], 'drained')
   q.report(old, 'done', 'success', 'stale', 6)       // already consumed above -> nothing more
   q.offer(mk('third', 'overseer'), 7); const g3 = q.next(8).gen
+  q.note(g3, 'dispatched', 'goto', 8)                 // its step is in the runner
   q.offer(mk('fourth', 'overseer'), 9)               // supersedes `third` while its step may be running
   q.report(g3, 'done', 'failed', 'blocked', 10)      // that execution's outcome is still RECORDED
   const late = q.drain().find(e => e.status === 'orphan_outcome')
   assert.ok(late && late.id === 'third' && /done failed: blocked/.test(late.detail), 'a superseded delivery keeps its outcome row')
   assert.strictEqual(q.next(11).id, 'fourth'); assert.strictEqual(q.next(11).step, 0, 'and it did not touch the new one')
+}
+{ // a LEASE that ends while the step is in the runner, then a replacement: the old execution's outcome is still
+  // recorded (Codex re-review of bfd39f4: 600 s lease, dispatched at 500 s, replaced at 600.001 s, done at 610 s)
+  const q = new DirectiveQueue()
+  q.offer(mk('lease', 'overseer', 1, 0, 600), 0); const g = q.next(500_000).gen
+  q.note(g, 'dispatched', 'goto', 500_000)
+  q.offer(mk('next', 'overseer', 2, 600_001), 600_001)
+  q.report(g, 'done', 'success', 'arrived', 610_000)
+  assert.deepStrictEqual(q.drain().filter(e => e.id === 'lease').map(e => e.status), ['requested', 'dispatched', 'expired', 'orphan_outcome'])
+  assert.strictEqual(q.next(610_001).id, 'next'); assert.strictEqual(q.next(610_001).step, 0, 'the old success did not advance the new one')
+  // and a delivery that was NEVER dispatched leaves no orphan behind (nothing ran, nothing to record)
+  q.offer(mk('idle1', 'overseer'), 0); const gi = q.next(1).gen; q.offer(mk('idle2', 'overseer'), 2)
+  q.report(gi, 'done', 'success', 'x', 3)
+  assert.ok(!q.drain().some(e => e.status === 'orphan_outcome'), 'no orphan for a step that never reached the runner')
 }
 { // runner PAUSE: wait for the runner's own auto-resume, re-propose ONCE, then give up (both reviews, finding 1)
   const q = new DirectiveQueue()

@@ -73,9 +73,7 @@ export class DirectiveQueue {
       const rank = o => ORIGINS.indexOf(o)
       if (rank(d.origin) <= rank(this.active.origin)) {
         this.#emit('superseded', this.active, `by ${d.origin} ${d.id}`, now)
-        // its step may be executing right now: keep it so that execution's outcome is still recorded
-        this.orphans.set(this.active.gen, this.active)
-        if (this.orphans.size > 8) this.orphans.delete(this.orphans.keys().next().value)
+        this.#retire(this.active)
       } else {
         this.#emit('refused', d, `busy with ${this.active.origin} ${this.active.id}`, now)
         return false
@@ -90,8 +88,18 @@ export class DirectiveQueue {
   #expire (now) {
     if (this.active && now >= this.active.expiresAt) {
       this.#emit('expired', this.active, `lease ended at step ${this.active.step + 1} of ${this.active.steps.length}`, now)
-      this.active = null
+      this.#retire(this.active)
     }
+  }
+
+  /** Drop the active delivery WITHOUT its outcome (superseded / expired / released on reconnect). If its step is in
+   *  the runner right now, keep it so that execution's outcome is still recorded as `orphan_outcome` (both reviews). */
+  #retire (d) {
+    if (d.inflight) {
+      this.orphans.set(d.gen, d)
+      if (this.orphans.size > 8) this.orphans.delete(this.orphans.keys().next().value)
+    }
+    if (this.active === d) this.active = null
   }
 
   /** The next step to run as a proposal, or null (the brain decides). While a directive is active the brain's own
@@ -108,10 +116,13 @@ export class DirectiveQueue {
     return { id: d.id, gen: d.gen, origin: d.origin, step: d.step, of: d.steps.length, skill: st.skill, args: st.args, why: d.why }
   }
 
-  /** A lifecycle note for the step `next` returned (admitted / started); ignored if that delivery is gone. */
+  /** A lifecycle note for the step `next` returned (admitted / dispatched); ignored if that delivery is gone. */
   note (gen, status, detail = '', now = 0) {
     const d = this.active
-    if (d && d.gen === gen) this.#emit(status, d, detail, now)
+    if (d && d.gen === gen) {
+      if (status === 'dispatched') d.inflight = true        // in the runner until report() hears back
+      this.#emit(status, d, detail, now)
+    }
   }
 
   /** Report what happened to the step `next` returned, matched by GENERATION.
@@ -126,6 +137,7 @@ export class DirectiveQueue {
       if (o) { this.orphans.delete(gen); this.#emit('orphan_outcome', o, `${kind}${status ? ' ' + status : ''}: ${detail}`, now) }
       return
     }
+    d.inflight = false
     if (kind === 'rejected') { this.#emit('refused', d, `admission: ${detail}`, now); this.active = null; return }
     if (kind === 'runner_refusal') {
       if (refusal === 'runner_paused') {
@@ -155,7 +167,7 @@ export class DirectiveQueue {
 
   /** Release whatever is active (a new connection: what the old one held is stale). */
   releaseAll (why, now = 0) {
-    if (this.active) { this.#emit('released', this.active, why, now); this.active = null }
+    if (this.active) { this.#emit('released', this.active, why, now); this.#retire(this.active) }
   }
 
   /** A directive that never parsed still gets a row (it was sent; the bot refused it). */
