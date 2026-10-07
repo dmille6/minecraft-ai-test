@@ -847,7 +847,7 @@ export function installCraftSync (bot, opts = {}) {
         if (st.windowLost) {                           // the craft's window changed: stopped before the click, verified
           st.outcome = 'window_changed'
           throw new CraftSyncError(`craft stopped: its window changed (${st.windowLost}); ${produced ?? '?'} of ${requested} made`,
-            { failClass: 'craft_unconfirmed', produced, requested, reason: 'window_changed' })
+            { failClass: 'craft_unconfirmed', produced, requested, reason: 'window_changed', authoritative })
         }
         if (runError) {
           st.outcome = 'error'
