@@ -553,11 +553,63 @@ await t('CAP, a deposit voids THIS bot\'s claims left by an earlier run (a crash
 await t('CAP r4: a claim of THIS process is never voided, however old (a skill the runner abandoned may still finish its transfer)', () => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'mcbot-cobble-self-'))
   CC.appendJournal(dir, 'k', null, { t: 'obs', k: 'a', n: 100, cap: Date.now() })
-  assert.equal(CC.claimStack(dir, 'k', null, { id: 'mine', n: 64, k: 'a', bot: 'Ann', keys: ['a'], coverage: true, at: Date.now() - 3600_000 }).decision, 'bank')
-  assert.equal(CC.voidOwnClaims(dir, 'k', null, { bot: 'Ann' }), 0)
-  assert.equal(CC.townCobble(CC.readTown(dir, 'k'), ['a'], Date.now()).reserved, 64, 'still reserved')
   CC.appendJournal(dir, 'k', null, { t: 'claim', id: 'pred', n: 10, k: 'a', at: Date.now(), bot: 'Ann', inst: 'dead-2', keys: ['a'], coverage: true })
-  assert.equal(CC.voidOwnClaims(dir, 'k', null, { bot: 'Ann' }), 1, 'positive control: the predecessor\'s claim is voided')
+  assert.equal(CC.claimStack(dir, 'k', null, { id: 'mine', n: 64, k: 'a', bot: 'Ann', keys: ['a'], coverage: true, at: Date.now() - 3600_000 }).decision, 'bank')
+  assert.equal(CC.voidOwnClaims(dir, 'k', null, { bot: 'Ann' }), 1, 'the predecessor\'s claim is voided (positive control)')
+  assert.equal(CC.townCobble(CC.readTown(dir, 'k'), ['a'], Date.now()).reserved, 64, 'this process\'s own claim is still reserved')
+  assert.equal(CC.voidOwnClaims(dir, 'k', null, { bot: 'Ann' }), 0)
+})
+await t('CAP r5: THE FENCE (Codex r5 P1): after the void, a predecessor whose JavaScript outlived its connection cannot publish a stale count, release or claim', () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'mcbot-cobble-fence-'))
+  CC.appendJournal(dir, 'k', null, { t: 'obs', k: 'a', n: 150, cap: Date.now() - 5000 })
+  CC.appendJournal(dir, 'k', null, { t: 'claim', id: 'P', n: 64, k: 'a', at: Date.now() - 4000, bot: 'Ann', inst: 'dead-5', keys: ['a'], coverage: true })
+  assert.equal(CC.voidOwnClaims(dir, 'k', null, { bot: 'Ann' }), 1)
+  CC.appendJournal(dir, 'k', null, { t: 'obs', k: 'a', n: 214, cap: Date.now() })                 // the real recount (another bot)
+  CC.appendJournal(dir, 'k', null, { t: 'cnt', k: 'a', n: 150, cap: Date.now() + 5, ids: ['P'], bot: 'Ann', inst: 'dead-5' })   // the zombie's stale window
+  const st = CC.readTown(dir, 'k')
+  assert.equal(st.obs.a.n, 214, 'the stale count is fenced out')
+  assert.equal(CC.claimStack(dir, 'k', null, { id: 'Q', n: 64, k: 'a', keys: ['a'], coverage: true }).decision, 'at_cap', '214 + 64 > 256')
+  CC.appendJournal(dir, 'k', null, { t: 'cnt', k: 'a', n: 150, cap: Date.now() + 10, ids: [], bot: 'Bob', inst: 'live-b' })
+  assert.equal(CC.readTown(dir, 'k').obs.a.n, 150, 'positive control: another bot\'s later count is read')
+})
+await t('CAP r5: a release from a window that is no longer the bot\'s writes no count and makes the container UNKNOWN until a recount', async () => {
+  const w = capTown([stack('cobblestone', 64)], 100)
+  await countAt(w, 5, 64, 0)
+  const key = TK()
+  assert.equal(CC.claimStack(process.env.POOL_STATE_DIR, key, null, { id: 'Z', n: 30, k: '5,64,0', keys: ['5,64,0'], coverage: true }).decision, 'bank')
+  const b = w.bot.blockAt({ x: 5, y: 64, z: 0 })
+  const win = await w.bot.openContainer(b); win.close()                                           // the window is gone
+  S2.cobbleObserve(w.bot, b.position, win, { release: 'Z' })
+  const st = CC.readTown(process.env.POOL_STATE_DIR, key)
+  assert.equal(st.obs['5,64,0'].n, 100, 'no count from a closed window')
+  const v = CC.townCobble(st, ['5,64,0'], Date.now())
+  assert.equal(v.reserved, 0, 'released'); assert.deepEqual(v.unknown, ['5,64,0'], 'and unknown until recounted')
+})
+await t('CAP r5: an ABORTED reconciliation leaves its open pending (Codex r5 P2): the next deposit waits until it settles', async () => {
+  const w = capTown([stack('cobblestone', 64), stack('cobblestone', 30)], 10)
+  await countAt(w, 5, 64, 0)
+  w.set(-6, 64, 0, 'barrel')
+  const open = w.bot.openContainer.bind(w.bot)
+  let opens = 0
+  w.bot.openContainer = b => { if (b.position.x !== -6) return open(b); opens++; return new Promise(res => setTimeout(async () => res(await open(b)), 2000)) }
+  const ac = new AbortController()
+  setTimeout(() => ac.abort(), 300)                                                              // aborted while the open hangs
+  await assert.rejects(S2.reconcileCobble(w.bot, ac.signal, cap => (cap === 8_000 ? 1_100 : cap)))
+  const d = await run(w.bot)
+  assert.equal(d.status, 'no_effect'); assert.match(d.detail, /has not answered an earlier open/); assert.equal(opens, 1)
+  await new Promise(res => setTimeout(res, 1200))
+  assert.equal(w.bot.cobbleOpenPending, null)
+})
+await t('CAP r5: a void that could not be written is RETRIED at the next read (Codex r5 P2), and then the claim is voided', async () => {
+  const w = capTown([stack('cobblestone', 64), stack('cobblestone', 30)], 200)
+  w.bot.username = 'CobbleBot'
+  await countAt(w, 5, 64, 0)
+  CC.appendJournal(process.env.POOL_STATE_DIR, TK(), null, { t: 'claim', id: 'pred', n: 40, k: '5,64,0', at: Date.now(), bot: 'CobbleBot', inst: 'dead-7', keys: ['5,64,0'], coverage: true })
+  const jf = path.join(process.env.POOL_STATE_DIR, `${TK()}.cobble.jsonl`)
+  fs.chmodSync(jf, 0o444)
+  try { assert.equal(S2.cobbleVoidStale(w.bot), false, 'the write failed: not done') } finally { fs.chmodSync(jf, 0o644) }
+  assert.equal(S2.cobbleVoidStale(w.bot), true)
+  assert.equal(CC.readTown(process.env.POOL_STATE_DIR, TK()).claims.pred.state, 'void')
 })
 await t('CAP r4: a recount that resolves a void IS the count, even against an older count with a later clock (Codex r4 P1)', () => {
   const rec = (t, o) => ({ t, ...o })

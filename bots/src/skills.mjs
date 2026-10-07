@@ -3041,8 +3041,15 @@ let lastScanRec = { at: 0, key: null }
 export function cobbleObserve (bot, pos, win, { release = null, releaseAll = [] } = {}) {
   try {
     const cap = Date.now()
-    const n = cobbleIn(win?.containerItems?.() ?? [])
     const inside = !!pos && inTown(homeVec(), pos)
+    const ids = [...(release ? [release] : []), ...releaseAll]
+    // A WINDOW THAT IS NO LONGER THE BOT'S (closed by the server, or a skill the runner abandoned) cannot vouch for a
+    // count (Codex r5 P1): its releases are written with the container marked UNKNOWN until a recount, never a count
+    if (win && bot.currentWindow !== win) {
+      capEpoch++
+      return ids.length ? recordCount(townDir(), homeTownKey(), bot.worldId ?? null, { release: ids, bot: bot.username ?? null, dirty: inside ? containerKey(bot, pos) : null }) : false
+    }
+    const n = cobbleIn(win?.containerItems?.() ?? [])
     let scan = null
     if (inside) {
       const sc = townCobbleScan(bot, cap)
@@ -3051,7 +3058,7 @@ export function cobbleObserve (bot, pos, win, { release = null, releaseAll = [] 
     }
     capEpoch++
     return recordCount(townDir(), homeTownKey(), bot.worldId ?? null,
-      { obs: inside ? { k: containerKey(bot, pos), n, cap } : null, release: [...(release ? [release] : []), ...releaseAll], scan })
+      { obs: inside ? { k: containerKey(bot, pos), n, cap } : null, release: ids, scan, bot: bot.username ?? null })
   } catch { return false }
 }
 /**
@@ -3073,8 +3080,10 @@ function cobbleReserve (bot, count, pos) {
 export function cobbleVoidStale (bot) {
   try {
     if (!bot?.entity || bot.username == null) return false                 // not logged in yet: the predecessor may still be
-    if (voidOwnClaims(townDir(), homeTownKey(), bot.worldId ?? null, { bot: bot.username }) > 0) capEpoch++
-    return true
+    const n = voidOwnClaims(townDir(), homeTownKey(), bot.worldId ?? null, { bot: bot.username })
+    if (n > 0) capEpoch++
+    return n >= 0                                                         // a failed void is retried at the next read
+
   } catch { return false }
 }
 /** How many unknown town containers a deposit counts before it decides (bounded: one walk + open each). */
@@ -3150,6 +3159,7 @@ export async function reconcileCobble (bot, signal, msLeft) {
       let win = null, late = false
       const p = bot.openContainer(b)
       // THIS open's window, if it comes late, is closed; until it settles the bot's deposits wait (Codex r4 P2)
+      bot.cobbleOpenPending = p                                          // from the open's START (Codex r5 P2: an abort too)
       p.then(w => { if (late) { try { w?.close?.() } catch { /* closed */ } } }, () => {}).finally(() => { if (bot.cobbleOpenPending === p) bot.cobbleOpenPending = null })
       try {
         win = await withTimeout(p, msLeft(8_000), bot, { what: 'open the chest', needsDrop: false, onTimeout: () => { late = true } })
@@ -3158,7 +3168,7 @@ export async function reconcileCobble (bot, signal, msLeft) {
         late = true
         if (e?.aborted || signal?.aborted) throw e
         fail(k, wasTimeout ? 'open timed out' : 'unopenable')
-        if (wasTimeout) { timedOut = true; bot.cobbleOpenPending = p; break }   // nothing else opens while it is in flight
+        if (wasTimeout) { timedOut = true; break }     // nothing else opens while it is in flight (cobbleOpenPending)
         continue
       }
       try { if (cobbleObserve(bot, c, win)) counted++; else fail(k, 'count not written') } finally { try { win.close() } catch { /* closed */ } }
