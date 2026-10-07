@@ -1804,15 +1804,77 @@ await t('MUTANT: cobble below the bot\'s 64 at the cap (no reserve in cobbleWell
     assert.equal(m.cobbleWellStacks([{ name: 'cobblestone', count: 64, slot: 9 }]).length, 1, 'mutant inert')
   })
 })
+await t('COBBLE: the reserve is re-judged at the click -- a bag that shrank under the plan keeps its 64 (positive control for the mutant below)', async () => {
+  const town = fakeTown({ wellAt: CAP, items: [S('egg', 16), S('cobblestone', 30), S('cobblestone', 64), S('cobblestone', 64), ...Array.from({ length: 32 }, () => S('oak_log', 64))] })
+  townAt(town, 300)
+  const last = town.slots.map((x, i) => (x?.name === 'cobblestone' && x.count === 64 ? i : -1)).filter(i => i >= 0).pop()
+  town.state.onLook = () => { if (town.slots[last]?.count === 64) town.slots[last] = { ...town.slots[last], count: 10 } }
+  await within(SKILLS.dispose_well.run({ bot: town.bot }, {}, { aborted: false }), 15000, 'scene')
+  assert.equal(town.count('cobblestone'), 74, 'the 30 went, the planned 64 stayed: 64 + 10 kept')
+})
 await t('MUTANT (skills): no reserve re-check at the cobble click', async () => {
-  await withMutant(SP, '        if (it.count !== st.count || leftC < COBBLE_WELL_RESERVE || (acc.cobble === 0 && cobbleWellCap(bot) !== \'at_cap\')) continue\n', '', async m => {
-    const town = fakeTown({ wellAt: CAP, items: [S('egg', 16), S('cobblestone', 30), S('cobblestone', 64), ...Array.from({ length: 33 }, () => S('oak_log', 64))] })
+  await withMutant(SP, '        if (it.count !== st.count || leftC < COBBLE_WELL_RESERVE) continue\n', '        if (it.count !== st.count) continue\n', async m => {
+    // plan [30, 64] of 30 + 64 + 64; before the first throw the UNPLANNED 64 becomes 10: the planned 64 would now leave 40
+    const town = fakeTown({ wellAt: CAP, items: [S('egg', 16), S('cobblestone', 30), S('cobblestone', 64), S('cobblestone', 64), ...Array.from({ length: 32 }, () => S('oak_log', 64))] })
     townAt(town, 300)
-    const big = town.slots.findIndex(x => x?.name === 'cobblestone' && x.count === 64)
-    town.state.onLook = () => { if (town.slots[big]?.count === 64) town.slots[big] = { ...town.slots[big], count: 40 } }
+    const last = town.slots.map((x, i) => (x?.name === 'cobblestone' && x.count === 64 ? i : -1)).filter(i => i >= 0).pop()
+    town.state.onLook = () => { if (town.slots[last]?.count === 64) town.slots[last] = { ...town.slots[last], count: 10 } }
     await within(m.SKILLS.dispose_well.run({ bot: town.bot }, {}, { aborted: false }), 15000, 'mutant')
-    assert.ok(town.count('cobblestone') < 70, 'mutant inert')
+    assert.ok(town.count('cobblestone') < 64, 'mutant inert')
   })
+})
+await t('COBBLE (Codex r1 P2): a planned stack whose count changed before its click stays (whole planned stacks only); mutant without the count check throws it', async () => {
+  const bag = () => [S('cobblestone', 30), S('cobblestone', 64), S('cobblestone', 64), ...Array.from({ length: 33 }, () => S('oak_log', 64))]
+  const scene = async mod => {
+    const town = fakeTown({ wellAt: CAP, items: bag() })
+    townAt(town, 300)
+    const small = town.slots.findIndex(x => x?.name === 'cobblestone' && x.count === 30)
+    town.state.onLook = () => { if (town.slots[small]?.count === 30) town.slots[small] = { ...town.slots[small], count: 20 } }
+    await within(mod.SKILLS.dispose_well.run({ bot: town.bot }, {}, { aborted: false }), 15000, 'scene')
+    return town.count('cobblestone')
+  }
+  const kept = await scene({ SKILLS: (await import('../src/skills.mjs')).SKILLS })
+  assert.ok(kept >= 84, `the changed 20 stayed (positive control: the 64 above the reserve may go): ${kept}`)
+  await withMutant(SP, '        if (it.count !== st.count || leftC < COBBLE_WELL_RESERVE) continue\n', '        if (leftC < COBBLE_WELL_RESERVE) continue\n', async m => {
+    assert.ok(await scene(m) < 84, 'mutant inert')
+  })
+})
+await t('COBBLE (Codex r1 P1): the cap is re-read at EVERY cobble click -- the town dropping below 256 after the first stack keeps the second', async () => {
+  const scene = async mod => {
+    const town = fakeTown({ wellAt: CAP, items: [S('cobblestone', 30), S('cobblestone', 64), S('cobblestone', 64), ...Array.from({ length: 33 }, () => S('oak_log', 64))] })
+    townAt(town, 300)
+    let looks = 0
+    town.state.onLook = () => { if (++looks === 2) CCAP.appendJournal(process.env.POOL_STATE_DIR, CF_townKey(HOME), town.bot.worldId ?? null, { t: 'obs', k: '9,9,9', n: 100, cap: Date.now() + 1 }) }
+    await within(mod.SKILLS.dispose_well.run({ bot: town.bot }, {}, { aborted: false }), 15000, 'scene')
+    return { left: town.count('cobblestone'), looks }
+  }
+  const r = await scene({ SKILLS: (await import('../src/skills.mjs')).SKILLS })
+  assert.ok(r.looks >= 2, `positive control: two throws were looked at (${r.looks})`)
+  assert.equal(r.left, 128, 'the 30 went at the cap; the 64 stayed once the town read 100')
+  await withMutant(SP, "        if (acc.capLast !== 'at_cap') continue\n", '', async m => {
+    assert.equal((await scene(m)).left, 64, 'mutant inert')
+  })
+})
+await t('COBBLE (Codex r1 P1): only the COUNTED total proves the cap -- cobble merely on its way (a live claim) never sends cobble down the well', async () => {
+  const town = fakeTown({ wellAt: CAP, items: [S('cobblestone', 30), S('cobblestone', 64), ...Array.from({ length: 34 }, () => S('oak_log', 64))] })
+  townAt(town, 200)
+  CCAP.appendJournal(process.env.POOL_STATE_DIR, CF_townKey(HOME), town.bot.worldId ?? null, { t: 'claim', id: 'onway', n: 64, k: '9,9,9', at: Date.now(), bot: 'Other', inst: 'x', keys: ['9,9,9'], coverage: true })
+  const SK = await import('../src/skills.mjs')
+  assert.notEqual(SK.cobbleWellCap(town.bot), 'at_cap', '200 counted + 64 on its way is not 256 held')
+  townAt(town, 256)
+  assert.equal(SK.cobbleWellCap(town.bot), 'at_cap', 'positive control: 256 counted is')
+})
+await t('COBBLE (Codex r1 P2): the server account lists cobble only up to what was CLICKED', async () => {
+  const SK = await import('../src/skills.mjs')
+  const a = SK.throwAccount({ before: { counts: { cobblestone: 158 }, slots: [] }, after: { counts: { cobblestone: 64 } }, clicked: [], cobble: 30 })
+  assert.equal(a.lost.cobblestone, 30); assert.equal(a.otherLoss, 64)
+  const b = SK.throwAccount({ before: { counts: { cobblestone: 158 }, slots: [] }, after: { counts: { cobblestone: 128 } }, clicked: [], cobble: 30 })
+  assert.equal(b.lost.cobblestone, 30); assert.equal(b.otherLoss, 0, 'positive control: exactly the clicked amount')
+})
+await t('COBBLE (Codex r1 P2): the pit-first BUILD never counts cobble as room -- no build order it cannot carry out', () => {
+  const o = x => W.wellOrder({ now: 1e9, distHome: 5, well: () => null, slots: 36, freeSlots: 0, junkStacks: 2, buildPlan: () => ({ slotsNeeded: 2, wood: 8 }), myName: 'a', peers: [], state: {}, ...x }).order?.skill ?? null
+  assert.equal(o({ buildJunkStacks: 0 }), null, 'only cobble to toss: no build order')
+  assert.equal(o({ buildJunkStacks: 2 }), 'build_well', 'positive control: real junk to toss')
 })
 await t('MUTANT: the switch without its foodskip half (FOOD_SKIP=off in a peaceful world would throw swords)', async () => {
   await withMutant(WP, "export const swordSwitch = (mode, difficulty) => difficulty === 'peaceful' && foodSkipActive(mode, difficulty)", "export const swordSwitch = (mode, difficulty) => difficulty === 'peaceful'", async m => {
