@@ -785,11 +785,12 @@ export class CognitiveLoop {
       return
     }
     const dstep = dnext
-    let order = dstep
-      ? { skill: dstep.skill, args: dstep.args, directive: dstep,
-          why: `${dstep.origin} directive ${dstep.id} step ${dstep.step + 1}/${dstep.of}: ${dstep.why}`.slice(0, 160) }
-      : orderFor(readyFor(this.bot, milestone))
-    if (dstep) trigger = `directive:${dstep.origin}/${trigger}`
+    let order = orderFor(readyFor(this.bot, milestone))
+    if (dstep) {                                          // the directive step replaces the work order
+      order = { skill: dstep.skill, args: dstep.args, directive: dstep,
+                why: `${dstep.origin} directive ${dstep.id} step ${dstep.step + 1}/${dstep.of}: ${dstep.why}`.slice(0, 160) }
+      trigger = `directive:${dstep.origin}/${trigger}`
+    }
     // HYGIENE BEFORE PLANTING, and before the model: a bot at 34+ of 36 slots breaks blocks and leaves the drop
     // on the ground (hygiene.mjs has the measurement). Spent tools are worn out -- destroyed by use, never
     // dropped. Rate-limited by a cooldown charged when the order is ISSUED, like planting.
