@@ -30,7 +30,7 @@ import { installAirTrace } from './air-trace.mjs'
 import { startChunkEvictor } from './evictor.mjs'
 import { attachCommands } from './commands.mjs'
 import { snapshot, inventorySummary } from './state.mjs'
-import { travelTool } from './toolfor.mjs'
+import { travelTool, TOOL_HYGIENE, takeWornFirst, WORN_FIRST_ROW_MS } from './toolfor.mjs'
 import { diffTools, spentTools } from './toolwatch.mjs'
 import { installPathBackoff } from './pathbackoff.mjs'
 import { attachPacketWitness } from './packet-witness.mjs'
@@ -276,6 +276,21 @@ function connect() {
     // harvest the block, with the durability floor (iron-retention plan v3, 2026-09-15). Installed on spawn, not at
     // loadPlugin time: plugins are injected after login, so bot.pathfinder does not exist yet up there (Codex pass 1).
     if (bot.pathfinder) bot.pathfinder.bestHarvestTool = block => travelTool(block, bot.inventory?.items?.() ?? [], bot.heldItem)
+    // TOOL HYGIENE (toolfor.mjs TOOL_HYGIENE; owner 10-07): the licence row, once per process, and PART 2's liveness --
+    // at most one `_worn_first` row per WORN_FIRST_ROW_MS while hygiene picked a different (more worn) copy than the
+    // base policy would have. A NEW EVENT, never a new field (the ELK templates are dynamic:strict).
+    try {
+      logEvent({ kind: 'tool_hygiene', status: 'success', snapshot: snapshot(bot),
+                 detail: `tool hygiene ${TOOL_HYGIENE.on ? 'ON' : 'off'}: mode=${TOOL_HYGIENE.mode}${TOOL_HYGIENE.note ? ` (${TOOL_HYGIENE.note})` : ''}` })
+    } catch {}
+    const wornTimer = setInterval(() => {
+      try {
+        const w = takeWornFirst()
+        if (w.n > 0) logEvent({ kind: 'worn_first', status: 'success', snapshot: snapshot(bot), detail: `n=${w.n} digs; last ${w.last}`, args: { n: w.n, ...(w.ctx ?? {}) } })
+      } catch {}
+    }, WORN_FIRST_ROW_MS)
+    wornTimer.unref?.()
+    bot.once('end', () => clearInterval(wornTimer))
     // Tool losses, named: a debounced inventory diff (300 ms, so a hotbar swap settles) logs `tool_broke` (the lost
     // copy had two or fewer uses left) or `tool_gone` (it did not -- a deposit, a drop, a death; the read reconciles).
     // Durability is copied as VALUES: prismarine-item's durabilityUsed is a prototype getter that a spread drops.
