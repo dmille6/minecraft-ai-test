@@ -391,8 +391,9 @@ await t('E4 MUTANT KILLED: dropping the closing-on-air condition cuts off a work
 
 // ---------------------------------------------------------------- K. pre-empting an in-flight escape (sandbox 10-07)
 await t('K1 inside a SEALED rescue an in-flight escape or maroon climb is pre-empted; never the rung, never without sealed, never with up', () => {
-  const base = { rescuing: true, routeDir: null, routeSealed: true, escaping: true, now: 1000 }
+  const base = { rescuing: true, routeDir: null, routeSealed: true, escaping: true, now: 1000, stepWouldRun: () => true }
   assert.equal(airPocketPreempt(base), true)
+  assert.equal(airPocketPreempt({ ...base, stepWouldRun: () => false }), false)  // a site the step would REFUSE: never pre-empt
   assert.equal(airPocketPreempt({ ...base, escaping: false, marooned: true }), true)
   assert.equal(airPocketPreempt({ ...base, escaping: false }), false)            // nothing to pre-empt
   assert.equal(airPocketPreempt({ ...base, pocketing: true }), false)           // the rung is a rescue of its own
@@ -402,13 +403,17 @@ await t('K1 inside a SEALED rescue an in-flight escape or maroon climb is pre-em
   assert.equal(airPocketPreempt({ ...base, active: true }), false)
   assert.equal(airPocketPreempt({ ...base, cooldownUntil: 2000 }), false)       // a failed step here does not re-preempt
 })
+await t('K6 MUTANT KILLED: pre-empting for a step that would refuse (the r2 dead end; K1 catches it)', () =>
+  withMutant(AP_PATH, 'return stepWouldRun() === true', 'return true', m => {
+    assert.equal(m.airPocketPreempt({ rescuing: true, routeSealed: true, escaping: true, now: 1, stepWouldRun: () => false }), true)
+  }))
 await t('K2 MUTANT KILLED: pre-empting the flooded-pocket rung (K1 catches it)', () =>
   withMutant(AP_PATH, 'if (!rescuing || active || pocketing || now < cooldownUntil) return false', 'if (!rescuing || active || now < cooldownUntil) return false', m => {
-    assert.equal(m.airPocketPreempt({ rescuing: true, routeSealed: true, escaping: true, pocketing: true, now: 1 }), true)
+    assert.equal(m.airPocketPreempt({ rescuing: true, routeSealed: true, escaping: true, pocketing: true, now: 1, stepWouldRun: () => true }), true)
   }))
 await t('K3 MUTANT KILLED: pre-empting outside a sealed verdict (K1 catches it)', () =>
   withMutant(AP_PATH, "if (routeDir === 'up' || routeSealed !== true) return false", "if (routeDir === 'up') return false", m => {
-    assert.equal(m.airPocketPreempt({ rescuing: true, routeSealed: false, escaping: true, now: 1 }), true)
+    assert.equal(m.airPocketPreempt({ rescuing: true, routeSealed: false, escaping: true, now: 1, stepWouldRun: () => true }), true)
   }))
 
 await t('K4 a pre-empted climb YIELDS: digStraightUp and pillarOut return "preempted" when alive is false (no dig, no place)', async () => {
@@ -435,6 +440,34 @@ await t('K5 MUTANT KILLED: digStraightUp without its first alive check refuses f
     bot.inventory = { items: () => [{ name: 'stone_pickaxe', type: 1 }, { name: 'cobblestone', count: 64 }] }
     const r = await m.digStraightUp(bot, 60, 1, { alive: () => false }).catch(e => 'threw:' + e.message); clearInterval(bot._healthTimer)
     assert.notEqual(r, 'preempted')
+  }))
+
+// A pillar bot in a dry 1x1 shaft with headroom and 64 cobblestone: the pre-empt arrives MID-CLIMB (alive turns false on
+// its 5th call = the new check after the jump sleep, before the first placeBlock).
+function pillarBot () {
+  const bot = fakeBot({ cells: { '0,0,0': 'air', '0,1,0': 'air', '0,2,0': 'air', '0,3,0': 'air', '0,-1,0': 'stone' } })
+  bot.entity.position = Object.assign(new V(100.5, 60, 100.5), { offset (dx, dy, dz) { return new V(this.x + dx, this.y + dy, this.z + dz) } })
+  bot.entity.onGround = true
+  bot.inventory = { items: () => [{ name: 'cobblestone', count: 64, type: 2 }] }
+  bot.clearControlStates = () => {}; bot.pathfinder = { setGoal () {} }
+  let placed = 0; bot.placeBlock = async () => { placed++ }
+  return { bot, placed: () => placed }
+}
+const lateAlive = (n) => { let c = 0; return () => ++c < n }
+await t('K7 a climb pre-empted MID-CLIMB (after its jump sleep) places nothing', async () => {
+  const { pillarOut } = await import('../src/reflex.mjs')
+  const pb = pillarBot()
+  const r = await pillarOut(pb.bot, 3, { alive: lateAlive(5) }); clearInterval(pb.bot._healthTimer)
+  assert.equal(r, 'preempted'); assert.equal(pb.placed(), 0)
+  const ctl = pillarBot()   // POSITIVE CONTROL: the same climb, never pre-empted, does place
+  await pillarOut(ctl.bot, 1, { alive: () => true }).catch(() => {}); clearInterval(ctl.bot._healthTimer)
+  assert.ok(ctl.placed() >= 1, 'the fixture never reaches a placement, so K7 proves nothing')
+})
+await t('K8 MUTANT KILLED: without the after-sleep check the pre-empted climb still places (K7 catches it)', () =>
+  withMutant(REFLEX_PATH, "    if (!alive()) { bot.setControlState('jump', false); return 'preempted' }   // airpocket-01 (Codex r3): never place after a yield\n", '', async m => {
+    const pb = pillarBot()
+    await m.pillarOut(pb.bot, 3, { alive: lateAlive(5) }).catch(() => {}); clearInterval(pb.bot._healthTimer)
+    assert.ok(pb.placed() >= 1)
   }))
 
 // ---------------------------------------------------------------- J. the rescue state after a step, and the busy guard
@@ -475,7 +508,7 @@ function wiring (src) {
                code.indexOf("kind: 'air_pocket_start'") > 0 && code.indexOf("kind: 'air_pocket_start'") < code.indexOf('r = await airPocketStep(') &&
                /msSinceClosing: Date\.now\(\) - lastClosingAt/.test(code) && /if \(closingOnAir\) lastClosingAt = Date\.now\(\)/.test(code) &&
                /guard: \(\) => \{ try \{ if \(runner\?\.isBusy\?\.\(\)\) runner\.interrupt\('air_pocket'\); if \(bot\.pathfinder\?\.goal\) haltPath\(bot\)/.test(code) &&
-               /cooldownUntil: airPocketCooldownUntil \}\) &&\s*prepareAirPocket\(\)\.ok\) \{/.test(code) &&
+               /stepWouldRun: \(\) => prepareAirPocket\(\)\.ok \}\)\) \{/.test(code) && /Date\.now\(\) - airPocketWants < AP_WANT_LAPSE_MS/.test(code) &&
                /airPocketWants = 0 {16}\/\/ a refused step/.test(src) && /finally \{ airPocketing = false; airPocketWants = 0 \}/.test(code) &&
                /const ran = await runAirPocket\(route, Date\.now\(\) - seizedAt\)\s*if \(ran\) return/.test(code) &&
                code.indexOf('airPocketPreempt({ rescuing, routeDir: route.dir') > 0 && code.indexOf('airPocketPreempt({ rescuing, routeDir: route.dir') < trigger &&
@@ -504,7 +537,8 @@ for (const [name, old, neu] of [
   ['the packet difficulty', 'const inputs = airPocketInputs(bot)', 'const inputs = { difficulty: bot.game?.difficulty, hungerActive: false }'],
   ['the closing-on-air clock', 'if (closingOnAir) lastClosingAt = Date.now()', ''],
   ['the skill guard', "guard: () => { try { if (runner?.isBusy?.()) runner.interrupt('air_pocket'); if (bot.pathfinder?.goal) haltPath(bot) } catch {} return null }", 'guard: () => null'],
-  ['the pre-empt asking the plan first', '              prepareAirPocket().ok) {', '              true) {'],
+  ['the pre-empt asking the plan first', 'stepWouldRun: () => prepareAirPocket().ok })) {', 'stepWouldRun: () => true })) {'],
+  ['the request lapse', 'Date.now() - airPocketWants < AP_WANT_LAPSE_MS', 'Date.now() - airPocketWants < 30_000'],
   ['clearing the request on refusal', '      airPocketWants = 0                // a refused step never keeps an escape held off\n', ''],
   ['clearing the request after the step', 'finally { airPocketing = false; airPocketWants = 0 }', 'finally { airPocketing = false }'],
   ['the return after a step', '            if (ran) return\n', ''],
