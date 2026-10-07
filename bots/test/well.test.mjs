@@ -127,7 +127,7 @@ await t('the row carries the guard evidence (gclicked=, stone=) right after offl
   assert.equal(d.length, 300, 'positive control: this row IS cut by the cap')
   assert.doesNotMatch(d, /diorite:64/, 'positive control: the cut ate the guarded item from items=')
   assert.match(d.slice(0, 80), / gclicked=64 stone=63 /, d)
-  assert.match(W.wellDisposeDetail({ slotsBefore: 36, slotsAfter: 36 }), / gclicked=0 swords=0 offlist_items=/, 'no click, no reserve claim')
+  assert.match(W.wellDisposeDetail({ slotsBefore: 36, slotsAfter: 36 }), / gclicked=0 swords=0 sword_lost=0 sword_kept=0 offlist_items=/, 'no click, no reserve claim')
   // the read's C7 predicate is the row's own fields (wellread.py c7_breach): gclicked > 0 with stone missing or < 64
   const src = readFileSync(new URL('../../scripts/host/wellread.py', import.meta.url), 'utf8')
   assert.match(src, /if num\(f, 'gclicked'\) > 0 and \(st is None or not str\(st\)\.isdigit\(\) or int\(st\) < STONE_GUARD\):/)
@@ -801,6 +801,13 @@ await t('DISPOSE: each slot is re-read synchronously before its click -- a slot 
 })
 
 // ---- SWORDS (OWNER 10-07 "no reason to store swords at all, this is a peaceful world"): peaceful-only, judged at the click
+await t('SWORDS, the switch table (Claude P2): only a world read as peaceful with foodskip on for it', () => {
+  for (const mode of ['auto', 'on', 'off']) {
+    for (const d of ['peaceful', 'easy', 'normal', 'hard', null, undefined]) {
+      assert.equal(W.swordSwitch(mode, d), d === 'peaceful' && mode !== 'off', `${mode} x ${d}`)
+    }
+  }
+})
 await t('SWORDS, pure: every tier goes only with the peaceful switch; never on WELL_JUNK; the guards stay absolute', () => {
   const bag = [{ name: 'stone_sword', count: 1, slot: 9 }, { name: 'wooden_sword', count: 1, slot: 10 }, { name: 'iron_sword', count: 1, slot: 11 }, { name: 'egg', count: 16, slot: 12 }]
   assert.deepEqual(W.disposePlan(bag).stacks.map(s => s.name), ['egg'], 'not peaceful: swords are weapons')
@@ -809,7 +816,8 @@ await t('SWORDS, pure: every tier goes only with the peaceful switch; never on W
   for (const n of ['stone_sword', 'wooden_sword', 'iron_sword', 'diamond_sword']) assert.equal(W.isWellJunk(n), false, `${n} is never on the list itself`)
   assert.equal(W.swordGoes('stone_pickaxe', true), false); assert.equal(W.swordGoes('stone_sword', false), false)
   assert.equal(W.thrownNames([{ name: 'stone_sword', count: 1 }]).offlist, 1, 'a sword thrown without the switch is OFF the list (C3)')
-  assert.equal(W.thrownNames([{ name: 'stone_sword', count: 1 }], { swords: true }).offlist, 0)
+  assert.equal(W.thrownNames([{ name: 'stone_sword', count: 1 }], { swords: 1 }).offlist, 0)
+  assert.equal(W.thrownNames([{ name: 'stone_sword', count: 1 }, { name: 'iron_sword', count: 1 }], { swords: 1 }).offlist, 1, 'one more sword entity than clicked is off the list')
   assert.match(W.wellDisposeDetail({ slotsBefore: 36, slotsAfter: 34, swords: 2, peaceful: true, gclicked: 0 }).slice(0, 60), / swords=2 peaceful=1 /)
 })
 const peacefulTown = (items, difficulty) => { const town = fakeTown({ wellAt: CAP, items }); town.bot.serverDifficulty = difficulty; return town }
@@ -829,6 +837,28 @@ await t('SWORDS, the skill: easy (or unknown) -> no sword is thrown; positive co
     assert.equal(town.count('stone_sword'), 1, `${d}: the sword stays`); assert.equal(town.count('egg'), 0, 'positive control')
     assert.equal(field((await rows('_well_dispose')).pop().skill.detail, 'swords'), '0')
   }
+})
+await t('SWORDS, one thrown then the world turns easy: the second is kept, the row still says peaceful=1 sword_kept=1 (no false C8)', async () => {
+  const town = peacefulTown([S('stone_sword', 1), S('wooden_sword', 1), S('egg', 16), ...filler(33)], 'peaceful')
+  town.state.onLook = () => { if (town.state.clicks.some(c => /_sword$/.test(c.name ?? ''))) town.bot.serverDifficulty = 'easy' }
+  const r = await run('dispose_well', town.bot)
+  assert.equal(r.status, 'success', r.detail)
+  assert.equal(town.count('stone_sword') + town.count('wooden_sword'), 1, 'one thrown, one kept')
+  const row = (await rows('_well_dispose')).pop()
+  assert.equal(field(row.skill.detail, 'swords'), '1', row.skill.detail); assert.equal(field(row.skill.detail, 'peaceful'), '1')
+  assert.equal(field(row.skill.detail, 'sword_kept'), '1'); assert.equal(field(row.skill.detail, 'sword_lost'), '1'); assert.equal(field(row.skill.detail, 'offlist'), '0')
+})
+await t('SWORDS, never in the pit-first build (Claude P3): a peaceful bag building pit-first throws junk, keeps its sword', async () => {
+  const town = fakeTown({ hand: S('cobblestone', 64), items: [S('stone_sword', 1), S('oak_log', 3), S('egg', 16), S('egg', 16), S('flint', 64), ...filler(30)] })
+  town.bot.serverDifficulty = 'peaceful'
+  const r = await run('build_well', town.bot)
+  assert.equal(r.status, 'success', r.detail)
+  assert.equal(town.count('stone_sword'), 1, 'the pit took no sword')
+  assert.ok((await rows('_well_dispose')).some(x => /stop=pit_first/.test(x.skill.detail)), 'positive control: a pit phase ran')
+})
+await t('SWORDS, a sword-only visit is contract evidence (Codex P2): classifyOutcome sees the loss', () => {
+  const v = classifyOutcome('dispose_well', 'success', { inventory: { stone_sword: -1 } })
+  assert.ok(JSON.stringify(v).includes('stone_sword'), JSON.stringify(v))
 })
 await t('SWORDS, AT THE CLICK: the world turns easy during the aim -> the planned sword is not thrown', async () => {
   const town = peacefulTown([S('egg', 16), S('stone_sword', 1), ...filler(34)], 'peaceful')
@@ -1305,7 +1335,7 @@ await t('P1-1 C3 FIRES: the server drops iron where the client saw a rail -> the
   assert.equal(field((await rows('_well_dispose')).pop().skill.detail, 'offlist'), '0', 'positive control the other way: a clean visit reads 0')
 })
 await t('MUTANT: counting no off-list entity leaves C3 blind again', async () => {
-  await withMutant(WP, "    if (!isWellJunk(t.name) && !swordGoes(t.name, swords)) {", "    if (false) {", async m => {
+  await withMutant(WP, "    if (!isWellJunk(t.name) && !swordOk) {", "    if (false) {", async m => {
     assert.equal(m.thrownNames([{ name: 'iron_ingot', count: 3 }]).offlist, 0, 'mutant inert')
   })
   assert.equal(W.thrownNames([{ name: 'iron_ingot', count: 3 }, { name: 'egg', count: 16 }, { name: null }]).offlist, 1)
@@ -1716,13 +1746,26 @@ await t('MUTANT (skills): without the reserve re-check at the click, a reserve s
     assert.ok(town.state.clicks.some(c => c.name === 'diorite'), 'mutant inert')
   })
 })
+await t('MUTANT: the switch without its foodskip half (FOOD_SKIP=off in a peaceful world would throw swords)', async () => {
+  await withMutant(WP, "export const swordSwitch = (mode, difficulty) => difficulty === 'peaceful' && foodSkipActive(mode, difficulty)", "export const swordSwitch = (mode, difficulty) => difficulty === 'peaceful'", async m => {
+    assert.equal(m.swordSwitch('off', 'peaceful'), true, 'mutant inert')
+  })
+})
+await t('MUTANT (skills): swords allowed in the pit-first build', async () => {
+  await withMutant(SP, '      out.swordsAllowed = !pit && wellSwordsNow(bot)', '      out.swordsAllowed = wellSwordsNow(bot)', async m => {
+    const town = fakeTown({ hand: S('cobblestone', 64), items: [S('stone_sword', 1), S('oak_log', 3), S('egg', 16), S('egg', 16), S('flint', 64), ...filler(30)] })
+    town.bot.serverDifficulty = 'peaceful'
+    await within(m.SKILLS.build_well.run({ bot: town.bot }, {}, { aborted: false }), 30000, 'mutant')
+    assert.equal(town.count('stone_sword'), 0, 'mutant inert')
+  })
+})
 await t('MUTANT: swords without the switch go down the well in any world', async () => {
   await withMutant(WP, 'export const swordGoes = (name, peaceful) => !!peaceful && isSword(name)', 'export const swordGoes = (name, peaceful) => isSword(name)', async m => {
     assert.equal(m.disposePlan([{ name: 'stone_sword', count: 1, slot: 9 }]).stacks.length, 1, 'mutant inert')
   })
 })
 await t('MUTANT (skills): no switch re-read at the click throws a sword in a world turned easy', async () => {
-  await withMutant(SP, '      if (sword) { const p = wellSwordsNow(bot); acc.peaceful = p; if (!p) continue }\n', '      if (sword) { acc.peaceful = true }\n', async m => {
+  await withMutant(SP, '      if (sword) { const p = wellSwordsNow(bot); if (!p) { acc.swordsKept++; continue } acc.peaceful = (acc.peaceful ?? true) && p }\n', '      if (sword) { acc.peaceful = true }\n', async m => {
     const town = peacefulTown([S('egg', 16), S('stone_sword', 1), ...filler(34)], 'peaceful')
     town.state.onLook = () => { if (town.state.clicks.length >= 1) town.bot.serverDifficulty = 'easy' }
     await within(m.SKILLS.dispose_well.run({ bot: town.bot }, {}, { aborted: false }), 15000, 'mutant')

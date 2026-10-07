@@ -37,6 +37,7 @@ import { TRIGGER_SLOTS } from './hygiene.mjs'
 import { isCompostJunk, townDistance, ADOPT_RADIUS, TOWN_RADIUS, CLEARANCE_CONTAINER,
          builderDecision, RUNNER_DECLINED } from './composter.mjs'
 import { chainPeak } from './craftroom.mjs'
+import { foodSkipActive } from './foodskip.mjs'
 
 /** The admission radius, needed by the site search above its definition (see ADMISSION_RADIUS). */
 const ADMISSION_RADIUS_FOR_SITE = 5
@@ -124,6 +125,8 @@ export function isWellJunk (name) {
  * The same rule as peacefulkit's classifier (isSword + its peaceful switch); where peacefulkit is in the build, the two agree.
  */
 export const isSword = name => typeof name === 'string' && /_sword$/.test(name)
+/** THE SWITCH, pure (FOOD_SKIP mode, the server's difficulty): the world IS peaceful and foodskip's switch is on for it. */
+export const swordSwitch = (mode, difficulty) => difficulty === 'peaceful' && foodSkipActive(mode, difficulty)
 /** May this stack go as a peaceful-world sword? Pure. */
 export const swordGoes = (name, peaceful) => !!peaceful && isSword(name)
 
@@ -590,13 +593,16 @@ export function tossOutcome ({ items = [], cap }) {
  * [{ name, count }] read from each spawned item entity's metadata (the server's own item stack), name null when none
  * arrived. offlist counts ENTITIES whose item is not on the list: the C3 quantity, independent of the bag plan.
  */
-export function thrownNames (thrown = [], { swords = false } = {}) {
+export function thrownNames (thrown = [], { swords = 0 } = {}) {
   const names = {}, offlistItems = {}
   let offlist = 0, unnamed = 0
+  let swordRoom = Number(swords) || 0              // swords are listed only up to the number this visit CLICKED
   for (const t of (Array.isArray(thrown) ? thrown : [])) {
     if (!t?.name) { unnamed++; continue }
     names[t.name] = (names[t.name] ?? 0) + (t.count ?? 1)
-    if (!isWellJunk(t.name) && !swordGoes(t.name, swords)) { offlist++; offlistItems[t.name] = (offlistItems[t.name] ?? 0) + (t.count ?? 1) }
+    const swordOk = isSword(t.name) && swordRoom >= (t.count ?? 1)
+    if (swordOk) swordRoom -= (t.count ?? 1)
+    if (!isWellJunk(t.name) && !swordOk) { offlist++; offlistItems[t.name] = (offlistItems[t.name] ?? 0) + (t.count ?? 1) }
   }
   return { names, offlist, offlistItems, unnamed }
 }
@@ -863,13 +869,13 @@ const list = items => Object.entries(items ?? {}).filter(([, c]) => c > 0).map((
  */
 export function wellDisposeDetail ({ slotsBefore, slotsAfter, items = {}, tossed = 0, misses = 0, retaken = 0, recollected = 0, nonlisted = 0, otherLoss = 0,
                                      source = 'local', closedOpen = false, stop = 'done', at = null, offlist = 0, offlistItems = {}, unnamed = 0, capEnd = null,
-                                     stone = null, gclicked = 0, swords = 0, peaceful = null } = {}) {
+                                     stone = null, gclicked = 0, swords = 0, peaceful = null, swordLost = 0, swordsKept = 0 } = {}) {
   const n = Object.values(items).reduce((a, b) => a + b, 0)
   // offlist= FIRST after slots (the read's C3 gate): thrown entities whose item, AS THE SERVER NAMES IT, is off the list
   // gclicked= / stone= right after offlist (the read's C7 gate): scaffold-capable decorations CLICKED (from the clicks, so an
   // unanswered final resync cannot hide them) and the least RESERVE_STONE any of those clicks left (STONE_GUARD+ or a breach)
   // swords= (swords CLICKED) and peaceful= (the switch as read at the last sword click) next: the read's sword gate
-  return (`slots=${slotsBefore}->${slotsAfter} offlist=${offlist} gclicked=${gclicked}${stone != null ? ` stone=${stone}` : ''} swords=${swords}${peaceful != null ? ` peaceful=${peaceful ? 1 : 0}` : ''} offlist_items=${list(offlistItems)} unnamed=${unnamed} ` +
+  return (`slots=${slotsBefore}->${slotsAfter} offlist=${offlist} gclicked=${gclicked}${stone != null ? ` stone=${stone}` : ''} swords=${swords}${peaceful != null ? ` peaceful=${peaceful ? 1 : 0}` : ''} sword_lost=${swordLost} sword_kept=${swordsKept} offlist_items=${list(offlistItems)} unnamed=${unnamed} ` +
           `freed=${(slotsBefore ?? 0) - (slotsAfter ?? 0)} tossed=${tossed} n=${n} misses=${misses} ` +
           `retaken=${retaken} recollected=${recollected} nonlisted=${nonlisted} other_loss=${otherLoss} server=${source} closed_open=${closedOpen ? 1 : 0}` +
           `${capEnd ? ` cap_end=${capEnd}` : ''}` +
