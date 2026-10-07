@@ -11,6 +11,7 @@
 import { SKILLS } from './skills.mjs'
 import { log } from './logger.mjs'
 import { config } from './config.mjs'
+import { directives, parseDirective, directorAllowed } from './directives.mjs'   // BENCH-ONLY (bench-c2)
 
 const HELP = [
   'commands: gather <n> <block> | goto <x> <y> <z> | come | follow [sec]',
@@ -29,6 +30,9 @@ export function attachCommands(bot, runner) {
       body = lower.slice(config.bot.name.length + 1)
     }
     if (!body) return
+    // BENCH-ONLY (bench-c2): with a director configured, EVERY chat verb is the director's alone (Claude review of the
+    // C2 design: `resume` clears the safety pause, so a whitelist on one verb is not a whitelist).
+    if (process.env.C2_DIRECTOR && !directorAllowed(username)) return
 
     const [verb, ...rest] = body.trim().split(/\s+/)
     const cmd = (verb ?? '').toLowerCase()
@@ -36,6 +40,14 @@ export function attachCommands(bot, runner) {
 
     try {
       switch (cmd) {
+        case 'directive': {   // BENCH-ONLY (bench-c2): queued for the cognitive loop, never run from here
+          if (!directorAllowed(username)) return
+          const p = parseDirective(rest[0], rest.slice(1).join(' '), { knownSkills: Object.keys(SKILLS), now: Date.now() })
+          if (!p.ok) { log('warn', 'directive rejected at parse', { from: username, why: p.why }); directives.noteParseFailure(rest[0], p.why); return }
+          directives.offer(p.directive, Date.now())
+          return
+        }
+
         case 'help':
           HELP.forEach(l => bot.chat(l))
           return

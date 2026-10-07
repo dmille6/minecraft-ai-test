@@ -34,6 +34,7 @@ import { config } from './config.mjs'
 import { escapedFrom } from './recovery.mjs'
 import { openLessons, EVIDENCE_ONLY_IF_HERE } from './lessons.mjs'
 import { announceUnreachable } from './comms.mjs'
+import { directives } from './directives.mjs'   // BENCH-ONLY (bench-c2): overseer / escalation directives
 
 // Only skills that can succeed WITHOUT a human present.
 //
@@ -763,7 +764,15 @@ export class CognitiveLoop {
     // The cooldown is charged when the order is ISSUED, not when it succeeds, so a
     // spot that cannot be planted costs one decision every ten minutes rather than
     // every decision.
-    let order = orderFor(readyFor(this.bot, milestone))
+    // BENCH-ONLY (bench-c2): a pending DIRECTIVE step comes first, SYNTHESISED AS A PROPOSAL exactly like a work order,
+    // so admission, outcome classification, the milestone counter, lastOutcome and the decision row all apply to it.
+    this.#flushDirectiveEvents(snapshot(this.bot))
+    const dstep = directives.next(Date.now())
+    let order = dstep
+      ? { skill: dstep.skill, args: dstep.args, directive: dstep,
+          why: `${dstep.origin} directive ${dstep.id} step ${dstep.step + 1}/${dstep.of}: ${dstep.why}`.slice(0, 160) }
+      : orderFor(readyFor(this.bot, milestone))
+    if (dstep) trigger = `directive:${dstep.origin}`
     // HYGIENE BEFORE PLANTING, and before the model: a bot at 34+ of 36 slots breaks blocks and leaves the drop
     // on the ground (hygiene.mjs has the measurement). Spent tools are worn out -- destroyed by use, never
     // dropped. Rate-limited by a cooldown charged when the order is ISSUED, like planting.
@@ -847,7 +856,7 @@ export class CognitiveLoop {
                    snapshot: snap })
       }
     }
-    if (order) {
+    if (order && !order.directive) {
       // A COUNTER, because five changes shipped inert on this project in one
       // day and each was caught only by asking whether the branch had run.
       logEvent({ kind: 'work_order',
@@ -876,6 +885,7 @@ export class CognitiveLoop {
       if (check.ok) admitted = check
       else rejection = check
     }
+    if (dstep && rejection) directives.report(dstep.id, 'rejected', null, `${rejection.reason}: ${rejection.detail ?? ''}`)
 
     // Execute (or not), then record ONE row describing the whole decision.
     let outcome = { status: 'aborted', detail: rejection?.detail ?? res.error ?? 'no action' }
@@ -884,9 +894,13 @@ export class CognitiveLoop {
       log('info', `LLM -> ${admitted.skill}`, {
         args: admitted.args, reason: res.proposal.reason?.slice(0, 90), ms: res.latencyMs,
       })
-      const r = await this.runner.run(admitted.skill, admitted.args, { trigger: `llm:${trigger}` })
+      const r = await this.runner.run(admitted.skill, admitted.args, { trigger: dstep ? trigger : `llm:${trigger}` })
       outcome = { status: r.status, detail: r.detail }
       runFailClass = r.failClass ?? null
+      if (dstep) {
+        directives.report(dstep.id, RUNNER_REFUSALS.has(runFailClass) ? 'runner_refusal' : 'done', r.status,
+                          `${r.status}: ${String(r.detail ?? '').slice(0, 100)}`)
+      }
       // A FAILED WEAR-OUT BACKS OFF (both reviews): a bot with no safe block (deepslate, a pillar, water) would
       // otherwise take a decision every cooldown, forever.
       if (admitted.skill === 'wear_out') this.wearOutBackoffUntil = r.status === 'failed' ? Date.now() + WEAR_OUT_BACKOFF_MS : 0
@@ -1160,8 +1174,20 @@ export class CognitiveLoop {
       try { this.bot.chat(`milestone done — now: ${s.id}`) } catch {}
     }
 
+    this.#flushDirectiveEvents(snapshot(this.bot))
     // Pace the loop. Handoff doc S16: strategic decisions every 30-90s, with
     // deterministic skills filling the gaps -- not a model call per tick.
     this.#scheduleNext()
+  }
+
+  /** BENCH-ONLY (bench-c2): every directive lifecycle step becomes a row (requested / superseded / refused /
+   *  step_done / completed / released / expired / parse_failed), so delivered and executed can never be confused. */
+  #flushDirectiveEvents (snap) {
+    for (const ev of directives.drain()) {
+      const status = ['completed', 'step_done'].includes(ev.status) ? 'success'
+        : ['requested', 'superseded'].includes(ev.status) ? 'no_effect' : 'failed'
+      logEvent({ kind: 'directive', status, snapshot: snap,
+                 detail: `${ev.status} ${ev.id} ${ev.origin} step ${ev.step + 1}/${ev.of}: ${ev.detail}` })
+    }
   }
 }
