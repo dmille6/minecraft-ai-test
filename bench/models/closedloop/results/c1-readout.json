@@ -1,0 +1,200 @@
+[
+ {
+  "run_id": "cl-gemma4-26b-mlx8-sandbox4-1006T0623-b0",
+  "arm": "gemma4-26b-mlx8",
+  "block": "0",
+  "output": 305.1,
+  "milestones": {
+   "crafting_table": 8,
+   "wooden_pickaxe": 8,
+   "stone_pickaxe": 5,
+   "furnace": 4,
+   "raw_iron": 3,
+   "iron_ingot": 2,
+   "iron_pickaxe": 0
+  },
+  "pickless": 0.556,
+  "stuck_min": 17.5,
+  "loops_h": 2.9,
+  "deaths": 0,
+  "dec_h": 67.5,
+  "lat_p50": 2.17,
+  "bots_live": 8
+ },
+ {
+  "run_id": "cl-q25-7b-sandbox4-1006T0756-b0",
+  "arm": "q25-7b",
+  "block": "0",
+  "output": 155.5,
+  "milestones": {
+   "crafting_table": 6,
+   "wooden_pickaxe": 6,
+   "stone_pickaxe": 2,
+   "furnace": 3,
+   "raw_iron": 0,
+   "iron_ingot": 0,
+   "iron_pickaxe": 0
+  },
+  "pickless": 0.622,
+  "stuck_min": 38.0,
+  "loops_h": 4.2,
+  "deaths": 0,
+  "dec_h": 81.2,
+  "lat_p50": 2.875,
+  "bots_live": 8
+ },
+ {
+  "run_id": "cl-gemma4-26b-sandbox4-1006T0942-b0",
+  "arm": "gemma4-26b",
+  "block": "0",
+  "output": 458.2,
+  "milestones": {
+   "crafting_table": 7,
+   "wooden_pickaxe": 7,
+   "stone_pickaxe": 7,
+   "furnace": 2,
+   "raw_iron": 3,
+   "iron_ingot": 1,
+   "iron_pickaxe": 0
+  },
+  "pickless": 0.526,
+  "stuck_min": 13.1,
+  "loops_h": 6.2,
+  "deaths": 2,
+  "dec_h": 72.1,
+  "lat_p50": 1.81,
+  "bots_live": 8
+ },
+ {
+  "run_id": "cl-gemma4-26b-mlx8-sandbox4-1006T1114-b1",
+  "arm": "gemma4-26b-mlx8",
+  "block": "1",
+  "output": 201.4,
+  "milestones": {
+   "crafting_table": 7,
+   "wooden_pickaxe": 7,
+   "stone_pickaxe": 3,
+   "furnace": 2,
+   "raw_iron": 1,
+   "iron_ingot": 1,
+   "iron_pickaxe": 0
+  },
+  "pickless": 0.74,
+  "stuck_min": 8.3,
+  "loops_h": 2.8,
+  "deaths": 0,
+  "dec_h": 70.2,
+  "lat_p50": 2.1,
+  "bots_live": 8
+ },
+ {
+  "run_id": "cl-gemma4-26b-sandbox4-1006T1247-b1",
+  "arm": "gemma4-26b",
+  "block": "1",
+  "output": 139.7,
+  "milestones": {
+   "crafting_table": 6,
+   "wooden_pickaxe": 5,
+   "stone_pickaxe": 1,
+   "furnace": 2,
+   "raw_iron": 1,
+   "iron_ingot": 1,
+   "iron_pickaxe": 0
+  },
+  "pickless": 0.806,
+  "stuck_min": 15.2,
+  "loops_h": 8.7,
+  "deaths": 0,
+  "dec_h": 75.3,
+  "lat_p50": 1.7850000000000001,
+  "bots_live": 8
+ },
+ {
+  "run_id": "cl-q25-7b-sandbox4-1006T1419-b1",
+  "arm": "q25-7b",
+  "block": "1",
+  "output": 237.0,
+  "milestones": {
+   "crafting_table": 8,
+   "wooden_pickaxe": 8,
+   "stone_pickaxe": 3,
+   "furnace": 4,
+   "raw_iron": 1,
+   "iron_ingot": 1,
+   "iron_pickaxe": 0
+  },
+  "pickless": 0.587,
+  "stuck_min": 31.5,
+  "loops_h": 9.4,
+  "deaths": 0,
+  "dec_h": 79.6,
+  "lat_p50": 2.445,
+  "bots_live": 8
+ },
+ {
+  "run_id": "cl-gemma4-26b-sandbox4-1006T2020-b2",
+  "arm": "gemma4-26b",
+  "block": "2",
+  "output": 235.6,
+  "milestones": {
+   "crafting_table": 6,
+   "wooden_pickaxe": 5,
+   "stone_pickaxe": 4,
+   "furnace": 3,
+   "raw_iron": 1,
+   "iron_ingot": 1,
+   "iron_pickaxe": 0
+  },
+  "pickless": 0.713,
+  "stuck_min": 16.4,
+  "loops_h": 11.4,
+  "deaths": 2,
+  "dec_h": 80.7,
+  "lat_p50": 1.595,
+  "bots_live": 8
+ },
+ {
+  "run_id": "cl-gemma4-26b-mlx8-sandbox4-1006T2156-b2",
+  "arm": "gemma4-26b-mlx8",
+  "block": "2",
+  "output": 238.9,
+  "milestones": {
+   "crafting_table": 7,
+   "wooden_pickaxe": 6,
+   "stone_pickaxe": 4,
+   "furnace": 3,
+   "raw_iron": 0,
+   "iron_ingot": 0,
+   "iron_pickaxe": 0
+  },
+  "pickless": 0.772,
+  "stuck_min": 18.8,
+  "loops_h": 12.7,
+  "deaths": 0,
+  "dec_h": 78.4,
+  "lat_p50": 3.865,
+  "bots_live": 8
+ },
+ {
+  "run_id": "cl-q25-7b-sandbox4-1006T2328-b2",
+  "arm": "q25-7b",
+  "block": "2",
+  "output": 246.7,
+  "milestones": {
+   "crafting_table": 5,
+   "wooden_pickaxe": 5,
+   "stone_pickaxe": 2,
+   "furnace": 1,
+   "raw_iron": 2,
+   "iron_ingot": 1,
+   "iron_pickaxe": 0
+  },
+  "pickless": 0.703,
+  "stuck_min": 35.4,
+  "loops_h": 9.6,
+  "deaths": 0,
+  "dec_h": 79.0,
+  "lat_p50": 3.9000000000000004,
+  "bots_live": 8
+ }
+]

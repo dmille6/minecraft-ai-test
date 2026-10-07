@@ -12,3 +12,86 @@ list -> There are 0 of a max of 12 players online:
 [2026-10-06T20:25:25Z] started mbench-s4-Hotel
 [2026-10-06T20:30:38Z] bots: 8 up
 [2026-10-06T20:35:39Z] bots: 8 up
+[2026-10-06T20:40:39Z] bots: 8 up
+[2026-10-06T20:45:40Z] bots: 8 up
+[2026-10-06T20:50:41Z] bots: 8 up
+[2026-10-06T20:55:42Z] bots: 8 up
+[2026-10-06T21:00:42Z] bots: 8 up
+[2026-10-06T21:05:43Z] bots: 8 up
+[2026-10-06T21:10:44Z] bots: 8 up
+[2026-10-06T21:15:45Z] bots: 8 up
+[2026-10-06T21:20:46Z] bots: 8 up
+[2026-10-06T21:25:46Z] bots: 8 up
+[2026-10-06T21:30:47Z] bots: 8 up
+[2026-10-06T21:35:48Z] bots: 8 up
+[2026-10-06T21:40:49Z] bots: 8 up
+[2026-10-06T21:45:50Z] bots: 8 up
+[2026-10-06T21:50:50Z] bots: 8 up
+[2026-10-06T21:55:38Z] bots: 8 up
+[2026-10-06T21:55:42Z] stopped; computing metrics
+[2026-10-06T21:55:43Z] RESULT cl-gemma4-26b-sandbox4-1006T2020-b2 {"team_output_per_h": 176.15, "mean_output_per_bot_h": 22.02, "milestone_bots": {"crafting_table": 6, "wooden_pickaxe": 6, "stone_pickaxe": 5, "furnace": 3, "raw_iron": 3, "iron_ingot": 2, "iron_pickaxe": 0}, "pickless_share": 0.609, "stuck_min_per_bot": 20.5, "loops_per_bot_h": 9.5, "deaths": 2, "decisions_per_bot_h": 79.3, "latency_p50_med": 1.635}
+[2026-10-06T21:56:04Z] run cl-gemma4-26b-mlx8-sandbox4-1006T2156-b2: 8 bots, gemma4:26b (think=false) on sandbox4 for 90 min
+[2026-10-06T21:56:38Z] time set 1000 -> Set the time to 1000
+list -> There are 0 of a max of 12 players online:
+[2026-10-06T21:56:39Z] started mbench-s4-Alpha
+[2026-10-06T21:56:51Z] started mbench-s4-Bravo
+[2026-10-06T21:57:03Z] started mbench-s4-Comet
+[2026-10-06T21:57:16Z] started mbench-s4-Delta
+[2026-10-06T21:57:28Z] started mbench-s4-Echo
+[2026-10-06T21:57:40Z] started mbench-s4-Fox
+[2026-10-06T21:57:52Z] started mbench-s4-Golf
+[2026-10-06T21:58:05Z] started mbench-s4-Hotel
+[2026-10-06T22:03:18Z] bots: 8 up
+[2026-10-06T22:08:19Z] bots: 8 up
+[2026-10-06T22:13:19Z] bots: 8 up
+[2026-10-06T22:18:19Z] bots: 8 up
+[2026-10-06T22:23:20Z] bots: 8 up
+[2026-10-06T22:28:21Z] bots: 8 up
+[2026-10-06T22:33:21Z] bots: 8 up
+[2026-10-06T22:38:22Z] bots: 8 up
+[2026-10-06T22:43:22Z] bots: 8 up
+[2026-10-06T22:48:23Z] bots: 8 up
+[2026-10-06T22:53:23Z] bots: 8 up
+[2026-10-06T22:58:24Z] bots: 8 up
+[2026-10-06T23:03:24Z] bots: 8 up
+[2026-10-06T23:08:24Z] bots: 8 up
+[2026-10-06T23:13:25Z] bots: 8 up
+[2026-10-06T23:18:25Z] bots: 8 up
+[2026-10-06T23:23:26Z] bots: 8 up
+[2026-10-06T23:28:18Z] bots: 8 up
+[2026-10-06T23:28:22Z] stopped; computing metrics
+[2026-10-06T23:28:23Z] RESULT cl-gemma4-26b-mlx8-sandbox4-1006T2156-b2 {"team_output_per_h": 251.1, "mean_output_per_bot_h": 31.39, "milestone_bots": {"crafting_table": 8, "wooden_pickaxe": 8, "stone_pickaxe": 7, "furnace": 4, "raw_iron": 1, "iron_ingot": 1, "iron_pickaxe": 0}, "pickless_share": 0.614, "stuck_min_per_bot": 25.3, "loops_per_bot_h": 12.5, "deaths": 2, "decisions_per_bot_h": 78.2, "latency_p50_med": 3.7649999999999997}
+[2026-10-06T23:28:24Z] run cl-q25-7b-sandbox4-1006T2328-b2: 8 bots, qwen2.5:7b-instruct (think=none) on sandbox4 for 90 min
+[2026-10-06T23:29:00Z] time set 1000 -> Set the time to 1000
+list -> There are 0 of a max of 12 players online:
+[2026-10-06T23:29:01Z] started mbench-s4-Alpha
+[2026-10-06T23:29:13Z] started mbench-s4-Bravo
+[2026-10-06T23:29:25Z] started mbench-s4-Comet
+[2026-10-06T23:29:37Z] started mbench-s4-Delta
+[2026-10-06T23:29:50Z] started mbench-s4-Echo
+[2026-10-06T23:30:02Z] started mbench-s4-Fox
+[2026-10-06T23:30:14Z] started mbench-s4-Golf
+[2026-10-06T23:30:26Z] started mbench-s4-Hotel
+[2026-10-06T23:35:39Z] bots: 8 up
+[2026-10-06T23:40:39Z] bots: 8 up
+[2026-10-06T23:45:40Z] bots: 8 up
+[2026-10-06T23:50:40Z] bots: 8 up
+[2026-10-06T23:55:41Z] bots: 8 up
+[2026-10-07T00:00:42Z] bots: 8 up
+[2026-10-07T00:05:43Z] bots: 8 up
+[2026-10-07T00:10:44Z] bots: 8 up
+[2026-10-07T00:15:44Z] bots: 8 up
+[2026-10-07T00:20:45Z] bots: 8 up
+[2026-10-07T00:25:46Z] bots: 8 up
+[2026-10-07T00:30:47Z] bots: 8 up
+[2026-10-07T00:35:47Z] bots: 8 up
+[2026-10-07T00:40:48Z] bots: 8 up
+[2026-10-07T00:45:49Z] bots: 8 up
+[2026-10-07T00:50:50Z] bots: 8 up
+[2026-10-07T00:55:51Z] bots: 8 up
+[2026-10-07T01:00:39Z] bots: 8 up
+[2026-10-07T01:00:44Z] stopped; computing metrics
+[2026-10-07T01:00:44Z] RESULT cl-q25-7b-sandbox4-1006T2328-b2 {"team_output_per_h": 196.63, "mean_output_per_bot_h": 24.58, "milestone_bots": {"crafting_table": 8, "wooden_pickaxe": 8, "stone_pickaxe": 4, "furnace": 3, "raw_iron": 2, "iron_ingot": 1, "iron_pickaxe": 0}, "pickless_share": 0.585, "stuck_min_per_bot": 46.0, "loops_per_bot_h": 8.7, "deaths": 0, "decisions_per_bot_h": 79.7, "latency_p50_med": 4.0}
+level-name=world
+max-players=3
+SERIES DONE

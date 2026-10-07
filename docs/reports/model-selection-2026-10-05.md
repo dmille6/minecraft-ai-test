@@ -658,3 +658,39 @@ Setup:
 The merged numbers of rounds 1 and 2 were already recorded above. Their packets and keys survive on the Studio
 (`~/mbench/judge1`, `~/mbench/judge2`). From now on, judge outputs are copied to the Studio and committed under
 `bench/models/results/`.
+
+### Stage C1: closed loop, real v1 bots on the Paper sandbox (3 matched blocks, 10-06)
+
+**Setup**
+- 8 real bots per run, unchanged fleet code at 1918bb5, plus the bench-only thinking flag.
+- A fresh fleet-seed world restored from a snapshot each run; peaceful, keepInventory, an empty inventory, the
+  fleet's home.
+- 90-minute runs. **Every run is read at the same 70-minute horizon**: one baseline run lost its endpoint at
+  minute 72 (see the ledger).
+- Arm order randomized within each block. The run is the unit.
+- No tunnel drops inside any block-2 run (each run's record checks this).
+
+| arm | runs | team output at 70 min (resource-value units) | bots reaching a stone pickaxe (of 8) | bots with an iron ingot | **stuck minutes per bot** | pickaxe-less share of time | deaths |
+|---|---|---|---|---|---|---|---|
+| qwen2.5:7b (fleet today) | 3 | 213 (155 / 237 / 247) | 2.3 | 0.7 | **35.0** (38 / 32 / 35) | 0.64 | 0 |
+| gemma4:26b, Ollama | 3 | 278 (458 / 140 / 236) | 4.0 | 1.0 | **14.9** (13 / 15 / 16) | 0.68 | 4 |
+| gemma4:26b, LM Studio MLX 8-bit | 3 | 248 (305 / 201 / 239) | 4.0 | 1.0 | **14.9** (18 / 8 / 19) | 0.69 | 0 |
+
+**What three blocks can and cannot say**
+- **Stuck time.** With gemma4, bots spend **less than half as much time stranded**, on both runtimes and in every
+  block (9 of 9 paired comparisons in the same direction).
+- **Tool progress.** About **twice as many bots reach a stone pickaxe** within 70 min.
+- **Team output is INCONCLUSIVE.**
+  - Per-block ratios against the 7B: 2.95, 0.59 and 0.96 for gemma4 on Ollama; 1.96, 0.85 and 0.97 for
+    LM Studio. That is a geometric mean of about 1.2x with very wide spread.
+  - A fresh world is log-rich, and the 7B gathers logs well. The value metric is dominated by early wood, so a
+    90-minute window rewards gathering more than progression.
+- **Deaths.** 4 deaths with gemma4 on Ollama is above the 7B's 0 (peaceful world; falls and drowning). This is a
+  tripwire to watch, not a verdict: the project's own two-death floor applies per canary.
+- **Runtime does not change closed-loop behaviour:** Ollama and LM Studio gave the same stuck-time and milestone
+  results.
+
+**Next for C**
+- More blocks (3-6 more, about 5 h each) to resolve output, queued after the long-tail screens and the physical
+  trap fixtures.
+- C2 (overseer and escalation in the loop) is still waiting on the owner.
