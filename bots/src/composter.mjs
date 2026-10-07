@@ -155,15 +155,18 @@ export function nextInsert (items = [], { room = true, apples = false, plants = 
 
 /**
  * THE JUNK A TOWN ORDER MAY COUNT -> a number. Pure. compostPlan's junk -- or 0 when the bag has no room for a bone meal
- * and no whole stack of at most 7 can be emptied (fillDecision skips such a fill at every level, so the order would walk
- * to the composter for a free no_effect and repeat on each cooldown). Used while the peaceful switch is on (Claude
- * review r1: the kit's plants widen the apples' full-bag case); off, the order counts plan.junk as before.
+ * and fillDecision would refuse the first insert at the composter's level (the order would walk there for a free
+ * no_effect and repeat on each cooldown). `level` is the town composter's level, a value or a function asked only for a
+ * full bag; unknown (no composter read) is taken as 0, the most permissive. Used while the peaceful switch is on (Claude
+ * review r1, Codex r2: the kit's plants widen the apples' full-bag case); off, the order counts plan.junk as before.
  */
-export function startableJunk (items = [], { apples = false, plants = false } = {}) {
+export function startableJunk (items = [], { apples = false, plants = false, level = 0 } = {}) {
   const plan = compostPlan(items, { apples, plants })
   if (!plan.junk || boneMealRoom(items)) return plan.junk
   const nx = nextInsert(items, { room: false, apples, plants })
-  return nx && nx.n <= 7 ? plan.junk : 0
+  if (!nx) return 0
+  const L = typeof level === 'function' ? level() : level
+  return fillDecision({ level: Number.isInteger(L) ? L : 0, room: false, smallest: nx.n }) === 'insert' ? plan.junk : 0
 }
 
 /** Can the bag take one bone meal right now: a free slot, or a bone_meal stack with room. */
