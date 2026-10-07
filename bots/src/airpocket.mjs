@@ -28,6 +28,9 @@ export const AP_TRIGGER_AFTER_MS = 8000      // a non-sealed, capped rescue gets
 export const AP_FAIL_COOLDOWN_MS = 60_000    // a failed or aborted step is not retried here for a minute
 export const AP_REFUSE_COOLDOWN_MS = 5000    // a refused plan is re-planned at most this often (it is cheap)
 export const AP_ICE_ENABLED = true             // the ice branch (break, then rise one cell); off if sandbox scene F fails
+export const AP_EQUIP_MS = 1500               // equip is bounded too (Codex r1): it runs before the dig's deadline
+
+import { difficultyOf } from './foodskip.mjs'
 
 const WATERLIKE = /^(water|flowing_water|bubble_column|kelp|kelp_plant|seagrass|tall_seagrass)$/
 const LAVALIKE = /lava|^magma_block$|^fire$|^soul_fire$/
@@ -139,8 +142,11 @@ export function airPocketConfirmed ({ eyeInAirSince = null, now = Date.now(), he
  * at once when the rescue's own scan says SEALED, otherwise after 8 s of a capped rescue (an `out` or unscanned
  * route gets its chance first), and not during a cooldown or while the step already runs.
  */
-export function airPocketTrigger ({ rescuing, routeDir, routeSealed, heldMs, active = false, now = Date.now(), cooldownUntil = 0 }) {
-  if (!rescuing || active || now < cooldownUntil) return false
+export function airPocketTrigger ({ rescuing, routeDir, routeSealed, heldMs, active = false, now = Date.now(), cooldownUntil = 0,
+                                    othersBusy = false }) {
+  // NOTHING ELSE IN FLIGHT (Codex r1): an escape, the flooded-pocket rung or a maroon climb awaited by an earlier tick
+  // can resume after its await and steer; the early return only stops NEW ticks. So the step starts only when none is.
+  if (!rescuing || active || othersBusy || now < cooldownUntil) return false
   if (routeDir === 'up') return false
   return routeSealed === true || heldMs >= AP_TRIGGER_AFTER_MS
 }
@@ -153,6 +159,34 @@ export function pickFastestTool (candidates = [], predict = () => null) {
     if (Number.isFinite(ms) && ms > 0 && (!best || ms < best.ms)) best = { item, ms }
   }
   return best
+}
+
+/**
+ * THE WORLD'S INPUTS TO ADMISSION, read the way this codebase must read them. Pure over a bot-shaped object.
+ *   difficulty: foodskip.mjs difficultyOf -- the server's `difficulty` packet as recorded on bot.serverDifficulty, because
+ *               mineflayer's bot.game.difficulty is ALWAYS undefined on 1.21.8 (found by the airpocket sandbox pilot 10-07:
+ *               every refusal said difficulty=undefined and the 2.0 envelope refused every stone dig on a peaceful world).
+ *   hungerActive: the Hunger effect, resolved through the registry by name case-insensitively (minecraft-data 1.21.8
+ *               names it `Hunger`, id 16; Codex r1: a lookup of `hunger` misses it), against bot.entity.effects (keyed
+ *               by id, each {id, amplifier, duration}).
+ */
+export function airPocketInputs (bot) {
+  const byName = bot?.registry?.effectsByName ?? {}
+  const key = Object.keys(byName).find(k => k.toLowerCase() === 'hunger')
+  const id = key != null ? byName[key]?.id : null
+  const effects = bot?.entity?.effects ?? {}
+  const hungerActive = id != null && (effects[id] != null || Object.values(effects).some(e => e?.id === id))
+  return { difficulty: difficultyOf(bot), hungerActive }
+}
+
+/**
+ * THE RESCUE'S STATE AFTER A STEP. Pure. Success: the place now HAS air, so the fail memory is cleared and the rescue's
+ * ceiling and progress clocks restart (a bot that sinks back is lifted by the ordinary `up dist=1` route; a stale fail
+ * memory would otherwise suppress the rescue right there). Failure or abort: a 60-s cooldown here, the memory kept.
+ */
+export function airPocketAfter (ok, state, now = Date.now()) {
+  if (ok) return { ...state, drownFails: 0, drownFailPos: null, drownFailHealth: null, seizedAt: now, lastProgressAt: now }
+  return { ...state, cooldownUntil: now + AP_FAIL_COOLDOWN_MS }
 }
 
 /**
@@ -180,9 +214,26 @@ export async function airPocketStep (bot, plan, { Vec3, predict, sleep = ms => n
     const items = (bot.inventory?.items?.() ?? []).filter(it => /_(pickaxe|shovel|axe)$/.test(it.name))
     const best = pickFastestTool(items, item => predict(block, item))
     if (!best) { res.why = 'no dig time for any tool'; return res }
-    res.predictedMs = Math.round(best.ms)
-    if (best.item) { res.tool = best.item.name; try { await bot.equip(best.item, 'hand') } catch { /* dig with what is held */ } }
+    // HORIZONTAL CONTROLS OFF FIRST (Codex r1): an `out` rescue may have been holding forward; the dig turns the head, so a
+    // held forward would carry the bot off the planned column. Only jump is held (it presses the bot up to the roof).
+    for (const c of ['forward', 'back', 'left', 'right', 'sprint', 'sneak']) { try { bot.setControlState(c, false) } catch {} }
     try { bot.setControlState('jump', true) } catch { /* not connected */ }
+    // BOUNDED EQUIP, THEN VERIFY WHAT IS ACTUALLY HELD (Codex r1): a rejected or slow equip must not leave the prediction
+    // describing a tool the bot is not holding. The dig is re-priced with the held item and must still fit.
+    if (best.item) {
+      let t
+      try { await Promise.race([bot.equip(best.item, 'hand'), new Promise((_, rej) => { t = setTimeout(() => rej(new Error('equip timeout')), AP_EQUIP_MS) })]) } catch { /* verified below */ } finally { clearTimeout(t) }
+    }
+    const held = bot.heldItem ?? null
+    const heldMs = predict(block, best.item && held?.name === best.item.name ? best.item : held)
+    res.tool = held?.name ?? 'hand'
+    res.predictedMs = Number.isFinite(heldMs) ? Math.round(heldMs) : null
+    if (!(Number.isFinite(heldMs) && heldMs > 0) || heldMs * AP_MARGIN + AP_LATENCY_MS > airPocketBudgetMs({ health: bot.health, envelope })) {
+      res.why = `the held ${res.tool} needs ${res.predictedMs} ms: over the budget after equip`; return res
+    }
+    const p1 = bot.entity.position
+    if (Math.floor(p1.x) !== fx || Math.floor(p1.z) !== fz || Math.floor(p1.y) < fy - 1) { res.why = 'moved off the planned column'; return res }
+    best.ms = heldMs
     sample()
     // the WATCH: every 250 ms, a breach of the envelope or the budget running out stops the dig
     watch = setInterval(() => {
@@ -228,6 +279,10 @@ export async function airPocketStep (bot, plan, { Vec3, predict, sleep = ms => n
     return res
   } finally {
     if (watch) clearInterval(watch)
+    // NO LATE DIG (Codex r1): mineflayer installs a dig's cancel handler only after its own lookAt, so a deadline can
+    // fire before the dig exists; stop it now and once more shortly after.
+    try { if (bot.targetDigBlock) bot.stopDigging() } catch {}
+    setTimeout(() => { try { if (bot.targetDigBlock && !res.ok) bot.stopDigging() } catch {} }, 300)
     res.healthEnd = bot.health
     res.ms = now() - t0
     try { bot.setControlState('jump', false) } catch { /* not connected */ }
