@@ -35,8 +35,12 @@ setInterval(() => {                                    // say one directive
   if (!queue.length || !bot?.entity) return
   const d = queue.shift()
   let body = JSON.stringify({ o: d.o, s: d.s, l: d.l, w: d.w })
+  // chat rejects the section sign and control characters (a kick); JSON.stringify escapes controls already, so this
+  // only ever removes a literal section sign, and the JSON stays valid
+  const clean = t => t.replace(/[\u0000-\u001f\u007f\u00a7]/g, '')
+  body = clean(body)
   let msg = `${d.bot} directive ${d.id} ${body}`
-  if (msg.length > 256) { body = JSON.stringify({ o: d.o, s: d.s, l: d.l }); msg = `${d.bot} directive ${d.id} ${body}` }
+  if (msg.length > 256) { body = clean(JSON.stringify({ o: d.o, s: d.s, l: d.l })); msg = `${d.bot} directive ${d.id} ${body}` }
   if (msg.length > 256) { log({ kind: 'too_long', id: d.id, len: msg.length }); return }
   bot.chat(msg)
   log({ kind: 'said', id: d.id, bot: d.bot, len: msg.length })
