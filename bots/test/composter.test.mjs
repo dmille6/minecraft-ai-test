@@ -610,6 +610,22 @@ for (const [why, setup, on] of [['PEACEFUL (packet read)', b => { b.serverDiffic
   })
 }
 
+await t('KIT: an INTERRUPTED visit still writes its `_compost` row with the complete map so far (Codex r2), the in-flight insert reconciled', async () => {
+  const { bot, count } = fakeTown({ hand: PICK, rolls: () => 0.5, items: [S('wildflowers', 20), ...filler(33)] })
+  bot.serverDifficulty = 'peaceful'
+  const real = bot.activateBlock; let k = 0
+  const ac = new AbortController()
+  bot.activateBlock = async b => { k++; const r = await real(b); if (k === 3) ac.abort(); return r }   // the 3rd insert lands, then the abort
+  const err = await within(SKILLS.compost.run({ bot }, {}, ac.signal).then(r => r, e => e), 8000, 'aborted kit compost')
+  assert.ok(err?.aborted, `not aborted: ${JSON.stringify(err)}`)
+  const gone = 20 - count('wildflowers')
+  assert.ok(gone >= 3, `inserted ${gone}`)
+  const row = (await rows('_compost')).at(-1)?.skill
+  assert.equal(row?.status, 'aborted', JSON.stringify(row))
+  assert.equal(row.args.items.wildflowers, gone, 'the row accounts for every item that left the bag')
+  assert.equal(row.args.peaceful, 1)
+})
+
 await t('#2 compost uses the composter around HOME, never one that is merely near the bot', async () => {
   const far = new Vec3(HOME.x + 70, HOME.y, HOME.z)
   // One slot free, so a fill WOULD start at any composter the search returned.
