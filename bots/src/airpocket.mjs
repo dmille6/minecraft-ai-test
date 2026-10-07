@@ -154,6 +154,22 @@ export function airPocketTrigger ({ rescuing, routeDir, routeSealed, heldMs, act
   return routeSealed === true || (heldMs >= AP_TRIGGER_AFTER_MS && msSinceClosing >= AP_NOT_CLOSING_MS)
 }
 
+/**
+ * SHOULD THE STEP PRE-EMPT AN IN-FLIGHT ESCAPE? Pure. Paper sandbox, 10-07 (cand A, 8c2c7f9 and 569e236): in a sealed
+ * hive-c column the entombed escape (pillarOut -> digStraightUp) dug the roof BARE-HANDED and floating -- 37.5 s against
+ * its 8-15 s dig budget -- failed, and re-started, holding `escaping` for ~58 s; the trigger's busy guard waited, and the
+ * budget ran out (one trial refused at 15.3 HP and drowned like the control; one admitted by 517 ms and lived). Two
+ * correct guards composed into a dead end. So inside a SEALED rescue (the scan proves no swim), an escape or maroon
+ * climb is told to yield (its `alive` turns false, its current dig is stopped) and the step runs on the next tick. The
+ * flooded-pocket rung is never pre-empted (it is a rescue of its own).
+ */
+export function airPocketPreempt ({ rescuing, routeDir, routeSealed, escaping = false, marooned = false, pocketing = false,
+                                    active = false, now = Date.now(), cooldownUntil = 0 }) {
+  if (!rescuing || active || pocketing || now < cooldownUntil) return false
+  if (routeDir === 'up' || routeSealed !== true) return false
+  return escaping || marooned
+}
+
 /** The fastest of the candidate items (null = the hand) by the caller's prediction. Pure. */
 export function pickFastestTool (candidates = [], predict = () => null) {
   let best = null

@@ -13,7 +13,7 @@
 import assert from 'node:assert'
 import { readFileSync, writeFileSync, unlinkSync } from 'node:fs'
 import { gunzipSync } from 'node:zlib'
-import { airPocketInputs, airPocketAfter, AP_FAIL_COOLDOWN_MS } from '../src/airpocket.mjs'
+import { airPocketInputs, airPocketAfter, airPocketPreempt, AP_FAIL_COOLDOWN_MS } from '../src/airpocket.mjs'
 import { airPocketPlan, airPocketEnvelope, airPocketAdmit, airPocketBudgetMs, envelopeBreached, airPocketConfirmed,
          airPocketTrigger, pickFastestTool, airPocketStep, airPocketDetail, AP_TRIGGER_AFTER_MS } from '../src/airpocket.mjs'
 
@@ -364,6 +364,28 @@ await t('E4 MUTANT KILLED: dropping the closing-on-air condition cuts off a work
       assert.equal(m.airPocketTrigger({ rescuing: true, routeDir: 'out', routeSealed: false, heldMs: 9000, now: 1, msSinceClosing: 1000 }), true)
     }))
 
+// ---------------------------------------------------------------- K. pre-empting an in-flight escape (sandbox 10-07)
+await t('K1 inside a SEALED rescue an in-flight escape or maroon climb is pre-empted; never the rung, never without sealed, never with up', () => {
+  const base = { rescuing: true, routeDir: null, routeSealed: true, escaping: true, now: 1000 }
+  assert.equal(airPocketPreempt(base), true)
+  assert.equal(airPocketPreempt({ ...base, escaping: false, marooned: true }), true)
+  assert.equal(airPocketPreempt({ ...base, escaping: false }), false)            // nothing to pre-empt
+  assert.equal(airPocketPreempt({ ...base, pocketing: true }), false)           // the rung is a rescue of its own
+  assert.equal(airPocketPreempt({ ...base, routeSealed: false }), false)        // unscanned/out: the swim may work
+  assert.equal(airPocketPreempt({ ...base, routeDir: 'up' }), false)
+  assert.equal(airPocketPreempt({ ...base, rescuing: false }), false)
+  assert.equal(airPocketPreempt({ ...base, active: true }), false)
+  assert.equal(airPocketPreempt({ ...base, cooldownUntil: 2000 }), false)       // a failed step here does not re-preempt
+})
+await t('K2 MUTANT KILLED: pre-empting the flooded-pocket rung (K1 catches it)', () =>
+  withMutant(AP_PATH, 'if (!rescuing || active || pocketing || now < cooldownUntil) return false', 'if (!rescuing || active || now < cooldownUntil) return false', m => {
+    assert.equal(m.airPocketPreempt({ rescuing: true, routeSealed: true, escaping: true, pocketing: true, now: 1 }), true)
+  }))
+await t('K3 MUTANT KILLED: pre-empting outside a sealed verdict (K1 catches it)', () =>
+  withMutant(AP_PATH, "if (routeDir === 'up' || routeSealed !== true) return false", "if (routeDir === 'up') return false", m => {
+    assert.equal(m.airPocketPreempt({ rescuing: true, routeSealed: false, escaping: true, now: 1 }), true)
+  }))
+
 // ---------------------------------------------------------------- J. the rescue state after a step, and the busy guard
 await t('J1 after SUCCESS the fail memory is cleared and the clocks restart; after FAILURE a 60-s cooldown, memory kept', () => {
   const st = { drownFails: 3, drownFailPos: { x: 1 }, drownFailHealth: 12, seizedAt: 5, lastProgressAt: 5, cooldownUntil: 0 }
@@ -402,7 +424,10 @@ function wiring (src) {
                code.indexOf("kind: 'air_pocket_start'") > 0 && code.indexOf("kind: 'air_pocket_start'") < code.indexOf('r = await airPocketStep(') &&
                /msSinceClosing: Date\.now\(\) - lastClosingAt/.test(code) && /if \(closingOnAir\) lastClosingAt = Date\.now\(\)/.test(code) &&
                /guard: \(\) => \{ try \{ if \(runner\?\.isBusy\?\.\(\)\) runner\.interrupt\('air_pocket'\)/.test(code) &&
-               /const ran = await runAirPocket\(route, Date\.now\(\) - seizedAt\)\s*if \(ran\) return/.test(code) }
+               /const ran = await runAirPocket\(route, Date\.now\(\) - seizedAt\)\s*if \(ran\) return/.test(code) &&
+               code.indexOf('airPocketPreempt({ rescuing, routeDir: route.dir') > 0 && code.indexOf('airPocketPreempt({ rescuing, routeDir: route.dir') < trigger &&
+               /airPocketWants = Date\.now\(\)\s*try \{ if \(bot\.targetDigBlock\) bot\.stopDigging\(\) \}/.test(code) &&
+               (code.match(/\(\) => ownsBody\(\(\) => (entombedGrant|maroonGrant)\)\(\) && !airPocketWanted\(\)/g) || []).length === 2 }
 }
 await t('G1 wiring: the tick returns while the step runs; the rescue asks the trigger before steering; success clears the fail memory', () => {
   const w = wiring(readFileSync(REFLEX_PATH, 'utf8'))
@@ -427,6 +452,9 @@ for (const [name, old, neu] of [
   ['the closing-on-air clock', 'if (closingOnAir) lastClosingAt = Date.now()', ''],
   ['the skill guard', "guard: () => { try { if (runner?.isBusy?.()) runner.interrupt('air_pocket') } catch {} return null }", 'guard: () => null'],
   ['the return after a step', '            if (ran) return\n', ''],
+  ['the pre-empt stopping the escape dig', '            airPocketWants = Date.now()\n', ''],
+  ['the entombed pillar yielding', '{ alive: () => ownsBody(() => entombedGrant)() && !airPocketWanted() }', '{ alive: ownsBody(() => entombedGrant) }'],
+  ['the maroon pillar yielding', '{ alive: () => ownsBody(() => maroonGrant)() && !airPocketWanted() }', '{ alive: ownsBody(() => maroonGrant) }'],
 ]) {
   await t(`G4 MUTANT KILLED: without ${name} the wiring check fails`, () => {
     const src = readFileSync(REFLEX_PATH, 'utf8')

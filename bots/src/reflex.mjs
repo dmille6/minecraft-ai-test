@@ -43,6 +43,7 @@ import { pocketPlan, pocketDone, oxygenFitsOperation, PLACE_MS, sideExit } from 
 import { PRIORITY } from './arbiter.mjs'
 import { survivalRelease } from './withdrawpick.mjs'
 import { airPocketPlan, airPocketAdmit, airPocketTrigger, airPocketStep, airPocketDetail, airPocketInputs, airPocketAfter,
+         airPocketPreempt,
          AP_REFUSE_COOLDOWN_MS } from './airpocket.mjs'
 import pathfinderPkg from 'mineflayer-pathfinder'
 const pkgGoals = pathfinderPkg?.goals
@@ -1436,6 +1437,9 @@ export function startReflexes(bot, runner, lessons = null, worldFacts = null) {
   // owns the body and every other tick returns at the top; a refusal or a failure cools down here.
   let airPocketing = false
   let airPocketCooldownUntil = 0
+  // when the step last asked an in-flight escape / maroon climb to yield (a sealed rescue); their `alive` reads it
+  let airPocketWants = 0
+  const airPocketWanted = () => airPocketWants > 0 && Date.now() - airPocketWants < 30_000
   let lastMaroonPrereqAt = 0
   let strandedSince = 0
   // Cleared by the same displacement test as strandedSince -- see the block that
@@ -2236,6 +2240,19 @@ export function startReflexes(bot, runner, lessons = null, worldFacts = null) {
               snapshot: snapshot(bot),
             })
           }
+          // AIRPOCKET PRE-EMPTS AN IN-FLIGHT ESCAPE inside a SEALED rescue (Paper sandbox 10-07: a bare-handed escape dig
+          // held `escaping` ~58 s and the budget ran out while the step waited). The escape's `alive` turns false and its
+          // current dig is stopped; once it returns, the trigger below runs the step.
+          if (airPocketPreempt({ rescuing, routeDir: route.dir, routeSealed: route.sealed, escaping, marooned, pocketing,
+                                 active: airPocketing, now: Date.now(), cooldownUntil: airPocketCooldownUntil })) {
+            airPocketWants = Date.now()
+            try { if (bot.targetDigBlock) bot.stopDigging() } catch { /* not digging */ }
+            if (throttled('air_pocket_preempt', 30_000)) {
+              logEvent({ kind: 'air_pocket_preempt', status: 'no_effect',
+                         detail: `asked the in-flight ${escaping ? 'escape' : 'maroon climb'} to yield inside a sealed rescue ` +
+                                 `(health ${bot.health}, held_ms=${Date.now() - seizedAt})`, snapshot: snapshot(bot) })
+            }
+          }
           // AIRPOCKET: a capped rescue (no air straight up) may dig the roof cell over the head into a breathing
           // pocket, admitted by geometry and by the health budget, at once when the scan says SEALED, else after 8 s.
           if (airPocketTrigger({ rescuing, routeDir: route.dir, routeSealed: route.sealed, heldMs: Date.now() - seizedAt,
@@ -2755,7 +2772,7 @@ export function startReflexes(bot, runner, lessons = null, worldFacts = null) {
           // exactly the state this branch would have left it in anyway -- same cell,
           // same inventory -- and now both reasons are on the record instead of none.
           let pillarOutcome = null
-          try { pillarOutcome = await pillarOut(bot, climbNeedAbove(bmap(bot), bot.entity.position), { alive: ownsBody(() => maroonGrant) }) }
+          try { pillarOutcome = await pillarOut(bot, climbNeedAbove(bmap(bot), bot.entity.position), { alive: () => ownsBody(() => maroonGrant)() && !airPocketWanted() }) }
           catch (e) { log('warn', 'maroon escape failed', { err: e.message }); pillarOutcome = 'threw' }
 
           if (pillarOutcome === 'needs_blocks' || pillarOutcome === 'exhausted') {
@@ -2910,7 +2927,7 @@ export function startReflexes(bot, runner, lessons = null, worldFacts = null) {
           // could not be told apart from an attempt that went nowhere.
           let climbed = null
           const climbFrom = { x: bot.entity.position.x, y: bot.entity.position.y, z: bot.entity.position.z }
-          try { climbed = await pillarOut(bot, climbNeedAbove(bmap(bot), bot.entity.position), { alive: ownsBody(() => entombedGrant) }) }
+          try { climbed = await pillarOut(bot, climbNeedAbove(bmap(bot), bot.entity.position), { alive: () => ownsBody(() => entombedGrant)() && !airPocketWanted() }) }
           catch (e) { log('warn', 'pillar out failed', { err: e.message }) }
           noteReflexInventory(bot, invBefore, 'entombed_escape')
           // Verify the postcondition. "I ran the recovery" and "the bot is no
