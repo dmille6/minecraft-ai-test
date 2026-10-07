@@ -10,7 +10,7 @@
 // you can query in Kibana.
 
 import { SKILLS, actionKey, foodSkipNow } from './skills.mjs'
-import { swordCraftRefusal } from './peacefulkit.mjs'
+import { swordCraftRefusal, unwantedSword } from './peacefulkit.mjs'
 import { smeltRecipeFor } from './smelting.mjs'
 import { config } from './config.mjs'
 import { horizontalDistanceFromSpawn } from './state.mjs'
@@ -350,6 +350,12 @@ export class AdmissionControl {
                  detail: `you hold no ${args.item}; deposit what you carry (say deposit with no item) or gather it first` }
       }
       if (args) args.item = arg.item
+      // NO SWORD IS BANKED IN A PEACEFUL WORLD (peacefulkit.mjs, owner 10-07 ~19:50Z): a named sword deposit is refused here,
+      // before the walk home, with the rule (the bank would hand over nothing).
+      if (arg.item && unwantedSword({ name: arg.item }, foodSkipNow(bot).active)) {
+        return { ok: false, reason: 'peaceful_sword_deposit',
+                 detail: `not a banking target (swords are not banked in a peaceful world): keep the ${arg.item}, or deposit something else` }
+      }
       // THE SAME POLICY AS EXECUTION (Codex, deposit pass 2): the always-banked ores count here too, and the wants
       // this gate judged with are handed to the skill through the bot (the runner's ctx carries no wants).
       const wants = [...(wanted ? [wanted].flat() : []), ...DEPOSIT_ALWAYS]
