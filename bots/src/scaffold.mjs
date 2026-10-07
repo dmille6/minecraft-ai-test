@@ -193,68 +193,144 @@ export function extendScaffolding (moves, registry) {
 }
 
 /**
- * MAY THE CLIMB BREAK THE BLOCK OVERHEAD?
+ * WATER, IN EVERY FORM A DIG CAN LET IN. (climbflood-01, 2026-10-05)
  *
- * Breaking a block whose neighbour is liquid floods the shaft, and that is a
- * real way to drown a climbing bot. The defect was never the rule -- it was
- * that the rule ran on EVERY step, before anything had decided to dig.
- *
- * Most steps of a pillar break nothing: the cell overhead is already air, the
- * bot jumps and places underfoot, and no neighbour can flood a shaft that was
- * never opened. Refusing those steps because water sits nearby is an opinion
- * about being near water, and it cost 561 of 566 pillar attempts below y=60
- * over 18 hours -- 99.1% -- while 32 of 80 bots stayed frozen for days behind
- * it. Same shape as the kelp widening that tripled drownings and was rolled
- * back: a water predicate answering a question nobody asked.
- *
- * So the rule keeps its full strictness and applies exactly when it is true.
- *
- * @param head  block at head+1 (the one a dig would break), or null
- * @param sides the four horizontal neighbours at that same level
- * @returns a refusal reason, or null when the step is safe
+ * A name test for `water` alone misses three ways the same water reaches a
+ * bot: `flowing_water` on older registries, a bubble column, and a WATERLOGGED
+ * block -- a stair, slab or fence holding a source that is released when the
+ * block is broken, or that pours out of it when a neighbour opens. Kelp and
+ * seagrass are water blocks that report a plant's name. prismarine-block sets
+ * `isWaterlogged` from the block state (verified on 1.21.8: oak_stairs
+ * waterlogged=true -> true, false -> false, stone -> undefined).
  */
-export function overheadBreakRisk ({ head = null, sides = [], isLiquid = b => false,
-                                     submerged = false } = {}) {
+const WATER_CELL = /^(water|flowing_water|bubble_column|kelp|kelp_plant|seagrass|tall_seagrass)$/
+export function isWaterCell (b) {
+  if (!b) return false
+  return WATER_CELL.test(b.name ?? '') || b.isWaterlogged === true
+}
+
+/**
+ * LAVA, ONE CLASSIFIER. Flowing lava is `lava` with a level on 1.21, and
+ * `flowing_lava` on older registries; the guard this replaced matched
+ * `name === 'lava'` only (Codex, underground-safety design pass 2).
+ */
+/** Ice that turns into a water source when broken (vanilla IceBlock: ice and frosted_ice; packed/blue ice do not). */
+export function isMeltingIce (b) {
+  return !!b && (b.name === 'ice' || b.name === 'frosted_ice')
+}
+
+/** How many stacked falling blocks the flood check follows up before refusing (climbflood-02). */
+export const FALLING_COLUMN_CAP = 64
+
+export function isLavaCell (b) {
+  return !!b && /lava/.test(b.name ?? '')
+}
+
+/**
+ * MAY AN UPWARD DIG BREAK THIS BLOCK? -- the ONE flood check every upward dig
+ * asks immediately before it breaks a block (climbflood-01).
+ *
+ * MEASURED 2026-10-05 (docs/reports/underground-safety-design-2026-10-05.md):
+ * every one of 109 drownings in 72 h was a sealed pocket, and the largest single
+ * way in (30 deaths, 28% of drownings) was the bot's OWN escape climb breaking
+ * the block over its head. `pillarOut` and `digStraightUp` never asked this;
+ * the escape ramp's ceiling breach ignored water; and the skill climb that did
+ * ask read the target and its four sides but NOT THE CELL ABOVE IT -- which is
+ * exactly the face that opens when the bot breaks into the bottom of a pocket.
+ *
+ * `at(dx, dy, dz)` is relative to THE BLOCK TO BE BROKEN, so every caller --
+ * the pillar's head cell, the ramp's ceiling, a ramp step cell, the gravel
+ * resting on a ceiling -- asks the same question about the same neighbourhood.
+ * It reads:
+ *   - the target itself;
+ *   - the cell ABOVE it (0,1,0), which is new;
+ *   - its four horizontal sides;
+ *   - when the target or the cell above it is a FALLING block, the cell that
+ *     then opens above that (0,2,0) and its four sides, and the four sides of
+ *     the falling block above -- a falling column leaves its cells open behind
+ *     it, so their faces become faces of the shaft.
+ *
+ * WATER, LAVA, UNKNOWN. Water in any form refuses (see `isWaterCell`); lava in
+ * any form always refuses; an unloaded cell (null) refuses, because "I cannot
+ * see" and "it is dry" are the confident zero this project keeps paying for.
+ *
+ * THE SUBMERGED EXEMPTION IS KEPT, FOR WATER ONLY. A bot whose feet AND head
+ * are already in water may still dig toward air: the guard protects a state it
+ * no longer has, and forbidding the only way out is the dead end measured on
+ * 2026-09-07 (see below). Lava still refuses: water meeting lava is a new harm.
+ *
+ * NOTHING CHANGES FOR A DRY BOT WHOSE OVERHEAD IS DRY, and a step that breaks
+ * nothing asks nothing: most steps of a pillar break nothing, and refusing them
+ * because water sits nearby cost 561 of 566 pillar attempts below y=60 over 18
+ * hours (99.1%) while 32 of 80 bots stayed frozen for days. The rule applies
+ * exactly when a block is about to be broken.
+ *
+ * @param at        (dx,dy,dz) -> block, relative to the block to be broken
+ * @param submerged the digging bot's feet AND head cells are water
+ * @returns a refusal reason, or null when the dig may go ahead
+ */
+export function overheadBreakRisk ({ at = () => null, submerged = false } = {}) {
+  // ICE IS LATENT WATER (climbflood-02; fleet 10-06 04:59Z, hive-d-Alpha: a ramp step dug ice and the cell was water
+  // 1.6 s later). Vanilla turns a broken ice / frosted_ice block into a water SOURCE when the block below it blocks
+  // motion or is liquid; packed and blue ice never melt. So a neighbour of ice is treated as wet, conservatively --
+  // the next dig, or light, can melt it -- and the target itself is water when it would melt (below).
+  const wet = b => (isWaterCell(b) || isMeltingIce(b)) && !submerged
+  const target = at(0, 0, 0)
+  if (!target) return 'terrain not loaded at the block overhead'
+  if (isMeltingIce(target) && !submerged) {
+    const below = at(0, -1, 0)
+    // unknown below is a refusal; air below (a ceiling over the bot's own head) is not a melt -- the block vanishes
+    if (!below) return 'terrain not loaded below the ice overhead'
+    if (below.boundingBox === 'block' || isWaterCell(below) || isLavaCell(below)) {
+      return `ice overhead melts into water when broken (${target.name} over ${below.name})`
+    }
+    // air below: the block vanishes, and the cell it leaves is read like any other opened cell (below)
+  }
   // A FLOOD GUARD MUST NOT FIRE WHEN THE BOT IS ALREADY FLOODED.
   //
-  // The rule below is right for a bot with its head in air: pillaring into
-  // water puts the head under, which is the state the air reflex exists to end.
-  // For a bot ALREADY fully submerged it forbids the only way out, to prevent a
-  // transition into the state it is already in.
-  //
-  // That is this repo's named bug class -- two individually-correct guards
-  // meeting where the bot has no legal move -- and here it composes into a
-  // complete dead end. Measured 2026-09-07: a submerged sealed bot gets ZERO
-  // moves from A* (mineflayer-pathfinder refuses every vertical move from a
-  // liquid node, and `canDig = false` makes safeToBreak refuse every horizontal
-  // one), a refusal from this guard, and `surface_swim` from a lattice branch
-  // that assumes it is floating. 23.8% of all pathfinding failures on the fleet
-  // are bots in exactly this state, 90% of them from five bots hammering it for
-  // ten to twenty minutes at a time.
-  //
-  // `dryColumnStep` was built for the neighbouring case and cannot reach this
-  // one: it looks for a dry column nearby, and a bot in a flooded pocket has no
-  // dry neighbour to find. It returns null and the climb refuses.
-  //
-  // THIS IS NOT THE KELP WIDENING AND NOT THE GLOBAL DEMOTION. Both of those
-  // made bots more willing to BE near water and multiplied drownings 7x and
-  // 7.5x. This changes nothing for a dry bot, nothing for a wading bot, and
-  // nothing for a bot whose head is in air. It fires only when the head is
-  // already under, where the guard is protecting a state that no longer exists.
+  // The rule is right for a bot with its head in air: digging into water puts
+  // the head under, which is the state the air reflex exists to end. For a bot
+  // ALREADY fully submerged it forbids the only way out, to prevent a
+  // transition into the state it is already in. Measured 2026-09-07: a
+  // submerged sealed bot gets ZERO moves from A* (mineflayer-pathfinder refuses
+  // every vertical move from a liquid node, and `canDig = false` makes
+  // safeToBreak refuse every horizontal one), a refusal from this guard, and
+  // `surface_swim` from a lattice branch that assumes it is floating. 23.8% of
+  // all pathfinding failures on the fleet were bots in exactly this state.
   //
   // LAVA STILL REFUSES, ALWAYS. Breaking into lava from water is a NEW harm --
   // the two meet, and the bot is standing where they meet.
-  const headLiquid = head && isLiquid(head)
-  if (headLiquid && head.name === 'lava') return `liquid overhead (${head.name})`
-  if (headLiquid && !submerged) return `liquid overhead (${head.name})`
-  const solid = !!head && head.name !== 'air' && head.boundingBox !== 'empty'
+  // the target's own ice was decided above (it melts only over a solid or liquid cell)
+  if (isLavaCell(target) || (isWaterCell(target) && !submerged)) return `liquid overhead (${target.name})`
+  // A WATERLOGGED BLOCK IS STILL A BLOCK (Codex r1): it is broken, so its
+  // neighbours are read like any other -- a submerged bot breaking waterlogged
+  // stairs beside lava must be refused for the lava.
+  const solid = target.name !== 'air' && target.boundingBox !== 'empty'
   if (!solid) return null                 // nothing will be broken; nothing can flood
-  for (const s of sides) {
-    if (!s || !isLiquid(s)) continue
-    // Same exemption, same reasoning: water beside the ceiling can only flood a
-    // bot that is not already flooded. Lava beside it is a new harm regardless.
-    if (submerged && s.name !== 'lava') continue
-    return `liquid beside the block overhead (${s.name})`
+  const SIDES = [[1, 0], [-1, 0], [0, 1], [0, -1]]
+  const faces = [[0, 1, 0, 'above'], ...SIDES.map(([x, z]) => [x, 0, z, 'beside'])]
+  const above = at(0, 1, 0)
+  if (isFallingBlock(target) || isFallingBlock(above)) {
+    // A FALLING COLUMN OPENS THE CELLS IT LEAVES. Gravel above the ceiling
+    // drops through the hole into the bot's own cells, and whatever sat on the
+    // gravel -- water, in the measured case -- follows it down.
+    //
+    // THE WHOLE COLUMN, NOT ONE CELL OF IT (climbflood-02; fleet 10-06 03:09Z, hive-d-Alpha: a sand column three
+    // deep with water on top was read only to feet+4, dug, and dropped into the bot's head cell with the water behind
+    // it). Every falling block stacked above the opened cell moves; the sides of each one and the first cell above
+    // the column's top (and its sides) are read. Deeper than FALLING_COLUMN_CAP is a refusal, never a guess.
+    let k = 1
+    while (k <= FALLING_COLUMN_CAP && isFallingBlock(at(0, k, 0))) k++
+    if (k > FALLING_COLUMN_CAP) return `a falling column deeper than ${FALLING_COLUMN_CAP} above the block overhead`
+    const top = Math.max(k, 2)
+    for (let y = 1; y < top; y++) faces.push(...SIDES.map(([x, z]) => [x, y, z, 'beside the falling block above']))
+    faces.push([0, top, 0, 'over the falling block above'],
+               ...SIDES.map(([x, z]) => [x, top, z, 'over the falling block above']))
+  }
+  for (const [x, y, z, where] of faces) {
+    const c = at(x, y, z)
+    if (!c) return `terrain not loaded ${where} the block overhead`
+    if (isLavaCell(c) || wet(c)) return `liquid ${where} the block overhead (${c.name})`
   }
   return null
 }
@@ -262,7 +338,7 @@ export function overheadBreakRisk ({ head = null, sides = [], isLiquid = b => fa
 /**
  * WHERE ELSE COULD THIS COLUMN HAVE BEEN?
  *
- * `overheadBreakRisk` is right and stays untouched. What was missing is the
+ * `overheadBreakRisk` is the one authority and is asked verbatim. What was missing is the
  * next sentence. A refusal ended `shaftAscend` outright, the skill reported
  * `liquid beside the block overhead (water)`, and the advice line told the
  * MODEL to "walk a few blocks away from the water" -- a deterministic move
@@ -320,11 +396,7 @@ export function dryColumnStep ({
       if (AXES.some(([sx, sz]) => isLava(at(x + sx, 0, z + sz)) || isLava(at(x + sx, 1, z + sz)))) break
       // THE ONE AUTHORITY. A candidate is dry because the shipped guard says
       // so, not because this function has its own opinion about water.
-      const risk = overheadBreakRisk({
-        head: at(x, 2, z),
-        sides: AXES.map(([sx, sz]) => at(x + sx, 2, z + sz)),
-        isLiquid,
-      })
+      const risk = overheadBreakRisk({ at: (dx, dy, dz) => at(x + dx, 2 + dy, z + dz) })
       if (risk) continue                                      // wet here too; keep walking
       if (!best || d < best.dist) best = { dx: ax, dz: az, dist: d }
       break
@@ -436,6 +508,7 @@ export function stairUpStep ({
   bear = { x: 0, z: 0 },
   isLava = b => /lava/.test(b?.name ?? ''),
   canBreak = () => true,
+  submerged = false,
 } = {}) {
   const passable = bodyPassable
   const solid = b => !!b && b.boundingBox === 'block'
@@ -504,6 +577,13 @@ export function stairUpStep ({
   for (const [cell, dy, what] of [[clearance, 3, 'jump clearance'], [head, 2, 'headroom'], [feet, 1, 'step']]) {
     if (passable(cell)) continue
     if (!canBreak(cell)) return { ok: false, reason: `cannot clear ${cell.name} in the ${what} by hand` }
+    // EVERY RAMP DIG ASKS THE SAME FLOOD CHECK as the pillar and the ceiling
+    // breach (climbflood-01). A step cell with water above or beside it floods
+    // the step and then the bot's own column -- the delayed entry by the ramp
+    // that a 20 s breach window cannot see. Only a cell this step BREAKS is
+    // asked: water IN a step is passable and swum through, never a refusal.
+    const risk = overheadBreakRisk({ at: (x, y, z) => at(bx + x, dy + y, bz + z), submerged })
+    if (risk) return { ok: false, reason: `flood risk in the ${what}: ${risk}`, flood: true, cell: [bx, dy, bz] }
     dig.push([bx, dy, bz])
   }
   return { ok: true, dig }
@@ -641,6 +721,7 @@ export function headroomBreach ({
   canBreak = () => true,
   isLava = b => /lava/.test(b?.name ?? ''),
   isFalling = isFallingBlock,
+  submerged = false,
 } = {}) {
   const passable = bodyPassable
   const over = at(0, 2, 0)
@@ -681,8 +762,10 @@ export function headroomBreach ({
   // onto the bot's head. So the faces of the cell about to be opened are
   // checked the way `stairUpStep` checks a cell the bot enters.
   //
-  // Water is not consulted at all. Swimming is travel, and widening a wet
-  // predicate multiplied drownings sevenfold on 2026-08-29.
+  // Water is not consulted HERE. Swimming is travel, and widening a wet
+  // predicate multiplied drownings sevenfold on 2026-08-29. Whether a cell may
+  // be BROKEN is asked once, below, of the shared flood check every upward dig
+  // uses (climbflood-01) -- never as an opinion about being near water.
   for (const [nx, ny, nz] of [[1, 0, 0], [-1, 0, 0], [0, 0, 1], [0, 0, -1], [0, 1, 0], [0, -1, 0]]) {
     const n = at(nx, 2 + ny, nz)
     if (isLava(n)) return { ok: false, reason: `lava against the ceiling (${n.name})` }
@@ -707,10 +790,17 @@ export function headroomBreach ({
   // re-plans after each swing and only reaches the ceiling once (0,3,0) is
   // stable, which is what makes a column of any depth safe rather than only a
   // single block.
+  // THE ONE FLOOD CHECK, ON THE CELL THIS WILL ACTUALLY BREAK (climbflood-01).
+  // Without it the ramp re-breached the very ceiling the pillar had just
+  // refused (Codex, design pass 2): "else ramp" was the same dig by another
+  // name. `flood: true` lets the reflex tell this refusal from arithmetic.
+  const floodAt = (dy) => overheadBreakRisk({ at: (x, y, z) => at(x, dy + y, z), submerged })
   if (isFalling(above)) {
     if (!canBreak(above)) {
       return { ok: false, reason: `cannot clear the ${above.name} resting on the ceiling by hand` }
     }
+    const risk = floodAt(3)
+    if (risk) return { ok: false, reason: `flood risk: ${risk}`, flood: true, cell: [0, 3, 0] }
     return { ok: true, dig: [[0, 3, 0]], settling: true }
   }
 
@@ -718,5 +808,73 @@ export function headroomBreach ({
   // obsidian are refused here for the same reason, and through the same
   // function, that refuses them inside the ramp.
   if (!canBreak(over)) return { ok: false, reason: `cannot clear ${over.name} overhead by hand` }
+  const risk = floodAt(2)
+  if (risk) return { ok: false, reason: `flood risk: ${risk}`, flood: true, cell: [0, 2, 0] }
   return { ok: true, dig: [[0, 2, 0]] }
+}
+
+/**
+ * LEAVE THE CELL SIDEWAYS, SO THE RAMP HAS A DRY CEILING TO START UNDER. (climbflood-01, Codex r1)
+ *
+ * The escape ramp's first move is a jump, and a jump needs the bot's OWN ceiling open: `stairUpStep` refuses without
+ * `at(0,2,0)` and `headroomBreach` exists to take it. When the flood check refuses that ceiling -- a pocket of water
+ * over it, the design's scene A -- every bearing is unreachable from here, so "else ramp" was no move at all and the
+ * bot could only wait. The design's own scene table expects A to exit dry by ramp and reserves "stays dry" for C,
+ * where every bearing is wet; this is the one cell of control flow between the two.
+ *
+ * ONE STEP SIDEWAYS, ONLY TO A COLUMN THE SAME CHECK ALREADY ALLOWS. The step is taken only when:
+ *   - the tread under the new cell is a solid, dry block (no fall, never a liquid floor);
+ *   - the two cells the bot walks into are loaded, dry, and have no lava on any face;
+ *   - each of them that must be dug passes `canBreak` and the shared flood check, read for THAT cell;
+ *   - the new column's own ceiling is open and dry, or would itself pass the flood check -- otherwise the step only
+ *     moves the refusal one cell over (scene C: the whole column above is wet, so no bearing qualifies and the bot
+ *     stays where it is, dry).
+ * Water is never walked into here: this exists to keep a dry bot dry, not to swim.
+ *
+ * @param at   (dx,dy,dz) -> block, relative to the bot's FEET
+ * @param bear {x,z} unit cardinal
+ * @returns {{ok: true, dig: number[][]}} (cells to break, top first) | {{ok: false, reason, flood?}}
+ */
+export function floodSidestep ({ at = () => null, bear = { x: 0, z: 0 }, canBreak = () => true, submerged = false } = {}) {
+  const bx = bear?.x ?? 0, bz = bear?.z ?? 0
+  if (!bx && !bz) return { ok: false, reason: 'no bearing' }
+  const tread = at(bx, -1, bz), feet = at(bx, 0, bz), head = at(bx, 1, bz), ceil = at(bx, 2, bz)
+  if (!tread || !feet || !head || !ceil) return { ok: false, reason: 'terrain not loaded' }
+  if (tread.boundingBox !== 'block' || isWaterCell(tread) || isLavaCell(tread)) {
+    return { ok: false, reason: `no dry floor to step onto (${tread.name})` }
+  }
+  const FACES = [[1, 0, 0], [-1, 0, 0], [0, 0, 1], [0, 0, -1], [0, 1, 0], [0, -1, 0]]
+  const dig = []
+  for (const [cell, dy, what] of [[head, 1, 'head'], [feet, 0, 'feet']]) {
+    if (isWaterCell(cell) && cell.boundingBox === 'empty') return { ok: false, reason: `water in the ${what} cell (${cell.name})` }
+    if (isLavaCell(cell)) return { ok: false, reason: `lava in the ${what} cell` }
+    for (const [nx, ny, nz] of FACES) {
+      const n = at(bx + nx, dy + ny, bz + nz)
+      if (isLavaCell(n)) return { ok: false, reason: `lava against the ${what} cell (${n.name})` }
+    }
+    if (bodyPassable(cell)) continue
+    if (!canBreak(cell)) return { ok: false, reason: `cannot clear ${cell.name} in the ${what} cell by hand` }
+    const risk = overheadBreakRisk({ at: (x, y, z) => at(bx + x, dy + y, bz + z), submerged })
+    if (risk) return { ok: false, reason: `flood risk in the ${what} cell: ${risk}`, flood: true }
+    dig.push([bx, dy, bz])
+  }
+  // THE NEW COLUMN MUST BE ONE THE RAMP CAN START UNDER.
+  if (isWaterCell(ceil) || isLavaCell(ceil)) return { ok: false, reason: `liquid over the side cell (${ceil.name})`, flood: true }
+  if (!bodyPassable(ceil)) {
+    if (!canBreak(ceil)) return { ok: false, reason: `cannot clear ${ceil.name} over the side cell by hand` }
+    const risk = overheadBreakRisk({ at: (x, y, z) => at(bx + x, 2 + y, bz + z), submerged })
+    if (risk) return { ok: false, reason: `the side column floods too: ${risk}`, flood: true }
+  }
+  return { ok: true, dig }
+}
+
+/** The first bearing (in the caller's preference order) `floodSidestep` allows, or why none did. */
+export function chooseFloodSidestep ({ at = () => null, bearings = [], ...opts } = {}) {
+  const why = []
+  for (const bear of bearings) {
+    const r = floodSidestep({ at, bear, ...opts })
+    if (r.ok) return { ok: true, bear, dig: r.dig }
+    why.push(r)
+  }
+  return { ok: false, reason: why.map(r => r.reason).join('; ') || 'no bearing', flood: why.some(r => r.flood) }
 }

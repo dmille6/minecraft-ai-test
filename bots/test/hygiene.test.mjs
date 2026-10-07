@@ -80,7 +80,7 @@ await t('wear_out is registered, has a loss contract, and is chatOnly -- the mod
 await t('each planned tool is used for ONE dig on a side block at feet or head height, and is verified gone', async () => {
   const inv = filled(36, [tool('stone_axe', 1), tool('stone_hoe', 1), tool('stone_pickaxe', 90)])
   const { bot, dug } = fakeBot({ inv })
-  const r = await SKILLS.wear_out.run({ bot }, {}, { aborted: false })
+  const r = await SKILLS.wear_out.run({ bot }, {}, new AbortController().signal)
   assert.equal(r.status, 'success', r.detail)
   assert.equal(dug.length, 2)
   assert.ok(dug.every(p => !(p.x === 0 && p.z === 0)), 'never the bot\'s own column')
@@ -92,8 +92,8 @@ await t('each planned tool is used for ONE dig on a side block at feet or head h
 await t('a tool that SURVIVES the dig is reported, not claimed', async () => {
   const inv = filled(36, [tool('stone_axe', 1)])
   const { bot } = fakeBot({ inv, toolBreaks: false })
-  const r = await SKILLS.wear_out.run({ bot }, {}, { aborted: false })
-  assert.equal(r.status, 'failed'); assert.match(r.detail, /survived/)
+  const r = await SKILLS.wear_out.run({ bot }, {}, new AbortController().signal)
+  assert.equal(r.status, 'failed'); assert.match(r.detail, /not confirmed destroyed/); assert.doesNotMatch(r.detail, /survived/, 'an unconfirmed dig is not a survivor')
 })
 
 const ground = (bot, { above = 'air', below = 'block' } = {}) => {
@@ -106,7 +106,7 @@ await t('open ground: the ground beside the feet IS used, when it is safe', asyn
   const inv = filled(36, [tool('stone_axe', 1)])
   const { bot, dug } = fakeBot({ inv }); ground(bot)
   bot.entity.position = { ...V(0.5, 64, 0.5), floored: () => V(0, 64, 0) }
-  const r = await SKILLS.wear_out.run({ bot }, {}, { aborted: false })
+  const r = await SKILLS.wear_out.run({ bot }, {}, new AbortController().signal)
   assert.equal(r.status, 'success', r.detail); assert.equal(dug.length, 1); assert.equal(dug[0].y, 63)
 })
 await t('but NEVER when the bot straddles onto that column (the ledge), a plant sits on it, or a cave is under it', async () => {
@@ -117,7 +117,7 @@ await t('but NEVER when the bot straddles onto that column (the ledge), a plant 
   ]) {
     const inv = filled(36, [tool('stone_axe', 1)])
     const { bot, dug } = fakeBot({ inv }); setup(bot)
-    await SKILLS.wear_out.run({ bot }, {}, { aborted: false })
+    await SKILLS.wear_out.run({ bot }, {}, new AbortController().signal)
     if (label === 'ledge') assert.ok(!dug.some(p => p.x === 1 && p.z === 0), `ledge: dug the column the bot stands on: ${JSON.stringify(dug)}`)
     else assert.equal(dug.length, 0, `${label}: dug ${JSON.stringify(dug)}`)
   }
@@ -127,7 +127,7 @@ await t('a same-name copy WITH USES in hand is never the one that digs', async (
   const inv = filled(36, [tool('stone_axe', 1)])
   const { bot, dug } = fakeBot({ inv })
   bot.equip = async () => { bot.heldItem = { ...tool('stone_axe', 90) } }   // the server put a healthy axe in hand
-  const r = await SKILLS.wear_out.run({ bot }, {}, { aborted: false })
+  const r = await SKILLS.wear_out.run({ bot }, {}, new AbortController().signal)
   assert.equal(dug.length, 0); assert.match(r.detail, /could not hold a spent/)
 })
 
@@ -136,7 +136,7 @@ await t('a cell another bot stands in is never dug', async () => {
   const { bot, dug } = fakeBot({ inv })
   // another entity occupies every side column at feet height
   bot.entities = Object.fromEntries([[1, 0], [-1, 0], [0, 1], [0, -1]].map(([x, z], i) => [i, { position: V(x + 0.5, 64, z + 0.5) }]))
-  const r = await SKILLS.wear_out.run({ bot }, {}, { aborted: false })
+  const r = await SKILLS.wear_out.run({ bot }, {}, new AbortController().signal)
   assert.equal(dug.length, 0, `dug ${JSON.stringify(dug)}`); assert.equal(r.status, 'failed')
 })
 
@@ -144,15 +144,75 @@ await t('an equip that does not take digs NOTHING with the hand -- it stops and 
   const inv = filled(36, [tool('stone_axe', 1)])
   const { bot, dug } = fakeBot({ inv })
   bot.equip = async () => {}   // the server never put it in the hand
-  const r = await SKILLS.wear_out.run({ bot }, {}, { aborted: false })
+  const r = await SKILLS.wear_out.run({ bot }, {}, new AbortController().signal)
   assert.equal(r.status, 'failed'); assert.equal(dug.length, 0); assert.match(r.detail, /could not hold/)
 })
 
 await t('no safe block beside the bot: nothing is dug, the failure says why', async () => {
   const inv = filled(36, [tool('stone_axe', 1)])
   const { bot, dug } = fakeBot({ inv, solidAround: false })
-  const r = await SKILLS.wear_out.run({ bot }, {}, { aborted: false })
+  const r = await SKILLS.wear_out.run({ bot }, {}, new AbortController().signal)
   assert.equal(r.status, 'failed'); assert.equal(dug.length, 0); assert.match(r.detail, /no safe block/)
+})
+
+await t('DIAGNOSIS (logging only): "no safe block" carries a per-guard tally of why each cell was refused', async () => {
+  for (const [label, setup, want] of [
+    ['open air', bot => { bot.blockAt = p => ({ name: 'air', hardness: 0, boundingBox: 'empty', position: p }) }, /\[12 cells: not_natural 12\]/],
+    ['sapling', bot => { ground(bot, { above: 'oak_sapling' }); bot.entity.position = { ...V(0.5, 64, 0.5), floored: () => V(0, 64, 0) } }, /above_not_air 4/],
+    ['cave', bot => { ground(bot, { below: 'empty' }); bot.entity.position = { ...V(0.5, 64, 0.5), floored: () => V(0, 64, 0) } }, /no_support 4/],
+  ]) {
+    const inv = filled(36, [tool('stone_axe', 1)])
+    const { bot, dug } = fakeBot({ inv }); setup(bot)
+    const r = await SKILLS.wear_out.run({ bot }, {}, new AbortController().signal)
+    assert.equal(dug.length, 0, label); assert.match(r.detail, /no safe block within reach \[12 cells: /, label); assert.match(r.detail, want, `${label}: ${r.detail}`)
+  }
+  const inv = filled(36, [tool('stone_axe', 1)])
+  const { bot } = fakeBot({ inv }); ground(bot)
+  bot.entity.position = { ...V(0.75, 64, 0.5), floored: () => V(0, 64, 0) }   // straddling onto x=1: its ground cell is the footprint
+  bot.entities = Object.fromEntries([[-1, 0], [0, 1], [0, -1]].map(([x, z], i) => [i, { position: V(x + 0.5, 63, z + 0.5) }]))
+  const r = await SKILLS.wear_out.run({ bot }, {}, new AbortController().signal)
+  assert.match(r.detail, /footprint 1/, r.detail); assert.match(r.detail, /occupied 3/, r.detail)
+})
+
+await t('DIAGNOSIS: an unconfirmed wear-out is reported as UNCONFIRMED with what its slot held, not as a survivor', async () => {
+  const inv = filled(36, [tool('stone_axe', 1)])
+  const { bot } = fakeBot({ inv, toolBreaks: false })
+  const r = await SKILLS.wear_out.run({ bot }, {}, new AbortController().signal)
+  assert.equal(r.status, 'failed'); assert.match(r.detail, /not confirmed destroyed after the dig on dirt \(unconfirmed at \d+ ms, not a survivor: slot \d+ /)
+})
+
+// THE LATE LOOK (logging only): what the slot SHOWS a few hundred ms later in the suite (5 s in production); a bot that
+// DIED or ended inside the window reports `unknown`, never an empty slot (a death empties the bag).
+const { tapRecords } = await import('../src/logger.mjs')
+const lateRows = []
+tapRecords(r => { if (r?.skill?.name === '_wear_out_late') lateRows.push(r.skill.detail.split(':')[0]) })
+async function lateLook (after) {
+  await new Promise(res => setTimeout(res, 800))   // drain the late looks of earlier tests' unconfirmed digs
+  const inv = filled(36, [tool('stone_axe', 1)])
+  const { bot } = fakeBot({ inv, toolBreaks: false })
+  const listeners = {}
+  bot.once = (ev, fn) => { (listeners[ev] ??= []).push(fn) }
+  bot.removeListener = (ev, fn) => { listeners[ev] = (listeners[ev] ?? []).filter(f => f !== fn) }
+  bot.health = 20
+  const slots = []; for (const x of inv) slots[x.slot] = x
+  bot.inventory.slots = slots
+  lateRows.length = 0
+  const r = await SKILLS.wear_out.run({ bot }, {}, new AbortController().signal)
+  after(bot, listeners, slots)
+  await new Promise(res => setTimeout(res, 800))
+  return { r, rows: [...lateRows] }
+}
+await t('LATE LOOK: the slot is observed, not interpreted -- same_name_at_one_use / slot_empty', async () => {
+  const still = await lateLook(() => {})
+  assert.match(still.r.detail, /not confirmed destroyed/); assert.deepEqual(still.rows, ['same_name_at_one_use'])
+  const gone = await lateLook((bot, l, slots) => { slots.length = 0 })
+  assert.deepEqual(gone.rows, ['slot_empty'])
+})
+await t('LATE LOOK: a bot that DIED (or ended) inside the window reports unknown, not slot_empty', async () => {
+  const dead = await lateLook((bot, l, slots) => { slots.length = 0; for (const fn of l.death ?? []) fn() })
+  assert.deepEqual(dead.rows, ['unknown'])
+  const ended = await lateLook((bot, l, slots) => { slots.length = 0; for (const fn of l.end ?? []) fn() })
+  assert.deepEqual(ended.rows, ['unknown'])
 })
 
 await t('WIRING (source, comments stripped): the order precedes planting, is cooldown-gated, and pickup filters ballast; nothing tosses', () => {
@@ -165,8 +225,8 @@ await t('WIRING (source, comments stripped): the order precedes planting, is coo
   assert.match(sk, /e\.name === 'item' && !refused\.has\(e\.id\) && !neverPickUp\(e\)/)
   assert.ok(!/\.tossStack\(|bot\.toss\(/.test(sk), 'no skill tosses items')
   assert.match(cog, /admitted\.skill === 'wear_out'\) this\.wearOutBackoffUntil = r\.status === 'failed'/, 'a failed wear-out backs off')
-  assert.match(cog, /admitted\?\.skill !== 'wear_out' && this\.milestones\.noteAttempt\(/, 'wear-out is not a milestone attempt')
-  assert.match(cog, /if \(admitted\.skill !== 'wear_out'\) this\.lessons\.recordSuccess\(/, 'wear-out never becomes a reliable choice')
+  assert.match(cog, /!isHousekeeping\(admitted\?\.skill\) && this\.milestones\.noteAttempt\(/, 'wear-out is not a milestone attempt')
+  assert.match(cog, /if \(!isHousekeeping\(admitted\.skill\)\) this\.lessons\.recordSuccess\(/, 'wear-out never becomes a reliable choice')
 })
 
 console.log(`\n${pass} passed, ${fail} failed`); if (fail) process.exit(1)

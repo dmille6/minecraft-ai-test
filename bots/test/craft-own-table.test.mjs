@@ -25,7 +25,7 @@ const CODE = strip(RAW)
 // The reach check lives after the table walk. Cut the region so the anchors
 // cannot match smelt's copy of the same idea.
 const start = CODE.indexOf("matching: b => bot.registry.blocks[b.type]?.name === 'crafting_table'")
-const region = CODE.slice(start, CODE.indexOf('await bot.craft(recipe, count, table ?? undefined)'))
+const region = CODE.slice(start, CODE.indexOf('await craftExecutions(ctx, { item, recipe, crafts: craftsFor(count, recipe)'))
 assert.ok(start > 0 && region.length > 0, 'craft region moved; re-read this test')
 
 const PLACES = /if \(reach > STATION_REACH && carried\)[\s\S]{0,200}?place\(ctx, \{ item: 'crafting_table' \}, signal\)/
@@ -55,6 +55,6 @@ test('MUTANT: with the placement removed, the first assertion fails for the inte
   assert.equal(RAW.split(anchor).length - 1, 1, 'ANCHOR MISSING or not unique')
   const mutant = strip(RAW.replace(anchor, 'if (false) {'))
   const s = mutant.indexOf("matching: b => bot.registry.blocks[b.type]?.name === 'crafting_table'")
-  const r = mutant.slice(s, mutant.indexOf('await bot.craft(recipe, count, table ?? undefined)'))
+  const r = mutant.slice(s, mutant.indexOf('await craftExecutions(ctx, { item, recipe, crafts: craftsFor(count, recipe)'))
   assert.doesNotMatch(r, PLACES, 'the anchor did not carry the assertion')
 })

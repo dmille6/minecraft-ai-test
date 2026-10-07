@@ -263,14 +263,23 @@ await t('LAVA BESIDE THE CEILING CLOSES IT TOO: the faces are checked, not just 
   assert.match(headroomBreach({ at: atOf(w) }).reason, /lava against the ceiling/)
 })
 
-await t('WATER OVERHEAD DOES NOT CLOSE IT: water is terrain, and swimming is travel', () => {
-  // The standing owner directive, and the regression that earned it: widening a
-  // wet predicate multiplied drownings sevenfold on 2026-08-29. A bot under a
-  // pond must still be allowed out from under it.
+await t('WATER OVER THE CEILING: a DRY bot may not breach into it; a SUBMERGED bot still may', () => {
+  // CHANGED BY climbflood-01, ON MEASUREMENT (underground-safety design, 72 h):
+  // every drowning was a sealed pocket and the largest way in was the escape
+  // climb breaking the block under a pocket; the ramp's breach of this exact
+  // cell was the bypass Codex found ("else ramp" re-breached the refused
+  // ceiling). The owner directive is kept where it applies: water IN a cell is
+  // terrain (the positive control above), and a bot whose feet and head are
+  // already in water may still dig toward air -- that exemption is asserted
+  // here, so this cannot regress into the 2026-08-29 wet veto.
   const w = TOMB(); w.set(0, 3, 0, 'water')
-  const r = headroomBreach({ at: atOf(w) })
-  assert.strictEqual(r.ok, true, `water was treated as a hazard: ${r.reason}`)
-  assert.deepStrictEqual(r.dig, [[0, 2, 0]])
+  const dry = headroomBreach({ at: atOf(w) })
+  assert.strictEqual(dry.ok, false, 'a dry bot breached the floor of a water pocket')
+  assert.strictEqual(dry.flood, true, 'the refusal must be labelled a flood refusal for the reflex')
+  assert.match(dry.reason, /flood risk: liquid above the block overhead \(water\)/)
+  const wet = headroomBreach({ at: atOf(w), submerged: true })
+  assert.strictEqual(wet.ok, true, `the submerged exemption is gone: ${wet.reason}`)
+  assert.deepStrictEqual(wet.dig, [[0, 2, 0]])
 })
 
 // ============================================================================
@@ -390,7 +399,7 @@ await t('WIRED: the entombed handler cuts a ramp BEFORE asking for 26 blocks', (
 // F. MUTANTS. Each asserts its anchor is present AND unique before it applies.
 // ============================================================================
 
-const BREACH_BLOCK = `    const plan = headroomBreach({ at, canBreak })
+const BREACH_BLOCK = `    const plan = headroomBreach({ at, canBreak, submerged })
     if (!plan.ok) {`
 const BREACH_SKIPPED = `    const plan = { ok: true, dig: [] }
     if (!plan.ok) {`
@@ -430,8 +439,11 @@ const LAVA_NARROW = "  canBreak = () => true,\n  isLava = b => /lava/.test(b?.na
 const LAVA_WIDENED = "  canBreak = () => true,\n  isLava = b => /lava|water/.test(b?.name ?? ''),"
 
 await t('MUTANT KILLED: treating water as a hazard rebuilds the drowning-era veto', async () => {
+  // Fixture: water IN the ceiling cell -- terrain, nothing to break, open (the
+  // positive control in section B). climbflood-01 moved "water above the
+  // ceiling" to the flood check, so that fixture no longer separates the arms.
   await withMutant(SCAFFOLD_PATH, LAVA_NARROW, LAVA_WIDENED, async mod => {
-    const w = TOMB(); w.set(0, 3, 0, 'water')
+    const w = TOMB(); w.set(0, 2, 0, 'water')
     const r = mod.headroomBreach({ at: atOf(w) })
     assert.strictEqual(r.ok, false,
       'the mutant did not close the ceiling, so the water test above is not ' +
@@ -443,15 +455,21 @@ await t('MUTANT KILLED: treating water as a hazard rebuilds the drowning-era vet
 const FACES_CHECK = "    if (isLava(n)) return { ok: false, reason: `lava against the ceiling (${n.name})` }"
 const FACES_GONE = '    if (false && isLava(n)) return { ok: false, reason: `unreachable (${n.name})` }'
 
-await t('MUTANT KILLED: dropping the face check opens a cell with lava resting on it', async () => {
+await t('MUTANT KILLED: dropping the face check hands lava-above to the flood check, never to the ceiling dig', async () => {
+  // TWO LINES NOW STOP THIS, ON PURPOSE (climbflood-01): the face check, and
+  // behind it the shared flood check every upward dig asks. So the mutant must
+  // CHANGE the answer's source: the face check is what speaks first (its reason
+  // is gone under the mutant) and the flood check is a live backstop (its
+  // reason appears) -- neither is decorative.
+  assert.match(headroomBreach({ at: atOf((() => { const w = TOMB(); w.set(0, 3, 0, 'lava'); return w })()) }).reason,
+    /lava against the ceiling/)
   await withMutant(SCAFFOLD_PATH, FACES_CHECK, FACES_GONE, async mod => {
     const w = TOMB(); w.set(0, 3, 0, 'lava')
     const r = mod.headroomBreach({ at: atOf(w) })
-    assert.strictEqual(r.ok, true,
-      'the mutant still refused, so the lava-above test is passing on some ' +
-      'other line and the face check has never been seen to be what stops it')
-    assert.deepStrictEqual(r.dig, [[0, 2, 0]],
-      'the mutant would break the ceiling holding the lava up')
+    assert.doesNotMatch(String(r.reason), /lava against the ceiling/,
+      'the mutant still answered with the face check, so it did not apply')
+    assert.strictEqual(r.ok, false, 'with the face check gone the flood check must still refuse lava above')
+    assert.match(r.reason, /flood risk: liquid above the block overhead \(lava\)/)
   })
 })
 

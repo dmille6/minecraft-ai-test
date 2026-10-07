@@ -17,6 +17,7 @@ import { mineTargetHint } from './mining.mjs'
 import { isExposed, isSafeToBreak, shorelineExemptAt } from './skills.mjs'
 import { logEvent } from './logger.mjs'
 import { bankableInventory, depositDue } from './bankable.mjs'
+import { bankClosed, depositTargetOk } from './chestfull.mjs'
 import { config } from './config.mjs'
 
 const MAX_EVENTS = 12
@@ -40,7 +41,7 @@ export class WorkingMemory {
 }
 
 const INTERESTING_BLOCKS = ['oak_log', 'birch_log', 'spruce_log', 'dirt', 'grass_block',
-  'stone', 'coal_ore', 'iron_ore', 'water', 'lava', 'sand', 'crafting_table', 'chest']
+  'stone', 'coal_ore', 'iron_ore', 'deepslate_iron_ore', 'water', 'lava', 'sand', 'crafting_table', 'chest']
 
 /**
  * WHAT THE BOT NEEDS GOES FIRST, BECAUSE THE SCAN RUNS OUT BEFORE THE LIST DOES.
@@ -219,7 +220,7 @@ export function buildSystemPrompt(skillNames) {
     '  gather  args: {"block": "<block id e.g. oak_log>", "count": <integer>}',
     '  goto    args: {"x": <int>, "y": <int>, "z": <int>}',
     '  deposit args: {"item": "<item id>"}   (walks home to the town chest if none nearby; omit item to deposit everything)',
-    '  withdraw args: {"item": "<item id>", "count": <integer>}  (takes from a chest or barrel within 48 blocks)',
+    '  withdraw args: {"item": "<item id>", "count": <integer>}  (the item is required; takes it from the town chests, walking home first; a tool comes as its best usable copy)',
     '  home    args: {}',
     '  status  args: {}',
     '  eat     args: {}                       (eats food from inventory)',
@@ -595,10 +596,11 @@ function smeltableNow (bot) {
 // So the same treatment. Shown only when a deposit is actually WORTH making --
 // the same predicate the admission gate uses -- because a line urging a bot to
 // bank from 800 blocks out would be advice it should not take.
-function depositSituation (bot, memory) {
+export function depositSituation (bot, memory) {
   try {
     const items = bot.inventory?.items?.() ?? []
     if (!items.length) return ''
+    if (bankClosed(bot)) return ''   // admission refuses every deposit while the bank is closed (chestfull.mjs)
     const bank = bankableInventory(items)
     const home = memory?.locations?.home
     const p = bot.entity?.position
@@ -608,7 +610,8 @@ function depositSituation (bot, memory) {
       : Math.hypot(config.world.homeX - p.x, config.world.homeZ - p.z)
     const storage = bot.findBlock?.({
       matching: b => ['chest', 'barrel', 'trapped_chest']
-        .includes(bot.registry?.blocks?.[b.type]?.name),
+        .includes(bot.registry?.blocks?.[b.type]?.name) &&
+        depositTargetOk({ x: config.world.homeX, y: config.world.homeY, z: config.world.homeZ }, b.position),   // a DEEP container is not storage (chestfull-02)
       maxDistance: 48,
     })
     if (!depositDue({ bankable: bank.count, distHome, storageWithin48: !!storage,

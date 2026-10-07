@@ -34,6 +34,16 @@ const isLiquid = b => !!b && LIQ.has(b.name)
 const AIR   = { name: 'air',   boundingBox: 'empty' }
 const STONE = { name: 'stone', boundingBox: 'block' }
 const WATER = { name: 'water', boundingBox: 'empty' }
+// climbflood-01: the guard reads a neighbourhood through `at`, relative to the
+// block to be broken. `cellsAt` builds one from the old head/sides shape plus
+// the new cell above it; anything not named is STONE, and `null` is unloaded.
+const cellsAt = ({ head, sides = [], above = STONE }) => (x, y, z) => {
+  if (x === 0 && y === 0 && z === 0) return head
+  if (x === 0 && y === 1 && z === 0) return above
+  const i = [[1, 0], [-1, 0], [0, 1], [0, -1]].findIndex(([a, b]) => a === x && b === z)
+  if (y === 0 && i >= 0) return i < sides.length ? sides[i] : STONE
+  return STONE
+}
 
 // --- defect 1: the pathfinder could not tower with what bots actually carry ---
 
@@ -93,7 +103,7 @@ t('it is defensive about a missing registry rather than throwing mid-connect', (
 // --- defect 2: the pillar refused to run next to water ----------------------
 
 t('THE 99.1%: air overhead and water beside is a SAFE step', () => {
-  assert.equal(overheadBreakRisk({ head: AIR, sides: [WATER, null, null, null], isLiquid }), null,
+  assert.equal(overheadBreakRisk({ at: cellsAt({ head: AIR, sides: [WATER, null, null, null] }) }), null,
     'nothing is being broken, so no neighbour can flood anything')
 })
 
@@ -104,19 +114,26 @@ t('MUTANT: the old always-on guard refused exactly this step', () => {
 })
 
 t('SAFETY KEPT: breaking a block with water beside it is still refused', () => {
-  const r = overheadBreakRisk({ head: STONE, sides: [WATER], isLiquid })
+  const r = overheadBreakRisk({ at: cellsAt({ head: STONE, sides: [WATER] }) })
   assert.ok(r && /beside the block overhead/.test(r), `expected a refusal, got ${r}`)
 })
 
 t('water directly overhead still ends the climb', () => {
   // Liquid has an EMPTY boundingBox, so a solidity test alone would fall
   // through and let the bot pillar its own head under water.
-  const r = overheadBreakRisk({ head: WATER, sides: [], isLiquid })
+  const r = overheadBreakRisk({ at: cellsAt({ head: WATER }) })
   assert.ok(r && /overhead/.test(r), `expected a refusal, got ${r}`)
 })
 
 t('a dry solid ceiling is broken without complaint', () => {
-  assert.equal(overheadBreakRisk({ head: STONE, sides: [STONE, STONE, AIR, null], isLiquid }), null)
+  assert.equal(overheadBreakRisk({ at: cellsAt({ head: STONE, sides: [STONE, STONE, AIR, STONE] }) }), null)
+})
+
+t('climbflood-01: an UNLOADED neighbour of a block about to be broken is a refusal, not a dry cell', () => {
+  // This assertion used to pass a null side as dry. "I cannot see" is not "it
+  // is dry" -- the design adopted unknown = refuse (Codex, pass 2).
+  assert.match(overheadBreakRisk({ at: cellsAt({ head: STONE, sides: [STONE, STONE, AIR, null] }) }),
+    /terrain not loaded beside/)
 })
 
 // --- a pillar may be built of sand; a bridge may not -------------------------
@@ -200,7 +217,8 @@ t('THE CLIMB OWNS THE BODY: it clears the pathfinder goal before starting', () =
   const i = src.indexOf('export async function shaftAscend')
   assert.ok(i > 0, 'shaftAscend moved; re-read this test')
   const head = src.slice(i, src.indexOf('const startY', i))
-  assert.ok(/setGoal\(null\)/.test(head),
+  // haltPath(bot) IS setGoal(null) (pathhalt.mjs; its behaviour is tested in pathhalt.test.mjs).
+  assert.ok(/setGoal\(null\)|haltPath\(bot\)/.test(head),
     'the climb starts without clearing the goal — stop() alone waits for a path node it may never reach')
   assert.ok(/clearControlStates\(\)/.test(head),
     'stale control states from the failed goto are still latched')
@@ -274,8 +292,7 @@ t('THE TRAP: a wet ceiling with a dry one beside it now has an answer', () => {
 t('MUTANT-BY-CONSTRUCTION: the guard still refuses the column being left', () => {
   // Guards the test above against passing for the wrong reason: if the origin
   // were diggable there would be nothing to step away from.
-  const sides = [[1, 0], [-1, 0], [0, 1], [0, -1]].map(([x, z]) => TRAP(x, CEIL_Y, z))
-  assert.ok(overheadBreakRisk({ head: TRAP(0, CEIL_Y, 0), sides, isLiquid }),
+  assert.ok(overheadBreakRisk({ at: (x, y, z) => TRAP(x, CEIL_Y + y, z) }),
     'the fixture must be one the shipped guard rejects')
 })
 
@@ -287,8 +304,7 @@ t('SAFETY KEPT: it never proposes a column the guard would refuse', () => {
     const s = dryColumnStep({ at: atOf(world), isLiquid })
     if (!s) continue
     const x = s.dx * s.dist, z = s.dz * s.dist
-    const sides = [[1, 0], [-1, 0], [0, 1], [0, -1]].map(([a, b]) => world(x + a, CEIL_Y, z + b))
-    assert.equal(overheadBreakRisk({ head: world(x, CEIL_Y, z), sides, isLiquid }), null,
+    assert.equal(overheadBreakRisk({ at: (a, y, b) => world(x + a, CEIL_Y + y, z + b) }), null,
       'it offered a column the guard refuses')
   }
 })
@@ -456,6 +472,18 @@ async function withMutant (path, old, neu, fn) {
   writeFileSync(out, body)
   try { return await fn(await import(out.href)) } finally { try { unlinkSync(out) } catch {} }
 }
+/** Several anchored replacements in one mutant (each present AND unique), for a guard that is asked twice. */
+async function withMutantsAll (path, pairs, fn) {
+  let src = readFileSync(path, 'utf8')
+  for (const [old, neu] of pairs) {
+    assert.ok(src.includes(old), `MUTATION DID NOT APPLY: ${JSON.stringify(old.slice(0, 60))}`)
+    assert.ok(src.split(old).length === 2, 'the mutation target is not unique; the mutant is ambiguous')
+    src = src.replace(old, neu)
+  }
+  const out = new URL(`./_mutant-${process.pid}-${Math.random().toString(36).slice(2)}.mjs`, import.meta.url)
+  writeFileSync(out, src.replace(/from '\.\//g, "from '../src/"))
+  try { return await fn(await import(out.href)) } finally { try { unlinkSync(out) } catch {} }
+}
 
 await ta('MUTANT KILLED: without the finally, an abort latches `forward` on', async () => {
   // The mutant is the same walk with the try/finally unwrapped -- the shape the
@@ -488,7 +516,9 @@ await ta('MUTANT KILLED: reverting the sidestep to a bare `return` re-freezes th
 })
 
 await ta('MUTANT KILLED: dropping the guard floods the shaft', async () => {
-  await withMutant(SKILLS_PATH, '    if (flood) {', '    if (false) {',
+  // climbflood-01 asks the guard TWICE -- before the hand change and again after the equip (a server round trip),
+  // so the mutant must drop both for the shaft to flood.
+  await withMutantsAll(SKILLS_PATH, [['    if (flood) {', '    if (false) {'], ['        if (again) {', '        if (false) {']],
     async mod => {
       const { bot, digs } = trappedBot(SOAKED)
       await mod.shaftAscend(bot, 60, new AbortController().signal, { deadline: Date.now() + 8_000 })

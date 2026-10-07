@@ -14,13 +14,24 @@
 import assert from 'node:assert'
 import test from 'node:test'
 import fs from 'node:fs'
+import os from 'node:os'
 import path from 'node:path'
-import { fileURLToPath } from 'node:url'
 
+// BEHAVIOUR, NOT SOURCE TEXT (2026-10-03). These tests used to match the recovery's source with regexes -- one of them
+// pinned the unconditional `craft(ctx, { item: 'chest' ...})` that was the defect: 75 of 90 full-chest blocks in 24 h
+// were bots CARRYING a chest. They now drive deposit through the real skill against fakeworld.mjs.
 process.env.OLLAMA_MODEL ??= 'qwen2.5:7b-instruct'
-const SRC = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'src')
-const raw = fs.readFileSync(path.join(SRC, 'skills.mjs'), 'utf8')
-const CODE = raw.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '')
+process.env.LOG_DIR = fs.mkdtempSync(path.join(os.tmpdir(), 'mcbot-storagefull-logs-'))
+process.env.BOT_NAME = 'StorageBot'
+// The production watchdog (the recovery's clock is config.skills.defaultTimeoutMs; the runner sets 300 ms for tests).
+process.env.SKILL_TIMEOUT_MS = '180000'
+process.env.HOME_X = '0'; process.env.HOME_Y = '64'; process.env.HOME_Z = '0'
+const freshPool = () => { process.env.POOL_STATE_DIR = fs.mkdtempSync(path.join(os.tmpdir(), 'mcbot-storagefull-pool-')) }
+freshPool()
+const { SKILLS } = await import('../src/skills.mjs')
+const { fakeWorld, stack, total } = await import('./fakeworld.mjs')
+const run = bot => SKILLS.deposit.run({ bot }, {}, new AbortController().signal)
+const town = bag => { freshPool(); const w = fakeWorld({ bag }); w.set(5, 64, 0, 'chest'); w.fill(5, 64, 0); return w }
 
 test('a chest is genuinely craftable from what bots carry', async () => {
   // The remedy has to be performable, not merely nameable. Eight planks.
@@ -34,53 +45,47 @@ test('a chest is genuinely craftable from what bots carry', async () => {
   assert.equal(ings.length, 8, 'eight planks, which is two logs')
 })
 
-test('storage_full builds a chest instead of only naming one', () => {
-  assert.match(CODE, /if \(!noRecovery\) \{[\s\S]{0,2400}?craft\(ctx, \{ item: 'chest', count: 1 \}/,   // the alternates loop (other chests within 24 blocks) sits between the guard and the craft since 2026-09-13
-    'it must actually craft the chest')
-  assert.match(CODE, /place\(ctx, \{ item: 'chest' \}, signal\)/,
-    'and put it down')
+test('a full town chest and a CARRIED chest: the carried one is put down and the deposit lands in it', async () => {
+  const w = town([stack('cobblestone', 64), stack('chest', 1)])
+  const r = await run(w.bot)
+  assert.equal(r.status, 'success', r.detail)
+  assert.equal(w.spy.placed.length, 1)
+  assert.equal(w.spy.recipesFor + w.spy.craft, 0, 'nothing crafted')
+  assert.equal(w.spy.opened.at(-1), w.spy.placed[0], 'the retry opened the NEW chest, not the full one it just left')
+  assert.match(r.detail, /placed the chest it carried/)
 })
 
-test('the recovery cannot re-enter itself', () => {
-  // A bounded recovery that can re-enter is an unbounded recovery. A bot that
-  // can craft but never place would otherwise make a chest per attempt forever.
-  // Matches the FLAG, not the whole argument list — the first version pinned
-  // the exact call text and broke the moment `preferAt` was added alongside it.
-  // An assertion that fails on a correct edit trains you to weaken assertions.
-  assert.match(CODE, /deposit\(ctx, \{ item \}, signal, \{[^}]*noRecovery: true/,
-    'the retry must disable the recovery path')
-  assert.match(CODE, /noRecovery = false[^)]*\} = \{\}\)/,
-    'and the guard is a real parameter with a default, not an ambient flag')
+test('the recovery cannot re-enter itself: a new chest that also takes nothing ends it -- one chest, one claim', async () => {
+  const w = town([stack('cobblestone', 64), stack('chest', 2)])
+  const place = w.bot.placeBlock
+  w.bot.placeBlock = async (ref, face) => { await place(ref, face); const k = w.spy.placed.at(-1).split(',').map(Number); w.fill(...k) }
+  const r = await run(w.bot)
+  assert.equal(r.status, 'failed'); assert.equal(r.failClass, 'storage_full')
+  assert.equal(w.spy.placed.length, 1, 'exactly one chest, though two were carried')
+  assert.match(r.detail, /placed a new chest at .* and still could not bank/)
 })
 
-test('every failure branch still reports storage_full and says what happened', () => {
-  // Three distinct ways this can end badly and each must stay countable:
-  // could not craft, could not place, placed but still could not bank.
-  const branch = CODE.slice(CODE.indexOf('if (!noRecovery)'))
-  const classes = branch.match(/failClass: 'storage_full'/g) ?? []
-  assert.ok(classes.length >= 3,
-    `each failure mode keeps the class — found ${classes.length}`)
-  assert.match(branch, /could not make another/, 'the craft failure names itself')
-  assert.match(branch, /nowhere to put a new one/, 'and so does the place failure')
+test('every failure branch reports storage_full and names what happened', async () => {
+  // could not make one: no chest carried, nothing to craft it from
+  const a = town([stack('cobblestone', 64)])
+  const ra = await run(a.bot)
+  assert.equal(ra.failClass, 'storage_full'); assert.match(ra.detail, /no chest could be crafted/)
+  // could not put it down: every placement is refused and the cell never changes
+  const b = town([stack('cobblestone', 64), stack('chest', 1)])
+  b.bot.placeBlock = async () => { throw new Error('Event blockUpdate did not fire') }
+  const rb = await run(b.bot)
+  assert.equal(rb.failClass, 'storage_full'); assert.match(rb.detail, /could not be put down/)
+  assert.equal(b.bag.find(i => i.name === 'chest').count, 1, 'the chest is still in the bag')
+  assert.equal(total(b.bag), 65)
 })
 
-test('the retry opens the NEW chest, not the full one it just left', () => {
-  // Caught by ChatGPT reviewing this change: without it, the retry calls
-  // findChest() and gets the NEAREST container -- very often the same full one,
-  // because the new chest is placed adjacent to the bot and so is the old one.
-  // The recovery would have looked like it ran and changed nothing.
-  assert.match(CODE, /preferAt: put\.at/, 'the retry is handed the new chest position')
-  assert.match(CODE, /if \(preferAt\) \{[\s\S]{0,200}?isContainer\(b\)\) chestBlock = b/,
-    'and deposit prefers that container over the nearest one')
-  assert.match(CODE, /placed: 1, at,/,
-    'place returns the position structurally — not parsed back out of its prose')
-})
-
-test('the old dead-end refusal is gone from the recovery path', () => {
-  // The unconditional version must only survive as the noRecovery tail.
-  const idx = CODE.indexOf('if (!noRecovery)')
-  assert.ok(idx > 0, 'the recovery exists')
-  const before = CODE.slice(0, idx)
-  assert.ok(!/failClass: 'storage_full'/.test(before),
-    'nothing may refuse with storage_full before the remedy has been tried')
+test('a LATE ACK is read back before another cell is tried: one chest, never two', async () => {
+  const w = town([stack('cobblestone', 64), stack('chest', 2)])
+  const place = w.bot.placeBlock
+  let calls = 0
+  w.bot.placeBlock = async (ref, face) => { calls++; setTimeout(() => { place(ref, face) }, 400); throw new Error('Event blockUpdate did not fire') }
+  const r = await run(w.bot)
+  assert.equal(calls, 1, 'no second cell was tried while the first could still land')
+  assert.equal(w.spy.placed.length, 1)
+  assert.equal(r.status, 'success', r.detail)
 })

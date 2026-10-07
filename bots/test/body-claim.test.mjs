@@ -56,10 +56,11 @@ t('the harvest watchdog is ON by default — gather still wants the drop', () =>
 t('THE CLIMB OPTS OUT: it wants the hole, not the cobble', () => {
   const code = strip('../src/skills.mjs')
   const digs = code.match(/withTimeout\(bot\.dig\([^;]*?\}\)/gs) ?? []
-  assert.equal(digs.length, 8, `expected 8 dig call sites, found ${digs.length}`)   // + deposit's chest-lid dig (2026-09-13), + wear_out's dig (2026-09-29)
+  assert.equal(digs.length, 9, `expected 9 dig call sites, found ${digs.length}`)   // + deposit's chest-lid dig (2026-09-13), + wear_out's dig (2026-09-29), + withdraw's chest-lid dig (2026-10-04)
   const optedOut = digs.filter(d => /needsDrop:\s*false/.test(d))
   // wear_out opts out too: it digs to BREAK THE TOOL, and the drop is irrelevant (hygiene.mjs)
-  assert.equal(optedOut.length, 7,
+  // withdraw's chest-lid dig (2026-10-04) opts out for deposit's reason: it wants the lid gone, not the block.
+  assert.equal(optedOut.length, 8,
     'the two escape digs, the staircase re-dig, place()\'s make-room dig, goto\'s float dig and deposit\'s chest-lid dig ' +
     'float dig may opt out — all five want the HOLE, not the drop. The staircase one ' +
     'recovers a dig the server did not accept; make-room opens one cell for a station ' +
@@ -318,7 +319,9 @@ t('A TOOL-SHORT CLIMB ASKS FOR A TOOL', () => {
   const r = climbPrereqFor('needs_pickaxe')
   assert.ok(r, 'no prerequisite for a tool-short refusal')
   assert.ok(r.items.every(i => /_pickaxe$/.test(i)), `asked for ${r.items}`)
-  assert.equal(r.count, 1)
+  // TWO, not one (prereq-usable, 2026-09-29): the escape refuses to spend its last pickaxe on the ceiling, so an ask
+  // for one was met and refused in turn -- a loop. prereq-usable.test.mjs holds the ask and mayDigForEscape together.
+  assert.equal(r.count, 2)
 })
 
 t('A BLOCK-SHORT CLIMB ASKS FOR BLOCKS', () => {

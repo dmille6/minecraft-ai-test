@@ -61,10 +61,13 @@ function makeCraftBot(inv = {}, { tableNearby = false } = {}) {
     inventory: { items: () => Object.entries(bag).filter(([, c]) => c > 0).map(([name, count]) => ({ name, count })) },
     // A recipe is only returned when its station requirement is satisfied AND
     // the bot actually holds the ingredients -- which is what mineflayer does.
+    // `count` is the minimum RESULT count, as in mineflayer: crafts = ceil(count / yield).
     recipesFor(id, _meta, count = 1, table = null) {
       const rs = RECIPES[NAME[id]] ?? []
-      return rs.filter(r => (!r.needsTable || table) &&
-        r.delta.every(d => d.count >= 0 || (bag[NAME[d.id]] ?? 0) >= -d.count * count))
+      return rs.filter(r => {
+        const crafts = Math.ceil(count / (r.delta.find(d => d.id === id)?.count || 1))
+        return (!r.needsTable || table) && r.delta.every(d => d.count >= 0 || (bag[NAME[d.id]] ?? 0) >= -d.count * crafts)
+      })
     },
     recipesAll(id) { return RECIPES[NAME[id]] ?? [] },
     findBlock() { return tableNearby || placed.includes('crafting_table')
@@ -97,7 +100,8 @@ function makeCraftBot(inv = {}, { tableNearby = false } = {}) {
   return { bot, bag, placed }
 }
 
-const run = (bot, args) => SKILLS.craft.run({ bot }, args, { aborted: false })
+// The runner passes a real AbortSignal (runner.mjs controller.signal); craft's room and retake steps sleep on it.
+const run = (bot, args) => SKILLS.craft.run({ bot }, args, new AbortController().signal)
 
 // --- the case that was failing 16 times out of 16 -------------------------
 await t('logs + a nearby table -> a wooden pickaxe, walking the whole tree', async () => {

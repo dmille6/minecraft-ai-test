@@ -9,14 +9,17 @@
 // preempt whatever gets executed. That layering is deliberate -- it is what
 // keeps a bad generation from becoming a bad action.
 
-import { SKILLS, classifyOutcome, SKILL_CONTRACTS, plantableSpotNear } from './skills.mjs'
+import { HARD_STOP } from './toolfor.mjs'
+import { SKILLS, classifyOutcome, SKILL_CONTRACTS, plantableSpotNear, findTownComposter, townBuildPlan, townPickMiss, townIngredientMiss, foodSkipNow } from './skills.mjs'
 import { smeltInputsFor } from './smelting.mjs'
 import { makeClient, skillSchema } from './llm.mjs'
 import { buildSystemPrompt, buildUserPrompt, makeSentinel, WorkingMemory } from './prompt.mjs'
 import { AdmissionControl } from './admission.mjs'
 import { MilestoneController, servesRung, NO_PROGRESS_MS, RUNNER_REFUSALS } from './milestones.mjs'
 import { orderFor, readyFor, plantingOrder, plantingEnabled, PLANT_COOLDOWN_MS } from './workorder.mjs'
-import { wearOutPlan } from './hygiene.mjs'
+import { wearOutPlan, isHousekeeping } from './hygiene.mjs'
+import { compostPlan, townOrder, townOrderOutcome, boneMealRoom, composterLevel, TOWN_ORDERS, STORAGE_NEAR, TOWN_RADIUS } from './composter.mjs'
+import { hasUsablePick, roomPlan, pickTakes, roomKeep } from './withdrawpick.mjs'
 /** One wear-out order per bot per two minutes at most. */
 export const WEAR_OUT_COOLDOWN_MS = 2 * 60 * 1000
 /** After a wear-out that destroyed nothing, wait this long before the next order. */
@@ -121,6 +124,18 @@ const SKILL_NAMES = Object.keys(SKILLS)
 export { EVIDENCE_ABOUT_THE_ACTION, EVIDENCE_ONLY_IF_STUCK, EVIDENCE_ONLY_IF_HERE }
 
 /**
+ * THE OUTCOME LINE THE PROMPT RENDERS -> at most OUTCOME_CHARS characters: skill, status, verdict, the skill's detail,
+ * then the evidence. Pure, exported so a test can check what actually reaches the model: whatever a refusal needs the
+ * model to read (its remedy) must sit at the START of its detail, or the cut takes it.
+ */
+export const OUTCOME_CHARS = 220
+export function formatOutcome (skill, r = {}, outcome = null) {
+  const evidence = outcome?.because?.length ? ` [${outcome.because.join('; ')}]` : ''
+  const verdict = outcome?.value ? ` (${outcome.value})` : ''
+  return `${skill} -> ${r?.status}${verdict}: ${r?.detail ?? ''}${evidence}`.slice(0, OUTCOME_CHARS)
+}
+
+/**
  * Which store does this failure class get a vote in, and under what condition?
  *
  * ONE source of truth, pure and exported, so the policy can be asserted
@@ -214,6 +229,31 @@ export function ladderExhausted (latches, now, { max = LADDER_MAX_LATCHES, windo
  * the task to render plus, when the prereq is finished, WHY it finished --
  * `satisfied` (the bot holds enough) or `abandoned` (it ran out of patience).
  */
+/**
+ * How many of a prerequisite the bot holds that can DO THE WORK. Pure.
+ *
+ * A TOOL AT ITS FLOOR IS NOT A TOOL (fleet triage 2026-09-29, 24 h, 60 bots): 4,073 of 4,605 pickaxe prerequisites
+ * (88.4%) were counted SATISFIED while every pickaxe held had <= 1 use -- a copy toolfor.mjs will never swing
+ * (remaining > HARD_STOP, toolfor.mjs:51). So "get a pickaxe" cleared the moment it was adopted, the bot went back to
+ * the dig that had just failed, and four sealed bots looped for the whole window (96 bot-hours). A durable item counts
+ * only above HARD_STOP uses, and above `minUses` when the task names one.
+ */
+export function prereqHave(items, prereq) {
+  if (!prereq) return 0
+  const want = new Set(prereq.items ?? [])
+  const min = Math.max(HARD_STOP + 1, prereq.minUses ?? 0)
+  let n = 0
+  for (const it of items ?? []) {
+    if (!want.has(it?.name)) continue
+    // DIGGING TOOLS ONLY (Codex review): the floor is toolfor's swing reserve. A one-use shears, armour or
+    // flint_and_steel still does its job, so only pickaxes/axes/shovels/hoes are held to it.
+    if (DIG_TOOL.test(it.name) && it.maxDurability && it.maxDurability - (it.durabilityUsed ?? 0) < min) continue
+    n += it.count ?? 1
+  }
+  return n
+}
+const DIG_TOOL = /_(pickaxe|axe|shovel|hoe)$/
+
 export function applyPrereq(milestone, prereq, have, now = Date.now()) {
   if (!prereq) return { task: milestone, clear: null }
   if (have >= prereq.count) return { task: milestone, clear: 'satisfied' }
@@ -557,18 +597,26 @@ export class CognitiveLoop {
     log('warn', 'prerequisite adopted as the current task', {
       need: need.items.slice(0, 3).join('/'), count: need.count, after: fromSkill,
     })
+    // named= vs usable= : the canary's licence text, and the number the old count hid (a bot holding six spent pickaxes
+    // reads named=6 usable=0).
+    const inv = this.bot.inventory?.items?.() ?? []
+    const named = inv.filter(it => (need.items ?? []).includes(it?.name)).reduce((n, it) => n + (it.count ?? 1), 0)
+    // THE CASE THIS BUILD CHANGES (Codex review): by name the bot "has" it, by use it does not. The old count cleared
+    // this detour at once; only this build can write the row.
+    if (named >= need.count && prereqHave(inv, need) < need.count) {
+      logEvent({ kind: 'prereq_usable_filtered', status: 'success',
+                 detail: `${fromSkill}: named=${named} usable=${prereqHave(inv, need)} of ${need.count}x ${need.items.slice(0, 2).join('/')}; floor ${Math.max(HARD_STOP + 1, need.minUses ?? 0)} uses`,
+                 snapshot: snapshot(this.bot) })
+    }
     logEvent({ kind: 'prereq_adopted', status: 'failed',
                detail: `${fromSkill} needs ${need.count}x ${need.items.slice(0, 3).join(' or ')} ` +
-                       `(${need.because}); it is now the task until satisfied`,
+                       `(${need.because}); it is now the task until satisfied named=${named} usable=${prereqHave(inv, need)}`,
                snapshot: snapshot(this.bot) })
   }
 
   #prereqHave() {
-    if (!this.prereq) return 0
-    const want = new Set(this.prereq.items)
-    let n = 0
-    for (const it of (this.bot.inventory?.items() ?? [])) if (want.has(it.name)) n += it.count
-    return n
+    // prereq-usable's prereqHave (it honours `minUses`, which the ore tunnel sets) replaces the tunnel's own copy.
+    return prereqHave(this.bot.inventory?.items() ?? [], this.prereq)
   }
 
   #activeTask() {
@@ -730,6 +778,41 @@ export class CognitiveLoop {
         }
       } catch { /* an inventory read must never break the decision loop */ }
     }
+    // THE TOWN ORDERS (composter.mjs townOrder decides; this only supplies readings and keeps the state): compost at
+    // town at 34+ slots, or build the town's composter when there is none and the bag has room for the craft chain.
+    // Never a trip. Every world scan is lazy and rate-limited inside townOrder.
+    if (!order) {
+      try {
+        const bot = this.bot
+        const items = bot.inventory?.items?.() ?? []
+        const p = bot.entity?.position
+        // THE PEACEFUL FOOD POLICY (foodskip.mjs, owner 10-06): apples above the reserve count as compostable only while it is active.
+        const plan = compostPlan(items, { apples: foodSkipNow(bot).active })
+        const home = { x: config.world.homeX, z: config.world.homeZ }
+        const r = townOrder({
+          now: Date.now(), slots: plan.slots, freeSlots: 36 - plan.slots, junk: plan.junk,
+          distHome: p ? Math.hypot(home.x - p.x, home.z - p.z) : Infinity,
+          storageNear: () => !!bot.findBlock?.({ matching: b => ['chest', 'barrel', 'trapped_chest'].includes(bot.registry?.blocks?.[b.type]?.name), maxDistance: STORAGE_NEAR }),
+          composterAtTown: () => !!findTownComposter(bot),
+          room: boneMealRoom(items),
+          composterRipe: () => (composterLevel(findTownComposter(bot)) ?? 0) >= 7,
+          buildPlan: () => townBuildPlan(bot),
+          myName: bot.username ?? '',
+          peers: () => Object.values(bot.players ?? {}).filter(q => q?.username && q.username !== bot.username && q.entity?.position &&
+            Math.hypot(q.entity.position.x - home.x, q.entity.position.z - home.z) <= TOWN_RADIUS).map(q => q.username),
+          // THE PICKAXE (withdrawpick.mjs): none usable in the bag; the town's memory of a recent miss; room for one.
+          pickNeeded: !hasUsablePick(items),
+          pickMiss: () => townPickMiss(bot),
+          // ...and the ingredients' own: nothing needed, or every container recently held none of every need.
+          ingredientMiss: () => townIngredientMiss(bot),
+          // The SAME keep as at the chest (withdrawPick): the goal's wants and the stone-pickaxe ingredients.
+          pickRoom: () => roomPlan(items, pickTakes(), { keep: roomKeep(bot.currentWants ?? []) }).ok,
+          state: this.townState ?? {},
+        })
+        this.townState = r.state
+        if (r.order) order = r.order
+      } catch { /* an inventory or world read must never break the decision loop */ }
+    }
     if (!order) {
       const sap = {}
       try {
@@ -816,6 +899,8 @@ export class CognitiveLoop {
       // A FAILED WEAR-OUT BACKS OFF (both reviews): a bot with no safe block (deepslate, a pillar, water) would
       // otherwise take a decision every cooldown, forever.
       if (admitted.skill === 'wear_out') this.wearOutBackoffUntil = r.status === 'failed' ? Date.now() + WEAR_OUT_BACKOFF_MS : 0
+      // A TOWN ORDER THAT FAILED BACKS OFF; a skip (no_effect) or an interruption costs nothing (townOrderOutcome).
+      if (TOWN_ORDERS.has(admitted.skill)) this.townState = townOrderOutcome(admitted.skill, r.status, Date.now(), this.townState ?? {}, r.failClass ?? null)
       // THE REFLEX TOOK THE BODY -- SAY SO ON THE NEXT DECISION.
       if (r.interruptedBy) this.#raiseTrigger(r.interruptedBy, r.detail)
       // A PREREQUISITE THE GOAL LAYER CANNOT SEE IS NOT A PREREQUISITE.
@@ -915,8 +1000,8 @@ export class CognitiveLoop {
         // false, whichever milestone happened to be current. There is no longer
         // a `neutral` branch calling recordSuccess -- there is one call, and it
         // cannot be made without the measurement in hand.
-        // wear_out is housekeeping the model cannot choose: it must not become a "reliable choice" in its prompt.
-        if (admitted.skill !== 'wear_out') this.lessons.recordSuccess(admitted.skill, admitted.args, r.contractEvidence)
+        // Housekeeping (wear_out, compost, build_composter) is never the model's choice, nor a "reliable choice" in its prompt.
+        if (!isHousekeeping(admitted.skill)) this.lessons.recordSuccess(admitted.skill, admitted.args, r.contractEvidence)
 
         // Preference -- what makes a bot KEENER -- stays gated on `valuable`.
         if (value === 'valuable') {
@@ -967,10 +1052,7 @@ export class CognitiveLoop {
       // harvest from a call that merely returned. `outcome` carries the evidence;
       // this is the string the prompt actually renders, so the evidence has to be
       // in here to reach the model at all.
-      const evidence = outcome?.because?.length ? ` [${outcome.because.join('; ')}]` : ''
-      const verdict = outcome?.value ? ` (${outcome.value})` : ''
-      this.lastOutcome =
-        `${admitted.skill} -> ${r.status}${verdict}: ${r.detail ?? ''}${evidence}`.slice(0, 220)
+      this.lastOutcome = formatOutcome(admitted.skill, r, outcome)
       this.memory.addEvent(this.lastOutcome)
     } else {
       // Flush on rejection too. save() used to live only in the executed-skill
@@ -1031,8 +1113,8 @@ export class CognitiveLoop {
     let serving = false
     try { serving = executed && servesRung(admitted.skill, admitted.args, milestone, this.#wantedItems(milestone)) } catch { serving = false }
     const overlay = /\+prereq$/.test(String(milestone?.id ?? ''))
-    // HOUSEKEEPING IS NOT AN ATTEMPT AT THE GOAL (hygiene, Claude review): a wear_out neither resets nor feeds the give-up.
-    if (admitted?.skill !== 'wear_out' && this.milestones.noteAttempt({ failed: outcome.status !== 'success', executed, serving, overlay, taskId: milestone?.id ?? null })) {
+    // HOUSEKEEPING IS NOT AN ATTEMPT AT THE GOAL (hygiene, Claude review): housekeeping neither resets nor feeds the give-up.
+    if (!isHousekeeping(admitted?.skill) && this.milestones.noteAttempt({ failed: outcome.status !== 'success', executed, serving, overlay, taskId: milestone?.id ?? null })) {
       const sk = this.milestones.status()
       const why = this.milestones.lastSkip ?? {}
       log('warn', 'milestone unreachable, skipping', { now: sk.id, reason: why.reason })

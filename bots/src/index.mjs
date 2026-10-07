@@ -4,6 +4,8 @@
 // intelligence -- recover after death or disconnection, and run four hours
 // without unrecoverable failure. That is what this file is for.
 
+import { tunnelMovements } from './oretunnel.mjs'
+import { protectTownBlocks, worldIdFromLogin, composterFloorFilter, composterSafeMovements } from './composter.mjs'
 import { Vec3 } from 'vec3'
 import { corridorSafe } from './lavaguard.mjs'
 import { deathSiteStepCost, pathCrossesDeathSite } from './deathsites.mjs'
@@ -19,7 +21,9 @@ import { config } from './config.mjs'
 import { withApproachBound } from './digapproach.mjs'
 import { extendScaffolding } from './scaffold.mjs'
 import { pathfinderWedged, stillnessMs } from './path-watchdog.mjs'
-import { log, closeLogs, logSkill, logEvent } from './logger.mjs'
+import { log, closeLogs, logSkill, logEvent, tapRecords } from './logger.mjs'
+import { attachPickupLog } from './pickuplog.mjs'
+import { attachDifficulty } from './foodskip.mjs'
 import { Runner } from './runner.mjs'
 import { startReflexes } from './reflex.mjs'
 import { installAirTrace } from './air-trace.mjs'
@@ -27,12 +31,13 @@ import { startChunkEvictor } from './evictor.mjs'
 import { attachCommands } from './commands.mjs'
 import { snapshot, inventorySummary } from './state.mjs'
 import { travelTool } from './toolfor.mjs'
-import { diffTools } from './toolwatch.mjs'
+import { diffTools, spentTools } from './toolwatch.mjs'
 import { installPathBackoff } from './pathbackoff.mjs'
 import { attachPacketWitness } from './packet-witness.mjs'
 import { installOxygenGuard } from './oxygen.mjs'
 import { installDigCollisionWatch } from './digcollision.mjs'
 import { installShoreEgress } from './watermoves.mjs'
+import { installCraftSync } from './craftsync.mjs'
 import { CognitiveLoop } from './cognitive.mjs'
 import { openLessons } from './lessons.mjs'
 import { openWorldFacts } from './worldfacts.mjs'
@@ -44,6 +49,9 @@ const require_ = createRequire(import.meta.url)
 let reconnectDelay = config.reconnect.delayMs
 let stopping = false
 let stopReflexes = null
+// The pickup log's final _pickups row (pickuplog.mjs): the signal handler closes the logs and exits without ending
+// the bot, so an 'end' listener never runs on a systemd stop. It calls this before closeLogs().
+let pickupFinal = null
 let stopComms = null
 let worldFacts = null
 let cognitive = null
@@ -159,6 +167,11 @@ function connect() {
   // packet-witness.mjs -- `onGround` cannot separate those and reading it as
   // if it could is a measurement that was already retracted once.
   bot.packetWitness = attachPacketWitness(bot)
+  // THE WORLD'S IDENTITY (the login packet's hashed seed): the town composter's shared site record carries it, so a
+  // reseed that keeps pool and home starts a new record instead of building on the old world's cell (composter.mjs).
+  bot._client.on('login', packet => { bot.worldId = worldIdFromLogin(packet) })
+  // THE SERVER'S DIFFICULTY (foodskip.mjs): mineflayer's bot.game.difficulty is always undefined on 1.21.8, so read the packet.
+  attachDifficulty(bot)
 
   // BEFORE the pathfinder, before anything that might read breath. mineflayer
   // writes bot.oxygenLevel from any entity's metadata, so on an ocean world a
@@ -249,6 +262,15 @@ function connect() {
   }
 
   bot.once('spawn', () => {
+    // CRAFTS IN LOCKSTEP (craftsync.mjs). Unpatched mineflayer lost 7/40 table crafts on the sandbox while
+    // reporting success: stale-stateId clicks fired as a burst, Paper's refresh landing behind them. Installed
+    // here, not at createBot: the plugins (bot.craft among them) are injected after login, and a wrapper put on
+    // earlier is overwritten without a word -- which is what happened in the sandbox experiment.
+    try {
+      installCraftSync(bot, { log: row => logEvent({ ...row, snapshot: snapshot(bot) }) })
+    } catch (e) {
+      log('warn', 'craftsync not installed', { error: e.message })
+    }
     // THE PATHFINDER'S OWN DIGS USED THE FASTEST TOOL. mineflayer-pathfinder assigns `bestHarvestTool` as a plain
     // property and calls it before every travel dig, so the override is the whole fix: the cheapest tool that can
     // harvest the block, with the durability floor (iron-retention plan v3, 2026-09-15). Installed on spawn, not at
@@ -267,6 +289,11 @@ function connect() {
         try {
           for (const d of diffTools(toolItemsBefore, now)) {
             logEvent({ kind: d.broke ? 'tool_broke' : 'tool_gone', status: 'no_effect', detail: `${d.name} x${d.lost}; the lost copy had ${d.least === Infinity ? '?' : d.least} of ${d.max ?? '?'} uses left`, snapshot: snapshot(bot) })
+          }
+          // THE LIVENESS ROW for spent tools being used up: a copy that reached 1 use BY USE. An axe/shovel/hoe goes on
+          // to break in use (toolfor.mjs hardStopFor) and logs tool_broke above; a pickaxe is kept for last_swing.
+          for (const d of spentTools(toolItemsBefore, now)) {
+            logEvent({ kind: 'tool_spent', status: 'no_effect', detail: `${d.name} x${d.spent}; reached 1 use (from ${d.from === Infinity ? '?' : d.from})`, snapshot: snapshot(bot) })
           }
         } catch {}
         toolItemsBefore = now
@@ -299,7 +326,8 @@ function connect() {
     // holder's own multi-leg goto refuses itself. Merging it is a canary, not a cherry-pick.
     reconnectDelay = config.reconnect.delayMs   // reset backoff on a good connect
 
-    const moves = new Movements(bot)
+    // THE TOWN COMPOSTER IS NEVER A PATH'S DIG (composter.mjs): added BEFORE any clone below, which share this Set.
+    const moves = protectTownBlocks(new Movements(bot), bot.registry)
     // canDig=false is deliberate and load-bearing. With digging enabled the
     // pathfinder treats excavation as a normal way to reach a goal, and the bot
     // steadily tunnels downward -- observed descending 68->65 while "walking"
@@ -519,6 +547,26 @@ function connect() {
     // never reaches the log line.
     gatherMoves.dontCreateFlow = true
     bot.gatherMovements = gatherMoves
+    // THE ORE TUNNEL'S PROFILE (oretunnel.mjs: staircases only, no drops > 1, no towers, hazard vetoes), built
+    // here because index.mjs owns every setMovements (dep-contract.test.mjs). Same shape as withGatherMovements.
+    bot.tunnelMovements = tunnelMovements(bot, gatherMoves, { home: { x: config.world.homeX, z: config.world.homeZ } })
+    bot.withTunnelMovements = async (fn) => {
+      bot.pathfinder.setMovements(bot.tunnelMovements); bot.movementProfile = 'tunnel'
+      try { return await withApproachBound(bot, fn) }
+      finally { bot.pathfinder.setMovements(moves); bot.movementProfile = 'walk' }
+    }
+    // THE COMPOSTER'S OWN WALKS (composter.mjs composterSafeMovements): the walk profile, cloned, with every neighbour
+    // standing on a composter dropped. Scoped: only the compost visit borrows it; the shared profiles are untouched.
+    const composterScratch = new Vec3(0, 0, 0)
+    const composterWalkMoves = composterSafeMovements(moves, composterFloorFilter((x, y, z) => {
+      composterScratch.x = x; composterScratch.y = y; composterScratch.z = z
+      return bot.world.getBlockStateId(composterScratch)
+    }, bot.registry))
+    bot.withComposterWalk = async (fn) => {
+      bot.pathfinder.setMovements(composterWalkMoves); bot.movementProfile = 'composter_walk'
+      try { return await fn() }
+      finally { bot.pathfinder.setMovements(moves); bot.movementProfile = 'walk' }
+    }
     bot.withGatherMovements = async (fn) => {
       bot.pathfinder.setMovements(gatherMoves); bot.movementProfile = 'gather'
       // The plan was admitted under a cost cap; the walk's own re-plans were
@@ -872,6 +920,20 @@ function connect() {
     // information `explore` needed while explore picked random headings.
     bot.worldFacts = worldFacts
     stopReflexes = startReflexes(bot, runner, lessons, worldFacts)
+    // PICKUP TELEMETRY (pickuplog.mjs). TELEMETRY ONLY: nothing reads these rows to decide anything. Where bag junk
+    // comes from: one _junk_pickup row per junk item collected, a per-minute _pickups summary for the rest.
+    try {
+      const reflexes = stopReflexes
+      const pl = attachPickupLog(bot, {
+        context: () => ({ skill: runner.current?.skill ?? null, args: runner.current?.args ?? null,
+                          reflex: reflexes?.activeReflex?.() ?? null, holder: runner.arb?.holder?.owner ?? null }),
+        emitSummary: detail => { try { logEvent({ kind: 'pickups', status: 'success', snapshot: snapshot(bot), detail }) } catch { /* telemetry */ } },
+        emitJunk: ({ detail, args }) => { try { logEvent({ kind: 'junk_pickup', status: 'success', snapshot: snapshot(bot), detail, args }) } catch { /* telemetry */ } },
+        tap: tapRecords,
+      })
+      pickupFinal = pl.final
+      bot.once('end', () => { try { pl.final() } catch { /* telemetry */ } })
+    } catch (e) { log('warn', 'pickup log not attached', { err: e?.message }) }
     // Bound the bot's world model. Without this every process reached its 1GB
     // cgroup ceiling in about fifteen hours -- not in the JS heap, which stayed
     // flat at 172MB, but in ArrayBuffers holding chunk columns nothing released.
@@ -1095,6 +1157,7 @@ for (const sig of ['SIGINT', 'SIGTERM']) {
     if (cognitive) cognitive.stop()
     if (watchdog) watchdog.stop()
     try { lessons?.save() } catch {}
+    try { pickupFinal?.() } catch {}
     closeLogs()
     setTimeout(() => process.exit(0), 300)
   })

@@ -71,3 +71,33 @@ export function wearTarget (block) {
 }
 /** Lower sorts first: stone family, then logs, then soils. */
 export const wearRank = name => (/^(stone|andesite|diorite|granite|tuff|calcite|netherrack)$/.test(name) ? 0 : /_log$/.test(name) ? 1 : 2)
+
+/**
+ * DIAGNOSIS ONLY (10-03: 82 of 100 failed wear_out orders said just "no safe block within reach"). The per-guard tally
+ * of the cells wear_out refused, most first: `12 cells: not_natural 9, room_liquid 2, occupied 1`. Never a decision.
+ */
+export function wearRefusals (refused = {}, cells = 0) {
+  const parts = Object.entries(refused ?? {}).filter(([, n]) => n > 0)
+    .sort((a, b) => (b[1] - a[1]) || (a[0] < b[0] ? -1 : a[0] > b[0] ? 1 : 0)).map(([k, n]) => `${k} ${n}`)
+  return `${cells} cells: ${parts.join(', ') || 'none refused'}`
+}
+
+/**
+ * DIAGNOSIS ONLY: what the copy's own slot SHOWS a few seconds after an unconfirmed wear-out dig -- an observation, not
+ * an outcome (both reviews): an empty slot may be a late break or the copy moved; the same name at 1 use may be the same
+ * copy or another. 'slot_empty' | 'same_name_at_one_use' | 'slot_changed' (ambiguous) | 'unknown' (no slot to read, or
+ * the bot ended or is dead -- a respawn's empty bag says nothing about the dig).
+ */
+export function slotObservation ({ slotKnown = false, item = null, name = '', alive = true } = {}) {
+  if (!slotKnown || !alive) return 'unknown'
+  if (!item) return 'slot_empty'
+  return item.name === name && usesLeft(item) === 1 ? 'same_name_at_one_use' : 'slot_changed'
+}
+
+/**
+ * HOUSEKEEPING: deterministic orders the model can never choose (chatOnly). They are not attempts at the goal (no
+ * milestone give-up either way) and never become a "reliable choice" in the prompt. cognitive.mjs asks this, so a
+ * new housekeeping order cannot be wired into one of those sites and forgotten at the other.
+ */
+export const HOUSEKEEPING = new Set(['wear_out', 'compost', 'build_composter', 'withdraw_pick'])
+export const isHousekeeping = skill => HOUSEKEEPING.has(skill)

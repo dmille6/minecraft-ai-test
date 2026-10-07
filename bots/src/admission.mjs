@@ -15,6 +15,7 @@ import { config } from './config.mjs'
 import { horizontalDistanceFromSpawn } from './state.mjs'
 import { shoreRoute } from './shore.mjs'
 import { bankableInventory, depositDue, DEPOSIT_ALWAYS } from './bankable.mjs'
+import { bankClosed, bankClosedDetail, depositTargetOk } from './chestfull.mjs'
 import { resolveBlockName } from './drops.mjs'
 import { mineTargetOk, mineTargetCeiling } from './mining.mjs'
 
@@ -316,7 +317,27 @@ export class AdmissionControl {
       }
     }
 
+    // A CURSOR THAT COULD NOT BE EMPTIED holds the chest window open (skills.mjs holdUnsettled, withdraw): nothing may
+    // run -- any inventory click would land past it, and a close would drop it -- until it settles.
+    if (bot?.inventoryUnsettled) {
+      return { ok: false, reason: 'inventory_unsettled', detail: `wait: a stack is still being put back from the cursor (${String(bot.inventoryUnsettled.why ?? '').slice(0, 60)})` }
+    }
+
+    // A WITHDRAW NAMES WHAT IT NEEDS (withdrawpick.mjs, Codex): the old bare form took the most plentiful item -- the
+    // town's cobblestone -- into a bag that was already full.
+    if (skill === 'withdraw') {
+      const it = String(args?.item ?? '').trim().toLowerCase()
+      if (!it || ['none', 'null', 'any', 'anything', 'all', 'everything', 'items', 'undefined'].includes(it)) {
+        return { ok: false, reason: 'withdraw_needs_item',
+                 detail: 'name what you need: withdraw <item> [count], e.g. withdraw stone_pickaxe or withdraw stick 2' }
+      }
+    }
+
     if (skill === 'deposit') {
+      // THE BANK IS CLOSED for this bot after a full-chest refusal (chestfull.mjs): nothing it carries can go in until it
+      // reopens, so the deposit is refused here, before any walk, with a remedy it can act on from anywhere.
+      const closed = bankClosed(bot)
+      if (closed) return { ok: false, reason: 'bank_closed', detail: bankClosedDetail(closed) }
       const items = bot.inventory?.items?.() ?? []
       // THE NAMED ITEM MUST BE IN HAND (2026-09-13: 842 of 1,748 deposit runs in 24 h
       // did nothing -- "nothing matching none/null/wheat_seeds to hand over"). A
@@ -337,9 +358,11 @@ export class AdmissionControl {
       const due = depositDue({
         bankable: bank.count,
         distHome: horizontalDistanceFromSpawn(bot.entity.position),
+        // A DEEP container is not storage (chestfull-02, depositTargetOk): the deposit will not use it.
         storageWithin48: !!bot.findBlock?.({
           matching: b => ['chest','barrel','trapped_chest']
-            .includes(bot.registry?.blocks?.[b.type]?.name), maxDistance: 48 }),
+            .includes(bot.registry?.blocks?.[b.type]?.name) &&
+            depositTargetOk({ x: config.world.homeX, y: config.world.homeY, z: config.world.homeZ }, b.position), maxDistance: 48 }),
         onDepositMilestone,
         occupiedSlots: items.length,
       })

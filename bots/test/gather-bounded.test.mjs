@@ -56,7 +56,8 @@ t('collectManually never awaits a dig without a bound', () => {
   assert.ok(!/await bot\.dig\(block\)(?!\s*,)/.test(b) || /withTimeout\(bot\.dig\(/.test(b),
     'bot.dig() resolves only when the server confirms the break and waits ' +
     'forever when that never comes')
-  assert.match(b, /withTimeout\(bot\.dig\(block\), \d+/,
+  // `forceLook` is the craft retake's 'ignore' (look first, revalidate, no second look); undefined otherwise.
+  assert.match(b, /withTimeout\(bot\.dig\(block(?:, forceLook)?\), \d+/,
     'the dig must be wrapped in withTimeout')
 })
 
@@ -173,8 +174,9 @@ t('the default cleanup clears the GOAL, not just stop()', () => {
   // pathfinder.stop() takes effect at the next path node, so a bot that cannot
   // reach its next node never stops. setGoal(null) is what actually ends it --
   // reflex.mjs already had to learn this.
-  assert.match(src, /bot\.pathfinder\?\.setGoal\(null\)[\s\S]{0,120}bot\.pathfinder\?\.stop\(\)/,
-    'setGoal(null) must come with (and before) stop()')
+  // BUT NOT BEFORE stop() (2026-09-29): setGoal(null) then stop() leaves the stop flag set with no path to clear it,
+  // and the NEXT goto dies of it (pathhalt.mjs; behaviour-tested in pathhalt.test.mjs). The cleanup is haltPath.
+  assert.match(src, /\} else \{\s*haltPath\(bot\)/, 'the default cleanup must be haltPath (stop THEN setGoal(null))')
 })
 
 console.log(`  ${pass} passed, ${fail} failed`)
