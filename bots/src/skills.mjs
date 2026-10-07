@@ -7146,7 +7146,7 @@ const SMELT_OPEN_MS     = 10_000        // openFurnace waits on a server event f
  * a recovery that hangs would burn the hard-stop grace and land the bot in
  * `abort_ignored`.
  */
-async function drainFurnace (furnace, ms = SMELT_RECOVERY_MS, { keepFuel = false } = {}) {
+async function drainFurnace (furnace, ms = SMELT_RECOVERY_MS, { keepSwordIfNoRoom = null } = {}) {
   const deadline = Date.now() + ms
   const bounded = p => Promise.race([
     p, new Promise(res => setTimeout(res, Math.max(250, deadline - Date.now()))),
@@ -7155,9 +7155,12 @@ async function drainFurnace (furnace, ms = SMELT_RECOVERY_MS, { keepFuel = false
                               ['inputItem', 'takeInput'],
                               ['fuelItem', 'takeFuel']]) {
     if (Date.now() >= deadline) break
-    if (keepFuel && slot === 'fuelItem') continue   // the peaceful kit's unburned sword with a full bag: never tossed
     try {
       if (!furnace?.[slot]?.()) continue
+      // THE PEACEFUL KIT'S UNBURNED SWORD: checked RIGHT BEFORE its take, after the output and input took their slots
+      // (both reviews, r-rev2): with no empty slot mineflayer's putAway would toss it, so it stays in the furnace.
+      if (slot === 'fuelItem' && keepSwordIfNoRoom && furnace.fuelItem()?.name === 'wooden_sword' &&
+          (keepSwordIfNoRoom.inventory?.emptySlotCount?.() ?? 0) === 0) { furnace.swordKept = true; continue }
       await bounded(furnace[take]())
     } catch { /* slot emptied under us, or the block is gone; nothing to recover */ }
   }
@@ -7445,13 +7448,23 @@ async function smelt(ctx, { item, count = 1 }, signal) {
       await sleep(SMELT_POLL_MS, signal)
     }
   } finally {
+    // A STAGED SWORD IS SETTLED BEFORE IT IS JUDGED (Claude r-rev2): it ignites within a tick of the put, but the slot
+    // clear and the `lit` change arrive a little later -- an abort inside that window must not read it as unburned.
+    // Up to ~6 ticks, never bound to the (possibly aborted) signal.
+    for (let i = 0; staged && i < 6; i++) {
+      confirmBurn()
+      if (!staged || fslot('fuelItem')?.name === 'wooden_sword' && heat() === 'cold' && i >= 3) break
+      await new Promise(res => setTimeout(res, 50))
+    }
     confirmBurn()
-    // A SWORD STILL IN THE FUEL SLOT (it never ignited) comes back -- unless the bag has no empty slot, where taking it
-    // would make mineflayer's putAway toss it: then it stays in the furnace as fuel (not a drop; a row says so).
     const left = staged && fslot('fuelItem')?.name === 'wooden_sword'
-    const full = left && (bot.inventory?.emptySlotCount?.() ?? 0) === 0
-    if (left) swordRow('no_effect', full ? 'wooden_sword left in the furnace fuel slot (the bag is full)' : 'wooden_sword returned unburned', staged.active)
-    await drainFurnace(furnace, SMELT_RECOVERY_MS, { keepFuel: !!full })
+    // Out of the slot but never seen burning: it burned (nothing else empties a fuel slot); counted, and marked.
+    if (staged && !left) { burned.wooden_sword = (burned.wooden_sword ?? 0) + 1; swordRow('success', 'burned wooden_sword (unconfirmed)', staged.active); staged = null }
+    // A SWORD STILL IN THE FUEL SLOT (it never ignited) comes back -- unless, at the moment of its take, the bag has no
+    // empty slot: then it stays in the furnace as fuel (never tossed). The row is written after the actual outcome.
+    if (left && furnace) furnace.swordKept = false
+    await drainFurnace(furnace, SMELT_RECOVERY_MS, { keepSwordIfNoRoom: left ? bot : null })
+    if (left) swordRow('no_effect', furnace?.swordKept ? 'wooden_sword left in the furnace fuel slot (the bag is full)' : 'wooden_sword returned unburned', staged.active)
   }
 
   const gained = countItem(bot, plan.output) - before
