@@ -139,6 +139,10 @@ test('startableJunk: a full bag whose every kit stack is above 7 starts no order
     assert.equal(C.startableJunk(small, { plants: true, level }), want, `level ${level}`)
     assert.equal(C.startableJunk(small, { plants: true, level: () => level }), want, `lazy level ${level}`)
   }
+  // junk that no whole stack can carry out (saplings above the reserve inside one stack of 30): no fill can start
+  const saplings = [S('oak_sapling', 30, 9), ...fill(35)]
+  assert.equal(C.compostPlan(saplings).junk, 14)
+  assert.equal(C.startableJunk(saplings, { plants: true }), 0)
   let asked = 0
   C.startableJunk(big.slice(0, 35), { plants: true, level: () => { asked++; return 8 } })
   assert.equal(asked, 0, 'a bag with room never asks the world for the level')
