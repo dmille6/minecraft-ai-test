@@ -45,6 +45,8 @@ def main():
     ap.add_argument('--bots', type=int, default=8); ap.add_argument('--minutes', type=float, default=90)
     ap.add_argument('--server', default='sandbox4'); ap.add_argument('--seed', type=int, default=1006)
     ap.add_argument('--wait-pause', action='store_true')
+    ap.add_argument('--pause-tag', default='c1', help='the queue line is "pause <tag>"')
+    ap.add_argument('--block-offset', type=int, default=0, help='number blocks from here (blocks are run tags b<N>)')
     ap.add_argument('--order', default='', help='explicit arm order for ONE block, e.g. "a,b,c" (resume a broken block)')
     ap.add_argument('--block', type=int, default=0, help='block number for --order')
     ap.add_argument('--ollama-endpoint', default='http://ai.ticrcorp.com:11434',
@@ -52,14 +54,14 @@ def main():
     a = ap.parse_args()
     arms = json.load(open(a.arms))
     if a.wait_pause:            # start only when the Stage A queue reaches its "pause" line (GPU held for us)
-        while not ssh('cat ~/mbench/out/GPU_RESERVED 2>/dev/null').startswith('pause'):
+        while not ssh('cat ~/mbench/out/GPU_RESERVED 2>/dev/null').startswith('pause-' + a.pause_tag):
             time.sleep(120)
         print('queue paused; starting', flush=True)
     rng = random.Random(a.seed)
     order = []
     for b in range(a.starts):
         blk = list(arms); rng.shuffle(blk)
-        order += [(b, x) for x in blk]
+        order += [(a.block_offset + b, x) for x in blk]
     if a.order:
         byname = {x['arm']: x for x in arms}
         order = [(a.block, byname[n]) for n in a.order.split(',')]
