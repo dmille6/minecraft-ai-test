@@ -1430,17 +1430,20 @@ export function foodSkipNow (bot) {
 }
 
 /**
- * THE WELL'S COBBLE SWITCH (stonecap-01 x junkwell-02): is the town PROVEN at its 256 cap for this bag's smallest surplus
- * stack? -> 'at_cap' | 'below' | 'unknown' | 'none' (no surplus). Only 'at_cap' sends cobble down the well.
+ * THE WELL'S COBBLE SWITCH (stonecap-01 x junkwell-02): does the town HOLD its 256 -> 'at_cap' | 'below' | 'unknown' |
+ * 'none' (no surplus). Only 'at_cap' sends cobble down the well, and only on the COUNTED lower bound itself (Codex r1 P1:
+ * a refused deposit is not proof -- cobble on its way, or a stack that would merely pass 256, never authorises destroying
+ * cobble). 'below' needs a complete count; anything else is 'unknown'.
  */
 export function cobbleWellCap (bot, items = bot?.inventory?.items?.() ?? []) {
   try {
-    const st = cobbleWellStacks(items)
-    if (!st.length) return 'none'
-    const d = cobbleAdmit(cobbleTownViewFor(bot), Math.min(...st.map(s => s.count)))
-    return d === 'at_cap' ? 'at_cap' : d === 'bank' ? 'below' : 'unknown'
+    if (!cobbleWellStacks(items).length) return 'none'
+    const v = cobbleTownViewFor(bot)
+    return (Number(v?.lb) || 0) >= TOWN_COBBLE_CAP ? 'at_cap' : v?.complete ? 'below' : 'unknown'
   } catch { return 'unknown' }
 }
+/** Is a junk well standing that can take cobble? (the at-cap sentence names the well only then: Codex r1 P2) */
+const wellUsable = bot => { try { const w = townWellState(bot); return !!w && !w.breached } catch { return false } }
 
 /** THE WELL'S SWORD SWITCH (well.mjs swordGoes): foodskip's switch active AND the server's difficulty read as peaceful. */
 export function wellSwordsNow (bot) {
@@ -2848,7 +2851,7 @@ async function deposit(ctx, { item = null }, signal, { noRecovery = false, prefe
     const capped = cobbleRows.some(r => r.atCap), outside = cobbleRows.some(r => r.outside) && !cobbleRows.some(r => r.atCap || r.unknown)
     const stuck = cobbleStuckNote(cobbleTownViewFor(bot))
     return { status: 'no_effect', failClass: null,
-             detail: capped ? `the cobble stays: a whole stack would carry the town past its ${TOWN_COBBLE_CAP} cobble (town cobble cap); at a full bag the junk well takes the surplus`
+             detail: capped ? `the cobble stays: a whole stack would carry the town past its ${TOWN_COBBLE_CAP} cobble (town cobble cap)${wellUsable(bot) ? '; once the town holds its 256, the junk well takes surplus whole stacks at a full bag' : '; the surplus stays in the bag'}`
                : outside ? 'the cobble stays: cobble is banked only in a town container, and this one is outside town (town cobble cap) -- a deposit at town takes it'
                : `the cobble stays: a town container has not been counted yet (town cobble not yet counted)${stuck ? ` -- ${stuck} could not be counted` : ''}` }
   }
@@ -6872,7 +6875,11 @@ async function throwStacks (bot, { cap, facing, stacks, bound, waitTick, signal,
       if (cob) {
         const bagCobble = (bot.inventory?.items?.() ?? []).reduce((t, x) => t + (isWellCobble(x?.name) ? (x.count ?? 0) : 0), 0)
         const leftC = bagCobble - (it.count ?? 0)
-        if (it.count !== st.count || leftC < COBBLE_WELL_RESERVE || (acc.cobble === 0 && cobbleWellCap(bot) !== 'at_cap')) continue
+        if (it.count !== st.count || leftC < COBBLE_WELL_RESERVE) continue
+        // THE CAP RE-READ AT EVERY COBBLE CLICK (Codex r1 P1: another bot may take cobble out between two stacks); the last
+        // reading is what the row reports
+        acc.capLast = cobbleWellCap(bot)
+        if (acc.capLast !== 'at_cap') continue
         acc.cobble += it.count; acc.cobbleLeft = Math.min(acc.cobbleLeft ?? Infinity, leftC)
       }
       // A SWORD GOES ONLY IF THE WORLD IS STILL PEACEFUL AT THIS CLICK (the switch re-read now, not at the plan)
@@ -6949,11 +6956,18 @@ export function throwAccount ({ before, after, clicked = [], swords = 0, cobble 
   let otherLoss = 0, nonlisted = 0, swordLost = 0
   const ok = n => isWellJunk(n) || (swords > 0 && isSword(n)) || (cobble > 0 && isWellCobble(n))   // a sword clicked in a peaceful world, cobble clicked at the cap: listed throws
   for (const c of clicked) { const was = before?.slots?.[c.slot]; if (!was || !ok(was.name) || !ok(c.name)) nonlisted += was?.count ?? c.count ?? 0 }
+  let cobbleRoom = Number(cobble) || 0                   // cobble is listed only up to what was CLICKED (Codex r1 P2)
   if (before && after) {
     for (const [name, n] of Object.entries(before.counts)) {
       const d = n - (after.counts[name] ?? 0)
       if (d <= 0) continue
       if (isSword(name)) swordLost += d                  // EVERY sword the server bag lost, clicked or not (the read's C8)
+      if (isWellCobble(name) && !isWellJunk(name)) {
+        const listed = Math.min(d, cobbleRoom); cobbleRoom -= listed
+        if (listed > 0) lost[name] = listed
+        otherLoss += d - listed
+        continue
+      }
       if (ok(name)) lost[name] = d; else otherLoss += d
     }
   }
@@ -7078,7 +7092,7 @@ const phaseDetail = (ph, cap, stop, capEnd = null) => wellDisposeDetail({ capEnd
   source: ph.source, closedOpen: ph.closedOpen, stop, at: cap, offlist: ph.thrown?.offlist ?? 0, offlistItems: ph.thrown?.offlistItems ?? {}, unnamed: ph.thrown?.unnamed ?? 0,
   gclicked: ph.acc?.gclicked ?? 0, stone: ph.acc?.stoneMin ?? ph.stone ?? null, swords: ph.acc?.swords ?? 0, peaceful: ph.acc?.swords ? ph.acc.peaceful : null,
   swordLost: ph.account?.swordLost ?? 0, swordsKept: ph.acc?.swordsKept ?? 0,
-  cobble: ph.acc?.cobble ?? 0, cobbleLeft: ph.acc?.cobble ? ph.acc.cobbleLeft : null, cap: ph.cap ?? null })
+  cobble: ph.acc?.cobble ?? 0, cobbleLeft: ph.acc?.cobble ? ph.acc.cobbleLeft : null, cap: ph.acc?.capLast ?? ph.cap ?? null })
 
 const FACING_OK = f => ['north', 'south', 'west', 'east'].includes(f)
 async function disposeWell (ctx, _args, signal) {

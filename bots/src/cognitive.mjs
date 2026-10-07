@@ -855,9 +855,10 @@ export class CognitiveLoop {
         const items = bot.inventory?.items?.() ?? []
         const p = bot.entity?.position
         const plan = disposePlan(items, { swords: wellSwordsNow(bot), cobbleAtCap: cobbleWellCap(bot, items) === 'at_cap' })   // a peaceful world's swords count (well.mjs swordGoes)
+        const buildPlanJunk = disposePlan(items, { swords: wellSwordsNow(bot) })   // the pit-first build never tosses cobble
         const home = { x: config.world.homeX, z: config.world.homeZ }
         const r = wellOrder({
-          now: Date.now(), slots: plan.slots, freeSlots: 36 - plan.slots, junkStacks: plan.junkStacks,
+          now: Date.now(), slots: plan.slots, freeSlots: 36 - plan.slots, junkStacks: plan.junkStacks, buildJunkStacks: buildPlanJunk.junkStacks,
           distHome: p ? Math.hypot(home.x - p.x, home.z - p.z) : Infinity,
           well: () => townWellState(bot),
           buildPlan: () => townWellBuildPlan(bot),

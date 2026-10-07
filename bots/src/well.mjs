@@ -753,7 +753,7 @@ const lazy = v => (typeof v === 'function' ? v() : v)
  * Order of precedence: close an open, unattended well (any visitor); dispose at TRIGGER_SLOTS+ holding listed junk;
  * build when the town has none. Cooldowns are charged when an order is ISSUED.
  */
-export function wellOrder ({ now = 0, slots = 0, freeSlots = 0, junkStacks = 0, distHome = Infinity, well = null,
+export function wellOrder ({ now = 0, slots = 0, freeSlots = 0, junkStacks = 0, buildJunkStacks = junkStacks, distHome = Infinity, well = null,
                              buildPlan = null, myName = '', peers = [], state = {}, inside = false } = {}) {
   const s = { ...state }
   const none = () => ({ order: null, state: s })
@@ -787,7 +787,8 @@ export function wellOrder ({ now = 0, slots = 0, freeSlots = 0, junkStacks = 0, 
   if (!buildReady) return none()
   const plan = lazy(buildPlan)
   if (!plan) return none()
-  const room = wellBuildRoom({ free: freeSlots, slotsNeeded: plan.slotsNeeded, junkStacks })
+  // the pit-first build tosses only what IT may toss (never cobble: Codex r1 P2 on the cap coupling)
+  const room = wellBuildRoom({ free: freeSlots, slotsNeeded: plan.slotsNeeded, junkStacks: buildJunkStacks })
   if (!room.ok) return none()
   s.lastBuildAt = now
   const who = builderDecision({ myName, peers: lazy(peers) ?? [], deferrals: s.deferrals ?? 0 })
