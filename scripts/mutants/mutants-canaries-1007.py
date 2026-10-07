@@ -19,50 +19,152 @@ SETS = {
         ('stop invalidates before validate (lockstep in the cooldown)', 'bots/src/craftsync.mjs',
          '      if (stopReason(st)) stopIssued(st, stopReason(st))\n      const v = inflight.validate(',
          '      const v = inflight.validate(',
-         ['test/craftsync-window-bind.test.mjs']),
+         ['craftsync-window-bind']),
     ],
     'cobble': [
         ('no reserve: cobble banked to zero', 'bots/src/bankable.mjs',
          '    if (left - x.n < reserve) break                       // smallest first: no bigger stack fits either\n',
-         '', ['test/cobble-rule.test.mjs']),
+         '', ['cobble-rule']),
         ('largest stack first (fewer kept per slot)', 'bots/src/bankable.mjs',
          '  for (const x of list.sort((a, b) => a.n - b.n || (a.it.slot ?? a.i) - (b.it.slot ?? b.i))) {',
          '  for (const x of list.sort((a, b) => b.n - a.n || (a.it.slot ?? a.i) - (b.it.slot ?? b.i))) {',
-         ['test/cobble-rule.test.mjs']),
+         ['cobble-rule']),
         ('bankableInventory ignores the rule (old partial allowance)', 'bots/src/bankable.mjs',
          '    if (COBBLE_SET.has(name)) {\n      const whole = cobbleWhole[name] ?? 0\n',
          '    if (false) {\n      const whole = cobbleWhole[name] ?? 0\n',
-         ['test/cobble-rule.test.mjs']),
+         ['cobble-rule']),
         ('the slot prediction walks slot order for cobble', 'bots/src/craftroom.mjs',
-         '    if (isCobble(name)) stacks.sort(', '    if (false) stacks.sort(', ['test/cobble-rule.test.mjs']),
+         '    if (isCobble(name)) stacks.sort(', '    if (false) stacks.sort(', ['cobble-rule']),
         ('the transfer ignores the room check (a partial stack goes)', 'bots/src/skills.mjs',
-         '          if (cobbleRoom(chest, name) < s.count) { row.noRoom++; continue }\n', '', ['test/cobble-rule.test.mjs']),
+         '          if (cobbleRoom(chest, name) < s.count) { row.noRoom++; continue }\n', '', ['cobble-rule']),
         ('cobble-only leftovers go to the chest-full recovery (a new chest for cobble)', 'bots/src/skills.mjs',
          '  if (!cursorLost && moved === 0 && eligible > 0 && cobbleEligible === eligible) {',
-         '  if (false) {', ['test/cobble-rule.test.mjs']),
+         '  if (false) {', ['cobble-rule']),
         ('depositDue at 30+ slots with nothing bankable', 'bots/src/bankable.mjs',
-         '  if (!(bankable > 0)) return false\n', '', ['test/cobble-rule.test.mjs']),
+         '  if (!(bankable > 0)) return false\n', '', ['cobble-rule']),
         ('moved credits another depositor\'s gain (uncapped)', 'bots/src/skills.mjs',
          'const got = Math.max(0, Math.min(s.count, inChest(chest, name) - had))   // capped',
-         'const got = Math.max(0, inChest(chest, name) - had)   // capped', ['test/cobble-rule.test.mjs']),
+         'const got = Math.max(0, inChest(chest, name) - had)   // capped', ['cobble-rule']),
         ('cap: an incomplete count below the cap admits (overshoot on a partial count)', 'bots/src/cobblecap.mjs',
-         "  if (!view?.complete) return 'unknown'\n", '', ['test/cobble-rule.test.mjs']),
-        ('cap: others\' reservations ignored', 'bots/src/cobblecap.mjs',
-         '  const base = (Number(view?.lb) || 0) + (Number(view?.reservedOthers) || 0)\n', '  const base = (Number(view?.lb) || 0)\n', ['test/cobble-rule.test.mjs']),
-        ('cap: no lock (a racing read-modify-write)', 'bots/src/cobblecap.mjs',
-         "    try { fd = fs.openSync(lock, 'wx') } catch (e) {", "    try { fd = fs.openSync(lock, 'w') } catch (e) {", ['test/cobble-rule.test.mjs']),
+         "  if (!view?.complete) return 'unknown'\n", '', ['cobble-rule']),
+        ('cap: reservations ignored (this bot\'s own earlier stacks too)', 'bots/src/cobblecap.mjs',
+         '  const base = (Number(view?.lb) || 0) + (Number(view?.reserved) || 0)\n', '  const base = (Number(view?.lb) || 0)\n', ['cobble-rule']),
+        ('cap: a voided claim gives the capacity back (no recount)', 'bots/src/cobblecap.mjs',
+         "    else if (c.state === 'void' && !(obs[c.k] && obs[c.k].seq > c.voidSeq && obs[c.k].at >= c.voidAt)) dirty.add(c.k)", "    else if (false) dirty.add(c.k)", ['cobble-rule']),
+        ('cap: a recount after a void never resolves it', 'bots/src/cobblecap.mjs',
+         "      if (resolving) for (const [id, c] of Object.entries(state.claims)) if (c.state === 'void' && c.k === r.k && r.cap >= c.voidAt) delete state.claims[id]", "      if (false) void 0", ['cobble-rule']),
+        ('cap: a live claim stops counting once it is old (a clock fences a paused transfer)', 'bots/src/cobblecap.mjs',
+         "    if (c.state === 'live') { reserved += Number(c.n) || 0;", "    if (c.state === 'live' && now - c.at < 180_000) { reserved += Number(c.n) || 0;", ['cobble-rule']),
+        ('cap: the append order, not the capture time, picks the count (a delayed snapshot overwrites)', 'bots/src/cobblecap.mjs',
+         '      if (!o || releasing || resolving || r.cap > o.at || (r.cap === o.at && n > o.n)) state.obs', '      if (true) state.obs', ['cobble-rule']),
+        ('cap: equal capture times take the later append, not the larger count (Codex r2 P1)', 'bots/src/cobblecap.mjs',
+         '      if (!o || releasing || resolving || r.cap > o.at || (r.cap === o.at && n > o.n)) state.obs', '      if (!o || releasing || resolving || r.cap >= o.at) state.obs', ['cobble-rule']),
+        ('cap: a releasing count loses to an earlier count with a later clock (Codex r3 P1)', 'bots/src/cobblecap.mjs',
+         '      if (!o || releasing || resolving || r.cap > o.at || (r.cap === o.at && n > o.n)) state.obs', '      if (!o || resolving || r.cap > o.at || (r.cap === o.at && n > o.n)) state.obs', ['cobble-rule']),
+        ('cap: a claim is not decided at its own place in the journal', 'bots/src/cobblecap.mjs',
+         '      if (upto != null && r.id === upto) return { state, decision, view, seq }\n', '', ['cobble-rule']),
+        ('cap: a release dropped without its count (the count left out of the releasing line)', 'bots/src/cobblecap.mjs',
+         '  if (obs) Object.assign(rec, { k: obs.k, n: obs.n, cap: obs.cap })\n', '', ['cobble-rule']),
+        ('cap: a released claim stays reserved', 'bots/src/cobblecap.mjs',
+         "if (state.claims[id]?.state === 'live') delete state.claims[id] }", "if (state.claims[id]?.state === 'live') void 0 }", ['cobble-rule']),
+        ('cap: a refused claim is never released', 'bots/src/cobblecap.mjs',
+         "  if (decision !== 'bank') appendJournal(dir, key, world, { t: 'rel', ids: [id], at: Date.now(), bot, inst })\n", '', ['cobble-rule']),
+        ('cap: a dead writer\'s fragment swallows the next record (no leading newline)', 'bots/src/cobblecap.mjs',
+         "fs.appendFileSync(journalFile(dir, key), '\\n' + JSON.stringify(", "fs.appendFileSync(journalFile(dir, key), JSON.stringify(", ['cobble-rule']),
+        ('cap: a journal too large is folded anyway (no fail-closed)', 'bots/src/cobblecap.mjs',
+         '  if (st.size - from > maxBytes) return null\n', '', ['cobble-rule']),
+        ('cap: no checkpoint is ever written (every read replays everything)', 'bots/src/cobblecap.mjs',
+         '  if (j.ino != null && j.end - (j.from ?? 0) >= ckptEvery) {', '  if (false) {', ['cobble-rule']),
+        ('cap: a checkpoint for another file is used', 'bots/src/cobblecap.mjs',
+         '      if (c?.v === 1 && c.ino === st.ino && ', '      if (c?.v === 1 && ', ['cobble-rule']),
+        ('cap: another bot can void a claim', 'bots/src/cobblecap.mjs',
+         "filter(([, c]) => c.state === 'live' && c.bot === bot && ", "filter(([, c]) => c.state === 'live' && ", ['cobble-rule']),
+        ('cap: the plan view never voids the predecessor\'s claims (an at_cap plan blocks the remedy: Codex r4 P2)', 'bots/src/skills.mjs',
+         '    if (!bot.cobbleVoided) bot.cobbleVoided = cobbleVoidStale(bot)\n    const now = Date.now()', '    const now = Date.now()', ['cobble-rule']),
+        ('cap: this process voids its own claims (a still-running transfer released: Codex r4 P1)', 'bots/src/cobblecap.mjs',
+         "c.bot === bot && c.inst !== inst)", "c.bot === bot)", ['cobble-rule']),
+        ('cap: a recount resolving a void loses to an older count with a later clock (Codex r4 P1)', 'bots/src/cobblecap.mjs',
+         '      if (!o || releasing || resolving || r.cap > o.at', '      if (!o || releasing || r.cap > o.at', ['cobble-rule']),
+        ('cap: the next deposit opens while a counting open is in flight (Codex r4 P2)', 'bots/src/skills.mjs',
+         '  if (bot.cobbleOpenPending) return {', '  if (false) return {', ['cobble-rule']),
+        ('cap: no fence -- a late stale count of a predecessor is read (Codex r5 P1)', 'bots/src/cobblecap.mjs',
+         "    if (t !== 'void' && r?.bot != null && state.fence[r.bot] && r.inst !== state.fence[r.bot]) continue\n", '', ['cobble-rule']),
+        ('cap: a window that is no longer the bot\'s still writes a count (Codex r5 P1)', 'bots/src/skills.mjs',
+         '    if ((win && bot.currentWindow !== win) || bot.cobbleEnded) {', '    if (bot.cobbleEnded) {', ['cobble-rule']),
+        ('cap: a release without a count leaves the container known', 'bots/src/cobblecap.mjs',
+         "      if (t === 'cnt' && r.dirty != null) state.claims", "      if (false) state.claims", ['cobble-rule']),
+        ('cap: an open is pending only after a timeout (an abort escapes the guard: Codex r5 P2)', 'bots/src/skills.mjs',
+         '      bot.cobbleOpenPending = p                                          // from the open', '      void 0                                          // from the open', ['cobble-rule']),
+        ('cap: a failed void is marked done (never retried: Codex r5 P2)', 'bots/src/skills.mjs',
+         '    return n >= 0                                                         // a failed void', '    return true                                                         // a failed void', ['cobble-rule']),
+        ('cap: a reconnect keeps the old connection instance (its late callbacks not fenceable: Codex r6 P1)', 'bots/src/skills.mjs',
+         'const capInst = bot => bot?.cobbleInst ?? INSTANCE', 'const capInst = bot => INSTANCE', ['cobble-rule']),
+        ('cap: an ended connection still writes counts from its current window (Codex r6 P1)', 'bots/src/skills.mjs',
+         '    if ((win && bot.currentWindow !== win) || bot.cobbleEnded) {', '    if (win && bot.currentWindow !== win) {', ['cobble-rule']),
+        ('cap: the void of a superseded connection moves the fence back (Codex r7 P1)', 'bots/src/cobblecap.mjs',
+         "&& olderInst(r.inst, state.fence[r.bot])) continue   // superseded", "&& false) continue   // superseded", ['cobble-rule']),
+        ('cap: an ended connection still voids (Codex r7 P1)', 'bots/src/skills.mjs',
+         '    if (bot?.cobbleEnded) return false                                      // an ENDED connection never voids', '    if (false) return false                                      // an ENDED connection never voids', ['cobble-rule']),
+        ('cap: a claimant folds from a checkpoint containing its own claim', 'bots/src/cobblecap.mjs',
+         ' && c.offset <= maxOffset) base = c', ') base = c', ['cobble-rule']),
+        ('cap: a late reconciliation window is never closed (Codex r3 P2)', 'bots/src/skills.mjs',
+         '      p.then(w => { if (late) {', '      p.then(w => { if (false) {', ['cobble-rule']),
+        ('cap: a timed-out open lets the next one start (Codex r3 P2)', 'bots/src/skills.mjs',
+         '        if (wasTimeout) { timedOut = true; break }', '        if (false) { timedOut = true; break }', ['cobble-rule']),
+        ('cap: a count that cannot be written is retried every run (Codex r3 P2)', 'bots/src/skills.mjs',
+         "counted++; else fail(k, 'count not written')", 'counted++', ['cobble-rule']),
+        ('cap: the scan record written on every count (Claude r3 P3)', 'bots/src/skills.mjs',
+         '      if (sc.coverage && (lastScanRec.key !== sk || cap - lastScanRec.at > 5 * 60_000)) {', '      if (sc.coverage) {', ['cobble-rule']),
+        ('cap scan: hitting the scan cap still counts as coverage', 'bots/src/skills.mjs',
+         '    if (ps.length >= COBBLE_SCAN_CAP) coverage = false\n', '', ['cobble-rule']),
+        ('cap scan: an unloaded chunk column still counts as coverage', 'bots/src/skills.mjs',
+         'home.z + STORAGE_NEAR)))) coverage = false', 'home.z + STORAGE_NEAR)))) void 0', ['cobble-rule']),
+        ('cap scan: a counted cell that is no longer a container still counts', 'bots/src/skills.mjs',
+         "      if (!CONTAINER_RE.test(blockNameOf(bot, b) ?? '')) { gone.push(k0); continue }", "      if (!CONTAINER_RE.test(blockNameOf(bot, b) ?? '')) { continue }", ['cobble-rule']),
+        ('cap scan: a counted container the scan missed is dropped', 'bots/src/skills.mjs',
+         '      keys.add(k)                                                                 // the scan missed a counted container\n', '', ['cobble-rule']),
+        ('cap scan: a single chest that became a double keeps its old key', 'bots/src/skills.mjs',
+         '      if (k !== k0) gone.push(k0)', '      if (false) gone.push(k0)', ['cobble-rule']),
+        ('cap view: no stand-in scan from away', 'bots/src/skills.mjs',
+         '  if (!sc.coverage && st.scan && now - st.scan.at < OBS_TTL_MS && !inTown(homeVec(), bot.entity?.position)) sc = ', '  if (false) sc = ', ['cobble-rule']),
+        ('cap view: the stand-in scan used in town too (Codex r2)', 'bots/src/skills.mjs',
+         '  if (!sc.coverage && st.scan && now - st.scan.at < OBS_TTL_MS && !inTown(homeVec(), bot.entity?.position)) sc = ', '  if (!sc.coverage && st.scan && now - st.scan.at < OBS_TTL_MS) sc = ', ['cobble-rule']),
         ('cap: the transfer skips the authoritative admission', 'bots/src/skills.mjs',
-         "          if (adm.decision !== 'bank') {", "          if (false) {", ['test/cobble-rule.test.mjs']),
+         "          if (adm.decision !== 'bank') { eligible -= s.count;", "          if (false) { eligible -= s.count;", ['cobble-rule']),
+        ('cap: cobble into a chest outside town', 'bots/src/skills.mjs',
+         "  if (!pos || !inTown(homeVec(), pos)) return { decision: 'outside', view: null, id: null, at: Date.now() }\n", '', ['cobble-rule']),
+        ('cap: no reconciliation before the plan', 'bots/src/skills.mjs',
+         '        const rc = await reconcileCobble(bot, signal, msLeft)\n', '        const rc = { counted: 0, timedOut: false }\n', ['cobble-rule']),
+        ('cap: reconciliation walks while the town is proven at the cap (Claude r2 P3)', 'bots/src/skills.mjs',
+         "      if (cobbleAdmit(v, Math.min(...surplus.map(x => x.count))) === 'unknown' && cobbleReconcilable(v).length)", "      if (cobbleReconcilable(v).length)", ['cobble-rule']),
+        ('cap: reconciliation ignores the deadline (Codex r2 P2)', 'bots/src/skills.mjs',
+         '      if (msLeft(RECONCILE_WALK_MS) < 2_000) break\n', '', ['cobble-rule']),
+        ('cap: no backoff for a container that could not be counted (Claude r2 P2)', 'bots/src/skills.mjs',
+         '  return (view?.unknown ?? []).filter(k => !((reconcileFailed.get(failKey(k))?.until ?? 0) > now))', '  return (view?.unknown ?? []).filter(k => true)', ['cobble-rule']),
+        ('cap: an empty plan after counting still targets the nearest container (Claude r2 probe B)', 'bots/src/skills.mjs',
+         '      if (!depositPlan(bot.inventory.items(), item, { wants: wantsNow }).length) {', '      if (false) {', ['cobble-rule']),
+        ('cap: a cobble-only plan takes the nearest chest outside town (Claude r2 P1, probe A)', 'bots/src/skills.mjs',
+         ' && depositTargetOk(hv, b.position) && (!cobbleOnly || inTown(hv, b.position)))\n', ' && depositTargetOk(hv, b.position))\n', ['cobble-rule']),
+        ('cap: admission bypasses for reconciliation where nothing can be counted (Claude r2 P2)', 'bots/src/admission.mjs',
+         " === 'town_cobble_unknown') && cobbleReconcileProbe().can\n", " === 'town_cobble_unknown')\n", ['cobble-rule']),
+        ('cap: the probe ignores the town boundary (Claude r2 P2, probe C)', 'bots/src/skills.mjs',
+         '    const can = here && cobbleReconcilable(v).length > 0\n', '    const can = cobbleReconcilable(v).length > 0\n', ['cobble-rule']),
+        ('cap: admission refuses the reconciliation', 'bots/src/admission.mjs',
+         "      if (!depositPlan(items, args?.item ?? null, { wants }).length && !reconcile) {", "      if (!depositPlan(items, args?.item ?? null, { wants }).length) {", ['cobble-rule']),
         ('cap: the plan ignores the town view', 'bots/src/bankable.mjs',
-         '  const admitted = town ? admitStacks(town, cobbleStacks.map(s => s.count)) : null\n', '  const admitted = null\n', ['test/cobble-rule.test.mjs']),
+         '  const admitted = town ? admitStacks(town, cobbleStacks.map(s => s.count)) : null\n', '  const admitted = null\n', ['cobble-rule']),
         ('cap: the deposit never observes on open', 'bots/src/skills.mjs',
-         '  cobbleObserve(bot, chestBlock.position, chest)\n', '', ['test/cobble-rule.test.mjs']),
+         '  await cobbleObserve(bot, chestBlock.position, chest)\n', '', ['cobble-rule']),
+        ('cap (town deposit, 92bc84f only): a batch ignores its own earlier reservation', 'bots/src/cobblecap.mjs',
+         '  const base = (Number(view?.lb) || 0) + (Number(view?.reserved) || 0)\n', '  const base = (Number(view?.lb) || 0)\n', ['towndeposit'], 'only:bots/src/skills.mjs:const capRefused = {'),
+        ('cap (town deposit, 92bc84f only): its transfer skips the admission', 'bots/src/skills.mjs',
+         "          if (adm.decision !== 'bank') { capRefused[", "          if (false) { capRefused[", ['towndeposit'], 'optional'),
         ('admission walks an empty requested plan', 'bots/src/admission.mjs',
-         '      if (!depositPlan(items, args?.item ?? null, { wants }).length) {',
-         '      if (false) {', ['test/cobble-rule.test.mjs']),
+         '      if (!depositPlan(items, args?.item ?? null, { wants }).length && !reconcile) {',
+         '      if (false) {', ['cobble-rule']),
         ('the transfer falls back to chest.deposit for cobble', 'bots/src/skills.mjs',
          '      if (isCobble(name)) {\n        const chosen = cobbleBankStacks(', '      if (false) {\n        const chosen = cobbleBankStacks(',
-         ['test/cobble-rule.test.mjs']),
+         ['cobble-rule']),
     ],
 }
 
@@ -70,7 +172,7 @@ SETS = {
 def run(root, files):
     bad = []
     for f in files:
-        r = subprocess.run(['node', f], cwd=os.path.join(root, 'bots'), env=ENV, capture_output=True, text=True, timeout=900)
+        r = subprocess.run(['node', 'scripts/run-tests.mjs', f], cwd=os.path.join(root, 'bots'), env=ENV, capture_output=True, text=True, timeout=1800)
         if r.returncode != 0:
             bad.append(f)
     return bad
@@ -79,13 +181,26 @@ def run(root, files):
 def main():
     root, which = sys.argv[1], sys.argv[2]
     killed = survived = 0
-    for name, rel, old, new, files in SETS[which]:
+    baseline = {}
+    for entry in SETS[which]:
+        name, rel, old, new, files = entry[:5]
+        optional = len(entry) > 5 and entry[5] == 'optional'   # an anchor that exists in one base's variant only
         path = os.path.join(root, rel)
         src = open(path).read()
         n = src.count(old)
+        if n == 0 and optional:
+            print(f'SKIPPED   {name}  (not in this variant)')
+            continue
+        if len(entry) > 5 and entry[5].startswith('only:'):   # 'only:<file>:<text>' -- runs only where that text exists
+            _, ofile, otext = entry[5].split(':', 2)
+            if otext not in open(os.path.join(root, ofile)).read():
+                print(f'SKIPPED   {name}  (not in this variant)')
+                continue
         assert n == 1, f'ANCHOR {"MISSING" if n == 0 else "NOT UNIQUE (%d)" % n}: {name}'
-        base_bad = run(root, files)
-        assert not base_bad, f'baseline already fails {base_bad}: the mutant cannot be judged'
+        for f in files:   # the unmutated tree must pass each file once, or a mutant cannot be judged
+            if f not in baseline:
+                baseline[f] = not run(root, [f])
+            assert baseline[f], f'baseline already fails {f}: the mutant cannot be judged'
         try:
             open(path, 'w').write(src.replace(old, new, 1))
             bad = run(root, files)

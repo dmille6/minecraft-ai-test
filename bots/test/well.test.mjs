@@ -871,7 +871,12 @@ await t('SWORDS, AT THE CLICK: the world turns easy during the aim -> the planne
 // ---- COBBLE AT THE TOWN CAP (stonecap-01 x junkwell-02): surplus whole stacks above the bot's 64, only when PROVEN at cap
 const CCAP = await import('../src/cobblecap.mjs')
 const { townKey: CF_townKey } = await import('../src/chestfull.mjs')
-const townAt = (town, n) => CCAP.withLedger(process.env.POOL_STATE_DIR, CF_townKey(HOME), town.bot.worldId ?? null, l => { l.obs['9,9,9'] = { n, at: Date.now() } })
+// a REAL container holds the count (a counted cell that is loaded and not a container is `gone` and no longer counts: the
+// cap's scan, skills.mjs townCobbleScan) -- a barrel under the town square
+const townAt = (town, n) => {
+  town.world.set('9,9,9', { name: 'barrel' })
+  return CCAP.appendJournal(process.env.POOL_STATE_DIR, CF_townKey(HOME), town.bot.worldId ?? null, { t: 'obs', k: '9,9,9', n, cap: Date.now() })
+}
 await t('COBBLE, pure: cobbleWellStacks -- whole stacks, smallest first, the bag keeps 64; disposePlan takes them only with cobbleAtCap', () => {
   const bag = [{ name: 'cobblestone', count: 64, slot: 9 }, { name: 'cobblestone', count: 30, slot: 10 }, { name: 'cobblestone', count: 64, slot: 11 }, { name: 'egg', count: 16, slot: 12 }]
   assert.deepEqual(W.cobbleWellStacks(bag).map(s => s.count), [30, 64], '158 -> 94 go, 64 stay')
