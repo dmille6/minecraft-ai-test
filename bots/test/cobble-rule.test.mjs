@@ -168,27 +168,23 @@ await t('CAP, pure: a lower bound at the cap needs no completeness; below it, an
   assert.equal(CC.cobbleAdmit(v(150, true, 64), 64), 'at_cap', 'cobble on its way counts, this bot\'s own earlier stacks too')
   assert.deepEqual(CC.admitStacks(v(200, true), [20, 30, 64]), { bank: [20, 30], refused: { at_cap: 1, unknown: 0 } }, 'each admitted stack is charged before the next (220, 250; 314 refused)')
 })
-await t('CAP, pure: townCobble -- fresh counts sum to a lower bound; stale ones and unscanned keys are unknown; EVERY live admitted claim counts; an expired unreleased one forces a recount', () => {
-  const claim = (n, at, k, bot = 'x', decision = 'bank', released = false) => ({ n, at, k, bot, decision, released })
-  const state = { obs: { a: obs(100), b: obs(50, CC.OBS_TTL_MS + 1), c: obs(30), d: obs(40, 10) },
-                  claims: { r1: claim(64, NOW, 'a'), r2: claim(64, NOW - CC.RES_TTL_MS - 1, 'd', 'y'), r3: claim(10, NOW, 'c', 'me'),
-                            r4: claim(64, NOW, 'a', 'z', 'at_cap'), r5: claim(64, NOW, 'a', 'z', 'bank', true) } }
+await t('CAP, pure: townCobble -- fresh counts sum to a lower bound; stale ones and unscanned keys are unknown; EVERY live admitted claim counts however old; a VOIDED one forces a recount', () => {
+  const claim = (n, at, k, bot = 'x', st = 'live', extra = {}) => ({ n, at, k, bot, decision: 'bank', state: st, voidAt: null, voidSeq: null, ...extra })
+  const state = { obs: { a: { n: 100, at: NOW, seq: 1 }, b: { n: 50, at: NOW - CC.OBS_TTL_MS - 1, seq: 2 }, c: { n: 30, at: NOW, seq: 3 }, d: { n: 40, at: NOW - 10, seq: 4 } },
+                  claims: { r1: claim(64, NOW, 'a'), r2: claim(64, NOW - 50, 'd', 'y', 'void', { voidAt: NOW - 20, voidSeq: 5 }), r3: claim(10, NOW, 'c', 'me'),
+                            r6: claim(5, NOW - 24 * 3600_000, 'c', 'z') } }
   const v = CC.townCobble(state, ['a', 'b', 'c', 'd'], NOW, { me: 'me' })
-  assert.equal(v.lb, 130, 'a + c; b stale; d: its count (captured 10 ms ago) is not RES_TTL after the crashed claim r2')
+  assert.equal(v.lb, 130, 'a + c; b stale; d: its count was appended before the void of r2')
   assert.deepEqual(v.unknown.sort(), ['b', 'd']); assert.equal(v.complete, false)
-  assert.equal(v.reserved, 74, 'r1 + r3 (this bot\'s own counts too); r4 refused and r5 released do not'); assert.equal(v.mine, 10)
-  // Codex r2 P1: a count captured AFTER the claim but before it could no longer move anything does not resolve it ...
-  const s2 = { ...state, obs: { ...state.obs, d: { n: 104, at: NOW - 2 } } }
-  assert.ok(CC.townCobble(s2, ['a', 'c', 'd'], NOW).unknown.includes('d'), 'a count between the claim and RES_TTL does not resolve it')
-  // ... one captured at least RES_TTL after it does
-  const s3 = { ...state, obs: { ...state.obs, d: { n: 104, at: state.claims.r2.at + CC.RES_TTL_MS } } }
+  assert.equal(v.reserved, 79, 'r1 + r3 + r6: a live claim a day old still counts (Codex r3 P1: no clock fences a paused transfer)'); assert.equal(v.mine, 10)
+  const s3 = { ...state, obs: { ...state.obs, d: { n: 104, at: NOW - 10, seq: 6 } } }
   const v3 = CC.townCobble(s3, ['a', 'c', 'd'], NOW)
-  assert.equal(v3.complete, true); assert.equal(v3.lb, 234)
+  assert.equal(v3.complete, true, 'a count appended and captured after the void resolves it'); assert.equal(v3.lb, 234)
   assert.equal(CC.townCobble({ obs: {} }, [], NOW).complete, false, 'a town with no container scanned is never complete')
   assert.equal(CC.townCobble({ obs: { a: obs(10) } }, ['a'], NOW, { coverage: false }).complete, false, 'a scan that did not cover the town is never complete')
   assert.equal(CC.townCobble({ obs: { a: obs(10), g: obs(500) } }, ['a'], NOW, { gone: ['g'] }).lb, 10, 'a container that is gone no longer counts')
 })
-await t('CAP, the fold: the latest CAPTURE wins whatever the append order; an equal capture takes the larger count; claims are decided at their own place; rel releases', () => {
+await t('CAP, the fold: the latest CAPTURE wins whatever the append order; an equal capture takes the larger count; claims are decided at their own place; a releasing count wins over earlier ones whatever the clock', () => {
   const rec = (t, o) => ({ t, ...o })
   const o1 = rec('obs', { k: 'a', n: 100, cap: 50 }), o2 = rec('obs', { k: 'a', n: 120, cap: 60 })
   assert.equal(CC.foldJournal([o2, o1]).state.obs.a.n, 120, 'appended late, captured early: the older count does not overwrite')
@@ -200,15 +196,20 @@ await t('CAP, the fold: the latest CAPTURE wins whatever the append order; an eq
   assert.equal(CC.foldJournal([base, c1, c2], { upto: 'c1' }).decision, 'bank', '150 + 64')
   assert.equal(CC.foldJournal([base, c1, c2], { upto: 'c2' }).decision, 'at_cap', '150 + 64 reserved + 64 > 256: the later claim is refused')
   assert.equal(CC.foldJournal([base, c2, c1], { upto: 'c2' }).decision, 'bank', 'the order decides, and every reader sees the same order')
-  const done = CC.foldJournal([base, c1, rec('obs', { k: 'a', n: 214, cap: NOW + 2 }), rec('rel', { ids: ['c1'] }), c2], { upto: 'c2' })
-  assert.equal(done.decision, 'at_cap', 'released into a count of 214: 214 + 64 > 256'); assert.equal(done.state.claims.c1.released, true)
+  const done = CC.foldJournal([base, c1, rec('cnt', { k: 'a', n: 214, cap: NOW + 2, ids: ['c1'] }), c2], { upto: 'c2' })
+  assert.equal(done.decision, 'at_cap', 'released into a count of 214: 214 + 64 > 256'); assert.equal(done.state.claims.c1, undefined, 'a released claim is dropped')
+  assert.equal(Object.keys(CC.foldJournal([base, c1, c2]).state.claims).join(), 'c1', 'a refused claim is not kept')
+  // a clock step back (Codex r3 P1): 150 counted at 1000; the claim, its transfer and its releasing count at 900-901
+  const back = CC.foldJournal([rec('obs', { k: 'a', n: 150, cap: 1000 }), rec('claim', { id: 'x', n: 64, k: 'a', at: 900, keys: ['a'], coverage: true }),
+    rec('cnt', { k: 'a', n: 214, cap: 901, ids: ['x'] }), rec('claim', { id: 'y', n: 64, k: 'a', at: 902, keys: ['a'], coverage: true })], { upto: 'y' })
+  assert.equal(back.state.obs.a.n, 214, 'the releasing count stands'); assert.equal(back.decision, 'at_cap', '214 + 64 > 256')
   assert.equal(CC.foldJournal([rec('claim', { id: 'c3', n: 10, k: 'a', at: NOW, keys: ['a'], coverage: false })], { upto: 'c3' }).decision, 'unknown', 'the claimant\'s scan did not cover the town')
 })
 await t('CAP, the journal: 4 processes each claiming 64 against a counted 150 -> exactly one admitted, every reader agrees, the town stays <= 256', async () => {
   const { spawn } = await import('node:child_process')
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'mcbot-cobble-journal-'))
   const key = 'town-x'
-  CC.appendJournal(dir, key, null, [{ t: 'obs', k: 'a', n: 150, cap: Date.now() }])
+  CC.appendJournal(dir, key, null, { t: 'obs', k: 'a', n: 150, cap: Date.now() })
   const url = new URL('../src/cobblecap.mjs', import.meta.url).href
   const child = i => new Promise(res => {
     const code = `const C = await import(${JSON.stringify(url)});
@@ -224,27 +225,56 @@ await t('CAP, the journal: 4 processes each claiming 64 against a counted 150 ->
   for (let i = 0; i < 4; i++) assert.equal(CC.foldJournal(recs, { upto: `b${i}` }).decision, got[i], `a later reader decides b${i} as its claimant did`)
   const v = CC.townCobble(CC.readTown(dir, key), ['a'], Date.now())
   assert.ok(v.lb + v.reserved <= 256, JSON.stringify(v)); assert.equal(v.reserved, 64)
-  assert.deepEqual(Object.entries(CC.readTown(dir, key).claims).filter(([, c]) => c.decision !== 'bank' && !c.released).map(([id]) => id), [], 'every refused claim was released at once (never a recount later)')
+  assert.equal(recs.filter(r => r.t === 'rel').length, 3, 'every refused claim was released at once')
 })
-await t('CAP, a crash between a transfer and its count (Codex r2 P1): another bot\'s count in between does not resolve the claim; only a count after RES_TTL does', () => {
+await t('CAP, an abandoned claim (Codex r3 P1): stays reserved however old; its bot\'s NEXT instance voids it; then its container is unknown until recounted', () => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'mcbot-cobble-crash-'))
-  const t0 = Date.now() - CC.RES_TTL_MS - 10_000
-  CC.appendJournal(dir, 'k', null, [{ t: 'obs', k: 'a', n: 200, cap: t0 - 5 }])
-  assert.equal(CC.claimStack(dir, 'k', null, { id: 'A', n: 40, k: 'a', keys: ['a'], coverage: true, at: t0 }).decision, 'bank')
-  CC.appendJournal(dir, 'k', null, [{ t: 'obs', k: 'a', n: 200, cap: t0 + 1 }])                // B counts 200 before A's transfer lands
-  // A moved 40 and crashed: no count, no release. Now, after RES_TTL:
-  assert.equal(CC.claimStack(dir, 'k', null, { id: 'C', n: 40, k: 'a', keys: ['a'], coverage: true }).decision, 'unknown', 'the town is 240 for real: never admitted on 200')
-  CC.appendJournal(dir, 'k', null, [{ t: 'obs', k: 'a', n: 240, cap: Date.now() }])             // a recount after RES_TTL
-  assert.equal(CC.claimStack(dir, 'k', null, { id: 'D', n: 16, k: 'a', keys: ['a'], coverage: true }).decision, 'bank', 'positive control: recounted, 240 + 16 = 256')
+  const t0 = Date.now() - 24 * 3600_000 + 60_000
+  CC.appendJournal(dir, 'k', null, { t: 'obs', k: 'a', n: 200, cap: Date.now() - 60_000 })
+  CC.appendJournal(dir, 'k', null, { t: 'claim', id: 'A', n: 40, k: 'a', at: Date.now() - 50_000, bot: 'Ann', inst: 'dead-1', keys: ['a'], coverage: true })
+  CC.appendJournal(dir, 'k', null, { t: 'obs', k: 'a', n: 200, cap: Date.now() - 40_000 })              // B counts 200: A paused, or crashed after?
+  assert.equal(CC.claimStack(dir, 'k', null, { id: 'C', n: 40, k: 'a', keys: ['a'], coverage: true }).decision, 'at_cap', '200 + A\'s 40 still reserved + 40 > 256')
+  assert.equal(CC.claimStack(dir, 'k', null, { id: 'C2', n: 16, k: 'a', keys: ['a'], coverage: true }).decision, 'bank', 'positive control: 200 + 40 + 16 = 256')
+  CC.appendJournal(dir, 'k', null, { t: 'cnt', k: 'a', n: 216, cap: Date.now(), ids: ['C2'] })
+  assert.equal(CC.voidOwnClaims(dir, 'k', null, { bot: 'Bob' }), 0, 'another bot never voids it')
+  assert.equal(CC.voidOwnClaims(dir, 'k', null, { bot: 'Ann' }), 1, 'Ann\'s next instance voids its predecessor\'s claim')
+  assert.equal(CC.claimStack(dir, 'k', null, { id: 'D', n: 16, k: 'a', keys: ['a'], coverage: true }).decision, 'unknown', 'did A\'s 40 land? the container is recounted first')
+  CC.appendJournal(dir, 'k', null, { t: 'obs', k: 'a', n: 256, cap: Date.now() + 1 })                     // the recount: it had landed
   assert.equal(CC.claimStack(dir, 'k', null, { id: 'E', n: 1, k: 'a', keys: ['a'], coverage: true }).decision, 'at_cap')
+  void t0
 })
-await t('CAP, the journal: a torn last line and another world\'s records are not read', () => {
+await t('CAP, the journal: a dead writer\'s fragment never swallows the next record; another world\'s records are not read; a journal too large fails CLOSED', () => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'mcbot-cobble-torn-'))
-  CC.appendJournal(dir, 'k', 'w1', [{ t: 'obs', k: 'a', n: 10, cap: 1 }])
-  CC.appendJournal(dir, 'k', 'w2', [{ t: 'obs', k: 'a', n: 99, cap: 2 }])
-  fs.appendFileSync(path.join(dir, 'k.cobble.jsonl'), '{"t":"obs","k":"a","n":500,"cap":3,"w":"w1"')   // still being written
-  assert.deepEqual(CC.readJournal(dir, 'k', 'w1').map(r => r.n), [10])
+  CC.appendJournal(dir, 'k', 'w1', { t: 'obs', k: 'a', n: 150, cap: 1 })
+  CC.appendJournal(dir, 'k', 'w2', { t: 'obs', k: 'a', n: 99, cap: 2 })
+  fs.appendFileSync(path.join(dir, 'k.cobble.jsonl'), '{"t":"obs","k":"a","n":500,"cap":3,"w":"w1"')   // a writer died mid-line
+  assert.deepEqual(CC.readJournal(dir, 'k', 'w1').map(r => r.n), [150])
+  CC.appendJournal(dir, 'k', 'w1', { t: 'cnt', k: 'a', n: 214, cap: 4, ids: [] })                       // the next record, after the fragment
+  assert.equal(CC.readTown(dir, 'k', 'w1').obs.a.n, 214, 'the count after a fragment is read whole (Codex r3 P1)')
   assert.equal(CC.readTown(dir, 'k', 'w2').obs.a.n, 99)
+  assert.equal(CC.readTown(dir, 'k', 'w1', { maxBytes: 64 }), null, 'too large to replay: unknown')
+  assert.equal(CC.claimStack(dir, 'k', 'w1', { id: 'Z', n: 1, k: 'a', keys: ['a'], coverage: true }, { maxBytes: 64 }).decision, 'unknown')
+})
+await t('CAP, the checkpoint (Claude r3 P2): a reader folds only past it, the state equals a full replay, and a claimant still finds its own claim', () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'mcbot-cobble-ckpt-'))
+  const now = Date.now()
+  for (let i = 0; i < 400; i++) {                                                     // 400 counts and 400 released claims
+    CC.appendJournal(dir, 'k', null, { t: 'claim', id: `q${i}`, n: 1, k: `c${i % 20}`, at: now, bot: 'x', inst: 'i', keys: [`c${i % 20}`], coverage: false })
+    CC.appendJournal(dir, 'k', null, { t: 'cnt', k: `c${i % 20}`, n: i % 7, cap: now - 1000 + i, ids: [`q${i}`] })
+  }
+  const full = CC.foldJournal(CC.readJournal(dir, 'k')).state
+  assert.equal(Object.keys(full.claims).length, 0, 'released claims are not carried'); assert.equal(Object.keys(full.obs).length, 20)
+  const s1 = {}
+  const st1 = CC.readTown(dir, 'k', null, { ckptEvery: 1024, stats: s1 })
+  assert.deepEqual(st1, full); assert.equal(s1.folded, 800); assert.ok(fs.existsSync(path.join(dir, 'k.cobble.ckpt.json')), 'a checkpoint was written')
+  const s2 = {}
+  assert.deepEqual(CC.readTown(dir, 'k', null, { ckptEvery: 1024, stats: s2 }), full); assert.equal(s2.folded, 0, 'the second read folds nothing old')
+  CC.appendJournal(dir, 'k', null, { t: 'obs', k: 'c0', n: 3, cap: now + 5 })
+  const s3 = {}
+  assert.equal(CC.readTown(dir, 'k', null, { stats: s3 }).obs.c0.n, 3); assert.equal(s3.folded, 1)
+  assert.equal(CC.claimStack(dir, 'k', null, { id: 'mine', n: 1, k: 'c0', keys: Array.from({ length: 20 }, (_, i) => `c${i}`), coverage: true }).decision, 'bank', 'the claim is found past the checkpoint')
+  fs.writeFileSync(path.join(dir, 'k.cobble.ckpt.json'), JSON.stringify({ v: 1, ino: -1, world: null, offset: 10, seq: 0, state: { obs: { c0: { n: 999, at: now + 9, seq: 1 } }, claims: {}, scan: null } }))
+  assert.equal(CC.readTown(dir, 'k').obs.c0.n, 3, 'a checkpoint for another file is ignored')
 })
 
 const capTown = (bag, chestCobble = 0) => {
@@ -309,7 +339,7 @@ await t('CAP, a chest OUTSIDE town never takes cobble (the cap is the town\'s), 
   const r = await run(w.bot)
   assert.equal(cobbleIn(w.bag), 94, 'no cobble into an out-of-town chest'); assert.equal(r.status, 'success', 'positive control: the logs went')
   assert.match(RECS.slice(n0).find(x => x.skill?.name === '_cobble_bank')?.skill?.detail ?? '', /moved=0 .* at_cap=0 unknown=0 outside=1 /, 'refused as OUTSIDE, by the rule (not by an accident of the view)')
-  assert.deepEqual(Object.values(CC.readTown(process.env.POOL_STATE_DIR, CF.townKey({ x: 0, y: 64, z: 0 })).claims).filter(c => !c.released), [], 'no claim left behind')
+  assert.deepEqual(Object.values(CC.readTown(process.env.POOL_STATE_DIR, CF.townKey({ x: 0, y: 64, z: 0 })).claims), [], 'no claim left behind')
 })
 await t('CAP, OBSERVED ON OPEN: a deposit that banks no cobble (logs only, cobble at the reserve) still records the chest\'s cobble count', async () => {
   const w = capTown([stack('cobblestone', 64), stack('oak_log', 20)], 0)
@@ -323,7 +353,7 @@ await t('CAP, OBSERVED ON OPEN: a deposit that banks no cobble (logs only, cobbl
 await t('CAP, a DELAYED observation never overwrites a newer count of the same container', async () => {
   const w = capTown([stack('cobblestone', 64)], 100)
   const key = CF.townKey({ x: 0, y: 64, z: 0 })
-  CC.appendJournal(process.env.POOL_STATE_DIR, key, null, [{ t: 'obs', k: '5,64,0', n: 164, cap: Date.now() + 60_000 }])
+  CC.appendJournal(process.env.POOL_STATE_DIR, key, null, { t: 'obs', k: '5,64,0', n: 164, cap: Date.now() + 60_000 })
   const b = w.bot.blockAt({ x: 5, y: 64, z: 0 })
   const win = await w.bot.openContainer(b); await cobbleObserve(w.bot, b.position, win); win.close()
   assert.equal(CC.readTown(process.env.POOL_STATE_DIR, key).obs['5,64,0'].n, 164, 'the newer count stood')
@@ -371,7 +401,7 @@ await t('CAP, the scan: a counted container the scan missed is still a key; a co
   const w = town([stack('cobblestone', 64)])
   w.set(-6, 64, 0, 'barrel')
   await countAt(w, -6, 64, 0); await countAt(w, 5, 64, 0)
-  CC.appendJournal(process.env.POOL_STATE_DIR, TK(), null, [{ t: 'obs', k: '9,64,9', n: 500, cap: Date.now() }])   // air there now
+  CC.appendJournal(process.env.POOL_STATE_DIR, TK(), null, { t: 'obs', k: '9,64,9', n: 500, cap: Date.now() })   // air there now
   const find = w.bot.findBlocks.bind(w.bot)
   w.bot.findBlocks = o => find(o).filter(p => p.x !== -6)                                                         // the scan misses the barrel
   const sc = S2.townCobbleScan(w.bot, Date.now(), { fresh: true })
@@ -408,8 +438,8 @@ await t('CAP, every claim is released after a normal cobble deposit (nothing lef
   const r = await run(w.bot)
   assert.equal(r.status, 'success', r.detail); assert.ok(cobbleIn(w.bag) < 114, 'positive control: cobble moved')
   const st = CC.readTown(process.env.POOL_STATE_DIR, TK())
-  assert.ok(Object.keys(st.claims).length >= 1, 'positive control: claims were made')
-  assert.deepEqual(Object.values(st.claims).filter(c => !c.released), [])
+  assert.ok(CC.readJournal(process.env.POOL_STATE_DIR, TK()).filter(r => r.t === 'claim').length >= 1, 'positive control: claims were made')
+  assert.deepEqual(st.claims, {}, 'every one released')
   assert.equal(CC.townCobble(st, ['5,64,0'], Date.now()).reserved, 0)
 })
 await t('CAP, OUTSIDE-TOWN DEAD END (Claude r2 P1, probe A): a cobble-only plan walks past the nearer chest outside town to the town chest', async () => {
@@ -472,9 +502,53 @@ await t('CAP, the reconciliation honours the deadline (Codex r2 P2): no time lef
   const w = capTown([stack('cobblestone', 64), stack('cobblestone', 30)], 10)
   w.set(-6, 64, 0, 'barrel')
   const opened0 = w.spy.opened.length, gotos0 = w.spy.gotos.length
-  assert.equal(await S2.reconcileCobble(w.bot, new AbortController().signal, () => 0), 0)
+  assert.equal((await S2.reconcileCobble(w.bot, new AbortController().signal, () => 0)).counted, 0)
   assert.equal(w.spy.opened.length, opened0); assert.equal(w.spy.gotos.length, gotos0)
-  assert.ok(await S2.reconcileCobble(w.bot, new AbortController().signal, cap => cap) >= 1, 'positive control: with time it counts')
+  assert.ok((await S2.reconcileCobble(w.bot, new AbortController().signal, cap => cap)).counted >= 1, 'positive control: with time it counts')
+})
+await t('CAP, a reconciliation open that answers LATE (Codex r3 P2): its own window is closed when it comes, nothing else is opened in that run', async () => {
+  const w = capTown([stack('cobblestone', 64), stack('cobblestone', 30)], 10)
+  w.set(-6, 64, 0, 'barrel'); w.set(-6, 64, 3, 'barrel')
+  const open = w.bot.openContainer.bind(w.bot)
+  let lateWin = null, opens = 0
+  w.bot.openContainer = b => { if (b.position.x !== -6) return open(b); opens++; return new Promise(res => setTimeout(async () => { lateWin = await open(b); const c = lateWin.close.bind(lateWin); lateWin.closed = false; lateWin.close = () => { lateWin.closed = true; c() }; res(lateWin) }, 1500)) }
+  const ms = cap => (cap === 8_000 ? 1_100 : cap)
+  const r = await S2.reconcileCobble(w.bot, new AbortController().signal, ms)
+  assert.equal(r.timedOut, true); assert.equal(opens, 1, 'one barrel open in flight, the second barrel never opened')
+  await new Promise(res => setTimeout(res, 800))
+  assert.ok(lateWin && lateWin.closed, 'the late window was closed by its own open')
+})
+await t('CAP, a count that cannot be WRITTEN backs its container off too (Codex r3 P2): no second walk', async () => {
+  const w = capTown([stack('cobblestone', 64), stack('cobblestone', 30)], 10)
+  await countAt(w, 5, 64, 0)
+  w.set(-6, 64, 0, 'barrel')
+  const jf = path.join(process.env.POOL_STATE_DIR, `${TK()}.cobble.jsonl`)
+  const opened0 = () => w.spy.opened.filter(k => k === w.key(-6, 64, 0)).length
+  fs.chmodSync(jf, 0o444)
+  try {
+    const r1 = await S2.reconcileCobble(w.bot, new AbortController().signal, cap => cap)
+    assert.equal(r1.counted, 0); assert.equal(opened0(), 1, 'positive control: it was opened')
+    await S2.reconcileCobble(w.bot, new AbortController().signal, cap => cap)
+    assert.equal(opened0(), 1, 'backed off: not opened again')
+  } finally { fs.chmodSync(jf, 0o644) }
+})
+await t('CAP, the scan record is written at most every 5 min per bot (Claude r3 P3: journal size)', async () => {
+  const w = capTown([stack('cobblestone', 64)], 10)
+  await countAt(w, 5, 64, 0); await countAt(w, 5, 64, 0); await countAt(w, 5, 64, 0)
+  const recs = CC.readJournal(process.env.POOL_STATE_DIR, TK())
+  assert.equal(recs.filter(r => r.t === 'cnt').length, 3, 'positive control: three counts')
+  assert.equal(recs.filter(r => r.scan).length, 1)
+})
+await t('CAP, a deposit voids THIS bot\'s claims left by an earlier run (a crash mid-deposit) before it claims again; the container is then recounted', async () => {
+  const w = capTown([stack('cobblestone', 64), stack('cobblestone', 30)], 100)
+  w.bot.username = 'CobbleBot'
+  await countAt(w, 5, 64, 0)
+  CC.appendJournal(process.env.POOL_STATE_DIR, TK(), null, { t: 'claim', id: 'old', n: 64, k: '5,64,0', at: Date.now() - 60_000, bot: w.bot.username ?? null, inst: 'dead-9', keys: ['5,64,0'], coverage: true })
+  assert.equal(S2.cobbleTownViewFor(w.bot, Date.now() + 25_000).reserved, 64, 'positive control: the old claim is reserved')
+  const r = await run(w.bot)
+  const st = CC.readTown(process.env.POOL_STATE_DIR, TK())
+  assert.equal(st.claims.old, undefined, 'voided, then resolved by the deposit\'s own count')
+  assert.equal(r.status, 'success', r.detail); assert.equal(cobbleIn(w.bag), 64, 'and the 30 went in after the recount')
 })
 
 console.log(`\n${pass} passed, ${fail} failed`)
