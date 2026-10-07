@@ -16,7 +16,7 @@ import { gunzipSync } from 'node:zlib'
 import { airPocketInputs, airPocketAfter, airPocketPreempt, AP_FAIL_COOLDOWN_MS } from '../src/airpocket.mjs'
 import { airPocketPlan, airPocketEnvelope, airPocketAdmit, airPocketBudgetMs, envelopeBreached, airPocketConfirmed,
          airPocketTrigger, pickFastestTool, airPocketStep, airPocketDetail, AP_TRIGGER_AFTER_MS,
-         standGate, standInPocket } from '../src/airpocket.mjs'
+         standGate, standInPocket, digGate } from '../src/airpocket.mjs'
 
 let pass = 0, fail = 0
 const t = (name, fn) => Promise.resolve()
@@ -222,7 +222,11 @@ function fakeBot ({ cells = HIVE_C, health = 19, digMs = 300, rise = true, riseT
   bot.equip = async it => { bot.equipped = it.name; bot.heldItem = it }
   bot.setControlState = (n, on) => { bot.controls[n] = on }
   bot.stopDigging = () => { bot.stopped++; if (bot.digging) { const d = bot.digging; bot.digging = null; d.rej(new Error('Digging aborted')) } }
-  bot.dig = blk => new Promise((res, rej) => {
+  // mineflayer's dig, modelled: unless forceLook is 'ignore' it awaits its own look BEFORE start-dig is sent
+  bot.digSends = []
+  bot.dig = (blk, forceLook) => forceLook === 'ignore' ? startDig(blk) : bot.lookAt().then(() => startDig(blk))
+  const startDig = blk => new Promise((res, rej) => {
+    bot.digSends.push(Date.now())
     const key = `${base.x},${base.y + (blk._dy ?? 0)},${base.z}`
     bot.digging = { rej }
     if (onDig) onDig(bot)
@@ -322,9 +326,9 @@ await t('F9 a HUNG equip is bounded (1.5 s), then priced with what is held', asy
 await t('F10 a STANDING bot digs with jump released (on-ground time, no ghost air); a FLOATING bot holds jump; both hold it for the rise', async () => {
   for (const [onGround, jumpAtDig] of [[true, false], [false, true]]) {
     const bot = fakeBot({}); bot.entity.onGround = onGround
-    let atDig = null; const dig0 = bot.dig; bot.dig = blk => { atDig = bot.controls.jump; return dig0(blk) }
+    let atDig = null, dug = false; const dig0 = bot.dig; bot.dig = blk => { atDig = bot.controls.jump; dug = true; return dig0(blk) }
     let afterDig = null; const realSleep = ms => new Promise(r => setTimeout(r, ms / 10))
-    const r = await airPocketStep(bot, airPocketPlan(world(HIVE_C)), deps({ sleep: async ms => { if (afterDig == null) afterDig = bot.controls.jump; return realSleep(ms) } }))
+    const r = await airPocketStep(bot, airPocketPlan(world(HIVE_C)), deps({ sleep: async ms => { if (afterDig == null && dug) afterDig = bot.controls.jump; return realSleep(ms) } }))
     clearInterval(bot._healthTimer)
     assert.equal(atDig, jumpAtDig, `onGround=${onGround}`); assert.equal(afterDig, true, `rise onGround=${onGround}`); assert.equal(r.standing, onGround)
   }
@@ -442,6 +446,61 @@ await t('F19 mutants: a looked place, a dropped abort check, a dropped held chec
   })
   await withMutant(AP_PATH, "  if (!held || held !== want) return `${want} not held (holding ${held ?? 'nothing'})`\n", '', async m => {
     assert.equal(m.standGate({ aborted: null, held: 'stone_pickaxe', want: 'cobblestone', pos: { x: 100.5, y: 61.1, z: 100.5 }, fx: 100, fz: 100, cellY: 60 }), null)
+  })
+})
+
+await t('F20 digGate (pure): aborted, a changed roof, a changed tool, off the column each refuse; all clear passes', () => {
+  const ok = { aborted: null, block: 'stone', want: 'stone', held: 'stone_pickaxe', priced: 'stone_pickaxe', pos: { x: 100.5, y: 60.2, z: 100.5 }, fx: 100, fy: 60, fz: 100 }
+  assert.equal(digGate(ok), null)
+  assert.equal(digGate({ ...ok, held: null, priced: null }), null)   // bare hand priced bare hand
+  assert.equal(digGate({ ...ok, aborted: 'a skill took the body' }), 'a skill took the body')
+  assert.equal(digGate({ ...ok, block: 'water' }), 'roof cell changed to water')
+  assert.match(digGate({ ...ok, held: 'cobblestone' }), /held item changed \(stone_pickaxe -> cobblestone\)/)
+  assert.equal(digGate({ ...ok, pos: { x: 99.9, y: 60.2, z: 100.5 } }), 'moved off the planned column')
+  assert.equal(digGate({ ...ok, pos: { x: 100.5, y: 58.9, z: 100.5 } }), 'moved off the planned column')
+})
+await t('F21 NO DIG AFTER RETURN (Codex r5): with a look that stalls past the deadline, start-dig is sent inside the step or never', async () => {
+  const bot = fakeBot({}); bot.lookMs = 2600   // real ms: past the bounded look (50 real) and the dig deadline (2300, a real timer)
+  const r = await airPocketStep(bot, airPocketPlan(world(HIVE_C)), deps())
+  const returnedAt = Date.now(); await new Promise(res => setTimeout(res, 2700)); clearInterval(bot._healthTimer)
+  assert.ok(bot.digSends.every(at => at <= returnedAt), 'a dig was started after the step returned')
+  assert.equal(r.ok, true, r.why); assert.equal(bot.digSends.length, 1)   // positive control: the stalled look does not stop the dig
+  await withMutant(AP_PATH, "bot.dig(cur, 'ignore'),", 'bot.dig(cur),', async m => {
+    const b = fakeBot({}); b.lookMs = 2600
+    const r2 = await m.airPocketStep(b, m.airPocketPlan(world(HIVE_C)), deps())
+    const back = Date.now(); await new Promise(res => setTimeout(res, 2700)); clearInterval(b._healthTimer)
+    assert.equal(r2.ok, false); assert.ok(b.digSends.some(at => at > back), 'the looked dig must start after the step returned')
+  })
+})
+await t('F23 the step asks digGate after its look: a bot pushed off the column, or a roof that changed, during the look is never dug', async () => {
+  const a = fakeBot({}); a.lookAt = async () => { a.entity.position = new V(101.4, 60.2, 100.5) }
+  const ra = await airPocketStep(a, airPocketPlan(world(HIVE_C)), deps()); clearInterval(a._healthTimer)
+  assert.equal(ra.why, 'moved off the planned column'); assert.equal(a.digSends.length, 0)
+  const b = fakeBot({}); b.lookAt = async () => { b._place(0, 2, 0, 'gravel') }
+  const rb = await airPocketStep(b, airPocketPlan(world(HIVE_C)), deps()); clearInterval(b._healthTimer)
+  assert.equal(rb.why, 'roof cell changed to gravel'); assert.equal(b.digSends.length, 0)
+  await withMutant(AP_PATH, '    if (noDig) { res.why = noDig;', '    if (false) { res.why = noDig;', async m => {
+    const c = fakeBot({}); c.lookAt = async () => { c.entity.position = new V(101.4, 60.2, 100.5) }
+    await m.airPocketStep(c, m.airPocketPlan(world(HIVE_C)), deps()); clearInterval(c._healthTimer)
+    assert.equal(c.digSends.length, 1, 'without the gate the pushed bot digs')
+  })
+})
+await t('F22 the stand reports an abort that lands during the rise or after a place, keeping the count', async () => {
+  const floorCells = { ...HIVE_C, '0,-1,0': 'stone' }
+  const plan = airPocketPlan(world(floorCells))
+  const at = { fx: 100, fy: 60, fz: 100, Vec3: V, sleep: ms => new Promise(r => setTimeout(r, ms / 10)), now: fast() }
+  const a = fakeBot({ cells: floorCells }); clearInterval(a._healthTimer)   // never rises: feet stay at 60.2
+  let ca = 0
+  const ra = await standInPocket(a, plan, { ...at, standItem: () => ({ name: 'cobblestone' }), isAborted: () => (++ca >= 2 ? 'envelope breached' : null) })
+  assert.equal(ra, 'stopped:aborted: envelope breached (0 placed)'); assert.equal(a.sends.length, 0)
+  const b = fakeBot({ cells: floorCells }); b.entity.position = new V(100.5, 61.1, 100.5); clearInterval(b._healthTimer)
+  let cb = 0
+  const rb = await standInPocket(b, plan, { ...at, standItem: () => ({ name: 'cobblestone' }), isAborted: () => (++cb >= 4 ? 'guard: a skill started' : null) })
+  assert.equal(rb, 'stopped:aborted: guard: a skill started (1 placed)'); assert.equal(b.sends.length, 1)
+  await withMutant(AP_PATH, "      if (isAborted()) return `stopped:aborted: ${isAborted()} (${placed} placed)`\n      if (bot.entity.position.y", '      if (bot.entity.position.y', async m => {
+    const c = fakeBot({ cells: floorCells }); clearInterval(c._healthTimer); let cc = 0
+    const rc = await m.standInPocket(c, plan, { ...at, standItem: () => ({ name: 'cobblestone' }), isAborted: () => (++cc >= 2 ? 'x' : null) })
+    assert.match(rc, /did not rise/)
   })
 })
 
