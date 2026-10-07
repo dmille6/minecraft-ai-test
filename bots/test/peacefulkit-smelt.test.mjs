@@ -28,12 +28,14 @@ function makeBot (inv, difficulty, { tickMs = 4, onBurn = null } = {}) {
   let burnLeft = 0, ticker = null
   const tick = () => {
     if (!slots.input) return
-    if (burnLeft <= 0) {
+    // one item needs 200 ticks of burn; fuel is taken one unit at a time only when the burn left cannot finish it
+    while (burnLeft < 200) {
       if (!slots.fuel) return
       const f = slots.fuel.name
       burnLeft += TICKS[f]; burnt[f] = (burnt[f] ?? 0) + 1
       slots.fuel = slots.fuel.count > 1 ? { ...slots.fuel, count: slots.fuel.count - 1 } : null
       onBurn?.(f)
+      if (burnLeft < 200) return   // a part-burned item waits for the next unit (the skill refuels an empty slot)
     }
     burnLeft -= 200
     slots.input = slots.input.count > 1 ? { ...slots.input, count: slots.input.count - 1 } : null
@@ -66,7 +68,7 @@ function makeBot (inv, difficulty, { tickMs = 4, onBurn = null } = {}) {
   }
   return { bot, bag, slots, burnt }
 }
-const run = bot => SKILLS.smelt.run({ bot }, { item: 'raw_iron', count: 4 }, new AbortController().signal)
+const run = (bot, count = 4) => SKILLS.smelt.run({ bot }, { item: 'raw_iron', count }, new AbortController().signal)
 
 test('PLAN: swords first, one per item, then ordinary fuel for the rest; zero swords is the old plan exactly', () => {
   const held = { raw_iron: 4, coal: 2, wooden_sword: 2 }
@@ -77,6 +79,8 @@ test('PLAN: swords first, one per item, then ordinary fuel for the rest; zero sw
   assert.deepEqual(p.fuelQueue.map(q => q.name), ['wooden_sword', 'wooden_sword', 'coal'])
   const one = smeltPlan({ held: { raw_iron: 1, coal: 2, wooden_sword: 3 }, item: 'raw_iron', count: 1, budgetMs: 600000, swordFuel: 3 })
   assert.deepEqual(one.fuelQueue.map(q => q.name), ['wooden_sword'], 'one item: one sword, no coal')
+  const two = smeltPlan({ held: { raw_iron: 2, coal: 2, wooden_sword: 2 }, item: 'raw_iron', count: 2, budgetMs: 600000, swordFuel: 2 })
+  assert.deepEqual(two.fuelQueue.map(q => q.name), ['wooden_sword', 'wooden_sword'], 'a sword smelts ONE item: two items, two swords')
 })
 
 test('NEVER STARTS A SMELT: with no ordinary fuel the walk is refused before it starts, swords or not', async () => {
@@ -121,5 +125,16 @@ test('THE SWITCH IS READ AT EACH BURN: the world turns easy after the first swor
   assert.equal(made.burnt.wooden_sword, 1, 'only the sword loaded while the switch was on')
   assert.equal(made.bag.wooden_sword, 1, 'the second sword is still in the bag')
   assert.equal(made.bag.iron_ingot, 4, 'and every ingot was still made')
+  foodSkipNow({ serverDifficulty: 'hard' })
+})
+
+test('THE SWITCH TURNS OFF MID-JOB with exact planks: the skipped sword\'s item is covered by ordinary fuel added for it (3 of 3 ingots)', async () => {
+  let bot
+  const made = makeBot({ raw_iron: 3, oak_planks: 5, wooden_sword: 2 }, 'peaceful', { onBurn: f => { if (f === 'wooden_sword') bot.serverDifficulty = 'hard' } })
+  bot = made.bot
+  const r = await run(bot, 3)
+  assert.equal(r.status, 'success', r.detail)
+  assert.equal(made.burnt.wooden_sword, 1); assert.equal(made.bag.wooden_sword, 1)
+  assert.equal(made.bag.iron_ingot, 3, `every ingot made: ${JSON.stringify(made.burnt)} ${r.detail}`)
   foodSkipNow({ serverDifficulty: 'hard' })
 })
