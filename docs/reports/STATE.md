@@ -147,8 +147,9 @@ at boot), chain-after. +360 read ran late (12:02Z; window 01:10-07:10Z includes 
 16 visits (~65 bone meal); instrument 25; deaths canary 1 (0.014/bh) vs control 6 (0.027/bh); slots DiD +0.48, share>=34 DiD
 +0.086 (inside the 10-05 no-change noise band), gather success DiD +0.028. LABEL: apple composting + mode switch supported on
 the fleet; food-chase suppression UNVALIDATED on the fleet (unit tests only). Follow-up sandbox A/B still owed.
-Fleet bot code is on branch fs-on-c902d6f @ c6e91a8; NOT merged to main (main's bots/ has lagged the fleet since idlegap,
-a trial merge brings in ~10 canaries' files -- same convention as the climbflood promotion; flagged to the owner).
+Fleet bot code c6e91a8 MERGED TO MAIN 10-07 (c259a9e, owner asked): main's bots/ had lagged since idlegap (bf296c9);
+merged bots/src == deployed c6e91a8 except one lint comment in reflex.mjs; npm test 237/237. From now on, merge each
+promoted canary sha into main at promotion so main stays equal to the fleet.
 towndeposit-01: chain-after STOPPED ("already registered": the stalled c902d6f registration). Moved aside
 (registrations/towndeposit-01.json.c902d6f-stalled-20261007), re-registered from towndeposit-01.c6e91a8.json (td-on-c6e91a8
 @ 92bc84f), loop relaunched 12:22Z: preflight/licence/gatedigest OK, draw waiting. Expect the draw this afternoon: its 6 h
