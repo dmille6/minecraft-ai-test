@@ -1,0 +1,50 @@
+Reading additional input from stdin...
+OpenAI Codex v0.153.4
+--------
+workdir: /private/tmp/claude-501/-Users-darrellmiller-Documents-code-minecraft-ai--claude-worktrees-heuristic-nightingale-49eee9/2a199c24-8dc2-4c02-9509-8499787c3dd1/scratchpad
+model: gpt-6-astra
+provider: openai
+approval: never
+sandbox: read-only
+reasoning effort: none
+reasoning summaries: none
+session id: 01a11750-2053-7d02-85c6-a30fe82bd436
+--------
+user
+Independent review, <= 250 words: AGREE / DISAGREE with the proposal, and any required change.
+
+Canary towndeposit-01 (feature: bots with full bags deposit at town chests automatically), 10 bots (board-b, placebo-a), deployed 13:06Z 10-07, REVERTED automatically at +180 by guard v11: "climb firings/bot-h ratio-DiD +239% > +100%". Climb firings = _entombed + _marooned reflex rows.
+Read table (pre = the 3 h before deploy, 10:06-13:06Z): canary pre 37 climbs / 11.6 bot-h = 3.2/bh -> post 233 / 30.0 = 7.8/bh; control pre 644 / 58.5 = 11.0/bh -> post 1186 / 150 = 7.9/bh.
+Context: power outage 05:01-11:53Z took down the fleet host; then a fleet-wide promotion restarted all 80 bots ~12:00-12:12Z. So the pre window held ~1 h of post-restart startup for the canary (11.6 of 30 nominal bot-h).
+Re-analysis with a clean pre window (10-06 20:00 - 10-07 05:00Z, 9 h, same pools, no outage): canary 6.51/bh (586 climbs, 10 bots), control 8.01/bh (5047, 70 bots). Post: canary 7.77, control 7.99. Ratio-DiD +19%. Canary climbs spread across all 10 bots (8-42 each); 61 of 233 within 10 min of the same bot's _town_deposit row.
+All feature correctness gates at +180 were 0 breaches; 12 of 20 full-bag town stays served; slots/bot DiD -0.57; deaths 1 vs control rate (0.033 vs 0.047/bh).
+Proposal: keep the REVERT recorded (it is closed); record the guard trip as a pre-window artefact of the outage; re-run the IDENTICAL code as towndeposit-02 now that the 3 h pre-window is clean, same registration and gates. Also add (separately, reviewed) a preflight that refuses a deploy when the canary pre window has < 80% of nominal bot-h.
+codex
+**AGREE with the rerun; change the causal wording and strengthen preflight.**
+
+The original comparison has a compromised baseline: canary pre exposure was only 39% of nominal and concentrated in post-restart startup. Dividing by observed bot-hours does not remove startup effects. The clean-window estimate (+19% versus +239%) supports rerunning identical code under the existing gates, while preserving towndeposit-01’s closed REVERT.
+
+However, record the trip as **“baseline compromised by outage/restart; feature effect unresolved,”** not definitively a pre-window artefact. The older baseline is informative but does not establish the counterfactual for the deployment period. Likewise, 61/233 climbs near deposits warrants investigation, but temporal proximity alone does not establish causation; its interpretation requires the amount of time spent near deposits and an appropriate comparison.
+
+Required changes:
+
+- Before towndeposit-02, verify the full three-hour baseline has sufficient exposure **in both canary and control**, with no outage, promotion, or restart recovery contaminating it. Waiting three hours alone does not establish this.
+- Add the separately reviewed 80% exposure preflight, but also reject baselines contaminated by fleet restarts/recovery. An exposure threshold alone can admit a nearly complete but behaviorally unrepresentative window.
+- Keep code, registration, and outcome gates unchanged; do not waive another trip based on this re-analysis.
+
+Zero correctness breaches and the inventory improvement support another canary, but do not independently clear the climb concern.
+tokens used
+4,417
+**AGREE with the rerun; change the causal wording and strengthen preflight.**
+
+The original comparison has a compromised baseline: canary pre exposure was only 39% of nominal and concentrated in post-restart startup. Dividing by observed bot-hours does not remove startup effects. The clean-window estimate (+19% versus +239%) supports rerunning identical code under the existing gates, while preserving towndeposit-01’s closed REVERT.
+
+However, record the trip as **“baseline compromised by outage/restart; feature effect unresolved,”** not definitively a pre-window artefact. The older baseline is informative but does not establish the counterfactual for the deployment period. Likewise, 61/233 climbs near deposits warrants investigation, but temporal proximity alone does not establish causation; its interpretation requires the amount of time spent near deposits and an appropriate comparison.
+
+Required changes:
+
+- Before towndeposit-02, verify the full three-hour baseline has sufficient exposure **in both canary and control**, with no outage, promotion, or restart recovery contaminating it. Waiting three hours alone does not establish this.
+- Add the separately reviewed 80% exposure preflight, but also reject baselines contaminated by fleet restarts/recovery. An exposure threshold alone can admit a nearly complete but behaviorally unrepresentative window.
+- Keep code, registration, and outcome gates unchanged; do not waive another trip based on this re-analysis.
+
+Zero correctness breaches and the inventory improvement support another canary, but do not independently clear the climb concern.

@@ -138,6 +138,22 @@ the same farm: ctrl 15,16 logs vs cand 21,23 (no harm). Bone meal arm built, OFF
 Bags: 76/80 bots hold >= 6 farm saplings, 62/80 carry torches. Design + follow-ons (WORKSHOP, SAFE MINESHAFT, designed
 not built): docs/reports/blueprint-builder-design-2026-10-05.md.
 
+## 10-07 17:30Z — TOWNDEPOSIT-01 REVERTED (+180, guard v11 climbs +239%); towndeposit-02 = identical re-run, launches >= 19:45Z
+Feature gates at +180 all 0 breaches; 12/20 full-bag town stays served; slots/bot DiD -0.57, share>=34 DiD -0.087; deaths
+1 (0.033/bh) vs control 0.047/bh. The trip: climb firings (_entombed+_marooned)/bot-h canary 3.2 -> 7.8, control 11.0 -> 7.9.
+The pre window (10:06-13:06Z) held the outage (to 11:53Z) and the fleet promotion restart (12:00-12:12Z): canary pre 11.6
+of 30 nominal bot-h. Clean 9 h pre (10-06 20:00-05:00Z, scripts/host/tdclimbs.py): canary 6.51/bh, control 8.01; post 7.77
+vs 7.99 -> ratio-DiD +19%. Spread over all 10 bots (8-42 each); 61/233 within 10 min of the same bot's _town_deposit row
+(proximity, not causation). RECORDED AS: baseline compromised by outage/restart; feature effect UNRESOLVED (Codex wording,
+docs/reports/towndeposit-01-revert-codex.txt). Torn down 16:15Z, pools on c6e91a8.
+towndeposit-02: same sha 92bc84f, same reads and gates, no trip waived (registration docs/reports/towndeposit-02.c6e91a8.json).
+~/launch-td02.sh (pid on host) waits until 19:45Z so the 3 h pre window is clear of the 16:15Z teardown restarts in the
+control too, refuses if a canary is declared or the fleet is not c6e91a8, then runs canary-loop.
+Teardown noise: the restart step globbed stale /var/log/mcai/board-b-Charlie and placebo-a-Charlie dirs (bots retired
+09-02) and tried to start units with no env file -> 2 "failed" units, reset-failed; 80/80 real bots running.
+QUEUED (Codex): a preflight refusing a deploy whose 3 h pre window has < 80% of nominal bot-h in canary OR control, or
+contains a fleet/pool restart; build + review before towndeposit-02's successors rely on it. Then withdraw2.
+
 ## 10-07 13:10Z — CANARY LIVE: towndeposit-01 @ 92bc84f (td-on-c6e91a8) on board-b,placebo-a (10 bots), declared 13:06:18Z
 Two versions live (92bc84f x10, c6e91a8 rest). Reads ~16:06Z (+180) and ~19:06Z (+360). Next in the queue: withdraw2
 (rebase wd2-on-c902d6f onto the then-fleet sha; check iron retention vs towndeposit), then gridfix, bamboo, junk well,

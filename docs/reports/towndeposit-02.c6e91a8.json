@@ -1,0 +1,137 @@
+{
+ "run_id": "towndeposit-02",
+ "sha": "92bc84f",
+ "registered_at": "2026-10-07T17:25:00Z",
+ "ladder_change": false,
+ "promotion": "fleet-wide",
+ "notes": "[towndeposit-02 = IDENTICAL re-run of towndeposit-01 (same sha 92bc84f, same reads/gates). towndeposit-01 REVERTED at +180 on v11 climbs +239%: baseline compromised by the 05:01-11:53Z outage and the 12:00-12:12Z fleet restart (canary pre 11.6 of 30 nominal bot-h); feature effect unresolved. Clean 9 h pre (10-06 20:00-05:00Z) gives +19%. Codex AGREE with conditions: unchanged code/gates, no trip waived, pre window free of restarts in canary AND control -> launch not before 19:45Z (last restarts: board-b/placebo-a teardown 16:15Z).] [towndeposit-01. Variant for fleet c6e91a8 (foodskip-01 KEPT: the fleet is c902d6f + the peaceful food policy), branch td-on-c6e91a8 @ 92bc84f: the td-on-c902d6f commits (c902d6f..56aa04a) cherry-picked onto fs-on-c902d6f @ c6e91a8, plus the test-only foodskip x towndeposit composition commit; bots/src is identical to fs-on-56aa04a (the same two changes stacked in the other order) except the order of one import. If foodskip-01 is REVERTED the fleet stays c902d6f and towndeposit-01.c902d6f.json (56aa04a) applies. Launch: ~/chain-after.sh foodskip-01 towndeposit-01 c6e91a8=/home/mike/mcai-analysis/towndeposit-01.c6e91a8.json c902d6f=/home/mike/mcai-analysis/towndeposit-01.c902d6f.json Gates on 92bc84f: suite 236/236; towndeposit mutants 31/32 (the equivalent survivor as before), food-policy mutants 18/18; Codex reverse-stacking confirmation APPROVE (the same code as the other order; G3 judges banked names only, so composted apples never flag; the read's compost tripwire now counts apple composting in both arms and stays descriptive -- fewer canary compost rows can just mean the deposit took the bag below 34). -- NOT launched.] OWNER 10-05 ~18:30Z: 'yes add automatic town deposit'. MEASURED (bag-creep report 10-05, 24 h, 80 bots): 829 town stays began at >= 34 slots (77 bots, median 9 min; town = 16 h / 12 v of home); 715 carried bankable surplus (median 4 freeable slots); only 231 tried any deposit, 130 succeeded; the median bag left town as full as it arrived. THE CHANGE (bots/src/towndeposit.mjs + skills.mjs town_deposit, chatOnly housekeeping): a bot within 16 h / 12 v of home, bag >= 34 of 36 (its own items().length), a town container within 16, and a plan that empties >= 1 slot -> one deterministic order, evaluated BEFORE the milestone order (a craft-ready rung re-issues its craft every decision; craftroom refuses it at 36/36). One order per town stay (re-armed by 60 s outside town or 15 min), 5 min cooldown, 15 min backoff after a failure. PLAN: the fleet's own depositPlan allowance (standing targets, always-banked ores, spare tools; never ballast, food, stations, chests, dirt, sand), creditCap 64 per VISIT, minus KEEPS as totals: wood units and the COBBLE family to min(held, 64), dirt 16, sand 8, 4 planks (the ladder's means), the iron ladder (raw_iron, iron_ingot, coal...) never, the active rung's wants to a stack, the scaffold reserve; tools by SLOT: spent (<= 10 uses) never, the best usable copy kept. WHOLE stacks only, smallest first. A property test runs every gatherer + SUSTAINING rung's real done() over 400 random full bags at laps 0..540: no rung changes state. EXECUTION: <= 2 town containers (no lids, double-chest halves by block state, never a mine chest), 45 s, a no-dig/no-tower/no-scaffold walk (index.mjs withTownDepositWalk), never walks home, digs, crafts or places; each stack = two left clicks into an EMPTY container slot (destination re-read after the pickup); a failed put-down puts the cursor back; the container is OPENED AGAIN and only stacks the server shows there are credited (bagdelta from the server's bag); an unconfirmable run is failed, never success; a timed-out open is drained before the run returns. Codex: design in parallel (agreed: separate skill, before the milestone order, whole stacks, slot-precise tools, capped by the container), implementation review CHANGE x3 -> APPROVE at 1cb6913 (round 4). PAPER (sandbox, server read-back, sandbox/craft/towndeposit-ab.cjs; 9 candidate trials, 3 control): full bag 3/3 -> banked exactly the 60-use stone_pickaxe, cobblestone 20, oak_log 10, raw_copper 7, kept the spent and best pickaxes, 128 cobblestone, 128 logs, iron, food, dirt; nothing on the ground; one order in 0.6 s. Kept-only bag 3/3 and a 33-slot bag 2/2: no order. Full chest 1/1: one failed run, no click, nothing moved. Two chests 1/1: the first took 2 stacks, the second the rest, logs capped at 10 for the visit, the 120-use pickaxe kept and the 81-use one banked. Nothing on the ground in any trial. CONTRAST, the model's deposit verb on the control with the same bag: banked 151 items incl. the SPENT pickaxe and the BEST one (kept the 60-use copy), raw_iron and coal. EXPECTED: ~2-4 slots per full town stay (report); creditCap 64 and the stockpile keep hold the low end. NOT IN THIS VARIABLE (listed): the model's deposit verb and craftroom's depositTarget still use the base rules (they can bank below the stockpile and bank spent tools by type); on this base the food policy composts apples above 4 in BOTH arms (bone meal still has no exit); duplicate pickaxe crafts unbuilt.",
+ "licence": {
+  "class": "kind",
+  "kind": "_town_deposit",
+  "min_rows": 1,
+  "note": "Written only by this build: one row per town_deposit run. The fleet (1918bb5) has no _town_deposit row and no town_deposit skill."
+ },
+ "reads": [
+  "towndepositread",
+  "immobiledid"
+ ],
+ "read_minutes": [
+  180,
+  360
+ ],
+ "deadline_min": 1680,
+ "change_rows": [
+  "town_deposit"
+ ],
+ "linkage_extra": [],
+ "draw_exposure": {
+  "hours": 6,
+  "require": [
+   {
+    "name": "full bots at town (compost runs pass the same at-town, >= 34-slot gate)",
+    "kind": "compost",
+    "min": 8
+   }
+  ],
+  "note": "Same proxy junkwell-01 used: min 8 ROWS = ~4 compost runs (drawexposure counts the skill row and its _compost event). The read's own instrument counts control full-bag town stays carrying surplus directly: 92 of 117 in the 3 h dry run 10-05."
+ },
+ "exposure": {
+  "read": "towndepositread",
+  "field": "exposure_ready",
+  "min": 1,
+  "note": "Ready = >= 3 canary runs that the server read-back confirms (successes) AND the positive control >= 1 (control full-bag town stays carrying bankable surplus; 92 in a 3 h dry run). Expected: the report's 829 full-bag town stays/24 h over 80 bots is ~31 per 10 bots per 6 h, 86% with surplus."
+ },
+ "own_lines": [
+  {
+   "read": "towndepositread",
+   "field": "breach_spent_tool",
+   "op": "<=",
+   "value": 0,
+   "on_fail": "REVERT",
+   "evidence": "defect",
+   "note": "G1: a banked tool copy at <= 10 uses (the row's tools name@uses), or a banked tool name with no usable copy left in the END snapshot."
+  },
+  {
+   "read": "towndepositread",
+   "field": "breach_keep",
+   "op": "<=",
+   "value": 0,
+   "on_fail": "REVERT",
+   "evidence": "defect",
+   "note": "G2: banked logs/planks with wood units after < 64; banked planks with planks after < 4; banked cobblestone/cobbled_deepslate/stone with the stone family after < 64 (END snapshot)."
+  },
+  {
+   "read": "towndepositread",
+   "field": "breach_junk",
+   "op": "<=",
+   "value": 0,
+   "on_fail": "REVERT",
+   "evidence": "defect",
+   "note": "G3: a banked name outside standing targets / always-banked ores / tools, or inside the never set (iron ladder, dirt, sand, food, ballast, stations, chests)."
+  },
+  {
+   "read": "towndepositread",
+   "field": "breach_lost",
+   "op": "<=",
+   "value": 0,
+   "on_fail": "REVERT",
+   "evidence": "defect",
+   "note": "G4: cursor_unsettled > 0, or the server bag's loss (bagdelta) > the stacks the server showed in the chest (items left the bag and are not in the chest)."
+  },
+  {
+   "read": "towndepositread",
+   "field": "unparsed",
+   "op": "<=",
+   "value": 0,
+   "on_fail": "REVERT",
+   "note": "Every canary _town_deposit row parses (the gates read it). BLOCKS KEEP."
+  },
+  {
+   "read": "towndepositread",
+   "field": "rows_control",
+   "op": "<=",
+   "value": 0,
+   "on_fail": "REVERT",
+   "note": "Arms: the control writes no _town_deposit row. BLOCKS KEEP."
+  },
+  {
+   "read": "towndepositread",
+   "field": "rows_canary",
+   "op": ">=",
+   "value": 1,
+   "on_fail": "REVERT",
+   "note": "LIVENESS: canary _town_deposit rows from the canary build. BLOCKS KEEP (INCONCLUSIVE)."
+  },
+  {
+   "read": "towndepositread",
+   "field": "instrument_control",
+   "op": ">=",
+   "value": 1,
+   "on_fail": "REVERT",
+   "note": "POSITIVE CONTROL: control full-bag town stays carrying surplus above the keeps are visible to this query (92 in the 3 h dry run). BLOCKS KEEP."
+  }
+ ],
+ "primary": {
+  "read": "towndepositread",
+  "field": "slots_did",
+  "note": "REPORTED, NOT GATED: time-weighted slots per bot DiD (corrected estimator: eggs/buckets/pearls 16, tools/filled buckets 1) and the share of bot-time at >= 34 DiD (full_share_did); slots freed per successful run (the bot's own count); canary full-bag town stays served; claim_unconfirmed; repeat orders; compost successes per bot-h (the order runs before compost); deaths named. NOISE BAND (two no-change dry runs 10-05, hive-b+placebo-c as the 'canary', 3 h each): share at >= 34 DiD +0.013 and -0.218, slots/bot DiD +0.11 and -1.37 -- a single 6 h read of 10 bots cannot resolve a 2-4 slot-per-stay effect into a fleet slot DiD; served stays and slots freed per run are the direct measures. On this base the control composts apples too (the food policy), so compost rows per bot-h include apple visits in both arms; the dry-run noise bands were measured before the food policy."
+ },
+ "harm": {
+  "note": "Unchanged: the two-death floor (OWNER 2026-09-11) and gather_ratio < 0.43 of control, from immobiledid."
+ },
+ "teardown": {
+  "note": "THREE STEPS: drop-ins, clear canary_pool, restart the pool's bots 12 s apart; then confirm the live versions. Banked items stay in the town chests (that is the change's product, not a world edit)."
+ },
+ "amendments": [],
+ "extension": {
+  "until_exposure": true,
+  "extra_reads": [
+   540,
+   720,
+   1080,
+   1560
+  ],
+  "final_on_zero_exposure": "INCONCLUSIVE",
+  "note": "Short canary for a fix-shaped change (owner 2026-09-29): KEEP possible from +360 when exposed."
+ }
+}
