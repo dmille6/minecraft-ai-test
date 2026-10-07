@@ -24,6 +24,9 @@ import path from 'node:path'
 import { NEVER_KEEP, TRIGGER_SLOTS } from './hygiene.mjs'
 import { chainPeak } from './craftroom.mjs'
 import { WITHDRAW_COOLDOWN_MS, WITHDRAW_BACKOFF_MS, WITHDRAW_NO_BACKOFF, UPGRADE_COOLDOWN_MS } from './withdrawpick.mjs'
+// THE PEACEFUL KIT (peacefulkit.mjs, owner 10-07): under the food policy's switch the composter also takes the plants a
+// peaceful world has no use for. Passed as `plants`, beside `apples`, from the same decision.
+import { isPeacefulCompost, peacefulRank } from './peacefulkit.mjs'
 
 /**
  * VERIFIED COMPOSTING CHANCES, Java 1.21.x -- the probability that ONE inserted item raises the level by one.
@@ -67,9 +70,10 @@ export const SAPLING_RESERVE = 16
 
 const isSapling = name => typeof name === 'string' && /_sapling$/.test(name)
 
-/** leaf_litter first (it is the biggest occupant), then surplus saplings (the largest inflow), seeds, flowers, grass. */
+/** leaf_litter first (it is the biggest occupant), then surplus saplings (the largest inflow), seeds, flowers, grass.
+ *  The peaceful kit's plants slot in beside their kind (peacefulRank): seeds-like 2, flowers 3, the rest 5. */
 const RANK = name => name === 'leaf_litter' ? 0 : isSapling(name) ? 1 : /_seeds$/.test(name) ? 2
-  : /^(poppy|dandelion)$/.test(name) ? 3 : /(grass|fern)$/.test(name) ? 4 : 5
+  : /^(poppy|dandelion)$/.test(name) ? 3 : /(grass|fern)$/.test(name) ? 4 : (peacefulRank(name) ?? 5)
 
 /** Never composted whatever a table says: food, tools, wood, ores, and the product itself. */
 const NEVER_COMPOST = /(_propagule$|^apple$|^bone_meal$|_log$|_wood$|_planks$|_ore$|^raw_|_ingot$|_(pickaxe|axe|shovel|hoe|sword)$)/
@@ -84,12 +88,15 @@ export const isCompostInput = name => isCompostJunk(name) || isSapling(name)
 
 /**
  * name -> how many of it may be composted from this bag: all of the junk, saplings only above SAPLING_RESERVE, and --
- * only when `apples` (the peaceful food policy is active) -- apples above APPLE_RESERVE.
+ * only when `apples` (the peaceful food policy is active) -- apples above APPLE_RESERVE; and -- only when `plants` (the
+ * peaceful kit, the same switch) -- every one of the kit's plants (peacefulkit.mjs PEACEFUL_COMPOST: no reserve, a
+ * peaceful world has no use for them). NEVER_COMPOST still wins over every list.
  */
-export function compostAllowance (items = [], { apples = false } = {}) {
+export function compostAllowance (items = [], { apples = false, plants = false } = {}) {
   const totals = {}
   for (const it of (Array.isArray(items) ? items : [])) {
-    if (!it?.name || !(isCompostJunk(it.name) || isSapling(it.name) || (apples && it.name === 'apple'))) continue
+    if (!it?.name || !(isCompostJunk(it.name) || isSapling(it.name) || (apples && it.name === 'apple') ||
+                       (plants && isPeacefulCompost(it.name) && !NEVER_COMPOST.test(it.name)))) continue
     totals[it.name] = (totals[it.name] ?? 0) + (it.count ?? 0)
   }
   const out = {}
@@ -109,9 +116,9 @@ export const VISIT_BUDGET_MS = 45_000
  * compostPlan(items) -> { slots, junk, take: [{ name, count }] }  -- what could go, in planner order, capped.
  * Pure. `junk` is what the trigger counts.
  */
-export function compostPlan (items = [], { maxItems = MAX_ITEMS_PER_VISIT, apples = false } = {}) {
+export function compostPlan (items = [], { maxItems = MAX_ITEMS_PER_VISIT, apples = false, plants = false } = {}) {
   const list = (Array.isArray(items) ? items : []).filter(it => it?.name)
-  const allow = compostAllowance(list, { apples })
+  const allow = compostAllowance(list, { apples, plants })
   const junk = Object.values(allow).reduce((a, b) => a + b, 0)
   let left = Math.max(0, maxItems)
   const take = []
@@ -131,9 +138,9 @@ export function compostPlan (items = [], { maxItems = MAX_ITEMS_PER_VISIT, apple
  * covers all of it), because only an emptied slot can take the bone meal at the end of the fill.
  * `n` is how many of that stack may go: the whole stack, or a sapling stack down to the reserve.
  */
-export function nextInsert (items = [], { room = true, apples = false } = {}) {
+export function nextInsert (items = [], { room = true, apples = false, plants = false } = {}) {
   const list = (Array.isArray(items) ? items : []).filter(it => it?.name && (it.count ?? 0) > 0)
-  const allow = compostAllowance(list, { apples })
+  const allow = compostAllowance(list, { apples, plants })
   const stacks = list.filter(it => (allow[it.name] ?? 0) > 0)
   if (!stacks.length) return null
   if (room) {
