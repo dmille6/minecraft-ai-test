@@ -138,6 +138,26 @@ the same farm: ctrl 15,16 logs vs cand 21,23 (no harm). Bone meal arm built, OFF
 Bags: 76/80 bots hold >= 6 farm saplings, 62/80 carry torches. Design + follow-ons (WORKSHOP, SAFE MINESHAFT, designed
 not built): docs/reports/blueprint-builder-design-2026-10-05.md.
 
+## 10-07 12:25Z — FOODSKIP-01 KEPT (scoped, amendment 1) and PROMOTED: FLEET c6e91a8 (12:12Z, all live bots verified). towndeposit-01 drawing.
+SECOND POWER OUTAGE: fleet host 10.0.0.31 + world host 10.0.0.30 down 05:01:47Z -> 11:53Z (6h51m). Studio and mini stayed up.
+Came back on their own: 16 worlds, 80 bots, sandboxes 2-4, canary-loop (cron at 12:00). Restored by hand: /tmp read
+scripts (cp from ~/mcai-analysis), mcai-mayor-shadow (systemd-run as mike, same flags), block2-sandbox (sandbox 1, disabled
+at boot), chain-after. +360 read ran late (12:02Z; window 01:10-07:10Z includes ~2 h of outage; 72.8 canary bot-h).
++360: KEEP. LIVENESS 17 rows/control 0; F1 0; F2 UNPOWERED (control sought 2, canary 0); A1-A3 0; 693 apples composted in
+16 visits (~65 bone meal); instrument 25; deaths canary 1 (0.014/bh) vs control 6 (0.027/bh); slots DiD +0.48, share>=34 DiD
++0.086 (inside the 10-05 no-change noise band), gather success DiD +0.028. LABEL: apple composting + mode switch supported on
+the fleet; food-chase suppression UNVALIDATED on the fleet (unit tests only). Follow-up sandbox A/B still owed.
+Fleet bot code is on branch fs-on-c902d6f @ c6e91a8; NOT merged to main (main's bots/ has lagged the fleet since idlegap,
+a trial merge brings in ~10 canaries' files -- same convention as the climbflood promotion; flagged to the owner).
+towndeposit-01: chain-after STOPPED ("already registered": the stalled c902d6f registration). Moved aside
+(registrations/towndeposit-01.json.c902d6f-stalled-20261007), re-registered from towndeposit-01.c6e91a8.json (td-on-c6e91a8
+@ 92bc84f), loop relaunched 12:22Z: preflight/licence/gatedigest OK, draw waiting. Expect the draw this afternoon: its 6 h
+exposure window (>= 8 compost rows/pool) still contains the outage, and foodskip's pools are in the 12 h exclusion.
+MODEL BENCH: fixtures done 04:09Z. C2 smoke "FAIL" at 05:06Z was mostly the outage (check ran with the fleet host down).
+Re-run 12:10Z on real data: overseer side works (mayor_spawn 1, overseer_call 5, directive_sent 15, escalation_call 8,
+2047 bot rows) but the bots logged NO requested/dispatched directive rows -- a real gap; the det arm is void (outage).
+Model agent resumed to debug on sandbox4 and re-run the smoke. C2 series not started.
+
 ## 10-07 05:10Z — foodskip-01 +180 NOT_YET (exposure 0); AMENDMENT 1 registered before +360 (Codex APPROVE-WITH-CHANGES)
 +180 (04:15Z): LIVENESS 16 active=1 rows, control 0; F1 0; A1/A2/A3 0 (627 apples composted in 14 visits; instrument 19
 control visits holding > 4 apples); deaths canary 1 vs control 3 (0.022/bh both); gather success DiD +0.025. Exposure 0
