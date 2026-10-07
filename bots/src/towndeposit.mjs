@@ -31,9 +31,8 @@
 import { depositPlan, scaffoldKeep, withdrawHolds } from './bankable.mjs'
 import { remaining, FLOOR } from './toolfor.mjs'
 import { TRIGGER_SLOTS } from './hygiene.mjs'
-// THE PEACEFUL KIT (peacefulkit.mjs, owner 10-07): under the food policy's switch a sword keeps no copy.
+// THE PEACEFUL KIT (peacefulkit.mjs, owner 10-07 ~19:50Z): while the food policy's switch is on no sword is ever banked.
 import { peacefulFoodActive } from './foodskip.mjs'
-import { bankEveryCopy } from './peacefulkit.mjs'
 
 /** The bag the order acts on: the bot's own slot count (bot.inventory.items().length), never an estimate. */
 export const TD_TRIGGER_SLOTS = TRIGGER_SLOTS
@@ -127,13 +126,11 @@ const usesOf = it => remaining(it)
 
 /**
  * WHICH COPIES OF ONE TOOL NAME MAY BE BANKED -> their slots. Pure. Spent copies (<= FLOOR uses) never; the best usable
- * copy (most uses, then the lower slot) always stays -- unless `keepBest` is false (a sword under the peaceful kit:
- * peacefulkit.mjs bankEveryCopy) -- and every other usable copy may go, best first, up to `allowance`.
+ * copy (most uses, then the lower slot) always stays; every other usable copy may go, best first, up to `allowance`.
  */
-export function toolSlotsToBank (copies = [], allowance = Infinity, { keepBest = true } = {}) {
+export function toolSlotsToBank (copies = [], allowance = Infinity) {
   const usable = copies.filter(c => usesOf(c) > FLOOR).sort((a, b) => usesOf(b) - usesOf(a) || a.slot - b.slot)
-  const first = keepBest ? 1 : 0
-  return usable.slice(first, first + Math.max(0, allowance)).map(c => c.slot)
+  return usable.slice(1, 1 + Math.max(0, allowance)).map(c => c.slot)
 }
 
 /**
@@ -146,14 +143,16 @@ export function toolSlotsToBank (copies = [], allowance = Infinity, { keepBest =
  *   steps      WHOLE stacks, smallest first, while what remains >= the keep and the allowance lasts. One step = one
  *              slot emptied, so freed = steps.length.
  */
-export function townDepositPlan (items = [], { wanted = [], already = {}, swords = peacefulFoodActive() } = {}) {
+export function townDepositPlan (items = [], { wanted = [], already = {}, noSwords = peacefulFoodActive() } = {}) {
   const list = (Array.isArray(items) ? items : []).filter(it => it?.name && (it.count ?? 0) > 0)
   const counts = countsOf(list)
   const { keep, why } = townKeeps(counts, { wanted })
   // ONE ALLOWANCE PER VISIT (Codex review 1): the plan is recomputed for a second container, and creditCap must cap the
   // VISIT -- what an earlier container of this run already took (`already`, name -> items) is spent.
   // depositPlan already judges the REDUCED bag, so the visit's spend comes off the cap, not off that count (Codex round 2).
-  const allowance = Object.fromEntries(depositPlan(list, null, { wants: [], swords })
+  // noSwords: the switch's reading (default) -- excluding can only lower the plan, so neither the order nor the run banks a
+  // sword while it is on, and no order fires that would not have fired without the kit.
+  const allowance = Object.fromEntries(depositPlan(list, null, { wants: [], noSwords })
     .map(({ name, count }) => [name, Math.min(count, Math.max(0, CREDIT_CAP - (Math.max(0, Number(already?.[name]) || 0))))]))
   const steps = [], banked = {}
   const holds = withdrawHolds()
@@ -164,7 +163,7 @@ export function townDepositPlan (items = [], { wanted = [], already = {}, swords
       // count, not a copy, and the copies are chosen here by uses -- with 130/40 held and a 120 just withdrawn, the
       // count rule alone would bank the withdrawn 120 (rebase review, Codex P2).
       if ((holds[name] ?? 0) > 0) { why[name] = 'withdraw_hold'; continue }
-      for (const slot of toolSlotsToBank(copies, allowance[name], { keepBest: !bankEveryCopy(name, swords) })) {
+      for (const slot of toolSlotsToBank(copies, allowance[name])) {
         const it = copies.find(c => c.slot === slot)
         steps.push({ slot, name, count: it.count ?? 1 }); banked[name] = (banked[name] ?? 0) + (it.count ?? 1)
       }
