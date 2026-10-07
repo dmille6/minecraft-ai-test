@@ -2651,7 +2651,7 @@ async function deposit(ctx, { item = null }, signal, { noRecovery = false, prefe
   let moved = 0
   let cursorLost = false
   // THE COBBLE RULE's bookkeeping: what cobble the transfer counted eligible, and one record per cobble name tried
-  let cobbleEligible = 0
+  let cobbleEligible = 0, cobbleBefore = 0
   const cobbleRows = []
   // Which container this was, for the full-chest sweep: a double chest is ONE inventory at two coordinates.
   meta.at = chestBlock.position
@@ -2679,6 +2679,7 @@ async function deposit(ctx, { item = null }, signal, { noRecovery = false, prefe
     // stations stay in the bot's hands; the valuable stacks go first so a short
     // chest keeps the iron.
     planItems = bot.inventory.items()
+    cobbleBefore = planItems.reduce((t, x) => t + (isCobble(x?.name) ? (x.count ?? 0) : 0), 0)
     const plan = depositPlan(planItems, item, { wants: bot.currentWants ?? [] })   // the wants admission judged with (set by the gate)
     for (const { name, count } of plan) {
       check(signal)
@@ -2722,7 +2723,7 @@ async function deposit(ctx, { item = null }, signal, { noRecovery = false, prefe
           try {
             await bot.transfer({ window: chest, itemType: cur.type, metadata: null, count: s.count,
                                  sourceStart: s.slot, sourceEnd: s.slot + 1, destStart: 0, destEnd: chest.inventoryStart })
-            const got = Math.max(0, inChest(chest, name) - had)
+            const got = Math.max(0, Math.min(s.count, inChest(chest, name) - had))   // capped: another depositor's gain is not ours (Codex r2)
             moved += got; row.went += got; budget -= got
           } catch (e) {
             const got = Math.max(0, Math.min(s.count, inChest(chest, name) - had))
@@ -2771,7 +2772,7 @@ async function deposit(ctx, { item = null }, signal, { noRecovery = false, prefe
     const kept = (sb.bag ?? bot.inventory.items()).reduce((t, x) => t + (isCobble(x?.name) ? (x.count ?? 0) : 0), 0)
     for (const r of cobbleRows) {
       logEvent({ kind: 'cobble_bank', status: r.went > 0 ? 'success' : 'no_effect', snapshot: snapshot(bot),
-                 detail: `name=${r.name} planned=${r.planned} tried=${r.tried.join(',') || '-'} moved=${r.went} kept=${kept} src=${sb.source} reserve=${COBBLE_RESERVE} no_room=${r.noRoom}` })
+                 detail: `name=${r.name} planned=${r.planned} tried=${r.tried.join(',') || '-'} moved=${r.went} before=${cobbleBefore} kept=${kept} src=${sb.source} reserve=${COBBLE_RESERVE} no_room=${r.noRoom}` })
     }
   }
   // COBBLE NEVER GROWS THE BANK (the 10-04 SYNTHESIS: existing storage only; both reviews 10-07): when everything this
