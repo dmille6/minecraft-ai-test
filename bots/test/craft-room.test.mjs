@@ -1113,11 +1113,16 @@ await t('PLACEMENT ADVICE uses the stack place() takes: dirt x64 BEFORE dirt x1 
 await t('DEPOSIT ADVICE only if the plan, as deposit() runs it, empties a stack (Codex: 2 of 10 cobblestone + 3 of 5 sticks frees nothing)', () => {
   const bag = [item('cobblestone', 10), item('stick', 5)]; for (let i = 0; i < 34; i++) bag.push(item('dirt', 64))
   const plan = depositPlan(bag, null, { wants: [] })
-  assert.deepEqual(plan.map(x => `${x.name}x${x.count}`).sort(), ['cobblestonex2', 'stickx3'], 'the repro plan')
+  // the cobble rule (stonecap): 10 cobblestone is under the 64 reserve, so only the 3 sticks are planned
+  assert.deepEqual(plan.map(x => `${x.name}x${x.count}`).sort(), ['stickx3'], 'the repro plan')
   assert.equal(depositFreesSlot(bag, plan), false)
   assert.equal(roomAdvice({ items: bag, consumes: [], depositItem: depositTarget(bag, plan, []) }).kind, 'none')
-  const ctl = [item('cobblestone', 10), item('stick', 5)]; for (let i = 0; i < 34; i++) ctl.push(item('andesite', 64))
-  assert.equal(depositFreesSlot(ctl, depositPlan(ctl, null, { wants: [] })), true, 'positive control: all 10 cobblestone go, a slot frees')
+  // positive control: [64, 10] cobblestone with the 64 FIRST in slot order -- the rule banks the 10 and the prediction walks
+  // cobble smallest-first as the transfer does, so the 10 empties its slot (a slot-order walk would take 10 off the 64)
+  const ctl = [item('cobblestone', 64), item('cobblestone', 10), item('stick', 5)]; for (let i = 0; i < 33; i++) ctl.push(item('andesite', 64))
+  const ctlPlan = depositPlan(ctl, null, { wants: [] })
+  assert.deepEqual(ctlPlan.filter(x => x.name === 'cobblestone'), [{ name: 'cobblestone', count: 10 }])
+  assert.equal(depositFreesSlot(ctl, ctlPlan.filter(x => x.name === 'cobblestone')), true, 'positive control: the 10-stack goes whole, a slot frees')
   assert.equal(depositFreesSlot([item('stick', 2), item('stick', 40)], [{ name: 'stick', count: 2 }]), true, 'slot order: the first stack is taken whole')
   assert.equal(depositFreesSlot([item('stick', 40), item('stick', 2)], [{ name: 'stick', count: 2 }]), false, 'the 40 is first: 2 off it frees nothing')
 })
@@ -1230,10 +1235,11 @@ const dirtFill = (stacks, n = 36) => { const a = stacks.slice(); while (a.length
 await t('B1 (Claude): a pickaxe\'s advice never banks its own planks -- the real plan is [oak_planks 12, cobblestone 12]', () => {
   const bag = dirtFill([item('oak_planks', 12), item('stick', 2), item('cobblestone', 20)])
   const plan = depositPlan(bag, null, { wants: [] })
-  assert.deepEqual(plan.map(e => `${e.name}x${e.count}`), ['oak_planks x12', 'cobblestone x12'].map(x => x.replace(' ', '')), 'the repro plan')
+  // the cobble rule (stonecap): 20 cobblestone is under the 64 reserve, so the plan is the planks alone
+  assert.deepEqual(plan.map(e => `${e.name}x${e.count}`), ['oak_planksx12'], 'the repro plan')
   assert.equal(depositTarget(bag, plan, []), 'oak_planks', 'positive control: the unrestricted target IS the planks')
   const consumes = roomRecipe(mc, recipeOf('wooden_pickaxe', { oak_planks: 1, stick: 1 }), 'wooden_pickaxe').consumes
-  assert.equal(depositTarget(bag, plan, consumes), null, 'cobblestone 12 of 20 empties no stack; the planks are the craft\'s')
+  assert.equal(depositTarget(bag, plan, consumes), null, 'the cobblestone is the reserve; the planks are the craft\'s')
   assert.equal(roomAdvice({ items: bag, consumes, depositItem: depositTarget(bag, plan, consumes) }).kind, 'none')
 })
 
