@@ -263,7 +263,7 @@ export function townDepositOutcome (status, failClass = null, now = 0, state = {
 }
 
 /** The run's row: slots, what moved, the containers, why it stopped, the cursor. Under the logger's 300-char cap. */
-export function townDepositDetail ({ slotsBefore = 0, slotsAfter = 0, banked = {}, stacks = 0, tried = [], stop = 'done', unsettled = 0, bagDelta = null, planned = 0, tools = [], clicked = null, unverified = 0 } = {}) {
+export function townDepositDetail ({ slotsBefore = 0, slotsAfter = 0, banked = {}, stacks = 0, tried = [], stop = 'done', unsettled = 0, bagDelta = null, planned = 0, tools = [], clicked = null, unverified = 0, capRefused = null } = {}) {
   const moved = Object.entries(banked).filter(([, n]) => n > 0).sort((a, b) => b[1] - a[1] || (a[0] < b[0] ? -1 : 1)).map(([k, n]) => `${k}:${n}`).join(',') || '-'
   const t = tried.map(c => `${c.at}=${c.result}`).join(';') || '-'
   // THE TOOLS GO FIRST after the counts: the read's spent-tool gate parses `tools name@uses,...` and must never lose it
@@ -271,5 +271,7 @@ export function townDepositDetail ({ slotsBefore = 0, slotsAfter = 0, banked = {
   // `stacks` = stacks the SERVER showed in the chest on a re-open; `clicked` = stacks the client moved; bagdelta = the
   // bag's loss over the banked names in the SERVER's copy of the bag on that re-open (bagdelta > banked = items that left
   // the bag and are not in the chest).
-  return `slots ${slotsBefore}->${slotsAfter} stacks ${stacks}/${planned} clicked ${clicked ?? stacks} bagdelta ${bagDelta ?? '?'} tools ${tools.join(',') || '-'} banked ${moved} stop ${stop}${unsettled ? ` cursor_unsettled ${unsettled}` : ''}${unverified ? ` unverified ${unverified}` : ''} containers ${t}`.slice(0, 300)
+  // `cobble_cap at_cap/unknown/outside`: cobble stacks the town cap refused in this run's transfer (cobblecap.mjs)
+  const cap = capRefused && (capRefused.at_cap || capRefused.unknown || capRefused.outside) ? ` cobble_cap ${capRefused.at_cap ?? 0}/${capRefused.unknown ?? 0}/${capRefused.outside ?? 0}` : ''
+  return `slots ${slotsBefore}->${slotsAfter} stacks ${stacks}/${planned} clicked ${clicked ?? stacks} bagdelta ${bagDelta ?? '?'} tools ${tools.join(',') || '-'}${cap} banked ${moved} stop ${stop}${unsettled ? ` cursor_unsettled ${unsettled}` : ''}${unverified ? ` unverified ${unverified}` : ''} containers ${t}`.slice(0, 300)
 }

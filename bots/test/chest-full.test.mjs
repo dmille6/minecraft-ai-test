@@ -287,7 +287,7 @@ await t('returnCursor: VERIFIED -- returned only when the cursor reads empty; a 
 })
 
 await t('a stack that cannot be put back is a TRANSFER FAILURE, not a full chest: nothing else is tried, nothing placed', async () => {
-  const w = town([stack('cobblestone', 64), stack('chest', 1)])
+  const w = town([stack('oak_log', 64), stack('chest', 1)])
   w.bot.clickWindow = async () => {}   // resolves, changes nothing
   const r = await run(w.bot)
   assert.equal(r.failClass, 'transfer_unsettled', r.detail)
@@ -297,7 +297,7 @@ await t('a stack that cannot be put back is a TRANSFER FAILURE, not a full chest
 
 // ---------------------------------------------------------------- THE CHAIN ---
 await t('THE CHAIN: room advice names deposit -> admitted -> full chest throws -> cursor returned -> no other container has room -> the CARRIED chest is placed -> the retry banks; craft never called, items conserved', async () => {
-  const w = town([stack('cobblestone', 64), stack('oak_log', 30), stack('chest', 1), stack('apple', 5)])
+  const w = town([stack('oak_log', 64), stack('oak_log', 30), stack('chest', 1), stack('apple', 5)])
   const items = w.bot.inventory.items()
   const item = adviseDeposit(w.bot, items, [{ name: 'stick' }])
   const advice = roomAdvice({ items, consumes: [{ name: 'stick' }], depositItem: item })
@@ -460,7 +460,7 @@ await t('W9 THE WELL KEEPS ITS DISTANCE FROM A CLAIMED CHEST it cannot see: in f
 })
 
 await t('A 16-CONTAINER TOWN GETS ONE BOUNDED EXPANSION: what stands does not count; the second, inside 10 min, is refused plainly', async () => {
-  const w = town([stack('cobblestone', 64), stack('oak_log', 64), stack('chest', 2)])
+  const w = town([stack('oak_log', 64), stack('oak_log', 64), stack('chest', 2)])
   for (let i = 0; i < 15; i++) { const x = -9 + (i % 5) * 3, z = i < 5 ? 8 : i < 10 ? -8 : -12; w.set(x, 64, z, 'chest'); w.fill(x, 64, z) }
   const r1 = await run(w.bot)
   assert.equal(r1.status, 'success', r1.detail)
@@ -468,7 +468,7 @@ await t('A 16-CONTAINER TOWN GETS ONE BOUNDED EXPANSION: what stands does not co
   assert.match(lastRow(), /containers=16 /)
   // The new chest is filled by someone else; the bot comes back with more.
   w.fill(...w.spy.placed[0].split(',').map(Number))
-  w.bag.push(stack('cobblestone', 64))
+  w.bag.push(stack('oak_log', 64))
   w.bot.bankClosed = null
   const r2 = await run(w.bot)
   assert.equal(r2.failClass, 'storage_full')
@@ -478,7 +478,7 @@ await t('A 16-CONTAINER TOWN GETS ONE BOUNDED EXPANSION: what stands does not co
 })
 
 await t('the day\'s budget: four new chests in 24 h and no fifth, said plainly', async () => {
-  const w = town([stack('cobblestone', 64), stack('chest', 1)])
+  const w = town([stack('oak_log', 64), stack('chest', 1)])
   for (let n = 1; n <= 4; n++) pastClaim(process.env.POOL_STATE_DIR, n, Date.now() - n * 3600_000)
   const r = await run(w.bot)
   assert.match(r.detail, /used its new-chest budget \(4 in 24 h\)/)
@@ -486,7 +486,7 @@ await t('the day\'s budget: four new chests in 24 h and no fifth, said plainly',
 })
 
 await t('another container in town WITH ROOM is used before anything is placed; a container found full is not re-opened for 30 min', async () => {
-  const w = town([stack('cobblestone', 64), stack('chest', 1)])
+  const w = town([stack('oak_log', 64), stack('chest', 1)])
   w.set(-5, 64, 0, 'barrel'); w.set(-5, 64, 5, 'chest'); w.fill(-5, 64, 5)
   updateTownMemory(process.env.POOL_STATE_DIR, KEY, null, e => { e['-5,64,5'] = recordOutcome(undefined, 'full', Date.now() - 60_000) })
   const r = await run(w.bot)
@@ -496,7 +496,7 @@ await t('another container in town WITH ROOM is used before anything is placed; 
 })
 
 await t('UNKNOWN: an open failure defers ONCE (nothing built, the BANK STAYS OPEN, the barrel is backed off); the same failure 10+ min later makes it unusable and the town expands', async () => {
-  const w = town([stack('cobblestone', 64), stack('chest', 1)])
+  const w = town([stack('oak_log', 64), stack('chest', 1)])
   w.set(-5, 64, 0, 'barrel')
   const open = w.bot.openContainer
   let barrelTries = 0   // counted BEFORE the throw (the fake records spy.opened only on a successful open; Codex round 1)
@@ -525,7 +525,7 @@ await t('UNKNOWN: an open failure defers ONCE (nothing built, the BANK STAYS OPE
 await t('a VERIFIED BLOCKED LID is unavailable, not unknown: the sweep goes on and the town may expand -- also when it is the FIRST chest', async () => {
   // first chest: stone on its lid, water beside the lid (unsafe to break)
   freshPool()
-  const w = fakeWorld({ bag: [stack('cobblestone', 64), stack('chest', 1)] })
+  const w = fakeWorld({ bag: [stack('oak_log', 64), stack('chest', 1)] })
   w.set(5, 64, 0, 'chest'); w.set(5, 65, 0, 'stone'); w.set(6, 65, 0, 'water')
   w.set(-5, 64, 0, 'chest'); w.fill(-5, 64, 0)
   const r = await run(w.bot)
@@ -536,7 +536,7 @@ await t('a VERIFIED BLOCKED LID is unavailable, not unknown: the sweep goes on a
 })
 
 await t('a blocked lid found IN THE SWEEP is unavailable too: the town expands past it', async () => {
-  const w = town([stack('cobblestone', 64), stack('chest', 1)])
+  const w = town([stack('oak_log', 64), stack('chest', 1)])
   w.set(-5, 64, 0, 'chest'); w.set(-5, 65, 0, 'stone'); w.set(-4, 65, 0, 'water')
   const r = await run(w.bot)
   assert.equal(r.status, 'success', r.detail)
@@ -545,7 +545,7 @@ await t('a blocked lid found IN THE SWEEP is unavailable too: the town expands p
 })
 
 await t('a scan that throws DEFERS -- it is never "no containers"', async () => {
-  const w = town([stack('cobblestone', 64), stack('chest', 1)])
+  const w = town([stack('oak_log', 64), stack('chest', 1)])
   w.bot.findBlocks = () => { throw new Error('chunk not loaded') }
   const r = await run(w.bot)
   assert.match(r.detail, /could not be listed/)
@@ -555,7 +555,7 @@ await t('a scan that throws DEFERS -- it is never "no containers"', async () => 
 })
 
 await t('THE WATCHDOG\'S CLOCK (180 s, not the 240 s contract): 150 s in, an untried container is not reached and nothing is built', async () => {
-  const w = town([stack('cobblestone', 64), stack('chest', 1)])
+  const w = town([stack('oak_log', 64), stack('chest', 1)])
   w.set(-5, 64, 0, 'barrel')
   const r = await run(w.bot, {}, { current: { startedAt: Date.now() - 150_000 } })
   // (Codex round 4) time alone is the clamped timeout's own answer: deposit again, nothing paused.
@@ -566,7 +566,7 @@ await t('THE WATCHDOG\'S CLOCK (180 s, not the 240 s contract): 150 s in, an unt
 })
 
 await t('ONE SUBMISSION PER CLAIM: a placement that never lands is tried once and stays UNRESOLVED in the ledger (no refund)', async () => {
-  const w = town([stack('cobblestone', 64), stack('chest', 2)])
+  const w = town([stack('oak_log', 64), stack('chest', 2)])
   let calls = 0
   w.bot.placeBlock = async () => { calls++; throw new Error('Event blockUpdate did not fire') }
   const r = await run(w.bot)
@@ -578,7 +578,7 @@ await t('ONE SUBMISSION PER CLAIM: a placement that never lands is tried once an
 
 await t('FAR FROM HOME: never a new chest, town storage is NOT closed, and the far chest is skipped next time', async () => {
   freshPool()
-  const w = fakeWorld({ bag: [stack('cobblestone', 64), stack('chest', 1)], at: [101.5, 64, 0.5] })
+  const w = fakeWorld({ bag: [stack('oak_log', 64), stack('chest', 1)], at: [101.5, 64, 0.5] })
   w.set(100, 64, 0, 'chest'); w.fill(100, 64, 0)
   const r = await run(w.bot)
   assert.equal(r.failClass, 'storage_full')
@@ -589,7 +589,7 @@ await t('FAR FROM HOME: never a new chest, town storage is NOT closed, and the f
 })
 
 await t('THE CAP\'S REFUSAL pauses deposits; admission says to keep working; craft\'s room advice names NO deposit while closed', async () => {
-  const w = town([stack('cobblestone', 64), stack('oak_log', 30), stack('chest', 1)])
+  const w = town([stack('oak_log', 64), stack('oak_log', 30), stack('chest', 1)])
   assert.equal(adviseDeposit(w.bot, w.bot.inventory.items(), []), 'oak_log', 'control: with the bank open the advice names a deposit')
   pastClaim(process.env.POOL_STATE_DIR, 1, Date.now() - 60_000)
   await run(w.bot)
@@ -655,7 +655,7 @@ await t('R2.2 STRIKES ARE STICKY: failures at 0, 600001 and 600002 ms leave it u
 })
 
 await t('R2.2 THE FIRST CHEST BY THE TOWN\'S MEMORY: one found full a minute ago is neither walked to nor opened', async () => {
-  const w = town([stack('cobblestone', 64), stack('chest', 1)])
+  const w = town([stack('oak_log', 64), stack('chest', 1)])
   w.set(-5, 64, 0, 'barrel')
   updateTownMemory(process.env.POOL_STATE_DIR, KEY, null, e => { e['5,64,0'] = recordOutcome(undefined, 'full', Date.now() - 60_000) })
   const r = await run(w.bot)
@@ -666,7 +666,7 @@ await t('R2.2 THE FIRST CHEST BY THE TOWN\'S MEMORY: one found full a minute ago
 })
 
 await t('R2.3 AN UNREACHABLE FIRST CHEST goes on to the town\'s other containers (it was a dead end)', async () => {
-  const w = town([stack('cobblestone', 64), stack('chest', 1)])
+  const w = town([stack('oak_log', 64), stack('chest', 1)])
   w.set(-5, 64, 0, 'barrel')
   const goto = w.bot.pathfinder.goto
   w.bot.pathfinder.goto = async g => { if (g.x === 5 && g.z === 0) throw new Error('No path to the goal!'); return goto(g) }
@@ -678,7 +678,7 @@ await t('R2.3 AN UNREACHABLE FIRST CHEST goes on to the town\'s other containers
 })
 
 await t('R2.4 THE FIRST OPEN IS CLAMPED TO THE WATCHDOG: with 1 s left a hung open costs about 1 s, not 8', async () => {
-  const w = town([stack('cobblestone', 64), stack('chest', 1)])
+  const w = town([stack('oak_log', 64), stack('chest', 1)])
   w.bot.openContainer = () => new Promise(() => {})
   const t0 = Date.now()
   const r = await run(w.bot, {}, { current: { startedAt: Date.now() - 179_000 } })
@@ -692,7 +692,7 @@ await t('R2.4 THE FIRST OPEN IS CLAMPED TO THE WATCHDOG: with 1 s left a hung op
 })
 
 await t('R2.5 transfer_unsettled AT THE NEW CHEST is returned unchanged', async () => {
-  const w = town([stack('cobblestone', 64), stack('chest', 1)])
+  const w = town([stack('oak_log', 64), stack('chest', 1)])
   const place = w.bot.placeBlock, click = w.bot.clickWindow, open = w.bot.openContainer
   let at = null
   w.bot.placeBlock = async (ref, face) => { await place(ref, face); w.fill(...w.spy.placed.at(-1).split(',').map(Number)) }
@@ -705,7 +705,7 @@ await t('R2.5 transfer_unsettled AT THE NEW CHEST is returned unchanged', async 
 
 // ---------------------------------------------------------------- round 3 (Codex's probes as regressions) ---
 await t('R3.C A LONG TRIP HOME LEAVING 3 s: the walk to the chest times out on OUR clock -- no strike, no recovery, bank open', async () => {
-  const w = town([stack('cobblestone', 64), stack('chest', 1)])
+  const w = town([stack('oak_log', 64), stack('chest', 1)])
   w.set(-5, 64, 0, 'barrel')
   const goto = w.bot.pathfinder.goto
   w.bot.pathfinder.goto = g => (g.x === 5 && g.z === 0 ? new Promise(() => {}) : goto(g))
@@ -719,7 +719,7 @@ await t('R3.C A LONG TRIP HOME LEAVING 3 s: the walk to the chest times out on O
 })
 
 await t('R3.C A NO-PATH WALK THAT BEGAN OUTSIDE TOWN strikes nothing: the travel failure, as before', async () => {
-  const w = town([stack('cobblestone', 64), stack('chest', 1)], [40.5, 64, 0.5])
+  const w = town([stack('oak_log', 64), stack('chest', 1)], [40.5, 64, 0.5])
   const goto = w.bot.pathfinder.goto
   w.bot.pathfinder.goto = async g => { if (g.x === 5 && g.z === 0) throw new Error('No path to the goal!'); return goto(g) }
   const r = await run(w.bot)
@@ -750,7 +750,7 @@ await t('R3.2 PRUNING KEEPS THE WINNER: one placed and four gone at the same tim
 
 // ---------------------------------------------------------------- round 4 (Codex's probes as regressions) ---
 await t('R4.1 A CLAMPED OPEN AT THE NEW CHEST is returned unchanged: no storage_full, no bank pause', async () => {
-  const w = town([stack('cobblestone', 64), stack('chest', 1)])
+  const w = town([stack('oak_log', 64), stack('chest', 1)])
   const runner = { current: { startedAt: Date.now() } }
   const place = w.bot.placeBlock, open = w.bot.openContainer
   // The placement uses the clock up: when it lands the watchdog has ~2 s left, and the new chest never opens.
@@ -764,7 +764,7 @@ await t('R4.1 A CLAMPED OPEN AT THE NEW CHEST is returned unchanged: no storage_
 })
 
 await t('R4.1 A CLAMPED OPEN IN THE SWEEP is returned unchanged: no strike, no bank pause', async () => {
-  const w = town([stack('cobblestone', 64), stack('chest', 1)])
+  const w = town([stack('oak_log', 64), stack('chest', 1)])
   w.set(-5, 64, 0, 'barrel')
   const open = w.bot.openContainer
   w.bot.openContainer = b => (b.position.x === -5 ? new Promise(() => {}) : open(b))
@@ -776,7 +776,7 @@ await t('R4.1 A CLAMPED OPEN IN THE SWEEP is returned unchanged: no strike, no b
 })
 
 await t('R4.2 WHERE THE WALK BEGAN is read before the walk: a live position that moves into town does not strike', async () => {
-  const w = town([stack('cobblestone', 64), stack('chest', 1)], [40.5, 64, 0.5])
+  const w = town([stack('oak_log', 64), stack('chest', 1)], [40.5, 64, 0.5])
   w.bot.pathfinder.goto = async g => {
     if (g.x === 5 && g.z === 0) { w.bot.entity.position.x = 6.5; throw new Error('No path to the goal!') }   // mutated IN PLACE
   }
@@ -859,7 +859,7 @@ await t('C2 THE WALK NEVER WATCHES DIGS: a dig the held tool cannot harvest is n
   const c = fakeWorld({ bag: [] }); const cc = undiggableDig(c)
   await withTimeout(new Promise(r => setTimeout(r, 1300)), 5000, c.bot)
   assert.ok(cc.stopDigging >= 1 && cc.stop >= 1, `control: the default watches digs (${JSON.stringify(cc)})`)
-  const w = town([stack('cobblestone', 64), stack('chest', 1)])
+  const w = town([stack('oak_log', 64), stack('chest', 1)])
   const calls = undiggableDig(w); slowWalks(w)
   const r = await run(w.bot)
   assert.equal(r.status, 'success', r.detail)
@@ -869,7 +869,7 @@ await t('C2 THE WALK NEVER WATCHES DIGS: a dig the held tool cannot harvest is n
 
 await t('C2 OUR CLOCK LEAVES A REFLEX\'S GOAL ALONE: a walk that times out clears the goal only while it is still the walk\'s own', async () => {
   for (const reflexTookIt of [false, true]) {
-    const w = town([stack('cobblestone', 64), stack('chest', 1)])
+    const w = town([stack('oak_log', 64), stack('chest', 1)])
     const set = []
     w.bot.pathfinder.setGoal = g => { set.push(g); w.bot.pathfinder.goal = g }
     const other = { reflex: true }
@@ -916,7 +916,7 @@ await t('C2 A DEEP CHEST IS NOT STORAGE ANYWHERE: admission, deposit_surplus.don
 })
 
 await t('C2 THE TOWN SWEEP SKIPS A DEEP CONTAINER under home: the full town expands instead of banking 14 below', async () => {
-  const w = town([stack('cobblestone', 64), stack('chest', 1)])
+  const w = town([stack('oak_log', 64), stack('chest', 1)])
   w.set(3, 50, 0, 'chest')    // 3 out, 14 below: inside chestfull-01's horizontal "town", with room
   const r = await run(w.bot)
   assert.equal(r.status, 'success', r.detail)
@@ -926,7 +926,7 @@ await t('C2 THE TOWN SWEEP SKIPS A DEEP CONTAINER under home: the full town expa
 
 await t('C2 ONE BOUNDARY FOR READ AND WRITE: a town chest 10 above home and 15 out, found full, is REMEMBERED (3-D distance 18 refused the write)', async () => {
   freshPool()
-  const w = fakeWorld({ bag: [stack('cobblestone', 64), stack('chest', 1)], at: [14.5, 74, 1.5] })
+  const w = fakeWorld({ bag: [stack('oak_log', 64), stack('chest', 1)], at: [14.5, 74, 1.5] })
   w.set(15, 74, 0, 'chest'); w.fill(15, 74, 0)
   w.set(-5, 64, 0, 'barrel')
   const r = await run(w.bot)
@@ -937,7 +937,7 @@ await t('C2 ONE BOUNDARY FOR READ AND WRITE: a town chest 10 above home and 15 o
 
 await t('C2 A WALK THAT BEGINS DEEP UNDER TOWN is not a town walk: a no-path strikes nothing (the same boundary as the chest\'s)', async () => {
   for (const [y, strikes] of [[44, false], [64, true]]) {   // 20 below home, under the town; control: in town
-    const w = town([stack('cobblestone', 64), stack('chest', 1)], [3.5, y, 0.5])
+    const w = town([stack('oak_log', 64), stack('chest', 1)], [3.5, y, 0.5])
     const goto = w.bot.pathfinder.goto
     w.bot.pathfinder.goto = async g => { if (g.x === 5 && g.z === 0) throw new Error('No path to the goal!'); return goto(g) }
     await run(w.bot)
@@ -961,7 +961,7 @@ await t('C2 A FAILED WALK TO A FAR CHEST backs THAT chest off for this bot (no p
 })
 
 await t('C2 AN INTERRUPTED WALK TO A TOWN CHEST strikes nothing and sweeps nothing: someone else has the pathfinder', async () => {
-  const w = town([stack('cobblestone', 64), stack('chest', 1)])
+  const w = town([stack('oak_log', 64), stack('chest', 1)])
   w.set(-5, 64, 0, 'barrel')
   const goto = w.bot.pathfinder.goto
   w.bot.pathfinder.goto = async g => { if (g.x === 5 && g.z === 0) throw new Error('The goal was changed before it could be completed!'); return goto(g) }
@@ -975,7 +975,7 @@ await t('C2 AN INTERRUPTED WALK TO A TOWN CHEST strikes nothing and sweeps nothi
 // ---------------------------------------------------------------- chestfull-02 round 1 (Codex's findings + Paper) ---
 await t('C2 A RESOLVED WALK IS NOT AN ARRIVAL: an empty-path "arrival" out of reach opens nothing, closes nothing, and strikes only from town', async () => {
   for (const [at, inTownStart] of [[[10.5, 64, 10.5], true], [[40.5, 64, 0.5], false]]) {
-    const w = town([stack('cobblestone', 64), stack('chest', 1)], at)
+    const w = town([stack('oak_log', 64), stack('chest', 1)], at)
     w.bot.pathfinder.goto = async () => {}   // resolves where it stands (mineflayer-pathfinder's empty noPath)
     const r = await run(w.bot)
     assert.equal(r.status, 'failed', r.detail)
@@ -988,7 +988,7 @@ await t('C2 A RESOLVED WALK IS NOT AN ARRIVAL: an empty-path "arrival" out of re
 
 await t('C2 A NEW CHEST THAT WAS NOT OPENED closes nothing (its room is unknown); one that OPENED and took nothing closes the bank', async () => {
   for (const opens of [false, true]) {
-    const w = town([stack('cobblestone', 64), stack('chest', 1)])
+    const w = town([stack('oak_log', 64), stack('chest', 1)])
     const place = w.bot.placeBlock, open = w.bot.openContainer
     if (opens) w.bot.placeBlock = async (ref, face) => { await place(ref, face); w.fill(...w.spy.placed.at(-1).split(',').map(Number)) }
     else w.bot.openContainer = async b => { if (w.spy.placed.includes(`${b.position.x},${b.position.y},${b.position.z}`)) throw new Error('Event windowOpen did not fire within timeout of 8000ms'); return open(b) }
@@ -1005,7 +1005,7 @@ await t('C2 A NEW CHEST THAT WAS NOT OPENED closes nothing (its room is unknown)
 })
 
 await t('C2 AN INTERRUPTED WALK TO THE NEW CHEST\'S CELL places nothing and closes nothing', async () => {
-  const w = town([stack('cobblestone', 64), stack('chest', 1)])
+  const w = town([stack('oak_log', 64), stack('chest', 1)])
   const goto = w.bot.pathfinder.goto
   w.bot.pathfinder.goto = async g => { if (g.constructor?.name === 'GoalBlock') throw new Error('The goal was changed before it could be completed!'); return goto(g) }
   const r = await run(w.bot)
@@ -1018,14 +1018,14 @@ await t('C2 AN INTERRUPTED WALK TO THE NEW CHEST\'S CELL places nothing and clos
 await t('C2 FAR RECOVERY: an alternate in this bot\'s backoff is not tried; a TOWN alternate that failed is never hidden from the walk home', async () => {
   // (1) the backoff: a far full chest, and an alternate this bot backed off a minute ago
   freshPool()
-  const a = fakeWorld({ bag: [stack('cobblestone', 64)], at: [101.5, 64, 0.5] })
+  const a = fakeWorld({ bag: [stack('oak_log', 64)], at: [101.5, 64, 0.5] })
   a.set(100, 64, 0, 'chest'); a.fill(100, 64, 0); a.set(100, 64, 10, 'chest')
   a.bot.skipContainers = new Map([['100,64,10', Date.now() + 60_000]])
   await run(a.bot)
   assert.ok(!a.spy.opened.includes('100,64,10') && !a.spy.gotos.some(g => g.z === 10), 'the backed-off alternate was not tried')
   // (2) a full chest just outside town, an unreachable TOWN alternate
   freshPool()
-  const b = fakeWorld({ bag: [stack('cobblestone', 64)], at: [21.5, 64, 1.5] })
+  const b = fakeWorld({ bag: [stack('oak_log', 64)], at: [21.5, 64, 1.5] })
   b.set(20, 64, 0, 'chest'); b.fill(20, 64, 0); b.set(10, 64, 0, 'chest')
   const goto = b.bot.pathfinder.goto
   let townTries = 0
