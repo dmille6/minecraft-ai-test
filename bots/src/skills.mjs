@@ -2851,7 +2851,7 @@ const cobbleRoom = (chest, name) => {
     if (!Number.isInteger(n)) return 0
     let room = 0
     for (let i = 0; i < n; i++) {
-      const it = chest.slots?.[i]
+      const it = slotAt(chest, i)
       if (!it) room += 64
       else if (it.name === name) room += Math.max(0, (it.stackSize ?? 64) - (it.count ?? 0))
     }
