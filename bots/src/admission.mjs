@@ -450,7 +450,7 @@ export class AdmissionControl {
       // asks, no second crafting_table/furnace in the bag. THE single admission point: model proposals and work
       // orders both arrive here. Never refuses what the task wants (`wanted`), so it cannot strand a rung; the
       // detail names the remedy (dig with the held copy / the skill places the carried station).
-      const redundant = redundantCraft(args.item, bot.inventory?.items?.() ?? [], { wanted, y: bot.entity?.position?.y })
+      const redundant = redundantCraft(args.item, bot.inventory?.items?.() ?? [], { wanted, y: bot.entity?.position?.y, exitShort: bot.exitPickShort })
       if (redundant) return { ok: false, reason: 'redundant_craft', detail: redundant.detail, redundant }
     }
 
