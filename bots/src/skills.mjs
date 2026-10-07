@@ -2495,7 +2495,9 @@ async function deposit(ctx, { item = null }, signal, { noRecovery = false, prefe
   // up to three uncounted containers before planning -- the remedy the "town cobble not yet counted" refusal names.
   // Only when the cap cannot judge the smallest surplus stack (Claude r2 P3: a town PROVEN at the cap walks nowhere) and an
   // uncounted container outside its backoff exists.
-  cobbleVoidStale(bot, startedAt)
+  if (!bot.cobbleVoided) bot.cobbleVoided = cobbleVoidStale(bot)
+  // A COUNTING OPEN STILL IN FLIGHT (a reconciliation that timed out): no container is opened until it settles
+  if (bot.cobbleOpenPending) return { status: 'no_effect', failClass: null, detail: 'a town container has not answered an earlier open yet; the deposit waits for it (town cobble not yet counted)' }
   if (!noRecovery && inTown(homeVec(), bot.entity.position)) {
     const surplus = cobbleBankStacks(bot.inventory.items())
     if (surplus.length) {
@@ -3066,9 +3068,13 @@ function cobbleReserve (bot, count, pos) {
     { id, n: count, k: containerKey(bot, pos), bot: bot.username ?? null, keys: sc.keys, coverage: sc.coverage, gone: sc.gone })
   return { decision: r.decision, view: r.view, id: r.decision === 'bank' ? id : null, at: r.at }
 }
-/** This bot's abandoned claims (a dead predecessor's, or an earlier skill run's) are voided before it claims again. */
-export function cobbleVoidStale (bot, before = Date.now()) {
-  try { if (voidOwnClaims(townDir(), homeTownKey(), bot.worldId ?? null, { bot: bot.username ?? null, before }) > 0) capEpoch++ } catch { /* the next run tries again */ }
+/** A dead predecessor's claims are voided once this process is logged in (cobblecap.mjs voidOwnClaims). -> true when done. */
+export function cobbleVoidStale (bot) {
+  try {
+    if (!bot?.entity || bot.username == null) return false                 // not logged in yet: the predecessor may still be
+    if (voidOwnClaims(townDir(), homeTownKey(), bot.worldId ?? null, { bot: bot.username }) > 0) capEpoch++
+    return true
+  } catch { return false }
 }
 /** How many unknown town containers a deposit counts before it decides (bounded: one walk + open each). */
 const RECONCILE_MAX = 3
@@ -3093,7 +3099,10 @@ function cobbleStuckNote (view, now = Date.now()) {
  */
 export function installCobbleCap (bot) {
   let cache = { at: 0, v: null, epoch: -1 }
+  // the predecessor's claims are voided at the FIRST read after login -- before the plan or admission judges the town
+  // (Codex r4 P2: an at_cap plan must not refuse the very deposit that would have voided them)
   const view = () => {
+    if (!bot.cobbleVoided) bot.cobbleVoided = cobbleVoidStale(bot)
     const now = Date.now()
     if (now - cache.at > 5_000 || cache.epoch !== capEpoch) cache = { at: now, v: cobbleTownViewFor(bot, now), epoch: capEpoch }
     return cache.v
@@ -3139,7 +3148,8 @@ export async function reconcileCobble (bot, signal, msLeft) {
       if (msLeft(8_000) < 1_000) break
       let win = null, late = false
       const p = bot.openContainer(b)
-      p.then(w => { if (late) { try { w?.close?.() } catch { /* closed */ } } }, () => {})   // THIS open's window, if it comes late
+      // THIS open's window, if it comes late, is closed; until it settles the bot's deposits wait (Codex r4 P2)
+      p.then(w => { if (late) { try { w?.close?.() } catch { /* closed */ } } }, () => {}).finally(() => { if (bot.cobbleOpenPending === p) bot.cobbleOpenPending = null })
       try {
         win = await withTimeout(p, msLeft(8_000), bot, { what: 'open the chest', needsDrop: false, onTimeout: () => { late = true } })
       } catch (e) {
@@ -3147,7 +3157,7 @@ export async function reconcileCobble (bot, signal, msLeft) {
         late = true
         if (e?.aborted || signal?.aborted) throw e
         fail(k, wasTimeout ? 'open timed out' : 'unopenable')
-        if (wasTimeout) { timedOut = true; break }     // nothing else opens while it is in flight
+        if (wasTimeout) { timedOut = true; bot.cobbleOpenPending = p; break }   // nothing else opens while it is in flight
         continue
       }
       try { if (cobbleObserve(bot, c, win)) counted++; else fail(k, 'count not written') } finally { try { win.close() } catch { /* closed */ } }
