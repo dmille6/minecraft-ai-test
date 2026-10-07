@@ -11,6 +11,16 @@ behind it (chain-ore.sh stopped 10-01 on fixes-02's revert)._
 
 ---
 
+## 10-07 19:40Z — OWNER delegated "1 and 2" to operator + Codex: decided
+COBBLE CAP: build the 256-per-town ceiling INTO stonecap-01 before its canary (reconciled chest counts with deposit
+reservations; whole stacks only; bot keeps 64 reserve; at the ceiling, surplus whole stacks above the reserve go down the
+junk well if junkwell-02 is kept, else stay in the bag -- no new chest, no toss). BAMBOO AS A CRAFT REMEDY: a separate
+follow-up canary bamboocraft-01 after bamboo-01 is KEPT (bamboo-01 unchanged). Codex text:
+docs/reports/cobblecap-bamboocraft-decision-codex-2026-10-07.txt. Builder agent resumed on both.
+STILL OPEN (owner; defaults used meanwhile): sapling reserve 16 (default 16), bank spent swords (default no), extra
+compostables dried_kelp/glow_berries/moss_carpet/firefly_bush/bush/bread (default none), apple-only full-bag guard in
+peacefulkit (default in), the bag-fix death rule (safety agent finishing review).
+
 ## 10-03 22:56Z — FLEET 3edf1d6 (ore tunnel promoted 22:48Z); CANARY LIVE: craftsync-01 @ ba84fa6 on board-c,
 placebo-a (10 bots), declared 22:53:29Z; exactly two versions live (70 x 3edf1d6, 10 x ba84fa6) at 22:56Z.
 Reads +180 (~01:53Z) and +360 (~04:53Z); KEEP possible from +360. NOTHING chained behind it (logpickup chain stopped;
