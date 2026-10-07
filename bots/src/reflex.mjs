@@ -43,7 +43,7 @@ import { pocketPlan, pocketDone, oxygenFitsOperation, PLACE_MS, sideExit } from 
 import { PRIORITY } from './arbiter.mjs'
 import { survivalRelease } from './withdrawpick.mjs'
 import { airPocketPlan, airPocketAdmit, airPocketTrigger, airPocketStep, airPocketDetail, airPocketInputs, airPocketAfter,
-         airPocketPreempt,
+         airPocketPreempt, AP_WANT_LAPSE_MS,
          AP_REFUSE_COOLDOWN_MS } from './airpocket.mjs'
 import pathfinderPkg from 'mineflayer-pathfinder'
 const pkgGoals = pathfinderPkg?.goals
@@ -1450,7 +1450,9 @@ export function startReflexes(bot, runner, lessons = null, worldFacts = null) {
   let airPocketCooldownUntil = 0
   // when the step last asked an in-flight escape / maroon climb to yield (a sealed rescue); their `alive` reads it
   let airPocketWants = 0
-  const airPocketWanted = () => airPocketWants > 0 && Date.now() - airPocketWants < 30_000
+  // a SHORT lapse: the pre-empt renews it every tick (500 ms) while it holds, so a request whose step never follows (the
+  // scan stopped reading sealed after the climb moved the bot) frees the climb within 3 s (Claude r3)
+  const airPocketWanted = () => airPocketWants > 0 && Date.now() - airPocketWants < AP_WANT_LAPSE_MS
   let lastMaroonPrereqAt = 0
   let strandedSince = 0
   // Cleared by the same displacement test as strandedSince -- see the block that
@@ -2255,8 +2257,8 @@ export function startReflexes(bot, runner, lessons = null, worldFacts = null) {
           // held `escaping` ~58 s and the budget ran out while the step waited). The escape's `alive` turns false and its
           // current dig is stopped; once it returns, the trigger below runs the step.
           if (airPocketPreempt({ rescuing, routeDir: route.dir, routeSealed: route.sealed, escaping, marooned, pocketing,
-                                 active: airPocketing, now: Date.now(), cooldownUntil: airPocketCooldownUntil }) &&
-              prepareAirPocket().ok) {
+                                 active: airPocketing, now: Date.now(), cooldownUntil: airPocketCooldownUntil,
+                                 stepWouldRun: () => prepareAirPocket().ok })) {
             airPocketWants = Date.now()
             try { if (bot.targetDigBlock) bot.stopDigging() } catch { /* not digging */ }
             if (throttled('air_pocket_preempt', 30_000)) {
@@ -5124,6 +5126,7 @@ export async function pillarOut(bot, maxBlocks = PILLAR_MAX_BLOCKS, { alive = ()
     if (!below) break
     bot.setControlState('jump', true)
     await sleep(300)
+    if (!alive()) { bot.setControlState('jump', false); return 'preempted' }   // airpocket-01 (Codex r3): never place after a yield
     try { await bot.placeBlock(below, new Vec3(0, 1, 0)) } catch { /* mistimed */ }
     bot.setControlState('jump', false)
     await sleep(250)
@@ -5424,8 +5427,7 @@ export async function digStraightUp(bot, startY, maxSteps = 20, { alive = () => 
         await sleep(200)
       } else {
         // No blocks: head for whichever side is open and walk out.
-        await walkToOpening(bot)
-        return
+        return await walkToOpening(bot, { alive })
       }
     } else {
       // THE ONE FLOOD CHECK on every upward dig of this fallback too (climbflood-01).
@@ -5461,13 +5463,14 @@ export async function digStraightUp(bot, startY, maxSteps = 20, { alive = () => 
 }
 
 /** Sprint toward whichever horizontal direction is open. */
-async function walkToOpening(bot) {
+async function walkToOpening(bot, { alive = () => true } = {}) {
   const p = bot.entity.position
   for (const [dx, dz, k] of [[1, 0, 'right'], [-1, 0, 'left'], [0, 1, 'back'], [0, -1, 'forward']]) {
     const a = bot.blockAt(p.offset(dx, 0, dz))
     const b = bot.blockAt(p.offset(dx, 1, dz))
     if (a?.name === 'air' && b?.name === 'air') {
       await bot.look(Math.atan2(-dx, -dz), 0, true).catch(() => {})
+      if (!alive()) return 'preempted'   // airpocket-01 (Codex r3): no sprint after a yield
       bot.setControlState('forward', true); bot.setControlState('sprint', true)
       await sleep(1200)
       bot.clearControlStates()

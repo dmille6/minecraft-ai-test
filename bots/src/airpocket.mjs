@@ -30,6 +30,7 @@ export const AP_REFUSE_COOLDOWN_MS = 5000    // a refused plan is re-planned at 
 export const AP_ICE_ENABLED = true             // the ice branch (break, then rise one cell); off if sandbox scene F fails
 export const AP_EQUIP_MS = 1500               // equip is bounded too (Codex r1): it runs before the dig's deadline
 export const AP_NOT_CLOSING_MS = 4000         // a non-sealed rescue must have stopped closing on air this long
+export const AP_WANT_LAPSE_MS = 3000          // a pre-empt request lapses unless renewed (it is renewed every tick)
 
 import { difficultyOf } from './foodskip.mjs'
 
@@ -164,10 +165,13 @@ export function airPocketTrigger ({ rescuing, routeDir, routeSealed, heldMs, act
  * flooded-pocket rung is never pre-empted (it is a rescue of its own).
  */
 export function airPocketPreempt ({ rescuing, routeDir, routeSealed, escaping = false, marooned = false, pocketing = false,
-                                    active = false, now = Date.now(), cooldownUntil = 0 }) {
+                                    active = false, now = Date.now(), cooldownUntil = 0, stepWouldRun = () => false }) {
   if (!rescuing || active || pocketing || now < cooldownUntil) return false
   if (routeDir === 'up' || routeSealed !== true) return false
-  return escaping || marooned
+  if (!(escaping || marooned)) return false
+  // ONLY FOR A STEP THAT WOULD RUN (both reviews r2): an escape is never stopped for a step that then refuses. Asked
+  // last, because it reads blocks (plan + admission, no side effects).
+  return stepWouldRun() === true
 }
 
 /** The fastest of the candidate items (null = the hand) by the caller's prediction. Pure. */
@@ -326,7 +330,14 @@ export async function airPocketStep (bot, plan, { Vec3, predict, sleep = ms => n
     const ours = () => !!bot.targetDigBlock?.position && (bot.targetDigBlock.position.equals?.(cellPos) ??
       (bot.targetDigBlock.position.x === cellPos.x && bot.targetDigBlock.position.y === cellPos.y && bot.targetDigBlock.position.z === cellPos.z))
     try { if (ours() && !res.ok && res.outcome !== 'opened') bot.stopDigging() } catch {}
-    for (const ms of [300, 1000, 2000]) setTimeout(() => { try { if (ours() && !res.ok && res.outcome !== 'opened') bot.stopDigging() } catch {} }, ms)
+    // poll for 2 s: a dig whose own lookAt resolves after the step returned is stopped as soon as it appears. Residual
+    // (Codex r3): this is cell-scoped, not operation-scoped -- another dig of THIS cell within 2 s of a failed step would
+    // be stopped too; nothing else digs the roof cell over a drowning bot in that window (the escape is pre-empted,
+    // the step cools down 60 s).
+    if (!res.ok && res.outcome !== 'opened') {
+      let n = 0
+      const late = setInterval(() => { try { if (ours()) bot.stopDigging() } catch {} if (++n >= 20) clearInterval(late) }, 100)
+    }
     res.healthEnd = bot.health
     res.ms = now() - t0
     // ON SUCCESS JUMP STAYS HELD (Claude r1): the head stays in the pocket and the rescue's own release (head out, dwell)
