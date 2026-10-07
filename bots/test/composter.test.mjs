@@ -602,6 +602,11 @@ for (const [why, setup, on] of [['PEACEFUL (packet read)', b => { b.serverDiffic
     const row = (await rows('_compost')).at(-1)?.skill?.detail ?? ''
     if (on) assert.match(row, /items=.*wildflowers:30/)
     else assert.doesNotMatch(row, /wildflowers|melon_slice|kelp/)
+    // THE COMPLETE MAP (the read gates on it; the detail is cut at 300): every inserted name with its verified count.
+    const args = (await rows('_compost')).at(-1)?.skill?.args ?? {}
+    assert.equal(args.peaceful, on ? 1 : 0)
+    if (on) for (const p of plants) assert.equal(args.items?.[p.name], p.count, `args.items.${p.name}`)
+    else for (const p of plants) assert.equal(args.items?.[p.name], undefined)
   })
 }
 
