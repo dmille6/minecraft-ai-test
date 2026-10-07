@@ -510,7 +510,7 @@ export function craftableNow (bot, milestone = null, wantedSet = null) {
     const made = []
     for (const name of CRAFT_TARGETS) {
       if (items.some(i => i.name === name && i.count > 0) && !name.endsWith('_pickaxe')) continue
-      if (name.endsWith('_pickaxe') && redundantCraft(name, items, { wanted, y: bot.entity?.position?.y })) continue
+      if (name.endsWith('_pickaxe') && redundantCraft(name, items, { wanted, y: bot.entity?.position?.y, exitShort: bot.exitPickShort })) continue
       const it = bot.registry?.itemsByName?.[name]
       if (!it) continue
       const r = bot.recipesFor(it.id, null, 1, hasTable ? true : null)

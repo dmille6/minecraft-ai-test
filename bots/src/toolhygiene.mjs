@@ -49,7 +49,7 @@ const taskWants = (wanted, item) => !!wanted && (wanted instanceof Set ? wanted.
  *           `mine` refuses below that line and its remedy is another pickaxe (Codex review, round 1).
  * The copy named is the fullest covering one; it does everything another copy would (dig with it).
  */
-export function redundantCraft (item, items = [], { wanted = null, on = TOOL_HYGIENE.on, y = null } = {}) {
+export function redundantCraft (item, items = [], { wanted = null, on = TOOL_HYGIENE.on, y = null, exitShort = null, now = Date.now() } = {}) {
   if (!on || typeof item !== 'string' || taskWants(wanted, item)) return null
   const bag = (Array.isArray(items) ? items : []).filter(it => it?.name && (it.count ?? 1) > 0)
   if (STATIONS.has(item)) {
@@ -67,8 +67,14 @@ export function redundantCraft (item, items = [], { wanted = null, on = TOOL_HYG
   const pickUses = pickaxeUses(bag)
   const exitNeed = Number.isFinite(y) ? descentPickNeed(y) : null
   if (exitNeed != null && pickUses < exitNeed) return null
+  // ...and the shortfall `mine` last refused for, wherever the bot is NOW: its remedy says "run surface first", and at the
+  // surface descentPickNeed is 2 (Claude round 2: refused at y=16, then refused the craft at y=64 -- a loop).
+  if (exitShortOpen(exitShort, pickUses, now)) return null
   const need = craftCoverNeed(item)
-  const cover = bag.filter(it => { const r = pickRank(it.name); return r != null && r >= rank && remaining(it) >= need })
+  // STONE AND WOODEN ARE COVERED ONLY BY STONE/WOODEN/GOLDEN (Claude round 2): an iron copy as cover refused the stone
+  // craft for a bot whose stone copies were worn, and toolFor then dug stone with the iron -- 146 iron uses over 150
+  // stone digs in the probe, the burn iron retention removed. Iron and better are covered by the same rank or higher.
+  const cover = bag.filter(it => { const r = pickRank(it.name); return r != null && r >= rank && (rank >= 3 || r <= 2) && remaining(it) >= need })
     .sort((a, b) => (remaining(b) - remaining(a)) || (pickRank(b.name) - pickRank(a.name)))[0]
   if (!cover) return null
   const left = remaining(cover)
@@ -78,6 +84,17 @@ export function redundantCraft (item, items = [], { wanted = null, on = TOOL_HYG
     item, kind: 'pickaxe', held: cover.name, uses: Number.isFinite(left) ? left : null, need, pickUses, exitNeed,
     detail: `you already hold a ${cover.name} with ${usesText} (a ${tierWord}-or-better pickaxe with ${need}+ uses is all any goal asks for) -- dig with it; craft another ${item} when it is below ${need}`,
   }
+}
+
+/** How long a `mine` refusal for want of pickaxe swings keeps pickaxe crafts admitted (cognitive PREREQ_TTL_MS). */
+export const EXIT_SHORT_TTL_MS = 15 * 60_000
+/** Record `mine`'s exit-contract refusal for want of pickaxe swings on the bot (skills.mjs calls it). */
+export function noteExitShort (bot, exit) {
+  if (bot && exit && !exit.ok && exit.reason === 'pickaxe' && Number.isFinite(exit.want)) bot.exitPickShort = { want: exit.want, at: Date.now() }
+}
+/** Is a recorded shortfall still open: fresh, and the bag still below the swings it asked for? Pure. */
+export function exitShortOpen (s, pickUses, now = Date.now()) {
+  return !!s && Number.isFinite(s.want) && Number.isFinite(s.at) && now - s.at < EXIT_SHORT_TTL_MS && pickUses < s.want
 }
 
 /** The `_redundant_craft` row: a readable detail and the same facts as structured `args` (logger.mjs: flattened,
