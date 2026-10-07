@@ -35,7 +35,9 @@ const { fakeWorld, stack, tool } = await import('./fakeworld.mjs')
 const PAPER_CONSUMED = ['melon_slice', 'kelp', 'brown_mushroom', 'red_mushroom', 'torchflower_seeds', 'pitcher_pod', 'cocoa_beans',
   'sweet_berries', 'blue_orchid', 'allium', 'azure_bluet', 'red_tulip', 'orange_tulip', 'white_tulip', 'pink_tulip', 'oxeye_daisy',
   'cornflower', 'lily_of_the_valley', 'wither_rose', 'torchflower', 'pitcher_plant', 'closed_eyeblossom', 'open_eyeblossom',
-  'sunflower', 'lilac', 'rose_bush', 'peony', 'wildflowers', 'pink_petals', 'cactus_flower']
+  'sunflower', 'lilac', 'rose_bush', 'peony', 'wildflowers', 'pink_petals', 'cactus_flower',
+  // the owner's 10-07 ~19:50Z additions, consumed 64/64 in the same Paper hopper test
+  'dried_kelp', 'glow_berries', 'moss_carpet', 'firefly_bush', 'bush', 'bread']
 const PAPER_REFUSED = ['stone_sword', 'wooden_sword', 'egg', 'flint', 'bamboo', 'dead_bush', 'ink_sac']
 
 test('the kit\'s plants are exactly the Paper-verified list; real 1.21.8 items; vanilla chances; nothing already composted', () => {
@@ -48,9 +50,10 @@ test('the kit\'s plants are exactly the Paper-verified list; real 1.21.8 items; 
     assert.equal(K.isSword(n), false)
   }
   for (const n of PAPER_REFUSED) assert.equal(K.isPeacefulCompost(n), false, `${n} is not compostable on Paper`)
-  for (const n of ['apple', 'bread', 'dried_kelp', 'glow_berries', 'carrot', 'oak_sapling', 'bush', 'firefly_bush', 'moss_carpet', 'bone_meal'])
+  for (const n of ['apple', 'carrot', 'potato', 'cookie', 'short_dry_grass', 'oak_sapling', 'bone_meal'])
     assert.equal(K.isPeacefulCompost(n), false, `${n} was not approved`)
   assert.equal(K.PEACEFUL_COMPOST.melon_slice, 0.5); assert.equal(K.PEACEFUL_COMPOST.torchflower, 0.85); assert.equal(K.PEACEFUL_COMPOST.wildflowers, 0.3)
+  assert.equal(K.PEACEFUL_COMPOST.bread, 0.85); assert.equal(K.PEACEFUL_COMPOST.dried_kelp, 0.3)
 })
 
 test('swords: every tier; the refusal only while active and only for a sword; it names a verb the bot can use anywhere', () => {
@@ -65,33 +68,49 @@ test('swords: every tier; the refusal only while active and only for a sword; it
   assert.equal(K.skipSwordDrop(drop('stone_sword'), false), false)
   assert.equal(K.skipSwordDrop(drop('cobblestone'), true), false)
   assert.equal(K.skipSwordDrop({ getDroppedItem: () => { throw new Error('no metadata') } }, true), false, 'unreadable: chased as before')
-  assert.equal(K.bankEveryCopy('stone_sword', true), true)
-  assert.equal(K.bankEveryCopy('stone_sword', false), false)
-  assert.equal(K.bankEveryCopy('stone_pickaxe', true), false, 'only swords')
+  // THE CLASSIFICATION junkwell-02 imports: any sword, only while the switch is on
+  for (const n of ['wooden_sword', 'stone_sword', 'iron_sword', 'netherite_sword']) {
+    assert.equal(K.unwantedSword({ name: n }, true), true, n); assert.equal(K.unwantedSword({ name: n }, false), false, n)
+  }
+  for (const n of ['stone_pickaxe', 'stick', undefined]) assert.equal(K.unwantedSword({ name: n }, true), false, String(n))
+  assert.equal(K.unwantedSword(null, true), false)
+  assert.equal(K.burnableSword({ name: 'wooden_sword' }, true), true)
+  assert.equal(K.burnableSword({ name: 'wooden_sword' }, false), false, 'off: a wooden sword is a tool')
+  assert.equal(K.burnableSword({ name: 'stone_sword' }, true), false, 'stone does not burn: it stays for the well')
+  assert.equal(K.swordFuelCount([T('wooden_sword'), T('wooden_sword', 50, 10), T('stone_sword', 0, 11), stack('coal', 3)], true), 2)
+  assert.equal(K.swordFuelCount([T('wooden_sword')], false), 0)
 })
 
 // ---- the composer: pure ------------------------------------------------------------------------------------------------
 const S = (name, count, slot) => ({ name, count, slot })
+const T = (name, used = 0, slot = 9) => ({ name, count: 1, slot, maxDurability: { wooden: 59, stone: 131, iron: 250 }[name.split('_')[0]] ?? 131, durabilityUsed: used })
 const KITBAG = () => [S('wildflowers', 40, 9), S('melon_slice', 9, 10), S('kelp', 12, 11), S('brown_mushroom', 2, 12), S('red_tulip', 1, 13),
   S('cocoa_beans', 3, 14), S('torchflower_seeds', 2, 15), S('apple', 10, 16), S('oak_sapling', 20, 17), S('birch_sapling', 8, 18),
-  S('leaf_litter', 5, 19), S('bread', 5, 20), S('dried_kelp', 4, 21), S('stone_sword', 1, 22), S('wooden_sword', 1, 23)]
+  S('leaf_litter', 5, 19), S('bread', 5, 20), S('dried_kelp', 4, 21), S('stone_sword', 1, 22), S('wooden_sword', 1, 23),
+  S('spruce_sapling', 7, 24), S('jungle_sapling', 20, 25), S('carrot', 3, 26)]
 
 test('OFF IS TODAY: without `plants` the allowance, plan and next insert are exactly the old ones (the kit plants stay)', () => {
   const bag = KITBAG()
   assert.deepEqual(C.compostAllowance(bag), C.compostAllowance(bag, { apples: false, plants: false }))
-  assert.deepEqual(C.compostAllowance(bag), { oak_sapling: 4, leaf_litter: 5 })
-  assert.deepEqual(C.compostAllowance(bag, { apples: true }), { oak_sapling: 4, leaf_litter: 5, apple: 6 }, 'the food policy alone: apples, no plants')
+  assert.deepEqual(C.compostAllowance(bag), { oak_sapling: 4, leaf_litter: 5, jungle_sapling: 4 }, 'off: 16 of EVERY species kept')
+  assert.deepEqual(C.compostAllowance(bag, { apples: true }), { oak_sapling: 4, leaf_litter: 5, jungle_sapling: 4, apple: 6 }, 'the food policy alone: apples, no plants')
   assert.deepEqual(C.compostPlan(bag), C.compostPlan(bag, { plants: false }))
 })
 
-test('ON: every kit plant WHOLE, saplings only above 16, apples only above 4; food, swords and the unapproved never', () => {
+test('ON: every kit plant WHOLE (bread and dried_kelp too), oak/birch above 16, OTHER saplings all, apples above 4; swords and carrots never', () => {
   const allow = C.compostAllowance(KITBAG(), { apples: true, plants: true })
   assert.deepEqual(allow, { wildflowers: 40, melon_slice: 9, kelp: 12, brown_mushroom: 2, red_tulip: 1, cocoa_beans: 3, torchflower_seeds: 2,
-    apple: 6, oak_sapling: 4, leaf_litter: 5 })
+    apple: 6, oak_sapling: 4, leaf_litter: 5, bread: 5, dried_kelp: 4, spruce_sapling: 7, jungle_sapling: 20 })
+  for (const sp of ['spruce', 'jungle', 'acacia', 'dark_oak', 'cherry', 'pale_oak']) {
+    assert.equal(K.peacefulSaplingReserve(`${sp}_sapling`), 0, sp)
+    assert.equal(C.compostAllowance([S(`${sp}_sapling`, 3)], { plants: true })[`${sp}_sapling`], 3, `${sp}: every one goes`)
+  }
+  for (const sp of ['oak', 'birch']) assert.equal(C.compostAllowance([S(`${sp}_sapling`, 16)], { plants: true })[`${sp}_sapling`], undefined, `${sp}: 16 kept`)
+  assert.equal(K.peacefulSaplingReserve('mangrove_propagule'), null, 'not a sapling name: never composted (NEVER_COMPOST)')
   assert.equal(C.compostAllowance([S('wildflowers', 64)], { plants: false }).wildflowers, undefined)
 })
 
-test('ON, insert by insert to the end (room every time): the bag ends with no kit plant, 16 oak saplings, 4 apples, both swords', () => {
+test('ON, insert by insert to the end (room every time): no kit plant, no spruce/jungle, 16 oak, 4 apples, both swords, the carrots', () => {
   let bag = KITBAG()
   for (let i = 0; i < 500; i++) {
     const nx = C.nextInsert(bag, { room: true, apples: true, plants: true })
@@ -102,7 +121,8 @@ test('ON, insert by insert to the end (room every time): the bag ends with no ki
   const left = Object.fromEntries(bag.map(s => [s.name, s.count]))
   for (const n of Object.keys(K.PEACEFUL_COMPOST)) assert.equal(left[n], undefined, `${n} left over`)
   assert.equal(left.oak_sapling, 16); assert.equal(left.birch_sapling, 8); assert.equal(left.apple, 4)
-  assert.equal(left.stone_sword, 1); assert.equal(left.wooden_sword, 1); assert.equal(left.bread, 5); assert.equal(left.dried_kelp, 4)
+  assert.equal(left.stone_sword, 1); assert.equal(left.wooden_sword, 1); assert.equal(left.carrot, 3)
+  assert.equal(left.spruce_sapling, undefined); assert.equal(left.jungle_sapling, undefined)
 })
 
 test('a FULL bag only starts a fill that empties a slot: the smallest whole kit stack goes first', () => {
@@ -146,41 +166,29 @@ test('startableJunk: a full bag whose every kit stack is above 7 starts no order
   let asked = 0
   C.startableJunk(big.slice(0, 35), { plants: true, level: () => { asked++; return 8 } })
   assert.equal(asked, 0, 'a bag with room never asks the world for the level')
+  // THE REAL SURPLUS AFTER EVERY RESERVE (owner 10-07): 4 apples and 16 oak saplings ARE compostable things, but the
+  // reserves take them all -- surplus 0, no trip, even with a free slot
+  const kept = [S('apple', 4, 9), S('oak_sapling', 16, 10), ...fill(30)]
+  assert.equal(C.startableJunk(kept, { apples: true, plants: true }), 0)
 })
 
-// ---- the bank: pure ----------------------------------------------------------------------------------------------------
-const T = (name, used = 0, slot = 9) => ({ name, count: 1, slot, maxDurability: { wooden: 59, stone: 131, iron: 250 }[name.split('_')[0]] ?? 131, durabilityUsed: used })
-
-test('BANK pure: on, every usable sword is bankable (none kept); off, the one-per-name rule; a spent sword never; pickaxes unchanged', () => {
-  const bag = [T('stone_sword', 0, 9), T('wooden_sword', 0, 10), T('stone_pickaxe', 30, 11), T('stone_pickaxe', 5, 12), stack('cobblestone', 64)]
-  const on = depositPlan(bag, null, { swords: true }), off = depositPlan(bag, null, { swords: false })
+// ---- the bank: pure (OWNER 10-07 ~19:50Z: "no reason to store swords at all") ------------------------------------------
+test('BANK pure: while on NO sword is bankable, not even a spare; off the old one-per-name rule; pickaxes unchanged', () => {
+  const bag = [T('stone_sword', 0, 9), T('stone_sword', 0, 10), T('wooden_sword', 0, 11), T('stone_pickaxe', 30, 12), T('stone_pickaxe', 5, 13), stack('cobblestone', 64)]
+  const on = depositPlan(bag, null, { noSwords: true }), off = depositPlan(bag, null, { noSwords: false })
   const n = (plan, name) => plan.find(e => e.name === name)?.count ?? 0
-  assert.equal(n(on, 'stone_sword'), 1); assert.equal(n(on, 'wooden_sword'), 1)
-  assert.equal(n(off, 'stone_sword'), 0); assert.equal(n(off, 'wooden_sword'), 0)
+  assert.equal(n(on, 'stone_sword') + n(on, 'wooden_sword'), 0, 'on: none')
+  assert.equal(n(off, 'stone_sword'), 1, 'off: the spare goes, as today'); assert.equal(n(off, 'wooden_sword'), 0)
   assert.equal(n(on, 'stone_pickaxe'), n(off, 'stone_pickaxe'), 'pickaxes: the same rule either way')
-  assert.equal(bankableInventory(bag, { swords: false }).excluded.stone_sword, 'last_of_tool_family')
-  assert.equal(bankableInventory([T('stone_sword', 125)], { swords: true }).count, 0, 'a spent sword (<= FLOOR uses) never moves')
-  assert.equal(bankableInventory([T('stone_sword'), T('stone_sword', 0, 10)], { swords: false }).detail.stone_sword, 1, 'off: a SPARE sword still goes, as today')
-  assert.equal(bankableInventory([T('stone_sword'), T('stone_sword', 0, 10)], { swords: true }).detail.stone_sword, 2)
+  assert.equal(bankableInventory(bag, { noSwords: true }).excluded.stone_sword, 'peaceful_sword')
+  assert.deepEqual(depositPlan(bag, null), off, 'the default is the base rule')
 })
 
-test('NO NEW TRIP: the default allowance is the BASE rule whatever the switch -- admission, the prompt and the milestone count as before', () => {
-  for (const on of [false, true]) {
-    setPeacefulFood(on)
-    assert.equal(bankableInventory([T('stone_sword')]).count, 0, `switch ${on}: a sword alone makes nothing bankable`)
-  }
-  setPeacefulFood(false)
-})
-
-test('NO NEW TRIP, through the gate: 11 bankable items + a sword, beside the chest, under 30 slots: deposit refused while ON as while off', () => {
-  const items = [stack('raw_copper', 11), tool('stone_sword'), tool('stone_pickaxe', 30)]
-  for (const difficulty of ['peaceful', 'easy']) {
-    const w = townWith(items.map(i => ({ ...i })), difficulty)
-    foodSkipNow(w.bot)
-    const r = new AdmissionControl().check({ skill: 'deposit', args: {} }, w.bot)
-    assert.equal(r.reason, 'deposit_not_worth_it', `${difficulty}: ${JSON.stringify(r)}`)
-  }
-  setPeacefulFood(false)
+test('BANK: a named `deposit stone_sword` while on says why nothing moves (no digits, the rule first)', async () => {
+  const { depositNoopReason } = await import('../src/bankable.mjs')
+  const r = depositNoopReason([T('stone_sword'), T('stone_sword', 0, 10)], 'stone_sword', { noSwords: true })
+  assert.match(r, /^not a banking target \(swords are not banked in a peaceful world\)/)
+  assert.doesNotMatch(r, /\d/)
 })
 
 // ---- the bank: the REAL deposit skill --------------------------------------------------------------------------------------
@@ -194,39 +202,18 @@ function townWith (bag, difficulty) {
 const inChest = (w, name) => w.containers.get('5,64,0').slots.filter(s => s?.name === name).length
 const inBag = (w, name) => w.bag.filter(s => s?.name === name).length
 
-for (const [why, difficulty, banked] of [['PEACEFUL', 'peaceful', true], ['EASY world', 'easy', false], ['difficulty unknown', undefined, false]]) {
-  test(`DEPOSIT WIRED, ${why}: an unnamed deposit ${banked ? 'banks BOTH swords (nothing kept)' : 'keeps both swords (the old rule)'}; the best pickaxe stays; nothing dropped`, async () => {
-    const w = townWith([tool('stone_sword'), tool('wooden_sword'), tool('stone_pickaxe', 30), tool('stone_pickaxe', 100), stack('cobblestone', 64), stack('oak_log', 30)], difficulty)
+for (const [why, difficulty, spare] of [['PEACEFUL', 'peaceful', 0], ['EASY world', 'easy', 1], ['difficulty unknown', undefined, 1]]) {
+  test(`DEPOSIT WIRED, ${why}: an unnamed deposit ${spare ? 'banks the SPARE stone sword (the old rule)' : 'banks NO sword, not even the spare'}; the best pickaxe stays; nothing dropped`, async () => {
+    const w = townWith([tool('stone_sword'), tool('stone_sword'), tool('wooden_sword'), tool('stone_pickaxe', 30), tool('stone_pickaxe', 100), stack('cobblestone', 64), stack('oak_log', 30)], difficulty)
     const r = await runDeposit(w.bot)
     assert.equal(r.status, 'success', r.detail)
-    assert.equal(inChest(w, 'stone_sword') + inChest(w, 'wooden_sword'), banked ? 2 : 0)
-    assert.equal(inBag(w, 'stone_sword') + inBag(w, 'wooden_sword'), banked ? 0 : 2)
+    assert.equal(inChest(w, 'stone_sword') + inChest(w, 'wooden_sword'), spare)
+    assert.equal(inBag(w, 'stone_sword') + inBag(w, 'wooden_sword'), 3 - spare)
     assert.equal(inBag(w, 'stone_pickaxe'), 1, 'one pickaxe kept')
     assert.equal(w.bag.find(s => s?.name === 'stone_pickaxe')?.durabilityUsed, 30, 'the BEST pickaxe is the one kept')
     assert.deepEqual(w.dropped, [], 'never dropped')
   })
 }
-
-test('DEPOSIT WIRED: a NAMED deposit of a sword under the kit banks every usable copy; a spent one stays', async () => {
-  const w = townWith([tool('stone_sword'), tool('stone_sword', 125), tool('stone_sword', 3), stack('cobblestone', 64)], 'peaceful')
-  const r = await runDeposit(w.bot, { item: 'stone_sword' })
-  assert.equal(r.status, 'success', r.detail)
-  assert.equal(inChest(w, 'stone_sword'), 2)
-  assert.equal(w.bag.filter(s => s?.name === 'stone_sword').map(s => s.durabilityUsed).join(), '125', 'the spent copy is not the bank\'s')
-})
-
-test('DEPOSIT WIRED: a FULL chest and nothing but the kit\'s swords to hand over -> no_effect; no new chest, no bank closure (Claude r2)', async () => {
-  const { bankClosed } = await import('../src/chestfull.mjs')
-  const w = townWith([tool('stone_sword'), tool('stone_pickaxe', 30), stack('dirt', 5)], 'peaceful')
-  w.fill(5, 64, 0)
-  const r = await runDeposit(w.bot)
-  assert.equal(r.status, 'no_effect', r.detail)
-  assert.match(r.detail, /swords; they wait for the next deposit/)
-  assert.equal(w.spy.placed.length, 0, 'no chest built for one sword')
-  assert.equal(w.spy.craft + w.spy.recipesFor, 0)
-  assert.equal(bankClosed(w.bot), '', 'the bank is not closed for one sword')
-  assert.equal(inBag(w, 'stone_sword'), 1); assert.deepEqual(w.dropped, [])
-})
 
 // ---- the craft: admission and the skill -----------------------------------------------------------------------------------
 const V = (x, y, z) => ({ x, y, z, distanceTo (o) { return Math.hypot(this.x - o.x, this.y - o.y, this.z - o.z) }, floored () { return this } })
@@ -315,7 +302,7 @@ test('THE ROW: one `_peaceful_kit` row per change of (decision, difficulty), bes
   } finally { untap() }
   assert.deepEqual(rows, [
     'peaceful kit off: swords=as_before compost=as_before mode=auto difficulty=hard active=0',
-    'peaceful kit ON: swords=bank,no_craft,no_chase compost=plants mode=auto difficulty=peaceful active=1',
+    'peaceful kit ON: swords=no_bank,no_craft,no_chase,burn_wooden compost=plants mode=auto difficulty=peaceful active=1',
     'peaceful kit off: swords=as_before compost=as_before mode=auto difficulty=easy active=0'])
 })
 
@@ -340,7 +327,7 @@ test('PROMPT: CAN CRAFT NOW lists no sword while active (the 6-slot line fills w
 })
 
 // ---- the switch in a process of its own (FOOD_SKIP is read when skills.mjs loads) --------------------------------------
-test('FOOD_SKIP=off: a peaceful bot banks no sword and is not refused a sword craft (the owner\'s off switch)', () => {
+test('FOOD_SKIP=off: a peaceful bot is not refused a sword craft, its spare sword banks as today, no sword is fuel (the owner\'s off switch)', () => {
   const src = `
     process.env.LOG_DIR = ${JSON.stringify(process.env.LOG_DIR)}; process.env.POOL_STATE_DIR = ${JSON.stringify(process.env.POOL_STATE_DIR)}
     const { createRequire } = await import('node:module')
@@ -348,14 +335,17 @@ test('FOOD_SKIP=off: a peaceful bot banks no sword and is not refused a sword cr
     const { AdmissionControl } = await import(${JSON.stringify(new URL('../src/admission.mjs', import.meta.url).href)})
     const { foodSkipNow } = await import(${JSON.stringify(new URL('../src/skills.mjs', import.meta.url).href)})
     const { bankableInventory } = await import(${JSON.stringify(new URL('../src/bankable.mjs', import.meta.url).href)})
+    const { swordFuelCount } = await import(${JSON.stringify(new URL('../src/peacefulkit.mjs', import.meta.url).href)})
     const bot = { registry: mc, serverDifficulty: 'peaceful', entity: { position: { x: 0, y: 64, z: 0 } }, inventory: { items: () => [] }, findBlock: () => null }
     const r = new AdmissionControl().check({ skill: 'craft', args: { item: 'wooden_sword', count: 1 } }, bot)
-    foodSkipNow(bot)
-    const n = bankableInventory([{ name: 'stone_sword', count: 1, maxDurability: 131, durabilityUsed: 0 }]).count
-    console.log('RESULT ' + JSON.stringify({ reason: r.reason ?? null, banked: n }))
+    const on = foodSkipNow(bot).active
+    const sw = { name: 'stone_sword', count: 1, maxDurability: 131, durabilityUsed: 0 }
+    const n = bankableInventory([sw, { ...sw }], { noSwords: on }).count
+    const fuel = swordFuelCount([{ name: 'wooden_sword', count: 1 }], on)
+    console.log('RESULT ' + JSON.stringify({ reason: r.reason ?? null, banked: n, on, fuel }))
   `
   const out = execFileSync(process.execPath, ['--input-type=module', '-e', src],
     { env: { ...process.env, FOOD_SKIP: 'off' }, cwd: new URL('..', import.meta.url).pathname, encoding: 'utf8' })
   const res = JSON.parse(/RESULT (.*)/.exec(out)[1])
-  assert.notEqual(res.reason, 'peaceful_no_sword'); assert.equal(res.banked, 0)
+  assert.notEqual(res.reason, 'peaceful_no_sword'); assert.equal(res.on, false); assert.equal(res.banked, 1); assert.equal(res.fuel, 0)
 })

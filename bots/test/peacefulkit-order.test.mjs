@@ -23,8 +23,8 @@ const { CognitiveLoop } = await import('../src/cognitive.mjs')
 
 const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'mcai-pko-'))
 let seq = 0
-function townBot (difficulty, { full = false } = {}) {
-  const items = [{ name: 'wildflowers', count: 30, slot: 9, type: mcData.itemsByName.wildflowers.id },
+function townBot (difficulty, { full = false, first = ['wildflowers', 30] } = {}) {
+  const items = [{ name: first[0], count: first[1], slot: 9, type: mcData.itemsByName[first[0]].id },
     { name: 'oak_sapling', count: 16, slot: 44, type: mcData.itemsByName.oak_sapling.id }, { name: 'apple', count: 4, slot: 45, type: mcData.itemsByName.apple.id },
     // a usable pickaxe, so withdraw's withdraw_pick town order (when withdraw is underneath) has nothing to fetch
     { name: 'stone_pickaxe', count: 1, slot: 10, type: mcData.itemsByName.stone_pickaxe.id, maxDurability: 131, durabilityUsed: 11 },
@@ -61,4 +61,15 @@ test('HARD / UNKNOWN: the same bot gets no compost order -- the kit is off, exac
 })
 test('PEACEFUL, 36/36 with the plants in one stack of 30: NO compost order -- no fill could start (no room for the bone meal)', async () => {
   assert.equal(await firstSkill(townBot('peaceful', { full: true })), 'status')
+})
+
+// THE GUARD IS GENERAL (owner 10-07 ~19:50Z): the real surplus after every reserve, whatever the switch says.
+test('HARD, 36/36 with leaf_litter in one stack of 30: NO compost order (no fill could start) -- the guard with the switch off', async () => {
+  assert.equal(await firstSkill(townBot('hard', { full: true, first: ['leaf_litter', 30] })), 'status')
+})
+test('HARD, 35/36 with leaf_litter 30 (room for the bone meal): the compost order, as before', async () => {
+  assert.equal(await firstSkill(townBot('hard', { first: ['leaf_litter', 30] })), 'compost')
+})
+test('PEACEFUL, 35/36 with jungle saplings 5 (no reserve while on): the compost order', async () => {
+  assert.equal(await firstSkill(townBot('peaceful', { first: ['jungle_sapling', 5] })), 'compost')
 })
