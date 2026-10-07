@@ -1,5 +1,8 @@
 import { PATHFINDER_SCAFFOLD } from './scaffold.mjs'
 import { remaining, FLOOR } from './toolfor.mjs'
+// The peaceful kit: the food policy's decision (one switch) and the sword rule.
+import { peacefulFoodActive } from './foodskip.mjs'
+import { bankEveryCopy } from './peacefulkit.mjs'
 // WHAT IS ACTUALLY WORTH BANKING.
 //
 // "deposited items per bot-hour" is a CO-PRIMARY endpoint of this experiment and
@@ -141,7 +144,7 @@ export const KEEP_ONE = new Set(['crafting_table', 'furnace', 'blast_furnace', '
  * tables is worth at most what the goals actually want, not 99.
  */
 export function bankableInventory (items = [], { wants = [], creditCap = 64,
-                                                 reserveScaffold = 8 } = {}) {
+                                                 reserveScaffold = 8, swords = peacefulFoodActive() } = {}) {
   const want = new Set([...wants, ...STANDING_TARGETS].filter(Boolean))
   const counts = {}
   const usable = {}   // tool name -> copies above toolfor's FLOOR
@@ -176,7 +179,10 @@ export function bankableInventory (items = [], { wants = [], creditCap = 64,
     // chest.deposit(type) takes the first copy by slot, so "bank n-1" could bank the good one and keep a spent one.
     // At most min(n-1, usable-1) copies are bankable -- so at least one usable copy always stays -- and with no
     // usable copy none are: spent tools never move either way.
-    if (m) avail = Math.min(n - 1, (usable[name] ?? 0) - 1)
+    // THE PEACEFUL KIT (peacefulkit.mjs, owner 10-07): while the food policy's switch is active a SWORD keeps no copy --
+    // every usable one may go to the bank (none is ever crafted or chased then). Spent copies still never move.
+    // `swords` defaults to the policy's current decision (foodskip.mjs, refreshed by the difficulty packet).
+    if (m) avail = bankEveryCopy(name, swords) ? (usable[name] ?? 0) : Math.min(n - 1, (usable[name] ?? 0) - 1)
     if (KEEP_ONE.has(name)) avail -= 1      // and one of each station / bucket, even when wanted
     const reserved = scaffoldReserve[name] ?? 0
     avail -= reserved
