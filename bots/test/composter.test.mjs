@@ -17,6 +17,7 @@ import { NEVER_KEEP, TRIGGER_SLOTS, isHousekeeping } from '../src/hygiene.mjs'
 const LOG_DIR = `/tmp/mcbot-test-logs-composter-${process.pid}`
 process.env.LOG_DIR = LOG_DIR; process.env.BOT_NAME = 'TestBot'   // before anything imports config.mjs
 const C = await import('../src/composter.mjs')   // a namespace, so a missing export fails ITS test, not the file
+const KIT = await import('../src/peacefulkit.mjs')
 const require = createRequire(import.meta.url)
 const REG = require('minecraft-data')('1.21.11')
 const Recipe = require('prismarine-recipe')(REG).Recipe
@@ -328,7 +329,8 @@ function fakeTown ({ items = [], hand = null, level = 0, composterAt = 'canonica
   const key = p => `${p.x},${p.y},${p.z}`
   const state = { level, ripenAt: null, tick: 0, levels: [level], extracted: 0, pending: [], tossed: 0, dropped: [], clicksAt7: 0,
                   crafted: [], sneakWrites: 0, activations: 0, path: [], halts: 0, gotos: 0, tableUses: [], events: [], selects: [], equips: [] }
-  const VANILLA = { leaf_litter: 0.3, wheat_seeds: 0.3, poppy: 0.65, short_grass: 0.3, apple: 0.65, oak_sapling: 0.3 }
+  // + the peaceful kit's plants (peacefulkit.mjs; each one verified consumed by a real Paper 1.21.8 composter)
+  const VANILLA = { leaf_litter: 0.3, wheat_seeds: 0.3, poppy: 0.65, short_grass: 0.3, apple: 0.65, oak_sapling: 0.3, ...KIT.PEACEFUL_COMPOST }
   const nameAt = v => world.get(key(v)) ?? (v.y <= FLOOR ? 'grass_block' : 'air')
   const gone = new Set(unloaded)   // cells in a chunk this bot has not loaded: blockAt answers null
   const blockAt = p => {
@@ -579,6 +581,27 @@ for (const [why, setup, composted] of [['PEACEFUL (packet read)', b => { b.serve
     const row = (await rows('_compost')).at(-1)?.skill?.detail ?? ''
     if (composted) assert.match(row, / apple_levels=\d+ stop=.* items=.*apple:6/)
     else assert.ok(!/apple/.test(row), 'policy off: the row is the old row (no apple_levels, no apple item)')
+  })
+}
+
+// ---- THE PEACEFUL KIT (owner 10-07, peacefulkit.mjs): the plants a peaceful world cannot use, under the same switch ----
+for (const [why, setup, on] of [['PEACEFUL (packet read)', b => { b.serverDifficulty = 'peaceful' }, true],
+                                ['HARD world', b => { b.serverDifficulty = 'hard' }, false],
+                                ['difficulty unknown', () => {}, false]]) {
+  await t(`KIT WIRED, ${why}: ${on ? 'every kit plant composted, 16 saplings and 4 apples kept' : 'no kit plant touched (the old visit)'}; swords, bread, dried_kelp never`, async () => {
+    const plants = [S('wildflowers', 30), S('melon_slice', 9), S('kelp', 7), S('brown_mushroom', 2), S('red_tulip', 1), S('cocoa_beans', 3), S('rose_bush', 2)]
+    const keep = [S('bread', 5), S('dried_kelp', 4), { ...S('stone_sword', 1), maxDurability: 131, durabilityUsed: 0 }]
+    const { bot, count } = fakeTown({ hand: PICK, rolls: () => 0.5, items: [...plants, S('apple', 10), S('oak_sapling', 20), ...keep, ...filler(22)] })
+    setup(bot)
+    const r = await run('compost', bot)
+    assert.equal(r.status, 'success', r.detail)
+    for (const p of plants) assert.equal(count(p.name), on ? 0 : p.count, `${p.name}`)
+    assert.equal(count('oak_sapling'), 16, 'the sapling reserve either way')
+    assert.equal(count('apple'), on ? 4 : 10)
+    assert.equal(count('bread'), 5); assert.equal(count('dried_kelp'), 4); assert.equal(count('stone_sword'), 1)
+    const row = (await rows('_compost')).at(-1)?.skill?.detail ?? ''
+    if (on) assert.match(row, /items=.*wildflowers:30/)
+    else assert.doesNotMatch(row, /wildflowers|melon_slice|kelp/)
   })
 }
 

@@ -821,7 +821,8 @@ export class CognitiveLoop {
         const items = bot.inventory?.items?.() ?? []
         const p = bot.entity?.position
         // THE PEACEFUL FOOD POLICY (foodskip.mjs, owner 10-06): apples above the reserve count as compostable only while it is active.
-        const plan = compostPlan(items, { apples: foodSkipNow(bot).active })
+        const peaceful = foodSkipNow(bot).active   // the food policy's apples and the peaceful kit's plants: one switch
+        const plan = compostPlan(items, { apples: peaceful, plants: peaceful })
         const home = { x: config.world.homeX, z: config.world.homeZ }
         const r = townOrder({
           now: Date.now(), slots: plan.slots, freeSlots: 36 - plan.slots, junk: plan.junk,
