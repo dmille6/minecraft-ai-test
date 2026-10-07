@@ -76,7 +76,7 @@ import { planDigApproach, observeApproachDig, APPROACH_WALK_MS, planDigRetry, fl
 import { scoopLiquid, pourLiquid, scoopRefusal, emptyRefusal } from './bucket.mjs'
 import { countItem, horizontalDistanceFromSpawn, snapshot } from './state.mjs'
 import { depositPlan, depositNoopReason, cobbleBankStacks, isCobble, COBBLE_RESERVE, setCobbleTownReader } from './bankable.mjs'
-import { townCobble, cobbleAdmit, cobbleIn, readLedger, withLedger, TOWN_COBBLE_CAP } from './cobblecap.mjs'
+import { townCobble, cobbleAdmit, cobbleIn, readLedger, withLedger, TOWN_COBBLE_CAP, OBS_TTL_MS } from './cobblecap.mjs'
 import { bankableInventory, depositDue, DEPOSIT_ALWAYS } from './bankable.mjs'   // chestfull-02: advice agrees with admission
 import fs from 'node:fs'
 import { doVisit, openBoard, withinBoard } from './board-visit.mjs'
@@ -2486,12 +2486,17 @@ async function deposit(ctx, { item = null }, signal, { noRecovery = false, prefe
   const { bot } = ctx
   // The bag's item total when the skill began: the full-chest recovery's row compares it with the end (chestfull.mjs).
   const bagBefore = bagTotal(bot.inventory?.items?.() ?? [])
-  // THE RUNNER'S WATCHDOG is the clock (config.skills.defaultTimeoutMs, runner.mjs), not the contract, for EVERY deposit
+  // THE TOWN COBBLE CAP'S RECONCILIATION happens below, once the clock is known (config.skills.defaultTimeoutMs, runner.mjs), not the contract, for EVERY deposit
   // -- the first one too (Codex round 2: with 1 s left the first open still got 8 s). `until` (a recovery attempt's
   // bound from outside) can only shorten it.
   const startedAt = ctx.runner?.current?.startedAt ?? Date.now()
   const deadline = Math.min(startedAt + config.skills.defaultTimeoutMs, until ?? Infinity)
   const msLeft = (cap) => Math.max(0, Math.min(cap, deadline - Date.now()))
+  // RECONCILE FIRST (cobblecap.mjs): in town, holding cobble the cap cannot judge (a town container never counted), count
+  // up to three uncounted containers before planning -- the remedy the "town cobble not yet counted" refusal names.
+  if (!noRecovery && inTown(homeVec(), bot.entity.position) && cobbleBankStacks(bot.inventory.items()).length && !cobbleTownViewFor(bot).complete) {
+    await reconcileCobble(bot, signal, msLeft)
+  }
   const isContainer = b => ['chest', 'barrel', 'trapped_chest']
     .includes(bot.registry.blocks[b.type]?.name)
   const skip = new Set(exclude.map(q => `${q.x},${q.y},${q.z}`))
@@ -2653,7 +2658,7 @@ async function deposit(ctx, { item = null }, signal, { noRecovery = false, prefe
   let moved = 0
   let cursorLost = false
   // THE TOWN CAP'S OBSERVATION: every deposit that opens a town container records its cobble (the server's window)
-  cobbleObserve(bot, chestBlock.position, chest)
+  await cobbleObserve(bot, chestBlock.position, chest)
   // THE COBBLE RULE's bookkeeping: what cobble the transfer counted eligible, and one record per cobble name tried
   let cobbleEligible = 0, cobbleBefore = 0
   const cobbleRows = []
@@ -2712,7 +2717,7 @@ async function deposit(ctx, { item = null }, signal, { noRecovery = false, prefe
       // -- a full container -- and stays. The rows are written after the close, from the server's bag (cobbleRows).
       if (isCobble(name)) {
         const chosen = cobbleBankStacks(chest.items?.() ?? []).filter(s => s.name === name)
-        const row = { name, planned: count, tried: [], went: 0, noRoom: 0, atCap: 0, unknown: 0, townBefore: null, townAfter: null, complete: null }
+        const row = { name, planned: count, tried: [], went: 0, noRoom: 0, atCap: 0, unknown: 0, outside: 0, unknownKey: null, townBefore: null, townAfter: null, complete: null }
         cobbleRows.push(row)
         let budget = count
         for (const s of chosen) {
@@ -2724,9 +2729,9 @@ async function deposit(ctx, { item = null }, signal, { noRecovery = false, prefe
           if (cobbleRoom(chest, name) < s.count) { row.noRoom++; continue }
           // THE TOWN CAP, judged under the town's lock with this stack reserved (cobblecap.mjs): at the cap or with a
           // container never counted, the stack stays (a refusal, not a full chest: eligible is given back)
-          const adm = cobbleReserve(bot, s.count)
+          const adm = await cobbleReserve(bot, s.count, chestBlock.position)
           if (row.townBefore === null) { row.townBefore = adm.view?.lb ?? null; row.complete = adm.view ? (adm.view.complete ? 1 : 0) : null }
-          if (adm.decision !== 'bank') { eligible -= s.count; cobbleEligible -= s.count; if (adm.decision === 'at_cap') row.atCap++; else row.unknown++; continue }
+          if (adm.decision !== 'bank') { eligible -= s.count; cobbleEligible -= s.count; if (adm.decision === 'at_cap') row.atCap++; else if (adm.decision === 'outside') row.outside++; else row.unknown++; if (adm.view && !row.unknownKey) row.unknownKey = adm.view.unknown?.[0] ?? null; continue }
           row.tried.push(s.count)
           const had = inChest(chest, name)
           try {
@@ -2734,11 +2739,11 @@ async function deposit(ctx, { item = null }, signal, { noRecovery = false, prefe
                                  sourceStart: s.slot, sourceEnd: s.slot + 1, destStart: 0, destEnd: chest.inventoryStart })
             const got = Math.max(0, Math.min(s.count, inChest(chest, name) - had))   // capped: another depositor's gain is not ours (Codex r2)
             moved += got; row.went += got; budget -= got
-            cobbleObserve(bot, chestBlock.position, chest, { release: adm.id })
+            await cobbleObserve(bot, chestBlock.position, chest, { release: adm.id })
           } catch (e) {
             const got = Math.max(0, Math.min(s.count, inChest(chest, name) - had))
             moved += got; row.went += got; budget -= got
-            cobbleObserve(bot, chestBlock.position, chest, { release: adm.id })
+            await cobbleObserve(bot, chestBlock.position, chest, { release: adm.id })
             const back = await returnCursor(bot, chest)
             logEvent({ kind: 'deposit_cursor_rescue', status: back.returned ? 'success' : back.reason === 'cursor empty' ? 'no_effect' : 'failed',
                        detail: `${name}: ${String(e?.message ?? e).slice(0, 40)} -- ` +
@@ -2785,7 +2790,7 @@ async function deposit(ctx, { item = null }, signal, { noRecovery = false, prefe
     for (const r of cobbleRows) {
       r.townAfter = after.lb
       logEvent({ kind: 'cobble_bank', status: r.went > 0 ? 'success' : 'no_effect', snapshot: snapshot(bot),
-                 detail: `name=${r.name} planned=${r.planned} tried=${r.tried.join(',') || '-'} moved=${r.went} before=${cobbleBefore} kept=${kept} src=${sb.source} reserve=${COBBLE_RESERVE} no_room=${r.noRoom} town_before=${r.townBefore ?? '?'} town_after=${r.townAfter ?? '?'} complete=${r.complete ?? '?'} cap=${TOWN_COBBLE_CAP} at_cap=${r.atCap} unknown=${r.unknown}` })
+                 detail: `name=${r.name} planned=${r.planned} tried=${r.tried.join(',') || '-'} moved=${r.went} before=${cobbleBefore} kept=${kept} src=${sb.source} reserve=${COBBLE_RESERVE} no_room=${r.noRoom} town_before=${r.townBefore ?? '?'} town_after=${r.townAfter ?? '?'} complete=${r.complete ?? '?'} cap=${TOWN_COBBLE_CAP} at_cap=${r.atCap} unknown=${r.unknown} outside=${r.outside} unknown_keys=${after.unknown.length}${r.unknownKey ? ` first_unknown=${r.unknownKey}` : ''}` })
     }
   }
   // COBBLE NEVER GROWS THE BANK (the 10-04 SYNTHESIS: existing storage only; both reviews 10-07): when everything this
@@ -2939,52 +2944,91 @@ function containerKey (bot, pos) {
   if (!q) return posKey(pos)
   return (q.x < pos.x || (q.x === pos.x && q.z < pos.z)) ? posKey(q) : posKey(pos)
 }
-/** The town's designated storage, as scanned now: chests, trapped chests and barrels in town (inTown), never a deep one. */
-let capScan = { at: 0, keys: [] }
-function townCobbleKeys (bot, now = Date.now(), { fresh = false } = {}) {
-  if (!fresh && now - capScan.at < 20_000) return capScan.keys
-  const keys = new Set()
+/**
+ * THE TOWN'S DESIGNATED STORAGE, as scanned now -> { keys, coverage, gone }. Chests, trapped chests and barrels in town
+ * (inTown, never deep), filtered INSIDE the matcher so nothing outside town crowds the scan's cap (Codex/Claude r1: a cut
+ * scan is not the town). coverage is false when the cap was hit or a chunk column under the town square is not loaded
+ * (mineflayer's findBlocks skips unloaded columns). `gone`: counted containers whose cell is loaded and is no longer one.
+ */
+const COBBLE_SCAN_CAP = 256
+const CONTAINER_RE = /^(chest|trapped_chest|barrel)$/
+let capScan = { at: 0, v: null, key: null }
+function townCobbleScan (bot, now = Date.now(), { fresh = false } = {}) {
+  const cacheKey = `${townDir()}|${homeTownKey()}`
+  if (!fresh && capScan.v && capScan.key === cacheKey && now - capScan.at < 20_000) return capScan.v
+  const keys = new Set(), gone = []
+  let coverage = true
   try {
     const home = homeVec()
-    const ps = bot.findBlocks?.({ point: home, matching: b => /^(chest|trapped_chest|barrel)$/.test(blockNameOf(bot, b) ?? ''), maxDistance: TOWN_SCAN_RADIUS, count: 128 }) ?? []
+    if (typeof bot.world?.getColumnAt === 'function') {
+      for (let x = home.x - STORAGE_NEAR; x <= home.x + STORAGE_NEAR + 15; x += 16) {
+        for (let z = home.z - STORAGE_NEAR; z <= home.z + STORAGE_NEAR + 15; z += 16) {
+          if (!bot.world.getColumnAt(new Vec3(Math.min(x, home.x + STORAGE_NEAR), 0, Math.min(z, home.z + STORAGE_NEAR)))) coverage = false
+        }
+      }
+    }
+    const ps = bot.findBlocks?.({ point: home, maxDistance: TOWN_SCAN_RADIUS, count: COBBLE_SCAN_CAP,
+      matching: b => CONTAINER_RE.test(blockNameOf(bot, b) ?? '') && (!b.position || (inTown(home, b.position) && depositTargetOk(home, b.position))) }) ?? []
+    if (ps.length >= COBBLE_SCAN_CAP) coverage = false
     for (const p of ps) if (inTown(home, p) && depositTargetOk(home, p)) keys.add(containerKey(bot, p))
-  } catch { /* a scan never breaks a caller */ }
-  capScan = { at: now, keys: [...keys] }
-  return capScan.keys
-}
-/** The town view for the cap -> { lb, complete, unknown, reservedOthers, mine }. */
-export function cobbleTownViewFor (bot, now = Date.now()) {
-  return townCobble(readLedger(townDir(), homeTownKey(), bot.worldId ?? null), townCobbleKeys(bot, now), now, { me: bot.username ?? null })
+    for (const k of Object.keys(readLedger(townDir(), homeTownKey(), bot.worldId ?? null).obs)) {
+      if (keys.has(k)) continue
+      const [x, y, z] = k.split(',').map(Number)
+      const b = bot.blockAt?.(new Vec3(x, y, z))
+      if (b && !CONTAINER_RE.test(blockNameOf(bot, b) ?? '')) gone.push(k)        // loaded, and no longer storage
+      else if (b) keys.add(k)                                                     // the scan missed a counted container
+    }
+  } catch { coverage = false }
+  capScan = { at: now, v: { keys: [...keys], coverage, gone }, key: cacheKey }
+  return capScan.v
 }
 /**
- * THE OBSERVATION: what an OPEN town container's window holds (the server's window_items on open; after a transfer, the
- * window the transfer moved items into), written under the town's lock. `release` drops this bot's reservation in the
- * same write. -> the ledger write's ok. Never for a container outside town.
+ * The town view for the cap -> { lb, complete, unknown, reserved, mine }. AWAY FROM HOME (no coverage) the last COVERED
+ * scan recorded in the ledger stands in, if it is fresh (Claude r1: from out of town every plan said "not yet counted").
  */
-export function cobbleObserve (bot, pos, win, { release = null, releaseAll = [] } = {}) {
+export function cobbleTownViewFor (bot, now = Date.now()) {
+  const l = readLedger(townDir(), homeTownKey(), bot.worldId ?? null)
+  let sc = townCobbleScan(bot, now)
+  if (!sc.coverage && l.scan && now - (l.scan.at ?? 0) < OBS_TTL_MS) sc = { keys: l.scan.keys ?? [], coverage: true, gone: sc.gone }
+  return townCobble(l, sc.keys, now, { me: bot.username ?? null, coverage: sc.coverage, gone: sc.gone })
+}
+/**
+ * THE OBSERVATION: what an OPEN town container's window holds, captured NOW (before the lock), then written under the
+ * town's lock ONLY IF no newer count of that container is already there (Codex r1 P1: a delayed snapshot never overwrites
+ * a newer one). `release` / `releaseAll` drop this bot's reservations IN ANY CASE, outside town too (Claude r1): a newer
+ * count of the same container already includes them. A covered scan is recorded for the plan's view from away.
+ */
+export async function cobbleObserve (bot, pos, win, { release = null, releaseAll = [] } = {}) {
   try {
-    if (!pos || !inTown(homeVec(), pos)) return false
+    const capturedAt = Date.now()
     const n = cobbleIn(win?.containerItems?.() ?? [])
-    const k = containerKey(bot, pos)
-    return withLedger(townDir(), homeTownKey(), bot.worldId ?? null, l => {
-      l.obs[k] = { n, at: Date.now() }
+    const inside = !!pos && inTown(homeVec(), pos)
+    const k = pos ? containerKey(bot, pos) : null
+    const sc = inside ? townCobbleScan(bot, capturedAt) : null
+    const r = await withLedger(townDir(), homeTownKey(), bot.worldId ?? null, l => {
+      if (inside && !(l.obs[k] && l.obs[k].at > capturedAt)) l.obs[k] = { n, at: capturedAt }
+      if (sc?.coverage) l.scan = { keys: sc.keys, at: capturedAt }
       if (release) delete l.res[release]
       for (const id of releaseAll) delete l.res[id]
-    }).ok
+    })
+    return r.ok
   } catch { return false }
 }
 /**
- * THE AUTHORITATIVE ADMISSION for one whole stack, under the town's lock -> { decision, view, id }. 'bank' writes a
- * reservation (id) that cobbleObserve releases after the transfer; anything else writes nothing. No lock -> 'unknown'.
+ * THE AUTHORITATIVE ADMISSION for one whole stack into the container at `pos`, under the town's lock -> { decision, view,
+ * id }. 'bank' writes a reservation (id, the container's key) that cobbleObserve releases after the transfer; anything
+ * else writes nothing. A container OUTSIDE town never takes cobble ('outside': the cap is the town's). No lock -> 'unknown'.
  */
-function cobbleReserve (bot, count) {
-  const keys = townCobbleKeys(bot, Date.now(), { fresh: true })   // the authoritative check scans now: a new container is unknown at once
+async function cobbleReserve (bot, count, pos) {
+  if (!pos || !inTown(homeVec(), pos)) return { decision: 'outside', view: null, id: null }
+  const sc = townCobbleScan(bot, Date.now(), { fresh: true })   // the authoritative check scans now
+  const k = containerKey(bot, pos)
   let out = { decision: 'unknown', view: null, id: null }
-  const r = withLedger(townDir(), homeTownKey(), bot.worldId ?? null, l => {
-    const view = townCobble(l, keys, Date.now(), { me: bot.username ?? null })
+  const r = await withLedger(townDir(), homeTownKey(), bot.worldId ?? null, l => {
+    const view = townCobble(l, sc.keys, Date.now(), { me: bot.username ?? null, coverage: sc.coverage, gone: sc.gone })
     const decision = cobbleAdmit(view, count)
     let id = null
-    if (decision === 'bank') { id = `${bot.username ?? 'bot'}-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`; l.res[id] = { n: count, at: Date.now(), bot: bot.username ?? null } }
+    if (decision === 'bank') { id = `${bot.username ?? 'bot'}-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`; l.res[id] = { n: count, at: Date.now(), bot: bot.username ?? null, k } }
     out = { decision, view, id }
   })
   return r.ok ? out : { decision: 'unknown', view: null, id: null }
@@ -2997,6 +3041,38 @@ export function installCobbleCap (bot) {
     if (now - cache.at > 5_000) cache = { at: now, v: cobbleTownViewFor(bot, now) }
     return cache.v
   })
+}
+/** How many unknown town containers a deposit counts before it decides (bounded: one walk + open each). */
+const RECONCILE_MAX = 3
+const RECONCILE_WALK_MS = 15_000
+/**
+ * RECONCILIATION (Codex/Claude r1: UNKNOWN needs an executable remedy): a deposit in town whose cobble the cap cannot judge
+ * yet opens up to RECONCILE_MAX of the town's UNCOUNTED containers, nearest first, and counts them -- the same walk, open
+ * and observation every deposit uses. -> how many it counted. A lid-blocked or unreachable one stays unknown.
+ */
+async function reconcileCobble (bot, signal, msLeft) {
+  let counted = 0
+  try {
+    const view = cobbleTownViewFor(bot)
+    if (view.complete || !view.unknown.length) return 0
+    const here = bot.entity.position
+    const cells = view.unknown.map(k => { const [x, y, z] = k.split(',').map(Number); return new Vec3(x, y, z) })
+      .sort((a, b) => here.distanceTo(a) - here.distanceTo(b)).slice(0, RECONCILE_MAX)
+    for (const c of cells) {
+      check(signal)
+      if (msLeft(RECONCILE_WALK_MS) <= 0) break
+      const b = bot.blockAt(c)
+      if (!b || !CONTAINER_RE.test(blockNameOf(bot, b) ?? '')) continue
+      const lid = bot.blockAt(c.offset(0, 1, 0))
+      if (/chest/.test(blockNameOf(bot, b) ?? '') && lid && chestLidBlocked(lid)) continue
+      try { await chestWalk(bot, new goals.GoalNear(c.x, c.y, c.z, 2), msLeft(RECONCILE_WALK_MS)) } catch (e) { if (e?.aborted || signal?.aborted) throw e; continue }
+      let win = null
+      try { win = await withTimeout(bot.openContainer(b), Math.max(1, msLeft(8_000)), bot, { what: 'open the chest', onTimeout: () => {}, needsDrop: false }) } catch (e) { if (e?.aborted || signal?.aborted) throw e; continue }
+      try { if (await cobbleObserve(bot, c, win)) counted++ } finally { try { win.close() } catch { /* closed */ } }
+    }
+  } catch (e) { if (e?.aborted || signal?.aborted) throw e }
+  logEvent({ kind: 'cobble_reconcile', status: counted ? 'success' : 'no_effect', snapshot: snapshot(bot), detail: `counted=${counted} of ${RECONCILE_MAX}` })
+  return counted
 }
 /** One outcome into the town's container memory (chestfull.mjs), for TOWN containers only (inTown: the same boundary
  *  as the memory read, so a container the recovery treats as town always gets its backoff written). */
@@ -5948,7 +6024,7 @@ async function bankInto (bot, win, wanted, already, deadline, signal) {
   // THE TOWN COBBLE CAP (cobblecap.mjs): every cobble stack is admitted under the town's lock with a reservation before
   // its clicks; the town deposit's own plan already reads the cap through depositPlan, this is the authoritative check.
   const reserved = []
-  const capRefused = { at_cap: 0, unknown: 0 }
+  const capRefused = { at_cap: 0, unknown: 0, outside: 0 }
   try {
     await lockstepClicks(bot, async raw => {
       const click = async slot => {
@@ -5965,8 +6041,10 @@ async function bankInto (bot, win, wanted, already, deadline, signal) {
         const now = it ? win.slots[it.wslot] : null
         if (!now || now.name !== step.name || now.count !== step.count || win.selectedItem) continue   // the bag moved under the plan
         if (isCobble(step.name)) {
-          const adm = cobbleReserve(bot, step.count)
-          if (adm.decision !== 'bank') { capRefused[adm.decision === 'at_cap' ? 'at_cap' : 'unknown']++; continue }
+          // every live reservation counts, this run's earlier stacks included (both reviews r1: the second stack of a
+          // batch was judged against the count before the first)
+          const adm = await cobbleReserve(bot, step.count, win.townPos ?? null)
+          if (adm.decision !== 'bank') { capRefused[adm.decision in capRefused ? adm.decision : 'unknown']++; continue }
           reserved.push(adm.id)
         }
         await click(it.wslot)
@@ -5983,7 +6061,7 @@ async function bankInto (bot, win, wanted, already, deadline, signal) {
     err = String(e?.message ?? e).slice(0, 80)
   } finally {
     // the container's cobble as this window now holds it, and this run's reservations released, in one locked write
-    if (reserved.length) cobbleObserve(bot, win.townPos ?? null, win, { releaseAll: reserved })
+    if (reserved.length) await cobbleObserve(bot, win.townPos ?? null, win, { releaseAll: reserved })
   }
   return { done, full, err, capRefused }
 }
@@ -6021,11 +6099,12 @@ async function townDeposit (ctx, _args, signal) {
   // still count against the visit's 64 (Codex round 3).
   const banked = {}, attempted = {}, tried = [], tools = []
   let stacks = 0, unsettled = 0, stop = null, clicked = 0, unverified = 0, serverBag = null
+  const capRefused = { at_cap: 0, unknown: 0, outside: 0 }
   // THE BAG'S LOSS over the banked names, from the SERVER's copy of the bag on the last re-open (the client bag after a
   // close is mineflayer's own prediction); the client bag only when nothing was re-opened.
   const bagDelta = () => { const after = serverBag ?? held(items()); return Object.keys(banked).reduce((t, n) => t + Math.max(0, (heldBefore[n] ?? 0) - (after[n] ?? 0)), 0) }
   const row = (status, extra = {}) => logEvent({ kind: 'town_deposit', status, snapshot: snapshot(bot),
-    detail: townDepositDetail({ slotsBefore, slotsAfter: items().length, banked, stacks, tried, stop: stop ?? 'done', unsettled, bagDelta: bagDelta(), planned, tools, clicked, unverified, ...extra }) })
+    detail: townDepositDetail({ slotsBefore, slotsAfter: items().length, banked, stacks, tried, stop: stop ?? 'done', unsettled, bagDelta: bagDelta(), planned, tools, clicked, unverified, capRefused, ...extra }) })
   if (!planned) { stop = 'nothing to bank above the keeps'; row('no_effect'); return { status: 'no_effect', detail: 'nothing to bank: everything carried is kept (stockpile, scaffold, tools, iron, the goal) or not bankable' } }
   if (bot.controlState?.sneak) { stop = 'sneaking'; row('no_effect'); return { status: 'no_effect', detail: 'sneaking (held by another subsystem); the town deposit waits for another visit' } }
   const containers = townContainers(bot)
@@ -6053,7 +6132,7 @@ async function townDeposit (ctx, _args, signal) {
       const win = await openTown(bot, block, openMs())
       if (!win) { tried.push({ at, result: 'unopenable' }); stop = 'open timeout'; break }
       win.townPos = c.position
-      cobbleObserve(bot, c.position, win)   // the town cap's observation (cobblecap.mjs)
+      await cobbleObserve(bot, c.position, win)   // the town cap's observation (cobblecap.mjs)
       // OWNED FROM THE OPEN TO THE CLOSE, OR HELD (withdraw's rules, rebase review P1): nothing else touches the inventory
       // while this run has the window; the cursor is settled with the SERVER's word before the close, and a cursor that
       // cannot be emptied keeps the window open (holdUnsettled) -- never a loaded close.
@@ -6061,6 +6140,7 @@ async function townDeposit (ctx, _args, signal) {
       let r = { done: [], full: false, err: null }, settled = null
       try {
         r = await bankInto(bot, win, wanted, attempted, deadline, signal)
+        for (const k of Object.keys(capRefused)) capRefused[k] += r.capRefused?.[k] ?? 0
       } finally {
         settled = await settleCursor(bot, win)
         if (settled.state === 'unresolved') holdUnsettled(bot, win, settled, own)
@@ -6379,7 +6459,7 @@ async function openForWithdraw (bot, chestBlock, signal, msLeft) {
     try { chest.close() } catch {}
     return { fail: { status: 'failed', failClass: 'container_open', detail: `the window that opened is not the chest at ${cp.x},${cp.y},${cp.z}` } }
   }
-  cobbleObserve(bot, cp, chest)   // the town cap's observation (cobblecap.mjs)
+  await cobbleObserve(bot, cp, chest)   // the town cap's observation (cobblecap.mjs)
   return { chest }
 }
 

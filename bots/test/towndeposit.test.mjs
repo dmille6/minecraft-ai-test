@@ -746,3 +746,22 @@ test('COBBLE CAP: at 250 the town deposit banks no cobble (the rest of the plan 
     assert.equal(sumOf(c2.items, 'cobblestone'), 120, 'counted and complete: 100 + 20 <= 256')
   } finally { process.env.POOL_STATE_DIR = saved }
 })
+
+// EVERY LIVE RESERVATION COUNTS, THIS RUN'S OWN TOO (Claude's r1 probe; both reviews P1): a chest at 220 and two surplus
+// stacks of 20 and 30 -- either alone fits (240 / 250), both would make 270. Exactly one goes, the row names the refusal.
+test('COBBLE CAP: two surplus stacks into a chest at 220 -> only one goes (this run\'s own reservation counts); the row says cobble_cap 1/0/0', async () => {
+  const saved = process.env.POOL_STATE_DIR
+  try {
+    process.env.POOL_STATE_DIR = fs.mkdtempSync(path.join(os.tmpdir(), 'td-cap-'))
+    const c = chestAt(2, 70, 0, { items: Array.from({ length: 27 }, (_, i) => (i * 64 < 220 ? item('cobblestone', Math.min(64, 220 - i * 64)) : null)) })
+    const items = bag([['cobblestone', 64], ['cobblestone', 20], ['cobbled_deepslate', 30], ['oak_log', 64], ['oak_log', 64], ...filler(31)])
+    const w = world({ items, containers: [c] })
+    const { out, rows } = await rowsOf(() => run(w.bot))
+    assert.equal(out.status, 'success', out.detail)
+    const town = sumOf(c.items, 'cobblestone') + sumOf(c.items, 'cobbled_deepslate')
+    assert.ok(town <= 256, `the town passed the cap: ${town}`)
+    assert.ok(town === 240 || town === 250, `exactly one surplus stack went (positive control: one fits): ${town}`)
+    assert.ok(sumOf(c.items, 'oak_log') > 0, 'positive control: the logs went in the same run')
+    assert.match(rows.at(-1)?.skill?.detail ?? '', / cobble_cap 1\/0\/0 /)
+  } finally { process.env.POOL_STATE_DIR = saved }
+})
