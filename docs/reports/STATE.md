@@ -11,6 +11,18 @@ behind it (chain-ore.sh stopped 10-01 on fixes-02's revert)._
 
 ---
 
+## 10-07 19:50Z — OWNER APPROVED: adaptive death rule for bag fixes + airpocket; swords never stored; sapling/compost decided
+DEATH RULE (underground-safety-phase2 section 7, adaptive form): bag fixes run the normal 6 h canary; if the death gate
+trips with ZERO mechanism-linked deaths, extend to 24 h on 20 bots and decide by linked deaths beyond chance / deaths
+confidently > 2x control / value-weighted net output; no bag benefit or too little exposure -> INCONCLUSIVE; a KEEP hands
+the next slot to a safety fix. NOT LIVE until: value-weighted re-run, backtest on ~15 death reverts, tooling + gate digest
+re-registered, installed BETWEEN canaries (agent building; CLAUDE.md to be updated). Until then the two-death floor rules.
+AIRPOCKET (rank 1 safety, ~25-35% of drownings): being built (dig up inside the drowning rescue; damage envelope).
+SWORDS (owner): never stored -- no banking; wooden swords burn as fuel in smelts already happening; all swords to the well
+while peaceful (junkwell-02). SAPLINGS: oak/birch keep 16/bot, other species composted. COMPOST adds dried_kelp,
+glow_berries, moss_carpet, firefly_bush, bush, bread (peaceful only). Full-bag compost guard generalised. Codex text:
+pk2-codex (scratchpad) folded into the peacefulkit design by its agent.
+
 ## 10-07 19:40Z — OWNER delegated "1 and 2" to operator + Codex: decided
 COBBLE CAP: build the 256-per-town ceiling INTO stonecap-01 before its canary (reconciled chest counts with deposit
 reservations; whole stacks only; bot keeps 64 reserve; at the ceiling, surplus whole stacks above the reserve go down the
