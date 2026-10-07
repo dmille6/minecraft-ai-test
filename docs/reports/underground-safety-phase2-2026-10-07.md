@@ -5,7 +5,7 @@ This is analysis and design only. **No code was changed, nothing was deployed, a
   No RCON was used on them.
 - The only world edits were on Paper sandbox2, over RCON, for the rescue-timing experiment in section 3.
 
-The doc was revised after an independent Claude review and a Codex review (section 7).
+The doc was revised after independent Claude and Codex reviews (section 8).
 
 ## For the owner: the short version
 
@@ -49,7 +49,8 @@ The doc was revised after an independent Claude review and a Codex review (secti
      deaths. Most of those are falls *into* deep caves from above.
 7. **Recommended canaries, in order** (section 5 gives the risk and read for each):
    1. **`airpocket`**: inside the drowning rescue, dig the one cell above the head when the rules say it stays air.
-      It is budgeted on health, with a fixed damage envelope. It qualifies about 25–35% of drownings.
+      It is budgeted on health, with a fixed damage envelope. It qualifies about 25% of drownings; its ice branch adds
+      about 10% more only if sandbox scene F passes.
    2. **`lavaadmit`**: after a bot's own lava warning, its next explore, gather or goto first walks back along its own
       trail. It covers up to 54% of lava deaths.
    3. **`deepfloor`**: no voluntary descent below y 0. It is cheap, and covers about 3% of deaths.
@@ -74,6 +75,25 @@ The doc was revised after an independent Claude review and a Codex review (secti
    - Net output (items gained minus items carried into deaths) is inside the noise at that size: a band of about ±50
      items/bot-h.
    - 3 of junkwell-01's 6 canary deaths came through the climb route that climbflood now guards.
+10. **For you to decide: the death rule I would support for bag fixes** (section 7).
+    - **The gate stays as a tripwire.** Bag fixes are read for **24 h on 20 bots**.
+    - **A bag fix is reverted only for one of three things:**
+      - deaths tied to its own actions beyond chance;
+      - a confident doubling of deaths;
+      - a net loss of value output (items gained minus items lost in deaths).
+    - **Otherwise it is kept, and an underground-safety fix takes the next slot.**
+    - **Simulated against today's 6-h read** (these are "not reverted by the simulated checks", not "kept"; 7.2):
+      - a fix that doubles deaths with no gain escapes revert 44% of the time, against 72%;
+      - a fix that triples them escapes 3.5%, against 41%;
+      - a harmless fix is wrongly reverted 6.9% (1.1% if it raises output), against 4.9% at 6 h and 8.0% for a 24-h read
+        under today's gate.
+    - **Against the same 24-h read with today's gate, it is deliberately more lenient.** It does not revert fixes whose
+      output pays for their extra deaths. That is your trade, and the safety gain mostly comes from the longer read.
+    - **The table is re-run** once the value-weighted output measure exists, before you decide.
+    - **Costs:**
+      - about 14–16 extra canary deaths while a harmful fix is read;
+      - 24 h of slot time per bag fix;
+      - 3 preconditions (your approval, a backtest, a value-weighted output measure).
 
 ---
 
@@ -457,7 +477,7 @@ cannot show.
 
 | rank | canary | deaths addressable (5-day evidence) | risk | remedy from where the bot is |
 |---|---|---|---|---|
-| 1 | **`airpocket`**: a dig step inside the drowning rescue | 60 of 170 drownings (35%) pass the screen, 43 (25%) without the untested ice; POST 5 of 14 | low–medium: runs only inside a failing sealed episode (case fatality 29–39%); a new dig in the rescue | dig the one cell above the head with the pickaxe held (14/14 POST drowners had one), then rise into it |
+| 1 | **`airpocket`**: a dig step inside the drowning rescue | 43 of 170 drownings (25%) pass the screen; 17 more (ice) only if sandbox scene F passes; POST 4–5 of 14 | low–medium: runs only inside a failing sealed episode (case fatality 29–39%); a new dig in the rescue | dig the one cell above the head with the pickaxe held (14/14 POST drowners had one), then rise into it |
 | 2 | **`lavaadmit`**: a retreat before any movement after the bot's own lava warning | up to 32 of 59 lava deaths (54%) | low: movement near named lava is deferred; stranding is a harm line | walk back to its own last trail point ≥ 8 blocks from the named lava; that ground has already been stood on |
 | 3 | **`deepfloor`**: no voluntary descent below y 0 (targets and path nodes) | about 10 deaths in 5 days (3%) | low: 1.0% of iron was gathered below y 0; the cost itself is not measured | descend no further; nothing else changes |
 | 4 | **`sealedswim`**: the pathfinder never plans a submerged node under a solid roof | unmeasured: the one route example does not size it | medium, and **an owner decision**, because it constrains swimming | a surface route, or the target's next candidate |
@@ -477,7 +497,8 @@ priority, so there is no hand-off to arbitrate (Codex).
 - the first non-water cell above the head is within 2 cells of the head, and is one of:
   - **solid, diggable and not a falling block** (packed and blue ice included), with no liquid, falling block or unknown
     cell on its 4 sides or above it. Digging it makes a pocket that stays air.
-  - **plain ice with air directly above**. Breaking it opens the column, and the bot rises one cell.
+  - **plain ice with air directly above**. Breaking it opens the column, and the bot rises one cell. **This branch ships
+    disabled unless sandbox scene F passes** (Claude round 3). The canary claims only the 43 air-pocket sites (25%).
 
 **Budget: a fixed damage envelope, not a trailing fit** (Codex round 2, critical):
 - **The envelope:**
@@ -488,19 +509,27 @@ priority, so there is no hand-off to arbitrate (Codex).
 - **Required** = `predictedDigMs(cell, tool, {inWater: true, notOnGround})` × 1.5 + 3 s for equipping, latency and the
   rise. The sandbox showed the prediction to be exact.
 - **The dig** is `digBounded`, with its deadline set to the remaining envelope budget.
-- **It aborts** if the live health loss over any 3 s exceeds the envelope (the envelope was wrong), or if the budget
-  runs out.
+- **It aborts** if the budget runs out, or if the envelope is breached.
+  - **A breach** is a loss of more than 7 HP over the last 10 s.
+  - Drowning damage arrives in 2-HP steps, so a short window is not a slope. The peaceful sandbox trials lost at most
+    2.67 HP in 3 s, 5.0 HP in 10 s and 8.33 HP in 20 s (Codex round 3: a 3-s test would fire during ordinary drowning).
+  - On peaceful, 7 HP in 10 s is 1.4x the worst 10-s loss observed. On `easy` (1.79 HP/s) it fires in about 4 s.
 - **Abort outcome:** the bot is back in today's state. It is drowning in a sealed pocket, holding jump, with less time
   left than if it had held jump all along, which today achieves nothing in this geometry. That cost is the step's risk,
   and the fleet read measures it (deaths per bot-h, and health at abort).
 
 **Success and after:**
-- **Success** means the eye position (entity y + 1.62) is inside the dug, now-air cell, **and** `bot.health` then
-  **rises**. In peaceful, a breathing bot heals. "Health not falling" is not enough, because a drowning bot shows flat
-  health for 30 s (sandbox). The step never relies on `bot.oxygenLevel` (sandbox C).
-- **After success** the step keeps the body, holding jump so the head stays in the pocket and the bot does not sink back
-  into the suppressed spot. It hands over only to a handler that moves the bot dry (climbflood-guarded), or after 60 s
-  of rising health.
+- **Success** means the eye position (entity y + 1.62) has been inside the dug, now-air cell for 2 s, **and**
+  `bot.health` is rising, or is at its maximum.
+  - "Health not falling" is not enough: a drowning bot shows flat health for 30 s (sandbox).
+  - The maximum-health case covers a bot that started at 20 (Codex round 3).
+  - The step never relies on `bot.oxygenLevel` (sandbox C).
+- **After success** the step keeps the body and holds jump, so the head stays in the pocket. It never releases into
+  water.
+  - It ends only when a handler that has verified dry footing takes over (climbflood-guarded), or when a higher-priority
+    reflex preempts it.
+  - If neither happens within 10 min, it logs `_air_pocket_stranded` and keeps holding. The bot is alive and stranded,
+    and stranded minutes are a harm line.
 - The bot is then dry-headed but enclosed, which is the trapped-bots problem: lost time, not death.
 
 **Refusal.** `_air_pocket_refused` names the reason, and the rescue continues exactly as today. This adds an action and
@@ -531,7 +560,7 @@ stack for **≥ 5 minutes**, counting re-seizures, sinking back and health.
 
 | read | what it can show |
 |---|---|
-| fleet, 6 h, 10 bots (must include hive-d or hive-c) | **liveness:** ≥ 1 `_air_pocket` row, about 1 opportunity expected. **Correctness:** each one read back (head in air after, health not falling, no foreign liquid, no suffocation within 30 s). **Harm lines:** deaths per bot-h, stranded minutes, mine rows/bot-h. It **cannot** show fewer drownings. |
+| fleet, 6 h, 10 bots (must include hive-d or hive-c) | **liveness:** ≥ 1 `_air_pocket` row, about 1 opportunity expected. **Correctness:** each one read back (eye in the dug cell, health rising or at its maximum, no foreign liquid, no suffocation within 30 s). **Harm lines:** deaths per bot-h, stranded minutes, mine rows/bot-h. It **cannot** show fewer drownings. |
 | fleet, 48 h, 20 bots | case fatality per sealed episode, as a DiD, from about 30 canary sealed episodes. **Still underpowered** for anything less than a halving. |
 
 The effect claim rests on the sandbox scenes and the per-attempt read-back.
@@ -566,10 +595,16 @@ The effect claim needs a sandbox replay of "a movement skill started beside a na
 
 **`deepfloor`** is the descent restriction only (Codex round 2: clamping targets alone is not enough):
 - mine, explore, goto and gather targets below y 0 are refused or clamped;
-- path nodes below y 0 are excluded from the movement profile, so a route cannot pass below 0 either;
+- path nodes below **min(0, the bot's current y − 2)** are excluded from the movement profile. The floor ratchets up
+  as the bot rises.
+  - A route cannot take a bot meaningfully deeper than 0, or deeper than it already is.
+  - A bot that fell below 0 can always move up or sideways, and can cross a 1–2-block dip in a cave floor (Claude
+    rounds 3–4).
+  - The refusal chain is to be tested from y −20, on an uneven floor;
 - a bot already below 0 is not evacuated, because that would be a second variable.
 
-It is cheap and safe, and worth about 3% of deaths.
+It is cheap. Its coverage ceiling is about 3% of deaths; that is an observational upper bound, not a demonstrated
+benefit.
 
 **`sealedswim`** first needs an instrument: count the planned path nodes that are submerged under a solid roof. That
 must show the gather and goto entries really are planned swims, and not digs that broke into water. After that it needs
@@ -608,7 +643,7 @@ ratio > 1.25 (`scripts/deathgate.py`), applied at the +5 h endpoint only.
 |---|---:|---:|---|---:|
 | bot-h (the live gate) | 3.82 | **1.40** | **reverts** | 1.6% |
 | underground bot-h, all deaths | 2.98 | 1.09 | does not trip | 4.1% |
-| underground bot-h, underground deaths only | 3.89 | 1.20 | does not trip | — |
+| underground bot-h, underground deaths only | 3.89 | 1.20 | does not trip | — (computed with `scripts/deathgate.py` from 5 vs 7 underground deaths over 16.7 vs 91.0 underground bot-h; not printed by `ugsafe2_jw.py`) |
 | mine rows | 2.64 | 0.97 | does not trip | 4.1% |
 | (the old point-ratio rule) | | | reverts | 35.2% |
 
@@ -659,7 +694,169 @@ ratio > 1.25 (`scripts/deathgate.py`), applied at the +5 h endpoint only.
      items/bot-h.
    - Use 20 bots for 24 h or more. Weight by value: iron and iron pickaxes separately, not raw item counts.
 
-## 7. Independent reviews
+## 7. For the owner: a death rule for bag fixes
+
+**Your direction (10-07):** keep fixes that free bag space even when they cause more mining, and work on the underground
+deaths themselves.
+
+**This is an owner decision, not an operator one.** The rule below relaxes your 09-11 death gate (the 1.25x verdict) for
+bag fixes only. It also replaces your 09-29 short-canary read (+180 / +360) for them, with a 24-h read on 20 bots.
+
+**Why not just normalise by mining?** Normalising deaths by mine rows excuses, by construction, exactly the harm a bag
+fix causes: more bots in the existing traps (section 6).
+
+**What the rule must do.**
+- Revert a bag fix whose extra deaths cost more than its output gains.
+- Keep one whose output pays for them.
+- Catch a fix that kills directly.
+
+All numbers below are from `scripts/host/ugsafe2_gaterule.py` (`raw_gaterule*.txt` on the host).
+
+### 7.1 The rule I would support
+
+**1. The all-cause gate stays live, unchanged, as a tripwire on every poll.** Its trips are recorded and drive step 3.
+
+**2. Preconditions, before any bag fix runs under this rule:**
+- **(a)** You approve the rule. The fix is registered as a `bag_fix` up front: its primary metric frees bag slots.
+  - Any movement or digging it does goes only through the existing guarded primitives (pathfinder, climbflood,
+    lava-corridor). Those rows count as the fix's own kinds for 4(a) (Claude round 4).
+  - Junkwell, towndeposit and withdraw qualify under this wording.
+- **(b)** The rule is backtested against the 15 reverts in which deaths entered the decision (`scripts/deathgate.py`
+  lists them, including swim_to and rl-08b). Any correct revert it would have kept is reported to you first.
+- **(c)** The net-output measure (4c below) and its null band are recomputed:
+  - value-weighted;
+  - excluding ballast and owner junk;
+  - excluding items a disposal fix recollects (`_well_recollected`).
+
+  The iron and iron-pickaxe loss condition in 4(c) gets its own null band.
+
+  The band quoted here is on raw items and is only a placeholder. **The 7.2 table must be re-run on the recalibrated
+  measure before you decide.** The net test supplies 5.8 of the 6.9 points of false revert, and 36.8 of the 56.2 points
+  of reverts at k = 2, so those numbers will move.
+
+**3. Bag fixes run on 4 pools (20 bots) for 24 h.**
+- While KEEP-PENDING the canary is not promoted. No KEEP is possible before 24 h.
+- Every canary death is classified when it happens:
+  - **linked:** a row of the fix's own kinds by the same bot in the 120 s before;
+  - **exposure:** within 180 s of a mine row;
+  - **background:** everything else.
+
+**4. REVERT if any of these holds:**
+- **(a) Direct mechanism, at any poll.** The gate has tripped, and the linked deaths exceed coincidence:
+  `P(X ≥ linked | Binomial(canary deaths, p_link)) < 0.01`.
+  - **p_link** = 1 − exp(−(the fix's own rows per bot-h) × 120/3600). That was 4.7% for junkwell-01 (1.45 rows per
+    bot-h).
+  - **It assumes the fix's rows arrive as a Poisson process, independent of risk.** A bag fix's rows bunch up while a
+    bot mines underground, so the real coincidence rate is higher. p_link should be measured on the canary's own
+    deaths-free windows, not assumed.
+  - **p < 0.01 is a per-poll test.** Across a 24-h run of polls it is not a 1% whole-run error rate.
+  - **The linked deaths needed grow with the canary's death count:**
+
+    | canary deaths | linked deaths needed |
+    |---:|---:|
+    | 2–3 | 2 |
+    | 4–10 | 3 |
+    | 16 | 4 |
+    | 20–25 | 5 |
+    | 33 | 6 |
+    | 40 | 7 |
+- **(b) Ceiling, at any poll.** ≥ 2 deaths and a lower bound of the death-rate ratio above **2.0**. That is a confident
+  doubling of deaths.
+- **(c) Net output, at 24 h.** The DiD of net value output is below the null's 2.5th percentile. Net output is
+  value-weighted gains minus value carried into deaths, per bot-h. A net loss of iron or iron pickaxes per bot-h beyond
+  its own null band is a separate REVERT condition.
+
+**5. INCONCLUSIVE at 24 h**, closed and recorded, not KEEP, if either holds:
+- the fix's own primary bag metric did not move beyond its null;
+- the exposure was short (fewer than 400 canary bot-h).
+
+**6. Otherwise KEEP.** The next canary slot then goes to an underground-safety fix (`airpocket`, then `lavaadmit`)
+before the next bag fix, so the extra exposure is met by work on the deaths.
+
+### 7.2 What it does, against both baselines
+
+All three rules are simulated jointly, with Poisson deaths polled every 5 min.
+
+**Inputs:**
+- fleet rate 0.0341 deaths per bot-h (303 deaths in 8,880 bot-h);
+- 505 items carried per death;
+- coincidental linkage 4.7% per death;
+- the net-output noise drawn from the empirical 24-h null on raw items (2.5th–97.5th percentile: −14.3 to +24.1). This
+  slightly double-counts death noise, which is conservative toward REVERT.
+
+**k** multiplies the canary's death rate. **g** is the fix's own output gain in items per bot-h. A harmful fix's deaths
+are modelled as exposure deaths: none is truly linked, which is the bag-fix case.
+
+The cells are **P(REVERT)**. Their complement is "not reverted by the simulated checks". It is not P(KEEP): the
+simulation does not model the primary-metric condition, INCONCLUSIVE, the iron condition, or short exposure (full
+exposure is assumed). With 2,000 repetitions the Monte Carlo error is about ±2 percentage points near 50%.
+
+| k | g | **today: 6 h, 10 bots, gate reverts** | **today's gate unchanged at 24 h, 20 bots** | **proposed rule** | proposed reverts by (linked / ceiling / net) |
+|---:|---:|---:|---:|---:|---|
+| 1 | 0 | 4.9% reverted | 8.0% | **6.9%** | 0.1 / 1.1 / 5.8 |
+| 1 | +20 | 6.1% | 6.2% | **1.1%** | 0.1 / 1.1 / 0.0 |
+| 1.5 | 0 | 14.7% | 37.2% | **26.2%** | 0.5 / 5.6 / 20.1 |
+| 2 | 0 | 27.8% | 77.9% | **56.2%** | 0.7 / 18.8 / 36.8 |
+| 2 | +20 | 28.0% | 78.1% | **22.0%** | 1.0 / 18.6 / 2.5 |
+| 3 | 0 | 58.6% | 99.9% | **96.5%** | 1.9 / 77.8 / 16.9 |
+| 3 | +20 | 56.5% | 99.7% | **83.8%** | 1.7 / 78.0 / 4.1 |
+
+**Extra canary deaths before the decision** (above k = 1):
+
+| k | today, 6 h | 24 h read | proposed |
+|---:|---:|---:|---:|
+| 2 | 1.7 | 8.3 | 14.1 |
+| 3 | 2.7 | 6.3 | 15.9 |
+
+**Reading the table:**
+- **Against today's 6-h read, the proposed rule keeps far less real harm.**
+  - At k = 2 with no gain, it leaves 44% unreverted against 72%. At k = 3, 3.5% against 41%.
+  - A false keep is promoted to 80 bots. A k = 2 fix kept fleet-wide costs about 65 extra deaths a day (0.0341 × 80 ×
+    24).
+  - So the expected fleet cost of a k = 2 fix after the decision is about 29 deaths a day under the rule, against about
+    47 under today's read.
+- **Against the same 24-h read with today's gate unchanged, the rule is deliberately more lenient on deaths.**
+  - It leaves 44% of k = 2 fixes with no gain unreverted, against 22%.
+  - It leaves 78% of k = 2 fixes that pay for themselves unreverted (+20 output against the 17 items/bot-h a doubling
+    costs), against 22%.
+  - That leniency is your stated trade, and it is the whole point of the rule. **Most of the safety gain over today
+    comes from the longer read, not from the rule.**
+- **What the rule costs in deaths:** about 14–16 extra canary deaths per harmful fix while it is read, against 2–3
+  today. In return there are fewer harmful promotions.
+- **False revert of a harmless fix:** 6.9% with no gain (1.1% with a gain). Today it is 4.9% at 6 h and 8.0% at 24 h.
+  - Most of it is the net-output test, at 5.8% against its nominal 2.5%.
+  - Double-counted death noise is one likely source of that excess. Recalibration in 2(c) is not guaranteed to reduce
+    it.
+
+**What did not work, and is not in the rule (the joint simulation showed it):**
+- **"Two deaths of the same bot = linked"** (proposed in review to catch rl-08b-type harm). At 24 h on 20 bots, about 16
+  deaths land on one bot twice by coincidence almost every time. It turned the rule back into today's gate (false
+  revert 11.2%).
+  - A fix that kills one bot repeatedly through its own actions is caught by 4(a) **only if** the gate trips and
+    enough of those deaths carry the fix's own rows (the table under 4(a)).
+  - **4(a)'s power is unmeasured.** No simulated fix was truly linked. An rl-08b-type defect is reliably caught only if
+    the gate trips early, while the canary's death count is small.
+- **"Any linked death reverts."** With about 33 deaths at k = 2, a coincidental 4.7% link is about 80% likely. That
+  reverted 56% of harmless-mechanism k = 2 fixes through "linkage" alone. Hence the beyond-coincidence test.
+
+**What it cannot see:**
+- **The 16-block spatial half of linkage**, which was dropped from 4(a) because nothing calibrates its coincidence rate.
+  A town-sited fix would collect hive-c's drownings under its own platform.
+- **Pool clustering.** The parametric false-trip rates (5.3% for today's 6-h gate) and the empirical one (3.6%, 384
+  draws on single-build pools) differ.
+- **The 24-h null itself.** There is no identical-code version: a canary ran through every 48-h stretch, so the 150 draws
+  include real canaries.
+
+**Junkwell-01 under this rule:**
+- 4(a) does not fire. 0 of its 6 deaths had a well row in the 120 s before, against a positive control of 75 well rows.
+  STATE also places all 6 at 80–173 blocks from the well.
+- 4(b) does not fire at +5 h: the bound was 1.40.
+- On net output, its raw net DiD at +5 h was −32.3/bot-h. That is beyond the 24-h cut of −14.3, but inside its own 5-h
+  band of ±50, and its "gained" is inflated by recollection.
+- **The rule would have read it to 24 h, and the verdict is unknown.** If its 5-h net rate had held, 4(c) would have
+  reverted it.
+
+## 8. Independent reviews
 
 **Round 1 (draft without sandbox results): both reviewers returned CHANGE.**
 
@@ -743,17 +940,80 @@ ratio > 1.25 (`scripts/deathgate.py`), applied at the +5 h endpoint only.
   ice.
 - **Packed and blue ice** moved to the dig rule. No site changed class.
 - **lavaadmit** is anchored to the first warning, ignores the bot's own hold-still rows, and never refuses twice in a row.
-- **deepfloor** now also excludes path nodes below y 0, and covers gather.
+- **deepfloor** now also excludes path nodes below y 0, and covers gather. (Revised again in round 3: nodes below
+  min(0, the current y).)
 - **Section 6** discloses the 268 old-build rows, calls the null rough and non-exchangeable, and states the linked-query
   limit.
 - **Wording:** "closed" became "guarded", and "saved" became "qualify on today's save".
 
-**Not re-reviewed after these final edits.**
-- Codex's last verdict stands at CHANGE, and Claude's at APPROVE-WITH-CHANGES.
-- The remaining Codex objection worth naming: the 90-s episode definition and the entry attribution are phase 1's
-  method and were not validated by sensitivity runs.
+**Round 3 (coordinator: close the loop; adds section 7's bag-fix rule). Both: CHANGE.**
 
-## 8. What this does not show
+- **Codex** (round 3):
+  1. Section 7's false-keep numbers multiplied marginal probabilities instead of simulating the whole rule.
+  2. Its arithmetic assumptions were unstated.
+  3. The rule needed: preconditions, a value-weighted net-output measure that excludes recollection, INCONCLUSIVE rather
+     than a default KEEP, a backtest, and linkage treated as a screen.
+  4. The "any 3 s" abort fires on ordinary drowning bursts (the sandbox loses up to 2.83–3.0 HP in 3 s).
+  5. Success at full health was undefined, and the release was unsafe.
+  6. Deepfloor stranded bots already below 0.
+- **Claude** (a fresh reviewer, 25 numbers spot-checked, all matching):
+  1. The comparison credited the rule with what the longer read does.
+  2. The junkwell example was wrong.
+  3. Net output can be gamed by a fix that picks up junk.
+  4. The death cost of KEEP-PENDING was not stated.
+  5. The preconditions were missing.
+  6. The spatial half of linkage is unmeasured.
+  7. The k = 3 figure was over-precise.
+  8. Deepfloor needed min(0, current y).
+  9. The untested ice branch should be disabled.
+
+**What changed after round 3:**
+- **Section 7 was rewritten** around a joint simulation of all three rules (`ugsafe2_gaterule.py` B2–B4, with an exact
+  fast form of the live bound checked on 3,000 random cases, 0 disagreements). It now includes:
+  - the fair baseline (today's gate at 24 h on 20 bots);
+  - the death cost of the read;
+  - the preconditions and INCONCLUSIVE;
+  - linkage tested beyond coincidence (the simulation showed "any linked death" and "same bot twice" both collapse the
+    rule);
+  - a corrected junkwell verdict.
+- **Section 5.1:** the abort is now a 10-s breach (> 7 HP); success covers the at-maximum-health case; the bot is never
+  released into water; the ice branch is disabled until scene F passes; the claim is 25%.
+- **Section 5.3:** deepfloor excludes nodes below min(0, current y).
+- **Section 6:** the source of the 1.20 bound is stated.
+
+**Round 4 (the final revision). Both: APPROVE-WITH-CHANGES.**
+
+- **Claude** (the round-3 reviewer):
+  - It re-checked every section 7 figure against `raw_gaterule.txt`, and all reproduce.
+  - It accepted both rejections of its own suggestions as justified. Same-bot-twice "does not scale" from the 6-h,
+    2-death case it was drawn from.
+  - Its remaining items:
+    1. disclose that p_link assumes rows independent of risk;
+    2. the linked-death thresholds, and the fact that 4(a)'s power is unmeasured;
+    3. the table depends on the placeholder band, so re-run it after 2(c), and give iron its own band;
+    4. 2(a) as first written excluded junkwell, towndeposit and withdraw;
+    5. the summary should name the 24-h comparator;
+    6. deepfloor should use y − 2.
+- **Codex:**
+  - Every round-3 item is RESOLVED, and the table follows from the raw output under its stated assumptions.
+  - Its remaining items:
+    1. say "not reverted", not "kept";
+    2. remove the guaranteed direct-harm claim;
+    3. state the p_link formula and its Poisson and per-poll caveats;
+    4. temper the null explanation;
+    5. give the Monte Carlo error.
+  - "The remaining work is qualification and pre-adoption validation, not another redesign."
+
+**What changed after round 4:** all eleven items above were applied as worded. 2(a) is reworded so the queued bag fixes
+qualify, and a threshold table was added under 4(a). No number changed.
+
+**Final verdicts:**
+- Claude: CHANGE → CHANGE → APPROVE-WITH-CHANGES (a fresh reviewer from round 3 on).
+- Codex: CHANGE → CHANGE → CHANGE → APPROVE-WITH-CHANGES.
+- Both reviewers' last items were wording and disclosure only, so the loop is closed at a stable verdict without a
+  fifth round.
+
+## 9. What this does not show
 
 - **That climbflood reduced drownings fleet-wide.**
 - **The instant-of-death terrain.** The roof reading is today's save.
@@ -763,7 +1023,7 @@ ratio > 1.25 (`scripts/deathgate.py`), applied at the +5 h endpoint only.
 - **The lava step at block level.** The sequence is in the rows; the exact entry needs a sandbox replay.
 - **Any effect of any candidate.** Nothing has been built.
 
-## 9. Reproduce
+## 10. Reproduce
 
 All scripts are in `scripts/host/`.
 
@@ -781,6 +1041,7 @@ All scripts are in `scripts/host/`.
 | `ugsafe2_ironband.py rows <since> <until>` | section 4 |
 | `ugsafe2_jw.py an.pkl rows` | section 6 |
 | `ugsafe2_admit.py an.pkl roof5.tsv` | section 2.1 |
+| `ugsafe2_gaterule.py an.pkl` | section 7 (about 4 min) |
 
 **On mike@10.0.0.30** (`/tmp/ugsafe2/`, with `scripts/lib/anvil.py`; read-only):
 
