@@ -210,6 +210,7 @@ test('APPLES: a compost visit that only lost apples is the composter\'s effect o
     assert.deepEqual(classifyOutcome('compost', 'success', { inventory: { apple: -6 } }).because, [], 'off: an apple loss is not compost evidence (today\'s rule)')
     setPeacefulFood(true)
     assert.match(classifyOutcome('compost', 'success', { inventory: { apple: -6 } }).because.join(';'), /inventory_loss: apple -6/)
-    assert.deepEqual(classifyOutcome('compost', 'success', { inventory: { bread: -6 } }).because, [], 'other food never')
+    // (bread became a peaceful-kit compostable on 10-07 ~19:50Z, owner; carrots are still never composted)
+    assert.deepEqual(classifyOutcome('compost', 'success', { inventory: { carrot: -6 } }).because, [], 'other food never')
   } finally { setPeacefulFood(false) }
 })
