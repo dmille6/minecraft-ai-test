@@ -157,10 +157,10 @@ export function foldJournal (records = [], { upto = null, state: from = null, se
       // a count that releases a live claim on this very container was taken AFTER that claim's transfer: it replaces every
       // earlier-appended count whatever the clocks say; otherwise the latest capture wins, a tie the larger count
       const releasing = t === 'cnt' && (r.ids ?? []).some(id => state.claims[id]?.state === 'live' && state.claims[id]?.k === r.k)
-      if (!o || releasing || r.cap > o.at || (r.cap === o.at && n > o.n)) {
-        state.obs[r.k] = { n, at: r.cap, seq }
-        for (const [id, c] of Object.entries(state.claims)) if (c.state === 'void' && c.k === r.k && r.cap >= c.voidAt) delete state.claims[id]   // recounted
-      }
+      if (!o || releasing || r.cap > o.at || (r.cap === o.at && n > o.n)) state.obs[r.k] = { n, at: r.cap, seq }
+      // A VOID IS RESOLVED by any count of its container appended after it and captured at or after it -- whether or not
+      // that count replaced the one standing (an equal-millisecond tie keeps the larger, which is captured after it too)
+      for (const [id, c] of Object.entries(state.claims)) if (c.state === 'void' && c.k === r.k && r.cap >= c.voidAt) delete state.claims[id]
     }
     if (t === 'cnt' || t === 'rel') release(r.ids)
     else if (t === 'claim' && r.id && r.k && Number.isFinite(r.at)) {
