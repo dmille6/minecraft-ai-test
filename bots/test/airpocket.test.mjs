@@ -16,7 +16,7 @@ import { gunzipSync } from 'node:zlib'
 import { airPocketInputs, airPocketAfter, airPocketPreempt, AP_FAIL_COOLDOWN_MS } from '../src/airpocket.mjs'
 import { airPocketPlan, airPocketEnvelope, airPocketAdmit, airPocketBudgetMs, envelopeBreached, airPocketConfirmed,
          airPocketTrigger, pickFastestTool, airPocketStep, airPocketDetail, AP_TRIGGER_AFTER_MS,
-         standGate, standInPocket, digGate, standRef } from '../src/airpocket.mjs'
+         standGate, standInPocket, digGate, standRef, standCandidates } from '../src/airpocket.mjs'
 
 let pass = 0, fail = 0
 const t = (name, fn) => Promise.resolve()
@@ -399,15 +399,50 @@ await t('F15 the stand stops (and says why) when no block is held or the place d
 
 await t('F24 standRef (pure): the floor first; else a solid side wall, with the face that touches the cell; else none', () => {
   const S = B('stone'), W = B('water')
-  assert.deepEqual(standRef({ below: S, sides: [[1, 0, S]] }), { dx: 0, dy: -1, dz: 0, face: [0, 1, 0] })
-  assert.deepEqual(standRef({ below: W, sides: [[1, 0, W], [-1, 0, S]] }), { dx: -1, dy: 0, dz: 0, face: [1, 0, 0] })
-  assert.deepEqual(standRef({ below: W, sides: [[0, 1, S]] }), { dx: 0, dy: 0, dz: 1, face: [0, 0, -1] })
+  assert.deepEqual(standRef({ below: S, sides: [[1, 0, S]] }), { dx: 0, dy: -1, dz: 0, face: [0, 1, 0], supported: true })
+  assert.deepEqual(standRef({ below: W, sides: [[1, 0, W], [-1, 0, S]] }), { dx: -1, dy: 0, dz: 0, face: [1, 0, 0], supported: false })
+  assert.deepEqual(standRef({ below: W, sides: [[0, 1, S]] }), { dx: 0, dy: 0, dz: 1, face: [0, 0, -1], supported: false })
+  // never against something a place would OPEN or TOGGLE (both r7 reviews): below or beside
+  for (const name of ['chest', 'barrel', 'furnace', 'crafting_table', 'oak_door', 'oak_trapdoor', 'iron_trapdoor', 'oak_fence_gate', 'stone_button', 'lever', 'red_bed', 'oak_sign', 'anvil', 'red_shulker_box']) {
+    const X = B(name)
+    assert.equal(standRef({ below: X, sides: [[1, 0, X]] }), null, name)
+    assert.deepEqual(standRef({ below: X, sides: [[1, 0, X], [0, 1, S]] }), { dx: 0, dy: 0, dz: 1, face: [0, 0, -1], supported: false }, name)
+  }
   assert.equal(standRef({ below: W, sides: [[1, 0, W], [-1, 0, W], [0, 1, W], [0, -1, W]] }), null)
   assert.equal(standRef({ below: null, sides: [] }), null)
 })
+await t('F26 a WALL place never uses a falling block (sand over water drops); a floor place may', async () => {
+  const items = [{ name: 'sand', count: 64 }, { name: 'gravel', count: 9 }, { name: 'cobblestone', count: 3 }]
+  assert.deepEqual(standCandidates(items, { unsupported: true }).map(i => i.name), ['cobblestone'])
+  assert.deepEqual(standCandidates(items, { unsupported: false }).map(i => i.name), ['sand', 'gravel', 'cobblestone'])
+  assert.deepEqual(standCandidates([{ name: 'sand' }, { name: 'red_concrete_powder' }], { unsupported: true }), [])
+  // the stand asks for an unsupported block in a deep column, and refuses a falling one if that is all it is given
+  const deepCells = { ...HIVE_C, '0,-1,0': 'water', '0,-2,0': 'water' }
+  const asked = []
+  const d = fakeBot({ cells: deepCells, riseTo: 1.1 })
+  const r = await airPocketStep(d, airPocketPlan(world(deepCells)), deps({ standItem: o => { asked.push(o); return { name: 'sand' } } }))
+  clearInterval(d._healthTimer)
+  assert.deepEqual(asked, [{ unsupported: true }]); assert.equal(r.stand, 'stopped:sand would fall (0 placed)'); assert.equal(d.sends.length, 0)
+  // on a floor it is supported, and sand is placed
+  const floorCells = { ...HIVE_C, '0,-1,0': 'stone' }
+  const f = fakeBot({ cells: floorCells, riseTo: 1.1 }); const askedF = []
+  const rf = await airPocketStep(f, airPocketPlan(world(floorCells)), deps({ standItem: o => { askedF.push(o); return { name: 'sand' } } }))
+  clearInterval(f._healthTimer)
+  assert.deepEqual(askedF, [{ unsupported: false }]); assert.equal(rf.stand, 'placed:1')
+  await withMutant(AP_PATH, "  return (Array.isArray(items) ? items : []).filter(it => it?.name && !(unsupported && FALLING.test(it.name)))",
+    '  return (Array.isArray(items) ? items : []).filter(it => it?.name)', m => {
+      assert.ok(m.standCandidates(items, { unsupported: true }).some(i => i.name === 'sand'))
+    })
+  await withMutant(AP_PATH, "      if (!pick.supported && FALLING.test(item.name || '')) return `stopped:${item.name} would fall (${placed} placed)`\n", '', async m => {
+    const d2 = fakeBot({ cells: deepCells, riseTo: 1.1 })
+    const r2 = await m.airPocketStep(d2, m.airPocketPlan(world(deepCells)), deps({ standItem: () => ({ name: 'sand' }) }))
+    clearInterval(d2._healthTimer)
+    assert.equal(r2.stand, 'placed:1')   // the falling block goes through: what the guard prevents
+  })
+})
 await t('F25 mutant: a stand that only uses a floor leaves the deep column floating (the Paper sink-back)', async () => {
   const deepCells = { ...HIVE_C, '0,-1,0': 'water', '0,-2,0': 'water' }
-  await withMutant(AP_PATH, '  for (const [dx, dz, b] of sides ?? []) if (isSolid(b)) return { dx, dy: 0, dz, face: [-dx, 0, -dz] }\n', '', async m => {
+  await withMutant(AP_PATH, '  for (const [dx, dz, b] of sides ?? []) if (ok(b)) return { dx, dy: 0, dz, face: [-dx, 0, -dz], supported: false }\n', '', async m => {
     const deep = fakeBot({ cells: deepCells, riseTo: 1.1 })
     const r = await m.airPocketStep(deep, m.airPocketPlan(world(deepCells)), deps({ standItem: () => ({ name: 'cobblestone' }) }))
     clearInterval(deep._healthTimer)
@@ -683,7 +718,7 @@ function wiring (src) {
                /guard: \(\) => \{ try \{ if \(runner\?\.isBusy\?\.\(\)\) runner\.interrupt\('air_pocket'\); if \(bot\.pathfinder\?\.goal\) haltPath\(bot\)/.test(code) &&
                /stepWouldRun: \(\) => prepareAirPocket\(\{ worstCase: true \}\)\.ok \}\)\) \{/.test(code) &&
                /const env = worstCase \? \{ \.\.\.digEnv\(bot\), inWater: true, notOnGround: true \} : digEnv\(bot\)/.test(code) &&
-               /standItem: \(\) => scaffoldFor\(bot, 'air_pocket'\)/.test(code) &&
+               /standItem: \(\{ unsupported = false \} = \{\}\) => unsupported\s*\? pickScaffold\(standCandidates\(bot\.inventory\?\.items\?\.\(\) \?\? \[\], \{ unsupported: true \}\), PLACEABLE\)\s*: scaffoldFor\(bot, 'air_pocket'\)/.test(code) &&
                /isEntombed\(bot\) && Date\.now\(\) >= airPocketBreatheUntil &&/.test(code) && /!runner\.isBusy\(\) && Date\.now\(\) >= airPocketBreatheUntil &&/.test(code) && /\} else if \(rescuing && route\.sealed === true && route\.dir !== 'up' && \(escaping \|\| marooned\) && !pocketing && !airPocketing &&\s*throttled\('air_pocket_held_off'/.test(code) && /Date\.now\(\) - airPocketWants < AP_WANT_LAPSE_MS/.test(code) &&
                /airPocketWants = 0 {16}\/\/ a refused step/.test(src) && /finally \{ airPocketing = false; airPocketWants = 0 \}/.test(code) &&
                /const ran = await runAirPocket\(route, Date\.now\(\) - seizedAt\)\s*if \(ran\) return/.test(code) &&
@@ -715,7 +750,8 @@ for (const [name, old, neu] of [
   ['the skill guard', "guard: () => { try { if (runner?.isBusy?.()) runner.interrupt('air_pocket'); if (bot.pathfinder?.goal) haltPath(bot) } catch {} return null }", 'guard: () => null'],
   ['the pre-empt asking the plan first', 'stepWouldRun: () => prepareAirPocket({ worstCase: true }).ok })) {', 'stepWouldRun: () => true })) {'],
   ['the worst-case price for the pre-empt', 'const env = worstCase ? { ...digEnv(bot), inWater: true, notOnGround: true } : digEnv(bot)', 'const env = digEnv(bot)'],
-  ['the stand item', "standItem: () => scaffoldFor(bot, 'air_pocket')", 'standItem: () => null'],
+  ['the stand item', ": scaffoldFor(bot, 'air_pocket') })", ": null })"],
+  ['the non-falling stand item off a floor', '? pickScaffold(standCandidates(bot.inventory?.items?.() ?? [], { unsupported: true }), PLACEABLE)', "? scaffoldFor(bot, 'air_pocket')"],
   ['the request lapse', 'Date.now() - airPocketWants < AP_WANT_LAPSE_MS', 'Date.now() - airPocketWants < 30_000'],
   ['the held-off refusal row', "throttled('air_pocket_held_off', 30_000)) {", "false) {"],
   ['the breathe hold on the entombed arm', 'isEntombed(bot) && Date.now() >= airPocketBreatheUntil &&', 'isEntombed(bot) &&'],
