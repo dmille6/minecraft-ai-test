@@ -337,10 +337,10 @@ const clearOfWell = (placed, cap = WELL_CAP) => {
   return Math.hypot(x - cap.x, z - cap.z) >= WELL_HOME_CLEARANCE && !wellReservedCells(cap, 'north').some(c => c.x === x && c.y === y && c.z === z)
 }
 await t('W4 a NEW CHEST keeps clear of a BUILT junk well (found in the world); control: no well -> the cell beside it', async () => {
-  const c = town([stack('cobblestone', 64), stack('chest', 1)])
+  const c = town([stack('oak_log', 64), stack('chest', 1)])
   assert.equal((await run(c.bot)).status, 'success')
   assert.deepEqual(c.spy.placed, ['4,64,-1'], 'control: without a well the chest goes 2.8 from where the well will be')
-  const w = town([stack('cobblestone', 64), stack('chest', 1)])
+  const w = town([stack('oak_log', 64), stack('chest', 1)])
   builtWell(w)
   const r = await run(w.bot)
   assert.equal(r.status, 'success', r.detail)
@@ -349,7 +349,7 @@ await t('W4 a NEW CHEST keeps clear of a BUILT junk well (found in the world); c
 })
 
 await t('W5 a NEW CHEST keeps clear of the RECORDED well site (a build in progress has no cap yet)', async () => {
-  const w = town([stack('cobblestone', 64), stack('chest', 1)])
+  const w = town([stack('oak_log', 64), stack('chest', 1)])
   await wellRecord(process.env.POOL_STATE_DIR)
   const r = await run(w.bot)
   assert.equal(r.status, 'success', r.detail)
@@ -358,7 +358,7 @@ await t('W5 a NEW CHEST keeps clear of the RECORDED well site (a build in progre
 })
 
 await t('W6 a well site RECORDED WHILE THE BOT WALKS to the new chest\'s cell moves the chest on arrival', async () => {
-  const w = town([stack('cobblestone', 64), stack('chest', 1)])
+  const w = town([stack('oak_log', 64), stack('chest', 1)])
   const goto = w.bot.pathfinder.goto
   let recorded = false
   w.bot.pathfinder.goto = async goal => {
@@ -376,11 +376,11 @@ await t('W6b a well site recorded INSIDE THE PLACEMENT (equip/look) loses to the
   // A VALID record (Codex round 2): 7.07 from home, 8.06 from the full chest, 6.7 from the cell the new chest takes.
   const cap = { x: 1, y: 63, z: -7 }
   const { townWellSite } = await import('../src/skills.mjs')
-  const c = town([stack('cobblestone', 64), stack('chest', 1)])
+  const c = town([stack('oak_log', 64), stack('chest', 1)])
   await wellRecord(process.env.POOL_STATE_DIR, cap)
   const kept = townWellSite(c.bot)
   assert.deepEqual([kept.site, kept.gen], [cap, 1], `control: with no new chest the record stands: ${JSON.stringify(kept)}`)
-  const w = town([stack('cobblestone', 64), stack('chest', 1)])
+  const w = town([stack('oak_log', 64), stack('chest', 1)])
   const equip = w.bot.equip
   let recorded = false
   w.bot.equip = async it => { if (!recorded && it?.name === 'chest') { recorded = true; await wellRecord(process.env.POOL_STATE_DIR, cap) } return equip(it) }
@@ -394,7 +394,7 @@ await t('W6b a well site recorded INSIDE THE PLACEMENT (equip/look) loses to the
 })
 
 await t('W7 a BREACHED (retired) well keeps nothing out: the chest goes where it would without one', async () => {
-  const w = town([stack('cobblestone', 64), stack('chest', 1)])
+  const w = town([stack('oak_log', 64), stack('chest', 1)])
   builtWell(w)
   for (const c of wellReservedCells(WELL_CAP, 'north').slice(1)) w.set(c.x, c.y, c.z, 'stone')   // every throwing stand blocked
   const { findTownWells } = await import('../src/skills.mjs')
@@ -408,7 +408,7 @@ await t('W7 a BREACHED (retired) well keeps nothing out: the chest goes where it
 
 await t('W8 NO DEAD END: when the live well\'s keep-out covers every ring around the full chest, the rings around home are searched before any refusal', async () => {
   const cap = { x: 5, y: 63, z: -1 }
-  const w = town([stack('cobblestone', 64), stack('chest', 1)])
+  const w = town([stack('oak_log', 64), stack('chest', 1)])
   builtWell(w, cap)
   const { findTownWells } = await import('../src/skills.mjs')
   assert.equal(findTownWells(w.bot)[0]?.breach, null, 'positive control: a live well')
