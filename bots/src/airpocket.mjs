@@ -29,6 +29,7 @@ export const AP_FAIL_COOLDOWN_MS = 60_000    // a failed or aborted step is not 
 export const AP_REFUSE_COOLDOWN_MS = 5000    // a refused plan is re-planned at most this often (it is cheap)
 export const AP_ICE_ENABLED = true             // the ice branch (break, then rise one cell); off if sandbox scene F fails
 export const AP_EQUIP_MS = 1500               // equip is bounded too (Codex r1): it runs before the dig's deadline
+export const AP_NOT_CLOSING_MS = 4000         // a non-sealed rescue must have stopped closing on air this long
 
 import { difficultyOf } from './foodskip.mjs'
 
@@ -143,12 +144,14 @@ export function airPocketConfirmed ({ eyeInAirSince = null, now = Date.now(), he
  * route gets its chance first), and not during a cooldown or while the step already runs.
  */
 export function airPocketTrigger ({ rescuing, routeDir, routeSealed, heldMs, active = false, now = Date.now(), cooldownUntil = 0,
-                                    othersBusy = false }) {
+                                    othersBusy = false, msSinceClosing = Infinity }) {
   // NOTHING ELSE IN FLIGHT (Codex r1): an escape, the flooded-pocket rung or a maroon climb awaited by an earlier tick
   // can resume after its await and steer; the early return only stops NEW ticks. So the step starts only when none is.
   if (!rescuing || active || othersBusy || now < cooldownUntil) return false
   if (routeDir === 'up') return false
-  return routeSealed === true || heldMs >= AP_TRIGGER_AFTER_MS
+  // NOT WHILE A SWIM IS WORKING (Claude r1: 4 of 46 out/unscanned rescues reached air between 8 and 20 s): a non-sealed
+  // capped rescue must ALSO have stopped closing on air for 4 s.
+  return routeSealed === true || (heldMs >= AP_TRIGGER_AFTER_MS && msSinceClosing >= AP_NOT_CLOSING_MS)
 }
 
 /** The fastest of the candidate items (null = the hand) by the caller's prediction. Pure. */
@@ -195,7 +198,7 @@ export function airPocketAfter (ok, state, now = Date.now()) {
  *   deps.blockAt(vec) / deps.Vec3 / deps.predict(block, item) -> ms / deps.sleep(ms) / deps.now()
  */
 export async function airPocketStep (bot, plan, { Vec3, predict, sleep = ms => new Promise(r => setTimeout(r, ms)),
-                                                 now = () => Date.now(), maxHealth = 20, envelope } = {}) {
+                                                 now = () => Date.now(), maxHealth = 20, envelope, guard = () => null } = {}) {
   const t0 = now()
   const p0 = bot.entity.position
   const fx = Math.floor(p0.x), fy = Math.floor(p0.y), fz = Math.floor(p0.z)
@@ -208,6 +211,7 @@ export async function airPocketStep (bot, plan, { Vec3, predict, sleep = ms => n
   const budgetLeft = () => airPocketBudgetMs({ health: bot.health, envelope }) - (AP_LATENCY_MS / 2)
   let aborted = null
   let watch = null
+  let digging = false
   try {
     const block = bot.blockAt(cellPos)
     if (!block || block.name !== plan.name) { res.why = `roof cell changed to ${block?.name ?? 'unknown'}`; return res }
@@ -215,9 +219,15 @@ export async function airPocketStep (bot, plan, { Vec3, predict, sleep = ms => n
     const best = pickFastestTool(items, item => predict(block, item))
     if (!best) { res.why = 'no dig time for any tool'; return res }
     // HORIZONTAL CONTROLS OFF FIRST (Codex r1): an `out` rescue may have been holding forward; the dig turns the head, so a
-    // held forward would carry the bot off the planned column. Only jump is held (it presses the bot up to the roof).
+    // held forward would carry the bot off the planned column.
+    // JUMP ONLY WHEN ALREADY FLOATING (Claude r1): a bot standing on the pocket floor that holds jump lifts off it, and an
+    // off-ground dig is 5x slower than the on-ground time mineflayer priced at the call -- the client would then send
+    // "finished" early, the server would refuse, and the client would show ghost air. So a standing bot digs standing
+    // (2.9 s, sandbox) and holds jump only for the rise; a floating bot holds jump against the roof throughout.
     for (const c of ['forward', 'back', 'left', 'right', 'sprint', 'sneak']) { try { bot.setControlState(c, false) } catch {} }
-    try { bot.setControlState('jump', true) } catch { /* not connected */ }
+    const standing = bot.entity?.onGround === true
+    try { bot.setControlState('jump', !standing) } catch { /* not connected */ }
+    res.standing = standing
     // BOUNDED EQUIP, THEN VERIFY WHAT IS ACTUALLY HELD (Codex r1): a rejected or slow equip must not leave the prediction
     // describing a tool the bot is not holding. The dig is re-priced with the held item and must still fit.
     if (best.item) {
@@ -240,18 +250,24 @@ export async function airPocketStep (bot, plan, { Vec3, predict, sleep = ms => n
       sample()
       if (envelopeBreached(samples, now())) aborted = aborted ?? 'envelope breached (> 7 HP in 10 s)'
       else if (budgetLeft() <= 0) aborted = aborted ?? 'health budget spent'
+      // NOTHING ELSE MAY TAKE THE BODY (Claude r1: a skill started within 40 s of a capped rescue in 38% of cases, and a new
+      // bot.dig stops the current one): the caller's guard interrupts any skill that starts; a dig on another block aborts.
+      const g = guard(); if (g) aborted = aborted ?? g
+      if (digging && bot.targetDigBlock && bot.targetDigBlock.position && !bot.targetDigBlock.position.equals?.(cellPos)) aborted = aborted ?? 'another dig took over'
       if (aborted) { try { bot.stopDigging?.() } catch { /* not digging */ } }
     }, 250)
     const deadline = Math.max(1000, Math.min(budgetLeft(), Math.max(2 * best.ms, best.ms + 2000)))
     const tDig = now()
     let timer
+    digging = true
     try {
       await Promise.race([
         bot.dig(block),
         new Promise((_, rej) => { timer = setTimeout(() => { try { bot.stopDigging?.() } catch {} rej(new Error(`dig exceeded ${Math.round(deadline)} ms`)) }, deadline) }),
       ])
-    } catch (e) { res.why = aborted ?? `dig failed: ${String(e?.message ?? e).slice(0, 60)}`; res.outcome = aborted ? 'aborted' : 'failed'; return res } finally { clearTimeout(timer) }
+    } catch (e) { res.why = aborted ?? `dig failed: ${String(e?.message ?? e).slice(0, 60)}`; res.outcome = aborted ? 'aborted' : 'failed'; return res } finally { clearTimeout(timer); digging = false }
     res.digMs = now() - tDig
+    try { bot.setControlState('jump', true) } catch { /* the rise */ }
     const after = bot.blockAt(cellPos)
     const opened = plan.kind === 'ice' ? (isWater(after) || isAir(after)) : isAir(after)
     if (!opened) { res.why = `roof cell is ${after?.name ?? 'unknown'} after the dig`; return res }
@@ -285,12 +301,14 @@ export async function airPocketStep (bot, plan, { Vec3, predict, sleep = ms => n
     setTimeout(() => { try { if (bot.targetDigBlock && !res.ok) bot.stopDigging() } catch {} }, 300)
     res.healthEnd = bot.health
     res.ms = now() - t0
-    try { bot.setControlState('jump', false) } catch { /* not connected */ }
+    // ON SUCCESS JUMP STAYS HELD (Claude r1): the head stays in the pocket and the rescue's own release (head out, dwell)
+    // clears the controls. On failure it is released and the rescue's next tick steers again.
+    if (!res.ok) { try { bot.setControlState('jump', false) } catch { /* not connected */ } }
   }
 }
 
 /** One telemetry line for a step result. Pure. */
 export function airPocketDetail (r) {
-  return `outcome=${r.outcome} kind=${r.kind} cell=${r.cell} block=${r.block} tool=${r.tool} predicted_ms=${r.predictedMs} ` +
+  return `outcome=${r.outcome} kind=${r.kind} cell=${r.cell} block=${r.block} tool=${r.tool} standing=${r.standing ? 1 : 0} predicted_ms=${r.predictedMs} ` +
          `dig_ms=${r.digMs ?? -1} ms=${r.ms ?? -1} envelope=${r.envelope} health=${r.healthStart}->${r.healthEnd} eye=${r.eye} -- ${r.why}`
 }

@@ -209,7 +209,7 @@ await t('E2 pickFastestTool: the fastest of hand and tools by the prediction; no
 })
 
 // ---------------------------------------------------------------- F. the step on a fake bot
-class V { constructor (x, y, z) { this.x = x; this.y = y; this.z = z } }
+class V { constructor (x, y, z) { this.x = x; this.y = y; this.z = z } equals (o) { return !!o && o.x === this.x && o.y === this.y && o.z === this.z } }
 function fakeBot ({ cells = HIVE_C, health = 19, digMs = 300, rise = true, riseTo = 0.6, healthTick = 0.1, onDig = null } = {}) {
   const map = new Map(); const base = { x: 100, y: 60, z: 100 }
   for (const [k, v] of Object.entries(cells)) { const [dx, dy, dz] = k.split(',').map(Number); map.set(`${base.x + dx},${base.y + dy},${base.z + dz}`, v) }
@@ -243,12 +243,12 @@ function fakeBot ({ cells = HIVE_C, health = 19, digMs = 300, rise = true, riseT
 const fast = () => { const s = Date.now(); return () => s + (Date.now() - s) * 10 }   // the step's clock at 10x
 const deps = (extra = {}) => ({ Vec3: V, predict: (b, item) => (/_pickaxe$/.test(item?.name ?? '') ? 300 : 7500), envelope: 0.5, now: fast(), sleep: ms => new Promise(r => setTimeout(r, ms / 10)), ...extra })
 
-await t('F1 hive-c pocket: dig, rise, breathing confirmed with health rising -> success; jump released at the end', async () => {
+await t('F1 hive-c pocket: dig, rise, breathing confirmed with health rising -> success; jump STAYS held for the rescue release', async () => {
   const bot = fakeBot({})
   const plan = airPocketPlan(world(HIVE_C))
   const r = await airPocketStep(bot, plan, deps()); clearInterval(bot._healthTimer)
   assert.equal(r.ok, true, r.why); assert.equal(r.outcome, 'success'); assert.equal(r.tool, 'stone_pickaxe')
-  assert.equal(bot.controls.jump, false)
+  assert.equal(bot.controls.jump, true)
   assert.match(airPocketDetail(r), /outcome=success kind=pocket/)
 })
 await t('F2 a breach during the dig stops it (stopDigging) and reports aborted, never success', async () => {
@@ -308,6 +308,27 @@ await t('F9 a HUNG equip is bounded (1.5 s), then priced with what is held', asy
   assert.ok(Date.now() - t0 < 6000, 'equip was not bounded'); assert.equal(r.tool, 'hand')
 })
 
+await t('F10 a STANDING bot digs with jump released (on-ground time, no ghost air); a FLOATING bot holds jump; both hold it for the rise', async () => {
+  for (const [onGround, jumpAtDig] of [[true, false], [false, true]]) {
+    const bot = fakeBot({}); bot.entity.onGround = onGround
+    let atDig = null; const dig0 = bot.dig; bot.dig = blk => { atDig = bot.controls.jump; return dig0(blk) }
+    let afterDig = null; const realSleep = ms => new Promise(r => setTimeout(r, ms / 10))
+    const r = await airPocketStep(bot, airPocketPlan(world(HIVE_C)), deps({ sleep: async ms => { if (afterDig == null) afterDig = bot.controls.jump; return realSleep(ms) } }))
+    clearInterval(bot._healthTimer)
+    assert.equal(atDig, jumpAtDig, `onGround=${onGround}`); assert.equal(afterDig, true, `rise onGround=${onGround}`); assert.equal(r.standing, onGround)
+  }
+})
+await t('F11 a skill the guard reports, or a dig on ANOTHER block, aborts the step (and stops the dig)', async () => {
+  const a = fakeBot({ digMs: 3000 }); let calls = 0
+  const r1 = await airPocketStep(a, airPocketPlan(world(HIVE_C)), deps({ now: () => Date.now(), guard: () => (++calls > 2 ? 'a skill took the body' : null) }))
+  clearInterval(a._healthTimer)
+  assert.equal(r1.outcome, 'aborted'); assert.equal(r1.why, 'a skill took the body'); assert.ok(a.stopped >= 1)
+  const b = fakeBot({ digMs: 3000, onDig: bb => setTimeout(() => { bb.targetDigBlock = { position: new V(1, 2, 3) } }, 300) })
+  const r2 = await airPocketStep(b, airPocketPlan(world(HIVE_C)), deps({ now: () => Date.now() }))
+  clearInterval(b._healthTimer)
+  assert.equal(r2.outcome, 'aborted'); assert.equal(r2.why, 'another dig took over')
+})
+
 // ---------------------------------------------------------------- I. the world's inputs, read the way 1.21.8 needs
 await t('I1 difficulty comes from the server packet (bot.serverDifficulty): mineflayer game.difficulty is undefined on 1.21.8', () => {
   const real = { serverDifficulty: 'peaceful', game: { difficulty: undefined }, registry: { effectsByName: { Hunger: { id: 16 } } }, entity: { effects: {} } }
@@ -330,6 +351,18 @@ await t('I4 MUTANT KILLED: a case-sensitive `hunger` lookup misses Hunger (I2 ca
   withMutant(AP_PATH, "const key = Object.keys(byName).find(k => k.toLowerCase() === 'hunger')", "const key = byName.hunger ? 'hunger' : null", m => {
     assert.equal(m.airPocketInputs({ registry: { effectsByName: { Hunger: { id: 16 } } }, entity: { effects: { 16: { id: 16 } } } }).hungerActive, false)
   }))
+
+await t('E3 a non-sealed capped rescue that is still CLOSING on air is never cut off; sealed ignores it', () => {
+  const base = { rescuing: true, routeDir: 'out', routeSealed: false, heldMs: 9000, now: 1000 }
+  assert.equal(airPocketTrigger({ ...base, msSinceClosing: 1000 }), false)
+  assert.equal(airPocketTrigger({ ...base, msSinceClosing: 5000 }), true)
+  assert.equal(airPocketTrigger({ ...base, routeSealed: true, msSinceClosing: 0 }), true)
+})
+await t('E4 MUTANT KILLED: dropping the closing-on-air condition cuts off a working swim (E3 catches it)', () =>
+  withMutant(AP_PATH, 'return routeSealed === true || (heldMs >= AP_TRIGGER_AFTER_MS && msSinceClosing >= AP_NOT_CLOSING_MS)',
+    'return routeSealed === true || heldMs >= AP_TRIGGER_AFTER_MS', m => {
+      assert.equal(m.airPocketTrigger({ rescuing: true, routeDir: 'out', routeSealed: false, heldMs: 9000, now: 1, msSinceClosing: 1000 }), true)
+    }))
 
 // ---------------------------------------------------------------- J. the rescue state after a step, and the busy guard
 await t('J1 after SUCCESS the fail memory is cleared and the clocks restart; after FAILURE a 60-s cooldown, memory kept', () => {
@@ -366,7 +399,10 @@ function wiring (src) {
                /airPocketing = true[\s\S]{0,900}airPocketStep\(/.test(code) && /finally \{ airPocketing = false \}/.test(code) &&
                /airPocketAfter\(r\.ok, /.test(code) && /othersBusy: escaping \|\| pocketing \|\| marooned/.test(code) &&
                /const inputs = airPocketInputs\(bot\)/.test(code) && !/bot\.game\?\.difficulty/.test(code.slice(code.indexOf('const runAirPocket'), code.indexOf('const rescueExpired'))) &&
-               code.indexOf("kind: 'air_pocket_start'") > 0 && code.indexOf("kind: 'air_pocket_start'") < code.indexOf('r = await airPocketStep(') }
+               code.indexOf("kind: 'air_pocket_start'") > 0 && code.indexOf("kind: 'air_pocket_start'") < code.indexOf('r = await airPocketStep(') &&
+               /msSinceClosing: Date\.now\(\) - lastClosingAt/.test(code) && /if \(closingOnAir\) lastClosingAt = Date\.now\(\)/.test(code) &&
+               /guard: \(\) => \{ try \{ if \(runner\?\.isBusy\?\.\(\)\) runner\.interrupt\('air_pocket'\)/.test(code) &&
+               /const ran = await runAirPocket\(route, Date\.now\(\) - seizedAt\)\s*if \(ran\) return/.test(code) }
 }
 await t('G1 wiring: the tick returns while the step runs; the rescue asks the trigger before steering; success clears the fail memory', () => {
   const w = wiring(readFileSync(REFLEX_PATH, 'utf8'))
@@ -388,6 +424,9 @@ for (const [name, old, neu] of [
   ['the after-state', 'const st = airPocketAfter(r.ok, {', 'const st = ({'],
   ['the busy guard', 'othersBusy: escaping || pocketing || marooned', 'othersBusy: false'],
   ['the packet difficulty', 'const inputs = airPocketInputs(bot)', 'const inputs = { difficulty: bot.game?.difficulty, hungerActive: false }'],
+  ['the closing-on-air clock', 'if (closingOnAir) lastClosingAt = Date.now()', ''],
+  ['the skill guard', "guard: () => { try { if (runner?.isBusy?.()) runner.interrupt('air_pocket') } catch {} return null }", 'guard: () => null'],
+  ['the return after a step', '            if (ran) return\n', ''],
 ]) {
   await t(`G4 MUTANT KILLED: without ${name} the wiring check fails`, () => {
     const src = readFileSync(REFLEX_PATH, 'utf8')

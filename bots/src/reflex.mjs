@@ -1287,6 +1287,7 @@ export function startReflexes(bot, runner, lessons = null, worldFacts = null) {
   // Air the local wildlife cannot edit. See air.mjs.
   const airClock = makeAirClock()
   let lastAirDist = Infinity
+  let lastClosingAt = 0          // AIRPOCKET: when the rescue last closed on air (a working swim is never cut off)
   let lastReleaseAt = 0
   let lastReleaseKind = null
   // A GATE MUST NOT MEASURE ITS OWN TRIGGER.
@@ -1394,7 +1395,10 @@ export function startReflexes(bot, runner, lessons = null, worldFacts = null) {
                        `difficulty=${inputs.difficulty} hunger=${inputs.hungerActive ? 1 : 0} envelope=${admit.envelope} ${trig}`, snapshot: snapshot(bot) })
     let r
     try {
-      r = await airPocketStep(bot, plan, { Vec3, predict: (b, item) => predictedDigMs(b, item, digEnv(bot)), envelope: admit.envelope })
+      // a skill that starts while the step runs is interrupted (cognition is not gated by the tick's early return)
+      try { runner?.interrupt?.('air_pocket') } catch { /* nothing running */ }
+      r = await airPocketStep(bot, plan, { Vec3, predict: (b, item) => predictedDigMs(b, item, digEnv(bot)), envelope: admit.envelope,
+                                           guard: () => { try { if (runner?.isBusy?.()) runner.interrupt('air_pocket') } catch {} return null } })
     } finally { airPocketing = false }
     logEvent({ kind: 'air_pocket', status: r.ok ? 'success' : 'failed',
                detail: `id=${attemptId} ${airPocketDetail(r)} | required_ms=${Math.round(admit.requiredMs)} budget_ms=${Math.round(admit.budgetMs)} ` +
@@ -2107,6 +2111,7 @@ export function startReflexes(bot, runner, lessons = null, worldFacts = null) {
         const airDist = route?.dist ?? Infinity
         const closingOnAir = airDist < lastAirDist - 0.01
         lastAirDist = airDist
+        if (closingOnAir) lastClosingAt = Date.now()
         const emergency = airEmergency({
           headUnder: !breathable(head),
           airSeconds,
@@ -2235,7 +2240,7 @@ export function startReflexes(bot, runner, lessons = null, worldFacts = null) {
           // pocket, admitted by geometry and by the health budget, at once when the scan says SEALED, else after 8 s.
           if (airPocketTrigger({ rescuing, routeDir: route.dir, routeSealed: route.sealed, heldMs: Date.now() - seizedAt,
                                  active: airPocketing, now: Date.now(), cooldownUntil: airPocketCooldownUntil,
-                                 othersBusy: escaping || pocketing || marooned })) {
+                                 othersBusy: escaping || pocketing || marooned, msSinceClosing: Date.now() - lastClosingAt })) {
             const ran = await runAirPocket(route, Date.now() - seizedAt)
             if (ran) return
           }
