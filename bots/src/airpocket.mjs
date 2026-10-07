@@ -39,6 +39,9 @@ const WATERLIKE = /^(water|flowing_water|bubble_column|kelp|kelp_plant|seagrass|
 const LAVALIKE = /lava|^magma_block$|^fire$|^soul_fire$/
 const FALLING = /^(sand|red_sand|gravel|suspicious_sand|suspicious_gravel|anvil|chipped_anvil|damaged_anvil|pointed_dripstone|dragon_egg|scaffolding)$|concrete_powder$/
 const NO_DIG = /^(bedrock|barrier|end_portal_frame|command_block|structure_block|jigsaw|reinforced_deepslate|spawner|trial_spawner|vault|chest|trapped_chest|barrel|ender_chest|furnace|blast_furnace|smoker|composter|crafting_table)$|shulker_box$/
+// A STAND NEVER PLACES AGAINST THESE (both r7 reviews): a place on a container, workstation, door, trapdoor, gate,
+// button, lever, bed or sign opens or toggles it instead of placing -- and a door or trapdoor could let water in.
+const INTERACTIVE = /(door|trapdoor|fence_gate|_button|_bed|_sign|_hanging_sign|anvil|shulker_box)$|^(lever|chest|trapped_chest|ender_chest|barrel|furnace|blast_furnace|smoker|crafting_table|enchanting_table|brewing_stand|beacon|hopper|dispenser|dropper|lectern|loom|stonecutter|grindstone|smithing_table|cartography_table|fletching_table|bell|note_block|jukebox|respawn_anchor|composter|cauldron|water_cauldron|lava_cauldron|powder_snow_cauldron|repeater|comparator|daylight_detector|command_block|structure_block|jigsaw|spawner|trial_spawner|vault|crafter|decorated_pot|chiseled_bookshelf)$/
 const ICE = /^(ice|frosted_ice)$/            // breaks into WATER over water; packed/blue ice do not and take the pocket rule
 const AIRLIKE = /^(air|cave_air|void_air)$/
 
@@ -363,7 +366,8 @@ export async function airPocketStep (bot, plan, { Vec3, predict, sleep = ms => n
  * DEEP WATER TOO (Paper sandbox 9ad287a/a56b648 A, sandbox2): with no floor the bot only floats at the pocket while
  * something holds jump; in 3 of 3 such trials the jump was dropped after success and the bot sank 6 blocks with Air at
  * 42-56 of 300 before the rescue caught it. So when the cell below is water the block is placed against a solid SIDE
- * wall of the column (`standRef`); only a cell with no solid neighbour at all is left alone.
+ * wall of the column (`standRef`); only a cell with no solid neighbour at all is left alone. Such a block has nothing
+ * under it, so it is never a falling block (`standCandidates`), and no reference is ever an interactive block.
  * Never throws. Returns 'none' | 'placed:N' | 'stopped:<why>'.
  *
  * NO PLACE AFTER RETURN (Codex r4): racing `bot.placeBlock` against a timeout bounds the WAIT, not the send --
@@ -380,8 +384,12 @@ export async function standInPocket (bot, plan, { fx, fy, fz, Vec3, sleep, now, 
     let placed = 0
     for (let k = 0; k < need; k++) {
       const cellY = fy + k
-      const item = standItem()
-      if (!item) return `stopped:no placeable block (${placed} placed)`
+      const pick = standRef({ below: bot.blockAt(new Vec3(fx, cellY - 1, fz)),
+                              sides: SIDES.map(([dx, dz]) => [dx, dz, bot.blockAt(new Vec3(fx + dx, cellY, fz + dz))]) })
+      if (!pick) return placed === 0 ? 'none' : `stopped:no reference for y=${cellY} (${placed} placed)`
+      const item = standItem({ unsupported: !pick.supported })
+      if (!item) return `stopped:no ${pick.supported ? '' : 'non-falling '}placeable block (${placed} placed)`
+      if (!pick.supported && FALLING.test(item.name || '')) return `stopped:${item.name} would fall (${placed} placed)`
       if (isAborted()) return `stopped:aborted: ${isAborted()} (${placed} placed)`
       try { await Promise.race([bot.equip(item, 'hand'), sleep(1500)]) } catch { /* verified by the gate */ }
       try { bot.setControlState('jump', true) } catch {}
@@ -389,9 +397,6 @@ export async function standInPocket (bot, plan, { fx, fy, fz, Vec3, sleep, now, 
       while (now() < by && bot.entity.position.y < cellY + 1.05 && !isAborted()) await sleep(50)
       if (isAborted()) return `stopped:aborted: ${isAborted()} (${placed} placed)`
       if (bot.entity.position.y < cellY + 1.05) return `stopped:did not rise above y=${cellY} (${placed} placed)`
-      const pick = standRef({ below: bot.blockAt(new Vec3(fx, cellY - 1, fz)),
-                              sides: SIDES.map(([dx, dz]) => [dx, dz, bot.blockAt(new Vec3(fx + dx, cellY, fz + dz))]) })
-      if (!pick) return placed === 0 ? 'none' : `stopped:no reference for y=${cellY} (${placed} placed)`
       const ref = bot.blockAt(new Vec3(fx + pick.dx, cellY + pick.dy, fz + pick.dz))
       const face = new Vec3(pick.face[0], pick.face[1], pick.face[2])
       try { await Promise.race([bot.lookAt(ref.position.offset(0.5 + face.x * 0.5, 0.5 + face.y * 0.5, 0.5 + face.z * 0.5), true), sleep(500)]) } catch { /* a late look moves only the head */ }
@@ -417,9 +422,19 @@ const SIDES = [[1, 0], [-1, 0], [0, 1], [0, -1]]
  * Returns the reference's offset from the cell and the face of the reference that touches the cell.
  */
 export function standRef ({ below, sides }) {
-  if (isSolid(below)) return { dx: 0, dy: -1, dz: 0, face: [0, 1, 0] }
-  for (const [dx, dz, b] of sides ?? []) if (isSolid(b)) return { dx, dy: 0, dz, face: [-dx, 0, -dz] }
+  const ok = b => isSolid(b) && !INTERACTIVE.test(b.name || '')
+  if (ok(below)) return { dx: 0, dy: -1, dz: 0, face: [0, 1, 0], supported: true }
+  for (const [dx, dz, b] of sides ?? []) if (ok(b)) return { dx, dy: 0, dz, face: [-dx, 0, -dz], supported: false }
   return null
+}
+
+/**
+ * Which held blocks the stand may place. Pure. A block placed against a WALL has water under it, so sand, gravel and
+ * every other falling block would drop through the column -- and the read-back could still see it solid for a moment
+ * and log placed:1 while the bot sinks (both r7 reviews). Unsupported places take only non-falling blocks.
+ */
+export function standCandidates (items, { unsupported = false } = {}) {
+  return (Array.isArray(items) ? items : []).filter(it => it?.name && !(unsupported && FALLING.test(it.name)))
 }
 
 /**
