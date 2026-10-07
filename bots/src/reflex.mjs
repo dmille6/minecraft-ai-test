@@ -10,7 +10,7 @@
 
 import { haltPath } from './pathhalt.mjs'
 import { activeReflexOf } from './pickuplog.mjs'   // telemetry only: names the arm for the pickup log
-import { applyToolPolicy, emptyHand, freeSlots, pickScaffold, scaffoldRank, tossAverted } from './toolfor.mjs'
+import { applyToolPolicy, emptyHand, freeSlots, pickScaffold, scaffoldRank, tossAverted, TOOL_HYGIENE, remaining, HARD_STOP } from './toolfor.mjs'
 import { AIR_SCALE, outOfScale } from './oxygen.mjs'
 import { log, logEvent } from './logger.mjs'
 import { config } from './config.mjs'
@@ -5222,7 +5222,10 @@ export function pocketPlanFor (bot, { blockAt = null } = {}) {
   const liquid = b => !!b && ['water', 'flowing_water', 'lava', 'flowing_lava', 'bubble_column'].includes(b.name)
   let floorY = null
   for (let dy = 1; dy <= 7; dy++) { if (solid(B(fx, feetY - dy, fz))) { floorY = feetY - dy; break } }
-  const tool = (bot.inventory?.items?.() ?? []).find(it => /_pickaxe$/.test(it.name)) ?? null
+  // TOOL HYGIENE: a copy above HARD_STOP first -- hygiene leaves more 1-use copies in bags (worn ones drained to 1 before
+  // spend_spent finishes them), and this took the first pickaxe by slot (Claude round 2). Off, or nothing better: as deployed.
+  const pickaxesHeld = (bot.inventory?.items?.() ?? []).filter(it => /_pickaxe$/.test(it.name))
+  const tool = (TOOL_HYGIENE.on ? pickaxesHeld.find(it => remaining(it) > HARD_STOP) : null) ?? pickaxesHeld[0] ?? null
   const passable = b => !b || b.boundingBox !== 'block'
   const need = floorY == null ? null : climbNeedAbove(B, { x: fx, y: floorY + 1, z: fz }, { cap: 24, passable })
   const firstDryY = (floorY == null || need == null || need >= 24) ? null : floorY + 1 + need

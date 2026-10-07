@@ -235,12 +235,14 @@ const isTool = it => !!(it?.name && TOOL_RE.test(it.name))
 const cheapestOpen = (items, hygiene = TOOL_HYGIENE.on) => {
   const list = (Array.isArray(items) ? items : []).filter(isTool)
   const pool = list.map(it => ({ it, r: remaining(it), tier: tier(it.name), name: it.name }))
-  const open = pool.filter(x => x.r > FLOOR || (hygiene && isPickaxe(x.name) && x.r > HARD_STOP && hasKeeper(x, pool, list)))
-  // The deployed order (cheapest tier, fullest first), THEN the most-worn copy of the same NAME for a pickaxe -- never a
-  // shift across kinds onto a pickaxe (Claude review, round 1: tier-then-wear put stone_pickaxe@15 ahead of stone_axe@100).
-  const first = open.sort((a, b) => (a.tier - b.tier) || (b.r - a.r))[0]
+  // THE DEPLOYED CHOICE FIRST (cheapest tier, fullest first, copies above FLOOR only), THEN for a pickaxe the most-worn
+  // copy of that same NAME that the hygiene rule opens. Never a shift across kinds or tiers (Claude rounds 1 and 2: a
+  // worn copy added before the sort put wooden_pickaxe@5 ahead of stone_axe@100), and never a copy at HARD_STOP.
+  const first = pool.filter(x => x.r > FLOOR).sort((a, b) => (a.tier - b.tier) || (b.r - a.r))[0]
   if (!first) return null
-  return (hygiene && isPickaxe(first.name) ? mostWornOfName(first, open) : first).it
+  if (!(hygiene && isPickaxe(first.name))) return first.it
+  const open = pool.filter(x => x.name === first.name && (x.r > FLOOR || (x.r > HARD_STOP && hasKeeper(x, pool, list))))
+  return mostWornOfName(first, open).it
 }
 
 /**
