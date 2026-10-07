@@ -636,6 +636,7 @@ await t('KIT: the bag emptied during an insert (a death) is never credited to th
   const row = (await rows('_compost')).at(-1)?.skill
   assert.ok(row.args.items.wildflowers <= 2, `credited ${row.args.items.wildflowers}: a death's loss is not the composter's`)
   assert.match(row.detail, /the_bag_changed_by_\d+_wildflowers_during_one_insert/)
+  assert.equal(row.args.incomplete, 1, 'the END bag is not the visit\'s own: the read must not judge a reserve on it')
 })
 
 await t('#2 compost uses the composter around HOME, never one that is merely near the bot', async () => {
