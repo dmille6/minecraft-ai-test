@@ -14,7 +14,7 @@ import { smeltRecipeFor } from './smelting.mjs'
 import { config } from './config.mjs'
 import { horizontalDistanceFromSpawn } from './state.mjs'
 import { shoreRoute } from './shore.mjs'
-import { bankableInventory, depositDue, depositPlan, depositNoopReason, DEPOSIT_ALWAYS } from './bankable.mjs'
+import { bankableInventory, depositDue, depositPlan, depositNoopReason, bankableExclusion, DEPOSIT_ALWAYS } from './bankable.mjs'
 import { bankClosed, bankClosedDetail, depositTargetOk } from './chestfull.mjs'
 import { resolveBlockName } from './drops.mjs'
 import { mineTargetOk, mineTargetCeiling } from './mining.mjs'
@@ -356,11 +356,15 @@ export class AdmissionControl {
       const bank = bankableInventory(items, { wants })
       // AN EMPTY REQUESTED PLAN IS REFUSED HERE, BEFORE ANY WALK (nojunk SYNTHESIS 10-04; Codex on the cobble rule 10-07):
       // `deposit cobblestone` with only reserve cobble, or a plain deposit with nothing bankable, names its rule now.
-      if (!depositPlan(items, args?.item ?? null, { wants }).length) {
+      // ...EXCEPT THE TOWN COBBLE CAP'S RECONCILIATION (cobblecap.mjs; both reviews r1): in town, cobble the cap cannot
+      // judge yet (a container never counted) is the one empty plan a deposit can change -- it counts the uncounted ones.
+      const reconcile = horizontalDistanceFromSpawn(bot.entity.position) <= 16 && (args?.item == null || /^(cobblestone|cobbled_deepslate)$/.test(args.item)) &&
+        ['cobblestone', 'cobbled_deepslate'].some(n => bankableExclusion(items, n, { wants }) === 'town_cobble_unknown')
+      if (!depositPlan(items, args?.item ?? null, { wants }).length && !reconcile) {
         return { ok: false, reason: 'deposit_nothing_to_bank', detail: depositNoopReason(items, args?.item ?? null, { wants }) }
       }
       const onDepositMilestone = this.activeMilestoneId === 'deposit_surplus'
-      const due = depositDue({
+      const due = reconcile || depositDue({
         bankable: bank.count,
         distHome: horizontalDistanceFromSpawn(bot.entity.position),
         // A DEEP container is not storage (chestfull-02, depositTargetOk): the deposit will not use it.
