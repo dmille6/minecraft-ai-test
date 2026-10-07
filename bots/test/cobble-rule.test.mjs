@@ -87,8 +87,8 @@ await t('THE TRANSFER: [64, 30] cobble -> the 30-stack is shift-clicked whole, 6
   assert.equal(cobbleIn(w.bag), 64, 'the reserve stayed')
   assert.equal(w.bag.filter(x => x?.name === 'cobblestone').length, 1, 'one cobble slot left: a slot was freed')
   const row = RECS.slice(n0).find(x => x.skill?.name === '_cobble_bank')
-  assert.ok(row, 'the row'); assert.match(row.skill.detail, /name=cobblestone planned=30 stacks=30 clicked=1 moved=30 kept=64 reserve=64 no_room=0/)
-  assert.ok(w.spy.clicks.some(([, , mode]) => mode === 1), 'by slot (shift-click), never chest.deposit')
+  assert.ok(row, 'the row'); assert.match(row.skill.detail, /^name=cobblestone planned=30 tried=30 moved=30 kept=64 src=\S+ reserve=64 no_room=0$/)
+  assert.equal(w.spy.transfers, 1, 'one transfer, narrowed to the 30-stack\'s slot (mineflayer\'s own transfer, as chest.deposit)')
 })
 
 await t('ROOM FIRST: a chest with room for only part of a stack takes NONE of it (a partial would free no slot); the chest-full path follows', async () => {
@@ -104,11 +104,41 @@ await t('ROOM FIRST: a chest with room for only part of a stack takes NONE of it
   assert.equal(r2.status, 'success', r2.detail); assert.equal(cobbleIn(ok.bag), 64)
 })
 
-await t('UNDER THE RESERVE NOTHING MOVES, and the refusal names the rule (no walk to a chest for it)', async () => {
+await t('UNDER THE RESERVE NOTHING MOVES, and the refusal names the rule', async () => {
   const w = town([stack('cobblestone', 50)])
   const r = await SKILLS.deposit.run({ bot: w.bot }, { item: 'cobblestone' }, new AbortController().signal)
   assert.equal(cobbleIn(w.bag), 50)
-  assert.match(r.detail ?? '', /cobble reserve|nothing/, JSON.stringify(r))
+  assert.match(r.detail ?? '', /cobble reserve/, JSON.stringify(r))
+})
+
+await t('COBBLE NEVER GROWS THE BANK (the 10-04 SYNTHESIS; both reviews): a full chest and a cobble-only plan -> no recovery, no chest placed, no closure', async () => {
+  const w = town([stack('cobblestone', 64), stack('cobblestone', 64), stack('chest', 1)])
+  w.fill(5, 64, 0, 'stone', 64)
+  const n0 = RECS.length
+  const r = await run(w.bot)
+  assert.equal(r.status, 'no_effect', JSON.stringify(r)); assert.match(r.detail, /cobble never opens a new chest/)
+  assert.equal(w.spy.placed.length, 0, 'no chest placed'); assert.equal(w.bag.filter(Boolean).find(x => x.name === 'chest')?.count, 1)
+  assert.equal(RECS.slice(n0).filter(x => x.skill?.name === '_deposit_new_chest').length, 0)
+  assert.ok(!w.bot.bankClosed, 'the bank stays open')
+  assert.match(RECS.slice(n0).find(x => x.skill?.name === '_cobble_bank')?.skill?.detail ?? '', /moved=0 .* no_room=1$/)
+  // positive control: the same full chest with an oak_log stack to bank DOES go to the recovery (the existing behaviour)
+  const o = town([stack('oak_log', 64), stack('chest', 1)])
+  o.fill(5, 64, 0, 'stone', 64)
+  const r2 = await run(o.bot)
+  assert.notEqual(r2.detail, r.detail); assert.doesNotMatch(r2.detail ?? '', /cobble never opens/)
+})
+
+await t('NOTHING BANKABLE IS NEVER DUE, and admission refuses an empty requested plan before any walk (the SYNTHESIS item both reviews asked for)', async () => {
+  assert.equal(B.depositDue({ bankable: 0, distHome: 3, storageWithin48: true, occupiedSlots: 36 }), false)
+  assert.equal(B.depositDue({ bankable: 30, distHome: 3, storageWithin48: true, occupiedSlots: 36 }), true, 'positive control')
+  const { AdmissionControl } = await import('../src/admission.mjs')
+  const { Lessons } = await import('../src/lessons.mjs')
+  const ac = new AdmissionControl(new Lessons(path.join(os.tmpdir(), `mcai-cobble-lessons-${process.pid}.json`)))
+  const w = town([stack('cobblestone', 50), stack('oak_log', 20)])
+  const r = ac.check({ skill: 'deposit', args: { item: 'cobblestone' } }, w.bot, null)
+  assert.equal(r.ok, false, JSON.stringify(r)); assert.equal(r.reason, 'deposit_nothing_to_bank'); assert.match(r.detail, /cobble reserve/)
+  const ok = ac.check({ skill: 'deposit', args: { item: 'oak_log' } }, w.bot, null)
+  assert.equal(ok.ok, true, `positive control: the logs are admitted: ${JSON.stringify(ok)}`)
 })
 
 console.log(`\n${pass} passed, ${fail} failed`)

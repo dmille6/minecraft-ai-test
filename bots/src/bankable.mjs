@@ -283,6 +283,9 @@ export function clearWithdrawHolds () { HOLDS = {} }
 export function depositDue ({ bankable, distHome, storageWithin48 = false,
                               onDepositMilestone = false, occupiedSlots = 0,
                               minBankable = 12, nearHome = 96 }) {
+  // NOTHING BANKABLE IS NEVER DUE (nojunk SYNTHESIS: reject an empty plan before walking; both reviews of the cobble rule,
+  // which makes it common -- a full bag whose cobble is all reserve): at 30+ slots this said "deposit" with 0 bankable.
+  if (!(bankable > 0)) return false
   if (bankable < minBankable && occupiedSlots < 30) return false
   return !!storageWithin48 || distHome <= nearHome || !!onDepositMilestone
 }

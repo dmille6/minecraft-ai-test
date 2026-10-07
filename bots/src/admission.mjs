@@ -14,7 +14,7 @@ import { smeltRecipeFor } from './smelting.mjs'
 import { config } from './config.mjs'
 import { horizontalDistanceFromSpawn } from './state.mjs'
 import { shoreRoute } from './shore.mjs'
-import { bankableInventory, depositDue, DEPOSIT_ALWAYS } from './bankable.mjs'
+import { bankableInventory, depositDue, depositPlan, depositNoopReason, DEPOSIT_ALWAYS } from './bankable.mjs'
 import { bankClosed, bankClosedDetail, depositTargetOk } from './chestfull.mjs'
 import { resolveBlockName } from './drops.mjs'
 import { mineTargetOk, mineTargetCeiling } from './mining.mjs'
@@ -354,6 +354,11 @@ export class AdmissionControl {
       const wants = [...(wanted ? [wanted].flat() : []), ...DEPOSIT_ALWAYS]
       bot.currentWants = wants
       const bank = bankableInventory(items, { wants })
+      // AN EMPTY REQUESTED PLAN IS REFUSED HERE, BEFORE ANY WALK (nojunk SYNTHESIS 10-04; Codex on the cobble rule 10-07):
+      // `deposit cobblestone` with only reserve cobble, or a plain deposit with nothing bankable, names its rule now.
+      if (!depositPlan(items, args?.item ?? null, { wants }).length) {
+        return { ok: false, reason: 'deposit_nothing_to_bank', detail: depositNoopReason(items, args?.item ?? null, { wants }) }
+      }
       const onDepositMilestone = this.activeMilestoneId === 'deposit_surplus'
       const due = depositDue({
         bankable: bank.count,
