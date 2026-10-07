@@ -3083,6 +3083,7 @@ const capInst = bot => bot?.cobbleInst ?? INSTANCE
 /** A dead predecessor's claims are voided once this connection is logged in (cobblecap.mjs voidOwnClaims). -> true when done. */
 export function cobbleVoidStale (bot) {
   try {
+    if (bot?.cobbleEnded) return false                                      // an ENDED connection never voids (Codex r7 P1)
     if (!bot?.entity || bot.username == null) return false                 // not logged in yet: the predecessor may still be
     const n = voidOwnClaims(townDir(), homeTownKey(), bot.worldId ?? null, { bot: bot.username, inst: capInst(bot) })
     if (n > 0) capEpoch++
