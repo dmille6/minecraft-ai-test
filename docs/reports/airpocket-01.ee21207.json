@@ -1,0 +1,173 @@
+{
+ "run_id": "airpocket-01",
+ "sha": "ee21207",
+ "registered_at": "2026-10-07T23:00:00Z",
+ "ladder_change": false,
+ "promotion": "fleet-wide",
+ "notes": "[airpocket-01 = THE AIR-POCKET DIG STEP inside the drowning rescue (underground-safety phase 2 canary 1; OWNER approved 10-07 ~19:45Z). Variant for fleet c6e91a8: branch ap-on-c6e91a8 @ ee21207. Design docs/reports/airpocket-design-2026-10-07.md; evidence docs/reports/underground-safety-phase2-2026-10-07.md. NOT launched, NOT chained.] THE CHANGE (bots/src/airpocket.mjs + reflex.mjs wiring): a capped drowning rescue (route not `up`; at once when SEALED, else after 8 s) plans the first non-water cell within 2 of the head: a solid, non-falling, diggable roof cell with no liquid/falling/unknown on its sides or above (a dug cell above a submerged head stays air -- Paper sandbox2 10-07), or plain ice with air above (AP_ICE_ENABLED). Admission: predictedDigMs(fastest tool) x1.5 + 3 s <= (health - 4) / envelope, envelope 0.5 HP/s on peaceful without Hunger, else 2.0 (the pre-empt of an in-flight escape prices the worst case, floating). The dig is sent inside the step or never (bounded look, digGate, forceLook 'ignore'); a standing bot digs with jump released, a floating one with it held; a 250-ms watch aborts on > 7 HP lost in 10 s or the budget; success = eye in air 2 s AND health rising or at max. After success the bot STANDS with its eye in the pocket: 1-3 non-interactive-referenced scaffold blocks placed under it (floor, or a side wall with non-falling blocks only), each read back; escapes wait 10 s. The tick returns at the top while it runs; success or an opened pocket clears the rescue's fail memory. Rows only this build writes: _air_pocket_start, _air_pocket, _air_pocket_refused, _air_pocket_preempt.",
+ "licence": {
+  "class": "kind",
+  "kind": "_air_pocket",
+  "min_rows": 1,
+  "note": "Written only by this build, one row per attempt (and _air_pocket_refused per refusal, throttled). The fleet build has neither."
+ },
+ "reads": [
+  "airpocketread",
+  "immobiledid"
+ ],
+ "read_minutes": [
+  180,
+  360
+ ],
+ "deadline_min": 1680,
+ "change_rows": [],
+ "linkage_extra": [
+  {
+   "kind": "_air_pocket",
+   "window_s": 120,
+   "note": "A death within 120 s after the same bot's _air_pocket row is mechanism-linked (adaptive death rule, owner 10-07)."
+  }
+ ],
+ "draw_exposure": {
+  "hours": 12,
+  "require": [
+   {
+    "name": "sealed no-air ceilings",
+    "kind": "drowning_ceiling_no_air",
+    "detail_contains": "(oxygen 0,",
+    "min": 3
+   },
+   {
+    "name": "a drowning",
+    "kind": "death",
+    "detail_contains": "drowned",
+    "min": 1
+   }
+  ],
+  "note": "Each drawn pool must have REAL sealed drownings (air out: the oxygen filter drops stuck full-oxygen bots, e.g. placebo-b's 27 ceilings at oxygen 20). On 10-07 13-20Z: hive-c, hive-d, hive-b, placebo-a, placebo-d qualify. CLAUDE.md: a canary pool must contain the population the fix targets."
+ },
+ "exposure": {
+  "read": "airpocketread",
+  "field": "exposure_ready",
+  "min": 1,
+  "note": "Ready = >= 2 MATURE canary attempts (start+end rows, 120-s follow-up inside the window) AND both control instruments visible (capped rescues >= 1, no-air sealed ceilings >= 1). Expected ~2-6 attempts per 6 h on pools that pass draw_exposure (dry run: hive-c+hive-d 16 no-air ceilings in ~60 bot-h), ~1 on average pools."
+ },
+ "own_lines": [
+  {
+   "read": "airpocketread",
+   "field": "breach_false_success",
+   "op": "<=",
+   "value": 0,
+   "on_fail": "REVERT",
+   "evidence": "defect",
+   "note": "C1: a canary _air_pocket success followed by the same bot's DROWNING death within 120 s."
+  },
+  {
+   "read": "airpocketread",
+   "field": "breach_dug_into_danger",
+   "op": "<=",
+   "value": 0,
+   "on_fail": "REVERT",
+   "evidence": "defect",
+   "note": "C2: a lava/fire or suffocation death, or a lava danger-block row, within 30 s after any canary _air_pocket row."
+  },
+  {
+   "read": "airpocketread",
+   "field": "breach_reserve_spent",
+   "op": "<=",
+   "value": 0,
+   "on_fail": "REVERT",
+   "evidence": "defect",
+   "note": "C3: an attempt that did not succeed ending below 3 HP, or ANY death between its _air_pocket_start and _air_pocket rows (the 4 HP reserve must survive an abort)."
+  },
+  {
+   "read": "airpocketread",
+   "field": "breach_up_trigger",
+   "op": "<=",
+   "value": 0,
+   "on_fail": "REVERT",
+   "evidence": "defect",
+   "note": "C4: an attempt whose trigger_route is up (the swim was working)."
+  },
+  {
+   "read": "airpocketread",
+   "field": "breach_envelope",
+   "op": "<=",
+   "value": 0,
+   "on_fail": "REVERT",
+   "evidence": "defect",
+   "note": "C5: envelope 0.5 on a world that is not peaceful."
+  },
+  {
+   "read": "airpocketread",
+   "field": "breach_unparsed",
+   "op": "<=",
+   "value": 0,
+   "on_fail": "REVERT",
+   "evidence": "defect",
+   "note": "C0: an _air_pocket row with a missing/non-finite required field or no start row, or a start row with no end row while the bot kept logging for 120 s (unfinished). The gates above would read such rows as clean."
+  },
+  {
+   "read": "airpocketread",
+   "field": "rows_control",
+   "op": "<=",
+   "value": 0,
+   "on_fail": "REVERT",
+   "note": "Arms. BLOCKS KEEP."
+  },
+  {
+   "read": "airpocketread",
+   "field": "rows_canary",
+   "op": ">=",
+   "value": 1,
+   "on_fail": "REVERT",
+   "note": "LIVENESS: canary _air_pocket + _air_pocket_refused rows. BLOCKS KEEP (INCONCLUSIVE)."
+  },
+  {
+   "read": "airpocketread",
+   "field": "instrument_noair_control",
+   "op": ">=",
+   "value": 1,
+   "on_fail": "REVERT",
+   "note": "POSITIVE CONTROL: the control's no-air sealed ceilings (oxygen <= 0) are visible. BLOCKS KEEP."
+  },
+  {
+   "read": "airpocketread",
+   "field": "successes_canary",
+   "op": ">=",
+   "value": 1,
+   "on_fail": "REVERT",
+   "note": "A KEEP needs >= 1 canary success: attempts that never work are INCONCLUSIVE, not a pass. BLOCKS KEEP (INCONCLUSIVE)."
+  },
+  {
+   "read": "airpocketread",
+   "field": "instrument_capped_control",
+   "op": ">=",
+   "value": 1,
+   "on_fail": "REVERT",
+   "note": "POSITIVE CONTROL: the control's capped rescues (_drowning_route sealed/unscanned/out) are visible. BLOCKS KEEP."
+  }
+ ],
+ "primary": {
+  "read": "airpocketread",
+  "field": "drown_death_did",
+  "note": "REPORTED, NOT GATED: attempts by outcome/kind, refusal reasons, predicted vs actual dig ms; DiDs of capped rescues, no-air ceilings, drowning deaths, all deaths, entombed+marooned rows and mine rows per bot-h; drowning deaths per capped rescue. POWER: no death endpoint is readable at 10 bots x 6 h (~0.8 drownings expected); the effect rests on the Paper sandbox scenes and the per-attempt gates."
+ },
+ "harm": {
+  "note": "The death gate (two-death floor, OWNER 2026-09-11) and gather_ratio < 0.43 of control, from immobiledid, with the ADAPTIVE rule (OWNER 10-07): a trip with zero mechanism-linked deaths (linkage_extra) extends to 24 h on 20 bots under the three-part rule instead of an automatic revert. LAUNCH PRECONDITION: that extension tooling exists. The cross-sectional gate is biased for this draw: draw_exposure picks pools that drown more, and the base build on hive-c+hive-d in the dry run had 4 deaths at 0.067/bot-h vs control 0.021 (3.2x) -- a no-change canary drawn this way would trip on its own baseline."
+ },
+ "teardown": {
+  "note": "THREE STEPS: drop-ins, clear canary_pool, restart the pool's bots 12 s apart; then confirm the live versions. Bots dig roof cells and place 1-3 scaffold blocks in survival; no admin world state is created."
+ },
+ "extension": {
+  "until_exposure": true,
+  "extra_reads": [
+   540,
+   720,
+   1080,
+   1560
+  ],
+  "final_on_zero_exposure": "INCONCLUSIVE",
+  "note": "Short canary for a fix-shaped change (owner 2026-09-29)."
+ }
+}
