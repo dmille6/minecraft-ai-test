@@ -5632,7 +5632,7 @@ async function compost(ctx, _args, signal) {
   // insert was in flight -- its NAME, flagged incomplete. Never reconciled from the bag after the stop: a death, a
   // disconnect or a late inventory update would be counted as composted (Codex r3). The read treats the name as maybe
   // composted and does not judge a reserve on such a row.
-  let inflight = null
+  let inflight = null, changed = null   // changed: the bag fell by more than one use could take (Claude r4: incomplete)
   try {
     if (bot.entity.position.distanceTo(centre) > STATION_REACH) {
       try { await composterWalk(bot, () => g.bound(bot.pathfinder.goto(new goals.GoalNear(pos.x, pos.y, pos.z, 2)), HK_PATH_MS, 'pathfinding', { path: true })) } catch (e) { if (e?.aborted || signal?.aborted) throw e }
@@ -5705,7 +5705,7 @@ async function compost(ctx, _args, signal) {
       if (after >= before) { await ticks(4); after = countOf(stack.name) }
       // ONE USE CONSUMES ONE ITEM (vanilla ComposterBlock: itemStack.consume(1)). A larger fall is not the composter's --
       // a death, a toss, a server resync -- so it is never credited, and the visit stops (Codex review r3).
-      if (before - after > 1) { inflight = null; stop = `the bag changed by ${before - after} ${stack.name} during one insert`; break }
+      if (before - after > 1) { changed = stack.name; inflight = null; stop = `the bag changed by ${before - after} ${stack.name} during one insert`; break }
       if (after < before) {
         taken[stack.name] = (taken[stack.name] ?? 0) + (before - after); inserted += before - after; misses = 0
         // THE LEVELS AN APPLE RAISED (the peaceful food policy's bone meal: apple_levels / 7). Inside the success branch, so
@@ -5727,7 +5727,7 @@ async function compost(ctx, _args, signal) {
   }
   const n = Object.values(taken).reduce((a, b) => a + b, 0)
   const slotsAfter = items().length
-  const f = { levelBefore, levelAfter: composterLevel(at()), bonemeal, items: taken, stop: stop ?? 'done', appleLevels: taken.apple ? appleLevels : null }
+  const f = { levelBefore, levelAfter: composterLevel(at()), bonemeal, items: taken, stop: stop ?? 'done', appleLevels: taken.apple ? appleLevels : null, inflight: changed }
   if (n || bonemeal) {
     row('success', f)
     return { status: 'success',
