@@ -138,6 +138,21 @@ the same farm: ctrl 15,16 logs vs cand 21,23 (no harm). Bone meal arm built, OFF
 Bags: 76/80 bots hold >= 6 farm saplings, 62/80 carry torches. Design + follow-ons (WORKSHOP, SAFE MINESHAFT, designed
 not built): docs/reports/blueprint-builder-design-2026-10-05.md.
 
+## 10-07 18:00Z — BAG CENSUS + OWNER: "i want all of those things done and queued" (six bag fixes)
+Census 17:00Z (scripts/host/bagcensus.py, bagcost.py; slots = ceil(count/stack)): 2,752 of 2,880 slots used (96%), median
+35/36, 37 bots full. Unneeded in peaceful (~15 slots/bot): owner junk ~375 slots, decorations ~300, food ~200, swords 123
+(all ~100% durability), stone pickaxes 250 (148 at <= 10% left; 211 crafted today vs 13 iron), bamboo 104. Items gained
+per bot-h by fullness since 13:00Z: <=30 slots 106.9 (32.1 bot-h), 31-33 97.9 (50.9), 34-36 58.2 (228.6) -- correlational.
+Rows naming a full bag in 4 h: craft 600, _ore_tunnel 149, gather 149.
+APPROVED + being built (3 agents, own worktrees, both engines, sandbox-proven, dual variants c6e91a8/92bc84f):
+toolhygiene (no redundant tool/station crafts; most-worn usable pickaxe for low-tier blocks), peacefulkit (swords under
+the peaceful switch: no craft/chase, banked; composter takes melon/kelp/mushrooms/seeds/flowers/leaf litter/surplus
+saplings), junkwell-02 (owner junk + decorations), gridfix -> bamboo rebases, cobble rule (256/town).
+QUEUE: towndeposit-02 (>= 19:45Z) -> withdraw2 -> toolhygiene -> peacefulkit -> junkwell-02 -> gridfix -> bamboo ->
+cobble -> treefarm. Plus the restart-contamination preflight (Codex) before the next launch that needs it.
+RISK NOTED: emptier bags send bots back to mining (junkwell-01's revert mechanism); reads must report mine actions/bot and
+underground deaths by mechanism.
+
 ## 10-07 17:30Z — TOWNDEPOSIT-01 REVERTED (+180, guard v11 climbs +239%); towndeposit-02 = identical re-run, launches >= 19:45Z
 Feature gates at +180 all 0 breaches; 12/20 full-bag town stays served; slots/bot DiD -0.57, share>=34 DiD -0.087; deaths
 1 (0.033/bh) vs control 0.047/bh. The trip: climb firings (_entombed+_marooned)/bot-h canary 3.2 -> 7.8, control 11.0 -> 7.9.
