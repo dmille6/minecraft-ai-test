@@ -719,6 +719,31 @@ await t('CAP r6: a failed void through the INSTALLED reader is retried by the ne
     assert.equal(w.bot.cobbleVoided, true); assert.equal(CC.readTown(process.env.POOL_STATE_DIR, TK()).claims.pred.state, 'void')
   } finally { B.setCobbleTownReader(null); B.setCobbleReconcileProbe(null) }
 })
+await t('CAP r7: a SUPERSEDED connection never voids its successor (Codex r7 P1): failed first void -> reconnect -> successor claims -> the old one retries', async () => {
+  const w = capTown([stack('cobblestone', 64), stack('cobblestone', 30)], 150)
+  w.bot.username = 'CobbleBot'
+  installCobbleCap(w.bot)                                                      // connection 1
+  const w2 = fakeWorld({ bag: [stack('cobblestone', 64)] }); w2.set(5, 64, 0, 'chest'); w2.bot.username = 'CobbleBot'
+  try {
+    await countAt(w, 5, 64, 0)
+    const jf = path.join(process.env.POOL_STATE_DIR, `${TK()}.cobble.jsonl`)
+    fs.chmodSync(jf, 0o444)
+    try { assert.equal(S2.cobbleVoidStale(w.bot), false, 'connection 1\'s first void failed') } finally { fs.chmodSync(jf, 0o644) }
+    installCobbleCap(w2.bot)                                                   // connection 2 (the reconnect)
+    assert.ok(CC.instOrder(w2.bot.cobbleInst)[1] > CC.instOrder(w.bot.cobbleInst)[1])
+    assert.equal(S2.cobbleVoidStale(w2.bot), true)
+    assert.equal(CC.claimStack(process.env.POOL_STATE_DIR, TK(), null, { id: 's1', n: 64, k: '5,64,0', bot: 'CobbleBot', keys: ['5,64,0'], coverage: true, inst: w2.bot.cobbleInst }).decision, 'bank')
+    w.bot.cobbleEnded = true
+    assert.equal(S2.cobbleVoidStale(w.bot), false, 'an ended connection never voids')
+    w.bot.cobbleEnded = false                                                  // not yet seen to end (the residual window)
+    CC.voidOwnClaims(process.env.POOL_STATE_DIR, TK(), null, { bot: 'CobbleBot', inst: w.bot.cobbleInst })   // it writes a void anyway
+    const st = CC.readTown(process.env.POOL_STATE_DIR, TK())
+    assert.equal(st.claims.s1.state, 'live', 'the older connection\'s void is ignored: the successor\'s claim stays live')
+    assert.equal(st.fence.CobbleBot, w2.bot.cobbleInst, 'and the fence stays with the successor')
+    CC.voidOwnClaims(process.env.POOL_STATE_DIR, TK(), null, { bot: 'CobbleBot', inst: `${Date.now() + 1000}-1-z-c1` })
+    assert.equal(CC.readTown(process.env.POOL_STATE_DIR, TK()).claims.s1.state, 'void', 'positive control: a NEWER login does void it')
+  } finally { B.setCobbleTownReader(null); B.setCobbleReconcileProbe(null) }
+})
 
 console.log(`\n${pass} passed, ${fail} failed`)
 process.exit(fail ? 1 : 0)

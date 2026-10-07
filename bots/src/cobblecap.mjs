@@ -47,7 +47,19 @@ export const OBS_TTL_MS = 6 * 60 * 60 * 1000
 export const JOURNAL_MAX_BYTES = 32 * 1024 * 1024
 /** This process. Each CONNECTION gets its own instance below it (skills.mjs installCobbleCap: `${INSTANCE}-c<n>`, Codex r6
  *  P1: a reconnect inside one process is a new login, and the old connection's late callbacks must be fenceable). */
-export const INSTANCE = `${process.pid}-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 7)}`
+export const INSTANCE = `${Date.now()}-${process.pid}-${Math.random().toString(36).slice(2, 7)}`
+/**
+ * WHICH LOGIN IS NEWER -> [process start ms, connection n] for an instance `<ms>-<pid>-<rand>[-c<n>]`. Anything else (an
+ * older format, a test's name) is the oldest. A void from an instance OLDER than the bot's current fence is ignored
+ * (Codex r7 P1: a superseded connection retrying its void must never void its successor's claims or move the fence back).
+ */
+export function instOrder (inst) {
+  const parts = String(inst ?? '').split('-')
+  const ms = Number(parts[0])
+  const c = /^c(\d+)$/.exec(parts[parts.length - 1] ?? '')
+  return [Number.isFinite(ms) && parts.length >= 3 ? ms : -Infinity, c ? Number(c[1]) : 0]
+}
+const olderInst = (a, b) => { const x = instOrder(a), y = instOrder(b); return x[0] < y[0] || (x[0] === y[0] && x[1] < y[1]) }
 const COBBLE = new Set(['cobblestone', 'cobbled_deepslate'])
 export const isCobbleName = n => COBBLE.has(n)
 
@@ -183,6 +195,7 @@ export function foldJournal (records = [], { upto = null, state: from = null, se
       if (decision === 'bank') state.claims[r.id] = { n: Number(r.n) || 0, k: r.k, at: r.at, bot: r.bot ?? null, inst: r.inst ?? null, decision, state: 'live', voidAt: null, voidSeq: null }
       if (upto != null && r.id === upto) return { state, decision, view, seq }
     } else if (t === 'void') {
+      if (r.bot != null && state.fence[r.bot] && r.inst !== state.fence[r.bot] && olderInst(r.inst, state.fence[r.bot])) continue   // superseded
       if (r.bot != null && r.inst != null) state.fence[r.bot] = r.inst
       for (const id of (r.ids ?? [])) { const c = state.claims[id]; if (c && c.state === 'live') { c.state = 'void'; c.voidAt = Number(r.at) || 0; c.voidSeq = seq } }
     }
