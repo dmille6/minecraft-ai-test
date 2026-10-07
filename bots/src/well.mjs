@@ -49,32 +49,97 @@ const ADMISSION_RADIUS_FOR_SITE = 5
  * cobblestone, ballast, tools, food, wood, saplings, ores, and nothing the composter takes (it is live fleet-wide and
  * handles plant litter). The allowlist IS the safety; isWellJunk re-checks it against the guards below.
  */
-export const WELL_JUNK = Object.freeze(new Set([
-  'egg', 'brown_egg', 'blue_egg', 'flint', 'clay_ball', 'ink_sac', 'glow_ink_sac', 'armadillo_scute',
-  'dead_bush', 'pointed_dripstone', 'rail',
-]))
+export const OWNER_JUNK_1004 = Object.freeze(['egg', 'brown_egg', 'blue_egg', 'flint', 'clay_ball', 'ink_sac', 'glow_ink_sac',
+  'armadillo_scute', 'dead_bush', 'pointed_dripstone', 'rail'])
 
-/** Belt and braces: never disposed whatever a list says. */
-const NEVER_DISPOSE = /(_(pickaxe|axe|shovel|hoe|sword)$|_log$|_wood$|_stem$|_planks$|_sapling$|_propagule$|_ore$|^raw_|_ingot$|^(cobblestone|cobbled_deepslate|stone|dirt|andesite|diorite|granite|tuff|gravel|sand|netherrack|calcite|deepslate)$|^(apple|bread|carrot|potato|baked_potato|beetroot|melon_slice|sweet_berries|glow_berries|cookie)$|^(cooked_)?(beef|porkchop|chicken|mutton|rabbit|cod|salmon)$|^(stick|coal|charcoal|torch|crafting_table|chest|bone_meal|bamboo)$)/
+const DECO_WOODS = ['oak', 'spruce', 'birch', 'jungle', 'acacia', 'cherry', 'dark_oak', 'pale_oak', 'mangrove', 'bamboo', 'crimson', 'warped']
+const COLOURS = ['white', 'orange', 'magenta', 'light_blue', 'yellow', 'lime', 'pink', 'gray', 'light_gray', 'cyan', 'purple', 'blue',
+  'brown', 'green', 'red', 'black']
+
+/**
+ * OWNER 10-07 DECORATIONS ("yes": pointed_dripstone, diorite, granite, andesite, buttons, rails, leads, wool, glass, bricks,
+ * stone_bricks "and similar"). Built from the 10-07 17:00Z bag census (80 bots; ~300 decoration slots) and checked against
+ * every consumer in bots/src (recipes, craftplan/milestones, smelting fuel, composter build, scaffold/pillar/rescue
+ * block lists, exit contract, bankable/towndeposit keeps) and the tree-farm blueprint (bp-on-1918bb5: torches, saplings,
+ * dirt, bone meal only). Each has NO consumer:
+ *   glass, glass_pane, stained glass + panes   smelting.mjs MAKES glass from sand; nothing uses it (census 59 slots)
+ *   wool (16 colours)                          no recipe the fleet runs; the sleep skill uses a BED it carries, never wool
+ *   buttons, pressure plates (wood + stone)    not fuel here (smelting.mjs FUEL_ORDER: coal, kelp block, bamboo, planks,
+ *                                              logs, sticks) and no recipe input
+ *   rails (powered, detector, activator)       'rail' was already listed; the metal in them cannot be recovered
+ *   lead                                       no use
+ *   brick, bricks, mossy/cracked/chiseled stone bricks   smelting MAKES brick from clay; nothing uses either
+ *   polished andesite/diorite/granite, smooth_basalt, polished_tuff, tuff_bricks, chiseled_tuff_bricks   on no
+ *                                              scaffold, pillar, rescue or stockpile list (those name the raw blocks)
+ *   wooden fences (+ nether_brick_fence)       not fuel here, not a recipe input the fleet runs
+ * NOT LISTED, ON PURPOSE: wooden SLABS (the composter is crafted from 7 -- composter.mjs townBuildPlan), trapdoors (the
+ * well is built from them), beds (the sleep skill), doors and stairs (one slot fleet-wide each), sandstone (a rescue and
+ * pillar block in desert worlds), calcite and tuff (raw ballast the stone rung counts), magma_block, amethyst, and
+ * anything compostable (flowers, moss, wildflowers: the composter's -- isWellJunk refuses those anyway).
+ */
+export const DECORATIONS = Object.freeze([
+  'glass', 'glass_pane', ...COLOURS.map(c => `${c}_stained_glass`), ...COLOURS.map(c => `${c}_stained_glass_pane`),
+  ...COLOURS.map(c => `${c}_wool`),
+  ...DECO_WOODS.map(w => `${w}_button`), 'stone_button', 'polished_blackstone_button',
+  ...DECO_WOODS.map(w => `${w}_pressure_plate`), 'stone_pressure_plate', 'polished_blackstone_pressure_plate',
+  'powered_rail', 'detector_rail', 'activator_rail',
+  'lead',
+  'brick', 'bricks', 'mossy_stone_bricks', 'cracked_stone_bricks', 'chiseled_stone_bricks',
+  'polished_andesite', 'polished_diorite', 'polished_granite', 'smooth_basalt', 'polished_tuff', 'tuff_bricks', 'chiseled_tuff_bricks',
+  ...DECO_WOODS.map(w => `${w}_fence`), 'nether_brick_fence',
+])
+
+/**
+ * SCAFFOLD-CAPABLE DECORATIONS (owner 10-07: diorite, granite, andesite, stone_bricks "and similar"). These ARE used:
+ * mineflayer-pathfinder builds with them (scaffold.mjs PATHFINDER_SCAFFOLD), the pillar and rescue reflexes place them
+ * (reflex.mjs PLACEABLE, skills.mjs RESCUE_BLOCK), and the exit contract counts the raw three as climb-out blocks
+ * (exit-contract.mjs scaffoldCount). So they go down the well ONLY while the bag also holds STONE_GUARD cobblestone +
+ * cobbled_deepslate, which every one of those lists accepts and which covers the exit contract's reserve for an
+ * iron-depth descent (y 16 at sea level 63: debt 47 + reserve 12 = 59 blocks). Below the guard they stay as scaffold.
+ */
+export const SCAFFOLD_DECORATIONS = Object.freeze(['andesite', 'diorite', 'granite', 'stone_bricks', 'mossy_cobblestone', 'smooth_stone'])
+export const STONE_GUARD = 64
+const GUARD_STONE = new Set(['cobblestone', 'cobbled_deepslate'])
+const SCAFFOLD_DECO = new Set(SCAFFOLD_DECORATIONS)
+
+export const WELL_JUNK = Object.freeze(new Set([...OWNER_JUNK_1004, ...DECORATIONS, ...SCAFFOLD_DECORATIONS]))
+
+/** Belt and braces: never disposed whatever a list says. (andesite, diorite and granite left this guard on the owner's
+ *  10-07 "yes"; STONE_GUARD holds them back instead.) */
+const NEVER_DISPOSE = /(_(pickaxe|axe|shovel|hoe|sword)$|_log$|_wood$|_stem$|_planks$|_sapling$|_propagule$|_ore$|^raw_|_ingot$|_slab$|_trapdoor$|_bed$|^(cobblestone|cobbled_deepslate|stone|dirt|tuff|gravel|sand|netherrack|calcite|deepslate|sandstone|red_sandstone)$|^(apple|bread|carrot|potato|baked_potato|beetroot|melon_slice|sweet_berries|glow_berries|cookie)$|^(cooked_)?(beef|porkchop|chicken|mutton|rabbit|cod|salmon)$|^(stick|coal|charcoal|torch|crafting_table|chest|bone_meal|bamboo)$)/
 
 /** May this item go down the well? On the list, AND not a guarded kind, AND not something the composter takes. */
 export function isWellJunk (name) {
   return typeof name === 'string' && WELL_JUNK.has(name) && !NEVER_DISPOSE.test(name) && !isCompostJunk(name)
 }
 
+/** cobblestone + cobbled_deepslate in a bag (mineflayer Items or { name, count }). */
+export function guardStone (items = []) {
+  let n = 0
+  for (const it of (Array.isArray(items) ? items : [])) if (it?.name && GUARD_STONE.has(it.name)) n += Number(it.count) || 0
+  return n
+}
+
+/** May THIS stack go down the well from THIS bag? isWellJunk, and a scaffold-capable decoration only at STONE_GUARD+. */
+export function disposableIn (name, items = []) {
+  if (!isWellJunk(name)) return false
+  return !SCAFFOLD_DECO.has(name) || guardStone(items) >= STONE_GUARD
+}
+
 /** At most this many stacks per visit: one click each, and the open window should stay short. */
 export const MAX_STACKS_PER_VISIT = 9
 
 /**
- * disposePlan(items) -> { slots, junkStacks, stacks: [{ slot, name, count }] }. Pure.
- * WHOLE stacks of listed junk only (a whole stack is a whole slot freed), in slot order, at most MAX_STACKS_PER_VISIT.
+ * disposePlan(items) -> { slots, junkStacks, stone, stacks: [{ slot, name, count }] }. Pure.
+ * WHOLE stacks of listed junk only (a whole stack is a whole slot freed), in slot order, at most MAX_STACKS_PER_VISIT;
+ * a scaffold-capable decoration only while the bag holds STONE_GUARD guard stone (`stone`, written on the row).
  * `junkStacks` counts every listed stack in the bag (what the trigger reads).
  */
 export function disposePlan (items = [], { maxStacks = MAX_STACKS_PER_VISIT } = {}) {
   const list = (Array.isArray(items) ? items : []).filter(it => it?.name && (it.count ?? 0) > 0)
-  const junk = list.filter(it => isWellJunk(it.name) && Number.isInteger(it.slot))
+  const junk = list.filter(it => disposableIn(it.name, list) && Number.isInteger(it.slot))
     .sort((a, b) => a.slot - b.slot)
-  return { slots: list.length, junkStacks: junk.length,
+  return { slots: list.length, junkStacks: junk.length, stone: guardStone(list),
            stacks: junk.slice(0, Math.max(0, maxStacks)).map(it => ({ slot: it.slot, name: it.name, count: it.count })) }
 }
 
@@ -765,12 +830,14 @@ const list = items => Object.entries(items ?? {}).filter(([, c]) => c > 0).map((
  *   other_loss   every other non-listed decrease of the bag meanwhile (eating, planting): a diagnostic, never a throw
  */
 export function wellDisposeDetail ({ slotsBefore, slotsAfter, items = {}, tossed = 0, misses = 0, retaken = 0, recollected = 0, nonlisted = 0, otherLoss = 0,
-                                     source = 'local', closedOpen = false, stop = 'done', at = null, offlist = 0, offlistItems = {}, unnamed = 0, capEnd = null } = {}) {
+                                     source = 'local', closedOpen = false, stop = 'done', at = null, offlist = 0, offlistItems = {}, unnamed = 0, capEnd = null,
+                                     stone = null } = {}) {
   const n = Object.values(items).reduce((a, b) => a + b, 0)
   // offlist= FIRST after slots (the read's C3 gate): thrown entities whose item, AS THE SERVER NAMES IT, is off the list
   return (`slots=${slotsBefore}->${slotsAfter} offlist=${offlist} offlist_items=${list(offlistItems)} unnamed=${unnamed} ` +
           `freed=${(slotsBefore ?? 0) - (slotsAfter ?? 0)} tossed=${tossed} n=${n} misses=${misses} ` +
           `retaken=${retaken} recollected=${recollected} nonlisted=${nonlisted} other_loss=${otherLoss} server=${source} closed_open=${closedOpen ? 1 : 0}` +
+          `${stone != null ? ` stone=${stone}` : ''}` +
           `${capEnd ? ` cap_end=${capEnd}` : ''}` +
           `${at ? ` at=${at.x},${at.y},${at.z}` : ''} stop=${String(stop).replace(/\s+/g, '_').slice(0, 80)} items=${list(items)}`).slice(0, 300)
 }

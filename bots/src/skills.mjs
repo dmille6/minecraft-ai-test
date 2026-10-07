@@ -6330,6 +6330,7 @@ async function throwPhase (bot, { cap, facing, pit = false, maxStacks = MAX_STAC
       out.slotsBefore = before.used
       if (before.source !== 'resync') { out.refused = 'server_unanswered'; return out }
       const plan = disposePlan(bot.inventory?.items?.() ?? [], { maxStacks })   // the bag AS THE SERVER HOLDS IT
+      out.stone = plan.stone   // the guard stone the plan saw (STONE_GUARD): on the row, so the read can judge the guard
       if (!plan.stacks.length) { out.refused = 'nothing_listed'; return out }
       if (!pit) {
         if (wellIdentity(read, cap).open) out.closedOpen = await setWellOpen(bot, cap, false, g.bound, tick)
@@ -6407,7 +6408,7 @@ const spawnedItem = e => { try { const d = e?.getDroppedItem?.(); return { name:
 const capEndOf = (bot, cap) => { try { const id = wellIdentity(readWellCell(bot), cap); return id.ok ? (id.open ? 'open' : 'closed') : null } catch { return null } }
 const phaseDetail = (ph, cap, stop, capEnd = null) => wellDisposeDetail({ capEnd, slotsBefore: ph.slotsBefore, slotsAfter: ph.slotsAfter, items: ph.account.lost, tossed: ph.acc.tossed,
   misses: ph.misses, retaken: ph.retaken, recollected: ph.recollected, nonlisted: ph.account.nonlisted, otherLoss: ph.account.otherLoss,
-  source: ph.source, closedOpen: ph.closedOpen, stop, at: cap, offlist: ph.thrown?.offlist ?? 0, offlistItems: ph.thrown?.offlistItems ?? {}, unnamed: ph.thrown?.unnamed ?? 0 })
+  source: ph.source, closedOpen: ph.closedOpen, stop, at: cap, offlist: ph.thrown?.offlist ?? 0, offlistItems: ph.thrown?.offlistItems ?? {}, unnamed: ph.thrown?.unnamed ?? 0, stone: ph.stone ?? null })
 
 const FACING_OK = f => ['north', 'south', 'west', 'east'].includes(f)
 async function disposeWell (ctx, _args, signal) {

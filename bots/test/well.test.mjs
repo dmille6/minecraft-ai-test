@@ -35,16 +35,74 @@ const within = (p, ms, what) => Promise.race([p, new Promise((_, rej) => setTime
 // ===================================================================================================================
 // WHAT GOES IN
 // ===================================================================================================================
-await t('the list is the owner\'s eight plus the three decorations, and nothing the guards forbid', () => {
-  for (const n of ['egg', 'brown_egg', 'blue_egg', 'flint', 'clay_ball', 'ink_sac', 'glow_ink_sac', 'armadillo_scute', 'dead_bush', 'pointed_dripstone', 'rail']) {
+await t('the list is the owner\'s eleven (10-04) plus the 10-07 decorations, every one a real item, and nothing the guards forbid', () => {
+  for (const n of ['egg', 'brown_egg', 'blue_egg', 'flint', 'clay_ball', 'ink_sac', 'glow_ink_sac', 'armadillo_scute', 'dead_bush', 'pointed_dripstone', 'rail',
+    // the owner's 10-07 examples and the census's decorations (glass 59 slots, lead 20, oak_button 17, wool, brick, fences, plates)
+    'glass', 'white_wool', 'oak_button', 'lead', 'powered_rail', 'brick', 'bricks', 'oak_fence', 'oak_pressure_plate', 'smooth_basalt', 'polished_diorite',
+    'diorite', 'granite', 'andesite', 'stone_bricks', 'mossy_cobblestone', 'smooth_stone']) {
     assert.ok(W.isWellJunk(n), `positive control: ${n} is on the list`)
-    assert.ok(REG.itemsByName[n], `${n} is a real 1.21.11 item`)
   }
-  assert.equal(W.WELL_JUNK.size, 11)
-  for (const n of ['cobblestone', 'cobbled_deepslate', 'dirt', 'andesite', 'gravel', 'oak_log', 'oak_planks', 'stick', 'oak_sapling',
-    'stone_pickaxe', 'wooden_axe', 'apple', 'bread', 'beef', 'raw_iron', 'iron_ingot', 'coal', 'leaf_litter', 'wheat_seeds', 'poppy', 'bamboo', 'bone_meal']) {
+  for (const n of W.WELL_JUNK) {
+    assert.ok(REG.itemsByName[n], `${n} is a real 1.21.11 item`)
+    assert.ok(W.isWellJunk(n), `${n} is listed AND passes every guard (a listed name a guard refuses is a typo or a contradiction)`)
+  }
+  assert.equal(W.WELL_JUNK.size, W.OWNER_JUNK_1004.length + W.DECORATIONS.length + W.SCAFFOLD_DECORATIONS.length, 'no name listed twice')
+  // scripts/host/wellread.py keeps a Python copy (its C3 gate) and asserts the same 124: change both together
+  assert.equal(W.WELL_JUNK.size, 124)
+  for (const n of ['cobblestone', 'cobbled_deepslate', 'dirt', 'gravel', 'sand', 'oak_log', 'oak_planks', 'stick', 'oak_sapling',
+    'stone_pickaxe', 'wooden_axe', 'apple', 'bread', 'beef', 'raw_iron', 'iron_ingot', 'coal', 'leaf_litter', 'wheat_seeds', 'poppy', 'bamboo', 'bone_meal',
+    // 10-07: what the decoration list must NOT take -- the composter's recipe (wooden slabs), the well's own trapdoors, the
+    // sleep skill's bed, desert rescue blocks, raw ballast the stone rung counts, compostables, the furnace and the table
+    'oak_slab', 'birch_slab', 'oak_trapdoor', 'red_bed', 'white_bed', 'sandstone', 'red_sandstone', 'calcite', 'tuff', 'stone', 'deepslate',
+    'wildflowers', 'moss_carpet', 'moss_block', 'kelp', 'dried_kelp', 'furnace', 'crafting_table', 'chest', 'ladder', 'torch', 'bucket', 'string']) {
     assert.equal(W.isWellJunk(n), false, `${n} must never go down the well`)
   }
+})
+
+// THE CONSUMERS (10-07): a listed name is never an input the fleet's own code relies on -- checked against the REAL lists,
+// so a later change to one of them that starts using a listed item fails here, not on the fleet.
+await t('no listed item is fuel, a composter-build input, or a scaffold/pillar/rescue/exit block -- except the six guarded ones', async () => {
+  const { PATHFINDER_SCAFFOLD } = await import('../src/scaffold.mjs')
+  const { fuelTicks } = await import('../src/smelting.mjs')
+  const { scaffoldCount } = await import('../src/exit-contract.mjs')
+  const { RESCUE_BLOCK } = await import('../src/skills.mjs')
+  const guarded = new Set(W.SCAFFOLD_DECORATIONS)
+  assert.ok(PATHFINDER_SCAFFOLD.includes('diorite') && RESCUE_BLOCK.test('granite') && scaffoldCount([{ name: 'andesite', count: 3 }]) === 3,
+    'positive control: the consumer lists do see the guarded stones')
+  assert.ok(fuelTicks('oak_planks') > 0, 'positive control: the fuel table answers')
+  for (const n of W.WELL_JUNK) {
+    assert.equal(fuelTicks(n), 0, `${n} is fuel in smelting.mjs`)
+    if (guarded.has(n)) continue
+    assert.ok(!PATHFINDER_SCAFFOLD.includes(n), `${n} is a pathfinder scaffold block but not guarded`)
+    assert.ok(!RESCUE_BLOCK.test(n), `${n} is a rescue block but not guarded`)
+    assert.equal(scaffoldCount([{ name: n, count: 5 }]), 0, `${n} counts toward the exit contract but is not guarded`)
+  }
+  for (const n of W.SCAFFOLD_DECORATIONS) assert.ok(PATHFINDER_SCAFFOLD.includes(n) || RESCUE_BLOCK.test(n), `${n} is guarded for a reason: a consumer uses it`)
+})
+
+await t('STONE_GUARD: a scaffold-capable decoration goes only while the bag holds 64 cobblestone + cobbled_deepslate', () => {
+  const bag = cobble => [{ name: 'diorite', count: 10, slot: 9 }, { name: 'cobblestone', count: cobble, slot: 10 }, { name: 'glass', count: 5, slot: 11 },
+    { name: 'stone_bricks', count: 2, slot: 12 }]
+  const names = p => p.stacks.map(s => s.name).join(',')
+  assert.equal(W.STONE_GUARD, 64)
+  assert.equal(names(W.disposePlan(bag(63))), 'glass', 'below the guard: only the plain decoration')
+  assert.equal(W.disposePlan(bag(63)).junkStacks, 1, 'the trigger counts only what may go')
+  assert.equal(W.disposePlan(bag(63)).stone, 63)
+  assert.equal(names(W.disposePlan(bag(64))), 'diorite,glass,stone_bricks', 'at the guard: all three')
+  // cobbled_deepslate counts; the decorations themselves never count toward the guard; nor does stone (not on every list)
+  assert.equal(names(W.disposePlan([...bag(40), { name: 'cobbled_deepslate', count: 24, slot: 13 }])), 'diorite,glass,stone_bricks')
+  assert.equal(names(W.disposePlan([{ name: 'diorite', count: 64, slot: 9 }, { name: 'andesite', count: 64, slot: 10 }, { name: 'stone', count: 64, slot: 11 }])), '')
+  assert.equal(W.disposableIn('diorite', [{ name: 'cobblestone', count: 64 }]), true)
+  assert.equal(W.disposableIn('diorite', []), false)
+  assert.equal(W.disposableIn('glass', []), true)
+  assert.equal(W.disposableIn('cobblestone', [{ name: 'cobblestone', count: 640 }]), false, 'the guard never lists anything')
+})
+
+await t('the row carries the guard stone the plan saw (stone=), ahead of items= (the 300-character cap cuts from the end)', () => {
+  const d = W.wellDisposeDetail({ slotsBefore: 36, slotsAfter: 34, items: { glass: 5, diorite: 10 }, tossed: 2, source: 'resync', stop: 'done', stone: 64 })
+  assert.match(d, / stone=64 /)
+  assert.ok(d.indexOf(' stone=') < d.indexOf(' items='))
+  assert.doesNotMatch(W.wellDisposeDetail({ slotsBefore: 36, slotsAfter: 36 }), /stone=/, 'a row with no plan says nothing about it')
 })
 
 await t('disposePlan: whole listed stacks only, in slot order, capped; counts every listed stack for the trigger', () => {
@@ -1563,8 +1621,19 @@ await t('MUTANT: no pit-first means a full bag of junk is a dead end', async () 
     assert.equal(m.wellBuildRoom({ free: 0, slotsNeeded: 2, junkStacks: 3 }).ok, false, 'mutant inert')
   })
 })
+await t('MUTANT: without STONE_GUARD a bag with no cobble throws its last scaffold (diorite)', async () => {
+  await withMutant(WP, '  return !SCAFFOLD_DECO.has(name) || guardStone(items) >= STONE_GUARD\n', '  return true\n', async m => {
+    assert.equal(m.disposePlan([{ name: 'diorite', count: 10, slot: 9 }]).stacks.length, 1, 'mutant inert')
+  })
+  assert.equal(W.disposePlan([{ name: 'diorite', count: 10, slot: 9 }]).stacks.length, 0, 'and the real code keeps it')
+})
+await t('MUTANT: a guard that counts the decorations themselves lets a diorite-only bag empty itself', async () => {
+  await withMutant(WP, "const GUARD_STONE = new Set(['cobblestone', 'cobbled_deepslate'])", "const GUARD_STONE = new Set(['cobblestone', 'cobbled_deepslate', 'diorite'])", async m => {
+    assert.equal(m.disposePlan([{ name: 'diorite', count: 64, slot: 9 }]).stacks.length, 1, 'mutant inert')
+  })
+})
 await t('MUTANT: without the list filter the plan throws cobblestone', async () => {
-  await withMutant(WP, 'const junk = list.filter(it => isWellJunk(it.name) && Number.isInteger(it.slot))', 'const junk = list.filter(it => Number.isInteger(it.slot))', async m => {
+  await withMutant(WP, 'const junk = list.filter(it => disposableIn(it.name, list) && Number.isInteger(it.slot))', 'const junk = list.filter(it => Number.isInteger(it.slot))', async m => {
     assert.ok(m.disposePlan([{ name: 'cobblestone', count: 64, slot: 9 }]).stacks.length, 'mutant inert')
   })
 })

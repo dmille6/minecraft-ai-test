@@ -1,11 +1,15 @@
 #!/usr/bin/env python3
-# wellread.py [window_min] -- the read for canary `junkwell-01` (branch jw-on-1918bb5).
+# wellread.py [window_min] -- the read for canary `junkwell-02` (branches jw-on-c6e91a8 / jw-on-92bc84f; junkwell-01 was
+# jw-on-1918bb5, REVERTED 10-05 by the death gate: more mining once bags had room, deaths far from the well, deep).
 # CANARY_DRYRUN=pool[,pool]:sha:iso for dry runs (never emits).
 #
 # THE CHANGE: one junk well per town (bots/src/well.mjs). A bot at town builds it in survival: a 1x1 shaft two deep at
 # the town's canonical site, a wooden trapdoor bottom-half on its floor and a second top-half as a flush cap (one craft
 # makes both). A bot at town with >= 34 slots holding listed junk (egg, brown_egg, blue_egg, flint, clay_ball, ink_sac,
-# glow_ink_sac, armadillo_scute, dead_bush, pointed_dripstone, rail -- NOTHING else) opens the cap with nobody else within
+# glow_ink_sac, armadillo_scute, dead_bush, pointed_dripstone, rail; and since junkwell-02 the owner's 10-07 decorations --
+# glass, wool, buttons, plates, rails, lead, bricks, polished stones, fences -- plus six scaffold-capable stones that go only
+# while the bag holds >= 64 cobblestone + cobbled_deepslate: andesite, diorite, granite, stone_bricks, mossy_cobblestone,
+# smooth_stone. NOTHING else) opens the cap with nobody else within
 # 5, throws whole listed stacks from <= 1.15 aimed at the opening, closes it in a finally, and retakes any miss. Vanilla
 # despawn (6000 ticking ticks) deletes what lies in the well; nobody can reach it (item 1.8125 below the rim's feet).
 # Rows (key=value details):
@@ -39,6 +43,11 @@
 #                losses during a held phase), unnamed= (thrown entities with no metadata), _well_pit_open, misses on
 #                aborted visits, deaths within 3 of a well, refusals per dispose order by reason, no_site per pool.
 #                Deaths follow the two-death floor (canary-report.py) -- named here, never a verdict.
+#                C7 (junkwell-02) THE STONE GUARD: a visit that threw a scaffold-capable decoration while its own plan saw
+#                < 64 guard stone (stone= on the row). The END snapshot's guard stone below 56 on such a visit is a tripwire.
+#   DEATH-GATE CONCERN (junkwell-01's revert; REPORTED, the two-death floor decides): mine actions per bot DiD (01 was
+#                +34.3 against -8.2..+5.0 on seven other canaries; flagged MINING SHIFT above +15) and every post-window
+#                death below y 60 by mechanism, per arm.
 #   INSTRUMENT   control bots at >= 34 est. slots holding listed junk (>= 1): the population this changes exists.
 #   PRIMARY      listed-junk slots per bot (latest snapshot per bot) and the share of bots at >= 34 slots, DiD vs the
 #                same-length pre-window; items and slots freed per visit. REPORTED.
@@ -65,9 +74,25 @@ assert elapsed > 0 and CAN, 'no canary declared'
 W = min(elapsed, float(sys.argv[1]) if len(sys.argv) > 1 else 180)
 END = CUT + dt.timedelta(minutes=W)
 PRE = CUT - dt.timedelta(minutes=W)
-# well.mjs WELL_JUNK at jw-on-1918bb5.
-LISTED = {'egg', 'brown_egg', 'blue_egg', 'flint', 'clay_ball', 'ink_sac', 'glow_ink_sac', 'armadillo_scute',
-          'dead_bush', 'pointed_dripstone', 'rail'}
+# well.mjs WELL_JUNK at jw-on-c6e91a8 / jw-on-92bc84f (OWNER_JUNK_1004 + DECORATIONS + SCAFFOLD_DECORATIONS); the build's
+# own test asserts the JS list, and the read asserts its copy below against the census names.
+OWNER_1004 = {'egg', 'brown_egg', 'blue_egg', 'flint', 'clay_ball', 'ink_sac', 'glow_ink_sac', 'armadillo_scute',
+              'dead_bush', 'pointed_dripstone', 'rail'}
+_WOODS = ['oak', 'spruce', 'birch', 'jungle', 'acacia', 'cherry', 'dark_oak', 'pale_oak', 'mangrove', 'bamboo', 'crimson', 'warped']
+_COLOURS = ['white', 'orange', 'magenta', 'light_blue', 'yellow', 'lime', 'pink', 'gray', 'light_gray', 'cyan', 'purple', 'blue',
+            'brown', 'green', 'red', 'black']
+DECORATIONS = ({'glass', 'glass_pane'} | {c + '_stained_glass' for c in _COLOURS} | {c + '_stained_glass_pane' for c in _COLOURS}
+               | {c + '_wool' for c in _COLOURS} | {w + '_button' for w in _WOODS} | {'stone_button', 'polished_blackstone_button'}
+               | {w + '_pressure_plate' for w in _WOODS} | {'stone_pressure_plate', 'polished_blackstone_pressure_plate'}
+               | {'powered_rail', 'detector_rail', 'activator_rail', 'lead', 'brick', 'bricks', 'mossy_stone_bricks', 'cracked_stone_bricks',
+                  'chiseled_stone_bricks', 'polished_andesite', 'polished_diorite', 'polished_granite', 'smooth_basalt', 'polished_tuff',
+                  'tuff_bricks', 'chiseled_tuff_bricks', 'nether_brick_fence'} | {w + '_fence' for w in _WOODS})
+GUARDED = {'andesite', 'diorite', 'granite', 'stone_bricks', 'mossy_cobblestone', 'smooth_stone'}
+STONE_GUARD = 64
+GUARD_STONE = ('cobblestone', 'cobbled_deepslate')
+LISTED = OWNER_1004 | DECORATIONS | GUARDED
+assert len(LISTED) == 124 and not (LISTED & {'cobblestone', 'cobbled_deepslate', 'oak_slab', 'oak_trapdoor', 'red_bed', 'sandstone', 'stone'})
+UNDERGROUND_Y = 60
 UN = re.compile(r'(_pickaxe|_axe|_shovel|_sword|_hoe|_helmet|_chestplate|_leggings|_boots|bucket|shears|flint_and_steel|bow|fishing_rod)$')
 # STACK SIZES that are not 64 (Codex review: eggs stack to 16; dividing them by 64 undercounted egg slots fourfold).
 ST16 = re.compile(r'^(egg|brown_egg|blue_egg|snowball|ender_pearl|armor_stand|bucket|honey_bottle|.*_sign|.*_hanging_sign|.*_banner)$')
@@ -141,6 +166,7 @@ assert kv('slots=36->36 freed=0 tossed=0 n=0 misses=0 retaken=0 recollected=0 no
 assert kv('at=-12,70,3 facing=north floor=1 wood=oak pit_first=1 pit_tossed=2 pit_items=32 free=3')['at'] == '-12,70,3'
 assert set(_p['items']) <= LISTED and not ({'cobblestone': 1}.keys() <= LISTED)
 assert stack_of('egg') == 16 and stack_of('flint') == 64 and -(-576 // stack_of('egg')) == 36   # 576 eggs are 36 slots, not 9
+assert kv('slots=36->34 offlist=0 stone=63 stop=done items=diorite:10,glass:5')['stone'] == '63'
 
 def c3_breach(f):
     """C3 for one _well_dispose row's fields -> the off-list evidence, or None."""
@@ -148,6 +174,27 @@ def c3_breach(f):
     if num(f, 'offlist') or off or num(f, 'nonlisted'):
         return {'offlist': num(f, 'offlist'), 'offlist_items': f.get('offlist_items'), 'items_off': off, 'nonlisted': num(f, 'nonlisted')}
     return None
+
+
+def c7_breach(f):
+    """C7 for one _well_dispose row: a guarded stone thrown while the plan saw < STONE_GUARD guard stone -> evidence, or None.
+    A row with no stone= (closed_only, nothing thrown) is never a breach; a guarded item in items= without stone= is (the
+    build always writes it when it throws)."""
+    g = sorted(n for n in f['items'] if n in GUARDED)
+    if not g:
+        return None
+    st = f.get('stone')
+    if st is None or not str(st).isdigit() or int(st) < STONE_GUARD:
+        return {'guarded': g, 'stone': st}
+    return None
+
+
+def mechanism(detail):
+    """A death row's mechanism: the clause before ';' / ' after ' / ' while ' ('drowned', 'fell from a high place', 'tried to swim in lava')."""
+    d = (detail or '').split(';')[0].split(' | ')[0]
+    for sep in (' after ', ' while ', ' whilst '):
+        d = d.split(sep)[0]
+    return d.strip()[:40] or '?'
 
 
 def open_breaches(opens, closes, end):
@@ -194,6 +241,13 @@ assert stuck_inside([(_t0 + dt.timedelta(minutes=m), 'a', '1,2,3') for m in (0, 
 assert not stuck_inside([(_t0, 'a', '1,2,3')]), 'one inside row (a fall the bot dug out of) is a tripwire, not C4'
 assert not stuck_inside([(_t0, 'a', '1,2,3'), (_t0 + dt.timedelta(minutes=10), 'a', '1,2,3')]), 'two separate falls are not one stay'
 assert open_breaches([(_t0, _k, 'a')], [(_t0 + dt.timedelta(seconds=30), ('board-b', '1,2,3'))], _t0 + dt.timedelta(minutes=10))[0], 'another pool\'s cell is not this close'
+# C7 POSITIVE CONTROL: a guarded stone thrown under the guard fires; at the guard, or a plain decoration, does not
+assert c7_breach(kv('slots=36->34 offlist=0 server=resync stone=63 stop=done items=diorite:10,glass:5')) == {'guarded': ['diorite'], 'stone': '63'}
+assert c7_breach(kv('slots=36->34 offlist=0 server=resync stone=64 stop=done items=diorite:10,glass:5')) is None
+assert c7_breach(kv('slots=36->35 offlist=0 server=resync stone=0 stop=done items=glass:5')) is None
+assert c7_breach(kv('slots=36->35 offlist=0 server=resync stop=done items=granite:3')) is not None
+assert mechanism('drowned; idle at the moment of death | leading up: goto->success') == 'drowned'
+assert mechanism('fell from a high place after falling 30 blocks; was running gather') == 'fell from a high place'
 # the visit that LEFT it open still ends "success" (junk went down): its cap_end=open row is no close
 assert not is_close(kv('slots=36->33 offlist=0 freed=3 tossed=3 n=144 server=resync closed_open=0 cap_end=open at=1,2,3 stop=done items=egg:16'))
 assert is_close(kv('slots=36->36 offlist=0 freed=0 tossed=0 n=0 server=local closed_open=1 cap_end=closed at=1,2,3 stop=closed_only items=-'))
@@ -205,6 +259,7 @@ c1 = []; c3 = []; c4 = []; misses = retaken = 0; built = defaultdict(Counter); b
 visits = 0; items_out = 0; freed = []; refused = Counter(); resynced = 0; pit = 0; deaths = Counter(); unresolved = 0
 opens = []; closes = []; closed_open = []; other_loss = 0; unnamed = 0; pit_open = []; aborted_misses = 0
 orders = Counter(); refused_pool = defaultdict(Counter); death_pos = []; well_cells = set(); inside_rows = []
+c7 = []; guard_low_end = []; mines = defaultdict(Counter); deep_deaths = defaultdict(Counter); deep_list = []
 botsets = defaultdict(lambda: defaultdict(set)); last = defaultdict(dict); totals = Counter()
 for r in ev_rows:
     t = r.get('t'); b = (r.get('bot') or {}).get('name')
@@ -219,11 +274,16 @@ for r in ev_rows:
     other = arm == 'canary' and period == 'post' and CV and ver and not ver.startswith(CV)
     if isinstance(inv, dict) and inv and not other:
         last[period][b] = inv
+    if k == 'mine' and not other:
+        mines[(period, arm)][b] += 1
     if k == '_death' and period == 'post':
         deaths[arm] += 1
         pos = ((r.get('raw') or {}).get('bot') or {}).get('pos') or (r.get('bot') or {}).get('pos')
         if isinstance(pos, dict):
             death_pos.append((arm, b, pos))
+            if isinstance(pos.get('y'), (int, float)) and pos['y'] < UNDERGROUND_Y:
+                deep_deaths[arm][mechanism(d)] += 1
+                deep_list.append((arm, b, round(pos['y']), mechanism(d)))
     if k == '_work_order' and period == 'post' and arm == 'canary' and d.startswith('dispose_well'):
         orders[pool_of(b)] += 1
     if k not in WELL_KINDS or period != 'post':
@@ -263,6 +323,11 @@ for r in ev_rows:
         why = c3_breach(f)
         if why:
             c3.append((b, why, d[:100]))
+        why7 = c7_breach(f)
+        if why7:
+            c7.append((b, why7, d[:100]))
+        if any(n in GUARDED for n in f['items']) and isinstance(inv, dict) and sum(inv.get(n, 0) for n in GUARD_STONE) < STONE_GUARD - 8:
+            guard_low_end.append((b, sum(inv.get(n, 0) for n in GUARD_STONE)))
         other_loss += num(f, 'other_loss'); unnamed += num(f, 'unnamed')
         if num(f, 'closed_open'):
             closed_open.append((b, f.get('at')))
@@ -282,13 +347,31 @@ def junk_slots(inv):
     return sum(-(-c // stack_of(n)) for n, c in inv.items() if n in LISTED and isinstance(c, (int, float)))
 
 
+def owner_slots(inv):
+    return sum(-(-c // stack_of(n)) for n, c in inv.items() if n in OWNER_1004 and isinstance(c, (int, float)))
+
+
+def deco_slots(inv):
+    return sum(-(-c // stack_of(n)) for n, c in inv.items() if n in (DECORATIONS | GUARDED) and isinstance(c, (int, float)))
+
+
 def per_bot(period, arm, fn):
     vals = [fn(inv) for b, inv in last[period].items() if (pool_of(b) in CANS) == (arm == 'canary')]
     return sum(vals) / len(vals) if vals else float('nan')
 
 
 full = lambda inv: float(occupancy(inv) >= 34)
-v = {(p, a, nm): per_bot(p, a, fn) for p in ('pre', 'post') for a in ('canary', 'control') for nm, fn in (('junk', junk_slots), ('full', full))}
+v = {(p, a, nm): per_bot(p, a, fn) for p in ('pre', 'post') for a in ('canary', 'control')
+     for nm, fn in (('junk', junk_slots), ('full', full), ('owner', owner_slots), ('deco', deco_slots))}
+
+
+def mine_per_bot(period, arm):
+    n = len(botsets[period][arm])
+    return sum(mines[(period, arm)].values()) / n if n else float('nan')
+
+
+mpb = {(p, a): mine_per_bot(p, a) for p in ('pre', 'post') for a in ('canary', 'control')}
+mine_did = (mpb[('post', 'canary')] - mpb[('pre', 'canary')]) - (mpb[('post', 'control')] - mpb[('pre', 'control')])
 did = lambda nm: (v[('post', 'canary', nm)] - v[('pre', 'canary', nm)]) - (v[('post', 'control', nm)] - v[('pre', 'control', nm)])
 inst = sum(1 for b, inv in last['post'].items() if pool_of(b) not in CANS and occupancy(inv) >= 34 and junk_slots(inv) > 0)
 def active_wells(built_cells, retired_cells):
@@ -332,11 +415,20 @@ print('TRIPWIRES    inside rows %d %s | caps found open (closed_open=1) %d %s | 
 print('             refusals per dispose order (canary) %s | no_site per pool %s | deaths within 3 of a well %s'
       % (refusal_rate or '-', {p: c['no_site'] for p, c in refused_pool.items() if c.get('no_site')} or '-', deaths_near or '-'))
 print('             deaths canary %d control %d (two-death floor: canary-report.py decides; one death is named, not a verdict)' % (deaths['canary'], deaths['control']))
+print('             C7 stone guard breaches %d %s | guarded throws ending under %d guard stone (tripwire) %d %s'
+      % (len(c7), c7[:3], STONE_GUARD - 8, len(guard_low_end), guard_low_end[:3]))
+print('DEATH-GATE   mine actions/bot canary %.1f -> %.1f control %.1f -> %.1f DiD %+.1f%s (junkwell-01: +34.3; 7 other canaries -8.2..+5.0)'
+      % (mpb[('pre', 'canary')], mpb[('post', 'canary')], mpb[('pre', 'control')], mpb[('post', 'control')], mine_did,
+         '  ** MINING SHIFT **' if mine_did == mine_did and mine_did > 15 else ''))
+print('             deaths below y %d by mechanism: canary %s | control %s | %s'
+      % (UNDERGROUND_Y, dict(deep_deaths['canary']) or '-', dict(deep_deaths['control']) or '-', [x for x in deep_list if x[0] == 'canary'][:6]))
 print('INSTRUMENT   control bots at >= 34 slots holding listed junk: %d (>= 1)' % inst)
 print('PRIMARY      listed-junk slots/bot canary %.2f -> %.2f control %.2f -> %.2f DiD %+.2f | share at >= 34 DiD %+.3f | items out %d | slots freed/visit %s'
       % (v[('pre', 'canary', 'junk')], v[('post', 'canary', 'junk')], v[('pre', 'control', 'junk')], v[('post', 'control', 'junk')],
          did('junk'), did('full'), items_out, ('%.2f' % (sum(freed) / len(freed))) if freed else '-'))
-for x in (c1[:3] + c2[:3] + c3[:3] + c4[:3]):
+print('             owner-junk (10-04) slots/bot DiD %+.2f | decoration slots/bot DiD %+.2f'
+      % (did('owner'), did('deco')))
+for x in (c1[:3] + c2[:3] + c3[:3] + c4[:3] + c7[:3]):
     print('  breach:', x)
 try:
     if ovr:
@@ -347,6 +439,11 @@ try:
         'rows_canary': rows['canary'], 'rows_control': rows['control'], 'offbuild_canary': offbuild,
         'breach_recollected': len(c1), 'breach_left_open': len(c2), 'breach_nonlisted': len(c3), 'breach_inside': len(c4),
         'breach_misses_left': c5, 'breach_multi_well': len(c6), 'open_unresolved': unresolved, 'open_pending': len(c2_pending),
+        'breach_stone_guard': len(c7), 'guard_low_end': len(guard_low_end),
+        'mine_did': None if mine_did != mine_did else round(mine_did, 2),
+        'deep_deaths_canary': sum(deep_deaths['canary'].values()), 'deep_deaths_control': sum(deep_deaths['control'].values()),
+        'owner_slots_did': None if did('owner') != did('owner') else round(did('owner'), 3),
+        'deco_slots_did': None if did('deco') != did('deco') else round(did('deco'), 3),
         'caps_found_open': len(closed_open), 'inside_rows': len(inside_rows), 'other_loss': other_loss, 'pits_left_open': len(pit_open), 'deaths_near_well': len(deaths_near),
         'dispose_visits_canary': visits, 'wells_built_canary': sum(len(c) for c in built.values()), 'instrument_control': inst,
         'junk_slots_did': None if did('junk') != did('junk') else round(did('junk'), 3),
