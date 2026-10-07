@@ -16,7 +16,7 @@ import { gunzipSync } from 'node:zlib'
 import { airPocketInputs, airPocketAfter, airPocketPreempt, AP_FAIL_COOLDOWN_MS } from '../src/airpocket.mjs'
 import { airPocketPlan, airPocketEnvelope, airPocketAdmit, airPocketBudgetMs, envelopeBreached, airPocketConfirmed,
          airPocketTrigger, pickFastestTool, airPocketStep, airPocketDetail, AP_TRIGGER_AFTER_MS,
-         standGate, standInPocket, digGate, standRef, standCandidates } from '../src/airpocket.mjs'
+         standGate, standInPocket, digGate, standRef, standCandidates, airPocketRow, AP_ROW_MAX } from '../src/airpocket.mjs'
 
 let pass = 0, fail = 0
 const t = (name, fn) => Promise.resolve()
@@ -447,6 +447,26 @@ await t('F25 mutant: a stand that only uses a floor leaves the deep column float
     const r = await m.airPocketStep(deep, m.airPocketPlan(world(deepCells)), deps({ standItem: () => ({ name: 'cobblestone' }) }))
     clearInterval(deep._healthTimer)
     assert.equal(r.stand, 'none'); assert.equal(deep.sends.length, 0)
+  })
+})
+await t('F27 THE ROW FITS THE LOGGER (Paper 562d9e7 logs: every stand= row lost its required tail at 300 chars)', async () => {
+  const worst = { outcome: 'success', kind: 'pocket', cell: '-12345,-59,-12345', block: 'cobbled_deepslate', tool: 'netherite_pickaxe', standing: false,
+                  predictedMs: 14100, digMs: 14103, ms: 16381, envelope: 0.5, healthStart: 16.666677474975586, healthEnd: 17.000011444091797,
+                  eye: 'cave_air', stand: 'stopped:aborted: envelope breached (> 7 HP in 10 s) (2 placed)', why: 'breathing in the dug pocket' }
+  const args = { id: 'muyncxigzz', r: worst, requiredMs: 24150.4, budgetMs: 30000, difficulty: 'peaceful' }
+  const row = airPocketRow(args)
+  assert.ok(row.length <= AP_ROW_MAX, `row is ${row.length}`)
+  // every field the read needs is intact, in full, before anything optional
+  assert.match(row, /^id=muyncxigzz outcome=success kind=pocket cell=-12345,-59,-12345 block=cobbled_deepslate tool=netherite_pickaxe predicted_ms=14100 dig_ms=14103 ms=16381 envelope=0\.5 health=16\.7->17 \| required_ms=24150 budget_ms=30000 difficulty=peaceful \| /)
+  // a realistic row keeps the optional tail too
+  const real = airPocketRow({ ...args, id: 'muyncxig', r: { ...worst, cell: '700,42,700', block: 'stone', tool: 'stone_pickaxe', stand: 'placed:1' } })
+  assert.match(real, / standing=0 eye=cave_air stand=placed:1 -- $/)
+  // a realistic FAILURE keeps its diagnosis
+  const fail = airPocketRow({ ...args, id: 'muyncxig', r: { ...worst, outcome: 'failed', cell: '700,42,700', block: 'stone', tool: 'stone_pickaxe', stand: undefined, why: 'dig failed: dig exceeded 28200 ms' } })
+  assert.match(fail, / stand=none -- dig failed: dig exceeded 28200 ms$/)
+  await withMutant(AP_PATH, 'health=${r1(r.healthStart)}->${r1(r.healthEnd)} | required_ms', 'health=${r.healthStart}->${r.healthEnd} | required_ms', m => {
+    const f = m.airPocketRow({ ...args, id: 'muyncxig', r: { ...worst, outcome: 'failed', cell: '700,42,700', block: 'stone', tool: 'stone_pickaxe', stand: undefined, why: 'dig failed: dig exceeded 28200 ms' } })
+    assert.doesNotMatch(f, /dig exceeded 28200 ms$/)   // unrounded health pushes a failure's diagnosis past the cap
   })
 })
 await t('F16 standGate (pure): aborted, wrong item in hand, off the column, feet below the cell each refuse; all clear passes', () => {

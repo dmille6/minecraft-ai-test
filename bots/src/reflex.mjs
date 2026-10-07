@@ -42,7 +42,7 @@ import { holdForwardSafe, lavaStandOff } from './lavaguard.mjs'
 import { pocketPlan, pocketDone, oxygenFitsOperation, PLACE_MS, sideExit } from './floodpocket.mjs'
 import { PRIORITY } from './arbiter.mjs'
 import { survivalRelease } from './withdrawpick.mjs'
-import { airPocketPlan, airPocketAdmit, airPocketTrigger, airPocketStep, airPocketDetail, airPocketInputs, airPocketAfter,
+import { airPocketPlan, airPocketAdmit, airPocketTrigger, airPocketStep, airPocketRow, airPocketInputs, airPocketAfter,
          airPocketPreempt, AP_WANT_LAPSE_MS,
          AP_REFUSE_COOLDOWN_MS, standCandidates } from './airpocket.mjs'
 import pathfinderPkg from 'mineflayer-pathfinder'
@@ -1419,8 +1419,8 @@ export function startReflexes(bot, runner, lessons = null, worldFacts = null) {
                                              : scaffoldFor(bot, 'air_pocket') })
     } finally { airPocketing = false; airPocketWants = 0 }
     logEvent({ kind: 'air_pocket', status: r.ok ? 'success' : r.outcome === 'opened' ? 'no_effect' : 'failed',
-               detail: `id=${attemptId} ${airPocketDetail(r)} | required_ms=${Math.round(admit.requiredMs)} budget_ms=${Math.round(admit.budgetMs)} ` +
-                       `difficulty=${inputs.difficulty} hunger=${inputs.hungerActive ? 1 : 0} ${trig}`, snapshot: snapshot(bot) })
+               detail: airPocketRow({ id: attemptId, r, requiredMs: admit.requiredMs, budgetMs: admit.budgetMs,
+                                      difficulty: inputs.difficulty }), snapshot: snapshot(bot) })
     const st = airPocketAfter(r.ok || r.outcome === 'opened', { drownFails, drownFailPos, drownFailHealth, seizedAt, lastProgressAt, cooldownUntil: airPocketCooldownUntil, breatheUntil: airPocketBreatheUntil })
     drownFails = st.drownFails; drownFailPos = st.drownFailPos; drownFailHealth = st.drownFailHealth
     seizedAt = st.seizedAt; lastProgressAt = st.lastProgressAt; airPocketCooldownUntil = st.cooldownUntil; airPocketBreatheUntil = st.breatheUntil
