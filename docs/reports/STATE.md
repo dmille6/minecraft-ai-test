@@ -138,6 +138,42 @@ the same farm: ctrl 15,16 logs vs cand 21,23 (no harm). Bone meal arm built, OFF
 Bags: 76/80 bots hold >= 6 farm saplings, 62/80 carry torches. Design + follow-ons (WORKSHOP, SAFE MINESHAFT, designed
 not built): docs/reports/blueprint-builder-design-2026-10-05.md.
 
+## 10-07 ~19:15Z — QUEUED (not launched): junkwell-02, gridfix-01, bamboo-01, stonecap-01 -- each with a c6e91a8 AND a 92bc84f variant
+Pick the variant by the fleet sha when its turn comes (92bc84f only if towndeposit-02 is KEPT and promoted). Registrations on
+main docs/reports/<run>.<base>.json and on the host ~/mcai-analysis/; reads in ~/mcai-analysis/ and /tmp/ (md5s below).
+- **junkwell-02**: jw-on-c6e91a8 @ 5a462a4 / jw-on-92bc84f @ d43b543. The 10-04 owner list + the owner's 10-07 decorations
+  (124 names: glass/panes/stained, wool, buttons, wooden+stone plates, rails, lead, brick(s), mossy/cracked/chiseled stone
+  bricks, polished andesite/diorite/granite, smooth_basalt, polished_tuff, tuff bricks, fences) + andesite/diorite/granite/
+  stone_bricks/mossy_cobblestone/smooth_stone only while the bag KEEPS 64 reserve stone (cobble, deepslate, raw andesite/
+  diorite/granite), judged at each click. Never: wooden slabs (composter recipe), trapdoors, beds, sandstone, calcite/tuff,
+  compostables (peacefulkit's). Codex CHANGE -> APPROVE (r2); Claude APPROVE-WITH-CHANGES x2 (applied). Paper sandbox3:
+  deco63/64/0 exactly as planned, 0 outside the shaft, non-listed untouched. Read wellread.py adds C7 (stone guard), mine
+  actions/bot DiD (BLIND when the control shows none; MINING SHIFT > +15) and deaths below y 60 by mechanism.
+  OPERATOR RULE: MINING SHIFT + a canary death below y 60 = read it by hand before any KEEP (junkwell-01's mechanism).
+- **gridfix-01**: gf-on-c6e91a8 @ 55dff5a / gf-on-92bc84f @ b54e452. NOT a mechanical rebase (withdraw's evolved click
+  machinery); Claude's probe found the grid fix's write-hook drop desyncing withdraw/town-deposit locksteps (12/20) -> fixed
+  (stopIssued before validate()). Codex APPROVE x2, Claude APPROVE (r2, probe 0/20). Paper: ctrl stranded on every mid-click
+  abort, cand 0/8 (int3 read unverified_skipped, bag conserved). POWER: aborted 2x2 exits ~0.5/h fleet-wide -> a 15-bot
+  draw is exposed by +360 only ~45% of the time, ~92% by +1560 (extensions); prefer 15-20 bots.
+- **bamboo-01** (after gridfix is KEPT): bb-on-55dff5a @ 6fb6fd9 / bb-on-b54e452 @ 786da4c. Claude APPROVE; Codex
+  APPROVE-WITH-CHANGES, its one P2 INHERITED from the 10-05 design (a room-blocked milestone craft wins the decision before
+  bamboo) -- OWNER/OPERATOR DECISION, not changed. Paper K20 abort 3/3 clean (was 46 bamboo stranded without the grid fix).
+- **stonecap-01 (the cobble rule, NEW)**: sc-on-c6e91a8 @ c238c3d / sc-on-92bc84f @ b2dee1a. Design
+  docs/reports/cobble-rule-design-2026-10-07.md (+ prior-art search). Whole cobble stacks only, smallest first, keep 64
+  cobble+deepslate; moved by mineflayer's own transfer() narrowed to the slot (no new click path); cobble never grows the
+  bank; depositDue false with nothing bankable; admission refuses an empty plan before the walk. The 256/town = the 10-04
+  clear's reserve, NOT a cap (owner's "no-ledger design"; both engines agree) -- a hard cap is an OWNER DECISION.
+  Reviews: Codex CHANGE -> APPROVE-WITH-CHANGES x2 -> APPROVE (r4); Claude APPROVE-WITH-CHANGES x2 -> APPROVE (r3). Paper: A [64,30] ->
+  the 30 banked, 64 kept in one slot (ctrl banked 64, kept 30); B [50] -> 0 cobble (ctrl 42, to its old 8); C 14-room chest
+  -> nothing moved, no chest, no recovery (ctrl part-filled +14). Craftsync's recount after real transfers says src=skipped,
+  so C1 judges the client bag (it matched the server in every trial).
+- towndeposit.test TOWN MEMORY is FLAKY on the unmodified 92bc84f (3/8): same-millisecond precondition; fixed test-only on
+  the 92bc84f variants. towndeposit-02 itself is unaffected (the code is right).
+- Sandbox harnesses added to main: sandbox/well/well-e2e.cjs (deco63/64/0 scenes), sandbox/craft/cobble-ab.cjs.
+- Reads on the host (/tmp = ~/mcai-analysis = repo): wellread.py f5ff8d45 (old one kept as .bak-20261007T1950Z), stonecapread.py
+  549372b1, gridfixread.py eac8d6da and bambooread.py 1aeb644a unchanged. Each dry-ran 10-07 with CANARY_DRYRUN.
+  Mutant driver: scripts/mutants/mutants-canaries-1007.py (gridfix 1/1, cobble 10/10 killed).
+
 ## 10-07 18:00Z — BAG CENSUS + OWNER: "i want all of those things done and queued" (six bag fixes)
 Census 17:00Z (scripts/host/bagcensus.py, bagcost.py; slots = ceil(count/stack)): 2,752 of 2,880 slots used (96%), median
 35/36, 37 bots full. Unneeded in peaceful (~15 slots/bot): owner junk ~375 slots, decorations ~300, food ~200, swords 123

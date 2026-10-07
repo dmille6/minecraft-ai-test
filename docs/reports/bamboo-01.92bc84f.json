@@ -1,0 +1,157 @@
+{
+ "run_id": "bamboo-01",
+ "sha": "786da4c",
+ "registered_at": "2026-10-07T21:00:00Z",
+ "ladder_change": false,
+ "promotion": "fleet-wide",
+ "notes": "[bamboo-01, variant for fleet 92bc84f (use ONLY if towndeposit-02 is KEPT and promoted) WITH THE GRID FIX PROMOTED (fleet = b54e452): branch bb-on-b54e452 @ 786da4c. It is gridfix-01's successor: launch it only after gridfix-01 is KEPT and promoted, when the fleet sha is b54e452; if the grid fix is reverted, bamboo needs a new variant.] REBASE 10-07 (owner order \"i want all of those things done and queued\"; census 10-07 17:00Z: bamboo 104 slots, 5,328 pieces in 45 bags): bamboo rides on the grid fix, as decided 10-05 (an interrupted fold stranded up to 46 bamboo in the 2x2 grid without it). bb-on-55dff5a = gf-on-c6e91a8 + merge of origin/bb-on-1918bb5 (33384ad) + the grid fix's 55dff5a + 6fb6fd9; bb-on-b54e452 = gf-on-92bc84f (incl. b54e452, a test-only fix of the towndeposit.test same-millisecond flake) + those (no conflicts). Conflicts were unions only (skills.mjs imports; hygiene HOUSEKEEPING += bamboo_sticks beside withdraw_pick / town_deposit); the bamboo delta is patch-identical to 1918bb5..33384ad apart from those union lines (diff of the sorted +/- lines). 6fb6fd9: the grid fix's window_changed throw carries `authoritative` like bamboo's other exits (Claude review P3: a merge seam that credited 0 there). Order on 92bc84f: the town deposit first, then the milestone order, then firstOrder(wear_out, bamboo), then the composter/withdraw town orders; the town deposit banks whole stick stacks smallest first and keeps >= 2, so it and the fold never undo each other (Claude review). REVIEWS: independent Claude review APPROVE (probe: an abort mid-fold on bb-on-gf-92bc84f left grid and cursor empty, bamboo + 2 x sticks conserved, grid_clear=yes; the 1918bb5 control stranded 58-59 bamboo on the cursor); Codex APPROVE-WITH-CHANGES with one P2 INHERITED from the approved 10-05 design, NOT changed here -- OWNER/OPERATOR DECISION: a room-blocked milestone craft (36/36, a craft-ready rung outside town) wins the decision before bamboo is asked, so a bag whose only freeable slot is a bamboo fold waits for the town deposit / other remedies; making the fold a craft-room remedy is a separate change. TESTS: npm test: bb-on-55dff5a @ 6fb6fd9 237/237; bb-on-b54e452 @ 786da4c 238/238. lint: only the fleet's pre-existing withinBody. PAPER (sandbox 25599, 10-07, sandbox/craft/bamboo-ab.cjs, cand bb-on-gf-c6e91a8 vs ctrl c6e91a8): K20 (low_health damage 10 s into a 32-craft fold) cand 3/3: aborted:low_health, bamboo -18 / sticks +9 = crafts 9 (the server's tally), planks unchanged, grid clear yes, nothing on the ground online or after logout (on 10-05, without the grid fix, the same scene stranded up to 46 bamboo 3/3); A20 (a 32-craft fold) cand 2/2: bamboo -64, sticks +32, slots 36->35; ctrl K20 1/1: no order. (Run on f1cb41b; 6fb6fd9 adds only the grid-fix lockstep stop and the authoritative flag, neither on the 2x2 fold's click path.). Read: scripts/host/bambooread.py unchanged (md5 1aeb644a on the host = repo); dry run 10-07 12:00-17:40Z: instrument 22 control bots at >= 34 slots holding >= 2 bamboo, LIVENESS 0 (the base has no fold), breaches 0. -- HISTORY (bb-on-1918bb5 registration, 10-05): [bamboo-01 (OWNER 10-03 'yes' to bamboo -> sticks; OWNER priority 10-04: bags and chests first). Variant for fleet 1918bb5 (toolclean-01 KEPT), branch bb-on-1918bb5 = 1918bb5 + the bamboo commits of bb-on-56db2cd (d5736f0, d26eedc, 565c7fb; patch-identical, Codex confirmed) + a one-execution cap on the stopped-execution credit (Codex 10-05). Launched by chain-after.sh when toolclean-01 ends; STOPs if the fleet is not 1918bb5.] FULL BAGS HOLD BAMBOO: census 10-04 68/80 bots at >= 34 slots, 29 hold bamboo, 19 of 29 eligible (a fold frees a slot); the yield is SMALL (~1 slot per eligible bot). THE CHANGE: a deterministic housekeeping order right after wear_out: at >= 34 occupied slots, the SMALLEST batch of the bamboo-only stick recipe (never craft('stick'), which may burn planks) that frees a slot in the real slot order; stick cap 64 unless no new stick slot is needed; through craftroom's executor + craftsync (a gate at every execution and inside craftsync's admission); a declared stationary window (crafts x 1.3 s + 5 s, cap 90 s) bounds the fold and exempts it from the stuck watchdog; a batch that cannot finish inside it is refused before any click (stop=too_long); the tally is the server's; the contract is slots freed. PAPER SANDBOX round 2 (10-05, STUCK_SECONDS=20): cand bb-on-1918bb5 vs ctrl 1918bb5 on sandbox (25599), 3 reps, fresh bot per trial, server slots before/after/+6 s and the ground after logout. 32-craft fold (A20) completes under the real 20 s watchdog 3/3 (~37.6 s, 64->0 bamboo, 32->64 sticks, 36->35 slots; round 1: cut at 15, freed nothing). 64-craft fold (D20) completes inside its 88.2 s window 3/3 (~74 s, 128->0 bamboo, 0->64 sticks, 35->34). Short folds unchanged: B20 5 crafts 3/3, E20 1 craft at the cap 3/3; F20 pickup hold-back no_effect 3/3; C20/G20 no order. Planks 10->10 in all 26 trials (never burned). Control: no order, no change, 6/6. Read gates fed the 18 real _bamboo_sticks rows: 0 breaches on every completed fold. ABORT (K20, low_health 10 s in) 3/3: the tally IS the server's (crafts 9 = sticks +9) BUT 46 bamboo stay in the 2x2 grid/cursor -- invisible to the bag, still absent 6 s later, dropped on the ground at logout -- and the runner graded the aborted run success ('inventory_slots: 1 slot(s) freed ... so it worked'): the freed slot is the stranded stack. This is craftsync's pre-existing cancel-path defect (no close_window 0); gridfix is not in this base. G3 trips on it (positive control: the read sees it).",
+ "licence": {
+  "class": "kind",
+  "kind": "_bamboo_sticks",
+  "min_rows": 1,
+  "note": "Written only by this build (one row per fold run, skips and aborts included). The fleet (and the grid-fix fleet underneath) has no bamboo module."
+ },
+ "reads": [
+  "bambooread",
+  "immobiledid"
+ ],
+ "read_minutes": [
+  180,
+  360
+ ],
+ "deadline_min": 1680,
+ "change_rows": [
+  "bamboo_sticks"
+ ],
+ "linkage_extra": [],
+ "draw_exposure": {
+  "hours": 3,
+  "require": [
+   {
+    "name": "full bags holding bamboo (craft_room refusals listing bamboo in the bag)",
+    "kind": "craft_room",
+    "detail_contains": "bamboo",
+    "min": 5
+   }
+  ],
+  "note": "10-04 21:00-24:00Z per pool: hive-b 88, hive-a 43, board-a 18, board-c 10 (isolated-* and placebo-c are never drawn). The detail lists the bag on a full-bag refusal ('bag: ... bamboo 1')."
+ },
+ "exposure": {
+  "read": "bambooread",
+  "field": "exposure_ready",
+  "min": 1,
+  "note": "Ready = >= 3 canary folds that freed a slot (success, crafts > 0, freed >= 1) AND >= 1 control bot at >= 34 est. slots holding >= 2 bamboo. MEASURED 10-07: the instrument finds 22 of 65 control bots (12:00-17:40Z dry run); bag census 17:00Z: bamboo 104 slots, 5,328 pieces in 45 bags; drawexposure (craft_room refusals listing bamboo >= 5 / 3 h): 5 of 11 pools eligible (board-a, board-c, board-d, hive-a, hive-b). A 10-bot draw from those pools holds ~3-5 eligible full holders; each fold frees >= 1 slot when a batch can (19 of 29 holders could on 10-04), so >= 3 folds by +360 is expected but not measured on the fleet (bamboo never ran); the extensions carry a slow start."
+ },
+ "own_lines": [
+  {
+   "read": "bambooread",
+   "field": "g1_planks",
+   "op": "<=",
+   "value": 0,
+   "on_fail": "REVERT",
+   "evidence": "defect",
+   "note": "G1: a fold run that ended with fewer planks than it started (the bamboo-only recipe never burns planks). A death inside the run is excused and reported."
+  },
+  {
+   "read": "bambooread",
+   "field": "g2_sticks",
+   "op": "<=",
+   "value": 0,
+   "on_fail": "REVERT",
+   "evidence": "defect",
+   "note": "G2: sticks gained < crafts claimed (the tally over-claims the server). A death inside the run is excused and reported."
+  },
+  {
+   "read": "bambooread",
+   "field": "g3_bamboo",
+   "op": "<=",
+   "value": 0,
+   "on_fail": "REVERT",
+   "evidence": "defect",
+   "note": "G3: bamboo gone > 2 x crafts -- bamboo left the bag without becoming sticks (tossed, or stranded in the 2x2 grid/cursor by an aborted fold). A death inside the run is excused and reported."
+  },
+  {
+   "read": "bambooread",
+   "field": "g4_overcraft",
+   "op": "<=",
+   "value": 0,
+   "on_fail": "REVERT",
+   "evidence": "defect",
+   "note": "G4: crafts > planned."
+  },
+  {
+   "read": "bambooread",
+   "field": "g5_cap",
+   "op": "<=",
+   "value": 0,
+   "on_fail": "REVERT",
+   "evidence": "defect",
+   "note": "G5: a fold past the 64-stick cap (s0 + planned > 64) that ended with more occupied slots."
+  },
+  {
+   "read": "bambooread",
+   "field": "g6_unconfirmed",
+   "op": "<=",
+   "value": 0,
+   "on_fail": "REVERT",
+   "evidence": "defect",
+   "note": "G6: an unconfirmed stick _craft_sync inside a fold run whose resyncs the server did NOT answer (a denial with both resyncs answered is a known outcome, retried, not counted)."
+  },
+  {
+   "read": "bambooread",
+   "field": "g7_success_grew",
+   "op": "<=",
+   "value": 0,
+   "on_fail": "REVERT",
+   "evidence": "defect",
+   "note": "G7: a SUCCESS fold that ended with more occupied slots. Excused (reported) when a pickup row of the same bot falls inside the run, or a death."
+  },
+  {
+   "read": "bambooread",
+   "field": "rows_control",
+   "op": "<=",
+   "value": 0,
+   "on_fail": "REVERT",
+   "note": "Arms. BLOCKS KEEP."
+  },
+  {
+   "read": "bambooread",
+   "field": "folds_freed_canary",
+   "op": ">=",
+   "value": 1,
+   "on_fail": "REVERT",
+   "note": "LIVENESS. BLOCKS KEEP (INCONCLUSIVE)."
+  },
+  {
+   "read": "bambooread",
+   "field": "instrument_control",
+   "op": ">=",
+   "value": 1,
+   "on_fail": "REVERT",
+   "note": "POSITIVE CONTROL: the population (control bots at >= 34 slots holding >= 2 bamboo) is visible to this query. BLOCKS KEEP."
+  }
+ ],
+ "primary": {
+  "read": "bambooread",
+  "field": "cohort_occupancy_did",
+  "note": "REPORTED, NOT GATED: estimated occupancy DiD on a cohort of full bamboo holders fixed in the pre-window, slots freed per canary bot-hour, skips per bot-hour, stops by reason, duration p95, excused breaches by cause."
+ },
+ "harm": {
+  "note": "Unchanged: the two-death floor (OWNER 2026-09-11) and gather_ratio < 0.43 of control, from immobiledid. Watch _reflex_stuck during folds (the declared window exempts only the fold)."
+ },
+ "teardown": {
+  "note": "THREE STEPS: drop-ins, clear canary_pool, restart the pool's bots 12 s apart; then confirm the live versions."
+ },
+ "amendments": [],
+ "extension": {
+  "until_exposure": true,
+  "extra_reads": [
+   540,
+   720,
+   1080,
+   1560
+  ],
+  "final_on_zero_exposure": "INCONCLUSIVE",
+  "note": "SHORT CANARY for a fix (owner 2026-09-29)."
+ }
+}

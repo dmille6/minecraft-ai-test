@@ -1,0 +1,120 @@
+{
+ "run_id": "stonecap-01",
+ "sha": "b2dee1a",
+ "registered_at": "2026-10-07T21:00:00Z",
+ "ladder_change": false,
+ "promotion": "fleet-wide",
+ "notes": "[stonecap-01 = THE COBBLE RULE, variant for fleet 92bc84f (use ONLY if towndeposit-02 is KEPT and promoted): branch sc-on-92bc84f @ b2dee1a.] OWNER 10-04 ~18:10Z: \"cobble: keep 256/town reserve, bank only when it frees a slot (both-engine no-ledger design)\"; owner order 10-07 \"i want all of those things done and queued\". Design: docs/reports/cobble-rule-design-2026-10-07.md (builds the 10-04 nojunk SYNTHESIS: no ledger; cobble enters storage only as a transfer that empties a bag slot). MEASURED (30 h to 10-07 17:52Z, 80 bots): 299 deposit runs banked 10,997 cobble; 238 of them left the bot under 64 (6,350 of the 10,997 would have stayed as reserve); census 10-07 17:00Z cobble 133 slots, 6,324 pieces in 69 bags. THE CHANGE (bankable.mjs cobbleBankStacks, one allowance for every caller): cobblestone + cobbled_deepslate are bankable ONLY as WHOLE stacks, smallest first, while the bag keeps COBBLE_RESERVE = 64 of the two (the exit contract needs 59 for a y-16 descent; = the stockpile rung's ceiling, the town deposit's stone keep, the junk well's guard; one slot). The deposit moves each chosen stack with mineflayer's own transfer() narrowed to that slot (the function chest.deposit calls: same errors, accounting and cursor rescue); a stack a container cannot take whole is never started; cobble never grows the bank (a deposit whose only unplaced items were cobble ends no_effect -- no recovery, no new chest, no closure); depositDue is false with nothing bankable and admission refuses an empty requested plan before the walk (deposit_nothing_to_bank, naming the rule). _cobble_bank rows after the close from the server recount. THE 256 PER TOWN is the 10-04 clear's retained reserve, NOT a code cap (both engines rejected a town ledger; Codex and Claude 10-07: an honest reading) -- a hard cap is an OWNER DECISION and a separate change. 92bc84f variant: the town deposit inherits the allowance; composition test (whole stacks only, never under 64). REVIEWS: Codex round 1 CHANGE (P1 unguarded/unconfirmed shift-click transfer; P2 relief grows/closes the bank; P2 empty-plan advice and walk; P2 rows cannot support the gates; P2 exposure arithmetic) and independent Claude round 1 APPROVE-WITH-CHANGES (P1 cobble alone built a chest -- probe; P2 the client's shift-click prediction skips the chest's last slot -- probe; P2 empty-plan walk -- probe; P2 gates; P2 exposure x10) -> all addressed in 2fd827c -> round 2: Codex APPROVE-WITH-CHANGES (cap the success path's credited gain at the stack) and Claude APPROVE-WITH-CHANGES (before= on the row; rows by src) -> c238c3d -> round 3: Claude APPROVE; Codex APPROVE-WITH-CHANGES on the READ only (the balance tripwire grouped runs wrongly) -> fixed -> round 4 Codex APPROVE (it ran the read's embedded controls). Accepted limitation (both): moved is the client window's gain and tried= is intent; on Paper the recount after real transfers says src=skipped, so the server-backed balance tripwire is mostly dark and C1 judges the client bag (which matched the server read-back in every sandbox trial). Prior art (open source, issues, forums; in the design doc): no project keeps a counted cobble reserve (mineflayer-pathfinder, Baritone, mindcraft, Voyager, collectblock); pitfalls adopted (first-matching-slot deposits, partial fills, cursor on destination full, deepslate in the reserve). TESTS: SUITES_SC. cobble-rule.test.mjs 9/9; fixtures that used a lone 64-cobble stack as 'something bankable' now bank oak_log/stone (deposit-truth, deposit-plan, deposit-demand, craft-room, chest-full, storage-full); external anchored mutants (scripts/mutants/mutants-canaries-1007.py cobble) 9/9 killed. lint: only the fleet's pre-existing withinBody. PAPER: sandbox 25599, 10-07, sandbox/craft/cobble-ab.cjs (new; the model's `deposit` queued; server read-back of bag slots and chest), cand 2fd827c (c238c3d adds only the cap and before=) x2, ctrl c6e91a8 x1. A bag [64, 30] + oak_log 20: cand banked the 30 whole and kept ONE cobble slot of 64 (row moved=30 kept=64 src=skipped); ctrl banked the 64 and kept 30. B [50] + oak_log: cand banked the logs and 0 cobble; ctrl banked 42 cobble down to its old 8 (46 clicks). C chest with room for 14: cand moved nothing, no_effect 'cobble never opens a new chest', no chest, no recovery (row no_room=1 src=server); ctrl part-filled +14 (no slot freed) with two cursor rescues. Bag + chest + ground conserved in all 9 trials; nothing on the ground after logout. READ scripts/host/stonecapread.py dry runs on the fleet host: 10-07 (3 h windows, canary hive-a,board-c / placebo-d,hive-d as c6e91a8): exposure READY 52 / 47 / 32 canary runs holding cobble; instrument 71 / 61 / 51 control runs lowered cobble, 62 / 53 / 42 of them ending under 64; identical-code cobble-banked DiD +8.9 / +3.6 / -14.2 per bot-h (reported only). md5 549372b1 on the host (/tmp and ~/mcai-analysis) = repo.",
+ "licence": {
+  "class": "kind",
+  "kind": "_cobble_bank",
+  "min_rows": 1,
+  "note": "Written only by this build: one row per cobble name a deposit plan named, after the close, from the server recount. The fleet has no _cobble_bank row (dry run 10-07: 0 of 218 control deposit rows)."
+ },
+ "reads": [
+  "stonecapread",
+  "immobiledid"
+ ],
+ "read_minutes": [
+  180,
+  360
+ ],
+ "deadline_min": 1680,
+ "change_rows": [
+  "cobble_bank"
+ ],
+ "linkage_extra": [],
+ "draw_exposure": {
+  "hours": 3,
+  "require": [
+   {
+    "name": "deposit runs (the rule is evaluated on every deposit by a bot holding cobble)",
+    "kind": "deposit",
+    "min": 8
+   }
+  ],
+  "note": "Dry run 10-07 15:30-18:30Z: 218 control deposit rows on 70 bots (~3 per bot per 3 h); a 5-bot pool passes 8 easily. The draw needs nothing rarer."
+ },
+ "exposure": {
+  "read": "stonecapread",
+  "field": "exposure_ready",
+  "min": 1,
+  "note": "Ready = >= 20 canary deposit runs by bots holding cobble (the rule decides on every one) AND the instrument (control deposit runs that lowered cobble >= 1). MEASURED 10-07 (3 h dry runs, canary = hive-a,board-c as c6e91a8): 52 and 47 canary runs; instrument 71 and 61 control runs lowering cobble, 62/71 and 53/61 of them ending under 64 -- the behaviour removed. Powered by +180. Whole-stack banking events (_cobble_bank with moved > 0) are rarer (~0.025/bot-h estimated: ~20% of runs that bank cobble today end >= 64); the gates judge what moves, the exposure is the decision."
+ },
+ "own_lines": [
+  {
+   "read": "stonecapread",
+   "field": "breach_reserve",
+   "op": "<=",
+   "value": 0,
+   "on_fail": "REVERT",
+   "evidence": "defect",
+   "note": "C1 THE RESERVE: a canary _cobble_bank row that moved cobble whose server-recounted bag keeps < 64 cobble + deepslate (src=server; another src is a tripwire)."
+  },
+  {
+   "read": "stonecapread",
+   "field": "breach_whole",
+   "op": "<=",
+   "value": 0,
+   "on_fail": "REVERT",
+   "evidence": "defect",
+   "note": "C2 WHOLE STACKS: moved > planned, or moved not a sum of the tried= stacks (a partial: only a race with another depositor can make one; the room is checked first)."
+  },
+  {
+   "read": "stonecapread",
+   "field": "breach_town_reserve",
+   "op": "<=",
+   "value": 0,
+   "on_fail": "REVERT",
+   "evidence": "defect",
+   "note": "C3 (92bc84f variant): a canary _town_deposit that banked cobble and ENDED under 64 cobble + deepslate."
+  },
+  {
+   "read": "stonecapread",
+   "field": "rows_control",
+   "op": "<=",
+   "value": 0,
+   "on_fail": "REVERT",
+   "note": "Arms. BLOCKS KEEP."
+  },
+  {
+   "read": "stonecapread",
+   "field": "rows_canary",
+   "op": ">=",
+   "value": 1,
+   "on_fail": "REVERT",
+   "note": "LIVENESS: canary _cobble_bank rows. BLOCKS KEEP (INCONCLUSIVE)."
+  },
+  {
+   "read": "stonecapread",
+   "field": "instrument_control",
+   "op": ">=",
+   "value": 1,
+   "on_fail": "REVERT",
+   "note": "POSITIVE CONTROL: control deposit runs that lowered cobble are visible. BLOCKS KEEP."
+  }
+ ],
+ "primary": {
+  "read": "stonecapread",
+  "field": "cobble_banked_did",
+  "note": "REPORTED, NOT GATED: cobble banked per bot-h DiD (mechanically down: identical-code dry runs gave +8.9 and +3.6, so it is not evidence of anything by itself); canary vs control deposit runs that lowered cobble and ENDED under 64 (the direct measure: control ~87%, canary expected ~0 apart from scaffold placed on the walk); share of bots at >= 34 slots DiD (TRIPWIRE: a material rise means the 64 reserve costs bag space -- read the multi-day bag check before promotion); cobble slots per bot DiD; deposit no_effect share; tripwires (unconfirmed moves, no_room rows, a new chest within 4 min of a cobble no_room)."
+ },
+ "harm": {
+  "note": "Unchanged: the two-death floor (OWNER 2026-09-11) and gather_ratio < 0.43 of control, from immobiledid. Also watch mine/exit-contract refusals naming scaffold (the reserve should only ever raise scaffold held)."
+ },
+ "teardown": {
+  "note": "THREE STEPS: drop-ins, clear canary_pool, restart the pool's bots 12 s apart; then confirm the live versions. Nothing in the world changes."
+ },
+ "amendments": [],
+ "extension": {
+  "until_exposure": true,
+  "extra_reads": [
+   540,
+   720,
+   1080,
+   1560
+  ],
+  "final_on_zero_exposure": "INCONCLUSIVE",
+  "note": "A mechanism canary (both engines 10-04): deterministic gates decide; the bag effect needs the multi-day check before promotion."
+ }
+}

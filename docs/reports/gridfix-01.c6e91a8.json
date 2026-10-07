@@ -1,0 +1,138 @@
+{
+ "run_id": "gridfix-01",
+ "sha": "55dff5a",
+ "registered_at": "2026-10-07T21:00:00Z",
+ "ladder_change": false,
+ "promotion": "fleet-wide",
+ "notes": "[gridfix-01, variant for fleet c6e91a8 (use if towndeposit-02 is NOT promoted): branch gf-on-c6e91a8 @ 55dff5a.] REBASE 10-07 (owner order \"i want all of those things done and queued\"): gf-on-c6e91a8 = c6e91a8 + merge of origin/gf-on-1918bb5 (8c9239d) + 55dff5a; gf-on-92bc84f = 92bc84f (towndeposit-02) + merge of gf-on-c6e91a8 (no conflicts) + b54e452 (TEST-ONLY: towndeposit.test TOWN MEMORY failed 3 of 8 runs on the unmodified 92bc84f -- the precondition miss and the fake deposit landed in the same millisecond and containerPickMiss needs a strictly later took; the miss is now noted 50 ms earlier: 12 of 12). Since 1918bb5 the fleet absorbed withdraw's byte-identical window-bound click machinery (inflight.mjs, cappedClick) and evolved it, so the merge was NOT mechanical: craftsync.mjs kept the fleet's broader stopIssued (lockstep states too) and dropped the grid fix's isCraft-guarded copy; lastItems and the per-craft click record (st.issued) kept; craftsync-window-bind.test.mjs = the fleet's superset. The canary-vs-fleet diff is the grid fix proper (craftsync.mjs +232 lines; craftsync-grid.test.mjs). REVIEWS: Codex APPROVE (82382dd, 3002b66) and APPROVE again on the fix (55dff5a, 71f4093); independent Claude review APPROVE-WITH-CHANGES: P2 found by probe -- the grid fix's write-hook drop now also ran for withdraw/town-deposit locksteps, so a stop landing while a click waited in the dig cooldown let mineflayer apply it locally and dropped it unsent with no repair (12 of 20 probe trials; latent while mineflayer 4.37.1's lastDigTime is a performance.now() number) -> FIXED in 55dff5a (stopIssued before validate(); the drop branch marks repairPending wherever no grid clear follows; 12-trial test; external anchored mutant killed: scripts/mutants/mutants-canaries-1007.py gridfix 1/1). Known P3 (operator note): the grid fix's preempt now applies to lockstep states too -- a reflex equip during a withdraw/town-deposit lockstep waits up to 8 s (was 2 s) or fails craft_busy; in practice the lockstep releases within one poll. Codex P3: repairPending is not cleared by a craft's own baseline resync (a redundant repair at the next recount/lockstep, harmless). TESTS: npm test: gf-on-c6e91a8 @ 55dff5a 236/236; gf-on-92bc84f @ b54e452 237/237. lint (no-undef): only the fleet's pre-existing withinBody (reflex.mjs:2263). PAPER (sandbox 25599, 10-07, sandbox/craft/grid-ab.cjs, cand gf-on-c6e91a8 vs ctrl c6e91a8, ABBA 2 reps/arm, server read-back): control stranded items on every mid-click abort (stuck: 56 oak_planks x2 -- in the grid/cursor, dropped at logout; pre (hunger reflex preempting): 2 planks x2), nothing on the +1500 ms and +300 ms interrupts (they landed outside the craft's clicks); candidate (82382dd -- 55dff5a only adds the lockstep pre-validate stop, no craft path change) 0 of 8 trials stranded, bag counts exact, grid_clear=yes, except int3 (abort 300 ms after the first click, during the verification resync) which read grid_clear=unverified_skipped with the bag conserved -- an unverified_* value is the read's tripwire (BLOCKS KEEP above 10% and >= 2), not a defect; expect it occasionally. Read: scripts/host/gridfixread.py unchanged (md5 eac8d6da on the host = repo); dry run 10-07 (canary hive-a,board-c,hive-d as c6e91a8, 11:40-17:37Z): control positive control 3 aborted exits, LIVENESS 0 canary rows with grid_clear (the base cannot write it), CRAFTSYNC 'nothing changed' 0 of 131 / 0 of 1048. -- HISTORY (911d792 / 1918bb5 variants, 10-05): [BASE 911d792 -- use this registration ONLY if junkwell-01 is KEPT and promoted (fleet 911d792); if it is reverted the fleet stays 1918bb5 and gridfix-01.1918bb5.json (8c9239d) applies; chain-after.sh picks by the fleet sha at launch.] Variant for fleet 911d792, branch gf-on-911d792 @ ced0b52 = origin/jw-on-1918bb5 (911d792, the junk well) + the six grid-fix commits cherry-picked from gf-on-1918bb5 (1918bb5..8c9239d) + ced0b52 (a composition test; serverBag exported, no behaviour change). The cherry-pick had NO conflicts (disjoint files): git diff 911d792 bb4a192 is byte-identical to git diff 1918bb5 8c9239d, so the canary-vs-fleet diff is the grid fix alone, as on 1918bb5. Codex rebase review (junk-well/grid-fix composition: the well's window-0 close+resync vs the permanent send filter, inflight epochs, holdInventory vs the craft guards/zombie fuse, the well's grid_loaded refusal after the grid fix's clear): APPROVE. Suite 229/229 on ced0b52; grid-fix mutants 44/44 killed on the rebase; well mutants run in-suite (well.test.mjs withMutant, anchors asserted); composition mutants 4/4 killed. eslint: only the fleet's pre-existing withinBody (reflex.mjs). Paper sandbox evidence below was gathered on the 1918bb5 variant; craftsync.mjs and inflight.mjs are byte-identical here. [gridfix-01 (canary order 10-05: the grid fix takes the slot chestfull-01 left on its 03:17Z revert; bamboo-01 waits for it). Variant for fleet 1918bb5 (80/80 since 03:22Z), branch gf-on-1918bb5 @ 8c9239d. Codex APPROVED 8c9239d after five rounds; independent Claude review 10-05: APPROVE, no P1 (suite 227/227, eslint clean on craftsync.mjs + inflight.mjs, 2 own mutants killed with asserted unique anchors: no clear on the cancel path -> 13 grid tests fail; an unanswered clear read as yes -> the unanswered-resync test fails; a repro that a click-capped craft leaves nothing in flight for the next craft: confirmed clean).] THE DEFECT: an ABORTED 2x2 inventory craft (stuck watchdog, interrupt, reflex preemption) after its first click left the 2x2 grid + cursor loaded -- craftsync never closed window 0 on the cancel path; the items came back on the next craft (which then failed once) or dropped at logout. Fleet (1918bb5, 30 h): 44 aborted 2x2 exits with clicks, 38 of them mid-click (verify_source none). THE CHANGE: on every unclean exit with window-0 clicks since the last close, craftsync waits (<= 1.5 s) for issued clicks to settle, closes window 0, clears mineflayer's local grid/cursor, resyncs and reads slots 1-4 + the cursor off the server: grid_clear on every _craft_sync row; clicks are window-bound and invalidated on a stop or a click-cap expiry (inflight.mjs, byte-identical with withdraw); a preempting reflex waits for the release (bounded ~8 s) or fails craft_busy instead of clicking alongside. PAPER SANDBOX (sandbox/craft/grid-ab.cjs, server read-back, 10-05): mid-click aborts STRANDED on control 12 of 12 (stuck watchdog 56 planks, preempting hunger reflex 50/50/2, 36/36 bags 56/56/58/58, a 4-stick cursor; every one on the ground after the kick or logout) and were CLEAN on the candidate 11 of 11 (grid_clear=yes, bag conserved, nothing on the ground after the kick or logout, incl. 36/36 bags); aborts after an execution's clicks were clean on both arms (12/12 each); ordinary crafts 5 2x2 + 5 table identical on both arms (10/10 success, same bag delta, no refusals, no _click_* rows); bamboo's interrupted fold (bamboo-01 cherry-picked onto 8c9239d, scene K20) clean 2/2 (was 3/3 stranded). KNOWN: an abort that lands in the VERIFICATION resync reads unverified_skipped (the verification close already returned the grid; bag conserved 6/6 on Paper) -- 2 of 44 fleet aborts land there; it feeds the tripwire.",
+ "licence": {
+  "class": "text",
+  "row": "_craft_sync",
+  "text": "; grid clear ",
+  "min_rows": 1,
+  "note": "Every _craft_sync row of this build carries grid_clear and its detail says '; grid clear <value>' (na_clean / na_no_clicks on a clean exit), so the licence fires on every canary craft. The fleet (c6e91a8 / 92bc84f) never writes that string (dry run 10-07: 0 of 253 control rows)."
+ },
+ "reads": [
+  "gridfixread",
+  "immobiledid"
+ ],
+ "read_minutes": [
+  180,
+  360
+ ],
+ "deadline_min": 1680,
+ "change_rows": [
+  "click_refused",
+  "click_dropped",
+  "click_drop_repair"
+ ],
+ "linkage_extra": [],
+ "draw_exposure": {
+  "hours": 3,
+  "require": [
+   {
+    "name": "craftsync crafts (the grid clear runs on a craftsync exit)",
+    "kind": "craft_sync",
+    "min": 6
+   }
+  ],
+  "note": "Fleet 10-05 00:29-06:29Z _craft_sync rows / aborted 2x2 exits with clicks per pool: board-a 22/0, board-b 44/1, board-c 39/3, board-d 50/0, hive-a 19/3, hive-b 25/1, hive-c 14/0, hive-d 39/0, isolated-a 41/2, isolated-b 56/0, isolated-c 23/0, isolated-d 25/1, placebo-a 41/0, placebo-b 19/0, placebo-c 33/1, placebo-d 24/0. The abort itself is too rare to require per pool."
+ },
+ "exposure": {
+  "read": "gridfixread",
+  "field": "exposure_ready",
+  "min": 1,
+  "note": "Ready = >= 1 canary ABORTED 2x2 exit with clicks AND >= 1 such control exit. MEASURED RATE (control, all pools): 8 per 12 h (10-05 12-24Z), 6 per 12 h (10-06 12-24Z, 2.7 h outage inside), 0 per 5 h (10-07 00-05Z), 4 per 6 h (10-07 11:40-17:37Z): ~0.5/h fleet-wide = ~0.0065/bot-h. POWER: a 15-bot canary expects ~0.6 by +360 (P(exposed) ~0.45), ~1.2 by +720, ~2.5 by +1560 (P ~0.92); 10 bots ~0.4 / ~1.7 (P ~0.82 by +1560). The extensions carry it; prefer a 15-20-bot draw. The Paper sandbox exposes it deterministically (10-07, grid-ab.cjs on this craftsync: the control stranded items on every mid-click abort -- stuck 56 planks x2, pre 2 planks x2 -- the candidate 0 of 8 trials)."
+ },
+ "own_lines": [
+  {
+   "read": "gridfixread",
+   "field": "grid_no",
+   "op": "<=",
+   "value": 0,
+   "on_fail": "REVERT",
+   "evidence": "defect",
+   "note": "DEFECT: a canary _craft_sync row with grid_clear == 'no' -- the server's own window_items, read after the clear (close_window 0 + an answered resync), still showed a grid slot 1-4 or the cursor loaded. The baseline cannot write the field."
+  },
+  {
+   "read": "gridfixread",
+   "field": "grid_unverified_block",
+   "op": "<=",
+   "value": 0,
+   "on_fail": "REVERT",
+   "note": "TRIPWIRE. BLOCKS KEEP: canary unverified_* + error + skipped_window_open > 10% of the verdict-bearing values (yes, no, unverified_*, error, skipped_window_open) and >= 2 -- the clear could not be checked. skipped_disconnected is its own bucket (reported); na_* are excluded."
+  },
+  {
+   "read": "gridfixread",
+   "field": "nothing_judged",
+   "op": "<=",
+   "value": 0,
+   "on_fail": "REVERT",
+   "evidence": "defect",
+   "note": "CRAFTSYNC HOLDS (craftsync-01's gate): a canary craft the runner called done that gained nothing ('nothing changed that craft exists to change'), judged at >= 10 canary crafts. Dry run 10-05: control 0 of 1148."
+  },
+  {
+   "read": "gridfixread",
+   "field": "resync_over_5pct",
+   "op": "<=",
+   "value": 0,
+   "on_fail": "REVERT",
+   "note": "CRAFTSYNC HOLDS. BLOCKS KEEP: canary rows with an unanswered resync > 5% (>= 20 rows)."
+  },
+  {
+   "read": "gridfixread",
+   "field": "gridfield_control",
+   "op": "<=",
+   "value": 0,
+   "on_fail": "REVERT",
+   "note": "Arms. BLOCKS KEEP."
+  },
+  {
+   "read": "gridfixread",
+   "field": "gridfield_canary",
+   "op": ">=",
+   "value": 1,
+   "on_fail": "REVERT",
+   "note": "LIVENESS. BLOCKS KEEP (INCONCLUSIVE)."
+  },
+  {
+   "read": "gridfixread",
+   "field": "gridfield_missing_canary",
+   "op": "<=",
+   "value": 0,
+   "on_fail": "REVERT",
+   "note": "EVERY EXIT HAS A VERDICT. BLOCKS KEEP: a canary-build _craft_sync row without grid_clear (the dry run on the baseline counted all 105 'canary' rows here -- the line can see a missing field)."
+  },
+  {
+   "read": "gridfixread",
+   "field": "aborted_control",
+   "op": ">=",
+   "value": 1,
+   "on_fail": "REVERT",
+   "note": "POSITIVE CONTROL: the control's aborted 2x2 exits with clicks are visible to this query (8 in the 353-min dry run 10-05). BLOCKS KEEP."
+  }
+ ],
+ "primary": {
+  "read": "gridfixread",
+  "field": "next_fail_canary",
+  "note": "REPORTED, NOT GATED: the share of the NEXT craftsync craft that failed after an aborted 2x2 exit, canary vs control (next_fail_canary/next_n_canary vs next_fail_control/next_n_control; the stranded-grid symptom: control 2 of 7 in the 10-05 dry run, 111 of 135 = 82% over all unclean exits 10-04). Small n. Also reported: grid_clear value counts and residue, skipped_disconnected, the release facts (late clicks dropped, in flight at release, inflight-wait expiries, window changes, wire drops, pre-invoke refusals, dead waits released, deferred writes, preempt timeouts), the click rows (_click_refused/_click_dropped/_click_drop_repair, canary vs control), craft durations, crafts/bot-h DiD, craft success share DiD, _reflex_stuck/bot-h DiD."
+ },
+ "harm": {
+  "note": "Unchanged: the two-death floor (OWNER 2026-09-11) and gather_ratio < 0.43 of control, from immobiledid."
+ },
+ "teardown": {
+  "note": "THREE STEPS: drop-ins, clear canary_pool, restart the pool's bots 12 s apart; then confirm the live versions. A restart of a bot whose old-build grid is loaded drops those items (Paper drops a disconnected player's grid + cursor) -- that is the control's defect, not a teardown fault."
+ },
+ "amendments": [],
+ "extension": {
+  "until_exposure": true,
+  "extra_reads": [
+   540,
+   720,
+   1080,
+   1560
+  ],
+  "final_on_zero_exposure": "INCONCLUSIVE",
+  "note": "SHORT CANARY for a fix (owner 2026-09-29). Aborted 2x2 exits are rare (13 fleet-wide in 6 h, 0-3 per pool), so +360 may not be exposed; the extensions wait for one."
+ }
+}
