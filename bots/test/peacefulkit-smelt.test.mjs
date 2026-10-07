@@ -21,7 +21,8 @@ const ID = { raw_iron: 1, iron_ingot: 2, coal: 3, furnace: 4, oak_planks: 8, woo
 const NAME = Object.fromEntries(Object.entries(ID).map(([k, v]) => [v, k]))
 const TICKS = { coal: 1600, oak_planks: 300, wooden_sword: 200 }
 
-function makeBot (inv, difficulty, { tickMs = 4, onBurn = null, warm = 0, fuelUnknown = false, litUnknown = false, holdIgnition = false, filler = 0 } = {}) {
+function makeBot (inv, difficulty, { tickMs = 4, onBurn = null, warm = 0, fuelUnknown = false, litUnknown = false, holdIgnition = false, filler = 0, onSwordPut = null, litLagMs = 0 } = {}) {
+  let litSince = 0
   const bag = { ...inv }
   const give = (n, c) => { bag[n] = (bag[n] ?? 0) + c }
   const take = (n, c) => { bag[n] = (bag[n] ?? 0) - c; if (bag[n] <= 0) delete bag[n] }
@@ -33,7 +34,7 @@ function makeBot (inv, difficulty, { tickMs = 4, onBurn = null, warm = 0, fuelUn
     while (burnLeft < 200) {
       if (!slots.fuel || holdIgnition) { burnLeft = 0; return }
       const f = slots.fuel.name
-      burnLeft += TICKS[f]; burnt[f] = (burnt[f] ?? 0) + 1
+      burnLeft += TICKS[f]; burnt[f] = (burnt[f] ?? 0) + 1; litSince = Date.now()
       slots.fuel = slots.fuel.count > 1 ? { ...slots.fuel, count: slots.fuel.count - 1 } : null
       onBurn?.(f)
       if (burnLeft < 200) return
@@ -53,6 +54,7 @@ function makeBot (inv, difficulty, { tickMs = 4, onBurn = null, warm = 0, fuelUn
       if (NAME[type] === 'wooden_sword' && (slots.fuel || count > 1)) throw new Error('a sword does not stack')
       if (NAME[type] === 'wooden_sword' && burnLeft > 0) stagedWhileBurning.push(burnLeft)
       take(NAME[type], count); slots.fuel = { name: NAME[type], type, count: (slots.fuel?.count ?? 0) + count }
+      if (NAME[type] === 'wooden_sword') onSwordPut?.({ setFiller: n => { filler = n } })
     },
     async takeOutput () { assert.ok(slots.output); give('iron_ingot', slots.output.count); slots.output = null },
     async takeInput () { assert.ok(slots.input); give(slots.input.name, slots.input.count); slots.input = null },
@@ -74,7 +76,7 @@ function makeBot (inv, difficulty, { tickMs = 4, onBurn = null, warm = 0, fuelUn
     findBlock ({ matching }) { const blk = { type: 90, name: 'furnace', position: V(1, 64, 0) }; return matching(blk) ? blk : null },
     // the furnace block's `lit` state (what the skill reads when mineflayer's furnace.fuel was never reported)
     blockAt: p => (p.x === 1 && p.y === 64 && p.z === 0
-      ? { name: 'furnace', position: p, boundingBox: 'block', getProperties: () => (litUnknown ? {} : { lit: burnLeft > 0 ? 'true' : 'false' }) }
+      ? { name: 'furnace', position: p, boundingBox: 'block', getProperties: () => (litUnknown ? {} : { lit: burnLeft > 0 && Date.now() - litSince >= litLagMs ? 'true' : 'false' }) }
       : { name: p.y < 64 ? 'stone' : 'air', position: p, boundingBox: p.y < 64 ? 'block' : 'empty' }),
     async equip () {}, async lookAt () {}, pathfinder: { async goto () {}, setGoal () {}, stop () {} },
     async openFurnace () { return furnace },
@@ -190,3 +192,26 @@ for (const [why, filler, back] of [['room in the bag', 0, true], ['a FULL bag', 
                                  : 'no_effect:wooden_sword left in the furnace fuel slot (the bag is full) for raw_iron active=1'])
   })
 }
+
+test('ONE EMPTY SLOT, then the returned input takes it: the unburned sword is NOT taken (it would be tossed) -- it stays in the furnace (both reviews r-rev2)', async () => {
+  const m = makeBot({ raw_iron: 2, coal: 1, wooden_sword: 1 }, 'peaceful', { holdIgnition: true, filler: 0,
+    onSwordPut: f => f.setFiller(34) })   // pickups at the furnace: coal 1 stack + 34 = 35 -> ONE empty slot, which the returned input takes
+  const ac = new AbortController()
+  setTimeout(() => ac.abort(), 150)
+  const { rows } = await swordRows(() => run(m.bot, 2, ac.signal).then(r => r, e => e))
+  assert.deepEqual(m.dropped, [], 'nothing tossed')
+  assert.equal(m.bag.raw_iron, 2, 'the input came back into the last slot')
+  assert.equal(m.slots.fuel?.name, 'wooden_sword', 'the sword stayed in the furnace')
+  assert.deepEqual(rows, ['no_effect:wooden_sword left in the furnace fuel slot (the bag is full) for raw_iron active=1'])
+})
+
+test('AN ABORT WITHIN A TICK OF THE PUT, the burn reported late: a burned row (confirmed or marked unconfirmed), never "returned", never no row (Claude r-rev2)', async () => {
+  const m = makeBot({ raw_iron: 2, coal: 1, wooden_sword: 1 }, 'peaceful', { fuelUnknown: true, litLagMs: 1000, tickMs: 20 })
+  const ac = new AbortController()
+  m.bot.openFurnace = (orig => async () => { const f = await orig(); const put = f.putFuel; f.putFuel = async (...a) => { await put(...a); if (a[0] === 10) setTimeout(() => ac.abort(), 1) }; return f })(m.bot.openFurnace)
+  const { rows } = await swordRows(() => run(m.bot, 2, ac.signal).then(r => r, e => e))
+  assert.equal(m.burnt.wooden_sword, 1, 'the sword did burn')
+  assert.equal(rows.length, 1, JSON.stringify(rows))
+  assert.match(rows[0], /^success:burned wooden_sword/)
+  assert.deepEqual(m.dropped, [])
+})
