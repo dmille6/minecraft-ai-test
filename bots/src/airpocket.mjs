@@ -286,13 +286,22 @@ export async function airPocketStep (bot, plan, { Vec3, predict, sleep = ms => n
       if (digging && bot.targetDigBlock && bot.targetDigBlock.position && !bot.targetDigBlock.position.equals?.(cellPos)) aborted = aborted ?? 'another dig took over'
       if (aborted) { try { bot.stopDigging?.() } catch { /* not digging */ } }
     }, 250)
+    // NO DIG AFTER RETURN (Codex r5): mineflayer's dig awaits an unbounded lookAt before it sends start-dig, so a dig
+    // whose look stalled could start after the step returned and cancel a newer dig. So the look is bounded here, the
+    // preconditions are re-checked synchronously (`digGate`), and the dig is sent with forceLook 'ignore', which writes
+    // start-dig inside the call with no await before it (the face sent is mineflayer's default either way).
+    try { await Promise.race([bot.lookAt(cellPos.offset(0.5, 0, 0.5), true), sleep(500)]) } catch { /* a late look moves only the head */ }
+    const cur = bot.blockAt(cellPos)
+    const noDig = digGate({ aborted, block: cur?.name ?? null, want: plan.name, held: bot.heldItem?.name ?? null, priced: held?.name ?? null,
+                            pos: bot.entity.position, fx, fy, fz })
+    if (noDig) { res.why = noDig; res.outcome = aborted ? 'aborted' : 'failed'; return res }
     const deadline = Math.max(1000, Math.min(budgetLeft(), Math.max(2 * best.ms, best.ms + 2000)))
     const tDig = now()
     let timer
     digging = true
     try {
       await Promise.race([
-        bot.dig(block),
+        bot.dig(cur, 'ignore'),
         new Promise((_, rej) => { timer = setTimeout(() => { try { bot.stopDigging?.() } catch {} rej(new Error(`dig exceeded ${Math.round(deadline)} ms`)) }, deadline) }),
       ])
     } catch (e) { res.why = aborted ?? `dig failed: ${String(e?.message ?? e).slice(0, 60)}`; res.outcome = aborted ? 'aborted' : 'failed'; return res } finally { clearTimeout(timer); digging = false }
@@ -331,19 +340,13 @@ export async function airPocketStep (bot, plan, { Vec3, predict, sleep = ms => n
     return res
   } finally {
     if (watch) clearInterval(watch)
-    // NO LATE DIG (Codex r1): mineflayer installs a dig's cancel handler only after its own lookAt, so a deadline can
-    // fire before the dig exists; stop it now and once more shortly after.
+    // A failed or aborted step stops its own dig of the roof cell (Codex r1).
     const ours = () => !!bot.targetDigBlock?.position && (bot.targetDigBlock.position.equals?.(cellPos) ??
       (bot.targetDigBlock.position.x === cellPos.x && bot.targetDigBlock.position.y === cellPos.y && bot.targetDigBlock.position.z === cellPos.z))
     try { if (ours() && !res.ok && res.outcome !== 'opened') bot.stopDigging() } catch {}
-    // poll for 2 s: a dig whose own lookAt resolves after the step returned is stopped as soon as it appears. Residual
-    // (Codex r3): this is cell-scoped, not operation-scoped -- another dig of THIS cell within 2 s of a failed step would
-    // be stopped too; nothing else digs the roof cell over a drowning bot in that window (the escape is pre-empted,
-    // the step cools down 60 s).
-    if (!res.ok && res.outcome !== 'opened') {
-      let n = 0
-      const late = setInterval(() => { try { if (ours()) bot.stopDigging() } catch {} if (++n >= 20) clearInterval(late) }, 100)
-    }
+    // No late poll any more (Codex r5): start-dig is now sent synchronously inside bot.dig (forceLook 'ignore', above),
+    // so no dig of the step's can appear after it returns. The 2-s cell-scoped poll it replaced could only have stopped
+    // someone else's dig of this cell.
     res.healthEnd = bot.health
     res.ms = now() - t0
     // ON SUCCESS JUMP STAYS HELD (Claude r1): the head stays in the pocket and the rescue's own release (head out, dwell)
@@ -381,7 +384,8 @@ export async function standInPocket (bot, plan, { fx, fy, fz, Vec3, sleep, now, 
       try { await Promise.race([bot.equip(item, 'hand'), sleep(1500)]) } catch { /* verified by the gate */ }
       try { bot.setControlState('jump', true) } catch {}
       const by = now() + 2500
-      while (now() < by && bot.entity.position.y < cellY + 1.05) await sleep(50)
+      while (now() < by && bot.entity.position.y < cellY + 1.05 && !isAborted()) await sleep(50)
+      if (isAborted()) return `stopped:aborted: ${isAborted()} (${placed} placed)`
       if (bot.entity.position.y < cellY + 1.05) return `stopped:did not rise above y=${cellY} (${placed} placed)`
       const ref = bot.blockAt(new Vec3(fx, cellY - 1, fz))
       if (!isSolid(ref)) return `stopped:no reference under y=${cellY} (${placed} placed)`
@@ -395,9 +399,23 @@ export async function standInPocket (bot, plan, { fx, fy, fz, Vec3, sleep, now, 
       try { await Promise.race([answer, sleep(1500)]) } catch { /* read back */ }
       if (!isSolid(bot.blockAt(new Vec3(fx, cellY, fz)))) return `stopped:y=${cellY} did not turn solid (${placed} placed)`
       placed++
+      if (isAborted()) return `stopped:aborted: ${isAborted()} (${placed} placed)`
     }
     return `placed:${placed}`
   } catch (e) { return `stopped:threw ${String(e?.message ?? e).slice(0, 40)}` }
+}
+
+/**
+ * May the dig be SENT now? Pure; null = yes, otherwise the reason. Asked synchronously immediately before start-dig
+ * (Codex r5): not aborted, the roof cell still holds the planned block, the tool in hand is the one the dig was priced
+ * with, and the bot is still in the planned column.
+ */
+export function digGate ({ aborted, block, want, held, priced, pos, fx, fy, fz }) {
+  if (aborted) return aborted
+  if (block !== want) return `roof cell changed to ${block ?? 'unknown'}`
+  if ((held ?? null) !== (priced ?? null)) return `the held item changed (${priced ?? 'hand'} -> ${held ?? 'hand'})`
+  if (!pos || Math.floor(pos.x) !== fx || Math.floor(pos.z) !== fz || Math.floor(pos.y) < fy - 1) return 'moved off the planned column'
+  return null
 }
 
 /**
