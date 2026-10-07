@@ -11,7 +11,7 @@
 // rev b (both reviews of b41e8cc): reports match a per-delivery GENERATION, never the caller's id (a same-id resend
 // could otherwise be "completed" by the previous execution); a runner PAUSE is waited out until the runner's own
 // auto-resume (pause recovery + one tick), not dropped after three ticks; every lifecycle step is logged AT ONCE
-// through a sink with its own timestamp (requested / duplicate / admitted / started / waiting / step_done /
+// through a sink with its own timestamp (requested / duplicate / admitted / dispatched / waiting / step_done /
 // completed / refused / released / expired / superseded / orphan_outcome / parse_failed); a new connection releases what the old
 // one held.
 //
@@ -177,6 +177,14 @@ export class DirectiveQueue {
 
   /** Drain buffered lifecycle events (only when no sink is set). */
   drain () { const e = this.events; this.events = []; return e }
+}
+
+/** The row status a lifecycle event is logged with: success for a step that ran and succeeded (including a superseded
+ *  delivery's late success), no_effect for bookkeeping, failed otherwise. */
+export function directiveRowStatus (ev) {
+  if (['completed', 'step_done'].includes(ev.status)) return 'success'
+  if (ev.status === 'orphan_outcome') return /^done success/.test(ev.detail) ? 'success' : 'failed'
+  return ['requested', 'superseded', 'admitted', 'dispatched', 'waiting', 'duplicate'].includes(ev.status) ? 'no_effect' : 'failed'
 }
 
 /** The process-wide queue: commands.mjs offers into it, cognitive.mjs reads from it. */

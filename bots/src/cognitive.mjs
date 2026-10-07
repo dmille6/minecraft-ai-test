@@ -34,7 +34,7 @@ import { config } from './config.mjs'
 import { escapedFrom } from './recovery.mjs'
 import { openLessons, EVIDENCE_ONLY_IF_HERE } from './lessons.mjs'
 import { announceUnreachable } from './comms.mjs'
-import { directives } from './directives.mjs'   // BENCH-ONLY (bench-c2): overseer / escalation directives
+import { directives, directiveRowStatus } from './directives.mjs'   // BENCH-ONLY (bench-c2): overseer / escalation directives
 
 // Only skills that can succeed WITHOUT a human present.
 //
@@ -329,8 +329,7 @@ export class CognitiveLoop {
     // directive lifecycle step AS IT HAPPENS (its own timestamp), not when the next tick happens to flush it.
     directives.releaseAll('new connection', Date.now())
     directives.setSink(ev => {
-      const status = ['completed', 'step_done'].includes(ev.status) ? 'success'
-        : ['requested', 'superseded', 'admitted', 'dispatched', 'waiting', 'duplicate'].includes(ev.status) ? 'no_effect' : 'failed'
+      const status = directiveRowStatus(ev)
       try {
         logEvent({ kind: 'directive', status, snapshot: snapshot(this.bot),
                    detail: `${ev.status} ${ev.id} g${ev.gen} ${ev.origin} step ${ev.step + 1}/${ev.of} at=${new Date(ev.at).toISOString()}: ${ev.detail}` })
@@ -781,6 +780,7 @@ export class CognitiveLoop {
     const dnext = directives.next(Date.now())
     if (dnext?.hold) {                                    // waiting out a runner refusal (directives.mjs: HOLD)
       this.lastDecisionAt = Date.now()                    // a deliberate wait, not a silent loop: keep liveness quiet
+      if (trigger && trigger !== 'idle') this.#raiseTrigger(trigger)   // a reflex trigger is not lost to the wait
       this.#scheduleNext()                                // clears any pending timer first, so never double-scheduled
       return
     }

@@ -13,6 +13,11 @@ M=[
  ('expiry does not retire','src/directives.mjs',"`lease ended at step ${this.active.step + 1} of ${this.active.steps.length}`, now)\n      this.#retire(this.active)","`lease ended at step ${this.active.step + 1} of ${this.active.steps.length}`, now)\n      this.active = null"),
  ('inflight never set','src/directives.mjs',"if (status === 'dispatched') d.inflight = true","void 0"),
  ('inflight always','src/directives.mjs',"    if (d.inflight) {\n      this.orphans.set","    if (true) {\n      this.orphans.set"),
+ ('hold does not reschedule','src/cognitive.mjs',"      this.#scheduleNext()                                // clears any pending timer first","      void 0                                // clears any pending timer first"),
+ ('hold does not refresh liveness','src/cognitive.mjs',"      this.lastDecisionAt = Date.now()                    // a deliberate wait","      void 0                    // a deliberate wait"),
+ ('hold drops the trigger','src/cognitive.mjs',"if (trigger && trigger !== 'idle') this.#raiseTrigger(trigger)","void 0"),
+ ('orphan success logged failed','src/directives.mjs',"if (ev.status === 'orphan_outcome') return /^done success/.test(ev.detail) ? 'success' : 'failed'","if (ev.status === 'orphan_outcome') return 'failed'"),
+ ('wait cap removed','src/directives.mjs',"d.retryAt = Math.min(d.waitUntil, now + (secs + 5) * 1000)","d.retryAt = now + (secs + 5) * 1000"),
  ('dispatched note removed','src/cognitive.mjs',"if (dstep) directives.note(dstep.gen, 'dispatched'","if (false) directives.note(dstep.gen, 'dispatched'"),
 ]
 for name,f,old,new in M:

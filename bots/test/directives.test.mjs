@@ -16,7 +16,7 @@ process.env.MEMORY_SCOPE = process.env.MEMORY_SCOPE || 'isolated'
 process.env.LOG_LEVEL = 'error'
 process.env.OLLAMA_MODEL = process.env.OLLAMA_MODEL || 'test-model'
 
-const { parseDirective, DirectiveQueue, directorAllowed, directives, MAX_REFUSALS, MAX_STEPS, PAUSE_WAIT_MS } = await import('../src/directives.mjs')
+const { parseDirective, DirectiveQueue, directorAllowed, directiveRowStatus, directives, MAX_REFUSALS, MAX_STEPS, PAUSE_WAIT_MS } = await import('../src/directives.mjs')
 const { CognitiveLoop } = await import('../src/cognitive.mjs')
 const { Lessons } = await import('../src/lessons.mjs')
 const fs = await import('node:fs'); const os = await import('node:os'); const path = await import('node:path')
@@ -108,6 +108,9 @@ const statuses = q => q.drain().map(e => e.status)
   q.report(g2, 'runner_refusal', 'failed', 'paused; 120s until auto-resume', 0, 'runner_paused')
   q.report(g2, 'runner_refusal', 'failed', 'paused; 120s until auto-resume', PAUSE_WAIT_MS + 1, 'runner_paused')
   assert.strictEqual(q.next(PAUSE_WAIT_MS + 2), null, 'a pause that outlasts the wait releases (bounded)')
+  q.offer(mk('p3', 'escalation', 1, 0), 0); const g3 = q.next(0).gen
+  q.report(g3, 'runner_refusal', 'failed', 'paused; 500s until auto-resume', 0, 'runner_paused')
+  assert.strictEqual(q.active.retryAt, PAUSE_WAIT_MS, 'an unusually long pause is capped at the wait, not believed')
 }
 { // busy / body_held: a bounded number of retries
   const q = new DirectiveQueue()
@@ -131,6 +134,11 @@ const statuses = q => q.drain().map(e => e.status)
   q.offer(mk('s', 'overseer'), 777)
   assert.strictEqual(seen[0].status, 'requested'); assert.strictEqual(seen[0].at, 777); assert.deepStrictEqual(q.drain(), [])
 }
+assert.strictEqual(directiveRowStatus({ status: 'orphan_outcome', detail: 'done success: arrived' }), 'success', 'a late success is a success')
+assert.strictEqual(directiveRowStatus({ status: 'orphan_outcome', detail: 'done failed: blocked' }), 'failed')
+assert.strictEqual(directiveRowStatus({ status: 'dispatched', detail: '' }), 'no_effect')
+assert.strictEqual(directiveRowStatus({ status: 'step_done', detail: '' }), 'success')
+assert.strictEqual(directiveRowStatus({ status: 'released', detail: '' }), 'failed')
 assert.strictEqual(directorAllowed('mbench-Mayor', {}), false, 'unset director = the hook is off')
 assert.strictEqual(directorAllowed('mbench-Mayor', { C2_DIRECTOR: 'mbench-Mayor' }), true)
 assert.strictEqual(directorAllowed('Steve', { C2_DIRECTOR: 'mbench-Mayor' }), false)
@@ -196,10 +204,17 @@ const oneTick = async (runnerResult) => {
   assert.notStrictEqual(gate.reason, 'cooldown', 'a step that never ran must not put its action on cooldown')
   for (let i = 0; i < 3; i++) { t.loop.notify('idle'); await sleep(60) }
   assert.strictEqual(t.runs.length, 1, 'HELD: intervening decisions did not re-propose the step')
+  t.loop.nextTimer = null; t.loop.lastDecisionAt = 0
+  t.loop.notify('entombed'); await sleep(60)
+  assert.ok(t.loop.nextTimer, 'HELD: the loop rescheduled itself (no reliance on the liveness restart)')
+  assert.ok(t.loop.lastDecisionAt > 0, 'HELD: liveness refreshed (a ~150 s hold must not log loop_restart)')
+  assert.strictEqual(t.loop.pendingTrigger, 'entombed', 'HELD: a reflex trigger survives the wait')
+  assert.strictEqual(t.runs.length, 1)
   assert.strictEqual(t.asked, 0, 'HELD: the model was not asked while the runner is paused')
   paused = false; directives.active.retryAt = Date.now() - 1          // the runner's auto-resume has come
   t.loop.notify('idle'); await sleep(120)
   assert.strictEqual(t.runs.length, 2); assert.strictEqual(t.runs[1].skill, 'explore', 'the retry ran the directive step')
+  assert.strictEqual(t.runs[1].trigger, 'directive:overseer/idle', 'notify() passes its own trigger; the held one is pending for the timer path')
   assert.strictEqual(directives.active, null, 'and it completed')
   assert.deepStrictEqual(seen.filter(e => e.id === 'L3').map(e => e.status), ['requested', 'admitted', 'dispatched', 'waiting', 'admitted', 'dispatched', 'step_done', 'completed'],
                          'the lifecycle as logged: dispatched twice, ran (step_done) once')
