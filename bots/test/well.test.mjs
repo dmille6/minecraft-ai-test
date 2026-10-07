@@ -127,7 +127,7 @@ await t('the row carries the guard evidence (gclicked=, stone=) right after offl
   assert.equal(d.length, 300, 'positive control: this row IS cut by the cap')
   assert.doesNotMatch(d, /diorite:64/, 'positive control: the cut ate the guarded item from items=')
   assert.match(d.slice(0, 80), / gclicked=64 stone=63 /, d)
-  assert.match(W.wellDisposeDetail({ slotsBefore: 36, slotsAfter: 36 }), / gclicked=0 swords=0 offlist_items=/, 'no click, no reserve claim')
+  assert.match(W.wellDisposeDetail({ slotsBefore: 36, slotsAfter: 36 }), / gclicked=0 swords=0 cobble=0 offlist_items=/, 'no click, no reserve claim')
   // the read's C7 predicate is the row's own fields (wellread.py c7_breach): gclicked > 0 with stone missing or < 64
   const src = readFileSync(new URL('../../scripts/host/wellread.py', import.meta.url), 'utf8')
   assert.match(src, /if num\(f, 'gclicked'\) > 0 and \(st is None or not str\(st\)\.isdigit\(\) or int\(st\) < STONE_GUARD\):/)
@@ -838,6 +838,53 @@ await t('SWORDS, AT THE CLICK: the world turns easy during the aim -> the planne
   assert.equal(town.count('stone_sword'), 1, 'the switch re-read at the click kept it'); assert.equal(town.count('egg'), 0)
 })
 
+// ---- COBBLE AT THE TOWN CAP (stonecap-01 x junkwell-02): surplus whole stacks above the bot's 64, only when PROVEN at cap
+const CCAP = await import('../src/cobblecap.mjs')
+const { townKey: CF_townKey } = await import('../src/chestfull.mjs')
+const townAt = (town, n) => CCAP.withLedger(process.env.POOL_STATE_DIR, CF_townKey(HOME), town.bot.worldId ?? null, l => { l.obs['9,9,9'] = { n, at: Date.now() } })
+await t('COBBLE, pure: cobbleWellStacks -- whole stacks, smallest first, the bag keeps 64; disposePlan takes them only with cobbleAtCap', () => {
+  const bag = [{ name: 'cobblestone', count: 64, slot: 9 }, { name: 'cobblestone', count: 30, slot: 10 }, { name: 'cobblestone', count: 64, slot: 11 }, { name: 'egg', count: 16, slot: 12 }]
+  assert.deepEqual(W.cobbleWellStacks(bag).map(s => s.count), [30, 64], '158 -> 94 go, 64 stay')
+  assert.deepEqual(W.cobbleWellStacks([{ name: 'cobblestone', count: 64, slot: 9 }]), [], 'exactly the reserve: nothing')
+  assert.deepEqual(W.disposePlan(bag).stacks.map(s => s.name), ['egg'], 'not at the cap: no cobble')
+  assert.deepEqual(W.disposePlan(bag, { cobbleAtCap: true }).stacks.map(s => `${s.name}:${s.slot}`), ['cobblestone:9', 'cobblestone:10', 'egg:12'])
+  // a guarded stone judged after the cobble never counts on it: diorite 40 + cobble [64, 64] at the cap -> one cobble stack
+  // goes, the reserve stone left is 64 + 40 = 104, so the diorite (-> 64) still goes; with only one 64 cobble it would not
+  const g = [{ name: 'diorite', count: 40, slot: 9 }, { name: 'cobblestone', count: 64, slot: 10 }, { name: 'cobblestone', count: 64, slot: 11 }]
+  assert.deepEqual(W.disposePlan(g, { cobbleAtCap: true }).stacks.map(s => s.name), ['diorite', 'cobblestone'])
+  assert.equal(W.thrownNames([{ name: 'cobblestone', count: 64 }]).offlist, 1, 'cobble thrown without the cap is OFF the list')
+  assert.equal(W.thrownNames([{ name: 'cobblestone', count: 64 }], { cobble: true }).offlist, 0)
+})
+await t('COBBLE, the skill: the town PROVEN at its cap (300 counted) -> surplus whole stacks go, 64 stay; the row says cobble=94 cobble_left=64 cap=at_cap', async () => {
+  const town = fakeTown({ wellAt: CAP, items: [S('cobblestone', 64), S('cobblestone', 30), S('cobblestone', 64), S('egg', 16), ...Array.from({ length: 31 }, () => S('oak_log', 64))] })
+  townAt(town, 300)
+  const r = await run('dispose_well', town.bot)
+  assert.equal(r.status, 'success', r.detail)
+  assert.equal(town.count('cobblestone'), 64, 'the bot keeps exactly its reserve')
+  const row = (await rows('_well_dispose')).pop()
+  assert.equal(field(row.skill.detail, 'cobble'), '94', row.skill.detail); assert.equal(field(row.skill.detail, 'cobble_left'), '64'); assert.equal(field(row.skill.detail, 'cap'), 'at_cap')
+  assert.equal(field(row.skill.detail, 'offlist'), '0')
+})
+await t('COBBLE, the skill: below the cap (100 counted, complete or not) or with no count -> no cobble goes; positive control: the egg does', async () => {
+  for (const n of [100, null]) {
+    const town = fakeTown({ wellAt: CAP, items: [S('cobblestone', 64), S('cobblestone', 30), S('egg', 16), ...Array.from({ length: 33 }, () => S('oak_log', 64))] })
+    if (n != null) townAt(town, n)
+    const r = await run('dispose_well', town.bot)
+    assert.equal(r.status, 'success', `${n}: ${r.detail}`)
+    assert.equal(town.count('cobblestone'), 94, `${n}: all cobble stays`); assert.equal(town.count('egg'), 0, 'positive control')
+    assert.equal(field((await rows('_well_dispose')).pop().skill.detail, 'cobble'), '0')
+  }
+})
+await t('COBBLE, AT THE CLICK: cobble spent during the aim (the reserve would break) -> the stack is not thrown', async () => {
+  const town = fakeTown({ wellAt: CAP, items: [S('egg', 16), S('cobblestone', 30), S('cobblestone', 64), ...Array.from({ length: 33 }, () => S('oak_log', 64))] })
+  townAt(town, 300)
+  const big = town.slots.findIndex(x => x?.name === 'cobblestone' && x.count === 64)
+  town.state.onLook = () => { if (town.slots[big]?.count === 64) town.slots[big] = { ...town.slots[big], count: 40 } }
+  const r = await run('dispose_well', town.bot)
+  assert.equal(r.status, 'success', r.detail)
+  assert.equal(town.count('cobblestone'), 70, '30 + 40: the 30 would leave 40 < 64, so it stayed')
+})
+
 await t('DISPOSE (Codex r1 P1): the reserve is re-judged AT THE CLICK -- cobble spent during the aim keeps the diorite in the bag; the row says what was clicked', async () => {
   const town = fakeTown({ wellAt: CAP, items: [S('diorite', 10), S('cobblestone', 64), S('egg', 16), ...Array.from({ length: 32 }, () => S('oak_log', 64))] })
   const cob = town.slots.findIndex(x => x?.name === 'cobblestone')
@@ -1305,7 +1352,7 @@ await t('P1-1 C3 FIRES: the server drops iron where the client saw a rail -> the
   assert.equal(field((await rows('_well_dispose')).pop().skill.detail, 'offlist'), '0', 'positive control the other way: a clean visit reads 0')
 })
 await t('MUTANT: counting no off-list entity leaves C3 blind again', async () => {
-  await withMutant(WP, "    if (!isWellJunk(t.name) && !swordGoes(t.name, swords)) {", "    if (false) {", async m => {
+  await withMutant(WP, "    if (!isWellJunk(t.name) && !swordGoes(t.name, swords) && !(cobble && isWellCobble(t.name))) {", "    if (false) {", async m => {
     assert.equal(m.thrownNames([{ name: 'iron_ingot', count: 3 }]).offlist, 0, 'mutant inert')
   })
   assert.equal(W.thrownNames([{ name: 'iron_ingot', count: 3 }, { name: 'egg', count: 16 }, { name: null }]).offlist, 1)
@@ -1716,6 +1763,21 @@ await t('MUTANT (skills): without the reserve re-check at the click, a reserve s
     assert.ok(town.state.clicks.some(c => c.name === 'diorite'), 'mutant inert')
   })
 })
+await t('MUTANT: cobble below the bot\'s 64 at the cap (no reserve in cobbleWellStacks)', async () => {
+  await withMutant(WP, '    if (left - it.count < COBBLE_WELL_RESERVE) break\n', '', async m => {
+    assert.equal(m.cobbleWellStacks([{ name: 'cobblestone', count: 64, slot: 9 }]).length, 1, 'mutant inert')
+  })
+})
+await t('MUTANT (skills): no reserve re-check at the cobble click', async () => {
+  await withMutant(SP, '        if (it.count !== st.count || leftC < COBBLE_WELL_RESERVE || (acc.cobble === 0 && cobbleWellCap(bot) !== \'at_cap\')) continue\n', '', async m => {
+    const town = fakeTown({ wellAt: CAP, items: [S('egg', 16), S('cobblestone', 30), S('cobblestone', 64), ...Array.from({ length: 33 }, () => S('oak_log', 64))] })
+    townAt(town, 300)
+    const big = town.slots.findIndex(x => x?.name === 'cobblestone' && x.count === 64)
+    town.state.onLook = () => { if (town.slots[big]?.count === 64) town.slots[big] = { ...town.slots[big], count: 40 } }
+    await within(m.SKILLS.dispose_well.run({ bot: town.bot }, {}, { aborted: false }), 15000, 'mutant')
+    assert.ok(town.count('cobblestone') < 70, 'mutant inert')
+  })
+})
 await t('MUTANT: swords without the switch go down the well in any world', async () => {
   await withMutant(WP, 'export const swordGoes = (name, peaceful) => !!peaceful && isSword(name)', 'export const swordGoes = (name, peaceful) => isSword(name)', async m => {
     assert.equal(m.disposePlan([{ name: 'stone_sword', count: 1, slot: 9 }]).stacks.length, 1, 'mutant inert')
@@ -1730,7 +1792,7 @@ await t('MUTANT (skills): no switch re-read at the click throws a sword in a wor
   })
 })
 await t('MUTANT: without the list filter the plan throws cobblestone', async () => {
-  await withMutant(WP, '  for (const it of list.filter(x => (isWellJunk(x.name) || swordGoes(x.name, swords)) && Number.isInteger(x.slot)).sort((a, b) => a.slot - b.slot)) {', '  for (const it of list.filter(x => Number.isInteger(x.slot)).sort((a, b) => a.slot - b.slot)) {', async m => {
+  await withMutant(WP, '  for (const it of list.filter(x => (isWellJunk(x.name) || swordGoes(x.name, swords) || cobbleSlots.has(x.slot)) && Number.isInteger(x.slot)).sort((a, b) => a.slot - b.slot)) {', '  for (const it of list.filter(x => Number.isInteger(x.slot)).sort((a, b) => a.slot - b.slot)) {', async m => {
     assert.ok(m.disposePlan([{ name: 'cobblestone', count: 64, slot: 9 }]).stacks.length, 'mutant inert')
   })
 })
@@ -1750,7 +1812,7 @@ await t('MUTANT (skills): without the finally close an aborted visit leaves the 
   })
 })
 await t('MUTANT (skills): without the per-stack re-read a changed slot is thrown', async () => {
-  await withMutant(SP, "      if (!it || it.name !== st.name || !(isWellJunk(it.name) || (sword && acc.swordsAllowed)) || bot.currentWindow || bot.inventory?.selectedItem) continue\n", '', async m => {
+  await withMutant(SP, "      if (!it || it.name !== st.name || !(isWellJunk(it.name) || (sword && acc.swordsAllowed) || (cob && acc.cobbleAllowed)) || bot.currentWindow || bot.inventory?.selectedItem) continue\n", '', async m => {
     const town = fakeTown({ wellAt: CAP, items: [S('egg', 16), S('flint', 64), S('rail', 3), ...filler(32)] })
     const railSlot = town.slots.findIndex(s => s?.name === 'rail')
     town.state.onLook = () => { if (town.state.clicks.length === 2 && town.slots[railSlot]?.name === 'rail') town.slots[railSlot] = { name: 'iron_ingot', type: REG.itemsByName.iron_ingot.id, count: 5, slot: railSlot } }

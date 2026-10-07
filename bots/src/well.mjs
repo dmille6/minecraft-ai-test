@@ -127,6 +127,29 @@ export const isSword = name => typeof name === 'string' && /_sword$/.test(name)
 /** May this stack go as a peaceful-world sword? Pure. */
 export const swordGoes = (name, peaceful) => !!peaceful && isSword(name)
 
+/**
+ * COBBLE AT THE TOWN CAP (stonecap-01 x junkwell-02; the operator's at-ceiling remedy, owner-approved disposal). When the
+ * town already holds its 256 cobble (cobblecap.mjs, PROVEN: cobbleAdmit says at_cap for the smallest surplus stack),
+ * banking cannot relieve the bag, so WHOLE cobble / cobbled-deepslate stacks above the bot's own 64 go down the well,
+ * smallest first. Never when the town's count is unknown or below the cap (the deposit banks then), never below 64.
+ * Without the well in the build (stonecap's other variants) the same surplus simply stays in the bag.
+ */
+export const COBBLE_WELL_RESERVE = 64
+const WELL_COBBLE = new Set(['cobblestone', 'cobbled_deepslate'])
+export const isWellCobble = name => WELL_COBBLE.has(name)
+/** The cobble stacks the well may take at the cap -> [{ slot, name, count }]: whole stacks, smallest first, while the bag
+ *  keeps COBBLE_WELL_RESERVE of the two names. Pure (the same choice as bankable.mjs cobbleBankStacks, with no credit cap). */
+export function cobbleWellStacks (items = []) {
+  const list = (Array.isArray(items) ? items : []).filter(it => it && WELL_COBBLE.has(it.name) && (Number(it.count) || 0) > 0 && Number.isInteger(it.slot))
+  let left = list.reduce((t, it) => t + (Number(it.count) || 0), 0)
+  const out = []
+  for (const it of [...list].sort((a, b) => a.count - b.count || a.slot - b.slot)) {
+    if (left - it.count < COBBLE_WELL_RESERVE) break
+    out.push({ slot: it.slot, name: it.name, count: it.count }); left -= it.count
+  }
+  return out
+}
+
 /** RESERVE_STONE held in a bag (mineflayer Items or { name, count }). */
 export function reserveStone (items = []) {
   let n = 0
@@ -160,12 +183,16 @@ export const MAX_STACKS_PER_VISIT = 9
  * a scaffold-capable decoration only while the bag keeps STONE_GUARD RESERVE_STONE after it (`stone`: the reserve held).
  * `junkStacks` counts every listed stack in the bag (what the trigger reads).
  */
-export function disposePlan (items = [], { maxStacks = MAX_STACKS_PER_VISIT, swords = false } = {}) {
+export function disposePlan (items = [], { maxStacks = MAX_STACKS_PER_VISIT, swords = false, cobbleAtCap = false } = {}) {
   const list = (Array.isArray(items) ? items : []).filter(it => it?.name && (it.count ?? 0) > 0)
+  // COBBLE AT THE CAP: chosen first and charged to the reserve in full, so a guarded stone judged later never counts on it
+  const cobble = cobbleAtCap ? cobbleWellStacks(list) : []
+  const cobbleSlots = new Set(cobble.map(c => c.slot))
   // In slot order, each stack judged against the reserve the stacks BEFORE it leave (the plan is thrown in this order).
-  let reserve = reserveStone(list)
+  let reserve = reserveStone(list) - cobble.reduce((t, c) => t + c.count, 0)
   const junk = []
-  for (const it of list.filter(x => (isWellJunk(x.name) || swordGoes(x.name, swords)) && Number.isInteger(x.slot)).sort((a, b) => a.slot - b.slot)) {
+  for (const it of list.filter(x => (isWellJunk(x.name) || swordGoes(x.name, swords) || cobbleSlots.has(x.slot)) && Number.isInteger(x.slot)).sort((a, b) => a.slot - b.slot)) {
+    if (cobbleSlots.has(it.slot)) { junk.push(it); continue }
     const left = guardLeft(it.name, it.count, reserve)
     if (left === null) continue
     reserve = left
@@ -590,13 +617,13 @@ export function tossOutcome ({ items = [], cap }) {
  * [{ name, count }] read from each spawned item entity's metadata (the server's own item stack), name null when none
  * arrived. offlist counts ENTITIES whose item is not on the list: the C3 quantity, independent of the bag plan.
  */
-export function thrownNames (thrown = [], { swords = false } = {}) {
+export function thrownNames (thrown = [], { swords = false, cobble = false } = {}) {
   const names = {}, offlistItems = {}
   let offlist = 0, unnamed = 0
   for (const t of (Array.isArray(thrown) ? thrown : [])) {
     if (!t?.name) { unnamed++; continue }
     names[t.name] = (names[t.name] ?? 0) + (t.count ?? 1)
-    if (!isWellJunk(t.name) && !swordGoes(t.name, swords)) { offlist++; offlistItems[t.name] = (offlistItems[t.name] ?? 0) + (t.count ?? 1) }
+    if (!isWellJunk(t.name) && !swordGoes(t.name, swords) && !(cobble && isWellCobble(t.name))) { offlist++; offlistItems[t.name] = (offlistItems[t.name] ?? 0) + (t.count ?? 1) }
   }
   return { names, offlist, offlistItems, unnamed }
 }
@@ -863,13 +890,13 @@ const list = items => Object.entries(items ?? {}).filter(([, c]) => c > 0).map((
  */
 export function wellDisposeDetail ({ slotsBefore, slotsAfter, items = {}, tossed = 0, misses = 0, retaken = 0, recollected = 0, nonlisted = 0, otherLoss = 0,
                                      source = 'local', closedOpen = false, stop = 'done', at = null, offlist = 0, offlistItems = {}, unnamed = 0, capEnd = null,
-                                     stone = null, gclicked = 0, swords = 0, peaceful = null } = {}) {
+                                     stone = null, gclicked = 0, swords = 0, peaceful = null, cobble = 0, cobbleLeft = null, cap = null } = {}) {
   const n = Object.values(items).reduce((a, b) => a + b, 0)
   // offlist= FIRST after slots (the read's C3 gate): thrown entities whose item, AS THE SERVER NAMES IT, is off the list
   // gclicked= / stone= right after offlist (the read's C7 gate): scaffold-capable decorations CLICKED (from the clicks, so an
   // unanswered final resync cannot hide them) and the least RESERVE_STONE any of those clicks left (STONE_GUARD+ or a breach)
   // swords= (swords CLICKED) and peaceful= (the switch as read at the last sword click) next: the read's sword gate
-  return (`slots=${slotsBefore}->${slotsAfter} offlist=${offlist} gclicked=${gclicked}${stone != null ? ` stone=${stone}` : ''} swords=${swords}${peaceful != null ? ` peaceful=${peaceful ? 1 : 0}` : ''} offlist_items=${list(offlistItems)} unnamed=${unnamed} ` +
+  return (`slots=${slotsBefore}->${slotsAfter} offlist=${offlist} gclicked=${gclicked}${stone != null ? ` stone=${stone}` : ''} swords=${swords}${peaceful != null ? ` peaceful=${peaceful ? 1 : 0}` : ''} cobble=${cobble}${cobbleLeft != null ? ` cobble_left=${cobbleLeft}` : ''}${cap ? ` cap=${cap}` : ''} offlist_items=${list(offlistItems)} unnamed=${unnamed} ` +
           `freed=${(slotsBefore ?? 0) - (slotsAfter ?? 0)} tossed=${tossed} n=${n} misses=${misses} ` +
           `retaken=${retaken} recollected=${recollected} nonlisted=${nonlisted} other_loss=${otherLoss} server=${source} closed_open=${closedOpen ? 1 : 0}` +
           `${capEnd ? ` cap_end=${capEnd}` : ''}` +

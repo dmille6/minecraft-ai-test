@@ -60,7 +60,7 @@ const DEPOSIT_TOOL_RE = /_(pickaxe|axe|shovel|sword|hoe)$/
 import { WOODEN_TRAPDOOR, isWellJunk, disposePlan, wellIdentity, wellStage, wellStand, standForFacing, wellSiteRefusal, canonicalWellSite,
          wellBuildPlan, wellBuildRoom, wellAim, aimPoint, tossOutcome, wellAdmission, wellDisposeDetail, itemInWell, bodyInWell, TOSS,
          trapdoorsNeeded, MAX_STACKS_PER_VISIT, wellBreach, usableStands, thrownNames, WELL_HOME_CLEARANCE,
-         disposableIn, guardLeft, reserveStone, SCAFFOLD_DECORATIONS, isSword } from './well.mjs'
+         disposableIn, guardLeft, reserveStone, SCAFFOLD_DECORATIONS, isSword, cobbleWellStacks, isWellCobble, COBBLE_WELL_RESERVE } from './well.mjs'
 import { resyncPacket, GUARDED_INVENTORY_ACTIONS } from './craftsync.mjs'
 import path from 'node:path'
 import { IRON_KINDS, MIN_TRIP_USES, CANDIDATE_RADIUS, breakHazard, nearHome, pickBudget, rankCandidates, clusterOf, tunnelMovements, planTunnel, ONE_PICK_USES, tripDecision } from './oretunnel.mjs'
@@ -1426,6 +1426,19 @@ export function foodSkipNow (bot) {
     try { logEvent({ kind: 'food_skip', status: 'success', detail: foodSkipDetail({ ...FOOD_SKIP, difficulty, active }) }) } catch { /* a row must never break a pickup */ }
   }
   return { active, foodsByName: bot?.registry?.foodsByName ?? null }
+}
+
+/**
+ * THE WELL'S COBBLE SWITCH (stonecap-01 x junkwell-02): is the town PROVEN at its 256 cap for this bag's smallest surplus
+ * stack? -> 'at_cap' | 'below' | 'unknown' | 'none' (no surplus). Only 'at_cap' sends cobble down the well.
+ */
+export function cobbleWellCap (bot, items = bot?.inventory?.items?.() ?? []) {
+  try {
+    const st = cobbleWellStacks(items)
+    if (!st.length) return 'none'
+    const d = cobbleAdmit(cobbleTownViewFor(bot), Math.min(...st.map(s => s.count)))
+    return d === 'at_cap' ? 'at_cap' : d === 'bank' ? 'below' : 'unknown'
+  } catch { return 'unknown' }
 }
 
 /** THE WELL'S SWORD SWITCH (well.mjs swordGoes): foodskip's switch active AND the server's difficulty read as peaceful. */
@@ -2802,7 +2815,7 @@ async function deposit(ctx, { item = null }, signal, { noRecovery = false, prefe
   if (!cursorLost && moved === 0 && eligible === 0 && cobbleRows.some(r => r.atCap || r.unknown)) {
     const capped = cobbleRows.some(r => r.atCap)
     return { status: 'no_effect', failClass: null,
-             detail: capped ? 'the cobble stays: the town already holds its 256 cobble (town cobble cap)'
+             detail: capped ? 'the cobble stays: the town already holds its 256 cobble (town cobble cap); at a full bag the junk well takes the surplus'
                             : 'the cobble stays: a town container has not been counted yet (town cobble not yet counted)' }
   }
   if (!cursorLost && moved === 0 && eligible > 0 && cobbleEligible === eligible) {
@@ -6372,7 +6385,7 @@ async function throwStacks (bot, { cap, facing, stacks, bound, waitTick, signal,
       const near = wellAdmission({ players: playersSeen(bot), cap, me: bot.username })
       if (near) { acc.stop = `${near.who} came within ${near.dist.toFixed(1)} of the well`; break }
       const pre = bot.inventory?.slots?.[st.slot]
-      if (!disposableIn(pre, bot.inventory?.items?.() ?? []) && !(acc.swordsAllowed && isSword(pre?.name))) continue
+      if (!disposableIn(pre, bot.inventory?.items?.() ?? []) && !(acc.swordsAllowed && isSword(pre?.name)) && !(acc.cobbleAllowed && isWellCobble(pre?.name))) continue
       const feet = bot.entity.position
       const aim = wellAim({ from: feet, cap, facing, rise: feet.y - (cap.y + 1) })   // a thrower on a snow layer stands higher
       if (!aim.ok) { acc.stop = `aim refused: ${aim.why}`; break }
@@ -6387,11 +6400,19 @@ async function throwStacks (bot, { cap, facing, stacks, bound, waitTick, signal,
       // connection, which the server applies first -- the THROW then drops what the server holds, and offlist= says so ----
       const it = bot.inventory?.slots?.[st.slot]
       const sword = isSword(it?.name)
-      if (!it || it.name !== st.name || !(isWellJunk(it.name) || (sword && acc.swordsAllowed)) || bot.currentWindow || bot.inventory?.selectedItem) continue
+      const cob = isWellCobble(it?.name)
+      if (!it || it.name !== st.name || !(isWellJunk(it.name) || (sword && acc.swordsAllowed) || (cob && acc.cobbleAllowed)) || bot.currentWindow || bot.inventory?.selectedItem) continue
+      // COBBLE GOES ONLY AS THE PLANNED WHOLE STACK, ONLY ABOVE THE BOT'S 64, AND ONLY WHILE THE TOWN IS STILL AT ITS CAP
+      if (cob) {
+        const bagCobble = (bot.inventory?.items?.() ?? []).reduce((t, x) => t + (isWellCobble(x?.name) ? (x.count ?? 0) : 0), 0)
+        const leftC = bagCobble - (it.count ?? 0)
+        if (it.count !== st.count || leftC < COBBLE_WELL_RESERVE || (acc.cobble === 0 && cobbleWellCap(bot) !== 'at_cap')) continue
+        acc.cobble += it.count; acc.cobbleLeft = Math.min(acc.cobbleLeft ?? Infinity, leftC)
+      }
       // A SWORD GOES ONLY IF THE WORLD IS STILL PEACEFUL AT THIS CLICK (the switch re-read now, not at the plan)
       if (sword) { const p = wellSwordsNow(bot); acc.peaceful = p; if (!p) continue }
       // THE RESERVE, judged on the bag as it is NOW, at the click (Codex r1: the plan's view can be eight seconds old)
-      const left = sword ? 0 : guardLeft(it.name, it.count, reserveStone(bot.inventory?.items?.() ?? []))
+      const left = (sword || cob) ? 0 : guardLeft(it.name, it.count, reserveStone(bot.inventory?.items?.() ?? []))
       if (left === null) continue
       if (sword) acc.swords += it.count ?? 1
       if (SCAFFOLD_DECORATIONS.includes(it.name)) { acc.gclicked += it.count ?? 0; acc.stoneMin = Math.min(acc.stoneMin ?? Infinity, left) }
@@ -6457,10 +6478,10 @@ export function throwResults ({ spawned = [], got = new Set(), present = () => t
  *              clicked slot from the before-snapshot, so a reflex eating bread meanwhile is not a throw (Codex review)
  *   otherLoss  every other non-listed decrease of the bag over the phase (a diagnostic: eating, planting, a dig)
  */
-export function throwAccount ({ before, after, clicked = [], swords = false }) {
+export function throwAccount ({ before, after, clicked = [], swords = false, cobble = false }) {
   const lost = {}
   let otherLoss = 0, nonlisted = 0
-  const ok = n => isWellJunk(n) || (swords && isSword(n))   // a sword clicked in a peaceful world is a listed throw
+  const ok = n => isWellJunk(n) || (swords && isSword(n)) || (cobble && isWellCobble(n))   // a sword clicked in a peaceful world is a listed throw
   for (const c of clicked) { const was = before?.slots?.[c.slot]; if (!was || !ok(was.name) || !ok(c.name)) nonlisted += was?.count ?? c.count ?? 0 }
   if (before && after) {
     for (const [name, n] of Object.entries(before.counts)) {
@@ -6485,7 +6506,7 @@ const wellRefused = (bot, order, reason, said) => {
  * -> { refused, acc, account, misses, retaken, recollected, source, closedOpen, stop, aborted, slotsBefore, slotsAfter }
  */
 async function throwPhase (bot, { cap, facing, pit = false, maxStacks = MAX_STACKS_PER_VISIT, g, tick, tickNA, signal }) {
-  const out = { refused: null, acc: { tossed: 0, spawned: [], clicked: [], stop: null, gclicked: 0, stoneMin: null, swords: 0, peaceful: null, swordsAllowed: false }, account: { lost: {}, nonlisted: 0, otherLoss: 0, n: 0 },
+  const out = { refused: null, acc: { tossed: 0, spawned: [], clicked: [], stop: null, gclicked: 0, stoneMin: null, swords: 0, peaceful: null, swordsAllowed: false, cobble: 0, cobbleLeft: null, cobbleAllowed: false }, account: { lost: {}, nonlisted: 0, otherLoss: 0, n: 0 },
                 misses: 0, retaken: 0, recollected: 0, source: 'local', closedOpen: false, stop: null, aborted: null, slotsBefore: null, slotsAfter: null }
   const read = readWellCell(bot)
   const pending = { open: false }
@@ -6505,9 +6526,11 @@ async function throwPhase (bot, { cap, facing, pit = false, maxStacks = MAX_STAC
       out.slotsBefore = before.used
       if (before.source !== 'resync') { out.refused = 'server_unanswered'; return out }
       out.swordsAllowed = !pit && wellSwordsNow(bot)   // a peaceful world's swords go too (never in the pit-first build)
-      const plan = disposePlan(bot.inventory?.items?.() ?? [], { maxStacks, swords: out.swordsAllowed })   // the bag AS THE SERVER HOLDS IT
+      out.cap = pit ? null : cobbleWellCap(bot)       // and, at the town's cobble cap, surplus whole cobble stacks
+      const plan = disposePlan(bot.inventory?.items?.() ?? [], { maxStacks, swords: out.swordsAllowed, cobbleAtCap: out.cap === 'at_cap' })   // the bag AS THE SERVER HOLDS IT
       out.stone = plan.stone   // the guard stone the plan saw (STONE_GUARD): on the row, so the read can judge the guard
       out.acc.swordsAllowed = out.swordsAllowed
+      out.acc.cobbleAllowed = out.cap === 'at_cap'
       if (!plan.stacks.length) { out.refused = 'nothing_listed'; return out }
       if (!pit) {
         if (wellIdentity(read, cap).open) out.closedOpen = await setWellOpen(bot, cap, false, g.bound, tick)
@@ -6563,7 +6586,7 @@ async function throwPhase (bot, { cap, facing, pit = false, maxStacks = MAX_STAC
         if (!out.aborted) for (let i = 0; i < WELL_SEEN_TICKS; i++) await tickNA()
         const res = throwResults({ spawned: out.acc.spawned, got, present: id => !!bot.entities?.[id], cap })
         out.misses = res.misses; out.recollected = res.recollected
-        out.thrown = thrownNames(out.acc.spawned.map(spawnedItem), { swords: out.acc.swords > 0 })
+        out.thrown = thrownNames(out.acc.spawned.map(spawnedItem), { swords: out.acc.swords > 0, cobble: out.acc.cobble > 0 })
         if (res.missed.length && !out.aborted) await retakeMisses(bot, { cap, missed: res.missed, got, bound: g.restoreBound, waitTick: tickNA, signal })
         out.retaken = res.all.filter(m => got.has(m.id)).length
       }
@@ -6573,9 +6596,9 @@ async function throwPhase (bot, { cap, facing, pit = false, maxStacks = MAX_STAC
   if (before?.source === 'resync' && out.acc.tossed) {
     try { after = await serverBag(bot, tickNA) } catch (e) { after = null; out.stop = `${out.stop ? `${out.stop};` : ''}error_after: ${String(e?.message ?? e).slice(0, 50)}` }
   }
-  out.thrown ??= thrownNames(out.acc.spawned.map(spawnedItem), { swords: out.acc.swords > 0 })
+  out.thrown ??= thrownNames(out.acc.spawned.map(spawnedItem), { swords: out.acc.swords > 0, cobble: out.acc.cobble > 0 })
   out.source = after?.source === 'resync' ? 'resync' : 'local'
-  out.account = throwAccount({ before, after: after?.source === 'resync' ? after : null, clicked: out.acc.clicked, swords: out.acc.swords > 0 })
+  out.account = throwAccount({ before, after: after?.source === 'resync' ? after : null, clicked: out.acc.clicked, swords: out.acc.swords > 0, cobble: out.acc.cobble > 0 })
   out.slotsAfter = after?.used ?? bot.inventory?.items?.()?.length ?? null
   return out
 }
@@ -6586,7 +6609,8 @@ const capEndOf = (bot, cap) => { try { const id = wellIdentity(readWellCell(bot)
 const phaseDetail = (ph, cap, stop, capEnd = null) => wellDisposeDetail({ capEnd, slotsBefore: ph.slotsBefore, slotsAfter: ph.slotsAfter, items: ph.account.lost, tossed: ph.acc.tossed,
   misses: ph.misses, retaken: ph.retaken, recollected: ph.recollected, nonlisted: ph.account.nonlisted, otherLoss: ph.account.otherLoss,
   source: ph.source, closedOpen: ph.closedOpen, stop, at: cap, offlist: ph.thrown?.offlist ?? 0, offlistItems: ph.thrown?.offlistItems ?? {}, unnamed: ph.thrown?.unnamed ?? 0,
-  gclicked: ph.acc?.gclicked ?? 0, stone: ph.acc?.stoneMin ?? ph.stone ?? null, swords: ph.acc?.swords ?? 0, peaceful: ph.acc?.swords ? ph.acc.peaceful : null })
+  gclicked: ph.acc?.gclicked ?? 0, stone: ph.acc?.stoneMin ?? ph.stone ?? null, swords: ph.acc?.swords ?? 0, peaceful: ph.acc?.swords ? ph.acc.peaceful : null,
+  cobble: ph.acc?.cobble ?? 0, cobbleLeft: ph.acc?.cobble ? ph.acc.cobbleLeft : null, cap: ph.cap ?? null })
 
 const FACING_OK = f => ['north', 'south', 'west', 'east'].includes(f)
 async function disposeWell (ctx, _args, signal) {
@@ -6611,7 +6635,7 @@ async function disposeWell (ctx, _args, signal) {
   if (bot.controlState?.sneak) return skip('sneaking', 'sneaking (held by another subsystem); the well waits for another visit')
   const near = wellAdmission({ players: playersSeen(bot), cap, me: bot.username })
   if (near) return skip('player_near', `wait for ${near.who} to move off the town junk well (${near.dist.toFixed(1)} blocks): it opens only with nobody within 5, and the next town visit disposes`)
-  if (!disposePlan(items(), { swords: wellSwordsNow(bot) }).stacks.length && !well.open) return skip('nothing_listed', `nothing on the junk list in the bag at ${slotsBefore} of 36 slots`)
+  if (!disposePlan(items(), { swords: wellSwordsNow(bot), cobbleAtCap: cobbleWellCap(bot) === 'at_cap' }).stacks.length && !well.open) return skip('nothing_listed', `nothing on the junk list in the bag at ${slotsBefore} of 36 slots`)
   const was = handOf(bot.heldItem)
   const g = hkGuards(bot, signal)
   const tick = () => g.bound(bot.waitForTicks?.(1), 50 + HK_AWAIT_MS, 'tick wait')
