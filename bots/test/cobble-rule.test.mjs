@@ -274,9 +274,20 @@ await t('CAP, a chest OUTSIDE town never takes cobble (the cap is the town\'s), 
   const w = capTown([stack('cobblestone', 64), stack('cobblestone', 30), stack('oak_log', 5)], 0)
   w.set(5, 64, 0, 'air'); w.set(40, 64, 0, 'chest')
   w.bot.entity.position = w.bot.entity.position.offset(34, 0, 0)
+  const n0 = RECS.length
   const r = await run(w.bot)
   assert.equal(cobbleIn(w.bag), 94, 'no cobble into an out-of-town chest'); assert.equal(r.status, 'success', 'positive control: the logs went')
+  assert.match(RECS.slice(n0).find(x => x.skill?.name === '_cobble_bank')?.skill?.detail ?? '', /moved=0 .* at_cap=0 unknown=0 outside=1 /, 'refused as OUTSIDE, by the rule (not by an accident of the view)')
   assert.deepEqual(Object.keys(CC.readLedger(process.env.POOL_STATE_DIR, CF.townKey({ x: 0, y: 64, z: 0 })).res), [])
+})
+await t('CAP, OBSERVED ON OPEN: a deposit that banks no cobble (logs only, cobble at the reserve) still records the chest\'s cobble count', async () => {
+  const w = capTown([stack('cobblestone', 64), stack('oak_log', 20)], 0)
+  w.stock(5, 64, 0, [stack('cobblestone', 40), stack('cobbled_deepslate', 17)])
+  const key = CF.townKey({ x: 0, y: 64, z: 0 })
+  assert.equal(CC.readLedger(process.env.POOL_STATE_DIR, key).obs['5,64,0'], undefined, 'not counted before the visit')
+  const r = await run(w.bot)
+  assert.equal(r.status, 'success', r.detail); assert.equal(cobbleIn(w.bag), 64, 'positive control: no cobble moved (the reserve)')
+  assert.equal(CC.readLedger(process.env.POOL_STATE_DIR, key).obs['5,64,0']?.n, 57, 'the open counted the chest: 40 + 17')
 })
 await t('CAP, a DELAYED observation never overwrites a newer count of the same container', async () => {
   const w = capTown([stack('cobblestone', 64)], 100)

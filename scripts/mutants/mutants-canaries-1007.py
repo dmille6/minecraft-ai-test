@@ -69,6 +69,8 @@ SETS = {
          '  const admitted = town ? admitStacks(town, cobbleStacks.map(s => s.count)) : null\n', '  const admitted = null\n', ['cobble-rule']),
         ('cap: the deposit never observes on open', 'bots/src/skills.mjs',
          '  await cobbleObserve(bot, chestBlock.position, chest)\n', '', ['cobble-rule']),
+        ('cap (town deposit, 92bc84f only): a batch ignores its own earlier reservation', 'bots/src/cobblecap.mjs',
+         '  const base = (Number(view?.lb) || 0) + (Number(view?.reserved) || 0)\n', '  const base = (Number(view?.lb) || 0)\n', ['towndeposit'], 'only:bots/src/skills.mjs:const capRefused = {'),
         ('cap (town deposit, 92bc84f only): its transfer skips the admission', 'bots/src/skills.mjs',
          "          if (adm.decision !== 'bank') { capRefused[", "          if (false) { capRefused[", ['towndeposit'], 'optional'),
         ('admission walks an empty requested plan', 'bots/src/admission.mjs',
@@ -93,13 +95,26 @@ def run(root, files):
 def main():
     root, which = sys.argv[1], sys.argv[2]
     killed = survived = 0
-    for name, rel, old, new, files in SETS[which]:
+    baseline = {}
+    for entry in SETS[which]:
+        name, rel, old, new, files = entry[:5]
+        optional = len(entry) > 5 and entry[5] == 'optional'   # an anchor that exists in one base's variant only
         path = os.path.join(root, rel)
         src = open(path).read()
         n = src.count(old)
+        if n == 0 and optional:
+            print(f'SKIPPED   {name}  (not in this variant)')
+            continue
+        if len(entry) > 5 and entry[5].startswith('only:'):   # 'only:<file>:<text>' -- runs only where that text exists
+            _, ofile, otext = entry[5].split(':', 2)
+            if otext not in open(os.path.join(root, ofile)).read():
+                print(f'SKIPPED   {name}  (not in this variant)')
+                continue
         assert n == 1, f'ANCHOR {"MISSING" if n == 0 else "NOT UNIQUE (%d)" % n}: {name}'
-        base_bad = run(root, files)
-        assert not base_bad, f'baseline already fails {base_bad}: the mutant cannot be judged'
+        for f in files:   # the unmutated tree must pass each file once, or a mutant cannot be judged
+            if f not in baseline:
+                baseline[f] = not run(root, [f])
+            assert baseline[f], f'baseline already fails {f}: the mutant cannot be judged'
         try:
             open(path, 'w').write(src.replace(old, new, 1))
             bad = run(root, files)
