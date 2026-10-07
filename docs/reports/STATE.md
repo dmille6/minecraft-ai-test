@@ -138,6 +138,11 @@ the same farm: ctrl 15,16 logs vs cand 21,23 (no harm). Bone meal arm built, OFF
 Bags: 76/80 bots hold >= 6 farm saplings, 62/80 carry torches. Design + follow-ons (WORKSHOP, SAFE MINESHAFT, designed
 not built): docs/reports/blueprint-builder-design-2026-10-05.md.
 
+## 10-07 13:10Z — CANARY LIVE: towndeposit-01 @ 92bc84f (td-on-c6e91a8) on board-b,placebo-a (10 bots), declared 13:06:18Z
+Two versions live (92bc84f x10, c6e91a8 rest). Reads ~16:06Z (+180) and ~19:06Z (+360). Next in the queue: withdraw2
+(rebase wd2-on-c902d6f onto the then-fleet sha; check iron retention vs towndeposit), then gridfix, bamboo, junk well,
+cobble rule, treefarm.
+
 ## 10-07 12:25Z — FOODSKIP-01 KEPT (scoped, amendment 1) and PROMOTED: FLEET c6e91a8 (12:12Z, all live bots verified). towndeposit-01 drawing.
 SECOND POWER OUTAGE: fleet host 10.0.0.31 + world host 10.0.0.30 down 05:01:47Z -> 11:53Z (6h51m). Studio and mini stayed up.
 Came back on their own: 16 worlds, 80 bots, sandboxes 2-4, canary-loop (cron at 12:00). Restored by hand: /tmp read
