@@ -19,6 +19,9 @@ import { logEvent } from './logger.mjs'
 import { bankableInventory, depositDue } from './bankable.mjs'
 import { bankClosed, depositTargetOk } from './chestfull.mjs'
 import { config } from './config.mjs'
+// The peaceful kit (peacefulkit.mjs): no sword is offered while the food policy's switch is active.
+import { peacefulFoodActive } from './foodskip.mjs'
+import { isSword } from './peacefulkit.mjs'
 
 const MAX_EVENTS = 12
 // Rough but adequate: we only need to know when we are near the ceiling, and
@@ -496,14 +499,16 @@ export function tableAccess (bot) {
   return { has: !!near, carried: false, near }
 }
 
-function craftableNow (bot) {
+export function craftableNow (bot) {
   try {
     const items = bot.inventory?.items() ?? []
     // A carried table can be placed; a PLACED one within reach counts too.
     const access = tableAccess(bot)
     const hasTable = access.has
     const made = []
+    const peaceful = peacefulFoodActive()   // never advise a craft admission refuses (peacefulkit.mjs swordCraftRefusal)
     for (const name of CRAFT_TARGETS) {
+      if (peaceful && isSword(name)) continue
       if (items.some(i => i.name === name && i.count > 0) && !name.endsWith('_pickaxe')) continue
       const it = bot.registry?.itemsByName?.[name]
       if (!it) continue

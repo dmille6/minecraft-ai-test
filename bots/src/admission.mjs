@@ -9,7 +9,8 @@
 // "the model is unreliable" into a distribution over specific, fixable causes
 // you can query in Kibana.
 
-import { SKILLS, actionKey } from './skills.mjs'
+import { SKILLS, actionKey, foodSkipNow } from './skills.mjs'
+import { swordCraftRefusal } from './peacefulkit.mjs'
 import { smeltRecipeFor } from './smelting.mjs'
 import { config } from './config.mjs'
 import { horizontalDistanceFromSpawn } from './state.mjs'
@@ -445,6 +446,9 @@ export class AdmissionControl {
       if (!Number.isFinite(n) || n <= 0 || n > 64) {
         return { ok: false, reason: 'bad_args', detail: `count ${args.count} outside 1..64` }
       }
+      // NO SWORD IN A PEACEFUL WORLD (peacefulkit.mjs, owner 10-07; the food policy's switch). Before any walk to a table.
+      const noSword = swordCraftRefusal(args.item, foodSkipNow(bot).active)
+      if (noSword) return { ok: false, reason: 'peaceful_no_sword', detail: noSword }
     }
 
     if (skill === 'place') {
