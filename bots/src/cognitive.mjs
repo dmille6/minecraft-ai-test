@@ -18,7 +18,7 @@ import { AdmissionControl } from './admission.mjs'
 import { MilestoneController, servesRung, NO_PROGRESS_MS, RUNNER_REFUSALS } from './milestones.mjs'
 import { orderFor, readyFor, plantingOrder, plantingEnabled, PLANT_COOLDOWN_MS } from './workorder.mjs'
 import { wearOutPlan, isHousekeeping } from './hygiene.mjs'
-import { compostPlan, townOrder, townOrderOutcome, boneMealRoom, composterLevel, TOWN_ORDERS, STORAGE_NEAR, TOWN_RADIUS } from './composter.mjs'
+import { compostPlan, townOrder, townOrderOutcome, boneMealRoom, composterLevel, TOWN_ORDERS, STORAGE_NEAR, TOWN_RADIUS, startableJunk } from './composter.mjs'
 import { hasUsablePick, roomPlan, pickTakes, roomKeep, heldPickTier, TIER_IRON } from './withdrawpick.mjs'
 import { townDepositOrder, townDepositOutcome, townDepositPlan } from './towndeposit.mjs'
 import { bankClosed } from './chestfull.mjs'
@@ -825,7 +825,8 @@ export class CognitiveLoop {
         const plan = compostPlan(items, { apples: peaceful, plants: peaceful })
         const home = { x: config.world.homeX, z: config.world.homeZ }
         const r = townOrder({
-          now: Date.now(), slots: plan.slots, freeSlots: 36 - plan.slots, junk: plan.junk,
+          // while the switch is on, a full bag only gets the order when a fill can start (composter.mjs startableJunk)
+          now: Date.now(), slots: plan.slots, freeSlots: 36 - plan.slots, junk: peaceful ? startableJunk(items, { apples: peaceful, plants: peaceful }) : plan.junk,
           distHome: p ? Math.hypot(home.x - p.x, home.z - p.z) : Infinity,
           storageNear: () => !!bot.findBlock?.({ matching: b => ['chest', 'barrel', 'trapped_chest'].includes(bot.registry?.blocks?.[b.type]?.name), maxDistance: STORAGE_NEAR }),
           composterAtTown: () => !!findTownComposter(bot),
