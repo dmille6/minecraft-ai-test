@@ -268,12 +268,12 @@ export async function airPocketStep (bot, plan, { Vec3, predict, sleep = ms => n
     // the WATCH: every 250 ms, a breach of the envelope or the budget running out stops the dig
     watch = setInterval(() => {
       sample()
+      const g = guard(); if (g) aborted = aborted ?? g
       try { if (bot.controlState?.jump !== wantJump) bot.setControlState('jump', wantJump) } catch { /* not connected */ }
       if (envelopeBreached(samples, now())) aborted = aborted ?? 'envelope breached (> 7 HP in 10 s)'
       else if (budgetLeft() <= 0) aborted = aborted ?? 'health budget spent'
       // NOTHING ELSE MAY TAKE THE BODY (Claude r1: a skill started within 40 s of a capped rescue in 38% of cases, and a new
       // bot.dig stops the current one): the caller's guard interrupts any skill that starts; a dig on another block aborts.
-      const g = guard(); if (g) aborted = aborted ?? g
       if (digging && bot.targetDigBlock && bot.targetDigBlock.position && !bot.targetDigBlock.position.equals?.(cellPos)) aborted = aborted ?? 'another dig took over'
       if (aborted) { try { bot.stopDigging?.() } catch { /* not digging */ } }
     }, 250)
@@ -323,13 +323,15 @@ export async function airPocketStep (bot, plan, { Vec3, predict, sleep = ms => n
     if (watch) clearInterval(watch)
     // NO LATE DIG (Codex r1): mineflayer installs a dig's cancel handler only after its own lookAt, so a deadline can
     // fire before the dig exists; stop it now and once more shortly after.
-    try { if (bot.targetDigBlock) bot.stopDigging() } catch {}
-    setTimeout(() => { try { if (bot.targetDigBlock && !res.ok) bot.stopDigging() } catch {} }, 300)
+    const ours = () => !!bot.targetDigBlock?.position && (bot.targetDigBlock.position.equals?.(cellPos) ??
+      (bot.targetDigBlock.position.x === cellPos.x && bot.targetDigBlock.position.y === cellPos.y && bot.targetDigBlock.position.z === cellPos.z))
+    try { if (ours() && !res.ok && res.outcome !== 'opened') bot.stopDigging() } catch {}
+    for (const ms of [300, 1000, 2000]) setTimeout(() => { try { if (ours() && !res.ok && res.outcome !== 'opened') bot.stopDigging() } catch {} }, ms)
     res.healthEnd = bot.health
     res.ms = now() - t0
     // ON SUCCESS JUMP STAYS HELD (Claude r1): the head stays in the pocket and the rescue's own release (head out, dwell)
     // clears the controls. On failure it is released and the rescue's next tick steers again.
-    if (!res.ok) { try { bot.setControlState('jump', false) } catch { /* not connected */ } }
+    if (!res.ok && res.outcome !== 'opened') { try { bot.setControlState('jump', false) } catch { /* not connected */ } }
   }
 }
 

@@ -411,6 +411,32 @@ await t('K3 MUTANT KILLED: pre-empting outside a sealed verdict (K1 catches it)'
     assert.equal(m.airPocketPreempt({ rescuing: true, routeSealed: false, escaping: true, now: 1 }), true)
   }))
 
+await t('K4 a pre-empted climb YIELDS: digStraightUp and pillarOut return "preempted" when alive is false (no dig, no place)', async () => {
+  const { digStraightUp, pillarOut } = await import('../src/reflex.mjs')
+  const mk = () => {
+    const bot = fakeBot({}); let dug = 0, placed = 0
+    bot.entity.position = Object.assign(new V(100.5, 60.2, 100.5), { offset (dx, dy, dz) { return new V(this.x + dx, this.y + dy, this.z + dz) } })
+    bot.dig = async () => { dug++ }; bot.placeBlock = async () => { placed++ }
+    bot.inventory = { items: () => [{ name: 'stone_pickaxe', type: 1 }, { name: 'cobblestone', count: 64 }] }
+    return { bot, counts: () => [dug, placed] }
+  }
+  const a = mk()
+  const r1 = await digStraightUp(a.bot, 60, 20, { alive: () => false }); clearInterval(a.bot._healthTimer)
+  assert.equal(r1, 'preempted'); assert.deepEqual(a.counts(), [0, 0])
+  const b = mk()
+  const r2 = await pillarOut(b.bot, 6, { alive: () => false }); clearInterval(b.bot._healthTimer)
+  assert.equal(r2, 'preempted'); assert.deepEqual(b.counts(), [0, 0])
+})
+await t('K5 MUTANT KILLED: digStraightUp without its first alive check refuses for a pickaxe instead of yielding (K4 catches it)', () =>
+  withMutant(REFLEX_PATH, "  // A PRE-EMPTED CLIMB STOPS BEFORE ANYTHING ELSE (airpocket-01): no refusal row, no pickaxe request, no dig.\n  if (!alive()) return 'preempted'\n", '', async m => {
+    const bot = fakeBot({}); let acted = 0
+    bot.entity.position = Object.assign(new V(100.5, 60.2, 100.5), { offset (dx, dy, dz) { return new V(this.x + dx, this.y + dy, this.z + dz) } })
+    bot.dig = async () => { acted++ }; bot.placeBlock = async () => { acted++ }
+    bot.inventory = { items: () => [{ name: 'stone_pickaxe', type: 1 }, { name: 'cobblestone', count: 64 }] }
+    const r = await m.digStraightUp(bot, 60, 1, { alive: () => false }).catch(e => 'threw:' + e.message); clearInterval(bot._healthTimer)
+    assert.notEqual(r, 'preempted')
+  }))
+
 // ---------------------------------------------------------------- J. the rescue state after a step, and the busy guard
 await t('J1 after SUCCESS the fail memory is cleared and the clocks restart; after FAILURE a 60-s cooldown, memory kept', () => {
   const st = { drownFails: 3, drownFailPos: { x: 1 }, drownFailHealth: 12, seizedAt: 5, lastProgressAt: 5, cooldownUntil: 0 }
@@ -443,12 +469,14 @@ function wiring (src) {
   return { tickStart, earlyReturn, drowningBranch, trigger,
            ok: tickStart > 0 && earlyReturn > tickStart && earlyReturn < drowningBranch && trigger > 0 && trigger < drowningBranch &&
                /await runAirPocket\(route, /.test(code.slice(trigger, drowningBranch)) &&
-               /airPocketing = true[\s\S]{0,900}airPocketStep\(/.test(code) && /finally \{ airPocketing = false \}/.test(code) &&
+               /airPocketing = true[\s\S]{0,900}airPocketStep\(/.test(code) && /finally \{ airPocketing = false; airPocketWants = 0 \}/.test(code) &&
                /airPocketAfter\(r\.ok \|\| r\.outcome === 'opened', /.test(code) && /othersBusy: escaping \|\| pocketing \|\| marooned/.test(code) &&
                /const inputs = airPocketInputs\(bot\)/.test(code) && !/bot\.game\?\.difficulty/.test(code.slice(code.indexOf('const runAirPocket'), code.indexOf('const rescueExpired'))) &&
                code.indexOf("kind: 'air_pocket_start'") > 0 && code.indexOf("kind: 'air_pocket_start'") < code.indexOf('r = await airPocketStep(') &&
                /msSinceClosing: Date\.now\(\) - lastClosingAt/.test(code) && /if \(closingOnAir\) lastClosingAt = Date\.now\(\)/.test(code) &&
-               /guard: \(\) => \{ try \{ if \(runner\?\.isBusy\?\.\(\)\) runner\.interrupt\('air_pocket'\)/.test(code) &&
+               /guard: \(\) => \{ try \{ if \(runner\?\.isBusy\?\.\(\)\) runner\.interrupt\('air_pocket'\); if \(bot\.pathfinder\?\.goal\) haltPath\(bot\)/.test(code) &&
+               /cooldownUntil: airPocketCooldownUntil \}\) &&\s*prepareAirPocket\(\)\.ok\) \{/.test(code) &&
+               /airPocketWants = 0 {16}\/\/ a refused step/.test(src) && /finally \{ airPocketing = false; airPocketWants = 0 \}/.test(code) &&
                /const ran = await runAirPocket\(route, Date\.now\(\) - seizedAt\)\s*if \(ran\) return/.test(code) &&
                code.indexOf('airPocketPreempt({ rescuing, routeDir: route.dir') > 0 && code.indexOf('airPocketPreempt({ rescuing, routeDir: route.dir') < trigger &&
                /airPocketWants = Date\.now\(\)\s*try \{ if \(bot\.targetDigBlock\) bot\.stopDigging\(\) \}/.test(code) &&
@@ -475,7 +503,10 @@ for (const [name, old, neu] of [
   ['the busy guard', 'othersBusy: escaping || pocketing || marooned', 'othersBusy: false'],
   ['the packet difficulty', 'const inputs = airPocketInputs(bot)', 'const inputs = { difficulty: bot.game?.difficulty, hungerActive: false }'],
   ['the closing-on-air clock', 'if (closingOnAir) lastClosingAt = Date.now()', ''],
-  ['the skill guard', "guard: () => { try { if (runner?.isBusy?.()) runner.interrupt('air_pocket') } catch {} return null }", 'guard: () => null'],
+  ['the skill guard', "guard: () => { try { if (runner?.isBusy?.()) runner.interrupt('air_pocket'); if (bot.pathfinder?.goal) haltPath(bot) } catch {} return null }", 'guard: () => null'],
+  ['the pre-empt asking the plan first', '              prepareAirPocket().ok) {', '              true) {'],
+  ['clearing the request on refusal', '      airPocketWants = 0                // a refused step never keeps an escape held off\n', ''],
+  ['clearing the request after the step', 'finally { airPocketing = false; airPocketWants = 0 }', 'finally { airPocketing = false }'],
   ['the return after a step', '            if (ran) return\n', ''],
   ['the pre-empt stopping the escape dig', '            airPocketWants = Date.now()\n', ''],
   ['the entombed pillar yielding', '{ alive: () => ownsBody(() => entombedGrant)() && !airPocketWanted() }', '{ alive: ownsBody(() => entombedGrant) }'],
