@@ -59,7 +59,8 @@ import { FLOOR } from './toolfor.mjs'
 const DEPOSIT_TOOL_RE = /_(pickaxe|axe|shovel|sword|hoe)$/
 import { WOODEN_TRAPDOOR, isWellJunk, disposePlan, wellIdentity, wellStage, wellStand, standForFacing, wellSiteRefusal, canonicalWellSite,
          wellBuildPlan, wellBuildRoom, wellAim, aimPoint, tossOutcome, wellAdmission, wellDisposeDetail, itemInWell, bodyInWell, TOSS,
-         trapdoorsNeeded, MAX_STACKS_PER_VISIT, wellBreach, usableStands, thrownNames, WELL_HOME_CLEARANCE } from './well.mjs'
+         trapdoorsNeeded, MAX_STACKS_PER_VISIT, wellBreach, usableStands, thrownNames, WELL_HOME_CLEARANCE,
+         disposableIn, guardLeft, reserveStone, SCAFFOLD_DECORATIONS } from './well.mjs'
 import { resyncPacket, GUARDED_INVENTORY_ACTIONS } from './craftsync.mjs'
 import path from 'node:path'
 import { IRON_KINDS, MIN_TRIP_USES, CANDIDATE_RADIUS, breakHazard, nearHome, pickBudget, rankCandidates, clusterOf, tunnelMovements, planTunnel, ONE_PICK_USES, tripDecision } from './oretunnel.mjs'
@@ -6206,7 +6207,7 @@ async function throwStacks (bot, { cap, facing, stacks, bound, waitTick, signal,
       check(signal)
       const near = wellAdmission({ players: playersSeen(bot), cap, me: bot.username })
       if (near) { acc.stop = `${near.who} came within ${near.dist.toFixed(1)} of the well`; break }
-      if (!isWellJunk(bot.inventory?.slots?.[st.slot]?.name)) continue
+      if (!disposableIn(bot.inventory?.slots?.[st.slot], bot.inventory?.items?.() ?? [])) continue
       const feet = bot.entity.position
       const aim = wellAim({ from: feet, cap, facing, rise: feet.y - (cap.y + 1) })   // a thrower on a snow layer stands higher
       if (!aim.ok) { acc.stop = `aim refused: ${aim.why}`; break }
@@ -6221,6 +6222,10 @@ async function throwStacks (bot, { cap, facing, stacks, bound, waitTick, signal,
       // connection, which the server applies first -- the THROW then drops what the server holds, and offlist= says so ----
       const it = bot.inventory?.slots?.[st.slot]
       if (!it || it.name !== st.name || !isWellJunk(it.name) || bot.currentWindow || bot.inventory?.selectedItem) continue
+      // THE RESERVE, judged on the bag as it is NOW, at the click (Codex r1: the plan's view can be eight seconds old)
+      const left = guardLeft(it.name, it.count, reserveStone(bot.inventory?.items?.() ?? []))
+      if (left === null) continue
+      if (SCAFFOLD_DECORATIONS.includes(it.name)) { acc.gclicked += it.count ?? 0; acc.stoneMin = Math.min(acc.stoneMin ?? Infinity, left) }
       acc.clicked.push({ slot: st.slot, name: it.name, count: it.count })
       const click = bot.clickWindow(st.slot, 1, 4)
       acc.tossed++
@@ -6310,7 +6315,7 @@ const wellRefused = (bot, order, reason, said) => {
  * -> { refused, acc, account, misses, retaken, recollected, source, closedOpen, stop, aborted, slotsBefore, slotsAfter }
  */
 async function throwPhase (bot, { cap, facing, pit = false, maxStacks = MAX_STACKS_PER_VISIT, g, tick, tickNA, signal }) {
-  const out = { refused: null, acc: { tossed: 0, spawned: [], clicked: [], stop: null }, account: { lost: {}, nonlisted: 0, otherLoss: 0, n: 0 },
+  const out = { refused: null, acc: { tossed: 0, spawned: [], clicked: [], stop: null, gclicked: 0, stoneMin: null }, account: { lost: {}, nonlisted: 0, otherLoss: 0, n: 0 },
                 misses: 0, retaken: 0, recollected: 0, source: 'local', closedOpen: false, stop: null, aborted: null, slotsBefore: null, slotsAfter: null }
   const read = readWellCell(bot)
   const pending = { open: false }
@@ -6408,7 +6413,8 @@ const spawnedItem = e => { try { const d = e?.getDroppedItem?.(); return { name:
 const capEndOf = (bot, cap) => { try { const id = wellIdentity(readWellCell(bot), cap); return id.ok ? (id.open ? 'open' : 'closed') : null } catch { return null } }
 const phaseDetail = (ph, cap, stop, capEnd = null) => wellDisposeDetail({ capEnd, slotsBefore: ph.slotsBefore, slotsAfter: ph.slotsAfter, items: ph.account.lost, tossed: ph.acc.tossed,
   misses: ph.misses, retaken: ph.retaken, recollected: ph.recollected, nonlisted: ph.account.nonlisted, otherLoss: ph.account.otherLoss,
-  source: ph.source, closedOpen: ph.closedOpen, stop, at: cap, offlist: ph.thrown?.offlist ?? 0, offlistItems: ph.thrown?.offlistItems ?? {}, unnamed: ph.thrown?.unnamed ?? 0, stone: ph.stone ?? null })
+  source: ph.source, closedOpen: ph.closedOpen, stop, at: cap, offlist: ph.thrown?.offlist ?? 0, offlistItems: ph.thrown?.offlistItems ?? {}, unnamed: ph.thrown?.unnamed ?? 0,
+  gclicked: ph.acc?.gclicked ?? 0, stone: ph.acc?.stoneMin ?? ph.stone ?? null })
 
 const FACING_OK = f => ['north', 'south', 'west', 'east'].includes(f)
 async function disposeWell (ctx, _args, signal) {

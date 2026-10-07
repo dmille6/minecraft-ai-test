@@ -91,15 +91,18 @@ export const DECORATIONS = Object.freeze([
 
 /**
  * SCAFFOLD-CAPABLE DECORATIONS (owner 10-07: diorite, granite, andesite, stone_bricks "and similar"). These ARE used:
- * mineflayer-pathfinder builds with them (scaffold.mjs PATHFINDER_SCAFFOLD), the pillar and rescue reflexes place them
- * (reflex.mjs PLACEABLE, skills.mjs RESCUE_BLOCK), and the exit contract counts the raw three as climb-out blocks
- * (exit-contract.mjs scaffoldCount). So they go down the well ONLY while the bag also holds STONE_GUARD cobblestone +
- * cobbled_deepslate, which every one of those lists accepts and which covers the exit contract's reserve for an
- * iron-depth descent (y 16 at sea level 63: debt 47 + reserve 12 = 59 blocks). Below the guard they stay as scaffold.
+ * mineflayer-pathfinder builds with all six (scaffold.mjs PATHFINDER_SCAFFOLD), and the raw three are also the pillar and
+ * rescue reflexes' blocks (reflex.mjs PLACEABLE, skills.mjs RESCUE_BLOCK) and climb-out blocks for the exit contract
+ * (exit-contract.mjs scaffoldCount). So the well keeps a RESERVE: after any of the six goes, the bag must still hold
+ * STONE_GUARD of RESERVE_STONE -- cobblestone, cobbled_deepslate, andesite, diorite, granite, which EVERY one of those
+ * consumers accepts. 64 covers the exit contract's reserve for an iron-depth descent (y 16 at sea level 63: debt 47 +
+ * reserve 12 = 59 blocks). The reserve is kept FROM THE STONES ALREADY HELD (Codex r1): a bag of 36 diorite stacks with no
+ * cobble disposes all but 64 diorite, so a guard-only full bag is never a dead end.
  */
 export const SCAFFOLD_DECORATIONS = Object.freeze(['andesite', 'diorite', 'granite', 'stone_bricks', 'mossy_cobblestone', 'smooth_stone'])
 export const STONE_GUARD = 64
-const GUARD_STONE = new Set(['cobblestone', 'cobbled_deepslate'])
+export const RESERVE_STONE = Object.freeze(['cobblestone', 'cobbled_deepslate', 'andesite', 'diorite', 'granite'])
+const RESERVE_SET = new Set(RESERVE_STONE)
 const SCAFFOLD_DECO = new Set(SCAFFOLD_DECORATIONS)
 
 export const WELL_JUNK = Object.freeze(new Set([...OWNER_JUNK_1004, ...DECORATIONS, ...SCAFFOLD_DECORATIONS]))
@@ -113,17 +116,28 @@ export function isWellJunk (name) {
   return typeof name === 'string' && WELL_JUNK.has(name) && !NEVER_DISPOSE.test(name) && !isCompostJunk(name)
 }
 
-/** cobblestone + cobbled_deepslate in a bag (mineflayer Items or { name, count }). */
-export function guardStone (items = []) {
+/** RESERVE_STONE held in a bag (mineflayer Items or { name, count }). */
+export function reserveStone (items = []) {
   let n = 0
-  for (const it of (Array.isArray(items) ? items : [])) if (it?.name && GUARD_STONE.has(it.name)) n += Number(it.count) || 0
+  for (const it of (Array.isArray(items) ? items : [])) if (it?.name && RESERVE_SET.has(it.name)) n += Number(it.count) || 0
   return n
 }
 
-/** May THIS stack go down the well from THIS bag? isWellJunk, and a scaffold-capable decoration only at STONE_GUARD+. */
-export function disposableIn (name, items = []) {
-  if (!isWellJunk(name)) return false
-  return !SCAFFOLD_DECO.has(name) || guardStone(items) >= STONE_GUARD
+/**
+ * THE GUARD FOR ONE STACK -> the RESERVE_STONE the bag keeps if this stack goes, or null when it may not go. Pure.
+ * A plain listed item never touches the reserve (-> reserveNow). A scaffold-capable decoration goes only if the bag keeps
+ * STONE_GUARD afterwards: a raw andesite/diorite/granite stack is itself reserve stone and counts against it.
+ */
+export function guardLeft (name, count, reserveNow) {
+  if (!SCAFFOLD_DECO.has(name)) return reserveNow
+  const after = RESERVE_SET.has(name) ? reserveNow - (Number(count) || 0) : reserveNow
+  return after >= STONE_GUARD ? after : null
+}
+
+/** May THIS stack ({ name, count }) go down the well from THIS bag, now? isWellJunk, and the reserve kept. */
+export function disposableIn (stack, items = []) {
+  if (!stack || !isWellJunk(stack.name)) return false
+  return guardLeft(stack.name, stack.count, reserveStone(items)) !== null
 }
 
 /** At most this many stacks per visit: one click each, and the open window should stay short. */
@@ -132,14 +146,21 @@ export const MAX_STACKS_PER_VISIT = 9
 /**
  * disposePlan(items) -> { slots, junkStacks, stone, stacks: [{ slot, name, count }] }. Pure.
  * WHOLE stacks of listed junk only (a whole stack is a whole slot freed), in slot order, at most MAX_STACKS_PER_VISIT;
- * a scaffold-capable decoration only while the bag holds STONE_GUARD guard stone (`stone`, written on the row).
+ * a scaffold-capable decoration only while the bag keeps STONE_GUARD RESERVE_STONE after it (`stone`: the reserve held).
  * `junkStacks` counts every listed stack in the bag (what the trigger reads).
  */
 export function disposePlan (items = [], { maxStacks = MAX_STACKS_PER_VISIT } = {}) {
   const list = (Array.isArray(items) ? items : []).filter(it => it?.name && (it.count ?? 0) > 0)
-  const junk = list.filter(it => disposableIn(it.name, list) && Number.isInteger(it.slot))
-    .sort((a, b) => a.slot - b.slot)
-  return { slots: list.length, junkStacks: junk.length, stone: guardStone(list),
+  // In slot order, each stack judged against the reserve the stacks BEFORE it leave (the plan is thrown in this order).
+  let reserve = reserveStone(list)
+  const junk = []
+  for (const it of list.filter(x => isWellJunk(x.name) && Number.isInteger(x.slot)).sort((a, b) => a.slot - b.slot)) {
+    const left = guardLeft(it.name, it.count, reserve)
+    if (left === null) continue
+    reserve = left
+    junk.push(it)
+  }
+  return { slots: list.length, junkStacks: junk.length, stone: reserveStone(list),
            stacks: junk.slice(0, Math.max(0, maxStacks)).map(it => ({ slot: it.slot, name: it.name, count: it.count })) }
 }
 
@@ -831,13 +852,14 @@ const list = items => Object.entries(items ?? {}).filter(([, c]) => c > 0).map((
  */
 export function wellDisposeDetail ({ slotsBefore, slotsAfter, items = {}, tossed = 0, misses = 0, retaken = 0, recollected = 0, nonlisted = 0, otherLoss = 0,
                                      source = 'local', closedOpen = false, stop = 'done', at = null, offlist = 0, offlistItems = {}, unnamed = 0, capEnd = null,
-                                     stone = null } = {}) {
+                                     stone = null, gclicked = 0 } = {}) {
   const n = Object.values(items).reduce((a, b) => a + b, 0)
   // offlist= FIRST after slots (the read's C3 gate): thrown entities whose item, AS THE SERVER NAMES IT, is off the list
-  return (`slots=${slotsBefore}->${slotsAfter} offlist=${offlist} offlist_items=${list(offlistItems)} unnamed=${unnamed} ` +
+  // gclicked= / stone= right after offlist (the read's C7 gate): scaffold-capable decorations CLICKED (from the clicks, so an
+  // unanswered final resync cannot hide them) and the least RESERVE_STONE any of those clicks left (STONE_GUARD+ or a breach)
+  return (`slots=${slotsBefore}->${slotsAfter} offlist=${offlist} gclicked=${gclicked}${stone != null ? ` stone=${stone}` : ''} offlist_items=${list(offlistItems)} unnamed=${unnamed} ` +
           `freed=${(slotsBefore ?? 0) - (slotsAfter ?? 0)} tossed=${tossed} n=${n} misses=${misses} ` +
           `retaken=${retaken} recollected=${recollected} nonlisted=${nonlisted} other_loss=${otherLoss} server=${source} closed_open=${closedOpen ? 1 : 0}` +
-          `${stone != null ? ` stone=${stone}` : ''}` +
           `${capEnd ? ` cap_end=${capEnd}` : ''}` +
           `${at ? ` at=${at.x},${at.y},${at.z}` : ''} stop=${String(stop).replace(/\s+/g, '_').slice(0, 80)} items=${list(items)}`).slice(0, 300)
 }
