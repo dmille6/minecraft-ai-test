@@ -1019,11 +1019,6 @@ export function breathableRoute(bot, { maxUp = 32, maxOut = 8 } = {}) {
  * matters. setGoal(null) is used rather than pathfinder.stop() because stop()
  * waits for the next node, and a drowning bot does not have a next node.
  */
-/** Telemetry only: the rescue's own scan verdict at the moment of an airpocket step. */
-function route0Note (bot) {
-  try { const r = breathableRoute(bot); return `${r.dir ?? (r.sealed ? 'sealed' : 'unscanned')}:${r.dist === Infinity ? -1 : r.dist}` } catch { return '?' }
-}
-
 function seizeBody(bot, why) {
   try { bot.pathfinder?.setGoal(null) } catch { /* plugin may be absent */ }
   try { if (bot.targetDigBlock) bot.stopDigging() } catch { /* not digging */ }
@@ -1364,7 +1359,9 @@ export function startReflexes(bot, runner, lessons = null, worldFacts = null) {
   // AIRPOCKET RUNNER: plan (pure) -> admit (pure, health budget) -> the step (it digs). Returns true when the step ran.
   // On success the place now HAS air, so the rescue's memory of failing here is cleared and its ceiling restarts: if
   // the bot sinks back, its own scan now reads `up dist=1` into the pocket and the ordinary rescue lifts it there.
-  const runAirPocket = async () => {
+  const runAirPocket = async (route, heldMs) => {
+    // the rescue's own verdict that let the step run (the read gates on it: never `up`)
+    const trig = `trigger_route=${route?.dir ?? (route?.sealed ? 'sealed' : 'unscanned')}:${route?.dist === Infinity ? -1 : route?.dist} held_ms=${Math.round(heldMs)}`
     const at = bot.entity?.position
     if (!at) return false
     const fx = Math.floor(at.x), fy = Math.floor(at.y), fz = Math.floor(at.z)
@@ -1373,7 +1370,7 @@ export function startReflexes(bot, runner, lessons = null, worldFacts = null) {
       airPocketCooldownUntil = Date.now() + AP_REFUSE_COOLDOWN_MS
       if (throttled(`air_pocket_refused:${why.split(' ')[0]}:${fx},${fy},${fz}`, 30_000)) {
         logEvent({ kind: 'air_pocket_refused', status: 'no_effect',
-                   detail: `reason=${why} at=${fx},${fy},${fz} health=${bot.health} difficulty=${bot.game?.difficulty}`, snapshot: snapshot(bot) })
+                   detail: `reason=${why} at=${fx},${fy},${fz} health=${bot.health} difficulty=${bot.game?.difficulty} ${trig}`, snapshot: snapshot(bot) })
       }
       return false
     }
@@ -1397,7 +1394,7 @@ export function startReflexes(bot, runner, lessons = null, worldFacts = null) {
     } finally { airPocketing = false }
     logEvent({ kind: 'air_pocket', status: r.ok ? 'success' : 'failed',
                detail: `${airPocketDetail(r)} | required_ms=${Math.round(admit.requiredMs)} budget_ms=${Math.round(admit.budgetMs)} ` +
-                       `route=${route0Note(bot)}`, snapshot: snapshot(bot) })
+                       `difficulty=${bot.game?.difficulty} ${trig}`, snapshot: snapshot(bot) })
     if (r.ok) {
       drownFails = 0; drownFailPos = null; drownFailHealth = null
       seizedAt = Date.now(); lastProgressAt = Date.now()
@@ -2237,7 +2234,7 @@ export function startReflexes(bot, runner, lessons = null, worldFacts = null) {
           // pocket, admitted by geometry and by the health budget, at once when the scan says SEALED, else after 8 s.
           if (airPocketTrigger({ rescuing, routeDir: route.dir, routeSealed: route.sealed, heldMs: Date.now() - seizedAt,
                                  active: airPocketing, now: Date.now(), cooldownUntil: airPocketCooldownUntil })) {
-            const ran = await runAirPocket()
+            const ran = await runAirPocket(route, Date.now() - seizedAt)
             if (ran) return
           }
           // Re-assert steering every tick. setControlState is idempotent, so this
