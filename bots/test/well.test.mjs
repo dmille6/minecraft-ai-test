@@ -80,39 +80,57 @@ await t('no listed item is fuel, a composter-build input, or a scaffold/pillar/r
   for (const n of W.SCAFFOLD_DECORATIONS) assert.ok(PATHFINDER_SCAFFOLD.includes(n) || RESCUE_BLOCK.test(n), `${n} is guarded for a reason: a consumer uses it`)
 })
 
-await t('STONE_GUARD: a scaffold-capable decoration goes only while the bag holds 64 cobblestone + cobbled_deepslate', () => {
-  const bag = cobble => [{ name: 'diorite', count: 10, slot: 9 }, { name: 'cobblestone', count: cobble, slot: 10 }, { name: 'glass', count: 5, slot: 11 },
-    { name: 'stone_bricks', count: 2, slot: 12 }]
-  const names = p => p.stacks.map(s => s.name).join(',')
+await t('STONE_GUARD: a scaffold-capable decoration goes only while the bag KEEPS 64 reserve stone (cobble, deepslate, raw andesite/diorite/granite)', () => {
+  const names = p => p.stacks.map(s => `${s.name}:${s.count}`).join(',')
   assert.equal(W.STONE_GUARD, 64)
-  assert.equal(names(W.disposePlan(bag(63))), 'glass', 'below the guard: only the plain decoration')
+  assert.deepEqual([...W.RESERVE_STONE].sort(), ['andesite', 'cobbled_deepslate', 'cobblestone', 'diorite', 'granite'])
+  // plain decorations never touch the reserve
+  assert.equal(names(W.disposePlan([{ name: 'glass', count: 5, slot: 9 }])), 'glass:5')
+  // diorite 10 + cobble 63: reserve 73, the diorite would leave 63 -> kept; at cobble 64 it leaves 64 -> goes
+  const bag = cobble => [{ name: 'diorite', count: 10, slot: 9 }, { name: 'cobblestone', count: cobble, slot: 10 }, { name: 'glass', count: 5, slot: 11 }]
+  assert.equal(names(W.disposePlan(bag(63))), 'glass:5')
   assert.equal(W.disposePlan(bag(63)).junkStacks, 1, 'the trigger counts only what may go')
-  assert.equal(W.disposePlan(bag(63)).stone, 63)
-  assert.equal(names(W.disposePlan(bag(64))), 'diorite,glass,stone_bricks', 'at the guard: all three')
-  // cobbled_deepslate counts; the decorations themselves never count toward the guard; nor does stone (not on every list)
-  assert.equal(names(W.disposePlan([...bag(40), { name: 'cobbled_deepslate', count: 24, slot: 13 }])), 'diorite,glass,stone_bricks')
-  assert.equal(names(W.disposePlan([{ name: 'diorite', count: 64, slot: 9 }, { name: 'andesite', count: 64, slot: 10 }, { name: 'stone', count: 64, slot: 11 }])), '')
-  assert.equal(W.disposableIn('diorite', [{ name: 'cobblestone', count: 64 }]), true)
-  assert.equal(W.disposableIn('diorite', []), false)
-  assert.equal(W.disposableIn('glass', []), true)
-  assert.equal(W.disposableIn('cobblestone', [{ name: 'cobblestone', count: 640 }]), false, 'the guard never lists anything')
+  assert.equal(names(W.disposePlan(bag(64))), 'diorite:10,glass:5')
+  assert.equal(W.disposePlan(bag(64)).stone, 74)
+  // stone_bricks is pathfinder scaffold but not reserve stone: it goes while the reserve stays at 64+, and costs none of it
+  assert.equal(names(W.disposePlan([{ name: 'stone_bricks', count: 30, slot: 9 }, { name: 'cobblestone', count: 64, slot: 10 }])), 'stone_bricks:30')
+  assert.equal(names(W.disposePlan([{ name: 'stone_bricks', count: 30, slot: 9 }, { name: 'cobblestone', count: 63, slot: 10 }])), '')
+  // cobbled_deepslate counts; 'stone' (not on every consumer list) does not
+  assert.equal(names(W.disposePlan([{ name: 'granite', count: 20, slot: 9 }, { name: 'cobbled_deepslate', count: 64, slot: 10 }])), 'granite:20')
+  assert.equal(names(W.disposePlan([{ name: 'granite', count: 20, slot: 9 }, { name: 'stone', count: 640, slot: 10 }])), '')
+  // stacks are judged in slot order against what the earlier ones leave
+  assert.equal(names(W.disposePlan([{ name: 'diorite', count: 40, slot: 9 }, { name: 'granite', count: 40, slot: 10 }, { name: 'cobblestone', count: 64, slot: 11 }])), 'diorite:40,granite:40')
+  assert.equal(names(W.disposePlan([{ name: 'diorite', count: 40, slot: 9 }, { name: 'granite', count: 40, slot: 10 }, { name: 'cobblestone', count: 30, slot: 11 }])), 'diorite:40')
+  assert.equal(W.disposableIn({ name: 'cobblestone', count: 64 }, [{ name: 'cobblestone', count: 640 }]), false, 'the guard never lists anything')
+  assert.equal(W.guardLeft('glass', 64, 0), 0, 'a plain decoration passes with any reserve')
+  assert.equal(W.guardLeft('diorite', 10, 73), null)
+  assert.equal(W.guardLeft('diorite', 10, 74), 64)
+  assert.equal(W.guardLeft('smooth_stone', 64, 64), 64)
 })
 
-await t('the row carries the guard stone the plan saw (stone=), ahead of items= (the 300-character cap cuts from the end)', () => {
-  const d = W.wellDisposeDetail({ slotsBefore: 36, slotsAfter: 34, items: { glass: 5, diorite: 10 }, tossed: 2, source: 'resync', stop: 'done', stone: 64 })
-  assert.match(d, / stone=64 /)
-  assert.ok(d.indexOf(' stone=') < d.indexOf(' items='))
-  assert.doesNotMatch(W.wellDisposeDetail({ slotsBefore: 36, slotsAfter: 36 }), /stone=/, 'a row with no plan says nothing about it')
+await t('NO GUARD-ONLY DEAD END (Codex r1 P2): a full bag of 36 diorite stacks and no cobble disposes down to a 64 reserve, through the order', () => {
+  const bag = Array.from({ length: 36 }, (_, i) => ({ name: 'diorite', count: 64, slot: 9 + i }))
+  const p = W.disposePlan(bag)
+  assert.equal(p.junkStacks, 35, 'every stack but the reserve may go')
+  assert.equal(p.stacks.length, W.MAX_STACKS_PER_VISIT)
+  // the order fires on it (the composed chain: a full bag at town with a well -> dispose_well)
+  const r = W.wellOrder({ now: 1e9, slots: 36, freeSlots: 0, junkStacks: p.junkStacks, distHome: 5, well: () => ({ open: false, attended: false, breached: false }) })
+  assert.equal(r.order?.skill, 'dispose_well', JSON.stringify(r))
+  // and what stays is exactly one stack: 64 reserve stone
+  const keep = bag.filter(it => !W.disposePlan(bag, { maxStacks: 99 }).stacks.some(s => s.slot === it.slot))
+  assert.deepEqual(keep.map(it => `${it.name}:${it.count}`), ['diorite:64'])
 })
 
-await t('disposePlan: whole listed stacks only, in slot order, capped; counts every listed stack for the trigger', () => {
-  const items = [{ name: 'cobblestone', count: 64, slot: 9 }, { name: 'egg', count: 16, slot: 12 }, { name: 'flint', count: 3, slot: 10 },
-    { name: 'oak_sapling', count: 40, slot: 11 }, { name: 'leaf_litter', count: 20, slot: 13 }, { name: 'rail', count: 1, slot: 40 }]
-  const p = W.disposePlan(items)
-  assert.equal(p.slots, 6); assert.equal(p.junkStacks, 3)
-  assert.deepEqual(p.stacks.map(s => `${s.slot}:${s.name}:${s.count}`), ['10:flint:3', '12:egg:16', '40:rail:1'])
-  const many = Array.from({ length: 12 }, (_, i) => ({ name: 'egg', count: 16, slot: 9 + i }))
-  assert.equal(W.disposePlan(many).stacks.length, W.MAX_STACKS_PER_VISIT); assert.equal(W.disposePlan(many).junkStacks, 12)
+await t('the row carries the guard evidence (gclicked=, stone=) right after offlist -- a 300-character cut from the end cannot drop it', () => {
+  const items = Object.fromEntries(['white_stained_glass_pane', 'light_gray_stained_glass_pane', 'light_blue_stained_glass_pane', 'magenta_stained_glass_pane', 'diorite'].map(n => [n, 64]))
+  const d = W.wellDisposeDetail({ slotsBefore: 36, slotsAfter: 31, items, tossed: 5, source: 'resync', stop: 'done', stone: 63, gclicked: 64, at: { x: 1000, y: 64, z: -1000 } })
+  assert.equal(d.length, 300, 'positive control: this row IS cut by the cap')
+  assert.doesNotMatch(d, /diorite:64/, 'positive control: the cut ate the guarded item from items=')
+  assert.match(d.slice(0, 80), / gclicked=64 stone=63 /, d)
+  assert.match(W.wellDisposeDetail({ slotsBefore: 36, slotsAfter: 36 }), / gclicked=0 offlist_items=/, 'no click, no reserve claim')
+  // the read's C7 predicate is the row's own fields (wellread.py c7_breach): gclicked > 0 with stone missing or < 64
+  const src = readFileSync(new URL('../../scripts/host/wellread.py', import.meta.url), 'utf8')
+  assert.match(src, /if num\(f, 'gclicked'\) > 0 and \(st is None or not str\(st\)\.isdigit\(\) or int\(st\) < STONE_GUARD\):/)
 })
 
 // ===================================================================================================================
@@ -780,6 +798,25 @@ await t('DISPOSE: each slot is re-read synchronously before its click -- a slot 
   assert.equal(r.status, 'success', r.detail)
   assert.ok(!town.state.clicks.some(c => c.name === 'iron_ingot'), 'a non-listed stack was thrown')
   assert.equal(town.count('iron_ingot'), 5)
+})
+
+await t('DISPOSE (Codex r1 P1): the reserve is re-judged AT THE CLICK -- cobble spent during the aim keeps the diorite in the bag; the row says what was clicked', async () => {
+  const town = fakeTown({ wellAt: CAP, items: [S('diorite', 10), S('cobblestone', 64), S('egg', 16), ...Array.from({ length: 32 }, () => S('oak_log', 64))] })
+  const cob = town.slots.findIndex(x => x?.name === 'cobblestone')
+  town.state.onLook = () => { if (town.slots[cob]?.name === 'cobblestone' && town.slots[cob].count === 64) town.slots[cob] = { ...town.slots[cob], count: 63 } }
+  const r = await run('dispose_well', town.bot)
+  assert.equal(r.status, 'success', r.detail)
+  assert.ok(town.state.clicks.some(c => c.name === 'egg'), 'positive control: the visit threw')
+  assert.ok(!town.state.clicks.some(c => c.name === 'diorite'), 'the diorite went with only 63 cobble left')
+  assert.equal(town.count('diorite'), 10)
+  const row = (await rows('_well_dispose')).pop()
+  assert.equal(field(row.skill.detail, 'gclicked'), '0', row.skill.detail)
+  // and the same bag with the reserve intact throws it, saying so
+  const ok = fakeTown({ wellAt: CAP, items: [S('diorite', 10), S('cobblestone', 64), S('egg', 16), ...Array.from({ length: 32 }, () => S('oak_log', 64))] })
+  await run('dispose_well', ok.bot)
+  assert.ok(ok.state.clicks.some(c => c.name === 'diorite'))
+  const row2 = (await rows('_well_dispose')).pop()
+  assert.equal(field(row2.skill.detail, 'gclicked'), '10', row2.skill.detail); assert.equal(field(row2.skill.detail, 'stone'), '64')
 })
 
 await t('ADMISSION in the skill: another player within 5 -> no click, no activation, a _well_refused row with a wait remedy', async () => {
@@ -1622,18 +1659,27 @@ await t('MUTANT: no pit-first means a full bag of junk is a dead end', async () 
   })
 })
 await t('MUTANT: without STONE_GUARD a bag with no cobble throws its last scaffold (diorite)', async () => {
-  await withMutant(WP, '  return !SCAFFOLD_DECO.has(name) || guardStone(items) >= STONE_GUARD\n', '  return true\n', async m => {
+  await withMutant(WP, '  return after >= STONE_GUARD ? after : null\n', '  return after\n', async m => {
     assert.equal(m.disposePlan([{ name: 'diorite', count: 10, slot: 9 }]).stacks.length, 1, 'mutant inert')
   })
   assert.equal(W.disposePlan([{ name: 'diorite', count: 10, slot: 9 }]).stacks.length, 0, 'and the real code keeps it')
 })
-await t('MUTANT: a guard that counts the decorations themselves lets a diorite-only bag empty itself', async () => {
-  await withMutant(WP, "const GUARD_STONE = new Set(['cobblestone', 'cobbled_deepslate'])", "const GUARD_STONE = new Set(['cobblestone', 'cobbled_deepslate', 'diorite'])", async m => {
-    assert.equal(m.disposePlan([{ name: 'diorite', count: 64, slot: 9 }]).stacks.length, 1, 'mutant inert')
+await t('MUTANT: a guard that does not charge raw diorite to the reserve lets a diorite-only bag empty itself', async () => {
+  await withMutant(WP, '  const after = RESERVE_SET.has(name) ? reserveNow - (Number(count) || 0) : reserveNow\n', '  const after = reserveNow\n', async m => {
+    assert.equal(m.disposePlan(Array.from({ length: 3 }, (_, i) => ({ name: 'diorite', count: 64, slot: 9 + i })), { maxStacks: 9 }).stacks.length, 3, 'mutant inert')
+  })
+})
+await t('MUTANT (skills): without the reserve re-check at the click, a reserve spent during the aim is thrown anyway', async () => {
+  await withMutant(SP, '      if (left === null) continue\n', '', async m => {
+    const town = fakeTown({ wellAt: CAP, items: [S('diorite', 10), S('cobblestone', 64), S('egg', 16), ...Array.from({ length: 32 }, () => S('oak_log', 64))] })
+    const cob = town.slots.findIndex(x => x?.name === 'cobblestone')
+    town.state.onLook = () => { if (town.slots[cob]?.name === 'cobblestone' && town.slots[cob].count === 64) town.slots[cob] = { ...town.slots[cob], count: 63 } }
+    await within(m.SKILLS.dispose_well.run({ bot: town.bot }, {}, { aborted: false }), 15000, 'mutant')
+    assert.ok(town.state.clicks.some(c => c.name === 'diorite'), 'mutant inert')
   })
 })
 await t('MUTANT: without the list filter the plan throws cobblestone', async () => {
-  await withMutant(WP, 'const junk = list.filter(it => disposableIn(it.name, list) && Number.isInteger(it.slot))', 'const junk = list.filter(it => Number.isInteger(it.slot))', async m => {
+  await withMutant(WP, '  for (const it of list.filter(x => isWellJunk(x.name) && Number.isInteger(x.slot)).sort((a, b) => a.slot - b.slot)) {', '  for (const it of list.filter(x => Number.isInteger(x.slot)).sort((a, b) => a.slot - b.slot)) {', async m => {
     assert.ok(m.disposePlan([{ name: 'cobblestone', count: 64, slot: 9 }]).stacks.length, 'mutant inert')
   })
 })
