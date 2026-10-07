@@ -225,7 +225,12 @@ rate = lambda c, key: c[key] / bh[key] if bh.get(key) else float('nan')
 sr = {key: rate(sought, key) for key in tw}
 ratio = (sr[('post', 'canary')] / sr[('post', 'control')]) if sr.get(('post', 'control')) else float('nan')
 f2_judged = sought[('post', 'control')] >= F2_MIN_CONTROL
-f2 = int(f2_judged and sought[('post', 'canary')] >= F2_MIN_CANARY and ratio > F2_RATIO)
+# AMENDMENT 1 (10-07 ~05Z, before the +360 read; Codex APPROVE-WITH-CHANGES): the control's sought-apple rate fell ~7x since
+# the dry run (0.07 -> 0.01/bot-h), so F2_judged cannot be reached inside the deadline. F2 is now a TRIPWIRE that reverts
+# whenever the canary has >= F2_MIN_CANARY sought apples and either the control has none or the ratio exceeds F2_RATIO;
+# exposure no longer waits on F2_judged. The chase half is reported UNPOWERED, never as a pass.
+f2 = int(sought[('post', 'canary')] >= F2_MIN_CANARY and (not sought[('post', 'control')] or ratio > F2_RATIO))
+f2_status = 'TRIPPED' if f2 else ('JUDGED' if f2_judged else 'UNPOWERED')
 
 
 def per(key, i):
@@ -242,8 +247,8 @@ print('rows walked pre %s post %s | canary %s sha %s cutoff %s window +%d min' %
 print('-' * 78)
 print('LIVENESS     canary _food_skip active=1 rows %d (>= 1) | control rows %d (must be 0) | other build %d' % (
     skiprows[('post', 'canary', '1')], sum(v for (p, a, _), v in skiprows.items() if a == 'control' and p == 'post'), offbuild))
-print('CORRECTNESS  F1 mode/decision wrong %d | F2 sought-by-sweep food/bot-h canary %.2f vs control %.2f ratio %.3f (breach: canary n >= %d and ratio > %.2f; judged=%s, canary n=%d, control n=%d)' % (
-    len(f1), sr.get(('post', 'canary'), float('nan')), sr.get(('post', 'control'), float('nan')), ratio, F2_MIN_CANARY, F2_RATIO, f2_judged,
+print('CORRECTNESS  F1 mode/decision wrong %d | F2 sought-by-sweep food/bot-h canary %.2f vs control %.2f ratio %.3f (breach: canary n >= %d and ratio > %.2f or control 0; status %s, canary n=%d, control n=%d)' % (
+    len(f1), sr.get(('post', 'canary'), float('nan')), sr.get(('post', 'control'), float('nan')), ratio, F2_MIN_CANARY, F2_RATIO, f2_status,
     sought[('post', 'canary')], sought[('post', 'control')]))
 print('APPLES       A1 composted while off/control %d | A2 reserve (< %d left) %d | A3 other food composted %d | apples composted canary %d in %d visits (control %d) | apple_levels %d -> bone meal ~%.1f; bone meal on apple visits %d' % (
     len(a1), APPLE_RESERVE, len(a2), len(a3), apples_out['canary'], apple_visits['canary'], apples_out['control'], apple_levels['canary'], apple_levels['canary'] / 7, bm_apple_visits['canary']))
@@ -275,14 +280,14 @@ try:
     emit('foodskipread', W, {
         'rows_canary': skiprows[('post', 'canary', '1')],
         'rows_control': sum(v for (p, a, _), v in skiprows.items() if a == 'control' and p == 'post'),
-        'offbuild_canary': offbuild, 'breach_mode': len(f1), 'breach_chasing': f2, 'chasing_ratio': nan(ratio),
+        'offbuild_canary': offbuild, 'breach_mode': len(f1), 'breach_chasing': f2, 'chasing_status': f2_status, 'chasing_ratio': nan(ratio),
         'sought_control': sought[('post', 'control')], 'sought_canary': sought[('post', 'canary')],
         'hunger_low_canary': hunger_low['canary'], 'other_difficulty_rows': sum(other_diff.values()),
         'breach_apples_off': len(a1), 'breach_apple_reserve': len(a2), 'breach_other_food': len(a3),
         'instrument_apples_control': inst_apples, 'apples_composted_canary': apples_out['canary'], 'apple_visits_canary': apple_visits['canary'],
         'apple_levels_canary': apple_levels['canary'], 'bonemeal_from_apples_est': round(apple_levels['canary'] / 7, 2),
         'food_slots_did': nan(did(3)), 'slots_did': nan(did(2)), 'full_share_did': nan(did(1)), 'gather_success_did': nan(gdid),
-        'exposure_ready': int(f2_judged and skiprows[('post', 'canary', '1')] >= 1 and inst_apples >= 1),
+        'exposure_ready': int(skiprows[('post', 'canary', '1')] >= 1 and inst_apples >= 1),  # amendment 1: F2_judged dropped
     })
 except Exception as e:
     print('emit failed:', e)

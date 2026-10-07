@@ -138,6 +138,19 @@ the same farm: ctrl 15,16 logs vs cand 21,23 (no harm). Bone meal arm built, OFF
 Bags: 76/80 bots hold >= 6 farm saplings, 62/80 carry torches. Design + follow-ons (WORKSHOP, SAFE MINESHAFT, designed
 not built): docs/reports/blueprint-builder-design-2026-10-05.md.
 
+## 10-07 05:10Z — foodskip-01 +180 NOT_YET (exposure 0); AMENDMENT 1 registered before +360 (Codex APPROVE-WITH-CHANGES)
++180 (04:15Z): LIVENESS 16 active=1 rows, control 0; F1 0; A1/A2/A3 0 (627 apples composted in 14 visits; instrument 19
+control visits holding > 4 apples); deaths canary 1 vs control 3 (0.022/bh both); gather success DiD +0.025. Exposure 0
+because F2_judged needs >= 20 control sought apples and the control had 2 in 194.6 bot-h (0.01/bot-h vs 0.07 in the 10-05
+dry run): ~30 h to reach, past the 1680-min deadline, blocking towndeposit-01 (owner top priority) for ~22 h.
+AMENDMENT 1 (registration amendments[0], main docs/reports/foodskip-01.c902d6f.json == host registrations/foodskip-01.json;
+read d2684f1 on host /tmp + ~/mcai-analysis, .bak-amend1 kept): exposure drops F2_judged; F2 is a REVERT tripwire (canary
+sought >= 3 AND (control 0 OR ratio > 0.25)); status printed TRIPPED/JUDGED/UNPOWERED. A KEEP under it is LABELLED
+"apple composting + mode switch supported; food-chase suppression UNVALIDATED on the fleet (unit tests only)" -- not a
+pass of the original gate. Residual risk if the chase half does nothing = base behaviour. OWNER: accept or not.
+Follow-up registered: sandbox apple-drop A/B with a log-drop positive control (does not block towndeposit). Codex text:
+docs/reports/foodskip-01-amend1-codex.txt. Expected: +360 (~07:11Z) can KEEP -> towndeposit-01 chain fires.
+
 ## 10-07 01:14Z — CANARY LIVE: foodskip-01 @ c6e91a8 on board-d,hive-c,placebo-b (15 bots), declared 01:10:52Z; two versions
 confirmed (65 c902d6f, 15 c6e91a8). Reads ~04:11Z / ~07:11Z. towndeposit-01 next (td-on-c6e91a8 being gated).
 

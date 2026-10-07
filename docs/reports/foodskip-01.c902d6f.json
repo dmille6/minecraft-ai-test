@@ -38,7 +38,7 @@
   "read": "foodskipread",
   "field": "exposure_ready",
   "min": 1,
-  "note": "Ready = the control's apples sought by the sweep >= 20 (the positive control; 15 in a 3 h dry run on 70 bots) AND >= 1 canary _food_skip active=1 row. And >= 1 control compost visit by a bot holding > 4 apples (the apple half's positive control)."
+  "note": "[AMENDED 1, 10-07 05:05Z: F2_judged dropped from exposure; see amendments[0]] Ready = the control's apples sought by the sweep >= 20 (the positive control; 15 in a 3 h dry run on 70 bots) AND >= 1 canary _food_skip active=1 row. And >= 1 control compost visit by a bot holding > 4 apples (the apple half's positive control)."
  },
  "own_lines": [
   {
@@ -138,7 +138,20 @@
  "teardown": {
   "note": "THREE STEPS: drop-ins, clear canary_pool, restart the pool's bots 12 s apart; then confirm the live versions. No world state is created."
  },
- "amendments": [],
+ "amendments": [
+  {
+   "n": 1,
+   "at": "2026-10-07T05:05Z",
+   "before_read": 360,
+   "review": "Codex APPROVE-WITH-CHANGES (changes applied); Claude (operator)",
+   "original_exposure_note": "Ready = the control's apples sought by the sweep >= 20 (the positive control; 15 in a 3 h dry run on 70 bots) AND >= 1 canary _food_skip active=1 row. And >= 1 control compost visit by a bot holding > 4 apples (the apple half's positive control).",
+   "original_exposure_met": false,
+   "what": "exposure_ready no longer requires F2_judged (control sought apples >= 20). F2 becomes a REVERT tripwire: canary sought >= 3 AND (control 0 OR rate ratio > 0.25). The read prints F2 status TRIPPED / JUDGED / UNPOWERED.",
+   "why": "At +180 the control had 2 sought apples in 194.6 bot-h (0.01/bot-h) vs 0.07/bot-h in the 10-05 dry run; 20 would take ~30 h, past the 1680-min deadline, blocking towndeposit-01 (owner top priority) ~22 h. A 90 bot-h canary expects ~0.9 sought even if the skip did nothing (P(0)~0.41): the fleet cannot test the chase half.",
+   "outcome_label": "A KEEP under this amendment reads: KEEP -- apple composting + mode switch (F1, A1-A3) supported on the fleet; food-chase suppression UNVALIDATED on the fleet (unit tests only). Not a pass of the original two-part gate. Residual risk if the chase half is ineffective = the base behaviour (no harm, no benefit); owner to accept.",
+   "follow_up": "Sandbox test (25599-25602): reachable apple drops near a bot with FOOD_SKIP=on vs off, sweep-positive control (a log drop chased in both), to validate chase suppression. Does not block towndeposit-01."
+  }
+ ],
  "extension": {
   "until_exposure": true,
   "extra_reads": [
