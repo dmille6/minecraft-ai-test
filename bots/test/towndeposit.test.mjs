@@ -657,7 +657,7 @@ test('WITHDRAW HOLD BY NAME: with 130/40 held and a 120 just withdrawn, NO stone
 
 test('TOWN MEMORY: a verified deposit records `took` for the container (clearing withdraw\'s misses there); a chest the town knows is full is skipped', async () => {
   const dir = process.env.POOL_STATE_DIR, key = CF.townKey(new Vec3(0, 70, 0))
-  CF.updateTownMemory(dir, key, null, e => { e['-4,70,0'] = CF.recordOutcome(undefined, 'full'); CF.notePickMisses(e, ['2,70,0']) })
+  CF.updateTownMemory(dir, key, null, e => { e['-4,70,0'] = CF.recordOutcome(undefined, 'full'); CF.notePickMisses(e, ['2,70,0'], Date.now() - 50) })
   assert.equal(CF.containerPickMiss(CF.readTownMemory(dir, key), '2,70,0'), true, 'precondition: a fresh pickaxe miss at chest A')
   const a = chestAt(2), b = chestAt(-4)
   const { bot, st } = world({ items: fullBag(), containers: [a, b] })
