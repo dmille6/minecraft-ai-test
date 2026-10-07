@@ -7059,6 +7059,18 @@ async function smelt(ctx, { item, count = 1 }, signal) {
   let staged = null            // a sword put in and not yet seen to ignite: { active }
   let unknownFuel = 0          // polls with no burn reading from the server
   const fslot = which => { try { return furnace?.[which]?.() ?? null } catch { return undefined } }
+  // IS THE FURNACE BURNING? mineflayer's furnace.fuel misses the data slots the server sends at the open (its listener is
+  // attached after openBlock resolves; found on Paper 10-07: a cold furnace read null for the whole job), so the BLOCK
+  // STATE `lit` is read too. -> 'cold' | 'warm' | 'unknown'.
+  const litNow = () => {
+    try { const v = bot.blockAt?.(block.position)?.getProperties?.()?.lit; return v === true || v === 'true' ? true : v === false || v === 'false' ? false : null } catch { return null }
+  }
+  const heat = () => {
+    const f = furnace?.fuel, lit = litNow()
+    if (f > 0 || lit === true) return 'warm'
+    if (f === 0 || lit === false) return 'cold'
+    return 'unknown'
+  }
   const swordRow = (status, what, active) => {
     try { logEvent({ kind: 'sword_fuel', status, snapshot: snapshot(bot), detail: `${what} for ${plan.input} active=${active ? 1 : 0}` }) } catch { /* never break a smelt */ }
   }
@@ -7081,8 +7093,9 @@ async function smelt(ctx, { item, count = 1 }, signal) {
       if (next.sword) {
         // furnace.fuel is mineflayer's burn-left fraction (the server's data slot); unknown for a few polls after the open
         // is waited out, and if it stays unknown the swords give way to ordinary fuel rather than stall the job.
-        if (typeof furnace?.fuel !== 'number' && ++unknownFuel > SWORD_UNKNOWN_POLLS) { substitute(); continue }
-        if (!(fslot('fuelItem') === null && furnace?.fuel === 0)) return false
+        const h = heat()
+        if (h === 'unknown' && ++unknownFuel > SWORD_UNKNOWN_POLLS) { substitute(); continue }
+        if (!(fslot('fuelItem') === null && h === 'cold')) return false
         queue.shift()
         const active = foodSkipNow(bot).active
         const copy = (bot.inventory?.items?.() ?? []).find(it => burnableSword(it, active))
@@ -7104,7 +7117,7 @@ async function smelt(ctx, { item, count = 1 }, signal) {
   // A STAGED SWORD THAT LEFT THE SLOT AND IS BURNING (or whose item already cooked: the input fell) HAS IGNITED: the
   // confirmed burn, and its row. A sword still in the slot is not a burn.
   const confirmBurn = () => {
-    if (staged && fslot('fuelItem') === null && (furnace?.fuel > 0 || (fslot('inputItem')?.count ?? 0) < staged.input)) {
+    if (staged && fslot('fuelItem') === null && (heat() === 'warm' || (fslot('inputItem')?.count ?? 0) < staged.input)) {
       burned.wooden_sword = (burned.wooden_sword ?? 0) + 1
       swordRow('success', 'burned wooden_sword', staged.active)
       staged = null
