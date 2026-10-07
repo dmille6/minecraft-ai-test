@@ -23,12 +23,12 @@ const { CognitiveLoop } = await import('../src/cognitive.mjs')
 
 const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'mcai-pko-'))
 let seq = 0
-function townBot (difficulty) {
+function townBot (difficulty, { full = false } = {}) {
   const items = [{ name: 'wildflowers', count: 30, slot: 9, type: mcData.itemsByName.wildflowers.id },
     { name: 'oak_sapling', count: 16, slot: 44, type: mcData.itemsByName.oak_sapling.id }, { name: 'apple', count: 4, slot: 45, type: mcData.itemsByName.apple.id },
     // a usable pickaxe, so withdraw's withdraw_pick town order (when withdraw is underneath) has nothing to fetch
     { name: 'stone_pickaxe', count: 1, slot: 10, type: mcData.itemsByName.stone_pickaxe.id, maxDurability: 131, durabilityUsed: 11 },
-    ...Array.from({ length: 31 }, (_, i) => ({ name: 'white_wool', count: 1, slot: 11 + i, type: mcData.itemsByName.white_wool.id }))]
+    ...Array.from({ length: full ? 32 : 31 }, (_, i) => ({ name: 'white_wool', count: 1, slot: 11 + i, type: mcData.itemsByName.white_wool.id }))]
   const composter = { name: 'composter', type: mcData.blocksByName.composter.id, position: new Vec3(3, 70, 3), getProperties: () => ({ level: 0 }) }
   const chest = { name: 'chest', type: mcData.blocksByName.chest.id, position: new Vec3(-3, 70, 0) }
   return {
@@ -58,4 +58,7 @@ test('PEACEFUL: a town bot at 35/36 whose only compostables are 30 wildflowers g
 test('HARD / UNKNOWN: the same bot gets no compost order -- the kit is off, exactly as today', async () => {
   assert.equal(await firstSkill(townBot('hard')), 'status')
   assert.equal(await firstSkill(townBot(undefined)), 'status')
+})
+test('PEACEFUL, 36/36 with the plants in one stack of 30: NO compost order -- no fill could start (no room for the bone meal)', async () => {
+  assert.equal(await firstSkill(townBot('peaceful', { full: true })), 'status')
 })

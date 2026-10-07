@@ -153,6 +153,19 @@ export function nextInsert (items = [], { room = true, apples = false, plants = 
   return whole.length ? { item: whole[0], n: whole[0].count } : null
 }
 
+/**
+ * THE JUNK A TOWN ORDER MAY COUNT -> a number. Pure. compostPlan's junk -- or 0 when the bag has no room for a bone meal
+ * and no whole stack of at most 7 can be emptied (fillDecision skips such a fill at every level, so the order would walk
+ * to the composter for a free no_effect and repeat on each cooldown). Used while the peaceful switch is on (Claude
+ * review r1: the kit's plants widen the apples' full-bag case); off, the order counts plan.junk as before.
+ */
+export function startableJunk (items = [], { apples = false, plants = false } = {}) {
+  const plan = compostPlan(items, { apples, plants })
+  if (!plan.junk || boneMealRoom(items)) return plan.junk
+  const nx = nextInsert(items, { room: false, apples, plants })
+  return nx && nx.n <= 7 ? plan.junk : 0
+}
+
 /** Can the bag take one bone meal right now: a free slot, or a bone_meal stack with room. */
 export function boneMealRoom (items = []) {
   const list = (Array.isArray(items) ? items : []).filter(it => it?.name && (it.count ?? 0) > 0)

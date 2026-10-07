@@ -5590,7 +5590,11 @@ async function compost(ctx, _args, signal) {
   const items = () => bot.inventory?.items?.() ?? []
   const countOf = n => items().reduce((a, i) => a + (i.name === n ? (i.count ?? 0) : 0), 0)
   const slotsBefore = items().length
-  const row = (status, f) => logEvent({ kind: 'compost', status, snapshot: snapshot(bot),
+  // THE COMPLETE MAP IN args (peacefulkit, Codex review): the detail is cut at 300 characters and with the kit's 30 plants a
+  // visit's items= list can pass that, so the read gates on args.items (name -> verified count), never on cut prose.
+  // `peaceful` is the switch's reading for this visit (set below, before any insert).
+  let peaceful = null
+  const row = (status, f) => logEvent({ kind: 'compost', status, snapshot: snapshot(bot), args: { items: { ...(f?.items ?? {}) }, peaceful },
                                         detail: compostDetail({ slotsBefore, slotsAfter: items().length, ...f }) })
   const skip = (why, f = {}) => { row('no_effect', { stop: why, ...f }); return { status: 'no_effect', detail: why } }
   // ANOTHER SUBSYSTEM'S SNEAK IS NOT OURS TO RELEASE, and a sneaking use is an item use, not a block use.
@@ -5603,6 +5607,7 @@ async function compost(ctx, _args, signal) {
   // THE PEACEFUL FOOD POLICY (foodskip.mjs, owner 10-06): apples above APPLE_RESERVE go in too, only while it is active.
   // THE PEACEFUL KIT (peacefulkit.mjs, owner 10-07), the same decision: so do its plants.
   const apples = foodSkipNow(bot).active, plants = apples
+  peaceful = apples ? 1 : 0
   if (!compostPlan(items(), { apples, plants }).junk && !ripe) return skip(`nothing compostable at ${slotsBefore} of 36 slots and nothing to harvest`)
   const was = handOf(bot.heldItem)
   const g = hkGuards(bot, signal)
