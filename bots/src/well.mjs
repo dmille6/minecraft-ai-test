@@ -116,6 +116,17 @@ export function isWellJunk (name) {
   return typeof name === 'string' && WELL_JUNK.has(name) && !NEVER_DISPOSE.test(name) && !isCompostJunk(name)
 }
 
+/**
+ * SWORDS (OWNER 10-07: "no reason to store swords at all, this is a peaceful world"). Every tier goes down the well, but
+ * ONLY while the peaceful switch is active -- foodskip's own detection: FOOD_SKIP auto|on AND the server's difficulty
+ * read as peaceful (skills.mjs wellSwordsNow) -- judged when the plan is made AND again at each click. In any other world
+ * a sword is a weapon and never goes. Not on WELL_JUNK (the guards there stay absolute): a separate, switched extra.
+ * The same rule as peacefulkit's classifier (isSword + its peaceful switch); where peacefulkit is in the build, the two agree.
+ */
+export const isSword = name => typeof name === 'string' && /_sword$/.test(name)
+/** May this stack go as a peaceful-world sword? Pure. */
+export const swordGoes = (name, peaceful) => !!peaceful && isSword(name)
+
 /** RESERVE_STONE held in a bag (mineflayer Items or { name, count }). */
 export function reserveStone (items = []) {
   let n = 0
@@ -149,12 +160,12 @@ export const MAX_STACKS_PER_VISIT = 9
  * a scaffold-capable decoration only while the bag keeps STONE_GUARD RESERVE_STONE after it (`stone`: the reserve held).
  * `junkStacks` counts every listed stack in the bag (what the trigger reads).
  */
-export function disposePlan (items = [], { maxStacks = MAX_STACKS_PER_VISIT } = {}) {
+export function disposePlan (items = [], { maxStacks = MAX_STACKS_PER_VISIT, swords = false } = {}) {
   const list = (Array.isArray(items) ? items : []).filter(it => it?.name && (it.count ?? 0) > 0)
   // In slot order, each stack judged against the reserve the stacks BEFORE it leave (the plan is thrown in this order).
   let reserve = reserveStone(list)
   const junk = []
-  for (const it of list.filter(x => isWellJunk(x.name) && Number.isInteger(x.slot)).sort((a, b) => a.slot - b.slot)) {
+  for (const it of list.filter(x => (isWellJunk(x.name) || swordGoes(x.name, swords)) && Number.isInteger(x.slot)).sort((a, b) => a.slot - b.slot)) {
     const left = guardLeft(it.name, it.count, reserve)
     if (left === null) continue
     reserve = left
@@ -579,13 +590,13 @@ export function tossOutcome ({ items = [], cap }) {
  * [{ name, count }] read from each spawned item entity's metadata (the server's own item stack), name null when none
  * arrived. offlist counts ENTITIES whose item is not on the list: the C3 quantity, independent of the bag plan.
  */
-export function thrownNames (thrown = []) {
+export function thrownNames (thrown = [], { swords = false } = {}) {
   const names = {}, offlistItems = {}
   let offlist = 0, unnamed = 0
   for (const t of (Array.isArray(thrown) ? thrown : [])) {
     if (!t?.name) { unnamed++; continue }
     names[t.name] = (names[t.name] ?? 0) + (t.count ?? 1)
-    if (!isWellJunk(t.name)) { offlist++; offlistItems[t.name] = (offlistItems[t.name] ?? 0) + (t.count ?? 1) }
+    if (!isWellJunk(t.name) && !swordGoes(t.name, swords)) { offlist++; offlistItems[t.name] = (offlistItems[t.name] ?? 0) + (t.count ?? 1) }
   }
   return { names, offlist, offlistItems, unnamed }
 }
@@ -852,12 +863,13 @@ const list = items => Object.entries(items ?? {}).filter(([, c]) => c > 0).map((
  */
 export function wellDisposeDetail ({ slotsBefore, slotsAfter, items = {}, tossed = 0, misses = 0, retaken = 0, recollected = 0, nonlisted = 0, otherLoss = 0,
                                      source = 'local', closedOpen = false, stop = 'done', at = null, offlist = 0, offlistItems = {}, unnamed = 0, capEnd = null,
-                                     stone = null, gclicked = 0 } = {}) {
+                                     stone = null, gclicked = 0, swords = 0, peaceful = null } = {}) {
   const n = Object.values(items).reduce((a, b) => a + b, 0)
   // offlist= FIRST after slots (the read's C3 gate): thrown entities whose item, AS THE SERVER NAMES IT, is off the list
   // gclicked= / stone= right after offlist (the read's C7 gate): scaffold-capable decorations CLICKED (from the clicks, so an
   // unanswered final resync cannot hide them) and the least RESERVE_STONE any of those clicks left (STONE_GUARD+ or a breach)
-  return (`slots=${slotsBefore}->${slotsAfter} offlist=${offlist} gclicked=${gclicked}${stone != null ? ` stone=${stone}` : ''} offlist_items=${list(offlistItems)} unnamed=${unnamed} ` +
+  // swords= (swords CLICKED) and peaceful= (the switch as read at the last sword click) next: the read's sword gate
+  return (`slots=${slotsBefore}->${slotsAfter} offlist=${offlist} gclicked=${gclicked}${stone != null ? ` stone=${stone}` : ''} swords=${swords}${peaceful != null ? ` peaceful=${peaceful ? 1 : 0}` : ''} offlist_items=${list(offlistItems)} unnamed=${unnamed} ` +
           `freed=${(slotsBefore ?? 0) - (slotsAfter ?? 0)} tossed=${tossed} n=${n} misses=${misses} ` +
           `retaken=${retaken} recollected=${recollected} nonlisted=${nonlisted} other_loss=${otherLoss} server=${source} closed_open=${closedOpen ? 1 : 0}` +
           `${capEnd ? ` cap_end=${capEnd}` : ''}` +
