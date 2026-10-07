@@ -1,5 +1,6 @@
 import { PATHFINDER_SCAFFOLD } from './scaffold.mjs'
 import { remaining, FLOOR } from './toolfor.mjs'
+import { admitStacks } from './cobblecap.mjs'
 // WHAT IS ACTUALLY WORTH BANKING.
 //
 // "deposited items per bot-hour" is a CO-PRIMARY endpoint of this experiment and
@@ -89,6 +90,20 @@ export function cobbleBankStacks (items = [], { creditCap = 64, reserve = COBBLE
   return out
 }
 
+/**
+ * THE TOWN COBBLE CAP (cobblecap.mjs: 256 per town from reconciled chest observations, with reservations). Read through a
+ * reader skills.mjs installs per bot (it knows the town, the pool dir and the scan), like withdrawHolds: () -> the town
+ * view { lb, complete, reservedOthers } or null. No reader (a pure caller, a test) -> no town view: the whole-stack rule
+ * alone. The deposit's TRANSFER re-judges every stack under the town's lock, so this is the plan's view, not the gate.
+ */
+let COBBLE_TOWN = null
+export function setCobbleTownReader (fn) { COBBLE_TOWN = typeof fn === 'function' ? fn : null }
+/** The town view now, or null. A reader that throws is an UNKNOWN town (nothing admitted), never an open one. */
+export function cobbleTownView () {
+  if (!COBBLE_TOWN) return null
+  try { return COBBLE_TOWN() ?? { lb: 0, complete: false, reservedOthers: 0 } } catch { return { lb: 0, complete: false, reservedOthers: 0 } }
+}
+
 /** A stone pickaxe costs two sticks, and the rung gates on `stick >= 2 || planks >= 2`. */
 export const RESERVE_RECIPE = 2
 
@@ -159,6 +174,8 @@ export const EXCLUSION_PHRASE = Object.freeze({
   not_wanted: 'no goal wants it',
   scaffold_reserve: 'scaffold reserve',
   cobble_reserve: 'cobble reserve',
+  town_cobble_cap: 'town cobble cap',
+  town_cobble_unknown: 'town cobble not yet counted',
   last_of_tool_family: 'last of its tool family',
   the_only_station: 'the only station',
 })
@@ -202,8 +219,19 @@ export function bankableInventory (items = [], { wants = [], creditCap = 64,
   const scaffoldReserve = scaffoldKeep(counts, reserveScaffold)
   const hold = withdrawHolds()
   // THE COBBLE RULE: the whole stacks above the reserve, per name (cobbleBankStacks).
-  const cobbleWhole = {}
-  for (const st of cobbleBankStacks(items, { creditCap })) cobbleWhole[st.name] = (cobbleWhole[st.name] ?? 0) + st.count
+  const cobbleWhole = {}, cobbleCapped = {}
+  const cobbleStacks = cobbleBankStacks(items, { creditCap })
+  // THE TOWN CAP on top (cobblecap.mjs admitStacks: each admitted stack charged before the next is judged)
+  const town = cobbleTownView()
+  const admitted = town ? admitStacks(town, cobbleStacks.map(s => s.count)) : null
+  let left = admitted ? admitted.bank.length : cobbleStacks.length
+  for (const st of cobbleStacks) {
+    if (left > 0 && (!admitted || admitted.bank.includes(st.count))) {
+      if (admitted) admitted.bank.splice(admitted.bank.indexOf(st.count), 1)
+      cobbleWhole[st.name] = (cobbleWhole[st.name] ?? 0) + st.count
+      left--
+    } else cobbleCapped[st.name] = admitted && admitted.refused.unknown > 0 && !admitted.refused.at_cap ? 'town_cobble_unknown' : 'town_cobble_cap'
+  }
   const detail = {}
   // name -> the rule that removed it, recorded HERE so no second route can disagree with the
   // decision. Only the subtraction that actually zeroed the item is named: the reserve when it
@@ -216,7 +244,7 @@ export function bankableInventory (items = [], { wants = [], creditCap = 64,
     // hold would turn a whole stack into a partial one). Always a standing target, so never junk.
     if (COBBLE_SET.has(name)) {
       const whole = cobbleWhole[name] ?? 0
-      if (whole <= 0 || (hold[name] ?? 0) > 0) { excluded[name] = whole > 0 ? 'withdraw_hold' : 'cobble_reserve'; continue }
+      if (whole <= 0 || (hold[name] ?? 0) > 0) { excluded[name] = whole > 0 ? 'withdraw_hold' : (cobbleCapped[name] ?? 'cobble_reserve'); continue }
       detail[name] = whole
       bankable += whole
       continue
