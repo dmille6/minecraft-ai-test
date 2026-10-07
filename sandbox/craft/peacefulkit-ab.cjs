@@ -7,9 +7,16 @@
 // Scenes (the sandbox world is PEACEFUL unless the scene sets `difficulty`; restored to peaceful after every trial):
 //   craft / craft_easy     queue `craft wooden_sword` with planks, sticks and a crafting table in the bag. Peaceful: the
 //                          candidate refuses it (no sword ever in the bag); easy: it is crafted. The control crafts it.
-//   bank / bank_off / bank_easy   a town bot (32/36: two swords, two stone pickaxes 30/100 used, cobblestone, logs, wool)
-//                          beside an empty chest; queue `deposit`. Peaceful: both swords in the chest, none in the bag, the
-//                          better pickaxe kept. FOOD_SKIP=off / easy / control: the swords stay in the bag.
+//   bank / bank_off / bank_easy   a town bot (32/36: two stone swords + a wooden one, two stone pickaxes 30/100 used,
+//                          cobblestone, logs, wool) beside an empty chest; queue `deposit`. REVISION (owner 10-07 ~19:50Z):
+//                          peaceful banks NO sword (not even the spare); FOOD_SKIP=off / easy / control bank the spare
+//                          stone sword as before; the better pickaxe kept either way.
+//   smelt / smelt_easy     a furnace beside a bot holding 4 raw_iron, 2 coal, 2 wooden swords, 1 stone sword; queue
+//                          `smelt 2 raw_iron` (2 items: the stuck watchdog's window). Peaceful: both wooden swords burn, no coal; the stone
+//                          sword stays. Easy / control: coal only, the swords stay.
+//   guard / guard_easy     a FULL 36/36 bag whose only compostable is one stack of 30 leaf_litter, a composter at town:
+//                          no fill could start, so the candidate makes NO compost trip (either switch state); the control
+//                          walks there for a no_effect.
 //   compost / compost_off / compost_easy   a town bot at 35/36 with 14 kinds of kit plants, 10 apples, 20 oak saplings,
 //                          bread, dried_kelp and a sword, a composter and a chest at town; nothing queued (compost is a
 //                          town order). Peaceful: every kit plant consumed, 4 apples and 16 saplings kept, bread/dried_kelp/
@@ -54,9 +61,18 @@ const DROPS = [['stone_sword', 704.5, 703.5], ['cobblestone', 696.5, 705.5]]
 const wool = n => Array.from({ length: n }, () => ['white_wool', 1])
 const KIT_BAG = [['wildflowers', 30], ['melon_slice', 9], ['kelp', 7], ['brown_mushroom', 2], ['red_mushroom', 2], ['cocoa_beans', 3],
   ['sweet_berries', 4], ['torchflower_seeds', 2], ['pitcher_pod', 1], ['red_tulip', 2], ['rose_bush', 2], ['peony', 1], ['cactus_flower', 1], ['pink_petals', 3]]
+// + the owner's 10-07 ~19:50Z additions
+KIT_BAG.push(['bread', 5], ['dried_kelp', 4], ['glow_berries', 3], ['moss_carpet', 2], ['firefly_bush', 1], ['bush', 1])
 const KIT_NAMES = KIT_BAG.map(([n]) => n)
-const COMPOST_BAG = [...KIT_BAG, ['apple', 10], ['oak_sapling', 20], ['bread', 5], ['dried_kelp', 4], ['stone_sword', 1, 0], ['stone_pickaxe', 1, 20], ...wool(15)]
-const BANK_BAG = [['stone_sword', 1, 0], ['wooden_sword', 1, 0], ['stone_pickaxe', 1, 30], ['stone_pickaxe', 1, 100], ['cobblestone', 64], ['oak_log', 30], ...wool(26)]
+const COMPOST_BAG = [...KIT_BAG, ['apple', 10], ['oak_sapling', 20], ['birch_sapling', 20], ['spruce_sapling', 5], ['jungle_sapling', 3], ['carrot', 3],
+  ['stone_sword', 1, 0], ['stone_pickaxe', 1, 20], ...wool(7)]
+const BANK_BAG = [['stone_sword', 1, 0], ['stone_sword', 1, 0], ['wooden_sword', 1, 0], ['stone_pickaxe', 1, 30], ['stone_pickaxe', 1, 100], ['cobblestone', 64], ['oak_log', 30], ...wool(25)]
+const SMELT_BAG = [['raw_iron', 4], ['coal', 2], ['wooden_sword', 1, 0], ['wooden_sword', 1, 0], ['stone_sword', 1, 0], ['stone_pickaxe', 1, 20], ...wool(4)]
+// r5 (Codex r-rev3): a wooden sword an EARLIER call left in the fuel slot, the world no longer peaceful
+const LEFT_BAG = [['raw_iron', 4], ['coal', 2], ['stone_pickaxe', 1, 20], ...wool(4)]
+const LEFT_FULL_BAG = [...LEFT_BAG, ...wool(29)]
+const GUARD_BAG = [['leaf_litter', 30], ['stone_pickaxe', 1, 20], ...Array.from({ length: 34 }, () => ['cobblestone', 64])]
+const FURNACE = { x: 702, y: 120, z: 702 }
 const CRAFT_BAG = [['oak_planks', 8], ['stick', 4], ['crafting_table', 1], ['stone_pickaxe', 1, 20], ...wool(4)]
 const SPEC = {
   craft: { bag: CRAFT_BAG, cmd: 'craft wooden_sword', verb: 'craft' },
@@ -68,8 +84,15 @@ const SPEC = {
   compost_off: { bag: COMPOST_BAG, compost: true, chest: true, env: { FOOD_SKIP: 'off' } },
   compost_easy: { bag: COMPOST_BAG, compost: true, chest: true, difficulty: 'easy' },
   drop: { bag: [['white_wool', 1]], cmd: 'gather 1 oak_log', verb: 'gather', drops: true },
+  smelt: { bag: SMELT_BAG, cmd: 'smelt 2 raw_iron', verb: 'smelt', furnace: true, env: { STUCK_SECONDS: 35 } },   // the fleet's default stuck window
+  smelt_easy: { bag: SMELT_BAG, cmd: 'smelt 2 raw_iron', verb: 'smelt', furnace: true, difficulty: 'easy', env: { STUCK_SECONDS: 35 } },
+  smelt_left_easy: { bag: LEFT_BAG, cmd: 'smelt 2 raw_iron', verb: 'smelt', furnace: true, fuelSword: true, difficulty: 'easy', env: { STUCK_SECONDS: 35 } },
+  smelt_left_full_easy: { bag: LEFT_FULL_BAG, cmd: 'smelt 2 raw_iron', verb: 'smelt', furnace: true, fuelSword: true, difficulty: 'easy', env: { STUCK_SECONDS: 35 } },
+  guard: { bag: GUARD_BAG, compost: true, chest: true, guard: true },
+  guard_easy: { bag: GUARD_BAG, compost: true, chest: true, guard: true, difficulty: 'easy' },
 }
-if (COMPOST_BAG.length !== 35 || BANK_BAG.length !== 32) throw new Error(`bag sizes ${COMPOST_BAG.length} ${BANK_BAG.length}`)
+if (LEFT_FULL_BAG.length !== 36) throw new Error('left-full bag ' + LEFT_FULL_BAG.length)
+if (COMPOST_BAG.length !== 35 || BANK_BAG.length !== 32 || GUARD_BAG.length !== 36) throw new Error(`bag sizes ${COMPOST_BAG.length} ${BANK_BAG.length} ${GUARD_BAG.length}`)
 const WINDOW_MS = 120000
 function arenaCmds () {
   return ['kill @e[type=!player,x=700,y=120,z=700,distance=..30]',
@@ -80,6 +103,8 @@ function sceneCmds (spec) {
   const c = []
   if (spec.compost) c.push(`setblock ${COMPOSTER.x} ${COMPOSTER.y} ${COMPOSTER.z} minecraft:composter[level=0]`)
   if (spec.chest) c.push(`setblock ${CHEST.x} ${CHEST.y} ${CHEST.z} minecraft:chest[facing=west]`)
+  if (spec.furnace) c.push(`setblock ${FURNACE.x} ${FURNACE.y} ${FURNACE.z} minecraft:furnace[facing=west]`)
+  if (spec.fuelSword) c.push(`item replace block ${FURNACE.x} ${FURNACE.y} ${FURNACE.z} container.1 with minecraft:wooden_sword 1`)
   if (spec.drops) {
     c.push(`setblock ${LOG.x} ${LOG.y} ${LOG.z} minecraft:oak_log`)
     for (const [id, x, z] of DROPS) c.push(`summon minecraft:item ${x} 120.1 ${z} {Item:{id:"minecraft:${id}",count:1},PickupDelay:0s,Age:-32768s}`)
@@ -198,7 +223,7 @@ async function runTrial (scene, k) {
   let done
   if (spec.compost) {
     // compost is a TOWN ORDER: watch for it (the first town scan can wait 30 s plus a decision's cadence)
-    done = await waitFor(() => ended(botOut, skillLog, 'compost'), 100000)
+    done = await waitFor(() => ended(botOut, skillLog, 'compost'), spec.guard ? 150000 : 100000)   // the guard waits out 3 decisions' scans
     await sleep(4000)
   } else {
     brainQueue.push(spec.cmd)
@@ -206,6 +231,7 @@ async function runTrial (scene, k) {
     await sleep(4000)
   }
   const after = snapshot()
+  const furnaceNow = spec.furnace ? [0, 1, 2].map(s => { const it = parseItem(rcon(`data get block ${FURNACE.x} ${FURNACE.y} ${FURNACE.z} Items[{Slot:${s}b}]`)[0]?.reply || ''); return it ? `${it.id}x${it.count}` : '-' }).join('/') : ''
   const rows = skillRows(skillLog)
   const composterNow = spec.compost ? [0, 1, 2, 3, 4, 5, 6, 7, 8].find(l => /passed/.test(rcon(`execute if block ${COMPOSTER.x} ${COMPOSTER.y} ${COMPOSTER.z} minecraft:composter[level=${l}]`)[0]?.reply || '')) ?? null : null
   await stopBot()
@@ -229,7 +255,9 @@ async function runTrial (scene, k) {
   let say = ''
   if (scene.startsWith('craft')) say = `bag swords ${sw(tb.bag)} -> ${sw(ta.bag)} planks ${tb.bag.oak_planks ?? 0}->${ta.bag.oak_planks ?? 0} rejected=${JSON.stringify(rejected.map(l => (l.match(/reason[^,]*/) || [l.slice(0, 80)])[0]))} craft=${JSON.stringify(rows.filter(x => x.name === 'craft').map(x => x.status + ':' + x.detail.slice(0, 120)))}`
   if (scene.startsWith('bank')) say = `bag swords ${sw(tb.bag)} -> ${sw(ta.bag)} | chest swords ${sw(ta.chest)} | chest ${diff(tb.chest, ta.chest)} | pickaxes kept ${picks(after.bag).join(' ')} | ${rows.filter(x => x.name === 'deposit').map(x => x.status + ':' + x.detail.slice(0, 100)).join(' || ')}`
-  if (scene.startsWith('compost')) say = `kit ${kit(tb.bag)} -> ${kit(ta.bag)} apple ${tb.bag.apple ?? 0}->${ta.bag.apple ?? 0} oak_sapling ${tb.bag.oak_sapling ?? 0}->${ta.bag.oak_sapling ?? 0} bread ${ta.bag.bread ?? 0} dried_kelp ${ta.bag.dried_kelp ?? 0} swords ${sw(ta.bag)} bone_meal ${ta.bag.bone_meal ?? 0} level ${composterNow} | ${rows.filter(x => x.name === '_compost').map(x => x.status + ':' + x.detail.slice(0, 200)).join(' || ')}`
+  if (scene.startsWith('compost')) say = `kit ${kit(tb.bag)} -> ${kit(ta.bag)} apple ${tb.bag.apple ?? 0}->${ta.bag.apple ?? 0} oak ${tb.bag.oak_sapling ?? 0}->${ta.bag.oak_sapling ?? 0} birch ${tb.bag.birch_sapling ?? 0}->${ta.bag.birch_sapling ?? 0} spruce ${tb.bag.spruce_sapling ?? 0}->${ta.bag.spruce_sapling ?? 0} jungle ${tb.bag.jungle_sapling ?? 0}->${ta.bag.jungle_sapling ?? 0} carrot ${ta.bag.carrot ?? 0} bread ${ta.bag.bread ?? 0} swords ${sw(ta.bag)} bone_meal ${ta.bag.bone_meal ?? 0} level ${composterNow} | ${rows.filter(x => x.name === '_compost').map(x => x.status + ':' + x.detail.slice(0, 200)).join(' || ')}`
+  if (scene.startsWith('smelt')) say = `wooden_sword ${tb.bag.wooden_sword ?? 0}->${ta.bag.wooden_sword ?? 0} stone_sword ${tb.bag.stone_sword ?? 0}->${ta.bag.stone_sword ?? 0} coal ${tb.bag.coal ?? 0}->${ta.bag.coal ?? 0} raw_iron ${tb.bag.raw_iron ?? 0}->${ta.bag.raw_iron ?? 0} iron_ingot ${ta.bag.iron_ingot ?? 0} furnace(in/fuel/out)[${furnaceNow}] ground[${after.ground.map(g => g.id + 'x' + g.count).join(',')}] | ${rows.filter(x => x.name === 'smelt' || x.name === '_sword_fuel').map(x => x.name + ':' + x.status + ':' + x.detail.slice(0, 110)).join(' || ')}`
+  if (scene.startsWith('guard')) say = `compost order ran: ${!!done} | leaf_litter ${tb.bag.leaf_litter ?? 0}->${ta.bag.leaf_litter ?? 0} | ${rows.filter(x => x.name === '_compost' || x.name === 'compost').map(x => x.name + ':' + x.status + ':' + x.detail.slice(0, 120)).join(' || ') || 'no compost rows'}`
   if (scene === 'drop') say = `bag{${diff(tb.bag, ta.bag)}} ground-after[${after.ground.map(g => g.id + 'x' + g.count).join(',')}] pickups=${JSON.stringify(r.pickups)}`
   console.log(`${r.id.padEnd(20)} ended=${r.ended} ${r.difficulty} kit=${JSON.stringify(kitRows)} ground[${diff(tb.ground, ta.ground)}] | ${say}`)
 }

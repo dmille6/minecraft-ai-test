@@ -1,12 +1,105 @@
-# peacefulkit — swords banked and never made, more plants composted, under the peaceful switch (design, 2026-10-07)
+# peacefulkit — swords never made, never banked, wooden ones burned as fuel; more plants composted; under the peaceful switch (design, 2026-10-07)
 
 Owner approval 2026-10-07: "(3) SWORDS ... never craft a sword; the pickup sweep does not walk to a sword drop ...
 swords the bot carries are BANKED into a town chest at the next town deposit or bank visit ... Never toss or drop.
 (4) COMPOST MORE ... the plant items that are useless in a peaceful world". One switch with foodskip.
 
-Status: BUILT, REVIEWED (Claude APPROVE, Codex APPROVE), REGISTERED, NOT LAUNCHED. `pk-on-c6e91a8` @ da3e38d (base = the
+Status: REVISED (owner 10-07 ~19:50Z), REVIEWED (Claude APPROVE, Codex APPROVE, six rounds on the revision; code reviewed at 6dc10d1^ = f0d779a, then tests only), REGISTERED, NOT LAUNCHED. `pk-on-c6e91a8` @ 6dc10d1 (base = the
 deployed fleet sha c6e91a8; registration `peacefulkit-01.c6e91a8.json`) and, for a fleet on towndeposit-02,
-`pk-on-92bc84f` @ 7ae5e0f (`peacefulkit-01.92bc84f.json`).
+`pk-on-92bc84f` @ f2c4ba0 (`peacefulkit-01.92bc84f.json`). Section 0 supersedes the sections below wherever they disagree.
+
+## 0. REVISION 1 (OWNER 10-07 ~19:50Z) -- supersedes the sections below wherever they disagree
+
+Owner decisions after the first approval: (1) SWORDS: "no reason to store swords at all, this is a peaceful world" --
+banking REMOVED; no-craft and no-chase kept; a smelt that is ALREADY happening prefers carried WOODEN swords as fuel;
+stone swords stay in the bag (junkwell-02 adds them to its well, importing our `unwantedSword`); never drop.
+(2) SAPLINGS: oak and birch keep 16 per bot, every other species is composted. (3) COMPOST: + dried_kelp,
+glow_berries, moss_carpet, firefly_bush, bush, bread, under the switch. (4) THE FULL-BAG GUARD: kept, general.
+
+**What the code does now** (`pk-on-c6e91a8` @ 6dc10d1, `pk-on-92bc84f` @ f2c4ba0):
+- `peacefulkit.mjs`: `unwantedSword(item, peacefulActive)` -- any sword, only while the switch is on (THE
+  classification, exported for the well); `burnableSword` (wooden only), `swordFuelCount`, `peacefulSaplingReserve`
+  (oak/birch 16, others 0), and six more names in `PEACEFUL_COMPOST` (36).
+- BANK: `bankableInventory({ noSwords })` excludes every sword (even a spare) when the deposit / town deposit passes the
+  switch's reading; the default is the base rule, and excluding can only lower a count, so no new trip. A named
+  `deposit <sword>` while on is refused by admission before the walk (`peaceful_sword_deposit`, the rule named).
+- FURNACE (`smeltPlan swordFuel` -> `fuelQueue`; the smelt skill's `loadNext`/`confirmBurn`): swords are counted only
+  at the furnace (the dry plans never count them, so a sword never starts a smelt); one sword per smelted item, before
+  ordinary fuel. A sword goes in ONLY when the fuel slot is empty AND the furnace is COLD: it ignites at once, so the
+  switch read at the put is the switch at the burn, and no sword ever waits staged while earlier fuel burns. "Cold" is
+  `furnace.fuel === 0` OR the furnace block's `lit` state false -- FOUND ON PAPER: mineflayer attaches its
+  craft_progress_bar listener after `openBlock` resolves, so a cold furnace reads `furnace.fuel === null` for the whole
+  job; no reading at all for 4 polls -> ordinary fuel instead. A burn is CONFIRMED (the slot emptied while the furnace
+  burns, or the item cooked); an abort within a tick of the put is settled for up to ~6 x 50 ms, and a slot that emptied
+  unseen is a burn marked `(unconfirmed)`; an UNREADABLE furnace claims nothing (`outcome unknown`). Swords skipped (the
+  switch turned off, no copy, no reading) become ONE ordinary load for the items still uncovered.
+- THE FROZEN BAG (Claude r-rev3, mineflayer inventory.js:408-426, 721-757): while a window is open every slot update
+  goes to that window and is copied into `bot.inventory` only at the close. So the skill reads the bag from
+  `furnace.items()` / `furnace.emptySlotCount()` during the job, and writes every `_sword_fuel` row AFTER the close (a
+  burn row written mid-job carried a snapshot still listing the burned sword: on sandbox3 rows the read's own ledger
+  scored 2 of 2 real burns as lost). The read also keeps an unused burn credit for 180 s against a later fall.
+- NEVER TOSSED: mineflayer's putAway tosses an item with no room (inventory.js:169-172). A wooden sword in the fuel slot
+  -- this call's or an earlier call's -- is taken only when the WINDOW has an empty slot, checked right before its take;
+  otherwise it stays in the furnace (`left in the furnace fuel slot`). A sword an earlier call left there is taken back
+  BEFORE any input goes in (it can never ignite under a switch that has since turned off); with no empty slot the job
+  does not start (`inventory_full`, remedy: free one slot or place the carried furnace); a take that fails with the sword
+  still there stops the job before any input goes in (`container_blocked`; both reviews r-rev4).
+- COMPOST: `compostAllowance({ plants })` uses the species reserve; the six items join the kit. The town order ALWAYS
+  counts `startableJunk` (the real surplus after every reserve, and only when a fill can start at the composter's level).
+- `towndeposit.mjs` (92bc84f variant only): back to 92bc84f plus `townDepositPlan({ noSwords })` (default = the switch).
+
+**Paper, RCON only** (sandbox3, Paper 1.21.8-60):
+- hopper test (`sandbox/craft/compost-table.py`): dried_kelp, glow_berries, moss_carpet, firefly_bush, bush, bread and
+  spruce/jungle/acacia/dark_oak/cherry/pale_oak saplings each 64/64 consumed; stone_sword 0 (carrot 64/64: compostable
+  but not approved).
+- furnace (`sandbox/craft/fuel-table.py`, 3 raw_iron + one fuel item, 25 s): wooden_sword -> 1 iron_ingot, slot empty
+  (2/2); stone_sword -> nothing, the sword still in the fuel slot (not fuel); coal -> 2 ingots in 25 s; oak_planks -> 1.
+
+**Paper, the real bot** (sandbox3, `sandbox/craft/peacefulkit-ab.cjs`; candidate e9f9d16 x2, control c6e91a8 x1):
+
+| scene | candidate | control |
+|---|---|---|
+| bank (2 stone swords + 1 wooden, `deposit`) | peaceful 2/2: NO sword banked (the spare kept); easy 2/2: the spare stone sword banked, as today | the spare banked |
+| compost (35/36: 20 kinds of kit items incl. the six, apples 10, oak 20, birch 20, spruce 5, jungle 3, carrot 3) | peaceful 2/2: all 85 kit items consumed, apples 10->4, oak 16, birch 16, spruce 0, jungle 0, carrot 3, sword kept; easy 2/2: kit untouched, apples 10, oak/birch 16, spruce 5, jungle 3 | kit untouched, apples ->4, oak/birch 16 |
+| guard (36/36, one stack of 30 leaf_litter) | peaceful 2/2 and easy 2/2: NO compost trip in 150 s | walked to the composter for a no_effect ("no room for the bone meal") |
+| smelt (4 raw_iron, 2 coal, 2 wooden + 1 stone sword) | peaceful 2/2: both wooden swords burned (2 `_sword_fuel` rows), 2 ingots, stone sword kept; easy 2/2: coal only, swords kept | coal only, swords kept |
+| craft / drop | sword craft refused 2/2; sword drop never walked to 2/2 | -- |
+
+**The furnace path on Paper after the reviews** (sandbox3, real bot, the fleet's 35 s stuck window):
+
+| run | sha | result |
+|---|---|---|
+| smelt, peaceful | a2edab6 x2, 74cd8e7 x2, f0d779a x1 | 5/5: both wooden swords burned (two confirmed `_sword_fuel` rows active=1), 2 ingots, coal untouched, stone sword kept, furnace empty after, nothing on the ground |
+| smelt, easy / control | 74cd8e7 x1 / c6e91a8 x1 | 1 coal, swords kept |
+| smelt_left_easy (a wooden sword pre-placed in the fuel slot by RCON, world easy, room) | 74cd8e7, f0d779a | 2/2: taken back first (row 'returned unburned (left by an earlier call) active=0'), coal smelted 2 ingots, no sword burned |
+| smelt_left_full_easy (same, 36/36 bag) | 74cd8e7, f0d779a | 2/2: the job refused (inventory_full), the sword still in the fuel slot, nothing on the ground |
+| (20 s harness window, a2edab6) | | the stuck watchdog stopped the job after 1 of 2 items: a sword waits up to one poll for a cold furnace |
+
+**The read on the real burns** (`sbxledger.py`: the read's own Ledger(SWORD) + ledger_step over the sandbox rows, the
+harness's RCON bag as the baseline): rows from 7784220 (burn rows written mid-job, frozen snapshot) -> the rev3 read
+`lost 2`, the final read `burned 2`; rows from 74cd8e7 (rows after the close) -> both reads `burned 2, lost 0`; control
+`{}`. The K2 sword ledger had never been exercised on a real burn before this (Claude r-rev3).
+
+
+**Tests and mutants (revision):** `npm test` 238/238 files green on pk-on-c6e91a8, 239/239 on pk-on-92bc84f (its
+towndeposit tests); lint no-undef clean on every touched file (one typeof-guarded hit in reflex.mjs is on the base).
+`scripts/mutants/mutants-pk.py`: 97 mutants (65 JS incl. 25 on the furnace path, 32 on the read), every anchor asserted
+present and unique, a baseline proven green first: ALL KILLED (the last two -- a double-counted ordinary load and a late
+burn with no row -- by the test-only commit 6dc10d1; the reviewed code is its parent f0d779a; the variant's f2c4ba0 likewise follows fe369a8).
+
+**Reviews of the revision:** Both engines, six rounds on the revision. r1 both CHANGE (a staged sword could burn after the switch turned off; an
+unburned sword taken back into a full bag is tossed; the smelt sink hid losses; K7 judged an aggregate; K3 tripped on a
+death) -> r2 both CHANGE (the room checked before the drain; an abort within a tick; K3 deaths logged after the row) ->
+r3 both CHANGE (Claude: mineflayer freezes bot.inventory while a window is open -- confirmed on real rows; Codex: a sword
+an earlier call left could be tossed by the next call; an unreadable furnace earned a burn) -> r4 Claude APPROVE, Codex
+CHANGE (a failed take-back let the input ignite the sword) -> r5 both APPROVE at 49fae24 (Claude P3: a sword left on the
+cursor) -> r6 both APPROVE at f0d779a (6dc10d1 adds tests only). Remaining P3 (not done, matches the deposit path's existing practice): if
+returnCursor itself fails after a failed take-back, the close drops the cursor item -- a second failure within
+milliseconds of a rare one.
+
+**Owner decisions still open:** the spent-sword question is moot (swords are never banked now). Planting changes by
+design: with every non-oak/birch sapling composted while on, spruce/jungle/acacia replanting stops (oak and birch
+continue; the tree farm uses birch then oak) -- expected, not a regression.
 
 ## 1. What the fleet holds (measured, not remembered)
 

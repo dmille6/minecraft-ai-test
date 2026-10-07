@@ -7,7 +7,7 @@
 # levels raised = 7 * bone_meal + final level; chance ~= levels / consumed (level 0 always rises, so it is biased up).
 import subprocess, sys, re, time, json
 SERVER = sys.argv[1] if len(sys.argv) > 1 else 'sandbox2'
-assert SERVER in ('sandbox', 'sandbox2', 'sandbox3'), 'sandbox servers only (sandbox4 is in use)'
+assert SERVER in ('sandbox', 'sandbox2', 'sandbox3', 'sandbox4'), 'sandbox servers only'
 ITEMS = sys.argv[2].split(',') if len(sys.argv) > 2 else []
 X0, Y, Z = 900, 121, 900
 

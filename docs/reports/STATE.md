@@ -11,6 +11,23 @@ behind it (chain-ore.sh stopped 10-01 on fixes-02's revert)._
 
 ---
 
+## 10-07 ~22:30Z — PEACEFULKIT-01 REVISED to the owner's 19:50Z decisions; REVIEWED (Claude + Codex APPROVE); NOT LAUNCHED
+`pk-on-c6e91a8` @ 6dc10d1 (registration docs/reports/peacefulkit-01.c6e91a8.json) and, for a fleet on towndeposit-02,
+`pk-on-92bc84f` @ f2c4ba0 (peacefulkit-01.92bc84f.json); both in ~/mcai-analysis/ too. Read scripts/host/peacefulkitread.py
+= ~/mcai-analysis = /tmp, md5 5d3714b6. SWORDS never banked (not even a spare) and never crafted or chased while on; a smelt
+ALREADY happening burns carried WOODEN swords first (one per item, only into a cold furnace, so the switch read at the put
+is the burn); stone swords stay in the bag; `unwantedSword(item, peacefulActive)` exported for junkwell-02. SAPLINGS:
+oak/birch keep 16, other species composted (their replanting stops by design). COMPOST + dried_kelp, glow_berries,
+moss_carpet, firefly_bush, bush, bread (each 64/64 on Paper; off when not peaceful). GUARD general: no compost trip when
+the real surplus after every reserve is zero. Six review rounds on the revision (both APPROVE); 97 mutants all killed; npm test green on both; the big catch (Claude r3, confirmed on
+real sandbox rows): mineflayer freezes bot.inventory while a window is open, so mid-job burn rows read as LOST (2 of 2)
+-- rows now written after the close, and the read keeps a 180 s burn credit. Paper sandbox3 (real bot): bank/compost/
+guard/craft/drop as designed; smelt 5/5 both wooden swords burned, coal untouched; an earlier call's sword in the fuel
+slot is taken back before any input (full bag: the job refuses, nothing dropped). Dry run (board-a,placebo-b, 6 h): every
+gate 0, every positive control fires (K1 125, K2 31, K3 19, K4 34, K5 37, K6 22, K7 65); licencecheck exit 0 (class
+kind, `_peaceful_kit` silent in baseline); drawexposure: both pools eligible. TEARDOWN NOTE: record the read's "left in
+the furnace" swords by bot (base code's drain would toss them from a full bag).
+
 ## 10-07 22:25Z — GATE v33 INSTALLED (bag-fix death rule + version-aware changerowcheck); towndeposit-02 drawing
 Installed 22:12Z in the empty slot (launcher stopped by PID, dry run, install, relaunched): bundle
 ac3da3b64d3fa5e31be5678c33d84ac0, gatedigest OK, backups *.bak-v33-20261007T221224Z. Report:
