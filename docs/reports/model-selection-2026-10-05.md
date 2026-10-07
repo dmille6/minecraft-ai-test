@@ -613,6 +613,23 @@ The owner cleared the Studio of other projects on 10-06, at about 17:00Z.
 | 05:06-12:11 | gemma4 8-bit (28 GB) and the LM Studio proxy stayed loaded after the cut series | the long-tail screen `q3-30b-2507` started 12:06Z with it co-resident for about 5 min: **latency caveat only** for that screen's first minutes | unloaded 12:11Z |
 | 12:05 | the deferred `pause c2` line had already been read by the queue and briefly held the GPU again | none (released within a minute) | - |
 
+**Second smoke (b91, 13:28-14:24Z): delivery works, but the run is void.**
+- **Delivery works.** The bots logged their own rows: ov+esc had 8 requested, 9 dispatched, 8 step_done and 6
+  completed; det had 3 requested, 4 step_done and 3 completed.
+- **Void, my own error.** The chat client from my 12:09Z probe was still running under the same name, `mbench_Mayor`,
+  so the two clients kicked each other: 93 reconnects in each run, 192 in the probe's own log.
+- **Directives lost while it flapped.** 7 of 18 were said and never received (ov+esc 3 of 11, det 4 of 7). The gate
+  failed on the reconnects, correctly. Both rows are flagged.
+- **Handled:** the probe was killed at 14:26Z, and a third smoke (b92) started at once on the same GPU hold.
+
+**Third smoke (b92, 14:26-15:21Z): PASS.** One director, never disconnected.
+- **ov+esc: nothing lost.** The Mayor said 14 directives, the server log shows all 14 broadcast, and the bots logged
+  14 `requested`. Every one was dispatched: 8 completed, and 6 were released back to the bot's own model after a
+  failed step. There were 5 overseer calls and 6 escalation calls.
+- **det:** 9 said and 9 requested; 7 completed and 2 released.
+- **Next:** the pre-registered series (4 arms x 3 blocks x 90 min) starts at the queue's `pause c2run2`, after the
+  long-tail screen that was already waiting for the GPU (nemotron-3-nano:30b).
+
 **Why no directive arrived (proven on sandbox4, 12:08-12:10Z).** mineflayer 4.37.1 raises its `chat` event only when
 the sender's name matches its username pattern, `[a-zA-Z0-9_]{3,16}`. The director's name `mbench-Mayor` has a
 hyphen. The server broadcast every line (its log shows `<mbench-Mayor> mbench-s4-Bravo directive o1 {...}`), and the
