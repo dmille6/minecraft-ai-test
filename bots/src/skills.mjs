@@ -60,7 +60,7 @@ const DEPOSIT_TOOL_RE = /_(pickaxe|axe|shovel|sword|hoe)$/
 import { WOODEN_TRAPDOOR, isWellJunk, disposePlan, wellIdentity, wellStage, wellStand, standForFacing, wellSiteRefusal, canonicalWellSite,
          wellBuildPlan, wellBuildRoom, wellAim, aimPoint, tossOutcome, wellAdmission, wellDisposeDetail, itemInWell, bodyInWell, TOSS,
          trapdoorsNeeded, MAX_STACKS_PER_VISIT, wellBreach, usableStands, thrownNames, WELL_HOME_CLEARANCE,
-         disposableIn, guardLeft, reserveStone, SCAFFOLD_DECORATIONS } from './well.mjs'
+         disposableIn, guardLeft, reserveStone, SCAFFOLD_DECORATIONS, isSword } from './well.mjs'
 import { resyncPacket, GUARDED_INVENTORY_ACTIONS } from './craftsync.mjs'
 import path from 'node:path'
 import { IRON_KINDS, MIN_TRIP_USES, CANDIDATE_RADIUS, breakHazard, nearHome, pickBudget, rankCandidates, clusterOf, tunnelMovements, planTunnel, ONE_PICK_USES, tripDecision } from './oretunnel.mjs'
@@ -1425,6 +1425,11 @@ export function foodSkipNow (bot) {
     try { logEvent({ kind: 'food_skip', status: 'success', detail: foodSkipDetail({ ...FOOD_SKIP, difficulty, active }) }) } catch { /* a row must never break a pickup */ }
   }
   return { active, foodsByName: bot?.registry?.foodsByName ?? null }
+}
+
+/** THE WELL'S SWORD SWITCH (well.mjs swordGoes): foodskip's switch active AND the server's difficulty read as peaceful. */
+export function wellSwordsNow (bot) {
+  try { const d = difficultyOf(bot); return d === 'peaceful' && foodSkipActive(FOOD_SKIP.mode, d) } catch { return false }
 }
 
 /** Walk over anything on the floor within a few blocks. */
@@ -6207,7 +6212,8 @@ async function throwStacks (bot, { cap, facing, stacks, bound, waitTick, signal,
       check(signal)
       const near = wellAdmission({ players: playersSeen(bot), cap, me: bot.username })
       if (near) { acc.stop = `${near.who} came within ${near.dist.toFixed(1)} of the well`; break }
-      if (!disposableIn(bot.inventory?.slots?.[st.slot], bot.inventory?.items?.() ?? [])) continue
+      const pre = bot.inventory?.slots?.[st.slot]
+      if (!disposableIn(pre, bot.inventory?.items?.() ?? []) && !(acc.swordsAllowed && isSword(pre?.name))) continue
       const feet = bot.entity.position
       const aim = wellAim({ from: feet, cap, facing, rise: feet.y - (cap.y + 1) })   // a thrower on a snow layer stands higher
       if (!aim.ok) { acc.stop = `aim refused: ${aim.why}`; break }
@@ -6221,10 +6227,14 @@ async function throwStacks (bot, { cap, facing, stacks, bound, waitTick, signal,
       // reflex dug in the last 550 ms (inventory.js); a slot change in that gap is a reflex click sent before ours on the same
       // connection, which the server applies first -- the THROW then drops what the server holds, and offlist= says so ----
       const it = bot.inventory?.slots?.[st.slot]
-      if (!it || it.name !== st.name || !isWellJunk(it.name) || bot.currentWindow || bot.inventory?.selectedItem) continue
+      const sword = isSword(it?.name)
+      if (!it || it.name !== st.name || !(isWellJunk(it.name) || (sword && acc.swordsAllowed)) || bot.currentWindow || bot.inventory?.selectedItem) continue
+      // A SWORD GOES ONLY IF THE WORLD IS STILL PEACEFUL AT THIS CLICK (the switch re-read now, not at the plan)
+      if (sword) { const p = wellSwordsNow(bot); acc.peaceful = p; if (!p) continue }
       // THE RESERVE, judged on the bag as it is NOW, at the click (Codex r1: the plan's view can be eight seconds old)
-      const left = guardLeft(it.name, it.count, reserveStone(bot.inventory?.items?.() ?? []))
+      const left = sword ? 0 : guardLeft(it.name, it.count, reserveStone(bot.inventory?.items?.() ?? []))
       if (left === null) continue
+      if (sword) acc.swords += it.count ?? 1
       if (SCAFFOLD_DECORATIONS.includes(it.name)) { acc.gclicked += it.count ?? 0; acc.stoneMin = Math.min(acc.stoneMin ?? Infinity, left) }
       acc.clicked.push({ slot: st.slot, name: it.name, count: it.count })
       const click = bot.clickWindow(st.slot, 1, 4)
@@ -6288,15 +6298,16 @@ export function throwResults ({ spawned = [], got = new Set(), present = () => t
  *              clicked slot from the before-snapshot, so a reflex eating bread meanwhile is not a throw (Codex review)
  *   otherLoss  every other non-listed decrease of the bag over the phase (a diagnostic: eating, planting, a dig)
  */
-export function throwAccount ({ before, after, clicked = [] }) {
+export function throwAccount ({ before, after, clicked = [], swords = false }) {
   const lost = {}
   let otherLoss = 0, nonlisted = 0
-  for (const c of clicked) { const was = before?.slots?.[c.slot]; if (!was || !isWellJunk(was.name) || !isWellJunk(c.name)) nonlisted += was?.count ?? c.count ?? 0 }
+  const ok = n => isWellJunk(n) || (swords && isSword(n))   // a sword clicked in a peaceful world is a listed throw
+  for (const c of clicked) { const was = before?.slots?.[c.slot]; if (!was || !ok(was.name) || !ok(c.name)) nonlisted += was?.count ?? c.count ?? 0 }
   if (before && after) {
     for (const [name, n] of Object.entries(before.counts)) {
       const d = n - (after.counts[name] ?? 0)
       if (d <= 0) continue
-      if (isWellJunk(name)) lost[name] = d; else otherLoss += d
+      if (ok(name)) lost[name] = d; else otherLoss += d
     }
   }
   return { lost, nonlisted, otherLoss, n: Object.values(lost).reduce((a, b) => a + b, 0) }
@@ -6315,7 +6326,7 @@ const wellRefused = (bot, order, reason, said) => {
  * -> { refused, acc, account, misses, retaken, recollected, source, closedOpen, stop, aborted, slotsBefore, slotsAfter }
  */
 async function throwPhase (bot, { cap, facing, pit = false, maxStacks = MAX_STACKS_PER_VISIT, g, tick, tickNA, signal }) {
-  const out = { refused: null, acc: { tossed: 0, spawned: [], clicked: [], stop: null, gclicked: 0, stoneMin: null }, account: { lost: {}, nonlisted: 0, otherLoss: 0, n: 0 },
+  const out = { refused: null, acc: { tossed: 0, spawned: [], clicked: [], stop: null, gclicked: 0, stoneMin: null, swords: 0, peaceful: null, swordsAllowed: false }, account: { lost: {}, nonlisted: 0, otherLoss: 0, n: 0 },
                 misses: 0, retaken: 0, recollected: 0, source: 'local', closedOpen: false, stop: null, aborted: null, slotsBefore: null, slotsAfter: null }
   const read = readWellCell(bot)
   const pending = { open: false }
@@ -6334,8 +6345,10 @@ async function throwPhase (bot, { cap, facing, pit = false, maxStacks = MAX_STAC
       before = await serverBag(bot, tick)
       out.slotsBefore = before.used
       if (before.source !== 'resync') { out.refused = 'server_unanswered'; return out }
-      const plan = disposePlan(bot.inventory?.items?.() ?? [], { maxStacks })   // the bag AS THE SERVER HOLDS IT
+      out.swordsAllowed = !pit && wellSwordsNow(bot)   // a peaceful world's swords go too (never in the pit-first build)
+      const plan = disposePlan(bot.inventory?.items?.() ?? [], { maxStacks, swords: out.swordsAllowed })   // the bag AS THE SERVER HOLDS IT
       out.stone = plan.stone   // the guard stone the plan saw (STONE_GUARD): on the row, so the read can judge the guard
+      out.acc.swordsAllowed = out.swordsAllowed
       if (!plan.stacks.length) { out.refused = 'nothing_listed'; return out }
       if (!pit) {
         if (wellIdentity(read, cap).open) out.closedOpen = await setWellOpen(bot, cap, false, g.bound, tick)
@@ -6391,7 +6404,7 @@ async function throwPhase (bot, { cap, facing, pit = false, maxStacks = MAX_STAC
         if (!out.aborted) for (let i = 0; i < WELL_SEEN_TICKS; i++) await tickNA()
         const res = throwResults({ spawned: out.acc.spawned, got, present: id => !!bot.entities?.[id], cap })
         out.misses = res.misses; out.recollected = res.recollected
-        out.thrown = thrownNames(out.acc.spawned.map(spawnedItem))
+        out.thrown = thrownNames(out.acc.spawned.map(spawnedItem), { swords: out.acc.swords > 0 })
         if (res.missed.length && !out.aborted) await retakeMisses(bot, { cap, missed: res.missed, got, bound: g.restoreBound, waitTick: tickNA, signal })
         out.retaken = res.all.filter(m => got.has(m.id)).length
       }
@@ -6401,9 +6414,9 @@ async function throwPhase (bot, { cap, facing, pit = false, maxStacks = MAX_STAC
   if (before?.source === 'resync' && out.acc.tossed) {
     try { after = await serverBag(bot, tickNA) } catch (e) { after = null; out.stop = `${out.stop ? `${out.stop};` : ''}error_after: ${String(e?.message ?? e).slice(0, 50)}` }
   }
-  out.thrown ??= thrownNames(out.acc.spawned.map(spawnedItem))
+  out.thrown ??= thrownNames(out.acc.spawned.map(spawnedItem), { swords: out.acc.swords > 0 })
   out.source = after?.source === 'resync' ? 'resync' : 'local'
-  out.account = throwAccount({ before, after: after?.source === 'resync' ? after : null, clicked: out.acc.clicked })
+  out.account = throwAccount({ before, after: after?.source === 'resync' ? after : null, clicked: out.acc.clicked, swords: out.acc.swords > 0 })
   out.slotsAfter = after?.used ?? bot.inventory?.items?.()?.length ?? null
   return out
 }
@@ -6414,7 +6427,7 @@ const capEndOf = (bot, cap) => { try { const id = wellIdentity(readWellCell(bot)
 const phaseDetail = (ph, cap, stop, capEnd = null) => wellDisposeDetail({ capEnd, slotsBefore: ph.slotsBefore, slotsAfter: ph.slotsAfter, items: ph.account.lost, tossed: ph.acc.tossed,
   misses: ph.misses, retaken: ph.retaken, recollected: ph.recollected, nonlisted: ph.account.nonlisted, otherLoss: ph.account.otherLoss,
   source: ph.source, closedOpen: ph.closedOpen, stop, at: cap, offlist: ph.thrown?.offlist ?? 0, offlistItems: ph.thrown?.offlistItems ?? {}, unnamed: ph.thrown?.unnamed ?? 0,
-  gclicked: ph.acc?.gclicked ?? 0, stone: ph.acc?.stoneMin ?? ph.stone ?? null })
+  gclicked: ph.acc?.gclicked ?? 0, stone: ph.acc?.stoneMin ?? ph.stone ?? null, swords: ph.acc?.swords ?? 0, peaceful: ph.acc?.swords ? ph.acc.peaceful : null })
 
 const FACING_OK = f => ['north', 'south', 'west', 'east'].includes(f)
 async function disposeWell (ctx, _args, signal) {
@@ -6439,7 +6452,7 @@ async function disposeWell (ctx, _args, signal) {
   if (bot.controlState?.sneak) return skip('sneaking', 'sneaking (held by another subsystem); the well waits for another visit')
   const near = wellAdmission({ players: playersSeen(bot), cap, me: bot.username })
   if (near) return skip('player_near', `wait for ${near.who} to move off the town junk well (${near.dist.toFixed(1)} blocks): it opens only with nobody within 5, and the next town visit disposes`)
-  if (!disposePlan(items()).stacks.length && !well.open) return skip('nothing_listed', `nothing on the junk list in the bag at ${slotsBefore} of 36 slots`)
+  if (!disposePlan(items(), { swords: wellSwordsNow(bot) }).stacks.length && !well.open) return skip('nothing_listed', `nothing on the junk list in the bag at ${slotsBefore} of 36 slots`)
   const was = handOf(bot.heldItem)
   const g = hkGuards(bot, signal)
   const tick = () => g.bound(bot.waitForTicks?.(1), 50 + HK_AWAIT_MS, 'tick wait')

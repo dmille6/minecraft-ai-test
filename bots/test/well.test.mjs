@@ -127,7 +127,7 @@ await t('the row carries the guard evidence (gclicked=, stone=) right after offl
   assert.equal(d.length, 300, 'positive control: this row IS cut by the cap')
   assert.doesNotMatch(d, /diorite:64/, 'positive control: the cut ate the guarded item from items=')
   assert.match(d.slice(0, 80), / gclicked=64 stone=63 /, d)
-  assert.match(W.wellDisposeDetail({ slotsBefore: 36, slotsAfter: 36 }), / gclicked=0 offlist_items=/, 'no click, no reserve claim')
+  assert.match(W.wellDisposeDetail({ slotsBefore: 36, slotsAfter: 36 }), / gclicked=0 swords=0 offlist_items=/, 'no click, no reserve claim')
   // the read's C7 predicate is the row's own fields (wellread.py c7_breach): gclicked > 0 with stone missing or < 64
   const src = readFileSync(new URL('../../scripts/host/wellread.py', import.meta.url), 'utf8')
   assert.match(src, /if num\(f, 'gclicked'\) > 0 and \(st is None or not str\(st\)\.isdigit\(\) or int\(st\) < STONE_GUARD\):/)
@@ -800,6 +800,44 @@ await t('DISPOSE: each slot is re-read synchronously before its click -- a slot 
   assert.equal(town.count('iron_ingot'), 5)
 })
 
+// ---- SWORDS (OWNER 10-07 "no reason to store swords at all, this is a peaceful world"): peaceful-only, judged at the click
+await t('SWORDS, pure: every tier goes only with the peaceful switch; never on WELL_JUNK; the guards stay absolute', () => {
+  const bag = [{ name: 'stone_sword', count: 1, slot: 9 }, { name: 'wooden_sword', count: 1, slot: 10 }, { name: 'iron_sword', count: 1, slot: 11 }, { name: 'egg', count: 16, slot: 12 }]
+  assert.deepEqual(W.disposePlan(bag).stacks.map(s => s.name), ['egg'], 'not peaceful: swords are weapons')
+  assert.deepEqual(W.disposePlan(bag, { swords: true }).stacks.map(s => s.name), ['stone_sword', 'wooden_sword', 'iron_sword', 'egg'])
+  assert.equal(W.disposePlan(bag, { swords: true }).junkStacks, 4, 'the trigger counts them in a peaceful world')
+  for (const n of ['stone_sword', 'wooden_sword', 'iron_sword', 'diamond_sword']) assert.equal(W.isWellJunk(n), false, `${n} is never on the list itself`)
+  assert.equal(W.swordGoes('stone_pickaxe', true), false); assert.equal(W.swordGoes('stone_sword', false), false)
+  assert.equal(W.thrownNames([{ name: 'stone_sword', count: 1 }]).offlist, 1, 'a sword thrown without the switch is OFF the list (C3)')
+  assert.equal(W.thrownNames([{ name: 'stone_sword', count: 1 }], { swords: true }).offlist, 0)
+  assert.match(W.wellDisposeDetail({ slotsBefore: 36, slotsAfter: 34, swords: 2, peaceful: true, gclicked: 0 }).slice(0, 60), / swords=2 peaceful=1 /)
+})
+const peacefulTown = (items, difficulty) => { const town = fakeTown({ wellAt: CAP, items }); town.bot.serverDifficulty = difficulty; return town }
+await t('SWORDS, the skill: peaceful -> the swords go down the well with the junk, the row says swords=2 peaceful=1', async () => {
+  const town = peacefulTown([S('stone_sword', 1), S('wooden_sword', 1), S('egg', 16), ...filler(33)], 'peaceful')
+  const r = await run('dispose_well', town.bot)
+  assert.equal(r.status, 'success', r.detail)
+  assert.equal(town.count('stone_sword') + town.count('wooden_sword'), 0)
+  const row = (await rows('_well_dispose')).pop()
+  assert.equal(field(row.skill.detail, 'swords'), '2', row.skill.detail); assert.equal(field(row.skill.detail, 'peaceful'), '1'); assert.equal(field(row.skill.detail, 'offlist'), '0')
+})
+await t('SWORDS, the skill: easy (or unknown) -> no sword is thrown; positive control: the egg still goes', async () => {
+  for (const d of ['easy', undefined]) {
+    const town = peacefulTown([S('stone_sword', 1), S('egg', 16), ...filler(34)], d)
+    const r = await run('dispose_well', town.bot)
+    assert.equal(r.status, 'success', `${d}: ${r.detail}`)
+    assert.equal(town.count('stone_sword'), 1, `${d}: the sword stays`); assert.equal(town.count('egg'), 0, 'positive control')
+    assert.equal(field((await rows('_well_dispose')).pop().skill.detail, 'swords'), '0')
+  }
+})
+await t('SWORDS, AT THE CLICK: the world turns easy during the aim -> the planned sword is not thrown', async () => {
+  const town = peacefulTown([S('egg', 16), S('stone_sword', 1), ...filler(34)], 'peaceful')
+  town.state.onLook = () => { if (town.state.clicks.length >= 1) town.bot.serverDifficulty = 'easy' }
+  const r = await run('dispose_well', town.bot)
+  assert.equal(r.status, 'success', r.detail)
+  assert.equal(town.count('stone_sword'), 1, 'the switch re-read at the click kept it'); assert.equal(town.count('egg'), 0)
+})
+
 await t('DISPOSE (Codex r1 P1): the reserve is re-judged AT THE CLICK -- cobble spent during the aim keeps the diorite in the bag; the row says what was clicked', async () => {
   const town = fakeTown({ wellAt: CAP, items: [S('diorite', 10), S('cobblestone', 64), S('egg', 16), ...Array.from({ length: 32 }, () => S('oak_log', 64))] })
   const cob = town.slots.findIndex(x => x?.name === 'cobblestone')
@@ -1267,7 +1305,7 @@ await t('P1-1 C3 FIRES: the server drops iron where the client saw a rail -> the
   assert.equal(field((await rows('_well_dispose')).pop().skill.detail, 'offlist'), '0', 'positive control the other way: a clean visit reads 0')
 })
 await t('MUTANT: counting no off-list entity leaves C3 blind again', async () => {
-  await withMutant(WP, "    if (!isWellJunk(t.name)) { offlist++;", "    if (false) { offlist++;", async m => {
+  await withMutant(WP, "    if (!isWellJunk(t.name) && !swordGoes(t.name, swords)) {", "    if (false) {", async m => {
     assert.equal(m.thrownNames([{ name: 'iron_ingot', count: 3 }]).offlist, 0, 'mutant inert')
   })
   assert.equal(W.thrownNames([{ name: 'iron_ingot', count: 3 }, { name: 'egg', count: 16 }, { name: null }]).offlist, 1)
@@ -1678,8 +1716,21 @@ await t('MUTANT (skills): without the reserve re-check at the click, a reserve s
     assert.ok(town.state.clicks.some(c => c.name === 'diorite'), 'mutant inert')
   })
 })
+await t('MUTANT: swords without the switch go down the well in any world', async () => {
+  await withMutant(WP, 'export const swordGoes = (name, peaceful) => !!peaceful && isSword(name)', 'export const swordGoes = (name, peaceful) => isSword(name)', async m => {
+    assert.equal(m.disposePlan([{ name: 'stone_sword', count: 1, slot: 9 }]).stacks.length, 1, 'mutant inert')
+  })
+})
+await t('MUTANT (skills): no switch re-read at the click throws a sword in a world turned easy', async () => {
+  await withMutant(SP, '      if (sword) { const p = wellSwordsNow(bot); acc.peaceful = p; if (!p) continue }\n', '      if (sword) { acc.peaceful = true }\n', async m => {
+    const town = peacefulTown([S('egg', 16), S('stone_sword', 1), ...filler(34)], 'peaceful')
+    town.state.onLook = () => { if (town.state.clicks.length >= 1) town.bot.serverDifficulty = 'easy' }
+    await within(m.SKILLS.dispose_well.run({ bot: town.bot }, {}, { aborted: false }), 15000, 'mutant')
+    assert.equal(town.count('stone_sword'), 0, 'mutant inert')
+  })
+})
 await t('MUTANT: without the list filter the plan throws cobblestone', async () => {
-  await withMutant(WP, '  for (const it of list.filter(x => isWellJunk(x.name) && Number.isInteger(x.slot)).sort((a, b) => a.slot - b.slot)) {', '  for (const it of list.filter(x => Number.isInteger(x.slot)).sort((a, b) => a.slot - b.slot)) {', async m => {
+  await withMutant(WP, '  for (const it of list.filter(x => (isWellJunk(x.name) || swordGoes(x.name, swords)) && Number.isInteger(x.slot)).sort((a, b) => a.slot - b.slot)) {', '  for (const it of list.filter(x => Number.isInteger(x.slot)).sort((a, b) => a.slot - b.slot)) {', async m => {
     assert.ok(m.disposePlan([{ name: 'cobblestone', count: 64, slot: 9 }]).stacks.length, 'mutant inert')
   })
 })
@@ -1699,7 +1750,7 @@ await t('MUTANT (skills): without the finally close an aborted visit leaves the 
   })
 })
 await t('MUTANT (skills): without the per-stack re-read a changed slot is thrown', async () => {
-  await withMutant(SP, "      if (!it || it.name !== st.name || !isWellJunk(it.name) || bot.currentWindow || bot.inventory?.selectedItem) continue\n", '', async m => {
+  await withMutant(SP, "      if (!it || it.name !== st.name || !(isWellJunk(it.name) || (sword && acc.swordsAllowed)) || bot.currentWindow || bot.inventory?.selectedItem) continue\n", '', async m => {
     const town = fakeTown({ wellAt: CAP, items: [S('egg', 16), S('flint', 64), S('rail', 3), ...filler(32)] })
     const railSlot = town.slots.findIndex(s => s?.name === 'rail')
     town.state.onLook = () => { if (town.state.clicks.length === 2 && town.slots[railSlot]?.name === 'rail') town.slots[railSlot] = { name: 'iron_ingot', type: REG.itemsByName.iron_ingot.id, count: 5, slot: railSlot } }
