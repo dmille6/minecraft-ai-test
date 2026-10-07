@@ -74,7 +74,7 @@ SETS = {
         ('cap (town deposit, 92bc84f only): its transfer skips the admission', 'bots/src/skills.mjs',
          "          if (adm.decision !== 'bank') { capRefused[", "          if (false) { capRefused[", ['towndeposit'], 'optional'),
         ('admission walks an empty requested plan', 'bots/src/admission.mjs',
-         '      if (!depositPlan(items, args?.item ?? null, { wants }).length) {',
+         '      if (!depositPlan(items, args?.item ?? null, { wants }).length && !reconcile) {',
          '      if (false) {', ['cobble-rule']),
         ('the transfer falls back to chest.deposit for cobble', 'bots/src/skills.mjs',
          '      if (isCobble(name)) {\n        const chosen = cobbleBankStacks(', '      if (false) {\n        const chosen = cobbleBankStacks(',
