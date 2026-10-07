@@ -384,7 +384,11 @@ export class CognitiveLoop {
    * predicament, and the difference is not visible from the reason string --
    * which is exactly why it is written down rather than left to rank 0.
    */
-  static TRIGGER_SUPPRESSED = new Set(['user_stop'])
+  //
+  // `air_pocket` (airpocket-01): the drowning rescue's dig step interrupts any skill that starts while it digs. Waking a
+  // decision on that interrupt would start another skill for the step to interrupt again -- decision churn inside a
+  // ~15-30 s dig. The rescue's own release (or its `drowning` trigger) wakes cognition when the step is over.
+  static TRIGGER_SUPPRESSED = new Set(['user_stop', 'air_pocket'])
 
   #raiseTrigger (reason, detail) {
     if (CognitiveLoop.TRIGGER_SUPPRESSED.has(reason)) return
