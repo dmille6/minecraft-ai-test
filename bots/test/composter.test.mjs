@@ -622,8 +622,20 @@ await t('KIT: an INTERRUPTED visit still writes its `_compost` row with the comp
   assert.ok(gone >= 3, `inserted ${gone}`)
   const row = (await rows('_compost')).at(-1)?.skill
   assert.equal(row?.status, 'aborted', JSON.stringify(row))
-  assert.equal(row.args.items.wildflowers, gone, 'the row accounts for every item that left the bag')
+  assert.equal(row.args.items.wildflowers, gone - 1, 'the VERIFIED inserts only: the one in flight is never reconciled from the bag')
+  assert.equal(row.args.inflight, 'wildflowers'); assert.equal(row.args.incomplete, 1)
   assert.equal(row.args.peaceful, 1)
+})
+
+await t('KIT: the bag emptied during an insert (a death) is never credited to the composter: one use, one item (Codex r3)', async () => {
+  const { bot, slots } = fakeTown({ hand: PICK, rolls: () => 0.5, items: [S('apple', 10), S('wildflowers', 20), ...filler(32)] })
+  bot.serverDifficulty = 'peaceful'
+  const real = bot.activateBlock; let k = 0
+  bot.activateBlock = async b => { k++; const r = await real(b); if (k === 2) for (let i = 0; i < slots.length; i++) if (slots[i]?.name === 'wildflowers') slots[i] = null; return r }
+  await run('compost', bot)
+  const row = (await rows('_compost')).at(-1)?.skill
+  assert.ok(row.args.items.wildflowers <= 2, `credited ${row.args.items.wildflowers}: a death's loss is not the composter's`)
+  assert.match(row.detail, /the_bag_changed_by_\d+_wildflowers_during_one_insert/)
 })
 
 await t('#2 compost uses the composter around HOME, never one that is merely near the bot', async () => {
