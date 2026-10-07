@@ -854,12 +854,15 @@ export class CognitiveLoop {
         const bot = this.bot
         const items = bot.inventory?.items?.() ?? []
         const p = bot.entity?.position
-        const plan = disposePlan(items, { swords: wellSwordsNow(bot), cobbleAtCap: cobbleWellCap(bot, items) === 'at_cap' })   // a peaceful world's swords count (well.mjs swordGoes)
-        const buildPlanJunk = disposePlan(items, { swords: wellSwordsNow(bot) })   // the pit-first build never tosses cobble
         const home = { x: config.world.homeX, z: config.world.homeZ }
+        const distHome = p ? Math.hypot(home.x - p.x, home.z - p.z) : Infinity
+        // the town's cobble is read only AT TOWN, where a well order can be given at all (Claude coupling review P3: the cap
+        // read on every decision anywhere in the world was a hot-path cost)
+        const plan = disposePlan(items, { swords: wellSwordsNow(bot), cobbleAtCap: distHome <= TOWN_RADIUS && cobbleWellCap(bot, items) === 'at_cap' })   // a peaceful world's swords count (well.mjs swordGoes)
+        const buildPlanJunk = disposePlan(items)   // the pit-first build tosses neither cobble nor swords (Claude coupling review P3)
         const r = wellOrder({
           now: Date.now(), slots: plan.slots, freeSlots: 36 - plan.slots, junkStacks: plan.junkStacks, buildJunkStacks: buildPlanJunk.junkStacks,
-          distHome: p ? Math.hypot(home.x - p.x, home.z - p.z) : Infinity,
+          distHome,
           well: () => townWellState(bot),
           buildPlan: () => townWellBuildPlan(bot),
           inside: () => insideTownWell(bot),
