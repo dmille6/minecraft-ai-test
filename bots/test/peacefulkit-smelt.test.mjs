@@ -232,7 +232,7 @@ test('A SWORD LEFT IN THE FUEL SLOT BY AN EARLIER CALL (Codex r-rev3): the next 
   // the next call, the world no longer peaceful, the bag still full: the job does not start; nothing burns, nothing drops
   m.bot.serverDifficulty = 'easy'
   const { out: r2, rows: rows2 } = await swordRows(() => run(m.bot, 2))
-  assert.equal(r2.status, 'failed'); assert.equal(r2.failClass, 'inventory_full'); assert.match(r2.detail, /free one slot/)
+  assert.equal(r2.status, 'failed'); assert.equal(r2.failClass, 'inventory_full'); assert.match(r2.detail, /free one slot/); assert.match(r2.detail, /place the furnace you carry/)
   assert.deepEqual(m.dropped, []); assert.equal(m.burnt.wooden_sword, undefined); assert.equal(m.slots.fuel?.name, 'wooden_sword')
   assert.deepEqual(rows2, [])
   // with room: it is taken back BEFORE any input goes in, so it cannot ignite under the switch that turned off; the coal smelts
@@ -261,4 +261,23 @@ test('THE FURNACE VANISHES after the put, before ignition (Codex r-rev3): no bur
   assert.equal(m.burnt.wooden_sword, undefined)
   assert.deepEqual(rows, ['no_effect:wooden_sword outcome unknown (the furnace could not be read) for raw_iron active=1'])
   assert.deepEqual(m.dropped, [])
+})
+
+test('THE TAKE-BACK FAILS with the earlier sword still in the slot (both reviews r-rev4): no input goes in, nothing burns, nothing drops, no row', async () => {
+  const m = makeBot({ raw_iron: 2, coal: 1 }, 'easy')
+  m.slots.fuel = { name: 'wooden_sword', type: 10, count: 1 }   // left by an earlier call
+  let puts = 0
+  m.bot.openFurnace = (orig => async () => {
+    const f = await orig(); const take = f.takeFuel; const put = f.putInput
+    let failed = false
+    f.takeFuel = async (...a) => { if (!failed) { failed = true; throw new Error('the server did not answer the click') } return take(...a) }
+    f.putInput = async (...a) => { puts += 1; return put(...a) }
+    return f
+  })(m.bot.openFurnace)
+  const { out: r, rows } = await swordRows(() => run(m.bot, 2))
+  assert.equal(r.status, 'failed'); assert.equal(r.failClass, 'container_blocked')
+  assert.equal(puts, 0, 'no input went in'); assert.equal(m.burnt.wooden_sword, undefined); assert.deepEqual(m.dropped, [])
+  assert.equal(m.bag.raw_iron, 2); assert.equal(m.bag.coal, 1)
+  assert.deepEqual(rows, [], 'no row claims the sword came back')
+  foodSkipNow({ serverDifficulty: 'hard' })
 })
