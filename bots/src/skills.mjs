@@ -3331,7 +3331,26 @@ const PLACE_ACK_MS = 3_000
 // the runner's catch-result lose `produced`, so verified progress vanished). `e.verified` is THIS call's requested
 // item and its verified executions; each level overwrites it on the way up, so a sub-craft's planks never reach a
 // pickaxe's caller.
-async function craft(ctx, args, signal, depth = 0, owed = 0) {
+/**
+ * THE INGREDIENT NAMES OF `def` -> [{ name, count: 1 }]: the chosen recipe's when there is one, else the union over
+ * every recipe variant (2x2 and table). Pure over the registry; an unreadable registry yields what could be read.
+ */
+export function recipeIngredients (bot, def, recipe = null) {
+  const names = new Set()
+  const add = r => { for (const d of r?.delta ?? []) if (d.count < 0) { const n = bot?.registry?.items?.[d.id]?.name; if (n) names.add(n) } }
+  if (recipe) add(recipe)
+  else if (def) {
+    try { for (const r of [...(bot.recipesAll(def.id, null, null) ?? []), ...(bot.recipesAll(def.id, null, true) ?? [])]) add(r) } catch { /* registry shape */ }
+  }
+  return [...names].map(name => ({ name, count: 1 }))
+}
+/** An ancestor list plus one level's ingredients, one entry per name. Pure. */
+export const keepWith = (keep = [], more = []) =>
+  [...new Map([...(keep ?? []), ...(more ?? [])].filter(k => k?.name).map(k => [k.name, { name: k.name, count: 1 }])).values()]
+
+// `keep` (bamboocraft-01 r1) is every ANCESTOR level's ingredients: a sub-craft's make-room fold must never spend what
+// the craft that asked for it needs (Codex: a room-blocked table sub-craft folded the scaffolding's 64 bamboo).
+async function craft(ctx, args, signal, depth = 0, owed = 0, keep = []) {
   const placedHere = []
   const progress = { item: args?.item ?? null, requested: Math.max(1, Math.floor(Number(args?.count ?? 1) || 1)),
                      executions: 0, produced: 0 }
@@ -3350,7 +3369,7 @@ async function craft(ctx, args, signal, depth = 0, owed = 0) {
   let retook = null
   let pending = null            // an error craftLevel threw, which a cleanup error would REPLACE
   try {
-    out = await craftLevel(ctx, args, signal, depth, placedHere, owed, progress)
+    out = await craftLevel(ctx, args, signal, depth, placedHere, owed, progress, keep)
   } catch (e) {
     throw (pending = carry(e))
   } finally {
@@ -3367,7 +3386,7 @@ async function craft(ctx, args, signal, depth = 0, owed = 0) {
   return retook ? { ...out, detail: `${out.detail} (${retook})` } : out
 }
 
-async function craftLevel(ctx, { item, count = 1 }, signal, depth = 0, placedHere = [], owed = 0, progress = {}) {
+async function craftLevel(ctx, { item, count = 1 }, signal, depth = 0, placedHere = [], owed = 0, progress = {}, keep = []) {
   const { bot } = ctx
   const owedNow = () => owed + placedHere.length
   // A stop at a SUB-level is reported as the REQUESTED item with nothing made: its own fields are about the planks.
@@ -3386,7 +3405,13 @@ async function craftLevel(ctx, { item, count = 1 }, signal, depth = 0, placedHer
   // THIS LEVEL'S ROOM STATE (craftExecutions): two make-room tries and the table reserve, shared by every execution
   // here and by every step of a whole-tree plan. `fold`: the craft skill's make-room step may fold bamboo (bamboocraft-01)
   // -- the craft skill only: the composter build's bounded crafts (HK_CRAFT_MS) do not carry it.
-  const rs = { tries: 0, tableYields: false, pickupDealt: false, owed: owedNow, stationDid, fold: true, folded: false }
+  // `keep`: the ancestors' ingredients, which this level's fold must not spend either (keepBelow, below).
+  const rs = { tries: 0, tableYields: false, pickupDealt: false, owed: owedNow, stationDid, fold: true, folded: false, keep,
+               run: Math.random().toString(36).slice(2, 8) }   // `run`: the _bamboo_room rows of one level share it
+  // WHAT A SUB-CRAFT OF THIS LEVEL MUST KEEP: the ancestors' ingredients plus this item's own -- the chosen recipe's
+  // when there is one, else every recipe variant's (conservative: a fold refused is a craft refused, never an
+  // ingredient spent). Read at the moment of the recursion, so a recipe re-asked after a table is current.
+  const keepBelow = () => keepWith(keep, recipeIngredients(bot, def, recipe))
 
   if (!recipe) {
     const tableBlock = bot.findBlock({
@@ -3602,7 +3627,7 @@ async function craftLevel(ctx, { item, count = 1 }, signal, depth = 0, placedHer
       if (!missing.length && !table) {
         check(signal)
         if (!hasTable) {
-          const built = await craft(ctx, { item: 'crafting_table', count: 1 }, signal, depth + 1, owedNow())
+          const built = await craft(ctx, { item: 'crafting_table', count: 1 }, signal, depth + 1, owedNow(), keepBelow())
           if (built.status === 'success') made.push('crafting_table')
           else if (STOP_CLASSES.has(built.failClass)) return { ...built, ...nothingMade, detail: `${built.detail} [making a crafting_table for ${item}]` }
         }
@@ -3622,7 +3647,7 @@ async function craftLevel(ctx, { item, count = 1 }, signal, depth = 0, placedHer
         const [, need, name] = parsed
         if (name === item) continue          // a recipe that needs itself: never recurse
         check(signal)
-        const sub = await craft(ctx, { item: name, count: Number(need) }, signal, depth + 1, owedNow())
+        const sub = await craft(ctx, { item: name, count: Number(need) }, signal, depth + 1, owedNow(), keepBelow())
         if (sub.status === 'success') made.push(name)
         // A FULL BAG OR AN UNVERIFIED CRAFT STOPS THE TREE. Either is the real blocker with its own remedy;
         // filed as this level's missing ingredient it would print "needs 3x oak_planks" to a bot that has the logs
@@ -3637,7 +3662,7 @@ async function craftLevel(ctx, { item, count = 1 }, signal, depth = 0, placedHer
       // a bounded recursion still burns the whole skill timeout.
       if (made.length) {
         check(signal)
-        const retry = await craft(ctx, { item, count }, signal, depth + 1, owedNow())
+        const retry = await craft(ctx, { item, count }, signal, depth + 1, owedNow(), keepBelow())
         if (retry.status === 'success') {
           // THE RETRY'S COUNTS travel with it (item/requested/executions/produced): it is the same item and count.
           return { ...retry, status: 'success', detail: `${retry.detail} (first made ${made.join(', ')})` }
@@ -3755,7 +3780,7 @@ async function craftLevel(ctx, { item, count = 1 }, signal, depth = 0, placedHer
       const wood = inv.filter(i => /_log$|_planks$/.test(i.name)).reduce((n, i) => n + i.count, 0)
       if (wood >= 1) {
         check(signal)
-        const built = await craft(ctx, { item: 'crafting_table', count: 1 }, signal, depth + 1, owedNow())
+        const built = await craft(ctx, { item: 'crafting_table', count: 1 }, signal, depth + 1, owedNow(), keepBelow())
         if (STOP_CLASSES.has(built.failClass)) return { ...built, ...nothingMade, detail: `${built.detail} [making a crafting_table for ${item}]` }
         if (built.status === 'success') {
           carried = bot.inventory.items().some(i => i.name === 'crafting_table')
@@ -3939,8 +3964,17 @@ async function craftExecutions(ctx, { item, recipe, crafts, table, anchor = null
     // Up to two slots made per level: one for the output, one for a table this call (or a caller) will take back.
     while (!room.ok && room.reason === 'no_room' && rs.tries < 2) {
       rs.tries++
-      const freed = await makeCraftRoom(ctx, item, plan, signal, { rs, owed: reserveFor(), protect })
+      const freed = await makeCraftRoom(ctx, item, plan, signal, { rs, owed: reserveFor(), protect: keepWith(protect, rs.keep) })
       check(signal)
+      // A FOLD THE SERVER DID NOT CONFIRM (its recount went unanswered) while the local bag now fits: not a remedy, and
+      // no tool is worn out on a guess. The executable next move is the craft itself, whose admission re-checks the room
+      // on the bag craftsync resyncs (the precedent: an unanswered baseline resync, below).
+      if (!freed.ok && freed.unconfirmed) {
+        logEvent({ kind: 'craft_room', status: 'refused', snapshot: snapshot(bot),
+                   detail: `refused ${item}: reason=fold_unconfirmed ${freed.said}` })
+        return fail({ status: 'unknown', failClass: 'unverified',
+                      detail: `craft again: ${freed.said}; the server did not confirm the room, so ${item} was not crafted on a guess${sofar(done)}` })
+      }
       if (!freed.ok) {
         const bare = craftRoomNow(bot, plan, 0)
         if (bare.ok && reserveFor() > 0) {
@@ -4316,6 +4350,7 @@ async function makeCraftRoom(ctx, item, plan, signal, { rs = null, owed = 0, pro
     const folded = await foldForRoom(ctx, item, plan, signal, { rs, owed, protect })
     check(signal)
     if (folded?.ok) return folded
+    if (folded?.unconfirmed && craftRoomNow(bot, plan, owed).ok) return folded
     if (folded) foldSaid = `${folded.said}; `
   }
   const items = bot.inventory.items()
@@ -4345,9 +4380,9 @@ const FOLD_CRAFT_RESERVE_MS = 15_000
  * THE FOLD AS CRAFT'S FIRST REMEDY (bamboocraft-01) -> { ok, said } | null (not attempted). Deterministic: the model
  * never chooses it. foldForCraft (pure) decides on the bag as it is now; foldExecute runs the batch (the same path
  * bamboo_sticks takes); then THE SERVER'S BAG decides whether it worked -- craftsync's serverRecount, and the craft's own
- * room check (craftRoomNow: the table reserve and an item on the ground included) on what it returns. Without
- * craftsync (source 'none') the local bag is the only witness, as in the executor; an unanswered recount is NOT
- * enabled. One `_bamboo_room` row whenever the bag holds bamboo to fold: attempted yes/no, crafts made of planned,
+ * room check (craftRoomNow: the table reserve and an item on the ground included) on what it returns. ONLY an answered
+ * recount can enable it (Codex r1): without craftsync the fold is not run at all, and an unanswered recount returns
+ * `unconfirmed` -- craftExecutions then refuses with "craft again" rather than wearing a tool out on a guess. One `_bamboo_room` row whenever the bag holds bamboo to fold: attempted yes/no, crafts made of planned,
  * slots before -> after, enabled yes/no, and why.
  */
 async function foldForRoom(ctx, item, plan, signal, { rs, owed = 0, protect = [] } = {}) {
@@ -4355,9 +4390,12 @@ async function foldForRoom(ctx, item, plan, signal, { rs, owed = 0, protect = []
   const items = bot.inventory.items()
   const o0 = items.length
   const now = craftRoomNow(bot, plan, owed)
+  // ONLY WITH craftsync (Codex r1): the fold counts as room made only on the server's answered recount, and without
+  // craftsync there is none to ask -- a fold the server cannot confirm is not a remedy, so it is not run.
   const decision = foldForCraft({ items, recipe: plan, protect, reserve: now.reserve ?? 0,
-                                  leftMs: craftDeadline(ctx) - FOLD_CRAFT_RESERVE_MS - Date.now() })
-  const row = (status, args, said) => logEvent({ kind: 'bamboo_room', status, snapshot: snapshot(bot), args: { item, ...args },
+                                  leftMs: craftDeadline(ctx) - FOLD_CRAFT_RESERVE_MS - Date.now(),
+                                  verifiable: typeof bot.craftSync?.recount === 'function' })
+  const row = (status, args, said) => logEvent({ kind: 'bamboo_room', status, snapshot: snapshot(bot), args: { item, run: rs?.run ?? null, ...args },
     detail: `${item}: ${said} attempted=${args.attempted} crafts=${args.crafts}/${args.planned} slots=${args.o0}->${args.o1} enabled=${args.enabled}` })
   if (!decision.fold) {
     if (decision.reason !== 'no_bamboo') {
@@ -4367,14 +4405,22 @@ async function foldForRoom(ctx, item, plan, signal, { rs, owed = 0, protect = []
   }
   rs.folded = true
   const tally = { crafts: 0, windowMs: 0 }
-  let fx = null, threw = true
+  let fx = null
   try {
     fx = await foldExecute(ctx, decision.crafts, signal, tally, { reserveMs: FOLD_CRAFT_RESERVE_MS })
-    threw = false
-  } finally {
-    if (threw) {
-      try { row('aborted', { attempted: 'yes', crafts: tally.crafts, planned: decision.crafts, o0, o1: bot.inventory.items().length, enabled: 'no', reason: 'aborted' }, 'the fold was interrupted') } catch {}
-    }
+  } catch (e) {
+    // AN ABORT propagates, its row counting a craft the server confirmed as it landed (producedAtAbort). ANY OTHER
+    // THROW is a fold that did not make room: recorded as such, and the craft goes on to its other remedy (wear-out).
+    const aborted = !!(e?.aborted || signal?.aborted)
+    const made = tally.crafts + (aborted && Number(e?.producedAtAbort) > 0 ? Number(e.producedAtAbort) : 0)
+    const msg = String(e?.message ?? e).slice(0, 60)
+    try {
+      row(aborted ? 'aborted' : 'refused', { attempted: 'yes', crafts: made, planned: decision.crafts, o0, o1: bot.inventory.items().length,
+                                             enabled: 'no', reason: aborted ? 'aborted' : 'error' },
+          aborted ? 'the fold was interrupted' : `the fold threw: ${msg}`)
+    } catch { /* telemetry never breaks the craft */ }
+    if (aborted) throw e
+    return { ok: false, said: `folding bamboo into sticks failed: ${msg}` }
   }
   check(signal)
   const stopped = fx.stop ?? (fx.ran?.ok ? 'done' : (fx.ran?.out?.reason ?? fx.ran?.out?.failClass ?? 'stopped'))
@@ -4389,15 +4435,19 @@ async function foldForRoom(ctx, item, plan, signal, { rs, owed = 0, protect = []
     source = `error:${String(e?.message ?? e).slice(0, 30)}`
   }
   check(signal)
-  const witnessed = source === 'server' || source === 'none'
-  const enabled = witnessed && craftRoomNow(bot, plan, owed, bag).ok
-  const o1 = witnessed ? bag.length : bot.inventory.items().length
+  // ENABLED ONLY ON THE SERVER'S WORD: an answered recount whose bag passes the craft's own room check. A local bag is
+  // a prediction, never enabled=yes.
+  const answered = source === 'server'
+  const enabled = answered && craftRoomNow(bot, plan, owed, bag).ok
+  const o1 = answered ? bag.length : bot.inventory.items().length
   const said = enabled
     ? `made room by folding ${2 * tally.crafts} bamboo into ${tally.crafts} sticks`
-    : `folding bamboo into sticks did not make room (stop=${stopped}, source=${source})`
+    : answered
+      ? `folding bamboo into sticks did not make room (stop=${stopped}, source=${source})`
+      : `folded ${2 * tally.crafts} bamboo into ${tally.crafts} sticks but the server's recount was not answered (source=${source})`
   row(enabled ? 'made_room' : 'refused', { attempted: 'yes', crafts: tally.crafts, planned: decision.crafts, o0, o1,
-                                           enabled: enabled ? 'yes' : 'no', reason: stopped, source }, said)
-  return { ok: enabled, said }
+                                           enabled: enabled ? 'yes' : 'no', reason: answered ? stopped : 'unconfirmed', source }, said)
+  return { ok: enabled, said, unconfirmed: !answered }
 }
 
 /**

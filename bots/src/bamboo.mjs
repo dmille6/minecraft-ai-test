@@ -34,7 +34,8 @@ const countOf = (items, name) => items.reduce((n, it) => n + (it?.name === name 
  * craftRoom (craftroom.mjs) takes ingredients off the largest stack and so never sees that consolidation; it stays the
  * PEAK/safety check. Items without a `slot` are laid out in order from slot 9. `steps` is per craft: the bag's
  * occupancy and stick slots after it, for a caller scanning batch sizes without re-simulating; with `bags` each step
- * also carries the bag itself (`bag`: { slot, name, count, stackSize }[]).
+ * also carries the bag itself (`bag`: { slot, name, count, stackSize, nbt }[] -- nbt kept, so craftRoom on it never joins
+ * an output onto a named or enchanted stack).
  */
 export function simulateFold (items = [], crafts = 0, { first = 9, last = 44, stackSize = 64, bags = false } = {}) {
   const slots = new Map()
@@ -43,7 +44,7 @@ export function simulateFold (items = [], crafts = 0, { first = 9, last = 44, st
     let at = Number.isInteger(it.slot) && it.slot >= first && it.slot <= last && !slots.has(it.slot) ? it.slot : null
     while (at == null && next <= last) { if (!slots.has(next)) at = next; next++ }
     if (at == null) continue
-    slots.set(at, { name: it.name, count: it.count ?? 1, size: it.stackSize ?? (it.name === 'bamboo' || it.name === 'stick' ? stackSize : 64) })
+    slots.set(at, { name: it.name, count: it.count ?? 1, size: it.stackSize ?? (it.name === 'bamboo' || it.name === 'stick' ? stackSize : 64), nbt: !!it.nbt })
   }
   const order = () => [...slots.keys()].sort((x, y) => x - y)
   const firstOf = (name, notFull = false) => order().find(k => slots.get(k).name === name && (!notFull || slots.get(k).count < slots.get(k).size))
@@ -77,7 +78,7 @@ export function simulateFold (items = [], crafts = 0, { first = 9, last = 44, st
     out.tossed += put('stick', 1)
     const step = { after: slots.size, stickSlots: stickSlots(), tossed: out.tossed }
     // `bags` (foldForCraft): the bag after this craft, slot by slot, for a caller that must test another craft on it
-    if (bags) step.bag = order().map(k => ({ slot: k, name: slots.get(k).name, count: slots.get(k).count, stackSize: slots.get(k).size }))
+    if (bags) step.bag = order().map(k => ({ slot: k, name: slots.get(k).name, count: slots.get(k).count, stackSize: slots.get(k).size, nbt: slots.get(k).nbt }))
     out.steps.push(step)
   }
   out.after = slots.size
@@ -141,6 +142,8 @@ export function bambooPlan (items = [], { minSlots = TRIGGER_SLOTS, stickCap = S
  *   reserve   slots the room check holds back (a table to take back, an item on the ground): the craft must fit in
  *             capacity - reserve, exactly as admitRoom asks it
  *   leftMs    the time the craft has left for the fold (its window must fit, foldWindow)
+ *   verifiable  the server's bag can be read back after the fold (craftsync installed). Default FALSE: a caller must
+ *             say so (Codex r1: a fold only the local bag can confirm is not a remedy)
  * fold is true only when ALL hold:
  *   - the craft does not consume bamboo, nor does anything in `protect` (the fold spends bamboo; sticks it ADDS are
  *     fine for a craft that needs sticks -- the after-bag below decides)
@@ -153,10 +156,11 @@ export function bambooPlan (items = [], { minSlots = TRIGGER_SLOTS, stickCap = S
  *     remedy
  * The SMALLEST such batch is chosen. No minimum bag size: the craft's own room check already said the bag is full.
  */
-export function foldForCraft ({ items = [], recipe = {}, protect = [], reserve = 0, leftMs = Infinity, stickCap = STICK_CAP, capacity = BAG_SLOTS } = {}) {
+export function foldForCraft ({ items = [], recipe = {}, protect = [], reserve = 0, leftMs = Infinity, stickCap = STICK_CAP, capacity = BAG_SLOTS, verifiable = false } = {}) {
   const list = (Array.isArray(items) ? items : []).filter(it => it?.name && (it.count ?? 1) > 0)
   const before = list.length
   const none = (reason, why) => ({ fold: false, crafts: 0, freed: 0, before, after: before, reason, why })
+  if (!verifiable) return none('unverifiable', 'no server recount (craftsync) to confirm a fold made room: a fold nobody can confirm is not a remedy')
   const uses = [...(recipe?.consumes ?? []), ...(protect ?? [])].map(c => c?.name ?? c)
   if (uses.includes('bamboo')) return none('craft_uses_bamboo', 'the craft consumes bamboo: a fold would spend its ingredient')
   const room = craftRoom(list, recipe, 1, { capacity: capacity - reserve })
