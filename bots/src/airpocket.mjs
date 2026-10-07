@@ -464,12 +464,13 @@ export function standGate ({ aborted, held, want, pos, fx, fz, cellY }) {
 }
 
 export const AP_ROW_MAX = 300   // logger.mjs cuts every detail at 300 characters
-const r1 = h => (Number.isFinite(h) ? Math.round(h * 10) / 10 : h)
+// FLOORED, never rounded (Codex r9): the read's C3 tests `health < 3`, and rounding would turn 2.99 into 3 and hide it
+const r1 = h => (Number.isFinite(h) ? Math.floor(h * 10) / 10 : h)
 /**
  * THE `_air_pocket` ROW, MACHINE FIELDS FIRST, NEVER OVER THE LOGGER'S CAP. Pure. The Paper sandbox read (562d9e7 logs)
  * found every row with a stand= field cut at 300 characters by logger.mjs -- the `| required_ms … trigger_route`
  * tail was gone, so the read's strict C0 would have reverted the canary on every attempt. Now every field the read
- * needs comes before everything optional, health is rounded to 0.1, the stand reason is capped, and only the optional
+ * needs comes before everything optional, health is floored to 0.1, the stand reason is capped, and only the optional
  * tail is cut to fit.
  */
 export function airPocketRow ({ id, r, requiredMs, budgetMs, difficulty }) {
