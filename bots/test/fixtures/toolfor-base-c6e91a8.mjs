@@ -38,60 +38,6 @@ export const LAST_SWING_BLOCKS = new Set(['stone', 'cobblestone', 'deepslate', '
 export const SLACK = 2.0
 
 export const tier = name => TOOL_TIER.findIndex(t => String(name || '').startsWith(t + '_'))
-
-/**
- * TOOL HYGIENE (owner, 2026-10-07; docs/reports/toolhygiene-design-2026-10-07.md): one switch, two parts --
- * no redundant crafts (toolhygiene.mjs, at admission) and the most-worn pickaxe first (here, in toolFor).
- * TOOL_HYGIENE=on|off, default on; anything else reads as on and the process says so in its `_tool_hygiene` row.
- * MEASURED 10-07 17:31Z: 338 pickaxe copies in 80 bags, 163 of them at 2-10 uses -- 133 beside a same-or-better copy
- * above FLOOR -- because byCost took the FULLEST copy of the cheapest tier and FLOOR reserved every worn one for good.
- */
-export function toolHygieneMode (env = {}) {
-  const raw = env?.TOOL_HYGIENE
-  if (raw == null || String(raw).trim() === '') return { on: true, mode: 'on', note: 'TOOL_HYGIENE unset' }
-  const v = String(raw).trim().toLowerCase()
-  if (v === 'on' || v === 'off') return { on: v === 'on', mode: v, note: null }
-  return { on: true, mode: 'on', note: `TOOL_HYGIENE=${String(raw).slice(0, 20)} unreadable, using on` }
-}
-export const TOOL_HYGIENE = Object.freeze(toolHygieneMode(typeof process !== 'undefined' ? process.env : {}))
-export const isPickaxe = name => /_pickaxe$/.test(String(name ?? ''))
-/** reflex.mjs ESCAPE_PICKAXES_NEEDED, restated (reflex imports this module); toolhygiene.test.mjs holds them equal.
- *  mayDigForEscape refuses a tool-requiring escape dig while the bag holds exactly ONE pickaxe above HARD_STOP. */
-export const ESCAPE_RESERVE = 2
-/**
- * PART 2: is this worn pickaxe (HARD_STOP < uses <= FLOOR) open? Two conditions, both reserves kept (reviews):
- *   a KEEPER in `pool` -- a different pickaxe copy of the same-or-higher tier above FLOOR, which harvests everything
- *     the worn copy can, so the reserve FLOOR exists for stays in the bag; and
- *   ESCAPE_RESERVE OTHER pickaxes that NO DEPOSIT CAN TAKE (depositSurvivors), so wearing this copy down to 1 never takes
- *     a bag -- even after the next deposit -- from two usable pickaxes to one: the escape reflex refuses to dig stone on
- *     exactly one (reflex.mjs mayDigForEscape), and in the deployed policy the hoard of worn copies is that spare.
- *     Counting merely "usable" copies was not enough (Codex round 2): {120, 60, 8} worn to {120, 60, 1}, then a deposit
- *     banked the 60 (the worst usable copy; bankable keeps one per name), leaving one usable where the deployed
- *     {113, 60, 8} kept two after the same deposit.
- * `pool` holds candidates { it, r, tier, name } (the block's eligible tools); `bag` the bag's items (default: the pool).
- */
-export function hasKeeper (x, pool = [], bag = null) {
-  const list = Array.isArray(pool) ? pool : []
-  if (!list.some(y => y.it !== x.it && isPickaxe(y.name) && y.tier >= x.tier && y.r > FLOOR)) return false
-  const items = Array.isArray(bag) ? bag : list.map(y => y.it)
-  return depositSurvivors(items.filter(it => it !== x.it)) >= ESCAPE_RESERVE
-}
-/**
- * How many usable pickaxes (above HARD_STOP) a deposit can never take from this bag (bankable.mjs bankableInventory):
- * every copy at or under FLOOR ("spent tools never move"), plus ONE copy above FLOOR per pickaxe name (it banks at
- * most usable - 1 of a name). Pure; a test holds it to the real depositPlan + the transfer's worst-first selection.
- */
-export function depositSurvivors (items = []) {
-  const names = new Set()
-  let worn = 0
-  for (const it of (Array.isArray(items) ? items : [])) {
-    if (!isPickaxe(it?.name)) continue
-    const r = remaining(it)
-    if (r > FLOOR) names.add(it.name)
-    else if (r > HARD_STOP) worn += (it.count ?? 1)
-  }
-  return worn + names.size
-}
 /** Uses left; Infinity when the server reports no durability (unknown counts as full, never as spent). */
 export function remaining (it) {
   const max = it?.maxDurability
@@ -124,7 +70,7 @@ const canHarvest = (block, typeId) => {
   const harvest = block?.harvestTools
   return !harvest || (typeId != null && !!harvest[typeId])
 }
-export function toolFor (block, items = [], { lastSwing = false, hygiene = TOOL_HYGIENE.on } = {}) {
+export function toolFor (block, items = [], { lastSwing = false } = {}) {
   const handOk = canHarvest(block, null)
   const tools = (Array.isArray(items) ? items : []).filter(it => it?.name && TOOL_RE.test(it.name))
   // SPEND A SPENT PICKAXE WHILE A WORKING ONE IS HELD (harvest digs on the stone family only): the working pickaxe
@@ -155,23 +101,19 @@ export function toolFor (block, items = [], { lastSwing = false, hygiene = TOOL_
     }
     return { item: null, hand: false, reason: 'none' }
   }
-  const timed = eligible.map(it => ({ it, t: digTime(block, it.type), r: remaining(it), tier: tier(it.name), name: it.name, spend: isConsumable(it.name), pk: isPickaxe(it.name) }))
+  const timed = eligible.map(it => ({ it, t: digTime(block, it.type), r: remaining(it), tier: tier(it.name), name: it.name, spend: isConsumable(it.name) }))
   const handT = handOk ? digTime(block, null) : Infinity
   const fastest = Math.min(...timed.map(x => x.t), handT)
   const cap = fastest > 0 && Number.isFinite(fastest) ? fastest * SLACK : Infinity
   // A SPENT axe/shovel/hoe is open only where it is FASTER than the hand (its own block class), so no branch below --
   // `slow` included -- spends one on a block the hand digs as fast. Above FLOOR they are open as before.
-  // TOOL HYGIENE, PART 2: a worn pickaxe (HARD_STOP < uses <= FLOOR) is open while the bag keeps a KEEPER -- another
-  // pickaxe of the same-or-higher tier above FLOOR (hasKeeper). Without one it stays reserved, as before.
-  const open = timed.filter(x => x.r > FLOOR || (x.spend && x.t < handT) || (hygiene && x.pk && hasKeeper(x, timed, tools))).sort(byCost)
+  const open = timed.filter(x => x.r > FLOOR || (x.spend && x.t < handT)).sort(byCost)
   const withinCap = open.filter(x => x.t <= cap)
   // THE CHOICE IS MADE WITH THE TRANSITIVE ORDER, THEN the most-worn copy of the SAME NAME is swapped in (same name =
   // same tier and speed, so the swap cannot change which kind or tier digs). A comparator that reversed wear only within
   // a name was a cycle across kinds (both reviews: stone_axe@3 < stone_axe@90 < stone_pickaxe@50 < stone_axe@3), and the
   // pick depended on slot order.
-  // TOOL HYGIENE, PART 2: pickaxes take the same swap -- the most-worn copy of the chosen name digs, the fullest is kept.
-  const worn = x => x.spend || (hygiene && x.pk)
-  const pick = (x, pool) => (worn(x) ? mostWornOfName(x, pool) : x).it
+  const pick = (x, pool) => (x.spend ? mostWornOfName(x, pool) : x).it
   if (handOk && handT <= cap) {
     // THE HAND IS THE CHEAPEST TOOL OF ALL -- except against a spent axe/shovel/hoe that is actually faster on this
     // block: its last uses are worth nothing kept and a slot used up. Real 1.21 dig times: a wooden axe takes a log
@@ -184,8 +126,6 @@ export function toolFor (block, items = [], { lastSwing = false, hygiene = TOOL_
   if (open.length) return { item: pick(open[0], open), hand: false, reason: 'slow' }
   if (handOk) return { item: null, hand: true, reason: 'hand' }
   const reserved = timed.filter(x => !open.includes(x)).sort(byCost)
-  // NOT most-worn here (round 1 reviews): among copies all at or under FLOOR, the deployed fullest-first keeps two of them
-  // usable longest -- the escape reflex's reserve (mayDigForEscape) counts copies, not uses.
   return { item: reserved[0].it, hand: false, reason: 'reserved_required' }
 }
 
@@ -230,40 +170,7 @@ export function spentPickaxeFor (block, items = []) {
 }
 
 const isTool = it => !!(it?.name && TOOL_RE.test(it.name))
-// TOOL HYGIENE: the travel fallback follows the same two rules as toolFor -- a worn pickaxe beside a keeper is open, and
-// within a tier the most-worn copy goes first (Codex review, round 1: otherwise the fallback wore the fullest copy).
-const cheapestOpen = (items, hygiene = TOOL_HYGIENE.on) => {
-  const list = (Array.isArray(items) ? items : []).filter(isTool)
-  const pool = list.map(it => ({ it, r: remaining(it), tier: tier(it.name), name: it.name }))
-  const open = pool.filter(x => x.r > FLOOR || (hygiene && isPickaxe(x.name) && x.r > HARD_STOP && hasKeeper(x, pool, list)))
-  // The deployed order (cheapest tier, fullest first), THEN the most-worn copy of the same NAME for a pickaxe -- never a
-  // shift across kinds onto a pickaxe (Claude review, round 1: tier-then-wear put stone_pickaxe@15 ahead of stone_axe@100).
-  const first = open.sort((a, b) => (a.tier - b.tier) || (b.r - a.r))[0]
-  if (!first) return null
-  return (hygiene && isPickaxe(first.name) ? mostWornOfName(first, open) : first).it
-}
-
-/**
- * PART 2's LIVENESS TALLY: digs where hygiene chose a different copy than the base policy (hygiene off) would have.
- * index.mjs writes it as at most one `_worn_first` row per process per WORN_FIRST_ROW_MS while it is non-zero.
- */
-export const WORN_FIRST_ROW_MS = 10 * 60 * 1000
-const wornFirst = { n: 0, last: null, ctx: null }
-const usesTag = it => `${it.name}@${Number.isFinite(remaining(it)) ? remaining(it) : 'full'}`
-export function noteWornFirst (block, items, d, opts = {}, mode = 'harvest') {
-  if (!(opts?.hygiene ?? TOOL_HYGIENE.on) || !d?.item) return false
-  const base = toolFor(block, items, { ...opts, hygiene: false })
-  if (base.item === d.item) return false
-  wornFirst.n++
-  wornFirst.last = `${usesTag(d.item)} over ${base.item ? usesTag(base.item) : base.reason} on ${block?.name ?? '?'} (${d.reason})`
-  // THE CONTEXT OF THE LAST CHANGED PICK, as structured args: the read re-derives the choice from it (G3) -- the chosen
-  // copy, the reason, and every pickaxe in the bag at that moment.
-  wornFirst.ctx = { block: block?.name ?? null, chosen: usesTag(d.item), base: base.item ? usesTag(base.item) : base.reason, reason: d.reason, mode,
-                    picks: (Array.isArray(items) ? items : []).filter(it => isPickaxe(it?.name)).map(usesTag).join(',') }
-  return true
-}
-/** Read and reset the tally -> { n, last, ctx }. */
-export function takeWornFirst () { const out = { n: wornFirst.n, last: wornFirst.last, ctx: wornFirst.ctx }; wornFirst.n = 0; wornFirst.last = null; wornFirst.ctx = null; return out }
+const cheapestOpen = items => (Array.isArray(items) ? items : []).filter(it => isTool(it) && remaining(it) > FLOOR).sort((a, b) => (tier(a.name) - tier(b.name)) || (remaining(b) - remaining(a)))[0] ?? null
 
 /**
  * The decision APPLIED: returns the item to equip (or null) and, when the answer is the hand or nothing, takes a
@@ -274,7 +181,6 @@ export function takeWornFirst () { const out = { n: wornFirst.n, last: wornFirst
 export function applyToolPolicy (bot, block, opts = {}) {
   const items = bot?.inventory?.items?.() ?? []
   const d = toolFor(block, items, opts)
-  try { noteWornFirst(block, items, d, opts, opts?.lastSwing ? 'harvest' : 'dig') } catch {}
   if (opts?.decision && typeof opts.decision === 'object') opts.decision.reason = d.reason   // the caller names its row by it
   if (!d.item && isTool(bot?.heldItem)) {
     // NEVER bot.unequip('hand') blindly: mineflayer's unequip tosses the stack when the inventory is full (Codex
@@ -296,17 +202,15 @@ export const handFiller = items => (Array.isArray(items) ? items : []).find(it =
  * kind (a wooden shovel digging stone slowly costs less than an iron pickaxe digging it fast), else a non-tool filler
  * so a hard-stopped pickaxe is never the thing that digs; else null.
  */
-export function travelTool (block, items, held, { hygiene = TOOL_HYGIENE.on } = {}) {
-  const d = toolFor(block, items, { hygiene })
-  // NOT tallied here: the pathfinder calls bestHarvestTool while PLANNING (movements.js prices every candidate dig), so a
-  // tally would count plans, not digs (Codex round 2), and double toolFor on the planner's hot path.
+export function travelTool (block, items, held) {
+  const d = toolFor(block, items)
   if (d.item) return d.item
   if (!isTool(held)) return null
   // WHEN THE HAND IS THE ANSWER, HOLD A BLOCK, NOT A PICKAXE (both engines, 09-30: ~1,630 pickaxe uses/day went on dirt,
   // leaves and logs -- this returned the cheapest open tool, a wooden pickaxe, ahead of the dirt stack in the bag). Only
   // when the hand cannot break it does a tool of any kind beat a filler.
-  if (d.hand) return handFiller(items) ?? cheapestOpen(items, hygiene)
-  return cheapestOpen(items, hygiene) ?? handFiller(items)   // a block in the hand beats a spent pickaxe in the hand (the pathfinder equips whatever this returns)
+  if (d.hand) return handFiller(items) ?? cheapestOpen(items)
+  return cheapestOpen(items) ?? handFiller(items)   // a block in the hand beats a spent pickaxe in the hand (the pathfinder equips whatever this returns)
 }
 
 /**

@@ -22,6 +22,7 @@ import { compostPlan, townOrder, townOrderOutcome, boneMealRoom, composterLevel,
 import { hasUsablePick, roomPlan, pickTakes, roomKeep, heldPickTier, TIER_IRON } from './withdrawpick.mjs'
 import { townDepositOrder, townDepositOutcome, townDepositPlan } from './towndeposit.mjs'
 import { bankClosed } from './chestfull.mjs'
+import { redundantRow, admitRow, HYGIENE_ITEMS } from './toolhygiene.mjs'
 /** One wear-out order per bot per two minutes at most. */
 export const WEAR_OUT_COOLDOWN_MS = 2 * 60 * 1000
 /** After a wear-out that destroyed nothing, wait this long before the next order. */
@@ -744,7 +745,7 @@ export class CognitiveLoop {
     const milestone = this.#activeTask()
     const sentinel = makeSentinel()
     const { user, tokens, dropped, affordance } = buildUserPrompt({
-      bot: this.bot, milestone, memory: this.memory,
+      bot: this.bot, milestone, memory: this.memory, wanted: this.#wantedItems(milestone),
       lastOutcome: this.lastOutcome, trigger, sentinel,
       // Own experience first, then what peers reported. Peer lines carry the
       // reporter's name ("Gather02 hit entombed 16x near ...") so the model can
@@ -918,9 +919,26 @@ export class CognitiveLoop {
       // rather than passed, because every other check() argument is about the
       // PROPOSAL and this is about the bot's current obligation.
       this.admission.activeMilestoneId = milestone?.id ?? null
-      const check = this.admission.check(res.proposal, this.bot, this.#wantedItems(milestone))
+      const wantedNow = this.#wantedItems(milestone)
+      const check = this.admission.check(res.proposal, this.bot, wantedNow)
       if (check.ok) admitted = check
       else rejection = check
+      // TOOL HYGIENE, PART 1: one row per refusal -- the canary's liveness, and the read's G2/G4 evidence (the
+      // snapshot is the bag the refusal judged; `wanted` and `source` must always read 0 / model).
+      if (rejection?.reason === 'redundant_craft' && rejection.redundant) {
+        try {
+          const row = redundantRow(rejection.redundant, { taskId: milestone?.id ?? null,
+            wanted: !!wantedNow?.has?.(rejection.redundant.item), source: order ? 'order' : 'model', wantedSet: wantedNow })
+          logEvent({ kind: 'redundant_craft', status: 'no_effect', detail: row.detail, args: row.args, snapshot: snapshot(this.bot) })
+        } catch { /* a log row must never break the decision loop */ }
+      }
+      // ...and one per ADMITTED craft of a hygiene item: the read's G1 judges it on this snapshot and wanted set.
+      if (check.ok && check.skill === 'craft' && HYGIENE_ITEMS.has(check.args?.item)) {
+        try {
+          const row = admitRow(check.args.item, { taskId: milestone?.id ?? null, source: order ? 'order' : 'model', wantedSet: wantedNow, count: check.args?.count ?? 1 })
+          logEvent({ kind: 'craft_admit', status: 'success', detail: row.detail, args: row.args, snapshot: snapshot(this.bot) })
+        } catch { /* a log row must never break the decision loop */ }
+      }
     }
 
     // Execute (or not), then record ONE row describing the whole decision.
