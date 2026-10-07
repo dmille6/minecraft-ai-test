@@ -23,6 +23,7 @@ export const DEFAULT_LEASE_S = 600
 export const MAX_LEASE_S = 900
 export const MAX_REFUSALS = 3            // busy / body_held refusals before the directive is released
 export const PAUSE_WAIT_MS = 120_000 + 30_000   // runner.mjs pauseRecoveryMs (120 s) + one decision tick of slack
+export const RETRY_BUSY_MS = 15_000             // busy / body_held: try again after this
 
 const SKILL_RE = /^[a-z_]{2,24}$/
 
@@ -96,6 +97,9 @@ export class DirectiveQueue {
     this.#expire(now)
     const d = this.active
     if (!d) return null
+    // WAITING OUT A RUNNER REFUSAL: re-proposing the same step every tick would fill the admission's repeat window
+    // (4 identical keys -> repeat_loop) and kill the directive of its own wait. The brain decides in the meantime.
+    if (d.retryAt != null && now < d.retryAt) return null
     const st = d.steps[d.step]
     return { id: d.id, gen: d.gen, origin: d.origin, step: d.step, of: d.steps.length, skill: st.skill, args: st.args, why: d.why }
   }
@@ -119,17 +123,21 @@ export class DirectiveQueue {
       if (refusal === 'runner_paused') {
         if (d.waitUntil == null) d.waitUntil = now + PAUSE_WAIT_MS
         if (now > d.waitUntil) { this.#emit('refused', d, `runner paused past its auto-resume: ${detail}`, now); this.active = null; return }
-        this.#emit('waiting', d, `runner paused; waiting for its auto-resume until +${Math.round((d.waitUntil - now) / 1000)} s`, now)
+        // the runner says how long: "paused after repeated failures; 87s until auto-resume"
+        const secs = Number(/(\d+)s until auto-resume/.exec(String(detail))?.[1] ?? 120)
+        d.retryAt = Math.min(d.waitUntil, now + (secs + 5) * 1000)
+        this.#emit('waiting', d, `runner paused; retry at +${Math.round((d.retryAt - now) / 1000)} s (its auto-resume)`, now)
         return
       }
       d.refusals++
       if (d.refusals >= MAX_REFUSALS) { this.#emit('refused', d, `runner: ${refusal ?? detail} x${d.refusals}`, now); this.active = null; return }
+      d.retryAt = now + RETRY_BUSY_MS
       this.#emit('waiting', d, `runner: ${refusal ?? detail} (${d.refusals} of ${MAX_REFUSALS})`, now)
       return
     }
     if (status === 'success') {
       this.#emit('step_done', d, detail, now)
-      d.step++; d.refusals = 0; d.waitUntil = null
+      d.step++; d.refusals = 0; d.waitUntil = null; d.retryAt = null
       if (d.step >= d.steps.length) { this.#emit('completed', d, detail, now); this.active = null }
       return
     }

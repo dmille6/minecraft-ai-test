@@ -325,6 +325,18 @@ export class CognitiveLoop {
     this.stopped = false
     this.lastOutcome = null
     this.decisions = 0
+    // BENCH-ONLY (bench-c2): a new Cognitive is a new connection -- release whatever the old one held, and write every
+    // directive lifecycle step AS IT HAPPENS (its own timestamp), not when the next tick happens to flush it.
+    directives.releaseAll('new connection', Date.now())
+    directives.setSink(ev => {
+      const status = ['completed', 'step_done'].includes(ev.status) ? 'success'
+        : ['requested', 'superseded', 'admitted', 'started', 'waiting', 'duplicate'].includes(ev.status) ? 'no_effect' : 'failed'
+      try {
+        logEvent({ kind: 'directive', status, snapshot: snapshot(this.bot),
+                   detail: `${ev.status} ${ev.id} g${ev.gen} ${ev.origin} step ${ev.step + 1}/${ev.of} at=${new Date(ev.at).toISOString()}: ${ev.detail}` })
+      } catch { /* logging must never break the loop */ }
+    })
+    try { bot.on?.('end', () => directives.releaseAll('disconnect', Date.now())) } catch { /* a test bot has no events */ }
   }
 
   start() {
@@ -766,13 +778,12 @@ export class CognitiveLoop {
     // every decision.
     // BENCH-ONLY (bench-c2): a pending DIRECTIVE step comes first, SYNTHESISED AS A PROPOSAL exactly like a work order,
     // so admission, outcome classification, the milestone counter, lastOutcome and the decision row all apply to it.
-    this.#flushDirectiveEvents(snapshot(this.bot))
     const dstep = directives.next(Date.now())
     let order = dstep
       ? { skill: dstep.skill, args: dstep.args, directive: dstep,
           why: `${dstep.origin} directive ${dstep.id} step ${dstep.step + 1}/${dstep.of}: ${dstep.why}`.slice(0, 160) }
       : orderFor(readyFor(this.bot, milestone))
-    if (dstep) trigger = `directive:${dstep.origin}`
+    if (dstep) trigger = `directive:${dstep.origin}/${trigger}`
     // HYGIENE BEFORE PLANTING, and before the model: a bot at 34+ of 36 slots breaks blocks and leaves the drop
     // on the ground (hygiene.mjs has the measurement). Spent tools are worn out -- destroyed by use, never
     // dropped. Rate-limited by a cooldown charged when the order is ISSUED, like planting.
@@ -885,7 +896,8 @@ export class CognitiveLoop {
       if (check.ok) admitted = check
       else rejection = check
     }
-    if (dstep && rejection) directives.report(dstep.id, 'rejected', null, `${rejection.reason}: ${rejection.detail ?? ''}`)
+    if (dstep && rejection) directives.report(dstep.gen, 'rejected', null, `${rejection.reason}: ${rejection.detail ?? ''}`, Date.now())
+    if (dstep && admitted) directives.note(dstep.gen, 'admitted', `${admitted.skill} ${JSON.stringify(admitted.args).slice(0, 80)}`, Date.now())
 
     // Execute (or not), then record ONE row describing the whole decision.
     let outcome = { status: 'aborted', detail: rejection?.detail ?? res.error ?? 'no action' }
@@ -894,12 +906,17 @@ export class CognitiveLoop {
       log('info', `LLM -> ${admitted.skill}`, {
         args: admitted.args, reason: res.proposal.reason?.slice(0, 90), ms: res.latencyMs,
       })
+      if (dstep) directives.note(dstep.gen, 'started', admitted.skill, Date.now())
       const r = await this.runner.run(admitted.skill, admitted.args, { trigger: dstep ? trigger : `llm:${trigger}` })
       outcome = { status: r.status, detail: r.detail }
       runFailClass = r.failClass ?? null
+      // A DIRECTIVE STEP THE RUNNER REFUSED NEVER RAN (paused / busy / body_held): it is not evidence about the
+      // action, so it must not train the admission cooldown -- otherwise the retry after the runner's auto-resume is
+      // vetoed as `cooldown` and the directive dies of its own wait (Codex review of b41e8cc). `superseded` ran.
+      const neverRan = !!dstep && RUNNER_REFUSALS.has(runFailClass) && runFailClass !== 'superseded'
       if (dstep) {
-        directives.report(dstep.id, RUNNER_REFUSALS.has(runFailClass) ? 'runner_refusal' : 'done', r.status,
-                          `${r.status}: ${String(r.detail ?? '').slice(0, 100)}`)
+        directives.report(dstep.gen, neverRan ? 'runner_refusal' : 'done', r.status,
+                          `${r.status}: ${String(r.detail ?? '').slice(0, 100)}`, Date.now(), runFailClass)
       }
       // A FAILED WEAR-OUT BACKS OFF (both reviews): a bot with no safe block (deepslate, a pillar, water) would
       // otherwise take a decision every cooldown, forever.
@@ -923,7 +940,9 @@ export class CognitiveLoop {
       // is nothing here to believe. This is the branch that would have kept
       // "pathfinding exceeded 25000ms" from becoming 393 permanent records of
       // "no route exists".
-      if (r.status === 'unknown') {
+      if (neverRan) {
+        log('info', 'directive step refused by the runner; not a lesson, not a cooldown', { failClass: runFailClass })
+      } else if (r.status === 'unknown') {
         this.admission.noteFailure(admitted.skill, admitted.args)
         log('info', 'outcome unknown: throttled, not learned', {
           skill: admitted.skill, failClass: r.failClass ?? 'other',
@@ -1174,20 +1193,8 @@ export class CognitiveLoop {
       try { this.bot.chat(`milestone done — now: ${s.id}`) } catch {}
     }
 
-    this.#flushDirectiveEvents(snapshot(this.bot))
     // Pace the loop. Handoff doc S16: strategic decisions every 30-90s, with
     // deterministic skills filling the gaps -- not a model call per tick.
     this.#scheduleNext()
-  }
-
-  /** BENCH-ONLY (bench-c2): every directive lifecycle step becomes a row (requested / superseded / refused /
-   *  step_done / completed / released / expired / parse_failed), so delivered and executed can never be confused. */
-  #flushDirectiveEvents (snap) {
-    for (const ev of directives.drain()) {
-      const status = ['completed', 'step_done'].includes(ev.status) ? 'success'
-        : ['requested', 'superseded'].includes(ev.status) ? 'no_effect' : 'failed'
-      logEvent({ kind: 'directive', status, snapshot: snap,
-                 detail: `${ev.status} ${ev.id} ${ev.origin} step ${ev.step + 1}/${ev.of}: ${ev.detail}` })
-    }
   }
 }

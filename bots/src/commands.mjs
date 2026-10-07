@@ -41,9 +41,10 @@ export function attachCommands(bot, runner) {
     try {
       switch (cmd) {
         case 'directive': {   // BENCH-ONLY (bench-c2): queued for the cognitive loop, never run from here
+          if (!process.env.C2_DIRECTOR) { bot.chat(`unknown command "${cmd}" — try: ${Object.keys(SKILLS).join(', ')}, stop, help`); return }
           if (!directorAllowed(username)) return
           const p = parseDirective(rest[0], rest.slice(1).join(' '), { knownSkills: Object.keys(SKILLS), now: Date.now() })
-          if (!p.ok) { log('warn', 'directive rejected at parse', { from: username, why: p.why }); directives.noteParseFailure(rest[0], p.why); return }
+          if (!p.ok) { log('warn', 'directive rejected at parse', { from: username, why: p.why }); directives.noteParseFailure(rest[0], p.why, Date.now()); return }
           directives.offer(p.directive, Date.now())
           return
         }
