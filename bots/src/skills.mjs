@@ -32,6 +32,8 @@ import { applyToolPolicy, remaining, spentEquipOutcome, handHarvests, emptyHand,
 import { wearOutPlan, wearTarget, wearRank, wearRefusals, slotObservation, neverPickUp } from './hygiene.mjs'
 import { noteSought } from './pickuplog.mjs'
 import { foodSkipMode, foodSkipActive, skipFoodDrop, foodSkipDetail, difficultyOf, setPeacefulFood, peacefulFoodActive } from './foodskip.mjs'
+// THE PEACEFUL KIT (peacefulkit.mjs, owner 10-07): swords banked, never crafted, never chased; the plants composted.
+import { swordCraftRefusal, skipSwordDrop, bankEveryCopy, isPeacefulCompost, peacefulKitDetail } from './peacefulkit.mjs'
 import { inPickupBox, pickupGoalClass, pickupGoal, standHeight } from './pickupbox.mjs'
 import { BAG_SLOTS, roomRecipe, admitRoom, pickupNearest, heldLine, collectDecision, placeStackOf, depositTarget, roomAdvice, craftArrived, craftRoomRemedy, wearKeepsSlot, bagFill, placeableBlock, roomForOne, executionVerdict } from './craftroom.mjs'
 import { compostPlan, nextInsert, boneMealRoom, fillDecision, composterLevel, compostDetail, composterBuildPlan,
@@ -1420,6 +1422,8 @@ export function foodSkipNow (bot) {
   if (said !== foodSkipSaid) {
     foodSkipSaid = said
     try { logEvent({ kind: 'food_skip', status: 'success', detail: foodSkipDetail({ ...FOOD_SKIP, difficulty, active }) }) } catch { /* a row must never break a pickup */ }
+    // THE PEACEFUL KIT's row (peacefulkit.mjs): the same decision, its own kind -- the canary's liveness row.
+    try { logEvent({ kind: 'peaceful_kit', status: 'success', detail: peacefulKitDetail({ mode: FOOD_SKIP.mode, difficulty, active }) }) } catch { /* never break a pickup */ }
   }
   return { active, foodsByName: bot?.registry?.foodsByName ?? null }
 }
@@ -1463,6 +1467,7 @@ export async function pickupNearbyItems(bot, signal, radius = 8) {
     const drop = bot.nearestEntity?.(e =>
       e.name === 'item' && !refused.has(e.id) && !neverPickUp(e) &&   // ballast is never chased (hygiene.mjs)
       !skipFoodDrop(e, food) &&                                        // nor food while the skip is active (foodskip.mjs)
+      !skipSwordDrop(e, food.active) &&                                // nor a sword (peacefulkit.mjs, the same switch)
       bot.entity.position.distanceTo(e.position) < radius)
     if (!drop) return
     // TELEMETRY ONLY (pickuplog.mjs): a collect of this id while the pursuit lasts reads 'sought'. released when
@@ -2676,7 +2681,10 @@ async function deposit(ctx, { item = null }, signal, { noRecovery = false, prefe
     // stations stay in the bot's hands; the valuable stacks go first so a short
     // chest keeps the iron.
     planItems = bot.inventory.items()
-    const plan = depositPlan(planItems, item, { wants: bot.currentWants ?? [] })   // the wants admission judged with (set by the gate)
+    // THE PEACEFUL KIT (peacefulkit.mjs): one reading of the switch for the plan AND the transfer below, so they cannot
+    // disagree -- while it is active every usable sword is in the plan and none is kept back.
+    const swords = foodSkipNow(bot).active
+    const plan = depositPlan(planItems, item, { wants: bot.currentWants ?? [], swords })   // the wants admission judged with (set by the gate)
     for (const { name, count } of plan) {
       check(signal)
       // A TOOL GOES BY SLOT, A USABLE COPY AT A TIME (Codex round 2 on withdraw: chest.deposit(type) takes the first copy
@@ -2686,7 +2694,8 @@ async function deposit(ctx, { item = null }, signal, { noRecovery = false, prefe
       if (DEPOSIT_TOOL_RE.test(name)) {
         const usable = (chest.items?.() ?? []).filter(x => x?.name === name && remaining(x) > FLOOR)
           .map(x => ({ slot: x.slot, used: x.durabilityUsed ?? 0, left: remaining(x) })).sort((a, b) => a.left - b.left || a.slot - b.slot)
-        for (const c of usable.slice(0, Math.max(0, Math.min(count, usable.length - 1)))) {
+        const keepOne = bankEveryCopy(name, swords) ? 0 : 1   // a sword under the peaceful kit keeps none
+        for (const c of usable.slice(0, Math.max(0, Math.min(count, usable.length - keepOne)))) {
           check(signal)
           const same = x => !!x && x.name === name && (x.durabilityUsed ?? 0) === c.used
           if (!same(slotAt(chest, c.slot))) continue
@@ -3332,6 +3341,9 @@ const PLACE_ACK_MS = 3_000
 // item and its verified executions; each level overwrites it on the way up, so a sub-craft's planks never reach a
 // pickaxe's caller.
 async function craft(ctx, args, signal, depth = 0, owed = 0) {
+  // NO SWORD IN A PEACEFUL WORLD (peacefulkit.mjs). Admission refuses it first; this covers every other caller (chat).
+  const noSword = swordCraftRefusal(args?.item, depth === 0 && foodSkipNow(ctx.bot).active)
+  if (noSword) return { status: 'no_effect', detail: noSword }
   const placedHere = []
   const progress = { item: args?.item ?? null, requested: Math.max(1, Math.floor(Number(args?.count ?? 1) || 1)),
                      executions: 0, produced: 0 }
@@ -5591,8 +5603,9 @@ async function compost(ctx, _args, signal) {
   const levelBefore = composterLevel(at())
   const ripe = levelBefore >= 7 && boneMealRoom(items())
   // THE PEACEFUL FOOD POLICY (foodskip.mjs, owner 10-06): apples above APPLE_RESERVE go in too, only while it is active.
-  const apples = foodSkipNow(bot).active
-  if (!compostPlan(items(), { apples }).junk && !ripe) return skip(`nothing compostable at ${slotsBefore} of 36 slots and nothing to harvest`)
+  // THE PEACEFUL KIT (peacefulkit.mjs, owner 10-07), the same decision: so do its plants.
+  const apples = foodSkipNow(bot).active, plants = apples
+  if (!compostPlan(items(), { apples, plants }).junk && !ripe) return skip(`nothing compostable at ${slotsBefore} of 36 slots and nothing to harvest`)
   const was = handOf(bot.heldItem)
   const g = hkGuards(bot, signal)
   const ticks = n => g.bound(bot.waitForTicks?.(n), n * 50 + HK_AWAIT_MS, 'tick wait')
@@ -5648,7 +5661,7 @@ async function compost(ctx, _args, signal) {
       check(signal)
       if (Date.now() > deadline) { stop = 'budget'; break }
       const room = boneMealRoom(items())
-      const next = inserted < MAX_ITEMS_PER_VISIT ? nextInsert(items(), { room, apples }) : null
+      const next = inserted < MAX_ITEMS_PER_VISIT ? nextInsert(items(), { room, apples, plants }) : null
       const act = fillDecision({ level: composterLevel(at()), room, smallest: next?.n ?? 0 })
       if (act === 'done') break
       if (act === 'gone') { stop = 'composter gone'; break }
@@ -9263,7 +9276,7 @@ export function classifyOutcome(skillName, status, delta = {}, wanted = null) {
   if (expects.includes('compost_effect')) {
     const bm = inv.bone_meal ?? 0
     if (bm > 0) because.push(`inventory_gain: bone_meal +${bm}`)
-    const l = Object.entries(inv).filter(([k, n]) => n < 0 && (isCompostInput(k) || (k === 'apple' && peacefulFoodActive())))
+    const l = Object.entries(inv).filter(([k, n]) => n < 0 && (isCompostInput(k) || ((k === 'apple' || isPeacefulCompost(k)) && peacefulFoodActive())))
     if (l.length) because.push(`inventory_loss: ${l.map(([k, n]) => `${k} ${n}`).join(', ')}`)
   }
   if (expects.includes('position') && (delta.distance ?? 0) >= 2) {
