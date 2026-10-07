@@ -330,7 +330,7 @@ function fakeTown ({ items = [], hand = null, level = 0, composterAt = 'canonica
   const state = { level, ripenAt: null, tick: 0, levels: [level], extracted: 0, pending: [], tossed: 0, dropped: [], clicksAt7: 0,
                   crafted: [], sneakWrites: 0, activations: 0, path: [], halts: 0, gotos: 0, tableUses: [], events: [], selects: [], equips: [] }
   // + the peaceful kit's plants (peacefulkit.mjs; each one verified consumed by a real Paper 1.21.8 composter)
-  const VANILLA = { leaf_litter: 0.3, wheat_seeds: 0.3, poppy: 0.65, short_grass: 0.3, apple: 0.65, oak_sapling: 0.3, ...KIT.PEACEFUL_COMPOST }
+  const VANILLA = { leaf_litter: 0.3, wheat_seeds: 0.3, poppy: 0.65, short_grass: 0.3, apple: 0.65, oak_sapling: 0.3, spruce_sapling: 0.3, ...KIT.PEACEFUL_COMPOST }
   const nameAt = v => world.get(key(v)) ?? (v.y <= FLOOR ? 'grass_block' : 'air')
   const gone = new Set(unloaded)   // cells in a chunk this bot has not loaded: blockAt answers null
   const blockAt = p => {
@@ -588,17 +588,20 @@ for (const [why, setup, composted] of [['PEACEFUL (packet read)', b => { b.serve
 for (const [why, setup, on] of [['PEACEFUL (packet read)', b => { b.serverDifficulty = 'peaceful' }, true],
                                 ['HARD world', b => { b.serverDifficulty = 'hard' }, false],
                                 ['difficulty unknown', () => {}, false]]) {
-  await t(`KIT WIRED, ${why}: ${on ? 'every kit plant composted, 16 saplings and 4 apples kept' : 'no kit plant touched (the old visit)'}; swords, bread, dried_kelp never`, async () => {
-    const plants = [S('wildflowers', 30), S('melon_slice', 9), S('kelp', 7), S('brown_mushroom', 2), S('red_tulip', 1), S('cocoa_beans', 3), S('rose_bush', 2)]
-    const keep = [S('bread', 5), S('dried_kelp', 4), { ...S('stone_sword', 1), maxDurability: 131, durabilityUsed: 0 }]
-    const { bot, count } = fakeTown({ hand: PICK, rolls: () => 0.5, items: [...plants, S('apple', 10), S('oak_sapling', 20), ...keep, ...filler(22)] })
+  await t(`KIT WIRED, ${why}: ${on ? 'every kit plant composted (bread, dried_kelp, moss too), spruce all, 16 oak, 4 apples kept' : 'no kit plant touched (the old visit), 16 of each sapling'}; swords and carrots never`, async () => {
+    const plants = [S('wildflowers', 30), S('melon_slice', 9), S('kelp', 7), S('brown_mushroom', 2), S('red_tulip', 1), S('cocoa_beans', 3), S('rose_bush', 2),
+      S('bread', 5), S('dried_kelp', 4), S('moss_carpet', 2), S('glow_berries', 3)]
+    const keep = [S('carrot', 3), { ...S('stone_sword', 1), maxDurability: 131, durabilityUsed: 0 }]
+    const { bot, count } = fakeTown({ hand: PICK, rolls: () => 0.5, items: [...plants, S('apple', 10), S('oak_sapling', 20), S('spruce_sapling', 18), ...keep, ...filler(18)] })
     setup(bot)
     const r = await run('compost', bot)
     assert.equal(r.status, 'success', r.detail)
-    for (const p of plants) assert.equal(count(p.name), on ? 0 : p.count, `${p.name}`)
-    assert.equal(count('oak_sapling'), 16, 'the sapling reserve either way')
+    const row0 = (await rows("_compost")).at(-1)?.skill?.detail ?? ""
+    for (const p of plants) assert.equal(count(p.name), on ? 0 : p.count, `${p.name} ${row0}`)
+    assert.equal(count('oak_sapling'), 16, 'oak keeps 16 either way')
+    assert.equal(count('spruce_sapling'), on ? 0 : 16, 'every other species: none while on, 16 off')
     assert.equal(count('apple'), on ? 4 : 10)
-    assert.equal(count('bread'), 5); assert.equal(count('dried_kelp'), 4); assert.equal(count('stone_sword'), 1)
+    assert.equal(count('carrot'), 3); assert.equal(count('stone_sword'), 1)
     const row = (await rows('_compost')).at(-1)?.skill?.detail ?? ''
     if (on) assert.match(row, /items=.*wildflowers:30/)
     else assert.doesNotMatch(row, /wildflowers|melon_slice|kelp/)
