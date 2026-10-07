@@ -85,7 +85,7 @@ import { doVisit, openBoard, withinBoard } from './board-visit.mjs'
 import { canContinueDescent } from './exit-contract.mjs'
 import { openLessons } from './lessons.mjs'
 import { dropsOf, heldFromBlock, sourcesOf } from './drops.mjs'
-import { smeltPlan, smeltRecipeFor, chooseFuel, SMELT_TICKS } from './smelting.mjs'
+import { smeltPlan, smeltRecipeFor, chooseFuel, fuelTicks, SMELT_TICKS } from './smelting.mjs'
 
 /**
  * FAILURE CLASSES THAT NAME OUR IGNORANCE RATHER THAN THE WORLD.
@@ -2770,7 +2770,7 @@ async function deposit(ctx, { item = null }, signal, { noRecovery = false, prefe
     // cannot disagree with the transfer. It falls back to the old wording rather
     // than inventing one if the plan and the loop ever disagree.
     return { status: 'no_effect', failClass: null,
-             detail: depositNoopReason(planItems, item, { wants: bot.currentWants ?? [] })
+             detail: depositNoopReason(planItems, item, { wants: bot.currentWants ?? [], noSwords: foodSkipNow(bot).active })
                ?? (item
                  ? `nothing matching ${item} to hand over — nothing to deposit`
                  : 'nothing worth banking — nothing to deposit') }
@@ -7147,7 +7147,7 @@ const SMELT_OPEN_MS     = 10_000        // openFurnace waits on a server event f
  * a recovery that hangs would burn the hard-stop grace and land the bot in
  * `abort_ignored`.
  */
-async function drainFurnace (furnace, ms = SMELT_RECOVERY_MS) {
+async function drainFurnace (furnace, ms = SMELT_RECOVERY_MS, { keepFuel = false } = {}) {
   const deadline = Date.now() + ms
   const bounded = p => Promise.race([
     p, new Promise(res => setTimeout(res, Math.max(250, deadline - Date.now()))),
@@ -7156,6 +7156,7 @@ async function drainFurnace (furnace, ms = SMELT_RECOVERY_MS) {
                               ['inputItem', 'takeInput'],
                               ['fuelItem', 'takeFuel']]) {
     if (Date.now() >= deadline) break
+    if (keepFuel && slot === 'fuelItem') continue   // the peaceful kit's unburned sword with a full bag: never tossed
     try {
       if (!furnace?.[slot]?.()) continue
       await bounded(furnace[take]())
@@ -7163,6 +7164,9 @@ async function drainFurnace (furnace, ms = SMELT_RECOVERY_MS) {
   }
   try { furnace?.close?.() } catch { /* already closed */ }
 }
+
+/** Polls a sword waits for the furnace's burn reading before ordinary fuel takes its place (peacefulkit). */
+const SWORD_UNKNOWN_POLLS = 4
 
 /** Inventory as the plain {name: count} map smeltPlan reasons over. */
 function heldMap (bot) {
@@ -7309,44 +7313,67 @@ async function smelt(ctx, { item, count = 1 }, signal) {
   // ONE LOAD AT A TIME FROM THE QUEUE (smeltPlan fuelQueue): without swords this is the single ordinary load as before.
   const queue = [...(plan.fuelQueue ?? [{ name: plan.fuel.name, count: plan.fuel.count }])]
   const burned = {}
-  let swordsSkipped = 0
-  // -> true when a load went in. A sword is put only if the switch STILL calls it unwanted at this moment and a copy is
-  // in the bag; otherwise the remaining sword loads become ordinary fuel for their items (when the bag has some).
+  let furnace = null
+  let covered = 0              // items the loads so far can smelt (a sword 1; ordinary fuel its ticks / SMELT_TICKS)
+  let staged = null            // a sword put in and not yet seen to ignite: { active }
+  let unknownFuel = 0          // polls with no burn reading from the server
+  const fslot = which => { try { return furnace?.[which]?.() ?? null } catch { return undefined } }
+  const swordRow = (status, what, active) => {
+    try { logEvent({ kind: 'sword_fuel', status, snapshot: snapshot(bot), detail: `${what} for ${plan.input} active=${active ? 1 : 0}` }) } catch { /* never break a smelt */ }
+  }
+  // EVERY SWORD NOT YET IN -> ONE ordinary load for the items still uncovered, from what the bag holds NOW (Claude r-rev1:
+  // the queued ordinary load is dropped too, so nothing is counted twice).
+  const substitute = () => {
+    queue.length = 0
+    const need = plan.batch - covered
+    if (need <= 0) return
+    const alt = chooseFuel(heldMap(bot), { exclude: plan.input, needTicks: need * SMELT_TICKS })
+    if (alt) queue.push({ name: alt.name, count: Math.min(alt.count, Math.ceil(need * SMELT_TICKS / alt.ticks)) })
+  }
+  // -> true when a load went in. A SWORD GOES ONLY INTO A COLD FURNACE WITH AN EMPTY FUEL SLOT (both reviews, r-rev1): it
+  // ignites at once, so the switch read here IS the switch at the burn, and no sword ever waits staged in the slot --
+  // where a stopped job would have to take it back into a bag that may be full. Not cold yet: wait (the loop asks again).
+  // A failed put stops all further loads; the input drains back.
   const loadNext = async () => {
     while (queue.length) {
-      const next = queue.shift()
+      const next = queue[0]
       if (next.sword) {
+        // furnace.fuel is mineflayer's burn-left fraction (the server's data slot); unknown for a few polls after the open
+        // is waited out, and if it stays unknown the swords give way to ordinary fuel rather than stall the job.
+        if (typeof furnace?.fuel !== 'number' && ++unknownFuel > SWORD_UNKNOWN_POLLS) { substitute(); continue }
+        if (!(fslot('fuelItem') === null && furnace?.fuel === 0)) return false
+        queue.shift()
         const active = foodSkipNow(bot).active
         const copy = (bot.inventory?.items?.() ?? []).find(it => burnableSword(it, active))
-        if (!copy) {
-          swordsSkipped += 1 + queue.filter(q => q.sword).length
-          const rest = queue.filter(q => !q.sword); queue.length = 0
-          const items = swordsSkipped
-          const alt = chooseFuel(heldMap(bot), { exclude: plan.input, needTicks: items * SMELT_TICKS })
-          if (alt && alt.ticks * alt.count >= items * SMELT_TICKS) queue.push({ name: alt.name, count: Math.ceil(items * SMELT_TICKS / alt.ticks) })
-          queue.push(...rest)
-          continue
-        }
-        await furnace.putFuel(bot.registry.itemsByName.wooden_sword.id, null, 1)
-        burned.wooden_sword = (burned.wooden_sword ?? 0) + 1
-        logEvent({ kind: 'sword_fuel', status: 'success', snapshot: snapshot(bot),
-                   detail: `wooden_sword into the furnace fuel slot for ${plan.input} active=${active ? 1 : 0}` })
+        if (!copy) { substitute(); continue }
+        try { await furnace.putFuel(bot.registry.itemsByName.wooden_sword.id, null, 1) } catch { queue.length = 0; return false }
+        covered += 1; staged = { active, input: fslot('inputItem')?.count ?? 0 }
         return true
       }
+      queue.shift()
       const def = bot.registry.itemsByName[next.name]
       if (!def || !(next.count > 0)) continue
-      await furnace.putFuel(def.id, null, next.count)
+      try { await furnace.putFuel(def.id, null, next.count) } catch (e) { if (!queue.length && !Object.keys(burned).length && !staged && covered === 0) throw e; queue.length = 0; return false }
       burned[next.name] = (burned[next.name] ?? 0) + next.count
+      covered += next.count * (fuelTicks(next.name) || SMELT_TICKS) / SMELT_TICKS
       return true
     }
     return false
+  }
+  // A STAGED SWORD THAT LEFT THE SLOT AND IS BURNING (or whose item already cooked: the input fell) HAS IGNITED: the
+  // confirmed burn, and its row. A sword still in the slot is not a burn.
+  const confirmBurn = () => {
+    if (staged && fslot('fuelItem') === null && (furnace?.fuel > 0 || (fslot('inputItem')?.count ?? 0) < staged.input)) {
+      burned.wooden_sword = (burned.wooden_sword ?? 0) + 1
+      swordRow('success', 'burned wooden_sword', staged.active)
+      staged = null
+    }
   }
   // MEASURED BEFORE ANYTHING MOVES. ADR-0003: a promise resolving is not a
   // result. The runner grades this independently from its own before/after
   // inventory snapshot, and this number only makes the `detail` honest.
   const before = countItem(bot, plan.output)
 
-  let furnace
   try {
     furnace = await withTimeout(bot.openFurnace(block), SMELT_OPEN_MS, bot,
                                 { what: 'furnace', needsDrop: false, onTimeout: () => {} })
@@ -7398,13 +7425,21 @@ async function smelt(ctx, { item, count = 1 }, signal) {
       if (inp === undefined) break
       // Nothing left to cook and nothing left to collect: done early.
       if (!inp && !slot('outputItem')) break
-      // THE NEXT LOAD (peaceful kit): a sword leaves the fuel slot the moment it ignites, so an EMPTY fuel slot with input
-      // still to cook and loads still queued takes the next one. Never reached without swords (the queue is then empty).
+      // THE NEXT LOAD (peaceful kit): confirm a staged sword's ignition, then -- with input still to cook and loads still
+      // queued -- an EMPTY fuel slot takes the next one (a sword only once the furnace is cold). Never reached without
+      // swords: the queue is then empty after the first load.
+      confirmBurn()
       if (queue.length && inp && slot('fuelItem') === null) await loadNext()
       await sleep(SMELT_POLL_MS, signal)
     }
   } finally {
-    await drainFurnace(furnace)
+    confirmBurn()
+    // A SWORD STILL IN THE FUEL SLOT (it never ignited) comes back -- unless the bag has no empty slot, where taking it
+    // would make mineflayer's putAway toss it: then it stays in the furnace as fuel (not a drop; a row says so).
+    const left = staged && fslot('fuelItem')?.name === 'wooden_sword'
+    const full = left && (bot.inventory?.emptySlotCount?.() ?? 0) === 0
+    if (left) swordRow('no_effect', full ? 'wooden_sword left in the furnace fuel slot (the bag is full)' : 'wooden_sword returned unburned', staged.active)
+    await drainFurnace(furnace, SMELT_RECOVERY_MS, { keepFuel: !!full })
   }
 
   const gained = countItem(bot, plan.output) - before
