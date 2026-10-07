@@ -113,6 +113,29 @@ test('a FULL bag only starts a fill that empties a slot: the smallest whole kit 
   assert.equal(C.nextInsert(full, { room: false }), null, 'off: nothing in this bag is compostable')
 })
 
+test('ORDER of insertion (room): the kit\'s seeds with the seeds, its flowers with the flowers, its food last', () => {
+  let bag = [S('melon_slice', 2, 9), S('wildflowers', 2, 10), S('torchflower_seeds', 1, 11), S('red_tulip', 1, 12), S('leaf_litter', 1, 13)]
+  const seen = []
+  for (let i = 0; i < 20; i++) {
+    const nx = C.nextInsert(bag, { room: true, plants: true })
+    if (!nx) break
+    if (seen.at(-1) !== nx.item.name) seen.push(nx.item.name)
+    bag = bag.map(s => s === nx.item ? { ...s, count: s.count - 1 } : s).filter(s => s.count > 0)
+  }
+  assert.deepEqual(seen, ['leaf_litter', 'torchflower_seeds', 'red_tulip', 'wildflowers', 'melon_slice'])
+})
+
+test('startableJunk: a full bag whose every kit stack is above 7 starts no order (a free no_effect each cooldown); one small stack does', () => {
+  const fill = n => Array.from({ length: n }, (_, i) => S('cobblestone', 64, 20 + i))
+  const big = [S('wildflowers', 30, 9), S('melon_slice', 9, 10), ...fill(34)]
+  assert.equal(C.compostPlan(big, { plants: true }).junk, 39, 'the plan sees the plants')
+  assert.equal(C.startableJunk(big, { plants: true }), 0, 'but no fill can start')
+  const small = [S('wildflowers', 30, 9), S('red_tulip', 3, 10), ...fill(34)]
+  assert.equal(C.startableJunk(small, { plants: true }), 33)
+  assert.equal(C.startableJunk(big.slice(0, 35), { plants: true }), 39, 'a free slot: room for the bone meal')
+  assert.equal(C.startableJunk(big, {}), 0, 'off: nothing compostable')
+})
+
 // ---- the bank: pure ----------------------------------------------------------------------------------------------------
 const T = (name, used = 0, slot = 9) => ({ name, count: 1, slot, maxDurability: { wooden: 59, stone: 131, iron: 250 }[name.split('_')[0]] ?? 131, durabilityUsed: used })
 
@@ -129,11 +152,23 @@ test('BANK pure: on, every usable sword is bankable (none kept); off, the one-pe
   assert.equal(bankableInventory([T('stone_sword'), T('stone_sword', 0, 10)], { swords: true }).detail.stone_sword, 2)
 })
 
-test('BANK default: the policy\'s current decision (one switch); off by default before any decision', () => {
+test('NO NEW TRIP: the default allowance is the BASE rule whatever the switch -- admission, the prompt and the milestone count as before', () => {
+  for (const on of [false, true]) {
+    setPeacefulFood(on)
+    assert.equal(bankableInventory([T('stone_sword')]).count, 0, `switch ${on}: a sword alone makes nothing bankable`)
+  }
   setPeacefulFood(false)
-  assert.equal(bankableInventory([T('stone_sword')]).count, 0)
-  setPeacefulFood(true)
-  try { assert.equal(bankableInventory([T('stone_sword')]).count, 1) } finally { setPeacefulFood(false) }
+})
+
+test('NO NEW TRIP, through the gate: 11 bankable items + a sword, beside the chest, under 30 slots: deposit refused while ON as while off', () => {
+  const items = [stack('raw_copper', 11), tool('stone_sword'), tool('stone_pickaxe', 30)]
+  for (const difficulty of ['peaceful', 'easy']) {
+    const w = townWith(items.map(i => ({ ...i })), difficulty)
+    foodSkipNow(w.bot)
+    const r = new AdmissionControl().check({ skill: 'deposit', args: {} }, w.bot)
+    assert.equal(r.reason, 'deposit_not_worth_it', `${difficulty}: ${JSON.stringify(r)}`)
+  }
+  setPeacefulFood(false)
 })
 
 // ---- the bank: the REAL deposit skill --------------------------------------------------------------------------------------
@@ -186,6 +221,18 @@ test('ADMISSION: craft <sword> is refused before any walk while active, with the
   assert.notEqual(pick.reason, 'peaceful_no_sword', 'a pickaxe is not a sword')
 })
 
+test('THE REFUSAL CHAIN: a refused sword craft names a remedy the gate then ADMITS (craft a pickaxe), from the same bot', () => {
+  const bot = craftBot('peaceful')
+  const r = new AdmissionControl().check({ skill: 'craft', args: { item: 'stone_sword', count: 1 } }, bot)
+  assert.equal(r.reason, 'peaceful_no_sword')
+  const remedy = /craft a (pickaxe)/.exec(r.detail)
+  assert.ok(remedy, r.detail)
+  const next = new AdmissionControl().check({ skill: 'craft', args: { item: 'stone_pickaxe', count: 1 } }, bot)
+  assert.equal(next.ok, true, JSON.stringify(next))
+  const g = new AdmissionControl().check({ skill: 'gather', args: { block: 'oak_log', count: 1 } }, bot)
+  assert.equal(g.ok, true, `gather, the other remedy: ${JSON.stringify(g)}`)
+})
+
 test('CRAFT SKILL: a sword is refused at the top (no recipe looked up) while active; off it is attempted as before', async () => {
   const on = craftBot('peaceful')
   const r = await SKILLS.craft.run({ bot: on }, { item: 'stone_sword' }, new AbortController().signal)
@@ -232,9 +279,11 @@ test('ONE SWITCH: the difficulty packet sets the decision (auto); FOOD_SKIP=off 
 
 test('THE ROW: one `_peaceful_kit` row per change of (decision, difficulty), beside `_food_skip`', () => {
   const rows = []
+  const b = { serverDifficulty: 'normal', registry: mcData }
+  foodSkipNow(b)   // a known starting state, whatever the tests before left (the row's memory is per process)
   const untap = tapRecords(r => { if (r?.skill?.name === '_peaceful_kit') rows.push(r.skill.detail) })
   try {
-    const b = { serverDifficulty: 'hard', registry: mcData }
+    b.serverDifficulty = 'hard'
     foodSkipNow(b); foodSkipNow(b)
     b.serverDifficulty = 'peaceful'; foodSkipNow(b); foodSkipNow(b)
     b.serverDifficulty = 'easy'; foodSkipNow(b)
@@ -247,10 +296,9 @@ test('THE ROW: one `_peaceful_kit` row per change of (decision, difficulty), bes
 
 test('THE CLASSIFIER: a compost visit that lost kit plants counts as the composter\'s effect only while the kit is on', () => {
   const delta = { inventory: { wildflowers: -12, melon_slice: -3 }, distance: 0 }
-  setPeacefulFood(true)
-  const on = classifyOutcome('compost', 'success', delta)
-  setPeacefulFood(false)
-  const off = classifyOutcome('compost', 'success', delta)
+  let on, off
+  try { setPeacefulFood(true); on = classifyOutcome('compost', 'success', delta) } finally { setPeacefulFood(false) }
+  off = classifyOutcome('compost', 'success', delta)
   assert.match(JSON.stringify(on), /inventory_loss: wildflowers -12, melon_slice -3/)
   assert.doesNotMatch(JSON.stringify(off), /wildflowers/)
 })
@@ -259,9 +307,8 @@ test('THE CLASSIFIER: a compost visit that lost kit plants counts as the compost
 test('PROMPT: CAN CRAFT NOW lists no sword while active (the 6-slot line fills with the next tool); lists them again off', async () => {
   const { craftableNow } = await import('../src/prompt.mjs')
   const bot = { registry: mcData, inventory: { items: () => [{ name: 'crafting_table', count: 1 }] }, recipesFor: () => [{}], findBlock: () => null }
-  setPeacefulFood(true)
-  const on = craftableNow(bot)
-  setPeacefulFood(false)
+  let on
+  try { setPeacefulFood(true); on = craftableNow(bot) } finally { setPeacefulFood(false) }
   const off = craftableNow(bot)
   assert.doesNotMatch(on, /_sword/); assert.match(on, /stone_shovel/)
   assert.match(off, /stone_sword/)
