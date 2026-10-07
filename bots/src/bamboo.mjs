@@ -33,9 +33,10 @@ const countOf = (items, name) => items.reduce((n, it) => n + (it?.name === name 
  *   3. the stick: onto the first non-full stick stack, then the first empty slot, else it is thrown
  * craftRoom (craftroom.mjs) takes ingredients off the largest stack and so never sees that consolidation; it stays the
  * PEAK/safety check. Items without a `slot` are laid out in order from slot 9. `steps` is per craft: the bag's
- * occupancy and stick slots after it, for a caller scanning batch sizes without re-simulating.
+ * occupancy and stick slots after it, for a caller scanning batch sizes without re-simulating; with `bags` each step
+ * also carries the bag itself (`bag`: { slot, name, count, stackSize }[]).
  */
-export function simulateFold (items = [], crafts = 0, { first = 9, last = 44, stackSize = 64 } = {}) {
+export function simulateFold (items = [], crafts = 0, { first = 9, last = 44, stackSize = 64, bags = false } = {}) {
   const slots = new Map()
   let next = first
   for (const it of (Array.isArray(items) ? items : []).filter(i => i?.name && (i.count ?? 1) > 0)) {
@@ -74,7 +75,10 @@ export function simulateFold (items = [], crafts = 0, { first = 9, last = 44, st
     if (out.short) break
     out.tossed += put('bamboo', cursor)
     out.tossed += put('stick', 1)
-    out.steps.push({ after: slots.size, stickSlots: stickSlots(), tossed: out.tossed })
+    const step = { after: slots.size, stickSlots: stickSlots(), tossed: out.tossed }
+    // `bags` (foldForCraft): the bag after this craft, slot by slot, for a caller that must test another craft on it
+    if (bags) step.bag = order().map(k => ({ slot: k, name: slots.get(k).name, count: slots.get(k).count, stackSize: slots.get(k).size }))
+    out.steps.push(step)
   }
   out.after = slots.size
   out.stickSlotsAfter = stickSlots()
@@ -124,6 +128,63 @@ export function bambooPlan (items = [], { minSlots = TRIGGER_SLOTS, stickCap = S
   if (needsRoom) return none(`${needsRoom.k} craft(s) would need ${needsRoom.peak ? needsRoom.peak - capacity : 1} more slot(s) on the way`)
   if (capped) return none(`${capped} craft(s) would free a slot but pass the ${stickCap}-stick cap with a new stick slot`)
   return none(`no batch of up to ${maxCrafts} craft(s) frees a slot (${bamboo} bamboo, ${sticks} sticks)`)
+}
+
+/**
+ * A FOLD AS CRAFT'S MAKE-ROOM STEP (bamboocraft-01) -> { fold, crafts, freed, before, after, reason, why }. Pure.
+ * A room-blocked milestone craft wins the decision every time, so the housekeeping order (bambooOrder) is never asked
+ * even when folding would free the slot the craft needs (review of bamboo-01). craft() asks this BEFORE wearing out a
+ * tool: a fold destroys nothing, a wear-out destroys a tool copy, so the cheapest safe remedy goes first.
+ *   items     the bag (mineflayer Item[] with `slot`)
+ *   recipe    the pending craft as craftroom sees it ({ consumes, outputs }: roomRecipe)
+ *   protect   more ingredients to keep (a whole-tree plan's later steps)
+ *   reserve   slots the room check holds back (a table to take back, an item on the ground): the craft must fit in
+ *             capacity - reserve, exactly as admitRoom asks it
+ *   leftMs    the time the craft has left for the fold (its window must fit, foldWindow)
+ * fold is true only when ALL hold:
+ *   - the craft does not consume bamboo, nor does anything in `protect` (the fold spends bamboo; sticks it ADDS are
+ *     fine for a craft that needs sticks -- the after-bag below decides)
+ *   - the craft is blocked by ROOM, not ingredients, on the bag as it is now
+ *   - a batch exists that bambooPlan would also run: frees a slot as the bot really runs it (simulateFold), throws
+ *     nothing, keeps to the stick cap (sticks + crafts <= STICK_CAP, or no new stick slot), and its craftRoom PEAK fits
+ *   - its window fits the time left (foldWindow)
+ *   - THE CRAFT FITS ON THE BAG THE FOLD LEAVES (craftRoom on simulateFold's after-bag, capacity - reserve): a fold that
+ *     frees a slot the craft's output cannot use (a stick stack the fold just filled, a table slot still short) is no
+ *     remedy
+ * The SMALLEST such batch is chosen. No minimum bag size: the craft's own room check already said the bag is full.
+ */
+export function foldForCraft ({ items = [], recipe = {}, protect = [], reserve = 0, leftMs = Infinity, stickCap = STICK_CAP, capacity = BAG_SLOTS } = {}) {
+  const list = (Array.isArray(items) ? items : []).filter(it => it?.name && (it.count ?? 1) > 0)
+  const before = list.length
+  const none = (reason, why) => ({ fold: false, crafts: 0, freed: 0, before, after: before, reason, why })
+  const uses = [...(recipe?.consumes ?? []), ...(protect ?? [])].map(c => c?.name ?? c)
+  if (uses.includes('bamboo')) return none('craft_uses_bamboo', 'the craft consumes bamboo: a fold would spend its ingredient')
+  const room = craftRoom(list, recipe, 1, { capacity: capacity - reserve })
+  if (room.ok) return none('fits', 'the craft already fits')
+  if (room.reason !== 'no_room') return none('ingredients', `the craft lacks ${room.missing}: no room problem to solve`)
+  const bamboo = countOf(list, 'bamboo'), sticks = countOf(list, 'stick')
+  if (bamboo < 2) return none('no_bamboo', `${bamboo} bamboo: a stick takes 2`)
+  const sim = simulateFold(list, Math.floor(bamboo / 2), { bags: true })
+  let first = null
+  const note = (reason, why) => { first ??= { reason, why } }
+  for (let k = 1; k <= sim.steps.length; k++) {
+    const st = sim.steps[k - 1]
+    if (st.tossed > 0) { note('needs_room', `${k} craft(s) would throw an item on the ground`); break }
+    const freed = before - st.after
+    if (freed <= 0) continue
+    if (!(sticks + k <= stickCap || st.stickSlots <= sim.stickSlotsBefore)) {
+      note('stick_cap', `${k} craft(s) would pass the ${stickCap}-stick cap with a new stick slot`); continue
+    }
+    const peak = craftRoom(list, BAMBOO_STICK, k, { capacity: Infinity }).peak
+    if (peak > capacity) { note('needs_room', `${k} craft(s) would need ${peak - capacity} more slot(s) on the way`); continue }
+    if (!foldWindow(k, { leftMs }).fits) { note('too_long', `${k} craft(s) cannot finish in the ${Math.round(Math.max(0, leftMs) / 1000)} s the craft has left`); break }
+    if (!craftRoom(st.bag, recipe, 1, { capacity: capacity - reserve }).ok) {
+      note('not_enough', `${k} craft(s) free ${freed} slot(s) but the craft still does not fit`); continue
+    }
+    return { fold: true, crafts: k, freed, before, after: st.after, reason: 'fold',
+             why: `${k} craft(s): ${2 * k} bamboo -> ${k} sticks frees ${freed} slot(s) for the craft` }
+  }
+  return none(first?.reason ?? 'frees_nothing', first?.why ?? `no batch of up to ${Math.floor(bamboo / 2)} craft(s) frees a slot (${bamboo} bamboo, ${sticks} sticks)`)
 }
 
 /**
