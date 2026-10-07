@@ -27,11 +27,12 @@
 //          the larger count; a count that RELEASES a claim on that container always replaces every count appended before
 //          it, whatever the clocks say (Codex r3 P1: a release must be represented by its own count, even after a clock step).
 //   rel    a release with nothing moved (a refused claim, released at once)
-//   void   a claim abandoned by a DEAD instance, written by that bot's next instance (or a claim of this instance left over
-//          from an earlier skill run): it stops being a reservation and its container is UNKNOWN until a count appended
-//          after the void and captured after it. AN ADMITTED CLAIM IS NEVER EXPIRED BY TIME (Codex r3 P1: a paused transfer
-//          cannot be fenced by a clock): it stays reserved until its own release or a void; only the bot's own next instance
-//          can void it, and by then the instance that could still transfer is gone.
+//   void   a claim abandoned by a DEAD instance, written by that bot's next instance once it is logged in (the server keeps
+//          one connection per username, so the predecessor can no longer click): it stops being a reservation and its
+//          container is UNKNOWN until a count appended after the void and captured after it, which then IS the count.
+//          AN ADMITTED CLAIM IS NEVER EXPIRED BY TIME (Codex r3 P1: a paused transfer cannot be fenced by a clock): it
+//          stays reserved until its own release or a void. A bot removed from the fleet leaves its claims reserved for good
+//          (fail closed: at most one stack each; the read reports claims never released).
 //   scan   the town's container keys from a covered scan, for the plan's view from away from home
 // Isolated pools keep one state dir per bot, so their bots do not see each other's claims: the read reports it, and the
 // canary never draws an isolated pool.
@@ -157,10 +158,12 @@ export function foldJournal (records = [], { upto = null, state: from = null, se
       // a count that releases a live claim on this very container was taken AFTER that claim's transfer: it replaces every
       // earlier-appended count whatever the clocks say; otherwise the latest capture wins, a tie the larger count
       const releasing = t === 'cnt' && (r.ids ?? []).some(id => state.claims[id]?.state === 'live' && state.claims[id]?.k === r.k)
-      if (!o || releasing || r.cap > o.at || (r.cap === o.at && n > o.n)) state.obs[r.k] = { n, at: r.cap, seq }
-      // A VOID IS RESOLVED by any count of its container appended after it and captured at or after it -- whether or not
-      // that count replaced the one standing (an equal-millisecond tie keeps the larger, which is captured after it too)
-      for (const [id, c] of Object.entries(state.claims)) if (c.state === 'void' && c.k === r.k && r.cap >= c.voidAt) delete state.claims[id]
+      // A VOID IS RESOLVED by a count of its container appended after it and captured at or after it, and that recount IS
+      // the container's count from then on (Codex r4 P1: a recount that lost to an older count with a later clock must not
+      // clear the unknown while the stale low count stands)
+      const resolving = Object.values(state.claims).some(c => c.state === 'void' && c.k === r.k && r.cap >= c.voidAt)
+      if (!o || releasing || resolving || r.cap > o.at || (r.cap === o.at && n > o.n)) state.obs[r.k] = { n, at: r.cap, seq }
+      if (resolving) for (const [id, c] of Object.entries(state.claims)) if (c.state === 'void' && c.k === r.k && r.cap >= c.voidAt) delete state.claims[id]
     }
     if (t === 'cnt' || t === 'rel') release(r.ids)
     else if (t === 'claim' && r.id && r.k && Number.isFinite(r.at)) {
@@ -266,15 +269,18 @@ export function recordCount (dir, key, world, { obs = null, release = [], scan =
 }
 
 /**
- * VOID THIS BOT'S ABANDONED CLAIMS -> how many: live claims by `bot` from another (dead: one process per bot) instance, or
- * from this instance before `before` (an earlier skill run's leftover; one skill runs at a time). Each one makes its
- * container UNKNOWN until recounted.
+ * VOID THIS BOT'S PREDECESSOR'S CLAIMS -> how many: live claims by `bot` from ANOTHER process instance. Called only once this
+ * process is LOGGED IN as `bot` (skills.mjs, after spawn): the server admits one connection per username and kicks the
+ * older one, so no click of the predecessor can reach the server any more (Codex r4 P1). A claim of THIS instance is never
+ * voided, however old: a skill the runner abandoned may still be awaiting its transfer, and finishes it, releasing the
+ * claim itself; one that never finishes keeps its reservation until the process ends (fail closed). Each voided claim
+ * makes its container UNKNOWN until recounted.
  */
-export function voidOwnClaims (dir, key, world, { bot, before = Date.now() } = {}) {
+export function voidOwnClaims (dir, key, world, { bot } = {}) {
   if (bot == null) return 0
   const st = readTown(dir, key, world)
   if (!st) return 0
-  const ids = Object.entries(st.claims).filter(([, c]) => c.state === 'live' && c.bot === bot && (c.inst !== INSTANCE || c.at < before)).map(([id]) => id)
+  const ids = Object.entries(st.claims).filter(([, c]) => c.state === 'live' && c.bot === bot && c.inst !== INSTANCE).map(([id]) => id)
   if (ids.length && !appendJournal(dir, key, world, { t: 'void', ids, at: Date.now(), bot, inst: INSTANCE })) return 0
   return ids.length
 }
