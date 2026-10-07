@@ -223,7 +223,8 @@ export function airPocketAfter (ok, state, now = Date.now()) {
  *   deps.blockAt(vec) / deps.Vec3 / deps.predict(block, item) -> ms / deps.sleep(ms) / deps.now()
  */
 export async function airPocketStep (bot, plan, { Vec3, predict, sleep = ms => new Promise(r => setTimeout(r, ms)),
-                                                 now = () => Date.now(), maxHealth = 20, envelope, guard = () => null } = {}) {
+                                                 now = () => Date.now(), maxHealth = 20, envelope, guard = () => null,
+                                                 standItem = () => null } = {}) {
   const t0 = now()
   const p0 = bot.entity.position
   const fx = Math.floor(p0.x), fy = Math.floor(p0.y), fz = Math.floor(p0.z)
@@ -313,6 +314,7 @@ export async function airPocketStep (bot, plan, { Vec3, predict, sleep = ms => n
         if (eyeInAirSince == null) { eyeInAirSince = now(); healthAtEyeIn = bot.health }
         if (airPocketConfirmed({ eyeInAirSince, now: now(), health: bot.health, healthAtEyeIn, maxHealth })) {
           res.ok = true; res.outcome = 'success'; res.why = `breathing in ${plan.kind === 'ice' ? 'the opened column' : 'the dug pocket'}`
+          res.stand = await standInPocket(bot, plan, { fx, fy, fz, Vec3, sleep, now, standItem })
           return res
         }
       } else { eyeInAirSince = null; healthAtEyeIn = null }
@@ -350,8 +352,42 @@ export async function airPocketStep (bot, plan, { Vec3, predict, sleep = ms => n
   }
 }
 
+/**
+ * STAND WITH THE EYE IN THE POCKET (Paper sandbox e142b8f, A-floor). On a floor, once the rescue releases the controls
+ * the bot sinks back onto the floor with its eye in water again (Air fell to 83 of 300 before the rescue lifted it).
+ * So after success, when the cell under the original feet is SOLID, place blocks under the rising bot -- one per cell
+ * between the feet and the air cell, the pillar's own jump-and-place -- until it STANDS with its eye in air. Deep water
+ * with no floor needs none (the bot floats at the pocket). Every placement is read back; a failure stops and is reported.
+ * Never throws. Returns 'none' | 'placed:N' | 'stopped:<why>'.
+ */
+export async function standInPocket (bot, plan, { fx, fy, fz, Vec3, sleep, now, standItem }) {
+  try {
+    const airY = fy + plan.dy + (plan.kind === 'ice' ? 1 : 0)   // the cell the eye must be in
+    const need = airY - fy - 1                                  // blocks to stand on so feet sit at airY - 1
+    const floor = bot.blockAt(new Vec3(fx, fy - 1, fz))
+    if (!(need > 0) || !isSolid(floor)) return 'none'
+    let placed = 0
+    for (let k = 0; k < need; k++) {
+      const cellY = fy + k
+      const item = standItem()
+      if (!item) return `stopped:no placeable block (${placed} placed)`
+      try { await Promise.race([bot.equip(item, 'hand'), sleep(1500)]) } catch { /* the place below will tell */ }
+      try { bot.setControlState('jump', true) } catch {}
+      const by = now() + 2500
+      while (now() < by && bot.entity.position.y < cellY + 1.05) await sleep(50)
+      if (bot.entity.position.y < cellY + 1.05) return `stopped:did not rise above y=${cellY} (${placed} placed)`
+      const ref = bot.blockAt(new Vec3(fx, cellY - 1, fz))
+      if (!isSolid(ref)) return `stopped:no reference under y=${cellY} (${placed} placed)`
+      try { await Promise.race([bot.placeBlock(ref, new Vec3(0, 1, 0)), sleep(1500)]) } catch { /* read back */ }
+      if (!isSolid(bot.blockAt(new Vec3(fx, cellY, fz)))) return `stopped:y=${cellY} did not turn solid (${placed} placed)`
+      placed++
+    }
+    return `placed:${placed}`
+  } catch (e) { return `stopped:threw ${String(e?.message ?? e).slice(0, 40)}` }
+}
+
 /** One telemetry line for a step result. Pure. */
 export function airPocketDetail (r) {
   return `outcome=${r.outcome} kind=${r.kind} cell=${r.cell} block=${r.block} tool=${r.tool} standing=${r.standing ? 1 : 0} predicted_ms=${r.predictedMs} ` +
-         `dig_ms=${r.digMs ?? -1} ms=${r.ms ?? -1} envelope=${r.envelope} health=${r.healthStart}->${r.healthEnd} eye=${r.eye} -- ${r.why}`
+         `dig_ms=${r.digMs ?? -1} ms=${r.ms ?? -1} envelope=${r.envelope} health=${r.healthStart}->${r.healthEnd} eye=${r.eye} stand=${r.stand ?? 'none'} -- ${r.why}`
 }
