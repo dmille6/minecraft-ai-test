@@ -247,7 +247,8 @@ function wiringProblems (cog, cmd) {
   if (!/const res = order\s*\?/.test(cog)) p.push('ORDER_IS_PROPOSAL')
   if (!/if \(dstep && rejection\) directives\.report\(dstep\.gen, 'rejected'/.test(cog)) p.push('REJECT_REPORTED')
   if (!/directives\.report\(dstep\.gen, neverRan \? 'runner_refusal' : 'done'/.test(cog)) p.push('OUTCOME_REPORTED')
-  if (/if \(dstep\)\s*\{[^}]*runner\.run\(/.test(cog)) p.push('COGNITIVE_SIDE_DOOR')
+  { const a = cog.indexOf('directives.next(Date.now())'), b = cog.indexOf('const res = order')   // the directive-scoped region
+    if (a < 0 || b < 0 || /runner\.run\(/.test(cog.slice(a, b))) p.push('COGNITIVE_SIDE_DOOR') }
   const caseBody = (cmd.split("case 'directive'")[1] ?? '').split('case ')[0]
   if (!caseBody || /runner\.run\(/.test(caseBody)) p.push('CHAT_SIDE_DOOR')
   if (!/if \(process\.env\.C2_DIRECTOR && !directorAllowed\(username\)\) return/.test(cmd)) p.push('DIRECTOR_ONLY')
@@ -264,6 +265,8 @@ expect(wiringProblems(mut(cog, 'directives.next(Date.now())', 'null'), cmd), 'NE
 expect(wiringProblems(mut(cog, 'const res = order', 'const res = null'), cmd), 'ORDER_IS_PROPOSAL')
 expect(wiringProblems(mut(cog, "directives.report(dstep.gen, neverRan ? 'runner_refusal' : 'done'", "void (dstep.gen, neverRan ? 'runner_refusal' : 'done'"), cmd), 'OUTCOME_REPORTED')
 expect(wiringProblems(mut(cog, 'const dstep = dnext', 'const dstep = dnext\n    if (dstep) { await this.runner.run(dstep.skill, dstep.args, {}); return }'), cmd), 'COGNITIVE_SIDE_DOOR')
+expect(wiringProblems(mut(cog, "      trigger = `directive:${dstep.origin}/${trigger}`\n    }", "      trigger = `directive:${dstep.origin}/${trigger}`\n      await this.runner.run(dstep.skill, dstep.args, {})\n    }"), cmd), 'COGNITIVE_SIDE_DOOR')
+expect(wiringProblems(mut(cog, 'const dstep = dnext', 'const dstep = dnext\n    if (dstep) await this.runner.run(dstep.skill, dstep.args, {})'), cmd), 'COGNITIVE_SIDE_DOOR')
 expect(wiringProblems(cog, mut(cmd, 'directives.offer(p.directive, Date.now())', "runner.run('goto', {}, {})")), 'CHAT_SIDE_DOOR')
 expect(wiringProblems(cog, mut(cmd, 'if (process.env.C2_DIRECTOR && !directorAllowed(username)) return', '')), 'DIRECTOR_ONLY')
 
