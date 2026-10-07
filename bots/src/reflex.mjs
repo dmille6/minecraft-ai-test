@@ -1361,23 +1361,15 @@ export function startReflexes(bot, runner, lessons = null, worldFacts = null) {
   // AIRPOCKET RUNNER: plan (pure) -> admit (pure, health budget) -> the step (it digs). Returns true when the step ran.
   // On success the place now HAS air, so the rescue's memory of failing here is cleared and its ceiling restarts: if
   // the bot sinks back, its own scan now reads `up dist=1` into the pocket and the ordinary rescue lifts it there.
-  const runAirPocket = async (route, heldMs) => {
-    // the rescue's own verdict that let the step run (the read gates on it: never `up`)
-    const trig = `trigger_route=${route?.dir ?? (route?.sealed ? 'sealed' : 'unscanned')}:${route?.dist === Infinity ? -1 : route?.dist} held_ms=${Math.round(heldMs)}`
+  // PLAN + ADMISSION, no side effects: what the step WOULD do here. The pre-empt asks it first (both reviews r2: an
+  // escape must never be stopped for a step that would then be refused).
+  const prepareAirPocket = () => {
     const at = bot.entity?.position
-    if (!at) return false
+    if (!at) return { ok: false, why: 'no position' }
     const fx = Math.floor(at.x), fy = Math.floor(at.y), fz = Math.floor(at.z)
     const plan = airPocketPlan((dx, dy, dz) => bot.blockAt(new Vec3(fx + dx, fy + dy, fz + dz)))
     const inputs = airPocketInputs(bot)   // the server's difficulty (packet) and the Hunger effect -- never bot.game.difficulty
-    const refuse = (why) => {
-      airPocketCooldownUntil = Date.now() + AP_REFUSE_COOLDOWN_MS
-      if (throttled(`air_pocket_refused:${why.split(' ')[0]}:${fx},${fy},${fz}`, 30_000)) {
-        logEvent({ kind: 'air_pocket_refused', status: 'no_effect',
-                   detail: `reason=${why} at=${fx},${fy},${fz} health=${bot.health} difficulty=${inputs.difficulty} hunger=${inputs.hungerActive ? 1 : 0} ${trig}`, snapshot: snapshot(bot) })
-      }
-      return false
-    }
-    if (!plan.ok) return refuse(plan.why)
+    if (!plan.ok) return { ok: false, why: plan.why, fx, fy, fz, inputs }
     const block = bot.blockAt(new Vec3(fx, fy + plan.dy, fz))
     const env = digEnv(bot)
     const items = (bot.inventory?.items?.() ?? []).filter(it => /_(pickaxe|shovel|axe)$/.test(it.name))
@@ -1387,7 +1379,26 @@ export function startReflexes(bot, runner, lessons = null, worldFacts = null) {
       if (Number.isFinite(ms) && ms > 0 && (fastest == null || ms < fastest)) fastest = ms
     }
     const admit = airPocketAdmit({ health: bot.health, difficulty: inputs.difficulty, hungerActive: inputs.hungerActive, digMs: fastest })
-    if (!admit.ok) return refuse(admit.why)
+    if (!admit.ok) return { ok: false, why: admit.why, fx, fy, fz, inputs }
+    return { ok: true, plan, admit, inputs, fx, fy, fz }
+  }
+  const runAirPocket = async (route, heldMs) => {
+    // the rescue's own verdict that let the step run (the read gates on it: never `up`)
+    const trig = `trigger_route=${route?.dir ?? (route?.sealed ? 'sealed' : 'unscanned')}:${route?.dist === Infinity ? -1 : route?.dist} held_ms=${Math.round(heldMs)}`
+    const prep = prepareAirPocket()
+    if (!prep.inputs) return false
+    const { fx, fy, fz, inputs } = prep
+    const refuse = (why) => {
+      airPocketCooldownUntil = Date.now() + AP_REFUSE_COOLDOWN_MS
+      airPocketWants = 0                // a refused step never keeps an escape held off
+      if (throttled(`air_pocket_refused:${why.split(' ')[0]}:${fx},${fy},${fz}`, 30_000)) {
+        logEvent({ kind: 'air_pocket_refused', status: 'no_effect',
+                   detail: `reason=${why} at=${fx},${fy},${fz} health=${bot.health} difficulty=${inputs.difficulty} hunger=${inputs.hungerActive ? 1 : 0} ${trig}`, snapshot: snapshot(bot) })
+      }
+      return false
+    }
+    if (!prep.ok) return refuse(prep.why)
+    const { plan, admit } = prep
     airPocketing = true
     // THE START ROW, before anything moves: the read judges deaths DURING an attempt against it (Codex r1).
     const attemptId = `${Date.now().toString(36)}`
@@ -1399,8 +1410,8 @@ export function startReflexes(bot, runner, lessons = null, worldFacts = null) {
       // a skill that starts while the step runs is interrupted (cognition is not gated by the tick's early return)
       try { runner?.interrupt?.('air_pocket') } catch { /* nothing running */ }
       r = await airPocketStep(bot, plan, { Vec3, predict: (b, item) => predictedDigMs(b, item, digEnv(bot)), envelope: admit.envelope,
-                                           guard: () => { try { if (runner?.isBusy?.()) runner.interrupt('air_pocket') } catch {} return null } })
-    } finally { airPocketing = false }
+                                           guard: () => { try { if (runner?.isBusy?.()) runner.interrupt('air_pocket'); if (bot.pathfinder?.goal) haltPath(bot) } catch {} return null } })
+    } finally { airPocketing = false; airPocketWants = 0 }
     logEvent({ kind: 'air_pocket', status: r.ok ? 'success' : r.outcome === 'opened' ? 'no_effect' : 'failed',
                detail: `id=${attemptId} ${airPocketDetail(r)} | required_ms=${Math.round(admit.requiredMs)} budget_ms=${Math.round(admit.budgetMs)} ` +
                        `difficulty=${inputs.difficulty} hunger=${inputs.hungerActive ? 1 : 0} ${trig}`, snapshot: snapshot(bot) })
@@ -2244,7 +2255,8 @@ export function startReflexes(bot, runner, lessons = null, worldFacts = null) {
           // held `escaping` ~58 s and the budget ran out while the step waited). The escape's `alive` turns false and its
           // current dig is stopped; once it returns, the trigger below runs the step.
           if (airPocketPreempt({ rescuing, routeDir: route.dir, routeSealed: route.sealed, escaping, marooned, pocketing,
-                                 active: airPocketing, now: Date.now(), cooldownUntil: airPocketCooldownUntil })) {
+                                 active: airPocketing, now: Date.now(), cooldownUntil: airPocketCooldownUntil }) &&
+              prepareAirPocket().ok) {
             airPocketWants = Date.now()
             try { if (bot.targetDigBlock) bot.stopDigging() } catch { /* not digging */ }
             if (throttled('air_pocket_preempt', 30_000)) {
@@ -5107,6 +5119,7 @@ export async function pillarOut(bot, maxBlocks = PILLAR_MAX_BLOCKS, { alive = ()
 
     if (!alive()) return 'preempted'
     await bot.equip(item, 'hand').catch(() => {})
+    if (!alive()) return 'preempted'
     const below = bot.blockAt(bot.entity.position.offset(0, -1, 0))
     if (!below) break
     bot.setControlState('jump', true)
@@ -5118,7 +5131,7 @@ export async function pillarOut(bot, maxBlocks = PILLAR_MAX_BLOCKS, { alive = ()
     if (bot.entity.position.y - yBefore < 0.5) {
       if (++stalled >= 3) {
         log('warn', 'reflex: pillaring is not gaining height, digging up instead')
-        return digStraightUp(bot, startY)
+        return digStraightUp(bot, startY, undefined, { alive })
       }
     } else {
       stalled = 0
@@ -5150,7 +5163,7 @@ export async function pillarOut(bot, maxBlocks = PILLAR_MAX_BLOCKS, { alive = ()
   const gained = bot.entity.position.y - startY
   if (gained < 1) {
     log('error', 'reflex: pillar out FAILED, no height gained', { y: Math.round(startY) })
-    return digStraightUp(bot, startY)
+    return digStraightUp(bot, startY, undefined, { alive })
   }
   // Ran out of budget with height gained but no route: say so plainly rather
   // than reporting the height as though it were the point.
@@ -5372,7 +5385,9 @@ async function digBounded(bot, block, ms = 8000) {
   } finally { clearTimeout(t) }
 }
 
-export async function digStraightUp(bot, startY, maxSteps = 20) {
+export async function digStraightUp(bot, startY, maxSteps = 20, { alive = () => true } = {}) {
+  // A PRE-EMPTED CLIMB STOPS BEFORE ANYTHING ELSE (airpocket-01): no refusal row, no pickaxe request, no dig.
+  if (!alive()) return 'preempted'
   // THE ESCAPE MAY NOT SPEND THE EXIT. 574 escape events destroyed a pickaxe,
   // and 24 of 26 permanently-stuck bots now hold none -- at which point
   // harvestAdjacent fails 99.4% of the time with "0/8 dug", because the walls
@@ -5390,15 +5405,20 @@ export async function digStraightUp(bot, startY, maxSteps = 20) {
     return 'needs_pickaxe'
   }
   for (let i = 0; i < maxSteps; i++) {
+    // YIELD WHEN TOLD (airpocket-01, Codex r2): pillarOut hands its `alive` down, so a pre-empted climb stops here and
+    // after every await below rather than finishing its loop.
+    if (!alive()) return 'preempted'
     const above = bot.blockAt(bot.entity.position.offset(0, 2, 0))
     if (!above || above.name === 'air') {
       // Ceiling clear -- try to gain the block, otherwise walk toward the gap.
       const item = scaffoldFor(bot, 'dig_straight_up')
       if (item) {
         await bot.equip(item, 'hand').catch(() => {})
+        if (!alive()) return 'preempted'
         const below = bot.blockAt(bot.entity.position.offset(0, -1, 0))
         bot.setControlState('jump', true)
         await sleep(300)
+        if (!alive()) { bot.setControlState('jump', false); return 'preempted' }
         try { await bot.placeBlock(below, new Vec3(0, 1, 0)) } catch {}
         bot.setControlState('jump', false)
         await sleep(200)
@@ -5413,9 +5433,10 @@ export async function digStraightUp(bot, startY, maxSteps = 20) {
       const opened = above.position ?? bot.entity.position.offset(0, 2, 0)
       const tool = bestTool(bot, above)
       if (tool) await bot.equip(tool, 'hand').catch(() => {})
+      if (!alive()) return 'preempted'
       const atSwing = targetFloodRisk(bot, above, 'dig_straight_up')   // again after the hand change, of `above` itself (Codex r2/r3)
       if (atSwing.reason) return FLOOD_RISK
-      try { await digBounded(bot, above) } catch { break }
+      try { await digBounded(bot, above) } catch { if (!alive()) return 'preempted'; break }
       watchClimbDig(bot, { caller: 'dig_straight_up', cell: opened, submerged: atSwing.submerged, before: above.name })
       await sleep(150)
     }
