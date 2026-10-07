@@ -288,7 +288,7 @@ function wiring (src) {
   const trigger = code.indexOf('airPocketTrigger({ rescuing, routeDir: route.dir', tickStart)
   return { tickStart, earlyReturn, drowningBranch, trigger,
            ok: tickStart > 0 && earlyReturn > tickStart && earlyReturn < drowningBranch && trigger > 0 && trigger < drowningBranch &&
-               /await runAirPocket\(\)/.test(code.slice(trigger, drowningBranch)) &&
+               /await runAirPocket\(route, /.test(code.slice(trigger, drowningBranch)) &&
                /airPocketing = true[\s\S]{0,200}airPocketStep\(/.test(code) && /finally \{ airPocketing = false \}/.test(code) &&
                /drownFails = 0; drownFailPos = null/.test(code) }
 }
@@ -304,7 +304,7 @@ await t('G2 MUTANT KILLED: without the early return the wiring check fails', () 
 })
 await t('G3 MUTANT KILLED: without the trigger call the wiring check fails', () => {
   const src = readFileSync(REFLEX_PATH, 'utf8')
-  const old = 'const ran = await runAirPocket()'
+  const old = 'const ran = await runAirPocket(route, Date.now() - seizedAt)'
   assert.ok(src.split(old).length === 2, 'anchor missing or not unique')
   assert.equal(wiring(src.replace(old, 'const ran = false')).ok, false)
 })
