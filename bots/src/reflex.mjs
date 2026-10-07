@@ -2266,6 +2266,17 @@ export function startReflexes(bot, runner, lessons = null, worldFacts = null) {
                          detail: `asked the in-flight ${escaping ? 'escape' : 'maroon climb'} to yield inside a sealed rescue ` +
                                  `(health ${bot.health}, held_ms=${Date.now() - seizedAt})`, snapshot: snapshot(bot) })
             }
+          } else if (rescuing && route.sealed === true && route.dir !== 'up' && (escaping || marooned) && !pocketing && !airPocketing &&
+                     throttled('air_pocket_held_off', 30_000)) {
+            // OBSERVABLE, NOT SILENT (Paper sandbox, bf99227 H): an escape is in flight and the step would refuse here, so
+            // nothing is pre-empted and the trigger cannot run -- say so once per 30 s, or the fleet read sees nothing.
+            const p = prepareAirPocket()
+            if (!p.ok && p.inputs) {
+              logEvent({ kind: 'air_pocket_refused', status: 'no_effect',
+                         detail: `reason=${p.why} (an escape is in flight; not pre-empted) at=${p.fx},${p.fy},${p.fz} health=${bot.health} ` +
+                                 `difficulty=${p.inputs.difficulty} hunger=${p.inputs.hungerActive ? 1 : 0} ` +
+                                 `trigger_route=sealed:${route.dist === Infinity ? -1 : route.dist} held_ms=${Date.now() - seizedAt}`, snapshot: snapshot(bot) })
+            }
           }
           // AIRPOCKET: a capped rescue (no air straight up) may dig the roof cell over the head into a breathing
           // pocket, admitted by geometry and by the health budget, at once when the scan says SEALED, else after 8 s.
