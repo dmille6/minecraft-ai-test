@@ -38,10 +38,48 @@ def pools():
                    for p in glob.glob(f'{MCAI}/*-*/')})
 
 
-def scan(lo_iso, hi_iso):
-    """Row-kind counts and the set of bots seen, over every pool, for the window."""
+def version_of(r):
+    """The 7-char sha a row was written by, or '' when the row carries none."""
+    return str(((r.get('code') or {}).get('version')) or '').split('+')[0][:7]
+
+
+def tally(records, baseline):
+    """PURE. Split row-kind counts by WHO wrote them: the declared baseline, or another build.
+
+    `records` yields parsed rows already inside the window; `baseline` is the manifest's
+    declared_code_version. Returns (base_kinds, other_kinds, unknown_kinds, base_bots, rows): base_kinds
+    counts kind -> rows written by the baseline, other_kinds (kind, sha7) -> rows from any other build,
+    unknown_kinds kind -> rows that carry NO version, and base_bots the bots seen on the baseline build
+    (the positive control counts THOSE, not every bot -- round 1: 39 other-build bots must not vouch
+    for a baseline read).
+
+    WHY (2026-10-07 19:46Z): the 6 h window after a canary's teardown still holds that canary's
+    own rows. towndeposit-02 was REFUSED because 40 `town_deposit` rows came from the previous
+    canary (towndeposit-01 on 92bc84f, board-b + placebo-a, 13:06-16:15Z) and none from the
+    baseline c6e91a8. "The baseline emits it" was false of the baseline and true of the window.
+    A row with NO version is neither: it is reported separately, and a declared row seen ONLY there is
+    refused for that stated reason (it cannot be shown not to be the baseline's).
+    """
+    want = str(baseline or '').split('+')[0][:7]
+    base, other, unknown = collections.Counter(), collections.Counter(), collections.Counter()
+    base_bots = set(); rows = 0
+    for r in records:
+        rows += 1
+        # logEvent kind 'x' lands in skill.name as '_x'
+        k = ((r.get('skill') or {}).get('name') or '').lstrip('_')
+        v = version_of(r)
+        if not v:
+            unknown[k] += 1
+        elif v == want:
+            base[k] += 1
+            base_bots.add((r.get('bot') or {}).get('name', ''))
+        else:
+            other[(k, v)] += 1
+    return base, other, unknown, base_bots, rows
+
+
+def _records(lo_iso, hi_iso):
     days = {lo_iso[:10], hi_iso[:10]}
-    kinds = collections.Counter(); bots = set(); rows = 0
     for f in glob.glob(f'{MCAI}/*-*/skill-*.jsonl') + glob.glob(f'{MCAI}/*-*/skill-*.jsonl-*.gz'):
         op = gzip.open if f.endswith('.gz') else open
         try:
@@ -56,13 +94,14 @@ def scan(lo_iso, hi_iso):
                     ts = r.get('@timestamp', '')
                     if not (lo_iso <= ts[:19] <= hi_iso):
                         continue
-                    rows += 1
-                    bots.add((r.get('bot') or {}).get('name', ''))
-                    # logEvent kind 'x' lands in skill.name as '_x'
-                    kinds[((r.get('skill') or {}).get('name') or '').lstrip('_')] += 1
+                    yield r
         except Exception:
             pass
-    return kinds, bots, rows
+
+
+def scan(lo_iso, hi_iso, baseline):
+    """Row-kind counts split by build, and the set of bots seen, over every pool, for the window."""
+    return tally(_records(lo_iso, hi_iso), baseline)
 
 
 def main():
@@ -70,6 +109,7 @@ def main():
     ap.add_argument('run_id')
     ap.add_argument('--hours', type=float, default=6.0)
     ap.add_argument('--registrations', default=os.path.expanduser('~/mcai-analysis/registrations'))
+    ap.add_argument('--manifest', default='/srv/mcbots/trial-manifest.json')
     a = ap.parse_args()
 
     reg_path = os.path.join(a.registrations, f'{a.run_id}.json')
@@ -81,13 +121,27 @@ def main():
     lo, hi = now - dt.timedelta(hours=a.hours), now
     lo_iso, hi_iso = lo.strftime('%Y-%m-%dT%H:%M:%S'), hi.strftime('%Y-%m-%dT%H:%M:%S')
 
-    kinds, bots, rows = scan(lo_iso, hi_iso)
+    try:
+        baseline = str(json.load(open(a.manifest)).get('declared_code_version') or '')
+    except Exception as e:
+        baseline = ''
+        print(f'manifest unreadable: {type(e).__name__}: {e}')
+    if not baseline:
+        # NO BASELINE, NO TEST: without a declared version every row would count as "baseline",
+        # which refuses -- but saying so is better than refusing for a reason it does not name.
+        print('REFUSED: the trial manifest declares no declared_code_version, so the baseline '
+              'cannot be told apart from other builds. Fix the manifest, then rerun.')
+        return 2
+    kinds, other, unknown, bots, rows = scan(lo_iso, hi_iso, baseline)
+    base_rows = sum(kinds.values())
 
     # Positive control FIRST: a silent instrument would pass every row for the wrong
     # reason, which is the exact failure this guard exists to stop.
-    print(f'baseline window {lo_iso}Z .. {hi_iso}Z  ({a.hours:g} h)')
-    print(f'positive control: {rows} rows, {len(bots)} bots, {len(kinds)} distinct row kinds')
-    if rows == 0 or len(bots) < 40 or len(kinds) < 20:
+    print(f'baseline window {lo_iso}Z .. {hi_iso}Z  ({a.hours:g} h); baseline build {baseline[:7]}')
+    print(f'positive control: {rows} rows; {base_rows} rows from the baseline build on {len(bots)} bots '
+          f'({len(kinds)} distinct row kinds), {sum(other.values())} from other builds, '
+          f'{sum(unknown.values())} with no version')
+    if base_rows == 0 or len(bots) < 40 or len(kinds) < 20:
         print('REFUSED: the baseline read found too little to prove anything '
               '(this is an instrument failure, not a clean bill of health)')
         return 2
@@ -101,17 +155,25 @@ def main():
     print(f"\n{'declared row':44s}{'baseline':>10s}   verdict")
     for row in declared:
         n = kinds.get(row, 0)
+        u = unknown.get(row, 0)
         if n:
             bad.append((row, n))
             print(f'{row:44s}{n:10d}   REFUSED — the baseline emits it')
+        elif u:
+            bad.append((row, u))
+            print(f'{row:44s}{n:10d}   REFUSED — {u} row(s) carry no version, so they cannot be shown not to be the baseline\'s')
         else:
             print(f'{row:44s}{n:10d}   ok — baseline silent')
+        for (k, v), m in sorted(other.items()):
+            if k == row:
+                print(f'  note: {row}: {m} row(s) from build {v} (NOT the baseline {baseline[:7]}; '
+                      f'a previous canary or restart lag) -- reported, not counted')
 
     if bad:
         print('\nREFUSED: these rows cannot license a REVERT from one death, because a bot '
               'on the OLD code emits them too:')
         for row, n in bad:
-            print(f'  {row}: {n} occurrences fleet-wide on the baseline in the last {a.hours:g} h')
+            print(f'  {row}: {n} occurrences fleet-wide from the baseline build {baseline[:7]} (or with no version) in the last {a.hours:g} h')
         print('Remove them from change_rows and linkage_extra, or name a row that only the '
               'new code can write. They stay legitimate as REPORT lines.')
         return 2

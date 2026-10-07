@@ -23,6 +23,7 @@ import json, os, glob, gzip, hashlib, datetime as dt, collections
 from deathgate import death_gate
 from arms import pool_of
 from singledeath import licence_reverts
+import bagfixrule   # v33 (owner 2026-10-07): the bag-fix death rule; imported here so the bundle digest covers it
 
 
 def license_change_rows(changerow, away, ctrl_at_death, ctrl_rate=None,
@@ -122,8 +123,19 @@ def _gate_bundle():
     cannot drift from what was executed.
     """
     parts = [('verdict.py', _os.path.abspath(__file__))]
-    for _n in ('deathgate', 'singledeath', 'arms'):
+    for _n in ('deathgate', 'singledeath', 'arms', 'bagfixrule'):
         parts.append((_n + '.py', getattr(sys.modules.get(_n), '__file__', None)))
+    # v33: two decision modules the LOOP runs rather than this file imports -- the bag-fix rule's measuring half
+    # (bagfixgate.py: extend-check / poll / final) and the v19 change-row preflight (changerowcheck.py, which counts
+    # baseline-build rows only since 2026-10-07). Resolved on THIS file's sys.path WITHOUT executing them
+    # (find_spec), so on the host they are the ~/mcai-analysis copies the loop invokes.
+    import importlib.util as _ilu
+    for _n in ('bagfixgate', 'changerowcheck'):
+        try:
+            _sp = _ilu.find_spec(_n)
+        except (ImportError, ValueError):
+            _sp = None
+        parts.append((_n + '.py', getattr(_sp, 'origin', None)))
     got = []
     for name, path in parts:
         if path and _os.path.exists(path):
@@ -150,6 +162,13 @@ if sys.argv[1:] == ['--gate-digest']:
     sys.exit(0)
 
 run_id, M = sys.argv[1], int(sys.argv[2]); DRY = '--dryrun' in sys.argv; POLL = '--poll' in sys.argv
+# v33 (OWNER DECISION 2026-10-07): `--bagfix-extended` is passed by canary-loop.sh ONLY while a bag fix runs its
+# 24-h extension. It makes the all-cause death gate REPORT-ONLY in this read -- the extension is decided by
+# bagfixgate.py's (a)/(b)/(c) -- so that the reads still evaluate everything AFTER the gate (v15c, v11, deposit,
+# own lines, exposure): a death-gate trip at +30 must not leave the fix's own correctness lines unread for 24 h.
+# It is honoured only for a registration of class bag-fix whose extension the journal records; otherwise it is
+# IGNORED and said so, never trusted.
+BAGFIX_EXT = '--bagfix-extended' in sys.argv
 # THREE PATHS, OVERRIDABLE ONLY BY THE ENVIRONMENT, SO THIS FILE CAN BE REPLAYED.
 # The defaults are exactly what they were; nothing in production passes these.
 # They exist because v23's acceptance suite has to drive THIS file -- the one the
@@ -324,8 +343,15 @@ def schedule_violation(reg, grace=None):
 _sv = schedule_violation(reg)
 if _sv:
     why.append(_sv)
+# v33: `guards` in the artifact says whether this read got PAST the catastrophe guards (death gate, v15c, v11, deposit)
+# -- NOT_YET from an unreadable immobiledid exits before them, and a bag-fix extension must not count such a read as
+# evaluated (round 3, Codex). Set just before section 8.
+_GUARDS = False
+
+
 def out(v, extra=None):
-    o = {'run_id': run_id, 'window_min': M, 'verdict': v, 'why': why, 'at': dt.datetime.now(dt.timezone.utc).isoformat(), 'extra': extra or {}}
+    o = {'run_id': run_id, 'window_min': M, 'verdict': v, 'why': why, 'at': dt.datetime.now(dt.timezone.utc).isoformat(), 'extra': extra or {},
+         'guards': _GUARDS}
     os.makedirs(R, exist_ok=True); json.dump(o, open(os.path.join(R, f'{run_id}-verdict-{M}.json'), 'w'), indent=1, default=str)
     # ONE LINE, ALWAYS. canary-loop.sh takes `tail -1` of this output and then `awk '{print $2}'`,
     # so a newline anywhere in a reason splits the verdict off the end and the loop reads whatever
@@ -695,8 +721,28 @@ if _cd >= 2 and _kbh > 0:
     why.append('randomization units: %d %s, %d treated'
                % (len(_units), 'bots (within-world split)' if _within else 'pools', len(_treat)))
 _rev, _why = death_gate(_cd, _cbh, _kd, _kbh, units=_units, treat=_treat)
-if _rev: why.append(_why + f' [{_expo_note}]'); (out('REVERT'))
-elif _cd >= 2: why.append(_why + f' [{_expo_note}]'); pending_watch.append('death gate held (v21)')
+_ext_ok = False
+if _rev and BAGFIX_EXT:
+    _jp = os.environ.get('VERDICT_JOURNAL') or os.path.expanduser('~/canary-journal.jsonl')
+    try:
+        _ext_ok = bagfixrule.is_bag_fix(reg) and any(
+            f'"run":"{run_id}"' in _l and '"phase":"bagfix-extend"' in _l for _l in open(_jp))
+    except OSError:
+        _ext_ok = False
+    if _ext_ok:
+        why.append(_why + f' [{_expo_note}] -- REPORTED, not a verdict: bag-fix extension in force (v33; '
+                   f'bagfixgate.py decides (a)/(b)/(c))')
+        pending_watch.append('death gate tripped under the bag-fix extension (v33)')
+        _rev = False
+    else:
+        why.append('--bagfix-extended IGNORED: not a bag-fix registration with a recorded extension')
+# THE FIELD THE LOOP READS (v33): only this REVERT is the all-cause death gate, and only it may be extended for a
+# bag fix. Every other REVERT carries no `by`, so bagfixgate.py extend-check refuses it (fail closed).
+# The counts ride along so extend-check can CROSS-CHECK its own re-measurement against what tripped (fail closed if
+# it sees fewer deaths than the gate did).
+if _rev: why.append(_why + f' [{_expo_note}]'); (out('REVERT', {'by': 'death_gate', 'cd': int(_cd), 'cbh': float(_cbh),
+                                                                'kd': int(_kd), 'kbh': float(_kbh)}))
+elif _cd >= 2 and not _ext_ok: why.append(_why + f' [{_expo_note}]'); pending_watch.append('death gate held (v21)')
 why.append(f"deaths {_cd} ({(_cd / _cbh) if _cbh else 0:.3f}/bh over {_cbh:.1f} measured bot-h) "
            f"vs control {_kd} ({(_kd / _kbh) if _kbh else 0:.3f}/bh over {_kbh:.1f})")
 if POLL: why.append(f'poll: {ndeaths} canary deaths since declared_at, {len(linked)} rung-linked, {len(changerow)} with a change row'); (out('POLL_OK', {'deaths': ndeaths}))
@@ -717,6 +763,7 @@ if g['ladders_p90'] is not None and g['ladders_p90'] > 32: why.append(f"ladders 
 # 7. deposit skill_error
 d = ev.get('depositread', {})
 if d.get('skill_error_share_canary') is not None and d.get('skill_error_share_control') is not None and d['skill_error_share_canary'] > d['skill_error_share_control']: why.append('deposit skill_error share above control'); (out('REVERT'))
+_GUARDS = True
 # 8. own lines
 #
 # V25: A TYPED THRESHOLD IS NOT EVIDENCE, AND FALLING THROUGH TO KEEP IS NOT A FIX.

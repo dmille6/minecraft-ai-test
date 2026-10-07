@@ -47,14 +47,34 @@ def loop_alive(_probe=None):
         return False
 
 
-def deadline_for(run_id, regs=REGS, default=420):
+JOURNAL = "/home/mike/canary-journal.jsonl"
+
+
+def deadline_for(run_id, regs=REGS, default=420, journal=JOURNAL):
+    """The registration's deadline_min -- or, for a BAG FIX whose 24-h extension the loop has recorded
+    (journal phase `bagfix-extend`, v33, owner 2026-10-07), its bag_fix.extended_deadline_min (default 1560).
+    Without this, every extended bag fix would read STALE from its base deadline onward while its loop is
+    alive and reading on schedule -- an alarm that cries wolf for 18 hours gets ignored."""
     p = os.path.join(regs, "%s.json" % run_id)
     if os.path.exists(p):
         try:
-            return int(json.load(open(p)).get("deadline_min") or default)
+            reg = json.load(open(p))
+            dl = int(reg.get("deadline_min") or default)
+            if reg.get("class") == "bag-fix" and _extended(run_id, journal):
+                bf = reg.get("bag_fix") if isinstance(reg.get("bag_fix"), dict) else {}
+                dl = max(dl, int(bf.get("extended_deadline_min") or 1560))
+            return dl
         except Exception:
             pass
     return default
+
+
+def _extended(run_id, journal=JOURNAL):
+    try:
+        with open(journal) as fh:
+            return any('"run":"%s"' % run_id in l and '"phase":"bagfix-extend"' in l for l in fh)
+    except OSError:
+        return False
 
 
 def decided(sha, pool, ledger_rows):

@@ -190,6 +190,18 @@ selected, or reachable, so all three need checking:
   working canaries in one afternoon (a lava swim during explore, a drowning while idle).
   One death is reported in the read and named; it is not a verdict. `canary-report.py`
   enforces the floor; the read scripts under ~/mcai-analysis say "two-death floor".
+  **Bag fixes extend instead (OWNER DECISION 2026-10-07, gate v33 -- in force only once
+  `install-bagfix-gate.sh` has run; until then this gate decides bag fixes too: check
+  `~/digest/gate-installs.log`).** A registration with
+  `"class": "bag-fix"` is drawn at 4 pools (20 bots; never widened mid-run). If this gate
+  trips with ZERO mechanism-linked deaths (own rows within 120 s, own rows visible), it is
+  not reverted: it reads to +1440 and reverts only on (a) linked deaths beyond chance,
+  (b) a lower bound > 2.0x at any poll, or (c) value-weighted net output / iron below
+  their 24-h null bands. Otherwise INCONCLUSIVE (bag metric unmoved, or < 400 bot-h) or
+  KEEP, and a KEEP gives the next slot to an underground-safety fix. Non-bag canaries are
+  unchanged. `bagfixrule.py` decides, `bagfixgate.py` measures; see
+  docs/reports/bagfix-death-rule-2026-10-07.md. The rule is more lenient than this gate
+  by construction; that was the owner's trade.
 
 ## Commits
 

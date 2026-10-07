@@ -11,6 +11,23 @@ behind it (chain-ore.sh stopped 10-01 on fixes-02's revert)._
 
 ---
 
+## 10-07 22:10Z — GATE v33 (bag-fix death rule) BUILT + STAGED, NOT INSTALLED; changerowcheck baseline-only fix in it
+Built per the owner's 19:45Z decision: docs/reports/bagfix-death-rule-2026-10-07.md. SUBSTITUTION (needs owner nod):
+no mid-run widening (a 2nd deploy rewrites the one declared_at, restarts canary pools, rebuilds the tree under them)
+-- bag fixes are DRAWN AT 4 POOLS (20 bots) from the start; the loop waits for such a draw (6 of 21 draws since 09-28).
+VALUE MEASURE: net change in log-eq (junk/ballast/cobble>64 = 0, iron 10/ingot, tools at material cost, logs<=64,
+saplings<=16; transfers and in-transfer rows excluded); 24-h null p2.5 -3.21 log-eq/bot-h, iron -0.127 ingot/bot-h.
+TABLE (P(REVERT), k=1/1.5/2/3): rule as built 1.6/11.3/28.7/72.2% vs today 20-bot 4.3/15.3/34.8/73.2% -- a leniency
+rule by construction. BACKTEST: of 17 death-involved reverts today's gate trips on 2; only junkwell-01 would have
+EXTENDED (0/6 linked, LB 1.39); its 24-h outcome is unknown (torn down +308). chestfull-01 stands (no own rows; LB>2).
+Fail-closed additions listed in the report section 8. Reviews: Claude APPROVE (r5), Codex APPROVE (r6) after 6 rounds.
+STAGED on 10.0.0.31 in ~/bagfix-v33; dry run 22:00Z OK, predicted bundle digest ac3da3b64d3fa5e31be5678c33d84ac0.
+INSTALL (between canaries ONLY; the script refuses while any loop/chain/launch runs or a canary is declared):
+  ssh mike@10.0.0.31 'bash ~/bagfix-v33/install-bagfix-gate.sh --dry-run' then without --dry-run.
+At 22:00Z it WOULD REFUSE: ~/launch-td02.sh (towndeposit-02, 22:20Z) is waiting. After install, the changerowcheck
+fix stops the false refusal that hit towndeposit-02 at 19:46Z (40 town_deposit rows, all from towndeposit-01's build).
+Before the first bag fix: register it with "class":"bag-fix" + a bag_fix block, and dry-run its reads at +1440.
+
 ## 10-07 19:50Z — OWNER APPROVED: adaptive death rule for bag fixes + airpocket; swords never stored; sapling/compost decided
 DEATH RULE (underground-safety-phase2 section 7, adaptive form): bag fixes run the normal 6 h canary; if the death gate
 trips with ZERO mechanism-linked deaths, extend to 24 h on 20 bots and decide by linked deaths beyond chance / deaths
