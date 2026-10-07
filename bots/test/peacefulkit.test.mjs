@@ -215,6 +215,16 @@ for (const [why, difficulty, spare] of [['PEACEFUL', 'peaceful', 0], ['EASY worl
   })
 }
 
+test('ADMISSION: a NAMED sword deposit is refused before the walk while on (the rule named); admitted off as today', () => {
+  for (const [d, refused] of [['peaceful', true], ['easy', false]]) {
+    const w = townWith([tool('stone_sword'), tool('stone_sword'), stack('cobblestone', 64)], d)
+    const r = new AdmissionControl().check({ skill: 'deposit', args: { item: 'stone_sword' } }, w.bot)
+    assert.equal(r.reason === 'peaceful_sword_deposit', refused, `${d}: ${JSON.stringify(r)}`)
+    if (refused) assert.match(r.detail, /^not a banking target \(swords are not banked in a peaceful world\)/)
+  }
+  setPeacefulFood(false)
+})
+
 // ---- the craft: admission and the skill -----------------------------------------------------------------------------------
 const V = (x, y, z) => ({ x, y, z, distanceTo (o) { return Math.hypot(this.x - o.x, this.y - o.y, this.z - o.z) }, floored () { return this } })
 const craftBot = difficulty => ({ registry: mcData, serverDifficulty: difficulty, entity: { position: V(0, 64, 0) }, inventory: { items: () => [] },
