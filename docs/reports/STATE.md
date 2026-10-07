@@ -11,6 +11,16 @@ behind it (chain-ore.sh stopped 10-01 on fixes-02's revert)._
 
 ---
 
+## 10-07 22:25Z — GATE v33 INSTALLED (bag-fix death rule + version-aware changerowcheck); towndeposit-02 drawing
+Installed 22:12Z in the empty slot (launcher stopped by PID, dry run, install, relaunched): bundle
+ac3da3b64d3fa5e31be5678c33d84ac0, gatedigest OK, backups *.bak-v33-20261007T221224Z. Report:
+docs/reports/bagfix-death-rule-2026-10-07.md (main 8522797; both engines APPROVE; backtest: of 17 death-involved
+reverts only junkwell-01 would have extended). Bag fixes need "class": "bag-fix" + a bag_fix block and draw FOUR pools
+from the start (no mid-run widening). After a bag-fix KEEP the loop only launches "class": "underground-safety"
+(airpocket must declare it). towndeposit-02 runs as a normal canary (no class). 22:21Z preflight-ok with the new check
+("0 from other builds"), licence-ok, gatedigest-ok; draw waiting for two pools.
+OWNER (pending): accept four-pool draws for bag fixes (4-pool draws happened 6 of 21 times since 09-28 -> slower starts).
+
 ## 10-07 22:10Z — GATE v33 (bag-fix death rule) BUILT + STAGED, NOT INSTALLED; changerowcheck baseline-only fix in it
 Built per the owner's 19:45Z decision: docs/reports/bagfix-death-rule-2026-10-07.md. SUBSTITUTION (needs owner nod):
 no mid-run widening (a 2nd deploy rewrites the one declared_at, restarts canary pools, rebuilds the tree under them)
