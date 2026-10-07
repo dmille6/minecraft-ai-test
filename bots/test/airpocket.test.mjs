@@ -357,5 +357,11 @@ await t('H9 MUTANT KILLED: a step that never checks the breach completes a doome
       assert.notEqual(r.why, 'envelope breached (> 7 HP in 10 s)')
     }))
 
+await t('H10 MUTANT: AP_ICE_ENABLED=false refuses hive-d ice by name (the off switch works)', () =>
+  withMutant(AP_PATH, 'export const AP_ICE_ENABLED = true', 'export const AP_ICE_ENABLED = false', m => {
+    const p = m.airPocketPlan(world(HIVE_D)); assert.equal(p.ok, false); assert.match(p.why, /ice branch disabled/)
+    assert.equal(m.airPocketPlan(world(HIVE_C)).ok, true)
+  }))
+
 console.log(`\n${pass} passed, ${fail} failed`)
 process.exit(fail ? 1 : 0)
