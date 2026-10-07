@@ -15,7 +15,8 @@ import { readFileSync, writeFileSync, unlinkSync } from 'node:fs'
 import { gunzipSync } from 'node:zlib'
 import { airPocketInputs, airPocketAfter, airPocketPreempt, AP_FAIL_COOLDOWN_MS } from '../src/airpocket.mjs'
 import { airPocketPlan, airPocketEnvelope, airPocketAdmit, airPocketBudgetMs, envelopeBreached, airPocketConfirmed,
-         airPocketTrigger, pickFastestTool, airPocketStep, airPocketDetail, AP_TRIGGER_AFTER_MS } from '../src/airpocket.mjs'
+         airPocketTrigger, pickFastestTool, airPocketStep, airPocketDetail, AP_TRIGGER_AFTER_MS,
+         standGate, standInPocket } from '../src/airpocket.mjs'
 
 let pass = 0, fail = 0
 const t = (name, fn) => Promise.resolve()
@@ -209,7 +210,7 @@ await t('E2 pickFastestTool: the fastest of hand and tools by the prediction; no
 })
 
 // ---------------------------------------------------------------- F. the step on a fake bot
-class V { constructor (x, y, z) { this.x = x; this.y = y; this.z = z } equals (o) { return !!o && o.x === this.x && o.y === this.y && o.z === this.z } }
+class V { constructor (x, y, z) { this.x = x; this.y = y; this.z = z } equals (o) { return !!o && o.x === this.x && o.y === this.y && o.z === this.z } offset (a, b, c) { return new V(this.x + a, this.y + b, this.z + c) } }
 function fakeBot ({ cells = HIVE_C, health = 19, digMs = 300, rise = true, riseTo = 0.6, healthTick = 0.1, onDig = null } = {}) {
   const map = new Map(); const base = { x: 100, y: 60, z: 100 }
   for (const [k, v] of Object.entries(cells)) { const [dx, dy, dz] = k.split(',').map(Number); map.set(`${base.x + dx},${base.y + dy},${base.z + dz}`, v) }
@@ -236,8 +237,17 @@ function fakeBot ({ cells = HIVE_C, health = 19, digMs = 300, rise = true, riseT
   })
   // the roof block carries its dy so the fake knows which cell to open
   const realBlockAt = bot.blockAt
-  bot.blockAt = v => { const b = realBlockAt(v); if (b) b._dy = Math.floor(v.y) - base.y; return b }
+  bot.blockAt = v => { const b = realBlockAt(v); if (b) { b._dy = Math.floor(v.y) - base.y; b.position = new V(Math.floor(v.x), Math.floor(v.y), Math.floor(v.z)) } return b }
   bot._place = (dx, dy, dz, name) => { map.set(`${base.x + dx},${base.y + dy},${base.z + dz}`, name) }
+  // mineflayer's place, modelled: unless forceLook is 'ignore' it awaits its own look BEFORE the packet is sent
+  bot.lookMs = 0; bot.sends = []
+  bot.lookAt = () => new Promise(r => setTimeout(r, bot.lookMs))
+  bot.placeBehaviour = 'solid'   // what the server does with a sent place: 'solid' | 'nothing'
+  bot._placeBlockWithOptions = async (ref, face, opts = {}) => {
+    if (opts.forceLook !== 'ignore') await bot.lookAt()
+    bot.sends.push({ y: ref.position.y + face.y, at: Date.now() })
+    if (bot.placeBehaviour === 'solid') bot._place(0, ref.position.y + face.y - base.y, 0, 'cobblestone')
+  }
   bot._healthTimer = setInterval(() => { if (healthTick) bot.health = Math.min(20, bot.health + healthTick) }, 100)
   return bot
 }
@@ -358,11 +368,9 @@ await t('J5 an OPENED pocket clears the fail memory like a success (the reflex p
 await t('F14 on a FLOOR the bot stands on a placed block with its eye in the pocket (A-floor); deep water places none', async () => {
   const floorCells = { ...HIVE_C, '0,-1,0': 'stone' }   // stone under the feet cell: the A-floor geometry
   const bot = fakeBot({ cells: floorCells, riseTo: 1.1 })
-  let placedAt = null
-  bot.placeBlock = async (ref, face) => { placedAt = [ref.position?.y ?? null]; bot._place(0, 0, 0, 'cobblestone') }
   const r = await airPocketStep(bot, airPocketPlan(world(floorCells)), deps({ standItem: () => ({ name: 'cobblestone' }) }))
   clearInterval(bot._healthTimer)
-  assert.equal(r.ok, true, r.why); assert.equal(r.stand, 'placed:1')
+  assert.equal(r.ok, true, r.why); assert.equal(r.stand, 'placed:1'); assert.deepEqual(bot.sends.map(x => x.y), [60])
   const deepCells = { ...HIVE_C, '0,-1,0': 'water', '0,-2,0': 'water' }   // deep water under the feet cell (hive-c column)
   const deep = fakeBot({ cells: deepCells })
   const r2 = await airPocketStep(deep, airPocketPlan(world(deepCells)), deps({ standItem: () => ({ name: 'cobblestone' }) }))
@@ -374,9 +382,67 @@ await t('F15 the stand stops (and says why) when no block is held or the place d
   const a = fakeBot({ cells: floorCells, riseTo: 1.1 })
   const r = await airPocketStep(a, airPocketPlan(world(floorCells)), deps({ standItem: () => null })); clearInterval(a._healthTimer)
   assert.equal(r.ok, true); assert.match(r.stand, /^stopped:no placeable block/)
-  const b = fakeBot({ cells: floorCells, riseTo: 1.1 }); b.placeBlock = async () => {}
+  const b = fakeBot({ cells: floorCells, riseTo: 1.1 }); b.placeBehaviour = 'nothing'
   const r2 = await airPocketStep(b, airPocketPlan(world(floorCells)), deps({ standItem: () => ({ name: 'cobblestone' }) })); clearInterval(b._healthTimer)
   assert.equal(r2.ok, true); assert.match(r2.stand, /did not turn solid/)
+})
+
+await t('F16 standGate (pure): aborted, wrong item in hand, off the column, feet below the cell each refuse; all clear passes', () => {
+  const ok = { aborted: null, held: 'cobblestone', want: 'cobblestone', pos: { x: 100.5, y: 61.1, z: 100.5 }, fx: 100, fz: 100, cellY: 60 }
+  assert.equal(standGate(ok), null)
+  assert.match(standGate({ ...ok, aborted: 'envelope breached' }), /^aborted: envelope breached/)
+  assert.match(standGate({ ...ok, held: 'stone_pickaxe' }), /cobblestone not held \(holding stone_pickaxe\)/)
+  assert.match(standGate({ ...ok, held: null }), /not held \(holding nothing\)/)
+  assert.equal(standGate({ ...ok, pos: { x: 101.2, y: 61.1, z: 100.5 } }), 'moved off the planned column')
+  assert.equal(standGate({ ...ok, pos: { x: 100.5, y: 61.0, z: 100.5 } }), 'feet fell below y=61')
+})
+await t('F17 NO PLACE AFTER RETURN (Codex r4): with a look slower than every timeout, the packet is sent inside the stand or never', async () => {
+  const floorCells = { ...HIVE_C, '0,-1,0': 'stone' }
+  const bot = fakeBot({ cells: floorCells, riseTo: 1.1 }); bot.lookMs = 400   // 10x clock: 4 s of step time, past the 500-ms look bound
+  const r = await airPocketStep(bot, airPocketPlan(world(floorCells)), deps({ standItem: () => ({ name: 'cobblestone' }) }))
+  const returnedAt = Date.now()
+  await new Promise(res => setTimeout(res, 700))   // outlive the slow look
+  clearInterval(bot._healthTimer)
+  assert.equal(r.ok, true, r.why)
+  assert.ok(bot.sends.every(x => x.at <= returnedAt), `a place was sent ${bot.sends.map(x => x.at - returnedAt)} ms after the step returned`)
+  assert.equal(r.stand, 'placed:1')   // positive control: the stand still works with a slow look
+})
+await t('F18 the stand honours an abort, an equip that did not take, and a bot pushed off the column -- and sends nothing', async () => {
+  const floorCells = { ...HIVE_C, '0,-1,0': 'stone' }
+  const plan = airPocketPlan(world(floorCells))
+  const at = { fx: 100, fy: 60, fz: 100, Vec3: V, sleep: ms => new Promise(r => setTimeout(r, ms / 10)), now: fast() }
+  // abort flips between the loop-top check and the gate
+  const a = fakeBot({ cells: floorCells }); a.entity.position = new V(100.5, 61.1, 100.5); clearInterval(a._healthTimer)
+  let calls = 0
+  const ra = await standInPocket(a, plan, { ...at, standItem: () => ({ name: 'cobblestone' }), isAborted: () => (++calls > 1 ? 'guard: a skill started' : null) })
+  assert.match(ra, /^stopped:aborted: guard: a skill started/); assert.equal(a.sends.length, 0)
+  // an equip that never lands
+  const b = fakeBot({ cells: floorCells }); b.entity.position = new V(100.5, 61.1, 100.5); clearInterval(b._healthTimer); b.equip = () => new Promise(() => {})
+  const rb = await standInPocket(b, plan, { ...at, standItem: () => ({ name: 'cobblestone' }) })
+  assert.match(rb, /^stopped:cobblestone not held/); assert.equal(b.sends.length, 0)
+  // pushed off the column during the look
+  const c = fakeBot({ cells: floorCells }); c.entity.position = new V(100.5, 61.1, 100.5); clearInterval(c._healthTimer)
+  c.lookAt = async () => { c.entity.position = new V(101.4, 61.1, 100.5) }
+  const rc = await standInPocket(c, plan, { ...at, standItem: () => ({ name: 'cobblestone' }) })
+  assert.match(rc, /^stopped:moved off the planned column/); assert.equal(c.sends.length, 0)
+  // positive control: the same setup, nothing wrong, places one
+  const d = fakeBot({ cells: floorCells }); d.entity.position = new V(100.5, 61.1, 100.5); clearInterval(d._healthTimer)
+  assert.equal(await standInPocket(d, plan, { ...at, standItem: () => ({ name: 'cobblestone' }) }), 'placed:1'); assert.equal(d.sends.length, 1)
+})
+await t('F19 mutants: a looked place, a dropped abort check, a dropped held check each let a place through', async () => {
+  const floorCells = { ...HIVE_C, '0,-1,0': 'stone' }
+  await withMutant(AP_PATH, "{ swingArm: 'right', forceLook: 'ignore' }", "{ swingArm: 'right' }", async m => {
+    const bot = fakeBot({ cells: floorCells, riseTo: 1.1 }); bot.lookMs = 400
+    const r = await m.airPocketStep(bot, m.airPocketPlan(world(floorCells)), deps({ standItem: () => ({ name: 'cobblestone' }) }))
+    const returnedAt = Date.now(); await new Promise(res => setTimeout(res, 700)); clearInterval(bot._healthTimer)
+    assert.ok(r.ok && bot.sends.some(x => x.at > returnedAt), 'the looked place must land after the step returned')
+  })
+  await withMutant(AP_PATH, '  if (aborted) return `aborted: ${aborted}`\n', '', async m => {
+    assert.equal(m.standGate({ aborted: 'x', held: 'cobblestone', want: 'cobblestone', pos: { x: 100.5, y: 61.1, z: 100.5 }, fx: 100, fz: 100, cellY: 60 }), null)
+  })
+  await withMutant(AP_PATH, "  if (!held || held !== want) return `${want} not held (holding ${held ?? 'nothing'})`\n", '', async m => {
+    assert.equal(m.standGate({ aborted: null, held: 'stone_pickaxe', want: 'cobblestone', pos: { x: 100.5, y: 61.1, z: 100.5 }, fx: 100, fz: 100, cellY: 60 }), null)
+  })
 })
 
 // ---------------------------------------------------------------- I. the world's inputs, read the way 1.21.8 needs

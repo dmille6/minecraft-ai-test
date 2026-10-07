@@ -314,7 +314,7 @@ export async function airPocketStep (bot, plan, { Vec3, predict, sleep = ms => n
         if (eyeInAirSince == null) { eyeInAirSince = now(); healthAtEyeIn = bot.health }
         if (airPocketConfirmed({ eyeInAirSince, now: now(), health: bot.health, healthAtEyeIn, maxHealth })) {
           res.ok = true; res.outcome = 'success'; res.why = `breathing in ${plan.kind === 'ice' ? 'the opened column' : 'the dug pocket'}`
-          res.stand = await standInPocket(bot, plan, { fx, fy, fz, Vec3, sleep, now, standItem })
+          res.stand = await standInPocket(bot, plan, { fx, fy, fz, Vec3, sleep, now, standItem, isAborted: () => aborted })
           return res
         }
       } else { eyeInAirSince = null; healthAtEyeIn = null }
@@ -359,8 +359,14 @@ export async function airPocketStep (bot, plan, { Vec3, predict, sleep = ms => n
  * between the feet and the air cell, the pillar's own jump-and-place -- until it STANDS with its eye in air. Deep water
  * with no floor needs none (the bot floats at the pocket). Every placement is read back; a failure stops and is reported.
  * Never throws. Returns 'none' | 'placed:N' | 'stopped:<why>'.
+ *
+ * NO PLACE AFTER RETURN (Codex r4): racing `bot.placeBlock` against a timeout bounds the WAIT, not the send --
+ * mineflayer awaits its own lookAt before writing the packet, so a timed-out place could land after the step returned
+ * and the rescue owned the body again. So the look is done (bounded) first, every precondition is re-checked
+ * synchronously by `standGate`, and the place is sent with forceLook 'ignore', which writes the packet inside the call
+ * with no await before it. The timeout that follows bounds only the wait for the server's answer.
  */
-export async function standInPocket (bot, plan, { fx, fy, fz, Vec3, sleep, now, standItem }) {
+export async function standInPocket (bot, plan, { fx, fy, fz, Vec3, sleep, now, standItem, isAborted = () => null }) {
   try {
     const airY = fy + plan.dy + (plan.kind === 'ice' ? 1 : 0)   // the cell the eye must be in
     const need = airY - fy - 1                                  // blocks to stand on so feet sit at airY - 1
@@ -371,19 +377,40 @@ export async function standInPocket (bot, plan, { fx, fy, fz, Vec3, sleep, now, 
       const cellY = fy + k
       const item = standItem()
       if (!item) return `stopped:no placeable block (${placed} placed)`
-      try { await Promise.race([bot.equip(item, 'hand'), sleep(1500)]) } catch { /* the place below will tell */ }
+      if (isAborted()) return `stopped:aborted: ${isAborted()} (${placed} placed)`
+      try { await Promise.race([bot.equip(item, 'hand'), sleep(1500)]) } catch { /* verified by the gate */ }
       try { bot.setControlState('jump', true) } catch {}
       const by = now() + 2500
       while (now() < by && bot.entity.position.y < cellY + 1.05) await sleep(50)
       if (bot.entity.position.y < cellY + 1.05) return `stopped:did not rise above y=${cellY} (${placed} placed)`
       const ref = bot.blockAt(new Vec3(fx, cellY - 1, fz))
       if (!isSolid(ref)) return `stopped:no reference under y=${cellY} (${placed} placed)`
-      try { await Promise.race([bot.placeBlock(ref, new Vec3(0, 1, 0)), sleep(1500)]) } catch { /* read back */ }
+      try { await Promise.race([bot.lookAt(ref.position.offset(0.5, 1, 0.5), true), sleep(500)]) } catch { /* a late look moves only the head */ }
+      const no = standGate({ aborted: isAborted(), held: bot.heldItem?.name ?? null, want: item.name, pos: bot.entity.position, fx, fz, cellY })
+      if (no) return `stopped:${no} (${placed} placed)`
+      if (typeof bot._placeBlockWithOptions !== 'function') return `stopped:no place primitive (${placed} placed)`
+      // SENT HERE, synchronously: forceLook 'ignore' leaves no await before mineflayer writes the place packet
+      const answer = bot._placeBlockWithOptions(ref, new Vec3(0, 1, 0), { swingArm: 'right', forceLook: 'ignore' })
+      Promise.resolve(answer).catch(() => {})   // its 5-s answer timeout must not surface as an unhandled rejection
+      try { await Promise.race([answer, sleep(1500)]) } catch { /* read back */ }
       if (!isSolid(bot.blockAt(new Vec3(fx, cellY, fz)))) return `stopped:y=${cellY} did not turn solid (${placed} placed)`
       placed++
     }
     return `placed:${placed}`
   } catch (e) { return `stopped:threw ${String(e?.message ?? e).slice(0, 40)}` }
+}
+
+/**
+ * May the stand place NOW? Pure; null = yes, otherwise the reason. Asked synchronously immediately before the place
+ * packet is sent (Codex r4): the step is not aborted, the block the place will use is the one in hand, and the bot is
+ * still in the planned column with its feet above the cell being filled (so the block cannot go into the bot).
+ */
+export function standGate ({ aborted, held, want, pos, fx, fz, cellY }) {
+  if (aborted) return `aborted: ${aborted}`
+  if (!held || held !== want) return `${want} not held (holding ${held ?? 'nothing'})`
+  if (!pos || Math.floor(pos.x) !== fx || Math.floor(pos.z) !== fz) return 'moved off the planned column'
+  if (!(pos.y >= cellY + 1.05)) return `feet fell below y=${cellY + 1}`
+  return null
 }
 
 /** One telemetry line for a step result. Pure. */
