@@ -6888,7 +6888,7 @@ const SMELT_OPEN_MS     = 10_000        // openFurnace waits on a server event f
  * a recovery that hangs would burn the hard-stop grace and land the bot in
  * `abort_ignored`.
  */
-async function drainFurnace (furnace, ms = SMELT_RECOVERY_MS, { keepSwordIfNoRoom = null } = {}) {
+async function drainFurnace (furnace, ms = SMELT_RECOVERY_MS) {
   const deadline = Date.now() + ms
   const bounded = p => Promise.race([
     p, new Promise(res => setTimeout(res, Math.max(250, deadline - Date.now()))),
@@ -6899,10 +6899,12 @@ async function drainFurnace (furnace, ms = SMELT_RECOVERY_MS, { keepSwordIfNoRoo
     if (Date.now() >= deadline) break
     try {
       if (!furnace?.[slot]?.()) continue
-      // THE PEACEFUL KIT'S UNBURNED SWORD: checked RIGHT BEFORE its take, after the output and input took their slots
-      // (both reviews, r-rev2): with no empty slot mineflayer's putAway would toss it, so it stays in the furnace.
-      if (slot === 'fuelItem' && keepSwordIfNoRoom && furnace.fuelItem()?.name === 'wooden_sword' &&
-          (keepSwordIfNoRoom.inventory?.emptySlotCount?.() ?? 0) === 0) { furnace.swordKept = true; continue }
+      // A WOODEN SWORD IN THE FUEL SLOT (the peaceful kit's, from this call or an earlier one -- Codex r-rev3): checked
+      // RIGHT BEFORE its take, after the output and input took their slots (both reviews, r-rev2), against the WINDOW's
+      // player section (Claude r-rev3: mineflayer copies that back into bot.inventory only at the close, and putAway
+      // searches the window). With no empty slot putAway would toss it, so it stays in the furnace.
+      if (slot === 'fuelItem' && furnace.fuelItem()?.name === 'wooden_sword' &&
+          (furnace.emptySlotCount?.() ?? 0) === 0) { furnace.swordKept = true; continue }
       await bounded(furnace[take]())
     } catch { /* slot emptied under us, or the block is gone; nothing to recover */ }
   }
@@ -6912,10 +6914,10 @@ async function drainFurnace (furnace, ms = SMELT_RECOVERY_MS, { keepSwordIfNoRoo
 /** Polls a sword waits for the furnace's burn reading before ordinary fuel takes its place (peacefulkit). */
 const SWORD_UNKNOWN_POLLS = 4
 
-/** Inventory as the plain {name: count} map smeltPlan reasons over. */
-function heldMap (bot) {
+/** Inventory as the plain {name: count} map smeltPlan reasons over. `items` defaults to bot.inventory's. */
+function heldMap (bot, items = bot.inventory?.items?.() ?? []) {
   const out = {}
-  for (const it of (bot.inventory?.items?.() ?? [])) out[it.name] = (out[it.name] ?? 0) + it.count
+  for (const it of items) out[it.name] = (out[it.name] ?? 0) + it.count
   return out
 }
 
@@ -7062,6 +7064,10 @@ async function smelt(ctx, { item, count = 1 }, signal) {
   let staged = null            // a sword put in and not yet seen to ignite: { active }
   let unknownFuel = 0          // polls with no burn reading from the server
   const fslot = which => { try { return furnace?.[which]?.() ?? null } catch { return undefined } }
+  // THE BAG WHILE THE WINDOW IS OPEN IS THE WINDOW'S PLAYER SECTION (Claude r-rev3): mineflayer routes every slot update
+  // for an open window to that window and copies it into bot.inventory only at the close, so bot.inventory is the bag
+  // as it was at the open until then.
+  const bagNow = () => { try { return furnace?.items?.() ?? bot.inventory?.items?.() ?? [] } catch { return bot.inventory?.items?.() ?? [] } }
   // IS THE FURNACE BURNING? mineflayer's furnace.fuel misses the data slots the server sends at the open (its listener is
   // attached after openBlock resolves; found on Paper 10-07: a cold furnace read null for the whole job), so the BLOCK
   // STATE `lit` is read too. -> 'cold' | 'warm' | 'unknown'.
@@ -7074,8 +7080,15 @@ async function smelt(ctx, { item, count = 1 }, signal) {
     if (f === 0 || lit === false) return 'cold'
     return 'unknown'
   }
-  const swordRow = (status, what, active) => {
-    try { logEvent({ kind: 'sword_fuel', status, snapshot: snapshot(bot), detail: `${what} for ${plan.input} active=${active ? 1 : 0}` }) } catch { /* never break a smelt */ }
+  // EVERY `_sword_fuel` ROW IS WRITTEN AFTER THE WINDOW CLOSES (Claude r-rev3): its snapshot is bot.inventory, which is
+  // the bag at the open until the close; a burn row written mid-job would still list the burned sword. `active` is the
+  // switch read at the put (= the burn).
+  const swordRows = []
+  const swordRow = (status, what, active) => { swordRows.push({ status, what, active }) }
+  const writeSwordRows = () => {
+    for (const { status, what, active } of swordRows.splice(0)) {
+      try { logEvent({ kind: 'sword_fuel', status, snapshot: snapshot(bot), detail: `${what} for ${plan.input} active=${active ? 1 : 0}` }) } catch { /* never break a smelt */ }
+    }
   }
   // EVERY SWORD NOT YET IN -> ONE ordinary load for the items still uncovered, from what the bag holds NOW (Claude r-rev1:
   // the queued ordinary load is dropped too, so nothing is counted twice).
@@ -7083,7 +7096,7 @@ async function smelt(ctx, { item, count = 1 }, signal) {
     queue.length = 0
     const need = plan.batch - covered
     if (need <= 0) return
-    const alt = chooseFuel(heldMap(bot), { exclude: plan.input, needTicks: need * SMELT_TICKS })
+    const alt = chooseFuel(heldMap(bot, bagNow()), { exclude: plan.input, needTicks: need * SMELT_TICKS })
     if (alt) queue.push({ name: alt.name, count: Math.min(alt.count, Math.ceil(need * SMELT_TICKS / alt.ticks)) })
   }
   // -> true when a load went in. A SWORD GOES ONLY INTO A COLD FURNACE WITH AN EMPTY FUEL SLOT (both reviews, r-rev1): it
@@ -7101,7 +7114,7 @@ async function smelt(ctx, { item, count = 1 }, signal) {
         if (!(fslot('fuelItem') === null && h === 'cold')) return false
         queue.shift()
         const active = foodSkipNow(bot).active
-        const copy = (bot.inventory?.items?.() ?? []).find(it => burnableSword(it, active))
+        const copy = bagNow().find(it => burnableSword(it, active))
         if (!copy) { substitute(); continue }
         try { await furnace.putFuel(bot.registry.itemsByName.wooden_sword.id, null, 1) } catch { queue.length = 0; return false }
         covered += 1; staged = { active, input: fslot('inputItem')?.count ?? 0 }
@@ -7151,6 +7164,17 @@ async function smelt(ctx, { item, count = 1 }, signal) {
       const inSlot = furnace.inputItem()
       if (inSlot && inSlot.name !== plan.input) await furnace.takeInput()
     } catch { /* empty or full inventory; putInput below will report it */ }
+    // A WOODEN SWORD ALREADY IN THE FUEL SLOT (an earlier call left it there because the bag was full -- Codex r-rev3):
+    // taken back BEFORE any input goes in, so it can never ignite under a switch that has since turned off, and never
+    // blocks this job's own fuel. With no empty slot it cannot be taken without a toss: the job does not start.
+    if (fslot('fuelItem')?.name === 'wooden_sword') {
+      if ((furnace.emptySlotCount?.() ?? 0) === 0) {
+        return { status: 'failed', failClass: 'inventory_full',
+                 detail: 'the furnace\'s fuel slot holds a wooden sword and your bag has no empty slot to take it back into — ' +
+                         'free one slot (deposit or compost something), then smelt again' }
+      }
+      try { await furnace.takeFuel(); swordRow('no_effect', 'wooden_sword returned unburned (left by an earlier call)', foodSkipNow(bot).active) } catch { /* emptied under us */ }
+    }
 
     check(signal)
     await furnace.putInput(inDef.id, null, plan.batch)
@@ -7199,14 +7223,19 @@ async function smelt(ctx, { item, count = 1 }, signal) {
       await new Promise(res => setTimeout(res, 50))
     }
     confirmBurn()
-    const left = staged && fslot('fuelItem')?.name === 'wooden_sword'
-    // Out of the slot but never seen burning: it burned (nothing else empties a fuel slot); counted, and marked.
+    const fuelNow = fslot('fuelItem')
+    const left = staged && fuelNow?.name === 'wooden_sword'
+    // THE FURNACE CANNOT BE READ (its block is gone -- Codex r-rev3): no evidence the sword burned, so no burn is claimed;
+    // the row says the outcome is unknown and the read leaves the fall unexplained.
+    if (staged && fuelNow === undefined) { swordRow('no_effect', 'wooden_sword outcome unknown (the furnace could not be read)', staged.active); staged = null }
+    // Out of a READABLE slot but never seen burning: it burned (nothing else empties a fuel slot); counted, and marked.
     if (staged && !left) { burned.wooden_sword = (burned.wooden_sword ?? 0) + 1; swordRow('success', 'burned wooden_sword (unconfirmed)', staged.active); staged = null }
     // A SWORD STILL IN THE FUEL SLOT (it never ignited) comes back -- unless, at the moment of its take, the bag has no
     // empty slot: then it stays in the furnace as fuel (never tossed). The row is written after the actual outcome.
-    if (left && furnace) furnace.swordKept = false
-    await drainFurnace(furnace, SMELT_RECOVERY_MS, { keepSwordIfNoRoom: left ? bot : null })
+    if (furnace) furnace.swordKept = false
+    await drainFurnace(furnace, SMELT_RECOVERY_MS)
     if (left) swordRow('no_effect', furnace?.swordKept ? 'wooden_sword left in the furnace fuel slot (the bag is full)' : 'wooden_sword returned unburned', staged.active)
+    writeSwordRows()
   }
 
   const gained = countItem(bot, plan.output) - before
