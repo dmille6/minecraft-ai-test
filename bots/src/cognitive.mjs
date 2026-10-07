@@ -666,7 +666,9 @@ export class CognitiveLoop {
       let wanted = null
       const plan = () => {
         wanted = [...(this.#wantedItems(milestone) ?? [])]
-        return townDepositPlan(items, { wanted })
+        // THE BASE COUNT (peacefulkit, no new trip): swords never make the order fire on their own; the run itself banks
+        // them under the switch (skills.mjs town_deposit -> townDepositPlan's default).
+        return townDepositPlan(items, { wanted, swords: false })
       }
       const r = townDepositOrder({
         now: Date.now(), slots: items.length, pos: bot.entity?.position ?? null,

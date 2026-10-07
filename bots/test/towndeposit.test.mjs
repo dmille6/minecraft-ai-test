@@ -418,6 +418,16 @@ test('SKILL: a full bag at town banks its surplus whole, keeps the stockpile, th
 })
 
 // ---- THE PEACEFUL KIT (peacefulkit.mjs, owner 10-07): under the food policy's switch a sword keeps no copy ----------
+test('KIT: NO NEW ORDER -- a full bag at town whose only surplus is swords gets no town_deposit order, peaceful or not', async () => {
+  const { attachDifficulty } = await import('../src/foodskip.mjs')
+  const { EventEmitter } = await import('node:events')
+  const fake = { _client: new EventEmitter() }; attachDifficulty(fake, {}); fake._client.emit('difficulty', { difficulty: 'peaceful' })
+  try {
+    const b = bag([['stone_sword', 1, 131], ['wooden_sword', 1, 59], ['stone_pickaxe', 1, 120], ...filler(33)])
+    assert.equal(townDepositPlan(b).freed, 2, 'the run would bank both swords under the switch')
+    assert.equal(townDepositPlan(b, { swords: false }).freed, 0, 'the order\'s trigger counts the base rule: nothing')
+  } finally { fake._client.emit('difficulty', { difficulty: 'hard' }) }
+})
 test('KIT pure: toolSlotsToBank keepBest=false banks every usable copy (never a spent one); the plan banks every sword only while on', () => {
   const copies = [item('stone_sword', 1, 9, { durabilityUsed: 0 }), item('stone_sword', 1, 10, { durabilityUsed: 125 }), item('stone_sword', 1, 11, { durabilityUsed: 40 })]
   assert.deepEqual(toolSlotsToBank(copies, Infinity), [11], 'the base: the best copy stays, the spent one never moves')
@@ -636,6 +646,25 @@ async function decisions (bot, n) {
   loop.stop()
   return { ran, loop }
 }
+
+test('KIT WIRED (the real loop): a full bag at town whose only surplus is two swords gets NO town_deposit order while peaceful', async () => {
+  const { attachDifficulty } = await import('../src/foodskip.mjs')
+  const { EventEmitter } = await import('node:events')
+  const fake = { _client: new EventEmitter() }; attachDifficulty(fake, {}); fake._client.emit('difficulty', { difficulty: 'peaceful' })
+  try {
+    const items = bag([['dirt', 16], ['oak_log', 64], ['cobblestone', 64], ['crafting_table', 1], ['wooden_pickaxe', 1, 50], ['stick', 8],
+      ['furnace', 1], ['stone_sword', 1, 131], ['wooden_sword', 1, 59], ...filler(27)])
+    assert.equal(items.length, 36)
+    assert.equal(townDepositPlan(items).freed, 2, 'control: the RUN would bank both swords')
+    const { bot } = world({ items, containers: [chestAt(2)], botAt: new Vec3(3, 70, 0) })
+    Object.assign(bot, { health: 20, food: 20, oxygenLevel: 300, time: { day: 1, age: 1, timeOfDay: 1000 }, game: { dimension: 'overworld' },
+      serverDifficulty: 'peaceful', recipesFor: () => [], recipesAll: () => [], findBlock: () => null, clearControlStates: () => {}, players: {},
+      entities: {}, experience: { level: 0 }, username: 'TownBot' })
+    const { ran } = await decisions(bot, 1)
+    assert.ok(ran.length >= 1, 'the loop decided something')
+    assert.notEqual(ran[0].skill, 'town_deposit', `swords alone started a town deposit: ${JSON.stringify(ran)}`)
+  } finally { fake._client.emit('difficulty', { difficulty: 'hard' }) }
+})
 
 test('CHAIN: a full bag at town with a craft-ready rung deposits FIRST, and the craft is dispatched with room made', async () => {
   const bot = chainBot()
