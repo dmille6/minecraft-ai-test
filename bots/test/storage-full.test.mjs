@@ -46,7 +46,7 @@ test('a chest is genuinely craftable from what bots carry', async () => {
 })
 
 test('a full town chest and a CARRIED chest: the carried one is put down and the deposit lands in it', async () => {
-  const w = town([stack('cobblestone', 64), stack('chest', 1)])
+  const w = town([stack('oak_log', 64), stack('chest', 1)])
   const r = await run(w.bot)
   assert.equal(r.status, 'success', r.detail)
   assert.equal(w.spy.placed.length, 1)
@@ -56,7 +56,7 @@ test('a full town chest and a CARRIED chest: the carried one is put down and the
 })
 
 test('the recovery cannot re-enter itself: a new chest that also takes nothing ends it -- one chest, one claim', async () => {
-  const w = town([stack('cobblestone', 64), stack('chest', 2)])
+  const w = town([stack('oak_log', 64), stack('chest', 2)])
   const place = w.bot.placeBlock
   w.bot.placeBlock = async (ref, face) => { await place(ref, face); const k = w.spy.placed.at(-1).split(',').map(Number); w.fill(...k) }
   const r = await run(w.bot)
@@ -67,11 +67,11 @@ test('the recovery cannot re-enter itself: a new chest that also takes nothing e
 
 test('every failure branch reports storage_full and names what happened', async () => {
   // could not make one: no chest carried, nothing to craft it from
-  const a = town([stack('cobblestone', 64)])
+  const a = town([stack('oak_log', 64)])
   const ra = await run(a.bot)
   assert.equal(ra.failClass, 'storage_full'); assert.match(ra.detail, /no chest could be crafted/)
   // could not put it down: every placement is refused and the cell never changes
-  const b = town([stack('cobblestone', 64), stack('chest', 1)])
+  const b = town([stack('oak_log', 64), stack('chest', 1)])
   b.bot.placeBlock = async () => { throw new Error('Event blockUpdate did not fire') }
   const rb = await run(b.bot)
   assert.equal(rb.failClass, 'storage_full'); assert.match(rb.detail, /could not be put down/)
@@ -80,7 +80,7 @@ test('every failure branch reports storage_full and names what happened', async 
 })
 
 test('a LATE ACK is read back before another cell is tried: one chest, never two', async () => {
-  const w = town([stack('cobblestone', 64), stack('chest', 2)])
+  const w = town([stack('oak_log', 64), stack('chest', 2)])
   const place = w.bot.placeBlock
   let calls = 0
   w.bot.placeBlock = async (ref, face) => { calls++; setTimeout(() => { place(ref, face) }, 400); throw new Error('Event blockUpdate did not fire') }

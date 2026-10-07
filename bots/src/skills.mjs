@@ -75,7 +75,7 @@ import { reachGoal, reachRefusal, eyeToBlock, nodeToBlock, STANCE_REACH } from '
 import { planDigApproach, observeApproachDig, APPROACH_WALK_MS, planDigRetry, floatDigTargets, floatDigOk, RETRY_CAP_MS } from './digapproach.mjs'
 import { scoopLiquid, pourLiquid, scoopRefusal, emptyRefusal } from './bucket.mjs'
 import { countItem, horizontalDistanceFromSpawn, snapshot } from './state.mjs'
-import { depositPlan, depositNoopReason } from './bankable.mjs'
+import { depositPlan, depositNoopReason, cobbleBankStacks, isCobble, COBBLE_RESERVE } from './bankable.mjs'
 import { bankableInventory, depositDue, DEPOSIT_ALWAYS } from './bankable.mjs'   // chestfull-02: advice agrees with admission
 import fs from 'node:fs'
 import { doVisit, openBoard, withinBoard } from './board-visit.mjs'
@@ -2695,6 +2695,31 @@ async function deposit(ctx, { item = null }, signal, { noRecovery = false, prefe
         }
         continue
       }
+      // COBBLE GOES BY SLOT, A WHOLE STACK AT A TIME (the cobble rule, bankable.mjs cobbleBankStacks): the stacks the plan
+      // counted -- smallest first, the reserve kept -- re-chosen from the window's own bag just before the clicks, each
+      // shift-clicked only when the container has room for ALL of it (a stack that would go in part frees no slot and
+      // stays), and counted banked only by what left its slot. One _cobble_bank row per name per container.
+      if (isCobble(name)) {
+        const chosen = cobbleBankStacks(chest.items?.() ?? []).filter(s => s.name === name)
+        let budget = count, clicked = 0, went = 0, noRoom = 0
+        for (const s of chosen) {
+          check(signal)
+          if (s.count > budget) continue
+          const cur = slotAt(chest, s.slot)
+          if (!cur || cur.name !== name || cur.count !== s.count) continue
+          eligible += s.count                                // eligible either way: a container with no room for it is a full one
+          if (cobbleRoom(chest, name) < s.count) { noRoom++; continue }
+          clicked++
+          await bot.clickWindow(s.slot, 0, 1)
+          const after = slotAt(chest, s.slot)
+          const gone = after && after.name === name ? Math.max(0, s.count - (after.count ?? 0)) : s.count
+          moved += gone; went += gone; budget -= gone
+        }
+        const keptNow = (chest.items?.() ?? []).reduce((n, it) => n + (isCobble(it?.name) ? (it.count ?? 0) : 0), 0)
+        logEvent({ kind: 'cobble_bank', status: went > 0 ? 'success' : 'no_effect', snapshot: snapshot(bot),
+                   detail: `name=${name} planned=${count} stacks=${chosen.map(s => s.count).join(',') || '-'} clicked=${clicked} moved=${went} kept=${keptNow} reserve=${COBBLE_RESERVE} no_room=${noRoom}` })
+        continue
+      }
       const stacks = bot.inventory.items().filter(it => it.name === name)
       let left = count
       for (const it of stacks) {
@@ -2819,6 +2844,21 @@ function townStatus (bot, q) {
 }
 /** A far chest found full is skipped by this bot's deposits for this long (it walks home past it). */
 const FAR_SKIP_MS = 30 * 60 * 1000
+/** How many of `name` the open container could still take: empty container slots hold a stack each, a partial stack of
+ *  the same name its remainder. 0 for a window that cannot say (the cobble rule then moves nothing). */
+const cobbleRoom = (chest, name) => {
+  try {
+    const n = chest?.inventoryStart
+    if (!Number.isInteger(n)) return 0
+    let room = 0
+    for (let i = 0; i < n; i++) {
+      const it = slotAt(chest, i)
+      if (!it) room += 64
+      else if (it.name === name) room += Math.max(0, (it.stackSize ?? 64) - (it.count ?? 0))
+    }
+    return room
+  } catch { return 0 }
+}
 /** How many of the chest's items the open window's CONTAINER range holds (the client window: mineflayer applies
  *  clicks locally). 0 for a window that cannot say. */
 const inChest = (chest, name) => {

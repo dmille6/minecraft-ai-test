@@ -51,6 +51,44 @@ export function isScaffoldItem (name) {
   return SCAFFOLD_SET.has(name) || /^(cobblestone|cobbled_deepslate|stone)$/.test(name)
 }
 
+/**
+ * THE COBBLE RULE (OWNER 10-04: "keep 256/town reserve, bank only when it frees a slot (both-engine no-ledger design)";
+ * docs/reports/cobble-rule-design-2026-10-07.md). Cobblestone and cobbled deepslate enter storage ONLY as WHOLE STACKS
+ * -- each one empties a bag slot -- and only while the bag keeps COBBLE_RESERVE of the two together:
+ *   - measured 10-06/07 (30 h, 80 bots): 299 deposit runs banked 10,997 cobble; 216 of them moved an amount that was not a
+ *     whole stack, and 238 left the bot under 64 (the reserve would have kept 6,350 of the 10,997);
+ *   - 64 is the reserve the escape code relies on: the exit contract refuses a descent to iron depth (y 16 at sea level
+ *     63) below debt 47 + reserve 12 = 59 scaffold blocks (exit-contract.mjs canContinueDescent), the stockpile rung asks
+ *     for at most 64 of the stone family (milestones.mjs STOCKPILE_MAX), the town deposit keeps 64 (towndeposit.mjs) and
+ *     the junk well keeps 64 reserve stone (well.mjs STONE_GUARD) -- one number in four places, and 64 is one slot.
+ * Smallest stacks first (the transfer moves exactly these, by slot: skills.mjs deposit), so the most cobble stays for the
+ * fewest slots. No town ledger: both engines dropped it on 10-04 (lost updates, per-bot towns, stale lower bounds).
+ */
+export const COBBLE_NAMES = Object.freeze(['cobblestone', 'cobbled_deepslate'])
+export const COBBLE_RESERVE = 64
+const COBBLE_SET = new Set(COBBLE_NAMES)
+export const isCobble = name => COBBLE_SET.has(name)
+
+/**
+ * WHICH COBBLE STACKS MAY BE BANKED -> [{ slot, name, count }]. Pure over mineflayer Items ({ name, count, slot }; a
+ * missing slot is the list index). Whole stacks, smallest first (count, then slot), each taken only while the bag keeps
+ * `reserve` of the two names together and the name's total stays within `creditCap`.
+ */
+export function cobbleBankStacks (items = [], { creditCap = 64, reserve = COBBLE_RESERVE } = {}) {
+  const list = (Array.isArray(items) ? items : []).map((it, i) => ({ it, i, n: Number(it?.count) || 0 }))
+    .filter(x => x.it && COBBLE_SET.has(x.it.name) && x.n > 0)
+  let left = list.reduce((t, x) => t + x.n, 0)
+  const per = {}, out = []
+  for (const x of list.sort((a, b) => a.n - b.n || (a.it.slot ?? a.i) - (b.it.slot ?? b.i))) {
+    if (left - x.n < reserve) break                       // smallest first: no bigger stack fits either
+    if ((per[x.it.name] ?? 0) + x.n > creditCap) continue
+    out.push({ slot: x.it.slot ?? null, name: x.it.name, count: x.n })
+    per[x.it.name] = (per[x.it.name] ?? 0) + x.n
+    left -= x.n
+  }
+  return out
+}
+
 /** A stone pickaxe costs two sticks, and the rung gates on `stick >= 2 || planks >= 2`. */
 export const RESERVE_RECIPE = 2
 
@@ -120,6 +158,7 @@ export const EXCLUSION_PHRASE = Object.freeze({
   ballast: 'ballast',
   not_wanted: 'no goal wants it',
   scaffold_reserve: 'scaffold reserve',
+  cobble_reserve: 'cobble reserve',
   last_of_tool_family: 'last of its tool family',
   the_only_station: 'the only station',
 })
@@ -162,6 +201,9 @@ export function bankableInventory (items = [], { wants = [], creditCap = 64,
 
   const scaffoldReserve = scaffoldKeep(counts, reserveScaffold)
   const hold = withdrawHolds()
+  // THE COBBLE RULE: the whole stacks above the reserve, per name (cobbleBankStacks).
+  const cobbleWhole = {}
+  for (const st of cobbleBankStacks(items, { creditCap })) cobbleWhole[st.name] = (cobbleWhole[st.name] ?? 0) + st.count
   const detail = {}
   // name -> the rule that removed it, recorded HERE so no second route can disagree with the
   // decision. Only the subtraction that actually zeroed the item is named: the reserve when it
@@ -170,6 +212,15 @@ export function bankableInventory (items = [], { wants = [], creditCap = 64,
   let bankable = 0, junk = 0
   for (const [name, n] of Object.entries(counts)) {
     if (NEVER_BANKABLE.has(name)) { junk += n; excluded[name] = 'ballast'; continue }
+    // COBBLE: whole stacks above the reserve, or nothing (a withdraw hold on the name holds every stack of it: a partial
+    // hold would turn a whole stack into a partial one). Always a standing target, so never junk.
+    if (COBBLE_SET.has(name)) {
+      const whole = cobbleWhole[name] ?? 0
+      if (whole <= 0 || (hold[name] ?? 0) > 0) { excluded[name] = whole > 0 ? 'withdraw_hold' : 'cobble_reserve'; continue }
+      detail[name] = whole
+      bankable += whole
+      continue
+    }
     let avail = n
     const m = TOOL_RE.exec(name)
     // KEEP ONE USABLE COPY OF EACH TOOL, whatever copy the transfer picks (both reviews, 10-04): mineflayer's
