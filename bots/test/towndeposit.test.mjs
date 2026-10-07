@@ -417,6 +417,40 @@ test('SKILL: a full bag at town banks its surplus whole, keeps the stockpile, th
   assert.match(rows[0].skill.detail, /^slots 36->32 stacks 4\/4 clicked 4 bagdelta 38 tools stone_pickaxe@60 banked .*stone_pickaxe:1/)
 })
 
+// ---- THE PEACEFUL KIT (peacefulkit.mjs, owner 10-07): under the food policy's switch a sword keeps no copy ----------
+test('KIT pure: toolSlotsToBank keepBest=false banks every usable copy (never a spent one); the plan banks every sword only while on', () => {
+  const copies = [item('stone_sword', 1, 9, { durabilityUsed: 0 }), item('stone_sword', 1, 10, { durabilityUsed: 125 }), item('stone_sword', 1, 11, { durabilityUsed: 40 })]
+  assert.deepEqual(toolSlotsToBank(copies, Infinity), [11], 'the base: the best copy stays, the spent one never moves')
+  assert.deepEqual(toolSlotsToBank(copies, Infinity, { keepBest: false }), [9, 11], 'the kit: every usable copy, best first')
+  const b = bag([['stone_sword', 1, 131], ['wooden_sword', 1, 59], ['stone_pickaxe', 1, 120], ['stone_pickaxe', 1, 60], ...filler(32)])
+  const on = townDepositPlan(b, { swords: true }).banked, off = townDepositPlan(b, { swords: false }).banked
+  assert.equal(on.stone_sword, 1); assert.equal(on.wooden_sword, 1); assert.equal(on.stone_pickaxe, 1, 'pickaxes: the best stays either way')
+  assert.equal(off.stone_sword, undefined); assert.equal(off.wooden_sword, undefined); assert.equal(off.stone_pickaxe, 1)
+})
+
+for (const [why, difficulty, banked] of [['PEACEFUL', 'peaceful', true], ['HARD', 'hard', false]]) {
+  test(`KIT SKILL, ${why}: a full bag at town ${banked ? 'banks both swords' : 'keeps both swords'}; the best pickaxe stays; nothing lost or dropped`, async () => {
+    const { attachDifficulty } = await import('../src/foodskip.mjs')
+    const { EventEmitter } = await import('node:events')
+    const items = bag([['stone_sword', 1, 131], ['wooden_sword', 1, 59], ...fullBag().slice(0, 34).map(i => [i.name, i.count, i.maxDurability ? i.maxDurability - i.durabilityUsed : undefined])])
+    assert.equal(items.length, 36)
+    const c = chestAt(2)
+    const w = world({ items, containers: [c] })
+    w.bot.serverDifficulty = difficulty
+    const fake = { _client: new EventEmitter() }; attachDifficulty(fake, {}); fake._client.emit('difficulty', { difficulty })
+    const r = await run(w.bot)
+    assert.equal(r.status, 'success', r.detail)
+    for (const now of [w.bot.inventory.items(), serverBag(w)]) {
+      assert.equal(sumOf(now, 'stone_sword') + sumOf(now, 'wooden_sword'), banked ? 0 : 2)
+      assert.ok(now.some(i => i.name === 'stone_pickaxe' && 131 - i.durabilityUsed === 120), 'the best pickaxe stays')
+    }
+    assert.equal(sumOf(c.items, 'stone_sword') + sumOf(c.items, 'wooden_sword'), banked ? 2 : 0)
+    assert.equal(total(serverBag(w)) + total(c.items), total(items), 'nothing lost')
+    assert.equal(w.st.dropped, 0); assert.equal(w.st.loadedCloses, 0)
+    fake._client.emit('difficulty', { difficulty: 'hard' })   // leave the process decision off for the tests after
+  })
+}
+
 test('SKILL: a full chest takes nothing -- no click, no cursor, no drop; the second container takes it', async () => {
   const { bot, st } = world({ items: fullBag(), containers: [filledChest(2)] })
   const r = await run(bot)
