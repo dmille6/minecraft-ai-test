@@ -237,6 +237,7 @@ function fakeBot ({ cells = HIVE_C, health = 19, digMs = 300, rise = true, riseT
   // the roof block carries its dy so the fake knows which cell to open
   const realBlockAt = bot.blockAt
   bot.blockAt = v => { const b = realBlockAt(v); if (b) b._dy = Math.floor(v.y) - base.y; return b }
+  bot._place = (dx, dy, dz, name) => { map.set(`${base.x + dx},${base.y + dy},${base.z + dz}`, name) }
   bot._healthTimer = setInterval(() => { if (healthTick) bot.health = Math.min(20, bot.health + healthTick) }, 100)
   return bot
 }
@@ -352,6 +353,30 @@ await t('J5 an OPENED pocket clears the fail memory like a success (the reflex p
   const st = { drownFails: 3, drownFailPos: { x: 1 }, drownFailHealth: 12, seizedAt: 5, lastProgressAt: 5, cooldownUntil: 0 }
   assert.equal(airPocketAfter(true, st, 1000).drownFails, 0)
   assert.ok(readFileSync(REFLEX_PATH, 'utf8').includes("const st = airPocketAfter(r.ok || r.outcome === 'opened', {"))
+})
+
+await t('F14 on a FLOOR the bot stands on a placed block with its eye in the pocket (A-floor); deep water places none', async () => {
+  const floorCells = { ...HIVE_C, '0,-1,0': 'stone' }   // stone under the feet cell: the A-floor geometry
+  const bot = fakeBot({ cells: floorCells, riseTo: 1.1 })
+  let placedAt = null
+  bot.placeBlock = async (ref, face) => { placedAt = [ref.position?.y ?? null]; bot._place(0, 0, 0, 'cobblestone') }
+  const r = await airPocketStep(bot, airPocketPlan(world(floorCells)), deps({ standItem: () => ({ name: 'cobblestone' }) }))
+  clearInterval(bot._healthTimer)
+  assert.equal(r.ok, true, r.why); assert.equal(r.stand, 'placed:1')
+  const deepCells = { ...HIVE_C, '0,-1,0': 'water', '0,-2,0': 'water' }   // deep water under the feet cell (hive-c column)
+  const deep = fakeBot({ cells: deepCells })
+  const r2 = await airPocketStep(deep, airPocketPlan(world(deepCells)), deps({ standItem: () => ({ name: 'cobblestone' }) }))
+  clearInterval(deep._healthTimer)
+  assert.equal(r2.ok, true, r2.why); assert.equal(r2.stand, 'none')
+})
+await t('F15 the stand stops (and says why) when no block is held or the place does not read back solid', async () => {
+  const floorCells = { ...HIVE_C, '0,-1,0': 'stone' }
+  const a = fakeBot({ cells: floorCells, riseTo: 1.1 })
+  const r = await airPocketStep(a, airPocketPlan(world(floorCells)), deps({ standItem: () => null })); clearInterval(a._healthTimer)
+  assert.equal(r.ok, true); assert.match(r.stand, /^stopped:no placeable block/)
+  const b = fakeBot({ cells: floorCells, riseTo: 1.1 }); b.placeBlock = async () => {}
+  const r2 = await airPocketStep(b, airPocketPlan(world(floorCells)), deps({ standItem: () => ({ name: 'cobblestone' }) })); clearInterval(b._healthTimer)
+  assert.equal(r2.ok, true); assert.match(r2.stand, /did not turn solid/)
 })
 
 // ---------------------------------------------------------------- I. the world's inputs, read the way 1.21.8 needs
@@ -508,7 +533,9 @@ function wiring (src) {
                code.indexOf("kind: 'air_pocket_start'") > 0 && code.indexOf("kind: 'air_pocket_start'") < code.indexOf('r = await airPocketStep(') &&
                /msSinceClosing: Date\.now\(\) - lastClosingAt/.test(code) && /if \(closingOnAir\) lastClosingAt = Date\.now\(\)/.test(code) &&
                /guard: \(\) => \{ try \{ if \(runner\?\.isBusy\?\.\(\)\) runner\.interrupt\('air_pocket'\); if \(bot\.pathfinder\?\.goal\) haltPath\(bot\)/.test(code) &&
-               /stepWouldRun: \(\) => prepareAirPocket\(\)\.ok \}\)\) \{/.test(code) &&
+               /stepWouldRun: \(\) => prepareAirPocket\(\{ worstCase: true \}\)\.ok \}\)\) \{/.test(code) &&
+               /const env = worstCase \? \{ \.\.\.digEnv\(bot\), inWater: true, notOnGround: true \} : digEnv\(bot\)/.test(code) &&
+               /standItem: \(\) => scaffoldFor\(bot, 'air_pocket'\)/.test(code) &&
                /isEntombed\(bot\) && Date\.now\(\) >= airPocketBreatheUntil &&/.test(code) && /!runner\.isBusy\(\) && Date\.now\(\) >= airPocketBreatheUntil &&/.test(code) && /\} else if \(rescuing && route\.sealed === true && route\.dir !== 'up' && \(escaping \|\| marooned\) && !pocketing && !airPocketing &&\s*throttled\('air_pocket_held_off'/.test(code) && /Date\.now\(\) - airPocketWants < AP_WANT_LAPSE_MS/.test(code) &&
                /airPocketWants = 0 {16}\/\/ a refused step/.test(src) && /finally \{ airPocketing = false; airPocketWants = 0 \}/.test(code) &&
                /const ran = await runAirPocket\(route, Date\.now\(\) - seizedAt\)\s*if \(ran\) return/.test(code) &&
@@ -538,7 +565,9 @@ for (const [name, old, neu] of [
   ['the packet difficulty', 'const inputs = airPocketInputs(bot)', 'const inputs = { difficulty: bot.game?.difficulty, hungerActive: false }'],
   ['the closing-on-air clock', 'if (closingOnAir) lastClosingAt = Date.now()', ''],
   ['the skill guard', "guard: () => { try { if (runner?.isBusy?.()) runner.interrupt('air_pocket'); if (bot.pathfinder?.goal) haltPath(bot) } catch {} return null }", 'guard: () => null'],
-  ['the pre-empt asking the plan first', 'stepWouldRun: () => prepareAirPocket().ok })) {', 'stepWouldRun: () => true })) {'],
+  ['the pre-empt asking the plan first', 'stepWouldRun: () => prepareAirPocket({ worstCase: true }).ok })) {', 'stepWouldRun: () => true })) {'],
+  ['the worst-case price for the pre-empt', 'const env = worstCase ? { ...digEnv(bot), inWater: true, notOnGround: true } : digEnv(bot)', 'const env = digEnv(bot)'],
+  ['the stand item', "standItem: () => scaffoldFor(bot, 'air_pocket')", 'standItem: () => null'],
   ['the request lapse', 'Date.now() - airPocketWants < AP_WANT_LAPSE_MS', 'Date.now() - airPocketWants < 30_000'],
   ['the held-off refusal row', "throttled('air_pocket_held_off', 30_000)) {", "false) {"],
   ['the breathe hold on the entombed arm', 'isEntombed(bot) && Date.now() >= airPocketBreatheUntil &&', 'isEntombed(bot) &&'],

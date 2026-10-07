@@ -1363,7 +1363,7 @@ export function startReflexes(bot, runner, lessons = null, worldFacts = null) {
   // the bot sinks back, its own scan now reads `up dist=1` into the pocket and the ordinary rescue lifts it there.
   // PLAN + ADMISSION, no side effects: what the step WOULD do here. The pre-empt asks it first (both reviews r2: an
   // escape must never be stopped for a step that would then be refused).
-  const prepareAirPocket = () => {
+  const prepareAirPocket = ({ worstCase = false } = {}) => {
     const at = bot.entity?.position
     if (!at) return { ok: false, why: 'no position' }
     const fx = Math.floor(at.x), fy = Math.floor(at.y), fz = Math.floor(at.z)
@@ -1371,7 +1371,10 @@ export function startReflexes(bot, runner, lessons = null, worldFacts = null) {
     const inputs = airPocketInputs(bot)   // the server's difficulty (packet) and the Hunger effect -- never bot.game.difficulty
     if (!plan.ok) return { ok: false, why: plan.why, fx, fy, fz, inputs }
     const block = bot.blockAt(new Vec3(fx, fy + plan.dy, fz))
-    const env = digEnv(bot)
+    // THE PRE-EMPT PRICES THE WORST CASE (Paper sandbox e142b8f H): a bot momentarily on the ground priced the 2.85-s
+    // standing dig, the pre-empt fired, and half a second later the floating price was refused. Floating + in water is
+    // the slowest the step can face, so a pre-empt admitted on it is never followed by a budget refusal.
+    const env = worstCase ? { ...digEnv(bot), inWater: true, notOnGround: true } : digEnv(bot)
     const items = (bot.inventory?.items?.() ?? []).filter(it => /_(pickaxe|shovel|axe)$/.test(it.name))
     let fastest = null
     for (const item of [null, ...items]) {
@@ -1410,7 +1413,8 @@ export function startReflexes(bot, runner, lessons = null, worldFacts = null) {
       // a skill that starts while the step runs is interrupted (cognition is not gated by the tick's early return)
       try { runner?.interrupt?.('air_pocket') } catch { /* nothing running */ }
       r = await airPocketStep(bot, plan, { Vec3, predict: (b, item) => predictedDigMs(b, item, digEnv(bot)), envelope: admit.envelope,
-                                           guard: () => { try { if (runner?.isBusy?.()) runner.interrupt('air_pocket'); if (bot.pathfinder?.goal) haltPath(bot) } catch {} return null } })
+                                           guard: () => { try { if (runner?.isBusy?.()) runner.interrupt('air_pocket'); if (bot.pathfinder?.goal) haltPath(bot) } catch {} return null },
+                                           standItem: () => scaffoldFor(bot, 'air_pocket') })
     } finally { airPocketing = false; airPocketWants = 0 }
     logEvent({ kind: 'air_pocket', status: r.ok ? 'success' : r.outcome === 'opened' ? 'no_effect' : 'failed',
                detail: `id=${attemptId} ${airPocketDetail(r)} | required_ms=${Math.round(admit.requiredMs)} budget_ms=${Math.round(admit.budgetMs)} ` +
@@ -2259,7 +2263,7 @@ export function startReflexes(bot, runner, lessons = null, worldFacts = null) {
           // current dig is stopped; once it returns, the trigger below runs the step.
           if (airPocketPreempt({ rescuing, routeDir: route.dir, routeSealed: route.sealed, escaping, marooned, pocketing,
                                  active: airPocketing, now: Date.now(), cooldownUntil: airPocketCooldownUntil,
-                                 stepWouldRun: () => prepareAirPocket().ok })) {
+                                 stepWouldRun: () => prepareAirPocket({ worstCase: true }).ok })) {
             airPocketWants = Date.now()
             try { if (bot.targetDigBlock) bot.stopDigging() } catch { /* not digging */ }
             if (throttled('air_pocket_preempt', 30_000)) {
