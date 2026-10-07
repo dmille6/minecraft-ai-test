@@ -87,8 +87,18 @@ await t('THE TRANSFER: [64, 30] cobble -> the 30-stack is shift-clicked whole, 6
   assert.equal(cobbleIn(w.bag), 64, 'the reserve stayed')
   assert.equal(w.bag.filter(x => x?.name === 'cobblestone').length, 1, 'one cobble slot left: a slot was freed')
   const row = RECS.slice(n0).find(x => x.skill?.name === '_cobble_bank')
-  assert.ok(row, 'the row'); assert.match(row.skill.detail, /^name=cobblestone planned=30 tried=30 moved=30 kept=64 src=\S+ reserve=64 no_room=0$/)
+  assert.ok(row, 'the row'); assert.match(row.skill.detail, /^name=cobblestone planned=30 tried=30 moved=30 before=94 kept=64 src=\S+ reserve=64 no_room=0$/)
   assert.equal(w.spy.transfers, 1, 'one transfer, narrowed to the 30-stack\'s slot (mineflayer\'s own transfer, as chest.deposit)')
+})
+
+await t('MOVED IS CAPPED (Codex r2): another depositor adding cobble to the chest during the transfer is not credited to this bot', async () => {
+  const w = town([stack('cobblestone', 64), stack('cobblestone', 30)])
+  const orig = w.bot.transfer.bind(w.bot)
+  w.bot.transfer = async o => { await orig(o); w.containers.get(w.key(5, 64, 0)).slots[20] = stack('cobblestone', 25) }   // someone else's 25
+  const n0 = RECS.length
+  const r = await run(w.bot)
+  assert.equal(r.status, 'success', r.detail)
+  assert.match(RECS.slice(n0).find(x => x.skill?.name === '_cobble_bank')?.skill?.detail ?? '', / moved=30 before=94 kept=64 /)
 })
 
 await t('ROOM FIRST: a chest with room for only part of a stack takes NONE of it (a partial would free no slot); the chest-full path follows', async () => {
