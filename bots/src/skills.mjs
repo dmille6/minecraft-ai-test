@@ -7730,6 +7730,15 @@ async function smelt(ctx, { item, count = 1 }, signal) {
       // slot that can no longer be read) must not let this job's input ignite it -- possibly with the switch off, and
       // with no row. The job stops; the finally's guarded drain leaves the sword unless the window has room.
       const after = fslot('fuelItem')
+      // A TAKE THAT FAILED BETWEEN ITS TWO CLICKS leaves the sword on the cursor with the slot empty (Claude r-rev5), and
+      // the server drops a cursor item at the close: put it back into the bag first (chestfull.mjs returnCursor).
+      let cursor = null
+      try { cursor = furnace.selectedItem ?? null } catch { cursor = null }
+      if (cursor) {
+        const back = await returnCursor(bot, furnace)
+        return { status: 'failed', failClass: 'transfer_unsettled',
+                 detail: `taking the wooden sword out of the furnace's fuel slot did not settle (${back.returned ? 'it is back in your bag' : back.reason}) — smelt again` }
+      }
       if (after !== null) {
         return { status: 'failed', failClass: 'container_blocked',
                  detail: 'the furnace\'s fuel slot holds a wooden sword that could not be taken back — ' +
