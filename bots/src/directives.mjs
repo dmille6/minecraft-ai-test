@@ -12,7 +12,7 @@
 // could otherwise be "completed" by the previous execution); a runner PAUSE is waited out until the runner's own
 // auto-resume (pause recovery + one tick), not dropped after three ticks; every lifecycle step is logged AT ONCE
 // through a sink with its own timestamp (requested / duplicate / admitted / started / waiting / step_done /
-// completed / refused / released / expired / superseded / parse_failed); a new connection releases what the old
+// completed / refused / released / expired / superseded / orphan_outcome / parse_failed); a new connection releases what the old
 // one held.
 //
 // Pure apart from the optional sink: no clock reads (`now` is passed in), so every rule below is unit-tested.
@@ -52,7 +52,7 @@ export function parseDirective (id, json, { knownSkills = null, now = 0 } = {}) 
 }
 
 export class DirectiveQueue {
-  constructor () { this.active = null; this.events = []; this.gen = 0; this.sink = null }
+  constructor () { this.active = null; this.events = []; this.gen = 0; this.sink = null; this.orphans = new Map() }
 
   /** A sink receives each lifecycle event immediately (the cognitive loop writes it as a row). Without one, events
    *  buffer for drain(). */
@@ -73,6 +73,9 @@ export class DirectiveQueue {
       const rank = o => ORIGINS.indexOf(o)
       if (rank(d.origin) <= rank(this.active.origin)) {
         this.#emit('superseded', this.active, `by ${d.origin} ${d.id}`, now)
+        // its step may be executing right now: keep it so that execution's outcome is still recorded
+        this.orphans.set(this.active.gen, this.active)
+        if (this.orphans.size > 8) this.orphans.delete(this.orphans.keys().next().value)
       } else {
         this.#emit('refused', d, `busy with ${this.active.origin} ${this.active.id}`, now)
         return false
@@ -97,9 +100,10 @@ export class DirectiveQueue {
     this.#expire(now)
     const d = this.active
     if (!d) return null
-    // WAITING OUT A RUNNER REFUSAL: re-proposing the same step every tick would fill the admission's repeat window
-    // (4 identical keys -> repeat_loop) and kill the directive of its own wait. The brain decides in the meantime.
-    if (d.retryAt != null && now < d.retryAt) return null
+    // WAITING OUT A RUNNER REFUSAL: HOLD -- neither re-propose the step (4 identical keys fill the admission's repeat
+    // window) nor let the brain decide (its proposals would hit the same paused runner and put the directive's action
+    // on cooldown, so the retry is vetoed: Codex re-review of 7593eb3). The runner is refusing everything anyway.
+    if (d.retryAt != null && now < d.retryAt) return { hold: true, id: d.id, gen: d.gen, origin: d.origin, until: d.retryAt }
     const st = d.steps[d.step]
     return { id: d.id, gen: d.gen, origin: d.origin, step: d.step, of: d.steps.length, skill: st.skill, args: st.args, why: d.why }
   }
@@ -117,7 +121,11 @@ export class DirectiveQueue {
    *  runner's own auto-resume; busy / body_held are retried up to MAX_REFUSALS; the lease bounds both. */
   report (gen, kind, status = null, detail = '', now = 0, refusal = null) {
     const d = this.active
-    if (!d || d.gen !== gen) return
+    if (!d || d.gen !== gen) {
+      const o = this.orphans.get(gen)          // a superseded delivery's step finished: record what it did
+      if (o) { this.orphans.delete(gen); this.#emit('orphan_outcome', o, `${kind}${status ? ' ' + status : ''}: ${detail}`, now) }
+      return
+    }
     if (kind === 'rejected') { this.#emit('refused', d, `admission: ${detail}`, now); this.active = null; return }
     if (kind === 'runner_refusal') {
       if (refusal === 'runner_paused') {

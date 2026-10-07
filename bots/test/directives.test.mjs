@@ -71,13 +71,22 @@ const statuses = q => q.drain().map(e => e.status)
   q.report(old, 'done', 'success', 'stale', 4)
   assert.strictEqual(q.next(5).id, 'other'); assert.strictEqual(q.next(5).step, 0, 'the stale success did not advance the new one')
   assert.ok(statuses(q).includes('duplicate'))
+  const ev = q.drain(); assert.deepStrictEqual(ev, [], 'drained')
+  q.report(old, 'done', 'success', 'stale', 6)       // already consumed above -> nothing more
+  q.offer(mk('third', 'overseer'), 7); const g3 = q.next(8).gen
+  q.offer(mk('fourth', 'overseer'), 9)               // supersedes `third` while its step may be running
+  q.report(g3, 'done', 'failed', 'blocked', 10)      // that execution's outcome is still RECORDED
+  const late = q.drain().find(e => e.status === 'orphan_outcome')
+  assert.ok(late && late.id === 'third' && /done failed: blocked/.test(late.detail), 'a superseded delivery keeps its outcome row')
+  assert.strictEqual(q.next(11).id, 'fourth'); assert.strictEqual(q.next(11).step, 0, 'and it did not touch the new one')
 }
 { // runner PAUSE: wait for the runner's own auto-resume, re-propose ONCE, then give up (both reviews, finding 1)
   const q = new DirectiveQueue()
   q.offer(mk('p', 'escalation', 1, 0), 0); const g = q.next(0).gen
   q.report(g, 'runner_refusal', 'failed', 'paused after repeated failures; 87s until auto-resume', 1000, 'runner_paused')
-  for (const t of [1000, 20_000, 60_000, 90_000]) assert.strictEqual(q.next(t), null, `not re-proposed at +${t / 1000}s (repeat window)`)
-  assert.ok(q.next(1000 + 92_000), 're-proposed once the runner has auto-resumed')
+  for (const t of [1000, 20_000, 60_000, 90_000]) assert.strictEqual(q.next(t)?.hold, true, `HELD at +${t / 1000}s: neither re-proposed nor handed to the brain`)
+  const again = q.next(1000 + 92_000)
+  assert.ok(again && !again.hold && again.skill === 'goto', 're-proposed once the runner has auto-resumed')
   q.report(g, 'done', 'success', 'ok', 95_000)
   assert.strictEqual(statuses(q).at(-1), 'completed', 'the step that waited out a pause then completes')
   q.offer(mk('p2', 'escalation', 1, 0), 0); const g2 = q.next(0).gen
@@ -137,7 +146,7 @@ const oneTick = async (runnerResult) => {
   directives.offer(mk('L1', 'overseer', 1, Date.now(), 600, ['explore']), Date.now())
   await t.go()
   assert.strictEqual(t.runs[0]?.skill, 'explore', 'the directive step ran')
-  assert.match(t.runs[0].trigger, /^directive:overseer\//, 'the row says who asked, and keeps the original trigger')
+  assert.strictEqual(t.runs[0].trigger, 'directive:overseer/startup', 'the row says who asked, and keeps the original trigger')
   assert.strictEqual(t.asked, 0, 'the model was not asked for that decision')
 }
 {
@@ -152,17 +161,44 @@ const oneTick = async (runnerResult) => {
   assert.match(String(t.loop.lastOutcome), /^rejected: bad_args/, 'positive control: it was the GATE that refused it')
 }
 {
-  // a runner PAUSE keeps the directive (waiting) and does not train the admission cooldown
-  const t = await oneTick(() => ({ status: 'failed', failClass: 'runner_paused', detail: 'paused after repeated failures; 87s until auto-resume' }))
-  directives.releaseAll('test', Date.now())
+  // a runner PAUSE, END TO END: the step is refused -> HELD (no cooldown; intervening decisions neither re-propose it
+  // nor ask the model, whose own proposals would hit the same paused runner) -> the retry runs -> completed -> the
+  // brain decides again (positive control for the `asked` instrument).
+  const sleep = ms => new Promise(r => setTimeout(r, ms))
+  let paused = true
+  const t = await oneTick(() => paused
+    ? { status: 'failed', failClass: 'runner_paused', detail: 'paused after repeated failures; 87s until auto-resume' }
+    : { status: 'success', detail: 'ok', delta: {}, contractEvidence: ['x'] })
+  directives.releaseAll('test', Date.now()); directives.drain()
+  const seen = []; const loopSink = directives.sink
+  directives.setSink(e => { seen.push(e); loopSink(e) })          // the loop's own sink still writes the row
   directives.offer(mk('L3', 'overseer', 1, Date.now(), 600, ['explore']), Date.now())
-  await t.go()
+  t.loop.start(); await sleep(120)
   assert.strictEqual(t.runs.length, 1, 'positive control: the runner was asked once and refused')
   assert.ok(directives.active, 'still active, waiting for the auto-resume')
   assert.ok(directives.active.retryAt > Date.now() + 60_000, 'retry scheduled at the runner\'s own auto-resume')
   const gate = t.loop.admission.check({ skill: 'explore', args: {}, reason: 'x' }, loopBot(), null)
   assert.notStrictEqual(gate.reason, 'cooldown', 'a step that never ran must not put its action on cooldown')
-  directives.releaseAll('test', Date.now())
+  for (let i = 0; i < 3; i++) { t.loop.notify('idle'); await sleep(60) }
+  assert.strictEqual(t.runs.length, 1, 'HELD: intervening decisions did not re-propose the step')
+  assert.strictEqual(t.asked, 0, 'HELD: the model was not asked while the runner is paused')
+  paused = false; directives.active.retryAt = Date.now() - 1          // the runner's auto-resume has come
+  t.loop.notify('idle'); await sleep(120)
+  assert.strictEqual(t.runs.length, 2); assert.strictEqual(t.runs[1].skill, 'explore', 'the retry ran the directive step')
+  assert.strictEqual(directives.active, null, 'and it completed')
+  assert.deepStrictEqual(seen.filter(e => e.id === 'L3').map(e => e.status), ['requested', 'admitted', 'dispatched', 'waiting', 'admitted', 'dispatched', 'step_done', 'completed'],
+                         'the lifecycle as logged: dispatched twice, ran (step_done) once')
+  t.loop.notify('idle'); await sleep(120)
+  assert.strictEqual(t.asked, 1, 'positive control: with no directive the model IS asked')
+  t.loop.stop()
+}
+{
+  // a NEW CONNECTION (a new CognitiveLoop) releases what the old one held -- in the real constructor
+  directives.offer(mk('L4', 'overseer', 1, Date.now(), 600, ['explore']), Date.now())
+  assert.ok(directives.active, 'positive control: held before the reconnect')
+  const l = new CognitiveLoop(loopBot(), { isBusy: () => false, run: async () => ({}) }, freshLessons(), null)
+  assert.strictEqual(directives.active, null, 'a new connection releases the old one\'s directive')
+  l.stop()
 }
 
 // ---- 3. wiring (structural; comments stripped) ------------------------------------------------------------------------
@@ -192,7 +228,7 @@ expect(wiringProblems(mut(cog, "if (dstep && rejection) directives.report(dstep.
 expect(wiringProblems(mut(cog, 'directives.next(Date.now())', 'null'), cmd), 'NEXT_BEFORE_ORDER')
 expect(wiringProblems(mut(cog, 'const res = order', 'const res = null'), cmd), 'ORDER_IS_PROPOSAL')
 expect(wiringProblems(mut(cog, "directives.report(dstep.gen, neverRan ? 'runner_refusal' : 'done'", "void (dstep.gen, neverRan ? 'runner_refusal' : 'done'"), cmd), 'OUTCOME_REPORTED')
-expect(wiringProblems(mut(cog, 'const dstep = directives.next(Date.now())', 'const dstep = directives.next(Date.now())\n    if (dstep) { await this.runner.run(dstep.skill, dstep.args, {}); return }'), cmd), 'COGNITIVE_SIDE_DOOR')
+expect(wiringProblems(mut(cog, 'const dstep = dnext', 'const dstep = dnext\n    if (dstep) { await this.runner.run(dstep.skill, dstep.args, {}); return }'), cmd), 'COGNITIVE_SIDE_DOOR')
 expect(wiringProblems(cog, mut(cmd, 'directives.offer(p.directive, Date.now())', "runner.run('goto', {}, {})")), 'CHAT_SIDE_DOOR')
 expect(wiringProblems(cog, mut(cmd, 'if (process.env.C2_DIRECTOR && !directorAllowed(username)) return', '')), 'DIRECTOR_ONLY')
 

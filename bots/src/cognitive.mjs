@@ -330,7 +330,7 @@ export class CognitiveLoop {
     directives.releaseAll('new connection', Date.now())
     directives.setSink(ev => {
       const status = ['completed', 'step_done'].includes(ev.status) ? 'success'
-        : ['requested', 'superseded', 'admitted', 'started', 'waiting', 'duplicate'].includes(ev.status) ? 'no_effect' : 'failed'
+        : ['requested', 'superseded', 'admitted', 'dispatched', 'waiting', 'duplicate'].includes(ev.status) ? 'no_effect' : 'failed'
       try {
         logEvent({ kind: 'directive', status, snapshot: snapshot(this.bot),
                    detail: `${ev.status} ${ev.id} g${ev.gen} ${ev.origin} step ${ev.step + 1}/${ev.of} at=${new Date(ev.at).toISOString()}: ${ev.detail}` })
@@ -778,7 +778,13 @@ export class CognitiveLoop {
     // every decision.
     // BENCH-ONLY (bench-c2): a pending DIRECTIVE step comes first, SYNTHESISED AS A PROPOSAL exactly like a work order,
     // so admission, outcome classification, the milestone counter, lastOutcome and the decision row all apply to it.
-    const dstep = directives.next(Date.now())
+    const dnext = directives.next(Date.now())
+    if (dnext?.hold) {                                    // waiting out a runner refusal (directives.mjs: HOLD)
+      this.lastDecisionAt = Date.now()                    // a deliberate wait, not a silent loop: keep liveness quiet
+      this.#scheduleNext()                                // clears any pending timer first, so never double-scheduled
+      return
+    }
+    const dstep = dnext
     let order = dstep
       ? { skill: dstep.skill, args: dstep.args, directive: dstep,
           why: `${dstep.origin} directive ${dstep.id} step ${dstep.step + 1}/${dstep.of}: ${dstep.why}`.slice(0, 160) }
@@ -906,7 +912,7 @@ export class CognitiveLoop {
       log('info', `LLM -> ${admitted.skill}`, {
         args: admitted.args, reason: res.proposal.reason?.slice(0, 90), ms: res.latencyMs,
       })
-      if (dstep) directives.note(dstep.gen, 'started', admitted.skill, Date.now())
+      if (dstep) directives.note(dstep.gen, 'dispatched', admitted.skill, Date.now())   // handed to the runner; `step_done`/`released` say it ran
       const r = await this.runner.run(admitted.skill, admitted.args, { trigger: dstep ? trigger : `llm:${trigger}` })
       outcome = { status: r.status, detail: r.detail }
       runFailClass = r.failClass ?? null
