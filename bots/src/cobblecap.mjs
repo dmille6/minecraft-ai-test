@@ -45,7 +45,8 @@ export const TOWN_COBBLE_CAP = 256
 export const OBS_TTL_MS = 6 * 60 * 60 * 1000
 /** A journal larger than this is not replayed: the town is UNKNOWN (fail closed). ~100 KB/day per town at fleet rates. */
 export const JOURNAL_MAX_BYTES = 32 * 1024 * 1024
-/** This process: a claim records it, so the bot's NEXT process can tell its predecessor's claims from its own. */
+/** This process. Each CONNECTION gets its own instance below it (skills.mjs installCobbleCap: `${INSTANCE}-c<n>`, Codex r6
+ *  P1: a reconnect inside one process is a new login, and the old connection's late callbacks must be fenceable). */
 export const INSTANCE = `${process.pid}-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 7)}`
 const COBBLE = new Set(['cobblestone', 'cobbled_deepslate'])
 export const isCobbleName = n => COBBLE.has(n)
@@ -256,14 +257,14 @@ export function readTown (dir, key, world = null, { ckptEvery = CKPT_EVERY_BYTES
  * that ends before the claim) and takes the decision the fold gives the claim at its own place. A refused or unreadable
  * claim is released at once (it never moves anything). No append, or a journal that cannot be replayed -> 'unknown'.
  */
-export function claimStack (dir, key, world, { id, n, k, bot = null, keys = [], coverage = false, gone = [], at = Date.now() }, opts = {}) {
+export function claimStack (dir, key, world, { id, n, k, bot = null, keys = [], coverage = false, gone = [], at = Date.now(), inst = INSTANCE }, opts = {}) {
   let before = 0
   try { before = fs.statSync(journalFile(dir, key)).size } catch { before = 0 }
-  if (!appendJournal(dir, key, world, { t: 'claim', id, n, k, at, bot, inst: INSTANCE, keys, coverage: !!coverage, gone })) return { decision: 'unknown', view: null, at }
+  if (!appendJournal(dir, key, world, { t: 'claim', id, n, k, at, bot, inst, keys, coverage: !!coverage, gone })) return { decision: 'unknown', view: null, at }
   const j = loadJournal(dir, key, world, { ...opts, maxOffset: before })
   const r = j ? foldJournal(j.records, { upto: id, state: j.base, seq: j.seq }) : { decision: null, view: null }
   const decision = r.decision ?? 'unknown'
-  if (decision !== 'bank') appendJournal(dir, key, world, { t: 'rel', ids: [id], at: Date.now(), bot })
+  if (decision !== 'bank') appendJournal(dir, key, world, { t: 'rel', ids: [id], at: Date.now(), bot, inst })
   return { decision, view: r.view, at }
 }
 
@@ -271,9 +272,9 @@ export function claimStack (dir, key, world, { id, n, k, bot = null, keys = [], 
  * A COUNT and its releases in ONE line: the container's cobble captured at `obs.cap`, and the claims it includes. `obs`
  * null: releases only. -> true when written.
  */
-export function recordCount (dir, key, world, { obs = null, release = [], scan = null, bot = null, dirty = null } = {}) {
+export function recordCount (dir, key, world, { obs = null, release = [], scan = null, bot = null, dirty = null, inst = INSTANCE } = {}) {
   if (!obs && !release.length && !scan) return true
-  const rec = { t: 'cnt', ids: release, bot, at: Date.now() }
+  const rec = { t: 'cnt', ids: release, bot, inst, at: Date.now() }
   if (dirty != null) rec.dirty = dirty
   if (obs) Object.assign(rec, { k: obs.k, n: obs.n, cap: obs.cap })
   if (scan) rec.scan = { keys: scan.keys, at: scan.at }
@@ -290,12 +291,12 @@ export function recordCount (dir, key, world, { obs = null, release = [], scan =
  * claim itself; one that never finishes keeps its reservation until the process ends (fail closed). Each voided claim
  * makes its container UNKNOWN until recounted.
  */
-export function voidOwnClaims (dir, key, world, { bot } = {}) {
+export function voidOwnClaims (dir, key, world, { bot, inst = INSTANCE } = {}) {
   if (bot == null) return -1
   const st = readTown(dir, key, world)
   if (!st) return -1                                                    // not replayable: not done (Codex r5 P2: retried)
-  const ids = Object.entries(st.claims).filter(([, c]) => c.state === 'live' && c.bot === bot && c.inst !== INSTANCE).map(([id]) => id)
+  const ids = Object.entries(st.claims).filter(([, c]) => c.state === 'live' && c.bot === bot && c.inst !== inst).map(([id]) => id)
   // written even with nothing to void: it is also THE FENCE for every other process of this bot from here on
-  if (!appendJournal(dir, key, world, { t: 'void', ids, at: Date.now(), bot, inst: INSTANCE })) return -1
+  if (!appendJournal(dir, key, world, { t: 'void', ids, at: Date.now(), bot, inst })) return -1
   return ids.length
 }

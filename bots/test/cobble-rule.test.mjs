@@ -671,6 +671,54 @@ await t('CAP r4: a claimant never folds from a checkpoint that already contains 
   assert.equal(CC.foldJournal(j.records, { upto: 'c', state: j.base, seq: j.seq }).decision, 'bank')
   assert.ok(!CC.loadJournal(dir, 'k', null).records.some(r => r.id === 'c'), 'positive control: without maxOffset the checkpoint hides it')
 })
+await t('CAP r6: a RECONNECT inside one process is a new connection (Codex r6 P1): the old connection\'s claim is voided at the new login, and its late stale count is fenced', async () => {
+  const w = capTown([stack('cobblestone', 64), stack('cobblestone', 30)], 150)
+  w.bot.username = 'CobbleBot'
+  installCobbleCap(w.bot)                                                      // connection 1
+  try {
+    await countAt(w, 5, 64, 0)
+    const old = w.bot.cobbleInst
+    assert.equal(CC.claimStack(process.env.POOL_STATE_DIR, TK(), null, { id: 'c1', n: 64, k: '5,64,0', bot: 'CobbleBot', keys: ['5,64,0'], coverage: true, inst: old }).decision, 'bank')
+    const w2 = fakeWorld({ bag: [stack('cobblestone', 64)] }); w2.set(5, 64, 0, 'chest'); w2.bot.username = 'CobbleBot'
+    installCobbleCap(w2.bot)                                                   // connection 2, same process
+    assert.notEqual(w2.bot.cobbleInst, old)
+    B.cobbleTownView()                                                         // the first read after login voids + fences
+    assert.equal(CC.readTown(process.env.POOL_STATE_DIR, TK()).claims.c1.state, 'void')
+    CC.recordCount(process.env.POOL_STATE_DIR, TK(), null, { obs: { k: '5,64,0', n: 99, cap: Date.now() + 5 }, release: ['c1'], bot: 'CobbleBot', inst: old })
+    const st = CC.readTown(process.env.POOL_STATE_DIR, TK())
+    assert.equal(st.claims.c1.state, 'void', 'the old connection\'s release is fenced out'); assert.equal(st.obs['5,64,0'].n, 150, 'the stale 99 is not the count')
+    assert.deepEqual(CC.townCobble(st, ['5,64,0'], Date.now()).unknown, ['5,64,0'], 'and its stale count did not resolve the void')
+  } finally { B.setCobbleTownReader(null); B.setCobbleReconcileProbe(null) }
+})
+await t('CAP r6: a connection that has ENDED writes no count from a window still marked current (Codex r6 P1): release + unknown', async () => {
+  const w = capTown([stack('cobblestone', 64)], 100)
+  await countAt(w, 5, 64, 0)
+  assert.equal(CC.claimStack(process.env.POOL_STATE_DIR, TK(), null, { id: 'E', n: 30, k: '5,64,0', keys: ['5,64,0'], coverage: true }).decision, 'bank')
+  const b = w.bot.blockAt({ x: 5, y: 64, z: 0 })
+  const win = await w.bot.openContainer(b)                                     // still bot.currentWindow
+  w.bot.cobbleEnded = true                                                     // the 'end' event's flag (installCobbleCap)
+  S2.cobbleObserve(w.bot, b.position, win, { release: 'E' })
+  win.close()
+  const st = CC.readTown(process.env.POOL_STATE_DIR, TK())
+  assert.equal(st.obs['5,64,0'].n, 100, 'no count'); assert.deepEqual(CC.townCobble(st, ['5,64,0'], Date.now()).unknown, ['5,64,0'])
+})
+await t('CAP r6: a failed void through the INSTALLED reader is retried by the next read (Codex r6 P4)', async () => {
+  const w = capTown([stack('cobblestone', 64), stack('cobblestone', 30)], 200)
+  w.bot.username = 'CobbleBot'
+  await countAt(w, 5, 64, 0)
+  CC.appendJournal(process.env.POOL_STATE_DIR, TK(), null, { t: 'claim', id: 'pred', n: 40, k: '5,64,0', at: Date.now(), bot: 'CobbleBot', inst: 'dead-8', keys: ['5,64,0'], coverage: true })
+  const jf = path.join(process.env.POOL_STATE_DIR, `${TK()}.cobble.jsonl`)
+  installCobbleCap(w.bot)
+  try {
+    fs.chmodSync(jf, 0o444)
+    try { B.cobbleTownView() } finally { fs.chmodSync(jf, 0o644) }
+    assert.notEqual(w.bot.cobbleVoided, true, 'not latched')
+    assert.equal(CC.readTown(process.env.POOL_STATE_DIR, TK()).claims.pred.state, 'live')
+    await new Promise(res => setTimeout(res, 5_100))                           // the view's 5 s cache
+    B.cobbleTownView()
+    assert.equal(w.bot.cobbleVoided, true); assert.equal(CC.readTown(process.env.POOL_STATE_DIR, TK()).claims.pred.state, 'void')
+  } finally { B.setCobbleTownReader(null); B.setCobbleReconcileProbe(null) }
+})
 
 console.log(`\n${pass} passed, ${fail} failed`)
 process.exit(fail ? 1 : 0)
