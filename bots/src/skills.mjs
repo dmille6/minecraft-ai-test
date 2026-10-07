@@ -75,7 +75,7 @@ import { planDigApproach, observeApproachDig, APPROACH_WALK_MS, planDigRetry, fl
 import { scoopLiquid, pourLiquid, scoopRefusal, emptyRefusal } from './bucket.mjs'
 import { countItem, horizontalDistanceFromSpawn, snapshot } from './state.mjs'
 import { depositPlan, depositNoopReason, cobbleBankStacks, isCobble, COBBLE_RESERVE, setCobbleTownReader, setCobbleReconcileProbe } from './bankable.mjs'
-import { townCobble, cobbleAdmit, cobbleIn, readTown, claimStack, recordCount, voidOwnClaims, TOWN_COBBLE_CAP, OBS_TTL_MS } from './cobblecap.mjs'
+import { townCobble, cobbleAdmit, cobbleIn, readTown, claimStack, recordCount, voidOwnClaims, TOWN_COBBLE_CAP, OBS_TTL_MS, INSTANCE } from './cobblecap.mjs'
 import { bankableInventory, depositDue, DEPOSIT_ALWAYS } from './bankable.mjs'   // chestfull-02: advice agrees with admission
 import fs from 'node:fs'
 import { doVisit, openBoard, withinBoard } from './board-visit.mjs'
@@ -3044,9 +3044,10 @@ export function cobbleObserve (bot, pos, win, { release = null, releaseAll = [] 
     const ids = [...(release ? [release] : []), ...releaseAll]
     // A WINDOW THAT IS NO LONGER THE BOT'S (closed by the server, or a skill the runner abandoned) cannot vouch for a
     // count (Codex r5 P1): its releases are written with the container marked UNKNOWN until a recount, never a count
-    if (win && bot.currentWindow !== win) {
+    // ...nor can any window of a connection that has ENDED (Codex r6 P1: a late handler after a disconnect)
+    if ((win && bot.currentWindow !== win) || bot.cobbleEnded) {
       capEpoch++
-      return ids.length ? recordCount(townDir(), homeTownKey(), bot.worldId ?? null, { release: ids, bot: bot.username ?? null, dirty: inside ? containerKey(bot, pos) : null }) : false
+      return ids.length ? recordCount(townDir(), homeTownKey(), bot.worldId ?? null, { release: ids, bot: bot.username ?? null, dirty: inside ? containerKey(bot, pos) : null, inst: capInst(bot) }) : false
     }
     const n = cobbleIn(win?.containerItems?.() ?? [])
     let scan = null
@@ -3057,7 +3058,7 @@ export function cobbleObserve (bot, pos, win, { release = null, releaseAll = [] 
     }
     capEpoch++
     return recordCount(townDir(), homeTownKey(), bot.worldId ?? null,
-      { obs: inside ? { k: containerKey(bot, pos), n, cap } : null, release: ids, scan, bot: bot.username ?? null })
+      { obs: inside ? { k: containerKey(bot, pos), n, cap } : null, release: ids, scan, bot: bot.username ?? null, inst: capInst(bot) })
   } catch { return false }
 }
 /**
@@ -3072,14 +3073,18 @@ function cobbleReserve (bot, count, pos) {
   const id = `${bot.username ?? 'bot'}-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`
   capEpoch++
   const r = claimStack(townDir(), homeTownKey(), bot.worldId ?? null,
-    { id, n: count, k: containerKey(bot, pos), bot: bot.username ?? null, keys: sc.keys, coverage: sc.coverage, gone: sc.gone })
+    { id, n: count, k: containerKey(bot, pos), bot: bot.username ?? null, keys: sc.keys, coverage: sc.coverage, gone: sc.gone, inst: capInst(bot) })
   return { decision: r.decision, view: r.view, id: r.decision === 'bank' ? id : null, at: r.at }
 }
-/** A dead predecessor's claims are voided once this process is logged in (cobblecap.mjs voidOwnClaims). -> true when done. */
+/** THIS CONNECTION'S instance in the journal: a reconnect inside one process is a new login (Codex r6 P1), so its old
+ *  connection's late callbacks are fenced like a dead process's. installCobbleCap sets it per bot object. */
+let capConn = 0
+const capInst = bot => bot?.cobbleInst ?? INSTANCE
+/** A dead predecessor's claims are voided once this connection is logged in (cobblecap.mjs voidOwnClaims). -> true when done. */
 export function cobbleVoidStale (bot) {
   try {
     if (!bot?.entity || bot.username == null) return false                 // not logged in yet: the predecessor may still be
-    const n = voidOwnClaims(townDir(), homeTownKey(), bot.worldId ?? null, { bot: bot.username })
+    const n = voidOwnClaims(townDir(), homeTownKey(), bot.worldId ?? null, { bot: bot.username, inst: capInst(bot) })
     if (n > 0) capEpoch++
     return n >= 0                                                         // a failed void is retried at the next read
 
@@ -3107,6 +3112,8 @@ function cobbleStuckNote (view, now = Date.now()) {
  * reconciliation uses: Claude r2 P2) and an uncounted container outside its backoff.
  */
 export function installCobbleCap (bot) {
+  bot.cobbleInst = `${INSTANCE}-c${++capConn}`                            // this connection (a reconnect is a new bot object)
+  try { bot.once?.('end', () => { bot.cobbleEnded = true }) } catch { /* a test double */ }
   let cache = { at: 0, v: null, epoch: -1 }
   // the predecessor's claims are voided at the FIRST read after login -- before the plan or admission judges the town
   // (Codex r4 P2: an at_cap plan must not refuse the very deposit that would have voided them)
