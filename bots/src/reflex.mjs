@@ -42,7 +42,7 @@ import { holdForwardSafe, lavaStandOff } from './lavaguard.mjs'
 import { pocketPlan, pocketDone, oxygenFitsOperation, PLACE_MS, sideExit } from './floodpocket.mjs'
 import { PRIORITY } from './arbiter.mjs'
 import { survivalRelease } from './withdrawpick.mjs'
-import { airPocketPlan, airPocketAdmit, airPocketTrigger, airPocketStep, airPocketDetail, AP_FAIL_COOLDOWN_MS,
+import { airPocketPlan, airPocketAdmit, airPocketTrigger, airPocketStep, airPocketDetail, airPocketInputs, airPocketAfter,
          AP_REFUSE_COOLDOWN_MS } from './airpocket.mjs'
 import pathfinderPkg from 'mineflayer-pathfinder'
 const pkgGoals = pathfinderPkg?.goals
@@ -1366,11 +1366,12 @@ export function startReflexes(bot, runner, lessons = null, worldFacts = null) {
     if (!at) return false
     const fx = Math.floor(at.x), fy = Math.floor(at.y), fz = Math.floor(at.z)
     const plan = airPocketPlan((dx, dy, dz) => bot.blockAt(new Vec3(fx + dx, fy + dy, fz + dz)))
+    const inputs = airPocketInputs(bot)   // the server's difficulty (packet) and the Hunger effect -- never bot.game.difficulty
     const refuse = (why) => {
       airPocketCooldownUntil = Date.now() + AP_REFUSE_COOLDOWN_MS
       if (throttled(`air_pocket_refused:${why.split(' ')[0]}:${fx},${fy},${fz}`, 30_000)) {
         logEvent({ kind: 'air_pocket_refused', status: 'no_effect',
-                   detail: `reason=${why} at=${fx},${fy},${fz} health=${bot.health} difficulty=${bot.game?.difficulty} ${trig}`, snapshot: snapshot(bot) })
+                   detail: `reason=${why} at=${fx},${fy},${fz} health=${bot.health} difficulty=${inputs.difficulty} hunger=${inputs.hungerActive ? 1 : 0} ${trig}`, snapshot: snapshot(bot) })
       }
       return false
     }
@@ -1383,24 +1384,24 @@ export function startReflexes(bot, runner, lessons = null, worldFacts = null) {
       const ms = predictedDigMs(block, item, env)
       if (Number.isFinite(ms) && ms > 0 && (fastest == null || ms < fastest)) fastest = ms
     }
-    const hungerId = bot.registry?.effectsByName?.hunger?.id
-    const hungerActive = hungerId != null && Object.values(bot.entity?.effects ?? {}).some(e => e?.id === hungerId)
-    const admit = airPocketAdmit({ health: bot.health, difficulty: bot.game?.difficulty, hungerActive, digMs: fastest })
+    const admit = airPocketAdmit({ health: bot.health, difficulty: inputs.difficulty, hungerActive: inputs.hungerActive, digMs: fastest })
     if (!admit.ok) return refuse(admit.why)
     airPocketing = true
+    // THE START ROW, before anything moves: the read judges deaths DURING an attempt against it (Codex r1).
+    const attemptId = `${Date.now().toString(36)}`
+    logEvent({ kind: 'air_pocket_start', status: 'success',
+               detail: `id=${attemptId} kind=${plan.kind} cell=${fx},${fy + plan.dy},${fz} block=${plan.name} health=${bot.health} ` +
+                       `difficulty=${inputs.difficulty} hunger=${inputs.hungerActive ? 1 : 0} envelope=${admit.envelope} ${trig}`, snapshot: snapshot(bot) })
     let r
     try {
       r = await airPocketStep(bot, plan, { Vec3, predict: (b, item) => predictedDigMs(b, item, digEnv(bot)), envelope: admit.envelope })
     } finally { airPocketing = false }
     logEvent({ kind: 'air_pocket', status: r.ok ? 'success' : 'failed',
-               detail: `${airPocketDetail(r)} | required_ms=${Math.round(admit.requiredMs)} budget_ms=${Math.round(admit.budgetMs)} ` +
-                       `difficulty=${bot.game?.difficulty} ${trig}`, snapshot: snapshot(bot) })
-    if (r.ok) {
-      drownFails = 0; drownFailPos = null; drownFailHealth = null
-      seizedAt = Date.now(); lastProgressAt = Date.now()
-    } else {
-      airPocketCooldownUntil = Date.now() + AP_FAIL_COOLDOWN_MS
-    }
+               detail: `id=${attemptId} ${airPocketDetail(r)} | required_ms=${Math.round(admit.requiredMs)} budget_ms=${Math.round(admit.budgetMs)} ` +
+                       `difficulty=${inputs.difficulty} hunger=${inputs.hungerActive ? 1 : 0} ${trig}`, snapshot: snapshot(bot) })
+    const st = airPocketAfter(r.ok, { drownFails, drownFailPos, drownFailHealth, seizedAt, lastProgressAt, cooldownUntil: airPocketCooldownUntil })
+    drownFails = st.drownFails; drownFailPos = st.drownFailPos; drownFailHealth = st.drownFailHealth
+    seizedAt = st.seizedAt; lastProgressAt = st.lastProgressAt; airPocketCooldownUntil = st.cooldownUntil
     return true
   }
   const rescueExpired = () => {
@@ -2233,7 +2234,8 @@ export function startReflexes(bot, runner, lessons = null, worldFacts = null) {
           // AIRPOCKET: a capped rescue (no air straight up) may dig the roof cell over the head into a breathing
           // pocket, admitted by geometry and by the health budget, at once when the scan says SEALED, else after 8 s.
           if (airPocketTrigger({ rescuing, routeDir: route.dir, routeSealed: route.sealed, heldMs: Date.now() - seizedAt,
-                                 active: airPocketing, now: Date.now(), cooldownUntil: airPocketCooldownUntil })) {
+                                 active: airPocketing, now: Date.now(), cooldownUntil: airPocketCooldownUntil,
+                                 othersBusy: escaping || pocketing || marooned })) {
             const ran = await runAirPocket(route, Date.now() - seizedAt)
             if (ran) return
           }
