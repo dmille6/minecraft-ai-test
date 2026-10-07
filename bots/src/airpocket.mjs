@@ -204,6 +204,7 @@ export function airPocketInputs (bot) {
  * memory would otherwise suppress the rescue right there). Failure or abort: a 60-s cooldown here, the memory kept.
  */
 export function airPocketAfter (ok, state, now = Date.now()) {
+  // `ok` is true for a success AND for an OPENED pocket: either way the place now has air.
   if (ok) return { ...state, drownFails: 0, drownFailPos: null, drownFailHealth: null, seizedAt: now, lastProgressAt: now }
   return { ...state, cooldownUntil: now + AP_FAIL_COOLDOWN_MS }
 }
@@ -242,7 +243,10 @@ export async function airPocketStep (bot, plan, { Vec3, predict, sleep = ms => n
     // (2.9 s, sandbox) and holds jump only for the rise; a floating bot holds jump against the roof throughout.
     for (const c of ['forward', 'back', 'left', 'right', 'sprint', 'sneak']) { try { bot.setControlState(c, false) } catch {} }
     const standing = bot.entity?.onGround === true
-    try { bot.setControlState('jump', !standing) } catch { /* not connected */ }
+    // THE STEP OWNS JUMP AND RE-ASSERTS IT EVERY WATCH TICK (Paper sandbox 10-07, 5b6c530: the floating bot sank 3 blocks
+    // during the dig -- something else, likely the pre-empted escape unwinding, cleared the controls).
+    let wantJump = !standing
+    try { bot.setControlState('jump', wantJump) } catch { /* not connected */ }
     res.standing = standing
     // BOUNDED EQUIP, THEN VERIFY WHAT IS ACTUALLY HELD (Codex r1): a rejected or slow equip must not leave the prediction
     // describing a tool the bot is not holding. The dig is re-priced with the held item and must still fit.
@@ -264,6 +268,7 @@ export async function airPocketStep (bot, plan, { Vec3, predict, sleep = ms => n
     // the WATCH: every 250 ms, a breach of the envelope or the budget running out stops the dig
     watch = setInterval(() => {
       sample()
+      try { if (bot.controlState?.jump !== wantJump) bot.setControlState('jump', wantJump) } catch { /* not connected */ }
       if (envelopeBreached(samples, now())) aborted = aborted ?? 'envelope breached (> 7 HP in 10 s)'
       else if (budgetLeft() <= 0) aborted = aborted ?? 'health budget spent'
       // NOTHING ELSE MAY TAKE THE BODY (Claude r1: a skill started within 40 s of a capped rescue in 38% of cases, and a new
@@ -283,6 +288,7 @@ export async function airPocketStep (bot, plan, { Vec3, predict, sleep = ms => n
       ])
     } catch (e) { res.why = aborted ?? `dig failed: ${String(e?.message ?? e).slice(0, 60)}`; res.outcome = aborted ? 'aborted' : 'failed'; return res } finally { clearTimeout(timer); digging = false }
     res.digMs = now() - tDig
+    wantJump = true
     try { bot.setControlState('jump', true) } catch { /* the rise */ }
     const after = bot.blockAt(cellPos)
     const opened = plan.kind === 'ice' ? (isWater(after) || isAir(after)) : isAir(after)
@@ -304,7 +310,11 @@ export async function airPocketStep (bot, plan, { Vec3, predict, sleep = ms => n
       } else { eyeInAirSince = null; healthAtEyeIn = null }
       await sleep(100)
     }
-    res.why = eyeInAirSince == null ? 'the eye never reached air after the dig' : 'breathing not confirmed (health did not rise)'
+    // THE POCKET EXISTS but breathing was not confirmed in the window (sandbox 5b6c530: the eye reached air briefly while
+    // the bot sank). OPENED, not failed: the place now has air, so the rescue's fail memory must be cleared (its own
+    // `up` route lifts the bot into the pocket) and no fail cooldown is set.
+    res.outcome = 'opened'
+    res.why = eyeInAirSince == null ? 'pocket open; the eye had not reached air yet' : 'pocket open; breathing not confirmed (health did not rise)'
     return res
   } catch (e) {
     res.why = `threw: ${String(e?.message ?? e).slice(0, 60)}`

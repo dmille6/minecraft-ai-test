@@ -265,15 +265,15 @@ await t('F3 hive-d ice: the ice opens to water and the eye rises into the air ab
   const r = await airPocketStep(bot, airPocketPlan(world(HIVE_D)), deps()); clearInterval(bot._healthTimer)
   assert.equal(r.ok, true, r.why); assert.equal(r.kind, 'ice')
 })
-await t('F4 the dig opens but the eye never reaches air -> failed, not success', async () => {
+await t('F4 the dig opens but the eye never reaches air -> OPENED (the pocket exists), not success', async () => {
   const bot = fakeBot({ rise: false })
   const r = await airPocketStep(bot, airPocketPlan(world(HIVE_C)), deps()); clearInterval(bot._healthTimer)
-  assert.equal(r.ok, false); assert.match(r.why, /never reached air/)
+  assert.equal(r.ok, false); assert.equal(r.outcome, 'opened'); assert.match(r.why, /had not reached air/)
 })
-await t('F5 breathing with FLAT health is not confirmed -> failed', async () => {
+await t('F5 breathing with FLAT health is not confirmed -> OPENED, not success', async () => {
   const bot = fakeBot({ healthTick: 0 })
   const r = await airPocketStep(bot, airPocketPlan(world(HIVE_C)), deps()); clearInterval(bot._healthTimer)
-  assert.equal(r.ok, false); assert.match(r.why, /not confirmed/)
+  assert.equal(r.ok, false); assert.equal(r.outcome, 'opened'); assert.match(r.why, /not confirmed/)
 })
 await t('F6 the roof changed since the plan -> failed without digging', async () => {
   const bot = fakeBot({ cells: { ...HIVE_C, '0,2,0': 'dirt' } })
@@ -327,6 +327,31 @@ await t('F11 a skill the guard reports, or a dig on ANOTHER block, aborts the st
   const r2 = await airPocketStep(b, airPocketPlan(world(HIVE_C)), deps({ now: () => Date.now() }))
   clearInterval(b._healthTimer)
   assert.equal(r2.outcome, 'aborted'); assert.equal(r2.why, 'another dig took over')
+})
+
+await t('F12 jump is RE-ASSERTED when something else clears it mid-dig (floating bot)', async () => {
+  const bot = fakeBot({ digMs: 1500 }); bot.entity.onGround = false
+  bot.controlState = new Proxy(bot.controls, {})
+  const dig0 = bot.dig
+  bot.dig = blk => { setTimeout(() => { bot.controls.jump = false }, 300); return dig0(blk) }
+  let jumpLate = null
+  setTimeout(() => { jumpLate = bot.controls.jump }, 1000)
+  const r = await airPocketStep(bot, airPocketPlan(world(HIVE_C)), deps({ now: () => Date.now() }))
+  clearInterval(bot._healthTimer)
+  assert.equal(jumpLate, true, 'jump was not re-asserted after an outside clear'); assert.equal(r.ok, true, r.why)
+})
+await t('F13 MUTANT KILLED: without the watch re-asserting jump, an outside clear sticks (F12 catches it)', () =>
+  withMutant(AP_PATH, "      try { if (bot.controlState?.jump !== wantJump) bot.setControlState('jump', wantJump) } catch { /* not connected */ }\n", '', async m => {
+    const bot = fakeBot({ digMs: 1500 }); bot.entity.onGround = false; bot.controlState = bot.controls
+    const dig0 = bot.dig; bot.dig = blk => { setTimeout(() => { bot.controls.jump = false }, 300); return dig0(blk) }
+    let jumpLate = null; setTimeout(() => { jumpLate = bot.controls.jump }, 1000)
+    await m.airPocketStep(bot, airPocketPlan(world(HIVE_C)), deps({ now: () => Date.now() })); clearInterval(bot._healthTimer)
+    assert.equal(jumpLate, false)
+  }))
+await t('J5 an OPENED pocket clears the fail memory like a success (the reflex passes ok || opened)', () => {
+  const st = { drownFails: 3, drownFailPos: { x: 1 }, drownFailHealth: 12, seizedAt: 5, lastProgressAt: 5, cooldownUntil: 0 }
+  assert.equal(airPocketAfter(true, st, 1000).drownFails, 0)
+  assert.ok(readFileSync(REFLEX_PATH, 'utf8').includes("const st = airPocketAfter(r.ok || r.outcome === 'opened', {"))
 })
 
 // ---------------------------------------------------------------- I. the world's inputs, read the way 1.21.8 needs
@@ -419,7 +444,7 @@ function wiring (src) {
            ok: tickStart > 0 && earlyReturn > tickStart && earlyReturn < drowningBranch && trigger > 0 && trigger < drowningBranch &&
                /await runAirPocket\(route, /.test(code.slice(trigger, drowningBranch)) &&
                /airPocketing = true[\s\S]{0,900}airPocketStep\(/.test(code) && /finally \{ airPocketing = false \}/.test(code) &&
-               /airPocketAfter\(r\.ok, /.test(code) && /othersBusy: escaping \|\| pocketing \|\| marooned/.test(code) &&
+               /airPocketAfter\(r\.ok \|\| r\.outcome === 'opened', /.test(code) && /othersBusy: escaping \|\| pocketing \|\| marooned/.test(code) &&
                /const inputs = airPocketInputs\(bot\)/.test(code) && !/bot\.game\?\.difficulty/.test(code.slice(code.indexOf('const runAirPocket'), code.indexOf('const rescueExpired'))) &&
                code.indexOf("kind: 'air_pocket_start'") > 0 && code.indexOf("kind: 'air_pocket_start'") < code.indexOf('r = await airPocketStep(') &&
                /msSinceClosing: Date\.now\(\) - lastClosingAt/.test(code) && /if \(closingOnAir\) lastClosingAt = Date\.now\(\)/.test(code) &&
@@ -446,7 +471,7 @@ await t('G3 MUTANT KILLED: without the trigger call the wiring check fails', () 
   assert.equal(wiring(src.replace(old, 'const ran = false')).ok, false)
 })
 for (const [name, old, neu] of [
-  ['the after-state', 'const st = airPocketAfter(r.ok, {', 'const st = ({'],
+  ['the after-state', "const st = airPocketAfter(r.ok || r.outcome === 'opened', {", 'const st = ({'],
   ['the busy guard', 'othersBusy: escaping || pocketing || marooned', 'othersBusy: false'],
   ['the packet difficulty', 'const inputs = airPocketInputs(bot)', 'const inputs = { difficulty: bot.game?.difficulty, hungerActive: false }'],
   ['the closing-on-air clock', 'if (closingOnAir) lastClosingAt = Date.now()', ''],

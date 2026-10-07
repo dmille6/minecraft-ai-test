@@ -1401,10 +1401,10 @@ export function startReflexes(bot, runner, lessons = null, worldFacts = null) {
       r = await airPocketStep(bot, plan, { Vec3, predict: (b, item) => predictedDigMs(b, item, digEnv(bot)), envelope: admit.envelope,
                                            guard: () => { try { if (runner?.isBusy?.()) runner.interrupt('air_pocket') } catch {} return null } })
     } finally { airPocketing = false }
-    logEvent({ kind: 'air_pocket', status: r.ok ? 'success' : 'failed',
+    logEvent({ kind: 'air_pocket', status: r.ok ? 'success' : r.outcome === 'opened' ? 'no_effect' : 'failed',
                detail: `id=${attemptId} ${airPocketDetail(r)} | required_ms=${Math.round(admit.requiredMs)} budget_ms=${Math.round(admit.budgetMs)} ` +
                        `difficulty=${inputs.difficulty} hunger=${inputs.hungerActive ? 1 : 0} ${trig}`, snapshot: snapshot(bot) })
-    const st = airPocketAfter(r.ok, { drownFails, drownFailPos, drownFailHealth, seizedAt, lastProgressAt, cooldownUntil: airPocketCooldownUntil })
+    const st = airPocketAfter(r.ok || r.outcome === 'opened', { drownFails, drownFailPos, drownFailHealth, seizedAt, lastProgressAt, cooldownUntil: airPocketCooldownUntil })
     drownFails = st.drownFails; drownFailPos = st.drownFailPos; drownFailHealth = st.drownFailHealth
     seizedAt = st.seizedAt; lastProgressAt = st.lastProgressAt; airPocketCooldownUntil = st.cooldownUntil
     return true
