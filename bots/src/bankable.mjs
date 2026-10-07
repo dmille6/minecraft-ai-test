@@ -93,15 +93,27 @@ export function cobbleBankStacks (items = [], { creditCap = 64, reserve = COBBLE
 /**
  * THE TOWN COBBLE CAP (cobblecap.mjs: 256 per town from reconciled chest observations, with reservations). Read through a
  * reader skills.mjs installs per bot (it knows the town, the pool dir and the scan), like withdrawHolds: () -> the town
- * view { lb, complete, reservedOthers } or null. No reader (a pure caller, a test) -> no town view: the whole-stack rule
- * alone. The deposit's TRANSFER re-judges every stack under the town's lock, so this is the plan's view, not the gate.
+ * view { lb, complete, reserved, unknown } or null. No reader (a pure caller, a test) -> no town view: the whole-stack rule
+ * alone. The deposit's TRANSFER re-judges every stack with a claim in the town's journal, so this is the plan's view, not
+ * the gate.
  */
 let COBBLE_TOWN = null
 export function setCobbleTownReader (fn) { COBBLE_TOWN = typeof fn === 'function' ? fn : null }
 /** The town view now, or null. A reader that throws is an UNKNOWN town (nothing admitted), never an open one. */
 export function cobbleTownView () {
   if (!COBBLE_TOWN) return null
-  try { return COBBLE_TOWN() ?? { lb: 0, complete: false, reservedOthers: 0 } } catch { return { lb: 0, complete: false, reservedOthers: 0 } }
+  try { return COBBLE_TOWN() ?? { lb: 0, complete: false, reserved: 0 } } catch { return { lb: 0, complete: false, reserved: 0 } }
+}
+/**
+ * CAN A DEPOSIT HERE COUNT THE TOWN? (the cap's reconciliation) -> { can, note }. Installed per bot by skills.mjs: `can`
+ * when the bot is in town and an uncounted town container is outside its backoff; `note` is the remedy or the stuck
+ * container, for the refusal. No probe -> { can: false, note: null }.
+ */
+let COBBLE_RECONCILE = null
+export function setCobbleReconcileProbe (fn) { COBBLE_RECONCILE = typeof fn === 'function' ? fn : null }
+export function cobbleReconcileProbe () {
+  if (!COBBLE_RECONCILE) return { can: false, note: null }
+  try { return COBBLE_RECONCILE() ?? { can: false, note: null } } catch { return { can: false, note: null } }
 }
 
 /** A stone pickaxe costs two sticks, and the rung gates on `stick >= 2 || planks >= 2`. */
@@ -420,7 +432,13 @@ export function depositNoopReason (items = [], item = null, { wants = [], ...opt
   // closes for both callers rather than merely staying unlikely.
   const w = Array.isArray(wants) ? wants : [...(wants ?? [])]
   if (depositPlan(items, item, { wants: w, ...opts }).length) return null
-  if (!item) return 'nothing worth banking — nothing to deposit'
+  if (!item) {
+    // the cobble cap's refusals are named even for a plain deposit (both reviews r2): the bot is carrying the cobble
+    const why = COBBLE_NAMES.map(n => bankableExclusion(items, n, { wants: w, ...opts })).find(x => x === 'town_cobble_unknown' || x === 'town_cobble_cap')
+    if (!why) return 'nothing worth banking — nothing to deposit'
+    const note = why === 'town_cobble_unknown' ? cobbleReconcileProbe().note : null
+    return `nothing worth banking (${EXCLUSION_PHRASE[why]}): the surplus cobble stays — nothing to deposit${note ? ` (${note})` : ''}`
+  }
   let held = 0
   for (const it of items) if (it?.name === item) held += (it.count ?? 0)
   if (held <= 0) return `you are carrying no ${item} — nothing to deposit`
@@ -429,5 +447,7 @@ export function depositNoopReason (items = [], item = null, { wants = [], ...opt
   // into the one bucket this change exists to split.
   const phrase = EXCLUSION_PHRASE[bankableExclusion(items, item, { wants: w, ...opts })]
   if (!phrase) return `you are carrying ${item}, but ${item} is not a banking target right now — nothing to deposit`
-  return `not a banking target (${phrase}): you are carrying ${item} — nothing to deposit`
+  // THE COBBLE CAP'S UNKNOWN names its remedy (Codex r2 P3): count at town, or the container that could not be counted.
+  const note = phrase === EXCLUSION_PHRASE.town_cobble_unknown ? cobbleReconcileProbe().note : null
+  return `not a banking target (${phrase}): you are carrying ${item} — nothing to deposit${note ? ` (${note})` : ''}`
 }

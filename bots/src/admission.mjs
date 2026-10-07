@@ -14,7 +14,7 @@ import { smeltRecipeFor } from './smelting.mjs'
 import { config } from './config.mjs'
 import { horizontalDistanceFromSpawn } from './state.mjs'
 import { shoreRoute } from './shore.mjs'
-import { bankableInventory, depositDue, depositPlan, depositNoopReason, bankableExclusion, DEPOSIT_ALWAYS } from './bankable.mjs'
+import { bankableInventory, depositDue, depositPlan, depositNoopReason, bankableExclusion, cobbleReconcileProbe, DEPOSIT_ALWAYS } from './bankable.mjs'
 import { bankClosed, bankClosedDetail, depositTargetOk } from './chestfull.mjs'
 import { resolveBlockName } from './drops.mjs'
 import { mineTargetOk, mineTargetCeiling } from './mining.mjs'
@@ -356,10 +356,12 @@ export class AdmissionControl {
       const bank = bankableInventory(items, { wants })
       // AN EMPTY REQUESTED PLAN IS REFUSED HERE, BEFORE ANY WALK (nojunk SYNTHESIS 10-04; Codex on the cobble rule 10-07):
       // `deposit cobblestone` with only reserve cobble, or a plain deposit with nothing bankable, names its rule now.
-      // ...EXCEPT THE TOWN COBBLE CAP'S RECONCILIATION (cobblecap.mjs; both reviews r1): in town, cobble the cap cannot
-      // judge yet (a container never counted) is the one empty plan a deposit can change -- it counts the uncounted ones.
-      const reconcile = horizontalDistanceFromSpawn(bot.entity.position) <= 16 && (args?.item == null || /^(cobblestone|cobbled_deepslate)$/.test(args.item)) &&
-        ['cobblestone', 'cobbled_deepslate'].some(n => bankableExclusion(items, n, { wants }) === 'town_cobble_unknown')
+      // ...EXCEPT THE TOWN COBBLE CAP'S RECONCILIATION (cobblecap.mjs; both reviews r1): cobble the cap cannot judge yet (a
+      // container never counted) is the one empty plan a deposit can change -- it counts the uncounted ones. Only where the
+      // deposit WILL count (both reviews r2): in town by the deposit's own boundary (inTown, not distance from the origin),
+      // with an uncounted container outside its backoff (the probe), and for the requested name only.
+      const capNames = args?.item == null ? ['cobblestone', 'cobbled_deepslate'] : /^(cobblestone|cobbled_deepslate)$/.test(args.item) ? [args.item] : []
+      const reconcile = capNames.some(n => bankableExclusion(items, n, { wants }) === 'town_cobble_unknown') && cobbleReconcileProbe().can
       if (!depositPlan(items, args?.item ?? null, { wants }).length && !reconcile) {
         return { ok: false, reason: 'deposit_nothing_to_bank', detail: depositNoopReason(items, args?.item ?? null, { wants }) }
       }
