@@ -602,6 +602,34 @@ The owner cleared the Studio of other projects on 10-06, at about 17:00Z.
 | found 01:50 | two `pause` lines in a row in the Studio queue (`pause fx`, `pause c2`) would have overwritten each other at once: a pause line wrote its tag without waiting for the earlier holder, so the fixture series would never have seen `pause-fx`. An LM Studio line could likewise overwrite a held pause | **none** (caught before either pause was reached) | a pause line and an LM Studio line now wait until the reservation is free; the series matches its tag exactly |
 | 01:47 | while fixing that, the running `lms_factor.sh` (gpt-oss MLX arm) was overwritten in place for about a minute; bash reads a running script by byte offset | **none**: bash was blocked inside `throughput.py` (started 01:43) for the whole minute, and the original bytes were written back into the same inode; the new version was installed by rename | recorded; scripts that may be running are only ever replaced by rename |
 
+**Additions to the ledger, 10-07 (the first C2 smoke and a second power outage):**
+
+| when (UTC) | what | effect | handled |
+|---|---|---|---|
+| 04:10-04:37 | C2 smoke, arm ov+esc (`cl-c2-ovesc-sandbox4-1007T0409-b90`) ran its full 25 min: 5 overseer calls, 8 escalation calls, 15 directives said in chat, **0 received by the bots**. Root cause below | **smoke FAIL**, correctly: the gate saw no bot-side directive rows. Row flagged in runs.jsonl; smoke blocks are never analysed | fixed in the harness (director renamed); re-smoke queued |
+| 04:37-05:01 | C2 smoke, arm det (`cl-c2-det-sandbox4-1007T0437-b90`) | **void**: cut by the outage; no metrics, no row in runs.jsonl | re-smoke |
+| 05:01:47-11:53 | **power out on both lab hosts** (10.0.0.30 worlds, 10.0.0.31 bots). The Studio and the mini stayed up; the mini's tunnel to the Studio dropped every ~30 s through the outage window (922 logged drops) and has been stable since 11:41Z | the 05:06Z smoke gate ran against unreachable hosts and saw 0 rows. No Stage A/B item ran on the lab hosts | gate re-read at 12:10Z (coordinator): the real failure was the delivery, not the outage |
+| 05:06-12:04 | the series' final GPU-reservation release failed (network) and left a stale `GPU_RESERVED`; the Studio queue waited behind it for **7 h, idle** | lost time only | the release now retries for up to an hour |
+| 05:06-12:11 | gemma4 8-bit (28 GB) and the LM Studio proxy stayed loaded after the cut series | the long-tail screen `q3-30b-2507` started 12:06Z with it co-resident for about 5 min: **latency caveat only** for that screen's first minutes | unloaded 12:11Z |
+| 12:05 | the deferred `pause c2` line had already been read by the queue and briefly held the GPU again | none (released within a minute) | - |
+
+**Why no directive arrived (proven on sandbox4, 12:08-12:10Z).** mineflayer 4.37.1 raises its `chat` event only when
+the sender's name matches its username pattern, `[a-zA-Z0-9_]{3,16}`. The director's name `mbench-Mayor` has a
+hyphen. The server broadcast every line (its log shows `<mbench-Mayor> mbench-s4-Bravo directive o1 {...}`), and the
+bots received each one only as a raw `messagestr`. Their command handler listens to `chat`, so it never ran.
+- **Probe:** a listener client got `messagestr` but no `chat` from `mbench-Mayor`. From `mbench_Mayor`, the same
+  lines raised `chat`.
+- **A real bench-c2 bot on sandbox4, director `mbench_Mayor`,** logged its own rows: `requested -> admitted ->
+  dispatched -> step_done -> completed` for a goto directive (it arrived at 356,72,148). For a `mine y=200`
+  directive it logged `requested -> refused (admission: bad_args)`.
+- **Fix:** the harness only, no bot code. The director is `mbench_Mayor`, set in one constant, and the chat client
+  refuses to start under a name the pattern cannot parse.
+- **Reviewed by both engines** (4 rounds, both APPROVE). Hardening that came out of the review: the series releases
+  only its own GPU reservation (a unique token or its own pause), with bounded retries and an exit code when it cannot;
+  the chain stops on that; smoke blocks are decimal and 90 or above, and the analysis never reads them.
+- **The tests could not have caught it.** They drive the queue and the cognitive loop directly and never go through
+  the network chat path. The smoke gate did catch it; that is what it is for.
+
 The sandbox4 world after the unclean shutdown:
 - It is still in benchmark mode (`level-name=mbench-world`).
 - Every C1 run starts by restoring the pristine snapshot (`mbench-pristine-sandbox4.tgz`, intact), so the

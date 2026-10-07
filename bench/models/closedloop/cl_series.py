@@ -20,8 +20,11 @@ def ssh(cmd, check=False):
     return subprocess.run(['ssh', '-o', 'BatchMode=yes', STUDIO, cmd], stdin=subprocess.DEVNULL, capture_output=True, text=True, check=check).stdout
 
 
+TOKEN = 'cl-series-%d-%d' % (os.getpid(), int(time.time()))     # this series' own reservation value
+
+
 def lms_up(key, bots):
-    ssh('echo cl-series > ~/mbench/out/GPU_RESERVED')
+    ssh('echo %s > ~/mbench/out/GPU_RESERVED' % TOKEN)
     while ssh("pgrep -f '[r]un_bench.py|[t]hroughput.py|[s]erving.py|[l]ms_factor.sh' || true").strip():
         time.sleep(60)          # the Stage A queue finishes its current model first
     ssh('for m in $(cat ~/mbench/out/.loaded 2>/dev/null); do '
@@ -76,7 +79,7 @@ def main():
         try:
             subprocess.run([sys.executable, os.path.join(HERE, 'cl_run.py'), '--arm', arm['arm'], '--model', arm['model'],
                             '--think', arm.get('think', 'none'), '--server', a.server, '--bots', str(a.bots),
-                            '--minutes', str(a.minutes), '--endpoint', endpoint, '--tag', 'b%d' % b, '--keep-reservation']
+                            '--minutes', str(a.minutes), '--endpoint', endpoint, '--tag', 'b%d' % b, '--keep-reservation', '--res-token', TOKEN]
                            + (['--c2-arm', arm['c2_arm'], '--ov-model', arm.get('ov_model', 'gpt-oss:120b'),
                                '--ov-think', arm.get('ov_think', 'medium'), '--esc-model', arm.get('esc_model', 'gpt-oss:120b'),
                                '--esc-think', arm.get('esc_think', 'medium')] if arm.get('c2_arm') else []),
@@ -89,8 +92,27 @@ def main():
     # put the sandbox back to its own world (its owners' fixtures live there)
     subprocess.run(['ssh', '-o', 'BatchMode=yes', 'mike@10.0.0.30', 'bash /tmp/mbench-cl_world.sh %s restore' % a.server],
                    stdin=subprocess.DEVNULL, check=False)
-    ssh('rm -f ~/mbench/out/GPU_RESERVED')
+    # A network blip must not leave a stale reservation (10-07: it held the queue for 7 h). Release ONLY what this
+    # series holds: its unique TOKEN (written by lms_up and, via --res-token, by every cl_run) or the queue's
+    # `pause-<its tag>`. A retry whose first attempt in fact succeeded therefore never deletes the NEXT holder's
+    # reservation (both reviews). Nothing there = nothing to do. Bounded; a failure is reported and exits 2.
+    rel = ('f=~/mbench/out/GPU_RESERVED; c=$(cat $f 2>/dev/null); case "$c" in "") rm -f $f && echo "RELEASED (nothing held)" || echo "RM FAILED";; '
+           '%s|pause-%s) rm -f $f && echo RELEASED || echo "RM FAILED";; *) echo "NOT OURS $c";; esac' % (TOKEN, a.pause_tag))
+    out = ''
+    for _ in range(120):
+        try:
+            r = subprocess.run(['ssh', '-o', 'BatchMode=yes', '-o', 'ConnectTimeout=20', STUDIO, rel],
+                               stdin=subprocess.DEVNULL, capture_output=True, text=True, timeout=90)
+            out = r.stdout.strip() if r.returncode == 0 else ''
+        except subprocess.TimeoutExpired:
+            out = ''
+        if out and out != 'RM FAILED':
+            break
+        time.sleep(30)
+    print('reservation:', out or 'UNREACHABLE after 120 attempts -- release it by hand', flush=True)   # NOT OURS = already gone
     print('SERIES DONE', flush=True)
+    if not out or out == 'RM FAILED':
+        sys.exit(2)
 
 
 if __name__ == '__main__':

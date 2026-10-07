@@ -13,7 +13,7 @@ CONTRASTS  det vs none (an allocator + actuator at all); ov vs det (the LLM's al
 
     python3 c2_analyze.py results/runs.jsonl [--horizon 70]
 """
-import argparse, collections, json, statistics, subprocess
+import argparse, collections, json, re, statistics, subprocess
 from datetime import datetime, timedelta, timezone
 
 BOTS = 'mike@10.0.0.31'
@@ -27,7 +27,8 @@ def main():
     ap = argparse.ArgumentParser(); ap.add_argument('runs'); ap.add_argument('--horizon', type=float, default=70)
     a = ap.parse_args()
     rows = [json.loads(l) for l in open(a.runs) if l.strip()]
-    rows = [r for r in rows if r.get('c2_arm') and not r.get('flag')]
+    blk = lambda r: int((re.search(r'-b(\d+)$', r['run_id']) or [0, 999])[1])   # untagged runs count as smoke
+    rows = [r for r in rows if r.get('c2_arm') and not r.get('flag') and blk(r) < 90]   # blocks 90+ are smoke runs
     out = []
     for r in rows:
         t0 = datetime.strptime(r['start'], '%Y-%m-%dT%H:%M:%SZ').replace(tzinfo=timezone.utc)

@@ -22,7 +22,7 @@ On top of that, runner refusals (paused/busy/body_held) return before any row is
 The revised path is a **bench-only directive queue inside cognitive.mjs**:
 
 **Transport**
-- A whitelisted chat sender (`mbench-Mayor`) posts `<bot> directive <id> <json>`. Every other sender is ignored
+- A whitelisted chat sender (`mbench_Mayor`) posts `<bot> directive <id> <json>`. Every other sender is ignored
   for this verb.
 - The directive is one skill call, or a short ordered list (GET_WOOD = goto, then gather).
 
@@ -54,7 +54,7 @@ All arms use the same best C1 worker, 8 bots, a 2 h run, and the same resets.
 | 6 | overseer (best of 3/4) + escalation | the combined stack |
 
 **Presence, triggers and memory, identical in every arm**
-- `mbench-Mayor` joins the world in **every** arm and stays silent where it has no role.
+- `mbench_Mayor` joins the world in **every** arm and stays silent where it has no role.
 - The escalation trigger is computed **in shadow in every arm**, so rescue is measured intent-to-treat over all
   triggered episodes, not over matched survivors.
 - Co-residency: the worker and the overseer model are both loaded in arms 3-6. Each arm reports the bots'

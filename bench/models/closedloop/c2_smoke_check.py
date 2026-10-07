@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""C2 smoke gate: is every link of the directive path alive in the smoke runs (tag b90)? Exit 0 = PASS.
+"""C2 smoke gate: is every link of the directive path alive in the smoke runs (tag b<SB>, default b91)? Exit 0 = PASS.
 Checks, per run, with the totals printed first (positive control: the bots wrote rows at all):
   bot_code is the bench-c2 tree; the Mayor said lines and was never kicked; nothing was too long; the director
   logged no errors; the bots logged `requested` AND `dispatched` directive rows and no parse failures; the LLM
@@ -10,9 +10,11 @@ BOTS = 'mike@10.0.0.31'
 def ssh(c):
     return subprocess.run(['ssh', '-o', 'BatchMode=yes', BOTS, c], stdin=subprocess.DEVNULL, capture_output=True, text=True).stdout
 rows = [json.loads(l) for l in open(sys.argv[1]) if l.strip()]
-rows = [r for r in rows if r.get('c2_arm') and r['run_id'].endswith('-b90')]
+SB = sys.argv[2] if len(sys.argv) > 2 else '91'
+rows = [r for r in rows if r.get('c2_arm') and r['run_id'].endswith('-b' + SB) and not r.get('flag')]
 fails = []
-if not rows: fails.append('no smoke runs in runs.jsonl')
+missing = {'det', 'ov+esc'} - {r['c2_arm'] for r in rows}
+if missing: fails.append('smoke arms missing from runs.jsonl (cut or crashed): %s' % sorted(missing))
 for r in rows:
     rid = r['run_id']; tag = '%s (%s)' % (rid, r['c2_arm'])
     allrows = int(ssh('cat ~/mbench-cl/runs/%s/*/skill-*.jsonl 2>/dev/null | wc -l' % rid).strip() or 0)

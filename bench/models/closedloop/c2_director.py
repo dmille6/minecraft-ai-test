@@ -17,7 +17,7 @@ What it does (C2-DESIGN-DRAFT.md rev 2):
     stuck prompt of Stage B1 (the bot's own latest observation + its collapsed body log + the ESCALATION addendum)
     to the escalation model -> one directive step.
   * every decision, model call (latency, validity), trigger and directive is a JSON line in --log.
-Directives go to --outbox; c2_chat.mjs (the `mbench-Mayor` client in the world) says them in chat.
+Directives go to --outbox; c2_chat.mjs (the `mbench_Mayor` client in the world) says them in chat.
 """
 import argparse, calendar, glob, json, math, os, signal, subprocess, sys, time, urllib.request
 

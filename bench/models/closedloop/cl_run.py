@@ -16,6 +16,7 @@ from datetime import datetime, timezone
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 BOTS_HOST, WORLDS_HOST, STUDIO = 'mike@10.0.0.31', 'mike@10.0.0.30', 'mike@ai.ticrcorp.com'
+C2_DIRECTOR = 'mbench_Mayor'   # word characters only: mineflayer's chat pattern drops or truncates other senders (smoke 10-07)
 C2_OLLAMA = 'http://10.0.0.70:11502'      # the overseer/escalation model: the Studio's Ollama via the mini's supervised tunnel
 PORTS = {'sandbox': 25599, 'sandbox2': 25600, 'sandbox3': 25601, 'sandbox4': 25602}
 NAMES = ['Alpha', 'Bravo', 'Comet', 'Delta', 'Echo', 'Fox', 'Golf', 'Hotel']   # Minecraft names <= 16 chars: 'mbench-s4-Charlie' (17) was kicked
@@ -83,7 +84,7 @@ def env_for(a, run_id, i):
         e['OLLAMA_THINK'] = a.think
     if getattr(a, 'c2_arm', None):        # C2: the bench-c2 tree with the directive hook, the Mayor as the director
         e['BOT_TREE'] = '$HOME/mbench-c2/tree'
-        e['C2_DIRECTOR'] = 'mbench-Mayor'
+        e['C2_DIRECTOR'] = C2_DIRECTOR
     return name, e
 
 
@@ -115,6 +116,7 @@ def main():
     ap.add_argument('--timeout-ms', type=int, default=45000)
     ap.add_argument('--allow-contention', action='store_true')
     ap.add_argument('--keep-reservation', action='store_true', help='leave the GPU reserved for the next run (a series)')
+    ap.add_argument('--res-token', default=None, help='a series\' unique reservation token, written instead of the run id')
     ap.add_argument('--tag', default='')
     ap.add_argument('--c2-arm', default=None, choices=(None, 'none', 'det', 'ov', 'esc', 'ov+esc'))
     ap.add_argument('--ov-model', default='gpt-oss:120b'); ap.add_argument('--ov-think', default='medium')
@@ -127,7 +129,7 @@ def main():
     if not a.allow_contention:
         # Reserve the GPU: the Stage A/B queue checks this marker before starting its next model; then wait
         # for the model it is running now to finish (arms must never share the GPU with a benchmark).
-        sh(STUDIO, 'echo %s > ~/mbench/out/GPU_RESERVED' % run_id)
+        sh(STUDIO, 'echo %s > ~/mbench/out/GPU_RESERVED' % (a.res_token or run_id))
         while sh(STUDIO, "pgrep -f '[r]un_bench.py|[t]hroughput.py|[s]erving.py|[l]ms_factor.sh' || true", check=False).strip():
             log('waiting for the Studio benchmark queue to finish its current model')
             time.sleep(60)
@@ -181,11 +183,11 @@ def main():
            '(setsid nohup python3 c2_director.py --run-dir ~/mbench-cl/runs/%s --arm %s --world mbench-%s --endpoint %s '
            '--ov-model %s --ov-think %s --esc-model %s --esc-think %s --outbox %s/outbox.jsonl --log %s/director.jsonl '
            '--mayor-out %s/mayor > %s/director.out 2>&1 < /dev/null & echo $! > %s/director.pid) && '
-           '(BOT_TREE_REQUIRE=$HOME/mbench-c2/tree/bots/package.json setsid nohup node c2_chat.mjs 10.0.0.30 %d %s/outbox.jsonl %s/chat.jsonl '
+           '(C2_DIRECTOR=%s BOT_TREE_REQUIRE=$HOME/mbench-c2/tree/bots/package.json setsid nohup node c2_chat.mjs 10.0.0.30 %d %s/outbox.jsonl %s/chat.jsonl '
            '> %s/chat.out 2>&1 < /dev/null & echo $! > %s/chat.pid)'
            % (c2, c2, links, c2, run_id, shlex.quote(a.c2_arm), run_id, C2_OLLAMA, a.ov_model, a.ov_think, a.esc_model,
-              a.esc_think, c2, c2, c2, c2, c2, PORTS[a.server], c2, c2, c2, c2))
-        log('C2 director (%s) and mbench-Mayor started' % a.c2_arm)
+              a.esc_think, c2, c2, c2, c2, c2, C2_DIRECTOR, PORTS[a.server], c2, c2, c2, c2))
+        log('C2 director (%s) and %s started' % (a.c2_arm, C2_DIRECTOR))
     bot_code = sh(BOTS_HOST, 'cat %s/.bench-sha 2>/dev/null || echo unknown' % ('~/mbench-c2/tree' if a.c2_arm else '~/mbench-cl/tree'), check=False).strip()
     meta = {'run_id': run_id, 'arm': a.arm, 'c2_arm': a.c2_arm, 'model': a.model, 'model_digest': digest, 'bot_code': bot_code,
             'think': a.think, 'server': a.server, 'bots': a.bots,
