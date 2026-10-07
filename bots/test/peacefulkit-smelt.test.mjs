@@ -23,7 +23,8 @@ const ID = { raw_iron: 1, iron_ingot: 2, coal: 3, furnace: 4, oak_planks: 8, woo
 const NAME = Object.fromEntries(Object.entries(ID).map(([k, v]) => [v, k]))
 const TICKS = { coal: 1600, oak_planks: 300, wooden_sword: 200 }
 
-function makeBot (inv, difficulty, { tickMs = 4, onBurn = null, warm = 0, fuelUnknown = false, litUnknown = false, holdIgnition = false, filler = 0, onSwordPut = null, litLagMs = 0 } = {}) {
+function makeBot (inv, difficulty, opts = {}) {
+  let { tickMs = 4, onBurn = null, warm = 0, fuelUnknown = false, litUnknown = false, holdIgnition = false, filler = 0, onSwordPut = null, litLagMs = 0 } = opts
   let litSince = 0
   const bag = { ...inv }
   const give = (n, c) => { bag[n] = (bag[n] ?? 0) + c }
@@ -41,10 +42,12 @@ function makeBot (inv, difficulty, { tickMs = 4, onBurn = null, warm = 0, fuelUn
       onBurn?.(f)
       if (burnLeft < 200) return
     }
+    if (noCook) return            // the burn runs but the item has not cooked yet
     burnLeft -= 200
     slots.input = slots.input.count > 1 ? { ...slots.input, count: slots.input.count - 1 } : null
     slots.output = { name: 'iron_ingot', type: ID.iron_ingot, count: (slots.output?.count ?? 0) + 1 }
   }
+  let noCook = opts.noCook ?? false
   const stacks = (b = bag, f = filler) => Object.entries(b).reduce((n, [k, c]) => n + (/_sword$/.test(k) ? c : Math.ceil(c / 64)), 0) + f
   const view = b => Object.entries(b).filter(([, c]) => c > 0).flatMap(([name, count]) =>
     /_sword$/.test(name) ? Array.from({ length: count }, () => ({ name, count: 1, type: ID[name] })) : [{ name, count, type: ID[name] }])
@@ -154,7 +157,9 @@ test('THE SWITCH TURNS OFF during the first sword\'s burn: the second never goes
 
 test('THE SWITCH TURNS OFF with the ordinary load sharing the bag\'s only coal: no double count, no throw (Claude r-rev1)', async () => {
   let bot
-  const m = makeBot({ raw_iron: 3, coal: 1, wooden_sword: 2 }, 'peaceful', { onBurn: f => { if (f === 'wooden_sword') bot.serverDifficulty = 'hard' } })
+  // SLOW COOKING (one item per 450 ms): the coal ignites and empties its slot while an item is still raw, so a queue that
+  // still held a second ordinary load WOULD ask for it -- the double count is visible, not hidden by a fast furnace.
+  const m = makeBot({ raw_iron: 3, coal: 1, wooden_sword: 2 }, 'peaceful', { tickMs: 450, onBurn: f => { if (f === 'wooden_sword') bot.serverDifficulty = 'hard' } })
   bot = m.bot
   const r = await run(bot, 3)
   assert.equal(r.status, 'success', r.detail)
@@ -301,4 +306,14 @@ test('THE TAKE-BACK STOPS BETWEEN ITS TWO CLICKS (Claude r-rev5): the sword on t
   assert.equal(puts, 0, 'no input went in'); assert.equal(closedWithCursor, 0, 'the window never closed with the sword on the cursor')
   assert.equal(m.bag.wooden_sword, 1); assert.equal(m.burnt.wooden_sword, undefined); assert.deepEqual(m.dropped, [])
   foodSkipNow({ serverDifficulty: 'hard' })
+})
+
+test('A BURN SEEN ONLY AS AN EMPTIED SLOT (no heat reading yet, the item not yet cooked) when the job stops: one row, marked unconfirmed (Claude r-rev2)', async () => {
+  const m = makeBot({ raw_iron: 2, coal: 1, wooden_sword: 1 }, 'peaceful', { fuelUnknown: true, litLagMs: 5000, noCook: true, tickMs: 20 })
+  const ac = new AbortController()
+  m.bot.openFurnace = (orig => async () => { const f = await orig(); const put = f.putFuel; f.putFuel = async (...a) => { await put(...a); if (a[0] === 10) setTimeout(() => ac.abort(), 1) }; return f })(m.bot.openFurnace)
+  const { rows } = await swordRows(() => run(m.bot, 2, ac.signal).then(r => r, e => e))
+  assert.equal(m.burnt.wooden_sword, 1, 'the sword did burn')
+  assert.deepEqual(rows, ['success:burned wooden_sword (unconfirmed) for raw_iron active=1'])
+  assert.deepEqual(m.dropped, [])
 })
