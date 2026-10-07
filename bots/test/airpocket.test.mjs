@@ -457,7 +457,15 @@ await t('F27 THE ROW FITS THE LOGGER (Paper 562d9e7 logs: every stand= row lost 
   const row = airPocketRow(args)
   assert.ok(row.length <= AP_ROW_MAX, `row is ${row.length}`)
   // every field the read needs is intact, in full, before anything optional
-  assert.match(row, /^id=muyncxigzz outcome=success kind=pocket cell=-12345,-59,-12345 block=cobbled_deepslate tool=netherite_pickaxe predicted_ms=14100 dig_ms=14103 ms=16381 envelope=0\.5 health=16\.7->17 \| required_ms=24150 budget_ms=30000 difficulty=peaceful \| /)
+  assert.match(row, /^id=muyncxigzz outcome=success kind=pocket cell=-12345,-59,-12345 block=cobbled_deepslate tool=netherite_pickaxe predicted_ms=14100 dig_ms=14103 ms=16381 envelope=0\.5 health=16\.6->17 \| required_ms=24150 budget_ms=30000 difficulty=peaceful \| /)
+  // C3 READS `health < 3` (Codex r9): the row must never lift a value across that line -- floored, never rounded
+  for (const [h, want] of [[2.99, '2.9'], [2.95, '2.9'], [3, '3'], [3.04, '3'], [16.666677474975586, '16.6']]) {
+    const row3 = airPocketRow({ ...args, r: { ...worst, outcome: 'aborted', healthEnd: h } })
+    assert.ok(row3.includes(`health=16.6->${want} |`), `${h}: ${row3.slice(150, 200)}`)
+  }
+  await withMutant(AP_PATH, 'Math.floor(h * 10) / 10', 'Math.round(h * 10) / 10', m => {
+    assert.ok(m.airPocketRow({ ...args, r: { ...worst, outcome: 'aborted', healthEnd: 2.99 } }).includes('->3 |'), 'rounding lifts 2.99 to 3')
+  })
   // a realistic row keeps the optional tail too
   const real = airPocketRow({ ...args, id: 'muyncxig', r: { ...worst, cell: '700,42,700', block: 'stone', tool: 'stone_pickaxe', stand: 'placed:1' } })
   assert.match(real, / standing=0 eye=cave_air stand=placed:1 -- $/)
