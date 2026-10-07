@@ -83,7 +83,7 @@ await killed('admission refuses a redundant craft (stone@52 + wooden@30, task ga
   "      if (redundant) return { ok: false, reason: 'redundant_craft', detail: redundant.detail, redundant }\n", '\n', load(ADM),
   m => assert.equal(craft(m, [pk('stone_pickaxe', 52), W30, ...MATS], 'stone_pickaxe').reason, 'redundant_craft'))
 await killed('admission passes the bot\'s y (stone@40 + wooden@10 at y=15: 48 swings < 62, the craft is admitted)', ADM,
-  '{ wanted, y: bot.entity?.position?.y }', '{ wanted }', load(ADM),
+  '{ wanted, y: bot.entity?.position?.y, exitShort: bot.exitPickShort }', '{ wanted, exitShort: bot.exitPickShort }', load(ADM),
   m => {
     assert.equal(craft(m, [pk('stone_pickaxe', 40), pk('wooden_pickaxe', 10), ...MATS], 'stone_pickaxe', new Set(['dirt']), 70).reason, 'redundant_craft', 'premise: refused at the surface')
     assert.equal(craft(m, [pk('stone_pickaxe', 40), pk('wooden_pickaxe', 10), ...MATS], 'stone_pickaxe', new Set(['dirt']), 15).ok, true)
@@ -97,10 +97,20 @@ await killed('never refuse what the task wants', TH,
 const RUNG = SUSTAINING.find(r => r?.id === 'craft_stone_pickaxe_1')
 await killed('stone needs MIN_TRIP_USES: refused => the stone rung is met (25 uses is not)', TH,
   "return item === 'stone_pickaxe' ? Math.max(FLOOR + 1, MIN_TRIP_USES) : FLOOR + 1", 'return FLOOR + 1', load(TH),
-  m => { const bag = [pk('stone_pickaxe', 25), W30]; if (m.redundantCraft('stone_pickaxe', bag)) assert.ok(RUNG.fulfilled(botWith(bag)), 'refused while the rung is unmet') })
+  m => { assert.ok(RUNG && typeof RUNG.fulfilled === 'function', 'the stone rung exists'); const bag = [pk('stone_pickaxe', 25), W30]; if (m.redundantCraft('stone_pickaxe', bag)) assert.ok(RUNG.fulfilled(botWith(bag)), 'refused while the rung is unmet') })
 await killed('a lower tier never covers a higher craft (iron stays craftable beside stone)', TH,
-  'return r != null && r >= rank && remaining(it) >= need', 'return r != null && remaining(it) >= need', load(TH),
+  'return r != null && r >= rank && (rank >= 3 || r <= 2) && remaining(it) >= need', 'return r != null && (rank >= 3 || r <= 2) && remaining(it) >= need', load(TH),
   m => assert.equal(m.redundantCraft('iron_pickaxe', [pk('stone_pickaxe', 131), W30]), null))
+await killed('iron never covers a stone craft (iron retention: worn stone + iron -> the stone craft is admitted)', TH,
+  'return r != null && r >= rank && (rank >= 3 || r <= 2) && remaining(it) >= need', 'return r != null && r >= rank && remaining(it) >= need', load(TH),
+  m => assert.equal(m.redundantCraft('stone_pickaxe', [pk('iron_pickaxe', 200), pk('stone_pickaxe', 5), pk('wooden_pickaxe', 4)]), null))
+await killed('the exit shortfall mine refused for keeps crafts admitted after the climb', TH,
+  '  if (exitShortOpen(exitShort, pickUses, now)) return null\n', '\n', load(TH),
+  m => {
+    const bag = [pk('stone_pickaxe', 52), pk('wooden_pickaxe', 10)]
+    assert.ok(m.redundantCraft('stone_pickaxe', bag, { y: 64 }), 'premise: refused at the surface without it')
+    assert.equal(m.redundantCraft('stone_pickaxe', bag, { y: 64, exitShort: { want: 61, at: Date.now() } }), null)
+  })
 await killed('THE ESCAPE RESERVE: one usable pickaxe never covers a craft', TH,
   '  if (usable < ESCAPE_RESERVE) return null\n', '\n', load(TH),
   m => assert.equal(m.redundantCraft('stone_pickaxe', [pk('stone_pickaxe', 131)]), null))
@@ -121,7 +131,7 @@ await killed('descentPickNeed keeps the deployed arithmetic (y=15 -> 62)', EX,
   '  return debt + 2 + pickReserve\n', '  return debt + pickReserve\n', load(EX),
   m => assert.equal(m.descentPickNeed(15), 62))
 await killed('the prompt does not advertise a refused pickaxe', PR,
-  "      if (name.endsWith('_pickaxe') && redundantCraft(name, items, { wanted, y: bot.entity?.position?.y })) continue\n", '\n', load(PR),
+  "      if (name.endsWith('_pickaxe') && redundantCraft(name, items, { wanted, y: bot.entity?.position?.y, exitShort: bot.exitPickShort })) continue\n", '\n', load(PR),
   m => {
     assert.match(m.craftableNow(botWith([pk('stone_pickaxe', 25), W30, ...MATS]), null), /stone_pickaxe/, 'positive control: listed when not covered')
     assert.doesNotMatch(m.craftableNow(botWith([pk('stone_pickaxe', 52), W30, ...MATS]), null), /stone_pickaxe/)
@@ -149,14 +159,21 @@ await killed('the most-worn copy of the chosen name digs', TF,
   'const worn = x => x.spend || (hygiene && x.pk)', 'const worn = x => x.spend', load(TF),
   m => { const s50 = item('stone_pickaxe', 50); assert.equal(on(m, STONE, [item('stone_pickaxe', 120), s50]).item, s50) })
 await killed('the travel fallback takes the most-worn copy of the name', TF,
-  'return (hygiene && isPickaxe(first.name) ? mostWornOfName(first, open) : first).it', 'return first.it', load(TF),
+  '  return mostWornOfName(first, open).it\n', '  return first.it\n', load(TF),
   m => { const s60 = item('stone_pickaxe', 60), s120 = item('stone_pickaxe', 120); assert.equal(m.travelTool(DIRT, [s120, s60], s120, { hygiene: true }), s60) })
+await killed('the travel fallback never takes a 1-use copy (its HARD_STOP guard)', TF,
+  '(x.r > FLOOR || (x.r > HARD_STOP && hasKeeper(x, pool, list)))', '(x.r > FLOOR || hasKeeper(x, pool, list))', load(TF),
+  m => { const s1 = item('stone_pickaxe', 1), s120 = item('stone_pickaxe', 120); assert.notEqual(m.travelTool(DIRT, [s120, item('stone_pickaxe', 8), s1, item('iron_pickaxe', 100)], s120, { hygiene: true }), s1) })
 await killed('the travel fallback opens a worn copy beside a keeper and two deposit-proof others', TF,
-  '(hygiene && isPickaxe(x.name) && x.r > HARD_STOP && hasKeeper(x, pool, list))', 'false', load(TF),
+  '(x.r > FLOOR || (x.r > HARD_STOP && hasKeeper(x, pool, list)))', 'x.r > FLOOR', load(TF),
   m => { const s5 = item('stone_pickaxe', 5), s120 = item('stone_pickaxe', 120); assert.equal(m.travelTool(DIRT, [s120, item('stone_pickaxe', 8), s5], s120, { hygiene: true }), s5) })
 await killed('harvest/reflex digs tally the changed pick (the _worn_first liveness)', TF,
   "  try { noteWornFirst(block, items, d, opts, opts?.lastSwing ? 'harvest' : 'dig') } catch {}\n", '\n', load(TF),
   m => { m.takeWornFirst(); const s50 = item('stone_pickaxe', 50); m.applyToolPolicy({ heldItem: null, inventory: { items: () => [item('stone_pickaxe', 120), s50], emptySlotCount: () => 5 } }, STONE); assert.equal(m.takeWornFirst().n, 1) })
+const RX = SRC('reflex.mjs')
+await killed('the flooded-pocket rung takes a pickaxe above HARD_STOP first', RX,
+  '(TOOL_HYGIENE.on ? pickaxesHeld.find(it => remaining(it) > HARD_STOP) : null) ?? ', '', load(RX),
+  m => { const s90 = item('stone_pickaxe', 90); assert.equal(m.pocketPlanFor({ entity: { position: { x: 0.5, y: 60, z: 0.5 } }, inventory: { items: () => [item('stone_pickaxe', 1), s90] } }, { blockAt: () => null }).tool, s90) })
 await killed('TOOL_HYGIENE=off reads as off', TF,
   "if (v === 'on' || v === 'off') return { on: v === 'on', mode: v, note: null }", "if (v === 'on' || v === 'off') return { on: true, mode: v, note: null }", load(TF),
   m => assert.equal(m.toolHygieneMode({ TOOL_HYGIENE: 'off' }).on, false))

@@ -150,6 +150,30 @@ const survivors = others => others.filter(k => TF.isPickaxe(k.name) && remaining
 const openByRule = (y, bag) => remaining(y) > FLOOR || (remaining(y) > HARD_STOP &&
   bag.some(k => k !== y && TF.isPickaxe(k.name) && TF.tier(k.name) >= TF.tier(y.name) && remaining(k) > FLOOR) &&
   survivors(bag.filter(k => k !== y)) >= 2)
+t('travelTool ON, random bags: never a pickaxe at <= HARD_STOP; a pick that differs from the base is the same name, more worn', () => {
+  let differ = 0
+  for (let i = 0; i < 20000; i++) {
+    const bag = randomBag(), b = BLOCKS[i % BLOCKS.length]
+    if (rnd(3) === 0) bag.push({ name: 'cobblestone', count: 5 })
+    const held = bag.length ? bag[rnd(bag.length)] : null
+    const h = travelTool(b, bag, held, { hygiene: true }), z = travelTool(b, bag, held, { hygiene: false })
+    const tag = `bag ${bag.map(x => `${x.name}@${remaining(x)}`).join(',')} on ${b.name}`
+    if (h && TF.isPickaxe(h.name)) assert.ok(remaining(h) > HARD_STOP, tag)
+    if (h !== z) {
+      differ++
+      assert.ok(h && z, tag)
+      if (pickRank(h.name) != null && pickRank(z.name) != null) assert.ok(pickRank(h.name) <= pickRank(z.name), 'never a higher harvest rank: ' + tag)
+      if (!toolFor(b, bag, { hygiene: true }).item) assert.ok(h.name === z.name && remaining(h) <= remaining(z), 'the fallback swaps within a name only: ' + tag)
+    }
+  }
+  assert.ok(differ > 100, `exercised ${differ}`)
+})
+t('pocketPlanFor (flooded-pocket rung) takes a pickaxe above HARD_STOP first; the first by slot only when none is', () => {
+  const s1 = item('stone_pickaxe', 1), s90 = item('stone_pickaxe', 90)
+  const bot = inv => ({ entity: { position: { x: 0.5, y: 60, z: 0.5 } }, inventory: { items: () => inv } })
+  assert.equal(REFLEX.pocketPlanFor(bot([s1, s90]), { blockAt: () => null }).tool, s90)
+  assert.equal(REFLEX.pocketPlanFor(bot([s1]), { blockAt: () => null }).tool, s1)
+})
 t('SAME NAME => MOST WORN: whenever on picks a pickaxe (outside reserved_required/last swings), no more-worn same-name copy is open by the rule', () => {
   let checked = 0
   for (let i = 0; i < 20000; i++) {
@@ -202,6 +226,9 @@ t('the travel fallback (hand answer, no filler) follows the rules too: the worn 
   assert.equal(travelTool(DIRT, [s120, s8, s5], s120, { hygiene: false }), s120)
   assert.equal(travelTool(DIRT, [s120, s60, s8], s120, { hygiene: true }), s60, 'the 8 is the deposit-proof spare; the more-worn open copy')
   const ax = item('stone_axe', 100)
+  assert.equal(travelTool(DIRT, [ax, item('wooden_pickaxe', 5), item('stone_pickaxe', 100), item('iron_pickaxe', 100)], ax, { hygiene: true }), ax, 'Claude round 2: no shift onto a worn wooden pickaxe')
+  const s1 = item('stone_pickaxe', 1), i100 = item('iron_pickaxe', 100)
+  assert.notEqual(travelTool(DIRT, [s120, s8, s1, i100], s120, { hygiene: true }), s1, 'never a 1-use copy')
   assert.equal(travelTool(DIRT, [ax, item('stone_pickaxe', 15)], ax, { hygiene: true }).name, 'stone_axe', 'no shift across kinds onto the pickaxe (fullest-first between kinds, as deployed)')
   const i5 = item('iron_pickaxe', 5), w30 = item('wooden_pickaxe', 30)
   assert.equal(travelTool(DIRT, [i5, w30], i5, { hygiene: true }), w30, 'no keeper for the iron: it stays out of the hand')
@@ -276,11 +303,27 @@ t('THE DEPOSIT CHAIN: {120, 60, 8} dug 7 then deposited keeps two usable on AND 
     assert.equal(TF.depositSurvivors(b), usableN(deposit(b)), `survivors of ${b.map(x => `${x.name}@${remaining(x)}`).join(',')}`)
   }
 })
-t('THE DEPOSIT CHAIN, random: after N digs and a deposit, on never holds fewer usable pickaxes than min(2, off)', () => {
+// The guarantee is about what the CHANGE does: while a copy above FLOOR remains (the keeper the rule needs), the
+// hygiene bag holds at least min(2, deployed) deposit-proof pickaxes. Once every copy is at or under FLOOR the deployed
+// reserved_required rules apply to whatever hoard is left (draining the hoard is the owner's goal; the reserve it
+// keeps is two survivors, not every spare the deployed policy would have carried).
+const simulateWhileKeeper = (bag0, blk, n, o) => {
+  const bag = bag0.map(x => ({ ...x }))
+  let dug = 0
+  for (; dug < n; dug++) {
+    if (!bag.some(x => TF.isPickaxe(x.name) && remaining(x) > FLOOR)) break
+    const d = toolFor(blk, bag, o)
+    if (!d.item) break
+    d.item.durabilityUsed++
+    if (remaining(d.item) <= 0) bag.splice(bag.indexOf(d.item), 1)
+  }
+  return { bag, dug }
+}
+t('THE DEPOSIT CHAIN, random: while a keeper above FLOOR remains, after N digs and a deposit on holds >= min(2, off) usable pickaxes', () => {
   let n = 0
   for (let i = 0; i < 6000; i++) {
     const bag = randomBag().filter(x => TF.isPickaxe(x.name)), k = 1 + rnd(30), b = [STONE, COAL, IRON_ORE][rnd(3)], ls = rnd(2) === 0
-    const h = simulate(bag, b, k, { hygiene: true, lastSwing: ls }), z = simulate(bag, b, k, { hygiene: false, lastSwing: ls })
+    const h = simulateWhileKeeper(bag, b, k, { hygiene: true, lastSwing: ls }), z = simulateWhileKeeper(bag, b, k, { hygiene: false, lastSwing: ls })
     if (h.dug !== k || z.dug !== k) continue
     n++
     const uh = usableN(deposit(h.bag)), uz = usableN(deposit(z.bag))
@@ -298,7 +341,10 @@ t('stone: refused beside a stone-or-better copy with >= MIN_TRIP_USES; admitted 
   assert.equal(r.held, 'stone_pickaxe'); assert.equal(r.uses, 52)
   assert.match(r.detail, /stone_pickaxe with 52 uses left/); assert.match(r.detail, /dig with it/)
   assert.equal(redundantCraft('stone_pickaxe', [P('stone_pickaxe', 39), P('stone_pickaxe', 30)]), null)
-  assert.equal(redundantCraft('stone_pickaxe', [P('iron_pickaxe', 40), W]).held, 'iron_pickaxe')
+  assert.equal(redundantCraft('stone_pickaxe', [P('iron_pickaxe', 40), W]), null, 'iron never covers a stone craft (iron retention, Claude round 2)')
+  assert.equal(redundantCraft('stone_pickaxe', [P('iron_pickaxe', 200), P('stone_pickaxe', 5), P('wooden_pickaxe', 4)]), null, 'the probe bag: worn stone + iron -> the stone craft is admitted')
+  assert.equal(redundantCraft('wooden_pickaxe', [P('iron_pickaxe', 200), P('wooden_pickaxe', 4)]), null)
+  assert.ok(redundantCraft('iron_pickaxe', [P('diamond_pickaxe', 900), W]), 'iron and better: same rank or higher covers')
   assert.equal(redundantCraft('stone_pickaxe', [P('iron_pickaxe', 39), P('wooden_pickaxe', 59)]), null)
   assert.equal(redundantCraft('stone_pickaxe', [P('golden_pickaxe', 32), W]), null, 'gold harvests like wood')
   assert.equal(redundantCraft('stone_pickaxe', [P('stone_pickaxe', 45), P('stone_pickaxe', 120)]).uses, 120, 'the fullest cover is named')
@@ -318,9 +364,10 @@ t('iron stays craftable beside stone/wooden (the upgrade path); refused beside i
   assert.equal(redundantCraft('iron_pickaxe', [P('iron_pickaxe', FLOOR + 1), S]).held, 'iron_pickaxe')
   assert.equal(redundantCraft('iron_pickaxe', [P('diamond_pickaxe', 900), S]).held, 'diamond_pickaxe')
 })
-t('wooden: refused beside wooden/golden/stone/iron above FLOOR; usable = withdraw\'s usableTool (> FLOOR)', () => {
+t('wooden: refused beside wooden/golden/stone above FLOOR (never iron); usable = withdraw\'s usableTool (> FLOOR)', () => {
   const G = P('wooden_pickaxe', 2)   // usable (> HARD_STOP) but covers nothing: the second copy for the escape reserve
-  for (const nm of ['wooden_pickaxe', 'golden_pickaxe', 'stone_pickaxe', 'iron_pickaxe']) {
+  assert.equal(redundantCraft('wooden_pickaxe', [P('iron_pickaxe', 200), G, P('wooden_pickaxe', 3)]), null, 'iron never covers a wooden craft')
+  for (const nm of ['wooden_pickaxe', 'golden_pickaxe', 'stone_pickaxe']) {
     const G3 = P('wooden_pickaxe', 3)   // gold is not in the escape ask's names, so a golden cover needs two other usable copies
     assert.ok(redundantCraft('wooden_pickaxe', [P(nm, FLOOR + 1), G, G3]), nm)
     assert.equal(redundantCraft('wooden_pickaxe', [P(nm, FLOOR), G, G3]), null, nm)
@@ -465,6 +512,21 @@ t('THE DESCENT CHAIN (Codex round 1): at y=15, stone@40 + wooden@10 is 48 swings
   assert.equal(canContinueDescent({ y: 15, health: 20, items: after }).ok, true, 'the admitted craft is the remedy: the descent proceeds')
   assert.ok(redundantCraft('stone_pickaxe', after, { y: 15 }), 'and a third is refused once the reserve is met')
 })
+t('THE DESCENT CHAIN AFTER THE CLIMB (Claude round 2): mine refuses at y=16 ("run surface first"); at the surface the craft is still admitted until the swings are met or the shortfall is 15 min old', async () => {
+  const { noteExitShort, exitShortOpen, EXIT_SHORT_TTL_MS } = await import('../src/toolhygiene.mjs')
+  const inv = [pk('stone_pickaxe', 52), pk('wooden_pickaxe', 10), ...MATS, { name: 'cobblestone', count: 64 }, { name: 'dirt', count: 64 }]
+  const exit = canContinueDescent({ y: 16, health: 20, items: inv })
+  assert.equal(exit.reason, 'pickaxe'); assert.equal(pickaxeUses(inv), 60)
+  const surface = botWith(inv); surface.entity.position.y = 64
+  assert.equal(gate().check({ skill: 'craft', args: { item: 'stone_pickaxe' }, reason: 'x' }, surface, new Set(['dirt'])).reason, 'redundant_craft', 'premise: without the memory the surface refuses')
+  noteExitShort(surface, exit)
+  assert.equal(surface.exitPickShort.want, exit.want)
+  assert.equal(gate().check({ skill: 'craft', args: { item: 'stone_pickaxe' }, reason: 'x' }, surface, new Set(['dirt'])).ok, true, 'the remedy mine named is admitted at the surface')
+  assert.equal(exitShortOpen(surface.exitPickShort, exit.want, Date.now()), false, 'met once the swings are held')
+  assert.equal(exitShortOpen(surface.exitPickShort, 0, surface.exitPickShort.at + EXIT_SHORT_TTL_MS), false, 'and forgotten after the TTL')
+  noteExitShort(surface, { ok: false, reason: 'scaffold', want: 99 })
+  assert.equal(surface.exitPickShort.want, exit.want, 'a scaffold refusal records nothing')
+})
 t('THE ENTOMBED CHAIN (Claude round 1): one stone@52 -> the escape refuses to dig stone and asks for two; the craft is admitted, prompted or not; after it the escape may dig', () => {
   const inv = [pk('stone_pickaxe', 52), ...MATS]
   const STONEB = { name: 'stone', boundingBox: 'block' }
@@ -477,7 +539,8 @@ t('THE ENTOMBED CHAIN (Claude round 1): one stone@52 -> the escape refuses to di
 })
 t('PREREQUISITES BY NAME AND COUNT (Codex round 1): netherite does not satisfy a stone/iron/diamond detour, count 2 needs two -- neither is refused', () => {
   const nether = [{ name: 'netherite_pickaxe', count: 1, maxDurability: 2031, durabilityUsed: 0 }, pk('wooden_pickaxe', 30), pk('stone_pickaxe', 5)]
-  assert.ok(redundantCraft('stone_pickaxe', nether), 'premise: netherite covers a stone craft outside any detour')
+  assert.ok(redundantCraft('iron_pickaxe', nether), 'premise: netherite covers an iron craft outside any detour')
+  assert.equal(redundantCraft('iron_pickaxe', nether, { wanted: (() => { const { task } = applyPrereq({ id: 'm', wants: 'dirt' }, { items: ['stone_pickaxe', 'iron_pickaxe', 'diamond_pickaxe'], count: 1, minUses: 81, since: Date.now(), because: 'tunnel' }, 0); return new Set([task.wants, ...(task.wantsAny ?? [])]) })() }), null, 'inside the detour: admitted')
   const pre = { items: ['stone_pickaxe', 'iron_pickaxe', 'diamond_pickaxe'], count: 1, minUses: 81, since: Date.now(), because: 'tunnel' }
   const wantedOf = p => { const { task } = applyPrereq({ id: 'm', wants: 'dirt' }, p, 0); return new Set([task.wants, ...(task.wantsAny ?? [])]) }
   assert.equal(redundantCraft('stone_pickaxe', nether, { wanted: wantedOf(pre) }), null)
