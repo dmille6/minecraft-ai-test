@@ -57,7 +57,7 @@ import { inflightTracker } from './inflight.mjs'
 import { FLOOR } from './toolfor.mjs'
 /** Tools deposit moves one usable copy at a time, by slot (bankable.mjs's own tool families). */
 const DEPOSIT_TOOL_RE = /_(pickaxe|axe|shovel|sword|hoe)$/
-import { bambooPlan, bambooStickRecipe, bambooGate, foldWindow } from './bamboo.mjs'
+import { bambooPlan, bambooStickRecipe, bambooGate, foldWindow, foldForCraft } from './bamboo.mjs'
 import path from 'node:path'
 import { IRON_KINDS, MIN_TRIP_USES, CANDIDATE_RADIUS, breakHazard, nearHome, pickBudget, rankCandidates, clusterOf, tunnelMovements, planTunnel, ONE_PICK_USES, tripDecision } from './oretunnel.mjs'
 import pkg from 'mineflayer-pathfinder'
@@ -3383,8 +3383,9 @@ async function craftLevel(ctx, { item, count = 1 }, signal, depth = 0, placedHer
   let table = null
   const stationDid = []       // what the station branch below did, for the success line
   // THIS LEVEL'S ROOM STATE (craftExecutions): two make-room tries and the table reserve, shared by every execution
-  // here and by every step of a whole-tree plan.
-  const rs = { tries: 0, tableYields: false, pickupDealt: false, owed: owedNow, stationDid }
+  // here and by every step of a whole-tree plan. `fold`: the craft skill's make-room step may fold bamboo (bamboocraft-01)
+  // -- the craft skill only: the composter build's bounded crafts (HK_CRAFT_MS) do not carry it.
+  const rs = { tries: 0, tableYields: false, pickupDealt: false, owed: owedNow, stationDid, fold: true, folded: false }
 
   if (!recipe) {
     const tableBlock = bot.findBlock({
@@ -3937,7 +3938,7 @@ async function craftExecutions(ctx, { item, recipe, crafts, table, anchor = null
     // Up to two slots made per level: one for the output, one for a table this call (or a caller) will take back.
     while (!room.ok && room.reason === 'no_room' && rs.tries < 2) {
       rs.tries++
-      const freed = await makeCraftRoom(ctx, item, plan, signal)
+      const freed = await makeCraftRoom(ctx, item, plan, signal, { rs, owed: reserveFor(), protect })
       check(signal)
       if (!freed.ok) {
         const bare = craftRoomNow(bot, plan, 0)
@@ -4292,19 +4293,36 @@ function watchPlaced(bot, at) {
 const STOP_CLASSES = new Set(['inventory_full', 'unverified', 'craft_unconfirmed'])
 
 /**
- * MAKE ROOM, EXECUTABLY -> { ok, said }: wear out one spent tool (craftRoomRemedy: never the last digging pickaxe),
- * on a block whose own drop cannot refill the slot (wearKeepsSlot). The ONLY remedy craft executes (review round 2):
- * placing a block to free a slot can seal a 1x2 tunnel or an escape stair, so a filler is only ever named in advice.
- * An abort during it propagates.
+ * MAKE ROOM, EXECUTABLY -> { ok, said }. Two remedies, the cheapest safe one first:
+ *   1. FOLD BAMBOO INTO STICKS (bamboocraft-01; foldForRoom below) when bamboo.mjs foldForCraft says a fold lets THIS
+ *      craft fit. A fold destroys nothing -- the bamboo becomes sticks the tech tree spends -- so it goes before the
+ *      wear-out, which destroys a tool copy. At most ONE fold per craft level (rs.folded), and only when the server's
+ *      bag after it admits the craft does it count as the room made; otherwise the wear-out below is tried as before.
+ *   2. wear out one spent tool (craftRoomRemedy: never the last digging pickaxe), on a block whose own drop cannot
+ *      refill the slot (wearKeepsSlot).
+ * The only remedies craft executes (review round 2): placing a block to free a slot can seal a 1x2 tunnel or an escape
+ * stair, so a filler is only ever named in advice. A refusal after both never names the fold (roomAdvice has no such
+ * remedy): it was tried, or it could not help. An abort during either propagates.
+ *   rs       the level's room state (craftExecutions): only a level whose rs.fold is set may fold (the craft skill's);
+ *            rs.folded bounds the fold to one per level
+ *   owed     tables the room check holds a slot for (craftExecutions' reserveFor())
+ *   protect  ingredients of a plan's later steps: a fold never spends them
  */
-async function makeCraftRoom(ctx, item, plan, signal) {
+async function makeCraftRoom(ctx, item, plan, signal, { rs = null, owed = 0, protect = [] } = {}) {
   const { bot } = ctx
+  let foldSaid = ''
+  if (rs?.fold && !rs.folded) {
+    const folded = await foldForRoom(ctx, item, plan, signal, { rs, owed, protect })
+    check(signal)
+    if (folded?.ok) return folded
+    if (folded) foldSaid = `${folded.said}; `
+  }
   const items = bot.inventory.items()
   const row = (status, said) => logEvent({ kind: 'craft_room', status, snapshot: snapshot(bot),
     detail: `${item}: ${said} (${items.length} -> ${bot.inventory.items().length}/${BAG_SLOTS} slots)` })
   const pick = craftRoomRemedy(items, item)
   if (!pick) {
-    const said = 'no spent tool that can be spared (the last digging pickaxe is kept)'
+    const said = `${foldSaid}no spent tool that can be spared (the last digging pickaxe is kept)`
     row('refused', said)
     return { ok: false, said }
   }
@@ -4313,11 +4331,72 @@ async function makeCraftRoom(ctx, item, plan, signal) {
   check(signal)
   await bot.waitForTicks?.(12)   // a drop is collectable after 10 ticks: re-check the slots after it could land
   check(signal)
-  const said = worn.ok
+  const said = foldSaid + (worn.ok
     ? `made room by wearing out a spent ${pick.tool.name} on ${worn.on}${pick.why === 'replaced' ? ' (the copy this craft replaces)' : ''}`
-    : `wearing out a spent ${pick.tool.name} failed: ${worn.said}`
+    : `wearing out a spent ${pick.tool.name} failed: ${worn.said}`)
   row(worn.ok ? 'made_room' : 'refused', said)
   return { ok: worn.ok, said }
+}
+
+/** Time held back from the craft's deadline for the craft itself once a fold has made its room. */
+const FOLD_CRAFT_RESERVE_MS = 15_000
+/**
+ * THE FOLD AS CRAFT'S FIRST REMEDY (bamboocraft-01) -> { ok, said } | null (not attempted). Deterministic: the model
+ * never chooses it. foldForCraft (pure) decides on the bag as it is now; foldExecute runs the batch (the same path
+ * bamboo_sticks takes); then THE SERVER'S BAG decides whether it worked -- craftsync's serverRecount, and the craft's own
+ * room check (craftRoomNow: the table reserve and an item on the ground included) on what it returns. Without
+ * craftsync (source 'none') the local bag is the only witness, as in the executor; an unanswered recount is NOT
+ * enabled. One `_bamboo_room` row whenever the bag holds bamboo to fold: attempted yes/no, crafts made of planned,
+ * slots before -> after, enabled yes/no, and why.
+ */
+async function foldForRoom(ctx, item, plan, signal, { rs, owed = 0, protect = [] } = {}) {
+  const { bot } = ctx
+  const items = bot.inventory.items()
+  const o0 = items.length
+  const now = craftRoomNow(bot, plan, owed)
+  const decision = foldForCraft({ items, recipe: plan, protect, reserve: now.reserve ?? 0,
+                                  leftMs: craftDeadline(ctx) - FOLD_CRAFT_RESERVE_MS - Date.now() })
+  const row = (status, args, said) => logEvent({ kind: 'bamboo_room', status, snapshot: snapshot(bot), args: { item, ...args },
+    detail: `${item}: ${said} attempted=${args.attempted} crafts=${args.crafts}/${args.planned} slots=${args.o0}->${args.o1} enabled=${args.enabled}` })
+  if (!decision.fold) {
+    if (decision.reason !== 'no_bamboo') {
+      row('skipped', { attempted: 'no', crafts: 0, planned: 0, o0, o1: o0, enabled: 'no', reason: decision.reason }, decision.why)
+    }
+    return null
+  }
+  rs.folded = true
+  const tally = { crafts: 0, windowMs: 0 }
+  let fx = null, threw = true
+  try {
+    fx = await foldExecute(ctx, decision.crafts, signal, tally, { reserveMs: FOLD_CRAFT_RESERVE_MS })
+    threw = false
+  } finally {
+    if (threw) {
+      try { row('aborted', { attempted: 'yes', crafts: tally.crafts, planned: decision.crafts, o0, o1: bot.inventory.items().length, enabled: 'no', reason: 'aborted' }, 'the fold was interrupted') } catch {}
+    }
+  }
+  check(signal)
+  const stopped = fx.stop ?? (fx.ran?.ok ? 'done' : (fx.ran?.out?.reason ?? fx.ran?.out?.failClass ?? 'stopped'))
+  // THE VERIFICATION: the server's bag, and the craft's own room check on it.
+  let source = 'none', bag = bot.inventory.items()
+  try {
+    const r = await serverRecount(bot, { deadline: Date.now() + RECOUNT_MS })
+    source = r?.source ?? 'none'
+    if (Array.isArray(r?.items)) bag = r.items
+  } catch (e) {
+    if (e?.aborted || signal?.aborted) throw e
+    source = `error:${String(e?.message ?? e).slice(0, 30)}`
+  }
+  check(signal)
+  const witnessed = source === 'server' || source === 'none'
+  const enabled = witnessed && craftRoomNow(bot, plan, owed, bag).ok
+  const o1 = witnessed ? bag.length : bot.inventory.items().length
+  const said = enabled
+    ? `made room by folding ${2 * tally.crafts} bamboo into ${tally.crafts} sticks`
+    : `folding bamboo into sticks did not make room (stop=${stopped}, source=${source})`
+  row(enabled ? 'made_room' : 'refused', { attempted: 'yes', crafts: tally.crafts, planned: decision.crafts, o0, o1,
+                                           enabled: enabled ? 'yes' : 'no', reason: stopped, source }, said)
+  return { ok: enabled, said }
 }
 
 /**
@@ -5345,6 +5424,41 @@ async function wearOut(ctx, _args, signal) {
 
 // ---------------------------------------------------------- bamboo_sticks -----
 /**
+ * THE FOLD ITSELF, shared by bamboo_sticks and craft's make-room step (bamboocraft-01) -> { stop: 'too_long', win } |
+ * { stop: 'no_bamboo_recipe' } | { ran } (craftExecutions' answer). `crafts` executions of the 2x2 bamboo recipe ONLY,
+ * through craftroom's executor with bambooGate before every execution and inside craftsync's admission, under the
+ * declared stationary window (foldWindow) -- set here, used as the deadline, and cleared in the finally.
+ *   tally      { crafts, windowMs }: crafts is bumped on every VERIFIED execution (and by a stopped execution's server
+ *              count), so a caller still has it when this throws (an abort)
+ *   reserveMs  time held back from the skill's deadline for work after the fold (craft's retry); 0 for bamboo_sticks
+ * No make-room and no pickup walk inside it (rs: both budgets spent): the fold IS a remedy, and it never recurses into
+ * craft's make-room step.
+ */
+async function foldExecute(ctx, crafts, signal, tally = { crafts: 0, windowMs: 0 }, { reserveMs = 0 } = {}) {
+  const { bot } = ctx
+  // THE DECLARED STATIONARY WINDOW (bamboo.mjs foldWindow): the batch must finish inside it, or it does not start.
+  const skillDeadline = craftDeadline(ctx) - reserveMs
+  const win = foldWindow(crafts, { leftMs: skillDeadline - Date.now() })
+  if (!win.fits) return { stop: 'too_long', win }
+  let recipe = null
+  try { recipe = bambooStickRecipe(bot.recipesFor(bot.registry.itemsByName.stick.id, null, 1, null) ?? [], bot.registry) } catch { recipe = null }
+  if (!recipe) return { stop: 'no_bamboo_recipe' }
+  const rs = { tries: 2, tableYields: true, pickupDealt: true, owed: () => 0, stationDid: [] }
+  tally.windowMs = win.ms
+  const stationary = Date.now() + win.ms
+  bot.stationaryUntil = stationary   // self-expiring; cleared in the finally
+  try {
+    const ran = await craftExecutions(ctx, { item: 'stick', recipe, crafts, table: undefined, anchor: null, signal,
+                                             gate: (bag, remaining) => bambooGate(bag, remaining), deadline: Math.min(skillDeadline, stationary), rs,
+                                             onVerified: () => { tally.crafts++ } })
+    if (!ran.ok && Number(ran.out?.producedAtStop) > 0) tally.crafts += Number(ran.out.producedAtStop)   // the server's count
+    return { ran }
+  } finally {
+    if (bot.stationaryUntil === stationary) bot.stationaryUntil = 0
+  }
+}
+
+/**
  * BAMBOO -> STICKS (bamboo.mjs decides; this acts). A deterministic housekeeping order, issued right after wear_out at
  * 34+ slots when bambooPlan finds the smallest batch that frees a slot.
  *   - NEVER craft('stick'): it takes recipesFor()[0] and may spend planks. bambooStickRecipe picks the recipe whose only
@@ -5376,31 +5490,23 @@ async function bambooSticks(ctx, _args, signal) {
   const read = () => ({ bamboo: countItem(bot, 'bamboo'), sticks: countItem(bot, 'stick'), planks: planks(), slots: items().length })
   const before = read()
   const plan = bambooPlan(items())
-  let crafts = 0, stop = 'done', status = 'success', stationary = 0, windowMs = 0
+  let crafts = 0, stop = 'done', status = 'success', windowMs = 0
+  const tally = { crafts: 0, windowMs: 0 }
   try {
     if (!plan.crafts) { stop = 'no_plan'; status = 'no_effect'; return { status: 'no_effect', detail: plan.why } }
-    // THE DECLARED STATIONARY WINDOW (bamboo.mjs foldWindow): the batch must finish inside it, or it does not start.
-    const skillDeadline = craftDeadline(ctx)
-    const win = foldWindow(plan.crafts, { leftMs: skillDeadline - Date.now() })
-    if (!win.fits) {
+    const fx = await foldExecute(ctx, plan.crafts, signal, tally)
+    windowMs = tally.windowMs
+    if (fx.stop === 'too_long') {
       stop = 'too_long'; status = 'no_effect'
-      return { status: 'no_effect', detail: `a fold of ${plan.crafts} crafts cannot finish inside its ${Math.round(win.ms / 1000)} s window ` +
-                                            `(at most ${win.maxCrafts}); nothing crafted` }
+      return { status: 'no_effect', detail: `a fold of ${plan.crafts} crafts cannot finish inside its ${Math.round(fx.win.ms / 1000)} s window ` +
+                                            `(at most ${fx.win.maxCrafts}); nothing crafted` }
     }
-    let recipe = null
-    try { recipe = bambooStickRecipe(bot.recipesFor(bot.registry.itemsByName.stick.id, null, 1, null) ?? [], bot.registry) } catch { recipe = null }
-    if (!recipe) {
+    if (fx.stop === 'no_bamboo_recipe') {
       stop = 'no_bamboo_recipe'; status = 'failed'
       return { status: 'failed', failClass: 'bamboo_craft', detail: 'no 2x2 bamboo -> stick recipe from what is held' }
     }
-    const rs = { tries: 2, tableYields: true, pickupDealt: true, owed: () => 0, stationDid: [] }
-    windowMs = win.ms
-    stationary = Date.now() + win.ms
-    bot.stationaryUntil = stationary   // self-expiring; cleared in the finally
-    const ran = await craftExecutions(ctx, { item: 'stick', recipe, crafts: plan.crafts, table: undefined, anchor: null, signal,
-                                             gate: (bag, remaining) => bambooGate(bag, remaining), deadline: Math.min(skillDeadline, stationary), rs,
-                                             onVerified: () => { crafts++ } })
-    if (!ran.ok && Number(ran.out?.producedAtStop) > 0) crafts += Number(ran.out.producedAtStop)   // the server's count
+    const ran = fx.ran
+    crafts = tally.crafts
     const tail = ` [folding bamboo into sticks: ${crafts} of ${plan.crafts} made]`
     if (ran.ok) return { status: 'success', detail: `folded ${2 * crafts} bamboo into ${crafts} sticks (${before.slots} -> ${items().length} slots)` }
     // THE BAG CHANGED UNDER THE BATCH (the gate) or AN ITEM LIES WITHIN PICKUP RANGE: not faults -- a skip, so the
@@ -5412,6 +5518,7 @@ async function bambooSticks(ctx, _args, signal) {
     return { status: 'failed', failClass: room ? 'bamboo_no_room' : 'bamboo_craft', detail: `${ran.out?.detail ?? 'the fold stopped'}${tail}` }
   } catch (e) {
     const aborted = !!(e?.aborted || signal?.aborted)
+    crafts = tally.crafts; windowMs = tally.windowMs   // the verified executions before the throw (foldExecute's tally)
     // A CRAFT THE SERVER CONFIRMED AS THE ABORT LANDED counts (craftExecutions' producedAtAbort: the server's own count,
     // one stick per craft) -- the tally is the server's, not one short of it.
     if (aborted && Number(e?.producedAtAbort) > 0) crafts += Number(e.producedAtAbort)
@@ -5420,7 +5527,7 @@ async function bambooSticks(ctx, _args, signal) {
     status = aborted ? 'aborted' : 'failed'
     throw e
   } finally {
-    if (stationary && bot.stationaryUntil === stationary) bot.stationaryUntil = 0
+    // (the stationary window is cleared by foldExecute's own finally, before this row)
     // ONE ROW PER RUN, aborts included: before -> after, what was made of what was planned, why it stopped.
     try {
       const after = read()
