@@ -7430,9 +7430,19 @@ async function smelt(ctx, { item, count = 1 }, signal) {
       if ((furnace.emptySlotCount?.() ?? 0) === 0) {
         return { status: 'failed', failClass: 'inventory_full',
                  detail: 'the furnace\'s fuel slot holds a wooden sword and your bag has no empty slot to take it back into — ' +
-                         'free one slot (deposit or compost something), then smelt again' }
+                         'free one slot (deposit or compost something) and smelt again, or place the furnace you carry and smelt there' }
       }
-      try { await furnace.takeFuel(); swordRow('no_effect', 'wooden_sword returned unburned (left by an earlier call)', foodSkipNow(bot).active) } catch { /* emptied under us */ }
+      try { await furnace.takeFuel() } catch { /* judged by the slot below, never by the promise */ }
+      // NO INPUT UNTIL THE SLOT IS SEEN EMPTY (both reviews r-rev4): a take that failed with the sword still there (or a
+      // slot that can no longer be read) must not let this job's input ignite it -- possibly with the switch off, and
+      // with no row. The job stops; the finally's guarded drain leaves the sword unless the window has room.
+      const after = fslot('fuelItem')
+      if (after !== null) {
+        return { status: 'failed', failClass: 'container_blocked',
+                 detail: 'the furnace\'s fuel slot holds a wooden sword that could not be taken back — ' +
+                         'smelt again, or place the furnace you carry and smelt there' }
+      }
+      swordRow('no_effect', 'wooden_sword returned unburned (left by an earlier call)', foodSkipNow(bot).active)
     }
 
     check(signal)
