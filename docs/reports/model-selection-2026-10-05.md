@@ -595,6 +595,13 @@ The owner cleared the Studio of other projects on 10-06, at about 17:00Z.
 | 10-06 16:55-20:20 | C1 deliberately stopped (WAN), then the power outage: the bots host and the world host were down 17:07-19:50Z, and the Mac mini rebooted about 20:06Z | **no C1 run was in progress at 17:07Z**, so none was cut by the outage; the Studio stayed up, so the co-load re-test (16:52-17:36Z) is unaffected | block 2 (3 runs) re-run from 20:20Z |
 | from 10-06 20:19 | the bots reach the Studio through a **supervised ssh tunnel on the Mac mini**: launchd agent `com.mbench.tunnel`, ServerAliveInterval 10 / CountMax 3, ExitOnForwardFailure, KeepAlive; it reconnects in about 3 s when killed (tested) and costs 5 MB | every start and DROP is logged in `~/Library/Logs/mbench-tunnel.log` | the runner checks the endpoint from the bots host before each run and waits instead of burning it; it re-checks every 5 min; any drop or failed check inside a run is written to that run's record as `flag` |
 
+**Additions to the ledger, 10-07 early (before C2):**
+
+| when (UTC) | what | effect | handled |
+|---|---|---|---|
+| found 01:50 | two `pause` lines in a row in the Studio queue (`pause fx`, `pause c2`) would have overwritten each other at once: a pause line wrote its tag without waiting for the earlier holder, so the fixture series would never have seen `pause-fx`. An LM Studio line could likewise overwrite a held pause | **none** (caught before either pause was reached) | a pause line and an LM Studio line now wait until the reservation is free; the series matches its tag exactly |
+| 01:47 | while fixing that, the running `lms_factor.sh` (gpt-oss MLX arm) was overwritten in place for about a minute; bash reads a running script by byte offset | **none**: bash was blocked inside `throughput.py` (started 01:43) for the whole minute, and the original bytes were written back into the same inode; the new version was installed by rename | recorded; scripts that may be running are only ever replaced by rename |
+
 The sandbox4 world after the unclean shutdown:
 - It is still in benchmark mode (`level-name=mbench-world`).
 - Every C1 run starts by restoring the pristine snapshot (`mbench-pristine-sandbox4.tgz`, intact), so the
@@ -740,3 +747,23 @@ so a team-output difference inside that band will be reported as INCONCLUSIVE, n
 milestones separated cleanly in C1 and are the likelier readable signals.
 
 **Analysis:** `bench/models/closedloop/c2_analyze.py results/runs.jsonl --horizon 70`.
+
+**Hook review record (both engines, before any run).** Branch `bench-c2` (pushed to origin as a bench-only branch;
+never merged to main, never deployed to the fleet).
+
+| round | sha | Claude | Codex | what changed in response |
+|---|---|---|---|---|
+| 1 | b41e8cc | CHANGE | CHANGE | a runner pause dropped the directive; ids not unique per delivery; it survived reconnects; rows carried the flush time; the trigger was overwritten; weak tests |
+| 2 | 7593eb3 | CHANGE | CHANGE | while waiting, the bot's own model could put the directive's action on cooldown; `started` logged before the runner ran; a superseded step's outcome was lost |
+| 3 | bfd39f4 | APPROVE (lows) | CHANGE | a lease ending mid-step lost that step's outcome |
+| 4 | 09a5db5 | APPROVE | APPROVE | none blocking. 510a863 adds one test only (a reconnect mid-step) |
+| 5 | 6001cc1 | **APPROVE** | **APPROVE** | the FULL suite caught two of the fleet's own structural tests (planting, workorder) anchored on the work-order line the hook had rewritten; restored verbatim, the directive replaces the order afterwards. d1257ce tightens one wiring test (test only) |
+
+Accepted by both: milestone accounting still excludes a runner `superseded` result, exactly as the fleet does. It is
+identical in every arm, and changing it for directive steps only would add a second difference between arms. So the
+milestone counter's `executed` must not be read as a per-arm execution count; the directive rows are the dose.
+Behaviour mutants: 16 of 16 killed (`bots/test/directives-mutants.py` on the branch).
+Full suite (`scripts/run-tests.mjs`) on the bots host at 6001cc1: 224 of 225 files. The one failure is
+`craftsync.test.mjs`, subtest "a refresh slower than quietMs beats lockstep", a timing race that fails on the
+**base tree too** (alternating single-file reruns: base 3 of 8, hook 2 of 8, same subtest, same message). It is a
+pre-existing flake in the fleet lineage, not the hook.

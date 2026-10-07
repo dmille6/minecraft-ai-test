@@ -54,7 +54,7 @@ def main():
     a = ap.parse_args()
     arms = json.load(open(a.arms))
     if a.wait_pause:            # start only when the Stage A queue reaches its "pause" line (GPU held for us)
-        while not ssh('cat ~/mbench/out/GPU_RESERVED 2>/dev/null').startswith('pause-' + a.pause_tag):
+        while ssh('cat ~/mbench/out/GPU_RESERVED 2>/dev/null').strip() != 'pause-' + a.pause_tag:   # exact: c2 != c2smoke
             time.sleep(120)
         print('queue paused; starting', flush=True)
     rng = random.Random(a.seed)

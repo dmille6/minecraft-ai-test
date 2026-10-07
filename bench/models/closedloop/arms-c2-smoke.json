@@ -1,0 +1,2 @@
+[{"arm": "c2-det", "c2_arm": "det", "model": "gemma4:26b", "think": "false", "lms_key": "gemma-4-26b-a4b-it@8bit"},
+ {"arm": "c2-ovesc", "c2_arm": "ov+esc", "model": "gemma4:26b", "think": "false", "lms_key": "gemma-4-26b-a4b-it@8bit"}]
