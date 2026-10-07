@@ -26,7 +26,7 @@ function makeBot (inv, difficulty, { tickMs = 4, onBurn = null, warm = 0, fuelUn
   const give = (n, c) => { bag[n] = (bag[n] ?? 0) + c }
   const take = (n, c) => { bag[n] = (bag[n] ?? 0) - c; if (bag[n] <= 0) delete bag[n] }
   const slots = { input: null, fuel: null, output: null }
-  const burnt = {}, stagedWhileBurning = [], dropped = []
+  const burnt = {}, stagedWhileBurning = [], dropped = [], putFails = []
   let burnLeft = warm, ticker = null
   const tick = () => {
     if (!slots.input) { if (burnLeft > 0) burnLeft = Math.max(0, burnLeft - 200); return }
@@ -48,8 +48,8 @@ function makeBot (inv, difficulty, { tickMs = 4, onBurn = null, warm = 0, fuelUn
     inputItem: () => slots.input, fuelItem: () => slots.fuel, outputItem: () => slots.output,
     async putInput (type, _m, count) { take(NAME[type], count); slots.input = { name: NAME[type], type, count }; ticker ??= setInterval(tick, tickMs) },
     async putFuel (type, _m, count) {
-      if ((bag[NAME[type]] ?? 0) < count) throw new Error('not enough to transfer')
-      if (slots.fuel && slots.fuel.name !== NAME[type]) throw new Error('fuel slot holds another item')
+      if ((bag[NAME[type]] ?? 0) < count) { putFails.push(NAME[type]); throw new Error('not enough to transfer') }
+      if (slots.fuel && slots.fuel.name !== NAME[type]) { putFails.push(NAME[type]); throw new Error('fuel slot holds another item') }
       if (NAME[type] === 'wooden_sword' && (slots.fuel || count > 1)) throw new Error('a sword does not stack')
       if (NAME[type] === 'wooden_sword' && burnLeft > 0) stagedWhileBurning.push(burnLeft)
       take(NAME[type], count); slots.fuel = { name: NAME[type], type, count: (slots.fuel?.count ?? 0) + count }
@@ -79,7 +79,7 @@ function makeBot (inv, difficulty, { tickMs = 4, onBurn = null, warm = 0, fuelUn
     async equip () {}, async lookAt () {}, pathfinder: { async goto () {}, setGoal () {}, stop () {} },
     async openFurnace () { return furnace },
   }
-  return { bot, bag, slots, burnt, stagedWhileBurning, dropped }
+  return { bot, bag, slots, burnt, stagedWhileBurning, dropped, putFails }
 }
 const run = (bot, count = 4, signal = new AbortController().signal) => SKILLS.smelt.run({ bot }, { item: 'raw_iron', count }, signal)
 const swordRows = async fn => {
@@ -150,6 +150,7 @@ test('THE SWITCH TURNS OFF with the ordinary load sharing the bag\'s only coal: 
   const r = await run(bot, 3)
   assert.equal(r.status, 'success', r.detail)
   assert.equal(m.bag.iron_ingot, 3); assert.equal(m.burnt.coal, 1); assert.equal(m.bag.wooden_sword, 1)
+  assert.deepEqual(m.putFails, [], 'no load was asked for that the bag could not give (the coal was not counted twice)')
   foodSkipNow({ serverDifficulty: 'hard' })
 })
 
