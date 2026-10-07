@@ -544,6 +544,10 @@ export function installCraftSync (bot, opts = {}) {
       await digCooldown(slot)
       // PRE-INVOKE (round 6, Codex P1): mineflayer applies the click to its LOCAL window before it writes, so a stale
       // click must be refused here, before it is invoked -- the wire filter below is only the backstop.
+      // A STOP THAT LANDED DURING THE COOLDOWN INVALIDATES FIRST (Claude review of the c6e91a8 rebase): the grid fix's write
+      // hook drops a stopped state's click AFTER mineflayer applied it locally; on a lockstep (withdraw, town deposit) no
+      // grid clear follows, so the container window stayed desynced (probe: 12 of 20). Refused here, nothing is applied.
+      if (stopReason(st)) stopIssued(st, stopReason(st))
       const v = inflight.validate(ticket, (bot.currentWindow || bot.inventory)?.id ?? 0)
       if (!v.ok) {
         ticket.dropped = v.why
@@ -679,6 +683,9 @@ export function installCraftSync (bot, opts = {}) {
         if (stopReason(st)) {                         // THE BACKSTOP: a stale continuation, never sent
           st.lateClicksDropped++
           if (params?.windowId === 0) st.w0Clicks++     // mineflayer applied it LOCALLY: the clear must repair that
+          // ...and where no clear will run (a lockstep's container window, or a craft's table), the next recount or
+          // lockstep repairs it, as for a wire drop (Claude review of the rebase)
+          if (!st.isCraft || params?.windowId !== 0) repairPending = 'a stopped state\'s click was applied locally and never sent'
           return
         }
         st.clicksSent++
