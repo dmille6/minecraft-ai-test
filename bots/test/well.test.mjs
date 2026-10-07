@@ -1855,14 +1855,27 @@ await t('COBBLE (Codex r1 P1): the cap is re-read at EVERY cobble click -- the t
     assert.equal((await scene(m)).left, 64, 'mutant inert')
   })
 })
-await t('COBBLE (Codex r1 P1): only the COUNTED total proves the cap -- cobble merely on its way (a live claim) never sends cobble down the well', async () => {
-  const town = fakeTown({ wellAt: CAP, items: [S('cobblestone', 30), S('cobblestone', 64), ...Array.from({ length: 34 }, () => S('oak_log', 64))] })
-  townAt(town, 200)
-  CCAP.appendJournal(process.env.POOL_STATE_DIR, CF_townKey(HOME), town.bot.worldId ?? null, { t: 'claim', id: 'onway', n: 64, k: '9,9,9', at: Date.now(), bot: 'Other', inst: 'x', keys: ['9,9,9'], coverage: true })
+await t('COBBLE (Codex r1/r2 P1): only the COUNTED total proves the cap -- 192 counted + 64 admitted on its way, or 240 counted with a stack that would pass 256, never send cobble down the well', async () => {
   const SK = await import('../src/skills.mjs')
-  assert.notEqual(SK.cobbleWellCap(town.bot), 'at_cap', '200 counted + 64 on its way is not 256 held')
-  townAt(town, 256)
-  assert.equal(SK.cobbleWellCap(town.bot), 'at_cap', 'positive control: 256 counted is')
+  const town = fakeTown({ wellAt: CAP, items: [S('cobblestone', 30), S('cobblestone', 64), ...Array.from({ length: 34 }, () => S('oak_log', 64))] })
+  townAt(town, 192)
+  const r = CCAP.claimStack(process.env.POOL_STATE_DIR, CF_townKey(HOME), town.bot.worldId ?? null, { id: 'onway', n: 64, k: '9,9,9', bot: 'Other', keys: ['9,9,9'], coverage: true, inst: 'x' })
+  assert.equal(r.decision, 'bank', 'positive control: the claim is admitted (192 + 64 = 256)')
+  assert.equal(SK.cobbleTownViewFor(town.bot).reserved, 64, 'and it is a live reservation')
+  assert.notEqual(SK.cobbleWellCap(town.bot), 'at_cap', '192 held + 64 on its way is not 256 held')
+  // a COMPLETE count in town (a barrel beside home, the only container): the old predicate's own condition for at_cap
+  const inTownAt = (tw, n) => { const k = `${HOME.x + 6},${HOME.y},${HOME.z - 6}`; tw.world.set(k, { name: 'barrel' }); CCAP.appendJournal(process.env.POOL_STATE_DIR, CF_townKey(HOME), tw.bot.worldId ?? null, { t: 'obs', k, n, cap: Date.now() }) }
+  const t2 = fakeTown({ wellAt: CAP, items: [S('cobblestone', 30), S('cobblestone', 64), ...Array.from({ length: 34 }, () => S('oak_log', 64))] })
+  inTownAt(t2, 240)
+  assert.equal(SK.cobbleTownViewFor(t2.bot).complete, true, 'positive control: the count is complete')
+  assert.notEqual(SK.cobbleWellCap(t2.bot), 'at_cap', '240 held: the 30 would pass 256 (a refused deposit), but the town does not hold 256')
+  inTownAt(t2, 256)
+  assert.equal(SK.cobbleWellCap(t2.bot), 'at_cap', 'positive control: 256 counted is')
+  await withMutant(SP, "    return (Number(v?.lb) || 0) >= TOWN_COBBLE_CAP ? 'at_cap'", "    return cobbleAdmit(v, 30) === 'at_cap' ? 'at_cap'", async m => {
+    const t3 = fakeTown({ wellAt: CAP, items: [S('cobblestone', 30), S('cobblestone', 64), ...Array.from({ length: 34 }, () => S('oak_log', 64))] })
+    inTownAt(t3, 240)
+    assert.equal(m.cobbleWellCap(t3.bot), 'at_cap', 'mutant inert (the old predicate called a refused deposit the cap)')
+  })
 })
 await t('COBBLE (Codex r1 P2): the server account lists cobble only up to what was CLICKED', async () => {
   const SK = await import('../src/skills.mjs')
