@@ -366,8 +366,9 @@ export function siteRefusal (read, site, home = null) {
   return null
 }
 
-/** The fixed spiral: rings HOME_CLEARANCE..CANONICAL_RADIUS around home, each ring in angle order from east. */
-function spiral (home) {
+/** The fixed spiral: rings HOME_CLEARANCE..CANONICAL_RADIUS around home, each ring in angle order from east. The junk
+ * well (well.mjs) walks the same spiral, so it is exported. */
+export function spiral (home) {
   const out = []
   for (let r = HOME_CLEARANCE; r <= CANONICAL_RADIUS; r++) {
     const ring = []
