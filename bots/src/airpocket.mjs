@@ -27,6 +27,7 @@ export const AP_RISE_MS = 4000               // after the dig, the eye has this 
 export const AP_TRIGGER_AFTER_MS = 8000      // a non-sealed, capped rescue gets this long to work before the dig
 export const AP_FAIL_COOLDOWN_MS = 60_000    // a failed or aborted step is not retried here for a minute
 export const AP_REFUSE_COOLDOWN_MS = 5000    // a refused plan is re-planned at most this often (it is cheap)
+export const AP_ICE_ENABLED = true             // the ice branch (break, then rise one cell); off if sandbox scene F fails
 
 const WATERLIKE = /^(water|flowing_water|bubble_column|kelp|kelp_plant|seagrass|tall_seagrass)$/
 const LAVALIKE = /lava|^magma_block$|^fire$|^soul_fire$/
@@ -70,6 +71,7 @@ export function airPocketPlan (at) {
     if (LAVALIKE.test(b.name)) return refuse(`${b.name} above the head`, { dy, name: b.name })
     if (FALLING.test(b.name)) return refuse(`${b.name} above would fall`, { dy, name: b.name })
     if (ICE.test(b.name)) {
+      if (!AP_ICE_ENABLED) return refuse('ice branch disabled', { dy, name: b.name })
       const top = at(0, dy + 1, 0)
       if (top == null) return refuse('above the ice unknown', { dy, name: b.name })
       if (!isAir(top)) return refuse(`ice with ${top.name} above, not air`, { dy, name: b.name })
