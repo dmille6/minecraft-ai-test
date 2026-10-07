@@ -281,3 +281,24 @@ test('THE TAKE-BACK FAILS with the earlier sword still in the slot (both reviews
   assert.deepEqual(rows, [], 'no row claims the sword came back')
   foodSkipNow({ serverDifficulty: 'hard' })
 })
+
+test('THE TAKE-BACK STOPS BETWEEN ITS TWO CLICKS (Claude r-rev5): the sword on the cursor goes back into the bag, no input goes in, nothing drops', async () => {
+  const m = makeBot({ raw_iron: 2, coal: 1 }, 'easy')
+  m.slots.fuel = { name: 'wooden_sword', type: 10, count: 1 }   // left by an earlier call
+  let puts = 0, closedWithCursor = 0
+  m.bot.openFurnace = (orig => async () => {
+    const f = await orig(); const put = f.putInput; const close = f.close
+    f.selectedItem = null
+    f.takeFuel = async () => { f.selectedItem = { ...m.slots.fuel, slot: -1 }; m.slots.fuel = null; throw new Error('the second click timed out') }
+    f.firstEmptySlotRange = () => 9; f.findItemRange = () => null; f.inventoryStart = 3; f.inventoryEnd = 39
+    m.bot.clickWindow = async () => { if (f.selectedItem) { m.bag[f.selectedItem.name] = (m.bag[f.selectedItem.name] ?? 0) + 1; f.selectedItem = null } }
+    f.putInput = async (...a) => { puts += 1; return put(...a) }
+    f.close = () => { if (f.selectedItem) closedWithCursor += 1; return close() }
+    return f
+  })(m.bot.openFurnace)
+  const { out: r } = await swordRows(() => run(m.bot, 2))
+  assert.equal(r.status, 'failed'); assert.equal(r.failClass, 'transfer_unsettled'); assert.match(r.detail, /back in your bag/)
+  assert.equal(puts, 0, 'no input went in'); assert.equal(closedWithCursor, 0, 'the window never closed with the sword on the cursor')
+  assert.equal(m.bag.wooden_sword, 1); assert.equal(m.burnt.wooden_sword, undefined); assert.deepEqual(m.dropped, [])
+  foodSkipNow({ serverDifficulty: 'hard' })
+})
