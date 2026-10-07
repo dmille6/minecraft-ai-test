@@ -101,16 +101,6 @@ export function scaffoldCount (items = []) {
 }
 
 /**
- * Can this bot go one block deeper and still get back out?
- *
- * `vertical_debt` is how far it would have to climb to reach open sky. Both
- * reserves scale with it AND have a floor, because a shallow bot that loses its
- * tool is annoying and a deep one is dead.
- *
- * Returns { ok } or { ok:false, reason, need } so the caller can both refuse and
- * say what would fix it.
- */
-/**
  * The pickaxe swings (pickaxeUses) a descent from `y` must keep in reserve: the climb out plus 2 plus the reserve.
  * Exported for tool hygiene (toolhygiene.mjs): a pickaxe craft is never refused while the bag holds fewer swings
  * than this, because `mine` refuses below it and its remedy is "get a pickaxe" (Codex review of the toolhygiene
@@ -122,6 +112,16 @@ export function descentPickNeed (y, seaLevel = SEA_LEVEL) {
   return debt + 2 + pickReserve
 }
 
+/**
+ * Can this bot go one block deeper and still get back out?
+ *
+ * `vertical_debt` is how far it would have to climb to reach open sky. Both
+ * reserves scale with it AND have a floor, because a shallow bot that loses its
+ * tool is annoying and a deep one is dead.
+ *
+ * Returns { ok } or { ok:false, reason, need } so the caller can both refuse and
+ * say what would fix it.
+ */
 export function canContinueDescent ({ y, health, items = [], seaLevel = SEA_LEVEL }) {
   const debt = Math.max(0, seaLevel - Math.floor(y))
   // THE FLOOR APPLIES TO A CLIMB THAT EXISTS.

@@ -211,5 +211,35 @@ await ta('the wiring checks can fail: each rejects its source with the row remov
   assert.throws(() => indexWired(idx.replace(licMut, "      void ({ kind: 'tool_hygiene'")))
 })
 
+// Round 3 (Claude): G1's whole population and the exit-shortfall memory are wiring too -- each checked on the
+// executable path and each check shown to fail on its mutated source.
+const admitWired = code => {
+  const c = strip(code)
+  const i = c.indexOf("if (check.ok && check.skill === 'craft' && HYGIENE_ITEMS.has(check.args?.item))")
+  assert.ok(i > 0, 'the admitted-craft branch exists')
+  assert.match(c.slice(i, i + 600), /logEvent\(\{ kind: 'craft_admit'[^\n]*args: row\.args/, 'it writes the _craft_admit row with structured args')
+}
+const exitWired = code => {
+  const c = strip(code)
+  const i = c.indexOf('const exit = canContinueDescent({')
+  assert.ok(i > 0, "mine's exit contract exists")
+  const j = c.indexOf('if (!exit.ok) {', i)
+  assert.ok(j > i && j - i < 400, 'its refusal branch follows')
+  assert.match(c.slice(j, j + 200), /^if \(!exit\.ok\) \{\s*noteExitShort\(bot, exit\)/, 'the refusal records the shortfall first')
+}
+await ta('WIRED: cognitive writes _craft_admit for admitted hygiene crafts; mine records its pickaxe shortfall', async () => {
+  admitWired(readFileSync(SRC('cognitive.mjs'), 'utf8'))
+  exitWired(readFileSync(SRC('skills.mjs'), 'utf8'))
+})
+await ta('...and both checks fail on their mutated sources', async () => {
+  const cog = readFileSync(SRC('cognitive.mjs'), 'utf8'), sk = readFileSync(SRC('skills.mjs'), 'utf8')
+  const am = "          logEvent({ kind: 'craft_admit', status: 'success', detail: row.detail, args: row.args, snapshot: snapshot(this.bot) })"
+  assert.equal(cog.split(am).length, 2, 'cognitive anchor present and unique')
+  assert.throws(() => admitWired(cog.replace(am, '          void row')))
+  const em = '      noteExitShort(bot, exit)   // tool hygiene: pickaxe crafts stay admitted until the swings are met (toolhygiene.mjs)\n'
+  assert.equal(sk.split(em).length, 2, 'skills anchor present and unique')
+  assert.throws(() => exitWired(sk.replace(em, '')))
+})
+
 console.log(`\n${pass} passed, ${fail} failed`)
 process.exit(fail ? 1 : 0)
