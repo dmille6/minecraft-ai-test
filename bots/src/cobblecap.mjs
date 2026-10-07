@@ -12,10 +12,24 @@
 //
 // "Cobble" here is cobblestone + cobbled_deepslate, as everywhere in the cobble rule.
 //
-// THE LEDGER is one small JSON file per town in the pool's state dir (<townKey>.cobble.json), read-modify-written under an
-// EXCLUSIVE lock file (fs 'wx' create; a stale lock older than LOCK_STALE_MS is broken) -- the 10-04 synthesis rejected
-// an UNLOCKED town file for lost updates; this one is locked. Isolated pools keep one state dir per bot, so their bots
-// do not see each other's reservations: the read reports it, and the canary never draws an isolated pool.
+// THE JOURNAL (round 3; Codex r2 P1: a lock with a stale-break can always lose mutual exclusion to a paused holder or to
+// two breakers): no lock at all. One APPEND-ONLY file per town in the pool's state dir (<townKey>.cobble.jsonl). Every
+// bot appends whole records in one append (O_APPEND: the kernel orders the appends to one file and never interleaves
+// them), and every bot reads the SAME order back. The town's state is a FOLD of that order, identical for every reader:
+//   obs    a container's cobble as an open window showed it, with its CAPTURE time; per container the latest capture
+//          wins, and on equal capture times the LARGER count (Codex r2 P1: an ambiguous order resolves conservatively)
+//   claim  "may this whole stack go into container k?" -- decided IN THE FOLD at the claim's own place in the order,
+//          against everything before it, earlier claims included. Two bots racing for the last room both append; the one
+//          the kernel ordered first is admitted, the other is not, and both read the same answer back. The claim carries
+//          the claimant's scan (keys, coverage, gone), so its decision depends on nothing outside the journal.
+//   rel    the claimant's release, written in ONE append after its post-transfer count (obs first, then rel): a reader
+//          never sees the release without the count that includes the transfer
+//   scan   the town's container keys from a covered scan, for the plan's view from away from home
+// A CLAIM NEVER RELEASED (a crash) stops being a reservation after RES_TTL_MS and instead makes its container UNKNOWN until
+// a count CAPTURED at least RES_TTL_MS after the claim. By then the claim cannot move anything any more: a transfer may only
+// START within TRANSFER_WINDOW_MS of its claim (Codex r2 P1: a count taken between a claim and its transfer is not a
+// reconciliation). Isolated pools keep one state dir per bot, so their bots do not see each other's claims: the read
+// reports it, and the canary never draws an isolated pool.
 
 import fs from 'node:fs'
 import path from 'node:path'
@@ -23,10 +37,12 @@ import path from 'node:path'
 export const TOWN_COBBLE_CAP = 256
 /** An observation older than this is no longer a count: the container is unknown again. */
 export const OBS_TTL_MS = 6 * 60 * 60 * 1000
-/** A reservation that was never released (a crash mid-transfer) stops counting after this. */
+/** A claim stops being a reservation after this; never released, it forces a recount of its container. */
 export const RES_TTL_MS = 3 * 60 * 1000
-export const LOCK_STALE_MS = 30_000
-export const LOCK_WAIT_MS = 2_000
+/** A claim's transfer must START within this of its claim (30 s before RES_TTL_MS: a click in flight lands well inside). */
+export const TRANSFER_WINDOW_MS = RES_TTL_MS - 30_000
+/** The journal's tail that is read: far more than OBS_TTL_MS of records at any fleet's rate (~100 KB/day per town). */
+const TAIL_BYTES = 8 * 1024 * 1024
 const COBBLE = new Set(['cobblestone', 'cobbled_deepslate'])
 export const isCobbleName = n => COBBLE.has(n)
 
@@ -38,37 +54,32 @@ export function cobbleIn (items = []) {
 }
 
 /**
- * THE TOWN'S COBBLE, AS FAR AS ANYONE KNOWS -> { lb, complete, unknown, reserved, mine }. Pure.
- *   lb         sum of FRESH observations of containers still in town (a lower bound: an unobserved one adds >= 0)
+ * THE TOWN'S COBBLE, AS FAR AS ANYONE KNOWS -> { lb, complete, unknown, reserved, mine }. Pure, over a folded state
+ * ({ obs: { k: { n, at } }, claims: { id: { n, k, at, bot, decision, released } } }).
+ *   lb         sum of FRESH counts of containers still in town (a lower bound: an uncounted one adds >= 0)
  *   complete   the scan covered the whole town (`coverage`) AND every container in `keys` has a fresh count
- *   unknown    the keys without one -- including any container with an EXPIRED, UNRELEASED reservation newer than its
- *              count (Codex r1 P1: a crash between a transfer and its observation must force a recount, never quietly
- *              give the capacity back)
- *   reserved   EVERY live reservation, this bot's own included (Codex r1 P1: a batch's earlier, not yet observed stacks
- *              are charged before the next one is admitted)
+ *   unknown    the keys without one -- including every container with an EXPIRED, NEVER-RELEASED claim and no count
+ *              captured at least RES_TTL_MS after that claim (a crash between a transfer and its count forces a recount)
+ *   reserved   EVERY live admitted claim not yet released, this bot's own included (a batch's earlier stacks count)
  * `gone`: keys whose block was read and is no longer a container -- their counts no longer count.
  */
-export function townCobble (ledger = {}, keys = [], now = Date.now(), { me = null, coverage = true, gone = [] } = {}) {
-  const obs = ledger?.obs ?? {}
-  const res = ledger?.res ?? {}
-  const goneSet = new Set(gone)
+export function townCobble (state = {}, keys = [], now = Date.now(), { me = null, coverage = true, gone = [] } = {}) {
+  const obs = state?.obs ?? {}
+  const claims = state?.claims ?? {}
+  const goneSet = new Set(Array.isArray(gone) ? gone : [])
   const dirty = new Set()
-  for (const r of Object.values(res)) {
-    if (!r?.k || !Number.isFinite(r.at)) continue
-    const expired = !(now - r.at < RES_TTL_MS)
-    if (expired && !(obs[r.k] && obs[r.k].at > r.at)) dirty.add(r.k)   // unreleased and never re-counted since
+  let reserved = 0, mine = 0
+  for (const c of Object.values(claims)) {
+    if (!c?.k || !Number.isFinite(c.at) || c.released) continue
+    if (now - c.at < RES_TTL_MS) {
+      if (c.decision === 'bank') { reserved += Number(c.n) || 0; if (me != null && c.bot === me) mine += Number(c.n) || 0 }
+    } else if (!(obs[c.k] && obs[c.k].at >= c.at + RES_TTL_MS)) dirty.add(c.k)   // never released, never re-counted after
   }
   const fresh = k => !goneSet.has(k) && !dirty.has(k) && obs[k] && Number.isFinite(obs[k].at) && now - obs[k].at < OBS_TTL_MS
   let lb = 0
   for (const k of Object.keys(obs)) if (fresh(k)) lb += Math.max(0, Number(obs[k].n) || 0)
   const all = [...new Set([...(Array.isArray(keys) ? keys : []), ...dirty])].filter(k => !goneSet.has(k))
   const unknown = all.filter(k => !fresh(k))
-  let reserved = 0, mine = 0
-  for (const r of Object.values(res)) {
-    if (!(Number.isFinite(r?.at) && now - r.at < RES_TTL_MS)) continue
-    reserved += Number(r.n) || 0
-    if (me != null && r.bot === me) mine += Number(r.n) || 0
-  }
   return { lb, complete: !!coverage && all.length > 0 && unknown.length === 0, unknown, reserved, mine }
 }
 
@@ -99,63 +110,88 @@ export function admitStacks (view, stacks = [], cap = TOWN_COBBLE_CAP) {
   return { bank, refused }
 }
 
-// ---- the ledger file ---------------------------------------------------------------------------------------------
+// ---- the journal -------------------------------------------------------------------------------------------------
 
-const ledgerFile = (dir, key) => path.join(dir, `${key}.cobble.json`)
-const sleep = ms => new Promise(resolve => setTimeout(resolve, ms))
+const journalFile = (dir, key) => path.join(dir, `${key}.cobble.jsonl`)
 
-/** The ledger -> { obs: {}, res: {} }. Another world's ledger reads as empty. */
-export function readLedger (dir, key, world = null) {
+/** Append records in ONE write -> true when written. Each carries the world it was written in. */
+export function appendJournal (dir, key, world, recs = []) {
   try {
-    const r = JSON.parse(fs.readFileSync(ledgerFile(dir, key), 'utf8'))
-    if ((r?.world ?? null) !== (world ?? null)) return { obs: {}, res: {} }
-    return { obs: r?.obs ?? {}, res: r?.res ?? {} }
-  } catch { return { obs: {}, res: {} } }
+    fs.mkdirSync(dir, { recursive: true })
+    fs.appendFileSync(journalFile(dir, key), recs.map(r => JSON.stringify({ ...r, w: world ?? null })).join('\n') + '\n')
+    return true
+  } catch { return false }
+}
+
+/** The journal's complete records, in order, for this world (another world's records are not this town's). */
+export function readJournal (dir, key, world = null) {
+  try {
+    const f = journalFile(dir, key)
+    const size = fs.statSync(f).size
+    const start = Math.max(0, size - TAIL_BYTES)
+    const buf = Buffer.alloc(size - start)
+    const fd = fs.openSync(f, 'r')
+    try { fs.readSync(fd, buf, 0, buf.length, start) } finally { fs.closeSync(fd) }
+    const lines = buf.toString('utf8').split('\n')
+    if (start > 0) lines.shift()          // the tail began inside a record
+    lines.pop()                           // after the last newline: empty, or a record still being written
+    const out = []
+    for (const line of lines) {
+      try { const r = JSON.parse(line); if ((r?.w ?? null) === (world ?? null)) out.push(r) } catch { /* a torn line */ }
+    }
+    return out
+  } catch { return [] }
 }
 
 /**
- * READ-MODIFY-WRITE UNDER THE TOWN'S LOCK -> Promise<{ ok, value }>. ASYNC: waiting never blocks the bot's event loop (Codex
- * r1). The lock is an exclusive create of <file>.lock holding a unique TOKEN. A lock older than LOCK_STALE_MS is a crashed
- * holder's: it is broken by an atomic rename to a private name (only one contender can win that rename) and removed.
- * THE COMMIT CHECKS THE TOKEN (Codex r1 P1): immediately before the rename that publishes the ledger, the lock file must
- * still hold THIS holder's token -- a holder paused past LOCK_STALE_MS whose lock was broken finds another token and
- * writes nothing. Release removes the lock only if it still holds this token. No lock within LOCK_WAIT_MS, or a lost
- * lock -> { ok: false }: the caller treats the town as UNKNOWN (nothing is banked on a guess).
+ * THE FOLD -> { state, decision, view }. Pure. With `upto` (a claim id) it stops AT that claim and returns the claim's
+ * decision and the view it was judged on; every reader computes the same decision for the same claim.
  */
-export async function withLedger (dir, key, world, fn, { now = () => Date.now() } = {}) {
-  const file = ledgerFile(dir, key)
-  const lock = `${file}.lock`
-  const token = `${process.pid}-${now()}-${Math.random().toString(36).slice(2)}`
-  const holds = () => { try { return fs.readFileSync(lock, 'utf8') === token } catch { return false } }
-  try { fs.mkdirSync(dir, { recursive: true }) } catch { /* exists */ }
-  const t0 = now()
-  for (;;) {
-    try { fs.writeFileSync(lock, token, { flag: 'wx' }); break } catch (e) {
-      if (e?.code !== 'EEXIST') return { ok: false }
-      try {
-        if (now() - fs.statSync(lock).mtimeMs > LOCK_STALE_MS) {
-          const aside = `${lock}.${token}.stale`
-          fs.renameSync(lock, aside)                     // only one contender wins this
-          try { fs.unlinkSync(aside) } catch { /* gone */ }
-          continue
-        }
-      } catch { continue }                             // it vanished between the checks: try again
-      if (now() - t0 > LOCK_WAIT_MS) return { ok: false }
-      await sleep(20)
+export function foldJournal (records = [], { upto = null } = {}) {
+  const state = { obs: {}, claims: {}, scan: null }
+  for (const r of (Array.isArray(records) ? records : [])) {
+    if (r?.t === 'obs' && r.k && Number.isFinite(r.cap)) {
+      const n = Math.max(0, Number(r.n) || 0)
+      const o = state.obs[r.k]
+      if (!o || r.cap > o.at || (r.cap === o.at && n > o.n)) state.obs[r.k] = { n, at: r.cap }
+    } else if (r?.t === 'claim' && r.id && r.k && Number.isFinite(r.at)) {
+      const view = townCobble(state, r.keys, r.at, { me: r.bot ?? null, coverage: !!r.coverage, gone: r.gone ?? [] })
+      const decision = cobbleAdmit(view, r.n)
+      state.claims[r.id] = { n: Number(r.n) || 0, k: r.k, at: r.at, bot: r.bot ?? null, decision, released: false }
+      if (upto != null && r.id === upto) return { state, decision, view }
+    } else if (r?.t === 'rel' && Array.isArray(r.ids)) {
+      for (const id of r.ids) if (state.claims[id]) state.claims[id].released = true
+    } else if (r?.t === 'scan' && Array.isArray(r.keys) && Number.isFinite(r.at)) {
+      if (!state.scan || r.at >= state.scan.at) state.scan = { keys: r.keys, at: r.at }
     }
   }
-  try {
-    const ledger = readLedger(dir, key, world)
-    const value = fn(ledger)
-    const keep = now()
-    for (const [id, r] of Object.entries(ledger.res)) if (!(keep - (r?.at ?? 0) < OBS_TTL_MS)) delete ledger.res[id]
-    for (const [k, o] of Object.entries(ledger.obs)) if (!(keep - (o?.at ?? 0) < OBS_TTL_MS * 4)) delete ledger.obs[k]
-    const tmp = `${file}.${process.pid}.${Math.random().toString(36).slice(2)}.tmp`
-    fs.writeFileSync(tmp, JSON.stringify({ world: world ?? null, obs: ledger.obs, res: ledger.res }))
-    if (!holds()) { try { fs.unlinkSync(tmp) } catch { /* gone */ } return { ok: false } }
-    fs.renameSync(tmp, file)
-    return { ok: true, value }
-  } catch { return { ok: false } } finally {
-    if (holds()) { try { fs.unlinkSync(lock) } catch { /* gone */ } }
-  }
+  return { state, decision: null, view: null }
+}
+
+/** The town's folded state now. */
+export const readTown = (dir, key, world = null) => foldJournal(readJournal(dir, key, world)).state
+
+/**
+ * CLAIM ONE WHOLE STACK for container `k` -> { decision, view, at }. Appends the claim, reads the journal back and takes
+ * the decision the fold gives the claim at its own place. A refused or unreadable claim is released at once (it never
+ * moves anything). No append -> 'unknown'.
+ */
+export function claimStack (dir, key, world, { id, n, k, bot = null, keys = [], coverage = false, gone = [], at = Date.now() }) {
+  if (!appendJournal(dir, key, world, [{ t: 'claim', id, n, k, at, bot, keys, coverage: !!coverage, gone }])) return { decision: 'unknown', view: null, at }
+  const r = foldJournal(readJournal(dir, key, world), { upto: id })
+  const decision = r.decision ?? 'unknown'
+  if (decision !== 'bank') appendJournal(dir, key, world, [{ t: 'rel', ids: [id], at: Date.now() }])
+  return { decision, view: r.view, at }
+}
+
+/**
+ * A COUNT (and any releases) in ONE write: the observation first, then the release -- a reader never sees a release
+ * without the count that includes its transfer. `obs` null: releases only (nothing was moved).
+ */
+export function recordCount (dir, key, world, { obs = null, release = [], scan = null } = {}) {
+  const recs = []
+  if (obs) recs.push({ t: 'obs', k: obs.k, n: obs.n, cap: obs.cap })
+  if (scan) recs.push({ t: 'scan', keys: scan.keys, at: scan.at })
+  if (release.length) recs.push({ t: 'rel', ids: release, at: Date.now() })
+  return recs.length ? appendJournal(dir, key, world, recs) : true
 }
