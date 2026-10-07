@@ -33,7 +33,7 @@ import { wearOutPlan, wearTarget, wearRank, wearRefusals, slotObservation, never
 import { noteSought } from './pickuplog.mjs'
 import { foodSkipMode, foodSkipActive, skipFoodDrop, foodSkipDetail, difficultyOf, setPeacefulFood, peacefulFoodActive } from './foodskip.mjs'
 // THE PEACEFUL KIT (peacefulkit.mjs, owner 10-07): swords banked, never crafted, never chased; the plants composted.
-import { swordCraftRefusal, skipSwordDrop, bankEveryCopy, isPeacefulCompost, peacefulKitDetail } from './peacefulkit.mjs'
+import { swordCraftRefusal, skipSwordDrop, isPeacefulCompost, peacefulKitDetail, swordFuelCount, burnableSword } from './peacefulkit.mjs'
 import { inPickupBox, pickupGoalClass, pickupGoal, standHeight } from './pickupbox.mjs'
 import { BAG_SLOTS, roomRecipe, admitRoom, pickupNearest, heldLine, collectDecision, placeStackOf, depositTarget, roomAdvice, craftArrived, craftRoomRemedy, wearKeepsSlot, bagFill, placeableBlock, roomForOne, executionVerdict } from './craftroom.mjs'
 import { compostPlan, nextInsert, boneMealRoom, fillDecision, composterLevel, compostDetail, composterBuildPlan,
@@ -84,7 +84,7 @@ import { doVisit, openBoard, withinBoard } from './board-visit.mjs'
 import { canContinueDescent } from './exit-contract.mjs'
 import { openLessons } from './lessons.mjs'
 import { dropsOf, heldFromBlock, sourcesOf } from './drops.mjs'
-import { smeltPlan, smeltRecipeFor } from './smelting.mjs'
+import { smeltPlan, smeltRecipeFor, chooseFuel, SMELT_TICKS } from './smelting.mjs'
 
 /**
  * FAILURE CLASSES THAT NAME OUR IGNORANCE RATHER THAN THE WORLD.
@@ -2669,9 +2669,6 @@ async function deposit(ctx, { item = null }, signal, { noRecovery = false, prefe
   // no-op that succeeded, eligible>0 with moved=0 is a chest that would not take
   // it, which is a real environmental failure worth a different remedy.
   let eligible = 0
-  // Copies the PEACEFUL KIT alone made eligible (a sword the base would keep): they ride on a deposit that has its own
-  // reason, and never start the full-chest recovery or close the bank on their own (Claude review r2).
-  let kitOnly = 0
   // ONE SNAPSHOT, shared with the refusal sentence below: a reason computed from a
   // second read of the inventory can contradict the plan that was actually run.
   let planItems = []
@@ -2683,10 +2680,9 @@ async function deposit(ctx, { item = null }, signal, { noRecovery = false, prefe
     // stations stay in the bot's hands; the valuable stacks go first so a short
     // chest keeps the iron.
     planItems = bot.inventory.items()
-    // THE PEACEFUL KIT (peacefulkit.mjs): one reading of the switch for the plan AND the transfer below, so they cannot
-    // disagree -- while it is active every usable sword is in the plan and none is kept back.
-    const swords = foodSkipNow(bot).active
-    const plan = depositPlan(planItems, item, { wants: bot.currentWants ?? [], swords })   // the wants admission judged with (set by the gate)
+    // THE PEACEFUL KIT (peacefulkit.mjs, owner 10-07): while the switch is on no sword is ever banked, not even a spare.
+    const noSwords = foodSkipNow(bot).active
+    const plan = depositPlan(planItems, item, { wants: bot.currentWants ?? [], noSwords })   // the wants admission judged with (set by the gate)
     for (const { name, count } of plan) {
       check(signal)
       // A TOOL GOES BY SLOT, A USABLE COPY AT A TIME (Codex round 2 on withdraw: chest.deposit(type) takes the first copy
@@ -2696,19 +2692,14 @@ async function deposit(ctx, { item = null }, signal, { noRecovery = false, prefe
       if (DEPOSIT_TOOL_RE.test(name)) {
         const usable = (chest.items?.() ?? []).filter(x => x?.name === name && remaining(x) > FLOOR)
           .map(x => ({ slot: x.slot, used: x.durabilityUsed ?? 0, left: remaining(x) })).sort((a, b) => a.left - b.left || a.slot - b.slot)
-        const keepOne = bankEveryCopy(name, swords) ? 0 : 1   // a sword under the peaceful kit keeps none
-        // What the BASE rule alone would hand over of this name (Claude r3: a hold can stop the slice short of the best copy).
-        const baseAllow = keepOne === 0 ? (depositPlan(planItems, item, { wants: bot.currentWants ?? [], swords: false }).find(e => e.name === name)?.count ?? 0) : Infinity
-        let here = 0
-        for (const c of usable.slice(0, Math.max(0, Math.min(count, usable.length - keepOne)))) {
+        for (const c of usable.slice(0, Math.max(0, Math.min(count, usable.length - 1)))) {
           check(signal)
           const same = x => !!x && x.name === name && (x.durabilityUsed ?? 0) === c.used
           if (!same(slotAt(chest, c.slot))) continue
-          eligible += 1; here += 1
+          eligible += 1
           await bot.clickWindow(c.slot, 0, 1)
           if (!same(slotAt(chest, c.slot))) moved += 1
         }
-        kitOnly += Math.max(0, here - baseAllow)   // copies the kit alone made eligible
         continue
       }
       const stacks = bot.inventory.items().filter(it => it.name === name)
@@ -2798,11 +2789,6 @@ async function deposit(ctx, { item = null }, signal, { noRecovery = false, prefe
   // lack of it. This is also the only version of the fix that respects the
   // owner's standing rule: adding chests by RCON would be changing the world to
   // fix a bot; teaching bots to build storage is a capability.
-  // ONLY THE KIT'S SWORDS AND THE CHEST TOOK NONE: the base would have had nothing to hand over here (no_effect), so the
-  // recovery -- a new chest, a bank closure -- never runs for them. They wait for the next deposit.
-  if (eligible > 0 && eligible === kitOnly) {
-    return { status: 'no_effect', failClass: null, detail: 'the chest took none of the swords; they wait for the next deposit -- nothing else to hand over' }
-  }
   if (!noRecovery) return fullChestRecovery(ctx, { item, signal, first: chestBlock, firstMeta: meta, exclude, eligible, bagBefore, startedAt })
   return { status: 'failed', failClass: 'storage_full',
            detail: `had ${eligible} item(s) to hand over and the chest took none — it is full` }
@@ -7307,7 +7293,11 @@ async function smelt(ctx, { item, count = 1 }, signal) {
 
   // ---- re-plan against the clock that is ACTUALLY left ----------------------
   const budgetMs = deadline - Date.now() - SMELT_RECOVERY_MS
-  const plan = smeltPlan({ held: heldMap(bot), item, count, budgetMs, hasFurnace: true })
+  // THE PEACEFUL KIT (peacefulkit.mjs, owner 10-07 ~19:50Z): a smelt that is ALREADY happening prefers the carried wooden
+  // swords the switch calls unwanted as its fuel. Only here, at the furnace: the dry plans above never count them, so a
+  // sword can never start a smelt job. The switch is read again before EACH sword goes in (below).
+  const plan = smeltPlan({ held: heldMap(bot), item, count, budgetMs, hasFurnace: true,
+                           swordFuel: swordFuelCount(bot.inventory?.items?.() ?? [], foodSkipNow(bot).active) })
   if (!plan.ok) {
     // The walk consumed the batch. Our own clock, so a don't-know, not a no.
     return { status: 'unknown', failClass: 'smelt_budget',
@@ -7315,7 +7305,41 @@ async function smelt(ctx, { item, count = 1 }, signal) {
   }
 
   const inDef = bot.registry.itemsByName[plan.input]
-  const fuelDef = bot.registry.itemsByName[plan.fuel.name]
+  // ONE LOAD AT A TIME FROM THE QUEUE (smeltPlan fuelQueue): without swords this is the single ordinary load as before.
+  const queue = [...(plan.fuelQueue ?? [{ name: plan.fuel.name, count: plan.fuel.count }])]
+  const burned = {}
+  let swordsSkipped = 0
+  // -> true when a load went in. A sword is put only if the switch STILL calls it unwanted at this moment and a copy is
+  // in the bag; otherwise the remaining sword loads become ordinary fuel for their items (when the bag has some).
+  const loadNext = async () => {
+    while (queue.length) {
+      const next = queue.shift()
+      if (next.sword) {
+        const active = foodSkipNow(bot).active
+        const copy = (bot.inventory?.items?.() ?? []).find(it => burnableSword(it, active))
+        if (!copy) {
+          swordsSkipped += 1 + queue.filter(q => q.sword).length
+          const rest = queue.filter(q => !q.sword); queue.length = 0
+          const items = swordsSkipped
+          const alt = chooseFuel(heldMap(bot), { exclude: plan.input, needTicks: items * SMELT_TICKS })
+          if (alt && alt.ticks * alt.count >= items * SMELT_TICKS) queue.push({ name: alt.name, count: Math.ceil(items * SMELT_TICKS / alt.ticks) })
+          queue.push(...rest)
+          continue
+        }
+        await furnace.putFuel(bot.registry.itemsByName.wooden_sword.id, null, 1)
+        burned.wooden_sword = (burned.wooden_sword ?? 0) + 1
+        logEvent({ kind: 'sword_fuel', status: 'success', snapshot: snapshot(bot),
+                   detail: `wooden_sword into the furnace fuel slot for ${plan.input} active=${active ? 1 : 0}` })
+        return true
+      }
+      const def = bot.registry.itemsByName[next.name]
+      if (!def || !(next.count > 0)) continue
+      await furnace.putFuel(def.id, null, next.count)
+      burned[next.name] = (burned[next.name] ?? 0) + next.count
+      return true
+    }
+    return false
+  }
   // MEASURED BEFORE ANYTHING MOVES. ADR-0003: a promise resolving is not a
   // result. The runner grades this independently from its own before/after
   // inventory snapshot, and this number only makes the `detail` honest.
@@ -7345,7 +7369,7 @@ async function smelt(ctx, { item, count = 1 }, signal) {
 
     check(signal)
     await furnace.putInput(inDef.id, null, plan.batch)
-    await furnace.putFuel(fuelDef.id, null, plan.fuel.count)
+    await loadNext()
     loaded = true
 
     // THE WAIT, AND IT IS THE ONLY PLACE THIS SKILL SPENDS TIME.
@@ -7373,6 +7397,9 @@ async function smelt(ctx, { item, count = 1 }, signal) {
       if (inp === undefined) break
       // Nothing left to cook and nothing left to collect: done early.
       if (!inp && !slot('outputItem')) break
+      // THE NEXT LOAD (peaceful kit): a sword leaves the fuel slot the moment it ignites, so an EMPTY fuel slot with input
+      // still to cook and loads still queued takes the next one. Never reached without swords (the queue is then empty).
+      if (queue.length && inp && slot('fuelItem') === null) await loadNext()
       await sleep(SMELT_POLL_MS, signal)
     }
   } finally {
@@ -7389,7 +7416,7 @@ async function smelt(ctx, { item, count = 1 }, signal) {
     return {
       status: 'success',
       detail: `smelted ${gained}x ${plan.output} from ${plan.input} ` +
-              `(batch ${plan.batch}, burned ${plan.fuel.count}x ${plan.fuel.name}` +
+              `(batch ${plan.batch}, burned ${Object.entries(burned).map(([k, v]) => `${v}x ${k}`).join(' + ') || `${plan.fuel.count}x ${plan.fuel.name}`}` +
               `${placed ? ', placed the furnace first' : ''})` +
               (gained < plan.batch ? ` — ${plan.batch - gained} still to do, call smelt again` : ''),
     }
