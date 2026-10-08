@@ -4326,7 +4326,7 @@ async function makeCraftRoom(ctx, item, plan, signal) {
  */
 export function adviseDeposit (bot, items, keep = []) {
   if (bankClosed(bot) || !depositWorthIt(bot, items)) return null
-  try { return depositTarget(items, depositPlan(items, null, { wants: bot.currentWants ?? [] }), keep) } catch { return null }
+  try { return depositTarget(items, depositPlan(items, null, { wants: bot.currentWants ?? [], noSwords: foodSkipNow(bot).active }), keep) } catch { return null }
 }
 /**
  * WOULD ADMISSION LET A DEPOSIT THROUGH FROM HERE? Its deposit_not_worth_it test (admission.mjs): depositDue over the
@@ -4339,7 +4339,7 @@ export function depositWorthIt (bot, items = []) {
     const home = homeVec()
     const wants = [...(bot.currentWants ?? []), ...DEPOSIT_ALWAYS]
     const storage = bot.findBlock?.({ maxDistance: 48, matching: b => ['chest', 'barrel', 'trapped_chest'].includes(bot.registry?.blocks?.[b.type]?.name) && depositTargetOk(home, b.position) })
-    return depositDue({ bankable: bankableInventory(items, { wants }).count, distHome: horizontalDistanceFromSpawn(bot.entity.position),
+    return depositDue({ bankable: bankableInventory(items, { wants, noSwords: foodSkipNow(bot).active }).count, distHome: horizontalDistanceFromSpawn(bot.entity.position),
                         storageWithin48: !!storage, occupiedSlots: items.length })
   } catch { return true }   // a world that cannot be asked: the advice as it was
 }
@@ -7440,25 +7440,76 @@ const SMELT_OPEN_MS     = 10_000        // openFurnace waits on a server event f
  * a recovery that hangs would burn the hard-stop grace and land the bot in
  * `abort_ignored`.
  */
-async function drainFurnace (furnace, ms = SMELT_RECOVERY_MS) {
+/**
+ * THE ROW FOR WHAT THE DRAIN DID WITH A WOODEN SWORD (peacefulkit) -> { status, what } | null. `fate` is drainFurnace's
+ * furnace.swordFate: 'kept_full' (no empty slot: left as fuel), 'kept_cursor' (lifted, the bag would not take it from the
+ * cursor: put back into the fuel slot), 'cursor_lost' (still on the cursor at the close: the server drops it), 'taken' or
+ * null. `staged` = this call's sword never ignited. A sword this call did not move (an earlier call's, kept for a full bag)
+ * writes nothing; one the cursor touched always writes, so the read never credits or misses it silently.
+ */
+export function swordDrainRow (fate, staged) {
+  if (fate === 'cursor_lost') return { status: 'failed', what: 'wooden_sword on the cursor at the close (the server drops it)' }
+  if (fate === 'kept_cursor') return { status: 'no_effect', what: 'wooden_sword left in the furnace fuel slot (the cursor could not be emptied into the bag)' }
+  if (!staged) return null
+  if (fate === 'kept_full') return { status: 'no_effect', what: 'wooden_sword left in the furnace fuel slot (the bag is full)' }
+  return { status: 'no_effect', what: 'wooden_sword returned unburned' }
+}
+
+/**
+ * A LOADED CURSOR IS NEVER CLOSED ON WITHOUT A TRY (Codex, junkwell merge): mineflayer's take is two clicks -- lift onto
+ * the cursor, then place in the bag -- and a failure between them leaves the item on the cursor, which the server drops
+ * at the close. First the bag (chestfull.mjs returnCursor, the deposit path's helper), then the slot it came from (a
+ * furnace slot that was just emptied always takes it back). -> 'empty' | 'bag' | 'furnace' | 'stuck'.
+ */
+async function settleFurnaceCursor (bot, furnace, home, bounded) {
+  let sel = null
+  try { sel = furnace?.selectedItem ?? null } catch { sel = null }
+  if (!sel) return 'empty'
+  try { const back = await bounded(returnCursor(bot, furnace)); if (back?.returned && !furnace.selectedItem) return 'bag' } catch { /* the slot it came from next */ }
+  const origin = home ?? (sel.name === 'wooden_sword' ? 'fuelItem' : null)
+  const index = { inputItem: 0, fuelItem: 1 }[origin]
+  if (index != null && bot?.clickWindow) {
+    try { if (furnace[origin]() == null) await bounded(bot.clickWindow(index, 0, 0)) } catch { /* judged by the cursor below */ }
+    if (!furnace.selectedItem) return 'furnace'
+  }
+  return 'stuck'
+}
+
+/** Exported for the Paper probe (sandbox/craft/pk-cursor-probe.cjs): a real lifted cursor, then this drain. */
+export async function drainFurnace (furnace, ms = SMELT_RECOVERY_MS, bot = null) {
   const deadline = Date.now() + ms
   const bounded = p => Promise.race([
     p, new Promise(res => setTimeout(res, Math.max(250, deadline - Date.now()))),
   ])
+  const noteSword = (name, fate) => { if (name === 'wooden_sword' && furnace) furnace.swordFate = fate }
+  // A CURSOR ALREADY LOADED when the drain begins (a take-back that stopped between its clicks): settled first.
+  try {
+    const before = furnace?.selectedItem?.name
+    const c = await settleFurnaceCursor(bot, furnace, null, bounded)
+    if (c === 'furnace') noteSword(before, 'kept_cursor'); else if (c === 'stuck') noteSword(before, 'cursor_lost'); else if (c === 'bag') noteSword(before, 'taken')
+  } catch { /* nothing on it */ }
   for (const [slot, take] of [['outputItem', 'takeOutput'],
                               ['inputItem', 'takeInput'],
                               ['fuelItem', 'takeFuel']]) {
     if (Date.now() >= deadline) break
+    let name = null
     try {
       if (!furnace?.[slot]?.()) continue
+      name = furnace[slot]()?.name ?? null
       // A WOODEN SWORD IN THE FUEL SLOT (the peaceful kit's, from this call or an earlier one -- Codex r-rev3): checked
       // RIGHT BEFORE its take, after the output and input took their slots (both reviews, r-rev2), against the WINDOW's
       // player section (Claude r-rev3: mineflayer copies that back into bot.inventory only at the close, and putAway
       // searches the window). With no empty slot putAway would toss it, so it stays in the furnace.
       if (slot === 'fuelItem' && furnace.fuelItem()?.name === 'wooden_sword' &&
-          (furnace.emptySlotCount?.() ?? 0) === 0) { furnace.swordKept = true; continue }
+          (furnace.emptySlotCount?.() ?? 0) === 0) { furnace.swordKept = true; noteSword('wooden_sword', 'kept_full'); continue }
       await bounded(furnace[take]())
-    } catch { /* slot emptied under us, or the block is gone; nothing to recover */ }
+      noteSword(name, 'taken')
+    } catch { /* slot emptied under us, or the block is gone; the cursor is judged below */ }
+    // THE TAKE STOPPED BETWEEN ITS TWO CLICKS: the item is on the cursor, not in the bag.
+    try {
+      const c = await settleFurnaceCursor(bot, furnace, slot === 'outputItem' ? null : slot, bounded)
+      if (c === 'furnace') noteSword(name, 'kept_cursor'); else if (c === 'stuck') noteSword(name, 'cursor_lost'); else if (c === 'bag') noteSword(name, 'taken')
+    } catch { /* the close below is all that is left */ }
   }
   try { furnace?.close?.() } catch { /* already closed */ }
 }
@@ -7803,9 +7854,10 @@ async function smelt(ctx, { item, count = 1 }, signal) {
     if (staged && !left) { burned.wooden_sword = (burned.wooden_sword ?? 0) + 1; swordRow('success', 'burned wooden_sword (unconfirmed)', staged.active); staged = null }
     // A SWORD STILL IN THE FUEL SLOT (it never ignited) comes back -- unless, at the moment of its take, the bag has no
     // empty slot: then it stays in the furnace as fuel (never tossed). The row is written after the actual outcome.
-    if (furnace) furnace.swordKept = false
-    await drainFurnace(furnace, SMELT_RECOVERY_MS)
-    if (left) swordRow('no_effect', furnace?.swordKept ? 'wooden_sword left in the furnace fuel slot (the bag is full)' : 'wooden_sword returned unburned', staged.active)
+    if (furnace) { furnace.swordKept = false; furnace.swordFate = null }
+    await drainFurnace(furnace, SMELT_RECOVERY_MS, bot)
+    const drained = swordDrainRow(furnace?.swordFate ?? null, !!left)
+    if (drained) swordRow(drained.status, drained.what, left ? staged.active : foodSkipNow(bot).active)
     writeSwordRows()
   }
 

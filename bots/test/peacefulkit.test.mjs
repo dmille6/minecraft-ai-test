@@ -225,6 +225,38 @@ test('ADMISSION: a NAMED sword deposit is refused before the walk while on (the 
   setPeacefulFood(false)
 })
 
+// ---- EVERY BANKABLE COUNT FOLLOWS THE SWITCH (Codex, junkwell merge): a spare sword never makes a deposit due ----------
+// Thirteen stone swords and nothing else: off, twelve spares are bankable (>= depositDue's 12, so a deposit is due);
+// while peaceful, none -- so no deposit is due, advised, planned or offered, whichever path asks.
+const swordsOnly = () => Array.from({ length: 13 }, () => tool('stone_sword'))
+const swordBag = w => w.bot.inventory.items()
+test('BANKABLE DEFAULT IS THE SWITCH: bankableInventory / depositPlan without noSwords follow this process\'s decision', () => {
+  const w = townWith(swordsOnly(), 'peaceful')
+  setPeacefulFood(true)
+  assert.equal(bankableInventory(swordBag(w)).count, 0); assert.equal(bankableInventory(swordBag(w)).excluded?.stone_sword, 'peaceful_sword')
+  assert.deepEqual(depositPlan(swordBag(w)), [], 'the withdraw planner / any default caller plans no sword')
+  setPeacefulFood(false)
+  assert.equal(bankableInventory(swordBag(w)).count, 12, 'off: the base rule exactly (n-1 spares)')
+  assert.ok(depositPlan(swordBag(w)).some(e => e.name === 'stone_sword'))
+})
+for (const [d, on] of [['peaceful', true], ['easy', false]]) {
+  test(`NO DEPOSIT DUE FROM SPARE SWORDS (${d}): admission, the room advice and the prompt all read the switch`, async () => {
+    const { depositWorthIt, adviseDeposit } = await import('../src/skills.mjs')
+    const { depositSituation } = await import('../src/prompt.mjs')
+    const w = townWith(swordsOnly(), d)
+    setPeacefulFood(!on)   // a STALE decision: the gate and the advice must read the switch themselves
+    const r = new AdmissionControl().check({ skill: 'deposit', args: {} }, w.bot)
+    assert.equal(r.reason === 'deposit_not_worth_it', on, `admission ${d}: ${JSON.stringify(r)}`)
+    setPeacefulFood(!on)
+    assert.equal(depositWorthIt(w.bot, swordBag(w)), !on, `depositWorthIt ${d}`)
+    setPeacefulFood(!on)
+    assert.equal(adviseDeposit(w.bot, swordBag(w)) == null, on, `adviseDeposit ${d}`)
+    foodSkipNow(w.bot)   // the prompt runs after a decision refreshed the switch (the default reader)
+    assert.equal(depositSituation(w.bot, null) === '', on, `depositSituation ${d}`)
+    setPeacefulFood(false)
+  })
+}
+
 // ---- the craft: admission and the skill -----------------------------------------------------------------------------------
 const V = (x, y, z) => ({ x, y, z, distanceTo (o) { return Math.hypot(this.x - o.x, this.y - o.y, this.z - o.z) }, floored () { return this } })
 const craftBot = difficulty => ({ registry: mcData, serverDifficulty: difficulty, entity: { position: V(0, 64, 0) }, inventory: { items: () => [] },
