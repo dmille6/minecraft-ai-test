@@ -12,6 +12,7 @@
   "note": "Written only by this build (one row per disposal visit, pit-first phase and visitor close). The fleet (c6e91a8 / 92bc84f) has no _well_* row and no code that builds a well; the two wells junkwell-01 built on 10-05 (placebo-a, board-b towns) stand in those worlds, inert under the base code."
  },
  "reads": [
+  "bagread",
   "wellread",
   "immobiledid"
  ],
@@ -176,5 +177,25 @@
   ],
   "final_on_zero_exposure": "INCONCLUSIVE",
   "note": "SHORT CANARY for a fix (owner 2026-09-29). Exposure waits on the first build in each drawn town."
+ },
+ "class": "bag-fix",
+ "bag_fix": {
+  "own_kinds": [
+   "_well_built",
+   "_well_dispose",
+   "_well_inside",
+   "_well_pit_open",
+   "_well_retired",
+   "_well_pit_dug",
+   "_well_pit_covered"
+  ],
+  "primary": {
+   "read": "bagread",
+   "field": "slots_did",
+   "op": "<=",
+   "value": -1.653
+  },
+  "extended_deadline_min": 1560,
+  "note": "OWNER D1 (10-08, delegated to the operator + Codex): every queued bag fix is class bag-fix, drawn at four pools from the start; the criterion is that the change frees usable bag capacity. primary: bagread.slots_did, all slots (junk of many names goes down the well). primary.value is the edge of its NO-CHANGE band at the +1440 read UNDER THIS FIX'S OWN draw_exposure filter (round 1, Claude: a random-pool band is lenient): the 2.5th percentile of 53 no-change 4-pool draws at 9 cuts over 3 days (death-censored, the live read validity rule; scripts/host/bagnull.py + bagbands.py; ~/bfnull/bagnull5.jsonl on 10.0.0.31) -- the fix must move it beyond what a no-change draw does for a KEEP (bagfixrule.primary_moved). own_kinds: the rows the fix itself writes (linkage, gate v33)."
  }
 }

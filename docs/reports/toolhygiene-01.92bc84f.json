@@ -12,6 +12,7 @@
   "note": "Written only by this build: one row per connection at spawn ('tool hygiene ON: mode=on (TOOL_HYGIENE unset)'). The fleet (c6e91a8) has no _tool_hygiene, _redundant_craft, _craft_admit or _worn_first row."
  },
  "reads": [
+  "bagread",
   "toolhygieneread",
   "immobiledid"
  ],
@@ -149,5 +150,21 @@
   ],
   "final_on_zero_exposure": "INCONCLUSIVE",
   "note": "Short canary for a fix-shaped change (owner 2026-09-29): KEEP possible from +360 when exposed."
+ },
+ "class": "bag-fix",
+ "bag_fix": {
+  "own_kinds": [
+   "_redundant_craft",
+   "_craft_admit",
+   "_worn_first"
+  ],
+  "primary": {
+   "read": "bagread",
+   "field": "pick_slots_did",
+   "op": "<=",
+   "value": -0.842
+  },
+  "extended_deadline_min": 1560,
+  "note": "OWNER D1 (10-08, delegated to the operator + Codex): every queued bag fix is class bag-fix, drawn at four pools from the start; the criterion is that the change frees usable bag capacity. primary: bagread.pick_slots_did, pickaxe slots (its own bag metric: redundant pickaxes not crafted, worn copies drained first). primary.value is the edge of its NO-CHANGE band at the +1440 read UNDER THIS FIX'S OWN draw_exposure filter (round 1, Claude: a random-pool band is lenient): the 2.5th percentile of 180 no-change 4-pool draws at 18 cuts over 5 days (death-censored, the live read validity rule; scripts/host/bagnull.py + bagbands.py; ~/bfnull/bagnull5.jsonl on 10.0.0.31) -- the fix must move it beyond what a no-change draw does for a KEEP (bagfixrule.primary_moved). own_kinds: the rows the fix itself writes (linkage, gate v33). own_kinds: the fix's ACTION rows only: the once-per-process _tool_hygiene licence row would satisfy bagfixgate's positive control (own rows on >= 2 canary bots) on every bot at spawn, so \"0 linked\" would be vacuous (round 1, Claude)."
  }
 }
