@@ -22,7 +22,7 @@ export const AP_MARGIN = 1.5                 // the dig prediction is multiplied
 export const AP_LATENCY_MS = 3000            // equip + server confirm + the rise into the pocket
 export const AP_BREACH_WINDOW_MS = 10_000    // the envelope is judged over 10 s: damage arrives in 2-HP steps
 export const AP_BREACH_HP = 7                // > 7 HP in 10 s is a breach (sandbox peaceful max 5.0 in 10 s)
-export const AP_CONFIRM_MS = 2000            // the eye must stay in air this long
+export const AP_CONFIRM_MS = 2500            // the eye must stay in air this long, with NO health drop (airpocket-02)
 export const AP_RISE_MS = 4000               // after the dig, the eye has this long to reach air
 export const AP_TRIGGER_AFTER_MS = 8000      // a non-sealed, capped rescue gets this long to work before the dig
 export const AP_FAIL_COOLDOWN_MS = 60_000    // a failed or aborted step is not retried here for a minute
@@ -32,6 +32,9 @@ export const AP_EQUIP_MS = 1500               // equip is bounded too (Codex r1)
 export const AP_NOT_CLOSING_MS = 4000         // a non-sealed rescue must have stopped closing on air this long
 export const AP_WANT_LAPSE_MS = 3000          // a pre-empt request lapses unless renewed (it is renewed every tick)
 export const AP_BREATHE_HOLD_MS = 10_000      // after a pocket opens, no escape starts for 10 s (air refills to 300 in ~4 s)
+export const AP_REDIG_MAX = 2                 // a dug cell that re-freezes is dug again at most this often in one step
+export const AP_WINDOW_WAIT_MS = 1500         // an open container window gets this long to close before any equip
+export const AP_WINDOW_SETTLE_MS = 250        // and this long after it closes, for the closing skill's last clicks
 
 import { difficultyOf } from './foodskip.mjs'
 import { TOOL_HYGIENE, remaining, HARD_STOP } from './toolfor.mjs'
@@ -45,6 +48,11 @@ const NO_DIG = /^(bedrock|barrier|end_portal_frame|command_block|structure_block
 const INTERACTIVE = /(door|trapdoor|fence_gate|_button|_bed|_sign|_hanging_sign|anvil|shulker_box)$|^(lever|chest|trapped_chest|ender_chest|barrel|furnace|blast_furnace|smoker|crafting_table|enchanting_table|brewing_stand|beacon|hopper|dispenser|dropper|lectern|loom|stonecutter|grindstone|smithing_table|cartography_table|fletching_table|bell|note_block|jukebox|respawn_anchor|composter|cauldron|water_cauldron|lava_cauldron|powder_snow_cauldron|repeater|comparator|daylight_detector|command_block|structure_block|jigsaw|spawner|trial_spawner|vault|crafter|decorated_pot|chiseled_bookshelf)$/
 const ICE = /^(ice|frosted_ice)$/            // breaks into WATER over water; packed/blue ice do not and take the pocket rule
 const AIRLIKE = /^(air|cave_air|void_air)$/
+// THE TOWN JUNK WELL'S MARKER (junkwell-02, well.mjs wellIdentity: "towns have no other trapdoors"): a top-half cap at
+// g, a bottom-half floor trapdoor at g-1, solid floor at g-2. A drowning bot in a flooded column under that floor would
+// dig the floor and open the shaft (both reviews of junkwell-02). The rescue never digs a trapdoor or a cell with one
+// within two above it.
+const WELL_MARK = /_trapdoor$/
 
 function waterlogged (b) {
   try {
@@ -87,6 +95,7 @@ export function airPocketPlan (at) {
       if (!isAir(top)) return refuse(`ice with ${top.name} above, not air`, { dy, name: b.name })
       return { ok: true, why: null, kind: 'ice', dy, name: b.name }
     }
+    if (WELL_MARK.test(b.name)) return refuse(`${b.name} is a well block`, { dy, name: b.name })
     if (!isSolid(b)) return refuse(`${b.name} is not a full block`, { dy, name: b.name })
     if (NO_DIG.test(b.name)) return refuse(`${b.name} is not dug`, { dy, name: b.name })
     const around = [[1, 0], [-1, 0], [0, 1], [0, -1]].map(([dx, dz]) => at(dx, dy, dz))
@@ -96,6 +105,10 @@ export function airPocketPlan (at) {
     if (wet) return refuse(`${wet.name} beside the roof cell would fill the pocket`, { dy, name: b.name })
     if (isLiquid(top)) return refuse(`${top.name} above the roof cell would fill the pocket`, { dy, name: b.name })
     if (FALLING.test(top.name)) return refuse(`${top.name} above the roof cell would fall in`, { dy, name: b.name })
+    // THE WELL-FLOOR GUARD (airpocket-02): never open into a junk well's shaft from below
+    const top2 = at(0, dy + 2, 0)
+    if (top2 == null) return refuse('two above the roof cell unknown', { dy, name: b.name })
+    if (WELL_MARK.test(top.name) || WELL_MARK.test(top2.name)) return refuse(`a well block (${WELL_MARK.test(top.name) ? top.name : top2.name}) above the roof cell`, { dy, name: b.name })
     return { ok: true, why: null, kind: 'pocket', dy, name: b.name }
   }
   return refuse('no roof within 2 of the head')
@@ -135,14 +148,96 @@ export function envelopeBreached (samples = [], now = Date.now()) {
 }
 
 /**
- * BREATHING, CONFIRMED? Pure. The eye has been in an air cell for >= 2 s AND health is rising since the eye got there
- * (a breathing bot heals in peaceful) or is already at its maximum. "Not falling" is NOT enough: a drowning bot shows
- * flat health for ~30 s (sandbox).
+ * BREATHING, CONFIRMED? Pure. SERVER-GROUNDED (airpocket-02; Paper freeze-probe trial 2): airpocket-01 asked for the eye
+ * in air (the client's STANDING eye) and health "rising", and logged a success for a bot the server had in swimming pose
+ * with its eye in water: health flickered 18 <-> 20 and one rise passed. Health is the server's number; a drowning bot is
+ * hit every ~1 s (Paper peaceful: median 1.0 s between hits, 1 gap above 2 s in 261). So: the POSE-AWARE eye
+ * (`poseEye`) in air for >= AP_CONFIRM_MS (2.5 s) AND no health drop between any two samples since the eye got there
+ * AND (as in airpocket-01) health rose in that time or is at its maximum: flat health below the maximum is a drowning
+ * bot whose air has not run out yet (sandbox: ~15 s of flat health), not a breathing one.
+ * `samples` = [{t, hp}] oldest first.
  */
-export function airPocketConfirmed ({ eyeInAirSince = null, now = Date.now(), health, healthAtEyeIn, maxHealth = 20 }) {
+export function airPocketConfirmed ({ eyeInAirSince = null, now = Date.now(), samples = [], maxHealth = 20 }) {
   if (eyeInAirSince == null || now - eyeInAirSince < AP_CONFIRM_MS) return false
-  return health > healthAtEyeIn || health >= maxHealth
+  const since = samples.filter(s => s.t >= eyeInAirSince && typeof s.hp === 'number')
+  if (since.length < 2) return false
+  for (let i = 1; i < since.length; i++) if (since[i].hp < since[i - 1].hp) return false
+  const first = since[0].hp, last = since[since.length - 1].hp
+  return last > first || last >= maxHealth
 }
+
+/**
+ * WHERE IS THE EYE? Pure. Vanilla puts a player whose standing box (1.8) does not fit into the crouching box (1.5, eye
+ * 1.27), and when that does not fit either, into the swimming box (0.6, eye 0.4). mineflayer has no pose model and
+ * always assumes 1.62. Paper freeze-probe trial 2 (10-08): ice re-formed over a floating bot; server and client both
+ * held y 121.395 (= 122 - 0.605: the swimming box against the ice), the client's +1.62 eye read AIR while the server's
+ * Air stayed <= 0 for 80 s -- the hive-d signature (y 61.4, head cell ice, 23 drownings since 10-01).
+ * `solidAt(cellY)` -> true when the cell in the bot's column at that y blocks the body.
+ * @returns {{ pose: 'stand'|'crouch'|'swim', eyeY: number, eyeCell: number }}
+ */
+export const POSES = Object.freeze([['stand', 1.8, 1.62], ['crouch', 1.5, 1.27], ['swim', 0.6, 0.4]])
+export function poseEye ({ y, solidAt = () => false }) {
+  for (const [pose, h, eye] of POSES) {
+    // the cells the box reaches ABOVE the feet cell (the feet cell holds the bot already)
+    let fits = true
+    for (let c = Math.floor(y) + 1; c <= Math.floor(y + h - 1e-6); c++) if (solidAt(c)) { fits = false; break }
+    if (fits || pose === 'swim') return { pose, eyeY: y + eye, eyeCell: Math.floor(y + eye) }
+  }
+}
+
+/**
+ * THE PLAN'S FEET CELL. Pure. Standing: the feet cell, as airpocket-01 planned. Crouching or swimming: the cell under
+ * the EYE's cell, so the plan's "head" is where the eye really is (trial 2: eye cell 121, the ice at 122 = dy 2).
+ */
+export function planBaseY ({ y, pose, eyeY }) {
+  return pose === 'stand' ? Math.floor(y) : Math.floor(eyeY) - 1
+}
+
+/**
+ * IS THE RESCUE'S `up` ROUTE BLOCKED? Pure. reflex.mjs scanBreathableRoute starts ONE CELL ABOVE the head cell
+ * (pos + 1), so a solid head cell -- ice formed around a swimming bot -- reads `up dist=1` to the air beyond it, and the
+ * rescue holds jump into the ice for four ceilings (hive-d-Alpha 07:45Z and 14:08Z 10-08). Every cell strictly between
+ * the eye cell and the route's air cell must be passable; the first that is not is returned.
+ * `cellAt(y)` -> block in the bot's column (null = unknown, which blocks: never on a guess).
+ * @returns {{ blocked: boolean, by: {name: string, y: number}|null }}
+ */
+export function routeUpBlocked ({ routeDir, targetY, eyeCell, cellAt = () => null }) {
+  if (routeDir !== 'up' || !Number.isFinite(targetY) || !Number.isFinite(eyeCell)) return { blocked: false, by: null }
+  for (let y = eyeCell + 1; y < targetY; y++) {
+    const b = cellAt(y)
+    if (b == null || isSolid(b)) return { blocked: true, by: { name: b?.name ?? 'unknown', y } }
+  }
+  return { blocked: false, by: null }
+}
+
+/**
+ * MAY THE STEP TOUCH THE INVENTORY? Pure. The window-handoff race (peacefulkit-01 review r1/r2, Codex): the rescue
+ * interrupts a skill and equips at once, but an interrupted smelt/chest/craft may still hold a container window open
+ * and be clicking (smelt's drain: up to 12 s). An equip then clicks the WRONG window's slots. So no equip while a
+ * window is open: wait up to AP_WINDOW_WAIT_MS for it to close (never a forced close -- the old transfers could still
+ * resume), then AP_WINDOW_SETTLE_MS more; a window still open -> 'skip' (no inventory click; the step prices what is held).
+ */
+export function windowHandoff ({ open, waitedMs, closedForMs = Infinity }) {
+  if (open) return waitedMs >= AP_WINDOW_WAIT_MS ? 'skip' : 'wait'
+  return closedForMs >= AP_WINDOW_SETTLE_MS ? 'go' : 'wait'
+}
+
+/** Await the handoff. Impure (reads bot.currentWindow, sleeps). -> 'none' (no window seen) | 'closed' | 'open'. */
+export async function awaitWindowHandoff (bot, { sleep, now }) {
+  const t0 = now()
+  if (!bot.currentWindow) return 'none'
+  let closedAt = null
+  while (true) {
+    const open = !!bot.currentWindow
+    if (!open && closedAt == null) closedAt = now()
+    const d = windowHandoff({ open, waitedMs: now() - t0, closedForMs: closedAt == null ? 0 : now() - closedAt })
+    if (d === 'go') return 'closed'
+    if (d === 'skip') return 'open'
+    if (open) closedAt = null
+    await sleep(50)
+  }
+}
+
 
 /**
  * SHOULD THE RESCUE TRY THE STEP THIS TICK? Pure. Only while rescuing, never with an UP route (the swim works),
@@ -170,9 +265,13 @@ export function airPocketTrigger ({ rescuing, routeDir, routeSealed, heldMs, act
  * flooded-pocket rung is never pre-empted (it is a rescue of its own).
  */
 export function airPocketPreempt ({ rescuing, routeDir, routeSealed, escaping = false, marooned = false, pocketing = false,
-                                    active = false, now = Date.now(), cooldownUntil = 0, stepWouldRun = () => false }) {
+                                    active = false, now = Date.now(), cooldownUntil = 0, stepWouldRun = () => false,
+                                    heldMs = 0, msSinceClosing = 0 }) {
   if (!rescuing || active || pocketing || now < cooldownUntil) return false
-  if (routeDir === 'up' || routeSealed !== true) return false
+  // SEALED, or an `up` route proven blocked (routeUpBlocked) that has had the trigger's own 8 s and is not closing on
+  // air (airpocket-02: hive-d-Alpha 07:43Z, the maroon climb started 7 s before the rescue and looped for 90 s)
+  const blockedLong = routeDir === 'upblocked' && heldMs >= AP_TRIGGER_AFTER_MS && msSinceClosing >= AP_NOT_CLOSING_MS
+  if (!blockedLong && (routeDir === 'up' || routeDir === 'upblocked' || routeSealed !== true)) return false
   if (!(escaping || marooned)) return false
   // ONLY FOR A STEP THAT WOULD RUN (both reviews r2): an escape is never stopped for a step that then refuses. Asked
   // last, because it reads blocks (plan + admission, no side effects).
@@ -249,7 +348,8 @@ export async function airPocketStep (bot, plan, { Vec3, predict, sleep = ms => n
                                                  standItem = () => null } = {}) {
   const t0 = now()
   const p0 = bot.entity.position
-  const fx = Math.floor(p0.x), fy = Math.floor(p0.y), fz = Math.floor(p0.z)
+  // the plan's feet cell: the caller's pose-aware base (planBaseY) when it gave one, else the feet cell (airpocket-01)
+  const fx = Math.floor(p0.x), fy = Number.isFinite(plan.baseY) ? plan.baseY : Math.floor(p0.y), fz = Math.floor(p0.z)
   const cellPos = new Vec3(fx, fy + plan.dy, fz)
   const samples = []
   const sample = () => { samples.push({ t: now(), hp: bot.health }) }
@@ -281,7 +381,9 @@ export async function airPocketStep (bot, plan, { Vec3, predict, sleep = ms => n
     res.standing = standing
     // BOUNDED EQUIP, THEN VERIFY WHAT IS ACTUALLY HELD (Codex r1): a rejected or slow equip must not leave the prediction
     // describing a tool the bot is not holding. The dig is re-priced with the held item and must still fit.
-    if (best.item) {
+    // THE WINDOW HANDOFF FIRST (airpocket-02): no equip while an interrupted skill's container window is open
+    res.window = await awaitWindowHandoff(bot, { sleep, now })
+    if (best.item && res.window !== 'open') {
       let t
       try { await Promise.race([bot.equip(best.item, 'hand'), new Promise((_, rej) => { t = setTimeout(() => rej(new Error('equip timeout')), AP_EQUIP_MS) })]) } catch { /* verified below */ } finally { clearTimeout(t) }
     }
@@ -290,7 +392,7 @@ export async function airPocketStep (bot, plan, { Vec3, predict, sleep = ms => n
     res.tool = held?.name ?? 'hand'
     res.predictedMs = Number.isFinite(heldMs) ? Math.round(heldMs) : null
     if (!(Number.isFinite(heldMs) && heldMs > 0) || heldMs * AP_MARGIN + AP_LATENCY_MS > airPocketBudgetMs({ health: bot.health, envelope })) {
-      res.why = `the held ${res.tool} needs ${res.predictedMs} ms: over the budget after equip`; return res
+      res.why = `the held ${res.tool} needs ${res.predictedMs} ms: over the budget after equip${res.window === 'open' ? ' (a container window stayed open: no equip)' : ''}`; return res
     }
     const p1 = bot.entity.position
     if (Math.floor(p1.x) !== fx || Math.floor(p1.z) !== fz || Math.floor(p1.y) < fy - 1) { res.why = 'moved off the planned column'; return res }
@@ -308,54 +410,72 @@ export async function airPocketStep (bot, plan, { Vec3, predict, sleep = ms => n
       if (digging && bot.targetDigBlock && bot.targetDigBlock.position && !bot.targetDigBlock.position.equals?.(cellPos)) aborted = aborted ?? 'another dig took over'
       if (aborted) { try { bot.stopDigging?.() } catch { /* not digging */ } }
     }, 250)
-    // NO DIG AFTER RETURN (Codex r5): mineflayer's dig awaits an unbounded lookAt before it sends start-dig, so a dig
-    // whose look stalled could start after the step returned and cancel a newer dig. So the look is bounded here, the
-    // preconditions are re-checked synchronously (`digGate`), and the dig is sent with forceLook 'ignore', which writes
-    // start-dig inside the call with no await before it (the face sent is mineflayer's default either way).
-    try { await Promise.race([bot.lookAt(cellPos.offset(0.5, 0, 0.5), true), sleep(500)]) } catch { /* a late look moves only the head */ }
-    const cur = bot.blockAt(cellPos)
-    const noDig = digGate({ aborted, block: cur?.name ?? null, want: plan.name, held: bot.heldItem?.name ?? null, priced: held?.name ?? null,
-                            pos: bot.entity.position, fx, fy, fz })
-    if (noDig) { res.why = noDig; res.outcome = aborted ? 'aborted' : 'failed'; return res }
-    const deadline = Math.max(1000, Math.min(budgetLeft(), Math.max(2 * best.ms, best.ms + 2000)))
-    const tDig = now()
-    let timer
-    digging = true
-    try {
-      await Promise.race([
-        bot.dig(cur, 'ignore'),
-        new Promise((_, rej) => { timer = setTimeout(() => { try { bot.stopDigging?.() } catch {} rej(new Error(`dig exceeded ${Math.round(deadline)} ms`)) }, deadline) }),
-      ])
-    } catch (e) { res.why = aborted ?? `dig failed: ${String(e?.message ?? e).slice(0, 60)}`; res.outcome = aborted ? 'aborted' : 'failed'; return res } finally { clearTimeout(timer); digging = false }
-    res.digMs = now() - tDig
-    wantJump = true
-    try { bot.setControlState('jump', true) } catch { /* the rise */ }
-    const after = bot.blockAt(cellPos)
-    const opened = plan.kind === 'ice' ? (isWater(after) || isAir(after)) : isAir(after)
-    if (!opened) { res.why = `roof cell is ${after?.name ?? 'unknown'} after the dig`; return res }
-    // RISE AND CONFIRM: the eye must reach air and stay there while health rises (or is at its maximum)
-    let eyeInAirSince = null, healthAtEyeIn = null
-    const until = now() + AP_RISE_MS + AP_CONFIRM_MS + 1000
-    while (now() < until) {
-      if (aborted) { res.why = aborted; res.outcome = 'aborted'; return res }
+    // THE EYE, POSE-AWARE (airpocket-02): the client's +1.62 eye is wrong whenever the standing box does not fit
+    const eyeNow = () => {
       const pos = bot.entity.position
-      const eye = bot.blockAt(new Vec3(Math.floor(pos.x), Math.floor(pos.y + 1.62), Math.floor(pos.z)))
-      res.eye = eye?.name ?? 'unknown'
-      if (isAir(eye)) {
-        if (eyeInAirSince == null) { eyeInAirSince = now(); healthAtEyeIn = bot.health }
-        if (airPocketConfirmed({ eyeInAirSince, now: now(), health: bot.health, healthAtEyeIn, maxHealth })) {
-          res.ok = true; res.outcome = 'success'; res.why = `breathing in ${plan.kind === 'ice' ? 'the opened column' : 'the dug pocket'}`
-          res.stand = await standInPocket(bot, plan, { fx, fy, fz, Vec3, sleep, now, standItem, isAborted: () => aborted })
-          return res
+      const pe = poseEye({ y: pos.y, solidAt: cy => isSolid(bot.blockAt(new Vec3(Math.floor(pos.x), cy, Math.floor(pos.z)))) })
+      return { ...pe, block: bot.blockAt(new Vec3(Math.floor(pos.x), pe.eyeCell, Math.floor(pos.z))) }
+    }
+    res.redigs = 0
+    let eyeInAirSince = null
+    // DIG, RISE, CONFIRM -- AND DIG AGAIN IF THE CELL RE-FREEZES (airpocket-02; Paper freeze-probe trial 2: the broken ice
+    // re-formed within ~1 s while the bot rose into it, and airpocket-01 logged a false success and never dug again)
+    for (let attempt = 0; attempt <= AP_REDIG_MAX; attempt++) {
+      if (attempt > 0) res.redigs = attempt
+      // NO DIG AFTER RETURN (Codex r5): mineflayer's dig awaits an unbounded lookAt before it sends start-dig, so a dig
+      // whose look stalled could start after the step returned and cancel a newer dig. So the look is bounded here, the
+      // preconditions are re-checked synchronously (`digGate`), and the dig is sent with forceLook 'ignore', which writes
+      // start-dig inside the call with no await before it (the face sent is mineflayer's default either way).
+      try { await Promise.race([bot.lookAt(cellPos.offset(0.5, 0, 0.5), true), sleep(500)]) } catch { /* a late look moves only the head */ }
+      const cur = bot.blockAt(cellPos)
+      const noDig = digGate({ aborted, block: cur?.name ?? null, want: plan.name, held: bot.heldItem?.name ?? null, priced: held?.name ?? null,
+                              pos: bot.entity.position, fx, fy, fz })
+      if (noDig) { res.why = noDig; res.outcome = aborted ? 'aborted' : (attempt > 0 ? 'opened' : 'failed'); return res }
+      const deadline = Math.max(1000, Math.min(budgetLeft(), Math.max(2 * best.ms, best.ms + 2000)))
+      const tDig = now()
+      let timer
+      digging = true
+      try {
+        await Promise.race([
+          bot.dig(cur, 'ignore'),
+          new Promise((_, rej) => { timer = setTimeout(() => { try { bot.stopDigging?.() } catch {} rej(new Error(`dig exceeded ${Math.round(deadline)} ms`)) }, deadline) }),
+        ])
+      } catch (e) { res.why = aborted ?? `dig failed: ${String(e?.message ?? e).slice(0, 60)}`; res.outcome = aborted ? 'aborted' : (attempt > 0 ? 'opened' : 'failed'); return res } finally { clearTimeout(timer); digging = false }
+      if (attempt === 0) res.digMs = now() - tDig
+      wantJump = true
+      try { bot.setControlState('jump', true) } catch { /* the rise */ }
+      const after = bot.blockAt(cellPos)
+      const opened = plan.kind === 'ice' ? (isWater(after) || isAir(after)) : isAir(after)
+      if (!opened) { res.why = `roof cell is ${after?.name ?? 'unknown'} after the dig`; return res }
+      // RISE AND CONFIRM: the pose-aware eye must reach air and stay there with no health drop (airPocketConfirmed)
+      eyeInAirSince = null
+      let refrozen = false
+      const until = now() + AP_RISE_MS + AP_CONFIRM_MS + 1000
+      while (now() < until) {
+        if (aborted) { res.why = aborted; res.outcome = 'aborted'; return res }
+        const e = eyeNow()
+        res.eye = e.block?.name ?? 'unknown'; res.pose = e.pose
+        if (isAir(e.block)) {
+          if (eyeInAirSince == null) eyeInAirSince = now()
+          if (airPocketConfirmed({ eyeInAirSince, now: now(), samples, maxHealth })) {
+            res.ok = true; res.outcome = 'success'; res.why = `breathing in ${plan.kind === 'ice' ? 'the opened column' : 'the dug pocket'}`
+            res.stand = await standInPocket(bot, plan, { fx, fy, fz, Vec3, sleep, now, standItem, isAborted: () => aborted })
+            return res
+          }
+        } else {
+          eyeInAirSince = null
+          const again = bot.blockAt(cellPos)
+          if (again && again.name === plan.name) { refrozen = true; break }   // the dug cell is back: dig it again
         }
-      } else { eyeInAirSince = null; healthAtEyeIn = null }
-      await sleep(100)
+        await sleep(100)
+      }
+      if (!refrozen) break
     }
     // THE POCKET EXISTS but breathing was not confirmed in the window (sandbox 5b6c530: the eye reached air briefly while
     // the bot sank). OPENED, not failed: the place now has air, so the rescue's fail memory must be cleared (its own
     // `up` route lifts the bot into the pocket) and no fail cooldown is set.
     res.outcome = 'opened'
-    res.why = eyeInAirSince == null ? 'pocket open; the eye had not reached air yet' : 'pocket open; breathing not confirmed (health did not rise)'
+    res.why = eyeInAirSince == null ? 'pocket open; the eye had not reached air yet' : 'pocket open; breathing not confirmed (health fell or too short)'
     return res
   } catch (e) {
     res.why = `threw: ${String(e?.message ?? e).slice(0, 60)}`
@@ -410,6 +530,8 @@ export async function standInPocket (bot, plan, { fx, fy, fz, Vec3, sleep, now, 
       if (!item) return `stopped:no ${pick.supported ? '' : 'non-falling '}placeable block (${placed} placed)`
       if (!pick.supported && FALLING.test(item.name || '')) return `stopped:${item.name} would fall (${placed} placed)`
       if (isAborted()) return `stopped:aborted: ${isAborted()} (${placed} placed)`
+      // no equip while a container window is open (the window handoff, airpocket-02)
+      if (await awaitWindowHandoff(bot, { sleep, now }) === 'open') return `stopped:a container window is open (${placed} placed)`
       try { await Promise.race([bot.equip(item, 'hand'), sleep(1500)]) } catch { /* verified by the gate */ }
       try { bot.setControlState('jump', true) } catch {}
       const by = now() + 2500
@@ -499,7 +621,9 @@ export function airPocketRow ({ id, r, requiredMs, budgetMs, difficulty }) {
   const head = `id=${id} outcome=${r.outcome} kind=${r.kind} cell=${r.cell} block=${r.block} tool=${r.tool} ` +
                `predicted_ms=${r.predictedMs} dig_ms=${r.digMs ?? -1} ms=${r.ms ?? -1} envelope=${r.envelope} ` +
                `health=${r1(r.healthStart)}->${r1(r.healthEnd)} | required_ms=${Math.round(requiredMs)} budget_ms=${Math.round(budgetMs)} ` +
-               `difficulty=${difficulty} | standing=${r.standing ? 1 : 0} eye=${r.eye} ` +
+               `difficulty=${difficulty} | standing=${r.standing ? 1 : 0} pose=${r.pose ?? 'na'}` +
+               // only when they say something: a re-dig, a window that held the equip off
+               `${r.redigs ? ` redig=${r.redigs}` : ''}${r.window && r.window !== 'none' ? ` window=${r.window}` : ''} eye=${r.eye} ` +
                `stand=${String(r.stand ?? 'none').slice(0, 40)} -- `
   // a success's why is always "breathing in …" (the outcome already says it); a failure's why is the diagnosis
   return (head + (r.outcome === 'success' ? '' : String(r.why ?? ''))).slice(0, AP_ROW_MAX)

@@ -16,7 +16,8 @@ import { gunzipSync } from 'node:zlib'
 import { airPocketInputs, airPocketAfter, airPocketPreempt, AP_FAIL_COOLDOWN_MS } from '../src/airpocket.mjs'
 import { airPocketPlan, airPocketEnvelope, airPocketAdmit, airPocketBudgetMs, envelopeBreached, airPocketConfirmed,
          airPocketTrigger, pickFastestTool, airPocketStep, airPocketDetail, AP_TRIGGER_AFTER_MS,
-         standGate, standInPocket, digGate, standRef, standCandidates, airPocketRow, AP_ROW_MAX } from '../src/airpocket.mjs'
+         standGate, standInPocket, digGate, standRef, standCandidates, airPocketRow, AP_ROW_MAX,
+         poseEye, planBaseY, routeUpBlocked, windowHandoff, airPocketTools, AP_REDIG_MAX } from '../src/airpocket.mjs'
 
 let pass = 0, fail = 0
 const t = (name, fn) => Promise.resolve()
@@ -182,12 +183,19 @@ await t('C3 one 2-HP step is not a breach; samples older than 10 s are ignored',
 })
 
 // ---------------------------------------------------------------- D. confirmation
-await t('D1 flat health with the eye in air is NOT success; rising or at maximum is; under 2 s is not yet', () => {
-  assert.equal(airPocketConfirmed({ eyeInAirSince: 0, now: 2500, health: 18, healthAtEyeIn: 18 }), false)
-  assert.equal(airPocketConfirmed({ eyeInAirSince: 0, now: 2500, health: 18.5, healthAtEyeIn: 18 }), true)
-  assert.equal(airPocketConfirmed({ eyeInAirSince: 0, now: 2500, health: 20, healthAtEyeIn: 20 }), true)
-  assert.equal(airPocketConfirmed({ eyeInAirSince: 0, now: 1500, health: 19, healthAtEyeIn: 18 }), false)
-  assert.equal(airPocketConfirmed({ eyeInAirSince: null, now: 9000, health: 20, healthAtEyeIn: 18 }), false)
+const ser = (...hp) => hp.map((h, i) => ({ t: i * 250, hp: h }))   // a health series sampled every 250 ms from t=0
+await t('D1 flat health with the eye in air is NOT success; rising or at maximum is; under 2.5 s is not yet', () => {
+  assert.equal(airPocketConfirmed({ eyeInAirSince: 0, now: 2600, samples: ser(18, 18, 18, 18, 18, 18, 18, 18, 18, 18, 18) }), false)
+  assert.equal(airPocketConfirmed({ eyeInAirSince: 0, now: 2600, samples: ser(18, 18, 18, 18, 18.5, 18.5, 18.5, 18.5, 18.5, 18.5, 18.5) }), true)
+  assert.equal(airPocketConfirmed({ eyeInAirSince: 0, now: 2600, samples: ser(20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20) }), true)
+  assert.equal(airPocketConfirmed({ eyeInAirSince: 0, now: 2000, samples: ser(18, 19, 19, 19, 19, 19, 19, 19, 19) }), false)   // under 2.5 s
+  assert.equal(airPocketConfirmed({ eyeInAirSince: null, now: 9000, samples: ser(18, 20) }), false)
+})
+await t('D2 SERVER-GROUNDED (Paper freeze-probe trial 2): a drowning flicker 18 <-> 20 is NOT success, though health "rose"', () => {
+  assert.equal(airPocketConfirmed({ eyeInAirSince: 0, now: 2600, samples: ser(18, 18, 20, 20, 18, 18, 20, 20, 18, 18, 20) }), false)
+  assert.equal(airPocketConfirmed({ eyeInAirSince: 0, now: 2600, samples: ser(20, 20, 20, 18, 18, 18, 19, 19, 19, 19, 19) }), false)  // a drop at max
+  // only the samples since the eye reached air count: an earlier drop does not veto a clean window
+  assert.equal(airPocketConfirmed({ eyeInAirSince: 500, now: 3100, samples: ser(20, 18, 18, 18, 18, 18.5, 18.5, 18.5, 19, 19, 19, 19, 19) }), true)
 })
 
 // ---------------------------------------------------------------- E. trigger
@@ -468,7 +476,7 @@ await t('F27 THE ROW FITS THE LOGGER (Paper 562d9e7 logs: every stand= row lost 
   })
   // a realistic row keeps the optional tail too
   const real = airPocketRow({ ...args, id: 'muyncxig', r: { ...worst, cell: '700,42,700', block: 'stone', tool: 'stone_pickaxe', stand: 'placed:1' } })
-  assert.match(real, / standing=0 eye=cave_air stand=placed:1 -- $/)
+  assert.match(real, / standing=0 pose=na eye=cave_air stand=placed:1 -- $/)
   // a realistic FAILURE keeps its diagnosis
   const fail = airPocketRow({ ...args, id: 'muyncxig', r: { ...worst, outcome: 'failed', cell: '700,42,700', block: 'stone', tool: 'stone_pickaxe', stand: undefined, why: 'dig failed: dig exceeded 28200 ms' } })
   assert.match(fail, / stand=none -- dig failed: dig exceeded 28200 ms$/)
@@ -590,6 +598,167 @@ await t('F22 the stand reports an abort that lands during the rise or after a pl
   })
 })
 
+
+// ================================================================ airpocket-02
+// L. THE POSE-AWARE EYE (Paper freeze-probe trial 2 / hive-d: y 61.395 under ice at 62, the server's eye in water)
+const solidSet = ys => cy => ys.includes(cy)
+await t('L1 under ice at 62 a bot at 61.395 is SWIMMING: eye 61.795, cell 61; the plan base is 60 (airpocket-01 used 61)', () => {
+  const pe = poseEye({ y: 61.395, solidAt: solidSet([62]) })
+  assert.equal(pe.pose, 'swim'); assert.ok(Math.abs(pe.eyeY - 61.795) < 1e-9); assert.equal(pe.eyeCell, 61)
+  assert.equal(planBaseY({ y: 61.395, pose: pe.pose, eyeY: pe.eyeY }), 60)
+})
+await t('L2 open water stands (eye +1.62, base = the feet cell); Bravo 60.5 under ice at 62 crouches (eye 61.77, base 60)', () => {
+  const st = poseEye({ y: 60.3, solidAt: solidSet([]) })
+  assert.equal(st.pose, 'stand'); assert.equal(st.eyeCell, 61); assert.equal(planBaseY({ y: 60.3, ...st }), 60)
+  const cr = poseEye({ y: 60.5, solidAt: solidSet([62]) })
+  assert.equal(cr.pose, 'crouch'); assert.equal(cr.eyeCell, 61); assert.equal(planBaseY({ y: 60.5, ...cr }), 60)
+  // the feet cell itself is never what decides the pose
+  assert.equal(poseEye({ y: 60.3, solidAt: solidSet([60]) }).pose, 'stand')
+})
+await t('L3 the plan on the trap: relative to the pose-aware base it is the ICE plan; relative to the feet cell it refuses', () => {
+  const rel60 = { '0,0,0': 'water', '0,1,0': 'water', '0,2,0': 'ice', '0,3,0': 'air' }        // base 60: 60 61 62 63
+  const p = airPocketPlan(world(rel60))
+  assert.equal(p.ok, true, p.why); assert.equal(p.kind, 'ice'); assert.equal(p.dy, 2)
+  const rel61 = { '0,0,0': 'water', '0,1,0': 'ice', '0,2,0': 'air' }                          // airpocket-01's base 61
+  assert.match(airPocketPlan(world(rel61)).why, /head cell is ice/)
+})
+await t('L4 MUTANT KILLED: a stand-only pose model puts the eye in air under the ice (L1 catches it)', () =>
+  withMutant(AP_PATH, "['stand', 1.8, 1.62], ['crouch', 1.5, 1.27], ['swim', 0.6, 0.4]", "['stand', 1.8, 1.62]", m => {
+    assert.notEqual(m.poseEye({ y: 61.395, solidAt: solidSet([62]) })?.eyeCell, 61)
+  }))
+
+// M. THE BLOCKED UP ROUTE
+await t('M1 an up route through the head cell\'s ice is BLOCKED (by ice@62); a real up route is not; unknown blocks', () => {
+  const col = { 62: B('ice'), 63: B('air') }
+  assert.deepEqual(routeUpBlocked({ routeDir: 'up', targetY: 63, eyeCell: 61, cellAt: y => col[y] ?? null }), { blocked: true, by: { name: 'ice', y: 62 } })
+  assert.deepEqual(routeUpBlocked({ routeDir: 'up', targetY: 62, eyeCell: 61, cellAt: () => B('air') }), { blocked: false, by: null })
+  assert.equal(routeUpBlocked({ routeDir: 'up', targetY: 63, eyeCell: 61, cellAt: y => (y === 62 ? B('water') : B('air')) }).blocked, false)
+  assert.equal(routeUpBlocked({ routeDir: 'up', targetY: 63, eyeCell: 61, cellAt: () => null }).blocked, true)
+  assert.equal(routeUpBlocked({ routeDir: 'out', targetY: 63, eyeCell: 61, cellAt: () => B('ice') }).blocked, false)
+})
+await t('M2 MUTANT KILLED: a scan that only refuses unknown cells reads the ice as a route (M1 catches it)', () =>
+  withMutant(AP_PATH, '    if (b == null || isSolid(b)) return { blocked: true, by: { name: b?.name ?? \'unknown\', y } }', '    if (b == null) return { blocked: true, by: { name: \'unknown\', y } }', m => {
+    assert.equal(m.routeUpBlocked({ routeDir: 'up', targetY: 63, eyeCell: 61, cellAt: y => (y === 62 ? B('ice') : B('air')) }).blocked, false)
+  }))
+await t('M3 upblocked TRIGGERS after the 8-s rule (never `up`); it PRE-EMPTS an escape only after 8 s held and 4 s not closing', () => {
+  const trig = { rescuing: true, routeSealed: false, heldMs: 9000, now: 1, msSinceClosing: 5000 }
+  assert.equal(airPocketTrigger({ ...trig, routeDir: 'upblocked' }), true)
+  assert.equal(airPocketTrigger({ ...trig, routeDir: 'up' }), false)
+  assert.equal(airPocketTrigger({ ...trig, routeDir: 'upblocked', heldMs: 3000 }), false)
+  const pre = { rescuing: true, routeDir: 'upblocked', routeSealed: false, marooned: true, now: 1, stepWouldRun: () => true }
+  assert.equal(airPocketPreempt({ ...pre, heldMs: 9000, msSinceClosing: 5000 }), true)
+  assert.equal(airPocketPreempt({ ...pre, heldMs: 3000, msSinceClosing: 5000 }), false)
+  assert.equal(airPocketPreempt({ ...pre, heldMs: 9000, msSinceClosing: 1000 }), false)
+  assert.equal(airPocketPreempt({ ...pre, routeDir: 'up', heldMs: 9000, msSinceClosing: 5000 }), false)
+  assert.equal(airPocketPreempt({ ...pre, heldMs: 9000, msSinceClosing: 5000, stepWouldRun: () => false }), false)
+})
+await t('M4 MUTANT KILLED: without the upblocked pre-empt the maroon climb holds the step off (M3 catches it)', () =>
+  withMutant(AP_PATH, "  const blockedLong = routeDir === 'upblocked' && heldMs >= AP_TRIGGER_AFTER_MS && msSinceClosing >= AP_NOT_CLOSING_MS", '  const blockedLong = false', m => {
+    assert.equal(m.airPocketPreempt({ rescuing: true, routeDir: 'upblocked', routeSealed: false, marooned: true, now: 1, stepWouldRun: () => true, heldMs: 9000, msSinceClosing: 5000 }), false)
+  }))
+
+// N. THE STEP ON THE TRAP (fake bot: base y 60; ice at 62, air at 63; the bot embedded at 61.395)
+const TRAP = { '0,-1,0': 'water', '0,0,0': 'water', '0,1,0': 'water', '0,2,0': 'ice', '0,3,0': 'air' }
+await t('N1 the step digs the ice over the SWIMMING bot from the pose-aware base and confirms breathing', async () => {
+  const bot = fakeBot({ cells: TRAP, riseTo: 1.4 }); bot.entity.position = new V(100.5, 61.395, 100.5)
+  const plan = { ...airPocketPlan(world({ '0,0,0': 'water', '0,1,0': 'water', '0,2,0': 'ice', '0,3,0': 'air' })), baseY: 60 }
+  const r = await airPocketStep(bot, plan, deps()); clearInterval(bot._healthTimer)
+  assert.equal(r.ok, true, r.why); assert.equal(r.kind, 'ice'); assert.equal(r.cell, '100,62,100'); assert.equal(r.pose, 'stand')
+})
+await t('N2 FALSE SUCCESS REFUSED: eye "in air" by the client\'s 1.62 but the bot stays swimming under re-formed ice -> not success', async () => {
+  // the ice re-forms at once and the bot never rises: airpocket-01 read eye 63.02 = air and logged success (trial 2)
+  const bot = fakeBot({ cells: TRAP, rise: false }); bot.entity.position = new V(100.5, 61.395, 100.5)
+  const dig0 = bot.dig; bot.dig = (blk, fl) => dig0(blk, fl).then(() => { setTimeout(() => bot._place(0, 2, 0, 'ice'), 20) })
+  const plan = { ...airPocketPlan(world({ '0,0,0': 'water', '0,1,0': 'water', '0,2,0': 'ice', '0,3,0': 'air' })), baseY: 60 }
+  const r = await airPocketStep(bot, plan, deps()); clearInterval(bot._healthTimer)
+  assert.equal(r.ok, false); assert.equal(r.outcome, 'opened'); assert.equal(r.redigs, AP_REDIG_MAX)
+})
+
+// O. RE-DIG ON REFREEZE
+await t('O1 the dug ice re-forms once while the bot is still under it: the step digs AGAIN and then confirms (redig=1)', async () => {
+  const bot = fakeBot({ cells: TRAP, rise: false }); bot.entity.position = new V(100.5, 61.395, 100.5)
+  let n = 0
+  const dig0 = bot.dig
+  bot.dig = (blk, fl) => dig0(blk, fl).then(() => {
+    n++
+    if (n === 1) setTimeout(() => bot._place(0, 2, 0, 'ice'), 20)                                  // refreezes
+    else setTimeout(() => { bot.entity.position = new V(100.5, 61.4, 100.5) }, 30)                 // stands: eye 63.02 in air
+  })
+  const plan = { ...airPocketPlan(world({ '0,0,0': 'water', '0,1,0': 'water', '0,2,0': 'ice', '0,3,0': 'air' })), baseY: 60 }
+  const r = await airPocketStep(bot, plan, deps()); clearInterval(bot._healthTimer)
+  assert.equal(r.ok, true, r.why); assert.equal(r.redigs, 1); assert.equal(n, 2)
+  await withMutant(AP_PATH, 'export const AP_REDIG_MAX = 2 ', 'export const AP_REDIG_MAX = 0 ', async m => {
+    const b2 = fakeBot({ cells: TRAP, rise: false }); b2.entity.position = new V(100.5, 61.395, 100.5)
+    let k = 0; const d0 = b2.dig
+    b2.dig = (blk, fl) => d0(blk, fl).then(() => { k++; if (k === 1) setTimeout(() => b2._place(0, 2, 0, 'ice'), 20); else setTimeout(() => { b2.entity.position = new V(100.5, 61.4, 100.5) }, 30) })
+    const r2 = await m.airPocketStep(b2, plan, deps()); clearInterval(b2._healthTimer)
+    assert.equal(r2.ok, false); assert.equal(k, 1)
+  })
+})
+
+// P. THE WINDOW HANDOFF
+await t('P1 windowHandoff (pure): wait while open up to 1.5 s, then skip; after a close, settle 250 ms then go', () => {
+  assert.equal(windowHandoff({ open: true, waitedMs: 0 }), 'wait')
+  assert.equal(windowHandoff({ open: true, waitedMs: 1499 }), 'wait')
+  assert.equal(windowHandoff({ open: true, waitedMs: 1500 }), 'skip')
+  assert.equal(windowHandoff({ open: false, waitedMs: 100, closedForMs: 100 }), 'wait')
+  assert.equal(windowHandoff({ open: false, waitedMs: 400, closedForMs: 250 }), 'go')
+})
+await t('P2 an open window closes during the handoff: the equip happens only AFTER it closed (and settled)', async () => {
+  const bot = fakeBot({}); bot.currentWindow = { id: 3 }
+  let closedAt = null, equipAt = null
+  setTimeout(() => { bot.currentWindow = null; closedAt = Date.now() }, 60)        // real ms (the step's clock runs 10x)
+  const eq0 = bot.equip; bot.equip = async it => { equipAt = Date.now(); return eq0(it) }
+  const r = await airPocketStep(bot, airPocketPlan(world(HIVE_C)), deps()); clearInterval(bot._healthTimer)
+  assert.equal(r.ok, true, r.why); assert.equal(r.window, 'closed'); assert.ok(equipAt != null && closedAt != null && equipAt >= closedAt)
+})
+await t('P3 a window that stays open: NO equip at all; the held item is priced (named) and the stand never equips either', async () => {
+  const bot = fakeBot({}); bot.currentWindow = { id: 3 }
+  let equips = 0; bot.equip = async () => { equips++ }
+  const r = await airPocketStep(bot, airPocketPlan(world(HIVE_C)), deps({ envelope: 2.0 })); clearInterval(bot._healthTimer)
+  assert.equal(equips, 0); assert.equal(r.window, 'open'); assert.equal(r.ok, false); assert.match(r.why, /container window stayed open: no equip/)
+  const fl = fakeBot({ cells: { ...HIVE_C, '0,-1,0': 'stone' }, riseTo: 1.1 }); fl.entity.position = new V(100.5, 61.1, 100.5); fl.currentWindow = { id: 4 }
+  clearInterval(fl._healthTimer)
+  const at = { fx: 100, fy: 60, fz: 100, Vec3: V, sleep: ms => new Promise(r2 => setTimeout(r2, ms / 10)), now: fast() }
+  assert.equal(await standInPocket(fl, airPocketPlan(world({ ...HIVE_C, '0,-1,0': 'stone' })), { ...at, standItem: () => ({ name: 'cobblestone' }) }),
+    'stopped:a container window is open (0 placed)')
+})
+await t('P4 MUTANT KILLED: equipping through an open window (P3 catches it)', async () =>
+  withMutant(AP_PATH, "    if (best.item && res.window !== 'open') {", '    if (best.item) {', async m => {
+    const bot = fakeBot({}); bot.currentWindow = { id: 3 }
+    let equips = 0; bot.equip = async () => { equips++ }
+    await m.airPocketStep(bot, m.airPocketPlan(world(HIVE_C)), deps({ envelope: 2.0 })); clearInterval(bot._healthTimer)
+    assert.equal(equips, 1)
+  }))
+
+// Q. THE WELL-FLOOR GUARD
+await t('Q1 a roof under a junk well (floor trapdoor above, cap two above) is never dug; the same roof under stone is', () => {
+  const base = { '0,0,0': 'water', '0,1,0': 'water', '0,2,0': 'stone' }
+  assert.match(airPocketPlan(world({ ...base, '0,3,0': 'oak_trapdoor', '0,4,0': 'oak_trapdoor' })).why, /well block \(oak_trapdoor\) above the roof cell/)
+  assert.match(airPocketPlan(world({ ...base, '0,3,0': 'stone', '0,4,0': 'spruce_trapdoor' })).why, /well block \(spruce_trapdoor\)/)
+  assert.match(airPocketPlan(world({ '0,0,0': 'water', '0,1,0': 'water', '0,2,0': 'oak_trapdoor' })).why, /is a well block/)
+  assert.equal(airPocketPlan(world({ ...base, '0,3,0': 'stone', '0,4,0': 'stone' })).ok, true)        // positive control
+  assert.match(airPocketPlan(world({ ...base, '0,3,0': 'stone', '0,4,0': null })).why, /two above the roof cell unknown/)
+})
+await t('Q2 MUTANT KILLED: without the guard the rescue digs into the well shaft (Q1 catches it)', () =>
+  withMutant(AP_PATH, "    if (WELL_MARK.test(top.name) || WELL_MARK.test(top2.name)) return refuse(", '    if (false) return refuse(', m => {
+    assert.equal(m.airPocketPlan(world({ '0,0,0': 'water', '0,1,0': 'water', '0,2,0': 'stone', '0,3,0': 'oak_trapdoor', '0,4,0': 'oak_trapdoor' })).ok, true)
+  }))
+
+// R. THE DIG CANDIDATES (toolhygiene's composition)
+await t('R1 a 1-use pickaxe beside a healthy one is skipped; a sole 1-use copy stays; other kinds are untouched', () => {
+  const worn = { name: 'iron_pickaxe', maxDurability: 250, durabilityUsed: 249 }
+  const ok = { name: 'stone_pickaxe', maxDurability: 131, durabilityUsed: 30 }
+  const axe = { name: 'stone_axe', maxDurability: 131, durabilityUsed: 130 }
+  assert.deepEqual(airPocketTools([worn, ok, axe]).map(i => i.name), ['stone_pickaxe', 'stone_axe'])
+  assert.deepEqual(airPocketTools([worn, axe]).map(i => i.name), ['iron_pickaxe', 'stone_axe'])
+  assert.deepEqual(airPocketTools([{ name: 'stone_pickaxe' }, { name: 'dirt' }]).map(i => i.name), ['stone_pickaxe'])   // no durability = full
+})
+await t('R2 MUTANT KILLED: keeping every copy hands the step the 1-use pickaxe (R1 catches it)', () =>
+  withMutant(AP_PATH, '  return all.filter(it => remaining(it) > HARD_STOP || !healthy.has(kind(it)))', '  return all', m => {
+    assert.equal(m.airPocketTools([{ name: 'iron_pickaxe', maxDurability: 250, durabilityUsed: 249 }, { name: 'stone_pickaxe', maxDurability: 131, durabilityUsed: 30 }]).length, 2)
+  }))
+
 // ---------------------------------------------------------------- I. the world's inputs, read the way 1.21.8 needs
 await t('I1 difficulty comes from the server packet (bot.serverDifficulty): mineflayer game.difficulty is undefined on 1.21.8', () => {
   const real = { serverDifficulty: 'peaceful', game: { difficulty: undefined }, registry: { effectsByName: { Hunger: { id: 16 } } }, entity: { effects: {} } }
@@ -648,7 +817,7 @@ await t('K2 MUTANT KILLED: pre-empting the flooded-pocket rung (K1 catches it)',
     assert.equal(m.airPocketPreempt({ rescuing: true, routeSealed: true, escaping: true, pocketing: true, now: 1, stepWouldRun: () => true }), true)
   }))
 await t('K3 MUTANT KILLED: pre-empting outside a sealed verdict (K1 catches it)', () =>
-  withMutant(AP_PATH, "if (routeDir === 'up' || routeSealed !== true) return false", "if (routeDir === 'up') return false", m => {
+  withMutant(AP_PATH, "if (!blockedLong && (routeDir === 'up' || routeDir === 'upblocked' || routeSealed !== true)) return false", "if (!blockedLong && (routeDir === 'up' || routeDir === 'upblocked')) return false", m => {
     assert.equal(m.airPocketPreempt({ rescuing: true, routeSealed: false, escaping: true, now: 1, stepWouldRun: () => true }), true)
   }))
 
@@ -734,10 +903,10 @@ function wiring (src) {
   const tickStart = code.indexOf('const timer = setInterval(async () => {')
   const earlyReturn = code.indexOf('if (airPocketing) return', tickStart)
   const drowningBranch = code.indexOf('const ctl = drowningControls({ losing: true', tickStart)
-  const trigger = code.indexOf('airPocketTrigger({ rescuing, routeDir: route.dir', tickStart)
+  const trigger = code.indexOf('airPocketTrigger({ rescuing, routeDir: apRoute.dir', tickStart)
   return { tickStart, earlyReturn, drowningBranch, trigger,
            ok: tickStart > 0 && earlyReturn > tickStart && earlyReturn < drowningBranch && trigger > 0 && trigger < drowningBranch &&
-               /await runAirPocket\(route, /.test(code.slice(trigger, drowningBranch)) &&
+               /await runAirPocket\(apRoute, /.test(code.slice(trigger, drowningBranch)) &&
                /airPocketing = true[\s\S]{0,900}airPocketStep\(/.test(code) && /finally \{ airPocketing = false; airPocketWants = 0 \}/.test(code) &&
                /airPocketAfter\(r\.ok \|\| r\.outcome === 'opened', /.test(code) && /othersBusy: escaping \|\| pocketing \|\| marooned/.test(code) &&
                /const inputs = airPocketInputs\(bot\)/.test(code) && !/bot\.game\?\.difficulty/.test(code.slice(code.indexOf('const runAirPocket'), code.indexOf('const rescueExpired'))) &&
@@ -749,10 +918,14 @@ function wiring (src) {
                /standItem: \(\{ unsupported = false \} = \{\}\) => unsupported\s*\? pickScaffold\(standCandidates\(bot\.inventory\?\.items\?\.\(\) \?\? \[\], \{ unsupported: true \}\), PLACEABLE\)\s*: scaffoldFor\(bot, 'air_pocket'\)/.test(code) &&
                /isEntombed\(bot\) && Date\.now\(\) >= airPocketBreatheUntil &&/.test(code) && /!runner\.isBusy\(\) && Date\.now\(\) >= airPocketBreatheUntil &&/.test(code) && /\} else if \(rescuing && route\.sealed === true && route\.dir !== 'up' && \(escaping \|\| marooned\) && !pocketing && !airPocketing &&\s*throttled\('air_pocket_held_off'/.test(code) && /Date\.now\(\) - airPocketWants < AP_WANT_LAPSE_MS/.test(code) &&
                /airPocketWants = 0 {16}\/\/ a refused step/.test(src) && /finally \{ airPocketing = false; airPocketWants = 0 \}/.test(code) &&
-               /const ran = await runAirPocket\(route, Date\.now\(\) - seizedAt\)\s*if \(ran\) return/.test(code) &&
-               code.indexOf('airPocketPreempt({ rescuing, routeDir: route.dir') > 0 && code.indexOf('airPocketPreempt({ rescuing, routeDir: route.dir') < trigger &&
+               /const ran = await runAirPocket\(apRoute, Date\.now\(\) - seizedAt, apBlockedBy\)\s*if \(ran\) return/.test(code) &&
+               code.indexOf('airPocketPreempt({ rescuing, routeDir: apRoute.dir') > 0 && code.indexOf('airPocketPreempt({ rescuing, routeDir: apRoute.dir') < trigger &&
                /airPocketWants = Date\.now\(\)\s*try \{ if \(bot\.targetDigBlock\) bot\.stopDigging\(\) \}/.test(code) &&
-               (code.match(/\(\) => ownsBody\(\(\) => (entombedGrant|maroonGrant)\)\(\) && !airPocketWanted\(\)/g) || []).length === 2 }
+               (code.match(/\(\) => ownsBody\(\(\) => (entombedGrant|maroonGrant)\)\(\) && !airPocketWanted\(\)/g) || []).length === 2 &&
+               /if \(ub\.blocked\) \{\s*apRoute = \{ \.\.\.route, dir: 'upblocked', sealed: false \}; apBlockedBy = ub\.by/.test(code) &&
+               /const fy = planBaseY\(\{ y: at\.y, pose: pe\.pose, eyeY: pe\.eyeY \}\)/.test(code) &&
+               /const items = bot\.currentWindow \? \[bot\.heldItem\]\.filter\(Boolean\) : airPocketTools\(bot\.inventory\?\.items\?\.\(\) \?\? \[\]\)/.test(code) &&
+               /heldMs: Date\.now\(\) - seizedAt, msSinceClosing: Date\.now\(\) - lastClosingAt,\s*stepWouldRun/.test(code) }
 }
 await t('G1 wiring: the tick returns while the step runs; the rescue asks the trigger before steering; success clears the fail memory', () => {
   const w = wiring(readFileSync(REFLEX_PATH, 'utf8'))
@@ -766,7 +939,7 @@ await t('G2 MUTANT KILLED: without the early return the wiring check fails', () 
 })
 await t('G3 MUTANT KILLED: without the trigger call the wiring check fails', () => {
   const src = readFileSync(REFLEX_PATH, 'utf8')
-  const old = 'const ran = await runAirPocket(route, Date.now() - seizedAt)'
+  const old = 'const ran = await runAirPocket(apRoute, Date.now() - seizedAt, apBlockedBy)'
   assert.ok(src.split(old).length === 2, 'anchor missing or not unique')
   assert.equal(wiring(src.replace(old, 'const ran = false')).ok, false)
 })
@@ -790,6 +963,10 @@ for (const [name, old, neu] of [
   ['the pre-empt stopping the escape dig', '            airPocketWants = Date.now()\n', ''],
   ['the entombed pillar yielding', '{ alive: () => ownsBody(() => entombedGrant)() && !airPocketWanted() }', '{ alive: ownsBody(() => entombedGrant) }'],
   ['the maroon pillar yielding', '{ alive: () => ownsBody(() => maroonGrant)() && !airPocketWanted() }', '{ alive: ownsBody(() => maroonGrant) }'],
+  ['the upblocked route', "apRoute = { ...route, dir: 'upblocked', sealed: false }; apBlockedBy = ub.by", 'apBlockedBy = ub.by'],
+  ['the pose-aware plan base', 'const fy = planBaseY({ y: at.y, pose: pe.pose, eyeY: pe.eyeY })', 'const fy = Math.floor(at.y)'],
+  ['the shared dig candidates and the window price', 'const items = bot.currentWindow ? [bot.heldItem].filter(Boolean) : airPocketTools(bot.inventory?.items?.() ?? [])', 'const items = (bot.inventory?.items?.() ?? [])'],
+  ['the pre-empt clocks', 'heldMs: Date.now() - seizedAt, msSinceClosing: Date.now() - lastClosingAt,\n', ''],
 ]) {
   await t(`G4 MUTANT KILLED: without ${name} the wiring check fails`, () => {
     const src = readFileSync(REFLEX_PATH, 'utf8')
@@ -820,8 +997,12 @@ await t('H5 MUTANT KILLED: a breach threshold that never fires misses easy (C2 c
     assert.equal(m.envelopeBreached([{ t: 0, hp: 20 }, { t: 9000, hp: 12 }], 9000), false)
   }))
 await t('H6 MUTANT KILLED: "health not falling" as success accepts flat health (D1 catches it)', () =>
-  withMutant(AP_PATH, 'return health > healthAtEyeIn || health >= maxHealth', 'return health >= healthAtEyeIn', m => {
-    assert.equal(m.airPocketConfirmed({ eyeInAirSince: 0, now: 2500, health: 18, healthAtEyeIn: 18 }), true)
+  withMutant(AP_PATH, 'return last > first || last >= maxHealth', 'return true', m => {
+    assert.equal(m.airPocketConfirmed({ eyeInAirSince: 0, now: 2600, samples: ser(18, 18, 18, 18, 18, 18, 18, 18, 18, 18, 18) }), true)
+  }))
+await t('H6b MUTANT KILLED: dropping the no-drop rule accepts the drowning flicker (D2 catches it)', () =>
+  withMutant(AP_PATH, '  for (let i = 1; i < since.length; i++) if (since[i].hp < since[i - 1].hp) return false\n', '', m => {
+    assert.equal(m.airPocketConfirmed({ eyeInAirSince: 0, now: 2600, samples: ser(18, 18, 20, 20, 18, 18, 20, 20, 18, 18, 20) }), true)
   }))
 await t('H7 MUTANT KILLED: dropping the up-route exclusion digs during a working swim (E1 catches it)', () =>
   withMutant(AP_PATH, "if (routeDir === 'up') return false", '', m => {
