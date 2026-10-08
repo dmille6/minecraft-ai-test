@@ -11,6 +11,19 @@ behind it (chain-ore.sh stopped 10-01 on fixes-02's revert)._
 
 ---
 
+## 10-08 17:40Z — THE HIVE-D ICE TRAP: 9.4% of all drownings since 10-01; airpocket-02 being built (airpocket-01 continues)
+Cause of the missed rescue (reproduced on Paper): the floating bot's cell freezes over (snowy biome); the SERVER puts the
+bot in swimming pose (0.6 tall, eye y+0.4 in water, y = 62 - 0.605 = 61.395); mineflayer assumes standing (eye y+1.62 in
+air, head cell = ice); the drowning route scan starts above the head cell and reports `up dist=1`, so the base rescue
+jumps into the ice, airpocket refuses on an "up" route, and the marooned climb sees an open column. Since 10-01: 23 of
+244 drowning deaths fleet-wide (9.4%), ALL in hive-d, all `up dist=1`; plus 16 with a false `up` and head in water. In
+airpocket-01's window: 2 canary drownings, both this trap (07:45:33Z, 14:08:10Z); 0 of 5 control drownings.
+airpocket-01 DEFECT found on Paper: after an ice dig, a refreeze within ~1 s gives a FALSE `_air_pocket` success (client
+eye/health) then a drowning -- would trip C1 and revert (justified); not seen live (Bravo's was real).
+DECISION: airpocket-01 continues (not linked; no breach). airpocket-02 = pose-aware eye, `upblocked` route, server-grounded
+success, re-dig on refreeze, window-handoff race, well-floor guard, airPocketTools; variants on dbb4d78 and 92bc84f;
+draw must include hive-d.
+
 ## 10-08 16:55Z — airpocket-01 +540 NOT_YET (1 success; exposure 1 of 2); a MISSED rescue under ice under investigation
 +540: deaths canary 2/91.2 bh vs control 16/638.4; DiD psi 0.45x (LB 0.07) held; matched 1.00x (LB 0.12) held.
 v14c operator review (journalled): hive-d-Alpha drowned 14:08:10Z sealed under ICE at 7,61,63 -- NOT linked (no
