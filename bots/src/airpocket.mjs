@@ -34,6 +34,7 @@ export const AP_WANT_LAPSE_MS = 3000          // a pre-empt request lapses unles
 export const AP_BREATHE_HOLD_MS = 10_000      // after a pocket opens, no escape starts for 10 s (air refills to 300 in ~4 s)
 
 import { difficultyOf } from './foodskip.mjs'
+import { TOOL_HYGIENE, remaining, HARD_STOP } from './toolfor.mjs'
 
 const WATERLIKE = /^(water|flowing_water|bubble_column|kelp|kelp_plant|seagrass|tall_seagrass)$/
 const LAVALIKE = /lava|^magma_block$|^fire$|^soul_fire$/
@@ -178,6 +179,24 @@ export function airPocketPreempt ({ rescuing, routeDir, routeSealed, escaping = 
   return stepWouldRun() === true
 }
 
+const DIG_TOOL = /_(pickaxe|shovel|axe)$/
+/**
+ * THE DIG CANDIDATES -- ONE list for the admission/pre-empt price (reflex.mjs prepareAirPocket) and the step, so the two
+ * can never disagree (a pre-empt admitted on a copy the step then skips would be a dead end).
+ * TOOL HYGIENE (toolhygiene-01 on the airpocket base; rebase reviews 10-08, Codex P1 + Claude P2): hygiene drains worn
+ * copies to 1 use, and a copy the server already broke still shows at 1 use for > 1.5 s (toolfor.mjs HARD_STOP); dug
+ * with, the server digs bare-handed while the client priced the pickaxe -> ghost air, a failed rescue. So with hygiene ON,
+ * a copy at <= HARD_STOP is dropped when the bag holds a copy of the SAME kind above it (pocketPlanFor's rule); with no
+ * such copy it stays (a real 1-use copy still digs once). Hygiene OFF: every tool, exactly as airpocket-01 deployed.
+ */
+export function airPocketTools (items = [], { hygiene = TOOL_HYGIENE.on } = {}) {
+  const all = (Array.isArray(items) ? items : []).filter(it => DIG_TOOL.test(it?.name ?? ''))
+  if (!hygiene) return all
+  const kind = it => it.name.match(DIG_TOOL)[1]
+  const healthy = new Set(all.filter(it => remaining(it) > HARD_STOP).map(kind))
+  return all.filter(it => remaining(it) > HARD_STOP || !healthy.has(kind(it)))
+}
+
 /** The fastest of the candidate items (null = the hand) by the caller's prediction. Pure. */
 export function pickFastestTool (candidates = [], predict = () => null) {
   let best = null
@@ -244,7 +263,7 @@ export async function airPocketStep (bot, plan, { Vec3, predict, sleep = ms => n
   try {
     const block = bot.blockAt(cellPos)
     if (!block || block.name !== plan.name) { res.why = `roof cell changed to ${block?.name ?? 'unknown'}`; return res }
-    const items = (bot.inventory?.items?.() ?? []).filter(it => /_(pickaxe|shovel|axe)$/.test(it.name))
+    const items = airPocketTools(bot.inventory?.items?.() ?? [])
     const best = pickFastestTool(items, item => predict(block, item))
     if (!best) { res.why = 'no dig time for any tool'; return res }
     // HORIZONTAL CONTROLS OFF FIRST (Codex r1): an `out` rescue may have been holding forward; the dig turns the head, so a
@@ -267,7 +286,11 @@ export async function airPocketStep (bot, plan, { Vec3, predict, sleep = ms => n
       try { await Promise.race([bot.equip(best.item, 'hand'), new Promise((_, rej) => { t = setTimeout(() => rej(new Error('equip timeout')), AP_EQUIP_MS) })]) } catch { /* verified below */ } finally { clearTimeout(t) }
     }
     const held = bot.heldItem ?? null
-    const heldMs = predict(block, best.item && held?.name === best.item.name ? best.item : held)
+    // A HELD COPY AT <= HARD_STOP THAT IS NOT THE ONE CHOSEN (hygiene on; Claude P3): the equip did not land and the hand
+    // may hold a copy the server already broke -- priced as the bare hand, the worst case, by the budget check below.
+    const staleRisk = TOOL_HYGIENE.on && !!held && !!best.item && held.name === best.item.name && remaining(held) <= HARD_STOP &&
+      remaining(best.item) > HARD_STOP
+    const heldMs = staleRisk ? predict(block, null) : predict(block, best.item && held?.name === best.item.name ? best.item : held)
     res.tool = held?.name ?? 'hand'
     res.predictedMs = Number.isFinite(heldMs) ? Math.round(heldMs) : null
     if (!(Number.isFinite(heldMs) && heldMs > 0) || heldMs * AP_MARGIN + AP_LATENCY_MS > airPocketBudgetMs({ health: bot.health, envelope })) {

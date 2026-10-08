@@ -44,7 +44,7 @@ import { PRIORITY } from './arbiter.mjs'
 import { survivalRelease } from './withdrawpick.mjs'
 import { airPocketPlan, airPocketAdmit, airPocketTrigger, airPocketStep, airPocketRow, airPocketInputs, airPocketAfter,
          airPocketPreempt, AP_WANT_LAPSE_MS,
-         AP_REFUSE_COOLDOWN_MS, standCandidates } from './airpocket.mjs'
+         AP_REFUSE_COOLDOWN_MS, standCandidates, airPocketTools } from './airpocket.mjs'
 import pathfinderPkg from 'mineflayer-pathfinder'
 const pkgGoals = pathfinderPkg?.goals
 
@@ -1375,7 +1375,7 @@ export function startReflexes(bot, runner, lessons = null, worldFacts = null) {
     // standing dig, the pre-empt fired, and half a second later the floating price was refused. Floating + in water is
     // the slowest the step can face, so a pre-empt admitted on it is never followed by a budget refusal.
     const env = worstCase ? { ...digEnv(bot), inWater: true, notOnGround: true } : digEnv(bot)
-    const items = (bot.inventory?.items?.() ?? []).filter(it => /_(pickaxe|shovel|axe)$/.test(it.name))
+    const items = airPocketTools(bot.inventory?.items?.() ?? [])   // the step's own candidates (toolhygiene composition)
     let fastest = null
     for (const item of [null, ...items]) {
       const ms = predictedDigMs(block, item, env)
