@@ -71,7 +71,7 @@ function makeBot (inv, difficulty, opts = {}) {
     async takeInput () { assert.ok(slots.input); give(slots.input.name, slots.input.count); slots.input = null },
     async takeFuel () {
       assert.ok(slots.fuel)
-      if (lifts > 0 && /_sword$/.test(slots.fuel.name)) { lifts -= 1; furnace.selectedItem = { ...slots.fuel }; slots.fuel = null; throw new Error('the second click timed out') }
+      if (lifts > 0 && /_sword$/.test(slots.fuel.name)) { lifts -= 1; furnace.selectedItem = { ...slots.fuel }; slots.fuel = null; if (opts.fillOnLift) filler = 36; throw new Error('the second click timed out') }
       if (stacks() >= 36 && /_sword$/.test(slots.fuel.name)) dropped.push(slots.fuel.name)   // putAway's tossLeftover
       else give(slots.fuel.name, slots.fuel.count)
       slots.fuel = null
@@ -79,7 +79,8 @@ function makeBot (inv, difficulty, opts = {}) {
     items: () => view(bag), emptySlotCount: () => Math.max(0, 36 - stacks()),
     selectedItem: null, inventoryStart: 3, inventoryEnd: 39,
     findItemRange: () => null, firstEmptySlotRange: () => (stacks() < 36 ? 9 : null),
-    close () { clearInterval(ticker); ticker = null; open = false; if (furnace.selectedItem) { dropped.push(furnace.selectedItem.name); furnace.selectedItem = null } },
+    // vanilla's close (Paper probe): a cursor item goes back into the bag when it has room, and is DROPPED when it is full
+    close () { clearInterval(ticker); ticker = null; open = false; if (furnace.selectedItem) { if (stacks() < 36) give(furnace.selectedItem.name, furnace.selectedItem.count ?? 1); else dropped.push(furnace.selectedItem.name); furnace.selectedItem = null } },
   }
   const bot = {
     entity: { position: V(1, 64, 0), velocity: { y: 0 } }, health: 20, food: 20, serverDifficulty: difficulty,
@@ -345,6 +346,7 @@ test('swordDrainRow: the row for each drain fate (pure)', () => {
   assert.match(swordDrainRow('kept_cursor', false).what, /^wooden_sword put back into the furnace fuel slot from the cursor \(left by an earlier call\)/,
     'an earlier call\'s sword: a diagnostic row the read does not credit (Codex r-rev7)')
   for (const st of [true, false]) assert.deepEqual(swordDrainRow('cursor_lost', st), { outcome: 'failed', what: 'wooden_sword on the cursor at the close (the server drops it)' })
+  for (const st of [true, false]) assert.deepEqual(swordDrainRow('cursor_server_returns', st), { outcome: 'no_effect', what: 'wooden_sword on the cursor at the close (the server returns it to the bag)' })
 })
 
 test('THE DRAIN RUNS OUT OF TIME on a hung output take with this call\'s sword still in the fuel slot: the row says it is in the furnace, not "returned" (Claude r-rev7)', async () => {
@@ -364,10 +366,10 @@ test('THE DRAIN RUNS OUT OF TIME on a hung output take with this call\'s sword s
 for (const [why, clickFails, expect] of [
   ['the bag takes it from the cursor', () => false, 'bag'],
   ['the bag will not take it: back into the fuel slot it came from', slot => slot >= 3, 'furnace'],
-  ['nothing takes it: the row says so (the server drops it at the close)', () => true, 'lost'],
+  ['nothing takes it and the bag filled meanwhile: the row says so (the server drops it at the close)', () => true, 'lost'],
 ]) {
   test(`THE DRAIN'S TAKE STOPS BETWEEN ITS TWO CLICKS (Codex, junkwell merge) -- ${why}`, async () => {
-    const m = makeBot({ raw_iron: 2, coal: 1, wooden_sword: 1 }, 'peaceful', { holdIgnition: true, liftFails: 1, clickFails })
+    const m = makeBot({ raw_iron: 2, coal: 1, wooden_sword: 1 }, 'peaceful', { holdIgnition: true, liftFails: 1, clickFails, fillOnLift: expect === 'lost' })
     const ac = new AbortController()
     setTimeout(() => ac.abort(), 150)
     const { rows } = await swordRows(() => run(m.bot, 2, ac.signal).then(r => r, e => e))
@@ -398,4 +400,38 @@ test('THE TAKE-BACK OF AN EARLIER CALL\'S SWORD STOPS BETWEEN ITS CLICKS and the
   assert.deepEqual(rows, ['no_effect:wooden_sword put back into the furnace fuel slot from the cursor (left by an earlier call) for raw_iron active=0'],
     'an earlier call\'s sword: no second furnace credit (Codex r-rev7)')
   foodSkipNow({ serverDifficulty: 'hard' })
+})
+
+test('A STUCK CURSOR WITH ROOM IN THE BAG: the close returns it to the bag (vanilla, Paper probe) -- not a drop row (Claude r-rev9)', async () => {
+  const m = makeBot({ raw_iron: 2, coal: 1, wooden_sword: 1 }, 'peaceful', { holdIgnition: true, liftFails: 1, clickFails: () => true })
+  // the fake's close models vanilla: with room the cursor item goes back to the bag
+  m.bot.openFurnace = (orig => async () => { const f = await orig(); const close = f.close; f.close = () => { if (f.selectedItem && f.emptySlotCount() > 0) { m.bag.wooden_sword = (m.bag.wooden_sword ?? 0) + 1; f.selectedItem = null } return close() }; return f })(m.bot.openFurnace)
+  const ac = new AbortController()
+  setTimeout(() => ac.abort(), 150)
+  const { rows } = await swordRows(() => run(m.bot, 2, ac.signal).then(r => r, e => e))
+  assert.deepEqual(m.dropped, []); assert.equal(m.bag.wooden_sword, 1)
+  assert.deepEqual(rows, ['no_effect:wooden_sword on the cursor at the close (the server returns it to the bag) for raw_iron active=1'])
+})
+
+test('RESTAGED (Codex r-rev9): a call that takes an earlier sword back and then leaves a sword in the furnace marks that row restaged=1; a later call does not', async () => {
+  const m = makeBot({ raw_iron: 2, coal: 1, wooden_sword: 1 }, 'peaceful', { holdIgnition: true })
+  m.slots.fuel = { name: 'wooden_sword', type: 10, count: 1 }   // left by an earlier call
+  let full = false
+  m.bot.openFurnace = (orig => async () => { const f = await orig(); const e = f.emptySlotCount; f.emptySlotCount = () => (full ? 0 : e()); return f })(m.bot.openFurnace)
+  m.bot.clickWindow = async () => {}
+  const ac = new AbortController()
+  // the take-back runs with room; once a sword is staged the bag is full, so the staged sword stays in the furnace
+  const put = m.bot.openFurnace
+  m.bot.openFurnace = async () => { const f = await put(); const pf = f.putFuel; f.putFuel = async (...a) => { await pf(...a); if (a[0] === 10) { full = true; setTimeout(() => ac.abort(), 30) } }; return f }
+  const { rows } = await swordRows(() => run(m.bot, 2, ac.signal).then(r => r, e => e))
+  assert.deepEqual(rows, ['no_effect:wooden_sword returned unburned (left by an earlier call) for raw_iron active=1',
+                          'no_effect:wooden_sword left in the furnace fuel slot (the bag is full) restaged=1 for raw_iron active=1'])
+  assert.deepEqual(m.dropped, [])
+  // a LATER call, nothing taken back: its sink row carries no mark
+  full = false
+  const ac2 = new AbortController()
+  m.bot.openFurnace = async () => { const f = await put(); const pf = f.putFuel; f.putFuel = async (...a) => { await pf(...a); if (a[0] === 10) setTimeout(() => ac2.abort(), 30) }; return f }
+  m.slots.fuel = null; m.bag.wooden_sword = 1; m.bag.raw_iron = 2
+  const { rows: later } = await swordRows(() => run(m.bot, 2, ac2.signal).then(r => r, e => e))
+  assert.ok(later.every(r => !/restaged=1/.test(r)), JSON.stringify(later))
 })

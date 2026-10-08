@@ -6902,6 +6902,8 @@ const SMELT_OPEN_MS     = 10_000        // openFurnace waits on a server event f
  */
 export function swordDrainRow (fate, staged, inSlot) {
   if (fate === 'cursor_lost') return { outcome: 'failed', what: 'wooden_sword on the cursor at the close (the server drops it)' }
+  // the bag had room at the close: the server puts it back into the bag -- in the bag, as if taken
+  if (fate === 'cursor_server_returns') return { outcome: 'no_effect', what: 'wooden_sword on the cursor at the close (the server returns it to the bag)' }
   if (!staged) {
     return fate === 'kept_cursor' ? { outcome: 'no_effect', what: 'wooden_sword put back into the furnace fuel slot from the cursor (left by an earlier call)' } : null
   }
@@ -6941,11 +6943,14 @@ export async function drainFurnace (furnace, ms = SMELT_RECOVERY_MS, bot = null)
     p, new Promise(res => setTimeout(res, Math.max(250, deadline - Date.now()))),
   ])
   const noteSword = (name, fate) => { if (name === 'wooden_sword' && furnace) furnace.swordFate = fate }
+  // A CURSOR NOTHING WOULD TAKE: vanilla returns a closed window's cursor item to the bag when the bag has room and drops
+  // it only when it is full (Paper probe, sandbox3) -- so which one the close does is the window's room right now.
+  const stuckFate = () => { try { return (furnace?.emptySlotCount?.() ?? 0) > 0 ? 'cursor_server_returns' : 'cursor_lost' } catch { return 'cursor_lost' } }
   // A CURSOR ALREADY LOADED when the drain begins (a take-back that stopped between its clicks): settled first.
   try {
     const before = furnace?.selectedItem?.name
     const c = await settleFurnaceCursor(bot, furnace, null, bounded)
-    if (c === 'furnace') noteSword(before, 'kept_cursor'); else if (c === 'stuck') noteSword(before, 'cursor_lost'); else if (c === 'bag') noteSword(before, 'taken')
+    if (c === 'furnace') noteSword(before, 'kept_cursor'); else if (c === 'stuck') noteSword(before, stuckFate()); else if (c === 'bag') noteSword(before, 'taken')
   } catch { /* nothing on it */ }
   for (const [slot, take] of [['outputItem', 'takeOutput'],
                               ['inputItem', 'takeInput'],
@@ -6967,7 +6972,7 @@ export async function drainFurnace (furnace, ms = SMELT_RECOVERY_MS, bot = null)
     // THE TAKE STOPPED BETWEEN ITS TWO CLICKS: the item is on the cursor, not in the bag.
     try {
       const c = await settleFurnaceCursor(bot, furnace, slot === 'outputItem' ? null : slot, bounded)
-      if (c === 'furnace') noteSword(name, 'kept_cursor'); else if (c === 'stuck') noteSword(name, 'cursor_lost'); else if (c === 'bag') noteSword(name, 'taken')
+      if (c === 'furnace') noteSword(name, 'kept_cursor'); else if (c === 'stuck') noteSword(name, stuckFate()); else if (c === 'bag') noteSword(name, 'taken')
     } catch { /* the close below is all that is left */ }
   }
   try { furnace?.close?.() } catch { /* already closed */ }
@@ -7147,9 +7152,17 @@ async function smelt(ctx, { item, count = 1 }, signal) {
   // switch read at the put (= the burn).
   const swordRows = []
   const swordRow = (status, what, active) => { swordRows.push({ status, what, active }) }
+  // RESTAGED (Codex r-rev8/r-rev9): a sword this call TOOK BACK out of the fuel slot (an earlier call's, credited when it
+  // left the bag then) returns to the bag unseen -- this call's rows and snapshots show only the net. So each sink row of
+  // this call (burned / left in the furnace) is marked ` restaged=1` while take-backs are unspent, and the read gives a
+  // marked row no credit. Exact, per call: no time window pairs rows of different calls.
+  let retrieved = 0
+  const SINK_ROW = /^(burned wooden_sword|wooden_sword left in the furnace fuel slot)/
   const writeSwordRows = () => {
     for (const { status, what, active } of swordRows.splice(0)) {
-      try { logEvent({ kind: 'sword_fuel', status, snapshot: snapshot(bot), detail: `${what} for ${plan.input} active=${active ? 1 : 0}` }) } catch { /* never break a smelt */ }
+      let mark = ''
+      if (SINK_ROW.test(what) && retrieved > 0) { retrieved -= 1; mark = ' restaged=1' }
+      try { logEvent({ kind: 'sword_fuel', status, snapshot: snapshot(bot), detail: `${what}${mark} for ${plan.input} active=${active ? 1 : 0}` }) } catch { /* never break a smelt */ }
     }
   }
   // EVERY SWORD NOT YET IN -> ONE ordinary load for the items still uncovered, from what the bag holds NOW (Claude r-rev1:
@@ -7254,6 +7267,7 @@ async function smelt(ctx, { item, count = 1 }, signal) {
                  detail: 'the furnace\'s fuel slot holds a wooden sword that could not be taken back — ' +
                          'smelt again, or place the furnace you carry and smelt there' }
       }
+      retrieved += 1
       swordRow('no_effect', 'wooden_sword returned unburned (left by an earlier call)', foodSkipNow(bot).active)
     }
 
