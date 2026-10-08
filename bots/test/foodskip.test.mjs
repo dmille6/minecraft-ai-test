@@ -213,3 +213,14 @@ test('APPLES: a compost visit that only lost apples is the composter\'s effect o
     assert.deepEqual(classifyOutcome('compost', 'success', { inventory: { bread: -6 } }).because, [], 'other food never')
   } finally { setPeacefulFood(false) }
 })
+
+test('WITH THE TOWN DEPOSIT UNDERNEATH: apples are never banked (composted above 4, or kept) -- the two orders cannot fight over them', async () => {
+  let TD = null
+  try { TD = await import('../src/towndeposit.mjs') } catch { return }   // only on a line that carries towndeposit
+  const it = (name, count, slot) => ({ name, count, slot, type: mcData.itemsByName[name].id })
+  const bag = [it('apple', 30, 9), it('cobblestone', 64, 10), it('cobblestone', 64, 11), it('cobblestone', 20, 12), it('raw_copper', 5, 13),
+               ...Array.from({ length: 30 }, (_, i) => it('white_wool', 1, 14 + i))]
+  const plan = TD.townDepositPlan(bag)
+  assert.ok(plan.steps.length >= 1, 'positive control: the deposit banks something here')
+  assert.ok(!plan.steps.some(s => s.name === 'apple'), 'apples are not a banking target')
+})

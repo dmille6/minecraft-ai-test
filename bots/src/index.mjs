@@ -6,6 +6,7 @@
 
 import { tunnelMovements } from './oretunnel.mjs'
 import { protectTownBlocks, worldIdFromLogin, composterFloorFilter, composterSafeMovements } from './composter.mjs'
+import { townWalkMovements } from './towndeposit.mjs'
 import { Vec3 } from 'vec3'
 import { corridorSafe } from './lavaguard.mjs'
 import { deathSiteStepCost, pathCrossesDeathSite } from './deathsites.mjs'
@@ -564,6 +565,14 @@ function connect() {
     }, bot.registry))
     bot.withComposterWalk = async (fn) => {
       bot.pathfinder.setMovements(composterWalkMoves); bot.movementProfile = 'composter_walk'
+      try { return await fn() }
+      finally { bot.pathfinder.setMovements(moves); bot.movementProfile = 'walk' }
+    }
+    // THE TOWN DEPOSIT'S WALK (towndeposit.mjs townWalkMovements): the walk profile with no digging, no towers and no
+    // scaffold. A town chest within 16 that needs a block placed or broken to reach is not one this order walks to.
+    const townDepositMoves = townWalkMovements(moves)
+    bot.withTownDepositWalk = async (fn) => {
+      bot.pathfinder.setMovements(townDepositMoves); bot.movementProfile = 'town_deposit_walk'
       try { return await fn() }
       finally { bot.pathfinder.setMovements(moves); bot.movementProfile = 'walk' }
     }
