@@ -1,0 +1,110 @@
+peacefulkit-01 rebase reviews, 2026-10-08 (queue agent). Approved source pk-on-92bc84f @ 40046b8 (30 commits).
+Variants: T pk-on-6238095 @ d948bfd (toolhygiene); A pk-on-4970c91 @ 6f1921a (toolhygiene+airpocket);
+B pk-on-5d1f710 (7fbc63a -> 3382a17) (toolhygiene+withdraw2); C pk-on-2f38f69 (54d2060 -> 4be1a29) (all three).
+Briefs: scratchpad review-pk-prompt.txt (r1: composition with airpocket furnace/bag, withdraw2 bankable counting, toolhygiene
+admission/prompt), review-pk-r2-prompt.txt (r2: is the airpocket window race pre-existing; the test fix).
+
+=== CODEX round 1 (codex exec, read-only) ===
+| Variant | Verdict | Findings |
+|---|---|---|
+| T — `d948bfd` | **APPROVE** | No rebase-specific findings. |
+| A — `6f1921a` | **CHANGE** | P2 below: furnace cleanup overlaps airpocket inventory operations. |
+| B — `7fbc63a` | **APPROVE** | No rebase-specific findings. |
+| C — `54d2060` | **CHANGE** | Same P2 as A. |
+
+**P2 — A/C: airpocket equips before the interrupted furnace relinquishes inventory ownership.**
+
+Locations: `bots/src/reflex.mjs:1414–1415`, `bots/src/airpocket.mjs:286`, `bots/src/runner.mjs:150`; furnace cleanup at A `bots/src/skills.mjs:7201` / C `bots/src/skills.mjs:7494`.
+
+Concrete scenario: a sealed drowning rescue starts while smelt is taking back a wooden sword or draining another stack. The fastest pickaxe is outside the hotbar. `runner.interrupt()` only aborts the signal; airpocket immediately calls `equip()`, while smelt’s in-flight transfer and asynchronous `finally` can continue clicking.
+
+The installed Mineflayer implementation makes this unsafe:
+
+- `equip()` uses the item’s player-inventory slot numbers and calls `moveSlotItem()`.
+- `clickWindow()` targets the **currently open furnace window**, whose player-slot offset differs.
+- Those equip clicks can also encounter the sword or another stack already on the shared cursor. There is no inventory-operation exclusion between airpocket and furnace recovery.
+
+Consequently, equip can move the wrong stack or interfere with recovery; the intended pickaxe may never reach the hand, causing an otherwise admitted rescue to fail its post-equip budget check. Cursor conservation and sword accounting are not established for this interleaving.
+
+The survival-release hook at `bots/src/reflex.mjs:1491` does **not** protect smelt: it releases `inventoryUnsettled`, installed by the withdraw hold path. Smelt does not install that hold. The movement arbiter likewise does not guarantee inventory cleanup completion: its acknowledgement deadline is 500 ms, versus up to 12 seconds for furnace recovery.
+
+This is an unsafe composition found by inspection, **not a reproduced Paper loss or double-credit**. Fix the inventory handoff before airpocket’s equip/stand operations, including cancellation of stale transfer continuations; simply waiting the full drain budget would compromise rescue timing.
+
+Other requested checks:
+
+- **Patch preservation:** all four range-diffs pair all 30 commits. Net added/removed lines match the approved patch except for the already-exported toolhygiene `craftableNow` signature. No dropped conflict-resolution hunk found.
+- **Toolhygiene:** redundant-craft targets pickaxes/stations, so it cannot mask the sword refusal. Both prompt filters survive, including milestone/wanted arguments. `toolFor`’s tool regex excludes swords.
+- **Withdraw2:** peaceful swords contribute their full count to `junk`, have no deposit allowance, and retain `peaceful_sword` precedence. Withdraw holds and iron-reserve subtraction retain the base behavior. Room-making uses deposit allowances and additionally excludes tools; it cannot bank swords. Town deposit retains its iron-ladder keeps.
+- **Town ordering:** compost/ripe harvest → withdraw → upgrade → build remains intact. Cognitive supplies level-aware `startableJunk`, not bankable’s sword-inclusive junk count.
+- **Airpocket selection/difficulty:** swords are not digging-tool candidates or scaffold blocks. Retaining them increases occupancy but does not change eligibility. Both policies use `difficultyOf`; `FOOD_SKIP` does not alter airpocket’s difficulty envelope.
+- **Tests:** no base-dependent accidental pass identified. However, `peacefulkit-smelt.test.mjs:102` makes equip a no-op, and `airpocket.test.mjs:222` directly assigns the held item. Their separate interruption tests cannot expose the P2 interleaving.
+
+**Paper re-proof:** required for A/C after the handoff fix; no additional rebase-specific Paper proof required for T/B. Minimal scenes:
+
+1. Rescue during sword insertion and sword take-back, with the rescue pickaxe outside the hotbar; test available room and a bag filled during transfer.
+2. Rescue during input/output drain, continuing through stand-block placement.
+3. C: drowning release of a loaded withdraw cursor, then airpocket equip, verifying stale clicks cannot affect the next window.
+
+Check server inventory, furnace contents, cursor, dropped entities, rescue success, and exactly-once sword accounting. Include a packet-driven switch-off control.
+
+Read-only review completed; no tests, mutants, edits, or state-changing git commands run.
+
+=== CODEX round 2 (codex exec, read-only) ===
+T — APPROVE (`d948bfd`)
+A — APPROVE (`6f1921a`)
+B — APPROVE (`3382a17`)
+C — APPROVE (`4be1a29`)
+
+I withdraw the Round 1 A/C blocking finding. The window/equip race exists on live `dbb4d78`; peacefulkit adds exposure within that existing race, but I do not find a rebase-specific regression sufficient to block A/C.
+
+1. **The overlap already exists without peacefulkit.**
+
+   On `dbb4d78`:
+   - `bots/src/runner.mjs:150–154`: `interrupt()` aborts the controller and returns synchronously; it does not await cleanup.
+   - `bots/src/reflex.mjs:1414–1415`: interruption is immediately followed by `airPocketStep()`.
+   - `bots/src/airpocket.mjs:265–267`: the step calls `bot.equip()` without checking that the window has closed.
+   - `bots/src/skills.mjs:7331–7332`: smelt’s `finally` awaits `drainFurnace()`.
+   - `skills.mjs:7116–7130`: that drain takes output, input and fuel asynchronously, then closes the window. Its recovery budget is already **12 seconds** (`7096`).
+
+   Thus the live build already permits rescue equip during post-abort furnace clicks. Existing takes also lift items onto the cursor through Mineflayer’s `putAway()`; cursor overlap is not introduced by swords.
+
+   The survival release is narrower than a general window barrier: `dbb4d78:reflex.mjs:1491–1497` calls it only when `bot.inventoryUnsettled?.release` exists. An ordinary open furnace does not satisfy that merely by being open.
+
+2. **Peacefulkit changes the exposure, but the underlying defect belongs to the airpocket handoff.**
+
+   In A (`6f1921a`), with corresponding C (`4be1a29`) lines:
+   - Staged-sword confirmation adds up to **300 ms of explicit waits before draining**, even after abort: `skills.mjs:7586–7589` / C `7879–7882`.
+   - Cursor settlement adds possible recovery clicks before and after takes: A `7186–7195`, `7217`, `7241` / C `7479–7488`, `7510`, `7534`.
+   - Sword take-back adds another transfer path: A `7522` / C `7815`.
+   - The drain still closes after recovery: A `7249` / C `7542`; rescue equip remains at `airpocket.mjs:286` in both.
+
+   These are real additional interleavings; saying “identical hazard with no change whatsoever” would overstate it. However, asynchronous post-abort transfers, loaded cursors and an open window were already present. The extra sword safeguards also prevent unsafe takes into a full bag and stop further takes after a stuck cursor.
+
+   **P3 follow-up, nonblocking for this rebase:** fix the rescue/window handoff on airpocket’s line for furnace, chest and crafting windows. Before inventory-moving equip, it needs a bounded handoff that prevents outstanding cleanup clicks from continuing against a different window. Simply closing the window before equip is insufficient if old asynchronous transfers can still resume.
+
+3. **`3382a17` is approved by static review.**
+
+   It changes only `bots/test/peacefulkit-order.test.mjs`; C contains the identical test content.
+
+   The default iron pickaxe (`26–32`) removes the unintended below-iron upgrade trigger while preserving the existing compost/status assertions. The explicit stone-pickaxe case (`81–83`) retains composition coverage: peaceful selects compost first; hard selects `withdraw_pick`. This matches `composter.mjs:618–620` and `638–641`.
+
+No files or Git state were changed. No tests or mutants were run; approval of the test correction is based on source inspection, not a claimed green run.
+
+=== CLAUDE subagent (independent, read-only), condensed ===
+r1: T APPROVE, A APPROVE, B CHANGE (test), C CHANGE (test). P1 (B, C): peacefulkit-order.test.mjs:59,60,63,68 expect `status` but
+  the harness's stone_pickaxe@120 fires withdraw2's upgrade order (cognitive.mjs:851 upgradeNeeded, composter.mjs:638), and
+  findBlocks [] means the upgrade is never ruled out -> withdraw_pick. Same fix withdraw2 made in foodskip-order.test.mjs.
+  [CONFIRMED RED by the runner on C; fixed 3382a17/4be1a29.] P3: (A, C) the airpocket step can click inside an open furnace
+  window -- pre-existing on the base's drain, peacefulkit's cursor settle makes it marginally safer; fix belongs to airpocket
+  (don't equip while currentWindow is open). (all) the sword refusal's remedy names 'craft a pickaxe', which toolhygiene refuses
+  for a covered bag (axe/shovel/gather still admitted -- not a dead end); its detail still says swords are banked at the next
+  deposit (stale since 10-07; in 40046b8 itself); the refusal-chain test uses an empty bag. (B, C) iron-path room on sword-heavy
+  bags declines a bit more often (read: split by sword slots). withdraw2 x kit and toolhygiene x kit clean (details in r1).
+  Paper: not needed.
+r2: T, A, B (3382a17), C (4be1a29) APPROVE. The race exists on dbb4d78 (reflex.mjs:1414-1415, runner.mjs:150-155,
+  airpocket.mjs:267/394, skills.mjs:7329-7332 + drainFurnace 7116-7131, mineflayer inventory.js:552). Peacefulkit: hold time
+  ~12.3-13 s worst case vs ~12.25 s; new clicks only when the furnace cursor is already loaded (lowers the drop risk); one
+  real difference -- the drain's opening settle may return a cursor the rescue's equip just loaded ('same hazard, different
+  shuffle'). Fix on airpocket's line for all windows: skip the equip while bot.currentWindow is set (price the held item) or a
+  bounded wait; never force-close. Test fix correct; optional extra case: peaceful 36/36 + stone pickaxe -> withdraw_pick.
+  Paper: not needed.

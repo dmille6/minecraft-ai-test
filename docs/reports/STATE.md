@@ -11,6 +11,29 @@ behind it (chain-ore.sh stopped 10-01 on fixes-02's revert)._
 
 ---
 
+## 10-08 15:05Z — PEACEFULKIT VARIANTS READY on the four toolhygiene shas (queue entry drafted, NOT added)
+- The approved pk-on-92bc84f (40046b8, 30 commits) is now on each toolhygiene sha:
+  - **pk-on-6238095 @ d948bfd** (toolhygiene only). One conflict: admission keeps both refusals; the prompt keeps both filters.
+  - **pk-on-4970c91 @ 6f1921a** (+airpocket). No conflict; the patch is identical to d948bfd's.
+  - **pk-on-5d1f710 @ 3382a17** (+withdraw2). Import-line conflicts only, plus the EXCLUSION_PHRASE table (both entries kept). One test-only fix.
+  - **pk-on-2f38f69 @ 4be1a29** (all three). No conflict.
+- **The test-only fix.** Claude r1 P1, confirmed red by the runner: peacefulkit-order.test.mjs's stone pickaxe fired withdraw2's upgrade order.
+  - The bag now holds an iron pickaxe.
+  - New case: stone pickaxe -> peaceful composts first; hard -> withdraw_pick.
+- **Reviews:** Codex and Claude both APPROVE all four at r2.
+  - Codex's r1 CHANGE on A/C was withdrawn. airpocket's rescue equip can click inside an interrupted smelt's still-open furnace window, but that is PRE-EXISTING on the live airpocket-01 build (dbb4d78). Peacefulkit only adds interleavings inside the same race.
+  - The fix belongs on airpocket's own line, for all windows: a bounded handoff, never a forced close. A task chip was spawned for it.
+  - withdraw2 x kit and toolhygiene x kit: clean. Text: docs/reports/peacefulkit-01.rebase-review-2026-10-08.txt.
+- **Tests:** npm test 241/241, 242/242, 243/243, 244/244. mutants-pk.py (PK_VARIANT=1): 86/86 killed on each. Lint: withinBody only.
+- **Paper:** not re-run. Both engines: no peacefulkit line changed, and the race is not reproducible in a scene.
+- **peacefulkitread dry run** on the live airpocket pools (+180): every gate 0, every instrument fired.
+- **Registrations** peacefulkit-01.{6238095,4970c91,5d1f710,2f38f69}.json: on main and in ~/mcai-analysis. The bag-fix fields are unchanged from the gate agent's 92bc84f file.
+- **OPERATOR: queue entry docs/reports/peacefulkit-01.queue-entry.json** (= ~/mcai-analysis/peacefulkit-01.entry.json).
+  - class bag-fix, after toolhygiene-01, 5 variants: 92bc84f -> 40046b8, plus the four toolhygiene shas.
+  - It needs install-bagfix-regs.py first. /opt/minecraft-ai needs a fetch of the pk-on-6238095, pk-on-4970c91, pk-on-5d1f710 and pk-on-2f38f69 branches.
+  - Validated no-act against a scratch clone: VALID.
+  - NOT built: peacefulkit on dbb4d78 / a6cd3c1 / 2189de3. Those are needed only if toolhygiene is not kept on those bases.
+
 ## 10-08 13:45Z — airpocket-01 +360 NOT_YET (exposure 1 of 2): FIRST LIVE RESCUE succeeded; extension continues
 13:15:45Z hive-d-Bravo sealed under ICE at y 60.5 (cell 155,62,168), health 18: dug the ice with a wooden pickaxe in
 1,901 ms (predicted 1,900), eye in air, health 18 -> 20 within 4.4 s. attempts 1, successes 1, refusals/aborts/failures

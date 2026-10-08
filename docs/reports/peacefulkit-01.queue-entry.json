@@ -1,0 +1,70 @@
+{
+ "run": "peacefulkit-01",
+ "class": "bag-fix",
+ "after": [
+  "toolhygiene-01"
+ ],
+ "variants": {
+  "92bc84f2ed393b9bf90bc8338a21f3c844c55389": {
+   "registration": "/home/mike/mcai-analysis/peacefulkit-01.92bc84f.json",
+   "approved": "pk-on-92bc84f @ 40046b8: Codex + Claude APPROVE (rounds through r13, docs/reports/peacefulkit-01.92bc84f.json); bag-fix fields from main 9e19a6d (gate agent, both engines APPROVE); registration is the ~/bagfix-regs copy, live in ~/mcai-analysis after install-bagfix-regs.py",
+   "registration_sha256": "fdb1858a2a8b525e22922c2fb382e652c4b1131b228f0be6089e3d833115ba48",
+   "canary_sha": "40046b8ca188801c77586ec80ccf2f7900d0678d",
+   "reads_src": "/home/mike/mcai-analysis",
+   "reads": {
+    "bagread": "b391c93262d881acca34fff1b41610f9",
+    "peacefulkitread": "6151dbca8d250f708ac075fba00eb089",
+    "immobiledid": "53af289df12208901931dbeeb1ae325a"
+   }
+  },
+  "6238095e2335801e686c29a58479bf2ce4216e58": {
+   "registration": "/home/mike/mcai-analysis/peacefulkit-01.6238095.json",
+   "approved": "queue agent 2026-10-08: pk-on-6238095 @ d948bfd = 40046b8 rebased onto toolhygiene 6238095 (one admission/prompt conflict, union); Codex APPROVE r1+r2 + Claude subagent APPROVE r1+r2 (docs/reports/peacefulkit-01.rebase-review-2026-10-08.txt); npm test 241/241; mutants-pk 86/86; bag-fix fields from main 9e19a6d (gate agent, both engines APPROVE)",
+   "registration_sha256": "a499128537b3b4d426bc77103ae9ce227d457dc3043153b0d9a00b6a8450ba6c",
+   "canary_sha": "d948bfd8c22a7b2a0c609841739b9245fa34e735",
+   "reads_src": "/home/mike/mcai-analysis",
+   "reads": {
+    "bagread": "b391c93262d881acca34fff1b41610f9",
+    "peacefulkitread": "6151dbca8d250f708ac075fba00eb089",
+    "immobiledid": "53af289df12208901931dbeeb1ae325a"
+   }
+  },
+  "4970c91de0b947367c580c9665d01edfcec30f61": {
+   "registration": "/home/mike/mcai-analysis/peacefulkit-01.4970c91.json",
+   "approved": "queue agent 2026-10-08: pk-on-4970c91 @ 6f1921a = the same patch on toolhygiene+airpocket 4970c91 (no conflict); Codex APPROVE r2 (its r1 CHANGE on the airpocket window race withdrawn: pre-existing on dbb4d78) + Claude subagent APPROVE r1+r2 (docs/reports/peacefulkit-01.rebase-review-2026-10-08.txt); npm test 242/242; mutants-pk 86/86; bag-fix fields from main 9e19a6d (gate agent, both engines APPROVE)",
+   "registration_sha256": "8ad03a033d1c3a54001eecb0316e60c5f53aac0a06972d3708823b8b15404ef9",
+   "canary_sha": "6f1921a1b75fa0ac3a089895dc49368ab7050a6a",
+   "reads_src": "/home/mike/mcai-analysis",
+   "reads": {
+    "bagread": "b391c93262d881acca34fff1b41610f9",
+    "peacefulkitread": "6151dbca8d250f708ac075fba00eb089",
+    "immobiledid": "53af289df12208901931dbeeb1ae325a"
+   }
+  },
+  "5d1f710b60b138aa6b4f94f33368dddcce93882f": {
+   "registration": "/home/mike/mcai-analysis/peacefulkit-01.5d1f710.json",
+   "approved": "queue agent 2026-10-08: pk-on-5d1f710 @ 3382a17 = the patch on toolhygiene+withdraw2 5d1f710 (import-line conflicts) + a test-only fix (Claude r1 P1, confirmed red); Codex APPROVE r1+r2 + Claude subagent APPROVE r2 (docs/reports/peacefulkit-01.rebase-review-2026-10-08.txt); npm test 243/243; mutants-pk 86/86; bag-fix fields from main 9e19a6d (gate agent, both engines APPROVE)",
+   "registration_sha256": "b8c11a7b07435d81302be69a6bf2bf4a14a45f43e0ff48f4b442dc8c6f8d5569",
+   "canary_sha": "3382a17ef1da82373fae91f05723c3fd6b14f04e",
+   "reads_src": "/home/mike/mcai-analysis",
+   "reads": {
+    "bagread": "b391c93262d881acca34fff1b41610f9",
+    "peacefulkitread": "6151dbca8d250f708ac075fba00eb089",
+    "immobiledid": "53af289df12208901931dbeeb1ae325a"
+   }
+  },
+  "2f38f6967bb7af16adcbddd51af71fdee26b126a": {
+   "registration": "/home/mike/mcai-analysis/peacefulkit-01.2f38f69.json",
+   "approved": "queue agent 2026-10-08: pk-on-2f38f69 @ 4be1a29 = pk-on-5d1f710 on toolhygiene+airpocket+withdraw2 2f38f69 (no conflict); Codex APPROVE r2 + Claude subagent APPROVE r2 (docs/reports/peacefulkit-01.rebase-review-2026-10-08.txt); npm test 244/244; mutants-pk 86/86; bag-fix fields from main 9e19a6d (gate agent, both engines APPROVE)",
+   "registration_sha256": "af8e2052459cc0c240131c1fd6ab880e8bb84686d76981f2986b39ab5f2bdaa8",
+   "canary_sha": "4be1a2960a0d28c1fa5a082c75248a418f570aec",
+   "reads_src": "/home/mike/mcai-analysis",
+   "reads": {
+    "bagread": "b391c93262d881acca34fff1b41610f9",
+    "peacefulkitread": "6151dbca8d250f708ac075fba00eb089",
+    "immobiledid": "53af289df12208901931dbeeb1ae325a"
+   }
+  }
+ },
+ "note": "bag fix: no sword crafted or banked under the peaceful switch, wooden swords as furnace fuel, more plants composted; variants for 92bc84f and the four toolhygiene shas (6238095, 4970c91, 5d1f710, 2f38f69). Needs install-bagfix-regs.py first. NOT built: dbb4d78/a6cd3c1/2189de3 (only needed if toolhygiene is not kept there)."
+}
