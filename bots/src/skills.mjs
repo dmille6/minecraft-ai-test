@@ -6935,7 +6935,14 @@ const DIG_CLICK_GAP_MS = 550
  * the planned listed stack, no window open, nothing on the cursor) and one THROW click empties it. `acc.spawned` are
  * the item entities whose spawn point is THIS body's throw point; `acc.clicked` the slots clicked, with what they held.
  */
+/**
+ * WHAT THIS PROCESS LAST CLICKED INTO THE WELL (Codex, the peacefulkit composition: the outcome grade credited ANY sword
+ * loss): the names the latest throw phase clicked. classifyOutcome credits a sword's loss as the well's evidence only if
+ * the well clicked that sword -- one bot per process, graded right after its skill returns.
+ */
+let wellClickedLast = new Set()
 async function throwStacks (bot, { cap, facing, stacks, bound, waitTick, signal, acc }) {
+  wellClickedLast = new Set()
   const onSpawn = e => {
     const f = bot.entity?.position
     if (e?.name !== 'item' || !e.position || !f) return
@@ -7006,7 +7013,7 @@ async function throwStacks (bot, { cap, facing, stacks, bound, waitTick, signal,
       if (left === null) continue
       if (sword) acc.swords += it.count ?? 1
       if (SCAFFOLD_DECORATIONS.includes(it.name)) { acc.gclicked += it.count ?? 0; acc.stoneMin = Math.min(acc.stoneMin ?? Infinity, left) }
-      acc.clicked.push({ slot: st.slot, name: it.name, count: it.count })
+      acc.clicked.push({ slot: st.slot, name: it.name, count: it.count }); wellClickedLast.add(it.name)
       const click = bot.clickWindow(st.slot, 1, 4)
       acc.tossed++
       await bound(click, HK_AWAIT_MS, 'throw')
@@ -10735,7 +10742,7 @@ export function classifyOutcome(skillName, status, delta = {}, wanted = null) {
   }
   // THE WELL'S OWN EVIDENCE: a loss of listed junk (well.mjs isWellJunk), never any other item. inventory_ prefix: durable.
   if (expects.includes('well_effect')) {
-    const l = Object.entries(inv).filter(([k, n]) => n < 0 && (isWellJunk(k) || isSword(k)))   // a peaceful world's swords too
+    const l = Object.entries(inv).filter(([k, n]) => n < 0 && (isWellJunk(k) || ((isSword(k) || isWellCobble(k)) && wellClickedLast.has(k))))   // a sword (peaceful) or cobble (at the cap) the well CLICKED
     if (l.length) because.push(`inventory_loss: ${l.map(([k, n]) => `${k} ${n}`).join(', ')}`)
   }
   if (expects.includes('position') && (delta.distance ?? 0) >= 2) {
