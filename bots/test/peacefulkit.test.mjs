@@ -247,9 +247,11 @@ for (const [d, on] of [['peaceful', true], ['easy', false]]) {
     setPeacefulFood(!on)   // a STALE decision: the gate and the advice must read the switch themselves
     const r = new AdmissionControl().check({ skill: 'deposit', args: {} }, w.bot)
     // ON THE COBBLE-CAP COUPLING (stonecap-01): the empty-plan refusal comes first, before the due test -- a bag of spare
-    // swords alone is refused as 'deposit_nothing_to_bank' there, naming the sword rule; either refusal is "no deposit due"
-    assert.equal(['deposit_not_worth_it', 'deposit_nothing_to_bank'].includes(r.reason), on, `admission ${d}: ${JSON.stringify(r)}`)
-    if (on && r.reason === 'deposit_nothing_to_bank') assert.match(r.detail, /swords are not banked in a peaceful world; the junk well takes spare ones at town\) — nothing to deposit, keep working/)
+    // swords alone is refused as 'deposit_nothing_to_bank' there (fixed: Claude r1 P2), naming the sword rule
+    if (on) {
+      assert.equal(r.reason, 'deposit_nothing_to_bank', `admission ${d}: ${JSON.stringify(r)}`)
+      assert.match(r.detail, /swords are not banked in a peaceful world\) — nothing to deposit, keep working/)
+    } else assert.ok(!['deposit_not_worth_it', 'deposit_nothing_to_bank'].includes(r.reason), `admission ${d}: the swords are bankable here: ${JSON.stringify(r)}`)
     setPeacefulFood(!on)
     assert.equal(depositWorthIt(w.bot, swordBag(w)), !on, `depositWorthIt ${d}`)
     setPeacefulFood(!on)
