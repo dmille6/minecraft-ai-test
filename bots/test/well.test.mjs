@@ -483,6 +483,7 @@ const G0 = HOME.y - 1   // the fake town is flat: grass at G0, dirt below, feet 
  * mineflayer hears an item's resting position 20 ticks after it spawns; the server hands an item to a body whose box
  * holds it once the pickup delay (40 ticks for a throw, 10 for a dig) has passed and the bag has room.
  */
+const TOSS_SPEED = 0.3
 function fakeTown ({ items = [], hand = null, storeDir = null, blocks = {}, wellAt = null, wellOpen = false, wellFacing = 'north', players = {}, botAt = null, unloaded = [] } = {}) {
   process.env.POOL_STATE_DIR = storeDir ?? mkdtempSync(path.join(tmpdir(), 'well-store-'))
   const world = new Map(Object.entries(blocks).map(([k, v]) => [k, typeof v === 'string' ? { name: v } : v]))
@@ -557,7 +558,11 @@ function fakeTown ({ items = [], hand = null, storeDir = null, blocks = {}, well
     lookAt: async (p) => {
       const f = bot.entity.position, eye = { x: f.x, y: f.y + 1.62, z: f.z }
       const h = Math.hypot(p.x - eye.x, p.z - eye.z)
-      state.lookPitch = Math.atan2(eye.y - p.y, h) * 180 / Math.PI; state.lookDir = { x: (p.x - eye.x) / h, z: (p.z - eye.z) / h }
+      bot.entity.yaw = Math.atan2(-(p.x - eye.x), -(p.z - eye.z)); bot.entity.pitch = Math.atan2(p.y - eye.y, h)   // mineflayer's lookAt
+      const pitch = Math.atan2(eye.y - p.y, h) * 180 / Math.PI, dir = { x: (p.x - eye.x) / h, z: (p.z - eye.z) / h }
+      state.clientPitch = pitch
+      // THE SERVER'S ROTATION (sandbox 10-08): a look the server drops (dropLooks) leaves the one it had
+      if (state.dropLooks > 0) state.dropLooks--; else { state.lookPitch = pitch; state.lookDir = dir }
       await state.onLook?.()
     },
     equip: async (item, dest) => {
@@ -640,7 +645,9 @@ function fakeTown ({ items = [], hand = null, storeDir = null, blocks = {}, well
       if (state.missNext > 0) { state.missNext--; const cap = capCell() ?? f.floored(); rest = new Vec3(cap.x + 0.5, G0 + 1, cap.z + 1.3) } else rest = landAt(X, Z)
       const id = state.nextId++
       const served = state.serverSubstitute ?? it.name; state.serverSubstitute = null   // the item AS THE SERVER drops it
-      const entity = { id, name: 'item', position: spawn, getDroppedItem: () => ({ name: served, count: it.count }) }
+      const ph = state.lookPitch * Math.PI / 180
+      const entity = { id, name: 'item', position: spawn, velocity: { x: state.lookDir.x * TOSS_SPEED * Math.cos(ph), y: 0, z: state.lookDir.z * TOSS_SPEED * Math.cos(ph) },
+                       getDroppedItem: () => ({ name: served, count: it.count }) }
       bot.entities[id] = entity
       state.pending.push({ entity, rest, at: state.tick + 40, spawnTick: state.tick, name: it.name, count: it.count })
       bot.emit('entitySpawn', entity)
@@ -704,6 +711,10 @@ function fakeTown ({ items = [], hand = null, storeDir = null, blocks = {}, well
     on: (k, f) => { (ls[k] ??= []).push(f) }, removeListener: (k, f) => { ls[k] = (ls[k] ?? []).filter(g => g !== f) },
     write: (name, p) => {
       state.writes.push({ name, p, tick: state.tick })
+      if (name === 'look') {   // a raw look: the server takes it (notchian degrees: pitch down, yaw from -z clockwise)
+        const yr = p.yaw * Math.PI / 180
+        state.lookPitch = p.pitch; state.lookDir = { x: -Math.sin(yr), z: Math.cos(yr) }
+      }
       if (name === 'window_click' && p.slot === -999 && p.stateId === -1 && !state.serverSilent) {
         queueMicrotask(() => { state.onResync?.(); for (const f of ls.window_items ?? []) f({ windowId: 0 }) })
       }
@@ -1538,6 +1549,45 @@ await t('P3 an interrupted build that leaves its shaft uncapped writes _well_pit
   assert.equal(r.status, 'failed')
   const row = (await rows('_well_pit_open')).pop()
   assert.ok(row, 'no pit row'); assert.match(row.skill.detail, new RegExp(`at=${CAP.x},${CAP.y},${CAP.z} stage=dug`))
+})
+// ---- THE AIM SAID AGAIN (sandbox 10-08: the server dropped the aim look in 12 of 12 pit-first throws) -----------------
+await t('AIM, pure: the spawn velocity says which pitch the server threw at', () => {
+  const v = p => ({ vx: 0, vz: 0.3 * Math.cos(p * Math.PI / 180) })
+  assert.equal(W.aimApplied({ ...v(49.95), pitchDeg: 49.95 }), true)
+  assert.equal(W.aimApplied({ vx: 0.019, vz: v(49.95).vz, pitchDeg: 49.95 }), true, 'within the 0.02 kick')
+  assert.equal(W.aimApplied({ ...v(72.15), pitchDeg: 49.95 }), false, 'the sandbox miss: thrown at the dig look')
+  assert.equal(W.aimApplied({ vx: 0, vz: 0.1085, pitchDeg: 49.95 }), false, 'the traced spawn velocity of a miss (868/8000)')
+  assert.equal(W.aimApplied({ vx: undefined, vz: 0.1, pitchDeg: 50 }), null)
+})
+const dropScene = () => {
+  const town = fakeTown({ hand: S('cobblestone', 64), items: [S('oak_log', 3), S('egg', 16), S('egg', 16), S('flint', 64), ...filler(31)] })
+  // AS TRACED: the server holds the dig look (72.15, toward the pit) and drops the FIRST look after the pit's second dig
+  const dig = town.bot.dig
+  town.bot.dig = async (b, ...a) => {
+    await dig(b, ...a)
+    if (town.state.digs.length >= 2 && !town.state.armed) { town.state.armed = true; town.state.lookPitch = 72.15; town.state.lookDir = { x: 0, z: 1 }; town.state.dropLooks = 1 }
+  }
+  return town
+}
+await t('AIM: the server drops the aim look -- the aim said again lands the pit-first throw (no miss, aim_off=0, the well built)', async () => {
+  const town = dropScene()
+  const n0 = (await rows('_well_dispose')).length
+  const r = await run('build_well', town.bot)
+  assert.equal(r.status, 'success', r.detail)
+  const pits = (await rows('_well_dispose')).slice(n0).filter(x => /stop=pit_first/.test(x.skill.detail))
+  assert.equal(pits.length, 1, 'one phase: the first throw landed')
+  const pit = pits[0]
+  assert.equal(field(pit.skill.detail, 'misses'), '0'); assert.equal(field(pit.skill.detail, 'aim_off'), '0')
+  assert.ok(town.state.writes.filter(w => w.name === 'look').length >= 2, 'positive control: the look was written again')
+})
+await t('MUTANT (skills): without the aim said again, the dropped look throws at the dig pitch: a miss, aim_off=1', async () => {
+  await withMutant(SP, '      await waitTick(); resendLook(bot); await waitTick(); resendLook(bot); await waitTick()\n', '      await waitTick(); await waitTick()\n', async m => {
+    const town = dropScene()
+    const n0 = (await rows('_well_dispose')).length
+    await within(m.SKILLS.build_well.run({ bot: town.bot }, {}, { aborted: false }), 15000, 'mutant')
+    const pit = (await rows('_well_dispose')).slice(n0).filter(x => /stop=pit_first/.test(x.skill.detail))[0]   // the FIRST phase
+    assert.ok(Number(field(pit.skill.detail, 'misses')) >= 1, 'mutant inert: ' + pit.skill.detail); assert.equal(field(pit.skill.detail, 'aim_off'), '1')
+  })
 })
 // ---- AN ABANDONED BUILD NEVER LEAVES AN OPEN PIT (coordinator 10-08) ------------------------------------------------
 const pitCells = town => [town.cell(new Vec3(CAP.x, CAP.y - 1, CAP.z)).name, town.cell(new Vec3(CAP.x, CAP.y, CAP.z)).name]

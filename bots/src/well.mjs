@@ -607,6 +607,17 @@ export function wellAim ({ from, cap, facing = null, rise = 0 }) {
   return { pitch: best.pitch, rate: best.rate, dist, ok, why: ok ? null : `predicted hit rate ${best.rate.toFixed(3)} below ${MIN_HIT_RATE}` }
 }
 
+/**
+ * DID THE SERVER THROW AT OUR PITCH? -> true / false / null (no velocity). Pure. A thrown item's SPAWN velocity carries the
+ * server's rotation (vanilla's drop: horizontal speed 0.3*cos(pitch) plus a kick of at most 0.02). Sandbox 10-08: the
+ * server dropped the bot's aim look in 12 of 12 traced pit-first throws (RCON read the dig look, 72.15, after the click)
+ * and the item spawned at 72-degree speed (~0.09 a tick instead of ~0.19) -- this is the throw's own receipt.
+ */
+export function aimApplied ({ vx, vz, pitchDeg }) {
+  if (!Number.isFinite(vx) || !Number.isFinite(vz) || !Number.isFinite(pitchDeg)) return null
+  return Math.abs(Math.hypot(vx, vz) - TOSS.speed * Math.cos(pitchDeg * Math.PI / 180)) <= TOSS.hNoise + 0.005
+}
+
 /** The point to look at so the eye's ray points at the opening's centre, `pitchDeg` below the horizontal. Pure. */
 export function aimPoint ({ eye, cap, pitchDeg, facing = null }) {
   const { x: cx, z: cz } = aimTarget(cap, facing)
@@ -911,14 +922,14 @@ const list = items => Object.entries(items ?? {}).filter(([, c]) => c > 0).map((
  */
 export function wellDisposeDetail ({ slotsBefore, slotsAfter, items = {}, tossed = 0, misses = 0, retaken = 0, recollected = 0, nonlisted = 0, otherLoss = 0,
                                      source = 'local', closedOpen = false, stop = 'done', at = null, offlist = 0, offlistItems = {}, unnamed = 0, capEnd = null,
-                                     stone = null, gclicked = 0, swords = 0, peaceful = null, swordLost = 0, swordsKept = 0 } = {}) {
+                                     stone = null, gclicked = 0, swords = 0, peaceful = null, swordLost = 0, swordsKept = 0, aimOff = 0 } = {}) {
   const n = Object.values(items).reduce((a, b) => a + b, 0)
   // offlist= FIRST after slots (the read's C3 gate): thrown entities whose item, AS THE SERVER NAMES IT, is off the list
   // gclicked= / stone= right after offlist (the read's C7 gate): scaffold-capable decorations CLICKED (from the clicks, so an
   // unanswered final resync cannot hide them) and the least RESERVE_STONE any of those clicks left (STONE_GUARD+ or a breach)
   // swords= (swords CLICKED) and peaceful= (the switch as read at the last sword click) next: the read's sword gate
   return (`slots=${slotsBefore}->${slotsAfter} offlist=${offlist} gclicked=${gclicked}${stone != null ? ` stone=${stone}` : ''} swords=${swords}${peaceful != null ? ` peaceful=${peaceful ? 1 : 0}` : ''} sword_lost=${swordLost} sword_kept=${swordsKept} offlist_items=${list(offlistItems)} unnamed=${unnamed} ` +
-          `freed=${(slotsBefore ?? 0) - (slotsAfter ?? 0)} tossed=${tossed} n=${n} misses=${misses} ` +
+          `freed=${(slotsBefore ?? 0) - (slotsAfter ?? 0)} tossed=${tossed} n=${n} misses=${misses} aim_off=${aimOff} ` +
           `retaken=${retaken} recollected=${recollected} nonlisted=${nonlisted} other_loss=${otherLoss} server=${source} closed_open=${closedOpen ? 1 : 0}` +
           `${capEnd ? ` cap_end=${capEnd}` : ''}` +
           `${at ? ` at=${at.x},${at.y},${at.z}` : ''} stop=${String(stop).replace(/\s+/g, '_').slice(0, 80)} items=${list(items)}`).slice(0, 300)
