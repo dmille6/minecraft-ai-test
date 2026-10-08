@@ -654,6 +654,16 @@ export function wellAim ({ from, cap, facing = null, rise = 0 }) {
  * 49.95 spawned at 0.180-0.211 (expected 0.193); 5 dropped-look throws at 0.085-0.111 (expected 0.092 at 72.15).
  */
 export const AIM_TOLERANCE = 0.04
+/**
+ * A spawn_entity packet's velocity in blocks per tick -> { vx, vz } | null. Pure. Up to 1.21.8 the field is vec3i16 in
+ * 1/8000 of a block per tick; from 1.21.9 it is lpVec3, already decoded to blocks per tick by minecraft-protocol
+ * (Claude r2 P3: the fleet's default MINECRAFT_VERSION is 1.21.11; the sandbox traces were 1.21.8 shorts).
+ */
+export function packetVelocity (v, lpVec3) {
+  if (!v || !Number.isFinite(v.x) || !Number.isFinite(v.z)) return null
+  const k = lpVec3 ? 1 : 1 / 8000
+  return { vx: v.x * k, vz: v.z * k }
+}
 export function aimApplied ({ vx, vz, pitchDeg }) {
   if (!Number.isFinite(vx) || !Number.isFinite(vz) || !Number.isFinite(pitchDeg)) return null
   return Math.abs(Math.hypot(vx, vz) - TOSS.speed * Math.cos(pitchDeg * Math.PI / 180)) <= AIM_TOLERANCE

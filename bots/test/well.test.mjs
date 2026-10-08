@@ -651,8 +651,10 @@ function fakeTown ({ items = [], hand = null, storeDir = null, blocks = {}, well
       bot.entities[id] = entity
       state.pending.push({ entity, rest, at: state.tick + 40, spawnTick: state.tick, name: it.name, count: it.count })
       bot.emit('entitySpawn', entity)
-      const nv = k => Math.round(k * TOSS_SPEED * Math.cos(ph) * 0.98 * 8000)   // one tick of drag, notchian 1/8000 units
-      for (const f of [...(ls.spawn_entity ?? [])]) f({ entityId: id, velocity: { x: nv(state.lookDir.x), y: -900, z: nv(state.lookDir.z) } })
+      // one tick of drag; the registry's protocol shape: lpVec3 (blocks/tick) from 1.21.9, vec3i16 (1/8000) before
+      const lp = REG.version['>=']('1.21.9'), nv = k => (lp ? k * TOSS_SPEED * Math.cos(ph) * 0.98 : Math.round(k * TOSS_SPEED * Math.cos(ph) * 0.98 * 8000))
+      if (state.foreignSpawn) for (const f of [...(ls.spawn_entity ?? [])]) f({ entityId: 99999, velocity: { x: 0, y: 0, z: 0 } })   // another entity's spawn
+      for (const f of [...(ls.spawn_entity ?? [])]) f({ entityId: id, velocity: { x: nv(state.lookDir.x), y: lp ? -0.11 : -900, z: nv(state.lookDir.z) } })
       await state.onClick?.(slot)
     },
     dig: async (b) => {
@@ -1553,6 +1555,14 @@ await t('P3 an interrupted build that leaves its shaft uncapped writes _well_pit
   assert.ok(row, 'no pit row'); assert.match(row.skill.detail, new RegExp(`at=${CAP.x},${CAP.y},${CAP.z} stage=dug`))
 })
 // ---- THE AIM SAID AGAIN (sandbox 10-08: the server dropped the aim look in 12 of 12 pit-first throws) -----------------
+await t('AIM, pure: the packet velocity in both protocol shapes; the calibrated band at the 0.04 tolerance', () => {
+  assert.deepEqual(W.packetVelocity({ x: 0, y: -900, z: 1544 }, false), { vx: 0, vz: 0.193 }, '1.21.8 vec3i16: 1/8000 units')
+  assert.deepEqual(W.packetVelocity({ x: 0, y: -0.11, z: 0.193 }, true), { vx: 0, vz: 0.193 }, '1.21.9+ lpVec3: blocks per tick')
+  assert.equal(W.packetVelocity(null, false), null)
+  // the sandbox traces 10-08 (1.21.8): applied 0.180-0.211 at 49.95, dropped 0.085-0.111 (thrown at 72.15)
+  for (const h of [0.180, 0.1836, 0.193, 0.2066, 0.211]) assert.equal(W.aimApplied({ vx: 0, vz: h, pitchDeg: 49.95 }), true, `applied ${h}`)
+  for (const h of [0.085, 0.0951, 0.111]) assert.equal(W.aimApplied({ vx: 0, vz: h, pitchDeg: 49.95 }), false, `dropped ${h}`)
+})
 await t('AIM, pure: the spawn velocity says which pitch the server threw at', () => {
   const v = p => ({ vx: 0, vz: 0.3 * Math.cos(p * Math.PI / 180) })
   assert.equal(W.aimApplied({ ...v(49.95), pitchDeg: 49.95 }), true)
@@ -1593,7 +1603,7 @@ await t('MUTANT (skills): without the aim said again, the dropped look throws at
   })
 })
 await t('MUTANT (skills): the receipt read from entity.velocity (Claude r1: mineflayer never sets it at spawn) counts every landed throw as aim_off', async () => {
-  await withMutant(SP, '    const v = pk.velocity\n', '    const v = acc.spawned.find(e => e.id === pk?.entityId)?.velocity\n', async m => {
+  await withMutant(SP, '    const v = packetVelocity(pk.velocity, lpVec3)\n', '    const v = (e => e && { vx: e.velocity.x, vz: e.velocity.z })(acc.spawned.find(e => e.id === pk?.entityId))\n', async m => {
     const town = dropScene()
     const n0 = (await rows('_well_dispose')).length
     await within(m.SKILLS.build_well.run({ bot: town.bot }, {}, { aborted: false }), 15000, 'mutant')
@@ -1838,6 +1848,109 @@ await t('MUTANT (skills): reading the end state before the in-flight dig settles
     await within(m.SKILLS.build_well.run({ bot: town.bot }, {}, sig), 15000, 'mutant').catch(() => {})
     await new Promise(r => setTimeout(r, 200))
     assert.equal((await rows('_well_pit_covered')).length, c0.covered + 1, 'mutant inert')
+  })
+})
+const coverLookHook = (town, fn) => {
+  const look = town.bot.lookAt
+  let done = false
+  town.bot.lookAt = async (p, f) => { if (town.bot.heldItem?.name === 'dirt' && !done) { done = true; await fn() } return look(p, f) }
+}
+const movedRecordScene = async () => {
+  const town = giveUpScene([S('dirt', 1)])
+  const C = await import('../src/composter.mjs')
+  coverLookHook(town, () => { assert.ok(C.createSiteGen(process.env.POOL_STATE_DIR, `junkwell-site-${HOME.x}_${HOME.y}_${HOME.z}`, 2, { x: CAP.x + 6, y: CAP.y, z: CAP.z }, null)) })
+  return town
+}
+await t('COVER (Claude r2 P3): the site record moving during the cover\'s look stops the place (the gen re-check after the awaits)', async () => {
+  const town = await movedRecordScene()
+  const c0 = await counts(), p0 = town.state.places.length
+  await run('build_well', town.bot)
+  assert.equal(town.state.places.length, p0); assert.deepEqual(pitCells(town), ['air', 'air'])
+  assert.match((await newRows('_well_pit_open', c0.open)).pop()?.skill.detail ?? '', /why=the_site_record_moved/)
+})
+const coveredMeanwhileScene = () => {
+  const town = giveUpScene([S('dirt', 1)])
+  coverLookHook(town, () => { town.world.set(town.key({ x: CAP.x, y: CAP.y, z: CAP.z }), { name: 'cobblestone' }) })   // someone else covered it
+  return town
+}
+await t('COVER (Claude r2 P3): a pit covered by someone else during the cover\'s look is not placed into (the stage re-check after the awaits)', async () => {
+  const town = coveredMeanwhileScene()
+  const c0 = await counts(), p0 = town.state.places.length
+  await run('build_well', town.bot)
+  assert.equal(town.state.places.length, p0, 'nothing placed')
+  assert.match((await newRows('_well_pit_covered', c0.covered)).pop()?.skill.detail ?? '', /stage=covered by=closed/)
+})
+await t('MUTANT (skills): without the gen re-check after the awaits the cover goes into a site the record moved off', async () => {
+  await withMutant(SP, "  if (cur.gen !== gen || !cur.site || cur.site.x !== site.x || cur.site.y !== site.y || cur.site.z !== site.z) return { why: `the site record moved (generation ${gen} -> ${cur.gen})`, soft: true }\n", '', async m => {
+    const town = await movedRecordScene()
+    await within(m.SKILLS.build_well.run({ bot: town.bot }, {}, { aborted: false }), 15000, 'mutant')
+    assert.deepEqual(pitCells(town), ['air', 'dirt'], 'mutant inert')
+  })
+})
+await t('MUTANT (skills): without the stage re-check after the awaits the cover is clicked into a covered cell', async () => {
+  await withMutant(SP, "  if (!isOpenPit(stage())) return { why: `the site reads ${stage()}`, soft: true }\n", '', async m => {
+    const town = coveredMeanwhileScene()
+    const p0 = town.state.places.length, c0 = await counts()
+    await within(m.SKILLS.build_well.run({ bot: town.bot }, {}, { aborted: false }), 15000, 'mutant')
+    assert.match((await newRows('_well_pit_covered', c0.covered)).pop()?.skill.detail ?? '', /by=build/, 'mutant inert: the place was attempted and credited')
+    assert.equal(town.state.places.length, p0)
+  })
+})
+const driftScene = () => {
+  const town = giveUpScene()
+  town.state.missNext = 0
+  // A ROTATION MOVED AFTER THE AIM (a server correction): on the second resend, mineflayer's pitch is knocked 0.3 rad up
+  let n = 0
+  const write = town.bot._client.write
+  town.bot._client.write = (name, p) => {
+    const out = write(name, p)
+    if (name === 'look' && ++n === 2) { town.bot.entity.pitch += 0.3; town.state.lookPitch -= 0.3 * 180 / Math.PI }   // the server's correction, both sides
+    return out
+  }
+  return town
+}
+await t('AIM (Claude r2 P3): a rotation moved after the aim is aimed again before the click -- the throw still lands', async () => {
+  const town = driftScene()
+  const n0 = (await rows('_well_dispose')).length
+  const r = await run('build_well', town.bot)
+  assert.equal(r.status, 'success', r.detail)
+  const pit = (await rows('_well_dispose')).slice(n0).filter(x => /stop=pit_first/.test(x.skill.detail))[0]
+  assert.equal(field(pit.skill.detail, 'misses'), '0')
+})
+await t('MUTANT (skills): without the re-aim a moved rotation is what the click throws at (a miss)', async () => {
+  await withMutant(SP, "      if (Math.abs(bot.entity.pitch - want.pitch) > 0.009 || Math.abs(bot.entity.yaw - want.yaw) > 0.009) {\n", '      if (false) {\n', async m => {
+    const town = driftScene()
+    const n0 = (await rows('_well_dispose')).length
+    await within(m.SKILLS.build_well.run({ bot: town.bot }, {}, { aborted: false }), 15000, 'mutant').catch(() => {})
+    const pit = (await rows('_well_dispose')).slice(n0).filter(x => /stop=pit_first/.test(x.skill.detail))[0]
+    assert.ok(Number(field(pit.skill.detail, 'misses')) >= 1, 'mutant inert: ' + pit?.skill.detail)
+  })
+})
+await t('MUTANT (skills): the receipt without the entity filter counts another entity\'s spawn packet', async () => {
+  await withMutant(SP, '    if (acc.aimPitch == null || !acc.spawned.some(e => e.id === pk?.entityId)) return\n', '    if (acc.aimPitch == null) return\n', async m => {
+    const town = dropScene(); town.state.foreignSpawn = true
+    const n0 = (await rows('_well_dispose')).length
+    await within(m.SKILLS.build_well.run({ bot: town.bot }, {}, { aborted: false }), 15000, 'mutant')
+    const pit = (await rows('_well_dispose')).slice(n0).filter(x => /stop=pit_first/.test(x.skill.detail))[0]
+    assert.equal(field(pit.skill.detail, 'misses'), '0', 'positive control: the throw landed')
+    assert.notEqual(field(pit.skill.detail, 'aim_off'), '0', 'mutant inert')
+  })
+})
+await t('AIM: another entity\'s spawn packet during the throw is not the throw\'s receipt (aim_off=0, aim_read=1)', async () => {
+  const town = dropScene(); town.state.foreignSpawn = true
+  const n0 = (await rows('_well_dispose')).length
+  await run('build_well', town.bot)
+  const pit = (await rows('_well_dispose')).slice(n0).filter(x => /stop=pit_first/.test(x.skill.detail))[0]
+  assert.equal(field(pit.skill.detail, 'aim_off'), '0'); assert.equal(field(pit.skill.detail, 'aim_read'), field(pit.skill.detail, 'tossed'))
+})
+await t('MUTANT (skills): the receipt read as 1/8000 units on a 1.21.9+ registry (lpVec3) calls every landed throw off', async () => {
+  await withMutant(SP, "  try { lpVec3 = !!bot.registry?.version?.['>=']?.('1.21.9') } catch { lpVec3 = false }\n", '', async m => {
+    const town = dropScene()
+    const n0 = (await rows('_well_dispose')).length
+    await within(m.SKILLS.build_well.run({ bot: town.bot }, {}, { aborted: false }), 15000, 'mutant')
+    const pit = (await rows('_well_dispose')).slice(n0).filter(x => /stop=pit_first/.test(x.skill.detail))[0]
+    assert.equal(field(pit.skill.detail, 'misses'), '0', 'positive control: the throw landed')
+    assert.notEqual(field(pit.skill.detail, 'aim_off'), '0', 'mutant inert (the test registry is ' + REG.version.minecraftVersion + ')')
   })
 })
 await t('MUTANT (skills): without the cover the abandoned pit stays open', async () => {

@@ -61,7 +61,7 @@ import { townDepositPlan, fitToContainer, townDepositDetail, inTownZone, doubleC
 import { WOODEN_TRAPDOOR, isWellJunk, disposePlan, wellIdentity, wellStage, wellStand, standForFacing, wellSiteRefusal, canonicalWellSite,
          wellBuildPlan, wellBuildRoom, wellAim, aimPoint, tossOutcome, wellAdmission, wellDisposeDetail, itemInWell, bodyInWell, TOSS,
          trapdoorsNeeded, MAX_STACKS_PER_VISIT, wellBreach, usableStands, thrownNames, WELL_HOME_CLEARANCE,
-         disposableIn, guardLeft, reserveStone, SCAFFOLD_DECORATIONS, isSword, swordSwitch, aimApplied,
+         disposableIn, guardLeft, reserveStone, SCAFFOLD_DECORATIONS, isSword, swordSwitch, aimApplied, packetVelocity,
          isOpenPit, isCoveredPit, pitCoverItem, PIT_COVER_REMEDY, coverRef, bodyInPit } from './well.mjs'
 import { resyncPacket, GUARDED_INVENTORY_ACTIONS } from './craftsync.mjs'
 import path from 'node:path'
@@ -6353,6 +6353,7 @@ async function coverPit (bot, { site, gen, g, signal, by }) {
   const read = readWellCell(bot)
   const items = () => bot.inventory?.items?.() ?? []
   const stage = () => wellStage(read, site)
+  check(signal)   // an abort during the caller's settle: nothing is sent (Claude r2 P3)
   const before = stage()
   if (!isOpenPit(before)) return { why: `not an open pit (${before})`, soft: true }
   if (!pitCoverItem(items())) return { why: 'no cover block in the bag' }
@@ -6562,10 +6563,12 @@ async function throwStacks (bot, { cap, facing, stacks, bound, waitTick, signal,
   // the PACKET (Claude r1): mineflayer 4.37.1's spawn_entity handler never copies it, so entity.velocity is still (0,0,0)
   // at entitySpawn. This listener is registered after mineflayer's, so the entity is already judged ours (onSpawn) when
   // it runs for the same packet.
+  let lpVec3 = false
+  try { lpVec3 = !!bot.registry?.version?.['>=']?.('1.21.9') } catch { lpVec3 = false }
   const onSpawnPacket = pk => {
     if (acc.aimPitch == null || !acc.spawned.some(e => e.id === pk?.entityId)) return
-    const v = pk.velocity
-    const ok = v ? aimApplied({ vx: v.x / 8000, vz: v.z / 8000, pitchDeg: acc.aimPitch }) : null
+    const v = packetVelocity(pk.velocity, lpVec3)
+    const ok = v ? aimApplied({ vx: v.vx, vz: v.vz, pitchDeg: acc.aimPitch }) : null
     if (ok === null) return
     acc.aimRead = (acc.aimRead ?? 0) + 1
     if (ok === false) acc.aimOff = (acc.aimOff ?? 0) + 1
