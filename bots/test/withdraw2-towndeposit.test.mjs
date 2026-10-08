@@ -4,11 +4,13 @@
 //      town deposit when it fires right after the pull -- whether the craft failed (the ingots wait in the bag for the
 //      next attempt) or succeeded (the new iron pickaxe, and the stone one it replaces, stay).
 //   2. THE OTHER DIRECTION. withdraw's room-making is withdraw-01's rule, unchanged (bankable whole stacks, cheapest
-//      first, never the recipe's own names): when a full bag must make room it may bank coal or raw_iron, which the town
-//      deposit keeps (IRON_LADDER). A one-way move -- the town deposit never withdraws and withdraw2 never takes coal --
-//      so the two cannot ping-pong; and the town deposit, first in the loop at >= 34 slots, usually frees the room
-//      before withdraw needs to make any. (A surplus-first room order was tried and reverted: it ignored the chest's
-//      capacity and could decline a pull the old order completed -- Codex rebase review P1.)
+//      first by DEPOSIT_VALUE, never the recipe's own names): when a full bag must make room, COAL IS THE FIRST
+//      CANDIDATE (then raw_iron; names outside DEPOSIT_VALUE such as raw_copper go last) -- and the town deposit keeps
+//      both (IRON_LADDER). Not a rare fallback (Claude rebase review P2), but a one-way move: the town deposit never
+//      withdraws and withdraw2 never takes coal, so the two cannot ping-pong; the read reports these room deposits.
+//      How often the town deposit (first in the loop at >= 34 slots) frees the room first is NOT measured here.
+//      (A surplus-first room order was tried and reverted: it ignored the chest's capacity and could decline a pull the
+//      old order completed -- Codex rebase review P1. Capacity-aware choice at the chest is the follow-up.)
 //
 // Behaviour only: withdraw_pick runs through the real skill against fakeworld.mjs (the craft substituted, as in
 // withdraw2.test.mjs); the town deposit's decision is the REAL townDepositPlan / townDepositOrder the order and the
