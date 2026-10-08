@@ -11,6 +11,24 @@ behind it (chain-ore.sh stopped 10-01 on fixes-02's revert)._
 
 ---
 
+## 10-08 ~05Z — GATE v34 (UNDERGROUND-SAFETY DEATH GATE) BUILT + STAGED, NOT INSTALLED; airpocket registrations ready
+Both engines APPROVE (Claude r2-r10, Codex r10). On main d6e5eb0; staged on 10.0.0.31 in ~/gate-v34 with
+MANIFEST-v34.txt (exact md5 of every staged file, each target's live md5 before, the predicted digest). Dry run (twice,
+manifest self-verified): every suite passes (test_usafe 123/123, 42 mutants), predicted bundle
+9452993d3c05777bb8107b66c8846655; it refuses while towndeposit-02 is live. NOTHING on the host was changed: live
+verdict.py 07ad5e09, canary-loop.sh 19a06267, gatedigest OK on v33 (ac3da3b6). INSTALL BETWEEN CANARIES, sequenced with
+the multi-lane install by the coordinator:  ssh mike@10.0.0.31 'bash ~/gate-v34/install-gate-v34.sh'
+- The gate: class underground-safety; psi = canary POST/PRE over control POST/PRE (PRE 24 h); TRIP iff >= 2 canary
+  deaths AND LB > 2.0 (calibrated). No-change false trip 3.3% (6 h) / 4.4% (26 h) on the five drowning pools (today's
+  gate: 12.9% / 29.0%). Power vs a doubling 17.5% / 25.4%. Linkage by the registration's link_rules reverts at the floor.
+- **OWNER DECISION BEFORE AIRPOCKET LAUNCHES:** in the stratum airpocket is drawn for (pools already >= 2x control), the
+  built gate catches a doubling 3.3% and a tripling 34% at 26 h -- effectively blind; linkage + the read's C3 are the
+  protection. The alternative HYB@2.5 (DiD OR matched-pool control) keeps <= 2.5% false trip and catches 35% / 76% there,
+  resting on a single 5-bot control pool. Built: DID24@2.0. Report: docs/reports/usafe-death-gate-2026-10-08.md.
+- airpocket-01.{ee21207,dbb4d78}.json: class underground-safety, link_rules, linkage_extra [] (the old dict crashed
+  verdict.py and changerowcheck.py). Exposure NOT powered at 6 h (P(>= 2 attempts) ~50%); the registered extension to
+  +1560 reaches ~95% (conditional estimate).
+
 ## 10-08 — PEACEFULKIT-01 REVISION 2: two Codex defects from the junkwell-02 merge fixed; both engines APPROVE; NOT LAUNCHED
 New heads (junkwell-02's jw-on-* need a rebase onto them): `pk-on-c6e91a8` @ 39fbcde (was 6dc10d1) and `pk-on-92bc84f` @
 40046b8 (was f2c4ba0); code approved at a68dc5c / f25f050, the head commits are test-only. (1) Spare swords were still
