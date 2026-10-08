@@ -1980,6 +1980,17 @@ await t('MUTANT (skills): by=closed for any stage but invalid says an open cap i
     assert.equal((await rows('_well_pit_covered')).length, c0.covered + 1, 'mutant inert')
   })
 })
+await t('SWORDS ON PEACEFULKIT: the well classifies with peacefulkit\'s unwantedSword under its own strict switch', async () => {
+  const PK = await import('../src/peacefulkit.mjs')
+  assert.equal(W.isSword, PK.isSword, 'one isSword')
+  for (const n of ['wooden_sword', 'stone_sword', 'iron_sword', 'diamond_sword', 'netherite_sword', 'golden_sword', 'stone_pickaxe', 'sword', 'egg']) {
+    for (const p of [true, false]) assert.equal(W.swordGoes(n, p), PK.unwantedSword({ name: n }, p), `${n} ${p}`)
+  }
+  assert.equal(W.swordGoes('stone_sword', true), true, 'positive control')
+  // the switch: peaceful only, and only with foodskip's switch on
+  assert.equal(W.swordSwitch('auto', 'peaceful'), true)
+  for (const [m, d] of [['auto', 'easy'], ['on', 'normal'], ['on', 'hard'], ['off', 'peaceful']]) assert.equal(W.swordSwitch(m, d), false, `${m}/${d}`)
+})
 await t('MUTANT (skills): without the cover the abandoned pit stays open', async () => {
   await withMutant(SP, "        else { const res = await coverPit(bot, { site, gen, g, signal, by: 'build' }); why = res.why ?? null; if (res.ok) pitClosedLogged = true }\n", "        else why = 'mutant'\n", async m => {
     const town = giveUpScene([S('dirt', 1)])
@@ -2269,12 +2280,12 @@ await t('MUTANT (skills): swords allowed in the pit-first build', async () => {
   })
 })
 await t('MUTANT: swords without the switch go down the well in any world', async () => {
-  await withMutant(WP, 'export const swordGoes = (name, peaceful) => !!peaceful && isSword(name)', 'export const swordGoes = (name, peaceful) => isSword(name)', async m => {
+  await withMutant(WP, 'export const swordGoes = (name, peaceful) => unwantedSword({ name }, peaceful)', 'export const swordGoes = (name, peaceful) => unwantedSword({ name }, true)', async m => {
     assert.equal(m.disposePlan([{ name: 'stone_sword', count: 1, slot: 9 }]).stacks.length, 1, 'mutant inert')
   })
 })
 await t('MUTANT (skills): no switch re-read at the click throws a sword in a world turned easy', async () => {
-  await withMutant(SP, '      if (sword) { const p = wellSwordsNow(bot); if (!p) { acc.swordsKept++; continue } acc.peaceful = (acc.peaceful ?? true) && p }\n', '      if (sword) { acc.peaceful = true }\n', async m => {
+  await withMutant(SP, '      if (sword) { const p = wellSwordsNow(bot); if (!unwantedSword(it, p)) { acc.swordsKept++; continue } acc.peaceful = (acc.peaceful ?? true) && p }\n', '      if (sword) { acc.peaceful = true }\n', async m => {
     const town = peacefulTown([S('egg', 16), S('stone_sword', 1), ...filler(34)], 'peaceful')
     town.state.onLook = () => { if (town.state.clicks.length >= 1) town.bot.serverDifficulty = 'easy' }
     await within(m.SKILLS.dispose_well.run({ bot: town.bot }, {}, { aborted: false }), 15000, 'mutant')
