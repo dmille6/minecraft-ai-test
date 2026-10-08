@@ -61,7 +61,7 @@ import { townDepositPlan, fitToContainer, townDepositDetail, inTownZone, doubleC
 import { WOODEN_TRAPDOOR, isWellJunk, disposePlan, wellIdentity, wellStage, wellStand, standForFacing, wellSiteRefusal, canonicalWellSite,
          wellBuildPlan, wellBuildRoom, wellAim, aimPoint, tossOutcome, wellAdmission, wellDisposeDetail, itemInWell, bodyInWell, TOSS,
          trapdoorsNeeded, MAX_STACKS_PER_VISIT, wellBreach, usableStands, thrownNames, WELL_HOME_CLEARANCE,
-         disposableIn, guardLeft, reserveStone, SCAFFOLD_DECORATIONS, isSword, swordSwitch } from './well.mjs'
+         disposableIn, guardLeft, reserveStone, SCAFFOLD_DECORATIONS, isSword, swordSwitch, pitFillCells, pitFillItem, pitFillPlan } from './well.mjs'
 import { resyncPacket, GUARDED_INVENTORY_ACTIONS } from './craftsync.mjs'
 import path from 'node:path'
 import { IRON_KINDS, MIN_TRIP_USES, CANDIDATE_RADIUS, breakHazard, nearHome, pickBudget, rankCandidates, clusterOf, tunnelMovements, planTunnel, ONE_PICK_USES, tripDecision } from './oretunnel.mjs'
@@ -6902,6 +6902,44 @@ async function buildWell (ctx, _args, signal) {
     } catch (e) { if (e?.aborted || signal?.aborted) throw e }
     for (let i = 0; i < 10; i++) { const at = read(ref.x + face.x, ref.y + face.y, ref.z + face.z); if (at && WOODEN_TRAPDOOR.test(at.name ?? '')) break; await tick() }
   }
+  // THE PIT FILL (bounded, NOT abortable: it runs in the finally, after an abort too). Bottom first; each cell is placed
+  // against the block under it, or a full solid side neighbour when that is a trapdoor (a click would toggle it), and read
+  // back. -> null when the site reads ground again, else why not.
+  const fillPit = async stageBefore => {
+    const cells = pitFillCells(stageBefore, site)
+    const plan = pitFillPlan(items(), cells)
+    if (!plan) return `no fill block in the bag (${cells.length} needed)`
+    if (!onStand()) {
+      try { await g.restoreBound(bot.pathfinder.goto(new goals.GoalBlock(stand.x, stand.y, stand.z)), 8_000, 'pathfinding') } catch { /* judged by reach below */ }
+    }
+    let placed = 0
+    for (const cell of cells) {
+      const eye = q().offset(0, 1.62, 0)
+      if (eye.distanceTo(new Vec3(cell.x + 0.5, cell.y + 0.5, cell.z + 0.5)) > STATION_REACH) return `out of reach of ${cell.x},${cell.y},${cell.z}`
+      const name = pitFillItem(items())
+      const it = name && items().find(x => x.name === name)
+      if (!it) return 'no fill block in the bag'
+      const under = bot.blockAt(new Vec3(cell.x, cell.y - 1, cell.z))
+      let ref = null, face = null
+      if (solidAtCell({ x: cell.x, y: cell.y - 1, z: cell.z }) && !WOODEN_TRAPDOOR.test(under?.name ?? '')) { ref = under; face = new Vec3(0, 1, 0) }
+      else {
+        for (const d of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+          const b = bot.blockAt(new Vec3(cell.x + d[0], cell.y, cell.z + d[1]))
+          if (b?.boundingBox === 'block' && !WOODEN_TRAPDOOR.test(b.name ?? '')) { ref = b; face = new Vec3(-d[0], 0, -d[1]); break }
+        }
+      }
+      if (!ref) return `nothing to place against at ${cell.x},${cell.y},${cell.z}`
+      try {
+        if (bot.heldItem?.name !== it.name) await g.restoreBound(bot.equip(it, 'hand'), HK_AWAIT_MS, 'equip')
+        await g.restoreBound(bot._placeBlockWithOptions(ref, face, { forceLook: true, swingArm: 'right' }), HK_AWAIT_MS, 'place')
+      } catch { /* judged by the read-back */ }
+      for (let i = 0; i < 10 && !solidAtCell(cell); i++) await tickNA()
+      if (!solidAtCell(cell)) return `${cell.x},${cell.y},${cell.z} did not read solid after the place`
+      placed++
+    }
+    logEvent({ kind: 'well_pit_filled', status: 'success', snapshot: snapshot(bot), detail: `at=${site.x},${site.y},${site.z} stage=${stageBefore} cells=${placed} items=${plan.map(p => `${p.name}:${p.n}`).join(',')}` })
+    return null
+  }
   const rs = { tries: 0, tableYields: false, pickupDealt: false, owed: () => 0, stationDid: [] }
   let chain = []
   const craftTimes = async (item, times, table) => {
@@ -7016,11 +7054,22 @@ async function buildWell (ctx, _args, signal) {
     if (e?.hkStop) return fail(e.failClass, e.message)
     throw e
   } finally {
+    // AN ABANDONED BUILD NEVER LEAVES AN OPEN PIT (coordinator 10-08: the sandbox left one after two missed tosses): an
+    // unfinished site is filled back to ground from the bag -- after an abort too (bounded, not abortable), once nothing
+    // of this order is still in flight. Only a fill that cannot be done (no block, no reach, a body in the cell) leaves
+    // the pit, and says so: _well_pit_open, which the read GATES (a site not closed within 10 min).
+    let why = null, before = null
+    try {
+      before = stage()
+      if (pitFillCells(before, site).length) {
+        const settled = await g.settle().catch(() => false)
+        why = !settled ? 'an operation still in flight' : bot.currentWindow ? 'a window is open' : await fillPit(before)
+      }
+    } catch (e) { why = `fill: ${String(e?.message ?? e).slice(0, 60)}` }
     if (stationary && bot.stationaryUntil === stationary) bot.stationaryUntil = 0
-    // AN UNCAPPED PIT LEFT BEHIND (Claude review P3) is a row the read can count; the site record keeps it excluded.
     try {
       const st = stage()
-      if (['half_dug', 'dug', 'floored'].includes(st)) logEvent({ kind: 'well_pit_open', status: 'failed', snapshot: snapshot(bot), detail: `at=${site.x},${site.y},${site.z} stage=${st}` })
+      if (['half_dug', 'dug', 'floored'].includes(st)) logEvent({ kind: 'well_pit_open', status: 'failed', snapshot: snapshot(bot), detail: `at=${site.x},${site.y},${site.z} stage=${st} why=${String(why ?? 'unfilled').replace(/\s+/g, '_').slice(0, 80)}` })
     } catch { /* a read never breaks the cleanup */ }
     await settleAndRestore(bot, was, g, 'build_well')
   }
