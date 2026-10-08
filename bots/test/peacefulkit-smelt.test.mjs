@@ -334,15 +334,31 @@ test('A BURN SEEN ONLY AS AN EMPTIED SLOT (no heat reading yet, the item not yet
 })
 
 test('swordDrainRow: the row for each drain fate (pure)', () => {
-  assert.deepEqual(swordDrainRow('taken', true), { status: 'no_effect', what: 'wooden_sword returned unburned' })
-  assert.deepEqual(swordDrainRow(null, true), { status: 'no_effect', what: 'wooden_sword returned unburned' })
+  assert.deepEqual(swordDrainRow('taken', true), { outcome: 'no_effect', what: 'wooden_sword returned unburned' })
+  assert.deepEqual(swordDrainRow(null, true, false), { outcome: 'no_effect', what: 'wooden_sword returned unburned' })
+  assert.match(swordDrainRow(null, true, true).what, /^wooden_sword left in the furnace fuel slot \(the drain ran out of time\)/, 'never reached: still in the slot (Claude r-rev7)')
+  assert.match(swordDrainRow(null, true, undefined).what, /^wooden_sword outcome unknown/)
   assert.match(swordDrainRow('kept_full', true).what, /left in the furnace fuel slot \(the bag is full\)/)
   assert.equal(swordDrainRow('kept_full', false), null, 'an earlier call\'s sword this call did not move: no row')
   assert.equal(swordDrainRow('taken', false), null)
-  for (const st of [true, false]) {
-    assert.match(swordDrainRow('kept_cursor', st).what, /^wooden_sword left in the furnace fuel slot \(the cursor/)
-    assert.deepEqual(swordDrainRow('cursor_lost', st), { status: 'failed', what: 'wooden_sword on the cursor at the close (the server drops it)' })
-  }
+  assert.match(swordDrainRow('kept_cursor', true).what, /^wooden_sword left in the furnace fuel slot \(the cursor/)
+  assert.match(swordDrainRow('kept_cursor', false).what, /^wooden_sword put back into the furnace fuel slot from the cursor \(left by an earlier call\)/,
+    'an earlier call\'s sword: a diagnostic row the read does not credit (Codex r-rev7)')
+  for (const st of [true, false]) assert.deepEqual(swordDrainRow('cursor_lost', st), { outcome: 'failed', what: 'wooden_sword on the cursor at the close (the server drops it)' })
+})
+
+test('THE DRAIN RUNS OUT OF TIME on a hung output take with this call\'s sword still in the fuel slot: the row says it is in the furnace, not "returned" (Claude r-rev7)', async () => {
+  const m = makeBot({ raw_iron: 2, coal: 1, wooden_sword: 1 }, 'peaceful', { holdIgnition: true })
+  const ac = new AbortController()
+  m.bot.openFurnace = (orig => async () => {
+    const f = await orig()
+    f.takeOutput = () => new Promise(() => {})          // never answers: the drain's whole deadline goes here
+    f.putFuel = (put => async (...a) => { await put(...a); if (a[0] === 10) setTimeout(() => { m.slots.output = { name: 'iron_ingot', type: 2, count: 1 }; ac.abort() }, 50) })(f.putFuel)
+    return f
+  })(m.bot.openFurnace)
+  const { rows } = await swordRows(() => run(m.bot, 2, ac.signal).then(r => r, e => e))
+  assert.equal(m.slots.fuel?.name, 'wooden_sword'); assert.deepEqual(m.dropped, [])
+  assert.deepEqual(rows, ['no_effect:wooden_sword left in the furnace fuel slot (the drain ran out of time) for raw_iron active=1'])
 })
 
 for (const [why, clickFails, expect] of [
@@ -379,6 +395,7 @@ test('THE TAKE-BACK OF AN EARLIER CALL\'S SWORD STOPS BETWEEN ITS CLICKS and the
   const { out: r, rows } = await swordRows(() => run(m.bot, 2))
   assert.equal(r.status, 'failed'); assert.equal(r.failClass, 'transfer_unsettled')
   assert.equal(puts, 0); assert.deepEqual(m.dropped, []); assert.equal(m.slots.fuel?.name, 'wooden_sword'); assert.equal(m.burnt.wooden_sword, undefined)
-  assert.deepEqual(rows, ['no_effect:wooden_sword left in the furnace fuel slot (the cursor could not be emptied into the bag) for raw_iron active=0'])
+  assert.deepEqual(rows, ['no_effect:wooden_sword put back into the furnace fuel slot from the cursor (left by an earlier call) for raw_iron active=0'],
+    'an earlier call\'s sword: no second furnace credit (Codex r-rev7)')
   foodSkipNow({ serverDifficulty: 'hard' })
 })
