@@ -11,6 +11,28 @@ behind it (chain-ore.sh stopped 10-01 on fixes-02's revert)._
 
 ---
 
+## 10-08 08:00Z -- junkwell-02 ON PEACEFULKIT built (queued, not launched); the well's grade fixed; the plain shas move
+- **The plain junkwell-02 is now jw-on-c6e91a8 @ 7d5095d / jw-on-92bc84f @ 1db3fcd** (was 2bd1452 / b446f4d). Two changes:
+  - classifyOutcome credits a sword's loss (and, on the cobble coupling, cobble) only if THIS visit's throw clicked it. The click record is reset at each visit's start.
+  - The strict sword switch is tested in real child processes under every FOOD_SKIP mode.
+  - Codex: the composition r1 CHANGE -> ec54010; r2 CHANGE -> b62b7c5; r3 and r4 APPROVE. Claude: CHANGE on the tests -> 7d5095d, then APPROVE.
+- **If peacefulkit-01 is KEPT: jw-on-39fbcde @ e2ea50a / jw-on-40046b8 @ cf4192e** (registrations junkwell-02.39fbcde.json / .40046b8.json).
+  - The final well merged into peacefulkit's final heads.
+  - The well's sword classifier IS peacefulkit's unwantedSword, fed the well's strict switch (peaceful difficulty AND foodskip on).
+  - **Paper Job 8 (a681043, sword code identical):**
+    - peaceful: swords thrown, both in the shaft. Easy: kept. Peaceful turned easy after the first click: kept (sword_kept=2).
+    - FOOD_SKIP=on in an EASY world: kept, although the bot's own switch read active=1.
+    - 5/5 pit-first builds landed. 0 items outside the shaft in every trial. Control 2bd1452 matched.
+  - **SUPERSEDED, DO NOT LAUNCH:** jw-on-6dc10d1 (91f9ce4) / jw-on-f2c4ba0 (582ade7). They lack the pit fix.
+- **stonecap-01 coupled:**
+  - plain well: sc-on-7d5095d @ 8da6cf6 / sc-on-1db3fcd @ f5bdb80 (registrations stonecap-01.7d5095d / .1db3fcd; the .2bd1452/.b446f4d files are removed). The grade now also credits cobble the well clicked at the cap.
+  - **well on peacefulkit:** sc-on-e2ea50a @ 70db8a3 / sc-on-cf4192e @ 32d7447. This is the first composition of the cobble cap with peacefulkit.
+    - The union resolutions: call-time noSwords reaches the cap's empty-plan refusal.
+    - A spare-swords-only bag is refused as deposit_nothing_to_bank: "swords are not banked in a peaceful world -- nothing to deposit, keep working".
+  - NOT BUILT: a plain stonecap on peacefulkit's heads (needed only if peacefulkit is KEPT and junkwell-02 is NOT).
+- Tests: npm test jw 236/236 and 237/237, jw-on-pk 239/239 and 240/240, couplings 237/237 and 238/238, pk couplings 240/240 and 241/241. Mutants: peacefulkit 59/59 on both jw-on-pk (+3 towndeposit on 92) + 2 well-classifier mutants; on the pk couplings the cobble set 65/65 and 67/67 and the peacefulkit bank/sword subset 32/32 and 35/35 (PK_COMPOSED: the drivers on main gained the composition's anchors). Lint clean but for withinBody.
+- Registrations on main and in ~/mcai-analysis. Nothing deployed; the manifest and the loop untouched.
+
 ## 10-08 07:30Z — GATE v34-HYB INSTALLED (07:11Z); airpocket-01 QUEUED in the scheduler (launching); bamboo = ordinary
 v34: bundle 97abe762470a3e2c4a9da0b48f771035, gatedigest OK, backups *.bak-v34-20261008T071139Z. HYB@2.5 on the five
 drowning pools: false trip 1.9% (6 h) / 2.5% (26 h); in airpocket's stratum catches 35% of doublings, 76% of triplings

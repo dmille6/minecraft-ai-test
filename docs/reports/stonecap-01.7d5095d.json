@@ -1,0 +1,148 @@
+{
+ "run_id": "stonecap-01",
+ "sha": "8da6cf6",
+ "registered_at": "2026-10-08T08:00:00Z",
+ "ladder_change": false,
+ "promotion": "fleet-wide",
+ "notes": "[UPDATED 2026-10-08T08:00:00Z: now for fleet 7d5095d (junkwell-02's final sha), branch sc-on-7d5095d @ 8da6cf6 (was sc-on-2bd1452 @ 5260f71). Merges the grade fix, and the coupling's grade also credits cobble the well clicked at the cap (was graded 'neutral'). npm test 237/237.] [UPDATED 2026-10-08T03:05:00Z: now for fleet 2bd1452 (= junkwell-02 promoted on c6e91a8 at its new sha), branch sc-on-2bd1452 @ 5260f71 (was sc-on-c6e91a8 coupling @ ee4c916). The coupling merged with the new junkwell-02 (the pit cover, the aim said twice, the receipt). Conflicts were unions: imports; the phase row aim_off/aim_read + cobble/cobble_left/cap; wellOrder's buildJunkStacks (the pit-first build never tosses cobble) kept inside the build-then-cover flow; wellDisposeDetail. The cover's reserve rule (cobblestone only above 64) agrees with the coupling. Codex r6 APPROVE (the resolutions checked). External cobble mutants 65/65 killed; npm test 237/237; well.test and cobble-rule pass.] [stonecap-01 COUPLED, for fleet 5c13330 (= junkwell-02 promoted on c6e91a8): branch sc-on-5c13330 @ ee4c916.] COUPLED VARIANT (use ONLY if junkwell-02 is KEPT and promoted; the plain sc-on-* variant otherwise): the cap above PLUS the operator's at-ceiling remedy -- while the town HOLDS its 256 (the COUNTED lower bound itself >= 256; cobble on its way or a stack that would merely pass 256 never counts), whole cobble stacks above the bot's 64 go down the junk well (smallest first; the cap re-read at EVERY cobble click; the planned stack whole; >= 64 left after it); never in the pit-first build, whose room counts neither cobble nor swords; the well trigger reads the cap only at town; the deposit's at-cap sentence names the well only when a usable one stands, else \"the surplus stays in the bag\". Row adds cobble= cobble_left= cap=. READ stonecapread C9 (REVERT): cobble thrown without cap=at_cap or leaving < 64; tripwire: the journal had room for a stack. REVIEWS: Codex r1 CHANGE (2 P1: refusal is not proof of the cap; later clicks unchecked) -> r2 CHANGE (a vacuous test) -> r3 APPROVE; Claude APPROVE (P3s: wiring guards untested -- plan/click checks still prevent any wrong throw; hot-path read -> taken; a withdraw records its count only on open; build room counted swords -> taken). TESTS: well.test 137/137 with in-test mutants (count equality, per-click cap, counted-only predicate vs cobbleAdmit, reserve re-check, account bound, build-room exclusion). PAPER (well at the cap, 10-07 ~23:00Z, sandbox 25599, well-e2e W scenes, fresh pool per trial; a well the candidate built from a 32-slot bag): W1 cand 12440d9, town 277 counted -- threw the 30 and one 64 (row cobble=94 cobble_left=64 cap=at_cap), 94 cobble in the shaft, none outside, the bag kept exactly 64, the chest unchanged; W2 town 247 -- no cobble thrown (cap=below), junk thrown; W3 control 5c13330 -- no cobble thrown; W4 town 297 dropped to 200 by a count appended 16 ms after the first cobble click -- the second stack stayed (cobble=30 cap=below). NOT exercised: the pit-first build with cobble (its diorite toss missed the pit 5 times in a row on BOTH revisions at that site -- a pre-existing junkwell-02 behaviour: after two misses the build refuses '0 free slots' and leaves the pit open). SUITES: sc-on-5c13330 @ ee4c916 237/237 (12440d9 was 236/237: junkwell's chest-full W4-W8 fixtures banked a lone 64 cobble, now reserve -> oak_log); lint clean but for withinBody. || THE CAP AND THE COBBLE RULE (as in stonecap-01.c6e91a8.json): [UPDATED 2026-10-08T00:10:00Z: sc-on-c6e91a8 @ 06e2964 (was c238c3d) builds in THE TOWN COBBLE CAP.] THE TOWN COBBLE CAP (owner 10-07, delegated to the operator + Codex; Codex's rule; design: docs/reports/cobble-rule-design-2026-10-07.md \"The 256 per town\"). Counted, never estimated: every open of a town container appends its cobble count (capture time) to an APPEND-ONLY JOURNAL per town (<pool state dir>/<townKey>.cobble.jsonl; one line per record, newline-first appends; a pure fold every reader shares; a checkpoint keeps reads linear; > 32 MB to fold fails closed). Every whole stack is admitted by a CLAIM decided at its own place in the fold against the counted total plus every live claim (its own batch included): at_cap at >= 256 known or a stack that would pass it; UNKNOWN on any uncounted town container -> the deposit first counts up to 3 (_cobble_reconcile; admitted only in town with a container outside its 10 min backoff; a container that cannot be counted is named). An admitted claim never expires by time; it is released with its post-transfer count (one line) or voided by the bot's NEXT connection (<start ms>-<pid>-<rand>-c<n>, which also fences that bot's older connections); a closed window or an ended connection writes no count (container unknown until recounted). A container outside town never takes cobble; a cobble-only plan targets town containers. At the ceiling the surplus stays in the bag (no chest, no toss). REVIEWS: Codex rounds 1-7 CHANGE (lock races -> the journal; crash/clock/torn-line/paused-transfer/reconnect fencing; dead ends), round 8 APPROVE (residuals: the gap before a disconnect is seen; OS-frozen process; journal deleted/corrupted; process start times vs login order). Claude rounds 1-3 CHANGE (own reservations 270 probe; outside-town dead end; origin-distance admission; failed-count memory; quadratic fold 2.8 s at 8 MB), round 4 APPROVE (8-process race, 20-25 trials, clock skew +-5 s: worst 254, 0 overshoots, 0 decision disagreements; 8 MB read 66 ms cold / 0.2 ms after), final APPROVE on 06e2964/971fb09. P3s recorded: a late reconcile window can close another skill's window within ~20 s (one failed skill); a backward clock step across a restart fences the new instance (fail closed); a removed bot's claims stay reserved (the read lists live claims > 1 h by bot); ROTATE THE JOURNAL BEFORE FLEET-WIDE PROMOTION. TESTS: cobble-rule 54/54; anchored mutants (scripts/mutants/mutants-canaries-1007.py cobble): 65/65 killed on 06e2964, 67/67 on 971fb09. PAPER (cap, 10-07 ~21:45-22:05Z, sandbox 25599, sandbox/craft/cobble-cap-ab.cjs, fresh pool dir per trial, journal captured; bag cobble 64 + 30 + oak_log 20; cand 06e2964 vs ctrl c6e91a8): A town 250 -- cand banked the logs, no cobble (250 unchanged; the plan drops capped cobble before any transfer, so no _cobble_bank row), ctrl 250 -> 314; B town 100 -- cand banked exactly the 30 (row town_before=100 town_after=130 complete=1 kept=64 src=server; journal: void, count, claim 30, releasing count 130), ctrl 100 -> 164; B2 double chest -- as B, one journal key for the pair; Bd deepslate 30 banked (130), ctrl 186 and its old 8 kept; C an unopened barrel -- reconciled (_cobble_reconcile counted=2 of 2 tried), the 30 went into the barrel (town 10 -> 40), ctrl 10 -> 74; D outside chest -- logs only, row outside=1, ctrl banked 64 into it; E town 250 then `deposit cobblestone` -- refused at admission naming the town cobble cap, ctrl 250 -> 336; R reconnect -- a claim of the previous process (its own inst/world) voided by the new login, the chest recounted (130), the 30 banked (160), ctrl 100 -> 216. 971fb09 town deposit (town 220, surplus cobble 20 + deepslate 30): exactly one stack went (220 -> 240), ctrl 220 -> 270; with an UNCOUNTED town and only cobble surplus the town-deposit order does not fire (the plan holds unknown cobble; the deposit verb is the counting path). No item on the ground in any trial; totals conserved. Not exercised: a two-bot race (the 8-process journal race covers it), the click-time at_cap refusal (the plan removes capped stacks first). SUITES (npm test via scripts/run-tests.mjs on a git-archive copy): sc-on-c6e91a8 @ 06e2964 236/236; lint (no-undef) clean but for the fleet's pre-existing withinBody. || [stonecap-01 = THE COBBLE RULE, variant for fleet c6e91a8 (use if towndeposit-02 is NOT promoted): branch sc-on-c6e91a8 @ c238c3d.] OWNER 10-04 ~18:10Z: \"cobble: keep 256/town reserve, bank only when it frees a slot (both-engine no-ledger design)\"; owner order 10-07 \"i want all of those things done and queued\". Design: docs/reports/cobble-rule-design-2026-10-07.md (builds the 10-04 nojunk SYNTHESIS: no ledger; cobble enters storage only as a transfer that empties a bag slot). MEASURED (30 h to 10-07 17:52Z, 80 bots): 299 deposit runs banked 10,997 cobble; 238 of them left the bot under 64 (6,350 of the 10,997 would have stayed as reserve); census 10-07 17:00Z cobble 133 slots, 6,324 pieces in 69 bags. THE CHANGE (bankable.mjs cobbleBankStacks, one allowance for every caller): cobblestone + cobbled_deepslate are bankable ONLY as WHOLE stacks, smallest first, while the bag keeps COBBLE_RESERVE = 64 of the two (the exit contract needs 59 for a y-16 descent; = the stockpile rung's ceiling, the town deposit's stone keep, the junk well's guard; one slot). The deposit moves each chosen stack with mineflayer's own transfer() narrowed to that slot (the function chest.deposit calls: same errors, accounting and cursor rescue); a stack a container cannot take whole is never started; cobble never grows the bank (a deposit whose only unplaced items were cobble ends no_effect -- no recovery, no new chest, no closure); depositDue is false with nothing bankable and admission refuses an empty requested plan before the walk (deposit_nothing_to_bank, naming the rule). _cobble_bank rows after the close from the server recount. THE 256 PER TOWN is the 10-04 clear's retained reserve, NOT a code cap (both engines rejected a town ledger; Codex and Claude 10-07: an honest reading) -- a hard cap is an OWNER DECISION and a separate change. 92bc84f variant: the town deposit inherits the allowance; composition test (whole stacks only, never under 64). REVIEWS: Codex round 1 CHANGE (P1 unguarded/unconfirmed shift-click transfer; P2 relief grows/closes the bank; P2 empty-plan advice and walk; P2 rows cannot support the gates; P2 exposure arithmetic) and independent Claude round 1 APPROVE-WITH-CHANGES (P1 cobble alone built a chest -- probe; P2 the client's shift-click prediction skips the chest's last slot -- probe; P2 empty-plan walk -- probe; P2 gates; P2 exposure x10) -> all addressed in 2fd827c -> round 2: Codex APPROVE-WITH-CHANGES (cap the success path's credited gain at the stack) and Claude APPROVE-WITH-CHANGES (before= on the row; rows by src) -> c238c3d -> round 3: Claude APPROVE; Codex APPROVE-WITH-CHANGES on the READ only (the balance tripwire grouped runs wrongly) -> fixed -> round 4 Codex APPROVE (it ran the read's embedded controls). Accepted limitation (both): moved is the client window's gain and tried= is intent; on Paper the recount after real transfers says src=skipped, so the server-backed balance tripwire is mostly dark and C1 judges the client bag (which matched the server read-back in every sandbox trial). Prior art (open source, issues, forums; in the design doc): no project keeps a counted cobble reserve (mineflayer-pathfinder, Baritone, mindcraft, Voyager, collectblock); pitfalls adopted (first-matching-slot deposits, partial fills, cursor on destination full, deepslate in the reserve). TESTS: SUITES_SC. cobble-rule.test.mjs 9/9; fixtures that used a lone 64-cobble stack as 'something bankable' now bank oak_log/stone (deposit-truth, deposit-plan, deposit-demand, craft-room, chest-full, storage-full); external anchored mutants (scripts/mutants/mutants-canaries-1007.py cobble) 9/9 killed. lint: only the fleet's pre-existing withinBody. PAPER: sandbox 25599, 10-07, sandbox/craft/cobble-ab.cjs (new; the model's `deposit` queued; server read-back of bag slots and chest), cand 2fd827c (c238c3d adds only the cap and before=) x2, ctrl c6e91a8 x1. A bag [64, 30] + oak_log 20: cand banked the 30 whole and kept ONE cobble slot of 64 (row moved=30 kept=64 src=skipped); ctrl banked the 64 and kept 30. B [50] + oak_log: cand banked the logs and 0 cobble; ctrl banked 42 cobble down to its old 8 (46 clicks). C chest with room for 14: cand moved nothing, no_effect 'cobble never opens a new chest', no chest, no recovery (row no_room=1 src=server); ctrl part-filled +14 (no slot freed) with two cursor rescues. Bag + chest + ground conserved in all 9 trials; nothing on the ground after logout. READ scripts/host/stonecapread.py dry runs on the fleet host: 10-07 (3 h windows, canary hive-a,board-c / placebo-d,hive-d as c6e91a8): exposure READY 52 / 47 / 32 canary runs holding cobble; instrument 71 / 61 / 51 control runs lowered cobble, 62 / 53 / 42 of them ending under 64; identical-code cobble-banked DiD +8.9 / +3.6 / -14.2 per bot-h (reported only). md5 549372b1 on the host (/tmp and ~/mcai-analysis) = repo.",
+ "licence": {
+  "class": "kind",
+  "kind": "_cobble_bank",
+  "min_rows": 1,
+  "note": "Written only by this build: one row per cobble name a deposit plan named, after the close, from the server recount. The fleet has no _cobble_bank row (dry run 10-07: 0 of 218 control deposit rows)."
+ },
+ "reads": [
+  "stonecapread",
+  "immobiledid"
+ ],
+ "read_minutes": [
+  180,
+  360
+ ],
+ "deadline_min": 1680,
+ "change_rows": [
+  "cobble_bank",
+  "cobble_reconcile"
+ ],
+ "linkage_extra": [],
+ "draw_exposure": {
+  "hours": 3,
+  "require": [
+   {
+    "name": "deposit runs (the rule is evaluated on every deposit by a bot holding cobble)",
+    "kind": "deposit",
+    "min": 8
+   }
+  ],
+  "note": "Dry run 10-07 15:30-18:30Z: 218 control deposit rows on 70 bots (~3 per bot per 3 h); a 5-bot pool passes 8 easily. The draw needs nothing rarer."
+ },
+ "exposure": {
+  "read": "stonecapread",
+  "field": "exposure_ready",
+  "min": 1,
+  "note": "Ready now ALSO needs >= 1 canary town journal (the C5 journal gate must be able to see). RATE 10-07 20:30Z dry run: 10 canary runs holding cobble per 10 bots per 3 h (the morning gave 52/47): a 5-bot pool may need ~12 h at the evening rate -- the extensions carry it. Ready = >= 20 canary deposit runs by bots holding cobble (the rule decides on every one) AND the instrument (control deposit runs that lowered cobble >= 1). MEASURED 10-07 (3 h dry runs, canary = hive-a,board-c as c6e91a8): 52 and 47 canary runs; instrument 71 and 61 control runs lowering cobble, 62/71 and 53/61 of them ending under 64 -- the behaviour removed. Powered by +180. Whole-stack banking events (_cobble_bank with moved > 0) are rarer (~0.025/bot-h estimated: ~20% of runs that bank cobble today end >= 64); the gates judge what moves, the exposure is the decision."
+ },
+ "own_lines": [
+  {
+   "read": "stonecapread",
+   "field": "breach_reserve",
+   "op": "<=",
+   "value": 0,
+   "on_fail": "REVERT",
+   "evidence": "defect",
+   "note": "C1 THE RESERVE: a canary _cobble_bank row that moved cobble whose server-recounted bag keeps < 64 cobble + deepslate (src=server; another src is a tripwire)."
+  },
+  {
+   "read": "stonecapread",
+   "field": "breach_whole",
+   "op": "<=",
+   "value": 0,
+   "on_fail": "REVERT",
+   "evidence": "defect",
+   "note": "C2 WHOLE STACKS: moved > planned, or moved not a sum of the tried= stacks (a partial: only a race with another depositor can make one; the room is checked first)."
+  },
+  {
+   "read": "stonecapread",
+   "field": "breach_town_reserve",
+   "op": "<=",
+   "value": 0,
+   "on_fail": "REVERT",
+   "evidence": "defect",
+   "note": "C3 (92bc84f variant): a canary _town_deposit that banked cobble and ENDED under 64 cobble + deepslate."
+  },
+  {
+   "read": "stonecapread",
+   "field": "breach_town_overshoot_journal",
+   "op": "<=",
+   "value": 0,
+   "on_fail": "REVERT",
+   "evidence": "defect",
+   "note": "C5 (journal, independent of the bot's row): an admitted claim released into a town total > 256, folded from /var/lib/mcai/_pool-<pool>/*.cobble.jsonl as the bots fold it."
+  },
+  {
+   "read": "stonecapread",
+   "field": "breach_town_overshoot_row",
+   "op": "<=",
+   "value": 0,
+   "on_fail": "REVERT",
+   "evidence": "defect",
+   "note": "C5 (row): a canary _cobble_bank row that moved cobble on a COMPLETE count and left town_after > 256."
+  },
+  {
+   "read": "stonecapread",
+   "field": "breach_well_cobble",
+   "op": "<=",
+   "value": 0,
+   "on_fail": "REVERT",
+   "evidence": "defect",
+   "note": "C9: a canary _well_dispose row that threw cobble without cap=at_cap (the last reading at the clicks) or left cobble_left < 64."
+  },
+  {
+   "read": "stonecapread",
+   "field": "rows_control",
+   "op": "<=",
+   "value": 0,
+   "on_fail": "REVERT",
+   "note": "Arms. BLOCKS KEEP."
+  },
+  {
+   "read": "stonecapread",
+   "field": "rows_canary",
+   "op": ">=",
+   "value": 1,
+   "on_fail": "REVERT",
+   "note": "LIVENESS: canary _cobble_bank rows. BLOCKS KEEP (INCONCLUSIVE)."
+  },
+  {
+   "read": "stonecapread",
+   "field": "instrument_control",
+   "op": ">=",
+   "value": 1,
+   "on_fail": "REVERT",
+   "note": "POSITIVE CONTROL: control deposit runs that lowered cobble are visible. BLOCKS KEEP."
+  }
+ ],
+ "primary": {
+  "read": "stonecapread",
+  "field": "cobble_banked_did",
+  "note": "REPORTED, NOT GATED: cobble banked per bot-h DiD (mechanically down: identical-code dry runs gave +8.9 and +3.6, so it is not evidence of anything by itself); canary vs control deposit runs that lowered cobble and ENDED under 64 (the direct measure: control ~87%, canary expected ~0 apart from scaffold placed on the walk); share of bots at >= 34 slots DiD (TRIPWIRE: a material rise means the 64 reserve costs bag space -- read the multi-day bag check before promotion); cobble slots per bot DiD; deposit no_effect share; tripwires (unconfirmed moves, no_room rows, a new chest within 4 min of a cobble no_room). THE CAP, reported: refusals at_cap / unknown / outside, reconciliations (counted of tried), the town deposit's cobble_cap counts, claims still live after 1 h by bot (a removed bot keeps its stack reserved: fail closed), max town total per journal."
+ },
+ "harm": {
+  "note": "Unchanged: the two-death floor (OWNER 2026-09-11) and gather_ratio < 0.43 of control, from immobiledid. Also watch mine/exit-contract refusals naming scaffold (the reserve should only ever raise scaffold held)."
+ },
+ "teardown": {
+  "note": "THREE STEPS: drop-ins, clear canary_pool, restart the pool's bots 12 s apart; then confirm the live versions. Nothing in the world changes."
+ },
+ "amendments": [],
+ "extension": {
+  "until_exposure": true,
+  "extra_reads": [
+   540,
+   720,
+   1080,
+   1560
+  ],
+  "final_on_zero_exposure": "INCONCLUSIVE",
+  "note": "A mechanism canary (both engines 10-04): deterministic gates decide; the bag effect needs the multi-day check before promotion."
+ }
+}

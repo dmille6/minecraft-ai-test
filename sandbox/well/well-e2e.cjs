@@ -140,7 +140,7 @@ async function startBot (scene, slotsSpec, { pool = `sbxwell-${RUN}`, root = BOT
   set('BOT_NAME', NAME); set('LOG_DIR', logRel); set('STATE_DIR', `./sandbox/state/well-e2e-${tag}`); set('MEMORY_POOL', pool)
   set('MINECRAFT_PORT', PORTS[SERVER]); set('MAX_CONSECUTIVE_FAILURES', 50); set('FAILED_COOLDOWN_MS', 1000); set('STUCK_SECONDS', 20)
   for (const a of ['X', 'Y', 'Z']) { set(`HOME_${a}`, HOME[a.toLowerCase()]); set(`BOARD_${a}`, HOME[a.toLowerCase()]) }
-  set('FOOD_SKIP', 'auto')   // junkwell-02 swords: the switch under test (the default, written out)
+  set('FOOD_SKIP', process.env.WELL_FOOD_SKIP || 'auto')   // junkwell-02 swords: the switch under test (default auto; WELL_FOOD_SKIP=on|off for Job 8)
   fs.writeFileSync(`${R}/${envRel}`, env + '\n')
   const bo = fs.openSync(botOut, 'a')
   bot = spawn('bash', [`${R}/sandbox/run-bot.sh`, envRel], { cwd: R, env: { ...process.env, BOT_ROOT: root, NODE_OPTIONS: `--require ${process.env.WELL_TRACE || path.join(R, 'sandbox/craft/trace.cjs')}`, CRAFT_TRACE: trace, TRACE_RCON_SERVER: process.env.WELL_TRACE ? SERVER : '' }, stdio: ['ignore', bo, bo] })

@@ -107,6 +107,15 @@ if os.environ.get('PK_VARIANT'):
   ('td: the skill plans swords into the chest', 'src/skills.mjs', "townDepositPlan(bag, { wanted, already, noSwords: foodSkipNow(bot).active })", "townDepositPlan(bag, { wanted, already, noSwords: false })", TD),
   ('td: the plan default ignores the switch', 'src/towndeposit.mjs', "noSwords = peacefulFoodActive() } = {}) {", "noSwords = false } = {}) {", TD),
     ]
+# THE COBBLE-CAP COMPOSITION (stonecap-01 coupled on junkwell-02-on-peacefulkit, 10-08): admission reads the switch ONCE
+# (const noSwords = foodSkipNow(bot).active) for the bank count AND the cap's empty-plan refusal. PK_COMPOSED=1 swaps the
+# admission mutant for these (their anchors exist only there).
+if os.environ.get('PK_COMPOSED'):
+    M = [m for m in M if m[0] != 'bank: admission counts spare swords (a deposit due from swords)']
+    M += [
+  ('bank (composition): admission reads the switch as off for both checks', 'src/admission.mjs', "      const noSwords = foodSkipNow(bot).active\n      const bank = bankableInventory(items, { wants, noSwords })\n", "      const noSwords = false\n      const bank = bankableInventory(items, { wants, noSwords })\n", PK),
+  ("bank (composition): the cap's empty-plan check counts spare swords", 'src/admission.mjs', "      if (!depositPlan(items, args?.item ?? null, { wants, noSwords }).length && !reconcile) {", "      if (!depositPlan(items, args?.item ?? null, { wants, noSwords: false }).length && !reconcile) {", PK),
+    ]
 bad = 0
 if ROOT == '--read-only':   # the read's mutants only (PK_READ): python3 mutants-pk.py --read-only
     M = []
