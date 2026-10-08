@@ -11,6 +11,16 @@ behind it (chain-ore.sh stopped 10-01 on fixes-02's revert)._
 
 ---
 
+## 10-08 12:30Z — airpocket-01 +180 NOT_YET (0 attempts yet; extension to +1560 registered); "control 0/0.0" explained
+Canary LIVE since 07:34:26Z on hive-d,placebo-a; matched control frozen hive-c,placebo-b,placebo-d. +180: liveness 0 rows
+(no sealed-pocket episode yet), every breach 0, instruments fired on the control (308 capped rescues, 17 no-air
+ceilings); deaths canary 1/30.8 bh vs matched 2/46.2 bh. The verdict's "control 0/0.0" is a PLACEHOLDER, not a
+measurement: usafegate.measure() scans the control POST only once the canary reaches the two-death floor; read-only
+check with the installed gate found the control POST = 9 deaths / 315.2 bot-h / 77 bots, 0 errors. Fail-closed
+confirmed: at the floor an empty control yields UNREADABLE unless the matched arm trips. Cosmetic wording fix ("not
+scanned, below the floor") queued for the next install between canaries. KEEP requires >= 1 real airpocket success
+(own lines block KEEP, never revert) -- intended.
+
 ## 10-08 08:00Z -- junkwell-02 ON PEACEFULKIT built (queued, not launched); the well's grade fixed; the plain shas move
 - **The plain junkwell-02 is now jw-on-c6e91a8 @ 7d5095d / jw-on-92bc84f @ 1db3fcd** (was 2bd1452 / b446f4d). Two changes:
   - classifyOutcome credits a sword's loss (and, on the cobble coupling, cobble) only if THIS visit's throw clicked it. The click record is reset at each visit's start.
