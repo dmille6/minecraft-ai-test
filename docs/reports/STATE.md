@@ -11,6 +11,23 @@ behind it (chain-ore.sh stopped 10-01 on fixes-02's revert)._
 
 ---
 
+## 10-08 ~14:40Z — WITHDRAW2 ON AIRPOCKET READY: wd2-on-dbb4d78 @ 2189de3 (queue entry drafted, NOT added)
+- For the airpocket-01 KEEP case (fleet dbb4d78). The 13 commits of wd2-on-92bc84f (a6cd3c1) were cherry-picked onto dbb4d78.
+  - No conflict. range-diff: every patch identical.
+  - The interdiff is one cognitive.mjs hunk offset.
+- Tests: npm test 239/239; mutants-wd2.py 52/52; eslint no-undef only withinBody.
+- Reviews of the rebased diff vs the approved one: Codex APPROVE, Claude subagent APPROVE.
+  - Claude P3, no change: a town order issued while airpocket digs is aborted and spends its cooldown.
+  - Text: docs/reports/withdraw2-01.dbb4d78-review.txt.
+- Paper not re-run. The merge is behaviour-neutral (no shared function; both reviews agree).
+- Registration withdraw2-01.dbb4d78.json: on main and in ~/mcai-analysis (sha256 e3f1de4c).
+- withdrawread dry run on the live airpocket pools (+180, 319,006 rows): gates 0.
+  - canary_rows_without_ledger 3 is expected: it is the arms check's positive control.
+- **OPERATOR: queue entry docs/reports/withdraw2-01.queue-entry.json** (= ~/mcai-analysis/withdraw2-01.entry.json). It has both variants (92bc84f unchanged, + dbb4d78).
+  - Apply with `queue replace-variant withdraw2-01 <entry>`.
+  - FIRST make 2189de3 resolvable in /opt/minecraft-ai (fetch). Until then validate_entry refuses with "does not resolve".
+  - Validated no-act (canary-sched.validate_entry against a scratch clone): VALID.
+
 ## 10-08 12:55Z — OWNER: KEEP at +180 for four-pool bag fixes; rolling variant prep; withdraw2 queued behind airpocket
 OWNER chose "1 and 2": (1) KEEP allowed at +180 for class bag-fix drawn at four pools when exposure is ready, every gate
 passes, no death trip/extension pending and all reads are readable -- gate agent calibrating (false-KEEP rate must not
