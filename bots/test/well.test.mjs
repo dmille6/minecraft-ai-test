@@ -891,6 +891,24 @@ await t('SWORDS, a sword-only visit is contract evidence (Codex P2) -- but only 
   assert.ok(!JSON.stringify(u).includes('stone_sword'), 'a sword the well never clicked is not its evidence ' + JSON.stringify(u))
   assert.ok(JSON.stringify(u).includes('egg'), 'positive control: the junk still is')
 })
+await t('THE GRADE, sequential visits (Codex r2): a visit that never reaches its throw is graded on NONE of the last visit\'s clicks', async () => {
+  const town = peacefulTown([S('stone_sword', 1), S('egg', 16), ...filler(34)], 'peaceful')
+  assert.equal((await run('dispose_well', town.bot)).status, 'success')
+  assert.ok(JSON.stringify(classifyOutcome('dispose_well', 'success', { inventory: { stone_sword: -1 } })).includes('stone_sword'), 'positive control: clicked')
+  const later = peacefulTown([S('stone_sword', 1), S('egg', 16), ...filler(34)], 'peaceful')
+  await run('dispose_well', later.bot, { aborted: true, addEventListener () {}, removeEventListener () {} }).catch(() => {})
+  assert.equal(later.state.clicks.length, 0, 'positive control: the second visit threw nothing')
+  assert.ok(!JSON.stringify(classifyOutcome('dispose_well', 'success', { inventory: { stone_sword: -1 } })).includes('stone_sword'), 'stale clicks graded a later visit')
+})
+await t('MUTANT (skills): without the reset at the visit\'s start, the last visit\'s clicks grade the next', async () => {
+  await withMutant(SP, "  wellClickedLast = new Set()   // THIS visit's clicks only (Codex r2: a visit that aborts before its throw is graded on none)\n", '', async m => {
+    const town = peacefulTown([S('stone_sword', 1), S('egg', 16), ...filler(34)], 'peaceful')
+    await within(m.SKILLS.dispose_well.run({ bot: town.bot }, {}, { aborted: false }), 15000, 'mutant')
+    const later = peacefulTown([S('stone_sword', 1), S('egg', 16), ...filler(34)], 'peaceful')
+    await within(m.SKILLS.dispose_well.run({ bot: later.bot }, {}, { aborted: true, addEventListener () {}, removeEventListener () {} }), 15000, 'mutant').catch(() => {})
+    assert.ok(JSON.stringify(m.classifyOutcome('dispose_well', 'success', { inventory: { stone_sword: -1 } })).includes('stone_sword'), 'mutant inert')
+  })
+})
 await t('MUTANT (skills): the grade credits any sword loss (not only one the well clicked)', async () => {
   await withMutant(SP, '(isWellJunk(k) || ((isSword(k) || isWellCobble(k)) && wellClickedLast.has(k)))', '(isWellJunk(k) || isSword(k) || (isWellCobble(k) && wellClickedLast.has(k)))', async m => {
     const easy = peacefulTown([S('stone_sword', 1), S('egg', 16), ...filler(34)], 'easy')
