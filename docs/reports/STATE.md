@@ -51,6 +51,22 @@ Owner 10-08 ~02:30Z delegated to Codex + Claude. Report: docs/reports/canary-thr
 - OWNER QUESTIONS: KEEP at +180 for 4-pool draws (the biggest lever; drawrec's own null sd 0.313 vs 0.395); isolated
   pools in town/chest controls; auto-approval of unchanged range-diff variants (Codex: no).
 
+## 10-08 05:00Z — REBOOT FIXES INSTALLED (owner "yes")
+1. mcai-mayor-shadow is a persistent enabled unit (/etc/systemd/system/mcai-mayor-shadow.service, same limits as the
+   transient one; ~5 s gap in snapshots at the switch). 2. block2-sandbox (sandbox 1) enabled at boot on 10.0.0.30.
+3. ~/bin/restore-reads.sh, cron @reboot + */10: copies any ~/mcai-analysis/*.py missing from /tmp (never overwrites).
+4. CHAINS: start them with ~/bin/chain-start.sh (records ~/chains.d/<next>.args); ~/bin/resume-chains.sh, cron @reboot
+   (+90 s) + */10, relaunches unfinished chains; tested (relaunch once, no duplicate, args removed on STOP).
+   Copies in scripts/host/bin/. crontab backup ~/crontab.bak-20261008-rebootfixes.
+FOUND: /tmp/quickstatus.py, modelshare.py, cooldid4.py (nightwatch digest sections) were lost in the 10-06 outage and
+are not in the repo; the digest's quick-status/model sections have been empty since. To rebuild (low priority).
+
+## 10-08 04:05Z — OWNER GOAL + ROADMAP: build cool structures, survive, cooperate, for long periods (peaceful stays)
+Not beating the game. docs/reports/roadmap-2026-10-08.md (owner agreed). After the current queue: LAST (renewables:
+tree farm, cobblestone generator; unattended recovery; bounded logs/stores) -> BUILD (workshop, safe mineshaft, larger
+structures; materials produced deliberately) -> COOPERATE (roles, town stock, overseer per C2 evidence, strategist).
+New measure to build: a weekly long-run check per town (built something? deaths/stuck low? output steady?).
+
 ## 10-08 ~05Z — GATE v34 (UNDERGROUND-SAFETY DEATH GATE) BUILT + STAGED, NOT INSTALLED; airpocket registrations ready
 Both engines APPROVE (Claude r2-r10, Codex r10). On main d6e5eb0; staged on 10.0.0.31 in ~/gate-v34 with
 MANIFEST-v34.txt (exact md5 of every staged file, each target's live md5 before, the predicted digest). Dry run (twice,
