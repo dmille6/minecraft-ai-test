@@ -11,6 +11,15 @@ behind it (chain-ore.sh stopped 10-01 on fixes-02's revert)._
 
 ---
 
+## 10-08 17:25Z — OWNER delegated the open items to operator + Codex ("implement, deploy and run them")
++180 KEEP: Codex and operator AGREE on A' as calibrated (four-pool bag fix; KEEP at +180 only if every gate passes,
+exposure ready, no death trip/extension pending, reads readable, cumulative canary death rate <= control's; else +360;
+bag metric reported, not gated; daily scoreboard/bag census = non-attributable post-promotion tripwire). Gate agent
+building; install with ~/bagfix-regs in the empty slot after withdraw2-01. PER-TOWN STOCK TARGETS: agent designing with
+both engines (generalise stonecap's reconciled cap to bulk materials, surplus to the well, no new chest at target, log
+rotation), to run as stocktarget-01 after stonecap. airpocket-01: 3 real attempts (1 success 13:15Z; 2 "opened" ice
+17:02Z, bot survived) -> exposure now reached; next read decides.
+
 ## 10-08 17:40Z — THE HIVE-D ICE TRAP: 9.4% of all drownings since 10-01; airpocket-02 being built (airpocket-01 continues)
 Cause of the missed rescue (reproduced on Paper): the floating bot's cell freezes over (snowy biome); the SERVER puts the
 bot in swimming pose (0.6 tall, eye y+0.4 in water, y = 62 - 0.605 = 61.395); mineflayer assumes standing (eye y+1.62 in
