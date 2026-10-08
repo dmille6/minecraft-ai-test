@@ -661,8 +661,16 @@ function fakeTown ({ items = [], hand = null, storeDir = null, blocks = {}, well
     },
     _placeBlockWithOptions: async (ref, face, opts = {}) => {
       const at = ref.position.plus(face); const h = bot.heldItem
-      assert.ok(h && /_trapdoor$/.test(h.name), `placing ${h?.name} with _placeBlockWithOptions`)
+      // CLICKING A TRAPDOOR TOGGLES IT (vanilla: an interactive block takes the use, no place happens)
+      const rc = cell(ref.position)
+      if (/_trapdoor$/.test(rc.name ?? '') && rc.props) { rc.props.open = !rc.props.open; state.events.push('toggle'); return }
+      assert.ok(h, 'placing with an empty hand')
       assert.equal(cell(at).name, 'air', 'placing into a full cell')
+      if (!/_trapdoor$/.test(h.name)) {   // a full block (the pit fill)
+        assert.equal(REG.blocksByName[h.name]?.boundingBox, 'block', `placing ${h.name}, not a full block`)
+        h.count--; if (!h.count) slots[h.slot] = null
+        world.set(key(at), { name: h.name }); state.places.push(`${key(at)}:${h.name}`); return
+      }
       const half = opts.half === 'top' ? 'top' : face.y === 1 ? 'bottom' : face.y === -1 ? 'top' : 'bottom'
       const facing = face.x === 1 ? 'east' : face.x === -1 ? 'west' : face.z === 1 ? 'south' : face.z === -1 ? 'north' : 'north'
       h.count--; if (!h.count) slots[h.slot] = null
@@ -1530,6 +1538,74 @@ await t('P3 an interrupted build that leaves its shaft uncapped writes _well_pit
   assert.equal(r.status, 'failed')
   const row = (await rows('_well_pit_open')).pop()
   assert.ok(row, 'no pit row'); assert.match(row.skill.detail, new RegExp(`at=${CAP.x},${CAP.y},${CAP.z} stage=dug`))
+})
+// ---- AN ABANDONED BUILD NEVER LEAVES AN OPEN PIT (coordinator 10-08) ------------------------------------------------
+const pitCells = town => [town.cell(new Vec3(CAP.x, CAP.y - 1, CAP.z)).name, town.cell(new Vec3(CAP.x, CAP.y, CAP.z)).name]
+await t('PIT FILL, pure: the cells a stage needs, bottom first; the fill block order; a bag that cannot fill', () => {
+  assert.deepEqual(W.pitFillCells('dug', CAP), [{ x: CAP.x, y: CAP.y - 1, z: CAP.z }, { x: CAP.x, y: CAP.y, z: CAP.z }])
+  assert.deepEqual(W.pitFillCells('half_dug', CAP), [{ x: CAP.x, y: CAP.y, z: CAP.z }])
+  assert.deepEqual(W.pitFillCells('floored', CAP), [{ x: CAP.x, y: CAP.y, z: CAP.z }])
+  for (const s of ['fresh', 'built', 'invalid']) assert.deepEqual(W.pitFillCells(s, CAP), [])
+  assert.equal(W.pitFillItem([S('cobblestone', 64), S('diorite', 3), S('dirt', 1)]), 'dirt', 'plain fill first')
+  assert.equal(W.pitFillItem([S('cobblestone', 64), S('diorite', 3)]), 'diorite', 'decoration stone before the scaffold family')
+  assert.equal(W.pitFillItem([S('iron_ore', 9), S('sand', 64), S('chest', 1)]), null, 'never an ore, a falling block or a container')
+  assert.deepEqual(W.pitFillPlan([S('dirt', 1), S('cobblestone', 64)], W.pitFillCells('dug', CAP)), [{ name: 'dirt', n: 1 }, { name: 'cobblestone', n: 1 }])
+  assert.equal(W.pitFillPlan([S('dirt', 1)], W.pitFillCells('dug', CAP)), null)
+})
+await t('PIT FILL: a pit-first build that gives up (every toss missed) fills its pit back to ground -- no _well_pit_open, a _well_pit_filled row', async () => {
+  const town = fakeTown({ hand: S('cobblestone', 64), items: [S('oak_log', 3), S('egg', 16), S('egg', 16), S('flint', 64), ...filler(31)] })
+  town.state.missNext = 99
+  const open0 = (await rows('_well_pit_open')).length, filled0 = (await rows('_well_pit_filled')).length
+  const r = await run('build_well', town.bot)
+  assert.equal(r.status, 'failed', r.detail)
+  assert.ok(town.state.digs.length >= 2, 'positive control: the pit was dug')
+  assert.deepEqual(pitCells(town), ['cobblestone', 'cobblestone'], 'the pit is ground again')
+  assert.equal((await rows('_well_pit_open')).length, open0, 'no pit left open')
+  const row = (await rows('_well_pit_filled')).slice(filled0).pop()
+  assert.ok(row); assert.match(row.skill.detail, new RegExp(`at=${CAP.x},${CAP.y},${CAP.z} stage=dug cells=2 items=cobblestone:2`))
+})
+await t('PIT FILL after an ABORT: a build aborted with its pit open still fills it (bounded, not abortable)', async () => {
+  const town = fakeTown({ hand: S('cobblestone', 64), items: [S('oak_log', 3), S('egg', 16), S('egg', 16), S('flint', 64), ...filler(31)] })
+  const sig = { aborted: false, _l: [], addEventListener (k, f) { this._l.push(f) }, removeEventListener (k, f) { this._l = this._l.filter(x => x !== f) } }
+  town.state.onLook = () => { if (town.state.digs.length >= 2 && !sig.aborted) { sig.aborted = true; for (const f of [...sig._l]) f() } }
+  await run('build_well', town.bot, sig).catch(() => {})
+  assert.ok(sig.aborted, 'positive control: aborted after the dig')
+  assert.deepEqual(pitCells(town), ['cobblestone', 'cobblestone'])
+})
+await t('PIT FILL over a FLOORED pit is placed against a side wall, never the floor trapdoor (a click would toggle it)', async () => {
+  const dir = mkdtempSync(path.join(tmpdir(), 'well-store-'))
+  const C = await import('../src/composter.mjs')
+  assert.ok(C.createSiteGen(dir, `junkwell-site-${HOME.x}_${HOME.y}_${HOME.z}`, 1, CAP, null))
+  const floor = { name: 'oak_trapdoor', props: { half: 'bottom', open: false, facing: 'north', powered: false, waterlogged: false } }
+  const town = fakeTown({ items: [S('oak_trapdoor', 1), S('dirt', 3)], blocks: { [`${CAP.x},${CAP.y},${CAP.z}`]: 'air', [`${CAP.x},${CAP.y - 1},${CAP.z}`]: floor }, storeDir: dir })
+  const place = town.bot._placeBlockWithOptions
+  town.bot._placeBlockWithOptions = async (ref, face, opts) => { if (/_trapdoor$/.test(town.bot.heldItem?.name ?? '')) throw new Error('cap refused'); return place(ref, face, opts) }
+  const r = await run('build_well', town.bot)
+  assert.equal(r.status, 'failed', r.detail)
+  assert.equal(town.cell(new Vec3(CAP.x, CAP.y, CAP.z)).name, 'dirt', 'the cap cell is filled')
+  assert.ok(!town.state.events.includes('toggle'), 'the floor trapdoor was clicked')
+  assert.equal(town.cell(new Vec3(CAP.x, CAP.y - 1, CAP.z)).props.open, false)
+})
+await t('MUTANT (skills): without the fill the abandoned pit stays open', async () => {
+  await withMutant(SP, "        why = !settled ? 'an operation still in flight' : bot.currentWindow ? 'a window is open' : await fillPit(before)\n", "        why = 'mutant'\n", async m => {
+    const town = fakeTown({ hand: S('cobblestone', 64), items: [S('oak_log', 3), S('egg', 16), S('egg', 16), S('flint', 64), ...filler(31)] })
+    town.state.missNext = 99
+    await within(m.SKILLS.build_well.run({ bot: town.bot }, {}, { aborted: false }), 15000, 'mutant')
+    assert.deepEqual(pitCells(town), ['air', 'air'], 'mutant inert')
+  })
+})
+await t('MUTANT (skills): placing against the floor trapdoor toggles it and fills nothing', async () => {
+  await withMutant(SP, "      if (solidAtCell({ x: cell.x, y: cell.y - 1, z: cell.z }) && !WOODEN_TRAPDOOR.test(under?.name ?? '')) { ref = under;", "      if (under) { ref = under;", async m => {
+    const dir = mkdtempSync(path.join(tmpdir(), 'well-store-'))
+    const C = await import('../src/composter.mjs')
+    assert.ok(C.createSiteGen(dir, `junkwell-site-${HOME.x}_${HOME.y}_${HOME.z}`, 1, CAP, null))
+    const floor = { name: 'oak_trapdoor', props: { half: 'bottom', open: false, facing: 'north', powered: false, waterlogged: false } }
+    const town = fakeTown({ items: [S('oak_trapdoor', 1), S('dirt', 3)], blocks: { [`${CAP.x},${CAP.y},${CAP.z}`]: 'air', [`${CAP.x},${CAP.y - 1},${CAP.z}`]: floor }, storeDir: dir })
+    const place = town.bot._placeBlockWithOptions
+    town.bot._placeBlockWithOptions = async (ref, face, opts) => { if (/_trapdoor$/.test(town.bot.heldItem?.name ?? '')) throw new Error('cap refused'); return place(ref, face, opts) }
+    await within(m.SKILLS.build_well.run({ bot: town.bot }, {}, { aborted: false }), 15000, 'mutant')
+    assert.ok(town.state.events.includes('toggle'), 'mutant inert')
+  })
 })
 await t('P3 a breached well stays in the exclusions next to the new one; building past it writes _well_retired (C6 counts active wells)', async () => {
   const { knownWellCells } = await import('../src/skills.mjs')

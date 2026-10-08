@@ -206,6 +206,48 @@ const diggable = b => ground(b) && Number.isFinite(b.hardness) && b.hardness >= 
 export const wellCells = cap => ({ cap: { x: cap.x, y: cap.y, z: cap.z }, shaft: { x: cap.x, y: cap.y - 1, z: cap.z },
                                    floor: { x: cap.x, y: cap.y - 2, z: cap.z }, rim: { x: cap.x, y: cap.y + 1, z: cap.z } })
 
+// ---- an abandoned build never leaves an open pit (coordinator 10-08: the sandbox left one after two missed tosses) ----
+
+/** Blocks a pit is filled with, best first: plain fill and listed decoration stone before the scaffold family; never a
+ *  falling block, an ore, a container or anything with a use of its own. */
+export const PIT_FILL_BLOCKS = Object.freeze(['dirt', 'coarse_dirt', 'rooted_dirt', 'granite', 'diorite', 'andesite', 'tuff',
+  'calcite', 'dripstone_block', 'netherrack', 'blackstone', 'basalt', 'smooth_basalt', 'deepslate', 'mossy_cobblestone',
+  'cobbled_deepslate', 'cobblestone', 'stone'])
+
+/**
+ * WHAT AN UNFINISHED SITE NEEDS TO BE GROUND AGAIN -> [cells], bottom first. Pure. `stage` is wellStage's reading:
+ * half_dug -> the cap cell; dug -> the shaft then the cap cell; floored -> the cap cell (over the floor trapdoor, which
+ * is left: a bottom-half trapdoor under a full block is buried). fresh / built / invalid -> nothing (no pit, or not ours
+ * to judge).
+ */
+export function pitFillCells (stage, cap) {
+  const { cap: c, shaft } = wellCells(cap)
+  if (stage === 'half_dug') return [c]
+  if (stage === 'dug') return [shaft, c]
+  if (stage === 'floored') return [c]
+  return []
+}
+
+/** The bag item a pit is filled with -> the first of PIT_FILL_BLOCKS held (any count), or null. Pure. */
+export function pitFillItem (items = []) {
+  const held = new Set((Array.isArray(items) ? items : []).filter(it => it && (it.count ?? 0) > 0).map(it => it.name))
+  return PIT_FILL_BLOCKS.find(n => held.has(n)) ?? null
+}
+
+/** How many of each fill block a pit of `cells` takes from the bag -> [{ name, n }], or null when the bag cannot fill it. */
+export function pitFillPlan (items = [], cells = []) {
+  const counts = {}
+  for (const it of (Array.isArray(items) ? items : [])) if (it?.name) counts[it.name] = (counts[it.name] ?? 0) + (it.count ?? 0)
+  const out = []
+  let need = cells.length
+  for (const n of PIT_FILL_BLOCKS) {
+    if (!need) break
+    const k = Math.min(need, counts[n] ?? 0)
+    if (k > 0) { out.push({ name: n, n: k }); need -= k }
+  }
+  return need ? null : out
+}
+
 /** Facing -> the unit step from the cap to the STAND (the facing side: the open flap stands on the far side). */
 export const FACING = Object.freeze({ north: { x: 0, z: -1 }, south: { x: 0, z: 1 }, west: { x: -1, z: 0 }, east: { x: 1, z: 0 } })
 const FACING_ORDER = ['north', 'south', 'west', 'east']
