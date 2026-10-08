@@ -916,6 +916,29 @@ await t('MUTANT (skills): the grade credits any sword loss (not only one the wel
     assert.ok(JSON.stringify(m.classifyOutcome('dispose_well', 'success', { inventory: { stone_sword: -1 } })).includes('stone_sword'), 'mutant inert')
   })
 })
+// THE STRICT SWITCH UNDER EVERY FOOD_SKIP MODE (Claude review of the peacefulkit composition: the switch was only tested
+// as a pure function). FOOD_SKIP is read once per process, so each mode runs the REAL wellSwordsNow in a child process.
+import { spawnSync } from 'node:child_process'
+const switchIn = (mode, modFile = new URL('../src/skills.mjs', import.meta.url).pathname) => {
+  const code = `const m = await import(${JSON.stringify(modFile)}); console.log('RESULT ' + JSON.stringify(['easy', 'normal', 'hard', 'peaceful'].map(d => m.wellSwordsNow({ serverDifficulty: d, game: { difficulty: d } }))))`
+  const r = spawnSync(process.execPath, ['--input-type=module', '-e', code], { env: { ...process.env, FOOD_SKIP: mode }, encoding: 'utf8', timeout: 60_000 })
+  const line = (r.stdout ?? '').split('\n').find(l => l.startsWith('RESULT '))
+  assert.ok(line, `no result from the child (${mode}): ${(r.stderr ?? '').slice(-300)}`)
+  return JSON.parse(line.slice(7))
+}
+await t('SWORDS, THE STRICT SWITCH in a real process: FOOD_SKIP=on in an easy/normal/hard world takes NO sword; peaceful does (auto and on)', () => {
+  assert.deepEqual(switchIn('on'), [false, false, false, true], 'on')
+  assert.deepEqual(switchIn('auto'), [false, false, false, true], 'auto')
+  assert.deepEqual(switchIn('off'), [false, false, false, false], 'off: never')
+})
+await t('MUTANT (skills): the well switch as foodskip\'s own `active` throws swords with FOOD_SKIP=on in an easy world', async () => {
+  const src = readFileSync(SP, 'utf8')
+  const old = '  try { return swordSwitch(FOOD_SKIP.mode, difficultyOf(bot)) } catch { return false }\n'
+  assert.equal(src.split(old).length, 2, 'the mutation target is present and unique')
+  const out = new URL(`./_mutant-${process.pid}-sw.mjs`, import.meta.url)
+  writeFileSync(out, src.replace(old, '  try { return foodSkipNow(bot).active } catch { return false }\n').replace(/from '\.\//g, "from '../src/"))
+  try { assert.equal(switchIn('on', out.pathname)[0], true, 'mutant inert') } finally { try { unlinkSync(out) } catch {} }
+})
 await t('SWORDS, AT THE CLICK: the world turns easy during the aim -> the planned sword is not thrown', async () => {
   const town = peacefulTown([S('egg', 16), S('stone_sword', 1), ...filler(34)], 'peaceful')
   town.state.onLook = () => { if (town.state.clicks.length >= 1) town.bot.serverDifficulty = 'easy' }
@@ -2078,10 +2101,11 @@ await t('MUTANT (skills): by=closed for any stage but invalid says an open cap i
 await t('SWORDS ON PEACEFULKIT: the well classifies with peacefulkit\'s unwantedSword under its own strict switch', async () => {
   const PK = await import('../src/peacefulkit.mjs')
   assert.equal(W.isSword, PK.isSword, 'one isSword')
-  for (const n of ['wooden_sword', 'stone_sword', 'iron_sword', 'diamond_sword', 'netherite_sword', 'golden_sword', 'stone_pickaxe', 'sword', 'egg']) {
+  for (const n of ['wooden_sword', 'stone_sword', 'iron_sword', 'diamond_sword', 'netherite_sword', 'golden_sword', 'stone_pickaxe', 'stone_axe', 'iron_shovel', 'wooden_hoe', 'sword', 'egg']) {
     for (const p of [true, false]) assert.equal(W.swordGoes(n, p), PK.unwantedSword({ name: n }, p), `${n} ${p}`)
   }
   assert.equal(W.swordGoes('stone_sword', true), true, 'positive control')
+  for (const n of ['stone_axe', 'iron_shovel', 'wooden_hoe', 'stone_pickaxe']) assert.equal(W.swordGoes(n, true), false, `${n} is a tool, never a sword`)
   // the switch: peaceful only, and only with foodskip's switch on
   assert.equal(W.swordSwitch('auto', 'peaceful'), true)
   for (const [m, d] of [['auto', 'easy'], ['on', 'normal'], ['on', 'hard'], ['off', 'peaceful']]) assert.equal(W.swordSwitch(m, d), false, `${m}/${d}`)
