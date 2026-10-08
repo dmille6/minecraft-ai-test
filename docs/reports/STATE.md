@@ -11,6 +11,14 @@ behind it (chain-ore.sh stopped 10-01 on fixes-02's revert)._
 
 ---
 
+## 10-08 06:45Z — TOWNDEPOSIT-02 KEPT (+360) and PROMOTED: FLEET 92bc84f (06:31Z, all live bots verified); merged to main
++360: 21 deposits, 17/25 full-bag town stays served, slots/bot DiD -1.23, share>=34 DiD -0.30, correctness 0, deaths
+canary 1 (0.017/bh) vs control 8 (0.027/bh); climbs +56% (<= +100%). Main: merge of 92bc84f + towndeposit test flake
+fix (a6cd3c1 cherry-picked); npm test green. SCHEDULER INSTALLED 06:35Z (~/canary-sched.py, cron */5, queue empty;
+rollback: bash ~/sched-install/install-canary-sched.sh --rollback 20261008T063539Z); stale owner-01 (09-18) closed
+against its ledger row. NEXT: airpocket-01 (92bc84f variant ap dbb4d78) once gate v34-HYB is installed; bag fixes and
+withdraw2 use their 92bc84f variants.
+
 ## 10-08 05:30Z — DECISIONS: airpocket gate = HYB@2.5 (Codex + operator); two lanes REJECTED by both engines; scheduler staged
 AIRPOCKET GATE: HYB@2.5 (DiD OR frozen matched-pool control > 2.5), not the built DID24@2.0, which is blind in
 airpocket's stratum (doubling 3.3%, tripling 34% at 26 h vs HYB 35% / 76%, false trip <= 2.5%). Gate agent rebuilding
