@@ -879,9 +879,24 @@ await t('SWORDS, never in the pit-first build (Claude P3): a peaceful bag buildi
   assert.equal(town.count('stone_sword'), 1, 'the pit took no sword')
   assert.ok((await rows('_well_dispose')).some(x => /stop=pit_first/.test(x.skill.detail)), 'positive control: a pit phase ran')
 })
-await t('SWORDS, a sword-only visit is contract evidence (Codex P2): classifyOutcome sees the loss', () => {
+await t('SWORDS, a sword-only visit is contract evidence (Codex P2) -- but only a sword the well CLICKED (Codex, pk composition)', async () => {
+  const town = peacefulTown([S('stone_sword', 1), S('egg', 16), ...filler(34)], 'peaceful')
+  assert.equal((await run('dispose_well', town.bot)).status, 'success')
   const v = classifyOutcome('dispose_well', 'success', { inventory: { stone_sword: -1 } })
-  assert.ok(JSON.stringify(v).includes('stone_sword'), JSON.stringify(v))
+  assert.ok(JSON.stringify(v).includes('stone_sword'), 'clicked in a peaceful world: credited ' + JSON.stringify(v))
+  const easy = peacefulTown([S('stone_sword', 1), S('egg', 16), ...filler(34)], 'easy')
+  assert.equal((await run('dispose_well', easy.bot)).status, 'success')
+  assert.equal(easy.count('stone_sword'), 1, 'positive control: the easy visit kept its sword')
+  const u = classifyOutcome('dispose_well', 'success', { inventory: { stone_sword: -1, egg: -16 } })
+  assert.ok(!JSON.stringify(u).includes('stone_sword'), 'a sword the well never clicked is not its evidence ' + JSON.stringify(u))
+  assert.ok(JSON.stringify(u).includes('egg'), 'positive control: the junk still is')
+})
+await t('MUTANT (skills): the grade credits any sword loss (not only one the well clicked)', async () => {
+  await withMutant(SP, '(isWellJunk(k) || ((isSword(k) || isWellCobble(k)) && wellClickedLast.has(k)))', '(isWellJunk(k) || isSword(k) || (isWellCobble(k) && wellClickedLast.has(k)))', async m => {
+    const easy = peacefulTown([S('stone_sword', 1), S('egg', 16), ...filler(34)], 'easy')
+    await within(m.SKILLS.dispose_well.run({ bot: easy.bot }, {}, { aborted: false }), 15000, 'mutant')
+    assert.ok(JSON.stringify(m.classifyOutcome('dispose_well', 'success', { inventory: { stone_sword: -1 } })).includes('stone_sword'), 'mutant inert')
+  })
 })
 await t('SWORDS, AT THE CLICK: the world turns easy during the aim -> the planned sword is not thrown', async () => {
   const town = peacefulTown([S('egg', 16), S('stone_sword', 1), ...filler(34)], 'peaceful')
@@ -923,6 +938,15 @@ await t('COBBLE, the skill: the town PROVEN at its cap (300 counted) -> surplus 
   const row = (await rows('_well_dispose')).pop()
   assert.equal(field(row.skill.detail, 'cobble'), '94', row.skill.detail); assert.equal(field(row.skill.detail, 'cobble_left'), '64'); assert.equal(field(row.skill.detail, 'cap'), 'at_cap')
   assert.equal(field(row.skill.detail, 'offlist'), '0')
+  // THE GRADE (Codex, pk composition): cobble the well CLICKED at the cap is its evidence -- a cobble-only loss is not 'neutral'
+  assert.ok(JSON.stringify(classifyOutcome('dispose_well', 'success', { inventory: { cobblestone: -94 } })).includes('cobblestone'))
+})
+await t('COBBLE, the grade: below the cap no cobble is clicked, so a cobble loss is not the well\'s evidence', async () => {
+  const town = fakeTown({ wellAt: CAP, items: [S('cobblestone', 64), S('cobblestone', 30), S('egg', 16), ...Array.from({ length: 32 }, () => S('oak_log', 64))] })
+  townAt(town, 100)
+  assert.equal((await run('dispose_well', town.bot)).status, 'success')
+  assert.equal(town.count('cobblestone'), 94, 'positive control: no cobble went')
+  assert.equal(classifyOutcome('dispose_well', 'success', { inventory: { cobblestone: -30 } }).value, 'neutral')
 })
 await t('COBBLE, the skill: below the cap (100 counted, complete or not) or with no count -> no cobble goes; positive control: the egg does', async () => {
   for (const n of [100, null]) {
