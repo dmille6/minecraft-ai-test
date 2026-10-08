@@ -1,0 +1,121 @@
+{
+ "run_id": "bamboocraft-01",
+ "sha": "56956af",
+ "registered_at": "2026-10-08T00:10:00Z",
+ "ladder_change": false,
+ "promotion": "fleet-wide",
+ "notes": "[bamboocraft-01, variant on bamboo-01 for fleet c6e91a8 (bamboo-01 @ 6fb6fd9 promoted): branch bc-on-6fb6fd9 @ 56956af.] [bamboocraft-01: a SEPARATE follow-up canary on top of bamboo-01 -- LAUNCH ONLY AFTER bamboo-01 IS KEPT (bamboo-01 unchanged); base = bamboo-01's sha.] OPERATOR + CODEX 10-07 (owner delegated): \"The craft path should deterministically attempt a local bamboo fold when it will free the required space, then retry crafting. Reuse the validated fold implementation, enforce stick caps, protect ingredients needed by the pending craft, and bound retries. Verify that folding actually enables the craft; otherwise report another executable remedy.\" THE CHANGE: bamboo.mjs foldForCraft (pure) folds only when the craft is blocked by ROOM, no bamboo is needed by the craft, a later whole-tree step or ANY ANCESTOR level (keep), a batch frees a slot as simulated in the real slot order, throws nothing, keeps the 64-stick cap, fits its peak and the time left, AND the craft fits on the bag the fold leaves; smallest batch; craftsync required (verifiable). skills.mjs makeCraftRoom: the fold FIRST (destroys nothing), the spent-tool wear-out second; once per craft level; foldExecute = bambooSticks' core unchanged; enabled only on an ANSWERED server recount + the craft's own room check; an unanswered recount on a bag that fits refuses \"craft again\" (no tool worn on a guess). Row _bamboo_room (attempted, crafts/planned, slots, enabled, reason, source, run). REVIEWS: Codex r1 CHANGE (P1 recursive table sub-craft could fold the parent's bamboo; P2 source none accepted; P2 remedies not executed) and Claude r1 CHANGE (P2 protect never exercised through the chain) -> r2: Codex APPROVE; Claude APPROVE (4 own mutants each failing a behaviour test; P3s recorded: a fold that throws after verified crafts is not marked unconfirmed; keep is name-only and conservative; refusal advice is not given the ancestors' keep). TESTS: bamboocraft 43/43 through real craftsync + fake Paper (Codex's example keeps all 64 bamboo; whole-tree chain; composed remedies eat -> craft succeeds; wear-out composed; fold before wear-out keeps a spent axe), 14 in-test mutants killed (anchors unique); bamboo, craft-room, craftsync* (7), craft-* (5) pass. READ scripts/host/bamboocraftread.py: B1 a fold for a bamboo-consuming craft, B2 crafts > planned, B3 room claimed with no slot freed on the server bag (each REVERTS); tripwires: a new stick slot past 64, refused-after-fold reasons, aborted folds, deaths within 60 s of a fold; INSTRUMENT control room refusals with >= 2 bamboo held (1,073 in a 6 h dry run 10-07; successful crafts seen 281 on 69 bots = the join's positive control); PRIMARY the share of those refusals followed within 120 s by a successful craft of the same item, DiD (dry run: control 0.00 -> 0.01). PAPER (fold enables a craft, 10-07 ~23:10Z, sandbox/craft/bamboo-craft-ab.cjs; cand 56956af vs ctrl 6fb6fd9 = bamboo-01): K1 36/36 with bamboo 64 + sticks 32 -> the candidate folded 32 crafts (~36 s, each confirmed by a server resync), freed a slot and crafted the stone_pickaxe (row made_room enabled=yes slots=36->35); the control refused for room. K2b (scaffolding, room-blocked) -> skipped 'the craft consumes bamboo', bamboo kept. K3 (63 bamboo) -> no fold, the usual refusal. Nothing on the ground. CAVEAT (both arms, i.e. bamboo-01): without a primer the housekeeping bamboo_sticks order fires first at 34+ slots and folds ALL the bamboo -- in one scene it ate the scaffolding's ingredient; K1/K2 used a 1-craft primer to put the order on its cooldown, so how often the craft-time fold beats housekeeping on the fleet is unknown. SUITES: bc-on-6fb6fd9 @ 56956af 238/238; lint clean but for withinBody.",
+ "licence": {
+  "class": "kind",
+  "kind": "_bamboo_room",
+  "min_rows": 1,
+  "note": "Written only by this build: whenever the craft skill's room check meets a bag holding >= 2 bamboo (skips included). bamboo-01 has no _bamboo_room row."
+ },
+ "reads": [
+  "bamboocraftread",
+  "immobiledid"
+ ],
+ "read_minutes": [
+  180,
+  360
+ ],
+ "deadline_min": 1680,
+ "change_rows": [
+  "bamboo_room"
+ ],
+ "linkage_extra": [],
+ "draw_exposure": {
+  "hours": 3,
+  "require": [
+   {
+    "name": "full bags holding bamboo (craft_room refusals listing bamboo in the bag)",
+    "kind": "craft_room",
+    "detail_contains": "bamboo",
+    "min": 5
+   }
+  ],
+  "note": "10-04 21:00-24:00Z per pool: hive-b 88, hive-a 43, board-a 18, board-c 10 (isolated-* and placebo-c are never drawn). The detail lists the bag on a full-bag refusal ('bag: ... bamboo 1')."
+ },
+ "exposure": {
+  "read": "bamboocraftread",
+  "field": "exposure_ready",
+  "min": 1,
+  "note": "Ready = >= 3 canary attempted folds AND >= 1 control room refusal with >= 2 bamboo held. MEASURED 10-07 (6 h dry run, base build): 1,073 control and 98 \"canary\" (hive-a, placebo-b as c6e91a8) room refusals with >= 2 bamboo held; how many of those a fold can solve is not measured (bamboo-01 never ran), so the extensions carry a slow start."
+ },
+ "own_lines": [
+  {
+   "read": "bamboocraftread",
+   "field": "breach_bamboo_craft",
+   "op": "<=",
+   "value": 0,
+   "on_fail": "REVERT",
+   "evidence": "defect",
+   "note": "B1: an attempted fold for a craft that consumes bamboo (scaffolding, bamboo_block)."
+  },
+  {
+   "read": "bamboocraftread",
+   "field": "breach_crafts_over_plan",
+   "op": "<=",
+   "value": 0,
+   "on_fail": "REVERT",
+   "evidence": "defect",
+   "note": "B2: crafts > planned on a _bamboo_room row."
+  },
+  {
+   "read": "bamboocraftread",
+   "field": "breach_no_slot_freed",
+   "op": "<=",
+   "value": 0,
+   "on_fail": "REVERT",
+   "evidence": "defect",
+   "note": "B3: a made_room row (enabled=yes) on the server bag (source=server) with o1 >= o0."
+  },
+  {
+   "read": "bamboocraftread",
+   "field": "rows_control",
+   "op": "<=",
+   "value": 0,
+   "on_fail": "REVERT",
+   "note": "Arms. BLOCKS KEEP."
+  },
+  {
+   "read": "bamboocraftread",
+   "field": "rows_canary",
+   "op": ">=",
+   "value": 1,
+   "on_fail": "REVERT",
+   "note": "LIVENESS: canary _bamboo_room rows. BLOCKS KEEP (INCONCLUSIVE)."
+  },
+  {
+   "read": "bamboocraftread",
+   "field": "instrument_control",
+   "op": ">=",
+   "value": 1,
+   "on_fail": "REVERT",
+   "note": "POSITIVE CONTROL: control room refusals with >= 2 bamboo held. BLOCKS KEEP."
+  }
+ ],
+ "primary": {
+  "read": "bamboocraftread",
+  "field": "unblocked_did",
+  "note": "REPORTED, NOT GATED: the share of room refusals (>= 2 bamboo held) followed within 120 s by a successful craft of the same item, DiD; enabled share of attempted folds; crafts per fold; skip reasons."
+ },
+ "harm": {
+  "note": "Unchanged: the two-death floor (OWNER 2026-09-11) and gather_ratio < 0.43 of control, from immobiledid. Watch _reflex_stuck during folds (the declared window exempts only the fold)."
+ },
+ "teardown": {
+  "note": "THREE STEPS: drop-ins, clear canary_pool, restart the pool's bots 12 s apart; then confirm the live versions."
+ },
+ "amendments": [],
+ "extension": {
+  "until_exposure": true,
+  "extra_reads": [
+   540,
+   720,
+   1080,
+   1560
+  ],
+  "final_on_zero_exposure": "INCONCLUSIVE",
+  "note": "SHORT CANARY for a fix (owner 2026-09-29)."
+ }
+}

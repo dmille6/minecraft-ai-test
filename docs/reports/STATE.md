@@ -11,6 +11,36 @@ behind it (chain-ore.sh stopped 10-01 on fixes-02's revert)._
 
 ---
 
+## 10-08 00:10Z -- QUEUED, NOT LAUNCHED: the cobble cap inside stonecap-01; swords in junkwell-02; the well-at-cap coupling; bamboocraft-01; junkwell on peacefulkit
+All branches pushed; registrations in docs/reports; reads in scripts/host (md5 on the host /tmp and ~/mcai-analysis = repo:
+stonecapread 69ae9d78, wellread 31204393, bamboocraftread 8d797bd6). Nothing deployed, the manifest and the loop untouched.
+- **stonecap-01 = the cobble rule + THE TOWN COBBLE CAP** (owner-delegated 10-07, Codex's rule): sc-on-c6e91a8 @ 06e2964,
+  sc-on-92bc84f @ 971fb09. Counted counts in an append-only journal per town (`/var/lib/mcai/_pool-<pool>/<townKey>.cobble.jsonl`),
+  claims decided in a shared fold, reconciliation of uncounted containers, never past 256, surplus stays in the bag at the
+  ceiling. Codex 8 rounds -> APPROVE; Claude 4 rounds + final delta -> APPROVE (8-process race: 0 overshoots). Mutants 65/65 and
+  67/67; suites 236/236 and 237/237. Paper: the cap held in every scene (control overshot 270-336); details in the registrations.
+  BEFORE FLEET-WIDE PROMOTION: rotate the journal (P3, Claude); the read lists claims live > 1 h by bot (a removed bot's stay
+  reserved, fail closed). Exposure is slow at the evening rate (~12 h for a 5-bot pool): the extensions carry it.
+- **stonecap-01 COUPLED** (only if junkwell-02 is KEPT and promoted): sc-on-5c13330 @ ee4c916, sc-on-5cca9c5 @ 5ee00b8 --
+  surplus whole stacks above 64 go down the well only while the town HOLDS 256 (counted), re-read at every click. Codex 3 rounds
+  -> APPROVE; Claude APPROVE (its cheap P3s taken: cap read only at town; build room without cobble/swords). Paper: at 277
+  counted the 30 + one 64 went into the shaft and exactly 64 stayed; at 247 none; a count dropped after the first click kept the
+  second stack; control 5c13330 threw none. junkwell's chest-full W4-W8 fixtures adapted (a lone 64 cobble is now reserve).
+- **junkwell-02 + swords** (peaceful only, re-read at every click): jw-on-c6e91a8 @ 5c13330, jw-on-92bc84f @ 5cca9c5. Codex r3 and
+  Claude r2 APPROVE; suites 236/236, 237/237; Paper: peaceful threw both swords into the shaft, easy and a mid-visit switch kept
+  them. **If peacefulkit is KEPT:** jw-on-6dc10d1 @ 91f9ce4 and jw-on-f2c4ba0 @ 582ade7 (merged on pk's final heads; both
+  engines checked the composition -- Claude APPROVE, Codex CHANGE on peacefulkit's OWN code, not the merge: the counting sites still count spare swords
+  (admission/milestones/prompt/skills: pass noSwords), and drainFurnace can leave a lifted wooden sword on the cursor). The
+  earlier jw-on-da3e38d / jw-on-7ae5e0f are SUPERSEDED (not pushed). Suites 239/239 and 240/240.
+- **bamboocraft-01** (launch only after bamboo-01 is KEPT): bc-on-6fb6fd9 @ 56956af, bc-on-786da4c @ f7415de. Codex r2 and Claude
+  r2 APPROVE; suites 238/238, 239/239; 14 + 4 mutants killed. Paper: 36/36 bamboo 64 + sticks 32 -> 32 server-confirmed fold
+  crafts freed a slot and the stone pickaxe was crafted (control refused). **bamboo-01 FINDING (both arms):** its housekeeping
+  order fires first at 34+ slots and folds ALL bamboo -- in one scene it ate the scaffolding's ingredient; the craft-time fold
+  only got its turn with the order on cooldown. Read bamboo-01 with that in mind.
+- KNOWN, junkwell-02 (pre-existing, both revisions in the sandbox): the pit-first toss can miss the pit and the bot picks the
+  stack back up; after two misses the build refuses "0 free slots" -- 5 misses in a row on one sandbox site 10-07 evening.
+- DO NOT deploy the round-6 cap shas 9e88176 / a12572d (a mutant survives there; the finals kill it).
+
 ## 10-07 ~22:30Z — PEACEFULKIT-01 REVISED to the owner's 19:50Z decisions; REVIEWED (Claude + Codex APPROVE); NOT LAUNCHED
 `pk-on-c6e91a8` @ 6dc10d1 (registration docs/reports/peacefulkit-01.c6e91a8.json) and, for a fleet on towndeposit-02,
 `pk-on-92bc84f` @ f2c4ba0 (peacefulkit-01.92bc84f.json); both in ~/mcai-analysis/ too. Read scripts/host/peacefulkitread.py

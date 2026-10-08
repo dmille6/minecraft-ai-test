@@ -70,13 +70,48 @@ an empty requested plan before the walk (`deposit_nothing_to_bank`, naming the r
 Examples (stacks -> banked): [64, 30] -> the 30 (keeps 64); [64, 10] -> the 10; [50] -> nothing; [64, 64, 64] -> one 64
 (creditCap); [40 cobble, 40 + 64 deepslate] -> 40 cobble and 40 deepslate (keeps 64).
 
-### The 256 per town
+### The 256 per town -- THE TOWN COBBLE CAP (owner 10-07, delegated to the operator + Codex; built into stonecap-01)
 
-Not a code cap. Both engines rejected a town ledger on 10-04, and the owner's own phrase was "(both-engine no-ledger
-design)". The towns hold far more than 256 today (the 10-04 clear left 256 of cobble per town and banking has continued
-since), nothing but withdraw's 3-per-pickaxe takes cobble out, and a future clear must keep 256. If the owner wants a
-**hard cap** (stop banking cobble while a town holds >= 256), that needs evidence of the town's total -- a ledger or a
-same-visit count of the containers opened -- and is a separate change. **Owner decision.**
+The 10-07 decision (docs/reports/cobblecap-bamboocraft-decision-codex-2026-10-07.txt) made the 256 a hard cap, built
+before the canary. Codex's rule, as built (bots/src/cobblecap.mjs, skills.mjs):
+
+- **Counted, never estimated.** A bot that opens a town container (deposit, withdraw, town deposit, reconciliation)
+  appends that container's cobble + deepslate count from the open window, with its capture time. Per container the
+  latest capture wins, a tie the larger count. The town total is the sum of the fresh counts (6 h). The mayor's estimate
+  is not used.
+- **Whole stacks, under the cap, above the bot's 64.** Every stack is admitted by a CLAIM, checked against the counted
+  total plus every live claim (the bot's own earlier stacks in a batch included). `cobbleAdmit`: `at_cap` when what is
+  known plus what is on its way reaches 256, or when this stack would pass it on a complete count; `unknown` when a town
+  container has no fresh count (or the scan did not cover the town) and the known part is below 256 -- "currently below
+  256" on a partial count is never enough.
+- **Unknown is reconciled before depositing.** A deposit in town whose smallest surplus stack the cap cannot judge first
+  opens up to 3 uncounted town containers and counts them (`_cobble_reconcile`). Admission admits that deposit (the one
+  empty plan a deposit can change) only in town (`inTown`) and only if an uncounted container is outside its 10 min
+  backoff. A container that cannot be counted (lid blocked, unreachable, unopenable, count not written) is backed off and
+  named in the refusal. Out of town the refusal names the remedy ("a deposit at town counts the town's chests first").
+- **At the ceiling the surplus stays in the bag** -- no new chest, no toss. Only in the variants built on junkwell-02
+  (`sc-on-<jw sha>`, used only if junkwell-02 is KEPT) do whole stacks above the 64 go down the well while the town is
+  PROVEN at the cap (`cobbleWellCap === 'at_cap'`, re-read at the first cobble click; whole planned stack; >= 64 left).
+- **A container outside town never takes cobble** (the cap is the town's); a cobble-only plan targets town containers and
+  walks home when none is in reach.
+
+THE JOURNAL (after Codex rounds 1-7 and Claude rounds 1-4; both engines approved): no lock. One append-only file per town
+(`<pool state dir>/<townKey>.cobble.jsonl`); each record one line, written by one append that begins with a newline (a
+writer that died mid-line can never swallow the next record). Every reader folds the same order, so a claim is decided
+at its own place and every reader agrees (8-process race, 20-25 trials, clock skew +-5 s: worst total 254, 0 overshoots,
+0 disagreements). A count and the releases it includes share one line; a count that releases a claim on its own
+container, or resolves a void of it, replaces the standing count whatever the clocks say. An admitted claim never
+expires by time (a clock cannot fence a paused transfer): it is reserved until its release, or until the bot's NEXT
+connection voids it -- a reconnect is a new connection (`<process start ms>-<pid>-<rand>-c<n>`); the void, written at the
+first read after login, fences every later record of that bot from any older connection, and an older connection's void
+is ignored. A window that is no longer the bot's, or a connection that has ended, writes no count: its releases mark the
+container unknown until recounted. A checkpoint of the fold's own state (atomic rename, every 256 KB folded) keeps each
+read linear (8 MB: 66 ms cold, 0.2 ms after); more than 32 MB to fold fails closed (unknown).
+
+Residuals (classified by Codex, accepted): the interval between a silent disconnect and the client's first sign of it;
+an OS-frozen process across checks; operator deletion or disk corruption of the journal; cross-process ordering assumes
+process start times follow login order. Fail-closed costs (Claude): a removed bot's live claims stay reserved for good (the
+read lists live claims older than 1 h by bot); the journal is not rotated (needed before fleet-wide promotion).
 
 ## Remedy check (CLAUDE.md)
 
@@ -136,3 +171,10 @@ gated.
   [50] -> no cobble (control banked 42 to its old 8); a chest with room for 14 -> nothing moved, no chest, no recovery
   (control part-filled +14). Craftsync's recount after real transfers reports src=skipped, so C1 judges the client bag,
   which matched the server's read-back in every trial.
+- THE CAP (10-07 evening, owner-delegated): Codex rounds 1-7 CHANGE, round 8 APPROVE; Claude rounds 1-3 CHANGE, round 4 and the
+  final delta APPROVE (see "The 256 per town" above for what each round changed). Mutants (scripts/mutants/mutants-canaries-1007.py
+  cobble): 65/65 killed on sc-on-c6e91a8 @ 06e2964, 67/67 on sc-on-92bc84f @ 971fb09. Paper sandbox (sandbox/craft/cobble-cap-ab.cjs):
+  town 250 -> no cobble moved (control 314); 100 -> exactly the 30 (130; control 164); double chest and deepslate as 100; an
+  unopened barrel reconciled then used; a chest outside town got logs only; `deposit cobblestone` at 250 refused at admission; a
+  reconnect voided the previous process's claim, recounted and banked (160); the 92bc84f town deposit at 220 banked exactly one
+  stack (control 270). The well coupling (sc-on-<jw sha>): Codex r1-r2 CHANGE, r3 APPROVE; Claude APPROVE.

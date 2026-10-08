@@ -97,6 +97,7 @@ const rowsOf = file => lines(file).map(l => { try { return JSON.parse(l) } catch
 async function waitFor (pred, ms, step = 250) { for (const t0 = Date.now(); Date.now() - t0 < ms;) { const v = pred(); if (v) return v; await sleep(step) } return null }
 
 let BRAIN_WANDER = false, brainN = 0
+const BRAIN_Q = []
 const WANDER = [{ x: 1322, y: 120, z: 1322 }, { x: 1324, y: 120, z: 1322 }]
 const brain = http.createServer((req, res) => {
   let body = ''; req.on('data', c => { body += c })
@@ -108,6 +109,10 @@ const brain = http.createServer((req, res) => {
     // 'status' for ever trips the fleet's livelock breaker (repeat_loop rejections -> a 58-block relocation off the arena,
     // sandbox 10-05 r4); BRAIN_WANDER alternates two short walks on the arena, away from the well, instead.
     let decision = { skill: 'status', args: {} }
+    // a QUEUED line first (the coupling scenes' `deposit oak_log`): skill [item]
+    if (BRAIN_Q.length) { const [skill, item] = BRAIN_Q.shift().split(/\s+/); decision = { skill, args: item ? { item } : {} }; res.setHeader('Content-Type', 'application/json')
+      res.end(JSON.stringify({ model: 'sandbox-script', created_at: new Date().toISOString(), message: { role: 'assistant', content: JSON.stringify({ ...decision, reason: 'sandbox queue', saw_end: sentinel }) },
+        done: true, total_duration: 1e6, load_duration: 0, prompt_eval_count: 10, prompt_eval_duration: 5e5, eval_count: 5, eval_duration: 5e5 })); return }
     // the repeat-loop key buckets nearby gotos together (r5: two cells 2 apart read as 'identical 4x'): status and goto alternate
     if (BRAIN_WANDER && brainN++ % 2) { const c = WANDER[(brainN >> 1) % 2]; decision = { skill: 'goto', args: { x: c.x, y: c.y, z: c.z } } }
     res.setHeader('Content-Type', 'application/json')
@@ -122,8 +127,10 @@ async function stopBot () {
   await waitFor(() => !new RegExp(NAME).test(r1('list')), 30000, 1000)
 }
 const RUN = new Date().toISOString().replace(/[-:]/g, '').slice(4, 15)
-async function startBot (scene, slotsSpec, { pool = `sbxwell-${RUN}` } = {}) {
-  const tag = `${RUN}-${scene}`
+let TRIAL_N = 0
+async function startBot (scene, slotsSpec, { pool = `sbxwell-${RUN}`, root = BOT_ROOT } = {}) {
+  // a repeated scene in one run gets its own logs (run 10-07: the second swordp read the first one's `skill dispose_well ->` line)
+  const tag = `${RUN}-${scene}-${++TRIAL_N}`
   const logRel = `./sandbox/log/well-e2e/${tag}`
   const skillLog = `${R}/sandbox/log/well-e2e/${tag}/skill-${NAME}.jsonl`
   const botOut = `${OUT}/bot-${tag}.out`; const trace = `${OUT}/trace-${tag}.jsonl`
@@ -133,9 +140,10 @@ async function startBot (scene, slotsSpec, { pool = `sbxwell-${RUN}` } = {}) {
   set('BOT_NAME', NAME); set('LOG_DIR', logRel); set('STATE_DIR', `./sandbox/state/well-e2e-${tag}`); set('MEMORY_POOL', pool)
   set('MINECRAFT_PORT', PORTS[SERVER]); set('MAX_CONSECUTIVE_FAILURES', 50); set('FAILED_COOLDOWN_MS', 1000); set('STUCK_SECONDS', 20)
   for (const a of ['X', 'Y', 'Z']) { set(`HOME_${a}`, HOME[a.toLowerCase()]); set(`BOARD_${a}`, HOME[a.toLowerCase()]) }
+  set('FOOD_SKIP', 'auto')   // junkwell-02 swords: the switch under test (the default, written out)
   fs.writeFileSync(`${R}/${envRel}`, env + '\n')
   const bo = fs.openSync(botOut, 'a')
-  bot = spawn('bash', [`${R}/sandbox/run-bot.sh`, envRel], { cwd: R, env: { ...process.env, BOT_ROOT, NODE_OPTIONS: `--require ${path.join(R, 'sandbox/craft/trace.cjs')}`, CRAFT_TRACE: trace }, stdio: ['ignore', bo, bo] })
+  bot = spawn('bash', [`${R}/sandbox/run-bot.sh`, envRel], { cwd: R, env: { ...process.env, BOT_ROOT: root, NODE_OPTIONS: `--require ${path.join(R, 'sandbox/craft/trace.cjs')}`, CRAFT_TRACE: trace }, stdio: ['ignore', bo, bo] })
   if (!await waitFor(() => lines(botOut).some(l => /spawned pos=/.test(l)), 90000, 300)) { await stopBot(); throw new Error('no spawn') }
   // THE CHUNKS FIRST: an order read before the arena's chunks reach the client sees 'unknown' and (correctly) skips.
   rcon(`gamemode survival ${NAME}`, `clear ${NAME}`, `tp ${NAME} ${HOME.x + 0.5} ${HOME.y} ${HOME.z + 0.5}`)
@@ -214,8 +222,12 @@ scenes.build = async () => {
   // A FULL bag (36/36): 3 oak_log, two egg stacks and a flint stack, rocks -- the pit-first path: dig, throw junk down
   // the open pit to make the craft's room, planks -> table -> 2 trapdoors, floor trapdoor, cap.
   buildArena()
-  const bagSpec = fill([['oak_log', 3], ['egg', 16], ['egg', 16], ['flint', 64]])
-  const files = await startBot('build', bagSpec)
+  // WELL_BUILD_SLOTS (default 36): a bag with free slots builds WITHOUT the pit-first toss -- the set-up for the coupling scenes
+  // (10-07 22:06-22:47: the pit-first diorite toss missed 5 times running on BOTH 12440d9 and 5c13330, so no well was built)
+  const bagSpec = fill([['oak_log', 3], ['egg', 16], ['egg', 16], ['flint', 64]], Number(process.env.WELL_BUILD_SLOTS || 36))
+  // WELL_BUILD_ROOT: the build is set-up for the coupling scenes; it may come from another revision (12440d9's build failed
+  // its pit-first toss on the sandbox 10-07: a diorite stack thrown that missed the pit, then well_no_room)
+  const files = await startBot('build', bagSpec, { root: process.env.WELL_BUILD_ROOT || BOT_ROOT })
   const before = bag(NAME)
   const w = await watchOrder(files, 'build_well', 240000)
   await sleep(4000)
@@ -251,53 +263,8 @@ scenes.dispose = async () => {
   await stopBot()
   result({ scene: 'dispose', ended: w.ended?.slice(0, 300), bag: { before: before.used, after: after.used, delta: d }, nonListedLost, census: c1, censusAt30s: c30,
     blocks: wellBlocks(CAP, FACING), openSamples: w.samples.filter(s => s.open).length, throwClicks: tr.filter(e => e.pkt === 'click' && e.mode === 4).length,
-    otherClicks: tr.filter(e => e.pkt === 'click' && e.mode !== 4).map(e => `${e.slot}/${e.mode}/${e.btn}`), rows: w.rows.map(r => `${r.name} ${r.status} ${r.detail.slice(0, 700)}`) })
+    otherClicks: tr.filter(e => e.pkt === 'click' && e.mode !== 4).map(e => `${e.slot}/${e.mode}/${e.btn}`), rows: w.rows.map(r => `${r.name} ${r.status} ${r.detail.slice(0, 260)}`) })
 }
-
-// sbx re-proof (10-07): the owner's 10-07 DECORATIONS and the scaffold-capable stones' cobblestone guard (STONE_GUARD).
-// Modelled on `dispose`. A 35/36 bag at town: six plain decorations, diorite 40 + granite 20, cobblestone `cobble`, and
-// fillers that are NOT on any list (no andesite/diorite/granite rock fillers: those are listed now). cobble 63: the plain
-// decorations go, diorite+granite stay; cobble 64: all eight stacks go (8 <= MAX_STACKS_PER_VISIT 9).
-const DECO_PLAIN = [['glass', 64], ['white_wool', 20], ['oak_button', 10], ['lead', 3], ['brick', 30], ['oak_fence', 5]]
-// 0d8c043 rule (reserve at the click): a scaffold-capable stone goes only if the bag still holds >= 64 RESERVE STONE
-// (cobblestone + cobbled_deepslate + andesite + diorite + granite) after it, judged in slot order.
-//   deco63: reserve 123 -> diorite 40 goes (83 left), granite 20 would leave 63 -> KEPT
-//   deco64: reserve 124 -> diorite (84 left) and granite (64 left) both go
-//   deco0:  no cobble, diorite 64 x3 = 192 -> two stacks go (128, 64 left), the third stays
-const DECO_FILL = ['oak_log', 'stick', 'dirt', 'calcite', 'tuff', 'gravel', 'sand']
-const DECO_CASES = {
-  63: { stone: [['diorite', 40], ['granite', 20], ['cobblestone', 63]], expectStone: { diorite: -40 } },
-  64: { stone: [['diorite', 40], ['granite', 20], ['cobblestone', 64]], expectStone: { diorite: -40, granite: -20 } },
-  0: { stone: [['diorite', 64], ['diorite', 64], ['diorite', 64]], expectStone: { diorite: -128 } },
-}
-const decoScene = cobble => async () => {
-  if (!CAP) throw new Error('no well (run build first)')
-  rcon(`kill ${ARENA_SEL}`)
-  const cs = DECO_CASES[cobble]
-  const spec = [...DECO_PLAIN, ...cs.stone]
-  let i = 0; while (spec.length < 35) spec.push([DECO_FILL[i++ % DECO_FILL.length], 64])
-  const files = await startBot(`deco${cobble}`, spec)
-  const before = bag(NAME)
-  const w = await watchOrder(files, 'dispose_well', 200000)
-  await sleep(1500)
-  const c1 = census(CAP)
-  await sleep(30000)
-  const c30 = census(CAP)
-  const after = bag(NAME)
-  const d = deltaOf(before.totals, after.totals)
-  const expectThrown = { ...Object.fromEntries(DECO_PLAIN.map(([k, n]) => [k, -n])), ...cs.expectStone }
-  const nonListedLost = Object.entries(d).filter(([k, v]) => v < 0 && !W.isWellJunk(k))
-  const keptStone = ['diorite', 'granite', 'cobblestone'].map(k => [k, before.totals[k] || 0, after.totals[k] || 0])
-  const tr = lines(files.trace).map(l => { try { return JSON.parse(l) } catch { return null } }).filter(Boolean)
-  await stopBot()
-  result({ scene: `deco${cobble}`, ended: w.ended?.slice(0, 300), bag: { before: before.used, after: after.used, delta: d }, expectThrown,
-    matchesExpectation: JSON.stringify(Object.entries(d).filter(([, v]) => v < 0).sort()) === JSON.stringify(Object.entries(expectThrown).sort()),
-    nonListedLost, keptStone, census: c1, censusAt30s: c30, blocks: wellBlocks(CAP, FACING), openSamples: w.samples.filter(s => s.open).length,
-    throwClicks: tr.filter(e => e.pkt === 'click' && e.mode === 4).length, rows: w.rows.map(r => `${r.name} ${r.status} ${r.detail.slice(0, 700)}`) })
-}
-scenes.deco63 = decoScene(63)
-scenes.deco64 = decoScene(64)
-scenes.deco0 = decoScene(0)
 
 scenes.isolation = async () => {
   if (!CAP) throw new Error('no well')
@@ -436,12 +403,188 @@ scenes.race = async () => {
   result({ scene: 'race', trials })
 }
 
+// ---------------------------------------------------------------- SWORDS (junkwell-02, 7c9bc2a..5c13330)
+// The bot at town beside the well `build` made, 36/36: egg 16, flint 64, clay_ball 64, ink_sac 64 (listed junk, slots 0-3),
+// stone_sword + wooden_sword (slots 4, 5), cobblestone 64, then stone x64 (never disposed) to 36. FOOD_SKIP=auto.
+//   swordp  cand, peaceful            -> both swords thrown, swords=2 peaceful=1
+//   sworde  cand, easy                -> swords kept (swords=0), the listed junk still thrown (the visit ran)
+//   swordc  CTRL_ROOT, peaceful       -> no sword thrown (c6e91a8 has no junk well at all: no order is expected)
+//   swordj  PRE_ROOT, peaceful        -> no sword thrown (junkwell-02 before the swords commit: the well runs, swords stay)
+//   swordd  cand, peaceful -> `difficulty easy` the moment the first throw click is traced -> the remaining swords kept
+const CTRL_ROOT = process.env.WELL_CTRL_ROOT || null
+const PRE_ROOT = process.env.WELL_PRE_ROOT || null
+function shaOf (root) { try { return fs.readFileSync(path.join(root, '.sha'), 'utf8').trim() } catch { return 'unknown' } }
+function bagSlots (name) {
+  const cmds = []; for (let s = 0; s < 36; s++) cmds.push(`data get entity ${name} Inventory[{Slot:${s}b}]`)
+  const r = rcon(...cmds); const slots = {}
+  for (let s = 0; s < 36; s++) { const it = /has the following entity data/.test(r[s]?.reply || '') ? parseItem(r[s].reply) : null; if (it) slots[s] = it }
+  const totals = {}; for (const it of Object.values(slots)) totals[it.id] = (totals[it.id] || 0) + it.count
+  const swords = Object.entries(slots).filter(([, it]) => /_sword$/.test(it.id)).map(([s, it]) => `${it.id}@${s}`)
+  return { used: Object.keys(slots).length, totals, swords }
+}
+const swordSel = (base, id) => base.replace(/\]$/, `,nbt={Item:{id:"minecraft:${id}"}}]`)
+function swordCensus (cap) {
+  const ids = ['stone_sword', 'wooden_sword']
+  const r = rcon(...ids.flatMap(id => [`execute if entity ${swordSel(shaftSel(cap), id)}`, `execute if entity ${swordSel(ARENA_SEL, id)}`]))
+  const cnt = rep => Number(/count: (\d+)/.exec(rep || '')?.[1] ?? 0)
+  const o = {}; ids.forEach((id, i) => { o[id] = { inShaft: cnt(r[2 * i]?.reply), inArena: cnt(r[2 * i + 1]?.reply) } })
+  return o
+}
+// EVERY CHEST / BARREL in the arena (x/z 1297..1333, y 113..125), counted without touching them: a filtered clone into the
+// empty sky above the forceloaded arena reports how many it copied; the copy is then cleared.
+function containerCensus () {
+  const out = {}
+  for (const b of ['chest', 'trapped_chest', 'barrel']) {
+    const rep = r1(`clone ${A.x0} 113 ${A.z0} ${A.x1} 125 ${A.z1} ${A.x0} 200 ${A.z0} filtered minecraft:${b}`)
+    out[b] = /Successfully cloned (\d+)/.exec(rep)?.[1] != null ? Number(/Successfully cloned (\d+)/.exec(rep)[1]) : (/No blocks|0 block/i.test(rep) ? 0 : rep.slice(0, 80))
+    rcon(`fill ${A.x0} 200 ${A.z0} ${A.x1} 212 ${A.z1} minecraft:air`, `kill @e[type=item,x=${A.x0},y=199,z=${A.z0},dx=${A.x1 - A.x0},dy=15,dz=${A.z1 - A.z0}]`)
+  }
+  return out
+}
+const SWORD_BAG = (() => { const b = [['egg', 16], ['flint', 64], ['clay_ball', 64], ['ink_sac', 64], ['stone_sword', 1], ['wooden_sword', 1], ['cobblestone', 64]]; while (b.length < 36) b.push(['stone', 64]); return b })()
+async function swordScene (arm) {
+  if (!CAP) throw new Error('no well (run build first)')
+  const root = arm === 'c' ? CTRL_ROOT : arm === 'j' ? PRE_ROOT : BOT_ROOT
+  if (!root) throw new Error(`no root for sword arm ${arm}`)
+  const difficulty = arm === 'e' ? 'easy' : 'peaceful'
+  rcon(`kill ${ARENA_SEL}`, `setblock ${CAP.x} ${CAP.y} ${CAP.z} minecraft:oak_trapdoor[half=top,open=false,facing=${FACING}]`, `difficulty ${difficulty}`)
+  const files = await startBot(`sword${arm}`, SWORD_BAG, { root })
+  const diffAtStart = r1('difficulty')
+  const before = bagSlots(NAME)
+  const marks = { arm, root: shaOf(root), difficulty, diffAtStart: diffAtStart.slice(0, 60) }
+  let switcher = null
+  if (arm === 'd') {
+    // the switch: the first THROW click (mode 4) in the trace -> difficulty easy, at once
+    switcher = (async () => {
+      const t0 = Date.now()
+      while (Date.now() - t0 < 200000) {
+        const first = lines(files.trace).map(l => { try { return JSON.parse(l) } catch { return null } }).find(e => e && e.pkt === 'click' && e.mode === 4)
+        if (first) { const tr = r1('difficulty easy'); marks.switched = { afterFirstThrowMs: Date.now() - first.ts, slot: first.slot, reply: tr.slice(0, 60) }; return }
+        await sleep(25)
+      }
+    })()
+  }
+  const w = await watchOrder(files, 'dispose_well', arm === 'c' ? 120000 : 200000)
+  if (switcher) await switcher
+  await sleep(3000)
+  const after = bagSlots(NAME)
+  const cs = census(CAP), sw = swordCensus(CAP), boxes = containerCensus()
+  const tr = lines(files.trace).map(l => { try { return JSON.parse(l) } catch { return null } }).filter(Boolean)
+  const throws = tr.filter(e => e.pkt === 'click' && e.mode === 4).map(e => ({ t: e.ts, slot: e.slot }))
+  const allRows = rowsOf(files.skillLog)
+  await stopBot()
+  const diffEnd = r1('difficulty')
+  rcon('difficulty peaceful')
+  const t0 = throws[0]?.t ?? 0
+  result({ scene: `sword${arm}`, marks, ended: w.ended?.slice(0, 200) ?? null, diffEnd: diffEnd.slice(0, 60),
+    bag: { before: { used: before.used, swords: before.swords, totals: before.totals }, after: { used: after.used, swords: after.swords, totals: after.totals }, delta: deltaOf(before.totals, after.totals) },
+    swordItems: sw, census: cs, containers: boxes, throws: throws.map(x => ({ dt: x.t - t0, slot: x.slot })),
+    rows: allRows.filter(r => /well|_work_order|food_skip/.test(r.name)).map(r => `${r.name} ${r.status} ${r.detail.slice(0, 600)}`) })
+}
+// ---------------------------------------------------------------- COBBLE AT THE CAP -> THE WELL (stonecap x junkwell, 12440d9)
+// A town chest (in town, >= 4 from the well) holding `town` cobble and a composter; a FRESH pool per trial (empty cobble
+// journal). The bot (31 slots: cobblestone 30 + 64 + 64, egg 16, flint 64, oak_log 5, a stone_pickaxe, stone x64) is queued
+// `deposit oak_log` (the deposit counts the town chest first: reconcile), then given 4 stacks of stone (-> 34 slots) and the
+// dispose_well order WATCHED. W4: the town at 300 when planned; the moment the first cobble THROW click is traced, a lower
+// count (200) of the chest is appended to the journal (a recount by another bot), so the second cobble click must not go.
+//   W1 cand, town 280 -> the 30 and one 64 thrown, 64 left, `cobble=94 cobble_left=64 cap=at_cap`; chest unchanged
+//   W2 cand, town 250 -> no cobble thrown (cobble=0), egg/flint thrown
+//   W3 CTRL_ROOT (5c13330, no cap), town 280 -> no cobble thrown
+//   W4 cand, town 300, lowered to 200 after the first cobble click -> the second cobble stack stays
+const cobN = n => { const o = []; while (n > 0) { o.push(['cobblestone', Math.min(64, n)]); n -= 64 } return o }
+const W_BAG = (() => { const b = [['cobblestone', 30], ['cobblestone', 64], ['cobblestone', 64], ['egg', 16], ['flint', 64], ['oak_log', 5], ['stone_pickaxe', 1]]; while (b.length < 31) b.push(['stone', 64]); return b })()
+function chestRead (c) {
+  const r = rcon(...Array.from({ length: 27 }, (_, s) => `data get block ${c.x} ${c.y} ${c.z} Items[{Slot:${s}b}]`))
+  const slots = {}; for (let s = 0; s < 27; s++) { const it = /has the following block data/.test(r[s]?.reply || '') ? parseItem(r[s].reply) : null; if (it) slots[s] = it }
+  const totals = {}; for (const it of Object.values(slots)) totals[it.id] = (totals[it.id] || 0) + it.count
+  return totals
+}
+function cobbleItems (cap) {
+  const r = rcon(`execute if entity ${swordSel(shaftSel(cap), 'cobblestone')}`, `execute if entity ${swordSel(ARENA_SEL, 'cobblestone')}`,
+    'scoreboard objectives add wcc dummy', `execute as ${swordSel(ARENA_SEL, 'cobblestone')} store result score @s wcc run data get entity @s Item.count`,
+    'scoreboard players set #s wcc 0', 'scoreboard players set #a wcc 0',
+    `scoreboard players operation #s wcc += ${swordSel(shaftSel(cap), 'cobblestone')} wcc`, `scoreboard players operation #a wcc += ${swordSel(ARENA_SEL, 'cobblestone')} wcc`,
+    'scoreboard players get #s wcc', 'scoreboard players get #a wcc')
+  const cnt = rep => Number(/count: (\d+)/.exec(rep || '')?.[1] ?? 0)
+  return { shaftEntities: cnt(r[0]?.reply), arenaEntities: cnt(r[1]?.reply), shaftItems: has(r[8]?.reply), arenaItems: has(r[9]?.reply) }
+}
+async function wellCobbleScene (name, { town, root = BOT_ROOT, lowerTo = null }) {
+  if (!CAP) throw new Error('no well (run build first)')
+  const far = (p, q, d) => Math.max(Math.abs(p.x - q.x), Math.abs(p.z - q.z)) >= d
+  const spots = [[-6, -6], [6, 6], [-6, 6], [6, -6], [-8, 0], [8, 0], [0, -8], [0, 8]].map(([dx, dz]) => ({ x: HOME.x + dx, y: HOME.y, z: HOME.z + dz }))
+  const CH = spots.find(p => far(p, CAP, 4)); const CO = spots.find(p => p !== CH && far(p, CAP, 4) && far(p, CH, 3))
+  const setup = rcon(`kill ${ARENA_SEL}`, `setblock ${CAP.x} ${CAP.y} ${CAP.z} minecraft:oak_trapdoor[half=top,open=false,facing=${FACING}]`, 'difficulty peaceful',
+    `setblock ${CO.x} ${CO.y} ${CO.z} minecraft:composter`, `setblock ${CH.x} ${CH.y} ${CH.z} minecraft:chest[facing=north]`,
+    ...cobN(town).map(([id, n], s) => `item replace block ${CH.x} ${CH.y} ${CH.z} container.${s} with minecraft:${id} ${n}`))
+  const pool = `sbxwell-${RUN}-${name}`
+  const poolDir = path.join(R, 'sandbox/state', `_pool-${pool}`)
+  const journal = path.join(poolDir, `town-chest-${HOME.x}_${HOME.y}_${HOME.z}.cobble.jsonl`)
+  const marks = { name, root: shaOf(root), town, chest: CH, composter: CO, poolExisted: fs.existsSync(poolDir), setupBad: setup.filter(x => /Cannot|Unknown|Incorrect|not loaded/i.test(x.reply)).map(x => x.cmd + ' => ' + x.reply) }
+  const files = await startBot(name, W_BAG, { root, pool })
+  const before = bagSlots(NAME), chestBefore = chestRead(CH)
+  // 1) the deposit that counts the town (and banks the logs)
+  const nDep = () => lines(files.botOut).filter(l => /skill deposit ->|rejected why=.*"skill":"deposit"/.test(l)).length
+  BRAIN_Q.push('deposit oak_log')
+  marks.depositEnded = !!await waitFor(() => nDep() >= 1, 200000, 500)
+  await sleep(2000)
+  const mid = bagSlots(NAME), chestMid = chestRead(CH)
+  const journalAfterCount = lines(journal).length
+  // 2) to 34+ slots: four stacks of stone
+  marks.give = r1(`give ${NAME} minecraft:stone 256`).slice(0, 80)
+  await sleep(1500)
+  marks.slotsAtGive = bagSlots(NAME).used
+  let lowering = null
+  if (lowerTo != null) {
+    lowering = (async () => {
+      const t0 = Date.now()
+      while (Date.now() - t0 < 230000) {
+        const first = lines(files.trace).map(l => { try { return JSON.parse(l) } catch { return null } }).find(e => e && e.pkt === 'click' && e.mode === 4)
+        if (first) {
+          const recs = lines(journal).map(l => { try { return JSON.parse(l) } catch { return null } }).filter(Boolean)
+          const w = [...recs].reverse().find(x => 'w' in x)?.w ?? null
+          const now = Date.now()
+          const rec = { inst: `${now}-99999-sbxw4`, t: 'cnt', k: `${CH.x},${CH.y},${CH.z}`, n: lowerTo, cap: now, at: now, bot: 'sandbox-W4Other', ids: [], w }
+          fs.appendFileSync(journal, '\n' + JSON.stringify(rec) + '\n')
+          marks.lowered = { afterFirstThrowMs: now - first.ts, firstSlot: first.slot, rec }
+          return
+        }
+        await sleep(20)
+      }
+    })()
+  }
+  const w = await watchOrder(files, 'dispose_well', 230000)
+  if (lowering) await lowering
+  await sleep(3000)
+  const after = bagSlots(NAME), chestAfter = chestRead(CH), cob = cobbleItems(CAP), cs = census(CAP)
+  const tr = lines(files.trace).map(l => { try { return JSON.parse(l) } catch { return null } }).filter(Boolean)
+  const throws = tr.filter(e => e.pkt === 'click' && e.mode === 4).map(e => e.slot)
+  const allRows = rowsOf(files.skillLog)
+  await stopBot()
+  rcon(`setblock ${CH.x} ${CH.y} ${CH.z} minecraft:air`, `setblock ${CO.x} ${CO.y} ${CO.z} minecraft:air`, `kill ${ARENA_SEL}`)
+  const jl = lines(journal)
+  result({ scene: name, marks, ended: w.ended?.slice(0, 200) ?? null,
+    bag: { before: before.totals, beforeUsed: before.used, mid: mid.totals, after: after.totals, afterUsed: after.used, delta: deltaOf(mid.totals, after.totals) },
+    chest: { before: chestBefore, mid: chestMid, after: chestAfter }, cobbleItems: cob, census: cs, throwSlots: throws,
+    journal: { lines: jl.length, afterCount: journalAfterCount, tail: jl.slice(-10).map(l => l.slice(0, 400)) },
+    rows: allRows.filter(r => /well|_work_order|cobble|^deposit$/.test(r.name)).map(r => `${r.name} ${r.status} ${r.detail.slice(0, 700)}`) })
+}
+scenes.W1 = () => wellCobbleScene('W1', { town: 280 })
+scenes.W2 = () => wellCobbleScene('W2', { town: 250 })
+scenes.W3 = () => wellCobbleScene('W3', { town: 280, root: CTRL_ROOT })
+scenes.W4 = () => wellCobbleScene('W4', { town: 300, lowerTo: 200 })
+scenes.swordp = () => swordScene('p')
+scenes.sworde = () => swordScene('e')
+scenes.swordc = () => swordScene('c')
+scenes.swordj = () => swordScene('j')
+scenes.swordd = () => swordScene('d')
+
 async function main () {
   W = await import(path.join(BOT_ROOT, 'bots/src/well.mjs'))
   const pl = r1('list'); if (!/There are 0 of/.test(pl)) throw new Error('sandbox not empty: ' + pl)
   await new Promise((resolve, reject) => { brain.once('error', reject); brain.listen(11499, '127.0.0.1', resolve) })
-  P(`root=${BOT_ROOT} sha=${fs.readFileSync(`${BOT_ROOT}/.sha`, 'utf8').trim().slice(0, 7) /* sbx re-proof: export has no .git */} server=${SERVER} scenes=${SCENES_S}`)
+  P(`root=${BOT_ROOT} sha=${shaOf(BOT_ROOT)} ctrl=${CTRL_ROOT ? shaOf(CTRL_ROOT) : '-'} pre=${PRE_ROOT ? shaOf(PRE_ROOT) : '-'} server=${SERVER} scenes=${SCENES_S}`)
   rcon(`forceload add ${A.x0} ${A.z0} ${A.x1} ${A.z1}`)
+  P('difficulty at start', r1('difficulty'), '->', r1('difficulty peaceful'))
   for (const s of SCENES_S.split(',')) { P('=== scene', s); await scenes[s]() }
 }
 async function cleanup () {
