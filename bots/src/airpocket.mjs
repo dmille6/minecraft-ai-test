@@ -75,12 +75,14 @@ const isSolid = b => !!b && b.boundingBox === 'block'
  *   - ICE:    plain ice with AIR directly above it (breaking it opens a water column one cell from the air).
  * @returns {{ ok: boolean, why: string|null, kind: 'pocket'|'ice'|null, dy: number|null, name: string|null }}
  */
-export function airPocketPlan (at) {
+export function airPocketPlan (at, { pose = 'stand' } = {}) {
   const refuse = (why, extra = {}) => ({ ok: false, why, kind: null, dy: null, name: null, ...extra })
   const feet = at(0, 0, 0), head = at(0, 1, 0)
   if (feet == null || head == null) return refuse('own cells unknown')
   if (!isWater(head)) return refuse(`head cell is ${head.name}, not water`)
-  if (!isWater(feet) && !isAir(feet)) return refuse(`feet cell is ${feet.name}`)
+  // a crouching or swimming bot occupies only its eye's cell: the cell under it may be the floor (a 1-tall gap under
+  // ice: airpocket-02, Paper scene S1)
+  if (pose === 'stand' && !isWater(feet) && !isAir(feet)) return refuse(`feet cell is ${feet.name}`)
   for (const dy of [2, 3]) {
     const b = at(0, dy, 0)
     if (b == null) return refuse(`cell +${dy} unknown`)
@@ -523,6 +525,7 @@ export async function standInPocket (bot, plan, { fx, fy, fz, Vec3, sleep, now, 
     let placed = 0
     for (let k = 0; k < need; k++) {
       const cellY = fy + k
+      if (isSolid(bot.blockAt(new Vec3(fx, cellY, fz)))) continue   // already solid (a floor under a swimming bot): nothing to place
       const pick = standRef({ below: bot.blockAt(new Vec3(fx, cellY - 1, fz)),
                               sides: SIDES.map(([dx, dz]) => [dx, dz, bot.blockAt(new Vec3(fx + dx, cellY, fz + dz))]) })
       if (!pick) return placed === 0 ? 'none' : `stopped:no reference for y=${cellY} (${placed} placed)`
