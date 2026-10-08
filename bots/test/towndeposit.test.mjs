@@ -432,9 +432,10 @@ test('KIT pure: the plan banks NO sword while on (not even a spare), the spare a
   assert.equal(on.stone_pickaxe, 1); assert.equal(off.stone_pickaxe, 1)
 })
 
-for (const [why, difficulty, spare] of [['PEACEFUL', 'peaceful', 0], ['HARD', 'hard', 1]]) {
+for (const [why, difficulty, spare, stale] of [['PEACEFUL', 'peaceful', 0, false], ['HARD', 'hard', 1, false], ['PEACEFUL, a stale decision', 'peaceful', 0, true], ['HARD, a stale decision', 'hard', 1, true]]) {
   test(`KIT SKILL, ${why}: a full bag at town ${spare ? 'banks the spare stone sword (today)' : 'banks NO sword'}; the best pickaxe stays; nothing lost or dropped`, async () => {
     const restore = await kitSwitch(difficulty)
+    if (stale) (await import('../src/foodskip.mjs')).setPeacefulFood(difficulty !== 'peaceful')   // the skill must read the switch itself
     try {
       const items = bag([['stone_sword', 1, 131], ['stone_sword', 1, 100], ...fullBag().slice(0, 34).map(i => [i.name, i.count, i.maxDurability ? i.maxDurability - i.durabilityUsed : undefined])])
       assert.equal(items.length, 36)
@@ -640,9 +641,10 @@ async function decisions (bot, n) {
   return { ran, loop }
 }
 
-for (const [difficulty, want] of [['peaceful', false], ['hard', true]]) {
-  test(`KIT WIRED (the real loop), ${difficulty}: a full bag at town whose only surplus is a spare sword ${want ? 'gets the town_deposit order (today)' : 'gets NO town_deposit order'}`, async () => {
+for (const [difficulty, want, stale] of [['peaceful', false, false], ['hard', true, false], ['peaceful', false, true], ['hard', true, true]]) {
+  test(`KIT WIRED (the real loop), ${difficulty}${stale ? ', a STALE decision in the module' : ''}: a full bag at town whose only surplus is a spare sword ${want ? 'gets the town_deposit order (today)' : 'gets NO town_deposit order'}`, async () => {
     const restore = await kitSwitch(difficulty)
+    if (stale) (await import('../src/foodskip.mjs')).setPeacefulFood(difficulty !== 'peaceful')   // the trigger must read the switch itself (Codex, junkwell merge)
     try {
       const items = bag([['dirt', 16], ['oak_log', 64], ['cobblestone', 64], ['crafting_table', 1], ['wooden_pickaxe', 1, 50], ['stick', 8],
         ['furnace', 1], ['stone_sword', 1, 131], ['stone_sword', 1, 100], ...filler(27)])
