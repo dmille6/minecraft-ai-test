@@ -622,6 +622,18 @@ await t('L3 the plan on the trap: relative to the pose-aware base it is the ICE 
   const rel61 = { '0,0,0': 'water', '0,1,0': 'ice', '0,2,0': 'air' }                          // airpocket-01's base 61
   assert.match(airPocketPlan(world(rel61)).why, /head cell is ice/)
 })
+await t('L5 a 1-tall water gap under ice (floor below): swimming, the plan accepts the floor under the eye cell; standing does not', () => {
+  const gap = { '0,0,0': 'stone', '0,1,0': 'water', '0,2,0': 'ice', '0,3,0': 'air' }   // base 119: floor 119, water 120, ice 121, air 122
+  const p = airPocketPlan(world(gap), { pose: 'swim' })
+  assert.equal(p.ok, true, p.why); assert.equal(p.kind, 'ice'); assert.equal(p.dy, 2)
+  assert.match(airPocketPlan(world(gap)).why, /feet cell is stone/)
+  const pe = poseEye({ y: 120.0, solidAt: solidSet([119, 121]) })
+  assert.equal(pe.pose, 'swim'); assert.equal(planBaseY({ y: 120.0, ...pe }), 119)
+})
+await t('L6 MUTANT KILLED: requiring water under a swimming bot refuses the 1-tall gap (L5 catches it)', () =>
+  withMutant(AP_PATH, "  if (pose === 'stand' && !isWater(feet) && !isAir(feet)) return refuse(", "  if (!isWater(feet) && !isAir(feet)) return refuse(", m => {
+    assert.equal(m.airPocketPlan(world({ '0,0,0': 'stone', '0,1,0': 'water', '0,2,0': 'ice', '0,3,0': 'air' }), { pose: 'swim' }).ok, false)
+  }))
 await t('L4 MUTANT KILLED: a stand-only pose model puts the eye in air under the ice (L1 catches it)', () =>
   withMutant(AP_PATH, "['stand', 1.8, 1.62], ['crouch', 1.5, 1.27], ['swim', 0.6, 0.4]", "['stand', 1.8, 1.62]", m => {
     assert.notEqual(m.poseEye({ y: 61.395, solidAt: solidSet([62]) })?.eyeCell, 61)
@@ -923,7 +935,7 @@ function wiring (src) {
                /airPocketWants = Date\.now\(\)\s*try \{ if \(bot\.targetDigBlock\) bot\.stopDigging\(\) \}/.test(code) &&
                (code.match(/\(\) => ownsBody\(\(\) => (entombedGrant|maroonGrant)\)\(\) && !airPocketWanted\(\)/g) || []).length === 2 &&
                /if \(ub\.blocked\) \{\s*apRoute = \{ \.\.\.route, dir: 'upblocked', sealed: false \}; apBlockedBy = ub\.by/.test(code) &&
-               /const fy = planBaseY\(\{ y: at\.y, pose: pe\.pose, eyeY: pe\.eyeY \}\)/.test(code) &&
+               /const fy = planBaseY\(\{ y: at\.y, pose: pe\.pose, eyeY: pe\.eyeY \}\)/.test(code) && /, \{ pose: pe\.pose \}\)/.test(code) &&
                /const items = bot\.currentWindow \? \[bot\.heldItem\]\.filter\(Boolean\) : airPocketTools\(bot\.inventory\?\.items\?\.\(\) \?\? \[\]\)/.test(code) &&
                /heldMs: Date\.now\(\) - seizedAt, msSinceClosing: Date\.now\(\) - lastClosingAt,\s*stepWouldRun/.test(code) }
 }
@@ -965,6 +977,7 @@ for (const [name, old, neu] of [
   ['the maroon pillar yielding', '{ alive: () => ownsBody(() => maroonGrant)() && !airPocketWanted() }', '{ alive: ownsBody(() => maroonGrant) }'],
   ['the upblocked route', "apRoute = { ...route, dir: 'upblocked', sealed: false }; apBlockedBy = ub.by", 'apBlockedBy = ub.by'],
   ['the pose-aware plan base', 'const fy = planBaseY({ y: at.y, pose: pe.pose, eyeY: pe.eyeY })', 'const fy = Math.floor(at.y)'],
+  ['the pose passed to the plan', ', { pose: pe.pose })', ')'],
   ['the shared dig candidates and the window price', 'const items = bot.currentWindow ? [bot.heldItem].filter(Boolean) : airPocketTools(bot.inventory?.items?.() ?? [])', 'const items = (bot.inventory?.items?.() ?? [])'],
   ['the pre-empt clocks', 'heldMs: Date.now() - seizedAt, msSinceClosing: Date.now() - lastClosingAt,\n', ''],
 ]) {
