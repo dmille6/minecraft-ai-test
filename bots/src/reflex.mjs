@@ -44,7 +44,7 @@ import { PRIORITY } from './arbiter.mjs'
 import { survivalRelease } from './withdrawpick.mjs'
 import { airPocketPlan, airPocketAdmit, airPocketTrigger, airPocketStep, airPocketRow, airPocketInputs, airPocketAfter,
          airPocketPreempt, AP_WANT_LAPSE_MS,
-         AP_REFUSE_COOLDOWN_MS, standCandidates, airPocketTools } from './airpocket.mjs'
+         AP_REFUSE_COOLDOWN_MS, standCandidates, poseEye, planBaseY, routeUpBlocked, airPocketTools } from './airpocket.mjs'
 import pathfinderPkg from 'mineflayer-pathfinder'
 const pkgGoals = pathfinderPkg?.goals
 
@@ -1366,27 +1366,35 @@ export function startReflexes(bot, runner, lessons = null, worldFacts = null) {
   const prepareAirPocket = ({ worstCase = false } = {}) => {
     const at = bot.entity?.position
     if (!at) return { ok: false, why: 'no position' }
-    const fx = Math.floor(at.x), fy = Math.floor(at.y), fz = Math.floor(at.z)
-    const plan = airPocketPlan((dx, dy, dz) => bot.blockAt(new Vec3(fx + dx, fy + dy, fz + dz)))
+    const fx = Math.floor(at.x), fz = Math.floor(at.z)
+    // THE POSE-AWARE BASE (airpocket-02): a bot squeezed under a ceiling is crouching or swimming, its eye low; the plan's
+    // "head" is the eye's cell (planBaseY), not the cell over the feet
+    const pe = poseEye({ y: at.y, solidAt: cy => { const b = bot.blockAt(new Vec3(fx, cy, fz)); return !!b && b.boundingBox === 'block' } })
+    const fy = planBaseY({ y: at.y, pose: pe.pose, eyeY: pe.eyeY })
+    const plan0 = airPocketPlan((dx, dy, dz) => bot.blockAt(new Vec3(fx + dx, fy + dy, fz + dz)))
+    const plan = { ...plan0, baseY: fy }
+    const pose = pe.pose
     const inputs = airPocketInputs(bot)   // the server's difficulty (packet) and the Hunger effect -- never bot.game.difficulty
-    if (!plan.ok) return { ok: false, why: plan.why, fx, fy, fz, inputs }
+    if (!plan.ok) return { ok: false, why: plan.why, fx, fy, fz, inputs, pose }
     const block = bot.blockAt(new Vec3(fx, fy + plan.dy, fz))
     // THE PRE-EMPT PRICES THE WORST CASE (Paper sandbox e142b8f H): a bot momentarily on the ground priced the 2.85-s
     // standing dig, the pre-empt fired, and half a second later the floating price was refused. Floating + in water is
     // the slowest the step can face, so a pre-empt admitted on it is never followed by a budget refusal.
     const env = worstCase ? { ...digEnv(bot), inWater: true, notOnGround: true } : digEnv(bot)
-    const items = airPocketTools(bot.inventory?.items?.() ?? [])   // the step's own candidates (toolhygiene composition)
+    // THE STEP'S OWN CANDIDATES (airPocketTools: a 1-use copy beside a healthy one is skipped); with a container window
+    // open the step will not equip (the window handoff), so only what is held is priced
+    const items = bot.currentWindow ? [bot.heldItem].filter(Boolean) : airPocketTools(bot.inventory?.items?.() ?? [])
     let fastest = null
     for (const item of [null, ...items]) {
       const ms = predictedDigMs(block, item, env)
       if (Number.isFinite(ms) && ms > 0 && (fastest == null || ms < fastest)) fastest = ms
     }
     const admit = airPocketAdmit({ health: bot.health, difficulty: inputs.difficulty, hungerActive: inputs.hungerActive, digMs: fastest })
-    if (!admit.ok) return { ok: false, why: admit.why, fx, fy, fz, inputs }
-    return { ok: true, plan, admit, inputs, fx, fy, fz }
+    if (!admit.ok) return { ok: false, why: admit.why, fx, fy, fz, inputs, pose }
+    return { ok: true, plan, admit, inputs, fx, fy, fz, pose }
   }
-  const runAirPocket = async (route, heldMs) => {
-    // the rescue's own verdict that let the step run (the read gates on it: never `up`)
+  const runAirPocket = async (route, heldMs, blockedBy = null) => {
+    // the rescue's own verdict that let the step run (the read gates on it: never `up`; `upblocked` names its block)
     const trig = `trigger_route=${route?.dir ?? (route?.sealed ? 'sealed' : 'unscanned')}:${route?.dist === Infinity ? -1 : route?.dist} held_ms=${Math.round(heldMs)}`
     const prep = prepareAirPocket()
     if (!prep.inputs) return false
@@ -1407,7 +1415,8 @@ export function startReflexes(bot, runner, lessons = null, worldFacts = null) {
     const attemptId = `${Date.now().toString(36)}`
     logEvent({ kind: 'air_pocket_start', status: 'success',
                detail: `id=${attemptId} kind=${plan.kind} cell=${fx},${fy + plan.dy},${fz} block=${plan.name} health=${bot.health} ` +
-                       `difficulty=${inputs.difficulty} hunger=${inputs.hungerActive ? 1 : 0} envelope=${admit.envelope} ${trig}`, snapshot: snapshot(bot) })
+                       `difficulty=${inputs.difficulty} hunger=${inputs.hungerActive ? 1 : 0} envelope=${admit.envelope} ` +
+                       `pose=${prep.pose} blocked=${blockedBy ? `${blockedBy.name}@${blockedBy.y}` : 'none'} ${trig}`, snapshot: snapshot(bot) })
     let r
     try {
       // a skill that starts while the step runs is interrupted (cognition is not gated by the tick's early return)
@@ -2260,11 +2269,30 @@ export function startReflexes(bot, runner, lessons = null, worldFacts = null) {
               snapshot: snapshot(bot),
             })
           }
+          // AN `up` ROUTE THROUGH A SOLID CELL IS NOT A ROUTE (airpocket-02): the scan starts above the head cell, so ice
+          // formed around a swimming bot reads `up dist=1` (hive-d, 23 drownings since 10-01). The pose-aware eye's cell up
+          // to the route's air cell must be passable; if not, the step sees `upblocked` (the rescue itself is unchanged).
+          let apRoute = route, apBlockedBy = null
+          if (route.dir === 'up' && route.target) {
+            const p = bot.entity.position, cx = Math.floor(p.x), cz = Math.floor(p.z)
+            const pe = poseEye({ y: p.y, solidAt: cy => { const b = bot.blockAt(new Vec3(cx, cy, cz)); return !!b && b.boundingBox === 'block' } })
+            const ub = routeUpBlocked({ routeDir: route.dir, targetY: Math.floor(route.target.y), eyeCell: pe.eyeCell,
+                                        cellAt: cy => bot.blockAt(new Vec3(cx, cy, cz)) })
+            if (ub.blocked) {
+              apRoute = { ...route, dir: 'upblocked', sealed: false }; apBlockedBy = ub.by
+              if (throttled(`air_pocket_upblocked:${cx},${Math.floor(p.y)},${cz}`, 30_000)) {
+                logEvent({ kind: 'air_pocket_upblocked', status: 'no_effect',
+                           detail: `the rescue's up dist=${route.dist} route crosses ${ub.by.name}@${ub.by.y}: pose=${pe.pose} eye_cell=${pe.eyeCell} ` +
+                                   `at=${cx},${Math.floor(p.y)},${cz} health=${bot.health} held_ms=${Date.now() - seizedAt}`, snapshot: snapshot(bot) })
+              }
+            }
+          }
           // AIRPOCKET PRE-EMPTS AN IN-FLIGHT ESCAPE inside a SEALED rescue (Paper sandbox 10-07: a bare-handed escape dig
           // held `escaping` ~58 s and the budget ran out while the step waited). The escape's `alive` turns false and its
           // current dig is stopped; once it returns, the trigger below runs the step.
-          if (airPocketPreempt({ rescuing, routeDir: route.dir, routeSealed: route.sealed, escaping, marooned, pocketing,
+          if (airPocketPreempt({ rescuing, routeDir: apRoute.dir, routeSealed: apRoute.sealed, escaping, marooned, pocketing,
                                  active: airPocketing, now: Date.now(), cooldownUntil: airPocketCooldownUntil,
+                                 heldMs: Date.now() - seizedAt, msSinceClosing: Date.now() - lastClosingAt,
                                  stepWouldRun: () => prepareAirPocket({ worstCase: true }).ok })) {
             airPocketWants = Date.now()
             try { if (bot.targetDigBlock) bot.stopDigging() } catch { /* not digging */ }
@@ -2287,10 +2315,10 @@ export function startReflexes(bot, runner, lessons = null, worldFacts = null) {
           }
           // AIRPOCKET: a capped rescue (no air straight up) may dig the roof cell over the head into a breathing
           // pocket, admitted by geometry and by the health budget, at once when the scan says SEALED, else after 8 s.
-          if (airPocketTrigger({ rescuing, routeDir: route.dir, routeSealed: route.sealed, heldMs: Date.now() - seizedAt,
+          if (airPocketTrigger({ rescuing, routeDir: apRoute.dir, routeSealed: apRoute.sealed, heldMs: Date.now() - seizedAt,
                                  active: airPocketing, now: Date.now(), cooldownUntil: airPocketCooldownUntil,
                                  othersBusy: escaping || pocketing || marooned, msSinceClosing: Date.now() - lastClosingAt })) {
-            const ran = await runAirPocket(route, Date.now() - seizedAt)
+            const ran = await runAirPocket(apRoute, Date.now() - seizedAt, apBlockedBy)
             if (ran) return
           }
           // Re-assert steering every tick. setControlState is idempotent, so this
