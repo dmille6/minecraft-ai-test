@@ -7452,7 +7452,7 @@ const SMELT_OPEN_MS     = 10_000        // openFurnace waits on a server event f
  *   - A staged sword is 'returned' only when its take happened; a drain that never reached it (its deadline spent on a
  *     hung take) re-reads the slot (Claude r-rev7): still there -> left in the furnace; empty -> it burned in the gap.
  */
-export function swordDrainRow (fate, staged, inSlot) {
+export function swordDrainRow (fate, staged, inSlot, stop = null) {
   if (fate === 'cursor_lost') return { outcome: 'failed', what: 'wooden_sword on the cursor at the close (the server drops it)' }
   // the bag had room at the close: the server puts it back into the bag -- in the bag, as if taken
   if (fate === 'cursor_server_returns') return { outcome: 'no_effect', what: 'wooden_sword on the cursor at the close (the server returns it to the bag)' }
@@ -7462,7 +7462,9 @@ export function swordDrainRow (fate, staged, inSlot) {
   if (fate === 'kept_cursor') return { outcome: 'no_effect', what: 'wooden_sword left in the furnace fuel slot (the cursor could not be emptied into the bag)' }
   if (fate === 'kept_full') return { outcome: 'no_effect', what: 'wooden_sword left in the furnace fuel slot (the bag is full)' }
   if (fate === 'taken') return { outcome: 'no_effect', what: 'wooden_sword returned unburned' }
-  if (inSlot === true) return { outcome: 'no_effect', what: 'wooden_sword left in the furnace fuel slot (the drain ran out of time)' }
+  if (inSlot === true) return { outcome: 'no_effect', what: `wooden_sword left in the furnace fuel slot (${stop === 'stuck' ? 'the drain stopped at a stuck cursor' : 'the drain ran out of time'})` }
+  // a take that never answered: in the bag, or burned -- unknown, so no credit (Codex r-rev11)
+  if (fate === 'timed_out') return { outcome: 'no_effect', what: 'wooden_sword outcome unknown (its take never answered)' }
   if (inSlot === undefined) return { outcome: 'no_effect', what: 'wooden_sword outcome unknown (the furnace could not be read)' }
   // in the slot before the drain, never taken by it, gone from it now: it ignited in the gap (Claude r-rev8)
   return { outcome: 'success', what: 'burned wooden_sword (unconfirmed)' }
@@ -7501,7 +7503,7 @@ export async function drainFurnace (furnace, ms = SMELT_RECOVERY_MS, bot = null)
   const stuckFate = () => { try { return (furnace?.emptySlotCount?.() ?? 0) > 0 ? 'cursor_server_returns' : 'cursor_lost' } catch { return 'cursor_lost' } }
   // A STUCK CURSOR ENDS THE DRAIN (Claude r-rev10): a later take would click with the cursor loaded and swap items; what
   // the close does with it is judged right before the close, from the window's room then.
-  let stuck = null
+  let stuck = null, timedOut = false
   // A CURSOR ALREADY LOADED when the drain begins (a take-back that stopped between its clicks): settled first.
   try {
     const before = furnace?.selectedItem?.name
@@ -7522,10 +7524,10 @@ export async function drainFurnace (furnace, ms = SMELT_RECOVERY_MS, bot = null)
       // searches the window). With no empty slot putAway would toss it, so it stays in the furnace.
       if (slot === 'fuelItem' && furnace.fuelItem()?.name === 'wooden_sword' &&
           (furnace.emptySlotCount?.() ?? 0) === 0) { furnace.swordKept = true; noteSword('wooden_sword', 'kept_full'); continue }
-      // A TAKE THAT NEVER ANSWERED spent the drain's time: nothing later is taken, and it is not called taken (the
-      // fuel slot is re-read after the close -- swordDrainRow's 'the drain ran out of time').
-      if (await bounded(furnace[take]()) === TIMED_OUT) break
-      noteSword(name, 'taken')
+      // A TAKE THAT NEVER ANSWERED spent the drain's time: nothing later is taken, and it is not called taken. Its cursor
+      // is still settled first (Codex r-rev11: it may have lifted the item); a sword it may or may not have moved is
+      // 'timed_out' -- no credit unless the re-read after the close finds it still in the fuel slot.
+      if (await bounded(furnace[take]()) === TIMED_OUT) { timedOut = true; noteSword(name, 'timed_out') } else noteSword(name, 'taken')
     } catch { /* slot emptied under us, or the block is gone; the cursor is judged below */ }
     // THE TAKE STOPPED BETWEEN ITS TWO CLICKS: the item is on the cursor, not in the bag.
     try {
@@ -7533,8 +7535,10 @@ export async function drainFurnace (furnace, ms = SMELT_RECOVERY_MS, bot = null)
       if (c === 'furnace') noteSword(name, 'kept_cursor'); else if (c === 'bag') noteSword(name, 'taken')
       else if (c === 'stuck') { stuck = name ?? '?'; break }
     } catch { /* the close below is all that is left */ }
+    if (timedOut) break
   }
   if (stuck) noteSword(stuck, stuckFate())
+  if (furnace) furnace.drainStop = stuck ? 'stuck' : timedOut ? 'timeout' : null
   try { furnace?.close?.() } catch { /* already closed */ }
 }
 
@@ -7890,7 +7894,7 @@ async function smelt(ctx, { item, count = 1 }, signal) {
     if (furnace) { furnace.swordKept = false; furnace.swordFate = null }
     await drainFurnace(furnace, SMELT_RECOVERY_MS, bot)
     const after = fslot('fuelItem')
-    const drained = swordDrainRow(furnace?.swordFate ?? null, !!left, after === undefined ? undefined : after?.name === 'wooden_sword')
+    const drained = swordDrainRow(furnace?.swordFate ?? null, !!left, after === undefined ? undefined : after?.name === 'wooden_sword', furnace?.drainStop ?? null)
     if (drained) swordRow(drained.outcome, drained.what, left ? staged.active : foodSkipNow(bot).active)
     writeSwordRows()
   }
