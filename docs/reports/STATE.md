@@ -11,6 +11,16 @@ behind it (chain-ore.sh stopped 10-01 on fixes-02's revert)._
 
 ---
 
+## 10-08 07:30Z — GATE v34-HYB INSTALLED (07:11Z); airpocket-01 QUEUED in the scheduler (launching); bamboo = ordinary
+v34: bundle 97abe762470a3e2c4a9da0b48f771035, gatedigest OK, backups *.bak-v34-20261008T071139Z. HYB@2.5 on the five
+drowning pools: false trip 1.9% (6 h) / 2.5% (26 h); in airpocket's stratum catches 35% of doublings, 76% of triplings
+at 26 h; matched control frozen after the draw (a failed freeze refuses the deploy; unusable control -> UNREADABLE).
+airpocket-01: registration airpocket-01.dbb4d78.json (USAFE OK), queued at 07:28Z with an approved record; scheduler
+tick --no-act said LAUNCH. Bamboo decision (operator + Codex, owner delegation): bamboo-01 and bamboocraft-01 are
+ORDINARY canaries (no bag-fix class; 2-3 eligible pools cannot reach v33's 400 bot-h). Gate agent still fixing the
+other bag-fix registrations (per-fix noise band under each fix's own draw filter, a vacuous linkage control, the
+W=1440 read cost vs the 900 s / memory limits).
+
 ## 10-08 06:45Z — TOWNDEPOSIT-02 KEPT (+360) and PROMOTED: FLEET 92bc84f (06:31Z, all live bots verified); merged to main
 +360: 21 deposits, 17/25 full-bag town stays served, slots/bot DiD -1.23, share>=34 DiD -0.30, correctness 0, deaths
 canary 1 (0.017/bh) vs control 8 (0.027/bh); climbs +56% (<= +100%). Main: merge of 92bc84f + towndeposit test flake
