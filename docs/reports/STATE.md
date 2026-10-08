@@ -11,6 +11,14 @@ behind it (chain-ore.sh stopped 10-01 on fixes-02's revert)._
 
 ---
 
+## 10-08 15:05Z — peacefulkit prepared on the 4 toolhygiene shas (both engines APPROVE), fetched into /opt; FOLLOW-UP airpocket-02
+pk-on-6238095 d948bfd, pk-on-4970c91 6f1921a, pk-on-5d1f710 3382a17, pk-on-2f38f69 4be1a29 (+ 92bc84f -> 40046b8); queue
+entry docs/reports/peacefulkit-01.queue-entry.json (after toolhygiene-01; needs install-bagfix-regs first).
+AIRPOCKET-02 (follow-up, after airpocket-01's decision): found in review -- the drowning rescue equips a pickaxe right
+after interrupting a skill, while an interrupted smelt/chest/craft may still hold a window open and be clicking. The race
+exists on the live airpocket-01 build (dbb4d78). Rare (drowning while a container window is open) and not a death risk
+as far as known; fix = a bounded window handoff before equipping, never a forced close. Not a reason to stop airpocket-01.
+
 ## 10-08 15:05Z — PEACEFULKIT VARIANTS READY on the four toolhygiene shas (queue entry drafted, NOT added)
 - The approved pk-on-92bc84f (40046b8, 30 commits) is now on each toolhygiene sha:
   - **pk-on-6238095 @ d948bfd** (toolhygiene only). One conflict: admission keeps both refusals; the prompt keeps both filters.
