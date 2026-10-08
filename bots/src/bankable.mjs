@@ -446,10 +446,10 @@ export function depositNoopReason (items = [], item = null, { wants = [], ...opt
     // the cobble cap's refusals are named even for a plain deposit (both reviews r2): the bot is carrying the cobble
     const why = COBBLE_NAMES.map(n => bankableExclusion(items, n, { wants: w, ...opts })).find(x => x === 'town_cobble_unknown' || x === 'town_cobble_cap')
     if (!why) {
-      // SPARE SWORDS WHILE PEACEFUL (the peacefulkit x cobble-cap composition, Codex P2): the rule is named, and the move:
-      // none is needed -- the junk well takes them at town, the furnace burns the wooden ones; keep working
+      // SWORDS WHILE THE PEACEFUL SWITCH IS ON (the peacefulkit x cobble-cap composition, Codex P2): the rule is named, and the
+      // move: none is needed, keep working. (No claim about the well: its own switch is stricter -- Claude r1 P3.)
       const sword = items.some(it => it?.name && bankableExclusion(items, it.name, { wants: w, ...opts }) === 'peaceful_sword')
-      if (sword) return `nothing worth banking (${EXCLUSION_PHRASE.peaceful_sword}; the junk well takes spare ones at town) — nothing to deposit, keep working`
+      if (sword) return `nothing worth banking (${EXCLUSION_PHRASE.peaceful_sword}) — nothing to deposit, keep working`
       return 'nothing worth banking — nothing to deposit'
     }
     const note = why === 'town_cobble_unknown' ? cobbleReconcileProbe().note : null
