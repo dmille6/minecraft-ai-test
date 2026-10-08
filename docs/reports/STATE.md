@@ -11,6 +11,15 @@ behind it (chain-ore.sh stopped 10-01 on fixes-02's revert)._
 
 ---
 
+## 10-08 13:25Z — toolhygiene prepared on dbb4d78 / a6cd3c1 / 2189de3 (both engines APPROVE); fetched into /opt
+th-on-dbb4d78 @ 4970c91, th-on-a6cd3c1 @ 5d1f710, th-on-2189de3 @ 2f38f69 (+ th-on-92bc84f @ 6238095). Found by review:
+airpocket's dig picked any pickaxe by slot, so with hygiene's 1-use copies it could dig bare-handed on the server; fixed
+on the airpocket bases with airPocketTools (skip a 1-use copy when a healthier one of the same kind exists; identical
+to airpocket-01 when hygiene is off); Paper 19 trials, all bots breathed. Queue entry drafted
+(docs/reports/toolhygiene-01.queue-entry.json). PLAN: it can only be queued after install-bagfix-regs.py (bagread +
+the 92bc84f registration), which needs an empty slot -- do it in the gap after withdraw2-01, then `queue add`.
+(Timestamp note: the "13:15Z" entry below was first stamped 14:00Z in error; host clock is the reference.)
+
 ## 10-08 ~13:30Z — TOOLHYGIENE VARIANTS READY on dbb4d78 / a6cd3c1 / 2189de3 (queue entry drafted, NOT added)
 - The approved th-on-92bc84f (6238095) was rebased onto the three bases that can follow airpocket and withdraw2:
   - **th-on-dbb4d78 @ 4970c91** (airpocket KEPT). The cherry-pick was clean. It also carries 2 composition commits.
@@ -44,7 +53,7 @@ behind it (chain-ore.sh stopped 10-01 on fixes-02's revert)._
 - CORRECTION: the wd2-on-dbb4d78 section below was stamped ~14:40Z; it was ~12:40Z.
   - withdraw2-01.dbb4d78.json says registered_at 14:30Z; the file is hash-pinned in the queue, so it was left unchanged.
 
-## 10-08 14:00Z — BAG-FIX REGISTRATIONS STAGED (~/bagfix-regs, both engines APPROVE); +180 KEEP awaits the owner
+## 10-08 13:15Z — BAG-FIX REGISTRATIONS STAGED (~/bagfix-regs, both engines APPROVE); +180 KEEP awaits the owner
 18 bag-fix registration variants on main (9e19a6d): class bag-fix, four pools, bagread primary at +1440 with per-fix
 death-censored null edges (toolhygiene pick_slots -0.842, peacefulkit sword_slots -0.059, junkwell slots -1.653, gridfix
 -1.366, stonecap -1.366); docs/reports/bagfix-registrations-2026-10-08.md. INSTALL between canaries (after airpocket):
