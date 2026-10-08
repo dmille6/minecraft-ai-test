@@ -167,6 +167,26 @@ await t('STOP: a click a stopped lockstep gives up on (its signal aborted) is in
   await server.settle(); server.stop()
 })
 
+await t('LOCKSTEP DEADLINE IN THE COOLDOWN (Claude review of the c6e91a8 rebase): never applied locally and left unsent', async () => {
+  // A lockstep whose deadline passes while its click waits out the dig cooldown: before the fix the grid fix's write hook
+  // dropped the click AFTER mineflayer had applied it to the table window (local cursor = diamond, server cursor empty,
+  // nothing on the wire, no repair) in 12 of 20 trials. Now the stop invalidates before validate(): sent, or refused
+  // before mineflayer touched anything.
+  const bad = []
+  for (let i = 0; i < 12; i++) {
+    const { server, bot, table } = await setup()
+    const t0 = Date.now()
+    bot.lastDigTime = new Date(t0)
+    await CS.lockstepClicks(bot, click => click(37, 0, 0), { deadline: t0 + 500 - (1 + (i % 3)) }).catch(() => {})
+    for (let k = 0; k < 100 && bot.craftSync.inflight() > 0; k++) await wait(20)
+    await server.settle()
+    const wire = clicksSent(server, t0).length
+    if (wire === 0 && table.selectedItem && !server.cursor) bad.push(`trial ${i}: local cursor ${desc(table.selectedItem)}, server none, nothing sent`)
+    server.stop()
+  }
+  assert.deepEqual(bad, [])
+})
+
 await t('NO STOP, NO INVALIDATION: the same held click with no cap and no stop is sent when it wakes (control for the two above)', async () => {
   const { server, bot, events } = await setup()
   const t0 = Date.now()
