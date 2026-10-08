@@ -11,7 +11,7 @@
 
 import { HARD_STOP } from './toolfor.mjs'
 import { SKILLS, classifyOutcome, SKILL_CONTRACTS, plantableSpotNear, findTownComposter, townBuildPlan, townPickMiss, townIngredientMiss, foodSkipNow, townWellState, townWellBuildPlan, insideTownWell, wellSwordsNow, townPitState } from './skills.mjs'
-import { disposePlan, wellOrder, wellOrderOutcome, WELL_ORDERS } from './well.mjs'
+import { disposePlan, wellOrder, wellOrderOutcome, WELL_ORDERS, pitCoverItem } from './well.mjs'
 import { smeltInputsFor } from './smelting.mjs'
 import { makeClient, skillSchema } from './llm.mjs'
 import { buildSystemPrompt, buildUserPrompt, makeSentinel, WorkingMemory } from './prompt.mjs'
@@ -827,7 +827,8 @@ export class CognitiveLoop {
           now: Date.now(), slots: plan.slots, freeSlots: 36 - plan.slots, junkStacks: plan.junkStacks,
           distHome: p ? Math.hypot(home.x - p.x, home.z - p.z) : Infinity,
           well: () => townWellState(bot),
-          buildPlan: () => townWellBuildPlan(bot),
+          // NO COVER BLOCK, NO BUILD ORDER (Claude r2 P3): the build would only skip no_cover every cooldown
+          buildPlan: () => (pitCoverItem(items) ? townWellBuildPlan(bot) : null),
           pit: () => townPitState(bot),
           inside: () => insideTownWell(bot),
           myName: bot.username ?? '',
