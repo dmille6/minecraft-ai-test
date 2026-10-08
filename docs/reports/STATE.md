@@ -11,6 +11,22 @@ behind it (chain-ore.sh stopped 10-01 on fixes-02's revert)._
 
 ---
 
+## 10-08 05:30Z — DECISIONS: airpocket gate = HYB@2.5 (Codex + operator); two lanes REJECTED by both engines; scheduler staged
+AIRPOCKET GATE: HYB@2.5 (DiD OR frozen matched-pool control > 2.5), not the built DID24@2.0, which is blind in
+airpocket's stratum (doubling 3.3%, tripling 34% at 26 h vs HYB 35% / 76%, false trip <= 2.5%). Gate agent rebuilding
+v34; airpocket WAITS rather than launch under DID24 (Codex: docs/reports/airpocket-gate-choice-codex-2026-10-08.txt).
+THROUGHPUT (docs/reports/canary-throughput-2026-10-08.md): both engines rejected two concurrent lanes (a replay of six
+past canaries: removing a second lane's pools from the control flipped junkwell-01's REVERT to POLL_OK; modelled gain
++0-30%); isolated pools are NOT equivalent (per-bot memory) and stay out of draws; bundling not built; the 12 h exclusion
+is kept. BUILT + STAGED (not installed): a single-slot queue scheduler (scripts/host/canary-sched.py, cron */5,
+~/canary-queue.json with "approved" entries; never skips the head, never retries on its own), a drawrec fail-closed
+patch, and scripts/prepare-variant.sh. Slot busy 80% 10-03..10-08 (97.9 of 122.7 h). CLAUDE.md keeps "one canary pool,
+ever" (re-decided). Note: fleet-recycle does not run while a canary is declared (the 05:53Z recycle will not happen).
+OWNER QUESTIONS: (a) allow KEEP at +180 for four-pool draws (drawrec noise: 4 pools x 3 h 0.313 < 2 pools x 6 h
+0.395) -- the biggest throughput lever left; (b) isolated pools sit in every read's control though not equivalent for
+town/chest changes.
+INSTALL PLAN, in the empty slot after towndeposit-02: gate v34 (HYB, once re-staged) + scheduler (no shared files).
+
 ## 10-08 ~04:40Z — CANARY THROUGHPUT: two lanes NOT built (both engines); a queue SCHEDULER built + staged, NOT installed
 Owner 10-08 ~02:30Z delegated to Codex + Claude. Report: docs/reports/canary-throughput-2026-10-08.md.
 - A (two concurrent lanes): Codex and Claude each DON'T BUILD. The deciding evidence was a time-travel replay of six past

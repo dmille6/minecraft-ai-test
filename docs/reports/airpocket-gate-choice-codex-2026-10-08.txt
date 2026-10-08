@@ -1,0 +1,136 @@
+Reading additional input from stdin...
+OpenAI Codex v0.153.4
+--------
+workdir: /private/tmp/claude-501/-Users-darrellmiller-Documents-code-minecraft-ai--claude-worktrees-heuristic-nightingale-49eee9/2a199c24-8dc2-4c02-9509-8499787c3dd1/scratchpad/state-main
+model: gpt-6-astra
+provider: openai
+approval: never
+sandbox: workspace-write [workdir, /tmp, $TMPDIR]
+reasoning effort: none
+reasoning summaries: none
+session id: 01a119e4-440b-7f10-9cb7-fc4e645d1f52
+--------
+user
+Decide (<= 250 words): which death gate should the airpocket-01 canary launch under, DID24@2.0 (built) or HYB@2.5? The owner has delegated such decisions to the operator + Codex when both agree.
+
+airpocket = a dig-up step inside the drowning rescue (Paper: 59/59 sealed-pocket survivals vs control 0; refuses outside a fixed damage envelope). It must be drawn from the 5 pools with sealed-pocket drownings, which already die >= 2x the control on the base build. Gate options (calibrated on those pools):
+- DID24@2.0 (built): psi = canary POST/PRE over control POST/PRE (PRE = 24 h), trip iff >= 2 canary deaths AND lower bound > 2.0. No-change false trip 3.3% (6 h) / 4.4% (26 h). In airpocket's own stratum it catches a doubling of deaths 3.3% and a tripling 34% at 26 h -- effectively blind; protection rests on linkage (link_rules: a death near an _air_pocket row or a reserve breach reverts at the two-death floor) and the read's C3 gate.
+- HYB@2.5: trip if DiD OR a matched-pool control comparison exceeds 2.5; false trip <= 2.5%; catches 35% / 76% (doubling / tripling) in that stratum; rests on a single 5-bot matched control pool.
+Exposure: P(>= 2 airpocket attempts) ~50% at 6 h; the registered extension to +1560 min reaches ~95%.
+Excerpt of the gate report follows.
+# The underground-safety death gate (gate v34): design, calibration, power, airpocket exposure (2026-10-08)
+
+**Status: BUILT AND STAGED, NOT INSTALLED.** The files are on `main` and staged on the fleet host in `~/gate-v34/`. The
+install is the operator's step, between canaries (section 7). towndeposit-02 was live (deployed 00:15Z 10-08) when
+this was staged, so the dry run says WOULD REFUSE.
+
+## For the coordinator: the short version
+
+1. **The problem is real, and measured.** No-change draws were made on the five drowning pools (hive-c, hive-d,
+   placebo-a, placebo-b, placebo-d), using the draw's own 12-h drowning filter. Today's cross-sectional gate (canary POST
+   vs control POST, lower bound > 1.25) **falsely trips 12.9% of runs within 6 h and 29.0% within 26 h**, polled every
+   5 min. With hive-d in the draw it is 16.4% / 36.9%.
+2. **The v34 gate compares each arm with itself.**
+   - psi = (canary POST/PRE death rate) / (control POST/PRE), with PRE = the 24 h before declared_at.
+   - The canary ratio uses the owner's exact Poisson lower bound.
+   - The two-death floor is kept. The randomization p is kept, report-only.
+   - Mechanism-linked deaths still revert, by explicit `link_rules` (section 1).
+3. **The nominal 1.25 is too loose for deaths that cluster.** At 1.25 the DiD falsely trips 11.3% (6 h) and 16.7%
+   (26 h). **The threshold is calibrated to 2.0** on the five-pool null, using the live gate's own estimator:
+
+   | P(trip at any 5-min poll), DID24 at 2.0 | 6 h | 26 h |
+   |---|---:|---:|
+   | **false trip** (no change), all five-pool draws | **3.3%** [0.2, 5.5] | **4.4%** [0.6, 5.9] |
+   | false trip, drawrec-like draws (any drowning pool, up to 4) | 2.9% [1.4, 3.4] | 3.0% [1.9, 3.6] |
+   | false trip, draws whose PRE ran ≥ 2x control | 0.6% | 1.1% |
+   | false trip, draws containing hive-d | 3.7% | 4.2% |
+   | **power, a fix that doubles deaths** (k = 2) | **17.5%** | **25.4%** |
+   | power, a fix that triples deaths (k = 3) | 42.9% | 59.0% |
+   | **power, k = 2 / k = 3, elevated-PRE draws (airpocket's situation)** | **5.8% / 22.1%** | **3.3% / 34.1%** |
+
+   The brackets are a day-block bootstrap 95% interval (section 3). It is rough: the data holds about 17
+   non-overlapping 6-h windows and about 4 non-overlapping 26-h ones.
+
+   **At this size the death gate is a tripwire, not proof of safety.** A doubling is caught about a quarter of the time
+   within 26 h. The protection against the fix killing bots through its own action is the linkage (section 1) and the
+   read's reserve gate C3, not the rate.
+
+   **OWNER DECISION BEFORE AIRPOCKET LAUNCHES (round 2, Claude).** In the stratum airpocket is drawn for (pools already
+   drowning at ≥ 2x the control, 26 h), DID24 at 2.0 catches a doubling of deaths 3.3% of the time and a tripling 34%:
+   the rate gate is effectively blind there. The alternative, HYB at 2.5 (this DiD OR a matched-pool control), falsely
+   trips at most 2.5% in every stratum and catches 35% / 76% there. Built: DID24 at 2.0, the more robust (MPC's control
+   on a 4-of-5 draw is a single 5-bot pool). The owner should choose knowingly; section 3 has the table.
+4. **Airpocket's exposure is NOT powered at 6 h. It is powered with the registered extension.**
+   - The canary sees an expected **7.1 sealed drowning episodes per 6 h** on 2–4 drawn pools.
+   - At a 25% admission share, P(≥ 2 attempts) is **50% at 6 h**, 79% at 12 h and **95% at 26 h**.
+   - The registration's `extension` (until exposure, reads to +1560, deadline 1680) already covers that.
+   - With 4 pools drawn: 75% at 6 h, 95% at 12 h.
+   - This is a conditional estimate (section 5).
+5. **Airpocket's registrations now declare `"class": "underground-safety"` and pass the check** (`USAFE OK` on both).
+   - The former `linkage_extra` entry was a dict. It **crashes** both `verdict.py` and the live `changerowcheck.py`
+     (`TypeError: unhashable type: 'dict'`, reproduced on the host), so the launch would have been refused by a
+     traceback.
+   - The linkage now lives in `underground_safety.link_rules`, and `linkage_extra` is `[]`.
+
+## 1. The gate
+
+**Where the code is.** The decisions are in `scripts/usaferule.py` (pure, in the bundle). The measuring is in
+`scripts/usafegate.py` (in the bundle via `find_spec`). `verdict.py` uses them for `"class": "underground-safety"`, in
+the 5-min poll and at every read. The cross-sectional gate is then reported as not applied.
+
+**Counts and exposure:**
+- deaths are rows whose own kind (`skill.name`) is `_death`, deduplicated per bot and timestamp;
+- exposure is the sum of gaps between a bot's consecutive rows, each capped at 120 s, so a silent bot accrues none.
+
+**The four windows:**
+- canary POST, since declared_at;
+- canary PRE, the `pre_hours` (24) before it;
+- control POST;
+- control PRE.
+
+PRE is computed once and cached beside the verdict artifacts, but only when it was read without errors. Rows of other
+builds in the canary PRE (a previous canary, restart lag) are counted and reported.
+
+**The test:**
+- R_c = canary POST/PRE rate ratio, with its one-sided 95% lower bound from `deathgate.ratio_lower_bound` (the v21
+  machinery).
+- R_k = control POST/PRE, as a point estimate with a 0.5 continuity correction (about 60 bots).
+- **TRIP iff canary POST deaths ≥ 2 AND LB(R_c) / R_k > 2.0.**
+- The fleet-wide drift over time cancels in R_k. The drawn pools' standing level cancels in R_c.
+
+**Fail closed (UNREADABLE, never a clean HOLD) when:**
+- a log file is unreadable, including a gz whose body is corrupt (`zlib.error`), or a complete death or own row does
+  not parse. An unterminated last line (the bot mid-write) is skipped and read whole at the next poll;
+- any arm-window has no measured exposure;
+- a canary bot that logged ≥ 25% of the PRE logs < 25% of the POST (after the first hour). Stopped units, i.e.
+  directories with no PRE rows, are named and excluded;
+- a roster bot is no longer on disk. The first roster is written once beside the PRE cache and 
+codex
+**My vote is HYB@2.5 for airpocket-01.** With operator agreement, that satisfies the owner’s delegation; no further owner decision is needed.
+
+The relevant calibration is airpocket’s elevated-PRE stratum. At 26 hours, DID24@2.0 detects only 3.3% of death doublings and 34% of triplings. HYB raises those to 35% and 76%, with reported false trips ≤2.5%. DID being built is an implementation advantage, but insufficient reason to launch under such weak detection in the required pools.
+
+HYB’s single five-bot matched control is a substantial weakness: its behavior can distort the comparison. Nevertheless, the supplied calibration favors HYB for this launch. Neither gate establishes safety, and the limited calibration history makes the numerical estimates uncertain.
+
+Launch conditions:
+
+- Implement and validate the **calibrated HYB rule**, retaining the two-death floor, mechanism linkage, reserve/C3 protection, and fail-closed checks.
+- Freeze the matched-control selection before launch; missing or unusable control evidence must not produce a clean HOLD.
+- Use the registered exposure-based extension through +1560 minutes as needed. Six hours gives only ~50% probability of two attempts; 26 hours gives ~95%. Two attempts establish minimal exposure, not safety.
+
+If HYB cannot be ready and verified before launch, **delay airpocket-01** rather than silently substitute DID24. This is my decision recommendation, not a claim that operator concurrence or installation has occurred.
+tokens used
+6,561
+**My vote is HYB@2.5 for airpocket-01.** With operator agreement, that satisfies the owner’s delegation; no further owner decision is needed.
+
+The relevant calibration is airpocket’s elevated-PRE stratum. At 26 hours, DID24@2.0 detects only 3.3% of death doublings and 34% of triplings. HYB raises those to 35% and 76%, with reported false trips ≤2.5%. DID being built is an implementation advantage, but insufficient reason to launch under such weak detection in the required pools.
+
+HYB’s single five-bot matched control is a substantial weakness: its behavior can distort the comparison. Nevertheless, the supplied calibration favors HYB for this launch. Neither gate establishes safety, and the limited calibration history makes the numerical estimates uncertain.
+
+Launch conditions:
+
+- Implement and validate the **calibrated HYB rule**, retaining the two-death floor, mechanism linkage, reserve/C3 protection, and fail-closed checks.
+- Freeze the matched-control selection before launch; missing or unusable control evidence must not produce a clean HOLD.
+- Use the registered exposure-based extension through +1560 minutes as needed. Six hours gives only ~50% probability of two attempts; 26 hours gives ~95%. Two attempts establish minimal exposure, not safety.
+
+If HYB cannot be ready and verified before launch, **delay airpocket-01** rather than silently substitute DID24. This is my decision recommendation, not a claim that operator concurrence or installation has occurred.
