@@ -19,6 +19,7 @@ import { AdmissionControl } from './admission.mjs'
 import { MilestoneController, servesRung, NO_PROGRESS_MS, RUNNER_REFUSALS } from './milestones.mjs'
 import { orderFor, readyFor, plantingOrder, plantingEnabled, PLANT_COOLDOWN_MS } from './workorder.mjs'
 import { wearOutPlan, isHousekeeping } from './hygiene.mjs'
+import { bambooOrder, bambooOrderOutcome, firstOrder } from './bamboo.mjs'
 import { compostPlan, townOrder, townOrderOutcome, boneMealRoom, composterLevel, TOWN_ORDERS, STORAGE_NEAR, TOWN_RADIUS, startableJunk } from './composter.mjs'
 import { hasUsablePick, roomPlan, pickTakes, roomKeep } from './withdrawpick.mjs'
 import { townDepositOrder, townDepositOutcome, townDepositPlan } from './towndeposit.mjs'
@@ -387,6 +388,28 @@ export class CognitiveLoop {
    * which is exactly why it is written down rather than left to rank 0.
    */
   static TRIGGER_SUPPRESSED = new Set(['user_stop'])
+
+  /** wear_out's housekeeping step -> an order or null. The cooldown is charged when the order is ISSUED. */
+  wearOutOrderStep () {
+    if (Date.now() - (this.lastWearOutAt ?? 0) < WEAR_OUT_COOLDOWN_MS || Date.now() < (this.wearOutBackoffUntil ?? 0)) return null
+    try {
+      const plan = wearOutPlan(this.bot.inventory?.items?.() ?? [])
+      if (!plan.tools.length) return null
+      this.lastWearOutAt = Date.now()
+      return { skill: 'wear_out', args: {},
+               why: `inventory at ${plan.slots} of 36 slots; ${plan.tools.length} spent tool(s) to wear out` }
+    } catch { return null }   // an inventory read must never break the decision loop
+  }
+
+  /** bamboo_sticks' housekeeping step -> an order or null (bamboo.mjs bambooOrder decides; the cooldown it charges is kept). */
+  bambooOrderStep () {
+    try {
+      const r = bambooOrder({ items: this.bot.inventory?.items?.() ?? [], now: Date.now(), lastAt: this.lastBambooAt ?? 0,
+                              backoffUntil: this.bambooBackoffUntil ?? 0 })
+      this.lastBambooAt = r.lastAt
+      return r.order
+    } catch { return null }   // an inventory read must never break the decision loop
+  }
 
   #raiseTrigger (reason, detail) {
     if (CognitiveLoop.TRIGGER_SUPPRESSED.has(reason)) return
@@ -803,16 +826,10 @@ export class CognitiveLoop {
     // HYGIENE BEFORE PLANTING, and before the model: a bot at 34+ of 36 slots breaks blocks and leaves the drop
     // on the ground (hygiene.mjs has the measurement). Spent tools are worn out -- destroyed by use, never
     // dropped. Rate-limited by a cooldown charged when the order is ISSUED, like planting.
-    if (!order && Date.now() - (this.lastWearOutAt ?? 0) >= WEAR_OUT_COOLDOWN_MS && Date.now() >= (this.wearOutBackoffUntil ?? 0)) {
-      try {
-        const plan = wearOutPlan(this.bot.inventory?.items?.() ?? [])
-        if (plan.tools.length) {
-          this.lastWearOutAt = Date.now()
-          order = { skill: 'wear_out', args: {},
-                    why: `inventory at ${plan.slots} of 36 slots; ${plan.tools.length} spent tool(s) to wear out` }
-        }
-      } catch { /* an inventory read must never break the decision loop */ }
-    }
+    // BAMBOO -> STICKS, right after wear_out (bamboo.mjs): at 34+ slots, a batch of the bamboo recipe that frees a slot.
+    // THE PRECEDENCE IS firstOrder's (bamboo.mjs, pure): the milestone work order, then wear_out, then bamboo -- a later
+    // step is not even asked once an earlier one issued, so its cooldown is never charged for nothing.
+    order = firstOrder(order, () => this.wearOutOrderStep(), () => this.bambooOrderStep())
     // THE TOWN ORDERS (composter.mjs townOrder decides; this only supplies readings and keeps the state): compost at
     // town at 34+ slots, or build the town's composter when there is none and the bag has room for the craft chain.
     // Never a trip. Every world scan is lazy and rate-limited inside townOrder.
@@ -979,6 +996,7 @@ export class CognitiveLoop {
       // A FAILED WEAR-OUT BACKS OFF (both reviews): a bot with no safe block (deepslate, a pillar, water) would
       // otherwise take a decision every cooldown, forever.
       if (admitted.skill === 'wear_out') this.wearOutBackoffUntil = r.status === 'failed' ? Date.now() + WEAR_OUT_BACKOFF_MS : 0
+      if (admitted.skill === 'bamboo_sticks') this.bambooBackoffUntil = bambooOrderOutcome(r.status, Date.now())
       // A TOWN ORDER THAT FAILED BACKS OFF; a skip (no_effect) or an interruption costs nothing (townOrderOutcome).
       if (TOWN_ORDERS.has(admitted.skill)) this.townState = townOrderOutcome(admitted.skill, r.status, Date.now(), this.townState ?? {}, r.failClass ?? null)
       if (admitted.skill === 'town_deposit') this.townDepositState = townDepositOutcome(r.status, r.failClass ?? null, Date.now(), this.townDepositState ?? {})
@@ -1082,7 +1100,7 @@ export class CognitiveLoop {
         // false, whichever milestone happened to be current. There is no longer
         // a `neutral` branch calling recordSuccess -- there is one call, and it
         // cannot be made without the measurement in hand.
-        // Housekeeping (wear_out, compost, build_composter) is never the model's choice, nor a "reliable choice" in its prompt.
+        // Housekeeping (wear_out, compost, build_composter, bamboo_sticks) is never the model's choice, nor a "reliable choice" in its prompt.
         if (!isHousekeeping(admitted.skill)) this.lessons.recordSuccess(admitted.skill, admitted.args, r.contractEvidence)
 
         // Preference -- what makes a bot KEENER -- stays gated on `valuable`.
