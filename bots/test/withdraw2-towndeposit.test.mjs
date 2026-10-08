@@ -94,8 +94,10 @@ await t('IRON PULL, CRAFT FAILED, THEN THE TOWN DEPOSIT FIRES: the 3 ingots and 
   } finally { SKILLS.craft.run = realCraft }
 })
 
-await t('IRON PULL, CRAFTED, THEN THE TOWN DEPOSIT FIRES: the new iron pickaxe and the stone one stay (with the hold and after it)', async () => {
-  const w = town([tool('stone_pickaxe', 0), stack('raw_copper', 7), stack('coal', 9), ...dirt(31)], [stack('iron_ingot', 5), stack('stick', 10)])
+await t('IRON PULL, CRAFTED, THEN THE TOWN DEPOSIT FIRES: the new iron pickaxe and the BEST stone one stay (with the hold and after it)', async () => {
+  // Two stone copies (111 and 60 uses): with the iron made, the spare stone is bankable (bankable.mjs) -- the town deposit
+  // may bank the WORSE one (60), never the best (111), and never the new iron pickaxe.
+  const w = town([tool('stone_pickaxe', 20), tool('stone_pickaxe', 71), stack('raw_copper', 7), stack('coal', 9), ...dirt(30)], [stack('iron_ingot', 5), stack('stick', 10)])
   craftStub(w, 'honest')
   try {
     const r = await pick(w.bot)
@@ -105,9 +107,13 @@ await t('IRON PULL, CRAFTED, THEN THE TOWN DEPOSIT FIRES: the new iron pickaxe a
     assert.ok(tdOrder(items).order, 'positive control: the town deposit fires')
     for (const holds of [true, false]) {
       if (!holds) clearWithdrawHolds()
-      const names = townDepositPlan(items).steps.map(s => s.name)
+      const steps = townDepositPlan(items).steps
+      const names = steps.map(s => s.name)
       assert.ok(names.includes('raw_copper'), 'positive control: surplus is banked')
-      assert.ok(!names.includes('iron_pickaxe') && !names.includes('stone_pickaxe'), `no pickaxe is banked (holds ${holds}: ${names.join(',')})`)
+      assert.ok(!names.includes('iron_pickaxe'), `the iron pickaxe is not banked (holds ${holds}: ${names.join(',')})`)
+      const banked = steps.filter(s => s.name === 'stone_pickaxe').map(s => items.find(i => i.slot === s.slot))
+      assert.equal(banked.length, 1, `positive control: the spare stone copy IS bankable (holds ${holds})`)
+      assert.ok(banked.every(i => i.durabilityUsed === 71), `only the worse stone copy may be banked (holds ${holds}: ${banked.map(i => 131 - i.durabilityUsed).join(',')})`)
     }
   } finally { SKILLS.craft.run = realCraft }
 })
