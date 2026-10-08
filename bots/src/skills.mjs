@@ -4322,7 +4322,7 @@ async function makeCraftRoom(ctx, item, plan, signal) {
  */
 export function adviseDeposit (bot, items, keep = []) {
   if (bankClosed(bot) || !depositWorthIt(bot, items)) return null
-  try { return depositTarget(items, depositPlan(items, null, { wants: bot.currentWants ?? [], noSwords: foodSkipNow(bot).active }), keep) } catch { return null }
+  try { return depositTarget(items, depositPlan(items, null, { wants: bot.currentWants ?? [] }), keep) } catch { return null }   // noSwords: the switch (default), refreshed by depositWorthIt
 }
 /**
  * WOULD ADMISSION LET A DEPOSIT THROUGH FROM HERE? Its deposit_not_worth_it test (admission.mjs): depositDue over the
@@ -7148,18 +7148,28 @@ const SMELT_OPEN_MS     = 10_000        // openFurnace waits on a server event f
  * `abort_ignored`.
  */
 /**
- * THE ROW FOR WHAT THE DRAIN DID WITH A WOODEN SWORD (peacefulkit) -> { status, what } | null. `fate` is drainFurnace's
+ * THE ROW FOR WHAT THE DRAIN DID WITH A WOODEN SWORD (peacefulkit) -> { outcome, what } | null. `fate` is drainFurnace's
  * furnace.swordFate: 'kept_full' (no empty slot: left as fuel), 'kept_cursor' (lifted, the bag would not take it from the
  * cursor: put back into the fuel slot), 'cursor_lost' (still on the cursor at the close: the server drops it), 'taken' or
- * null. `staged` = this call's sword never ignited. A sword this call did not move (an earlier call's, kept for a full bag)
- * writes nothing; one the cursor touched always writes, so the read never credits or misses it silently.
+ * null (the drain never reached it). `staged` = THIS call's sword, put in and never ignited -- its departure from the bag
+ * is what a 'left in the furnace fuel slot' row credits in the read. `inSlot` = the fuel slot read after the drain: true
+ * (still a wooden sword), false, or undefined (unreadable).
+ *   - An EARLIER call's sword (not staged) was already credited when it left the bag: lifting it and putting it back is a
+ *     diagnostic row the read does NOT credit (Codex r-rev7: a second credit could hide a later loss).
+ *   - A staged sword is 'returned' only when its take happened; a drain that never reached it (its deadline spent on a
+ *     hung take) re-reads the slot (Claude r-rev7).
  */
-export function swordDrainRow (fate, staged) {
-  if (fate === 'cursor_lost') return { status: 'failed', what: 'wooden_sword on the cursor at the close (the server drops it)' }
-  if (fate === 'kept_cursor') return { status: 'no_effect', what: 'wooden_sword left in the furnace fuel slot (the cursor could not be emptied into the bag)' }
-  if (!staged) return null
-  if (fate === 'kept_full') return { status: 'no_effect', what: 'wooden_sword left in the furnace fuel slot (the bag is full)' }
-  return { status: 'no_effect', what: 'wooden_sword returned unburned' }
+export function swordDrainRow (fate, staged, inSlot) {
+  if (fate === 'cursor_lost') return { outcome: 'failed', what: 'wooden_sword on the cursor at the close (the server drops it)' }
+  if (!staged) {
+    return fate === 'kept_cursor' ? { outcome: 'no_effect', what: 'wooden_sword put back into the furnace fuel slot from the cursor (left by an earlier call)' } : null
+  }
+  if (fate === 'kept_cursor') return { outcome: 'no_effect', what: 'wooden_sword left in the furnace fuel slot (the cursor could not be emptied into the bag)' }
+  if (fate === 'kept_full') return { outcome: 'no_effect', what: 'wooden_sword left in the furnace fuel slot (the bag is full)' }
+  if (fate === 'taken') return { outcome: 'no_effect', what: 'wooden_sword returned unburned' }
+  if (inSlot === true) return { outcome: 'no_effect', what: 'wooden_sword left in the furnace fuel slot (the drain ran out of time)' }
+  if (inSlot === undefined) return { outcome: 'no_effect', what: 'wooden_sword outcome unknown (the furnace could not be read)' }
+  return { outcome: 'no_effect', what: 'wooden_sword returned unburned' }
 }
 
 /**
@@ -7563,8 +7573,9 @@ async function smelt(ctx, { item, count = 1 }, signal) {
     // empty slot: then it stays in the furnace as fuel (never tossed). The row is written after the actual outcome.
     if (furnace) { furnace.swordKept = false; furnace.swordFate = null }
     await drainFurnace(furnace, SMELT_RECOVERY_MS, bot)
-    const drained = swordDrainRow(furnace?.swordFate ?? null, !!left)
-    if (drained) swordRow(drained.status, drained.what, left ? staged.active : foodSkipNow(bot).active)
+    const after = fslot('fuelItem')
+    const drained = swordDrainRow(furnace?.swordFate ?? null, !!left, after === undefined ? undefined : after?.name === 'wooden_sword')
+    if (drained) swordRow(drained.outcome, drained.what, left ? staged.active : foodSkipNow(bot).active)
     writeSwordRows()
   }
 
