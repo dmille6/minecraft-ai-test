@@ -14,7 +14,7 @@
 # 5, throws whole listed stacks from <= 1.15 aimed at the opening, closes it in a finally, and retakes any miss. Vanilla
 # despawn (6000 ticking ticks) deletes what lies in the well; nobody can reach it (item 1.8125 below the rim's feet).
 # Rows (key=value details):
-#   _well_dispose      "slots=a->b freed=N tossed=N n=N misses=N retaken=N recollected=N nonlisted=N other_loss=N server=resync|local
+#   _well_dispose      "slots=a->b freed=N tossed=N n=N misses=N aim_off=N retaken=N recollected=N nonlisted=N other_loss=N server=resync|local
 #                       closed_open=0|1 at=x,y,z stop=... items=k:v,..."   (n and items = the SERVER bag's loss)
 #   _well_built        "at=x,y,z facing=.. floor=1 wood=.. pit_first=0|1 pit_tossed=N pit_items=N free=N"
 #   _well_refused      "order=dispose|build reason=..."
@@ -346,7 +346,7 @@ print('rows walked %d  |  canary %s  sha %s  cutoff %s  window +%d min' % (len(e
 rows = Counter(); kinds = Counter(); offbuild = 0
 c1 = []; c3 = []; c4 = []; misses = retaken = 0; built = defaultdict(Counter); breached = defaultdict(set)
 visits = 0; items_out = 0; freed = []; refused = Counter(); resynced = 0; pit = 0; deaths = Counter(); unresolved = 0
-opens = []; closes = []; closed_open = []; other_loss = 0; unnamed = 0; pit_open = []; aborted_misses = 0; pit_closed = []; pit_filled = 0
+opens = []; closes = []; closed_open = []; other_loss = 0; unnamed = 0; pit_open = []; aborted_misses = 0; pit_closed = []; pit_filled = 0; aim_off = 0; canary_throws = 0
 orders = Counter(); refused_pool = defaultdict(Counter); death_pos = []; well_cells = set(); inside_rows = []
 c7 = []; c8 = []; c8_trip = []; sword_known = 0; sword_visits = 0; inst_swords_town = 0; last_diff = {}; g_unclicked = []; guard_low_end = []; mines = defaultdict(Counter); deep_deaths = defaultdict(Counter); deep_list = []
 deaths_nopos = Counter(); qual = defaultdict(set)
@@ -421,6 +421,8 @@ for r in ev_rows:
         pit_closed.append((pool_of(b), f.get('at'), t))
         pit += num(f, 'pit_first')
     elif k == '_well_dispose':
+        if arm == 'canary':
+            aim_off += num(f, 'aim_off'); canary_throws += num(f, 'tossed')
         if num(f, 'recollected'):
             c1.append((b, 'recollected=%d %s' % (num(f, 'recollected'), d[:80])))
         why = c3_breach(f)
@@ -529,6 +531,7 @@ print('DENOMINATORS rows post canary %d / control %d | bots post canary %d / con
 print('LIVENESS     canary well rows %d (>= 1) | control %d (must be 0) | other build %d | by kind %s'
       % (rows['canary'], rows['control'], offbuild, dict((k2, n) for (a, k2), n in kinds.items() if a == 'canary')))
 c9, c9_pending = pit_left_open(pit_open, pit_closed, END)
+print('             throws the server took at another pitch (aim_off, from each item\'s spawn velocity) %d of %d canary throws (TRIPWIRE: the aim is said twice since 10-08)' % (aim_off, canary_throws))
 print('             C9 pits left open > 10 min (no fill or build at the site by its pool) %d %s | pending %d | pits filled after an abandoned build %d' % (len(c9), c9[:3], len(c9_pending), pit_filled))
 print('CORRECTNESS  C1 recollected %d | C2 left open > 2 min %d (pending %d) | C3 non-listed thrown %d | C4 bots stuck inside a well >= 2 min %d | C5 misses left out %d (misses %d, retaken %d) | C6 pools with > 1 ACTIVE well %s'
       % (len(c1), len(c2), len(c2_pending), len(c3), len(c4), c5, misses, retaken, c6 or 0))
@@ -578,7 +581,7 @@ try:
         'deaths_nopos_canary': deaths_nopos['canary'], 'deaths_nopos_control': deaths_nopos['control'],
         'owner_slots_did': None if did('owner') != did('owner') else round(did('owner'), 3),
         'deco_slots_did': None if did('deco') != did('deco') else round(did('deco'), 3),
-        'caps_found_open': len(closed_open), 'inside_rows': len(inside_rows), 'other_loss': other_loss, 'pits_left_open': len(pit_open), 'breach_pit_left_open': len(c9), 'pits_filled_canary': pit_filled, 'deaths_near_well': len(deaths_near),
+        'caps_found_open': len(closed_open), 'inside_rows': len(inside_rows), 'other_loss': other_loss, 'pits_left_open': len(pit_open), 'breach_pit_left_open': len(c9), 'aim_off_canary': aim_off, 'pits_filled_canary': pit_filled, 'deaths_near_well': len(deaths_near),
         'dispose_visits_canary': visits, 'wells_built_canary': sum(len(c) for c in built.values()), 'instrument_control': inst,
         'junk_slots_did': None if did('junk') != did('junk') else round(did('junk'), 3),
         'full_share_did': None if did('full') != did('full') else round(did('full'), 4),

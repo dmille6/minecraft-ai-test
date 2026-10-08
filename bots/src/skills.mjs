@@ -60,7 +60,7 @@ const DEPOSIT_TOOL_RE = /_(pickaxe|axe|shovel|sword|hoe)$/
 import { WOODEN_TRAPDOOR, isWellJunk, disposePlan, wellIdentity, wellStage, wellStand, standForFacing, wellSiteRefusal, canonicalWellSite,
          wellBuildPlan, wellBuildRoom, wellAim, aimPoint, tossOutcome, wellAdmission, wellDisposeDetail, itemInWell, bodyInWell, TOSS,
          trapdoorsNeeded, MAX_STACKS_PER_VISIT, wellBreach, usableStands, thrownNames, WELL_HOME_CLEARANCE,
-         disposableIn, guardLeft, reserveStone, SCAFFOLD_DECORATIONS, isSword, swordSwitch, pitFillCells, pitFillItem, pitFillPlan } from './well.mjs'
+         disposableIn, guardLeft, reserveStone, SCAFFOLD_DECORATIONS, isSword, swordSwitch, pitFillCells, pitFillItem, pitFillPlan, aimApplied } from './well.mjs'
 import { resyncPacket, GUARDED_INVENTORY_ACTIONS } from './craftsync.mjs'
 import path from 'node:path'
 import { IRON_KINDS, MIN_TRIP_USES, CANDIDATE_RADIUS, breakHazard, nearHome, pickBudget, rankCandidates, clusterOf, tunnelMovements, planTunnel, ONE_PICK_USES, tripDecision } from './oretunnel.mjs'
@@ -6190,6 +6190,22 @@ function wellPickupGoal (bot, item, cap) {
   return goal
 }
 
+/**
+ * THE AIM, SAID AGAIN (sandbox 10-08, junkwell pit-first): the server dropped the bot's aim look -- one look packet, sent
+ * ~50 ms before the THROW click -- in 12 of 12 traced throws, while the same look sent a second time was applied in 9 of 9
+ * (back-to-back, 25 ms later, or one 0.15-degree step off). A fresh copy of the packet object in its place did not help: it
+ * is the FIRST look the server loses, not the object. So the rotation mineflayer already holds is written again, raw, the
+ * same values in the same notchian units mineflayer sends (conversions.js toNotchianYaw / toNotchianPitch).
+ */
+export function resendLook (bot) {
+  try {
+    const e = bot.entity
+    if (!e || !Number.isFinite(e.yaw) || !Number.isFinite(e.pitch)) return false
+    bot._client?.write?.('look', { yaw: Math.fround((Math.PI - e.yaw) * 180 / Math.PI), pitch: Math.fround(-e.pitch * 180 / Math.PI),
+                                   onGround: !!e.onGround, flags: { onGround: !!e.onGround, hasHorizontalCollision: undefined } })
+    return true
+  } catch { return false }
+}
 /** mineflayer's clickWindow waits out DIG_CLICK_TIMEOUT (500 ms) after a dig before a hotbar click: let it pass FIRST, so the
  *  final slot check and the click's own read of the slot happen in the same synchronous run. */
 const DIG_CLICK_GAP_MS = 550
@@ -6204,7 +6220,11 @@ async function throwStacks (bot, { cap, facing, stacks, bound, waitTick, signal,
   const onSpawn = e => {
     const f = bot.entity?.position
     if (e?.name !== 'item' || !e.position || !f) return
-    if (Math.hypot(e.position.x - f.x, e.position.z - f.z) < 0.6 && Math.abs(e.position.y - (f.y + TOSS.spawnUp)) < 0.8) acc.spawned.push(e)
+    if (!(Math.hypot(e.position.x - f.x, e.position.z - f.z) < 0.6 && Math.abs(e.position.y - (f.y + TOSS.spawnUp)) < 0.8)) return
+    acc.spawned.push(e)
+    // THE THROW'S RECEIPT: the spawn velocity says which pitch the server threw at (well.mjs aimApplied)
+    const ok = acc.aimPitch == null ? null : aimApplied({ vx: e.velocity?.x, vz: e.velocity?.z, pitchDeg: acc.aimPitch })
+    if (ok === false) acc.aimOff = (acc.aimOff ?? 0) + 1
   }
   bot.on?.('entitySpawn', onSpawn)
   try {
@@ -6219,7 +6239,9 @@ async function throwStacks (bot, { cap, facing, stacks, bound, waitTick, signal,
       if (!aim.ok) { acc.stop = `aim refused: ${aim.why}`; break }
       const p = aimPoint({ eye: { x: feet.x, y: feet.y + 1.62, z: feet.z }, cap, pitchDeg: aim.pitch, facing })
       await bound(bot.lookAt(new Vec3(p.x, p.y, p.z), true), HK_AWAIT_MS, 'aim')
-      await waitTick(); await waitTick()
+      // the aim said again, twice, a tick apart: the server can lose the first look (resendLook); the click follows a tick later
+      await waitTick(); resendLook(bot); await waitTick(); resendLook(bot); await waitTick()
+      acc.aimPitch = aim.pitch
       const sinceDig = bot.lastDigTime != null ? Date.now() - bot.lastDigTime : Infinity
       if (sinceDig < DIG_CLICK_GAP_MS) await sleep(DIG_CLICK_GAP_MS - sinceDig, signal)
       check(signal)
@@ -6429,7 +6451,7 @@ const phaseDetail = (ph, cap, stop, capEnd = null) => wellDisposeDetail({ capEnd
   misses: ph.misses, retaken: ph.retaken, recollected: ph.recollected, nonlisted: ph.account.nonlisted, otherLoss: ph.account.otherLoss,
   source: ph.source, closedOpen: ph.closedOpen, stop, at: cap, offlist: ph.thrown?.offlist ?? 0, offlistItems: ph.thrown?.offlistItems ?? {}, unnamed: ph.thrown?.unnamed ?? 0,
   gclicked: ph.acc?.gclicked ?? 0, stone: ph.acc?.stoneMin ?? ph.stone ?? null, swords: ph.acc?.swords ?? 0, peaceful: ph.acc?.swords ? ph.acc.peaceful : null,
-  swordLost: ph.account?.swordLost ?? 0, swordsKept: ph.acc?.swordsKept ?? 0 })
+  swordLost: ph.account?.swordLost ?? 0, swordsKept: ph.acc?.swordsKept ?? 0, aimOff: ph.acc?.aimOff ?? 0 })
 
 const FACING_OK = f => ['north', 'south', 'west', 'east'].includes(f)
 async function disposeWell (ctx, _args, signal) {
