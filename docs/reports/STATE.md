@@ -11,6 +11,12 @@ behind it (chain-ore.sh stopped 10-01 on fixes-02's revert)._
 
 ---
 
+## 10-08 13:45Z — airpocket-01 +360 NOT_YET (exposure 1 of 2): FIRST LIVE RESCUE succeeded; extension continues
+13:15:45Z hive-d-Bravo sealed under ICE at y 60.5 (cell 155,62,168), health 18: dug the ice with a wooden pickaxe in
+1,901 ms (predicted 1,900), eye in air, health 18 -> 20 within 4.4 s. attempts 1, successes 1, refusals/aborts/failures
+0, every breach 0. Deaths canary 1/60.6 bh vs matched control 2/90.9 bh (both below the two-death floor). Exposure needs
+>= 2 attempts; the registered extension (to +1560, ~09:34Z 10-09) continues. withdraw2-01 queued behind it.
+
 ## 10-08 13:25Z — toolhygiene prepared on dbb4d78 / a6cd3c1 / 2189de3 (both engines APPROVE); fetched into /opt
 th-on-dbb4d78 @ 4970c91, th-on-a6cd3c1 @ 5d1f710, th-on-2189de3 @ 2f38f69 (+ th-on-92bc84f @ 6238095). Found by review:
 airpocket's dig picked any pickaxe by slot, so with hygiene's 1-use copies it could dig bare-handed on the server; fixed
