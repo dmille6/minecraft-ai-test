@@ -92,6 +92,15 @@ if [ "$(mf canary_code_version)" != "$SHA" ]; then
     esac
     grep -qE '^TARGET_K = [4-9]' $H/mcai-analysis/drawrec.sh || { page error "bag fix $RUN needs a 4-pool draw and $H/mcai-analysis/drawrec.sh does not target 4 (TARGET_K)"; journal refused-v33 "drawrec.sh TARGET_K < 4"; exit 2; }
   fi
+  # v34: an underground-safety registration must be well-formed for its DiD death gate (usafegate.py); a malformed one
+  # (e.g. a dict in linkage_extra, which crashes verdict.py and changerowcheck.py) is refused before the draw.
+  if [ "$(jf class)" = "underground-safety" ]; then
+    RC=$(python3 $H/mcai-analysis/usafegate.py check-registration "$RUN" 2>&1 | tail -1)
+    case "$(echo "$RC" | awk '$1 == "USAFE" {print $2}')" in
+      OK) journal usafe-registration-ok "$RC";;
+      *) page error "underground-safety registration REFUSED $RUN: $RC"; journal refused-v34 "$RC"; exit 2;;
+    esac
+  fi
   if [ -f $H/digest/NEXT-SLOT.json ]; then
     if [ "$(jf class)" = "underground-safety" ]; then
       journal next-slot-ok "underground-safety fix $RUN may take the reserved slot (consumed only after a verified deploy)"
@@ -264,7 +273,15 @@ for M in $READS; do
     # -- and the v32 advisory added today IS reachable under --poll, which is what made a latent
     # false-revert route worth closing instead of documenting. 7 of 23 reverts on file are already
     # confirmed false; this is the one class of them that needed no calibration to remove.
-    case "$(echo "$V" | awk '{print $2}')" in REVERT) [ -n "$BAGFIX" ] && journal bagfix-pending "FROM=0"; journal poll-revert "$V"; page verdict "$V"; FINAL=REVERT; FINALV="$V"; FROM=0; break 2;; esac
+    case "$(echo "$V" | awk '{print $2}')" in
+      REVERT) [ -n "$BAGFIX" ] && journal bagfix-pending "FROM=0"; journal poll-revert "$V"; page verdict "$V"; FINAL=REVERT; FINALV="$V"; FROM=0; break 2;;
+      # v34: a poll that answers UNREADABLE is a death gate that is NOT running (e.g. unreadable logs under the DiD gate);
+      # it used to fall through silently. Journalled each time, paged on the first and every 6th (30 min) in a row.
+      UNREADABLE) PU=$(( ${PU:-0} + 1 )); journal poll-unreadable "($PU in a row) $V"
+        [ $(( PU % 6 )) -eq 1 ] && page error "DEATH POLL UNREADABLE ($PU in a row) -- the death gate is not deciding: $V";;
+      "") ;;      # an empty poll is already paged above as DEATH POLL PRODUCED NO VERDICT; it does not reset the count
+      *) PU=0;;
+    esac
     if [ $(( $(_now) - T0 )) -gt $(( DEADLINE * 60 )) ]; then journal deadline "no verdict by +$DEADLINE"; page error "deadline +$DEADLINE reached without a verdict: containment"; FINAL=INCONCLUSIVE; FINALV="deadline +$DEADLINE reached without a verdict (containment)"; break 2; fi
   done
   # THE READ SCRIPTS LIVE IN /tmp AND NOTHING PUTS THEM THERE.

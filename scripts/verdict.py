@@ -24,6 +24,7 @@ from deathgate import death_gate
 from arms import pool_of
 from singledeath import licence_reverts
 import bagfixrule   # v33 (owner 2026-10-07): the bag-fix death rule; imported here so the bundle digest covers it
+import usaferule    # v34 (2026-10-08): the underground-safety death gate (DiD); imported so the bundle covers it
 
 
 def license_change_rows(changerow, away, ctrl_at_death, ctrl_rate=None,
@@ -123,14 +124,14 @@ def _gate_bundle():
     cannot drift from what was executed.
     """
     parts = [('verdict.py', _os.path.abspath(__file__))]
-    for _n in ('deathgate', 'singledeath', 'arms', 'bagfixrule'):
+    for _n in ('deathgate', 'singledeath', 'arms', 'bagfixrule', 'usaferule'):
         parts.append((_n + '.py', getattr(sys.modules.get(_n), '__file__', None)))
     # v33: two decision modules the LOOP runs rather than this file imports -- the bag-fix rule's measuring half
     # (bagfixgate.py: extend-check / poll / final) and the v19 change-row preflight (changerowcheck.py, which counts
     # baseline-build rows only since 2026-10-07). Resolved on THIS file's sys.path WITHOUT executing them
     # (find_spec), so on the host they are the ~/mcai-analysis copies the loop invokes.
     import importlib.util as _ilu
-    for _n in ('bagfixgate', 'changerowcheck'):
+    for _n in ('bagfixgate', 'changerowcheck', 'usafegate'):
         try:
             _sp = _ilu.find_spec(_n)
         except (ImportError, ValueError):
@@ -188,6 +189,11 @@ REG = os.path.join(_RD, f'{run_id}.json')
 if not os.path.exists(REG) and not os.environ.get('VERDICT_REG_DIR'):
     REG = f'/tmp/registrations/{run_id}.json'
 reg = json.load(open(REG)); man = json.load(open(os.environ.get('VERDICT_MANIFEST') or '/srv/mcbots/trial-manifest.json'))
+# v34: an UNDERGROUND-SAFETY canary is drawn on the pools that drown, so the cross-sectional death gate (canary POST vs
+# control POST) is biased against it by construction; its death gate is the DiD in usaferule.py (each arm against its own
+# PRE), measured by usafegate.py. Exactly the string; any other class keeps the gate below unchanged.
+_USAFE = usaferule.is_underground_safety(reg)
+_USAFE_BLIND = None
 why = []; verdict = None
 # v31 (2026-09-25): THE LICENCE CLASS IS ENFORCED HERE, NOT MERELY DECLARED AT LAUNCH.
 #
@@ -402,6 +408,25 @@ for name in reg['reads']:
         age = (dt.datetime.now(dt.timezone.utc) - dt.datetime.fromisoformat(o['emitted_at'])).total_seconds() / 60
         if age > 90: why.append(f'{name}: evidence stale ({age:.0f} min)'); continue
     ev[name] = o['fields']
+# v34, round 2 (Codex): AN UNDERGROUND-SAFETY READ DECIDES ITS DEFECT LINES FIRST. Every exit between here and section 8
+# (a missing read just below, immobiledid not readable, an UNREADABLE v15c, a blind death gate) answers UNREADABLE or
+# NOT_YET, and each would hide a BOUND, defined, failing `evidence: defect` own line -- for airpocket, C3 (the reserve
+# spent, or a death during an attempt). Such a line is a mechanism defect whatever else is unreadable, so it reverts
+# here. Only defect lines, only bound evidence (ev holds nothing else), only a defined value; the same comparison as
+# section 8, which still runs for everything else. Other classes are unchanged.
+# A rate-class licence (v31) may not revert on ANY instrument, own lines included: the early path keeps that rule
+# exactly as section 8's _deciding_evidence does (round 3, Claude + Codex).
+if _USAFE and not POLL and not _LIC_REPORT_ONLY:
+    for ln in reg.get('own_lines', []):
+        if ln.get('evidence') != 'defect' or ln.get('on_fail') != 'REVERT' or ln.get('read') not in ev:
+            continue
+        val = ev[ln['read']].get(ln['field'])
+        if not isinstance(val, (int, float)) or isinstance(val, bool) or val != val or val in (float('inf'), float('-inf')):
+            continue
+        if not {'<=': val <= ln['value'], '>=': val >= ln['value'], '==': val == ln['value']}[ln['op']]:
+            why.append(f"own line {ln['read']}.{ln['field']} = {val} fails {ln['op']} {ln['value']} "
+                       f"(evidence=defect, decided before any unreadable section: v34)")
+            (out('REVERT'))
 if len(ev) < len(reg['reads']): (out('UNREADABLE'))
 if not POLL:
     # A REGISTRATION THAT OMITS immobiledid USED TO CRASH HERE, SILENTLY.
@@ -638,7 +663,7 @@ _kd = h.get('control_deaths', 0)
 _cbh = im.get('canary_bot_h') or 0.0          # measured, emitted by immobiledid.py:200
 _kbh = im.get('control_bot_h') or 0.0
 _expo_note = 'exposure from the scheduled read'
-if POLL and not DRY:
+if POLL and not DRY and not _USAFE:
     _cd = ndeaths                              # the scan is the truth during a poll
     _cbh = _exposure(by, cut)
     _expo_note = f'exposure measured over {len(by)} canary bots since declared_at'
@@ -682,12 +707,40 @@ if not _LIC_CLASS:
                'class, so nothing here establishes that the change acted. licencecheck.py refuses '
                'that at launch; a registration predating it is READ, not refused, and this line is '
                'the difference between "no licence" and "a licence that permits this".')
-if _cd >= 2 and not C_ROWS:
+# ---- v34 UNDERGROUND-SAFETY DEATH GATE (docs/reports/usafe-death-gate-2026-10-08.md). Decides here, in the poll and in
+# the reads alike; the cross-sectional gate below is then inert for this class (reported as not applied).
+if _USAFE and not DRY:
+    import usafegate
+    from deathgate import ratio_lower_bound as _rlb
+    _cutdt = dt.datetime.fromisoformat(man['declared_at'].replace('Z', '+00:00'))
+    _um = usafegate.measure(LOGROOT, reg, CANARY_BOTS, [b for b in ALLBOTS if b not in set(CANARY_BOTS)], _cutdt,
+                            dt.datetime.now(dt.timezone.utc), os.path.join(R, f'{run_id}-usafe-pre.json'),
+                            expected_pools=None if man.get('canary_split') else pools,
+                            baseline=str(man.get('declared_code_version') or '')[:7] or None)
+    _uw, _uwhy = usafegate.decide(_um, _rlb, linkage_report_only=_LIC_REPORT_ONLY)
+    _cd, _cbh, _kd, _kbh = _um['a'], _um['ta'], _um['c'], _um['tc']
+    _expo_note = 'v34: both arms measured by usafegate over POST and the %g-h PRE' % _um['pre_h']
+    why.append('UNDERGROUND-SAFETY death gate (v34; the cross-sectional gate is not applied to pools drawn for their '
+               'drownings): ' + _uwhy)
+    if _uw == 'REVERT':
+        (out('REVERT', {'by': 'death_gate_did', 'cd': int(_um['a']), 'cbh': float(_um['ta']), 'kd': int(_um['c']),
+                        'kbh': float(_um['tc']), 'pre': [_um['b'], _um['tb'], _um['d'], _um['td']], 'linked': _um['linked']}))
+    if _uw == 'UNREADABLE':
+        if POLL:
+            (out('UNREADABLE', {'by': 'death_gate_did'}))
+        # at a READ the death gate's blindness must not hide the change's own REVERT lines (C0-C5), v15c or v11:
+        # evaluation continues and UNREADABLE is returned only if nothing later reverts (round 1, Claude)
+        _USAFE_BLIND = _uwhy
+    if _cd >= 2:
+        pending_watch.append('DiD death gate held (v34)')
+elif _USAFE:
+    why.append('UNDERGROUND-SAFETY death gate (v34) not computed in a dry run')
+if _cd >= 2 and not C_ROWS and not _USAFE:
     why.append('LINKAGE UNAVAILABLE: this registration declares no `change_rows`, so the '
                'licensed-row path could not run and this death decision rests on the RATE '
                'alone. A canary that can kill should declare the rows its own change emits; '
                'without them, an unrelated death and a caused one look identical here.')
-if _cd >= 2 and _kbh <= 0:
+if _cd >= 2 and _kbh <= 0 and not _USAFE:
     why.append(f'canary is AT the two-death floor ({_cd} deaths in {_cbh:.1f} measured bot-h) '
                f'but control exposure is UNMEASURED -- there is nothing to compare against, '
                f'and "cannot decide" is not KEEP. Removing the invented control denominator '
@@ -705,7 +758,7 @@ if _cd >= 2 and _kbh <= 0:
 # would put treated and control bots in the same unit and destroy the contrast.
 _units = None
 _treat = None
-if _cd >= 2 and _kbh > 0:
+if _cd >= 2 and _kbh > 0 and not _USAFE:
     _within = (man.get('canary_split') == 'within-world')
     _unit_of = (lambda b: b) if _within else pool_of
     _dh = collections.defaultdict(lambda: [0, 0.0])
@@ -720,7 +773,7 @@ if _cd >= 2 and _kbh > 0:
     _treat = sorted({_unit_of(b) for b in CANARY_BOTS})
     why.append('randomization units: %d %s, %d treated'
                % (len(_units), 'bots (within-world split)' if _within else 'pools', len(_treat)))
-_rev, _why = death_gate(_cd, _cbh, _kd, _kbh, units=_units, treat=_treat)
+_rev, _why = (False, 'cross-sectional gate not applied (v34)') if _USAFE else death_gate(_cd, _cbh, _kd, _kbh, units=_units, treat=_treat)
 _ext_ok = False
 if _rev and BAGFIX_EXT:
     _jp = os.environ.get('VERDICT_JOURNAL') or os.path.expanduser('~/canary-journal.jsonl')
@@ -742,7 +795,7 @@ if _rev and BAGFIX_EXT:
 # it sees fewer deaths than the gate did).
 if _rev: why.append(_why + f' [{_expo_note}]'); (out('REVERT', {'by': 'death_gate', 'cd': int(_cd), 'cbh': float(_cbh),
                                                                 'kd': int(_kd), 'kbh': float(_kbh)}))
-elif _cd >= 2 and not _ext_ok: why.append(_why + f' [{_expo_note}]'); pending_watch.append('death gate held (v21)')
+elif _cd >= 2 and not _ext_ok and not _USAFE: why.append(_why + f' [{_expo_note}]'); pending_watch.append('death gate held (v21)')
 why.append(f"deaths {_cd} ({(_cd / _cbh) if _cbh else 0:.3f}/bh over {_cbh:.1f} measured bot-h) "
            f"vs control {_kd} ({(_kd / _kbh) if _kbh else 0:.3f}/bh over {_kbh:.1f})")
 if POLL: why.append(f'poll: {ndeaths} canary deaths since declared_at, {len(linked)} rung-linked, {len(changerow)} with a change row'); (out('POLL_OK', {'deaths': ndeaths}))
@@ -1096,7 +1149,7 @@ for fr in reg.get('friction', []):
 # format's whole life looked exactly like `friction` passing. Naming them on every verdict
 # costs one line and makes that impossible.
 _EVALUATED = {'reads', 'read_minutes', 'exposure', 'own_lines', 'friction', 'change_rows',
-              'linkage_extra', 'ladder_change', 'sha', 'run_id', 'extension'}
+              'linkage_extra', 'ladder_change', 'sha', 'run_id', 'extension', 'class', 'underground_safety'}
 _ADVISORY = {'primary', 'watch', 'mechanism_check', 'notes', 'note', 'registered_at',
              'promotion', 'deadline_min', 'teardown', 'known_residuals',
              'operator_note_loop_behaviour', 'timestamp_correction', 'notes_superseded',
@@ -1107,6 +1160,9 @@ if _unevaluated:
     why.append('NOT evaluated by this gate (registered, decided elsewhere or not at all): '
                + ', '.join(_unevaluated))
 
+if _USAFE_BLIND:
+    why.append('UNDERGROUND-SAFETY death gate could not decide (nothing else reverted): ' + str(_USAFE_BLIND)[:300])
+    (out('UNREADABLE', {'by': 'death_gate_did'}))
 # 9. exposure
 ex = reg.get('exposure'); exposed = True
 if ex:

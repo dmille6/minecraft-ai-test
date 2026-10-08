@@ -649,7 +649,8 @@ if __name__ == '__main__':
         assert old in src, 'ANCHOR MISSING in %s: %r' % (fname, old)
         assert src.count(old) == 1, 'ANCHOR NOT UNIQUE in %s (%d): %r' % (fname, src.count(old), old)
         md = tempfile.mkdtemp(dir=tmp)
-        for f in ('bagfixrule.py', 'bagfixgate.py', 'deathgate.py', 'verdict.py', 'singledeath.py'):
+        for f in ('bagfixrule.py', 'bagfixgate.py', 'deathgate.py', 'verdict.py', 'singledeath.py', 'usaferule.py', 'usafegate.py',
+                  'changerowcheck.py'):
             if os.path.exists(os.path.join(HERE, f)):
                 shutil.copy(os.path.join(HERE, f), md)
         open(os.path.join(md, fname), 'w').write(src.replace(old, new, 1))

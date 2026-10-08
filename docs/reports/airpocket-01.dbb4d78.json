@@ -4,6 +4,7 @@
  "registered_at": "2026-10-07T23:00:00Z",
  "ladder_change": false,
  "promotion": "fleet-wide",
+ "class": "underground-safety",
  "notes": "[airpocket-01 = THE AIR-POCKET DIG STEP inside the drowning rescue (underground-safety phase 2 canary 1; OWNER approved 10-07 ~19:45Z). Variant for fleet 92bc84f: branch ap-on-92bc84f @ dbb4d78. Design docs/reports/airpocket-design-2026-10-07.md; evidence docs/reports/underground-safety-phase2-2026-10-07.md. NOT launched, NOT chained.] THE CHANGE (bots/src/airpocket.mjs + reflex.mjs wiring): a capped drowning rescue (route not `up`; at once when SEALED, else after 8 s) plans the first non-water cell within 2 of the head: a solid, non-falling, diggable roof cell with no liquid/falling/unknown on its sides or above (a dug cell above a submerged head stays air -- Paper sandbox2 10-07), or plain ice with air above (AP_ICE_ENABLED). Admission: predictedDigMs(fastest tool) x1.5 + 3 s <= (health - 4) / envelope, envelope 0.5 HP/s on peaceful without Hunger, else 2.0 (the pre-empt of an in-flight escape prices the worst case, floating). The dig is sent inside the step or never (bounded look, digGate, forceLook 'ignore'); a standing bot digs with jump released, a floating one with it held; a 250-ms watch aborts on > 7 HP lost in 10 s or the budget; success = eye in air 2 s AND health rising or at max. After success the bot STANDS with its eye in the pocket: 1-3 non-interactive-referenced scaffold blocks placed under it (floor, or a side wall with non-falling blocks only), each read back; escapes wait 10 s. The tick returns at the top while it runs; success or an opened pocket clears the rescue's fail memory. Rows only this build writes: _air_pocket_start, _air_pocket, _air_pocket_refused, _air_pocket_preempt.",
  "licence": {
   "class": "kind",
@@ -21,13 +22,7 @@
  ],
  "deadline_min": 1680,
  "change_rows": [],
- "linkage_extra": [
-  {
-   "kind": "_air_pocket",
-   "window_s": 120,
-   "note": "A death within 120 s after the same bot's _air_pocket row is mechanism-linked (adaptive death rule, owner 10-07)."
-  }
- ],
+ "linkage_extra": [],
  "draw_exposure": {
   "hours": 12,
   "require": [
@@ -169,5 +164,30 @@
   ],
   "final_on_zero_exposure": "INCONCLUSIVE",
   "note": "Short canary for a fix-shaped change (owner 2026-09-29)."
+ },
+ "underground_safety": {
+  "pre_hours": 24,
+  "link_rules": [
+   {
+    "kind": "_air_pocket_start",
+    "until_kind": "_air_pocket",
+    "window_s": 300,
+    "note": "a death DURING the step (no end row of the same id before it): C3"
+   },
+   {
+    "kind": "_air_pocket",
+    "window_s": 120,
+    "except_detail_re": "^id=\\S+ outcome=(?:aborted|failed|opened) .*?health=[\\d.]+->(?:[3-9]|1\\d|20)(?:\\.\\d+)?(?![\\d.])",
+    "except_cause": "drown",
+    "note": "a death within 120 s after an attempt is linked, EXCEPT a drowning after an aborted/failed/opened attempt that ended at >= 3 HP (the reserve held -- the read's C3 is clean -- the base-rate drowning the fix could not prevent); after a success/opened, after an attempt that spent the reserve, or any non-drowning death, it is linked"
+   },
+   {
+    "kind": "_air_pocket_preempt",
+    "until_kind": "_air_pocket_start",
+    "window_s": 120,
+    "note": "a death after the step pre-empted an escape and no step followed: the pre-empt itself"
+   }
+  ],
+  "note": "Gate v34 (docs/reports/usafe-death-gate-2026-10-08.md): the death gate is a DiD of death rates, each arm against its own 24-h PRE, at the calibrated threshold in usaferule.py, because this canary is DRAWN on the pools that drown. Mechanism linkage by link_rules (usaferule.link_reason); any linked death reverts at the two-death floor. This replaces the former linkage_extra entry, a dict that crashed verdict.py and changerowcheck.py (both build a set from it)."
  }
 }
