@@ -1,0 +1,170 @@
+{
+ "run_id": "toolhygiene-01",
+ "sha": "5d1f710",
+ "registered_at": "2026-10-08T13:20:00Z",
+ "ladder_change": false,
+ "promotion": "fleet-wide",
+ "notes": "[toolhygiene-01 variant for fleet a6cd3c1 (withdraw2-01 KEPT on 92bc84f; airpocket not): branch th-on-a6cd3c1 @ 5d1f710. Launch ONLY on a fleet running a6cd3c1. NOT LAUNCHED. REBASE 10-08 (queue agent): a6cd3c1 + the 3 approved commits cherry-picked -x; ONE conflict, the skills.mjs toolfor import line, resolved as the union (FLOOR, tier + noteExitShort). Patches otherwise identical. withdraw2 x hygiene: both engines found no interaction (withdraw2's iron craft calls SKILLS.craft.run directly, never admission; redundantCraft would not refuse it anyway; drained copies are never ranked, traded or banked; the reserves compose). npm test 240/240 files (5d1f710); the hygiene mutants run in-suite (toolhygiene-mutants.test.mjs; airpocket.test.mjs L5/L6 for the composition); eslint no-undef only withinBody. REVIEW (rebased diffs vs the approved th-on-92bc84f @ 6238095; text docs/reports/toolhygiene-01.rebase-review-2026-10-08.txt): r1 Codex + Claude: B APPROVE; A and C CHANGE (Codex P1 / Claude P2: airpocket's dig candidates ignored wear -- hygiene drains worn copies to 1 use and a copy the server already broke still shows at 1 use for > 1.5 s, so the step could dig bare-handed after pricing a pickaxe; the hygiene authors had patched pocketPlanFor for this, airpocket is new code). Fix fb591ef: airPocketTools (hygiene on: a <= HARD_STOP copy is dropped when a same-kind copy above it is held; hygiene off: every tool as deployed), used by BOTH the step and reflex prepareAirPocket (price and step cannot disagree). r2: Claude APPROVE (P3s), Codex CHANGE on an added stale-copy price (a hand price is not a hand dig; a refusal after a pre-empt) -> removed in 4970c91, the post-equip path byte-identical to airpocket-01; mixed-tier test added. r3: Codex APPROVE, Claude APPROVE. FOLLOW-UP (both engines, not in this canary): no full-list fallback when the filtered price fails admission -- a faster 1-use copy (golden@1 beside stone, which hygiene can create) is declined rather than used; read: air_pocket / air_pocket_refused rows whose snapshot bag held a <= 1-use dig tool faster than every healthy copy of its kind (denominator), refusals among them, positive control = the same query finding <= 1-use pickaxes. PAPER: not re-run for this variant (both engines: hygiene touches none of the transfers or the craft withdraw2 proved; withdraw2 does not touch toolfor). BAG-FIX FIELDS (class, bag_fix, reads incl. bagread, primary band): taken UNCHANGED from main's toolhygiene-01.92bc84f.json (gate agent, 54d399c/9e19a6d); only notes, sha and registered_at differ. bagread.py reaches ~/mcai-analysis with the bag-fix install.] [VARIANT: use ONLY if towndeposit-02 (92bc84f) is KEPT and promoted; then the fleet is 92bc84f and this branch th-on-92bc84f @ 6238095 is the canary. Identical change, reads and gates; suite 238/238 on 6238095.] [toolhygiene-01 = TOOL HYGIENE, two parts behind ONE switch TOOL_HYGIENE=on|off (default on; the fleet env sets nothing). Branch th-on-c6e91a8 @ efbb607 (base = the deployed fleet c6e91a8; 98d09b8, 14ac55a, efbb607). Variant for a towndeposit-02 KEEP: th-on-92bc84f @ 6238095 (the same three commits cherry-picked; one cognitive.mjs import conflict resolved as a union; 238/238) -- registration toolhygiene-01.92bc84f.json. Design: docs/reports/toolhygiene-design-2026-10-07.md. NOT launched.] OWNER 2026-10-07: no redundant crafts; most-worn pickaxe first. MEASURED 10-07 (80 bots): 4,606 craft stone_pickaxe proposals and 218 crafted vs 13 iron; 257 proposals by bots holding a stone-or-better copy with 40+ uses; census 17:31Z 338 pickaxe copies, 163 at 2-10 uses. PART 1 (toolhygiene.mjs redundantCraft at AdmissionControl.check, the single admission point for model proposals and work orders): refuse a pickaxe craft beside a same-or-better copy with >= 40 uses (stone; = the ladder's MIN_TRIP_USES, so the stone rung's own work order is never refused) or >= 11 (others), stone/wooden covered only by stone/wooden/golden (iron retention); only with >= 2 usable pickaxes (the escape reflex's two-pickaxe reserve) and the bag's swings >= a descent from the bot's y (exit contract) and no open mine shortfall (bot.exitPickShort, 15 min); a crafting_table/furnace when one is carried; never anything the task/detour wants. Rows _redundant_craft / _craft_admit (structured args, snapshot at the decision); CAN CRAFT NOW agrees. PART 2 (toolfor.mjs): within a name the most-worn open pickaxe digs; a worn copy (2..10) opens only beside a same-or-higher keeper above FLOOR AND two other pickaxes no deposit can take; reserved_required, HARD_STOP, last_swing unchanged; flooded-pocket rung takes a copy above HARD_STOP first. Off == the deployed policy (random-bag equality against a frozen c6e91a8 toolfor). REVIEWS: 5 rounds, Codex + Claude each CHANGE in rounds 1-4 (escape reserve, deposit composition, descent memory, iron cover, read instruments), both APPROVE round 5. TESTS: npm test 237/237; 25 anchored mutants + 4 wiring checks; lint no-undef clean except the pre-existing guarded withinBody. PAPER (sandbox/sandbox2, server oracle): candidate refused a redundant stone_pickaxe 3/3 (no craft, sticks kept) then dug with the more-worn copy; iron pickaxe crafted 3/3; {120,8,5} dug the 5 to gone, kept 8 and 120 (control dug the 120); {120,8} kept the spare in both arms; travel, mine and travel2 drove a 4-use copy to 1 then switched to the 120; the entombed escape broke the worn copy on its last use 2/2 (client durability lag on back-to-back reflex digs; no ghost; accepted, reserve held); ghosts candidate 0/116 vs control 5/144; no pickaxe dig over 0.84 s. DRY RUN (board-c,placebo-d as canary, 3 h + 3 h): positive controls 59-67 admitted redundant crafts and ~2,800 best-first wear intervals beside an openable copy on the control; read runs in ~45 s.",
+ "licence": {
+  "class": "kind",
+  "kind": "_tool_hygiene",
+  "min_rows": 1,
+  "note": "Written only by this build: one row per connection at spawn ('tool hygiene ON: mode=on (TOOL_HYGIENE unset)'). The fleet (c6e91a8) has no _tool_hygiene, _redundant_craft, _craft_admit or _worn_first row."
+ },
+ "reads": [
+  "bagread",
+  "toolhygieneread",
+  "immobiledid"
+ ],
+ "read_minutes": [
+  180,
+  360
+ ],
+ "deadline_min": 1680,
+ "change_rows": [],
+ "linkage_extra": [],
+ "draw_exposure": {
+  "hours": 6,
+  "require": [
+   {
+    "name": "stone_pickaxe craft rows (the population the refusal targets)",
+    "kind": "craft",
+    "detail_contains": "stone_pickaxe",
+    "min": 20
+   }
+  ],
+  "note": "craft rows whose detail names stone_pickaxe ('crafted 1x stone_pickaxe', 'cannot craft stone_pickaxe -- ...'). Every pool digs stone, so part 2's population is fleet-wide; the census (10-07 17:31Z) found 163 worn copies in 80 bags, 133 beside a keeper."
+ },
+ "exposure": {
+  "read": "toolhygieneread",
+  "field": "exposure_ready",
+  "min": 1,
+  "note": "Ready = >= 5 canary _redundant_craft rows AND >= 1 canary _craft_admit row AND OBSERVED canary worn-first wear (snapshots: a <= 10-use copy wore while the fullest same-name copy stayed) >= 3 intervals AND above the control's per-bot-h rate (the deployed toolFor cannot produce that pattern, so the control's ~0.05/bot-h is noise from dig paths outside toolFor) AND >= 1 canary _worn_first row AND both positive controls >= 1 (control admitted redundant crafts by the same rule over the decision stream: 59-67 per 6 h on 70 bots in the dry runs; control wear beside a copy the hygiene rule opens: ~2,700-2,900 per 6 h). Expected ~0.15-0.17 admitted redundant crafts per control bot-h -> ~10 refusals per 10 canary bots per 6 h; part 2: 95 of 155 worn copies in 31 of 80 bags drainable (census 10-07 18:04Z)."
+ },
+ "own_lines": [
+  {
+   "read": "toolhygieneread",
+   "field": "rows_canary",
+   "op": ">=",
+   "value": 1,
+   "on_fail": "REVERT",
+   "note": "LIVENESS: canary _tool_hygiene ON rows. BLOCKS KEEP (INCONCLUSIVE)."
+  },
+  {
+   "read": "toolhygieneread",
+   "field": "rows_control",
+   "op": "<=",
+   "value": 0,
+   "on_fail": "REVERT",
+   "note": "Arms: the control writes no _tool_hygiene, _redundant_craft, _craft_admit or _worn_first row. BLOCKS KEEP."
+  },
+  {
+   "read": "toolhygieneread",
+   "field": "admits_canary",
+   "op": ">=",
+   "value": 1,
+   "on_fail": "REVERT",
+   "note": "LIVENESS (G1's population): canary _craft_admit rows exist, so a G1 of 0 is a measurement, not a silent instrument. BLOCKS KEEP (INCONCLUSIVE)."
+  },
+  {
+   "read": "toolhygieneread",
+   "field": "off_rows_canary",
+   "op": "<=",
+   "value": 0,
+   "on_fail": "REVERT",
+   "evidence": "defect",
+   "note": "The switch: a canary row saying 'tool hygiene off' (the fleet env sets nothing; the default is on)."
+  },
+  {
+   "read": "toolhygieneread",
+   "field": "breach_admitted_redundant",
+   "op": "<=",
+   "value": 0,
+   "on_fail": "REVERT",
+   "evidence": "defect",
+   "note": "G1: a canary _craft_admit that the read's independent rule (given the row's logged wanted set) calls redundant, judged on the row's own snapshot (same tick as the check). Exit-contract rounding edge (y rounded to 0.1) is never a breach. The exit-shortfall memory (mine's refusal for want of swings, 15 min) is re-derived from the bot's own _exit_reserve_abort rows and reset at each _tool_hygiene row (a new process)."
+  },
+  {
+   "read": "toolhygieneread",
+   "field": "breach_refused_unjustified",
+   "op": "<=",
+   "value": 0,
+   "on_fail": "REVERT",
+   "evidence": "defect",
+   "note": "G2: a canary _redundant_craft the rule does not justify from its own snapshot (no same-or-better cover at need, fewer than 2 usable pickaxes, exit-short at the snapshot's y, no carried station). Unknown-durability copies count full. The exit-shortfall memory (mine's refusal for want of swings, 15 min) is re-derived from the bot's own _exit_reserve_abort rows and reset at each _tool_hygiene row (a new process)."
+  },
+  {
+   "read": "toolhygieneread",
+   "field": "breach_worn_unjustified",
+   "op": "<=",
+   "value": 0,
+   "on_fail": "REVERT",
+   "evidence": "defect",
+   "note": "G3: a canary _worn_first whose logged pick context does not justify the chosen copy (<= 1 use outside last swings; a worn copy without a same-or-higher keeper above FLOOR and two other DEPOSIT-PROOF copies -- every copy at 2..10 plus one copy above FLOOR per name; a more-worn same-name copy the rule opens)."
+  },
+  {
+   "read": "toolhygieneread",
+   "field": "breach_refused_wanted",
+   "op": "<=",
+   "value": 0,
+   "on_fail": "REVERT",
+   "evidence": "defect",
+   "note": "G4: a refusal whose own logged wanted set holds the item, whose task is craft_<item>_*, or whose source is a work order (a refusal the task needed: the dead end the rule exists to prevent)."
+  },
+  {
+   "read": "toolhygieneread",
+   "field": "pc_redundant_control",
+   "op": ">=",
+   "value": 1,
+   "on_fail": "REVERT",
+   "note": "POSITIVE CONTROL (part 1): the same rule finds admitted redundant crafts in the control's decision stream. BLOCKS KEEP."
+  },
+  {
+   "read": "toolhygieneread",
+   "field": "pc_bestfirst_control",
+   "op": ">=",
+   "value": 1,
+   "on_fail": "REVERT",
+   "note": "POSITIVE CONTROL (part 2): control wear intervals where the fullest copy wore beside a more-worn copy the hygiene rule would OPEN (keeper + deposit survivors; the two-copy spare does not count). BLOCKS KEEP."
+  }
+ ],
+ "primary": {
+  "read": "toolhygieneread",
+  "field": "pick_slots_did",
+  "note": "REPORTED, NOT GATED: pickaxe slots per bot DiD (time-weighted), redundant crafts admitted per bot-h DiD (decision stream, both arms, the same rule with a 3-use margin), all slots/bot DiD, share at >= 34 DiD, share of bot-time under two usable pickaxes DiD (the escape reserve), no-usable-pickaxe share, escape refusals (maroon_dig_refused, marooned_needs_pickaxe, entombed_unrecoverable) per bot-h DiD, pickaxe breaks by use per bot-h DiD, stone_pickaxe crafts per bot-h DiD; DIAGNOSTIC wear attribution by game.tick. Expected small in 6 h: worn copies take up to 10 digs each to drain and the bag stops at two usable."
+ },
+ "harm": {
+  "note": "Unchanged: the two-death floor (OWNER 2026-09-11) and gather_ratio < 0.43 of control, from immobiledid. Watch (reported): escape refusals DiD and bot-time under two usable pickaxes."
+ },
+ "teardown": {
+  "note": "THREE STEPS: drop-ins, clear canary_pool, restart the pool's bots 12 s apart; then confirm the live versions. No world state is created."
+ },
+ "amendments": [],
+ "extension": {
+  "until_exposure": true,
+  "extra_reads": [
+   540,
+   720,
+   1080,
+   1560
+  ],
+  "final_on_zero_exposure": "INCONCLUSIVE",
+  "note": "Short canary for a fix-shaped change (owner 2026-09-29): KEEP possible from +360 when exposed."
+ },
+ "class": "bag-fix",
+ "bag_fix": {
+  "own_kinds": [
+   "_redundant_craft",
+   "_craft_admit",
+   "_worn_first"
+  ],
+  "primary": {
+   "read": "bagread",
+   "field": "pick_slots_did",
+   "op": "<=",
+   "value": -0.842
+  },
+  "extended_deadline_min": 1560,
+  "note": "OWNER D1 (10-08, delegated to the operator + Codex): every queued bag fix is class bag-fix, drawn at four pools from the start; the criterion is that the change frees usable bag capacity. primary: bagread.pick_slots_did, pickaxe slots (its own bag metric: redundant pickaxes not crafted, worn copies drained first). primary.value is the edge of its NO-CHANGE band at the +1440 read UNDER THIS FIX'S OWN draw_exposure filter (round 1, Claude: a random-pool band is lenient): the 2.5th percentile of 180 no-change 4-pool draws at 18 cuts over 5 days (death-censored, the live read validity rule; scripts/host/bagnull.py + bagbands.py; ~/bfnull/bagnull5.jsonl on 10.0.0.31) -- the fix must move it beyond what a no-change draw does for a KEEP (bagfixrule.primary_moved). own_kinds: the rows the fix itself writes (linkage, gate v33). own_kinds: the fix's ACTION rows only: the once-per-process _tool_hygiene licence row would satisfy bagfixgate's positive control (own rows on >= 2 canary bots) on every bot at spawn, so \"0 linked\" would be vacuous (round 1, Claude)."
+ }
+}

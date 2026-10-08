@@ -11,6 +11,39 @@ behind it (chain-ore.sh stopped 10-01 on fixes-02's revert)._
 
 ---
 
+## 10-08 ~13:30Z — TOOLHYGIENE VARIANTS READY on dbb4d78 / a6cd3c1 / 2189de3 (queue entry drafted, NOT added)
+- The approved th-on-92bc84f (6238095) was rebased onto the three bases that can follow airpocket and withdraw2:
+  - **th-on-dbb4d78 @ 4970c91** (airpocket KEPT). The cherry-pick was clean. It also carries 2 composition commits.
+  - **th-on-a6cd3c1 @ 5d1f710** (withdraw2 KEPT on 92bc84f). One skills.mjs import conflict, resolved as the union.
+  - **th-on-2189de3 @ 2f38f69** (both KEPT). It has B's commits plus A's composition commits.
+- **The composition fix (A, C).** Round 1, Codex P1 and Claude P2: airpocket's dig step took any pickaxe and broke ties by slot.
+  - Hygiene drains worn copies to 1 use. A copy the server already broke still shows at 1 use, so the step could dig bare-handed.
+  - New `airPocketTools`: with hygiene on, a <= HARD_STOP copy is dropped when a same-kind copy above it is held.
+  - The step AND the pre-empt price (reflex prepareAirPocket) both use it. Hygiene off = airpocket-01 exactly.
+  - A stale-copy price added in r1 was removed after Codex r2: a hand price is not a hand dig.
+  - Round 3: Codex APPROVE, Claude APPROVE. B was APPROVE at r1 from both.
+  - Text: docs/reports/toolhygiene-01.rebase-review-2026-10-08.txt.
+- **Follow-up, NOT in this canary (both engines).** A faster 1-use copy (golden@1 beside stone) is now declined, not used.
+  - A read is specified in the review text, with its denominator and a positive control.
+- **Tests:** npm test 239/239 (A), 240/240 (B), 241/241 (C). The in-suite hygiene mutants pass. airpocket.test.mjs L1-L6 includes 2 composition mutants. Lint: withinBody only.
+- **PAPER** (Codex required it): 19/19 trials alive, roof opened, breathing.
+  - Kit stone@1 ahead of stone@100, hygiene on: cand 5/5 used the healthy copy and kept the @1. ctrl (no fix) 4/4 and hygiene OFF 3/3 spent the @1.
+  - Kit iron@1 ahead of stone@100: cand 2/2 dug with stone; ctrl dug with the iron@1.
+  - Kit iron@1 alone: the copy's last use dug 1/1.
+  - Default kit A/AF/F: 3/3.
+  - Driver: sandbox/craft/airpocket-ab.cjs, now with AP_KIT, AP_TOOL_HYGIENE and a per-entry server Inventory read.
+  - The sandbox lock was taken and released.
+- **Registrations** toolhygiene-01.{dbb4d78,a6cd3c1,2189de3}.json: on main and in ~/mcai-analysis.
+  - The bag-fix fields come unchanged from the gate agent's toolhygiene-01.92bc84f.json (9e19a6d).
+  - toolhygieneread dry run on the live airpocket pools: gates 0, positive controls 107 / 4655.
+- **OPERATOR: queue entry docs/reports/toolhygiene-01.queue-entry.json** (= ~/mcai-analysis/toolhygiene-01.entry.json).
+  - It is class bag-fix, after withdraw2-01, with 4 variants (92bc84f, dbb4d78, a6cd3c1, 2189de3).
+  - It needs install-bagfix-regs.py FIRST (bagread.py and the 92bc84f registration).
+  - /opt/minecraft-ai must also fetch the th-on-dbb4d78, th-on-a6cd3c1 and th-on-2189de3 branches.
+  - Validated no-act: VALID, against a scratch clone, with the staged bagread and 92bc84f registration standing in.
+- CORRECTION: the wd2-on-dbb4d78 section below was stamped ~14:40Z; it was ~12:40Z.
+  - withdraw2-01.dbb4d78.json says registered_at 14:30Z; the file is hash-pinned in the queue, so it was left unchanged.
+
 ## 10-08 14:00Z — BAG-FIX REGISTRATIONS STAGED (~/bagfix-regs, both engines APPROVE); +180 KEEP awaits the owner
 18 bag-fix registration variants on main (9e19a6d): class bag-fix, four pools, bagread primary at +1440 with per-fix
 death-censored null edges (toolhygiene pick_slots -0.842, peacefulkit sword_slots -0.059, junkwell slots -1.653, gridfix
@@ -25,7 +58,7 @@ the owner revises the condition; operator: build A'. OWNER DECIDES. Nothing buil
 MAIN HYGIENE: twice today an agent pushed a stale tree to main and deleted others' files (restored both times within
 minutes: 64783f7, 9e19a6d). Never use --no-verify on main; fetch + rebase before every push.
 
-## 10-08 ~14:40Z — WITHDRAW2 ON AIRPOCKET READY: wd2-on-dbb4d78 @ 2189de3 (queue entry drafted, NOT added)
+## 10-08 ~12:40Z — WITHDRAW2 ON AIRPOCKET READY: wd2-on-dbb4d78 @ 2189de3 (queue entry drafted, NOT added)
 - For the airpocket-01 KEEP case (fleet dbb4d78). The 13 commits of wd2-on-92bc84f (a6cd3c1) were cherry-picked onto dbb4d78.
   - No conflict. range-diff: every patch identical.
   - The interdiff is one cognitive.mjs hunk offset.

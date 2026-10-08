@@ -32,6 +32,11 @@
 //   I  head cell solid: water 700 31..40 700, STONE at the head cell 700 41 700
 //   AF A-floor: the bot STANDING on stone (39) in a 1x1x2 water pocket, feet 40, head 41, stone roof 42
 //   J  A for 300 s (the full stack: after the pocket, does it sink back / re-seize / re-drown?)
+// KITS (env AP_KIT; toolhygiene x airpocket, 10-08): default = one stone_pickaxe ~100 uses (as before);
+//   worn1 = a 1-use stone_pickaxe (damage 130 of 131) in slot 0 AHEAD of a ~100-use one in slot 1 -- the step must take the
+//   healthy copy with TOOL_HYGIENE on (the fix) and took slot 0 before it (control). iron1stone = a 1-use IRON copy (faster)
+//   ahead of a ~100-use stone one (the stone must dig); iron1 = the 1-use iron copy alone (its real last use must dig). The server's Inventory is read at the
+//   end of every trial (invEnd) so which copy wore is a world fact, not the bot's word.
 'use strict'
 const { execFileSync, spawn } = require('child_process')
 const http = require('http')
@@ -85,7 +90,26 @@ const SPEC = {
 }
 const CLEAR_ITEMS = 'kill @e[type=item,x=700,y=40,z=700,distance=..24]'
 function arenaCmds (spec) { return [CLEAR_ITEMS, 'fill 692 30 692 708 52 708 minecraft:stone', ...spec.setup] }
+const KIT = process.env.AP_KIT || 'default'
+if (!['default', 'worn1', 'iron1stone', 'iron1'].includes(KIT)) throw new Error(`AP_KIT ${KIT}`)
 function kitCmds () {
+  if (KIT === 'iron1stone' || KIT === 'iron1') {   // a 1-use IRON pickaxe (faster) in slot 0, ahead of a ~100-use stone one / alone
+    const two = KIT === 'iron1stone'
+    return [`clear ${NAME}`,
+      `item replace entity ${NAME} container.0 with minecraft:iron_pickaxe[damage=249] 1`,
+      ...(two ? [`item replace entity ${NAME} container.1 with minecraft:stone_pickaxe[damage=31] 1`] : []),
+      `item replace entity ${NAME} container.2 with minecraft:cobblestone 64`,
+      `item replace entity ${NAME} container.3 with minecraft:bucket 1`,
+      `effect clear ${NAME}`, `effect give ${NAME} minecraft:saturation 1 20 true`]
+  }
+  if (KIT === 'worn1') {
+    return [`clear ${NAME}`,
+      `item replace entity ${NAME} container.0 with minecraft:stone_pickaxe[damage=130] 1`,
+      `item replace entity ${NAME} container.1 with minecraft:stone_pickaxe[damage=31] 1`,
+      `item replace entity ${NAME} container.2 with minecraft:cobblestone 64`,
+      `item replace entity ${NAME} container.3 with minecraft:bucket 1`,
+      `effect clear ${NAME}`, `effect give ${NAME} minecraft:saturation 1 20 true`]
+  }
   return [`clear ${NAME}`,
     `item replace entity ${NAME} container.0 with minecraft:stone_pickaxe[damage=31] 1`,
     `item replace entity ${NAME} container.1 with minecraft:cobblestone 64`,
@@ -177,6 +201,7 @@ async function startBot (tag, root) {
   const set = (key, v) => { env = new RegExp(`^${key}=`, 'm').test(env) ? env.replace(new RegExp(`^${key}=.*$`, 'm'), `${key}=${v}`) : env + `\n${key}=${v}` }
   set('BOT_NAME', NAME); set('LOG_DIR', `./sandbox/log/airpocket-ab/${tag}`); set('STATE_DIR', `./sandbox/state/airpocket-ab-${tag}`); set('MEMORY_POOL', `sbxap-${tag}`)
   set('MINECRAFT_PORT', PORTS[SERVER]); set('MAX_CONSECUTIVE_FAILURES', 50)
+  if (process.env.AP_TOOL_HYGIENE) set('TOOL_HYGIENE', process.env.AP_TOOL_HYGIENE)   // on|off (unset = the build's default, on)
   set('OLLAMA_BASE_URL', `http://127.0.0.1:${REMOTE_BRAIN_PORT}`); set('OLLAMA_BASE_URLS', `http://127.0.0.1:${REMOTE_BRAIN_PORT}`)
   for (const a of ['X', 'Y', 'Z']) { set(`HOME_${a}`, Math.floor(STAND[a.toLowerCase()])); set(`BOARD_${a}`, Math.floor(STAND[a.toLowerCase()])) }
   r31(`mkdir -p ${ROUT} && cat > ${MAIN}/${envRel}`, env + '\n')
@@ -234,6 +259,9 @@ async function runTrial (arm, scene, k) {
     if (spec.difficulty) { try { rcon(`difficulty ${difficultyBefore || 'peaceful'}`) } catch {} }
   }
   const difficultyAfter = (rcon('difficulty')[0].reply.match(/is (\w+)/) || [])[1]?.toLowerCase() ?? null
+  let invEnd = null
+  // per entry: Paper cuts a long `data get ... Inventory` reply with '...'
+  try { invEnd = rcon(...[0, 1, 2, 3, 4, 5].map(i => `data get entity ${NAME} Inventory[${i}]`)).map(x => x.reply.replace(/^.*entity data: /, '').trim()).join(' | ').slice(0, 1500) } catch (e) { invEnd = 'unreadable: ' + e.message }
   await stopBot()
   try { r31(`rm -f ${MAIN}/${envRel}`) } catch {}
   const skillText = (() => { try { return r31(`cat ${ROUT}/${tag}/skill-${NAME}.jsonl 2>/dev/null || true`) } catch { return '' } })()
@@ -271,7 +299,7 @@ async function runTrial (arm, scene, k) {
   const final = good[good.length - 1] || {}
   const res = {
     id: `${arm}:${scene}:${k}`, arm, scene, k, tag, server: SERVER, bot: NAME, root, sha: SHAS[root] ?? ((root.match(/cand-([0-9a-f]{7,})$/) || [])[1] ?? '?'), identity, secs: spec.secs,
-    difficultyBefore, difficultyDuring, difficultyAfter, t0: new Date(t0).toISOString(), airAt0, healthAt0: good[0]?.health ?? null,
+    kit: KIT, toolHygiene: process.env.AP_TOOL_HYGIENE || 'unset', invEnd, difficultyBefore, difficultyDuring, difficultyAfter, t0: new Date(t0).toISOString(), airAt0, healthAt0: good[0]?.health ?? null,
     died, serverDeaths, deathT, alive: !died && (final.health ?? 0) > 0, healthEnd: final.health ?? null, airEnd: final.air ?? null,
     roof0, roofEnd: final.roof ?? null, roofOpened, roofOpenT: firstOpen?.t ?? null,
     sideEnd: final.side ?? null, aboveEnd: final.above ?? null, feetEnd: final.feet ?? null, headEnd: final.head ?? null,

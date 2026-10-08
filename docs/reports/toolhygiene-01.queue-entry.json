@@ -1,0 +1,58 @@
+{
+ "run": "toolhygiene-01",
+ "class": "bag-fix",
+ "after": [
+  "withdraw2-01"
+ ],
+ "variants": {
+  "92bc84f2ed393b9bf90bc8338a21f3c844c55389": {
+   "registration": "/home/mike/mcai-analysis/toolhygiene-01.92bc84f.json",
+   "approved": "th-on-92bc84f @ 6238095: Codex + Claude APPROVE round 5 (registration 1af9be6, docs/reports/toolhygiene-design-2026-10-07.md); bag-fix fields from main 9e19a6d (gate agent, both engines APPROVE); registration is the ~/bagfix-regs copy, live in ~/mcai-analysis after install-bagfix-regs.py",
+   "registration_sha256": "9764ef7964cc7246713da208554cf62adcfadda894e27b0a6f2e0fa2f0d4b3ca",
+   "canary_sha": "6238095e2335801e686c29a58479bf2ce4216e58",
+   "reads_src": "/home/mike/mcai-analysis",
+   "reads": {
+    "bagread": "b391c93262d881acca34fff1b41610f9",
+    "toolhygieneread": "a5d1aafb9a7f671522f7d8372b1da5b4",
+    "immobiledid": "53af289df12208901931dbeeb1ae325a"
+   }
+  },
+  "dbb4d789864089c038ab80ce89391d4e32dc9874": {
+   "registration": "/home/mike/mcai-analysis/toolhygiene-01.dbb4d78.json",
+   "approved": "queue agent 2026-10-08: th-on-dbb4d78 @ 4970c91 = 6238095 rebased onto airpocket dbb4d78 + the airPocketTools composition fix; Codex APPROVE r3 + Claude subagent APPROVE r3 (docs/reports/toolhygiene-01.rebase-review-2026-10-08.txt); npm test 239/239; Paper 19/19 (worn1/iron kits, hygiene on/off, server inventory); bag-fix fields from main 9e19a6d (gate agent, both engines APPROVE)",
+   "registration_sha256": "3c9381660894560961d987540d88e68b26bf120fe321568945ffa84c4675260b",
+   "canary_sha": "4970c91de0b947367c580c9665d01edfcec30f61",
+   "reads_src": "/home/mike/mcai-analysis",
+   "reads": {
+    "bagread": "b391c93262d881acca34fff1b41610f9",
+    "toolhygieneread": "a5d1aafb9a7f671522f7d8372b1da5b4",
+    "immobiledid": "53af289df12208901931dbeeb1ae325a"
+   }
+  },
+  "a6cd3c1d54027ee430d733609570d82d65e1888d": {
+   "registration": "/home/mike/mcai-analysis/toolhygiene-01.a6cd3c1.json",
+   "approved": "queue agent 2026-10-08: th-on-a6cd3c1 @ 5d1f710 = 6238095 rebased onto withdraw2 a6cd3c1 (one import conflict, union); Codex APPROVE r1 + Claude subagent APPROVE r1 (docs/reports/toolhygiene-01.rebase-review-2026-10-08.txt); npm test 240/240; Paper not needed (both engines); bag-fix fields from main 9e19a6d (gate agent, both engines APPROVE)",
+   "registration_sha256": "d8f43b6b7f9b624f8126a759be96a0fcfbffedad455d7a2000b37dc5b5fcbb4a",
+   "canary_sha": "5d1f710b60b138aa6b4f94f33368dddcce93882f",
+   "reads_src": "/home/mike/mcai-analysis",
+   "reads": {
+    "bagread": "b391c93262d881acca34fff1b41610f9",
+    "toolhygieneread": "a5d1aafb9a7f671522f7d8372b1da5b4",
+    "immobiledid": "53af289df12208901931dbeeb1ae325a"
+   }
+  },
+  "2189de36670d598a0ae067511948a3da3c3d75b8": {
+   "registration": "/home/mike/mcai-analysis/toolhygiene-01.2189de3.json",
+   "approved": "queue agent 2026-10-08: th-on-2189de3 @ 2f38f69 = B's commits + A's composition fix on airpocket+withdraw2 2189de3 (identical patches); Codex APPROVE r3 + Claude subagent APPROVE r3 (docs/reports/toolhygiene-01.rebase-review-2026-10-08.txt); npm test 241/241; Paper on A's identical patch; bag-fix fields from main 9e19a6d (gate agent, both engines APPROVE)",
+   "registration_sha256": "4ab02600e95591195cb2494b1e23eadec7c4400021e883b64164ec3d4fe92a05",
+   "canary_sha": "2f38f6967bb7af16adcbddd51af71fdee26b126a",
+   "reads_src": "/home/mike/mcai-analysis",
+   "reads": {
+    "bagread": "b391c93262d881acca34fff1b41610f9",
+    "toolhygieneread": "a5d1aafb9a7f671522f7d8372b1da5b4",
+    "immobiledid": "53af289df12208901931dbeeb1ae325a"
+   }
+  }
+ },
+ "note": "bag fix: no redundant pickaxe crafts at admission + most-worn pickaxe first (TOOL_HYGIENE); variants for 92bc84f, dbb4d78 (airpocket KEPT), a6cd3c1 (withdraw2 KEPT), 2189de3 (both KEPT). Needs install-bagfix-regs.py first (bagread.py, the 92bc84f registration)."
+}

@@ -1,0 +1,98 @@
+toolhygiene-01 rebase reviews, 2026-10-08 (queue agent). Variants: A th-on-dbb4d78 (2ba4b40 -> fb591ef -> 4970c91),
+B th-on-a6cd3c1 @ 5d1f710, C th-on-2189de3 (25ea98f -> e630474 -> 2f38f69). Approved source th-on-92bc84f @ 6238095.
+Briefs: round 1 = semantic composition with airpocket / withdraw2; round 2 = the fix fb591ef; round 3 = 4970c91.
+
+=== CODEX round 1 (codex exec, read-only) ===
+VERDICT: CHANGE — A (`2ba4b40`), C (`25ea98f`).
+VERDICT: APPROVE — B (`5d1f710`).
+
+- **P1 — A/C: `bots/src/airpocket.mjs:247–248` — airpocket can select a stale, already-broken pickaxe despite a working spare.** Concrete scenario: hygiene drains a stone copy, a subsequent dig breaks it, and drowning rescue starts before the delayed inventory update removes the client-visible `stone_pickaxe@1`. With that copy first in inventory and a working stone copy later, equal predicted times select the stale copy. The server digs bare-handed while admission and the deadline assume pickaxe speed, risking a failed rescue and drowning.
+
+  One dig per step does not prevent this: the stale copy can originate from the **preceding** harvest or escape dig. The post-equip check at `airpocket.mjs:269–270` checks the name, not server-side existence or durability; `digbudget.mjs:107–114` predicts from type/enchantments without durability. Neither closes the gap. A genuine, server-present one-use copy can complete one dig; the problem is treating that and a stale copy identically when safer copies exist.
+
+  Prefer candidates above `HARD_STOP` with hygiene on, retaining the full-list fallback when none qualify, as `pocketPlanFor` already does. Apply the same selection policy to **`bots/src/reflex.mjs:1378–1384`**, which prices admission and preemption. Otherwise a stale faster-tier copy can justify preempting an escape even when the working tool’s dig would exceed the budget.
+
+No additional P2/P3 findings.
+
+The remaining composition checks pass:
+
+- **Airpocket bypasses `applyToolPolicy` and `mayDigForEscape`.** Worn-first selection influences its incoming inventory, but does not choose its tool. Exactly one pickaxe above HARD_STOP does **not** make airpocket refuse; that reserve governs other escape paths.
+- **Withdraw2’s iron craft is not refused by hygiene.** `skills.mjs:7291` calls `SKILLS.craft.run` directly; hygiene’s refusal is in admission. Withdrawal ranking excludes copies at or below FLOOR before ranking tier/uses. Mode-2’s worse-tool selection (`skills.mjs:7112–7114`) likewise excludes drained copies.
+- **The reserves compose.** Hygiene requires a keeper above FLOOR before opening a worn copy, so draining that copy alone does not make `hasUsablePick` false. Withdrawal holds only reduce deposits; the iron-ingot reserve does not weaken pickaxe retention. A tier-upgrade trade exchanges a usable copy for a better usable copy.
+- **No dropped hunks.** All three rebases have identical added/deleted lines to the approved source. Range-diff differences are provenance and surrounding import context. B’s union import preserves both `tier` and `noteExitShort`; C retains it.
+
+The tests do not establish airpocket safety here. `airpocket.test.mjs:205–209,219,259` uses durability-free tools and simplified predictions; its successful fake digs cannot expose stale server/client inventory. `toolhygiene.test.mjs:171–175` covers the older `pocketPlanFor`, not airpocket.
+
+**Paper re-proof:** required for A/C after the fix: sealed stone-roof rescue, standing and floating, with a first-slot one-use/stale copy plus a working spare, including immediate handoff after a breaking dig. Verify server-side roof removal, dig duration, and sustained breathing; include a sole-working-pickaxe control. B needs no additional Paper proof solely for this rebase.
+
+Read-only review completed; no tests, mutants, or state-changing commands run.
+
+=== CODEX round 2 (codex exec, read-only) ===
+VERDICT: CHANGE
+
+The patches for `fb591ef` and `e630474` are byte-identical. The candidate-selection fix is sound, but the stale-copy fallback leaves two unresolved cases.
+
+- **P1 — Bare-hand pricing does not produce a bare-hand dig.** `bots/src/airpocket.mjs:291–293,330`. When `staleRisk` is true and the roomy budget admits the attempt, the stale item remains held. Mineflayer independently calculates its finish timer from `bot.heldItem`; `heldMs` only changes this wrapper’s budget/deadline. It can therefore still send “finished” at pickaxe speed while the server sees an empty hand—the original ghost-air failure. Confirmed in the installed dependency and [upstream digging implementation](https://github.com/PrismarineJS/mineflayer/blob/master/lib/plugins/digging.js). Establish a trustworthy held tool or an actual empty hand before proceeding, then price that executable state. Also cover failed equips leaving a stale **different-name** tool: the name equality condition currently excludes them.
+
+  **Test gap:** `bots/test/airpocket.test.mjs:884–886` asserts successful rescue, but its fake dig opens the block after a fixed delay regardless of held item or server inventory. L7 proves the price expression matters, not that the fallback works.
+
+- **P2 — Pre-empt-then-refuse remains possible in the newly handled stale-copy case.** `bots/src/reflex.mjs:1378–1384` prices the healthy inventory candidate; `bots/src/airpocket.mjs:291–297` can subsequently price the hand and refuse. With the L3 no-op equip and tight budget, admission can stop the escape, then the step refuses. `reflex.mjs:1424` applies the **60-second failure cooldown**, rather than the five-second admission-refusal cooldown. Sharing candidates eliminates the original filter disagreement, but does not establish the claimed admission/execution guarantee.
+
+  Add a behavioral admission → pre-emption → failed equip → recovery test. Require bounded recovery to a trustworthy tool, or demonstrate a reachable resumed escape after failure. L4 checks wiring only; it does not establish that recovery chain. This is a conditional failure path, not proof that every such bot becomes permanently trapped.
+
+The remaining requested checks:
+
+- **Fast one-use copy beside a slower healthy copy:** selecting the healthy copy, or declining admission when its price exceeds budget, is defensible given the supplied stale-inventory evidence. The client cannot safely assume that last use exists. Both callers now make that same decision, so this case alone creates no candidate-selection dead end. Add a mixed-tier/speed test; the new step tests use identical pickaxes.
+- **Imports:** `toolfor.mjs` has no imports, so this new dependency introduces no cycle.
+- **Hygiene off:** for valid inventory items, the filter preserves the deployed candidate set, object references, and order; `staleRisk` is disabled. The patch preserves the previous execution behavior.
+- **Tests:** L1/L2 cover the central selection regression. L4 strips comments and checks its negative control; L5–L7 use the anchored mutation helper. Their limitations are the execution and recovery cases above.
+
+**Paper re-proof is still required before deployment.** Minimal targeted scenes after correction:
+
+1. Stale/broken copy ahead of a healthy same-name copy: verify the healthy copy actually opens a standing and floating stone pocket.
+2. Failed/delayed equip leaving the stale copy held: tight and roomy budgets, including an in-flight escape; verify recovery and server-confirmed block removal.
+3. Genuine sole one-use tool, then fast one-use plus slower healthy tool at a budget boundary.
+4. Hygiene-off replay with the same inventory; include one ice-roof rescue through the shared step.
+
+Observe server-side block state and sustained breathing, not just client air or dig completion. No edits, tests, mutants, or state-changing git commands were run.
+
+=== CODEX round 3 (codex exec, read-only) ===
+VERDICT: APPROVE
+
+Round 3 is correct and complete for the scoped fix on A and C. The reviewed source and tests match across both branches.
+
+- **P1: resolved — `bots/src/airpocket.mjs:289`.** Post-equip pricing matches deployed `dbb4d78`; the inconsistent bare-hand price is gone. The residual equip-failure risk is pre-existing.
+- **P2: resolved — `bots/src/reflex.mjs:1378`, `bots/src/airpocket.mjs:266`.** Admission and execution use the same filtered candidates. The new post-pre-empt refusal caused by `staleRisk` is removed. L3 covers faster iron@1 versus healthy stone and the sole-copy exception (`bots/test/airpocket.test.mjs:877`).
+- **P3: accepted follow-up — `bots/src/airpocket.mjs:197`.** Accept leaving out the full-list fallback. Conservatively declining admission is consistent with the chosen policy. Record the proposed refusal read, but distinguish **potentially affected refusals** from proven lost rescues: per-copy wear is logged (`bots/src/state.mjs:22`), while refusal rows lack the complete block/environment/enchantment context needed to reconstruct exact alternative admission. Rows are also throttled (`bots/src/reflex.mjs:1397`).
+
+**Paper re-proof:** I would require a focused composition check before deployment, without reopening code approval or repeating the entire airpocket proof:
+
+| Scene / kit | Hygiene | Expected evidence |
+|---|---|---|
+| A and AF: stone@1 in slot 0, stone@100 later | ON and OFF | ON consumes healthy-copy durability and preserves @1; OFF selects the first equal-speed copy and spends it |
+| AF: iron@1 ahead of stone@100 | ON | Healthy stone performs the dig |
+| AF: iron@1 alone | ON | The real last use remains usable |
+
+Use sufficient health for admission. Check server Inventory, roof opening, and successful breathing; client success alone is insufficient. These scenes verify selection and real digging, **not** the unavailable server-broken/client-stale condition.
+
+Read-only review completed; no tests or mutants executed. Both cumulative diffs pass `git diff --check`.
+
+=== CLAUDE subagent (independent, read-only) -- verdicts and findings, condensed ===
+r1: A CHANGE, B APPROVE, C CHANGE. P2 (A, C): airpocket.mjs:247-248 candidates ignore wear; pickFastestTool keeps the first of
+  equal times; with hygiene on, reflex bestTool (applyToolPolicy) drains a worn copy back to back, which is where a server-broken
+  copy still shows 1 use; airPocketPreempt then hands the step a slot-order tie -> bare-handed server dig (~187 s floating vs
+  ~14 s priced) -> ghost air. Same reasoning as the approved pocketPlanFor patch. P3: post-equip check compares names only.
+  B: withdraw2's iron craft bypasses admission (and redundantCraft would not refuse it); iron reserve vs hygiene cover agree at
+  the 10/11 boundary; drained copies never ranked/traded/banked; deposit-proof reserve and withdraw holds compose. Conflict
+  resolution correct and complete. Paper: not needed (optional smoke).
+r2 (fb591ef): APPROVE. Filter vs partition equivalent for hygiene-created bags. P3-1: the filter can refuse where a faster
+  1-use copy would have been admitted (golden@1 beside stone is hygiene-reachable) -- suggested a full-list fallback.
+  P3-2: staleRisk's name term misses {stone@1 in hand, iron chosen}.
+r3 (4970c91): APPROVE. staleRisk removal correct (post-equip pricing byte-identical to dbb4d78; residual = airpocket-01's
+  pre-existing equip-failure path). Accepts P3-1 as a recorded follow-up; the read must state its denominator (rows whose
+  bag held a <= 1-use dig tool faster than every healthy copy of its kind), include 'escape in flight; not pre-empted'
+  refusals, and a positive control. Paper: not required; optional smoke = scene A, stone@1 ahead of stone@100, ON and OFF.
+
+=== PAPER (after r3; Codex required it, Claude optional) ===
+See the registrations' PAPER note: 19/19 alive; hygiene ON took the healthy copy (5/5 worn1, 2/2 iron1stone); the control
+build and hygiene OFF spent the 1-use copy (4/4, 3/3, 1/1); iron@1 alone used its real last use (1/1); default kit A/AF/F 3/3.
