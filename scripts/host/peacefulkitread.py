@@ -91,6 +91,11 @@ LATE_S = 300
 # yet. The skill now writes the rows after the close; the read ALSO keeps an unused burn / in-furnace credit this long and
 # lets it cancel a LATER fall of the same name (measured on sandbox3 rows at 7784220: 2 of 2 real burns read as lost).
 SINK_CARRY_S = 180
+# RESTAGED (Codex r-rev8/r-rev9): a sword a call TOOK BACK out of a furnace (an earlier call left it there, credited then)
+# re-enters the bag unseen -- the call's rows are written after its close and its snapshots show only the net. The skill
+# marks each sink row of that call ` restaged=1` while its take-backs are unspent; a marked row earns no credit. Per call,
+# exact: no time window can pair rows of two different calls.
+RESTAGED = ' restaged=1 '
 ONE = re.compile(r'(_pickaxe|_axe|_shovel|_sword|_hoe|_helmet|_chestplate|_leggings|_boots|_horse_armor|^(water|lava|milk|powder_snow|cod|salmon|pufferfish|tropical_fish|axolotl|tadpole)_bucket|_bed|_boat|_raft|minecart|^potion|^splash_potion|^lingering_potion|^shears|^flint_and_steel|^bow|^crossbow|^trident|^fishing_rod|^carrot_on_a_stick|^warped_fungus_on_a_stick|^shield|^saddle|^elytra|^totem_of_undying|^music_disc|^enchanted_book|^written_book|^writable_book|_stew$|^rabbit_stew|^beetroot_soup|^cake|_shulker_box|^shulker_box|^spyglass|^goat_horn|^brush|^mace|_bundle$|^bundle|^debug_stick|^knowledge_book)$')
 SIXTEEN = re.compile(r'^(egg|brown_egg|blue_egg|ender_pearl|snowball|bucket|honey_bottle|armor_stand|.*_sign|.*_hanging_sign|.*_banner)$')
 
@@ -194,6 +199,11 @@ def sword_burn(sk):
     return kind, m.group(2)
 
 
+def cursor_drop(sk):
+    """A `_sword_fuel` row saying the server dropped a wooden sword from the cursor at a furnace close (a K2 breach)."""
+    return (sk or {}).get('name') == '_sword_fuel' and (sk.get('detail') or '').startswith('wooden_sword on the cursor at the close (the server drops it)')
+
+
 def death_in(deaths, start, end):
     return any((start - d).total_seconds() <= 5 and (d - end).total_seconds() <= 5 for d in deaths)
 
@@ -261,7 +271,10 @@ def ledger_step(L, name, start, end, inv, delta, sk=None):
         L.bank(end, start, delta, kind='banked')
     sb = sword_burn(sk) if name == '_sword_fuel' else None
     if sb and sb[0] in ('burned', 'in_furnace'):
-        L.bank(end, end - dt.timedelta(seconds=60), {'wooden_sword': -1}, kind=sb[0])
+        if RESTAGED in ((sk or {}).get('detail') or ''):
+            L.n['restaged'] += 1      # the sword this call took back: no new departure from the bag, no credit
+        else:
+            L.bank(end, end - dt.timedelta(seconds=60), {'wooden_sword': -1}, kind=sb[0])
 
 
 class Ledger:
@@ -405,6 +418,54 @@ def selftest():
     # an outcome-unknown row (the furnace could not be read) credits nothing
     assert sword_burn({'name': '_sword_fuel', 'detail': 'wooden_sword outcome unknown (the furnace could not be read) for raw_iron active=1'}) is None
     assert sword_burn({'name': '_sword_fuel', 'detail': 'wooden_sword returned unburned (left by an earlier call) for raw_iron active=0'}) == ('returned', '0')
+    # the drain's cursor (Codex, junkwell merge): put back into the fuel slot = in the furnace (credited); dropped = no credit
+    assert sword_burn({'name': '_sword_fuel', 'detail': 'wooden_sword left in the furnace fuel slot (the cursor could not be emptied into the bag) for raw_iron active=1'}) == ('in_furnace', '1')
+    assert sword_burn({'name': '_sword_fuel', 'detail': 'wooden_sword on the cursor at the close (the server drops it) for raw_iron active=1'}) is None
+    assert cursor_drop({'name': '_sword_fuel', 'detail': 'wooden_sword on the cursor at the close (the server drops it) for raw_iron active=1'})
+    assert not cursor_drop({'name': '_sword_fuel', 'detail': 'wooden_sword left in the furnace fuel slot (the bag is full) for raw_iron active=1'})
+    assert not cursor_drop({'name': 'smelt', 'detail': 'wooden_sword on the cursor at the close (the server drops it)'})
+    assert not cursor_drop({'name': '_sword_fuel', 'detail': 'wooden_sword on the cursor at the close (the server returns it to the bag) for raw_iron active=1'}), 'room in the bag: returned, not dropped (Claude r-rev9)'
+    assert sword_burn({'name': '_sword_fuel', 'detail': 'wooden_sword on the cursor at the close (the server returns it to the bag) for raw_iron active=1'}) is None
+    # an EARLIER call's sword lifted and put back: no second credit (Codex r-rev7); the drain that ran out of time: credited
+    assert sword_burn({'name': '_sword_fuel', 'detail': 'wooden_sword put back into the furnace fuel slot from the cursor (left by an earlier call) for raw_iron active=1'}) is None
+    assert sword_burn({'name': '_sword_fuel', 'detail': 'wooden_sword left in the furnace fuel slot (the drain ran out of time) for raw_iron active=1'}) == ('in_furnace', '1')
+    assert sword_burn({'name': '_sword_fuel', 'detail': 'wooden_sword left in the furnace fuel slot (the drain stopped at a stuck cursor) for raw_iron active=1'}) == ('in_furnace', '1')
+    assert sword_burn({'name': '_sword_fuel', 'detail': 'wooden_sword outcome unknown (its take never answered) for raw_iron active=1'}) is None
+    # Codex's r-rev7 sequence: two swords; one left in the furnace (credited); a later call lifts and puts it back; then the
+    # OTHER carried sword is lost -> lost 1, never hidden by a second credit
+    L9 = Ledger(SWORD)
+    left_row = {'name': '_sword_fuel', 'detail': 'wooden_sword left in the furnace fuel slot (the bag is full) for raw_iron active=1'}
+    back_row = {'name': '_sword_fuel', 'detail': 'wooden_sword put back into the furnace fuel slot from the cursor (left by an earlier call) for raw_iron active=1'}
+    ledger_step(L9, 'gather', T(0), T(0), {'wooden_sword': 2, 'dirt': 1}, {})
+    ledger_step(L9, '_sword_fuel', T(10), T(10), {'wooden_sword': 1, 'dirt': 1}, {}, left_row)
+    ledger_step(L9, '_sword_fuel', T(100), T(100), {'wooden_sword': 1, 'dirt': 1}, {}, back_row)
+    ledger_step(L9, 'gather', T(150), T(150), {'dirt': 1}, {})
+    n9 = L9.finalize(T(4000))
+    assert (n9['in_furnace'], n9['lost']) == (1, 1), dict(n9)
+    # Codex's r-rev8 sequence: one carried + one earlier furnace sword (credited); a call takes the furnace one back and
+    # stages a sword that stays (full bag): both rows after the close, both snapshots one carried; then the carried one is
+    # lost -> lost 1 (the restage cancels the second credit)
+    L10 = Ledger(SWORD)
+    ret_row = {'name': '_sword_fuel', 'detail': 'wooden_sword returned unburned (left by an earlier call) for raw_iron active=1'}
+    ledger_step(L10, 'gather', T(0), T(0), {'wooden_sword': 2, 'dirt': 1}, {})
+    ledger_step(L10, '_sword_fuel', T(10), T(10), {'wooden_sword': 1, 'dirt': 1}, {}, left_row)
+    left_restaged = {'name': '_sword_fuel', 'detail': 'wooden_sword left in the furnace fuel slot (the bag is full) restaged=1 for raw_iron active=1'}
+    ledger_step(L10, '_sword_fuel', T(500), T(500), {'wooden_sword': 1, 'dirt': 1}, {}, ret_row)
+    ledger_step(L10, '_sword_fuel', T(500.01), T(500.01), {'wooden_sword': 1, 'dirt': 1}, {}, left_restaged)
+    ledger_step(L10, 'smelt', T(480), T(501), {'wooden_sword': 1, 'dirt': 1}, {}, {'name': 'smelt'})
+    ledger_step(L10, 'gather', T(560), T(560), {'dirt': 1}, {})
+    n10 = L10.finalize(T(4000))
+    assert (n10['in_furnace'], n10['restaged'], n10['lost']) == (1, 1, 1), dict(n10)
+    # Codex's r-rev9 sequence: a call takes the furnace sword back (bag 2), a SEPARATE call one second later stages one
+    # and leaves it in the furnace (bag 1, no mark): nothing lost -> credited, lost 0
+    L11 = Ledger(SWORD)
+    ledger_step(L11, 'gather', T(0), T(0), {'wooden_sword': 2, 'dirt': 1}, {})
+    ledger_step(L11, '_sword_fuel', T(10), T(10), {'wooden_sword': 1, 'dirt': 1}, {}, left_row)
+    ledger_step(L11, '_sword_fuel', T(500), T(500), {'wooden_sword': 2, 'dirt': 1}, {}, ret_row)
+    ledger_step(L11, 'smelt', T(490), T(500.5), {'wooden_sword': 2, 'dirt': 1}, {}, {'name': 'smelt'})
+    ledger_step(L11, '_sword_fuel', T(501), T(501), {'wooden_sword': 1, 'dirt': 1}, {}, left_row)
+    n11 = L11.finalize(T(4000))
+    assert (n11['in_furnace'], n11['lost'], n11.get('restaged', 0)) == (2, 0, 0), dict(n11)
     assert KITRE.match('peaceful kit off: swords=as_before compost=as_before mode=auto difficulty=easy active=0').group(4) == '0'
     # compost_items: args first; a cut detail drops its last pair (a cut count too); a whole detail keeps every pair
     assert compost_items({'args': {'items': {'wildflowers': 30, 'apple': 6}}, 'detail': 'x items=wildflowers:3'}) == ({'wildflowers': 30, 'apple': 6}, True)
@@ -609,6 +670,11 @@ for r in rows:
     sb = sword_burn(sk) if k == '_sword_fuel' else None
     if k == '_sword_fuel' and arm == 'canary' and 'outcome unknown' in d:
         burned['unknown'] += 1      # the furnace could not be read: no credit; the fall stays pending (Codex r-rev3)
+    if k == '_sword_fuel' and arm == 'canary' and 'put back into the furnace fuel slot from the cursor' in d:
+        burned['cursor_putback'] += 1   # an earlier call's sword lifted and put back: diagnostic only, no credit (Codex r-rev7)
+    if arm == 'canary' and cursor_drop(sk):
+        B['K2c'].append((b, str(t)[11:19], 'sword dropped from the cursor at a furnace close'))   # a K2 breach (Claude r-rev8)
+        burned['cursor_lost'] += 1  # dropped by the server at the close: no credit -- the ledger's fall stays a loss (K2)
     if sb:
         if sb[0] == 'burned' and sb[1] != '1':
             B['K7'].append((arm, b, str(t)[11:19], d[:80]))
@@ -718,9 +784,9 @@ print('LEDGERS      swords canary %s control %s | compost rows incomplete (cut l
     dict(L[('canary', 'sw')]), dict(L[('control', 'sw')]), incomplete['canary'], incomplete['control'], unjudged['canary'], unjudged['control']))
 print('EXPOSURE     X2 canary BOTS that composted a kit plant %d (>= %d) | ready %d | kit plants composted %s | control compost visits holding a kit plant %d' % (
     len(x2), X2_MIN, exposure, dict(composted_kit.most_common(8)), ctl['visits_holding_kit']))
-print('SWORDS       REPORTED: confirmed burns %d by %d bots (K7 same-predicate control: burns with active=1 %d%s); returned unburned %d; left in the furnace %d %s; burns marked unconfirmed %d; outcome unknown (no credit) %d | smelt rows canary %d control %d; smelt-delta wooden swords canary %d control %d | K3 bank rows excluded for a death %d' % (
+print('SWORDS       REPORTED: confirmed burns %d by %d bots (K7 same-predicate control: burns with active=1 %d%s); returned unburned %d; left in the furnace %d %s; burns marked unconfirmed %d; outcome unknown (no credit) %d; on the cursor at the close (no credit) %d; earlier swords put back from the cursor %d | smelt rows canary %d control %d; smelt-delta wooden swords canary %d control %d | K3 bank rows excluded for a death %d' % (
     burned['burned'], len(burn_bots), burned['same_predicate_on'], '' if burned['same_predicate_on'] else ' -- the predicate was not exercised', burned['returned'], burned['in_furnace'],
-    {k[1]: v for k, v in burned.items() if isinstance(k, tuple) and k[0] == 'in_furnace'}, burned['unconfirmed'], burned['unknown'],
+    {k[1]: v for k, v in burned.items() if isinstance(k, tuple) and k[0] == 'in_furnace'}, burned['unconfirmed'], burned['unknown'], burned['cursor_lost'], burned['cursor_putback'],
     burned[('canary', 'smelt_rows')], burned[('control', 'smelt_rows')],
     burned[('canary', 'swords_burned_delta')], burned[('control', 'swords_burned_delta')], ctl['K3_death_excluded']))
 print('TRIPWIRES    swords sought by the sweep canary %d control %d | hunger < 20 canary %d control %d | unresolved sword falls canary %d | deaths %s' % (

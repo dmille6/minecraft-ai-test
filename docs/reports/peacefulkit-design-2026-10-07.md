@@ -1,12 +1,60 @@
-# peacefulkit — swords never made, never banked, wooden ones burned as fuel; more plants composted; under the peaceful switch (design, 2026-10-07)
+# peacefulkit — swords never made, never banked (nor counted bankable), wooden ones burned as fuel; more plants composted; under the peaceful switch (design, 2026-10-07)
 
 Owner approval 2026-10-07: "(3) SWORDS ... never craft a sword; the pickup sweep does not walk to a sword drop ...
 swords the bot carries are BANKED into a town chest at the next town deposit or bank visit ... Never toss or drop.
 (4) COMPOST MORE ... the plant items that are useless in a peaceful world". One switch with foodskip.
 
-Status: REVISED (owner 10-07 ~19:50Z), REVIEWED (Claude APPROVE, Codex APPROVE, six rounds on the revision; code reviewed at 6dc10d1^ = f0d779a, then tests only), REGISTERED, NOT LAUNCHED. `pk-on-c6e91a8` @ 6dc10d1 (base = the
-deployed fleet sha c6e91a8; registration `peacefulkit-01.c6e91a8.json`) and, for a fleet on towndeposit-02,
-`pk-on-92bc84f` @ f2c4ba0 (`peacefulkit-01.92bc84f.json`). Section 0 supersedes the sections below wherever they disagree.
+Status: REVISED TWICE (owner 10-07 ~19:50Z; then two defects Codex found during the junkwell-02 merge), REVIEWED (Claude APPROVE, Codex APPROVE: six rounds on revision 1, six on revision 2), REGISTERED, NOT LAUNCHED.
+`pk-on-c6e91a8` @ 39fbcde (registration `peacefulkit-01.c6e91a8.json`) and, for a fleet on towndeposit-02,
+`pk-on-92bc84f` @ 40046b8 (`peacefulkit-01.92bc84f.json`). Sections 00 and 0 supersede the sections below.
+
+## 00. REVISION 2 (10-07 evening) -- two defects found by Codex while junkwell-02 merged onto 6dc10d1 / f2c4ba0
+
+**1. Spare swords were still BANKABLE wherever a caller did not pass `noSwords`**: admission's deposit-due test,
+`depositWorthIt` / `adviseDeposit` (the room advice), the prompt's deposit line, the deposit milestone, the withdraw
+planner, the full-chest recovery planner, and on the variant the town-deposit trigger and skill. Fix: `bankableInventory`'s
+`noSwords` DEFAULTS TO THE SWITCH (`foodskip.mjs peacefulFoodActive()`, this process's last decision; off = the base rule
+exactly; foodskip imports nothing, so no cycle); admission, `depositWorthIt` and (variant) the town-deposit trigger and
+the skill's three plans read it at the call (`foodSkipNow(bot).active`). Tests: 13 spare stone swords -> off 12 bankable
+and a deposit due; peaceful 0, admission `deposit_not_worth_it`, no advice, no prompt line, also with a STALE decision in
+the module; variant KIT WIRED / KIT SKILL with a stale decision.
+
+**2. A wooden sword could be left on the CURSOR when the drain closed the furnace.** mineflayer's take is two clicks (lift,
+place). PAPER (sandbox3, a real client, RCON oracle; `sandbox/craft/pk-cursor-probe.mjs`): vanilla returns a closed
+window's cursor item to the bag when the bag has room and DROPS it when the bag is full:
+
+| after a real lift | bag | server: fuel slot / bag / ground |
+|---|---|---|
+| plain close (the drain before) | room | - / sword / - |
+| plain close (the drain before) | FULL | - / - / **sword on the ground** |
+| the new drainFurnace | room | - / sword / - |
+| the new drainFurnace | FULL | **sword back in the fuel slot** / - / - |
+
+Fix: `drainFurnace` settles the cursor at its start and after every take -- the bag first (`chestfull.mjs returnCursor`),
+else the furnace slot it came from -- and only then closes. `swordDrainRow` (exported, pure) names each outcome; the read:
+
+| `_sword_fuel` row | read |
+|---|---|
+| left in the furnace fuel slot (the bag is full / the cursor could not be emptied into the bag / the drain ran out of time / the drain stopped at a stuck cursor) | credited (in-furnace) |
+| burned wooden_sword (unconfirmed) -- staged, never taken by the drain, gone from the slot | credited (burn) |
+| outcome unknown (its take never answered / the furnace could not be read) | NOT credited |
+| put back into the furnace fuel slot from the cursor (left by an earlier call) | NOT credited (that sword was credited when it first left the bag) |
+| on the cursor at the close (the server returns it to the bag) | no credit, no breach |
+| on the cursor at the close (the server drops it) -- only with no empty slot | **K2 breach** |
+| any sink row marked ` restaged=1` -- this call took an earlier call's sword back first | NOT credited (the same sword) |
+
+Review rounds 7-10 (both engines): r7 Claude APPROVE / Codex CHANGE (a put-back earlier sword earned a second credit);
+r8 Claude APPROVE / Codex CHANGE (take-back + restage in one call -> two credits); r9 Claude APPROVE / Codex CHANGE (the
+read's 2 s same-call window could pair two calls -- replaced by the skill's exact per-call ` restaged=1` mark); r10 both
+APPROVE at 53bc63f; r11 Claude APPROVE / Codex CHANGE (a timed-out take that had lifted the sword skipped the cursor
+settle -> a credited 'burn' while the close dropped it) and a flaky test (a timer edge let the drain take a sword after its
+deadline) -> r12 both APPROVE at a68dc5c: a timed-out take ends the drain after ONE cursor settle, a stuck cursor ends it
+too, the close's fate is judged right before the close, and a sword whose take never answered earns no credit. Remaining
+P3s (not done; none adds a drop path): output on the cursor with a full bag is dropped at the
+close, as on the base (the result slot refuses a put-back); a sword put back into the fuel slot beside unsmelted input
+(only after an input take also failed) can ignite after the close with no switch check -- the alternative is a drop.
+Paper regression at ae789c6, 53bc63f and a68dc5c (identical): smelt peaceful 2/2 both wooden swords burned, coal untouched; earlier-call sword taken back
+(room) / refused (full bag, nothing dropped); bank peaceful no sword banked, easy the spare stone sword banked.
 
 ## 0. REVISION 1 (OWNER 10-07 ~19:50Z) -- supersedes the sections below wherever they disagree
 

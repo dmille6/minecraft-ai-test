@@ -11,6 +11,19 @@ behind it (chain-ore.sh stopped 10-01 on fixes-02's revert)._
 
 ---
 
+## 10-08 — PEACEFULKIT-01 REVISION 2: two Codex defects from the junkwell-02 merge fixed; both engines APPROVE; NOT LAUNCHED
+New heads (junkwell-02's jw-on-* need a rebase onto them): `pk-on-c6e91a8` @ 39fbcde (was 6dc10d1) and `pk-on-92bc84f` @
+40046b8 (was f2c4ba0); code approved at a68dc5c / f25f050, the head commits are test-only. (1) Spare swords were still
+counted BANKABLE wherever a caller did not pass noSwords (deposit-due test, room advice, prompt, milestone, withdraw and
+recovery planners, the town-deposit trigger): bankableInventory's noSwords now defaults to the switch, and the trip
+deciders read it at the call. (2) A wooden sword could be left on the CURSOR when the furnace drain closed: Paper probe
+(sandbox/craft/pk-cursor-probe.mjs) -- vanilla returns a closed window's cursor item to the bag when there is room and
+DROPS it when the bag is full; the drain now puts it back into the bag, else into the furnace slot it came from, and a
+drop that still happens is a K2 breach row. Six more review rounds on the drain's accounting (no second furnace credit for
+an earlier call's sword; per-call ` restaged=1` mark; timed-out takes settled and uncredited). npm test 238/238 and
+239/239; 83 JS + 38 read + 3 variant mutants all killed; Paper smelt/bank scenes unchanged; dry run all gates 0, every
+positive control fires; licencecheck exit 0. Read md5 6151dbca (= ~/mcai-analysis = /tmp).
+
 ## 10-08 03:05Z -- junkwell-02 PIT FIX READY (queued, not launched): the aim said twice; an abandoned pit is COVERED; C9 gates a pit left open
 - **junkwell-02**: jw-on-c6e91a8 @ 2bd1452 (was 5c13330), jw-on-92bc84f @ b446f4d (was 5cca9c5).
   - **Cause of the 5/5 misses:** the server dropped the bot's single aim look in 12/12 traced throws. RCON read the dig look 72.15 at the click.

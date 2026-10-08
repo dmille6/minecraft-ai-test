@@ -16,8 +16,11 @@ M = [
   ('craft: the prompt still offers a sword', 'src/prompt.mjs', "      if (peaceful && isSword(name)) continue\n", "", PK),
   # the bank: no sword ever while on (owner 10-07 ~19:50Z)
   ('bank: a sword is banked while on', 'src/bankable.mjs', "    if (m && unwantedSword({ name }, noSwords)) { junk += n; excluded[name] = 'peaceful_sword'; continue }\n", "", PK),
-  ('bank: the deposit forgets the switch', 'src/skills.mjs', "depositPlan(planItems, item, { wants: bot.currentWants ?? [], noSwords })", "depositPlan(planItems, item, { wants: bot.currentWants ?? [] })", PK),
-  ('bank: the default excludes swords (off is not today)', 'src/bankable.mjs', "reserveScaffold = 8, noSwords = false } = {}) {", "reserveScaffold = 8, noSwords = true } = {}) {", PK),
+  ('bank: the deposit forgets the switch', 'src/skills.mjs', "depositPlan(planItems, item, { wants: bot.currentWants ?? [], noSwords })", "depositPlan(planItems, item, { wants: bot.currentWants ?? [], noSwords: false })", PK),
+  ('bank: the default excludes swords (off is not today)', 'src/bankable.mjs', "reserveScaffold = 8, noSwords = peacefulFoodActive() } = {}) {", "reserveScaffold = 8, noSwords = true } = {}) {", PK),
+  ('bank: the default ignores the switch (spare swords count while peaceful)', 'src/bankable.mjs', "reserveScaffold = 8, noSwords = peacefulFoodActive() } = {}) {", "reserveScaffold = 8, noSwords = false } = {}) {", PK),
+  ('bank: admission counts spare swords (a deposit due from swords)', 'src/admission.mjs', "      const bank = bankableInventory(items, { wants, noSwords: foodSkipNow(bot).active })\n", "      const bank = bankableInventory(items, { wants, noSwords: false })\n", PK),
+  ('bank: depositWorthIt counts spare swords', 'src/skills.mjs', "    return depositDue({ bankable: bankableInventory(items, { wants, noSwords: foodSkipNow(bot).active }).count,", "    return depositDue({ bankable: bankableInventory(items, { wants, noSwords: false }).count,", PK),
   ('sword: unwantedSword ignores the switch', 'src/peacefulkit.mjs', "export const unwantedSword = (item, peacefulActive) => !!peacefulActive && isSword(item?.name)", "export const unwantedSword = (item, peacefulActive) => isSword(item?.name)", PK + SM),
   # the furnace
   ('fuel: stone swords burn too', 'src/peacefulkit.mjs', "unwantedSword(item, peacefulActive) && item?.name === 'wooden_sword'", "unwantedSword(item, peacefulActive)", PK),
@@ -30,14 +33,29 @@ M = [
   ('fuel: the heat ignores the block lit state', 'src/skills.mjs', "    if (f > 0 || lit === true) return 'warm'\n    if (f === 0 || lit === false) return 'cold'\n", "    if (f > 0) return 'warm'\n    if (f === 0) return 'cold'\n", SM),
   ('fuel: an unknown burn reading stalls the swords', 'src/skills.mjs', "        if (h === 'unknown' && ++unknownFuel > SWORD_UNKNOWN_POLLS) { substitute(); continue }\n", "", SM),
   ('fuel: a full bag takes the sword back (tossed)', 'src/skills.mjs', "      if (slot === 'fuelItem' && furnace.fuelItem()?.name === 'wooden_sword' &&", "      if (false &&", SM),
-  ('fuel: the sword is taken whatever the room', 'src/skills.mjs', "          (furnace.emptySlotCount?.() ?? 0) === 0) { furnace.swordKept = true; continue }", "          (furnace.emptySlotCount?.() ?? 0) < 0) { furnace.swordKept = true; continue }", SM),
-  ('fuel: the room read from the frozen bot.inventory', 'src/skills.mjs', "async function drainFurnace (furnace, ms = SMELT_RECOVERY_MS) {", "async function drainFurnace (furnace, ms = SMELT_RECOVERY_MS) {\n  const frozen = furnace?.emptySlotCount?.() ?? 0; if (furnace) furnace.emptySlotCount = () => frozen", SM),
+  ('fuel: the sword is taken whatever the room', 'src/skills.mjs', "          (furnace.emptySlotCount?.() ?? 0) === 0) { furnace.swordKept = true; noteSword('wooden_sword', 'kept_full'); continue }", "          (furnace.emptySlotCount?.() ?? 0) < 0) { furnace.swordKept = true; noteSword('wooden_sword', 'kept_full'); continue }", SM),
+  ('fuel: the room read from the frozen bot.inventory', 'src/skills.mjs', "export async function drainFurnace (furnace, ms = SMELT_RECOVERY_MS, bot = null) {", "export async function drainFurnace (furnace, ms = SMELT_RECOVERY_MS, bot = null) {\n  const frozen = furnace?.emptySlotCount?.() ?? 0; if (furnace) furnace.emptySlotCount = () => frozen", SM),
   ('fuel: burn rows written mid-job (frozen snapshot)', 'src/skills.mjs', "  const swordRow = (status, what, active) => { swordRows.push({ status, what, active }) }", "  const swordRow = (status, what, active) => { swordRows.push({ status, what, active }); writeSwordRows() }", SM),
   ('fuel: a sword left by an earlier call is not taken back first', 'src/skills.mjs', "    if (fslot('fuelItem')?.name === 'wooden_sword') {\n      if ((furnace.emptySlotCount?.() ?? 0) === 0) {", "    if (false) {\n      if ((furnace.emptySlotCount?.() ?? 0) === 0) {", SM),
   ('fuel: an earlier sword taken back into a full bag', 'src/skills.mjs', "      if ((furnace.emptySlotCount?.() ?? 0) === 0) {\n        return { status: 'failed', failClass: 'inventory_full',", "      if (false) {\n        return { status: 'failed', failClass: 'inventory_full',", SM),
   ('fuel: a failed take-back still loads the input', 'src/skills.mjs', "      if (after !== null) {", "      if (false) {", SM),
   ('fuel: a sword on the cursor is ignored', 'src/skills.mjs', "      if (cursor) {\n        const back = await returnCursor(bot, furnace)", "      if (false) {\n        const back = await returnCursor(bot, furnace)", SM),
   ('fuel: the cursor sword is not put back', 'src/skills.mjs', "        const back = await returnCursor(bot, furnace)\n", "        const back = { returned: false, reason: 'skipped' }\n", SM),
+  ('fuel: the drain never settles its cursor', 'src/skills.mjs', "      const c = await settleFurnaceCursor(bot, furnace, slot === 'outputItem' ? null : slot, bounded)\n", "      const c = 'empty'\n", SM),
+  ('fuel: a cursor the bag refuses is not put back in the furnace', 'src/skills.mjs', "    try { if (furnace[origin]() == null) await bounded(bot.clickWindow(index, 0, 0)) } catch { /* judged by the cursor below */ }", "    try { void 0 } catch { /* judged by the cursor below */ }", SM),
+  ('fuel: the cursor is not returned to the bag first', 'src/skills.mjs', "  try { const back = await bounded(returnCursor(bot, furnace)); if (back?.returned && !furnace.selectedItem) return 'bag' } catch { /* the slot it came from next */ }", "  try { void 0 } catch { /* the slot it came from next */ }", SM),
+  ('fuel: a loaded cursor at the drain start is ignored', 'src/skills.mjs', "    const c = await settleFurnaceCursor(bot, furnace, null, bounded)\n", "    const c = 'empty'\n", SM),
+  ('fuel: a dropped sword writes no row', 'src/skills.mjs', "  if (fate === 'cursor_lost') return { outcome: 'failed',", "  if (false) return { outcome: 'failed',", SM),
+  ('fuel: an earlier sword put back is credited again', 'src/skills.mjs', "what: 'wooden_sword put back into the furnace fuel slot from the cursor (left by an earlier call)'", "what: 'wooden_sword left in the furnace fuel slot (the cursor could not be emptied into the bag)'", SM),
+  ('fuel: the restage mark is never written', 'src/skills.mjs', "      if (SINK_ROW.test(what) && retrieved > 0) { retrieved -= 1; mark = ' restaged=1' }", "      if (false) { retrieved -= 1; mark = ' restaged=1' }", SM),
+  ('fuel: a take-back is not counted for the restage mark', 'src/skills.mjs', "      retrieved += 1\n", "", SM),
+  ('fuel: a stuck cursor with room is called a drop', 'src/skills.mjs', "  const stuckFate = () => { try { return (furnace?.emptySlotCount?.() ?? 0) > 0 ? 'cursor_server_returns' : 'cursor_lost' } catch { return 'cursor_lost' } }", "  const stuckFate = () => 'cursor_lost'", SM),
+  ('fuel: a stuck cursor does not end the drain', 'src/skills.mjs', "      else if (c === 'stuck') { stuck = name ?? '?'; break }", "      else if (c === 'stuck') { stuck = name ?? '?' }", SM),
+  ('fuel: a timed-out take is called taken', 'src/skills.mjs', "{ timedOut = true; noteSword(name, 'timed_out') } else noteSword(name, 'taken')", "{ timedOut = true; noteSword(name, 'taken') } else noteSword(name, 'taken')", SM),
+  ('fuel: a timed-out take skips the cursor settle', 'src/skills.mjs', "{ timedOut = true; noteSword(name, 'timed_out') } else", "{ timedOut = true; noteSword(name, 'timed_out'); break } else", SM),
+  ('fuel: a timed-out sword is credited as burned', 'src/skills.mjs', "  if (fate === 'timed_out') return {", "  if (false) return {", SM),
+  ('fuel: a sword that burned in the drain gap says returned', 'src/skills.mjs', "  return { outcome: 'success', what: 'burned wooden_sword (unconfirmed)' }", "  return { outcome: 'no_effect', what: 'wooden_sword returned unburned' }", SM),
+  ('fuel: a drain that never reached the sword says returned', 'src/skills.mjs', "  if (inSlot === true) return", "  if (false) return", SM),
   ('fuel: an unreadable furnace claims a burn', 'src/skills.mjs', "    if (staged && fuelNow === undefined) {", "    if (false) {", SM),
   ('fuel: a late-reported burn writes no row', 'src/skills.mjs', "    if (staged && !left) {", "    if (false) {", SM),
   ('fuel: a burn counted without confirmation', 'src/skills.mjs', "    if (staged && fslot('fuelItem') === null && (heat() === 'warm' || (fslot('inputItem')?.count ?? 0) < staged.input)) {", "    if (staged) {", SM),
@@ -81,6 +99,14 @@ M = [
   ('compost: the sapling reserve halved', 'src/composter.mjs', "export const SAPLING_RESERVE = 16", "export const SAPLING_RESERVE = 8", PK + CO),
   ('compost: the apple reserve dropped', 'src/composter.mjs', "export const APPLE_RESERVE = 4", "export const APPLE_RESERVE = 0", PK + CO),
 ]
+# THE 92bc84f VARIANT (towndeposit): PK_VARIANT=1 adds these (their anchors exist only there).
+TD = ['towndeposit']
+if os.environ.get('PK_VARIANT'):
+    M += [
+  ('td: the town-deposit trigger counts spare swords', 'src/cognitive.mjs', "townDepositPlan(items, { wanted, noSwords: foodSkipNow(bot).active })", "townDepositPlan(items, { wanted, noSwords: false })", TD),
+  ('td: the skill plans swords into the chest', 'src/skills.mjs', "townDepositPlan(bag, { wanted, already, noSwords: foodSkipNow(bot).active })", "townDepositPlan(bag, { wanted, already, noSwords: false })", TD),
+  ('td: the plan default ignores the switch', 'src/towndeposit.mjs', "noSwords = peacefulFoodActive() } = {}) {", "noSwords = false } = {}) {", TD),
+    ]
 bad = 0
 if ROOT == '--read-only':   # the read's mutants only (PK_READ): python3 mutants-pk.py --read-only
     M = []
@@ -145,6 +171,12 @@ RM = [
   ('read: verified_items includes the in-flight name', "        return {k: int(v) for k, v in a['items'].items() if isinstance(v, (int, float)) and v > 0}\n    return compost_items(sk)[0]", "        return compost_items(sk)[0]\n    return compost_items(sk)[0]"),
   ('read: a sink credit is not kept for a later fall', "SINK_CARRY_S = 180", "SINK_CARRY_S = -1"),
   ('read: a sink credit kept forever', "0 <= (t - c[0]).total_seconds() <= SINK_CARRY_S", "0 <= (t - c[0]).total_seconds()"),
+  ('read: a sword put back from the cursor is not credited', "^(burned wooden_sword|wooden_sword returned unburned|wooden_sword left in the furnace fuel slot)", "^(burned wooden_sword|wooden_sword returned unburned|wooden_sword left in the furnace fuel slot \\(the bag)"),
+  ('read: an earlier sword put back is credited', "|wooden_sword left in the furnace fuel slot).* active=", "|wooden_sword left in the furnace fuel slot|wooden_sword put back).* active="),
+  ('read: a restaged row is credited (double credit)', "        if RESTAGED in ((sk or {}).get('detail') or ''):", "        if False:"),
+  ('read: every sink row is treated as restaged', "        if RESTAGED in ((sk or {}).get('detail') or ''):", "        if True:"),
+  ('read: a cursor drop is not a K2 breach', "    return (sk or {}).get('name') == '_sword_fuel' and (sk.get('detail') or '').startswith('wooden_sword on the cursor at the close (the server drops it)')", "    return False"),
+  ('read: a cursor the server returns to the bag is a breach', "startswith('wooden_sword on the cursor at the close (the server drops it)')", "startswith('wooden_sword on the cursor at the close')"),
   ('read: late falls count as lost', "            elif (end - p[0]).total_seconds() < LATE_S:", "            elif False:"),
 ]
 if READ and not only:
