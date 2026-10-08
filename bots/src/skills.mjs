@@ -6927,12 +6927,15 @@ async function buildWell (ctx, _args, signal) {
       }
     } catch (e) { why = e?.aborted || signal?.aborted ? 'aborted' : `cover: ${String(e?.message ?? e).slice(0, 60)}` }
     if (stationary && bot.stationaryUntil === stationary) bot.stationaryUntil = 0
+    // THE END STATE IS READ ONLY ONCE NOTHING IS IN FLIGHT (Codex r3): a dig the abort did not cancel can still open the
+    // pit after this point; unsettled, the site is not said to be closed (C9 keeps it open), only an open pit is said.
+    const settledEnd = await g.settle().catch(() => false)
     try {
       const st = stage()
-      if (owned && isOpenPit(st)) logEvent({ kind: 'well_pit_open', status: 'failed', snapshot: snapshot(bot), detail: `at=${site.x},${site.y},${site.z} stage=${st} why=${String(why ?? 'uncovered').replace(/\s+/g, '_').slice(0, 80)}` })
+      if (owned && isOpenPit(st)) logEvent({ kind: 'well_pit_open', status: 'failed', snapshot: snapshot(bot), detail: `at=${site.x},${site.y},${site.z} stage=${st} why=${String(why ?? (abortedRun || signal?.aborted ? 'aborted' : 'uncovered')).replace(/\s+/g, '_').slice(0, 80)}` })
       // A PIT THIS RUN LOGGED AS OPENING THAT READS CLOSED NOW, with no row saying so (its dig never took, or the cap read
       // wrong after the place): closed at the site, said so -- C9 must not count it open
-      else if (pitDugLogged && !pitClosedLogged && st !== 'invalid') logEvent({ kind: 'well_pit_covered', status: 'success', snapshot: snapshot(bot), detail: `at=${site.x},${site.y},${site.z} stage=${st} by=closed` })
+      else if (pitDugLogged && !pitClosedLogged && settledEnd && st !== 'invalid') logEvent({ kind: 'well_pit_covered', status: 'success', snapshot: snapshot(bot), detail: `at=${site.x},${site.y},${site.z} stage=${st} by=closed` })
     } catch { /* a read never breaks the cleanup */ }
     await settleAndRestore(bot, was, g, 'build_well')
   }
