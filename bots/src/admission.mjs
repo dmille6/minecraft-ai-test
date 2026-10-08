@@ -360,7 +360,8 @@ export class AdmissionControl {
       // this gate judged with are handed to the skill through the bot (the runner's ctx carries no wants).
       const wants = [...(wanted ? [wanted].flat() : []), ...DEPOSIT_ALWAYS]
       bot.currentWants = wants
-      const bank = bankableInventory(items, { wants })
+      // THE SWITCH, READ HERE (Codex, junkwell merge): a spare sword never makes a deposit due while peaceful.
+      const bank = bankableInventory(items, { wants, noSwords: foodSkipNow(bot).active })
       const onDepositMilestone = this.activeMilestoneId === 'deposit_surplus'
       const due = depositDue({
         bankable: bank.count,

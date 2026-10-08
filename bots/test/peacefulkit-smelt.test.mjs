@@ -14,7 +14,7 @@ process.env.LOG_DIR = (await import('node:fs')).mkdtempSync((await import('node:
 process.env.BOT_NAME = 'SmeltBot'
 const assert = (await import('node:assert/strict')).default
 const test = (await import('node:test')).default
-const { SKILLS, foodSkipNow } = await import('../src/skills.mjs')
+const { SKILLS, foodSkipNow, swordDrainRow } = await import('../src/skills.mjs')
 const { smeltPlan } = await import('../src/smelting.mjs')
 const { tapRecords } = await import('../src/logger.mjs')
 
@@ -48,6 +48,9 @@ function makeBot (inv, difficulty, opts = {}) {
     slots.output = { name: 'iron_ingot', type: ID.iron_ingot, count: (slots.output?.count ?? 0) + 1 }
   }
   let noCook = opts.noCook ?? false
+  const liftFails = opts.liftFails ?? 0           // the next N sword takes lift onto the cursor and then throw
+  let lifts = liftFails
+  const clickFails = opts.clickFails ?? (() => false)   // (slot) -> true: that click throws
   const stacks = (b = bag, f = filler) => Object.entries(b).reduce((n, [k, c]) => n + (/_sword$/.test(k) ? c : Math.ceil(c / 64)), 0) + f
   const view = b => Object.entries(b).filter(([, c]) => c > 0).flatMap(([name, count]) =>
     /_sword$/.test(name) ? Array.from({ length: count }, () => ({ name, count: 1, type: ID[name] })) : [{ name, count, type: ID[name] }])
@@ -68,12 +71,15 @@ function makeBot (inv, difficulty, opts = {}) {
     async takeInput () { assert.ok(slots.input); give(slots.input.name, slots.input.count); slots.input = null },
     async takeFuel () {
       assert.ok(slots.fuel)
+      if (lifts > 0 && /_sword$/.test(slots.fuel.name)) { lifts -= 1; furnace.selectedItem = { ...slots.fuel }; slots.fuel = null; throw new Error('the second click timed out') }
       if (stacks() >= 36 && /_sword$/.test(slots.fuel.name)) dropped.push(slots.fuel.name)   // putAway's tossLeftover
       else give(slots.fuel.name, slots.fuel.count)
       slots.fuel = null
     },
     items: () => view(bag), emptySlotCount: () => Math.max(0, 36 - stacks()),
-    close () { clearInterval(ticker); ticker = null; open = false },
+    selectedItem: null, inventoryStart: 3, inventoryEnd: 39,
+    findItemRange: () => null, firstEmptySlotRange: () => (stacks() < 36 ? 9 : null),
+    close () { clearInterval(ticker); ticker = null; open = false; if (furnace.selectedItem) { dropped.push(furnace.selectedItem.name); furnace.selectedItem = null } },
   }
   const bot = {
     entity: { position: V(1, 64, 0), velocity: { y: 0 } }, health: 20, food: 20, serverDifficulty: difficulty,
@@ -87,6 +93,15 @@ function makeBot (inv, difficulty, opts = {}) {
       ? { name: 'furnace', position: p, boundingBox: 'block', getProperties: () => (litUnknown ? {} : { lit: burnLeft > 0 && Date.now() - litSince >= litLagMs ? 'true' : 'false' }) }
       : { name: p.y < 64 ? 'stone' : 'air', position: p, boundingBox: p.y < 64 ? 'block' : 'empty' }),
     async equip () {}, async lookAt () {}, pathfinder: { async goto () {}, setGoal () {}, stop () {} },
+    async clickWindow (slot) {
+      const sel = furnace.selectedItem
+      if (!sel) return
+      if (clickFails(slot)) throw new Error(`click ${slot} unanswered`)
+      if (slot === 1) { if (slots.fuel) throw new Error('fuel slot taken'); slots.fuel = sel }
+      else if (slot === 0) { if (slots.input) throw new Error('input slot taken'); slots.input = sel }
+      else give(sel.name, sel.count ?? 1)
+      furnace.selectedItem = null
+    },
     async openFurnace () { open = true; frozen = { ...bag }; frozenFiller = filler; return furnace },
   }
   return { bot, bag, slots, burnt, stagedWhileBurning, dropped, putFails, setFiller: n => { filler = n }, setHold: v => { holdIgnition = v } }
@@ -316,4 +331,54 @@ test('A BURN SEEN ONLY AS AN EMPTIED SLOT (no heat reading yet, the item not yet
   assert.equal(m.burnt.wooden_sword, 1, 'the sword did burn')
   assert.deepEqual(rows, ['success:burned wooden_sword (unconfirmed) for raw_iron active=1'])
   assert.deepEqual(m.dropped, [])
+})
+
+test('swordDrainRow: the row for each drain fate (pure)', () => {
+  assert.deepEqual(swordDrainRow('taken', true), { status: 'no_effect', what: 'wooden_sword returned unburned' })
+  assert.deepEqual(swordDrainRow(null, true), { status: 'no_effect', what: 'wooden_sword returned unburned' })
+  assert.match(swordDrainRow('kept_full', true).what, /left in the furnace fuel slot \(the bag is full\)/)
+  assert.equal(swordDrainRow('kept_full', false), null, 'an earlier call\'s sword this call did not move: no row')
+  assert.equal(swordDrainRow('taken', false), null)
+  for (const st of [true, false]) {
+    assert.match(swordDrainRow('kept_cursor', st).what, /^wooden_sword left in the furnace fuel slot \(the cursor/)
+    assert.deepEqual(swordDrainRow('cursor_lost', st), { status: 'failed', what: 'wooden_sword on the cursor at the close (the server drops it)' })
+  }
+})
+
+for (const [why, clickFails, expect] of [
+  ['the bag takes it from the cursor', () => false, 'bag'],
+  ['the bag will not take it: back into the fuel slot it came from', slot => slot >= 3, 'furnace'],
+  ['nothing takes it: the row says so (the server drops it at the close)', () => true, 'lost'],
+]) {
+  test(`THE DRAIN'S TAKE STOPS BETWEEN ITS TWO CLICKS (Codex, junkwell merge) -- ${why}`, async () => {
+    const m = makeBot({ raw_iron: 2, coal: 1, wooden_sword: 1 }, 'peaceful', { holdIgnition: true, liftFails: 1, clickFails })
+    const ac = new AbortController()
+    setTimeout(() => ac.abort(), 150)
+    const { rows } = await swordRows(() => run(m.bot, 2, ac.signal).then(r => r, e => e))
+    assert.equal(m.burnt.wooden_sword, undefined)
+    if (expect === 'bag') {
+      assert.equal(m.bag.wooden_sword, 1); assert.deepEqual(m.dropped, [])
+      assert.deepEqual(rows, ['no_effect:wooden_sword returned unburned for raw_iron active=1'])
+    } else if (expect === 'furnace') {
+      assert.equal(m.slots.fuel?.name, 'wooden_sword'); assert.deepEqual(m.dropped, [], 'never closed on a loaded cursor')
+      assert.deepEqual(rows, ['no_effect:wooden_sword left in the furnace fuel slot (the cursor could not be emptied into the bag) for raw_iron active=1'])
+    } else {
+      assert.deepEqual(m.dropped, ['wooden_sword'])
+      assert.deepEqual(rows, ['failed:wooden_sword on the cursor at the close (the server drops it) for raw_iron active=1'])
+    }
+  })
+}
+
+test('THE TAKE-BACK OF AN EARLIER CALL\'S SWORD STOPS BETWEEN ITS CLICKS and the bag will not take it: the drain puts it back in the fuel slot -- no drop, a row', async () => {
+  // the bag's slots never answer (every click into the bag throws): the take-back lifts it and stops; the drain's own
+  // take lifts it again and stops; the fuel slot it came from takes it back both times.
+  const m = makeBot({ raw_iron: 2, coal: 1 }, 'easy', { liftFails: 2, clickFails: slot => slot >= 3 })
+  m.slots.fuel = { name: 'wooden_sword', type: 10, count: 1 }   // left by an earlier call
+  let puts = 0
+  m.bot.openFurnace = (orig => async () => { const f = await orig(); const put = f.putInput; f.putInput = async (...a) => { puts += 1; return put(...a) }; return f })(m.bot.openFurnace)
+  const { out: r, rows } = await swordRows(() => run(m.bot, 2))
+  assert.equal(r.status, 'failed'); assert.equal(r.failClass, 'transfer_unsettled')
+  assert.equal(puts, 0); assert.deepEqual(m.dropped, []); assert.equal(m.slots.fuel?.name, 'wooden_sword'); assert.equal(m.burnt.wooden_sword, undefined)
+  assert.deepEqual(rows, ['no_effect:wooden_sword left in the furnace fuel slot (the cursor could not be emptied into the bag) for raw_iron active=0'])
+  foodSkipNow({ serverDifficulty: 'hard' })
 })
