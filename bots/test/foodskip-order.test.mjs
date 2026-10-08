@@ -21,10 +21,11 @@ const { CognitiveLoop } = await import('../src/cognitive.mjs')
 
 const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'mcai-fso-'))
 let seq = 0
-function townBot (difficulty) {
+function townBot (difficulty, pick = 'iron_pickaxe') {
   const items = [{ name: 'apple', count: 10, slot: 9, type: mcData.itemsByName.apple.id },
-    // a usable pickaxe, so withdraw's withdraw_pick town order (when withdraw is underneath) has nothing to fetch
-    { name: 'stone_pickaxe', count: 1, slot: 10, type: mcData.itemsByName.stone_pickaxe.id, maxDurability: 131, durabilityUsed: 11 },
+    // a usable IRON pickaxe, so withdraw's withdraw_pick town order has nothing to fetch -- and withdraw2's upgrade order
+    // (a usable pickaxe BELOW iron) has nothing to upgrade. A stone one is the composition test at the bottom.
+    { name: pick, count: 1, slot: 10, type: mcData.itemsByName[pick].id, maxDurability: mcData.itemsByName[pick].maxDurability, durabilityUsed: 11 },
     ...Array.from({ length: 33 }, (_, i) => ({ name: 'white_wool', count: 1, slot: 11 + i, type: mcData.itemsByName.white_wool.id }))]
   const composter = { name: 'composter', type: mcData.blocksByName.composter.id, position: new Vec3(3, 70, 3), getProperties: () => ({ level: 0 }) }
   const chest = { name: 'chest', type: mcData.blocksByName.chest.id, position: new Vec3(-3, 70, 0) }
@@ -55,4 +56,8 @@ test('PEACEFUL: a town bot at 35/36 holding 10 apples gets the compost order (ap
 test('HARD / UNKNOWN: the same bot gets no compost order -- apples are food again, exactly as today', async () => {
   assert.equal(await firstSkill(townBot('hard')), 'status')
   assert.equal(await firstSkill(townBot(undefined)), 'status')
+})
+test('WITHDRAW2 COMPOSITION: holding a STONE pickaxe, peaceful still composts first; hard gets withdraw2\'s upgrade order, never compost', async () => {
+  assert.equal(await firstSkill(townBot('peaceful', 'stone_pickaxe')), 'compost')
+  assert.equal(await firstSkill(townBot('hard', 'stone_pickaxe')), 'withdraw_pick')
 })
