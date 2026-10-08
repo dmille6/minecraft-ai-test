@@ -11,21 +11,45 @@ behind it (chain-ore.sh stopped 10-01 on fixes-02's revert)._
 
 ---
 
-## 10-08 05:00Z — REBOOT FIXES INSTALLED (owner "yes")
-1. mcai-mayor-shadow is a persistent enabled unit (/etc/systemd/system/mcai-mayor-shadow.service, same limits as the
-   transient one; ~5 s gap in snapshots at the switch). 2. block2-sandbox (sandbox 1) enabled at boot on 10.0.0.30.
-3. ~/bin/restore-reads.sh, cron @reboot + */10: copies any ~/mcai-analysis/*.py missing from /tmp (never overwrites).
-4. CHAINS: start them with ~/bin/chain-start.sh (records ~/chains.d/<next>.args); ~/bin/resume-chains.sh, cron @reboot
-   (+90 s) + */10, relaunches unfinished chains; tested (relaunch once, no duplicate, args removed on STOP).
-   Copies in scripts/host/bin/. crontab backup ~/crontab.bak-20261008-rebootfixes.
-FOUND: /tmp/quickstatus.py, modelshare.py, cooldid4.py (nightwatch digest sections) were lost in the 10-06 outage and
-are not in the repo; the digest's quick-status/model sections have been empty since. To rebuild (low priority).
-
-## 10-08 04:05Z — OWNER GOAL + ROADMAP: build cool structures, survive, cooperate, for long periods (peaceful stays)
-Not beating the game. docs/reports/roadmap-2026-10-08.md (owner agreed). After the current queue: LAST (renewables:
-tree farm, cobblestone generator; unattended recovery; bounded logs/stores) -> BUILD (workshop, safe mineshaft, larger
-structures; materials produced deliberately) -> COOPERATE (roles, town stock, overseer per C2 evidence, strategist).
-New measure to build: a weekly long-run check per town (built something? deaths/stuck low? output steady?).
+## 10-08 ~04:40Z — CANARY THROUGHPUT: two lanes NOT built (both engines); a queue SCHEDULER built + staged, NOT installed
+Owner 10-08 ~02:30Z delegated to Codex + Claude. Report: docs/reports/canary-throughput-2026-10-08.md.
+- A (two concurrent lanes): Codex and Claude each DON'T BUILD. The deciding evidence was a time-travel replay of six past
+  canaries with a second lane's pools removed from control (logs truncated at the read instant, frozen clock, private
+  mount namespace; the full-control replay reproduced every recorded verdict line exactly).
+  - Five verdicts held.
+  - junkwell-01's death-gate REVERT became POLL_OK (LB 1.40 -> 1.18).
+  - Model gain was only +0..30% once unmeasured double-KEEP compositions and control erosion are counted.
+  - "One canary pool, ever" stands; CLAUDE.md records the re-decision.
+- B: isolated pools are NOT equivalent (per-bot memory, town state, world facts, no comms or board). Not admitted; owner
+  question. C (bundling): not built. D1: the 12-h exclusion stays.
+- BUILT, both engines APPROVE after 6 design rounds + 4 implementation rounds:
+  - `scripts/host/canary-sched.py`: cron */5. It launches the HEAD of `~/canary-queue.json` into an empty slot exactly
+    as chain-after does. It never skips the head, never retries, never takes the loop lock, and never overwrites a
+    /tmp read. Human verbs: rearm, abandon, closed (needs the ledger row), cancel, continue; also install-hold /
+    install-release.
+  - Tests: 93 tests and anchored mutants, all killed.
+  - One anchored drawrec.sh patch: a drawexposure crash on a DECLARED registration no longer reads as "no requirement"
+    (10/10 tests on the live file; TARGET_K line intact).
+  - `scripts/prepare-variant.sh`: mechanical cherry-pick + range-diff + npm test + no-undef against the base. Its output
+    has NO `approved` field, so `queue add` refuses it until reviewed.
+- STAGED on 10.0.0.31 in ~/sched-install; dry run 04:42Z: tests 93/93 + 10/10 on the live drawrec; staged canary-sched.py md5 dee491d6, gate bundle
+  untouched (it refuses now: towndeposit-02 is live). It is independent of gate v34: no shared file, and both
+  installers hold the loop lock, so either order is safe. The operator sequences:
+  ```
+  ssh mike@10.0.0.31 'bash ~/sched-install/install-canary-sched.sh --dry-run'    # then without --dry-run
+  ```
+  It prints the rollback: `bash ~/sched-install/install-canary-sched.sh --rollback <STAMP>`.
+  After the install the queue is EMPTY (no launches) until the operator `queue add`s entries with `approved`.
+  Compatible with the operator's 10-08 reboot fixes (chain-start/resume-chains/restore-reads): it changes none of
+  them, nor chain-after's command line, .out wording or read locations; a running chain-after/chain-start counts as
+  'slot busy'. Do not queue a run that also has a recorded chain (chains.d): whichever launches first wins, the
+  other waits on the lock, and the scheduler then tracks the run as running.
+- FOUND, pre-existing:
+  - fleet-recycle.timer SKIPS while any canary is declared, so the 05:53Z recycle noted below will NOT run.
+  - check-open-loop.py cannot record a decision once the manifest is cleared.
+  - drawrec's exposure filter failed open on a crash (fixed by the staged patch).
+- OWNER QUESTIONS: KEEP at +180 for 4-pool draws (the biggest lever; drawrec's own null sd 0.313 vs 0.395); isolated
+  pools in town/chest controls; auto-approval of unchanged range-diff variants (Codex: no).
 
 ## 10-08 ~05Z — GATE v34 (UNDERGROUND-SAFETY DEATH GATE) BUILT + STAGED, NOT INSTALLED; airpocket registrations ready
 Both engines APPROVE (Claude r2-r10, Codex r10). On main d6e5eb0; staged on 10.0.0.31 in ~/gate-v34 with

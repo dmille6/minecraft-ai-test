@@ -167,7 +167,23 @@ selected, or reachable, so all three need checking:
   tree it lives in, and bash re-reads a running script by byte offset.
   `sudo cp /opt/minecraft-ai/scripts/deploy-fleet.sh /root/d.sh && sudo /root/d.sh <sha> <run_id> "<notes>" [--pool P]`
 - **One canary pool, ever.** The tripper matches `canary_pool` literally; two
-  canaries means three versions means a halted fleet.
+  canaries means three versions means a halted fleet. RE-DECIDED 2026-10-08 (owner
+  delegated to Codex + Claude): two concurrent lanes were evaluated and BOTH engines
+  rejected them for now. A replay of six past canaries with a second lane's pools
+  removed from control flipped junkwell-01's death-gate REVERT to POLL_OK, because
+  the smaller control widened the gate's interval. On top of that, double-KEEP
+  compositions go unmeasured, and deploy-fleet.sh and the tripper ship per sha.
+  See docs/reports/canary-throughput-2026-10-08.md.
+- **Once installed (staged 10-08, see STATE.md), the next canary is launched by
+  `~/canary-sched.py`** (cron, every 5 min) from
+  the owner's ordered queue `~/canary-queue.json`. It launches only into an empty
+  slot, never skips the head, and never retries; a human runs `rearm`, `abandon`,
+  `closed` or `cancel`. `queue add` refuses a variant without `approved`, so
+  `scripts/prepare-variant.sh` output needs a reviewer first.
+- **An installer ACQUIRES `/tmp/mcai-canary.lock` (flock -n) for its whole run**
+  and refuses on a declared manifest or any drop-in. It first calls
+  `canary-sched.py install-hold <owner> <minutes>`, which stops new launches and
+  exits 2 unless the slot is free, and calls `install-release` when done.
 - **Teardown is THREE steps** — drop-ins, clearing `canary_pool`, **and
   restarting the pool's bots**. The first two are config; neither restarts
   anything, so the bots keep running the canary code from memory and the fleet

@@ -1,0 +1,108 @@
+POSITIVE CONTROL rows in window 4682873 | bots 80 | ts 2026-10-03 22:12:59.027000+00:00 .. 2026-10-08 02:46:24.619000+00:00 | files 484
+
+craftroom-01 (promoted, 2 pools, board-a,hive-b) control 8 pools: board-c,isolated-a,isolated-b,isolated-c,isolated-d,placebo-a,placebo-c,placebo-d
+   during       occ DiD  +0.14 slots | items/bh ratio-DiD  +11.3% | samples treated   676 control   2772
+   end+0-3h     occ DiD  +0.82 slots | items/bh ratio-DiD   +2.0% | samples treated   328 control   1314
+   end+3-6h     occ DiD  +0.83 slots | items/bh ratio-DiD  +32.7% | samples treated   326 control   1299
+   end+6-9h     occ DiD  -0.17 slots | items/bh ratio-DiD +108.3% | samples treated   326 control   1293
+   end+9-12h    occ DiD  -0.64 slots | items/bh ratio-DiD  +70.0% | samples treated   327 control   1318
+   null during  n=  6 occ DiD [p2.5 -0.65, p97.5 +0.07] | items [p2.5 -40.5%, p97.5 +50.0%]
+   null end+0-3h n=  6 occ DiD [p2.5 -1.41, p97.5 +0.73] | items [p2.5 -39.2%, p97.5  +9.4%]
+   null end+3-6h n=  6 occ DiD [p2.5 -0.84, p97.5 +0.29] | items [p2.5 -30.1%, p97.5 +44.3%]
+   null end+6-9h n=  6 occ DiD [p2.5 -0.70, p97.5 +0.51] | items [p2.5 -45.2%, p97.5 +49.4%]
+   null end+9-12h n=  6 occ DiD [p2.5 -0.30, p97.5 +0.32] | items [p2.5 -40.1%, p97.5 -17.7%]
+
+composter-01 (promoted, 2 pools, hive-a,board-b) control 8 pools: board-c,isolated-a,isolated-b,isolated-c,isolated-d,placebo-a,placebo-c,placebo-d
+   during       occ DiD  -0.75 slots | items/bh ratio-DiD   +1.5% | samples treated   672 control   2703
+   end+0-3h     occ DiD  -1.99 slots | items/bh ratio-DiD  +38.5% | samples treated   327 control   1289
+   end+3-6h     occ DiD  -2.38 slots | items/bh ratio-DiD  +29.4% | samples treated   324 control   1320
+   end+6-9h     occ DiD  -1.98 slots | items/bh ratio-DiD  +32.8% | samples treated   334 control   1339
+   end+9-12h    occ DiD  -1.96 slots | items/bh ratio-DiD   +7.8% | samples treated   324 control   1337
+   null during  n=  6 occ DiD [p2.5 -0.63, p97.5 +0.71] | items [p2.5 -39.4%, p97.5 +48.3%]
+   null end+0-3h n=  6 occ DiD [p2.5 -0.71, p97.5 +1.12] | items [p2.5 -55.8%, p97.5 +60.9%]
+   null end+3-6h n=  6 occ DiD [p2.5 -0.25, p97.5 +0.98] | items [p2.5 -60.4%, p97.5 +24.4%]
+   null end+6-9h n=  6 occ DiD [p2.5 -0.46, p97.5 +0.61] | items [p2.5 -39.4%, p97.5 +26.1%]
+   null end+9-12h n=  6 occ DiD [p2.5 -1.25, p97.5 -0.40] | items [p2.5 -37.6%, p97.5 +33.2%]
+
+toolclean-01 (promoted, 4 pools, board-d,placebo-b,hive-d,hive-c) control 7 pools: board-c,isolated-a,isolated-b,isolated-c,isolated-d,placebo-c,placebo-d
+   during       occ DiD  -2.26 slots | items/bh ratio-DiD +111.9% | samples treated  1407 control   2408
+   end+0-3h     occ DiD  -0.14 slots | items/bh ratio-DiD   -0.6% | samples treated   663 control   1175
+   end+3-6h     occ DiD  -1.46 slots | items/bh ratio-DiD   +3.0% | samples treated   669 control   1162
+   end+6-9h     occ DiD  -1.08 slots | items/bh ratio-DiD  +41.1% | samples treated   666 control   1152
+   end+9-12h    occ DiD  -1.85 slots | items/bh ratio-DiD  +13.8% | samples treated   670 control   1157
+   null during  n=  3 occ DiD [p2.5 -0.71, p97.5 +1.30] | items [p2.5 -24.7%, p97.5  -5.5%]
+   null end+0-3h n=  3 occ DiD [p2.5 -0.77, p97.5 +0.58] | items [p2.5 -51.6%, p97.5  +9.3%]
+   null end+3-6h n=  3 occ DiD [p2.5 -1.45, p97.5 -0.28] | items [p2.5 -48.2%, p97.5  +0.4%]
+   null end+6-9h n=  3 occ DiD [p2.5 -1.39, p97.5 -0.82] | items [p2.5 -35.6%, p97.5 -15.3%]
+   null end+9-12h n=  3 occ DiD [p2.5 -0.42, p97.5 +0.25] | items [p2.5 -44.2%, p97.5 -20.5%]
+
+junkwell-01 (torn-down, 2 pools, placebo-a,board-b) control 5 pools: isolated-a,isolated-b,isolated-c,isolated-d,placebo-c
+   during       occ DiD  +1.17 slots | items/bh ratio-DiD  +28.2% | samples treated   578 control   1425
+   end+0-3h     occ DiD  +3.10 slots | items/bh ratio-DiD   +4.2% | samples treated   327 control    803
+   end+3-6h     occ DiD  +2.66 slots | items/bh ratio-DiD   +4.2% | samples treated   331 control    805
+   end+6-9h     occ DiD  +1.29 slots | items/bh ratio-DiD  +22.7% | samples treated   332 control    815
+   end+9-12h    occ DiD  +2.06 slots | items/bh ratio-DiD  +32.2% | samples treated   335 control    807
+
+chestfull-02 (promoted, 4 pools, board-a,board-c,board-d,placebo-d) control 6 pools: hive-a,isolated-a,isolated-b,isolated-c,isolated-d,placebo-c
+   during       occ DiD  +0.03 slots | items/bh ratio-DiD  +16.0% | samples treated  1365 control   2032
+   end+0-3h     occ DiD  +0.43 slots | items/bh ratio-DiD  +11.2% | samples treated   657 control    988
+   end+3-6h     occ DiD  +0.39 slots | items/bh ratio-DiD   -6.6% | samples treated   656 control    975
+   end+6-9h     occ DiD  +0.59 slots | items/bh ratio-DiD  +35.7% | samples treated   653 control    989
+   end+9-12h    occ DiD  +1.04 slots | items/bh ratio-DiD  +34.3% | samples treated   666 control    985
+   null during  n=  1 occ DiD [p2.5 -2.28, p97.5 -2.28] | items [p2.5 +24.5%, p97.5 +24.5%]
+   null end+0-3h n=  1 occ DiD [p2.5 -2.04, p97.5 -2.04] | items [p2.5 +50.5%, p97.5 +50.5%]
+   null end+3-6h n=  1 occ DiD [p2.5 -0.71, p97.5 -0.71] | items [p2.5 +47.0%, p97.5 +47.0%]
+   null end+6-9h n=  1 occ DiD [p2.5 -1.77, p97.5 -1.77] | items [p2.5 +58.2%, p97.5 +58.2%]
+   null end+9-12h n=  1 occ DiD [p2.5 -2.46, p97.5 -2.46] | items [p2.5 +47.3%, p97.5 +47.3%]
+
+climbflood-01 (torn-down, 2 pools, hive-d,hive-b) control 7 pools: hive-c,isolated-a,isolated-b,isolated-c,isolated-d,placebo-b,placebo-c
+   during       occ DiD  -0.98 slots | items/bh ratio-DiD  -20.9% | samples treated   679 control   2403
+   end+0-3h     occ DiD  -0.96 slots | items/bh ratio-DiD  -23.7% | samples treated   332 control   1149
+   end+3-6h     occ DiD  -0.23 slots | items/bh ratio-DiD  -27.0% | samples treated   334 control   1140
+   end+6-9h     occ DiD  -1.31 slots | items/bh ratio-DiD  -16.2% | samples treated   331 control   1147
+   end+9-12h    occ DiD  -1.73 slots | items/bh ratio-DiD  +24.6% | samples treated   316 control   1106
+   null during  n=  3 occ DiD [p2.5 +0.12, p97.5 +3.11] | items [p2.5  +1.0%, p97.5 +13.5%]
+   null end+0-3h n=  3 occ DiD [p2.5 -0.07, p97.5 +2.46] | items [p2.5 -29.3%, p97.5  -9.7%]
+   null end+3-6h n=  3 occ DiD [p2.5 +0.30, p97.5 +3.06] | items [p2.5 -26.6%, p97.5 +49.9%]
+   null end+6-9h n=  3 occ DiD [p2.5 -1.49, p97.5 +4.01] | items [p2.5 -27.9%, p97.5 +12.2%]
+   null end+9-12h n=  3 occ DiD [p2.5 -1.02, p97.5 +3.71] | items [p2.5 -53.6%, p97.5  +8.9%]
+
+withdraw-01 (promoted, 2 pools, board-b,placebo-a) control 5 pools: isolated-a,isolated-b,isolated-c,isolated-d,placebo-c
+   during       occ DiD  +1.39 slots | items/bh ratio-DiD  -13.8% | samples treated  1027 control   2500
+   end+0-3h     occ DiD  +1.47 slots | items/bh ratio-DiD  -17.7% | samples treated   272 control    682
+   end+3-6h     occ DiD  +2.06 slots | items/bh ratio-DiD  -32.8% | samples treated    92 control    225
+   end+6-9h     occ DiD  +2.01 slots | items/bh ratio-DiD  -25.0% | samples treated   337 control    837
+   end+9-12h    occ DiD  +1.57 slots | items/bh ratio-DiD   -1.1% | samples treated   319 control    827
+
+climbflood-02 (promoted, 3 pools, board-a,board-c,hive-a) control 5 pools: isolated-a,isolated-b,isolated-c,isolated-d,placebo-c
+   during       occ DiD  +0.95 slots | items/bh ratio-DiD  +18.4% | samples treated   595 control    985
+   end+0-3h     occ DiD  +1.68 slots | items/bh ratio-DiD   +4.0% | samples treated   495 control    835
+   end+3-6h     occ DiD  +0.27 slots | items/bh ratio-DiD  +25.4% | samples treated   504 control    827
+   end+6-9h     occ DiD  +0.07 slots | items/bh ratio-DiD  +12.8% | samples treated   321 control    546
+   end+9-12h    occ DiD   +nan slots | items/bh ratio-DiD   +nan% | samples treated     0 control      0
+
+foodskip-01 (promoted, 3 pools, board-d,hive-c,placebo-b) control 8 pools: hive-b,hive-d,isolated-a,isolated-b,isolated-c,isolated-d,placebo-c,placebo-d
+   during       occ DiD  +0.11 slots | items/bh ratio-DiD  +10.4% | samples treated   704 control   1826
+   end+0-3h     occ DiD  -1.09 slots | items/bh ratio-DiD   +2.1% | samples treated   502 control   1301
+   end+3-6h     occ DiD  -0.69 slots | items/bh ratio-DiD  +36.6% | samples treated   505 control   1299
+   end+6-9h     occ DiD  +0.08 slots | items/bh ratio-DiD  -22.3% | samples treated   497 control   1316
+   end+9-12h    occ DiD  +0.13 slots | items/bh ratio-DiD   -0.3% | samples treated   499 control   1298
+   null during  n=  6 occ DiD [p2.5 -0.90, p97.5 +0.94] | items [p2.5 -39.3%, p97.5 +47.3%]
+   null end+0-3h n=  6 occ DiD [p2.5 -1.51, p97.5 +2.33] | items [p2.5 -20.1%, p97.5 +73.2%]
+   null end+3-6h n=  6 occ DiD [p2.5 -1.24, p97.5 +2.61] | items [p2.5 -15.3%, p97.5 +16.7%]
+   null end+6-9h n=  6 occ DiD [p2.5 -1.24, p97.5 +1.69] | items [p2.5 -30.4%, p97.5 +62.8%]
+   null end+9-12h n=  6 occ DiD [p2.5 -1.09, p97.5 +1.79] | items [p2.5 -44.1%, p97.5 +40.5%]
+
+towndeposit-01 (torn-down, 2 pools, board-b,placebo-a) control 8 pools: hive-b,hive-d,isolated-a,isolated-b,isolated-c,isolated-d,placebo-c,placebo-d
+   during       occ DiD  -0.80 slots | items/bh ratio-DiD  +24.7% | samples treated   351 control   1366
+   end+0-3h     occ DiD  -0.64 slots | items/bh ratio-DiD  +69.6% | samples treated   329 control   1309
+   end+3-6h     occ DiD  -0.75 slots | items/bh ratio-DiD  +38.8% | samples treated   323 control   1305
+   end+6-9h     occ DiD  -0.99 slots | items/bh ratio-DiD  +49.2% | samples treated   334 control   1311
+   end+9-12h    occ DiD  -1.17 slots | items/bh ratio-DiD   +4.2% | samples treated   173 control    671
+   null during  n=  6 occ DiD [p2.5 -1.11, p97.5 +1.75] | items [p2.5 -35.7%, p97.5  +1.6%]
+   null end+0-3h n=  6 occ DiD [p2.5 -0.41, p97.5 +1.21] | items [p2.5 -58.8%, p97.5 +30.9%]
+   null end+3-6h n=  6 occ DiD [p2.5 -0.75, p97.5 +0.65] | items [p2.5 -44.4%, p97.5 +25.4%]
+   null end+6-9h n=  6 occ DiD [p2.5 -0.60, p97.5 +1.22] | items [p2.5 -55.6%, p97.5 -17.2%]
+   null end+9-12h n=  6 occ DiD [p2.5 -0.37, p97.5 +1.15] | items [p2.5 -66.5%, p97.5  -6.4%]
+
+[exited with code 0]

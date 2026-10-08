@@ -1,0 +1,6 @@
+E=12h 11 drawable     free (not live, not excluded): median  6 | P(>=2) 100% | P(>=4)  84% | P(>=6)  53% | P(>=8)  20%
+E=12h 15 (+isolated)  free (not live, not excluded): median 10 | P(>=2) 100% | P(>=4) 100% | P(>=6) 100% | P(>=8)  84%
+E= 6h 11 drawable     free (not live, not excluded): median  8 | P(>=2) 100% | P(>=4) 100% | P(>=6)  83% | P(>=8)  51%
+E= 6h 15 (+isolated)  free (not live, not excluded): median 12 | P(>=2) 100% | P(>=4) 100% | P(>=6) 100% | P(>=8) 100%
+E= 0h 11 drawable     free (not live, not excluded): median  9 | P(>=2) 100% | P(>=4) 100% | P(>=6) 100% | P(>=8)  90%
+E= 0h 15 (+isolated)  free (not live, not excluded): median 13 | P(>=2) 100% | P(>=4) 100% | P(>=6) 100% | P(>=8) 100%

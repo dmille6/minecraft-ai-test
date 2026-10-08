@@ -1,0 +1,31 @@
+=== foodskip-01 +360 at 2026-10-07T12:02:00Z (pools board-d,hive-c,placebo-b) -- other lane: board-b,placebo-a
+  RECORDED : VERDICT KEEP (+360) :: deaths 1 (0.014/bh over 72.8 measured bot-h) vs control 6 (0.027/bh over 218.2) | NOT evaluated by this gate (registered, decided elsewhere or not at all): amendments, deadline_min, draw_exposure, 
+  FULL     : VERDICT KEEP (+360) :: deaths 1 (0.014/bh over 72.8 measured bot-h) vs control 6 (0.027/bh over 218.2) | NOT evaluated by this gate (registered, decided elsewhere or not at all): amendments, deadline_min, draw_exposure,    [view: 88 bot dirs]
+  REDUCED  : VERDICT KEEP (+360) :: deaths 1 (0.014/bh over 72.8 measured bot-h) vs control 3 (0.018/bh over 169.7) | NOT evaluated by this gate (registered, decided elsewhere or not at all): amendments, deadline_min, draw_exposure,    [view: 76 bot dirs; excluded present: 0]
+  SAME VERDICT WORD: yes  (full KEEP, reduced KEEP)
+=== towndeposit-01 +180 at 2026-10-07T16:11:00Z (pools board-b,placebo-a) -- other lane: board-d,hive-c,placebo-b
+  RECORDED : VERDICT REVERT (+180) :: deaths 1 (0.033/bh over 30.0 measured bot-h) vs control 7 (0.047/bh over 150.0) | v11 climbs +239% > +100%
+  FULL     : VERDICT REVERT (+180) :: deaths 1 (0.033/bh over 30.0 measured bot-h) vs control 7 (0.047/bh over 150.0) | v11 climbs +239% > +100%   [view: 88 bot dirs]
+  REDUCED  : VERDICT REVERT (+180) :: deaths 1 (0.033/bh over 30.0 measured bot-h) vs control 3 (0.029/bh over 105.0) | v11 climbs +240% > +100%   [view: 72 bot dirs; excluded present: 0]
+  SAME VERDICT WORD: yes  (full REVERT, reduced REVERT)
+=== junkwell-01 +poll at 2026-10-05T15:13:00Z (pools placebo-a,board-b) -- other lane: board-a,board-c,board-d,placebo-d
+  RECORDED : VERDICT REVERT (+0) :: rung-linked death on a non-ladder change (v14c: report unless the four conditions fail; operator reviews): ('placebo-a-Delta', '15:07:59', ['entombed', 'marooned']) | randomization units: 16 pools,
+  FULL     : VERDICT REVERT (+0) :: rung-linked death on a non-ladder change (v14c: report unless the four conditions fail; operator reviews): ('placebo-a-Delta', '15:07:59', ['entombed', 'marooned']) | randomization units: 16 pools,   [view: 88 bot dirs]
+  REDUCED  : VERDICT POLL_OK (+0) :: rung-linked death on a non-ladder change (v14c: report unless the four conditions fail; operator reviews): ('placebo-a-Delta', '15:07:59', ['entombed', 'marooned']) | randomization units: 12 pools   [view: 67 bot dirs; excluded present: 0]
+  SAME VERDICT WORD: NO  (full REVERT, reduced POLL_OK)
+=== chestfull-02 +360 at 2026-10-05T21:33:00Z (pools board-a,board-c,board-d,placebo-d) -- other lane: placebo-a,board-b
+  RECORDED : VERDICT KEEP (+360) :: randomization units: 16 pools, 4 treated | death gate HELD (reported, not a verdict): 4 canary deaths in 120.0 bot-h (0.033/bh) vs 9 control deaths in 240.0 bot-h (0.037/bh); rate ratio 0.89x but l
+  FULL     : VERDICT KEEP (+360) :: randomization units: 16 pools, 4 treated | death gate HELD (reported, not a verdict): 4 canary deaths in 120.0 bot-h (0.033/bh) vs 9 control deaths in 240.0 bot-h (0.037/bh); rate ratio 0.89x but l   [view: 88 bot dirs]
+  REDUCED  : VERDICT KEEP (+360) :: randomization units: 14 pools, 4 treated | death gate HELD (reported, not a verdict): 4 canary deaths in 120.0 bot-h (0.033/bh) vs 8 control deaths in 180.0 bot-h (0.044/bh); rate ratio 0.75x but l   [view: 76 bot dirs; excluded present: 0]
+  SAME VERDICT WORD: yes  (full KEEP, reduced KEEP)
+=== withdraw-01 +540 at 2026-10-06T14:29:00Z (pools board-b,placebo-a) -- other lane: board-a,board-c,hive-a
+  RECORDED : VERDICT KEEP (+540) :: randomization units: 16 pools, 2 treated | death gate HELD (reported, not a verdict): 3 canary deaths in 90.0 bot-h (0.033/bh) vs 16 control deaths in 450.0 bot-h (0.036/bh); rate ratio 0.94x but l
+  FULL     : VERDICT KEEP (+540) :: randomization units: 16 pools, 2 treated | death gate HELD (reported, not a verdict): 3 canary deaths in 90.0 bot-h (0.033/bh) vs 16 control deaths in 450.0 bot-h (0.036/bh); rate ratio 0.94x but l   [view: 88 bot dirs]
+  REDUCED  : VERDICT KEEP (+540) :: randomization units: 13 pools, 2 treated | death gate HELD (reported, not a verdict): 3 canary deaths in 90.0 bot-h (0.033/bh) vs 11 control deaths in 315.0 bot-h (0.035/bh); rate ratio 0.95x but l   [view: 71 bot dirs; excluded present: 0]
+  SAME VERDICT WORD: yes  (full KEEP, reduced KEEP)
+=== climbflood-02 +360 at 2026-10-06T20:52:00Z (pools board-a,board-c,hive-a) -- other lane: board-b,placebo-a
+  RECORDED : VERDICT KEEP (+360) :: deaths 0 (0.000/bh over 63.7 measured bot-h) vs control 9 (0.047/bh over 191.4) | NOT evaluated by this gate (registered, decided elsewhere or not at all): deadline_min, draw_exposure, harm, licenc
+  FULL     : VERDICT KEEP (+360) :: deaths 0 (0.000/bh over 63.7 measured bot-h) vs control 9 (0.047/bh over 191.4) | NOT evaluated by this gate (registered, decided elsewhere or not at all): deadline_min, draw_exposure, harm, licenc   [view: 88 bot dirs]
+  REDUCED  : VERDICT KEEP (+360) :: deaths 0 (0.000/bh over 63.7 measured bot-h) vs control 8 (0.054/bh over 148.8) | NOT evaluated by this gate (registered, decided elsewhere or not at all): deadline_min, draw_exposure, harm, licenc   [view: 76 bot dirs; excluded present: 0]
+  SAME VERDICT WORD: yes  (full KEEP, reduced KEEP)
+DONE
