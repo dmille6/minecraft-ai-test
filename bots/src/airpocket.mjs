@@ -286,11 +286,7 @@ export async function airPocketStep (bot, plan, { Vec3, predict, sleep = ms => n
       try { await Promise.race([bot.equip(best.item, 'hand'), new Promise((_, rej) => { t = setTimeout(() => rej(new Error('equip timeout')), AP_EQUIP_MS) })]) } catch { /* verified below */ } finally { clearTimeout(t) }
     }
     const held = bot.heldItem ?? null
-    // A HELD COPY AT <= HARD_STOP THAT IS NOT THE ONE CHOSEN (hygiene on; Claude P3): the equip did not land and the hand
-    // may hold a copy the server already broke -- priced as the bare hand, the worst case, by the budget check below.
-    const staleRisk = TOOL_HYGIENE.on && !!held && !!best.item && held.name === best.item.name && remaining(held) <= HARD_STOP &&
-      remaining(best.item) > HARD_STOP
-    const heldMs = staleRisk ? predict(block, null) : predict(block, best.item && held?.name === best.item.name ? best.item : held)
+    const heldMs = predict(block, best.item && held?.name === best.item.name ? best.item : held)
     res.tool = held?.name ?? 'hand'
     res.predictedMs = Number.isFinite(heldMs) ? Math.round(heldMs) : null
     if (!(Number.isFinite(heldMs) && heldMs > 0) || heldMs * AP_MARGIN + AP_LATENCY_MS > airPocketBudgetMs({ health: bot.health, envelope })) {

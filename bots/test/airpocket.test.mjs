@@ -875,17 +875,19 @@ const L2 = async step => {
 }
 await t('L2 the step equips the healthy copy over a 1-use one of the same name ahead of it in the bag', () => L2(airPocketStep))
 const L3 = async step => {
-  // the equip of the healthy copy does not land and the hand keeps the 1-use copy of the same name: priced as the hand
-  const p1 = SPK(1), p90 = SPK(90)
-  const mk = () => { const b = fakeBot({}); b.inventory = { items: () => [p1, p90] }; b.heldItem = p1; b.equip = async () => {}; return b }
-  const tight = mk(); let dug = 0; tight.dig = async () => { dug++ }
-  const r = await step(tight, airPocketPlan(world(HIVE_C)), deps({ envelope: 2.0 })); clearInterval(tight._healthTimer)
-  assert.equal(r.ok, false); assert.equal(r.predictedMs, 7500, 'priced as the bare hand'); assert.match(r.why, /over the budget after equip/); assert.equal(dug, 0)
-  const roomy = mk()
-  const r2 = await step(roomy, airPocketPlan(world(HIVE_C)), deps()); clearInterval(roomy._healthTimer)
-  assert.equal(r2.ok, true, 'on a roomy budget the hand price still fits: no new refusal, only a worst-case price')
+  // MIXED TIERS (Codex r2): a FASTER 1-use iron copy ahead of a healthy stone one -- the step digs with the healthy stone
+  // copy (toolfor: reflex digs keep HARD_STOP even when the worn copy is faster); alone, the iron@1 is used.
+  const i1 = { name: 'iron_pickaxe', maxDurability: 250, durabilityUsed: 249 }, s90 = SPK(90)
+  const pr = (b, item) => (/^iron_pickaxe$/.test(item?.name ?? '') ? 150 : /_pickaxe$/.test(item?.name ?? '') ? 300 : 7500)
+  assert.deepEqual(airPocketTools([i1, s90], { hygiene: true }), [s90])
+  const bot = fakeBot({}); bot.inventory = { items: () => [i1, s90] }
+  const r = await step(bot, airPocketPlan(world(HIVE_C)), deps({ predict: pr })); clearInterval(bot._healthTimer)
+  assert.equal(r.ok, true, r.why); assert.equal(bot.heldItem, s90); assert.equal(r.predictedMs, 300)
+  const solo = fakeBot({}); solo.inventory = { items: () => [i1] }
+  const r2 = await step(solo, airPocketPlan(world(HIVE_C)), deps({ predict: pr })); clearInterval(solo._healthTimer)
+  assert.equal(r2.ok, true, r2.why); assert.equal(solo.heldItem, i1); assert.equal(r2.predictedMs, 150)
 }
-await t('L3 a held 1-use copy that is not the chosen one is priced as the hand (it may already be broken server-side)', () => L3(airPocketStep))
+await t('L3 mixed tiers: a faster 1-use iron copy is skipped for a healthy stone one; alone it is used', () => L3(airPocketStep))
 const apWired = src => {
   const code = strip(src)
   const i = code.indexOf('const prepareAirPocket')
@@ -904,11 +906,11 @@ await t('L4 WIRED: the admission/pre-empt price (reflex prepareAirPocket) uses a
 const mustFail = async (label, fn) => { let threw = false; try { await fn() } catch { threw = true } assert.ok(threw, `the mutant survived: ${label}`) }
 await t('L5 MUTANT KILLED: airPocketTools without the hygiene filter (L1 catches it)', () =>
   withMutant(AP_PATH, '  return all.filter(it => remaining(it) > HARD_STOP || !healthy.has(kind(it)))\n', '  return all\n', m => mustFail('L1', () => L1(m.airPocketTools))))
-await t('L6 MUTANT KILLED: the step with its own unfiltered list (L2 catches it)', () =>
+await t('L6 MUTANT KILLED: the step with its own unfiltered list (L2 and L3 catch it)', () =>
   withMutant(AP_PATH, '    const items = airPocketTools(bot.inventory?.items?.() ?? [])\n',
-    "    const items = (bot.inventory?.items?.() ?? []).filter(it => /_(pickaxe|shovel|axe)$/.test(it.name))\n", m => mustFail('L2', () => L2(m.airPocketStep))))
-await t('L7 MUTANT KILLED: no stale-copy price (L3 catches it)', () =>
-  withMutant(AP_PATH, '    const heldMs = staleRisk ? predict(block, null) : ', '    const heldMs = ', m => mustFail('L3', () => L3(m.airPocketStep))))
+    "    const items = (bot.inventory?.items?.() ?? []).filter(it => /_(pickaxe|shovel|axe)$/.test(it.name))\n", async m => {
+      await mustFail('L2', () => L2(m.airPocketStep)); await mustFail('L3', () => L3(m.airPocketStep))
+    }))
 
 console.log(`\n${pass} passed, ${fail} failed`)
 process.exit(fail ? 1 : 0)
