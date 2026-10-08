@@ -10,7 +10,7 @@
 // keeps a bad generation from becoming a bad action.
 
 import { HARD_STOP } from './toolfor.mjs'
-import { SKILLS, classifyOutcome, SKILL_CONTRACTS, plantableSpotNear, findTownComposter, townBuildPlan, townPickMiss, townIngredientMiss, foodSkipNow, townWellState, townWellBuildPlan, insideTownWell, wellSwordsNow, townPitState } from './skills.mjs'
+import { SKILLS, classifyOutcome, SKILL_CONTRACTS, plantableSpotNear, findTownComposter, townBuildPlan, townPickMiss, townIngredientMiss, foodSkipNow, townWellState, townWellBuildPlan, insideTownWell, wellSwordsNow, cobbleWellCap, townPitState } from './skills.mjs'
 import { disposePlan, wellOrder, wellOrderOutcome, WELL_ORDERS, pitCoverItem } from './well.mjs'
 import { smeltInputsFor } from './smelting.mjs'
 import { makeClient, skillSchema } from './llm.mjs'
@@ -823,11 +823,15 @@ export class CognitiveLoop {
         const bot = this.bot
         const items = bot.inventory?.items?.() ?? []
         const p = bot.entity?.position
-        const plan = disposePlan(items, { swords: wellSwordsNow(bot) })   // a peaceful world's swords count (well.mjs swordGoes)
         const home = { x: config.world.homeX, z: config.world.homeZ }
+        const distHome = p ? Math.hypot(home.x - p.x, home.z - p.z) : Infinity
+        // the town's cobble is read only AT TOWN, where a well order can be given at all (Claude coupling review P3: the cap
+        // read on every decision anywhere in the world was a hot-path cost)
+        const plan = disposePlan(items, { swords: wellSwordsNow(bot), cobbleAtCap: distHome <= TOWN_RADIUS && cobbleWellCap(bot, items) === 'at_cap' })   // a peaceful world's swords count (well.mjs swordGoes)
+        const buildPlanJunk = disposePlan(items)   // the pit-first build tosses neither cobble nor swords (Claude coupling review P3)
         const r = wellOrder({
-          now: Date.now(), slots: plan.slots, freeSlots: 36 - plan.slots, junkStacks: plan.junkStacks,
-          distHome: p ? Math.hypot(home.x - p.x, home.z - p.z) : Infinity,
+          now: Date.now(), slots: plan.slots, freeSlots: 36 - plan.slots, junkStacks: plan.junkStacks, buildJunkStacks: buildPlanJunk.junkStacks,
+          distHome,
           well: () => townWellState(bot),
           // NO COVER BLOCK, NO BUILD ORDER (Claude r2 P3): the build would only skip no_cover every cooldown
           buildPlan: () => (pitCoverItem(items) ? townWellBuildPlan(bot) : null),
