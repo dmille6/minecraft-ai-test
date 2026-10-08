@@ -11,6 +11,15 @@ behind it (chain-ore.sh stopped 10-01 on fixes-02's revert)._
 
 ---
 
+## 10-08 00:40Z — OWNER delegated to operator + Codex: FOUR-pool bag fixes; AIRPOCKET before bag fixes
+D1: all seven bag fixes (toolhygiene, peacefulkit, junkwell-02, gridfix, bamboo, stonecap(+cap), bamboocraft) are
+"class": "bag-fix", drawn at four pools from the start (criterion: frees usable bag capacity). D2: QUEUE is now
+towndeposit-02 (live) -> airpocket-01 (needs the self-baseline DiD death gate installed first) -> withdraw2 (raises iron
+mining) -> toolhygiene -> peacefulkit -> junkwell-02 -> gridfix -> bamboo -> stonecap -> bamboocraft -> treefarm. If the
+airpocket gate is not ready when the slot frees, the bag fixes are HELD rather than bypassing it. Gate agent: build the
+gate, set the registration classes, check four-pool eligibility. Codex text:
+docs/reports/bagfix-pools-airpocket-order-codex-2026-10-08.txt.
+
 ## 10-08 00:30Z — CANARY LIVE: towndeposit-02 @ 92bc84f on placebo-b,board-c (10 bots), declared 00:15:33Z
 Drawn 00:15Z (earlier than the 04:15Z estimate). Versions: 10 x 92bc84f on the canary pools. Reads ~03:15Z / ~06:15Z.
 PRE WINDOW NOTE (Codex condition "no restart in the pre window"): fleet-recycle.timer (OnBootSec=6h, OnUnitActiveSec=6h;
