@@ -18,7 +18,8 @@ import { EventEmitter } from 'node:events'
 
 export const NAMES = ['air', 'grass_block', 'stone', 'chest', 'trapped_chest', 'barrel', 'composter', 'oak_log', 'cobblestone', 'dirt', 'oak_planks', 'apple', 'water', 'crafting_table',
   'stick', 'wooden_pickaxe', 'stone_pickaxe', 'iron_pickaxe', 'golden_pickaxe', 'stone_axe', 'cobbled_deepslate', 'birch_planks', 'bamboo', 'leaf_litter', 'torch',
-  'iron_ingot', 'diamond_pickaxe', 'netherite_pickaxe']   // appended (withdraw2): earlier indices unchanged
+  'iron_ingot', 'diamond_pickaxe', 'netherite_pickaxe',   // appended (withdraw2): earlier indices unchanged
+  'coal', 'raw_iron', 'raw_copper']                         // appended (withdraw2 x towndeposit)
 const SOLID = new Set(['grass_block', 'stone', 'chest', 'trapped_chest', 'barrel', 'composter', 'oak_log', 'cobblestone', 'dirt', 'oak_planks', 'crafting_table'])
 const CONTAINER = /^(chest|trapped_chest|barrel)$/
 const key = (x, y, z) => `${Math.floor(x)},${Math.floor(y)},${Math.floor(z)}`
