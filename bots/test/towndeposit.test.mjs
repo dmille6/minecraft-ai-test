@@ -659,6 +659,9 @@ test('TOWN MEMORY: a verified deposit records `took` for the container (clearing
   const dir = process.env.POOL_STATE_DIR, key = CF.townKey(new Vec3(0, 70, 0))
   CF.updateTownMemory(dir, key, null, e => { e['-4,70,0'] = CF.recordOutcome(undefined, 'full'); CF.notePickMisses(e, ['2,70,0']) })
   assert.equal(CF.containerPickMiss(CF.readTownMemory(dir, key), '2,70,0'), true, 'precondition: a fresh pickaxe miss at chest A')
+  // The fake deposit runs in ~1 ms: a 'took' stamped in the SAME millisecond as the miss does not clear it (chestfull
+  // containerPickMiss: took.at > miss.at), so the run starts a few ms later -- the test flaked ~50% on the unmodified 92bc84f.
+  await new Promise(r => setTimeout(r, 5))
   const a = chestAt(2), b = chestAt(-4)
   const { bot, st } = world({ items: fullBag(), containers: [a, b] })
   const r = await run(bot)
