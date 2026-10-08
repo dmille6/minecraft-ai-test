@@ -1672,7 +1672,7 @@ await t('COVER: a pit-first build that gives up (every toss missed) covers the C
   assert.ok(town.state.digs.length >= 2, 'positive control: the pit was dug')
   const dug = await newRows('_well_pit_dug', d0)
   assert.equal(dug.length, 1, 'one row when the pit opens (C9 starts its clock there), not one per phase')
-  assert.match(dug[0].skill.detail, new RegExp(`at=${CAP.x},${CAP.y},${CAP.z} from=fresh stage=dug`))
+  assert.match(dug[0].skill.detail, new RegExp(`at=${CAP.x},${CAP.y},${CAP.z} from=fresh`))
   assert.deepEqual(pitCells(town), ['air', 'dirt'], 'the cap cell covered; the shaft under it left as it is')
   assert.equal((await rows('_well_pit_open')).length, c0.open, 'no pit left open')
   const row = (await newRows('_well_pit_covered', c0.covered)).pop()
@@ -1757,8 +1757,63 @@ await t('COVER BEFORE THE DIG: a bag with no cover block is never dug into (skip
   const ok = fakeTown({ items: [S('oak_trapdoor', 2), S('cobblestone', 65)] })
   assert.equal((await run('build_well', ok.bot)).status, 'success', 'positive control: the 65th cobblestone is a cover')
 })
+await t('COVER (Codex r2): a body that enters the shaft DURING the cover\'s equip and look is seen -- the checks come after the awaits', async () => {
+  const town = giveUpScene([S('dirt', 1)])
+  const look = town.bot.lookAt
+  town.bot.lookAt = async (p, f) => {
+    if (town.bot.heldItem?.name === 'dirt') town.bot.entities[8] = { id: 8, name: 'chicken', position: new Vec3(CAP.x + 0.5, CAP.y - 1, CAP.z + 0.5), width: 0.4, height: 0.7 }
+    return look(p, f)
+  }
+  const c0 = await counts()
+  await run('build_well', town.bot)
+  assert.ok(town.bot.entities[8], 'positive control: the chicken arrived during the cover\'s look')
+  assert.deepEqual(pitCells(town), ['air', 'air'])
+  assert.match((await newRows('_well_pit_open', c0.open)).pop()?.skill.detail ?? '', /why=a_body_in_the_pit_\(chicken\)/)
+})
+await t('COVER (Codex r2): a HALF-DUG pit (an abort after the first dig) is covered back to fresh by a visitor, and says so', async () => {
+  const town = giveUpScene([S('dirt', 1)])
+  const sig = { aborted: false, _l: [], addEventListener (k, f) { this._l.push(f) }, removeEventListener (k, f) { this._l = this._l.filter(x => x !== f) } }
+  const dig = town.bot.dig
+  town.bot.dig = async (b, ...a) => { await dig(b, ...a); if (town.state.digs.length === 1) { sig.aborted = true; for (const f of [...sig._l]) f() } }
+  const c0 = await counts()
+  await run('build_well', town.bot, sig).catch(() => {})
+  assert.deepEqual(pitCells(town), ['dirt', 'air'], 'positive control: half dug (the cap cell open, the shaft not)')
+  const r = await run('close_well', town.bot)
+  assert.equal(r.status, 'success', r.detail)
+  assert.deepEqual(pitCells(town), ['dirt', 'dirt'])
+  assert.match((await newRows('_well_pit_covered', c0.covered)).pop()?.skill.detail ?? '', /stage=half_dug by=visitor item=dirt/)
+})
+await t('COVER (Codex r2): _well_pit_dug is written BEFORE the dig -- a dig that never takes is closed by its own row (C9 sees no open pit)', async () => {
+  const town = giveUpScene([S('dirt', 1)])
+  town.bot.dig = async () => { throw new Error('dig refused') }
+  const c0 = await counts(), d0 = (await rows('_well_pit_dug')).length
+  const r = await run('build_well', town.bot)
+  assert.equal(r.status, 'failed'); assert.match(r.detail, /could not dig/)
+  assert.equal((await rows('_well_pit_dug')).length, d0 + 1, 'the row came before the dig (the dig never succeeded)')
+  assert.match((await newRows('_well_pit_covered', c0.covered)).pop()?.skill.detail ?? '', /stage=fresh by=closed/)
+  assert.equal((await rows('_well_pit_open')).length, c0.open)
+})
+await t('COVER (Codex r2): an abort DURING the cover\'s look places nothing (the cover yields to the rescue)', async () => {
+  const town = giveUpScene([S('dirt', 1)])
+  const sig = { aborted: false, _l: [], addEventListener (k, f) { this._l.push(f) }, removeEventListener (k, f) { this._l = this._l.filter(x => x !== f) } }
+  const look = town.bot.lookAt
+  town.bot.lookAt = async (p, f) => { if (town.bot.heldItem?.name === 'dirt' && !sig.aborted) { sig.aborted = true; for (const g of [...sig._l]) g() } return look(p, f) }
+  const c0 = await counts(), places0 = town.state.places.length
+  await run('build_well', town.bot, sig).catch(() => {})
+  assert.ok(sig.aborted, 'positive control: aborted during the cover')
+  assert.equal(town.state.places.length, places0); assert.deepEqual(pitCells(town), ['air', 'air'])
+  assert.match((await newRows('_well_pit_open', c0.open)).pop()?.skill.detail ?? '', /why=aborted/)
+})
+await t('COVER BEFORE THE DIG from a FULL bag (Codex r2): the remedy names the move that makes a slot first', async () => {
+  const town = fakeTown({ items: [S('oak_log', 3), S('egg', 16), S('egg', 16), S('flint', 64), ...filler(31)].slice(0, 35), hand: S('cobblestone', 1) })
+  town.slots.forEach((s, i) => { if (s && s.name === 'cobblestone') s.count = 1 })   // no cobblestone to spare, a full bag
+  assert.equal(36 - town.bot.inventory.items().length, 0, 'positive control: the bag is full')
+  const r = await run('build_well', town.bot)
+  assert.equal(r.status, 'no_effect'); assert.match(r.detail, /; then carry one block to cover the junk well pit/)
+  assert.equal(town.state.goals.length, 0)
+})
 await t('MUTANT (skills): without the cover the abandoned pit stays open', async () => {
-  await withMutant(SP, "        else why = (await coverPit(bot, { site, gen, g, signal, by: 'build' })).why ?? null\n", "        else why = 'mutant'\n", async m => {
+  await withMutant(SP, "        else { const res = await coverPit(bot, { site, gen, g, signal, by: 'build' }); why = res.why ?? null; if (res.ok) pitClosedLogged = true }\n", "        else why = 'mutant'\n", async m => {
     const town = giveUpScene([S('dirt', 1)])
     await within(m.SKILLS.build_well.run({ bot: town.bot }, {}, { aborted: false }), 15000, 'mutant')
     assert.deepEqual(pitCells(town), ['air', 'air'], 'mutant inert')
@@ -1782,7 +1837,7 @@ await t('MUTANT (skills): without the body check the cover seals a mob in the sh
   })
 })
 await t('MUTANT (skills): without the read-back a refused place writes _well_pit_covered over an open pit', async () => {
-  await withMutant(SP, "  if (!isCoveredPit(after)) return { why: `the cap cell reads ${after} after the place` }\n", '', async m => {
+  await withMutant(SP, "  if (!shut(after)) return { why: `the cap cell reads ${after} after the place` }\n", '', async m => {
     const town = giveUpScene([S('dirt', 1)])
     const place = town.bot._placeBlockWithOptions
     town.bot._placeBlockWithOptions = async (ref, face, opts) => { if (/_trapdoor$/.test(town.bot.heldItem?.name ?? '')) return place(ref, face, opts) }
@@ -1792,7 +1847,7 @@ await t('MUTANT (skills): without the read-back a refused place writes _well_pit
   })
 })
 await t('MUTANT (skills): without the pre-dig cover check the build walks to the site with nothing to cover a pit', async () => {
-  await withMutant(SP, "  if (!pitCoverItem(items())) return skip('no_cover', PIT_COVER_REMEDY)\n", '', async m => {
+  await withMutant(SP, "  if (!pitCoverItem(items())) {\n", '  if (false) {\n', async m => {
     const town = fakeTown({ items: [S('oak_trapdoor', 2), S('cobblestone', 64)] })
     await within(m.SKILLS.build_well.run({ bot: town.bot }, {}, { aborted: false }), 15000, 'mutant')
     assert.ok(town.state.goals.length > 0, 'mutant inert')
