@@ -75,6 +75,7 @@ function makeBot (inv, difficulty, opts = {}) {
     async takeInput () { assert.ok(slots.input); give(slots.input.name, slots.input.count); slots.input = null },
     async takeFuel () {
       assert.ok(slots.fuel)
+      if (opts.fuelHang && /_sword$/.test(slots.fuel.name)) return new Promise(() => {})   // never answers, moves nothing
       if (opts.liftHang && /_sword$/.test(slots.fuel.name)) { furnace.selectedItem = { ...slots.fuel }; slots.fuel = null; filler = 36; return new Promise(() => {}) }
       if (lifts > 0 && /_sword$/.test(slots.fuel.name)) { lifts -= 1; furnace.selectedItem = { ...slots.fuel }; slots.fuel = null; if (opts.fillOnLift) filler = 36; throw new Error('the second click timed out') }
       if (stacks() >= 36 && /_sword$/.test(slots.fuel.name)) dropped.push(slots.fuel.name)   // putAway's tossLeftover
@@ -476,3 +477,12 @@ for (const [why, clickFails, expect] of [['the fuel slot takes it back', slot =>
     }
   })
 }
+
+test('A FUEL TAKE THAT NEVER ANSWERS AND MOVES NOTHING: the sword is not called taken -- the row says it is still in the furnace (Codex r-rev11)', async () => {
+  const m = makeBot({ raw_iron: 2, coal: 1, wooden_sword: 1 }, 'peaceful', { holdIgnition: true, fuelHang: true })
+  const ac = new AbortController()
+  setTimeout(() => ac.abort(), 150)
+  const { rows } = await swordRows(() => run(m.bot, 2, ac.signal).then(r => r, e => e))
+  assert.equal(m.slots.fuel?.name, 'wooden_sword'); assert.deepEqual(m.dropped, [])
+  assert.deepEqual(rows, ['no_effect:wooden_sword left in the furnace fuel slot (the drain ran out of time) for raw_iron active=1'])
+})
