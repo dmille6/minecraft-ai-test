@@ -6943,6 +6943,7 @@ const phaseDetail = (ph, cap, stop, capEnd = null) => wellDisposeDetail({ capEnd
 const FACING_OK = f => ['north', 'south', 'west', 'east'].includes(f)
 async function disposeWell (ctx, _args, signal) {
   const { bot } = ctx
+  wellClickedLast = new Set()   // THIS visit's clicks only (Codex r2: a visit that aborts before its throw is graded on none)
   const items = () => bot.inventory?.items?.() ?? []
   const slotsBefore = items().length
   const skip = (reason, why) => { wellRefused(bot, 'dispose', reason, why); return { status: 'no_effect', detail: why } }
@@ -7087,6 +7088,7 @@ function wellRecordAgeMs (gen) {
 
 async function buildWell (ctx, _args, signal) {
   const { bot } = ctx
+  wellClickedLast = new Set()
   const items = () => bot.inventory?.items?.() ?? []
   const free = () => 36 - items().length
   const skip = (reason, why) => { wellRefused(bot, 'build', reason, why); return { status: 'no_effect', detail: why } }
