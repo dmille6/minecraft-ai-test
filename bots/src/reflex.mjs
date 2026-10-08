@@ -1371,7 +1371,7 @@ export function startReflexes(bot, runner, lessons = null, worldFacts = null) {
     // "head" is the eye's cell (planBaseY), not the cell over the feet
     const pe = poseEye({ y: at.y, solidAt: cy => { const b = bot.blockAt(new Vec3(fx, cy, fz)); return !!b && b.boundingBox === 'block' } })
     const fy = planBaseY({ y: at.y, pose: pe.pose, eyeY: pe.eyeY })
-    const plan0 = airPocketPlan((dx, dy, dz) => bot.blockAt(new Vec3(fx + dx, fy + dy, fz + dz)))
+    const plan0 = airPocketPlan((dx, dy, dz) => bot.blockAt(new Vec3(fx + dx, fy + dy, fz + dz)), { pose: pe.pose })
     const plan = { ...plan0, baseY: fy }
     const pose = pe.pose
     const inputs = airPocketInputs(bot)   // the server's difficulty (packet) and the Hunger effect -- never bot.game.difficulty
