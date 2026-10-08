@@ -5813,7 +5813,7 @@ async function openTown (bot, block, ms) {
  */
 async function bankInto (bot, win, wanted, already, deadline, signal) {
   const bag = windowBag(bot, win)
-  const plan = townDepositPlan(bag, { wanted, already })
+  const plan = townDepositPlan(bag, { wanted, already, noSwords: foodSkipNow(bot).active })
   const steps = fitToContainer(plan.steps, win.slots.slice(0, win.inventoryStart))
   let full = plan.steps.length > steps.length
   const done = []
@@ -5877,7 +5877,7 @@ async function townDeposit (ctx, _args, signal) {
   const slotsBefore = before.length
   const held = list => { const c = {}; for (const it of list) c[it.name] = (c[it.name] ?? 0) + (it.count ?? 0); return c }
   const heldBefore = held(before)
-  const planned = townDepositPlan(before, { wanted }).steps.length
+  const planned = townDepositPlan(before, { wanted, noSwords: foodSkipNow(bot).active }).steps.length
   // `attempted` is what this visit MOVED (the client's clicks) and spends the cap; `banked` is what the server showed in
   // a chest on the re-open. A stack another bot takes out before the re-open is attempted but not banked -- and must
   // still count against the visit's 64 (Codex round 3).
@@ -5947,7 +5947,7 @@ async function townDeposit (ctx, _args, signal) {
       }
       tried.push({ at, result: !v.ok ? 'unverified' : v.verified.length ? (r.full ? 'took_some' : 'took') : r.full ? 'full' : 'none' })
       if (!v.ok) { stop = 'unverified'; break }
-      if (!townDepositPlan(items(), { wanted, already: attempted }).steps.length) break
+      if (!townDepositPlan(items(), { wanted, already: attempted, noSwords: foodSkipNow(bot).active }).steps.length) break
     }
   } finally {
     if (bot.stationaryUntil === stationary) bot.stationaryUntil = 0

@@ -671,7 +671,7 @@ export class CognitiveLoop {
       let wanted = null
       const plan = () => {
         wanted = [...(this.#wantedItems(milestone) ?? [])]
-        return townDepositPlan(items, { wanted })   // the peaceful kit's sword exclusion is townDepositPlan's default
+        return townDepositPlan(items, { wanted, noSwords: foodSkipNow(bot).active })   // the peaceful kit: the switch, read here
       }
       const r = townDepositOrder({
         now: Date.now(), slots: items.length, pos: bot.entity?.position ?? null,
