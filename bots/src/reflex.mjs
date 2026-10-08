@@ -44,7 +44,7 @@ import { PRIORITY } from './arbiter.mjs'
 import { survivalRelease } from './withdrawpick.mjs'
 import { airPocketPlan, airPocketAdmit, airPocketTrigger, airPocketStep, airPocketRow, airPocketInputs, airPocketAfter,
          airPocketPreempt, AP_WANT_LAPSE_MS,
-         AP_REFUSE_COOLDOWN_MS, standCandidates, poseEye, planBaseY, routeUpBlocked, airPocketTools } from './airpocket.mjs'
+         AP_REFUSE_COOLDOWN_MS, standCandidates, poseEye, planBaseY, routeUpBlocked, airPocketTools, boxCollides, standsOn } from './airpocket.mjs'
 import pathfinderPkg from 'mineflayer-pathfinder'
 const pkgGoals = pathfinderPkg?.goals
 
@@ -1369,9 +1369,10 @@ export function startReflexes(bot, runner, lessons = null, worldFacts = null) {
     const fx = Math.floor(at.x), fz = Math.floor(at.z)
     // THE POSE-AWARE BASE (airpocket-02): a bot squeezed under a ceiling is crouching or swimming, its eye low; the plan's
     // "head" is the eye's cell (planBaseY), not the cell over the feet
-    const pe = poseEye({ y: at.y, solidAt: cy => { const b = bot.blockAt(new Vec3(fx, cy, fz)); return !!b && b.boundingBox === 'block' } })
+    const pe = poseEye({ y: at.y, collides: (y0, y1) => boxCollides({ px: at.x, pz: at.z, y0, y1, blockAt: v => bot.blockAt(v), Vec3 }) })
     const fy = planBaseY({ y: at.y, pose: pe.pose, eyeY: pe.eyeY })
-    const plan0 = airPocketPlan((dx, dy, dz) => bot.blockAt(new Vec3(fx + dx, fy + dy, fz + dz)), { pose: pe.pose })
+    const feetSupport = pe.pose === 'stand' && standsOn({ y: at.y, block: bot.blockAt(new Vec3(fx, Math.floor(at.y), fz)) })
+    const plan0 = airPocketPlan((dx, dy, dz) => bot.blockAt(new Vec3(fx + dx, fy + dy, fz + dz)), { pose: pe.pose, feetSupport })
     const plan = { ...plan0, baseY: fy }
     const pose = pe.pose
     const inputs = airPocketInputs(bot)   // the server's difficulty (packet) and the Hunger effect -- never bot.game.difficulty
@@ -1430,7 +1431,7 @@ export function startReflexes(bot, runner, lessons = null, worldFacts = null) {
     logEvent({ kind: 'air_pocket', status: r.ok ? 'success' : r.outcome === 'opened' ? 'no_effect' : 'failed',
                detail: airPocketRow({ id: attemptId, r, requiredMs: admit.requiredMs, budgetMs: admit.budgetMs,
                                       difficulty: inputs.difficulty }), snapshot: snapshot(bot) })
-    const st = airPocketAfter(r.ok || r.outcome === 'opened', { drownFails, drownFailPos, drownFailHealth, seizedAt, lastProgressAt, cooldownUntil: airPocketCooldownUntil, breatheUntil: airPocketBreatheUntil })
+    const st = airPocketAfter(r.ok || r.outcome === 'opened', { drownFails, drownFailPos, drownFailHealth, seizedAt, lastProgressAt, cooldownUntil: airPocketCooldownUntil, breatheUntil: airPocketBreatheUntil }, Date.now(), { refrozen: r.refrozen === true })
     drownFails = st.drownFails; drownFailPos = st.drownFailPos; drownFailHealth = st.drownFailHealth
     seizedAt = st.seizedAt; lastProgressAt = st.lastProgressAt; airPocketCooldownUntil = st.cooldownUntil; airPocketBreatheUntil = st.breatheUntil
     return true
@@ -2275,7 +2276,7 @@ export function startReflexes(bot, runner, lessons = null, worldFacts = null) {
           let apRoute = route, apBlockedBy = null
           if (route.dir === 'up' && route.target) {
             const p = bot.entity.position, cx = Math.floor(p.x), cz = Math.floor(p.z)
-            const pe = poseEye({ y: p.y, solidAt: cy => { const b = bot.blockAt(new Vec3(cx, cy, cz)); return !!b && b.boundingBox === 'block' } })
+            const pe = poseEye({ y: p.y, collides: (y0, y1) => boxCollides({ px: p.x, pz: p.z, y0, y1, blockAt: v => bot.blockAt(v), Vec3 }) })
             const ub = routeUpBlocked({ routeDir: route.dir, targetY: Math.floor(route.target.y), eyeCell: pe.eyeCell,
                                         cellAt: cy => bot.blockAt(new Vec3(cx, cy, cz)) })
             if (ub.blocked) {
