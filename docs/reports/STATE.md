@@ -11,6 +11,20 @@ behind it (chain-ore.sh stopped 10-01 on fixes-02's revert)._
 
 ---
 
+## 10-08 14:00Z — BAG-FIX REGISTRATIONS STAGED (~/bagfix-regs, both engines APPROVE); +180 KEEP awaits the owner
+18 bag-fix registration variants on main (9e19a6d): class bag-fix, four pools, bagread primary at +1440 with per-fix
+death-censored null edges (toolhygiene pick_slots -0.842, peacefulkit sword_slots -0.059, junkwell slots -1.653, gridfix
+-1.366, stonecap -1.366); docs/reports/bagfix-registrations-2026-10-08.md. INSTALL between canaries (after airpocket):
+python3 ~/bagfix-regs/install-bagfix-regs.py (takes the scheduler install-hold, the loop lock; no gate digest change).
+CAUTION: the +1440 reads use 16-18 GB each -- never run two concurrently. Scheduler nit: install-hold/-release are not
+owner-scoped (queued fix).
++180 KEEP calibration: as specified it is WORSE on deaths (x2 82.6% vs today's 75.7% false KEEP); variant A' (+180 only
+if the canary death rate <= control's) is better than today on deaths and equal to the 4-pool +360 design, but ~3-6 pts
+worse than today's 2-pool read on near-threshold movement/work/gathering harms (a 4-pool property). Codex: drop unless
+the owner revises the condition; operator: build A'. OWNER DECIDES. Nothing built.
+MAIN HYGIENE: twice today an agent pushed a stale tree to main and deleted others' files (restored both times within
+minutes: 64783f7, 9e19a6d). Never use --no-verify on main; fetch + rebase before every push.
+
 ## 10-08 ~14:40Z — WITHDRAW2 ON AIRPOCKET READY: wd2-on-dbb4d78 @ 2189de3 (queue entry drafted, NOT added)
 - For the airpocket-01 KEEP case (fleet dbb4d78). The 13 commits of wd2-on-92bc84f (a6cd3c1) were cherry-picked onto dbb4d78.
   - No conflict. range-diff: every patch identical.
