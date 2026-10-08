@@ -335,7 +335,7 @@ test('A BURN SEEN ONLY AS AN EMPTIED SLOT (no heat reading yet, the item not yet
 
 test('swordDrainRow: the row for each drain fate (pure)', () => {
   assert.deepEqual(swordDrainRow('taken', true), { outcome: 'no_effect', what: 'wooden_sword returned unburned' })
-  assert.deepEqual(swordDrainRow(null, true, false), { outcome: 'no_effect', what: 'wooden_sword returned unburned' })
+  assert.deepEqual(swordDrainRow(null, true, false), { outcome: 'success', what: 'burned wooden_sword (unconfirmed)' }, 'never taken, gone from the slot: it burned (Claude r-rev8)')
   assert.match(swordDrainRow(null, true, true).what, /^wooden_sword left in the furnace fuel slot \(the drain ran out of time\)/, 'never reached: still in the slot (Claude r-rev7)')
   assert.match(swordDrainRow(null, true, undefined).what, /^wooden_sword outcome unknown/)
   assert.match(swordDrainRow('kept_full', true).what, /left in the furnace fuel slot \(the bag is full\)/)
