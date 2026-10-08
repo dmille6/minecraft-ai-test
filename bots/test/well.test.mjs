@@ -1742,8 +1742,10 @@ await t('COVER: a pit-first build that gives up (every toss missed) covers the C
   assert.ok(row); assert.match(row.skill.detail, new RegExp(`at=${CAP.x},${CAP.y},${CAP.z} stage=dug by=build item=dirt`))
   // ...AND THE NEXT BUILD DIGS THE COVER OUT AND FINISHES (the tosses land this time)
   town.state.missNext = 0
+  const d1 = (await rows('_well_pit_dug')).length
   const r2 = await run('build_well', town.bot)
   assert.equal(r2.status, 'success', r2.detail); assert.ok(wellOk(town, CAP).ok && wellOk(town, CAP).floor)
+  assert.match((await newRows('_well_pit_dug', d1)).pop()?.skill.detail ?? '', /from=covered/, 'the resume opens the pit again: C9\'s clock restarts')
 })
 await t('COVER: never after an ABORT (a danger preemption owns the body): the pit says so (why=aborted), and a visitor\'s close_well covers it', async () => {
   const town = giveUpScene([S('dirt', 1)])
@@ -2004,6 +2006,31 @@ await t('MUTANT (skills): the receipt read as 1/8000 units on a 1.21.9+ registry
     const pit = (await rows('_well_dispose')).slice(n0).filter(x => /stop=pit_first/.test(x.skill.detail))[0]
     assert.equal(field(pit.skill.detail, 'misses'), '0', 'positive control: the throw landed')
     assert.notEqual(field(pit.skill.detail, 'aim_off'), '0', 'mutant inert (the test registry is ' + REG.version.minecraftVersion + ')')
+  })
+})
+await t('COVER (Claude r3 P3): a build that stops on a cap reading OPEN never says the site is closed (an open top trapdoor reads built)', async () => {
+  const town = giveUpScene([S('dirt', 1)])
+  town.state.missNext = 0
+  const place = town.bot._placeBlockWithOptions
+  town.bot._placeBlockWithOptions = async (ref, face, opts) => {
+    await place(ref, face, opts)
+    const c = town.world.get(town.key({ x: CAP.x, y: CAP.y, z: CAP.z }))
+    if (c?.props?.half === 'top') c.props.open = true   // the cap lands open
+  }
+  const c0 = await counts()
+  const r = await run('build_well', town.bot)
+  assert.equal(r.status, 'failed'); assert.match(r.detail, /open=true/)
+  assert.equal((await rows('_well_pit_covered')).length, c0.covered, 'an open cap is not closed')
+})
+await t('MUTANT (skills): by=closed for any stage but invalid says an open cap is closed', async () => {
+  await withMutant(SP, "settledEnd && (st === 'fresh' || isCoveredPit(st))) logEvent(", "settledEnd && st !== 'invalid') logEvent(", async m => {
+    const town = giveUpScene([S('dirt', 1)])
+    town.state.missNext = 0
+    const place = town.bot._placeBlockWithOptions
+    town.bot._placeBlockWithOptions = async (ref, face, opts) => { await place(ref, face, opts); const c = town.world.get(town.key({ x: CAP.x, y: CAP.y, z: CAP.z })); if (c?.props?.half === 'top') c.props.open = true }
+    const c0 = await counts()
+    await within(m.SKILLS.build_well.run({ bot: town.bot }, {}, { aborted: false }), 15000, 'mutant')
+    assert.equal((await rows('_well_pit_covered')).length, c0.covered + 1, 'mutant inert')
   })
 })
 await t('MUTANT (skills): without the cover the abandoned pit stays open', async () => {

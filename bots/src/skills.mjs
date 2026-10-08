@@ -7322,8 +7322,9 @@ async function buildWell (ctx, _args, signal) {
       const st = stage()
       if (owned && isOpenPit(st)) logEvent({ kind: 'well_pit_open', status: 'failed', snapshot: snapshot(bot), detail: `at=${site.x},${site.y},${site.z} stage=${st} why=${String(why ?? (abortedRun || signal?.aborted ? 'aborted' : 'uncovered')).replace(/\s+/g, '_').slice(0, 80)}` })
       // A PIT THIS RUN LOGGED AS OPENING THAT READS CLOSED NOW, with no row saying so (its dig never took, or the cap read
-      // wrong after the place): closed at the site, said so -- C9 must not count it open
-      else if (pitDugLogged && !pitClosedLogged && settledEnd && st !== 'invalid') logEvent({ kind: 'well_pit_covered', status: 'success', snapshot: snapshot(bot), detail: `at=${site.x},${site.y},${site.z} stage=${st} by=closed` })
+      // wrong after the place): closed at the site, said so -- C9 must not count it open. Only GROUND at the cap counts
+      // (Claude r3 P3): 'built' is read for a top trapdoor open or shut, so an open cap is never said closed here.
+      else if (pitDugLogged && !pitClosedLogged && settledEnd && (st === 'fresh' || isCoveredPit(st))) logEvent({ kind: 'well_pit_covered', status: 'success', snapshot: snapshot(bot), detail: `at=${site.x},${site.y},${site.z} stage=${st} by=closed` })
     } catch { /* a read never breaks the cleanup */ }
     await settleAndRestore(bot, was, g, 'build_well')
   }
