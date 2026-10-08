@@ -61,7 +61,8 @@ import { townDepositPlan, fitToContainer, townDepositDetail, inTownZone, doubleC
 import { WOODEN_TRAPDOOR, isWellJunk, disposePlan, wellIdentity, wellStage, wellStand, standForFacing, wellSiteRefusal, canonicalWellSite,
          wellBuildPlan, wellBuildRoom, wellAim, aimPoint, tossOutcome, wellAdmission, wellDisposeDetail, itemInWell, bodyInWell, TOSS,
          trapdoorsNeeded, MAX_STACKS_PER_VISIT, wellBreach, usableStands, thrownNames, WELL_HOME_CLEARANCE,
-         disposableIn, guardLeft, reserveStone, SCAFFOLD_DECORATIONS, isSword, swordSwitch, pitFillCells, pitFillItem, pitFillPlan, aimApplied } from './well.mjs'
+         disposableIn, guardLeft, reserveStone, SCAFFOLD_DECORATIONS, isSword, swordSwitch, aimApplied,
+         isOpenPit, isCoveredPit, pitCoverItem, PIT_COVER_REMEDY, coverRef, bodyInPit } from './well.mjs'
 import { resyncPacket, GUARDED_INVENTORY_ACTIONS } from './craftsync.mjs'
 import path from 'node:path'
 import { IRON_KINDS, MIN_TRIP_USES, CANDIDATE_RADIUS, breakHazard, nearHome, pickBudget, rankCandidates, clusterOf, tunnelMovements, planTunnel, ONE_PICK_USES, tripDecision } from './oretunnel.mjs'
@@ -6327,6 +6328,66 @@ export function townWellState (bot) {
   if (!w) return null
   return { open: w.open, attended: !!wellAdmission({ players: playersSeen(bot), cap: w.cap, me: bot.username }), breached: !!w.breach }
 }
+/** The recorded site when it is an OPEN PIT, for the scheduler (wellOrder's `pit`): someone at it? can this bot cover it? */
+export function townPitState (bot) {
+  const r = recordedWellSite(bot)
+  if (!r) return null
+  const stage = wellStage(readWellCell(bot), r)
+  if (!isOpenPit(stage)) return null
+  return { stage, attended: !!wellAdmission({ players: playersSeen(bot), cap: r, me: bot.username }), coverable: !!pitCoverItem(bot.inventory?.items?.() ?? []) }
+}
+
+/**
+ * COVER AN OPEN PIT (coordinator 10-08; Codex r1 on the fill): one block into the CAP cell of the town's recorded site
+ * (well.mjs: why a cover and not a fill). Every await goes through the caller's guards `g` -- bounded and ABORTABLE: a
+ * danger preemption wins, and the pit is then a visitor's (close_well). Asked again IMMEDIATELY BEFORE the place: the
+ * record (generation and cell), nobody else within the admission radius, still an open pit, no body in the shaft or the
+ * cap cell, a cover block the reserve allows. A place that times out ends it there: nothing more is sent, and the
+ * caller settles it before the hand is restored.
+ * -> { ok: true, item } | { why, soft }   (soft: someone else's moment, not a fault)
+ */
+async function coverPit (bot, { site, gen, g, signal, by }) {
+  const read = readWellCell(bot)
+  const items = () => bot.inventory?.items?.() ?? []
+  const stage = () => wellStage(read, site)
+  const before = stage()
+  if (!isOpenPit(before)) return { why: `not an open pit (${before})`, soft: true }
+  if (!pitCoverItem(items())) return { why: 'no cover block in the bag' }
+  const st = wellStand(read, site)
+  const centre = new Vec3(site.x + 0.5, site.y + 0.5, site.z + 0.5)
+  const reach = () => bot.entity.position.offset(0, 1.62, 0).distanceTo(centre)
+  if (st && reach() > STATION_REACH - 0.5) {
+    try { await g.bound(bot.pathfinder.goto(new goals.GoalBlock(st.stand.x, st.stand.y, st.stand.z)), HK_PATH_MS, 'pathfinding', { path: true }) } catch (e) { if (e?.aborted || signal?.aborted) throw e }
+    check(signal)
+  }
+  if (reach() > STATION_REACH) return { why: 'out of reach of the pit' }
+  const cur = readTownSite(poolStateDir(config.memory.pool), wellSiteKey())
+  if (cur.gen !== gen || !cur.site || cur.site.x !== site.x || cur.site.y !== site.y || cur.site.z !== site.z) return { why: `the site record moved (generation ${gen} -> ${cur.gen})`, soft: true }
+  const near = wellAdmission({ players: playersSeen(bot), cap: site, me: bot.username })
+  if (near) return { why: `${near.who} is at the pit`, soft: true }
+  if (!isOpenPit(stage())) return { why: `the site reads ${stage()}`, soft: true }
+  const body = bodyInPit(Object.values(bot.entities ?? {}), site)
+  if (body) return { why: `a body in the pit (${body})`, soft: true }
+  const ref = coverRef(read, site, st?.stand ?? null)
+  if (!ref) return { why: 'nothing to place the cover against' }
+  const name = pitCoverItem(items())
+  const it = name && items().find(x => x.name === name)
+  if (!it) return { why: 'no cover block in the bag' }
+  try {
+    if (bot.heldItem?.name !== it.name) await g.bound(bot.equip(it, 'hand'), HK_AWAIT_MS, 'equip')
+    await g.bound(bot._placeBlockWithOptions(bot.blockAt(new Vec3(ref.ref.x, ref.ref.y, ref.ref.z)), new Vec3(ref.face.x, ref.face.y, ref.face.z),
+                                             { forceLook: true, swingArm: 'right' }), HK_AWAIT_MS, 'place')
+  } catch (e) {
+    if (e?.aborted || signal?.aborted) throw e
+    if (e?.budgetExceeded) return { why: `the ${String(e.message).split(' ')[0]} timed out` }   // nothing more is sent
+    /* any other rejection: judged by the read-back */
+  }
+  for (let i = 0; i < 10 && !isCoveredPit(stage()); i++) await g.bound(bot.waitForTicks?.(1), 50 + HK_AWAIT_MS, 'tick wait')
+  const after = stage()
+  if (!isCoveredPit(after)) return { why: `the cap cell reads ${after} after the place` }
+  logEvent({ kind: 'well_pit_covered', status: 'success', snapshot: snapshot(bot), detail: `at=${site.x},${site.y},${site.z} stage=${before} by=${by} item=${name}` })
+  return { ok: true, item: name }
+}
 const countsOf = list => { const m = {}; for (const it of list) if (it?.name) m[it.name] = (m[it.name] ?? 0) + (it.count ?? 0); return m }
 
 /**
@@ -6480,11 +6541,21 @@ async function throwStacks (bot, { cap, facing, stacks, bound, waitTick, signal,
     if (e?.name !== 'item' || !e.position || !f) return
     if (!(Math.hypot(e.position.x - f.x, e.position.z - f.z) < 0.6 && Math.abs(e.position.y - (f.y + TOSS.spawnUp)) < 0.8)) return
     acc.spawned.push(e)
-    // THE THROW'S RECEIPT: the spawn velocity says which pitch the server threw at (well.mjs aimApplied)
-    const ok = acc.aimPitch == null ? null : aimApplied({ vx: e.velocity?.x, vz: e.velocity?.z, pitchDeg: acc.aimPitch })
+  }
+  // THE THROW'S RECEIPT: the spawn packet's velocity says which pitch the server threw at (well.mjs aimApplied). Read from
+  // the PACKET (Claude r1): mineflayer 4.37.1's spawn_entity handler never copies it, so entity.velocity is still (0,0,0)
+  // at entitySpawn. This listener is registered after mineflayer's, so the entity is already judged ours (onSpawn) when
+  // it runs for the same packet.
+  const onSpawnPacket = pk => {
+    if (acc.aimPitch == null || !acc.spawned.some(e => e.id === pk?.entityId)) return
+    const v = pk.velocity
+    const ok = v ? aimApplied({ vx: v.x / 8000, vz: v.z / 8000, pitchDeg: acc.aimPitch }) : null
+    if (ok === null) return
+    acc.aimRead = (acc.aimRead ?? 0) + 1
     if (ok === false) acc.aimOff = (acc.aimOff ?? 0) + 1
   }
   bot.on?.('entitySpawn', onSpawn)
+  bot._client?.on?.('spawn_entity', onSpawnPacket)
   try {
     for (const st of stacks) {
       check(signal)
@@ -6497,8 +6568,13 @@ async function throwStacks (bot, { cap, facing, stacks, bound, waitTick, signal,
       if (!aim.ok) { acc.stop = `aim refused: ${aim.why}`; break }
       const p = aimPoint({ eye: { x: feet.x, y: feet.y + 1.62, z: feet.z }, cap, pitchDeg: aim.pitch, facing })
       await bound(bot.lookAt(new Vec3(p.x, p.y, p.z), true), HK_AWAIT_MS, 'aim')
+      const want = { yaw: bot.entity.yaw, pitch: bot.entity.pitch }
       // the aim said again, twice, a tick apart: the server can lose the first look (resendLook); the click follows a tick later
       await waitTick(); resendLook(bot); await waitTick(); resendLook(bot); await waitTick()
+      // STILL THE AIM (Claude r1 P3): a rotation moved since (a server correction) would be what the resend repeated -- aim once more
+      if (Math.abs(bot.entity.pitch - want.pitch) > 0.009 || Math.abs(bot.entity.yaw - want.yaw) > 0.009) {
+        await bound(bot.lookAt(new Vec3(p.x, p.y, p.z), true), HK_AWAIT_MS, 'aim'); await waitTick(); resendLook(bot); await waitTick()
+      }
       acc.aimPitch = aim.pitch
       const sinceDig = bot.lastDigTime != null ? Date.now() - bot.lastDigTime : Infinity
       if (sinceDig < DIG_CLICK_GAP_MS) await sleep(DIG_CLICK_GAP_MS - sinceDig, signal)
@@ -6522,7 +6598,7 @@ async function throwStacks (bot, { cap, facing, stacks, bound, waitTick, signal,
       await bound(click, HK_AWAIT_MS, 'throw')
       await waitTick(); await waitTick(); await waitTick()
     }
-  } finally { bot.removeListener?.('entitySpawn', onSpawn) }
+  } finally { bot.removeListener?.('entitySpawn', onSpawn); bot._client?.removeListener?.('spawn_entity', onSpawnPacket) }
   return acc
 }
 
@@ -6709,7 +6785,7 @@ const phaseDetail = (ph, cap, stop, capEnd = null) => wellDisposeDetail({ capEnd
   misses: ph.misses, retaken: ph.retaken, recollected: ph.recollected, nonlisted: ph.account.nonlisted, otherLoss: ph.account.otherLoss,
   source: ph.source, closedOpen: ph.closedOpen, stop, at: cap, offlist: ph.thrown?.offlist ?? 0, offlistItems: ph.thrown?.offlistItems ?? {}, unnamed: ph.thrown?.unnamed ?? 0,
   gclicked: ph.acc?.gclicked ?? 0, stone: ph.acc?.stoneMin ?? ph.stone ?? null, swords: ph.acc?.swords ?? 0, peaceful: ph.acc?.swords ? ph.acc.peaceful : null,
-  swordLost: ph.account?.swordLost ?? 0, swordsKept: ph.acc?.swordsKept ?? 0, aimOff: ph.acc?.aimOff ?? 0 })
+  swordLost: ph.account?.swordLost ?? 0, swordsKept: ph.acc?.swordsKept ?? 0, aimOff: ph.acc?.aimOff ?? 0, aimRead: ph.acc?.aimRead ?? 0 })
 
 const FACING_OK = f => ['north', 'south', 'west', 'east'].includes(f)
 async function disposeWell (ctx, _args, signal) {
@@ -6787,10 +6863,32 @@ async function disposeWell (ctx, _args, signal) {
   return { status: 'failed', failClass: 'well_toss_failed', detail: `${n ? `threw ${n} item(s), then` : 'nothing went down the town well:'} ${stop}` }
 }
 
+/**
+ * close_well's second job (wellOrder's pit reading): the recorded site is an OPEN PIT nobody is at -- a build aborted or
+ * killed before it could cover it. Any visitor holding a cover block covers it (coverPit), never one inside it.
+ */
+async function coverOpenPit (bot, signal) {
+  const r = recordedWellSite(bot)
+  const site = r && { x: r.x, y: r.y, z: r.z }
+  const stage = site ? wellStage(readWellCell(bot), site) : null
+  if (!site || !isOpenPit(stage)) return { status: 'no_effect', detail: 'the town junk well is not open, and its site is not an open pit' }
+  if (insideTownWell(bot)) return { status: 'no_effect', detail: 'this bot is inside the junk well pit; it never covers a pit over itself' }
+  const near = wellAdmission({ players: playersSeen(bot), cap: site, me: bot.username })
+  if (near) return { status: 'no_effect', detail: `${near.who} is at the junk well pit; it is theirs to finish` }
+  if (!pitCoverItem(bot.inventory?.items?.() ?? [])) return { status: 'no_effect', detail: `the junk well pit at ${site.x},${site.y},${site.z} is open and this bot holds no cover block` }
+  const was = handOf(bot.heldItem)
+  const g = hkGuards(bot, signal)
+  let res
+  try { res = await coverPit(bot, { site, gen: r.gen, g, signal, by: 'visitor' }) } finally { await settleAndRestore(bot, was, g, 'close_well') }
+  if (res.ok) return { status: 'success', placed: 1, detail: `covered the open junk well pit at ${site.x},${site.y},${site.z} with ${res.item}` }
+  if (res.soft) return { status: 'no_effect', detail: `the junk well pit was not covered: ${res.why}` }
+  return { status: 'failed', failClass: 'well_cover', detail: `could not cover the open junk well pit at ${site.x},${site.y},${site.z}: ${res.why}` }
+}
+
 async function closeWell (ctx, _args, signal) {
   const { bot } = ctx
   const well = findTownWell(bot)
-  if (!well || !well.open) return { status: 'no_effect', detail: 'the town junk well is not open' }
+  if (!well || !well.open) return coverOpenPit(bot, signal)
   if (insideTownWell(bot)) return { status: 'no_effect', detail: 'this bot is inside a junk well; it never closes a cap over itself' }
   const attended = () => !!wellAdmission({ players: playersSeen(bot), cap: well.cap, me: bot.username })
   if (attended()) return { status: 'no_effect', detail: 'someone is at the town junk well; it is theirs to close' }
@@ -6849,6 +6947,8 @@ async function buildWell (ctx, _args, signal) {
   }
   const pre = townWellBuildPlan(bot)
   if (!pre) return skip('no_wood', WELL_WOOD_REMEDY)
+  // A COVER BLOCK BEFORE ANY DIG (Codex r1 on the fill): a build that cannot finish closes what it opened.
+  if (!pitCoverItem(items())) return skip('no_cover', PIT_COVER_REMEDY)
   const room0 = wellBuildRoom({ free: free(), slotsNeeded: pre.slotsNeeded, junkStacks: disposePlan(items()).junkStacks })
   if (!room0.ok) {
     // NO ROOM AND NOT ENOUGH JUNK TO MAKE IT: slotRemedy names only a move whose precondition holds from here.
@@ -6909,9 +7009,17 @@ async function buildWell (ctx, _args, signal) {
     return true
   }
   const digShaft = async () => {
-    if (['fresh', 'half_dug'].includes(stage())) await settleRecord()
+    // THIS RUN OPENS THE PIT (or takes over one), so it is this run's to cover if it cannot finish -- only with a cover
+    // block in the bag, asked again here at the dig (pitCoverItem gives the same answer after the throws).
+    if (!pitCoverItem(items())) throw hkStop('well_no_cover', PIT_COVER_REMEDY)
+    owned = true
+    if (['fresh', 'half_dug', 'covered', 'covered_floored'].includes(stage())) await settleRecord()
+    const st0 = stage()
+    if (isCoveredPit(stage())) await digCell(site)   // an earlier build's cover comes out first
     if (stage() === 'fresh') await digCell(site)
     if (stage() === 'half_dug') await digCell({ x: site.x, y: site.y - 1, z: site.z })
+    // THE PIT IS OPEN FROM HERE: the row the read's C9 starts its clock on (a build killed before its finally writes no other)
+    if (!pitDugLogged && stage() !== st0) { pitDugLogged = true; logEvent({ kind: 'well_pit_dug', status: 'success', snapshot: snapshot(bot), detail: `at=${site.x},${site.y},${site.z} from=${st0} stage=${stage()}` }) }
     if (!['dug', 'floored'].includes(stage())) throw hkStop('well_dig', `the shaft at ${site.x},${site.y},${site.z} reads ${stage()} after digging`)
   }
   const placeTrapdoor = async (ref, face, half) => {
@@ -6923,44 +7031,6 @@ async function buildWell (ctx, _args, signal) {
       await g.bound(bot._placeBlockWithOptions(refBlock, new Vec3(face.x, face.y, face.z), { ...(half ? { half } : {}), forceLook: true, swingArm: 'right' }), HK_CRAFT_MS, 'place')
     } catch (e) { if (e?.aborted || signal?.aborted) throw e }
     for (let i = 0; i < 10; i++) { const at = read(ref.x + face.x, ref.y + face.y, ref.z + face.z); if (at && WOODEN_TRAPDOOR.test(at.name ?? '')) break; await tick() }
-  }
-  // THE PIT FILL (bounded, NOT abortable: it runs in the finally, after an abort too). Bottom first; each cell is placed
-  // against the block under it, or a full solid side neighbour when that is a trapdoor (a click would toggle it), and read
-  // back. -> null when the site reads ground again, else why not.
-  const fillPit = async stageBefore => {
-    const cells = pitFillCells(stageBefore, site)
-    const plan = pitFillPlan(items(), cells)
-    if (!plan) return `no fill block in the bag (${cells.length} needed)`
-    if (!onStand()) {
-      try { await g.restoreBound(bot.pathfinder.goto(new goals.GoalBlock(stand.x, stand.y, stand.z)), 8_000, 'pathfinding') } catch { /* judged by reach below */ }
-    }
-    let placed = 0
-    for (const cell of cells) {
-      const eye = q().offset(0, 1.62, 0)
-      if (eye.distanceTo(new Vec3(cell.x + 0.5, cell.y + 0.5, cell.z + 0.5)) > STATION_REACH) return `out of reach of ${cell.x},${cell.y},${cell.z}`
-      const name = pitFillItem(items())
-      const it = name && items().find(x => x.name === name)
-      if (!it) return 'no fill block in the bag'
-      const under = bot.blockAt(new Vec3(cell.x, cell.y - 1, cell.z))
-      let ref = null, face = null
-      if (solidAtCell({ x: cell.x, y: cell.y - 1, z: cell.z }) && !WOODEN_TRAPDOOR.test(under?.name ?? '')) { ref = under; face = new Vec3(0, 1, 0) }
-      else {
-        for (const d of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
-          const b = bot.blockAt(new Vec3(cell.x + d[0], cell.y, cell.z + d[1]))
-          if (b?.boundingBox === 'block' && !WOODEN_TRAPDOOR.test(b.name ?? '')) { ref = b; face = new Vec3(-d[0], 0, -d[1]); break }
-        }
-      }
-      if (!ref) return `nothing to place against at ${cell.x},${cell.y},${cell.z}`
-      try {
-        if (bot.heldItem?.name !== it.name) await g.restoreBound(bot.equip(it, 'hand'), HK_AWAIT_MS, 'equip')
-        await g.restoreBound(bot._placeBlockWithOptions(ref, face, { forceLook: true, swingArm: 'right' }), HK_AWAIT_MS, 'place')
-      } catch { /* judged by the read-back */ }
-      for (let i = 0; i < 10 && !solidAtCell(cell); i++) await tickNA()
-      if (!solidAtCell(cell)) return `${cell.x},${cell.y},${cell.z} did not read solid after the place`
-      placed++
-    }
-    logEvent({ kind: 'well_pit_filled', status: 'success', snapshot: snapshot(bot), detail: `at=${site.x},${site.y},${site.z} stage=${stageBefore} cells=${placed} items=${plan.map(p => `${p.name}:${p.n}`).join(',')}` })
-    return null
   }
   const rs = { tries: 0, tableYields: false, pickupDealt: false, owed: () => 0, stationDid: [] }
   let chain = []
@@ -6985,7 +7055,7 @@ async function buildWell (ctx, _args, signal) {
       }
     }
   }
-  let stationary = 0, pit = null, pitItems = 0, pitTossed = 0
+  let stationary = 0, pit = null, pitItems = 0, pitTossed = 0, owned = false, abortedRun = false, pitDugLogged = false
   try {
     if (!(await toStand())) return fail('well_unreachable', `could not reach the junk well site's standing cell at ${stand.x},${stand.y},${stand.z}`)
     // AT THE SITE, read again: the site, the fence, no well, nobody near.
@@ -7057,7 +7127,7 @@ async function buildWell (ctx, _args, signal) {
     const ex2 = findTownWell(bot)
     if (ex2 && !ex2.breach) return skip('exists', 'another bot built the town junk well first; the trapdoors stay in the bag')
     const near3 = wellAdmission({ players: playersSeen(bot), cap: site, me: bot.username })
-    if (near3 && stage() === 'fresh') return skip('player_near', `wait for ${near3.who} to move off the junk well site (${near3.dist.toFixed(1)} blocks)`)
+    if (near3 && ['fresh', 'covered', 'covered_floored'].includes(stage())) return skip('player_near', `wait for ${near3.who} to move off the junk well site (${near3.dist.toFixed(1)} blocks)`)
     await digShaft()
     if (stage() === 'dug') {
       await placeTrapdoor({ x: site.x, y: site.y - 2, z: site.z }, { x: 0, y: 1, z: 0 }, null)
@@ -7074,24 +7144,26 @@ async function buildWell (ctx, _args, signal) {
     return { status: 'success', placed: 2, detail: `built the town junk well at ${site.x},${site.y},${site.z}${pitItems ? ` (threw ${pitItems} junk item(s) down the pit first)` : ''}` }
   } catch (e) {
     if (e?.hkStop) return fail(e.failClass, e.message)
+    if (e?.aborted || signal?.aborted) abortedRun = true
     throw e
   } finally {
-    // AN ABANDONED BUILD NEVER LEAVES AN OPEN PIT (coordinator 10-08: the sandbox left one after two missed tosses): an
-    // unfinished site is filled back to ground from the bag -- after an abort too (bounded, not abortable), once nothing
-    // of this order is still in flight. Only a fill that cannot be done (no block, no reach, a body in the cell) leaves
-    // the pit, and says so: _well_pit_open, which the read GATES (a site not closed within 10 min).
-    let why = null, before = null
+    // AN ABANDONED BUILD NEVER LEAVES AN OPEN PIT (coordinator 10-08: the sandbox left one after two missed tosses). The
+    // pit this run opened (or took over) is COVERED (coverPit) once nothing of this order is in flight -- but never
+    // after an abort: a danger preemption owns the body, and a visitor's close_well covers the pit instead. Whatever
+    // stays open says so: _well_pit_open with why=, which the read GATES (C9: a site not covered or built within 10 min).
+    let why = null
     try {
-      before = stage()
-      if (pitFillCells(before, site).length) {
-        const settled = await g.settle().catch(() => false)
-        why = !settled ? 'an operation still in flight' : bot.currentWindow ? 'a window is open' : await fillPit(before)
+      if (owned && isOpenPit(stage())) {
+        if (abortedRun || signal?.aborted) why = 'aborted'
+        else if (!(await g.settle().catch(() => false))) why = 'an operation still in flight'
+        else if (bot.currentWindow) why = 'a window is open'
+        else why = (await coverPit(bot, { site, gen, g, signal, by: 'build' })).why ?? null
       }
-    } catch (e) { why = `fill: ${String(e?.message ?? e).slice(0, 60)}` }
+    } catch (e) { why = e?.aborted || signal?.aborted ? 'aborted' : `cover: ${String(e?.message ?? e).slice(0, 60)}` }
     if (stationary && bot.stationaryUntil === stationary) bot.stationaryUntil = 0
     try {
       const st = stage()
-      if (['half_dug', 'dug', 'floored'].includes(st)) logEvent({ kind: 'well_pit_open', status: 'failed', snapshot: snapshot(bot), detail: `at=${site.x},${site.y},${site.z} stage=${st} why=${String(why ?? 'unfilled').replace(/\s+/g, '_').slice(0, 80)}` })
+      if (owned && isOpenPit(st)) logEvent({ kind: 'well_pit_open', status: 'failed', snapshot: snapshot(bot), detail: `at=${site.x},${site.y},${site.z} stage=${st} why=${String(why ?? 'uncovered').replace(/\s+/g, '_').slice(0, 80)}` })
     } catch { /* a read never breaks the cleanup */ }
     await settleAndRestore(bot, was, g, 'build_well')
   }
