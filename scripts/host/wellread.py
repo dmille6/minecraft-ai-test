@@ -14,7 +14,7 @@
 # 5, throws whole listed stacks from <= 1.15 aimed at the opening, closes it in a finally, and retakes any miss. Vanilla
 # despawn (6000 ticking ticks) deletes what lies in the well; nobody can reach it (item 1.8125 below the rim's feet).
 # Rows (key=value details):
-#   _well_dispose      "slots=a->b freed=N tossed=N n=N misses=N retaken=N recollected=N nonlisted=N other_loss=N server=resync|local
+#   _well_dispose      "slots=a->b freed=N tossed=N n=N misses=N aim_off=N retaken=N recollected=N nonlisted=N other_loss=N server=resync|local
 #                       closed_open=0|1 at=x,y,z stop=... items=k:v,..."   (n and items = the SERVER bag's loss)
 #   _well_built        "at=x,y,z facing=.. floor=1 wood=.. pit_first=0|1 pit_tossed=N pit_items=N free=N"
 #   _well_refused      "order=dispose|build reason=..."
@@ -26,7 +26,11 @@
 #   _well_open_unresolved  an OPEN asked for and not seen within 2 s at cleanup (TRIPWIRE: reported, not gated; close_well
 #                       closes any well found open with nobody at it)
 #
-#   _well_pit_open     an interrupted build left its shaft uncapped (TRIPWIRE: reported; the record keeps it excluded)
+#   _well_pit_dug      a build OPENED the pit (at= from= stage=): C9's clock starts here -- a build killed before its
+#                       finally writes no other row
+#   _well_pit_open     a build ended with its pit uncovered (why=aborted / attended / a body / the cover refused ...)
+#   _well_pit_covered  one block in the cap cell (at= stage= by=build|visitor item=): an abandoned build's own cover, or
+#                       a visitor's close_well over a pit an abort or a kill left
 #   NOTE (registration): a build digs 1-2 blocks (the shaft) whose drops fall into the shaft and despawn with the junk.
 #
 #   LIVENESS     canary well rows from the canary build (>= 1); control 0 (control runs the base code).
@@ -57,6 +61,11 @@
 #                printed beside it. INSTRUMENT: control compost runs (at town, >= 34 slots) whose bot carried a sword.
 #                EXPOSURE needs >= 1 canary sword visit -- in a fleet where no canary bot ever carries a sword to the well
 #                the read stays NOT READY on that alone (the C8 gate would have nothing to judge).
+#                C9 (10-08, coordinator: an open pit near town is a hazard) NO PIT LEFT OPEN: a canary pit OPENED
+#                (_well_pit_dug) or left (_well_pit_open) whose site its pool does not cover (_well_pit_covered) or build
+#                (_well_built) within 10 min. Positive controls below run the bot's own row strings through the same
+#                parser as the walk (pit_event); scripts/host/wellread_c9_e2e.py drives the field through verdict.py
+#                with the registered own_line. Denominator printed: pits opened, built, covered by the build / a visitor.
 #   DEATH-GATE CONCERN (junkwell-01's revert; REPORTED, the two-death floor decides): mine actions per bot DiD (01 was
 #                +34.3 against -8.2..+5.0 on seven other canaries; flagged MINING SHIFT above +15) and every post-window
 #                death below y 60 by mechanism, per arm.
@@ -112,7 +121,7 @@ ST16 = re.compile(r'^(egg|brown_egg|blue_egg|snowball|ender_pearl|armor_stand|bu
 
 def stack_of(n):
     return 16 if ST16.search(n) else 64
-WELL_KINDS = ('_well_dispose', '_well_built', '_well_refused', '_well_left_open', '_well_recollected', '_well_inside', '_well_open_unresolved', '_well_pit_open', '_well_retired')
+WELL_KINDS = ('_well_dispose', '_well_built', '_well_refused', '_well_left_open', '_well_recollected', '_well_inside', '_well_open_unresolved', '_well_pit_open', '_well_retired', '_well_pit_dug', '_well_pit_covered')
 OPEN_GRACE = dt.timedelta(minutes=2)   # C2: a cap left open that no visit closed within this long
 STUCK_SPAN = dt.timedelta(minutes=2)   # C4: inside rows (<= 1/min) for one bot at one cell spanning this long = no escape
 
@@ -208,6 +217,33 @@ def guarded_unclicked(f):
 
 
 SWORD = re.compile(r'_sword$')
+PIT_CLOSE_S = 600
+
+
+def pit_event(k, f, b, t, pool, arm):
+    """One well row -> ('open', (b, at, stage, t, pool, arm)) | ('close', (pool, at, t, by)) | None. The walk and the
+    self-tests both go through this, so a positive control fed the bot's row strings exercises the parser the read uses."""
+    if k in ('_well_pit_dug', '_well_pit_open'):
+        return 'open', (b, f.get('at'), f.get('stage'), t, pool, arm)
+    if k == '_well_pit_covered':
+        return 'close', (pool, f.get('at'), t, f.get('by', '?'))
+    if k == '_well_built':
+        return 'close', (pool, f.get('at'), t, 'built')
+    return None
+
+
+def pit_left_open(opens_, closes_, end):
+    """C9: canary pits opened (_well_pit_dug) or left (_well_pit_open) whose site (pool, at=) has no _well_pit_covered /
+    _well_built by the same pool within PIT_CLOSE_S after the row -> (breaches, pending). A row with less than
+    PIT_CLOSE_S of window left after it is pending, not a breach."""
+    out, pending = [], []
+    for b, at, stage, t, pool, arm in opens_:
+        if arm != 'canary':
+            continue
+        if any(p == pool and a == at and 0 <= (tc - t).total_seconds() <= PIT_CLOSE_S for p, a, tc, *_ in closes_):
+            continue
+        (pending if (end - t).total_seconds() < PIT_CLOSE_S else out).append((b, at, stage))
+    return out, pending
 
 
 def c8_breach(f):
@@ -289,6 +325,36 @@ assert c7_breach(kv('slots=36->34 offlist=0 gclicked=10 stone=63 offlist_items=-
 assert c7_breach(kv('slots=36->34 offlist=0 gclicked=10 stone=64 offlist_items=- server=resync stop=done items=diorite:10,glass:5')) is None
 assert c7_breach(kv('slots=36->35 offlist=0 gclicked=0 stone=0 offlist_items=- server=resync stop=done items=glass:5')) is None
 assert c7_breach(kv('slots=36->35 offlist=0 gclicked=3 offlist_items=- server=resync stop=done items=granite:3')) is not None   # no stone=
+# C9 POSITIVE CONTROLS, from the bot's own row strings through pit_event (the walk's parser): a pit dug and never
+# closed fires; one covered (by the build or a visitor) or built within 10 min does not; another pool's close does not count
+def _c9(rows_, end):
+    o, c = [], []
+    for k_, d_, t_, pool_, arm_ in rows_:
+        ev_ = pit_event(k_, kv(d_), 'b-1', t_, pool_, arm_)
+        if ev_:
+            (o if ev_[0] == 'open' else c).append(ev_[1])
+    return pit_left_open(o, c, end)
+_T0 = dt.datetime(2026, 10, 8, tzinfo=dt.timezone.utc); _H = _T0 + dt.timedelta(hours=1); _m = lambda n: _T0 + dt.timedelta(minutes=n)
+_DUG = ('_well_pit_dug', 'at=1,2,3 from=fresh stage=dug', _T0, 'hive-a', 'canary')
+assert _c9([_DUG], _H)[0] == [('b-1', '1,2,3', 'dug')], 'a pit dug and never closed (a killed build writes nothing else)'
+assert _c9([_DUG, ('_well_pit_open', 'at=1,2,3 stage=dug why=aborted', _m(1), 'hive-a', 'canary')], _H)[0] == [('b-1', '1,2,3', 'dug'), ('b-1', '1,2,3', 'dug')]
+assert _c9([_DUG, ('_well_pit_covered', 'at=1,2,3 stage=dug by=build item=dirt', _m(2), 'hive-a', 'canary')], _H)[0] == []
+assert _c9([_DUG, ('_well_pit_open', 'at=1,2,3 stage=dug why=aborted', _m(1), 'hive-a', 'canary'),
+            ('_well_pit_covered', 'at=1,2,3 stage=dug by=visitor item=dirt', _m(3), 'hive-a', 'canary')], _H)[0] == []
+assert _c9([_DUG, ('_well_built', 'at=1,2,3 facing=north floor=1 wood=oak pit_first=1 pit_tossed=2 pit_items=32 free=3', _m(2), 'hive-a', 'canary')], _H)[0] == []
+assert _c9([_DUG, ('_well_pit_covered', 'at=1,2,3 stage=dug by=visitor item=dirt', _m(11), 'hive-a', 'canary')], _H)[0] != [], 'covered after 10 min is a breach'
+assert _c9([_DUG, ('_well_pit_covered', 'at=1,2,3 stage=dug by=build item=dirt', _m(2), 'hive-b', 'canary')], _H)[0] != [], 'another pool does not close it'
+assert _c9([_DUG, ('_well_pit_covered', 'at=9,2,3 stage=dug by=build item=dirt', _m(2), 'hive-a', 'canary')], _H)[0] != [], 'another site does not close it'
+assert _c9([_DUG], _m(5)) == ([], [('b-1', '1,2,3', 'dug')]), 'too recent: pending'
+assert _c9([('_well_pit_dug', 'at=1,2,3 from=fresh stage=dug', _T0, 'hive-a', 'control')], _H)[0] == [], 'the control arm is not judged'
+# (the older, tuple-level controls)
+_T0 = dt.datetime(2026, 10, 8, tzinfo=dt.timezone.utc)
+_o = [('b', '1,2,3', 'dug', _T0, 'hive-a', 'canary')]
+assert pit_left_open(_o, [], _T0 + dt.timedelta(hours=1))[0] == [('b', '1,2,3', 'dug')]
+assert pit_left_open(_o, [('hive-a', '1,2,3', _T0 + dt.timedelta(minutes=2))], _T0 + dt.timedelta(hours=1))[0] == []
+assert pit_left_open(_o, [('hive-b', '1,2,3', _T0 + dt.timedelta(minutes=2))], _T0 + dt.timedelta(hours=1))[0] != [], 'another pool does not close it'
+assert pit_left_open(_o, [], _T0 + dt.timedelta(minutes=5)) == ([], [('b', '1,2,3', 'dug')]), 'too recent: pending'
+assert pit_left_open([('b', '1,2,3', 'dug', _T0, 'hive-a', 'control')], [], _T0 + dt.timedelta(hours=1))[0] == []
 # C8 POSITIVE CONTROLS: swords clicked in a world read as easy fire; peaceful does not; a lost unclicked sword fires
 assert c8_breach(kv('slots=36->34 offlist=0 gclicked=0 swords=2 peaceful=0 offlist_items=- stop=done items=stone_sword:1,wooden_sword:1')) == {'swords': 2, 'peaceful': '0'}
 assert c8_breach(kv('slots=36->34 offlist=0 gclicked=0 swords=2 peaceful=1 offlist_items=- stop=done items=stone_sword:1,wooden_sword:1')) is None
@@ -320,7 +386,7 @@ print('rows walked %d  |  canary %s  sha %s  cutoff %s  window +%d min' % (len(e
 rows = Counter(); kinds = Counter(); offbuild = 0
 c1 = []; c3 = []; c4 = []; misses = retaken = 0; built = defaultdict(Counter); breached = defaultdict(set)
 visits = 0; items_out = 0; freed = []; refused = Counter(); resynced = 0; pit = 0; deaths = Counter(); unresolved = 0
-opens = []; closes = []; closed_open = []; other_loss = 0; unnamed = 0; pit_open = []; aborted_misses = 0
+opens = []; closes = []; closed_open = []; other_loss = 0; unnamed = 0; pit_open = []; aborted_misses = 0; pit_closed = []; pit_opened = 0; pit_left_rows = []; aim_off = 0; aim_read = 0; canary_throws = 0
 orders = Counter(); refused_pool = defaultdict(Counter); death_pos = []; well_cells = set(); inside_rows = []
 c7 = []; c8 = []; c8_trip = []; sword_known = 0; sword_visits = 0; inst_swords_town = 0; last_diff = {}; g_unclicked = []; guard_low_end = []; mines = defaultdict(Counter); deep_deaths = defaultdict(Counter); deep_list = []
 deaths_nopos = Counter(); qual = defaultdict(set)
@@ -377,8 +443,12 @@ for r in ev_rows:
         c1.append((b, d[:100]))
     elif k == '_well_inside':
         inside_rows.append((t, b, f.get('at', '?')))
-    elif k == '_well_pit_open':
-        pit_open.append((b, f.get('at'), f.get('stage')))
+    elif k in ('_well_pit_dug', '_well_pit_open', '_well_pit_covered'):
+        kind_, ev_ = pit_event(k, f, b, t, pool_of(b), arm)
+        (pit_open if kind_ == 'open' else pit_closed).append(ev_)
+        pit_opened += k == '_well_pit_dug' and arm == 'canary'
+        if k == '_well_pit_open':
+            pit_left_rows.append((b, f.get('at'), f.get('stage'), f.get('why')))
     elif k == '_well_refused':
         refused[f.get('reason', '?')] += 1
         if arm == 'canary':
@@ -390,8 +460,11 @@ for r in ev_rows:
             breached[pool_of(b)].add(f['at'])
     elif k == '_well_built':
         built[pool_of(b)][f.get('at', '?')] += 1
+        pit_closed.append(pit_event(k, f, b, t, pool_of(b), arm)[1])
         pit += num(f, 'pit_first')
     elif k == '_well_dispose':
+        if arm == 'canary':
+            aim_off += num(f, 'aim_off'); aim_read += num(f, 'aim_read'); canary_throws += num(f, 'tossed')
         if num(f, 'recollected'):
             c1.append((b, 'recollected=%d %s' % (num(f, 'recollected'), d[:80])))
         why = c3_breach(f)
@@ -499,12 +572,17 @@ print('DENOMINATORS rows post canary %d / control %d | bots post canary %d / con
          len(last['pre']), len(last['post'])))
 print('LIVENESS     canary well rows %d (>= 1) | control %d (must be 0) | other build %d | by kind %s'
       % (rows['canary'], rows['control'], offbuild, dict((k2, n) for (a, k2), n in kinds.items() if a == 'canary')))
+c9, c9_pending = pit_left_open(pit_open, pit_closed, END)
+print('             throws the server took at another pitch (aim_off, from each item\'s spawn packet) %d of %d receipts read (%d canary throws) (TRIPWIRE: the aim is said twice since 10-08)' % (aim_off, aim_read, canary_throws))
+_by = Counter(x[3] for x in pit_closed if len(x) > 3)
 print('CORRECTNESS  C1 recollected %d | C2 left open > 2 min %d (pending %d) | C3 non-listed thrown %d | C4 bots stuck inside a well >= 2 min %d | C5 misses left out %d (misses %d, retaken %d) | C6 pools with > 1 ACTIVE well %s'
       % (len(c1), len(c2), len(c2_pending), len(c3), len(c4), c5, misses, retaken, c6 or 0))
+print('             C9 pits left open > 10 min %d %s (pending %d) | OUT OF: canary pits opened %d; closes at a site: built %d, covered by the build %d, by a visitor %d | pits a build left uncovered %d %s'
+      % (len(c9), c9[:3], len(c9_pending), pit_opened, _by['built'], _by['build'], _by['visitor'], len(pit_left_rows), pit_left_rows[:3]))
 print('             wells built %s | breached %s | pit-first builds %d | disposal visits %d (server-resynced %d) | refusals %s'
       % ({p: dict(c) for p, c in built.items()}, {p: sorted(c) for p, c in breached.items() if c}, pit, visits, resynced, dict(refused)))
-print('TRIPWIRES    inside rows %d %s | caps found open (closed_open=1) %d %s | open rows %d (unresolved %d) | other_loss %d | unnamed thrown %d | pits left open %d %s | aborted-visit misses %d'
-      % (len(inside_rows), [(b, at) for _, b, at in inside_rows[:3]], len(closed_open), closed_open[:3], len(opens), unresolved, other_loss, unnamed, len(pit_open), pit_open[:3], aborted_misses))
+print('TRIPWIRES    inside rows %d %s | caps found open (closed_open=1) %d %s | open rows %d (unresolved %d) | other_loss %d | unnamed thrown %d | aborted-visit misses %d'
+      % (len(inside_rows), [(b, at) for _, b, at in inside_rows[:3]], len(closed_open), closed_open[:3], len(opens), unresolved, other_loss, unnamed, aborted_misses))
 print('             refusals per dispose order (canary) %s | no_site per pool %s | deaths within 3 of a well %s'
       % (refusal_rate or '-', {p: c['no_site'] for p, c in refused_pool.items() if c.get('no_site')} or '-', deaths_near or '-'))
 print('             deaths canary %d control %d (two-death floor: canary-report.py decides; one death is named, not a verdict)' % (deaths['canary'], deaths['control']))
@@ -529,7 +607,7 @@ print('PRIMARY      listed-junk slots/bot canary %.2f -> %.2f control %.2f -> %.
          did('junk'), did('full'), items_out, ('%.2f' % (sum(freed) / len(freed))) if freed else '-'))
 print('             owner-junk (10-04) slots/bot DiD %+.2f | decoration slots/bot DiD %+.2f'
       % (did('owner'), did('deco')))
-for x in (c1[:3] + c2[:3] + c3[:3] + c4[:3] + c7[:3]):
+for x in (c1[:3] + c2[:3] + c3[:3] + c4[:3] + c7[:3] + [('C9 pit left open',) + tuple(x) for x in c9[:3]]):
     print('  breach:', x)
 try:
     if ovr:
@@ -547,7 +625,7 @@ try:
         'deaths_nopos_canary': deaths_nopos['canary'], 'deaths_nopos_control': deaths_nopos['control'],
         'owner_slots_did': None if did('owner') != did('owner') else round(did('owner'), 3),
         'deco_slots_did': None if did('deco') != did('deco') else round(did('deco'), 3),
-        'caps_found_open': len(closed_open), 'inside_rows': len(inside_rows), 'other_loss': other_loss, 'pits_left_open': len(pit_open), 'deaths_near_well': len(deaths_near),
+        'caps_found_open': len(closed_open), 'inside_rows': len(inside_rows), 'other_loss': other_loss, 'pits_left_uncovered': len(pit_left_rows), 'breach_pit_left_open': len(c9), 'pit_pending': len(c9_pending), 'pits_opened_canary': pit_opened, 'pits_covered_build': _by['build'], 'pits_covered_visitor': _by['visitor'], 'aim_off_canary': aim_off, 'aim_read_canary': aim_read, 'deaths_near_well': len(deaths_near),
         'dispose_visits_canary': visits, 'wells_built_canary': sum(len(c) for c in built.values()), 'instrument_control': inst,
         'junk_slots_did': None if did('junk') != did('junk') else round(did('junk'), 3),
         'full_share_did': None if did('full') != did('full') else round(did('full'), 4),

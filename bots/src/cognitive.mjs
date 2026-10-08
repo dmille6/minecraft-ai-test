@@ -10,8 +10,8 @@
 // keeps a bad generation from becoming a bad action.
 
 import { HARD_STOP } from './toolfor.mjs'
-import { SKILLS, classifyOutcome, SKILL_CONTRACTS, plantableSpotNear, findTownComposter, townBuildPlan, townPickMiss, townIngredientMiss, foodSkipNow, townWellState, townWellBuildPlan, insideTownWell, wellSwordsNow, cobbleWellCap } from './skills.mjs'
-import { disposePlan, wellOrder, wellOrderOutcome, WELL_ORDERS } from './well.mjs'
+import { SKILLS, classifyOutcome, SKILL_CONTRACTS, plantableSpotNear, findTownComposter, townBuildPlan, townPickMiss, townIngredientMiss, foodSkipNow, townWellState, townWellBuildPlan, insideTownWell, wellSwordsNow, cobbleWellCap, townPitState } from './skills.mjs'
+import { disposePlan, wellOrder, wellOrderOutcome, WELL_ORDERS, pitCoverItem } from './well.mjs'
 import { smeltInputsFor } from './smelting.mjs'
 import { makeClient, skillSchema } from './llm.mjs'
 import { buildSystemPrompt, buildUserPrompt, makeSentinel, WorkingMemory } from './prompt.mjs'
@@ -831,7 +831,9 @@ export class CognitiveLoop {
           now: Date.now(), slots: plan.slots, freeSlots: 36 - plan.slots, junkStacks: plan.junkStacks, buildJunkStacks: buildPlanJunk.junkStacks,
           distHome,
           well: () => townWellState(bot),
-          buildPlan: () => townWellBuildPlan(bot),
+          // NO COVER BLOCK, NO BUILD ORDER (Claude r2 P3): the build would only skip no_cover every cooldown
+          buildPlan: () => (pitCoverItem(items) ? townWellBuildPlan(bot) : null),
+          pit: () => townPitState(bot),
           inside: () => insideTownWell(bot),
           myName: bot.username ?? '',
           peers: () => Object.values(bot.players ?? {}).filter(q => q?.username && q.username !== bot.username && q.entity?.position &&

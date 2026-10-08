@@ -233,6 +233,81 @@ const diggable = b => ground(b) && Number.isFinite(b.hardness) && b.hardness >= 
 export const wellCells = cap => ({ cap: { x: cap.x, y: cap.y, z: cap.z }, shaft: { x: cap.x, y: cap.y - 1, z: cap.z },
                                    floor: { x: cap.x, y: cap.y - 2, z: cap.z }, rim: { x: cap.x, y: cap.y + 1, z: cap.z } })
 
+// ---- an abandoned build never leaves an open pit (coordinator 10-08: the sandbox left one after two missed tosses) ----
+//
+// THE COVER, NOT A FILL (Codex r1 on the fill, 10-08): one block in the CAP cell only. A covered pit is ground again at the
+// cap's level (nothing walks or falls into it), the shaft below is left as it is -- items lying in it are not pushed
+// out by a block placed over them, and the floor trapdoor is never clicked -- and the next build digs the cover out
+// ('covered' / 'covered_floored', wellStage). Only the build that DUG (or resumed) the pit covers it, and not after an
+// abort (a danger preemption owns the body); a pit left open by an abort or a killed process is covered by any visitor
+// (close_well, wellOrder's pit reading).
+
+/** The stages that are an open pit at the cap (wellStage). */
+export const PIT_STAGES = Object.freeze(['half_dug', 'dug', 'floored'])
+export const isOpenPit = stage => PIT_STAGES.includes(stage)
+export const isCoveredPit = stage => stage === 'covered' || stage === 'covered_floored'
+
+/**
+ * Blocks a pit is covered with, first held first. Never junk the well throws (a pit-first throw could empty the bag of
+ * it), never a falling block, an ore or a container, and never harder than MAX_DIG_HARDNESS (the next build digs it out:
+ * deepslate and cobbled_deepslate are not on it). The ones no consumer counts come first; the exit contract's scaffold
+ * kinds next; COBBLESTONE last and only above the reserve (pitCoverItem).
+ */
+export const PIT_COVER_BLOCKS = Object.freeze(['coarse_dirt', 'rooted_dirt', 'dripstone_block', 'blackstone', 'basalt', 'calcite',
+  'dirt', 'netherrack', 'tuff', 'stone', 'cobblestone'])
+/** The cover blocks that are RESERVE_STONE: one goes only if the bag keeps STONE_GUARD of these two after it. They are
+ *  counted alone (not andesite/diorite/granite, which a pit-first throw may take down to the guard), so the answer
+ *  before the dig is still the answer after the throws. */
+const COVER_RESERVE = new Set(['cobblestone', 'cobbled_deepslate'])
+
+/** The bag item a pit is covered with -> name | null. Pure. The same answer before the first dig and at the cover. */
+export function pitCoverItem (items = []) {
+  const counts = {}
+  for (const it of (Array.isArray(items) ? items : [])) if (it?.name && (it.count ?? 0) > 0) counts[it.name] = (counts[it.name] ?? 0) + it.count
+  let reserve = 0
+  for (const n of COVER_RESERVE) reserve += counts[n] ?? 0
+  return PIT_COVER_BLOCKS.find(n => (counts[n] ?? 0) > 0 && (!COVER_RESERVE.has(n) || reserve - 1 >= STONE_GUARD)) ?? null
+}
+
+/** Said when a build is refused for want of a cover block (an executable move: dirt is dug anywhere). */
+export const PIT_COVER_REMEDY = `carry one block to cover the junk well pit if the build is left unfinished: dirt, stone, tuff, calcite or netherrack (or more than ${STONE_GUARD} cobblestone: ${STONE_GUARD} stay as the reserve). Not started: the well is never dug without one`
+
+/**
+ * WHAT THE COVER IS PLACED AGAINST -> { ref, face } | null. Pure. The cap cell's own walls at g (containment keeps all
+ * eight neighbours solid ground): the one under it when that is ground (half_dug), else a side wall -- the one across
+ * from the stand first (its face is in the thrower's view), then the two beside, the stand's own wall last. Never a
+ * trapdoor (a click toggles it).
+ */
+export function coverRef (read, cap, stand = null) {
+  if (typeof read !== 'function' || !cap) return null
+  const ok = b => ground(b) && !WOODEN_TRAPDOOR.test(b.name ?? '')
+  if (ok(read(cap.x, cap.y - 1, cap.z))) return { ref: { x: cap.x, y: cap.y - 1, z: cap.z }, face: { x: 0, y: 1, z: 0 } }
+  const sx = stand ? Math.sign(stand.x - cap.x) : 0, sz = stand ? Math.sign(stand.z - cap.z) : 0
+  const sides = [[1, 0], [-1, 0], [0, 1], [0, -1]]
+  const rank = ([dx, dz]) => (dx === -sx && dz === -sz ? 0 : dx === sx && dz === sz ? 2 : 1)
+  for (const [dx, dz] of sides.slice().sort((p, q) => rank(p) - rank(q))) {
+    if (ok(read(cap.x + dx, cap.y, cap.z + dz))) return { ref: { x: cap.x + dx, y: cap.y, z: cap.z + dz }, face: { x: -dx || 0, y: 0, z: -dz || 0 } }
+  }
+  return null
+}
+
+/** Entities a placed block does not wait for (vanilla: they do not block building). */
+const NO_BODY = new Set(['item', 'experience_orb'])
+/**
+ * A BODY IN THE PIT -> its name | null. Pure. Any entity but an item or an orb whose box meets the shaft or the cap cell
+ * (y g-1 .. g+1): a cover over it would seal it in, and the server refuses a place into a body anyway.
+ */
+export function bodyInPit (entities = [], cap) {
+  if (!cap) return null
+  for (const e of (Array.isArray(entities) ? entities : [])) {
+    const p = e?.position
+    if (!p || NO_BODY.has(e.name) || !Number.isFinite(p.x)) continue
+    const w = (Number.isFinite(e.width) ? e.width : 0.6) / 2, h = Number.isFinite(e.height) ? e.height : 1.8
+    if (p.x + w > cap.x && p.x - w < cap.x + 1 && p.z + w > cap.z && p.z - w < cap.z + 1 && p.y + h > cap.y - 1 && p.y < cap.y + 1) return e.username ?? e.name ?? 'entity'
+  }
+  return null
+}
+
 /** Facing -> the unit step from the cap to the STAND (the facing side: the open flap stands on the far side). */
 export const FACING = Object.freeze({ north: { x: 0, z: -1 }, south: { x: 0, z: 1 }, west: { x: -1, z: 0 }, east: { x: 1, z: 0 } })
 const FACING_ORDER = ['north', 'south', 'west', 'east']
@@ -304,9 +379,11 @@ export function wellIdentity (read, cap) {
 }
 
 /**
- * HOW FAR ALONG IS A BUILD AT THIS CAP? -> 'fresh' | 'half_dug' | 'dug' | 'floored' | 'built' | 'invalid'. Pure. Every
- * build visit resumes from here, so a visit that is interrupted between digging and capping leaves a pit the next
- * visit finishes (the column is excluded from every path meanwhile).
+ * HOW FAR ALONG IS A BUILD AT THIS CAP? -> 'fresh' | 'half_dug' | 'dug' | 'floored' | 'built' | 'covered' |
+ * 'covered_floored' | 'invalid'. Pure. Every build visit resumes from here, so a visit that is interrupted between
+ * digging and capping leaves a pit the next visit finishes (the column is excluded from every path meanwhile). A pit
+ * an unfinished build COVERED (one block in the cap cell over an open shaft, or over the floor trapdoor) is resumed by
+ * digging the cover out.
  */
 export function wellStage (read, cap) {
   if (typeof read !== 'function' || !cap) return 'invalid'
@@ -318,6 +395,8 @@ export function wellStage (read, cap) {
   if (passable(c) && passable(s)) return 'dug'
   if (passable(c) && diggable(s)) return 'half_dug'
   if (diggable(c) && diggable(s)) return 'fresh'
+  if (diggable(c) && passable(s)) return 'covered'
+  if (diggable(c) && isTrap(s, 'bottom')) return 'covered_floored'
   return 'invalid'
 }
 
@@ -592,6 +671,31 @@ export function wellAim ({ from, cap, facing = null, rise = 0 }) {
   return { pitch: best.pitch, rate: best.rate, dist, ok, why: ok ? null : `predicted hit rate ${best.rate.toFixed(3)} below ${MIN_HIT_RATE}` }
 }
 
+/**
+ * DID THE SERVER THROW AT OUR PITCH? -> true / false / null (no velocity). Pure. A thrown item's SPAWN velocity carries the
+ * server's rotation (vanilla's drop: horizontal speed 0.3*cos(pitch) plus a kick of at most 0.02). Sandbox 10-08: the
+ * server dropped the bot's aim look in 12 of 12 traced pit-first throws (RCON read the dig look, 72.15, after the click)
+ * and the item spawned at 72-degree speed (~0.09 a tick instead of ~0.19) -- this is the throw's own receipt. The
+ * tolerance is the kick (0.02) plus one tick of drag (x0.98: the packet can carry the velocity after the item's first
+ * tick, Claude r1) and the packet's 1/8000 rounding: 0.04. Calibrated on the sandbox traces 10-08: 13 throws applied at
+ * 49.95 spawned at 0.180-0.211 (expected 0.193); 5 dropped-look throws at 0.085-0.111 (expected 0.092 at 72.15).
+ */
+export const AIM_TOLERANCE = 0.04
+/**
+ * A spawn_entity packet's velocity in blocks per tick -> { vx, vz } | null. Pure. Up to 1.21.8 the field is vec3i16 in
+ * 1/8000 of a block per tick; from 1.21.9 it is lpVec3, already decoded to blocks per tick by minecraft-protocol
+ * (Claude r2 P3: the fleet's default MINECRAFT_VERSION is 1.21.11; the sandbox traces were 1.21.8 shorts).
+ */
+export function packetVelocity (v, lpVec3) {
+  if (!v || !Number.isFinite(v.x) || !Number.isFinite(v.z)) return null
+  const k = lpVec3 ? 1 : 1 / 8000
+  return { vx: v.x * k, vz: v.z * k }
+}
+export function aimApplied ({ vx, vz, pitchDeg }) {
+  if (!Number.isFinite(vx) || !Number.isFinite(vz) || !Number.isFinite(pitchDeg)) return null
+  return Math.abs(Math.hypot(vx, vz) - TOSS.speed * Math.cos(pitchDeg * Math.PI / 180)) <= AIM_TOLERANCE
+}
+
 /** The point to look at so the eye's ray points at the opening's centre, `pitchDeg` below the horizontal. Pure. */
 export function aimPoint ({ eye, cap, pitchDeg, facing = null }) {
   const { x: cx, z: cz } = aimTarget(cap, facing)
@@ -699,7 +803,7 @@ export function wellBuildPlan (counts = {}, { tableAvailable = false, items = nu
  * HOW MANY TRAPDOORS THE BUILD STILL NEEDS at this stage (Codex review: a floored pit needs only its cap, and a bot
  * carrying that one must be able to finish it). Pure.
  */
-export const trapdoorsNeeded = stage => (stage === 'floored' ? 1 : stage === 'built' ? 0 : 2)
+export const trapdoorsNeeded = stage => (stage === 'floored' || stage === 'covered_floored' ? 1 : stage === 'built' ? 0 : 2)
 
 /** The build's crafts as craftroom steps, in order (the table is crafted and PUT DOWN when the plan needs one). Pure. */
 export function wellChainSteps (plan) {
@@ -750,11 +854,14 @@ const lazy = v => (typeof v === 'function' ? v() : v)
  *   well      () -> { open, attended } | null         the town well (attended: another player within ADMISSION_RADIUS)
  *   buildPlan () -> wellBuildPlan | null              what this bot could build from
  *   peers     () -> [names at town]                   one builder per town (composter.mjs builderDecision)
+ *   pit       () -> { attended, coverable } | null    the recorded site when it is an OPEN PIT (an unfinished build)
  * Order of precedence: close an open, unattended well (any visitor); dispose at TRIGGER_SLOTS+ holding listed junk;
- * build when the town has none. Cooldowns are charged when an order is ISSUED.
+ * build when the town has none (a build resumes a pit); else cover an open pit nobody is at (close_well, any visitor
+ * holding a cover block: a build aborted or killed before it could cover its own). Cooldowns are charged when an
+ * order is ISSUED.
  */
 export function wellOrder ({ now = 0, slots = 0, freeSlots = 0, junkStacks = 0, buildJunkStacks = junkStacks, distHome = Infinity, well = null,
-                             buildPlan = null, myName = '', peers = [], state = {}, inside = false } = {}) {
+                             buildPlan = null, myName = '', peers = [], state = {}, inside = false, pit = null } = {}) {
   const s = { ...state }
   const none = () => ({ order: null, state: s })
   if (!(distHome <= TOWN_RADIUS)) return none()
@@ -784,17 +891,28 @@ export function wellOrder ({ now = 0, slots = 0, freeSlots = 0, junkStacks = 0, 
     s.lastCloseAt = now
     return { order: { skill: 'close_well', args: {}, why: 'the town junk well is open and nobody is at it: close it' }, state: s }
   }
-  if (!buildReady) return none()
-  const plan = lazy(buildPlan)
-  if (!plan) return none()
+  const plan = buildReady ? lazy(buildPlan) : null
   // the pit-first build tosses only what IT may toss (never cobble: Codex r1 P2 on the cap coupling)
-  const room = wellBuildRoom({ free: freeSlots, slotsNeeded: plan.slotsNeeded, junkStacks: buildJunkStacks })
-  if (!room.ok) return none()
-  s.lastBuildAt = now
-  const who = builderDecision({ myName, peers: lazy(peers) ?? [], deferrals: s.deferrals ?? 0 })
-  if (who.defer) { s.deferrals = (s.deferrals ?? 0) + 1; return none() }
-  s.deferrals = 0
-  return { order: { skill: 'build_well', args: {}, why: `at town, no junk well, ${plan.carried ? 'carrying trapdoors' : `holding ${plan.wood} wood`} and ${freeSlots} free slots${room.pitFirst ? ` (${room.toss} junk stack(s) go down the pit first)` : ''}` }, state: s }
+  const room = plan ? wellBuildRoom({ free: freeSlots, slotsNeeded: plan.slotsNeeded, junkStacks: buildJunkStacks }) : null
+  if (plan && room.ok) {
+    s.lastBuildAt = now
+    const who = builderDecision({ myName, peers: lazy(peers) ?? [], deferrals: s.deferrals ?? 0 })
+    if (!who.defer) {
+      s.deferrals = 0
+      return { order: { skill: 'build_well', args: {}, why: `at town, no junk well, ${plan.carried ? 'carrying trapdoors' : `holding ${plan.wood} wood`} and ${freeSlots} free slots${room.pitFirst ? ` (${room.toss} junk stack(s) go down the pit first)` : ''}` }, state: s }
+    }
+    s.deferrals = (s.deferrals ?? 0) + 1
+  }
+  // AN OPEN PIT NOBODY IS AT (coordinator 10-08): a build aborted (a danger preemption) or killed left it; any visitor
+  // that holds a cover block and is not building covers it -- close_well, on its cooldown and backoff.
+  if (closeReady) {
+    const p = lazy(pit)
+    if (p && !p.attended && p.coverable) {
+      s.lastCloseAt = now
+      return { order: { skill: 'close_well', args: {}, why: 'the town junk well site is an open pit nobody is at: cover it' }, state: s }
+    }
+  }
+  return none()
 }
 
 /** After a well order ran -> the new state. A skip, an interruption or a runner refusal costs nothing; a fault backs off. */
@@ -900,14 +1018,14 @@ const list = items => Object.entries(items ?? {}).filter(([, c]) => c > 0).map((
  */
 export function wellDisposeDetail ({ slotsBefore, slotsAfter, items = {}, tossed = 0, misses = 0, retaken = 0, recollected = 0, nonlisted = 0, otherLoss = 0,
                                      source = 'local', closedOpen = false, stop = 'done', at = null, offlist = 0, offlistItems = {}, unnamed = 0, capEnd = null,
-                                     stone = null, gclicked = 0, swords = 0, peaceful = null, swordLost = 0, swordsKept = 0, cobble = 0, cobbleLeft = null, cap = null } = {}) {
+                                     stone = null, gclicked = 0, swords = 0, peaceful = null, swordLost = 0, swordsKept = 0, cobble = 0, cobbleLeft = null, cap = null, aimOff = 0, aimRead = 0 } = {}) {
   const n = Object.values(items).reduce((a, b) => a + b, 0)
   // offlist= FIRST after slots (the read's C3 gate): thrown entities whose item, AS THE SERVER NAMES IT, is off the list
   // gclicked= / stone= right after offlist (the read's C7 gate): scaffold-capable decorations CLICKED (from the clicks, so an
   // unanswered final resync cannot hide them) and the least RESERVE_STONE any of those clicks left (STONE_GUARD+ or a breach)
   // swords= (swords CLICKED) and peaceful= (the switch as read at the last sword click) next: the read's sword gate
   return (`slots=${slotsBefore}->${slotsAfter} offlist=${offlist} gclicked=${gclicked}${stone != null ? ` stone=${stone}` : ''} swords=${swords}${peaceful != null ? ` peaceful=${peaceful ? 1 : 0}` : ''} sword_lost=${swordLost} sword_kept=${swordsKept} cobble=${cobble}${cobbleLeft != null ? ` cobble_left=${cobbleLeft}` : ''}${cap ? ` cap=${cap}` : ''} offlist_items=${list(offlistItems)} unnamed=${unnamed} ` +
-          `freed=${(slotsBefore ?? 0) - (slotsAfter ?? 0)} tossed=${tossed} n=${n} misses=${misses} ` +
+          `freed=${(slotsBefore ?? 0) - (slotsAfter ?? 0)} tossed=${tossed} n=${n} misses=${misses} aim_off=${aimOff} aim_read=${aimRead} ` +
           `retaken=${retaken} recollected=${recollected} nonlisted=${nonlisted} other_loss=${otherLoss} server=${source} closed_open=${closedOpen ? 1 : 0}` +
           `${capEnd ? ` cap_end=${capEnd}` : ''}` +
           `${at ? ` at=${at.x},${at.y},${at.z}` : ''} stop=${String(stop).replace(/\s+/g, '_').slice(0, 80)} items=${list(items)}`).slice(0, 300)
