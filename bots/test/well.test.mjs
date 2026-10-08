@@ -1812,6 +1812,34 @@ await t('COVER BEFORE THE DIG from a FULL bag (Codex r2): the remedy names the m
   assert.equal(r.status, 'no_effect'); assert.match(r.detail, /; then carry one block to cover the junk well pit/)
   assert.equal(town.state.goals.length, 0)
 })
+await t('COVER (Codex r3): an abort DURING the first dig, the dig landing after it -- the end state is read once it lands (an open pit, never by=closed)', async () => {
+  const town = giveUpScene([S('dirt', 1)])
+  const sig = { aborted: false, _l: [], addEventListener (k, f) { this._l.push(f) }, removeEventListener (k, f) { this._l = this._l.filter(x => x !== f) } }
+  const dig = town.bot.dig
+  town.bot.dig = async (b, ...a) => {
+    if (!sig.aborted) { sig.aborted = true; for (const f of [...sig._l]) f() }   // the abort as the dig starts
+    await new Promise(r => setTimeout(r, 120))                                    // ...and the dig lands after it
+    return dig(b, ...a)
+  }
+  const c0 = await counts()
+  await run('build_well', town.bot, sig).catch(() => {})
+  await new Promise(r => setTimeout(r, 200))
+  assert.deepEqual(pitCells(town), ['dirt', 'air'], 'positive control: the late dig opened the cap cell')
+  assert.equal((await rows('_well_pit_covered')).length, c0.covered, 'never said closed')
+  assert.match((await newRows('_well_pit_open', c0.open)).pop()?.skill.detail ?? '', /stage=half_dug why=aborted/)
+})
+await t('MUTANT (skills): reading the end state before the in-flight dig settles says a pit is closed that the dig then opens', async () => {
+  await withMutant(SP, '    const settledEnd = await g.settle().catch(() => false)\n', '    const settledEnd = true\n', async m => {
+    const town = giveUpScene([S('dirt', 1)])
+    const sig = { aborted: false, _l: [], addEventListener (k, f) { this._l.push(f) }, removeEventListener (k, f) { this._l = this._l.filter(x => x !== f) } }
+    const dig = town.bot.dig
+    town.bot.dig = async (b, ...a) => { if (!sig.aborted) { sig.aborted = true; for (const f of [...sig._l]) f() } await new Promise(r => setTimeout(r, 120)); return dig(b, ...a) }
+    const c0 = await counts()
+    await within(m.SKILLS.build_well.run({ bot: town.bot }, {}, sig), 15000, 'mutant').catch(() => {})
+    await new Promise(r => setTimeout(r, 200))
+    assert.equal((await rows('_well_pit_covered')).length, c0.covered + 1, 'mutant inert')
+  })
+})
 await t('MUTANT (skills): without the cover the abandoned pit stays open', async () => {
   await withMutant(SP, "        else { const res = await coverPit(bot, { site, gen, g, signal, by: 'build' }); why = res.why ?? null; if (res.ok) pitClosedLogged = true }\n", "        else why = 'mutant'\n", async m => {
     const town = giveUpScene([S('dirt', 1)])
