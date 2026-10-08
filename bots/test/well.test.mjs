@@ -2039,10 +2039,11 @@ await t('MUTANT (skills): by=closed for any stage but invalid says an open cap i
 await t('SWORDS ON PEACEFULKIT: the well classifies with peacefulkit\'s unwantedSword under its own strict switch', async () => {
   const PK = await import('../src/peacefulkit.mjs')
   assert.equal(W.isSword, PK.isSword, 'one isSword')
-  for (const n of ['wooden_sword', 'stone_sword', 'iron_sword', 'diamond_sword', 'netherite_sword', 'golden_sword', 'stone_pickaxe', 'sword', 'egg']) {
+  for (const n of ['wooden_sword', 'stone_sword', 'iron_sword', 'diamond_sword', 'netherite_sword', 'golden_sword', 'stone_pickaxe', 'stone_axe', 'iron_shovel', 'wooden_hoe', 'sword', 'egg']) {
     for (const p of [true, false]) assert.equal(W.swordGoes(n, p), PK.unwantedSword({ name: n }, p), `${n} ${p}`)
   }
   assert.equal(W.swordGoes('stone_sword', true), true, 'positive control')
+  for (const n of ['stone_axe', 'iron_shovel', 'wooden_hoe', 'stone_pickaxe']) assert.equal(W.swordGoes(n, true), false, `${n} is a tool, never a sword`)
   // the switch: peaceful only, and only with foodskip's switch on
   assert.equal(W.swordSwitch('auto', 'peaceful'), true)
   for (const [m, d] of [['auto', 'easy'], ['on', 'normal'], ['on', 'hard'], ['off', 'peaceful']]) assert.equal(W.swordSwitch(m, d), false, `${m}/${d}`)
