@@ -19,6 +19,10 @@ for _cand in (_os.path.join(_os.path.dirname(_os.path.abspath(__file__)), 'lib')
     if _os.path.isdir(_cand):
         sys.path.insert(2, _cand)
         break
+# v35 (tests and staged installs ONLY; production passes none): VERDICT_MODULE_DIR is put FIRST, so a staged verdict.py
+# is tested with the staged decision modules beside it, never the live ~/mcai-analysis copies it would otherwise import.
+if _os.environ.get('VERDICT_MODULE_DIR'):
+    sys.path.insert(0, _os.environ['VERDICT_MODULE_DIR'])
 import json, os, glob, gzip, hashlib, datetime as dt, collections
 from deathgate import death_gate
 from arms import pool_of
@@ -1170,7 +1174,20 @@ if ex:
     val = ev.get(ex['read'], {}).get(ex['field']) or 0; exposed = val >= ex['min']; why.append(f"exposure {ex['read']}.{ex['field']} = {val} (min {ex['min']})")
 final_M = max(reg['read_minutes'] + (reg.get('extension', {}).get('extra_reads', []) if reg.get('extension', {}).get('until_exposure') else []))
 if watch: why.append('WATCH: ' + ', '.join(watch))
-if M < max(reg['read_minutes']): (out('NOT_YET'))
+# v35 (OWNER DELEGATION 2026-10-08, operator + Codex): rule A' -- a bag fix drawn at FOUR pools may KEEP at +180
+# (bagfixrule.keep_early). Every read registered is bound and present by here (else UNREADABLE above) and immobiledid
+# is readable (else NOT_YET above); a read that reports itself blind (`readable` false, or bagread's primary None) is
+# not readable. The bag metric is REPORTED at the KEEP read, never gated on.
+_KEEP_EARLY = False
+if bagfixrule.is_bag_fix(reg) and M < max(reg['read_minutes']):
+    _bag = ev.get('bagread') or {}
+    _readable = all((o.get('readable') is not False) for o in ev.values() if isinstance(o, dict)) and \
+        (('bagread' not in reg['reads']) or _bag.get('slots_did') is not None)
+    _KEEP_EARLY, _kewhy = bagfixrule.keep_early(
+        reg, len([p for p in str(man.get('canary_pool') or '').split(',') if p.strip()]), M, reg['read_minutes'], BAGFIX_EXT,
+        watch, blocked, exposed, _readable, _cd, _cbh, _kd, _kbh)
+    why.append(('KEEP AT +%d (rule A\'): ' % M if _KEEP_EARLY else 'no KEEP at +%d (rule A\'): ' % M) + _kewhy)
+if M < max(reg['read_minutes']) and not _KEEP_EARLY: (out('NOT_YET'))
 if not exposed:
     if reg.get('extension', {}).get('until_exposure') and M < final_M: why.append('zero exposure: the registered extension continues'); (out('NOT_YET'))
     why.append('zero exposure at the final read'); (out(reg.get('extension', {}).get('final_on_zero_exposure', 'INCONCLUSIVE')))
@@ -1178,4 +1195,8 @@ if blocked:
     why.append('a deciding line FAILED but its evidence class does not license a REVERT: '
                + ', '.join(blocked) + ' -- INCONCLUSIVE, not KEEP')
     (out('INCONCLUSIVE'))
-(out('KEEP'))
+if bagfixrule.is_bag_fix(reg) and isinstance(ev.get('bagread'), dict):
+    _b = ev['bagread']
+    why.append('bag metric at the KEEP read (REPORTED, not gated): ' + ', '.join(
+        '%s %s' % (k, _b.get(k)) for k in ('slots_did', 'full_share_did', 'pick_slots_did', 'sword_slots_did', 'cobble_slots_did')))
+(out('KEEP', {'keep_rule': 'A-prime +180'} if _KEEP_EARLY else None))

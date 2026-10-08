@@ -252,6 +252,50 @@ NET_P025 = -3.21             # log-eq per bot-h   (p50 +0.65, p97.5 +3.28)
 IRON_P025 = -0.127           # ingot-eq per bot-h (p50 +0.013, p97.5 +0.153)
 
 
+# ---------------------------------------------------------------------------------------------------------
+# KEEP AT +180, rule A' (OWNER DELEGATION 2026-10-08 to operator + Codex, who agreed: "Use A-prime exactly as
+# calibrated"). docs/reports/keep180-2026-10-08.md. A bag fix drawn at FOUR pools may KEEP at its +180 read, instead of
+# waiting for +360, only when every condition below holds; otherwise the read is NOT_YET and the canary continues to
+# +360 under the existing rules. Calibrated (scripts/host/keep180_deaths.py, which calls THIS function): against today's
+# 2 pools at +360, the death-gate false KEEP is 72.7/41.6/12.5% vs 75.7/55.5/24.8% for deaths x2/x3/x5, false trip
+# 5.5% vs 5.3% (the screen's control as the live one: immobiledid's, isolated-* and self-* excluded). The bag metric is REPORTED at the KEEP read, never gated on here.
+# ---------------------------------------------------------------------------------------------------------
+KEEP_EARLY_MIN = 180
+
+
+def death_rate_ok(cd, cbh, kd, kbh):
+    """PURE. The A' screen: the canary's cumulative death RATE is <= the control's (point estimate). Unmeasured
+    exposure on either arm is NOT ok (fail closed: the canary waits for +360)."""
+    if not cbh or cbh <= 0 or not kbh or kbh <= 0:
+        return False
+    return (cd / cbh) <= (kd / kbh)
+
+
+def keep_early(reg, n_pools, minute, read_minutes, extended, watch, blocked, exposed, reads_readable, cd, cbh, kd, kbh):
+    """PURE. -> (may KEEP at this read, why). Every condition is required."""
+    if not is_bag_fix(reg):
+        return False, 'not a bag fix'
+    if minute != KEEP_EARLY_MIN or KEEP_EARLY_MIN not in (read_minutes or []) or minute >= max(read_minutes or [0]):
+        return False, 'not the +%d read before the last registered read' % KEEP_EARLY_MIN
+    if n_pools < MIN_POOLS:
+        return False, 'drawn at %d pools (< %d)' % (n_pools, MIN_POOLS)
+    if extended:
+        return False, 'a bag-fix extension is in force'
+    if watch:
+        return False, 'a guard or line is on WATCH: %s' % ', '.join(map(str, watch))[:200]
+    if blocked:
+        return False, 'a deciding line failed: %s' % ', '.join(map(str, blocked))[:200]
+    if not exposed:
+        return False, 'exposure not ready'
+    if not reads_readable:
+        return False, 'a registered read is not readable'
+    if not death_rate_ok(cd, cbh, kd, kbh):
+        return False, ('canary death rate %d/%.1f bh is above the control\'s %d/%.1f bh (or unmeasured)'
+                       % (cd, cbh or 0, kd, kbh or 0))
+    return True, ('A\' (owner delegation 10-08): four pools, every gate and guard passed, exposure ready, no extension, '
+                  'all reads readable, canary death rate %d/%.1f bh <= control %d/%.1f bh' % (cd, cbh, kd, kbh))
+
+
 def is_bag_fix(reg):
     """The new registration field. Exactly the string 'bag-fix'; anything else is an ordinary canary."""
     return isinstance(reg, dict) and reg.get('class') == 'bag-fix'

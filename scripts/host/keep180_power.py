@@ -14,6 +14,10 @@ re-scored: false KEEP = no REVERT from the guards. (The DEATH gate is computed s
 same draws: keep180_deaths in usafe_null's machinery.) Reported per harm: P(false KEEP | A) vs P(false KEEP | B).
 `check` mode: asserts score() equals the live immobiledid evidence objects on disk for real canaries (positive control)."""
 import os, sys, json, glob, pickle, random, itertools, datetime as dt
+HERE = os.path.dirname(os.path.abspath(__file__))
+for _p in (os.path.expanduser('~/mcai-analysis'), HERE):
+    sys.path.insert(0, _p)
+import bagfixrule as BR       # rule A' is decided by THE BUILT FUNCTION (bagfixrule.death_rate_ok)
 D = pickle.load(open(sys.argv[1], 'rb'))['cuts'] if __name__ == '__main__' else {}
 pool_of = lambda b: '-'.join(b.split('-')[:2])
 
@@ -62,11 +66,12 @@ def score(stats, canary_pools, post_key, harm=None):
     return {'moved': rdid('mv'), 'work': rdid('wk'), 'items': rdid('it'), 'imm_pp': imm_pp / 100, 'newly': newly, 'climbs': cl,
             'livelock': llb, 'p90': p90, 'v15c_revert': v15_rev, 'v15c_unreadable': v15_unread, 'v11_revert': v11_rev,
             'any_revert': v15_rev or v11_rev, 'breach': breach, 'severe': severe,
-            'canary_bot_h': A[('canary', 'post')]['mins'] / 60, 'canary_deaths': A[('canary', 'post')]['deaths']}
+            'canary_bot_h': A[('canary', 'post')]['mins'] / 60, 'canary_deaths': A[('canary', 'post')]['deaths'],
+            'control_bot_h': A[('control', 'post')]['mins'] / 60, 'control_deaths': A[('control', 'post')]['deaths']}
 
 
 DESIGNS = {'A (4 pools, KEEP at +180)': (4, 'post180'), 'B (2 pools, KEEP at +360, today)': (2, 'post360'),
-           'C (4 pools, KEEP at +360)': (4, 'post360')}
+           'C (4 pools, KEEP at +360)': (4, 'post360'), "A' (4 pools, +180 if A' holds)": (4, 'aprime')}
 HARMS = [('none (null: false REVERT rate)', None), ('movement -40%', ('mv', 0.6)), ('movement -60%', ('mv', 0.4)),
          ('work -30%', ('wk', 0.7)), ('work -50%', ('wk', 0.5)), ('gathering -60%', ('it', 0.4)), ('gathering -80%', ('it', 0.2)),
          ('climbs x2.5', ('cl', 2.5)), ('climbs x4', ('cl', 4.0)), ('livelock x2.5', ('ll', 2.5)), ('livelock x4', ('ll', 4.0))]
@@ -85,13 +90,19 @@ if __name__ == '__main__':
         for d, (k, key) in DESIGNS.items():
             combos = list(itertools.combinations(drawable, k))
             for draw in random.Random(int(cut.timestamp()) + k).sample(combos, min(20, len(combos))):
-                base = score(stats, set(draw), key)
+                base = score(stats, set(draw), 'post180' if key == 'aprime' else key)
                 if base['v15c_unreadable'] or base['canary_bot_h'] < 15:
                     continue        # immobiledid would not be readable: no KEEP either way
                 n[d] += 1
                 for h, hv in HARMS:
-                    s = score(stats, set(draw), key, hv) if hv else base
-                    res[d][h].append(s['any_revert'])
+                    if key != 'aprime':
+                        s = score(stats, set(draw), key, hv) if hv else base
+                        res[d][h].append(s['any_revert']); continue
+                    s1 = score(stats, set(draw), 'post180', hv)
+                    early = (not s1['any_revert'] and not s1['breach'] and
+                             BR.death_rate_ok(s1['canary_deaths'], s1['canary_bot_h'], s1['control_deaths'], s1['control_bot_h']))
+                    s2 = None if (s1['any_revert'] or early) else score(stats, set(draw), 'post360', hv)
+                    res[d][h].append(s1['any_revert'] or (s2 is not None and s2['any_revert']))
     days = len({iso[:10] for iso in D})
     print('draws scored: %s over %d cuts / %d days (no-change, any build)' % (n, len(D), days))
     print(('%-22s' + ' %30s' * len(DESIGNS)) % ('harm injected', *[d[:30] for d in DESIGNS]))

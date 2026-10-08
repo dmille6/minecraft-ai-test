@@ -8,9 +8,10 @@ Poisson injection. Windows start hourly over the bins; draws: up to 10 random su
 import sys, os, random, math, itertools, pickle
 from collections import defaultdict
 HERE = os.path.dirname(os.path.abspath(__file__))
-for p in (HERE, os.path.expanduser('~/mcai-analysis')):
+for p in (os.path.expanduser('~/mcai-analysis'), HERE):   # this file's directory wins (the staged bagfixrule)
     sys.path.insert(0, p)
 from deathgate import _binom_sf
+import bagfixrule as BR
 D = pickle.load(open(sys.argv[1], 'rb'))
 assert D.get('format') == 'end+cross'
 B = D['bins']; X = D['cross']; BIN = 300
@@ -86,9 +87,13 @@ for d, (k, W, screen) in DESIGNS.items():
                     if a >= 2 and lb_exceeds(int(a), ta, int(c), tc):
                         tripped = True
                         break
-                    if screen is not None and i == i0 + L180 - 1 and tc > 0 and ta > 0 and (a / ta) <= screen * (c / tc):
-                        kept_early = True
-                        break
+                    if screen is not None and i == i0 + L180 - 1:
+                        # the live screen reads immobiledid's harm: its control EXCLUDES isolated-* and self-* bots
+                        sc = [p for p in ctl if not p.startswith('isolated') and not p.startswith('self')]
+                        cs = sum(win(PD, p, i0, i + 1) for p in sc); ts = sum(expo(p, i0, i + 1) for p in sc) / 3600
+                        if BR.death_rate_ok(a, ta, cs, ts):   # THE BUILT RULE (bagfixrule)
+                            kept_early = True
+                            break
                 n += 1; trips += tripped; early += kept_early
         tag = 'false trip (no change)' if mult == 1 else 'k=%g: false KEEP (no trip by the KEEP read)' % mult
         print('%-70s %-44s %5.1f%%   (n=%d%s)' % (d, tag, 100 * ((trips / n) if mult == 1 else (1 - trips / n)), n,
