@@ -879,9 +879,24 @@ await t('SWORDS, never in the pit-first build (Claude P3): a peaceful bag buildi
   assert.equal(town.count('stone_sword'), 1, 'the pit took no sword')
   assert.ok((await rows('_well_dispose')).some(x => /stop=pit_first/.test(x.skill.detail)), 'positive control: a pit phase ran')
 })
-await t('SWORDS, a sword-only visit is contract evidence (Codex P2): classifyOutcome sees the loss', () => {
+await t('SWORDS, a sword-only visit is contract evidence (Codex P2) -- but only a sword the well CLICKED (Codex, pk composition)', async () => {
+  const town = peacefulTown([S('stone_sword', 1), S('egg', 16), ...filler(34)], 'peaceful')
+  assert.equal((await run('dispose_well', town.bot)).status, 'success')
   const v = classifyOutcome('dispose_well', 'success', { inventory: { stone_sword: -1 } })
-  assert.ok(JSON.stringify(v).includes('stone_sword'), JSON.stringify(v))
+  assert.ok(JSON.stringify(v).includes('stone_sword'), 'clicked in a peaceful world: credited ' + JSON.stringify(v))
+  const easy = peacefulTown([S('stone_sword', 1), S('egg', 16), ...filler(34)], 'easy')
+  assert.equal((await run('dispose_well', easy.bot)).status, 'success')
+  assert.equal(easy.count('stone_sword'), 1, 'positive control: the easy visit kept its sword')
+  const u = classifyOutcome('dispose_well', 'success', { inventory: { stone_sword: -1, egg: -16 } })
+  assert.ok(!JSON.stringify(u).includes('stone_sword'), 'a sword the well never clicked is not its evidence ' + JSON.stringify(u))
+  assert.ok(JSON.stringify(u).includes('egg'), 'positive control: the junk still is')
+})
+await t('MUTANT (skills): the grade credits any sword loss (not only one the well clicked)', async () => {
+  await withMutant(SP, '(isWellJunk(k) || (isSword(k) && wellClickedLast.has(k)))', '(isWellJunk(k) || isSword(k))', async m => {
+    const easy = peacefulTown([S('stone_sword', 1), S('egg', 16), ...filler(34)], 'easy')
+    await within(m.SKILLS.dispose_well.run({ bot: easy.bot }, {}, { aborted: false }), 15000, 'mutant')
+    assert.ok(JSON.stringify(m.classifyOutcome('dispose_well', 'success', { inventory: { stone_sword: -1 } })).includes('stone_sword'), 'mutant inert')
+  })
 })
 await t('SWORDS, AT THE CLICK: the world turns easy during the aim -> the planned sword is not thrown', async () => {
   const town = peacefulTown([S('egg', 16), S('stone_sword', 1), ...filler(34)], 'peaceful')
