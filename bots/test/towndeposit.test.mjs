@@ -431,6 +431,13 @@ test('KIT pure: the plan banks NO sword while on (not even a spare), the spare a
   assert.equal(off.stone_sword, 1, 'off: the spare (worse) stone sword, as today'); assert.equal(off.wooden_sword, undefined)
   assert.equal(on.stone_pickaxe, 1); assert.equal(off.stone_pickaxe, 1)
 })
+test('KIT pure: townDepositPlan WITHOUT noSwords follows the switch (its default), whichever caller forgets it', async () => {
+  const { setPeacefulFood } = await import('../src/foodskip.mjs')
+  const b = bag([['stone_sword', 1, 131], ['stone_sword', 1, 120], ['stone_pickaxe', 1, 120], ['stone_pickaxe', 1, 60], ...filler(32)])
+  setPeacefulFood(true)
+  try { assert.equal(townDepositPlan(b).banked.stone_sword ?? 0, 0, 'peaceful: no sword') } finally { setPeacefulFood(false) }
+  assert.equal(townDepositPlan(b).banked.stone_sword, 1, 'off: the spare, as today')
+})
 
 for (const [why, difficulty, spare, stale] of [['PEACEFUL', 'peaceful', 0, false], ['HARD', 'hard', 1, false], ['PEACEFUL, a stale decision', 'peaceful', 0, true], ['HARD, a stale decision', 'hard', 1, true]]) {
   test(`KIT SKILL, ${why}: a full bag at town ${spare ? 'banks the spare stone sword (today)' : 'banks NO sword'}; the best pickaxe stays; nothing lost or dropped`, async () => {
