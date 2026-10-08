@@ -11,6 +11,21 @@ behind it (chain-ore.sh stopped 10-01 on fixes-02's revert)._
 
 ---
 
+## 10-08 00:20Z — OPERATOR: build status; towndeposit-02 draw waiting (exposure)
+towndeposit-02: preflight ok 22:21Z, draw waiting -- exposure (compost >= 8 rows/6 h) passes only board-c, placebo-b;
+board-c out of band; board-b/placebo-a excluded until ~04:15Z (12 h after towndeposit-01's teardown). Expect a draw
+~04:15-05Z. Not swapped for another canary: every queued variant is based on c6e91a8/92bc84f, and a KEEP in between
+would orphan towndeposit-02's variant.
+READY (both engines APPROVE, npm test green, Paper-proven, reads staged on host): toolhygiene-01 (th-on-c6e91a8 efbb607 /
+th-on-92bc84f 6238095); airpocket-01 (ap-on-c6e91a8 ee21207 / ap-on-92bc84f dbb4d78; 59/59 sealed-pocket survivals vs
+control 0) -- BLOCKED on an underground-safety death gate (its pools drown 2.6-3.2x on the base; gate agent building a
+self-baseline DiD gate); stonecap-01 + cobble cap (sc-on-c6e91a8 06e2964 / sc-on-92bc84f 971fb09; well-at-cap variants
+sc-on-5c13330 / sc-on-5cca9c5; cap log needs rotation before promotion); bamboocraft-01 (after bamboo-01 KEEP).
+FIXING: peacefulkit (spare swords still counted bankable in places; wooden sword can stay on the cursor after a furnace
+drain) -- agent resumed; junkwell-02 (pit-first toss missed 5/5 on Paper and the abandoned build left the pit OPEN) --
+agent resumed; dependent jw-on-<pk sha> variants to be rebuilt on peacefulkit's new heads. withdraw2 still needs its
+rebase onto c6e91a8 (and 92bc84f).
+
 ## 10-08 00:10Z -- QUEUED, NOT LAUNCHED: the cobble cap inside stonecap-01; swords in junkwell-02; the well-at-cap coupling; bamboocraft-01; junkwell on peacefulkit
 All branches pushed; registrations in docs/reports; reads in scripts/host (md5 on the host /tmp and ~/mcai-analysis = repo:
 stonecapread 69ae9d78, wellread 31204393, bamboocraftread 8d797bd6). Nothing deployed, the manifest and the loop untouched.
