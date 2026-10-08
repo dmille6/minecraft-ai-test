@@ -70,6 +70,18 @@ for f in "$S"/*.py; do
   b=$(basename "$f"); case "$b" in verdict.py|bagfixrule.py|test_*.py|ugsafe2_value.py) continue;; esac   # targets: tested via VERDICT_MODULE_DIR
   [ ! -e "$H/mcai-analysis/$b" ] || cmp -s "$f" "$H/mcai-analysis/$b" || die "staged $b differs from ~/mcai-analysis/$b, which SHADOWS it in the staged verdict tests"
 done
+# THE SCHEDULER'S INSTALL-HOLD FIRST (round 1, Codex): no NEW launch while it exists, and canary-sched.py's own slot checks
+# (manifest, processes, the loop lock, canary drop-ins, unit freshness, open runs) must pass; released at exit. Drop-ins
+# are refused here too. A dry run writes no hold.
+DROPINS=$(ls /etc/systemd/system/mcbot@*.service.d/10-canary.conf 2>/dev/null | head -4 | tr '\n' ' ')
+[ -z "$DROPINS" ] || { [ -n "$DRY" ] && echo "  (dry run) WOULD REFUSE: canary drop-ins present: $DROPINS" || die "canary drop-ins present: $DROPINS"; }
+[ -f $H/canary-sched.py ] || { [ -n "$DRY" ] && echo "  (dry run) WOULD REFUSE: $H/canary-sched.py missing (the install-hold is required)" || die "$H/canary-sched.py missing"; }
+if [ -z "$DRY" ]; then
+  HOLD=$(python3 $H/canary-sched.py install-hold install-gate-v35 45 2>&1); HRC=$?
+  trap 'python3 $H/canary-sched.py install-release >/dev/null 2>&1' EXIT
+  [ $HRC -eq 0 ] || die "canary-sched.py install-hold: the slot is not free: $(echo "$HOLD" | tr '\n' ' ' | cut -c1-500)"
+  echo "  $(echo "$HOLD" | tail -1 | cut -c1-200)"
+fi
 L=$(pgrep -af '^bash /home/mike/canary-loop.sh' | grep -v pgrep || true)
 C=$(pgrep -af 'chain-[a-z0-9-]*\.sh|launch-[a-z0-9-]*\.sh|chain-after' | grep -v -e pgrep -e install-gate || true)
 [ -z "$L" ] || { [ -n "$DRY" ] && echo "  (dry run) WOULD REFUSE: canary loop running: $L" || die "a canary loop is running: $L"; }
@@ -126,6 +138,9 @@ done
 rm -rf "$RD"; echo "  airpocket registrations: class underground-safety, check-registration OK (both)"
 python3 canarywatch.py --selftest > canarywatch.out 2>&1 || die "canarywatch selftest: $(tail -2 canarywatch.out)"
 echo "  canarywatch selftest: $(grep 'cases pass' canarywatch.out)"
+# the staged-module override is for the staged TESTS only: every digest, interlock and rollback check below resolves
+# modules exactly as production does (round 1, Codex)
+unset VERDICT_MODULE_DIR
 
 say "3. the digest the installed bundle WILL have (predicted from the files, before anything is copied)"
 # Parts exactly as verdict.py's _gate_bundle resolves them once installed: verdict.py at ~, everything else from

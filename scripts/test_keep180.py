@@ -32,7 +32,9 @@ def pure(BR):
                                                blocked=[], exposed=True, reads_readable=True, cd=0, cbh=60.0, kd=2, kbh=300.0), **kw))[0]
     c('all conditions hold -> KEEP at +180', k())
     c('not a bag fix -> no', not k(reg={'class': 'underground-safety'}) and not k(reg={}))
-    c('three pools -> no', not k(n_pools=3))
+    c('three pools -> no; five pools -> no (exactly four)', not k(n_pools=3) and not k(n_pools=5))
+    c('the all-cause gate\'s HOLD note does not refuse (the rate screen replaces it), any other WATCH does',
+      k(watch=['death gate held (v21)']) and not k(watch=['death gate held (v21)', 'WATCH: moved']))
     c('the +360 read (the last) -> no early path', not k(minute=360))
     c('a minute other than 180 -> no', not k(minute=90, read_minutes=[90, 180, 360]))
     c('180 not a registered read -> no', not k(read_minutes=[90, 360], minute=180))
@@ -84,6 +86,15 @@ def verdict_cases(verdict_py, tmp):
     v, h, a = run()
     c('A\': a clean four-pool bag fix KEEPs at +180, extra.keep_rule A-prime, the bag metric reported', v == 'KEEP'
       and (a.get('extra') or {}).get('keep_rule') == 'A-prime +180' and 'bag metric at the KEEP read' in h, h)
+    v, h, a = run(deaths=(2, 60.0, 20, 300.0))
+    c('two canary deaths at HALF the control rate (the gate holds, its note is not a refusal) -> KEEP at +180', v == 'KEEP'
+      and (a.get('extra') or {}).get('keep_rule') == 'A-prime +180', h)
+    v, h, a = run(deaths=(3, 60.0, 5, 300.0))
+    c('three canary deaths ABOVE the control rate but the gate holds -> NOT_YET (+360)', v == 'NOT_YET' and 'above the control' in h, h)
+    v, h, a = run(pools='board-b,hive-a,board-c,hive-b,placebo-d')
+    c('five pools -> NOT_YET (exactly four)', v == 'NOT_YET' and '5 distinct pools' in h, h)
+    v, h, a = run(pools='board-b,hive-a,board-b,hive-a')
+    c('four names but two distinct pools -> NOT_YET', v == 'NOT_YET' and '2 distinct pools' in h, h)
     v, h, a = run(pools='board-b,hive-a')
     c('two pools -> NOT_YET at +180 (today\'s rule)', v == 'NOT_YET' and 'drawn at 2 pools' in h, h)
     v, h, a = run(deaths=(1, 60.0, 0, 300.0))
@@ -112,11 +123,15 @@ def verdict_cases(verdict_py, tmp):
 
 
 MUTANTS = [
-    ('bagfixrule.py', 'four-pool condition dropped', "    if n_pools < MIN_POOLS:\n        return False, 'drawn at", "    if False:\n        return False, 'drawn at"),
+    ('bagfixrule.py', 'four-pool condition dropped', "    if n_pools != MIN_POOLS:\n        return False, 'drawn at", "    if False:\n        return False, 'drawn at"),
+    ('bagfixrule.py', 'four or more pools', "    if n_pools != MIN_POOLS:\n        return False, 'drawn at", "    if n_pools < MIN_POOLS:\n        return False, 'drawn at"),
     ('bagfixrule.py', 'death-rate screen dropped', "    if not death_rate_ok(cd, cbh, kd, kbh):\n        return False", "    if False:\n        return False"),
     ('bagfixrule.py', 'rate screen strict-wrong (>=)', "    return (cd / cbh) <= (kd / kbh)", "    return (cd / cbh) >= (kd / kbh)"),
     ('bagfixrule.py', 'unmeasured exposure passes', "    if not cbh or cbh <= 0 or not kbh or kbh <= 0:\n        return False", "    if False:\n        return False"),
-    ('bagfixrule.py', 'WATCH ignored', "    if watch:\n        return False", "    if False:\n        return False"),
+    ('bagfixrule.py', 'WATCH ignored', "    if w:\n        return False", "    if False:\n        return False"),
+    ('bagfixrule.py', 'the death-gate hold note refuses', "    w = [x for x in (watch or []) if x != DEATH_HOLD_NOTE]", "    w = list(watch or [])"),
+    ('verdict.py', 'duplicate pool names counted', "len({p.strip() for p in str(man.get('canary_pool') or '').split(',') if p.strip()})",
+     "len([p for p in str(man.get('canary_pool') or '').split(',') if p.strip()])"),
     ('bagfixrule.py', 'extension ignored', "    if extended:\n        return False", "    if False:\n        return False"),
     ('bagfixrule.py', 'any class', "    if not is_bag_fix(reg):\n        return False, 'not a bag fix'", "    if False:\n        return False, 'not a bag fix'"),
     ('bagfixrule.py', 'readability ignored', "    if not reads_readable:\n        return False", "    if False:\n        return False"),
@@ -131,6 +146,16 @@ if __name__ == '__main__':
     for n, ok, d in pure(load(BRP, 'bagfixrule_k')):
         t(n, ok, d)
     VB = verdict_cases(VP, tmp)
+    # THE UNMUTATED CONTROL through the same copy path as every mutant (round 1, Codex)
+    _cd = tempfile.mkdtemp(dir=tmp)
+    for f in ('bagfixrule.py', 'verdict.py', 'usaferule.py', 'usafegate.py', 'deathgate.py', 'singledeath.py', 'arms.py',
+              'bagfixgate.py', 'changerowcheck.py'):
+        if os.path.exists(os.path.join(HERE, f)):
+            shutil.copy(os.path.join(HERE, f), _cd)
+    _ctl = verdict_cases(os.path.join(_cd, 'verdict.py'), tmp) if VB else []
+    if VB:
+        t('mutant runner control: the UNMUTATED copies pass every verdict case (%d)' % len(_ctl), _ctl and all(ok for _n, ok, _d in _ctl))
+    VB = VB and _ctl
     for n, ok, d in VB:
         t(n, ok, d)
     VB_OK = bool(VB) and all(ok for _n, ok, _d in VB)

@@ -23,6 +23,7 @@ for _cand in (_os.path.join(_os.path.dirname(_os.path.abspath(__file__)), 'lib')
 # is tested with the staged decision modules beside it, never the live ~/mcai-analysis copies it would otherwise import.
 if _os.environ.get('VERDICT_MODULE_DIR'):
     sys.path.insert(0, _os.environ['VERDICT_MODULE_DIR'])
+_MODULE_DIR_NOTE = _os.environ.get('VERDICT_MODULE_DIR')   # printed on every verdict when set: never a production read
 import json, os, glob, gzip, hashlib, datetime as dt, collections
 from deathgate import death_gate
 from arms import pool_of
@@ -360,6 +361,8 @@ _GUARDS = False
 
 
 def out(v, extra=None):
+    if _MODULE_DIR_NOTE:
+        why.append('TEST/STAGING RUN: decision modules from VERDICT_MODULE_DIR=%s, not the installed gate' % _MODULE_DIR_NOTE)
     o = {'run_id': run_id, 'window_min': M, 'verdict': v, 'why': why, 'at': dt.datetime.now(dt.timezone.utc).isoformat(), 'extra': extra or {},
          'guards': _GUARDS}
     os.makedirs(R, exist_ok=True); json.dump(o, open(os.path.join(R, f'{run_id}-verdict-{M}.json'), 'w'), indent=1, default=str)
@@ -1184,7 +1187,7 @@ if bagfixrule.is_bag_fix(reg) and M < max(reg['read_minutes']):
     _readable = all((o.get('readable') is not False) for o in ev.values() if isinstance(o, dict)) and \
         (('bagread' not in reg['reads']) or _bag.get('slots_did') is not None)
     _KEEP_EARLY, _kewhy = bagfixrule.keep_early(
-        reg, len([p for p in str(man.get('canary_pool') or '').split(',') if p.strip()]), M, reg['read_minutes'], BAGFIX_EXT,
+        reg, len({p.strip() for p in str(man.get('canary_pool') or '').split(',') if p.strip()}), M, reg['read_minutes'], BAGFIX_EXT,
         watch, blocked, exposed, _readable, _cd, _cbh, _kd, _kbh)
     why.append(('KEEP AT +%d (rule A\'): ' % M if _KEEP_EARLY else 'no KEEP at +%d (rule A\'): ' % M) + _kewhy)
 if M < max(reg['read_minutes']) and not _KEEP_EARLY: (out('NOT_YET'))

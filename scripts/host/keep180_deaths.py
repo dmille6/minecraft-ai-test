@@ -91,7 +91,7 @@ for d, (k, W, screen) in DESIGNS.items():
                         # the live screen reads immobiledid's harm: its control EXCLUDES isolated-* and self-* bots
                         sc = [p for p in ctl if not p.startswith('isolated') and not p.startswith('self')]
                         cs = sum(win(PD, p, i0, i + 1) for p in sc); ts = sum(expo(p, i0, i + 1) for p in sc) / 3600
-                        if BR.death_rate_ok(a, ta, cs, ts):   # THE BUILT RULE (bagfixrule)
+                        if BR.keep_early({'class': 'bag-fix'}, 4, 180, [180, 360], False, (['death gate held (v21)'] if a >= 2 else []), [], True, True, int(a), ta, cs, ts)[0]:   # THE BUILT RULE
                             kept_early = True
                             break
                 n += 1; trips += tripped; early += kept_early

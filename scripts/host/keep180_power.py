@@ -99,8 +99,9 @@ if __name__ == '__main__':
                         s = score(stats, set(draw), key, hv) if hv else base
                         res[d][h].append(s['any_revert']); continue
                     s1 = score(stats, set(draw), 'post180', hv)
-                    early = (not s1['any_revert'] and not s1['breach'] and
-                             BR.death_rate_ok(s1['canary_deaths'], s1['canary_bot_h'], s1['control_deaths'], s1['control_bot_h']))
+                    # THE BUILT RULE: a v15c breach is the live WATCH; the death-gate hold note is not a refusal
+                    early = (not s1['any_revert'] and
+                             BR.keep_early({'class': 'bag-fix'}, 4, 180, [180, 360], False, (['WATCH: ' + ','.join(s1['breach'])] if s1['breach'] else []), [], True, True, s1['canary_deaths'], s1['canary_bot_h'], s1['control_deaths'], s1['control_bot_h'])[0])
                     s2 = None if (s1['any_revert'] or early) else score(stats, set(draw), 'post360', hv)
                     res[d][h].append(s1['any_revert'] or (s2 is not None and s2['any_revert']))
     days = len({iso[:10] for iso in D})

@@ -261,6 +261,10 @@ IRON_P025 = -0.127           # ingot-eq per bot-h (p50 +0.013, p97.5 +0.153)
 # 5.5% vs 5.3% (the screen's control as the live one: immobiledid's, isolated-* and self-* excluded). The bag metric is REPORTED at the KEEP read, never gated on here.
 # ---------------------------------------------------------------------------------------------------------
 KEEP_EARLY_MIN = 180
+# The all-cause gate's HOLD note ("death gate held (v21)": >= 2 canary deaths without a trip) is NOT a refusal here: the
+# A' death-rate screen is its explicit replacement at +180, exactly as calibrated (round 1, both engines). Every other
+# WATCH refuses.
+DEATH_HOLD_NOTE = 'death gate held (v21)'
 
 
 def death_rate_ok(cd, cbh, kd, kbh):
@@ -277,12 +281,13 @@ def keep_early(reg, n_pools, minute, read_minutes, extended, watch, blocked, exp
         return False, 'not a bag fix'
     if minute != KEEP_EARLY_MIN or KEEP_EARLY_MIN not in (read_minutes or []) or minute >= max(read_minutes or [0]):
         return False, 'not the +%d read before the last registered read' % KEEP_EARLY_MIN
-    if n_pools < MIN_POOLS:
-        return False, 'drawn at %d pools (< %d)' % (n_pools, MIN_POOLS)
+    if n_pools != MIN_POOLS:
+        return False, 'drawn at %d distinct pools (A\' needs exactly %d)' % (n_pools, MIN_POOLS)
     if extended:
         return False, 'a bag-fix extension is in force'
-    if watch:
-        return False, 'a guard or line is on WATCH: %s' % ', '.join(map(str, watch))[:200]
+    w = [x for x in (watch or []) if x != DEATH_HOLD_NOTE]
+    if w:
+        return False, 'a guard or line is on WATCH: %s' % ', '.join(map(str, w))[:200]
     if blocked:
         return False, 'a deciding line failed: %s' % ', '.join(map(str, blocked))[:200]
     if not exposed:
