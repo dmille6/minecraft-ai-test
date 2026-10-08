@@ -139,6 +139,16 @@ if [ "$(mf canary_code_version)" != "$SHA" ]; then
     [ -n "$P" ] && break; sleep 1200; done
   journal drawn "$P :: $(echo "$D" | head -2 | tr '\n' ' ')"
   if [ "$NOACT" = "--no-act" ]; then echo "would deploy $SHA to $P"; exit 0; fi
+  # v34-HYB (Codex launch condition 2): the matched-pool control is FROZEN after the draw and BEFORE the deploy, and
+  # journalled; the gate only ever LOADS this record (<reads>/<run>-usafe-pre.json.matched) and is UNREADABLE without it.
+  # A freeze that fails refuses the deploy: nothing has been deployed yet.
+  if [ "$(jf class)" = "underground-safety" ]; then
+    FZ=$(python3 $H/mcai-analysis/usafegate.py freeze "$RUN" "$P" 2>&1 | tail -1)
+    case "$(echo "$FZ" | awk '$1 == "USAFE" {print $2}')" in
+      FROZEN) journal usafe-matched-frozen "$FZ";;
+      *) journal refused-v34 "matched control not frozen: $FZ"; page error "underground-safety $RUN NOT DEPLOYED: the matched control could not be frozen: $FZ (an earlier record for other pools is never overwritten; a re-run needs a new run id)"; exit 2;;
+    esac
+  fi
   $H/bin/fleet-deploy "$SHA" "$RUN" "$(jf notes) pools $P drawn at deploy by the canary loop" --pool "$P" > $H/digest/deploy-$RUN.log 2>&1 || { page error "deploy launch failed"; exit 2; }
   grep -q "VERIFIED" $H/digest/deploy-$RUN.log || { page error "deploy not verified: $(tail -2 $H/digest/deploy-$RUN.log | tr '\n' ' ')"; exit 2; }
   journal deployed "$P $(mf declared_at)"; page info "canary $RUN $SHA deployed to $P at $(mf declared_at)"

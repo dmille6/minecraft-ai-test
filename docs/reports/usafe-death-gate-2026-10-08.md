@@ -1,4 +1,4 @@
-# The underground-safety death gate (gate v34): design, calibration, power, airpocket exposure (2026-10-08)
+# The underground-safety death gate (gate v34, HYB@2.5): design, calibration, power, airpocket exposure (2026-10-08)
 
 **Status: BUILT AND STAGED, NOT INSTALLED.** The files are on `main` and staged on the fleet host in `~/gate-v34/`. The
 install is the operator's step, between canaries (section 7). towndeposit-02 was live (deployed 00:15Z 10-08) when
@@ -10,36 +10,44 @@ this was staged, so the dry run says WOULD REFUSE.
    placebo-a, placebo-b, placebo-d), using the draw's own 12-h drowning filter. Today's cross-sectional gate (canary POST
    vs control POST, lower bound > 1.25) **falsely trips 12.9% of runs within 6 h and 29.0% within 26 h**, polled every
    5 min. With hive-d in the draw it is 16.4% / 36.9%.
-2. **The v34 gate compares each arm with itself.**
-   - psi = (canary POST/PRE death rate) / (control POST/PRE), with PRE = the 24 h before declared_at.
+2. **The v34 gate is HYB@2.5 (operator + Codex decision, 10-08; it replaced DID24@2.0, built first): it trips when
+   EITHER arm clears 2.5.**
+   - **The DiD arm compares each arm with itself:** psi = (canary POST/PRE death rate) / (control POST/PRE), with
+     PRE = the 24 h before declared_at.
+   - **The matched arm compares the canary with the drowning pools the draw did not take:** canary POST vs the
+     matched pools' POST. The set is the registration's `matched_candidates` (the five) minus the drawn pools, FROZEN by
+     the loop after the draw and before the deploy, and journalled (section 1).
    - The canary ratio uses the owner's exact Poisson lower bound.
    - The two-death floor is kept. The randomization p is kept, report-only.
    - Mechanism-linked deaths still revert, by explicit `link_rules` (section 1).
-3. **The nominal 1.25 is too loose for deaths that cluster.** At 1.25 the DiD falsely trips 11.3% (6 h) and 16.7%
-   (26 h). **The threshold is calibrated to 2.0** on the five-pool null, using the live gate's own estimator:
+3. **The nominal 1.25 is too loose for deaths that cluster.** At 1.25 the DiD alone falsely trips 11.3% (6 h) and 16.7%
+   (26 h). **The threshold is 2.5 on both arms**, calibrated on the five-pool null with the live gate's own estimator
+   (the null's HYB is asserted equal to `usaferule.hyb_gate`: 0 disagreements in 20,000):
 
-   | P(trip at any 5-min poll), DID24 at 2.0 | 6 h | 26 h |
+   | P(trip at any 5-min poll), HYB at 2.5 | 6 h | 26 h |
    |---|---:|---:|
-   | **false trip** (no change), all five-pool draws | **3.3%** [0.2, 5.5] | **4.4%** [0.6, 5.9] |
-   | false trip, drawrec-like draws (any drowning pool, up to 4) | 2.9% [1.4, 3.4] | 3.0% [1.9, 3.6] |
-   | false trip, draws whose PRE ran ≥ 2x control | 0.6% | 1.1% |
-   | false trip, draws containing hive-d | 3.7% | 4.2% |
-   | **power, a fix that doubles deaths** (k = 2) | **17.5%** | **25.4%** |
-   | power, a fix that triples deaths (k = 3) | 42.9% | 59.0% |
-   | **power, k = 2 / k = 3, elevated-PRE draws (airpocket's situation)** | **5.8% / 22.1%** | **3.3% / 34.1%** |
+   | **false trip** (no change), all five-pool draws | **1.9%** [0.0, 4.1] | **2.5%** [0.0, 5.3] |
+   | false trip, drawrec-like draws (any drowning pool, up to 4) | 1.8% [0.9, 2.3] | 2.1% [1.2, 2.8] |
+   | false trip, draws whose PRE ran ≥ 2x control (airpocket's situation) | 0.6% | 1.1% |
+   | false trip, draws containing hive-d | 1.7% | 2.5% |
+   | **power, a fix that doubles deaths** (k = 2) | **12.3%** | **29.2%** |
+   | **power, a fix that triples deaths** (k = 3) | **36.9%** | **62.4%** |
+   | power, k = 2 / k = 3, elevated-PRE draws | 8.4% / 26.6% | **35.2% / 75.8%** |
+   | power, k = 2 / k = 3, draws containing hive-d | 14.5% / 39.0% | 35.0% / 71.9% |
 
    The brackets are a day-block bootstrap 95% interval (section 3). It is rough: the data holds about 17
    non-overlapping 6-h windows and about 4 non-overlapping 26-h ones.
 
-   **At this size the death gate is a tripwire, not proof of safety.** A doubling is caught about a quarter of the time
+   **At this size the death gate is a tripwire, not proof of safety.** A doubling is caught about 30% of the time
    within 26 h. The protection against the fix killing bots through its own action is the linkage (section 1) and the
    read's reserve gate C3, not the rate.
 
-   **OWNER DECISION BEFORE AIRPOCKET LAUNCHES (round 2, Claude).** In the stratum airpocket is drawn for (pools already
-   drowning at ≥ 2x the control, 26 h), DID24 at 2.0 catches a doubling of deaths 3.3% of the time and a tripling 34%:
-   the rate gate is effectively blind there. The alternative, HYB at 2.5 (this DiD OR a matched-pool control), falsely
-   trips at most 2.5% in every stratum and catches 35% / 76% there. Built: DID24 at 2.0, the more robust (MPC's control
-   on a 4-of-5 draw is a single 5-bot pool). The owner should choose knowingly; section 3 has the table.
+   **Why HYB@2.5 (decided by the operator + Codex, 10-08):** in the stratum airpocket is drawn for (pools already
+   drowning at ≥ 2x the control), the DiD alone at 2.0 caught a doubling 3.3% and a tripling 34% at 26 h -- it was
+   effectively blind there, because pools drawn on a drowning streak regress in POST. The matched arm sees it (35% /
+   76%) at a lower false-trip rate (≤ 2.5% in every stratum). **The robustness cost accepted:** on a 4-of-5 draw the
+   matched control is ONE 5-bot pool, and the elevated-stratum gain rests on 91 overlapping 26-h draws (perhaps two
+   independent episodes). At 6 h over all draws the HYB has less power than DID24@2.0 had (12.3% vs 17.5%).
 4. **Airpocket's exposure is NOT powered at 6 h. It is powered with the registered extension.**
    - The canary sees an expected **7.1 sealed drowning episodes per 6 h** on 2–4 drawn pools.
    - At a 25% admission share, P(≥ 2 attempts) is **50% at 6 h**, 79% at 12 h and **95% at 26 h**.
@@ -71,12 +79,33 @@ the 5-min poll and at every read. The cross-sectional gate is then reported as n
 PRE is computed once and cached beside the verdict artifacts, but only when it was read without errors. Rows of other
 builds in the canary PRE (a previous canary, restart lag) are counted and reported.
 
-**The test:**
-- R_c = canary POST/PRE rate ratio, with its one-sided 95% lower bound from `deathgate.ratio_lower_bound` (the v21
-  machinery).
-- R_k = control POST/PRE, as a point estimate with a 0.5 continuity correction (about 60 bots).
-- **TRIP iff canary POST deaths ≥ 2 AND LB(R_c) / R_k > 2.0.**
-- The fleet-wide drift over time cancels in R_k. The drawn pools' standing level cancels in R_c.
+**The test (HYB@2.5, `usaferule.hyb_gate`):**
+- **DiD arm:** R_c = canary POST/PRE rate ratio, with its one-sided 95% lower bound from `deathgate.ratio_lower_bound`
+  (the v21 machinery); R_k = control POST/PRE, as a point estimate with a 0.5 continuity correction (about 60 bots).
+  It trips iff canary POST deaths ≥ 2 AND LB(R_c) / R_k > 2.5. The fleet-wide drift cancels in R_k; the drawn pools'
+  standing level cancels in R_c.
+- **Matched arm (`matched_gate`):** canary POST deaths and bot-h vs the frozen matched pools' POST, the same exact
+  lower bound. It trips iff canary POST deaths ≥ 2 AND LB > 2.5.
+- **TRIP iff either arm trips.** If neither trips and either arm cannot be measured, the answer is UNREADABLE, never
+  HOLD -- below the floor too.
+
+**The matched control is frozen and fails closed (Codex launch condition 2):**
+- The registration lists `underground_safety.matched_candidates` (airpocket: hive-c, hive-d, placebo-a, placebo-b,
+  placebo-d); `check-registration` refuses fewer than two or duplicates.
+- **Frozen before launch:** after the draw and BEFORE the deploy, `canary-loop.sh` runs `usafegate.py freeze <run> <P>`,
+  which writes `<reads>/<run>-usafe-pre.json.matched` once, atomically (pools, candidates, canary pools, time), and
+  journals `usafe-matched-frozen`. A failed freeze refuses the deploy (nothing is deployed yet). It also refuses when a
+  PRE cache or roster of the run id exists, with or without a record (a re-run needs a new run id); a retry after a
+  failed deploy has neither and reuses its own record.
+- **The gate only loads that record.** These are all UNREADABLE (a trip on the other arm still reverts):
+  - no record (lost, never re-derived);
+  - an unreadable record, or one for other canary pools;
+  - no matched pool (every candidate drawn);
+  - a matched pool with no bot on disk;
+  - a matched pool with no measured POST exposure, at ANY poll;
+  - after the first hour, a matched pool logging < 25% of its PRE rate.
+- On real logs (host, 10-08 ~07Z) the rule does not fire spuriously: hive-c + hive-d at +6 min and +75 min, all three
+  matched pools measured, none quiet or gone.
 
 **Fail closed (UNREADABLE, never a clean HOLD) when:**
 - a log file is unreadable, including a gz whose body is corrupt (`zlib.error`), or a complete death or own row does
@@ -130,11 +159,11 @@ How the rules read the rows:
 
 ## 2. Replays on recorded windows (`usafegate.py window`, real logs on 10.0.0.31, the staged v34 code)
 
-| window | cross-sectional (today) | v34 DiD |
+| window | cross-sectional (today) | v34 HYB@2.5 (DiD arm / matched arm) |
 |---|---|---|
-| airpocket dry run, hive-c + hive-d, 10-07 16:28–22:28Z (no change) | 4 deaths in 59.9 bh (0.067) vs control 0.026/bh: it would trip | **HOLD**: canary POST/PRE 0.74x, control 1.23x, psi 0.60, LB 0.18; randomization p 0.99 |
-| junkwell-01, placebo-a + board-b, 10-05 10:05–15:13Z (reverted by the rung rule) | — | HOLD: POST/PRE 4.01x, control 0.89x, psi 4.51, LB 1.52 < 2.0; p 0.050 |
-| chestfull-01, 3 pools, 10-05 02:47–03:17Z (reverted by the death gate) | LB 2.58, REVERT | **REVERT**: psi 39.3, LB 8.97; p 0.002 |
+| airpocket dry run, hive-c + hive-d, 10-07 16:28–22:28Z (no change) | 4 deaths in 59.9 bh (0.067) vs control 0.026/bh: it would trip | **HOLD**: DiD psi 0.60, LB 0.18 / matched 4 in 59.9 vs 4 in 89.9 bh, LB 0.36 (matched placebo-a, -b, -d); p 0.99 |
+| junkwell-01, placebo-a + board-b, 10-05 10:05–15:13Z (reverted by the rung rule) | — | HOLD: DiD psi 4.51, LB 1.52 / matched 4.0x, LB 1.05 (both < 2.5); p 0.050 |
+| chestfull-01, 3 pools, 10-05 02:47–03:17Z (reverted by the death gate) | LB 2.58, REVERT | **REVERT** by the DiD arm: psi 39.3, LB 8.97 (matched: 0 deaths in 10 bh, LB 0.78); p 0.002 |
 
 The junkwell-01 row shows the price of the calibrated threshold: a 4.5x point estimate over 5 h on 10 bots is held. No
 real `_air_pocket` rows exist on the fleet yet (the step ran only in the Paper sandbox), so linkage is tested on
@@ -169,7 +198,7 @@ both inside it, as the live scan does. Round 1 (Codex) found the first calibrati
 - **DID24:** v34.
 - **HYB:** DID24 OR MPC. Round 1 (Claude) asked whether MPC buys the power DID24 lacks.
 
-| P(trip), threshold 2.0 unless named | XS @1.25 (today) | MPC | **DID24** | HYB | HYB @2.5 |
+| P(trip), threshold 2.0 unless named (the comparison as the choice was made, null_v4) | XS @1.25 (today) | MPC | **DID24** | HYB | HYB @2.5 |
 |---|---|---|---|---|---|
 | no change, FIVE, 6 h / 26 h | 12.9% / 29.0% | 0.6% / 3.0% | **3.3% / 4.4%** | 3.7% / 6.6% | 1.9% / 2.5% |
 | no change, with hive-d | 16.4% / 36.9% | 0.9% / 4.9% | 3.7% / 4.2% | 4.4% / **7.8%** | 1.7% / 2.5% |
@@ -180,8 +209,8 @@ both inside it, as the live scan does. Round 1 (Codex) found the first calibrati
 | k = 3, FIVE | — | 18.1% / 49.6% | 42.9% / 59.0% | 48.6% / 75.7% | 36.9% / 62.4% |
 | k = 3, elevated PRE | — | 24.0% / 78.0% | 22.1% / 34.1% | 39.6% / 82.4% | 26.6% / 75.8% |
 
-**Why DID24 at 2.0** (round 2, both reviewers: "the only candidate" was false -- MPC at 2.0, DID24 at 2.5 and HYB at
-2.5 also stay at or under 5% everywhere):
+**The choice (10-08).** DID24 at 2.0 was built first and is kept below for the record; the operator and Codex chose
+HYB at 2.5 (short version, item 3). The comparison that informed it:
 - Among the candidates at or under 5% false trip everywhere that do NOT depend on a small matched-pool control (DID24
   at 2.0 and 2.5), DID24 at 2.0 has the most power: each arm against its own 24 h, nothing else.
 - The power trade-off with the matched-pool candidates depends on the horizon (round 3, Codex): over all draws at 6 h
@@ -191,10 +220,10 @@ both inside it, as the live scan does. Round 1 (Codex) found the first calibrati
 - HYB at 2.0 falsely trips 6.6%, and 7.8% with hive-d, at 26 h.
 - **HYB at 2.5 is the real alternative**: at or under 2.5% false trip everywhere, about DID24's power over all draws
   (29% at 26 h), and far more in the elevated stratum (35% / 76% for k = 2 / 3, against DID24's 3% / 34%). Its
-  elevated-stratum advantage rests on 91 overlapping 26-h draws, perhaps two independent episodes. **This is the
-  owner's choice** (short version, item 3).
+  elevated-stratum advantage rests on 91 overlapping 26-h draws, perhaps two independent episodes. **CHOSEN** (operator +
+  Codex, 10-08).
 
-**DID24's weak spot is power in the elevated stratum.** Pools drawn on a drowning streak regress in POST, so the DiD
+**DID24's weak spot is power in the elevated stratum (why HYB was chosen).** Pools drawn on a drowning streak regress in POST, so the DiD
 is conservative exactly there. That is the safe direction for false reverts and the unsafe one for missed harm.
 
 **Coverage (the 25% bot-share rule) on no-change windows:**
@@ -208,7 +237,7 @@ is conservative exactly there. That is the safe direction for false reverts and 
 
 **Disclosed limits:**
 - **The threshold was chosen on the same null it is reported on.** No held-out data exists: 5 days, about 17
-  independent 6-h windows. The bootstrap upper ends (5.5% / 5.9%) are the honest ceiling.
+  independent 6-h windows. The bootstrap upper ends for HYB@2.5 (4.1% / 5.3%) are the honest ceiling.
 - **The deploy restarts only the canary pool**, so the first minutes of POST are warm-up the PRE does not have. It is
   NOT modelled, and its direction is unknown: the restart costs exposure, and whether deaths are more likely just after
   a restart was not measured (round 2, Claude).
@@ -261,7 +290,10 @@ and that non-fatal sealed episodes are admitted at the fatal sites' share; their
 - **`docs/reports/airpocket-01.{ee21207,dbb4d78}.json`:** `"class": "underground-safety"`, the `underground_safety`
   block (`pre_hours` 24, `link_rules`), and `linkage_extra: []`.
 
-**`scripts/test_usafe.py` — 123/123 on the host, nothing skipped.** It covers:
+**`scripts/test_usafe.py` — 162/162 on the host, nothing skipped** (HYB added: hyb_gate and matched_gate, frozen
+record load-only, every matched fail-closed path, the freeze CLI incl. a stale earlier declaration and pool-string
+normalisation, and a verdict poll where the canary holds its own high PRE rate but runs 15x the matched pools ->
+REVERT naming the matched arm). It covers:
 - **the pure gate:** floor, calibrated threshold, 3x does not clear, control scaling, UNREADABLE cases;
 - **11 `link_reason` cases on the REAL registration's rules:** during the step, id matching, the windows, the reserve
   exception for failed/aborted/opened, the exception refused for spent reserve or unknown health, success, non-drowning
@@ -284,7 +316,7 @@ and that non-fatal sealed episodes are admitted at the fatal sites' share; their
     clean is UNREADABLE; another class is unchanged;
   - one canary death: the gate and linkage hold, the C3 defect line reverts; a RATE licence keeps the early defect
     check report-only (v31);
-- **42 mutants** (all killed on the host), anchors asserted present and unique, each run on fresh state, scored only
+- **56 mutants** (all killed on the host), anchors asserted present and unique, each run on fresh state, scored only
   after the UNMUTATED copies pass the same path (round 6, Codex). Verdict mutants are scored only when the unmutated verdict cases
   pass.
 
@@ -307,21 +339,21 @@ ssh mike@10.0.0.31 'bash ~/gate-v34/install-gate-v34.sh --dry-run'
 ssh mike@10.0.0.31 'bash ~/gate-v34/install-gate-v34.sh'      # only with no loop, no chain, no canary
 ```
 
-## Appendix A. `usafe_null.py` raw output (host, `~/usafe-work/null_v4.txt`)
+## Appendix A. `usafe_null.py` raw output (host, `~/usafe-work/null_v5.txt`; HYB@2.5 asserted equal to the live gate)
 
 ```
 POSITIVE CONTROL 1: bins vs usafegate.scan on real logs, 60 bot-windows: 0 mismatches []
-POSITIVE CONTROL: fast test vs usaferule.did_gate at thresholds [1.25, 1.5, 2.0, 2.5, 2.0]: 0 disagreements in 10000 comparisons
+POSITIVE CONTROL: fast tests vs usaferule.did_gate AND usaferule.hyb_gate at thresholds [1.25, 1.5, 2.0, 2.5, 2.5]: 0 disagreements in 20000 comparisons
 bins: 80 bots, 0 unreadable files; live-estimator bot-h 9412; five pools 0.0418 deaths/bh, the rest 0.0303 (1.38x)
 
 UNCERTAINTY of the false-trip rate (k=1), day-block bootstrap; and COVERAGE (the 25% bot-share rule) on no-change windows
-  FIVE     6h n= 856 (non-overlapping windows in the data: ~17)  DID24@2.0 3.3% [0.2, 5.5] (5 days)  MPC@2.0 0.6% [0.0, 1.6] (5 days)  HYB@2.0 3.7% [0.2, 6.7] (5 days)
+  FIVE     6h n= 856 (non-overlapping windows in the data: ~17)  DID24@2.5 1.6% [0.0, 3.5] (5 days)  MPC@2.5 0.4% [0.0, 0.9] (5 days)  HYB@2.5 1.9% [0.0, 4.1] (5 days)
             coverage: polls UNREADABLE (POST > 1 h) 3.1% of all; windows UNREADABLE at the final poll 1.9%; mean roster 12.9 bots
-  FIVE    26h n= 756 (non-overlapping windows in the data: ~4)  DID24@2.0 4.4% [0.6, 5.9] (4 days)  MPC@2.0 3.0% [0.0, 4.6] (4 days)  HYB@2.0 6.6% [0.6, 9.2] (4 days)
+  FIVE    26h n= 756 (non-overlapping windows in the data: ~4)  DID24@2.5 1.9% [0.0, 3.6] (4 days)  MPC@2.5 0.9% [0.0, 2.0] (4 days)  HYB@2.5 2.5% [0.0, 5.3] (4 days)
             coverage: polls UNREADABLE (POST > 1 h) 0.2% of all; windows UNREADABLE at the final poll 0.0%; mean roster 13.0 bots
-  DRAWREC  6h n= 665 (non-overlapping windows in the data: ~17)  DID24@2.0 2.9% [1.4, 3.4] (5 days)  MPC@2.0 0.0% [0.0, 0.0] (5 days)  HYB@2.0 2.9% [1.4, 3.4] (5 days)
+  DRAWREC  6h n= 665 (non-overlapping windows in the data: ~17)  DID24@2.5 1.8% [0.9, 2.3] (5 days)  MPC@2.5 0.0% [0.0, 0.0] (5 days)  HYB@2.5 1.8% [0.9, 2.3] (5 days)
             coverage: polls UNREADABLE (POST > 1 h) 1.8% of all; windows UNREADABLE at the final poll 0.6%; mean roster 19.8 bots
-  DRAWREC 26h n= 629 (non-overlapping windows in the data: ~4)  DID24@2.0 3.0% [1.9, 3.6] (4 days)  MPC@2.0 0.3% [0.0, 0.7] (4 days)  HYB@2.0 3.3% [1.9, 4.3] (4 days)
+  DRAWREC 26h n= 629 (non-overlapping windows in the data: ~4)  DID24@2.5 1.9% [1.2, 2.4] (4 days)  MPC@2.5 0.2% [0.0, 0.4] (4 days)  HYB@2.5 2.1% [1.2, 2.8] (4 days)
             coverage: polls UNREADABLE (POST > 1 h) 0.2% of all; windows UNREADABLE at the final poll 0.0%; mean roster 20.0 bots
 
 FIVE draws, stratum all (P(trip at any 5-min poll))

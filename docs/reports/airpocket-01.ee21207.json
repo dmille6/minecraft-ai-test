@@ -188,6 +188,13 @@
     "note": "a death after the step pre-empted an escape and no step followed: the pre-empt itself"
    }
   ],
-  "note": "Gate v34 (docs/reports/usafe-death-gate-2026-10-08.md): the death gate is a DiD of death rates, each arm against its own 24-h PRE, at the calibrated threshold in usaferule.py, because this canary is DRAWN on the pools that drown. Mechanism linkage by link_rules (usaferule.link_reason); any linked death reverts at the two-death floor. This replaces the former linkage_extra entry, a dict that crashed verdict.py and changerowcheck.py (both build a set from it)."
+  "matched_candidates": [
+   "hive-c",
+   "hive-d",
+   "placebo-a",
+   "placebo-b",
+   "placebo-d"
+  ],
+  "note": "Gate v34 (docs/reports/usafe-death-gate-2026-10-08.md): the death gate is a DiD of death rates, each arm against its own 24-h PRE, OR the matched-pool control (HYB@2.5, operator + Codex 10-08), at the calibrated threshold in usaferule.py, because this canary is DRAWN on the pools that drown. Mechanism linkage by link_rules (usaferule.link_reason); any linked death reverts at the two-death floor. This replaces the former linkage_extra entry, a dict that crashed verdict.py and changerowcheck.py (both build a set from it). MATCHED CONTROL: matched_candidates minus the drawn pools, frozen by canary-loop.sh after the draw and before the deploy (usafegate.py freeze) in <reads>/<run>-usafe-pre.json.matched; a missing, unreadable or quiet matched control is UNREADABLE, never a clean hold. Exposure extension to +1560 kept."
  }
 }

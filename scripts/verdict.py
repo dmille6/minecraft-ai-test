@@ -724,7 +724,8 @@ if _USAFE and not DRY:
                'drownings): ' + _uwhy)
     if _uw == 'REVERT':
         (out('REVERT', {'by': 'death_gate_did', 'cd': int(_um['a']), 'cbh': float(_um['ta']), 'kd': int(_um['c']),
-                        'kbh': float(_um['tc']), 'pre': [_um['b'], _um['tb'], _um['d'], _um['td']], 'linked': _um['linked']}))
+                        'kbh': float(_um['tc']), 'pre': [_um['b'], _um['tb'], _um['d'], _um['td']], 'linked': _um['linked'],
+                        'matched': [_um.get('cm'), _um.get('tm'), _um.get('matched_pools')]}))
     if _uw == 'UNREADABLE':
         if POLL:
             (out('UNREADABLE', {'by': 'death_gate_did'}))

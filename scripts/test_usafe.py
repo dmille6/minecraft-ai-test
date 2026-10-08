@@ -55,13 +55,27 @@ def pure_cases(U):
     out = []
     c = lambda n, ok, d='': out.append((n, bool(ok), d))
     g = lambda *a: U.did_gate(*a, LB)
-    c('the calibrated threshold is the one the null chose (2.0; scripts/host/usafe_null.py)', U.THRESHOLD == 2.0, U.THRESHOLD)
+    c('the calibrated threshold is HYB@2.5 (operator + Codex 10-08; scripts/host/usafe_null.py)', U.THRESHOLD == 2.5, U.THRESHOLD)
+    hg = lambda *a: U.hyb_gate(*a, LB)
+    c('HYB: the matched-pool arm alone trips (canary 5x the matched pools, own PRE equally high)',
+      hg(30, 60, 120, 240, 6, 180, 24, 720, 9, 90)[0] is True and U.did_gate(30, 60, 120, 240, 6, 180, 24, 720, LB)[0] is False,
+      hg(30, 60, 120, 240, 6, 180, 24, 720, 9, 90))
+    c('HYB: the DiD arm alone trips (matched pools rose with it is not enough to hold a 5x self-rise... matched flat)',
+      hg(30, 60, 24, 240, 6, 180, 24, 720, 30, 60)[0] is True, hg(30, 60, 24, 240, 6, 180, 24, 720, 30, 60))
+    c('HYB: neither arm clears 2.5 -> held', hg(6, 60, 24, 240, 6, 180, 24, 720, 9, 90)[0] is False)
+    c('HYB: matched control unmeasured, DiD held -> UNREADABLE (None), never a clean hold (Codex condition 2)',
+      hg(6, 60, 24, 240, 6, 180, 24, 720, 0, 0)[0] is None)
+    c('HYB: matched control unmeasured BELOW the floor -> still UNREADABLE', hg(0, 60, 24, 240, 0, 180, 24, 720, 0, 0)[0] is None)
+    c('HYB: matched control unmeasured but the DiD trips -> REVERT (a trip on the arm that can see)',
+      hg(30, 60, 24, 240, 6, 180, 24, 720, 0, 0)[0] is True)
+    c('HYB: one POST death never trips either arm (floor), even against a deathless matched pool',
+      hg(1, 1, 0, 240, 5, 300, 20, 1440, 0, 500)[0] is False)
     c('floor: one POST death never trips -- even one whose bound alone would (1 in 1 bh vs 0 in 240 bh)',
-      g(1, 1, 0, 240, 5, 300, 20, 1440)[0] is False and LB(1, 1, 0, 240) / 1 > 2.0, LB(1, 1, 0, 240))
+      g(1, 1, 0, 240, 5, 300, 20, 1440)[0] is False and LB(1, 1, 0, 240) / 1 > 2.5, LB(1, 1, 0, 240))
     c('no change on a drowning pool (3x control in PRE and POST): held',
       g(6, 60, 24, 240, 6, 180, 24, 720)[0] is False, g(6, 60, 24, 240, 6, 180, 24, 720))
     c('a 5x rise against its own PRE (control flat): trips', g(30, 60, 24, 240, 6, 180, 24, 720)[0] is True, g(30, 60, 24, 240, 6, 180, 24, 720))
-    c('a 3x rise at these counts does NOT clear the calibrated 2.0 (the power limit, stated in the report)',
+    c('a 3x rise at these counts does NOT clear the calibrated 2.5 on the DiD arm (the power limit, stated in the report)',
       g(18, 60, 24, 240, 6, 180, 24, 720)[0] is False)
     c('the control ratio scales the expectation: a fleet-wide 5x is NOT the canary\'s doing',
       g(30, 60, 24, 240, 30, 180, 24, 720)[0] is False)
@@ -100,12 +114,17 @@ def pure_cases(U):
       L(1000, FELL, [(950, '_air_pocket_preempt', 'asked the in-flight escape to yield')])
       and L(1000, DROWNED, [(900, '_air_pocket_preempt', 'x'), S(905), E(940, 'failed', 8)]) is None)
     good = {'class': 'underground-safety', 'draw_exposure': {'hours': 12},
-            'underground_safety': {'link_rules': [{'kind': '_air_pocket', 'window_s': 120}], 'pre_hours': 24}}
+            'underground_safety': {'link_rules': [{'kind': '_air_pocket', 'window_s': 120}], 'pre_hours': 24,
+                                   'matched_candidates': ['hive-c', 'placebo-a', 'placebo-d']}}
     rp = U.registration_problems
     c('registration: well-formed passes; another class is not checked', rp(good) == [] and rp({'class': 'bag-fix'}) == [])
     c('registration: a dict in linkage_extra is refused by name (it crashes verdict.py)',
       any('linkage_extra' in x for x in rp(dict(good, linkage_extra=[{'kind': '_air_pocket'}]))))
-    us = lambda rules: dict(good, underground_safety={'link_rules': rules, 'pre_hours': 24})
+    us = lambda rules: dict(good, underground_safety={'link_rules': rules, 'pre_hours': 24, 'matched_candidates': ['a-x', 'b-y']})
+    c('registration: matched_candidates missing / one pool / duplicated -> refused (HYB needs a matched control)',
+      rp(dict(good, underground_safety={'link_rules': [{'kind': '_x', 'window_s': 60}], 'pre_hours': 24}))
+      and rp(dict(good, underground_safety={'link_rules': [{'kind': '_x', 'window_s': 60}], 'pre_hours': 24, 'matched_candidates': ['a-x']}))
+      and rp(dict(good, underground_safety={'link_rules': [{'kind': '_x', 'window_s': 60}], 'pre_hours': 24, 'matched_candidates': ['a-x', 'a-x']})))
     c('registration: no block / no rules / the pre-v34 link_kinds format / bad window / bad regex / exception without a '
       'cause / no draw_exposure -> refused',
       rp({'class': 'underground-safety', 'draw_exposure': {}}) and rp(us([]))
@@ -134,17 +153,20 @@ def line(t, bot, kind, compact=True, detail=None, extra=None):
 
 
 POOLS_C = ['hive-c', 'hive-d']
-POOLS_K = ['board-a', 'board-b', 'board-c', 'board-d', 'hive-a', 'hive-b', 'placebo-a', 'placebo-b']
+POOLS_K = ['board-a', 'board-b', 'board-c', 'board-d', 'hive-a', 'hive-b']
+POOLS_M = ['placebo-a', 'placebo-b', 'placebo-d']   # the five drowning pools minus the canary's: the matched control
 NAMES = ['Alpha', 'Bravo', 'Charlie', 'Delta', 'Echo']
 
 
 def fixture(tmp, cut, now, can_pre=24, can_post=6, ctl_pre=24, ctl_post=6, linked=0, spaced=False, silent_after=None, dead=(),
-            excepted=0, decoys=0):
+            excepted=0, decoys=0, mat_pre=None, mat_post=9):
     """Deaths spread evenly; every bot logs a row every 2 min (the 120-s cap: full exposure) from cut-24h to now.
     silent_after: {bot: t} -- that bot stops logging at t. dead: bot dirs that exist with no rows (a stopped unit)."""
     root = tempfile.mkdtemp(dir=tmp)
     rows = {}
-    can = [f'{p}-{n}' for p in POOLS_C for n in NAMES]; ctl = [f'{p}-{n}' for p in POOLS_K for n in NAMES]
+    can = [f'{p}-{n}' for p in POOLS_C for n in NAMES]; oth = [f'{p}-{n}' for p in POOLS_K for n in NAMES]
+    mat = [f'{p}-{n}' for p in POOLS_M for n in NAMES]; ctl = oth + mat
+    mat_pre = round(1.5 * can_pre) if mat_pre is None else mat_pre       # the canary's per-bot rate on 15 bots
     t0 = cut - dt.timedelta(hours=24)
     for b in can + ctl:
         t = t0; stop = (silent_after or {}).get(b, now)
@@ -160,7 +182,8 @@ def fixture(tmp, cut, now, can_pre=24, can_post=6, ctl_pre=24, ctl_post=6, linke
             t = a + (z - a) * (i + 0.5) / max(1, n)
             rows[bots[i % len(bots)]].append(line(t, bots[i % len(bots)], kind, not spaced))
     spread(can, can_pre, t0, cut); spread(can, can_post, cut, now)
-    spread(ctl, ctl_pre, t0, cut); spread(ctl, ctl_post, cut, now)
+    spread(oth, ctl_pre, t0, cut); spread(oth, ctl_post, cut, now)
+    spread(mat, mat_pre, t0, cut); spread(mat, mat_post, cut, now)
     for i in range(linked):     # a SUCCESSFUL attempt's end row 60 s before a POST drowning on the same bot: linked
         b = can[i]; td = cut + dt.timedelta(minutes=30 + 7 * i)
         rows[b].append(line(td - dt.timedelta(seconds=60), b, '_air_pocket', not spaced, ap_end('s%d' % i, 'success', 12, 18)))
@@ -186,16 +209,73 @@ REG = {'class': 'underground-safety', 'draw_exposure': {'hours': 12}, 'undergrou
 def gate_cases(G, tmp):
     tmp = tempfile.mkdtemp(dir=tmp)      # FRESH STATE per run: caches and roster files never leak between runs (round 6)
     out = []
+    _measure = G.measure; _G0 = G
+
+    class _G:      # the loop freezes the matched control before the deploy; every cached measure here does the same first
+        def __getattr__(self, k):
+            return getattr(_G0, k)
+
+        def measure(self, root, reg, can, ctl, cut, now, cp=None, expected_pools=None, **kw):
+            if cp and not os.path.exists(cp + '.matched') and not kw.pop('nofreeze', False):
+                _G0.frozen_matched(cp, reg['underground_safety'].get('matched_candidates') or [], expected_pools or POOLS_C, create=True)
+            kw.pop('nofreeze', None)
+            return _measure(root, reg, can, ctl, cut, now, cp, expected_pools=expected_pools, **kw)
+    G = _G()
     c = lambda n, ok, d='': out.append((n, bool(ok), d))
     now = dt.datetime(2026, 10, 8, 2, 0, tzinfo=dt.timezone.utc); cut = now - dt.timedelta(hours=6)
     root, can, ctl = fixture(tmp, cut, now)
     m = G.measure(root, REG, can, ctl, cut, now, os.path.join(tmp, 'pre1.json'), expected_pools=POOLS_C)
-    c('measure: PRE and POST deaths per arm; exposure (capped 120-s gaps) ~ bots x hours', (m['a'], m['b'], m['c'], m['d']) == (6, 24, 6, 24)
-      and abs(m['ta'] - 10 * 5.97) < 1.5 and abs(m['tb'] - 10 * 23.97) < 2 and abs(m['td'] - 40 * 23.97) < 8, m)
+    c('measure: PRE and POST deaths per arm; exposure (capped 120-s gaps) ~ bots x hours', (m['a'], m['b'], m['c'], m['d']) == (6, 24, 15, 60)
+      and abs(m['ta'] - 10 * 5.97) < 1.5 and abs(m['tb'] - 10 * 23.97) < 2 and abs(m['td'] - 45 * 23.97) < 9, m)
+    c('measure: the matched arm is the five drowning pools minus the canary\'s, frozen beside the PRE cache',
+      m['matched_pools'] == POOLS_M and m['cm'] == 9 and abs(m['tm'] - 15 * 5.97) < 2
+      and json.load(open(os.path.join(tmp, 'pre1.json.matched')))['pools'] == POOLS_M, (m.get('matched_pools'), m.get('cm'), m.get('tm')))
     c('capped_gaps: a 10-min silence counts 120 s, not 600', abs(sum(x for _t, x in G.capped_gaps([0, 60, 660, 720])) - 240) < 1e-9)
     c('measure: no change at 4x the control level -> HOLD', G.decide(m, LB)[0] == 'HOLD', G.decide(m, LB))
     c('measure: the PRE is cached under its key', os.path.exists(os.path.join(tmp, 'pre1.json'))
       and json.load(open(os.path.join(tmp, 'pre1.json')))['b'] == 24)
+    rootH, _, _ = fixture(tmp, cut, now, can_pre=120, can_post=30, mat_pre=36, mat_post=9)
+    mH = G.measure(rootH, REG, can, ctl, cut, now, os.path.join(tmp, 'preH.json'), expected_pools=POOLS_C)
+    c('measure: a canary already high in its PRE that runs 5x the matched pools -> REVERT by the matched arm (HYB)',
+      G.decide(mH, LB)[0] == 'REVERT' and '[matched]' in G.decide(mH, LB)[1], G.decide(mH, LB))
+    rootL, _, _ = fixture(tmp, cut, now)
+    mL = G.measure(rootL, REG, can, ctl, cut, now, os.path.join(tmp, 'preL.json'), expected_pools=POOLS_C, nofreeze=True)
+    c('measure: NO frozen record (the loop froze none, or it was lost) -> UNREADABLE, never re-derived (round 1, Codex)',
+      G.decide(mL, LB)[0] == 'UNREADABLE' and 'no frozen matched-control record' in G.decide(mL, LB)[1]
+      and not os.path.exists(os.path.join(tmp, 'preL.json.matched')), G.decide(mL, LB))
+    rootU, _, _ = fixture(tmp, cut, now, silent_after={'placebo-b-' + n: cut - dt.timedelta(minutes=10) for n in NAMES})
+    mU = G.measure(rootU, REG, can, ctl, cut, cut + dt.timedelta(minutes=50), os.path.join(tmp, 'preU.json'), expected_pools=POOLS_C)
+    c('measure: a matched pool with ZERO POST exposure inside the first hour -> UNREADABLE (round 1, Codex)',
+      G.decide(mU, LB)[0] == 'UNREADABLE' and 'placebo-b' in G.decide(mU, LB)[1], G.decide(mU, LB))
+    rootF, _, _ = fixture(tmp, cut, now)
+    cpF = os.path.join(tmp, 'preF.json')
+    G.measure(rootF, REG, can, ctl, cut, now, cpF, expected_pools=POOLS_C)
+    mF = G.measure(rootF, REG, can, ctl, cut, now, cpF, expected_pools=['hive-c', 'placebo-a'])
+    c('measure: the frozen matched record names other canary pools -> UNREADABLE (frozen, never re-derived)',
+      G.decide(mF, LB)[0] == 'UNREADABLE' and 'frozen matched' in G.decide(mF, LB)[1], G.decide(mF, LB))
+    open(cpF + '.matched', 'w').write('{"pools": [')
+    mF2 = G.measure(rootF, REG, can, ctl, cut, now, cpF, expected_pools=POOLS_C)
+    c('measure: an unreadable frozen matched record -> UNREADABLE', G.decide(mF2, LB)[0] == 'UNREADABLE'
+      and 'unreadable' in G.decide(mF2, LB)[1], G.decide(mF2, LB))
+    rootG, _, _ = fixture(tmp, cut, now)
+    for n in NAMES:
+        shutil.rmtree(os.path.join(rootG, 'placebo-d-' + n))
+    mG = G.measure(rootG, REG, can, [b for b in ctl if not b.startswith('placebo-d')], cut, now, os.path.join(tmp, 'preG.json'),
+                   expected_pools=POOLS_C)
+    c('measure: a matched pool with no bot on disk -> UNREADABLE, named', G.decide(mG, LB)[0] == 'UNREADABLE'
+      and 'placebo-d' in G.decide(mG, LB)[1], G.decide(mG, LB))
+    mG2 = G.measure(rootG, REG, can, [b for b in ctl if not b.startswith('placebo-d')], cut, cut + dt.timedelta(minutes=50),
+                    os.path.join(tmp, 'preG2.json'), expected_pools=POOLS_C)
+    c('measure: ... inside the first hour too, before the quiet-pool rule applies', G.decide(mG2, LB)[0] == 'UNREADABLE'
+      and 'no bot on disk' in G.decide(mG2, LB)[1], G.decide(mG2, LB))
+    rootQ, _, _ = fixture(tmp, cut, now, silent_after={'placebo-b-' + n: cut + dt.timedelta(minutes=10) for n in NAMES})
+    mQ = G.measure(rootQ, REG, can, ctl, cut, now, os.path.join(tmp, 'preQ.json'), expected_pools=POOLS_C)
+    c('measure: a matched pool gone quiet in POST -> UNREADABLE, named', G.decide(mQ, LB)[0] == 'UNREADABLE'
+      and 'placebo-b' in G.decide(mQ, LB)[1], G.decide(mQ, LB))
+    REG5 = dict(REG, underground_safety=dict(REG['underground_safety'], matched_candidates=['hive-c', 'hive-d']))   # all drawn
+    mN = G.measure(root, REG5, can, ctl, cut, now, os.path.join(tmp, 'preN.json'), expected_pools=POOLS_C)
+    c('measure: every candidate drawn (no matched control) -> UNREADABLE, never a clean hold', G.decide(mN, LB)[0] == 'UNREADABLE'
+      and 'no matched control' in G.decide(mN, LB)[1], G.decide(mN, LB))
     root2, _, _ = fixture(tmp, cut, now, can_post=30)
     m2 = G.measure(root2, REG, can, ctl, cut, now, os.path.join(tmp, 'pre2.json'))
     c('measure: a 5x rise against its own PRE -> REVERT', G.decide(m2, LB)[0] == 'REVERT', G.decide(m2, LB))
@@ -241,7 +321,7 @@ def gate_cases(G, tmp):
     root6, _, _ = fixture(tmp, cut, now, spaced=True)
     m6 = G.measure(root6, REG, can, ctl, cut, now, None)
     c('measure: spaced JSON reads the same as compact (a format change is not zero exposure)',
-      (m6['a'], m6['b'], m6['c'], m6['d']) == (6, 24, 6, 24) and m6['tb'] > 200, m6)
+      (m6['a'], m6['b'], m6['c'], m6['d']) == (6, 24, 15, 60) and m6['tb'] > 200, m6)
     long_now = cut + dt.timedelta(hours=30)
     root7, _, _ = fixture(tmp, cut, long_now, can_post=12)
     m7 = G.measure(root7, REG, can, ctl, cut, long_now, None)
@@ -305,6 +385,47 @@ def cli_cases(gate_py, tmp):
     for f in ('airpocket-01.ee21207.json', 'airpocket-01.dbb4d78.json'):
         r = json.load(open(os.path.join(rep, f)))
         c('%s declares class underground-safety (v33\'s next-slot rule expects it)' % f, r.get('class') == 'underground-safety')
+    # FREEZE BEFORE THE DEPLOY (the loop calls this after the draw): the record the gate reads
+    rd = tempfile.mkdtemp(dir=tmp)
+    envf = dict(os.environ, USAFE_REG_DIR=regs, USAFE_READS_DIR=rd)
+    p1 = subprocess.run([sys.executable, gate_py, 'freeze', 'r-ee21207', 'hive-c,hive-d'], capture_output=True, text=True, env=envf)
+    rec = json.load(open(os.path.join(rd, 'r-ee21207-usafe-pre.json.matched'))) if os.path.exists(os.path.join(rd, 'r-ee21207-usafe-pre.json.matched')) else {}
+    c('freeze CLI: writes the matched control (the five minus the canary\'s) where the gate reads it',
+      p1.returncode == 0 and p1.stdout.startswith('USAFE FROZEN placebo-a,placebo-b,placebo-d') and rec.get('pools') == ['placebo-a', 'placebo-b', 'placebo-d'],
+      p1.stdout + p1.stderr)
+    p2 = subprocess.run([sys.executable, gate_py, 'freeze', 'r-ee21207', 'hive-c,placebo-a'], capture_output=True, text=True, env=envf)
+    c('freeze CLI: a second freeze for other pools is refused, the record unchanged', p2.returncode == 2 and 'FREEZE-FAILED' in p2.stdout
+      and json.load(open(os.path.join(rd, 'r-ee21207-usafe-pre.json.matched')))['pools'] == ['placebo-a', 'placebo-b', 'placebo-d'], p2.stdout)
+    p3 = subprocess.run([sys.executable, gate_py, 'freeze', 'r-ee21207', 'hive-c,hive-d,placebo-a,placebo-b,placebo-d'], capture_output=True,
+                        text=True, env=dict(envf, USAFE_READS_DIR=tempfile.mkdtemp(dir=tmp)))
+    c('freeze CLI: all five drawn -> FREEZE-FAILED (no matched control), exit 2', p3.returncode == 2 and 'no matched control' in p3.stdout, p3.stdout)
+    rd2 = tempfile.mkdtemp(dir=tmp)
+    open(os.path.join(rd2, 'r-ee21207-usafe-pre.json.roster'), 'w').write('{"active": []}')
+    p4 = subprocess.run([sys.executable, gate_py, 'freeze', 'r-ee21207', 'hive-c,hive-d'], capture_output=True, text=True,
+                        env=dict(envf, USAFE_READS_DIR=rd2))
+    c('freeze CLI: a roster left by an earlier declaration of this run id -> FREEZE-FAILED (a re-run needs a new run id)',
+      p4.returncode == 2 and 'earlier declaration' in p4.stdout and not os.path.exists(os.path.join(rd2, 'r-ee21207-usafe-pre.json.matched')), p4.stdout)
+    for art in ('', '.roster'):      # a .matched record does not excuse earlier measurement state (round 2, Codex)
+        rd4 = tempfile.mkdtemp(dir=tmp)
+        subprocess.run([sys.executable, gate_py, 'freeze', 'r-ee21207', 'hive-c,hive-d'], capture_output=True, env=dict(envf, USAFE_READS_DIR=rd4))
+        open(os.path.join(rd4, 'r-ee21207-usafe-pre.json' + art), 'w').write('{}')
+        p6 = subprocess.run([sys.executable, gate_py, 'freeze', 'r-ee21207', 'hive-c,hive-d'], capture_output=True, text=True,
+                            env=dict(envf, USAFE_READS_DIR=rd4))
+        c('freeze CLI: a .matched record PLUS an earlier PRE%s -> FREEZE-FAILED (one run id, one declaration)' % (art or ' cache'),
+          p6.returncode == 2 and 'earlier declaration' in p6.stdout, p6.stdout)
+    rd5 = tempfile.mkdtemp(dir=tmp)
+    for _i in range(2):
+        p7 = subprocess.run([sys.executable, gate_py, 'freeze', 'r-ee21207', 'hive-c,hive-d'], capture_output=True, text=True,
+                            env=dict(envf, USAFE_READS_DIR=rd5))
+    c('freeze CLI: a retry after a failed deploy (record, no measurement state) is idempotent', p7.returncode == 0 and 'FROZEN' in p7.stdout, p7.stdout)
+    rd3 = tempfile.mkdtemp(dir=tmp)
+    p5 = subprocess.run([sys.executable, gate_py, 'freeze', 'r-ee21207', ' hive-d, hive-c ,'], capture_output=True, text=True,
+                        env=dict(envf, USAFE_READS_DIR=rd3))
+    G = load(gate_py, 'usafegate_cli_probe')
+    pl, er = G.frozen_matched(os.path.join(rd3, 'r-ee21207-usafe-pre.json'), REAL['underground_safety']['matched_candidates'],
+                              [' hive-d', 'hive-c ', 'hive-c'])      # unstripped, unordered, repeated: one set
+    c('freeze CLI: a pool string with spaces/order/trailing comma is the same set the gate later loads with the manifest\'s',
+      p5.returncode == 0 and er is None and pl == ['placebo-a', 'placebo-b', 'placebo-d'], (p5.stdout, pl, er))
     # the replay CLI decides as the live gate does, licence included (round 5, Codex)
     now = dt.datetime(2026, 10, 8, 2, 0, tzinfo=dt.timezone.utc); cut = now - dt.timedelta(hours=6)
     iso = lambda t: t.isoformat().replace('+00:00', 'Z')
@@ -335,11 +456,12 @@ def verdict_cases(verdict_py, tmp):
         return out
     c = lambda n, ok, d='': out.append((n, bool(ok), d))
 
-    def run(reg_extra, can_post, linked=0, poll=True, c3=0, silent=False, v15c='OK', extra_read=False):
+    def run(reg_extra, can_post, linked=0, poll=True, c3=0, silent=False, v15c='OK', extra_read=False, mat=None, can_pre=48, nofreeze=False):
         d = tempfile.mkdtemp(dir=tmp)
         now = dt.datetime.now(dt.timezone.utc).replace(microsecond=0); cut = now - dt.timedelta(hours=3)
         sil = {f'{POOLS_C[0]}-{NAMES[3]}': cut + dt.timedelta(minutes=10)} if silent else None
-        root, can, ctl = fixture(d, cut, now, can_pre=48, can_post=can_post, ctl_pre=48, ctl_post=6, linked=linked, silent_after=sil)
+        root, can, ctl = fixture(d, cut, now, can_pre=can_pre, can_post=can_post, ctl_pre=48, ctl_post=6, linked=linked, silent_after=sil,
+                                 **({'mat_pre': mat[0], 'mat_post': mat[1]} if mat else {}))
         reads = os.path.join(d, 'reads'); regs = os.path.join(d, 'regs'); os.makedirs(reads); os.makedirs(regs)
         reg = dict({'run_id': 'ut-01', 'sha': 'abc1234', 'reads': ['immobiledid', 'apread'] + (['otherread'] if extra_read else []),
                     'read_minutes': [180, 360],
@@ -350,6 +472,9 @@ def verdict_cases(verdict_py, tmp):
         man = {'run_id': 'ut-01', 'canary_pool': ','.join(POOLS_C), 'canary_code_version': 'abc1234',
                'declared_code_version': 'base000', 'declared_at': cut.isoformat().replace('+00:00', 'Z')}
         mp = os.path.join(d, 'man.json'); json.dump(man, open(mp, 'w'))
+        if not nofreeze:      # what canary-loop.sh does after the draw, before the deploy
+            json.dump({'pools': POOLS_M, 'candidates': REAL['underground_safety']['matched_candidates'], 'canary_pools': POOLS_C},
+                      open(os.path.join(reads, 'ut-01-usafe-pre.json.matched'), 'w'))
         M = 0 if poll else 180
         if not poll:
             # the scheduled read's evidence, bound like a real read (immobiledid's harm is the cross-sectional view)
@@ -370,10 +495,16 @@ def verdict_cases(verdict_py, tmp):
             art = {}
         return (head.split()[1] if head.startswith('VERDICT') else 'CRASH:' + (r.stderr or '')[-300:]), head, art
     us = {'class': 'underground-safety', 'draw_exposure': {'hours': 12}, 'underground_safety': REG['underground_safety']}
-    v, h, a = run({}, 6)
+    v, h, a = run({}, 6, mat=(0, 0))
     c('POSITIVE CONTROL: the cross-sectional gate REVERTs a no-change canary on pools drowning at 4x the control', v == 'REVERT', h)
     v, h, a = run(us, 6)
     c('v34: the same no-change canary is HELD (each arm against its own PRE)', v == 'POLL_OK' and 'UNDERGROUND-SAFETY' in h, h)
+    v, h, a = run(us, 6, nofreeze=True)
+    c('v34 poll: no frozen matched-control record -> UNREADABLE (paged), not POLL_OK', v == 'UNREADABLE' and 'no frozen' in h, h)
+    v, h, a = run(us, 30, can_pre=240, mat=(72, 3))
+    c('v34 poll, HYB: the canary holds its own (high) PRE rate but runs 15x the frozen matched pools -> REVERT, the '
+      'artifact naming the matched arm', v == 'REVERT' and (a.get('extra') or {}).get('by') == 'death_gate_did'
+      and '[matched]' in h and ((a.get('extra') or {}).get('matched') or [None, None, None])[2] == POOLS_M, (h, a.get('extra')))
     v, h, a = run(us, 40)
     c('v34: a 6.7x rise against its own PRE REVERTs by death_gate_did', v == 'REVERT' and (a.get('extra') or {}).get('by') == 'death_gate_did', h)
     v, h, a = run(dict(us, licence={'class': 'rate'}), 0, linked=2)
@@ -425,8 +556,27 @@ def verdict_cases(verdict_py, tmp):
 
 
 MUTANTS = [
-    ('usaferule.py', 'threshold back to the uncalibrated 1.25', 'THRESHOLD = 2.0', 'THRESHOLD = 1.25'),
-    ('usaferule.py', 'floor dropped', "    if a < floor:\n        return False, 0.0,", "    if a < 0:\n        return False, 0.0,"),
+    ('usaferule.py', 'threshold back to the uncalibrated 1.25', 'THRESHOLD = 2.5', 'THRESHOLD = 1.25'),
+    ('usaferule.py', 'HYB as AND (both arms must trip)', "    if rd or rm:\n        return True, (ld, lm), why", "    if rd and rm:\n        return True, (ld, lm), why"),
+    ('usaferule.py', 'an unmeasured matched control holds', "    if rd is None or rm is None:\n        return None, (ld, lm), why", "    if rd is None:\n        return None, (ld, lm), why"),
+    ('usaferule.py', 'matched arm ignores the floor', "        return False, 0.0, 'below the owner\\'s %d-death floor: %s' % (floor, base)\n    lb = lower_bound(a, ta, cm, tm)",
+     "        pass\n    lb = lower_bound(a, ta, cm, tm)"),
+    ('usaferule.py', 'matched_candidates not required', "    if not isinstance(mc, list) or len(mc) < 2 or", "    if False and not isinstance(mc, list) or len(mc) < 2 or"),
+    ('usafegate.py', 'the freeze CLI reuses an earlier declaration\'s state', "        if stale:\n            print('USAFE FREEZE-FAILED", "        if False:\n            print('USAFE FREEZE-FAILED"),
+    ('usafegate.py', 'a .matched record excuses earlier state', "        if stale:\n            print('USAFE FREEZE-FAILED", "        if stale and not os.path.exists(cache + '.matched'):\n            print('USAFE FREEZE-FAILED"),
+    ('usafegate.py', 'pool names not normalised', "    canary_pools = sorted({str(p).strip() for p in canary_pools if str(p).strip()})", "    canary_pools = list(canary_pools)"),
+    ('usafegate.py', 'the freeze CLI succeeds with no matched control', "        if err or not mp:\n            print('USAFE FREEZE-FAILED", "        if err:\n            print('USAFE FREEZE-FAILED"),
+    ('usafegate.py', 'the matched record is re-derived, not frozen', "    if os.path.exists(mp):\n        try:\n            rec = json.load(open(mp))", "    if False:\n        try:\n            rec = json.load(open(mp))"),
+    ('usafegate.py', 'matched-control gaps ignored', "    if m.get('matched_error'):\n        gaps.append", "    if False:\n        gaps.append"),
+    ('usafegate.py', 'a gone matched pool ignored', "    if m.get('matched_gone'):\n        gaps.append", "    if False:\n        gaps.append"),
+    ('usafegate.py', 'a missing record is re-derived (first use and loss confused)', "    if not create:\n        # the gate only LOADS", "    if False:\n        # the gate only LOADS"),
+    ('usafegate.py', 'an unmeasured matched pool masked by the others', "    m['matched_gone'] = gone; m['matched_quiet'] = sorted(set(quiet) | set(unmeasured))",
+     "    m['matched_gone'] = gone; m['matched_quiet'] = quiet"),
+    ('usafegate.py', 'a quiet matched pool ignored', "    if m.get('matched_quiet'):\n        gaps.append", "    if False:\n        gaps.append"),
+    ('usafegate.py', 'the decision ignores the matched arm', "                              m.get('cm', 0), m.get('tm', 0.0), lower_bound)",
+     "                              0, 1e9, lower_bound)"),
+    ('usaferule.py', 'floor dropped (DiD arm)', "    if a < floor:\n        return False, 0.0, 'below the owner\\'s %d-death floor: %s' % (floor, base)\n    rk = control_ratio",
+     "    if a < 0:\n        return False, 0.0, 'below the owner\\'s %d-death floor: %s' % (floor, base)\n    rk = control_ratio"),
     ('usaferule.py', 'control ratio ignored', "    lb = lower_bound(a, ta, b, tb) / rk", "    lb = lower_bound(a, ta, b, tb)"),
     ('usaferule.py', 'compares with the control instead of its own PRE (the old bias)', "    lb = lower_bound(a, ta, b, tb) / rk",
      "    lb = lower_bound(a, ta, c, tc)"),

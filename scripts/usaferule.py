@@ -7,13 +7,17 @@ alone those pools died 2.6-3.2x the control's rate in the 6 h before (airpocket 
 the canary's POST rate with the control's POST rate, so a no-change canary drawn this way trips it on its own pools'
 baseline -- measured on the null below. A cross-sectional comparison cannot test a fix where the problem is.
 
-THE GATE (difference-in-differences of death RATES, each arm against ITSELF):
+THE GATE IS HYB@2.5 (operator + Codex decision 10-08): TRIP iff >= 2 canary POST deaths AND EITHER arm clears THRESHOLD --
+the DiD arm below, OR the MATCHED arm (matched_gate: canary POST vs the POST of the drowning pools the draw did not take,
+frozen by the loop before the deploy). If neither trips and either arm is unmeasured: UNREADABLE (hyb_gate -> None).
+THE DiD ARM (difference-in-differences of death RATES, each arm against ITSELF):
   canary ratio   R_c = (canary POST deaths / POST bot-h) / (canary PRE deaths / PRE bot-h)   -- the same bots, before
   control ratio  R_k = (control POST / POST bot-h) / (control PRE / PRE bot-h)               -- what time alone did
   psi = R_c / R_k. The canary's POST/PRE ratio gets the owner's exact Poisson lower bound (deathgate.ratio_lower_bound,
   the v21 machinery, conditional binomial); the control's ratio, ~60 bots, is taken as its point estimate with a 0.5
-  continuity correction. TRIP iff canary POST deaths >= the owner's two-death floor AND lower_bound(R_c) / R_k > THRESHOLD
-  (2.0, CALIBRATED on the five-pool null -- deaths cluster, so the nominal 1.25 false-trips 12-17%).
+  continuity correction. The arm trips iff canary POST deaths >= the owner's two-death floor AND lower_bound(R_c) / R_k >
+  THRESHOLD (2.5, CALIBRATED with the matched arm on the five-pool null -- deaths cluster, so the nominal 1.25 false-trips
+  12-17%).
   PRE is the `pre_hours` (default 24 h) before declared_at -- long enough to hold ~10 deaths on 10 drowning-pool bots.
   The in-window randomization p (v26) is kept REPORT-ONLY, on the DiD statistic per pool (POST deaths minus PRE rate x
   POST bot-h x R_k), permuted over every pool.
@@ -39,7 +43,7 @@ Calibration: scripts/host/usafe_null.py (no-change draws restricted to the five 
 import math
 
 FLOOR = 2
-THRESHOLD = 2.0          # CALIBRATED on the five-pool null (scripts/host/usafe_null.py), not the nominal 1.25: see the report
+THRESHOLD = 2.5          # HYB@2.5, CALIBRATED on the five-pool null (scripts/host/usafe_null.py); operator + Codex 10-08
 DEFAULT_PRE_H = 24.0
 CLASS = 'underground-safety'
 
@@ -58,9 +62,12 @@ def licence_report_only(reg):
 def spec(reg):
     """The registration's `underground_safety` block with defaults."""
     u = reg.get('underground_safety') if isinstance(reg.get('underground_safety'), dict) else {}
+    mc = u.get('matched_candidates')
+    mc = sorted(x for x in mc if isinstance(x, str)) if isinstance(mc, list) else []
     rules = [r for r in (u.get('link_rules') or []) if isinstance(r, dict)]
     kinds = sorted({k for r in rules for k in (r.get('kind'), r.get('until_kind')) if isinstance(k, str)})
-    return {'pre_hours': float(u.get('pre_hours', DEFAULT_PRE_H)), 'link_rules': rules, 'link_kinds': kinds}
+    return {'pre_hours': float(u.get('pre_hours', DEFAULT_PRE_H)), 'link_rules': rules, 'link_kinds': kinds,
+            'matched_candidates': mc}
 
 
 def rule_problems(rules):
@@ -100,6 +107,10 @@ def registration_problems(reg):
     if not isinstance(u, dict):
         return ['class underground-safety but no underground_safety block']
     bad += rule_problems(u.get('link_rules'))
+    mc = u.get('matched_candidates')
+    if not isinstance(mc, list) or len(mc) < 2 or not all(isinstance(x, str) and x for x in mc) or len(set(mc)) != len(mc):
+        bad.append('underground_safety.matched_candidates must list >= 2 distinct pool names: the matched-pool control '
+                   '(HYB) is the candidates the draw did NOT take, frozen by the loop after the draw and before the deploy')
     p = u.get('pre_hours', DEFAULT_PRE_H)
     if not isinstance(p, (int, float)) or isinstance(p, bool) or not (6 <= p <= 48):
         bad.append('underground_safety.pre_hours must be in [6, 48]')
@@ -142,6 +153,35 @@ def did_gate(a, ta, b, tb, c, tc, d, td, lower_bound, threshold=THRESHOLD, floor
     if lb > threshold:
         return True, lb, head + ' > %.2fx' % threshold
     return False, lb, head + ' does not clear %.2fx (held)' % threshold
+
+
+def matched_gate(a, ta, cm, tm, lower_bound, threshold=THRESHOLD, floor=FLOOR):
+    """PURE. The MATCHED-POOL arm of HYB: canary POST vs the frozen matched pools' POST (the drowning pools the draw did
+    not take), the owner's exact Poisson bound. (reverts, lb, why); reverts=None when the matched control is unmeasured --
+    an unusable control is never a clean hold."""
+    base = 'canary %d/%.1f bh POST vs matched pools %d/%.1f bh POST' % (a, ta or 0, cm, tm or 0)
+    if not ta or ta <= 0 or not tm or tm <= 0:
+        return None, None, 'matched-pool control unmeasured: %s' % base
+    if a < floor:
+        return False, 0.0, 'below the owner\'s %d-death floor: %s' % (floor, base)
+    lb = lower_bound(a, ta, cm, tm)
+    head = 'matched-pool gate: %s; rate ratio %s, lower 95%% bound %.2fx' % (
+        base, ('%.2fx' % ((a / ta) / (cm / tm))) if cm > 0 else 'inf', lb)
+    return (True, lb, head + ' > %.2fx' % threshold) if lb > threshold else (False, lb, head + ' does not clear %.2fx (held)' % threshold)
+
+
+def hyb_gate(a, ta, b, tb, c, tc, d, td, cm, tm, lower_bound, threshold=THRESHOLD, floor=FLOOR):
+    """PURE. HYB (operator + Codex 10-08): TRIP iff the DiD arm OR the matched-pool arm trips (each at `threshold`, the
+    two-death floor in both). An arm that cannot be measured never contributes a hold: if neither arm trips and either
+    is unmeasured, the answer is None (UNREADABLE). -> (reverts, (lb_did, lb_matched), why)."""
+    rd, ld, wd = did_gate(a, ta, b, tb, c, tc, d, td, lower_bound, threshold, floor)
+    rm, lm, wm = matched_gate(a, ta, cm, tm, lower_bound, threshold, floor)
+    why = 'HYB@%.2f: [DiD] %s || [matched] %s' % (threshold, wd, wm)
+    if rd or rm:
+        return True, (ld, lm), why
+    if rd is None or rm is None:
+        return None, (ld, lm), why
+    return False, (ld, lm), why
 
 
 def linked_reverts(linked, deaths, floor=FLOOR):

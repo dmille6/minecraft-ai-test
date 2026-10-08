@@ -234,6 +234,43 @@ def _with_roster(c, cache_path):
     return c
 
 
+def frozen_matched(cache_path, candidates, canary_pools, create=False):
+    """THE MATCHED CONTROL IS FROZEN (Codex launch condition 2, 10-08): the candidates the draw did not take, decided at
+    the draw and BEFORE the deploy (canary-loop.sh runs `usafegate.py freeze`) and written once, atomically, beside the PRE cache; every
+    later poll and read uses that record. -> (pools, error). An unreadable record, or a record that disagrees with this
+    canary's pools, is an error (fails closed); with no cache path (a replay) the set is computed, not frozen."""
+    canary_pools = sorted({str(p).strip() for p in canary_pools if str(p).strip()})   # one spelling: manifest, $P, bots
+    want = sorted(set(candidates) - set(canary_pools))
+    if not cache_path:
+        return want, None
+    mp = cache_path + '.matched'
+    if os.path.exists(mp):
+        try:
+            rec = json.load(open(mp))
+            pools = rec['pools']
+            if not isinstance(pools, list) or not all(isinstance(x, str) for x in pools):
+                raise ValueError('not a list of pools')
+            if sorted(rec.get('canary_pools') or []) != sorted(canary_pools):
+                return pools, 'the frozen matched control %s was recorded for canary pools %s, not %s' % (
+                    mp, rec.get('canary_pools'), sorted(canary_pools))
+            return pools, None
+        except (OSError, ValueError, KeyError, TypeError) as e:
+            return [], 'the frozen matched-control record %s is unreadable (%s)' % (mp, type(e).__name__)
+    if not create:
+        # the gate only LOADS the record the loop froze before the deploy (round 1, Codex): a missing record is not a
+        # first use, it is a lost one -- never re-derived from today's candidates
+        return [], 'no frozen matched-control record at %s (frozen by the loop before the deploy)' % mp
+    try:
+        tmp = mp + '.tmp-%d' % os.getpid()
+        with open(tmp, 'w') as fh:
+            json.dump({'pools': want, 'candidates': sorted(candidates), 'canary_pools': sorted(canary_pools),
+                       'frozen_at': dt.datetime.now(dt.timezone.utc).isoformat()}, fh)
+        os.replace(tmp, mp)
+    except OSError as e:
+        return want, 'the matched control could not be frozen at %s (%s)' % (mp, type(e).__name__)
+    return want, None
+
+
 def measure(root, reg, canary_bots, control_bots, cut, now, cache_path=None, expected_pools=None, baseline=None):
     """Everything the gate needs at one poll or read. Control POST only at the floor.
     `expected_pools`: the declared canary pools; a declared pool with no bot on disk is a roster error."""
@@ -251,6 +288,27 @@ def measure(root, reg, canary_bots, control_bots, cut, now, cache_path=None, exp
          'p': None, 'p_n': 0, 'short_pre': pre.get('short', []), 'short_post': short_post, 'missing_pools': missing_pools,
          'n_canary_bots': len(canary_bots), 'pre_other_builds': pre.get('pre_other_builds', {}), 'vanished': vanished,
          'roster_error': pre.get('roster_error')}
+    # THE MATCHED-POOL ARM (HYB), every poll: few bots, and an unusable control must be seen before it is needed
+    canary_pools = sorted({pool_of(b) for b in canary_bots} | set(expected_pools or []))
+    mpools, merr = frozen_matched(cache_path, s['matched_candidates'], canary_pools)
+    mbots = [b for b in control_bots if pool_of(b) in set(mpools)]
+    cm, tm, pm, _, _ = arm(root, mbots, cut, now, errors=err)
+    m.update(cm=cm, tm=tm, matched_pools=mpools, matched_error=merr, errors=err[0] + pre.get('errors', 0))
+    gone = sorted(set(mpools) - {pool_of(b) for b in mbots})
+    # every frozen matched pool must have MEASURED POST exposure at every poll (round 1, Codex: a pool silent through POST
+    # was masked by the others' exposure inside the first hour); the relative 25% rule below keeps its one-hour grace
+    unmeasured = sorted(p for p in mpools if p not in gone and pm.get(p, (0, 0.0))[1] <= 0) if post_h > 0 else []
+    quiet = []
+    if post_h > 1.0:
+        # a matched pool must keep logging: its POST exposure rate >= 25% of its PRE rate (pool level)
+        for p in mpools:
+            _qd, qh = pre['per'].get(p, (0, 0.0))
+            ph = pm.get(p, (0, 0.0))[1]
+            if qh <= 0 or ph < MIN_BOT_SHARE * post_h * (qh / s['pre_hours']):
+                quiet.append(p)
+    if not mpools:
+        m['matched_error'] = merr or 'no matched control: every candidate pool %s was drawn' % s['matched_candidates']
+    m['matched_gone'] = gone; m['matched_quiet'] = sorted(set(quiet) | set(unmeasured))
     if a >= U.FLOOR:
         c, tc, pc, _, _ = arm(root, control_bots, cut, now, errors=err)
         m.update(c=c, tc=tc, control_scanned=True, errors=err[0] + pre.get('errors', 0))
@@ -295,7 +353,15 @@ def decide(m, lower_bound, linkage_report_only=False):
         gaps.append('canary bot(s) in the roster no longer on disk: %s' % ', '.join(m['vanished'][:6]))
     if m.get('short_post'):
         gaps.append('canary bot(s) logging < %d%% of the POST: %s' % (100 * MIN_BOT_SHARE, ', '.join(m['short_post'][:6])))
-    rev, lb, why = U.did_gate(m['a'], m['ta'], m['b'], m['tb'], m['c'], m['tc'], m['d'], m['td'], lower_bound)
+    if m.get('matched_error'):
+        gaps.append(m['matched_error'])
+    if m.get('matched_gone'):
+        gaps.append('matched control pool(s) with no bot on disk: %s' % ', '.join(m['matched_gone']))
+    if m.get('matched_quiet'):
+        gaps.append('matched control pool(s) logging < %d%% of their PRE rate: %s' % (100 * MIN_BOT_SHARE, ', '.join(m['matched_quiet'])))
+    rev, lb, why = U.hyb_gate(m['a'], m['ta'], m['b'], m['tb'], m['c'], m['tc'], m['d'], m['td'],
+                              m.get('cm', 0), m.get('tm', 0.0), lower_bound)
+    why += ' | matched control (frozen): %s' % (m.get('matched_pools') or 'NONE')
     if m['p'] is not None:
         why += '; randomization p %.3f over %d same-size pool assignments (REPORT ONLY)' % (m['p'], m['p_n'])
     if m['linked']:
@@ -323,6 +389,29 @@ def main(argv):
         print('USAFE %s :: %s' % ('REFUSED' if bad else 'OK', '; '.join(bad) if bad else (
             'underground-safety registration well-formed' if U.is_underground_safety(reg) else 'not an underground-safety registration')))
         return 2 if bad else 0
+    if len(argv) >= 4 and argv[1] == 'freeze':
+        # FREEZE BEFORE THE DEPLOY (canary-loop.sh, after the draw; a failure refuses the deploy): the matched control is recorded
+        # once, where the gate reads it; an existing record for these pools is reported, never rewritten
+        regdir = os.environ.get('USAFE_REG_DIR') or os.path.expanduser('~/mcai-analysis/registrations')
+        reads = os.environ.get('USAFE_READS_DIR') or os.path.expanduser('~/digest/reads')
+        reg = json.load(open(os.path.join(regdir, argv[2] + '.json')))
+        pools = sorted({p.strip() for p in argv[3].split(',') if p.strip()})
+        cache = os.path.join(reads, '%s-usafe-pre.json' % argv[2])
+        # a run id is ONE declaration (v33): state left by an earlier one (its PRE cache or roster) is never reused
+        # under a new freeze, even on the same pools (round 1, Claude)
+        stale = [x for x in (cache, cache + '.roster') if os.path.exists(x)]
+        # ANY measurement state means a declaration already got past its deploy: refuse, whether or not a .matched exists
+        # (round 2, Codex + Claude). A retry after a FAILED deploy has none, and reuses its own record idempotently.
+        if stale:
+            print('USAFE FREEZE-FAILED :: state from an earlier declaration of %s exists (%s); a re-run needs a new run id'
+                  % (argv[2], ', '.join(stale)))
+            return 2
+        mp, err = frozen_matched(os.path.join(reads, '%s-usafe-pre.json' % argv[2]), U.spec(reg)['matched_candidates'], pools, create=True)
+        if err or not mp:
+            print('USAFE FREEZE-FAILED :: %s' % (err or 'no matched control: every candidate %s was drawn' % U.spec(reg)['matched_candidates']))
+            return 2
+        print('USAFE FROZEN %s :: matched control for canary pools %s' % (','.join(mp), ','.join(pools)))
+        return 0
     if len(argv) >= 5 and argv[1] == 'window':
         root = os.environ.get('USAFE_LOG_ROOT') or '/var/log/mcai'
         ps = [p for p in argv[2].split(',') if p]

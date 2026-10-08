@@ -122,11 +122,15 @@ for _ in range(2000):
     a = random.randint(0, 20); b = random.randint(0, 40); ta = random.uniform(5, 300); tb = random.uniform(20, 600)
     c = random.randint(0, 60); tc = random.uniform(50, 1500); d = random.randint(0, 200); td = random.uniform(200, 4000)
     rk = U.control_ratio(c, tc, d, td)
+    cm = random.randint(0, 30); tm = random.uniform(10, 500)
     for t in THRS + [U.THRESHOLD]:
         g = U.did_gate(a, ta, b, tb, c, tc, d, td, ratio_lower_bound, threshold=t)[0]
         bad += bool(g) != (a >= 2 and lb_exceeds(a, ta, b, tb, t * rk))
-print('POSITIVE CONTROL: fast test vs usaferule.did_gate at thresholds %s: %d disagreements in %d comparisons'
-      % (THRS + [U.THRESHOLD], bad, 2000 * (len(THRS) + 1)), flush=True)
+        # THE LIVE HYB (usaferule.hyb_gate) against this file's HYB: DID24 OR MPC at the same threshold (10-08)
+        h = U.hyb_gate(a, ta, b, tb, c, tc, d, td, cm, tm, ratio_lower_bound, threshold=t)[0]
+        bad += bool(h) != (a >= 2 and (lb_exceeds(a, ta, b, tb, t * rk) or lb_exceeds(a, ta, cm, tm, t)))
+print('POSITIVE CONTROL: fast tests vs usaferule.did_gate AND usaferule.hyb_gate at thresholds %s: %d disagreements in %d comparisons'
+      % (THRS + [U.THRESHOLD], bad, 2 * 2000 * (len(THRS) + 1)), flush=True)
 if bad:
     sys.exit('positive control FAILED')
 tot = lambda P, ps: sum(P[p][N] for p in ps)
