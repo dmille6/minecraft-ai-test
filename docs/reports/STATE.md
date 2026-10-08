@@ -11,6 +11,16 @@ behind it (chain-ore.sh stopped 10-01 on fixes-02's revert)._
 
 ---
 
+## 10-08 12:55Z — OWNER: KEEP at +180 for four-pool bag fixes; rolling variant prep; withdraw2 queued behind airpocket
+OWNER chose "1 and 2": (1) KEEP allowed at +180 for class bag-fix drawn at four pools when exposure is ready, every gate
+passes, no death trip/extension pending and all reads are readable -- gate agent calibrating (false-KEEP rate must not
+exceed today's 2-pool +360) and building; not live until installed between canaries. (2) a variant-prep agent keeps
+the next queue item rebuilt on each plausible base one step ahead (now: wd2-on-dbb4d78 for an airpocket KEEP).
+Scheduler queue: airpocket-01 (running) -> withdraw2-01 (queued 12:50Z, variant 92bc84f -> withdraw2-01.92bc84f.json,
+approved; the dbb4d78 variant will be added with `queue replace-variant`). Owner asked about two concurrent tests again;
+the narrow form (rare-event safety canary + one ordinary canary) was offered, not chosen. Pending owner: per-town stock
+targets for all bulk materials (proposed).
+
 ## 10-08 12:30Z — airpocket-01 +180 NOT_YET (0 attempts yet; extension to +1560 registered); "control 0/0.0" explained
 Canary LIVE since 07:34:26Z on hive-d,placebo-a; matched control frozen hive-c,placebo-b,placebo-d. +180: liveness 0 rows
 (no sealed-pocket episode yet), every breach 0, instruments fired on the control (308 capped rescues, 17 no-air
