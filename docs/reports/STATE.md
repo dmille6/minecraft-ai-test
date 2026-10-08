@@ -11,6 +11,14 @@ behind it (chain-ore.sh stopped 10-01 on fixes-02's revert)._
 
 ---
 
+## 10-08 16:55Z — airpocket-01 +540 NOT_YET (1 success; exposure 1 of 2); a MISSED rescue under ice under investigation
++540: deaths canary 2/91.2 bh vs control 16/638.4; DiD psi 0.45x (LB 0.07) held; matched 1.00x (LB 0.12) held.
+v14c operator review (journalled): hive-d-Alpha drowned 14:08:10Z sealed under ICE at 7,61,63 -- NOT linked (no
+_air_pocket / _air_pocket_refused row at all), but a MISSED opportunity: the base rescue yielded to the escape handlers
+(marooned/pillar_out/dig_straight_up) and airpocket never evaluated. Builder agent investigating (read-only); fix goes into
+airpocket-02 with the window-handoff race and the well-floor guard. junkwell-02 prepared on the 4 peacefulkit shas
+(bd747a8, 0cdb1a8, 2299221, e4f2917; both engines APPROVE; Paper full-stack dispose 402/402 contained), fetched into /opt.
+
 ## 10-08 16:45Z — JUNKWELL-02 READY on the four peacefulkit shas (queue entry drafted, NOT added)
 - The approved pit-fixed well is jw-on-40046b8 @ cf4192e: 55 commits, 21 of them merges.
   - Its net diff over 40046b8 was applied as ONE commit per base; the merges do not replay as cherry-picks.
