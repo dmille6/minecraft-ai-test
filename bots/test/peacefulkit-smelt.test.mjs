@@ -67,7 +67,11 @@ function makeBot (inv, difficulty, opts = {}) {
       take(NAME[type], count); slots.fuel = { name: NAME[type], type, count: (slots.fuel?.count ?? 0) + count }
       if (NAME[type] === 'wooden_sword') onSwordPut?.({ setFiller: n => { filler = n } })
     },
-    async takeOutput () { assert.ok(slots.output); give('iron_ingot', slots.output.count); slots.output = null },
+    async takeOutput () {
+      assert.ok(slots.output)
+      if (opts.liftOutput) { furnace.selectedItem = { ...slots.output }; slots.output = null; throw new Error('the second click timed out') }
+      give('iron_ingot', slots.output.count); slots.output = null
+    },
     async takeInput () { assert.ok(slots.input); give(slots.input.name, slots.input.count); slots.input = null },
     async takeFuel () {
       assert.ok(slots.fuel)
@@ -434,4 +438,19 @@ test('RESTAGED (Codex r-rev9): a call that takes an earlier sword back and then 
   m.slots.fuel = null; m.bag.wooden_sword = 1; m.bag.raw_iron = 2
   const { rows: later } = await swordRows(() => run(m.bot, 2, ac2.signal).then(r => r, e => e))
   assert.ok(later.every(r => !/restaged=1/.test(r)), JSON.stringify(later))
+})
+
+test('A STUCK CURSOR ENDS THE DRAIN (Claude r-rev10): no later take clicks with a loaded cursor; the close judges the room then', async () => {
+  const m = makeBot({ raw_iron: 2, coal: 1, wooden_sword: 1 }, 'peaceful', { holdIgnition: true, liftOutput: true, clickFails: () => true })
+  const ac = new AbortController()
+  m.bot.openFurnace = (orig => async () => {
+    const f = await orig()
+    f.putFuel = (put => async (...a) => { await put(...a); if (a[0] === 10) setTimeout(() => { m.slots.output = { name: 'iron_ingot', type: 2, count: 1 }; ac.abort() }, 50) })(f.putFuel)
+    return f
+  })(m.bot.openFurnace)
+  const { rows } = await swordRows(() => run(m.bot, 2, ac.signal).then(r => r, e => e))
+  assert.ok(m.slots.input, 'the input was not taken after the stuck cursor')
+  assert.equal(m.slots.fuel?.name, 'wooden_sword', 'nor the sword')
+  assert.equal(m.bag.iron_ingot, 1, 'the close returned the output on the cursor to the bag (room)'); assert.deepEqual(m.dropped, [])
+  assert.deepEqual(rows, ['no_effect:wooden_sword left in the furnace fuel slot (the drain ran out of time) for raw_iron active=1'])
 })
