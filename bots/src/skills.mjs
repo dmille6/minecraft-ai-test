@@ -7450,7 +7450,7 @@ const SMELT_OPEN_MS     = 10_000        // openFurnace waits on a server event f
  *   - An EARLIER call's sword (not staged) was already credited when it left the bag: lifting it and putting it back is a
  *     diagnostic row the read does NOT credit (Codex r-rev7: a second credit could hide a later loss).
  *   - A staged sword is 'returned' only when its take happened; a drain that never reached it (its deadline spent on a
- *     hung take) re-reads the slot (Claude r-rev7).
+ *     hung take) re-reads the slot (Claude r-rev7): still there -> left in the furnace; empty -> it burned in the gap.
  */
 export function swordDrainRow (fate, staged, inSlot) {
   if (fate === 'cursor_lost') return { outcome: 'failed', what: 'wooden_sword on the cursor at the close (the server drops it)' }
@@ -7462,7 +7462,8 @@ export function swordDrainRow (fate, staged, inSlot) {
   if (fate === 'taken') return { outcome: 'no_effect', what: 'wooden_sword returned unburned' }
   if (inSlot === true) return { outcome: 'no_effect', what: 'wooden_sword left in the furnace fuel slot (the drain ran out of time)' }
   if (inSlot === undefined) return { outcome: 'no_effect', what: 'wooden_sword outcome unknown (the furnace could not be read)' }
-  return { outcome: 'no_effect', what: 'wooden_sword returned unburned' }
+  // in the slot before the drain, never taken by it, gone from it now: it ignited in the gap (Claude r-rev8)
+  return { outcome: 'success', what: 'burned wooden_sword (unconfirmed)' }
 }
 
 /**
