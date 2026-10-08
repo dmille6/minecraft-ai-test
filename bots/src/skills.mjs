@@ -33,7 +33,7 @@ import { wearOutPlan, wearTarget, wearRank, wearRefusals, slotObservation, never
 import { noteSought } from './pickuplog.mjs'
 import { foodSkipMode, foodSkipActive, skipFoodDrop, foodSkipDetail, difficultyOf, setPeacefulFood, peacefulFoodActive } from './foodskip.mjs'
 // THE PEACEFUL KIT (peacefulkit.mjs, owner 10-07): swords banked, never crafted, never chased; the plants composted.
-import { swordCraftRefusal, skipSwordDrop, isPeacefulCompost, peacefulKitDetail, swordFuelCount, burnableSword } from './peacefulkit.mjs'
+import { swordCraftRefusal, skipSwordDrop, isPeacefulCompost, peacefulKitDetail, swordFuelCount, burnableSword, unwantedSword } from './peacefulkit.mjs'
 import { inPickupBox, pickupGoalClass, pickupGoal, standHeight } from './pickupbox.mjs'
 import { BAG_SLOTS, roomRecipe, admitRoom, pickupNearest, heldLine, collectDecision, placeStackOf, depositTarget, roomAdvice, craftArrived, craftRoomRemedy, wearKeepsSlot, bagFill, placeableBlock, roomForOne, executionVerdict } from './craftroom.mjs'
 import { compostPlan, nextInsert, boneMealRoom, fillDecision, composterLevel, compostDetail, composterBuildPlan,
@@ -6638,7 +6638,8 @@ async function throwStacks (bot, { cap, facing, stacks, bound, waitTick, signal,
       const sword = isSword(it?.name)
       if (!it || it.name !== st.name || !(isWellJunk(it.name) || (sword && acc.swordsAllowed)) || bot.currentWindow || bot.inventory?.selectedItem) continue
       // A SWORD GOES ONLY IF THE WORLD IS STILL PEACEFUL AT THIS CLICK (the switch re-read now, not at the plan)
-      if (sword) { const p = wellSwordsNow(bot); if (!p) { acc.swordsKept++; continue } acc.peaceful = (acc.peaceful ?? true) && p }
+      // (peacefulkit's classifier, fed the well's strict switch as read NOW)
+      if (sword) { const p = wellSwordsNow(bot); if (!unwantedSword(it, p)) { acc.swordsKept++; continue } acc.peaceful = (acc.peaceful ?? true) && p }
       // THE RESERVE, judged on the bag as it is NOW, at the click (Codex r1: the plan's view can be eight seconds old)
       const left = sword ? 0 : guardLeft(it.name, it.count, reserveStone(bot.inventory?.items?.() ?? []))
       if (left === null) continue

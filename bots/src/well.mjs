@@ -33,6 +33,7 @@
 //
 // Nothing here is ever the model's choice: three deterministic town orders (wellOrder), never a trip.
 
+import { isSword as pkIsSword, unwantedSword } from './peacefulkit.mjs'
 import { TRIGGER_SLOTS } from './hygiene.mjs'
 import { isCompostJunk, townDistance, ADOPT_RADIUS, TOWN_RADIUS, CLEARANCE_CONTAINER,
          builderDecision, RUNNER_DECLINED } from './composter.mjs'
@@ -122,13 +123,16 @@ export function isWellJunk (name) {
  * ONLY while the peaceful switch is active -- foodskip's own detection: FOOD_SKIP auto|on AND the server's difficulty
  * read as peaceful (skills.mjs wellSwordsNow) -- judged when the plan is made AND again at each click. In any other world
  * a sword is a weapon and never goes. Not on WELL_JUNK (the guards there stay absolute): a separate, switched extra.
- * The same rule as peacefulkit's classifier (isSword + its peaceful switch); where peacefulkit is in the build, the two agree.
+ * ON PEACEFULKIT (coordinator 10-08): the CLASSIFIER is peacefulkit's -- isSword and unwantedSword(item, peacefulActive),
+ * one rule for the bank, the furnace and the well. The well feeds it its own STRICT switch (swordSwitch: the difficulty
+ * read as peaceful AND foodskip's switch on), which is never true where peacefulkit's own `active` is false, so the
+ * well takes a sword only while the world is peaceful -- re-read at every click.
  */
-export const isSword = name => typeof name === 'string' && /_sword$/.test(name)
+export const isSword = pkIsSword
 /** THE SWITCH, pure (FOOD_SKIP mode, the server's difficulty): the world IS peaceful and foodskip's switch is on for it. */
 export const swordSwitch = (mode, difficulty) => difficulty === 'peaceful' && foodSkipActive(mode, difficulty)
-/** May this stack go as a peaceful-world sword? Pure. */
-export const swordGoes = (name, peaceful) => !!peaceful && isSword(name)
+/** May this stack go as a peaceful-world sword? Pure: peacefulkit's classifier under the well's strict switch. */
+export const swordGoes = (name, peaceful) => unwantedSword({ name }, peaceful)
 
 /** RESERVE_STONE held in a bag (mineflayer Items or { name, count }). */
 export function reserveStone (items = []) {
