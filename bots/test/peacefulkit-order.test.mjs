@@ -23,11 +23,13 @@ const { CognitiveLoop } = await import('../src/cognitive.mjs')
 
 const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'mcai-pko-'))
 let seq = 0
-function townBot (difficulty, { full = false, first = ['wildflowers', 30] } = {}) {
+function townBot (difficulty, { full = false, first = ['wildflowers', 30], pick = 'iron_pickaxe' } = {}) {
   const items = [{ name: first[0], count: first[1], slot: 9, type: mcData.itemsByName[first[0]].id },
     { name: 'oak_sapling', count: 16, slot: 44, type: mcData.itemsByName.oak_sapling.id }, { name: 'apple', count: 4, slot: 45, type: mcData.itemsByName.apple.id },
-    // a usable pickaxe, so withdraw's withdraw_pick town order (when withdraw is underneath) has nothing to fetch
-    { name: 'stone_pickaxe', count: 1, slot: 10, type: mcData.itemsByName.stone_pickaxe.id, maxDurability: 131, durabilityUsed: 11 },
+    // a usable IRON pickaxe, so withdraw's withdraw_pick town order has nothing to fetch -- and withdraw2's upgrade order
+    // (a usable pickaxe BELOW iron) has nothing to upgrade (the rebase onto withdraw2, review 10-08: with a stone one every
+    // `status` case below read withdraw_pick). A stone one is the composition test at the bottom.
+    { name: pick, count: 1, slot: 10, type: mcData.itemsByName[pick].id, maxDurability: mcData.itemsByName[pick].maxDurability, durabilityUsed: 11 },
     ...Array.from({ length: full ? 32 : 31 }, (_, i) => ({ name: 'white_wool', count: 1, slot: 11 + i, type: mcData.itemsByName.white_wool.id }))]
   const composter = { name: 'composter', type: mcData.blocksByName.composter.id, position: new Vec3(3, 70, 3), getProperties: () => ({ level: 0 }) }
   const chest = { name: 'chest', type: mcData.blocksByName.chest.id, position: new Vec3(-3, 70, 0) }
@@ -72,4 +74,11 @@ test('HARD, 35/36 with leaf_litter 30 (room for the bone meal): the compost orde
 })
 test('PEACEFUL, 35/36 with jungle saplings 5 (no reserve while on): the compost order', async () => {
   assert.equal(await firstSkill(townBot('peaceful', { first: ['jungle_sapling', 5] })), 'compost')
+})
+
+// WITHDRAW2 COMPOSITION (rebase onto withdraw2, 10-08): with a STONE pickaxe (below iron) the kit's compost order still comes
+// first while peaceful; with the kit off (hard) the bot gets withdraw2's upgrade order, never compost.
+test('WITHDRAW2 COMPOSITION: a STONE pickaxe -- peaceful composts the kit plants first; hard gets withdraw_pick', async () => {
+  assert.equal(await firstSkill(townBot('peaceful', { pick: 'stone_pickaxe' })), 'compost')
+  assert.equal(await firstSkill(townBot('hard', { pick: 'stone_pickaxe' })), 'withdraw_pick')
 })
