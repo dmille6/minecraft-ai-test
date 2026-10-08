@@ -11,6 +11,32 @@ behind it (chain-ore.sh stopped 10-01 on fixes-02's revert)._
 
 ---
 
+## 10-08 03:05Z -- junkwell-02 PIT FIX READY (queued, not launched): the aim said twice; an abandoned pit is COVERED; C9 gates a pit left open
+- **junkwell-02**: jw-on-c6e91a8 @ 2bd1452 (was 5c13330), jw-on-92bc84f @ b446f4d (was 5cca9c5).
+  - **Cause of the 5/5 misses:** the server dropped the bot's single aim look in 12/12 traced throws. RCON read the dig look 72.15 at the click.
+  - **Fix:** the look is said again, twice, before the click; the bot aims again if a correction moved it. Each throw's receipt is read from the spawn_entity PACKET (aim_off= / aim_read=, a tripwire).
+  - **Abandoned pits are COVERED, not filled:** one block in the cap cell. The fill pushed thrown junk back out on Paper.
+    - Only the run that dug the pit covers it, and never after an abort. Any visitor's close_well covers an open pit nobody is at.
+    - There is no build order without a cover block; cobblestone counts only above 64.
+  - **Read C9 (REVERT own_line breach_pit_left_open):** a pit opened (`_well_pit_dug`, written BEFORE the dig) or left (`_well_pit_open`) with no cover or build within 10 min.
+    - `scripts/host/wellread_c9_e2e.py` ran on the host against /home/mike/verdict.py: ALL HOLD (clean KEEP, one pit REVERT, 5/5 read mutants killed).
+    - wellread md5 a1a3deee on /tmp and ~/mcai-analysis; dry run 10-08 ~02:50Z: 313,926 rows walked, the instruments live, C1-C9 0.
+  - **Reviews:** Codex r1-r3 CHANGE, r4/r5/r6 APPROVE. Claude r1/r2 CHANGE, r3 APPROVE (its P3s taken).
+  - **Tests:** suites 236/236 and 237/237; well.test 167/167; lint clean but for withinBody.
+  - **Paper:**
+    - 35/35 consecutive pit-first throws landed on the fixed builds (15 on 88e4bb4, 20 on 2a6214f).
+    - Control 5c13330: 3 of 10 throws landed, and 3 of 6 builds left the pit open.
+    - Give-up: covered by the build, items contained (66 in the shaft, 0 outside, +30 s).
+    - Abort: why=aborted, then a visitor covered it 12.5 s later. Kill: a visitor covered it 10.6 s later.
+    - Resume: the well finished on the covered pit (131 in the shaft, 0 outside).
+    - No cover block: no order, no walk. Dispose: 528/528 in the shaft.
+  - **Not proven on Paper:** the visitor-race gate (B never scanned while the pit was open; it is unit-tested).
+- **stonecap-01 COUPLED** (only if junkwell-02 is KEPT and promoted): now sc-on-2bd1452 @ 5260f71 and sc-on-b446f4d @ 39b6f82 (were sc-on-5c13330 ee4c916 / sc-on-5cca9c5 5ee00b8).
+  - Registrations: stonecap-01.2bd1452.json / .b446f4d.json. The old .5c13330/.5cca9c5 files are superseded and deleted.
+  - Union merges, checked by Codex r6. Cobble mutants 65/65 and 67/67; suites 237/237 and 238/238.
+- **Still waiting:** jw-on-<peacefulkit sha> variants, for peacefulkit's new heads. The old jw-on-6dc10d1 / jw-on-f2c4ba0 lack the pit fix; do NOT launch them.
+- **Driver:** sandbox/well/well-e2e.cjs (visitor bot, Job 7 scenes, site census) and sandbox/craft/trace-rot.cjs landed on main.
+
 ## 10-08 ~01:30Z — WITHDRAW2 REBASED (both variants READY, not chained, not launched)
 `wd2-on-c6e91a8` @ 6c86fa7 (fleet c6e91a8; registration docs/reports/withdraw2-01.c6e91a8.json) and `wd2-on-92bc84f` @ a6cd3c1
 (only if towndeposit-02 is KEPT + promoted; withdraw2-01.92bc84f.json). bots/src on both = the approved withdraw2 (c4e9c47)

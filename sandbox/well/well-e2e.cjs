@@ -143,7 +143,7 @@ async function startBot (scene, slotsSpec, { pool = `sbxwell-${RUN}`, root = BOT
   set('FOOD_SKIP', 'auto')   // junkwell-02 swords: the switch under test (the default, written out)
   fs.writeFileSync(`${R}/${envRel}`, env + '\n')
   const bo = fs.openSync(botOut, 'a')
-  bot = spawn('bash', [`${R}/sandbox/run-bot.sh`, envRel], { cwd: R, env: { ...process.env, BOT_ROOT: root, NODE_OPTIONS: `--require ${path.join(R, 'sandbox/craft/trace.cjs')}`, CRAFT_TRACE: trace }, stdio: ['ignore', bo, bo] })
+  bot = spawn('bash', [`${R}/sandbox/run-bot.sh`, envRel], { cwd: R, env: { ...process.env, BOT_ROOT: root, NODE_OPTIONS: `--require ${process.env.WELL_TRACE || path.join(R, 'sandbox/craft/trace.cjs')}`, CRAFT_TRACE: trace, TRACE_RCON_SERVER: process.env.WELL_TRACE ? SERVER : '' }, stdio: ['ignore', bo, bo] })
   if (!await waitFor(() => lines(botOut).some(l => /spawned pos=/.test(l)), 90000, 300)) { await stopBot(); throw new Error('no spawn') }
   // THE CHUNKS FIRST: an order read before the arena's chunks reach the client sees 'unknown' and (correctly) skips.
   rcon(`gamemode survival ${NAME}`, `clear ${NAME}`, `tp ${NAME} ${HOME.x + 0.5} ${HOME.y} ${HOME.z + 0.5}`)
@@ -224,7 +224,11 @@ scenes.build = async () => {
   buildArena()
   // WELL_BUILD_SLOTS (default 36): a bag with free slots builds WITHOUT the pit-first toss -- the set-up for the coupling scenes
   // (10-07 22:06-22:47: the pit-first diorite toss missed 5 times running on BOTH 12440d9 and 5c13330, so no well was built)
-  const bagSpec = fill([['oak_log', 3], ['egg', 16], ['egg', 16], ['flint', 64]], Number(process.env.WELL_BUILD_SLOTS || 36))
+  // WELL_BUILD_BAG=j7 (2a6214f): one dirt (the cover block; without one the build refuses no_cover) and fillers without
+  // calcite (calcite ranks before dirt in PIT_COVER_BLOCKS, so a calcite filler would be the cover instead)
+  const bagSpec = process.env.WELL_BUILD_BAG === 'j7'
+    ? fill7([['oak_log', 3], ['egg', 16], ['egg', 16], ['flint', 64], ['dirt', 1]], Number(process.env.WELL_BUILD_SLOTS || 36))
+    : fill([['oak_log', 3], ['egg', 16], ['egg', 16], ['flint', 64]], Number(process.env.WELL_BUILD_SLOTS || 36))
   // WELL_BUILD_ROOT: the build is set-up for the coupling scenes; it may come from another revision (12440d9's build failed
   // its pit-first toss on the sandbox 10-07: a diorite stack thrown that missed the pit, then well_no_room)
   const files = await startBot('build', bagSpec, { root: process.env.WELL_BUILD_ROOT || BOT_ROOT })
@@ -572,6 +576,220 @@ scenes.W1 = () => wellCobbleScene('W1', { town: 280 })
 scenes.W2 = () => wellCobbleScene('W2', { town: 250 })
 scenes.W3 = () => wellCobbleScene('W3', { town: 280, root: CTRL_ROOT })
 scenes.W4 = () => wellCobbleScene('W4', { town: 300, lowerTo: 200 })
+// ---------------------------------------------------------------- THE ABANDONED BUILD (88e4bb4: a pit is filled back to ground)
+// The pit-first build scene (36/36, fresh site); the moment the trace shows the SHAFT dig finish (block_dig status 2 at
+// y = site.y - 1), one disturbance:
+//   abandonA  `clear` the bag's logs and planks (the trapdoor chain cannot be crafted)
+//   abandonB  a second player (the walker, bare mineflayer) is teleported 2 east of the site (well_attended)
+//   abandonC  `damage <bot> 14` (health 20 -> 6 < FLEE_BELOW_HEALTH 8): the low_health reflex aborts the skill
+//   abandonK  SIGKILL of the bot process (no finally can run: what is left)
+// Then the site's cells (y-2 .. y) read by block name, every row of the build, the bag before/after, the arena's items.
+const SITE_NAMES = ['air', 'dirt', 'coarse_dirt', 'andesite', 'diorite', 'granite', 'calcite', 'tuff', 'cobblestone', 'stone', 'oak_trapdoor', 'oak_planks', 'crafting_table']
+function blockName (x, y, z) {
+  const r = rcon(...SITE_NAMES.map(n => `execute if block ${x} ${y} ${z} minecraft:${n}`))
+  const i = r.findIndex(q => passed(q.reply)); return i >= 0 ? SITE_NAMES[i] : 'other'
+}
+function itemList () {
+  const r = r1(`execute as ${ARENA_SEL} run data get entity @s Item`)
+  return r.split(/has the following entity data:/).slice(1).map(parseItem).filter(Boolean).map(it => `${it.id}x${it.count}`)
+}
+async function abandonScene (kind) {
+  buildArena()
+  const site = W.canonicalWellSite({ home: HOME, read: arenaRead }).site
+  if (kind === 'B') { await walkerJoin(); await tpWalker(site.x + 14.5, G + 1, site.z + 0.5) }
+  const bagSpec = fill([['oak_log', 3], ['egg', 16], ['egg', 16], ['flint', 64]])
+  const files = await startBot(`abandon${kind}`, bagSpec)
+  const before = bagSlots(NAME)
+  const marks = { kind, site }
+  const t0 = Date.now()
+  let fired = null
+  while (Date.now() - t0 < 200000 && !fired) {
+    const ev = lines(files.trace).map(l => { try { return JSON.parse(l) } catch { return null } }).filter(Boolean)
+    const dig = ev.find(e => e.pkt === 'dig' && e.status === 2 && e.loc?.y === site.y - 1 && e.loc?.x === site.x && e.loc?.z === site.z)
+    if (dig) {
+      if (kind === 'A') marks.action = rcon(`clear ${NAME} #minecraft:logs`, `clear ${NAME} #minecraft:planks`).map(x => x.reply.slice(0, 80))
+      else if (kind === 'B') { await tpWalker(site.x + 2.5, G + 1, site.z + 0.5); marks.action = 'walker 2 east of the site' }
+      else if (kind === 'C') marks.action = r1(`damage ${NAME} 14`).slice(0, 80)
+      else if (kind === 'K') { try { bot.kill('SIGKILL') } catch {} bot = null; marks.action = 'SIGKILL' }
+      fired = { afterDigMs: Date.now() - dig.ts }
+    }
+    if (lines(files.botOut).some(l => /skill build_well ->/.test(l))) break
+    await sleep(20)
+  }
+  marks.fired = fired
+  if (kind !== 'K') await waitFor(() => lines(files.botOut).some(l => /skill build_well ->/.test(l)), 120000, 500)
+  await sleep(kind === 'K' ? 8000 : 5000)
+  const cells = {}; for (const dy of [-2, -1, 0]) cells[site.y + dy] = blockName(site.x, site.y + dy, site.z)
+  const after = kind === 'K' ? null : bagSlots(NAME)
+  const ground = itemList()
+  const rows = rowsOf(files.skillLog).filter(r => /well|_work_order|reflex|low_health|abort|build/.test(r.name)).map(r => `${r.name} ${r.status} ${r.detail.slice(0, 400)}`)
+  const ended = lines(files.botOut).find(l => /skill build_well ->/.test(l)) ?? null
+  await stopBot()
+  if (kind === 'B') { await tpWalker(site.x + 14.5, G + 1, site.z + 0.5); await walkerLeave() }
+  const afterLogout = kind === 'K' ? bagSlots(NAME) : null   // offline: reads nothing (logged out); kept for the record
+  result({ scene: `abandon${kind}`, marks, ended: ended?.slice(0, 260), cells, bag: { before: before.totals, after: after?.totals ?? null, delta: after ? deltaOf(before.totals, after.totals) : null },
+    ground, rows, afterLogoutUsed: afterLogout?.used ?? null })
+}
+// ---------------------------------------------------------------- JOB 7 (2a6214f): the pit COVER, a visitor's close_well
+const ROCKS7 = ['andesite', 'diorite', 'granite']
+function fill7 (spec, n = 36) { const out = [...spec]; let i = 0; while (out.length < n) out.push([ROCKS7[i++ % ROCKS7.length], 64]); return out }
+// THE VISITOR: a second REAL bot (sandbox-WellB, the same build, the same pool -> the same recorded site), its own process
+const VNAME = 'sandbox-WellB'
+let botB = null
+async function startVisitor (scene, slotsSpec, { pool = `sbxwell-${RUN}`, root = BOT_ROOT, at = null } = {}) {
+  const tag = `${RUN}-${scene}-B-${++TRIAL_N}`
+  const logRel = `./sandbox/log/well-e2e/${tag}`
+  const skillLog = `${R}/sandbox/log/well-e2e/${tag}/skill-${VNAME}.jsonl`
+  const botOut = `${OUT}/bot-${tag}.out`; const trace = `${OUT}/trace-${tag}.jsonl`
+  const envRel = 'sandbox/.env.well-e2e-B'
+  let env = fs.readFileSync(`${R}/sandbox/sandbox-bot-scripted.env`, 'utf8')
+  const set = (key, v) => { env = new RegExp(`^${key}=`, 'm').test(env) ? env.replace(new RegExp(`^${key}=.*$`, 'm'), `${key}=${v}`) : env + `\n${key}=${v}` }
+  set('BOT_NAME', VNAME); set('LOG_DIR', logRel); set('STATE_DIR', `./sandbox/state/well-e2e-${tag}`); set('MEMORY_POOL', pool)
+  set('MINECRAFT_PORT', PORTS[SERVER]); set('MAX_CONSECUTIVE_FAILURES', 50); set('FAILED_COOLDOWN_MS', 1000); set('STUCK_SECONDS', 20)
+  for (const a of ['X', 'Y', 'Z']) { set(`HOME_${a}`, HOME[a.toLowerCase()]); set(`BOARD_${a}`, HOME[a.toLowerCase()]) }
+  set('FOOD_SKIP', 'auto')
+  fs.writeFileSync(`${R}/${envRel}`, env + '\n')
+  const bo = fs.openSync(botOut, 'a')
+  botB = spawn('bash', [`${R}/sandbox/run-bot.sh`, envRel], { cwd: R, env: { ...process.env, BOT_ROOT: root, NODE_OPTIONS: `--require ${process.env.WELL_TRACE || path.join(R, 'sandbox/craft/trace.cjs')}`, CRAFT_TRACE: trace, TRACE_RCON_SERVER: process.env.WELL_TRACE ? SERVER : '' }, stdio: ['ignore', bo, bo] })
+  if (!await waitFor(() => lines(botOut).some(l => /spawned pos=/.test(l)), 90000, 300)) { await stopVisitor(); throw new Error('visitor: no spawn') }
+  const p = at ?? { x: HOME.x + 0.5, y: HOME.y, z: HOME.z + 0.5 }
+  rcon(`gamemode survival ${VNAME}`, `clear ${VNAME}`, `tp ${VNAME} ${p.x} ${p.y} ${p.z}`)
+  let s = 0; rcon(...slotsSpec.map(([id, n]) => `item replace entity ${VNAME} container.${s++} with minecraft:${id} ${n}`))
+  return { skillLog, botOut, trace, tag }
+}
+async function stopVisitor () {
+  try { botB && botB.kill('SIGTERM') } catch {}
+  botB = null
+  await waitFor(() => !new RegExp(VNAME).test(r1('list')), 30000, 1000)
+}
+const VISITOR_BAG = [['dirt', 1], ['andesite', 64], ['diorite', 64], ['stone_pickaxe', 1]]   // a cover block, no wood, 4 slots
+// the site census: the cap cell and the shaft cell by name, the items in the shaft column vs everywhere else in the arena
+function siteCensus (site) {
+  const cs = census(site)
+  return { cap: blockName(site.x, site.y, site.z), shaft: blockName(site.x, site.y - 1, site.z), floor: blockName(site.x, site.y - 2, site.z),
+    itemsInShaft: cs.inItems, itemsOutside: cs.outItems, entInShaft: cs.inEnt, entAll: cs.allEnt, ground: itemList() }
+}
+const rowsWell = f => rowsOf(f).filter(r => /well|_work_order|reflex|low_health/.test(r.name))
+const rowStr = r => `${new Date(r.ts).toISOString().slice(11, 23)} ${r.name} ${r.status} ${r.detail.slice(0, 420)}`
+const BAG7 = () => fill7([['oak_log', 3], ['egg', 16], ['egg', 16], ['flint', 64], ['dirt', 1], ['cobblestone', 64]])
+async function waitTrace (file, pred, ms = 200000) {
+  for (const t0 = Date.now(); Date.now() - t0 < ms;) {
+    const ev = lines(file).map(l => { try { return JSON.parse(l) } catch { return null } }).filter(Boolean)
+    const hit = ev.find(pred); if (hit) return hit
+    await sleep(20)
+  }
+  return null
+}
+const SITE7 = () => W.canonicalWellSite({ home: HOME, read: arenaRead }).site
+let SITE_A7 = null   // the site (a) covered, for (e)
+// (a) GIVE-UP AFTER THE DIG: at the first THROW click (the pit is dug, a stack is in the air), the bag's logs, planks,
+//     crafting tables and trapdoors are cleared -> the build cannot finish and covers its own pit (by=build)
+scenes.j7a = async () => {
+  buildArena()
+  const site = SITE7(); SITE_A7 = site
+  const files = await startBot('j7a', BAG7())
+  const before = bagSlots(NAME)
+  const thr = await waitTrace(files.trace, e => e.pkt === 'click' && e.mode === 4)
+  const cleared = thr ? rcon(`clear ${NAME} #minecraft:logs`, `clear ${NAME} #minecraft:planks`, `clear ${NAME} minecraft:crafting_table`, `clear ${NAME} #minecraft:wooden_trapdoors`).map(x => x.reply.trim().slice(0, 60)) : null
+  await waitFor(() => lines(files.botOut).some(l => /skill build_well ->/.test(l)), 120000, 300)
+  const tEnd = Date.now()
+  await sleep(2000); const c2 = siteCensus(site)
+  const after = bagSlots(NAME)
+  await sleep(Math.max(0, 30000 - (Date.now() - tEnd))); const c30 = siteCensus(site)
+  const rows = rowsWell(files.skillLog).map(rowStr)
+  await stopBot()
+  result({ scene: 'j7a', site, clearedAtThrowMs: thr ? Date.now() - thr.ts : null, cleared, ended: lines(files.botOut).find(l => /skill build_well ->/.test(l))?.slice(0, 300),
+    census2s: c2, census30s: c30, bag: { before: before.totals, after: after.totals, delta: deltaOf(before.totals, after.totals) }, rows })
+}
+// (e) RESUME on (a)'s covered pit (no arena reset): a fresh build digs the cover out and finishes; (a)'s items stay contained
+scenes.j7e = async () => {
+  const site = SITE_A7 ?? SITE7()
+  const c0 = siteCensus(site)
+  const files = await startBot('j7e', BAG7())
+  const before = bagSlots(NAME)
+  await waitFor(() => lines(files.botOut).some(l => /skill build_well ->/.test(l)), 240000, 500)
+  await sleep(3000)
+  const c1 = siteCensus(site)
+  const after = bagSlots(NAME)
+  const rows = rowsWell(files.skillLog).map(rowStr)
+  const blocks = wellBlocks(site, 'north')
+  await stopBot()
+  result({ scene: 'j7e', site, censusBefore: c0, censusAfter: c1, blocks, ended: lines(files.botOut).find(l => /skill build_well ->/.test(l))?.slice(0, 300),
+    bag: { delta: deltaOf(before.totals, after.totals) }, rows })
+}
+// (b) ABORT BY DAMAGE right after the shaft dig, then A logs out; B (the visitor) comes to town and covers it
+// (k) PROCESS KILL right after the shaft dig, then the visitor
+async function abortThenVisitor (kind) {
+  buildArena()
+  const site = SITE7()
+  const files = await startBot(`j7${kind}`, BAG7())
+  const dig = await waitTrace(files.trace, e => e.pkt === 'dig' && e.status === 2 && e.loc?.y === site.y - 1 && e.loc?.x === site.x && e.loc?.z === site.z)
+  let tAbort = null, act = null
+  if (dig) {
+    if (kind === 'b') act = r1(`damage ${NAME} 14`).trim().slice(0, 60)
+    else { try { bot.kill('SIGKILL') } catch {} act = 'SIGKILL' }
+    tAbort = Date.now()
+  }
+  if (kind === 'b') await waitFor(() => lines(files.botOut).some(l => /skill build_well ->/.test(l)), 60000, 200)
+  await sleep(1500)
+  const rowsA = rowsWell(files.skillLog).map(rowStr)
+  const cA = siteCensus(site)
+  if (kind === 'b') await stopBot(); else { bot = null; await waitFor(() => !new RegExp(NAME).test(r1('list')), 30000, 1000) }
+  const tA = Date.now()
+  const vis = await startVisitor(`j7${kind}`, VISITOR_BAG)
+  const covered = await waitFor(() => rowsOf(vis.skillLog).find(r => r.name === '_well_pit_covered'), 150000, 500)
+  await sleep(2000)
+  const cB = siteCensus(site)
+  const rowsB = rowsWell(vis.skillLog).map(rowStr)
+  await stopVisitor()
+  result({ scene: `j7${kind}`, site, action: act, abortAfterDigMs: dig && tAbort ? tAbort - dig.ts : null, endedA: lines(files.botOut).find(l => /skill build_well ->/.test(l))?.slice(0, 260) ?? null,
+    rowsA, censusAfterA: cA, visitorJoinedAfterAbortMs: tA - (tAbort ?? tA), coverAfterAbortMs: covered && tAbort ? covered.ts - tAbort : null, rowsB, censusAfterB: cB })
+}
+scenes.j7b = () => abortThenVisitor('b')
+scenes.j7k = () => abortThenVisitor('k')
+// (d) THE RACE: B is online but parked OUTSIDE town (60 east of home); at A's shaft dig B is teleported into town, 8 from
+//     the site (outside the admission radius, 5), holding a cover block, while A is on the stand with the pit open
+scenes.j7d = async () => {
+  buildArena()
+  const site = SITE7()
+  // a floor for B out there (TOWN_RADIUS 48), its chunks forceloaded so the fill lands before B does
+  rcon(`forceload add ${HOME.x + 56} ${HOME.z - 4} ${HOME.x + 64} ${HOME.z + 4}`, `fill ${HOME.x + 56} 119 ${HOME.z - 4} ${HOME.x + 64} 119 ${HOME.z + 4} minecraft:dirt`)
+  const vis = await startVisitor('j7d', VISITOR_BAG, { at: { x: HOME.x + 60.5, y: 120, z: HOME.z + 0.5 } })
+  const files = await startBot('j7d', BAG7())
+  const dig = await waitTrace(files.trace, e => e.pkt === 'dig' && e.status === 2 && e.loc?.y === site.y - 1 && e.loc?.x === site.x && e.loc?.z === site.z)
+  if (dig) rcon(`tp ${VNAME} ${site.x - 7.5} ${G + 1} ${site.z + 0.5}`)
+  const samples = []
+  for (const t0 = Date.now(); Date.now() - t0 < 40000;) {
+    samples.push({ t: Date.now() - (dig?.ts ?? t0), cap: blockName(site.x, site.y, site.z) })
+    if (lines(files.botOut).some(l => /skill build_well ->/.test(l)) && Date.now() - t0 > 20000) break
+    await sleep(1500)
+  }
+  const rowsA = rowsWell(files.skillLog).map(rowStr), rowsB = rowsWell(vis.skillLog).map(rowStr)
+  const ordersB = lines(vis.botOut).filter(l => /close_well/.test(l)).map(l => l.slice(0, 220))
+  await stopBot(); await stopVisitor()
+  rcon(`fill ${HOME.x + 56} 119 ${HOME.z - 4} ${HOME.x + 64} 119 ${HOME.z + 4} minecraft:air`, `forceload remove ${HOME.x + 56} ${HOME.z - 4} ${HOME.x + 64} ${HOME.z + 4}`)
+  result({ scene: 'j7d', site, tpAtDig: !!dig, endedA: lines(files.botOut).find(l => /skill build_well ->/.test(l))?.slice(0, 260) ?? null,
+    capSamples: samples.map(s => `${(s.t / 1000).toFixed(1)}s:${s.cap}`), rowsA, rowsB, ordersB })
+}
+// (f) NO COVER BLOCK: no dirt/stone, exactly 64 cobblestone (the reserve): skip no_cover, no walk, no dig
+scenes.j7f = async () => {
+  buildArena()
+  const site = SITE7()
+  const files = await startBot('j7f', fill7([['oak_log', 3], ['egg', 16], ['egg', 16], ['flint', 64], ['cobblestone', 64]]))
+  const p0 = r1(`data get entity ${NAME} Pos`)
+  await sleep(90000)
+  const p1 = r1(`data get entity ${NAME} Pos`)
+  const rows = rowsWell(files.skillLog).map(rowStr)
+  const tr = lines(files.trace).map(l => { try { return JSON.parse(l) } catch { return null } }).filter(Boolean)
+  const cells = siteCensus(site)
+  const out = lines(files.botOut).filter(l => /build_well|well/.test(l)).map(l => l.slice(0, 240)).slice(0, 12)
+  await stopBot()
+  result({ scene: 'j7f', site, pos0: p0.replace(/.*data: /, ''), pos90: p1.replace(/.*data: /, ''), digs: tr.filter(e => e.pkt === 'dig').length, cells, rows, out })
+}
+scenes.abandonA = () => abandonScene('A')
+scenes.abandonB = () => abandonScene('B')
+scenes.abandonC = () => abandonScene('C')
+scenes.abandonK = () => abandonScene('K')
 scenes.swordp = () => swordScene('p')
 scenes.sworde = () => swordScene('e')
 scenes.swordc = () => swordScene('c')
@@ -588,7 +806,8 @@ async function main () {
   for (const s of SCENES_S.split(',')) { P('=== scene', s); await scenes[s]() }
 }
 async function cleanup () {
-  await stopBot().catch(() => {}); await walkerLeave().catch(() => {})
+  await stopBot().catch(() => {}); await stopVisitor().catch(() => {}); await walkerLeave().catch(() => {})
+  try { fs.unlinkSync(`${R}/sandbox/.env.well-e2e-B`) } catch {}
   try { brain.close() } catch {}
   try { fs.unlinkSync(`${R}/sandbox/.env.well-e2e`) } catch {}
   try {
