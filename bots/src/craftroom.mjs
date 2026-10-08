@@ -15,6 +15,7 @@
 import { wearOutPlan, wearRank } from './hygiene.mjs'
 import { TOOL_RE, tier, remaining } from './toolfor.mjs'
 import { inPickupBox } from './pickupbox.mjs'
+import { isCobble } from './bankable.mjs'
 
 /** The slots putSelectedItemRange searches: inventoryStart..inventoryEnd, 27 main + 9 hotbar. */
 export const BAG_SLOTS = 36
@@ -291,7 +292,10 @@ export function depositFreesSlot (items = [], plan = []) {
   const list = (Array.isArray(items) ? items : []).filter(it => it?.name)
   for (const { name, count } of plan ?? []) {
     let left = Number(count) || 0
-    for (const it of list.filter(x => x.name === name)) {
+    // COBBLE goes by slot, smallest stack first (bankable.mjs cobbleBankStacks; skills.mjs deposit): walk it that way
+    const stacks = list.filter(x => x.name === name)
+    if (isCobble(name)) stacks.sort((a, b) => (a.count ?? 1) - (b.count ?? 1) || (a.slot ?? 0) - (b.slot ?? 0))
+    for (const it of stacks) {
       if (left <= 0) break
       const n = Math.min(left, it.count ?? 1)
       if (n >= (it.count ?? 1)) return true

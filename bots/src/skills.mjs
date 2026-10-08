@@ -63,8 +63,8 @@ import { townDepositPlan, fitToContainer, townDepositDetail, inTownZone, doubleC
 import { WOODEN_TRAPDOOR, isWellJunk, disposePlan, wellIdentity, wellStage, wellStand, standForFacing, wellSiteRefusal, canonicalWellSite,
          wellBuildPlan, wellBuildRoom, wellAim, aimPoint, tossOutcome, wellAdmission, wellDisposeDetail, itemInWell, bodyInWell, TOSS,
          trapdoorsNeeded, MAX_STACKS_PER_VISIT, wellBreach, usableStands, thrownNames, WELL_HOME_CLEARANCE,
-         disposableIn, guardLeft, reserveStone, SCAFFOLD_DECORATIONS, isSword, swordSwitch, aimApplied, packetVelocity,
-         isOpenPit, isCoveredPit, pitCoverItem, PIT_COVER_REMEDY, coverRef, bodyInPit } from './well.mjs'
+         disposableIn, guardLeft, reserveStone, SCAFFOLD_DECORATIONS, isSword, swordSwitch, cobbleWellStacks, isWellCobble, COBBLE_WELL_RESERVE,
+         aimApplied, packetVelocity, isOpenPit, isCoveredPit, pitCoverItem, PIT_COVER_REMEDY, coverRef, bodyInPit } from './well.mjs'
 import { resyncPacket, GUARDED_INVENTORY_ACTIONS } from './craftsync.mjs'
 import path from 'node:path'
 import { IRON_KINDS, MIN_TRIP_USES, CANDIDATE_RADIUS, breakHazard, nearHome, pickBudget, rankCandidates, clusterOf, tunnelMovements, planTunnel, ONE_PICK_USES, tripDecision } from './oretunnel.mjs'
@@ -83,7 +83,8 @@ import { reachGoal, reachRefusal, eyeToBlock, nodeToBlock, STANCE_REACH } from '
 import { planDigApproach, observeApproachDig, APPROACH_WALK_MS, planDigRetry, floatDigTargets, floatDigOk, RETRY_CAP_MS } from './digapproach.mjs'
 import { scoopLiquid, pourLiquid, scoopRefusal, emptyRefusal } from './bucket.mjs'
 import { countItem, horizontalDistanceFromSpawn, snapshot } from './state.mjs'
-import { depositPlan, depositNoopReason } from './bankable.mjs'
+import { depositPlan, depositNoopReason, cobbleBankStacks, isCobble, COBBLE_RESERVE, setCobbleTownReader, setCobbleReconcileProbe } from './bankable.mjs'
+import { townCobble, cobbleAdmit, cobbleIn, readTown, claimStack, recordCount, voidOwnClaims, TOWN_COBBLE_CAP, OBS_TTL_MS, INSTANCE } from './cobblecap.mjs'
 import { bankableInventory, depositDue, DEPOSIT_ALWAYS } from './bankable.mjs'   // chestfull-02: advice agrees with admission
 import fs from 'node:fs'
 import { doVisit, openBoard, withinBoard } from './board-visit.mjs'
@@ -1433,6 +1434,22 @@ export function foodSkipNow (bot) {
   return { active, foodsByName: bot?.registry?.foodsByName ?? null }
 }
 
+/**
+ * THE WELL'S COBBLE SWITCH (stonecap-01 x junkwell-02): does the town HOLD its 256 -> 'at_cap' | 'below' | 'unknown' |
+ * 'none' (no surplus). Only 'at_cap' sends cobble down the well, and only on the COUNTED lower bound itself (Codex r1 P1:
+ * a refused deposit is not proof -- cobble on its way, or a stack that would merely pass 256, never authorises destroying
+ * cobble). 'below' needs a complete count; anything else is 'unknown'.
+ */
+export function cobbleWellCap (bot, items = bot?.inventory?.items?.() ?? []) {
+  try {
+    if (!cobbleWellStacks(items).length) return 'none'
+    const v = cobbleTownViewFor(bot)
+    return (Number(v?.lb) || 0) >= TOWN_COBBLE_CAP ? 'at_cap' : v?.complete ? 'below' : 'unknown'
+  } catch { return 'unknown' }
+}
+/** Is a junk well standing that can take cobble? (the at-cap sentence names the well only then: Codex r1 P2) */
+const wellUsable = bot => { try { const w = townWellState(bot); return !!w && !w.breached } catch { return false } }
+
 /** THE WELL'S SWORD SWITCH (well.mjs swordGoes): foodskip's switch active AND the server's difficulty read as peaceful. */
 export function wellSwordsNow (bot) {
   try { return swordSwitch(FOOD_SKIP.mode, difficultyOf(bot)) } catch { return false }
@@ -2501,12 +2518,39 @@ async function deposit(ctx, { item = null }, signal, { noRecovery = false, prefe
   const { bot } = ctx
   // The bag's item total when the skill began: the full-chest recovery's row compares it with the end (chestfull.mjs).
   const bagBefore = bagTotal(bot.inventory?.items?.() ?? [])
-  // THE RUNNER'S WATCHDOG is the clock (config.skills.defaultTimeoutMs, runner.mjs), not the contract, for EVERY deposit
+  // THE TOWN COBBLE CAP'S RECONCILIATION happens below, once the clock is known (config.skills.defaultTimeoutMs, runner.mjs), not the contract, for EVERY deposit
   // -- the first one too (Codex round 2: with 1 s left the first open still got 8 s). `until` (a recovery attempt's
   // bound from outside) can only shorten it.
   const startedAt = ctx.runner?.current?.startedAt ?? Date.now()
   const deadline = Math.min(startedAt + config.skills.defaultTimeoutMs, until ?? Infinity)
   const msLeft = (cap) => Math.max(0, Math.min(cap, deadline - Date.now()))
+  // RECONCILE FIRST (cobblecap.mjs): in town, holding cobble the cap cannot judge (a town container never counted), count
+  // up to three uncounted containers before planning -- the remedy the "town cobble not yet counted" refusal names.
+  // Only when the cap cannot judge the smallest surplus stack (Claude r2 P3: a town PROVEN at the cap walks nowhere) and an
+  // uncounted container outside its backoff exists.
+  if (!bot.cobbleVoided) bot.cobbleVoided = cobbleVoidStale(bot)
+  // A COUNTING OPEN STILL IN FLIGHT (a reconciliation that timed out): no container is opened until it settles
+  if (bot.cobbleOpenPending) return { status: 'no_effect', failClass: null, detail: 'a town container has not answered an earlier open yet; the deposit waits for it (town cobble not yet counted)' }
+  if (!noRecovery && inTown(homeVec(), bot.entity.position)) {
+    const surplus = cobbleBankStacks(bot.inventory.items())
+    if (surplus.length) {
+      const v = cobbleTownViewFor(bot, Date.now(), { fresh: true })   // the deposit decides on a scan made now
+      if (cobbleAdmit(v, Math.min(...surplus.map(x => x.count))) === 'unknown' && cobbleReconcilable(v).length) {
+        const rc = await reconcileCobble(bot, signal, msLeft)
+        // AN OPEN STILL IN FLIGHT (Codex r3 P2): no other container is opened by this run -- its late window is closed when
+        // it arrives, and the next deposit starts clean
+        if (rc.timedOut) return { status: 'no_effect', failClass: null, detail: 'a town container did not answer while it was being counted; the deposit waits for the next visit (town cobble not yet counted)' }
+      }
+      // NOTHING TO BANK with surplus cobble the cap holds back (counted or not): stop here, before any container is
+      // targeted (Claude r2 probe B: the walk to count left the bot beside the uncounted container, and the deposit then
+      // took it as its nearest chest and failed to open it again, every decision)
+      const wantsNow = bot.currentWants ?? []
+      if (!depositPlan(bot.inventory.items(), item, { wants: wantsNow }).length) {
+        return { status: 'no_effect', failClass: null,
+                 detail: depositNoopReason(bot.inventory.items(), item, { wants: wantsNow }) ?? 'the cobble stays: the town could not be counted yet (town cobble not yet counted)' }
+      }
+    }
+  }
   const isContainer = b => ['chest', 'barrel', 'trapped_chest']
     .includes(bot.registry.blocks[b.type]?.name)
   const skip = new Set(exclude.map(q => `${q.x},${q.y},${q.z}`))
@@ -2519,7 +2563,11 @@ async function deposit(ctx, { item = null }, signal, { noRecovery = false, prefe
   // A DEEP CONTAINER (|dy| > TOWN_DY from home) IS NEVER A TARGET (chestfull-02, depositTargetOk): from a mine the scan
   // found a natural chest 58 below home and walked at it 18 times in 3.5 h, "No path" every time; the walk home follows.
   const hv = homeVec()
-  const notTried = b => !b.position || (!skip.has(`${b.position.x},${b.position.y},${b.position.z}`) && !skipFar(b) && depositTargetOk(hv, b.position))
+  // A COBBLE-ONLY PLAN GOES TO A TOWN CONTAINER (Claude r2 P1): the cap refuses cobble into a container outside town, so
+  // the nearest chest outside town would refuse every stack, every decision. With none in town in reach, the walk home
+  // below runs, as it does for any deposit with no chest in reach.
+  const cobbleOnly = (() => { try { const p = depositPlan(bot.inventory.items(), item, { wants: bot.currentWants ?? [] }); return p.length > 0 && p.every(e => isCobble(e.name)) } catch { return false } })()
+  const notTried = b => !b.position || (!skip.has(`${b.position.x},${b.position.y},${b.position.z}`) && !skipFar(b) && depositTargetOk(hv, b.position) && (!cobbleOnly || inTown(hv, b.position)))
   const findChest = () => bot.findBlock({ matching: b => isContainer(b) && notTried(b), maxDistance: 48 })
   // PREFER THE CHEST WE WERE SENT TO, and this is not a nicety.
   //
@@ -2531,7 +2579,7 @@ async function deposit(ctx, { item = null }, signal, { noRecovery = false, prefe
   let chestBlock = null
   if (preferAt) {
     const b = bot.blockAt(preferAt)
-    if (b && isContainer(b) && depositTargetOk(hv, b.position)) chestBlock = b
+    if (b && isContainer(b) && depositTargetOk(hv, b.position) && (!cobbleOnly || inTown(hv, b.position))) chestBlock = b
   }
   chestBlock = chestBlock || findChest()
   if (!chestBlock) {
@@ -2573,13 +2621,15 @@ async function deposit(ctx, { item = null }, signal, { noRecovery = false, prefe
   const viaRecovery = (res, outcome, firstStatus = null) => {
     if (noRecovery) return res
     const plan = depositPlan(bot.inventory.items(), item, { wants: bot.currentWants ?? [] })
-    if (!plan.length) return res
+    if (!plan.length || plan.every(e => isCobble(e.name))) return res   // cobble never grows the bank
     return fullChestRecovery(ctx, { item, signal, first: chestBlock, firstOutcome: outcome, firstStatus, firstFail: res, exclude,
                                     eligible: plan.reduce((n, e) => n + e.count, 0), bagBefore, startedAt })
   }
   if (!noRecovery) {
     const st = townStatus(bot, chestBlock.position)
-    if (st && st !== 'visit' && depositPlan(bot.inventory.items(), item, { wants: bot.currentWants ?? [] }).length) {
+    const plan0 = depositPlan(bot.inventory.items(), item, { wants: bot.currentWants ?? [] })
+    // a cobble-only plan never starts the recovery (cobble never grows the bank): it tries this chest as it is
+    if (st && st !== 'visit' && plan0.length && !plan0.every(e => isCobble(e.name))) {
       const p = chestBlock.position
       return viaRecovery({ status: 'failed', failClass: 'storage_full', detail: `the town remembers the chest at ${p.x},${p.y},${p.z} as ${st}` }, 'memory', st)
     }
@@ -2665,6 +2715,11 @@ async function deposit(ctx, { item = null }, signal, { noRecovery = false, prefe
   }
   let moved = 0
   let cursorLost = false
+  // THE TOWN CAP'S OBSERVATION: every deposit that opens a town container records its cobble (the server's window)
+  await cobbleObserve(bot, chestBlock.position, chest)
+  // THE COBBLE RULE's bookkeeping: what cobble the transfer counted eligible, and one record per cobble name tried
+  let cobbleEligible = 0, cobbleBefore = 0
+  const cobbleRows = []
   // Which container this was, for the full-chest sweep: a double chest is ONE inventory at two coordinates.
   meta.at = chestBlock.position
   meta.double = (chest.inventoryStart ?? 27) >= 54
@@ -2691,6 +2746,7 @@ async function deposit(ctx, { item = null }, signal, { noRecovery = false, prefe
     // stations stay in the bot's hands; the valuable stacks go first so a short
     // chest keeps the iron.
     planItems = bot.inventory.items()
+    cobbleBefore = planItems.reduce((t, x) => t + (isCobble(x?.name) ? (x.count ?? 0) : 0), 0)
     // THE PEACEFUL KIT (peacefulkit.mjs, owner 10-07): while the switch is on no sword is ever banked, not even a spare.
     const noSwords = foodSkipNow(bot).active
     const plan = depositPlan(planItems, item, { wants: bot.currentWants ?? [], noSwords })   // the wants admission judged with (set by the gate)
@@ -2711,6 +2767,51 @@ async function deposit(ctx, { item = null }, signal, { noRecovery = false, prefe
           await bot.clickWindow(c.slot, 0, 1)
           if (!same(slotAt(chest, c.slot))) moved += 1
         }
+        continue
+      }
+      // COBBLE GOES A WHOLE STACK AT A TIME (the cobble rule, bankable.mjs cobbleBankStacks): the stacks the plan counted --
+      // smallest first, the reserve kept -- re-chosen from the window's own bag just before they move. Each is moved by
+      // mineflayer's OWN transfer (the function chest.deposit calls), with its source range narrowed to that one slot, so
+      // the actuator, its errors and the cursor rescue below are the deposit's existing ones (both reviews 10-07: no new
+      // click path). A stack the container cannot take WHOLE is not started (a partial would free no slot): it is eligible
+      // -- a full container -- and stays. The rows are written after the close, from the server's bag (cobbleRows).
+      if (isCobble(name)) {
+        const chosen = cobbleBankStacks(chest.items?.() ?? []).filter(s => s.name === name)
+        const row = { name, planned: count, tried: [], went: 0, noRoom: 0, atCap: 0, unknown: 0, outside: 0, unknownKey: null, townBefore: null, townAfter: null, complete: null }
+        cobbleRows.push(row)
+        let budget = count
+        for (const s of chosen) {
+          check(signal)
+          if (s.count > budget) continue
+          const cur = slotAt(chest, s.slot)
+          if (!cur || cur.name !== name || cur.count !== s.count) continue
+          eligible += s.count; cobbleEligible += s.count
+          if (cobbleRoom(chest, name) < s.count) { row.noRoom++; continue }
+          // THE TOWN CAP, judged under the town's lock with this stack reserved (cobblecap.mjs): at the cap or with a
+          // container never counted, the stack stays (a refusal, not a full chest: eligible is given back)
+          const adm = await cobbleReserve(bot, s.count, chestBlock.position)
+          if (row.townBefore === null) { row.townBefore = adm.view?.lb ?? null; row.complete = adm.view ? (adm.view.complete ? 1 : 0) : null }
+          if (adm.decision !== 'bank') { eligible -= s.count; cobbleEligible -= s.count; if (adm.decision === 'at_cap') row.atCap++; else if (adm.decision === 'outside') row.outside++; else row.unknown++; if (adm.view && !row.unknownKey) row.unknownKey = adm.view.unknown?.[0] ?? null; continue }
+          row.tried.push(s.count)
+          const had = inChest(chest, name)
+          try {
+            await bot.transfer({ window: chest, itemType: cur.type, metadata: null, count: s.count,
+                                 sourceStart: s.slot, sourceEnd: s.slot + 1, destStart: 0, destEnd: chest.inventoryStart })
+            const got = Math.max(0, Math.min(s.count, inChest(chest, name) - had))   // capped: another depositor's gain is not ours (Codex r2)
+            moved += got; row.went += got; budget -= got
+            await cobbleObserve(bot, chestBlock.position, chest, { release: adm.id })
+          } catch (e) {
+            const got = Math.max(0, Math.min(s.count, inChest(chest, name) - had))
+            moved += got; row.went += got; budget -= got
+            await cobbleObserve(bot, chestBlock.position, chest, { release: adm.id })
+            const back = await returnCursor(bot, chest)
+            logEvent({ kind: 'deposit_cursor_rescue', status: back.returned ? 'success' : back.reason === 'cursor empty' ? 'no_effect' : 'failed',
+                       detail: `${name}: ${String(e?.message ?? e).slice(0, 40)} -- ` +
+                               (back.returned ? `returned to slot ${back.slot}` : `not returned: ${back.reason}`), snapshot: snapshot(bot) })
+            if (!back.returned && back.reason !== 'cursor empty') { cursorLost = true; break }
+          }
+        }
+        if (cursorLost) break
         continue
       }
       const stacks = bot.inventory.items().filter(it => it.name === name)
@@ -2739,6 +2840,32 @@ async function deposit(ctx, { item = null }, signal, { noRecovery = false, prefe
     }
   } finally {
     chest.close()
+  }
+  // THE COBBLE RULE'S ROWS, from the SERVER's bag after the close (craftsync's recount; 'none' without craftsync): one
+  // _cobble_bank row per cobble name the plan named -- the stacks tried, what the window gained, what the bag keeps.
+  if (cobbleRows.length) {
+    const sb = await recountBag(bot, msLeft)
+    const kept = (sb.bag ?? bot.inventory.items()).reduce((t, x) => t + (isCobble(x?.name) ? (x.count ?? 0) : 0), 0)
+    const after = cobbleTownViewFor(bot)
+    for (const r of cobbleRows) {
+      r.townAfter = after.lb
+      logEvent({ kind: 'cobble_bank', status: r.went > 0 ? 'success' : 'no_effect', snapshot: snapshot(bot),
+                 detail: `name=${r.name} planned=${r.planned} tried=${r.tried.join(',') || '-'} moved=${r.went} before=${cobbleBefore} kept=${kept} src=${sb.source} reserve=${COBBLE_RESERVE} no_room=${r.noRoom} town_before=${r.townBefore ?? '?'} town_after=${r.townAfter ?? '?'} complete=${r.complete ?? '?'} cap=${TOWN_COBBLE_CAP} at_cap=${r.atCap} unknown=${r.unknown} outside=${r.outside} unknown_keys=${after.unknown.length}${r.unknownKey ? ` first_unknown=${r.unknownKey}` : ''}` })
+    }
+  }
+  // COBBLE NEVER GROWS THE BANK (the 10-04 SYNTHESIS: existing storage only; both reviews 10-07): when everything this
+  // deposit could not place was cobble, the chests are simply full for it -- no recovery, no new chest, no bank closure.
+  if (!cursorLost && moved === 0 && eligible === 0 && cobbleRows.some(r => r.atCap || r.unknown || r.outside)) {
+    const capped = cobbleRows.some(r => r.atCap), outside = cobbleRows.some(r => r.outside) && !cobbleRows.some(r => r.atCap || r.unknown)
+    const stuck = cobbleStuckNote(cobbleTownViewFor(bot))
+    return { status: 'no_effect', failClass: null,
+             detail: capped ? `the cobble stays: a whole stack would carry the town past its ${TOWN_COBBLE_CAP} cobble (town cobble cap)${wellUsable(bot) ? '; once the town holds its 256, the junk well takes surplus whole stacks at a full bag' : '; the surplus stays in the bag'}`
+               : outside ? 'the cobble stays: cobble is banked only in a town container, and this one is outside town (town cobble cap) -- a deposit at town takes it'
+               : `the cobble stays: a town container has not been counted yet (town cobble not yet counted)${stuck ? ` -- ${stuck} could not be counted` : ''}` }
+  }
+  if (!cursorLost && moved === 0 && eligible > 0 && cobbleEligible === eligible) {
+    return { status: 'no_effect', failClass: null,
+             detail: `the cobble stays: no container here has room for a whole stack, and cobble never opens a new chest (cobble reserve)` }
   }
   // AN UNSETTLED TRANSFER IS NOT A FULL CHEST (Codex): a stack may still be on the cursor, so nothing else is attempted
   // -- no other container, no new chest -- until a later deposit starts from a settled bag.
@@ -2837,6 +2964,21 @@ function townStatus (bot, q) {
 }
 /** A far chest found full is skipped by this bot's deposits for this long (it walks home past it). */
 const FAR_SKIP_MS = 30 * 60 * 1000
+/** How many of `name` the open container could still take: empty container slots hold a stack each, a partial stack of
+ *  the same name its remainder. 0 for a window that cannot say (the cobble rule then moves nothing). */
+const cobbleRoom = (chest, name) => {
+  try {
+    const n = chest?.inventoryStart
+    if (!Number.isInteger(n)) return 0
+    let room = 0
+    for (let i = 0; i < n; i++) {
+      const it = slotAt(chest, i)
+      if (!it) room += 64
+      else if (it.name === name) room += Math.max(0, (it.stackSize ?? 64) - (it.count ?? 0))
+    }
+    return room
+  } catch { return 0 }
+}
 /** How many of the chest's items the open window's CONTAINER range holds (the client window: mineflayer applies
  *  clicks locally). 0 for a window that cannot say. */
 const inChest = (chest, name) => {
@@ -2856,6 +2998,227 @@ function chestPartner (bot, pos) {
 const posKey = q => `${q.x},${q.y},${q.z}`
 const townDir = () => poolStateDir(config.memory.pool)
 const homeTownKey = () => townKey(homeVec())
+
+// ---- THE TOWN COBBLE CAP (cobblecap.mjs): the container keys, the counts, the claims, the view ----------------------
+/** ONE KEY PER CONTAINER: a double chest is one inventory at two cells; its key is the lower cell (x, then z). */
+function containerKey (bot, pos) {
+  const q = chestPartner(bot, pos)
+  if (!q) return posKey(pos)
+  return (q.x < pos.x || (q.x === pos.x && q.z < pos.z)) ? posKey(q) : posKey(pos)
+}
+const keyVec = k => { const [x, y, z] = String(k).split(',').map(Number); return new Vec3(x, y, z) }
+/** The town's journal, folded now (cobblecap.mjs). */
+const capTown = bot => readTown(townDir(), homeTownKey(), bot.worldId ?? null)
+/**
+ * THE TOWN'S DESIGNATED STORAGE, as scanned now -> { keys, coverage, gone }. Chests, trapped chests and barrels in town
+ * (inTown, never deep), filtered INSIDE the matcher so nothing outside town crowds the scan's cap (Codex/Claude r1: a cut
+ * scan is not the town). coverage is false when the cap was hit or a chunk column under the town square is not loaded
+ * (mineflayer's findBlocks skips unloaded columns). Counted containers the scan missed are kept; a counted cell that is
+ * loaded and no longer a container is `gone`; a counted single chest that became part of a double is `gone` under its old
+ * key and kept under the double's (Claude r2 P3: keys are normalised, so the old key never stays unknown).
+ */
+export const COBBLE_SCAN_CAP = 256
+const CONTAINER_RE = /^(chest|trapped_chest|barrel)$/
+let capScan = { at: 0, v: null, key: null }
+let capEpoch = 0   // bumped by every fresh scan, count or claim this process makes: the installed view's cache is then stale
+export function townCobbleScan (bot, now = Date.now(), { fresh = false, state = null } = {}) {
+  const cacheKey = `${townDir()}|${homeTownKey()}`
+  if (!fresh && capScan.v && capScan.key === cacheKey && now - capScan.at < 20_000) return capScan.v
+  const keys = new Set(), gone = []
+  let coverage = true
+  try {
+    const home = homeVec()
+    if (typeof bot.world?.getColumnAt === 'function') {
+      for (let x = home.x - STORAGE_NEAR; x <= home.x + STORAGE_NEAR + 15; x += 16) {
+        for (let z = home.z - STORAGE_NEAR; z <= home.z + STORAGE_NEAR + 15; z += 16) {
+          if (!bot.world.getColumnAt(new Vec3(Math.min(x, home.x + STORAGE_NEAR), 0, Math.min(z, home.z + STORAGE_NEAR)))) coverage = false
+        }
+      }
+    }
+    const ps = bot.findBlocks?.({ point: home, maxDistance: TOWN_SCAN_RADIUS, count: COBBLE_SCAN_CAP,
+      matching: b => CONTAINER_RE.test(blockNameOf(bot, b) ?? '') && (!b.position || (inTown(home, b.position) && depositTargetOk(home, b.position))) }) ?? []
+    if (ps.length >= COBBLE_SCAN_CAP) coverage = false
+    for (const p of ps) if (inTown(home, p) && depositTargetOk(home, p)) keys.add(containerKey(bot, p))
+    for (const k0 of Object.keys((state ?? capTown(bot))?.obs ?? {})) {
+      const c = keyVec(k0)
+      const b = bot.blockAt?.(c)
+      if (!b) continue                                                            // not loaded: not judged
+      if (!CONTAINER_RE.test(blockNameOf(bot, b) ?? '')) { gone.push(k0); continue } // loaded, and no longer storage
+      if (!inTown(home, c)) continue
+      const k = containerKey(bot, c)
+      if (k !== k0) gone.push(k0)                                                 // now half of a double: the double's key
+      keys.add(k)                                                                 // the scan missed a counted container
+    }
+  } catch { coverage = false }
+  capScan = { at: now, v: { keys: [...keys], coverage, gone }, key: cacheKey }
+  if (fresh) capEpoch++
+  return capScan.v
+}
+/**
+ * The town view for the cap -> { lb, complete, unknown, reserved, mine }. AWAY FROM TOWN (and only there: Codex r2) the
+ * journal's last COVERED scan stands in for the keys when it is fresh (Claude r1: from out of town every plan said "not yet
+ * counted"). A transfer never uses it: its claim always scans now, from the chest.
+ */
+export function cobbleTownViewFor (bot, now = Date.now(), { fresh = false } = {}) {
+  const st = capTown(bot)
+  if (!st) return { lb: 0, complete: false, unknown: ['journal'], reserved: 0, mine: 0 }   // not replayable: fail closed
+  let sc = townCobbleScan(bot, now, { state: st, fresh })
+  if (!sc.coverage && st.scan && now - st.scan.at < OBS_TTL_MS && !inTown(homeVec(), bot.entity?.position)) sc = { keys: st.scan.keys, coverage: true, gone: sc.gone }
+  return townCobble(st, sc.keys, now, { me: bot.username ?? null, coverage: sc.coverage, gone: sc.gone })
+}
+/**
+ * THE COUNT: what an OPEN town container's window holds, captured now and appended at once with its capture time, in the
+ * same write as any releases (count first: cobblecap.mjs recordCount). `release` / `releaseAll` are appended outside town
+ * too. A covered scan is appended at most every 5 min, for the plan's view from away. -> true when written.
+ */
+let lastScanRec = { at: 0, key: null }
+export function cobbleObserve (bot, pos, win, { release = null, releaseAll = [] } = {}) {
+  try {
+    const cap = Date.now()
+    const inside = !!pos && inTown(homeVec(), pos)
+    const ids = [...(release ? [release] : []), ...releaseAll]
+    // A WINDOW THAT IS NO LONGER THE BOT'S (closed by the server, or a skill the runner abandoned) cannot vouch for a
+    // count (Codex r5 P1): its releases are written with the container marked UNKNOWN until a recount, never a count
+    // ...nor can any window of a connection that has ENDED (Codex r6 P1: a late handler after a disconnect)
+    if ((win && bot.currentWindow !== win) || bot.cobbleEnded) {
+      capEpoch++
+      return ids.length ? recordCount(townDir(), homeTownKey(), bot.worldId ?? null, { release: ids, bot: bot.username ?? null, dirty: inside ? containerKey(bot, pos) : null, inst: capInst(bot) }) : false
+    }
+    const n = cobbleIn(win?.containerItems?.() ?? [])
+    let scan = null
+    if (inside) {
+      const sc = townCobbleScan(bot, cap)
+      const sk = `${townDir()}|${homeTownKey()}`
+      if (sc.coverage && (lastScanRec.key !== sk || cap - lastScanRec.at > 5 * 60_000)) { scan = { keys: sc.keys, at: cap }; lastScanRec = { at: cap, key: sk } }
+    }
+    capEpoch++
+    return recordCount(townDir(), homeTownKey(), bot.worldId ?? null,
+      { obs: inside ? { k: containerKey(bot, pos), n, cap } : null, release: ids, scan, bot: bot.username ?? null, inst: capInst(bot) })
+  } catch { return false }
+}
+/**
+ * THE AUTHORITATIVE ADMISSION for one whole stack into the container at `pos` -> { decision, view, id, at }: a CLAIM in
+ * the town's journal, decided by the fold at its own place (cobblecap.mjs claimStack). 'bank' returns the claim's id,
+ * which cobbleObserve releases with the post-transfer count; until then it stays reserved, however long (Codex r3 P1).
+ * A container OUTSIDE town never takes cobble ('outside': the cap is the town's).
+ */
+function cobbleReserve (bot, count, pos) {
+  if (!pos || !inTown(homeVec(), pos)) return { decision: 'outside', view: null, id: null, at: Date.now() }
+  const sc = townCobbleScan(bot, Date.now(), { fresh: true })   // the authoritative check scans now
+  const id = `${bot.username ?? 'bot'}-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`
+  capEpoch++
+  const r = claimStack(townDir(), homeTownKey(), bot.worldId ?? null,
+    { id, n: count, k: containerKey(bot, pos), bot: bot.username ?? null, keys: sc.keys, coverage: sc.coverage, gone: sc.gone, inst: capInst(bot) })
+  return { decision: r.decision, view: r.view, id: r.decision === 'bank' ? id : null, at: r.at }
+}
+/** THIS CONNECTION'S instance in the journal: a reconnect inside one process is a new login (Codex r6 P1), so its old
+ *  connection's late callbacks are fenced like a dead process's. installCobbleCap sets it per bot object. */
+let capConn = 0
+const capInst = bot => bot?.cobbleInst ?? INSTANCE
+/** A dead predecessor's claims are voided once this connection is logged in (cobblecap.mjs voidOwnClaims). -> true when done. */
+export function cobbleVoidStale (bot) {
+  try {
+    if (bot?.cobbleEnded) return false                                      // an ENDED connection never voids (Codex r7 P1)
+    if (!bot?.entity || bot.username == null) return false                 // not logged in yet: the predecessor may still be
+    const n = voidOwnClaims(townDir(), homeTownKey(), bot.worldId ?? null, { bot: bot.username, inst: capInst(bot) })
+    if (n > 0) capEpoch++
+    return n >= 0                                                         // a failed void is retried at the next read
+
+  } catch { return false }
+}
+/** How many unknown town containers a deposit counts before it decides (bounded: one walk + open each). */
+const RECONCILE_MAX = 3
+const RECONCILE_WALK_MS = 15_000
+/** A container that could not be counted (walk, lid, open) is not tried again for this long (Claude/Codex r2 P2). */
+export const RECONCILE_BACKOFF_MS = 10 * 60_000
+const reconcileFailed = new Map()   // `${townDir}|${townKey}|${k}` -> { until, why }
+const failKey = k => `${townDir()}|${homeTownKey()}|${k}`
+/** The town's uncounted containers a reconciliation can still try now -> [k] (nearest-first is the caller's). */
+export function cobbleReconcilable (view, now = Date.now()) {
+  return (view?.unknown ?? []).filter(k => !((reconcileFailed.get(failKey(k))?.until ?? 0) > now))
+}
+/** The first uncounted container that could not be counted, and why -> 'x,y,z (why)' or null. */
+function cobbleStuckNote (view, now = Date.now()) {
+  for (const k of (view?.unknown ?? [])) { const f = reconcileFailed.get(failKey(k)); if (f && f.until > now) return `${k} (${f.why})` }
+  return null
+}
+/**
+ * Installed once per bot (index.mjs): bankable.mjs's plan sees the town cap through this view (5 s cache), and admission
+ * asks the probe whether a deposit here can COUNT anything: the bot in town (inTown, the same boundary the deposit's
+ * reconciliation uses: Claude r2 P2) and an uncounted container outside its backoff.
+ */
+export function installCobbleCap (bot) {
+  bot.cobbleInst = `${INSTANCE}-c${++capConn}`                            // this connection (a reconnect is a new bot object)
+  try { bot.once?.('end', () => { bot.cobbleEnded = true }) } catch { /* a test double */ }
+  let cache = { at: 0, v: null, epoch: -1 }
+  // the predecessor's claims are voided at the FIRST read after login -- before the plan or admission judges the town
+  // (Codex r4 P2: an at_cap plan must not refuse the very deposit that would have voided them)
+  const view = () => {
+    if (!bot.cobbleVoided) bot.cobbleVoided = cobbleVoidStale(bot)
+    const now = Date.now()
+    if (now - cache.at > 5_000 || cache.epoch !== capEpoch) cache = { at: now, v: cobbleTownViewFor(bot, now), epoch: capEpoch }
+    return cache.v
+  }
+  setCobbleTownReader(view)
+  setCobbleReconcileProbe(() => {
+    const v = view()
+    const here = inTown(homeVec(), bot.entity?.position)
+    const can = here && cobbleReconcilable(v).length > 0
+    const stuck = cobbleStuckNote(v)
+    return { can, note: can ? null : here ? (stuck ? `the town container at ${stuck} could not be counted; the cobble stays in the bag` : null)
+      : 'a deposit at town counts the town\'s chests first' }
+  })
+}
+/** Forget the reconciliation backoffs (tests). */
+export function resetCobbleReconcile () { reconcileFailed.clear(); capScan = { at: 0, v: null, key: null } }
+/**
+ * RECONCILIATION (Codex/Claude r1: UNKNOWN needs an executable remedy): a deposit in town whose cobble the cap cannot judge
+ * yet opens up to RECONCILE_MAX of the town's UNCOUNTED containers outside their backoff, nearest first, and counts them --
+ * the same walk, open and count every deposit uses. A container that cannot be counted (gone, lid blocked, unreachable,
+ * unopenable) is backed off for RECONCILE_BACKOFF_MS and named; the deadline is re-checked before every walk and open, and a
+ * window that opens after its timeout is closed by that open's own promise, and a timeout ends the reconciliation (Codex r3
+ * P2: two opens are never in flight). A count that cannot be written backs off too. -> { counted, timedOut }.
+ */
+export async function reconcileCobble (bot, signal, msLeft) {
+  let counted = 0, tried = 0, timedOut = false
+  const fail = (k, why) => reconcileFailed.set(failKey(k), { until: Date.now() + RECONCILE_BACKOFF_MS, why })
+  try {
+    const view = cobbleTownViewFor(bot, Date.now(), { fresh: true })
+    const here = bot.entity.position
+    const cells = cobbleReconcilable(view).map(k => ({ k, c: keyVec(k) }))
+      .sort((a, b) => here.distanceTo(a.c) - here.distanceTo(b.c)).slice(0, RECONCILE_MAX)
+    for (const { k, c } of cells) {
+      check(signal)
+      if (msLeft(RECONCILE_WALK_MS) < 2_000) break
+      tried++
+      const b = bot.blockAt(c)
+      if (!b || !CONTAINER_RE.test(blockNameOf(bot, b) ?? '')) { fail(k, 'not a container'); continue }
+      const lid = bot.blockAt(c.offset(0, 1, 0))
+      if (/chest/.test(blockNameOf(bot, b) ?? '') && lid && chestLidBlocked(lid)) { fail(k, 'lid blocked'); continue }
+      try { await chestWalk(bot, new goals.GoalNear(c.x, c.y, c.z, 2), msLeft(RECONCILE_WALK_MS)) } catch (e) { if (e?.aborted || signal?.aborted) throw e; fail(k, 'unreachable'); continue }
+      check(signal)
+      if (msLeft(8_000) < 1_000) break
+      let win = null, late = false
+      const p = bot.openContainer(b)
+      // THIS open's window, if it comes late, is closed; until it settles the bot's deposits wait (Codex r4 P2)
+      bot.cobbleOpenPending = p                                          // from the open's START (Codex r5 P2: an abort too)
+      p.then(w => { if (late) { try { w?.close?.() } catch { /* closed */ } } }, () => {}).finally(() => { if (bot.cobbleOpenPending === p) bot.cobbleOpenPending = null })
+      try {
+        win = await withTimeout(p, msLeft(8_000), bot, { what: 'open the chest', needsDrop: false, onTimeout: () => { late = true } })
+      } catch (e) {
+        const wasTimeout = late                        // onTimeout ran: THIS open may still answer
+        late = true
+        if (e?.aborted || signal?.aborted) throw e
+        fail(k, wasTimeout ? 'open timed out' : 'unopenable')
+        if (wasTimeout) { timedOut = true; break }     // nothing else opens while it is in flight (cobbleOpenPending)
+        continue
+      }
+      try { if (cobbleObserve(bot, c, win)) counted++; else fail(k, 'count not written') } finally { try { win.close() } catch { /* closed */ } }
+    }
+  } catch (e) { if (e?.aborted || signal?.aborted) throw e }
+  logEvent({ kind: 'cobble_reconcile', status: counted ? 'success' : 'no_effect', snapshot: snapshot(bot), detail: `counted=${counted} of ${tried} tried (max ${RECONCILE_MAX})${timedOut ? ' timed_out=1' : ''}` })
+  return { counted, timedOut }
+}
 /** One outcome into the town's container memory (chestfull.mjs), for TOWN containers only (inTown: the same boundary
  *  as the memory read, so a container the recovery treats as town always gets its backoff written). */
 let roomCache = { at: 0, v: -Infinity }
@@ -5845,6 +6208,10 @@ async function bankInto (bot, win, wanted, already, deadline, signal) {
   const done = []
   const emptyDest = () => { for (let i = 0; i < win.inventoryStart; i++) if (!win.slots[i] && !done.some(x => x.dest === i)) return i; return null }
   let err = null
+  // THE TOWN COBBLE CAP (cobblecap.mjs): every cobble stack is admitted under the town's lock with a reservation before
+  // its clicks; the town deposit's own plan already reads the cap through depositPlan, this is the authoritative check.
+  const reserved = []
+  const capRefused = { at_cap: 0, unknown: 0, outside: 0 }
   try {
     await lockstepClicks(bot, async raw => {
       const click = async slot => {
@@ -5860,6 +6227,13 @@ async function bankInto (bot, win, wanted, already, deadline, signal) {
         const it = bag.find(b => b.slot === step.slot)
         const now = it ? win.slots[it.wslot] : null
         if (!now || now.name !== step.name || now.count !== step.count || win.selectedItem) continue   // the bag moved under the plan
+        if (isCobble(step.name)) {
+          // every live reservation counts, this run's earlier stacks included (both reviews r1: the second stack of a
+          // batch was judged against the count before the first)
+          const adm = await cobbleReserve(bot, step.count, win.townPos ?? null)
+          if (adm.decision !== 'bank') { capRefused[adm.decision in capRefused ? adm.decision : 'unknown']++; continue }
+          reserved.push(adm.id)
+        }
         await click(it.wslot)
         if (!win.selectedItem || win.selectedItem.name !== step.name || win.selectedItem.count !== step.count) throw stop(`picked up ${win.selectedItem?.name ?? 'nothing'}, not ${step.name}`)
         const dest = !win.slots[step.dest] ? step.dest : emptyDest()
@@ -5872,8 +6246,11 @@ async function bankInto (bot, win, wanted, already, deadline, signal) {
   } catch (e) {
     if (e?.aborted || signal?.aborted) throw e
     err = String(e?.message ?? e).slice(0, 80)
+  } finally {
+    // the container's cobble as this window now holds it, and this run's reservations released, in one locked write
+    if (reserved.length) await cobbleObserve(bot, win.townPos ?? null, win, { releaseAll: reserved })
   }
-  return { done, full, err }
+  return { done, full, err, capRefused }
 }
 
 /**
@@ -5898,6 +6275,7 @@ async function townDeposit (ctx, _args, signal) {
   const { bot } = ctx
   const items = () => bot.inventory?.items?.() ?? []
   const deadline = Date.now() + TD_BUDGET_MS
+  if (!bot.cobbleVoided) bot.cobbleVoided = cobbleVoidStale(bot)   // a dead predecessor's cobble claims (cobblecap.mjs), once logged in
   const wanted = Array.isArray(bot.townDepositWanted) ? bot.townDepositWanted : []
   const before = items()
   const slotsBefore = before.length
@@ -5909,12 +6287,14 @@ async function townDeposit (ctx, _args, signal) {
   // still count against the visit's 64 (Codex round 3).
   const banked = {}, attempted = {}, tried = [], tools = []
   let stacks = 0, unsettled = 0, stop = null, clicked = 0, unverified = 0, serverBag = null
+  const capRefused = { at_cap: 0, unknown: 0, outside: 0 }
   // THE BAG'S LOSS over the banked names, from the SERVER's copy of the bag on the last re-open (the client bag after a
   // close is mineflayer's own prediction); the client bag only when nothing was re-opened.
   const bagDelta = () => { const after = serverBag ?? held(items()); return Object.keys(banked).reduce((t, n) => t + Math.max(0, (heldBefore[n] ?? 0) - (after[n] ?? 0)), 0) }
   const row = (status, extra = {}) => logEvent({ kind: 'town_deposit', status, snapshot: snapshot(bot),
-    detail: townDepositDetail({ slotsBefore, slotsAfter: items().length, banked, stacks, tried, stop: stop ?? 'done', unsettled, bagDelta: bagDelta(), planned, tools, clicked, unverified, ...extra }) })
+    detail: townDepositDetail({ slotsBefore, slotsAfter: items().length, banked, stacks, tried, stop: stop ?? 'done', unsettled, bagDelta: bagDelta(), planned, tools, clicked, unverified, capRefused, ...extra }) })
   if (!planned) { stop = 'nothing to bank above the keeps'; row('no_effect'); return { status: 'no_effect', detail: 'nothing to bank: everything carried is kept (stockpile, scaffold, tools, iron, the goal) or not bankable' } }
+  if (bot.cobbleOpenPending) { stop = 'a counting open in flight'; row('no_effect'); return { status: 'no_effect', detail: 'a town container has not answered an earlier open yet; the town deposit waits for it' } }
   if (bot.controlState?.sneak) { stop = 'sneaking'; row('no_effect'); return { status: 'no_effect', detail: 'sneaking (held by another subsystem); the town deposit waits for another visit' } }
   const containers = townContainers(bot)
   if (!containers.length) { stop = 'no town container'; row('no_effect'); return { status: 'no_effect', detail: 'no town chest within reach now; the town deposit waits for another visit' } }
@@ -5940,6 +6320,8 @@ async function townDeposit (ctx, _args, signal) {
       try { await bot.lookAt?.(c.position.offset(0.5, 0.5, 0.5), true) } catch { /* optional on test doubles */ }
       const win = await openTown(bot, block, openMs())
       if (!win) { tried.push({ at, result: 'unopenable' }); stop = 'open timeout'; break }
+      win.townPos = c.position
+      await cobbleObserve(bot, c.position, win)   // the town cap's observation (cobblecap.mjs)
       // OWNED FROM THE OPEN TO THE CLOSE, OR HELD (withdraw's rules, rebase review P1): nothing else touches the inventory
       // while this run has the window; the cursor is settled with the SERVER's word before the close, and a cursor that
       // cannot be emptied keeps the window open (holdUnsettled) -- never a loaded close.
@@ -5947,6 +6329,7 @@ async function townDeposit (ctx, _args, signal) {
       let r = { done: [], full: false, err: null }, settled = null
       try {
         r = await bankInto(bot, win, wanted, attempted, deadline, signal)
+        for (const k of Object.keys(capRefused)) capRefused[k] += r.capRefused?.[k] ?? 0
       } finally {
         settled = await settleCursor(bot, win)
         if (settled.state === 'unresolved') holdUnsettled(bot, win, settled, own)
@@ -6621,7 +7004,7 @@ async function throwStacks (bot, { cap, facing, stacks, bound, waitTick, signal,
       const near = wellAdmission({ players: playersSeen(bot), cap, me: bot.username })
       if (near) { acc.stop = `${near.who} came within ${near.dist.toFixed(1)} of the well`; break }
       const pre = bot.inventory?.slots?.[st.slot]
-      if (!disposableIn(pre, bot.inventory?.items?.() ?? []) && !(acc.swordsAllowed && isSword(pre?.name))) continue
+      if (!disposableIn(pre, bot.inventory?.items?.() ?? []) && !(acc.swordsAllowed && isSword(pre?.name)) && !(acc.cobbleAllowed && isWellCobble(pre?.name))) continue
       const feet = bot.entity.position
       const aim = wellAim({ from: feet, cap, facing, rise: feet.y - (cap.y + 1) })   // a thrower on a snow layer stands higher
       if (!aim.ok) { acc.stop = `aim refused: ${aim.why}`; break }
@@ -6643,12 +7026,24 @@ async function throwStacks (bot, { cap, facing, stacks, bound, waitTick, signal,
       // connection, which the server applies first -- the THROW then drops what the server holds, and offlist= says so ----
       const it = bot.inventory?.slots?.[st.slot]
       const sword = isSword(it?.name)
-      if (!it || it.name !== st.name || !(isWellJunk(it.name) || (sword && acc.swordsAllowed)) || bot.currentWindow || bot.inventory?.selectedItem) continue
+      const cob = isWellCobble(it?.name)
+      if (!it || it.name !== st.name || !(isWellJunk(it.name) || (sword && acc.swordsAllowed) || (cob && acc.cobbleAllowed)) || bot.currentWindow || bot.inventory?.selectedItem) continue
+      // COBBLE GOES ONLY AS THE PLANNED WHOLE STACK, ONLY ABOVE THE BOT'S 64, AND ONLY WHILE THE TOWN IS STILL AT ITS CAP
+      if (cob) {
+        const bagCobble = (bot.inventory?.items?.() ?? []).reduce((t, x) => t + (isWellCobble(x?.name) ? (x.count ?? 0) : 0), 0)
+        const leftC = bagCobble - (it.count ?? 0)
+        if (it.count !== st.count || leftC < COBBLE_WELL_RESERVE) continue
+        // THE CAP RE-READ AT EVERY COBBLE CLICK (Codex r1 P1: another bot may take cobble out between two stacks); the last
+        // reading is what the row reports
+        acc.capLast = cobbleWellCap(bot)
+        if (acc.capLast !== 'at_cap') continue
+        acc.cobble += it.count; acc.cobbleLeft = Math.min(acc.cobbleLeft ?? Infinity, leftC)
+      }
       // A SWORD GOES ONLY IF THE WORLD IS STILL PEACEFUL AT THIS CLICK (the switch re-read now, not at the plan)
       // (peacefulkit's classifier, fed the well's strict switch as read NOW)
       if (sword) { const p = wellSwordsNow(bot); if (!unwantedSword(it, p)) { acc.swordsKept++; continue } acc.peaceful = (acc.peaceful ?? true) && p }
       // THE RESERVE, judged on the bag as it is NOW, at the click (Codex r1: the plan's view can be eight seconds old)
-      const left = sword ? 0 : guardLeft(it.name, it.count, reserveStone(bot.inventory?.items?.() ?? []))
+      const left = (sword || cob) ? 0 : guardLeft(it.name, it.count, reserveStone(bot.inventory?.items?.() ?? []))
       if (left === null) continue
       if (sword) acc.swords += it.count ?? 1
       if (SCAFFOLD_DECORATIONS.includes(it.name)) { acc.gclicked += it.count ?? 0; acc.stoneMin = Math.min(acc.stoneMin ?? Infinity, left) }
@@ -6714,16 +7109,23 @@ export function throwResults ({ spawned = [], got = new Set(), present = () => t
  *              clicked slot from the before-snapshot, so a reflex eating bread meanwhile is not a throw (Codex review)
  *   otherLoss  every other non-listed decrease of the bag over the phase (a diagnostic: eating, planting, a dig)
  */
-export function throwAccount ({ before, after, clicked = [], swords = 0 }) {
+export function throwAccount ({ before, after, clicked = [], swords = 0, cobble = 0 }) {
   const lost = {}
   let otherLoss = 0, nonlisted = 0, swordLost = 0
-  const ok = n => isWellJunk(n) || (swords > 0 && isSword(n))   // a sword clicked in a peaceful world is a listed throw
+  const ok = n => isWellJunk(n) || (swords > 0 && isSword(n)) || (cobble > 0 && isWellCobble(n))   // a sword clicked in a peaceful world, cobble clicked at the cap: listed throws
   for (const c of clicked) { const was = before?.slots?.[c.slot]; if (!was || !ok(was.name) || !ok(c.name)) nonlisted += was?.count ?? c.count ?? 0 }
+  let cobbleRoom = Number(cobble) || 0                   // cobble is listed only up to what was CLICKED (Codex r1 P2)
   if (before && after) {
     for (const [name, n] of Object.entries(before.counts)) {
       const d = n - (after.counts[name] ?? 0)
       if (d <= 0) continue
       if (isSword(name)) swordLost += d                  // EVERY sword the server bag lost, clicked or not (the read's C8)
+      if (isWellCobble(name) && !isWellJunk(name)) {
+        const listed = Math.min(d, cobbleRoom); cobbleRoom -= listed
+        if (listed > 0) lost[name] = listed
+        otherLoss += d - listed
+        continue
+      }
       if (ok(name)) lost[name] = d; else otherLoss += d
     }
   }
@@ -6743,7 +7145,7 @@ const wellRefused = (bot, order, reason, said) => {
  * -> { refused, acc, account, misses, retaken, recollected, source, closedOpen, stop, aborted, slotsBefore, slotsAfter }
  */
 async function throwPhase (bot, { cap, facing, pit = false, maxStacks = MAX_STACKS_PER_VISIT, g, tick, tickNA, signal }) {
-  const out = { refused: null, acc: { tossed: 0, spawned: [], clicked: [], stop: null, gclicked: 0, stoneMin: null, swords: 0, peaceful: null, swordsKept: 0, swordsAllowed: false }, account: { lost: {}, nonlisted: 0, otherLoss: 0, n: 0 },
+  const out = { refused: null, acc: { tossed: 0, spawned: [], clicked: [], stop: null, gclicked: 0, stoneMin: null, swords: 0, peaceful: null, swordsKept: 0, swordsAllowed: false, cobble: 0, cobbleLeft: null, cobbleAllowed: false }, account: { lost: {}, nonlisted: 0, otherLoss: 0, n: 0 },
                 misses: 0, retaken: 0, recollected: 0, source: 'local', closedOpen: false, stop: null, aborted: null, slotsBefore: null, slotsAfter: null }
   const read = readWellCell(bot)
   const pending = { open: false }
@@ -6763,9 +7165,11 @@ async function throwPhase (bot, { cap, facing, pit = false, maxStacks = MAX_STAC
       out.slotsBefore = before.used
       if (before.source !== 'resync') { out.refused = 'server_unanswered'; return out }
       out.swordsAllowed = !pit && wellSwordsNow(bot)   // a peaceful world's swords go too (never in the pit-first build)
-      const plan = disposePlan(bot.inventory?.items?.() ?? [], { maxStacks, swords: out.swordsAllowed })   // the bag AS THE SERVER HOLDS IT
+      out.cap = pit ? null : cobbleWellCap(bot)       // and, at the town's cobble cap, surplus whole cobble stacks
+      const plan = disposePlan(bot.inventory?.items?.() ?? [], { maxStacks, swords: out.swordsAllowed, cobbleAtCap: out.cap === 'at_cap' })   // the bag AS THE SERVER HOLDS IT
       out.stone = plan.stone   // the guard stone the plan saw (STONE_GUARD): on the row, so the read can judge the guard
       out.acc.swordsAllowed = out.swordsAllowed
+      out.acc.cobbleAllowed = out.cap === 'at_cap'
       if (!plan.stacks.length) { out.refused = 'nothing_listed'; return out }
       if (!pit) {
         if (wellIdentity(read, cap).open) out.closedOpen = await setWellOpen(bot, cap, false, g.bound, tick)
@@ -6821,7 +7225,7 @@ async function throwPhase (bot, { cap, facing, pit = false, maxStacks = MAX_STAC
         if (!out.aborted) for (let i = 0; i < WELL_SEEN_TICKS; i++) await tickNA()
         const res = throwResults({ spawned: out.acc.spawned, got, present: id => !!bot.entities?.[id], cap })
         out.misses = res.misses; out.recollected = res.recollected
-        out.thrown = thrownNames(out.acc.spawned.map(spawnedItem), { swords: out.acc.swords })
+        out.thrown = thrownNames(out.acc.spawned.map(spawnedItem), { swords: out.acc.swords, cobble: out.acc.cobble })
         if (res.missed.length && !out.aborted) await retakeMisses(bot, { cap, missed: res.missed, got, bound: g.restoreBound, waitTick: tickNA, signal })
         out.retaken = res.all.filter(m => got.has(m.id)).length
       }
@@ -6831,9 +7235,9 @@ async function throwPhase (bot, { cap, facing, pit = false, maxStacks = MAX_STAC
   if (before?.source === 'resync' && out.acc.tossed) {
     try { after = await serverBag(bot, tickNA) } catch (e) { after = null; out.stop = `${out.stop ? `${out.stop};` : ''}error_after: ${String(e?.message ?? e).slice(0, 50)}` }
   }
-  out.thrown ??= thrownNames(out.acc.spawned.map(spawnedItem), { swords: out.acc.swords })
+  out.thrown ??= thrownNames(out.acc.spawned.map(spawnedItem), { swords: out.acc.swords, cobble: out.acc.cobble })
   out.source = after?.source === 'resync' ? 'resync' : 'local'
-  out.account = throwAccount({ before, after: after?.source === 'resync' ? after : null, clicked: out.acc.clicked, swords: out.acc.swords })
+  out.account = throwAccount({ before, after: after?.source === 'resync' ? after : null, clicked: out.acc.clicked, swords: out.acc.swords, cobble: out.acc.cobble })
   out.slotsAfter = after?.used ?? bot.inventory?.items?.()?.length ?? null
   return out
 }
@@ -6845,7 +7249,8 @@ const phaseDetail = (ph, cap, stop, capEnd = null) => wellDisposeDetail({ capEnd
   misses: ph.misses, retaken: ph.retaken, recollected: ph.recollected, nonlisted: ph.account.nonlisted, otherLoss: ph.account.otherLoss,
   source: ph.source, closedOpen: ph.closedOpen, stop, at: cap, offlist: ph.thrown?.offlist ?? 0, offlistItems: ph.thrown?.offlistItems ?? {}, unnamed: ph.thrown?.unnamed ?? 0,
   gclicked: ph.acc?.gclicked ?? 0, stone: ph.acc?.stoneMin ?? ph.stone ?? null, swords: ph.acc?.swords ?? 0, peaceful: ph.acc?.swords ? ph.acc.peaceful : null,
-  swordLost: ph.account?.swordLost ?? 0, swordsKept: ph.acc?.swordsKept ?? 0, aimOff: ph.acc?.aimOff ?? 0, aimRead: ph.acc?.aimRead ?? 0 })
+  swordLost: ph.account?.swordLost ?? 0, swordsKept: ph.acc?.swordsKept ?? 0, aimOff: ph.acc?.aimOff ?? 0, aimRead: ph.acc?.aimRead ?? 0,
+  cobble: ph.acc?.cobble ?? 0, cobbleLeft: ph.acc?.cobble ? ph.acc.cobbleLeft : null, cap: ph.acc?.capLast ?? ph.cap ?? null })
 
 const FACING_OK = f => ['north', 'south', 'west', 'east'].includes(f)
 async function disposeWell (ctx, _args, signal) {
@@ -6870,7 +7275,7 @@ async function disposeWell (ctx, _args, signal) {
   if (bot.controlState?.sneak) return skip('sneaking', 'sneaking (held by another subsystem); the well waits for another visit')
   const near = wellAdmission({ players: playersSeen(bot), cap, me: bot.username })
   if (near) return skip('player_near', `wait for ${near.who} to move off the town junk well (${near.dist.toFixed(1)} blocks): it opens only with nobody within 5, and the next town visit disposes`)
-  if (!disposePlan(items(), { swords: wellSwordsNow(bot) }).stacks.length && !well.open) return skip('nothing_listed', `nothing on the junk list in the bag at ${slotsBefore} of 36 slots`)
+  if (!disposePlan(items(), { swords: wellSwordsNow(bot), cobbleAtCap: cobbleWellCap(bot) === 'at_cap' }).stacks.length && !well.open) return skip('nothing_listed', `nothing on the junk list in the bag at ${slotsBefore} of 36 slots`)
   const was = handOf(bot.heldItem)
   const g = hkGuards(bot, signal)
   const tick = () => g.bound(bot.waitForTicks?.(1), 50 + HK_AWAIT_MS, 'tick wait')
@@ -7304,6 +7709,7 @@ async function openForWithdraw (bot, chestBlock, signal, msLeft) {
     try { chest.close() } catch {}
     return { fail: { status: 'failed', failClass: 'container_open', detail: `the window that opened is not the chest at ${cp.x},${cp.y},${cp.z}` } }
   }
+  await cobbleObserve(bot, cp, chest)   // the town cap's observation (cobblecap.mjs)
   return { chest }
 }
 
@@ -10610,7 +11016,7 @@ export function classifyOutcome(skillName, status, delta = {}, wanted = null) {
   }
   // THE WELL'S OWN EVIDENCE: a loss of listed junk (well.mjs isWellJunk), never any other item. inventory_ prefix: durable.
   if (expects.includes('well_effect')) {
-    const l = Object.entries(inv).filter(([k, n]) => n < 0 && (isWellJunk(k) || (isSword(k) && wellClickedLast.has(k))))   // a sword the well CLICKED (peaceful, at the click)
+    const l = Object.entries(inv).filter(([k, n]) => n < 0 && (isWellJunk(k) || ((isSword(k) || isWellCobble(k)) && wellClickedLast.has(k))))   // a sword (peaceful) or cobble (at the cap) the well CLICKED
     if (l.length) because.push(`inventory_loss: ${l.map(([k, n]) => `${k} ${n}`).join(', ')}`)
   }
   if (expects.includes('position') && (delta.distance ?? 0) >= 2) {
