@@ -1,0 +1,31 @@
+{
+ "run": "withdraw2-01",
+ "after": [
+  "airpocket-01"
+ ],
+ "variants": {
+  "92bc84f2ed393b9bf90bc8338a21f3c844c55389": {
+   "registration": "/home/mike/mcai-analysis/withdraw2-01.92bc84f.json",
+   "approved": "operator 2026-10-08 12:50Z: wd2-on-92bc84f @ a6cd3c1; Codex APPROVE (round 4) + Claude subagent APPROVE; 52/52 mutants; Paper best-first + iron craft + towndeposit retention; STATE 9278d75",
+   "registration_sha256": "d93d9c8207c8fb536b1d1487de5558b4a90654c03edd2f531a962fdeeb7846de",
+   "canary_sha": "a6cd3c1d54027ee430d733609570d82d65e1888d",
+   "reads_src": "/home/mike/mcai-analysis",
+   "reads": {
+    "withdrawread": "2640ca6523a15247b0a99aa777659366",
+    "immobiledid": "53af289df12208901931dbeeb1ae325a"
+   }
+  },
+  "dbb4d789864089c038ab80ce89391d4e32dc9874": {
+   "registration": "/home/mike/mcai-analysis/withdraw2-01.dbb4d78.json",
+   "approved": "queue agent 2026-10-08: wd2-on-dbb4d78 @ 2189de3 = the approved a6cd3c1 patches cherry-picked onto airpocket dbb4d78 (no conflict, range-diff identical); rebased-diff review Codex APPROVE + Claude subagent APPROVE, recorded in docs/reports/withdraw2-01.dbb4d78-review.txt; npm test 239/239; mutants 52/52; Paper not re-run (behaviour-neutral, both reviews); read dry run on host OK",
+   "registration_sha256": "e3f1de4ca5b3851edd9fe8df2d4347aabf189932badd379a3a77e9962f9d0dd8",
+   "canary_sha": "2189de36670d598a0ae067511948a3da3c3d75b8",
+   "reads_src": "/home/mike/mcai-analysis",
+   "reads": {
+    "withdrawread": "2640ca6523a15247b0a99aa777659366",
+    "immobiledid": "53af289df12208901931dbeeb1ae325a"
+   }
+  }
+ },
+ "note": "best-first pickaxe from town chests + iron pickaxe at town; variants for 92bc84f (airpocket not kept) and dbb4d78 (airpocket KEPT)"
+}

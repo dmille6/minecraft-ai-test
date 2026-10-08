@@ -1,0 +1,157 @@
+{
+ "run_id": "withdraw2-01",
+ "sha": "2189de3",
+ "registered_at": "2026-10-08T14:30:00Z",
+ "ladder_change": false,
+ "promotion": "fleet-wide",
+ "notes": "[withdraw2-01 variant for fleet dbb4d78 (airpocket-01 KEPT and promoted): branch wd2-on-dbb4d78 @ 2189de3 = dbb4d78 + the 13 commits of wd2-on-92bc84f (a6cd3c1) cherry-picked -x. Launch ONLY on a fleet running dbb4d78; on 92bc84f use withdraw2-01.92bc84f.json. NOT LAUNCHED. REBASE 10-08 (queue agent): no conflict; range-diff: all 13 patches identical (only the cherry-pick line differs); the textual interdiff of the two diffs is one cognitive.mjs hunk offset (@@ -840 -> -844, airpocket's TRIGGER_SUPPRESSED comment). Files shared with airpocket: cognitive.mjs only (disjoint hunks); reflex.mjs imports survivalRelease from withdrawpick.mjs, which withdraw2 does not change. npm test 239/239 files (2189de3); mutants 52/52 killed (scripts/mutants/mutants-wd2.py, WD2_ROOT=a copy of the variant's bots/, anchors asserted present and unique, baseline green first); eslint no-undef: only the known withinBody in reflex.mjs. REVIEW of the rebased diff vs the approved diff, both engines: Codex APPROVE (no findings; no Paper re-proof needed: interruption, inventory-ownership and placement contracts preserved) and Claude subagent APPROVE (no P1/P2; P3 noted, no change: a town order issued while airpocket digs is aborted by the step's interrupt and spends its cooldown -- the drowning bot's rescue wins, the intended priority). Text: docs/reports/withdraw2-01.dbb4d78-review.txt. PAPER: not re-run -- the merge is behaviour-neutral (identical patches, no shared function; withdraw2 acts at town chests, airpocket only inside a sealed drowning rescue). DRY RUN 10-08 on 10.0.0.31 (CANARY_DRYRUN hive-d,placebo-a:dbb4d78:2026-10-08T07:34:26Z = the live airpocket pools, +180, 319,006 rows): every correctness gate 0; canary_rows_without_ledger 3 (EXPECTED, the positive control of the arms check: those bots run dbb4d78 without withdraw2); control rows with ledger 0; INSTRUMENT2 52; read md5 2640ca65 unchanged.] [withdraw2-01 variant for fleet 92bc84f: branch wd2-on-92bc84f @ a6cd3c1. Launch only on a fleet running 92bc84f (towndeposit-02 KEPT and promoted). NOT CHAINED, NOT LAUNCHED. npm test 238/238 files (a6cd3c1); mutants 52/52 killed (51 + the best-copy mutant after bc244ad) (scripts/mutants/mutants-wd2.py, WD2_ROOT=<variant>/bots, anchors asserted present and unique, baseline green first); eslint no-undef clean but the known withinBody in reflex.mjs.] REBASE 10-08 (operator agent): the 8 approved withdraw2 commits (wd2-on-c902d6f @ c4e9c47, Codex r7 APPROVE, 49/49 mutants) rebased with history kept; the only textual conflict on either base was the cognitive.mjs import line (union). bots/src on both variants = the approved withdraw2 exactly (a surplus-first room order, 785cd0d, was built for the towndeposit base and DROPPED before any push: Codex P1, it ignored the chest's capacity and could decline a pull the old order completed). TEST FIX (both): foodskip-order.test.mjs gave its town bot a STONE pickaxe, which under withdraw2 fires the upgrade order on hard/unknown instead of `status` (Codex P2) -- the fixture now holds an iron pickaxe and a new test pins the composition (stone: peaceful -> compost first, hard -> withdraw_pick). REVIEW (both engines, rebased diff): Codex r1 CHANGE (P1 785cd0d, P2 foodskip test) -> r2 CHANGE (P2: the read keyed the order on verb=, which a long iron row loses to the 300-char cut -- fixed: the order is recognized by its ledger, which also lets G1/G2/G5/G6 see cut rows) -> r3 no findings -> r4 APPROVE (test-only delta: the crafted-iron test pins the BEST stone copy, killing the one surviving mutant); Claude r1 APPROVE (P2: coal is the FIRST room candidate, comment fixed + read reports it), delta APPROVE x2 (read P3: count the order only -- taken). Follow-ups recorded, NOT in this canary (pre-existing): bot.currentWants keeps DEPOSIT_ALWAYS ores in every room plan after any model deposit (admission.mjs sets it, nothing resets it); chestfull recordOutcome keeps only the latest outcome, so a later full/unknown un-invalidates older _pick_best/_pick_miss for <= 15 min. TOOLHYGIENE (th-on-c6e91a8, not depended on): a scratch merge with wd2-on-c6e91a8 (import conflicts only, never pushed) passes withdraw2, withdraw-pick, withdraw-hold, toolhygiene x2, foodskip-order; redundantCraft never refuses the iron craft for a bot below iron (null for iron_pickaxe beside stone copies) and withdraw2's craft calls the skill directly, not through admission; toolhygiene's stone refusals only make 'stone held, below iron' more common, which is withdraw2's population. READ: scripts/host/withdrawread.py md5 2640ca65 (repo = host /tmp = ~/mcai-analysis): + REPORTED line 'room-making that banked an IRON_LADDER item' per arm (order rows only, from the ledger's gave) and ledger-based order detection; no gate threshold changed. DRY RUN 10-08 00:24Z on 10.0.0.31 (CANARY_DRYRUN board-a,hive-b:c6e91a8, 180 min, 310,074 rows): every gate 0; INSTRUMENT2 50 control bots at town below iron; control withdraw_pick rows 19-21 (all wooden/stone taken: 0 iron of 17); positive controls fire. EXPOSURE POWER at today's rates (6 h, 80 bots, 309,150 rows, c6e91a8 rows only): withdraw-01 orders 0.077/bot-h; upgrade opportunities (bot x 30-min bin at town with a usable pickaxe below iron) 1.03/bot-h. A 10-bot canary expects 2.3 (withdraw-01 alone) .. 33 (every opportunity) orders in 3 h: P(>= 5 orders) 0.09 .. 1.00 at +180, 0.50 .. 1.00 at +360; the extensions carry the floor case. The iron-craft rate stays ~1 per fleet-hour: craft and holder DiDs will usually read INCONCLUSIVE; the tier share of withdrawn pickaxes moves first. PAPER 10-08 (sandbox2 :25600, Paper 1.21.8, fresh bot per trial, server read-back of bag + chest + ground; RCON on 10.0.0.30 only; driver sandbox/craft/withdraw-ab.cjs): TOWNDEPOSIT TEST FLAKE (pre-existing, fixed on this branch only, a6cd3c1): towndeposit.test.mjs TOWN MEMORY failed 4 of 8 runs on the UNMODIFIED 92bc84f -- the fake deposit finishes in ~1 ms and a 'took' in the same millisecond as the pickaxe miss does not clear it (containerPickMiss: took.at > miss.at); the run now starts 5 ms after the miss, 8/8 green; production unchanged. wd2-on-92bc84f (bots/src identical to a6cd3c1): tiers40 IRON (control 92bc84f STONE); twochest IRON; ironcraft crafted_iron craft=server. IRON RETENTION vs THE TOWN DEPOSIT (scenes irontd / irontdfail: 33/36 bag = stone pickaxe, raw_copper 7, coal 9, filler; chest 5 ingots + 16 sticks): irontd 2/2 -- crafted_iron (craft=server), then _town_deposit fired at 34 slots and banked raw_copper:7 ONLY; the iron and stone pickaxes and the coal stayed. irontdfail 2/2 (the only table floats out of reach) -- outcome=craft_failed, the bag held iron_ingot 3 + stick 2 at 35 slots, _town_deposit fired and banked raw_copper:7 ONLY; bag diff +3 iron_ingot +2 stick, conserved=yes. Control 92bc84f on irontd: no order, no pull, no deposit (33 slots). UNIT: test/withdraw2-towndeposit.test.mjs drives the real pull, then the real townDepositPlan/townDepositOrder: failed craft -> no ingot (why=iron_ladder) / stick / coal / pickaxe banked, the order fires (raw_copper = positive control); crafted -> only the worse of two stone copies may go, never the best or the iron; a 36/36 bag whose only bankable stack is coal still makes room (the one-way move, reported by the read). Mutants include the town deposit's keeps (ingots with both keeps removed, the 2 scaffold sticks, the best copy of a name).  ORIGINAL REGISTRATION (c902d6f, c4e9c47) FOLLOWS. [withdraw2-01 (OWNER 10-06 ~21:40Z: 'yes lets do 1 and 3') -- BEST-FIRST pickaxe withdrawal and the IRON UPGRADE, one canary on fleet c902d6f (climbflood-02 KEPT + promoted; withdraw-01 KEPT and on the whole fleet). Branch wd2-on-c902d6f @ c4e9c47 = c902d6f + withdraw2 (design docs/reports/withdraw2-design.md, v1 -> v3.1 after three Codex design checks). QUEUE: after towndeposit and foodskip -- if the fleet sha differs at launch, rebase wd2-on-c902d6f onto it, rename this file withdraw2-01.<that sha>.json and set `sha`; the read, gates and change rows are base-independent. towndeposit retains iron_ingot itself (IRON_LADDER): re-check the bankable iron_upgrade_reserve against it at that rebase. NOT CHAINED, NOT LAUNCHED.] MOTIVE (live, 10-06): 13 pickaxes withdrawn in 6 h, 7 of them WOODEN (withdraw-01 ranked '>= 40 uses' above tier and took at the first container with any usable copy); 72 h: 69 iron pickaxes crafted, 31/80 bots hold one; 137 iron_pickaxe crafts failed, 105 'short iron_ingot', while ~806 ingots sat in the banks. Dry run of this read 10-06 (180 min, c902d6f, hive-a as the 'canary'): control withdrawals wooden 8, stone 4, iron 1; 56 control bots at town with a usable pickaxe below iron. THE CHANGE: (3) BEST-FIRST -- the order INSPECTS up to 3 town containers (no clicks) and ranks every usable copy: never spent (<= 10 uses), then tier (netherite > diamond > iron > stone > golden > wooden), then uses left; it revisits the winner, revalidates the exact copy (slot, name, wear) and takes it; a copy proven gone re-ranks, an unreachable one STOPS the order (never a worse copy instead); a copy not strictly better than the held tier is never taken; with a full bag and a full chest the bag's worse pickaxe itself is traded (mode-2, by identity, revalidated at the click). An upgrade order also fires for a bot whose best usable pickaxe is below iron (30-min cooldown), suppressed only when BOTH branches are ruled out by complete negative evidence (_pick_best <= held in every town container; ingots ruled out). (1) IRON UPGRADE -- with no copy of iron or better: a complete plan of <= 2 take visits from what the inspection saw (3 ingots + 2 sticks, or wood for them; a table within the craft's 32-block search or planks for one), room for every take made at the first visit within that chest's live capacity, >= 60 s of clock, and a per-bot 30-min cooldown (+ 0-5 min name stagger) charged before the first mutation; prerequisites first, ingots LAST after a re-plan against the live bag; exactly the deficit; then the existing craft skill (craftsync); success only with verification=server AND the order's own recount showing iron_pickaxe +1. A failed craft leaves the ingots in the bag and deposit keeps up to 3 (bankable iron_upgrade_reserve) while the best usable pickaxe is below iron; no retry within 30 min. Ingot evidence per container with QUANTITY (_ingot_seen), from this visit's contents. Every row carries a structured LEDGER in args (held, took_tier, took_uses, best_seen, best_valid, gone, craft, produced, srv = cumulative server change, plan, transform = recipe-chain names consumed, complete). REVIEW: Codex design CHANGE x3 (7 P1 + 1 P2; 3 P1 + 2 P2; 2 P2) -> v3.1; Codex code rounds 1-6 CHANGE (1 P1 + 7 P2; 1 P1 + 2 P2; 1 P2; 1 P2; 1 P2; 3 P2 -- every one fixed with a test from its repro) -> round 7 APPROVE at a24ba7b (c4e9c47 adds tests only; bots/src identical). TESTS: suite 234/234 files on a24ba7b; withdraw2.test.mjs 39, withdraw-pick 62, withdraw-hold 26; withdraw2 mutants 49/49 killed on c4e9c47 (each anchor asserted present and unique, green baseline first; four survivors of the a24ba7b run were pinned by new tests or re-anchored on the live line, each shown failing its intended test); eslint clean (only the long-standing withinBody no-undef in reflex.mjs). PAPER (sandbox 25599, Paper 1.21.8, fresh bot per trial, server slots of bag + chest + ground; candidate a24ba7b vs control c902d6f watched the same way): THE ARMS SEPARATE -- tiers40 (iron 35 uses, stone 111, wooden 59 in one chest): cand IRON 2/2, ctrl STONE; twochest (fresh wooden in the near chest, iron in the next): cand IRON 2/2, ctrl WOODEN (the live failure). tiers / tiersup: cand iron 2/2 (+ tiers2 on 8727ce7..ad253ef) (ctrl also iron when the iron has the most uses; no order for a bot holding a wooden). ironcraft (stone held, 5 ingots + 16 sticks, a table 2 away): cand crafted an iron pickaxe 2/2 on a24ba7b (4/4 counting 8727ce7 and ad253ef), exactly iron_ingot -3 and stick -2 from the chest, _craft_sync confirmed=yes, ledger craft=server srv iron_pickaxe +1 complete=true; ctrl: no order. noingots 1/1 (stone held; wooden + sticks + cobblestone, no ingots): cand inspected once, took NOTHING (outcome=no_better, iron declined 'no container holds 3 iron ingots'); ctrl no order. fullbag (36/36 with a wooden, 27/27 chest with one iron): cand traded the wooden for the iron 2/2 on a24ba7b, 4/4 overall (one mode-2 swap, totals conserved, ground empty); ctrl no order. withdraw-01 regression on a24ba7b: pick, ingredients, swap, spent all as before; kickingred dropped the cursor stack on the kick, the known accepted disconnect exposure (vanilla drops the carried stack). No _undefined rows.]",
+ "licence": {
+  "class": "kind",
+  "kind": "_withdraw_pick",
+  "min_rows": 1,
+  "note": "withdraw-01 is on the whole fleet (92bc84f), so _withdraw_pick rows exist on the control too; the withdraw2 build is told apart by the structured ledger in the row's args (complete=true). The read's ARMS line (control_rows_with_ledger) must stay 0."
+ },
+ "reads": [
+  "withdrawread",
+  "immobiledid"
+ ],
+ "read_minutes": [
+  180,
+  360
+ ],
+ "deadline_min": 1680,
+ "change_rows": [
+  "withdraw_pick",
+  "withdraw_settled"
+ ],
+ "linkage_extra": [],
+ "draw_exposure": {
+  "hours": 3,
+  "require": [
+   {
+    "name": "bots crafting or wanting a pickaxe (craft rows naming _pickaxe)",
+    "kind": "craft",
+    "detail_contains": "_pickaxe",
+    "min": 10
+   }
+  ],
+  "note": "The target population is bots at town whose best usable pickaxe is below iron (most of the fleet: 31/80 held an iron pickaxe over 72 h) -- any pool qualifies; the require line only rejects a dead pool."
+ },
+ "exposure": {
+  "read": "withdrawread",
+  "field": "exposure2_ready",
+  "min": 1,
+  "note": "Ready = >= 5 canary withdraw_pick orders AND >= 1 control bot at town with a usable pickaxe below iron."
+ },
+ "own_lines": [
+  {
+   "read": "withdrawread",
+   "field": "g1_unplanned_loss",
+   "op": "<=",
+   "value": 0,
+   "on_fail": "REVERT",
+   "evidence": "defect",
+   "note": "G1: a canary row whose cumulative server change (args srv) shows a fall of a name not in plan nor transform (the craft chain's own names: iron_ingot, stick, planks, log). A death within 60 s is excused and reported. Rows without a complete ledger are UNKNOWN (ledger_unknown_g1), never a pass."
+  },
+  {
+   "read": "withdrawread",
+   "field": "g2_spent_taken",
+   "op": "<=",
+   "value": 0,
+   "on_fail": "REVERT",
+   "evidence": "defect",
+   "note": "G2: a pickaxe taken with <= 10 uses left (args took_uses, or detail uses=)."
+  },
+  {
+   "read": "withdrawread",
+   "field": "g3_unconfirmed_success",
+   "op": "<=",
+   "value": 0,
+   "on_fail": "REVERT",
+   "evidence": "defect",
+   "note": "G3: status=success with verification != server."
+  },
+  {
+   "read": "withdrawread",
+   "field": "g4_closed_loaded",
+   "op": "<=",
+   "value": 0,
+   "on_fail": "REVERT",
+   "evidence": "defect",
+   "note": "G4: _withdraw_settled how=closed_loaded or junkswapped (WITHDRAW_LOADED_MODE=hold)."
+  },
+  {
+   "read": "withdrawread",
+   "field": "g5_worse_tier",
+   "op": "<=",
+   "value": 0,
+   "on_fail": "REVERT",
+   "evidence": "defect",
+   "note": "G5: a pickaxe taken whose tier is below best_valid (the best copy observed this order and not proven gone)."
+  },
+  {
+   "read": "withdrawread",
+   "field": "g6_iron_unconfirmed",
+   "op": "<=",
+   "value": 0,
+   "on_fail": "REVERT",
+   "evidence": "defect",
+   "note": "G6: outcome=crafted_iron without craft=server AND srv iron_pickaxe >= +1 on a complete ledger. Incomplete = UNKNOWN (ledger_unknown_g6)."
+  },
+  {
+   "read": "withdrawread",
+   "field": "control_rows_with_ledger",
+   "op": "<=",
+   "value": 0,
+   "on_fail": "REVERT",
+   "note": "Arms: the withdraw2 ledger on a control row means the pools are mixed. BLOCKS KEEP."
+  },
+  {
+   "read": "withdrawread",
+   "field": "canary_rows_without_ledger",
+   "op": "<=",
+   "value": 0,
+   "on_fail": "REVERT",
+   "note": "Every canary order row (except aborted/error) carries the ledger; a row without it means the canary runs another build or the gates are blind. BLOCKS KEEP."
+  },
+  {
+   "read": "withdrawread",
+   "field": "orders_canary",
+   "op": ">=",
+   "value": 1,
+   "on_fail": "REVERT",
+   "note": "LIVENESS. BLOCKS KEEP (INCONCLUSIVE)."
+  },
+  {
+   "read": "withdrawread",
+   "field": "instrument_below_iron_control",
+   "op": ">=",
+   "value": 1,
+   "on_fail": "REVERT",
+   "note": "POSITIVE CONTROL: control bots at town with a usable pickaxe below iron exist and this query sees them. BLOCKS KEEP."
+  }
+ ],
+ "primary": {
+  "read": "withdrawread",
+  "field": "iron_crafts_per_bot_h_did",
+  "note": "REPORTED, NOT GATED: confirmed iron_pickaxe crafts per bot-hour (_craft_sync item=iron_pickaxe confirmed=yes), DiD; share of withdrawn pickaxes that are iron or better, DiD (iron_share_did); bots holding iron or better, DiD (iron_holders_did); withdrawn pickaxes by tier per arm and period; crafted_iron rows. No null scale exists for these metrics yet: a single read is not a result; INCONCLUSIVE is a legitimate close. POWER: confirmed iron_pickaxe crafts are ~1 per fleet-hour (68 in 72 h, positive control 10-06), so a 5-bot canary expects ~0.2 in 3 h on the control rate: the craft rate and holders DiD will usually be INCONCLUSIVE at +180/+360; the tier share of withdrawn pickaxes moves first (control 1 of 13 iron in the dry run). ALSO REPORTED (10-08): room-making that banked an IRON_LADDER item (coal, raw_iron...) per arm -- the automatic town deposit keeps those; withdraw's unchanged room rule banks coal first."
+ },
+ "harm": {
+  "note": "Unchanged: the two-death floor (OWNER 2026-09-11) and gather_ratio < 0.43 of control, from immobiledid. A held cursor freezes the bot (admission refuses every skill): watch intervention_bots and _reflex_stuck."
+ },
+ "teardown": {
+  "note": "THREE STEPS: drop-ins, clear canary_pool, restart the pool's bots 12 s apart; then confirm the live versions. A restart DROPS any stack a held cursor carries (sandbox: disconnect drops the cursor whatever the room) -- check intervention rows before the restart and name any held bot."
+ },
+ "amendments": [],
+ "extension": {
+  "until_exposure": true,
+  "extra_reads": [
+   540,
+   720,
+   1080,
+   1560
+  ],
+  "final_on_zero_exposure": "INCONCLUSIVE",
+  "note": "SHORT CANARY for a fix (owner 2026-09-29)."
+ }
+}
