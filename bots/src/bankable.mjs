@@ -1,7 +1,8 @@
 import { PATHFINDER_SCAFFOLD } from './scaffold.mjs'
 import { remaining, FLOOR } from './toolfor.mjs'
-// The peaceful kit's sword rule (a deposit passes the switch's reading as `noSwords`).
+// The peaceful kit's sword rule: `noSwords` defaults to THE SWITCH (foodskip.mjs, this process's last decision).
 import { unwantedSword } from './peacefulkit.mjs'
+import { peacefulFoodActive } from './foodskip.mjs'
 // WHAT IS ACTUALLY WORTH BANKING.
 //
 // "deposited items per bot-hour" is a CO-PRIMARY endpoint of this experiment and
@@ -144,7 +145,7 @@ export const KEEP_ONE = new Set(['crafting_table', 'furnace', 'blast_furnace', '
  * tables is worth at most what the goals actually want, not 99.
  */
 export function bankableInventory (items = [], { wants = [], creditCap = 64,
-                                                 reserveScaffold = 8, noSwords = false } = {}) {
+                                                 reserveScaffold = 8, noSwords = peacefulFoodActive() } = {}) {
   const want = new Set([...wants, ...STANDING_TARGETS].filter(Boolean))
   const counts = {}
   const usable = {}   // tool name -> copies above toolfor's FLOOR
@@ -180,9 +181,10 @@ export function bankableInventory (items = [], { wants = [], creditCap = 64,
     // At most min(n-1, usable-1) copies are bankable -- so at least one usable copy always stays -- and with no
     // usable copy none are: spent tools never move either way.
     // THE PEACEFUL KIT (peacefulkit.mjs; OWNER 10-07 ~19:50Z: "no reason to store swords at all, this is a peaceful world"):
-    // while the switch is on a sword is NEVER banked -- not even a spare copy. `noSwords` is the switch's reading, passed
-    // by the deposit and the town deposit; FALSE by default (the base rule), and excluding can only lower a count, so no
-    // caller can be sent on a new trip by it.
+    // while the switch is on a sword is NEVER banked -- not even a spare copy. `noSwords` DEFAULTS TO THE SWITCH (Codex,
+    // junkwell merge: the deposit-due test, the room advice, the prompt, the milestone and the withdraw planner all count
+    // bankable items without passing it, so a spare sword still made a deposit due). Off = the base rule exactly, and
+    // excluding can only lower a count, so no caller can be sent on a new trip by it.
     if (m && unwantedSword({ name }, noSwords)) { junk += n; excluded[name] = 'peaceful_sword'; continue }
     if (m) avail = Math.min(n - 1, (usable[name] ?? 0) - 1)
     if (KEEP_ONE.has(name)) avail -= 1      // and one of each station / bucket, even when wanted
