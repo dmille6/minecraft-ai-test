@@ -11,6 +11,34 @@ behind it (chain-ore.sh stopped 10-01 on fixes-02's revert)._
 
 ---
 
+## 10-08 16:45Z — JUNKWELL-02 READY on the four peacefulkit shas (queue entry drafted, NOT added)
+- The approved pit-fixed well is jw-on-40046b8 @ cf4192e: 55 commits, 21 of them merges.
+  - Its net diff over 40046b8 was applied as ONE commit per base; the merges do not replay as cherry-picks.
+- The four variants:
+  - **jw-on-d948bfd @ bd747a8** and **jw-on-6f1921a @ 0cdb1a8**: no conflict, identical patch.
+  - **jw-on-3382a17 @ 2299221**: two union conflicts (the cognitive skills import; fakeworld NAMES gets oak_trapdoor appended).
+  - **jw-on-4be1a29 @ e4f2917**: the same commit as 2299221, no conflict.
+- **Reviews:** Codex r1 and Claude r1 both APPROVE all four; no P1/P2.
+  - airpocket: an intact well cannot host a drowning pocket. The rescue has no well guard; the only way to reach the well is a flooded column under its floor. This goes on the follow-up list with airpocket-02.
+  - toolhygiene: the well throws no tool except swords.
+  - withdraw2: ingots, sticks, planks, logs and pickaxes are never well junk. The well order runs after compost -> withdraw -> upgrade.
+  - P3s recorded: a failed iron attempt's wood can feed build_well; no loop test has both withdraw2 and a built well.
+  - Text: docs/reports/junkwell-02.rebase-review-2026-10-08.txt.
+- **Tests:** npm test 242/242, 243/243, 244/244, 245/245. mutants-pk (PK_VARIANT=1) 86/86 plus the well's two classifier mutants 2/2, on each. Lint: withinBody only.
+- **PAPER** on the full stack (sandbox3, e4f2917):
+  - Pit-first build: success. Cap closed; 66 items, all in the shaft.
+  - Dispose of a composed 36/36 bag: 402 thrown (36 -> 27 slots); 402 in the shaft and 0 outside at +30 s. Swords thrown (peaceful).
+  - Kept, per the server's per-slot read: both pickaxes (worn + full), iron_ingot 3, stick 2, planks 4, logs 5.
+  - Codex's rescue-during-visit and withdraw-then-visit scenes were NOT run; the review text says why.
+  - Lock taken and released. The driver used is cf4192e's well-e2e.cjs (main's copy is older).
+- **wellread dry run** on the live airpocket pools: gates 0, instruments 52 / 27.
+- **Registrations** junkwell-02.{d948bfd,6f1921a,3382a17,4be1a29}.json: on main and in ~/mcai-analysis. Bag-fix fields unchanged from the gate agent's 40046b8 file.
+- **OPERATOR: queue entry docs/reports/junkwell-02.queue-entry.json** (= ~/mcai-analysis/junkwell-02.entry.json).
+  - class bag-fix, after peacefulkit-01, 6 variants: 92bc84f -> 1db3fcd, 40046b8 -> cf4192e, plus the four above.
+  - It needs install-bagfix-regs.py first, and a fetch of the jw-on-{d948bfd,6f1921a,3382a17,4be1a29} branches into /opt.
+  - Validated no-act: VALID.
+  - NOT built: the well on a toolhygiene sha without peacefulkit. That is needed only if peacefulkit-01 is not kept.
+
 ## 10-08 15:05Z — peacefulkit prepared on the 4 toolhygiene shas (both engines APPROVE), fetched into /opt; FOLLOW-UP airpocket-02
 pk-on-6238095 d948bfd, pk-on-4970c91 6f1921a, pk-on-5d1f710 3382a17, pk-on-2f38f69 4be1a29 (+ 92bc84f -> 40046b8); queue
 entry docs/reports/peacefulkit-01.queue-entry.json (after toolhygiene-01; needs install-bagfix-regs first).

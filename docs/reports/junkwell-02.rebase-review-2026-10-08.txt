@@ -1,0 +1,68 @@
+junkwell-02 rebase reviews, 2026-10-08 (queue agent). Approved source jw-on-40046b8 @ cf4192e (peacefulkit 40046b8 + the
+pit-fixed well; 55 commits incl. 21 merges). Applied as ONE commit (net diff 40046b8..cf4192e, three-way apply) on:
+T jw-on-d948bfd @ bd747a8 (pk-on-6238095); A jw-on-6f1921a @ 0cdb1a8 (pk-on-4970c91); B jw-on-3382a17 @ 2299221
+(pk-on-5d1f710; two union conflicts: cognitive skills import, fakeworld NAMES); C jw-on-4be1a29 @ e4f29179 (pk-on-2f38f69).
+Brief: scratchpad review-jw-prompt.txt (composition with airpocket, toolhygiene, withdraw2; Paper need).
+
+=== CODEX round 1 (codex exec, read-only) ===
+T — **APPROVE** (`bd747a8` on `d948bfd`).
+A — **APPROVE** (`0cdb1a8` on `6f1921a`).
+B — **APPROVE** (`2299221` on `3382a17`).
+C — **APPROVE** (`e4f29179` on `4be1a29`).
+
+No actionable P1/P2/P3 rebase findings identified. These are static composition verdicts; I did not run tests, mutants, or Paper.
+
+The parent SHAs match. T/A reproduce the approved patch exactly after excluding diff metadata and hunk offsets. B/C differ only in the two stated unions, preserving withdraw2’s imports and appended registry names.
+
+- **Airpocket — A/C:** An intact well does not supply a drowning pocket: its site requires open space above, solid surrounding ground, and liquid clearance ([well.mjs:413](bots/src/well.mjs:413), [well.mjs:457](bots/src/well.mjs:457)). Airpocket digs directly above its own column, not sideways toward a nearby shaft. Its stand likewise fills its own column. Consequently, neither operation reaches an intact well from an admissible nearby water pocket.
+
+  There is **no well-specific airpocket exclusion**. `insideTownWell` prevents well orders; the path exclusions protect pathfinder operations, not direct rescue digs/placements. An externally flooded or altered well can therefore overlap rescue geometry. Waterlogged cells are skipped as water by airpocket; interactive blocks are excluded as stand references, which does not itself protect every possible dig target ([airpocket.mjs:78](bots/src/airpocket.mjs:78)).
+
+  `air_pocket` aborts the runner normally; `TRIGGER_SUPPRESSED` suppresses the subsequent cognitive trigger, not cancellation ([reflex.mjs:1414](bots/src/reflex.mjs:1414), [cognitive.mjs:393](bots/src/cognitive.mjs:393)). Throws use whole-slot mode-4 clicks, not cursor pickup, and refuse a loaded cursor. Disposal closes in cleanup; an aborted pit-first build deliberately leaves covering to a visitor ([skills.mjs:6659](bots/src/skills.mjs:6659), [skills.mjs:6794](bots/src/skills.mjs:6794), [skills.mjs:7225](bots/src/skills.mjs:7225)). Actual rescue/cleanup timing remains a Paper verification item.
+
+- **Toolhygiene — all:** Worn picks, healthy picks, and escape keepers cannot enter the disposal plan. The explicit guard excludes tools, and the sword exception uses peacefulkit’s classifier ([well.mjs:115](bots/src/well.mjs:115)). The hygiene edit changes only `HOUSEKEEPING`, not `NEVER_KEEP`. No new conflict with worn-first selection, redundant-craft refusal, or deposit reserves was found.
+
+- **Withdraw2 — B/C:** Ingots, sticks, planks, and both sides of a pickaxe trade are excluded from disposal. The chestfull changes concern chest placement geometry; they do not rewrite `containerPickMiss`, `_pick_best`, or `_ingot_seen`. Withdraw/upgrade scheduling runs before the well block, so the added well orders cannot preempt an eligible upgrade ([cognitive.mjs:832](bots/src/cognitive.mjs:832), [cognitive.mjs:862](bots/src/cognitive.mjs:862)). No new starvation path identified.
+
+- **Peacefulkit — all:** The classifier and foodskip modules are unchanged across the bases. The well retains its stricter peaceful-plus-foodskip switch and rechecks swords immediately before clicking.
+
+- **Tests:** Existing fakeworld indices remain stable; `oak_trapdoor` moves after withdraw2’s additions and is resolved by name. I found no affected numeric-ID assumption. However, the well tests do not establish live airpocket/rescue composition: their simulated throws and explicit aborts cannot prove concurrent physics and cleanup timing.
+
+**Paper re-proof:** A targeted composition run is warranted before rollout, especially A/C; a complete repetition of the approved source’s proof is unnecessary. Minimal scenes:
+
+1. Full-bag pit-first build, then disposal with worn/healthy picks, reserved materials, junk, and peaceful swords. Verify server inventory, aim receipts, containment, and final cover.
+2. A/C: rescue during approach to a valid dry well, plus an externally flooded/altered well case. Observe dig/place coordinates, survival, cap cleanup, and visitor recovery of an aborted pit.
+3. B/C: withdraw a better pick and exercise the iron-ingredient craft path, then visit the well. Verify retained tools/materials and unchanged chest evidence.
+
+Use `sandbox/well/well-e2e.cjs` with the rescue setup from `sandbox/craft/airpocket-ab.cjs`; the stock well scenes alone do not cover that overlap. No files or git state were changed.
+
+=== CLAUDE subagent (independent, read-only), condensed ===
+r1: T, A, B, C APPROVE. No P1/P2. Text: changed lines identical to 40046b8..cf4192e except the two unions (both correct);
+  C - B and A - T are exactly airpocket's diff.
+  P3-1 (A, C): airpocket's roof dig has no well guard, but the well's geometry keeps it out of reach (no liquid within 3
+  horizontally at g-1..g+2, well.mjs:485; a solid ring at g-3..g-1, well.mjs:474-480). Only reachable case: a one-wide
+  flooded column directly under the floor (g-4 unchecked) -- the same gap any `mine` under the well already has (cf4192e).
+  P3-2 (B, C): a failed iron attempt's withdrawn wood is protected from deposit, not from build_well's planks/table (the
+  composter build on 4be1a29 has the same pattern); the upgrade re-withdraws after its cooldown.
+  P3-3 (B, C): no CognitiveLoop test with withdraw2 AND a built well (order pinned structurally: well.test.mjs:2261, and the
+  well order runs only inside `if (!order)`).
+  Q1 airpocket: no drowning rescue can start on the stand, rim or pit; stand refuses trapdoors; the well has no reflex
+  exemptions; an 'air_pocket' interrupt is a plain abort (wellOrderOutcome charges nothing). Q2 toolhygiene: the well throws
+  no tool except swords (/_sword$/); its hygiene.mjs edit is HOUSEKEEPING, not NEVER_KEEP; the pit dig uses worn-first
+  toolFor (never <= HARD_STOP) and is read back. Q3 withdraw2: chestfull edit is site selection only; ingots, sticks,
+  planks, logs, pickaxes never well junk (well.mjs:114); order deposit -> wear_out -> townOrder (compost, withdraw, upgrade,
+  composter build) -> the well. Q5 fakeworld: NAMES used by indexOf only. Paper: not needed; optional one run on C (pit-first
+  build + dispose with a stone pickaxe and worn copies).
+
+=== PAPER (after r1; Claude optional, Codex 'warranted') -- scene 1 run on C, scenes 2-3 not run ===
+sandbox3, jw-on-4be1a29 @ e4f2917, driver well-e2e.cjs (cf4192e's) + WELL_DISPOSE_EXTRA, server Inventory read per slot.
+build (36/36 bag, pit-first): success, threw 64 junk down the pit first, cap closed top/facing ok/floor trapdoor/solid floor,
+  66 items all inside the shaft, 0 outside.
+dispose (36/36: 11 listed junk stacks, cobblestone, oak_sapling 20, bread, stone_pickaxe (full) + stone_pickaxe[damage=125]
+  (worn), leaf_litter, oak_log 5, iron_ingot 3, stick 2, oak_planks 4, wooden_sword, stone_sword, rock fillers): success,
+  402 items thrown 36 -> 27 slots, census 402 in the shaft / 0 outside at +1.5 s and +30 s, cap closed. Swords: both thrown
+  (swords=2 peaceful=1). KEPT: both pickaxes, iron_ingot 3, stick 2, oak_planks 4, oak_log 5, bread, cobblestone, leaf_litter.
+  oak_sapling -1 = a `place oak_sapling` planting work order during the run (not the well; not in the shaft census).
+Not run: Codex scene 2 (rescue during a visit / an externally flooded well -- no combined driver; both engines agree an intact
+  well cannot host a drowning pocket; the flooded/altered case is an airpocket follow-up with airpocket-02) and scene 3
+  (withdraw then visit: covered by the dispose kit's ingots/sticks/planks/pickaxes and by unit tests of the order).

@@ -1,0 +1,201 @@
+{
+ "run_id": "junkwell-02",
+ "sha": "bd747a8",
+ "registered_at": "2026-10-08T16:44:00Z",
+ "ladder_change": false,
+ "promotion": "fleet-wide",
+ "notes": "[junkwell-02 variant for fleet d948bfd (peacefulkit-01 KEPT on toolhygiene 6238095): branch jw-on-d948bfd @ bd747a8. Launch ONLY on a fleet running d948bfd. NOT LAUNCHED. REBASE 10-08 (queue agent): the approved jw-on-40046b8 @ cf4192e applied as ONE commit (its net diff over 40046b8; its 21 merges do not replay as cherry-picks; history on jw-on-40046b8): no conflict; identical patch. npm test 242/242 files (bd747a8); mutants-pk.py (PK_VARIANT=1) 86/86 killed + the well's two external classifier mutants 2/2 (anchors asserted present and unique, baseline green first); in-suite well mutants (well.test.mjs) green; eslint no-undef only withinBody. REVIEW (text docs/reports/junkwell-02.rebase-review-2026-10-08.txt): Codex r1 APPROVE all four, Claude subagent r1 APPROVE all four, no P1/P2. airpocket x well: an intact well cannot host a drowning pocket (no liquid within 3 at g-1..g+2, a solid ring below); the rescue has no well guard -- only a flooded column directly under the floor reaches it, the same gap any `mine` has (follow-up with airpocket-02). toolhygiene x well: the well throws no tool but swords; its hygiene.mjs edit is HOUSEKEEPING; the pit dig uses worn-first toolFor, never <= HARD_STOP. withdraw2 x well: ingots, sticks, planks, logs and pickaxes are never well junk; chestfull's edit is site selection only; the well order runs after townOrder (compost, withdraw, upgrade, composter build). P3s recorded: a failed iron attempt's withdrawn wood can feed build_well (the composter build already can); no CognitiveLoop test with withdraw2 and a built well. PAPER: not re-run for this variant; the full-stack run on C covers its code. wellread dry run 10-08 on the live airpocket pools (+180): every gate 0, both instruments fired (52 control bots holding listed junk at >= 34 slots; 27 compost runs carrying a sword). BAG-FIX FIELDS taken UNCHANGED from main's junkwell-02.40046b8.json (gate agent, 54d399c/9e19a6d); only notes, sha and registered_at differ.] [2026-10-08T08:00:00Z: jw-on-40046b8 @ cf4192e, for fleet 40046b8 (pk-on-92bc84f's final head). JUNKWELL-02 ON PEACEFULKIT (for a fleet where peacefulkit-01 is KEPT and promoted). It merges the final junkwell-02 (pit fix, aim fix, grade fix) into peacefulkit's final head; the merge was clean on the c6e91a8 line, and on the 92bc84f line one towndeposit.test comment conflicted. THE SWORD CLASSIFIER IS PEACEFULKIT'S (coordinator 10-08): well.mjs isSword = peacefulkit isSword; swordGoes = peacefulkit unwantedSword({name}, peaceful). It is fed the well's own STRICT switch (difficulty read as peaceful AND foodskip's switch), which is never true where peacefulkit's `active` is false. The click re-reads unwantedSword(it, wellSwordsNow(bot)). Tests: an equivalence test over every tier and both switch values, and the strict switch false for easy/normal/hard and FOOD_SKIP=off. External mutants: peacefulkit's unwantedSword ignoring the switch, and its isSword matching nothing, both turn well.test red; the equivalence list includes axes, shovels and hoes (never swords). Reviews: Codex r1 CHANGE (the grade credited any sword; the coupling never credited cobble; the spare-sword refusal named nothing) -> ec54010 + the sword-named refusal; r2 CHANGE (stale clicks across visits) -> b62b7c5; r3 APPROVE; r4 APPROVE (after the test changes); Claude r1 CHANGE (two tests could not fail: the strict switch never run in a process; the refusal test accepted either reason) -> 7d5095d + the test fixed; r2 APPROVE (its N1/M3/M4 mutants killed; P3s taken). npm test 240/240; peacefulkit mutants 59/59 + 3 towndeposit (PK_VARIANT) + 2 well-classifier killed. PAPER: Job 8 (sandbox 25599, a681043 = the same sword code; control 2bd1452): peaceful x2 both swords thrown and in the shaft (swords=2 peaceful=1 sword_lost=2); easy x2 kept, junk thrown; peaceful turned easy 77/126 ms after the first click x2 kept (sword_kept=2); FOOD_SKIP=on in an EASY world x2 kept (the bot's own switch active=1); 0 items outside the shaft in every trial; 5/5 pit-first builds landed (server 49.95, aim_off=0); control matched. Not exercised: peacefulkit's own bank refusal and furnace burn (no chest/furnace in the scenes). Everything else as the plain variant 1db3fcd:] [UPDATED 2026-10-08T08:00:00Z: jw-on-92bc84f @ 1db3fcd (was b446f4d). GRADE FIX (Codex, the peacefulkit composition review): classifyOutcome credits a sword's loss -- and, on the cobble coupling, cobble -- only if THIS visit's throw clicked it (wellClickedLast, reset at each visit's start). It used to credit any sword loss. Codex r1 CHANGE -> ec54010; r2 CHANGE (stale clicks across visits) -> b62b7c5; r3 APPROVE. Claude (composition review) CHANGE on tests -> 7d5095d: the STRICT sword switch tested in REAL child processes under FOOD_SKIP on/auto/off x easy/normal/hard/peaceful (on: only peaceful; off: never), with a mutant (foodskip's own `active`) killed; Codex r4 APPROVE. npm test 237/237. IF PEACEFULKIT IS KEPT AND PROMOTED, launch junkwell-02.40046b8.json instead. The older jw-on-6dc10d1 (91f9ce4) / jw-on-f2c4ba0 (582ade7) are SUPERSEDED, DO NOT LAUNCH: they lack the pit fix.] [UPDATED 2026-10-08T03:05:00Z: jw-on-92bc84f @ b446f4d (was 5cca9c5). PIT FIX (coordinator 10-08). The pit-first toss missed 5/5 on Paper, and the abandoned build left the pit OPEN.\nCAUSE (packet + RCON traces): the server dropped the bot's aim look in 12/12 traced throws. The look is sent once, about 50 ms before the THROW click; RCON read the dig look 72.15 at the click and 150 ms later. The items spawned at 72-degree speed and landed on the stand. A second look was applied 9/9 (back-to-back, +25 ms, or 0.15 deg off); a fresh copy in place of the first did not help (0/3). Mechanism not named.\nFIX:\n(1) THE AIM SAID AGAIN: the forced lookAt, then a raw 'look' of the rotation mineflayer holds, twice a tick apart, then the click a tick later. If the rotation moved after the resend (a server correction), the bot aims once more.\n(2) THE THROW'S RECEIPT: each thrown item's spawn_entity PACKET velocity (mineflayer leaves entity.velocity at zero) is checked against the aim pitch (tolerance 0.04; vec3i16 up to 1.21.8, lpVec3 from 1.21.9). The row gets aim_off= and aim_read=, and the read reports them as a TRIPWIRE.\n(3) AN ABANDONED BUILD NEVER LEAVES AN OPEN PIT, by a COVER: one block in the cap cell only. The shaft is left as it is, so thrown items stay contained and the floor trapdoor is never clicked; the next build digs the cover out (stages covered / covered_floored).\n  - Only the run that opened the pit covers it, and never after an abort: the row says why=aborted.\n  - Any visitor holding a cover block covers an open pit nobody is at: close_well, from wellOrder's pit reading.\n  - The cover equips and looks first. With nothing awaited before the place's packet, it then re-checks the abort, the record gen, admission, the stage, a body in the shaft or cap cell, and the block in hand.\n  - The cover block is never junk and never harder than 2; cobblestone only above 64 cobblestone + cobbled_deepslate.\n  - No build order without one. A build refused for want of one skips before the walk, with an executable remedy (from a full bag, the slot move first).\n  - Rows: _well_pit_dug (BEFORE the dig: C9's clock), _well_pit_covered (by=build|visitor|closed), _well_pit_open (why=). by=closed only once in-flight ops settle and the cap reads ground.\nREAD C9 (REVERT, own_line breach_pit_left_open): a canary pit opened or left with no cover or build by its pool within 10 min. Positive controls feed the bot's row strings through the walk's parser. scripts/host/wellread_c9_e2e.py ran on the fleet host against /home/mike/verdict.py, ALL HOLD: rows -> field; clean is KEEP and one pit left is REVERT for both registrations; 5/5 read mutants killed.\nREVIEWS:\n  - Codex: r1 CHANGE (the fill could fill another builder's pit, fought the rescue after an abort, spent reserve stone; no end-to-end C9) -> cover redesign. r2 CHANGE (checks before awaits; half-dug cover; pit_dug after the digs; full-bag remedy) -> d7899e2. r3 CHANGE (close row before the dig settles) -> f63287c. r4 APPROVE. r5 APPROVE 2a6214f. r6 APPROVE 2bd1452 and the merges.\n  - Claude: r1 CHANGE (aim_off read entity.velocity, zero at spawn; same P1s) -> fixed. r2 CHANGE (half-dug, already fixed in d7899e2; P3s: protocol shapes, surviving mutants) -> 2a6214f. r3 APPROVE (P3s taken in 2bd1452: by=closed only over ground).\nPAPER (sandbox 25599, RCON only):\n  - Job 6, 88e4bb4 (aim fix + the old fill): 15/15 pit-first builds landed, server 49.95 at every throw. Control 5c13330: server 72.15 on 5/5, 2 landed, 1 pit left open. The FILL pushed thrown diorite back out of the shaft, which is why the build now covers.\n  - Job 7 ran on 2a6214f; the final 2bd1452 differs only in the by=closed condition (ground only) and its tests.\n  - Job 7, 2a6214f: 20/20 consecutive pit-first builds landed (35/35 with Job 6), server 49.95 at every click; rows misses=0 aim_off=0 aim_read=1; one _well_pit_dug from=fresh each.\n  - Job 7 abandon paths:\n    (a) give-up after a landed throw: _well_pit_covered by=build item=dirt; cap dirt, shaft air; 66 items in the shaft and 0 outside at +2 s and +30 s; reserve cobble 64 untouched.\n    (e) resume: _well_pit_dug from=covered, the well finished; 131 items in the shaft, 0 outside.\n    (b) abort by damage: _well_pit_open why=aborted; a second real bot's close_well covered it 12.5 s later (by=visitor).\n    (k) SIGKILL after the dig: only _well_pit_dug; the visitor covered it 10.6 s later.\n    (d) visitor race: B, 8 blocks off while A built, issued no close_well. Consistent with the attended gate but not a proof (B scans every 30 s; the pit was open ~8 s); the gate is unit-tested.\n    (f) no cover block (64 cobble only): no order, no walk, no dig.\n  - Dispose: 528 thrown, 528 in the shaft, 0 outside, aim_off=0 aim_read=9.\n  - Control 5c13330 (same bag): server 72.15 on 5/5, 1 landed, 2 of 3 builds left the pit open.\n  - Known: an aborted throw's row can say misses=1 for a stack that landed after the abort (the abort cuts the landing check; the read's aborted-visit misses tripwire).\nTESTS: well.test 167/167, including 20+ new behavioural tests and in-suite mutants (all killed). npm test 237/237; lint clean but for the fleet's withinBody.] [UPDATED 2026-10-08T00:10:00Z: jw-on-92bc84f @ 5cca9c5 (was d43b543) adds peaceful-only SWORDS.] SWORDS (owner 10-07 \"no reason to store swords at all, this is a peaceful world\"): swords of every tier go down the well ONLY while the world is peaceful AND foodskip's switch is active (well.mjs swordSwitch = difficulty peaceful && foodSkipActive(FOOD_SKIP.mode, difficulty), reusing foodskip's detection), re-read at EVERY sword click (a world turned easy keeps its swords); never in the pit-first build; thrownNames/throwAccount list swords only up to the number clicked; the row adds swords= peaceful= sword_lost= sword_kept=. READ wellread C8 (REVERT): a visit that clicked swords without a peaceful reading at the clicks, or whose server bag lost more swords than it clicked; the latest _food_skip difficulty disagreeing is a TRIPWIRE (Codex r2: that row can predate a switch); INSTRUMENT = control compost runs at town carrying a sword (26 / 18 in two 3 h dry runs); EXPOSURE now also needs >= 1 canary sword visit. REVIEWS: Codex r1 CHANGE -> eb2805e; Claude r2 APPROVE (P3s taken); Codex r2 CHANGE (stale food_skip clause) -> 5c13330 (tripwire) -> Codex r3 APPROVE. TESTS: well.test 125/125 with sword mutants (switch without its foodskip half; swords in the pit-first build; no re-read at the click); full suite jw-on-c6e91a8 @ 5c13330 236/236 (npm test), lint clean but for the fleet's withinBody. If peacefulkit is KEPT: jw-on-6dc10d1 @ 91f9ce4 / jw-on-f2c4ba0 @ 582ade7 (merged on peacefulkit's final heads, which store no swords; suites 239/239 and 240/240; composition: Claude APPROVE, Codex CHANGE on peacefulkit's own code -- its counting sites still count spare swords and drainFurnace can leave a lifted wooden sword on the cursor; the well keeps its stricter switch). PAPER (swords, 10-07 ~21:40-22:00Z, sandbox 25599, sandbox/well/well-e2e.cjs sword scenes, RCON only; a well built by 5c13330; bag 36/36 = egg 16, flint, clay_ball, ink_sac, stone_sword, wooden_sword, cobble 64, stone; no chest/barrel in the arena): cand 5c13330 PEACEFUL x2 -- both swords thrown (row swords=2 peaceful=1 sword_lost=2 sword_kept=0 offlist=0), gone from the server bag, both in the well shaft, nothing outside it; cand EASY x2 -- swords kept in slots 4/5, the four junk stacks thrown (swords=0); cand switched to easy by RCON 79 ms after the first throw click -- swords kept (sword_kept=2); control 5a462a4 (junkwell-02 before swords) peaceful -- swords kept, junk thrown; control c6e91a8 has no well (shows nothing). Noted: items= is cut by the 300-char row cap on a 6-stack visit (the gates read the early fields); sword_lost counts every sword the server bag lost (the C8 server account), clicked or not. || [junkwell-02, variant for fleet 92bc84f (use ONLY if towndeposit-02 is KEPT and promoted): branch jw-on-92bc84f @ d43b543.] JUNKWELL-02 = THE JUNK WELL RE-RUN (owner order 10-07 \"i want all of those things done and queued\"). junkwell-01 (911d792) was REVERTED 10-05 by the death gate: 6 canary deaths, all 80-173 blocks from the well and deep (4 sealed-pocket drownings y 36-60, 2 lava); mechanism measured: canary mine actions/bot DiD +34.3 -- freed bag space re-enabled iron tunnelling into the fleet's underground weaknesses. The well itself worked (154 items, C1-C6 0, junk slots DiD -1.30). The owner made underground safety the precondition: climbflood-02 (ice / settle / sand column) was KEPT and is in this base. The well adds NO descent; freeing slots re-enables the EXISTING iron tunnel (skills.mjs refuses it under 2 free slots) -- so the read now reports the mine DiD and deep deaths by mechanism (see primary). BRANCHES: jw-on-c6e91a8 = c6e91a8 + merge of origin/jw-on-1918bb5 (911d792; conflicts were unions: imports, HOUSEKEEPING, SKILL_CONTRACTS/SKILLS; withdraw keeps the fleet's 240 s) + the five Codex-approved composition commits of origin/chest2-on-911d792 (chestSiteRefusal refuses the well's reserved cells; the well's site search avoids claimed/in-flight chests; cherry-picked, one union in fakeworld NAMES) + 93453a4/0d8c043/5a462a4 (below); jw-on-92bc84f = 92bc84f (towndeposit-02) + merges of jw-on-c6e91a8 (unions with town_deposit). The delta vs each base is the same lines apart from those unions (sorted +/- line diff). THE LIST (OWNER 10-07 'yes' to decorations; owner 10-04 disposal by vanilla despawn 'fine for now'): 124 names = the owner's 11 of 10-04 (egg, brown_egg, blue_egg, flint, clay_ball, ink_sac, glow_ink_sac, armadillo_scute, dead_bush, pointed_dripstone, rail) + DECORATIONS with no consumer in bots/src or the tree-farm blueprint (glass, glass_pane, 16 stained glass + 16 panes, 16 wool, 14 buttons, 14 wooden/stone pressure plates, powered/detector/activator rail, lead, brick, bricks, mossy/cracked/chiseled stone bricks, polished andesite/diorite/granite, smooth_basalt, polished_tuff, tuff_bricks, chiseled_tuff_bricks, 12 wooden fences + nether_brick_fence) + SIX SCAFFOLD-CAPABLE stones (andesite, diorite, granite, stone_bricks, mossy_cobblestone, smooth_stone) that go only while the bag KEEPS 64 RESERVE STONE (cobblestone, cobbled_deepslate, raw andesite/diorite/granite: what every scaffold consumer accepts -- pathfinder, pillar PLACEABLE, RESCUE_BLOCK, the exit contract; 64 >= the exit contract's 59 for a y-16 descent), judged in plan order and again AT EACH CLICK. NEVER listed: wooden slabs (the composter recipe), trapdoors (the well), beds (sleep), sandstone (desert rescue), calcite/tuff/stone/cobble/dirt/sand/gravel, doors/stairs, anything compostable (flowers/moss/wildflowers: the composter's; peacefulkit owns that list). Bag census 10-07 17:00Z (80 bots): owner junk ~380 slots (brown_egg 91, egg 85, flint 77, ink_sac 60, glow_ink_sac 30, armadillo_scute 16, clay_ball 16, blue_egg 5); listed decorations ~250 (glass 59, pointed_dripstone 51, lead 20, diorite 17, oak_button 17, rail 14, white_wool 14, granite 13, brick 13, andesite 12, stone_bricks 8, oak_fence 7, smooth_basalt 6, mossy_cobblestone 5, + 1-3 each). THE ROW: gclicked= and stone= right after offlist= (C7). REVIEWS: Codex round 1 CHANGE (P1 C7 blind to truncation/unanswered resync; P1 reserve not enforced at the click; P2 guard-only full bag a dead end; P2 misleading zeros in mine/death reporting; P2 'nothing sends bots deeper' not satisfied -> answered here) -> all fixed in 0d8c043 -> Codex round 2 APPROVE. Independent Claude review round 1 APPROVE-WITH-CHANGES (merge fidelity verified line by line; same instrument points + fake-world tests) -> fixed; round 2 APPROVE-WITH-CHANGES (one P2: a guarded stone lost on a gclicked=0 visit may be scaffold placed on the retake walk -> made a tripwire, not C7, 5a462a4). TESTS: npm test (the only test command, from bots/): jw-on-c6e91a8 236/236 (on 0d8c043; 5a462a4 changes only scripts/host/wellread.py); jw-on-92bc84f 237/237 on d43b543 (the final tip). The unmodified 92bc84f fails towndeposit.test TOWN MEMORY 3 of 8 runs (a same-millisecond precondition; d43b543 fixes the test only: 12 of 12). well.test.mjs 113/113 incl. in-suite mutants with asserted unique anchors (no guard; raw stone not charged to the reserve; no click-time re-check; the list filter) -- killed. lint (no-undef): only the fleet's pre-existing withinBody (reflex.mjs:2263). PAPER (sandbox3 25601, 10-07, sandbox/well/well-e2e.cjs on jw-on-c6e91a8 0d8c043): build (pit-first from a full bag): well at 1308,119,1314 facing north, cap closed, floor trapdoor, shaft 66 / outside 0; dispose: 528 thrown, 528 in the shaft, 0 outside (gclicked=384 stone=576); deco63 (cobble 63, diorite 40, granite 20, glass/wool/button/lead/brick/fence): the 6 plain decorations + diorite 40 thrown, granite 20 KEPT (it would leave 63), cobble 63 kept, gclicked=40 stone=83, 172 in the shaft / 0 outside; deco64: + granite thrown, gclicked=60 stone=64, 192/0; deco0 (no cobble, diorite 64 x3): two diorite stacks thrown, one kept, gclicked=128 stone=64, 260/0; non-listed fillers (oak_log, stick, dirt, calcite, tuff, gravel, sand) unchanged in every scene; disposePlan predicted the same stacks beforehand; isolation: 60 walker passes, 0 picked from the well (positive-control egg collected). Notes: the hotbar comes last in slot order (main-bag listed stacks go first); items= on a 9-stack row is cut at 300 chars (gclicked/stone are not).. READ wellread.py DRY RUN on the fleet host: 10-07, CANARY_DRYRUN=hive-a,board-c:c6e91a8 (14:45-17:37Z) and placebo-d,hive-c (17:00Z, final read md5 of 5a462a4): positive control 50-52 control bots at >= 34 slots holding listed items; C1-C7 0; mine actions/bot DiD +8.1 and +3.4 on identical code (the noise the +15 flag sits above); deaths below y 60 by mechanism printed (control: drowned 2, lava 1; canary: suffocated 1); rows walked ~300k each, 28 s. -- HISTORY (junkwell-01 registration, 10-05): [junkwell-01. Variant for fleet 1918bb5 (toolclean-01), branch jw-on-1918bb5 @ 911d792 (bots/src identical to fd3044b; 911d792 changes only scripts/host/wellread.py). Launch: ~/chain-after.sh toolclean-01 junkwell-01 1918bb5=/home/mike/mcai-analysis/junkwell-01.1918bb5.json -- STOPs if the fleet is not 1918bb5; if toolclean-01 is REVERTED the well is rebased onto 56db2cd and re-registered.] OWNER 10-04: vanilla 5-minute despawn accepted as the INTERIM disposal; the listed junk has no use: egg, brown_egg, blue_egg, flint, clay_ball, ink_sac, glow_ink_sac, armadillo_scute (+ dead_bush, pointed_dripstone, rail). NEVER cobblestone, ballast, tools, food, wood, saplings, ores, or anything the composter takes; never tossed anywhere but into the well; no admin world edits (the bot builds it in survival). THE CHANGE: one town junk well (bots/src/well.mjs): a 1x1 shaft two deep at a canonical site >= 7 from home, bank containers and the composter; a wooden trapdoor bottom-half on the floor and a second top-half as a flush cap (clear height 1.625 < creeper 1.7; items 1.8125 below a rim player's feet, out of the 0.75 pickup reach). Deterministic town orders only (never the model): build_well (pit-first when a full bag holds junk: dig, throw junk down the open pit to make the craft's room), dispose_well (at town, >= 34 slots, listed junk; no other player within 5, re-checked immediately before the open; whole stacks by single container THROW clicks from <= 1.15 on the front or a side stand, aimed with vanilla drop ballistics; the bag held and server-resynced; the cap closed in a finally; misses retaken), close_well (any visitor closes an open well nobody is at). Every movement profile excludes the well column (cap-1 .. cap+10) from steps and the walls/floor/ring from breaks, except a body INSIDE its own well (break ring + steps at cap level and below). REVIEWS: Codex 9 rounds (final AGREE fd3044b); independent Claude review CHANGE -> all FIXED, approved 8f73e80; the approval round's minor finding (an unloaded neighbour read as a breach) fixed in fd3044b. PAPER SANDBOX 1.21.8 (sandbox/well/well-e2e.cjs): build pit-first from a 36/36 bag of logs + junk (cap top/closed/facing, floor trapdoor, 18 items in the shaft, 0 outside); dispose 9 stacks / 432 items all in the shaft at +1.5 s and +30 s, non-listed untouched, server-resynced; walker isolation 60 passes + 20 s on the cap with the positive-control egg collected: 0 picked from the well; admission: refused with a player at 3.0 blocks, cap never opened, then disposed 198 s after the player left; creeper spawner A/B: control shaft without the floor trapdoor 1, the well 0; escape from inside an open well: out in 6-7 s by digging a wall, never sealed in; race: an arrival after the cap opened sees it close ~1.1 s after the last throw. KNOWN / REGISTRATION NOTES: (1) the death gate is unchanged (two-death floor); (2) a build digs 1-2 shaft blocks whose drops fall into the shaft and despawn with the junk; (3) the SIDE-stand throw rate (1.0) was checked only in the ballistic model, never on Paper (Paper threw from the front stand); (4) despawn pauses in an unloaded chunk (items stay contained); (5) the fleet is peaceful, so the mob geometry is for 'any world'; (6) raw reflex digs (entombment, pillarOut) ignore the break exclusion -- the worst case is a breached well, which is never thrown into and is rebuilt; (7) chest-full's chestSiteRefusal does not yet reserve the stands (wellReservedCells exported for the rebase) -- a chest on all three stands = breach = rebuild; (8) dispose-first withdraw integration is the NEXT canary, not this one; (9) a well must be BUILT before any disposal: the first build needs a bot at town with 2-3 logs of one wood (or 6 planks/2 trapdoors) and room or junk to make room.",
+ "licence": {
+  "class": "kind",
+  "kind": "_well_dispose",
+  "min_rows": 1,
+  "note": "Written only by this build (one row per disposal visit, pit-first phase and visitor close). The fleet (c6e91a8 / 92bc84f) has no _well_* row and no code that builds a well; the two wells junkwell-01 built on 10-05 (placebo-a, board-b towns) stand in those worlds, inert under the base code."
+ },
+ "reads": [
+  "bagread",
+  "wellread",
+  "immobiledid"
+ ],
+ "read_minutes": [
+  180,
+  360
+ ],
+ "deadline_min": 1680,
+ "change_rows": [
+  "well_built",
+  "well_dispose",
+  "well_inside",
+  "well_pit_open",
+  "well_retired",
+  "well_pit_dug",
+  "well_pit_covered"
+ ],
+ "linkage_extra": [],
+ "draw_exposure": {
+  "hours": 6,
+  "require": [
+   {
+    "name": "full bots at town (compost runs pass the same at-town, >= 34-slot, 3-min-cooldown gate a dispose order uses)",
+    "kind": "compost",
+    "min": 8
+   }
+  ],
+  "note": "min 8 ROWS = ~4 compost runs: drawexposure counts both the compost skill row and its _compost event (board-b 14 rows = 7 runs). drawexposure 10-05 09:57Z with min 8: eligible board-b 14, board-c 8, board-d 8, hive-b 8, hive-c 14, placebo-a 32, placebo-b 10 (not board-a 4, hive-a 2, hive-d 0, placebo-d 0). 10-05 ~03:50Z..09:50Z compost runs per pool (6 h): board-a 2, board-b 7, board-c 4, board-d 4, hive-a 1, hive-b 5, hive-c 7, hive-d 0, isolated-a 19, isolated-b 3, isolated-c 13, isolated-d 8, placebo-a 16, placebo-b 5, placebo-c 6, placebo-d 0. Fleet 12.6 compost orders per 10 bots per 6 h; 58% of control bots at >= 34 slots hold listed junk (40-46 of ~70 in the dry runs)."
+ },
+ "exposure": {
+  "read": "wellread",
+  "field": "exposure_ready",
+  "min": 1,
+  "note": "Ready now ALSO needs >= 1 canary sword visit and the sword positive control (control compost runs at town carrying a sword: 26 and 18 in two 3 h dry runs 10-07). Ready = >= 3 canary disposal visits that the server bag confirms (n > 0) AND the positive control >= 1 (control bots at >= 34 slots holding listed junk). POWER at today's rates (measured 10-07): junkwell-01 reached 6 confirmed visits by +180 on 10 bots with the old 11-name list; the 124-name list adds ~300 decoration slots fleet-wide; the dry run 10-07 14:45-17:37Z found 50 of 70 control bots at >= 34 slots holding listed items; drawexposure 10-07 11:45-17:45Z: 9 of 11 drawable pools pass compost >= 8 rows/6 h. A well must be built first (one per drawn town; placebo-a and board-b already have one)."
+ },
+ "own_lines": [
+  {
+   "read": "wellread",
+   "field": "breach_recollected",
+   "op": "<=",
+   "value": 0,
+   "on_fail": "REVERT",
+   "evidence": "defect",
+   "note": "C1: a bot collected an item lying in a well's shaft (_well_recollected, or recollected= > 0 on a visit)."
+  },
+  {
+   "read": "wellread",
+   "field": "breach_left_open",
+   "op": "<=",
+   "value": 0,
+   "on_fail": "REVERT",
+   "evidence": "defect",
+   "note": "C2: a cap left open (_well_left_open / _well_open_unresolved) that no row of the same pool showed READ BACK closed (cap_end=closed) within 2 min. A transient row a visitor fixed is reported, not gated."
+  },
+  {
+   "read": "wellread",
+   "field": "breach_nonlisted",
+   "op": "<=",
+   "value": 0,
+   "on_fail": "REVERT",
+   "evidence": "defect",
+   "note": "C3: a thrown item entity the SERVER names off the list (offlist= > 0), an off-list name in items=, or nonlisted= > 0. Positive control asserted in the read; the fake server's iron-for-rail substitution fires it (bots/test/well.test.mjs)."
+  },
+  {
+   "read": "wellread",
+   "field": "breach_inside",
+   "op": "<=",
+   "value": 0,
+   "on_fail": "REVERT",
+   "evidence": "defect",
+   "note": "C4: a bot STUCK inside a well -- its _well_inside rows at one cell spanning >= 2 min (no escape). A single inside row (a fall it dug out of; Paper: out in 6-7 s) is a named tripwire."
+  },
+  {
+   "read": "wellread",
+   "field": "breach_misses_left",
+   "op": "<=",
+   "value": 0,
+   "on_fail": "REVERT",
+   "evidence": "defect",
+   "note": "C5: thrown misses not retaken on completed visits (a miss another bot took counts as left out). Junk thrown anywhere but the well is the owner's line."
+  },
+  {
+   "read": "wellread",
+   "field": "breach_multi_well",
+   "op": "<=",
+   "value": 0,
+   "on_fail": "REVERT",
+   "evidence": "defect",
+   "note": "C6: more than one ACTIVE well in a pool (built minus breached/_well_retired; a designed rebuild is not a breach)."
+  },
+  {
+   "read": "wellread",
+   "field": "breach_stone_guard",
+   "op": "<=",
+   "value": 0,
+   "on_fail": "REVERT",
+   "evidence": "defect",
+   "note": "C7 (junkwell-02) THE STONE GUARD: a visit that CLICKED a scaffold-capable decoration (gclicked= > 0, from its own clicks, written right after offlist= so the 300-char cap cannot cut it) whose least reserve stone left (stone=) is missing or < 64. A guarded name lost on a gclicked=0 visit is a TRIPWIRE (the retake walk may place one as scaffold; Claude round 2), never this gate."
+  },
+  {
+   "read": "wellread",
+   "field": "breach_sword_not_peaceful",
+   "op": "<=",
+   "value": 0,
+   "on_fail": "REVERT",
+   "evidence": "defect",
+   "note": "C8 SWORDS ONLY IN A PEACEFUL WORLD: swords clicked without peaceful=1 at the clicks, or sword_lost= > swords= (the server account). The food_skip disagreement is a tripwire, never a verdict."
+  },
+  {
+   "read": "wellread",
+   "field": "breach_pit_left_open",
+   "op": "<=",
+   "value": 0,
+   "on_fail": "REVERT",
+   "evidence": "defect",
+   "note": "C9 (coordinator 10-08: an open pit near town is a hazard): a canary pit OPENED (_well_pit_dug, written at the dig: a build killed before its finally writes nothing else) or LEFT (_well_pit_open) whose site its pool does not cover (_well_pit_covered, by the build or a visitor's close_well) or build (_well_built) within 10 min. Positive controls: the read's self-tests feed the bot's own row strings through the walk's parser (pit_event); scripts/host/wellread_c9_e2e.py drives this line through scripts/verdict.py (clean -> KEEP, one pit left -> REVERT) and kills 5 read mutants."
+  },
+  {
+   "read": "wellread",
+   "field": "rows_control",
+   "op": "<=",
+   "value": 0,
+   "on_fail": "REVERT",
+   "note": "Arms: control runs the base code and writes no _well_* row. BLOCKS KEEP."
+  },
+  {
+   "read": "wellread",
+   "field": "rows_canary",
+   "op": ">=",
+   "value": 1,
+   "on_fail": "REVERT",
+   "note": "LIVENESS: canary _well_* rows from the canary build. BLOCKS KEEP (INCONCLUSIVE)."
+  },
+  {
+   "read": "wellread",
+   "field": "instrument_control",
+   "op": ">=",
+   "value": 1,
+   "on_fail": "REVERT",
+   "note": "POSITIVE CONTROL: control bots at >= 34 slots holding listed junk are visible to this query (40-46 in the dry runs). BLOCKS KEEP."
+  }
+ ],
+ "primary": {
+  "read": "wellread",
+  "field": "junk_slots_did",
+  "note": "REPORTED, NOT GATED: listed-junk slots per bot DiD, split into the owner's 10-04 junk and the 10-07 decorations; share at >= 34 DiD; items out; slots freed per visit; refusals per dispose order; and THE DEATH-GATE CONCERN (junkwell-01 reverted on it): mine actions per bot DiD with build-qualified denominators and a positive control (BLIND = unknown, never 0), flagged MINING SHIFT above +15 (junkwell-01 +34.3; seven other canaries -8.2..+5.0; one no-change split 10-07 +8.1), and every canary/control death below y 60 by mechanism, deaths without a position counted. OPERATOR RULE (Claude review): MINING SHIFT together with a canary death below y 60 means the read is examined by hand before any KEEP; the gate itself stays the owner's two-death floor."
+ },
+ "harm": {
+  "note": "Unchanged: the two-death floor (OWNER 2026-09-11) and gather_ratio < 0.43 of control, from immobiledid. wellread reports deep deaths by mechanism and the mine DiD (see primary); a death within 3 of a well is named, never a verdict."
+ },
+ "teardown": {
+  "note": "THREE STEPS: drop-ins, clear canary_pool, restart the pool's bots 12 s apart; then confirm the live versions. Wells and any open pits stay in the world after a REVERT: closed caps are inert; base code has no exclusion, and a 2-deep pit is an ordinary hole base bots can tower or dig out of."
+ },
+ "amendments": [],
+ "extension": {
+  "until_exposure": true,
+  "extra_reads": [
+   540,
+   720,
+   1080,
+   1560
+  ],
+  "final_on_zero_exposure": "INCONCLUSIVE",
+  "note": "SHORT CANARY for a fix (owner 2026-09-29). Exposure waits on the first build in each drawn town."
+ },
+ "class": "bag-fix",
+ "bag_fix": {
+  "own_kinds": [
+   "_well_built",
+   "_well_dispose",
+   "_well_inside",
+   "_well_pit_open",
+   "_well_retired",
+   "_well_pit_dug",
+   "_well_pit_covered"
+  ],
+  "primary": {
+   "read": "bagread",
+   "field": "slots_did",
+   "op": "<=",
+   "value": -1.653
+  },
+  "extended_deadline_min": 1560,
+  "note": "OWNER D1 (10-08, delegated to the operator + Codex): every queued bag fix is class bag-fix, drawn at four pools from the start; the criterion is that the change frees usable bag capacity. primary: bagread.slots_did, all slots (junk of many names goes down the well). primary.value is the edge of its NO-CHANGE band at the +1440 read UNDER THIS FIX'S OWN draw_exposure filter (round 1, Claude: a random-pool band is lenient): the 2.5th percentile of 53 no-change 4-pool draws at 9 cuts over 3 days (death-censored, the live read validity rule; scripts/host/bagnull.py + bagbands.py; ~/bfnull/bagnull5.jsonl on 10.0.0.31) -- the fix must move it beyond what a no-change draw does for a KEEP (bagfixrule.primary_moved). own_kinds: the rows the fix itself writes (linkage, gate v33)."
+ }
+}
