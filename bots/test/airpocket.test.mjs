@@ -846,5 +846,69 @@ await t('H10 SWITCH (not a safety mutant): AP_ICE_ENABLED=false refuses hive-d i
     assert.equal(m.airPocketPlan(world(HIVE_C)).ok, true)
   }))
 
+// ---------------------------------------------------------------- L. tool hygiene composition (toolhygiene-01 on this base)
+// Rebase reviews 10-08 (Codex P1, Claude P2): hygiene drains worn copies to 1 use; a copy the server already broke still
+// shows at 1 use for > 1.5 s, and a step that digs with it digs bare-handed server-side. One candidate list
+// (airPocketTools) for the price and the step; with hygiene ON a <= HARD_STOP copy goes when a same-kind copy above it is held.
+const { TOOL_HYGIENE: TH } = await import('../src/toolfor.mjs')
+const { airPocketTools } = await import('../src/airpocket.mjs')
+const SPK = left => ({ name: 'stone_pickaxe', maxDurability: 131, durabilityUsed: 131 - left })
+const SSH = left => ({ name: 'stone_shovel', maxDurability: 131, durabilityUsed: 131 - left })
+const L1 = tools => {
+  const p1 = SPK(1), p90 = SPK(90), sh = SSH(50), plain = { name: 'iron_pickaxe' }
+  assert.deepEqual(tools([p1, p90], { hygiene: true }), [p90], 'a 1-use pickaxe beside a healthy one is dropped')
+  assert.deepEqual(tools([p1], { hygiene: true }), [p1], 'a sole 1-use pickaxe stays (a real 1-use copy still digs once)')
+  assert.deepEqual(tools([p1, sh], { hygiene: true }), [p1, sh], 'a healthy SHOVEL does not drop the 1-use pickaxe')
+  assert.deepEqual(tools([p1, p90, sh, { name: 'cobblestone' }], { hygiene: false }), [p1, p90, sh], 'hygiene off: every tool, in bag order')
+  assert.deepEqual(tools([plain, p1], { hygiene: true }), [plain], 'no durability data = full (remaining Infinity)')
+}
+await t('L1 airPocketTools: hygiene on drops a <= HARD_STOP copy only beside a same-kind copy above it; off = every tool', () => L1(airPocketTools))
+const L2 = async step => {
+  assert.equal(TH.on, true, 'the suite runs with TOOL_HYGIENE unset (production default: on)')
+  const p1 = SPK(1), p90 = SPK(90)
+  const bot = fakeBot({}); bot.inventory = { items: () => [p1, p90] }
+  const r = await step(bot, airPocketPlan(world(HIVE_C)), deps()); clearInterval(bot._healthTimer)
+  assert.equal(r.ok, true, r.why); assert.equal(bot.heldItem, p90, 'the healthy copy is equipped, not the 1-use one first by slot')
+  const solo = fakeBot({}); solo.inventory = { items: () => [p1] }
+  const r2 = await step(solo, airPocketPlan(world(HIVE_C)), deps()); clearInterval(solo._healthTimer)
+  assert.equal(r2.ok, true, r2.why); assert.equal(solo.heldItem, p1, 'alone, the 1-use copy is still used')
+}
+await t('L2 the step equips the healthy copy over a 1-use one of the same name ahead of it in the bag', () => L2(airPocketStep))
+const L3 = async step => {
+  // the equip of the healthy copy does not land and the hand keeps the 1-use copy of the same name: priced as the hand
+  const p1 = SPK(1), p90 = SPK(90)
+  const mk = () => { const b = fakeBot({}); b.inventory = { items: () => [p1, p90] }; b.heldItem = p1; b.equip = async () => {}; return b }
+  const tight = mk(); let dug = 0; tight.dig = async () => { dug++ }
+  const r = await step(tight, airPocketPlan(world(HIVE_C)), deps({ envelope: 2.0 })); clearInterval(tight._healthTimer)
+  assert.equal(r.ok, false); assert.equal(r.predictedMs, 7500, 'priced as the bare hand'); assert.match(r.why, /over the budget after equip/); assert.equal(dug, 0)
+  const roomy = mk()
+  const r2 = await step(roomy, airPocketPlan(world(HIVE_C)), deps()); clearInterval(roomy._healthTimer)
+  assert.equal(r2.ok, true, 'on a roomy budget the hand price still fits: no new refusal, only a worst-case price')
+}
+await t('L3 a held 1-use copy that is not the chosen one is priced as the hand (it may already be broken server-side)', () => L3(airPocketStep))
+const apWired = src => {
+  const code = strip(src)
+  const i = code.indexOf('const prepareAirPocket')
+  assert.ok(i > 0, 'prepareAirPocket exists')
+  const body = code.slice(i, code.indexOf('const runAirPocket', i))
+  assert.match(body, /const items = airPocketTools\(bot\.inventory\?\.items\?\.\(\) \?\? \[\]\)/, 'the price uses the step\'s candidate list')
+  assert.ok(!/_\(pickaxe\|shovel\|axe\)/.test(body), 'no private candidate filter in the price')
+}
+await t('L4 WIRED: the admission/pre-empt price (reflex prepareAirPocket) uses airPocketTools -- and the check fails on the old filter', () => {
+  const src = readFileSync(REFLEX_PATH, 'utf8')
+  apWired(src)
+  const anchor = 'const items = airPocketTools(bot.inventory?.items?.() ?? [])   // the step\'s own candidates'
+  assert.equal(src.split(anchor).length, 2, 'anchor present and unique')
+  assert.throws(() => apWired(src.replace(anchor, "const items = (bot.inventory?.items?.() ?? []).filter(it => /_(pickaxe|shovel|axe)$/.test(it.name))   // x")))
+})
+const mustFail = async (label, fn) => { let threw = false; try { await fn() } catch { threw = true } assert.ok(threw, `the mutant survived: ${label}`) }
+await t('L5 MUTANT KILLED: airPocketTools without the hygiene filter (L1 catches it)', () =>
+  withMutant(AP_PATH, '  return all.filter(it => remaining(it) > HARD_STOP || !healthy.has(kind(it)))\n', '  return all\n', m => mustFail('L1', () => L1(m.airPocketTools))))
+await t('L6 MUTANT KILLED: the step with its own unfiltered list (L2 catches it)', () =>
+  withMutant(AP_PATH, '    const items = airPocketTools(bot.inventory?.items?.() ?? [])\n',
+    "    const items = (bot.inventory?.items?.() ?? []).filter(it => /_(pickaxe|shovel|axe)$/.test(it.name))\n", m => mustFail('L2', () => L2(m.airPocketStep))))
+await t('L7 MUTANT KILLED: no stale-copy price (L3 catches it)', () =>
+  withMutant(AP_PATH, '    const heldMs = staleRisk ? predict(block, null) : ', '    const heldMs = ', m => mustFail('L3', () => L3(m.airPocketStep))))
+
 console.log(`\n${pass} passed, ${fail} failed`)
 process.exit(fail ? 1 : 0)
