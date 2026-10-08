@@ -84,6 +84,8 @@ TIERS = ['wooden', 'golden', 'stone', 'iron', 'diamond', 'netherite']     # tool
 tier_of = lambda name: next((i for i, t in enumerate(TIERS) if str(name or '').startswith(t + '_') or str(name or '') == t), -1)
 IRON = TIERS.index('iron')
 KV = re.compile(r'(\w+)=(\S*)')
+# towndeposit.mjs IRON_LADDER: what the automatic town deposit keeps; withdraw's room-making may bank it (10-08 rebase).
+IRON_LADDER = {'raw_iron', 'iron_ingot', 'iron_nugget', 'iron_ore', 'deepslate_iron_ore', 'coal', 'charcoal'}
 
 
 def load_window(since, until):
@@ -223,6 +225,36 @@ assert not spent_taken(dict(_f1, uses='full')) and unplanned_loss(_f2) == []
 assert fields('how=intervention_needed after_ms=61234 srv=- carried_local=stone_pickaxe:1 why=x')['how'] == 'intervention_needed'
 assert usable_pick({'stone_pickaxe': [{'used': 120, 'max': 131}]}) and not usable_pick({'stone_pickaxe': [{'used': 121, 'max': 131}]})
 
+
+def deposited_names(f):
+    """deposited=coal:9,stone:64 -> ['coal', 'stone'] (the room-making deposits of one order)."""
+    return [p.split(':')[0] for p in (f.get('deposited') or '-').split(',') if ':' in p]
+
+
+assert deposited_names(_f1) == ['stone'] and deposited_names(_f2) == [] and deposited_names({'deposited': 'coal:9,raw_copper:7'}) == ['coal', 'raw_copper']
+
+
+def ledger_of(r):
+    """The withdraw2 ORDER's structured ledger (args with `complete`), or None. Only the order writes it, so it also names
+    the verb: the detail's trailing verb= is lost to the 300-char cut on long rows (Codex rebase review r2, reproduced
+    with withdrawRow: deposits of coal + raw_iron on an iron pull cut the row before verb=)."""
+    a = args_of(r)
+    return a if a and 'complete' in a else None
+
+
+def room_names(ledger, f):
+    """Names an order banked to make room: the ledger's `gave` (never cut), else the detail's deposited=."""
+    if ledger is not None and isinstance(ledger.get('gave'), dict):
+        return [n for n, c in ledger['gave'].items() if isinstance(c, (int, float)) and c > 0]
+    return deposited_names(f)
+
+
+_cut = fields('outcome=crafted_iron need=iron_pickaxe(iron_ingot:3,stick:2) uses=- verification=server cursor=empty err=- chest_room=25 '
+              'plan=coal,raw_iron srv=coal:-9 bag=2065->2053 deposited=coal:9,raw_iron:7 took=iron_ingot:3,stick:2 held=stone took_tier=iron best_valid=none cr')
+_rcut = {'raw': {'skill': {'args': {'complete': True, 'gave': {'coal': 9, 'raw_iron': 7}}}}}
+assert 'verb' not in _cut and ledger_of(_rcut) and room_names(ledger_of(_rcut), _cut) == ['coal', 'raw_iron']
+assert ledger_of({'raw': {'skill': {'args': {'x': 1}}}}) is None and room_names(None, _f1) == ['stone']
+
 HOME = homes()
 rows = sorted(load_window(PRE, END), key=lambda r: r['t'])
 print('rows walked %d  homes %d  |  canary %s  sha %s  cutoff %s  window +%d min'
@@ -234,6 +266,7 @@ wp_verbs = Counter(); offbuild = 0
 g1, g2, g3, g4 = [], [], [], []
 g5, g6, unknown = [], [], Counter()   # withdraw2's gates; unknown = canary rows whose ledger is incomplete
 canary_args_rows = 0; canary_noargs_rows = 0; ctrl_ledger = 0
+room_rows = Counter(); room_ladder = Counter(); room_ladder_names = Counter()   # arm -> orders that made room / banked IRON_LADDER
 tiers_taken = defaultdict(Counter)    # (period, arm) -> tier name of withdrawn pickaxes
 iron_crafts = defaultdict(Counter)    # period -> arm -> confirmed iron_pickaxe crafts
 crafted_iron = Counter()              # arm -> withdraw2 crafted_iron rows (canary only in practice)
@@ -307,13 +340,23 @@ for r in rows:
     st = r.get('status') or ((r.get('raw') or {}).get('skill') or {}).get('status')
     if k == '_withdraw_pick':
         wp[arm][f.get('outcome', '?')] += 1
+        L0 = ledger_of(r)
+        verb = 'withdraw_pick' if L0 is not None else f.get('verb', '?')   # a ledger row IS the order (verb= may be cut)
+        dn = room_names(L0, f) if verb == 'withdraw_pick' else []   # the order only (the model's verb logs the same kind)
+        if dn:
+            room_rows[arm] += 1
+            lad = [n for n in dn if n in IRON_LADDER]
+            if lad:
+                room_ladder[arm] += 1
+                if arm == 'canary':
+                    room_ladder_names.update(lad)
         if arm == 'control' and args_of(r) and 'complete' in args_of(r):
             ctrl_ledger += 1          # ARMS: only the withdraw2 build writes the ledger
         if arm == 'control':
             continue
-        wp_verbs[f.get('verb', '?')] += 1
-        A = args_of(r) if f.get('verb') == 'withdraw_pick' else None
-        if f.get('verb') == 'withdraw_pick':
+        wp_verbs[verb] += 1
+        A = L0 if L0 is not None else (args_of(r) if verb == 'withdraw_pick' else None)
+        if verb == 'withdraw_pick':
             if A: canary_args_rows += 1
             elif f.get('outcome') not in ('aborted', 'error'): canary_noargs_rows += 1   # a thrown order's row has no ledger
         if A:
@@ -450,6 +493,8 @@ print('             share iron+ of withdrawn: canary %.2f (n %d) -> %.2f (n %d) 
          ts[('pre', 'control')][0], ts[('pre', 'control')][1], ts[('post', 'control')][0], ts[('post', 'control')][1], tier_did))
 print('             confirmed iron_pickaxe crafts/bot-h: canary %.3f -> %.3f control %.3f -> %.3f DiD %+.3f | bots holding iron+: DiD %+.3f'
       % (iron_rate('pre', 'canary'), iron_rate('post', 'canary'), iron_rate('pre', 'control'), iron_rate('post', 'control'), iron_did, ironh_did))
+print('             room-making that banked an IRON_LADDER item (the town deposit keeps those; one-way): canary %d of %d orders that made room %s | control %d of %d'
+      % (room_ladder['canary'], room_rows['canary'], dict(room_ladder_names), room_ladder['control'], room_rows['control']))
 print('INSTRUMENT2  control bots at town with a usable pickaxe below iron (post) %d (>= 1) | control rows with the withdraw2 ledger %d (must be 0)' % (len(inst_below), ctrl_ledger))
 print('REPORTED     _withdraw_settled %s | intervention_needed %d rows on %d bots, longest hold %.0f s | drain_timeout %d'
       % (dict(settled), sum(interventions.values()), len(interventions), hold_max / 1000.0, drains))
@@ -498,6 +543,8 @@ try:
         'iron_share_did': r3(tier_did), 'iron_crafts_per_bot_h_did': r3(iron_did), 'iron_holders_did': r3(ironh_did),
         'instrument_below_iron_control': len(inst_below),
         'exposure2_ready': int(canary_orders >= 5 and len(inst_below) >= 1),
+        'room_rows_canary': room_rows['canary'], 'room_ladder_canary': room_ladder['canary'],
+        'room_rows_control': room_rows['control'], 'room_ladder_control': room_ladder['control'],
     })
 except Exception as e:
     print('emit failed:', e)

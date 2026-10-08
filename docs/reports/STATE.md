@@ -11,6 +11,31 @@ behind it (chain-ore.sh stopped 10-01 on fixes-02's revert)._
 
 ---
 
+## 10-08 ~01:30Z — WITHDRAW2 REBASED (both variants READY, not chained, not launched)
+`wd2-on-c6e91a8` @ 6c86fa7 (fleet c6e91a8; registration docs/reports/withdraw2-01.c6e91a8.json) and `wd2-on-92bc84f` @ a6cd3c1
+(only if towndeposit-02 is KEPT + promoted; withdraw2-01.92bc84f.json). bots/src on both = the approved withdraw2 (c4e9c47)
+rebased; only conflict the cognitive.mjs import line. A surplus-first room order (785cd0d) was built for the towndeposit base
+and DROPPED before any push (Codex P1: ignores chest capacity, could decline a pull the old order completed).
+- IRON RETENTION vs TOWNDEPOSIT: proven. Unit (withdraw2-towndeposit.test.mjs: real pull -> real townDepositPlan/Order) and Paper
+  sandbox2: irontd 2/2 (crafted_iron, then _town_deposit at 34 slots banked raw_copper:7 ONLY; iron + stone pickaxes + coal
+  stayed); irontdfail 2/2 (table out of reach, craft_failed, ingots 3 + sticks 2 in the bag at 35 slots, _town_deposit banked
+  raw_copper:7 ONLY). The other direction is one-way: withdraw's unchanged room rule banks COAL FIRST (then raw_iron), which the
+  town deposit keeps -- no ping-pong; withdrawread now REPORTS it per arm (no gate).
+- Paper best-first + iron craft, both variants: tiers40 IRON (controls c6e91a8/92bc84f STONE), twochest IRON (control c6e91a8
+  WOODEN), ironcraft crafted_iron craft=server; conserved, ground empty.
+- Reviews: Codex r1 CHANGE (785cd0d P1; foodskip-order test stale P2) -> r2 CHANGE (read: verb= cut at 300 chars; now the order
+  is recognized by its ledger, which also lets G1/G2/G5/G6 see cut rows) -> r3 no findings -> r4 APPROVE; Claude APPROVE x3.
+- npm test: 236/236 (6c86fa7); 238/238 (a6cd3c1). Mutants 49/49 (c6) and 52/52 (92, incl. the town deposit's keeps).
+  eslint no-undef: only withinBody. toolhygiene composes (scratch merge: no redundant-craft refusal of the iron craft; tests green).
+- FOUND, PRE-EXISTING (fixed on wd2-on-92bc84f only): towndeposit.test.mjs TOWN MEMORY flakes ~50% on 92bc84f itself (same-ms
+  'took' vs miss). If towndeposit-02 is promoted and merged to main, take a6cd3c1's test fix too.
+- Dry run (10.0.0.31, 180 min): every gate 0, INSTRUMENT2 50. Exposure power: withdraw-01 orders 0.077/bot-h, upgrade
+  opportunities 1.03/bot-h -> P(>= 5 orders on 10 bots) 0.09..1.00 at +180, 0.50..1.00 at +360. Read md5 2640ca65 = repo =
+  host /tmp = ~/mcai-analysis (backups *.bak-20261008-wd2rebase); registrations in ~/mcai-analysis.
+- FOLLOW-UPS (pre-existing, not this canary): bot.currentWants keeps DEPOSIT_ALWAYS ores in every room plan after any model
+  deposit; chestfull recordOutcome keeps only the latest outcome (a later full/unknown un-invalidates _pick_best/_pick_miss
+  <= 15 min); capacity-aware room choice at the chest (then demote IRON_LADDER items).
+
 ## 10-08 00:40Z — OWNER delegated to operator + Codex: FOUR-pool bag fixes; AIRPOCKET before bag fixes
 D1: all seven bag fixes (toolhygiene, peacefulkit, junkwell-02, gridfix, bamboo, stonecap(+cap), bamboocraft) are
 "class": "bag-fix", drawn at four pools from the start (criterion: frees usable bag capacity). D2: QUEUE is now

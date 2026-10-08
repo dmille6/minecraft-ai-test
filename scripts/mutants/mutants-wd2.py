@@ -2,8 +2,12 @@
 # withdraw2 mutants: each anchor must be present and UNIQUE; the source is restored after each; a mutant counts as
 # KILLED only when the named test files go red against a baseline proven green first.
 import subprocess, sys, os
-ROOT = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'wd2-cand', 'bots')
+# WD2_ROOT: the bots/ dir of the variant under test (10-08: wd2-on-c6e91a8 and wd2-on-92bc84f). The towndeposit
+# mutants (TD) run only where src/towndeposit.mjs exists -- and there they are REQUIRED (anchors asserted as for any).
+ROOT = os.environ.get('WD2_ROOT') or os.path.join(os.path.dirname(os.path.abspath(__file__)), 'wd2-cand', 'bots')
+HAS_TD = os.path.exists(os.path.join(ROOT, 'src', 'towndeposit.mjs'))
 W2 = ['withdraw2']
+TD = ['withdraw2-towndeposit']
 M = [
   # ranking
   ('rank: uses before tier', 'src/withdrawpick.mjs', "const copyKey = c => [tier(c.name), Math.min(remaining(c), 1e9), -(c.slot ?? 0)]", "const copyKey = c => [Math.min(remaining(c), 1e9), tier(c.name), -(c.slot ?? 0)]", W2),
@@ -64,7 +68,16 @@ M = [
   ('C2 ledger: the craft fields are set after the rethrow', 'src/skills.mjs', "    st.ledger.produced = made ?? '?'\n", "", W2),
   # ledger
   ('ledger: no cumulative server change', 'src/skills.mjs', "    if (st.base && finalBag) {", "    if (false) {", W2),
+  # withdraw2 x towndeposit (92bc84f variant only): the town deposit's keeps that hold what the iron pull took
+  # The ingots have TWO independent keeps (towndeposit IRON_LADDER; bankable iron_upgrade_reserve inside depositPlan's
+  # allowance): either alone holds them, so the mutant removes both (a compound mutant: a list of edits).
+  ('TD keep: the ingots lose both keeps', [('src/towndeposit.mjs', "  for (const n of IRON_LADDER) floor(n, Infinity, 'iron_ladder')\n", "  for (const n of IRON_LADDER) if (n !== 'iron_ingot') floor(n, Infinity, 'iron_ladder')\n"),
+                                            ('src/bankable.mjs', "  const ironKeep = ironUpgradePending(items) ? IRON_UPGRADE_KEEP : 0\n", "  const ironKeep = 0\n")], None, None, TD),
+  ('TD keep: the scaffold sticks are banked', 'src/bankable.mjs', "  if (counts.stick) keep.stick = Math.max(keep.stick ?? 0, Math.min(RESERVE_RECIPE, counts.stick))\n", "", TD),
+  ('TD keep: the best copy of a pickaxe name is banked', 'src/towndeposit.mjs', "  return usable.slice(1, 1 + Math.max(0, allowance)).map(c => c.slot)\n", "  return usable.slice(0, Math.max(0, allowance)).map(c => c.slot)\n", TD),
 ]
+M = [m for m in M if HAS_TD or m[4] != TD]
+print(f'root={ROOT} towndeposit={HAS_TD} mutants={len(M)}', flush=True)
 only = sys.argv[1:]
 bad = 0
 for t in sorted({t for m in M for t in m[4]}):
@@ -72,11 +85,17 @@ for t in sorted({t for m in M for t in m[4]}):
     assert r.returncode == 0, f'BASELINE RED: {t} fails before any mutant -- every "killed" would be false'
 for name, f, old, new, tests in M:
     if only and not any(o in name for o in only): continue
-    p = os.path.join(ROOT, f)
-    src = open(p).read()
-    n = src.count(old)
-    assert n == 1, f'ANCHOR {"MISSING" if n == 0 else "NOT UNIQUE"} ({n}): {name}'
-    open(p, 'w').write(src.replace(old, new, 1))
+    edits = f if isinstance(f, list) else [(f, old, new)]
+    saved = {}
+    for ef, eo, en in edits:
+        ep = os.path.join(ROOT, ef)
+        esrc = saved.setdefault(ep, open(ep).read())
+        cur = open(ep).read()
+        n = cur.count(eo)
+        if n != 1:
+            for sp, ss in saved.items(): open(sp, 'w').write(ss)
+        assert n == 1, f'ANCHOR {"MISSING" if n == 0 else "NOT UNIQUE"} ({n}): {name} [{ef}]'
+        open(ep, 'w').write(cur.replace(eo, en, 1))
     try:
         reds = []
         for t in tests:
@@ -88,7 +107,8 @@ for name, f, old, new, tests in M:
         for t, rc, fl in reds: print(f'          {t}: exit {rc}  {fl}', flush=True)
         if not killed: bad += 1
     finally:
-        open(p, 'w').write(src)
-        assert open(p).read() == src, 'source not restored'
+        for sp, ss in saved.items():
+            open(sp, 'w').write(ss)
+            assert open(sp).read() == ss, 'source not restored'
 print('all killed' if not bad else f'{bad} survived')
 sys.exit(1 if bad else 0)

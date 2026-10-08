@@ -27,7 +27,8 @@ const NAME = process.env.CRAFT_BOT_NAME || 'sandbox-Draw'
 if (!NAME.startsWith('sandbox-')) throw new Error('sandbox bot names only')
 const OUTDIR = `${R}/sandbox/log/withdraw-ab`
 const RES = `${OUTDIR}/results-${ARM}.jsonl`
-const BRAIN_PORT = 11499
+// WDAB_BRAIN_PORT: another sandbox driver may hold 11499 (they share the loopback brain port).
+const BRAIN_PORT = Number(process.env.WDAB_BRAIN_PORT || 11499)
 const sleep = ms => new Promise(r => setTimeout(r, ms))
 fs.mkdirSync(OUTDIR, { recursive: true })
 
@@ -104,6 +105,18 @@ const SPEC = {
   // (w5) 36/36 bag with a WOODEN pickaxe in it, 27/27 chest with ONE iron_pickaxe: the verified trade swaps the wooden
   //      out for the iron (never a bankable stack banked into a full chest, nothing dropped).
   'fullbag': { bag: [['wooden_pickaxe', 1, 0], ...stacks('stone', 19), ...stacks('andesite', 16)], chest: [...stacks('diorite', 13), ['iron_pickaxe', 1, 20], ...stacks('diorite', 13)], cmd: 'withdraw iron_pickaxe' },
+  // ---- withdraw2 x towndeposit (10-08, the 92bc84f rebase): the automatic town deposit fires RIGHT AFTER an iron pull.
+  // The bag is 33/36 (a stone pickaxe, raw_copper 7 = the town deposit's surplus, coal 9 = its IRON_LADDER keep, andesite
+  // inert): below the deposit's 34-slot trigger, so the iron pull runs first; the pull's two stacks lift it over.
+  // (w6) the craft succeeds (table 2 west): 3 ingots + 2 sticks -> 1 iron pickaxe leaves the bag at 34 -> the deposit
+  //      banks raw_copper and keeps the iron pickaxe, the stone pickaxe and the coal.
+  'irontd': { bag: [['stone_pickaxe', 1, 20], ['raw_copper', 7], ['coal', 9], ...stacks('andesite', 30)], chest: [['iron_ingot', 5], ['stick', 16]], table: true, townDeposit: true, cmd: 'craft iron_pickaxe' },
+  // (w7) the craft FAILS: the only table floats 9 above the floor (700 129 694) -- within the craft's 32-block search
+  //      (the iron plan accepts it), never within reach (eye to block >= 7.4; Paper's limit is 4.5 + 1). A barrier box at
+  //      the arena's edge did not work: the bot walked around it outside the arena, or pillared onto it with andesite. The 3 ingots and 2 sticks stay in the bag at 35 -> the deposit fires and must
+  //      bank raw_copper and NOT the ingots or the sticks.
+  //      The filler is PAPER (no block to tower with: with andesite the pathfinder pillared onto the box and crafted).
+  'irontdfail': { bag: [['stone_pickaxe', 1, 20], ['raw_copper', 7], ['coal', 9], ...stacks('paper', 30)], chest: [['iron_ingot', 5], ['stick', 16]], boxedTable: true, townDeposit: true, cmd: 'craft iron_pickaxe' },
 }
 const TABLE = '698 120 700'
 const CHEST2 = '700 120 704'
@@ -113,7 +126,11 @@ function arenaCmds () {
   return ['kill @e[type=!player,x=700,y=120,z=700,distance=..30]',
     'fill 688 120 688 712 130 712 minecraft:air', 'fill 688 119 688 712 119 712 minecraft:stone']
 }
-const extraCmds = spec => spec.table ? [`setblock ${TABLE} minecraft:crafting_table`] : []
+// A trial's 'pulled' mark holds the bag right after the order; print it as the pull's iron and sticks.
+const pulledLine = m => m.pulled ? ` pulled{ingot:${Object.values(m.pulled).filter(i => i.id === 'iron_ingot').reduce((a, i) => a + i.count, 0)} stick:${Object.values(m.pulled).filter(i => i.id === 'stick').reduce((a, i) => a + i.count, 0)} slots:${Object.keys(m.pulled).length}}` : ''
+const BOXED_TABLE = '700 129 694'
+const extraCmds = spec => [...(spec.table ? [`setblock ${TABLE} minecraft:crafting_table`] : []),
+  ...(spec.boxedTable ? [`setblock ${BOXED_TABLE} minecraft:crafting_table`] : [])]
 const itemArg = (id, dmg) => `minecraft:${id}${dmg != null ? `[damage=${dmg}]` : ''}`
 function chestCmds (spec) {
   // The chest goes down LAST, filled in the same batch: an order scanning an EMPTY chest would record a town miss
@@ -207,6 +224,7 @@ async function runTrial (scene, k) {
   set('BOT_NAME', NAME); set('LOG_DIR', logRel); set('STATE_DIR', `./sandbox/state/withdraw-ab-${tag}`); set('MEMORY_POOL', `sbxwdab-${tag}`)
   set('MINECRAFT_PORT', PORTS[SERVER]); set('MAX_CONSECUTIVE_FAILURES', 50); set('FAILED_COOLDOWN_MS', 1000)
   set('STUCK_SECONDS', 20)   // the fleet's value
+  set('OLLAMA_BASE_URL', `http://127.0.0.1:${BRAIN_PORT}`)
   for (const a of ['X', 'Y', 'Z']) { set(`HOME_${a}`, HOME[a.toLowerCase()]); set(`BOARD_${a}`, HOME[a.toLowerCase()]) }
   fs.writeFileSync(`${R}/${envRel}`, env + '\n')
   brainQueue = []; brainLog = `${OUTDIR}/brain-${tag}.log`
@@ -235,6 +253,12 @@ async function runTrial (scene, k) {
     const kicker = spec.kickAfterClick ? kickOnClick(WINDOW_MS) : null
     started = await waitFor(() => skillRows(skillLog).some(r => r.name === 'withdraw_pick' || r.name === '_withdraw_pick') || lines(botOut).some(l => /withdraw_pick/.test(l)), WINDOW_MS)
     if (started) await waitFor(() => ended(botOut, skillLog, 'withdraw_pick'), 200000)
+    // THE TOWN DEPOSIT RIGHT AFTER THE PULL (withdraw2 x towndeposit): the bag the pull left behind, then its row.
+    if (spec.townDeposit) {
+      marks.pulled = snapshot().bag
+      const td = await waitFor(() => skillRows(skillLog).find(r => r.name === '_town_deposit'), 120000)
+      marks.townDeposit = td ? `${td.status}:${td.detail.slice(0, 220)}` : 'none in 120 s'
+    }
     if (kicker) { await kicker; if (marks.kick) { await waitFor(() => lines(botOut).filter(l => /spawned pos=/.test(l)).length >= 2, 60000, 500); await sleep(3000) } }
   } else {
     // THE CONTROL: no withdraw_pick order exists in this build; wait the window, then the model's verb.
@@ -281,7 +305,7 @@ async function runTrial (scene, k) {
   try { fs.unlinkSync(`${R}/${envRel}`) } catch {}
   const tr = traceEv(trace).filter(e => e.ts >= t0)
   const tb = totals(before), tm = totals(mid), ta = totals(after), tl = totals(afterLogout)
-  const r = { id: `${ARM}:${scene}:${k}`, arm: ARM, scene, k, tag, sha: execFileSync('git', ['-C', BOT_ROOT, 'rev-parse', '--short', 'HEAD'], { encoding: 'utf8' }).trim(),
+  const r = { id: `${ARM}:${scene}:${k}`, arm: ARM, scene, k, tag, sha: process.env.WDAB_SHA || execFileSync('git', ['-C', BOT_ROOT, 'rev-parse', '--short', 'HEAD'], { encoding: 'utf8' }).trim(),
     started: !!started, marks, windowMs: Date.now() - t0,
     before: { ...before, totals: tb }, mid: { ...mid, totals: tm }, hold: holdSnap && { ...holdSnap, totals: totals(holdSnap) }, after: { ...after, totals: ta },
     afterLogout: { chest: afterLogout.chest, ground: afterLogout.ground, totals: { chest: tl.chest, ground: tl.ground } },
@@ -298,7 +322,7 @@ async function runTrial (scene, k) {
   const verbRow = rows.filter(x => x.name === 'withdraw' || x.name === 'deposit').map(x => `${x.name}:${x.status}:${x.detail.slice(0, 120)}`).join(' || ')
   console.log(`${r.id.padEnd(18)} order=${r.started} bag ${before.bagUsed}->${after.bagUsed} chest ${before.chestUsed}->${after.chestUsed} picks bag[${picks(before.bag)}]->[${picks(after.bag)}] chest[${picks(before.chest)}]->[${picks(after.chest)}]` +
     ` d(bag){${diff(tb.bag, ta.bag)}} d(chest){${diff(tb.chest, ta.chest)}} ground[${after.ground.map(g => g.id + 'x' + g.count).join(',')}] logout-ground[${afterLogout.ground.map(g => g.id + 'x' + g.count).join(',')}] conserved=${r.conserved}` +
-    ` settled[${ws}] marks=${JSON.stringify(marks)} | ${wp} | ${verbRow}`)
+    ` settled[${ws}]${pulledLine(marks)} marks=${JSON.stringify({ ...marks, pulled: undefined })} | ${wp} | ${verbRow}`)
 }
 
 async function main () {
