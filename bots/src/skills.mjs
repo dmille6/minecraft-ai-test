@@ -6939,22 +6939,26 @@ async function settleFurnaceCursor (bot, furnace, home, bounded) {
 /** Exported for the Paper probe (sandbox/craft/pk-cursor-probe.cjs): a real lifted cursor, then this drain. */
 export async function drainFurnace (furnace, ms = SMELT_RECOVERY_MS, bot = null) {
   const deadline = Date.now() + ms
+  const TIMED_OUT = Symbol('timed out')
   const bounded = p => Promise.race([
-    p, new Promise(res => setTimeout(res, Math.max(250, deadline - Date.now()))),
+    p, new Promise(res => setTimeout(() => res(TIMED_OUT), Math.max(250, deadline - Date.now()))),
   ])
   const noteSword = (name, fate) => { if (name === 'wooden_sword' && furnace) furnace.swordFate = fate }
   // A CURSOR NOTHING WOULD TAKE: vanilla returns a closed window's cursor item to the bag when the bag has room and drops
   // it only when it is full (Paper probe, sandbox3) -- so which one the close does is the window's room right now.
   const stuckFate = () => { try { return (furnace?.emptySlotCount?.() ?? 0) > 0 ? 'cursor_server_returns' : 'cursor_lost' } catch { return 'cursor_lost' } }
+  // A STUCK CURSOR ENDS THE DRAIN (Claude r-rev10): a later take would click with the cursor loaded and swap items; what
+  // the close does with it is judged right before the close, from the window's room then.
+  let stuck = null
   // A CURSOR ALREADY LOADED when the drain begins (a take-back that stopped between its clicks): settled first.
   try {
     const before = furnace?.selectedItem?.name
     const c = await settleFurnaceCursor(bot, furnace, null, bounded)
-    if (c === 'furnace') noteSword(before, 'kept_cursor'); else if (c === 'stuck') noteSword(before, stuckFate()); else if (c === 'bag') noteSword(before, 'taken')
+    if (c === 'furnace') noteSword(before, 'kept_cursor'); else if (c === 'stuck') stuck = before ?? '?'; else if (c === 'bag') noteSword(before, 'taken')
   } catch { /* nothing on it */ }
-  for (const [slot, take] of [['outputItem', 'takeOutput'],
+  for (const [slot, take] of (stuck ? [] : [['outputItem', 'takeOutput'],
                               ['inputItem', 'takeInput'],
-                              ['fuelItem', 'takeFuel']]) {
+                              ['fuelItem', 'takeFuel']])) {
     if (Date.now() >= deadline) break
     let name = null
     try {
@@ -6966,15 +6970,19 @@ export async function drainFurnace (furnace, ms = SMELT_RECOVERY_MS, bot = null)
       // searches the window). With no empty slot putAway would toss it, so it stays in the furnace.
       if (slot === 'fuelItem' && furnace.fuelItem()?.name === 'wooden_sword' &&
           (furnace.emptySlotCount?.() ?? 0) === 0) { furnace.swordKept = true; noteSword('wooden_sword', 'kept_full'); continue }
-      await bounded(furnace[take]())
+      // A TAKE THAT NEVER ANSWERED spent the drain's time: nothing later is taken, and it is not called taken (the
+      // fuel slot is re-read after the close -- swordDrainRow's 'the drain ran out of time').
+      if (await bounded(furnace[take]()) === TIMED_OUT) break
       noteSword(name, 'taken')
     } catch { /* slot emptied under us, or the block is gone; the cursor is judged below */ }
     // THE TAKE STOPPED BETWEEN ITS TWO CLICKS: the item is on the cursor, not in the bag.
     try {
       const c = await settleFurnaceCursor(bot, furnace, slot === 'outputItem' ? null : slot, bounded)
-      if (c === 'furnace') noteSword(name, 'kept_cursor'); else if (c === 'stuck') noteSword(name, stuckFate()); else if (c === 'bag') noteSword(name, 'taken')
+      if (c === 'furnace') noteSword(name, 'kept_cursor'); else if (c === 'bag') noteSword(name, 'taken')
+      else if (c === 'stuck') { stuck = name ?? '?'; break }
     } catch { /* the close below is all that is left */ }
   }
+  if (stuck) noteSword(stuck, stuckFate())
   try { furnace?.close?.() } catch { /* already closed */ }
 }
 
