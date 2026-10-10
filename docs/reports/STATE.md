@@ -14,6 +14,27 @@ AGENTS DOWN until ~10-12 11Z (weekly limit): no new builds before then._
 
 ---
 
+## 10-10 12:47Z (host clock) — STOCK TARGETS + CHEST PRUNING: DESIGN APPROVED by both engines; caps for the one-time clear
+- Design r6: docs/reports/stocktargets-design-2026-10-08.md. Reviews: Codex r1-r5 CHANGE, r6 APPROVE; Claude r1-r2 CHANGE, r3 APPROVE.
+  Excerpts: docs/reports/stocktarget-design-reviews-2026-10-10.txt.
+- Measured (10-10 census + 48 h flows): the bank is write-only for every bulk material. Town draws are only pickaxes
+  (~5/town/day), coal and a few sticks. Banked/day: oak_log 9,425, cobble 16,908, stick 605, stone_pickaxe 248.
+- Targets per town (= bank cap = prune floor = clear cap), provisional:
+  - cobble 256; each log type 64; each planks type 64; stick 64; stone 64;
+  - dirt/sand/gravel/deepslate/tuff/calcite/sandstone 0;
+  - usable stone_pickaxe 16, wooden_pickaxe 4, stone axe/shovel 4 (tools are never disposed);
+  - clear-only caps: saplings 64/type, torch 64, ladder 64, crafting_table 2, furnace 4, chest 8. bamboo 0 and bucket 2 are OWNER TO CONFIRM.
+- Mechanism: stonecap's journal generalised (every group per count; bank/take/draw/valve claims; a 1 h floor; confirm
+  before mutate; rotation by generations with no lock). Above target nothing is banked while a usable well stands, and the
+  surplus goes down the well at a full bag. A PRUNE town order takes over-target full stacks out of chests (under take
+  claims) and throws them down the well. Withdraw draws are claimed before their clicks.
+- CLEAR CAPS: docs/reports/stocktarget-clear-caps-2026-10-10.json + scripts/host/chestclear2/plan3.py (plan2 with a shared
+  cobble group and boundary-stack REDUCE). On the 10-10 census: 175 -> 0 full, 5,958 of 7,988 slots, 195,462 items.
+- CLEAR PROCEDURE (both engines): stop the affected pools' bots; clear; then bots/scripts/stockreset.mjs appends a `reset`
+  to each cleared town's journal (being built); then start the bots. Validate `reduce` (setting a slot's count) on a
+  sandbox first.
+- Building now on sc-on-cf4192e (32d7447). Nothing deployed or queued.
+
 ## 10-10 13:10Z — TOWN CHESTS FULL AGAIN; second one-time clear APPROVED then DEFERRED by the owner until the inflow fixes ship
 Read-only census (per-item RCON `data get block X Y Z Items[k]` on the world host; list reads are abbreviated by the
 server): 425 town containers, 175 full, 70% of slots used -- stone_pickaxe 1,759 slots, oak_log 80,140, cobblestone
