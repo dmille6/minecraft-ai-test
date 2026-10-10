@@ -1,0 +1,90 @@
+diff --git a/scripts/host/withdrawread.py b/scripts/host/withdrawread.py
+index 30b6b3a..a66328a 100644
+--- a/scripts/host/withdrawread.py
++++ b/scripts/host/withdrawread.py
+@@ -172,6 +172,26 @@ def args_of(r):
+     return a if isinstance(a, dict) and a else None
+ 
+ 
++# G1 AMENDMENT (withdraw2-02, 10-10): withdraw2-01 reverted at +180 on 3 G1 "losses" that were the PATHFINDER's own
++# scaffolding on the walk to the chest/table (1 dirt, 1 dirt, 1 cobblestone; a _path_reset place_error inside the order
++# window). mineflayer-pathfinder bridges with scafoldingBlocks (dirt, cobblestone; scaffold.mjs) and this codebase adds
++# the stone family. A fall of a SCAFFOLD name of at most SCAFFOLD_EXCUSE blocks in one order is movement, not the
++# transfer: reported as scaffold_spent, never counted in G1. A larger fall, or any other name, is still a breach.
++SCAFFOLD_NAMES = {'dirt', 'cobblestone', 'cobbled_deepslate', 'stone', 'andesite', 'diorite', 'granite', 'deepslate',
++                  'netherrack', 'tuff'}
++SCAFFOLD_EXCUSE = 3
++
++
++def split_scaffold(losses):
++    """[(name, delta)] -> (breaches, excused): scaffold names falling by <= SCAFFOLD_EXCUSE in total are excused."""
++    if losses is None:
++        return None, []
++    sc = [(n, d) for n, d in losses if n in SCAFFOLD_NAMES]
++    if sc and -sum(d for _, d in sc) <= SCAFFOLD_EXCUSE:
++        return [(n, d) for n, d in losses if n not in SCAFFOLD_NAMES], sc
++    return losses, []
++
++
+ def g1_args(a):
+     """G1 on the withdraw2 ledger: a fall of a name not in plan nor transform -> [(name, delta)]; None = unknown."""
+     if not a.get('complete') or not isinstance(a.get('srv'), dict):
+@@ -207,6 +227,11 @@ assert g1_args(_A1) == [] and not g2_args(_A1) and not g5_args(_A1) and g6_args(
+ assert g5_args(dict(_A1, took_tier='stone')) and g2_args(dict(_A1, took_uses=6)) and g1_args(dict(_A1, complete=False)) is None
+ _A2 = {'craft': 'server', 'srv': {'iron_ingot': -3, 'stick': -2, 'iron_pickaxe': 1}, 'plan': [], 'transform': ['iron_ingot', 'stick'], 'complete': True, 'took_tier': 'iron', 'best_valid': 'none'}
+ assert g1_args(_A2) == [] and g6_args(_A2, 'crafted_iron') is False and g1_args(dict(_A2, transform=[])) == [('iron_ingot', -3), ('stick', -2)]
++assert split_scaffold([('dirt', -1)]) == ([], [('dirt', -1)])                      # the 10-10 false positive: excused
++assert split_scaffold([('cobblestone', -1), ('dirt', -2)]) == ([], [('cobblestone', -1), ('dirt', -2)])
++assert split_scaffold([('dirt', -4)]) == ([('dirt', -4)], [])                       # more than a walk's worth: breach
++assert split_scaffold([('dirt', -1), ('iron_ingot', -3)]) == ([('iron_ingot', -3)], [('dirt', -1)])  # the real loss still counts
++assert split_scaffold([('coal', -1)]) == ([('coal', -1)], []) and split_scaffold(None) == (None, [])
+ assert g6_args(dict(_A2, craft='unverified'), 'crafted_iron') and g6_args(dict(_A2, srv={}), 'crafted_iron') and g6_args(dict(_A2, complete=False), 'crafted_iron') is None
+ assert tier_of('iron_pickaxe') == IRON and best_pick_tier({'stone_pickaxe': [{'used': 0, 'max': 131}], 'iron_pickaxe': [{'used': 245, 'max': 250}]}) == 2
+ 
+@@ -264,6 +289,7 @@ assert len(HOME) >= 40, 'home table not read (%d bots): the at-town split would
+ wp = defaultdict(Counter)            # arm -> outcome counts (canary build only for the canary)
+ wp_verbs = Counter(); offbuild = 0
+ g1, g2, g3, g4 = [], [], [], []
++scaffold_spent = []   # G1 amendment (withdraw2-02): pathfinder scaffold falls, reported not gated
+ g5, g6, unknown = [], [], Counter()   # withdraw2's gates; unknown = canary rows whose ledger is incomplete
+ canary_args_rows = 0; canary_noargs_rows = 0; ctrl_ledger = 0
+ room_rows = Counter(); room_ladder = Counter(); room_ladder_names = Counter()   # arm -> orders that made room / banked IRON_LADDER
+@@ -360,7 +386,9 @@ for r in rows:
+             if A: canary_args_rows += 1
+             elif f.get('outcome') not in ('aborted', 'error'): canary_noargs_rows += 1   # a thrown order's row has no ledger
+         if A:
+-            loss = g1_args(A)
++            loss, exc = split_scaffold(g1_args(A))
++            if exc:
++                scaffold_spent.append((b, t.strftime('%H:%M:%S'), exc))
+             if loss is None:
+                 unknown['g1'] += 1
+             elif loss:
+@@ -377,7 +405,9 @@ for r in rows:
+             if f.get('outcome') == 'crafted_iron':
+                 crafted_iron[arm] += 1
+         else:
+-            loss = unplanned_loss(f)
++            loss, exc = split_scaffold(unplanned_loss(f))
++            if exc:
++                scaffold_spent.append((b, t.strftime('%H:%M:%S'), exc))
+             if loss:
+                 g1.append((b, t, loss, d[:120]))
+             if spent_taken(f):
+@@ -461,6 +491,7 @@ print('-' * 78)
+ print('LIVENESS     canary withdraw_pick orders %d (>= 1; with the withdraw2 ledger %d, WITHOUT %d -- must be 0) | model-verb rows %d | control rows %d (withdraw-01 on the fleet) | other build %d'
+       % (canary_orders, canary_args_rows, canary_noargs_rows, wp_verbs.get('withdraw', 0), ctrl_new, offbuild))
+ print('             canary outcomes %s' % dict(wp['canary']))
++print('SCAFFOLD     pathfinder scaffold spent inside orders (excused from G1, <= %d blocks): %d rows %s' % (SCAFFOLD_EXCUSE, len(scaffold_spent), scaffold_spent[:4]))
+ print('CORRECTNESS  G1 unplanned server-counted loss %d (excused by a death within 60 s: %d) | G2 spent tool withdrawn %d | G3 success without the server %d | G4 closed loaded in hold mode %d'
+       % (len(g1), len(g1_excused), len(g2), len(g3), len(g4)))
+ print('WITHDRAW2    G5 worse tier taken %d | G6 crafted_iron without a server-confirmed craft %d | ledger UNKNOWN (incomplete) g1 %d g6 %d | crafted_iron rows %d'
+@@ -529,7 +560,7 @@ try:
+     emit('withdrawread', W, {
+         'orders_canary': canary_orders, 'verb_rows_canary': wp_verbs.get('withdraw', 0), 'new_rows_control': ctrl_new,
+         'offbuild_canary': offbuild, 'took_canary': took,
+-        'g1_unplanned_loss': len(g1), 'g1_excused_death': len(g1_excused), 'g2_spent_taken': len(g2), 'g3_unconfirmed_success': len(g3), 'g4_closed_loaded': len(g4),
++        'g1_unplanned_loss': len(g1), 'scaffold_spent_rows': len(scaffold_spent), 'g1_excused_death': len(g1_excused), 'g2_spent_taken': len(g2), 'g3_unconfirmed_success': len(g3), 'g4_closed_loaded': len(g4),
+         'intervention_rows': sum(interventions.values()), 'intervention_bots': len(interventions), 'hold_max_s': round(hold_max / 1000.0, 1),
+         'loaded_closes': len(loaded_closes), 'unsettled_unanswered': len(unsettled_unanswered), 'drain_timeouts': drains,
+         'click_rows_canary': sum(clicks['canary'].values()), 'click_rows_control': sum(clicks['control'].values()),

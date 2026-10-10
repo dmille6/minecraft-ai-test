@@ -11,6 +11,21 @@ behind it (chain-ore.sh stopped 10-01 on fixes-02's revert)._
 
 ---
 
+## 10-10 05:30Z — WITHDRAW2-01 REVERTED (+180, G1 = 3); suspected pathfinder scaffold, NOT proven; toolhygiene queued
++180: G1 "unplanned server-counted loss" 3 -- hive-d-Comet 02:56:40 dirt -1 (crafted_iron), hive-a-Alpha 04:09:47
+cobblestone -1 (no_better), hive-d-Bravo 04:52:00 dirt -1 (crafted_iron). Everything else clean: G2-G6 0, 9 server-confirmed
+iron pickaxe crafts, iron holders DiD +0.28, nopick time DiD -0.033. Suspected cause: mineflayer-pathfinder scaffolding
+(dirt/cobblestone) on the walk to the chest/table -- withdraw2's ledger spans the WHOLE order (walks included) while
+withdraw-01's srv spans only the chest transaction, so the control cannot calibrate it. Comet shows a _path_reset
+place_error inside its order; Alpha/Bravo have no placement evidence. A draft read amendment (excuse <= 3 scaffold
+blocks per order; replay G1 0) got Codex CHANGE: an unconditional exemption could hide a real 1-3 block transfer loss;
+require per-row, same-order, server-confirmed placement evidence; label these rows "suspected scaffold", not proven.
+NEXT for withdraw2-02 (agents, after 10-12): log the bot's own block placements (or bracket the ledger around the chest
+and craft transactions only), then the evidence-backed G1 split (raw / scaffold-evidenced / residual), ambiguous-placement
+and unplanned-deposit test cases, both engines. Draft: docs/reports/drafts/withdrawread-g1-scaffold-DRAFT.diff.
+SLOT: bag-fix registrations INSTALLED 05:06Z (~/bagfix-regs; backups *.bak-bfregs-20261010T050625Z). toolhygiene-01
+queued (bag-fix, 4 variants, dependency on withdraw2 dropped) -> scheduler DECISION launch.
+
 ## 10-10 02:10Z — CANARY LIVE: withdraw2-01 @ 2189de3 on board-a,hive-a,hive-d,board-c (20 bots), declared 01:57:23Z
 Reads ~04:57Z / ~07:57Z. Standing watch (journal phases + sched BLOCK) running. EARLY PREFLIGHT of the next item,
 toolhygiene-01, against the live baseline dbb4d78: variants dbb4d78 and 2189de3 -> changerowcheck "nothing declared",
