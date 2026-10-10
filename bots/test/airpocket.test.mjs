@@ -17,7 +17,7 @@ import { airPocketInputs, airPocketAfter, airPocketPreempt, AP_FAIL_COOLDOWN_MS 
 import { airPocketPlan, airPocketEnvelope, airPocketAdmit, airPocketBudgetMs, envelopeBreached, airPocketConfirmed,
          airPocketTrigger, pickFastestTool, airPocketStep, airPocketDetail, AP_TRIGGER_AFTER_MS,
          standGate, standInPocket, digGate, standRef, standCandidates, airPocketRow, AP_ROW_MAX,
-         poseEye, planBaseY, routeUpBlocked, AP_REDIG_MAX, boxCollides, standsOn, serverPose, botPose, withPoseEye } from '../src/airpocket.mjs'
+         poseEye, planBaseY, routeUpBlocked, AP_REDIG_MAX, boxCollides, standsOn, serverPose, botPose, withPoseEye, bodyAgrees } from '../src/airpocket.mjs'
 
 let pass = 0, fail = 0
 const t = (name, fn) => Promise.resolve()
@@ -852,6 +852,33 @@ await t('AP2-T7 before a re-dig the jump follows the ground (a bot on the ground
   assert.equal(n >= 2, true); assert.equal(jumpAtRedig, false)
 })
 
+await t('AP2-T8 bodyAgrees (pure): on the ground with jump released, or floating with it held', () => {
+  assert.equal(bodyAgrees({ onGround: true, wantJump: false }), true); assert.equal(bodyAgrees({ onGround: false, wantJump: true }), true)
+  assert.equal(bodyAgrees({ onGround: true, wantJump: true }), false); assert.equal(bodyAgrees({ onGround: false, wantJump: false }), false)
+  assert.equal(bodyAgrees({ onGround: undefined, wantJump: true }), true)
+})
+await t('AP2-T9 AT THE DIG CALL the jump agrees with the client\'s ground and the dig is priced in that state (Claude r3 P2); mutants', async () => {
+  // floating when the step decided (jump held), ON THE GROUND by the call: the step releases jump before sending the dig
+  const bot = fakeBot({ cells: TRAP, riseTo: 1.4 }); bot.entity.position = new V(100.5, 61.395, 100.5); bot.entity.onGround = false
+  const look0 = bot.lookAt; bot.lookAt = (...a) => { bot.entity.onGround = true; return look0(...a) }
+  let jumpAtDig = null, groundAtDig = null; const dig0 = bot.dig
+  bot.dig = (blk, fl) => { jumpAtDig = bot.controls.jump; groundAtDig = bot.entity.onGround; return dig0(blk, fl) }
+  const plan = { ...airPocketPlan(world({ '0,0,0': 'water', '0,1,0': 'water', '0,2,0': 'ice', '0,3,0': 'air' })), baseY: 60 }
+  const r = await airPocketStep(bot, plan, deps()); clearInterval(bot._healthTimer)
+  assert.equal(r.ok, true, r.why); assert.equal(groundAtDig, true); assert.equal(jumpAtDig, false)
+  await withMutant(AP_PATH, '      for (let k = 0; k < 3 && !bodyAgrees({ onGround: bot.entity?.onGround, wantJump }); k++) {', '      for (let k = 0; k < 0; k++) {', async m => {
+    const b = fakeBot({ cells: TRAP, riseTo: 1.4 }); b.entity.position = new V(100.5, 61.395, 100.5); b.entity.onGround = false
+    const l0 = b.lookAt; b.lookAt = (...a) => { b.entity.onGround = true; return l0(...a) }
+    let j = null; const d0 = b.dig; b.dig = (blk, fl) => { j = b.controls.jump; return d0(blk, fl) }
+    await m.airPocketStep(b, plan, deps()); clearInterval(b._healthTimer)
+    assert.equal(j, true)   // jump held while the client prices on-ground: the Paper ghost
+  })
+  // the dig is priced in the state it is sent in: an on-ground price that no longer fits the budget refuses by name
+  const t2 = fakeBot({ cells: TRAP, riseTo: 1.4 }); t2.entity.position = new V(100.5, 61.395, 100.5)
+  let looked = false; const l2 = t2.lookAt; t2.lookAt = (...x) => { looked = true; return l2(...x) }   // the price changes after the look
+  const r2 = await airPocketStep(t2, plan, deps({ predict: () => (looked ? 999999 : 300) })); clearInterval(t2._healthTimer)
+  assert.equal(r2.ok, false); assert.match(r2.why, /the dig needs 999999 ms as the body is now/)
+})
 // ---------------------------------------------------------------- I. the world's inputs, read the way 1.21.8 needs
 await t('I1 difficulty comes from the server packet (bot.serverDifficulty): mineflayer game.difficulty is undefined on 1.21.8', () => {
   const real = { serverDifficulty: 'peaceful', game: { difficulty: undefined }, registry: { effectsByName: { Hunger: { id: 16 } } }, entity: { effects: {} } }
