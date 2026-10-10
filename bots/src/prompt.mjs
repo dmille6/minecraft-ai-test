@@ -19,6 +19,7 @@ import { logEvent } from './logger.mjs'
 import { bankableInventory, depositDue } from './bankable.mjs'
 import { bankClosed, depositTargetOk } from './chestfull.mjs'
 import { config } from './config.mjs'
+import { redundantCraft } from './toolhygiene.mjs'
 
 const MAX_EVENTS = 12
 // Rough but adequate: we only need to know when we are near the ceiling, and
@@ -496,15 +497,20 @@ export function tableAccess (bot) {
   return { has: !!near, carried: false, near }
 }
 
-function craftableNow (bot) {
+export function craftableNow (bot, milestone = null, wantedSet = null) {
   try {
     const items = bot.inventory?.items() ?? []
+    // TOOL HYGIENE: never advertise a pickaxe the admission gate refuses as redundant -- the same function on the same
+    // wanted set (cognitive passes #wantedItems, exactly what the gate is given); without one, the task's target and
+    // family (no recipe takes a pickaxe as an ingredient, so for pickaxes the two sets agree).
+    const wanted = wantedSet ?? new Set([milestone?.wants, ...(Array.isArray(milestone?.wantsAny) ? milestone.wantsAny : [])].filter(x => typeof x === 'string'))
     // A carried table can be placed; a PLACED one within reach counts too.
     const access = tableAccess(bot)
     const hasTable = access.has
     const made = []
     for (const name of CRAFT_TARGETS) {
       if (items.some(i => i.name === name && i.count > 0) && !name.endsWith('_pickaxe')) continue
+      if (name.endsWith('_pickaxe') && redundantCraft(name, items, { wanted, y: bot.entity?.position?.y, exitShort: bot.exitPickShort })) continue
       const it = bot.registry?.itemsByName?.[name]
       if (!it) continue
       const r = bot.recipesFor(it.id, null, 1, hasTable ? true : null)
@@ -674,7 +680,7 @@ export function bucketSituation (bot) {
   } catch { return '' }
 }
 
-export function buildUserPrompt({ bot, milestone, memory, lastOutcome, trigger, sentinel, lessons }) {
+export function buildUserPrompt({ bot, milestone, memory, lastOutcome, trigger, sentinel, lessons, wanted = null }) {
   const p = bot.entity.position
   const actionable = actionableBlocks(bot, 8, { wants: milestone?.wants })
   const inv = inventorySummary(bot)
@@ -690,7 +696,7 @@ export function buildUserPrompt({ bot, milestone, memory, lastOutcome, trigger, 
       `position ${p.x.toFixed(0)},${p.y.toFixed(0)},${p.z.toFixed(0)}, ` +
       `${isNight(bot) ? 'night' : 'day'}, day ${Math.floor(bot.time?.day ?? 0)}`,
     `INVENTORY: ${invStr}`,
-    craftableNow(bot),
+    craftableNow(bot, milestone, wanted),
     smeltableNow(bot),
     depositSituation(bot, memory),
     `NEARBY: ${nearbyBlocks(bot, 8, { wants: milestone?.wants }).join(', ') || 'nothing notable'}`,

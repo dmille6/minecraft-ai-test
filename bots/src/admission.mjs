@@ -18,6 +18,7 @@ import { bankableInventory, depositDue, DEPOSIT_ALWAYS } from './bankable.mjs'
 import { bankClosed, bankClosedDetail, depositTargetOk } from './chestfull.mjs'
 import { resolveBlockName } from './drops.mjs'
 import { mineTargetOk, mineTargetCeiling } from './mining.mjs'
+import { redundantCraft } from './toolhygiene.mjs'
 
 
 const REPEAT_WINDOW = 4
@@ -445,6 +446,12 @@ export class AdmissionControl {
       if (!Number.isFinite(n) || n <= 0 || n > 64) {
         return { ok: false, reason: 'bad_args', detail: `count ${args.count} outside 1..64` }
       }
+      // TOOL HYGIENE, PART 1 (toolhygiene.mjs): no second pickaxe beside one that already does everything any goal
+      // asks, no second crafting_table/furnace in the bag. THE single admission point: model proposals and work
+      // orders both arrive here. Never refuses what the task wants (`wanted`), so it cannot strand a rung; the
+      // detail names the remedy (dig with the held copy / the skill places the carried station).
+      const redundant = redundantCraft(args.item, bot.inventory?.items?.() ?? [], { wanted, y: bot.entity?.position?.y, exitShort: bot.exitPickShort })
+      if (redundant) return { ok: false, reason: 'redundant_craft', detail: redundant.detail, redundant }
     }
 
     if (skill === 'place') {

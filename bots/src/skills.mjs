@@ -55,6 +55,7 @@ import { containerPickMiss, notePickMisses, townPickMissComplete } from './chest
 import { serverRecount, lockstepClicks, confirmCursor, clicksInFlight, invalidateClicks } from './craftsync.mjs'
 import { inflightTracker } from './inflight.mjs'
 import { FLOOR } from './toolfor.mjs'
+import { noteExitShort } from './toolhygiene.mjs'
 /** Tools deposit moves one usable copy at a time, by slot (bankable.mjs's own tool families). */
 const DEPOSIT_TOOL_RE = /_(pickaxe|axe|shovel|sword|hoe)$/
 import { townDepositPlan, fitToContainer, townDepositDetail, inTownZone, doubleChestPartner, STORAGE_REACH, TD_MAX_CONTAINERS, TD_BUDGET_MS, TD_WALK_MS, TD_OPEN_MS, TD_SETTLE_MS } from './towndeposit.mjs'
@@ -7534,6 +7535,7 @@ async function mine(ctx, { y: targetY = 12 }, signal) {
       y: bot.entity.position.y, health: bot.health, items: bot.inventory.items(),
     })
     if (!exit.ok) {
+      noteExitShort(bot, exit)   // tool hygiene: pickaxe crafts stay admitted until the swings are met (toolhygiene.mjs)
       logEvent({ kind: 'exit_reserve_abort', status: 'failed',
                  detail: `${exit.reason}: ${exit.detail}`, snapshot: snapshot(bot) })
       // A CONTRACT REFUSAL, NOT A MINING FAILURE. The distinct class keeps this

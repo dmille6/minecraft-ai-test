@@ -55,7 +55,8 @@ t('unknown durability counts as full (Infinity), a missing inventory is an empty
   assert.equal(remaining({ name: 'iron_pickaxe' }), Infinity)
   assert.equal(toolFor(STONE, null).reason, 'none')
   const a = item('stone_pickaxe', 20, 131), b = item('stone_pickaxe', 90, 131)
-  assert.equal(toolFor(STONE, [a, b]).item, b)
+  assert.equal(toolFor(STONE, [a, b], { hygiene: false }).item, b, 'the deployed order (TOOL_HYGIENE=off)')
+  assert.equal(toolFor(STONE, [a, b], { hygiene: true }).item, a, 'TOOL_HYGIENE on (the default): the more worn open copy of one name first')
 })
 t('a block that answers canHarvest (prismarine-block) is judged by it, harvestTools or not: a tool it names is used, the hand is not', () => {
   const stoneByPredicate = { name: 'stone', canHarvest: type => type === ID.wooden_pickaxe, digTime: () => 500 }

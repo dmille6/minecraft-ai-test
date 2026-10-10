@@ -101,6 +101,18 @@ export function scaffoldCount (items = []) {
 }
 
 /**
+ * The pickaxe swings (pickaxeUses) a descent from `y` must keep in reserve: the climb out plus 2 plus the reserve.
+ * Exported for tool hygiene (toolhygiene.mjs): a pickaxe craft is never refused while the bag holds fewer swings
+ * than this, because `mine` refuses below it and its remedy is "get a pickaxe" (Codex review of the toolhygiene
+ * design: a held 52-use stone pickaxe is 51 swings against 62 at y=15). Identical arithmetic to before.
+ */
+export function descentPickNeed (y, seaLevel = SEA_LEVEL) {
+  const debt = Math.max(0, seaLevel - Math.floor(y))
+  const pickReserve = debt > 0 ? Math.max(Math.min(12, debt), Math.ceil(debt / 4)) : 0
+  return debt + 2 + pickReserve
+}
+
+/**
  * Can this bot go one block deeper and still get back out?
  *
  * `vertical_debt` is how far it would have to climb to reach open sky. Both
@@ -143,9 +155,8 @@ export function canContinueDescent ({ y, health, items = [], seaLevel = SEA_LEVE
   // climb now costs a one-block reserve. The ratio term still governs the deep
   // end, which is the half that was always doing real work.
   const blockReserve = debt > 0 ? Math.max(Math.min(8, debt), Math.ceil(debt / 4)) : 0
-  const pickReserve = debt > 0 ? Math.max(Math.min(12, debt), Math.ceil(debt / 4)) : 0
   const needBlocks = debt + blockReserve
-  const needUses = debt + 2 + pickReserve
+  const needUses = descentPickNeed(y, seaLevel)
 
   if (health != null && health < 12) {
     return { ok: false, reason: 'health', debt,
