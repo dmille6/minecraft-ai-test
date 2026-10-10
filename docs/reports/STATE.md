@@ -14,6 +14,18 @@ AGENTS DOWN until ~10-12 11Z (weekly limit): no new builds before then._
 
 ---
 
+## 10-10 13:10Z — TOWN CHESTS FULL AGAIN; second one-time clear APPROVED then DEFERRED by the owner until the inflow fixes ship
+Read-only census (per-item RCON `data get block X Y Z Items[k]` on the world host; list reads are abbreviated by the
+server): 425 town containers, 175 full, 70% of slots used -- stone_pickaxe 1,759 slots, oak_log 80,140, cobblestone
+73,474 (256/town after the 10-04 clear), stick 17,443, bamboo 6,066, raw_copper 7,356, coal 3,367, iron_ingot 1,041.
+Town deposit 12 h: 147 ok / 297 failed (289 "chest full"); no new chests are being built. OWNER: one-time clear OK
+"to continue making progress, i just dont want it part of our solution", then "adjust caps or fix the bigger issues
+first then clear chests so we dont end up in the same situation in 48 hours". NEW ORDER: peacefulkit (live) ->
+junkwell-02 -> stonecap (cobble cap; needs rebase) -> stocktarget (+ CHEST PRUNING: over-target surplus taken from chests
+to the well) -> the one-time clear with caps = the stock targets -> gridfix, bamboo, bamboocraft, treefarm; follow-ups
+airpocket-02, withdraw2-02, A'. Tools: scripts/host/chestclear2/ (positions.py, census2.py read-only, plan2.py draft caps:
+256 cobble, 1,024 oak/birch/spruce logs, 256 sticks, 32 usable stone pickaxes/town -> 166,649 items, 175 -> 0 full).
+
 ## 10-10 12:05Z — (daily operator session) peacefulkit-01 DRAW SHORT; analyst stale; a second operator is on main
 - peacefulkit-01 @ 6f1921a: preflight/licence/gatedigest/bagfix OK 11:37Z; draw-short 11:39Z (band hive-b,placebo-d,
   placebo-b) and 12:00Z (band placebo-b,placebo-d); the loop retries every 20 min. Probable cause: the fleet-wide restart
