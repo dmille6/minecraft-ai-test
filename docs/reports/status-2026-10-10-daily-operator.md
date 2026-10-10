@@ -25,3 +25,10 @@ vs 45–75 lost.
 **This session** wrote no bot code and deployed nothing; the host's scheduler and canary loop did every launch, read,
 promotion and deploy. STATE.md was 4 days stale on the docs branch, because recent sessions committed
 it only on main. Both copies now match.
+
+## 13:30Z
+
+The draw stayed short through 13:27Z, with the band offering only placebo-b and placebo-d each time. At 13:28Z the other
+operator session stopped peacefulkit-01's loop during its draw (nothing deployed) and rebooted the bot VM for the
+owner-approved RAM upgrade (48 -> 96 GB). It said it would rearm after the reboot, and the host was back at 13:29Z. The
+draw has offered at most two pools for two hours, so the next look should be drawrec's band, not just the 11:31Z restart.
