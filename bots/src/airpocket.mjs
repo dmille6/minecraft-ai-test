@@ -495,13 +495,9 @@ export async function airPocketStep (bot, plan, { Vec3, predict, sleep = ms => n
     for (let attempt = 0; attempt <= AP_REDIG_MAX; attempt++) {
       if (attempt > 0) {
         res.redigs = attempt
-        // THE BODY SETTLES FIRST (Paper 1b0cdb5 T2: a re-dig priced on-ground by the client while the server had the
-        // bot jumping finished in 900 ms against a 4.7-s server break -- ghost air): as for the first dig, a bot on the
-        // ground digs with jump released, a floating one holds it, and the client and server agree for 300 ms before
-        // the re-dig is priced (Codex r1: re-priced and re-admitted).
-        wantJump = !(bot.entity?.onGround === true)
-        try { bot.setControlState('jump', wantJump) } catch { /* not connected */ }
-        await sleep(300)
+        // re-priced and re-admitted (Codex r1); the body is settled at the dig call for every dig (bodyAgrees, below:
+        // Paper 1b0cdb5 T2 -- a re-dig priced on-ground by the client while the server had it jumping finished in 900 ms
+        // against a 4.7-s server break)
         const reMs = withPoseEye(bot, botPose(bot, Vec3).pose, () => predict(bot.blockAt(cellPos), bot.heldItem ?? null))
         if (!(Number.isFinite(reMs) && reMs > 0) || reMs * AP_MARGIN + AP_LATENCY_MS > airPocketBudgetMs({ health: bot.health, envelope })) {
           res.why = `the cell re-formed; a re-dig needs ${Number.isFinite(reMs) ? Math.round(reMs) : reMs} ms: over the budget`
@@ -514,6 +510,21 @@ export async function airPocketStep (bot, plan, { Vec3, predict, sleep = ms => n
       // preconditions are re-checked synchronously (`digGate`), and the dig is sent with forceLook 'ignore', which writes
       // start-dig inside the call with no await before it (the face sent is mineflayer's default either way).
       try { await Promise.race([bot.lookAt(cellPos.offset(0.5, 0, 0.5), true), sleep(500)]) } catch { /* a late look moves only the head */ }
+      // SETTLE AT THE CALL (Claude r3 P2): the jump follows the client's ground state until the two agree, at most 3 x
+      // 300 ms, and the dig is RE-PRICED in the state it will be sent in (mineflayer prices it the same way at the call)
+      for (let k = 0; k < 3 && !bodyAgrees({ onGround: bot.entity?.onGround, wantJump }); k++) {
+        wantJump = !(bot.entity?.onGround === true)
+        try { bot.setControlState('jump', wantJump) } catch { /* not connected */ }
+        await sleep(300)
+      }
+      const callMs = withPoseEye(bot, botPose(bot, Vec3).pose, () => predict(bot.blockAt(cellPos), bot.heldItem ?? null))
+      if (Number.isFinite(callMs) && callMs > 0) {
+        if (callMs * AP_MARGIN + AP_LATENCY_MS > airPocketBudgetMs({ health: bot.health, envelope })) {
+          res.why = `the dig needs ${Math.round(callMs)} ms as the body is now: over the budget`
+          res.outcome = 'failed'; if (attempt > 0) res.refrozen = !cellOpen(); return res
+        }
+        best.ms = callMs
+      }
       const cur = bot.blockAt(cellPos)
       const noDig = digGate({ aborted, block: cur?.name ?? null, want: plan.name, held: bot.heldItem?.name ?? null, priced: held?.name ?? null,
                               pos: bot.entity.position, fx, fy, fz })
@@ -668,6 +679,16 @@ export function standRef ({ below, sides }) {
  */
 export function standCandidates (items, { unsupported = false } = {}) {
   return (Array.isArray(items) ? items : []).filter(it => it?.name && !(unsupported && FALLING.test(it.name)))
+}
+
+/**
+ * DOES THE BODY AGREE WITH THE JUMP? Pure. mineflayer prices its finish timer from the client's onGround AT THE DIG CALL;
+ * the step holds jump only for a floating bot. A bot the client sees on the ground while jump is held (it is about to
+ * lift off) -- or floating while jump is released -- would be priced in one state and dug in the other (Claude r3 P2;
+ * Paper 1b0cdb5: 900 ms client vs 4.7 s server). -> true when onGround === !wantJump.
+ */
+export function bodyAgrees ({ onGround, wantJump }) {
+  return (onGround === true) === !wantJump
 }
 
 /**
