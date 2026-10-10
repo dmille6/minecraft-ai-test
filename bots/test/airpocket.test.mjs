@@ -17,7 +17,7 @@ import { airPocketInputs, airPocketAfter, airPocketPreempt, AP_FAIL_COOLDOWN_MS 
 import { airPocketPlan, airPocketEnvelope, airPocketAdmit, airPocketBudgetMs, envelopeBreached, airPocketConfirmed,
          airPocketTrigger, pickFastestTool, airPocketStep, airPocketDetail, AP_TRIGGER_AFTER_MS,
          standGate, standInPocket, digGate, standRef, standCandidates, airPocketRow, AP_ROW_MAX,
-         poseEye, planBaseY, routeUpBlocked, AP_REDIG_MAX, boxCollides, standsOn, serverPose, botPose } from '../src/airpocket.mjs'
+         poseEye, planBaseY, routeUpBlocked, AP_REDIG_MAX, boxCollides, standsOn, serverPose, botPose, withPoseEye } from '../src/airpocket.mjs'
 
 let pass = 0, fail = 0
 const t = (name, fn) => Promise.resolve()
@@ -559,7 +559,7 @@ await t('F21 NO DIG AFTER RETURN (Codex r5): with a look that stalls past the de
   const returnedAt = Date.now(); await new Promise(res => setTimeout(res, 2700)); clearInterval(bot._healthTimer)
   assert.ok(bot.digSends.every(at => at <= returnedAt), 'a dig was started after the step returned')
   assert.equal(r.ok, true, r.why); assert.equal(bot.digSends.length, 1)   // positive control: the stalled look does not stop the dig
-  await withMutant(AP_PATH, "bot.dig(cur, 'ignore'),", 'bot.dig(cur),', async m => {
+  await withMutant(AP_PATH, "() => bot.dig(cur, 'ignore')),", '() => bot.dig(cur)),', async m => {
     const b = fakeBot({}); b.lookMs = 2600
     const r2 = await m.airPocketStep(b, m.airPocketPlan(world(HIVE_C)), deps())
     const back = Date.now(); await new Promise(res => setTimeout(res, 2700)); clearInterval(b._healthTimer)
@@ -812,7 +812,7 @@ await t('AP2-T3 THE DIG IS PRICED WITH THE POSE\'S EYE: under the trap bot.entit
   const plan = { ...airPocketPlan(world({ '0,0,0': 'water', '0,1,0': 'water', '0,2,0': 'ice', '0,3,0': 'air' })), baseY: 60 }
   const r = await airPocketStep(bot, plan, deps({ predict: (b, item) => { atPrice.push(bot.entity.eyeHeight); return 300 } })); clearInterval(bot._healthTimer)
   assert.equal(r.ok, true, r.why); assert.equal(atDig, 0.4); assert.ok(atPrice.includes(0.4), JSON.stringify(atPrice)); assert.equal(bot.entity.eyeHeight, 1.62)
-  await withMutant(AP_PATH, '      restoreEye = setPoseEye(bot, botPose(bot, Vec3).pose)\n', '', async m => {
+  await withMutant(AP_PATH, "          withPoseEye(bot, botPose(bot, Vec3).pose, () => bot.dig(cur, 'ignore')),", "          bot.dig(cur, 'ignore'),", async m => {
     const b = fakeBot({ cells: TRAP, riseTo: 1.4 }); b.entity.position = new V(100.5, 61.395, 100.5); b.entity.eyeHeight = 1.62
     let at = null; const d0 = b.dig; b.dig = (blk, fl) => { at = b.entity.eyeHeight; return d0(blk, fl) }
     await m.airPocketStep(b, plan, deps()); clearInterval(b._healthTimer)
@@ -824,6 +824,32 @@ await t('AP2-T4 one drowning hit in the lag after the eye reached air RESTARTS t
   const sv = [{ t: 0, hp: 18 }, { t: 250, hp: 16 }, ...Array.from({ length: 12 }, (_, i) => ({ t: 500 + i * 250, hp: 16 + (i > 6 ? 0.5 : 0) }))]
   assert.equal(airPocketConfirmed({ eyeInAirSince: 0, now: 2600, samples: sv.filter(x => x.t <= 2600) }), false)
   assert.equal(airPocketConfirmed({ eyeInAirSince: 0, now: 3300, samples: sv.filter(x => x.t <= 3300) }), true)
+})
+
+await t('AP2-T5 the eye is restored to MINEFLAYER\'S state (crouching 1.27, else 1.62), on every path incl. a throw', () => {
+  const bot = { entity: { eyeHeight: 1.62, crouching: false } }
+  assert.equal(withPoseEye(bot, 'swim', () => bot.entity.eyeHeight), 0.4); assert.equal(bot.entity.eyeHeight, 1.62)
+  bot.entity.eyeHeight = 1.27; bot.entity.crouching = true
+  assert.throws(() => withPoseEye(bot, 'swim', () => { throw new Error('price threw') })); assert.equal(bot.entity.eyeHeight, 1.27)
+  // an uncrouch DURING the scope: the restore follows mineflayer (1.62), never the stale captured 1.27
+  withPoseEye(bot, 'swim', () => { bot.entity.crouching = false }); assert.equal(bot.entity.eyeHeight, 1.62)
+})
+await t('AP2-T6 a re-dig whose cell reads closed right after it is REFROZEN (short cooldown), not a 60-s failure (Codex r2 P1)', async () => {
+  const bot = fakeBot({ cells: TRAP, rise: false }); bot.entity.position = new V(100.5, 61.395, 100.5)
+  let n = 0; const dig0 = bot.dig
+  // the first dig opens and the cell re-forms; the re-dig "finishes" but the cell is already ice again at the readback
+  bot.dig = (blk, fl) => { n++; if (n === 1) return dig0(blk, fl).then(() => { setTimeout(() => bot._place(0, 2, 0, 'ice'), 20) }); return Promise.resolve() }
+  const plan = { ...airPocketPlan(world({ '0,0,0': 'water', '0,1,0': 'water', '0,2,0': 'ice', '0,3,0': 'air' })), baseY: 60 }
+  const r = await airPocketStep(bot, plan, deps()); clearInterval(bot._healthTimer)
+  assert.equal(r.outcome, 'failed'); assert.equal(r.refrozen, true); assert.equal(n, 2)
+})
+await t('AP2-T7 before a re-dig the jump follows the ground (a bot on the ground releases it, as for the first dig)', async () => {
+  const bot = fakeBot({ cells: TRAP, rise: false }); bot.entity.position = new V(100.5, 61.395, 100.5)
+  let n = 0, jumpAtRedig = null; const dig0 = bot.dig
+  bot.dig = (blk, fl) => { n++; if (n === 2) jumpAtRedig = bot.controls.jump; return dig0(blk, fl).then(() => { if (n === 1) { bot.entity.onGround = true; setTimeout(() => bot._place(0, 2, 0, 'ice'), 20) } else setTimeout(() => { bot.entity.position = new V(100.5, 61.4, 100.5) }, 30) }) }
+  const plan = { ...airPocketPlan(world({ '0,0,0': 'water', '0,1,0': 'water', '0,2,0': 'ice', '0,3,0': 'air' })), baseY: 60 }
+  await airPocketStep(bot, plan, deps()); clearInterval(bot._healthTimer)
+  assert.equal(n >= 2, true); assert.equal(jumpAtRedig, false)
 })
 
 // ---------------------------------------------------------------- I. the world's inputs, read the way 1.21.8 needs
@@ -981,7 +1007,7 @@ function wiring (src) {
                /msSinceClosing: Date\.now\(\) - lastClosingAt/.test(code) && /if \(closingOnAir\) lastClosingAt = Date\.now\(\)/.test(code) &&
                /guard: \(\) => \{ try \{ if \(runner\?\.isBusy\?\.\(\)\) runner\.interrupt\('air_pocket'\); if \(bot\.pathfinder\?\.goal\) haltPath\(bot\)/.test(code) &&
                /stepWouldRun: \(\) => prepareAirPocket\(\{ worstCase: true \}\)\.ok \}\)\) \{/.test(code) &&
-               /const env = worstCase \? \{ \.\.\.digEnv\(bot\), inWater: true, notOnGround: true \} : digEnv\(bot\)/.test(code) &&
+               /const env = withPoseEye\(bot, pe\.pose, \(\) => \(worstCase \? \{ \.\.\.digEnv\(bot\), inWater: true, notOnGround: true \} : digEnv\(bot\)\)\)/.test(code) &&
                /standItem: \(\{ unsupported = false \} = \{\}\) => unsupported\s*\? pickScaffold\(standCandidates\(bot\.inventory\?\.items\?\.\(\) \?\? \[\], \{ unsupported: true \}\), PLACEABLE\)\s*: scaffoldFor\(bot, 'air_pocket'\)/.test(code) &&
                /isEntombed\(bot\) && Date\.now\(\) >= airPocketBreatheUntil &&/.test(code) && /!runner\.isBusy\(\) && Date\.now\(\) >= airPocketBreatheUntil &&/.test(code) && /\} else if \(rescuing && route\.sealed === true && route\.dir !== 'up' && \(escaping \|\| marooned\) && !pocketing && !airPocketing &&\s*throttled\('air_pocket_held_off'/.test(code) && /Date\.now\(\) - airPocketWants < AP_WANT_LAPSE_MS/.test(code) &&
                /airPocketWants = 0 {16}\/\/ a refused step/.test(src) && /finally \{ airPocketing = false; airPocketWants = 0 \}/.test(code) &&
@@ -990,7 +1016,7 @@ function wiring (src) {
                /airPocketWants = Date\.now\(\)\s*try \{ if \(bot\.targetDigBlock\) bot\.stopDigging\(\) \}/.test(code) &&
                (code.match(/\(\) => ownsBody\(\(\) => (entombedGrant|maroonGrant)\)\(\) && !airPocketWanted\(\)/g) || []).length === 2 &&
                /if \(ub\.blocked\) \{\s*apRoute = \{ \.\.\.route, dir: 'upblocked', sealed: false \}; apBlockedBy = ub\.by/.test(code) &&
-               /const fy = planBaseY\(\{ y: at\.y, pose: pe\.pose, eyeY: pe\.eyeY \}\)/.test(code) && /, \{ pose: pe\.pose, feetSupport \}\)/.test(code) && /, Date\.now\(\), \{ refrozen: r\.refrozen === true \}\)/.test(code) && /const eyeBack = setPoseEye\(bot, pe\.pose\)/.test(code) &&
+               /const fy = planBaseY\(\{ y: at\.y, pose: pe\.pose, eyeY: pe\.eyeY \}\)/.test(code) && /, \{ pose: pe\.pose, feetSupport \}\)/.test(code) && /, Date\.now\(\), \{ refrozen: r\.refrozen === true \}\)/.test(code) && /const env = withPoseEye\(bot, pe\.pose, \(\) => \(worstCase/.test(code) &&
                /heldMs: Date\.now\(\) - seizedAt, msSinceClosing: Date\.now\(\) - lastClosingAt,\s*stepWouldRun/.test(code) }
 }
 await t('G1 wiring: the tick returns while the step runs; the rescue asks the trigger before steering; success clears the fail memory', () => {
@@ -1016,7 +1042,7 @@ for (const [name, old, neu] of [
   ['the closing-on-air clock', 'if (closingOnAir) lastClosingAt = Date.now()', ''],
   ['the skill guard', "guard: () => { try { if (runner?.isBusy?.()) runner.interrupt('air_pocket'); if (bot.pathfinder?.goal) haltPath(bot) } catch {} return null }", 'guard: () => null'],
   ['the pre-empt asking the plan first', 'stepWouldRun: () => prepareAirPocket({ worstCase: true }).ok })) {', 'stepWouldRun: () => true })) {'],
-  ['the worst-case price for the pre-empt', 'const env = worstCase ? { ...digEnv(bot), inWater: true, notOnGround: true } : digEnv(bot)', 'const env = digEnv(bot)'],
+  ['the worst-case price for the pre-empt', '(worstCase ? { ...digEnv(bot), inWater: true, notOnGround: true } : digEnv(bot))', '(digEnv(bot))'],
   ['the stand item', ": scaffoldFor(bot, 'air_pocket') })", ": null })"],
   ['the non-falling stand item off a floor', '? pickScaffold(standCandidates(bot.inventory?.items?.() ?? [], { unsupported: true }), PLACEABLE)', "? scaffoldFor(bot, 'air_pocket')"],
   ['the request lapse', 'Date.now() - airPocketWants < AP_WANT_LAPSE_MS', 'Date.now() - airPocketWants < 30_000'],
@@ -1032,7 +1058,7 @@ for (const [name, old, neu] of [
   ['the upblocked route', "apRoute = { ...route, dir: 'upblocked', sealed: false }; apBlockedBy = ub.by", 'apBlockedBy = ub.by'],
   ['the pose-aware plan base', 'const fy = planBaseY({ y: at.y, pose: pe.pose, eyeY: pe.eyeY })', 'const fy = Math.floor(at.y)'],
   ['the pose passed to the plan', ', { pose: pe.pose, feetSupport })', ')'],
-  ['the admission priced with the pose eye', 'const eyeBack = setPoseEye(bot, pe.pose)', 'const eyeBack = () => {}'],
+  ['the admission priced with the pose eye', 'const env = withPoseEye(bot, pe.pose, () => (worstCase', 'const env = ((() => (worstCase'],
   ['the refrozen short cooldown', ', Date.now(), { refrozen: r.refrozen === true })', ')'],
   ['the pre-empt clocks', 'heldMs: Date.now() - seizedAt, msSinceClosing: Date.now() - lastClosingAt,\n', ''],
 ]) {
