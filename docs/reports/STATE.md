@@ -11,6 +11,19 @@ behind it (chain-ore.sh stopped 10-01 on fixes-02's revert)._
 
 ---
 
+## 10-10 01:55Z — AIRPOCKET-01 KEPT (+720, 10-08 19:42Z) and PROMOTED (FLEET dbb4d78, 19:52Z); 30 h IDLE SLOT; withdraw2 drawing
+airpocket-01 KEEP: DiD psi 0.61x (LB 0.17) and matched 1.50x (LB 0.36), both held; deaths canary 4/121.3 bh vs control
+24/849.0; attempts 3 (1 success, 2 "opened" ice -- the swimming-pose trap; bot survived).
+IDLE 10-08 19:56Z -> 10-10 01:52Z (~30 h): withdraw2-01 refused at preflight (changerowcheck: withdraw_pick is emitted by
+the baseline since withdraw-01); the scheduler BLOCKED and paged, but nothing woke the operator and every agent was down
+(weekly API limit, resets 10-12 06:00 CT). Fixes: amendment 1 (change_rows -> [withdraw_settled]), then licencecheck v31
+refused class kind _withdraw_pick (baseline emits it); amendment 2: licence class text, row _withdraw_pick, text
+"best_valid=" (written only by withdraw2's withdrawRow; baseline 0 hits in 70 rows). 01:53Z preflight/licence/gatedigest
+OK, drawing. LESSON: an operator-side standing watch on the journal + sched.log BLOCK lines now wakes the operator.
+AGENTS DOWN until ~10-12 11Z (weekly limit): A' build (in review), stock targets (design r2), airpocket-02 (r1 fixes),
+variant prep (gridfix). The owner started a separate session for airpocket's open-window equip race (task_e9234f96).
+Deaths steady ~23-30 per 12 h fleet-wide (10-08 / 10-09).
+
 ## 10-08 17:25Z — OWNER delegated the open items to operator + Codex ("implement, deploy and run them")
 +180 KEEP: Codex and operator AGREE on A' as calibrated (four-pool bag fix; KEEP at +180 only if every gate passes,
 exposure ready, no death trip/extension pending, reads readable, cumulative canary death rate <= control's; else +360;
