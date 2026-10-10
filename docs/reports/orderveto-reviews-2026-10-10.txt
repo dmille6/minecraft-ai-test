@@ -1,0 +1,75 @@
+orderveto reviews, 2026-10-10. Codex: final answers verbatim. Claude subagent: condensed from its replies.
+
+=== CODEX r1 (design: the order yields) ===
+APPROVE-WITH-CHANGES
+
+The fallback is a reasonable smallest fix for decision-channel starvation. It does not yet establish recovery from the underlying inventory problem. This review is based on the report and source; I did not independently reproduce the fleet measurements. No files were edited.
+
+1. **The order classifier is credible; the justification claim is overstated.** Synthetic orders have exactly the reported signature (`bots/src/cognitive.mjs:904`; `bots/src/logger.mjs:295`). Reconcile the three unmatched events individually; matching totals alone does not prove edge drift. More importantly, snapshots aggregate inventory by name (`bots/src/state.mjs:7`): reconstructed slot counts lose stack layout/NBT. Even exact occupancy cannot establish craft feasibility: ingredient consumption, output-stack capacity, table recovery and nearby pickups matter (`bots/src/craftroom.mjs:65`, `:133`). A runner pause is not another observation of craft failure. Call 89.7% **consistent with persistent bag pressure**, not “demonstrably still held.” The “at most 4.6% unjustified” bound also excludes 204 unverified station failures. The subsequent-outcome buckets total 3,536, leaving 72 of 3,608 unexplained (`docs/reports/orderveto-design-2026-10-10.md:64`). Zero class-A windows supports that narrow classification, not zero potentially productive refusals among mixed/unknown windows.
+
+2. **Prefer yielding over exemption or a duplicate gate pre-check.** Exemption removes useful throttling without fixing room. A memory-only pre-check can disagree with milestone-critical/bootstrap/forced admissions, which precede `repeat_loop`; calling the real `check()` as a probe mutates state (`bots/src/admission.mjs:564`, `:654`, `:674`, `:711`). Sharing `admitRoom` with `readyFor` is a worthwhile separate change, but must model the executor’s station reservations and internal remedies—not merely reject every currently full bag (`bots/src/workorder.mjs:200`; `bots/src/skills.mjs:3932`, `:4108`). The unshipped `2fba1a88` addresses productive repeats, a different population. Also, `learned_avoid` is a memory refusal, not a validity refusal; excluding it is defensible scope, but the design’s explanation is inaccurate.
+
+3. **Specify two proposals but one completed decision.** Preserve the first check’s effects; check the fallback exactly once and never recursively yield. Cooldown returns before probation mutation; a probation fall-through can increment `blockedCount` before returning `repeat_loop`. Repeating that key through the model can increment it again and change `vetoStreak`/forced admission behavior (`bots/src/admission.mjs:533`, `:674`). This is proposal-level counting, not unchanged tick-level behavior. Preserve milestone/wanted context for both checks; deposit also normalizes args and sets `bot.currentWants` (`:347–356`). Clear stale rejection/admission state before handling malformed fallback responses. Run execution, telemetry, scheduling and `milestones.noteAttempt` once, using only the final proposal and actual runner outcome (`bots/src/cognitive.mjs:944`, `:1168`). Early admission exemptions do **not** enter `recent`; the report’s “four other actions rotate the window” is not generally true (`bots/src/admission.mjs:717`).
+
+4. **The promised remedy is not reliably in the reused prompt.** `lastOutcome` becomes a generic rejection after every refused decision (`bots/src/cognitive.mjs:1130`); runner-paused outcomes also replace the craft advice. Reusing the prompt exposes the craft remedy immediately after some failures, but not throughout an existing streak. Either retain/surface the relevant execution failure or narrow the claim to “the model gets a turn.” Test the actual chain: full-bag craft → refusal → fallback deposit → gate → runner → freed slot → craft. Deposit can itself encounter `bank_closed`, worth-it, cooldown or learned refusal (`bots/src/admission.mjs:337`). Gathering can refill capacity and sustain the cycle. A deterministic, gated room remedy is the next option if the canary shows fallback selection repeatedly fails.
+
+5. **Recovery must depend on the final decision, with its regression measured.** A final model refusal should increment `consecutiveRejections` once and retain existing breaker behavior; an admission resets it (`bots/src/cognitive.mjs:1138–1156`). An initial order `repeat_loop` followed by a different model refusal loses the immediate repeat trigger; repeated admitted failures/no-effects can suppress rejection recovery entirely. Existing long streaks do not prove the breaker is useless elsewhere. Test these cases and measure time without useful execution. Successful serving ingredient gathering can also reset the milestone deadline without resolving room (`bots/src/milestones.mjs:937`).
+
+6. **Preserve issue-time bookkeeping explicitly.** Town/planting/wear-out clocks are charged before admission. Yielding must not fabricate execution outcomes or apply the model’s outcome to the discarded order (`bots/src/cognitive.mjs:813`, `:850`, `:881`, `:958`). Town deposit additionally latches on issuance; gate refusal never reaches its runner-declined unlatch (`bots/src/towndeposit.mjs:247`, `:259`). Test that case or initially restrict yielding to the measured craft/smelt population.
+
+7. **Replace the canary’s loose 120-second pairing with same-tick attribution.** Decision rows are logged **after execution**, so a legitimate long fallback skill can exceed 120 seconds (`bots/src/cognitive.mjs:1193`). Conversely, an unrelated subsequent model row can falsely satisfy Y2. Correlate issuance, yield, inference attempt and final decision using an identifier in existing event detail. Require exactly one yield and fallback invocation per eligible tick, including schema/error paths; positive controls must cover both refusal reasons and admitted orders that still skip inference. Use behavioral loop tests, including probation, repeated fallback craft, failed inference and town bookkeeping.
+
+8. **Use actual execution throughput as the honest primary endpoint.** Predeclare DiD in executed strategic skills per bot-hour, excluding runner refusals; report final no-execution decisions, useful outcomes, room recovery and milestone progress alongside it. Admissions alone can become runner-paused failures; fewer refusal rows can simply reflect slower inference. The 33 bot-hours are inter-decision intervals, not established recoverable idle time—rejections can invoke escape. Scheduling still waits after the fallback finishes (`bots/src/cognitive.mjs:532`, `:1230`). The load estimate is roughly **267 additional `decide()` calls/hour**, or 4.3% over the observed window, not 3,600/day; retries increase HTTP load. Gate on latency, timeouts and overlapping ticks too: the watchdog can restart inference while the runner is idle (`bots/src/cognitive.mjs:550`). A zero refused-order streak after relabeling rows is instrumentation success, not evidence of productive recovery.
+
+=== CLAUDE r1 ===
+APPROVE-WITH-CHANGES (read-only).
+1. Classification sound; "no fewer slots" stands in for admitRoom (table/pickup reservations, stacking) -- an estimate.
+2. Gate side effects check out; for rung orders a wanted craft with >= 4 prior failures is admitted milestone_critical
+   (admission.mjs ~564) before repeat_loop, so repeat_loop only refuses rung crafts with < 4 recorded failures; the window
+   needs 5 different admissions to clear, not 4.
+3. The prompt pushes the model straight back to the refused craft: HINT craft with item=X (milestones.mjs:273), CAN CRAFT
+   NOW with no room check (prompt.mjs:500-530); 70.9% same-action re-proposal after repeat_loop (2fba1a88); deposit advice
+   followed 7% (towndeposit.mjs:8). Expect most yields to be refused again.
+4. LAST ACTION = the failure only on the first yield; later the remedy survives only in RECENT EVENTS (dropped first).
+5. The yield skips wear_out / town orders / planting (cognitive.mjs:809, 822, 854); prefer dropping the rung order before
+   them (alternative c), limited to orderFor orders.
+6. Serving gathers reset the 45-min no-progress give-up (milestones.mjs:937); a stuck rung could last to the 3-h residence
+   limit (:951).
+7. Alternative (a), admitRoom in readyFor, should not be deferred as "bigger".
+8. Read: the refused-order primary falls by construction; use executed decisions/bot-h, same-key re-proposal rate on
+   yields (INCONCLUSIVE if >= 70%), rung residence, bag slots after a yield, admitted bag-full craft failures/bot-h; Y2 must
+   count an LLM error row; streaks cannot be measured on 5 bots.
+9. Load/pacing fine; currentWants/activeMilestoneId harmless; breaker fed only by model refusals; watch deposit of oak_log
+   re-opening a wood rung.
+
+=== CODEX r2 (decision: do not build) ===
+**AGREE with not proceeding with orderveto-01**, but record “insufficient evidence of benefit,” not “proved inert.”
+
+1. **Unjustified vetoes have not been shown to dominate.** Zero observed productive-repeat refusals supports retaining the gate. However, unchanged estimated slot count cannot prove unchanged craft feasibility: ingredient consumption, output-stack capacity and reservations matter (`bots/src/craftroom.mjs:65,133`). Consequently, 89.7% is “consistent with continued blockage”; ~4.6% is not a rigorous upper bound on unjustified vetoes.
+
+2. **The proposed replacement addresses the concrete defect.** `readyFor` checks recipe availability without room feasibility (`bots/src/workorder.mjs:211`). Meanwhile, remote deposit is explicitly gated (`bots/src/bankable.mjs:232`), and the remedy deliberately becomes `home` (`bots/src/skills.mjs:4343`). Giving the model another turn does not reliably execute that sequence. Gate correctness alone, however, does not refute yielding: r1 preserves the gate and targets decision starvation.
+
+3. **The n=112 sample is a selected observational comparison, not a fair causal control.** Getting a model turn may depend on rung changes, elapsed time or changed inventory/location—the same factors affecting remedy choice. Repeated observations also cluster by bot. It supports skepticism about immediate remedy uptake, but cannot estimate same-tick yielding’s effect.
+
+4. **“~1% reach the remedy” overstates what was measured.** It measures admitted *deposit*, not completed remedy execution. Inspect the 23 admitted `goto` destinations and subsequent automatic deposits; homeward movement could help. Conversely, admission does not establish successful banking. Mine/gather may worsen pressure, but explore/goto do not necessarily refill inventory. Fleet-wide deposit refusals lack the relevant denominator.
+
+5. **Support a separate deterministic-remedy design and canary in both engines, with one essential correction:** suppressing craft before its first failure must also schedule the remedy, or the failure-triggered remedy never starts. Recompute structured remedies against current state. Preserve deposit/eat cases too. Home does **not** guarantee `town_deposit`: its slot threshold, latch, backoff, usable plan and container checks still apply (`bots/src/towndeposit.mjs:230`). Measure actual slots freed and subsequent craft/rung completion.
+
+Read-only review; existing orderveto implementation edits were already present and remain untouched.
+
+=== CLAUDE r2 ===
+AGREE: do not build orderveto-01; record the finding as the close.
+1. ~1% does not rest on n=112 alone: towndeposit.mjs:8 (7%) and 2fba1a88 (70.9% re-proposal) agree; 1/112 has a 95% upper
+   bound ~5%.
+2. The yield hands the model the prompt that steers it back to the craft (milestones.mjs:273, prompt.mjs:500-530).
+3. Risk: serving mine/gather resets the 45-min give-up (cognitive.mjs:702-710, milestones.mjs:76-83, 937) -> up to 3 h.
+4. The build condition is not met: <= 4.6% possibly unjustified, 0 productive repeats refused.
+5. The control is a biased subset (the model got a turn only when the order stopped); the bias likely overstates remedy
+   uptake under a yield -- state it as a caveat.
+6. The count only includes deposit; 62% of remedies are home, 14% place -- reclassify (home skill / goto ending near home /
+   place of the named block). [Done in read 4: 14 of 112 took the named remedy.]
+7. Keep the stack-size caveat.
+8-10. Follow-up gaps: home does not guarantee town_deposit (34+ slots, town zone, freed >= 1, keeps logs/cobble/wanted to
+   64; towndeposit.mjs:93-111, 233-245; craftroom's X has none of those keeps); a craft can be refused below 34 slots
+   (craftroom.mjs:133-143); a home walk is long (death and travel tripwires); readyFor's room check needs HINT/CAN CRAFT NOW
+   to stop advertising X; test wear_out/compost reachability as a chain.

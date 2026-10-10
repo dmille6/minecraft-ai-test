@@ -14,6 +14,22 @@ AGENTS DOWN until ~10-12 11Z (weekly limit): no new builds before then._
 
 ---
 
+## 10-10 13:42Z — orderveto: the gate's refusals of WORK ORDERS are JUSTIFIED; orderveto-01 NOT BUILT (both engines AGREE)
+Record: docs/reports/orderveto-investigation-2026-10-10.md; reviews docs/reports/orderveto-reviews-2026-10-10.txt; reads
+scripts/host/orderveto/ (+ outputs in ~/mcai-analysis/orderveto-evidence-2026-10-10/ on the fleet host).
+- 10-10 00:00-13:28Z, 80 bots: 3,608 of 7,311 work orders refused (repeat_loop 2,151, cooldown 1,457), ALL craft/smelt
+  rung orders. 0 productive repeats refused (positive control: 299 order crafts/smelts succeeded). ~90% stop a craft that
+  failed for NO ROOM in the bag with no fewer slots since (stack-size estimate, not an admitRoom re-run). Gate is right.
+- Cost: ~33 bot-h of decisions that ran nothing (~3%); the order is re-issued every decision before the model, so 44 runs
+  of >= 10 refused orders (14.8 bot-h), longest ~41 min with the model never asked.
+- Root: readyFor issues a craft the bag cannot hold; craftroom names the remedy ("home -- then deposit X" 62%, "deposit X",
+  "place <block>") and nothing executes it. Given a turn, the model took that remedy 14 of 112 times.
+- The "order yields to the model" fix was designed, prototyped with tests, reviewed (r1 both APPROVE-WITH-CHANGES, Claude
+  predicting it inert: the prompt's HINT/CAN CRAFT NOW pull the model back to the craft) and DROPPED (r2 both AGREE).
+- FOLLOW-UP (not built, needs owner priority + both engines): readyFor asks admitRoom; while no room, no craft order and
+  no HINT/CAN CRAFT NOW for it; the named remedy becomes the order (place X / home-then-deposit X, checked against the
+  town deposit's keeps). Gaps listed in the record.
+
 ## 10-10 13:32Z — FLEET HOST RAM 48 -> 96 GB (owner); airpocket-02 built; abort breakdown; peacefulkit rearmed
 VM 202 (block2-bots, pve1) shut down 13:28Z, memory 98304, started 13:29Z: 94 GB usable + 8 GB /swapfile (swappiness 10);
 80/80 bots back on 4970c91, mayor/reads/crons/scheduler back by themselves. peacefulkit-01's draw loop was stopped
