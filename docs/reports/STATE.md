@@ -14,6 +14,17 @@ AGENTS DOWN until ~10-12 11Z (weekly limit): no new builds before then._
 
 ---
 
+## 10-10 13:50Z — ORDERVETO: gate refusals JUSTIFIED (root cause: craft orders issued without bag room); stonecap queued
+orderveto investigation (docs/reports/orderveto-investigation-2026-10-10.md, both engines agreed NOT to build the
+first idea): 3,608 of 7,311 work orders refused (repeat_loop 2,151, cooldown 1,456), all craft/smelt orders; 0
+refusals of a repeating SUCCESS (positive control: 203 crafts + 96 smelts ordered this way succeeded); 89.7% of the
+underlying failures = "no room in the bag"; cost ~33 bot-h/day (~3% of fleet time), runs up to ~40 min. Root cause:
+readyFor checks the recipe, not bag room. NOW BUILDING orderroom-01: craft orders only with room (the craft's own
+check); otherwise the named remedy (place / deposit / home+deposit) becomes the order; close the town-deposit gaps.
+QUEUE (scheduler): peacefulkit-01 (drawing; needs 4 pools, ~17Z) -> junkwell-02 (variants + 4970c91->0264f61) ->
+stonecap-01 (sc-on-0cdb1a8 935c63e / sc-on-0264f61 d551f7a; both engines APPROVE). Fetched into /opt. airpocket-02 gets
+two more race fixes (well cleanup vs rescue equip; no equip behind a craft) and variants on the stonecap shas.
+
 ## 10-10 13:50Z — STONECAP READY on jw-on-6f1921a (+ a peacefulkit-REVERT contingency for junkwell and stonecap); entries drafted, NOT added
 - **sc-on-0cdb1a8 @ 935c63e.** The approved sc-on-cf4192e @ 32d7447 was applied as one commit (bacad2f): no conflict, identical text.
   - 935c63e adds main's mutant driver (scripts only; bots/ identical to bacad2f).
