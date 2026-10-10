@@ -33,8 +33,6 @@ export const AP_NOT_CLOSING_MS = 4000         // a non-sealed rescue must have s
 export const AP_WANT_LAPSE_MS = 3000          // a pre-empt request lapses unless renewed (it is renewed every tick)
 export const AP_BREATHE_HOLD_MS = 10_000      // after a pocket opens, no escape starts for 10 s (air refills to 300 in ~4 s)
 export const AP_REDIG_MAX = 2                 // a dug cell that re-freezes is dug again at most this often in one step
-export const AP_WINDOW_WAIT_MS = 1500         // an open container window gets this long to close before any equip
-export const AP_WINDOW_SETTLE_MS = 250        // and this long after it closes, for the closing skill's last clicks
 
 import { difficultyOf } from './foodskip.mjs'
 import { TOOL_HYGIENE, remaining, HARD_STOP } from './toolfor.mjs'
@@ -256,33 +254,6 @@ export function routeUpBlocked ({ routeDir, targetY, eyeCell, cellAt = () => nul
   return { blocked: false, by: null }
 }
 
-/**
- * MAY THE STEP TOUCH THE INVENTORY? Pure. The window-handoff race (peacefulkit-01 review r1/r2, Codex): the rescue
- * interrupts a skill and equips at once, but an interrupted smelt/chest/craft may still hold a container window open
- * and be clicking (smelt's drain: up to 12 s). An equip then clicks the WRONG window's slots. So no equip while a
- * window is open: wait up to AP_WINDOW_WAIT_MS for it to close (never a forced close -- the old transfers could still
- * resume), then AP_WINDOW_SETTLE_MS more; a window still open -> 'skip' (no inventory click; the step prices what is held).
- */
-export function windowHandoff ({ open, waitedMs, closedForMs = Infinity }) {
-  if (open) return waitedMs >= AP_WINDOW_WAIT_MS ? 'skip' : 'wait'
-  return closedForMs >= AP_WINDOW_SETTLE_MS ? 'go' : 'wait'
-}
-
-/** Await the handoff. Impure (reads bot.currentWindow, sleeps). -> 'none' (no window seen) | 'closed' | 'open'. */
-export async function awaitWindowHandoff (bot, { sleep, now }) {
-  const t0 = now()
-  if (!bot.currentWindow) return 'none'
-  let closedAt = null
-  while (true) {
-    const open = !!bot.currentWindow
-    if (!open && closedAt == null) closedAt = now()
-    const d = windowHandoff({ open, waitedMs: now() - t0, closedForMs: closedAt == null ? 0 : now() - closedAt })
-    if (d === 'go') return 'closed'
-    if (d === 'skip') return 'open'
-    if (open) closedAt = null
-    await sleep(50)
-  }
-}
 
 
 /**
@@ -431,11 +402,7 @@ export async function airPocketStep (bot, plan, { Vec3, predict, sleep = ms => n
     res.standing = standing
     // BOUNDED EQUIP, THEN VERIFY WHAT IS ACTUALLY HELD (Codex r1): a rejected or slow equip must not leave the prediction
     // describing a tool the bot is not holding. The dig is re-priced with the held item and must still fit.
-    // THE WINDOW HANDOFF FIRST (airpocket-02): no equip while an interrupted skill's container window is open
-    res.window = await awaitWindowHandoff(bot, { sleep, now })
-    // re-checked synchronously at the call (Codex r1 P2: a window that opened after the handoff resolved)
-    if (best.item && res.window !== 'open' && bot.currentWindow) res.window = 'open'
-    if (best.item && res.window !== 'open') {
+    if (best.item) {
       let t
       try { await Promise.race([bot.equip(best.item, 'hand'), new Promise((_, rej) => { t = setTimeout(() => rej(new Error('equip timeout')), AP_EQUIP_MS) })]) } catch { /* verified below */ } finally { clearTimeout(t) }
     }
@@ -444,7 +411,7 @@ export async function airPocketStep (bot, plan, { Vec3, predict, sleep = ms => n
     res.tool = held?.name ?? 'hand'
     res.predictedMs = Number.isFinite(heldMs) ? Math.round(heldMs) : null
     if (!(Number.isFinite(heldMs) && heldMs > 0) || heldMs * AP_MARGIN + AP_LATENCY_MS > airPocketBudgetMs({ health: bot.health, envelope })) {
-      res.why = `the held ${res.tool} needs ${res.predictedMs} ms: over the budget after equip${res.window === 'open' ? ' (a container window stayed open: no equip)' : ''}`; return res
+      res.why = `the held ${res.tool} needs ${res.predictedMs} ms: over the budget after equip`; return res
     }
     const p1 = bot.entity.position
     if (Math.floor(p1.x) !== fx || Math.floor(p1.z) !== fz || Math.floor(p1.y) < fy - 1) { res.why = 'moved off the planned column'; return res }
@@ -598,8 +565,6 @@ export async function standInPocket (bot, plan, { fx, fy, fz, Vec3, sleep, now, 
       if (!item) return `stopped:no ${pick.supported ? '' : 'non-falling '}placeable block (${placed} placed)`
       if (!pick.supported && FALLING.test(item.name || '')) return `stopped:${item.name} would fall (${placed} placed)`
       if (isAborted()) return `stopped:aborted: ${isAborted()} (${placed} placed)`
-      // no equip while a container window is open (the window handoff, airpocket-02)
-      if (await awaitWindowHandoff(bot, { sleep, now }) === 'open' || bot.currentWindow) return `stopped:a container window is open (${placed} placed)`
       try { await Promise.race([bot.equip(item, 'hand'), sleep(1500)]) } catch { /* verified by the gate */ }
       try { bot.setControlState('jump', true) } catch {}
       const by = now() + 2500
@@ -690,8 +655,8 @@ export function airPocketRow ({ id, r, requiredMs, budgetMs, difficulty }) {
                `predicted_ms=${r.predictedMs} dig_ms=${r.digMs ?? -1} ms=${r.ms ?? -1} envelope=${r.envelope} ` +
                `health=${r1(r.healthStart)}->${r1(r.healthEnd)} | required_ms=${Math.round(requiredMs)} budget_ms=${Math.round(budgetMs)} ` +
                `difficulty=${difficulty} | standing=${r.standing ? 1 : 0} pose=${r.pose ?? 'na'}` +
-               // only when they say something: a re-dig, a window that held the equip off
-               `${r.redigs ? ` redig=${r.redigs}` : ''}${r.window && r.window !== 'none' ? ` window=${r.window}` : ''} eye=${r.eye} ` +
+               // only when it says something: a re-dig
+               `${r.redigs ? ` redig=${r.redigs}` : ''} eye=${r.eye} ` +
                `stand=${String(r.stand ?? 'none').slice(0, 40)} -- `
   // a success's why is always "breathing in …" (the outcome already says it); a failure's why is the diagnosis
   return (head + (r.outcome === 'success' ? '' : String(r.why ?? ''))).slice(0, AP_ROW_MAX)
