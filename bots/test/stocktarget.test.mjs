@@ -245,6 +245,11 @@ await t('PRUNE TAKES ONLY WHAT THE WELL THROWS (Claude code r2 P2-2): an empty b
   assert.equal(pick([]), null, 'empty bag: no walk to the chest')
   assert.equal(pick(kept)?.stacks, 4, 'the keep held: four stacks')
   assert.equal(P.prunePick({ obs: { j: { n: 0, at: now - 10, v: 2, m: { junk: 20 } } }, keys: ['j'], avail: {}, free: 5, now, accept: () => [] })?.stacks, 1, 'listed junk is not filtered (the well always throws it)')
+  // A REFUSED GROUP NEVER STARVES A LATER ONE (Codex code r3 P2): cobble first (the rule here never throws it: no cap), oak
+  // after -- the four slots go to oak; without the acceptance-while-filling they were spent on cobble and nothing was picked
+  const mixed = { a: { n: 640, at: now - 1000, v: 2, m: { cobble: 640, oak_log: 640 } } }
+  const pm = P.prunePick({ obs: mixed, keys: ['a'], avail: { cobble: 640, oak_log: 640 }, free: 10, now, accept: c => P.pruneAccepted(kept, c, rule(opts)) })
+  assert.deepEqual(pm?.takes, [{ group: 'oak_log', stacks: 4 }], `cobble refused, oak picked: ${JSON.stringify(pm)}`)
 })
 
 await t('PRUNE EVIDENCE (Paper 10-10: graded unknown): the runner scores prune_town by its own verified count -- taken and thrown 128 -> prune_effect; none -> no evidence (the bag\'s net change is zero either way)', async () => {
@@ -299,6 +304,27 @@ await t('RECOVERY CHAIN (Codex code r2 P1): full chest -> reserve 64 planks -> t
     assert.ok(planksIn(w.bag) >= 256, `the keep stays: ${planksIn(w.bag)}`)
     const c = livePlanksClaims()
     assert.ok(c.all > 0 && c.live === 0, `claims ${JSON.stringify(c)}`)
+  })
+})
+await t('RECOVERY ROW (Codex code r3 P2): six reservations -> the row says nclaims=6 however its id list is cut, and the journal holds six admitted claims carrying the recovery\'s action id', async () => {
+  const LOGS = ['oak_log', 'birch_log', 'spruce_log', 'jungle_log', 'acacia_log', 'dark_oak_log']
+  const w = town(LOGS.flatMap(n => [stack(n, 64), stack(n, 64)]))
+  w.bot.currentWants = LOGS
+  w.fill(5, 64, 0, 'cobblestone', 64)
+  await capped(w, async () => {
+    const SK = await import('../src/skills.mjs')
+    await cobbleObserve(w.bot, { x: 5, y: 64, z: 0 }, await w.bot.openContainer(w.bot.blockAt({ x: 5, y: 64, z: 0 })))
+    const n0 = RECS.length
+    const q = SK.stockQualifies(w.bot, null, 'place', { reserveAt: { x: 4, y: 64, z: -1 }, aid: 'AIDTEST' })
+    const row = RECS.slice(n0).find(x => x.skill?.name === '_stock_recovery')?.skill?.detail ?? ''
+    const n = Object.keys(q.reserved).length
+    assert.ok(n >= 6, `six log types reserved: ${n} ${row}`)
+    assert.match(row, new RegExp(`^stage=place aid=AIDTEST at=4,64,-1 untargeted=0 nowell=0 nclaims=${n} `))
+    const dir = process.env.POOL_STATE_DIR
+    const f = fs.readdirSync(dir).find(x => x.endsWith('.cobble.jsonl'))
+    const raw = fs.readFileSync(path.join(dir, f), 'utf8').split('\n').filter(Boolean).map(l => JSON.parse(l))
+    assert.equal(raw.filter(r => r.t === 'claim' && r.aid === 'AIDTEST').length, n, 'every reservation carries the aid')
+    for (const v of Object.values(q.reserved)) CC.recordCount(dir, f.replace('.cobble.jsonl', ''), null, { release: [v.id] })
   })
 })
 await t('RECOVERY ABORT (Codex code r2 P2): aborted during the chest craft (after the reservation) -> the abort reaches the caller and the reservation is released, not left live (mutant: no finally -> live 1)', async () => {

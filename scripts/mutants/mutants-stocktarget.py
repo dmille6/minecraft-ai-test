@@ -140,6 +140,13 @@ MUTANTS = [
      '              ;(byG[takeAt[id].g] ??= []).push(id)', '              ;(byG[Object.keys(byG)[0] ?? takeAt[id].g] ??= []).push(id)', PY),
     ('the tripwire counts 64 to a slot (Codex code r2 P2)', 'scripts/host/stocktargetread.py',
      '        per = 1 if UNSTACKABLE.search(k) else 16 if STACK16.search(k) else 64', '        per = 64', PY),
+    # ---- round 4 (code r3: Codex P2 x2)
+    ('a refused prune group still spends the budget (Codex code r3 P2)', 'bots/src/prune.mjs',
+     '        n = ok\n', '        left -= n - ok; n = ok\n', T),
+    ('a reservation is written without its recovery\'s action id (Codex code r3 P2)', 'bots/src/cobblecap.mjs',
+     ", ...(aid ? { aid } : {}) }", " }", T),
+    ('G2 never checks the reservations against the journal', 'scripts/host/stocktargetread.py',
+     'if bank_aids is not None and nclaims > 0 and bank_aids.get(aid, 0) < nclaims:', 'if False:', PY),
     ('the tripwire weighs rows, not bot-minutes (Codex code r2 P2)', 'scripts/host/stocktargetread.py',
      "        return sum(f / n for f, n in mins) / len(mins) if mins else float('nan')", "        return sum(f for f, n in mins) / sum(n for f, n in mins) if mins else float('nan')", PY),
 ]

@@ -3253,13 +3253,13 @@ function cobbleReserve (bot, count, pos) { return stockReserve(bot, 'cobble', co
  * `k` may name a container that does not exist yet (the recovery's chosen site).
  */
 const ADMITTED_KINDS = new Set(['bank', 'take', 'draw', 'valve', 'nowell'])
-export function stockReserve (bot, group, count, pos, kind = 'bank', { k = null, proof = null } = {}) {
+export function stockReserve (bot, group, count, pos, kind = 'bank', { k = null, proof = null, aid = null } = {}) {
   if (!pos || !inTown(homeVec(), pos)) return { decision: 'outside', view: null, id: null, at: Date.now() }
   const sc = townCobbleScan(bot, Date.now(), { fresh: true })   // the authoritative check scans now
   const id = `${bot.username ?? 'bot'}-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`
   capEpoch++
   const r = claimStack(townDir(), homeTownKey(), bot.worldId ?? null,
-    { id, n: count, k: k ?? containerKey(bot, pos), g: group, kind, proof, bot: bot.username ?? null, keys: sc.keys, coverage: sc.coverage, gone: sc.gone, inst: capInst(bot) })
+    { id, n: count, k: k ?? containerKey(bot, pos), g: group, kind, proof, aid, bot: bot.username ?? null, keys: sc.keys, coverage: sc.coverage, gone: sc.gone, inst: capInst(bot) })
   return { decision: r.decision, view: r.view, id: ADMITTED_KINDS.has(r.decision) ? id : null, at: r.at }
 }
 /** THE KIND OF AN INCOMING CLAIM for `group` (design 3.2): a plain bank claim while the cap binds (tools: always), else a
@@ -3350,7 +3350,7 @@ export function stockQualifies (bot, item = null, stage = 'entry', { reserveAt =
       const tool = isToolGroup(g)
       if (!(tool ? stockReaderInstalled() : stockCapBinds())) { out.names[name] = 'nowell'; out.nowell++; out.any = true; continue }
       if (!reserveAt) { out.names[name] = 'under'; out.any = true; continue }
-      const adm = stockReserve(bot, g, tool ? 1 : count, reserveAt, 'bank', { k: posKey(reserveAt) })
+      const adm = stockReserve(bot, g, tool ? 1 : count, reserveAt, 'bank', { k: posKey(reserveAt), aid })
       if (adm.id) { out.names[name] = 'reserved'; out.reserved[name] = { id: adm.id, n: tool ? 1 : count }; out.any = true }
     }
   } catch { /* an unreadable plan builds nothing */ }
@@ -3362,7 +3362,7 @@ export function stockQualifies (bot, item = null, stage = 'entry', { reserveAt =
 function stockRecoveryRow (bot, stage, q, { at = null, aid = null, held = false } = {}) {
   try {
     logEvent({ kind: 'stock_recovery', status: q.any ? 'success' : 'no_effect', snapshot: snapshot(bot),
-               detail: `stage=${stage} aid=${aid ?? '-'}${at ? ` at=${posKey(at)}` : ''} untargeted=${q.untargeted ?? 0} nowell=${q.nowell ?? 0} qualifying=${Object.keys(q.names ?? {}).join(',') || '-'} claims=${Object.values(q.reserved ?? {}).map(x => x.id).join(',') || '-'}${held ? ' held=1' : ''}`.slice(0, 300) })
+               detail: `stage=${stage} aid=${aid ?? '-'}${at ? ` at=${posKey(at)}` : ''} untargeted=${q.untargeted ?? 0} nowell=${q.nowell ?? 0} nclaims=${Object.keys(q.reserved ?? {}).length} qualifying=${Object.keys(q.names ?? {}).join(',') || '-'} claims=${Object.values(q.reserved ?? {}).map(x => x.id).join(',') || '-'}${held ? ' held=1' : ''}`.slice(0, 300) })
   } catch { /* a row must never break the recovery */ }
 }
 /** The first uncounted container that could not be counted, and why -> 'x,y,z (why)' or null. */

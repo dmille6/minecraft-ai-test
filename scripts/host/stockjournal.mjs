@@ -16,7 +16,7 @@ const [ccPath, sinceS, untilS, ...dirs] = process.argv.slice(2)
 const CC = await import(path.resolve(ccPath))
 const ST = await import(path.join(path.dirname(path.resolve(ccPath)), 'stocktarget.mjs'))
 const since = Number(sinceS), until = Number(untilS)
-const out = { towns: [], g3: [], g4: [], g4_overlap: [], valve: [], resets: [], unreadable: [], live_over_1h: {}, generations: {}, admitted: { bank: 0, take: 0, draw: 0, valve: 0, nowell: 0 }, draws: {}, bank_ids: [] }
+const out = { towns: [], g3: [], g4: [], g4_overlap: [], valve: [], resets: [], unreadable: [], live_over_1h: {}, generations: {}, admitted: { bank: 0, take: 0, draw: 0, valve: 0, nowell: 0 }, draws: {}, bank_ids: [], bank_aids: {} }
 
 // a generation's records, cut at `upto` bytes (the successor base's prevEnd: what was appended after it is NOT folded by
 // any bot -- design r3 section 4 -- so the audit must not fold it either; Codex code r1 P2)
@@ -63,7 +63,10 @@ for (const dir of dirs) {
           const c = state.claims?.[r.id]
           if (c && r.at >= since && r.at <= until && c.decision in out.admitted) out.admitted[c.decision]++
           // the read's G2 checks a recovery's reservations against these (Codex code r2 P2)
-          if (c && (c.decision === 'bank' || c.decision === 'nowell') && r.at >= since - 600_000 && r.at <= until) out.bank_ids.push(r.id)
+          if (c && (c.decision === 'bank' || c.decision === 'nowell') && r.at >= since - 600_000 && r.at <= until) {
+            out.bank_ids.push(r.id)
+            if (r.aid) out.bank_aids[r.aid] = (out.bank_aids[r.aid] ?? 0) + 1   // a recovery's reservations, by its action id
+          }
           if (c) (admittedOn[r.k] ??= []).push({ id: r.id, seq, g: c.g ?? 'cobble' })
           if (c && c.decision === 'draw' && r.at >= since && r.at <= until) { const t = (out.draws[path.basename(dir)] ??= {}); t[c.g ?? 'cobble'] = (t[c.g ?? 'cobble'] ?? 0) + (Number(c.n) || 0) }
           if (c && c.decision === 'take') takeAt[r.id] = { k: r.k, g: c.g ?? 'cobble', n: c.n, c0: CC.countOf(before?.obs?.[r.k], c.g ?? 'cobble'), at: r.at, bot: r.bot, seq }

@@ -38,23 +38,29 @@ export function prunePick ({ obs = {}, keys = [], avail = {}, free = 0, now = Da
     const src = o.lo ?? o
     const takes = []
     let left = room
+    // ONLY WHAT THE WELL WILL THROW FROM THIS BAG (Claude code r2 P2-2; `accept` = pruneAccepted over the bot's bag), judged
+    // WHILE the budget fills (Codex code r3 P2: judged after, a rejected group starved every later one): a stack the keeps
+    // would leave in the bag is never walked for (the open container judges again, by name); listed junk always goes
+    const accepted = []
     for (const g of Object.keys(src.m ?? {}).sort()) {
       if (left <= 0) break
       if (isToolGroup(g)) continue
       // the well's JUNK LIST (pseudo-group `junk`, target 0): any of its stacks, partial ones too -- nothing to keep
       const c = countOf(src, g) ?? 0
-      const n = g === 'junk' ? Math.min(left, c > 0 ? Math.max(1, Math.floor(c / PRUNE_STACK)) : 0)
+      let n = g === 'junk' ? Math.min(left, c > 0 ? Math.max(1, Math.floor(c / PRUNE_STACK)) : 0)
         : Math.min(Math.floor(c / PRUNE_STACK), Math.floor(((Number(avail[g]) || 0) - targetOf(g)) / PRUNE_STACK), left)
+      if (accept && g !== 'junk' && n > 0) {
+        let ok = 0
+        for (let i = 0; i < n; i++) {
+          const trial = [...accepted, { group: g, name: namesOf(g)[0], count: PRUNE_STACK }]
+          let got = []
+          try { got = accept(trial) } catch { got = [] }
+          if (got.length !== trial.length) break   // pruneAccepted judges each take after the ones before: the new one was refused
+          accepted.push(trial.at(-1)); ok++
+        }
+        n = ok
+      }
       if (n > 0) { takes.push({ group: g, stacks: n }); left -= n }
-    }
-    // ONLY WHAT THE WELL WILL THROW FROM THIS BAG (Claude code r2 P2-2; `accept` = pruneAccepted over the bot's bag): a
-    // stack the keeps would leave in the bag is never walked for (the open container judges again, by name)
-    if (accept) {
-      const cands = takes.flatMap(t => (t.group === 'junk' ? [] : Array.from({ length: t.stacks }, () => ({ group: t.group, name: namesOf(t.group)[0], count: PRUNE_STACK }))))
-      let ok = []
-      try { ok = cands.length ? accept(cands) : [] } catch { ok = [] }
-      for (const t of takes) if (t.group !== 'junk') t.stacks = ok.filter(x => x.group === t.group).length
-      for (let i = takes.length - 1; i >= 0; i--) if (!(takes[i].stacks > 0)) takes.splice(i, 1)
     }
     const total = takes.reduce((t, x) => t + x.stacks, 0)
     if (total > 0 && (!best || total > best.stacks)) best = { k, takes, stacks: total }

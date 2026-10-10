@@ -14,7 +14,7 @@
 #                    keep= pillar_after= pruned_left= [refused=1]
 #   _stock_prune     the well, one per click of a stack a prune took (same fields)
 #   _stock_prune_visit  one per prune_town order
-#   _stock_recovery  chest-full recovery stages: stage=entry|craft|place aid= [at=] untargeted= nowell= qualifying= claims= [held=1]
+#   _stock_recovery  chest-full recovery stages: stage=entry|craft|place aid= [at=] untargeted= nowell= nclaims= qualifying= claims= [held=1]
 #   _town_deposit    adds " stock <claims>/<refused>[ valve N nothing_else=1][ counted N]"
 #
 #   LIVENESS     canary rows of the kinds above, plus deposit/town_deposit refusals naming "town stock target" (>= 1)
@@ -25,8 +25,8 @@
 #     G1b (independent, STOCK_CENSUS) a canary town whose census holds less than the target of a group the canary
 #         disposed or pruned, after adding back the canary's draws of that group in the window -- UNTESTED without a census
 #     G2  a canary _deposit_new_chest decision=place|craft placed=1 without the stage=place success row of the SAME
-#         recovery (aid=, same bot and site, <= 5 min before) that qualified (untargeted, nowell or reservations -- each
-#         reserved claim admitted in the journal when the audit ran)
+#         recovery (aid=, same bot and site, <= 5 min before) that qualified (untargeted, nowell or reservations -- as
+#         many admitted claims carrying that aid in the journal as the row's nclaims=, when the audit ran)
 #     G3  a _stock_bank row that moved items with complete=1 and town_after > target; and (journal) an admitted bank
 #         claim released into a group total above its target
 #     G3v a _town_deposit row with more than one valve, or a valve without nothing_else=1; (journal) more valve claims
@@ -169,7 +169,7 @@ def stream(since, until, cut, cans, logroot='/var/log/mcai'):
     return kept, walked, bots, bad, nopick
 
 
-def judge(rows, hours, census=None, draws=None, bank_ids=None):
+def judge(rows, hours, census=None, draws=None, bank_aids=None):
     """The gates and the reported numbers from the kept rows. Pure (the --selftest fixtures call it)."""
     post_c = [r for r in rows if r['per'] == 'post' and r['arm'] == 'canary']
     post_k = [r for r in rows if r['per'] == 'post' and r['arm'] == 'control']
@@ -221,7 +221,8 @@ def judge(rows, hours, census=None, draws=None, bank_ids=None):
                     g3v.append((r['bot'], v, str(r['t'])))
     # G2: a placement needs the place-stage row of the SAME recovery (its action id, aid=: Codex code r2 P2), from the same
     # bot, at the same site, that QUALIFIED: an untargeted item, a nowell name, or reservations -- and, when the journal
-    # audit ran, every reserved claim id admitted there (bank_ids). A stale same-site row of another recovery never counts.
+    # audit ran, as many admitted claims under that action id as the row's nclaims= (bank_aids). A stale same-site row of
+    # another recovery never counts.
     for r in post_c:
         if r['name'] == '_deposit_new_chest' and re.search(r'decision=(place|craft|place_carried)', r['detail']) and 'placed=1' in r['detail']:
             f0 = kv(r['detail'])
@@ -232,10 +233,14 @@ def judge(rows, hours, census=None, draws=None, bank_ids=None):
                     return False
                 if not aid or fq.get('aid') != aid or fq.get('at') != site or not (dt.timedelta(0) <= r['t'] - q['t'] <= dt.timedelta(minutes=5)):
                     return False
-                claims = [c for c in (fq.get('claims') or '-').split(',') if c and c != '-']
-                if bank_ids is not None and claims and not all(c in bank_ids for c in claims):
+                # the reservations are counted on the row (nclaims=, never cut) and proven in the JOURNAL by the recovery's
+                # action id (each claim record carries aid=) -- the id list itself may be cut at 300 characters (Codex code r3 P2)
+                nclaims = num(fq, 'nclaims', None)
+                if nclaims is None:
+                    nclaims = len([c for c in (fq.get('claims') or '-').split(',') if c and c != '-'])
+                if bank_aids is not None and nclaims > 0 and bank_aids.get(aid, 0) < nclaims:
                     return False
-                return num(fq, 'untargeted', 0) > 0 or num(fq, 'nowell', 0) > 0 or bool(claims)
+                return num(fq, 'untargeted', 0) > 0 or num(fq, 'nowell', 0) > 0 or nclaims > 0
             if not any(qualifies(q) for q in post_c):
                 g2.append((r['bot'], site, aid, r['detail'][:80], str(r['t'])))
     # G1b (independent): the census against the targets of the groups this canary disposed or pruned
@@ -289,9 +294,11 @@ def selftest():
     assert judge([R('_stock_recovery', 'stage=place aid=A1 at=9,9,9 untargeted=1 nowell=0 qualifying=iron_ingot claims=-'), PL], 3)['breach_g2'] == 1, 'another site'
     assert judge([R('_stock_recovery', 'stage=place aid=A0 at=1,2,3 untargeted=1 nowell=0 qualifying=iron_ingot claims=-'), PL], 3)['breach_g2'] == 1, 'a stale same-site row of another recovery'
     assert judge([R('_stock_recovery', 'stage=place aid=A1 at=1,2,3 untargeted=0 nowell=0 qualifying=- claims=-'), PL], 3)['breach_g2'] == 1, 'an empty qualification'
-    RC = R('_stock_recovery', 'stage=place aid=A1 at=1,2,3 untargeted=0 nowell=0 qualifying=oak_log claims=c1')
-    assert judge([RC, PL], 3, bank_ids={'c1'})['breach_g2'] == 0, 'positive control: an admitted reservation'
-    assert judge([RC, PL], 3, bank_ids={'c9'})['breach_g2'] == 1, 'a refused (unadmitted) reservation'
+    RC = R('_stock_recovery', 'stage=place aid=A1 at=1,2,3 untargeted=0 nowell=0 nclaims=2 qualifying=oak_log,birch_log claims=c1,c')
+    assert judge([RC, PL], 3, bank_aids={'A1': 2})['breach_g2'] == 0, 'positive control: both reservations admitted under the aid (the id list cut)'
+    assert judge([RC, PL], 3, bank_aids={'A1': 1})['breach_g2'] == 1, 'one of two reservations not admitted'
+    assert judge([RC, PL], 3, bank_aids={'A0': 2})['breach_g2'] == 1, 'admitted under another recovery'
+    assert judge([RC, PL], 3)['breach_g2'] == 0, 'no journal audit: the row decides (the journal gate is then blind, reported)'
     assert judge([R('_deposit_new_chest', 'decision=place aid=A1 near_home=true at=1,2,3 placed=0 tried=[]', mins=1)], 3)['breach_g2'] == 0, 'nothing placed: nothing to license'
     assert judge([R('_stock_bank', 'group=oak_log name=oak_log planned=20 moved=20 kept=64 target=64 decision=bank town_before=50 town_after=70 complete=1 claims=1 refused=0')], 3)['breach_g3_row'] == 1
     assert judge([R('_stock_bank', 'group=oak_log name=oak_log planned=20 moved=20 kept=64 target=64 decision=bank town_before=30 town_after=50 complete=1 claims=1 refused=0')], 3)['breach_g3_row'] == 0
@@ -404,7 +411,7 @@ if __name__ == '__main__':
         print('journal audit failed:', e)
     jr = journal or {}
     draws = {k.replace('_pool-', ''): v for k, v in jr.get('draws', {}).items()}
-    res = judge(rows, W / 60, census, draws, set(jr.get('bank_ids', [])) if journal is not None else None)
+    res = judge(rows, W / 60, census, draws, dict(jr.get('bank_aids', {})) if journal is not None else None)
     hrs = lambda per, arm: len(bots[(per, arm)]) * W / 60
     rate = lambda n, per, arm: n / hrs(per, arm) if hrs(per, arm) else float('nan')
     print('DENOMINATORS rows walked %d (unparsable %d) | bots pre canary %d control %d | post canary %d control %d | window %d min'

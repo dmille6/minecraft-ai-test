@@ -888,7 +888,7 @@ test('STOCK CHAIN (b) CONTROL: the same bag with a junk stack the well can take 
     assert.equal(chest.items.filter(x => x?.name === 'stone_pickaxe').length, 0)
   } finally { done() }
 })
-test('STOCK CHAIN (d) (Codex code r2 P2-6): at-target logs whose only count is 2 h old (a stale floor: the well may not throw) -> the COUNT step fires -> the fresh count admits the well\'s disposal of the surplus stacks, keeping the keep', async () => {
+test('STOCK CHAIN (d) (Codex code r2 P2-6): at-target logs whose only count is 2 h old (a stale floor: the well may not throw) -> the COUNT step fires -> the fresh count makes the surplus stacks ELIGIBLE for the well (the plan), keeping the keep; the throw itself is the Paper stockdispose scene (count step, then the well), not this fake world', async () => {
   const items = bag([['oak_log', 64], ['oak_log', 64], ['oak_log', 64], ['crafting_table', 1], ['wooden_pickaxe', 1, 50], ...filler(31)])
   const chest = chestAt(2, 70, 0, { items: Array.from({ length: 27 }, (_, i) => (i < 10 ? item('oak_log', 64) : null)) })
   const old = Date.now() - 2 * 3_600_000

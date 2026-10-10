@@ -542,13 +542,13 @@ export function readTown (dir, key, world = null, { ckptEvery = CKPT_EVERY_BYTES
  * decision the fold gives the claim at its own place. A refused or unreadable claim is released at once (it never moves
  * anything). No append, or a journal that cannot be replayed -> 'unknown'.
  */
-export function claimStack (dir, key, world, { id, n, k, g = 'cobble', kind = 'bank', proof = null, bot = null, keys = [], coverage = false, gone = [], at = Date.now(), inst = INSTANCE }, opts = {}) {
+export function claimStack (dir, key, world, { id, n, k, g = 'cobble', kind = 'bank', proof = null, aid = null, bot = null, keys = [], coverage = false, gone = [], at = Date.now(), inst = INSTANCE }, opts = {}) {
   const g1 = currentGen(dir, key)
   let before = 0
   try { before = fs.statSync(journalFile(dir, key, g1)).size } catch { before = 0 }
   // every kind but a plain bank claim is written (Codex code r1 P1: a draw or valve written as a bank claim is judged
   // against the ceiling); a valve carries its order's proof
-  const rec = { t: 'claim', id, n, k, at, bot, inst, keys, coverage: !!coverage, gone, ...(g !== 'cobble' ? { g } : {}), ...(kind !== 'bank' ? { kind } : {}), ...(proof ? { proof } : {}) }
+  const rec = { t: 'claim', id, n, k, at, bot, inst, keys, coverage: !!coverage, gone, ...(g !== 'cobble' ? { g } : {}), ...(kind !== 'bank' ? { kind } : {}), ...(proof ? { proof } : {}), ...(aid ? { aid } : {}) }
   if (!appendTo(dir, key, world, rec, g1)) return { decision: 'unknown', view: null, at }
   if (currentGen(dir, key) !== g1) {
     appendJournal(dir, key, world, { t: 'rel', ids: [id], at: Date.now(), bot, inst })
