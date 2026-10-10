@@ -8913,22 +8913,27 @@ async function pruneTown (ctx, _args, signal) {
   const decide = (inChest) => {
     // only what the well's own rule throws from the bag holding it (Claude code r2 P2-2): the bag ends with what it had
     const cands = pruneTakes(inChest, pick.takes, { isJunk: isWellJunk })
-    const ok = pruneAccepted(bot.inventory?.items?.() ?? [], cands, pruneWellRule(bot))
+    const bagNow = bot.inventory?.items?.() ?? []
+    const ok = pruneAccepted(bagNow, cands, pruneWellRule(bot))
     wellRefused = cands.length - ok.length
-    const takes = ok.slice(0, Math.max(0, Math.min(PRUNE_MAX_STACKS, free() - PRUNE_FREE_AFTER)))
+    // ONE WELL VISIT THROWS AT MOST MAX_STACKS_PER_VISIT stacks, in slot order (Claude code r3 P3): the takes fit in what the
+    // bag's own throwable stacks leave of it, so none waits in the bag for a later visit
+    let visitRoom = MAX_STACKS_PER_VISIT
+    try { visitRoom = MAX_STACKS_PER_VISIT - pruneWellRule(bot)(bagNow).length } catch { visitRoom = 0 }
+    const takes = ok.slice(0, Math.max(0, Math.min(PRUNE_MAX_STACKS, free() - PRUNE_FREE_AFTER, visitRoom)))
     return takes.length ? { prune: true, takes: takes.map(t => ({ name: t.name, count: t.count })) } : null
   }
   const v = await withdrawVisit(ctx, block, decide, signal, msLeft, deadline - 2_000)
   const took = v.verified ? { ...(v.moved?.took ?? {}) } : {}
   const total = Object.values(took).reduce((t, n) => t + n, 0)
-  if (!total) return row(v.result?.status === 'failed' ? 'failed' : 'no_effect', `took nothing at ${pick.k}: ${v.result?.detail ?? 'no full stack to take'}${v.diag?.pruneRefused ? ` (refused ${v.diag.pruneRefused})` : ''}${wellRefused ? ` (the well would keep ${wellRefused})` : ''}`)
+  if (!total) return row(v.result?.status === 'failed' ? 'failed' : 'no_effect', `took nothing at ${pick.k} well_keeps=${wellRefused}: ${v.result?.detail ?? 'no full stack to take'}${v.diag?.pruneRefused ? ` (refused ${v.diag.pruneRefused})` : ''}`)
   check(signal)
   const thrown = await disposeWell(ctx, { pruned: took }, signal)
   // THE PRUNE'S OWN EVIDENCE (the runner's contract gate, prune_effect): taken from the chest AND accounted lost down the
   // well, per name -- the bag's net change is zero by design, so no inventory delta can show it (Paper 10-10: graded unknown)
   const pruned = Object.entries(took).reduce((t, [n, c]) => t + Math.min(c, Number(thrown.lost?.[n]) || 0), 0)
   return { ...row(thrown.status === 'success' ? 'success' : 'failed',
-                  `pruned ${Object.entries(took).map(([n, c]) => `${n}:${c}`).join(',')} from ${pick.k}; thrown ${pruned}; well: ${thrown.status} ${String(thrown.detail ?? '').slice(0, 120)}`), pruned }
+                  `pruned ${Object.entries(took).map(([n, c]) => `${n}:${c}`).join(',')} from ${pick.k} well_keeps=${wellRefused}; thrown ${pruned}; well: ${thrown.status} ${String(thrown.detail ?? '').slice(0, 120)}`), pruned }
 }
 
 async function withdrawPick (ctx, _args, signal) {

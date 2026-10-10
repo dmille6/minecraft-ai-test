@@ -183,6 +183,7 @@ def judge(rows, hours, census=None, draws=None, bank_aids=None):
     disposed_by_pool = defaultdict(set)
     disp = prn = bank_rows = valves = nowell = 0
     stages = Counter()
+    visits = Counter(); well_keeps = 0   # prune visits by outcome; candidate stacks the well's rule refused (Claude code r3 P3)
     for r in post_c:
         f = kv(r['detail'])
         if r['name'] in ('_stock_dispose', '_stock_prune') and r['status'] == 'success':
@@ -212,6 +213,10 @@ def judge(rows, hours, census=None, draws=None, bank_aids=None):
                 g3.append((r['bot'], grp, moved, ta, str(r['t'])))
         if r['name'] == '_stock_recovery':
             stages[(f.get('stage'), r['status'])] += 1
+        if r['name'] == '_stock_prune_visit':
+            visits[r['status']] += 1
+            m = re.search(r' well_keeps=(\d+)', r['detail'])
+            well_keeps += int(m.group(1)) if m else 0
         if r['name'] == '_town_deposit':
             m = re.search(r' stock (\d+)/(\d+)( valve (\d+)( nothing_else=1)?)?', r['detail'])
             if m and m.group(3):
@@ -264,7 +269,7 @@ def judge(rows, hours, census=None, draws=None, bank_aids=None):
         return sum(1 for r in rs if r['name'] in ('deposit', 'town_deposit') and r['status'] == 'failed' and 'full' in r['detail'])
     out.update({'breach_g1': len(g1), 'breach_g2': len(g2), 'breach_g3_row': len(g3), 'breach_g3v_row': len(g3v),
                 'breach_g1b': len(g1b), 'g1b_tested': int(g1b_tested), 'refusals_canary': refusals,
-                'dispose_clicks': disp, 'prune_clicks': prn, 'bank_rows': bank_rows, 'valve_uses': valves, 'nowell_rows': nowell,
+                'dispose_clicks': disp, 'prune_clicks': prn, 'prune_visits': dict(visits), 'prune_well_keeps': well_keeps, 'bank_rows': bank_rows, 'valve_uses': valves, 'nowell_rows': nowell,
                 'recovery_place_ok': stages[('place', 'success')], 'recovery_refused': sum(v for (s, st), v in stages.items() if st != 'success'),
                 'instrument_control': sum(1 for r in post_k if r['name'] in ('deposit', 'town_deposit') and r['status'] == 'success'
                                           and any(k in GROUP_OF and str(v).startswith('-') for k, v in r['delta'].items())),
@@ -440,6 +445,7 @@ if __name__ == '__main__':
     print('TRIPWIRE     the accepted residual (design 3.6): share of BOT-MINUTES a pickaxe-less bag holds >= 34 occupied slots (lower bound) canary %.4f -> %.4f control %.4f -> %.4f DiD %+.4f | bot-minutes canary %d/%d control %d/%d'
           % (share('pre', 'canary'), share('post', 'canary'), share('pre', 'control'), share('post', 'control'), nopick_did,
              nopick.minutes('pre', 'canary'), nopick.minutes('post', 'canary'), nopick.minutes('pre', 'control'), nopick.minutes('post', 'control')))
+    print('PRUNE        visits %s | candidate stacks the well would keep (not taken) %d | clicks %d' % (res['prune_visits'], res['prune_well_keeps'], res['prune_clicks']))
     print('REPORTED     targeted items banked/bot-h DiD %+.2f | chest-full failures/bot-h DiD %+.3f (post canary %d control %d) | valve %d | nowell %d | recovery place ok %d refused %d'
           % (bd, fd, res['fullfail_canary'], res['fullfail_control'], res['valve_uses'], res['nowell_rows'], res['recovery_place_ok'], res['recovery_refused']))
     exposure = int((res['refusals_canary'] + res['dispose_clicks'] + res['prune_clicks'] + res['bank_rows']) >= 10 and res['instrument_control'] >= 1)
