@@ -4,7 +4,7 @@
 // runs its own deterministic town orders; a queue in the loopback brain can hand it a model verb (`deposit`).
 //
 //   node sandbox/well/stock-e2e.cjs <botRoot> <scene,scene,...> [server]
-//   scenes: build (the well; every later scene uses it)  stockdispose  stockbank  stockprune  stocknochest  stockrace
+//   scenes: build (the well; every later scene uses it)  stockdispose  stockbank  stockprune  stockprunekeep  stocknochest  stockrace
 //
 // RCON only through `ssh mike@10.0.0.30 python3 /tmp/sbx-rcon.py <sandboxN> -`. Sandbox servers and sandbox-* names
 // only. Refuses to run unless the sandbox lock (/tmp/mcai-sandbox.lock on 10.0.0.31) names `stocktarget`.
@@ -480,7 +480,9 @@ scenes.stockprune = async () => {
   if (!CAP) throw new Error('no well (run build first)')
   rcon(`kill ${ARENA_SEL}`); CHEST = CHEST ?? pickChest()
   setChest(Array.from({ length: 10 }, () => ['oak_log', 64]))
-  const spec = [['oak_log', 30], ['stone_pickaxe', 1], ['iron_ingot', 3], ...TORCH(33)]
+  // the bag holds its keep (64) and 30 more: the prune's stacks go down whole, the 30 are bag surplus (Claude code r2 P2-2:
+  // a prune takes only what the well then throws -- the bag never ends with more oak than it began)
+  const spec = [['oak_log', 64], ['oak_log', 30], ['stone_pickaxe', 1], ['iron_ingot', 3], ...TORCH(32)]
   const files = await startBot('stockprune', spec, { pool: `sbxstock-${RUN}-p` })
   const counted = await waitRow(files, /^_cobble_reconcile$/, 150000)
   rcon(`clear ${NAME} minecraft:torch 1280`)
@@ -492,7 +494,27 @@ scenes.stockprune = async () => {
   const jr = journalOf(files)
   await stopBot()
   result({ scene: 'stockprune', counted: counted?.detail ?? null, visit: visit?.detail ?? null, bag: { delta: deltaOf(before.totals, after.totals) }, chest: { before: chest0.totals, after: chest1.totals },
+    bagOakGrew: (after.totals.oak_log ?? 0) > (before.totals.oak_log ?? 0), outcome: lines(files.botOut).filter(l => /skill prune_town ->/.test(l)).map(l => l.slice(0, 200)),
     shaft: { before: sh0, after: sh1 }, takes: jr.filter(r => r.t === 'claim' && r.kind === 'take').map(r => r.n), rows: stockRows(files) })
+}
+
+// THE KEEP-ONLY CONTROL (Claude code r2 P2-2): the same over-target chest, a bag holding NO oak -- the well would keep any
+// stack taken (the bag's keep), so no prune is ordered and nothing leaves the chest.
+scenes.stockprunekeep = async () => {
+  if (!CAP) throw new Error('no well (run build first)')
+  rcon(`kill ${ARENA_SEL}`); CHEST = CHEST ?? pickChest()
+  setChest(Array.from({ length: 10 }, () => ['oak_log', 64]))
+  const files = await startBot('stockprunekeep', [['stone_pickaxe', 1], ['iron_ingot', 3], ...TORCH(34)], { pool: `sbxstock-${RUN}-k` })
+  const counted = await waitRow(files, /^_cobble_reconcile$/, 150000)
+  rcon(`clear ${NAME} minecraft:torch 1280`)
+  const before = bag(NAME), chest0 = chestTotals()
+  await sleep(180000)   // three prune looks (STOCK_PRUNE_COOLDOWN_MS 60 s)
+  const after = bag(NAME), chest1 = chestTotals()
+  const jr = journalOf(files)
+  await stopBot()
+  result({ scene: 'stockprunekeep', counted: counted?.detail ?? null, chest: { before: chest0.totals, after: chest1.totals }, bag: { delta: deltaOf(before.totals, after.totals) },
+    visits: rowsOf(files.skillLog).filter(r => /^(_stock_prune_visit|prune_town)$/.test(r.name)).length,
+    orders: lines(files.botOut).filter(l => /prune_town/.test(l)).length, takes: jr.filter(r => r.t === 'claim' && r.kind === 'take').length })
 }
 
 // NO CHEST AT TARGET: a fresh town whose only chest is FULL of oak (27x64); the bag carries a chest, oak 2x64 and torches;
@@ -525,13 +547,15 @@ scenes.stockrace = async () => {
   if (!CAP) throw new Error('no well (run build first)')
   rcon(`kill ${ARENA_SEL}`); CHEST = CHEST ?? pickChest()
   setChest([['oak_log', 64], ['oak_log', 64]])
+  const chest0 = chestTotals()   // before either bot (10-10 run 2 read it after the first prune)
   const pool = `sbxstock-${RUN}-r`
   const full = [['stone_pickaxe', 1], ...TORCH(35)]
-  const f1 = await startBot('stockrace', [['oak_log', 70], ...full.slice(0, 34)], { pool, name: NAME })
+  // both bags hold their keep (64 oak), so either bot's prune would be thrown whole (one slot holds 64, never 70: run 2's
+  // 70 was refused by the server and the bot started with none)
+  const f1 = await startBot('stockrace', [['oak_log', 64], ['oak_log', 6], ...full.slice(0, 34)], { pool, name: NAME })
   const counted = await waitRow(f1, /^_cobble_reconcile$/, 150000)
-  const f2 = await startBot('stockrace', [['stone_pickaxe', 1], ['iron_ingot', 2]], { pool, name: NAME2 })
+  const f2 = await startBot('stockrace', [['stone_pickaxe', 1], ['oak_log', 64], ['iron_ingot', 2]], { pool, name: NAME2 })
   rcon(`clear ${NAME} minecraft:torch 2304`)
-  const chest0 = chestTotals()
   const v1 = waitRow(f1, /^_stock_prune_visit$/, 300000), v2 = waitRow(f2, /^_stock_prune_visit$/, 300000)
   const [a, b] = await Promise.all([v1, v2])
   await sleep(3000)
