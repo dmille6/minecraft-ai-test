@@ -14,6 +14,23 @@ AGENTS DOWN until ~10-12 11Z (weekly limit): no new builds before then._
 
 ---
 
+## 10-10 13:32Z — FLEET HOST RAM 48 -> 96 GB (owner); airpocket-02 built; abort breakdown; peacefulkit rearmed
+VM 202 (block2-bots, pve1) shut down 13:28Z, memory 98304, started 13:29Z: 94 GB usable + 8 GB /swapfile (swappiness 10);
+80/80 bots back on 4970c91, mayor/reads/crons/scheduler back by themselves. peacefulkit-01's draw loop was stopped
+(nothing deployed) and rearmed. The restart sits in every arm's baseline window (symmetric).
+Why: the bots use ~17.6 GB and +1920 reads peak at 23 GB (peacefulkitread 23.0, wellread 23.6+), with no swap. Gate agent:
+heavyread.sh (systemd scope MemoryMax, 32G on the new VM; shared lock /tmp/mcai-heavyread.lock; a capped read fails
+UNREADABLE, never KEEP) wired into canary-loop.sh for v35.
+ABORT BREAKDOWN (model agent, ~/brain01/abort_classify.py): of 82,666 model decisions, 43% refused at admission
+(repeat_loop 19.9%, learned_avoid 9.9%, cooldown 6.1%, impossible y 2.9%, bank gate 2.3% ...), 3.9% interrupted after
+admission, 25% failed (runner paused 6.9%, unreachable 6.9%, unsafe target 2.4% ...). Replay: qwen2.5:7b repeats the 4x
+loop 90% vs gemma4 28%, repeats the real failure 74% vs 21%, infeasible 13% vs 1.3%. WORK ORDERS (7,226): 29% refused by
+repeat_loop, 20% by cooldown -- code, not model; orderveto investigation agent started.
+AIRPOCKET-02 BUILT (ap2-on-4970c91 ccc593f7 / ap2-on-6f1921a 1bea197f; both engines APPROVE; Paper 53 trials: refreeze
+5/5 lived vs control 1/4, 1-tall gap 3/3 vs 0/4); must draw HIVE-D (the only ice-trap pool) -- the draw cannot force a
+pool yet (ask v35 for a required-pool option). Queue intent: peacefulkit -> junkwell-02 -> airpocket-02 -> stonecap ->
+stocktarget(+pruning) -> one-time clear -> brain-01 / orderveto / gridfix / bamboo ...
+
 ## 10-10 ~13:30Z — OWNER: plan the live BRAIN canary (brain-01); overseer/escalation parked
 LLM layers status: brain gemma4:26b benchmarked (C1 sandbox: stuck time halved, output inconclusive), NOT live; overseer
 gpt-oss:120b (C2 sandbox: inconclusive, lower output mostly cobble, iron-tier equal) and stuck escalation (no stuck-time
