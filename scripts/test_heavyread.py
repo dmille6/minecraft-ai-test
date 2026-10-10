@@ -48,7 +48,8 @@ def hr(hr_path, tmp, cmd, cap='1G', lock=None, wait='5', timeout='60', env=None,
         if not os.path.exists(man):
             json.dump({'canary_pool': '', 'canary_code_version': ''}, open(man, 'w'))
     e = dict(os.environ, HEAVYREAD_LOCK=lock or os.path.join(tmp, 'lock'), HEAVYREAD_WAIT=wait, HEAVYREAD_ROLE=role,
-             HEAVYREAD_MANIFEST=man, HEAVYREAD_LOOP_RE='^heavyread-test-no-such-loop$')
+             HEAVYREAD_MANIFEST=man, HEAVYREAD_LOOP_RE='^heavyread-test-no-such-loop$',
+             HEAVYREAD_LOOP_LOCK=os.path.join(tmp, 'loop-lock-free'))
     e.update(env or {})
     if cap:
         e['HEAVYREAD_MAX'] = cap
@@ -109,6 +110,11 @@ def section_a(hr_path, tmp):
     rc, o = hr(hr_path, tmp, ['touch', marker], env={'HEAVYREAD_LOOP_RE': '^hrtest-fake-canary-loop'})
     fake.kill(); fake.wait()
     c('a CALIBRATION job refuses (76) while a canary LOOP process runs (manifest idle)', rc == 76 and not os.path.exists(marker), (rc, o))
+    ll = os.path.join(tmp, 'loop-lock-held')
+    holdl = subprocess.Popen(['flock', ll, 'sleep', '6']); time.sleep(0.5)
+    rc, o = hr(hr_path, tmp, ['touch', marker], env={'HEAVYREAD_LOOP_LOCK': ll})
+    holdl.wait()
+    c('a CALIBRATION job refuses (76) while the canary loop LOCK is held (round 5, Claude)', rc == 76 and not os.path.exists(marker), (rc, o))
     rc, o = hr(hr_path, tmp, ['touch', marker], man=live, role='loop')
     c('a LOOP read runs while its canary is declared', rc == 0 and os.path.exists(marker), (rc, o))
     # PREEMPTION: a loop read takes the lock from a calibration job within ~2 waits; never from another loop read
@@ -121,8 +127,11 @@ def section_a(hr_path, tmp):
     dt_ = time.time() - t0
     pc.wait(30)
     po = open(pout).read() if os.path.exists(pout) else ''
+    unit = 'heavyread-calibration-%d.scope' % pc.pid          # pc runs heavyread.sh directly: its $$ is pc.pid
+    units = subprocess.run(['systemctl', 'is-active', unit], capture_output=True, text=True).stdout.strip()
     c('PREEMPTION: a loop read behind a 120-s calibration job runs within ~2 waits (%.0f s), the calibration is killed and says PREEMPTED'
       % dt_, rc == 0 and os.path.exists(marker) and dt_ < 15 and pc.returncode != 0 and 'PREEMPTED' in po and 'PREEMPTED' in o, (rc, dt_, pc.returncode, po, o))
+    c('PREEMPTION: the preempted calibration scope itself is GONE (systemctl is-active: %s)' % units, units != 'active', units)
     lock = tempfile.mktemp(dir=tmp, prefix='plock2-')
     pl, plout = hr(hr_path, tmp, ['sleep', '20'], lock=lock, bg=True, role='loop')
     time.sleep(3)
@@ -137,6 +146,21 @@ def section_a(hr_path, tmp):
     rc, o = hr(hr_path, tmp, ['touch', marker], lock=lock, wait='2')
     c('a calibration job never preempts: exit 75 behind another calibration job', rc == 75 and not os.path.exists(marker) and pc2.poll() is None, (rc, o))
     pc2.wait(60)
+    # a read that IGNORES SIGTERM is SIGKILLed after the 60-s grace (round 5, Codex)
+    t0 = time.time()
+    rc, o = hr(hr_path, tmp, [sys.executable, '-c', 'import signal, time; signal.signal(signal.SIGTERM, signal.SIG_IGN); time.sleep(600)'],
+               timeout='3')
+    c('a TERM-ignoring read is KILLED (137) within timeout + 60 s (%.0f s)' % (time.time() - t0), rc == 137 and time.time() - t0 < 90, (rc, o))
+    # a malformed or foreign holder record is never signalled: the loop read waits and is not run
+    lock = tempfile.mktemp(dir=tmp, prefix='plock4-')
+    victim = subprocess.Popen(['sleep', '60'])
+    open(lock + '.holder', 'w').write('calibration %d heavyread-calibration-%d.scope\n' % (victim.pid, victim.pid))
+    hold = subprocess.Popen(['flock', lock, 'sleep', '12'])
+    time.sleep(1)
+    rc, o = hr(hr_path, tmp, ['true'], lock=lock, wait='2', role='loop')
+    c('a holder record whose pid is not a heavyread wrapper is NOT signalled: victim alive, read not run (75)',
+      rc == 75 and victim.poll() is None, (rc, o, victim.poll()))
+    victim.kill(); victim.wait(); hold.wait()
     lock2 = tempfile.mktemp(dir=tmp, prefix='orphanlock-')
     rc, o = hr(hr_path, tmp, ['bash', '-c', 'sleep 20 >/dev/null 2>&1 &'], lock=lock2)
     r2 = subprocess.run(['flock', '-w', '2', lock2, 'true'])
@@ -221,6 +245,9 @@ MUTANTS = [
     ('heavyread.sh', 'loop never preempts', '  if [ "$ROLE" = loop ] && [ "${H0%% *}" = calibration ]; then', '  if false; then'),
     ('heavyread.sh', 'loop preempts another loop read', '  if [ "$ROLE" = loop ] && [ "${H0%% *}" = calibration ]; then', '  if [ "$ROLE" = loop ]; then'),
     ('heavyread.sh', 'environment expanded', '--expand-environment=no --unit=', '--unit='),
+    ('heavyread.sh', 'no SIGKILL escalation', 'timeout --kill-after=60 "$T"', 'timeout "$T"'),
+    ('heavyread.sh', 'loop read runs although the scope survived', '    if [ -z "$_dead" ] || ! flock -w "$WAIT" 7; then', '    if ! flock -w "$WAIT" 7; then'),
+    ('heavyread.sh', 'any holder record is preempted', '     && [ "$_hunit" = "heavyread-calibration-$_hpid.scope" ] && grep', '     && true && grep'),
     ('canary-loop.sh', 'reads run uncapped', 'HEAVYREAD_ROLE=loop bash $H/mcai-analysis/heavyread.sh $_to $H/digest/reads/$RUN-$s-$M.txt -- python3 $RD/$s.py $M',
      'timeout 900 python3 $RD/$s.py $M > $H/digest/reads/$RUN-$s-$M.txt 2>&1'),
     ('canary-loop.sh', 'a missing heavyread.sh tolerated', '[ -f $H/mcai-analysis/heavyread.sh ] || {', 'true || {'),

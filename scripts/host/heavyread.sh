@@ -26,6 +26,7 @@
 #          does not expand scope arguments, the flag guards later versions).
 #   EXIT   the command's own status; 137 = killed (the cap, timeout's kill, or a preemption), 124 = timed out,
 #          75 = lock busy, 76 = calibration refused (canary active), 77 = no scope, 2 = usage / no valid cap.
+#          `timeout --kill-after=60`: a read that ignores SIGTERM is SIGKILLed 60 s later (round 5, Codex).
 #          canary-loop.sh journals any non-zero status as read-failed and removes that read's evidence for that minute,
 #          so verdict.py answers UNREADABLE for it, never a pass.
 set -u
@@ -55,8 +56,10 @@ CAP=$(_cap) || { echo "heavyread: no valid cap (HEAVYREAD_MAX '${HEAVYREAD_MAX:-
 if [ "$ROLE" = calibration ] && [ -z "${HEAVYREAD_IGNORE_CANARY:-}" ]; then
   _cp=$(python3 -c "import json,sys; m=json.load(open(sys.argv[1])); print('yes' if (m.get('canary_pool') or m.get('canary_code_version')) else 'no')" "$MAN" 2>/dev/null || echo "unreadable")
   _lp=$(pgrep -f "${HEAVYREAD_LOOP_RE:-^bash /home/mike/canary-loop.sh}" 2>/dev/null | head -1)   # _RE: tests only
-  if [ "$_cp" != "no" ] || [ -n "$_lp" ]; then
-    echo "heavyread: calibration REFUSED -- a canary is declared or a canary loop is running (manifest canary: ${_cp}; loop pid: ${_lp:-none}); calibrate between canaries" > "$OUT"
+  # the loop's own lock too (round 5, Claude: a loop launched other than by `bash <path>` is invisible to pgrep)
+  _ll=""; flock -n "${HEAVYREAD_LOOP_LOCK:-/tmp/mcai-canary.lock}" true 2>/dev/null || _ll="held"   # _LOCK: tests only
+  if [ "$_cp" != "no" ] || [ -n "$_lp" ] || [ -n "$_ll" ]; then
+    echo "heavyread: calibration REFUSED -- a canary is declared or a canary loop is running (manifest canary: ${_cp}; loop pid: ${_lp:-none}; loop lock: ${_ll:-free}); calibrate between canaries" > "$OUT"
     exit 76
   fi
 fi
@@ -66,13 +69,25 @@ fi
 exec 7>>"$LOCK"
 if ! flock -w "$WAIT" 7; then
   H0=$(cat "$LOCK.holder" 2>/dev/null)
-  if [ "$ROLE" = loop ] && [ "${H0%% *}" = calibration ]; then
-    _hpid=$(echo "$H0" | awk '{print $2}'); _hunit=$(echo "$H0" | awk '{print $3}')
+  _hrole=$(echo "$H0" | awk '{print $1}'); _hpid=$(echo "$H0" | awk '{print $2}'); _hunit=$(echo "$H0" | awk '{print $3}')
+  # PREEMPT ONLY A WELL-FORMED, LIVE CALIBRATION RECORD (round 5, Codex): role calibration, a numeric pid that is a running
+  # heavyread.sh, and exactly its own unit name heavyread-calibration-<pid>.scope. Anything else is not signalled.
+  if [ "$ROLE" = loop ] && [ "$_hrole" = calibration ] && [[ "$_hpid" =~ ^[0-9]+$ ]] \
+     && [ "$_hunit" = "heavyread-calibration-$_hpid.scope" ] && grep -qa heavyread "/proc/$_hpid/cmdline" 2>/dev/null; then
+    echo "$_hunit" > "$LOCK.preempted"
     echo "heavyread: PREEMPTED the calibration job holding the lock ($H0): the canary's read has priority" > "${OUT}.preempt"
-    [ -n "$_hunit" ] && sudo -n systemctl kill --signal=KILL "$_hunit" 2>/dev/null
-    [ -n "$_hpid" ] && kill -TERM "$_hpid" 2>/dev/null
-    if ! flock -w "$WAIT" 7; then
-      echo "heavyread: the lock was not freed after preempting ($H0) -- NOT run" > "$OUT"; rm -f "${OUT}.preempt"; exit 75
+    sudo -n systemctl kill --signal=KILL "$_hunit" 2>/dev/null
+    # THE SCOPE MUST BE GONE BEFORE THIS READ RUNS (round 5, Codex: a failed kill must never leave two heavy jobs): the
+    # calibration wrapper is NOT signalled -- it releases the lock itself once its scope's process has died. If the
+    # scope is still active after HEAVYREAD_WAIT, this read is not run.
+    _dead=""
+    for _i in $(seq 1 "$WAIT"); do
+      systemctl is-active --quiet "$_hunit" 2>/dev/null || { _dead=1; break; }
+      sleep 1
+    done
+    if [ -z "$_dead" ] || ! flock -w "$WAIT" 7; then
+      echo "heavyread: the preempted calibration scope $_hunit did not stop, or the lock was not freed -- NOT run" > "$OUT"
+      rm -f "${OUT}.preempt"; exit 75
     fi
   else
     echo "heavyread: the heavy-read lock $LOCK was not free within ${WAIT}s (holder: ${H0:-unknown}) -- NOT run" > "$OUT"; exit 75
@@ -81,13 +96,15 @@ fi
 UNIT=heavyread-$ROLE-$$
 echo "$ROLE $$ $UNIT.scope" > "$LOCK.holder"
 trap 'rm -f "$LOCK.holder"' EXIT
-trap 'echo "heavyread: PREEMPTED by a canary read -- rerun this calibration job" >> "$OUT"; exit 137' TERM
 START=$(date +%s)
 mapfile -d '' _ENV < <(env -0)
 sudo -n systemd-run --scope --quiet --expand-environment=no --unit="$UNIT" -p MemoryMax="$CAP" -p MemorySwapMax=0 \
-  --uid="$(id -u)" --gid="$(id -g)" /usr/bin/env -i "${_ENV[@]}" timeout "$T" "$@" > "$OUT" 2>&1 7>&- &
+  --uid="$(id -u)" --gid="$(id -g)" /usr/bin/env -i "${_ENV[@]}" timeout --kill-after=60 "$T" "$@" > "$OUT" 2>&1 7>&- &
 wait $!; RC=$?
 [ -f "${OUT}.preempt" ] && { cat "${OUT}.preempt" >> "$OUT"; rm -f "${OUT}.preempt"; }
+if [ "$(cat "$LOCK.preempted" 2>/dev/null)" = "$UNIT.scope" ]; then
+  rm -f "$LOCK.preempted"; echo "heavyread: PREEMPTED by a canary read -- rerun this calibration job" >> "$OUT"
+fi
 EL=$(( $(date +%s) - START ))
 echo "heavyread: exit $RC after ${EL}s, cap $CAP via scope, role $ROLE" >> "$OUT"
 if [ $RC -eq 137 ] || [ $RC -eq 9 ]; then

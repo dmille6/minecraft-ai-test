@@ -264,7 +264,11 @@ else:
 print()
 if os.path.exists(LOOP):
     code = executable_text(LOOP)
-    poll = [l for l in code.splitlines() if 'poll-revert' in l]
+    _cl = code.splitlines()
+    _pi = [i for i, l in enumerate(_cl) if 'poll-revert' in l]
+    # the verdict WORD is selected by the `case "$(echo "$V" | awk '{print $2}')" in` line just above the REVERT arm
+    # (since v33 the arm itself only journals poll-revert): the context is that line through the arm
+    poll = ['\n'.join(_cl[max(0, _pi[0] - 4):_pi[0] + 1])] if _pi else []
     if not poll:
         bad('the loop has no death-poll revert arm -- this assertion is looking in the wrong place',
             'poll-arm-missing')
@@ -278,7 +282,8 @@ if os.path.exists(LOOP):
         ok('the death-poll arm reads the VERDICT FIELD, not a substring of the line')
         # POSITIVE CONTROL that the search is looking at real text: the scheduled-read arm, which
         # always did this correctly, must be found by the same method.
-        sched = [l for l in code.splitlines() if 'UNREADABLE' in l and 'awk' in l]
+        # (since v33 the scheduled read extracts the word with awk '$1 == "VERDICT" {print $2}' on its own line)
+        sched = [l for l in code.splitlines() if 'W=$(echo "$V" | awk' in l and '{print $2}' in l]
         (ok if sched else lambda m: bad(m, 'poll-control'))(
             'POSITIVE CONTROL: the scheduled-read arm, which was always correct, is found the same way')
 

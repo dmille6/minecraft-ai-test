@@ -189,6 +189,12 @@ rule below holds either way. `scripts/host/heavyread.sh` wraps every read the lo
   end with the real verdict.py: the read under a 200M cap gives UNREADABLE, and the same read under a 2G cap (positive
   control) gives KEEP.
 - **Calibration jobs must run through the same wrapper.** readcost1920.sh and bagnull3_driver.sh already do.
+- **The poll pauses during reads, bounded:** the extension's (a)/(b) poll shares the loop with the reads. At +1920 a
+  run with three heavy reads pauses it for about 25 min, plus up to 2 × 120 s of lock wait per read. That is
+  acceptable, because the final read re-checks (a)/(b) over the whole window (round 5, Claude).
+- **Preemption is safe** (round 5, Codex). Only a well-formed record is preempted: role calibration, a live heavyread pid,
+  and exactly its own `heavyread-calibration-<pid>.scope`. Its scope must be confirmed inactive before the loop read
+  runs; otherwise the read is not run. `timeout --kill-after=60` SIGKILLs a read that ignores SIGTERM.
 - **Not covered:** drawrec's own `POOLS=1 immobiledid` call during the draw, and bagfixgate's poll and final. Both are
   lighter, but they are not under the lock. This is stated, not fixed.
 
