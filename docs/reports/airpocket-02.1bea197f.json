@@ -1,0 +1,221 @@
+{
+ "run_id": "airpocket-02",
+ "sha": "1bea197f",
+ "registered_at": "2026-10-10T14:00:00Z",
+ "ladder_change": false,
+ "promotion": "fleet-wide",
+ "class": "underground-safety",
+ "notes": "[airpocket-02 = airpocket-01 + THE HIVE-D ICE TRAP (coordinator 10-08, rebased 10-10). Variant for fleet 6f1921a = 4970c91 + peacefulkit-01, if peacefulkit is kept; the variable is airpocket-02 over airpocket-01: branch ap2-on-6f1921a @ 1bea197f. Design docs/reports/airpocket2-design-2026-10-08.md; airpocket-01 docs/reports/airpocket-design-2026-10-07.md. NOT launched, NOT chained.] THE CHANGE (bots/src/airpocket.mjs + reflex.mjs): a POSE-AWARE EYE (the server's pose datum when sent, else a collision model: stand 1.62 / crouch 1.27 / swim 0.4; the plan's base is the cell under the eye); an `up` route through a solid cell above that eye is `upblocked` (the rescue's scan starts above the head cell, so ice formed around a swimming bot read `up dist=1` -- 23 of 244 drownings since 10-01, all hive-d) and the step triggers on it after 8 s held and 4 s not closing (row `_air_pocket_upblocked`; the start row names pose= and blocked=); the dig is PRICED AND RUN with the pose's eye (mineflayer's finish timer would otherwise drop the 5x submerged penalty); SUCCESS = the pose-aware eye in air 2.5 s with NO health drop since the last drop and rising-or-max (Paper: airpocket-01 logged a false success on a refrozen cell); the step RE-DIGS a cell that re-forms (2 more, re-priced; exhausted = failed, 5-s cooldown); NEVER digs a trapdoor or a roof with one within 2 above (the junk well's floor). NOT in this build: the open-window equip race (a separate owner session owns it). Rows only this build writes: `_air_pocket_upblocked`, and start rows carrying ` pose=`.",
+ "licence": {
+  "class": "kind",
+  "kind": "_air_pocket_upblocked",
+  "min_rows": 1,
+  "note": "Written only by airpocket-02, once per trap detection (throttled 30 s per cell); the fleet (airpocket-01) never writes it. RATE: hive-d had 5.5 head-ice episodes/day on 5 bots (42 in 7.7 days, 24 ended in a drowning) and no other pool had any, so with hive-d drawn the row is expected ~0.7 times per 3 h: P(none by +180) ~ 50%, by +360 ~ 25%. A missing licence at the first read is the trap not occurring, not the code absent -- the extension to exposure covers it."
+ },
+ "reads": [
+  "airpocket2read",
+  "immobiledid"
+ ],
+ "read_minutes": [
+  180,
+  360
+ ],
+ "deadline_min": 1680,
+ "change_rows": [],
+ "linkage_extra": [],
+ "draw_exposure": {
+  "hours": 24,
+  "require": [
+   {
+    "name": "sealed no-air ceilings",
+    "kind": "drowning_ceiling_no_air",
+    "detail_contains": "(oxygen 0,",
+    "min": 3
+   },
+   {
+    "name": "a drowning",
+    "kind": "death",
+    "detail_contains": "drowned",
+    "min": 1
+   }
+  ],
+  "note": "Each drawn pool must have REAL sealed drownings (air out: the oxygen filter drops stuck full-oxygen bots, e.g. placebo-b's 27 ceilings at oxygen 20). On 10-07 13-20Z: hive-c, hive-d, hive-b, placebo-a, placebo-d qualify. CLAUDE.md: a canary pool must contain the population the fix targets. AIRPOCKET-02: THE DRAW MUST INCLUDE hive-d -- the ice trap (23 drownings since 10-01) occurs in no other pool. drawexposure.py needs two eligible pools and drawrec.sh draws two at random, so the operator names hive-d plus one random eligible pool; `draw_pools_required` records that requirement (the current tooling does not read it).",
+  "draw_pools_required": [
+   "hive-d"
+  ]
+ },
+ "exposure": {
+  "read": "airpocket2read",
+  "field": "exposure_ready_ap2",
+  "min": 1,
+  "note": "Ready = >= 1 MATURE canary attempt triggered `upblocked` (airpocket-02's own mechanism) AND both control instruments. Expected only with hive-d drawn: 5.5 trap episodes/day on its 5 bots, ~1-2 per 6 h; none elsewhere."
+ },
+ "own_lines": [
+  {
+   "read": "airpocket2read",
+   "field": "breach_false_success",
+   "op": "<=",
+   "value": 0,
+   "on_fail": "REVERT",
+   "evidence": "defect",
+   "note": "C1: a canary _air_pocket success followed by the same bot's DROWNING death within 120 s."
+  },
+  {
+   "read": "airpocket2read",
+   "field": "breach_dug_into_danger",
+   "op": "<=",
+   "value": 0,
+   "on_fail": "REVERT",
+   "evidence": "defect",
+   "note": "C2: a lava/fire or suffocation death, or a lava danger-block row, within 30 s after any canary _air_pocket row."
+  },
+  {
+   "read": "airpocket2read",
+   "field": "breach_reserve_spent",
+   "op": "<=",
+   "value": 0,
+   "on_fail": "REVERT",
+   "evidence": "defect",
+   "note": "C3: an attempt that did not succeed ending below 3 HP, or ANY death between its _air_pocket_start and _air_pocket rows (the 4 HP reserve must survive an abort)."
+  },
+  {
+   "read": "airpocket2read",
+   "field": "breach_up_trigger",
+   "op": "<=",
+   "value": 0,
+   "on_fail": "REVERT",
+   "evidence": "defect",
+   "note": "C4: an attempt whose trigger_route is up (the swim was working)."
+  },
+  {
+   "read": "airpocket2read",
+   "field": "breach_envelope",
+   "op": "<=",
+   "value": 0,
+   "on_fail": "REVERT",
+   "evidence": "defect",
+   "note": "C5: envelope 0.5 on a world that is not peaceful."
+  },
+  {
+   "read": "airpocket2read",
+   "field": "breach_unparsed",
+   "op": "<=",
+   "value": 0,
+   "on_fail": "REVERT",
+   "evidence": "defect",
+   "note": "C0: an _air_pocket row with a missing/non-finite required field or no start row, or a start row with no end row while the bot kept logging for 120 s (unfinished). The gates above would read such rows as clean."
+  },
+  {
+   "read": "airpocket2read",
+   "field": "breach_false_success_server",
+   "op": "<=",
+   "value": 0,
+   "on_fail": "REVERT",
+   "evidence": "defect",
+   "note": "C6 (server-grounded false success): a canary success followed within 30 s by the same bot's _drowning_ceiling_no_air with no _drowning_breathing between (Paper freeze-probe trial 2's shape)."
+  },
+  {
+   "read": "airpocket2read",
+   "field": "breach_upblocked_unproven",
+   "op": "<=",
+   "value": 0,
+   "on_fail": "REVERT",
+   "evidence": "defect",
+   "note": "C7: an attempt triggered `upblocked` whose start row names no solid blocking cell (none, water, air): the step dug against a working up route."
+  },
+  {
+   "read": "airpocket2read",
+   "field": "rows_control",
+   "op": "<=",
+   "value": 0,
+   "on_fail": "REVERT",
+   "note": "Arms on what ONLY airpocket-02 writes (_air_pocket_upblocked rows, start rows with pose=): on the KEEP base the control runs airpocket-01 and writes _air_pocket* legitimately (reported as ap1_rows_control). BLOCKS KEEP."
+  },
+  {
+   "read": "airpocket2read",
+   "field": "rows_canary",
+   "op": ">=",
+   "value": 1,
+   "on_fail": "REVERT",
+   "note": "LIVENESS: canary _air_pocket + _air_pocket_refused rows. BLOCKS KEEP (INCONCLUSIVE)."
+  },
+  {
+   "read": "airpocket2read",
+   "field": "instrument_noair_control",
+   "op": ">=",
+   "value": 1,
+   "on_fail": "REVERT",
+   "note": "POSITIVE CONTROL: the control's no-air sealed ceilings (oxygen <= 0) are visible. BLOCKS KEEP."
+  },
+  {
+   "read": "airpocket2read",
+   "field": "successes_canary",
+   "op": ">=",
+   "value": 1,
+   "on_fail": "REVERT",
+   "note": "A KEEP needs >= 1 canary success: attempts that never work are INCONCLUSIVE, not a pass. BLOCKS KEEP (INCONCLUSIVE)."
+  },
+  {
+   "read": "airpocket2read",
+   "field": "instrument_capped_control",
+   "op": ">=",
+   "value": 1,
+   "on_fail": "REVERT",
+   "note": "POSITIVE CONTROL: the control's capped rescues (_drowning_route sealed/unscanned/out) are visible. BLOCKS KEEP."
+  }
+ ],
+ "primary": {
+  "read": "airpocket2read",
+  "field": "drown_death_did",
+  "note": "REPORTED, NOT GATED: as airpocket-01, plus upblocked attempts and successes, attempts by pose, re-digs, canary _air_pocket_upblocked rows. POWER: no death endpoint is readable; the hive-d trap is ~3.1 drownings/day on 5 bots; the 16 head-in-WATER false-up drownings since 10-01 are NOT covered. The effect rests on Paper and the per-attempt gates."
+ },
+ "harm": {
+  "note": "Gate v34 (underground_safety): HYB@2.5, DiD of death rates against each arm's own 24-h PRE OR the matched pools, two-death floor, mechanism linkage by link_rules. The draw is biased toward drowning pools by design; hive-d alone drowns ~3/day in this trap."
+ },
+ "teardown": {
+  "note": "THREE STEPS: drop-ins, clear canary_pool, restart the pool's bots 12 s apart; then confirm the live versions. Bots dig roof cells and place 1-3 scaffold blocks in survival; no admin world state is created."
+ },
+ "extension": {
+  "until_exposure": true,
+  "extra_reads": [
+   540,
+   720,
+   1080,
+   1560
+  ],
+  "final_on_zero_exposure": "INCONCLUSIVE",
+  "note": "Short canary for a fix-shaped change (owner 2026-09-29)."
+ },
+ "underground_safety": {
+  "pre_hours": 24,
+  "link_rules": [
+   {
+    "kind": "_air_pocket_start",
+    "until_kind": "_air_pocket",
+    "window_s": 300,
+    "note": "a death DURING the step (no end row of the same id before it): C3"
+   },
+   {
+    "kind": "_air_pocket",
+    "window_s": 120,
+    "except_detail_re": "^id=\\S+ outcome=(?:aborted|failed|opened) .*?health=[\\d.]+->(?:[3-9]|1\\d|20)(?:\\.\\d+)?(?![\\d.])",
+    "except_cause": "drown",
+    "note": "a death within 120 s after an attempt is linked, EXCEPT a drowning after an aborted/failed/opened attempt that ended at >= 3 HP (the reserve held -- the read's C3 is clean -- the base-rate drowning the fix could not prevent); after a success/opened, after an attempt that spent the reserve, or any non-drowning death, it is linked"
+   },
+   {
+    "kind": "_air_pocket_preempt",
+    "until_kind": "_air_pocket_start",
+    "window_s": 120,
+    "note": "a death after the step pre-empted an escape and no step followed: the pre-empt itself"
+   }
+  ],
+  "matched_candidates": [
+   "hive-c",
+   "hive-d",
+   "placebo-a",
+   "placebo-b",
+   "placebo-d"
+  ],
+  "note": "Gate v34 (docs/reports/usafe-death-gate-2026-10-08.md): the death gate is a DiD of death rates, each arm against its own 24-h PRE, OR the matched-pool control (HYB@2.5, operator + Codex 10-08), at the calibrated threshold in usaferule.py, because this canary is DRAWN on the pools that drown. Mechanism linkage by link_rules (usaferule.link_reason); any linked death reverts at the two-death floor. This replaces the former linkage_extra entry, a dict that crashed verdict.py and changerowcheck.py (both build a set from it). MATCHED CONTROL: matched_candidates minus the drawn pools, frozen by canary-loop.sh after the draw and before the deploy (usafegate.py freeze) in <reads>/<run>-usafe-pre.json.matched; a missing, unreadable or quiet matched control is UNREADABLE, never a clean hold. Exposure extension to +1560 kept. airpocket-02: the same link rules; an _air_pocket_upblocked row takes no action and links nothing (a pre-empt on an upblocked route writes _air_pocket_preempt, linked by the third rule)."
+ }
+}
