@@ -10,7 +10,8 @@
 // keeps a bad generation from becoming a bad action.
 
 import { HARD_STOP } from './toolfor.mjs'
-import { SKILLS, classifyOutcome, SKILL_CONTRACTS, plantableSpotNear, findTownComposter, townBuildPlan, townPickMiss, townIngredientMiss, foodSkipNow, townContainers } from './skills.mjs'
+import { SKILLS, classifyOutcome, SKILL_CONTRACTS, plantableSpotNear, findTownComposter, townBuildPlan, townPickMiss, townIngredientMiss, foodSkipNow, townContainers, townWellState, townWellBuildPlan, insideTownWell, wellSwordsNow, townPitState } from './skills.mjs'
+import { disposePlan, wellOrder, wellOrderOutcome, WELL_ORDERS, pitCoverItem } from './well.mjs'
 import { smeltInputsFor } from './smelting.mjs'
 import { makeClient, skillSchema } from './llm.mjs'
 import { buildSystemPrompt, buildUserPrompt, makeSentinel, WorkingMemory } from './prompt.mjs'
@@ -851,6 +852,32 @@ export class CognitiveLoop {
         if (r.order) order = r.order
       } catch { /* an inventory or world read must never break the decision loop */ }
     }
+    // THE JUNK WELL'S TOWN ORDERS (well.mjs wellOrder decides; this supplies readings and keeps the state): close an open
+    // well nobody is at, dispose listed junk at 34+ slots, or build the well. After the composter: it takes what composts.
+    if (!order) {
+      try {
+        const bot = this.bot
+        const items = bot.inventory?.items?.() ?? []
+        const p = bot.entity?.position
+        const plan = disposePlan(items, { swords: wellSwordsNow(bot) })   // a peaceful world's swords count (well.mjs swordGoes)
+        const home = { x: config.world.homeX, z: config.world.homeZ }
+        const r = wellOrder({
+          now: Date.now(), slots: plan.slots, freeSlots: 36 - plan.slots, junkStacks: plan.junkStacks,
+          distHome: p ? Math.hypot(home.x - p.x, home.z - p.z) : Infinity,
+          well: () => townWellState(bot),
+          // NO COVER BLOCK, NO BUILD ORDER (Claude r2 P3): the build would only skip no_cover every cooldown
+          buildPlan: () => (pitCoverItem(items) ? townWellBuildPlan(bot) : null),
+          pit: () => townPitState(bot),
+          inside: () => insideTownWell(bot),
+          myName: bot.username ?? '',
+          peers: () => Object.values(bot.players ?? {}).filter(q => q?.username && q.username !== bot.username && q.entity?.position &&
+            Math.hypot(q.entity.position.x - home.x, q.entity.position.z - home.z) <= TOWN_RADIUS).map(q => q.username),
+          state: this.wellState ?? {},
+        })
+        this.wellState = r.state
+        if (r.order) order = r.order
+      } catch { /* an inventory or world read must never break the decision loop */ }
+    }
     if (!order) {
       const sap = {}
       try {
@@ -957,6 +984,7 @@ export class CognitiveLoop {
       // A TOWN ORDER THAT FAILED BACKS OFF; a skip (no_effect) or an interruption costs nothing (townOrderOutcome).
       if (TOWN_ORDERS.has(admitted.skill)) this.townState = townOrderOutcome(admitted.skill, r.status, Date.now(), this.townState ?? {}, r.failClass ?? null)
       if (admitted.skill === 'town_deposit') this.townDepositState = townDepositOutcome(r.status, r.failClass ?? null, Date.now(), this.townDepositState ?? {})
+      if (WELL_ORDERS.has(admitted.skill)) this.wellState = wellOrderOutcome(admitted.skill, r.status, Date.now(), this.wellState ?? {}, r.failClass ?? null)
       // THE REFLEX TOOK THE BODY -- SAY SO ON THE NEXT DECISION.
       if (r.interruptedBy) this.#raiseTrigger(r.interruptedBy, r.detail)
       // A PREREQUISITE THE GOAL LAYER CANNOT SEE IS NOT A PREREQUISITE.
