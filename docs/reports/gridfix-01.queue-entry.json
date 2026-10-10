@@ -1,0 +1,34 @@
+{
+ "run": "gridfix-01",
+ "class": "bag-fix",
+ "after": [
+  "stonecap-01"
+ ],
+ "variants": {
+  "935c63e960c5dbb8ddf29d0b9b2d3a6d72daa87e": {
+   "registration": "/home/mike/mcai-analysis/gridfix-01.935c63e.json",
+   "approved": "queue agent 2026-10-10: gf-on-935c63e @ e29c1e7 = the approved b54e452 (net diff) + ced0b52 on stonecap 935c63e; Codex APPROVE r1 + Claude subagent APPROVE r1 (docs/reports/gridfix-01.rebase-review-2026-10-10.txt); npm test 246/246; gridfix 1/1 + compose 4/4 mutants; CONDITION: airpocket-02 takes 'no equip is ever queued behind a craft'",
+   "registration_sha256": "b03e76f2f7da589ecddbc2dfdf0dac49310cc7e7bd6e3b5508f26c7205df25fe",
+   "canary_sha": "e29c1e7083c7a5664693d14c6cb85fa2a307205d",
+   "reads_src": "/home/mike/mcai-analysis",
+   "reads": {
+    "bagread": "b391c93262d881acca34fff1b41610f9",
+    "gridfixread": "eac8d6da1fd2c56a94572a38f200e3c2",
+    "immobiledid": "53af289df12208901931dbeeb1ae325a"
+   }
+  },
+  "d551f7a602ab000c00063b02ec7a63df5af8e389": {
+   "registration": "/home/mike/mcai-analysis/gridfix-01.d551f7a.json",
+   "approved": "queue agent 2026-10-10 (contingency, peacefulkit not kept): gf-on-d551f7a @ 79ab946; Codex APPROVE r1 + Claude subagent APPROVE r1 (docs/reports/gridfix-01.rebase-review-2026-10-10.txt); npm test 243/243; gridfix 1/1 + compose 4/4; CONDITION as for 935c63e",
+   "registration_sha256": "24202f3bc0f51224a866b7d9009fc39a7a917e5023ad08ae72dec30dcd5e7c65",
+   "canary_sha": "79ab946602280f599ad9f24ffd259a5bfe094f29",
+   "reads_src": "/home/mike/mcai-analysis",
+   "reads": {
+    "bagread": "b391c93262d881acca34fff1b41610f9",
+    "gridfixread": "eac8d6da1fd2c56a94572a38f200e3c2",
+    "immobiledid": "53af289df12208901931dbeeb1ae325a"
+   }
+  }
+ },
+ "note": "bag fix: craftsync grid clear (+ the well composition test); variants on stonecap 935c63e and the contingency d551f7a."
+}

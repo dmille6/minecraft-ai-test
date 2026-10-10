@@ -1,0 +1,31 @@
+{
+ "run": "bamboo-01",
+ "after": [
+  "gridfix-01"
+ ],
+ "variants": {
+  "e29c1e7083c7a5664693d14c6cb85fa2a307205d": {
+   "registration": "/home/mike/mcai-analysis/bamboo-01.e29c1e7.json",
+   "approved": "queue agent 2026-10-10: bb-on-e29c1e7 @ 2b37bd9 = the approved 786da4c (net diff over b54e452) on gridfix e29c1e7; Codex APPROVE r1 + Claude subagent APPROVE r1 (docs/reports/bamboo-01.rebase-review-2026-10-10.txt); npm test 247/247; ORDINARY canary",
+   "registration_sha256": "6b1e0937a8861dacd992cb7cbe71950d7eedd8a5d235bbaff19867fe57d65b6e",
+   "canary_sha": "2b37bd92ccced5f64bdab94352c35c6f5bbd58ea",
+   "reads_src": "/home/mike/mcai-analysis",
+   "reads": {
+    "bambooread": "1aeb644a3eba8308e55f979ee8b63162",
+    "immobiledid": "53af289df12208901931dbeeb1ae325a"
+   }
+  },
+  "79ab946602280f599ad9f24ffd259a5bfe094f29": {
+   "registration": "/home/mike/mcai-analysis/bamboo-01.79ab946.json",
+   "approved": "queue agent 2026-10-10 (contingency): bb-on-79ab946 @ f7312c4; Codex APPROVE r1 + Claude subagent APPROVE r1 (docs/reports/bamboo-01.rebase-review-2026-10-10.txt); npm test 244/244; ORDINARY canary",
+   "registration_sha256": "7e0786d12dfde9fb136173dbd1e4d650a545ab4eeaa32cccd74fbafcf24b8c98",
+   "canary_sha": "f7312c4b54a6fb4643d71fb2bf900ee06ef23a74",
+   "reads_src": "/home/mike/mcai-analysis",
+   "reads": {
+    "bambooread": "1aeb644a3eba8308e55f979ee8b63162",
+    "immobiledid": "53af289df12208901931dbeeb1ae325a"
+   }
+  }
+ },
+ "note": "ordinary canary: bamboo -> sticks; variants on gridfix e29c1e7 and the contingency 79ab946."
+}

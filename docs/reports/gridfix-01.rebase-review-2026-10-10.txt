@@ -1,0 +1,56 @@
+gridfix-01 and bamboo-01 on the stonecap shas, rebase review 2026-10-10 (queue agent). Same text in both files.
+GA gf-on-935c63e @ e29c1e7; GP gf-on-d551f7a @ 79ab946 (contingency); BA bb-on-e29c1e7 @ 2b37bd9; BP bb-on-79ab946 @ f7312c4.
+Approved sources: gridfix gf-on-92bc84f @ b54e452 + ced0b52; bamboo bb-on-b54e452 @ 786da4c. Brief: scratchpad review-gfbb2-prompt.txt.
+Earlier rounds one level lower (junkwell shas, 10-08): gridfix-01.rebase-review-2026-10-08.txt, bamboo-01.rebase-review-2026-10-08.txt.
+Results: npm test GA 246/246, GP 243/243, BA 247/247, BP 244/244; gridfix mutant 1/1 and compose-test mutants 4/4 on GA and GP;
+lint withinBody only. Text interdiffs: gridfix IDENTICAL on both; bamboo context-only (imports, HOUSEKEEPING, classifyOutcome).
+
+=== CODEX round 1: GA, GP, BA, BP APPROVE ===
+GA — **APPROVE** `e29c1e7`  
+GP — **APPROVE** `79ab946`  
+BA — **APPROVE** `2b37bd9`  
+BP — **APPROVE** `f7312c4`
+
+No new P1/P2 rebase defects found. Approvals carry forward the airpocket-02 condition below.
+
+I compared commit objects against the approved source deltas. Both gridfix variants match exactly, including `ced0b52`, after excluding the already-present TOWN MEMORY fix. Both bamboo deltas match except for the correct HOUSEKEEPING union retaining all three well skills. Whitespace checks passed.
+
+References below use **BA `2b37bd9`**, unless another variant is specified.
+
+- **GRIDFIX × STONECAP:** `bots/src/skills.mjs:6332` runs `bankInto` through craftsync lockstep, with claims acquired at `:6349` and released through `cobbleObserve` at `:6367`. Gridfix refuses stopped clicks before local application (`bots/src/craftsync.mjs:548`) and invalidates tickets on click-cap expiry (`:583`). Lockstep teardown does **not** invoke craft grid cleanup (`:968`), so it does not newly close a chest or clear its held cursor. No new claim/accounting defect found.
+
+  The ordinary deposit’s cobble path uses `bot.transfer` (`bots/src/skills.mjs:2800`), outside that lockstep. `cobbleObserve` writes journal observations rather than inventory packets (`:3077`), and rejects stale-window/disconnected counts. Well throws use direct mode-4 clicks (`:7167`), outside craftsync lockstep; the cap and 64-item reserve are rechecked before each cobble click (`:7147`). Gridfix adds no new throw-credit path.
+
+- **Compose test still applies, with its original scope:** `bots/test/well-gridfix-compose.test.mjs:53` exercises real craftsync cleanup followed by real `serverBag`, including stale-dispatch rejection. The test blob is identical across all four variants and the previously approved composition. Stonecap leaves `serverBag`’s behavior intact (`bots/src/skills.mjs:6983`). Cobble throw accounting remains separately bounded by clicked quantity (`:7228`); this compose test does not exercise it.
+
+- **BAMBOO × STONECAP:** order remains town deposit → milestone → wear_out → bamboo → town orders → well (`bots/src/cognitive.mjs:829`, `:836`). At 34 occupied slots, a successful fold can reduce occupancy to 33 and defer cap-surplus disposal. That is the existing pressure-relief policy; finite bamboo consumption and the issuance cooldown provide no demonstrated new starvation loop. Bamboo/sticks remain excluded from ordinary well disposal (`bots/src/well.mjs:114`); the cap exception admits only the two cobble names. The two-stick reserve remains (`bots/src/bankable.mjs:166`).
+
+  **BP’s manual union is correct:** `bots/src/skills.mjs:10866` retains clicked-cobble well evidence, and `:10872` independently handles `slots_freed`. Neither block substitutes for the other. HOUSEKEEPING retains both bamboo and the well orders.
+
+- **Contingency GP/BP:** no peacefulkit dependency was introduced. BP’s composter import omits `startableJunk`, and its town-order call uses `plan.junk` (`bots/src/cognitive.mjs:23`, `:849`). The bamboo insertion preserves that base’s compost behavior.
+
+Two nonblocking P3 findings remain:
+
+1. **P3 — cap/lockstep composition coverage gap, all variants.** `bots/test/towndeposit.test.mjs:303` substitutes `lockstep: fn => fn()`, including for the cap cases at `:794` and `:816`. Concrete scenario: a cobble claim is admitted, then pickup or placement is stopped during the after-dig delay or exceeds the click cap. These tests cannot establish the resulting real-craftsync window state and journal release/count relationship. The gridfix compose test covers the subsequent well resync, not this chest-transfer chain.
+
+2. **P3 — inherited airpocket handoff, all variants.** `bots/src/airpocket.mjs:286` times out equip without cancelling it; `bots/src/craftsync.mjs:713` can invoke it after cleanup releases ownership. Concrete scenario: rescue interrupts a loaded 2×2 craft, cleanup exceeds 1.5 seconds, and equip executes after rescue has priced its dig or returned. **Keep the 10-08 condition: “no equip is ever queued behind a craft.”** Airpocket-02 must complete a bounded handoff before issuing equip/stand, or refuse the step. Stonecap adds no new cleanup mechanism to this hazard.
+
+**Paper:** no additional Paper run is required to approve these rebases statically. Before treating the combined behavior as runtime-proven, a focused Paper check is warranted: interrupted claimed cobble transfer with chest/bag/cursor/journal reconciliation; fold followed by at-cap well disposal; and delayed-cleanup rescue for the airpocket-02 handoff.
+
+Read-only review completed. No edits, state-changing Git, tests, mutants, or Paper runs were performed; no passing-test counts are asserted.
+
+=== CLAUDE subagent round 1 (the first attempt was cut by a rate limit; this is the retry): GA, GP, BA, BP APPROVE, no P1/P2 ===
+Faithfulness: craftsync blob eeb892f byte-identical to b54e452 on GA/GP; compose test identical to ced0b52; bamboo changed lines
+match 786da4c apart from the HOUSEKEEPING union; BP keeps both classifyOutcome blocks (skills.mjs:10866 / :10872).
+Gridfix x stonecap: only bankInto shares craftsync's lockstep; gridfix's pre-invoke refusal of stopped clicks means fewer phantom
+transfers there; cobble moves via bot.transfer, reconcile via openContainer, the well's throws via direct mode-4 clicks.
+Bamboo x stonecap: order unchanged; stonecap changes no stick handling. Contingency: no peacefulkit dependency.
+P3-1: cobbleObserve records the local count without checking bot.craftSync.repairPending() (a dropped deferred write could
+  over-count the journal until the container is reopened; same class exists via withdraw's filter; fix: mark dirty).
+P3-2: no chain test of the cap's town-deposit claims through the real lockstep (towndeposit.test stubs lockstep).
+P3-3 (airpocket-02): implement 'no equip queued behind a craft' as waiting for !bot.craftSync.busy() (covers craft, lockstep,
+  recount, confirmCursor); stonecap adds a recountBag after cobble deposits; the well's holdInventory (up to 8 s) is not visible
+  through busy().
+P3-4: a fold at 34-35 slots can defer at-cap cobble disposal for that visit (count dispose_well with cobble>0 per pool).
+P3-5: f7312c4's message names a startableJunk union that the code (correctly) does not have; the compose commits' subject still
+  says gf-on-911d792; cite per-head counts (done here). Paper: not needed (add the P3-2 chain test before deploy instead).

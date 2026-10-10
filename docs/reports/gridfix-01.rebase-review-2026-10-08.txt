@@ -1,0 +1,114 @@
+gridfix-01 rebase reviews, 2026-10-08 (queue agent). Approved source gf-on-92bc84f @ b54e452. Net diff 92bc84f..b54e452 applied
+as ONE commit per junkwell head (the only conflict, towndeposit.test TOWN MEMORY, already carries the identical fix), plus
+ced0b52 (the well + grid fix composition test and the serverBag export) after Claude r1:
+T gf-on-bd747a8 @ 1782dff; A gf-on-0cdb1a8 @ 82aef34; B gf-on-2299221 @ 0cc06fc; C gf-on-e4f2917 @ f272526.
+Briefs: scratchpad review-gf-prompt.txt (r1), review-gf-r2-prompt.txt (r2).
+
+=== CODEX round 1 ===
+T — **APPROVE** `c372364`  
+A — **CHANGE** `0f56ff1` — P2: cleanup can outlive airpocket’s equip timeout.  
+B — **APPROVE** `35b5f74`  
+C — **CHANGE** `8046663` — same P2 as A.
+
+Confirmed all four committed src/craftsync-test deltas match the approved source exactly; final `craftsync.mjs` and `inflight.mjs` also match. Findings below are static review, not runtime reproduction. References use committed versions; `skills.mjs` line numbers are for C unless stated otherwise.
+
+**P2 — A/C: the queued rescue equip survives its timeout and can execute after the rescue has moved on.**
+
+`bots/src/craftsync.mjs:412`, `:600`, `:713`; `bots/src/airpocket.mjs:286`.
+
+Concrete scenario: airpocket interrupts a 2×2 craft with an unanswered grid click. Cleanup can spend 1.5 seconds draining that click, followed by the grid-clear resync. Airpocket’s equip loses its race at 1.5 seconds, but that does not cancel the guarded equip. Airpocket then either:
+
+- refuses the rescue because the old hand cannot dig within budget; or
+- begins digging with the old hand and its corresponding timing.
+
+When craft ownership releases, line 713 still invokes the saved equip. It can therefore change the hand during that dig or after the failed attempt returned.
+
+This is an **amplification of the already-recorded late-equip/window-race family**, not a claim that grid_clear directly clicks concurrently with the guarded equip. Gridfix improves inventory serialization: cleanup retains ownership and preemption refuses rather than overruns it. However, it adds cleanup delays that exceed airpocket’s independent timeout.
+
+Required change: give the queued equip an expiry/cancellation check before actual invocation, and ensure airpocket cannot continue with an outstanding equip capable of changing its hand. Preserve cleanup ownership.
+
+**P3 — composition coverage does not establish safety across that boundary.**
+
+- A/C, `bots/test/airpocket.test.mjs:319`: the timed-out equip never resolves. It cannot expose a delayed equip that eventually changes the hand.
+- All, `bots/test/craftsync-grid.test.mjs:366`: the slow-clear test awaits equip to completion; it does not run airpocket’s timeout.
+- B/C, `bots/test/withdraw2.test.mjs:41` and `:55`: lockstep/recount/inflight are stubbed, and the iron craft skill is substituted.
+- All, `bots/test/well.test.mjs:702`: crafting directly consumes ingredients and adds results, without a grid or craft cleanup.
+
+These tests can remain green without exercising the composition. I did not run them or infer current pass counts. No P1 found.
+
+The other requested interactions:
+
+- **Withdraw2 — no additional blocker found.** `craftsync.mjs:550` refuses stopped clicks before local application; the cap invalidates outstanding tickets at `:583`. Lockstep teardown at `:968` does **not** run craft grid cleanup, so it does not close a held chest cursor. Transfer recovery waits for underlying clicks and confirms the cursor (`skills.mjs:7400`, `:7451`); interrupted partial takes retain their accounting at `:7796`. Thus a pre-invoke refusal introduces no phantom placement into `took`. The iron path awaits the craft and then recounts (`:8391`), so returned grid ingredients are available to `srv`/`transform`, including aborted outcomes. Existing asynchronous held-window release/recount behavior is unchanged.
+
+- **Peacefulkit — no changed helper behavior found in the drain.** `skills.mjs:8547` uses `returnCursor` and direct put-back clicks; furnace takes do not enter craftsync lockstep. Gridfix therefore does not newly cap, invalidate, or clear those takes. Their existing timeout and sword-fate behavior remains.
+
+- **Junkwell-02 — no additional blocker found.** Mode-4 throws and `gclicked` accounting (`skills.mjs:6659`) are outside lockstep. Throw ownership releases at `:6820`; pit-first phases finish before the craft chain at `:7181`. Grid-clear packets cannot become well throws or retaken entities. Failed crafts unwind through the existing pit cleanup and `settleAndRestore`; aborts deliberately leave coverage to the visitor (`:7225`). Clearing stranded ingredients improves subsequent `grid_loaded` admission, without changing the throw ledger.
+
+- **Airpocket table case:** table crafts normally have no window-0 craft clicks, so `clearGrid` does nothing (`craftsync.mjs:443`). Window binding and stopped-click refusal improve stale-click handling. They do not resolve the previously recorded late table-window/skill-unwind race.
+
+- **Toolhygiene:** admission refusals before craft never enter grid cleanup. No new interaction found.
+
+**Paper re-proof is needed for the new combinations**, especially A/C before approval. Minimal scenes:
+
+1. **Airpocket:** interrupt loaded 2×2 and table crafts; delay a click/cleanup beyond 1.5 seconds. Verify equip timing, no hand mutation after timeout/return, and server-confirmed rescue progress.
+2. **Withdraw2:** interrupt a partial take during placement and force a capped/refused click; compare chest, bag, cursor, `took`, `srv`, and aborted rows. Then interrupt the iron craft’s 2×2 prerequisite and table execution; check `transform`.
+3. **Well:** full-bag pit-first build with a retaken miss, then interrupt planks/table/trapdoor crafting. Check conservation, grid/cursor, pit disposition, and unchanged `gclicked`/`retaken`.
+4. **Peacefulkit smoke check:** timed-out sword take with a loaded cursor, including full-bag put-back; verify sword fate and no unexpected grid-clear traffic.
+
+No edits, state-changing git commands, tests, or mutants were run. The checkout changed externally during review; subsequent reads used the named commit objects.
+
+=== CODEX round 2 ===
+T — APPROVE (`1782dff`)
+A — APPROVE (`82aef34`)
+B — APPROVE (`0cc06fc`)
+C — APPROVE (`f272526`)
+
+I withdraw Round 1’s P2 blocker on A/C. The late-equip hazard is pre-existing; gridfix improves inventory ownership while potentially extending the timing window. Keep the remaining handoff issue on airpocket-02.
+
+1. **Base versus gridfix**
+
+On base `0cdb1a8`, `bots/src/craftsync.mjs:413–419` waits up to `preemptWaitMs` (2,000 ms), then merely increments `preemptTimeouts` if ownership remains. The guarded action unconditionally invokes the original method afterward (`:505–512`). There is no caller-expiry or cancellation check. C’s base `e4f2917` has the identical craftsync blob.
+
+Airpocket’s `bots/src/airpocket.mjs:284–293` races equip against 1,500 ms, catches the timeout, and prices the dig from the currently held item. **The timeout does not cancel equip.** Thus the base already permits an outstanding equip to complete after that snapshot, potentially during a dig if admission succeeds. The 2-second bound establishes the missing guarantee; it does not mean every ordinary craft unwind takes that long.
+
+The base also permits the guarded action to proceed while ownership remains. Its write hook (`craftsync.mjs:489–502`) lacks gridfix’s stopped-state packet refusal, so an equip that performs inventory clicks can overlap that state.
+
+Gridfix improves those properties:
+
+- Cleanup drains outstanding clicks and clears/resyncs the grid before release (`craftsync.mjs:408–460`).
+- Preemption throws `craft_busy` if ownership persists past its extended bound (`:596–606`).
+- Stopped clicks are refused before invocation, with a write-hook backstop.
+
+However, the guarded equip still invokes after a successful wait without checking airpocket’s expired deadline (`:710–714`). Cleanup can therefore make late completion more likely or later. **Better ownership and cleanup; still an incomplete rescue handoff.**
+
+That amplification is real, but I do not find a new failure class requiring this rebase to block. The appropriate airpocket-02 fix is to complete a bounded handoff **before issuing equip/stand**, wait for `bot.craftSync.busy()` to clear within the health budget, and abandon the step if handoff fails. Merely waiting after launching equip leaves the queued operation alive. If queuing remains part of the design, cancellation/expiry must be checked at the eventual invocation boundary.
+
+2. **Carried `ced0b52`**
+
+All four heads contain the identical composition-test blob, matching `ced0b52`. Each production change is solely the `serverBag` export.
+
+The test meaningfully covers:
+
+- An aborted real craft with server-confirmed grid and cursor contents, followed by cleanup and the real `serverBag` resync.
+- Preservation of the resync packet outside dispatch after explicit epoch invalidation.
+- Rejection of that packet inside a stale dispatch.
+- Local-only bag reads while craftsync owns inventory, followed by successful resync after release.
+
+This closes the identified helper/filter composition gap. One scope qualification: it checks the well’s grid-admission inputs through a copied predicate; it does not execute the complete well admission/throw workflow. That is nonblocking for this targeted test.
+
+No new P1/P2 findings. Read-only review only: no edits, state-changing Git, tests, or mutants run. The reported 4/4 mutant result was not independently rerun.
+
+=== CLAUDE subagent, condensed ===
+r1: T, A, B, C CHANGE test-only (P2-1): the well + grid fix composition test (ced0b52 on gf-on-911d792) was missing on all
+  four -> TAKEN (ced0b52 cherry-picked; its four mutants rebuilt with asserted unique anchors, 4/4 killed on each head).
+  P3-1 (A, C): airpocket's 1.5 s equip race vs craftsync's release (preempt waits through gridfix cleanup) -> airpocket-02.
+  P3-2 (all, pre-existing on 92bc84f): toolfor emptyHand checks free slots before the guarded unequip waits through the
+  grid clear (re-check after the guard). P3-3 the well's grid_loaded comments partly stale. P3-4 no test runs withdraw2
+  through real craftsync (settle/hold code byte-identical, covered by the approved review). Paper: not needed.
+r2: T APPROVE, B APPROVE; A, C APPROVE on the condition that airpocket-02 takes the rule 'no equip is ever queued behind
+  a craft' (airpocket.mjs before the equip calls: wait for !bot.craftSync.busy() within AP_EQUIP_MS, else refuse -- not fail,
+  so the 60 s fail cooldown does not apply). Corrected its r1 rationale: on the base the late equip is practically
+  unreachable (abort releases in ~110-150 ms); gridfix's cleanup makes it rare-but-reachable under > ~1 s server lag; in
+  exchange gridfix removes the stranded grid/cursor on EVERY mid-click abort (12/12 on the Paper control). Fix belongs in
+  airpocket, not craftsync. P3s: commit subject still says gf-on-911d792; the test copies the well's grid check; cite
+  per-head npm test counts and the per-head mutant result (done).

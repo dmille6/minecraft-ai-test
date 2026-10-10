@@ -1,0 +1,55 @@
+bamboo-01 rebase reviews, 2026-10-08 (queue agent). Approved source bb-on-b54e452 @ 786da4c (ORDINARY canary). Net diff
+b54e452..786da4c applied as ONE commit per gridfix head (union conflicts: cognitive/skills imports, hygiene HOUSEKEEPING):
+T bb-on-1782dff @ 7a60da5; A bb-on-82aef34 @ 8212674; B bb-on-0cc06fc @ 812d42f; C bb-on-f272526 @ 37657ae.
+Brief: scratchpad review-bb-prompt.txt.
+
+=== CODEX round 1 ===
+T — **APPROVE** `7a60da5`  
+A — **APPROVE** `8212674`  
+B — **APPROVE** `812d42f`  
+C — **APPROVE** `37657ae`
+
+No new P1/P2 composition defects found. These verdicts accept the gridfix heads as given, including their separate airpocket review.
+
+I verified each commit’s parent and compared its delta against `b54e452..786da4c`. Added/removed lines match except for the expected HOUSEKEEPING union. All four final `craftsync.mjs` blobs are identical to the approved source. Diff whitespace checks passed.
+
+References below use **C @ `37657ae`**, unless stated otherwise; they refer to commit contents, not the checkout.
+
+1. **Order interplay is consistent.** At `bots/src/cognitive.mjs:824–880`, precedence is town deposit → milestone order → wear_out → bamboo → town orders → well orders → planting/model. Admission subsequently vets the selected proposal; toolhygiene is not another order-selection stage.
+
+   Town order precedence is compost/ripe harvest → missing-pick withdrawal → withdraw2 upgrade on B/C → composter build (`bots/src/composter.mjs:618–652`). Well precedence is closing an unattended open well before disposal; otherwise eligible construction, then uncovered-pit closure (`bots/src/well.mjs:853–885`).
+
+   Bamboo can delay those later orders, or reduce occupancy below their fullness trigger. That is successful housekeeping, not a demonstrated starvation loop: folds consume finite bamboo, require a slot-saving plan, and charge their cooldown.
+
+2. **The item policies do not fight.** The well explicitly excludes both bamboo and sticks (`bots/src/well.mjs:114–118`). Neither the ordinary compost allowlist nor peacefulkit’s additions include them (`bots/src/composter.mjs:43`, `bots/src/peacefulkit.mjs:38`). Bamboo therefore does not consume an input those disposal paths would take.
+
+   Town deposit moves whole stacks while preserving the two-stick reserve (`bots/src/towndeposit.mjs:120,143`; `bots/src/bankable.mjs:101`). It cannot bank the sole resulting stick stack and immediately recreate that same need. Banking surplus across multiple stacks and subsequently folding more bamboo is finite conversion plus storage, not an undo cycle.
+
+3. **WITHDRAW2 remains compatible on B/C.** `ironDeficits` counts existing sticks toward the two-stick requirement (`bots/src/withdrawpick.mjs:125–131`), so a preceding fold reduces withdrawal needs. Bamboo consumes neither sticks nor withdrawal’s wood/ingots, and does not alter its holds. The iron path’s scoped holds remain released in `finally` (`bots/src/skills.mjs:8529`); failed upgrades retain the three-ingot banking reserve, with sticks separately protected by the recipe reserve (`bots/src/bankable.mjs:138,184,207–213`). No new reserve conflict found.
+
+4. **TOOLHYGIENE does not reject the fold.** Bamboo goes through general admission, but the redundant-craft check is inside `skill === 'craft'` (`bots/src/admission.mjs:446–462`). Its proposal is `bamboo_sticks`; its execution calls the bamboo recipe directly. HOUSEKEEPING retains all three well skills and adds bamboo (`bots/src/hygiene.mjs:102`). The actual `isHousekeeping` consumers are cognition’s success-learning and milestone-attempt gates (`bots/src/cognitive.mjs:1112,1225`).
+
+5. **GRIDFIX accounting is preserved.** `window_changed` carries `authoritative`, matching the other verified exits (`bots/src/craftsync.mjs:848–851`). Stopped-execution credit remains capped at one recipe yield (`bots/src/skills.mjs:3929`). The compose test meaningfully exercises an aborted bamboo recipe through real craftsync, then the well’s resync, including a stale-dispatch negative control (`bots/test/well-gridfix-compose.test.mjs:53`). It does not execute the full bamboo-order/well-order chain.
+
+**P3 — composition coverage gap, especially A/C.** `bots/test/bamboo.test.mjs:147` checks order wiring structurally; `bots/test/airpocket.test.mjs:319` models a hung equip without a live fold. These can pass while missing a rescue that interrupts loaded grid/cursor state and times out waiting for equip. Craftsync guards inventory actions until release (`bots/src/craftsync.mjs:708–715`), but this review does not resolve the base’s equip-timing question.
+
+A focused **Paper re-proof is warranted**, rather than repeating the entire original matrix:
+
+- Complete a full-bag fold, then exercise town deposit/compost/well decisions; verify bamboo/stick protection and no immediate reversal.
+- On B/C, fold before an iron upgrade; also fail the upgrade and verify two sticks/three ingots remain protected.
+- On A/C, interrupt a fold with actual airpocket rescue while ingredients/cursor are loaded and during result verification. Check server conservation, tally, empty grid/cursor, no delayed drops after logout, and rescue equip/dig completion.
+
+The registered **inherited P2** remains: a craft-ready milestone at 36/36 outside town can prevent bamboo from being considered (`bots/src/cognitive.mjs:824–836`). The approved registration explicitly accepts that limitation; this rebase does not introduce it.
+
+No edits, state-changing git operations, tests, mutants, or Paper runs performed.
+
+=== CLAUDE subagent round 1, condensed: T, A, B, C APPROVE; no P1/P2 ===
+Verified: only context lines differ; the craft executor region, bambooSticks, bamboo.mjs, craftroom.mjs, runner.mjs,
+craftsync.mjs byte-identical to 786da4c. Order: town_deposit -> milestone -> wear_out -> bamboo -> town orders -> well ->
+planting. The well never takes bamboo or sticks (NEVER_DISPOSE well.mjs:114); bamboo is not compostable; bamboo is
+NEVER_BANKABLE and sticks bank with 2 kept (a one-way pipe). withdraw2: ironDeficits counts held sticks; no reserve conflict.
+toolhygiene: redundant-craft check is skill==='craft' only. P3s: (1) at exactly 34/36 a fold can drop the bag below the
+well's/compost's 34-slot trigger for that visit (ordering already in 786da4c; count dispose_well/compost per pool in the
+read); (2) A, C: an air-pocket rescue during a fold -- the airpocket-02 handoff; (3) pre-existing in 786da4c:
+bambooOrderOutcome backs off 30 min on a runner decline (body_held / runner_busy) unlike town/well orders; (4) no loop test
+with bamboo + well junk + compost at town. Paper: not needed.

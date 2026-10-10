@@ -14,6 +14,33 @@ AGENTS DOWN until ~10-12 11Z (weekly limit): no new builds before then._
 
 ---
 
+## 10-10 19:45Z — GRIDFIX + BAMBOO READY on the stonecap shas (entries drafted, NOT added)
+- **gridfix-01:**
+  - **gf-on-935c63e @ e29c1e7**: npm test 246/246.
+  - **gf-on-d551f7a @ 79ab946** (contingency, no peacefulkit): npm test 243/243.
+  - Each is b54e452's net diff plus ced0b52, the well + grid fix composition test.
+  - Mutants: gridfix 1/1 and compose 4/4 on both.
+- **bamboo-01 (ORDINARY):**
+  - **bb-on-e29c1e7 @ 2b37bd9**: npm test 247/247.
+  - **bb-on-79ab946 @ f7312c4**: npm test 244/244. On this base classifyOutcome was a manual union: the well's evidence block and bamboo's slots_freed block are both kept.
+  - f7312c4's commit message wrongly names a startableJunk union. The code correctly has none.
+- **Reviews:** Codex r1 and Claude r1 both APPROVE all four, no P1/P2. Text: docs/reports/{gridfix,bamboo}-01.rebase-review-2026-10-10.txt; the 10-08 rounds are committed beside them.
+- **The CONDITION stands for gridfix:** airpocket-02 must take "no equip is ever queued behind a craft".
+  - Claude: implement it as waiting for !bot.craftSync.busy(). That covers craft, lockstep, recount and confirmCursor.
+  - The well's holdInventory is NOT visible through busy().
+- **P3s recorded:**
+  - cobbleObserve does not check repairPending.
+  - No chain test runs the cap's town-deposit claims through the real lockstep. Claude suggests adding one before deploy.
+  - A bamboo fold at 34-35 slots can defer at-cap disposal for that visit.
+- **Paper:** not re-run on these shas. Both engines: not needed. The sandbox lock was held by stocktarget's Paper proof.
+- The older gf/bb variants on the jw shas (gf-on-{bd747a8,0cdb1a8,2299221,e4f2917}, bb-on-{1782dff,82aef34,0cc06fc,f272526}) are superseded and not registered.
+- **OPERATOR:**
+  - `queue add` docs/reports/gridfix-01.queue-entry.json (= ~/mcai-analysis/gridfix-01.entry.json): bag-fix, after stonecap-01. Variants 935c63e -> e29c1e7 and d551f7a -> 79ab946.
+  - Then docs/reports/bamboo-01.queue-entry.json (= ~/mcai-analysis/bamboo-01.entry.json): ordinary, after gridfix-01. Variants e29c1e7 -> 2b37bd9 and 79ab946 -> f7312c4.
+  - Both were validated no-act: VALID.
+  - FIRST fetch gf-on-935c63e, gf-on-d551f7a, bb-on-e29c1e7 and bb-on-79ab946 into /opt.
+  - If airpocket-02 or stocktarget-01 is inserted before gridfix, these need new variants on that base.
+
 ## 10-10 19:10Z — DRAW STARVATION: peacefulkit-01 abandoned (never deployed) -> ORDINARY canary peacefulkit-02 launching
 peacefulkit-01 (class bag-fix, needs 4 pools) was draw-short 11:37Z -> 19:05Z (3 eligible pools: placebo-b, hive-a,
 board-c). v35's three-pool fallback is built but not staged; all builder agents hit the weekly API limit ~14Z (resets
