@@ -521,7 +521,8 @@ export async function airPocketStep (bot, plan, { Vec3, predict, sleep = ms => n
       if (aborted) { res.why = aborted; res.outcome = 'aborted'; return res }
       if (!bodyAgrees({ onGround: bot.entity?.onGround, wantJump })) {
         res.why = `the body never settled (onGround=${bot.entity?.onGround === true} with jump ${wantJump ? 'held' : 'released'})`
-        res.outcome = 'failed'; if (attempt > 0) res.refrozen = !cellOpen(); return res
+        // a passing bob, not a broken plan: the SHORT cooldown (Claude r5 P3), via `unsettled`
+        res.outcome = 'failed'; res.unsettled = true; if (attempt > 0) res.refrozen = !cellOpen(); return res
       }
       const callMs = withPoseEye(bot, botPose(bot, Vec3).pose, () => predict(bot.blockAt(cellPos), bot.heldItem ?? null))
       if (Number.isFinite(callMs) && callMs > 0) {
