@@ -14,6 +14,17 @@ AGENTS DOWN until ~10-12 11Z (weekly limit): no new builds before then._
 
 ---
 
+## 10-10 19:10Z — DRAW STARVATION: peacefulkit-01 abandoned (never deployed) -> ORDINARY canary peacefulkit-02 launching
+peacefulkit-01 (class bag-fix, needs 4 pools) was draw-short 11:37Z -> 19:05Z (3 eligible pools: placebo-b, hive-a,
+board-c). v35's three-pool fallback is built but not staged; all builder agents hit the weekly API limit ~14Z (resets
+10-12 06:00 CT). Operator + Codex (option X): re-register the SAME code/reads/gates as ORDINARY canary peacefulkit-02
+(no class, no bag_fix; forfeits only the v33 adaptive extension, which rarely qualifies here), registrations
+~/mcai-analysis/peacefulkit-02.*.json with an amendment; peacefulkit-01 journal-noted, `abandon`ed, `cancel`led; queue
+hand-edited (backup ~/canary-queue.json.bak-pk2-*): peacefulkit-02 moved ahead of junkwell-02, junkwell-02 after ->
+peacefulkit-02. Scheduler tick --no-act: LAUNCH peacefulkit-02 (variant 4970c91 -> 6f1921a).
+RISK: junkwell-02 and stonecap-01 are bag fixes and will hit the same four-pool starvation; junkwell is exactly the
+case the adaptive extension exists for (more mining), so it should wait for v35 rather than be downgraded.
+
 ## 10-10 13:50Z — ORDERVETO: gate refusals JUSTIFIED (root cause: craft orders issued without bag room); stonecap queued
 orderveto investigation (docs/reports/orderveto-investigation-2026-10-10.md, both engines agreed NOT to build the
 first idea): 3,608 of 7,311 work orders refused (repeat_loop 2,151, cooldown 1,456), all craft/smelt orders; 0
