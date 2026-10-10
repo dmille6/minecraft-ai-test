@@ -4,6 +4,9 @@ import { remaining, FLOOR } from './toolfor.mjs'
 import { unwantedSword } from './peacefulkit.mjs'
 import { peacefulFoodActive } from './foodskip.mjs'
 import { admitStacks } from './cobblecap.mjs'
+// STOCK TARGETS (stocktarget-01; design docs/reports/stocktargets-design-2026-10-08.md): every other bulk group and the
+// capped tools, judged against the town's count of the group through the same journal as the cobble cap.
+import { groupOf, targetOf, isToolGroup, roomUnder } from './stocktarget.mjs'
 // WHAT IS ACTUALLY WORTH BANKING.
 //
 // "deposited items per bot-hour" is a CO-PRIMARY endpoint of this experiment and
@@ -119,6 +122,37 @@ export function cobbleReconcileProbe () {
   try { return COBBLE_RECONCILE() ?? { can: false, note: null } } catch { return { can: false, note: null } }
 }
 
+/**
+ * THE STOCK TARGETS' READERS (installed per bot by skills.mjs and towndeposit.mjs, like the cobble reader). No reader (a
+ * pure caller, a test) -> no town view: today's rule exactly.
+ *   town(group) -> the group's town view { lb, complete, reserved, floor, avail, ... } or null
+ *   well()      -> is a USABLE junk well standing in town? The bulk cap binds only then: the stop is paired with its exit
+ *                  (design 3.2 "no exit, no stop")
+ *   keeps(counts, wants) -> { name: n } the bag keeps (towndeposit.mjs townKeeps: the same keeps on every path, design 3.2)
+ */
+let STOCK_TOWN = null, STOCK_WELL = null, STOCK_KEEPS = null
+export function setStockReaders ({ town = null, well = null, keeps } = {}) {
+  STOCK_TOWN = typeof town === 'function' ? town : null
+  STOCK_WELL = typeof well === 'function' ? well : null
+  if (keeps !== undefined) STOCK_KEEPS = typeof keeps === 'function' ? keeps : null
+}
+export function setStockKeeps (fn) { STOCK_KEEPS = typeof fn === 'function' ? fn : null }
+/** Replace only the well probe (tests, the sandbox driver): the town reader stays the installed one. */
+export function setStockWellProbe (fn) { STOCK_WELL = typeof fn === 'function' ? fn : null }
+/** The group's town view now, or null (no reader). A reader that throws is an UNKNOWN town, never an open one. */
+export function stockTownView (group) {
+  if (!STOCK_TOWN) return null
+  try { return STOCK_TOWN(group) ?? { lb: 0, complete: false, reserved: 0, floor: 0, avail: 0 } } catch { return { lb: 0, complete: false, reserved: 0, floor: 0, avail: 0 } }
+}
+/** Is a town reader installed (the bot, not a pure caller)? The tool cap binds whenever it is (tools never go to the well). */
+export const stockReaderInstalled = () => !!STOCK_TOWN
+/** Does the bulk cap bind here: a town reader is installed and a usable well stands (no probe: it binds). */
+export function stockCapBinds () {
+  if (!STOCK_TOWN) return false
+  if (!STOCK_WELL) return true
+  try { return !!STOCK_WELL() } catch { return true }
+}
+
 /** A stone pickaxe costs two sticks, and the rung gates on `stick >= 2 || planks >= 2`. */
 export const RESERVE_RECIPE = 2
 
@@ -191,6 +225,9 @@ export const EXCLUSION_PHRASE = Object.freeze({
   cobble_reserve: 'cobble reserve',
   town_cobble_cap: 'town cobble cap',
   town_cobble_unknown: 'town cobble not yet counted',
+  town_stock_target: 'town stock target',
+  stock_keep: 'kept for the bag\'s own work',
+  town_stock_unknown: 'town stock not yet counted',
   last_of_tool_family: 'last of its tool family',
   the_only_station: 'the only station',
   peaceful_sword: 'swords are not banked in a peaceful world',
@@ -213,7 +250,8 @@ export const KEEP_ONE = new Set(['crafting_table', 'furnace', 'blast_furnace', '
  * tables is worth at most what the goals actually want, not 99.
  */
 export function bankableInventory (items = [], { wants = [], creditCap = 64,
-                                                 reserveScaffold = 8, noSwords = peacefulFoodActive() } = {}) {
+                                                 reserveScaffold = 8, noSwords = peacefulFoodActive(), noToolCap = false,
+                                                 stockRoomFor = null } = {}) {
   const want = new Set([...wants, ...STANDING_TARGETS].filter(Boolean))
   const counts = {}
   const usable = {}   // tool name -> copies above toolfor's FLOOR
@@ -249,6 +287,14 @@ export function bankableInventory (items = [], { wants = [], creditCap = 64,
     } else cobbleCapped[st.name] = admitted && admitted.refused.unknown > 0 && !admitted.refused.at_cap ? 'town_cobble_unknown' : 'town_cobble_cap'
   }
   const detail = {}
+  // THE STOCK TARGETS' per-call state: the keeps of this bag (one evaluation) and each group's remaining room
+  const stockRoom = {}
+  let keepsMemo = null
+  const stockKeepOf = name => {
+    if (!STOCK_KEEPS) return 0
+    if (!keepsMemo) { try { keepsMemo = STOCK_KEEPS(counts, wants) ?? {} } catch { keepsMemo = {} } }
+    return Math.max(0, Number(keepsMemo[name]) || 0)
+  }
   // name -> the rule that removed it, recorded HERE so no second route can disagree with the
   // decision. Only the subtraction that actually zeroed the item is named: the reserve when it
   // alone suffices, otherwise the keep-one that applies.
@@ -278,6 +324,14 @@ export function bankableInventory (items = [], { wants = [], creditCap = 64,
     // excluding can only lower a count, so no caller can be sent on a new trip by it.
     if (m && unwantedSword({ name }, noSwords)) { junk += n; excluded[name] = 'peaceful_sword'; continue }
     if (m) avail = Math.min(n - 1, (usable[name] ?? 0) - 1)
+    // A CAPPED TOOL (stocktarget class C): spare usable copies only while the town holds fewer than its target of them
+    const tg = m ? groupOf(name) : null
+    if (tg && isToolGroup(tg) && avail > 0 && STOCK_TOWN && !noToolCap) {
+      // a recovery's reservation IS the room for its name (stockRoomFor: name -> reserved count), never more
+      const room = stockRoomFor && name in stockRoomFor ? Math.max(0, Number(stockRoomFor[name]) || 0) : roomUnder(stockTownView(tg), targetOf(tg))
+      if (room == null || room <= 0) { excluded[name] = room == null ? 'town_stock_unknown' : 'town_stock_target'; continue }
+      avail = Math.min(avail, room)
+    }
     if (KEEP_ONE.has(name)) avail -= 1      // and one of each station / bucket, even when wanted
     const reserved = scaffoldReserve[name] ?? 0
     avail -= reserved
@@ -297,6 +351,21 @@ export function bankableInventory (items = [], { wants = [], creditCap = 64,
     // wood, sticks and a crafting table to make -- was scored as ballast.
     const isTool = !!m
     if (!isTool && !want.has(name)) { junk += avail; excluded[name] = 'not_wanted'; continue }
+    // A TARGETED BULK NAME (stocktarget classes A/B): the bag keeps what every path keeps (townKeeps), and the town takes
+    // only its room under the group's target -- shared by the group's names; 0 at target, unknown when it cannot judge.
+    // Only while a usable well stands (the at-target surplus has an exit); otherwise today's rule ("nowell").
+    const sg = !isTool ? groupOf(name) : null
+    if (sg && stockCapBinds()) {
+      const keep = stockKeepOf(name)
+      avail = Math.min(avail, n - keep)
+      if (avail <= 0) { excluded[name] = 'stock_keep'; continue }
+      const own = stockRoomFor && name in stockRoomFor
+      if (!own && !(sg in stockRoom)) stockRoom[sg] = roomUnder(stockTownView(sg), targetOf(sg))
+      const room = own ? Math.max(0, Number(stockRoomFor[name]) || 0) : stockRoom[sg]
+      if (room == null || room <= 0) { excluded[name] = room == null ? 'town_stock_unknown' : 'town_stock_target'; continue }
+      avail = Math.min(avail, room)
+      if (!own) stockRoom[sg] = room - Math.min(avail, creditCap)
+    }
     const credited = Math.min(avail, creditCap)
     detail[name] = credited
     bankable += credited
@@ -445,6 +514,13 @@ export function depositNoopReason (items = [], item = null, { wants = [], ...opt
   if (!item) {
     // the cobble cap's refusals are named even for a plain deposit (both reviews r2): the bot is carrying the cobble
     const why = COBBLE_NAMES.map(n => bankableExclusion(items, n, { wants: w, ...opts })).find(x => x === 'town_cobble_unknown' || x === 'town_cobble_cap')
+    // THE STOCK TARGETS name their rule too (no digits): at target the surplus waits for the well; unknown is counted at town
+    const stockWhy = why ? null : [...new Set(items.map(it => it?.name).filter(n => n && groupOf(n)))].map(n => bankableExclusion(items, n, { wants: w, ...opts }))
+      .find(x => x === 'town_stock_unknown' || x === 'town_stock_target')
+    if (stockWhy) {
+      const note = stockWhy === 'town_stock_unknown' ? cobbleReconcileProbe().note : null
+      return `nothing worth banking (${EXCLUSION_PHRASE[stockWhy]}): the town holds its stock of what you carry -- the surplus stays (the junk well takes it at a full bag) — nothing to deposit${note ? ` (${note})` : ''}`
+    }
     if (!why) {
       // SWORDS WHILE THE PEACEFUL SWITCH IS ON (the peacefulkit x cobble-cap composition, Codex P2): the rule is named, and the
       // move: none is needed, keep working. (No claim about the well: its own switch is stricter -- Claude r1 P3.)
@@ -464,6 +540,6 @@ export function depositNoopReason (items = [], item = null, { wants = [], ...opt
   const phrase = EXCLUSION_PHRASE[bankableExclusion(items, item, { wants: w, ...opts })]
   if (!phrase) return `you are carrying ${item}, but ${item} is not a banking target right now — nothing to deposit`
   // THE COBBLE CAP'S UNKNOWN names its remedy (Codex r2 P3): count at town, or the container that could not be counted.
-  const note = phrase === EXCLUSION_PHRASE.town_cobble_unknown ? cobbleReconcileProbe().note : null
+  const note = (phrase === EXCLUSION_PHRASE.town_cobble_unknown || phrase === EXCLUSION_PHRASE.town_stock_unknown) ? cobbleReconcileProbe().note : null
   return `not a banking target (${phrase}): you are carrying ${item} — nothing to deposit${note ? ` (${note})` : ''}`
 }

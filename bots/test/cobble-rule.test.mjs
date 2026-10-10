@@ -202,7 +202,13 @@ await t('CAP, the fold: the latest CAPTURE wins whatever the append order; an eq
   // a clock step back (Codex r3 P1): 150 counted at 1000; the claim, its transfer and its releasing count at 900-901
   const back = CC.foldJournal([rec('obs', { k: 'a', n: 150, cap: 1000 }), rec('claim', { id: 'x', n: 64, k: 'a', at: 900, keys: ['a'], coverage: true }),
     rec('cnt', { k: 'a', n: 214, cap: 901, ids: ['x'] }), rec('claim', { id: 'y', n: 64, k: 'a', at: 902, keys: ['a'], coverage: true })], { upto: 'y' })
-  assert.equal(back.state.obs.a.n, 214, 'the releasing count stands'); assert.equal(back.decision, 'at_cap', '214 + 64 > 256')
+  // STOCKTARGET (Codex r4 1): a releasing count OLDER than the standing count no longer replaces it -- an older capture could
+  // undo a later draw's count -- the claim is released and the container is UNKNOWN until a recount (both directions safe)
+  assert.equal(back.state.obs.a.n, 150, 'the older releasing count does not replace the standing one')
+  assert.equal(back.state.claims.x, undefined, 'its claim is released'); assert.equal(back.decision, 'unknown', 'the container is recounted first')
+  const fwd = CC.foldJournal([rec('obs', { k: 'a', n: 150, cap: 1000 }), rec('claim', { id: 'x', n: 64, k: 'a', at: 1001, keys: ['a'], coverage: true }),
+    rec('cnt', { k: 'a', n: 214, cap: 1002, ids: ['x'] }), rec('claim', { id: 'y', n: 64, k: 'a', at: 1003, keys: ['a'], coverage: true })], { upto: 'y' })
+  assert.equal(fwd.state.obs.a.n, 214, 'positive control: a releasing count captured later stands'); assert.equal(fwd.decision, 'at_cap', '214 + 64 > 256')
   assert.equal(CC.foldJournal([rec('claim', { id: 'c3', n: 10, k: 'a', at: NOW, keys: ['a'], coverage: false })], { upto: 'c3' }).decision, 'unknown', 'the claimant\'s scan did not cover the town')
 })
 await t('CAP, the journal: 4 processes each claiming 64 against a counted 150 -> exactly one admitted, every reader agrees, the town stays <= 256', async () => {

@@ -28,7 +28,7 @@
 // bags before and after the plan, at several laps: no rung changes state. That is the "do not fight the ladder" rule
 // as a check rather than a promise.
 
-import { depositPlan, scaffoldKeep, withdrawHolds } from './bankable.mjs'
+import { depositPlan, scaffoldKeep, withdrawHolds, setStockKeeps } from './bankable.mjs'
 import { remaining, FLOOR } from './toolfor.mjs'
 import { TRIGGER_SLOTS } from './hygiene.mjs'
 // THE PEACEFUL KIT (peacefulkit.mjs, owner 10-07 ~19:50Z): while the food policy's switch is on no sword is ever banked.
@@ -121,6 +121,10 @@ export function townKeeps (counts = {}, { wanted = [] } = {}) {
   return { keep, why }
 }
 
+// THE STOCK TARGETS' KEEPS (stocktarget-01, design 3.2): the ordinary deposit, the town deposit and the well leave the SAME
+// bag behind -- these keeps -- for every targeted name. Installed here (bankable.mjs cannot import this module: a cycle).
+setStockKeeps((counts, wants) => townKeeps(counts, { wanted: Array.isArray(wants) ? wants : [] }).keep)
+
 /** Uses left on one copy (Infinity for an undamageable item). */
 const usesOf = it => remaining(it)
 
@@ -143,7 +147,7 @@ export function toolSlotsToBank (copies = [], allowance = Infinity) {
  *   steps      WHOLE stacks, smallest first, while what remains >= the keep and the allowance lasts. One step = one
  *              slot emptied, so freed = steps.length.
  */
-export function townDepositPlan (items = [], { wanted = [], already = {}, noSwords = peacefulFoodActive() } = {}) {
+export function townDepositPlan (items = [], { wanted = [], already = {}, noSwords = peacefulFoodActive(), valve = false } = {}) {
   const list = (Array.isArray(items) ? items : []).filter(it => it?.name && (it.count ?? 0) > 0)
   const counts = countsOf(list)
   const { keep, why } = townKeeps(counts, { wanted })
@@ -173,6 +177,21 @@ export function townDepositPlan (items = [], { wanted = [], already = {}, noSwor
     for (const it of [...copies].sort((a, b) => (a.count ?? 0) - (b.count ?? 0) || a.slot - b.slot)) {
       if ((it.count ?? 0) > room) break
       steps.push({ slot: it.slot, name, count: it.count }); banked[name] = (banked[name] ?? 0) + it.count; room -= it.count
+    }
+  }
+  // THE VALVE (stocktarget design 3.2): when nothing else frees a slot and the caller has PROVEN it (`valve`: no well-able,
+  // compostable or bankable stack), ONE tool copy that TODAY's tool rule would bank (the best usable copy of each name
+  // stays, spent copies never move) goes in above the town's tool target -- tools are never destroyed, so a full bag of
+  // spare tools keeps this one move. Its claim is a `valve` claim (skills.mjs bankInto); the read gates it.
+  if (!steps.length && valve) {
+    const free = depositPlan(list, null, { wants: [], noSwords, noToolCap: true })
+    for (const { name, count } of free) {
+      if (!TOOL_RE.test(name) || (holds[name] ?? 0) > 0) continue
+      const slot = toolSlotsToBank(list.filter(it => it.name === name), Math.min(1, count))[0]
+      if (slot == null) continue
+      const it = list.find(c => c.slot === slot)
+      steps.push({ slot, name, count: it.count ?? 1, valve: true }); banked[name] = (banked[name] ?? 0) + (it.count ?? 1); why[name] = 'valve'
+      break
     }
   }
   steps.sort((a, b) => a.slot - b.slot)
@@ -231,7 +250,7 @@ const lazy = v => (typeof v === 'function' ? v() : v)
  *   container  is there a town container within STORAGE_REACH of the bot -- value or function, lazy
  *   state      { lastScanAt, lastIssuedAt, backoffUntil, latched, outsideSince }
  */
-export function townDepositOrder ({ now = 0, slots = 0, pos = null, home = null, plan = null, container = false, state = {} } = {}) {
+export function townDepositOrder ({ now = 0, slots = 0, pos = null, home = null, plan = null, container = false, state = {}, count = false } = {}) {
   const s = { ...state }
   const none = () => ({ order: null, state: s })
   if (!inTownZone(pos, home)) {
@@ -246,12 +265,21 @@ export function townDepositOrder ({ now = 0, slots = 0, pos = null, home = null,
   if (now - (s.lastScanAt ?? -Infinity) < TD_SCAN_MS) return none()
   s.lastScanAt = now
   const p = lazy(plan)
-  if (!p || !(p.freed >= 1)) return none()
+  // THE STOCK TARGETS' COUNT (design 3.7): nothing bankable yet, but a targeted surplus the town cannot judge (ceiling
+  // unknown, or at target by the 6 h ceiling and not by the 1 h floor) -- count the town's containers first, so the plan or
+  // the well can act (Codex r2 7, Claude r2 P1-2: no full bag waits for a count nobody takes)
+  if (!p || !(p.freed >= 1)) {
+    if (!lazy(count) || !lazy(container)) return none()
+    s.lastIssuedAt = now
+    s.latched = true
+    return { order: { skill: 'town_deposit', args: { recount: true },
+                      why: `at town with ${slots} of 36 slots used; the town's stock of what is carried must be counted first` }, state: s }
+  }
   if (!lazy(container)) return none()
   s.lastIssuedAt = now
   s.latched = true
   return { order: { skill: 'town_deposit', args: {},
-                    why: `at town with ${slots} of 36 slots used; ${p.freed} whole stack(s) of surplus to bank` }, state: s }
+                    why: `at town with ${slots} of 36 slots used; ${p.freed} whole stack(s) of surplus to bank${p.steps?.some(x => x.valve) ? ' (the valve: one spare tool)' : ''}` }, state: s }
 }
 
 /** The runner declined to start it: the stay is not spent (the cooldown charged at issue still applies). */
@@ -267,7 +295,7 @@ export function townDepositOutcome (status, failClass = null, now = 0, state = {
 }
 
 /** The run's row: slots, what moved, the containers, why it stopped, the cursor. Under the logger's 300-char cap. */
-export function townDepositDetail ({ slotsBefore = 0, slotsAfter = 0, banked = {}, stacks = 0, tried = [], stop = 'done', unsettled = 0, bagDelta = null, planned = 0, tools = [], clicked = null, unverified = 0, capRefused = null } = {}) {
+export function townDepositDetail ({ slotsBefore = 0, slotsAfter = 0, banked = {}, stacks = 0, tried = [], stop = 'done', unsettled = 0, bagDelta = null, planned = 0, tools = [], clicked = null, unverified = 0, capRefused = null, stock = null } = {}) {
   const moved = Object.entries(banked).filter(([, n]) => n > 0).sort((a, b) => b[1] - a[1] || (a[0] < b[0] ? -1 : 1)).map(([k, n]) => `${k}:${n}`).join(',') || '-'
   const t = tried.map(c => `${c.at}=${c.result}`).join(';') || '-'
   // THE TOOLS GO FIRST after the counts: the read's spent-tool gate parses `tools name@uses,...` and must never lose it
@@ -277,5 +305,7 @@ export function townDepositDetail ({ slotsBefore = 0, slotsAfter = 0, banked = {
   // the bag and are not in the chest).
   // `cobble_cap at_cap/unknown/outside`: cobble stacks the town cap refused in this run's transfer (cobblecap.mjs)
   const cap = capRefused && (capRefused.at_cap || capRefused.unknown || capRefused.outside) ? ` cobble_cap ${capRefused.at_cap ?? 0}/${capRefused.unknown ?? 0}/${capRefused.outside ?? 0}` : ''
-  return `slots ${slotsBefore}->${slotsAfter} stacks ${stacks}/${planned} clicked ${clicked ?? stacks} bagdelta ${bagDelta ?? '?'} tools ${tools.join(',') || '-'}${cap} banked ${moved} stop ${stop}${unsettled ? ` cursor_unsettled ${unsettled}` : ''}${unverified ? ` unverified ${unverified}` : ''} containers ${t}`.slice(0, 300)
+  // stocktarget: claims admitted / refused for the other targeted names, the valve, and a count step
+  const st = stock && (stock.claims || stock.refused || stock.valve || stock.counted != null) ? ` stock ${stock.claims ?? 0}/${stock.refused ?? 0}${stock.valve ? ` valve ${stock.valve} nothing_else=1` : ''}${stock.counted != null ? ` counted ${stock.counted}` : ''}` : ''
+  return `slots ${slotsBefore}->${slotsAfter} stacks ${stacks}/${planned} clicked ${clicked ?? stacks} bagdelta ${bagDelta ?? '?'} tools ${tools.join(',') || '-'}${cap}${st} banked ${moved} stop ${stop}${unsettled ? ` cursor_unsettled ${unsettled}` : ''}${unverified ? ` unverified ${unverified}` : ''} containers ${t}`.slice(0, 300)
 }

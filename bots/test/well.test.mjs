@@ -910,7 +910,7 @@ await t('MUTANT (skills): without the reset at the visit\'s start, the last visi
   })
 })
 await t('MUTANT (skills): the grade credits any sword loss (not only one the well clicked)', async () => {
-  await withMutant(SP, '(isWellJunk(k) || ((isSword(k) || isWellCobble(k)) && wellClickedLast.has(k)))', '(isWellJunk(k) || isSword(k) || (isWellCobble(k) && wellClickedLast.has(k)))', async m => {
+  await withMutant(SP, '(isWellJunk(k) || ((isSword(k) || isWellCobble(k) || groupOf(k)) && wellClickedLast.has(k)))', '(isWellJunk(k) || isSword(k) || ((isWellCobble(k) || groupOf(k)) && wellClickedLast.has(k)))', async m => {
     const easy = peacefulTown([S('stone_sword', 1), S('egg', 16), ...filler(34)], 'easy')
     await within(m.SKILLS.dispose_well.run({ bot: easy.bot }, {}, { aborted: false }), 15000, 'mutant')
     assert.ok(JSON.stringify(m.classifyOutcome('dispose_well', 'success', { inventory: { stone_sword: -1 } })).includes('stone_sword'), 'mutant inert')
@@ -1476,7 +1476,7 @@ await t('P1-1 C3 FIRES: the server drops iron where the client saw a rail -> the
   assert.equal(field((await rows('_well_dispose')).pop().skill.detail, 'offlist'), '0', 'positive control the other way: a clean visit reads 0')
 })
 await t('MUTANT: counting no off-list entity leaves C3 blind again', async () => {
-  await withMutant(WP, "    if (!isWellJunk(t.name) && !swordOk && !cobbleOk) {", "    if (false) {", async m => {
+  await withMutant(WP, "    if (!isWellJunk(t.name) && !swordOk && !cobbleOk && !stockOk) {", "    if (false) {", async m => {
     assert.equal(m.thrownNames([{ name: 'iron_ingot', count: 3 }]).offlist, 0, 'mutant inert')
   })
   assert.equal(W.thrownNames([{ name: 'iron_ingot', count: 3 }, { name: 'egg', count: 16 }, { name: null }]).offlist, 1)
@@ -2450,14 +2450,16 @@ await t('COBBLE (Codex r1/r2 P1): only the COUNTED total proves the cap -- 192 c
   assert.equal(SK.cobbleTownViewFor(town.bot).reserved, 64, 'and it is a live reservation')
   assert.notEqual(SK.cobbleWellCap(town.bot), 'at_cap', '192 held + 64 on its way is not 256 held')
   // a COMPLETE count in town (a barrel beside home, the only container): the old predicate's own condition for at_cap
-  const inTownAt = (tw, n) => { const k = `${HOME.x + 6},${HOME.y},${HOME.z - 6}`; tw.world.set(k, { name: 'barrel' }); CCAP.appendJournal(process.env.POOL_STATE_DIR, CF_townKey(HOME), tw.bot.worldId ?? null, { t: 'obs', k, n, cap: Date.now() }) }
+  // (stocktarget: two counts in ONE millisecond keep the smaller for the floor, so each count here is captured later than the last)
+  let capAt = Date.now()
+  const inTownAt = (tw, n) => { const k = `${HOME.x + 6},${HOME.y},${HOME.z - 6}`; tw.world.set(k, { name: 'barrel' }); CCAP.appendJournal(process.env.POOL_STATE_DIR, CF_townKey(HOME), tw.bot.worldId ?? null, { t: 'obs', k, n, cap: ++capAt }) }
   const t2 = fakeTown({ wellAt: CAP, items: [S('cobblestone', 30), S('cobblestone', 64), ...Array.from({ length: 34 }, () => S('oak_log', 64))] })
   inTownAt(t2, 240)
   assert.equal(SK.cobbleTownViewFor(t2.bot).complete, true, 'positive control: the count is complete')
   assert.notEqual(SK.cobbleWellCap(t2.bot), 'at_cap', '240 held: the 30 would pass 256 (a refused deposit), but the town does not hold 256')
   inTownAt(t2, 256)
   assert.equal(SK.cobbleWellCap(t2.bot), 'at_cap', 'positive control: 256 counted is')
-  await withMutant(SP, "    return (Number(v?.lb) || 0) >= TOWN_COBBLE_CAP ? 'at_cap'", "    return cobbleAdmit(v, 30) === 'at_cap' ? 'at_cap'", async m => {
+  await withMutant(SP, "    return (Number(v?.avail) || 0) >= TOWN_COBBLE_CAP ? 'at_cap'", "    return cobbleAdmit(v, 30) === 'at_cap' ? 'at_cap'", async m => {
     const t3 = fakeTown({ wellAt: CAP, items: [S('cobblestone', 30), S('cobblestone', 64), ...Array.from({ length: 34 }, () => S('oak_log', 64))] })
     inTownAt(t3, 240)
     assert.equal(m.cobbleWellCap(t3.bot), 'at_cap', 'mutant inert (the old predicate called a refused deposit the cap)')
@@ -2522,7 +2524,7 @@ await t('MUTANT (skills): without the finally close an aborted visit leaves the 
   })
 })
 await t('MUTANT (skills): without the per-stack re-read a changed slot is thrown', async () => {
-  await withMutant(SP, "      if (!it || it.name !== st.name || !(isWellJunk(it.name) || (sword && acc.swordsAllowed) || (cob && acc.cobbleAllowed)) || bot.currentWindow || bot.inventory?.selectedItem) continue\n", '', async m => {
+  await withMutant(SP, "      if (!it || it.name !== st.name || !(isWellJunk(it.name) || (sword && acc.swordsAllowed) || (cob && acc.cobbleAllowed) || (stk && (acc.stockAllowed || acc.pruned))) || bot.currentWindow || bot.inventory?.selectedItem) continue\n", '', async m => {
     const town = fakeTown({ wellAt: CAP, items: [S('egg', 16), S('flint', 64), S('rail', 3), ...filler(32)] })
     const railSlot = town.slots.findIndex(s => s?.name === 'rail')
     town.state.onLook = () => { if (town.state.clicks.length === 2 && town.slots[railSlot]?.name === 'rail') town.slots[railSlot] = { name: 'iron_ingot', type: REG.itemsByName.iron_ingot.id, count: 5, slot: railSlot } }
