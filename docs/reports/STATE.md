@@ -14,6 +14,33 @@ AGENTS DOWN until ~10-12 11Z (weekly limit): no new builds before then._
 
 ---
 
+## 10-10 13:50Z — STONECAP READY on jw-on-6f1921a (+ a peacefulkit-REVERT contingency for junkwell and stonecap); entries drafted, NOT added
+- **sc-on-0cdb1a8 @ 935c63e.** The approved sc-on-cf4192e @ 32d7447 was applied as one commit (bacad2f): no conflict, identical text.
+  - 935c63e adds main's mutant driver (scripts only; bots/ identical to bacad2f).
+  - npm test 244/244. Mutants with main's drivers: cobble 67/67, mutants-pk PK_COMPOSED 87/87, well classifier 2/2.
+  - Reviews: Claude r1 APPROVE. Codex r1 CHANGE -> r2 APPROVE.
+  - Codex's P2 was the stale branch driver: fixed in 935c63e.
+  - Its other P2 (an air_pocket interrupt of a well visit: the well's cleanup restores the hand, or holds the rescue's equip) is pre-existing in junkwell-02. It goes to **AIRPOCKET-02**.
+- **CONTINGENCY if peacefulkit-01 is NOT kept** (today a revert would block junkwell):
+  - **jw-on-4970c91 @ 0264f61** (the plain 1db3fcd well): npm test 240/240.
+  - **sc-on-0264f61 @ d551f7a** (f5bdb80 on it): npm test 241/241, cobble 67/67.
+  - Both engines APPROVE both (r1), no P1/P2.
+- **Paper:** not re-run. Both engines: the code is byte-identical to the Paper-proven builds.
+- **stonecapread dry run** (4970c91 logs): gates 0, instrument 43.
+- Registrations stonecap-01.0cdb1a8 / junkwell-02.4970c91 / stonecap-01.0264f61: on main and in ~/mcai-analysis. Bag-fix fields unchanged.
+  - Review text: docs/reports/stonecap-01.rebase-review-2026-10-10.txt.
+- **OPERATOR:**
+  - (1) `queue add` docs/reports/stonecap-01.queue-entry.json (= ~/mcai-analysis/stonecap-01.entry.json): bag-fix, after junkwell-02. Variants: 0cdb1a8 -> 935c63e and 0264f61 -> d551f7a.
+  - (2) `queue replace-variant junkwell-02` with docs/reports/junkwell-02.queue-entry.json (= ~/mcai-analysis/junkwell-02.entry-r2.json): the 6 queued variants unchanged, + 4970c91 -> 0264f61.
+  - Both were validated no-act: VALID.
+  - FIRST fetch sc-on-0cdb1a8, jw-on-4970c91 and sc-on-0264f61 into /opt. 935c63e, 0264f61 and d551f7a are not there yet.
+- **gridfix-01 / bamboo-01** were built and reviewed 10-08 on the four jw shas. Branches pushed:
+  - gf-on-{bd747a8,0cdb1a8,2299221,e4f2917} @ 1782dff / 82aef34 / 0cc06fc / f272526. Both engines APPROVE at r2. These include the well + grid fix composition test.
+  - bb-on-{1782dff,82aef34,0cc06fc,f272526} @ 7a60da5 / 8212674 / 812d42f / 37657ae. Both APPROVE r1. Paper fold A20/D20/K20 OK on the full stack.
+  - Not registered: under the new order they must sit on the stonecap/stocktarget shas, and will be redone there.
+  - Open: one load flake in bb-82aef34's suite (craftsync-mutants passed 3/3 when rerun alone).
+  - Condition from Claude r2 on the airpocket bases: airpocket-02 must take "no equip ever queued behind a craft".
+
 ## 10-10 13:42Z — orderveto: the gate's refusals of WORK ORDERS are JUSTIFIED; orderveto-01 NOT BUILT (both engines AGREE)
 Record: docs/reports/orderveto-investigation-2026-10-10.md; reviews docs/reports/orderveto-reviews-2026-10-10.txt; reads
 scripts/host/orderveto/ (+ outputs in ~/mcai-analysis/orderveto-evidence-2026-10-10/ on the fleet host).
