@@ -28,6 +28,9 @@ JOURNAL = os.environ.get('STEADY_JOURNAL', os.path.expanduser('~/canary-journal.
 MANIFEST = os.environ.get('STEADY_MANIFEST', '/srv/mcbots/trial-manifest.json')
 LOGROOT = os.environ.get('STEADY_LOGROOT', '/var/log/mcai')
 UNITS_FILE = os.environ.get('STEADY_UNITS_FILE', '')   # fixture: `systemctl list-units --plain --no-legend` lines
+# THE ROSTER (round 4, Codex): the ENABLED instances, not the loaded units -- a stopped unit that systemd has unloaded
+# disappears from list-units, and must still hold its pool. Every enabled instance must be loaded, active and running.
+ROSTER_DIR = os.environ.get('STEADY_ROSTER_DIR', '/etc/systemd/system/multi-user.target.wants')
 EXCL_H = 12
 EARLY_H = 6
 STEADY_MIN = 60
@@ -47,8 +50,21 @@ def _t(s):
         return None
 
 
+POOL_RE = __import__('re').compile(r'^[a-z]+-[a-z]$')
+
+
 def pools_in(row):
-    return {p.strip() for p in str(row.get('canary_pool') or '').split(',') if p.strip()}
+    """The row's pools; a canary_pool that is not a string of comma-separated `<word>-<letter>` names raises ValueError
+    (round 4, Codex: a list was stringified into one bogus name and its REVERT held nothing)."""
+    v = row.get('canary_pool')
+    if v is None or v == '':
+        return set()
+    if not isinstance(v, str):
+        raise ValueError('canary_pool is not a string: %r' % (v,))
+    ps = {p.strip() for p in v.split(',') if p.strip()}
+    if not all(POOL_RE.match(p) for p in ps):
+        raise ValueError('canary_pool names malformed: %r' % (v,))
+    return ps
 
 
 def parse_ledger(lines):
@@ -104,6 +120,17 @@ def candidates(ledger_rows, journal_rows, now):
                 if prev is None or prev[2] < t:
                     ok[p] = (run, sha, t)
     return {p: v for p, v in ok.items() if p not in held}, held
+
+
+def parse_roster(names):
+    """PURE. Entries of the multi-user.target.wants dir -> the enabled bot names (`mcbot@<bot>.service`)."""
+    return sorted(n[len('mcbot@'):-len('.service')] for n in names if n.startswith('mcbot@') and n.endswith('.service')
+                  and n != 'mcbot@.service')
+
+
+def membership(roster, units):
+    """PURE. {bot: up} for every ENABLED bot; a bot missing from the loaded-unit list is down (unloaded)."""
+    return {b: bool(units.get(b)) for b in roster}
 
 
 def parse_units(text):
@@ -180,6 +207,13 @@ def steady(cand, summary, controls, fleet_version, fleet_declared_at):
                                 summary['h1'], summary['h2'], len(cs)))
 
 
+def read_roster():
+    r = parse_roster(os.listdir(ROSTER_DIR))
+    if not r:
+        raise OSError('no enabled mcbot instances in %s' % ROSTER_DIR)
+    return r
+
+
 def read_units():
     if UNITS_FILE:
         return parse_units(open(UNITS_FILE).read())
@@ -222,7 +256,7 @@ def main():
     sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
     try:
         import bagread
-        units = read_units()
+        units = membership(read_roster(), read_units())
         by_pool = {}
         for b, active in units.items():
             by_pool.setdefault(pool_of(b), {})[b] = active

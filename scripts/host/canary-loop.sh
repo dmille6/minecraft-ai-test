@@ -247,15 +247,26 @@ _run_reads() {
   # kills the READ, never a bot. A killed, refused or failed read is journalled read-failed; its evidence is absent, so
   # verdict.py answers UNREADABLE for it, never a pass. heavyread.sh missing = no read runs (fail closed).
   [ -f $H/mcai-analysis/heavyread.sh ] || { page error "$H/mcai-analysis/heavyread.sh missing: reads are never run uncapped"; journal reads-missing "heavyread.sh missing"; exit 4; }
+  # the probe is journalled at every read minute: which cap, in which mode -- or why no read will run (round 4, Claude)
+  local _hp; _hp=$(bash $H/mcai-analysis/heavyread.sh --probe 2>&1 | tail -1)
+  journal heavyread-mode "+$M $_hp"
+  case "$_hp" in "HEAVYREAD UNAVAILABLE"*) page error "reads at +$M cannot run capped ($_hp): each will fail closed";; esac
+  # the timeout follows the window: +1920 reads were measured at up to 14 min (peacefulkitread 846 s; round 4, Claude)
+  local _to=900; [ "$M" -ge 1440 ] && _to=1800
   for s in $SCRIPTS; do
-    (cd ${CANARY_READ_CWD:-/opt/minecraft-ai/scripts} && bash $H/mcai-analysis/heavyread.sh 900 $H/digest/reads/$RUN-$s-$M.txt -- python3 $RD/$s.py $M)
+    # ONLY THIS ATTEMPT'S EVIDENCE MAY DECIDE (round 4, Codex): a killed, refused or failed rerun must not leave an
+    # earlier attempt's bound evidence behind for verdict.py to accept (readjson.emit writes <run>-<read>-<M>.json).
+    rm -f $H/digest/reads/$RUN-$s-$M.json
+    (cd ${CANARY_READ_CWD:-/opt/minecraft-ai/scripts} && HEAVYREAD_ROLE=loop bash $H/mcai-analysis/heavyread.sh $_to $H/digest/reads/$RUN-$s-$M.txt -- python3 $RD/$s.py $M)
     local _rc=$?
+    [ $_rc -ne 0 ] && rm -f $H/digest/reads/$RUN-$s-$M.json
     if [ $_rc -ne 0 ]; then
       local _what
       case $_rc in
-        124) _what="TIMED OUT after 900s";;
+        124) _what="TIMED OUT after ${_to}s";;
         137) _what="KILLED (heavyread's memory cap, or the timeout's kill)";;
-        75) _what="NOT RUN: the heavy-read lock stayed busy (a calibration job?)";;
+        75) _what="NOT RUN: the heavy-read lock stayed busy (another loop read?)";;
+        77) _what="NOT RUN: no memory-capped scope could be created";;
         *) _what="exited $_rc";;
       esac
       journal read-failed "$s +$M $_what: $(tail -2 $H/digest/reads/$RUN-$s-$M.txt 2>/dev/null | tr '\n' ' ' | cut -c1-260)"

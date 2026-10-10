@@ -26,10 +26,12 @@ A pool is released at 6 h only when **all** of these hold:
    - it is at least 6 h old.
 
    A REVERT, an INCONCLUSIVE or an unpromoted KEEP keeps 12 h. A decision up to 10 min in the future (clock skew)
-   holds the pool. **The ledger is parsed strictly:** any malformed line, an unreadable ts, or a row naming no pool
+   holds the pool. **The ledger is parsed strictly:** any malformed line, an unreadable ts, a row naming no pool, or a
+   `canary_pool` that is not a string of `<word>-<letter>` names (round 4, Codex)
    releases **nothing**, because an unreadable row could be the REVERT that holds a pool (round 3, Codex).
 2. **The pool runs the promoted version, verified, on its whole membership.**
-   - Membership is the systemd unit list (`mcbot@<bot>.service`, `--all`), never log activity. A down bot holds its
+   - Membership is the **enabled** instances (`/etc/systemd/system/multi-user.target.wants/mcbot@*.service`: 80, 5 per
+     pool), never log activity. An enabled bot missing from `list-units --all`, i.e. unloaded, is down (round 4, Codex). A down bot holds its
      pool rather than vanishing from it (round 3, Codex), and the retired `-Charlie` log dirs are not members.
    - Every unit must be active and running.
    - Every bot needs at least 20 rows in the last 60 min, with no unreadable file and no corrupt row. All of those rows
@@ -112,6 +114,37 @@ A three-pool deploy is journalled as `draw-three` and paged.
 - **A three-pool final with no such edge registered cannot KEEP.** `bagfixrule.primary_spec` returns None, so the read
   is INCONCLUSIVE. The four-pool edge is never applied to a three-pool read (tested).
 
+**The three-pool edges** (computed 10-10 on the host, `docs/reports/bagnull-3x32-2026-10-10.bands.json`):
+- **Positive control first:** bagnull.py at its defaults re-ran two shipped cuts and reproduced all 100 bagnull5 records
+  exactly.
+- **3 pools × 32 h, each fix under its own draw filter, edge = 2.5th percentile.** Written into every bag-fix
+  registration (29) as `bag_fix.primary_by_pools["3"]` by `scripts/host/add_edges3.py`.
+
+| fix | field | 4 × 24 edge | **3 × 32 edge** | n (days) |
+|---|---|---:|---:|---|
+| toolhygiene-01 | pick_slots_did | -0.842 | **-0.813** | 234 (7) |
+| peacefulkit-01 | sword_slots_did | -0.059 | **-0.091** | 180 (6) |
+| junkwell-02 | slots_did | -1.653 | **-1.870** | 119 (6) |
+| gridfix-01 | slots_did | -1.366 | **-1.142** | 171 (6) |
+| stonecap-01 | slots_did | -1.366 | **-1.598** | 220 (7) |
+
+**The reads at +1920** (`scripts/host/readcost1920.sh`; each read one at a time under heavyread's 32G cap, as a dry run, on
+the 94-GB VM):
+
+| read | wall | peak RSS |
+|---|---:|---:|
+| immobiledid | 3:34 | 12.8 GB |
+| toolhygieneread | 9:07 | 1.0 GB |
+| peacefulkitread | 14:06 | 23.0 GB |
+| wellread | 6:37 | 23.0 GB |
+| gridfixread | 6:28 | 23.0 GB |
+| stonecapread | 6:49 | 23.0 GB |
+| bagread | 7:11 | 0.1 GB |
+
+- The loop's read timeout is now **1800 s from +1440** (it was 900 s everywhere). The slowest +1920 read took 846 s.
+- **Precondition: the 94-GB VM.** On the old 46-GB host the cap would be 22G, and four of these reads (23.0 GB) would
+  be killed at +1920. Each such read fails closed, so a three-pool extension could never reach a KEEP there.
+
 **Stated plainly:** (c) is less sensitive on three pools. The extra 8 h does not buy back the lost pool: four pools at
 32 h would give -2.46. The band is also noisy. With 102 overlapping draws, the 2.5th percentile is roughly the third-lowest
 draw.
@@ -128,15 +161,28 @@ The fleet host had 46 GB, no swap, and the bots use about 17.6 GB. One heavy rea
 two at once could wake the OOM killer, which may pick a bot. The host now has 94 GB plus an 8-GB swapfile, and the
 rule below holds either way. `scripts/host/heavyread.sh` wraps every read the loop runs:
 
-- **Lock.** It takes `flock /tmp/mcai-heavyread.lock`, waiting up to 45 min. If the lock is not acquired, it exits 75
-  and the read never runs. The read does not inherit the lock fd, so an orphan cannot keep the lock.
+- **Lock, with the canary first** (round 4, Claude: a loop read waiting behind a calibration job would stall the death
+  poll, which shares the loop). It takes `flock /tmp/mcai-heavyread.lock`.
+  - **A calibration job** (the default role) refuses to start while a canary is declared or a canary loop runs, and
+    also when the manifest cannot be read.
+  - **A loop read** waits 120 s. If a calibration job holds the lock, the loop read **preempts** it: it kills the
+    job's scope (the job is restartable and records PREEMPTED) and takes the lock.
+  - A loop read never preempts another loop read. After the wait it is not run (exit 75).
+  - The read does not inherit the lock fd, so an orphan cannot keep the lock.
 - **Cap.** The read runs in a transient system scope, `sudo -n systemd-run --scope -p MemoryMax=… -p MemorySwapMax=0`,
   as mike, with the read's own environment and cwd.
   - The cap is min(32G, MemTotal − 24G): 32G on the 94-GB VM, 22G on the old 46-GB one.
   - A user scope would need a user manager. A loop started from cron has none (Linger=no); measured: "Failed to connect
     to bus".
-  - If the scope cannot be created, the fallback is `ulimit -v` at the same number, which is never looser.
-  - A host too small to size a cap does not run the read.
+  - **No fallback** (round 4, both engines). `ulimit -v` is per process, and an address-space cap can kill reads that
+    fit by RSS. So if the scope cannot be created, the read does not run (exit 77). An invalid cap, or a host too small
+    to size one, also does not run it.
+  - `--expand-environment=no`: values containing `$` reach the read verbatim (tested).
+  - The cap applies to the whole job: three 250 MB workers under a 500M cap do not all survive (tested).
+  - The loop journals `heavyread --probe` (mode and cap) at every read minute.
+- **Only this attempt's evidence decides** (round 4, Codex). The loop deletes a read's evidence for that minute before
+  each attempt, and again after a failed one. A killed or refused rerun cannot leave an earlier attempt's evidence for
+  verdict.py to accept.
 - **Exit.** The read's own status is passed through: 137 means killed by the cap, 124 a timeout, 75 the lock was busy.
   The loop journals each as `read-failed` with that reason and pages it.
 - **A killed read writes no evidence, so verdict.py answers UNREADABLE for that read, never KEEP.** This is tested end to

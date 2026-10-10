@@ -1,0 +1,58 @@
+{
+ "random.slots_did": {
+  "edge": -1.175,
+  "n": 240,
+  "cuts": 24,
+  "days": 7,
+  "median": 0.054
+ },
+ "toolhygiene-01.pick_slots_did": {
+  "edge": -0.813,
+  "n": 234,
+  "cuts": 24,
+  "days": 7,
+  "median": 0.009
+ },
+ "toolhygiene-01.slots_did": {
+  "edge": -1.429,
+  "n": 234,
+  "cuts": 24,
+  "days": 7,
+  "median": 0.01
+ },
+ "peacefulkit-01.slots_did": {
+  "edge": -1.428,
+  "n": 180,
+  "cuts": 18,
+  "days": 6,
+  "median": 0.014
+ },
+ "peacefulkit-01.sword_slots_did": {
+  "edge": -0.091,
+  "n": 180,
+  "cuts": 18,
+  "days": 6,
+  "median": -0.028
+ },
+ "junkwell-02.slots_did": {
+  "edge": -1.87,
+  "n": 119,
+  "cuts": 17,
+  "days": 6,
+  "median": 0.017
+ },
+ "gridfix-01.slots_did": {
+  "edge": -1.142,
+  "n": 171,
+  "cuts": 18,
+  "days": 6,
+  "median": 0.118
+ },
+ "stonecap-01.slots_did": {
+  "edge": -1.598,
+  "n": 220,
+  "cuts": 22,
+  "days": 7,
+  "median": -0.101
+ }
+}

@@ -202,7 +202,7 @@ def synthetic(tmp, scenario):
     if scenario == 'readfail':
         extra = {'STUB_EXT_UNREADABLE': '1'}
     if scenario == 'readoom':
-        extra = {'STUB_READ_HOG': '1', 'HEAVYREAD_MAX': '200M'}
+        extra = {'STUB_READ_HOG': '1', 'HEAVYREAD_MAX': '300M'}
     if scenario == 'noguards':
         extra = {'STUB_EXT_NOGUARDS': '1'}
     if scenario in ('basefail', 'basefail2'):

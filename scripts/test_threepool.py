@@ -246,30 +246,30 @@ def steady_pure(DS):
     def P(run, sha, h_ago):
         return {'ts': (now - dt.timedelta(hours=h_ago)).strftime('%Y-%m-%dT%H:%M:%SZ'), 'run': run, 'phase': 'promoted', 'note': sha + ' fleet-wide'}
     ca = lambda led, jr: DS.candidates(led, jr, now)
-    k, h = ca([L('KEEP', 'p1,p2', 7)], [P('x-01', 'aaa1111', 6.8)])
-    c('candidates: KEEP promoted fleet-wide 7 h ago -> both pools', set(k) == {'p1', 'p2'} and not h, (k, h))
-    k, h = ca([L('KEEP', 'p1', 5)], [P('x-01', 'aaa1111', 4.8)])
-    c('candidates: 5 h ago -> held (< 6 h)', not k and 'p1' in h, (k, h))
-    k, h = ca([L('REVERT', 'p1', 7)], [])
-    c('candidates: REVERT 7 h ago -> held (12 h)', not k and 'p1' in h, (k, h))
-    k, h = ca([L('KEEP', 'p1', 7)], [])
-    c('candidates: KEEP never promoted -> held', not k and 'p1' in h, (k, h))
-    k, h = ca([L('KEEP', 'p1', 7)], [P('x-01', 'bbb2222', 6.8)])
-    c('candidates: promoted a DIFFERENT sha -> held', not k and 'p1' in h, (k, h))
-    k, h = ca([L('KEEP', 'p1', 7)], [P('x-01', 'aaa1111', 7.5)])
-    c('candidates: a promotion BEFORE the decision -> held', not k and 'p1' in h, (k, h))
-    k, h = ca([L('KEEP', 'p1', 7), L('REVERT', 'p1', 9, sha='ccc3333', run='y-01')], [P('x-01', 'aaa1111', 6.8)])
-    c('candidates: the same pool REVERTed 9 h ago too -> held', not k and 'p1' in h, (k, h))
-    k, h = ca([L('KEEP', 'p1', 13)], [P('x-01', 'aaa1111', 12.8)])
+    k, h = ca([L('KEEP', 'pool-a,pool-b', 7)], [P('x-01', 'aaa1111', 6.8)])
+    c('candidates: KEEP promoted fleet-wide 7 h ago -> both pools', set(k) == {'pool-a', 'pool-b'} and not h, (k, h))
+    k, h = ca([L('KEEP', 'pool-a', 5)], [P('x-01', 'aaa1111', 4.8)])
+    c('candidates: 5 h ago -> held (< 6 h)', not k and 'pool-a' in h, (k, h))
+    k, h = ca([L('REVERT', 'pool-a', 7)], [])
+    c('candidates: REVERT 7 h ago -> held (12 h)', not k and 'pool-a' in h, (k, h))
+    k, h = ca([L('KEEP', 'pool-a', 7)], [])
+    c('candidates: KEEP never promoted -> held', not k and 'pool-a' in h, (k, h))
+    k, h = ca([L('KEEP', 'pool-a', 7)], [P('x-01', 'bbb2222', 6.8)])
+    c('candidates: promoted a DIFFERENT sha -> held', not k and 'pool-a' in h, (k, h))
+    k, h = ca([L('KEEP', 'pool-a', 7)], [P('x-01', 'aaa1111', 7.5)])
+    c('candidates: a promotion BEFORE the decision -> held', not k and 'pool-a' in h, (k, h))
+    k, h = ca([L('KEEP', 'pool-a', 7), L('REVERT', 'pool-a', 9, sha='ccc3333', run='y-01')], [P('x-01', 'aaa1111', 6.8)])
+    c('candidates: the same pool REVERTed 9 h ago too -> held', not k and 'pool-a' in h, (k, h))
+    k, h = ca([L('KEEP', 'pool-a', 13)], [P('x-01', 'aaa1111', 12.8)])
     c('candidates: 13 h ago -> neither (out of the 12-h window)', not k and not h, (k, h))
-    k, h = ca([L('KEEP', 'p1', 7), dict(L('REVERT', 'p1', 0), ts=(now + dt.timedelta(minutes=3)).isoformat())], [P('x-01', 'aaa1111', 6.8)])
-    c('candidates: a decision 3 min in the future (clock skew) HOLDS', not k and 'p1' in h, (k, h))
-    k, h = ca([L('KEEP', 'p1', 7), dict(L('REVERT', 'p1', 0), ts=(now + dt.timedelta(hours=3)).isoformat())], [P('x-01', 'aaa1111', 6.8)])
-    c('candidates: a decision 3 h in the future does not exist yet (replay) -> released', 'p1' in k, (k, h))
-    k, h = ca([dict(L('KEEP', 'p1', 7), ts='bad')], [])
-    c('candidates: an unreadable ts holds the pool', not k and 'p1' in h, (k, h))
+    k, h = ca([L('KEEP', 'pool-a', 7), dict(L('REVERT', 'pool-a', 0), ts=(now + dt.timedelta(minutes=3)).isoformat())], [P('x-01', 'aaa1111', 6.8)])
+    c('candidates: a decision 3 min in the future (clock skew) HOLDS', not k and 'pool-a' in h, (k, h))
+    k, h = ca([L('KEEP', 'pool-a', 7), dict(L('REVERT', 'pool-a', 0), ts=(now + dt.timedelta(hours=3)).isoformat())], [P('x-01', 'aaa1111', 6.8)])
+    c('candidates: a decision 3 h in the future does not exist yet (replay) -> released', 'pool-a' in k, (k, h))
+    k, h = ca([dict(L('KEEP', 'pool-a', 7), ts='bad')], [])
+    c('candidates: an unreadable ts holds the pool', not k and 'pool-a' in h, (k, h))
     # parse_ledger: strict (round 3, Codex P2)
-    good_line = json.dumps(L('KEEP', 'p1', 7))
+    good_line = json.dumps(L('KEEP', 'pool-a', 7))
 
     def raises(lines):
         try:
@@ -278,12 +278,18 @@ def steady_pure(DS):
             return True
     c('parse_ledger: clean lines parse; blank lines are skipped', len(DS.parse_ledger([good_line, '', good_line])) == 2)
     c('parse_ledger: a malformed line REFUSES (it could be the REVERT that holds a pool)', raises([good_line, '{"canary_pool": "p1", "decision": "REV']))
+    c('parse_ledger: a canary_pool that is a LIST, or a malformed pool name, REFUSES (round 4, Codex)',
+      raises([good_line, json.dumps(dict(L('REVERT', 'pool-a', 1), canary_pool=['pool-a']))])
+      and raises([json.dumps(dict(L('REVERT', 'pool-a', 1), canary_pool='pool-a,Pool A'))]))
+    c('membership: every ENABLED bot; one missing from the loaded units is DOWN (round 4, Codex)',
+      DS.membership(['pool-a-A', 'pool-a-B'], {'pool-a-A': True}) == {'pool-a-A': True, 'pool-a-B': False}
+      and DS.parse_roster(['mcbot@pool-a-A.service', 'mcbot@.service', 'other.service', 'mcbot@pool-a-B.service']) == ['pool-a-A', 'pool-a-B'])
     c('parse_ledger: a row with no ts, a row naming no pool, or a non-dict REFUSES',
-      raises([json.dumps(dict(L('REVERT', 'p1', 7), ts=None))]) and raises([json.dumps(dict(L('REVERT', '', 7)))]) and raises(['[1, 2]']))
+      raises([json.dumps(dict(L('REVERT', 'pool-a', 7), ts=None))]) and raises([json.dumps(dict(L('REVERT', '', 7)))]) and raises(['[1, 2]']))
     # units
-    u = DS.parse_units('mcbot@p1-A.service loaded active running x\nmcbot@p1-B.service loaded inactive dead x\n'
-                       'mcbot@p1-C.service loaded failed failed x\njunk line\n')
-    c('parse_units: active/running only is up; inactive and failed are down', u == {'p1-A': True, 'p1-B': False, 'p1-C': False}, u)
+    u = DS.parse_units('mcbot@pool-a-A.service loaded active running x\nmcbot@pool-a-B.service loaded inactive dead x\n'
+                       'mcbot@pool-a-C.service loaded failed failed x\njunk line\n')
+    c('parse_units: active/running only is up; inactive and failed are down', u == {'pool-a-A': True, 'pool-a-B': False, 'pool-a-C': False}, u)
     # bot_stats halves
     since = now - dt.timedelta(minutes=60)
     rows = [(since + dt.timedelta(minutes=m), 'aaa1111+x', (s,)) for m, s in ((5, 36), (20, 34), (35, 30), (50, 28))]
@@ -291,18 +297,18 @@ def steady_pure(DS):
     c('bot_stats: hour mean 32, first half 35, second half 29', bs['m'] == 32 and bs['h1'] == 35 and bs['h2'] == 29 and bs['rows'] == 4, bs)
     # qualify: the same test for candidate and control
     B = lambda **kw: dict({'rows': 50, 'versions': {'aaa1111'}, 'bad': 0, 'corrupt': 0, 'm': 32.0, 'h1': 32.0, 'h2': 32.0}, **kw)
-    units = {'p1-%d' % i: True for i in range(5)}
+    units = {'pool-a-%d' % i: True for i in range(5)}
     good = {b: B() for b in units}
     q = lambda stats=good, units=units, fv='aaa1111': DS.qualify(stats, units, fv)[0]
     c('qualify: five units up, rows, one build, both halves read -> qualified', q() is not None and q()['d'] == 0)
-    c('qualify: a unit down -> not qualified (a down bot holds its pool)', q(units=dict(units, **{'p1-0': False})) is None)
-    c('qualify: a unit with NO log rows in the hour -> not qualified (never silently dropped)', q(stats=dict(good, **{'p1-0': None})) is None)
-    c('qualify: a log dir with no unit (retired) is not a member', q(stats=dict(good, **{'p1-9': B(versions={'old0000'})})) is not None)
-    c('qualify: one bot with an old-build row (restart lag) -> not qualified', q(stats=dict(good, **{'p1-0': B(versions={'aaa1111', 'old0000'})})) is None)
-    c('qualify: 5 rows -> not qualified', q(stats=dict(good, **{'p1-0': B(rows=5)})) is None)
-    c('qualify: an unreadable file or a corrupt row -> not qualified', q(stats=dict(good, **{'p1-0': B(bad=1)})) is None
-      and q(stats=dict(good, **{'p1-0': B(corrupt=3)})) is None)
-    c('qualify: a bot with no bag reading in one half -> not qualified', q(stats=dict(good, **{'p1-0': B(h2=None)})) is None)
+    c('qualify: a unit down -> not qualified (a down bot holds its pool)', q(units=dict(units, **{'pool-a-0': False})) is None)
+    c('qualify: a unit with NO log rows in the hour -> not qualified (never silently dropped)', q(stats=dict(good, **{'pool-a-0': None})) is None)
+    c('qualify: a log dir with no unit (retired) is not a member', q(stats=dict(good, **{'pool-a-9': B(versions={'old0000'})})) is not None)
+    c('qualify: one bot with an old-build row (restart lag) -> not qualified', q(stats=dict(good, **{'pool-a-0': B(versions={'aaa1111', 'old0000'})})) is None)
+    c('qualify: 5 rows -> not qualified', q(stats=dict(good, **{'pool-a-0': B(rows=5)})) is None)
+    c('qualify: an unreadable file or a corrupt row -> not qualified', q(stats=dict(good, **{'pool-a-0': B(bad=1)})) is None
+      and q(stats=dict(good, **{'pool-a-0': B(corrupt=3)})) is None)
+    c('qualify: a bot with no bag reading in one half -> not qualified', q(stats=dict(good, **{'pool-a-0': B(h2=None)})) is None)
     c('qualify: no units / no fleet version -> not qualified', q(units={}) is None and q(fv='') is None)
     # steady
     cand = ('x-01', 'aaa1111', now - dt.timedelta(hours=7))
@@ -335,15 +341,17 @@ def steady_cli(steady_py, tmp):
     NAMES = ('Alpha', 'Bravo', 'Comet', 'Delta', 'Echo')
 
     def world(cand=(31, 31), old_row=None, decision='KEEP', promoted=True, hours=7, down=None, nolog=None, corrupt=None,
-              ledger_extra=''):
+              ledger_extra='', unloaded=None):
         w = tempfile.mkdtemp(dir=d); logs = os.path.join(w, 'logs')
         pools = {'pool-a': cand, 'pool-b': (28, 28.3), 'pool-c': (30, 29.8), 'pool-d': (32, 32.2), 'pool-e': (34, 33.8),
                  'pool-f': (29, 29.1)}
-        units = []
+        units = []; roster = []
         for p, (s0, s1) in pools.items():
             for n in NAMES:
                 b = '%s-%s' % (p, n)
-                units.append('mcbot@%s.service loaded %s x' % (b, 'inactive dead' if b == down else 'active running'))
+                roster.append('mcbot@%s.service' % b)
+                if b != unloaded:
+                    units.append('mcbot@%s.service loaded %s x' % (b, 'inactive dead' if b == down else 'active running'))
                 if b == nolog:
                     continue
                 os.makedirs(os.path.join(logs, b))
@@ -364,6 +372,9 @@ def steady_cli(steady_py, tmp):
                                 'code': {'version': 'old0000+x'}, 'bot': {'name': b, 'inventory': {'dirt': 64}},
                                 'skill': {'name': 'gather', 'duration_ms': 0}}) + '\n')
         open(os.path.join(w, 'units'), 'w').write('\n'.join(units) + '\n')
+        os.makedirs(os.path.join(w, 'wants'))
+        for n in roster + ['mcbot@.service', 'ssh.service']:
+            open(os.path.join(w, 'wants', n), 'w').write('')
         dec = now - dt.timedelta(hours=hours)
         open(os.path.join(w, 'ledger'), 'w').write(json.dumps({'canary_sha': 'aaa1111', 'canary_pool': 'pool-a', 'decision': decision,
                                                                 'note': 'x-01: VERDICT %s' % decision, 'ts': dec.isoformat()}) + '\n' + ledger_extra)
@@ -376,7 +387,7 @@ def steady_cli(steady_py, tmp):
     def run(w, **kw):
         env = dict(os.environ, STEADY_LEDGER=os.path.join(w, 'ledger'), STEADY_JOURNAL=os.path.join(w, 'journal'),
                    STEADY_MANIFEST=os.path.join(w, 'man'), STEADY_LOGROOT=os.path.join(w, 'logs'),
-                   STEADY_UNITS_FILE=os.path.join(w, 'units'), **kw)
+                   STEADY_UNITS_FILE=os.path.join(w, 'units'), STEADY_ROSTER_DIR=os.path.join(w, 'wants'), **kw)
         r = subprocess.run([sys.executable, os.path.join(d, 'drawsteady.py')], capture_output=True, text=True, env=env, timeout=300)
         rel = [l for l in r.stdout.splitlines() if l.startswith('STEADY RELEASE ')]
         return (rel[-1][len('STEADY RELEASE '):] if rel else 'NO_LINE'), r.stdout + r.stderr[-300:]
@@ -392,6 +403,12 @@ def steady_cli(steady_py, tmp):
     c('drawsteady CLI: one old-build row in the hour -> releases nothing (restart lag)', g == '[]' and 'restart lag' in o, o)
     g, o = run(world(down='pool-a-Delta'))
     c('drawsteady CLI: a candidate unit DOWN -> releases nothing', g == '[]' and 'not active' in o, o)
+    g, o = run(world(unloaded='pool-a-Delta'))
+    c('drawsteady CLI: an ENABLED candidate unit that systemd unloaded (absent from list-units) -> releases nothing',
+      g == '[]' and 'not active' in o, o)
+    g, o = run(world(ledger_extra=json.dumps({'canary_sha': 'b', 'canary_pool': ['pool-a'], 'decision': 'REVERT', 'note': 'y: x',
+                                               'ts': (now - dt.timedelta(hours=1)).isoformat()}) + '\n'))
+    c('drawsteady CLI: a REVERT whose canary_pool is a list -> releases nothing (ledger refused)', g == '[]' and 'malformed' in o, o)
     g, o = run(world(nolog='pool-a-Delta'))
     c('drawsteady CLI: a candidate unit with no logs in the hour -> releases nothing (never dropped)', g == '[]' and 'no log rows' in o, o)
     g, o = run(world(corrupt='pool-a-Echo'))
@@ -584,6 +601,8 @@ MUTANTS = [
     ('drawsteady.py', 'too few control pools accepted', "    if len(cs) < MIN_CONTROL_POOLS:", "    if False:"),
     ('drawsteady.py', 'fleet version not checked', "    if fv != sha and not (fleet_declared_at is not None and fleet_declared_at >= decided):", "    if False:"),
     ('drawsteady.py', 'membership from log dirs', "            by_pool.setdefault(pool_of(b), {})[b] = active", "            by_pool.setdefault(pool_of(b), {})[b] = True"),
+    ('drawsteady.py', 'roster ignored (loaded units only)', "        units = membership(read_roster(), read_units())", "        units = read_units()"),
+    ('drawsteady.py', 'malformed pool names accepted', "    if not all(POOL_RE.match(p) for p in ps):", "    if False:"),
 ]
 
 

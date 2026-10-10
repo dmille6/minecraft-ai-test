@@ -41,15 +41,21 @@ def scope_ok():
 HOG = "import sys; x = bytearray(400 * 1024 * 1024); x[::4096] = b'1' * len(x[::4096]); open(sys.argv[1], 'w').write(sys.argv[2])"
 
 
-def hr(hr_path, tmp, cmd, cap='200M', mode=None, lock=None, wait='5', timeout='60', env=None):
+def hr(hr_path, tmp, cmd, cap='1G', lock=None, wait='5', timeout='60', env=None, role='calibration', man=None, bg=False):
     out = tempfile.mktemp(dir=tmp)
-    e = dict(os.environ, HEAVYREAD_LOCK=lock or os.path.join(tmp, 'lock'), HEAVYREAD_WAIT=wait, **(env or {}))
+    if man is None:
+        man = os.path.join(tmp, 'man-idle.json')
+        if not os.path.exists(man):
+            json.dump({'canary_pool': '', 'canary_code_version': ''}, open(man, 'w'))
+    e = dict(os.environ, HEAVYREAD_LOCK=lock or os.path.join(tmp, 'lock'), HEAVYREAD_WAIT=wait, HEAVYREAD_ROLE=role,
+             HEAVYREAD_MANIFEST=man, HEAVYREAD_LOOP_RE='^heavyread-test-no-such-loop$')
+    e.update(env or {})
     if cap:
         e['HEAVYREAD_MAX'] = cap
     else:
         e.pop('HEAVYREAD_MAX', None)
-    if mode:
-        e['HEAVYREAD_MODE'] = mode
+    if bg:
+        return subprocess.Popen(['bash', hr_path, timeout, out, '--'] + cmd, env=e, cwd=tmp), out
     r = subprocess.run(['bash', hr_path, timeout, out, '--'] + cmd, capture_output=True, text=True, env=e, cwd=tmp, timeout=300)
     return r.returncode, (open(out).read() if os.path.exists(out) else '')
 
@@ -57,47 +63,84 @@ def hr(hr_path, tmp, cmd, cap='200M', mode=None, lock=None, wait='5', timeout='6
 def section_a(hr_path, tmp):
     out = []
     c = lambda n, ok, d='': out.append((n, bool(ok), d))
-    if not shutil.which('flock'):
-        SKIP.append('heavyread sections A/B: no flock here (host only)'); return out
-    modes = (['scope'] if scope_ok() else []) + (['ulimit'] if sys.platform.startswith('linux') else [])
-    if 'scope' not in modes:
-        SKIP.append('heavyread scope mode: sudo systemd-run unavailable here (host only)')
-    for mode in modes:
-        f = tempfile.mktemp(dir=tmp, prefix='ev-%s-' % mode)
-        rc, o = hr(hr_path, tmp, [sys.executable, '-c', HOG, f, 'x'], cap='200M', mode=mode)
-        c('%s: a 400 MB read under a 200M cap is killed before it writes, non-zero, and says why' % mode,
-          rc != 0 and not os.path.exists(f) and ('KILLED' in o or 'out of memory' in o), (rc, o))
-        f = tempfile.mktemp(dir=tmp, prefix='ev2-%s-' % mode)
-        rc, o = hr(hr_path, tmp, [sys.executable, '-c', HOG, f, 'x'], cap='2G', mode=mode)
-        c('%s: the same read under a 2G cap runs and writes (positive control)' % mode, rc == 0 and os.path.exists(f), (rc, o))
-        rc, o = hr(hr_path, tmp, [sys.executable, '-c', 'import os; print(os.getuid(), os.getcwd(), os.environ.get("HRTEST"), open("/proc/self/cgroup").read().strip())'],
-                   cap='1G', mode=mode, env={'HRTEST': 'v1'})
-        w = o.split()
-        c('%s: runs as the caller, in the caller\'s cwd, with its environment' % mode,
-          rc == 0 and len(w) >= 3 and w[0] == str(os.getuid()) and w[1] == os.path.realpath(tmp) and w[2] == 'v1', (rc, o))
-        if mode == 'scope':
-            c('scope: the read runs in its own transient scope', rc == 0 and '.scope' in o, o)
+    if not shutil.which('flock') or not scope_ok():
+        SKIP.append('heavyread sections A/B: no flock or no sudo systemd-run scope here (host only)'); return out
+    f = tempfile.mktemp(dir=tmp, prefix='ev-')
+    rc, o = hr(hr_path, tmp, [sys.executable, '-c', HOG, f, 'x'], cap='300M')
+    c('a 400 MB read under a 300M cap is KILLED before it writes (137), and says so', rc == 137 and not os.path.exists(f) and 'KILLED' in o, (rc, o))
+    f = tempfile.mktemp(dir=tmp, prefix='ev2-')
+    rc, o = hr(hr_path, tmp, [sys.executable, '-c', HOG, f, 'x'], cap='2G')
+    c('the same read under a 2G cap runs and writes (positive control)', rc == 0 and os.path.exists(f), (rc, o))
+    MULTI = ("import subprocess, sys; ps = [subprocess.Popen([sys.executable, '-c', \"x = bytearray(250 * 1024 * 1024); "
+             "x[::4096] = b'1' * len(x[::4096]); import time; time.sleep(3)\"]) for _ in range(3)]; "
+             "sys.exit(max(p.wait() != 0 for p in ps))")
+    rc, o = hr(hr_path, tmp, [sys.executable, '-c', MULTI], cap='500M')
+    c('the cap is on the WHOLE job: three 250 MB workers under 500M do not all survive (round 4, Codex: not per process)', rc != 0, (rc, o))
+    rc, o = hr(hr_path, tmp, [sys.executable, '-c', 'import os; print(os.getuid(), os.getcwd(), repr(os.environ.get("HRTEST")), open("/proc/self/cgroup").read().strip())'],
+               cap='1G', env={'HRTEST': 'lit${HOME}x$$y $(id)'})
+    c('runs as the caller, in the caller\'s cwd, with its environment VERBATIM ($ not expanded), in its own scope',
+      rc == 0 and o.split()[0] == str(os.getuid()) and o.split()[1] == os.path.realpath(tmp)
+      and "'lit${HOME}x$$y $(id)'" in o and 'heavyread-calibration-' in o and '.scope' in o, (rc, o))
     for gb, want in ((46, 'cap 22G'), (96, 'cap 32G'), (64, 'cap 32G'), (50, 'cap 26G')):
         mi = tempfile.mktemp(dir=tmp, prefix='meminfo-'); open(mi, 'w').write('MemTotal:       %d kB\nMemFree: 1 kB\n' % (gb * 1048576))
-        rc, o = hr(hr_path, tmp, ['true'], cap='', mode=modes[0] if modes else 'ulimit', env={'HEAVYREAD_MEMINFO': mi})
+        rc, o = hr(hr_path, tmp, ['true'], cap='', env={'HEAVYREAD_MEMINFO': mi})
         c('cap sized from the host: %d GB -> %s (min(32G, MemTotal - 24G))' % (gb, want), rc == 0 and want + ' via' in o, (rc, o))
+    for bad in ('invalid', '20', '100M', '1.5G', '-1G'):
+        marker = tempfile.mktemp(dir=tmp, prefix='must-not-exist-')
+        rc, o = hr(hr_path, tmp, ['touch', marker], cap=bad)
+        c('an invalid cap %r -> NOT run (exit 2), never uncapped (round 4, Codex)' % bad, rc == 2 and not os.path.exists(marker) and 'NOT run' in o, (rc, o))
     mi = tempfile.mktemp(dir=tmp, prefix='meminfo-'); open(mi, 'w').write('MemTotal:       %d kB\n' % (26 * 1048576))
     marker0 = tempfile.mktemp(dir=tmp, prefix='must-not-exist-')
     rc, o = hr(hr_path, tmp, ['touch', marker0], cap='', env={'HEAVYREAD_MEMINFO': mi})
-    c('a host too small to size a cap (26 GB) -> NOT run, never uncapped', rc != 0 and not os.path.exists(marker0) and 'NOT run' in o, (rc, o))
-    lock = tempfile.mktemp(dir=tmp, prefix='heldlock-')
-    holder = subprocess.Popen(['flock', lock, 'sleep', '8'])
-    time.sleep(1)
+    c('a host too small to size a cap (26 GB) -> NOT run', rc == 2 and not os.path.exists(marker0), (rc, o))
+    p = subprocess.run(['bash', hr_path, '--probe'], capture_output=True, text=True, env=dict(os.environ, HEAVYREAD_MAX='4G'))
+    c('--probe: "HEAVYREAD scope cap 4G", exit 0', p.returncode == 0 and p.stdout.strip() == 'HEAVYREAD scope cap 4G', p.stdout)
+    p = subprocess.run(['bash', hr_path, '--probe'], capture_output=True, text=True, env=dict(os.environ, HEAVYREAD_MAX='junk'))
+    c('--probe with an invalid cap: UNAVAILABLE, exit 1', p.returncode == 1 and 'UNAVAILABLE' in p.stdout, p.stdout)
+    # calibration refuses while a canary is active
+    live = os.path.join(tmp, 'man-live.json'); json.dump({'canary_pool': 'hive-d', 'canary_code_version': 'abc1234'}, open(live, 'w'))
     marker = tempfile.mktemp(dir=tmp, prefix='must-not-exist-')
-    rc, o = hr(hr_path, tmp, ['touch', marker], lock=lock, wait='2', mode=modes[0] if modes else 'ulimit')
-    holder.wait()
-    c('a held heavy-read lock -> exit 75 and the command never runs', rc == 75 and not os.path.exists(marker) and 'NOT run' in o, (rc, o))
-    for mode in modes:
-        # (scope: sudo already closes inherited fds; ulimit: only heavyread's own `7>&-` does)
-        lock2 = tempfile.mktemp(dir=tmp, prefix='orphanlock-')
-        rc, o = hr(hr_path, tmp, ['bash', '-c', 'sleep 20 >/dev/null 2>&1 &'], lock=lock2, mode=mode)
-        r2 = subprocess.run(['flock', '-w', '2', lock2, 'true'])
-        c('%s: the lock is not inherited: an orphan of the read does not keep it' % mode, rc == 0 and r2.returncode == 0, (rc, r2.returncode))
+    rc, o = hr(hr_path, tmp, ['touch', marker], man=live)
+    c('a CALIBRATION job refuses (76) while a canary is declared, and never runs', rc == 76 and not os.path.exists(marker) and 'REFUSED' in o, (rc, o))
+    rc, o = hr(hr_path, tmp, ['touch', marker], man=os.path.join(tmp, 'no-such-manifest.json'))
+    c('a CALIBRATION job refuses (76) when the manifest is unreadable', rc == 76 and not os.path.exists(marker), (rc, o))
+    fake = subprocess.Popen(['bash', '-c', 'exec -a hrtest-fake-canary-loop sleep 30'])
+    time.sleep(0.5)
+    rc, o = hr(hr_path, tmp, ['touch', marker], env={'HEAVYREAD_LOOP_RE': '^hrtest-fake-canary-loop'})
+    fake.kill(); fake.wait()
+    c('a CALIBRATION job refuses (76) while a canary LOOP process runs (manifest idle)', rc == 76 and not os.path.exists(marker), (rc, o))
+    rc, o = hr(hr_path, tmp, ['touch', marker], man=live, role='loop')
+    c('a LOOP read runs while its canary is declared', rc == 0 and os.path.exists(marker), (rc, o))
+    # PREEMPTION: a loop read takes the lock from a calibration job within ~2 waits; never from another loop read
+    lock = tempfile.mktemp(dir=tmp, prefix='plock-')
+    pc, pout = hr(hr_path, tmp, ['sleep', '120'], lock=lock, bg=True)
+    time.sleep(3)
+    t0 = time.time()
+    marker = tempfile.mktemp(dir=tmp, prefix='ran-')
+    rc, o = hr(hr_path, tmp, ['touch', marker], lock=lock, wait='3', role='loop')
+    dt_ = time.time() - t0
+    pc.wait(30)
+    po = open(pout).read() if os.path.exists(pout) else ''
+    c('PREEMPTION: a loop read behind a 120-s calibration job runs within ~2 waits (%.0f s), the calibration is killed and says PREEMPTED'
+      % dt_, rc == 0 and os.path.exists(marker) and dt_ < 15 and pc.returncode != 0 and 'PREEMPTED' in po and 'PREEMPTED' in o, (rc, dt_, pc.returncode, po, o))
+    lock = tempfile.mktemp(dir=tmp, prefix='plock2-')
+    pl, plout = hr(hr_path, tmp, ['sleep', '20'], lock=lock, bg=True, role='loop')
+    time.sleep(3)
+    marker = tempfile.mktemp(dir=tmp, prefix='must-not-exist-')
+    rc, o = hr(hr_path, tmp, ['touch', marker], lock=lock, wait='2', role='loop')
+    c('a loop read never preempts ANOTHER loop read: exit 75, not run, and the holder survives',
+      rc == 75 and not os.path.exists(marker) and pl.poll() is None, (rc, o, pl.poll()))
+    pl.wait(60)
+    lock = tempfile.mktemp(dir=tmp, prefix='plock3-')
+    pc2, _o = hr(hr_path, tmp, ['sleep', '20'], lock=lock, bg=True)
+    time.sleep(3)
+    rc, o = hr(hr_path, tmp, ['touch', marker], lock=lock, wait='2')
+    c('a calibration job never preempts: exit 75 behind another calibration job', rc == 75 and not os.path.exists(marker) and pc2.poll() is None, (rc, o))
+    pc2.wait(60)
+    lock2 = tempfile.mktemp(dir=tmp, prefix='orphanlock-')
+    rc, o = hr(hr_path, tmp, ['bash', '-c', 'sleep 20 >/dev/null 2>&1 &'], lock=lock2)
+    r2 = subprocess.run(['flock', '-w', '2', lock2, 'true'])
+    c('the lock is not inherited: an orphan of the read does not keep it', rc == 0 and r2.returncode == 0, (rc, r2.returncode))
     return out
 
 
@@ -135,8 +178,8 @@ def section_b(hr_path, tmp):
     rc, wrote, v, head = case('2G')
     c('positive control: the read under a 2G cap writes its evidence and the clean four-pool bag fix KEEPs at +180',
       rc == 0 and wrote and v == 'KEEP', (rc, wrote, v, head))
-    rc, wrote, v, head = case('200M')
-    c('THE OOM PATH: the same read KILLED by a 200M cap writes nothing, and the verdict is NOT KEEP (%s)' % v,
+    rc, wrote, v, head = case('300M')
+    c('THE OOM PATH: the same read KILLED by a 300M cap writes nothing, and the verdict is NOT KEEP (%s)' % v,
       rc != 0 and not wrote and v != 'KEEP' and v in ('UNREADABLE', 'NOT_YET', 'INCONCLUSIVE'), (rc, wrote, v, head))
     return out
 
@@ -151,26 +194,40 @@ def section_c(loop_path):
     L = strip(open(loop_path).read())
     i0 = L.find('_run_reads() {'); i1 = L.find('\n}\n', i0)
     body = L[i0:i1]
-    c('loop: _run_reads runs each read through heavyread.sh', 'bash $H/mcai-analysis/heavyread.sh 900 $H/digest/reads/$RUN-$s-$M.txt -- python3 $RD/$s.py $M' in body, body[-600:])
+    c('loop: _run_reads runs each read through heavyread.sh', 'bash $H/mcai-analysis/heavyread.sh $_to $H/digest/reads/$RUN-$s-$M.txt -- python3 $RD/$s.py $M' in body, body[-600:])
     c('loop: no read is run directly (no `python3 $RD/` outside heavyread)', body.count('python3 $RD/') == 1 and 'timeout 900 python3 $RD' not in L)
+    c('loop: reads run as role loop (priority over calibration)', 'HEAVYREAD_ROLE=loop bash $H/mcai-analysis/heavyread.sh' in body)
+    i_rm = body.find('rm -f $H/digest/reads/$RUN-$s-$M.json\n    (cd'); i_run = body.find('HEAVYREAD_ROLE=loop bash')
+    c('loop: a read\'s previous evidence is removed BEFORE each attempt, and again after a failed one (round 4, Codex)',
+      0 < i_rm < i_run and '[ $_rc -ne 0 ] && rm -f $H/digest/reads/$RUN-$s-$M.json' in body)
+    c('loop: the timeout is 1800 s from +1440 (measured +1920 reads: up to 846 s)', 'local _to=900; [ "$M" -ge 1440 ] && _to=1800' in body
+      and 'heavyread.sh $_to ' in body)
+    c('loop: the heavyread probe is journalled at every read minute', 'journal heavyread-mode' in body and 'heavyread.sh --probe' in body)
     c('loop: a missing heavyread.sh stops the loop before any read (exit 4)',
       '[ -f $H/mcai-analysis/heavyread.sh ] || {' in body and 'exit 4; }' in body
-      and body.find('heavyread.sh ] ||') < body.find('for s in $SCRIPTS; do\n    (cd'))
+      and 0 <= body.find('heavyread.sh ] ||') < body.find('HEAVYREAD_ROLE=loop bash'))
     return out
 
 
 MUTANTS = [
-    ('heavyread.sh', 'no memory cap (scope)', '-p MemoryMax="$CAP" -p MemorySwapMax=0', '-p MemorySwapMax=0'),
-    ('heavyread.sh', 'lock not taken', 'if ! flock -w "$WAIT" 7; then', 'if false; then'),
-    ('heavyread.sh', 'lock refusal runs anyway', '  exit 75\nfi', '  true\nfi'),
-    ('heavyread.sh', 'lock fd inherited by the read (ulimit)', 'exec timeout "$T" "$@" ) > "$OUT" 2>&1 7>&-', 'exec timeout "$T" "$@" ) > "$OUT" 2>&1'),
+    ('heavyread.sh', 'no memory cap', '-p MemoryMax="$CAP" -p MemorySwapMax=0 \\\n', '-p MemorySwapMax=0 \\\n'),
+    ('heavyread.sh', 'lock not taken', 'exec 7>>"$LOCK"\nif ! flock -w "$WAIT" 7; then', 'exec 7>>"$LOCK"\nif false; then'),
+    ('heavyread.sh', 'busy lock runs anyway', '-- NOT run" > "$OUT"; exit 75\n  fi\nfi', '-- NOT run" > "$OUT"\n  fi\nfi'),
     ('heavyread.sh', 'exit status swallowed', 'exit $RC\n', 'exit 0\n'),
-    ('heavyread.sh', 'cap not bounded at 32G', '[ $_C -gt 32 ] && _C=32', 'true'),
-    ('heavyread.sh', 'no bot reserve', '_C=$(( _MT - 24 ))', '_C=$(( _MT ))'),
-    ('heavyread.sh', 'tiny host runs anyway', 'NOT run" > "$OUT"; exit 2\n  fi', 'NOT run" > "$OUT"; _MT=64\n  fi'),
-    ('canary-loop.sh', 'reads run uncapped', 'bash $H/mcai-analysis/heavyread.sh 900 $H/digest/reads/$RUN-$s-$M.txt -- python3 $RD/$s.py $M',
+    ('heavyread.sh', 'cap not bounded at 32G', '[ $c -gt 32 ] && c=32', 'true'),
+    ('heavyread.sh', 'no bot reserve', 'local c=$(( mt - 24 ))', 'local c=$(( mt ))'),
+    ('heavyread.sh', 'invalid cap accepted', '>= 256 * 1024 else 1)" "$HEAVYREAD_MAX" || return 1', '>= 256 * 1024 else 1)" "$HEAVYREAD_MAX" || true'),
+    ('heavyread.sh', 'calibration runs during a canary', '  if [ "$_cp" != "no" ] || [ -n "$_lp" ]; then', '  if false; then'),
+    ('heavyread.sh', 'loop never preempts', '  if [ "$ROLE" = loop ] && [ "${H0%% *}" = calibration ]; then', '  if false; then'),
+    ('heavyread.sh', 'loop preempts another loop read', '  if [ "$ROLE" = loop ] && [ "${H0%% *}" = calibration ]; then', '  if [ "$ROLE" = loop ]; then'),
+    ('heavyread.sh', 'environment expanded', '--expand-environment=no --unit=', '--unit='),
+    ('canary-loop.sh', 'reads run uncapped', 'HEAVYREAD_ROLE=loop bash $H/mcai-analysis/heavyread.sh $_to $H/digest/reads/$RUN-$s-$M.txt -- python3 $RD/$s.py $M',
      'timeout 900 python3 $RD/$s.py $M > $H/digest/reads/$RUN-$s-$M.txt 2>&1'),
     ('canary-loop.sh', 'a missing heavyread.sh tolerated', '[ -f $H/mcai-analysis/heavyread.sh ] || {', 'true || {'),
+    ('canary-loop.sh', 'loop reads run as calibration', 'HEAVYREAD_ROLE=loop bash $H/mcai-analysis/heavyread.sh', 'HEAVYREAD_ROLE=calibration bash $H/mcai-analysis/heavyread.sh'),
+    ('canary-loop.sh', 'stale evidence kept after a failed read', '    [ $_rc -ne 0 ] && rm -f $H/digest/reads/$RUN-$s-$M.json\n', '\n'),
+    ('canary-loop.sh', 'old evidence kept before a rerun', '    rm -f $H/digest/reads/$RUN-$s-$M.json\n    (cd', '    (cd'),
+    ('canary-loop.sh', 'fixed 900-s timeout at +1920', '[ "$M" -ge 1440 ] && _to=1800', 'true'),
 ]
 
 
@@ -199,7 +256,7 @@ if __name__ == '__main__':
         assert src.count(old) == 1, 'ANCHOR %s: %s (%d)' % (f, name, src.count(old))
         if not ok_all:
             t('mutant NOT SCORED: %s' % name, False); continue
-        if f == 'heavyread.sh' and not shutil.which('flock'):
+        if f == 'heavyread.sh' and not (shutil.which('flock') and scope_ok()):
             SKIP.append('heavyread.sh mutants: host only'); continue
         dm = tempfile.mkdtemp(dir=tmp)
         mp = {g: shutil.copy(p, os.path.join(dm, g)) for g, p in FILES.items()}
