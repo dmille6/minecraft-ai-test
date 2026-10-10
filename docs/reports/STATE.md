@@ -1,77 +1,588 @@
 # STATE — the operator's state file (a fresh session starts from THIS, not from the handoff history)
-
-_updated 2026-10-06 11:45Z by the daily operator session (10-06). This top block is the CURRENT state; everything below
-"HISTORY" is dated history, newest first. Base = main's STATE at 29aa97f (10-06 09:16Z, written by the owner-granted
-autonomous session, worktree heuristic-nightingale-49eee9, last active 09:16Z)._
+_updated 2026-10-10 12:05Z by the daily operator session (10-10). **FLEET `4970c91`** (toolhygiene-01 KEEP +360,
+promoted 11:31Z, all live bots verified; includes airpocket-01 `dbb4d78`), merged to main as `b5dfa0d` (backup branch
+`main-pre-20261010` = the previous main `b4d70a0`). **CANARY: peacefulkit-01 @ `6f1921a`** launched by the scheduler
+11:35Z; preflight/licence/gatedigest/bag-fix OK; DRAW SHORT 11:39Z (bag fix needs 4 pools, band gave 3) -- see the
+10-10 12:05Z entry for whether it deployed. Queue: peacefulkit-01 (running) -> junkwell-02 (ready; variant 6f1921a ->
+0cdb1a8; NO 4970c91 variant, so a peacefulkit REVERT blocks junkwell and pages). The host does all waiting:
+`canary-sched.py` (cron */5) launches the queue head, `canary-loop.sh <run>` reads/records/promotes/tears down.
+AGENTS DOWN until ~10-12 11Z (weekly limit): no new builds before then._
 
 > **THIS FILE ALSO EXISTS ON `main`.** `bots/test/nothing-important-is-orphaned.test.mjs` asserts it stays there.
 > If the two copies disagree, take the later `_updated` stamp. Long history: `git show 40a09da:docs/reports/STATE.md`
 > (to 09-30 morning), `git show 6a18e70:docs/reports/STATE.md` (09-30 evening), `git show d67d840:docs/reports/STATE.md` (10-01).
 
-## NOW (verified 11:40Z on 10.0.0.31)
-| | |
-|---|---|
-| fleet | **47110e8** (chestfull-02 KEPT + promoted 10-05 21:43Z) on 70 bots |
-| canary | **withdraw-01 @ b54e22c** on board-b,placebo-a (10 bots), declared 05:22:41Z; exactly two versions live (47110e8+1aad2e, b54e22c+4e95fd) |
-| reads done | +180 NOT_YET (08:27Z); **+360 NOT_YET (11:26Z): exposure not met** -- 2 canary withdraw_pick orders (need >= 5), both took_pick; G1-G4 0; intervention 0; deaths 1 (0.017/bh) vs control 11 (0.037/bh); instrument 37 control bots at town without a pickaxe. Primary (reported, not gated): bot-time without a usable pickaxe DiD -0.125, at town DiD -0.054 (null scale +-0.15). Why exposure is slow: 9 of 10 canary bots already hold a usable pickaxe. |
-| next reads (loop, until exposure) | **+540 14:22Z**, +720 17:22Z, +1080 23:22Z, +1560 07:22Z 10-07; deadline 1680 min = 09:22Z 10-07; zero exposure at the end = INCONCLUSIVE. At ~2 orders/6 h expect exposure near +1080. |
-| loop | `canary-loop.sh withdraw-01` pid 2789995 (reads/verdict/record/promote/teardown). Chained: `chain-after.sh withdraw-01 climbflood-02` pid 2829347 (variants 47110e8 -> 6ca31e9, b54e22c -> c902d6f). |
-| check-open-loop | OpenLoop withdraw-01 (correct: not decided). |
-| analyst 11:00Z | fleet healthy, versions ok, NOT_YET |
-| iron funnel 24 h | raw iron 252 (0.18/bot-h, up from 38 and 93 on the two prior lines), ingots 231, iron pickaxes crafted 26, gone 27 |
-
-## SHADOW MAYOR — DECISION RECORDED 10-06 11:40Z: **STOP building the deterministic assigner** (snapshot recording continues)
-Registered read (README "Decision date"; STATE read rule r3): revision 2e82cfe81496 alone, 2026-10-03 18:02:46Z ->
-10-06 03:17:46Z, 11,008 snapshots, 80/80 bots covered (median 1.00), 1.81M state rows; positive controls: the detector
-sees FREE_BAG 2,053, RESTORE_PICK 799, GET_WOOD 43,615, GET_IRON 530 outcome events. Output ~/mayor-decision-20261006.out,
-/var/lib/mcai-mayor/score-decision-20261006.json on 10.0.0.31.
-Deterministic mayor xbase vs the LEASED-RANDOM baseline's xbase (the registered comparison):
-FREE_BAG 1.10 vs 1.05 (n 5,036) | RESTORE_PICK 1.11 vs 1.11 (1,909) | GET_WOOD 0.72 vs 0.71 (345) | GET_IRON 0.69 vs 0.70 (2,016).
-The rule picks bots no better than random on any duty; no duty meets the act gate (downstream >= 1.5x base: best 1.11x;
-executability >= 80%: best 78.4%). The NEED is real (unforced gap ~180 bot-h/day FREE_BAG, ~100 RESTORE_PICK, both >> 20),
-so the gap is not refuted -- the deterministic assignment just adds nothing. Consequence: no duty acts; the 10-03 FREEZE on
-mayor_core.py / mayor_shadow.py / stack_sizes.json / cfg flags is LIFTED; the unit `mcai-mayor-shadow` keeps recording
-(cheap, Nice 10, 512M) as the stock/snapshot feed for the owner's overseer/strategist line, until the owner says otherwise.
-Frontier replay never ran (needs owner-placed API keys).
-
-## QUEUE (owner order, autonomous session's line; one canary at a time)
-withdraw-01 (live) -> climbflood-02 (CHAINED) -> towndeposit (td-on-1918bb5 @ 09415cc) -> foodskip+apples (fs-on-1918bb5 @
-41fa406) -> grid fix (gf 8c9239d) -> bamboo (on the grid fix) -> junk well re-run (after underground safety) -> cobble rule ->
-treefarm-01 (bp-on-1918bb5 @ 453cd07, LAST). Each needs a rebase onto the fleet sha at its turn. Parallel, no canary slot:
-model selection (C1 closed-loop running from 06:23Z; owner decisions pending: Studio memory budget, C2 bench-only hook),
-strategist layer (low priority, needs owner API keys).
-
-## OWNER DECISIONS PENDING
-1. Studio GPU memory: gemma 8-bit + gpt-oss ~93 GB + co-tenants ~32 GB exceeds budget (see 10-06 06:30Z below).
-2. C2 bench-only bot-code hook (never deployed), both engines reviewed.
-3. Bone meal on the tree farm (switch default OFF).
-4. RCON password left in /tmp/scan2.py on 10.0.0.31 (rotate + delete) -- still the owner's.
-
-## WAKE-UPS / MONITORS
-None standing from this session (session-local; this session ends after this write). The host loop does every read.
-
-## RE-ARM ON A FRESH SESSION
-1. `date -u`; read this block; on 10.0.0.31: `cat /srv/mcbots/trial-manifest.json`, `tail ~/canary-journal.jsonl`,
-   `tail ~/digest/page.jsonl`, newest `~/digest/*.verdict.json`, `tail -3 ~/digest/ironfunnel.log`.
-2. `pgrep -af 'canary-loop|chain-'` -- expect canary-loop.sh withdraw-01 and chain-after.sh withdraw-01 climbflood-02
-   (or, after withdraw decides, canary-loop.sh climbflood-02).
-3. `python3 ~/verdict.py <live run_id> 0 --poll`; `sudo python3 /opt/minecraft-ai/scripts/check-open-loop.py`.
-4. If withdraw-01 decided: KEEP -> confirm 80/80 on b54e22c and that climbflood-02 launched variant c902d6f; REVERT/
-   INCONCLUSIVE -> confirm teardown (ONE version), that climbflood-02 launched 6ca31e9 (or STOPPED), check failing rows'
-   build before believing a revert. PushNotification the owner on any promote/revert.
-5. Live versions: `cd /opt/minecraft-ai/scripts && python3 -c "from lib.telemetry import Events; e=Events.load(since_minutes=8); print(e.versions())"`.
-6. If the loop died with no decision: `setsid nohup bash ~/canary-loop.sh <run> >> ~/canary-loop-<run>.out 2>&1 < /dev/null &` (resumes from journal).
-7. Monitors: one journal-phase Monitor (emit on new journal lines only); the host loop waits, not the session.
-
-## WORKTREES
-Autonomous session scratchpad worktrees under /private/tmp/claude-501/...heuristic-nightingale-49eee9/scratchpad/ (bp, cf*,
-chest2*, fs, td, tdfs/*, cl-tree); repo .claude/worktrees/bb-* (bamboo). mcai-rl02 still carries someone else's uncommitted
-check-movement-writers.mjs + movement-ratchet.test.mjs -- left alone.
-
 ---
-# HISTORY (newest first)
 
----
+## 10-10 12:05Z — (daily operator session) peacefulkit-01 DRAW SHORT; analyst stale; a second operator is on main
+- peacefulkit-01 @ 6f1921a: preflight/licence/gatedigest/bagfix OK 11:37Z; draw-short 11:39Z (band hive-b,placebo-d,
+  placebo-b) and 12:00Z (band placebo-b,placebo-d); the loop retries every 20 min. Probable cause: the fleet-wide restart
+  at 11:31Z reset per-pool exposure -- NOT verified. Still short by evening -> look at drawrec's band.
+- NO junkwell-02 variant on 4970c91: a peacefulkit REVERT blocks junkwell and pages.
+- The local analyst's newest *.verdict.json is 20261006T1500 (none for 4 days).
+- Two operator sessions ran this morning: the daily session merged 4970c91 too, found b5dfa0d already on main, and
+  dropped its merge. Backup branch `main-pre-20261010` = b4d70a0 (main before the merge).
+- Operator tooling lesson: wait on journal `phase` parsed as JSON (verdict prose contains "KEEP" and "promotion" in its
+  NOT-evaluated list); bracket `pgrep -f` patterns; end Monitor pipes with awk fflush, never `| cut`.
+
+## 10-10 11:45Z — TOOLHYGIENE-01 KEPT (+360) and PROMOTED: FLEET 4970c91 (11:31Z); merged to main; peacefulkit launching
++360: breaches 0 (redundant admitted, unjustified refusal, unjustified worn, wanted refused); 55 refusals; pick_slots DiD
+-0.94 (bag-fix edge -0.842), slots DiD -0.46, share>=34 DiD -0.098, breaks DiD +0.11, escape refusals DiD +0.05 (expected
+side effects); deaths canary 1/120 bh vs control 1/240 bh. Main: merge of 4970c91 (includes airpocket dbb4d78), npm test
+241/241. QUEUE: peacefulkit-01 (launching) -> junkwell-02 (queued 11:35Z, after peacefulkit) -> gridfix/bamboo/stonecap/
+bamboocraft/stocktarget/treefarm need variant prep on the new tip (agents back ~10-12 11Z). Follow-ups: airpocket-02,
+withdraw2-02, A' (+180 KEEP), stocktarget design.
+
+## 10-10 05:22Z — CANARY LIVE: toolhygiene-01 @ 4970c91 on board-b,placebo-a,board-d,hive-c (20 bots), declared 05:15:23Z
+First bag fix under v33 (class bag-fix, four pools); A' (+180 KEEP) is NOT installed (agents down), so KEEP from +360
+(~11:15Z). Reads ~08:15Z / ~11:15Z. peacefulkit-01 queued behind it (after toolhygiene-01; variants 92bc84f, 6238095,
+4970c91, 5d1f710, 2f38f69 -- NO dbb4d78 variant: if toolhygiene reverts, peacefulkit needs pk-on-dbb4d78 built first).
+Early preflight on the live baseline: peacefulkit 4970c91 -> licence _peaceful_kit baseline 0; own_kinds _sword_fuel.
+(Earlier STATE stamps today ran ahead of the host clock; host time is the reference.)
+
+## 10-10 05:30Z — WITHDRAW2-01 REVERTED (+180, G1 = 3); suspected pathfinder scaffold, NOT proven; toolhygiene queued
++180: G1 "unplanned server-counted loss" 3 -- hive-d-Comet 02:56:40 dirt -1 (crafted_iron), hive-a-Alpha 04:09:47
+cobblestone -1 (no_better), hive-d-Bravo 04:52:00 dirt -1 (crafted_iron). Everything else clean: G2-G6 0, 9 server-confirmed
+iron pickaxe crafts, iron holders DiD +0.28, nopick time DiD -0.033. Suspected cause: mineflayer-pathfinder scaffolding
+(dirt/cobblestone) on the walk to the chest/table -- withdraw2's ledger spans the WHOLE order (walks included) while
+withdraw-01's srv spans only the chest transaction, so the control cannot calibrate it. Comet shows a _path_reset
+place_error inside its order; Alpha/Bravo have no placement evidence. A draft read amendment (excuse <= 3 scaffold
+blocks per order; replay G1 0) got Codex CHANGE: an unconditional exemption could hide a real 1-3 block transfer loss;
+require per-row, same-order, server-confirmed placement evidence; label these rows "suspected scaffold", not proven.
+NEXT for withdraw2-02 (agents, after 10-12): log the bot's own block placements (or bracket the ledger around the chest
+and craft transactions only), then the evidence-backed G1 split (raw / scaffold-evidenced / residual), ambiguous-placement
+and unplanned-deposit test cases, both engines. Draft: docs/reports/drafts/withdrawread-g1-scaffold-DRAFT.diff.
+SLOT: bag-fix registrations INSTALLED 05:06Z (~/bagfix-regs; backups *.bak-bfregs-20261010T050625Z). toolhygiene-01
+queued (bag-fix, 4 variants, dependency on withdraw2 dropped) -> scheduler DECISION launch.
+
+## 10-10 02:10Z — CANARY LIVE: withdraw2-01 @ 2189de3 on board-a,hive-a,hive-d,board-c (20 bots), declared 01:57:23Z
+Reads ~04:57Z / ~07:57Z. Standing watch (journal phases + sched BLOCK) running. EARLY PREFLIGHT of the next item,
+toolhygiene-01, against the live baseline dbb4d78: variants dbb4d78 and 2189de3 -> changerowcheck "nothing declared",
+licencecheck class kind _tool_hygiene baseline 0 (OK); bag-fix own_kinds (_redundant_craft, _craft_admit, _worn_first)
+silent on the baseline. Next gap: install ~/bagfix-regs (+ A' if approved by then), then `queue add` toolhygiene.
+
+## 10-10 01:55Z — AIRPOCKET-01 KEPT (+720, 10-08 19:42Z) and PROMOTED (FLEET dbb4d78, 19:52Z); 30 h IDLE SLOT; withdraw2 drawing
+airpocket-01 KEEP: DiD psi 0.61x (LB 0.17) and matched 1.50x (LB 0.36), both held; deaths canary 4/121.3 bh vs control
+24/849.0; attempts 3 (1 success, 2 "opened" ice -- the swimming-pose trap; bot survived).
+IDLE 10-08 19:56Z -> 10-10 01:52Z (~30 h): withdraw2-01 refused at preflight (changerowcheck: withdraw_pick is emitted by
+the baseline since withdraw-01); the scheduler BLOCKED and paged, but nothing woke the operator and every agent was down
+(weekly API limit, resets 10-12 06:00 CT). Fixes: amendment 1 (change_rows -> [withdraw_settled]), then licencecheck v31
+refused class kind _withdraw_pick (baseline emits it); amendment 2: licence class text, row _withdraw_pick, text
+"best_valid=" (written only by withdraw2's withdrawRow; baseline 0 hits in 70 rows). 01:53Z preflight/licence/gatedigest
+OK, drawing. LESSON: an operator-side standing watch on the journal + sched.log BLOCK lines now wakes the operator.
+AGENTS DOWN until ~10-12 11Z (weekly limit): A' build (in review), stock targets (design r2), airpocket-02 (r1 fixes),
+variant prep (gridfix). The owner started a separate session for airpocket's open-window equip race (task_e9234f96).
+Deaths steady ~23-30 per 12 h fleet-wide (10-08 / 10-09).
+
+## 10-08 17:25Z — OWNER delegated the open items to operator + Codex ("implement, deploy and run them")
++180 KEEP: Codex and operator AGREE on A' as calibrated (four-pool bag fix; KEEP at +180 only if every gate passes,
+exposure ready, no death trip/extension pending, reads readable, cumulative canary death rate <= control's; else +360;
+bag metric reported, not gated; daily scoreboard/bag census = non-attributable post-promotion tripwire). Gate agent
+building; install with ~/bagfix-regs in the empty slot after withdraw2-01. PER-TOWN STOCK TARGETS: agent designing with
+both engines (generalise stonecap's reconciled cap to bulk materials, surplus to the well, no new chest at target, log
+rotation), to run as stocktarget-01 after stonecap. airpocket-01: 3 real attempts (1 success 13:15Z; 2 "opened" ice
+17:02Z, bot survived) -> exposure now reached; next read decides.
+
+## 10-08 17:40Z — THE HIVE-D ICE TRAP: 9.4% of all drownings since 10-01; airpocket-02 being built (airpocket-01 continues)
+Cause of the missed rescue (reproduced on Paper): the floating bot's cell freezes over (snowy biome); the SERVER puts the
+bot in swimming pose (0.6 tall, eye y+0.4 in water, y = 62 - 0.605 = 61.395); mineflayer assumes standing (eye y+1.62 in
+air, head cell = ice); the drowning route scan starts above the head cell and reports `up dist=1`, so the base rescue
+jumps into the ice, airpocket refuses on an "up" route, and the marooned climb sees an open column. Since 10-01: 23 of
+244 drowning deaths fleet-wide (9.4%), ALL in hive-d, all `up dist=1`; plus 16 with a false `up` and head in water. In
+airpocket-01's window: 2 canary drownings, both this trap (07:45:33Z, 14:08:10Z); 0 of 5 control drownings.
+airpocket-01 DEFECT found on Paper: after an ice dig, a refreeze within ~1 s gives a FALSE `_air_pocket` success (client
+eye/health) then a drowning -- would trip C1 and revert (justified); not seen live (Bravo's was real).
+DECISION: airpocket-01 continues (not linked; no breach). airpocket-02 = pose-aware eye, `upblocked` route, server-grounded
+success, re-dig on refreeze, window-handoff race, well-floor guard, airPocketTools; variants on dbb4d78 and 92bc84f;
+draw must include hive-d.
+
+## 10-08 16:55Z — airpocket-01 +540 NOT_YET (1 success; exposure 1 of 2); a MISSED rescue under ice under investigation
++540: deaths canary 2/91.2 bh vs control 16/638.4; DiD psi 0.45x (LB 0.07) held; matched 1.00x (LB 0.12) held.
+v14c operator review (journalled): hive-d-Alpha drowned 14:08:10Z sealed under ICE at 7,61,63 -- NOT linked (no
+_air_pocket / _air_pocket_refused row at all), but a MISSED opportunity: the base rescue yielded to the escape handlers
+(marooned/pillar_out/dig_straight_up) and airpocket never evaluated. Builder agent investigating (read-only); fix goes into
+airpocket-02 with the window-handoff race and the well-floor guard. junkwell-02 prepared on the 4 peacefulkit shas
+(bd747a8, 0cdb1a8, 2299221, e4f2917; both engines APPROVE; Paper full-stack dispose 402/402 contained), fetched into /opt.
+
+## 10-08 16:45Z — JUNKWELL-02 READY on the four peacefulkit shas (queue entry drafted, NOT added)
+- The approved pit-fixed well is jw-on-40046b8 @ cf4192e: 55 commits, 21 of them merges.
+  - Its net diff over 40046b8 was applied as ONE commit per base; the merges do not replay as cherry-picks.
+- The four variants:
+  - **jw-on-d948bfd @ bd747a8** and **jw-on-6f1921a @ 0cdb1a8**: no conflict, identical patch.
+  - **jw-on-3382a17 @ 2299221**: two union conflicts (the cognitive skills import; fakeworld NAMES gets oak_trapdoor appended).
+  - **jw-on-4be1a29 @ e4f2917**: the same commit as 2299221, no conflict.
+- **Reviews:** Codex r1 and Claude r1 both APPROVE all four; no P1/P2.
+  - airpocket: an intact well cannot host a drowning pocket. The rescue has no well guard; the only way to reach the well is a flooded column under its floor. This goes on the follow-up list with airpocket-02.
+  - toolhygiene: the well throws no tool except swords.
+  - withdraw2: ingots, sticks, planks, logs and pickaxes are never well junk. The well order runs after compost -> withdraw -> upgrade.
+  - P3s recorded: a failed iron attempt's wood can feed build_well; no loop test has both withdraw2 and a built well.
+  - Text: docs/reports/junkwell-02.rebase-review-2026-10-08.txt.
+- **Tests:** npm test 242/242, 243/243, 244/244, 245/245. mutants-pk (PK_VARIANT=1) 86/86 plus the well's two classifier mutants 2/2, on each. Lint: withinBody only.
+- **PAPER** on the full stack (sandbox3, e4f2917):
+  - Pit-first build: success. Cap closed; 66 items, all in the shaft.
+  - Dispose of a composed 36/36 bag: 402 thrown (36 -> 27 slots); 402 in the shaft and 0 outside at +30 s. Swords thrown (peaceful).
+  - Kept, per the server's per-slot read: both pickaxes (worn + full), iron_ingot 3, stick 2, planks 4, logs 5.
+  - Codex's rescue-during-visit and withdraw-then-visit scenes were NOT run; the review text says why.
+  - Lock taken and released. The driver used is cf4192e's well-e2e.cjs (main's copy is older).
+- **wellread dry run** on the live airpocket pools: gates 0, instruments 52 / 27.
+- **Registrations** junkwell-02.{d948bfd,6f1921a,3382a17,4be1a29}.json: on main and in ~/mcai-analysis. Bag-fix fields unchanged from the gate agent's 40046b8 file.
+- **OPERATOR: queue entry docs/reports/junkwell-02.queue-entry.json** (= ~/mcai-analysis/junkwell-02.entry.json).
+  - class bag-fix, after peacefulkit-01, 6 variants: 92bc84f -> 1db3fcd, 40046b8 -> cf4192e, plus the four above.
+  - It needs install-bagfix-regs.py first, and a fetch of the jw-on-{d948bfd,6f1921a,3382a17,4be1a29} branches into /opt.
+  - Validated no-act: VALID.
+  - NOT built: the well on a toolhygiene sha without peacefulkit. That is needed only if peacefulkit-01 is not kept.
+
+## 10-08 15:05Z — peacefulkit prepared on the 4 toolhygiene shas (both engines APPROVE), fetched into /opt; FOLLOW-UP airpocket-02
+pk-on-6238095 d948bfd, pk-on-4970c91 6f1921a, pk-on-5d1f710 3382a17, pk-on-2f38f69 4be1a29 (+ 92bc84f -> 40046b8); queue
+entry docs/reports/peacefulkit-01.queue-entry.json (after toolhygiene-01; needs install-bagfix-regs first).
+AIRPOCKET-02 (follow-up, after airpocket-01's decision): found in review -- the drowning rescue equips a pickaxe right
+after interrupting a skill, while an interrupted smelt/chest/craft may still hold a window open and be clicking. The race
+exists on the live airpocket-01 build (dbb4d78). Rare (drowning while a container window is open) and not a death risk
+as far as known; fix = a bounded window handoff before equipping, never a forced close. Not a reason to stop airpocket-01.
+
+## 10-08 15:05Z — PEACEFULKIT VARIANTS READY on the four toolhygiene shas (queue entry drafted, NOT added)
+- The approved pk-on-92bc84f (40046b8, 30 commits) is now on each toolhygiene sha:
+  - **pk-on-6238095 @ d948bfd** (toolhygiene only). One conflict: admission keeps both refusals; the prompt keeps both filters.
+  - **pk-on-4970c91 @ 6f1921a** (+airpocket). No conflict; the patch is identical to d948bfd's.
+  - **pk-on-5d1f710 @ 3382a17** (+withdraw2). Import-line conflicts only, plus the EXCLUSION_PHRASE table (both entries kept). One test-only fix.
+  - **pk-on-2f38f69 @ 4be1a29** (all three). No conflict.
+- **The test-only fix.** Claude r1 P1, confirmed red by the runner: peacefulkit-order.test.mjs's stone pickaxe fired withdraw2's upgrade order.
+  - The bag now holds an iron pickaxe.
+  - New case: stone pickaxe -> peaceful composts first; hard -> withdraw_pick.
+- **Reviews:** Codex and Claude both APPROVE all four at r2.
+  - Codex's r1 CHANGE on A/C was withdrawn. airpocket's rescue equip can click inside an interrupted smelt's still-open furnace window, but that is PRE-EXISTING on the live airpocket-01 build (dbb4d78). Peacefulkit only adds interleavings inside the same race.
+  - The fix belongs on airpocket's own line, for all windows: a bounded handoff, never a forced close. A task chip was spawned for it.
+  - withdraw2 x kit and toolhygiene x kit: clean. Text: docs/reports/peacefulkit-01.rebase-review-2026-10-08.txt.
+- **Tests:** npm test 241/241, 242/242, 243/243, 244/244. mutants-pk.py (PK_VARIANT=1): 86/86 killed on each. Lint: withinBody only.
+- **Paper:** not re-run. Both engines: no peacefulkit line changed, and the race is not reproducible in a scene.
+- **peacefulkitread dry run** on the live airpocket pools (+180): every gate 0, every instrument fired.
+- **Registrations** peacefulkit-01.{6238095,4970c91,5d1f710,2f38f69}.json: on main and in ~/mcai-analysis. The bag-fix fields are unchanged from the gate agent's 92bc84f file.
+- **OPERATOR: queue entry docs/reports/peacefulkit-01.queue-entry.json** (= ~/mcai-analysis/peacefulkit-01.entry.json).
+  - class bag-fix, after toolhygiene-01, 5 variants: 92bc84f -> 40046b8, plus the four toolhygiene shas.
+  - It needs install-bagfix-regs.py first. /opt/minecraft-ai needs a fetch of the pk-on-6238095, pk-on-4970c91, pk-on-5d1f710 and pk-on-2f38f69 branches.
+  - Validated no-act against a scratch clone: VALID.
+  - NOT built: peacefulkit on dbb4d78 / a6cd3c1 / 2189de3. Those are needed only if toolhygiene is not kept on those bases.
+
+## 10-08 13:45Z — airpocket-01 +360 NOT_YET (exposure 1 of 2): FIRST LIVE RESCUE succeeded; extension continues
+13:15:45Z hive-d-Bravo sealed under ICE at y 60.5 (cell 155,62,168), health 18: dug the ice with a wooden pickaxe in
+1,901 ms (predicted 1,900), eye in air, health 18 -> 20 within 4.4 s. attempts 1, successes 1, refusals/aborts/failures
+0, every breach 0. Deaths canary 1/60.6 bh vs matched control 2/90.9 bh (both below the two-death floor). Exposure needs
+>= 2 attempts; the registered extension (to +1560, ~09:34Z 10-09) continues. withdraw2-01 queued behind it.
+
+## 10-08 13:25Z — toolhygiene prepared on dbb4d78 / a6cd3c1 / 2189de3 (both engines APPROVE); fetched into /opt
+th-on-dbb4d78 @ 4970c91, th-on-a6cd3c1 @ 5d1f710, th-on-2189de3 @ 2f38f69 (+ th-on-92bc84f @ 6238095). Found by review:
+airpocket's dig picked any pickaxe by slot, so with hygiene's 1-use copies it could dig bare-handed on the server; fixed
+on the airpocket bases with airPocketTools (skip a 1-use copy when a healthier one of the same kind exists; identical
+to airpocket-01 when hygiene is off); Paper 19 trials, all bots breathed. Queue entry drafted
+(docs/reports/toolhygiene-01.queue-entry.json). PLAN: it can only be queued after install-bagfix-regs.py (bagread +
+the 92bc84f registration), which needs an empty slot -- do it in the gap after withdraw2-01, then `queue add`.
+(Timestamp note: the "13:15Z" entry below was first stamped 14:00Z in error; host clock is the reference.)
+
+## 10-08 ~13:30Z — TOOLHYGIENE VARIANTS READY on dbb4d78 / a6cd3c1 / 2189de3 (queue entry drafted, NOT added)
+- The approved th-on-92bc84f (6238095) was rebased onto the three bases that can follow airpocket and withdraw2:
+  - **th-on-dbb4d78 @ 4970c91** (airpocket KEPT). The cherry-pick was clean. It also carries 2 composition commits.
+  - **th-on-a6cd3c1 @ 5d1f710** (withdraw2 KEPT on 92bc84f). One skills.mjs import conflict, resolved as the union.
+  - **th-on-2189de3 @ 2f38f69** (both KEPT). It has B's commits plus A's composition commits.
+- **The composition fix (A, C).** Round 1, Codex P1 and Claude P2: airpocket's dig step took any pickaxe and broke ties by slot.
+  - Hygiene drains worn copies to 1 use. A copy the server already broke still shows at 1 use, so the step could dig bare-handed.
+  - New `airPocketTools`: with hygiene on, a <= HARD_STOP copy is dropped when a same-kind copy above it is held.
+  - The step AND the pre-empt price (reflex prepareAirPocket) both use it. Hygiene off = airpocket-01 exactly.
+  - A stale-copy price added in r1 was removed after Codex r2: a hand price is not a hand dig.
+  - Round 3: Codex APPROVE, Claude APPROVE. B was APPROVE at r1 from both.
+  - Text: docs/reports/toolhygiene-01.rebase-review-2026-10-08.txt.
+- **Follow-up, NOT in this canary (both engines).** A faster 1-use copy (golden@1 beside stone) is now declined, not used.
+  - A read is specified in the review text, with its denominator and a positive control.
+- **Tests:** npm test 239/239 (A), 240/240 (B), 241/241 (C). The in-suite hygiene mutants pass. airpocket.test.mjs L1-L6 includes 2 composition mutants. Lint: withinBody only.
+- **PAPER** (Codex required it): 19/19 trials alive, roof opened, breathing.
+  - Kit stone@1 ahead of stone@100, hygiene on: cand 5/5 used the healthy copy and kept the @1. ctrl (no fix) 4/4 and hygiene OFF 3/3 spent the @1.
+  - Kit iron@1 ahead of stone@100: cand 2/2 dug with stone; ctrl dug with the iron@1.
+  - Kit iron@1 alone: the copy's last use dug 1/1.
+  - Default kit A/AF/F: 3/3.
+  - Driver: sandbox/craft/airpocket-ab.cjs, now with AP_KIT, AP_TOOL_HYGIENE and a per-entry server Inventory read.
+  - The sandbox lock was taken and released.
+- **Registrations** toolhygiene-01.{dbb4d78,a6cd3c1,2189de3}.json: on main and in ~/mcai-analysis.
+  - The bag-fix fields come unchanged from the gate agent's toolhygiene-01.92bc84f.json (9e19a6d).
+  - toolhygieneread dry run on the live airpocket pools: gates 0, positive controls 107 / 4655.
+- **OPERATOR: queue entry docs/reports/toolhygiene-01.queue-entry.json** (= ~/mcai-analysis/toolhygiene-01.entry.json).
+  - It is class bag-fix, after withdraw2-01, with 4 variants (92bc84f, dbb4d78, a6cd3c1, 2189de3).
+  - It needs install-bagfix-regs.py FIRST (bagread.py and the 92bc84f registration).
+  - /opt/minecraft-ai must also fetch the th-on-dbb4d78, th-on-a6cd3c1 and th-on-2189de3 branches.
+  - Validated no-act: VALID, against a scratch clone, with the staged bagread and 92bc84f registration standing in.
+- CORRECTION: the wd2-on-dbb4d78 section below was stamped ~14:40Z; it was ~12:40Z.
+  - withdraw2-01.dbb4d78.json says registered_at 14:30Z; the file is hash-pinned in the queue, so it was left unchanged.
+
+## 10-08 13:15Z — BAG-FIX REGISTRATIONS STAGED (~/bagfix-regs, both engines APPROVE); +180 KEEP awaits the owner
+18 bag-fix registration variants on main (9e19a6d): class bag-fix, four pools, bagread primary at +1440 with per-fix
+death-censored null edges (toolhygiene pick_slots -0.842, peacefulkit sword_slots -0.059, junkwell slots -1.653, gridfix
+-1.366, stonecap -1.366); docs/reports/bagfix-registrations-2026-10-08.md. INSTALL between canaries (after airpocket):
+python3 ~/bagfix-regs/install-bagfix-regs.py (takes the scheduler install-hold, the loop lock; no gate digest change).
+CAUTION: the +1440 reads use 16-18 GB each -- never run two concurrently. Scheduler nit: install-hold/-release are not
+owner-scoped (queued fix).
++180 KEEP calibration: as specified it is WORSE on deaths (x2 82.6% vs today's 75.7% false KEEP); variant A' (+180 only
+if the canary death rate <= control's) is better than today on deaths and equal to the 4-pool +360 design, but ~3-6 pts
+worse than today's 2-pool read on near-threshold movement/work/gathering harms (a 4-pool property). Codex: drop unless
+the owner revises the condition; operator: build A'. OWNER DECIDES. Nothing built.
+MAIN HYGIENE: twice today an agent pushed a stale tree to main and deleted others' files (restored both times within
+minutes: 64783f7, 9e19a6d). Never use --no-verify on main; fetch + rebase before every push.
+
+## 10-08 ~12:40Z — WITHDRAW2 ON AIRPOCKET READY: wd2-on-dbb4d78 @ 2189de3 (queue entry drafted, NOT added)
+- For the airpocket-01 KEEP case (fleet dbb4d78). The 13 commits of wd2-on-92bc84f (a6cd3c1) were cherry-picked onto dbb4d78.
+  - No conflict. range-diff: every patch identical.
+  - The interdiff is one cognitive.mjs hunk offset.
+- Tests: npm test 239/239; mutants-wd2.py 52/52; eslint no-undef only withinBody.
+- Reviews of the rebased diff vs the approved one: Codex APPROVE, Claude subagent APPROVE.
+  - Claude P3, no change: a town order issued while airpocket digs is aborted and spends its cooldown.
+  - Text: docs/reports/withdraw2-01.dbb4d78-review.txt.
+- Paper not re-run. The merge is behaviour-neutral (no shared function; both reviews agree).
+- Registration withdraw2-01.dbb4d78.json: on main and in ~/mcai-analysis (sha256 e3f1de4c).
+- withdrawread dry run on the live airpocket pools (+180, 319,006 rows): gates 0.
+  - canary_rows_without_ledger 3 is expected: it is the arms check's positive control.
+- **OPERATOR: queue entry docs/reports/withdraw2-01.queue-entry.json** (= ~/mcai-analysis/withdraw2-01.entry.json). It has both variants (92bc84f unchanged, + dbb4d78).
+  - Apply with `queue replace-variant withdraw2-01 <entry>`.
+  - FIRST make 2189de3 resolvable in /opt/minecraft-ai (fetch). Until then validate_entry refuses with "does not resolve".
+  - Validated no-act (canary-sched.validate_entry against a scratch clone): VALID.
+
+## 10-08 12:55Z — OWNER: KEEP at +180 for four-pool bag fixes; rolling variant prep; withdraw2 queued behind airpocket
+OWNER chose "1 and 2": (1) KEEP allowed at +180 for class bag-fix drawn at four pools when exposure is ready, every gate
+passes, no death trip/extension pending and all reads are readable -- gate agent calibrating (false-KEEP rate must not
+exceed today's 2-pool +360) and building; not live until installed between canaries. (2) a variant-prep agent keeps
+the next queue item rebuilt on each plausible base one step ahead (now: wd2-on-dbb4d78 for an airpocket KEEP).
+Scheduler queue: airpocket-01 (running) -> withdraw2-01 (queued 12:50Z, variant 92bc84f -> withdraw2-01.92bc84f.json,
+approved; the dbb4d78 variant will be added with `queue replace-variant`). Owner asked about two concurrent tests again;
+the narrow form (rare-event safety canary + one ordinary canary) was offered, not chosen. Pending owner: per-town stock
+targets for all bulk materials (proposed).
+
+## 10-08 12:30Z — airpocket-01 +180 NOT_YET (0 attempts yet; extension to +1560 registered); "control 0/0.0" explained
+Canary LIVE since 07:34:26Z on hive-d,placebo-a; matched control frozen hive-c,placebo-b,placebo-d. +180: liveness 0 rows
+(no sealed-pocket episode yet), every breach 0, instruments fired on the control (308 capped rescues, 17 no-air
+ceilings); deaths canary 1/30.8 bh vs matched 2/46.2 bh. The verdict's "control 0/0.0" is a PLACEHOLDER, not a
+measurement: usafegate.measure() scans the control POST only once the canary reaches the two-death floor; read-only
+check with the installed gate found the control POST = 9 deaths / 315.2 bot-h / 77 bots, 0 errors. Fail-closed
+confirmed: at the floor an empty control yields UNREADABLE unless the matched arm trips. Cosmetic wording fix ("not
+scanned, below the floor") queued for the next install between canaries. KEEP requires >= 1 real airpocket success
+(own lines block KEEP, never revert) -- intended.
+
+## 10-08 08:00Z -- junkwell-02 ON PEACEFULKIT built (queued, not launched); the well's grade fixed; the plain shas move
+- **The plain junkwell-02 is now jw-on-c6e91a8 @ 7d5095d / jw-on-92bc84f @ 1db3fcd** (was 2bd1452 / b446f4d). Two changes:
+  - classifyOutcome credits a sword's loss (and, on the cobble coupling, cobble) only if THIS visit's throw clicked it. The click record is reset at each visit's start.
+  - The strict sword switch is tested in real child processes under every FOOD_SKIP mode.
+  - Codex: the composition r1 CHANGE -> ec54010; r2 CHANGE -> b62b7c5; r3 and r4 APPROVE. Claude: CHANGE on the tests -> 7d5095d, then APPROVE.
+- **If peacefulkit-01 is KEPT: jw-on-39fbcde @ e2ea50a / jw-on-40046b8 @ cf4192e** (registrations junkwell-02.39fbcde.json / .40046b8.json).
+  - The final well merged into peacefulkit's final heads.
+  - The well's sword classifier IS peacefulkit's unwantedSword, fed the well's strict switch (peaceful difficulty AND foodskip on).
+  - **Paper Job 8 (a681043, sword code identical):**
+    - peaceful: swords thrown, both in the shaft. Easy: kept. Peaceful turned easy after the first click: kept (sword_kept=2).
+    - FOOD_SKIP=on in an EASY world: kept, although the bot's own switch read active=1.
+    - 5/5 pit-first builds landed. 0 items outside the shaft in every trial. Control 2bd1452 matched.
+  - **SUPERSEDED, DO NOT LAUNCH:** jw-on-6dc10d1 (91f9ce4) / jw-on-f2c4ba0 (582ade7). They lack the pit fix.
+- **stonecap-01 coupled:**
+  - plain well: sc-on-7d5095d @ 8da6cf6 / sc-on-1db3fcd @ f5bdb80 (registrations stonecap-01.7d5095d / .1db3fcd; the .2bd1452/.b446f4d files are removed). The grade now also credits cobble the well clicked at the cap.
+  - **well on peacefulkit:** sc-on-e2ea50a @ 70db8a3 / sc-on-cf4192e @ 32d7447. This is the first composition of the cobble cap with peacefulkit.
+    - The union resolutions: call-time noSwords reaches the cap's empty-plan refusal.
+    - A spare-swords-only bag is refused as deposit_nothing_to_bank: "swords are not banked in a peaceful world -- nothing to deposit, keep working".
+  - NOT BUILT: a plain stonecap on peacefulkit's heads (needed only if peacefulkit is KEPT and junkwell-02 is NOT).
+- Tests: npm test jw 236/236 and 237/237, jw-on-pk 239/239 and 240/240, couplings 237/237 and 238/238, pk couplings 240/240 and 241/241. Mutants: peacefulkit 59/59 on both jw-on-pk (+3 towndeposit on 92) + 2 well-classifier mutants; on the pk couplings the cobble set 65/65 and 67/67 and the peacefulkit bank/sword subset 32/32 and 35/35 (PK_COMPOSED: the drivers on main gained the composition's anchors). Lint clean but for withinBody.
+- Registrations on main and in ~/mcai-analysis. Nothing deployed; the manifest and the loop untouched.
+
+## 10-08 07:30Z — GATE v34-HYB INSTALLED (07:11Z); airpocket-01 QUEUED in the scheduler (launching); bamboo = ordinary
+v34: bundle 97abe762470a3e2c4a9da0b48f771035, gatedigest OK, backups *.bak-v34-20261008T071139Z. HYB@2.5 on the five
+drowning pools: false trip 1.9% (6 h) / 2.5% (26 h); in airpocket's stratum catches 35% of doublings, 76% of triplings
+at 26 h; matched control frozen after the draw (a failed freeze refuses the deploy; unusable control -> UNREADABLE).
+airpocket-01: registration airpocket-01.dbb4d78.json (USAFE OK), queued at 07:28Z with an approved record; scheduler
+tick --no-act said LAUNCH. Bamboo decision (operator + Codex, owner delegation): bamboo-01 and bamboocraft-01 are
+ORDINARY canaries (no bag-fix class; 2-3 eligible pools cannot reach v33's 400 bot-h). Gate agent still fixing the
+other bag-fix registrations (per-fix noise band under each fix's own draw filter, a vacuous linkage control, the
+W=1440 read cost vs the 900 s / memory limits).
+
+## 10-08 06:45Z — TOWNDEPOSIT-02 KEPT (+360) and PROMOTED: FLEET 92bc84f (06:31Z, all live bots verified); merged to main
++360: 21 deposits, 17/25 full-bag town stays served, slots/bot DiD -1.23, share>=34 DiD -0.30, correctness 0, deaths
+canary 1 (0.017/bh) vs control 8 (0.027/bh); climbs +56% (<= +100%). Main: merge of 92bc84f + towndeposit test flake
+fix (a6cd3c1 cherry-picked); npm test green. SCHEDULER INSTALLED 06:35Z (~/canary-sched.py, cron */5, queue empty;
+rollback: bash ~/sched-install/install-canary-sched.sh --rollback 20261008T063539Z); stale owner-01 (09-18) closed
+against its ledger row. NEXT: airpocket-01 (92bc84f variant ap dbb4d78) once gate v34-HYB is installed; bag fixes and
+withdraw2 use their 92bc84f variants.
+
+## 10-08 05:30Z — DECISIONS: airpocket gate = HYB@2.5 (Codex + operator); two lanes REJECTED by both engines; scheduler staged
+AIRPOCKET GATE: HYB@2.5 (DiD OR frozen matched-pool control > 2.5), not the built DID24@2.0, which is blind in
+airpocket's stratum (doubling 3.3%, tripling 34% at 26 h vs HYB 35% / 76%, false trip <= 2.5%). Gate agent rebuilding
+v34; airpocket WAITS rather than launch under DID24 (Codex: docs/reports/airpocket-gate-choice-codex-2026-10-08.txt).
+THROUGHPUT (docs/reports/canary-throughput-2026-10-08.md): both engines rejected two concurrent lanes (a replay of six
+past canaries: removing a second lane's pools from the control flipped junkwell-01's REVERT to POLL_OK; modelled gain
++0-30%); isolated pools are NOT equivalent (per-bot memory) and stay out of draws; bundling not built; the 12 h exclusion
+is kept. BUILT + STAGED (not installed): a single-slot queue scheduler (scripts/host/canary-sched.py, cron */5,
+~/canary-queue.json with "approved" entries; never skips the head, never retries on its own), a drawrec fail-closed
+patch, and scripts/prepare-variant.sh. Slot busy 80% 10-03..10-08 (97.9 of 122.7 h). CLAUDE.md keeps "one canary pool,
+ever" (re-decided). Note: fleet-recycle does not run while a canary is declared (the 05:53Z recycle will not happen).
+OWNER QUESTIONS: (a) allow KEEP at +180 for four-pool draws (drawrec noise: 4 pools x 3 h 0.313 < 2 pools x 6 h
+0.395) -- the biggest throughput lever left; (b) isolated pools sit in every read's control though not equivalent for
+town/chest changes.
+INSTALL PLAN, in the empty slot after towndeposit-02: gate v34 (HYB, once re-staged) + scheduler (no shared files).
+
+## 10-08 ~04:40Z — CANARY THROUGHPUT: two lanes NOT built (both engines); a queue SCHEDULER built + staged, NOT installed
+Owner 10-08 ~02:30Z delegated to Codex + Claude. Report: docs/reports/canary-throughput-2026-10-08.md.
+- A (two concurrent lanes): Codex and Claude each DON'T BUILD. The deciding evidence was a time-travel replay of six past
+  canaries with a second lane's pools removed from control (logs truncated at the read instant, frozen clock, private
+  mount namespace; the full-control replay reproduced every recorded verdict line exactly).
+  - Five verdicts held.
+  - junkwell-01's death-gate REVERT became POLL_OK (LB 1.40 -> 1.18).
+  - Model gain was only +0..30% once unmeasured double-KEEP compositions and control erosion are counted.
+  - "One canary pool, ever" stands; CLAUDE.md records the re-decision.
+- B: isolated pools are NOT equivalent (per-bot memory, town state, world facts, no comms or board). Not admitted; owner
+  question. C (bundling): not built. D1: the 12-h exclusion stays.
+- BUILT, both engines APPROVE after 6 design rounds + 4 implementation rounds:
+  - `scripts/host/canary-sched.py`: cron */5. It launches the HEAD of `~/canary-queue.json` into an empty slot exactly
+    as chain-after does. It never skips the head, never retries, never takes the loop lock, and never overwrites a
+    /tmp read. Human verbs: rearm, abandon, closed (needs the ledger row), cancel, continue; also install-hold /
+    install-release.
+  - Tests: 93 tests and anchored mutants, all killed.
+  - One anchored drawrec.sh patch: a drawexposure crash on a DECLARED registration no longer reads as "no requirement"
+    (10/10 tests on the live file; TARGET_K line intact).
+  - `scripts/prepare-variant.sh`: mechanical cherry-pick + range-diff + npm test + no-undef against the base. Its output
+    has NO `approved` field, so `queue add` refuses it until reviewed.
+- STAGED on 10.0.0.31 in ~/sched-install; dry run 04:42Z: tests 93/93 + 10/10 on the live drawrec; staged canary-sched.py md5 dee491d6, gate bundle
+  untouched (it refuses now: towndeposit-02 is live). It is independent of gate v34: no shared file, and both
+  installers hold the loop lock, so either order is safe. The operator sequences:
+  ```
+  ssh mike@10.0.0.31 'bash ~/sched-install/install-canary-sched.sh --dry-run'    # then without --dry-run
+  ```
+  It prints the rollback: `bash ~/sched-install/install-canary-sched.sh --rollback <STAMP>`.
+  After the install the queue is EMPTY (no launches) until the operator `queue add`s entries with `approved`.
+  Compatible with the operator's 10-08 reboot fixes (chain-start/resume-chains/restore-reads): it changes none of
+  them, nor chain-after's command line, .out wording or read locations; a running chain-after/chain-start counts as
+  'slot busy'. Do not queue a run that also has a recorded chain (chains.d): whichever launches first wins, the
+  other waits on the lock, and the scheduler then tracks the run as running.
+- FOUND, pre-existing:
+  - fleet-recycle.timer SKIPS while any canary is declared, so the 05:53Z recycle noted below will NOT run.
+  - check-open-loop.py cannot record a decision once the manifest is cleared.
+  - drawrec's exposure filter failed open on a crash (fixed by the staged patch).
+- OWNER QUESTIONS: KEEP at +180 for 4-pool draws (the biggest lever; drawrec's own null sd 0.313 vs 0.395); isolated
+  pools in town/chest controls; auto-approval of unchanged range-diff variants (Codex: no).
+
+## 10-08 05:00Z — REBOOT FIXES INSTALLED (owner "yes")
+1. mcai-mayor-shadow is a persistent enabled unit (/etc/systemd/system/mcai-mayor-shadow.service, same limits as the
+   transient one; ~5 s gap in snapshots at the switch). 2. block2-sandbox (sandbox 1) enabled at boot on 10.0.0.30.
+3. ~/bin/restore-reads.sh, cron @reboot + */10: copies any ~/mcai-analysis/*.py missing from /tmp (never overwrites).
+4. CHAINS: start them with ~/bin/chain-start.sh (records ~/chains.d/<next>.args); ~/bin/resume-chains.sh, cron @reboot
+   (+90 s) + */10, relaunches unfinished chains; tested (relaunch once, no duplicate, args removed on STOP).
+   Copies in scripts/host/bin/. crontab backup ~/crontab.bak-20261008-rebootfixes.
+FOUND: /tmp/quickstatus.py, modelshare.py, cooldid4.py (nightwatch digest sections) were lost in the 10-06 outage and
+are not in the repo; the digest's quick-status/model sections have been empty since. To rebuild (low priority).
+
+## 10-08 04:05Z — OWNER GOAL + ROADMAP: build cool structures, survive, cooperate, for long periods (peaceful stays)
+Not beating the game. docs/reports/roadmap-2026-10-08.md (owner agreed). After the current queue: LAST (renewables:
+tree farm, cobblestone generator; unattended recovery; bounded logs/stores) -> BUILD (workshop, safe mineshaft, larger
+structures; materials produced deliberately) -> COOPERATE (roles, town stock, overseer per C2 evidence, strategist).
+New measure to build: a weekly long-run check per town (built something? deaths/stuck low? output steady?).
+
+## 10-08 ~05Z — GATE v34 (UNDERGROUND-SAFETY DEATH GATE) BUILT + STAGED, NOT INSTALLED; airpocket registrations ready
+Both engines APPROVE (Claude r2-r10, Codex r10). On main d6e5eb0; staged on 10.0.0.31 in ~/gate-v34 with
+MANIFEST-v34.txt (exact md5 of every staged file, each target's live md5 before, the predicted digest). Dry run (twice,
+manifest self-verified): every suite passes (test_usafe 123/123, 42 mutants), predicted bundle
+9452993d3c05777bb8107b66c8846655; it refuses while towndeposit-02 is live. NOTHING on the host was changed: live
+verdict.py 07ad5e09, canary-loop.sh 19a06267, gatedigest OK on v33 (ac3da3b6). INSTALL BETWEEN CANARIES, sequenced with
+the multi-lane install by the coordinator:  ssh mike@10.0.0.31 'bash ~/gate-v34/install-gate-v34.sh'
+- The gate: class underground-safety; psi = canary POST/PRE over control POST/PRE (PRE 24 h); TRIP iff >= 2 canary
+  deaths AND LB > 2.0 (calibrated). No-change false trip 3.3% (6 h) / 4.4% (26 h) on the five drowning pools (today's
+  gate: 12.9% / 29.0%). Power vs a doubling 17.5% / 25.4%. Linkage by the registration's link_rules reverts at the floor.
+- **OWNER DECISION BEFORE AIRPOCKET LAUNCHES:** in the stratum airpocket is drawn for (pools already >= 2x control), the
+  built gate catches a doubling 3.3% and a tripling 34% at 26 h -- effectively blind; linkage + the read's C3 are the
+  protection. The alternative HYB@2.5 (DiD OR matched-pool control) keeps <= 2.5% false trip and catches 35% / 76% there,
+  resting on a single 5-bot control pool. Built: DID24@2.0. Report: docs/reports/usafe-death-gate-2026-10-08.md.
+- airpocket-01.{ee21207,dbb4d78}.json: class underground-safety, link_rules, linkage_extra [] (the old dict crashed
+  verdict.py and changerowcheck.py). Exposure NOT powered at 6 h (P(>= 2 attempts) ~50%); the registered extension to
+  +1560 reaches ~95% (conditional estimate).
+
+## 10-08 — PEACEFULKIT-01 REVISION 2: two Codex defects from the junkwell-02 merge fixed; both engines APPROVE; NOT LAUNCHED
+New heads (junkwell-02's jw-on-* need a rebase onto them): `pk-on-c6e91a8` @ 39fbcde (was 6dc10d1) and `pk-on-92bc84f` @
+40046b8 (was f2c4ba0); code approved at a68dc5c / f25f050, the head commits are test-only. (1) Spare swords were still
+counted BANKABLE wherever a caller did not pass noSwords (deposit-due test, room advice, prompt, milestone, withdraw and
+recovery planners, the town-deposit trigger): bankableInventory's noSwords now defaults to the switch, and the trip
+deciders read it at the call. (2) A wooden sword could be left on the CURSOR when the furnace drain closed: Paper probe
+(sandbox/craft/pk-cursor-probe.mjs) -- vanilla returns a closed window's cursor item to the bag when there is room and
+DROPS it when the bag is full; the drain now puts it back into the bag, else into the furnace slot it came from, and a
+drop that still happens is a K2 breach row. Six more review rounds on the drain's accounting (no second furnace credit for
+an earlier call's sword; per-call ` restaged=1` mark; timed-out takes settled and uncredited). npm test 238/238 and
+239/239; 83 JS + 38 read + 3 variant mutants all killed; Paper smelt/bank scenes unchanged; dry run all gates 0, every
+positive control fires; licencecheck exit 0. Read md5 6151dbca (= ~/mcai-analysis = /tmp).
+
+## 10-08 03:05Z -- junkwell-02 PIT FIX READY (queued, not launched): the aim said twice; an abandoned pit is COVERED; C9 gates a pit left open
+- **junkwell-02**: jw-on-c6e91a8 @ 2bd1452 (was 5c13330), jw-on-92bc84f @ b446f4d (was 5cca9c5).
+  - **Cause of the 5/5 misses:** the server dropped the bot's single aim look in 12/12 traced throws. RCON read the dig look 72.15 at the click.
+  - **Fix:** the look is said again, twice, before the click; the bot aims again if a correction moved it. Each throw's receipt is read from the spawn_entity PACKET (aim_off= / aim_read=, a tripwire).
+  - **Abandoned pits are COVERED, not filled:** one block in the cap cell. The fill pushed thrown junk back out on Paper.
+    - Only the run that dug the pit covers it, and never after an abort. Any visitor's close_well covers an open pit nobody is at.
+    - There is no build order without a cover block; cobblestone counts only above 64.
+  - **Read C9 (REVERT own_line breach_pit_left_open):** a pit opened (`_well_pit_dug`, written BEFORE the dig) or left (`_well_pit_open`) with no cover or build within 10 min.
+    - `scripts/host/wellread_c9_e2e.py` ran on the host against /home/mike/verdict.py: ALL HOLD (clean KEEP, one pit REVERT, 5/5 read mutants killed).
+    - wellread md5 a1a3deee on /tmp and ~/mcai-analysis; dry run 10-08 ~02:50Z: 313,926 rows walked, the instruments live, C1-C9 0.
+  - **Reviews:** Codex r1-r3 CHANGE, r4/r5/r6 APPROVE. Claude r1/r2 CHANGE, r3 APPROVE (its P3s taken).
+  - **Tests:** suites 236/236 and 237/237; well.test 167/167; lint clean but for withinBody.
+  - **Paper:**
+    - 35/35 consecutive pit-first throws landed on the fixed builds (15 on 88e4bb4, 20 on 2a6214f).
+    - Control 5c13330: 3 of 10 throws landed, and 3 of 6 builds left the pit open.
+    - Give-up: covered by the build, items contained (66 in the shaft, 0 outside, +30 s).
+    - Abort: why=aborted, then a visitor covered it 12.5 s later. Kill: a visitor covered it 10.6 s later.
+    - Resume: the well finished on the covered pit (131 in the shaft, 0 outside).
+    - No cover block: no order, no walk. Dispose: 528/528 in the shaft.
+  - **Not proven on Paper:** the visitor-race gate (B never scanned while the pit was open; it is unit-tested).
+- **stonecap-01 COUPLED** (only if junkwell-02 is KEPT and promoted): now sc-on-2bd1452 @ 5260f71 and sc-on-b446f4d @ 39b6f82 (were sc-on-5c13330 ee4c916 / sc-on-5cca9c5 5ee00b8).
+  - Registrations: stonecap-01.2bd1452.json / .b446f4d.json. The old .5c13330/.5cca9c5 files are superseded and deleted.
+  - Union merges, checked by Codex r6. Cobble mutants 65/65 and 67/67; suites 237/237 and 238/238.
+- **Still waiting:** jw-on-<peacefulkit sha> variants, for peacefulkit's new heads. The old jw-on-6dc10d1 / jw-on-f2c4ba0 lack the pit fix; do NOT launch them.
+- **Driver:** sandbox/well/well-e2e.cjs (visitor bot, Job 7 scenes, site census) and sandbox/craft/trace-rot.cjs landed on main.
+
+## 10-08 ~01:30Z — WITHDRAW2 REBASED (both variants READY, not chained, not launched)
+`wd2-on-c6e91a8` @ 6c86fa7 (fleet c6e91a8; registration docs/reports/withdraw2-01.c6e91a8.json) and `wd2-on-92bc84f` @ a6cd3c1
+(only if towndeposit-02 is KEPT + promoted; withdraw2-01.92bc84f.json). bots/src on both = the approved withdraw2 (c4e9c47)
+rebased; only conflict the cognitive.mjs import line. A surplus-first room order (785cd0d) was built for the towndeposit base
+and DROPPED before any push (Codex P1: ignores chest capacity, could decline a pull the old order completed).
+- IRON RETENTION vs TOWNDEPOSIT: proven. Unit (withdraw2-towndeposit.test.mjs: real pull -> real townDepositPlan/Order) and Paper
+  sandbox2: irontd 2/2 (crafted_iron, then _town_deposit at 34 slots banked raw_copper:7 ONLY; iron + stone pickaxes + coal
+  stayed); irontdfail 2/2 (table out of reach, craft_failed, ingots 3 + sticks 2 in the bag at 35 slots, _town_deposit banked
+  raw_copper:7 ONLY). The other direction is one-way: withdraw's unchanged room rule banks COAL FIRST (then raw_iron), which the
+  town deposit keeps -- no ping-pong; withdrawread now REPORTS it per arm (no gate).
+- Paper best-first + iron craft, both variants: tiers40 IRON (controls c6e91a8/92bc84f STONE), twochest IRON (control c6e91a8
+  WOODEN), ironcraft crafted_iron craft=server; conserved, ground empty.
+- Reviews: Codex r1 CHANGE (785cd0d P1; foodskip-order test stale P2) -> r2 CHANGE (read: verb= cut at 300 chars; now the order
+  is recognized by its ledger, which also lets G1/G2/G5/G6 see cut rows) -> r3 no findings -> r4 APPROVE; Claude APPROVE x3.
+- npm test: 236/236 (6c86fa7); 238/238 (a6cd3c1). Mutants 49/49 (c6) and 52/52 (92, incl. the town deposit's keeps).
+  eslint no-undef: only withinBody. toolhygiene composes (scratch merge: no redundant-craft refusal of the iron craft; tests green).
+- FOUND, PRE-EXISTING (fixed on wd2-on-92bc84f only): towndeposit.test.mjs TOWN MEMORY flakes ~50% on 92bc84f itself (same-ms
+  'took' vs miss). If towndeposit-02 is promoted and merged to main, take a6cd3c1's test fix too.
+- Dry run (10.0.0.31, 180 min): every gate 0, INSTRUMENT2 50. Exposure power: withdraw-01 orders 0.077/bot-h, upgrade
+  opportunities 1.03/bot-h -> P(>= 5 orders on 10 bots) 0.09..1.00 at +180, 0.50..1.00 at +360. Read md5 2640ca65 = repo =
+  host /tmp = ~/mcai-analysis (backups *.bak-20261008-wd2rebase); registrations in ~/mcai-analysis.
+- FOLLOW-UPS (pre-existing, not this canary): bot.currentWants keeps DEPOSIT_ALWAYS ores in every room plan after any model
+  deposit; chestfull recordOutcome keeps only the latest outcome (a later full/unknown un-invalidates _pick_best/_pick_miss
+  <= 15 min); capacity-aware room choice at the chest (then demote IRON_LADDER items).
+
+## 10-08 00:40Z — OWNER delegated to operator + Codex: FOUR-pool bag fixes; AIRPOCKET before bag fixes
+D1: all seven bag fixes (toolhygiene, peacefulkit, junkwell-02, gridfix, bamboo, stonecap(+cap), bamboocraft) are
+"class": "bag-fix", drawn at four pools from the start (criterion: frees usable bag capacity). D2: QUEUE is now
+towndeposit-02 (live) -> airpocket-01 (needs the self-baseline DiD death gate installed first) -> withdraw2 (raises iron
+mining) -> toolhygiene -> peacefulkit -> junkwell-02 -> gridfix -> bamboo -> stonecap -> bamboocraft -> treefarm. If the
+airpocket gate is not ready when the slot frees, the bag fixes are HELD rather than bypassing it. Gate agent: build the
+gate, set the registration classes, check four-pool eligibility. Codex text:
+docs/reports/bagfix-pools-airpocket-order-codex-2026-10-08.txt.
+
+## 10-08 00:30Z — CANARY LIVE: towndeposit-02 @ 92bc84f on placebo-b,board-c (10 bots), declared 00:15:33Z
+Drawn 00:15Z (earlier than the 04:15Z estimate). Versions: 10 x 92bc84f on the canary pools. Reads ~03:15Z / ~06:15Z.
+PRE WINDOW NOTE (Codex condition "no restart in the pre window"): fleet-recycle.timer (OnBootSec=6h, OnUnitActiveSec=6h;
+"uniform staggered bot recycle, all arms alike") restarted all 80 bots 23:53-00:01Z, 14 min before deploy. It is
+symmetric across arms and hits every canary every 6 h (next 05:53Z, inside this run), unlike the 10-07 outage +
+promotion restart that shrank only the canary's pre window to 11.6 bot-h. Accepted and recorded; the queued
+restart-contamination preflight must exempt fleet-recycle (or align draws to it), and should measure pre bot-h per arm.
+
+## 10-08 00:20Z — OPERATOR: build status; towndeposit-02 draw waiting (exposure)
+towndeposit-02: preflight ok 22:21Z, draw waiting -- exposure (compost >= 8 rows/6 h) passes only board-c, placebo-b;
+board-c out of band; board-b/placebo-a excluded until ~04:15Z (12 h after towndeposit-01's teardown). Expect a draw
+~04:15-05Z. Not swapped for another canary: every queued variant is based on c6e91a8/92bc84f, and a KEEP in between
+would orphan towndeposit-02's variant.
+READY (both engines APPROVE, npm test green, Paper-proven, reads staged on host): toolhygiene-01 (th-on-c6e91a8 efbb607 /
+th-on-92bc84f 6238095); airpocket-01 (ap-on-c6e91a8 ee21207 / ap-on-92bc84f dbb4d78; 59/59 sealed-pocket survivals vs
+control 0) -- BLOCKED on an underground-safety death gate (its pools drown 2.6-3.2x on the base; gate agent building a
+self-baseline DiD gate); stonecap-01 + cobble cap (sc-on-c6e91a8 06e2964 / sc-on-92bc84f 971fb09; well-at-cap variants
+sc-on-5c13330 / sc-on-5cca9c5; cap log needs rotation before promotion); bamboocraft-01 (after bamboo-01 KEEP).
+FIXING: peacefulkit (spare swords still counted bankable in places; wooden sword can stay on the cursor after a furnace
+drain) -- agent resumed; junkwell-02 (pit-first toss missed 5/5 on Paper and the abandoned build left the pit OPEN) --
+agent resumed; dependent jw-on-<pk sha> variants to be rebuilt on peacefulkit's new heads. withdraw2 still needs its
+rebase onto c6e91a8 (and 92bc84f).
+
+## 10-08 00:10Z -- QUEUED, NOT LAUNCHED: the cobble cap inside stonecap-01; swords in junkwell-02; the well-at-cap coupling; bamboocraft-01; junkwell on peacefulkit
+All branches pushed; registrations in docs/reports; reads in scripts/host (md5 on the host /tmp and ~/mcai-analysis = repo:
+stonecapread 69ae9d78, wellread 31204393, bamboocraftread 8d797bd6). Nothing deployed, the manifest and the loop untouched.
+- **stonecap-01 = the cobble rule + THE TOWN COBBLE CAP** (owner-delegated 10-07, Codex's rule): sc-on-c6e91a8 @ 06e2964,
+  sc-on-92bc84f @ 971fb09. Counted counts in an append-only journal per town (`/var/lib/mcai/_pool-<pool>/<townKey>.cobble.jsonl`),
+  claims decided in a shared fold, reconciliation of uncounted containers, never past 256, surplus stays in the bag at the
+  ceiling. Codex 8 rounds -> APPROVE; Claude 4 rounds + final delta -> APPROVE (8-process race: 0 overshoots). Mutants 65/65 and
+  67/67; suites 236/236 and 237/237. Paper: the cap held in every scene (control overshot 270-336); details in the registrations.
+  BEFORE FLEET-WIDE PROMOTION: rotate the journal (P3, Claude); the read lists claims live > 1 h by bot (a removed bot's stay
+  reserved, fail closed). Exposure is slow at the evening rate (~12 h for a 5-bot pool): the extensions carry it.
+- **stonecap-01 COUPLED** (only if junkwell-02 is KEPT and promoted): sc-on-5c13330 @ ee4c916, sc-on-5cca9c5 @ 5ee00b8 --
+  surplus whole stacks above 64 go down the well only while the town HOLDS 256 (counted), re-read at every click. Codex 3 rounds
+  -> APPROVE; Claude APPROVE (its cheap P3s taken: cap read only at town; build room without cobble/swords). Paper: at 277
+  counted the 30 + one 64 went into the shaft and exactly 64 stayed; at 247 none; a count dropped after the first click kept the
+  second stack; control 5c13330 threw none. junkwell's chest-full W4-W8 fixtures adapted (a lone 64 cobble is now reserve).
+- **junkwell-02 + swords** (peaceful only, re-read at every click): jw-on-c6e91a8 @ 5c13330, jw-on-92bc84f @ 5cca9c5. Codex r3 and
+  Claude r2 APPROVE; suites 236/236, 237/237; Paper: peaceful threw both swords into the shaft, easy and a mid-visit switch kept
+  them. **If peacefulkit is KEPT:** jw-on-6dc10d1 @ 91f9ce4 and jw-on-f2c4ba0 @ 582ade7 (merged on pk's final heads; both
+  engines checked the composition -- Claude APPROVE, Codex CHANGE on peacefulkit's OWN code, not the merge: the counting sites still count spare swords
+  (admission/milestones/prompt/skills: pass noSwords), and drainFurnace can leave a lifted wooden sword on the cursor). The
+  earlier jw-on-da3e38d / jw-on-7ae5e0f are SUPERSEDED (not pushed). Suites 239/239 and 240/240.
+- **bamboocraft-01** (launch only after bamboo-01 is KEPT): bc-on-6fb6fd9 @ 56956af, bc-on-786da4c @ f7415de. Codex r2 and Claude
+  r2 APPROVE; suites 238/238, 239/239; 14 + 4 mutants killed. Paper: 36/36 bamboo 64 + sticks 32 -> 32 server-confirmed fold
+  crafts freed a slot and the stone pickaxe was crafted (control refused). **bamboo-01 FINDING (both arms):** its housekeeping
+  order fires first at 34+ slots and folds ALL bamboo -- in one scene it ate the scaffolding's ingredient; the craft-time fold
+  only got its turn with the order on cooldown. Read bamboo-01 with that in mind.
+- KNOWN, junkwell-02 (pre-existing, both revisions in the sandbox): the pit-first toss can miss the pit and the bot picks the
+  stack back up; after two misses the build refuses "0 free slots" -- 5 misses in a row on one sandbox site 10-07 evening.
+- DO NOT deploy the round-6 cap shas 9e88176 / a12572d (a mutant survives there; the finals kill it).
+
+## 10-07 ~22:30Z — PEACEFULKIT-01 REVISED to the owner's 19:50Z decisions; REVIEWED (Claude + Codex APPROVE); NOT LAUNCHED
+`pk-on-c6e91a8` @ 6dc10d1 (registration docs/reports/peacefulkit-01.c6e91a8.json) and, for a fleet on towndeposit-02,
+`pk-on-92bc84f` @ f2c4ba0 (peacefulkit-01.92bc84f.json); both in ~/mcai-analysis/ too. Read scripts/host/peacefulkitread.py
+= ~/mcai-analysis = /tmp, md5 5d3714b6. SWORDS never banked (not even a spare) and never crafted or chased while on; a smelt
+ALREADY happening burns carried WOODEN swords first (one per item, only into a cold furnace, so the switch read at the put
+is the burn); stone swords stay in the bag; `unwantedSword(item, peacefulActive)` exported for junkwell-02. SAPLINGS:
+oak/birch keep 16, other species composted (their replanting stops by design). COMPOST + dried_kelp, glow_berries,
+moss_carpet, firefly_bush, bush, bread (each 64/64 on Paper; off when not peaceful). GUARD general: no compost trip when
+the real surplus after every reserve is zero. Six review rounds on the revision (both APPROVE); 97 mutants all killed; npm test green on both; the big catch (Claude r3, confirmed on
+real sandbox rows): mineflayer freezes bot.inventory while a window is open, so mid-job burn rows read as LOST (2 of 2)
+-- rows now written after the close, and the read keeps a 180 s burn credit. Paper sandbox3 (real bot): bank/compost/
+guard/craft/drop as designed; smelt 5/5 both wooden swords burned, coal untouched; an earlier call's sword in the fuel
+slot is taken back before any input (full bag: the job refuses, nothing dropped). Dry run (board-a,placebo-b, 6 h): every
+gate 0, every positive control fires (K1 125, K2 31, K3 19, K4 34, K5 37, K6 22, K7 65); licencecheck exit 0 (class
+kind, `_peaceful_kit` silent in baseline); drawexposure: both pools eligible. TEARDOWN NOTE: record the read's "left in
+the furnace" swords by bot (base code's drain would toss them from a full bag).
+
+## 10-07 22:25Z — GATE v33 INSTALLED (bag-fix death rule + version-aware changerowcheck); towndeposit-02 drawing
+Installed 22:12Z in the empty slot (launcher stopped by PID, dry run, install, relaunched): bundle
+ac3da3b64d3fa5e31be5678c33d84ac0, gatedigest OK, backups *.bak-v33-20261007T221224Z. Report:
+docs/reports/bagfix-death-rule-2026-10-07.md (main 8522797; both engines APPROVE; backtest: of 17 death-involved
+reverts only junkwell-01 would have extended). Bag fixes need "class": "bag-fix" + a bag_fix block and draw FOUR pools
+from the start (no mid-run widening). After a bag-fix KEEP the loop only launches "class": "underground-safety"
+(airpocket must declare it). towndeposit-02 runs as a normal canary (no class). 22:21Z preflight-ok with the new check
+("0 from other builds"), licence-ok, gatedigest-ok; draw waiting for two pools.
+OWNER (pending): accept four-pool draws for bag fixes (4-pool draws happened 6 of 21 times since 09-28 -> slower starts).
+
+## 10-07 22:10Z — GATE v33 (bag-fix death rule) BUILT + STAGED, NOT INSTALLED; changerowcheck baseline-only fix in it
+Built per the owner's 19:45Z decision: docs/reports/bagfix-death-rule-2026-10-07.md. SUBSTITUTION (needs owner nod):
+no mid-run widening (a 2nd deploy rewrites the one declared_at, restarts canary pools, rebuilds the tree under them)
+-- bag fixes are DRAWN AT 4 POOLS (20 bots) from the start; the loop waits for such a draw (6 of 21 draws since 09-28).
+VALUE MEASURE: net change in log-eq (junk/ballast/cobble>64 = 0, iron 10/ingot, tools at material cost, logs<=64,
+saplings<=16; transfers and in-transfer rows excluded); 24-h null p2.5 -3.21 log-eq/bot-h, iron -0.127 ingot/bot-h.
+TABLE (P(REVERT), k=1/1.5/2/3): rule as built 1.6/11.3/28.7/72.2% vs today 20-bot 4.3/15.3/34.8/73.2% -- a leniency
+rule by construction. BACKTEST: of 17 death-involved reverts today's gate trips on 2; only junkwell-01 would have
+EXTENDED (0/6 linked, LB 1.39); its 24-h outcome is unknown (torn down +308). chestfull-01 stands (no own rows; LB>2).
+Fail-closed additions listed in the report section 8. Reviews: Claude APPROVE (r5), Codex APPROVE (r6) after 6 rounds.
+STAGED on 10.0.0.31 in ~/bagfix-v33; dry run 22:00Z OK, predicted bundle digest ac3da3b64d3fa5e31be5678c33d84ac0.
+INSTALL (between canaries ONLY; the script refuses while any loop/chain/launch runs or a canary is declared):
+  ssh mike@10.0.0.31 'bash ~/bagfix-v33/install-bagfix-gate.sh --dry-run' then without --dry-run.
+At 22:00Z it WOULD REFUSE: ~/launch-td02.sh (towndeposit-02, 22:20Z) is waiting. After install, the changerowcheck
+fix stops the false refusal that hit towndeposit-02 at 19:46Z (40 town_deposit rows, all from towndeposit-01's build).
+Before the first bag fix: register it with "class":"bag-fix" + a bag_fix block, and dry-run its reads at +1440.
+
+## 10-07 19:50Z — OWNER APPROVED: adaptive death rule for bag fixes + airpocket; swords never stored; sapling/compost decided
+DEATH RULE (underground-safety-phase2 section 7, adaptive form): bag fixes run the normal 6 h canary; if the death gate
+trips with ZERO mechanism-linked deaths, extend to 24 h on 20 bots and decide by linked deaths beyond chance / deaths
+confidently > 2x control / value-weighted net output; no bag benefit or too little exposure -> INCONCLUSIVE; a KEEP hands
+the next slot to a safety fix. NOT LIVE until: value-weighted re-run, backtest on ~15 death reverts, tooling + gate digest
+re-registered, installed BETWEEN canaries (agent building; CLAUDE.md to be updated). Until then the two-death floor rules.
+AIRPOCKET (rank 1 safety, ~25-35% of drownings): being built (dig up inside the drowning rescue; damage envelope).
+SWORDS (owner): never stored -- no banking; wooden swords burn as fuel in smelts already happening; all swords to the well
+while peaceful (junkwell-02). SAPLINGS: oak/birch keep 16/bot, other species composted. COMPOST adds dried_kelp,
+glow_berries, moss_carpet, firefly_bush, bush, bread (peaceful only). Full-bag compost guard generalised. Codex text:
+pk2-codex (scratchpad) folded into the peacefulkit design by its agent.
+
+## 10-07 19:40Z — OWNER delegated "1 and 2" to operator + Codex: decided
+COBBLE CAP: build the 256-per-town ceiling INTO stonecap-01 before its canary (reconciled chest counts with deposit
+reservations; whole stacks only; bot keeps 64 reserve; at the ceiling, surplus whole stacks above the reserve go down the
+junk well if junkwell-02 is kept, else stay in the bag -- no new chest, no toss). BAMBOO AS A CRAFT REMEDY: a separate
+follow-up canary bamboocraft-01 after bamboo-01 is KEPT (bamboo-01 unchanged). Codex text:
+docs/reports/cobblecap-bamboocraft-decision-codex-2026-10-07.txt. Builder agent resumed on both.
+STILL OPEN (owner; defaults used meanwhile): sapling reserve 16 (default 16), bank spent swords (default no), extra
+compostables dried_kelp/glow_berries/moss_carpet/firefly_bush/bush/bread (default none), apple-only full-bag guard in
+peacefulkit (default in), the bag-fix death rule (safety agent finishing review).
 
 ## 10-03 22:56Z — FLEET 3edf1d6 (ore tunnel promoted 22:48Z); CANARY LIVE: craftsync-01 @ ba84fa6 on board-c,
 placebo-a (10 bots), declared 22:53:29Z; exactly two versions live (70 x 3edf1d6, 10 x ba84fa6) at 22:56Z.
@@ -199,6 +710,202 @@ resume, foreign lease, other skills around it, grow -> ordinary gather -> clear 
 the same farm: ctrl 15,16 logs vs cand 21,23 (no harm). Bone meal arm built, OFF by default (owner decision pending).
 Bags: 76/80 bots hold >= 6 farm saplings, 62/80 carry torches. Design + follow-ons (WORKSHOP, SAFE MINESHAFT, designed
 not built): docs/reports/blueprint-builder-design-2026-10-05.md.
+
+## 10-07 ~19:40Z — PEACEFULKIT-01 READY (not launched): pk-on-c6e91a8 @ da3e38d / pk-on-92bc84f @ 7ae5e0f
+The owner's 10-07 items (3) swords and (4) compost more, under foodskip's ONE switch (FOOD_SKIP auto|on|off; auto = the
+server's difficulty packet says peaceful). Design docs/reports/peacefulkit-design-2026-10-07.md (measurements, cited prior
+art, the Paper compost table, 5 review rounds, owner decisions); registrations docs/reports/peacefulkit-01.c6e91a8.json and
+peacefulkit-01.92bc84f.json (also in ~/mcai-analysis/); read scripts/host/peacefulkitread.py = ~/mcai-analysis = /tmp, md5
+22a14034 (`--selftest` runs at every read); mutants scripts/mutants/mutants-pk.py (39/39 JS + 20/20 read killed).
+- SWORDS: admission + the craft skill refuse a sword craft while active (remedy: craft a pickaxe/axe/shovel or gather), the
+  prompt stops offering one, the sweep never walks to a sword drop, a RUNNING deposit keeps no usable sword (spent never);
+  admission/advice/milestones/the town-deposit trigger keep the base count (no new trip); a sword-only full chest never
+  starts the recovery. COMPOST: 30 kit plants WHOLE (each consumed 64/64 by a real Paper 1.21.8-60 composter, RCON hopper
+  test; negatives 0); saplings > 16 and apples > 4 unchanged; dried_kelp/glow_berries/bush/firefly_bush/moss/bread NOT
+  approved; full bags get an order only when a fill can start (startableJunk at the composter's level -- also applies to
+  the food policy's apples while on); `_compost` rows carry args.items (+ `aborted` rows on interruption, args.incomplete).
+- PAPER (sandbox3, the real bot, server read-back): craft refused 2+2/2+2 (control crafts), easy crafts 2/2; deposit banks
+  both swords 2+2/2+2 keeping the better pickaxe (control keeps both), FOOD_SKIP=off and easy keep them; compost 2+2: all 69
+  kit items consumed, apples 10->4, saplings 20->16, bread/dried_kelp/sword kept (control: kit untouched); off/easy untouched;
+  sword drop never chased 5/5 (control chases it).
+- REVIEWS: Claude r1 APPROVE, r2 CHANGE (the read's clock: skill rows are stamped at START), r3/r4 APPROVE; Codex r1-r4
+  CHANGE (K2 ledger, truncated compost rows, exposure power, interrupted visits, unverified X2) -> r5 APPROVE; Codex rebase
+  confirmation of the 92bc84f variant APPROVE. Suite 237/237 (c6e91a8 line), 238/238 (92bc84f line).
+- DRY RUNS: every gate 0, every instrument fired on the control (6 h: tool crafts 126, bank-explained pickaxe falls 41,
+  bank rows emptying a name 91, reserve checks 45 ...), CALIBRATION 0, control sword ledger lost 0; licencecheck (kind
+  _peaceful_kit, baseline silent) and drawexposure (9 pools eligible) OK.
+- EXPOSURE is per BOT (swords are stock): joint P(X1 >= 3 and X2 >= 3) 0.35-0.94 at 6 h with 2 pools, 0.87 at 12 h, 0.99
+  at 24 h -> reads 180/360 + extension 540/720/1080/1440, deadline 1680 -> INCONCLUSIVE. DRAW >= 2 POOLS.
+- OWNER DECISIONS: sapling reserve (recommend keep 16: every holder has ONE stack per species, so no reserve > 0 frees a
+  slot); spent swords (never banked now; census found none); the unapproved compostables; accept startableJunk's apple
+  effect inside this canary; a 2+ pool draw.
+Queue position (18:00Z entry): after toolhygiene. Not deployed, nothing launched, no world edits outside the sandboxes.
+
+## 10-07 ~19:15Z — QUEUED (not launched): junkwell-02, gridfix-01, bamboo-01, stonecap-01 -- each with a c6e91a8 AND a 92bc84f variant
+Pick the variant by the fleet sha when its turn comes (92bc84f only if towndeposit-02 is KEPT and promoted). Registrations on
+main docs/reports/<run>.<base>.json and on the host ~/mcai-analysis/; reads in ~/mcai-analysis/ and /tmp/ (md5s below).
+- **junkwell-02**: jw-on-c6e91a8 @ 5a462a4 / jw-on-92bc84f @ d43b543. The 10-04 owner list + the owner's 10-07 decorations
+  (124 names: glass/panes/stained, wool, buttons, wooden+stone plates, rails, lead, brick(s), mossy/cracked/chiseled stone
+  bricks, polished andesite/diorite/granite, smooth_basalt, polished_tuff, tuff bricks, fences) + andesite/diorite/granite/
+  stone_bricks/mossy_cobblestone/smooth_stone only while the bag KEEPS 64 reserve stone (cobble, deepslate, raw andesite/
+  diorite/granite), judged at each click. Never: wooden slabs (composter recipe), trapdoors, beds, sandstone, calcite/tuff,
+  compostables (peacefulkit's). Codex CHANGE -> APPROVE (r2); Claude APPROVE-WITH-CHANGES x2 (applied). Paper sandbox3:
+  deco63/64/0 exactly as planned, 0 outside the shaft, non-listed untouched. Read wellread.py adds C7 (stone guard), mine
+  actions/bot DiD (BLIND when the control shows none; MINING SHIFT > +15) and deaths below y 60 by mechanism.
+  OPERATOR RULE: MINING SHIFT + a canary death below y 60 = read it by hand before any KEEP (junkwell-01's mechanism).
+- **gridfix-01**: gf-on-c6e91a8 @ 55dff5a / gf-on-92bc84f @ b54e452. NOT a mechanical rebase (withdraw's evolved click
+  machinery); Claude's probe found the grid fix's write-hook drop desyncing withdraw/town-deposit locksteps (12/20) -> fixed
+  (stopIssued before validate()). Codex APPROVE x2, Claude APPROVE (r2, probe 0/20). Paper: ctrl stranded on every mid-click
+  abort, cand 0/8 (int3 read unverified_skipped, bag conserved). POWER: aborted 2x2 exits ~0.5/h fleet-wide -> a 15-bot
+  draw is exposed by +360 only ~45% of the time, ~92% by +1560 (extensions); prefer 15-20 bots.
+- **bamboo-01** (after gridfix is KEPT): bb-on-55dff5a @ 6fb6fd9 / bb-on-b54e452 @ 786da4c. Claude APPROVE; Codex
+  APPROVE-WITH-CHANGES, its one P2 INHERITED from the 10-05 design (a room-blocked milestone craft wins the decision before
+  bamboo) -- OWNER/OPERATOR DECISION, not changed. Paper K20 abort 3/3 clean (was 46 bamboo stranded without the grid fix).
+- **stonecap-01 (the cobble rule, NEW)**: sc-on-c6e91a8 @ c238c3d / sc-on-92bc84f @ b2dee1a. Design
+  docs/reports/cobble-rule-design-2026-10-07.md (+ prior-art search). Whole cobble stacks only, smallest first, keep 64
+  cobble+deepslate; moved by mineflayer's own transfer() narrowed to the slot (no new click path); cobble never grows the
+  bank; depositDue false with nothing bankable; admission refuses an empty plan before the walk. The 256/town = the 10-04
+  clear's reserve, NOT a cap (owner's "no-ledger design"; both engines agree) -- a hard cap is an OWNER DECISION.
+  Reviews: Codex CHANGE -> APPROVE-WITH-CHANGES x2 -> APPROVE (r4); Claude APPROVE-WITH-CHANGES x2 -> APPROVE (r3). Paper: A [64,30] ->
+  the 30 banked, 64 kept in one slot (ctrl banked 64, kept 30); B [50] -> 0 cobble (ctrl 42, to its old 8); C 14-room chest
+  -> nothing moved, no chest, no recovery (ctrl part-filled +14). Craftsync's recount after real transfers says src=skipped,
+  so C1 judges the client bag (it matched the server in every trial).
+- towndeposit.test TOWN MEMORY is FLAKY on the unmodified 92bc84f (3/8): same-millisecond precondition; fixed test-only on
+  the 92bc84f variants. towndeposit-02 itself is unaffected (the code is right).
+- Sandbox harnesses added to main: sandbox/well/well-e2e.cjs (deco63/64/0 scenes), sandbox/craft/cobble-ab.cjs.
+- Reads on the host (/tmp = ~/mcai-analysis = repo): wellread.py f5ff8d45 (old one kept as .bak-20261007T1950Z), stonecapread.py
+  549372b1, gridfixread.py eac8d6da and bambooread.py 1aeb644a unchanged. Each dry-ran 10-07 with CANARY_DRYRUN.
+  Mutant driver: scripts/mutants/mutants-canaries-1007.py (gridfix 1/1, cobble 10/10 killed).
+
+## 10-07 18:00Z — BAG CENSUS + OWNER: "i want all of those things done and queued" (six bag fixes)
+Census 17:00Z (scripts/host/bagcensus.py, bagcost.py; slots = ceil(count/stack)): 2,752 of 2,880 slots used (96%), median
+35/36, 37 bots full. Unneeded in peaceful (~15 slots/bot): owner junk ~375 slots, decorations ~300, food ~200, swords 123
+(all ~100% durability), stone pickaxes 250 (148 at <= 10% left; 211 crafted today vs 13 iron), bamboo 104. Items gained
+per bot-h by fullness since 13:00Z: <=30 slots 106.9 (32.1 bot-h), 31-33 97.9 (50.9), 34-36 58.2 (228.6) -- correlational.
+Rows naming a full bag in 4 h: craft 600, _ore_tunnel 149, gather 149.
+APPROVED + being built (3 agents, own worktrees, both engines, sandbox-proven, dual variants c6e91a8/92bc84f):
+toolhygiene (no redundant tool/station crafts; most-worn usable pickaxe for low-tier blocks), peacefulkit (swords under
+the peaceful switch: no craft/chase, banked; composter takes melon/kelp/mushrooms/seeds/flowers/leaf litter/surplus
+saplings), junkwell-02 (owner junk + decorations), gridfix -> bamboo rebases, cobble rule (256/town).
+QUEUE: towndeposit-02 (>= 19:45Z) -> withdraw2 -> toolhygiene -> peacefulkit -> junkwell-02 -> gridfix -> bamboo ->
+cobble -> treefarm. Plus the restart-contamination preflight (Codex) before the next launch that needs it.
+RISK NOTED: emptier bags send bots back to mining (junkwell-01's revert mechanism); reads must report mine actions/bot and
+underground deaths by mechanism.
+
+## 10-07 17:30Z — TOWNDEPOSIT-01 REVERTED (+180, guard v11 climbs +239%); towndeposit-02 = identical re-run, launches >= 19:45Z
+Feature gates at +180 all 0 breaches; 12/20 full-bag town stays served; slots/bot DiD -0.57, share>=34 DiD -0.087; deaths
+1 (0.033/bh) vs control 0.047/bh. The trip: climb firings (_entombed+_marooned)/bot-h canary 3.2 -> 7.8, control 11.0 -> 7.9.
+The pre window (10:06-13:06Z) held the outage (to 11:53Z) and the fleet promotion restart (12:00-12:12Z): canary pre 11.6
+of 30 nominal bot-h. Clean 9 h pre (10-06 20:00-05:00Z, scripts/host/tdclimbs.py): canary 6.51/bh, control 8.01; post 7.77
+vs 7.99 -> ratio-DiD +19%. Spread over all 10 bots (8-42 each); 61/233 within 10 min of the same bot's _town_deposit row
+(proximity, not causation). RECORDED AS: baseline compromised by outage/restart; feature effect UNRESOLVED (Codex wording,
+docs/reports/towndeposit-01-revert-codex.txt). Torn down 16:15Z, pools on c6e91a8.
+towndeposit-02: same sha 92bc84f, same reads and gates, no trip waived (registration docs/reports/towndeposit-02.c6e91a8.json).
+~/launch-td02.sh (pid on host) waits until 19:45Z so the 3 h pre window is clear of the 16:15Z teardown restarts in the
+control too, refuses if a canary is declared or the fleet is not c6e91a8, then runs canary-loop.
+Teardown noise: the restart step globbed stale /var/log/mcai/board-b-Charlie and placebo-a-Charlie dirs (bots retired
+09-02) and tried to start units with no env file -> 2 "failed" units, reset-failed; 80/80 real bots running.
+QUEUED (Codex): a preflight refusing a deploy whose 3 h pre window has < 80% of nominal bot-h in canary OR control, or
+contains a fleet/pool restart; build + review before towndeposit-02's successors rely on it. Then withdraw2.
+
+## 10-07 13:10Z — CANARY LIVE: towndeposit-01 @ 92bc84f (td-on-c6e91a8) on board-b,placebo-a (10 bots), declared 13:06:18Z
+Two versions live (92bc84f x10, c6e91a8 rest). Reads ~16:06Z (+180) and ~19:06Z (+360). Next in the queue: withdraw2
+(rebase wd2-on-c902d6f onto the then-fleet sha; check iron retention vs towndeposit), then gridfix, bamboo, junk well,
+cobble rule, treefarm.
+
+## 10-07 12:25Z — FOODSKIP-01 KEPT (scoped, amendment 1) and PROMOTED: FLEET c6e91a8 (12:12Z, all live bots verified). towndeposit-01 drawing.
+SECOND POWER OUTAGE: fleet host 10.0.0.31 + world host 10.0.0.30 down 05:01:47Z -> 11:53Z (6h51m). Studio and mini stayed up.
+Came back on their own: 16 worlds, 80 bots, sandboxes 2-4, canary-loop (cron at 12:00). Restored by hand: /tmp read
+scripts (cp from ~/mcai-analysis), mcai-mayor-shadow (systemd-run as mike, same flags), block2-sandbox (sandbox 1, disabled
+at boot), chain-after. +360 read ran late (12:02Z; window 01:10-07:10Z includes ~2 h of outage; 72.8 canary bot-h).
++360: KEEP. LIVENESS 17 rows/control 0; F1 0; F2 UNPOWERED (control sought 2, canary 0); A1-A3 0; 693 apples composted in
+16 visits (~65 bone meal); instrument 25; deaths canary 1 (0.014/bh) vs control 6 (0.027/bh); slots DiD +0.48, share>=34 DiD
++0.086 (inside the 10-05 no-change noise band), gather success DiD +0.028. LABEL: apple composting + mode switch supported on
+the fleet; food-chase suppression UNVALIDATED on the fleet (unit tests only). Follow-up sandbox A/B still owed.
+Fleet bot code c6e91a8 MERGED TO MAIN 10-07 (c259a9e, owner asked): main's bots/ had lagged since idlegap (bf296c9);
+merged bots/src == deployed c6e91a8 except one lint comment in reflex.mjs; npm test 237/237. From now on, merge each
+promoted canary sha into main at promotion so main stays equal to the fleet.
+towndeposit-01: chain-after STOPPED ("already registered": the stalled c902d6f registration). Moved aside
+(registrations/towndeposit-01.json.c902d6f-stalled-20261007), re-registered from towndeposit-01.c6e91a8.json (td-on-c6e91a8
+@ 92bc84f), loop relaunched 12:22Z: preflight/licence/gatedigest OK, draw waiting. Expect the draw this afternoon: its 6 h
+exposure window (>= 8 compost rows/pool) still contains the outage, and foodskip's pools are in the 12 h exclusion.
+MODEL BENCH: fixtures done 04:09Z. C2 smoke "FAIL" at 05:06Z was mostly the outage (check ran with the fleet host down).
+Re-run 12:10Z on real data: overseer side works (mayor_spawn 1, overseer_call 5, directive_sent 15, escalation_call 8,
+2047 bot rows) but the bots logged NO requested/dispatched directive rows -- a real gap; the det arm is void (outage).
+Model agent resumed to debug on sandbox4 and re-run the smoke. C2 series not started.
+
+## 10-07 05:10Z — foodskip-01 +180 NOT_YET (exposure 0); AMENDMENT 1 registered before +360 (Codex APPROVE-WITH-CHANGES)
++180 (04:15Z): LIVENESS 16 active=1 rows, control 0; F1 0; A1/A2/A3 0 (627 apples composted in 14 visits; instrument 19
+control visits holding > 4 apples); deaths canary 1 vs control 3 (0.022/bh both); gather success DiD +0.025. Exposure 0
+because F2_judged needs >= 20 control sought apples and the control had 2 in 194.6 bot-h (0.01/bot-h vs 0.07 in the 10-05
+dry run): ~30 h to reach, past the 1680-min deadline, blocking towndeposit-01 (owner top priority) for ~22 h.
+AMENDMENT 1 (registration amendments[0], main docs/reports/foodskip-01.c902d6f.json == host registrations/foodskip-01.json;
+read d2684f1 on host /tmp + ~/mcai-analysis, .bak-amend1 kept): exposure drops F2_judged; F2 is a REVERT tripwire (canary
+sought >= 3 AND (control 0 OR ratio > 0.25)); status printed TRIPPED/JUDGED/UNPOWERED. A KEEP under it is LABELLED
+"apple composting + mode switch supported; food-chase suppression UNVALIDATED on the fleet (unit tests only)" -- not a
+pass of the original gate. Residual risk if the chase half does nothing = base behaviour. OWNER: accept or not.
+Follow-up registered: sandbox apple-drop A/B with a log-drop positive control (does not block towndeposit). Codex text:
+docs/reports/foodskip-01-amend1-codex.txt. Expected: +360 (~07:11Z) can KEEP -> towndeposit-01 chain fires.
+
+## 10-07 01:14Z — CANARY LIVE: foodskip-01 @ c6e91a8 on board-d,hive-c,placebo-b (15 bots), declared 01:10:52Z; two versions
+confirmed (65 c902d6f, 15 c6e91a8). Reads ~04:11Z / ~07:11Z. towndeposit-01 next (td-on-c6e91a8 being gated).
+
+## 10-07 01:15Z — ORDER SWAP: towndeposit-01's draw stalled (only placebo-b passed draw_exposure after the outage; five pools in
+12 h exclusion) -> its loop stopped by the operator (journalled), foodskip-01 (c902d6f variant, draws 4 pools now) launched
+first; towndeposit re-chains after it (needs a rebase onto fs c6e91a8). Lesson: `pkill -f` from an ssh command line kills
+the ssh session itself (memory pgrep-f-matches-itself) and an orphaned `sleep 1200` child keeps the flock on
+/tmp/mcai-canary.lock -- kill loops by PID and kill their children. MODEL C1 (3 blocks, 8 bots, 70 min): gemma4:26b halves
+stuck time (35.0 -> 14.9 min/bot, 9/9 pairs), stone pickaxe 2.3 -> 4.0 of 8; team output inconclusive (2.95x/0.59x/0.96x);
+gemma-Ollama 4 deaths vs 0 (watch); co-load fine on the cleared Studio (gemma LMS 8-bit + gpt-oss Ollama: 2.7 s / 29 s);
+blind round 2: 8-bit good, 4-bit worse. OWNER APPROVED C2 (bench-only overseer/stuck hook, never deployed). Persistent
+Studio tunnel on the mini (launchd com.mbench.tunnel).
+
+## 10-06 ~23:30Z — WITHDRAW2 READY (not chained): wd2-on-c902d6f @ c4e9c47, Codex APPROVE (round 7), 49/49 mutants; registration
+withdraw2-01.c902d6f.json on main 2df5fc4 (read + reg on the host in /tmp and ~/mcai-analysis). Paper: best tier taken 2/2
+where the control took wooden; iron pickaxe crafted from exactly 3 ingots + 2 sticks, server-confirmed 4/4; full-bag
+trade conserved. Live confirmation of the problem: control withdrawals in 3 h were wooden 8, stone 4, iron 1. Queue:
+after towndeposit + foodskip (rebase + check iron retention vs towndeposit's at that point). Mutant drivers now kept in
+scripts/mutants/ (the scratchpad copies were lost once).
+
+## 10-06 23:00Z — towndeposit-01 CHAINED (22:13Z) but its DRAW was crashing: drawrec.sh runs /tmp/poolrank2.py, which existed
+ONLY in /tmp (never committed) and was wiped by the outage reboot. RECONSTRUCTED as scripts/host/poolrank2.py from
+halfdid.py's documented exact reproduction (120-min window, declared_code_version filter, -d pools = 3090 half); installed
+to /tmp and ~/mcai-analysis. The draw now runs: only placebo-b passes draw_exposure (>= 8 compost rows in 6 h -- the outage
+gap thins the window) and five pools are inside their 12 h post-canary exclusion; the loop redraws every 20 min and will
+deploy when two qualify. foodskip-01 CHAINED after it (variants 56aa04a / c902d6f). Other /tmp-only scripts referenced by
+host tooling: quickstatus.py, modelshare.py, cooldid4.py (nightwatch/halfdid) -- check before relying on them.
+
+## 10-06 21:40Z — CLIMBFLOOD-02 KEPT (+360; deaths 0/63.7 bot-h vs 9/191) and PROMOTED: FLEET c902d6f (21:01Z), 80/80 live.
+withdraw live 6 h: 15 orders, 14 ok, 13 pickaxes out (7 wooden). Scoreboard 11:19-21:19Z (incl. the outage): no usable
+pickaxe 18 -> 8, trip pickaxes 32 -> 41. Iron pickaxes: 69 crafted / 72 h, 31 of 80 hold one; 105 of 137 failed crafts
+were short iron_ingot while the banks held ~806. OWNER: build `withdraw2` (best-first pickaxe selection + take 3 ingots
++ 2 sticks and craft an iron pickaxe at town) -- queued after towndeposit and foodskip. Slot is FREE now; towndeposit
+(round-3 checks) launches next.
+
+## 10-06 20:25Z — POWER OUTAGE (owner's UPS failed): fleet host 10.0.0.31 and world host 10.0.0.30 down 17:07-19:50Z (2h43m;
+the host came back on kernel 6.8.0-142), Mac mini rebooted ~20:06Z, Studio unaffected (up 32 days). Recovery checked:
+80/80 mcbot units active, canary pools on c902d6f, LLM decisions flowing (10.0.0.72 fine), filebeat up, 16 worlds + sandboxes
+up. FIXED BY HAND: (1) /tmp on 10.0.0.31 lost the read scripts -> climbflood-02's loop exited "reads-missing"; restored
+immobiledid.py (main e8cd891) and every queued read (towndeposit, foodskip, gridfix, bamboo, treefarm, well, withdraw,
+chest) to /tmp AND ~/mcai-analysis/ (canarywatch's HEAL looks there); relaunched the loop 20:14Z (resumed, no
+redeploy) -> +180 read done: NOT_YET, deaths 0 vs 6, exposure 167/100. (2) shadow mayor recorder (transient unit) was
+gone: restarted 20:18Z as uid mike (mcbot cannot traverse /home/mike). (3) sandbox 1 (block2-sandbox, :25599) is DISABLED
+at boot: started by hand. (4) the model benchmark's C1 runner + SSH tunnel on the mini died; agent resuming with a
+reboot-proof tunnel. Agents interrupted by a network failure were resumed. FOLLOW-UPS for the owner: make the mayor a
+persistent unit; enable block2-sandbox at boot; keep read scripts out of /tmp (tmpfs) -- the loop deliberately refuses
+to auto-copy.
+
+## 10-06 ~17:05Z — OWNER: the M4 Studio is cleared of other projects; unload unused models freely. Verified: LCIA keepwarm +
+llmcache gone (com.lcia.ollama-env remains: NUM_PARALLEL=4, KEEP_ALIVE=30m). PAUSED this project's tier-1 shadow
+analyst cron on 10.0.0.31 (~/analyst.py at :03/:33 calling qwen3.8:27b on the Studio) for the model benchmark --
+crontab line prefixed `#PAUSED-20261006-model-bench#`, backup ~/crontab.bak-20261006-analyst. RESTORE when the
+benchmark ends (or point it at a non-Studio endpoint).
+
+## 10-06 16:50Z — WITHDRAW-01 KEPT at +540 (14:29Z; exposure reached 6 orders) and PROMOTED: FLEET b54e22c (14:39Z). G1-G4 0;
+bot-time without a usable pickaxe canary 12.6% -> 3.7% vs control 18.4% -> 20.5% (DiD -11 points); deaths 3/90 bot-h vs
+16/450 (0.94x). CANARY LIVE: climbflood-02 @ c902d6f on board-a,board-c,hive-a (15 bots) since 14:44:21Z; two versions
+confirmed (65 b54e22c, 15 c902d6f); reads ~17:44Z / ~20:44Z. NEXT: towndeposit (variants b54e22c / c902d6f being built),
+then foodskip+apples. Still to build: the "go home to restock" ladder step (pickaxe-less bots away from town).
 
 ## 10-06 09:16Z — climbflood-02 READY and CHAINED after withdraw-01 (variants 47110e8 -> cf2 6ca31e9, b54e22c -> c902d6f;
 main 3dd0b75). Root causes of climbflood-01's 3 rows, each reproduced on Paper with the old build: ice melts to water
