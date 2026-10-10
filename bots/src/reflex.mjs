@@ -44,7 +44,7 @@ import { PRIORITY } from './arbiter.mjs'
 import { survivalRelease } from './withdrawpick.mjs'
 import { airPocketPlan, airPocketAdmit, airPocketTrigger, airPocketStep, airPocketRow, airPocketInputs, airPocketAfter,
          airPocketPreempt, AP_WANT_LAPSE_MS,
-         AP_REFUSE_COOLDOWN_MS, standCandidates, poseEye, planBaseY, routeUpBlocked, airPocketTools, boxCollides, standsOn } from './airpocket.mjs'
+         AP_REFUSE_COOLDOWN_MS, standCandidates, planBaseY, routeUpBlocked, airPocketTools, standsOn, botPose, setPoseEye } from './airpocket.mjs'
 import pathfinderPkg from 'mineflayer-pathfinder'
 const pkgGoals = pathfinderPkg?.goals
 
@@ -1369,7 +1369,7 @@ export function startReflexes(bot, runner, lessons = null, worldFacts = null) {
     const fx = Math.floor(at.x), fz = Math.floor(at.z)
     // THE POSE-AWARE BASE (airpocket-02): a bot squeezed under a ceiling is crouching or swimming, its eye low; the plan's
     // "head" is the eye's cell (planBaseY), not the cell over the feet
-    const pe = poseEye({ y: at.y, collides: (y0, y1) => boxCollides({ px: at.x, pz: at.z, y0, y1, blockAt: v => bot.blockAt(v), Vec3 }) })
+    const pe = botPose(bot, Vec3)   // the server's pose when it said, else the collision model
     const fy = planBaseY({ y: at.y, pose: pe.pose, eyeY: pe.eyeY })
     const feetSupport = pe.pose === 'stand' && standsOn({ y: at.y, block: bot.blockAt(new Vec3(fx, Math.floor(at.y), fz)) })
     const plan0 = airPocketPlan((dx, dy, dz) => bot.blockAt(new Vec3(fx + dx, fy + dy, fz + dz)), { pose: pe.pose, feetSupport })
@@ -1381,7 +1381,10 @@ export function startReflexes(bot, runner, lessons = null, worldFacts = null) {
     // THE PRE-EMPT PRICES THE WORST CASE (Paper sandbox e142b8f H): a bot momentarily on the ground priced the 2.85-s
     // standing dig, the pre-empt fired, and half a second later the floating price was refused. Floating + in water is
     // the slowest the step can face, so a pre-empt admitted on it is never followed by a budget refusal.
+    // priced with the POSE's eye (setPoseEye; Claude r1 P1): a swimming bot's eye is in water though the 1.62 eye is not
+    const eyeBack = setPoseEye(bot, pe.pose)
     const env = worstCase ? { ...digEnv(bot), inWater: true, notOnGround: true } : digEnv(bot)
+    eyeBack()
     const items = airPocketTools(bot.inventory?.items?.() ?? [])   // the step's own candidates (toolhygiene composition)
     let fastest = null
     for (const item of [null, ...items]) {
@@ -2274,7 +2277,7 @@ export function startReflexes(bot, runner, lessons = null, worldFacts = null) {
           let apRoute = route, apBlockedBy = null
           if (route.dir === 'up' && route.target) {
             const p = bot.entity.position, cx = Math.floor(p.x), cz = Math.floor(p.z)
-            const pe = poseEye({ y: p.y, collides: (y0, y1) => boxCollides({ px: p.x, pz: p.z, y0, y1, blockAt: v => bot.blockAt(v), Vec3 }) })
+            const pe = botPose(bot, Vec3)
             const ub = routeUpBlocked({ routeDir: route.dir, targetY: Math.floor(route.target.y), eyeCell: pe.eyeCell,
                                         cellAt: cy => bot.blockAt(new Vec3(cx, cy, cz)) })
             if (ub.blocked) {
