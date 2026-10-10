@@ -11,6 +11,12 @@ behind it (chain-ore.sh stopped 10-01 on fixes-02's revert)._
 
 ---
 
+## 10-10 02:10Z — CANARY LIVE: withdraw2-01 @ 2189de3 on board-a,hive-a,hive-d,board-c (20 bots), declared 01:57:23Z
+Reads ~04:57Z / ~07:57Z. Standing watch (journal phases + sched BLOCK) running. EARLY PREFLIGHT of the next item,
+toolhygiene-01, against the live baseline dbb4d78: variants dbb4d78 and 2189de3 -> changerowcheck "nothing declared",
+licencecheck class kind _tool_hygiene baseline 0 (OK); bag-fix own_kinds (_redundant_craft, _craft_admit, _worn_first)
+silent on the baseline. Next gap: install ~/bagfix-regs (+ A' if approved by then), then `queue add` toolhygiene.
+
 ## 10-10 01:55Z — AIRPOCKET-01 KEPT (+720, 10-08 19:42Z) and PROMOTED (FLEET dbb4d78, 19:52Z); 30 h IDLE SLOT; withdraw2 drawing
 airpocket-01 KEEP: DiD psi 0.61x (LB 0.17) and matched 1.50x (LB 0.36), both held; deaths canary 4/121.3 bh vs control
 24/849.0; attempts 3 (1 success, 2 "opened" ice -- the swimming-pose trap; bot survived).
