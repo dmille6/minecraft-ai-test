@@ -1,15 +1,29 @@
 # STATE — the operator's state file (a fresh session starts from THIS, not from the handoff history)
-_updated 2026-10-02 20:20Z (see the EVENING section first); earlier stamp 06:10Z by the autonomous operator session (owner grant 10-02 04:45Z: 15-20 h on v1, iron first,
-both engines, reports every 4-6 h) — **CANARY LIVE: `fixes-03` on `8453c09`, pools hive-c, board-a, placebo-d,
-placebo-b (20 bots), declared 05:03:00Z.** Fleet baseline `bf296c9+9287fd` on the other 60. Exactly two versions live
-at 05:10Z. `canary-loop.sh fixes-03` (pid 1921117) does reads/verdict/record/promote/teardown. NOTHING is chained
-behind it (chain-ore.sh stopped 10-01 on fixes-02's revert)._
+_updated 2026-10-10 12:05Z by the daily operator session (10-10). **FLEET `4970c91`** (toolhygiene-01 KEEP +360,
+promoted 11:31Z, all live bots verified; includes airpocket-01 `dbb4d78`), merged to main as `b5dfa0d` (backup branch
+`main-pre-20261010` = the previous main `b4d70a0`). **CANARY: peacefulkit-01 @ `6f1921a`** launched by the scheduler
+11:35Z; preflight/licence/gatedigest/bag-fix OK; DRAW SHORT 11:39Z (bag fix needs 4 pools, band gave 3) -- see the
+10-10 12:05Z entry for whether it deployed. Queue: peacefulkit-01 (running) -> junkwell-02 (ready; variant 6f1921a ->
+0cdb1a8; NO 4970c91 variant, so a peacefulkit REVERT blocks junkwell and pages). The host does all waiting:
+`canary-sched.py` (cron */5) launches the queue head, `canary-loop.sh <run>` reads/records/promotes/tears down.
+AGENTS DOWN until ~10-12 11Z (weekly limit): no new builds before then._
 
 > **THIS FILE ALSO EXISTS ON `main`.** `bots/test/nothing-important-is-orphaned.test.mjs` asserts it stays there.
 > If the two copies disagree, take the later `_updated` stamp. Long history: `git show 40a09da:docs/reports/STATE.md`
 > (to 09-30 morning), `git show 6a18e70:docs/reports/STATE.md` (09-30 evening), `git show d67d840:docs/reports/STATE.md` (10-01).
 
 ---
+
+## 10-10 12:05Z — (daily operator session) peacefulkit-01 DRAW SHORT; analyst stale; a second operator is on main
+- peacefulkit-01 @ 6f1921a: preflight/licence/gatedigest/bagfix OK 11:37Z; draw-short 11:39Z (band hive-b,placebo-d,
+  placebo-b) and 12:00Z (band placebo-b,placebo-d); the loop retries every 20 min. Probable cause: the fleet-wide restart
+  at 11:31Z reset per-pool exposure -- NOT verified. Still short by evening -> look at drawrec's band.
+- NO junkwell-02 variant on 4970c91: a peacefulkit REVERT blocks junkwell and pages.
+- The local analyst's newest *.verdict.json is 20261006T1500 (none for 4 days).
+- Two operator sessions ran this morning: the daily session merged 4970c91 too, found b5dfa0d already on main, and
+  dropped its merge. Backup branch `main-pre-20261010` = b4d70a0 (main before the merge).
+- Operator tooling lesson: wait on journal `phase` parsed as JSON (verdict prose contains "KEEP" and "promotion" in its
+  NOT-evaluated list); bracket `pgrep -f` patterns; end Monitor pipes with awk fflush, never `| cut`.
 
 ## 10-10 11:45Z — TOOLHYGIENE-01 KEPT (+360) and PROMOTED: FLEET 4970c91 (11:31Z); merged to main; peacefulkit launching
 +360: breaches 0 (redundant admitted, unjustified refusal, unjustified worn, wanted refused); 55 refusals; pick_slots DiD
