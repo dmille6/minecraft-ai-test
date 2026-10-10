@@ -145,11 +145,15 @@ if [ "$(mf canary_code_version)" != "$SHA" ]; then
           [ "$(echo "$P" | tr ',' '\n' | grep -c .)" -lt "$BAGFIX_POOLS" ] && { journal draw-three "$P :: ${_DD#DRAW DEPLOY }"; page flag "bag fix $RUN deploys on THREE pools ($P): ${_DD#DRAW DEPLOY }"; };;
         "DRAW NONE "*)
           journal draw "${_DD#DRAW NONE } :: $(echo "$D" | tail -1 | cut -c1-160)"; P="";;
-        *)
+        "DRAW SHORT "*)
           journal draw-short "${_DD#DRAW SHORT } -- the band gave ${P:-nothing}; waiting 20 min"; P=""
           _SHORT=$(( ${_SHORT:-0} + 1 ))
           # bounded in attention, not in time: after 3 h of short draws the operator is told once
           [ "$_SHORT" -eq 9 ] && page flag "bag fix $RUN has waited 3 h for its draw (last band: $(echo "$D" | head -1 | cut -c1-160)); still waiting";;
+        *)
+          # an unreadable decision (crash, timeout, garbage, DRAW ERROR) is its OWN phase: it BREAKS the three-pool
+          # streak, because unknown time is not time blocked solely by the four-pool minimum (round 3, both)
+          journal draw-error "draw decision unreadable: $(echo "${_DD:-EMPTY}" | cut -c1-200) -- the band gave ${P:-nothing}; waiting 20 min"; P="";;
       esac
     fi
     [ -n "$P" ] && break; sleep 1200; done
@@ -360,7 +364,7 @@ if [ "$FINAL" = "REVERT" ] && [ -n "$BAGFIX" ] && [ -z "$EXT" ] && [ -n "$FROM" 
   XW=$(echo "$X" | awk '$1 == "BAGFIX" {print $2}')
   journal bagfix-check "${X:-EMPTY (bagfixgate crashed or timed out: $(tail -2 $H/digest/bagfix-err-$RUN.log 2>/dev/null | tr '\n' ' ' | cut -c1-200))}"
   if [ "$XW" = "EXTEND" ]; then
-    journal bagfix-extend "$X"; page verdict "BAG-FIX EXTENSION $RUN: the death gate tripped with 0 linked deaths; NOT reverted, read to +1440 under (a)/(b)/(c) :: $X"
+    journal bagfix-extend "$X"; page verdict "BAG-FIX EXTENSION $RUN: the death gate tripped with 0 linked deaths; NOT reverted, read to its extension window (+1440 at four pools, +1920 at three) under (a)/(b)/(c) :: $X"
     EXT=1; EXTFROM=$FROM; FINAL=""; FINALV=""; JUSTEXT=1
   else
     # the REVERT stands -- journalled as decided BEFORE acting, so a crash here resumes into ACT, not into reads

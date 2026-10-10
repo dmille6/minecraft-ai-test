@@ -18,6 +18,7 @@ WHAT IT CHANGES (nothing in the gate bundle; no digest re-registration):
 A registration a loop is ALREADY using (~/mcai-analysis/registrations/<run>.json) is never touched: the launch copies the
 variant in. Every replaced file is backed up (.bak-bfregs-<stamp>) and verified; a manifest records every md5.
 """
+import time
 import os, sys, json, glob, shutil, hashlib, subprocess, fcntl, atexit, datetime as dt
 DRY = '--dry-run' in sys.argv
 H = os.path.expanduser('~'); S = os.path.dirname(os.path.abspath(__file__))
@@ -48,12 +49,19 @@ else:
     if not os.path.exists(SCHED):
         # the scheduler's slot checks (unit freshness, closure of earlier runs) cannot be replaced here (round 3, Codex)
         die('%s is missing: the install-hold and its slot checks are required' % SCHED)
-    if True:
-        hr = subprocess.run([sys.executable, SCHED, 'install-hold', 'install-bagfix-regs', '30'], capture_output=True, text=True)
-        atexit.register(lambda: subprocess.run([sys.executable, SCHED, 'install-release'], capture_output=True))
-        if hr.returncode != 0:
-            die('canary-sched.py install-hold: the slot is not free: ' + (hr.stdout + hr.stderr).strip().replace('\n', ' | ')[:600])
-        print('  ' + hr.stdout.strip().splitlines()[-1][:200])
+    # OWNERSHIP (gate v35 round 3, Claude): canary-sched.py's install-hold overwrites any hold and its install-release
+    # deletes any hold, so an overlap with another installer could erase that installer's hold. holdtoken.py (staged
+    # beside this file) claims the hold AND runs the scheduler's own slot checks under ONE tick lock, refusing if any
+    # hold exists; the release is registered only after the claim succeeded and removes only this run's token.
+    HT = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'holdtoken.py')
+    if not os.path.exists(HT):
+        die('%s is missing (staged beside this installer)' % HT)
+    TOKEN = 'install-bagfix-regs:%d:%d' % (os.getpid(), time.time_ns())
+    hr = subprocess.run([sys.executable, HT, 'claim', TOKEN, '30'], capture_output=True, text=True)
+    if hr.returncode != 0:
+        die('install-hold not claimed: ' + (hr.stdout + hr.stderr).strip().replace('\n', ' | ')[:600])
+    atexit.register(lambda: subprocess.run([sys.executable, HT, 'release', TOKEN], capture_output=True))
+    print('  ' + hr.stdout.strip().splitlines()[-1][:200])
 # THE LOOP'S OWN LOCK, held from here to the end (round 1, both engines): a loop launched meanwhile exits 3 instead of
 # reading a half-installed set. A dry run only probes it.
 _lockfh = open('/tmp/mcai-canary.lock', 'a')

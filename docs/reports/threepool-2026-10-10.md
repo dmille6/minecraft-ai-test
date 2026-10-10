@@ -26,36 +26,45 @@ A pool is released at 6 h only when **all** of these hold:
    - it is at least 6 h old.
 
    A REVERT, an INCONCLUSIVE or an unpromoted KEEP keeps 12 h. A decision up to 10 min in the future (clock skew)
-   holds the pool.
-2. **The pool runs the promoted version, verified.**
-   - The fleet version (the manifest's `declared_code_version`) must be the promoted sha, or a later fleet deploy
-     declared after the decision.
-   - Every live bot of the pool must have at least 20 rows in the last 60 min, **all** on the fleet version. Any row
-     of another build means the restart lag has not cleared.
-3. **The carryover has cleared.**
-   - The measure is the pool's mean bag fill over the same hour: bagread's minimum-stack slots, averaged per bot and
-     then per pool.
-   - It must lie inside the range of the control pools' means. Control pools are those no decision touched in 12 h,
-     excluding isolated-*, placebo-c and a live canary.
-   - At least 4 control pools must be measured.
+   holds the pool. **The ledger is parsed strictly:** any malformed line, an unreadable ts, or a row naming no pool
+   releases **nothing**, because an unreadable row could be the REVERT that holds a pool (round 3, Codex).
+2. **The pool runs the promoted version, verified, on its whole membership.**
+   - Membership is the systemd unit list (`mcbot@<bot>.service`, `--all`), never log activity. A down bot holds its
+     pool rather than vanishing from it (round 3, Codex), and the retired `-Charlie` log dirs are not members.
+   - Every unit must be active and running.
+   - Every bot needs at least 20 rows in the last 60 min, with no unreadable file and no corrupt row. All of those rows
+     must be on the fleet version: the promoted sha, or a later fleet deploy declared after the decision.
+3. **The carryover has cleared and is not still moving.**
+   - Every bot must carry a bag reading in both halves of the hour.
+   - The pool's bag fill (bagread's minimum-stack slots, averaged per bot and then per pool) must lie inside the control
+     pools' min..max **for the hour, for each half, and for the change between halves**. A pool drifting down through
+     the band (36 → 28, averaging 32) fails on the change (round 3, Codex).
+   - Control pools are those no decision touched in 12 h, excluding isolated-*, placebo-c and a live canary. Each must
+     pass **the same** membership, version, row, corruption and two-halves checks as the candidate (round 3, Codex).
+   - At least 4 qualified controls are needed.
 
-Any unreadable ledger, journal, manifest or log file, and any shortfall in rows or control pools, releases nothing.
-drawsteady failing or not answering also releases nothing: 12 h, exactly as before.
+Anything unreadable releases nothing: the ledger, the manifest, the unit list or a log file. So does any shortfall in
+rows or qualified controls, and so does drawsteady failing or not answering. In every such case the exclusion is 12 h,
+exactly as before. Malformed **journal** lines are skipped: losing one can only lose a `promoted` row, which holds the
+pool.
 
-**Replay** (`scripts/host/drawsteady_replay.sh`, read-only, live ledger, journal and logs, the manifest as it was after
-each promotion):
+**Replay** (`scripts/host/drawsteady_replay.sh`, read-only, the live ledger, journal, logs and current unit list, with
+the manifest as it was after each promotion):
 
 | run | +5.5 h | +6.5 h | +8 h | +11 h |
 |---|---|---|---|---|
-| towndeposit-02 (placebo-b, board-c) | both held: < 6 h | both held: bag fill 35.4 and 34.6 vs control 30.6–34.5 (carryover) | placebo-b released; board-c held (35.0 vs ≤ 34.9) | board-c released; placebo-b held (35.2 vs ≤ 34.7) |
-| airpocket-01 (hive-d, placebo-a) | both held: < 6 h | both released: 5 bots each on dbb4d78 only, bag fill 33.8 and 34.0 inside 30.9–35.3 | both released | both released |
+| towndeposit-02 (placebo-b, board-c) | both held: < 6 h | both held: bag fill 35.4 and 34.7, above the controls' 30.6–34.5 | placebo-b released; board-c held (35.0 vs ≤ 34.9) | board-c released; placebo-b held (35.2 vs ≤ 34.7) |
+| airpocket-01 (hive-d, placebo-a) | both held: < 6 h | placebo-a released; hive-d held: change -0.47 vs the controls' -0.13..+1.16 | placebo-a released; hive-d held: change -0.45 vs -0.25..+0.49 | both released |
 
-The replay found one bug before anything shipped. Decisions made *after* the replay clock counted as held. A decision
-more than 10 min in the future now does not exist yet; a future decision closer than that holds the pool, at age 0.
+Notes on the replay:
+- In the towndeposit-02 replay, hive-d and placebo-a were running airpocket-01's canary build. As controls they were
+  correctly **not qualified** (restart lag), and 7 controls remained.
+- It found one bug before anything shipped. Decisions made *after* the replay clock counted as held. A decision more
+  than 10 min in the future now does not exist yet; a future decision closer than that holds the pool, at age 0.
+- **Limit:** the replay uses today's unit list. The `-Charlie` units that existed on 10-08 are not in it, so those
+  bots were outside the replay's membership.
 
-The carryover test is real. towndeposit-02's pools sat just above the control range for hours after promotion. The
-min–max band is strict near its edge, so a pool can come in and out of release between draws. That costs throughput,
-never safety.
+The tests are strict. A pool can move in and out of release between draws, which costs throughput and never safety.
 
 ## Fix (2): three pools after an hour blocked solely by the four-pool minimum
 
@@ -64,14 +73,16 @@ never safety.
 **The draw:**
 - **DEPLOY** at four or more distinct pools.
 - **DEPLOY** at exactly three when the run's own journal shows an unbroken streak of `draw-short` rows that began more
-  than 60 min ago (`three_pool_ok`). The streak breaks in three ways:
+  than 60 min ago (`three_pool_ok`). The streak breaks in four ways:
   - a `draw` row: the loop's start row, or a draw where the band gave fewer than two pools;
+  - a `draw-error` row: the decision could not be read (round 3, both engines);
   - a silence of more than 45 min between draw rows;
   - an unreadable timestamp.
 
   So blocking by the band itself never counts toward the hour. A loop restarted after an install starts a new hour.
-- **SHORT** at two (never two), or at three without the hour. A crash, a timeout or garbled output also reads as SHORT,
-  so the run keeps waiting. The draw is journalled as `draw-short`.
+- **SHORT** at two (never two), or at three without the hour. It is journalled as `draw-short`.
+- **Anything else** (a crash, a timeout, garbled output, or `DRAW ERROR`) is journalled as `draw-error`, and the run
+  keeps waiting. Unknown time never counts as time blocked solely by the four-pool minimum (round 3, both engines).
 - **NONE** below two. It is journalled as `draw`, which restarts the clock.
 
 A three-pool deploy is journalled as `draw-three` and paged.
@@ -92,6 +103,14 @@ A three-pool deploy is journalled as `draw-three` and paged.
 | **3 pools × 32 h (new): -4.09 / +0.24 / +4.16** | **-0.173** | 102 |
 | 3 pools × 24 h: -3.86 / +0.45 / +3.64 | -0.206 | 150 |
 | 4 pools × 32 h: -2.46 / +0.23 / +3.68 | -0.116 | 102 |
+
+**The bag metric's own edge at three pools** (round 3, Claude 2a):
+- A KEEP at the final read needs the fix's bag metric to move beyond its no-change band. The registered edges are the
+  4 pools × 24 h null.
+- A three-pool final uses `bag_fix.primary_by_pools["3"]` instead: the 3 pools × 32 h null under the fix's own draw
+  filter (`scripts/host/bagnull.py` with BAGNULL_K=3 BAGNULL_H=32, then bagbands.py).
+- **A three-pool final with no such edge registered cannot KEEP.** `bagfixrule.primary_spec` returns None, so the read
+  is INCONCLUSIVE. The four-pool edge is never applied to a three-pool read (tested).
 
 **Stated plainly:** (c) is less sensitive on three pools. The extra 8 h does not buy back the lost pool: four pools at
 32 h would give -2.46. The band is also noisy. With 102 overlapping draws, the 2.5th percentile is roughly the third-lowest

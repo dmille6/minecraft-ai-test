@@ -72,6 +72,18 @@ def pure(BR):
     c('three_pool_ok: no rows / only `draw` -> no', not ok([]) and not ok([J('draw', 100)]))
     c('three_pool_ok: an unreadable ts breaks the streak', not ok(S(100, 80) + [dict(J('draw-short', 60), ts='garbage'), J('draw-short', 40), J('draw-short', 20)]))
     c('three_pool_ok: other phases are ignored', ok(S(80, 60) + [J('preflight-ok', 50)] + [J('draw-short', 40), J('draw-short', 20)]))
+    c('three_pool_ok: a draw-error row (decision unreadable) breaks the streak -> no (round 3, both)',
+      not ok(S(100, 80, 60) + [J('draw-error', 40), J('draw-short', 20)]))
+    c('three_pool_ok: draw-error rows alone never make an hour', not ok([J('draw', 200)] + [J('draw-error', m) for m in (80, 60, 40, 20)]))
+    PR = {'read': 'r', 'field': 'f', 'op': '<=', 'value': -0.5}
+    reg = lambda **bf: {'bag_fix': dict({'primary': PR}, **bf)}
+    c('primary_spec: 4 pools -> the registered primary', BR.primary_spec(reg(), 4) == PR)
+    c('primary_spec: 3 pools with primary_by_pools["3"] -> same read/field/op, the 3-pool edge',
+      BR.primary_spec(reg(primary_by_pools={'3': {'value': -0.7}}), 3) == dict(PR, value=-0.7))
+    c('primary_spec: 3 pools without a 3-pool edge -> None (never the 4-pool edge)', BR.primary_spec(reg(), 3) is None)
+    c('primary_spec: a malformed 3-pool edge -> None', BR.primary_spec(reg(primary_by_pools={'3': {'value': 'x'}}), 3) is None
+      and BR.primary_spec(reg(primary_by_pools={'3': {'value': float('nan')}}), 3) is None and BR.primary_spec(reg(primary_by_pools=[1]), 3) is None)
+    c('primary_spec: 2 or 5 pools -> None', BR.primary_spec(reg(primary_by_pools={'3': {'value': -0.7}}), 2) is None and BR.primary_spec(reg(), 5) is None)
     dd = lambda p, rows: BR.draw_decision(p, rows, NOW)[0]
     long_ = S(80, 60, 40, 20)
     c('draw_decision: four pools -> DEPLOY with no history', dd('a,b,c,d', []) == 'DEPLOY')
@@ -87,11 +99,14 @@ def pure(BR):
 C3 = TB.POOLS_C[:3]
 
 
-def final_world_n(tmp, canary, E, minutes_in, skip_every=0, primary=-1.3, primary_minute=None):
+def final_world_n(tmp, canary, E, minutes_in, skip_every=0, primary=-1.3, primary_minute=None, edge3=-0.6):
     """PRE E + POST E of 2-min snapshots, as test_bagfix.final_world but for `canary` pools and window E. skip_every=k:
     canary POST bots idle on every k-th step (a loss of ~30/k log-eq per bot-h)."""
     w = TB.World(tmp, minutes_in)
     w.man['canary_pool'] = ','.join(canary); json.dump(w.man, open(os.path.join(w.d, 'man.json'), 'w'))
+    if edge3 is not None:       # the THREE-pool edge (bag_fix.primary_by_pools["3"]); None = only the 4-pool edge registered
+        w.reg['bag_fix']['primary_by_pools'] = {'3': {'value': edge3, 'source': 'fixture'}}
+        json.dump(w.reg, open(os.path.join(w.regs, TB.RUN + '.json'), 'w'))
     pre = w.decl - dt.timedelta(minutes=E); end = min(w.decl + dt.timedelta(minutes=E), w.now)
     cb = set(w.bots(canary))
     for b in w.bots(TB.POOLS_C + TB.POOLS_K):
@@ -133,6 +148,8 @@ def worlds(tmp):
                    'slow3': final_world_n(tmp, C3, 1920, 1980, skip_every=2),
                    'mild3': final_world_n(tmp, C3, 1920, 1980, skip_every=8),
                    'only1440': final_world_n(tmp, C3, 1920, 1980, primary_minute=1440),
+                   'noedge3': final_world_n(tmp, C3, 1920, 1980, edge3=None),
+                   'small3': final_world_n(tmp, C3, 1920, 1980, primary=-0.55),
                    'k2': final_world_n(tmp, TB.POOLS_C[:2], 1920, 1980),
                    'tr3': three_trip(tmp, C3), 'tr2': three_trip(tmp, TB.POOLS_C[:2]), 'tr4': TB.trip_world(tmp)}
     return _W[tmp]
@@ -171,7 +188,7 @@ def gate(gate_py, tmp):
     os.chmod(jr, 0)
     g = cli(jw, 'draw-decide', TB.RUN, 'board-a,board-b,hive-a')
     os.chmod(jr, 0o644)
-    c('draw-decide: an unreadable journal -> DRAW SHORT (fail closed), never DEPLOY', g.startswith('DRAW SHORT ') or os.geteuid() == 0, g)
+    c('draw-decide: an unreadable journal -> DRAW ERROR (never DEPLOY, never counted as blocked time)', g.startswith('DRAW ERROR ') or os.geteuid() == 0, g)
     jw.now = jw.now - dt.timedelta(minutes=19); jw.reset_journal()
     # ext-min
     c('ext-min: 4 pools -> EXTMIN 1440', cli(W['tr4'], 'ext-min', TB.RUN) == 'EXTMIN 1440', cli(W['tr4'], 'ext-min', TB.RUN))
@@ -205,6 +222,12 @@ def gate(gate_py, tmp):
     c('final at 3 pools, a mild loss inside the 3-pool null -> KEEP (the 4-pool band would REVERT it)', 'BAGFIX KEEP' in g, g)
     g = cli(W['only1440'], 'final', TB.RUN)
     c('final at 3 pools with only a +1440 bag metric -> INCONCLUSIVE (evidence must be at +1920)', 'BAGFIX INCONCLUSIVE' in g, g)
+    g = cli(W['noedge3'], 'final', TB.RUN)
+    c('final at 3 pools with ONLY the four-pool edge registered -> INCONCLUSIVE, never KEEP (round 3, Claude 2a)',
+      'BAGFIX INCONCLUSIVE' in g and 'primary_by_pools' in g, g)
+    g = cli(W['small3'], 'final', TB.RUN)
+    c('final at 3 pools: a bag move of -0.55 passes the 4-pool edge (-0.5) but not the 3-pool edge (-0.6) -> INCONCLUSIVE',
+      'BAGFIX INCONCLUSIVE' in g and 'did not move' in g, g)
     g = cli(W['k2'], 'final', TB.RUN)
     c('final at 2 pools -> REVERT (no calibrated window)', 'BAGFIX REVERT' in g and 'no calibrated' in g, g)
     return out
@@ -245,57 +268,105 @@ def steady_pure(DS):
     c('candidates: a decision 3 h in the future does not exist yet (replay) -> released', 'p1' in k, (k, h))
     k, h = ca([dict(L('KEEP', 'p1', 7), ts='bad')], [])
     c('candidates: an unreadable ts holds the pool', not k and 'p1' in h, (k, h))
+    # parse_ledger: strict (round 3, Codex P2)
+    good_line = json.dumps(L('KEEP', 'p1', 7))
+
+    def raises(lines):
+        try:
+            DS.parse_ledger(lines); return False
+        except Exception:
+            return True
+    c('parse_ledger: clean lines parse; blank lines are skipped', len(DS.parse_ledger([good_line, '', good_line])) == 2)
+    c('parse_ledger: a malformed line REFUSES (it could be the REVERT that holds a pool)', raises([good_line, '{"canary_pool": "p1", "decision": "REV']))
+    c('parse_ledger: a row with no ts, a row naming no pool, or a non-dict REFUSES',
+      raises([json.dumps(dict(L('REVERT', 'p1', 7), ts=None))]) and raises([json.dumps(dict(L('REVERT', '', 7)))]) and raises(['[1, 2]']))
+    # units
+    u = DS.parse_units('mcbot@p1-A.service loaded active running x\nmcbot@p1-B.service loaded inactive dead x\n'
+                       'mcbot@p1-C.service loaded failed failed x\njunk line\n')
+    c('parse_units: active/running only is up; inactive and failed are down', u == {'p1-A': True, 'p1-B': False, 'p1-C': False}, u)
+    # bot_stats halves
+    since = now - dt.timedelta(minutes=60)
+    rows = [(since + dt.timedelta(minutes=m), 'aaa1111+x', (s,)) for m, s in ((5, 36), (20, 34), (35, 30), (50, 28))]
+    bs = DS.bot_stats(rows, since)
+    c('bot_stats: hour mean 32, first half 35, second half 29', bs['m'] == 32 and bs['h1'] == 35 and bs['h2'] == 29 and bs['rows'] == 4, bs)
+    # qualify: the same test for candidate and control
+    B = lambda **kw: dict({'rows': 50, 'versions': {'aaa1111'}, 'bad': 0, 'corrupt': 0, 'm': 32.0, 'h1': 32.0, 'h2': 32.0}, **kw)
+    units = {'p1-%d' % i: True for i in range(5)}
+    good = {b: B() for b in units}
+    q = lambda stats=good, units=units, fv='aaa1111': DS.qualify(stats, units, fv)[0]
+    c('qualify: five units up, rows, one build, both halves read -> qualified', q() is not None and q()['d'] == 0)
+    c('qualify: a unit down -> not qualified (a down bot holds its pool)', q(units=dict(units, **{'p1-0': False})) is None)
+    c('qualify: a unit with NO log rows in the hour -> not qualified (never silently dropped)', q(stats=dict(good, **{'p1-0': None})) is None)
+    c('qualify: a log dir with no unit (retired) is not a member', q(stats=dict(good, **{'p1-9': B(versions={'old0000'})})) is not None)
+    c('qualify: one bot with an old-build row (restart lag) -> not qualified', q(stats=dict(good, **{'p1-0': B(versions={'aaa1111', 'old0000'})})) is None)
+    c('qualify: 5 rows -> not qualified', q(stats=dict(good, **{'p1-0': B(rows=5)})) is None)
+    c('qualify: an unreadable file or a corrupt row -> not qualified', q(stats=dict(good, **{'p1-0': B(bad=1)})) is None
+      and q(stats=dict(good, **{'p1-0': B(corrupt=3)})) is None)
+    c('qualify: a bot with no bag reading in one half -> not qualified', q(stats=dict(good, **{'p1-0': B(h2=None)})) is None)
+    c('qualify: no units / no fleet version -> not qualified', q(units={}) is None and q(fv='') is None)
+    # steady
     cand = ('x-01', 'aaa1111', now - dt.timedelta(hours=7))
-    good = {'b%d' % i: {'rows': 50, 'versions': {'aaa1111'}, 'mean_slots': 30.0 + i} for i in range(5)}
-    ctl = {'q1': 29.0, 'q2': 31.0, 'q3': 33.0, 'q4': 35.0}
-    st = lambda stats=good, ctl=ctl, fv='aaa1111', fd=None: DS.steady('p1', cand, stats, ctl, fv, fd)[0]
-    c('steady: all on the fleet version, bag 32 inside 29..35 -> 6 h', st())
+    S = lambda m=32.0, h1=32.0, h2=32.0: {'m': m, 'h1': h1, 'h2': h2, 'd': h2 - h1, 'bots': 5}
+    ctl = {'q1': S(29, 29.1, 28.9), 'q2': S(31, 30.9, 31.1), 'q3': S(33, 33.2, 32.8), 'q4': S(35, 34.8, 35.2)}
+    st = lambda summary=S(), ctl=ctl, fv='aaa1111', fd=None: DS.steady(cand, summary, ctl, fv, fd)[0]
+    c('steady: flat at 32, inside the controls on the hour, both halves and the change -> 6 h', st())
     c('steady: fleet on another version, no later deploy -> 12 h', not st(fv='zzz9999'))
-    zz = {b: dict(s, versions={'zzz9999'}) for b, s in good.items()}
-    c('steady: fleet on a LATER deploy (declared after the decision), the pool on it -> 6 h; declared before -> 12 h',
-      st(stats=zz, fv='zzz9999', fd=now - dt.timedelta(hours=1)) and not st(stats=zz, fv='zzz9999', fd=now - dt.timedelta(hours=8)))
-    bad = dict(good, b0=dict(good['b0'], versions={'aaa1111', 'old0000'}))
-    c('steady: one bot still wrote an old-build row in the hour (restart lag) -> 12 h', not st(stats=bad))
-    few = dict(good, b0=dict(good['b0'], rows=5))
-    c('steady: one bot with 5 rows in the hour -> 12 h', not st(stats=few))
-    hi = {b: dict(s, mean_slots=36.0) for b, s in good.items()}
-    c('steady: bag fill 36 above the control range -> 12 h (carryover)', not st(stats=hi))
-    lo = {b: dict(s, mean_slots=28.0) for b, s in good.items()}
-    c('steady: bag fill 28 below the control range -> 12 h', not st(stats=lo))
-    c('steady: three control pools -> 12 h', not st(ctl={'q1': 29.0, 'q2': 31.0, 'q3': 35.0}))
-    c('steady: control pools with no bag reading do not count', not st(ctl=dict(ctl, q4=None, q3=None)))
-    nob = {b: dict(s, mean_slots=None if b in ('b0', 'b1', 'b2') else s['mean_slots']) for b, s in good.items()}
-    c('steady: bag read on 2 bots only -> 12 h', not st(stats=nob))
-    c('steady: no live bot -> 12 h', not st(stats={}))
+    c('steady: fleet on a LATER deploy (declared after the decision) -> 6 h; declared before -> 12 h',
+      st(fv='zzz9999', fd=now - dt.timedelta(hours=1)) and not st(fv='zzz9999', fd=now - dt.timedelta(hours=8)))
+    c('steady: the pool did not qualify -> 12 h', not st(summary=None))
+    c('steady: hour mean 36 above the controls -> 12 h', not st(summary=S(36, 36, 36)))
+    c('steady: hour mean 28 below the controls -> 12 h', not st(summary=S(28, 28, 28)))
+    c('steady: DRIFTING DOWN through the band (33 -> 31, mean 32: every level inside) -> 12 h on the change (round 3, Codex)',
+      not st(summary=S(32, 33, 31)))
+    c('steady: three qualified controls -> 12 h', not st(ctl={k: ctl[k] for k in ('q1', 'q2', 'q3')}))
+    c('steady: unqualified controls (None) do not count', not st(ctl=dict(ctl, q3=None, q4=None)))
     c('steady: unreadable fleet version -> 12 h', not st(fv=''))
     return out
 
 
 def steady_cli(steady_py, tmp):
-    """drawsteady.py end to end on fixture files. Pools p-a (candidate) and five controls; every bot writes 40 rows in the
-    last hour carrying a bag."""
+    """drawsteady.py end to end on fixture files: a unit list, ledger, journal, manifest and logs. Pools pool-a (the
+    candidate) and five controls, 5 units each; every bot writes 40 rows in the last hour carrying a bag."""
     out = []
     c = lambda n, ok, d='': out.append((n, bool(ok), d))
     d = tempfile.mkdtemp(dir=tmp)
     shutil.copy(steady_py, os.path.join(d, 'drawsteady.py')); shutil.copy(BAGREAD, os.path.join(d, 'bagread.py'))
     now = dt.datetime.now(UTC).replace(microsecond=0)
+    NAMES = ('Alpha', 'Bravo', 'Comet', 'Delta', 'Echo')
 
-    def world(cand_slots=31, old_row=False, decision='KEEP', promoted=True, hours=7):
+    def world(cand=(31, 31), old_row=None, decision='KEEP', promoted=True, hours=7, down=None, nolog=None, corrupt=None,
+              ledger_extra=''):
         w = tempfile.mkdtemp(dir=d); logs = os.path.join(w, 'logs')
-        pools = {'pool-a': cand_slots, 'pool-b': 28, 'pool-c': 30, 'pool-d': 32, 'pool-e': 34, 'pool-f': 29}
-        for p, slots in pools.items():
-            for n in ('Alpha', 'Bravo', 'Comet', 'Delta', 'Echo'):
-                b = '%s-%s' % (p, n); os.makedirs(os.path.join(logs, b))
+        pools = {'pool-a': cand, 'pool-b': (28, 28.3), 'pool-c': (30, 29.8), 'pool-d': (32, 32.2), 'pool-e': (34, 33.8),
+                 'pool-f': (29, 29.1)}
+        units = []
+        for p, (s0, s1) in pools.items():
+            for n in NAMES:
+                b = '%s-%s' % (p, n)
+                units.append('mcbot@%s.service loaded %s x' % (b, 'inactive dead' if b == down else 'active running'))
+                if b == nolog:
+                    continue
+                os.makedirs(os.path.join(logs, b))
                 with open(os.path.join(logs, b, 'skill-x.jsonl'), 'w') as f:
                     for i in range(40):
                         tt = now - dt.timedelta(minutes=58 - i * 1.4)
-                        v = 'old0000+x' if (old_row and p == 'pool-a' and n == 'Bravo' and i == 3) else 'aaa1111+x'
+                        v = 'old0000+x' if (b == old_row and i == 3) else 'aaa1111+x'
+                        slots = round(s0 + (s1 - s0) * i / 39)
                         f.write(json.dumps({'@timestamp': tt.strftime('%Y-%m-%dT%H:%M:%S.000Z'), 'code': {'version': v},
                                             'bot': {'name': b, 'inventory': {'cobblestone': 64 * slots}},
                                             'skill': {'name': 'gather', 'duration_ms': 0}}) + '\n')
+                    if b == corrupt:
+                        f.write('{"@timestamp": "%s", "torn\n' % (now - dt.timedelta(minutes=10)).strftime('%Y-%m-%dT%H:%M:%S.000Z'))
+        # a RETIRED log dir with old-build rows and no unit (Charlie): never a member
+        b = 'pool-a-Charlie'; os.makedirs(os.path.join(logs, b))
+        with open(os.path.join(logs, b, 'skill-x.jsonl'), 'w') as f:
+            f.write(json.dumps({'@timestamp': (now - dt.timedelta(minutes=30)).strftime('%Y-%m-%dT%H:%M:%S.000Z'),
+                                'code': {'version': 'old0000+x'}, 'bot': {'name': b, 'inventory': {'dirt': 64}},
+                                'skill': {'name': 'gather', 'duration_ms': 0}}) + '\n')
+        open(os.path.join(w, 'units'), 'w').write('\n'.join(units) + '\n')
         dec = now - dt.timedelta(hours=hours)
         open(os.path.join(w, 'ledger'), 'w').write(json.dumps({'canary_sha': 'aaa1111', 'canary_pool': 'pool-a', 'decision': decision,
-                                                                'note': 'x-01: VERDICT %s' % decision, 'ts': dec.isoformat()}) + '\n')
+                                                                'note': 'x-01: VERDICT %s' % decision, 'ts': dec.isoformat()}) + '\n' + ledger_extra)
         open(os.path.join(w, 'journal'), 'w').write((json.dumps({'ts': (dec + dt.timedelta(minutes=10)).strftime('%Y-%m-%dT%H:%M:%SZ'),
                                                                  'run': 'x-01', 'phase': 'promoted', 'note': 'aaa1111 fleet-wide'}) + '\n') if promoted else '')
         json.dump({'declared_code_version': 'aaa1111', 'declared_at': (dec + dt.timedelta(minutes=1)).isoformat(), 'canary_pool': ''},
@@ -304,29 +375,50 @@ def steady_cli(steady_py, tmp):
 
     def run(w, **kw):
         env = dict(os.environ, STEADY_LEDGER=os.path.join(w, 'ledger'), STEADY_JOURNAL=os.path.join(w, 'journal'),
-                   STEADY_MANIFEST=os.path.join(w, 'man'), STEADY_LOGROOT=os.path.join(w, 'logs'), **kw)
+                   STEADY_MANIFEST=os.path.join(w, 'man'), STEADY_LOGROOT=os.path.join(w, 'logs'),
+                   STEADY_UNITS_FILE=os.path.join(w, 'units'), **kw)
         r = subprocess.run([sys.executable, os.path.join(d, 'drawsteady.py')], capture_output=True, text=True, env=env, timeout=300)
         rel = [l for l in r.stdout.splitlines() if l.startswith('STEADY RELEASE ')]
         return (rel[-1][len('STEADY RELEASE '):] if rel else 'NO_LINE'), r.stdout + r.stderr[-300:]
     g, o = run(world())
-    c('drawsteady CLI: KEEP+promoted 7 h ago, one build, bag 31 inside 28..34 -> releases pool-a', g == "['pool-a']", o)
-    g, o = run(world(cand_slots=40))
-    c('drawsteady CLI: bag 40 outside 28..34 -> releases nothing (carryover)', g == '[]' and 'carryover' in o, o)
-    g, o = run(world(old_row=True))
+    c('drawsteady CLI: KEEP+promoted 7 h ago, 5 units up, one build, bag 31 flat inside the controls -> releases pool-a '
+      '(the retired old-build Charlie dir is not a member)', g == "['pool-a']", o)
+    g, o = run(world(cand=(40, 40)))
+    c('drawsteady CLI: bag 40 above the controls -> releases nothing (carryover)', g == '[]' and 'carryover' in o, o)
+    g, o = run(world(cand=(34, 28)))
+    c('drawsteady CLI: bag drifting 34 -> 28 (mean 31, inside) -> releases nothing (change between halves)', g == '[]'
+      and 'change between halves' in o, o)
+    g, o = run(world(old_row='pool-a-Bravo'))
     c('drawsteady CLI: one old-build row in the hour -> releases nothing (restart lag)', g == '[]' and 'restart lag' in o, o)
+    g, o = run(world(down='pool-a-Delta'))
+    c('drawsteady CLI: a candidate unit DOWN -> releases nothing', g == '[]' and 'not active' in o, o)
+    g, o = run(world(nolog='pool-a-Delta'))
+    c('drawsteady CLI: a candidate unit with no logs in the hour -> releases nothing (never dropped)', g == '[]' and 'no log rows' in o, o)
+    g, o = run(world(corrupt='pool-a-Echo'))
+    c('drawsteady CLI: a corrupt row in a candidate bot\'s hour -> releases nothing', g == '[]' and 'corrupt' in o, o)
+    g, o = run(world(old_row='pool-b-Bravo'))
+    c('drawsteady CLI: a CONTROL with an old-build row is NOT QUALIFIED (4 others remain -> released)', g == "['pool-a']"
+      and 'control pool-b: NOT QUALIFIED' in o, o)
+    g, o = run(world(old_row='pool-b-Bravo', down='pool-c-Alpha'))
+    c('drawsteady CLI: two controls unqualified -> 3 qualified (< 4) -> releases nothing', g == '[]' and 'qualified control pools' in o, o)
     g, o = run(world(decision='REVERT'))
     c('drawsteady CLI: a REVERT -> releases nothing', g == '[]', o)
     g, o = run(world(promoted=False))
     c('drawsteady CLI: a KEEP never promoted -> releases nothing', g == '[]', o)
     g, o = run(world(hours=5))
     c('drawsteady CLI: 5 h ago -> releases nothing', g == '[]', o)
+    g, o = run(world(ledger_extra='{"canary_pool": "pool-a", "decision": "REV\n'))
+    c('drawsteady CLI: a malformed ledger line -> releases nothing', g == '[]' and 'malformed' in o, o)
     w = world(); os.remove(os.path.join(w, 'ledger'))
     g, o = run(w)
     c('drawsteady CLI: ledger unreadable -> RELEASE [] (fail closed)', g == '[]' and 'unreadable' in o, o)
-    w = world()      # a CONTROL bot's extra file is unreadable: its pool would still measure on the good file
-    open(os.path.join(w, 'logs', 'pool-b-Bravo', 'skill-y.jsonl.gz'), 'wb').write(b'not gzip')
+    w = world(); os.remove(os.path.join(w, 'units'))
     g, o = run(w)
-    c('drawsteady CLI: an unreadable log file (a control bot) -> RELEASE [] (fail closed)', g == '[]' and 'failed' in o, o)
+    c('drawsteady CLI: unit list unreadable -> RELEASE [] (fail closed)', g == '[]' and 'failed' in o, o)
+    w = world()
+    open(os.path.join(w, 'logs', 'pool-a-Bravo', 'skill-y.jsonl.gz'), 'wb').write(b'not gzip')
+    g, o = run(w)
+    c('drawsteady CLI: an unreadable log file in the candidate -> releases nothing', g == '[]', o)
     return out
 
 
@@ -344,7 +436,8 @@ _n=0
 _iso() { python3 -c "import datetime as d, sys; print(d.datetime.fromtimestamp(int(sys.argv[1]), d.timezone.utc).strftime('%Y-%m-%dT%H:%M:%SZ'))" "$(cat $CLK)"; }
 journal() { printf '{"ts":"%s","run":"%s","phase":"%s","note":"%s"}\n' "$(_iso)" "$RUN" "$1" "$(echo "$2" | tr -d '"\\' | cut -c1-200)" >> "$J"; }
 page() { echo "PAGE $1 $2" >> "$H/pages"; }
-sleep() { echo $(( $(cat $CLK) + $1 )) > $CLK; }
+_it=0
+sleep() { _it=$((_it + 1)); [ $_it -gt 40 ] && exit 0; echo $(( $(cat $CLK) + $1 )) > $CLK; }
 '''
 
 
@@ -356,7 +449,8 @@ def loop_block(loop_path, gate_py, tmp):
     if not shutil.which('timeout'):
         SKIP.append('the loop draw block runs `timeout` (coreutils): host only'); return out
 
-    def run(picks, bagfix='1', journal0=()):
+    def run(picks, bagfix='1', journal0=(), broken=False, broken_first=0, extra=()):
+        picks = list(picks) + list(extra)
         d = tempfile.mkdtemp(dir=tmp); h = os.path.join(d, 'h'); os.makedirs(os.path.join(h, 'mcai-analysis'))
         shutil.copy(gate_py, os.path.join(h, 'mcai-analysis', 'bagfixgate.py'))
         shutil.copy(os.path.join(os.path.dirname(gate_py), 'bagfixrule.py') if os.path.exists(os.path.join(os.path.dirname(gate_py), 'bagfixrule.py')) else RULE,
@@ -372,6 +466,17 @@ def loop_block(loop_path, gate_py, tmp):
         open(os.path.join(h, 'mcai-analysis', 'drawrec.sh'), 'w').write('head -1 %s; tail -n +2 %s > %s.t; mv %s.t %s\n' % (q, q, q, q, q))
         clk = os.path.join(d, 'clk'); open(clk, 'w').write(str(int(NOW.timestamp())))
         jr = os.path.join(d, 'journal'); open(jr, 'w').write(''.join(l + '\n' for l in journal0))
+        if broken or broken_first:
+            # the decision reader fails: every call (broken) or the first N calls (broken_first); then the real one
+            gp = os.path.join(h, 'mcai-analysis', 'bagfixgate.py')
+            os.rename(gp, gp + '.real')
+            open(gp, 'w').write('import os, sys, runpy\n'
+                                'n = os.path.join(os.path.dirname(os.path.abspath(__file__)), "calls")\n'
+                                'k = int(open(n).read()) if os.path.exists(n) else 0\n'
+                                'open(n, "w").write(str(k + 1))\n'
+                                'if %s or k < %d:\n    print("Traceback: boom"); sys.exit(1)\n'
+                                'sys.argv[0] = __file__ + ".real"\n'
+                                'runpy.run_path(sys.argv[0], run_name="__main__")\n' % (bool(broken), broken_first))
         script = os.path.join(d, 'blk.sh')
         open(script, 'w').write(HARNESS + 'journal draw "waiting for two pools"\n' + blk + 'echo "PICKED=$P"\n')
         env = dict(os.environ, BAGFIX_JOURNAL=jr, BAGFIX_NOW='@' + clk)
@@ -393,6 +498,12 @@ def loop_block(loop_path, gate_py, tmp):
     P, ph, pg, o = run(['a-x,b-x,c-x'] * 2 + ['-'] + ['a-x,b-x,c-x'] * 4 + ['a-x,b-x,c-x,d-x'])
     c('loop draw block: a band-empty draw restarts the clock (journalled `draw`), so 3 more short draws are not enough',
       P == 'a-x,b-x,c-x,d-x' and ph.count('draw') == 2 and 'draw-three' not in ph, (P, ph, o))
+    P, ph, pg, o = run(['a-x,b-x,c-x'] * 5, broken=True)
+    c('loop draw block: an unreadable decision journals draw-error, never draw-short, and never deploys',
+      P == 'NO_PICK' and 'draw-short' not in ph and ph.count('draw-error') >= 4 and 'draw-three' not in ph, (P, ph, o))
+    P, ph, pg, o = run(['a-x,b-x,c-x'] * 4, broken_first=4, extra=['a-x,b-x,c-x'] * 6)
+    c('loop draw block: after 4 unreadable decisions, the hour starts at the first real short draw (deploys on the 4th+ short)',
+      P == 'a-x,b-x,c-x' and ph.index('draw-three') - ph.index('draw-short') >= 4, (P, ph, o))
     P, ph, pg, o = run(['a-x,b-x,c-x', 'a-x,b-x,c-x,d-x'], bagfix='')
     c('loop draw block: an ordinary canary takes three pools at once (unchanged, no bag-fix rows)', P == 'a-x,b-x,c-x' and ph == ['draw'], (P, ph, o))
     old = [json.dumps({'ts': (NOW - dt.timedelta(minutes=m)).strftime('%Y-%m-%dT%H:%M:%SZ'), 'run': TB.RUN, 'phase': 'draw-short', 'note': ''})
@@ -429,7 +540,11 @@ def structural(loop_path, drawrec_path):
 
 MUTANTS = [
     ('bagfixrule.py', 'three pools at exactly 60 min', '    if blocked > THREE_POOL_AFTER_MIN:', '    if blocked >= THREE_POOL_AFTER_MIN:'),
-    ('bagfixrule.py', 'a `draw` row does not break the streak', "        if ph == 'draw' or t is None or", "        if t is None or"),
+    ('bagfixrule.py', 'a `draw` row does not break the streak', "        if ph in ('draw', 'draw-error') or t is None or", "        if ph == 'draw-error' or t is None or"),
+    ('bagfixrule.py', 'a draw-error row does not break the streak', "        if ph in ('draw', 'draw-error') or t is None or", "        if ph == 'draw' or t is None or"),
+    ('bagfixrule.py', 'a three-pool final uses the four-pool edge', "    if n == MIN_POOLS:\n        return p\n", "    if n in (3, MIN_POOLS):\n        return p\n"),
+    ('bagfixgate.py', 'primary spec ignores the pool count', "    spec = BR.primary_spec(reg, n)", "    spec = BR.primary_spec(reg, 4)"),
+    ('canary-loop.sh', 'an unreadable decision counts as short', '          journal draw-error "draw decision unreadable:', '          journal draw-short "draw decision unreadable:'),
     ('bagfixrule.py', 'silence inside the streak ignored', "or (last is not None and (t - last).total_seconds() > THREE_POOL_GAP_MIN * 60):", "or False:"),
     ('bagfixrule.py', 'stale last short draw ignored', "    if last is not None and (now - last).total_seconds() > THREE_POOL_GAP_MIN * 60:\n", "    if False:\n"),
     ('bagfixrule.py', 'two pools deploy', "    if n == 3:\n        ok, why = three_pool_ok(rows, now)", "    if n in (2, 3):\n        ok, why = three_pool_ok(rows, now)"),
@@ -442,7 +557,7 @@ MUTANTS = [
      "end = cut + dt.timedelta(minutes=BR.EXTEND_MIN); pre = cut - dt.timedelta(minutes=BR.EXTEND_MIN)"),
     ('bagfixgate.py', 'final evidence at +1440 always', "    moved, pwhy = primary_at_final(run, reg, man, E)", "    moved, pwhy = primary_at_final(run, reg, man, BR.EXTEND_MIN)"),
     ('bagfixgate.py', 'extend-check at any pool count', "    if E is None:\n        return emit(run, 'extend', M, 'REVERT'", "    if False:\n        return emit(run, 'extend', M, 'REVERT'"),
-    ('bagfixgate.py', 'draw-decide errors deploy', "        word, why = 'SHORT', 'draw decision failed", "        word, why = 'DEPLOY', 'draw decision failed"),
+    ('bagfixgate.py', 'draw-decide errors deploy', "        word, why = 'ERROR', 'draw decision failed", "        word, why = 'DEPLOY', 'draw decision failed"),
     ('bagfixgate.py', 'draw-decide counts other runs', "                if isinstance(r, dict) and r.get('run') == run:\n                    rows.append(r)\n            word", "                if isinstance(r, dict):\n                    rows.append(r)\n            word"),
     ('canary-loop.sh', 'any DRAW answer keeps the pick', '        "DRAW DEPLOY "*)\n', '        "DRAW "*)\n'),
     ('canary-loop.sh', 'a band-empty draw not journalled', '          journal draw "${_DD#DRAW NONE } :: ', '          true "${_DD#DRAW NONE } :: '),
@@ -457,12 +572,18 @@ MUTANTS = [
     ('drawsteady.py', 'a held pool can still be released', "    return {p: v for p, v in ok.items() if p not in held}, held", "    return ok, held"),
     ('drawsteady.py', 'clock skew ignored', "        if t > now + dt.timedelta(minutes=10):", "        if t > now:"),
     ('drawsteady.py', 'promotion before the decision accepted', "if s == sha and pt is not None and t <= pt <= now]", "if s == sha and pt is not None]"),
+    ('drawsteady.py', 'a malformed ledger row tolerated', "            raise ValueError('ledger line %d unusable' % (i + 1))", "            continue"),
+    ('drawsteady.py', 'down unit ignored', "        if not units[b]:", "        if False:"),
+    ('drawsteady.py', 'a member with no logs dropped', "        if s is None:\n            return None, '%s: no log rows", "        if s is None and False:\n            return None, '%s: no log rows"),
     ('drawsteady.py', 'restart lag ignored', "        if s['versions'] != {fv}:", "        if fv not in s['versions']:"),
     ('drawsteady.py', 'row floor ignored', "        if s['rows'] < MIN_ROWS:", "        if False:"),
-    ('drawsteady.py', 'carryover ignored', "    if not (lo <= pm <= hi):", "    if False:"),
-    ('drawsteady.py', 'too few control pools accepted', "    if len(cm) < MIN_CONTROL_POOLS:", "    if False:"),
+    ('drawsteady.py', 'unreadable or corrupt logs ignored', "        if s['bad'] or s['corrupt']:", "        if False:"),
+    ('drawsteady.py', 'a half without a bag reading accepted', "        if s['h1'] is None or s['h2'] is None:", "        if False:"),
+    ('drawsteady.py', 'carryover ignored', "        if not (lo <= summary[k] <= hi):", "        if False:"),
+    ('drawsteady.py', 'the change between halves not tested', "                    ('d', 'change between halves')):", "                    ):"),
+    ('drawsteady.py', 'too few control pools accepted', "    if len(cs) < MIN_CONTROL_POOLS:", "    if False:"),
     ('drawsteady.py', 'fleet version not checked', "    if fv != sha and not (fleet_declared_at is not None and fleet_declared_at >= decided):", "    if False:"),
-    ('drawsteady.py', 'unreadable logs ignored', "                if bad:\n                    raise OSError", "                if False:\n                    raise OSError"),
+    ('drawsteady.py', 'membership from log dirs', "            by_pool.setdefault(pool_of(b), {})[b] = active", "            by_pool.setdefault(pool_of(b), {})[b] = True"),
 ]
 
 

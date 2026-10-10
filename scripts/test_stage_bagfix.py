@@ -22,7 +22,7 @@ def cases(script):
     repo = tempfile.mkdtemp(prefix='stagetest-')
     os.makedirs(os.path.join(repo, 'docs', 'reports')); os.makedirs(os.path.join(repo, 'scripts', 'host'))
     shutil.copy(script, os.path.join(repo, 'scripts', 'host', 'stage-bagfix-regs.py'))
-    for f in ('bagread.py', 'install-bagfix-regs.py'):
+    for f in ('bagread.py', 'install-bagfix-regs.py', 'holdtoken.py'):
         open(os.path.join(repo, 'scripts', 'host', f), 'w').write('# %s\n' % f)
     reg = os.path.join(repo, 'docs', 'reports', 'gridfix-01.92bc84f.json')
     g(repo, 'init', '-q'); g(repo, 'config', 'user.email', 't@t'); g(repo, 'config', 'user.name', 't')

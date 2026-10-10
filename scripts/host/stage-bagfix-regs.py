@@ -36,7 +36,7 @@ for f in sorted(git('ls-tree', '--name-only', SHA, 'docs/reports/').split()):
             old = subprocess.run(['git', 'show', '%s:docs/reports/%s' % (sha, n)], cwd=WT, capture_output=True).stdout
             if old:
                 base.append('%s %s' % (n, hashlib.md5(old).hexdigest()))
-for f in ('scripts/host/bagread.py', 'scripts/host/install-bagfix-regs.py'):
+for f in ('scripts/host/bagread.py', 'scripts/host/install-bagfix-regs.py', 'scripts/host/holdtoken.py'):
     open(os.path.join(OUT, os.path.basename(f)), 'wb').write(show(f))
 open(os.path.join(OUT, 'BASE-MD5.txt'), 'w').write('\n'.join(base) + '\n')
 open(os.path.join(OUT, 'STAGED-FROM.txt'), 'w').write(SHA + '\n')

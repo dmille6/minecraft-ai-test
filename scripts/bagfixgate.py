@@ -361,12 +361,14 @@ def did(a, b, c, d, key):
     return (xs[0] - xs[1]) - (xs[2] - xs[3])
 
 
-def primary_at_final(run, reg, man, E):
+def primary_at_final(run, reg, man, E, n=None):
     """The registration's own bag metric from its read AT +1440 (run by the loop just before `final`), bound to this
     canary and fresh -- never a +360 file, never an unbound one. -> (moved True/False/None, why)."""
-    spec = (reg.get('bag_fix') or {}).get('primary') if isinstance(reg.get('bag_fix'), dict) else None
+    n = BR.n_pools(man) if n is None else n
+    spec = BR.primary_spec(reg, n)
     if not isinstance(spec, dict) or not spec.get('read'):
-        return None, 'no bag_fix.primary registered'
+        return None, ('no bag_fix.primary registered for %d pools (a three-pool final needs bag_fix.primary_by_pools["3"]: '
+                      'a four-pool edge is never applied to a three-pool read)' % n)
     p = os.path.join(READS, f"{run}-{spec['read']}-{E}.json")
     try:
         o = json.load(open(p))
@@ -445,7 +447,7 @@ def cmd_draw_decide(run, pools):
                     rows.append(r)
             word, why = BR.draw_decision(pools, rows, now())
     except Exception as e:
-        word, why = 'SHORT', 'draw decision failed (%s): waiting' % type(e).__name__
+        word, why = 'ERROR', 'draw decision failed (%s): waiting; this time never counts toward the three-pool hour' % type(e).__name__
     print('DRAW %s %s' % (word, why))
     return 0
 

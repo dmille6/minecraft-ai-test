@@ -299,16 +299,17 @@ def three_pool_ok(rows, now):
 
     The clock is the current streak of `draw-short` rows (a draw refused ONLY because it had fewer than four pools).
     The streak is broken by a `draw` row (a loop (re)start, or a draw where the band gave fewer than two pools -- the
-    loop journals those as `draw`, so blocking by the band itself never counts), and by a silence longer than
+    loop journals those as `draw`, so blocking by the band itself never counts), by a `draw-error` row (the draw
+    decision could not be read: unknown time never counts as blocked-by-the-minimum; round 3, both), and by a silence longer than
     THREE_POOL_GAP_MIN between consecutive draw rows. Three pools are allowed only when the streak began more than
     THREE_POOL_AFTER_MIN ago. Unreadable timestamps break the streak (fail closed)."""
     start = last = None
     for r in rows or []:
         ph = r.get('phase')
-        if ph not in ('draw', 'draw-short'):
+        if ph not in ('draw', 'draw-short', 'draw-error'):
             continue
         t = _jts(r)
-        if ph == 'draw' or t is None or (last is not None and (t - last).total_seconds() > THREE_POOL_GAP_MIN * 60):
+        if ph in ('draw', 'draw-error') or t is None or (last is not None and (t - last).total_seconds() > THREE_POOL_GAP_MIN * 60):
             start = None
         if ph == 'draw-short' and t is not None:
             start = start or t
@@ -590,9 +591,30 @@ def final(poll, exposure_bh, coverage, primary_moved, net_did, net_p025, iron_di
     if exposure_bh is None or exposure_bh < MIN_EXPOSURE_BH:
         return 'INCONCLUSIVE', 'exposure %s canary bot-h < %.0f' % (exposure_bh, MIN_EXPOSURE_BH)
     if primary_moved is not True:
-        return 'INCONCLUSIVE', 'the fix\'s own bag metric did not move beyond its null at +1440 (%r): no measurable benefit' % (primary_moved,)
+        return 'INCONCLUSIVE', 'the fix\'s own bag metric did not move beyond its null at the final read (%r): no measurable benefit' % (primary_moved,)
     return 'KEEP', ('no (a)/(b)/(c) in 24 h; net %+.2f >= %+.2f; iron %+.3f >= %+.3f; %.0f bot-h; bag metric moved. '
                     'NEXT SLOT -> %s fix' % (net_did, net_p025, iron_did, iron_p025, exposure_bh, NEXT_SLOT))
+
+
+def primary_spec(reg, n):
+    """PURE. The registered primary for a bag fix drawn at n pools (round 3, Claude 2a). Four pools: `bag_fix.primary`
+    as registered (its edge is the 4 x 24 h null). Three pools: the same read/field/op with the edge from
+    `bag_fix.primary_by_pools["3"].value`, the 3 x 32 h null under the fix's own draw filter (bagnull.py BAGNULL_K=3
+    BAGNULL_H=32). A missing or malformed three-pool edge is None, so the final cannot KEEP (INCONCLUSIVE): a 4 x 24
+    edge is never applied to a 3 x 32 read. Any other n is None."""
+    bf = reg.get('bag_fix') if isinstance(reg, dict) else None
+    p = bf.get('primary') if isinstance(bf, dict) else None
+    if not isinstance(p, dict) or not p.get('read'):
+        return None
+    if n == MIN_POOLS:
+        return p
+    if n == 3:
+        e = (bf.get('primary_by_pools') or {}).get('3') if isinstance(bf.get('primary_by_pools'), dict) else None
+        v = e.get('value') if isinstance(e, dict) else None
+        if not isinstance(v, (int, float)) or isinstance(v, bool) or not math.isfinite(v):
+            return None
+        return dict(p, value=v)
+    return None
 
 
 def primary_moved(fields, spec):

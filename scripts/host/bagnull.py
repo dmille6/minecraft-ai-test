@@ -21,6 +21,10 @@ import drawexposure as DE
 ROOT = '/var/log/mcai'
 REGDIR, OUT = sys.argv[1], sys.argv[2]
 PROCS = int(sys.argv[3]) if len(sys.argv) > 3 else 3
+# THREE-POOL BAG FIXES (10-10): BAGNULL_K pools x BAGNULL_H h POST vs the same PRE (defaults 4 x 24: the shipped edges).
+# BAGNULL_CUTS=<iso>[,<iso>] restricts the cuts (the positive control re-runs shipped cuts and must match them exactly).
+K = int(os.environ.get('BAGNULL_K', '4'))
+H = int(os.environ.get('BAGNULL_H', '24'))
 RUNS = ('toolhygiene-01', 'peacefulkit-01', 'junkwell-02', 'gridfix-01', 'stonecap-01')   # bamboo-01, bamboocraft-01: ordinary canaries (operator + Codex 10-08)
 FILTERS = {}
 for run in RUNS:
@@ -35,10 +39,10 @@ DRAWABLE = [p for p in POOLS if p != 'placebo-c' and not p.startswith('isolated'
 def per_bot(cut):
     tw = BR.new_tw(); ob = [0]; corrupt = 0; bad = 0; nrows = 0
     for b in BOTS:
-        rows, bd, cor, dts = BR.bot_rows(b, cut - dt.timedelta(hours=24), cut + dt.timedelta(hours=24), ROOT)
+        rows, bd, cor, dts = BR.bot_rows(b, cut - dt.timedelta(hours=H), cut + dt.timedelta(hours=H), ROOT)
         bad += bd; corrupt += cor; nrows += len(rows)
         if rows:
-            BR.accrue(rows, cut, b, '', tw, ob, cut + dt.timedelta(hours=24), BR.censor_spans(dts))
+            BR.accrue(rows, cut, b, '', tw, ob, cut + dt.timedelta(hours=H), BR.censor_spans(dts))
     return tw, bad, corrupt, nrows
 
 
@@ -68,7 +72,7 @@ def one_cut(cut):
         el, rows = eligible(cut, de)
         schemes[run] = (el, rows)
     for scheme, (pools, rows) in schemes.items():
-        combos = list(itertools.combinations(sorted(pools), 4)) if len(pools) >= 4 else []
+        combos = list(itertools.combinations(sorted(pools), K)) if len(pools) >= K else []
         for draw in (rng.sample(combos, min(10, len(combos))) if combos else []):
             a = agg(tw, set(draw))
             rec = {'cut': cut.isoformat(), 'scheme': scheme, 'draw': list(draw), 'eligible': len(pools), 'scan_rows': rows,
@@ -81,11 +85,13 @@ def one_cut(cut):
 
 
 if __name__ == '__main__':
-    last = dt.datetime.now(dt.timezone.utc) - dt.timedelta(hours=24, minutes=30)
+    last = dt.datetime.now(dt.timezone.utc) - dt.timedelta(hours=H, minutes=30)
     cuts = []
-    c = dt.datetime(2026, 10, 3, 0, tzinfo=dt.timezone.utc)
+    c = dt.datetime(2026, 10, 3, 0, tzinfo=dt.timezone.utc) + dt.timedelta(hours=max(0, H - 24))   # PRE must be in the logs
     while c <= last:
         cuts.append(c); c += dt.timedelta(hours=6)
+    if os.environ.get('BAGNULL_CUTS'):
+        cuts = [dt.datetime.fromisoformat(x) for x in os.environ['BAGNULL_CUTS'].split(',')]
     with cf.ProcessPoolExecutor(PROCS) as ex:
         for recs in ex.map(one_cut, cuts):
             with open(OUT, 'a') as fh:

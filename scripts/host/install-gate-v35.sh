@@ -93,20 +93,18 @@ done
 DROPINS=$(ls /etc/systemd/system/mcbot@*.service.d/10-canary.conf 2>/dev/null | head -4 | tr '\n' ' ')
 [ -z "$DROPINS" ] || { [ -n "$DRY" ] && echo "  (dry run) WOULD REFUSE: canary drop-ins present: $DROPINS" || die "canary drop-ins present: $DROPINS"; }
 [ -f $H/canary-sched.py ] || { [ -n "$DRY" ] && echo "  (dry run) WOULD REFUSE: $H/canary-sched.py missing (the install-hold is required)" || die "$H/canary-sched.py missing"; }
-# OWNERSHIP (round 2, Codex P1): canary-sched.py's install-hold overwrites any hold and its install-release deletes any
-# hold, so this installer never calls install-release. holdtoken.py CLAIMS the hold under the scheduler's tick lock
-# (refused if any hold exists) with a token unique to this run; the EXIT trap is armed only after that claim succeeds and
-# releases only a hold whose owner is still this token. install-hold then runs the slot checks under the same owner.
+# OWNERSHIP (rounds 2-3, Codex P1): canary-sched.py's install-hold overwrites any hold and its install-release deletes
+# any hold, so this installer calls NEITHER. holdtoken.py claims the hold AND runs the scheduler's own slot checks under
+# ONE hold of its tick lock (refused if any hold exists; on a busy slot it withdraws only its own hold), with a token
+# unique to this run. The EXIT trap is armed only after that claim succeeds and releases only a hold still owned by it.
 if [ -n "$DRY" ]; then
   HO=$(python3 $S/holdtoken.py owner 2>&1)
   [ -z "$HO" ] || echo "  (dry run) WOULD REFUSE: an install-hold exists (owner $HO)"
 else
   TOKEN="install-gate-v35:$$:$(date +%s%N)"
-  CL=$(python3 $S/holdtoken.py claim "$TOKEN" 45 2>&1) || die "install-hold not claimed: $(echo "$CL" | tr '\n' ' ' | cut -c1-300)"
+  CL=$(python3 $S/holdtoken.py claim "$TOKEN" 45 2>&1) || die "install-hold not claimed: $(echo "$CL" | tr '\n' ' ' | cut -c1-500)"
   trap 'python3 $S/holdtoken.py release "$TOKEN" >/dev/null 2>&1' EXIT
-  HOLD=$(python3 $H/canary-sched.py install-hold "$TOKEN" 45 2>&1); HRC=$?
-  [ $HRC -eq 0 ] || die "canary-sched.py install-hold: the slot is not free: $(echo "$HOLD" | tr '\n' ' ' | cut -c1-500)"
-  echo "  $(echo "$HOLD" | tail -1 | cut -c1-200)"
+  echo "  $(echo "$CL" | tail -1 | cut -c1-200)"
 fi
 L=$(pgrep -af '^bash /home/mike/canary-loop.sh' | grep -v pgrep || true)
 C=$(pgrep -af 'chain-[a-z0-9-]*\.sh|launch-[a-z0-9-]*\.sh|chain-after' | grep -v -e pgrep -e install-gate || true)
