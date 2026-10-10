@@ -12,7 +12,7 @@ RUN=${1:-}
 export DRAW_RUN="$RUN"
 bash -c 'cd /opt/minecraft-ai; POOLS=1 python3 /tmp/immobiledid.py 2>/dev/null; python3 /tmp/poolrank2.py 2>/dev/null; echo "=== LEDGER"; tail -40 /var/log/mcai/_canary-decisions.jsonl; echo "=== MANIFEST"; cat /srv/mcbots/trial-manifest.json' > /tmp/drawrec.txt 2>&1
 python3 - <<'PY'
-import re, secrets, datetime as dt, os
+import re, secrets, datetime as dt, os, sys
 txt = open('/tmp/drawrec.txt').read()
 expo = {m.group(1): (int(m.group(2)), int(m.group(3)), int(m.group(4))) for m in re.finditer(r'^\s+(\S+)\s+livelock\s+(\d+) climbs\s+(\d+) immobile>=30m (\d+)', txt, re.M)}
 band = {m.group(1): (m.group(2), float(m.group(3))) for m in re.finditer(r'^(\S+)\s+(5080|3090)\s+bots \d+\s+items/bh\s+([\d.]+)', txt, re.M)}
@@ -194,8 +194,31 @@ else:
     _tr = rng.sample(trapped, min(npick, len(trapped)))
     _rest = [p for p in e if p not in _tr]
     pick = _tr + rng.sample(_rest, npick - len(_tr))
+_none_why = 'fewer than %d eligible' % MIN_K
+# REQUIRED POOLS (gate v35, coordinator 10-10; ~/mcai-analysis/drawrequire.py). A registration's draw_require_pools
+# must ALL be in the draw, or nothing is drawn and the loop waits -- never a substitute. Required pools obey every
+# exclusion above (12 h / 6 h, the live canary, draw-exclude.txt) but not the band or exposure filters; the rest of the
+# draw comes from the ordinary eligible set. A malformed field, or a registration/module that cannot be read, draws
+# nothing (fail closed). No field = exactly the draw above.
+if RUN:
+    try:
+        sys.path.insert(0, os.path.expanduser('~/mcai-analysis'))
+        import drawrequire as _DRQ
+        _rq = os.path.expanduser('~/mcai-analysis/registrations/%s.json' % RUN)
+        if not os.path.exists(_rq):
+            _rq = '/tmp/registrations/%s.json' % RUN
+        _REQ, _bad = _DRQ.parse(json.load(open(_rq)))
+    except Exception as _e:
+        _REQ, _bad = None, 'registration or drawrequire.py unreadable (%s)' % type(_e).__name__
+    if _REQ is None:
+        pick = None; _none_why = 'draw_require_pools REFUSED: %s' % _bad
+    elif _REQ:
+        pick, _rwhy = _DRQ.pick(_REQ, e, excl, set(band), TARGET_K, MIN_K, rng.sample)
+        print('draw_require_pools:', _rwhy)
+        if not pick:
+            _none_why = 'draw_require_pools: %s' % _rwhy
 print('DRAW (%s, owner C):' % ('%d pools = %d bots' % (len(pick), 5 * len(pick)) if pick else 'none'),
-      pick or 'NONE (fewer than %d eligible)' % MIN_K)
+      pick or 'NONE (%s)' % _none_why)
 if pick:
     _k = 5 * len(pick)
     _sd = {5: 0.608, 10: 0.443, 15: 0.360, 20: 0.313}.get(_k, 0.313)

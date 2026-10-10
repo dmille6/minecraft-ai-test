@@ -122,6 +122,47 @@ draw.
 - (a), (b), coverage, blindness, PAUSED and the deadline containment;
 - A', which needs exactly four pools and so never applies at three. Three-pool runs read at +180 and +360 as before.
 
+## Fix (3): every loop read serialized and memory-capped (coordinator 10-10)
+
+The fleet host had 46 GB, no swap, and the bots use about 17.6 GB. One heavy read or bagnull run peaks at 7–23 GB, so
+two at once could wake the OOM killer, which may pick a bot. The host now has 94 GB plus an 8-GB swapfile, and the
+rule below holds either way. `scripts/host/heavyread.sh` wraps every read the loop runs:
+
+- **Lock.** It takes `flock /tmp/mcai-heavyread.lock`, waiting up to 45 min. If the lock is not acquired, it exits 75
+  and the read never runs. The read does not inherit the lock fd, so an orphan cannot keep the lock.
+- **Cap.** The read runs in a transient system scope, `sudo -n systemd-run --scope -p MemoryMax=… -p MemorySwapMax=0`,
+  as mike, with the read's own environment and cwd.
+  - The cap is min(32G, MemTotal − 24G): 32G on the 94-GB VM, 22G on the old 46-GB one.
+  - A user scope would need a user manager. A loop started from cron has none (Linger=no); measured: "Failed to connect
+    to bus".
+  - If the scope cannot be created, the fallback is `ulimit -v` at the same number, which is never looser.
+  - A host too small to size a cap does not run the read.
+- **Exit.** The read's own status is passed through: 137 means killed by the cap, 124 a timeout, 75 the lock was busy.
+  The loop journals each as `read-failed` with that reason and pages it.
+- **A killed read writes no evidence, so verdict.py answers UNREADABLE for that read, never KEEP.** This is tested end to
+  end with the real verdict.py: the read under a 200M cap gives UNREADABLE, and the same read under a 2G cap (positive
+  control) gives KEEP.
+- **Calibration jobs must run through the same wrapper.** readcost1920.sh and bagnull3_driver.sh already do.
+- **Not covered:** drawrec's own `POOLS=1 immobiledid` call during the draw, and bagfixgate's poll and final. Both are
+  lighter, but they are not under the lock. This is stated, not fixed.
+
+## Fix (4): `draw_require_pools` (coordinator 10-10)
+
+airpocket-02 has exposure only in hive-d, the ice-trap pool. A registration may now declare
+`"draw_require_pools": ["hive-d"]`. drawrec.sh then applies `scripts/drawrequire.py`:
+
+- **Every required pool is in the draw, or nothing is drawn.** The loop then waits and retries. It never substitutes.
+- **Required pools obey every exclusion:** the 12-h window (or drawsteady's 6-h release), the live canary, and
+  draw-exclude.txt.
+- **They are exempt from the band and the exposure filter,** because they are required for their exposure. They must
+  still have a band row, i.e. be live pools with data.
+- **placebo-c and isolated-* are never drawable.**
+- **The rest of the draw** comes from the ordinary eligible set, up to four pools in total. Fewer than two in total
+  draws nothing.
+- **A malformed field draws nothing.** That means anything other than a non-empty list of distinct pool names, at most
+  four long. So does a registration or module that cannot be read.
+- The loop parses the result with its own pipeline (tested by cutting that pipeline from canary-loop.sh).
+
 ## Tests
 
 - **`scripts/test_threepool.py`: 116/116 on the host**, with every mutant killed after the unmutated copies pass.

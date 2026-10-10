@@ -15,13 +15,17 @@
 #                                     the four-pool minimum; never two); EXTMIN/EXTDL from ext-min
 #   ~/mcai-analysis/drawrec.sh        subtracts drawsteady's 6-h release from the 12-h ledger exclusion
 #   ~/mcai-analysis/drawsteady.py     NEW: the 6-h release for steady KEEP+promoted pools (fail closed: 12 h)
+#   ~/mcai-analysis/heavyread.sh      NEW: every loop read SERIALIZED (flock /tmp/mcai-heavyread.lock) and MEMORY-CAPPED
+#                                     (MemoryMax min(32G, MemTotal-24G) system scope): a shortfall kills the read, never a bot
+#   ~/mcai-analysis/drawrequire.py    NEW: a registration's draw_require_pools (drawrec.sh includes them or draws nothing)
 # and RE-REGISTERS the gate bundle digest in ~/digest/RULES-IN-FORCE.md. Everything else must equal the live files.
 #
 # STAGE FIRST (from the repo, on the Mac, at the commit being installed):
 #   ssh mike@10.0.0.31 'mkdir -p ~/gate-v35'
 #   scp scripts/{verdict.py,bagfixrule.py,usaferule.py,usafegate.py,bagfixgate.py,changerowcheck.py,deathgate.py,drawsteady.py,\
 #       test_keep180.py,test_usafe.py,test_bagfix.py,test_changerowcheck.py,test_verdict_acceptance.py,test_holdtoken.py,\
-#       test_threepool.py} scripts/host/{canary-loop.sh,drawrec.sh,bagread.py,holdtoken.py,test_bagfix_loop.py,\
+#       test_threepool.py,test_heavyread.py,test_drawrequire.py,drawrequire.py} \
+#       scripts/host/{canary-loop.sh,drawrec.sh,bagread.py,holdtoken.py,heavyread.sh,test_bagfix_loop.py,canary-sched.py,\
 #       canarywatch.py,install-gate-v35.sh,v35-rules-paragraph.md,ugsafe2_value.py} \
 #       docs/reports/airpocket-01.{ee21207,dbb4d78}.json mike@10.0.0.31:gate-v35/
 # THEN:  bash ~/gate-v35/install-gate-v35.sh --dry-run     (touches nothing live; prints the predicted digest)
@@ -43,6 +47,8 @@ declare -A TGT=(
   [canary-loop.sh]=$H/canary-loop.sh
   [drawrec.sh]=$H/mcai-analysis/drawrec.sh
   [drawsteady.py]=$H/mcai-analysis/drawsteady.py
+  [heavyread.sh]=$H/mcai-analysis/heavyread.sh
+  [drawrequire.py]=$H/mcai-analysis/drawrequire.py
 )
 # THE BASE these were built against (round 1, Claude): a live file that has moved since is not overwritten blind.
 # v34 as installed 10-08 07:26Z (bundle 97abe762).
@@ -53,13 +59,15 @@ declare -A BASE=(
   [canary-loop.sh]=4a0d3670499cefabdd11ebb51260002f
   [drawrec.sh]=c95a981192b633735c9ec01c5c4cfb7b
   [drawsteady.py]=ABSENT
+  [heavyread.sh]=ABSENT
+  [drawrequire.py]=ABSENT
 )
 REGS=""
 # unchanged by v35; staged only so the tests can run, and must equal the live files
 SAME="usaferule.py:$H/mcai-analysis/usaferule.py usafegate.py:$H/mcai-analysis/usafegate.py changerowcheck.py:$H/mcai-analysis/changerowcheck.py canarywatch.py:$H/canarywatch.py deathgate.py:$H/mcai-analysis/deathgate.py bagread.py:$H/mcai-analysis/bagread.py"
 
 say "1. nothing may be running"
-for f in "${!TGT[@]}" usaferule.py usafegate.py changerowcheck.py canarywatch.py deathgate.py bagread.py test_threepool.py test_bagfix_loop.py \
+for f in "${!TGT[@]}" usaferule.py usafegate.py changerowcheck.py canarywatch.py deathgate.py bagread.py test_threepool.py test_bagfix_loop.py test_heavyread.py test_drawrequire.py \
          test_keep180.py test_usafe.py test_bagfix.py test_changerowcheck.py test_verdict_acceptance.py v35-rules-paragraph.md \
          ugsafe2_value.py holdtoken.py test_holdtoken.py airpocket-01.ee21207.json airpocket-01.dbb4d78.json; do
   [ -f "$S/$f" ] || die "staged file missing: $S/$f"
@@ -84,7 +92,7 @@ done
 # verdict.py import every module that ALSO exists there from the LIVE copy. Each staged module present live must therefore
 # equal it, or the tests passed on code that is not the code being installed.
 for f in "$S"/*.py; do
-  b=$(basename "$f"); case "$b" in verdict.py|bagfixrule.py|bagfixgate.py|drawsteady.py|test_*.py|ugsafe2_value.py|holdtoken.py) continue;; esac   # targets: tested via VERDICT_MODULE_DIR
+  b=$(basename "$f"); case "$b" in verdict.py|bagfixrule.py|bagfixgate.py|drawsteady.py|drawrequire.py|test_*.py|ugsafe2_value.py|holdtoken.py) continue;; esac   # targets: tested via VERDICT_MODULE_DIR
   [ ! -e "$H/mcai-analysis/$b" ] || cmp -s "$f" "$H/mcai-analysis/$b" || die "staged $b differs from ~/mcai-analysis/$b, which SHADOWS it in the staged verdict tests"
 done
 # THE SCHEDULER'S INSTALL-HOLD FIRST (round 1, Codex): no NEW launch while it exists, and canary-sched.py's own slot checks
@@ -159,6 +167,12 @@ grep -q "SKIPPED" test_threepool.out && die "test_threepool.py SKIPPED a section
 echo "  test_threepool: $(tail -1 test_threepool.out)"
 python3 test_bagfix_loop.py > test_bagfix_loop.out 2>&1 || die "test_bagfix_loop.py failed: $(grep -E '^FAIL|pass' test_bagfix_loop.out | tail -5)"
 echo "  test_bagfix_loop: $(tail -1 test_bagfix_loop.out)"
+python3 test_heavyread.py > test_heavyread.out 2>&1 || die "test_heavyread.py failed: $(grep -E '^FAIL|pass' test_heavyread.out | tail -5)"
+grep -q "SKIPPED" test_heavyread.out && die "test_heavyread.py SKIPPED a section on the host: $(grep SKIPPED test_heavyread.out)"
+echo "  test_heavyread: $(tail -1 test_heavyread.out)"
+python3 test_drawrequire.py > test_drawrequire.out 2>&1 || die "test_drawrequire.py failed: $(grep -E '^FAIL|pass' test_drawrequire.out | tail -5)"
+echo "  test_drawrequire: $(tail -1 test_drawrequire.out)"
+bash -n heavyread.sh || die "heavyread.sh does not parse"
 bash -n canary-loop.sh || die "canary-loop.sh does not parse"
 bash -n drawrec.sh || die "drawrec.sh does not parse"
 grep -qE '^TARGET_K = 4$' drawrec.sh && grep -qE '^MIN_K = 2$' drawrec.sh || die "staged drawrec.sh changed TARGET_K/MIN_K (v35 does not)"

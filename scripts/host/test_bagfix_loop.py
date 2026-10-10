@@ -83,6 +83,8 @@ print('VERDICT %s (+%d) :: %s' % (v, M, line))
 # the registered read: writes an evidence object bound the way every read does (sha, pools, run, declared_at, minute)
 STUB_READ = r'''import sys, os, json, datetime as dt
 M = int(sys.argv[1]); man = json.load(open(os.environ['BAGFIX_MANIFEST']))
+if os.environ.get('STUB_READ_HOG'):
+    x = bytearray(400 * 1024 * 1024); x[::4096] = b'1' * len(x[::4096])     # killed by a 200M heavyread cap
 now = float(open(os.environ['CANARY_FAKE_CLOCK']).read())
 o = {'sha': man['canary_code_version'], 'pools': man['canary_pool'], 'run_id': man['run_id'], 'declared_at': man['declared_at'],
      'window_min': M, 'emitted_at': dt.datetime.fromtimestamp(now, dt.timezone.utc).isoformat(), 'fields': {'junk_slots_did': -1.3}}
@@ -102,6 +104,8 @@ def home(tmp, run, reg, journal_lines, blind=False):
     os.makedirs(os.path.join(h, 'digest', 'reads')); rd = os.path.join(tmp, 'readdir'); os.makedirs(rd)
     for f in ('bagfixgate.py', 'bagfixrule.py', 'deathgate.py'):
         shutil.copy(os.path.join(SCRIPTS, f), os.path.join(h, 'mcai-analysis', f))
+    # the loop runs every read through heavyread.sh (gate v35): the REAL one, with a private lock (see run_loop)
+    shutil.copy(os.path.join(HERE, 'heavyread.sh'), os.path.join(h, 'mcai-analysis', 'heavyread.sh'))
     if blind:
         os.rename(os.path.join(h, 'mcai-analysis', 'bagfixgate.py'), os.path.join(h, 'mcai-analysis', 'bagfixgate_real.py'))
         open(os.path.join(h, 'mcai-analysis', 'bagfixgate.py'), 'w').write(BLIND_SHIM)
@@ -124,7 +128,8 @@ def run_loop(tmp, h, rd, run, man_path, logs, clock0, trip_epoch, counts, bagfix
                BAGFIX_LOG_ROOT=logs, BAGFIX_MANIFEST=man_path, BAGFIX_REG_DIR=os.path.join(h, 'mcai-analysis', 'registrations'),
                BAGFIX_READS_DIR=os.path.join(h, 'digest', 'reads'), BAGFIX_JOURNAL=os.path.join(h, 'canary-journal.jsonl'),
                BAGFIX_NOW=bagfix_now or ('@' + clk), STUB_TRIP_EPOCH=str(trip_epoch), STUB_COUNTS=counts,
-               **(extra_env or {}))
+               HEAVYREAD_LOCK=os.path.join(tmp, 'heavyread.lock'), HEAVYREAD_MAX='2G', HEAVYREAD_WAIT='60')
+    env.update(extra_env or {})
     r = subprocess.run(['bash', LOOP, run, '--no-act'], capture_output=True, text=True, env=env, timeout=3000)
     jl = [json.loads(l) for l in open(os.path.join(h, 'canary-journal.jsonl')) if l.strip()]
     return r, [(j['phase'], j['note']) for j in jl if j.get('run') == run], h
@@ -196,6 +201,8 @@ def synthetic(tmp, scenario):
         extra = {'STUB_READ_TRIP': '180', 'STUB_EXT_REVERT': '1'}
     if scenario == 'readfail':
         extra = {'STUB_EXT_UNREADABLE': '1'}
+    if scenario == 'readoom':
+        extra = {'STUB_READ_HOG': '1', 'HEAVYREAD_MAX': '200M'}
     if scenario == 'noguards':
         extra = {'STUB_EXT_NOGUARDS': '1'}
     if scenario in ('basefail', 'basefail2'):
@@ -256,7 +263,7 @@ if __name__ == '__main__':
         t('junkwell-01 replay: +1440 is never reached on real data, so the extension deadline contains it -> INCONCLUSIVE',
           'would act: INCONCLUSIVE' in r.stdout and 'bagfix-final' not in ph, r.stdout[-400:])
     else:
-        for sc in ('keep', 'keep3', 'ceiling', 'linked', 'readtrip', 'blind', 'resume', 'pending', 'rerun', 'readfail', 'redeploy',
+        for sc in ('keep', 'keep3', 'readoom', 'ceiling', 'linked', 'readtrip', 'blind', 'resume', 'pending', 'rerun', 'readfail', 'redeploy',
                    'noguards', 'checkcrash', 'outage', 'basefail', 'basefail2'):
             r, js, h = synthetic(tmp, sc)
             ph = phases(js)
@@ -278,6 +285,10 @@ if __name__ == '__main__':
                 fin = [n for p, n in js if p == 'bagfix-final']
                 t('keep3: final at +1920 with the three-pool bands -> KEEP', fin and fin[-1].startswith('BAGFIX KEEP')
                   and '3 pools: +1920' in fin[-1] and 'would act: KEEP' in out, js)
+            if sc == 'readoom':
+                rf = [n for p, n in js if p == 'read-failed']
+                t('readoom: a read killed by the heavyread memory cap is journalled read-failed KILLED (and paged), never silent',
+                  rf and all('KILLED' in n for n in rf) and 'KILLED' in open(os.path.join(h, 'digest', 'page.jsonl')).read(), (js, out[-400:]))
             if sc == 'outage':
                 t('outage: both arms stale -> PAUSED, paged once, and 12 in a row close it INCONCLUSIVE (never silent)',
                   ph.count('bagfix-paused') == 12 and 'would act: INCONCLUSIVE' in out

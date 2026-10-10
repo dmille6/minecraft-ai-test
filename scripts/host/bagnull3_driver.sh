@@ -1,15 +1,16 @@
 #!/bin/bash
-# bagnull3_driver.sh <workdir> <regdir>  -- the three-pool primary edges (10-10, round 3 Claude 2a), after any running
-# readcost1920.sh (two heavy jobs at once distort timings and risk memory).
+# bagnull3_driver.sh <workdir> <regdir> [heavyread.sh]  -- the three-pool primary edges (10-10, round 3 Claude 2a).
+# Every heavy step runs through heavyread.sh: the shared heavy-read lock (never beside the loop's read, readcost1920.sh
+# or another calibration job) and its memory cap (HEAVYREAD_MAX, default sized from the host).
 #   1. POSITIVE CONTROL: bagnull.py at its defaults (4 pools x 24 h) on two shipped cuts must reproduce
 #      ~/bfnull/bagnull5.jsonl's records for those cuts EXACTLY (same seed per cut, same draws, same fields).
 #   2. the null at 3 pools x 32 h, every cut, then bagbands.py on it.
-D=${1:-$HOME/tp-work}; REG=${2:-$HOME/bfnull/regs2}
-while pgrep -f "^bash $HOME/tp-work/readcost1920.sh" >/dev/null; do sleep 30; done
+D=${1:-$HOME/tp-work}; REG=${2:-$HOME/bfnull/regs2}; HR=${3:-$HOME/mcai-analysis/heavyread.sh}
+[ -f "$HR" ] || { echo "heavyread.sh not found at $HR"; exit 2; }
 cd $D || exit 1
 rm -f ctl.jsonl n3x32.jsonl
 CUTS=2026-10-05T12:00:00+00:00,2026-10-07T06:00:00+00:00
-BAGNULL_CUTS=$CUTS python3 bagnull.py $REG ctl.jsonl 2 > ctl.log 2>&1
+BAGNULL_CUTS=$CUTS bash "$HR" 7200 ctl.log -- python3 bagnull.py $REG ctl.jsonl 2 || { echo "control run failed: $(tail -2 ctl.log)"; exit 1; }
 python3 - <<'PY' > ctl.result
 import json
 cuts = {'2026-10-05T12:00:00+00:00', '2026-10-07T06:00:00+00:00'}
@@ -23,6 +24,6 @@ print('POSITIVE CONTROL %s: %d shipped records, %d re-run, %s' % ('REPRODUCED' i
 PY
 cat ctl.result
 grep -q REPRODUCED ctl.result || exit 1
-BAGNULL_K=3 BAGNULL_H=32 python3 bagnull.py $REG n3x32.jsonl 3 > n3x32.log 2>&1
+BAGNULL_K=3 BAGNULL_H=32 bash "$HR" 21600 n3x32.log -- python3 bagnull.py $REG n3x32.jsonl 3 || { echo "3x32 run failed: $(tail -2 n3x32.log)"; exit 1; }
 python3 bagbands.py n3x32.jsonl > n3x32.bands.txt 2>&1
 cat n3x32.bands.txt

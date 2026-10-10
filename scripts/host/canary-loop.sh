@@ -242,11 +242,22 @@ _run_reads() {
     journal "reads-missing" "missing from $RD:$_miss"
     exit 4
   fi
+  # SERIALIZED AND MEMORY-CAPPED (gate v35, coordinator 10-10): every read runs through heavyread.sh -- the shared
+  # heavy-read lock (no read overlaps another read or a calibration job) and a MemoryMax scope (min(32G, MemTotal - 24G)), so a memory shortfall
+  # kills the READ, never a bot. A killed, refused or failed read is journalled read-failed; its evidence is absent, so
+  # verdict.py answers UNREADABLE for it, never a pass. heavyread.sh missing = no read runs (fail closed).
+  [ -f $H/mcai-analysis/heavyread.sh ] || { page error "$H/mcai-analysis/heavyread.sh missing: reads are never run uncapped"; journal reads-missing "heavyread.sh missing"; exit 4; }
   for s in $SCRIPTS; do
-    (cd ${CANARY_READ_CWD:-/opt/minecraft-ai/scripts} && timeout 900 python3 $RD/$s.py $M > $H/digest/reads/$RUN-$s-$M.txt 2>&1)
+    (cd ${CANARY_READ_CWD:-/opt/minecraft-ai/scripts} && bash $H/mcai-analysis/heavyread.sh 900 $H/digest/reads/$RUN-$s-$M.txt -- python3 $RD/$s.py $M)
     local _rc=$?
     if [ $_rc -ne 0 ]; then
-      local _what=$([ $_rc -eq 124 ] && echo "TIMED OUT after 900s" || echo "exited $_rc")
+      local _what
+      case $_rc in
+        124) _what="TIMED OUT after 900s";;
+        137) _what="KILLED (heavyread's memory cap, or the timeout's kill)";;
+        75) _what="NOT RUN: the heavy-read lock stayed busy (a calibration job?)";;
+        *) _what="exited $_rc";;
+      esac
       journal read-failed "$s +$M $_what: $(tail -2 $H/digest/reads/$RUN-$s-$M.txt 2>/dev/null | tr '\n' ' ' | cut -c1-260)"
       page error "read $s +$M $_what -- its evidence is absent or partial, so this read cannot decide"
     fi

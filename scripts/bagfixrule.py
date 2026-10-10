@@ -610,10 +610,10 @@ def primary_spec(reg, n):
         return p
     if n == 3:
         e = (bf.get('primary_by_pools') or {}).get('3') if isinstance(bf.get('primary_by_pools'), dict) else None
-        v = e.get('value') if isinstance(e, dict) else None
-        if not isinstance(v, (int, float)) or isinstance(v, bool) or not math.isfinite(v):
+        edge = e.get('value') if isinstance(e, dict) else None
+        if not isinstance(edge, (int, float)) or isinstance(edge, bool) or not math.isfinite(edge):
             return None
-        return dict(p, value=v)
+        return dict(p, value=edge)
     return None
 
 
