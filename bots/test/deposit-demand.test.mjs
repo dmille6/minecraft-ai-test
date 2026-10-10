@@ -38,7 +38,7 @@ t('junk is not banked, however much of it there is', () => {
 })
 
 t('real output is banked', () => {
-  const b = bankableInventory(inv({ oak_log: 18, cobblestone: 24 }))
+  const b = bankableInventory(inv({ oak_log: 30, cobblestone: 24 }))   // 24 cobble is under the cobble rule's reserve
   assert.ok(b.count > 20, `expected real output to count, got ${b.count}`)
 })
 
@@ -53,8 +53,9 @@ t('THE TOOL IS NOT SURPLUS', () => {
 
 t('the climb-out reserve is not surplus either', () => {
   // Same principle as the descent contract: never bank the exit.
+  // the cobble rule (stonecap): cobble moves only as whole stacks above a 64 reserve, so 10 is all way out
   const b = bankableInventory(inv({ cobblestone: 10 }))
-  assert.equal(b.count, 2, `banked ${b.count} of 10 cobblestone; 8 are the way out`)
+  assert.equal(b.count, 0, `banked ${b.count} of 10 cobblestone; all of it is the way out`)
 })
 
 t('one absurd stack cannot dominate the endpoint', () => {
