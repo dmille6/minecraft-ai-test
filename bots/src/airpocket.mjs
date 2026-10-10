@@ -517,6 +517,12 @@ export async function airPocketStep (bot, plan, { Vec3, predict, sleep = ms => n
         try { bot.setControlState('jump', wantJump) } catch { /* not connected */ }
         await sleep(300)
       }
+      // an abort wins over every refusal below (Codex r4); a body that never agreed is never dug (both r4 reviews)
+      if (aborted) { res.why = aborted; res.outcome = 'aborted'; return res }
+      if (!bodyAgrees({ onGround: bot.entity?.onGround, wantJump })) {
+        res.why = `the body never settled (onGround=${bot.entity?.onGround === true} with jump ${wantJump ? 'held' : 'released'})`
+        res.outcome = 'failed'; if (attempt > 0) res.refrozen = !cellOpen(); return res
+      }
       const callMs = withPoseEye(bot, botPose(bot, Vec3).pose, () => predict(bot.blockAt(cellPos), bot.heldItem ?? null))
       if (Number.isFinite(callMs) && callMs > 0) {
         if (callMs * AP_MARGIN + AP_LATENCY_MS > airPocketBudgetMs({ health: bot.health, envelope })) {
