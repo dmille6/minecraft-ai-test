@@ -1382,9 +1382,7 @@ export function startReflexes(bot, runner, lessons = null, worldFacts = null) {
     // standing dig, the pre-empt fired, and half a second later the floating price was refused. Floating + in water is
     // the slowest the step can face, so a pre-empt admitted on it is never followed by a budget refusal.
     const env = worstCase ? { ...digEnv(bot), inWater: true, notOnGround: true } : digEnv(bot)
-    // THE STEP'S OWN CANDIDATES (airPocketTools: a 1-use copy beside a healthy one is skipped); with a container window
-    // open the step will not equip (the window handoff), so only what is held is priced
-    const items = bot.currentWindow ? [bot.heldItem].filter(Boolean) : airPocketTools(bot.inventory?.items?.() ?? [])
+    const items = airPocketTools(bot.inventory?.items?.() ?? [])   // the step's own candidates (toolhygiene composition)
     let fastest = null
     for (const item of [null, ...items]) {
       const ms = predictedDigMs(block, item, env)
