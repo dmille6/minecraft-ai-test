@@ -44,7 +44,7 @@ import { PRIORITY } from './arbiter.mjs'
 import { survivalRelease } from './withdrawpick.mjs'
 import { airPocketPlan, airPocketAdmit, airPocketTrigger, airPocketStep, airPocketRow, airPocketInputs, airPocketAfter,
          airPocketPreempt, AP_WANT_LAPSE_MS,
-         AP_REFUSE_COOLDOWN_MS, standCandidates, planBaseY, routeUpBlocked, airPocketTools, standsOn, botPose, setPoseEye } from './airpocket.mjs'
+         AP_REFUSE_COOLDOWN_MS, standCandidates, planBaseY, routeUpBlocked, airPocketTools, standsOn, botPose, withPoseEye } from './airpocket.mjs'
 import pathfinderPkg from 'mineflayer-pathfinder'
 const pkgGoals = pathfinderPkg?.goals
 
@@ -1382,9 +1382,7 @@ export function startReflexes(bot, runner, lessons = null, worldFacts = null) {
     // standing dig, the pre-empt fired, and half a second later the floating price was refused. Floating + in water is
     // the slowest the step can face, so a pre-empt admitted on it is never followed by a budget refusal.
     // priced with the POSE's eye (setPoseEye; Claude r1 P1): a swimming bot's eye is in water though the 1.62 eye is not
-    const eyeBack = setPoseEye(bot, pe.pose)
-    const env = worstCase ? { ...digEnv(bot), inWater: true, notOnGround: true } : digEnv(bot)
-    eyeBack()
+    const env = withPoseEye(bot, pe.pose, () => (worstCase ? { ...digEnv(bot), inWater: true, notOnGround: true } : digEnv(bot)))
     const items = airPocketTools(bot.inventory?.items?.() ?? [])   // the step's own candidates (toolhygiene composition)
     let fastest = null
     for (const item of [null, ...items]) {
