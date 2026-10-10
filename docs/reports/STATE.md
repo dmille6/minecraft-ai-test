@@ -11,6 +11,14 @@ behind it (chain-ore.sh stopped 10-01 on fixes-02's revert)._
 
 ---
 
+## 10-10 11:45Z — TOOLHYGIENE-01 KEPT (+360) and PROMOTED: FLEET 4970c91 (11:31Z); merged to main; peacefulkit launching
++360: breaches 0 (redundant admitted, unjustified refusal, unjustified worn, wanted refused); 55 refusals; pick_slots DiD
+-0.94 (bag-fix edge -0.842), slots DiD -0.46, share>=34 DiD -0.098, breaks DiD +0.11, escape refusals DiD +0.05 (expected
+side effects); deaths canary 1/120 bh vs control 1/240 bh. Main: merge of 4970c91 (includes airpocket dbb4d78), npm test
+241/241. QUEUE: peacefulkit-01 (launching) -> junkwell-02 (queued 11:35Z, after peacefulkit) -> gridfix/bamboo/stonecap/
+bamboocraft/stocktarget/treefarm need variant prep on the new tip (agents back ~10-12 11Z). Follow-ups: airpocket-02,
+withdraw2-02, A' (+180 KEEP), stocktarget design.
+
 ## 10-10 05:22Z — CANARY LIVE: toolhygiene-01 @ 4970c91 on board-b,placebo-a,board-d,hive-c (20 bots), declared 05:15:23Z
 First bag fix under v33 (class bag-fix, four pools); A' (+180 KEEP) is NOT installed (agents down), so KEEP from +360
 (~11:15Z). Reads ~08:15Z / ~11:15Z. peacefulkit-01 queued behind it (after toolhygiene-01; variants 92bc84f, 6238095,
