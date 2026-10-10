@@ -504,15 +504,18 @@ scenes.stockprunekeep = async () => {
   if (!CAP) throw new Error('no well (run build first)')
   rcon(`kill ${ARENA_SEL}`); CHEST = CHEST ?? pickChest()
   setChest(Array.from({ length: 10 }, () => ['oak_log', 64]))
-  const files = await startBot('stockprunekeep', [['stone_pickaxe', 1], ['iron_ingot', 3], ...TORCH(34)], { pool: `sbxstock-${RUN}-k` })
-  const counted = await waitRow(files, /^_cobble_reconcile$/, 150000)
-  rcon(`clear ${NAME} minecraft:torch 1280`)
+  // free slots FROM THE START (run 3: a full bag until the clear could not prune for want of room -- not the control), and
+  // a short wait (run 3: 180 s idle on the floating arena ended in a livelock relocation off its edge)
+  const files = await startBot('stockprunekeep', [['stone_pickaxe', 1], ['iron_ingot', 3], ...TORCH(14)], { pool: `sbxstock-${RUN}-k` })
+  const counted = await waitRow(files, /^(_cobble_reconcile|_withdraw_pick)$/, 150000)
   const before = bag(NAME), chest0 = chestTotals()
-  await sleep(180000)   // three prune looks (STOCK_PRUNE_COOLDOWN_MS 60 s)
+  await sleep(100000)   // >= one prune look after the count (STOCK_PRUNE_COOLDOWN_MS 60 s)
   const after = bag(NAME), chest1 = chestTotals()
   const jr = journalOf(files)
+  const died = lines(files.botOut).some(l => /\bdied\b/.test(l))
   await stopBot()
-  result({ scene: 'stockprunekeep', counted: counted?.detail ?? null, chest: { before: chest0.totals, after: chest1.totals }, bag: { delta: deltaOf(before.totals, after.totals) },
+  result({ scene: 'stockprunekeep', counted: counted?.name ?? null, died, oakCounts: jr.filter(r => r.t === 'cnt' && r.m && r.m.oak_log != null).map(r => r.m.oak_log),
+    chest: { before: chest0.totals, after: chest1.totals }, bag: { delta: deltaOf(before.totals, after.totals) },
     visits: rowsOf(files.skillLog).filter(r => /^(_stock_prune_visit|prune_town)$/.test(r.name)).length,
     orders: lines(files.botOut).filter(l => /prune_town/.test(l)).length, takes: jr.filter(r => r.t === 'claim' && r.kind === 'take').length })
 }
