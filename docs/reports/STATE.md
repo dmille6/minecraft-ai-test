@@ -14,6 +14,14 @@ AGENTS DOWN until ~10-12 11Z (weekly limit): no new builds before then._
 
 ---
 
+## 10-10 ~13:30Z — OWNER: plan the live BRAIN canary (brain-01); overseer/escalation parked
+LLM layers status: brain gemma4:26b benchmarked (C1 sandbox: stuck time halved, output inconclusive), NOT live; overseer
+gpt-oss:120b (C2 sandbox: inconclusive, lower output mostly cobble, iron-tier equal) and stuck escalation (no stuck-time
+cut) PARKED as built; strategist parked. Owner "yes please" to planning brain-01: 5-10 live bots on gemma4 (Studio)
+vs matched control, same code, after junkwell-02 and airpocket-02 (~Mon). Model agent: finish the C2 readout (reviewer's
+AGREE-WITH-CHANGES items), then design brain-01 (robust fleet->Studio path, deterministic local fallback, brain field on
+decision rows, capacity/latency, read + registration), both engines.
+
 ## 10-10 12:47Z (host clock) — STOCK TARGETS + CHEST PRUNING: DESIGN APPROVED by both engines; caps for the one-time clear
 - Design r6: docs/reports/stocktargets-design-2026-10-08.md. Reviews: Codex r1-r5 CHANGE, r6 APPROVE; Claude r1-r2 CHANGE, r3 APPROVE.
   Excerpts: docs/reports/stocktarget-design-reviews-2026-10-10.txt.
