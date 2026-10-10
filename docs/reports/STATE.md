@@ -11,6 +11,13 @@ behind it (chain-ore.sh stopped 10-01 on fixes-02's revert)._
 
 ---
 
+## 10-10 05:22Z — CANARY LIVE: toolhygiene-01 @ 4970c91 on board-b,placebo-a,board-d,hive-c (20 bots), declared 05:15:23Z
+First bag fix under v33 (class bag-fix, four pools); A' (+180 KEEP) is NOT installed (agents down), so KEEP from +360
+(~11:15Z). Reads ~08:15Z / ~11:15Z. peacefulkit-01 queued behind it (after toolhygiene-01; variants 92bc84f, 6238095,
+4970c91, 5d1f710, 2f38f69 -- NO dbb4d78 variant: if toolhygiene reverts, peacefulkit needs pk-on-dbb4d78 built first).
+Early preflight on the live baseline: peacefulkit 4970c91 -> licence _peaceful_kit baseline 0; own_kinds _sword_fuel.
+(Earlier STATE stamps today ran ahead of the host clock; host time is the reference.)
+
 ## 10-10 05:30Z — WITHDRAW2-01 REVERTED (+180, G1 = 3); suspected pathfinder scaffold, NOT proven; toolhygiene queued
 +180: G1 "unplanned server-counted loss" 3 -- hive-d-Comet 02:56:40 dirt -1 (crafted_iron), hive-a-Alpha 04:09:47
 cobblestone -1 (no_better), hive-d-Bravo 04:52:00 dirt -1 (crafted_iron). Everything else clean: G2-G6 0, 9 server-confirmed
