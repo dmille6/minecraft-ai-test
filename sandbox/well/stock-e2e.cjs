@@ -526,7 +526,9 @@ scenes.stockprunekeep = async () => {
 async function noChestTrial (tag, extra) {
   rcon(`kill ${ARENA_SEL}`); CHEST = CHEST ?? pickChest()
   setChest(Array.from({ length: 27 }, () => ['oak_log', 64]))
-  const spec = [['chest', 1], ['oak_log', 64], ['oak_log', 64], ['stone_pickaxe', 1], ...extra, ...TORCH(20)]
+  // ONE free slot (run 3: with room the bot PRUNED the full chest first, which made room in it, so the control's ingots went
+  // into the old chest and no recovery was ever asked; a prune needs two free slots)
+  const spec = [['chest', 1], ['oak_log', 64], ['oak_log', 64], ['stone_pickaxe', 1], ...extra, ...TORCH(31 - extra.length)]
   const files = await startBot(tag, spec, { pool: `sbxstock-${RUN}-${tag}` })
   const ch0 = chestCount()
   brainQueue.push('deposit')
