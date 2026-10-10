@@ -262,9 +262,20 @@ export function botPose (bot, Vec3) {
  * So the eye height is set to the pose's eye while the step prices and digs, and restored after. -> the restore function.
  */
 export function setPoseEye (bot, pose) {
-  const before = bot.entity?.eyeHeight
   try { if (bot.entity && POSE_EYE[pose] != null) bot.entity.eyeHeight = POSE_EYE[pose] } catch { /* a fake */ }
-  return () => { try { if (bot.entity && before != null) bot.entity.eyeHeight = before } catch { /* a fake */ } }
+  // RESTORED TO MINEFLAYER'S OWN STATE, not a captured value (both r2 reviews): its crouch/uncrouch handlers write the same
+  // field, and a restore of a stale 1.27 after an uncrouch would leave every later price wrong
+  return () => { try { if (bot.entity) bot.entity.eyeHeight = bot.entity.crouching ? 1.27 : 1.62 } catch { /* a fake */ } }
+}
+
+/**
+ * RUN fn WITH THE POSE'S EYE, synchronously, restoring on every path (Codex r2: a throw in the price left 0.4). Used only
+ * around a price and around the bot.dig CALL -- mineflayer computes its finish timer synchronously inside that call, so
+ * the eye is restored before the dig's promise is awaited and never overlaps an await.
+ */
+export function withPoseEye (bot, pose, fn) {
+  const back = setPoseEye(bot, pose)
+  try { return fn() } finally { back() }
 }
 
 /**
@@ -420,7 +431,6 @@ export async function airPocketStep (bot, plan, { Vec3, predict, sleep = ms => n
   const budgetLeft = () => airPocketBudgetMs({ health: bot.health, envelope }) - (AP_LATENCY_MS / 2)
   let aborted = null
   let watch = null
-  let restoreEye = null
   let digging = false
   try {
     const block = bot.blockAt(cellPos)
@@ -448,9 +458,7 @@ export async function airPocketStep (bot, plan, { Vec3, predict, sleep = ms => n
       try { await Promise.race([bot.equip(best.item, 'hand'), new Promise((_, rej) => { t = setTimeout(() => rej(new Error('equip timeout')), AP_EQUIP_MS) })]) } catch { /* verified below */ } finally { clearTimeout(t) }
     }
     const held = bot.heldItem ?? null
-    const eyeBack = setPoseEye(bot, botPose(bot, Vec3).pose)
-    const heldMs = predict(block, best.item && held?.name === best.item.name ? best.item : held)
-    eyeBack()
+    const heldMs = withPoseEye(bot, botPose(bot, Vec3).pose, () => predict(block, best.item && held?.name === best.item.name ? best.item : held))
     res.tool = held?.name ?? 'hand'
     res.predictedMs = Number.isFinite(heldMs) ? Math.round(heldMs) : null
     if (!(Number.isFinite(heldMs) && heldMs > 0) || heldMs * AP_MARGIN + AP_LATENCY_MS > airPocketBudgetMs({ health: bot.health, envelope })) {
@@ -487,10 +495,14 @@ export async function airPocketStep (bot, plan, { Vec3, predict, sleep = ms => n
     for (let attempt = 0; attempt <= AP_REDIG_MAX; attempt++) {
       if (attempt > 0) {
         res.redigs = attempt
-        // RE-PRICED AND RE-ADMITTED (Codex r1 P1): the first dig may have been standing; a re-dig floats
-        const reBack = setPoseEye(bot, botPose(bot, Vec3).pose)
-        const reMs = predict(bot.blockAt(cellPos), bot.heldItem ?? null)
-        reBack()
+        // THE BODY SETTLES FIRST (Paper 1b0cdb5 T2: a re-dig priced on-ground by the client while the server had the
+        // bot jumping finished in 900 ms against a 4.7-s server break -- ghost air): as for the first dig, a bot on the
+        // ground digs with jump released, a floating one holds it, and the client and server agree for 300 ms before
+        // the re-dig is priced (Codex r1: re-priced and re-admitted).
+        wantJump = !(bot.entity?.onGround === true)
+        try { bot.setControlState('jump', wantJump) } catch { /* not connected */ }
+        await sleep(300)
+        const reMs = withPoseEye(bot, botPose(bot, Vec3).pose, () => predict(bot.blockAt(cellPos), bot.heldItem ?? null))
         if (!(Number.isFinite(reMs) && reMs > 0) || reMs * AP_MARGIN + AP_LATENCY_MS > airPocketBudgetMs({ health: bot.health, envelope })) {
           res.why = `the cell re-formed; a re-dig needs ${Number.isFinite(reMs) ? Math.round(reMs) : reMs} ms: over the budget`
           res.outcome = 'failed'; res.refrozen = true; return res
@@ -502,9 +514,6 @@ export async function airPocketStep (bot, plan, { Vec3, predict, sleep = ms => n
       // preconditions are re-checked synchronously (`digGate`), and the dig is sent with forceLook 'ignore', which writes
       // start-dig inside the call with no await before it (the face sent is mineflayer's default either way).
       try { await Promise.race([bot.lookAt(cellPos.offset(0.5, 0, 0.5), true), sleep(500)]) } catch { /* a late look moves only the head */ }
-      // mineflayer prices its finish timer at the call from bot.entity.eyeHeight: the pose's eye (setPoseEye)
-      if (restoreEye) restoreEye()
-      restoreEye = setPoseEye(bot, botPose(bot, Vec3).pose)
       const cur = bot.blockAt(cellPos)
       const noDig = digGate({ aborted, block: cur?.name ?? null, want: plan.name, held: bot.heldItem?.name ?? null, priced: held?.name ?? null,
                               pos: bot.entity.position, fx, fy, fz })
@@ -515,7 +524,8 @@ export async function airPocketStep (bot, plan, { Vec3, predict, sleep = ms => n
       digging = true
       try {
         await Promise.race([
-          bot.dig(cur, 'ignore'),
+          // mineflayer prices its finish timer synchronously inside this call from bot.entity.eyeHeight: the pose's eye
+          withPoseEye(bot, botPose(bot, Vec3).pose, () => bot.dig(cur, 'ignore')),
           new Promise((_, rej) => { timer = setTimeout(() => { try { bot.stopDigging?.() } catch {} rej(new Error(`dig exceeded ${Math.round(deadline)} ms`)) }, deadline) }),
         ])
       } catch (e) { res.why = aborted ?? `dig failed: ${String(e?.message ?? e).slice(0, 60)}`; res.outcome = aborted ? 'aborted' : (attempt > 0 && cellOpen() ? 'opened' : 'failed'); if (attempt > 0 && !aborted) res.refrozen = !cellOpen(); return res } finally { clearTimeout(timer); digging = false }
@@ -524,7 +534,8 @@ export async function airPocketStep (bot, plan, { Vec3, predict, sleep = ms => n
       try { bot.setControlState('jump', true) } catch { /* the rise */ }
       const after = bot.blockAt(cellPos)
       const opened = plan.kind === 'ice' ? (isWater(after) || isAir(after)) : isAir(after)
-      if (!opened) { res.why = `roof cell is ${after?.name ?? 'unknown'} after the dig`; return res }
+      // a RE-dig whose cell reads closed at once is the refreeze again: the short cooldown (Codex r2 P1)
+      if (!opened) { res.why = `roof cell is ${after?.name ?? 'unknown'} after the dig`; if (attempt > 0) res.refrozen = true; return res }
       // RISE AND CONFIRM: the pose-aware eye must reach air and stay there with no health drop (airPocketConfirmed)
       eyeInAirSince = null
       let refrozen = false
@@ -564,7 +575,6 @@ export async function airPocketStep (bot, plan, { Vec3, predict, sleep = ms => n
   } finally {
     if (watch) clearInterval(watch)
     try { bot.removeListener?.('health', onHealth) } catch { /* a fake */ }
-    if (restoreEye) restoreEye()
     // A failed or aborted step stops its own dig of the roof cell (Codex r1).
     const ours = () => !!bot.targetDigBlock?.position && (bot.targetDigBlock.position.equals?.(cellPos) ??
       (bot.targetDigBlock.position.x === cellPos.x && bot.targetDigBlock.position.y === cellPos.y && bot.targetDigBlock.position.z === cellPos.z))
