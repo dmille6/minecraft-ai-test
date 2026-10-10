@@ -164,9 +164,14 @@ export function envelopeBreached (samples = [], now = Date.now()) {
  */
 export function airPocketConfirmed ({ eyeInAirSince = null, now = Date.now(), samples = [], maxHealth = 20 }) {
   if (eyeInAirSince == null || now - eyeInAirSince < AP_CONFIRM_MS) return false
-  const since = samples.filter(s => s.t >= eyeInAirSince && typeof s.hp === 'number')
+  let since = samples.filter(s => s.t >= eyeInAirSince && typeof s.hp === 'number')
+  // A DROP RESTARTS THE WINDOW (Claude r1 P2): one hit that lands in the lag after the eye reached air must not veto a
+  // real breath for good -- the window counts from the sample after the last drop, and must still be 2.5 s long
+  let start = eyeInAirSince
+  for (let i = 1; i < since.length; i++) if (since[i].hp < since[i - 1].hp) start = since[i].t
+  if (now - start < AP_CONFIRM_MS) return false
+  since = since.filter(s => s.t >= start)
   if (since.length < 2) return false
-  for (let i = 1; i < since.length; i++) if (since[i].hp < since[i - 1].hp) return false
   const first = since[0].hp, last = since[since.length - 1].hp
   return last > first || last >= maxHealth
 }
@@ -225,6 +230,41 @@ export function standsOn ({ y, block }) {
   if (!shapes.length) return false
   const top = Math.max(...shapes.map(sh => sh[4]))
   return Math.floor(y) + top <= y + 1e-6 && top < 1
+}
+
+/**
+ * THE SERVER'S OWN POSE, when it told us. Pure. The server syncs the player's `pose` entity datum (1.21.8 player
+ * metadata index 6: 0 standing, 3 swimming, 5 crouching) and mineflayer stores it in bot.entity.metadata (Claude r1:
+ * read the server's answer instead of modelling it). -> 'stand' | 'swim' | 'crouch' | null (unknown: use the model).
+ */
+export const POSE_IDS = Object.freeze({ 0: 'stand', 3: 'swim', 5: 'crouch' })
+export const POSE_EYE = Object.freeze({ stand: 1.62, crouch: 1.27, swim: 0.4 })
+export function serverPose ({ metadata, keys }) {
+  const i = Array.isArray(keys) ? keys.indexOf('pose') : -1
+  const v = i >= 0 && metadata ? metadata[i] : undefined
+  return (typeof v === 'number' && POSE_IDS[v]) || null
+}
+
+/** The pose and eye to act on: the server's pose when known, else the collision model. Impure (reads the bot). */
+export function botPose (bot, Vec3) {
+  const pos = bot.entity.position
+  const sp = serverPose({ metadata: bot.entity?.metadata, keys: bot.registry?.entitiesByName?.player?.metadataKeys })
+  if (sp) return { pose: sp, eyeY: pos.y + POSE_EYE[sp], eyeCell: Math.floor(pos.y + POSE_EYE[sp]), source: 'server' }
+  const pe = poseEye({ y: pos.y, collides: (y0, y1) => boxCollides({ px: pos.x, pz: pos.z, y0, y1, blockAt: v => bot.blockAt(v), Vec3 }) })
+  return { ...pe, source: 'model' }
+}
+
+/**
+ * PRICE AND DIG WITH THE POSE'S EYE (Claude r1 P1). mineflayer's dig timer (digTime -> _getBlockAtEyeLevel) and
+ * digbudget.digEnv decide "in water" from bot.entity.eyeHeight, which is 1.62 unless crouching. Under the ice trap that
+ * eye is in AIR, so the 5x submerged penalty was left out: admitted on a fifth of the server's time, mineflayer sends
+ * "finished" early, the server refuses, and the client shows ghost air (the very failure airpocket-01 fixed for floating).
+ * So the eye height is set to the pose's eye while the step prices and digs, and restored after. -> the restore function.
+ */
+export function setPoseEye (bot, pose) {
+  const before = bot.entity?.eyeHeight
+  try { if (bot.entity && POSE_EYE[pose] != null) bot.entity.eyeHeight = POSE_EYE[pose] } catch { /* a fake */ }
+  return () => { try { if (bot.entity && before != null) bot.entity.eyeHeight = before } catch { /* a fake */ } }
 }
 
 /**
@@ -380,6 +420,7 @@ export async function airPocketStep (bot, plan, { Vec3, predict, sleep = ms => n
   const budgetLeft = () => airPocketBudgetMs({ health: bot.health, envelope }) - (AP_LATENCY_MS / 2)
   let aborted = null
   let watch = null
+  let restoreEye = null
   let digging = false
   try {
     const block = bot.blockAt(cellPos)
@@ -407,7 +448,9 @@ export async function airPocketStep (bot, plan, { Vec3, predict, sleep = ms => n
       try { await Promise.race([bot.equip(best.item, 'hand'), new Promise((_, rej) => { t = setTimeout(() => rej(new Error('equip timeout')), AP_EQUIP_MS) })]) } catch { /* verified below */ } finally { clearTimeout(t) }
     }
     const held = bot.heldItem ?? null
+    const eyeBack = setPoseEye(bot, botPose(bot, Vec3).pose)
     const heldMs = predict(block, best.item && held?.name === best.item.name ? best.item : held)
+    eyeBack()
     res.tool = held?.name ?? 'hand'
     res.predictedMs = Number.isFinite(heldMs) ? Math.round(heldMs) : null
     if (!(Number.isFinite(heldMs) && heldMs > 0) || heldMs * AP_MARGIN + AP_LATENCY_MS > airPocketBudgetMs({ health: bot.health, envelope })) {
@@ -432,7 +475,7 @@ export async function airPocketStep (bot, plan, { Vec3, predict, sleep = ms => n
     // THE EYE, POSE-AWARE (airpocket-02): the client's +1.62 eye is wrong whenever the standing box does not fit
     const eyeNow = () => {
       const pos = bot.entity.position
-      const pe = poseEye({ y: pos.y, collides: (y0, y1) => boxCollides({ px: pos.x, pz: pos.z, y0, y1, blockAt: v => bot.blockAt(v), Vec3 }) })
+      const pe = botPose(bot, Vec3)
       return { ...pe, block: bot.blockAt(new Vec3(Math.floor(pos.x), pe.eyeCell, Math.floor(pos.z))) }
     }
     res.redigs = 0
@@ -445,7 +488,9 @@ export async function airPocketStep (bot, plan, { Vec3, predict, sleep = ms => n
       if (attempt > 0) {
         res.redigs = attempt
         // RE-PRICED AND RE-ADMITTED (Codex r1 P1): the first dig may have been standing; a re-dig floats
+        const reBack = setPoseEye(bot, botPose(bot, Vec3).pose)
         const reMs = predict(bot.blockAt(cellPos), bot.heldItem ?? null)
+        reBack()
         if (!(Number.isFinite(reMs) && reMs > 0) || reMs * AP_MARGIN + AP_LATENCY_MS > airPocketBudgetMs({ health: bot.health, envelope })) {
           res.why = `the cell re-formed; a re-dig needs ${Number.isFinite(reMs) ? Math.round(reMs) : reMs} ms: over the budget`
           res.outcome = 'failed'; res.refrozen = true; return res
@@ -457,6 +502,9 @@ export async function airPocketStep (bot, plan, { Vec3, predict, sleep = ms => n
       // preconditions are re-checked synchronously (`digGate`), and the dig is sent with forceLook 'ignore', which writes
       // start-dig inside the call with no await before it (the face sent is mineflayer's default either way).
       try { await Promise.race([bot.lookAt(cellPos.offset(0.5, 0, 0.5), true), sleep(500)]) } catch { /* a late look moves only the head */ }
+      // mineflayer prices its finish timer at the call from bot.entity.eyeHeight: the pose's eye (setPoseEye)
+      if (restoreEye) restoreEye()
+      restoreEye = setPoseEye(bot, botPose(bot, Vec3).pose)
       const cur = bot.blockAt(cellPos)
       const noDig = digGate({ aborted, block: cur?.name ?? null, want: plan.name, held: bot.heldItem?.name ?? null, priced: held?.name ?? null,
                               pos: bot.entity.position, fx, fy, fz })
@@ -516,6 +564,7 @@ export async function airPocketStep (bot, plan, { Vec3, predict, sleep = ms => n
   } finally {
     if (watch) clearInterval(watch)
     try { bot.removeListener?.('health', onHealth) } catch { /* a fake */ }
+    if (restoreEye) restoreEye()
     // A failed or aborted step stops its own dig of the roof cell (Codex r1).
     const ours = () => !!bot.targetDigBlock?.position && (bot.targetDigBlock.position.equals?.(cellPos) ??
       (bot.targetDigBlock.position.x === cellPos.x && bot.targetDigBlock.position.y === cellPos.y && bot.targetDigBlock.position.z === cellPos.z))
