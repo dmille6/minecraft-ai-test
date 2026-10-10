@@ -17,7 +17,7 @@ import { airPocketInputs, airPocketAfter, airPocketPreempt, AP_FAIL_COOLDOWN_MS 
 import { airPocketPlan, airPocketEnvelope, airPocketAdmit, airPocketBudgetMs, envelopeBreached, airPocketConfirmed,
          airPocketTrigger, pickFastestTool, airPocketStep, airPocketDetail, AP_TRIGGER_AFTER_MS,
          standGate, standInPocket, digGate, standRef, standCandidates, airPocketRow, AP_ROW_MAX,
-         poseEye, planBaseY, routeUpBlocked, AP_REDIG_MAX, boxCollides, standsOn } from '../src/airpocket.mjs'
+         poseEye, planBaseY, routeUpBlocked, AP_REDIG_MAX, boxCollides, standsOn, serverPose, botPose } from '../src/airpocket.mjs'
 
 let pass = 0, fail = 0
 const t = (name, fn) => Promise.resolve()
@@ -787,6 +787,45 @@ await t('AP2-S7 health EVENTS are sampled: a hit and a heal between two 250-ms p
   assert.equal(r.ok, false); assert.equal(r.outcome, 'opened')
 })
 
+
+// T. airpocket-02 round 1 (Claude): the server's pose, the dig priced with the pose's eye, a drop restarts the window
+await t('AP2-T1 serverPose reads the player pose datum (index 6): 3 swim, 5 crouch, 0 stand; anything else is unknown', () => {
+  const keys = ['shared_flags', 'air_supply', 'custom_name', 'custom_name_visible', 'silent', 'no_gravity', 'pose']
+  const md = v => { const a = []; a[6] = v; return a }
+  assert.equal(serverPose({ metadata: md(3), keys }), 'swim'); assert.equal(serverPose({ metadata: md(5), keys }), 'crouch')
+  assert.equal(serverPose({ metadata: md(0), keys }), 'stand'); assert.equal(serverPose({ metadata: md(2), keys }), null)
+  assert.equal(serverPose({ metadata: [], keys }), null); assert.equal(serverPose({ metadata: md(3), keys: [] }), null)
+})
+await t('AP2-T2 botPose prefers the server: a SWIMMING datum under no modelled ceiling gives eye y+0.4; no datum -> the model', () => {
+  const bot = fakeBot({ cells: { ...TRAP, '0,2,0': 'water' } }); clearInterval(bot._healthTimer)
+  bot.entity.position = new V(100.5, 61.395, 100.5)
+  bot.registry = { entitiesByName: { player: { metadataKeys: ['a', 'b', 'c', 'd', 'e', 'f', 'pose'] } } }
+  const md = []; md[6] = 3; bot.entity.metadata = md
+  const sv = botPose(bot, V); assert.equal(sv.source, 'server'); assert.equal(sv.pose, 'swim'); assert.equal(sv.eyeCell, 61)
+  bot.entity.metadata = []
+  const mo = botPose(bot, V); assert.equal(mo.source, 'model'); assert.equal(mo.pose, 'stand')
+})
+await t('AP2-T3 THE DIG IS PRICED WITH THE POSE\'S EYE: under the trap bot.entity.eyeHeight is 0.4 at the dig call and restored after', async () => {
+  const bot = fakeBot({ cells: TRAP, riseTo: 1.4 }); bot.entity.position = new V(100.5, 61.395, 100.5); bot.entity.eyeHeight = 1.62
+  let atDig = null; const dig0 = bot.dig; bot.dig = (blk, fl) => { atDig = bot.entity.eyeHeight; return dig0(blk, fl) }
+  let atPrice = []
+  const plan = { ...airPocketPlan(world({ '0,0,0': 'water', '0,1,0': 'water', '0,2,0': 'ice', '0,3,0': 'air' })), baseY: 60 }
+  const r = await airPocketStep(bot, plan, deps({ predict: (b, item) => { atPrice.push(bot.entity.eyeHeight); return 300 } })); clearInterval(bot._healthTimer)
+  assert.equal(r.ok, true, r.why); assert.equal(atDig, 0.4); assert.ok(atPrice.includes(0.4), JSON.stringify(atPrice)); assert.equal(bot.entity.eyeHeight, 1.62)
+  await withMutant(AP_PATH, '      restoreEye = setPoseEye(bot, botPose(bot, Vec3).pose)\n', '', async m => {
+    const b = fakeBot({ cells: TRAP, riseTo: 1.4 }); b.entity.position = new V(100.5, 61.395, 100.5); b.entity.eyeHeight = 1.62
+    let at = null; const d0 = b.dig; b.dig = (blk, fl) => { at = b.entity.eyeHeight; return d0(blk, fl) }
+    await m.airPocketStep(b, plan, deps()); clearInterval(b._healthTimer)
+    assert.equal(at, 1.62)
+  })
+})
+await t('AP2-T4 one drowning hit in the lag after the eye reached air RESTARTS the window; a clean 2.5 s after it confirms', () => {
+  // eye in air at 0; a hit at 250 ms; clean from there: confirmed only once 2.5 s have passed since the hit
+  const sv = [{ t: 0, hp: 18 }, { t: 250, hp: 16 }, ...Array.from({ length: 12 }, (_, i) => ({ t: 500 + i * 250, hp: 16 + (i > 6 ? 0.5 : 0) }))]
+  assert.equal(airPocketConfirmed({ eyeInAirSince: 0, now: 2600, samples: sv.filter(x => x.t <= 2600) }), false)
+  assert.equal(airPocketConfirmed({ eyeInAirSince: 0, now: 3300, samples: sv.filter(x => x.t <= 3300) }), true)
+})
+
 // ---------------------------------------------------------------- I. the world's inputs, read the way 1.21.8 needs
 await t('I1 difficulty comes from the server packet (bot.serverDifficulty): mineflayer game.difficulty is undefined on 1.21.8', () => {
   const real = { serverDifficulty: 'peaceful', game: { difficulty: undefined }, registry: { effectsByName: { Hunger: { id: 16 } } }, entity: { effects: {} } }
@@ -951,7 +990,7 @@ function wiring (src) {
                /airPocketWants = Date\.now\(\)\s*try \{ if \(bot\.targetDigBlock\) bot\.stopDigging\(\) \}/.test(code) &&
                (code.match(/\(\) => ownsBody\(\(\) => (entombedGrant|maroonGrant)\)\(\) && !airPocketWanted\(\)/g) || []).length === 2 &&
                /if \(ub\.blocked\) \{\s*apRoute = \{ \.\.\.route, dir: 'upblocked', sealed: false \}; apBlockedBy = ub\.by/.test(code) &&
-               /const fy = planBaseY\(\{ y: at\.y, pose: pe\.pose, eyeY: pe\.eyeY \}\)/.test(code) && /, \{ pose: pe\.pose, feetSupport \}\)/.test(code) && /, Date\.now\(\), \{ refrozen: r\.refrozen === true \}\)/.test(code) &&
+               /const fy = planBaseY\(\{ y: at\.y, pose: pe\.pose, eyeY: pe\.eyeY \}\)/.test(code) && /, \{ pose: pe\.pose, feetSupport \}\)/.test(code) && /, Date\.now\(\), \{ refrozen: r\.refrozen === true \}\)/.test(code) && /const eyeBack = setPoseEye\(bot, pe\.pose\)/.test(code) &&
                /heldMs: Date\.now\(\) - seizedAt, msSinceClosing: Date\.now\(\) - lastClosingAt,\s*stepWouldRun/.test(code) }
 }
 await t('G1 wiring: the tick returns while the step runs; the rescue asks the trigger before steering; success clears the fail memory', () => {
@@ -993,6 +1032,7 @@ for (const [name, old, neu] of [
   ['the upblocked route', "apRoute = { ...route, dir: 'upblocked', sealed: false }; apBlockedBy = ub.by", 'apBlockedBy = ub.by'],
   ['the pose-aware plan base', 'const fy = planBaseY({ y: at.y, pose: pe.pose, eyeY: pe.eyeY })', 'const fy = Math.floor(at.y)'],
   ['the pose passed to the plan', ', { pose: pe.pose, feetSupport })', ')'],
+  ['the admission priced with the pose eye', 'const eyeBack = setPoseEye(bot, pe.pose)', 'const eyeBack = () => {}'],
   ['the refrozen short cooldown', ', Date.now(), { refrozen: r.refrozen === true })', ')'],
   ['the pre-empt clocks', 'heldMs: Date.now() - seizedAt, msSinceClosing: Date.now() - lastClosingAt,\n', ''],
 ]) {
@@ -1029,7 +1069,7 @@ await t('H6 MUTANT KILLED: "health not falling" as success accepts flat health (
     assert.equal(m.airPocketConfirmed({ eyeInAirSince: 0, now: 2600, samples: ser(18, 18, 18, 18, 18, 18, 18, 18, 18, 18, 18) }), true)
   }))
 await t('H6b MUTANT KILLED: dropping the no-drop rule accepts the drowning flicker (D2 catches it)', () =>
-  withMutant(AP_PATH, '  for (let i = 1; i < since.length; i++) if (since[i].hp < since[i - 1].hp) return false\n', '', m => {
+  withMutant(AP_PATH, '  for (let i = 1; i < since.length; i++) if (since[i].hp < since[i - 1].hp) start = since[i].t\n', '', m => {
     assert.equal(m.airPocketConfirmed({ eyeInAirSince: 0, now: 2600, samples: ser(18, 18, 20, 20, 18, 18, 20, 20, 18, 18, 20) }), true)
   }))
 await t('H7 MUTANT KILLED: dropping the up-route exclusion digs during a working swim (E1 catches it)', () =>
