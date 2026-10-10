@@ -96,7 +96,7 @@ def verdict_cases(verdict_py, tmp):
     v, h, a = run(pools='board-b,hive-a,board-b,hive-a')
     c('four names but two distinct pools -> NOT_YET', v == 'NOT_YET' and '2 distinct pools' in h, h)
     v, h, a = run(pools='board-b,hive-a')
-    c('two pools -> NOT_YET at +180 (today\'s rule)', v == 'NOT_YET' and 'drawn at 2 pools' in h, h)
+    c('two pools -> NOT_YET at +180 (today\'s rule)', v == 'NOT_YET' and 'drawn at 2 distinct pools' in h, h)
     v, h, a = run(deaths=(1, 60.0, 0, 300.0))
     c('canary death rate above control (1 death, below the floor) -> NOT_YET', v == 'NOT_YET' and 'above the control' in h, h)
     v, h, a = run(v15c='WATCH: blocks moved/bh')
@@ -155,10 +155,9 @@ if __name__ == '__main__':
     _ctl = verdict_cases(os.path.join(_cd, 'verdict.py'), tmp) if VB else []
     if VB:
         t('mutant runner control: the UNMUTATED copies pass every verdict case (%d)' % len(_ctl), _ctl and all(ok for _n, ok, _d in _ctl))
-    VB = VB and _ctl
     for n, ok, d in VB:
         t(n, ok, d)
-    VB_OK = bool(VB) and all(ok for _n, ok, _d in VB)
+    VB_OK = bool(VB) and all(ok for _n, ok, _d in VB) and bool(_ctl) and all(ok for _n, ok, _d in _ctl)
     print('\nmutants (copies; anchors present and unique; scored after the unmutated copies pass):')
     for fname, name, old, new in MUTANTS:
         src = open(os.path.join(HERE, fname)).read()

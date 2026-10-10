@@ -6,13 +6,22 @@
 # death rate is <= the control's; otherwise +360 as before (docs/reports/keep180-2026-10-08.md).
 #   ~/verdict.py                      the A' branch before section 9's NOT_YET; bag metric reported at a bag-fix KEEP;
 #                                     VERDICT_MODULE_DIR (tests/staging only) put first on sys.path
-#   ~/mcai-analysis/bagfixrule.py     keep_early + death_rate_ok (pure; in the bundle)
+#   ~/mcai-analysis/bagfixrule.py     keep_early + death_rate_ok (pure; in the bundle); THREE-POOL rules below
+# and THROUGHPUT (OPERATOR + CODEX 2026-10-10, owner's delegation; docs/reports/threepool-2026-10-10.md):
+#   ~/mcai-analysis/bagfixrule.py     extend_min/bands by pool count (4: 1440, -3.21/-0.127; 3: 1920, -4.09/-0.173),
+#                                     three_pool_ok, draw_decision (pure)
+#   ~/mcai-analysis/bagfixgate.py     draw-decide and ext-min CLIs; extend-check/poll/final follow the pool count
+#   ~/canary-loop.sh                  the bag-fix draw acts on draw-decide (three pools after > 1 h blocked solely by
+#                                     the four-pool minimum; never two); EXTMIN/EXTDL from ext-min
+#   ~/mcai-analysis/drawrec.sh        subtracts drawsteady's 6-h release from the 12-h ledger exclusion
+#   ~/mcai-analysis/drawsteady.py     NEW: the 6-h release for steady KEEP+promoted pools (fail closed: 12 h)
 # and RE-REGISTERS the gate bundle digest in ~/digest/RULES-IN-FORCE.md. Everything else must equal the live files.
 #
 # STAGE FIRST (from the repo, on the Mac, at the commit being installed):
 #   ssh mike@10.0.0.31 'mkdir -p ~/gate-v35'
-#   scp scripts/{verdict.py,bagfixrule.py,usaferule.py,usafegate.py,bagfixgate.py,changerowcheck.py,deathgate.py,\
-#       test_keep180.py,test_usafe.py,test_bagfix.py,test_changerowcheck.py,test_verdict_acceptance.py} scripts/host/{canary-loop.sh,\
+#   scp scripts/{verdict.py,bagfixrule.py,usaferule.py,usafegate.py,bagfixgate.py,changerowcheck.py,deathgate.py,drawsteady.py,\
+#       test_keep180.py,test_usafe.py,test_bagfix.py,test_changerowcheck.py,test_verdict_acceptance.py,test_holdtoken.py,\
+#       test_threepool.py} scripts/host/{canary-loop.sh,drawrec.sh,bagread.py,holdtoken.py,test_bagfix_loop.py,\
 #       canarywatch.py,install-gate-v35.sh,v35-rules-paragraph.md,ugsafe2_value.py} \
 #       docs/reports/airpocket-01.{ee21207,dbb4d78}.json mike@10.0.0.31:gate-v35/
 # THEN:  bash ~/gate-v35/install-gate-v35.sh --dry-run     (touches nothing live; prints the predicted digest)
@@ -30,21 +39,29 @@ say() { echo "== $*"; }; die() { echo "REFUSED: $*"; exit 2; }
 declare -A TGT=(
   [verdict.py]=$H/verdict.py
   [bagfixrule.py]=$H/mcai-analysis/bagfixrule.py
+  [bagfixgate.py]=$H/mcai-analysis/bagfixgate.py
+  [canary-loop.sh]=$H/canary-loop.sh
+  [drawrec.sh]=$H/mcai-analysis/drawrec.sh
+  [drawsteady.py]=$H/mcai-analysis/drawsteady.py
 )
 # THE BASE these were built against (round 1, Claude): a live file that has moved since is not overwritten blind.
 # v34 as installed 10-08 07:26Z (bundle 97abe762).
 declare -A BASE=(
   [verdict.py]=9dfdac6d6d639ff186ffc91b11ce3f10
   [bagfixrule.py]=1560c53ec9ffb4d3cea5cd8b64e5c2ea
+  [bagfixgate.py]=e8291c15632f660fa5af4d74689a1113
+  [canary-loop.sh]=4a0d3670499cefabdd11ebb51260002f
+  [drawrec.sh]=c95a981192b633735c9ec01c5c4cfb7b
+  [drawsteady.py]=ABSENT
 )
 REGS=""
 # unchanged by v35; staged only so the tests can run, and must equal the live files
-SAME="usaferule.py:$H/mcai-analysis/usaferule.py usafegate.py:$H/mcai-analysis/usafegate.py bagfixgate.py:$H/mcai-analysis/bagfixgate.py changerowcheck.py:$H/mcai-analysis/changerowcheck.py canarywatch.py:$H/canarywatch.py deathgate.py:$H/mcai-analysis/deathgate.py canary-loop.sh:$H/canary-loop.sh"
+SAME="usaferule.py:$H/mcai-analysis/usaferule.py usafegate.py:$H/mcai-analysis/usafegate.py changerowcheck.py:$H/mcai-analysis/changerowcheck.py canarywatch.py:$H/canarywatch.py deathgate.py:$H/mcai-analysis/deathgate.py bagread.py:$H/mcai-analysis/bagread.py"
 
 say "1. nothing may be running"
-for f in "${!TGT[@]}" usaferule.py usafegate.py bagfixgate.py changerowcheck.py canarywatch.py deathgate.py canary-loop.sh \
+for f in "${!TGT[@]}" usaferule.py usafegate.py changerowcheck.py canarywatch.py deathgate.py bagread.py test_threepool.py test_bagfix_loop.py \
          test_keep180.py test_usafe.py test_bagfix.py test_changerowcheck.py test_verdict_acceptance.py v35-rules-paragraph.md \
-         ugsafe2_value.py airpocket-01.ee21207.json airpocket-01.dbb4d78.json; do
+         ugsafe2_value.py holdtoken.py test_holdtoken.py airpocket-01.ee21207.json airpocket-01.dbb4d78.json; do
   [ -f "$S/$f" ] || die "staged file missing: $S/$f"
 done
 for pair in $SAME; do cmp -s "$S/${pair%%:*}" "${pair#*:}" || die "staged ${pair%%:*} differs from the live ${pair#*:} (v35 does not change it)"; done
@@ -67,7 +84,7 @@ done
 # verdict.py import every module that ALSO exists there from the LIVE copy. Each staged module present live must therefore
 # equal it, or the tests passed on code that is not the code being installed.
 for f in "$S"/*.py; do
-  b=$(basename "$f"); case "$b" in verdict.py|bagfixrule.py|test_*.py|ugsafe2_value.py) continue;; esac   # targets: tested via VERDICT_MODULE_DIR
+  b=$(basename "$f"); case "$b" in verdict.py|bagfixrule.py|bagfixgate.py|drawsteady.py|test_*.py|ugsafe2_value.py|holdtoken.py) continue;; esac   # targets: tested via VERDICT_MODULE_DIR
   [ ! -e "$H/mcai-analysis/$b" ] || cmp -s "$f" "$H/mcai-analysis/$b" || die "staged $b differs from ~/mcai-analysis/$b, which SHADOWS it in the staged verdict tests"
 done
 # THE SCHEDULER'S INSTALL-HOLD FIRST (round 1, Codex): no NEW launch while it exists, and canary-sched.py's own slot checks
@@ -76,9 +93,18 @@ done
 DROPINS=$(ls /etc/systemd/system/mcbot@*.service.d/10-canary.conf 2>/dev/null | head -4 | tr '\n' ' ')
 [ -z "$DROPINS" ] || { [ -n "$DRY" ] && echo "  (dry run) WOULD REFUSE: canary drop-ins present: $DROPINS" || die "canary drop-ins present: $DROPINS"; }
 [ -f $H/canary-sched.py ] || { [ -n "$DRY" ] && echo "  (dry run) WOULD REFUSE: $H/canary-sched.py missing (the install-hold is required)" || die "$H/canary-sched.py missing"; }
-if [ -z "$DRY" ]; then
-  HOLD=$(python3 $H/canary-sched.py install-hold install-gate-v35 45 2>&1); HRC=$?
-  trap 'python3 $H/canary-sched.py install-release >/dev/null 2>&1' EXIT
+# OWNERSHIP (round 2, Codex P1): canary-sched.py's install-hold overwrites any hold and its install-release deletes any
+# hold, so this installer never calls install-release. holdtoken.py CLAIMS the hold under the scheduler's tick lock
+# (refused if any hold exists) with a token unique to this run; the EXIT trap is armed only after that claim succeeds and
+# releases only a hold whose owner is still this token. install-hold then runs the slot checks under the same owner.
+if [ -n "$DRY" ]; then
+  HO=$(python3 $S/holdtoken.py owner 2>&1)
+  [ -z "$HO" ] || echo "  (dry run) WOULD REFUSE: an install-hold exists (owner $HO)"
+else
+  TOKEN="install-gate-v35:$$:$(date +%s%N)"
+  CL=$(python3 $S/holdtoken.py claim "$TOKEN" 45 2>&1) || die "install-hold not claimed: $(echo "$CL" | tr '\n' ' ' | cut -c1-300)"
+  trap 'python3 $S/holdtoken.py release "$TOKEN" >/dev/null 2>&1' EXIT
+  HOLD=$(python3 $H/canary-sched.py install-hold "$TOKEN" 45 2>&1); HRC=$?
   [ $HRC -eq 0 ] || die "canary-sched.py install-hold: the slot is not free: $(echo "$HOLD" | tr '\n' ' ' | cut -c1-500)"
   echo "  $(echo "$HOLD" | tail -1 | cut -c1-200)"
 fi
@@ -128,7 +154,16 @@ echo "  test_usafe: $(tail -1 test_usafe.out)"
 python3 test_keep180.py > test_keep180.out 2>&1 || die "test_keep180.py failed: $(grep -E '^FAIL|pass' test_keep180.out | tail -5)"
 grep -q "SKIPPED" test_keep180.out && die "test_keep180.py SKIPPED a section on the host: $(grep SKIPPED test_keep180.out)"
 echo "  test_keep180: $(tail -1 test_keep180.out)"
+python3 test_holdtoken.py > test_holdtoken.out 2>&1 || die "test_holdtoken.py failed: $(grep -E '^FAIL|pass' test_holdtoken.out | tail -5)"
+echo "  test_holdtoken: $(tail -1 test_holdtoken.out)"
+python3 test_threepool.py > test_threepool.out 2>&1 || die "test_threepool.py failed: $(grep -E '^FAIL|pass' test_threepool.out | tail -5)"
+grep -q "SKIPPED" test_threepool.out && die "test_threepool.py SKIPPED a section on the host: $(grep SKIPPED test_threepool.out)"
+echo "  test_threepool: $(tail -1 test_threepool.out)"
+python3 test_bagfix_loop.py > test_bagfix_loop.out 2>&1 || die "test_bagfix_loop.py failed: $(grep -E '^FAIL|pass' test_bagfix_loop.out | tail -5)"
+echo "  test_bagfix_loop: $(tail -1 test_bagfix_loop.out)"
 bash -n canary-loop.sh || die "canary-loop.sh does not parse"
+bash -n drawrec.sh || die "drawrec.sh does not parse"
+grep -qE '^TARGET_K = 4$' drawrec.sh && grep -qE '^MIN_K = 2$' drawrec.sh || die "staged drawrec.sh changed TARGET_K/MIN_K (v35 does not)"
 RD=$(mktemp -d); cp airpocket-01.ee21207.json airpocket-01.dbb4d78.json "$RD"/
 for r in airpocket-01.ee21207 airpocket-01.dbb4d78; do
   USAFE_REG_DIR=$RD python3 usafegate.py check-registration $r | grep -q '^USAFE OK' || die "$r.json does not pass check-registration"
@@ -153,7 +188,7 @@ import hashlib, sys
 S, H, arms = sys.argv[1:4]
 m = lambda p: hashlib.md5(open(p, 'rb').read()).hexdigest()
 parts = {'verdict.py': m(S + '/verdict.py'), 'usaferule.py': m(H + '/mcai-analysis/usaferule.py'), 'usafegate.py': m(H + '/mcai-analysis/usafegate.py'),
-         'bagfixrule.py': m(S + '/bagfixrule.py'), 'bagfixgate.py': m(H + '/mcai-analysis/bagfixgate.py'),
+         'bagfixrule.py': m(S + '/bagfixrule.py'), 'bagfixgate.py': m(S + '/bagfixgate.py'),
          'changerowcheck.py': m(H + '/mcai-analysis/changerowcheck.py'), 'deathgate.py': m(H + '/mcai-analysis/deathgate.py'),
          'singledeath.py': m(H + '/mcai-analysis/singledeath.py'), 'arms.py': arms}
 inner = ' '.join('%s=%s' % p for p in sorted(parts.items()))
@@ -263,6 +298,7 @@ for f in "${!TGT[@]}"; do
   fi
   cp "$S/$f" "$t.new-v35" && cmp -s "$S/$f" "$t.new-v35" || { rm -f "$t.new-v35"; die "staging $t.new-v35 failed; nothing installed"; }
   [ "$f" = canary-loop.sh ] && chmod 755 "$t.new-v35"
+  [ -n "${EXISTED[$f]:-}" ] && [ "$f" != canary-loop.sh ] && chmod --reference="$t" "$t.new-v35"
 done
 cp -p "$RULES" "$RULES.bak-v35-$STAMP" && cmp -s "$RULES" "$RULES.bak-v35-$STAMP" || die "backup of $RULES failed; nothing installed"
 _rollback() {

@@ -609,7 +609,7 @@ MUTANTS = [
     ('bagfixgate.py', 'final accepts a short read', "    if now() < end:", "    if False:"),
     ('bagfixgate.py', 'own-kind needles never match', """    needles = ['"name":"%s"' % k for k in kinds]""", """    needles = ['"name":"#%s"' % k for k in kinds]"""),
     ('bagfixgate.py', 'value lost in deaths dropped', "x['vl'] += vl", "x['vl'] += 0"),
-    ('bagfixgate.py', 'primary read at any minute', 'p = os.path.join(READS, f"{run}-{spec[\'read\']}-{BR.EXTEND_MIN}.json")',
+    ('bagfixgate.py', 'primary read at any minute', 'p = os.path.join(READS, f"{run}-{spec[\'read\']}-{E}.json")',
      'p = sorted(glob.glob(os.path.join(READS, f"{run}-{spec[\'read\']}-*.json")))[-1]'),
     # verdict.py's v33 half (run only where its lib resolves: the host)
     ('verdict.py', 'guards never marked evaluated', "_GUARDS = True\n# 8. own lines", "_GUARDS = False\n# 8. own lines"),

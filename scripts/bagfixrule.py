@@ -251,6 +251,98 @@ NEXT_SLOT = 'underground-safety'
 NET_P025 = -3.21             # log-eq per bot-h   (p50 +0.65, p97.5 +3.28)
 IRON_P025 = -0.127           # ingot-eq per bot-h (p50 +0.013, p97.5 +0.153)
 
+# ---------------------------------------------------------------------------------------------------------
+# THREE-POOL BAG FIXES (OPERATOR + CODEX 2026-10-10, under the owner's delegation; the owner wants throughput).
+# docs/reports/threepool-2026-10-10.md. Four-pool bag fixes starved: two recent four-pool canaries held 8 pools in their
+# 12-h exclusion, and the band + exposure filters left 2-3, so peacefulkit-01 looped on "draw-short" for hours.
+#   * a bag fix may deploy on THREE pools once its draw has been blocked for > THREE_POOL_AFTER_MIN solely by the
+#     four-pool minimum (three_pool_ok, on the run's own journal). Never two.
+#   * a three-pool run's v33 extension reads to +1920 (24 h x 4/3: the same ~480 nominal bot-h as 20 bots x 24 h),
+#     and its (c) bands are the empirical null at 3 pools x 32 h POST vs 32 h PRE, on the same data, code and seed as
+#     the four-pool bands (scripts/host/bagband3.py, which first reproduces -3.21 / -0.127 exactly).
+#     n = 102 overlapping draws, so the 2.5th percentile is the 3rd-lowest draw: a wide, noisy band, and wider than
+#     the four-pool one (-4.09 vs -3.21) -- (c) is less sensitive on three pools. That is the price of the third pool,
+#     stated rather than hidden.
+#   * MIN_EXPOSURE_BH (400) is unchanged and is checked at the final read, so a three-pool run that never reaches
+#     ~400 canary bot-h closes INCONCLUSIVE, never KEEP. Every safety and stopping criterion is unchanged.
+EXTEND_MIN_BY_POOLS = {4: EXTEND_MIN, 3: 1920}
+BANDS_BY_POOLS = {4: (NET_P025, IRON_P025), 3: (-4.09, -0.173)}   # 3 x 32 h: net p50 +0.24 p97.5 +4.16; iron p50 +0.000 p97.5 +0.161
+THREE_POOL_AFTER_MIN = 60    # "blocked for > 1 h solely by the four-pool minimum"
+THREE_POOL_GAP_MIN = 45      # draws run every 20 min: a longer silence is not continuous blocking
+
+
+def n_pools(man):
+    """Distinct, stripped, non-empty canary_pool names of a manifest."""
+    return len({p.strip() for p in str((man or {}).get('canary_pool') or '').split(',') if p.strip()})
+
+
+def extend_min(n):
+    """The extension's read minute for a bag fix drawn at n pools; None = no calibrated extension (fail closed)."""
+    return EXTEND_MIN_BY_POOLS.get(n)
+
+
+def bands(n):
+    """(net p2.5, iron p2.5) for (c) at n pools; None = uncalibrated (fail closed)."""
+    return BANDS_BY_POOLS.get(n)
+
+
+def _jts(r):
+    import datetime as _dt
+    try:
+        return _dt.datetime.fromisoformat(str(r.get('ts')).replace('Z', '+00:00'))
+    except Exception:
+        return None
+
+
+def three_pool_ok(rows, now):
+    """PURE. May THIS draw of three pools deploy? -> (ok, why). `rows` are the run's own journal rows in order.
+
+    The clock is the current streak of `draw-short` rows (a draw refused ONLY because it had fewer than four pools).
+    The streak is broken by a `draw` row (a loop (re)start, or a draw where the band gave fewer than two pools -- the
+    loop journals those as `draw`, so blocking by the band itself never counts), and by a silence longer than
+    THREE_POOL_GAP_MIN between consecutive draw rows. Three pools are allowed only when the streak began more than
+    THREE_POOL_AFTER_MIN ago. Unreadable timestamps break the streak (fail closed)."""
+    start = last = None
+    for r in rows or []:
+        ph = r.get('phase')
+        if ph not in ('draw', 'draw-short'):
+            continue
+        t = _jts(r)
+        if ph == 'draw' or t is None or (last is not None and (t - last).total_seconds() > THREE_POOL_GAP_MIN * 60):
+            start = None
+        if ph == 'draw-short' and t is not None:
+            start = start or t
+        last = t
+    if start is None:
+        return False, 'no unbroken streak of four-pool-minimum refusals'
+    if last is not None and (now - last).total_seconds() > THREE_POOL_GAP_MIN * 60:
+        return False, 'the last short draw was %.0f min ago: not continuous blocking' % ((now - last).total_seconds() / 60)
+    blocked = (now - start).total_seconds() / 60
+    if blocked > THREE_POOL_AFTER_MIN:
+        return True, ('blocked %.0f min (> %d) solely by the four-pool minimum since %s: THREE pools allowed (operator + '
+                      'Codex 10-10); extension window +%d, (c) bands %s'
+                      % (blocked, THREE_POOL_AFTER_MIN, start.strftime('%H:%M:%SZ'), extend_min(3), bands(3)))
+    return False, 'blocked %.0f min of the %d required' % (blocked, THREE_POOL_AFTER_MIN)
+
+
+def draw_decision(pools, rows, now):
+    """PURE. A bag fix's draw. `pools` = drawrec's pick (a comma string or a list); `rows` = the run's journal rows.
+    -> ('DEPLOY' | 'SHORT' | 'NONE', why). DEPLOY at >= MIN_POOLS distinct pools, or at exactly three when
+    three_pool_ok; SHORT at two, or three without it; NONE below two (the loop journals that as `draw`, which breaks
+    the three-pool streak). Never two."""
+    ps = pools.split(',') if isinstance(pools, str) else list(pools or [])
+    n = len({p.strip() for p in ps if p and p.strip()})
+    if n < 2:
+        return 'NONE', 'the band gave fewer than two pools (the three-pool clock restarts)'
+    if n >= MIN_POOLS:
+        return 'DEPLOY', '%d pools' % n
+    if n == 3:
+        ok, why = three_pool_ok(rows, now)
+        if ok:
+            return 'DEPLOY', why
+        return 'SHORT', 'bag fix needs %d pools (three after %d min blocked only by that): %s' % (MIN_POOLS, THREE_POOL_AFTER_MIN, why)
+    return 'SHORT', 'bag fix needs %d pools (never two); the band gave %d' % (MIN_POOLS, n)
+
 
 # ---------------------------------------------------------------------------------------------------------
 # KEEP AT +180, rule A' (OWNER DELEGATION 2026-10-08 to operator + Codex, who agreed: "Use A-prime exactly as
@@ -382,7 +474,7 @@ def ceiling_trips(cd, cbh, kd, kbh, lower_bound, ceiling=CEILING, floor=FLOOR):
     return lb > ceiling, lb
 
 
-def at_trip(reg, revert_by, m, gate_counts, ceiling):
+def at_trip(reg, revert_by, m, gate_counts, ceiling, ext_min=EXTEND_MIN):
     """PURE. The death gate has just returned REVERT. -> ('REVERT' | 'EXTEND', why).
 
     `revert_by` is the field verdict.py writes on its REVERT ('death_gate' only for the all-cause gate);
@@ -424,7 +516,7 @@ def at_trip(reg, revert_by, m, gate_counts, ceiling):
     if trips:
         return 'REVERT', '(b) at the trip: lower bound %.2fx > %.1fx with %d deaths' % (lb, CEILING, cd)
     return 'EXTEND', ('bag fix, all-cause gate tripped with 0 of %d deaths linked (own rows %d on %d bots) and lower '
-                      'bound %.2fx <= %.1fx: EXTEND to %d min (owner 10-07)' % (cd, own, bots, lb, CEILING, EXTEND_MIN))
+                      'bound %.2fx <= %.1fx: EXTEND to %d min (owner 10-07)' % (cd, own, bots, lb, CEILING, ext_min))
 
 
 def extended_poll(m, ceiling):

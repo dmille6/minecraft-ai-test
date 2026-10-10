@@ -269,13 +269,17 @@ def cmd_extend_check(run, M):
     if v.get('verdict') != 'REVERT' or v.get('run_id') != run or v.get('window_min') != M or not (0 <= age <= 15):
         return emit(run, 'extend', M, 'REVERT', 'verdict artifact is not a fresh REVERT for this run at +%d (%s, %.0f min '
                     'old): the gate stands' % (M, v.get('verdict'), age), {})
+    E = BR.extend_min(BR.n_pools(man))
+    if E is None:
+        return emit(run, 'extend', M, 'REVERT', 'drawn at %d distinct pools: no calibrated extension (only %s) -- the gate '
+                    'stands' % (BR.n_pools(man), sorted(BR.EXTEND_MIN_BY_POOLS)), {})
     ex = v.get('extra') or {}
     by = ex.get('by')
     gate = {k: ex.get(k) for k in ('cd', 'cbh', 'kd', 'kbh')} if 'cd' in ex else None
     can, ctl = membership(man)
     m = measure(can, ctl, declared(man), now(), own_kinds(reg))
     ceil = BR.ceiling_trips(m['cd'], m['cbh'], m['kd'], m['kbh'], ratio_lower_bound)
-    word, why = BR.at_trip(reg, by, m, gate, ceil)
+    word, why = BR.at_trip(reg, by, m, gate, ceil, ext_min=E)
     why += ' | ' + _summary(m, ceil[1]) + (' | gate counted %s' % gate if gate else '')
     return emit(run, 'extend', M, word, why, dict(m, by=by, gate=gate, lb=ceil[1], kinds=own_kinds(reg)))
 
@@ -296,7 +300,7 @@ def cmd_poll(run):
         return emit(run, 'poll', 0, 'UNREADABLE', 'no recorded bag-fix extension for %s: this poll does not apply' % run, {})
     m, ceil, (word, why) = poll_measure(reg, man, now())
     M = int((now() - declared(man)).total_seconds() // 60)
-    why += ' | +%d of %d min | %s' % (M, BR.EXTEND_MIN, _summary(m, ceil[1]))
+    why += ' | +%d of %s min | %s' % (M, BR.extend_min(BR.n_pools(man)), _summary(m, ceil[1]))
     return emit(run, 'poll', 0, word, why, dict(m, lb=ceil[1]))
 
 
@@ -357,19 +361,19 @@ def did(a, b, c, d, key):
     return (xs[0] - xs[1]) - (xs[2] - xs[3])
 
 
-def primary_at_final(run, reg, man):
+def primary_at_final(run, reg, man, E):
     """The registration's own bag metric from its read AT +1440 (run by the loop just before `final`), bound to this
     canary and fresh -- never a +360 file, never an unbound one. -> (moved True/False/None, why)."""
     spec = (reg.get('bag_fix') or {}).get('primary') if isinstance(reg.get('bag_fix'), dict) else None
     if not isinstance(spec, dict) or not spec.get('read'):
         return None, 'no bag_fix.primary registered'
-    p = os.path.join(READS, f"{run}-{spec['read']}-{BR.EXTEND_MIN}.json")
+    p = os.path.join(READS, f"{run}-{spec['read']}-{E}.json")
     try:
         o = json.load(open(p))
         age = (now() - dt.datetime.fromisoformat(o['emitted_at'])).total_seconds() / 60
     except Exception as e:
         return None, 'primary evidence %s unreadable (%s)' % (p, type(e).__name__)
-    ok, why = BR.evidence_bound(o, reg, man, BR.EXTEND_MIN, age)
+    ok, why = BR.evidence_bound(o, reg, man, E, age)
     if not ok:
         return None, 'primary evidence not usable: ' + why
     moved = BR.primary_moved(o['fields'], spec)
@@ -383,11 +387,17 @@ def cmd_final(run):
         return emit(run, 'final', BR.EXTEND_MIN, 'INCONCLUSIVE', b, {})
     if not BR.is_bag_fix(reg) or not extended(run):
         return emit(run, 'final', BR.EXTEND_MIN, 'INCONCLUSIVE', 'no recorded bag-fix extension for %s' % run, {})
-    cut = declared(man); end = cut + dt.timedelta(minutes=BR.EXTEND_MIN); pre = cut - dt.timedelta(minutes=BR.EXTEND_MIN)
+    # THREE-POOL BAG FIXES (10-10): the window and (c)'s bands follow the pool count; an uncalibrated count is REVERT
+    # (the all-cause gate already tripped, and nothing here can show it was harmless)
+    E, BD = BR.extend_min(BR.n_pools(man)), BR.bands(BR.n_pools(man))
+    if E is None or BD is None:
+        return emit(run, 'final', BR.EXTEND_MIN, 'REVERT', 'drawn at %d distinct pools: no calibrated extension window or '
+                    '(c) band -- the tripped gate stands' % BR.n_pools(man), {})
+    cut = declared(man); end = cut + dt.timedelta(minutes=E); pre = cut - dt.timedelta(minutes=E)
     if now() < end:
         # NOT terminal: the loop retries (clock skew must not close an extension early)
-        return emit(run, 'final', BR.EXTEND_MIN, 'NOT_YET', 'final asked before +%d (now +%.0f): refusing a short read'
-                    % (BR.EXTEND_MIN, (now() - cut).total_seconds() / 60), {})
+        return emit(run, 'final', E, 'NOT_YET', 'final asked before +%d (now +%.0f): refusing a short read'
+                    % (E, (now() - cut).total_seconds() / 60), {})
     # (a)/(b) on the whole 24 h FIRST: deaths after the last poll are not skipped
     m, ceil, poll = poll_measure(reg, man, end, fresh=False)   # the window is closed: freshness is a live-poll test
     can, ctl = membership(man)
@@ -402,18 +412,55 @@ def cmd_final(run):
         cov = (False, 'value walk saw %d/%d POST deaths, the death scan %d/%d (canary/control)'
                % (ca['post']['deaths'], ka['post']['deaths'], m['cd'], m['kd']))
     net, iron = did(ca['post'], ca['pre'], ka['post'], ka['pre'], 'net'), did(ca['post'], ca['pre'], ka['post'], ka['pre'], 'iron')
-    moved, pwhy = primary_at_final(run, reg, man)
-    word, why = BR.final(poll, ca['post']['bot_h'], cov, moved, net, BR.NET_P025, iron, BR.IRON_P025)
+    moved, pwhy = primary_at_final(run, reg, man, E)
+    word, why = BR.final(poll, ca['post']['bot_h'], cov, moved, net, BD[0], iron, BD[1])
     why += (' | (a)/(b): %s | canary %.0f bot-h, net %s -> %s; control net %s -> %s (log-eq/bot-h, PRE -> POST) | '
             'primary: %s' % (poll[1], ca['post']['bot_h'], _f(ca['pre']['net']), _f(ca['post']['net']),
                              _f(ka['pre']['net']), _f(ka['post']['net']), pwhy))
-    return emit(run, 'final', BR.EXTEND_MIN, word, why, {'deaths': m, 'canary': ca, 'control': ka, 'net_did': net,
+    why += ' | %d pools: +%d, (c) bands net %+.2f iron %+.3f' % (BR.n_pools(man), E, BD[0], BD[1])
+    return emit(run, 'final', E, word, why, {'deaths': m, 'canary': ca, 'control': ka, 'net_did': net,
                                                          'iron_did': iron, 'coverage': cov, 'primary_moved': moved,
                                                          'next_slot': BR.NEXT_SLOT if word == 'KEEP' else None})
 
 
 def _f(x):
     return 'n/a' if x is None else '%+.2f' % x
+
+
+def cmd_draw_decide(run, pools):
+    """THREE-POOL BAG FIXES (10-10). The loop's draw decision for a bag fix: bagfixrule.draw_decision on drawrec's pick
+    and this run's own journal. Prints exactly one line `DRAW DEPLOY|SHORT|NONE <why>`. Fewer than two pools is NONE
+    without reading anything; any error otherwise is SHORT (fail closed: the run keeps waiting, never deploys)."""
+    try:
+        if len({p.strip() for p in (pools or '').split(',') if p.strip()}) < 2:
+            word, why = BR.draw_decision(pools, [], now())
+        else:
+            rows = []
+            for l in open(JOURNAL):
+                try:
+                    r = json.loads(l)
+                except ValueError:
+                    continue
+                if isinstance(r, dict) and r.get('run') == run:
+                    rows.append(r)
+            word, why = BR.draw_decision(pools, rows, now())
+    except Exception as e:
+        word, why = 'SHORT', 'draw decision failed (%s): waiting' % type(e).__name__
+    print('DRAW %s %s' % (word, why))
+    return 0
+
+
+def cmd_ext_min(run):
+    """The extension's final minute for the manifest's pool count (the loop's EXTMIN). Prints `EXTMIN <n>` or
+    `EXTMIN NONE <why>`."""
+    try:
+        reg, man = load(run)
+        b = bound(reg, man, run)
+        E = None if b else BR.extend_min(BR.n_pools(man))
+        print('EXTMIN %s' % E if E else 'EXTMIN NONE %s' % (b or 'no calibrated window for %d pools' % BR.n_pools(man)))
+    except Exception as e:
+        print('EXTMIN NONE unreadable (%s)' % type(e).__name__)
+    return 0
 
 
 def cmd_check_registration(run):
@@ -454,6 +501,8 @@ def main(argv):
     if c == 'poll': return cmd_poll(argv[2])
     if c == 'final': return cmd_final(argv[2])
     if c == 'check-registration': return cmd_check_registration(argv[2])
+    if c == 'draw-decide': return cmd_draw_decide(argv[2], argv[3] if len(argv) > 3 else '')
+    if c == 'ext-min': return cmd_ext_min(argv[2])
     if c == 'window': return cmd_window(*argv[2:])
     print('unknown command %r' % c); return 2
 

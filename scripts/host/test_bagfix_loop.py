@@ -136,13 +136,21 @@ def jline(run, phase, note=''):
 
 def synthetic(tmp, scenario):
     tmp = tempfile.mkdtemp(dir=tmp)
-    w = TB.final_world(tmp)        # 48 h of snapshots
+    if scenario == 'keep3':
+        # THREE-POOL BAG FIX (10-10): 64 h of snapshots, canary board-a,board-b,hive-a; hive-b is control
+        import test_threepool as TP
+        w = TP.final_world_n(tmp, TB.POOLS_C[:3], 1920, 1980)
+    else:
+        w = TB.final_world(tmp)        # 48 h of snapshots
     cb = w.bots(TB.POOLS_C); kb = w.bots(TB.POOLS_K)
     for i in range(6):
         w.add(cb[i], TB.line(w.decl + dt.timedelta(minutes=10 * (i + 1)), cb[i], '_death', inv={}))
     for i in range(4):
         w.add(kb[i], TB.line(w.decl + dt.timedelta(minutes=12 + 10 * i), kb[i], '_death', inv={}))
-    for b in (cb[19], cb[18]):
+    if scenario == 'keep3':
+        for i in range(4):         # hive-b is control here: 4 more control deaths keep the trip's lower bound below 2
+            w.add(cb[15 + i], TB.line(w.decl + dt.timedelta(minutes=14 + 10 * i), cb[15 + i], '_death', inv={}))
+    for b in ((cb[10], cb[11]) if scenario == 'keep3' else (cb[19], cb[18])):
         for i in range(3):
             w.add(b, TB.line(w.decl + dt.timedelta(minutes=3 + i), b, '_well_dispose', dur=4000))
     if scenario == 'linked':
@@ -248,7 +256,7 @@ if __name__ == '__main__':
         t('junkwell-01 replay: +1440 is never reached on real data, so the extension deadline contains it -> INCONCLUSIVE',
           'would act: INCONCLUSIVE' in r.stdout and 'bagfix-final' not in ph, r.stdout[-400:])
     else:
-        for sc in ('keep', 'ceiling', 'linked', 'readtrip', 'blind', 'resume', 'pending', 'rerun', 'readfail', 'redeploy',
+        for sc in ('keep', 'keep3', 'ceiling', 'linked', 'readtrip', 'blind', 'resume', 'pending', 'rerun', 'readfail', 'redeploy',
                    'noguards', 'checkcrash', 'outage', 'basefail', 'basefail2'):
             r, js, h = synthetic(tmp, sc)
             ph = phases(js)
@@ -263,6 +271,13 @@ if __name__ == '__main__':
                   fin and fin[-1].startswith('BAGFIX KEEP') and 'bagfix-decided' in ph and 'next-slot' in ph
                   and os.path.exists(os.path.join(h, 'digest', 'NEXT-SLOT.json')), js)
                 t('keep: --no-act stops before acting', 'would act: KEEP' in out, out[-600:])
+            if sc == 'keep3':
+                t('keep3: a THREE-pool bag fix EXTENDS to +1920 (bagfix-window), reads +180/+360/+1920 and never +1440',
+                  'bagfix-extend' in ph and any(p == 'bagfix-window' and n.startswith('+1920') for p, n in js)
+                  and all(x in ph for x in ('eval-read-180', 'eval-read-360', 'eval-read-1920')) and 'eval-read-1440' not in ph, js)
+                fin = [n for p, n in js if p == 'bagfix-final']
+                t('keep3: final at +1920 with the three-pool bands -> KEEP', fin and fin[-1].startswith('BAGFIX KEEP')
+                  and '3 pools: +1920' in fin[-1] and 'would act: KEEP' in out, js)
             if sc == 'outage':
                 t('outage: both arms stale -> PAUSED, paged once, and 12 in a row close it INCONCLUSIVE (never silent)',
                   ph.count('bagfix-paused') == 12 and 'would act: INCONCLUSIVE' in out

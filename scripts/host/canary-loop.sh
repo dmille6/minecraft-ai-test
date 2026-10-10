@@ -130,11 +130,27 @@ if [ "$(mf canary_code_version)" != "$SHA" ]; then
   while true; do D=$(bash $H/mcai-analysis/drawrec.sh "$RUN" 2>&1 | tail -4); P=$(echo "$D" | grep -o "DRAW (.*owner C): \[.*\]" | grep -o "'[a-z-]*'" | tr -d "'" | paste -sd, -)
     # v33: WIDENING MID-RUN IS NOT DONE (a second deploy rewrites the one declared_at, restarts the pools already on
     # canary and rebuilds the canary tree under them). Its safe equivalent: a bag fix starts at 20 bots, or waits.
-    if [ -n "$P" ] && [ -n "$BAGFIX" ] && [ "$(echo "$P" | tr ',' '\n' | grep -c .)" -lt "$BAGFIX_POOLS" ]; then
-      journal draw-short "bag fix needs $BAGFIX_POOLS pools (20 bots); the band gave $P -- waiting 20 min"; P=""
-      _SHORT=$(( ${_SHORT:-0} + 1 ))
-      # bounded in attention, not in time: after 3 h of short draws the operator is told once
-      [ "$_SHORT" -eq 9 ] && page flag "bag fix $RUN has waited 3 h for a 4-pool draw (last band: $(echo "$D" | head -1 | cut -c1-160)); still waiting"
+    # THREE-POOL BAG FIXES (OPERATOR + CODEX 10-10, owner's delegation). The decision is bagfixrule.draw_decision, asked
+    # through `bagfixgate.py draw-decide` (tested there); this block only acts on its one line:
+    #   DRAW DEPLOY  four pools; or THREE once the draw has been blocked > 1 h SOLELY by the four-pool minimum (this run's
+    #                journal: an unbroken streak of draw-short rows). Never two.
+    #   DRAW SHORT   journalled draw-short; waits. Any other answer (a crash, a timeout, garbage) is treated as SHORT.
+    #   DRAW NONE    the band gave fewer than two pools: journalled as `draw`, which RESTARTS the three-pool clock, so
+    #                blocking by the band itself never counts toward the hour.
+    # A three-pool run's extension reads to +1920 with its own (c) bands (bagfixrule.EXTEND_MIN_BY_POOLS / BANDS_BY_POOLS).
+    if [ -n "$BAGFIX" ]; then
+      _DD=$(timeout 120 python3 $H/mcai-analysis/bagfixgate.py draw-decide "$RUN" "$P" 2>&1 | tail -1)
+      case "$_DD" in
+        "DRAW DEPLOY "*)
+          [ "$(echo "$P" | tr ',' '\n' | grep -c .)" -lt "$BAGFIX_POOLS" ] && { journal draw-three "$P :: ${_DD#DRAW DEPLOY }"; page flag "bag fix $RUN deploys on THREE pools ($P): ${_DD#DRAW DEPLOY }"; };;
+        "DRAW NONE "*)
+          journal draw "${_DD#DRAW NONE } :: $(echo "$D" | tail -1 | cut -c1-160)"; P="";;
+        *)
+          journal draw-short "${_DD#DRAW SHORT } -- the band gave ${P:-nothing}; waiting 20 min"; P=""
+          _SHORT=$(( ${_SHORT:-0} + 1 ))
+          # bounded in attention, not in time: after 3 h of short draws the operator is told once
+          [ "$_SHORT" -eq 9 ] && page flag "bag fix $RUN has waited 3 h for its draw (last band: $(echo "$D" | head -1 | cut -c1-160)); still waiting";;
+      esac
     fi
     [ -n "$P" ] && break; sleep 1200; done
   journal drawn "$P :: $(echo "$D" | head -2 | tr '\n' ' ')"
@@ -377,8 +393,20 @@ _ext_read() {
   esac
 }
 if [ -n "$EXT" ] && [ -z "$FINAL" ]; then
-  EXTMIN=1440
-  EXTDL=$(python3 -c "import json; b=json.load(open('$REG')).get('bag_fix') or {}; print(int(b.get('extended_deadline_min') or 1560))")
+  # THREE-POOL BAG FIXES (10-10): the final minute follows the manifest's pool count (4 -> 1440, 3 -> 1920), and the
+  # registered containment deadline moves by the same amount. No calibrated window = the tripped gate stands.
+  # (three tries 10 s apart, so one transient manifest read does not revert a canary)
+  EXTMIN=""
+  for _i in 1 2 3; do
+    _EM=$(timeout 120 python3 "$BF" ext-min "$RUN" 2>/dev/null | tail -1)
+    EXTMIN=$(echo "$_EM" | awk '$1 == "EXTMIN" && $2 ~ /^[0-9]+$/ {print $2}')
+    [ -n "$EXTMIN" ] && break; sleep 10
+  done
+  if [ -z "$EXTMIN" ]; then _decide REVERT "bag-fix extension: no calibrated window for this draw ($_EM) -- the tripped gate stands"; fi
+fi
+if [ -n "$EXT" ] && [ -z "$FINAL" ]; then
+  journal bagfix-window "+$EXTMIN ($_EM)"
+  EXTDL=$(python3 -c "import json; b=json.load(open('$REG')).get('bag_fix') or {}; print(int(b.get('extended_deadline_min') or 1560) + $EXTMIN - 1440)")
   BLIND=0; RBLIND=0; RFAIL=0
   # THE TRIPPING READ STOPPED AT THE DEATH GATE: verdict.py exits there, so v15c, v11, deposit and the own lines never
   # ran on it. Re-run that same read with the gate report-only, at once (and again on a resume if it never evaluated).
