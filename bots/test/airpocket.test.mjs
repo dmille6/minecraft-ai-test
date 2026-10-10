@@ -884,7 +884,7 @@ await t('AP2-T9 AT THE DIG CALL the jump agrees with the client\'s ground and th
   const sc0 = fl.setControlState; fl.setControlState = (n, on) => { sc0(n, on); if (n === 'jump') fl.entity.onGround = on }   // always the wrong way
   let digs = 0; const fd0 = fl.dig; fl.dig = (blk, f) => { digs++; return fd0(blk, f) }
   const r3 = await airPocketStep(fl, plan, deps()); clearInterval(fl._healthTimer)
-  assert.equal(digs, 0); assert.equal(r3.ok, false); assert.match(r3.why, /the body never settled/)
+  assert.equal(digs, 0); assert.equal(r3.ok, false); assert.match(r3.why, /the body never settled/); assert.equal(r3.unsettled, true)
   await withMutant(AP_PATH, '      if (!bodyAgrees({ onGround: bot.entity?.onGround, wantJump })) {', '      if (false) {', async m => {
     const g = fakeBot({ cells: TRAP, riseTo: 1.4 }); g.entity.position = new V(100.5, 61.395, 100.5)
     const s0 = g.setControlState; g.setControlState = (n, on) => { s0(n, on); if (n === 'jump') g.entity.onGround = on }
@@ -1057,7 +1057,7 @@ function wiring (src) {
                /airPocketWants = Date\.now\(\)\s*try \{ if \(bot\.targetDigBlock\) bot\.stopDigging\(\) \}/.test(code) &&
                (code.match(/\(\) => ownsBody\(\(\) => (entombedGrant|maroonGrant)\)\(\) && !airPocketWanted\(\)/g) || []).length === 2 &&
                /if \(ub\.blocked\) \{\s*apRoute = \{ \.\.\.route, dir: 'upblocked', sealed: false \}; apBlockedBy = ub\.by/.test(code) &&
-               /const fy = planBaseY\(\{ y: at\.y, pose: pe\.pose, eyeY: pe\.eyeY \}\)/.test(code) && /, \{ pose: pe\.pose, feetSupport \}\)/.test(code) && /, Date\.now\(\), \{ refrozen: r\.refrozen === true \}\)/.test(code) && /const env = withPoseEye\(bot, pe\.pose, \(\) => \(worstCase/.test(code) &&
+               /const fy = planBaseY\(\{ y: at\.y, pose: pe\.pose, eyeY: pe\.eyeY \}\)/.test(code) && /, \{ pose: pe\.pose, feetSupport \}\)/.test(code) && /, Date\.now\(\), \{ refrozen: r\.refrozen === true \|\| r\.unsettled === true \}\)/.test(code) && /const env = withPoseEye\(bot, pe\.pose, \(\) => \(worstCase/.test(code) &&
                /heldMs: Date\.now\(\) - seizedAt, msSinceClosing: Date\.now\(\) - lastClosingAt,\s*stepWouldRun/.test(code) }
 }
 await t('G1 wiring: the tick returns while the step runs; the rescue asks the trigger before steering; success clears the fail memory', () => {
@@ -1100,7 +1100,8 @@ for (const [name, old, neu] of [
   ['the pose-aware plan base', 'const fy = planBaseY({ y: at.y, pose: pe.pose, eyeY: pe.eyeY })', 'const fy = Math.floor(at.y)'],
   ['the pose passed to the plan', ', { pose: pe.pose, feetSupport })', ')'],
   ['the admission priced with the pose eye', 'const env = withPoseEye(bot, pe.pose, () => (worstCase', 'const env = ((() => (worstCase'],
-  ['the refrozen short cooldown', ', Date.now(), { refrozen: r.refrozen === true })', ')'],
+  ['the refrozen short cooldown', ', Date.now(), { refrozen: r.refrozen === true || r.unsettled === true })', ')'],
+  ['the unsettled short cooldown', ' || r.unsettled === true })', ' })'],
   ['the pre-empt clocks', 'heldMs: Date.now() - seizedAt, msSinceClosing: Date.now() - lastClosingAt,\n', ''],
 ]) {
   await t(`G4 MUTANT KILLED: without ${name} the wiring check fails`, () => {
