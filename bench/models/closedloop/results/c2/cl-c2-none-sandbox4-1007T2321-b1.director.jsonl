@@ -1,0 +1,69 @@
+{"kind": "episode_start", "bot": "mbench-s4-Echo", "pos": {"x": 354.3, "y": 73, "z": 153.6}, "bad": 3, "t": "2026-10-07T23:31:43Z"}
+{"kind": "escalation_trigger", "bot": "mbench-s4-Echo", "n": 1, "bad": 3, "acting": false, "t": "2026-10-07T23:31:43Z"}
+{"kind": "episode_start", "bot": "mbench-s4-Alpha", "pos": {"x": 344.5, "y": 71, "z": 108.5}, "bad": 3, "t": "2026-10-07T23:31:43Z"}
+{"kind": "escalation_trigger", "bot": "mbench-s4-Alpha", "n": 1, "bad": 3, "acting": false, "t": "2026-10-07T23:31:43Z"}
+{"kind": "episode_start", "bot": "mbench-s4-Golf", "pos": {"x": 354.7, "y": 73, "z": 153.5}, "bad": 3, "t": "2026-10-07T23:32:13Z"}
+{"kind": "escalation_trigger", "bot": "mbench-s4-Golf", "n": 1, "bad": 3, "acting": false, "t": "2026-10-07T23:32:13Z"}
+{"kind": "episode_end", "bot": "mbench-s4-Golf", "minutes": 0.5, "escalations": 1, "t": "2026-10-07T23:32:43Z"}
+{"kind": "episode_end", "bot": "mbench-s4-Alpha", "minutes": 1.5, "escalations": 1, "t": "2026-10-07T23:33:13Z"}
+{"kind": "episode_end", "bot": "mbench-s4-Echo", "minutes": 3.0, "escalations": 1, "t": "2026-10-07T23:34:43Z"}
+{"kind": "episode_start", "bot": "mbench-s4-Comet", "pos": {"x": 355.5, "y": 73, "z": 153.5}, "bad": 4, "t": "2026-10-07T23:35:44Z"}
+{"kind": "escalation_trigger", "bot": "mbench-s4-Comet", "n": 1, "bad": 4, "acting": false, "t": "2026-10-07T23:35:44Z"}
+{"kind": "episode_end", "bot": "mbench-s4-Comet", "minutes": 3.0, "escalations": 1, "t": "2026-10-07T23:38:44Z"}
+{"kind": "episode_start", "bot": "mbench-s4-Echo", "pos": {"x": 378.7, "y": 73, "z": 173.6}, "bad": 8, "t": "2026-10-07T23:43:44Z"}
+{"kind": "escalation_trigger", "bot": "mbench-s4-Echo", "n": 1, "bad": 8, "acting": false, "t": "2026-10-07T23:43:44Z"}
+{"kind": "episode_start", "bot": "mbench-s4-Hotel", "pos": {"x": 346.5, "y": 68, "z": 197.5}, "bad": 8, "t": "2026-10-07T23:45:15Z"}
+{"kind": "escalation_trigger", "bot": "mbench-s4-Hotel", "n": 1, "bad": 8, "acting": false, "t": "2026-10-07T23:45:15Z"}
+{"kind": "episode_end", "bot": "mbench-s4-Hotel", "minutes": 0.5, "escalations": 1, "t": "2026-10-07T23:45:45Z"}
+{"kind": "episode_start", "bot": "mbench-s4-Comet", "pos": {"x": 361.4, "y": 62.2, "z": 176.7}, "bad": 3, "t": "2026-10-07T23:46:15Z"}
+{"kind": "escalation_trigger", "bot": "mbench-s4-Comet", "n": 1, "bad": 3, "acting": false, "t": "2026-10-07T23:46:15Z"}
+{"kind": "escalation_trigger", "bot": "mbench-s4-Echo", "n": 2, "bad": 9, "acting": false, "t": "2026-10-07T23:48:45Z"}
+{"kind": "episode_end", "bot": "mbench-s4-Comet", "minutes": 3.0, "escalations": 1, "t": "2026-10-07T23:49:15Z"}
+{"kind": "episode_start", "bot": "mbench-s4-Hotel", "pos": {"x": 374.6, "y": 66, "z": 148.5}, "bad": 3, "t": "2026-10-07T23:50:45Z"}
+{"kind": "escalation_trigger", "bot": "mbench-s4-Hotel", "n": 1, "bad": 3, "acting": false, "t": "2026-10-07T23:50:45Z"}
+{"kind": "episode_end", "bot": "mbench-s4-Hotel", "minutes": 2.5, "escalations": 1, "t": "2026-10-07T23:53:16Z"}
+{"kind": "escalation_trigger", "bot": "mbench-s4-Echo", "n": 3, "bad": 9, "acting": false, "t": "2026-10-07T23:53:46Z"}
+{"kind": "episode_start", "bot": "mbench-s4-Bravo", "pos": {"x": 383.5, "y": 74, "z": 176.5}, "bad": 7, "t": "2026-10-07T23:56:16Z"}
+{"kind": "escalation_trigger", "bot": "mbench-s4-Bravo", "n": 1, "bad": 7, "acting": false, "t": "2026-10-07T23:56:16Z"}
+{"kind": "episode_end", "bot": "mbench-s4-Echo", "minutes": 13.5, "escalations": 3, "t": "2026-10-07T23:57:16Z"}
+{"kind": "episode_start", "bot": "mbench-s4-Delta", "pos": {"x": 397.5, "y": 67, "z": 317.7}, "bad": 8, "t": "2026-10-07T23:57:46Z"}
+{"kind": "escalation_trigger", "bot": "mbench-s4-Delta", "n": 1, "bad": 8, "acting": false, "t": "2026-10-07T23:57:46Z"}
+{"kind": "episode_start", "bot": "mbench-s4-Hotel", "pos": {"x": 377.5, "y": 78, "z": 174.5}, "bad": 8, "t": "2026-10-07T23:57:46Z"}
+{"kind": "escalation_trigger", "bot": "mbench-s4-Hotel", "n": 1, "bad": 8, "acting": false, "t": "2026-10-07T23:57:46Z"}
+{"kind": "escalation_trigger", "bot": "mbench-s4-Bravo", "n": 2, "bad": 9, "acting": false, "t": "2026-10-08T00:01:17Z"}
+{"kind": "escalation_trigger", "bot": "mbench-s4-Delta", "n": 2, "bad": 8, "acting": false, "t": "2026-10-08T00:02:47Z"}
+{"kind": "escalation_trigger", "bot": "mbench-s4-Hotel", "n": 2, "bad": 8, "acting": false, "t": "2026-10-08T00:02:47Z"}
+{"kind": "episode_start", "bot": "mbench-s4-Comet", "pos": {"x": 361.3, "y": 62.2, "z": 176.3}, "bad": 4, "t": "2026-10-08T00:03:17Z"}
+{"kind": "escalation_trigger", "bot": "mbench-s4-Comet", "n": 1, "bad": 4, "acting": false, "t": "2026-10-08T00:03:17Z"}
+{"kind": "episode_end", "bot": "mbench-s4-Hotel", "minutes": 7.5, "escalations": 2, "t": "2026-10-08T00:05:18Z"}
+{"kind": "escalation_trigger", "bot": "mbench-s4-Bravo", "n": 3, "bad": 8, "acting": false, "t": "2026-10-08T00:06:18Z"}
+{"kind": "escalation_trigger", "bot": "mbench-s4-Delta", "n": 3, "bad": 9, "acting": false, "t": "2026-10-08T00:07:48Z"}
+{"kind": "escalation_trigger", "bot": "mbench-s4-Comet", "n": 2, "bad": 4, "acting": false, "t": "2026-10-08T00:08:18Z"}
+{"kind": "escalation_trigger", "bot": "mbench-s4-Comet", "n": 3, "bad": 4, "acting": false, "t": "2026-10-08T00:13:19Z"}
+{"kind": "episode_start", "bot": "mbench-s4-Fox", "pos": {"x": 351.5, "y": 73, "z": 151.7}, "bad": 4, "t": "2026-10-08T00:13:49Z"}
+{"kind": "escalation_trigger", "bot": "mbench-s4-Fox", "n": 1, "bad": 4, "acting": false, "t": "2026-10-08T00:13:49Z"}
+{"kind": "episode_end", "bot": "mbench-s4-Fox", "minutes": 1.0, "escalations": 1, "t": "2026-10-08T00:14:50Z"}
+{"kind": "episode_start", "bot": "mbench-s4-Golf", "pos": {"x": 394.5, "y": 76, "z": 287.5}, "bad": 8, "t": "2026-10-08T00:15:50Z"}
+{"kind": "escalation_trigger", "bot": "mbench-s4-Golf", "n": 1, "bad": 8, "acting": false, "t": "2026-10-08T00:15:50Z"}
+{"kind": "episode_end", "bot": "mbench-s4-Golf", "minutes": 3.0, "escalations": 1, "t": "2026-10-08T00:18:51Z"}
+{"kind": "episode_end", "bot": "mbench-s4-Bravo", "minutes": 24.6, "escalations": 3, "t": "2026-10-08T00:20:51Z"}
+{"kind": "episode_end", "bot": "mbench-s4-Delta", "minutes": 23.1, "escalations": 3, "t": "2026-10-08T00:20:51Z"}
+{"kind": "episode_start", "bot": "mbench-s4-Alpha", "pos": {"x": 301.5, "y": 52, "z": 223.5}, "bad": 4, "t": "2026-10-08T00:21:52Z"}
+{"kind": "escalation_trigger", "bot": "mbench-s4-Alpha", "n": 1, "bad": 4, "acting": false, "t": "2026-10-08T00:21:52Z"}
+{"kind": "episode_end", "bot": "mbench-s4-Alpha", "minutes": 2.0, "escalations": 1, "t": "2026-10-08T00:23:52Z"}
+{"kind": "episode_end", "bot": "mbench-s4-Comet", "minutes": 34.7, "escalations": 3, "t": "2026-10-08T00:37:56Z"}
+{"kind": "episode_start", "bot": "mbench-s4-Fox", "pos": {"x": 276.9, "y": 66, "z": 86.4}, "bad": 5, "t": "2026-10-08T00:39:27Z"}
+{"kind": "escalation_trigger", "bot": "mbench-s4-Fox", "n": 1, "bad": 5, "acting": false, "t": "2026-10-08T00:39:27Z"}
+{"kind": "episode_end", "bot": "mbench-s4-Fox", "minutes": 1.5, "escalations": 1, "t": "2026-10-08T00:40:57Z"}
+{"kind": "episode_start", "bot": "mbench-s4-Comet", "pos": {"x": 361.3, "y": 62.2, "z": 176.7}, "bad": 4, "t": "2026-10-08T00:43:28Z"}
+{"kind": "escalation_trigger", "bot": "mbench-s4-Comet", "n": 1, "bad": 4, "acting": false, "t": "2026-10-08T00:43:28Z"}
+{"kind": "episode_start", "bot": "mbench-s4-Echo", "pos": {"x": 309.5, "y": 66, "z": 189.7}, "bad": 8, "t": "2026-10-08T00:43:28Z"}
+{"kind": "escalation_trigger", "bot": "mbench-s4-Echo", "n": 1, "bad": 8, "acting": false, "t": "2026-10-08T00:43:28Z"}
+{"kind": "episode_end", "bot": "mbench-s4-Echo", "minutes": 4.0, "escalations": 1, "t": "2026-10-08T00:47:30Z"}
+{"kind": "episode_start", "bot": "mbench-s4-Fox", "pos": {"x": 335.5, "y": 69, "z": 164.5}, "bad": 8, "t": "2026-10-08T00:48:30Z"}
+{"kind": "escalation_trigger", "bot": "mbench-s4-Fox", "n": 1, "bad": 8, "acting": false, "t": "2026-10-08T00:48:30Z"}
+{"kind": "escalation_trigger", "bot": "mbench-s4-Comet", "n": 2, "bad": 5, "acting": false, "t": "2026-10-08T00:48:30Z"}
+{"kind": "escalation_trigger", "bot": "mbench-s4-Fox", "n": 2, "bad": 8, "acting": false, "t": "2026-10-08T00:53:32Z"}
+{"kind": "escalation_trigger", "bot": "mbench-s4-Comet", "n": 3, "bad": 4, "acting": false, "t": "2026-10-08T00:53:32Z"}
+{"kind": "episode_start", "bot": "mbench-s4-Delta", "pos": {"x": 356.7, "y": 72, "z": 147.5}, "bad": 8, "t": "2026-10-08T00:54:02Z"}
+{"kind": "escalation_trigger", "bot": "mbench-s4-Delta", "n": 1, "bad": 8, "acting": false, "t": "2026-10-08T00:54:02Z"}

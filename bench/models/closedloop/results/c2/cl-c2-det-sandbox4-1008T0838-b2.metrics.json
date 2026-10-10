@@ -1,0 +1,318 @@
+{
+ "control": {
+  "bots": 8,
+  "rows": 5557,
+  "snapshots": 3787,
+  "decisions": 785
+ },
+ "bots": [
+  {
+   "bot": "mbench-s4-Alpha",
+   "rows": 503,
+   "hours": 1.167,
+   "snapshots": 315,
+   "output": 0.0,
+   "output_per_h": 0.0,
+   "withdrawn_value": 0.0,
+   "deposited_value": 0.0,
+   "final_inventory": {},
+   "milestones_min": {},
+   "pickless_share": 0.999,
+   "stuck_min": 69.6,
+   "loops_per_h": 60.9,
+   "deaths": 0,
+   "decisions": 112,
+   "decisions_per_h": 96.0,
+   "rejections": 82,
+   "rejection_kinds": {
+    "repeat_loop": 71,
+    "cooldown": 7,
+    "learned_avoid": 4
+   },
+   "latency_p50": 2.11,
+   "latency_p95": 3.87
+  },
+  {
+   "bot": "mbench-s4-Bravo",
+   "rows": 719,
+   "hours": 1.167,
+   "snapshots": 428,
+   "output": 90.5,
+   "output_per_h": 77.57,
+   "withdrawn_value": 0.0,
+   "deposited_value": 0.0,
+   "final_inventory": {
+    "wooden_pickaxe": 1,
+    "oak_planks": 3,
+    "crafting_table": 1,
+    "raw_iron": 1,
+    "dirt": 14,
+    "cobblestone": 124,
+    "sand": 14,
+    "oak_log": 10,
+    "stone_pickaxe": 1,
+    "coal": 1,
+    "andesite": 9,
+    "raw_copper": 8
+   },
+   "milestones_min": {
+    "crafting_table": 15.4,
+    "wooden_pickaxe": 17.7,
+    "stone_pickaxe": 21.3,
+    "furnace": 22.0,
+    "raw_iron": 31.1
+   },
+   "pickless_share": 0.248,
+   "stuck_min": 32.8,
+   "loops_per_h": 0.0,
+   "deaths": 0,
+   "decisions": 88,
+   "decisions_per_h": 75.4,
+   "rejections": 26,
+   "rejection_kinds": {
+    "cooldown": 25,
+    "bad_args": 1
+   },
+   "latency_p50": 1.88,
+   "latency_p95": 3.37
+  },
+  {
+   "bot": "mbench-s4-Comet",
+   "rows": 735,
+   "hours": 1.167,
+   "snapshots": 500,
+   "output": 102.0,
+   "output_per_h": 87.43,
+   "withdrawn_value": 0.0,
+   "deposited_value": 0.0,
+   "final_inventory": {
+    "wooden_pickaxe": 1,
+    "cobblestone": 153,
+    "oak_planks": 3,
+    "pointed_dripstone": 3,
+    "wheat_seeds": 1,
+    "crafting_table": 1,
+    "dirt": 3,
+    "dripstone_block": 1,
+    "oak_log": 9,
+    "stone_pickaxe": 1,
+    "granite": 3,
+    "raw_iron": 3
+   },
+   "milestones_min": {
+    "crafting_table": 16.8,
+    "wooden_pickaxe": 16.8,
+    "stone_pickaxe": 61.7,
+    "raw_iron": 63.9
+   },
+   "pickless_share": 0.234,
+   "stuck_min": 15.9,
+   "loops_per_h": 2.6,
+   "deaths": 0,
+   "decisions": 92,
+   "decisions_per_h": 78.9,
+   "rejections": 21,
+   "rejection_kinds": {
+    "cooldown": 18,
+    "repeat_loop": 3
+   },
+   "latency_p50": 2.1,
+   "latency_p95": 4.1
+  },
+  {
+   "bot": "mbench-s4-Delta",
+   "rows": 543,
+   "hours": 1.167,
+   "snapshots": 357,
+   "output": 1.0,
+   "output_per_h": 0.86,
+   "withdrawn_value": 0.0,
+   "deposited_value": 0.0,
+   "final_inventory": {
+    "jungle_log": 1
+   },
+   "milestones_min": {},
+   "pickless_share": 0.989,
+   "stuck_min": 68.9,
+   "loops_per_h": 49.7,
+   "deaths": 0,
+   "decisions": 108,
+   "decisions_per_h": 92.6,
+   "rejections": 71,
+   "rejection_kinds": {
+    "repeat_loop": 58,
+    "cooldown": 10,
+    "learned_avoid": 3
+   },
+   "latency_p50": 2.19,
+   "latency_p95": 3.95
+  },
+  {
+   "bot": "mbench-s4-Echo",
+   "rows": 845,
+   "hours": 1.167,
+   "snapshots": 655,
+   "output": 0.0,
+   "output_per_h": 0.0,
+   "withdrawn_value": 0.0,
+   "deposited_value": 0.0,
+   "final_inventory": {},
+   "milestones_min": {},
+   "pickless_share": 0.986,
+   "stuck_min": 68.5,
+   "loops_per_h": 68.6,
+   "deaths": 0,
+   "decisions": 112,
+   "decisions_per_h": 96.0,
+   "rejections": 88,
+   "rejection_kinds": {
+    "repeat_loop": 80,
+    "cooldown": 8
+   },
+   "latency_p50": 1.85,
+   "latency_p95": 3.45
+  },
+  {
+   "bot": "mbench-s4-Fox",
+   "rows": 613,
+   "hours": 1.167,
+   "snapshots": 385,
+   "output": 17.9,
+   "output_per_h": 15.34,
+   "withdrawn_value": 0.0,
+   "deposited_value": 0.0,
+   "final_inventory": {
+    "stick": 2,
+    "oak_planks": 3,
+    "crafting_table": 1,
+    "apple": 2,
+    "oak_sapling": 5,
+    "dirt": 5,
+    "wooden_pickaxe": 1,
+    "oak_log": 13,
+    "cobblestone": 1
+   },
+   "milestones_min": {
+    "crafting_table": 16.9,
+    "wooden_pickaxe": 16.9
+   },
+   "pickless_share": 0.226,
+   "stuck_min": 18.2,
+   "loops_per_h": 3.4,
+   "deaths": 0,
+   "decisions": 98,
+   "decisions_per_h": 84.0,
+   "rejections": 22,
+   "rejection_kinds": {
+    "cooldown": 18,
+    "repeat_loop": 4
+   },
+   "latency_p50": 2.1,
+   "latency_p95": 3.62
+  },
+  {
+   "bot": "mbench-s4-Golf",
+   "rows": 807,
+   "hours": 1.167,
+   "snapshots": 570,
+   "output": 86.03,
+   "output_per_h": 73.74,
+   "withdrawn_value": 0.0,
+   "deposited_value": 0.0,
+   "final_inventory": {
+    "wooden_pickaxe": 1,
+    "raw_iron": 1,
+    "raw_copper": 15,
+    "crafting_table": 1,
+    "dirt": 1,
+    "oak_sapling": 2,
+    "oak_log": 8,
+    "cobblestone": 108,
+    "stick": 7,
+    "stone_pickaxe": 1
+   },
+   "milestones_min": {
+    "crafting_table": 12.8,
+    "wooden_pickaxe": 12.8,
+    "stone_pickaxe": 65.3,
+    "raw_iron": 68.5
+   },
+   "pickless_share": 0.166,
+   "stuck_min": 0.0,
+   "loops_per_h": 4.3,
+   "deaths": 0,
+   "decisions": 86,
+   "decisions_per_h": 73.7,
+   "rejections": 19,
+   "rejection_kinds": {
+    "cooldown": 14,
+    "repeat_loop": 5
+   },
+   "latency_p50": 2.05,
+   "latency_p95": 3.55
+  },
+  {
+   "bot": "mbench-s4-Hotel",
+   "rows": 792,
+   "hours": 1.167,
+   "snapshots": 577,
+   "output": 5.05,
+   "output_per_h": 4.33,
+   "withdrawn_value": 0.0,
+   "deposited_value": 0.0,
+   "final_inventory": {
+    "stick": 2,
+    "wooden_pickaxe": 1,
+    "oak_log": 2,
+    "wheat_seeds": 2,
+    "crafting_table": 1,
+    "oak_sapling": 3,
+    "apple": 1,
+    "sand": 2
+   },
+   "milestones_min": {
+    "crafting_table": 9.0,
+    "wooden_pickaxe": 9.0
+   },
+   "pickless_share": 0.109,
+   "stuck_min": 16.8,
+   "loops_per_h": 0.0,
+   "deaths": 0,
+   "decisions": 89,
+   "decisions_per_h": 76.3,
+   "rejections": 5,
+   "rejection_kinds": {
+    "cooldown": 5
+   },
+   "latency_p50": 2.33,
+   "latency_p95": 3.87
+  }
+ ],
+ "team_output_per_h": 259.19,
+ "mean_output_per_bot_h": 32.4,
+ "milestone_bots": {
+  "crafting_table": 5,
+  "wooden_pickaxe": 5,
+  "stone_pickaxe": 3,
+  "furnace": 1,
+  "raw_iron": 3,
+  "iron_ingot": 0,
+  "iron_pickaxe": 0
+ },
+ "first_team_min": {
+  "crafting_table": 9.0,
+  "wooden_pickaxe": 9.0,
+  "stone_pickaxe": 21.3,
+  "furnace": 22.0,
+  "raw_iron": 31.1,
+  "iron_ingot": null,
+  "iron_pickaxe": null
+ },
+ "pickless_share": 0.495,
+ "stuck_min_per_bot": 36.3,
+ "loops_per_bot_h": 23.7,
+ "deaths": 0,
+ "decisions_per_bot_h": 84.1,
+ "rejections": 334,
+ "latency_p50_med": 2.1
+}

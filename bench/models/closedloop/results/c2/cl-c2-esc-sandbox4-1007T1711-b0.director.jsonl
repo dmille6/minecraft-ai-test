@@ -1,0 +1,168 @@
+{"kind": "episode_start", "bot": "mbench-s4-Golf", "pos": {"x": 357.5, "y": 72, "z": 156.6}, "bad": 3, "t": "2026-10-07T17:17:16Z"}
+{"kind": "escalation_trigger", "bot": "mbench-s4-Golf", "n": 1, "bad": 3, "acting": true, "t": "2026-10-07T17:17:16Z"}
+{"kind": "escalation_call", "ok": true, "bot": "mbench-s4-Golf", "s": 12.9, "gen_tokens": 524, "diagnosis": "The bot is stuck because the nearby dirt blocks are considered unreachable by pathfinding; it has no items to place or craft and lacks a clear path to the dirt.", "skill": "goto", "t": "2026-10-07T17:17:29Z"}
+{"kind": "directive_sent", "bot": "mbench-s4-Golf", "id": "e1", "origin": "escalation", "steps": [{"skill": "goto", "args": {"x": 361, "y": 70, "z": 161}}], "why": "The bot is stuck because the nearby dirt blocks are consider", "t": "2026-10-07T17:17:29Z"}
+{"kind": "episode_start", "bot": "mbench-s4-Echo", "pos": {"x": 347.4, "y": 69.8, "z": 109.5}, "bad": 3, "t": "2026-10-07T17:21:29Z"}
+{"kind": "escalation_trigger", "bot": "mbench-s4-Echo", "n": 1, "bad": 3, "acting": true, "t": "2026-10-07T17:21:29Z"}
+{"kind": "escalation_call", "ok": true, "bot": "mbench-s4-Echo", "s": 16.1, "gen_tokens": 660, "diagnosis": "The bot is stuck because it cannot reach the oak_log at (343,69,108); repeated gather attempts fail as it stays at the wrong elevation and pathfinding repeatedly aborts.", "skill": "goto", "t": "2026-10-07T17:21:45Z"}
+{"kind": "directive_sent", "bot": "mbench-s4-Echo", "id": "e2", "origin": "escalation", "steps": [{"skill": "goto", "args": {"x": 343, "y": 69, "z": 108}}], "why": "The bot is stuck because it cannot reach the oak_log at (343", "t": "2026-10-07T17:21:45Z"}
+{"kind": "episode_end", "bot": "mbench-s4-Echo", "minutes": 0.8, "escalations": 1, "t": "2026-10-07T17:22:15Z"}
+{"kind": "episode_end", "bot": "mbench-s4-Golf", "minutes": 5.0, "escalations": 1, "t": "2026-10-07T17:22:15Z"}
+{"kind": "episode_start", "bot": "mbench-s4-Fox", "pos": {"x": 370.4, "y": 47, "z": 161.9}, "bad": 8, "t": "2026-10-07T17:29:46Z"}
+{"kind": "escalation_trigger", "bot": "mbench-s4-Fox", "n": 1, "bad": 8, "acting": true, "t": "2026-10-07T17:29:46Z"}
+{"kind": "escalation_call", "ok": true, "bot": "mbench-s4-Fox", "s": 17.0, "gen_tokens": 577, "diagnosis": "Stuck underground at y=47 with only 1 dirt; pathfinding cannot reach buried dirt or stone, so cannot pillar out to the surface. Needs 7 more blocks (dirt or cobblestone) and reachable material is gras", "skill": "gather", "t": "2026-10-07T17:30:03Z"}
+{"kind": "directive_sent", "bot": "mbench-s4-Fox", "id": "e3", "origin": "escalation", "steps": [{"skill": "gather", "args": {"block": "grass_block", "count": 7}}], "why": "Stuck underground at y=47 with only 1 dirt; pathfinding cann", "t": "2026-10-07T17:30:03Z"}
+{"kind": "episode_start", "bot": "mbench-s4-Comet", "pos": {"x": 332.3, "y": 72, "z": 280.4}, "bad": 8, "t": "2026-10-07T17:31:03Z"}
+{"kind": "escalation_trigger", "bot": "mbench-s4-Comet", "n": 1, "bad": 8, "acting": true, "t": "2026-10-07T17:31:03Z"}
+{"kind": "escalation_call", "ok": true, "bot": "mbench-s4-Comet", "s": 17.5, "gen_tokens": 707, "diagnosis": "The bot is stuck at (332,72,280) repeatedly failing goto attempts to lower elevation; it has no pickaxe and no sand nearby, but carries oak logs that can be turned into planks for a crafting table and", "skill": "craft", "t": "2026-10-07T17:31:20Z"}
+{"kind": "directive_sent", "bot": "mbench-s4-Comet", "id": "e4", "origin": "escalation", "steps": [{"skill": "craft", "args": {"item": "oak_planks", "blocks": 4}}], "why": "The bot is stuck at (332,72,280) repeatedly failing goto att", "t": "2026-10-07T17:31:20Z"}
+{"kind": "episode_start", "bot": "mbench-s4-Hotel", "pos": {"x": 402.3, "y": 62.4, "z": 224.5}, "bad": 6, "t": "2026-10-07T17:31:50Z"}
+{"kind": "escalation_trigger", "bot": "mbench-s4-Hotel", "n": 1, "bad": 6, "acting": true, "t": "2026-10-07T17:31:50Z"}
+{"kind": "escalation_call", "ok": true, "bot": "mbench-s4-Hotel", "s": 15.1, "gen_tokens": 640, "diagnosis": "Stuck because all visible sand blocks are adjacent to water, making gather unsafe; inventory only has dirt and oak logs (no tools) and lacks a safe sand source.", "skill": "explore", "t": "2026-10-07T17:32:06Z"}
+{"kind": "directive_sent", "bot": "mbench-s4-Hotel", "id": "e5", "origin": "escalation", "steps": [{"skill": "explore", "args": {"blocks": 30}}], "why": "Stuck because all visible sand blocks are adjacent to water,", "t": "2026-10-07T17:32:06Z"}
+{"kind": "episode_end", "bot": "mbench-s4-Hotel", "minutes": 0.8, "escalations": 1, "t": "2026-10-07T17:32:36Z"}
+{"kind": "episode_end", "bot": "mbench-s4-Fox", "minutes": 3.8, "escalations": 1, "t": "2026-10-07T17:33:36Z"}
+{"kind": "episode_start", "bot": "mbench-s4-Echo", "pos": {"x": 433.8, "y": 61.2, "z": 110.7}, "bad": 8, "t": "2026-10-07T17:34:06Z"}
+{"kind": "escalation_trigger", "bot": "mbench-s4-Echo", "n": 1, "bad": 8, "acting": true, "t": "2026-10-07T17:34:06Z"}
+{"kind": "escalation_call", "ok": true, "bot": "mbench-s4-Echo", "s": 15.5, "gen_tokens": 579, "diagnosis": "Bot is trapped just below surface at y=61 with no clear path to water; surrounding blocks block movement and pathfinder fails. It carries oak logs that can be used for scaffolding but hasn't built a w", "skill": "surface", "t": "2026-10-07T17:34:21Z"}
+{"kind": "directive_sent", "bot": "mbench-s4-Echo", "id": "e6", "origin": "escalation", "steps": [{"skill": "surface", "args": {}}], "why": "Bot is trapped just below surface at y=61 with no clear path", "t": "2026-10-07T17:34:21Z"}
+{"kind": "episode_start", "bot": "mbench-s4-Fox", "pos": {"x": 373.3, "y": 49, "z": 160.5}, "bad": 7, "t": "2026-10-07T17:35:21Z"}
+{"kind": "escalation_trigger", "bot": "mbench-s4-Fox", "n": 1, "bad": 7, "acting": true, "t": "2026-10-07T17:35:21Z"}
+{"kind": "escalation_trigger", "bot": "mbench-s4-Comet", "n": 2, "bad": 5, "acting": true, "t": "2026-10-07T17:36:22Z"}
+{"kind": "episode_end", "bot": "mbench-s4-Fox", "minutes": 1.5, "escalations": 1, "t": "2026-10-07T17:36:52Z"}
+{"kind": "episode_end", "bot": "mbench-s4-Echo", "minutes": 3.3, "escalations": 1, "t": "2026-10-07T17:37:22Z"}
+{"kind": "episode_start", "bot": "mbench-s4-Fox", "pos": {"x": 372.5, "y": 49, "z": 160.6}, "bad": 8, "t": "2026-10-07T17:39:52Z"}
+{"kind": "escalation_trigger", "bot": "mbench-s4-Fox", "n": 1, "bad": 8, "acting": true, "t": "2026-10-07T17:39:52Z"}
+{"kind": "escalation_trigger", "bot": "mbench-s4-Comet", "n": 3, "bad": 9, "acting": true, "t": "2026-10-07T17:41:22Z"}
+{"kind": "escalation_call", "ok": true, "bot": "mbench-s4-Comet", "s": 17.2, "gen_tokens": 701, "diagnosis": "Stuck at (332,72,280) because it cannot descend to the lower sand level; it lacks a pickaxe and the sticks needed to craft one.", "skill": "craft", "t": "2026-10-07T17:41:39Z"}
+{"kind": "directive_sent", "bot": "mbench-s4-Comet", "id": "e7", "origin": "escalation", "steps": [{"skill": "craft", "args": {"item": "stick", "blocks": 4}}], "why": "Stuck at (332,72,280) because it cannot descend to the lower", "t": "2026-10-07T17:41:39Z"}
+{"kind": "episode_end", "bot": "mbench-s4-Fox", "minutes": 3.3, "escalations": 1, "t": "2026-10-07T17:43:10Z"}
+{"kind": "episode_start", "bot": "mbench-s4-Fox", "pos": {"x": 367.7, "y": 46, "z": 164.3}, "bad": 8, "t": "2026-10-07T17:44:40Z"}
+{"kind": "escalation_trigger", "bot": "mbench-s4-Fox", "n": 1, "bad": 8, "acting": true, "t": "2026-10-07T17:44:40Z"}
+{"kind": "escalation_call", "ok": true, "bot": "mbench-s4-Fox", "s": 27.7, "gen_tokens": 1324, "diagnosis": "Stuck underground needing 8 blocks to pillar out; cannot reach dirt/cobblestone and lacks enough placeable blocks or a pickaxe. Currently carries 1 oak_log and seeds, no planks or tools.", "skill": "gather", "t": "2026-10-07T17:45:08Z"}
+{"kind": "directive_sent", "bot": "mbench-s4-Fox", "id": "e8", "origin": "escalation", "steps": [{"skill": "gather", "args": {"block": "oak_log", "count": 1}}], "why": "Stuck underground needing 8 blocks to pillar out; cannot rea", "t": "2026-10-07T17:45:08Z"}
+{"kind": "episode_start", "bot": "mbench-s4-Bravo", "pos": {"x": 335.5, "y": 63, "z": 201.5}, "bad": 9, "t": "2026-10-07T17:46:38Z"}
+{"kind": "escalation_trigger", "bot": "mbench-s4-Bravo", "n": 1, "bad": 9, "acting": true, "t": "2026-10-07T17:46:38Z"}
+{"kind": "escalation_call", "ok": true, "bot": "mbench-s4-Bravo", "s": 17.7, "gen_tokens": 640, "diagnosis": "Repeated gather attempts fail because no sand is within 32\u202fblocks; inventory only has raw logs and no tool to expand search, so the bot keeps trying the same unreachable target.", "skill": "explore", "t": "2026-10-07T17:46:56Z"}
+{"kind": "directive_sent", "bot": "mbench-s4-Bravo", "id": "e9", "origin": "escalation", "steps": [{"skill": "explore", "args": {"blocks": 60}}], "why": "Repeated gather attempts fail because no sand is within 32\u202fb", "t": "2026-10-07T17:46:56Z"}
+{"kind": "episode_end", "bot": "mbench-s4-Bravo", "minutes": 0.8, "escalations": 1, "t": "2026-10-07T17:47:26Z"}
+{"kind": "episode_end", "bot": "mbench-s4-Fox", "minutes": 2.8, "escalations": 1, "t": "2026-10-07T17:47:26Z"}
+{"kind": "episode_start", "bot": "mbench-s4-Hotel", "pos": {"x": 410.7, "y": 62.2, "z": 221.3}, "bad": 6, "t": "2026-10-07T17:47:26Z"}
+{"kind": "escalation_trigger", "bot": "mbench-s4-Hotel", "n": 1, "bad": 6, "acting": true, "t": "2026-10-07T17:47:26Z"}
+{"kind": "escalation_call", "ok": true, "bot": "mbench-s4-Hotel", "s": 13.6, "gen_tokens": 600, "diagnosis": "Bot keeps failing goto attempts to lower\u2011elevation sand because it has no pickaxe to mine down and is stuck at y=62 with only wheat seeds.", "skill": "gather", "t": "2026-10-07T17:47:39Z"}
+{"kind": "directive_sent", "bot": "mbench-s4-Hotel", "id": "e10", "origin": "escalation", "steps": [{"skill": "gather", "args": {"block": "oak_log", "count": 1}}], "why": "Bot keeps failing goto attempts to lower\u2011elevation sand beca", "t": "2026-10-07T17:47:39Z"}
+{"kind": "episode_end", "bot": "mbench-s4-Comet", "minutes": 19.1, "escalations": 3, "t": "2026-10-07T17:50:10Z"}
+{"kind": "episode_end", "bot": "mbench-s4-Hotel", "minutes": 2.7, "escalations": 1, "t": "2026-10-07T17:50:10Z"}
+{"kind": "episode_start", "bot": "mbench-s4-Bravo", "pos": {"x": 355.5, "y": 62.4, "z": 186.3}, "bad": 7, "t": "2026-10-07T17:52:10Z"}
+{"kind": "escalation_trigger", "bot": "mbench-s4-Bravo", "n": 1, "bad": 7, "acting": true, "t": "2026-10-07T17:52:10Z"}
+{"kind": "episode_start", "bot": "mbench-s4-Fox", "pos": {"x": 373.5, "y": 53, "z": 156.5}, "bad": 6, "t": "2026-10-07T17:52:10Z"}
+{"kind": "escalation_trigger", "bot": "mbench-s4-Fox", "n": 1, "bad": 6, "acting": true, "t": "2026-10-07T17:52:10Z"}
+{"kind": "episode_start", "bot": "mbench-s4-Echo", "pos": {"x": 359.7, "y": 61.2, "z": 174.7}, "bad": 5, "t": "2026-10-07T17:52:40Z"}
+{"kind": "escalation_trigger", "bot": "mbench-s4-Echo", "n": 1, "bad": 5, "acting": true, "t": "2026-10-07T17:52:40Z"}
+{"kind": "escalation_call", "ok": true, "bot": "mbench-s4-Echo", "s": 26.3, "gen_tokens": 991, "diagnosis": "The bot is repeatedly surfacing at the same spot without moving horizontally, so sand is not within range and gather keeps failing.", "skill": "explore", "t": "2026-10-07T17:53:07Z"}
+{"kind": "directive_sent", "bot": "mbench-s4-Echo", "id": "e11", "origin": "escalation", "steps": [{"skill": "explore", "args": {"blocks": 30}}], "why": "The bot is repeatedly surfacing at the same spot without mov", "t": "2026-10-07T17:53:07Z"}
+{"kind": "episode_end", "bot": "mbench-s4-Bravo", "minutes": 2.4, "escalations": 1, "t": "2026-10-07T17:54:37Z"}
+{"kind": "episode_start", "bot": "mbench-s4-Delta", "pos": {"x": 373.5, "y": 50.1, "z": 159.6}, "bad": 3, "t": "2026-10-07T17:54:37Z"}
+{"kind": "escalation_trigger", "bot": "mbench-s4-Delta", "n": 1, "bad": 3, "acting": true, "t": "2026-10-07T17:54:37Z"}
+{"kind": "escalation_call", "ok": true, "bot": "mbench-s4-Delta", "s": 16.7, "gen_tokens": 808, "diagnosis": "Bot is trapped underground; pathfinding to nearby blocks (grass, dirt, oak_log) fails, leaving it unable to gather the 26 needed blocks. Inventory only has 2 oak_logs, 2 sticks, and a wooden pickaxe, ", "skill": "surface", "t": "2026-10-07T17:54:54Z"}
+{"kind": "directive_sent", "bot": "mbench-s4-Delta", "id": "e12", "origin": "escalation", "steps": [{"skill": "surface", "args": {}}], "why": "Bot is trapped underground; pathfinding to nearby blocks (gr", "t": "2026-10-07T17:54:54Z"}
+{"kind": "episode_end", "bot": "mbench-s4-Echo", "minutes": 1.9, "escalations": 1, "t": "2026-10-07T17:54:54Z"}
+{"kind": "episode_end", "bot": "mbench-s4-Delta", "minutes": 1.3, "escalations": 1, "t": "2026-10-07T17:55:54Z"}
+{"kind": "episode_start", "bot": "mbench-s4-Comet", "pos": {"x": 285.5, "y": 73, "z": 322.7}, "bad": 6, "t": "2026-10-07T17:56:24Z"}
+{"kind": "escalation_trigger", "bot": "mbench-s4-Comet", "n": 1, "bad": 6, "acting": true, "t": "2026-10-07T17:56:24Z"}
+{"kind": "escalation_call", "ok": true, "bot": "mbench-s4-Comet", "s": 17.5, "gen_tokens": 759, "diagnosis": "Bot keeps trying to goto the water source at y=53, but vertical movement fails; it has a wooden pickaxe and can mine down, while sand is not nearby, causing repeated gather failures.", "skill": "mine", "t": "2026-10-07T17:56:42Z"}
+{"kind": "directive_sent", "bot": "mbench-s4-Comet", "id": "e13", "origin": "escalation", "steps": [{"skill": "mine", "args": {"y": 53}}], "why": "Bot keeps trying to goto the water source at y=53, but verti", "t": "2026-10-07T17:56:42Z"}
+{"kind": "episode_end", "bot": "mbench-s4-Fox", "minutes": 5.0, "escalations": 1, "t": "2026-10-07T17:57:12Z"}
+{"kind": "episode_start", "bot": "mbench-s4-Echo", "pos": {"x": 339.5, "y": 62, "z": 196.5}, "bad": 4, "t": "2026-10-07T18:01:13Z"}
+{"kind": "escalation_trigger", "bot": "mbench-s4-Echo", "n": 1, "bad": 4, "acting": true, "t": "2026-10-07T18:01:13Z"}
+{"kind": "episode_start", "bot": "mbench-s4-Fox", "pos": {"x": 367.4, "y": 46.9, "z": 165.5}, "bad": 4, "t": "2026-10-07T18:01:43Z"}
+{"kind": "escalation_trigger", "bot": "mbench-s4-Fox", "n": 1, "bad": 4, "acting": true, "t": "2026-10-07T18:01:43Z"}
+{"kind": "escalation_call", "ok": false, "bot": "mbench-s4-Fox", "s": 13.1, "gen_tokens": 459, "diagnosis": null, "skill": null, "t": "2026-10-07T18:01:56Z"}
+{"kind": "escalation_trigger", "bot": "mbench-s4-Comet", "n": 2, "bad": 8, "acting": true, "t": "2026-10-07T18:01:56Z"}
+{"kind": "episode_start", "bot": "mbench-s4-Hotel", "pos": {"x": 344.7, "y": 71, "z": 280.5}, "bad": 8, "t": "2026-10-07T18:03:26Z"}
+{"kind": "escalation_trigger", "bot": "mbench-s4-Hotel", "n": 1, "bad": 8, "acting": true, "t": "2026-10-07T18:03:26Z"}
+{"kind": "escalation_call", "ok": true, "bot": "mbench-s4-Hotel", "s": 19.5, "gen_tokens": 866, "diagnosis": "Stuck because path to the sand/water is blocked and the bot lacks a pickaxe to dig down; it only has dirt and seeds and cannot reach the sand at lower elevation.", "skill": "gather", "t": "2026-10-07T18:03:46Z"}
+{"kind": "directive_sent", "bot": "mbench-s4-Hotel", "id": "e14", "origin": "escalation", "steps": [{"skill": "gather", "args": {"block": "oak_log", "count": 1}}], "why": "Stuck because path to the sand/water is blocked and the bot ", "t": "2026-10-07T18:03:46Z"}
+{"kind": "episode_end", "bot": "mbench-s4-Hotel", "minutes": 2.3, "escalations": 1, "t": "2026-10-07T18:05:46Z"}
+{"kind": "escalation_trigger", "bot": "mbench-s4-Echo", "n": 2, "bad": 9, "acting": true, "t": "2026-10-07T18:06:17Z"}
+{"kind": "escalation_call", "ok": true, "bot": "mbench-s4-Echo", "s": 21.3, "gen_tokens": 795, "diagnosis": "The bot is underwater at y=62 and repeatedly tries to surface, but surface keeps failing because the goal changes before it can build a pillar; it lacks sufficient building material to reach land.", "skill": "goto", "t": "2026-10-07T18:06:38Z"}
+{"kind": "directive_sent", "bot": "mbench-s4-Echo", "id": "e15", "origin": "escalation", "steps": [{"skill": "goto", "args": {"x": 355, "y": 73, "z": 147}}], "why": "The bot is underwater at y=62 and repeatedly tries to surfac", "t": "2026-10-07T18:06:38Z"}
+{"kind": "escalation_trigger", "bot": "mbench-s4-Fox", "n": 2, "bad": 5, "acting": true, "t": "2026-10-07T18:07:08Z"}
+{"kind": "escalation_call", "ok": true, "bot": "mbench-s4-Fox", "s": 15.0, "gen_tokens": 618, "diagnosis": "Bot is trapped underground at y=48 with no reachable blocks; pathfinding cannot reach nearby oak logs or other resources, leaving it unable to gather the 26 blocks needed to pillar out.", "skill": "surface", "t": "2026-10-07T18:07:23Z"}
+{"kind": "directive_sent", "bot": "mbench-s4-Fox", "id": "e16", "origin": "escalation", "steps": [{"skill": "surface", "args": {}}], "why": "Bot is trapped underground at y=48 with no reachable blocks;", "t": "2026-10-07T18:07:23Z"}
+{"kind": "escalation_trigger", "bot": "mbench-s4-Comet", "n": 3, "bad": 8, "acting": true, "t": "2026-10-07T18:07:23Z"}
+{"kind": "escalation_call", "ok": true, "bot": "mbench-s4-Comet", "s": 13.2, "gen_tokens": 540, "diagnosis": "Bot keeps failing vertical movement while trying to mine down to y=53; the stair step is blocked and repeated goto attempts miss the target elevation, leaving it unable to descend.", "skill": "gather", "t": "2026-10-07T18:07:36Z"}
+{"kind": "directive_sent", "bot": "mbench-s4-Comet", "id": "e17", "origin": "escalation", "steps": [{"skill": "gather", "args": {"block": "cobblestone", "count": 8}}], "why": "Bot keeps failing vertical movement while trying to mine dow", "t": "2026-10-07T18:07:36Z"}
+{"kind": "episode_end", "bot": "mbench-s4-Fox", "minutes": 6.4, "escalations": 2, "t": "2026-10-07T18:08:06Z"}
+{"kind": "episode_end", "bot": "mbench-s4-Comet", "minutes": 11.7, "escalations": 3, "t": "2026-10-07T18:08:06Z"}
+{"kind": "episode_start", "bot": "mbench-s4-Comet", "pos": {"x": 289.6, "y": 66, "z": 323.5}, "bad": 6, "t": "2026-10-07T18:08:06Z"}
+{"kind": "escalation_trigger", "bot": "mbench-s4-Comet", "n": 1, "bad": 6, "acting": true, "t": "2026-10-07T18:08:06Z"}
+{"kind": "episode_start", "bot": "mbench-s4-Delta", "pos": {"x": 361.3, "y": 62.2, "z": 176.3}, "bad": 5, "t": "2026-10-07T18:08:37Z"}
+{"kind": "escalation_trigger", "bot": "mbench-s4-Delta", "n": 1, "bad": 5, "acting": true, "t": "2026-10-07T18:08:37Z"}
+{"kind": "escalation_call", "ok": true, "bot": "mbench-s4-Delta", "s": 12.5, "gen_tokens": 499, "diagnosis": "Bot is stuck in water at y=62 below sea level with only a pickaxe and sticks, lacking any building blocks needed to surface.", "skill": "gather", "t": "2026-10-07T18:08:49Z"}
+{"kind": "directive_sent", "bot": "mbench-s4-Delta", "id": "e18", "origin": "escalation", "steps": [{"skill": "gather", "args": {"block": "dirt", "count": 1}}], "why": "Bot is stuck in water at y=62 below sea level with only a pi", "t": "2026-10-07T18:08:49Z"}
+{"kind": "episode_start", "bot": "mbench-s4-Bravo", "pos": {"x": 368.5, "y": 68, "z": 157.5}, "bad": 8, "t": "2026-10-07T18:09:49Z"}
+{"kind": "escalation_trigger", "bot": "mbench-s4-Bravo", "n": 1, "bad": 8, "acting": true, "t": "2026-10-07T18:09:49Z"}
+{"kind": "escalation_call", "ok": true, "bot": "mbench-s4-Bravo", "s": 16.1, "gen_tokens": 715, "diagnosis": "The bot is entombed in a dirt/stone enclosure with no path out; it only has logs, a few planks, sticks and dirt, and lacks a pickaxe needed to break stone and clear a way.", "skill": "craft", "t": "2026-10-07T18:10:05Z"}
+{"kind": "directive_sent", "bot": "mbench-s4-Bravo", "id": "e19", "origin": "escalation", "steps": [{"skill": "craft", "args": {"item": "oak_planks", "blocks": 8}}], "why": "The bot is entombed in a dirt/stone enclosure with no path o", "t": "2026-10-07T18:10:05Z"}
+{"kind": "episode_end", "bot": "mbench-s4-Comet", "minutes": 1.7, "escalations": 1, "t": "2026-10-07T18:10:05Z"}
+{"kind": "episode_start", "bot": "mbench-s4-Alpha", "pos": {"x": 361.7, "y": 62.2, "z": 176.7}, "bad": 5, "t": "2026-10-07T18:10:36Z"}
+{"kind": "escalation_trigger", "bot": "mbench-s4-Alpha", "n": 1, "bad": 5, "acting": true, "t": "2026-10-07T18:10:36Z"}
+{"kind": "escalation_call", "ok": true, "bot": "mbench-s4-Alpha", "s": 13.9, "gen_tokens": 648, "diagnosis": "", "skill": "deposit", "t": "2026-10-07T18:10:50Z"}
+{"kind": "directive_sent", "bot": "mbench-s4-Alpha", "id": "e20", "origin": "escalation", "steps": [{"skill": "deposit", "args": {}}], "why": "", "t": "2026-10-07T18:10:50Z"}
+{"kind": "escalation_trigger", "bot": "mbench-s4-Echo", "n": 3, "bad": 9, "acting": true, "t": "2026-10-07T18:11:20Z"}
+{"kind": "episode_end", "bot": "mbench-s4-Bravo", "minutes": 3.0, "escalations": 1, "t": "2026-10-07T18:12:50Z"}
+{"kind": "escalation_trigger", "bot": "mbench-s4-Delta", "n": 2, "bad": 5, "acting": true, "t": "2026-10-07T18:13:50Z"}
+{"kind": "episode_start", "bot": "mbench-s4-Fox", "pos": {"x": 361.3, "y": 62.2, "z": 176.7}, "bad": 6, "t": "2026-10-07T18:15:21Z"}
+{"kind": "escalation_trigger", "bot": "mbench-s4-Fox", "n": 1, "bad": 6, "acting": true, "t": "2026-10-07T18:15:21Z"}
+{"kind": "escalation_trigger", "bot": "mbench-s4-Alpha", "n": 2, "bad": 3, "acting": true, "t": "2026-10-07T18:15:51Z"}
+{"kind": "episode_start", "bot": "mbench-s4-Bravo", "pos": {"x": 357.7, "y": 72, "z": 171.7}, "bad": 8, "t": "2026-10-07T18:17:21Z"}
+{"kind": "escalation_trigger", "bot": "mbench-s4-Bravo", "n": 1, "bad": 8, "acting": true, "t": "2026-10-07T18:17:21Z"}
+{"kind": "episode_end", "bot": "mbench-s4-Alpha", "minutes": 7.3, "escalations": 2, "t": "2026-10-07T18:17:52Z"}
+{"kind": "escalation_trigger", "bot": "mbench-s4-Delta", "n": 3, "bad": 4, "acting": true, "t": "2026-10-07T18:18:52Z"}
+{"kind": "escalation_call", "ok": true, "bot": "mbench-s4-Delta", "s": 15.6, "gen_tokens": 689, "diagnosis": "Bot is stuck in water at 361,62,176 with only a wooden pickaxe and sticks, lacking any building blocks to scaffold out and unable to reach dirt due to pathfinding failures.", "skill": "goto", "t": "2026-10-07T18:19:08Z"}
+{"kind": "directive_sent", "bot": "mbench-s4-Delta", "id": "e21", "origin": "escalation", "steps": [{"skill": "goto", "args": {"x": 355, "y": 73, "z": 147}}], "why": "Bot is stuck in water at 361,62,176 with only a wooden picka", "t": "2026-10-07T18:19:08Z"}
+{"kind": "escalation_trigger", "bot": "mbench-s4-Fox", "n": 2, "bad": 5, "acting": true, "t": "2026-10-07T18:20:38Z"}
+{"kind": "escalation_call", "ok": true, "bot": "mbench-s4-Fox", "s": 19.0, "gen_tokens": 827, "diagnosis": "Bot is stuck in water and cannot reach any oak_log; pathfinding to the log fails because target is at a lower elevation and water blocks movement. It only carries a few logs/planks and lacks a land pa", "skill": "goto", "t": "2026-10-07T18:20:57Z"}
+{"kind": "directive_sent", "bot": "mbench-s4-Fox", "id": "e22", "origin": "escalation", "steps": [{"skill": "goto", "args": {"x": 351, "y": 62, "z": 186}}], "why": "Bot is stuck in water and cannot reach any oak_log; pathfind", "t": "2026-10-07T18:20:57Z"}
+{"kind": "episode_end", "bot": "mbench-s4-Bravo", "minutes": 4.6, "escalations": 1, "t": "2026-10-07T18:21:58Z"}
+{"kind": "episode_end", "bot": "mbench-s4-Delta", "minutes": 13.4, "escalations": 3, "t": "2026-10-07T18:21:58Z"}
+{"kind": "episode_start", "bot": "mbench-s4-Comet", "pos": {"x": 21.6, "y": 75, "z": 351.5}, "bad": 5, "t": "2026-10-07T18:24:28Z"}
+{"kind": "escalation_trigger", "bot": "mbench-s4-Comet", "n": 1, "bad": 5, "acting": true, "t": "2026-10-07T18:24:28Z"}
+{"kind": "escalation_call", "ok": true, "bot": "mbench-s4-Comet", "s": 13.8, "gen_tokens": 619, "diagnosis": "Bot is stuck because the iron ore is at a lower elevation (y\u224869) and the bot cannot stand within reach; repeated goto attempts fail and pathfinding cannot descend, while it has pickaxes but no downwar", "skill": "mine", "t": "2026-10-07T18:24:42Z"}
+{"kind": "directive_sent", "bot": "mbench-s4-Comet", "id": "e23", "origin": "escalation", "steps": [{"skill": "mine", "args": {"y": 68}}], "why": "Bot is stuck because the iron ore is at a lower elevation (y", "t": "2026-10-07T18:24:42Z"}
+{"kind": "escalation_trigger", "bot": "mbench-s4-Fox", "n": 3, "bad": 4, "acting": true, "t": "2026-10-07T18:25:43Z"}
+{"kind": "episode_end", "bot": "mbench-s4-Comet", "minutes": 1.2, "escalations": 1, "t": "2026-10-07T18:25:43Z"}
+{"kind": "episode_start", "bot": "mbench-s4-Delta", "pos": {"x": 358.3, "y": 62.2, "z": 182.7}, "bad": 4, "t": "2026-10-07T18:27:13Z"}
+{"kind": "escalation_trigger", "bot": "mbench-s4-Delta", "n": 1, "bad": 4, "acting": true, "t": "2026-10-07T18:27:13Z"}
+{"kind": "episode_end", "bot": "mbench-s4-Echo", "minutes": 26.5, "escalations": 3, "t": "2026-10-07T18:27:43Z"}
+{"kind": "episode_start", "bot": "mbench-s4-Golf", "pos": {"x": 362.6, "y": 70, "z": 157.5}, "bad": 5, "t": "2026-10-07T18:28:14Z"}
+{"kind": "escalation_trigger", "bot": "mbench-s4-Golf", "n": 1, "bad": 5, "acting": true, "t": "2026-10-07T18:28:14Z"}
+{"kind": "escalation_call", "ok": true, "bot": "mbench-s4-Golf", "s": 16.2, "gen_tokens": 694, "diagnosis": "The bot is repeatedly failing to reach nearby dirt blocks; pathfinding times out and it cannot gather the required dirt. Its inventory is full of items (28) far from the chest, and it lacks a clear re", "skill": "home", "t": "2026-10-07T18:28:30Z"}
+{"kind": "directive_sent", "bot": "mbench-s4-Golf", "id": "e24", "origin": "escalation", "steps": [{"skill": "home", "args": {}}], "why": "The bot is repeatedly failing to reach nearby dirt blocks; p", "t": "2026-10-07T18:28:30Z"}
+{"kind": "episode_end", "bot": "mbench-s4-Golf", "minutes": 0.8, "escalations": 1, "t": "2026-10-07T18:29:00Z"}
+{"kind": "escalation_trigger", "bot": "mbench-s4-Delta", "n": 2, "bad": 5, "acting": true, "t": "2026-10-07T18:32:31Z"}
+{"kind": "escalation_call", "ok": false, "bot": "mbench-s4-Delta", "err": "Expecting value: line 1 column 1 (char 0)", "t": "2026-10-07T18:33:01Z"}
+{"kind": "episode_start", "bot": "mbench-s4-Alpha", "pos": {"x": 343.5, "y": 66, "z": 235.5}, "bad": 3, "t": "2026-10-07T18:33:01Z"}
+{"kind": "escalation_trigger", "bot": "mbench-s4-Alpha", "n": 1, "bad": 3, "acting": true, "t": "2026-10-07T18:33:01Z"}
+{"kind": "escalation_call", "ok": true, "bot": "mbench-s4-Alpha", "s": 23.9, "gen_tokens": 1135, "diagnosis": "Stuck trying to gather oak logs but none are within 32 blocks and the gather skill is on cooldown; repeated pathing attempts to dirt fail, and the bot is far from the chest for depositing.", "skill": "goto", "t": "2026-10-07T18:33:25Z"}
+{"kind": "directive_sent", "bot": "mbench-s4-Alpha", "id": "e25", "origin": "escalation", "steps": [{"skill": "goto", "args": {"x": 374, "y": 66, "z": 236}}], "why": "Stuck trying to gather oak logs but none are within 32 block", "t": "2026-10-07T18:33:25Z"}
+{"kind": "episode_end", "bot": "mbench-s4-Alpha", "minutes": 1.4, "escalations": 1, "t": "2026-10-07T18:33:55Z"}
+{"kind": "episode_start", "bot": "mbench-s4-Hotel", "pos": {"x": 340.5, "y": 65, "z": 235.2}, "bad": 7, "t": "2026-10-07T18:36:26Z"}
+{"kind": "escalation_trigger", "bot": "mbench-s4-Hotel", "n": 1, "bad": 7, "acting": true, "t": "2026-10-07T18:36:26Z"}
+{"kind": "escalation_call", "ok": true, "bot": "mbench-s4-Hotel", "s": 20.6, "gen_tokens": 820, "diagnosis": "The bot is entombed in a small enclosed area near (340,65,235); all pathfinding attempts to home fail because there is no accessible route.", "skill": "mine", "t": "2026-10-07T18:36:46Z"}
+{"kind": "directive_sent", "bot": "mbench-s4-Hotel", "id": "e26", "origin": "escalation", "steps": [{"skill": "mine", "args": {"y": 50}}], "why": "The bot is entombed in a small enclosed area near (340,65,23", "t": "2026-10-07T18:36:46Z"}
+{"kind": "escalation_trigger", "bot": "mbench-s4-Delta", "n": 3, "bad": 8, "acting": true, "t": "2026-10-07T18:37:47Z"}
+{"kind": "escalation_call", "ok": true, "bot": "mbench-s4-Delta", "s": 12.8, "gen_tokens": 455, "diagnosis": "The bot is stuck in water at 359,62,176 with no reachable path to nearby blocks; it lacks any placeable blocks for climbing and pathfinding repeatedly fails.", "skill": "goto", "t": "2026-10-07T18:38:00Z"}
+{"kind": "directive_sent", "bot": "mbench-s4-Delta", "id": "e27", "origin": "escalation", "steps": [{"skill": "goto", "args": {"x": 355, "y": 73, "z": 147}}], "why": "The bot is stuck in water at 359,62,176 with no reachable pa", "t": "2026-10-07T18:38:00Z"}
+{"kind": "episode_start", "bot": "mbench-s4-Echo", "pos": {"x": 349.5, "y": 62.2, "z": 189.1}, "bad": 4, "t": "2026-10-07T18:38:00Z"}
+{"kind": "escalation_trigger", "bot": "mbench-s4-Echo", "n": 1, "bad": 4, "acting": true, "t": "2026-10-07T18:38:00Z"}
+{"kind": "escalation_call", "ok": true, "bot": "mbench-s4-Echo", "s": 19.5, "gen_tokens": 948, "diagnosis": "The bot is wedged at (\u2248349,62,188) with only a few placeable blocks (3 dirt) and cannot surface because it lacks enough blocks to build a scaffold.", "skill": "gather", "t": "2026-10-07T18:38:19Z"}
+{"kind": "directive_sent", "bot": "mbench-s4-Echo", "id": "e28", "origin": "escalation", "steps": [{"skill": "gather", "args": {"block": "oak_log", "count": 5}}], "why": "The bot is wedged at (\u2248349,62,188) with only a few placeable", "t": "2026-10-07T18:38:19Z"}
+{"kind": "episode_end", "bot": "mbench-s4-Hotel", "minutes": 1.4, "escalations": 1, "t": "2026-10-07T18:38:19Z"}
+{"kind": "episode_start", "bot": "mbench-s4-Bravo", "pos": {"x": 385.5, "y": 72, "z": 174.5}, "bad": 8, "t": "2026-10-07T18:42:21Z"}
+{"kind": "escalation_trigger", "bot": "mbench-s4-Bravo", "n": 1, "bad": 8, "acting": true, "t": "2026-10-07T18:42:21Z"}
+{"kind": "escalation_call", "ok": true, "bot": "mbench-s4-Bravo", "s": 23.5, "gen_tokens": 1151, "diagnosis": "Bot repeatedly fails to reach lower elevation (y=62) and cannot craft a pickaxe because it is not at the crafting table.", "skill": "goto", "t": "2026-10-07T18:42:44Z"}
+{"kind": "directive_sent", "bot": "mbench-s4-Bravo", "id": "e29", "origin": "escalation", "steps": [{"skill": "goto", "args": {"x": 355, "y": 73, "z": 147}}], "why": "Bot repeatedly fails to reach lower elevation (y=62) and can", "t": "2026-10-07T18:42:44Z"}
+{"kind": "episode_end", "bot": "mbench-s4-Bravo", "minutes": 0.9, "escalations": 1, "t": "2026-10-07T18:43:14Z"}
+{"kind": "escalation_trigger", "bot": "mbench-s4-Echo", "n": 2, "bad": 5, "acting": true, "t": "2026-10-07T18:43:14Z"}
