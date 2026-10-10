@@ -870,14 +870,28 @@ await t('AP2-T9 AT THE DIG CALL the jump agrees with the client\'s ground and th
     const b = fakeBot({ cells: TRAP, riseTo: 1.4 }); b.entity.position = new V(100.5, 61.395, 100.5); b.entity.onGround = false
     const l0 = b.lookAt; b.lookAt = (...a) => { b.entity.onGround = true; return l0(...a) }
     let j = null; const d0 = b.dig; b.dig = (blk, fl) => { j = b.controls.jump; return d0(blk, fl) }
-    await m.airPocketStep(b, plan, deps()); clearInterval(b._healthTimer)
-    assert.equal(j, true)   // jump held while the client prices on-ground: the Paper ghost
+    const rm = await m.airPocketStep(b, plan, deps()); clearInterval(b._healthTimer)
+    // without the settle, a body that WOULD have agreed after one release is refused instead of rescued
+    assert.equal(j, null); assert.equal(rm.ok, false)
   })
   // the dig is priced in the state it is sent in: an on-ground price that no longer fits the budget refuses by name
   const t2 = fakeBot({ cells: TRAP, riseTo: 1.4 }); t2.entity.position = new V(100.5, 61.395, 100.5)
   let looked = false; const l2 = t2.lookAt; t2.lookAt = (...x) => { looked = true; return l2(...x) }   // the price changes after the look
   const r2 = await airPocketStep(t2, plan, deps({ predict: () => (looked ? 999999 : 300) })); clearInterval(t2._healthTimer)
   assert.equal(r2.ok, false); assert.match(r2.why, /the dig needs 999999 ms as the body is now/)
+  // a body that NEVER agrees (it flips on every settle) is never dug: refused by name, no dig sent (both r4 reviews)
+  const fl = fakeBot({ cells: TRAP, riseTo: 1.4 }); fl.entity.position = new V(100.5, 61.395, 100.5)
+  const sc0 = fl.setControlState; fl.setControlState = (n, on) => { sc0(n, on); if (n === 'jump') fl.entity.onGround = on }   // always the wrong way
+  let digs = 0; const fd0 = fl.dig; fl.dig = (blk, f) => { digs++; return fd0(blk, f) }
+  const r3 = await airPocketStep(fl, plan, deps()); clearInterval(fl._healthTimer)
+  assert.equal(digs, 0); assert.equal(r3.ok, false); assert.match(r3.why, /the body never settled/)
+  await withMutant(AP_PATH, '      if (!bodyAgrees({ onGround: bot.entity?.onGround, wantJump })) {', '      if (false) {', async m => {
+    const g = fakeBot({ cells: TRAP, riseTo: 1.4 }); g.entity.position = new V(100.5, 61.395, 100.5)
+    const s0 = g.setControlState; g.setControlState = (n, on) => { s0(n, on); if (n === 'jump') g.entity.onGround = on }
+    let d = 0; const g0 = g.dig; g.dig = (blk, f) => { d++; return g0(blk, f) }
+    await m.airPocketStep(g, plan, deps()); clearInterval(g._healthTimer)
+    assert.ok(d >= 1)   // without the check the mismatched body is dug
+  })
 })
 // ---------------------------------------------------------------- I. the world's inputs, read the way 1.21.8 needs
 await t('I1 difficulty comes from the server packet (bot.serverDifficulty): mineflayer game.difficulty is undefined on 1.21.8', () => {
