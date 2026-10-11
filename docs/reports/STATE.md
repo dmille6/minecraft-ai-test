@@ -14,6 +14,17 @@ AGENTS DOWN until ~10-12 11Z (weekly limit): no new builds before then._
 
 ---
 
+## 10-11 12:45Z — PEACEFULKIT-02 KEPT (+360, 01:23Z) and PROMOTED: FLEET 6f1921a (01:32Z); merged to main; junkwell-02 drawing
++360: breaches 0; every instrument fired; 8 swords burned by 8 bots, 57 kit items composted; DiD sword slots -0.42,
+plant/food slots -1.31, all slots -0.46, share>=34 -0.087; deaths canary 2/60 bh vs control 6/300 bh (held, LB 0.24).
+Bag census 12:20Z: 92% of slots (96% on 10-08), >=34 slots 42/80 (65), full 17 (36); wooden swords 55 -> 22,
+wildflowers 38 -> 7 slots, stone pickaxes 183 -> 152.
+IDLE 01:32Z -> 12:22Z: junkwell-02 was HELD for v35 and the operator session AND every agent were stopped by the weekly
+API limit (resets 10-12 11:00Z), so nobody could release it. LESSON: never leave a hold only an agent can lift; give it
+a not_before / expiry. Released 12:22Z without v35 (96 GB RAM). junkwell-02 then draw-short (3 pools) at 12:30Z;
+placebo-b/board-c leave their exclusion ~13:32Z. Main: merge of 6f1921a, npm test 244/244. The scratchpad worktree
+state-main lost its .git link overnight (prunable); replaced by scratchpad/sm2.
+
 ## 10-10 19:45Z — GRIDFIX + BAMBOO READY on the stonecap shas (entries drafted, NOT added)
 - **gridfix-01:**
   - **gf-on-935c63e @ e29c1e7**: npm test 246/246.
