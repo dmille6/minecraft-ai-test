@@ -9,7 +9,7 @@ const BANKSRC = readFileSync(new URL('../src/bankable.mjs', import.meta.url), 'u
 const { PATHFINDER_SCAFFOLD } = await import('../src/scaffold.mjs')
 const SCAFFOLD = new Set(PATHFINDER_SCAFFOLD)
 const inv = [
-  { name: 'cobblestone', count: 40, type: 1 }, { name: 'stone_pickaxe', count: 1, type: 2 }, { name: 'iron_pickaxe', count: 1, type: 3 },
+  { name: 'cobblestone', count: 64, type: 1 }, { name: 'cobblestone', count: 40, type: 1 }, { name: 'stone_pickaxe', count: 1, type: 2 }, { name: 'iron_pickaxe', count: 1, type: 3 },
   { name: 'furnace', count: 2, type: 4 }, { name: 'crafting_table', count: 1, type: 5 }, { name: 'raw_iron', count: 9, type: 6 },
   { name: 'oak_log', count: 12, type: 7 }, { name: 'bucket', count: 1, type: 8 }, { name: 'leaf_litter', count: 30, type: 9 },
 ]
@@ -18,10 +18,10 @@ t('the only pickaxe of a family, the stations, the bucket and the junk are never
   for (const keep of ['furnace', 'crafting_table', 'bucket', 'leaf_litter']) assert.ok(!names.includes(keep), `${keep} must stay`)
   assert.ok(!names.includes('iron_pickaxe') && !names.includes('stone_pickaxe'), 'one pickaxe of each family is kept (there is one of each)')
 })
-t('a second pickaxe of the same family is banked; the scaffold reserve of 8 cobblestone stays', () => {
+t('a second pickaxe of the same family is banked; the cobble reserve of 64 stays (the cobble rule, stonecap)', () => {
   const plan = depositPlan([...inv, { name: 'stone_pickaxe', count: 1, type: 2 }])
   assert.equal(plan.find(p => p.name === 'stone_pickaxe')?.count, 1, 'the spare pickaxe goes, the working one stays')
-  assert.equal(plan.find(p => p.name === 'cobblestone')?.count, 32, '40 held, 8 kept to pillar out')
+  assert.equal(plan.find(p => p.name === 'cobblestone')?.count, 40, '104 held in [64, 40]: the whole 40 goes, 64 kept')
 })
 t('the valuable stacks go first, so a short chest keeps the iron', () => {
   const names = depositPlan(inv).map(p => p.name)

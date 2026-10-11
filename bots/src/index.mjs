@@ -39,6 +39,7 @@ import { installOxygenGuard } from './oxygen.mjs'
 import { installDigCollisionWatch } from './digcollision.mjs'
 import { installShoreEgress } from './watermoves.mjs'
 import { installCraftSync } from './craftsync.mjs'
+import { installCobbleCap } from './skills.mjs'
 import { CognitiveLoop } from './cognitive.mjs'
 import { openLessons } from './lessons.mjs'
 import { openWorldFacts } from './worldfacts.mjs'
@@ -267,6 +268,8 @@ function connect() {
     // reporting success: stale-stateId clicks fired as a burst, Paper's refresh landing behind them. Installed
     // here, not at createBot: the plugins (bot.craft among them) are injected after login, and a wrapper put on
     // earlier is overwritten without a word -- which is what happened in the sandbox experiment.
+    // THE TOWN COBBLE CAP (cobblecap.mjs): the deposit plan reads the town's reconciled cobble through this bot's view
+    try { installCobbleCap(bot) } catch (e) { log('warn', 'cobble cap not installed', { error: e.message }) }
     try {
       installCraftSync(bot, { log: row => logEvent({ ...row, snapshot: snapshot(bot) }) })
     } catch (e) {

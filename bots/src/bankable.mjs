@@ -3,6 +3,7 @@ import { remaining, FLOOR } from './toolfor.mjs'
 // The peaceful kit's sword rule: `noSwords` defaults to THE SWITCH (foodskip.mjs, this process's last decision).
 import { unwantedSword } from './peacefulkit.mjs'
 import { peacefulFoodActive } from './foodskip.mjs'
+import { admitStacks } from './cobblecap.mjs'
 // WHAT IS ACTUALLY WORTH BANKING.
 //
 // "deposited items per bot-hour" is a CO-PRIMARY endpoint of this experiment and
@@ -52,6 +53,70 @@ const STANDING_TARGETS = new Set([
 const SCAFFOLD_SET = new Set(PATHFINDER_SCAFFOLD)
 export function isScaffoldItem (name) {
   return SCAFFOLD_SET.has(name) || /^(cobblestone|cobbled_deepslate|stone)$/.test(name)
+}
+
+/**
+ * THE COBBLE RULE (OWNER 10-04: "keep 256/town reserve, bank only when it frees a slot (both-engine no-ledger design)";
+ * docs/reports/cobble-rule-design-2026-10-07.md). Cobblestone and cobbled deepslate enter storage ONLY as WHOLE STACKS
+ * -- each one empties a bag slot -- and only while the bag keeps COBBLE_RESERVE of the two together:
+ *   - measured 10-06/07 (30 h, 80 bots): 299 deposit runs banked 10,997 cobble; 216 of them moved an amount that was not a
+ *     whole stack, and 238 left the bot under 64 (the reserve would have kept 6,350 of the 10,997);
+ *   - 64 is the reserve the escape code relies on: the exit contract refuses a descent to iron depth (y 16 at sea level
+ *     63) below debt 47 + reserve 12 = 59 scaffold blocks (exit-contract.mjs canContinueDescent), the stockpile rung asks
+ *     for at most 64 of the stone family (milestones.mjs STOCKPILE_MAX), the town deposit keeps 64 (towndeposit.mjs) and
+ *     the junk well keeps 64 reserve stone (well.mjs STONE_GUARD) -- one number in four places, and 64 is one slot.
+ * Smallest stacks first (the transfer moves exactly these, by slot: skills.mjs deposit), so the most cobble stays for the
+ * fewest slots. No town ledger: both engines dropped it on 10-04 (lost updates, per-bot towns, stale lower bounds).
+ */
+export const COBBLE_NAMES = Object.freeze(['cobblestone', 'cobbled_deepslate'])
+export const COBBLE_RESERVE = 64
+const COBBLE_SET = new Set(COBBLE_NAMES)
+export const isCobble = name => COBBLE_SET.has(name)
+
+/**
+ * WHICH COBBLE STACKS MAY BE BANKED -> [{ slot, name, count }]. Pure over mineflayer Items ({ name, count, slot }; a
+ * missing slot is the list index). Whole stacks, smallest first (count, then slot), each taken only while the bag keeps
+ * `reserve` of the two names together and the name's total stays within `creditCap`.
+ */
+export function cobbleBankStacks (items = [], { creditCap = 64, reserve = COBBLE_RESERVE } = {}) {
+  const list = (Array.isArray(items) ? items : []).map((it, i) => ({ it, i, n: Number(it?.count) || 0 }))
+    .filter(x => x.it && COBBLE_SET.has(x.it.name) && x.n > 0)
+  let left = list.reduce((t, x) => t + x.n, 0)
+  const per = {}, out = []
+  for (const x of list.sort((a, b) => a.n - b.n || (a.it.slot ?? a.i) - (b.it.slot ?? b.i))) {
+    if (left - x.n < reserve) break                       // smallest first: no bigger stack fits either
+    if ((per[x.it.name] ?? 0) + x.n > creditCap) continue
+    out.push({ slot: x.it.slot ?? null, name: x.it.name, count: x.n })
+    per[x.it.name] = (per[x.it.name] ?? 0) + x.n
+    left -= x.n
+  }
+  return out
+}
+
+/**
+ * THE TOWN COBBLE CAP (cobblecap.mjs: 256 per town from reconciled chest observations, with reservations). Read through a
+ * reader skills.mjs installs per bot (it knows the town, the pool dir and the scan), like withdrawHolds: () -> the town
+ * view { lb, complete, reserved, unknown } or null. No reader (a pure caller, a test) -> no town view: the whole-stack rule
+ * alone. The deposit's TRANSFER re-judges every stack with a claim in the town's journal, so this is the plan's view, not
+ * the gate.
+ */
+let COBBLE_TOWN = null
+export function setCobbleTownReader (fn) { COBBLE_TOWN = typeof fn === 'function' ? fn : null }
+/** The town view now, or null. A reader that throws is an UNKNOWN town (nothing admitted), never an open one. */
+export function cobbleTownView () {
+  if (!COBBLE_TOWN) return null
+  try { return COBBLE_TOWN() ?? { lb: 0, complete: false, reserved: 0 } } catch { return { lb: 0, complete: false, reserved: 0 } }
+}
+/**
+ * CAN A DEPOSIT HERE COUNT THE TOWN? (the cap's reconciliation) -> { can, note }. Installed per bot by skills.mjs: `can`
+ * when the bot is in town and an uncounted town container is outside its backoff; `note` is the remedy or the stuck
+ * container, for the refusal. No probe -> { can: false, note: null }.
+ */
+let COBBLE_RECONCILE = null
+export function setCobbleReconcileProbe (fn) { COBBLE_RECONCILE = typeof fn === 'function' ? fn : null }
+export function cobbleReconcileProbe () {
+  if (!COBBLE_RECONCILE) return { can: false, note: null }
+  try { return COBBLE_RECONCILE() ?? { can: false, note: null } } catch { return { can: false, note: null } }
 }
 
 /** A stone pickaxe costs two sticks, and the rung gates on `stick >= 2 || planks >= 2`. */
@@ -123,6 +188,9 @@ export const EXCLUSION_PHRASE = Object.freeze({
   ballast: 'ballast',
   not_wanted: 'no goal wants it',
   scaffold_reserve: 'scaffold reserve',
+  cobble_reserve: 'cobble reserve',
+  town_cobble_cap: 'town cobble cap',
+  town_cobble_unknown: 'town cobble not yet counted',
   last_of_tool_family: 'last of its tool family',
   the_only_station: 'the only station',
   peaceful_sword: 'swords are not banked in a peaceful world',
@@ -166,6 +234,20 @@ export function bankableInventory (items = [], { wants = [], creditCap = 64,
 
   const scaffoldReserve = scaffoldKeep(counts, reserveScaffold)
   const hold = withdrawHolds()
+  // THE COBBLE RULE: the whole stacks above the reserve, per name (cobbleBankStacks).
+  const cobbleWhole = {}, cobbleCapped = {}
+  const cobbleStacks = cobbleBankStacks(items, { creditCap })
+  // THE TOWN CAP on top (cobblecap.mjs admitStacks: each admitted stack charged before the next is judged)
+  const town = cobbleTownView()
+  const admitted = town ? admitStacks(town, cobbleStacks.map(s => s.count)) : null
+  let left = admitted ? admitted.bank.length : cobbleStacks.length
+  for (const st of cobbleStacks) {
+    if (left > 0 && (!admitted || admitted.bank.includes(st.count))) {
+      if (admitted) admitted.bank.splice(admitted.bank.indexOf(st.count), 1)
+      cobbleWhole[st.name] = (cobbleWhole[st.name] ?? 0) + st.count
+      left--
+    } else cobbleCapped[st.name] = admitted && admitted.refused.unknown > 0 && !admitted.refused.at_cap ? 'town_cobble_unknown' : 'town_cobble_cap'
+  }
   const detail = {}
   // name -> the rule that removed it, recorded HERE so no second route can disagree with the
   // decision. Only the subtraction that actually zeroed the item is named: the reserve when it
@@ -174,6 +256,15 @@ export function bankableInventory (items = [], { wants = [], creditCap = 64,
   let bankable = 0, junk = 0
   for (const [name, n] of Object.entries(counts)) {
     if (NEVER_BANKABLE.has(name)) { junk += n; excluded[name] = 'ballast'; continue }
+    // COBBLE: whole stacks above the reserve, or nothing (a withdraw hold on the name holds every stack of it: a partial
+    // hold would turn a whole stack into a partial one). Always a standing target, so never junk.
+    if (COBBLE_SET.has(name)) {
+      const whole = cobbleWhole[name] ?? 0
+      if (whole <= 0 || (hold[name] ?? 0) > 0) { excluded[name] = whole > 0 ? 'withdraw_hold' : (cobbleCapped[name] ?? 'cobble_reserve'); continue }
+      detail[name] = whole
+      bankable += whole
+      continue
+    }
     let avail = n
     const m = TOOL_RE.exec(name)
     // KEEP ONE USABLE COPY OF EACH TOOL, whatever copy the transfer picks (both reviews, 10-04): mineflayer's
@@ -242,6 +333,9 @@ export function clearWithdrawHolds () { HOLDS = {} }
 export function depositDue ({ bankable, distHome, storageWithin48 = false,
                               onDepositMilestone = false, occupiedSlots = 0,
                               minBankable = 12, nearHome = 96 }) {
+  // NOTHING BANKABLE IS NEVER DUE (nojunk SYNTHESIS: reject an empty plan before walking; both reviews of the cobble rule,
+  // which makes it common -- a full bag whose cobble is all reserve): at 30+ slots this said "deposit" with 0 bankable.
+  if (!(bankable > 0)) return false
   if (bankable < minBankable && occupiedSlots < 30) return false
   return !!storageWithin48 || distHome <= nearHome || !!onDepositMilestone
 }
@@ -348,7 +442,19 @@ export function depositNoopReason (items = [], item = null, { wants = [], ...opt
   // closes for both callers rather than merely staying unlikely.
   const w = Array.isArray(wants) ? wants : [...(wants ?? [])]
   if (depositPlan(items, item, { wants: w, ...opts }).length) return null
-  if (!item) return 'nothing worth banking — nothing to deposit'
+  if (!item) {
+    // the cobble cap's refusals are named even for a plain deposit (both reviews r2): the bot is carrying the cobble
+    const why = COBBLE_NAMES.map(n => bankableExclusion(items, n, { wants: w, ...opts })).find(x => x === 'town_cobble_unknown' || x === 'town_cobble_cap')
+    if (!why) {
+      // SWORDS WHILE THE PEACEFUL SWITCH IS ON (the peacefulkit x cobble-cap composition, Codex P2): the rule is named, and the
+      // move: none is needed, keep working. (No claim about the well: its own switch is stricter -- Claude r1 P3.)
+      const sword = items.some(it => it?.name && bankableExclusion(items, it.name, { wants: w, ...opts }) === 'peaceful_sword')
+      if (sword) return `nothing worth banking (${EXCLUSION_PHRASE.peaceful_sword}) — nothing to deposit, keep working`
+      return 'nothing worth banking — nothing to deposit'
+    }
+    const note = why === 'town_cobble_unknown' ? cobbleReconcileProbe().note : null
+    return `nothing worth banking (${EXCLUSION_PHRASE[why]}): the surplus cobble stays — nothing to deposit${note ? ` (${note})` : ''}`
+  }
   let held = 0
   for (const it of items) if (it?.name === item) held += (it.count ?? 0)
   if (held <= 0) return `you are carrying no ${item} — nothing to deposit`
@@ -357,5 +463,7 @@ export function depositNoopReason (items = [], item = null, { wants = [], ...opt
   // into the one bucket this change exists to split.
   const phrase = EXCLUSION_PHRASE[bankableExclusion(items, item, { wants: w, ...opts })]
   if (!phrase) return `you are carrying ${item}, but ${item} is not a banking target right now — nothing to deposit`
-  return `not a banking target (${phrase}): you are carrying ${item} — nothing to deposit`
+  // THE COBBLE CAP'S UNKNOWN names its remedy (Codex r2 P3): count at town, or the container that could not be counted.
+  const note = phrase === EXCLUSION_PHRASE.town_cobble_unknown ? cobbleReconcileProbe().note : null
+  return `not a banking target (${phrase}): you are carrying ${item} — nothing to deposit${note ? ` (${note})` : ''}`
 }
