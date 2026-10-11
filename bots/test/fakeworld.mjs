@@ -17,9 +17,10 @@ import { Vec3 } from 'vec3'
 import { EventEmitter } from 'node:events'
 
 export const NAMES = ['air', 'grass_block', 'stone', 'chest', 'trapped_chest', 'barrel', 'composter', 'oak_log', 'cobblestone', 'dirt', 'oak_planks', 'apple', 'water', 'crafting_table',
-  'stick', 'wooden_pickaxe', 'stone_pickaxe', 'iron_pickaxe', 'golden_pickaxe', 'stone_axe', 'cobbled_deepslate', 'birch_planks', 'bamboo', 'leaf_litter', 'torch']
+  'stick', 'wooden_pickaxe', 'stone_pickaxe', 'iron_pickaxe', 'golden_pickaxe', 'stone_axe', 'cobbled_deepslate', 'birch_planks', 'bamboo', 'leaf_litter', 'torch', 'oak_trapdoor']
 const SOLID = new Set(['grass_block', 'stone', 'chest', 'trapped_chest', 'barrel', 'composter', 'oak_log', 'cobblestone', 'dirt', 'oak_planks', 'crafting_table'])
 const CONTAINER = /^(chest|trapped_chest|barrel)$/
+const HARDNESS = { grass_block: 0.6, dirt: 0.5, stone: 1.5, cobblestone: 2, oak_log: 2, oak_planks: 2, chest: 2.5, trapped_chest: 2.5, barrel: 2.5, crafting_table: 2.5, composter: 0.6 }
 const key = (x, y, z) => `${Math.floor(x)},${Math.floor(y)},${Math.floor(z)}`
 
 export function fakeWorld ({ bag = [], at = [6.5, 64, 0.5] } = {}) {
@@ -33,7 +34,9 @@ export function fakeWorld ({ bag = [], at = [6.5, 64, 0.5] } = {}) {
   const block = p => {
     const v = new Vec3(Math.floor(p.x), Math.floor(p.y), Math.floor(p.z))
     const name = nameAt(v.x, v.y, v.z)
+    // shapes and hardness as mineflayer gives them (the junk well's checks read both: a full cube, a diggable block)
     return { name, type: NAMES.indexOf(name), boundingBox: SOLID.has(name) ? 'block' : 'empty', position: v, diggable: true,
+             shapes: SOLID.has(name) ? [[0, 0, 0, 1, 1, 1]] : [], hardness: SOLID.has(name) ? (HARDNESS[name] ?? 1.5) : 0,
              getProperties: () => props.get(key(v.x, v.y, v.z)) ?? {} }
   }
   const set = (x, y, z, name, p = null) => {
