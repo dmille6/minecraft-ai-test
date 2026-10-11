@@ -14,6 +14,12 @@ AGENTS DOWN until ~10-12 11Z (weekly limit): no new builds before then._
 
 ---
 
+## 10-11 21:00Z — CANARY LIVE: stonecap-01 @ 935c63e on hive-a,hive-d,placebo-b,hive-c (20 bots), declared 20:45:56Z
+Cap + surplus cobble to the well at 256/town. Reads ~23:45Z / ~02:45Z (+ extension until exposure). FALLBACKS registered
+so the queue never waits on a missing base: gridfix-01 + variant 0cdb1a8 -> 82aef34 (gf-on-0cdb1a8, both engines APPROVE
+r2 on 10-10) and bamboo-01 + variant 82aef34 -> 8212674 (bb-on-82aef34, both APPROVE r1). Registrations
+docs/reports/gridfix-01.82aef34.json, bamboo-01.8212674.json.
+
 ## 10-11 19:40Z — JUNKWELL-02 KEPT (+360, 19:21Z) and PROMOTED: FLEET 0cdb1a8 (19:31Z); merged to main; stonecap-01 next
 +360: breaches 0; 2 wells, 9 disposal visits; junk slots DiD -3.02 (owner junk -2.45); share>=34 DiD -0.033; mine DiD
 +7.03 (the predicted side effect: room -> mining) WITHOUT the deaths of junkwell-01: deaths canary 1/120 bh vs control
