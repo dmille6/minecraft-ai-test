@@ -14,6 +14,14 @@ AGENTS DOWN until ~10-12 11Z (weekly limit): no new builds before then._
 
 ---
 
+## 10-11 19:40Z — JUNKWELL-02 KEPT (+360, 19:21Z) and PROMOTED: FLEET 0cdb1a8 (19:31Z); merged to main; stonecap-01 next
++360: breaches 0; 2 wells, 9 disposal visits; junk slots DiD -3.02 (owner junk -2.45); share>=34 DiD -0.033; mine DiD
++7.03 (the predicted side effect: room -> mining) WITHOUT the deaths of junkwell-01: deaths canary 1/120 bh vs control
+2/240 bh (equal rate), deep deaths 1 vs 3, deaths near a well 0. Main: merge of 0cdb1a8 (well-e2e.cjs kept main's),
+npm test 245/245. stonecap-01 launches next on variant 0cdb1a8 -> 935c63e (cap + surplus cobble to the well).
+FOLLOW-UPS (junk well): placebo-a has no valid well site near home; repeated _well_retired why=wall_is_air on the same
+wells (placebo-d's own, board-b's 10-05 leftover) -- investigate when the agents return.
+
 ## 10-11 17:00Z — junkwell-02 +180 NOT_YET (clean); stonecap FALLBACK on 6f1921a built by the operator and queued
 junkwell-02 +180 (16:19Z): breaches 0 (pit left open, nonlisted, inside, sword not peaceful, stone guard ...); 2 wells
 built (placebo-d, hive-b), 6 disposal visits (4 with swords), junk slots DiD -1.40, mine DiD +1.17, deaths canary 0 vs
