@@ -14,6 +14,18 @@ AGENTS DOWN until ~10-12 11Z (weekly limit): no new builds before then._
 
 ---
 
+## 10-11 17:00Z — junkwell-02 +180 NOT_YET (clean); stonecap FALLBACK on 6f1921a built by the operator and queued
+junkwell-02 +180 (16:19Z): breaches 0 (pit left open, nonlisted, inside, sword not peaceful, stone guard ...); 2 wells
+built (placebo-d, hive-b), 6 disposal visits (4 with swords), junk slots DiD -1.40, mine DiD +1.17, deaths canary 0 vs
+control 1, deep deaths 0. Watch: share>=34 DiD +0.067 (noise at 3 h?); placebo-a has no valid well site near home;
+_well_retired why=wall_is_air repeats (placebo-d 16x on its own well, board-b 41x on a 10-05 leftover well) -- review
+after the decision.
+stonecap FALLBACK (owner: "implement the cobblestone cap"; builder agents rate-limited): sc-on-6f1921a @ 7cdc742 = the
+approved plain stonecap (971fb09) on fleet 6f1921a with no well; peacefulkit conflicts resolved as the approved coupled
+935c63e (admission/bankable byte-identical); npm test 243/243; cobble mutants 67/67; Codex r1 CHANGE (mutant anchors,
+sword refusal text) -> r2 APPROVE. Registration docs/reports/stonecap-01.6f1921a.json; queue variant 6f1921a added.
+So stonecap-01 launches after junkwell-02 whichever way it is decided.
+
 ## 10-11 13:25Z — CANARY LIVE: junkwell-02 @ 0cdb1a8 on placebo-a,board-b,placebo-d,hive-b (20 bots), declared 13:15:48Z
 Four pools found at 13:15Z (placebo-d joined after the exclusions expired). Reads ~16:15Z / ~19:15Z; class bag-fix
 under v33 (adaptive 24 h extension if the death gate trips with zero linked deaths). Early preflight of stonecap-01
