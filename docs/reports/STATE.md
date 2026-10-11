@@ -14,6 +14,13 @@ AGENTS DOWN until ~10-12 11Z (weekly limit): no new builds before then._
 
 ---
 
+## 10-11 13:25Z — CANARY LIVE: junkwell-02 @ 0cdb1a8 on placebo-a,board-b,placebo-d,hive-b (20 bots), declared 13:15:48Z
+Four pools found at 13:15Z (placebo-d joined after the exclusions expired). Reads ~16:15Z / ~19:15Z; class bag-fix
+under v33 (adaptive 24 h extension if the death gate trips with zero linked deaths). Early preflight of stonecap-01
+(0cdb1a8 variant) on the live baseline: change rows cobble_bank/cobble_reconcile silent, licence _cobble_bank silent.
+GAP: if junkwell-02 is REVERTED the fleet stays 6f1921a and stonecap-01 has no 6f1921a variant (only 0cdb1a8 and
+0264f61) -> it would block until one is built (agents back ~10-12 11Z).
+
 ## 10-11 12:45Z — PEACEFULKIT-02 KEPT (+360, 01:23Z) and PROMOTED: FLEET 6f1921a (01:32Z); merged to main; junkwell-02 drawing
 +360: breaches 0; every instrument fired; 8 swords burned by 8 bots, 57 kit items composted; DiD sword slots -0.42,
 plant/food slots -1.31, all slots -0.46, share>=34 -0.087; deaths canary 2/60 bh vs control 6/300 bh (held, LB 0.24).
