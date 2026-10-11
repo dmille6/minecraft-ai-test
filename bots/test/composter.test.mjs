@@ -17,6 +17,7 @@ import { NEVER_KEEP, TRIGGER_SLOTS, isHousekeeping } from '../src/hygiene.mjs'
 const LOG_DIR = `/tmp/mcbot-test-logs-composter-${process.pid}`
 process.env.LOG_DIR = LOG_DIR; process.env.BOT_NAME = 'TestBot'   // before anything imports config.mjs
 const C = await import('../src/composter.mjs')   // a namespace, so a missing export fails ITS test, not the file
+const KIT = await import('../src/peacefulkit.mjs')
 const require = createRequire(import.meta.url)
 const REG = require('minecraft-data')('1.21.11')
 const Recipe = require('prismarine-recipe')(REG).Recipe
@@ -328,7 +329,8 @@ function fakeTown ({ items = [], hand = null, level = 0, composterAt = 'canonica
   const key = p => `${p.x},${p.y},${p.z}`
   const state = { level, ripenAt: null, tick: 0, levels: [level], extracted: 0, pending: [], tossed: 0, dropped: [], clicksAt7: 0,
                   crafted: [], sneakWrites: 0, activations: 0, path: [], halts: 0, gotos: 0, tableUses: [], events: [], selects: [], equips: [] }
-  const VANILLA = { leaf_litter: 0.3, wheat_seeds: 0.3, poppy: 0.65, short_grass: 0.3, apple: 0.65, oak_sapling: 0.3 }
+  // + the peaceful kit's plants (peacefulkit.mjs; each one verified consumed by a real Paper 1.21.8 composter)
+  const VANILLA = { leaf_litter: 0.3, wheat_seeds: 0.3, poppy: 0.65, short_grass: 0.3, apple: 0.65, oak_sapling: 0.3, spruce_sapling: 0.3, ...KIT.PEACEFUL_COMPOST }
   const nameAt = v => world.get(key(v)) ?? (v.y <= FLOOR ? 'grass_block' : 'air')
   const gone = new Set(unloaded)   // cells in a chunk this bot has not loaded: blockAt answers null
   const blockAt = p => {
@@ -581,6 +583,64 @@ for (const [why, setup, composted] of [['PEACEFUL (packet read)', b => { b.serve
     else assert.ok(!/apple/.test(row), 'policy off: the row is the old row (no apple_levels, no apple item)')
   })
 }
+
+// ---- THE PEACEFUL KIT (owner 10-07, peacefulkit.mjs): the plants a peaceful world cannot use, under the same switch ----
+for (const [why, setup, on] of [['PEACEFUL (packet read)', b => { b.serverDifficulty = 'peaceful' }, true],
+                                ['HARD world', b => { b.serverDifficulty = 'hard' }, false],
+                                ['difficulty unknown', () => {}, false]]) {
+  await t(`KIT WIRED, ${why}: ${on ? 'every kit plant composted (bread, dried_kelp, moss too), spruce all, 16 oak, 4 apples kept' : 'no kit plant touched (the old visit), 16 of each sapling'}; swords and carrots never`, async () => {
+    const plants = [S('wildflowers', 30), S('melon_slice', 9), S('kelp', 7), S('brown_mushroom', 2), S('red_tulip', 1), S('cocoa_beans', 3), S('rose_bush', 2),
+      S('bread', 5), S('dried_kelp', 4), S('moss_carpet', 2), S('glow_berries', 3)]
+    const keep = [S('carrot', 3), { ...S('stone_sword', 1), maxDurability: 131, durabilityUsed: 0 }]
+    const { bot, count } = fakeTown({ hand: PICK, rolls: () => 0.5, items: [...plants, S('apple', 10), S('oak_sapling', 20), S('spruce_sapling', 18), ...keep, ...filler(18)] })
+    setup(bot)
+    const r = await run('compost', bot)
+    assert.equal(r.status, 'success', r.detail)
+    const row0 = (await rows("_compost")).at(-1)?.skill?.detail ?? ""
+    for (const p of plants) assert.equal(count(p.name), on ? 0 : p.count, `${p.name} ${row0}`)
+    assert.equal(count('oak_sapling'), 16, 'oak keeps 16 either way')
+    assert.equal(count('spruce_sapling'), on ? 0 : 16, 'every other species: none while on, 16 off')
+    assert.equal(count('apple'), on ? 4 : 10)
+    assert.equal(count('carrot'), 3); assert.equal(count('stone_sword'), 1)
+    const row = (await rows('_compost')).at(-1)?.skill?.detail ?? ''
+    if (on) assert.match(row, /items=.*wildflowers:30/)
+    else assert.doesNotMatch(row, /wildflowers|melon_slice|kelp/)
+    // THE COMPLETE MAP (the read gates on it; the detail is cut at 300): every inserted name with its verified count.
+    const args = (await rows('_compost')).at(-1)?.skill?.args ?? {}
+    assert.equal(args.peaceful, on ? 1 : 0)
+    if (on) for (const p of plants) assert.equal(args.items?.[p.name], p.count, `args.items.${p.name}`)
+    else for (const p of plants) assert.equal(args.items?.[p.name], undefined)
+  })
+}
+
+await t('KIT: an INTERRUPTED visit still writes its `_compost` row with the complete map so far (Codex r2), the in-flight insert reconciled', async () => {
+  const { bot, count } = fakeTown({ hand: PICK, rolls: () => 0.5, items: [S('wildflowers', 20), ...filler(33)] })
+  bot.serverDifficulty = 'peaceful'
+  const real = bot.activateBlock; let k = 0
+  const ac = new AbortController()
+  bot.activateBlock = async b => { k++; const r = await real(b); if (k === 3) ac.abort(); return r }   // the 3rd insert lands, then the abort
+  const err = await within(SKILLS.compost.run({ bot }, {}, ac.signal).then(r => r, e => e), 8000, 'aborted kit compost')
+  assert.ok(err?.aborted, `not aborted: ${JSON.stringify(err)}`)
+  const gone = 20 - count('wildflowers')
+  assert.ok(gone >= 3, `inserted ${gone}`)
+  const row = (await rows('_compost')).at(-1)?.skill
+  assert.equal(row?.status, 'aborted', JSON.stringify(row))
+  assert.equal(row.args.items.wildflowers, gone - 1, 'the VERIFIED inserts only: the one in flight is never reconciled from the bag')
+  assert.equal(row.args.inflight, 'wildflowers'); assert.equal(row.args.incomplete, 1)
+  assert.equal(row.args.peaceful, 1)
+})
+
+await t('KIT: the bag emptied during an insert (a death) is never credited to the composter: one use, one item (Codex r3)', async () => {
+  const { bot, slots } = fakeTown({ hand: PICK, rolls: () => 0.5, items: [S('apple', 10), S('wildflowers', 20), ...filler(32)] })
+  bot.serverDifficulty = 'peaceful'
+  const real = bot.activateBlock; let k = 0
+  bot.activateBlock = async b => { k++; const r = await real(b); if (k === 2) for (let i = 0; i < slots.length; i++) if (slots[i]?.name === 'wildflowers') slots[i] = null; return r }
+  await run('compost', bot)
+  const row = (await rows('_compost')).at(-1)?.skill
+  assert.ok(row.args.items.wildflowers <= 2, `credited ${row.args.items.wildflowers}: a death's loss is not the composter's`)
+  assert.match(row.detail, /the_bag_changed_by_\d+_wildflowers_during_one_insert/)
+  assert.equal(row.args.incomplete, 1, 'the END bag is not the visit\'s own: the read must not judge a reserve on it')
+})
 
 await t('#2 compost uses the composter around HOME, never one that is merely near the bot', async () => {
   const far = new Vec3(HOME.x + 70, HOME.y, HOME.z)

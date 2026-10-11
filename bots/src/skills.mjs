@@ -32,6 +32,8 @@ import { applyToolPolicy, remaining, spentEquipOutcome, handHarvests, emptyHand,
 import { wearOutPlan, wearTarget, wearRank, wearRefusals, slotObservation, neverPickUp } from './hygiene.mjs'
 import { noteSought } from './pickuplog.mjs'
 import { foodSkipMode, foodSkipActive, skipFoodDrop, foodSkipDetail, difficultyOf, setPeacefulFood, peacefulFoodActive } from './foodskip.mjs'
+// THE PEACEFUL KIT (peacefulkit.mjs, owner 10-07): swords banked, never crafted, never chased; the plants composted.
+import { swordCraftRefusal, skipSwordDrop, isPeacefulCompost, peacefulKitDetail, swordFuelCount, burnableSword } from './peacefulkit.mjs'
 import { inPickupBox, pickupGoalClass, pickupGoal, standHeight } from './pickupbox.mjs'
 import { BAG_SLOTS, roomRecipe, admitRoom, pickupNearest, heldLine, collectDecision, placeStackOf, depositTarget, roomAdvice, craftArrived, craftRoomRemedy, wearKeepsSlot, bagFill, placeableBlock, roomForOne, executionVerdict } from './craftroom.mjs'
 import { compostPlan, nextInsert, boneMealRoom, fillDecision, composterLevel, compostDetail, composterBuildPlan,
@@ -83,7 +85,7 @@ import { doVisit, openBoard, withinBoard } from './board-visit.mjs'
 import { canContinueDescent } from './exit-contract.mjs'
 import { openLessons } from './lessons.mjs'
 import { dropsOf, heldFromBlock, sourcesOf } from './drops.mjs'
-import { smeltPlan, smeltRecipeFor } from './smelting.mjs'
+import { smeltPlan, smeltRecipeFor, chooseFuel, fuelTicks, SMELT_TICKS } from './smelting.mjs'
 
 /**
  * FAILURE CLASSES THAT NAME OUR IGNORANCE RATHER THAN THE WORLD.
@@ -1420,6 +1422,8 @@ export function foodSkipNow (bot) {
   if (said !== foodSkipSaid) {
     foodSkipSaid = said
     try { logEvent({ kind: 'food_skip', status: 'success', detail: foodSkipDetail({ ...FOOD_SKIP, difficulty, active }) }) } catch { /* a row must never break a pickup */ }
+    // THE PEACEFUL KIT's row (peacefulkit.mjs): the same decision, its own kind -- the canary's liveness row.
+    try { logEvent({ kind: 'peaceful_kit', status: 'success', detail: peacefulKitDetail({ mode: FOOD_SKIP.mode, difficulty, active }) }) } catch { /* never break a pickup */ }
   }
   return { active, foodsByName: bot?.registry?.foodsByName ?? null }
 }
@@ -1463,6 +1467,7 @@ export async function pickupNearbyItems(bot, signal, radius = 8) {
     const drop = bot.nearestEntity?.(e =>
       e.name === 'item' && !refused.has(e.id) && !neverPickUp(e) &&   // ballast is never chased (hygiene.mjs)
       !skipFoodDrop(e, food) &&                                        // nor food while the skip is active (foodskip.mjs)
+      !skipSwordDrop(e, food.active) &&                                // nor a sword (peacefulkit.mjs, the same switch)
       bot.entity.position.distanceTo(e.position) < radius)
     if (!drop) return
     // TELEMETRY ONLY (pickuplog.mjs): a collect of this id while the pursuit lasts reads 'sought'. released when
@@ -2676,7 +2681,9 @@ async function deposit(ctx, { item = null }, signal, { noRecovery = false, prefe
     // stations stay in the bot's hands; the valuable stacks go first so a short
     // chest keeps the iron.
     planItems = bot.inventory.items()
-    const plan = depositPlan(planItems, item, { wants: bot.currentWants ?? [] })   // the wants admission judged with (set by the gate)
+    // THE PEACEFUL KIT (peacefulkit.mjs, owner 10-07): while the switch is on no sword is ever banked, not even a spare.
+    const noSwords = foodSkipNow(bot).active
+    const plan = depositPlan(planItems, item, { wants: bot.currentWants ?? [], noSwords })   // the wants admission judged with (set by the gate)
     for (const { name, count } of plan) {
       check(signal)
       // A TOOL GOES BY SLOT, A USABLE COPY AT A TIME (Codex round 2 on withdraw: chest.deposit(type) takes the first copy
@@ -2763,7 +2770,7 @@ async function deposit(ctx, { item = null }, signal, { noRecovery = false, prefe
     // cannot disagree with the transfer. It falls back to the old wording rather
     // than inventing one if the plan and the loop ever disagree.
     return { status: 'no_effect', failClass: null,
-             detail: depositNoopReason(planItems, item, { wants: bot.currentWants ?? [] })
+             detail: depositNoopReason(planItems, item, { wants: bot.currentWants ?? [], noSwords: foodSkipNow(bot).active })
                ?? (item
                  ? `nothing matching ${item} to hand over — nothing to deposit`
                  : 'nothing worth banking — nothing to deposit') }
@@ -3332,6 +3339,9 @@ const PLACE_ACK_MS = 3_000
 // item and its verified executions; each level overwrites it on the way up, so a sub-craft's planks never reach a
 // pickaxe's caller.
 async function craft(ctx, args, signal, depth = 0, owed = 0) {
+  // NO SWORD IN A PEACEFUL WORLD (peacefulkit.mjs). Admission refuses it first; this covers every other caller (chat).
+  const noSword = swordCraftRefusal(args?.item, depth === 0 && foodSkipNow(ctx.bot).active)
+  if (noSword) return { status: 'no_effect', detail: noSword }
   const placedHere = []
   const progress = { item: args?.item ?? null, requested: Math.max(1, Math.floor(Number(args?.count ?? 1) || 1)),
                      executions: 0, produced: 0 }
@@ -4312,7 +4322,7 @@ async function makeCraftRoom(ctx, item, plan, signal) {
  */
 export function adviseDeposit (bot, items, keep = []) {
   if (bankClosed(bot) || !depositWorthIt(bot, items)) return null
-  try { return depositTarget(items, depositPlan(items, null, { wants: bot.currentWants ?? [] }), keep) } catch { return null }
+  try { return depositTarget(items, depositPlan(items, null, { wants: bot.currentWants ?? [] }), keep) } catch { return null }   // noSwords: the switch (default), refreshed by depositWorthIt
 }
 /**
  * WOULD ADMISSION LET A DEPOSIT THROUGH FROM HERE? Its deposit_not_worth_it test (admission.mjs): depositDue over the
@@ -4325,7 +4335,7 @@ export function depositWorthIt (bot, items = []) {
     const home = homeVec()
     const wants = [...(bot.currentWants ?? []), ...DEPOSIT_ALWAYS]
     const storage = bot.findBlock?.({ maxDistance: 48, matching: b => ['chest', 'barrel', 'trapped_chest'].includes(bot.registry?.blocks?.[b.type]?.name) && depositTargetOk(home, b.position) })
-    return depositDue({ bankable: bankableInventory(items, { wants }).count, distHome: horizontalDistanceFromSpawn(bot.entity.position),
+    return depositDue({ bankable: bankableInventory(items, { wants, noSwords: foodSkipNow(bot).active }).count, distHome: horizontalDistanceFromSpawn(bot.entity.position),
                         storageWithin48: !!storage, occupiedSlots: items.length })
   } catch { return true }   // a world that cannot be asked: the advice as it was
 }
@@ -5580,7 +5590,11 @@ async function compost(ctx, _args, signal) {
   const items = () => bot.inventory?.items?.() ?? []
   const countOf = n => items().reduce((a, i) => a + (i.name === n ? (i.count ?? 0) : 0), 0)
   const slotsBefore = items().length
-  const row = (status, f) => logEvent({ kind: 'compost', status, snapshot: snapshot(bot),
+  // THE COMPLETE MAP IN args (peacefulkit, Codex review): the detail is cut at 300 characters and with the kit's 30 plants a
+  // visit's items= list can pass that, so the read gates on args.items (name -> verified count), never on cut prose.
+  // `peaceful` is the switch's reading for this visit (set below, before any insert).
+  let peaceful = null
+  const row = (status, f) => logEvent({ kind: 'compost', status, snapshot: snapshot(bot), args: { items: { ...(f?.items ?? {}) }, peaceful, ...(f?.inflight ? { incomplete: 1, inflight: f.inflight } : {}) },
                                         detail: compostDetail({ slotsBefore, slotsAfter: items().length, ...f }) })
   const skip = (why, f = {}) => { row('no_effect', { stop: why, ...f }); return { status: 'no_effect', detail: why } }
   // ANOTHER SUBSYSTEM'S SNEAK IS NOT OURS TO RELEASE, and a sneaking use is an item use, not a block use.
@@ -5591,13 +5605,20 @@ async function compost(ctx, _args, signal) {
   const levelBefore = composterLevel(at())
   const ripe = levelBefore >= 7 && boneMealRoom(items())
   // THE PEACEFUL FOOD POLICY (foodskip.mjs, owner 10-06): apples above APPLE_RESERVE go in too, only while it is active.
-  const apples = foodSkipNow(bot).active
-  if (!compostPlan(items(), { apples }).junk && !ripe) return skip(`nothing compostable at ${slotsBefore} of 36 slots and nothing to harvest`)
+  // THE PEACEFUL KIT (peacefulkit.mjs, owner 10-07), the same decision: so do its plants.
+  const apples = foodSkipNow(bot).active, plants = apples
+  peaceful = apples ? 1 : 0
+  if (!compostPlan(items(), { apples, plants }).junk && !ripe) return skip(`nothing compostable at ${slotsBefore} of 36 slots and nothing to harvest`)
   const was = handOf(bot.heldItem)
   const g = hkGuards(bot, signal)
   const ticks = n => g.bound(bot.waitForTicks?.(n), n * 50 + HK_AWAIT_MS, 'tick wait')
   const taken = {}
   let bonemeal = 0, stop = null, inserted = 0, uncollected = false, noRoom = false, stationary = 0, appleLevels = 0
+  // AN INTERRUPTED VISIT STILL WRITES ITS ROW (Codex review r2/r3): the VERIFIED map of what went in, and -- when an
+  // insert was in flight -- its NAME, flagged incomplete. Never reconciled from the bag after the stop: a death, a
+  // disconnect or a late inventory update would be counted as composted (Codex r3). The read treats the name as maybe
+  // composted and does not judge a reserve on such a row.
+  let inflight = null, changed = null   // changed: the bag fell by more than one use could take (Claude r4: incomplete)
   try {
     if (bot.entity.position.distanceTo(centre) > STATION_REACH) {
       try { await composterWalk(bot, () => g.bound(bot.pathfinder.goto(new goals.GoalNear(pos.x, pos.y, pos.z, 2)), HK_PATH_MS, 'pathfinding', { path: true })) } catch (e) { if (e?.aborted || signal?.aborted) throw e }
@@ -5648,7 +5669,7 @@ async function compost(ctx, _args, signal) {
       check(signal)
       if (Date.now() > deadline) { stop = 'budget'; break }
       const room = boneMealRoom(items())
-      const next = inserted < MAX_ITEMS_PER_VISIT ? nextInsert(items(), { room, apples }) : null
+      const next = inserted < MAX_ITEMS_PER_VISIT ? nextInsert(items(), { room, apples, plants }) : null
       const act = fillDecision({ level: composterLevel(at()), room, smallest: next?.n ?? 0 })
       if (act === 'done') break
       if (act === 'gone') { stop = 'composter gone'; break }
@@ -5663,24 +5684,36 @@ async function compost(ctx, _args, signal) {
       }
       const before = countOf(stack.name)
       const lv0 = composterLevel(at())
+      inflight = { name: stack.name, before }
       try { await g.bound(bot.activateBlock(at()), HK_AWAIT_MS, 'use the composter') } catch (e) { if (e?.aborted) throw e }
       await ticks(2)
       let after = countOf(stack.name)
       if (after >= before) { await ticks(4); after = countOf(stack.name) }
+      // ONE USE CONSUMES ONE ITEM (vanilla ComposterBlock: itemStack.consume(1)). A larger fall is not the composter's --
+      // a death, a toss, a server resync -- so it is never credited, and the visit stops (Codex review r3).
+      if (before - after > 1) { changed = stack.name; inflight = null; stop = `the bag changed by ${before - after} ${stack.name} during one insert`; break }
       if (after < before) {
         taken[stack.name] = (taken[stack.name] ?? 0) + (before - after); inserted += before - after; misses = 0
         // THE LEVELS AN APPLE RAISED (the peaceful food policy's bone meal: apple_levels / 7). Inside the success branch, so
         // the miss count below is exactly the old one (Codex review: a sibling `if` had captured its `else`).
         if (stack.name === 'apple') { const lv1 = composterLevel(at()); if (lv0 != null && lv1 != null && lv1 > lv0) appleLevels += lv1 - lv0 }
-      } else if (++misses >= 3) { stop = `took no ${stack.name} in 3 tries`; break }
+      } else if (++misses >= 3) { inflight = null; stop = `took no ${stack.name} in 3 tries`; break }
+      inflight = null
     }
+  } catch (e) {
+    // Written HERE, before the hand is restored (Claude r3: a failing restore must not lose the row).
+    try {
+      row('aborted', { levelBefore, levelAfter: composterLevel(at()), bonemeal, items: taken, stop: `interrupted: ${String(e?.message ?? e).slice(0, 40)}`,
+                       inflight: inflight?.name ?? null, appleLevels: taken.apple ? appleLevels : null })
+    } catch { /* a row must never mask the interruption */ }
+    throw e
   } finally {
     if (stationary && bot.stationaryUntil === stationary) bot.stationaryUntil = 0
     await settleAndRestore(bot, was, g, 'compost')
   }
   const n = Object.values(taken).reduce((a, b) => a + b, 0)
   const slotsAfter = items().length
-  const f = { levelBefore, levelAfter: composterLevel(at()), bonemeal, items: taken, stop: stop ?? 'done', appleLevels: taken.apple ? appleLevels : null }
+  const f = { levelBefore, levelAfter: composterLevel(at()), bonemeal, items: taken, stop: stop ?? 'done', appleLevels: taken.apple ? appleLevels : null, inflight: changed }
   if (n || bonemeal) {
     row('success', f)
     return { status: 'success',
@@ -5780,7 +5813,7 @@ async function openTown (bot, block, ms) {
  */
 async function bankInto (bot, win, wanted, already, deadline, signal) {
   const bag = windowBag(bot, win)
-  const plan = townDepositPlan(bag, { wanted, already })
+  const plan = townDepositPlan(bag, { wanted, already, noSwords: foodSkipNow(bot).active })
   const steps = fitToContainer(plan.steps, win.slots.slice(0, win.inventoryStart))
   let full = plan.steps.length > steps.length
   const done = []
@@ -5844,7 +5877,7 @@ async function townDeposit (ctx, _args, signal) {
   const slotsBefore = before.length
   const held = list => { const c = {}; for (const it of list) c[it.name] = (c[it.name] ?? 0) + (it.count ?? 0); return c }
   const heldBefore = held(before)
-  const planned = townDepositPlan(before, { wanted }).steps.length
+  const planned = townDepositPlan(before, { wanted, noSwords: foodSkipNow(bot).active }).steps.length
   // `attempted` is what this visit MOVED (the client's clicks) and spends the cap; `banked` is what the server showed in
   // a chest on the re-open. A stack another bot takes out before the re-open is attempted but not banked -- and must
   // still count against the visit's 64 (Codex round 3).
@@ -5914,7 +5947,7 @@ async function townDeposit (ctx, _args, signal) {
       }
       tried.push({ at, result: !v.ok ? 'unverified' : v.verified.length ? (r.full ? 'took_some' : 'took') : r.full ? 'full' : 'none' })
       if (!v.ok) { stop = 'unverified'; break }
-      if (!townDepositPlan(items(), { wanted, already: attempted }).steps.length) break
+      if (!townDepositPlan(items(), { wanted, already: attempted, noSwords: foodSkipNow(bot).active }).steps.length) break
     }
   } finally {
     if (bot.stationaryUntil === stationary) bot.stationaryUntil = 0
@@ -7114,27 +7147,115 @@ const SMELT_OPEN_MS     = 10_000        // openFurnace waits on a server event f
  * a recovery that hangs would burn the hard-stop grace and land the bot in
  * `abort_ignored`.
  */
-async function drainFurnace (furnace, ms = SMELT_RECOVERY_MS) {
+/**
+ * THE ROW FOR WHAT THE DRAIN DID WITH A WOODEN SWORD (peacefulkit) -> { outcome, what } | null. `fate` is drainFurnace's
+ * furnace.swordFate: 'kept_full' (no empty slot: left as fuel), 'kept_cursor' (lifted, the bag would not take it from the
+ * cursor: put back into the fuel slot), 'cursor_lost' (still on the cursor at the close: the server drops it), 'taken' or
+ * null (the drain never reached it). `staged` = THIS call's sword, put in and never ignited -- its departure from the bag
+ * is what a 'left in the furnace fuel slot' row credits in the read. `inSlot` = the fuel slot read after the drain: true
+ * (still a wooden sword), false, or undefined (unreadable).
+ *   - An EARLIER call's sword (not staged) was already credited when it left the bag: lifting it and putting it back is a
+ *     diagnostic row the read does NOT credit (Codex r-rev7: a second credit could hide a later loss).
+ *   - A staged sword is 'returned' only when its take happened; a drain that never reached it (its deadline spent on a
+ *     hung take) re-reads the slot (Claude r-rev7): still there -> left in the furnace; empty -> it burned in the gap.
+ */
+export function swordDrainRow (fate, staged, inSlot, stop = null) {
+  if (fate === 'cursor_lost') return { outcome: 'failed', what: 'wooden_sword on the cursor at the close (the server drops it)' }
+  // the bag had room at the close: the server puts it back into the bag -- in the bag, as if taken
+  if (fate === 'cursor_server_returns') return { outcome: 'no_effect', what: 'wooden_sword on the cursor at the close (the server returns it to the bag)' }
+  if (!staged) {
+    return fate === 'kept_cursor' ? { outcome: 'no_effect', what: 'wooden_sword put back into the furnace fuel slot from the cursor (left by an earlier call)' } : null
+  }
+  if (fate === 'kept_cursor') return { outcome: 'no_effect', what: 'wooden_sword left in the furnace fuel slot (the cursor could not be emptied into the bag)' }
+  if (fate === 'kept_full') return { outcome: 'no_effect', what: 'wooden_sword left in the furnace fuel slot (the bag is full)' }
+  if (fate === 'taken') return { outcome: 'no_effect', what: 'wooden_sword returned unburned' }
+  if (inSlot === true) return { outcome: 'no_effect', what: `wooden_sword left in the furnace fuel slot (${stop === 'stuck' ? 'the drain stopped at a stuck cursor' : 'the drain ran out of time'})` }
+  // a take that never answered: in the bag, or burned -- unknown, so no credit (Codex r-rev11)
+  if (fate === 'timed_out') return { outcome: 'no_effect', what: 'wooden_sword outcome unknown (its take never answered)' }
+  if (inSlot === undefined) return { outcome: 'no_effect', what: 'wooden_sword outcome unknown (the furnace could not be read)' }
+  // in the slot before the drain, never taken by it, gone from it now: it ignited in the gap (Claude r-rev8)
+  return { outcome: 'success', what: 'burned wooden_sword (unconfirmed)' }
+}
+
+/**
+ * A LOADED CURSOR IS NEVER CLOSED ON WITHOUT A TRY (Codex, junkwell merge): mineflayer's take is two clicks -- lift onto
+ * the cursor, then place in the bag -- and a failure between them leaves the item on the cursor, which the server drops
+ * at the close. First the bag (chestfull.mjs returnCursor, the deposit path's helper), then the slot it came from (a
+ * furnace slot that was just emptied always takes it back). -> 'empty' | 'bag' | 'furnace' | 'stuck'.
+ */
+async function settleFurnaceCursor (bot, furnace, home, bounded) {
+  let sel = null
+  try { sel = furnace?.selectedItem ?? null } catch { sel = null }
+  if (!sel) return 'empty'
+  try { const back = await bounded(returnCursor(bot, furnace)); if (back?.returned && !furnace.selectedItem) return 'bag' } catch { /* the slot it came from next */ }
+  const origin = home ?? (sel.name === 'wooden_sword' ? 'fuelItem' : null)
+  const index = { inputItem: 0, fuelItem: 1 }[origin]
+  if (index != null && bot?.clickWindow) {
+    try { if (furnace[origin]() == null) await bounded(bot.clickWindow(index, 0, 0)) } catch { /* judged by the cursor below */ }
+    if (!furnace.selectedItem) return 'furnace'
+  }
+  return 'stuck'
+}
+
+/** Exported for the Paper probe (sandbox/craft/pk-cursor-probe.cjs): a real lifted cursor, then this drain. */
+export async function drainFurnace (furnace, ms = SMELT_RECOVERY_MS, bot = null) {
   const deadline = Date.now() + ms
+  const TIMED_OUT = Symbol('timed out')
   const bounded = p => Promise.race([
-    p, new Promise(res => setTimeout(res, Math.max(250, deadline - Date.now()))),
+    p, new Promise(res => setTimeout(() => res(TIMED_OUT), Math.max(250, deadline - Date.now()))),
   ])
-  for (const [slot, take] of [['outputItem', 'takeOutput'],
+  const noteSword = (name, fate) => { if (name === 'wooden_sword' && furnace) furnace.swordFate = fate }
+  // A CURSOR NOTHING WOULD TAKE: vanilla returns a closed window's cursor item to the bag when the bag has room and drops
+  // it only when it is full (Paper probe, sandbox3) -- so which one the close does is the window's room right now.
+  const stuckFate = () => { try { return (furnace?.emptySlotCount?.() ?? 0) > 0 ? 'cursor_server_returns' : 'cursor_lost' } catch { return 'cursor_lost' } }
+  // A STUCK CURSOR ENDS THE DRAIN (Claude r-rev10): a later take would click with the cursor loaded and swap items; what
+  // the close does with it is judged right before the close, from the window's room then.
+  let stuck = null, timedOut = false
+  // A CURSOR ALREADY LOADED when the drain begins (a take-back that stopped between its clicks): settled first.
+  try {
+    const before = furnace?.selectedItem?.name
+    const c = await settleFurnaceCursor(bot, furnace, null, bounded)
+    if (c === 'furnace') noteSword(before, 'kept_cursor'); else if (c === 'stuck') stuck = before ?? '?'; else if (c === 'bag') noteSword(before, 'taken')
+  } catch { /* nothing on it */ }
+  for (const [slot, take] of (stuck ? [] : [['outputItem', 'takeOutput'],
                               ['inputItem', 'takeInput'],
-                              ['fuelItem', 'takeFuel']]) {
+                              ['fuelItem', 'takeFuel']])) {
     if (Date.now() >= deadline) break
+    let name = null
     try {
       if (!furnace?.[slot]?.()) continue
-      await bounded(furnace[take]())
-    } catch { /* slot emptied under us, or the block is gone; nothing to recover */ }
+      name = furnace[slot]()?.name ?? null
+      // A WOODEN SWORD IN THE FUEL SLOT (the peaceful kit's, from this call or an earlier one -- Codex r-rev3): checked
+      // RIGHT BEFORE its take, after the output and input took their slots (both reviews, r-rev2), against the WINDOW's
+      // player section (Claude r-rev3: mineflayer copies that back into bot.inventory only at the close, and putAway
+      // searches the window). With no empty slot putAway would toss it, so it stays in the furnace.
+      if (slot === 'fuelItem' && furnace.fuelItem()?.name === 'wooden_sword' &&
+          (furnace.emptySlotCount?.() ?? 0) === 0) { furnace.swordKept = true; noteSword('wooden_sword', 'kept_full'); continue }
+      // A TAKE THAT NEVER ANSWERED spent the drain's time: nothing later is taken, and it is not called taken. Its cursor
+      // is still settled first (Codex r-rev11: it may have lifted the item); a sword it may or may not have moved is
+      // 'timed_out' -- no credit unless the re-read after the close finds it still in the fuel slot.
+      if (await bounded(furnace[take]()) === TIMED_OUT) { timedOut = true; noteSword(name, 'timed_out') } else noteSword(name, 'taken')
+    } catch { /* slot emptied under us, or the block is gone; the cursor is judged below */ }
+    // THE TAKE STOPPED BETWEEN ITS TWO CLICKS: the item is on the cursor, not in the bag.
+    try {
+      const c = await settleFurnaceCursor(bot, furnace, slot === 'outputItem' ? null : slot, bounded)
+      if (c === 'furnace') noteSword(name, 'kept_cursor'); else if (c === 'bag') noteSword(name, 'taken')
+      else if (c === 'stuck') { stuck = name ?? '?'; break }
+    } catch { /* the close below is all that is left */ }
+    if (timedOut) break
   }
+  if (stuck) noteSword(stuck, stuckFate())
+  if (furnace) furnace.drainStop = stuck ? 'stuck' : timedOut ? 'timeout' : null
   try { furnace?.close?.() } catch { /* already closed */ }
 }
 
-/** Inventory as the plain {name: count} map smeltPlan reasons over. */
-function heldMap (bot) {
+/** Polls a sword waits for the furnace's burn reading before ordinary fuel takes its place (peacefulkit). */
+const SWORD_UNKNOWN_POLLS = 4
+
+/** Inventory as the plain {name: count} map smeltPlan reasons over. `items` defaults to bot.inventory's. */
+function heldMap (bot, items = bot.inventory?.items?.() ?? []) {
   const out = {}
-  for (const it of (bot.inventory?.items?.() ?? [])) out[it.name] = (out[it.name] ?? 0) + it.count
+  for (const it of items) out[it.name] = (out[it.name] ?? 0) + it.count
   return out
 }
 
@@ -7261,7 +7382,11 @@ async function smelt(ctx, { item, count = 1 }, signal) {
 
   // ---- re-plan against the clock that is ACTUALLY left ----------------------
   const budgetMs = deadline - Date.now() - SMELT_RECOVERY_MS
-  const plan = smeltPlan({ held: heldMap(bot), item, count, budgetMs, hasFurnace: true })
+  // THE PEACEFUL KIT (peacefulkit.mjs, owner 10-07 ~19:50Z): a smelt that is ALREADY happening prefers the carried wooden
+  // swords the switch calls unwanted as its fuel. Only here, at the furnace: the dry plans above never count them, so a
+  // sword can never start a smelt job. The switch is read again before EACH sword goes in (below).
+  const plan = smeltPlan({ held: heldMap(bot), item, count, budgetMs, hasFurnace: true,
+                           swordFuel: swordFuelCount(bot.inventory?.items?.() ?? [], foodSkipNow(bot).active) })
   if (!plan.ok) {
     // The walk consumed the batch. Our own clock, so a don't-know, not a no.
     return { status: 'unknown', failClass: 'smelt_budget',
@@ -7269,13 +7394,102 @@ async function smelt(ctx, { item, count = 1 }, signal) {
   }
 
   const inDef = bot.registry.itemsByName[plan.input]
-  const fuelDef = bot.registry.itemsByName[plan.fuel.name]
+  // ONE LOAD AT A TIME FROM THE QUEUE (smeltPlan fuelQueue): without swords this is the single ordinary load as before.
+  const queue = [...(plan.fuelQueue ?? [{ name: plan.fuel.name, count: plan.fuel.count }])]
+  const burned = {}
+  let furnace = null
+  let covered = 0              // items the loads so far can smelt (a sword 1; ordinary fuel its ticks / SMELT_TICKS)
+  let staged = null            // a sword put in and not yet seen to ignite: { active }
+  let unknownFuel = 0          // polls with no burn reading from the server
+  const fslot = which => { try { return furnace?.[which]?.() ?? null } catch { return undefined } }
+  // THE BAG WHILE THE WINDOW IS OPEN IS THE WINDOW'S PLAYER SECTION (Claude r-rev3): mineflayer routes every slot update
+  // for an open window to that window and copies it into bot.inventory only at the close, so bot.inventory is the bag
+  // as it was at the open until then.
+  const bagNow = () => { try { return furnace?.items?.() ?? bot.inventory?.items?.() ?? [] } catch { return bot.inventory?.items?.() ?? [] } }
+  // IS THE FURNACE BURNING? mineflayer's furnace.fuel misses the data slots the server sends at the open (its listener is
+  // attached after openBlock resolves; found on Paper 10-07: a cold furnace read null for the whole job), so the BLOCK
+  // STATE `lit` is read too. -> 'cold' | 'warm' | 'unknown'.
+  const litNow = () => {
+    try { const v = bot.blockAt?.(block.position)?.getProperties?.()?.lit; return v === true || v === 'true' ? true : v === false || v === 'false' ? false : null } catch { return null }
+  }
+  const heat = () => {
+    const f = furnace?.fuel, lit = litNow()
+    if (f > 0 || lit === true) return 'warm'
+    if (f === 0 || lit === false) return 'cold'
+    return 'unknown'
+  }
+  // EVERY `_sword_fuel` ROW IS WRITTEN AFTER THE WINDOW CLOSES (Claude r-rev3): its snapshot is bot.inventory, which is
+  // the bag at the open until the close; a burn row written mid-job would still list the burned sword. `active` is the
+  // switch read at the put (= the burn).
+  const swordRows = []
+  const swordRow = (status, what, active) => { swordRows.push({ status, what, active }) }
+  // RESTAGED (Codex r-rev8/r-rev9): a sword this call TOOK BACK out of the fuel slot (an earlier call's, credited when it
+  // left the bag then) returns to the bag unseen -- this call's rows and snapshots show only the net. So each sink row of
+  // this call (burned / left in the furnace) is marked ` restaged=1` while take-backs are unspent, and the read gives a
+  // marked row no credit. Exact, per call: no time window pairs rows of different calls.
+  let retrieved = 0
+  const SINK_ROW = /^(burned wooden_sword|wooden_sword left in the furnace fuel slot)/
+  const writeSwordRows = () => {
+    for (const { status, what, active } of swordRows.splice(0)) {
+      let mark = ''
+      if (SINK_ROW.test(what) && retrieved > 0) { retrieved -= 1; mark = ' restaged=1' }
+      try { logEvent({ kind: 'sword_fuel', status, snapshot: snapshot(bot), detail: `${what}${mark} for ${plan.input} active=${active ? 1 : 0}` }) } catch { /* never break a smelt */ }
+    }
+  }
+  // EVERY SWORD NOT YET IN -> ONE ordinary load for the items still uncovered, from what the bag holds NOW (Claude r-rev1:
+  // the queued ordinary load is dropped too, so nothing is counted twice).
+  const substitute = () => {
+    queue.length = 0
+    const need = plan.batch - covered
+    if (need <= 0) return
+    const alt = chooseFuel(heldMap(bot, bagNow()), { exclude: plan.input, needTicks: need * SMELT_TICKS })
+    if (alt) queue.push({ name: alt.name, count: Math.min(alt.count, Math.ceil(need * SMELT_TICKS / alt.ticks)) })
+  }
+  // -> true when a load went in. A SWORD GOES ONLY INTO A COLD FURNACE WITH AN EMPTY FUEL SLOT (both reviews, r-rev1): it
+  // ignites at once, so the switch read here IS the switch at the burn, and no sword ever waits staged in the slot --
+  // where a stopped job would have to take it back into a bag that may be full. Not cold yet: wait (the loop asks again).
+  // A failed put stops all further loads; the input drains back.
+  const loadNext = async () => {
+    while (queue.length) {
+      const next = queue[0]
+      if (next.sword) {
+        // furnace.fuel is mineflayer's burn-left fraction (the server's data slot); unknown for a few polls after the open
+        // is waited out, and if it stays unknown the swords give way to ordinary fuel rather than stall the job.
+        const h = heat()
+        if (h === 'unknown' && ++unknownFuel > SWORD_UNKNOWN_POLLS) { substitute(); continue }
+        if (!(fslot('fuelItem') === null && h === 'cold')) return false
+        queue.shift()
+        const active = foodSkipNow(bot).active
+        const copy = bagNow().find(it => burnableSword(it, active))
+        if (!copy) { substitute(); continue }
+        try { await furnace.putFuel(bot.registry.itemsByName.wooden_sword.id, null, 1) } catch { queue.length = 0; return false }
+        covered += 1; staged = { active, input: fslot('inputItem')?.count ?? 0 }
+        return true
+      }
+      queue.shift()
+      const def = bot.registry.itemsByName[next.name]
+      if (!def || !(next.count > 0)) continue
+      try { await furnace.putFuel(def.id, null, next.count) } catch (e) { if (!queue.length && !Object.keys(burned).length && !staged && covered === 0) throw e; queue.length = 0; return false }
+      burned[next.name] = (burned[next.name] ?? 0) + next.count
+      covered += next.count * (fuelTicks(next.name) || SMELT_TICKS) / SMELT_TICKS
+      return true
+    }
+    return false
+  }
+  // A STAGED SWORD THAT LEFT THE SLOT AND IS BURNING (or whose item already cooked: the input fell) HAS IGNITED: the
+  // confirmed burn, and its row. A sword still in the slot is not a burn.
+  const confirmBurn = () => {
+    if (staged && fslot('fuelItem') === null && (heat() === 'warm' || (fslot('inputItem')?.count ?? 0) < staged.input)) {
+      burned.wooden_sword = (burned.wooden_sword ?? 0) + 1
+      swordRow('success', 'burned wooden_sword', staged.active)
+      staged = null
+    }
+  }
   // MEASURED BEFORE ANYTHING MOVES. ADR-0003: a promise resolving is not a
   // result. The runner grades this independently from its own before/after
   // inventory snapshot, and this number only makes the `detail` honest.
   const before = countItem(bot, plan.output)
 
-  let furnace
   try {
     furnace = await withTimeout(bot.openFurnace(block), SMELT_OPEN_MS, bot,
                                 { what: 'furnace', needsDrop: false, onTimeout: () => {} })
@@ -7296,10 +7510,41 @@ async function smelt(ctx, { item, count = 1 }, signal) {
       const inSlot = furnace.inputItem()
       if (inSlot && inSlot.name !== plan.input) await furnace.takeInput()
     } catch { /* empty or full inventory; putInput below will report it */ }
+    // A WOODEN SWORD ALREADY IN THE FUEL SLOT (an earlier call left it there because the bag was full -- Codex r-rev3):
+    // taken back BEFORE any input goes in, so it can never ignite under a switch that has since turned off, and never
+    // blocks this job's own fuel. With no empty slot it cannot be taken without a toss: the job does not start.
+    if (fslot('fuelItem')?.name === 'wooden_sword') {
+      if ((furnace.emptySlotCount?.() ?? 0) === 0) {
+        return { status: 'failed', failClass: 'inventory_full',
+                 detail: 'the furnace\'s fuel slot holds a wooden sword and your bag has no empty slot to take it back into — ' +
+                         'free one slot (deposit or compost something) and smelt again, or place the furnace you carry and smelt there' }
+      }
+      try { await furnace.takeFuel() } catch { /* judged by the slot below, never by the promise */ }
+      // NO INPUT UNTIL THE SLOT IS SEEN EMPTY (both reviews r-rev4): a take that failed with the sword still there (or a
+      // slot that can no longer be read) must not let this job's input ignite it -- possibly with the switch off, and
+      // with no row. The job stops; the finally's guarded drain leaves the sword unless the window has room.
+      const after = fslot('fuelItem')
+      // A TAKE THAT FAILED BETWEEN ITS TWO CLICKS leaves the sword on the cursor with the slot empty (Claude r-rev5), and
+      // the server drops a cursor item at the close: put it back into the bag first (chestfull.mjs returnCursor).
+      let cursor = null
+      try { cursor = furnace.selectedItem ?? null } catch { cursor = null }
+      if (cursor) {
+        const back = await returnCursor(bot, furnace)
+        return { status: 'failed', failClass: 'transfer_unsettled',
+                 detail: `taking the wooden sword out of the furnace's fuel slot did not settle (${back.returned ? 'it is back in your bag' : back.reason}) — smelt again` }
+      }
+      if (after !== null) {
+        return { status: 'failed', failClass: 'container_blocked',
+                 detail: 'the furnace\'s fuel slot holds a wooden sword that could not be taken back — ' +
+                         'smelt again, or place the furnace you carry and smelt there' }
+      }
+      retrieved += 1
+      swordRow('no_effect', 'wooden_sword returned unburned (left by an earlier call)', foodSkipNow(bot).active)
+    }
 
     check(signal)
     await furnace.putInput(inDef.id, null, plan.batch)
-    await furnace.putFuel(fuelDef.id, null, plan.fuel.count)
+    await loadNext()
     loaded = true
 
     // THE WAIT, AND IT IS THE ONLY PLACE THIS SKILL SPENDS TIME.
@@ -7327,10 +7572,38 @@ async function smelt(ctx, { item, count = 1 }, signal) {
       if (inp === undefined) break
       // Nothing left to cook and nothing left to collect: done early.
       if (!inp && !slot('outputItem')) break
+      // THE NEXT LOAD (peaceful kit): confirm a staged sword's ignition, then -- with input still to cook and loads still
+      // queued -- an EMPTY fuel slot takes the next one (a sword only once the furnace is cold). Never reached without
+      // swords: the queue is then empty after the first load.
+      confirmBurn()
+      if (queue.length && inp && slot('fuelItem') === null) await loadNext()
       await sleep(SMELT_POLL_MS, signal)
     }
   } finally {
-    await drainFurnace(furnace)
+    // A STAGED SWORD IS SETTLED BEFORE IT IS JUDGED (Claude r-rev2): it ignites within a tick of the put, but the slot
+    // clear and the `lit` change arrive a little later -- an abort inside that window must not read it as unburned.
+    // Up to ~6 ticks, never bound to the (possibly aborted) signal.
+    for (let i = 0; staged && i < 6; i++) {
+      confirmBurn()
+      if (!staged || fslot('fuelItem')?.name === 'wooden_sword' && heat() === 'cold' && i >= 3) break
+      await new Promise(res => setTimeout(res, 50))
+    }
+    confirmBurn()
+    const fuelNow = fslot('fuelItem')
+    const left = staged && fuelNow?.name === 'wooden_sword'
+    // THE FURNACE CANNOT BE READ (its block is gone -- Codex r-rev3): no evidence the sword burned, so no burn is claimed;
+    // the row says the outcome is unknown and the read leaves the fall unexplained.
+    if (staged && fuelNow === undefined) { swordRow('no_effect', 'wooden_sword outcome unknown (the furnace could not be read)', staged.active); staged = null }
+    // Out of a READABLE slot but never seen burning: it burned (nothing else empties a fuel slot); counted, and marked.
+    if (staged && !left) { burned.wooden_sword = (burned.wooden_sword ?? 0) + 1; swordRow('success', 'burned wooden_sword (unconfirmed)', staged.active); staged = null }
+    // A SWORD STILL IN THE FUEL SLOT (it never ignited) comes back -- unless, at the moment of its take, the bag has no
+    // empty slot: then it stays in the furnace as fuel (never tossed). The row is written after the actual outcome.
+    if (furnace) { furnace.swordKept = false; furnace.swordFate = null }
+    await drainFurnace(furnace, SMELT_RECOVERY_MS, bot)
+    const after = fslot('fuelItem')
+    const drained = swordDrainRow(furnace?.swordFate ?? null, !!left, after === undefined ? undefined : after?.name === 'wooden_sword', furnace?.drainStop ?? null)
+    if (drained) swordRow(drained.outcome, drained.what, left ? staged.active : foodSkipNow(bot).active)
+    writeSwordRows()
   }
 
   const gained = countItem(bot, plan.output) - before
@@ -7343,7 +7616,7 @@ async function smelt(ctx, { item, count = 1 }, signal) {
     return {
       status: 'success',
       detail: `smelted ${gained}x ${plan.output} from ${plan.input} ` +
-              `(batch ${plan.batch}, burned ${plan.fuel.count}x ${plan.fuel.name}` +
+              `(batch ${plan.batch}, burned ${Object.entries(burned).map(([k, v]) => `${v}x ${k}`).join(' + ') || `${plan.fuel.count}x ${plan.fuel.name}`}` +
               `${placed ? ', placed the furnace first' : ''})` +
               (gained < plan.batch ? ` — ${plan.batch - gained} still to do, call smelt again` : ''),
     }
@@ -9263,7 +9536,7 @@ export function classifyOutcome(skillName, status, delta = {}, wanted = null) {
   if (expects.includes('compost_effect')) {
     const bm = inv.bone_meal ?? 0
     if (bm > 0) because.push(`inventory_gain: bone_meal +${bm}`)
-    const l = Object.entries(inv).filter(([k, n]) => n < 0 && (isCompostInput(k) || (k === 'apple' && peacefulFoodActive())))
+    const l = Object.entries(inv).filter(([k, n]) => n < 0 && (isCompostInput(k) || ((k === 'apple' || isPeacefulCompost(k)) && peacefulFoodActive())))
     if (l.length) because.push(`inventory_loss: ${l.map(([k, n]) => `${k} ${n}`).join(', ')}`)
   }
   if (expects.includes('position') && (delta.distance ?? 0) >= 2) {

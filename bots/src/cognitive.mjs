@@ -18,7 +18,7 @@ import { AdmissionControl } from './admission.mjs'
 import { MilestoneController, servesRung, NO_PROGRESS_MS, RUNNER_REFUSALS } from './milestones.mjs'
 import { orderFor, readyFor, plantingOrder, plantingEnabled, PLANT_COOLDOWN_MS } from './workorder.mjs'
 import { wearOutPlan, isHousekeeping } from './hygiene.mjs'
-import { compostPlan, townOrder, townOrderOutcome, boneMealRoom, composterLevel, TOWN_ORDERS, STORAGE_NEAR, TOWN_RADIUS } from './composter.mjs'
+import { compostPlan, townOrder, townOrderOutcome, boneMealRoom, composterLevel, TOWN_ORDERS, STORAGE_NEAR, TOWN_RADIUS, startableJunk } from './composter.mjs'
 import { hasUsablePick, roomPlan, pickTakes, roomKeep } from './withdrawpick.mjs'
 import { townDepositOrder, townDepositOutcome, townDepositPlan } from './towndeposit.mjs'
 import { bankClosed } from './chestfull.mjs'
@@ -671,7 +671,7 @@ export class CognitiveLoop {
       let wanted = null
       const plan = () => {
         wanted = [...(this.#wantedItems(milestone) ?? [])]
-        return townDepositPlan(items, { wanted })
+        return townDepositPlan(items, { wanted, noSwords: foodSkipNow(bot).active })   // the peaceful kit: the switch, read here
       }
       const r = townDepositOrder({
         now: Date.now(), slots: items.length, pos: bot.entity?.position ?? null,
@@ -825,10 +825,12 @@ export class CognitiveLoop {
         const items = bot.inventory?.items?.() ?? []
         const p = bot.entity?.position
         // THE PEACEFUL FOOD POLICY (foodskip.mjs, owner 10-06): apples above the reserve count as compostable only while it is active.
-        const plan = compostPlan(items, { apples: foodSkipNow(bot).active })
+        const peaceful = foodSkipNow(bot).active   // the food policy's apples and the peaceful kit's plants: one switch
+        const plan = compostPlan(items, { apples: peaceful, plants: peaceful })
         const home = { x: config.world.homeX, z: config.world.homeZ }
         const r = townOrder({
-          now: Date.now(), slots: plan.slots, freeSlots: 36 - plan.slots, junk: plan.junk,
+          // the real surplus after every reserve, and only when a fill can start (composter.mjs startableJunk; owner 10-07)
+          now: Date.now(), slots: plan.slots, freeSlots: 36 - plan.slots, junk: startableJunk(items, { apples: peaceful, plants: peaceful, level: () => (p && Math.hypot(home.x - p.x, home.z - p.z) <= TOWN_RADIUS ? composterLevel(findTownComposter(bot)) : 0) }),
           distHome: p ? Math.hypot(home.x - p.x, home.z - p.z) : Infinity,
           storageNear: () => !!bot.findBlock?.({ matching: b => ['chest', 'barrel', 'trapped_chest'].includes(bot.registry?.blocks?.[b.type]?.name), maxDistance: STORAGE_NEAR }),
           composterAtTown: () => !!findTownComposter(bot),

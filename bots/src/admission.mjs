@@ -9,7 +9,8 @@
 // "the model is unreliable" into a distribution over specific, fixable causes
 // you can query in Kibana.
 
-import { SKILLS, actionKey } from './skills.mjs'
+import { SKILLS, actionKey, foodSkipNow } from './skills.mjs'
+import { swordCraftRefusal, unwantedSword } from './peacefulkit.mjs'
 import { smeltRecipeFor } from './smelting.mjs'
 import { config } from './config.mjs'
 import { horizontalDistanceFromSpawn } from './state.mjs'
@@ -350,11 +351,18 @@ export class AdmissionControl {
                  detail: `you hold no ${args.item}; deposit what you carry (say deposit with no item) or gather it first` }
       }
       if (args) args.item = arg.item
+      // NO SWORD IS BANKED IN A PEACEFUL WORLD (peacefulkit.mjs, owner 10-07 ~19:50Z): a named sword deposit is refused here,
+      // before the walk home, with the rule (the bank would hand over nothing).
+      if (arg.item && unwantedSword({ name: arg.item }, foodSkipNow(bot).active)) {
+        return { ok: false, reason: 'peaceful_sword_deposit',
+                 detail: `not a banking target (swords are not banked in a peaceful world): keep the ${arg.item}, or deposit something else` }
+      }
       // THE SAME POLICY AS EXECUTION (Codex, deposit pass 2): the always-banked ores count here too, and the wants
       // this gate judged with are handed to the skill through the bot (the runner's ctx carries no wants).
       const wants = [...(wanted ? [wanted].flat() : []), ...DEPOSIT_ALWAYS]
       bot.currentWants = wants
-      const bank = bankableInventory(items, { wants })
+      // THE SWITCH, READ HERE (Codex, junkwell merge): a spare sword never makes a deposit due while peaceful.
+      const bank = bankableInventory(items, { wants, noSwords: foodSkipNow(bot).active })
       const onDepositMilestone = this.activeMilestoneId === 'deposit_surplus'
       const due = depositDue({
         bankable: bank.count,
@@ -452,6 +460,9 @@ export class AdmissionControl {
       // detail names the remedy (dig with the held copy / the skill places the carried station).
       const redundant = redundantCraft(args.item, bot.inventory?.items?.() ?? [], { wanted, y: bot.entity?.position?.y, exitShort: bot.exitPickShort })
       if (redundant) return { ok: false, reason: 'redundant_craft', detail: redundant.detail, redundant }
+      // NO SWORD IN A PEACEFUL WORLD (peacefulkit.mjs, owner 10-07; the food policy's switch). Before any walk to a table.
+      const noSword = swordCraftRefusal(args.item, foodSkipNow(bot).active)
+      if (noSword) return { ok: false, reason: 'peaceful_no_sword', detail: noSword }
     }
 
     if (skill === 'place') {

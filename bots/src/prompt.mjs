@@ -20,6 +20,9 @@ import { bankableInventory, depositDue } from './bankable.mjs'
 import { bankClosed, depositTargetOk } from './chestfull.mjs'
 import { config } from './config.mjs'
 import { redundantCraft } from './toolhygiene.mjs'
+// The peaceful kit (peacefulkit.mjs): no sword is offered while the food policy's switch is active.
+import { peacefulFoodActive } from './foodskip.mjs'
+import { isSword } from './peacefulkit.mjs'
 
 const MAX_EVENTS = 12
 // Rough but adequate: we only need to know when we are near the ceiling, and
@@ -508,7 +511,9 @@ export function craftableNow (bot, milestone = null, wantedSet = null) {
     const access = tableAccess(bot)
     const hasTable = access.has
     const made = []
+    const peaceful = peacefulFoodActive()   // never advise a craft admission refuses (peacefulkit.mjs swordCraftRefusal)
     for (const name of CRAFT_TARGETS) {
+      if (peaceful && isSword(name)) continue
       if (items.some(i => i.name === name && i.count > 0) && !name.endsWith('_pickaxe')) continue
       if (name.endsWith('_pickaxe') && redundantCraft(name, items, { wanted, y: bot.entity?.position?.y, exitShort: bot.exitPickShort })) continue
       const it = bot.registry?.itemsByName?.[name]
