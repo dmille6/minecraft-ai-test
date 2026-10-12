@@ -795,7 +795,7 @@ await t('P3c MUTANT KILLED: not marking handoffHeld gives a held-off step the 60
     assert.notEqual(r.handoffHeld, true)
   })
   // the over-budget refusal after a wait (P3d's scene)
-  await withMutant(AP_PATH, "      if (res.window !== 'none' || equipErr) res.handoffHeld = true\n", '', async m => {
+  await withMutant(AP_PATH, "      if (res.window !== 'none' || equipErr || lost) res.handoffHeld = true\n", '', async m => {
     const bot = fakeBot({ healthTick: 0 })
     let busy = true; setTimeout(() => { busy = false }, 60)
     const hp = setInterval(() => { bot.health = Math.max(1, bot.health - 2) }, 10)
@@ -974,7 +974,7 @@ await t('P13 an equip REFUSED by a skill\'s inventory owner (withdraw\'s ownInve
   }
   const r = await run({ airPocketStep, airPocketPlan })
   assert.equal(r.ok, false); assert.equal(r.window, 'none'); assert.equal(bot0dig(r), 0); assert.equal(r.handoffHeld, true)
-  await withMutant(AP_PATH, "      if (res.window !== 'none' || equipErr) res.handoffHeld = true\n", "      if (res.window !== 'none') res.handoffHeld = true\n",
+  await withMutant(AP_PATH, "      if (res.window !== 'none' || equipErr || lost) res.handoffHeld = true\n", "      if (res.window !== 'none' || lost) res.handoffHeld = true\n",
     async m => { assert.notEqual((await run(m)).handoffHeld, true) })
 })
 await t('P12 the wait keeps the step\'s jump: a guard whose haltPath clears every control does not let a floating bot sink', async () => {
@@ -1289,6 +1289,18 @@ await t('AP2-U4 THE WELL\'S HOLD IS RELEASED BEFORE ANY EQUIP: a main-inventory 
     assert.ok(rel >= 1, `slot ${slot}: the hold was never released`)
     assert.equal(ra.tool, 'stone_pickaxe', `slot ${slot}: ${ra.why}`); assert.ok(a.digSends.length >= 1, `slot ${slot}: nothing dug`)
   }
+})
+await t('AP2-U4c THE HAND LOST AFTER A GOOD EQUIP (another equip landed over it) takes the SHORT cooldown, not 60 s', async () => {
+  const a = fakeBot({}); a.inventory.items = () => [hb('stone_pickaxe', 37), hb('bread', 12)]; a.heldItem = hb('cobblestone', 36)
+  const eq0 = a.equip; a.equip = async it => { await eq0(it); if (it.name === 'stone_pickaxe') await eq0(hb('bread', 12)) }   // a queued equip lands after
+  const ra = await airPocketStep(a, airPocketPlan(world(HIVE_C)), deps({ envelope: 2 })); clearInterval(a._healthTimer)
+  assert.equal(ra.ok, false); assert.equal(ra.tool, 'bread'); assert.equal(ra.handoffHeld, true); assert.match(ra.why, /the stone_pickaxe was replaced/)
+  await withMutant(AP_PATH, "      if (res.window !== 'none' || equipErr || lost) res.handoffHeld = true\n", "      if (res.window !== 'none' || equipErr) res.handoffHeld = true\n", async m => {
+    const b = fakeBot({}); b.inventory.items = () => [hb('stone_pickaxe', 37), hb('bread', 12)]; b.heldItem = hb('cobblestone', 36)
+    const e0 = b.equip; b.equip = async it => { await e0(it); if (it.name === 'stone_pickaxe') await e0(hb('bread', 12)) }
+    const rb = await m.airPocketStep(b, m.airPocketPlan(world(HIVE_C)), deps({ envelope: 2 })); clearInterval(b._healthTimer)
+    assert.notEqual(rb.handoffHeld, true)
+  })
 })
 await t('AP2-U4b MUTANT KILLED: a release only inside the handoff (the r1 shape) leaves the quick-bar pickaxe waiting on the hold (U4 catches it)', async () => {
   await withMutantsAll(AP_PATH, [["    try { releaseHold() } catch { /* none held is fine */ }\n", ''],

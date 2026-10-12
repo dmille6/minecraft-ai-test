@@ -1193,14 +1193,45 @@ const wellHoldYields = async (mod) => {
     if (town.state.clicks.length === 1 && done === null) {
       done = 'pending'
       sawHold = typeof town.bot.inventoryHold?.release === 'function'
-      town.bot.equip(town.slots.find(x => x?.name === 'bread'), 'hand').then(() => { done = town.state.events.length })
       town.bot.inventoryHold?.release?.('air_pocket')   // what the rescue's step does before its equip
+      town.bot.equip(town.slots.find(x => x?.name === 'bread'), 'hand').then(() => { done = town.state.events.length })   // the rescue's equip
     }
   }
   await within((mod ? mod.SKILLS : SKILLS).dispose_well.run({ bot: town.bot }, {}, { aborted: false }), 15000, 'well hold')
   await new Promise(r => setTimeout(r, 20))
   return { sawHold, done, close: town.state.events.lastIndexOf('close'), after: town.bot.inventoryHold ?? null }
 }
+const queuedThenRescue = async (mod) => {
+  // Codex r2 P1: a hunger equip QUEUED behind the hold must not land after the rescue's equip
+  const town = fakeTown({ wellAt: CAP, hand: S('cobblestone', 64), items: [S('egg', 16), S('flint', 64), S('rail', 3), S('bread', 5), S('stone_pickaxe', 1), ...filler(30)] })
+  let fired = false, breadErr = null
+  const signal = { aborted: false }
+  town.state.onLook = () => {
+    if (town.state.clicks.length === 1 && !fired) {
+      fired = true
+      town.bot.equip(town.slots.find(x => x?.name === 'bread'), 'hand').catch(e => { breadErr = e })   // queued behind the hold
+      signal.aborted = true; town.bot.rescueInventoryEpoch = (town.bot.rescueInventoryEpoch ?? 0) + 1   // the rescue: interrupt, own
+      town.bot.inventoryHold?.release?.('air_pocket')
+      town.bot.equip(town.slots.find(x => x?.name === 'stone_pickaxe'), 'hand').catch(() => {})
+    }
+  }
+  try { await within((mod ? mod.SKILLS : SKILLS).dispose_well.run({ bot: town.bot }, {}, signal), 15000, 'queued then rescue') } catch { /* an aborted visit may throw */ }
+  await new Promise(r => setTimeout(r, 50))
+  return { fired, breadErr, held: town.bot.heldItem?.name ?? null, bread: town.count('bread') }
+}
+await t('AIRPOCKET-02: A RESCUE\'S RELEASE DROPS what was queued behind the hold (a hunger equip never lands over the pickaxe)', async () => {
+  const o = await queuedThenRescue(null)
+  assert.equal(o.fired, true); assert.match(String(o.breadErr?.message), /dropped: the inventory was taken by air_pocket/)
+  assert.equal(o.held, 'stone_pickaxe'); assert.equal(o.bread, 5)
+})
+await t('MUTANT (skills): a release that lets the queue through puts the bread in hand over the pickaxe', async () => {
+  const a = "          waiters.push(drop => { clearTimeout(t); if (drop) reject(new Error(`${name} dropped: the inventory was taken by ${drop}`)); else resolve() })\n"
+  assert.equal(readFileSync(SP, 'utf8').split(a).length, 2, 'ANCHOR MISSING OR NOT UNIQUE')
+  await withMutant(SP, a, '          waiters.push(drop => { clearTimeout(t); resolve() })\n', async m => {
+    const o = await queuedThenRescue(m)
+    assert.equal(o.fired, true); assert.equal(o.breadErr, null, 'mutant inert'); assert.equal(o.held, 'bread', `mutant inert: held ${o.held}`)
+  })
+})
 await t('AIRPOCKET-02: THE WELL\'S HOLD YIELDS TO THE RESCUE: registered as bot.inventoryHold in the throw phase; release() lets the held equip through at once; cleared after', async () => {
   const o = await wellHoldYields(null)
   assert.equal(o.sawHold, true); assert.equal(o.after, null)
