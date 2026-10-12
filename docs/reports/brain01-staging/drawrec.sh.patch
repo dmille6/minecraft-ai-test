@@ -1,0 +1,32 @@
+--- host-orig/drawrec.sh	2026-10-12 07:06:38
++++ patched/drawrec.sh	2026-10-12 07:13:19
+@@ -37,6 +37,12 @@
+ import json
+ ledger = txt.split('=== LEDGER')[1].split('=== MANIFEST')[0] if '=== LEDGER' in txt else ''
+ excl = set()
++# brain-01 (staged): pools KEPT on a fixed remote brain are a different population; never drawn again.
++try:
++    for _p in json.load(open('/srv/mcbots/brain-subset.json')).get('pools') or []:
++        excl.add(_p); print('brain subset (never drawn):', _p)
++except FileNotFoundError:
++    pass
+ for line in ledger.strip().splitlines():
+     try: row = json.loads(line)
+     except Exception: continue
+@@ -168,6 +174,16 @@
+ # and it SAYS WHICH -- so the read knows its own power instead of assuming it.
+ TARGET_K = 4
+ MIN_K = 2
++# brain-01 (staged 2026-10-12): a registration may CAP the draw with `draw_k` (pools). A model/env canary on the
++# Studio may take two pools (10 bots) and no more -- the Studio serves ~10-12 bots. Absent = 4, as above.
++if RUN:
++    try:
++        _dk = json.load(open(os.path.expanduser('~/mcai-analysis/registrations/%s.json' % RUN))).get('draw_k')
++    except Exception:
++        _dk = None
++    if isinstance(_dk, int) and 1 <= _dk < TARGET_K:
++        TARGET_K = _dk; MIN_K = min(MIN_K, _dk)
++        print('draw_k: registration caps the draw at %d pool(s)' % _dk)
+ rng = secrets.SystemRandom()
+ npick = min(TARGET_K, len(e))
+ if npick < MIN_K:
