@@ -6216,7 +6216,7 @@ async function settleAndRestore (bot, was, g, order = 'housekeeping') {
     return false
   }
   // an air_pocket rescue took the inventory during this order (Codex P2, stonecap review): its pickaxe stays in hand
-  if (!handRestoreAllowed({ epochAtStart: g.epoch, epochNow: bot.rescueInventoryEpoch })) {
+  if (!handRestoreAllowed({ epochAtStart: g.epoch, epochNow: bot.rescueInventoryEpoch, rescueActive: bot.rescueInventoryActive === true })) {
     logEvent({ kind: 'housekeeping_unsettled', status: 'skipped', snapshot: snapshot(bot),
                detail: `${order}: an air_pocket rescue took the inventory; hand not restored (held ${bot.heldItem?.name ?? 'nothing'}, was ${was?.name ?? 'nothing'})` })
     return false
