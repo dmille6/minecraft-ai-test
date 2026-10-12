@@ -114,7 +114,7 @@ t('soilOk gates the place candidate list for saplings only', () => {
 const COG = readFileSync(new URL('../src/cognitive.mjs', import.meta.url), 'utf8')
 t('the loop offers a planting order ONLY when there is no rung to advance', () => {
   const c = strip(COG)
-  assert.match(c, /let order = orderFor\(readyFor\(this\.bot, milestone\)\)/, 'the rung order comes first')
+  assert.match(c, /const ready = readyFor\(this\.bot, milestone[,)][\s\S]*?let order = orderFor\(ready\)/, 'the rung order comes first')
   assert.match(c, /if \(!order\) \{/, 'and planting is only reached when there is none')
   assert.match(c, /order = plantingOrder\(\{ saplings: sap, spot,/)
   // THIS ASSERTION WAS INVERTED AND IT LOCKED IN THE DEFECT. It used to demand
@@ -130,9 +130,9 @@ t('the loop offers a planting order ONLY when there is no rung to advance', () =
     'charging the clock only on a successful order is the re-sweep bug')
 })
 t('MUTANT: letting planting pre-empt a craft rung is caught', () => {
-  const anchor = 'let order = orderFor(readyFor(this.bot, milestone))'
+  const anchor = 'let order = orderFor(ready)'
   assert.equal(COG.split(anchor).length - 1, 1, 'ANCHOR MISSING or not unique')
-  assert.ok(!/let order = orderFor\(readyFor\(this\.bot, milestone\)\)/.test(strip(COG.replace(anchor, 'let order = null'))))
+  assert.ok(!/let order = orderFor\(ready\)/.test(strip(COG.replace(anchor, 'let order = null'))))
 })
 t('MUTANT: charging the cooldown only when an order was produced is caught', () => {
   const anchor = '        this.lastPlantedAt = Date.now()\n'
