@@ -32,6 +32,9 @@ const { AdmissionControl } = await import('../src/admission.mjs')
 const { Lessons } = await import('../src/lessons.mjs')
 const { tapRecords } = await import('../src/logger.mjs')
 const PR = await import('../src/prompt.mjs')
+const BK = await import('../src/bankable.mjs')
+const CR = await import('../src/craftroom.mjs')
+const await_plan = b => BK.depositPlan(b.items, null, { wants: [] })
 
 const COGNITIVE_PATH = new URL('../src/cognitive.mjs', import.meta.url)
 const SKILLS_PATH = new URL('../src/skills.mjs', import.meta.url)
@@ -181,6 +184,19 @@ test('REMEDY: far from the bank -> home (naming the X it will bank); at home -> 
   const d = SK.roomRemedy(near.bot, near.items, keep)
   assert.equal(d.kind, 'deposit'); assert.equal(d.item, r.item, 'the item named far away is the one banked at home')
   assert.ok(!['cobblestone', 'stick'].includes(d.item))
+})
+
+test('REMEDY: the iron ladder is not the price of a stone pickaxe -- another stack goes first; iron only when nothing else frees one', () => {
+  const keep = [{ name: 'cobblestone', count: 1 }, { name: 'stick', count: 1 }]
+  const b = bagBot({ sticks: 10, at: new Vec3(3, 70, 0), extra: [] })
+  b.items[b.items.length - 1] = item('iron_ingot', 9, 44)
+  assert.equal(SK.roomRemedy(b.bot, b.items, keep).item, 'oak_log', 'oak_log frees a stack: it goes, the ingots stay')
+  assert.equal(CR.depositTarget(b.items, await_plan(b), keep), 'iron_ingot', 'positive control: the plain advice would name the ingots')
+  // only ingots can free a stack -> they are named (the slot must still come free)
+  const only = bagBot({ sticks: 10, at: new Vec3(3, 70, 0) })
+  for (const it of only.items) if (it.name === 'oak_log' || it.name === 'raw_copper') it.name = 'white_wool'
+  only.items[only.items.length - 1] = item('iron_ingot', 9, 44)
+  assert.equal(SK.roomRemedy(only.bot, only.items, keep).item, 'iron_ingot')
 })
 
 test('REMEDY: never a placement; never `home` where the bot already is; a closed bank is no order', () => {

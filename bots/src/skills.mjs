@@ -60,7 +60,7 @@ import { FLOOR } from './toolfor.mjs'
 import { noteExitShort } from './toolhygiene.mjs'
 /** Tools deposit moves one usable copy at a time, by slot (bankable.mjs's own tool families). */
 const DEPOSIT_TOOL_RE = /_(pickaxe|axe|shovel|sword|hoe)$/
-import { townDepositPlan, fitToContainer, townDepositDetail, inTownZone, doubleChestPartner, STORAGE_REACH, TD_MAX_CONTAINERS, TD_BUDGET_MS, TD_WALK_MS, TD_OPEN_MS, TD_SETTLE_MS } from './towndeposit.mjs'
+import { IRON_LADDER, townDepositPlan, fitToContainer, townDepositDetail, inTownZone, doubleChestPartner, STORAGE_REACH, TD_MAX_CONTAINERS, TD_BUDGET_MS, TD_WALK_MS, TD_OPEN_MS, TD_SETTLE_MS } from './towndeposit.mjs'
 import { WOODEN_TRAPDOOR, isWellJunk, disposePlan, wellIdentity, wellStage, wellStand, standForFacing, wellSiteRefusal, canonicalWellSite,
          wellBuildPlan, wellBuildRoom, wellAim, aimPoint, tossOutcome, wellAdmission, wellDisposeDetail, itemInWell, bodyInWell, TOSS,
          trapdoorsNeeded, MAX_STACKS_PER_VISIT, wellBreach, usableStands, thrownNames, WELL_HOME_CLEARANCE,
@@ -4520,7 +4520,7 @@ export function craftRoomCheck (bot, item, count = 1, { wearFailedRecently = fal
 export const DEPOSIT_NEAR_HOME = 96   // bankable.mjs depositDue's nearHome default: inside it a deposit is worth it
 export function roomRemedy (bot, items, keep = [], { exclude = new Set() } = {}) {
   const isPlaceable = n => placeableBlock(bot.registry, n)
-  const depositItem = exclude.has('deposit') ? null : adviseDeposit(bot, items, keep)
+  const depositItem = exclude.has('deposit') || bankClosed(bot) || !depositWorthIt(bot, items) ? null : roomDepositTarget(bot, items, keep)
   const hunger = exclude.has('eat') ? 20 : (bot.food ?? 20)
   const advice = roomAdvice({ items, consumes: keep, isPlaceable, placeSite: false, foodOrder: FOOD_PRIORITY, hunger, depositItem })
   if (advice.kind === 'eat') return { kind: 'eat', item: null, text: advice.text }
@@ -4529,10 +4529,23 @@ export function roomRemedy (bot, items, keep = [], { exclude = new Set() } = {})
   if (closed) return { kind: 'closed', item: null, text: closedRoomText(closed) }
   if (!exclude.has('home') && farFromBank(bot)) {
     let far = null
-    try { far = depositTarget(items, depositPlan(items, null, { wants: bot.currentWants ?? [] }), keep) } catch { far = null }
+    far = roomDepositTarget(bot, items, keep)
     if (far) return { kind: 'home', item: far, text: `home -- then deposit ${far}: banking is refused out here (no usable chest in reach) and the town chest frees slots` }
   }
   return { kind: 'none', item: null, text: advice.text }
+}
+
+/**
+ * THE X A ROOM ORDER BANKS -> name | null. depositTarget (X's deposit, as deposit() runs it, empties a stack; never one of the
+ * craft's ingredients), FIRST AMONG WHAT THE TOWN DEPOSIT WOULD ALSO BANK: the iron ladder (raw/ore/ingot/nugget, coal,
+ * charcoal) is the next tier's means, and the 10-12 dry run showed the advice naming `deposit iron_ingot` to make room for
+ * a stone pickaxe. Only when nothing else frees a stack is a ladder item named -- the slot the craft needs still comes free.
+ */
+export function roomDepositTarget (bot, items, keep = []) {
+  try {
+    const plan = depositPlan(items, null, { wants: bot.currentWants ?? [] })
+    return depositTarget(items, plan, [...keep, ...IRON_LADDER.map(name => ({ name, count: 1 }))]) ?? depositTarget(items, plan, keep)
+  } catch { return null }
 }
 
 /** No usable (non-deep) chest within 48 and more than DEPOSIT_NEAR_HOME from home: admission's deposit_not_worth_it place. */
