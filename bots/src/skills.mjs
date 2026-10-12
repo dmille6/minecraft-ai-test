@@ -7459,12 +7459,18 @@ function holdInventory (bot) {
     }
     bot[name] = mine[name]
   }
-  return () => {
+  const release = () => {
     if (released) return
     released = true
     for (const [name, fn] of Object.entries(mine)) if (bot[name] === fn) bot[name] = orig[name]
     for (const w of waiters.splice(0)) w()
+    if (bot.inventoryHold === hold) bot.inventoryHold = null
   }
+  // REGISTERED so the air_pocket rescue can RELEASE it before it equips (rescueInventoryDecision: a well hold is owned
+  // and released, never waited on -- 8 s of a held equip is a drowning; Codex P2, stonecap review)
+  const hold = { owner: 'well', release: () => release() }
+  bot.inventoryHold = hold
+  return release
 }
 
 /**
