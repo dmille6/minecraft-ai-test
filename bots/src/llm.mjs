@@ -250,6 +250,9 @@ export class LlmClient {
     // THINK, per request (ported from bench-closedloop 8e80080). undefined = the key is not sent at all, so a
     // bot without OLLAMA_THINK sends a request byte-identical to today's.
     this.think = think
+    // ...but only to the LABELLED endpoints when the pool has any: the local fallback then gets exactly today's
+    // request, whatever Ollama version it runs ('does not support thinking' must never break the fallback).
+    this.thinkLabelledOnly = eps.some(e => e.brain)
   }
 
   /**
@@ -382,7 +385,7 @@ export class LlmClient {
             // and every call pays a 55-80s reload -- observed live, and the
             // reason load_duration_ns is in the telemetry schema at all.
             keep_alive: '30m',
-            ...(this.think === undefined ? {} : { think: this.think }),
+            ...(this.think === undefined || (this.thinkLabelledOnly && !ep.brain) ? {} : { think: this.think }),
             messages,
             format: schema,
             options: {
