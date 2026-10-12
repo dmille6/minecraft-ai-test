@@ -4,10 +4,10 @@
 # Install: /etc/systemd/system/mcai-studio-tunnel.service; systemctl enable --now mcai-studio-tunnel.
 # StrictHostKeyChecking=yes needs the Studio's host key in /home/mike/.ssh/known_hosts. It is there since 10-12 (an
 # `accept-new` probe from this host recorded ai.ticrcorp.com ED25519); check with `ssh-keygen -F ai.ticrcorp.com`.
-# Bots use OLLAMA_BRAIN_PRIMARY=http://127.0.0.1:11601|gemma4:26b|gemma4|15000. A dead tunnel = connection refused
-# on 127.0.0.1:11601 = the bot's local fallback, at once; systemd restarts the tunnel within 5 s.
+# Bots use OLLAMA_BRAIN_PRIMARY=http://127.0.0.1:11611|gemma4:26b|gemma4|15000. A dead tunnel = connection refused
+# on 127.0.0.1:11611 = the bot's local fallback, at once; systemd restarts the tunnel within 5 s.
 [Unit]
-Description=brain-01 ssh tunnel to the Studio brain proxy (127.0.0.1:11601 -> Studio 127.0.0.1:11501)
+Description=brain-01 ssh tunnel to the Studio brain proxy (127.0.0.1:11611 -> Studio 127.0.0.1:11501)
 After=network-online.target
 Wants=network-online.target
 
@@ -15,7 +15,7 @@ Wants=network-online.target
 User=mike
 ExecStart=/usr/bin/ssh -N -o BatchMode=yes -o ExitOnForwardFailure=yes -o ServerAliveInterval=10 -o ServerAliveCountMax=3 \
   -o ConnectTimeout=15 -o StrictHostKeyChecking=yes -i /home/mike/.ssh/id_ed25519_brain01 \
-  -L 127.0.0.1:11601:127.0.0.1:11501 mike@ai.ticrcorp.com
+  -L 127.0.0.1:11611:127.0.0.1:11501 mike@ai.ticrcorp.com
 Restart=always
 RestartSec=5
 # every start and exit is in the journal: journalctl -u mcai-studio-tunnel
