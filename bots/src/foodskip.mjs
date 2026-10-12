@@ -54,10 +54,21 @@ export function normalizeDifficulty (v) {
   if (Number.isInteger(v) && v >= 0 && v < DIFFICULTY_NAMES.length) return DIFFICULTY_NAMES[v]
   return null
 }
-/** Record the server's difficulty from the raw packet onto bot.serverDifficulty. Call once, right after createBot. */
-export function attachDifficulty (bot) {
+/**
+ * Record the server's difficulty from the raw packet onto bot.serverDifficulty. Call once, right after createBot.
+ * THE PEACEFUL KIT (peacefulkit.mjs, 10-07) reads the policy's decision where there is no bot to ask (the bank's pure
+ * allowance, the prompt's craft list), so the packet also refreshes that decision here, under the same FOOD_SKIP mode
+ * skills.mjs reads: it is current from the first packet, not from the first pickup sweep. The `_food_skip` row is still
+ * foodSkipNow's alone.
+ */
+export function attachDifficulty (bot, env = process.env) {
+  const { mode } = foodSkipMode(env)
+  setPeacefulFood(foodSkipActive(mode, difficultyOf(bot)))
   try {
-    bot?._client?.on?.('difficulty', p => { const d = normalizeDifficulty(p?.difficulty); if (d) bot.serverDifficulty = d })
+    bot?._client?.on?.('difficulty', p => {
+      const d = normalizeDifficulty(p?.difficulty)
+      if (d) { bot.serverDifficulty = d; setPeacefulFood(foodSkipActive(mode, d)) }
+    })
   } catch { /* a test double without a client */ }
 }
 /** The difficulty this bot is in: our own reading of the packet first, mineflayer's (if it ever works) second; else null. */

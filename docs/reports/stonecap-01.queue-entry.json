@@ -1,0 +1,34 @@
+{
+ "run": "stonecap-01",
+ "class": "bag-fix",
+ "after": [
+  "junkwell-02"
+ ],
+ "variants": {
+  "0cdb1a8c84436ce67567a1b88242496f295d2395": {
+   "registration": "/home/mike/mcai-analysis/stonecap-01.0cdb1a8.json",
+   "approved": "queue agent 2026-10-10: sc-on-0cdb1a8 @ 935c63e = the approved sc-on-cf4192e @ 32d7447 (net diff) on jw-on-6f1921a, + main's mutant driver; Claude subagent APPROVE r1 + Codex APPROVE r2 (docs/reports/stonecap-01.rebase-review-2026-10-10.txt); npm test 244/244; cobble 67/67, mutants-pk PK_COMPOSED 87/87, well classifier 2/2; bag-fix fields from main (gate agent)",
+   "registration_sha256": "56c26209d3b4f9c31541d8ad79c281120e43a2c84bd39376bdde70fe065c6165",
+   "canary_sha": "935c63e960c5dbb8ddf29d0b9b2d3a6d72daa87e",
+   "reads_src": "/home/mike/mcai-analysis",
+   "reads": {
+    "bagread": "b391c93262d881acca34fff1b41610f9",
+    "stonecapread": "69ae9d78b22872b7f064edbfe57cf88a",
+    "immobiledid": "53af289df12208901931dbeeb1ae325a"
+   }
+  },
+  "0264f61c2bb2edb6311371fd77011b1c637786ed": {
+   "registration": "/home/mike/mcai-analysis/stonecap-01.0264f61.json",
+   "approved": "queue agent 2026-10-10 (contingency, peacefulkit not kept): sc-on-0264f61 @ d551f7a = the approved sc-on-1db3fcd @ f5bdb80 (net diff) on jw-on-4970c91; Codex APPROVE r1 + Claude subagent APPROVE r1 (docs/reports/stonecap-01.rebase-review-2026-10-10.txt); npm test 241/241; cobble 67/67; bag-fix fields from main",
+   "registration_sha256": "049b442c4ab801112e7619589a4b11b389579c5722c70a73b8b6922cc5332b3b",
+   "canary_sha": "d551f7a602ab000c00063b02ec7a63df5af8e389",
+   "reads_src": "/home/mike/mcai-analysis",
+   "reads": {
+    "bagread": "b391c93262d881acca34fff1b41610f9",
+    "stonecapread": "69ae9d78b22872b7f064edbfe57cf88a",
+    "immobiledid": "53af289df12208901931dbeeb1ae325a"
+   }
+  }
+ },
+ "note": "bag fix: the town cobble cap + the well at the cap; variants for junkwell-02 on peacefulkit (0cdb1a8) and, if peacefulkit is not kept, junkwell-02 on 4970c91 (0264f61)."
+}

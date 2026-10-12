@@ -1,0 +1,212 @@
+stocktarget-01 DESIGN REVIEWS (docs/reports/stocktargets-design-2026-10-08.md), 2026-10-08..10
+Codex: r1 CHANGE, r2 CHANGE, r3 CHANGE, r4 CHANGE, r5 CHANGE, r6 APPROVE.
+Claude (independent subagent, probes in the agent scratchpad): r1 CHANGE, r2 CHANGE, r3 APPROVE (its P2s taken in r4).
+Every finding and its change: design sections 10-14.
+
+===== Claude r1 ===== CHANGE: P1 the well proof used lb (not a floor); P1 rotation checkpoints/missing files; P2 withdraw banks without claims; P2 per-group 64 reserve strands bots; P2 new standing targets enlarge the bank; P2 gates blind; P3s (one well rule, reads follow generations, target-0 consumers, dirt denominator, recovery chest claim, simpler shape).
+===== Claude r2 ===== CHANGE: P1 tail folding re-decides claims (probe: town 304/256); P1 6 h ceiling vs 1 h floor strands a full bag; P1 the admin clear leaves stale-high counts; P2 withdraw records its draw after the clicks; P2 near-target behaviour unobservable; P2 withdraw cannot make room; P3s.
+===== Claude r3 ===== APPROVE (no P1). P2-1 the reset must bracket the clear; P2-2 the recovery claim can block its own chest (transfer under it); P2-3 a re-appended releasing count can overwrite a newer, lower count (re-append as release + dirty). All three taken in r4. P3s: valve needs an empty slot (report refusals), craft chain via real craftroom, dirt wording, mark section 10 superseded, prune refused throws recorded.
+
+===== Codex r6 =====
+VERDICT: APPROVE
+
+1. **P2 — The committed regression does not include the claimed equal-time two-pruner case (§14; `bots/test/stocktarget-journal.test.mjs`).** The depositor/withdraw schedule now tests equal captures, but the two-pruner schedule still uses unequal captures, `T+5` and `T+3`. Section 14 overstates its coverage.
+
+   **Fix:** add the same two-pruner schedule with both captures at `T+5`; assert both claims are released, the container is unknown, and its available floor is zero. Then assert that a subsequent recount restores the actual 64-item floor. I ran that schedule entirely in memory: those assertions pass. This is a regression-coverage gap, not an observed safety failure.
+
+2. **P3 — Round-5 finding 1 is resolved at design level (§3.1).** Equal-time releasing counts now release their claims and mark the container unknown, preventing a delayed count from restoring withdrawn stock. Strictly newer releasing counts retain the successful replacement path. The requested journal test passed **10/10**, including the equal-time depositor/withdraw regression and its newer-capture positive control.
+
+   **Retention:** preserve this rule when completing integration. Release-plus-dirty is a simple, conservative resolution; this review does not justify another journal mechanism.
+
+3. **P3 — Round-5 finding 2 remains correctly documented as accepted residual exposure (§§3.2, 3.6, 5).** A pickaxe-less bot with a keeps-only full bag can still lack an executable recovery, and the spare-tool valve cannot free space when every town container is full. The specification correction is resolved; the operational limitation is not.
+
+   **Retention:** exercise unsuccessful cases through the real selector and craftroom, and report pickaxe-less full-bag bot-hours and valve refusals. Attempts and refusals must not count as successful recovery.
+
+4. **P3 — Round-5 finding 3 remains a validation requirement, not completed evidence (§§4, 7–8).** The journal tests support the revised fold rule but do not establish the complete transfer, disposal, rotation, and gate safety envelope.
+
+   **Retention:** require deterministic delayed-release and straggler/deletion schedules, the Paper concurrency scene, successful bank/recovery/prune controls, deliberately failing gate fixtures, and sandbox validation of boundary reductions. Keep near-target canary gates **UNTESTED** where exposure is absent. Design approval does not establish deployment readiness.
+
+The clear planner reproduced **425 containers, 175→0 full, 5,958 slots freed, and 195,462 items removed**, including **668 items removed through boundary reductions**. The caps remain defensible provisional budgets for the stated consumers; aggregate fleet draw does not prove every town’s coverage. Bamboo and bucket caps remain explicitly pending the owner’s decision.
+
+The design covers the identified banking, withdrawal, recovery, pruning, and well-disposal consumers. I found no additional design-level P1 requiring a change in this round.
+
+Review stayed offline. No repository files or state were changed. The requested test created temporary fixtures; planner reproduction and the additional fold probe used memory only.
+exit 0
+
+===== Codex r5 =====
+VERDICT: CHANGE
+
+1. **P1 — Equal-time releasing counts can still restore withdrawn stock (§3.1, lines 115–121).**
+
+   Round-4 finding 1 is **partially resolved**. An older releasing count now makes the container unknown, but the specification explicitly lets a releasing count captured “at or after” the standing count replace it. The equal-time case bypasses the promised `lo` rule.
+
+   Concrete schedule: A banks 64 sticks and captures 64; B subsequently draws those sticks and publishes zero; A publishes its delayed count. If both captures have the same millisecond timestamp, A restores the floor to 64 after both claims have been released. The chest actually holds zero, yet ordinary well disposal is authorized.
+
+   I reproduced this entirely in memory using the supplied fold. With A’s capture one millisecond older, the available floor is zero and the container is unknown—the intended positive control. With equal captures, the available floor becomes **64**, with no unknown container. This follows the design’s replacement rule; it is not a complaint about unfinished integration code.
+
+   **Fix:** claim release must not override conservative tie handling. For equal captures, either preserve componentwise minimum counts for the floor and maximum counts for the ceiling, or release with a dirty mark and require reconciliation. Add equal-time depositor/withdraw and two-pruner schedules alongside the existing older-capture regression.
+
+2. **P3 — The keeps-only dead end remains an explicit operational limitation (§§3.6, 5).**
+
+   Round-4 finding 4 is **resolved as a specification correction**, not as a recovery mechanism. The design now correctly conditions crafting on materials, a table and actual craftroom capacity, and labels the unsuccessful branch unresolved. A full town also prevents the spare-tool valve from providing relief.
+
+   **Fix/retention:** keep unsuccessful composed-chain cases visible as unresolved exposure and report pickaxe-less full-bag bot-hours. Do not count a refusal, attempted craft, or valve invocation as successful recovery. This remains an accepted residual, not a new P1.
+
+3. **P3 — Design validation requirements exceed what the journal test establishes (§§4, 7–8).**
+
+   All **10 journal tests passed**. They establish useful fold and rotation behavior, but do not establish the complete promised safety envelope. The storm tests exercise outstanding claims; they do not replace deterministic delayed-release, straggler/deletion, or real transfer schedules. The equal-capture failure above demonstrates why ordinary tie tests and releasing-count tests must also be composed.
+
+   **Fix/retention:** retain the specified deterministic rotation schedules, Paper concurrency scene, successful bank/recovery/prune controls, gate-failure fixtures and sandbox boundary-reduction validation as completion requirements. Treat near-target canary behavior as **UNTESTED** where exposure is absent. No additional rotation redesign is warranted by this review.
+
+**Explicit disposition of the other round-4 findings:**
+
+- **2 resolved:** acknowledged suspension throughout census, planning and execution, followed by reset before restart, closes the clear’s mutation race. This is simpler than extending the hold protocol.
+- **3 resolved:** G4 now judges ordered admission and actual quantity removed; the valid delayed-release fixture accounts for subsequent legitimate draws.
+- **5 resolved at design level:** corrected arithmetic, provisional tool budgets and required boundary-reduction validation are present.
+
+The clear planner reproduced **425 containers, 175→0 full, 5,958 slots freed and 195,462 items removed, including 668 boundary reductions**. Birch logs **9,792** and crafting tables **770** also match. Targets are defensible provisional budgets for the stated consumers; aggregate draw does not establish coverage for every town. Bamboo and bucket caps remain explicitly subject to the owner’s decision.
+
+The specified consumer coverage includes deposit, town deposit, withdrawal room-making/rearrangement, outgoing withdrawals, recovery deposits and well disposal. Subject to finding 1, the shared keeps, protected-item exclusions and admission claims address the identified loss paths without requiring another mechanism.
+
+Review stayed offline. No source files or repository state were changed; planner reproduction used memory only, and the requested test created temporary fixtures.
+exit 0
+
+===== Codex r4 =====
+VERDICT: CHANGE
+
+1. **P1 — Delayed releasing counts can still inflate the floor within one generation (§§3.0–3.1).**  
+   The revision prevents a cross-generation retry from overwriting a newer, lower count, but retains the same dangerous priority for ordinary releasing counts in stonecap’s machinery.
+
+   Example: target 64, chest initially empty. A deposits 64 under an admitted claim, captures 64, then pauses before appending its release. B draws those 64 and publishes its releasing count of zero. A resumes in the **same generation** and publishes its older releasing count. Release priority restores 64; B’s draw is already released. Ordinary well disposal is now authorized although the chest holds zero. One-hour freshness and `lo` on equal timestamps do not prevent this.
+
+   **Fix:** specify causal ordering for releasing observations within a generation too. An older capture must not supersede a later mutation’s count merely because it releases a claim. Where ordering cannot be established, release with a dirty mark and require reconciliation. Test this depositor/withdraw schedule and delayed releases from two pruners.
+
+2. **P1 — The clear handshake observes quiescence without maintaining it (§3.1, §8).**  
+   `hold=1` blocks takes and prune orders, but draws remain “always admitted.” After `wait` observes no live take/draw, a new withdrawal can start during the clear.
+
+   Concrete loss: the clear plans to retain one 64-stick stack and remove another. A newly admitted withdrawal takes the retained stack; the clear removes the other, leaving zero instead of the intended 64. Checking the removed slot’s identity and count would not detect this race. Existing bank operations are also absent from the drain condition.
+
+   **Fix:** make the maintenance hold exclude new chest mutations throughout census/planning/execution, and drain already authorized mutations before proceeding. Include draws, banks, swaps and claim-free junk pruning. Resume only after completion invalidation. For this one-time administrative operation, acknowledged bot suspension is a simpler alternative to extending the journal protocol.
+
+3. **P2 — G4 contradicts the permitted take/draw ordering (§3.1 versus §7).**  
+   The design permits a draw following an admitted take to consume the remaining target stock. G4 nevertheless reverts when the floor is below target at the take’s release. A valid take followed by legitimate consumption can therefore fail the gate merely because its release is delayed.
+
+   **Fix:** assess take admission against the available floor at its ordered admission point, verify the actual quantity removed, and account for subsequent legitimate draws when interpreting release-time stock. Include both a valid delayed-release schedule and an excessive-take fixture. The valve exception and successful bank/recovery exposure requirements otherwise address round-3 finding 5.
+
+4. **P3 — The keeps-only full-bag case remains an accepted liveness limitation (§§3.6, 5, 12).**  
+   The two-copy valve fixes the spare-tool branch. The pickaxe-less bot with no bankable surplus, no disposable surplus and no craftable pickaxe remains without the promised deterministic remedy. Section 5’s unconditional “craft one from the keeps” overstates what §3.6 now acknowledges.
+
+   **Fix:** make §5 conditional and explicitly report unsuccessful chain cases as unresolved exposure. Retain the tripwire, but do not describe observation of this condition as proving recovery. This is an acknowledged residual, not a newly discovered P1.
+
+5. **P3 — Clear totals reproduce; minor evidence corrections and implementation conditions remain (§§2, 4, 8).**  
+   Running the supplied planner against the census entirely in memory reproduces **425 containers, 175→0 full, 5,958 slots freed, 195,462 items removed, including 668 boundary reductions**. Per-item results are **9,792 birch logs** and **770 crafting tables**, rather than 9,793 and 771.
+
+   Targets remain reasonable provisional budgets; aggregate draw does not establish each town’s coverage. Four axes/shovels is not one per bot across 80 bots and 16 worlds.
+
+   The rotation design otherwise retains the right safeguards: no tail replay, generation-specific checkpoints, unknown on missing predecessors, confirmation before mutation and conservative compensation. Its approval remains conditional on the specified straggler/deletion tests preserving admitted decisions. No additional rotation redesign is required by this review.
+
+   **Fix:** correct the two totals and pool-size justification; preserve the stress-test requirements. Boundary reductions also need execution-level validation before the clear—the planner result alone does not establish safe application.
+
+**Explicit round-3 disposition:**  
+**1 resolved at the rule level:** every disposal now subtracts live outgoing claims; finding 1 above identifies a separate count-precedence failure. **2 partially resolved:** outstanding takes are drained, but new draws remain possible. **3 resolved in the planner:** boundary stacks are reduced and headline totals reproduce. **4 partially resolved:** two-copy valve fixed; keeps-only craft failure explicitly retained as residual risk. **5 substantially resolved:** valve exception, positive exposure and initial-stock wording fixed; G4 still needs correction. **6 resolved at design level:** verified received quantities and current keeps/scaffold/floor checks bound interrupted delivery. **7 resolved with minor corrections:** provisional sizing is explicit and clear totals are now independently reproduced.
+
+Review was read-only and offline; no files or repository state were changed.
+exit 0
+
+===== Codex r3 =====
+VERDICT: CHANGE
+
+1. **P1 — Ordinary disposal still uses an inflated floor (§§3.1, 3.4–3.5).**  
+   §3.1 defines FLOOR as fresh observations **before** subtracting outgoing claims; only take admission subtracts them. §3.4 authorizes bag disposal directly against FLOOR. Example: town sticks = target 64; a confirmed withdrawal removes 64 and pauses before its post-count. FLOOR remains 64, so another bot destroys surplus sticks despite the town holding zero. One-hour freshness does not fix this.
+
+   **Fix:** use `fresh observations − unresolved takes − unresolved draws` for every disposal decision, including each throw. Specify the ordering between admitted takes and later draws: an always-admitted draw must not invalidate a pending prune’s stock reservation before its click. Test both execution orders, delayed post-counts, and disconnects.
+
+2. **P1 — The clear’s reset is not yet an operational fence (§3.1, §8).**  
+   Dropping older observations and refusing new takes until a deadline does not stop an already-confirmed take. That bot can pause, the clear can reduce stock to target, and the bot can resume its destructive operation. If reset precedes the clear, observations captured during the clear can also survive it; if reset follows, there is an unfenced interval.
+
+   **Fix:** specify a clear handshake: stop new relevant operations, drain or fence existing operations, perform the clear, invalidate observations through its completion, then resume with recounts. Acknowledged quiescence is sufficient; a timed hold alone is not. The shared cobble allowance in the JSON resolves the separate cobbled-deepslate finding.
+
+3. **P1 — Whole-stack clear planning can remove stock below the stated floor (§§2, 8; referenced `plan3.py`).**  
+   The locally available planner implements “largest stacks kept first” by deleting any entire stack that would exceed the cap. With two 40-log stacks and target 64, it keeps 40 and deletes 40, leaving the town below target. A station stack larger than its small cap can be removed completely. Thus these caps do not implement the promised target-preserving clear.
+
+   **Fix:** retain exactly `min(existing total, target)` across each item/group, splitting the boundary stack where necessary. If the clear cannot safely edit stack counts, preserve that stack and explicitly accept a temporary cap overshoot. Add partial-stack and oversized-station-stack examples to the clear’s validation.
+
+4. **P1 — The tool valve still leaves newly created dead ends (§§3.2, 3.6, 5).**  
+   Requiring three usable copies misses full bags containing two copies of several capped tools plus noncompostable keeps/protected items. Previously, the spare copies were bankable; now none may move at target, and the valve cannot fire. The proposed chain test covers only the three-pickaxe case.
+
+   Separately, “64 stone family” does not establish that a stone pickaxe is craftable: `townKeeps` includes stone and tuff. Crafting also needs demonstrated output capacity.
+
+   **Fix:** base the valve on a verified expendable copy after all tool protections, rather than a three-copy threshold. Test two-copy mixtures, held tools, full chests, actual recipe ingredients, and crafting capacity through the real selector. Keep the no-well banking remedy, which addresses that branch of the previous finding.
+
+5. **P2 — Gates contradict the valve and still lack some positive exposure (§7).**  
+   G3 rejects every non-`nowell` bank above target, including the explicitly permitted `valve` transfer. A canary exercising the advertised valve therefore trips its own gate. Control deposits also do not establish that this build’s successful admission or recovery instrumentation works.
+
+   **Fix:** define and independently validate the narrowly permitted valve exception; ordinary banking must retain zero tolerance. Require successful instrumented bank and recovery examples in the pre-canary scene, plus their failing fixtures. State the near-target invariant precisely: a scene initialized at `target + 64` cannot literally satisfy “the census never … above [target]” from its beginning. Measure unauthorized increases and destructive decreases against known initial stock and legitimate draws.
+
+6. **P3 — Prune delivery needs explicit interrupted-journey coverage (§3.5).**  
+   “Throw exactly what was taken” preserves the original bag only when nothing consumes those materials during the walk. Pathfinder scaffolding or an interrupted operation can change that accounting.
+
+   **Fix:** explicitly apply §3.4’s current keeps and scaffold checks to pruning, record verified quantities actually received, and stop throwing when the remaining allowance or current reserves would be breached. Exercise partial transfer, route consumption, interrupted delivery, and a slot changed by another chest user.
+
+7. **P3 — Targets are acceptable provisional choices; evidence and protocol claims need bounded wording (§§1–2, 4, 8).**  
+   Measured town draw supports small initial tool reserves and limited bulk accumulation. It does not establish equal coverage across towns, and four axes/shovels is not “one per bot” for the aggregate 80-bot/16-world population. Clear-only sapling, torch and station caps are reasonable initial budgets rather than measured demand estimates. The projected clear totals remain unverified here without the census.
+
+   The revised rotation protocol is materially stronger: stable bases, no tail replay, generation-specific checkpoints, unknown on missing predecessors, and confirmation before mutation address the previous late-write failure at design level. Preserve admitted decisions through compaction and retain the promised straggler/deletion stress schedules. A short crash-released filesystem lock remains a simpler alternative, but is not an additional must-fix requirement.
+
+**Round-2 Codex disposition:**  
+**1 partially resolved:** pre-withdraw claims added; disposal still ignores their subtraction. **2 partially resolved:** shared cobble cap fixed; operational clear fencing incomplete. **3 resolved at design level:** no-tail rotation plus confirmation addresses late records. **4 partially resolved:** no-well branch fixed; tool/craft dead ends remain. **5 resolved:** shared reserve requirements specified. **6 resolved:** cursor exposure explicitly narrowed and peaceful swords exempted. **7 resolved:** recovery holds a qualifying reservation through craft/place. **8 resolved at definition level:** count coverage and single subtraction clarified. **9 partially resolved:** action IDs, quantified draws, fixtures and UNTESTED improve coverage; finding 5 remains. **10 partially resolved:** drain arithmetic and input locations corrected; per-town sizing and projected totals remain provisional.
+exit 0
+
+===== Codex r2 =====
+VERDICT: CHANGE
+
+1. **P1 — Post-counts do not make the floor safe during withdrawals (§§3.1, 3.5–3.6).** At 128 logs, a withdrawal removes 64 but pauses before its closing count. A pruner still sees 128 and takes another 64 against target 64, leaving zero. A crash can preserve that inflated count for an hour. Ownership of one bot’s window does not exclude another bot. **Fix:** durably reserve/invalidate every outgoing mutation *before* sending it, including ordinary withdrawals; retain uncertainty until a verified count resolves it. Specify bank/take/withdraw interleavings, including two pruners and disconnects.
+
+2. **P1 — The admin clear invalidates prune authorization (§3.5; caps JSON).** “Removes only stock above targets” protects the clear itself, not subsequent pruning. Suppose journalled chests contain 512 and 128 logs. The clear leaves 64 in the second chest. Opening that chest refreshes its count, but the first chest’s stale 512 still authorizes removing the remaining 64. Separately, JSON assigns cobbled_deepslate zero rather than sharing the cobble reserve: a town with 256 cobbled_deepslate and no cobblestone loses its entire reserve. **Fix:** fence active operations during the clear, invalidate/recount affected stock before resuming, and implement a shared 256 cobble-group allowance.
+
+3. **P1 — Rotation still loses late records across two generations (§4).** After BASE N+1 incorporates N−1’s tail, a paused writer can append a decreasing count to N−1. Readers of N+1 no longer read that tail, and deletion removes it. Missing-file handling does not help readers whose retained base is apparently complete. Calling this equivalent to dying before append does not make its stale stock safe. Claimant re-reading also cannot protect counts or preserve an original admission decision already compacted away. **Fix:** fence append/publication/deletion with a short crash-released filesystem lock, or specify durable writer pins and publication identities. Preserve claim decisions through compaction. Test this exact schedule, not just surviving writers’ final totals.
+
+4. **P1 — New refusals still lack executable recovery chains (§§3.7, 5).** `hygiene.mjs:wearOutPlan` accepts exactly-one-use tools; usable capped tools have more than ten uses. A full bag of usable tools and noncompostable keeps therefore admits neither wear_out, compost, nor well disposal. Reconciliation also does not solve the full-bag/no-well bootstrap: `cognitive.mjs` computes build-room junk without targeted surplus. **Fix:** define and test deterministic progress for both states through the real order selector, including prerequisite crafting and inventory capacity. Ordinary eventual tool use is not the promised slot-release remedy.
+
+5. **P1 — Reserve protection remains inconsistent (§§3.2, 3.4).** The revised well uses `townKeeps`, but ordinary deposit explicitly retains today’s weaker allowances. A 256-plank bag can satisfy the 64-unit wood rung and then lose that status by banking 64 planks. Conversely, `townKeeps` does not implement withdraw holds; adding it alone to disposal does not protect recently withdrawn materials. **Fix:** share the applicable rung, active-work and withdrawal protections across ordinary banking, town banking and disposal, with before/after behavioral checks.
+
+6. **P1 — Cursor-free pruning does not close the stated loss exposure (§§3.2, 3.6).** The retained town-deposit path moves whole stacks through two cursor clicks, ordinary deposit uses `chest.deposit`, and partial withdrawals use a cursor. This checkout’s transfer comments explicitly document disconnect losses despite settlement handling. Generalizing claims does not remove those windows. **Fix:** specify cursor-free transfers for the operations covered by the safety claim, or explicitly narrow the claim and identify the remaining accepted exposure. Also explicitly remove or exempt the inherited peaceful-sword disposal path: §2’s “never tools” rule and G1 currently contradict it.
+
+7. **P1 — Recovery checks still have a check/action race (§3.3).** Another depositor can fill the remaining target after the fresh check and before the asynchronous craft or placement reaches the server. “Immediately before” is not serialization. **Fix:** reserve the qualifying unmet demand across the action, accounting for existing bank reservations; release it on cancellation. Test another depositor winning between check and action.
+
+8. **P2 — The count and take definitions are incomplete (§§3.1, 3.5).** Count records cover A and C, while pruning requires fresh B/junk counts. No representation for those counts is specified. Moreover, §3.5 defines floor as already subtracting live takes, then admission subtracts takes again, incorrectly rejecting legal concurrent pruning. **Fix:** count every prunable group, distinguish known zero from absent/unknown, and define one equation—fresh count sum minus unresolved takes minus proposed take ≥ target. Define how observations incorporate completed takes without erasing outstanding ones.
+
+9. **P2 — Gates still cannot establish their advertised coverage (§7).** G1/G4 trust the same potentially inflated floor as admission. G1b excludes an entire group whenever any canary withdrawal occurred, masking prune-plus-withdraw failures. G2 asks for a placement-stage row even for legitimate crafting subsequently aborted before placement, while a same-run row can authorize the wrong action. Liveness omits successful canary admission and recovery exposure; control activity does not prove new instrumentation sees those paths. **Fix:** correlate stage-specific action IDs and evidence, reconcile quantified withdrawals against before/after stock, and require failing fixtures plus positive exposure for every gate. Report unexercised gates as untested.
+
+10. **P3 — Targets are reasonably provisional; several justifications need correction (§§1–2, 3.5, 8).** Aggregate pickaxe draw supports an initial small reserve, not equal coverage across towns. “Four axes/shovels, one per bot” conflicts with 80 bots across 16 worlds. At the stated maximum 16 visits × four stacks/day, removing roughly 5,000 logs takes about 1.2 days, not weeks; name exclusion and keeps may reduce that rate substantially. The clear’s projected totals cannot be independently reproduced here because the referenced census and `plan2.py` are absent. **Fix:** correct the arithmetic, supply reproducible inputs, and define adjustment triggers when blueprint withdrawals begin.
+
+**Round-1 disposition:** **1 unresolved; 2 partially resolved; 3 resolved** by eliminating compensating re-appends; **4 partially resolved** (incoming bypass closed, outgoing concurrency remains); **5 partially resolved** (well wood reserve fixed, shared protections incomplete); **6 unresolved; 7 partially resolved; 8 partially resolved; 9 partially resolved** (max/min ties explicit, migration and release precedence incomplete); **10 resolved at design level**, with targets explicitly provisional.
+
+A simpler rotation protocol is preferable: serialize only filesystem journal operations, never Minecraft actions. The remaining transfer safety still requires durable mutation tracking.
+exit 0
+
+===== Codex r1 =====
+tokens used
+103,080
+VERDICT: CHANGE
+
+1. **P1 — Rotation can lose a completed append.** Section 4, lines 117–125: a writer selects N, pauses, then appends after the winning base’s cutoff. If it dies before checking the generation and compensating, that record never reaches N+1. A lost decreasing count leaves an inflated disposal-authorizing “lower bound.” Another rotation can also overtake compensation. **Fix:** make append versus generation switch crash-safe; do not depend on the writer surviving afterward. A simpler option is a short, OS-released filesystem lock covering append/rotation operations, never Minecraft transfers.
+
+2. **P1 — Age-based deletion does not fence stragglers or guarantee single publication.** Section 4, lines 120–127: rotator A can pause before linking base N+1; B publishes it and subsequent rotations delete it; A resumes and successfully publishes a different base at the same pathname. `EEXIST` guarantees uniqueness only while the original remains. Readers and claimants can likewise outlive two generations. **Fix:** retain immutable publication identities/tombstones and pin readers, or serialize rotation and publication. Specify missing-generation retries, generation-qualified checkpoints, and preserved fold sequence numbers. Preserve the claimant’s original decision: `cobblecap.mjs:273–280` deliberately replays through its own claim, which a compacted base may no longer contain.
+
+3. **P2 — Compensating records are not generally idempotent.** Section 4, line 119 conflicts with `cobblecap.mjs:186–190`: every replayed dirty `cnt` creates another `dirty-${seq}` marker. A read-only fold probe of **dirty count → successful recount → duplicate dirty count** changed the view from complete/256 to unknown/0. Rotation can therefore undo reconciliation. **Fix:** assign stable record identities and deduplicate across the snapshot boundary, or eliminate cross-generation replay through serialization. Test interleaved duplicates, not merely adjacent duplicates.
+
+4. **P1 — Withdraw bypasses authoritative admission and leaves stale counts.** Section 3 covers deposit and town_deposit, but `skills.mjs:8067–8072` banks make-room stacks without claims, and `8095` swaps a stack into storage similarly. `withdrawpick.mjs:155` consults only the planning allowance; concurrent actors can exceed the target. Separately, withdrawal records the opening count at `skills.mjs:7714`, but `withdrawVisit` closes without a post-transfer count (`8226–8241`). Taking sticks from a town at 128 can leave disposal authorized at 128 afterward. **Fix:** cover both incoming withdrawal paths with group claims; invalidate counts before outgoing mutations and publish verified post-transfer counts, including abort/unresolved paths.
+
+5. **P1 — The well’s proposed reserve breaks the wood rung.** Sections 2 and 5 say 64 per group preserves every rung, but `milestones.mjs:675` counts planks as one-quarter wood. A bag with 256 oak planks and no logs satisfies a 64-unit stockpile; disposal down to 64 planks reopens it. `towndeposit.mjs:107–109` already preserves the required 256. Section 3 applies those stronger keeps only to town deposit. **Fix:** share applicable keeps across banking and disposal, including active build requirements and withdraw holds. Run the promised before/after rung property against the well plan and ordinary deposit, not just town_deposit.
+
+6. **P1 — Recovery-entry approval does not authorize later chest creation.** Section 3, lines 99–102 checks eligibility when entering recovery. Another bot can fill the target during the recovery sweep or craft preparation; `skills.mjs:3458` can then craft an unnecessary chest. G2 would accept it because the earlier entry said `under=...`. **Fix:** revalidate the remaining qualifying items immediately before crafting and placing, and serialize/reserve the qualifying demand where necessary. Record the actual action-time evidence and link it to the recovery attempt.
+
+7. **P1 — Unknown stock lacks the promised deterministic remedy.** Legacy containers make new groups unknown. `townDepositOrder` requires `plan.freed >= 1` (`towndeposit.mjs:249`), while `townDeposit` exits on an empty plan before opening anything (`skills.mjs:6296`). The well also cannot dispose unknown positive-target groups. Thus a full bag of surplus logs can trigger neither operation; saying “deposit counts first” still depends on the model selecting deposit. A missing well adds a bootstrap issue: its build-room calculation excludes capped materials (`cognitive.mjs:864`, `well.mjs:899–900`). **Fix:** schedule bounded reconciliation independently of bankability and demonstrate an executable full-bag/no-well recovery chain. `depositDue=false` establishes silence, not progress.
+
+8. **P1 — G1–G4 cannot establish the advertised safety.** Section 7: G3 tolerates an entire illegal stack (`target + 64`), missing 128→192 at target 128. G1/G4 need per-group, per-click evidence, but the existing well row aggregates a visit and truncates at 300 characters (`well.mjs:1023–1035`); the last cap reading cannot prove every click. Rotation also deletes historical claims needed by the proposed independent audit. `_stock_bank` liveness may disappear precisely when all targeted deposits are successfully refused. **Fix:** gate any attributable overshoot above target; emit bounded action records with group, claim/generation, counted stock, target and reserve; retain audit evidence separately. Require exposure to refusals, allowed banking, disposal, recovery and rotation, with deliberately failing fixtures for each gate.
+
+9. **P2 — Multi-group observation precedence needs an explicit rule.** Section 3 leaves the scalar fold’s replacement semantics unspecified. Currently equal capture times choose the larger cobble count (`cobblecap.mjs:178–183`). Two v2 observations can tie on cobble while differing on logs; legacy observations cannot establish freshness for other groups. **Fix:** define per-group validity, precedence, release/void resolution and checkpoint migration. Test equal timestamps with opposing group counts, interleaved group claims, legacy-after-v2 records, and target-zero behavior when journal reads fail.
+
+10. **P2 — Evidence supports limiting accumulation, but not all stated justifications.** Section 2’s “no consumer” audit missed sandstone rescue/scaffold use (`skills.mjs:11176`, `scaffold.mjs:85`), tuff’s stockpile membership (`milestones.mjs:444`), and calcite/tuff pit covers (`well.mjs:260`). These do not automatically require town stock, but must inform reserve tests. Also, 128 logs at 42/day is roughly three days, not four; the census percentages use 5,298 rather than the stated 4,696 town-slot denominator. **Fix:** correct the denominators/arithmetic, distinguish personal consumers from town demand, and label unsupported targets as provisional, with a defined adjustment when blueprint demand becomes active.
+exit 0

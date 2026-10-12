@@ -31,6 +31,8 @@
 import { depositPlan, scaffoldKeep, withdrawHolds } from './bankable.mjs'
 import { remaining, FLOOR } from './toolfor.mjs'
 import { TRIGGER_SLOTS } from './hygiene.mjs'
+// THE PEACEFUL KIT (peacefulkit.mjs, owner 10-07 ~19:50Z): while the food policy's switch is on no sword is ever banked.
+import { peacefulFoodActive } from './foodskip.mjs'
 
 /** The bag the order acts on: the bot's own slot count (bot.inventory.items().length), never an estimate. */
 export const TD_TRIGGER_SLOTS = TRIGGER_SLOTS
@@ -141,14 +143,16 @@ export function toolSlotsToBank (copies = [], allowance = Infinity) {
  *   steps      WHOLE stacks, smallest first, while what remains >= the keep and the allowance lasts. One step = one
  *              slot emptied, so freed = steps.length.
  */
-export function townDepositPlan (items = [], { wanted = [], already = {} } = {}) {
+export function townDepositPlan (items = [], { wanted = [], already = {}, noSwords = peacefulFoodActive() } = {}) {
   const list = (Array.isArray(items) ? items : []).filter(it => it?.name && (it.count ?? 0) > 0)
   const counts = countsOf(list)
   const { keep, why } = townKeeps(counts, { wanted })
   // ONE ALLOWANCE PER VISIT (Codex review 1): the plan is recomputed for a second container, and creditCap must cap the
   // VISIT -- what an earlier container of this run already took (`already`, name -> items) is spent.
   // depositPlan already judges the REDUCED bag, so the visit's spend comes off the cap, not off that count (Codex round 2).
-  const allowance = Object.fromEntries(depositPlan(list, null, { wants: [] })
+  // noSwords: the switch's reading (default) -- excluding can only lower the plan, so neither the order nor the run banks a
+  // sword while it is on, and no order fires that would not have fired without the kit.
+  const allowance = Object.fromEntries(depositPlan(list, null, { wants: [], noSwords })
     .map(({ name, count }) => [name, Math.min(count, Math.max(0, CREDIT_CAP - (Math.max(0, Number(already?.[name]) || 0))))]))
   const steps = [], banked = {}
   const holds = withdrawHolds()

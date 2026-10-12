@@ -10,7 +10,8 @@
 // keeps a bad generation from becoming a bad action.
 
 import { HARD_STOP } from './toolfor.mjs'
-import { SKILLS, classifyOutcome, SKILL_CONTRACTS, plantableSpotNear, findTownComposter, townBuildPlan, townPickMiss, townIngredientMiss, foodSkipNow, townContainers } from './skills.mjs'
+import { SKILLS, classifyOutcome, SKILL_CONTRACTS, plantableSpotNear, findTownComposter, townBuildPlan, townPickMiss, townIngredientMiss, foodSkipNow, townContainers, townWellState, townWellBuildPlan, insideTownWell, wellSwordsNow, townPitState } from './skills.mjs'
+import { disposePlan, wellOrder, wellOrderOutcome, WELL_ORDERS, pitCoverItem } from './well.mjs'
 import { smeltInputsFor } from './smelting.mjs'
 import { makeClient, skillSchema } from './llm.mjs'
 import { buildSystemPrompt, buildUserPrompt, makeSentinel, WorkingMemory } from './prompt.mjs'
@@ -18,10 +19,11 @@ import { AdmissionControl } from './admission.mjs'
 import { MilestoneController, servesRung, NO_PROGRESS_MS, RUNNER_REFUSALS } from './milestones.mjs'
 import { orderFor, readyFor, plantingOrder, plantingEnabled, PLANT_COOLDOWN_MS } from './workorder.mjs'
 import { wearOutPlan, isHousekeeping } from './hygiene.mjs'
-import { compostPlan, townOrder, townOrderOutcome, boneMealRoom, composterLevel, TOWN_ORDERS, STORAGE_NEAR, TOWN_RADIUS } from './composter.mjs'
+import { compostPlan, townOrder, townOrderOutcome, boneMealRoom, composterLevel, TOWN_ORDERS, STORAGE_NEAR, TOWN_RADIUS, startableJunk } from './composter.mjs'
 import { hasUsablePick, roomPlan, pickTakes, roomKeep } from './withdrawpick.mjs'
 import { townDepositOrder, townDepositOutcome, townDepositPlan } from './towndeposit.mjs'
 import { bankClosed } from './chestfull.mjs'
+import { redundantRow, admitRow, HYGIENE_ITEMS } from './toolhygiene.mjs'
 /** One wear-out order per bot per two minutes at most. */
 export const WEAR_OUT_COOLDOWN_MS = 2 * 60 * 1000
 /** After a wear-out that destroyed nothing, wait this long before the next order. */
@@ -384,7 +386,11 @@ export class CognitiveLoop {
    * predicament, and the difference is not visible from the reason string --
    * which is exactly why it is written down rather than left to rank 0.
    */
-  static TRIGGER_SUPPRESSED = new Set(['user_stop'])
+  //
+  // `air_pocket` (airpocket-01): the drowning rescue's dig step interrupts any skill that starts while it digs. Waking a
+  // decision on that interrupt would start another skill for the step to interrupt again -- decision churn inside a
+  // ~15-30 s dig. The rescue's own release (or its `drowning` trigger) wakes cognition when the step is over.
+  static TRIGGER_SUPPRESSED = new Set(['user_stop', 'air_pocket'])
 
   #raiseTrigger (reason, detail) {
     if (CognitiveLoop.TRIGGER_SUPPRESSED.has(reason)) return
@@ -666,7 +672,7 @@ export class CognitiveLoop {
       let wanted = null
       const plan = () => {
         wanted = [...(this.#wantedItems(milestone) ?? [])]
-        return townDepositPlan(items, { wanted })
+        return townDepositPlan(items, { wanted, noSwords: foodSkipNow(bot).active })   // the peaceful kit: the switch, read here
       }
       const r = townDepositOrder({
         now: Date.now(), slots: items.length, pos: bot.entity?.position ?? null,
@@ -744,7 +750,7 @@ export class CognitiveLoop {
     const milestone = this.#activeTask()
     const sentinel = makeSentinel()
     const { user, tokens, dropped, affordance } = buildUserPrompt({
-      bot: this.bot, milestone, memory: this.memory,
+      bot: this.bot, milestone, memory: this.memory, wanted: this.#wantedItems(milestone),
       lastOutcome: this.lastOutcome, trigger, sentinel,
       // Own experience first, then what peers reported. Peer lines carry the
       // reporter's name ("Gather02 hit entombed 16x near ...") so the model can
@@ -820,10 +826,12 @@ export class CognitiveLoop {
         const items = bot.inventory?.items?.() ?? []
         const p = bot.entity?.position
         // THE PEACEFUL FOOD POLICY (foodskip.mjs, owner 10-06): apples above the reserve count as compostable only while it is active.
-        const plan = compostPlan(items, { apples: foodSkipNow(bot).active })
+        const peaceful = foodSkipNow(bot).active   // the food policy's apples and the peaceful kit's plants: one switch
+        const plan = compostPlan(items, { apples: peaceful, plants: peaceful })
         const home = { x: config.world.homeX, z: config.world.homeZ }
         const r = townOrder({
-          now: Date.now(), slots: plan.slots, freeSlots: 36 - plan.slots, junk: plan.junk,
+          // the real surplus after every reserve, and only when a fill can start (composter.mjs startableJunk; owner 10-07)
+          now: Date.now(), slots: plan.slots, freeSlots: 36 - plan.slots, junk: startableJunk(items, { apples: peaceful, plants: peaceful, level: () => (p && Math.hypot(home.x - p.x, home.z - p.z) <= TOWN_RADIUS ? composterLevel(findTownComposter(bot)) : 0) }),
           distHome: p ? Math.hypot(home.x - p.x, home.z - p.z) : Infinity,
           storageNear: () => !!bot.findBlock?.({ matching: b => ['chest', 'barrel', 'trapped_chest'].includes(bot.registry?.blocks?.[b.type]?.name), maxDistance: STORAGE_NEAR }),
           composterAtTown: () => !!findTownComposter(bot),
@@ -843,6 +851,32 @@ export class CognitiveLoop {
           state: this.townState ?? {},
         })
         this.townState = r.state
+        if (r.order) order = r.order
+      } catch { /* an inventory or world read must never break the decision loop */ }
+    }
+    // THE JUNK WELL'S TOWN ORDERS (well.mjs wellOrder decides; this supplies readings and keeps the state): close an open
+    // well nobody is at, dispose listed junk at 34+ slots, or build the well. After the composter: it takes what composts.
+    if (!order) {
+      try {
+        const bot = this.bot
+        const items = bot.inventory?.items?.() ?? []
+        const p = bot.entity?.position
+        const plan = disposePlan(items, { swords: wellSwordsNow(bot) })   // a peaceful world's swords count (well.mjs swordGoes)
+        const home = { x: config.world.homeX, z: config.world.homeZ }
+        const r = wellOrder({
+          now: Date.now(), slots: plan.slots, freeSlots: 36 - plan.slots, junkStacks: plan.junkStacks,
+          distHome: p ? Math.hypot(home.x - p.x, home.z - p.z) : Infinity,
+          well: () => townWellState(bot),
+          // NO COVER BLOCK, NO BUILD ORDER (Claude r2 P3): the build would only skip no_cover every cooldown
+          buildPlan: () => (pitCoverItem(items) ? townWellBuildPlan(bot) : null),
+          pit: () => townPitState(bot),
+          inside: () => insideTownWell(bot),
+          myName: bot.username ?? '',
+          peers: () => Object.values(bot.players ?? {}).filter(q => q?.username && q.username !== bot.username && q.entity?.position &&
+            Math.hypot(q.entity.position.x - home.x, q.entity.position.z - home.z) <= TOWN_RADIUS).map(q => q.username),
+          state: this.wellState ?? {},
+        })
+        this.wellState = r.state
         if (r.order) order = r.order
       } catch { /* an inventory or world read must never break the decision loop */ }
     }
@@ -914,9 +948,26 @@ export class CognitiveLoop {
       // rather than passed, because every other check() argument is about the
       // PROPOSAL and this is about the bot's current obligation.
       this.admission.activeMilestoneId = milestone?.id ?? null
-      const check = this.admission.check(res.proposal, this.bot, this.#wantedItems(milestone))
+      const wantedNow = this.#wantedItems(milestone)
+      const check = this.admission.check(res.proposal, this.bot, wantedNow)
       if (check.ok) admitted = check
       else rejection = check
+      // TOOL HYGIENE, PART 1: one row per refusal -- the canary's liveness, and the read's G2/G4 evidence (the
+      // snapshot is the bag the refusal judged; `wanted` and `source` must always read 0 / model).
+      if (rejection?.reason === 'redundant_craft' && rejection.redundant) {
+        try {
+          const row = redundantRow(rejection.redundant, { taskId: milestone?.id ?? null,
+            wanted: !!wantedNow?.has?.(rejection.redundant.item), source: order ? 'order' : 'model', wantedSet: wantedNow })
+          logEvent({ kind: 'redundant_craft', status: 'no_effect', detail: row.detail, args: row.args, snapshot: snapshot(this.bot) })
+        } catch { /* a log row must never break the decision loop */ }
+      }
+      // ...and one per ADMITTED craft of a hygiene item: the read's G1 judges it on this snapshot and wanted set.
+      if (check.ok && check.skill === 'craft' && HYGIENE_ITEMS.has(check.args?.item)) {
+        try {
+          const row = admitRow(check.args.item, { taskId: milestone?.id ?? null, source: order ? 'order' : 'model', wantedSet: wantedNow, count: check.args?.count ?? 1 })
+          logEvent({ kind: 'craft_admit', status: 'success', detail: row.detail, args: row.args, snapshot: snapshot(this.bot) })
+        } catch { /* a log row must never break the decision loop */ }
+      }
     }
 
     // Execute (or not), then record ONE row describing the whole decision.
@@ -935,6 +986,7 @@ export class CognitiveLoop {
       // A TOWN ORDER THAT FAILED BACKS OFF; a skip (no_effect) or an interruption costs nothing (townOrderOutcome).
       if (TOWN_ORDERS.has(admitted.skill)) this.townState = townOrderOutcome(admitted.skill, r.status, Date.now(), this.townState ?? {}, r.failClass ?? null)
       if (admitted.skill === 'town_deposit') this.townDepositState = townDepositOutcome(r.status, r.failClass ?? null, Date.now(), this.townDepositState ?? {})
+      if (WELL_ORDERS.has(admitted.skill)) this.wellState = wellOrderOutcome(admitted.skill, r.status, Date.now(), this.wellState ?? {}, r.failClass ?? null)
       // THE REFLEX TOOK THE BODY -- SAY SO ON THE NEXT DECISION.
       if (r.interruptedBy) this.#raiseTrigger(r.interruptedBy, r.detail)
       // A PREREQUISITE THE GOAL LAYER CANNOT SEE IS NOT A PREREQUISITE.

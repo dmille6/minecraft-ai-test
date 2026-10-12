@@ -1,0 +1,144 @@
+{"kind": "overseer_call", "ok": true, "s": 30.2, "gen_tokens": 1584, "valid": true, "accepted": 2, "rejected": [], "snap_id": "mbench-cl-c2-ov-sandbox4-1007T1843-b0@2026-10-07T18:45:55Z", "t": "2026-10-07T18:46:55Z"}
+{"kind": "directive_sent", "bot": "mbench-s4-Golf", "id": "o1", "origin": "overseer", "steps": [{"skill": "goto", "args": {"x": 336, "y": 70, "z": 165}}, {"skill": "gather", "args": {"block": "oak_log", "count": 16}}], "why": "GET_WOOD ", "t": "2026-10-07T18:46:55Z"}
+{"kind": "directive_sent", "bot": "mbench-s4-Fox", "id": "o2", "origin": "overseer", "steps": [{"skill": "goto", "args": {"x": 326, "y": 71, "z": 134}}, {"skill": "gather", "args": {"block": "oak_log", "count": 16}}], "why": "GET_WOOD ", "t": "2026-10-07T18:46:55Z"}
+{"kind": "overseer_call", "ok": true, "s": 36.9, "gen_tokens": 1616, "valid": true, "accepted": 3, "rejected": [], "snap_id": "mbench-cl-c2-ov-sandbox4-1007T1843-b0@2026-10-07T18:50:55Z", "t": "2026-10-07T18:51:32Z"}
+{"kind": "directive_sent", "bot": "mbench-s4-Hotel", "id": "o3", "origin": "overseer", "steps": [{"skill": "goto", "args": {"x": 377, "y": 79, "z": 174}}, {"skill": "gather", "args": {"block": "oak_log", "count": 16}}], "why": "GET_WOOD GET_WOOD for B8, collect oak_log at R18", "t": "2026-10-07T18:51:32Z"}
+{"kind": "episode_start", "bot": "mbench-s4-Echo", "pos": {"x": 364.5, "y": 69, "z": 154.6}, "bad": 3, "t": "2026-10-07T18:51:32Z"}
+{"kind": "escalation_trigger", "bot": "mbench-s4-Echo", "n": 1, "bad": 3, "acting": false, "t": "2026-10-07T18:51:32Z"}
+{"kind": "episode_end", "bot": "mbench-s4-Echo", "minutes": 0.5, "escalations": 1, "t": "2026-10-07T18:52:02Z"}
+{"kind": "overseer_call", "ok": true, "s": 34.2, "gen_tokens": 1378, "valid": true, "accepted": 3, "rejected": [], "snap_id": "mbench-cl-c2-ov-sandbox4-1007T1843-b0@2026-10-07T18:55:55Z", "t": "2026-10-07T18:56:37Z"}
+{"kind": "directive_sent", "bot": "mbench-s4-Comet", "id": "o4", "origin": "overseer", "steps": [{"skill": "goto", "args": {"x": 298, "y": 71, "z": 218}}, {"skill": "gather", "args": {"block": "oak_log", "count": 16}}], "why": "GET_WOOD ", "t": "2026-10-07T18:56:37Z"}
+{"kind": "directive_sent", "bot": "mbench-s4-Alpha", "id": "o5", "origin": "overseer", "steps": [{"skill": "craft", "args": {"item": "wooden_pickaxe", "count": 1}}], "why": "RESTORE_PICK ", "t": "2026-10-07T18:56:37Z"}
+{"kind": "episode_start", "bot": "mbench-s4-Alpha", "pos": {"x": 358.5, "y": 72, "z": 172.5}, "bad": 6, "t": "2026-10-07T18:58:37Z"}
+{"kind": "escalation_trigger", "bot": "mbench-s4-Alpha", "n": 1, "bad": 6, "acting": false, "t": "2026-10-07T18:58:37Z"}
+{"kind": "overseer_call", "ok": true, "s": 31.0, "gen_tokens": 1109, "valid": true, "accepted": 3, "rejected": [], "snap_id": "mbench-cl-c2-ov-sandbox4-1007T1843-b0@2026-10-07T19:00:55Z", "t": "2026-10-07T19:01:38Z"}
+{"kind": "directive_sent", "bot": "mbench-s4-Bravo", "id": "o6", "origin": "overseer", "steps": [{"skill": "craft", "args": {"item": "wooden_pickaxe", "count": 1}}], "why": "RESTORE_PICK RESTORE_PICK", "t": "2026-10-07T19:01:38Z"}
+{"kind": "directive_sent", "bot": "mbench-s4-Golf", "id": "o7", "origin": "overseer", "steps": [{"skill": "goto", "args": {"x": 336, "y": 70, "z": 165}}, {"skill": "gather", "args": {"block": "oak_log", "count": 16}}], "why": "GET_WOOD GET_WOOD", "t": "2026-10-07T19:01:38Z"}
+{"kind": "episode_start", "bot": "mbench-s4-Fox", "pos": {"x": 383.6, "y": 73, "z": 175.5}, "bad": 9, "t": "2026-10-07T19:02:08Z"}
+{"kind": "escalation_trigger", "bot": "mbench-s4-Fox", "n": 1, "bad": 9, "acting": false, "t": "2026-10-07T19:02:08Z"}
+{"kind": "episode_start", "bot": "mbench-s4-Echo", "pos": {"x": 410.5, "y": 68, "z": 142.5}, "bad": 6, "t": "2026-10-07T19:02:08Z"}
+{"kind": "escalation_trigger", "bot": "mbench-s4-Echo", "n": 1, "bad": 6, "acting": false, "t": "2026-10-07T19:02:08Z"}
+{"kind": "escalation_trigger", "bot": "mbench-s4-Alpha", "n": 2, "bad": 9, "acting": false, "t": "2026-10-07T19:03:38Z"}
+{"kind": "episode_end", "bot": "mbench-s4-Echo", "minutes": 2.5, "escalations": 1, "t": "2026-10-07T19:04:38Z"}
+{"kind": "episode_start", "bot": "mbench-s4-Golf", "pos": {"x": 335.5, "y": 68, "z": 164.5}, "bad": 7, "t": "2026-10-07T19:05:38Z"}
+{"kind": "escalation_trigger", "bot": "mbench-s4-Golf", "n": 1, "bad": 7, "acting": false, "t": "2026-10-07T19:05:38Z"}
+{"kind": "overseer_call", "ok": true, "s": 37.8, "gen_tokens": 1495, "valid": true, "accepted": 3, "rejected": [], "snap_id": "mbench-cl-c2-ov-sandbox4-1007T1843-b0@2026-10-07T19:05:55Z", "t": "2026-10-07T19:06:46Z"}
+{"kind": "directive_sent", "bot": "mbench-s4-Comet", "id": "o8", "origin": "overseer", "steps": [{"skill": "craft", "args": {"item": "wooden_pickaxe", "count": 1}}], "why": "RESTORE_PICK ", "t": "2026-10-07T19:06:46Z"}
+{"kind": "directive_sent", "bot": "mbench-s4-Echo", "id": "o9", "origin": "overseer", "steps": [{"skill": "craft", "args": {"item": "wooden_pickaxe", "count": 1}}], "why": "RESTORE_PICK ", "t": "2026-10-07T19:06:46Z"}
+{"kind": "episode_end", "bot": "mbench-s4-Golf", "minutes": 1.1, "escalations": 1, "t": "2026-10-07T19:06:46Z"}
+{"kind": "escalation_trigger", "bot": "mbench-s4-Fox", "n": 2, "bad": 9, "acting": false, "t": "2026-10-07T19:07:16Z"}
+{"kind": "episode_end", "bot": "mbench-s4-Fox", "minutes": 6.1, "escalations": 2, "t": "2026-10-07T19:08:16Z"}
+{"kind": "escalation_trigger", "bot": "mbench-s4-Alpha", "n": 3, "bad": 9, "acting": false, "t": "2026-10-07T19:08:47Z"}
+{"kind": "overseer_call", "ok": true, "s": 35.4, "gen_tokens": 1286, "valid": true, "accepted": 3, "rejected": [], "snap_id": "mbench-cl-c2-ov-sandbox4-1007T1843-b0@2026-10-07T19:10:55Z", "t": "2026-10-07T19:11:52Z"}
+{"kind": "directive_sent", "bot": "mbench-s4-Fox", "id": "o10", "origin": "overseer", "steps": [{"skill": "craft", "args": {"item": "wooden_pickaxe", "count": 1}}], "why": "RESTORE_PICK RESTORE_PICK for B6", "t": "2026-10-07T19:11:52Z"}
+{"kind": "directive_sent", "bot": "mbench-s4-Golf", "id": "o11", "origin": "overseer", "steps": [{"skill": "craft", "args": {"item": "wooden_pickaxe", "count": 1}}], "why": "RESTORE_PICK RESTORE_PICK for B7", "t": "2026-10-07T19:11:52Z"}
+{"kind": "episode_start", "bot": "mbench-s4-Delta", "pos": {"x": 278.5, "y": 60, "z": 115.5}, "bad": 3, "t": "2026-10-07T19:11:52Z"}
+{"kind": "escalation_trigger", "bot": "mbench-s4-Delta", "n": 1, "bad": 3, "acting": false, "t": "2026-10-07T19:11:52Z"}
+{"kind": "episode_start", "bot": "mbench-s4-Bravo", "pos": {"x": 342.5, "y": 27, "z": 164.5}, "bad": 7, "t": "2026-10-07T19:14:23Z"}
+{"kind": "escalation_trigger", "bot": "mbench-s4-Bravo", "n": 1, "bad": 7, "acting": false, "t": "2026-10-07T19:14:23Z"}
+{"kind": "episode_end", "bot": "mbench-s4-Bravo", "minutes": 1.5, "escalations": 1, "t": "2026-10-07T19:15:53Z"}
+{"kind": "episode_end", "bot": "mbench-s4-Delta", "minutes": 4.0, "escalations": 1, "t": "2026-10-07T19:15:53Z"}
+{"kind": "overseer_call", "ok": true, "s": 27.7, "gen_tokens": 812, "valid": true, "accepted": 1, "rejected": [], "snap_id": "mbench-cl-c2-ov-sandbox4-1007T1843-b0@2026-10-07T19:15:55Z", "t": "2026-10-07T19:16:51Z"}
+{"kind": "directive_sent", "bot": "mbench-s4-Comet", "id": "o12", "origin": "overseer", "steps": [{"skill": "goto", "args": {"x": 309, "y": 18, "z": 189}}, {"skill": "gather", "args": {"block": "iron_ore", "count": 3}}], "why": "GET_IRON GET_IRON", "t": "2026-10-07T19:16:51Z"}
+{"kind": "episode_start", "bot": "mbench-s4-Fox", "pos": {"x": 337.5, "y": 75, "z": 210.6}, "bad": 7, "t": "2026-10-07T19:18:21Z"}
+{"kind": "escalation_trigger", "bot": "mbench-s4-Fox", "n": 1, "bad": 7, "acting": false, "t": "2026-10-07T19:18:21Z"}
+{"kind": "episode_start", "bot": "mbench-s4-Golf", "pos": {"x": 306.5, "y": 79, "z": 301.3}, "bad": 8, "t": "2026-10-07T19:18:51Z"}
+{"kind": "escalation_trigger", "bot": "mbench-s4-Golf", "n": 1, "bad": 8, "acting": false, "t": "2026-10-07T19:18:51Z"}
+{"kind": "episode_start", "bot": "mbench-s4-Echo", "pos": {"x": 394.3, "y": 69, "z": 72.1}, "bad": 6, "t": "2026-10-07T19:20:21Z"}
+{"kind": "escalation_trigger", "bot": "mbench-s4-Echo", "n": 1, "bad": 6, "acting": false, "t": "2026-10-07T19:20:21Z"}
+{"kind": "episode_start", "bot": "mbench-s4-Hotel", "pos": {"x": 402.6, "y": 62.6, "z": 224.6}, "bad": 8, "t": "2026-10-07T19:20:52Z"}
+{"kind": "escalation_trigger", "bot": "mbench-s4-Hotel", "n": 1, "bad": 8, "acting": false, "t": "2026-10-07T19:20:52Z"}
+{"kind": "overseer_call", "ok": true, "s": 23.3, "gen_tokens": 651, "valid": true, "accepted": 1, "rejected": [], "snap_id": "mbench-cl-c2-ov-sandbox4-1007T1843-b0@2026-10-07T19:20:55Z", "t": "2026-10-07T19:21:45Z"}
+{"kind": "directive_sent", "bot": "mbench-s4-Hotel", "id": "o13", "origin": "overseer", "steps": [{"skill": "goto", "args": {"x": 408, "y": 60, "z": 232}}, {"skill": "gather", "args": {"block": "oak_log", "count": 16}}], "why": "GET_WOOD GET_WOOD", "t": "2026-10-07T19:21:45Z"}
+{"kind": "episode_end", "bot": "mbench-s4-Golf", "minutes": 2.9, "escalations": 1, "t": "2026-10-07T19:21:45Z"}
+{"kind": "episode_end", "bot": "mbench-s4-Alpha", "minutes": 23.1, "escalations": 3, "t": "2026-10-07T19:21:45Z"}
+{"kind": "episode_end", "bot": "mbench-s4-Echo", "minutes": 2.4, "escalations": 1, "t": "2026-10-07T19:22:45Z"}
+{"kind": "escalation_trigger", "bot": "mbench-s4-Fox", "n": 2, "bad": 9, "acting": false, "t": "2026-10-07T19:23:45Z"}
+{"kind": "episode_start", "bot": "mbench-s4-Delta", "pos": {"x": 355.5, "y": 72, "z": 147.5}, "bad": 4, "t": "2026-10-07T19:24:15Z"}
+{"kind": "escalation_trigger", "bot": "mbench-s4-Delta", "n": 1, "bad": 4, "acting": false, "t": "2026-10-07T19:24:15Z"}
+{"kind": "episode_end", "bot": "mbench-s4-Hotel", "minutes": 3.9, "escalations": 1, "t": "2026-10-07T19:24:46Z"}
+{"kind": "overseer_call", "ok": true, "s": 34.1, "gen_tokens": 1126, "valid": true, "accepted": 2, "rejected": [], "snap_id": "mbench-cl-c2-ov-sandbox4-1007T1843-b0@2026-10-07T19:25:55Z", "t": "2026-10-07T19:26:50Z"}
+{"kind": "directive_sent", "bot": "mbench-s4-Bravo", "id": "o14", "origin": "overseer", "steps": [{"skill": "craft", "args": {"item": "stone_pickaxe", "count": 1}}], "why": "RESTORE_PICK RESTORE_PICK for B2 (shortage S1)", "t": "2026-10-07T19:26:50Z"}
+{"kind": "episode_end", "bot": "mbench-s4-Fox", "minutes": 8.5, "escalations": 2, "t": "2026-10-07T19:26:50Z"}
+{"kind": "episode_start", "bot": "mbench-s4-Alpha", "pos": {"x": 383.7, "y": 73, "z": 176.6}, "bad": 8, "t": "2026-10-07T19:26:50Z"}
+{"kind": "escalation_trigger", "bot": "mbench-s4-Alpha", "n": 1, "bad": 8, "acting": false, "t": "2026-10-07T19:26:50Z"}
+{"kind": "episode_start", "bot": "mbench-s4-Comet", "pos": {"x": 317.2, "y": 56, "z": 203.5}, "bad": 8, "t": "2026-10-07T19:27:20Z"}
+{"kind": "escalation_trigger", "bot": "mbench-s4-Comet", "n": 1, "bad": 8, "acting": false, "t": "2026-10-07T19:27:20Z"}
+{"kind": "episode_start", "bot": "mbench-s4-Echo", "pos": {"x": 358.5, "y": 72, "z": 171.5}, "bad": 8, "t": "2026-10-07T19:27:20Z"}
+{"kind": "escalation_trigger", "bot": "mbench-s4-Echo", "n": 1, "bad": 8, "acting": false, "t": "2026-10-07T19:27:20Z"}
+{"kind": "episode_start", "bot": "mbench-s4-Golf", "pos": {"x": 306.6, "y": 70, "z": 271.5}, "bad": 9, "t": "2026-10-07T19:30:51Z"}
+{"kind": "escalation_trigger", "bot": "mbench-s4-Golf", "n": 1, "bad": 9, "acting": false, "t": "2026-10-07T19:30:51Z"}
+{"kind": "overseer_call", "ok": true, "s": 32.8, "gen_tokens": 1016, "valid": true, "accepted": 2, "rejected": [], "snap_id": "mbench-cl-c2-ov-sandbox4-1007T1843-b0@2026-10-07T19:30:55Z", "t": "2026-10-07T19:31:54Z"}
+{"kind": "directive_sent", "bot": "mbench-s4-Hotel", "id": "o15", "origin": "overseer", "steps": [{"skill": "goto", "args": {"x": 408, "y": 60, "z": 232}}, {"skill": "gather", "args": {"block": "oak_log", "count": 16}}], "why": "GET_WOOD GET_WOOD", "t": "2026-10-07T19:31:54Z"}
+{"kind": "episode_end", "bot": "mbench-s4-Comet", "minutes": 4.6, "escalations": 1, "t": "2026-10-07T19:31:54Z"}
+{"kind": "episode_end", "bot": "mbench-s4-Delta", "minutes": 7.6, "escalations": 1, "t": "2026-10-07T19:31:54Z"}
+{"kind": "escalation_trigger", "bot": "mbench-s4-Alpha", "n": 2, "bad": 9, "acting": false, "t": "2026-10-07T19:31:54Z"}
+{"kind": "escalation_trigger", "bot": "mbench-s4-Echo", "n": 2, "bad": 9, "acting": false, "t": "2026-10-07T19:32:24Z"}
+{"kind": "episode_start", "bot": "mbench-s4-Fox", "pos": {"x": 383.6, "y": 73, "z": 176.5}, "bad": 9, "t": "2026-10-07T19:32:54Z"}
+{"kind": "escalation_trigger", "bot": "mbench-s4-Fox", "n": 1, "bad": 9, "acting": false, "t": "2026-10-07T19:32:54Z"}
+{"kind": "episode_start", "bot": "mbench-s4-Delta", "pos": {"x": 377.4, "y": 77, "z": 174.5}, "bad": 8, "t": "2026-10-07T19:35:55Z"}
+{"kind": "escalation_trigger", "bot": "mbench-s4-Delta", "n": 1, "bad": 8, "acting": false, "t": "2026-10-07T19:35:55Z"}
+{"kind": "escalation_trigger", "bot": "mbench-s4-Golf", "n": 2, "bad": 9, "acting": false, "t": "2026-10-07T19:35:55Z"}
+{"kind": "overseer_call", "ok": true, "s": 23.7, "gen_tokens": 627, "valid": true, "accepted": 1, "rejected": [], "snap_id": "mbench-cl-c2-ov-sandbox4-1007T1843-b0@2026-10-07T19:35:55Z", "t": "2026-10-07T19:36:48Z"}
+{"kind": "episode_end", "bot": "mbench-s4-Echo", "minutes": 10.0, "escalations": 2, "t": "2026-10-07T19:37:19Z"}
+{"kind": "escalation_trigger", "bot": "mbench-s4-Alpha", "n": 3, "bad": 7, "acting": false, "t": "2026-10-07T19:37:19Z"}
+{"kind": "episode_end", "bot": "mbench-s4-Alpha", "minutes": 11.0, "escalations": 3, "t": "2026-10-07T19:37:49Z"}
+{"kind": "escalation_trigger", "bot": "mbench-s4-Fox", "n": 2, "bad": 8, "acting": false, "t": "2026-10-07T19:38:19Z"}
+{"kind": "episode_start", "bot": "mbench-s4-Hotel", "pos": {"x": 398.3, "y": 63.2, "z": 225.6}, "bad": 8, "t": "2026-10-07T19:40:20Z"}
+{"kind": "escalation_trigger", "bot": "mbench-s4-Hotel", "n": 1, "bad": 8, "acting": false, "t": "2026-10-07T19:40:20Z"}
+{"kind": "episode_end", "bot": "mbench-s4-Hotel", "minutes": 0.5, "escalations": 1, "t": "2026-10-07T19:40:50Z"}
+{"kind": "overseer_call", "ok": true, "s": 33.2, "gen_tokens": 1213, "valid": true, "accepted": 3, "rejected": [], "snap_id": "mbench-cl-c2-ov-sandbox4-1007T1843-b0@2026-10-07T19:40:55Z", "t": "2026-10-07T19:41:53Z"}
+{"kind": "directive_sent", "bot": "mbench-s4-Bravo", "id": "o16", "origin": "overseer", "steps": [{"skill": "craft", "args": {"item": "stone_pickaxe", "count": 1}}], "why": "RESTORE_PICK ", "t": "2026-10-07T19:41:53Z"}
+{"kind": "directive_sent", "bot": "mbench-s4-Comet", "id": "o17", "origin": "overseer", "steps": [{"skill": "goto", "args": {"x": 350, "y": 67, "z": 151}}, {"skill": "gather", "args": {"block": "iron_ore", "count": 3}}], "why": "GET_IRON ", "t": "2026-10-07T19:41:53Z"}
+{"kind": "episode_end", "bot": "mbench-s4-Delta", "minutes": 6.0, "escalations": 1, "t": "2026-10-07T19:41:53Z"}
+{"kind": "episode_start", "bot": "mbench-s4-Echo", "pos": {"x": 339.5, "y": 72, "z": 205.5}, "bad": 8, "t": "2026-10-07T19:41:53Z"}
+{"kind": "escalation_trigger", "bot": "mbench-s4-Echo", "n": 1, "bad": 8, "acting": false, "t": "2026-10-07T19:41:53Z"}
+{"kind": "episode_end", "bot": "mbench-s4-Golf", "minutes": 11.0, "escalations": 2, "t": "2026-10-07T19:41:53Z"}
+{"kind": "escalation_trigger", "bot": "mbench-s4-Fox", "n": 3, "bad": 6, "acting": false, "t": "2026-10-07T19:43:23Z"}
+{"kind": "episode_end", "bot": "mbench-s4-Fox", "minutes": 11.5, "escalations": 3, "t": "2026-10-07T19:44:24Z"}
+{"kind": "overseer_call", "ok": true, "s": 31.5, "gen_tokens": 1051, "valid": true, "accepted": 3, "rejected": [], "snap_id": "mbench-cl-c2-ov-sandbox4-1007T1843-b0@2026-10-07T19:45:55Z", "t": "2026-10-07T19:46:56Z"}
+{"kind": "directive_sent", "bot": "mbench-s4-Hotel", "id": "o18", "origin": "overseer", "steps": [{"skill": "goto", "args": {"x": 408, "y": 60, "z": 232}}, {"skill": "gather", "args": {"block": "oak_log", "count": 16}}], "why": "GET_WOOD GET_WOOD", "t": "2026-10-07T19:46:56Z"}
+{"kind": "directive_sent", "bot": "mbench-s4-Fox", "id": "o19", "origin": "overseer", "steps": [{"skill": "goto", "args": {"x": 374, "y": 68, "z": 186}}, {"skill": "gather", "args": {"block": "iron_ore", "count": 3}}], "why": "GET_IRON GET_IRON", "t": "2026-10-07T19:46:56Z"}
+{"kind": "escalation_trigger", "bot": "mbench-s4-Echo", "n": 2, "bad": 9, "acting": false, "t": "2026-10-07T19:46:56Z"}
+{"kind": "episode_start", "bot": "mbench-s4-Golf", "pos": {"x": 337.5, "y": 71, "z": 208.5}, "bad": 9, "t": "2026-10-07T19:47:56Z"}
+{"kind": "escalation_trigger", "bot": "mbench-s4-Golf", "n": 1, "bad": 9, "acting": false, "t": "2026-10-07T19:47:56Z"}
+{"kind": "episode_start", "bot": "mbench-s4-Delta", "pos": {"x": 377.4, "y": 77, "z": 174.5}, "bad": 8, "t": "2026-10-07T19:49:26Z"}
+{"kind": "escalation_trigger", "bot": "mbench-s4-Delta", "n": 1, "bad": 8, "acting": false, "t": "2026-10-07T19:49:26Z"}
+{"kind": "episode_start", "bot": "mbench-s4-Alpha", "pos": {"x": 399.5, "y": 62, "z": 227.3}, "bad": 9, "t": "2026-10-07T19:49:57Z"}
+{"kind": "escalation_trigger", "bot": "mbench-s4-Alpha", "n": 1, "bad": 9, "acting": false, "t": "2026-10-07T19:49:57Z"}
+{"kind": "overseer_call", "ok": true, "s": 30.8, "gen_tokens": 1079, "valid": true, "accepted": 3, "rejected": [], "snap_id": "mbench-cl-c2-ov-sandbox4-1007T1843-b0@2026-10-07T19:50:55Z", "t": "2026-10-07T19:51:28Z"}
+{"kind": "directive_sent", "bot": "mbench-s4-Alpha", "id": "o20", "origin": "overseer", "steps": [{"skill": "goto", "args": {"x": 399, "y": 51, "z": 219}}, {"skill": "gather", "args": {"block": "iron_ore", "count": 3}}], "why": "GET_IRON GET_IRON", "t": "2026-10-07T19:51:28Z"}
+{"kind": "escalation_trigger", "bot": "mbench-s4-Echo", "n": 3, "bad": 9, "acting": false, "t": "2026-10-07T19:51:58Z"}
+{"kind": "episode_end", "bot": "mbench-s4-Echo", "minutes": 10.6, "escalations": 3, "t": "2026-10-07T19:52:28Z"}
+{"kind": "episode_end", "bot": "mbench-s4-Golf", "minutes": 4.5, "escalations": 1, "t": "2026-10-07T19:52:28Z"}
+{"kind": "escalation_trigger", "bot": "mbench-s4-Delta", "n": 2, "bad": 9, "acting": false, "t": "2026-10-07T19:54:29Z"}
+{"kind": "episode_end", "bot": "mbench-s4-Alpha", "minutes": 5.5, "escalations": 1, "t": "2026-10-07T19:55:29Z"}
+{"kind": "overseer_call", "ok": true, "s": 26.3, "gen_tokens": 750, "valid": true, "accepted": 2, "rejected": [], "snap_id": "mbench-cl-c2-ov-sandbox4-1007T1843-b0@2026-10-07T19:55:55Z", "t": "2026-10-07T19:56:25Z"}
+{"kind": "directive_sent", "bot": "mbench-s4-Bravo", "id": "o21", "origin": "overseer", "steps": [{"skill": "goto", "args": {"x": 350, "y": 67, "z": 151}}, {"skill": "gather", "args": {"block": "iron_ore", "count": 3}}], "why": "GET_IRON GET_IRON", "t": "2026-10-07T19:56:25Z"}
+{"kind": "episode_start", "bot": "mbench-s4-Golf", "pos": {"x": 352.5, "y": 66, "z": 280.5}, "bad": 5, "t": "2026-10-07T19:58:56Z"}
+{"kind": "escalation_trigger", "bot": "mbench-s4-Golf", "n": 1, "bad": 5, "acting": false, "t": "2026-10-07T19:58:56Z"}
+{"kind": "escalation_trigger", "bot": "mbench-s4-Delta", "n": 3, "bad": 9, "acting": false, "t": "2026-10-07T19:59:56Z"}
+{"kind": "overseer_call", "ok": true, "s": 33.6, "gen_tokens": 1198, "valid": true, "accepted": 2, "rejected": [], "snap_id": "mbench-cl-c2-ov-sandbox4-1007T1843-b0@2026-10-07T20:00:55Z", "t": "2026-10-07T20:01:30Z"}
+{"kind": "directive_sent", "bot": "mbench-s4-Fox", "id": "o22", "origin": "overseer", "steps": [{"skill": "goto", "args": {"x": 374, "y": 68, "z": 186}}, {"skill": "gather", "args": {"block": "iron_ore", "count": 3}}], "why": "GET_IRON GET_IRON", "t": "2026-10-07T20:01:30Z"}
+{"kind": "directive_sent", "bot": "mbench-s4-Alpha", "id": "o23", "origin": "overseer", "steps": [{"skill": "goto", "args": {"x": 399, "y": 51, "z": 219}}, {"skill": "gather", "args": {"block": "iron_ore", "count": 3}}], "why": "GET_IRON GET_IRON", "t": "2026-10-07T20:01:30Z"}
+{"kind": "episode_end", "bot": "mbench-s4-Golf", "minutes": 2.6, "escalations": 1, "t": "2026-10-07T20:01:30Z"}
+{"kind": "episode_start", "bot": "mbench-s4-Golf", "pos": {"x": 347.5, "y": 73.2, "z": 280.5}, "bad": 5, "t": "2026-10-07T20:01:30Z"}
+{"kind": "escalation_trigger", "bot": "mbench-s4-Golf", "n": 1, "bad": 5, "acting": false, "t": "2026-10-07T20:01:30Z"}
+{"kind": "episode_end", "bot": "mbench-s4-Golf", "minutes": 0.5, "escalations": 1, "t": "2026-10-07T20:02:01Z"}
+{"kind": "episode_end", "bot": "mbench-s4-Delta", "minutes": 13.6, "escalations": 3, "t": "2026-10-07T20:03:01Z"}
+{"kind": "episode_start", "bot": "mbench-s4-Echo", "pos": {"x": 357.5, "y": 70, "z": 175.3}, "bad": 6, "t": "2026-10-07T20:03:31Z"}
+{"kind": "escalation_trigger", "bot": "mbench-s4-Echo", "n": 1, "bad": 6, "acting": false, "t": "2026-10-07T20:03:31Z"}
+{"kind": "episode_end", "bot": "mbench-s4-Echo", "minutes": 1.0, "escalations": 1, "t": "2026-10-07T20:04:31Z"}
+{"kind": "overseer_call", "ok": true, "s": 33.6, "gen_tokens": 1286, "valid": true, "accepted": 2, "rejected": [], "snap_id": "mbench-cl-c2-ov-sandbox4-1007T1843-b0@2026-10-07T20:05:55Z", "t": "2026-10-07T20:06:35Z"}
+{"kind": "directive_sent", "bot": "mbench-s4-Hotel", "id": "o24", "origin": "overseer", "steps": [{"skill": "goto", "args": {"x": 391, "y": 54, "z": 217}}, {"skill": "gather", "args": {"block": "iron_ore", "count": 3}}], "why": "GET_IRON GET_IRON", "t": "2026-10-07T20:06:35Z"}
+{"kind": "episode_start", "bot": "mbench-s4-Fox", "pos": {"x": 374.5, "y": 67, "z": 186.5}, "bad": 4, "t": "2026-10-07T20:06:35Z"}
+{"kind": "escalation_trigger", "bot": "mbench-s4-Fox", "n": 1, "bad": 4, "acting": false, "t": "2026-10-07T20:06:35Z"}
+{"kind": "episode_end", "bot": "mbench-s4-Fox", "minutes": 0.5, "escalations": 1, "t": "2026-10-07T20:07:06Z"}
+{"kind": "episode_start", "bot": "mbench-s4-Delta", "pos": {"x": 377.5, "y": 77, "z": 174.5}, "bad": 8, "t": "2026-10-07T20:08:36Z"}
+{"kind": "escalation_trigger", "bot": "mbench-s4-Delta", "n": 1, "bad": 8, "acting": false, "t": "2026-10-07T20:08:36Z"}
+{"kind": "overseer_call", "ok": true, "s": 29.1, "gen_tokens": 907, "valid": true, "accepted": 2, "rejected": [], "snap_id": "mbench-cl-c2-ov-sandbox4-1007T1843-b0@2026-10-07T20:10:55Z", "t": "2026-10-07T20:11:36Z"}
+{"kind": "directive_sent", "bot": "mbench-s4-Bravo", "id": "o25", "origin": "overseer", "steps": [{"skill": "goto", "args": {"x": 340, "y": 65, "z": 189}}, {"skill": "gather", "args": {"block": "iron_ore", "count": 3}}], "why": "GET_IRON GET_IRON", "t": "2026-10-07T20:11:36Z"}
+{"kind": "directive_sent", "bot": "mbench-s4-Comet", "id": "o26", "origin": "overseer", "steps": [{"skill": "goto", "args": {"x": 377, "y": 66, "z": 94}}, {"skill": "gather", "args": {"block": "iron_ore", "count": 3}}], "why": "GET_IRON GET_IRON", "t": "2026-10-07T20:11:36Z"}
+{"kind": "escalation_trigger", "bot": "mbench-s4-Delta", "n": 2, "bad": 9, "acting": false, "t": "2026-10-07T20:13:37Z"}
+{"kind": "episode_start", "bot": "mbench-s4-Bravo", "pos": {"x": 347.5, "y": 62.4, "z": 191.5}, "bad": 3, "t": "2026-10-07T20:15:07Z"}
+{"kind": "escalation_trigger", "bot": "mbench-s4-Bravo", "n": 1, "bad": 3, "acting": false, "t": "2026-10-07T20:15:07Z"}

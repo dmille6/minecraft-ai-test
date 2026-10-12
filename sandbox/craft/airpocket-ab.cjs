@@ -208,8 +208,8 @@ async function startBot (tag, root) {
   botPidFile = `${ROUT}/${tag}.pid`
   const botOut = `${LOUT}/bot-${tag}.out`
   const bo = fs.openSync(botOut, 'a')
-  const cmd = `cd ${MAIN} && echo $$ > ${botPidFile} && exec env BOT_ROOT=${root} NODE_OPTIONS='--require ${MAIN}/sandbox/craft/trace.cjs' ` +
-              `CRAFT_TRACE=${ROUT}/trace-${tag}.jsonl bash sandbox/run-bot.sh ${envRel}`
+  const cmd = `cd ${MAIN} && echo $$ > ${botPidFile} && exec env BOT_ROOT=${root} NODE_OPTIONS='--require ${MAIN}/sandbox/craft/trace.cjs --require /home/mike/ap-sbx/posprobe.cjs' ` +
+              `CRAFT_TRACE=${ROUT}/trace-${tag}.jsonl POSPROBE_OUT=${ROUT}/probe-${tag}.jsonl bash sandbox/run-bot.sh ${envRel}`
   bot = spawn('ssh', ['-o', 'BatchMode=yes', '-o', 'ControlPath=none', '-o', 'ExitOnForwardFailure=yes', '-R', `${REMOTE_BRAIN_PORT}:127.0.0.1:${BRAIN_PORT}`, 'mike@10.0.0.31', cmd],
     { stdio: ['ignore', bo, bo] })
   const ok = await waitFor(() => { try { return /spawned pos=/.test(fs.readFileSync(botOut, 'utf8')) } catch { return false } }, 90000, 500)
@@ -265,6 +265,7 @@ async function runTrial (arm, scene, k) {
   await stopBot()
   try { r31(`rm -f ${MAIN}/${envRel}`) } catch {}
   const skillText = (() => { try { return r31(`cat ${ROUT}/${tag}/skill-${NAME}.jsonl 2>/dev/null || true`) } catch { return '' } })()
+  const probeText = (() => { try { return r31(`cat ${ROUT}/probe-${tag}.jsonl 2>/dev/null || true`) } catch { return '' } })()
   const traceText = (() => { try { return r31(`cat ${ROUT}/trace-${tag}.jsonl 2>/dev/null || true`) } catch { return '' } })()
   try { r31(`cat > ${ROUT}/bot-${tag}.out`, fs.readFileSync(botOut, 'utf8')); r31(`cat > ${ROUT}/brain-${tag}.log`, fs.existsSync(brainLog) ? fs.readFileSync(brainLog, 'utf8') : '') } catch {}
   const rel = ts => +((ts - t0) / 1000).toFixed(1)
@@ -310,6 +311,8 @@ async function runTrial (arm, scene, k) {
     drown: rows.filter(r => WATERY.test(r.name) || /^_(death|flooded_pocket)/.test(r.name)).map(r => ({ t: rel(r.ts), name: r.name, detail: r.detail.slice(0, 200) })),
     other: rows.filter(r => /^_(entombed|marooned|maroon_|pocket|climb_flood_)/.test(r.name)).map(r => ({ t: rel(r.ts), name: r.name, detail: r.detail.slice(0, 200) })),
     pollErrors: polls.filter(p => p.err).length, polls,
+    probe: probeText.split('\n').filter(Boolean).map(l => { try { return JSON.parse(l) } catch { return null } }).filter(e => e && e.ts >= t0 - 1000).map(e => ({ ...e, t: rel(e.ts) })),
+    digsRaw: tr.filter(e => e.pkt === 'dig' && e.loc).map(e => ({ t: rel(e.ts), status: e.status, loc: `${e.loc.x},${e.loc.y},${e.loc.z}` })),
   }
   const line = JSON.stringify(res) + '\n'
   fs.appendFileSync(RESULTS_LOCAL, line)

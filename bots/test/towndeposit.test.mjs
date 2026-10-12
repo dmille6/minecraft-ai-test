@@ -417,6 +417,51 @@ test('SKILL: a full bag at town banks its surplus whole, keeps the stockpile, th
   assert.match(rows[0].skill.detail, /^slots 36->32 stacks 4\/4 clicked 4 bagdelta 38 tools stone_pickaxe@60 banked .*stone_pickaxe:1/)
 })
 
+// ---- THE PEACEFUL KIT (peacefulkit.mjs, OWNER 10-07 ~19:50Z): while the switch is on no sword is ever banked ------------
+const kitSwitch = async difficulty => {
+  const { attachDifficulty } = await import('../src/foodskip.mjs')
+  const { EventEmitter } = await import('node:events')
+  const fake = { _client: new EventEmitter() }; attachDifficulty(fake, {}); fake._client.emit('difficulty', { difficulty })
+  return () => fake._client.emit('difficulty', { difficulty: 'hard' })
+}
+test('KIT pure: the plan banks NO sword while on (not even a spare), the spare as today while off; pickaxes unchanged', () => {
+  const b = bag([['stone_sword', 1, 131], ['stone_sword', 1, 120], ['wooden_sword', 1, 59], ['stone_pickaxe', 1, 120], ['stone_pickaxe', 1, 60], ...filler(31)])
+  const on = townDepositPlan(b, { noSwords: true }).banked, off = townDepositPlan(b, { noSwords: false }).banked
+  assert.equal((on.stone_sword ?? 0) + (on.wooden_sword ?? 0), 0)
+  assert.equal(off.stone_sword, 1, 'off: the spare (worse) stone sword, as today'); assert.equal(off.wooden_sword, undefined)
+  assert.equal(on.stone_pickaxe, 1); assert.equal(off.stone_pickaxe, 1)
+})
+test('KIT pure: townDepositPlan WITHOUT noSwords follows the switch (its default), whichever caller forgets it', async () => {
+  const { setPeacefulFood } = await import('../src/foodskip.mjs')
+  const b = bag([['stone_sword', 1, 131], ['stone_sword', 1, 120], ['stone_pickaxe', 1, 120], ['stone_pickaxe', 1, 60], ...filler(32)])
+  setPeacefulFood(true)
+  try { assert.equal(townDepositPlan(b).banked.stone_sword ?? 0, 0, 'peaceful: no sword') } finally { setPeacefulFood(false) }
+  assert.equal(townDepositPlan(b).banked.stone_sword, 1, 'off: the spare, as today')
+})
+
+for (const [why, difficulty, spare, stale] of [['PEACEFUL', 'peaceful', 0, false], ['HARD', 'hard', 1, false], ['PEACEFUL, a stale decision', 'peaceful', 0, true], ['HARD, a stale decision', 'hard', 1, true]]) {
+  test(`KIT SKILL, ${why}: a full bag at town ${spare ? 'banks the spare stone sword (today)' : 'banks NO sword'}; the best pickaxe stays; nothing lost or dropped`, async () => {
+    const restore = await kitSwitch(difficulty)
+    if (stale) (await import('../src/foodskip.mjs')).setPeacefulFood(difficulty !== 'peaceful')   // the skill must read the switch itself
+    try {
+      const items = bag([['stone_sword', 1, 131], ['stone_sword', 1, 100], ...fullBag().slice(0, 34).map(i => [i.name, i.count, i.maxDurability ? i.maxDurability - i.durabilityUsed : undefined])])
+      assert.equal(items.length, 36)
+      const c = chestAt(2)
+      const w = world({ items, containers: [c] })
+      w.bot.serverDifficulty = difficulty
+      const r = await run(w.bot)
+      assert.equal(r.status, 'success', r.detail)
+      assert.equal(sumOf(c.items, 'stone_sword'), spare)
+      for (const now of [w.bot.inventory.items(), serverBag(w)]) {
+        assert.equal(sumOf(now, 'stone_sword'), 2 - spare)
+        assert.ok(now.some(i => i.name === 'stone_pickaxe' && 131 - i.durabilityUsed === 120), 'the best pickaxe stays')
+      }
+      assert.equal(total(serverBag(w)) + total(c.items), total(items), 'nothing lost')
+      assert.equal(w.st.dropped, 0); assert.equal(w.st.loadedCloses, 0)
+    } finally { restore() }
+  })
+}
+
 test('SKILL: a full chest takes nothing -- no click, no cursor, no drop; the second container takes it', async () => {
   const { bot, st } = world({ items: fullBag(), containers: [filledChest(2)] })
   const r = await run(bot)
@@ -603,6 +648,25 @@ async function decisions (bot, n) {
   return { ran, loop }
 }
 
+for (const [difficulty, want, stale] of [['peaceful', false, false], ['hard', true, false], ['peaceful', false, true], ['hard', true, true]]) {
+  test(`KIT WIRED (the real loop), ${difficulty}${stale ? ', a STALE decision in the module' : ''}: a full bag at town whose only surplus is a spare sword ${want ? 'gets the town_deposit order (today)' : 'gets NO town_deposit order'}`, async () => {
+    const restore = await kitSwitch(difficulty)
+    if (stale) (await import('../src/foodskip.mjs')).setPeacefulFood(difficulty !== 'peaceful')   // the trigger must read the switch itself (Codex, junkwell merge)
+    try {
+      const items = bag([['dirt', 16], ['oak_log', 64], ['cobblestone', 64], ['crafting_table', 1], ['wooden_pickaxe', 1, 50], ['stick', 8],
+        ['furnace', 1], ['stone_sword', 1, 131], ['stone_sword', 1, 100], ...filler(27)])
+      assert.equal(items.length, 36)
+      const { bot } = world({ items, containers: [chestAt(2)], botAt: new Vec3(3, 70, 0) })
+      Object.assign(bot, { health: 20, food: 20, oxygenLevel: 300, time: { day: 1, age: 1, timeOfDay: 1000 }, game: { dimension: 'overworld' },
+        serverDifficulty: difficulty, recipesFor: () => [], recipesAll: () => [], findBlock: () => null, clearControlStates: () => {}, players: {},
+        entities: {}, experience: { level: 0 }, username: 'TownBot' })
+      const { ran } = await decisions(bot, 1)
+      assert.ok(ran.length >= 1, 'the loop decided something')
+      assert.equal(ran[0].skill === 'town_deposit', want, JSON.stringify(ran))
+    } finally { restore() }
+  })
+}
+
 test('CHAIN: a full bag at town with a craft-ready rung deposits FIRST, and the craft is dispatched with room made', async () => {
   const bot = chainBot()
   const { ran, loop } = await decisions(bot, 2)
@@ -657,7 +721,7 @@ test('WITHDRAW HOLD BY NAME: with 130/40 held and a 120 just withdrawn, NO stone
 
 test('TOWN MEMORY: a verified deposit records `took` for the container (clearing withdraw\'s misses there); a chest the town knows is full is skipped', async () => {
   const dir = process.env.POOL_STATE_DIR, key = CF.townKey(new Vec3(0, 70, 0))
-  CF.updateTownMemory(dir, key, null, e => { e['-4,70,0'] = CF.recordOutcome(undefined, 'full'); CF.notePickMisses(e, ['2,70,0']) })
+  CF.updateTownMemory(dir, key, null, e => { e['-4,70,0'] = CF.recordOutcome(undefined, 'full'); CF.notePickMisses(e, ['2,70,0'], Date.now() - 50) })   // (test-only, as the other 92bc84f variants: the same-millisecond precondition was flaky)
   assert.equal(CF.containerPickMiss(CF.readTownMemory(dir, key), '2,70,0'), true, 'precondition: a fresh pickaxe miss at chest A')
   // The fake deposit runs in ~1 ms: a 'took' stamped in the SAME millisecond as the miss does not clear it (chestfull
   // containerPickMiss: took.at > miss.at), so the run starts a few ms later -- the test flaked ~50% on the unmodified 92bc84f.

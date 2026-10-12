@@ -1,0 +1,76 @@
+{
+ "note": "stocktarget-01 targets as per-town caps for the ONE-TIME admin clear (owner 10-10: only after the inflow fixes ship). Read by scripts/host/chestclear2/plan3.py (plan2 + KEEP_GROUPS, a cap shared by several names). Bulk caps count items; USABLE_TOOL_KEEP counts usable copies (> 10 uses left); spent tools are removed. Names absent from both maps (iron, ores, raw_*, ingots, coal, gems, food, books, iron/diamond tools) are NOT capped. JUNK = the well's list (removed). Design: docs/reports/stocktargets-design-2026-10-08.md section 2.",
+ "KEEP_PER_TOWN": {
+  "oak_log": 64,
+  "spruce_log": 64,
+  "birch_log": 64,
+  "jungle_log": 64,
+  "acacia_log": 64,
+  "dark_oak_log": 64,
+  "mangrove_log": 64,
+  "cherry_log": 64,
+  "pale_oak_log": 64,
+  "oak_planks": 64,
+  "spruce_planks": 64,
+  "birch_planks": 64,
+  "jungle_planks": 64,
+  "acacia_planks": 64,
+  "dark_oak_planks": 64,
+  "mangrove_planks": 64,
+  "cherry_planks": 64,
+  "pale_oak_planks": 64,
+  "bamboo_planks": 64,
+  "stick": 64,
+  "stone": 64,
+  "dirt": 0,
+  "sand": 0,
+  "red_sand": 0,
+  "gravel": 0,
+  "deepslate": 0,
+  "tuff": 0,
+  "calcite": 0,
+  "sandstone": 0,
+  "red_sandstone": 0,
+  "oak_sapling": 64,
+  "spruce_sapling": 64,
+  "birch_sapling": 64,
+  "jungle_sapling": 64,
+  "acacia_sapling": 64,
+  "dark_oak_sapling": 64,
+  "cherry_sapling": 64,
+  "pale_oak_sapling": 64,
+  "mangrove_propagule": 64,
+  "torch": 64,
+  "ladder": 64,
+  "crafting_table": 2,
+  "furnace": 4,
+  "chest": 8,
+  "bucket": 2,
+  "bamboo": 0
+ },
+ "USABLE_TOOL_KEEP": {
+  "stone_pickaxe": 16,
+  "wooden_pickaxe": 4,
+  "stone_axe": 4,
+  "stone_shovel": 4,
+  "wooden_axe": 0,
+  "wooden_shovel": 0,
+  "stone_hoe": 0,
+  "wooden_hoe": 0,
+  "stone_sword": 0,
+  "wooden_sword": 0
+ },
+ "KEEP_GROUPS": {
+  "cobble": {
+   "names": [
+    "cobblestone",
+    "cobbled_deepslate"
+   ],
+   "cap": 256
+  }
+ },
+ "OWNER_TO_CONFIRM": {
+  "bamboo": "cap 0 (plan2 draft): class E for the bots; bamboo/bamboocraft will use it",
+  "bucket": "cap 2 (plan2 draft): iron (3 ingots each); the owner said never iron"
+ }
+}

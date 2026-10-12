@@ -258,7 +258,11 @@ export function chooseFuel (held, { exclude = null, needTicks = 0 } = {}) {
  * @param budgetMs  wall clock this call may spend in front of the furnace
  * @param hasFurnace whether a usable furnace is available (block or carried)
  */
-export function smeltPlan ({ held = {}, item, count = 1, budgetMs = 0, hasFurnace = true } = {}) {
+export function smeltPlan ({ held = {}, item, count = 1, budgetMs = 0, hasFurnace = true, swordFuel = 0 } = {}) {
+  // THE PEACEFUL KIT (peacefulkit.mjs, owner 10-07 ~19:50Z): `swordFuel` carried wooden swords the switch calls unwanted
+  // (the caller counts them with swordFuelCount). They go in FIRST, one per smelted item (200 ticks each), before any
+  // ordinary fuel. Zero (the default, and always with the switch off) leaves every answer below exactly as it was.
+  const swords = Math.max(0, Math.floor(Number(swordFuel) || 0))
   const recipe = smeltRecipeFor(item)
   if (!recipe) {
     return { ok: false, reason: 'not_smeltable', item,
@@ -298,7 +302,7 @@ export function smeltPlan ({ held = {}, item, count = 1, budgetMs = 0, hasFurnac
   const usable = fuel && fuel.name === input && fuel.count < 2
     ? chooseFuel(held, { exclude: input, needTicks: SMELT_TICKS })
     : fuel
-  if (!usable) {
+  if (!usable && !swords) {
     return { ok: false, reason: 'no_fuel', item: input, output,
              need: { items: ['coal', 'charcoal', 'oak_planks', 'oak_log'], count: 1,
                      describe: 'Get fuel before smelting: coal from coal_ore, or any planks or ' +
@@ -323,11 +327,15 @@ export function smeltPlan ({ held = {}, item, count = 1, budgetMs = 0, hasFurnac
   // Fuel the bot can actually spare. If the fuel IS the input, every unit spent
   // burning is one fewer to smelt, so solve for the split rather than
   // double-counting the same stack.
-  const sameStack = usable.name === input
-  let fuelCount = 0
+  const sameStack = !!usable && usable.name === input
+  let fuelCount = 0, swordsUsed = 0
   for (;;) {
     if (batch < 1) break
-    fuelCount = Math.ceil((batch * SMELT_TICKS) / usable.ticks)
+    swordsUsed = Math.min(swords, batch)            // a sword smelts exactly one item
+    const rest = batch - swordsUsed
+    if (rest === 0) { fuelCount = 0; break }
+    if (!usable) { batch = swordsUsed; continue }    // swords only: the batch is what they cover
+    fuelCount = Math.ceil((rest * SMELT_TICKS) / usable.ticks)
     const affordable = sameStack ? have - batch : usable.count
     if (fuelCount <= affordable) break
     batch--
@@ -337,15 +345,21 @@ export function smeltPlan ({ held = {}, item, count = 1, budgetMs = 0, hasFurnac
     return { ok: false, reason: 'budget_too_small', item: input, output,
              detail: byClock < 1
                ? 'not enough time left in this call to smelt even one item'
-               : `not enough ${usable.name} to smelt even one ${input}` }
+               : `not enough ${usable?.name ?? 'fuel'} to smelt even one ${input}` }
   }
 
+  // THE FUEL QUEUE: one wooden sword per load (a sword does not stack), then the ordinary fuel for the rest. Without
+  // swords it is the single ordinary load the skill always made.
+  const queue = [...Array.from({ length: swordsUsed }, () => ({ name: 'wooden_sword', count: 1, sword: true })),
+                 ...(fuelCount > 0 ? [{ name: usable.name, count: fuelCount }] : [])]
   return {
     ok: true,
     input,
     output,
     batch,
-    fuel: { name: usable.name, count: fuelCount },
+    fuel: fuelCount > 0 ? { name: usable.name, count: fuelCount } : { name: 'wooden_sword', count: swordsUsed },
+    fuelQueue: queue,
+    swordsUsed,
     estMs: batch * SMELT_MS_PER_ITEM,
   }
 }

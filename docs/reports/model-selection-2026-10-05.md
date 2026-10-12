@@ -11,8 +11,8 @@
 | role | model | how to run it | why (evidence below) |
 |---|---|---|---|
 | **per-bot brain (4-8 bots)** | **gemma4:26b** (Gemma 4 26B-A4B MoE) | thinking OFF; the fleet's JSON-schema grammar, not native tool calls; **LM Studio MLX 8-bit** (Ollama Q4_K_M is equal in quality at about half the throughput) | best on every deterministic measure (table below); top of both blind judges; 0 of 36 adversarial baits taken; 8 bots at p50 2.5 s / p95 7 s on LM Studio |
-| **overseer** | **gpt-oss:120b**, reasoning **medium** | Ollama, with the shadow mayor's JSON schema | 100% validator-clean; exact optimum on 15 of 15 allocation problems and 55 of 60 at "low"; plans reach the goal 12 of 15; about 60 s per call **while** 8 bots run, without slowing them |
-| **stuck escalation** | **gpt-oss:120b**, reasoning low or medium (the same loaded model) | as above | 20-45 s per call under load; picks an executable remedy as often as anything tested (9 of 12 at "low") |
+| **overseer** (only if one is wanted; C2 showed no benefit in the loop, see the C2 readout) | **gpt-oss:120b**, reasoning **medium** | Ollama, with the shadow mayor's JSON schema | 100% validator-clean; exact optimum on 15 of 15 allocation problems and 55 of 60 at "low"; plans reach the goal 12 of 15; about 60 s per call **while** 8 bots run, without slowing them |
+| **stuck escalation** (C2: no net benefit shown; not recommended live as built) | **gpt-oss:120b**, reasoning low or medium (the same loaded model) | as above | 20-45 s per call under load; picks an executable remedy as often as anything tested (9 of 12 at "low") |
 
 Runner-ups:
 
@@ -28,10 +28,13 @@ Runner-ups:
      the Studio next to this pair.
    - The Studio's :11434 WAN forward has been closed since 15:32Z. The benchmark uses an ssh tunnel; the owner is
      fixing the forward.
-2. **C2 (overseer and escalation inside real bots on the sandbox): APPROVED by the owner 10-07 ~01:15Z.** The
-   bench-only hook is built on branch `bench-c2` (never main, never the fleet) and is in review by both engines;
-   the metrics are pre-registered below, before any run.
-3. **Then the live A/B**: 4-8 bots on the chosen stack as their own canary, against a matched control.
+2. **C2 is done (10-08).** Neither a big-model overseer nor big-model stuck escalation helped the bots in the
+   closed loop. Output was INCONCLUSIVE under the pre-registered band, and the rule allocator and escalation were
+   lower in every block. Both engines reviewed the readout at the end of this report. Not recommended for a live
+   A/B as built.
+3. **Next: the live A/B of the brain alone** (canary `brain-01`). Gemma4:26b on the Studio drives 5-10 fleet bots
+   against a matched control, with a deterministic fallback to the local model. The owner approved planning it on
+   10-10.
 
 **What NOT to use**
 
@@ -812,3 +815,151 @@ Full suite (`scripts/run-tests.mjs`) on the bots host at 6001cc1: 224 of 225 fil
 `craftsync.test.mjs`, subtest "a refresh slower than quietMs beats lockstep", a timing race that fails on the
 **base tree too** (alternating single-file reruns: base 3 of 8, hook 2 of 8, same subtest, same message). It is a
 pre-existing flake in the fleet lineage, not the hook.
+
+### C2 readout (series 10-07 15:38Z to 10-08 10:11Z; reviewed by both engines)
+
+**What ran.** This is the pre-registered design, 4 arms x 3 blocks x 90 min:
+- sandbox4, restored before every run; 8 bots; bench-c2@d1257ce;
+- every arm uses the same gemma4 8-bit brain on LM Studio;
+- gpt-oss:120b is loaded in every arm;
+- the director and `mbench_Mayor` are present in every arm.
+
+Arm order was shuffled within each block. Every run has no tunnel drop, no endpoint-down check and no flag. There
+were 0 deaths. Metrics are read at the 70-min horizon. The run is the unit, so the intervals are paired-t with 2
+degrees of freedom (t = 4.30). Per-run data is in `bench/models/closedloop/results/c2/`, `c2-readout.txt` and
+`c2-readout.json`.
+
+| metric (70 min) | none | det (rule allocator) | ov (gpt-oss overseer) | esc (gpt-oss escalation) |
+|---|---|---|---|---|
+| team output, PRIMARY (blocks 0, 1, 2) | 334.6 (293, 358, 353) | 233.0 (172, 225, 302) | 267.7 (318, 82, 403) | 209.9 (174, 241, 215) |
+| stuck min per bot | 16.8 | 22.9 | 16.1 | 18.3 |
+| bots reaching a stone pickaxe by 70 min (of 8) | 5.3 | 4.0 | 3.7 | 3.0 |
+| bots reaching an iron ingot by 70 min (of 8) | 1.3 | 0.3 | 1.3 | 1.0 |
+| bot-milestone achievements, summed over 3 runs (7 milestones x 8 bots per run) | 74 | 66 | 75 | 66 |
+| deaths | 0 | 0 | 0 | 0 |
+| decision latency (mean over runs of the median bot's p50 / p95) | 2.1 / 4.0 s | 2.1 / 3.9 s | 2.2 / 5.2 s | 2.2 / 4.9 s |
+
+**Pre-registered contrasts on team output, block-paired.** The pre-registered rule was that a difference inside
+C1's ratio band (0.59-2.95) is INCONCLUSIVE. It is applied to each contrast's summary ratio, the geometric mean over
+blocks, so **all three are INCONCLUSIVE.**
+- **det vs none:** INCONCLUSIVE.
+  - Per block -121, -133, -51 (lower by 41%, 37% and 14%). Mean -102, 95% CI [-212, +9].
+  - Ratios 0.587, 0.63, 0.86. The geometric mean, 0.68, is inside the band. Block 0 sits marginally below the band's
+    lower edge.
+- **ov vs det:** INCONCLUSIVE.
+  - Per block +146, -143, +101. Mean +35, 95% CI [-351, +421].
+- **esc vs none:** INCONCLUSIVE.
+  - Per block -119, -117, -138 (lower by 40%, 33% and 39%). Mean -125, 95% CI [-154, -95].
+  - Ratios 0.60, 0.67, 0.61, inside the band.
+  - The interval excludes zero only because three similar differences give a variance estimate with 2 degrees of
+    freedom.
+- **What 3 blocks can and cannot show.** No distribution-free test reaches p < 0.25 two-sided, and the best possible
+  is one-sided 1/8. Nine secondary contrasts were read without adjustment. One nominal interval excludes zero: esc's
+  stone pickaxes, 3, 3, 3 vs 5, 5, 6, giving -2.3 [-3.8, -0.9]. With nine unadjusted looks, it is not evidence on its
+  own.
+- **Descriptive only, ov vs none:** +25, -276, +50.
+
+**What the lost output is made of.**
+- Cobblestone is 56% of none's output (186.5 of 334.6).
+- Cobblestone is 69% of the det gap (-70 of -102) and 75% of the esc gap (-94 of -125).
+- Iron-tier value (raw iron, ingots, furnace, coal) is level: none 29.0, det 28.0, esc 29.7, ov 43.7.
+- So the gap is mostly stockpiled cobblestone. Aggregate iron-tier value is similar, although that alone does not
+  establish that progression was unchanged.
+
+**The treatment was real (positive controls).** Directive counts come from the bots' own rows and cover the full
+90-min runs.
+
+| arm | directives requested | completed | released after a failed step | refused | completed share |
+|---|---|---|---|---|---|
+| det (rule overseer) | 57 | 34 | 23 | 0 | 60% |
+| ov (LLM overseer) | 77 | 32 | 44 | 1 | 42% |
+| esc (escalation) | 73 | 41 | 26 | 6 | 56% |
+
+- **Successful steps** (`step_done`; a directive has 1-2 steps): det 51, ov 57, esc 41.
+- **Within 70 min,** det requested 44 directives, ov 58 and esc 61.
+- **The overseer and escalation calls worked.** All 54 overseer calls were validator-clean, with a median of about
+  31 s, and there were 76 escalation calls.
+- **Bot time held:** directives held a bot for 2.5-7.3% of bot time within 70 min (14-41 of 560 bot-minutes). The
+  steps themselves ran for 0.6-3.8%.
+- **The allocator changed what the bots did.** Descriptively, time without a pickaxe fell in all 6 det and ov block
+  pairs against none (det -0.32, -0.38, -0.11; ov -0.28, -0.09, -0.24). It did not fall with esc (+0.02, -0.06,
+  +0.11).
+- **No clear descriptive dose-response.** The dose is bot-minutes held by directives within 70 min, and it varied
+  about 3x across the 9 runs with directives. The two highest-dose runs, ov blocks 0 and 2, gave the two best outputs
+  among the treatment runs (318 and 403).
+
+**Stuck escalation did not reduce stuck time.**
+- The difference was +1.5 min per bot, 95% CI [-3.3, +6.4]. Under the paired-t assumptions, that excludes a cut
+  larger than about 3 min per bot.
+- The positive control is C1, where the same instrument separated stuck time (35 vs 15 min per bot) in all 3
+  matched blocks on each runtime.
+- Escalation episodes are counted in every arm (intent-to-treat). With escalation, more of them ended within 10 min:
+  esc 82% (65 of 79), none 73% (52 of 71), det 76% (64 of 84), ov 74% (62 of 84). esc minus none was +3, +17 and
+  +9 points by block.
+- This is a favourable descriptive signal, not a demonstrated rescue: episodes sit inside runs, and the treatment can
+  change which episodes happen.
+
+**Does the 120B slow the brain?** A little, while it is being called. It was loaded in every arm, so this compares
+active calls, not co-residency.
+- p50 rose 0.07-0.24 s in all 6 ov and esc pairs against none, and the median bot's p95 rose by about 1 s.
+- det makes no 120B calls and did not shift, so latency cannot explain det's lower output.
+
+**ov block 1 (82, against 318 and 403): unexplained.**
+- **No infrastructure fault found:**
+  - no tunnel drop or endpoint-down check;
+  - latency 2.3 s, against 2.2 s in the other ov runs;
+  - all 18 overseer calls valid;
+  - no deaths;
+  - the brain was active, with 664 decisions against 638-785 in the other runs.
+- **What is distinctive: no bot reached sustained stone mining.**
+  - The best bot held 17 cobblestone, against 57-205 for the best bot of every other run.
+  - The first stone pickaxe came at 51 min, against 14-32 min in every other run.
+  - Bots-host rows, 8 bots, 70 min (`results/c2/skill-mix-70min.json`): `mine` ran 12 times against 10-41 elsewhere.
+  - There were 117 `gather oak_log` attempts (116 from the bots' own model), against 25-78 elsewhere: 26 succeeded,
+    76 failed, 10 aborted and 5 ended unknown.
+- **The wood lean and a stale sighting are not established as the explanation.** det block 2 shows they are not
+  sufficient; it cannot rule out that they contributed.
+  - Within 70 min the overseer sent 9 GET_WOOD and 1 GET_IRON. Three went to an already stripped sighting (377,174),
+    and the third of those was refused for repeat_loop. That relocated at most 2 bots, while the collapse covered
+    all 8 (finishing at 0-31).
+  - det block 2 had a heavier wood lean and 8 directives to dead sightings. It was det's best run (302).
+- It is a treatment-arm run, so it stays in the analysis.
+
+**C1 comparison: cross-session context only, not evidence.**
+- C2's `none` is not the same configuration as C1's gemma4-MLX8 arm. It runs a different code tree, has gpt-oss:120b
+  co-resident, and has the director and the Mayor in the world.
+- Two of C2's three `none` runs exceed every C1 run of the same brain (C1 201-305). det (172-302) and esc (174-241)
+  overlap C1's range, and two of their six runs fall below it.
+- This cannot identify a session effect or discount the within-C2 contrasts.
+
+**Verdict.**
+- **Does a big-model overseer help the bots work together?** Not shown.
+  - Output is INCONCLUSIVE against the rule allocator, and descriptively against no overseer.
+  - It reached as many milestones as no overseer (75 vs 74) and the most iron-tier value. It also completed the
+    smallest share of its directives (42%), and its runs were the most variable (82 to 403).
+- **Does big-model stuck escalation help?** No net benefit was demonstrated. Stuck time did not fall. Output was
+  lower in every block, though INCONCLUSIVE under the pre-registered band, and stone pickaxes were lower in every
+  block.
+- **Is the directive channel neutral?** INCONCLUSIVE on output, which is inside the pre-registered band.
+  - det and esc were lower in every block, mostly in cobblestone, with iron-tier value unchanged.
+  - The experiment tests these policies; it does not isolate the channel itself.
+
+**What is worth a C3 or a live A/B.**
+- **Not the overseer or escalation, as built.** "As built" means gpt-oss:120b with a three-verb allocator (GET_WOOD /
+  GET_IRON / RESTORE_PICK) and single-shot escalation. This says nothing about the owner's queued frontier-overseer
+  or strategist layer.
+- **If the owner pursues an overseer anyway:**
+  - Fix dead sightings first, as hygiene: they are confirmed in both det and ov. Use a known accessible resource as
+    the positive control.
+  - Then pre-register the policy, the primary contrast, the effect worth detecting, the power, the block count and
+    the stopping rule.
+    - Output: with the observed ov-none paired SD of about 181, 6 blocks resolve only about ±190. For a 30% effect
+      (about 100 units), a two-sided paired-t at alpha 0.05 has about 65% power at 20 blocks; 80% needs about 28.
+    - A stone-pickaxe or stuck-time primary may need fewer blocks, but that needs its own power calculation.
+  - Do not pool a modified allocator with these runs.
+- **The actionable result is the brain alone:** gemma4:26b, thinking off, LM Studio MLX 8-bit.
+  - C1 supports a brain-only live A/B, especially for stuck time: 14.9 vs 35.0 min per bot, lower in 3 of 3 matched
+    blocks.
+  - About 1.7x as many bots reached a stone pickaxe (4.0 vs 2.3).
+  - Team output remained INCONCLUSIVE.
+  - C2 does not retest the brain comparison.

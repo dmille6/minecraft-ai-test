@@ -1,0 +1,154 @@
+{"kind": "overseer_decision", "engine": "deterministic", "snap_id": "mbench-cl-c2-det-sandbox4-1007T2149-b1@2026-10-07T21:51:27Z", "n": 2, "t": "2026-10-07T21:51:57Z"}
+{"kind": "directive_sent", "bot": "mbench-s4-Golf", "id": "o1", "origin": "overseer", "steps": [{"skill": "goto", "args": {"x": 336, "y": 70, "z": 165}}, {"skill": "gather", "args": {"block": "oak_log", "count": 16}}], "why": "GET_WOOD nearest log sighting 17 blocks; est. 35 ", "t": "2026-10-07T21:51:57Z"}
+{"kind": "directive_sent", "bot": "mbench-s4-Echo", "id": "o2", "origin": "overseer", "steps": [{"skill": "goto", "args": {"x": 377, "y": 75, "z": 174}}, {"skill": "gather", "args": {"block": "oak_log", "count": 16}}], "why": "GET_WOOD nearest log sighting 23 blocks; est. 35 ", "t": "2026-10-07T21:51:57Z"}
+{"kind": "overseer_decision", "engine": "deterministic", "snap_id": "mbench-cl-c2-det-sandbox4-1007T2149-b1@2026-10-07T21:56:27Z", "n": 3, "t": "2026-10-07T21:56:27Z"}
+{"kind": "directive_sent", "bot": "mbench-s4-Alpha", "id": "o3", "origin": "overseer", "steps": [{"skill": "goto", "args": {"x": 325, "y": 68, "z": 135}}, {"skill": "gather", "args": {"block": "oak_log", "count": 16}}], "why": "GET_WOOD nearest log sighting 4 blocks; est. 35 f", "t": "2026-10-07T21:56:27Z"}
+{"kind": "episode_start", "bot": "mbench-s4-Delta", "pos": {"x": 407.5, "y": 75, "z": 141.5}, "bad": 6, "t": "2026-10-07T22:00:57Z"}
+{"kind": "escalation_trigger", "bot": "mbench-s4-Delta", "n": 1, "bad": 6, "acting": false, "t": "2026-10-07T22:00:57Z"}
+{"kind": "overseer_decision", "engine": "deterministic", "snap_id": "mbench-cl-c2-det-sandbox4-1007T2149-b1@2026-10-07T22:01:27Z", "n": 2, "t": "2026-10-07T22:01:27Z"}
+{"kind": "directive_sent", "bot": "mbench-s4-Hotel", "id": "o4", "origin": "overseer", "steps": [{"skill": "craft", "args": {"item": "wooden_pickaxe", "count": 1}}], "why": "RESTORE_PICK best pickaxe none; ingredients for a woo", "t": "2026-10-07T22:01:27Z"}
+{"kind": "episode_end", "bot": "mbench-s4-Delta", "minutes": 1.0, "escalations": 1, "t": "2026-10-07T22:01:57Z"}
+{"kind": "overseer_decision", "engine": "deterministic", "snap_id": "mbench-cl-c2-det-sandbox4-1007T2149-b1@2026-10-07T22:06:27Z", "n": 2, "t": "2026-10-07T22:06:28Z"}
+{"kind": "directive_sent", "bot": "mbench-s4-Comet", "id": "o5", "origin": "overseer", "steps": [{"skill": "craft", "args": {"item": "wooden_pickaxe", "count": 1}}], "why": "RESTORE_PICK best pickaxe none; ingredients for a woo", "t": "2026-10-07T22:06:28Z"}
+{"kind": "directive_sent", "bot": "mbench-s4-Alpha", "id": "o6", "origin": "overseer", "steps": [{"skill": "craft", "args": {"item": "wooden_pickaxe", "count": 1}}], "why": "RESTORE_PICK best pickaxe none; ingredients for a woo", "t": "2026-10-07T22:06:28Z"}
+{"kind": "episode_start", "bot": "mbench-s4-Hotel", "pos": {"x": 378.2, "y": 71, "z": 89.6}, "bad": 3, "t": "2026-10-07T22:07:58Z"}
+{"kind": "escalation_trigger", "bot": "mbench-s4-Hotel", "n": 1, "bad": 3, "acting": false, "t": "2026-10-07T22:07:58Z"}
+{"kind": "episode_start", "bot": "mbench-s4-Golf", "pos": {"x": 240.6, "y": 69, "z": 198.5}, "bad": 3, "t": "2026-10-07T22:07:58Z"}
+{"kind": "escalation_trigger", "bot": "mbench-s4-Golf", "n": 1, "bad": 3, "acting": false, "t": "2026-10-07T22:07:58Z"}
+{"kind": "episode_end", "bot": "mbench-s4-Golf", "minutes": 2.0, "escalations": 1, "t": "2026-10-07T22:09:58Z"}
+{"kind": "episode_end", "bot": "mbench-s4-Hotel", "minutes": 2.5, "escalations": 1, "t": "2026-10-07T22:10:28Z"}
+{"kind": "overseer_decision", "engine": "deterministic", "snap_id": "mbench-cl-c2-det-sandbox4-1007T2149-b1@2026-10-07T22:11:27Z", "n": 2, "t": "2026-10-07T22:11:28Z"}
+{"kind": "directive_sent", "bot": "mbench-s4-Bravo", "id": "o7", "origin": "overseer", "steps": [{"skill": "craft", "args": {"item": "wooden_pickaxe", "count": 1}}], "why": "RESTORE_PICK best pickaxe none; ingredients for a woo", "t": "2026-10-07T22:11:28Z"}
+{"kind": "directive_sent", "bot": "mbench-s4-Fox", "id": "o8", "origin": "overseer", "steps": [{"skill": "craft", "args": {"item": "wooden_pickaxe", "count": 1}}], "why": "RESTORE_PICK best pickaxe none; ingredients for a woo", "t": "2026-10-07T22:11:28Z"}
+{"kind": "episode_start", "bot": "mbench-s4-Comet", "pos": {"x": 402.5, "y": 61.9, "z": 224.5}, "bad": 5, "t": "2026-10-07T22:14:59Z"}
+{"kind": "escalation_trigger", "bot": "mbench-s4-Comet", "n": 1, "bad": 5, "acting": false, "t": "2026-10-07T22:14:59Z"}
+{"kind": "episode_start", "bot": "mbench-s4-Delta", "pos": {"x": 447.7, "y": 70, "z": 102.5}, "bad": 8, "t": "2026-10-07T22:14:59Z"}
+{"kind": "escalation_trigger", "bot": "mbench-s4-Delta", "n": 1, "bad": 8, "acting": false, "t": "2026-10-07T22:14:59Z"}
+{"kind": "episode_end", "bot": "mbench-s4-Delta", "minutes": 0.5, "escalations": 1, "t": "2026-10-07T22:15:29Z"}
+{"kind": "overseer_decision", "engine": "deterministic", "snap_id": "mbench-cl-c2-det-sandbox4-1007T2149-b1@2026-10-07T22:16:27Z", "n": 2, "t": "2026-10-07T22:16:29Z"}
+{"kind": "directive_sent", "bot": "mbench-s4-Delta", "id": "o9", "origin": "overseer", "steps": [{"skill": "craft", "args": {"item": "wooden_pickaxe", "count": 1}}], "why": "RESTORE_PICK best pickaxe none; ingredients for a woo", "t": "2026-10-07T22:16:29Z"}
+{"kind": "directive_sent", "bot": "mbench-s4-Golf", "id": "o10", "origin": "overseer", "steps": [{"skill": "craft", "args": {"item": "wooden_pickaxe", "count": 1}}], "why": "RESTORE_PICK best pickaxe none; ingredients for a woo", "t": "2026-10-07T22:16:29Z"}
+{"kind": "episode_start", "bot": "mbench-s4-Bravo", "pos": {"x": 313.5, "y": 71, "z": 89.3}, "bad": 8, "t": "2026-10-07T22:16:29Z"}
+{"kind": "escalation_trigger", "bot": "mbench-s4-Bravo", "n": 1, "bad": 8, "acting": false, "t": "2026-10-07T22:16:29Z"}
+{"kind": "episode_start", "bot": "mbench-s4-Echo", "pos": {"x": 447.7, "y": 70, "z": 102.5}, "bad": 8, "t": "2026-10-07T22:17:29Z"}
+{"kind": "escalation_trigger", "bot": "mbench-s4-Echo", "n": 1, "bad": 8, "acting": false, "t": "2026-10-07T22:17:29Z"}
+{"kind": "episode_end", "bot": "mbench-s4-Echo", "minutes": 1.0, "escalations": 1, "t": "2026-10-07T22:18:29Z"}
+{"kind": "episode_start", "bot": "mbench-s4-Delta", "pos": {"x": 447.7, "y": 70, "z": 102.5}, "bad": 7, "t": "2026-10-07T22:21:00Z"}
+{"kind": "escalation_trigger", "bot": "mbench-s4-Delta", "n": 1, "bad": 7, "acting": false, "t": "2026-10-07T22:21:00Z"}
+{"kind": "overseer_decision", "engine": "deterministic", "snap_id": "mbench-cl-c2-det-sandbox4-1007T2149-b1@2026-10-07T22:21:27Z", "n": 2, "t": "2026-10-07T22:21:30Z"}
+{"kind": "directive_sent", "bot": "mbench-s4-Echo", "id": "o11", "origin": "overseer", "steps": [{"skill": "craft", "args": {"item": "wooden_pickaxe", "count": 1}}], "why": "RESTORE_PICK best pickaxe none; ingredients for a woo", "t": "2026-10-07T22:21:30Z"}
+{"kind": "escalation_trigger", "bot": "mbench-s4-Bravo", "n": 2, "bad": 9, "acting": false, "t": "2026-10-07T22:21:30Z"}
+{"kind": "episode_start", "bot": "mbench-s4-Echo", "pos": {"x": 469.5, "y": 72, "z": 77.3}, "bad": 7, "t": "2026-10-07T22:24:00Z"}
+{"kind": "escalation_trigger", "bot": "mbench-s4-Echo", "n": 1, "bad": 7, "acting": false, "t": "2026-10-07T22:24:00Z"}
+{"kind": "episode_end", "bot": "mbench-s4-Comet", "minutes": 9.5, "escalations": 1, "t": "2026-10-07T22:24:30Z"}
+{"kind": "episode_start", "bot": "mbench-s4-Alpha", "pos": {"x": 300.4, "y": 64, "z": 113.6}, "bad": 5, "t": "2026-10-07T22:25:31Z"}
+{"kind": "escalation_trigger", "bot": "mbench-s4-Alpha", "n": 1, "bad": 5, "acting": false, "t": "2026-10-07T22:25:31Z"}
+{"kind": "escalation_trigger", "bot": "mbench-s4-Delta", "n": 2, "bad": 8, "acting": false, "t": "2026-10-07T22:26:01Z"}
+{"kind": "overseer_decision", "engine": "deterministic", "snap_id": "mbench-cl-c2-det-sandbox4-1007T2149-b1@2026-10-07T22:26:27Z", "n": 0, "t": "2026-10-07T22:26:31Z"}
+{"kind": "escalation_trigger", "bot": "mbench-s4-Bravo", "n": 3, "bad": 9, "acting": false, "t": "2026-10-07T22:26:31Z"}
+{"kind": "episode_end", "bot": "mbench-s4-Delta", "minutes": 5.5, "escalations": 2, "t": "2026-10-07T22:26:31Z"}
+{"kind": "episode_start", "bot": "mbench-s4-Hotel", "pos": {"x": 410.5, "y": 70, "z": 55.5}, "bad": 9, "t": "2026-10-07T22:27:01Z"}
+{"kind": "escalation_trigger", "bot": "mbench-s4-Hotel", "n": 1, "bad": 9, "acting": false, "t": "2026-10-07T22:27:01Z"}
+{"kind": "episode_start", "bot": "mbench-s4-Fox", "pos": {"x": 449.5, "y": 65, "z": 194.7}, "bad": 8, "t": "2026-10-07T22:27:31Z"}
+{"kind": "escalation_trigger", "bot": "mbench-s4-Fox", "n": 1, "bad": 8, "acting": false, "t": "2026-10-07T22:27:31Z"}
+{"kind": "escalation_trigger", "bot": "mbench-s4-Echo", "n": 2, "bad": 8, "acting": false, "t": "2026-10-07T22:29:01Z"}
+{"kind": "episode_end", "bot": "mbench-s4-Hotel", "minutes": 2.5, "escalations": 1, "t": "2026-10-07T22:29:31Z"}
+{"kind": "episode_end", "bot": "mbench-s4-Fox", "minutes": 2.5, "escalations": 1, "t": "2026-10-07T22:30:01Z"}
+{"kind": "escalation_trigger", "bot": "mbench-s4-Alpha", "n": 2, "bad": 6, "acting": false, "t": "2026-10-07T22:30:32Z"}
+{"kind": "overseer_decision", "engine": "deterministic", "snap_id": "mbench-cl-c2-det-sandbox4-1007T2149-b1@2026-10-07T22:31:27Z", "n": 1, "t": "2026-10-07T22:31:32Z"}
+{"kind": "directive_sent", "bot": "mbench-s4-Alpha", "id": "o12", "origin": "overseer", "steps": [{"skill": "goto", "args": {"x": 300, "y": 65, "z": 114}}, {"skill": "gather", "args": {"block": "iron_ore", "count": 3}}], "why": "GET_IRON iron sighting 1 blocks; stone+ pick 92 u", "t": "2026-10-07T22:31:32Z"}
+{"kind": "episode_start", "bot": "mbench-s4-Comet", "pos": {"x": 345.6, "y": 70, "z": 196.5}, "bad": 8, "t": "2026-10-07T22:33:32Z"}
+{"kind": "escalation_trigger", "bot": "mbench-s4-Comet", "n": 1, "bad": 8, "acting": false, "t": "2026-10-07T22:33:32Z"}
+{"kind": "episode_start", "bot": "mbench-s4-Delta", "pos": {"x": 447.7, "y": 70, "z": 102.5}, "bad": 8, "t": "2026-10-07T22:33:32Z"}
+{"kind": "escalation_trigger", "bot": "mbench-s4-Delta", "n": 1, "bad": 8, "acting": false, "t": "2026-10-07T22:33:32Z"}
+{"kind": "escalation_trigger", "bot": "mbench-s4-Echo", "n": 3, "bad": 9, "acting": false, "t": "2026-10-07T22:34:02Z"}
+{"kind": "episode_end", "bot": "mbench-s4-Comet", "minutes": 1.0, "escalations": 1, "t": "2026-10-07T22:34:32Z"}
+{"kind": "episode_start", "bot": "mbench-s4-Golf", "pos": {"x": 301.5, "y": 57, "z": 163.5}, "bad": 5, "t": "2026-10-07T22:35:33Z"}
+{"kind": "escalation_trigger", "bot": "mbench-s4-Golf", "n": 1, "bad": 5, "acting": false, "t": "2026-10-07T22:35:33Z"}
+{"kind": "escalation_trigger", "bot": "mbench-s4-Alpha", "n": 3, "bad": 9, "acting": false, "t": "2026-10-07T22:35:33Z"}
+{"kind": "episode_end", "bot": "mbench-s4-Bravo", "minutes": 19.6, "escalations": 3, "t": "2026-10-07T22:36:03Z"}
+{"kind": "overseer_decision", "engine": "deterministic", "snap_id": "mbench-cl-c2-det-sandbox4-1007T2149-b1@2026-10-07T22:36:27Z", "n": 0, "t": "2026-10-07T22:36:33Z"}
+{"kind": "episode_end", "bot": "mbench-s4-Alpha", "minutes": 12.5, "escalations": 3, "t": "2026-10-07T22:38:03Z"}
+{"kind": "escalation_trigger", "bot": "mbench-s4-Delta", "n": 2, "bad": 9, "acting": false, "t": "2026-10-07T22:38:33Z"}
+{"kind": "episode_end", "bot": "mbench-s4-Delta", "minutes": 5.5, "escalations": 2, "t": "2026-10-07T22:39:03Z"}
+{"kind": "episode_end", "bot": "mbench-s4-Golf", "minutes": 4.0, "escalations": 1, "t": "2026-10-07T22:39:34Z"}
+{"kind": "episode_start", "bot": "mbench-s4-Comet", "pos": {"x": 358.5, "y": 72, "z": 172.5}, "bad": 8, "t": "2026-10-07T22:40:04Z"}
+{"kind": "escalation_trigger", "bot": "mbench-s4-Comet", "n": 1, "bad": 8, "acting": false, "t": "2026-10-07T22:40:04Z"}
+{"kind": "overseer_decision", "engine": "deterministic", "snap_id": "mbench-cl-c2-det-sandbox4-1007T2149-b1@2026-10-07T22:41:27Z", "n": 0, "t": "2026-10-07T22:41:34Z"}
+{"kind": "episode_start", "bot": "mbench-s4-Hotel", "pos": {"x": 416.5, "y": 69, "z": 84.5}, "bad": 9, "t": "2026-10-07T22:42:04Z"}
+{"kind": "escalation_trigger", "bot": "mbench-s4-Hotel", "n": 1, "bad": 9, "acting": false, "t": "2026-10-07T22:42:04Z"}
+{"kind": "escalation_trigger", "bot": "mbench-s4-Comet", "n": 2, "bad": 9, "acting": false, "t": "2026-10-07T22:45:05Z"}
+{"kind": "episode_end", "bot": "mbench-s4-Hotel", "minutes": 3.5, "escalations": 1, "t": "2026-10-07T22:45:35Z"}
+{"kind": "overseer_decision", "engine": "deterministic", "snap_id": "mbench-cl-c2-det-sandbox4-1007T2149-b1@2026-10-07T22:46:27Z", "n": 0, "t": "2026-10-07T22:46:35Z"}
+{"kind": "episode_start", "bot": "mbench-s4-Fox", "pos": {"x": 440.5, "y": 63, "z": 187.5}, "bad": 9, "t": "2026-10-07T22:48:36Z"}
+{"kind": "escalation_trigger", "bot": "mbench-s4-Fox", "n": 1, "bad": 9, "acting": false, "t": "2026-10-07T22:48:36Z"}
+{"kind": "episode_end", "bot": "mbench-s4-Fox", "minutes": 1.0, "escalations": 1, "t": "2026-10-07T22:49:36Z"}
+{"kind": "escalation_trigger", "bot": "mbench-s4-Comet", "n": 3, "bad": 9, "acting": false, "t": "2026-10-07T22:50:06Z"}
+{"kind": "episode_end", "bot": "mbench-s4-Echo", "minutes": 26.1, "escalations": 3, "t": "2026-10-07T22:50:06Z"}
+{"kind": "episode_start", "bot": "mbench-s4-Bravo", "pos": {"x": 322.3, "y": 63, "z": 385.8}, "bad": 9, "t": "2026-10-07T22:50:36Z"}
+{"kind": "escalation_trigger", "bot": "mbench-s4-Bravo", "n": 1, "bad": 9, "acting": false, "t": "2026-10-07T22:50:36Z"}
+{"kind": "overseer_decision", "engine": "deterministic", "snap_id": "mbench-cl-c2-det-sandbox4-1007T2149-b1@2026-10-07T22:51:27Z", "n": 0, "t": "2026-10-07T22:51:37Z"}
+{"kind": "episode_end", "bot": "mbench-s4-Comet", "minutes": 13.6, "escalations": 3, "t": "2026-10-07T22:53:37Z"}
+{"kind": "escalation_trigger", "bot": "mbench-s4-Bravo", "n": 2, "bad": 9, "acting": false, "t": "2026-10-07T22:55:38Z"}
+{"kind": "overseer_decision", "engine": "deterministic", "snap_id": "mbench-cl-c2-det-sandbox4-1007T2149-b1@2026-10-07T22:56:27Z", "n": 1, "t": "2026-10-07T22:56:38Z"}
+{"kind": "directive_sent", "bot": "mbench-s4-Golf", "id": "o13", "origin": "overseer", "steps": [{"skill": "craft", "args": {"item": "stone_pickaxe", "count": 1}}], "why": "RESTORE_PICK best pickaxe low; ingredients for a ston", "t": "2026-10-07T22:56:38Z"}
+{"kind": "episode_start", "bot": "mbench-s4-Delta", "pos": {"x": 450.5, "y": 65, "z": 102.5}, "bad": 4, "t": "2026-10-07T22:57:08Z"}
+{"kind": "escalation_trigger", "bot": "mbench-s4-Delta", "n": 1, "bad": 4, "acting": false, "t": "2026-10-07T22:57:08Z"}
+{"kind": "episode_start", "bot": "mbench-s4-Hotel", "pos": {"x": 416.5, "y": 69, "z": 84.3}, "bad": 9, "t": "2026-10-07T22:57:38Z"}
+{"kind": "escalation_trigger", "bot": "mbench-s4-Hotel", "n": 1, "bad": 9, "acting": false, "t": "2026-10-07T22:57:38Z"}
+{"kind": "episode_start", "bot": "mbench-s4-Echo", "pos": {"x": 545.5, "y": 63, "z": 110.5}, "bad": 3, "t": "2026-10-07T22:58:09Z"}
+{"kind": "escalation_trigger", "bot": "mbench-s4-Echo", "n": 1, "bad": 3, "acting": false, "t": "2026-10-07T22:58:09Z"}
+{"kind": "episode_start", "bot": "mbench-s4-Golf", "pos": {"x": 326.7, "y": 63.6, "z": 220.7}, "bad": 7, "t": "2026-10-07T22:58:39Z"}
+{"kind": "escalation_trigger", "bot": "mbench-s4-Golf", "n": 1, "bad": 7, "acting": false, "t": "2026-10-07T22:58:39Z"}
+{"kind": "episode_start", "bot": "mbench-s4-Fox", "pos": {"x": 489.4, "y": 67, "z": 168.7}, "bad": 8, "t": "2026-10-07T22:59:09Z"}
+{"kind": "escalation_trigger", "bot": "mbench-s4-Fox", "n": 1, "bad": 8, "acting": false, "t": "2026-10-07T22:59:09Z"}
+{"kind": "episode_end", "bot": "mbench-s4-Echo", "minutes": 1.0, "escalations": 1, "t": "2026-10-07T22:59:09Z"}
+{"kind": "episode_start", "bot": "mbench-s4-Comet", "pos": {"x": 349.5, "y": 62.7, "z": 189.4}, "bad": 3, "t": "2026-10-07T22:59:39Z"}
+{"kind": "escalation_trigger", "bot": "mbench-s4-Comet", "n": 1, "bad": 3, "acting": false, "t": "2026-10-07T22:59:39Z"}
+{"kind": "episode_end", "bot": "mbench-s4-Fox", "minutes": 1.0, "escalations": 1, "t": "2026-10-07T23:00:09Z"}
+{"kind": "escalation_trigger", "bot": "mbench-s4-Bravo", "n": 3, "bad": 5, "acting": false, "t": "2026-10-07T23:00:39Z"}
+{"kind": "overseer_decision", "engine": "deterministic", "snap_id": "mbench-cl-c2-det-sandbox4-1007T2149-b1@2026-10-07T23:01:27Z", "n": 2, "t": "2026-10-07T23:01:40Z"}
+{"kind": "directive_sent", "bot": "mbench-s4-Comet", "id": "o14", "origin": "overseer", "steps": [{"skill": "goto", "args": {"x": 340, "y": 65, "z": 189}}, {"skill": "gather", "args": {"block": "iron_ore", "count": 3}}], "why": "GET_IRON iron sighting 6 blocks; stone+ pick 131 ", "t": "2026-10-07T23:01:40Z"}
+{"kind": "directive_sent", "bot": "mbench-s4-Delta", "id": "o15", "origin": "overseer", "steps": [{"skill": "goto", "args": {"x": 436, "y": 56, "z": 106}}, {"skill": "gather", "args": {"block": "iron_ore", "count": 3}}], "why": "GET_IRON iron sighting 15 blocks; stone+ pick 131", "t": "2026-10-07T23:01:40Z"}
+{"kind": "escalation_trigger", "bot": "mbench-s4-Delta", "n": 2, "bad": 7, "acting": false, "t": "2026-10-07T23:02:10Z"}
+{"kind": "episode_end", "bot": "mbench-s4-Bravo", "minutes": 12.1, "escalations": 3, "t": "2026-10-07T23:02:40Z"}
+{"kind": "episode_end", "bot": "mbench-s4-Comet", "minutes": 3.0, "escalations": 1, "t": "2026-10-07T23:02:40Z"}
+{"kind": "episode_end", "bot": "mbench-s4-Delta", "minutes": 5.5, "escalations": 2, "t": "2026-10-07T23:02:40Z"}
+{"kind": "escalation_trigger", "bot": "mbench-s4-Hotel", "n": 2, "bad": 9, "acting": false, "t": "2026-10-07T23:02:40Z"}
+{"kind": "episode_start", "bot": "mbench-s4-Alpha", "pos": {"x": 361.3, "y": 62.2, "z": 176.7}, "bad": 3, "t": "2026-10-07T23:03:10Z"}
+{"kind": "escalation_trigger", "bot": "mbench-s4-Alpha", "n": 1, "bad": 3, "acting": false, "t": "2026-10-07T23:03:10Z"}
+{"kind": "escalation_trigger", "bot": "mbench-s4-Golf", "n": 2, "bad": 9, "acting": false, "t": "2026-10-07T23:03:41Z"}
+{"kind": "episode_end", "bot": "mbench-s4-Alpha", "minutes": 1.0, "escalations": 1, "t": "2026-10-07T23:04:11Z"}
+{"kind": "episode_end", "bot": "mbench-s4-Hotel", "minutes": 7.0, "escalations": 2, "t": "2026-10-07T23:04:41Z"}
+{"kind": "episode_start", "bot": "mbench-s4-Fox", "pos": {"x": 516.5, "y": 63, "z": 179.5}, "bad": 9, "t": "2026-10-07T23:05:11Z"}
+{"kind": "escalation_trigger", "bot": "mbench-s4-Fox", "n": 1, "bad": 9, "acting": false, "t": "2026-10-07T23:05:11Z"}
+{"kind": "episode_end", "bot": "mbench-s4-Fox", "minutes": 0.5, "escalations": 1, "t": "2026-10-07T23:05:41Z"}
+{"kind": "episode_start", "bot": "mbench-s4-Bravo", "pos": {"x": 319.5, "y": 68.5, "z": 386.4}, "bad": 8, "t": "2026-10-07T23:06:11Z"}
+{"kind": "escalation_trigger", "bot": "mbench-s4-Bravo", "n": 1, "bad": 8, "acting": false, "t": "2026-10-07T23:06:11Z"}
+{"kind": "overseer_decision", "engine": "deterministic", "snap_id": "mbench-cl-c2-det-sandbox4-1007T2149-b1@2026-10-07T23:06:27Z", "n": 0, "t": "2026-10-07T23:06:42Z"}
+{"kind": "episode_start", "bot": "mbench-s4-Echo", "pos": {"x": 547.5, "y": 62.8, "z": 129.5}, "bad": 6, "t": "2026-10-07T23:07:42Z"}
+{"kind": "escalation_trigger", "bot": "mbench-s4-Echo", "n": 1, "bad": 6, "acting": false, "t": "2026-10-07T23:07:42Z"}
+{"kind": "escalation_trigger", "bot": "mbench-s4-Golf", "n": 3, "bad": 9, "acting": false, "t": "2026-10-07T23:08:42Z"}
+{"kind": "episode_start", "bot": "mbench-s4-Comet", "pos": {"x": 342.7, "y": 72, "z": 185.8}, "bad": 3, "t": "2026-10-07T23:11:13Z"}
+{"kind": "escalation_trigger", "bot": "mbench-s4-Comet", "n": 1, "bad": 3, "acting": false, "t": "2026-10-07T23:11:13Z"}
+{"kind": "overseer_decision", "engine": "deterministic", "snap_id": "mbench-cl-c2-det-sandbox4-1007T2149-b1@2026-10-07T23:11:27Z", "n": 2, "t": "2026-10-07T23:11:43Z"}
+{"kind": "directive_sent", "bot": "mbench-s4-Golf", "id": "o16", "origin": "overseer", "steps": [{"skill": "goto", "args": {"x": 338, "y": 68, "z": 215}}, {"skill": "gather", "args": {"block": "iron_ore", "count": 3}}], "why": "GET_IRON iron sighting 6 blocks; stone+ pick 131 ", "t": "2026-10-07T23:11:43Z"}
+{"kind": "directive_sent", "bot": "mbench-s4-Echo", "id": "o17", "origin": "overseer", "steps": [{"skill": "goto", "args": {"x": 547, "y": 52, "z": 123}}, {"skill": "gather", "args": {"block": "iron_ore", "count": 3}}], "why": "GET_IRON iron sighting 11 blocks; stone+ pick 131", "t": "2026-10-07T23:11:43Z"}
+{"kind": "escalation_trigger", "bot": "mbench-s4-Bravo", "n": 2, "bad": 7, "acting": false, "t": "2026-10-07T23:11:43Z"}
+{"kind": "episode_end", "bot": "mbench-s4-Golf", "minutes": 13.1, "escalations": 3, "t": "2026-10-07T23:11:44Z"}
+{"kind": "episode_end", "bot": "mbench-s4-Comet", "minutes": 1.0, "escalations": 1, "t": "2026-10-07T23:12:14Z"}
+{"kind": "escalation_trigger", "bot": "mbench-s4-Echo", "n": 2, "bad": 6, "acting": false, "t": "2026-10-07T23:12:44Z"}
+{"kind": "episode_end", "bot": "mbench-s4-Bravo", "minutes": 8.0, "escalations": 2, "t": "2026-10-07T23:14:14Z"}
+{"kind": "episode_start", "bot": "mbench-s4-Bravo", "pos": {"x": 322.5, "y": 61.6, "z": 383.3}, "bad": 7, "t": "2026-10-07T23:14:14Z"}
+{"kind": "escalation_trigger", "bot": "mbench-s4-Bravo", "n": 1, "bad": 7, "acting": false, "t": "2026-10-07T23:14:14Z"}
+{"kind": "overseer_decision", "engine": "deterministic", "snap_id": "mbench-cl-c2-det-sandbox4-1007T2149-b1@2026-10-07T23:16:27Z", "n": 0, "t": "2026-10-07T23:16:45Z"}
+{"kind": "episode_start", "bot": "mbench-s4-Comet", "pos": {"x": 340.4, "y": 70, "z": 188.5}, "bad": 5, "t": "2026-10-07T23:17:16Z"}
+{"kind": "escalation_trigger", "bot": "mbench-s4-Comet", "n": 1, "bad": 5, "acting": false, "t": "2026-10-07T23:17:16Z"}
+{"kind": "episode_end", "bot": "mbench-s4-Comet", "minutes": 0.5, "escalations": 1, "t": "2026-10-07T23:17:46Z"}
+{"kind": "escalation_trigger", "bot": "mbench-s4-Echo", "n": 3, "bad": 8, "acting": false, "t": "2026-10-07T23:17:46Z"}
+{"kind": "episode_start", "bot": "mbench-s4-Hotel", "pos": {"x": 391, "y": 72, "z": 87.8}, "bad": 8, "t": "2026-10-07T23:18:16Z"}
+{"kind": "escalation_trigger", "bot": "mbench-s4-Hotel", "n": 1, "bad": 8, "acting": false, "t": "2026-10-07T23:18:16Z"}
+{"kind": "escalation_trigger", "bot": "mbench-s4-Bravo", "n": 2, "bad": 6, "acting": false, "t": "2026-10-07T23:19:16Z"}
+{"kind": "episode_start", "bot": "mbench-s4-Golf", "pos": {"x": 360.5, "y": 70, "z": 150.5}, "bad": 3, "t": "2026-10-07T23:19:16Z"}
+{"kind": "escalation_trigger", "bot": "mbench-s4-Golf", "n": 1, "bad": 3, "acting": false, "t": "2026-10-07T23:19:16Z"}
+{"kind": "episode_end", "bot": "mbench-s4-Golf", "minutes": 1.0, "escalations": 1, "t": "2026-10-07T23:20:17Z"}

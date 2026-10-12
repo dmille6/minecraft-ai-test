@@ -1,0 +1,106 @@
+stonecap-01 rebase reviews, 2026-10-10 (queue agent); plus the peacefulkit-REVERT contingency (junkwell-02 + stonecap-01 on 4970c91).
+MAIN: sc-on-0cdb1a8 @ bacad2f -> 935c63e (= sc-on-cf4192e @ 32d7447's net diff over cf4192e on jw-on-6f1921a @ 0cdb1a8, + main's driver).
+CONTINGENCY: J jw-on-4970c91 @ 0264f61 (1db3fcd's net diff over 92bc84f on 4970c91); S sc-on-0264f61 @ d551f7a (f5bdb80 over 1db3fcd).
+Briefs: scratchpad review-sc-prompt.txt, review-sc-r2-prompt.txt, review-cont-prompt.txt.
+
+=== CODEX, stonecap round 1 ===
+CHANGE — two P2 findings; the identical patch preserves a well/AIRPOCKET ownership race and carries stale mutant anchors.
+
+All line references below are to **`bacad2f`**. I read commit objects only; no edits, tests, mutants, or state-changing git commands.
+
+1. **P2 — Interrupted well cleanup can interfere with the air-pocket rescue.**  
+   `bots/src/skills.mjs:7308`, `:5912`, `:6905`, `:7220`; `bots/src/reflex.mjs:1414`.
+
+   `air_pocket` interrupts the skill and immediately starts its own equip/dig. Meanwhile, `dispose_well` unconditionally runs `settleAndRestore`, which can restore the pre-visit hand after the rescue has equipped its pickaxe. During a throw phase, inventory actions also remain held until cleanup finishes; the wrapper permits an **8-second** wait, while AIRPOCKET’s equip deadline is **1.5 seconds**.
+
+   **Concrete scenario:** a cobble disposal visit is interrupted while an operation is settling. The rescue selects a pickaxe, but its equip waits behind the well hold, or the well’s later restore replaces it with the previously held cobble. The rescue can then fail its held-tool/budget check and enter its **60-second failure cooldown** (`bots/src/airpocket.mjs:239`, `:286`). `TRIGGER_SUPPRESSED` suppresses the wake-up; it does not fence cleanup or prevent an independently triggered order.
+
+   This race **already exists in `0cdb1a8`**; the cap adds cobble-only disposal visits that exercise it. Cleanup needs an ownership-aware handoff: preserve necessary well closure without letting stale hand restoration overwrite the rescue.
+
+2. **P2 — Two cobble mutants cannot apply to this candidate.**  
+   `scripts/mutants/mutants-canaries-1007.py:153`, `:163`.
+
+   Both anchors expect:
+   ```js
+   { wants }).length && !reconcile
+   ```
+   Actual admission uses `{ wants, noSwords }` at `bots/src/admission.mjs:375`.
+
+   **Concrete scenario:** running the candidate’s `cobble` set stops at `ANCHOR MISSING` for “admission refuses the reconciliation”; “admission walks an empty requested plan” is also unanchorable. Static inspection found **65 unique anchors out of 67**, with two missing. This is an explicit harness failure, not a killed mutant. Update both old/replacement strings while preserving `noSwords`; historical kill totals do not establish these checks on this composition.
+
+The other composition checks look sound:
+
+- **Tool hygiene:** cobble’s special branch does not change pickaxe counts, usable-copy arithmetic, or transfer selection. `depositSurvivors` still matches that policy. Redundant-craft admission retains wanted-item, escape-reserve, depth-budget, and exit-shortfall exceptions. I found no new cap/hygiene refusal cycle.
+- **Refusal remedies:** unknown-town cobble has a town-reconciliation exception and an away-from-town explanation. At a proven cap, the existing well scheduler supplies disposal under its slot/cooldown conditions. A stack merely exceeding remaining capacity does **not** authorize destruction.
+- **Scaffold quantity:** the actual constants are **64**, not 56. Banking and cobble disposal retain 64 combined cobble/deepslate; guarded decoration throws retain 64 accepted reserve stones. These are non-falling `PLACEABLE` materials suitable for the rescue’s 1–3-block stand. The concern is actuator ownership, not reserve exhaustion.
+- **Verification:** net additions/deletions match the approved diff. The `origin/main` peacefulkit driver’s **84 anchors with `PK_COMPOSED`** each match uniquely. That verifies applicability, not mutant kills. Existing well tests exercise interruption and delayed equips separately, without proving the concurrent AIRPOCKET handoff.
+
+**A targeted Paper re-proof is needed**, after fixing the handoff:
+
+- Bank/dispose down to the reserve, then perform supported and unsupported air-pocket stands and a scaffold escape.
+- Interrupt disposal during travel and during a pending throw/open; verify rescue tool ownership, breathing, well closure, and no late throw.
+- Trigger a cobble well order during an active rescue; verify cancellation without stale restoration or rescue failure cooldown.
+- Exercise unknown-town reconciliation and a full-bag cap refusal with hygiene enabled, including an outstanding pickaxe exit shortfall.
+
+=== CODEX, stonecap round 2 ===
+APPROVE — no blocking P1/P2 findings for `935c63e` on `0cdb1a8`.
+
+1. **P2-1 belongs in AIRPOCKET-02’s handoff work; I withdraw it as a stonecap rebase blocker.** The race remains real, but `settleAndRestore` and `holdInventory` are byte-identical to the queued junkwell base. Stonecap adds exposure, not a new handoff mechanism.
+
+   Specifically, surplus cobble can now qualify an otherwise ineligible bag for disposal, or add throws to an existing junk visit. Automatic visits still require town proximity, the existing 34-slot threshold, a usable well, and the three-minute disposal cooldown; throws remain capped at nine stacks per visit. Cobble does not enable pit-first build disposal. The incremental visit frequency cannot be quantified from code alone.
+
+   The liquid clearance and solid underground ring reduce exposure at the well, but do not prove the race impossible during travel or changing conditions. Ordinary abort handling also does not guarantee safe inventory ownership.
+
+   AIRPOCKET-02 should cover both sides: prevent an interrupted well cleanup from restoring the old hand after rescue takes ownership (`skills.mjs:5903`, caller `:7308`), and resolve the well’s inventory hold before rescue equips (`:6896`, acquired `:7159`). Merely skipping hand restoration would leave the delayed-equip problem. These belong in the shared rescue/well handoff, not the cobble classifier.
+
+2. **`935c63e` fixes P2-2.** Verified from commit objects:
+
+   - Only `scripts/mutants/mutants-canaries-1007.py` changes; its blob exactly matches `c24d4a0`.
+   - `bots/` is identical to `bacad2f`.
+   - Static anchor inspection confirms **69 cobble entries, 67 applicable unique anchors, two correctly gated skips**.
+   - Main’s `c24d4a0` peacefulkit driver with both composition options has **87 applicable unique anchors** against this build.
+   - The approved `bots/` patch matches the rebased patch after excluding blob IDs and hunk offsets.
+
+   These are static checks, not fresh mutant execution results.
+
+3. **A Paper re-proof is not required for this rebase.** The approved cap patch is preserved, and the follow-up commit changes no runtime code. The proposed single `cobble-cap-ab.cjs` at-cap scene is useful optional integration evidence: exercise deposit and well disposal and collect `_cobble_bank` / `_tool_hygiene` rows from this build. It would not establish correctness of the deferred rescue handoff.
+
+No files changed; no tests, mutants, or state-changing git commands ran.
+
+=== CLAUDE subagent, stonecap round 1 (condensed): APPROVE, no P1/P2 ===
+Approved and variant diffs match line for line; every changed module loads; lint only the base's guarded withinBody.
+Toolhygiene: refusals in different skill branches (craft: bad_args, redundant_craft, peaceful_no_sword; deposit: bank_closed,
+deposit_item_missing, peaceful_sword_deposit, the cap's deposit_nothing_to_bank, deposit_not_worth_it); remedies executable; a
+20,000-bag probe on the real functions: 0 differences in depositPlan's pickaxe entries between bacad2f and 0cdb1a8 (15,166 plans
+had pickaxe entries), 0 mismatches between depositSurvivors and the real plan. Airpocket: the cap never leaves less cobble than
+before and never below 64 (1,442 bags kept more; 86 banked, never under 64; the well's throws never under 64 / the stone guard);
+an air_pocket interrupt of a cap skill takes the ordinary abort path (claims released, no backoff). Anchors with main's drivers:
+cobble 69 entries, 67 run unique, 2 skipped by only:; PK_COMPOSED 87/87 unique. P3: the branch's driver is stale (-> 935c63e);
+record npm test + main's mutant results. Paper: not needed (optional cobble-cap-ab at-cap scene).
+
+=== CODEX, contingency round 1 ===
+J — **APPROVE** (`0264f61` on `4970c91`).
+S — **APPROVE** (`d551f7a` on J).
+
+No new P1/P2/P3 findings attributable to either rebase. Both patches preserve the approved changes after excluding diff metadata. References below use S’s commit-relative lines unless specified.
+
+- **Toolhygiene composes correctly.** The pit dig uses `bestTool` → `applyToolPolicy`, retaining worn-first selection (`bots/src/skills.mjs:7442`). Cobble takes a separate bankable branch; tool retention remains intact (`bots/src/bankable.mjs:257`, `:270`). Thus the `{120,60,8}` pickaxe scenario retains hygiene’s deposit-proof spare. The well does not dispose pickaxes or stations.
+- **Admission guards remain independent.** Empty deposit plans are refused in the deposit branch; redundant crafting remains in the craft branch (`bots/src/admission.mjs:355`, `:464`). Without peacefulkit, sword disposal still requires peaceful difficulty **and** foodskip, rechecked immediately before throwing (`bots/src/skills.mjs:1451`, `:7011`).
+- **Airpocket composition is sound within the stated scope.** An intact validated well’s solid ring and liquid clearance exclude drowning-pocket geometry (`bots/src/well.mjs:480`). S preserves 64 cobble at each disposal click (`bots/src/skills.mjs:7000`), supplying usable rescue scaffold.
+- **No exact-base dependency found.** Town-deposit cap admission remains wired; cognitive ordering keeps the composter ahead of the well. Fakeworld appends `oak_trapdoor` without shifting existing IDs. Examined tests assert specific refusal reasons and positive controls, reducing the risk of passing through an unrelated refusal.
+
+**Existing P2, record only — airpocket-02:** `bots/src/skills.mjs:5902` restores the hand during post-abort cleanup, also reached by well operations (`:7617`; J equivalent `:7212`). If drowning rescue takes ownership before cleanup finishes, that restore can overwrite the rescue’s equipped item. This remains the assigned handoff issue, not a new rebase blocker.
+
+**Mutant audit:** Current HEAD’s driver selects **67 cobble mutants**, skips **2 peacefulkit-specific forms**, and every selected anchor occurs **exactly once** on S. S’s bundled driver also has 67 unique active anchors. Local `main` lacks the specified driver; the audited current driver is HEAD `935c63e`.
+
+No additional Paper run is warranted specifically by these rebases. This is static approval: no tests, mutants, or Paper scenarios were run; no files or Git state were changed.
+
+=== CLAUDE subagent, contingency round 1 (condensed): J APPROVE, S APPROVE, no P1/P2 ===
+Diffs match exactly; modules load; toolhygiene's pit dig via bestTool/applyToolPolicy; NEVER_DISPOSE keeps pickaxes/stations;
+cobble branch leaves the tool keep-one path untouched; airpocket cannot fire at an intact well (containmentRefusal); main's cobble
+set applies 67 once each on S, skips 2. P3: registrations must update base-specific notes (licence fleet name, withinBody line,
+suite counts) -- done in the variant notes. Paper: not needed.
+
+=== RESULTS ===
+sc-on-0cdb1a8: npm test 244/244 (bacad2f; bots/ = 935c63e); cobble 67/67 (main's driver); mutants-pk PK_VARIANT=1 PK_COMPOSED=1 87/87;
+  well classifier 2/2. jw-on-4970c91: npm test 240/240. sc-on-0264f61: npm test 241/241; cobble 67/67. Lint: withinBody only.

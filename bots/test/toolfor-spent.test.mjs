@@ -88,7 +88,8 @@ await t('ORDER-INDEPENDENT: every slot permutation of mixed-kind inventories pic
     [LOG, () => [item('wooden_axe', 50), item('stone_axe', 3), item('stone_axe', 90)], 'wooden_axe@50'],
     [DIRT, () => [item('stone_axe', 90), item('stone_shovel', 50), item('stone_shovel', 4)], 'stone_shovel@4'],
     [DIRT, () => [item('stone_shovel', 2), item('stone_pickaxe', 50), item('stone_axe', 3)], 'stone_shovel@2'],
-    [STONE, () => [item('stone_pickaxe', 20), item('stone_axe', 3), item('stone_pickaxe', 90)], 'stone_pickaxe@90'],
+    // TOOL HYGIENE (on by default, 10-07): the more worn of two open pickaxes of one name digs; still slot-order-free.
+    [STONE, () => [item('stone_pickaxe', 20), item('stone_axe', 3), item('stone_pickaxe', 90)], 'stone_pickaxe@20'],
   ]
   for (const [b, make, want] of cases) {
     for (const opts of [{}, HARVEST]) {
@@ -153,7 +154,8 @@ await t('PICKAXES UNCHANGED: FLOOR reserve, HARD_STOP=1, iron retention, the ful
   assert.equal(hardStopFor(item('stone_pickaxe', 5), HARVEST), HARD_STOP)
   assert.equal(toolFor(STONE, [item('stone_pickaxe', 5)]).reason, 'reserved_required', 'a lone spent pickaxe is still only swung when nothing else can')
   assert.equal(toolFor(STONE, [item('stone_pickaxe', 1)]).reason, 'none', 'a 1-use pickaxe is still hard-stopped (no lastSwing)')
-  assert.equal(remaining(toolFor(STONE, [item('stone_pickaxe', 20), item('stone_pickaxe', 90)]).item), 90)
+  assert.equal(remaining(toolFor(STONE, [item('stone_pickaxe', 20), item('stone_pickaxe', 90)], { hygiene: false }).item), 90, 'the deployed order: fuller first')
+  assert.equal(remaining(toolFor(STONE, [item('stone_pickaxe', 20), item('stone_pickaxe', 90)], { hygiene: true }).item), 20, 'TOOL_HYGIENE on (the default): the more worn open copy first')
   assert.equal(toolFor(IRON_ORE, [item('iron_pickaxe', FLOOR), item('stone_pickaxe', 100)]).item.name, 'stone_pickaxe', 'iron retention')
   assert.equal(toolFor(DIAMOND, [item('iron_pickaxe', FLOOR), item('stone_pickaxe', 100)]).reason, 'reserved_required')
   assert.equal(toolFor(DIRT, [item('stone_pickaxe', 5)]).hand, true, 'a spent pickaxe is never "used up" on dirt')
@@ -348,23 +350,27 @@ async function withMutant (edits, fn) {
   writeFileSync(out, src)
   try { return await fn(await import(out.href)) } finally { try { unlinkSync(out) } catch {} }
 }
+const REAL_TOOLFOR = await import('../src/toolfor.mjs')
+// The probe must PASS on the real module first (added with TOOL_HYGIENE, 10-07): a probe that fails everywhere "kills"
+// every mutant and proves nothing -- the default changed under three of these, which is how that was found.
 const killed = async (label, edits, probe) => t(`MUTANT KILLED: ${label}`, () => withMutant(edits, async m => {
+  probe(REAL_TOOLFOR)
   let survived = true
   try { probe(m) } catch { survived = false }
   assert.equal(survived, false, 'the mutant passed the probe: the test above cannot see this defect')
 }))
 await killed('the FLOOR reserve restored for axes/shovels/hoes',
-  [['const open = timed.filter(x => x.r > FLOOR || (x.spend && x.t < handT)).sort(byCost)', 'const open = timed.filter(x => x.r > FLOOR).sort(byCost)']],
+  [['const open = timed.filter(x => x.r > FLOOR || (x.spend && x.t < handT) || (hygiene && x.pk && hasKeeper(x, timed, tools))).sort(byCost)', 'const open = timed.filter(x => x.r > FLOOR || (hygiene && x.pk && hasKeeper(x, timed, tools))).sort(byCost)']],
   m => { assert.equal(m.toolFor(LOG, [item('stone_axe', 5)]).item?.name, 'stone_axe') })
 await killed('a spent axe/shovel/hoe admitted to `open` where it is no faster than the hand (the `slow` branch)',
-  [['const open = timed.filter(x => x.r > FLOOR || (x.spend && x.t < handT)).sort(byCost)', 'const open = timed.filter(x => x.r > FLOOR || x.spend).sort(byCost)']],
+  [['const open = timed.filter(x => x.r > FLOOR || (x.spend && x.t < handT) || (hygiene && x.pk && hasKeeper(x, timed, tools))).sort(byCost)', 'const open = timed.filter(x => x.r > FLOOR || x.spend || (hygiene && x.pk && hasKeeper(x, timed, tools))).sort(byCost)']],
   m => { assert.equal(m.toolFor(ICE, [item('stone_pickaxe', 5), item('stone_shovel', 3)]).hand, true) })
 await killed('the wear comparator reversed for every kind',
   [['const d = (a.tier - b.tier) || (b.r - a.r)', 'const d = (a.tier - b.tier) || (a.r - b.r)']],
-  m => { assert.equal(remaining(m.toolFor(STONE, [item('stone_pickaxe', 20), item('stone_pickaxe', 90)]).item), 90) })
+  m => { assert.equal(remaining(m.toolFor(STONE, [item('stone_pickaxe', 20), item('stone_pickaxe', 90)], { hygiene: false }).item), 90) })   // the deployed order (hygiene off)
 await killed('the comparator CYCLE restored (wear reversed within a name inside the sort, no same-name swap)',
   [['const d = (a.tier - b.tier) || (b.r - a.r)', 'const d = (a.tier - b.tier) || (a.name === b.name && a.spend ? a.r - b.r : b.r - a.r)'],
-   ['const pick = (x, pool) => (x.spend ? mostWornOfName(x, pool) : x).it', 'const pick = x => x.it']],
+   ['const pick = (x, pool) => (worn(x) ? mostWornOfName(x, pool) : x).it', 'const pick = x => x.it']],
   m => {
     for (const p of perms([item('stone_axe', 90), item('stone_pickaxe', 50), item('stone_axe', 3)])) assert.equal(tag(m.toolFor(LOG, p).item), 'stone_axe@3', p.map(tag).join(','))
   })

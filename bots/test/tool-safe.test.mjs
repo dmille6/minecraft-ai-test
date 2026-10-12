@@ -97,7 +97,7 @@ await t('WIRED: no bare unequip anywhere in src; the five escape scaffold sites 
   const r = strip(readFileSync(new URL('../src/reflex.mjs', import.meta.url), 'utf8'))
   assert.equal((r.match(/\.unequip\??\.?\(/g) ?? []).length, 0, 'reflex must empty the hand through safeEmptyHand')
   assert.equal((r.match(/await safeEmptyHand\(bot, '/g) ?? []).length, 7, 'six + the climbflood-01 sidestep (escapeStairUp)')
-  assert.equal((r.match(/scaffoldFor\(bot, '/g) ?? []).length, 4, 'four LIVE placement sites (the dead flooded_pillar pick is gone)')
+  assert.equal((r.match(/scaffoldFor\(bot, '/g) ?? []).length, 5, 'five LIVE placement sites: four escape sites + the airpocket stand on a floor (the dead flooded_pillar pick is gone)')
   const tf = strip(readFileSync(new URL('../src/toolfor.mjs', import.meta.url), 'utf8'))
   assert.equal((tf.match(/\.unequip\??\.?\(/g) ?? []).length, 2, 'only the two GUARDED unequips (applyToolPolicy, emptyHand)')
 })
