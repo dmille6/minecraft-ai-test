@@ -124,6 +124,22 @@ await t('a MALFORMED gemma answer is repaired by the LOCAL fallback, not by the 
   assert.deepEqual(bodies.map(b => b.base), ['http://studio:11601', 'http://local:11434'], 'one Studio call, then the repair goes local')
   assert.equal(r.schemaValid, true); assert.equal(r.brain, 'local'); assert.equal(r.retryCount, 1)
 })
+await t('a malformed gemma answer with the local COOLING DOWN is still repaired locally (Codex r2)', async () => {
+  stub(base => base === 'http://studio:11601'
+    ? { ok: true, json: async () => ({ model: 'gemma4:26b', message: { content: 'not json' } }) }
+    : answer('qwen2.5:7b-instruct'))
+  const c = mk(); c.pool.markFail(c.pool.eps[1], 'earlier')
+  bodies.length = 0
+  const r = await call(c)
+  assert.deepEqual(bodies.map(b => b.base), ['http://studio:11601', 'http://local:11434']); assert.equal(r.brain, 'local')
+})
+await t('the Studio COOLING (recovered) and the local failing: the Studio is still asked (Codex r2)', async () => {
+  stub(base => base === 'http://studio:11601' ? answer('gemma4:26b') : { ok: false, status: 500, text: async () => 'x' })
+  const c = mk(); c.pool.markFail(c.pool.eps[0], 'earlier')
+  bodies.length = 0
+  const r = await call(c)
+  assert.deepEqual(bodies.map(b => b.base), ['http://local:11434', 'http://studio:11601']); assert.equal(r.brain, 'gemma4'); assert.equal(r.schemaValid, true)
+})
 await t('a bad SENTINEL from gemma is repaired locally too', async () => {
   stub(base => base === 'http://studio:11601'
     ? { ok: true, json: async () => ({ model: 'gemma4:26b', message: { content: JSON.stringify({ skill: 'gather', args: {}, reason: 'r', saw_end: 'END-WRONG' }) } }) }
@@ -139,6 +155,24 @@ await t('TOTAL transport failure on a labelled pool pays each timeout ONCE, then
   const t0 = Date.now(); const r = await call(c); const ms = Date.now() - t0
   assert.deepEqual(bodies.map(b => b.base), ['http://studio:11601', 'http://local:11434'], 'no second walk')
   assert.ok(ms < 2600, `bounded by the sum of the budgets once (took ${ms} ms)`); assert.equal(r.brain, null); assert.equal(r.schemaValid, false)
+})
+await t('the local fallback COOLING DOWN and the Studio hanging: the local is still asked, once (Claude r2)', async () => {
+  stub(base => base === 'http://studio:11601' ? 'hang' : answer('qwen2.5:7b-instruct'))
+  const c = mk(['http://studio:11601|gemma4:26b|gemma4|1000', 'http://local:11434|qwen2.5:7b-instruct'])
+  c.pool.markFail(c.pool.eps[1], 'an earlier failure')             // local in cooldown: available() = [studio]
+  bodies.length = 0
+  const r = await call(c)
+  assert.deepEqual(bodies.map(b => b.base), ['http://studio:11601', 'http://local:11434'], 'studio once, then the untried local')
+  assert.equal(r.schemaValid, true); assert.equal(r.brain, 'local')
+})
+await t('both endpoints failing with one cooling: each asked once, then the error counts what was asked', async () => {
+  stub(() => { throw new Error('down') })
+  const c = mk(['http://studio:11601|gemma4:26b|gemma4|1000', 'http://local:11434|qwen2.5:7b-instruct'])
+  c.pool.markFail(c.pool.eps[1], 'earlier')
+  bodies.length = 0
+  const r = await call(c)
+  assert.deepEqual(bodies.map(b => b.base), ['http://studio:11601', 'http://local:11434'])
+  assert.match(r.error, /all 2 of 2 llm endpoint/); assert.equal(r.brain, null)
 })
 await t('an UNLABELLED pool keeps today\'s retry exactly: a second walk after total failure, repair on the same endpoint', async () => {
   stub(() => { throw new Error('down') }); bodies.length = 0

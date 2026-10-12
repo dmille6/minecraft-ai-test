@@ -123,7 +123,8 @@ def remove(pools):
     ts = time.strftime('%Y%m%dT%H%M%SZ', time.gmtime())
     for b in bots:
         f = os.path.join(H, 'env', b + '.env'); shutil.copy2(f, f + '.bak-brainsubset-' + ts)
-        open(f, 'w').write(strip_block(open(f).read()))
+        text = strip_block(open(f).read())          # READ, then write (Codex r2: open(f, 'w') first truncated it)
+        open(f, 'w').write(text)
     restart(bots)
     bad = []
     for b in bots:
