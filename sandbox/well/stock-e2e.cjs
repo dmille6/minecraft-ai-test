@@ -549,16 +549,18 @@ scenes.stocknochest = async () => {
     PASS: atTarget.chestsAfter === atTarget.chestsBefore && atTarget.bagChest === 1 && control.chestsAfter === control.chestsBefore + 1 })
 }
 
-// THE REFUSAL IS A ROW, READ FROM THE WORLD (stonecap-01 INCONCLUSIVE 10-12; operator: Paper first). A town chest of 26
-// cobble stacks (1,664: 6.5x the 256 cap) and one empty slot; a small bag (no full-bag order fires) of cobble 64+64+30
-// and oak 64+64. Trial 1 (`deposit`, mixed bag): the logs go in, the cobble stays -- the server's chest gains oak and
-// no cobble, the server's bag keeps its 158 cobble -- and a _stock_refused row via=deposit names cobblestone:..:cobble_cap
-// at_cobble=1. Trial 2 (the oak taken out of the bag; `deposit` again on the now-counted town): admission refuses the
-// cobble-only plan before any skill runs and a row via=admission names the cap; the chest's cobble does not rise.
+// THE REFUSAL IS A ROW, READ FROM THE WORLD (stonecap-01 INCONCLUSIVE 10-12; operator: Paper first). NO WELL (the arena
+// is rebuilt: run 5 had a well, so the bot pruned and threw its surplus cobble at the cap BEFORE its deposit -- the design
+// working, but then nothing was left to refuse) and NO WOOD (no well or composter build order). A town chest of 26 cobble
+// stacks (1,664: 6.5x the 256 cap) and one empty slot; a small bag of cobble 64+64+30 and 30 iron ingots. Trial 1
+// (`deposit`, a mixed bag): the ingots go in, the cobble stays -- the server's chest gains iron and no cobble, the
+// server's bag keeps its cobble -- and a _stock_refused row via=deposit names cobblestone:..:cobble_cap at_cobble=1.
+// Trial 2 (the ingots taken out of the bag; `deposit` again on the now-counted town): admission refuses the cobble-only
+// plan before any skill runs and a row via=admission names the cap; the chest's cobble does not rise.
 scenes.stockrefuse = async () => {
-  rcon(`kill ${ARENA_SEL}`); CHEST = CHEST ?? pickChest()
+  buildArena(); CAP = null; CHEST = pickChest()
   setChest(Array.from({ length: 26 }, () => ['cobblestone', 64]))
-  const spec = [['cobblestone', 64], ['cobblestone', 64], ['cobblestone', 30], ['oak_log', 64], ['oak_log', 64], ['stone_pickaxe', 1], ...TORCH(4)]
+  const spec = [['cobblestone', 64], ['cobblestone', 64], ['cobblestone', 30], ['iron_ingot', 30], ['stone_pickaxe', 1], ...TORCH(4)]
   const files = await startBot('stockrefuse', spec, { pool: `sbxstock-${RUN}-rf` })
   const c0 = chestTotals(), b0 = bag(NAME)
   brainQueue.push('deposit')
@@ -566,22 +568,24 @@ scenes.stockrefuse = async () => {
   await sleep(2000)
   const c1 = chestTotals(), b1 = bag(NAME)
   const rows1 = rowsOf(files.skillLog).filter(r => r.name === '_stock_refused').map(r => r.detail)
-  rcon(`clear ${NAME} minecraft:oak_log`)
+  rcon(`clear ${NAME} minecraft:iron_ingot`)
   await sleep(1500)
   const n1 = rows1.length
   brainQueue.push('deposit')
   const adm = await waitFor(() => rowsOf(files.skillLog).filter(r => r.name === '_stock_refused').slice(n1).find(r => /^via=admission /.test(r.detail)), 120000, 500)
   await sleep(2000)
   const c2 = chestTotals(), b2 = bag(NAME)
+  const all = stockRows(files)
   await stopBot()
   brainQueue.length = 0
   const cob = t => (t.cobblestone ?? 0) + (t.cobbled_deepslate ?? 0)
   result({ scene: 'stockrefuse', deposit: d1?.slice(0, 200) ?? null,
     world: { chest: [c0.totals, c1.totals, c2.totals], bag: [b0.totals, b1.totals, b2.totals] },
-    trial1: { chestOakGained: (c1.totals.oak_log ?? 0) - (c0.totals.oak_log ?? 0), chestCobbleGained: cob(c1.totals) - cob(c0.totals), bagCobbleKept: cob(b1.totals),
+    trial1: { chestIronGained: (c1.totals.iron_ingot ?? 0) - (c0.totals.iron_ingot ?? 0), chestCobbleGained: cob(c1.totals) - cob(c0.totals), bagCobbleKept: cob(b1.totals),
       row: rows1.find(d => /^via=deposit .*cobblestone:\d+:cobble_cap/.test(d)) ?? null, rows: rows1 },
     trial2: { admissionRow: adm?.detail ?? null, chestCobbleGained: cob(c2.totals) - cob(c1.totals), bagCobble: cob(b2.totals) },
-    PASS: !!(d1 && rows1.some(d => /^via=deposit .*at_cobble=1 .*cobblestone:\d+:cobble_cap/.test(d)) && (c1.totals.oak_log ?? 0) > (c0.totals.oak_log ?? 0)
+    rows: all,
+    PASS: !!(d1 && rows1.some(d => /^via=deposit .*at_cobble=1 .*cobblestone:\d+:cobble_cap/.test(d)) && (c1.totals.iron_ingot ?? 0) > (c0.totals.iron_ingot ?? 0)
       && cob(c1.totals) <= cob(c0.totals) && cob(b1.totals) >= 158 && adm && /at_cobble=1/.test(adm.detail) && cob(c2.totals) <= cob(c1.totals)) })
 }
 
