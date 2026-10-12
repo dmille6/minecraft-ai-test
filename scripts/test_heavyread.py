@@ -69,6 +69,8 @@ def section_a(hr_path, tmp):
     f = tempfile.mktemp(dir=tmp, prefix='ev-')
     rc, o = hr(hr_path, tmp, [sys.executable, '-c', HOG, f, 'x'], cap='300M')
     c('a 400 MB read under a 300M cap is KILLED before it writes (137), and says so', rc == 137 and not os.path.exists(f) and 'KILLED' in o, (rc, o))
+    failed = subprocess.run(['systemctl', 'list-units', '--all', '--failed', '--no-legend', '--plain', 'heavyread-*'], capture_output=True, text=True).stdout
+    c('the killed run leaves no FAILED heavyread unit behind (its name would block a reused PID)', 'heavyread-' not in failed, failed[:300])
     f = tempfile.mktemp(dir=tmp, prefix='ev2-')
     rc, o = hr(hr_path, tmp, [sys.executable, '-c', HOG, f, 'x'], cap='2G')
     c('the same read under a 2G cap runs and writes (positive control)', rc == 0 and os.path.exists(f), (rc, o))
@@ -175,6 +177,23 @@ def section_a(hr_path, tmp):
       rc == 75 and not os.path.exists(marker) and alive and 'did not stop' in o, (rc, o, alive))
     subprocess.run(['sudo', '-n', 'systemctl', 'kill', '--signal=KILL', 'heavyread-calibration-%d.scope' % pc.pid], capture_output=True)
     pc.wait(30)
+    # THE LOCK FREES BUT THE SCOPE STAYS ACTIVE (round 7, Codex: only the scope check can refuse here). The kill is refused;
+    # during the loop read's is-active wait the calibration WRAPPER is SIGKILLed (its flock fd closes, the lock is free)
+    # while its scope's process keeps running. The loop read must still NOT run.
+    lock = tempfile.mktemp(dir=tmp, prefix='plock7-')
+    pc, pout = hr(hr_path, tmp, ['sleep', '60'], lock=lock, bg=True)
+    time.sleep(3)
+    marker = tempfile.mktemp(dir=tmp, prefix='must-not-exist-')
+    lr, lout = hr(hr_path, tmp, ['touch', marker], lock=lock, wait='6', role='loop', env={'PATH': shim + ':' + os.environ['PATH']}, bg=True)
+    time.sleep(8.5)                      # inside the loop read's is-active window (t = 6 .. 12 s)
+    pc.kill(); pc.wait(10)
+    lr.wait(60)
+    unit7 = 'heavyread-calibration-%d.scope' % pc.pid
+    act = subprocess.run(['systemctl', 'is-active', unit7], capture_output=True, text=True).stdout.strip()
+    lo = open(lout).read() if os.path.exists(lout) else ''
+    c('the lock is FREE but the preempted scope is still ACTIVE -> the loop read is NOT run (75) (scope %s)' % act,
+      lr.returncode == 75 and not os.path.exists(marker) and act == 'active', (lr.returncode, lo, act))
+    subprocess.run(['sudo', '-n', 'systemctl', 'kill', '--signal=KILL', unit7], capture_output=True)
     # A RECORD NAMING A LIVE HEAVYREAD PID WITH ANOTHER UNIT: that unit is never signalled
     vunit = 'hrtest-victim-%d' % os.getpid()
     victim = subprocess.Popen(['sudo', '-n', 'systemd-run', '--scope', '--quiet', '--unit=' + vunit, '--uid=%d' % os.getuid(), 'sleep', '60'])
@@ -274,6 +293,7 @@ MUTANTS = [
     ('heavyread.sh', 'loop preempts another loop read',
      'if [ "$ROLE" = loop ] && [ "$_hrole" = calibration ] && [[ "$_hpid" =~ ^[0-9]+$ ]] \\\n     && [ "$_hunit" = "heavyread-calibration-$_hpid.scope" ]',
      'if [ "$ROLE" = loop ] && [[ "$_hrole" =~ . ]] && [[ "$_hpid" =~ ^[0-9]+$ ]] \\\n     && [ "$_hunit" = "heavyread-$_hrole-$_hpid.scope" ]'),
+    ('heavyread.sh', 'failed unit left behind', 'sudo -n systemctl reset-failed "$UNIT.scope" 2>/dev/null\n', '\n'),
     ('heavyread.sh', 'no SIGKILL escalation', 'timeout --kill-after=60 "$T"', 'timeout "$T"'),
     ('heavyread.sh', 'loop read runs although the scope survived', '    if [ -z "$_dead" ] || ! flock -w "$WAIT" 7; then', '    if ! flock -w "$WAIT" 7; then'),
     ('heavyread.sh', 'any holder record is preempted', '     && [ "$_hunit" = "heavyread-calibration-$_hpid.scope" ] && grep', '     && true && grep'),

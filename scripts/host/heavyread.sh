@@ -58,6 +58,7 @@ if [ "$ROLE" = calibration ] && [ -z "${HEAVYREAD_IGNORE_CANARY:-}" ]; then
   _lp=$(pgrep -f "${HEAVYREAD_LOOP_RE:-^bash /home/mike/canary-loop.sh}" 2>/dev/null | head -1)   # _RE: tests only
   # the loop's own lock too (round 5, Claude: a loop launched other than by `bash <path>` is invisible to pgrep)
   _ll=""; flock -n "${HEAVYREAD_LOOP_LOCK:-/tmp/mcai-canary.lock}" true 2>/dev/null || _ll="held"   # _LOCK: tests only
+  # (this probe TAKES the loop's lock for a moment: a loop launched in that instant exits 3 and the scheduler retries it)
   if [ "$_cp" != "no" ] || [ -n "$_lp" ] || [ -n "$_ll" ]; then
     echo "heavyread: calibration REFUSED -- a canary is declared or a canary loop is running (manifest canary: ${_cp}; loop pid: ${_lp:-none}; loop lock: ${_ll:-free}); calibrate between canaries" > "$OUT"
     exit 76
@@ -101,6 +102,9 @@ mapfile -d '' _ENV < <(env -0)
 sudo -n systemd-run --scope --quiet --expand-environment=no --unit="$UNIT" -p MemoryMax="$CAP" -p MemorySwapMax=0 \
   --uid="$(id -u)" --gid="$(id -g)" /usr/bin/env -i "${_ENV[@]}" timeout --kill-after=60 "$T" "$@" > "$OUT" 2>&1 7>&- &
 wait $!; RC=$?
+# a failed transient unit (OOM kill, timeout) stays loaded under its name; with PID reuse a later run would then fail to
+# create heavyread-<role>-<pid>.scope. Clear our own unit's failed state (never anything else).
+sudo -n systemctl reset-failed "$UNIT.scope" 2>/dev/null
 [ -f "${OUT}.preempt" ] && { cat "${OUT}.preempt" >> "$OUT"; rm -f "${OUT}.preempt"; }
 if [ "$(cat "$LOCK.preempted" 2>/dev/null)" = "$UNIT.scope" ]; then
   rm -f "$LOCK.preempted"; echo "heavyread: PREEMPTED by a canary read -- rerun this calibration job" >> "$OUT"
