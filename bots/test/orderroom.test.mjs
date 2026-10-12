@@ -120,13 +120,17 @@ test('ROOM: two tries are not two tools -- one spent tool covers a one-slot shor
   assert.equal(SK.craftRoomCheck(bagBot({ sticks: 10, spentAxe: true, pickup: true }).bot, 'stone_pickaxe').ok, false, 'short 2, one tool')
 })
 
-test('ROUTE: a carried table with the standing one out of reach is ambiguous (walk, or put the carried one down) -> null', () => {
+test('ROUTE: a carried table with the standing one out of reach -- both outcomes simulated; unknown only when they disagree', () => {
   const { bot } = bagBot({ sticks: 10 })
   const far = new Vec3(410, 70, 0)
   bot.findBlock = ({ matching, maxDistance }) => (typeof matching === 'function' && bot.entity.position.distanceTo(far) <= maxDistance
     ? { name: 'crafting_table', type: mcData.blocksByName.crafting_table.id, position: far } : null)
   const r = SK.craftRoomCheck(bot, 'stone_pickaxe')
-  assert.equal(r.ok, null); assert.match(r.why, /ambiguous route B/)
+  assert.equal(r.ok, null, 'the walk does not fit, putting the single carried table down would'); assert.match(r.why, /ambiguous route B/)
+  // ...but where both outcomes agree there is nothing ambiguous: two carried tables (placing one frees no slot)
+  const two = bagBot({ sticks: 10 }); two.items[two.items.findIndex(i => i.name === 'crafting_table')].count = 2
+  two.bot.findBlock = bot.findBlock.bind(two.bot); two.bot.entity = bot.entity
+  assert.equal(SK.craftRoomCheck(two.bot, 'stone_pickaxe').ok, false, 'both outcomes lack room: no room')
 })
 
 test('ROUTE C: the table goes down IMMEDIATELY BEFORE the first step that needs it, never before a 2x2 step', () => {
@@ -421,6 +425,7 @@ test('READY: the craft\'s own wear route is reported (roomVia), so the order can
   const r = WO.readyFor(bagBot({ sticks: 10, spentAxe: true }).bot, { id: 'craft_stone_pickaxe_1#3', wants: 'stone_pickaxe' })
   assert.equal(r.craftReady, true); assert.equal(r.roomVia, 'wear')
   assert.equal(WO.readyFor(bagBot({ sticks: 2 }).bot, { id: 'craft_stone_pickaxe_1#3', wants: 'stone_pickaxe' }).roomVia, 'room')
+  assert.equal(WO.readyFor(bagBot({ sticks: 2, pickup: true }).bot, { id: 'craft_stone_pickaxe_1#3', wants: 'stone_pickaxe' }).roomVia, 'unknown', 'pickup-only: issued, tagged unknown')
 })
 
 test('MUTANT KILLED: crediting any home arrival re-issues home every tick while the bot is still far from a chest', async () => {

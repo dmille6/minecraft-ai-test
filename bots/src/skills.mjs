@@ -4401,7 +4401,7 @@ export function slotRemedy(bot, items, keep = []) {
  *   A  a recipe needing no table (recipesFor(.., null)[0])                       -> that recipe, no table
  *   B  else a crafting_table within 32: recipesFor(.., table)[0]. In reach, nothing is placed. Out of reach the craft
  *      WALKS, and puts its carried table down only if the walk falls short (craftLevel ~L3786) -- which of the two
- *      happens is not knowable here, so a carried table with the standing one out of reach is `ambiguous` (Codex r2)
+ *      happens is not knowable here, so with a carried table the placing variant is returned as `alt` (Codex r2)
  *   C  else craftPlanFor: runCraftPlan puts a table down IMMEDIATELY BEFORE the first step that needs one (none in
  *      reach), from the bag as it stands then -- carried, or made by an earlier step of the plan (Codex r2)
  * Each step is { recipe: roomRecipe(...), times } -- chainPeak's shape; a placement is a recipe with no output.
@@ -4422,8 +4422,11 @@ export function craftRouteFor (bot, item, count = 1) {
   if (tableBlock) {
     const r = bot.recipesFor(def.id, null, count, tableBlock)?.[0]
     if (!r) return null
-    if (carried && !stationWithin(bot, STATION_REACH)) return { route: 'B', ambiguous: 'walk_or_place' }
-    return one('B', r)
+    // Out of reach with a carried table: the craft walks, or puts its table down if the walk falls short. Both are
+    // simulated; only when they DISAGREE is the verdict unknown (craftRoomCheck).
+    const b = one('B', r)
+    if (carried && !stationWithin(bot, STATION_REACH)) return { ...b, alt: [PUT_TABLE, ...b.steps] }
+    return b
   }
   const plan = craftPlanFor(bot, item, count, carried)
   if (!plan?.ok || !plan.steps?.length) return null
@@ -4480,8 +4483,13 @@ export function craftRoomCheck (bot, item, count = 1, { wearFailedRecently = fal
     const items = bot.inventory?.items?.() ?? []
     const r = craftRouteFor(bot, item, count)
     if (!r) return { ok: null, why: 'no_route' }
-    if (r.ambiguous) return { ok: null, why: `ambiguous route ${r.route}: ${r.ambiguous}`, route: r.route }
     const peak = chainPeak(items, r.steps)
+    // THE TWO OUTCOMES OF A B-WALK: the same verdict -> that verdict; different (the walk would not fit, putting the
+    // carried table down would) -> unknown, issued as before.
+    if (r.alt && peak.ok) {
+      const alt = chainPeak(items, r.alt)
+      if (!alt.ok || (alt.peak <= BAG_SLOTS) !== (peak.peak <= BAG_SLOTS)) return { ok: null, why: 'ambiguous route B: walk_or_place', route: r.route, keep: r.keep }
+    }
     if (!peak.ok) return { ok: null, why: `simulation: ${peak.reason}${peak.missing ? ` ${peak.missing}` : ''}`, keep: r.keep, route: r.route }
     const pickup = pickupNearest(bot.entity?.position, bot.entities) ? 1 : 0
     const bare = Math.max(0, peak.peak - BAG_SLOTS)

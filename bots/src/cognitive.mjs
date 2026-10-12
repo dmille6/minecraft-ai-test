@@ -827,7 +827,8 @@ export class CognitiveLoop {
     let order = orderFor(ready)
     // THE CRAFT'S OWN MAKE-ROOM ROUTE IS NAMED on the order (Claude r2), so the read can tell a designed wear-out attempt
     // from a craft issued into a bag without room.
-    if (order?.skill === 'craft' && ready.roomVia === 'wear') order = { ...order, why: `${order.why} (room via wear)` }
+    // ...and when the check could not say (unknown route, a pickup-only shortage): the read counts those apart too.
+    if (order?.skill === 'craft' && (ready.roomVia === 'wear' || ready.roomVia === 'unknown')) order = { ...order, why: `${order.why} (room via ${ready.roomVia})` }
     // THE TOWN DEPOSIT GOES FIRST (towndeposit.mjs; owner 10-05 "add automatic town deposit"): a bag at 34+ at town
     // banks its surplus before other work. AHEAD of the milestone order on purpose: a craft-ready rung re-issues its
     // craft every decision, craftroom refuses it at 36/36, and an order placed after it would never get a turn

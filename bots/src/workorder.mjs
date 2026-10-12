@@ -216,7 +216,7 @@ export function readyFor (bot, milestone, { roomCheck = craftRoomCheck, wearFail
       if (craftReady && roomCheck) {
         const room = roomCheck(bot, wants, 1, { wearFailedRecently })
         if (room?.ok === false) { craftReady = false; noRoom = { item: wants, short: room.short, slots: room.slots, keep: room.keep ?? [], route: room.route ?? null } }
-        else roomVia = room?.ok === true ? room.via ?? null : null
+        else roomVia = room?.ok === true ? room.via ?? null : room?.ok === null ? 'unknown' : null
       }
     } catch { craftReady = false }
   }
