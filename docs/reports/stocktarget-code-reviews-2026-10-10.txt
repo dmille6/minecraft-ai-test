@@ -1,0 +1,385 @@
+stocktarget-01 CODE REVIEWS (2026-10-10). Both engines, independent, read-only; probes in scratch copies.
+Codex: `codex exec --skip-git-repo-check "<prompt>" < /dev/null`. Claude: an independent subagent (same reviewer across rounds).
+Final: CODE Codex r4 APPROVE (on 08e0ea18 = 2ee8988f + an inert generated file it asked to remove: removed), Claude r3 APPROVE (on 4f43459a; its three P3s taken in 2ee8988f). FOLD (10-12: the refusal row + carrying stonecap-01 cobble cap): Codex r1 CHANGE -> r2 APPROVE (on 7628b9fa); Claude r1 APPROVE with P2s -> r2 APPROVE (P3s taken in f1b52eaf).
+
+===== CODEX CODE-R1 =====
+VERDICT: CHANGE
+
+1. **P1 — Draw and valve claims become bank claims.** `bots/src/cobblecap.mjs:542` serializes `kind` only for `take`. Probes against oak stock 64 and stone-pickaxe stock 16 return `at_cap` for both a draw and a valve. Withdrawals therefore refuse precisely when stock is available; the full-bag valve cannot operate at target. Below target, a draw reserves incoming room instead of lowering the available floor. **Fix:** serialize all claim kinds, including valve proof, and test through `claimStack` and the real skills—not only handcrafted fold records.
+
+2. **P1 — Equal-time counts can admit banking beyond target.** `bots/src/cobblecap.mjs:417` chooses the ceiling observation using only cobble’s `n`, retaining that observation’s entire `m`. Two equal-time observations with cobble 0 and oak counts 0 then 64 produce a complete oak ceiling of **0**, admitting another 64. The test checks the reverse order’s ceiling but only this order’s floor. **Fix:** merge ceilings componentwise by maximum; retain componentwise minima for floors, with conservative legacy handling.
+
+3. **P1 — Cursor recovery still banks without confirmed claims.** `bots/src/skills.mjs:8093` selects a targeted stack through `rearrangeFor`, then shift-clicks it at line 8114 without `stockReserve`. The planner’s cached allowance is not a reservation; another banker can consume that room first. Cursor placement into container slots at line 8090 also needs provenance and claim coverage. **Fix:** cover every recovery mutation with confirmed claims, retained through held-window retries, and release with the final count or dirty state.
+
+4. **P1 — Prune throws explicitly bypass the approved floor and keeps.** `bots/src/skills.mjs:7295` substitutes empty keeps/holds for pruned items and never tests `v.avail` before throwing. After an admitted prune, a subsequent draw can lower town stock below target, yet the prune still destroys its logs. Bag keeps can also be breached. Conversely, pruned cobble cannot pass this check: `stockWellStacks` requires an explicit cobble keep of zero, but receives `{}`. **Fix:** recheck available floor, actual keeps, holds and scaffold before every throw; stop on refusal. Preserve the verified take budget without granting exemptions.
+
+5. **P1 — Claim cleanup does not cover unsettled and exceptional exits.** `bots/src/skills.mjs:6488` releases town-deposit claims before `settleCursor` runs at line 6589, although pending clicks or cursor recovery may still mutate the chest. Generic deposit’s `finally` at line 2942 only closes: a thrown tool/bulk transfer can leave claims permanently live until reconnect. Recovery aborts during placement likewise bypass release. Separately, `bots/src/cobblecap.mjs:561` silently discards dirty-only records; a probe confirms no append. **Fix:** retain claims through settlement, count only authoritative completed transfers, mark unresolved containers unknown, and centralize exception-safe cleanup. Allow dirty-only records.
+
+6. **P1 — Recovery reserves too late and blocks its own deposit.** `bots/src/skills.mjs:3676` crafts before the site reservation at line 3722, contrary to confirm-before-craft. Another banker can fill the target during crafting. The subsequent deposit also calls ordinary `depositPlan` at line 2828, which counts its own reservation against available room: a reservation consuming the remaining room removes the qualifying item from the plan before `reserved` can be used. **Fix:** reserve before crafting, carry the admitted quantities through placement, and explicitly plan the first transfer under those reservations.
+
+7. **P2 — The deterministic count remedy excludes important blocked cases.** `bots/src/skills.mjs:3284` disables counting without a well even though tool caps still bind. Line 3293 excludes cobble from floor refresh, while `cobbleWellCap` now requires that floor. Thus surplus cobble with a 1–6-hour-old at-cap count cannot bank or dispose through the promised count chain. **Fix:** reconcile capped tools independently of well availability and include cobble’s stale floor. Test both through the actual selector and skill.
+
+8. **P2 — No-well banking omits the required journal claims.** `bots/src/skills.mjs:2911`, `6467`, and `8524` bypass bulk claims when `stockCapBinds()` is false. The design requires confirmed, flagged `nowell` claims even when the cap is waived. Current paths cannot be audited consistently and have no outstanding reservation if a well becomes usable during a transfer. **Fix:** implement an explicit confirmed `nowell` bank admission and use it on every bulk bank path.
+
+9. **P2 — The existing junk list is never pruned.** `bots/src/stocktarget.mjs:36` omits the well’s existing junk groups; `stockCounts` consequently never records them. `bots/src/prune.mjs:42` considers only recorded group entries, so andesite/diorite/granite and decorations cannot trigger pruning. **Fix:** count and select the approved junk-list items, including its permitted partial stacks, with structural protected-item guards.
+
+10. **P2 — Row gates do not enforce the approved safety contract.** `scripts/host/stocktargetread.py:148` exempts prune clicks from floor/scaffold checks; line 215 positively asserts that an unsafe prune passes. No keep breach is checked. G2 at line 170 accepts any successful place-stage row from the same bot within five minutes, without matching action ID or verifying qualification. G1b at line 181 applies disposed groups across towns and never adds legitimate draws back. **Fix:** emit the missing quantities/provenance, correlate exact actions and towns, enforce identical disposal checks, and add failing fixtures for each case.
+
+11. **P2 — Journal audit does not reproduce generation semantics or G4.** `scripts/host/stockjournal.mjs:37` concatenates retained generations, including predecessor records appended after the successor base’s cut—the exact tail the approved design excludes. Line 68 attributes a container’s total decrease to each take and checks only currently live overlaps. A legitimate draw released before a delayed prune release can falsely trip G4; batched takes are not individually quantified. **Fix:** respect immutable base boundaries and audit each take’s admission plus server-verified removal, with delayed-release and rotation fixtures.
+
+12. **P2 — Three supplied mutants survive; required skill chains are absent.** `scripts/mutants/mutants-stocktarget.py` has unique anchors, but scratch runs left these alive: **stale prune counts accepted**, **deposit transfers a refused claim**, and **recovery qualifies everything**. `bots/test/stocktarget.test.mjs:86` tests valve planning only; it never executes the broken valve claim. The approved real-selector chains and prune delivery are likewise missing. **Fix:** add behavioral tests reaching those mutations and the complete count → dispose, valve → transfer, and reserved-recovery chains.
+
+13. **P2 — Reported “DiD” is only a post-period comparison.** `scripts/host/stocktargetread.py:296` subtracts post control from post canary without subtracting the baseline difference. The required pickaxe-less full-bag bot-hours tripwire is absent. **Fix:** compute both periods using matching denominators and report the accepted residual explicitly.
+
+Validation: both new test files passed **22/22** cases; read self-test passed. Scratch mutant runs killed **30/33**. Targeted probes reproduced findings 1, 2 and the dirty-only omission. No network hosts were contacted.
+
+===== CODEX CODE-R2 =====
+VERDICT: CHANGE
+
+Round-1 findings, using my original numbering:
+
+| R1 | Status |
+|---|---|
+| 1 — Claim kinds | Resolved: kinds and valve proof are serialized. |
+| 2 — Equal-time ceilings | Resolved: componentwise maxima/minima and conservative legacy handling. |
+| 3 — Cursor recovery banking | Resolved for `rearrangeFor`; accepted cursor exposure remains. |
+| 4 — Prune exemptions | Resolved: actual floor, keeps and holds apply; cobble uses its existing path. |
+| 5 — Exceptional cleanup | Partially resolved: recovery aborts still leak reservations; see 2 below. |
+| 6 — Recovery reservation timing/use | Partially resolved: timing and self-blocking fixed, but the replacement plan bypasses keeps; see 1. |
+| 7 — Count remedy | Implementation resolved; complete behavioral coverage remains missing. |
+| 8 — Nowell claims | Resolved on the identified banking paths. |
+| 9 — Junk pruning | Resolved through the junk pseudo-group and partial-stack selection. |
+| 10 — Row gates | Partially resolved: G1 checks improved; G2 still lacks proof validation; see 4. |
+| 11 — Journal audit | Generation cuts fixed; G4 remains incomplete; see 3. |
+| 12 — Tests/mutants | Partially resolved: original three survivors killed, but another survives and chains remain incomplete; see 6. |
+| 13 — DiD/residual tripwire | DiD fixed; full-bag tripwire miscounts slots; see 5. |
+
+1. **P1 — Recovery’s reserved-plan injection can bank below keeps.** `bots/src/skills.mjs:2830` restores the original reserved quantity without recomputing the current bag’s allowance after crafting. A scratch probe starts with 320 oak planks: ordinary planning permits reserving 64. Crafting the chest consumes eight, leaving 312; `townKeeps` still requires 256. The ordinary plan now excludes planks because the reservation occupies the room, so the injection restores 64 and leaves **248**, below the keep. **Fix:** recompute current non-cap eligibility, keeps and holds, then transfer at most that allowance and the reserved quantity. Exclude only this reservation from cap accounting. Test the actual reserve → craft → deposit chain.
+
+2. **P2 — Recovery aborts still skip reservation cleanup.** `bots/src/skills.mjs:3705` rethrows an aborted craft without calling `releaseStock`; subsequent `check(signal)`, walk-abort and placement-abort paths likewise escape before cleanup. There is no encompassing `finally`. These live bank claims can block town banking until reconnect despite no deposit occurring. **Fix:** wrap the entire reservation lifetime in `try/finally`, releasing unused claims on every exit and marking the container dirty where a transfer may have occurred. Add abort tests during craft, walking and placement.
+
+3. **P2 — G4 combines different groups into one allowance and checks only the first group.** `scripts/host/stockjournal.mjs:86–90` selects `batch[0].g`, but sums the quantities of **all** takes. A scratch journal with admitted claims for 64 oak logs and 64 sticks, followed by removal of 64 logs and **128 sticks**, reports neither `g4` nor `g4_overlap`. Its legal control also passes. Excess removal from the first group can additionally hide behind the second group’s allowance. **Fix:** partition releasing batches by container and group, compare each group against its own quantities, and retain overlap handling separately. Add mixed-group positive and failing fixtures.
+
+4. **P2 — G2 still accepts an unproven placement.** `scripts/host/stocktargetread.py:188` accepts any successful place-stage row at the same site within five minutes. It does not verify an admitted claim, qualifying untargeted/nowell item, or matching action ID. A `stage=place qualifying=- claims=-` success row satisfies this predicate. Matching coordinates improves correlation but does not establish authorization. **Fix:** emit an action ID across recovery and placement, validate qualification against the journal, and require the exact action match. Add fixtures for empty qualification, refused claims and stale same-site rows.
+
+5. **P2 — The pickaxe-less full-bag tripwire misses tool-heavy bags.** `scripts/host/stocktargetread.py:123` calculates every item’s slots as `ceil(count/64)`. Thirty-six unstackable axes therefore count as **one slot**. A scratch fixture containing a full 36-axe bag and a full log-bag control counted only the log bag as full. Aggregated counts also cannot recover separate partial stacks. The output measures event-row share rather than the approved bot-hours. **Fix:** emit actual occupied-slot counts and calculate time-weighted exposure per bot, with fixtures for tools, partial stacks and differing event frequencies.
+
+6. **P2 — Validation still leaves important behavior untested.** `scripts/mutants/mutants-stocktarget.py` finishes **39 killed, 1 survived**: “a count captured before a reset comes back.” `bots/test/stocktarget-journal.test.mjs:85` tests removal of an existing count, not a pre-reset capture appended afterward. Also, `bots/test/towndeposit.test.mjs:851` ends after counting an unknown chest; it does not exercise stale-floor count → disposal. **Fix:** add the late-append reset case, complete that disposal chain, and cover reserved recovery and its exceptional exits.
+
+Validation: stocktarget **14/14**, journal **13/13**, town-deposit **56/56**, and read self-test passed. Tests, mutants and probes ran in scratch; checkout unchanged; no network access.
+
+===== CODEX CODE-R3 =====
+VERDICT: CHANGE
+
+My round-2 findings:
+
+| R2 | Status |
+|---|---|
+| 1 — Recovery banks below keeps | **Resolved.** Reservation overrides room only; current keeps, holds and eligibility still apply. Recovery probe passes. |
+| 2 — Recovery abort leaks reservations | **Resolved.** The encompassing `try/finally` releases unused reservations; abort test passes. |
+| 3 — G4 mixes groups | **Resolved.** Allowances and overlap checks are partitioned by group; real-journal fixtures pass. |
+| 4 — G2 accepts unproven placement | **Original defect resolved**, but qualification logging introduces the truncation defect below. |
+| 5 — Tripwire slots/exposure | **Resolved within the stated measurement limits.** Stack-size-aware lower bounds and observed bot-minute weighting replace universal 64-stacks and pooled row weighting. |
+| 6 — Validation gaps | **Mostly resolved.** Late-appended reset, recovery and abort coverage pass; 51/51 mutants killed. The stale-floor test still stops at disposal planning; see 3. |
+
+1. **P2 — Rejected prune candidates starve eligible groups.** `bots/src/prune.mjs:42` stops collecting candidates when four slots have been allocated; acceptance happens afterward at line 52 without refilling rejected slots. Scratch probe: bag holds 64 oak logs, no cobble; chest contains 640 cobble and 640 oak logs. Four cobble candidates are rejected because the well would retain its cobble reserve, and `prunePick` returns `null`. Removing cobble from that same fixture correctly selects four oak stacks. Cobble also masks eligible junk this way. This can persist on every visit despite executable pruning work. **Fix:** apply acceptance while filling the budget, or continue through subsequent groups after rejection. Add mixed-group fixtures with rejected early candidates and eligible later candidates.
+
+2. **P2 — Truncated reservation IDs cause false G2 breaches.** `bots/src/skills.mjs:3365` truncates the entire recovery row to 300 characters, including its claim list. `scripts/host/stocktargetread.py:236` then requires every parsed ID to exist in `bank_ids`. A scratch probe through real `stockQualifies` reserved six log types successfully; its emitted row ended with the partial ID `hive-a-`. The actual row produced **one G2 breach**, while the untruncated positive control produced **zero**. A valid recovery can therefore trigger REVERT. **Fix:** serialize authorization without truncation—for example, bounded per-reservation rows joined by action ID, with a declared total—or structured fields outside the truncated detail. Test the actual emitted rows with several reservations.
+
+3. **P3 — The stale-floor chain verifies eligibility, not disposal execution.** `bots/test/towndeposit.test.mjs:906` runs one decision, then line 909 calls `wellLogs()`, which computes a disposal plan. No subsequent well order or throw runs, and inventory remains unchanged. **Fix:** extend the fixture through the next real decision and verified throw, asserting retained keeps and actual bag loss. Until then, describe this coverage as count → disposal eligibility.
+
+Validation in scratch: stocktarget **19/19**, journal **13/13**, town-deposit **57/57**, read self-test passed, mutants **51 killed / 0 survived**. I did not run the full suite. Checkout unchanged; no network access.
+
+===== CODEX CODE-R4 =====
+VERDICT: APPROVE
+
+Reviewed `4f43459a..08e0ea18`. All three round-3 findings are resolved:
+
+1. **P2 — Resolved: rejected prune candidates exhausted the budget.** `bots/src/prune.mjs:55` now checks acceptance incrementally and spends capacity only on accepted stacks. The mixed cobble/oak fixture selects four oak stacks; the budget-spending mutant is killed.
+
+2. **P2 — Resolved: truncated reservation IDs caused false G2 breaches.** `bots/src/cobblecap.mjs:551`, `bots/src/skills.mjs:3365`, and `scripts/host/stocktargetread.py:243` now connect journal admissions to the recovery’s action ID and compare their count against the early `nclaims` field. The six-reservation test and read fixtures pass. Both relevant mutants are killed.
+
+3. **P3 — Resolved: stale-floor test overstated its coverage.** `bots/test/towndeposit.test.mjs:891` now explicitly describes count-to-eligibility coverage. The Paper `stockdispose` scene covers the subsequent throw; I did not execute Paper under the no-network constraint.
+
+New finding:
+
+4. **P3 — Remove the accidentally committed mutant artifact.** `bots/test/_mutant-78509-cpjji5wtikb.mjs:1` adds 5,787 lines of generated, modified reflex code unrelated to this change. The test runner excludes it because its filename does not end in `.test.mjs`, so it provides no regression coverage. **Fix:** delete this generated file from the patch.
+
+Validation in a scratch archive of `08e0ea18`: stocktarget, stocktarget-journal, and towndeposit test files passed; read/journal self-tests passed; all three new mutants were killed. The shared checkout changed during review, so final validation used the pinned archive.
+
+===== CODEX FOLD-R1 =====
+VERDICT: CHANGE
+
+1. **P2 — False refusal during recovery: `bots/src/skills.mjs:2835`.** The plan receives `stockRoomFor`; the logging call does not. Its second evaluation therefore counts the recovery’s own reservation against available room and can report an item that the actual plan admits. Scratch probe: 312 planks, 64 reserved → plan banks 56; logger reports `oak_planks:312:stock_target`; passing the plan’s options produces no refusal. **Fix:** pass `stockRoomFor`, and test the recovery chain’s refusal rows. Prefer returning exclusions alongside the plan from one evaluation to avoid differing options or journal readings.
+
+2. **P2 — A live refusal can remain silent: `bots/src/admission.mjs:375`, `bots/src/skills.mjs:2609`.** Admission rejects an empty, known-at-cap plan before the skill runs. Consequently, the new early-exit logger cannot observe that normal admission path. A bot carrying only surplus capped materials can enforce the rule without producing `_stock_refused`; a bag below the town-deposit trigger need not reach the other logger either. **Fix:** instrument the admission refusal with the same classifier, avoiding duplicate execution rows, and test through admission/dispatch rather than calling the skill directly.
+
+   The new row does solve the reported **mixed-bag** case: logs bank while excluded cobble is named. With readers disabled, my positive-control probe produced no refusal. However, an `unknown` row proves fail-closed evaluation, not a confirmed over-target count; any-stock liveness also does not establish that both cobble and other targets were exercised. Report those exposures separately.
+
+3. **P2 — The carried C5 reader is incompatible with the combined journal: `scripts/host/stonecapread.py:177–233` on local `origin/main`.** Its replay treats every claim as a cobble bank reservation, ignoring stocktarget’s groups and claim kinds. Scratch fixture: cobble count 160, cobble claim 64, release at 270 correctly reports an overshoot. Insert an unrelated live oak claim of 64 and the same reader reports **no breach**, because it incorrectly treats that oak reservation as cobble and rejects the cobble claim during replay. It also reads only generation-zero journals at line 411.
+
+   **Fix:** replace this carried gate with a cobble-specific result from the generation-aware stock journal audit, or update stonecapread to the current journal semantics. Add mixed-group and rotated-journal failing fixtures. Carrying the old field name alone does not preserve C5.
+
+4. **P2 — Carry all applicable correctness gates, not only C5-journal and C9: `docs/reports/stonecap-01.0cdb1a8.json`, `own_lines` on local `origin/main`; implementations at `scripts/host/stonecapread.py:136–175,346`.** The old registration also gates deposit reserve, whole-stack transfers, town-deposit reserve, and the independent C5 row check. Stocktarget’s disposal/pruning checks do not replace these banking checks. **Fix:** retain those gates and their positive controls, or explicitly map each to an equivalent combined-reader check. Lack of banking exposure should yield UNTESTED, not removal of protection.
+
+5. **P3 — Emitted liveness differs from the proposed definition: `scripts/host/stocktargetread.py:472`.** `judge()` counts own rows, but emitted `rows_canary` adds ordinary deposit refusal sentences. Thus the registration’s field is not strictly “own rows including `_stock_refused`.” **Fix:** emit the own-row count directly and retain sentence counts separately; test the emitted payload.
+
+**Fold decision:** Folding is sound in principle. The INCONCLUSIVE stonecap run established neither a bag benefit nor successful under-target banking; there is no demonstrated standalone effect to preserve. The combined experiment measures the combined change, with no separate attribution to stonecap. Reusing its bag band is reasonable with the same draw filter and read methodology. A post-clear stonecap rerun could add near-target fleet exposure, but is not required if that limitation remains explicit and the design’s Paper validation remains required. Approve the fold after correcting the logging and carried gates above.
+
+Validation: scratch-copy stocktarget/journal tests, towndeposit tests, and reader selftests passed. The two targeted probes exposed the mismatches above. Checkout unchanged; no network used.
+
+===== CODEX FOLD-R2 =====
+VERDICT: APPROVE
+
+All five of my round-one findings are resolved for the proposed registration:
+
+1. **P2 recovery false refusal — resolved.** `bots/src/skills.mjs:2835` passes the plan’s `stockRoomFor` options and suppresses the nested recovery row. The recovery-chain regression verifies that reserved planks are never named as refused.
+
+2. **P2 admission refusal silent — resolved.** `bots/src/admission.mjs:378` logs the empty-plan refusal before returning. The admission regression exercises counted, capped cobble and verifies both the row and throttling. `scripts/host/stocktargetread.py:182` excludes unknown-only refusal rows from `rows_live`; confirmed cobble and stock refusals are reported separately.
+
+3. **P2 incompatible C5 journal reader — resolved.** `scripts/host/stocktargetread.py:507` derives cobble C5 from the generation-aware stock journal audit, with cobble-specific admission exposure from `scripts/host/stockjournal.mjs:65`. The mixed-group regression reproduces my previous counterexample and correctly detects the cobble overshoot alongside an unrelated oak claim.
+
+4. **P2 missing carried correctness gates — resolved in the stated registration design.** Retaining C1, C2, C3, C5-row and C9 preserves the applicable protections. I checked the reader predicates against the current `_cobble_bank`, `_town_deposit` and `_well_dispose` formats; the added stock fields preserve those parsers. This approval assumes the registration includes the five promised REVERT gates and reports zero exposure as UNTESTED. The registration itself is not part of this seven-file diff.
+
+5. **P3 emitted liveness mismatch — resolved.** `scripts/host/stocktargetread.py:499` emits own rows as `rows_canary`, sentences separately as `refusal_sentences`, and the intended liveness measure as `rows_live`.
+
+**New findings:** None requiring changes within this review’s scope.
+
+The fold is sound to register as described: use `rows_live` for liveness, the combined audit’s cobble C5, and the carried row gates. The resulting experiment measures the combined change; it does not establish a separate stonecap benefit or validate under-target banking without exposure. The proposed post-clear tripwire read remains useful.
+
+Validation against archived **7628b9fa**, in `/private/tmp`: stocktarget and journal suites **2/2 passed**, towndeposit **1/1 passed**, and reader selftests passed, including unknown-only liveness and mixed-group C5. Cross-base variants were not independently validated. Checkout unchanged; no network used.
+
+===== CLAUDE CODE REVIEW, VERDICT MESSAGE 1 of 6 (code r1-r3, then fold r1-r2, in order) =====
+VERDICT: CHANGE
+
+I reviewed HEAD `95459322` from a `git archive` copy and ran the probes there. Probes and output are in `.../scratchpad/reviews/claude-code-probes/`. The worktree also has uncommitted edits to `cobblecap.mjs` and `skills.mjs` that look like responses to Codex's review. Where they fix one of my findings I say so, but the verdict is on HEAD. The mutant run on HEAD: 30 killed, 3 survived, and the script exits 1.
+
+**P1 (must fix)**
+
+1. **`bots/src/cobblecap.mjs:542` — `claimStack` writes `kind` only for `take`.** Draw and valve claims go into the journal as plain bank claims, so the fold judges them against the bank cap.
+   - Probe `p_kind.mjs`, town counted at 512 oak logs and 20 usable stone pickaxes:
+     - `oak_log draw` → `at_cap`
+     - `stone_pickaxe draw` → `at_cap`
+     - `stone_pickaxe valve` → `at_cap`
+     - `take` → `take`
+   - Effect on withdraw (`skills.mjs` ~8516): any withdraw of a targeted name fails with `stock_unconfirmed` and takes nothing whenever the town is at or above target, or its count is incomplete. That covers stone pickaxes (target 16), sticks for the iron pickaxe, planks, logs and cobble. Every canary town is above target, so withdraw_pick and the ingredient draws stop working.
+   - Effect on the valve: it can never be admitted, so a full bag of spare tools at a town at tool target has no remaining move. That is the CLAUDE.md "refusal must name an executable remedy" case.
+   - Why the tests missed it: the journal tests build `kind: 'draw'` records by hand and never go through `claimStack`.
+   - Fix: write every non-bank `kind`. The working tree does this. Add a test that calls `claimStack`/`stockReserve` with `draw` and `valve` against an at-target town and expects admission.
+
+2. **`bots/src/skills.mjs:7295` — cobble taken by a prune is never thrown down the well.** The pruned branch uses `{ groups: [g], keeps: {}, holds: {} }`, but `stockWellStacks` only admits cobble when `keeps[name] === 0`.
+   - Probe `p_prunecobble.mjs`: the pruned-cobble branch lists `[]`, oak_log is listed, and `prunePick` on a 640-cobble container picks 4 stacks of cobble.
+   - Cobble is the largest surplus (674 town slots), so the prune order will keep moving up to 4 stacks of cobble into bags. Each one is logged as a refused `_stock_prune`, and the bag stays full until a later stonecap well visit. That pushes against the canary's primary metric (`slots_did`).
+   - Fix: pass `keeps: { [it.name]: 0 }` in the pruned branch, or give `stockWellStacks` an explicit `pruned` flag. Add a test that runs a pruned cobble stack through the throw decision.
+
+**P2 (should fix)**
+
+3. **`cobblecap.mjs:417` — on two counts captured in the same millisecond, the ceiling picks the record with more cobble, not the larger count per group.**
+   - Probe: two equal captures, one with `oak_log: 0` and one with `oak_log: 640`, give an oak_log ceiling of 0. A bank could then be admitted past target, against the design's "MAX for the ceiling".
+   - The working tree's `hiOf` (largest count per group) fixes it. Add a mutant for it.
+
+4. **New dead end for cobble — `skills.mjs:1455` and `:3293`.** Cobble's well rule now uses the 1-hour available floor, but the count step that refreshes the floor skips cobble (`g === 'cobble'`).
+   - Probe `p_cobblefloor.mjs`: a 600-cobble count from 2 hours ago gives a bank admission of `at_cap` and a well verdict of `below`, and the count step queues no keys. A full bag of cobble above the cap can then neither be banked nor disposed until some other visit happens to recount that chest. Stonecap did not have this gap because its well used the 6-hour count.
+   - Fix: include cobble in the floor branch of `stockCountKeys`, judging surplus by stonecap's whole-stack rule above `COBBLE_WELL_RESERVE`.
+
+5. **`scripts/host/stocktargetread.py:183` — gate G1b does not add back the canary's draws, as design section 7 requires.** A legitimate withdraw after a disposal or prune can take a town below target, and G1b would then revert a correct canary.
+   - Fix: add back the quantified draws (from the journal's draw claims or `_withdraw*` inventory deltas) per town and group. Add a fixture where a disposal followed by a draw passes.
+
+6. **Test gaps.**
+   - The design's four chain tests (section 5 a–d, through cognitive's real selector) do not exist.
+   - None of the skill-level throw, valve or withdraw paths are tested through the real claim function. That is why finding 1 shipped green.
+   - Three mutants survive on HEAD:
+     - "prune uses a count older than the floor's hour"
+     - "the deposit transfers a refused claim": the at-target test never reaches that line because the plan excludes the name first. A test needs the plan to see room while the claim is refused, e.g. a competing live claim.
+     - "the recovery qualifies anything": test 179 never gets as far as the recovery's checks.
+
+**P3 (notes)**
+
+7. **`cobblecap.mjs:446` — the reset only deletes the counts it can see.** A count captured before the reset but appended after it comes back and counts toward the floor (probe: floor 900). The clear procedure stops the bots, so the exposure is small. Fix: keep `state.resetAt` and ignore any count with `cap <= resetAt`.
+
+8. **Recovery claims are taken at the `place` stage (`skills.mjs:3722`), after the craft; the design says before.** In practice the plan already excludes at-target names, so the cost is a wasted chest craft at most.
+   - On an abort inside the place loop, the claims stay live until the next login. That is conservative but leaks a reservation.
+
+9. **`bots/src/towndeposit.mjs:309` prints `nothing_else=1` whenever a valve fired**, so G3v's "valve without proof" check cannot fail on real rows. The working tree writes a `proof` field on the claim; the read should check the journal's `proof`, not the row text.
+
+10. **`scripts/host/stockjournal.mjs:38` folds every generation's records in full**, including records appended to generation N−1 after base N was cut. The bots never fold those, so G3/G4 could judge history the bots never saw. Fix: fold base N and generation N only, per generation. (This file changed on disk during my review; I reviewed HEAD's version.)
+
+11. **Smaller items:**
+    - Pruning of junk-list stacks (design 3.5) is not implemented.
+    - Withdraw room-making fails the whole visit when the cheapest candidate is at target, instead of trying the next candidate.
+    - `pruneOrder` checks whether the well is usable before checking its cooldown (`bots/src/cognitive.mjs:901`); swap the two.
+    - The `_stock_dispose` and `_stock_prune` rows are written before the throw, so the reported click counts are intentions, not outcomes.
+
+12. **Performance is fine.** Measured: `readTown` over a 250 KB tail with no checkpoint takes 1.0 ms per read, and `townStock` for 5 groups takes 0.05 ms. That covers the per-decision `stockWellOpts` and `cobbleWellCap` reads at town and the reader behind `bankableInventory` (5 s cache).
+
+**What holds up**
+
+- The rest of the journal logic checks out: the `lo` tie, the rule that a releasing count at the same or an older capture marks the container unknown, generations/rotation/base publication, the `currentGen` cache re-read, per-generation checkpoints, and the void fence.
+- Take admission at its own place is correct.
+- Every throw re-reads keeps, the 64 pillar blocks and the available floor.
+- Protected kinds and tools never reach the stock path.
+- Stonecap's cobble behaviour is unchanged except for the designed floor rule and stale releases becoming unknown. Finding 4 is the one unintended consequence.
+- In the read, all row kinds match what `skills.mjs` writes (`_stock_*`, `_town_deposit`, `_deposit_new_chest`), and the pillar regex matches the bots' scaffold list.
+
+**On the uncommitted edits.** They also fix four HEAD defects I did not list above, and I agree with each:
+- `bankInto` released its claims before the cursor settled.
+- `rearrangeFor`'s cursor rescue could bank a targeted name without a claim.
+- `recordCount` silently skipped a record that was only a dirty mark.
+- The deposit had no release in `finally` when a throw interrupted a transfer.
+
+They do not touch findings 2, 4, 5, 6 or 7.
+
+===== CLAUDE CODE REVIEW, VERDICT MESSAGE 2 of 6 (code r1-r3, then fold r1-r2, in order) =====
+**VERDICT: APPROVE** (no P1s left; two P2s should be fixed before the deploy)
+
+I reviewed HEAD `51f270d5` from a fresh `git archive` copy, re-ran my round-1 probes against it, and ran the read's `--selftest` and the mutant script. The selftest passes. The mutant script gives 39 killed and 1 survived, so it still exits 1 (see P2-1).
+
+### My round-1 findings
+
+| # | Finding | Status |
+|---|---|---|
+| 1 | Draw/valve claims written as plain bank claims (P1) | **Resolved.** `p_kind` now gives `draw→draw`, `valve→valve`, `take→take`, and each kind is written on the record. The new valve chain test in `towndeposit.test` kills the "valve claimed as bank" mutant. |
+| 2 | Cobble taken by a prune was never thrown (P1) | **Resolved, but now a P2 (see P2-2).** Pruned cobble goes through stonecap's at-cap path: an own 64 plus a pruned 64 throws one stack. With no exemption, though, a pruned stack the bag needs for its keeps stays in the bag. |
+| 3 | Equal-time tie: ceiling chosen by cobble only | **Resolved.** Tie probe: the oak_log ceiling is now 640, the max. |
+| 4 | Cobble left out of the count step while its well uses the floor | **Resolved.** The floor branch of `stockCountKeys` (`skills.mjs` ~3311) now includes cobble. |
+| 5 | G1b had no draw add-back | **Resolved.** The read adds back the journal's draws per town and judges groups per town; both have fixtures. |
+| 6 | Test gaps (chain tests, claim kinds, mutant survivors) | **Resolved:** the chain tests (count step, valve and its control, nowell), the claim kinds through `claimStack`, the refused-claim deposit and `stockQualifies`, and my three round-1 survivors are now all killed. One new survivor; see P2-1. |
+| 7 | Reset did not fence counts appended late | **Code resolved, untested.** The probe now returns `null`, floor 0. See P2-1. |
+| 8 | Recovery claims taken after the craft | **Resolved.** Claims are taken before the craft and released on each listed early exit. The abort paths remain (P3-1). |
+| 9 | G3v could not fail on real rows | **Resolved.** The journal gate checks the claim's own `proof`. |
+| 10 | Journal audit folded records the bots never fold | **Resolved.** Each generation is cut at its successor base's `prevEnd`. |
+| 11 | Junk pruning missing; withdraw room-making; `pruneOrder` well check before cooldown; intent rows | **Mostly resolved.** Junk pruning is in: the probe takes one partial andesite stack and leaves oak_log alone. The well check now runs after the cooldown. Room-making stopping on an at-target candidate is an accepted residual. Intent rows: see P3-3. |
+| 12 | Performance | **Still fine.** 1.1 ms per fold over a 250 KB tail. |
+
+### New findings
+
+**P2-1 — the reset fence has no test that can fail.** `scripts/mutants/mutants-stocktarget.py:61`, "a count captured before a reset comes back", **survives**, so the mutant gate exits 1. The existing reset test (`stocktarget-journal.test.mjs:85`) only covers counts appended before the reset.
+- Fix: add a fixture `[cnt cap=T-50, reset at=T, cnt cap=T-10 appended after]` and assert the container is unknown and the floor is 0.
+
+**P2-2 — a prune can take stock that its own throw then refuses, so the bag grows.**
+- `pruneTown`'s `decide` (`skills.mjs` ~8871) picks by the town's surplus only.
+- With the exemption gone, the throw (`skills.mjs` ~7327) applies the bag's keeps, the 64 pillar blocks, and stonecap's 64-cobble reserve to the stack it just took.
+- Probe: oak_log pruned into a bag holding none of it, keep 64 → `stockWellStacks` returns `[]`. Pruned cobble into a bag holding no other cobble → the stonecap plan returns `[]`.
+- Each such prune moves up to 4 stacks into the bag and keeps them. A prune that throws nothing is reported `failed`, which costs a 30-minute backoff. This breaks design 3.5's "the bag ends with what it had" and pushes against the primary metric, bag slots.
+- It is bounded by the keeps and the 64 pillar blocks, and nothing is lost, so P2 rather than P1.
+- Fix: in `decide`, keep only the takes the well's rule would accept on the bag after the take. That means `stockWellStacks` with `stockWellOpts` keeps and the pillar minimum, and `cobbleWellStacks` for cobble. Add a test where an empty bag plus at-target oak_log takes nothing.
+
+**P3-1 — recovery claims leak on abort.** The craft and place-loop abort paths (`if (e?.aborted || signal?.aborted) throw e`) still leave the reservations live until the next login. That is conservative, but each abort holds its group's room town-wide.
+- Fix: wrap the claim span from the craft to the deposit in `try/finally { if aborted releaseStock() }`. Nothing has moved under those claims at that point.
+
+**P3-2 — the count step recounts on any held group, not only surplus.** The floor branch of `stockCountKeys` iterates every group the bag holds, including the bot's own 64-cobble reserve, rather than only groups held above the keeps. A full bag with nothing to bank will therefore recount up to 3 chests per town-deposit cooldown whenever a group's 1-hour floor is stale. It is bounded by the hour, but wasted.
+- Fix: iterate the groups that `stockWellStacks` or `cobbleWellStacks` would list once the floor is fresh.
+
+**P3-3 — reporting gaps.**
+- Pruned cobble goes through the cobble path, so it writes no `_stock_prune` row and `prune_clicks` under-counts it. Fix: tag it from `acc.pruned`.
+- The `_stock_dispose` and `_stock_prune` rows are still written as intentions just before the click (rare gap).
+
+### Checked and correct
+- The equal-capture merge (`hiOf`) taking the newer `seq` does not wrongly resolve dirty marks.
+- `nowell` claims are excluded from G3, and nowell banking outside town follows today's rule.
+- Junk pruning takes nothing targeted and adds no claims.
+- G1's keep check, `left_after < keep`, matches how `stockWellStacks` computes the keep.
+- G2 now matches on the same site and still holds when a crafted chest moves to another site.
+- The reserved-name entry the deposit adds to its plan cannot bank past target, because the plan's room already excludes the reservation.
+
+The probes are in `/private/tmp/claude-501/-Users-darrellmiller-Documents-code-minecraft-ai--claude-worktrees-heuristic-nightingale-49eee9/2a199c24-8dc2-4c02-9509-8499787c3dd1/scratchpad/reviews/claude-code-probes/`. `tree` there is now a symlink to `tree2` (HEAD `51f270d5`); the round-1 copy is in `tree1`. The new probe is `p_r2_cobble.mjs`.
+
+===== CLAUDE CODE REVIEW, VERDICT MESSAGE 3 of 6 (code r1-r3, then fold r1-r2, in order) =====
+**VERDICT: APPROVE** for round 2 of the stocktarget-01 code review (HEAD `51f270d5`). No must-fix (P1) defects remain; two should-fix (P2) items need fixing before the deploy. I sent the full review to the session that asked for it.
+
+I reviewed a fresh copy of that commit and re-ran my round-1 probes against it. The read's self-test passes; the mutant script kills 39 of 40, and the one survivor makes it exit 1.
+
+**Round-1 findings, now resolved:**
+- **Claim kinds:** draw, valve and take claims are now written and admitted as themselves, so withdraw and the valve work again.
+- **Equal-time ties:** two counts captured in the same millisecond now take the larger count for every group (oak_log ceiling 640, not 0).
+- **Cobble and the count step:** the step that refreshes a stale 1-hour count now includes cobble.
+- **G1b:** the canary's draws are added back, per town.
+- **G3v:** now checks the proof recorded on the valve claim, so it can actually fail.
+- **Journal audit:** each generation is folded only up to the point the bots fold it.
+- **Recovery:** claims are now taken before the craft.
+- **Tests:** chain tests and claim kinds through `claimStack` are in; my three round-1 surviving mutants are killed.
+- **Pruned cobble:** now goes through stonecap's cobble path.
+
+The reset fix works in my probe but has no test (P2-1).
+
+**Should fix before the deploy:**
+1. **The reset fix is untested.** The mutant "a count captured before a reset comes back" survives, so the mutant gate still fails. The fix is one test where a count captured before the reset is appended after it.
+2. **A prune can take stock its own throw then refuses, so bags grow.** Pruned stacks now get no exemption from the bag's keeps, the 64 pillar blocks or the 64-cobble reserve. A bot holding none of a group keeps what it prunes, up to 4 stacks per visit. Nothing is lost, but it breaks the design's "the bag ends with what it had" and works against bag slots, the canary's primary metric. The fix is to have the prune take only what the well would accept.
+
+**Notes:**
+- Recovery reservations still stay live until the next login if the craft or placement is aborted.
+- The count step recounts chests for any group the bag holds, not only surplus.
+- Pruned cobble writes no `_stock_prune` row, so prune clicks are under-counted.
+
+The probes are in `.../scratchpad/reviews/claude-code-probes/`. `tree` there now points at the round-2 copy; the round-1 copy is `tree1`.
+
+===== CLAUDE CODE REVIEW, VERDICT MESSAGE 4 of 6 (code r1-r3, then fold r1-r2, in order) =====
+**VERDICT: APPROVE** for round 3 of the stocktarget-01 code review. Every finding I raised in round 2 is resolved, and only three minor notes remain. I sent the full review to the session that asked for it.
+
+I reviewed the fix commit and the rebased build that will actually ship, from a fresh copy of the rebased branch. Apart from the rebase onto the new stonecap base, the stocktarget patch is identical across the rebase. The read's self-test passes, the mutant script now kills all 51 mutants, and the neighbouring test files pass on the rebased build. My earlier probes still hold.
+
+**Round-2 findings:**
+- **Reset fence had no test:** resolved. There is now a test for a count appended after a reset, and its mutant is killed.
+- **Prunes left stacks in the bag:** resolved. A prune now takes only what the well would throw from that bag. Probed against the real well rule:
+  - Empty bag at an at-target oak chest: takes 0 of 4.
+  - Bag already holding its 64-log keep: takes 4 of 4.
+  - Cobble follows the same pattern.
+- **Recovery claims leaked on abort:** resolved. One `try/finally` covers the reservation's whole lifetime, and releasing twice is harmless.
+- **Count step fired for any held group:** resolved. It now fires only for groups held above the bag's keeps.
+- **Pruned cobble wrote no row:** resolved. Pruned cobble now writes its own `_stock_prune` row, and that row cannot falsely trip the G1 safety gate.
+
+**New notes (minor, none blocking):**
+1. **Prunes judged with no throw limit.** The prune's check assumes the well throws any number of stacks, but a real visit throws at most 9, lowest slots first. A bag already holding 9 or more throwable stacks can keep an accepted prune stack until the next well visit. The fix is to cap the takes at 9 minus the bag's own throwable stacks.
+2. **Prune pick checks one name per group.** It judges each group by its first name only (sand for red sand, cobblestone for deepslate), so a bot can walk to a chest the open-container check then refuses. That costs only the cooldown.
+3. **Refused prunes not reported.** The visit row counts stacks the well would keep, but the read doesn't report that count. Reporting it would show a canary whose prunes are mostly refused as low exposure, not as quiet.
+
+Probes are in `.../scratchpad/reviews/claude-code-probes/`; `tree` there now points at the rebased copy (`tree3`).
+
+===== CLAUDE CODE REVIEW, VERDICT MESSAGE 5 of 6 (code r1-r3, then fold r1-r2, in order) =====
+**VERDICT: APPROVE**, with three should-fix (P2) items to apply when the canary is registered. There are no must-fix (P1) defects and nothing here can lose an item. I sent the full review to the session that asked.
+
+I reviewed the change (`git diff 08e0ea18 7b23dd08`) from a scratch copy and read stonecap's read script on `origin/main`. The read's self-test passes, and so do the stocktarget, stocktarget-journal, towndeposit and deposit-plan tests.
+
+**1. Is the `_stock_refused` row correct and sufficient as liveness?**
+It is correct, and it fixes the reason stonecap read INCONCLUSIVE: on an over-cap town it fires whenever a deposit or town deposit holds surplus the plan dropped. Two gaps:
+- **It can show liveness when nothing is being judged (P2-1).** "Not yet counted" refusals count toward liveness. A canary whose journal can't be read emits them on every deposit; the probe printed `oak_log:192:stock_unknown`. Liveness should require at least one row with a proven reason (`cobble_cap` or `stock_target`), with unknown-only rows reported separately.
+- **The rule can be live while the row stays silent (P2-2).** A bag holding nothing but capped surplus has its deposit refused at admission (`bots/src/admission.mjs` ~375), before the skill runs. That refusal only reaches the separate decision-stream log (`llm-<bot>.jsonl`), which skill-row reads don't load. Mixed bags and town deposits will still clear the "at least one row" bar, but the refusal counts will understate the rule. The fix is to write the row from that refusal too, or have the read count those rejections.
+
+**2. Is folding the cobble cap into stocktarget-01 sound?**
+Yes in principle. Stonecap proved nothing (it had no exposure), and this branch carries its cap and well code unchanged, so one canary of the combination is the honest test. But the registration overstates what it carries (P2-3):
+- **The carried "C5 journal" gate isn't really the gate it claims to be.** Stonecap's read rebuilds the journal with its own hand-written logic, which predates the stock targets:
+  - It treats every log, take, draw and valve claim as a cobble bank claim.
+  - It ignores the newer journal rules, such as "dirty" records and the reset fence.
+  - It skips real cobble admissions, so it would print "0 breaches" from a fold that isn't the canary's.
+
+  The fix is to use stocktarget's own journal check (G3) restricted to cobble, or patch stonecap's fold. Either way, its exposure should be reported as UNTESTED when zero.
+- **Stonecap's reserve, whole-stack and overshoot gates are dropped (C1, C2, C3 and the C5 row check).** They cost nothing to keep, since this build still writes the rows they read. They only get real exposure after the one-time chest clear, when towns sit near 256 cobble, and by then stocktarget may already be promoted. Carry them as gates reported UNTESTED, and register a tripwire read on the fleet after the clear.
+- **The primary band needs checking (P3).** It reuses stonecap's band (`slots_did <= -1.366`), which is only valid if it came from the same bot-selection filter. Confirm or recompute it.
+
+**3. Defects in the commit (minor, P3):**
+- The deposit's refusal row ignores the recovery's reservation. In a recovery's first deposit it names `oak_log` as refused while 64 of it are banked under the reservation (confirmed by probe).
+- The recovery's nested deposit writes a second row for the same bag, so refusal rows are over-counted.
+- The early no-plan exit doesn't pass the peaceful-sword switch (`noSwords`), so its row can differ from the plan beside it.
+
+The new probe is `p_fold.mjs` in the scratchpad's `reviews/claude-code-probes/` folder.
+
+===== CLAUDE CODE REVIEW, VERDICT MESSAGE 6 of 6 (code r1-r3, then fold r1-r2, in order) =====
+**VERDICT: APPROVE.** The stonecap fold is sound to register on fleet 0cdb1a8; there are no must-fix or should-fix items, only two minor notes. I sent the full review to the session that asked.
+
+I reviewed from my own copies of `7628b9fa` and of the bamboo variant `537b56ce`. The read's self-test passes, including the new check that a cobble overshoot is still caught beside an unrelated oak claim. On `7628b9fa` the stocktarget and admission tests pass; on the bamboo variant the stocktarget, towndeposit, bamboo and hygiene tests pass.
+
+**Round-1 findings, all resolved:**
+- **False liveness:** the row now records how many refusals were at a counted cap or target. Rows that are all "not yet counted" no longer count toward liveness, and the self-test covers both cases.
+- **Silent admission refusal:** admission's empty-plan refusal now writes the row, at most once a minute per refused set.
+- **Stonecap's C5 journal check:** it now comes from the canary's own journal logic, restricted to cobble, and reports UNTESTED until a cobble bank claim is admitted.
+- **Carried row gates:** C1, C2, C3, the C5 row check and C9 all still read rows this build writes unchanged. The post-clear tripwire read should stay in the registration notes.
+- **Primary band:** resolved on the author's statement that stonecap's threshold was computed under the same bot-selection filter, which is identical here.
+- **Recovery false refusal and duplicate row:** the deposit's row now uses the plan's own options and is skipped for the recovery's nested deposit.
+- **Early exit without the peaceful-sword switch:** fixed.
+
+**Bamboo variant:** all three merge resolutions are correct unions; neither side was dropped. Bamboo sticks made beyond a bot's keep, in a town already at its stick target, will go down the well. That's harmless, but worth one reported line on the bamboo build.
+
+**Minor notes:**
+- The liveness count still includes two kinds of row that judged nothing when the journal can't be read: recovery rows with no effect, and bank rows with an "unknown" decision. A broken journal is already visible in the read's journal-audit lines, so this is low priority.
+- The admission throttle is shared across the process. That is correct for one bot per process, which is the fleet's layout, but it should be keyed per bot if several bots ever run in one process.
+
