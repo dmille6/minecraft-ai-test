@@ -1,5 +1,5 @@
 --- host-orig/verdict.py	2026-10-12 07:13:26
-+++ patched/verdict.py	2026-10-12 07:13:38
++++ patched/verdict.py	2026-10-12 08:04:25
 @@ -485,6 +485,14 @@
      MEMBERS = members_of(man)
      ALLBOTS = sorted({os.path.basename(b.rstrip('/')) for b in glob.glob(f'{LOGROOT}/*-*/')})
@@ -11,7 +11,7 @@
 +        _SUBSET = set(json.load(open('/srv/mcbots/brain-subset.json')).get('bots') or [])
 +    except FileNotFoundError:
 +        _SUBSET = set()
-+    CONTROL_BOTS = [b for b in ALLBOTS if b not in set(CANARY_BOTS) and b not in _SUBSET]
++    CONTROL_BOTS = [b for b in ALLBOTS if b not in set(CANARY_BOTS) and b not in _SUBSET]   # a subset bot that IS canary stays canary
      def _scan(botlist):
          d = collections.defaultdict(list)
          for bot in botlist:

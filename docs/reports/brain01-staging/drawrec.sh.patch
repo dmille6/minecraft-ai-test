@@ -1,5 +1,5 @@
 --- host-orig/drawrec.sh	2026-10-12 07:06:38
-+++ patched/drawrec.sh	2026-10-12 07:13:19
++++ patched/drawrec.sh	2026-10-12 08:04:32
 @@ -37,6 +37,12 @@
  import json
  ledger = txt.split('=== LEDGER')[1].split('=== MANIFEST')[0] if '=== LEDGER' in txt else ''
@@ -13,18 +13,28 @@
  for line in ledger.strip().splitlines():
      try: row = json.loads(line)
      except Exception: continue
-@@ -168,6 +174,16 @@
+@@ -168,6 +174,26 @@
  # and it SAYS WHICH -- so the read knows its own power instead of assuming it.
  TARGET_K = 4
  MIN_K = 2
 +# brain-01 (staged 2026-10-12): a registration may CAP the draw with `draw_k` (pools). A model/env canary on the
 +# Studio may take two pools (10 bots) and no more -- the Studio serves ~10-12 bots. Absent = 4, as above.
 +if RUN:
-+    try:
-+        _dk = json.load(open(os.path.expanduser('~/mcai-analysis/registrations/%s.json' % RUN))).get('draw_k')
-+    except Exception:
-+        _dk = None
-+    if isinstance(_dk, int) and 1 <= _dk < TARGET_K:
++    # FAIL CLOSED (Codex r1): a registration that cannot be read, or a model-env one without a valid draw_k, draws
++    # NOTHING rather than the default four pools -- a Studio canary on 20 bots is exactly the failure this cap prevents.
++    _r, _x = None, None
++    for _rp in (os.path.expanduser('~/mcai-analysis/registrations/%s.json' % RUN), '/tmp/registrations/%s.json' % RUN):   # the same two places as above
++        try:
++            _r = json.load(open(_rp)); break
++        except Exception as _e:
++            _x = _e
++    if _r is None:
++        print('draw_k: REGISTRATION UNREADABLE for', RUN, '(%s) -- drawing nothing' % _x)
++    _dk = (_r or {}).get('draw_k')
++    if _r is None or (_r.get('class') == 'model-env' and not (isinstance(_dk, int) and 1 <= _dk <= 2)):
++        TARGET_K = 0; MIN_K = 1
++        print('draw_k: refusing to draw for', RUN, '(model-env needs draw_k 1..2)')
++    elif isinstance(_dk, int) and 1 <= _dk < TARGET_K:
 +        TARGET_K = _dk; MIN_K = min(MIN_K, _dk)
 +        print('draw_k: registration caps the draw at %d pool(s)' % _dk)
  rng = secrets.SystemRandom()

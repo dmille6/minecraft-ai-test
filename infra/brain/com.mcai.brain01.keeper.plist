@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- brain-01, ON THE STUDIO: runs brain-keeper.sh every 60 s. STAGED 2026-10-12, NOT INSTALLED. -->
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0"><dict>
+  <key>Label</key><string>com.mcai.brain01.keeper</string>
+  <key>ProgramArguments</key><array><string>/bin/bash</string><string>/Users/mike/brain01/brain-keeper.sh</string></array>
+  <key>StartInterval</key><integer>60</integer><key>RunAtLoad</key><true/>
+  <key>StandardErrorPath</key><string>/Users/mike/brain01/keeper.err</string>
+</dict></plist>
