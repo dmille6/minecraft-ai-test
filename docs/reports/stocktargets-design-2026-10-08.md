@@ -399,8 +399,8 @@ STOCK_GROUPS); "clear only" = capped by the one-time clear, never disposed by a 
 | torch, ladder | 64 each | items | clear only |
 | crafting_table 2, furnace 4, chest 8, bucket 2 | as listed | items | clear only |
 | stone_sword, wooden_sword | 0 | usable copies | clear only (peaceful kit: never banked) |
-| bamboo | 0 | items | clear only -- OWNER TO CONFIRM (bamboo-01 turns the BAG's bamboo into sticks; town bamboo is not read) |
-| bucket | 2 | items | OWNER TO CONFIRM (iron: the owner said never dispose iron) |
+| bamboo | 0 | items | clear only -- OWNER-CONFIRMED 10-12 ("bamboo 0 and bucket 2 are fine"; bamboo-01 turns the BAG's bamboo into sticks; town bamboo is not read) |
+| bucket | 2 | items | clear only -- OWNER-CONFIRMED 10-12 ("bamboo 0 and bucket 2 are fine") |
 | spent tools (<= 10 uses), the well's junk list | removed | -- | the clear removes them |
 | iron, ores, raw_*, ingots, coal, gems, food, books, iron/diamond tools, everything else | NOT capped | -- | never touched |
 
