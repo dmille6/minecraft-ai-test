@@ -161,9 +161,13 @@ await t('DEPOSIT: a town whose counted chest holds 500 oak logs -> no log moves;
   const w = town([stack('oak_log', 64), stack('oak_log', 64), stack('oak_log', 64), stack('chest', 1)])
   w.stock(5, 64, 0, Array.from({ length: 8 }, () => stack('oak_log', 64)))
   await capped(w, async () => {
+    const n0 = RECS.length
     const r = await run(w.bot)
     assert.equal(logsIn(w.bag), 192, JSON.stringify(r)); assert.notEqual(r.status, 'success')
     assert.equal(w.spy.placed.length, 0, 'no chest placed')
+    // THE REFUSAL IS A ROW (stonecap-01 INCONCLUSIVE 10-12)
+    const rf = RECS.slice(n0).filter(x => x.skill?.name === '_stock_refused').map(x => x.skill.detail)
+    assert.ok(rf.some(d => /^via=deposit n=\d+ cobble=0 stock=\d+ .*oak_log:192:stock_(target|unknown)/.test(d)), `a refusal row names the logs: ${rf.join(' | ')}`)
   })
 })
 await t('DEPOSIT: a counted, complete town under target -> the room under 64 goes under ONE confirmed claim, released by the post-transfer count; a _stock_bank row', async () => {
@@ -179,6 +183,30 @@ await t('DEPOSIT: a counted, complete town under target -> the room under 64 goe
     assert.match(row?.skill?.detail ?? '', /^group=oak_log name=oak_log planned=\d+ moved=\d+ .*target=64 decision=bank .*claims=1 refused=0/)
     const st = CC.readTown(process.env.POOL_STATE_DIR, fs.readdirSync(process.env.POOL_STATE_DIR).find(f => f.endsWith('.cobble.jsonl')).replace('.cobble.jsonl', ''))
     assert.equal(Object.values(st.claims).filter(c => c.state === 'live').length, 0, 'the claim was released')
+  })
+})
+await t('AN OVER-CAP TOWN IS NOT SILENT (stonecap-01 INCONCLUSIVE 10-12): a counted chest of 1,728 cobble, a bag of surplus cobble and logs under target -> the logs go, the cobble stays, and a _stock_refused row names the cobble cap; under the cap (positive control) no cobble refusal', async () => {
+  const w = town([stack('cobblestone', 64), stack('cobblestone', 64), stack('cobblestone', 30), stack('oak_log', 64), stack('oak_log', 64)])
+  w.bot.currentWants = ['oak_log']
+  w.fill(5, 64, 0, 'cobblestone', 64)
+  w.set(7, 64, 0, 'chest')
+  await capped(w, async () => {
+    await cobbleObserve(w.bot, { x: 5, y: 64, z: 0 }, await w.bot.openContainer(w.bot.blockAt({ x: 5, y: 64, z: 0 })))
+    await cobbleObserve(w.bot, { x: 7, y: 64, z: 0 }, await w.bot.openContainer(w.bot.blockAt({ x: 7, y: 64, z: 0 })))
+    const n0 = RECS.length
+    const r = await run(w.bot)
+    const cob = w.bag.filter(Boolean).reduce((n, x) => n + (x.name === 'cobblestone' ? x.count : 0), 0)
+    assert.equal(cob, 158, `no cobble banked: ${r.detail}`)
+    assert.ok(logsIn(w.bag) < 128, `the logs went: ${r.detail}`)
+    const rf = RECS.slice(n0).filter(x => x.skill?.name === '_stock_refused').map(x => x.skill.detail)
+    assert.ok(rf.some(d => /^via=deposit n=\d+ cobble=1 .*cobblestone:158:cobble_cap/.test(d)), `the cap's refusal is a row: ${rf.join(' | ')}`)
+  })
+  const u = town([stack('cobblestone', 64), stack('cobblestone', 64), stack('cobblestone', 30)])
+  await capped(u, async () => {
+    await cobbleObserve(u.bot, { x: 5, y: 64, z: 0 }, await u.bot.openContainer(u.bot.blockAt({ x: 5, y: 64, z: 0 })))
+    const n0 = RECS.length
+    await run(u.bot)
+    assert.equal(RECS.slice(n0).filter(x => x.skill?.name === '_stock_refused' && /cobble_cap/.test(x.skill.detail)).length, 0, 'an empty town: no cap refusal')
   })
 })
 await t('NO CHEST AT TARGET: a full chest, an at-target remainder and a chest in the bag -> no recovery chest; an untargeted remainder (positive control) does go to the recovery', async () => {

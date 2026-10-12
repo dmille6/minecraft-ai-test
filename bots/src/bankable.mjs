@@ -441,6 +441,28 @@ function depositView (items, { wants = [], ...opts } = {}) {
  * lookup and not a re-derivation. Returns null when the item IS bankable and when the bot
  * holds none of it -- "held none" is a different sentence and `depositNoopReason` owns it.
  */
+/**
+ * THE AT-TARGET REFUSALS OF THIS BAG -> [{ name, held, why }]. A name the bag holds whose bankable amount the town's
+ * cobble cap or stock target removed whole, or could not judge (unknown). The plan simply DROPS them, so a deposit that
+ * moves other items said nothing about them -- and on a town already above its cap the rule could never be seen working:
+ * stonecap-01 read INCONCLUSIVE 10-12 with 119 of 137 canary deposits holding surplus cobble on towns 9-34x over 256,
+ * and zero rows (its only liveness row was a cobble bank under the cap). The deposit and the town deposit write one
+ * `_stock_refused` row from this whenever it is non-empty.
+ */
+export const REFUSAL_REASONS = Object.freeze(new Set(['town_stock_target', 'town_stock_unknown', 'town_cobble_cap', 'town_cobble_unknown']))
+export function stockRefusals (items = [], opts = {}) {
+  const list = (Array.isArray(items) ? items : []).filter(it => it?.name)
+  const { excluded } = depositView(list, opts)
+  const held = {}
+  for (const it of list) held[it.name] = (held[it.name] ?? 0) + (it.count ?? 0)
+  return Object.entries(excluded).filter(([n, why]) => REFUSAL_REASONS.has(why) && held[n] > 0).map(([name, why]) => ({ name, held: held[name], why }))
+}
+/** The `_stock_refused` row's detail (key=value first: the detail is cut at 300). */
+export function stockRefusedDetail (via, refusals = []) {
+  const cap = refusals.filter(r => /cobble/.test(r.why)).length
+  return `via=${via} n=${refusals.length} cobble=${cap} stock=${refusals.length - cap} ${refusals.map(r => `${r.name}:${r.held}:${r.why.replace(/^town_/, '')}`).join(' ')}`.slice(0, 300)
+}
+
 export function bankableExclusion (items = [], item = null, opts = {}) {
   if (!item) return null
   return depositView(items, opts).excluded[item] ?? null

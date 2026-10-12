@@ -92,7 +92,7 @@ import { prunePick, pruneTakes, pruneAccepted, PRUNE_MAX_STACKS, PRUNE_FREE_AFTE
 import { scaffoldCount } from './exit-contract.mjs'
 /** Is this a pillar/scaffold block (well.mjs pillarCount's names)? */
 const isPillarItem = name => scaffoldCount([{ name, count: 1 }]) > 0 || /^(sandstone|red_sandstone|calcite|dripstone_block|blackstone)$/.test(name)
-import { bankableInventory, depositDue, DEPOSIT_ALWAYS } from './bankable.mjs'   // chestfull-02: advice agrees with admission
+import { bankableInventory, depositDue, DEPOSIT_ALWAYS, stockRefusals, stockRefusedDetail } from './bankable.mjs'   // chestfull-02: advice agrees with admission
 import fs from 'node:fs'
 import { doVisit, openBoard, withinBoard } from './board-visit.mjs'
 import { canContinueDescent } from './exit-contract.mjs'
@@ -2606,6 +2606,7 @@ async function deposit(ctx, { item = null }, signal, { noRecovery = false, prefe
       // took it as its nearest chest and failed to open it again, every decision)
       const wantsNow = bot.currentWants ?? []
       if (!depositPlan(bot.inventory.items(), item, { wants: wantsNow }).length) {
+        stockRefusedRow(bot, 'deposit', bot.inventory.items(), { wants: wantsNow })   // the refusal is a row here too
         return { status: 'no_effect', failClass: null,
                  detail: depositNoopReason(bot.inventory.items(), item, { wants: wantsNow }) ?? 'the cobble stays: the town could not be counted yet (town cobble not yet counted)' }
       }
@@ -2830,6 +2831,8 @@ async function deposit(ctx, { item = null }, signal, { noRecovery = false, prefe
     // the holds, the reserves, the best tool) is judged on the bag as it is NOW, after the craft (Codex code r2 P1)
     const stockRoomFor = Object.fromEntries(Object.entries(reserved ?? {}).map(([rn, rv]) => [rn, rv.n]))
     const plan = depositPlan(planItems, item, { wants: bot.currentWants ?? [], noSwords, stockRoomFor })   // the wants admission judged with (set by the gate)
+    // THE REFUSAL IS A ROW (stonecap-01 INCONCLUSIVE 10-12): what the cap or a target dropped from this plan, named
+    stockRefusedRow(bot, 'deposit', planItems, { wants: bot.currentWants ?? [], noSwords })
     for (const { name, count } of plan) {
       check(signal)
       // A TOOL GOES BY SLOT, A USABLE COPY AT A TIME (Codex round 2 on withdraw: chest.deposit(type) takes the first copy
@@ -3357,6 +3360,14 @@ export function stockQualifies (bot, item = null, stage = 'entry', { reserveAt =
   out.untargeted = untargeted
   stockRecoveryRow(bot, stage, out, { at: reserveAt, aid })
   return out
+}
+/** One `_stock_refused` row when the cap or a stock target drops a held name from this plan (bankable.mjs stockRefusals). */
+export function stockRefusedRow (bot, via, items, opts = {}) {
+  try {
+    const rf = stockRefusals(items, opts)
+    if (rf.length) logEvent({ kind: 'stock_refused', status: 'success', snapshot: snapshot(bot), detail: stockRefusedDetail(via, rf) })
+    return rf
+  } catch { return [] }   // a row never breaks a deposit
 }
 /** One `_stock_recovery` row: the recovery's action id and site FIRST (the detail is cut at 300), then what qualified. */
 function stockRecoveryRow (bot, stage, q, { at = null, aid = null, held = false } = {}) {
@@ -6586,6 +6597,8 @@ async function townDeposit (ctx, _args, signal) {
   const slotsBefore = before.length
   const held = list => { const c = {}; for (const it of list) c[it.name] = (c[it.name] ?? 0) + (it.count ?? 0); return c }
   const heldBefore = held(before)
+  // THE REFUSAL IS A ROW (stonecap-01 INCONCLUSIVE 10-12): what the cap or a target keeps out of this visit, named
+  stockRefusedRow(bot, 'town_deposit', before, { wants: wanted, noSwords: foodSkipNow(bot).active })
   // THE VALVE: only with the proof, re-taken here (design 3.2)
   const valve = !townDepositPlan(before, { wanted, noSwords: foodSkipNow(bot).active }).steps.length && valveProof(bot, before)
   const planned = townDepositPlan(before, { wanted, noSwords: foodSkipNow(bot).active, valve }).steps.length

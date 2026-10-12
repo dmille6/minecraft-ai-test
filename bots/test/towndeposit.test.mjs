@@ -852,14 +852,18 @@ test('STOCK CHAIN (a): a full bag of at-target logs whose town has never been co
   const items = bag([['oak_log', 64], ['oak_log', 64], ['oak_log', 64], ['crafting_table', 1], ['wooden_pickaxe', 1, 50], ...filler(31)])
   const chest = chestAt(2, 70, 0, { items: Array.from({ length: 27 }, (_, i) => (i < 10 ? item('oak_log', 64) : null)) })
   const { bot, done } = await stockChain({ items, chest })
+  const refused = []
+  const untap = tapRecords(r => { if (r?.skill?.name === '_stock_refused') refused.push(r.skill.detail) })
   try {
     const { ran } = await decisions(bot, 1)
     assert.equal(ran[0]?.skill, 'town_deposit', JSON.stringify(ran))
+    // THE REFUSAL IS A ROW (stonecap-01 INCONCLUSIVE 10-12): the visit names what it keeps out
+    assert.ok(refused.some(d => /^via=town_deposit .*oak_log:192:stock_(unknown|target)/.test(d)), `a town-deposit refusal row: ${refused.join(' | ')}`)
     const CC = await import('../src/cobblecap.mjs')
     const st = CC.readTown(process.env.POOL_STATE_DIR, CF.townKey(new Vec3(0, 70, 0)), bot.worldId ?? null)
     assert.ok(Object.values(st?.obs ?? {}).some(o => (o.m?.oak_log ?? 0) === 640), `the chest was counted: ${JSON.stringify(st?.obs)}`)
     assert.equal(sumOf(chest.items, 'oak_log'), 640, 'nothing banked into an at-target town')
-  } finally { done() }
+  } finally { untap(); done() }
 })
 test('STOCK CHAIN (b): a full bag at a town at its tool target, nothing else to free -> the VALVE banks ONE spare copy (two copies are enough)', async () => {
   // filler: torches (never bankable, never junk, never compost) -- wool would be the well's junk, and the valve rightly waits for the well

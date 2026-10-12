@@ -525,7 +525,9 @@ scenes.stockprunekeep = async () => {
 // ingots, a fresh town): the recovery qualifies on the ingots (an untargeted item) and does build a chest.
 async function noChestTrial (tag, extra) {
   rcon(`kill ${ARENA_SEL}`); CHEST = CHEST ?? pickChest()
-  setChest(Array.from({ length: 27 }, () => ['oak_log', 64]))
+  // FULL, and the oak exactly AT its target (64): nothing a prune may take (run 4: a chest of 27 oak stacks was pruned,
+  // which made room in it, so the control's ingots went into the old chest and no recovery was ever asked)
+  setChest([['oak_log', 64], ...Array.from({ length: 26 }, () => ['torch', 64])])
   // ONE free slot (run 3: with room the bot PRUNED the full chest first, which made room in it, so the control's ingots went
   // into the old chest and no recovery was ever asked; a prune needs two free slots)
   const spec = [['chest', 1], ['oak_log', 64], ['oak_log', 64], ['stone_pickaxe', 1], ...extra, ...TORCH(31 - extra.length)]

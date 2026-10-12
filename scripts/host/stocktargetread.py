@@ -61,9 +61,9 @@ for g in TARGETS:
     GROUP_OF.setdefault(g, g)
 PROTECTED = re.compile(r'(_ore$|^raw_|_ingot$|_nugget$|^(coal|charcoal|diamond|emerald|lapis_lazuli|redstone|quartz|amethyst_shard|netherite_scrap|ancient_debris)$|_(pickaxe|axe|shovel|hoe|sword)$|_(helmet|chestplate|leggings|boots)$|^(bow|crossbow|shield|shears|flint_and_steel|fishing_rod|bucket|water_bucket|lava_bucket|milk_bucket)$|_sapling$|_propagule$|^(torch|crafting_table|furnace|blast_furnace|smoker|chest|barrel|composter|bed|bone_meal|bamboo|wheat|wheat_seeds|apple|bread)$|_bed$)')
 PILLAR = re.compile(r'^(dirt|cobblestone|cobbled_deepslate|stone|andesite|diorite|granite|gravel|sand|netherrack|tuff|deepslate|sandstone|red_sandstone|calcite|dripstone_block|blackstone)$|(_log|_planks|_wood|_hyphae)$')
-KEEP = ('_stock_bank', '_stock_dispose', '_stock_prune', '_stock_prune_visit', '_stock_recovery', '_town_deposit',
+KEEP = ('_stock_bank', '_stock_dispose', '_stock_prune', '_stock_prune_visit', '_stock_recovery', '_stock_refused', '_town_deposit',
         '_deposit_new_chest', 'deposit', 'town_deposit', 'withdraw_pick', 'withdraw', 'prune_town')
-OWN = ('_stock_bank', '_stock_dispose', '_stock_prune', '_stock_prune_visit', '_stock_recovery')
+OWN = ('_stock_bank', '_stock_dispose', '_stock_prune', '_stock_prune_visit', '_stock_recovery', '_stock_refused')
 KV = re.compile(r'(?:^| )([a-z_]+)=(\S+)')
 REFUSAL = re.compile(r'town stock (target|not yet counted)')
 
@@ -179,6 +179,10 @@ def judge(rows, hours, census=None, draws=None, bank_aids=None):
     out['rows_canary'] = sum(1 for r in post_c if r['name'] in OWN)
     out['rows_control'] = sum(1 for r in post_k if r['name'] in OWN)
     refusals = sum(1 for r in post_c if r['name'] in ('deposit', 'town_deposit') and REFUSAL.search(r['detail']))
+    # THE AT-TARGET REFUSAL ROWS (stonecap-01 INCONCLUSIVE 10-12: on a town already above its cap the only evidence the
+    # rule is live is a refusal; the plan used to drop the item silently): rows, and the cobble cap's share of them
+    refused_rows = [r for r in post_c if r['name'] == '_stock_refused']
+    refused_cobble = sum(1 for r in refused_rows if num(kv(r['detail']), 'cobble', 0) > 0)
     g1, g2, g3, g3v, disposed_groups = [], [], [], [], set()
     disposed_by_pool = defaultdict(set)
     disp = prn = bank_rows = valves = nowell = 0
@@ -277,6 +281,7 @@ def judge(rows, hours, census=None, draws=None, bank_aids=None):
                 'banked_pre_canary': banked(pre_c), 'banked_pre_control': banked(pre_k),
                 'fullfail_canary': fullfail(post_c), 'fullfail_control': fullfail(post_k),
                 'fullfail_pre_canary': fullfail(pre_c), 'fullfail_pre_control': fullfail(pre_k)})
+    out['refused_rows'] = len(refused_rows); out['refused_cobble_rows'] = refused_cobble
     out['_lists'] = {'g1': g1[:5], 'g2': g2[:5], 'g3': g3[:5], 'g3v': g3v[:5], 'g1b': g1b[:5]}
     return out
 
@@ -287,6 +292,12 @@ def selftest():
     R = lambda name, detail, status='success', bot='hive-a-Alpha', mins=0, delta=None: {'t': T0 + dt.timedelta(minutes=mins), 'per': 'post', 'arm': 'canary', 'name': name, 'status': status, 'detail': detail, 'bot': bot, 'delta': delta or {}, 'cv': 'x'}
     ok = judge([R('_stock_dispose', 'group=oak_log name=oak_log count=64 floor=900 avail=900 target=64 keep=64 pillar_after=200 pruned_left=0')], 3)
     assert ok['breach_g1'] == 0 and ok['dispose_clicks'] == 1, ok
+    # LIVENESS ON AN OVER-CAP TOWN (stonecap-01 INCONCLUSIVE 10-12): a refusal row is a canary row; cobble counted apart
+    rf = judge([R('_stock_refused', 'via=deposit n=2 cobble=1 stock=1 cobblestone:95:cobble_cap oak_log:192:stock_target')], 3)
+    assert rf['rows_canary'] == 1 and rf['refused_rows'] == 1 and rf['refused_cobble_rows'] == 1, rf
+    assert judge([R('_stock_refused', 'via=deposit n=1 cobble=0 stock=1 oak_log:192:stock_target')], 3)['refused_cobble_rows'] == 0
+    ctl = R('_stock_refused', 'via=deposit n=1 cobble=1 stock=0 cobblestone:95:cobble_cap'); ctl['arm'] = 'control'
+    assert judge([ctl], 3)['rows_control'] == 1, 'the base writes none: a control refusal row is an arms breach'
     assert judge([R('_stock_dispose', 'group=oak_log name=iron_ingot count=3 floor=900 avail=900 target=64 keep=0 pillar_after=200 pruned_left=0')], 3)['breach_g1'] == 1
     assert judge([R('_stock_dispose', 'group=oak_log name=oak_log count=64 floor=60 avail=60 target=64 keep=0 pillar_after=200 pruned_left=0')], 3)['breach_g1'] == 1
     assert judge([R('_stock_dispose', 'group=dirt name=dirt count=64 floor=0 avail=0 target=0 keep=16 pillar_after=10 pruned_left=0')], 3)['breach_g1'] == 1
@@ -421,7 +432,8 @@ if __name__ == '__main__':
     rate = lambda n, per, arm: n / hrs(per, arm) if hrs(per, arm) else float('nan')
     print('DENOMINATORS rows walked %d (unparsable %d) | bots pre canary %d control %d | post canary %d control %d | window %d min'
           % (walked, bad, len(bots[('pre', 'canary')]), len(bots[('pre', 'control')]), len(bots[('post', 'canary')]), len(bots[('post', 'control')]), W))
-    print('LIVENESS     canary own rows %d + refusals at target %d | control own rows %d (must be 0)' % (res['rows_canary'], res['refusals_canary'], res['rows_control']))
+    print('LIVENESS     canary own rows %d (of them _stock_refused %d, naming cobble %d) + refusal sentences %d | control own rows %d (must be 0)' % (
+        res['rows_canary'], res['refused_rows'], res['refused_cobble_rows'], res['refusals_canary'], res['rows_control']))
     print('CORRECTNESS  G1 %d %s | G1b %s %s | G2 %d %s | G3 row %d %s | G3v row %d %s' % (
         res['breach_g1'], res['_lists']['g1'], res['breach_g1b'] if res['g1b_tested'] else 'UNTESTED (no STOCK_CENSUS)', res['_lists']['g1b'],
         res['breach_g2'], res['_lists']['g2'], res['breach_g3_row'], res['_lists']['g3'], res['breach_g3v_row'], res['_lists']['g3v']))
@@ -448,7 +460,7 @@ if __name__ == '__main__':
     print('PRUNE        visits %s | candidate stacks the well would keep (not taken) %d | clicks %d' % (res['prune_visits'], res['prune_well_keeps'], res['prune_clicks']))
     print('REPORTED     targeted items banked/bot-h DiD %+.2f | chest-full failures/bot-h DiD %+.3f (post canary %d control %d) | valve %d | nowell %d | recovery place ok %d refused %d'
           % (bd, fd, res['fullfail_canary'], res['fullfail_control'], res['valve_uses'], res['nowell_rows'], res['recovery_place_ok'], res['recovery_refused']))
-    exposure = int((res['refusals_canary'] + res['dispose_clicks'] + res['prune_clicks'] + res['bank_rows']) >= 10 and res['instrument_control'] >= 1)
+    exposure = int((res['refused_rows'] + res['refusals_canary'] + res['dispose_clicks'] + res['prune_clicks'] + res['bank_rows']) >= 10 and res['instrument_control'] >= 1)
     print('EXPOSURE     -> %s' % ('READY' if exposure else 'NOT YET'))
     try:
         if ovr:
@@ -468,6 +480,7 @@ if __name__ == '__main__':
             'tripwire_g4_overlap': len(jr.get('g4_overlap', [])) if journal is not None else 0,
             'g3_tested': int(bool(adm.get('bank'))), 'g4_tested': int(bool(adm.get('take'))),
             'admitted_bank': adm.get('bank', 0), 'admitted_take': adm.get('take', 0), 'admitted_draw': adm.get('draw', 0),
+            'refused_rows': res['refused_rows'], 'refused_cobble_rows': res['refused_cobble_rows'],
             'instrument_control': res['instrument_control'], 'dispose_clicks': res['dispose_clicks'], 'prune_clicks': res['prune_clicks'],
             'bank_rows': res['bank_rows'], 'valve_uses': res['valve_uses'], 'nowell_rows': res['nowell_rows'],
             'banked_did': clean(bd), 'fullfail_did': clean(fd), 'nopick_full_did': clean(nopick_did), 'fullfail_canary': res['fullfail_canary'], 'fullfail_control': res['fullfail_control'],
