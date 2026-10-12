@@ -14,6 +14,24 @@ AGENTS DOWN until ~10-12 11Z (weekly limit): no new builds before then._
 
 ---
 
+## 10-12 03:05Z — STONECAP-01 INCONCLUSIVE (+360, 02:50Z): the cap works, but its liveness row CANNOT occur on these towns
+Read: deaths canary 1/120 bh vs control 3/240 bh; breaches 0; exposure_ready 1; own line rows_canary (_cobble_bank) = 0
+blocks KEEP (no evidence class, so no revert). Torn down 02:56Z, 20 bots back on 0cdb1a8. NOT promoted; fleet stays 0cdb1a8.
+WHY ZERO (positive control): the canary bots DID arrive with spare cobble -- 119 of 137 canary deposit rows held > 64
+(median 95; control 388/484, median 124), and 16 unnamed canary deposits succeeded. But every canary town is far over the
+256 cap by the cap's own journal (/var/lib/mcai/_pool-*/town-chest-*.cobble.jsonl, latest count per container summed):
+hive-a 2,288 (6 ctrs), hive-c 4,022 (11), placebo-b 5,723 (15), hive-d 8,704 (9) = 9x-34x the cap. bankableInventory
+(bankable.mjs) drops refused stacks from the PLAN, so the deposit never names cobble and no _cobble_bank row is written
+(skills.mjs ~2847 writes rows only for planned cobble). The refusal itself is silent on a deposit that moves other items.
+So the run could only ever read INCONCLUSIVE. Effect lines were in the right direction: cobble_banked_did -9.06,
+full_share_did -0.2, bag cobble not higher on canary (median 104 vs 120 latest per bot).
+NEXT: re-run the cap AFTER the deferred one-time clear (towns then start under 256, so banking-under-cap rows occur), or
+fold it into stocktarget-01 (same per-town caps). Registration fix for the re-run: count an at-cap refusal as liveness
+(a row when the plan drops cobble at the cap), so an over-cap town is not a silent run.
+TEARDOWN NOISE: the teardown restarts ghost units hive-a-Charlie/placebo-b-Charlie (no env file; the roster is
+Alpha/Bravo/Comet/Delta/Echo) -- seen also on withdraw2-01. Harmless; reset-failed. Fix the teardown roster to read env/.
+Queue: gridfix-01 launches next (variant 0cdb1a8 -> 82aef34; scheduler DECISION launch at 02:57Z), then bamboo-01.
+
 ## 10-11 21:00Z — CANARY LIVE: stonecap-01 @ 935c63e on hive-a,hive-d,placebo-b,hive-c (20 bots), declared 20:45:56Z
 Cap + surplus cobble to the well at 256/town. Reads ~23:45Z / ~02:45Z (+ extension until exposure). FALLBACKS registered
 so the queue never waits on a missing base: gridfix-01 + variant 0cdb1a8 -> 82aef34 (gf-on-0cdb1a8, both engines APPROVE
