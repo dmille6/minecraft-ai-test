@@ -58,6 +58,7 @@ import { serverRecount, lockstepClicks, confirmCursor, clicksInFlight, invalidat
 import { inflightTracker } from './inflight.mjs'
 import { FLOOR } from './toolfor.mjs'
 import { noteExitShort } from './toolhygiene.mjs'
+import { handRestoreAllowed } from './airpocket.mjs'
 /** Tools deposit moves one usable copy at a time, by slot (bankable.mjs's own tool families). */
 const DEPOSIT_TOOL_RE = /_(pickaxe|axe|shovel|sword|hoe)$/
 import { townDepositPlan, fitToContainer, townDepositDetail, inTownZone, doubleChestPartner, STORAGE_REACH, TD_MAX_CONTAINERS, TD_BUDGET_MS, TD_WALK_MS, TD_OPEN_MS, TD_SETTLE_MS, townKeeps, TD_TRIGGER_SLOTS } from './towndeposit.mjs'
@@ -6191,7 +6192,8 @@ function hkGuards (bot, signal) {
     const t = setTimeout(() => res(false), HK_SETTLE_MS)
     Promise.all([...pending]).then(() => { clearTimeout(t); res(true) })
   })
-  return { bound, restoreBound: (p, ms, what) => bound(p, ms, what, { abortable: false }), settle, outstanding: () => pending.size }
+  // the rescue's inventory epoch at the order's start: settleAndRestore never puts the old hand back over a rescue's equip
+  return { bound, restoreBound: (p, ms, what) => bound(p, ms, what, { abortable: false }), settle, outstanding: () => pending.size, epoch: bot.rescueInventoryEpoch ?? 0 }
 }
 const handOf = it => (it ? { name: it.name, used: it.durabilityUsed ?? 0 } : null)
 const hotbarOf = bot => Array.from({ length: 9 }, (_, i) => handOf(bot.inventory?.slots?.[36 + i]))
@@ -6211,6 +6213,12 @@ async function settleAndRestore (bot, was, g, order = 'housekeeping') {
   if (!settled) {
     logEvent({ kind: 'housekeeping_unsettled', status: 'failed', snapshot: snapshot(bot),
                detail: `${order}: ${g.outstanding()} operation(s) still outstanding after ${HK_SETTLE_MS}ms; hand not restored (held ${bot.heldItem?.name ?? 'nothing'}, was ${was?.name ?? 'nothing'})` })
+    return false
+  }
+  // an air_pocket rescue took the inventory during this order (Codex P2, stonecap review): its pickaxe stays in hand
+  if (!handRestoreAllowed({ epochAtStart: g.epoch, epochNow: bot.rescueInventoryEpoch })) {
+    logEvent({ kind: 'housekeeping_unsettled', status: 'skipped', snapshot: snapshot(bot),
+               detail: `${order}: an air_pocket rescue took the inventory; hand not restored (held ${bot.heldItem?.name ?? 'nothing'}, was ${was?.name ?? 'nothing'})` })
     return false
   }
   try {
