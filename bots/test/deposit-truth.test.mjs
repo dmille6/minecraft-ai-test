@@ -173,7 +173,9 @@ await t('END TO END: holding none of it is still reported as none', async () => 
 await t('EACH RULE NAMES ITSELF, and no two classes share a sentence', async () => {
   const cases = [
     ['no goal wants it',          inv({ apple: 30, oak_log: 12 }), 'apple'],
-    ['scaffold reserve',          inv({ cobblestone: 8 }),         'cobblestone'],
+    // stone, not cobblestone: since the cobble rule (stonecap) cobble has its own reserve and its own sentence
+    ['scaffold reserve',          inv({ stone: 8 }),               'stone'],
+    ['cobble reserve',            inv({ cobblestone: 40 }),        'cobblestone'],
     ['ballast',                   inv({ leaf_litter: 40 }),        'leaf_litter'],
     ['last of its tool family',   inv({ iron_pickaxe: 1 }),        'iron_pickaxe'],
     ['the only station',          inv({ crafting_table: 1 }),      'crafting_table'],
@@ -220,9 +222,9 @@ await t('ONE DEFINITION STILL: the named rule exists exactly when the plan is em
 })
 
 await t('A RESERVED STACK AND AN UNWANTED ONE ARE NOW DIFFERENT SENTENCES -- the point of the change', async () => {
-  const reserved = depositNoopReason(inv({ cobblestone: 8 }), 'cobblestone')
+  const reserved = depositNoopReason(inv({ stone: 8 }), 'stone')
   const unwanted = depositNoopReason(inv({ apple: 30 }), 'apple')
-  assert.notEqual(reserved.replace('cobblestone', 'X'), unwanted.replace('apple', 'X'),
+  assert.notEqual(reserved.replace('stone', 'X'), unwanted.replace('apple', 'X'),
     'the two states that needed different answers still read identically')
   assert.match(reserved, /scaffold reserve/, reserved)
   assert.match(unwanted, /no goal wants it/, unwanted)

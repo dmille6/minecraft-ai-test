@@ -10,7 +10,7 @@
 // keeps a bad generation from becoming a bad action.
 
 import { HARD_STOP } from './toolfor.mjs'
-import { SKILLS, classifyOutcome, SKILL_CONTRACTS, plantableSpotNear, findTownComposter, townBuildPlan, townPickMiss, townIngredientMiss, foodSkipNow, townContainers, townWellState, townWellBuildPlan, insideTownWell, wellSwordsNow, townPitState } from './skills.mjs'
+import { SKILLS, classifyOutcome, SKILL_CONTRACTS, plantableSpotNear, findTownComposter, townBuildPlan, townPickMiss, townIngredientMiss, foodSkipNow, townContainers, townWellState, townWellBuildPlan, insideTownWell, wellSwordsNow, cobbleWellCap, townPitState, stockWellOpts, valveProof, stockCountKeys, pruneTarget } from './skills.mjs'
 import { disposePlan, wellOrder, wellOrderOutcome, WELL_ORDERS, pitCoverItem } from './well.mjs'
 import { smeltInputsFor } from './smelting.mjs'
 import { makeClient, skillSchema } from './llm.mjs'
@@ -23,6 +23,7 @@ import { bambooOrder, bambooOrderOutcome, firstOrder } from './bamboo.mjs'
 import { compostPlan, townOrder, townOrderOutcome, boneMealRoom, composterLevel, TOWN_ORDERS, STORAGE_NEAR, TOWN_RADIUS, startableJunk } from './composter.mjs'
 import { hasUsablePick, roomPlan, pickTakes, roomKeep } from './withdrawpick.mjs'
 import { townDepositOrder, townDepositOutcome, townDepositPlan } from './towndeposit.mjs'
+import { pruneOrder, pruneOutcome } from './prune.mjs'
 import { bankClosed } from './chestfull.mjs'
 import { redundantRow, admitRow, HYGIENE_ITEMS } from './toolhygiene.mjs'
 /** One wear-out order per bot per two minutes at most. */
@@ -695,9 +696,16 @@ export class CognitiveLoop {
       let wanted = null
       const plan = () => {
         wanted = [...(this.#wantedItems(milestone) ?? [])]
-        return townDepositPlan(items, { wanted, noSwords: foodSkipNow(bot).active })   // the peaceful kit: the switch, read here
+        const noSwords = foodSkipNow(bot).active   // the peaceful kit: the switch, read here
+        const p = townDepositPlan(items, { wanted, noSwords })
+        if (p.freed >= 1) return p
+        // THE VALVE (stocktarget design 3.2): only with the PROOF that nothing else at town frees a slot -- no well-able stack,
+        // nothing compostable -- one spare tool copy may go in above the town's tool target
+        return valveProof(bot, items) ? townDepositPlan(items, { wanted, noSwords, valve: true }) : p
       }
       const r = townDepositOrder({
+        // the count step (stocktarget design 3.7): targeted surplus the town cannot judge yet, and a container to count
+        count: () => stockCountKeys(bot, items, { floor: true }).length > 0,
         now: Date.now(), slots: items.length, pos: bot.entity?.position ?? null,
         home: { x: config.world.homeX, y: config.world.homeY, z: config.world.homeZ },
         // A CLOSED BANK (chestfull.mjs bankClosed) is not a town chest to bank into: the deposit's own closure, respected.
@@ -878,11 +886,17 @@ export class CognitiveLoop {
         const bot = this.bot
         const items = bot.inventory?.items?.() ?? []
         const p = bot.entity?.position
-        const plan = disposePlan(items, { swords: wellSwordsNow(bot) })   // a peaceful world's swords count (well.mjs swordGoes)
         const home = { x: config.world.homeX, z: config.world.homeZ }
+        const distHome = p ? Math.hypot(home.x - p.x, home.z - p.z) : Infinity
+        // the town's cobble is read only AT TOWN, where a well order can be given at all (Claude coupling review P3: the cap
+        // read on every decision anywhere in the world was a hot-path cost)
+        const atTown = distHome <= TOWN_RADIUS
+        // ...and at town every targeted group at its target (stocktarget design 3.4: the available floor, the keeps)
+        const plan = disposePlan(items, { swords: wellSwordsNow(bot), cobbleAtCap: atTown && cobbleWellCap(bot, items) === 'at_cap', stock: atTown ? stockWellOpts(bot, items) : null })   // a peaceful world's swords count (well.mjs swordGoes)
+        const buildPlanJunk = disposePlan(items)   // the pit-first build tosses neither cobble nor swords (Claude coupling review P3)
         const r = wellOrder({
-          now: Date.now(), slots: plan.slots, freeSlots: 36 - plan.slots, junkStacks: plan.junkStacks,
-          distHome: p ? Math.hypot(home.x - p.x, home.z - p.z) : Infinity,
+          now: Date.now(), slots: plan.slots, freeSlots: 36 - plan.slots, junkStacks: plan.junkStacks, buildJunkStacks: buildPlanJunk.junkStacks,
+          distHome,
           well: () => townWellState(bot),
           // NO COVER BLOCK, NO BUILD ORDER (Claude r2 P3): the build would only skip no_cover every cooldown
           buildPlan: () => (pitCoverItem(items) ? townWellBuildPlan(bot) : null),
@@ -894,6 +908,20 @@ export class CognitiveLoop {
           state: this.wellState ?? {},
         })
         this.wellState = r.state
+        if (r.order) order = r.order
+      } catch { /* an inventory or world read must never break the decision loop */ }
+    }
+    // CHEST PRUNING (stocktarget-01, prune.mjs): after the well's orders, at town with room in the bag and a usable well,
+    // over-target full stacks from a town chest go down the well. Never a trip, never the model's choice.
+    if (!order) {
+      try {
+        const bot = this.bot
+        const items = bot.inventory?.items?.() ?? []
+        const p = bot.entity?.position
+        const home = { x: config.world.homeX, z: config.world.homeZ }
+        const r = pruneOrder({ now: Date.now(), atTown: !!p && Math.hypot(home.x - p.x, home.z - p.z) <= TOWN_RADIUS, freeSlots: 36 - items.length,
+          wellUsable: () => { const w = townWellState(bot); return !!w && !w.breached }, pick: () => pruneTarget(bot, items), state: this.pruneState ?? {} })
+        this.pruneState = r.state
         if (r.order) order = r.order
       } catch { /* an inventory or world read must never break the decision loop */ }
     }
@@ -1005,6 +1033,7 @@ export class CognitiveLoop {
       if (TOWN_ORDERS.has(admitted.skill)) this.townState = townOrderOutcome(admitted.skill, r.status, Date.now(), this.townState ?? {}, r.failClass ?? null)
       if (admitted.skill === 'town_deposit') this.townDepositState = townDepositOutcome(r.status, r.failClass ?? null, Date.now(), this.townDepositState ?? {})
       if (WELL_ORDERS.has(admitted.skill)) this.wellState = wellOrderOutcome(admitted.skill, r.status, Date.now(), this.wellState ?? {}, r.failClass ?? null)
+      if (admitted.skill === 'prune_town') this.pruneState = pruneOutcome(r.status, Date.now(), this.pruneState ?? {})
       // THE REFLEX TOOK THE BODY -- SAY SO ON THE NEXT DECISION.
       if (r.interruptedBy) this.#raiseTrigger(r.interruptedBy, r.detail)
       // A PREREQUISITE THE GOAL LAYER CANNOT SEE IS NOT A PREREQUISITE.
