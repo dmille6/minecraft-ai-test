@@ -46,8 +46,9 @@ both have 82aef34 variants.
   invalid run).
 - **Studio share with andy-eval:** gemma stays idle during its round. For its fine-tune: PAUSE + unload `brain` only,
   then remove PAUSE.
-- **Owner decisions still pending:** (b) a kept subset holds the Studio reservation indefinitely; (c) every reader that
-  builds its own control must adopt the subset exclusion before any keep-subset.
+- **Owner decisions closed 10-12:** (b) the Studio is for this project for the foreseeable future, so a kept subset may hold
+  the reservation indefinitely. (c) Every reader that builds its own control adopting the subset exclusion is
+  engineering work before any keep-subset.
 
 ## 10-12 16:45Z — ORDERROOM-01 FALLBACKS for a stocktarget REVERT: merged 10-variant entry ready (both engines APPROVE), NOT installed
 Closes the gap noted above: if stocktarget-01 is not kept, orderroom had no variant on the non-stocktarget bases, and the old r8
