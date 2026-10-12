@@ -77,11 +77,14 @@ def env_for(a, run_id, i):
         'VIEWER_ENABLED': 'false', 'VIEWER_FIRST_PERSON': 'false', 'VIEWER_PORT': '0', 'LOG_LEVEL': 'info',
         'CODE_VERSION': 'bench-closedloop', 'RUN_ID': run_id,
         'HOME_X': '355', 'HOME_Y': '73', 'HOME_Z': '147', 'BOARD_X': '358', 'BOARD_Y': '72', 'BOARD_Z': '147',
-        'OLLAMA_BASE_URL': a.endpoint, 'OLLAMA_BASE_URLS': a.endpoint,
+        'OLLAMA_BASE_URL': a.endpoint, 'OLLAMA_BASE_URLS': getattr(a, 'pool', None) or a.endpoint,
         'LOG_DIR': '%s/%s' % (base, name), 'STATE_DIR': '%s/%s-state' % (base, name),
     }
     if a.think not in ('none', ''):
         e['OLLAMA_THINK'] = a.think
+    if getattr(a, 'bot_tree', None):      # brain-01: today's fleet code + the brain change (~/brain01/tree)
+        e['BOT_TREE'] = '$HOME/%s/tree' % a.bot_tree
+        e['CODE_VERSION'] = a.bot_tree
     if getattr(a, 'c2_arm', None):        # C2: the bench-c2 tree with the directive hook, the Mayor as the director
         e['BOT_TREE'] = '$HOME/mbench-c2/tree'
         e['C2_DIRECTOR'] = C2_DIRECTOR
@@ -118,6 +121,8 @@ def main():
     ap.add_argument('--keep-reservation', action='store_true', help='leave the GPU reserved for the next run (a series)')
     ap.add_argument('--res-token', default=None, help='a series\' unique reservation token, written instead of the run id')
     ap.add_argument('--tag', default='')
+    ap.add_argument('--pool', default=None, help='OLLAMA_BASE_URLS for the bots (brain-01: url|model|brain|ms,...); every url must be a Studio endpoint')
+    ap.add_argument('--bot-tree', default=None, choices=(None, 'brain01'), help='run the bots from ~/<this>/tree')
     ap.add_argument('--c2-arm', default=None, choices=(None, 'none', 'det', 'ov', 'esc', 'ov+esc'))
     ap.add_argument('--ov-model', default='gpt-oss:120b'); ap.add_argument('--ov-think', default='medium')
     ap.add_argument('--esc-model', default='gpt-oss:120b'); ap.add_argument('--esc-think', default='medium')
@@ -188,7 +193,8 @@ def main():
            % (c2, c2, links, c2, run_id, shlex.quote(a.c2_arm), run_id, C2_OLLAMA, a.ov_model, a.ov_think, a.esc_model,
               a.esc_think, c2, c2, c2, c2, c2, C2_DIRECTOR, PORTS[a.server], c2, c2, c2, c2))
         log('C2 director (%s) and %s started' % (a.c2_arm, C2_DIRECTOR))
-    bot_code = sh(BOTS_HOST, 'cat %s/.bench-sha 2>/dev/null || echo unknown' % ('~/mbench-c2/tree' if a.c2_arm else '~/mbench-cl/tree'), check=False).strip()
+    tree = '~/%s/tree' % a.bot_tree if a.bot_tree else ('~/mbench-c2/tree' if a.c2_arm else '~/mbench-cl/tree')
+    bot_code = sh(BOTS_HOST, 'cat %s/.bench-sha 2>/dev/null || echo unknown' % tree, check=False).strip()
     meta = {'run_id': run_id, 'arm': a.arm, 'c2_arm': a.c2_arm, 'model': a.model, 'model_digest': digest, 'bot_code': bot_code,
             'think': a.think, 'server': a.server, 'bots': a.bots,
             'minutes': a.minutes, 'timeout_ms': a.timeout_ms, 'start': t_start, 'names': names}

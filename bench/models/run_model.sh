@@ -20,7 +20,7 @@ if [ "${1:-}" = serve-lms ]; then
   echo "=== $(date -u +%FT%TZ) $3 (serve-lms $2) bots=${7:-8}" | tee -a out/driver.log
   for m in $(cat out/.loaded 2>/dev/null); do /Applications/Ollama.app/Contents/Resources/ollama stop "$m" 2>/dev/null; done
   L=~/.lmstudio/bin/lms; $L server start --port 1234 >> out/$3.log 2>&1; $L unload --all >> out/$3.log 2>&1
-  $L load "$2" -y --context-length 16384 --parallel 8 --identifier bench >> out/$3.log 2>&1
+  $L load "$2" -y --context-length 16384 --parallel "${7:-8}" --identifier bench >> out/$3.log 2>&1
   python3 serving.py --engine openai --worker bench --worker-think "$4" --bots "${7:-8}" --minutes "${8:-15}" --label "$3" >> out/$3.log 2>&1
   $L unload --all >> out/$3.log 2>&1; $L server stop >> out/$3.log 2>&1; rm -f out/GPU_RESERVED
   echo "=== $(date -u +%FT%TZ) $3 done" | tee -a out/driver.log
