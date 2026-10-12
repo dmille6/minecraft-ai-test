@@ -1186,6 +1186,66 @@ await t('MUTANT (skills): without the hold the reflex equip lands mid-phase', as
   })
 })
 
+const wellHoldYields = async (mod) => {
+  const town = fakeTown({ wellAt: CAP, items: [S('egg', 16), S('flint', 64), S('rail', 3), S('bread', 5), ...filler(31)] })
+  let sawHold = false, done = null
+  town.state.onLook = () => {
+    if (town.state.clicks.length === 1 && done === null) {
+      done = 'pending'
+      sawHold = typeof town.bot.inventoryHold?.release === 'function'
+      town.bot.equip(town.slots.find(x => x?.name === 'bread'), 'hand').then(() => { done = town.state.events.length })
+      town.bot.inventoryHold?.release?.('air_pocket')   // what the rescue's step does before its equip
+    }
+  }
+  await within((mod ? mod.SKILLS : SKILLS).dispose_well.run({ bot: town.bot }, {}, { aborted: false }), 15000, 'well hold')
+  await new Promise(r => setTimeout(r, 20))
+  return { sawHold, done, close: town.state.events.lastIndexOf('close'), after: town.bot.inventoryHold ?? null }
+}
+await t('AIRPOCKET-02: THE WELL\'S HOLD YIELDS TO THE RESCUE: registered as bot.inventoryHold in the throw phase; release() lets the held equip through at once; cleared after', async () => {
+  const o = await wellHoldYields(null)
+  assert.equal(o.sawHold, true); assert.equal(o.after, null)
+  assert.ok(Number.isInteger(o.done) && o.done <= o.close, `the released equip still waited for the phase (done ${o.done}, close ${o.close})`)
+})
+await t('MUTANT (skills): an unregistered hold cannot be released -- the rescue\'s equip waits out the phase', async () => {
+  await withMutant(SP, '  bot.inventoryHold = hold\n', '', async m => {
+    const o = await wellHoldYields(m)
+    assert.equal(o.sawHold, false, 'mutant inert')
+    assert.ok(Number.isInteger(o.done) && o.done > o.close, `mutant inert: done=${o.done} close=${o.close}`)
+  })
+})
+
+const rescueMidVisit = async (mod) => {
+  // the stonecap review's Codex P2 chain: an air_pocket rescue interrupts a well visit, releases its hold, equips a
+  // pickaxe -- then the visit's cleanup (settleAndRestore) must NOT put the pre-visit hand back over it
+  const town = fakeTown({ wellAt: CAP, hand: S('cobblestone', 64), items: [S('egg', 16), S('flint', 64), S('rail', 3), S('stone_pickaxe', 1), ...filler(31)] })
+  const signal = { aborted: false }
+  let fired = false
+  town.state.onLook = () => {
+    if (town.state.clicks.length === 1 && !fired) {
+      fired = true
+      signal.aborted = true                                                   // the interrupt
+      town.bot.rescueInventoryEpoch = (town.bot.rescueInventoryEpoch ?? 0) + 1   // the rescue owns the inventory
+      town.bot.inventoryHold?.release?.('air_pocket')
+      town.bot.equip(town.slots.find(x => x?.name === 'stone_pickaxe'), 'hand').catch(() => {})
+    }
+  }
+  try { await within((mod ? mod.SKILLS : SKILLS).dispose_well.run({ bot: town.bot }, {}, signal), 15000, 'rescue mid-visit') } catch { /* an aborted visit may throw */ }
+  await new Promise(r => setTimeout(r, 50))
+  return { fired, held: town.bot.heldItem?.name ?? null }
+}
+await t('AIRPOCKET-02: A RESCUE MID-VISIT KEEPS ITS PICKAXE: the interrupted well visit does not restore its old hand over the rescue\'s equip', async () => {
+  const o = await rescueMidVisit(null)
+  assert.equal(o.fired, true); assert.equal(o.held, 'stone_pickaxe')
+})
+await t('MUTANT (skills): a restore that ignores the rescue epoch puts the cobblestone back over the pickaxe', async () => {
+  const a = '  if (!handRestoreAllowed({ epochAtStart: g.epoch, epochNow: bot.rescueInventoryEpoch })) {\n'
+  assert.equal(readFileSync(SP, 'utf8').split(a).length, 2, 'ANCHOR MISSING OR NOT UNIQUE')
+  await withMutant(SP, a, '  if (false) {\n', async m => {
+    const o = await rescueMidVisit(m)
+    assert.equal(o.fired, true); assert.equal(o.held, 'cobblestone', `mutant inert: held ${o.held}`)
+  })
+})
+
 await t('CODEX #2 NO SERVER ANSWER, NO THROW: an unanswered resync refuses before opening (well_unverified); the plan is made from the SERVER\'s bag', async () => {
   const town = fakeTown({ wellAt: CAP, items: [S('egg', 16), ...filler(34)] })
   town.state.serverSilent = true
