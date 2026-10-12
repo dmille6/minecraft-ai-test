@@ -14,6 +14,41 @@ AGENTS DOWN until ~10-12 11Z (weekly limit): no new builds before then._
 
 ---
 
+## 10-12 12:40Z — STOCKTARGET-01 READY, HELD for the operator (Paper pending: the sandbox lock is held by other agents; the run takes it next); carries stonecap-01's cobble cap (the fold)
+Per-town stock targets + chest pruning + usable-tool targets, CARRYING stonecap's cap + well-at-cap code unchanged.
+stonecap-01 is closed INCONCLUSIVE and NOT re-run (fold decided with both engines: Codex fold-r1 CHANGE -> r2 APPROVE,
+Claude fold-r1/r2 APPROVE). THE STONECAP LESSON IS BUILT IN: `_stock_refused` (via=deposit|town_deposit|admission;
+at_cobble=/at_stock= for refusals at a COUNTED cap/target) whenever the cap or a target drops a held name from a plan --
+so a town already above its cap is not a silent run; liveness line = stocktargetread `rows_live` (unknown-only refusals
+are reported, never liveness). Code reviews: Codex r4 APPROVE, Claude r3 APPROVE (docs/reports/
+stocktarget-code-reviews-2026-10-10.txt). Variants (queue entry docs/reports/stocktarget-01.queue-entry.json, after
+bamboo-01, **"hold" set**): fleet 0cdb1a8 -> st-on-0cdb1a8 @ 764fad4f; 82aef34 (gridfix kept) -> st-on-82aef34 @ 48b093ce;
+8212674 (bamboo kept) -> st-on-8212674 @ 31e64375 (three union conflicts with bamboo, checked by Claude fold-r2).
+npm test 246/246, 248/248, 249/249 (the three variants); mutants-stocktarget 62/62 killed on all three; eslint no-undef only reflex.mjs:2382 withinBody on
+all three -- PRE-EXISTING on each plain base at the same line, typeof-guarded, cannot throw (registration 'lint'); licencecheck: `_stock_refused` baseline 0 rows / 6 h (329k rows, 80 bots); bagfixgate check-registration OK.
+Dry runs: hive-d,placebo-a 10-10 (+180) gates 0, instrument 106; stonecap's own pools 10-11 20:45Z (+360, journals of 4
+towns readable, admitted cobble bank claims 0 -> C1-C5 UNTESTED, as expected on over-cap towns).
+**TO LIFT THE HOLD (no agent needed):** read docs/reports/stocktarget-paper-2026-10-12.txt; if it says PASS,
+`canary-sched.py queue release stocktarget-01`. Install the drawn variant's registration as
+~/mcai-analysis/registrations/stocktarget-01.json (copies at ~/mcai-analysis/stocktarget-01.<fleet>.json).
+THE ONE-TIME CLEAR uses these targets as its caps (design §15.1, docs/reports/stocktarget-clear-caps-2026-10-10.json;
+OWNER TO CONFIRM: bamboo 0, bucket 2). After the clear: run stocktargetread + stonecapread as a tripwire read on the
+promoted fleet (near-cap cobble banking gets its first exposure there).
+Built but NOT pushed: the 0264f61 contingency (peacefulkit was kept). Branches pushed: st-on-0cdb1a8, st-on-82aef34, st-on-8212674.
+
+## 10-12 12:25Z — gridfix-01 LIVE @ 82aef34 (declared 09:03:55Z, placebo-a,board-a,board-d,board-b, 20 bots); agents resumed 11:03Z
++180 (12:08Z) NOT_YET: deaths 1/60 bh vs control 2/120 bh (equal rate); liveness 43/43 canary _craft_sync rows carry
+grid_clear (control 0); defect (grid_clear=no) 0; tripwire 0; craftsync holds 0/113. NOT EXPOSED: aborted 2x2 exits with
+clicks 0 canary / 0 control (registered rate ~0.0065/bot-h; deadline 1680 min carries the extensions). Reported: crafts/bh
+DiD +0.09, craft success share DiD -0.070 (small n), _reflex_stuck/bh DiD -0.27.
+FLEET 24 h (to 12:15Z): 80 bots, 27 deaths (drowned 8, lava 8, wall 3, stalagmite 2 ...). Bags: 90% of slots used
+(10-07 96%, 10-11 92%); >=34 slots 37/80, full 19/80; cobblestone is still the top slot user (248 slots, 13,579 items).
+AGENTS (Codex answering again 11:03Z): v35 Claude APPROVE, Codex r8 + install dry run running (install only between
+canaries); stocktarget-01 code APPROVE both (st-on-0cdb1a8), adds _stock_refused liveness, proposes folding the cobble cap
+in (fold-r1 under review), Paper re-check after the sandbox frees ~12:30Z, variants on 0cdb1a8/82aef34/8212674 asked;
+airpocket-02, orderroom-01 resumed; brain-01: capacity 10 bots (p95 6.8 s), bot change + sandbox drills going ahead,
+OWNER DECISION NEEDED: a dedicated, permitopen-restricted ssh key from 10.0.0.31 to the Studio for the live path.
+
 ## 10-12 03:10Z — gridfix-01 launched 03:00Z, preflight/licence/gatedigest/bag-fix OK, DRAW SHORT (board-a,board-d)
 Bag fix needs 4 pools; 8 of the drawable pools are inside their 12 h exclusion (junkwell-02's placebo-a,board-b,
 placebo-d,hive-b until 07:21Z; stonecap-01's four until 14:50Z). The loop re-draws every 20 min and pages once at 3 h;

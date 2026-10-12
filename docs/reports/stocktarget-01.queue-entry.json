@@ -1,0 +1,50 @@
+{
+ "run": "stocktarget-01",
+ "class": "bag-fix",
+ "after": [
+  "bamboo-01"
+ ],
+ "hold": "PAPER FIRST (operator 10-12): queue nothing until the no-chest scene and the _stock_refused row are seen on Paper, read from the world. Evidence: docs/reports/stocktarget-paper-2026-10-12.txt. Lift with `canary-sched.py queue release stocktarget-01` once that file says PASS (no agent needed).",
+ "variants": {
+  "0cdb1a8c84436ce67567a1b88242496f295d2395": {
+   "registration": "/home/mike/mcai-analysis/stocktarget-01.0cdb1a8.json",
+   "approved": "stocktarget agent 2026-10-12: code Codex r4 + Claude r3 APPROVE; the fold (refusal row, carried stonecap gates) Codex fold-r2 + Claude fold-r2 APPROVE (docs/reports/stocktarget-code-reviews-2026-10-10.txt); npm test green on the variant (246/248/249 files); mutants-stocktarget 62/62; eslint no-undef only the pre-existing guarded withinBody (registration 'lint'); licencecheck _stock_refused baseline 0; bagfixgate check-registration OK; Paper docs/reports/stocktarget-paper-2026-10-12.txt (HELD until PASS). Branch st-on-0cdb1a8 @ 764fad4f.",
+   "registration_sha256": "34801b7f29ea0991a844cecb286cdc50d0d9a38f9591978fa60833c407f9bac0",
+   "canary_sha": "764fad4f3af601352e9129354177ce68c8fa109c",
+   "reads_src": "/home/mike/mcai-analysis",
+   "reads": {
+    "bagread": "b391c93262d881acca34fff1b41610f9",
+    "stocktargetread": "2feda0c55097f8509ea83fcc8429265c",
+    "stonecapread": "69ae9d78b22872b7f064edbfe57cf88a",
+    "immobiledid": "53af289df12208901931dbeeb1ae325a"
+   }
+  },
+  "82aef3499bba99a503f6591fdbd1f76d5605bdad": {
+   "registration": "/home/mike/mcai-analysis/stocktarget-01.82aef34.json",
+   "approved": "stocktarget agent 2026-10-12: code Codex r4 + Claude r3 APPROVE; the fold (refusal row, carried stonecap gates) Codex fold-r2 + Claude fold-r2 APPROVE (docs/reports/stocktarget-code-reviews-2026-10-10.txt); npm test green on the variant (246/248/249 files); mutants-stocktarget 62/62; eslint no-undef only the pre-existing guarded withinBody (registration 'lint'); licencecheck _stock_refused baseline 0; bagfixgate check-registration OK; Paper docs/reports/stocktarget-paper-2026-10-12.txt (HELD until PASS). Branch st-on-82aef34 @ 48b093ce.",
+   "registration_sha256": "aa13a047ace6ca3bb4caea0c45009e00ee6d8c406769ef71e9c4bcfac0394af3",
+   "canary_sha": "48b093cea4536b655fe656d5efc78f88da896be5",
+   "reads_src": "/home/mike/mcai-analysis",
+   "reads": {
+    "bagread": "b391c93262d881acca34fff1b41610f9",
+    "stocktargetread": "2feda0c55097f8509ea83fcc8429265c",
+    "stonecapread": "69ae9d78b22872b7f064edbfe57cf88a",
+    "immobiledid": "53af289df12208901931dbeeb1ae325a"
+   }
+  },
+  "8212674888fe3704e347eb416dae59ab1fd5164f": {
+   "registration": "/home/mike/mcai-analysis/stocktarget-01.8212674.json",
+   "approved": "stocktarget agent 2026-10-12: code Codex r4 + Claude r3 APPROVE; the fold (refusal row, carried stonecap gates) Codex fold-r2 + Claude fold-r2 APPROVE (docs/reports/stocktarget-code-reviews-2026-10-10.txt); npm test green on the variant (246/248/249 files); mutants-stocktarget 62/62; eslint no-undef only the pre-existing guarded withinBody (registration 'lint'); licencecheck _stock_refused baseline 0; bagfixgate check-registration OK; Paper docs/reports/stocktarget-paper-2026-10-12.txt (HELD until PASS). Branch st-on-8212674 @ 31e64375.",
+   "registration_sha256": "2375109abeb1693df92eae1a7cd56e8204824b01939f295bcf6683f71088350a",
+   "canary_sha": "31e643751b63e23ac7713302d8a05686ce3f4d25",
+   "reads_src": "/home/mike/mcai-analysis",
+   "reads": {
+    "bagread": "b391c93262d881acca34fff1b41610f9",
+    "stocktargetread": "2feda0c55097f8509ea83fcc8429265c",
+    "stonecapread": "69ae9d78b22872b7f064edbfe57cf88a",
+    "immobiledid": "53af289df12208901931dbeeb1ae325a"
+   }
+  }
+ },
+ "note": "bag fix: per-town stock targets + chest pruning + usable-tool targets, CARRYING stonecap-01's cobble cap (the fold, both engines fold-r1/r2 APPROVE 10-12; stonecap-01 closed INCONCLUSIVE). Variants for the fleet as it stands (0cdb1a8), after gridfix-01 (82aef34), after bamboo-01 (8212674). Install each registration as ~/mcai-analysis/registrations/stocktarget-01.json for the variant drawn (as the bagfix-regs copies)."
+}

@@ -1,0 +1,259 @@
+{
+ "run_id": "stocktarget-01",
+ "sha": "48b093c",
+ "registered_at": "2026-10-12T12:45:00Z",
+ "ladder_change": false,
+ "promotion": "fleet-wide",
+ "notes": "[stocktarget-01 for fleet 82aef34. NOT LAUNCHED. Variant for fleet 82aef34 (if gridfix-01 is KEPT and promoted): branch st-on-82aef34 @ 48b093ce = st-on-0cdb1a8's net diff over 0cdb1a8 applied to gf-on-0cdb1a8 @ 82aef34, no conflict. Otherwise as the 0cdb1a8 variant (the fold, the hold, the post-clear read).] PER-TOWN STOCK TARGETS + CHEST PRUNING (owner 10-08/10-10, delegated; design docs/reports/stocktargets-design-2026-10-08.md r6, both engines APPROVE; targets/caps docs/reports/stocktarget-clear-caps-2026-10-10.json). Generalises stonecap's counted cobble cap (the append-only per-town journal, claims decided in the fold, counts released by the post-transfer count) to bulk materials (each log and planks type 64, stick 64, stone 64; dirt/sand/gravel/deepslate/tuff/calcite/sandstone 0) and usable tools (stone_pickaxe 16, wooden_pickaxe 4, stone axe/shovel 4; wooden axe/shovel/hoes 0). ABOVE TARGET NOT BANKED (bulk only while a usable well stands: no exit, no stop -- otherwise today's rule under a nowell claim); the surplus whole stacks above the bag's keeps go down the junk well (available floor >= target: counts younger than 1 h, the smaller of equal captures, less live takes/draws; keeps = townKeeps; 64 pillar blocks; never tools, iron, ores, ingots, saplings, composter inputs, stations). NO CHEST AT TARGET: the chest-full recovery builds only for an untargeted item, a nowell name or a reservation under target (claimed before the craft, released on every exit). CHEST PRUNING: prune_town (deterministic town order, 10 min cooldown, <= 4 full stacks, a free slot kept) takes over-target full stacks under confirmed TAKE claims that never leave the floor under target, and only what the well's own rule then throws from that bag (the bag ends as it began); the junk list pseudo-group too. The valve: one spare tool copy above the tool target only with proof nothing else frees a slot. The count step: the town deposit recounts a town it cannot judge, or a stale floor for a group held above its keeps. Journal rotation by generations (4 MB). bots/scripts/stockreset.mjs appends the operator's reset (for the one-time clear). REVIEWS: design Claude r3 / Codex r6 APPROVE; code Codex r4 APPROVE, Claude r3 APPROVE; the fold (refusal row + carried stonecap gates) Codex fold-r2 APPROVE, Claude fold-r2 APPROVE (docs/reports/stocktarget-code-reviews-2026-10-10.txt). TESTS: stocktarget 22 (incl. the over-cap refusal, the admission refusal, the recovery chain/abort/row), stocktarget-journal 13 (incl. a multi-process rotation storm with SIGKILL), towndeposit 57 (STOCK CHAIN a-d); npm test 246/246 (0cdb1a8 variant), 248/248 (82aef34), 249/249 (8212674); mutants-stocktarget.py 62/62 killed on each variant (incl. the read and journal gates through --selftest). PAPER: docs/reports/stocktarget-paper-2026-10-12.txt (10-10 runs 2-4 + the 10-12 refusal and no-chest scenes, read from the world).",
+ "lint": "eslint no-undef (operator 10-12: explained before the queue entry lands): exactly ONE hit on every variant tip, bots/src/reflex.mjs:2382:67 'withinBody' -- the SAME hit at the same file:line on each plain base, untouched (0cdb1a8c, 82aef349, 82126748; all six trees linted side by side), and this diff changes reflex.mjs by 0 lines. PRE-EXISTING, NOT OURS. The call site is startReflexes' flooded-pocket rung (a granted 'flooded_pocket' body), so it IS reachable, and it is SAFE: `const within = typeof withinBody === 'function' ? withinBody : (g, fn) => fn()` -- typeof on an undeclared identifier yields 'undefined' and never throws a ReferenceError, so the fallback runs (the comment there: withinBody/ownsBody exist only on trees with the arbiter); the line also sits inside the rung's try/catch. Unlike gatherT0 (a bare read), it cannot throw.",
+ "licence": {
+  "class": "kind",
+  "kind": "_stock_refused",
+  "min_rows": 1,
+  "note": "Written only by this build: one row whenever the cobble cap or a stock target drops a held name from a deposit/town-deposit plan or admission's empty plan (also _stock_bank/_stock_dispose/_stock_prune/_stock_recovery/_stock_prune_visit). The fleet writes none. On today's over-target towns it is the most frequent own row (stonecap-01: 119 of 137 canary deposits held surplus cobble)."
+ },
+ "reads": [
+  "bagread",
+  "stocktargetread",
+  "stonecapread",
+  "immobiledid"
+ ],
+ "read_minutes": [
+  180,
+  360
+ ],
+ "deadline_min": 1680,
+ "change_rows": [
+  "stock_refused",
+  "stock_bank",
+  "stock_dispose",
+  "stock_prune",
+  "stock_prune_visit",
+  "stock_recovery",
+  "cobble_bank",
+  "cobble_reconcile"
+ ],
+ "linkage_extra": [],
+ "draw_exposure": {
+  "hours": 3,
+  "require": [
+   {
+    "name": "deposit runs (the targets are evaluated on every deposit)",
+    "kind": "deposit",
+    "min": 8
+   }
+  ],
+  "note": "As stonecap-01: every deposit by a bot holding a targeted name decides under the targets; a 5-bot pool passes 8 easily."
+ },
+ "exposure": {
+  "read": "stocktargetread",
+  "field": "exposure_ready",
+  "min": 1,
+  "note": "Ready = >= 10 canary stock actions (refusals at target + dispose clicks + prune clicks + _stock_bank rows) AND the instrument (control deposit runs that banked a targeted group >= 1). Before the one-time clear every town is above target on logs/cobble/sticks, so refusals and disposals dominate; G3/G4/G1b are reported UNTESTED while their denominators are 0."
+ },
+ "own_lines": [
+  {
+   "read": "stocktargetread",
+   "field": "breach_g1",
+   "op": "<=",
+   "value": 0,
+   "on_fail": "REVERT",
+   "evidence": "defect",
+   "note": "G1: a success _stock_dispose/_stock_prune click of a protected kind or a tool, below its target on the available floor, leaving < 64 pillar blocks, or leaving less than the bag's keep."
+  },
+  {
+   "read": "stocktargetread",
+   "field": "breach_g1b",
+   "op": "<=",
+   "value": 0,
+   "on_fail": "REVERT",
+   "evidence": "defect",
+   "note": "G1b (only with STOCK_CENSUS): a canary town whose census holds less than the target of a group the canary disposed or pruned, after its draws are added back."
+  },
+  {
+   "read": "stocktargetread",
+   "field": "breach_g2",
+   "op": "<=",
+   "value": 0,
+   "on_fail": "REVERT",
+   "evidence": "defect",
+   "note": "G2: a new chest placed without the same recovery's (aid=) qualifying place-stage row; reserved claims admitted in the journal."
+  },
+  {
+   "read": "stocktargetread",
+   "field": "breach_g3_row",
+   "op": "<=",
+   "value": 0,
+   "on_fail": "REVERT",
+   "evidence": "defect",
+   "note": "G3 (row): a _stock_bank that moved items on a complete count and left the town above target (nowell excepted)."
+  },
+  {
+   "read": "stocktargetread",
+   "field": "breach_g3_journal",
+   "op": "<=",
+   "value": 0,
+   "on_fail": "REVERT",
+   "evidence": "defect",
+   "note": "G3 (journal): an admitted bank claim released into a group total above its target."
+  },
+  {
+   "read": "stocktargetread",
+   "field": "breach_g3v_row",
+   "op": "<=",
+   "value": 0,
+   "on_fail": "REVERT",
+   "evidence": "defect",
+   "note": "G3v: more than one valve copy in a visit, or a valve without nothing_else=1."
+  },
+  {
+   "read": "stocktargetread",
+   "field": "breach_g3v_journal",
+   "op": "<=",
+   "value": 0,
+   "on_fail": "REVERT",
+   "evidence": "defect",
+   "note": "G3v (journal): more valve claims than valve rows, or a valve claim without its proof."
+  },
+  {
+   "read": "stocktargetread",
+   "field": "breach_g4_journal",
+   "op": "<=",
+   "value": 0,
+   "on_fail": "REVERT",
+   "evidence": "defect",
+   "note": "G4: admitted takes of one group whose container lost more of it than they took, with no same-group admission in between (an overlapping one is the tripwire_g4_overlap field, reported)."
+  },
+  {
+   "read": "stocktargetread",
+   "field": "breach_c5_cobble_journal",
+   "op": "<=",
+   "value": 0,
+   "on_fail": "REVERT",
+   "evidence": "defect",
+   "note": "stonecap's C5 (journal) by the canary's own generation-aware fold: an admitted cobble bank claim released into a town total > 256 (stockjournal G3 on cobble). stonecapread's own journal fold is NOT used (it predates groups/kinds: fold-r1). Exposure admitted_cobble_bank; UNTESTED at 0."
+  },
+  {
+   "read": "stonecapread",
+   "field": "breach_reserve",
+   "op": "<=",
+   "value": 0,
+   "on_fail": "REVERT",
+   "evidence": "defect",
+   "note": "stonecap C1 (carried, fold-r1): a canary _cobble_bank that moved cobble leaving < 64 in the bag. UNTESTED at 0 exposure (before the clear the cap refuses all cobble banking)."
+  },
+  {
+   "read": "stonecapread",
+   "field": "breach_whole",
+   "op": "<=",
+   "value": 0,
+   "on_fail": "REVERT",
+   "evidence": "defect",
+   "note": "stonecap C2 (carried): whole stacks only."
+  },
+  {
+   "read": "stonecapread",
+   "field": "breach_town_reserve",
+   "op": "<=",
+   "value": 0,
+   "on_fail": "REVERT",
+   "evidence": "defect",
+   "note": "stonecap C3 (carried): a town deposit that banked cobble and ended under 64."
+  },
+  {
+   "read": "stonecapread",
+   "field": "breach_town_overshoot_row",
+   "op": "<=",
+   "value": 0,
+   "on_fail": "REVERT",
+   "evidence": "defect",
+   "note": "stonecap C5 row (carried): a _cobble_bank on a complete count leaving town_after > 256."
+  },
+  {
+   "read": "stonecapread",
+   "field": "breach_well_cobble",
+   "op": "<=",
+   "value": 0,
+   "on_fail": "REVERT",
+   "evidence": "defect",
+   "note": "stonecap C9 (carried): cobble (pruned or bag surplus) down the well only at the cap (re-read per click), >= 64 left."
+  },
+  {
+   "read": "stocktargetread",
+   "field": "rows_control",
+   "op": "<=",
+   "value": 0,
+   "on_fail": "REVERT",
+   "note": "Arms. BLOCKS KEEP."
+  },
+  {
+   "read": "stocktargetread",
+   "field": "rows_live",
+   "op": ">=",
+   "value": 1,
+   "on_fail": "REVERT",
+   "note": "LIVENESS (fold-r1): canary own rows that judged something -- incl. _stock_refused rows naming a COUNTED cap/target (at_cobble/at_stock), so a town already above its cap is not a silent run (stonecap-01's INCONCLUSIVE); an unknown-only refusal is not liveness. BLOCKS KEEP (INCONCLUSIVE)."
+  },
+  {
+   "read": "stocktargetread",
+   "field": "instrument_control",
+   "op": ">=",
+   "value": 1,
+   "on_fail": "REVERT",
+   "note": "POSITIVE CONTROL: control deposit runs that banked a targeted group. BLOCKS KEEP."
+  },
+  {
+   "read": "stocktargetread",
+   "field": "journal_audit_ran",
+   "op": ">=",
+   "value": 1,
+   "on_fail": "REVERT",
+   "note": "The journal gates must be able to see. BLOCKS KEEP."
+  }
+ ],
+ "primary": {
+  "read": "stocktargetread",
+  "field": "banked_did",
+  "note": "REPORTED, NOT GATED: targeted items banked per bot-h DiD (mechanically down); chest-full failures per bot-h DiD; dispose/prune clicks; valve uses; nowell rows; recovery stages; the accepted residual's tripwire nopick_full_did (bot-minutes a pickaxe-less bag holds >= 34 slots, DiD): a material rise means the keeps cost a bag the pickaxe -- read before promotion."
+ },
+ "harm": {
+  "note": "Unchanged: the two-death floor (OWNER 2026-09-11) and gather_ratio < 0.43 of control, from immobiledid."
+ },
+ "teardown": {
+  "note": "THREE STEPS: drop-ins, clear canary_pool, restart the pool's bots 12 s apart; then confirm the live versions. The journal records stay (the base reads only cobble from them: legacy and v2 counts both carry n)."
+ },
+ "amendments": [],
+ "extension": {
+  "until_exposure": true,
+  "extra_reads": [
+   540,
+   720,
+   1080,
+   1560
+  ],
+  "final_on_zero_exposure": "INCONCLUSIVE",
+  "note": "A mechanism canary: deterministic gates decide; the bag effect is the bag-fix primary."
+ },
+ "class": "bag-fix",
+ "bag_fix": {
+  "own_kinds": [
+   "_stock_refused",
+   "_stock_bank",
+   "_stock_dispose",
+   "_stock_prune",
+   "_stock_prune_visit",
+   "_stock_recovery",
+   "_well_dispose",
+   "_cobble_bank",
+   "_cobble_reconcile"
+  ],
+  "primary": {
+   "read": "bagread",
+   "field": "slots_did",
+   "op": "<=",
+   "value": -1.366
+  },
+  "extended_deadline_min": 1560,
+  "note": "OWNER D1 (10-08): class bag-fix, four pools from the start; primary bagread.slots_did beyond its no-change band. The value is stonecap-01's band (-1.366: the 2.5th percentile of 175 no-change 4-pool draws under the same draw_exposure filter, deposit >= 8 / 3 h -- scripts/host/bagnull.py + bagbands.py); this fix's draw filter is identical, so the band is reused, not re-estimated (both engines fold-r1/r2: valid only under that same filter -- keep draw_exposure as is). own_kinds: the rows this build writes, + the well and the cobble cap rows (a death after a disposal or prune is linked)."
+ }
+}

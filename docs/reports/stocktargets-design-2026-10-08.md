@@ -373,3 +373,73 @@ its last offset, switch generations atomically, never delete what a reader still
 |---|---|
 | 1: an EQUAL-time releasing count could restore withdrawn stock | equal captures are treated as older: release + dirty (3.1); equal-time depositor/withdraw and two-pruner schedules tested (stocktarget-journal.test.mjs) |
 | 2, 3 (P3): residual visible; validation requirements retained | unchanged commitments: deterministic rotation schedules, Paper concurrency scene, controls, fixtures, boundary-reduction validation |
+
+## 15. Implementation, the fold, and THE PER-TOWN TARGETS (= the one-time clear's caps)
+
+### 15.1 The per-town targets -- these exact numbers are the one-time chest clear's caps
+
+The clear (owner 10-10: ONCE, only after the inflow fixes ship) uses exactly these per-town caps; the machine-readable
+copy for `scripts/host/chestclear2/plan3.py` is `docs/reports/stocktarget-clear-caps-2026-10-10.json` (same numbers).
+"Bot rule" = what the shipped code enforces every day (bankable.mjs / well.mjs / prune.mjs via stocktarget.mjs
+STOCK_GROUPS); "clear only" = capped by the one-time clear, never disposed by a bot.
+
+| group (names) | per-town cap | counts | bot rule |
+|---|---:|---|---|
+| cobble (cobblestone + cobbled_deepslate, shared) | 256 | items | bank cap; surplus whole stacks above the bag's 64 down the well; prune |
+| each log type (oak, spruce, birch, jungle, acacia, dark_oak, mangrove, cherry, pale_oak) | 64 each | items | bank cap; well; prune |
+| each planks type (the 9 woods + bamboo_planks) | 64 each | items | bank cap; well; prune |
+| stick | 64 | items | bank cap; well; prune |
+| stone | 64 | items | bank cap; well; prune |
+| dirt, sand + red_sand, gravel, deepslate, tuff, calcite, sandstone + red_sandstone | 0 | items | never banked while a usable well stands; surplus above the bag's keeps down the well; prune |
+| stone_pickaxe | 16 | usable copies (> 10 uses) | tool cap (spare copies banked only under it; the valve: one copy with proof); never the well |
+| wooden_pickaxe | 4 | usable copies | as above |
+| stone_axe, stone_shovel | 4 each | usable copies | as above |
+| wooden_axe, wooden_shovel, stone_hoe, wooden_hoe | 0 each | usable copies | as above |
+| each sapling type, mangrove_propagule | 64 each | items | clear only (bots never dispose saplings) |
+| torch, ladder | 64 each | items | clear only |
+| crafting_table 2, furnace 4, chest 8, bucket 2 | as listed | items | clear only |
+| stone_sword, wooden_sword | 0 | usable copies | clear only (peaceful kit: never banked) |
+| bamboo | 0 | items | clear only -- OWNER TO CONFIRM (bamboo-01 turns the BAG's bamboo into sticks; town bamboo is not read) |
+| bucket | 2 | items | OWNER TO CONFIRM (iron: the owner said never dispose iron) |
+| spent tools (<= 10 uses), the well's junk list | removed | -- | the clear removes them |
+| iron, ores, raw_*, ingots, coal, gems, food, books, iron/diamond tools, everything else | NOT capped | -- | never touched |
+
+Measured basis (section 2): draws of every bulk material were zero in 24 h; the blueprints' need (workshop ~7 logs +
+28 planks, the mineshaft's ladders ~14 logs) and withdraw2's iron pickaxe (2 sticks) fit under one stack per type;
+the stone-pickaxe draw is ~5/town/day (16 = three days).
+
+### 15.2 Implementation (built 10-10/10-12; reviewed)
+
+Code reviews (`stocktarget-code-reviews-2026-10-10.txt`): Codex r1-r3 CHANGE -> **r4 APPROVE**; Claude r1 CHANGE ->
+r2/**r3 APPROVE**. What the code review changed from sections 3-14 (otherwise built as written):
+- **Recovery reservations** are taken before the craft (or the carried chest's placement), live in one try/finally,
+  and the first deposit into the new chest plans the reserved names with the reservation as their ROOM (`stockRoomFor`)
+  while every other rule is judged on the bag as it is then.
+- **A prune takes only what the well then throws** (`pruneAccepted`), judged while the pick fills its budget and again at
+  the open container, capped at what one well visit throws; a bot holding less than its keep of a group never prunes it.
+- **prune_town's evidence** is `prune_effect` (taken from the chest and accounted lost down the well).
+- All claim kinds written; componentwise ties; the reset fences late-appended earlier counts; the count step refreshes a
+  stale floor only for groups held above the keeps; G2 by action id (`aid=`, journal claims carry it, `nclaims=`);
+  G4 per group; the residual tripwire by occupied slots and bot-minutes.
+
+### 15.3 The fold (10-12): stonecap-01's cap ships inside stocktarget-01
+
+stonecap-01 read INCONCLUSIVE (+360, 10-12 02:50Z): every canary town was 9-34x over 256 and its only liveness row
+(`_cobble_bank` under the cap) could not occur, because the plan drops capped stacks silently. Decided with both engines
+(fold-r1/r2): stocktarget-01 -- which carries stonecap's cap and well-at-cap code unchanged -- is the canary of the
+composition; stonecap is not re-run.
+- **The refusal is a row**: `_stock_refused` (`via=deposit|town_deposit|admission n= cobble= stock= at_cobble= at_stock=
+  name:held:why ...`) whenever the cap or a target drops a held name from a plan; admission's empty-plan refusal writes
+  it too (throttled 60 s per refused set). Liveness = `rows_live`: own rows that judged something (an unknown-only
+  refusal -- a journal that cannot be replayed -- is reported apart, never liveness).
+- **Gates carried from stonecap**: its row gates C1 (64 reserve), C2 (whole stacks), C3 (town-deposit reserve), C5-row,
+  C9 (well cobble at the cap), reported UNTESTED at zero exposure; C5-journal is the canary's own generation-aware fold
+  (stockjournal G3 on cobble, exposure `admitted_cobble_bank`) -- stonecapread's hand-rolled fold predates the groups.
+- **Before the clear** towns are far above every target: the canary's evidence is refusals, well disposal of bag surplus
+  and pruning (town stock moved down the well, never below target); under-target banking (G3/G4/G1b, C1-C5) is mostly
+  UNTESTED. **After the clear**, run stocktargetread + stonecapread as a tripwire read on the promoted fleet so near-cap
+  banking gets its first exposure under the gates.
+- Variants: fleet 0cdb1a8 (st-on-0cdb1a8), 82aef34 if gridfix-01 is promoted (st-on-82aef34), 8212674 if bamboo-01 is
+  (st-on-8212674; unions with bamboo_sticks in HOUSEKEEPING, the runner's measured and classifyOutcome).
+- Accepted residuals (3.6/3.8 plus): rows are written at the decision, before the click; multi-name groups are picked by
+  their first name (a refused walk costs one cooldown).

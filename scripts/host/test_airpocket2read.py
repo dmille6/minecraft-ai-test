@@ -180,7 +180,7 @@ def airpocket_src(ref, marker='export function botPose'):
     return os.path.join(d, 'airpocket.mjs')
 
 
-AP = airpocket_src(os.environ.get('AIRPOCKET_SRC_REF', 'origin/ap2-on-4970c91'))
+AP = airpocket_src(os.environ.get('AIRPOCKET_SRC_REF', 'origin/ap2w-on-0cdb1a8'), marker='export function rescueInventoryDecision')
 
 
 def bot_rows():
@@ -295,5 +295,29 @@ def ap2_real_rows():
 
 
 t("REAL ROWS (airpocket-02): the bot's own end row with an ap2 start row (pose, blocked, upblocked) parses clean", ap2_real_rows)
+def window_rows():
+    """The bot's own end rows WITH the handoff field (window=settled:812, window=open:1500 on a refusal), cut at 300:
+    they parse clean (C0 untouched) and the HANDOFF line counts them; a row without the field counts as none."""
+    js = ("import('" + os.path.abspath(AP) + "').then(m => { const base = { kind: 'ice', cell: '-12345,-59,-12345', block: 'ice', "
+          "tool: 'netherite_pickaxe', standing: false, predictedMs: 14100, digMs: 14103, ms: 16381, envelope: 0.5, healthStart: 16.666677474975586, "
+          "healthEnd: 17.000011444091797, eye: 'cave_air', pose: 'swim', redigs: 2 }; const a = { requiredMs: 24150.4, budgetMs: 30000, difficulty: 'peaceful' }; "
+          "console.log(JSON.stringify([m.airPocketRow({ ...a, id: 'h1', r: { ...base, outcome: 'success', window: 'settled', windowMs: 812, stand: 'placed:1', why: 'breathing' } }), "
+          "m.airPocketRow({ ...a, id: 'h2', r: { ...base, outcome: 'failed', window: 'open', windowMs: 1500, digMs: null, why: 'a craft stayed in flight 1500 ms: no equip queued behind it, no dig' } }), "
+          "m.airPocketRow({ ...a, id: 'h3', r: { ...base, outcome: 'success', why: 'breathing' } })].map(s => String(s).slice(0, 300)))) })")
+    out = subprocess.run(['node', '-e', js], capture_output=True, text=True, timeout=60)
+    assert out.returncode == 0, out.stderr[-600:]
+    h1, h2, h3 = json.loads(out.stdout.strip().splitlines()[-1])
+    assert ' window=settled:812 ' in h1 and ' window=open:1500 ' in h2 and ' window=' not in h3, (h1, h2, h3)
+    rows = []
+    for i, (aid, r) in enumerate((('h1', h1), ('h2', h2), ('h3', h3))):
+        rows += [row(1000 + 1000 * i, 'pa-a-Alpha', '_air_pocket_start', start2(aid, trig='upblocked:1', blocked='ice@62', pose='swim', kind='ice', block='ice')),
+                 row(1018 + 1000 * i, 'pa-a-Alpha', '_air_pocket', r)]
+    n, which, live, ctl, mature, imm, txt = run(rows)
+    line = re.search(r'HANDOFF .*', txt).group(0)
+    assert n == 0 and 'C0' not in str(which), (which, txt[-900:])
+    assert 'waited on the inventory 2 of 3' in line and "'settled': 1" in line and "'open': 1" in line and 'max wait 1500 ms' in line, line
+
+
+t("HANDOFF (airpocket-02 + window fix): the bot's own rows with window=<state>:<ms> parse clean and are counted, never gated", window_rows)
 print(f'\n{passed} passed, {failed} failed')
 sys.exit(1 if failed else 0)
