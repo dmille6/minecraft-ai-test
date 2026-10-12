@@ -17,7 +17,7 @@ bot falls back to its local model instead of queueing behind the Studio); an ups
 Every request is one line in --log: t, status, ms, prompt/completion tokens, reasoning length, inflight, error.
 GET /healthz answers 200 only when LM Studio lists --model as loaded.
 DRILLS (sandbox only; inert unless --drill-dir is given): a file `hang` in that directory holds every request open
-(a blackholed network, as the bot sees it), `delay` holds it for the number of seconds the file contains, `fail`
+while it exists (a blackholed network, as the bot sees it), `delay` holds it for the number of seconds the file contains, `fail`
 answers 502 (the model unloaded).
 """
 import argparse, json, os, threading, time, urllib.request
@@ -110,8 +110,8 @@ class H(BaseHTTPRequestHandler):
                         STATE['inflight'] -= 1
                     logline(status=502, ms=0, inflight=inflight, error='drill: fail')
                     return self._send(502, {'error': 'drill: model unloaded'})
-                if os.path.exists(os.path.join(A.drill_dir, 'hang')):
-                    time.sleep(3600)
+                while os.path.exists(os.path.join(A.drill_dir, 'hang')):   # held until the drill ends
+                    time.sleep(0.5)
                 dp = os.path.join(A.drill_dir, 'delay')
                 if os.path.exists(dp):
                     time.sleep(float(open(dp).read().strip() or 0))

@@ -1,6 +1,7 @@
 // Configuration, entirely from environment. Handoff doc S20: no hard-coded
 // hosts, model names, or agent counts in application code.
 
+import { composePool } from './brain.mjs'   // brain-01
 import { execSync } from 'node:child_process'
 import crypto from 'node:crypto'
 import { readdirSync, readFileSync } from 'node:fs'
@@ -228,8 +229,10 @@ export const config = {
     // failure a naive health check misses.
     //
     // Falls back to the single OLLAMA_BASE_URL so existing env files keep working.
-    baseUrls: (req('OLLAMA_BASE_URLS', '') || req('OLLAMA_BASE_URL', 'http://studio.lan:11434'))
-      .split(',').map(s => s.trim().replace(/\/$/, '')).filter(Boolean),
+    // brain-01: OLLAMA_BRAIN_PRIMARY, when set, is prepended to this list (brain.mjs composePool).
+    baseUrls: composePool(process.env.OLLAMA_BRAIN_PRIMARY,
+      (req('OLLAMA_BASE_URLS', '') || req('OLLAMA_BASE_URL', 'http://studio.lan:11434'))
+        .split(',').map(s => s.trim().replace(/\/$/, '')).filter(Boolean)),
     // NO DEFAULT, DELIBERATELY. This read `qwen2.5:14b-instruct` for months
     // while all 80 deployed env files said `qwen2.5:7b-instruct` and the
     // endpoint had only the 7b pulled (4.7GB, and no 14b at all). Nothing was
