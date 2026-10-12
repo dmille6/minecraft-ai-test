@@ -12,6 +12,19 @@ Studio reservation both closed 10-12); clear caps bamboo 0 / bucket 2._
 
 ---
 
+## 10-12 21:55Z — v35 INSTALLED (20:33Z, by the claiming operator session); bamboo-01 -> bamboo-02 at the END; airpocket-02 launching
+v35 bundle b7ce36d777443eae018e804f4776e95a installed + verified 20:33Z; steps 3-6 applied (airpocket-02 regs carry
+top-level draw_require_pools ['hive-d'], sha 05710889/b9a85ad6; stocktarget-01 five variants with the 3-pool edge).
+bamboo-01 launched 20:37Z, draw EMPTY: its draw_exposure allows only board-a/board-d, both in the 12 h exclusion after
+gridfix-01 (18:10Z) -> earliest ~06:10Z. V35 DEFECT: drawsteady reads the promotion ledger row canary_pool 'FLEET-WIDE
+(80 bots)' as malformed -> 12 h for every pool, so the 6 h steady release can never fire after a promote (fails closed;
+fix requested from the v35 agent as a v35.1, install only in a gap). Operator (Claude + Codex AGREE): killed bamboo-01's
+loop in its draw wait (nothing drawn/deployed), `abandon` + `cancel bamboo-01` (superseded), re-queued as bamboo-02
+(registrations copied, run_id changed, backup ~/canary-queue.json.bak-bb2-*) AFTER orderroom-01 so every earlier entry
+keeps existing variants; airpocket-02.after -> []. bamboo-02 NEEDS a variant on the fleet tip at its turn.
+/tmp/airpocket2read.py was the OLD read (13cd6acf); replaced by the approved 4fa3b83e (old kept as .old-13cd6acf).
+QUEUE NOW: airpocket-02 (launching ~21:50Z) -> stocktarget-01 -> orderroom-01 -> bamboo-02.
+
 ## 10-12 18:25Z — GRIDFIX-01 KEPT (+540, 18:10Z) and PROMOTED: FLEET 82aef34 (18:20Z); v35 install claimed
 +540 (exposure reached): aborted 2x2 exits with clicks canary 1 / control 4; canary grid_clear yes 1, no 0, unverified 0;
 liveness grid_clear 135 of 135 canary craftsync rows, 0 control; deaths canary 1/180 bh vs control 4/360 bh. Recorded KEEP
