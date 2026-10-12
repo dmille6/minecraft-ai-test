@@ -1,0 +1,4 @@
+# brain-01: the ONE line the owner would add to the Studio's ~/.ssh/authorized_keys (after creating the key on
+# 10.0.0.31 with: ssh-keygen -t ed25519 -N '' -f ~/.ssh/id_ed25519_brain01 -C brain01-fleet-tunnel).
+# It permits nothing but this forward: no shell, no other port, no agent or X11.
+restrict,port-forwarding,permitopen="127.0.0.1:11501",command="/usr/bin/false" ssh-ed25519 <PUBLIC KEY OF id_ed25519_brain01> brain01-fleet-tunnel
