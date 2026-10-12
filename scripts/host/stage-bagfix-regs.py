@@ -7,7 +7,7 @@ staged from an older commit while refusing content main never had. Then:
 Every file is read from the commit (git show <sha>:path), never from the filesystem; the commit is resolved ONCE and that
 sha is used for every git read and recorded in STAGED-FROM.txt (round 4, Codex). Without --rev it is HEAD, and the tree
 must be clean (no changes, no untracked files under docs/reports or scripts/host)."""
-import subprocess, hashlib, os, shutil, sys
+import subprocess, hashlib, os, re, shutil, sys
 WT = os.path.abspath(os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', '..'))
 OUT = sys.argv[1]
 REV = sys.argv[sys.argv.index('--rev') + 1] if '--rev' in sys.argv else 'HEAD'
@@ -30,7 +30,8 @@ show = lambda path: git('show', SHA + ':' + path, text=False)
 base = []
 for f in sorted(git('ls-tree', '--name-only', SHA, 'docs/reports/').split()):
     n = os.path.basename(f)
-    if n.endswith('.json') and n.rsplit('.', 2)[0] in RUNS and len(n.split('.')) == 3:
+    # <run>.<sha>.json only: a scheduler entry (<run>.queue-entry.json) also has three dot-parts but is not a registration
+    if n.endswith('.json') and n.rsplit('.', 2)[0] in RUNS and len(n.split('.')) == 3 and re.fullmatch(r'[0-9a-f]{7,8}', n.split('.')[1]):
         open(os.path.join(OUT, n), 'wb').write(show('docs/reports/' + n))
         for sha in git('log', '--format=%H', SHA, '--', 'docs/reports/' + n).split():
             old = subprocess.run(['git', 'show', '%s:docs/reports/%s' % (sha, n)], cwd=WT, capture_output=True).stdout

@@ -26,7 +26,9 @@ def cases(script):
         open(os.path.join(repo, 'scripts', 'host', f), 'w').write('# %s\n' % f)
     reg = os.path.join(repo, 'docs', 'reports', 'gridfix-01.92bc84f.json')
     g(repo, 'init', '-q'); g(repo, 'config', 'user.email', 't@t'); g(repo, 'config', 'user.name', 't')
-    json.dump({'revision': 'A'}, open(reg, 'w')); g(repo, 'add', '-A'); g(repo, 'commit', '-qm', 'A')
+    json.dump({'revision': 'A'}, open(reg, 'w'))
+    json.dump({'run': 'gridfix-01', 'class': 'bag-fix'}, open(os.path.join(repo, 'docs', 'reports', 'gridfix-01.queue-entry.json'), 'w'))
+    g(repo, 'add', '-A'); g(repo, 'commit', '-qm', 'A')
     A = g(repo, 'rev-parse', 'HEAD')
     json.dump({'revision': 'B'}, open(reg, 'w')); g(repo, 'add', '-A'); g(repo, 'commit', '-qm', 'B')
     out_dir = os.path.join(repo, 'out')
@@ -38,6 +40,8 @@ def cases(script):
       and open(os.path.join(out_dir, 'STAGED-FROM.txt')).read().strip() == A, (p.stdout + p.stderr, staged))
     p = run()
     staged = json.load(open(os.path.join(out_dir, 'gridfix-01.92bc84f.json'))) if p.returncode == 0 else {}
+    c('a scheduler entry (<run>.queue-entry.json) is NOT staged as a registration', p.returncode == 0
+      and not os.path.exists(os.path.join(out_dir, 'gridfix-01.queue-entry.json')), sorted(os.listdir(out_dir)) if os.path.isdir(out_dir) else p.stderr)
     c('plain staging on a clean tree stages HEAD (B), BASE-MD5 lists both committed versions', p.returncode == 0 and staged.get('revision') == 'B'
       and len(open(os.path.join(out_dir, 'BASE-MD5.txt')).read().split('\n')) >= 3, p.stdout + p.stderr)
     json.dump({'revision': 'dirty'}, open(reg, 'w'))
