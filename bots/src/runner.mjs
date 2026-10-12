@@ -313,6 +313,8 @@ export class Runner {
       craftedItem: result.item ?? null,
       // OCCUPIED SLOTS before - after, from the bag itself (bamboo_sticks' contract): never the skill's own claim.
       slotsFreed: slotsBefore === null ? 0 : slotsBefore - (this.bot.inventory?.items?.()?.length ?? slotsBefore),
+      // THE PRUNE'S verified count (pruneTown: taken from the chest and accounted lost down the well), same rule
+      pruned: Number(result.pruned ?? 0),
     }
 
     // THE EVIDENCE GATE. A claim of success does not leave this function unless
