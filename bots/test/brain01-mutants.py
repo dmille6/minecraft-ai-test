@@ -29,13 +29,13 @@ M = [
  ('_brain_share never written', 'src/cognitive.mjs', "if (share) { try { logEvent({ kind: 'brain_share',", "if (false) { try { logEvent({ kind: 'brain_share',"),
  ('brain primary not prepended', 'src/brain.mjs', "return [p, ...own.filter(e => e.split('|')[0] !== p.split('|')[0])]", "return own"),
  ('config ignores OLLAMA_BRAIN_PRIMARY', 'src/config.mjs', 'composePool(process.env.OLLAMA_BRAIN_PRIMARY,', 'composePool(undefined,'),
+ ('labelled retry walks the pool again', 'src/llm.mjs', "        only = untried()\n        return only.length > 0", "        only = null\n        return true"),
+ ('untried ignores cooling endpoints', 'src/llm.mjs', "return [...left.filter(e => up.has(e)), ...left.filter(e => !up.has(e))]", "return left.filter(e => up.has(e))"),
+ ('untried includes asked endpoints', 'src/llm.mjs', "const left = this.pool.eps.filter(e => !attempted.has(e))", "const left = this.pool.eps"),
+ ('#post ignores only', 'src/llm.mjs', "const eps = only ?? this.pool.available()", "const eps = this.pool.available()"),
+ ('labelled repair after transport failure uses the repair message', 'src/llm.mjs', "(attempt === 0 || (labelledPool && !repair))", "(attempt === 0)"),
  ('_brain_config never written', 'src/cognitive.mjs', "logEvent({ kind: 'brain_config',", "void ({ kind: 'brain_config',"),
  ('tally never constructed', 'src/cognitive.mjs', "this.brainTally = labelled(this.llm.pool?.eps).length ? new BrainTally() : null", "this.brainTally = null"),
- ('repair goes back to the rejected endpoint', 'src/llm.mjs', 'if (labelledPool && servedEp?.brain) skip = servedEp\n        attempt++\n        continue\n      }\n\n      // Trimmed.', 'attempt++\n        continue\n      }\n\n      // Trimmed.'),
- ('second walk after total failure', 'src/llm.mjs', "          if (!untried.length || only) break\n          only = untried; skip = null", "          if (false) break"),
- ('untried endpoints never asked', 'src/llm.mjs', "if (!untried.length || only) break", "break"),
- ('skip ignored by #post', 'src/llm.mjs', "      if (rest.length) eps = rest\n", ""),
- ('skip only among available', 'src/llm.mjs', "const rest = others.length ? others : this.pool.eps.filter(e => e !== skip)", "const rest = others"),
 ]
 bad = 0
 for name, f, old, new in M:
