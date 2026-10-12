@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# airpocket2read.py [window_min] -- the read for canary `airpocket-02` (branches ap2-on-4970c91 / ap2-on-6f1921a).
+# airpocket2read.py [window_min] -- the read for canary `airpocket-02` (branches ap2w-on-0cdb1a8 / ap2w-on-82aef34 / ap2w-on-8212674).
 # CANARY_DRYRUN=pool[,pool]:sha:iso for dry runs (never emits).
 #
 # AIRPOCKET-02 (docs/reports/airpocket2-design-2026-10-08.md) = airpocket-01's read plus:
@@ -101,6 +101,7 @@ DIFF = re.compile(r'difficulty=(\w+)')
 TRIG = re.compile(r'trigger_route=(\w+):(\S+)')   # dist may be -1, an integer, or undefined
 REASON = re.compile(r'^reason=(.*?) at=')
 IDRE = re.compile(r'^id=(\w+) ')
+WINRE = re.compile(r' window=(closed|settled|unsettled|open|unowned|none)(?::(\d+))?(?= )')   # optional; absent = 'none'
 DANGER = re.compile(r'lava|fire|flames|burn|suffocat')   # applied to the death CAUSE text only (before the first ';')
 FOLLOW_S = 120
 OX = re.compile(r'\(oxygen (-?\d+),')
@@ -290,6 +291,9 @@ for b in bots:
             breach['C5_envelope'].append(a)
         a['pose'] = start_pose.get(aid) or '?'
         rd = re.search(r' redig=(\d+)', d); a['redig'] = int(rd.group(1)) if rd else 0
+        # the inventory handoff (owner window-race fix + one core, 10-12): present only when the step waited or held off
+        wn = WINRE.search(d); a['window'] = wn.group(1) if wn else 'none'
+        a['window_ms'] = int(wn.group(2)) if wn and wn.group(2) else None
         # C6 -- a success the server did not confirm: the rescue's next ceiling (20 s, no air) within 30 s, no breath between
         if outcome == 'success':
             nxt = [c for c in ceilings if t < c <= t + dt.timedelta(seconds=30)]
@@ -353,6 +357,9 @@ print('AIRPOCKET-02 upblocked attempts %d mature (%d successes) | by trigger %s 
       '| exposure (>= 1 mature upblocked SUCCESS) %s' % (
           ub_attempts, ub_success, dict(Counter(a['trigger'] for a in attempts)), dict(Counter(a.get('pose', '?') for a in attempts)),
           sum(a.get('redig', 0) for a in attempts), can_upblocked_rows, 'READY' if ub_success >= 1 else 'NOT YET'))
+wins = [a for a in attempts if a.get('window', 'none') != 'none']
+print('HANDOFF      (reported, never gated) attempts that waited on the inventory %d of %d | by state %s | max wait %s ms' % (
+      len(wins), len(attempts), dict(Counter(a['window'] for a in wins)), max([a['window_ms'] for a in wins if a.get('window_ms') is not None], default='-')))
 print('REFUSALS     %d: %s' % (refusals_n, dict(refusals.most_common(8))))
 print('INSTRUMENT   control capped rescues (post) %d (>= 1) | control no-air sealed ceilings (post) %d (>= 1)' % (inst_capped, inst_noair))
 for f, nm in (('capped_rescue', 'capped rescues/bot-h'), ('noair_ceiling', 'no-air ceilings/bot-h'), ('death_drown', 'drowning deaths/bot-h'),

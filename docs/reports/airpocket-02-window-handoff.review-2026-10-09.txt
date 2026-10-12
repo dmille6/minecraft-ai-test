@@ -1,0 +1,77 @@
+airpocket-02 window handoff -- review log 2026-10-09 (Codex = codex exec --skip-git-repo-check; Claude = independent subagent).
+Claude texts are condensed; Codex texts are the final answers verbatim.
+
+=== ROUND 1 ===
+--- Codex ---
+**CHANGE**
+
+- **P1 — Equip remains unsafe after handoff.** `src/airpocket.mjs:454–463,628–629` permits equip on `unsettled`. A pending furnace open can outlast 1.5 seconds and arrive during equip. Mineflayer’s `inventory.js:658–665` performs multiple clicks; `543–552` sleeps after recent digging **before selecting the current window**. The synchronous recheck cannot protect that continuation. Remembering `unsettled` also bypasses busy checks for newly started skills during the stand. Skip inventory-moving equips unless their continuations are window-bound and cancellable; a hotbar-only selection is a separate safe option.
+
+  `isBusy()` is useful, **not proof of unwind**: normal completion includes the skill’s `finally`, but `runner.mjs:225–242,482` clears ownership after hard-stop while the original promise survives. Craft can likewise abandon a pending table open before its enclosing skill returns (`craftsync.mjs:585–612`). Repeated aborts do not restart the hard-stop timer. A permanently busy runner adds one bounded wait per step, rather than blocking forever, but that delay still costs breath versus airpocket-01.
+
+- **P2 — Poke can remove flotation throughout the wait.** `airpocket.mjs:445` asserts jump, then `299,454` invokes the guard. `reflex.mjs:1426` calls `haltPath`, whose `setGoal(null)` clears **all** controls (`mineflayer-pathfinder/index.js:138–146`). Jump restoration starts only at `airpocket.mjs:479–482`, after handoff and equip. Preserve/reassert the intended jump during the wait, including after runner cleanup.
+
+- **P2 — Drain protection stops new takes, not an already-started transfer.** `skills.mjs:7133–7140` checks identity outside `take*()`. Mineflayer’s `putAway` continues through `putSelectedItemRange` (`inventory.js:648–655,157–178`); a destination click delayed by the dig cooldown can resume after server close and select another window. The timeout race does not cancel it. This is a remaining hole in the proposed protection; bind/invalidate the transfer’s individual clicks. The identity comparison itself is correct: `inventory.js:699–701,385–389` and `furnace.js:15–41` use the same object. Skipping a non-current close is correct.
+
+Other requested checks:
+
+- **Cooldown/read:** Five seconds is bounded, and cooldown blocks both trigger and preemption (`airpocket.mjs:328,347,400`). Ownership clears at `reflex.mjs:1432`; base steering resumes on subsequent ticks. No tight refusal loop found. Accept `settled|unsettled` in any reader enum, and keep `window=` optional because the row tail can be truncated (`airpocket.mjs:720–723`). The reader was not supplied.
+- **Tests:** P tests and drain tests exercise behavior, but equip is instantaneous (`test/airpocket.test.mjs:231`), and drain swaps occur before takes (`test/smelt-skill.test.mjs:347–354`). They miss the interleavings above. P8 checks guard invocation, not interruption/flotation behavior. G4 is explicitly textual wiring verification. Mutation anchors assert presence/uniqueness (`airpocket.test.mjs:33–37,1173`; `smelt-skill.test.mjs:335–340`).
+- **Composition:** The toolhygiene filter remains intact (`airpocket.mjs:312–316`). Withdraw’s ownership refusal and close→invalidate→restore sequence remain intact (`skills.mjs:6367–6384,6456–6459`), with survival release before the airpocket early return (`reflex.mjs:1503–1514`). Exact peacefulkit/branch composition cannot be certified from this snapshot without Git history.
+
+`npm test`: **172/237 files passed**, exit 1; failures include sandbox-denied mutant/fixture writes and socket operations. No files edited.
+--- Claude ---
+CHANGE. P2-1: the wait sits on the common path and a wait-caused refusal gets the 60-s cooldown (settle only after a window was seen; short cooldown; log the wait ms). P2-2: the drain change collides with peacefulkit (drainFurnace signature, settleFurnaceCursor unguarded, pk fakes). P3: listener leak on a skipped close; row cannot be read for cost; hung skill waited per step; poke relabels interrupts; a gap inside the equip.
+
+=== ROUND 2 ===
+--- Codex ---
+**CHANGE**
+
+- **P2 — Hotbar selection can be refused and impose a 60-second cooldown.** `src/airpocket.mjs:483–502` skips handoff for hotbar tools but still calls guarded `bot.equip`. Withdraw’s `ownInventory` rejects **every** equip (`src/skills.mjs:6367–6371`) while an active visit owns the window; `inventoryUnsettled.release` only handles the later hold. Admission now prices that hotbar tool (`src/reflex.mjs:1388–1389`). Reproduced: held cobblestone, pickaxe in slot 37, equip rejected → no dig, `window=none`, no `handoffHeld`, **60,000-ms cooldown**. Use direct hotbar selection or handle ownership refusal with bounded recovery. P10/P11’s unconditional fake equips miss this case.
+
+The original **dig-clock-based P1 is withdrawn** for unwrapped Mineflayer 4.37.1/1.21: the clock mismatch and ordinary-slot promise chain support the rebuttal. Slots 36–44 are selections; 45 requires movement. However, craftsync’s equip wrapper awaits preemption (`src/craftsync.mjs:414–419,509–511`), so the comment’s whole-equip atomicity claim needs that qualification.
+
+Round-1 jump restoration, conditional settle, waited-refusal cooldown, and wait telemetry are addressed. Drain findings leave this diff with the drain changes removed.
+
+Tests exercise behavior; G4 checks textual wiring. Mutation helpers enforce present/unique anchors. The ownership reproduction ran without writes; the full suite was not run because its mutants create files. Exact branch composition cannot be certified from this snapshot without Git history. No files edited.
+--- Claude ---
+APPROVE. Verified the rebuttal (no network await / macrotask yield between moveSlotItem clicks on 1.21; DIG_CLICK_TIMEOUT never sleeps). P3-1: craftsync lockstep equip wrapper awaits before the real equip. P3-2: with a window open bot.inventory/heldItem are stale, so the r2 click-free fallback can price a pickaxe no longer held. P3-3: hung skill cycles ~6.5 s. P3-4: th-on-dbb4d78 test anchor needs re-anchoring.
+
+=== ROUND 3 ===
+--- Codex ---
+**CHANGE**
+
+- **P2 — optimistic admission also cancels escapes prematurely.** `src/reflex.mjs:1390,2302–2304` now admits using potentially stale inventory, then stops the active escape before the window handoff succeeds. If the window persists, `src/airpocket.mjs:493–495` refuses without digging. Clearing `airPocketWants` does **not resume** that escape: its existing 15-s/60-s eligibility clocks remain (`reflex.mjs:2926,2520`). If closing the window removes the priced tool, subsequent admission can keep refusing. The 5-s cooldown retries airpocket; it does not restore the cancelled recovery. Interrupt the window-owning skill first, then revalidate the refreshed inventory before pre-empting the escape. Add a composition test covering this sequence.
+
+The round-2 equip-refusal P2 is closed (`airpocket.mjs:515–520`). Pricing all tools fixes the reported SM admission deadlock, but needs the separate pre-emption safeguard above.
+
+Tests inspected, not executed: their mutant helpers write files, and this workspace is read-only.
+--- Claude ---
+CHANGE. P2: an UNOWNED window (open timed out, granted late) made r3 admit + pre-empt the escape then refuse in the step every 5 s; fix by ownership. P3: bounded loop for a skill-owned window outliving the wait.
+
+=== ROUND 4 ===
+--- Codex ---
+CHANGE.
+
+- **P2 — `src/airpocket.mjs:403`: unowned windows block rescue pre-emption indefinitely.** Even when the held tool makes the step affordable, this returns `'window'` without consulting admission. Nothing closes that window, and `src/reflex.mjs:2337` blocks the sealed trigger while the escape remains active. An unsuccessful escape can consume the remaining survival budget. Allow unowned windows to reach held-only admission before deciding whether to pre-empt.
+- **P3 — `test/airpocket.test.mjs:1033`: P15c does not kill its mutant.** Held cobblestone is filtered out, leaving `pick.item === null`; both original and mutant equip zero times. Use the held-pickaxe fixture and assert the mutant equips while the original does not.
+
+The specific r3 premature-pre-emption failures are prevented, but the first finding replaces them with a liveness failure. The window branch’s interrupt does not directly cancel the escape: `runner.mjs:150` aborts only the running skill.
+
+Read-only, in-memory run: 42 focused checks passed, including anchor checks. Full-suite validation remains incomplete. No files edited.
+--- Claude ---
+APPROVE. Both r3 P2s closed. P3-1: hold off the pre-empt only for an OWNED window. P3-2: hung skill with an owned window refuses until hard-stop. P3-3: the window interrupt can clear an escape's controls (pre-existing class).
+
+=== ROUND 5 ===
+--- Codex ---
+APPROVE. No remaining P1/P2 findings. Round-4’s unowned-window blocker and ineffective P15c mutant are resolved.
+
+Acceptable P3 residuals:
+
+- `src/airpocket.mjs:403`: a hung skill owning a window blocks pre-emption until runner hard-stop (`src/runner.mjs:242`). The default 210-second bound can exceed drowning survival; it bounds the stall, not mortality.
+- `src/runner.mjs:267`: cleanup still clears escape controls. `pillarOut` and `digStraightUp` reassert jump on subsequent placement iterations (`src/reflex.mjs:5190`, `5485`), not continuously during the 300-ms jump wait. A placement can therefore be disrupted. This remains a pre-existing control-ownership issue.
+
+Three direct ownership-decision checks passed. P15/P15c now use matching fixtures and assert equip counts 0/1 respectively. Full suite not rerun: its mutant tests require filesystem writes, unavailable in this read-only session.
+--- Claude ---
+APPROVE. r4 P3-1 and Codex's P15c closed. Residuals accepted; escape controls checked (no dead end). Out-of-scope P3: pillarOut's own scaffold equip has no window handoff.
+
