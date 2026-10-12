@@ -27,6 +27,22 @@ AGENTS DOWN until ~10-12 11Z (weekly limit): no new builds before then._
 
 ---
 
+## 10-12 14:00Z — STOCKTARGET-01: Paper PASS (from the world); five variants incl. the airpocket-02 builds; one replace-variant entry
+PAPER (docs/reports/stocktarget-paper-2026-10-12.txt, VERDICT PASS): no chest at target (run 5: chests 1 -> 1, the carried
+chest kept; control +30 iron -> chests 1 -> 2, aid matched); the refusal row from the world (run 6, no well: chest cobble
+1,661 -> 1,661, bag kept 161, iron banked; rows via=deposit and via=admission, at_cobble=1). The hold's condition is met:
+lift with `canary-sched.py queue release stocktarget-01`.
+VARIANTS (queue gridfix-01 -> bamboo-01 -> airpocket-02 -> stocktarget-01 -> orderroom-01): + st-on-70cb0d4 @ a88f763d
+(airpocket-02 on gridfix 70cb0d41) and st-on-7103263 @ 1940574d (airpocket-02 on bamboo 71032630) -- the approved diffs,
+no conflict; rebase review Codex APPROVE + Claude APPROVE (exact composition; the prune chain keeps the rescue's ownership);
+npm test 248/248, 249/249; mutants 62/62; lint only the guarded withinBody at reflex.mjs:2451 (= the base). Their
+registrations carry v35's primary_by_pools (3-pool -1.598) + keep_rule like the other three; staged v35
+registration_problems [] on all five; bagfixgate check-registration OK. ONE FILE: docs/reports/stocktarget-01.queue-entry.json
+= ~/st-v35-regs/stocktarget-01.queue-entry.5variants.json (built on the v35 entry: its three variants unchanged + the two;
+"hold" kept, text now says PASS). Registrations for the two new keys: ~/st-v35-regs and ~/mcai-analysis
+stocktarget-01.{70cb0d4,7103263}.json (sha256 in the entry).
+STATE.md housekeeping: a partial duplicate of the 12:40Z stocktarget entry (a merge artifact, mid-file) was removed.
+
 ## 10-12 14:20Z — V35 INSTALL CHECKLIST (run in the gap after gridfix-01 is decided AND torn down; no agent needed)
 v35 STAGED, NOT installed: Codex r10 + Claude APPROVE, dry run rc=0, main 2377a88c/be41ea54, bundle b7ce36d777443eae018e804f4776e95a.
 bamboo-01 carries a QUEUE hold for this gap (a per-entry hold does NOT block the installer; never add `install-hold`).
@@ -1867,27 +1883,6 @@ on whatever the fleet is (bc3bcba carries the bundle, so on a torn-down fleet it
 - session scratchpad worktree `fx` (disposable).
 - `mcai-rl02` worktree carries someone else's uncommitted `check-movement-writers.mjs`, `movement-ratchet.test.mjs`
   and 09-27 reports — still left alone.
- — STOCKTARGET-01 READY, HELD for the operator (Paper pending: the sandbox lock is held by other agents; the run takes it next); carries stonecap-01's cobble cap (the fold)
-Per-town stock targets + chest pruning + usable-tool targets, CARRYING stonecap's cap + well-at-cap code unchanged.
-stonecap-01 is closed INCONCLUSIVE and NOT re-run (fold decided with both engines: Codex fold-r1 CHANGE -> r2 APPROVE,
-Claude fold-r1/r2 APPROVE). THE STONECAP LESSON IS BUILT IN: `_stock_refused` (via=deposit|town_deposit|admission;
-at_cobble=/at_stock= for refusals at a COUNTED cap/target) whenever the cap or a target drops a held name from a plan --
-so a town already above its cap is not a silent run; liveness line = stocktargetread `rows_live` (unknown-only refusals
-are reported, never liveness). Code reviews: Codex r4 APPROVE, Claude r3 APPROVE (docs/reports/
-stocktarget-code-reviews-2026-10-10.txt). Variants (queue entry docs/reports/stocktarget-01.queue-entry.json, after
-bamboo-01, **"hold" set**): fleet 0cdb1a8 -> st-on-0cdb1a8 @ 764fad4f; 82aef34 (gridfix kept) -> st-on-82aef34 @ 48b093ce;
-8212674 (bamboo kept) -> st-on-8212674 @ 31e64375 (three union conflicts with bamboo, checked by Claude fold-r2).
-npm test 246/246, 248/248, 249/249 (the three variants); mutants-stocktarget 62/62 killed on all three; eslint no-undef only reflex.mjs:2382 withinBody on
-all three -- PRE-EXISTING on each plain base at the same line, typeof-guarded, cannot throw (registration 'lint'); licencecheck: `_stock_refused` baseline 0 rows / 6 h (329k rows, 80 bots); bagfixgate check-registration OK.
-Dry runs: hive-d,placebo-a 10-10 (+180) gates 0, instrument 106; stonecap's own pools 10-11 20:45Z (+360, journals of 4
-towns readable, admitted cobble bank claims 0 -> C1-C5 UNTESTED, as expected on over-cap towns).
-**TO LIFT THE HOLD (no agent needed):** read docs/reports/stocktarget-paper-2026-10-12.txt; if it says PASS,
-`canary-sched.py queue release stocktarget-01`. Install the drawn variant's registration as
-~/mcai-analysis/registrations/stocktarget-01.json (copies at ~/mcai-analysis/stocktarget-01.<fleet>.json).
-THE ONE-TIME CLEAR uses these targets as its caps (design §15.1, docs/reports/stocktarget-clear-caps-2026-10-10.json;
-OWNER TO CONFIRM: bamboo 0, bucket 2). After the clear: run stocktargetread + stonecapread as a tripwire read on the
-promoted fleet (near-cap cobble banking gets its first exposure there).
-Built but NOT pushed: the 0264f61 contingency (peacefulkit was kept). Branches pushed: st-on-0cdb1a8, st-on-82aef34, st-on-8212674.
 
 ## 10-12 12:25Z — gridfix-01 LIVE @ 82aef34 (declared 09:03:55Z, placebo-a,board-a,board-d,board-b, 20 bots); agents resumed 11:03Z
 +180 (12:08Z) NOT_YET: deaths 1/60 bh vs control 2/120 bh (equal rate); liveness 43/43 canary _craft_sync rows carry

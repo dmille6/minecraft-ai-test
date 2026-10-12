@@ -1,0 +1,53 @@
+stocktarget-01 PAPER EVIDENCE (sandbox3 = Paper 1.21.8 on 10.0.0.30:25601; driver sandbox/well/stock-e2e.cjs; the bot code
+an export of the canary branch; every number below is the SERVER's (RCON data get of the chest and the bag, the shaft's
+entity census), never only the bot's rows. Sandbox lock taken and released each run.)
+
+VERDICT: PASS -- both of the operator's hold conditions are met on Paper, read from the world (sections 1 and 2). The operator may lift the queue hold: canary-sched.py queue release stocktarget-01
+
+The operator's hold condition (10-12): "the no-chest scene and the _stock_refused row seen on Paper, read from the world".
+
+1. NO CHEST AT TARGET -- run 5, 10-12 12:50-13:00Z, bot code 9a8089a6 (bots/ identical to st-on-0cdb1a8 @ 764fad4f)            PASS
+   Town chest FULL and its oak exactly AT the target (1 oak stack + 26 torch stacks); the bag carries a chest, oak 2x64,
+   one free slot; `deposit` queued.
+   at target : chests in the world 1 -> 1, the carried chest still in the server's bag (1). The bag's oak above its keep
+               went down the well first (_stock_dispose avail=64 target=64 keep=64 left_after=64).
+   control   : + 30 iron ingots (untargeted): chests 1 -> 2 -- "placed the chest it carried at 1318,120,1310", 30 items
+               banked into it; _stock_recovery stage=entry/place aid=sandbox-Stock-mv59ewta untargeted=1, and the
+               _deposit_new_chest row carries the SAME aid (G2's match).
+   (runs 3-4 on 10-10 could not show the control: the bot pruned the full chest first and the ingots fitted the old
+   chest; the scene now leaves nothing to prune.)
+
+2. THE REFUSAL ROW, READ FROM THE WORLD -- run 6, 10-12 13:14-13:15Z, bot code 9a8089a6 (bots/ identical to st-on-0cdb1a8 @ 764fad4f), driver a81e4862                 PASS
+   No well, no wood (the arena rebuilt). Town chest: 26 cobble stacks = 1,661 counted (6.5x the 256 cap) + one empty slot.
+   Server bag: cobble 161 (64+64+30, +3 a withdraw_pick took before the trial), 30 iron ingots, a stone pickaxe, torches.
+   Trial 1 -- `deposit`, a MIXED bag (stonecap-01's silent case): "deposited 30 items".
+     server chest  cobble 1,661 -> 1,661 (+0)   iron 0 -> 30
+     server bag    cobble 161 -> 161 (kept)     iron 30 -> 0
+     row           _stock_refused via=deposit n=1 cobble=1 stock=0 at_cobble=1 at_stock=0 cobblestone:161:cobble_cap
+   Trial 2 -- the ingots cleared from the bag, `deposit` again on the now-counted town (a cobble-only bag):
+     admission refused it before any skill ran; row _stock_refused via=admission n=1 cobble=1 stock=0 at_cobble=1
+     at_stock=0 cobblestone:161:cobble_cap; server chest cobble 1,661 -> 1,661 (+0); server bag cobble 161.
+   Exactly two _stock_refused rows (the admission row once: the throttle). Both rows name a COUNTED cap (at_cobble=1),
+   so both are liveness under rows_live.
+
+3. WHAT RUN 5's FIRST REFUSAL ATTEMPT SHOWED INSTEAD (the cap + pruning working on a town 6.5x over the cap; a well
+   standing): chest 1,661 cobble; bag cobble 158. Before its deposit the bot pruned: 4 stacks per visit, three visits,
+   1,661 -> 1,405 -> 1,149 -> 893 (server), every _stock_prune row floor >= 256 (never below the cap), the bag keeping
+   64 (left_after/cobble_left=64), each throw cap=at_cap re-read per click, 350 + 256 + 256 thrown (the _well_dispose rows; no shaft census in this scene).
+   The bag's own surplus (94) went down with the first visit, so the deposit (62 oak banked under a confirmed claim,
+   town_before=0 town_after=62) had no cobble left to refuse -- no _stock_refused row, correctly. Hence run 6 without a
+   well.
+
+4. EARLIER RUNS (10-10, code-r2/r3 builds; the in-world behaviour unchanged since):
+   - prune (run 3): chest 640 -> 384 oak, 4 takes of 64, the bag unchanged (bagOakGrew=false), 256 thrown, 0 outside;
+     prune_town graded success by its own evidence (prune_effect).
+   - keep-only control (run 4): an empty-of-oak bag at a 640-oak chest: 0 prune orders, 0 takes, chest 640 -> 640.
+   - race (run 3): two bots, chest 128 (one stack above target): exactly one take admitted, chest 128 -> 64.
+   - bank under target (runs 2-3): chest 20 -> 50 oak, one claim of 30, released (liveAfter=0).
+   - dispose at target (runs 2-3): oak 192 -> 62 and dirt 128 -> 64 down the well (keeps 64/16, 64 pillar blocks kept);
+     iron, saplings, pickaxe and torches untouched; the chest 640 -> 512 only by a prune in the same scene (floor 512 >= 64); 0 items outside the shaft (census 320 in, 0 out).
+
+Raw logs (scratch, the stocktarget agent): scratchpad/paper/run5.log, run6.log; bot logs under scratchpad/paper/repo/sandbox/log/stock-e2e/1012T1250*, 1012T1314*.
+Scope: Paper ran the 0cdb1a8 variant. The other variants carry the same stocktarget diff over their bases (gridfix;
+gridfix + bamboo; the airpocket-02 builds) and were verified by npm test, the mutants and the review of the rebase,
+not on Paper.
