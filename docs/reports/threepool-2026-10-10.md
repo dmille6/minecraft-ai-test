@@ -267,3 +267,40 @@ All other round-6–9 findings concerned mutation-test anchors or cases (test st
 - The calibration refusal's loop-lock probe momentarily takes `/tmp/mcai-canary.lock`. A loop launched in that instant exits 3, and the scheduler retries it.
 - Preemption depends on sudoers allowing `systemctl kill`. If it does not, the loop read is refused (exit 75), so it fails closed; it is never run beside the calibration job.
 - The `--expand-environment=no` flag has no effect on systemd 255. It guards later versions, and the verbatim-environment test stays.
+
+## v35.1: the steady release never fired (live defect, 2026-10-12)
+
+**What happened.** drawrec for bamboo-01 printed "STEADY inputs unreadable or malformed (ValueError: canary_pool names
+malformed: 'FLEET-WIDE (80 bots)'): 12 h for every pool".
+- v35's strict ledger parse validated **every** row of the whole ledger.
+- Three September hand-recorded fleet-wide promotions trip it: drop5-01 efa2853 (09-25), plant 268c074 and
+  promote-20260926 859af48 (09-27). Their `canary_pool` is "FLEET-WIDE (80 bots)".
+- So drawsteady refused on every run since the install, and the 6-h release could never fire.
+- It failed closed (12 h). Nothing unsafe happened, but bamboo-01's only exposable pools, board-a and board-d, stayed
+  excluded.
+- gridfix-01's own KEEP row is clean (placebo-a,board-a,board-d,board-b). The canary's own decision row carries its
+  pools; the September rows were standalone fleet-wide deploys.
+
+**Fix** (drawsteady.parse_ledger):
+- Only rows inside the 12-h window are validated. Older rows are irrelevant to the exclusion and are skipped.
+- A line that is not JSON, or a row with an unreadable ts, still refuses: its time is unknown.
+- Inside the window, a `FLEET-WIDE...` row names no canary pool, as in drawrec's own 12-h loop where it excludes nothing.
+  Such a row suspends the release, because every pool and every control just changed code.
+- Inside the window, any other malformed pool field still refuses.
+
+**Evidence:**
+- **Live ledger, read-only:**
+  - the installed v35 refuses;
+  - v35.1 parses it and holds gridfix-01's four pools (KEEP+promoted 3.6 h ago, under 6 h).
+- **Replay:** placebo-a is still released at airpocket-01 +6.5 h.
+- **Tests** (test_threepool) use the exact live row:
+  - outside the window it is skipped;
+  - at 3 h it suspends the release;
+  - CLI: with the September row in the ledger, the pool is released (live: refused).
+- **Mutants:**
+  - "every row validated regardless of age" (the v35 defect) is killed;
+  - "fleet-wide rows not recognised" is killed;
+  - "a recent fleet-wide deploy does not suspend" is killed;
+  - "an unreadable ts tolerated" is killed.
+- drawsteady.py is not a bundle part, so the gate digest is unchanged at b7ce36d7. `scripts/host/install-gate-v35_1.sh`
+  verifies the digest before and after the install.

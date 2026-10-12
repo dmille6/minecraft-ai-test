@@ -67,19 +67,41 @@ def pools_in(row):
     return ps
 
 
-def parse_ledger(lines):
-    """PURE. -> rows. Raises ValueError on ANY malformed line, a row that is not a dict, an unreadable ts or a row that
-    names no pool: an unreadable decision could be the one that holds a pool."""
-    out = []
+FLEET_WIDE_RE = __import__('re').compile(r'^FLEET-WIDE\b')
+
+
+def parse_ledger(lines, now):
+    """PURE. -> (rows, fleet_wide). rows = the decisions inside the EXCL_H window (plus up to 10 min of clock skew ahead),
+    each naming its canary pools; fleet_wide = the fleet-wide rows inside that window.
+
+    v35.1 (2026-10-12, live defect): v35 validated EVERY row of the whole ledger, so three September hand-recorded
+    fleet-wide promotions (canary_pool "FLEET-WIDE (80 bots)") made it refuse on every run -- the 6-h release never fired.
+    Now:
+      * a line that is not JSON, a row that is not a dict, or an unreadable ts REFUSES (ValueError): its time is unknown,
+        so it could be inside the window and be the decision that holds a pool;
+      * a row older than EXCL_H is irrelevant to the exclusion and is skipped WITHOUT validating its pools;
+      * inside the window, a canary_pool starting "FLEET-WIDE" is a fleet-wide deploy: it names no canary pool (as in
+        drawrec's own 12-h loop, where it excludes nothing) and is returned in fleet_wide -- the caller suspends the
+        release, because every pool just changed code and so did every control;
+      * inside the window, any other canary_pool that is not a string of pool names REFUSES (ValueError)."""
+    rows, fleet = [], []
     for i, l in enumerate(lines):
         l = l.strip()
         if not l:
             continue
         r = json.loads(l)
-        if not isinstance(r, dict) or _t(r.get('ts')) is None or not pools_in(r):
-            raise ValueError('ledger line %d unusable' % (i + 1))
-        out.append(r)
-    return out
+        t = _t(r.get('ts')) if isinstance(r, dict) else None
+        if t is None:
+            raise ValueError('ledger line %d: not a row with a readable ts' % (i + 1))
+        if (now - t).total_seconds() >= EXCL_H * 3600:
+            continue
+        cp = r.get('canary_pool')
+        if isinstance(cp, str) and FLEET_WIDE_RE.match(cp.strip()):
+            fleet.append(r); continue
+        if not pools_in(r):
+            raise ValueError('ledger line %d unusable: no canary pool' % (i + 1))
+        rows.append(r)
+    return rows, fleet
 
 
 def candidates(ledger_rows, journal_rows, now):
@@ -243,10 +265,14 @@ def main():
     if os.environ.get('STEADY_NOW'):         # REPLAY ONLY (scripts/host/drawsteady_replay.sh); printed, never silent
         now = _t(os.environ['STEADY_NOW']); print('STEADY REPLAY at %s (STEADY_NOW): not a live answer' % now.isoformat())
     try:
-        ledger = parse_ledger(open(LEDGER).readlines())
+        ledger, fleet = parse_ledger(open(LEDGER).readlines(), now)
         journal, man = _journal(JOURNAL), json.load(open(MANIFEST))
     except Exception as e:
         print('STEADY inputs unreadable or malformed (%s: %s): 12 h for every pool' % (type(e).__name__, str(e)[:120]))
+        print('STEADY RELEASE []'); return 0
+    if fleet:
+        print('STEADY a fleet-wide deploy inside the %d-h window (%s at %s): every pool and every control just changed -- '
+              '12 h for every pool' % (EXCL_H, fleet[-1].get('canary_sha'), fleet[-1].get('ts')))
         print('STEADY RELEASE []'); return 0
     cand, held = candidates(ledger, journal, now)
     for p, why in sorted(held.items()):

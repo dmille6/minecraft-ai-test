@@ -273,10 +273,25 @@ def steady_pure(DS):
 
     def raises(lines):
         try:
-            DS.parse_ledger(lines); return False
+            DS.parse_ledger(lines, now); return False
         except Exception:
             return True
-    c('parse_ledger: clean lines parse; blank lines are skipped', len(DS.parse_ledger([good_line, '', good_line])) == 2)
+    c('parse_ledger: clean lines parse; blank lines are skipped', len(DS.parse_ledger([good_line, '', good_line], now)[0]) == 2)
+    # v35.1 (10-12 live defect): THE EXACT LIVE ROW -- a September hand-recorded fleet-wide promotion
+    FLEET = {'canary_sha': 'efa2853', 'canary_pool': 'FLEET-WIDE (80 bots)', 'decision': 'KEEP',
+             'note': 'PROMOTION OF drop5-01 (maxDrop 3->5 on every blind-step candidate, plu', 'ts': '2026-09-25T11:53:22.485145+00:00'}
+    old_fleet = json.dumps(FLEET)
+    rows, fl = DS.parse_ledger([old_fleet, good_line], now)
+    c('v35.1: the exact live FLEET-WIDE row from September (outside the window) is SKIPPED, not a refusal; the 7-h KEEP still parses',
+      len(rows) == 1 and not fl, (rows, fl))
+    rows, fl = DS.parse_ledger([json.dumps(dict(FLEET, ts=(now - dt.timedelta(hours=3)).isoformat())), good_line], now)
+    c('v35.1: the same FLEET-WIDE row 3 h old is returned as fleet_wide (the caller suspends the release), not as pools',
+      len(rows) == 1 and len(fl) == 1, (rows, fl))
+    c('v35.1: a malformed pool OUTSIDE the window is skipped; INSIDE it still refuses',
+      not raises([json.dumps(dict(L('REVERT', 'pool-a', 30), canary_pool='Pool A?'))])
+      and raises([json.dumps(dict(L('REVERT', 'pool-a', 1), canary_pool='Pool A?'))]))
+    c('v35.1: an unreadable ts refuses even on an old-looking row (its time is unknown)',
+      raises([json.dumps(dict(FLEET, ts='2026-09-25 noon'))]))
     c('parse_ledger: a malformed line REFUSES (it could be the REVERT that holds a pool)', raises([good_line, '{"canary_pool": "p1", "decision": "REV']))
     c('parse_ledger: a canary_pool that is a LIST, or a malformed pool name, REFUSES (round 4, Codex)',
       raises([good_line, json.dumps(dict(L('REVERT', 'pool-a', 1), canary_pool=['pool-a']))])
@@ -286,6 +301,7 @@ def steady_pure(DS):
       and DS.parse_roster(['mcbot@pool-a-A.service', 'mcbot@.service', 'other.service', 'mcbot@pool-a-B.service']) == ['pool-a-A', 'pool-a-B'])
     c('parse_ledger: a row with no ts, a row naming no pool, or a non-dict REFUSES',
       raises([json.dumps(dict(L('REVERT', 'pool-a', 7), ts=None))]) and raises([json.dumps(dict(L('REVERT', '', 7)))]) and raises(['[1, 2]']))
+    c('parse_ledger: a list canary_pool inside the window REFUSES', raises([json.dumps(dict(L('REVERT', 'pool-a', 1), canary_pool=['pool-a']))]))
     # units
     u = DS.parse_units('mcbot@pool-a-A.service loaded active running x\nmcbot@pool-a-B.service loaded inactive dead x\n'
                        'mcbot@pool-a-C.service loaded failed failed x\njunk line\n')
@@ -424,6 +440,15 @@ def steady_cli(steady_py, tmp):
     c('drawsteady CLI: a KEEP never promoted -> releases nothing', g == '[]', o)
     g, o = run(world(hours=5))
     c('drawsteady CLI: 5 h ago -> releases nothing', g == '[]', o)
+    FROW = json.dumps({'canary_sha': 'efa2853', 'canary_pool': 'FLEET-WIDE (80 bots)', 'decision': 'KEEP',
+                       'note': 'PROMOTION OF drop5-01 (maxDrop 3->5 on every blind-step candidate, plu',
+                       'ts': '2026-09-25T11:53:22.485145+00:00'})
+    g, o = run(world(ledger_extra=FROW + '\n'))
+    c('drawsteady CLI v35.1: the exact September FLEET-WIDE row in the ledger -> pool-a still RELEASED (it was refused live)',
+      g == "['pool-a']", o)
+    g, o = run(world(ledger_extra=json.dumps(dict(json.loads(FROW), ts=(now - dt.timedelta(hours=2)).isoformat())) + '\n'))
+    c('drawsteady CLI v35.1: a FLEET-WIDE deploy 2 h ago -> releases nothing (every pool and control just changed)',
+      g == '[]' and 'fleet-wide deploy' in o, o)
     g, o = run(world(ledger_extra='{"canary_pool": "pool-a", "decision": "REV\n'))
     c('drawsteady CLI: a malformed ledger line -> releases nothing', g == '[]' and 'malformed' in o, o)
     w = world(); os.remove(os.path.join(w, 'ledger'))
@@ -589,7 +614,11 @@ MUTANTS = [
     ('drawsteady.py', 'a held pool can still be released', "    return {p: v for p, v in ok.items() if p not in held}, held", "    return ok, held"),
     ('drawsteady.py', 'clock skew ignored', "        if t > now + dt.timedelta(minutes=10):", "        if t > now:"),
     ('drawsteady.py', 'promotion before the decision accepted', "if s == sha and pt is not None and t <= pt <= now]", "if s == sha and pt is not None]"),
-    ('drawsteady.py', 'a malformed ledger row tolerated', "            raise ValueError('ledger line %d unusable' % (i + 1))", "            continue"),
+    ('drawsteady.py', 'a malformed ledger row tolerated', "            raise ValueError('ledger line %d unusable: no canary pool' % (i + 1))", "            continue"),
+    ('drawsteady.py', 'v35 defect: every row validated regardless of age', "        if (now - t).total_seconds() >= EXCL_H * 3600:\n            continue\n", ""),
+    ('drawsteady.py', 'fleet-wide rows not recognised', "        if isinstance(cp, str) and FLEET_WIDE_RE.match(cp.strip()):", "        if False:"),
+    ('drawsteady.py', 'a recent fleet-wide deploy does not suspend the release', "    if fleet:\n        print('STEADY a fleet-wide", "    if False:\n        print('STEADY a fleet-wide"),
+    ('drawsteady.py', 'an unreadable ts tolerated', "        if t is None:\n            raise ValueError('ledger line %d: not a row", "        if t is None:\n            continue\n            raise ValueError('ledger line %d: not a row"),
     ('drawsteady.py', 'down unit ignored', "        if not units[b]:", "        if False:"),
     ('drawsteady.py', 'a member with no logs dropped', "        if s is None:\n            return None, '%s: no log rows", "        if s is None and False:\n            return None, '%s: no log rows"),
     ('drawsteady.py', 'restart lag ignored', "        if s['versions'] != {fv}:", "        if fv not in s['versions']:"),
