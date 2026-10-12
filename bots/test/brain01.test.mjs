@@ -213,6 +213,21 @@ await t('config: a process started with OLLAMA_BRAIN_PRIMARY really has it first
     { env: { ...process.env, OLLAMA_BRAIN_PRIMARY: 'http://s:1|gemma4:26b|gemma4|15000', OLLAMA_BASE_URLS: 'http://10.0.0.16:11434,http://10.0.0.72:11434' } }).toString()
   assert.deepEqual(JSON.parse(out.trim().split('\n').at(-1)), ['http://s:1|gemma4:26b|gemma4|15000', 'http://10.0.0.16:11434', 'http://10.0.0.72:11434'])
 })
+await t('a REAL CognitiveLoop built in a process started with OLLAMA_BRAIN_PRIMARY has a tally; without it, none (Claude r1)', async () => {
+  const { execFileSync } = await import('node:child_process')
+  const probe = env => execFileSync(process.execPath, ['--input-type=module', '-e', `
+    process.env.LOG_LEVEL = 'error'
+    const { CognitiveLoop } = await import('${new URL('../src/cognitive.mjs', import.meta.url).href}')
+    const { Lessons } = await import('${new URL('../src/lessons.mjs', import.meta.url).href}')
+    const bot = { entity: { position: { x: 0, y: 70, z: 0 } }, inventory: { items: () => [] }, registry: { blocksByName: {}, itemsByName: {} } }
+    const L = new Lessons('${LOGDIR}/probe-lessons.json')
+    const loop = new CognitiveLoop(bot, { isBusy: () => false, run: async () => ({}) }, L, null)
+    console.log(JSON.stringify({ tally: !!loop.brainTally, first: loop.llm.pool.eps[0].brain }))
+    process.exit(0)`], { env: { ...process.env, LOG_DIR: LOGDIR, ...env } }).toString().trim().split('\n').at(-1)
+  const on = JSON.parse(probe({ OLLAMA_BRAIN_PRIMARY: 'http://s:1|gemma4:26b|gemma4|15000', OLLAMA_BASE_URLS: 'http://10.0.0.72:11434' }))
+  const off = JSON.parse(probe({ OLLAMA_BRAIN_PRIMARY: '', OLLAMA_BASE_URLS: 'http://10.0.0.72:11434' }))
+  assert.deepEqual(on, { tally: true, first: 'gemma4' }); assert.deepEqual(off, { tally: false, first: null })
+})
 await t('BrainTally: a share row every 10 min, then it resets', () => {
   const tl = new B.BrainTally(0)
   tl.note('gemma4'); tl.note('gemma4'); tl.note('local'); tl.note('order'); tl.note(null)

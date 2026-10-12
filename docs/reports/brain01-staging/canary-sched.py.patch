@@ -1,5 +1,5 @@
 --- host-orig/canary-sched.py	2026-10-12 07:06:37
-+++ patched/canary-sched.py	2026-10-12 07:13:08
++++ patched/canary-sched.py	2026-10-12 08:11:09
 @@ -1142,7 +1142,7 @@
          bad.append('run id %r is not a plain id' % run)
      if deployment(run_rows(journal, run))[0] is not None:
@@ -17,8 +17,8 @@
 +        # bots, not 20), and that a KEEP keeps it on that subset -- never a fleet-wide model swap.
 +        if (r.get('class') or '') == 'model-env':
 +            ce = r.get('canary_env') or []
-+            if not ce or not all(isinstance(x, str) and re.fullmatch(r'[A-Z_][A-Z0-9_]*=\S+', x) for x in ce):
-+                bad.append('variant %s: model-env needs canary_env as KEY=VALUE strings without spaces' % k[:7])
++            if not ce or not all(isinstance(x, str) and re.fullmatch(r'[A-Z_][A-Z0-9_]*=[^\s*?\[\]]+', x) for x in ce):
++                bad.append('variant %s: model-env needs canary_env as KEY=VALUE strings without spaces or glob characters' % k[:7])
 +            if not isinstance(r.get('draw_k'), int) or not 1 <= r['draw_k'] <= 2:
 +                bad.append('variant %s: model-env needs draw_k 1..2 (pools; the Studio serves ~10-12 bots)' % k[:7])
 +            if r.get('promotion') not in ('keep-subset', 'none'):
