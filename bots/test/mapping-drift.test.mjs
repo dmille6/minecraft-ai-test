@@ -49,7 +49,8 @@ const EMITTED = {
                   'credit', 'carried_ms', 'distance'],
   'llm index':   ['llm', 'model', 'endpoint', 'prompt_tokens', 'completion_tokens',
                   'latency_ms', 'schema_valid', 'error', 'retry_count',
-                  'admission', 'memory', 'cited_rule', 'cited_fails',
+                  'admission', 'args_cleaned', 'args_cleaned_fields', 'model_mismatch', 'brain',
+                  'memory', 'cited_rule', 'cited_fails',
                   'cited_reporters', 'inherited', 'prompt', 'system_hash',
                   'text', 'response', 'messages', 'tool_calls', 'outcome'],
 }

@@ -185,6 +185,35 @@ export function skillSchema(skillNames) {
  * `qwen2.5:7b-instruct` and being served `qwen2.5:7b-instruct-q4_K_M` is the
  * same model at a stated quantisation, not a downgrade. Anything else is.
  */
+/**
+ * One OLLAMA_BASE_URLS entry: `url[|model[|brain[|timeoutMs]]]`.
+ * model: pin this endpoint's model (else the global OLLAMA_MODEL). brain: the label written on every decision
+ * this endpoint serves (else 'local'). timeoutMs: this endpoint's own request budget (else LLM_TIMEOUT_MS).
+ * A label is [a-z0-9_-]{1,24}; anything else, or a timeout outside 1000..600000 ms, is REFUSED at startup --
+ * a typo must not silently become a 90 s Studio wait or an unlabelled canary.
+ */
+export function parseEndpoint (entry) {
+  const [url, m, b, t] = String(entry).split('|').map(x => x?.trim())
+  if (!url) throw new Error(`OLLAMA_BASE_URLS: empty endpoint in ${JSON.stringify(entry)}`)
+  const brain = b || null
+  if (brain !== null && !/^[a-z0-9_-]{1,24}$/.test(brain)) throw new Error(`OLLAMA_BASE_URLS: bad brain label ${JSON.stringify(b)}`)
+  let timeoutMs = null
+  if (t) {
+    timeoutMs = Number(t)
+    if (!Number.isInteger(timeoutMs) || timeoutMs < 1000 || timeoutMs > 600000) throw new Error(`OLLAMA_BASE_URLS: bad timeout ${JSON.stringify(t)} (ms, 1000..600000)`)
+  }
+  return { url: url.replace(/\/$/, ''), model: m || null, brain, timeoutMs }
+}
+
+/** OLLAMA_THINK: unset -> undefined (key not sent); 'true'/'false' -> booleans; 'low'|'medium'|'high' -> as is. */
+export function parseThink (v) {
+  if (v === undefined || v === null || v === '') return undefined
+  if (v === 'true') return true
+  if (v === 'false') return false
+  if (['low', 'medium', 'high'].includes(v)) return v
+  throw new Error(`OLLAMA_THINK must be true, false, low, medium or high (got ${JSON.stringify(v)})`)
+}
+
 export function modelMismatch (requested, served) {
   if (!requested || !served) return null          // nothing served it; not a mismatch
   if (served === requested) return null
@@ -207,11 +236,10 @@ export class LlmClient {
    * can contain two models, which is exactly why the SERVED model is what gets
    * logged (see #post) rather than the configured one.
    */
-  constructor({ baseUrls, baseUrl, model, numCtx, maxTokens = 512, temperature, timeoutMs }) {
-    const eps = (baseUrls?.length ? baseUrls : [baseUrl]).map(entry => {
-      const [url, m] = String(entry).split('|')
-      return { url: url.trim().replace(/\/$/, ''), model: m?.trim() || null }
-    })
+  constructor({ baseUrls, baseUrl, model, numCtx, maxTokens = 512, temperature, timeoutMs, think = undefined }) {
+    // brain-01: an entry may also carry a BRAIN LABEL and its OWN TIMEOUT, `url|model|brain|timeoutMs`
+    // (parseEndpoint). Unset fields keep today's behaviour exactly: label 'local', the global timeout.
+    const eps = (baseUrls?.length ? baseUrls : [baseUrl]).map(parseEndpoint)
     this.pool = new EndpointPool(eps)
     this.baseUrl = eps[0].url       // retained for logging and back-compat
     this.model = model
@@ -219,6 +247,9 @@ export class LlmClient {
     this.maxTokens = maxTokens
     this.temperature = temperature
     this.timeoutMs = timeoutMs
+    // THINK, per request (ported from bench-closedloop 8e80080). undefined = the key is not sent at all, so a
+    // bot without OLLAMA_THINK sends a request byte-identical to today's.
+    this.think = think
   }
 
   /**
@@ -241,7 +272,7 @@ export class LlmClient {
     // records as proof the fleet had not moved. The same defect as an outcome
     // reported without evidence, wearing a different hat.
     let attempt = 0, lastErr = null, proposal = null, raw = '', meta = {}
-    let servedBy = null, servedModel = null
+    let servedBy = null, servedModel = null, servedEp = null
     // One repair retry, then stop. ADR-0002 D1: never best-effort parse a
     // malformed response into an action.
     while (attempt < 2) {
@@ -265,6 +296,7 @@ export class LlmClient {
       meta = res.meta
       servedBy = res.endpoint ?? null
       servedModel = res.model ?? null
+      servedEp = res.ep ?? null
       raw = res.content ?? ''
       try {
         proposal = JSON.parse(raw)
@@ -318,7 +350,12 @@ export class LlmClient {
       // meta key. null means every attempt threw, so nothing served it.
       endpoint: servedBy,
       model: servedModel,
-      model_mismatch: modelMismatch(this.model, servedModel),
+      // Against the model THAT ENDPOINT was pinned to, not the global one: a pinned fallback (or a pinned
+      // remote primary) serving exactly what it was asked for is not a mismatch.
+      model_mismatch: modelMismatch(servedEp?.model ?? this.model, servedModel),
+      // WHICH BRAIN DECIDED (brain-01): the label of the endpoint that served the accepted answer, 'local'
+      // when it carries none, null when nothing served. Work orders are labelled by the caller.
+      brain: servedEp ? (servedEp.brain ?? 'local') : null,
     }
   }
 
@@ -330,7 +367,9 @@ export class LlmClient {
     for (const ep of this.pool.available()) {
       const started = Date.now()
       const ctl = new AbortController()
-      const t = setTimeout(() => ctl.abort(), this.timeoutMs)
+      // PER-ENDPOINT TIMEOUT (brain-01): a remote primary gets a short budget so a slow or dead Studio costs one
+      // short wait, then the local fallback answers; an endpoint without its own keeps the global budget.
+      const t = setTimeout(() => ctl.abort(), ep.timeoutMs ?? this.timeoutMs)
       try {
         const r = await fetch(`${ep.url}/api/chat`, {
           method: 'POST',
@@ -343,6 +382,7 @@ export class LlmClient {
             // and every call pays a 55-80s reload -- observed live, and the
             // reason load_duration_ns is in the telemetry schema at all.
             keep_alive: '30m',
+            ...(this.think === undefined ? {} : { think: this.think }),
             messages,
             format: schema,
             options: {
@@ -363,6 +403,7 @@ export class LlmClient {
         }
         return {
           content: d.message?.content,
+          ep,
           endpoint: ep.url,
           // WHAT ACTUALLY SERVED IT, preferring Ollama's own answer over what
           // we asked for. `endpoint` was made honest after a migration became
@@ -421,7 +462,7 @@ export class EndpointPool {
   constructor(urls, { cooldownMs = 60_000, maxCooldownMs = 900_000 } = {}) {
     // Accepts plain strings (every existing caller) or {url, model} entries.
     this.eps = urls.map(u => (typeof u === 'string' ? { url: u, model: null } : u))
-      .map(({ url, model }) => ({ url, model: model ?? null,
+      .map(({ url, model, brain, timeoutMs }) => ({ url, model: model ?? null, brain: brain ?? null, timeoutMs: timeoutMs ?? null,
                                   fails: 0, downUntil: 0, calls: 0, totalMs: 0 }))
     this.cooldownMs = cooldownMs
     this.maxCooldownMs = maxCooldownMs
@@ -492,5 +533,6 @@ export function makeClient() {
     maxTokens: config.llm.maxTokens,
     temperature: config.llm.temperature,
     timeoutMs: config.llm.timeoutMs,
+    think: parseThink(config.llm.think),
   })
 }
