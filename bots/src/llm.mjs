@@ -282,7 +282,8 @@ export class LlmClient {
     //  - when every endpoint failed in transport, the decision ENDS (no second walk): with all endpoints cooling down
     //    available() offers them all again, so a second walk paid every timeout twice (Studio, local, Studio, local).
     const labelledPool = this.pool.eps.some(e => e.brain)
-    let skip = null
+    let skip = null, only = null
+    const attempted = new Set()   // labelled pools: every endpoint asked in this decision (Claude r2)
     // One repair retry, then stop. ADR-0002 D1: never best-effort parse a
     // malformed response into an action.
     while (attempt < 2) {
@@ -296,13 +297,21 @@ export class LlmClient {
 
       let res
       try {
-        res = await this.#post({ messages: msgs, schema, skip })
+        res = await this.#post({ messages: msgs, schema, skip, only, attempted })
       } catch (e) {
         lastErr = e.message
         attempt++
-        if (labelledPool) break
+        if (labelledPool) {
+          // End the decision only when EVERY endpoint has been asked (Claude r2: with the local fallback cooling down,
+          // available() offered the Studio alone, it hung, and the healthy local was never asked). Otherwise ask the
+          // ones not yet asked, once, cooldown or not -- still each timeout at most once per decision.
+          const untried = this.pool.eps.filter(ep => !attempted.has(ep))
+          if (!untried.length || only) break
+          only = untried; skip = null
+        }
         continue
       }
+      only = null
 
       meta = res.meta
       servedBy = res.endpoint ?? null
@@ -373,14 +382,23 @@ export class LlmClient {
     }
   }
 
-  async #post({ messages, schema, skip = null }) {
+  async #post({ messages, schema, skip = null, only = null, attempted = null }) {
     // Walk the pool in preference order. A saturated primary costs one timeout,
     // then goes into cooldown so the NEXT decision starts at the fallback
     // rather than paying that timeout again.
     let lastErr = null
-    const eps = this.pool.available()
-    // `skip` (brain-01): the labelled endpoint whose answer was just rejected; the repair goes elsewhere if it can.
-    for (const ep of (skip && eps.length > 1 ? eps.filter(e => e !== skip) : eps)) {
+    let eps = only ?? this.pool.available()
+    // `skip` (brain-01): the labelled endpoint whose answer was just rejected; the repair goes ELSEWHERE whenever the
+    // pool has anywhere else -- even an endpoint still cooling down (Codex r2: with the local cooling, available() was
+    // the Studio alone and the repair went Studio -> Studio).
+    // `only` (brain-01): the endpoints not yet asked in this decision, after a walk in which every asked one failed.
+    if (skip) {
+      const others = eps.filter(e => e !== skip)
+      const rest = others.length ? others : this.pool.eps.filter(e => e !== skip)
+      if (rest.length) eps = rest
+    }
+    for (const ep of eps) {
+      attempted?.add(ep)
       const started = Date.now()
       const ctl = new AbortController()
       // PER-ENDPOINT TIMEOUT (brain-01): a remote primary gets a short budget so a slow or dead Studio costs one
@@ -445,7 +463,9 @@ export class LlmClient {
         clearTimeout(t)
       }
     }
-    throw new Error(`all ${this.pool.eps.length} llm endpoint(s) failed; last: ${lastErr?.message ?? 'unknown'}`)
+    // Unlabelled pools keep today's exact text; a labelled pool says how many endpoints were really asked.
+    const asked = this.pool.eps.some(e => e.brain) && attempted ? `${attempted.size} of ${this.pool.eps.length}` : `${this.pool.eps.length}`
+    throw new Error(`all ${asked} llm endpoint(s) failed; last: ${lastErr?.message ?? 'unknown'}`)
   }
 
 }

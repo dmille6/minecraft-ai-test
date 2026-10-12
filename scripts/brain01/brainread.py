@@ -38,9 +38,10 @@ ROT = re.compile(r'-(\d{8})(?:\.gz)?$')
 def files_for(path, t0, t1):
     """The current file plus ONLY the rotated generations that can hold [t0, t1) (Claude r1: every generation of
     every bot, twice, would not fit the loop's 900 s budget). A generation `-YYYYMMDD[.gz]` is rotated at ~23:59Z of
-    the day BEFORE its suffix and holds that day's rows: keep suffixes in [t0's date + 1, t1's date + 1]."""
-    lo = (P(t0 + 'Z' if not t0.endswith('Z') else t0) + timedelta(days=1)).strftime('%Y%m%d')
-    hi = (P(t1 + 'Z' if not t1.endswith('Z') else t1) + timedelta(days=1)).strftime('%Y%m%d')
+    the day BEFORE its suffix and holds that day's rows -- but a row written in the minute after a rotation lands one
+    generation later, so keep suffixes in [t0's date, t1's date + 2] and let the timestamp filter decide."""
+    lo = P(t0 + 'Z' if not t0.endswith('Z') else t0).strftime('%Y%m%d')   # conservative both ends; rows are filtered by time (Codex r2)
+    hi = (P(t1 + 'Z' if not t1.endswith('Z') else t1) + timedelta(days=2)).strftime('%Y%m%d')   # +2: rotation-time drift (Claude r2)
     keep = [path] if os.path.exists(path) else []
     for f in glob.glob(path + '-*'):
         m = ROT.search(f)
@@ -76,6 +77,7 @@ def main():
     ap.add_argument('--pools', default=None); ap.add_argument('--declared', default=None)
     ap.add_argument('--minutes', type=float, default=None); ap.add_argument('--json', default=None)
     ap.add_argument('--logroot', default='/var/log/mcai'); ap.add_argument('--subset', default='/srv/mcbots/brain-subset.json')
+    ap.add_argument('--roster', default='/srv/mcbots/harness/env', help='the live roster (<bot>.env); log dirs of renamed bots are NOT bots')
     a = ap.parse_args()
     LOOP = a.pools is None
     if LOOP:                      # bound to the ACTIVE canary, exactly as the other registered reads
@@ -90,7 +92,14 @@ def main():
     subset = set()
     if os.path.exists(a.subset):
         subset = set(json.load(open(a.subset)).get('bots') or [])
-    bots = sorted(os.path.basename(d.rstrip('/')) for d in glob.glob(a.logroot + '/*-*/'))
+    # THE ROSTER, not the log dirs: 16 pools carry a stale `-Charlie` dir from a rename (Comet), which would read as a
+    # canary bot with zero decisions and fail G8's floor on every run (calibration, 10-12).
+    logbots = sorted(os.path.basename(d.rstrip('/')) for d in glob.glob(a.logroot + '/*-*/'))
+    if os.path.isdir(a.roster):
+        roster = {f[:-4] for f in os.listdir(a.roster) if f.endswith('.env')}
+        bots = [b for b in logbots if b in roster]
+    else:
+        bots = logbots
     canary = [b for b in bots if any(b.startswith(p + '-') for p in pools)]
     control = [b for b in bots if b not in canary and b not in subset and not b.startswith('placebo-c-') and not b.startswith('isolated')]
     res = {'pools': pools, 'declared': a.declared, 'minutes': round(mins, 1), 'canary_bots': canary, 'control_bots': len(control), 'gates': {}, 'primary': {}}
@@ -166,6 +175,7 @@ def main():
     # 1 model decision per 10 min per bot over the window; the per-bot gemma4 share floor is 0.6.
     floor = max(1, int(mins / 10))
     lame = {b: dict(per[b]) for b in canary if per[b]['model'] < floor or per[b]['gemma4'] < 0.6 * max(1, per[b]['model'])}
+    res['below_floor_bots'] = sorted(b for b in canary if per[b]['model'] < floor)   # the floor alone (calibration)
     G['G8_every_bot_on_gemma4'] = {'floor_model_decisions': floor, 'failing_bots': lame, 'of': len(canary), 'pass': len(canary) > 0 and not lame}
     for k, f in (('refused', rate), ('success', rate), ('stagnant', perh), ('items', perh), ('deaths', perh),
                  ('craft:stone_pickaxe', perh), ('craft:iron_pickaxe', perh)):

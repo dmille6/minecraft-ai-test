@@ -32,8 +32,10 @@ M = [
  ('_brain_config never written', 'src/cognitive.mjs', "logEvent({ kind: 'brain_config',", "void ({ kind: 'brain_config',"),
  ('tally never constructed', 'src/cognitive.mjs', "this.brainTally = labelled(this.llm.pool?.eps).length ? new BrainTally() : null", "this.brainTally = null"),
  ('repair goes back to the rejected endpoint', 'src/llm.mjs', 'if (labelledPool && servedEp?.brain) skip = servedEp\n        attempt++\n        continue\n      }\n\n      // Trimmed.', 'attempt++\n        continue\n      }\n\n      // Trimmed.'),
- ('second walk after total failure', 'src/llm.mjs', '        if (labelledPool) break\n', ''),
- ('skip ignored by #post', 'src/llm.mjs', "for (const ep of (skip && eps.length > 1 ? eps.filter(e => e !== skip) : eps)) {", "for (const ep of eps) {"),
+ ('second walk after total failure', 'src/llm.mjs', "          if (!untried.length || only) break\n          only = untried; skip = null", "          if (false) break"),
+ ('untried endpoints never asked', 'src/llm.mjs', "if (!untried.length || only) break", "break"),
+ ('skip ignored by #post', 'src/llm.mjs', "      if (rest.length) eps = rest\n", ""),
+ ('skip only among available', 'src/llm.mjs', "const rest = others.length ? others : this.pool.eps.filter(e => e !== skip)", "const rest = others"),
 ]
 bad = 0
 for name, f, old, new in M:
