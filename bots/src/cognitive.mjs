@@ -771,6 +771,8 @@ export class CognitiveLoop {
       const memory = {}
       for (const kind of ['eat', 'deposit', 'home']) memory[kind] = this.admission.memoryRefuses(kind, {}, now)
       const exclude = roomExclusions({ backedOff: roomBackedOff(this.roomState ?? {}, now), memory })
+      // the well's own dispose backoff (well.mjs wellOrderOutcome): a walk to a well that is backing off would find nothing
+      if (now < (this.wellState?.disposeBackoffUntil ?? 0)) exclude.add('home_well')
       const r = roomRemedy(this.bot, this.bot.inventory?.items?.() ?? [], noRoom.keep ?? [], { exclude })
       // A PAUSED REMEDY IS NOT "NOTHING CAN BE FREED" (Claude r2): say which is waiting, so the prompt does not lie.
       // Only the remedies that make room from anywhere (deposit, home): an excluded `eat` with no single food would not
