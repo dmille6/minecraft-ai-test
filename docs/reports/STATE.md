@@ -11,6 +11,35 @@ decided and torn down. OWNER DECISIONS PENDING: brain-01 ssh key; kept-subset GP
 
 ---
 
+## 10-12 15:10Z — ORDERROOM-01 REBASED ONTO STOCKTARGET-01 (both engines APPROVE st-4); replace-variant entry ready, NOT installed
+The queue runs orderroom after stocktarget, so its variants are now keyed by STOCKTARGET's canary shas (the fleet then):
+764fad4f -> or-on-764fad4 @ 1e1bcc86 (247/247); 48b093ce -> or-on-48b093c @ 2ec19385 (249/249); 31e64375 -> or-on-31e6437 @ 77ac5597
+(250/250); a88f763d -> or-on-a88f763 @ 1d6dd516 (249/249); 1940574d -> or-on-1940574 @ 35f96502 (250/250). no-undef clean (only
+reflex.mjs's typeof-guarded withinBody, pre-existing). Entry: docs/reports/orderroom-01.queue-entry.json = ~/mcai-analysis/
+orderroom-01.entry.json (after stocktarget-01) -> `canary-sched.py queue replace-variant orderroom-01 ~/mcai-analysis/orderroom-01.entry.json`.
+Registrations installed (~/mcai-analysis/orderroom-01.{1e1bcc8,2ec1938,77ac559,1d6dd51,35f9650}.json); read md5 8a22256f.
+- WHAT CHANGED FOR THE STOCK TARGETS (r9-r10; Claude st-1 finding: at target the bank takes no bulk, so far full bags mostly got
+  `none`): a far bot with nothing bankable walks home toward a RECORDED junk well (townWellTakes = the well's own disposePlan,
+  never a craft ingredient; stockWellOpts gains a planning-only assumeCap); a well walk backs further ones off 30 min whatever the
+  well did, and none is named while the well's dispose order backs off; the iron-ladder fallback keeps 16 fuel; the deposit plan
+  passes the peaceful sword switch. Read: share of deposits banking ladder items; well walks judged by the craft that follows.
+- PAPER on the stocktarget variant (sandbox, 14:3x-14:5xZ; cand or-on-764fad4 vs 764fad4f): kept = home -> build_well -> deposit
+  oak_log (chest +64) -> craft; far = home -> town_deposit (+65) -> craft; keptfull (town chest full, no chest to build one) = the
+  deposit failed, the room order backed off, one craft on an unknown verdict failed for room, then nothing more; bag/chest/ground as
+  expected. Control never crafted (no-room x3, refused x14 in 180 s). Caveat: the fresh sandbox pool had no recorded/usable well, so
+  stocktarget's cap did not bind in these scenes; the at-target path is covered by tests and both reviews, not by Paper.
+- FOLLOW-UP, NOT FIXED IN ORDERROOM (coordinator): admission.mjs:362 (same line on 0cdb1a8 and the stocktarget tips) builds the
+  deposit gate's wants as `[...(wanted ? [wanted].flat() : []), ...DEPOSIT_ALWAYS]`, but the caller passes a Set
+  (cognitive.mjs:979 `wantedNow = this.#wantedItems(milestone)`, which returns a Set at :737). `[aSet].flat()` does not spread a Set,
+  so `wants` holds the Set object itself, bankableInventory never sees the milestone's wanted names, and the gate's deposit_due test
+  can count an item the active rung wants as bankable. Advice and execution agree today only because deposit()/adviseDeposit also
+  ignore wants the same way (bot.currentWants is set from this same array). Fix: `[...(wanted ? [...wanted] : [])...]` with a test
+  that a wanted name is not counted bankable by the gate -- its own small canary, since it changes what the deposit gate admits.
+- Process note: one r10 commit briefly carried a generated test _mutant file (a suite was running while I switched branches); the
+  commits were amended before any push and both engines confirmed it gone.
+
+---
+
 ## 10-12 15:20Z — (daily operator session) gridfix-01 +360 NOT_YET: ZERO aborted 2x2 exits on EITHER arm in 6 h
 - +180 (12:08Z) and +360 (15:11Z) both NOT_YET; no breach; deaths canary 1/120 bh vs control 3/240 bh. Blocks KEEP:
   exposure_ready 0 and own line aborted_control 0 (no evidence class, so no revert). The loop extends (pid 538005).

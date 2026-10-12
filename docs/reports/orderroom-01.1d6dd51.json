@@ -1,0 +1,172 @@
+{
+ "run_id": "orderroom-01",
+ "sha": "1d6dd51",
+ "registered_at": "2026-10-12T15:05:00Z",
+ "ladder_change": false,
+ "promotion": "fleet-wide",
+ "notes": "[orderroom-01 = NO RUNG CRAFT ORDER WITHOUT ROOM; THE NAMED REMEDY IS THE ORDER (ORDINARY canary). Variant for fleet a88f763: or-on-a88f763 @ 1d6dd51. For fleet a88f763 = stocktarget-01 on airpocket-02 70cb0d41 (st-on-70cb0d4 @ a88f763d). Design docs/reports/orderroom-design-2026-10-10.md; evidence docs/reports/orderveto-investigation-2026-10-10.md; reviews docs/reports/orderroom-reviews-2026-10-12.txt. NOT launched, NOT chained.] STOCKTARGET TIPS (r9-r10, both engines APPROVE st-3/st-4): a far bot with nothing bankable walks home toward a RECORDED junk well (townWellTakes; 30-min backoff after any such walk; excluded while the well backs off); the iron-ladder fallback keeps 16 fuel; the deposit plan passes the peaceful sword switch. Paper on the stocktarget variant (sandbox, 10-12 14:3x-14:5xZ, cand or-on-764fad4 @ 1e1bcc86 vs ctrl 764fad4f): kept = home -> build_well -> deposit oak_log (chest +64) -> craft; far = home -> town_deposit (+65) -> craft; keptfull (town chest full, no chest to build one) = deposit failed -> room order backed off, one craft on an unknown verdict failed for room, no further room order, nothing lost or dropped; ctrl never crafted. THE CHANGE: readyFor asks the craft skill's own room check (skills.mjs craftRouteFor mirrors craftLevel's route A/B/C; chainPeak over its steps; the pickup slot held as admitRoom holds it; the craft's own wear-out route counted in tools). With no room there is no craft order and the prompt stops advertising the craft; the remedy the craft would name becomes the order: eat (a single food, hunger < 20), deposit X (admission's own depositDue/bankClosed; X frees a stack, is no craft ingredient, and is chosen outside the iron ladder first), or home when far from any usable chest and only toward a deposit that can run -- never a placement. A remedy the gate's memory would refuse is skipped (AdmissionControl.memoryRefuses, a read). Outcomes are measured (slots before/after); a remedy that freed nothing backs off 10 min; an interruption is free. An unknown verdict (an ambiguous route, a pickup-only shortage, a simulation miss) issues the craft as before, tagged \"(room via unknown)\". Rows only this build writes: _craft_noroom, _room_order. Paper (sandbox4, 10-12): candidate far = home -> town_deposit -> craft; kept = home -> build_well -> deposit raw_iron -> craft; room = craft at once; control far/kept never crafted (no-room x3, refused cooldown x12-14 in 180 s).",
+ "licence": {
+  "class": "kind",
+  "kind": "_craft_noroom",
+  "min_rows": 1,
+  "note": "Written only by this build, once per withheld craft item per 5 min. The fleet build has no room check before the order."
+ },
+ "reads": [
+  "orderroomread",
+  "immobiledid"
+ ],
+ "read_minutes": [
+  180,
+  360
+ ],
+ "deadline_min": 1680,
+ "change_rows": [
+  "craft_noroom",
+  "room_order"
+ ],
+ "linkage_extra": [],
+ "draw_exposure": {
+  "hours": 12,
+  "require": [
+   {
+    "name": "no-room craft refusals (the craft skill refused a craft for room)",
+    "kind": "craft_room",
+    "detail_contains": "more slot(s) at",
+    "min": 10
+   }
+  ],
+  "note": "10-12 00-11Z per pool (grep of _craft_room refused rows): isolated-b 154, isolated-d 133, isolated-a 73, board-b 64, placebo-a 48, isolated-c 37, board-a 32, board-d 31, hive-a 28, placebo-c 18, board-c 12, hive-d 6, hive-c 4, placebo-d 3, placebo-b 0, hive-b 0. CLAUDE.md: a canary pool must contain the population the fix targets."
+ },
+ "exposure": {
+  "read": "orderroomread",
+  "field": "exposure_ready",
+  "min": 1,
+  "note": "Ready = NOT evidence_short (>= 5 judged room orders -- deposit/eat ok rows whose 15 min fit in the window -- every rate computable, and the completion matcher sees >= 1 canary craft success) AND the control instruments (refused rung craft orders >= 1, no-room craft failures >= 1). Dry runs 10-12 on identical code (3 h, two drawn-like pools): control 306-393 refused / 72-117 no-room; the canary pools of a draw from the eligible list carry ~1-2 no-room crafts per bot-h."
+ },
+ "own_lines": [
+  {
+   "read": "orderroomread",
+   "field": "breach_noroom_craft",
+   "op": "<=",
+   "value": 0,
+   "on_fail": "REVERT",
+   "note": "C1: rung craft orders the room check PASSED that then failed for no room (wear/unknown counted apart), >= 3 and > 0.2 x the control rate. Dry run on the base build: fires (the population is visible).",
+   "evidence": "defect"
+  },
+  {
+   "read": "orderroomread",
+   "field": "breach_unbankable",
+   "op": "<=",
+   "value": 0,
+   "on_fail": "REVERT",
+   "note": "C2: a deposit room order that lost anything but its X beyond what the walk/recovery spends (chest; logs/planks < 16; scaffold < 8; tools; food; never sticks); +more = breach.",
+   "evidence": "defect"
+  },
+  {
+   "read": "orderroomread",
+   "field": "breach_room_refused",
+   "op": "<=",
+   "value": 0,
+   "on_fail": "REVERT",
+   "note": "C5: > 10% of canary room orders refused at admission (memoryRefuses should keep it ~0).",
+   "evidence": "defect"
+  },
+  {
+   "read": "orderroomread",
+   "field": "breach_home_near",
+   "op": "<=",
+   "value": 0,
+   "on_fail": "REVERT",
+   "note": "C6: a home room order issued within 96 of the origin (admission's own distance; farFromBank).",
+   "evidence": "defect"
+  },
+  {
+   "read": "orderroomread",
+   "field": "breach_productive",
+   "op": "<=",
+   "value": 0,
+   "on_fail": "REVERT",
+   "note": "CATASTROPHE: canary POST rung craft successes = 0 while the expected count (PRE rate x POST bot-h x control ratio) >= 5.",
+   "evidence": "defect"
+  },
+  {
+   "read": "orderroomread",
+   "field": "productive_low",
+   "op": "<=",
+   "value": 0,
+   "on_fail": "REVERT",
+   "note": "Poisson P(observed <= expected) < 0.05 for canary POST rung craft successes. BLOCKS KEEP (INCONCLUSIVE)."
+  },
+  {
+   "read": "orderroomread",
+   "field": "completion_low",
+   "op": "<=",
+   "value": 0,
+   "on_fail": "REVERT",
+   "note": "Room order -> that craft within 15 min below 25% of >= 5 judged episodes. BLOCKS KEEP (INCONCLUSIVE)."
+  },
+  {
+   "read": "orderroomread",
+   "field": "unknown_high",
+   "op": "<=",
+   "value": 0,
+   "on_fail": "REVERT",
+   "note": "Crafts issued on an unknown room failing for no room above 0.2 x the control no-room rate (C1's blind spot). BLOCKS KEEP (INCONCLUSIVE)."
+  },
+  {
+   "read": "orderroomread",
+   "field": "rows_control",
+   "op": "<=",
+   "value": 0,
+   "on_fail": "REVERT",
+   "note": "Arms (C4). BLOCKS KEEP."
+  },
+  {
+   "read": "orderroomread",
+   "field": "room_orders_canary",
+   "op": ">=",
+   "value": 1,
+   "on_fail": "REVERT",
+   "note": "LIVENESS: canary _room_order rows. BLOCKS KEEP (INCONCLUSIVE)."
+  },
+  {
+   "read": "orderroomread",
+   "field": "instrument_refused_control",
+   "op": ">=",
+   "value": 1,
+   "on_fail": "REVERT",
+   "note": "POSITIVE CONTROL: refused rung craft orders visible in the control. BLOCKS KEEP."
+  },
+  {
+   "read": "orderroomread",
+   "field": "instrument_noroom_control",
+   "op": ">=",
+   "value": 1,
+   "on_fail": "REVERT",
+   "note": "POSITIVE CONTROL: no-room craft failures visible in the control. BLOCKS KEEP."
+  }
+ ],
+ "primary": {
+  "read": "orderroomread",
+  "field": "refused_rung_did",
+  "note": "Refused rung craft orders per bot-h, DiD vs the same-length PRE, warm (first 30 min dropped). Falls partly BY CONSTRUCTION (a withheld craft is never refused), so KEEP also needs productive_low = 0, completion_low = 0 and unknown_high = 0. REPORTED: rung craft successes DiD, give-ups DiD, executed decisions DiD, slots freed, unknown share."
+ },
+ "harm": {
+  "note": "Unchanged: the two-death floor (OWNER 2026-09-11) and gather_ratio < 0.43 of control, from immobiledid. Home walks add travel: watch deaths during room orders (named in the read)."
+ },
+ "teardown": {
+  "note": "THREE STEPS: drop-ins, clear canary_pool, restart the pool's bots 12 s apart; then confirm the live versions."
+ },
+ "amendments": [],
+ "extension": {
+  "until_exposure": true,
+  "extra_reads": [
+   540,
+   720,
+   1080,
+   1560
+  ],
+  "final_on_zero_exposure": "INCONCLUSIVE",
+  "note": "SHORT CANARY for a fix (owner 2026-09-29)."
+ }
+}
