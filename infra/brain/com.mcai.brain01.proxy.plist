@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- brain-01, ON THE STUDIO: keeps the brain proxy up (127.0.0.1:11501). STAGED 2026-10-12, NOT INSTALLED.
+     Install: ~/Library/LaunchAgents/; launchctl bootstrap gui/$(id -u) <file>. No drill hooks in production. -->
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0"><dict>
+  <key>Label</key><string>com.mcai.brain01.proxy</string>
+  <key>ProgramArguments</key><array>
+    <string>/usr/bin/python3</string><string>/Users/mike/brain01/brainproxy.py</string>
+    <string>--listen</string><string>127.0.0.1:11501</string><string>--upstream</string><string>http://127.0.0.1:1234</string>
+    <string>--model</string><string>brain</string><string>--serve-as</string><string>gemma4:26b</string>
+    <string>--max-inflight</string><string>12</string><string>--log</string><string>/Users/mike/brain01/proxy.jsonl</string>
+  </array>
+  <key>KeepAlive</key><true/><key>RunAtLoad</key><true/>
+  <key>StandardErrorPath</key><string>/Users/mike/brain01/proxy.err</string>
+</dict></plist>
