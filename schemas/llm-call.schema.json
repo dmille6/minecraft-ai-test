@@ -64,7 +64,12 @@
         "eval_duration_ns":        { "type": "integer" },
         "schema_valid": { "type": "boolean", "description": "Did the structured output actually parse against the tool-call schema? The single most useful column here -- it turns 'the model is flaky' into a measurable rate." },
         "error":        { "type": ["string", "null"] },
-        "retry_count":  { "type": "integer", "minimum": 0 }
+        "retry_count":  { "type": "integer", "minimum": 0 },
+        "admission":    { "type": ["string", "null"] },
+        "args_cleaned": { "type": "integer", "minimum": 0 },
+        "args_cleaned_fields": { "type": ["string", "null"] },
+        "model_mismatch": { "type": ["string", "null"] },
+        "brain":        { "type": ["string", "null"], "description": "brain-01: which brain decided -- 'order' (a work order; no model asked), the serving endpoint's label (e.g. 'gemma4'), 'local' (an unlabelled endpoint), null (nothing served)." }
       }
     },
     "prompt": {

@@ -22,6 +22,7 @@ import { townPlinthState } from './skills.mjs'
 import { farmOrder, farmOrderOutcome, farmEnabled, FARM_ORDERS } from './treefarm.mjs'
 import { smeltInputsFor } from './smelting.mjs'
 import { makeClient, skillSchema } from './llm.mjs'
+import { labelled, configDetail, decisionBrain, BrainTally } from './brain.mjs'   // brain-01
 import { buildSystemPrompt, buildUserPrompt, makeSentinel, WorkingMemory } from './prompt.mjs'
 import { AdmissionControl } from './admission.mjs'
 import { MilestoneController, servesRung, NO_PROGRESS_MS, RUNNER_REFUSALS } from './milestones.mjs'
@@ -310,6 +311,8 @@ export class CognitiveLoop {
     this.bot = bot
     this.runner = runner
     this.llm = makeClient()
+    // brain-01: the brain tally exists only on a bot whose pool has a labelled endpoint (brain.mjs).
+    this.brainTally = labelled(this.llm.pool?.eps).length ? new BrainTally() : null
     this.memory = new WorkingMemory()
     // In-memory ONLY, and deliberately so: a prerequisite is about the spot the
     // bot is standing in right now. Persisting it across a reconnect would
@@ -354,6 +357,12 @@ export class CognitiveLoop {
       // two-endpoint config behind a one-endpoint line.
       model: config.llm.model, endpoints: config.llm.baseUrls, num_ctx: config.llm.numCtx,
     })
+    if (this.brainTally) {
+      try {
+        logEvent({ kind: 'brain_config', status: 'success', snapshot: snapshot(this.bot),
+                   detail: configDetail(this.llm.pool.eps, config.llm.model, config.llm.timeoutMs) })
+      } catch { /* logging must never stop the loop */ }
+    }
     this.#startLiveness()
     this.#tick('startup')
   }
@@ -1513,10 +1522,18 @@ export class CognitiveLoop {
       // res.model is what SERVED the decision, which is not config.llm.model
       // when the pool degraded to an endpoint pinned to a smaller one.
       model: res.model ?? config.llm.model, endpoint: res.endpoint,
+      // brain-01: 'order' for a work order (no model was asked), else the label of the endpoint that served it.
+      brain: decisionBrain(!!order, res),
       res, promptText: user, tokensEstimated: tokens, droppedEvents: dropped,
       proposal: res.proposal, rejection, outcome, admission: admitted,
       milestone: milestone.id, systemPrompt: this.system, perceptionSnapshot: percept,
     })
+
+    if (this.brainTally) {
+      this.brainTally.note(decisionBrain(!!order, res))
+      const share = this.brainTally.due()
+      if (share) { try { logEvent({ kind: 'brain_share', status: 'success', snapshot: snapshot(this.bot), detail: share }) } catch { /* never stop the loop */ } }
+    }
 
     if (this.milestones.refresh()) {
       const s = this.milestones.status()
