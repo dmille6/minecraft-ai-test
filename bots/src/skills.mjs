@@ -5219,9 +5219,12 @@ export function roomRemedy (bot, items, keep = [], { exclude = new Set() } = {})
   const closed = bankClosed(bot)
   if (closed) return { kind: 'closed', item: null, text: closedRoomText(closed) }
   if (!exclude.has('home') && farFromBank(bot)) {
-    let far = null
-    far = roomDepositTarget(bot, items, keep)
+    const far = exclude.has('home_deposit') ? null : roomDepositTarget(bot, items, keep)
     if (far) return { kind: 'home', item: far, text: `home -- then deposit ${far}: banking is refused out here (no usable chest in reach) and the town chest frees slots` }
+    // ...OR THE TOWN'S WELL (Claude st-r1 1a): at target the bank takes no bulk, and the town's exit for that surplus is the
+    // junk well, whose order runs at town before this one. `item` stays null: the room order names no deposit.
+    const well = townWellTakes(bot, items, keep)
+    if (well) return { kind: 'home', item: null, text: `home -- the town's junk well takes ${well} (junk, or at its town stock target) and frees slots` }
   }
   return { kind: 'none', item: null, text: advice.text }
 }
@@ -5233,17 +5236,40 @@ export function roomRemedy (bot, items, keep = [], { exclude = new Set() } = {})
  * a stone pickaxe. Only when nothing else frees a stack is a ladder item named -- the slot the craft needs still comes free.
  */
 export const LADDER_CHEAPEST_FIRST = Object.freeze(['coal', 'charcoal', 'iron_nugget', 'iron_ore', 'deepslate_iron_ore', 'raw_iron', 'iron_ingot'])
+export const ROOM_FUEL_RESERVE = 16
+
+/**
+ * WOULD THE TOWN'S JUNK WELL TAKE A STACK OF THIS BAG? -> the first such stack's name | null. The well's own rule, as the
+ * town orders ask it (well.mjs disposePlan with the sword switch, the cobble cap and the stock targets' at-target groups --
+ * the stocktarget tips' exit for surplus the bank no longer takes), never a craft ingredient. Read from the bot's own
+ * memory of the town (no trip): a guess from afar, so the walk is credited only on arrival and the well order decides there.
+ */
+export function townWellTakes (bot, items, keep = []) {
+  try {
+    const used = new Set((keep ?? []).map(k => k?.name ?? k))
+    const plan = disposePlan(items, { swords: wellSwordsNow(bot), cobbleAtCap: cobbleWellCap(bot, items) === 'at_cap', stock: stockWellOpts(bot, items) })
+    return (plan.stacks ?? []).find(st => !used.has(st.name))?.name ?? null
+  } catch { return null }
+}
+
 export function roomDepositTarget (bot, items, keep = []) {
   try {
-    const plan = depositPlan(items, null, { wants: bot.currentWants ?? [] })
+    // THE SAME PLAN deposit() and admission build (Claude st-r1 2: the peaceful sword switch passed for parity)
+    const plan = depositPlan(items, null, { wants: bot.currentWants ?? [], noSwords: foodSkipNow(bot).active })
     const first = depositTarget(items, plan, [...keep, ...IRON_LADDER.map(name => ({ name, count: 1 }))])
     if (first) return first
-    // ONLY THE LADDER CAN FREE A STACK: the cheapest rung first (Claude r5) -- coal before ingots.
+    // ONLY THE LADDER CAN FREE A STACK: the cheapest rung first (Claude r5) -- coal before ingots -- and NEVER THE FUEL
+    // RESERVE (Claude st-r1 1b): on the stocktarget tips the bulk groups leave the plan at target, so the ladder fallback is
+    // no longer rare; coal/charcoal is named only while ROOM_FUEL_RESERVE fuel stays in the bag after the deposit.
+    const fuel = (items ?? []).filter(i => i?.name === 'coal' || i?.name === 'charcoal').reduce((n, i) => n + (i.count ?? 0), 0)
     for (const name of LADDER_CHEAPEST_FIRST) {
-      const x = depositTarget(items, plan.filter(e => e.name === name), keep)
+      const entry = plan.find(e => e.name === name)
+      if (!entry) continue
+      if ((name === 'coal' || name === 'charcoal') && fuel - (entry.count ?? 0) < ROOM_FUEL_RESERVE) continue
+      const x = depositTarget(items, [entry], keep)
       if (x) return x
     }
-    return depositTarget(items, plan, keep)
+    return null
   } catch { return null }
 }
 

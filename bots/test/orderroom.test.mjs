@@ -198,11 +198,40 @@ test('REMEDY: the iron ladder is not the price of a stone pickaxe -- another sta
   for (const it of only.items) if (it.name === 'oak_log' || it.name === 'raw_copper') it.name = 'white_wool'
   only.items[only.items.length - 1] = item('iron_ingot', 9, 44)
   assert.equal(SK.roomRemedy(only.bot, only.items, keep).item, 'iron_ingot')
-  // ...and of the ladder, the cheapest rung first: coal before the ingots
+  // ...and of the ladder, the cheapest rung first -- but NEVER THE FUEL RESERVE (Claude st-r1 1b): banking all 20 coal would
+  // leave 0 < ROOM_FUEL_RESERVE, so the ingots go; with the reserve at 0 (positive control) the coal goes first
   only.items.push(item('coal', 20, 45)); only.items.splice(only.items.findIndex(i => i.name === 'white_wool'), 1)
   assert.equal(only.items.length, 36)
-  assert.equal(SK.roomRemedy(only.bot, only.items, keep).item, 'coal')
+  assert.equal(SK.ROOM_FUEL_RESERVE, 16)
+  assert.equal(SK.roomRemedy(only.bot, only.items, keep).item, 'iron_ingot', 'the fuel stays')
   assert.deepEqual([...SK.LADDER_CHEAPEST_FIRST].sort(), [...BK_IRON].sort(), 'the cheapest-first list is exactly the town deposit\'s ladder')
+})
+
+test('REMEDY (stocktarget tips): far, nothing bankable, but the town\'s junk well takes a stack -> home, naming no deposit', () => {
+  const keep = [{ name: 'cobblestone', count: 1 }, { name: 'stick', count: 1 }]
+  const far = bagBot({ sticks: 10, at: new Vec3(400, 70, 0) })
+  far.items[far.items.length - 1] = item('flint', 12, 44)
+  const w = SK.townWellTakes(far.bot, far.items, keep)
+  assert.ok(w, 'positive control: the well\'s own rule takes a stack of this bag (flint, wool)')
+  const r = SK.roomRemedy(far.bot, far.items, keep, { exclude: new Set(['deposit', 'home_deposit']) })
+  assert.equal(r.kind, 'home'); assert.equal(r.item, null); assert.match(r.text, new RegExp(`junk well takes ${w}`))
+  // at home the well's own order (ahead of the room order) does it; the room remedy never walks a bot that is home
+  const near = bagBot({ sticks: 10, at: new Vec3(3, 70, 0) }); near.items[near.items.length - 1] = item('flint', 12, 44)
+  assert.notEqual(SK.roomRemedy(near.bot, near.items, keep, { exclude: new Set(['deposit', 'home_deposit']) }).kind, 'home')
+  // a craft ingredient is never the well's stack named here: with every well-able name in the craft's keep, nothing
+  const all = far.items.map(i => ({ name: i.name, count: 1 }))
+  assert.equal(SK.townWellTakes(far.bot, far.items, all), null)
+})
+
+test('MUTANT KILLED: without the fuel reserve the coal is banked to make a pickaxe', async () => {
+  await withMutant(SKILLS_PATH, 'export const ROOM_FUEL_RESERVE = 16', 'export const ROOM_FUEL_RESERVE = 0', async mod => {
+    const keep = [{ name: 'cobblestone', count: 1 }, { name: 'stick', count: 1 }]
+    const only = bagBot({ sticks: 10, at: new Vec3(3, 70, 0) })
+    for (const it of only.items) if (it.name === 'oak_log' || it.name === 'raw_copper') it.name = 'white_wool'
+    only.items[only.items.length - 1] = item('iron_ingot', 9, 44)
+    only.items.push(item('coal', 20, 45)); only.items.splice(only.items.findIndex(i => i.name === 'white_wool'), 1)
+    assert.equal(mod.roomRemedy(only.bot, only.items, keep).item, 'coal', 'the mutant takes the fuel')
+  })
 })
 
 test('REMEDY: never a placement; never `home` where the bot already is; a closed bank is no order', () => {
@@ -403,14 +432,14 @@ test('MUTANT KILLED: placing the carried table before EVERY plan step invents ro
 
 // ---- home only toward a deposit that can run -----------------------------------------------------------------------------
 test('EXCLUSIONS: a deposit blocked by something a walk will not clear also rules out the walk home; a cooldown does not', () => {
-  assert.deepEqual([...WO.roomExclusions({ memory: { deposit: 'learned_avoid' } })].sort(), ['deposit', 'home'])
-  assert.deepEqual([...WO.roomExclusions({ memory: { deposit: 'repeat_loop' } })].sort(), ['deposit', 'home'])
-  assert.deepEqual([...WO.roomExclusions({ backedOff: new Set(['deposit']) })].sort(), ['deposit', 'home'])
+  assert.deepEqual([...WO.roomExclusions({ memory: { deposit: 'learned_avoid' } })].sort(), ['deposit', 'home_deposit'])
+  assert.deepEqual([...WO.roomExclusions({ memory: { deposit: 'repeat_loop' } })].sort(), ['deposit', 'home_deposit'])
+  assert.deepEqual([...WO.roomExclusions({ backedOff: new Set(['deposit']) })].sort(), ['deposit', 'home_deposit'])
   assert.deepEqual([...WO.roomExclusions({ memory: { deposit: 'cooldown' } })], ['deposit'], 'a 45 s cooldown is over before the walk is')
   assert.deepEqual([...WO.roomExclusions({ memory: { eat: null, deposit: null, home: null } })], [])
 })
 
-test('CHAIN: far from home with the deposit learned-blocked -> no home walk; the model has the turn', async () => {
+test('CHAIN: far from home with the deposit learned-blocked -> no walk home FOR A DEPOSIT (a walk for the well names no X)', async () => {
   const { bot } = bagBot({ sticks: 10, at: new Vec3(400, 70, 0) })
   const ran = []; let asked = 0
   const runner = { isBusy: () => false, run: async (skill) => { ran.push(skill); return { status: 'success', detail: 'ok', delta: {}, contractEvidence: ['x'] } } }
@@ -418,11 +447,15 @@ test('CHAIN: far from home with the deposit learned-blocked -> no home walk; the
   L.failCount = (skill) => (skill === 'deposit' ? 9 : 0)
   const loop = new CognitiveLoop(bot, runner, L, null)
   loop.llm = { decide: async () => { asked++; return { schemaValid: true, latencyMs: 5, proposal: { skill: 'explore', args: { blocks: 16 }, reason: 'p' } } } }
+  const rows = []; const untap = tapRecords(r => rows.push(r))
   loop.milestones.cycle = 540; loop.start()
   for (let i = 0; i < 200 && ran.length < 1; i++) await new Promise(r => setTimeout(r, 20))
-  loop.stop()
-  assert.equal(ran[0], 'explore', JSON.stringify(ran)); assert.ok(asked >= 1)
-  assert.ok(!ran.includes('home') && !ran.includes('craft'))
+  loop.stop(); untap()
+  assert.ok(!ran.includes('craft'), JSON.stringify(ran))
+  const nr = rows.find(r => r?.skill?.name === '_craft_noroom')?.skill?.detail ?? ''
+  assert.match(nr, /remedy=(home|none) target=-/, `no deposit is named: ${nr}`)
+  if (ran[0] !== 'home') { assert.equal(ran[0], 'explore'); assert.ok(asked >= 1) }
+  else assert.match(nr, /remedy=home target=-/, 'a home walk here is the well\'s, never a deposit\'s')
 })
 
 test('LOST: every fallen name, capped by CHARACTERS so the 300-char row cap never cuts the +more marker', () => {
