@@ -4541,10 +4541,18 @@ export function roomRemedy (bot, items, keep = [], { exclude = new Set() } = {})
  * charcoal) is the next tier's means, and the 10-12 dry run showed the advice naming `deposit iron_ingot` to make room for
  * a stone pickaxe. Only when nothing else frees a stack is a ladder item named -- the slot the craft needs still comes free.
  */
+export const LADDER_CHEAPEST_FIRST = Object.freeze(['coal', 'charcoal', 'iron_nugget', 'iron_ore', 'deepslate_iron_ore', 'raw_iron', 'iron_ingot'])
 export function roomDepositTarget (bot, items, keep = []) {
   try {
     const plan = depositPlan(items, null, { wants: bot.currentWants ?? [] })
-    return depositTarget(items, plan, [...keep, ...IRON_LADDER.map(name => ({ name, count: 1 }))]) ?? depositTarget(items, plan, keep)
+    const first = depositTarget(items, plan, [...keep, ...IRON_LADDER.map(name => ({ name, count: 1 }))])
+    if (first) return first
+    // ONLY THE LADDER CAN FREE A STACK: the cheapest rung first (Claude r5) -- coal before ingots.
+    for (const name of LADDER_CHEAPEST_FIRST) {
+      const x = depositTarget(items, plan.filter(e => e.name === name), keep)
+      if (x) return x
+    }
+    return depositTarget(items, plan, keep)
   } catch { return null }
 }
 
