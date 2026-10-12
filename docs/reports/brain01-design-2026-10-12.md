@@ -258,7 +258,15 @@ brain, as they must.
 **Not changed, by design:**
 - fleet-deploy checks one unit's environ; G7 and G8 check every canary bot from its own rows.
 
-**Owner decisions:**
+**Owner decisions (all closed for brain-01 as of 10-12):**
+- **(a) DONE 10-12:** the key was placed by the coordinator.
+- **(b) DONE 10-12:** the owner said "the studio is for this project for the forseeable future", so a kept gemma
+  subset may hold `GPU_RESERVED=brain01-live` indefinitely. Other Studio users (andy-eval) are coordinated through
+  `~/brain01/PAUSE`.
+- **(c) is engineering work, not an owner decision:** before any keep-subset, every reader that builds its own control
+  must adopt the subset exclusion.
+
+**Earlier list (superseded):**
 - **(a)** the key placement (s.3);
 - **(b)** a kept subset holds `GPU_RESERVED=brain01-live` for as long as it lives, so the Studio bench queue stops for
   that time;
