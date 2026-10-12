@@ -39,6 +39,8 @@ import { isCompostJunk, townDistance, ADOPT_RADIUS, TOWN_RADIUS, CLEARANCE_CONTA
          builderDecision, RUNNER_DECLINED } from './composter.mjs'
 import { chainPeak } from './craftroom.mjs'
 import { foodSkipActive } from './foodskip.mjs'
+import { groupOf, isProtected, isToolGroup } from './stocktarget.mjs'
+import { scaffoldCount } from './exit-contract.mjs'
 
 /** The admission radius, needed by the site search above its definition (see ADMISSION_RADIUS). */
 const ADMISSION_RADIUS_FOR_SITE = 5
@@ -134,6 +136,72 @@ export const swordSwitch = (mode, difficulty) => difficulty === 'peaceful' && fo
 /** May this stack go as a peaceful-world sword? Pure: peacefulkit's classifier under the well's strict switch. */
 export const swordGoes = (name, peaceful) => unwantedSword({ name }, peaceful)
 
+/**
+ * COBBLE AT THE TOWN CAP (stonecap-01 x junkwell-02; the operator's at-ceiling remedy, owner-approved disposal). When the
+ * town already holds its 256 cobble (cobblecap.mjs, PROVEN: cobbleAdmit says at_cap for the smallest surplus stack),
+ * banking cannot relieve the bag, so WHOLE cobble / cobbled-deepslate stacks above the bot's own 64 go down the well,
+ * smallest first. Never when the town's count is unknown or below the cap (the deposit banks then), never below 64.
+ * Without the well in the build (stonecap's other variants) the same surplus simply stays in the bag.
+ */
+export const COBBLE_WELL_RESERVE = 64
+const WELL_COBBLE = new Set(['cobblestone', 'cobbled_deepslate'])
+export const isWellCobble = name => WELL_COBBLE.has(name)
+/** The cobble stacks the well may take at the cap -> [{ slot, name, count }]: whole stacks, smallest first, while the bag
+ *  keeps COBBLE_WELL_RESERVE of the two names. Pure (the same choice as bankable.mjs cobbleBankStacks, with no credit cap). */
+export function cobbleWellStacks (items = []) {
+  const list = (Array.isArray(items) ? items : []).filter(it => it && WELL_COBBLE.has(it.name) && (Number(it.count) || 0) > 0 && Number.isInteger(it.slot))
+  let left = list.reduce((t, it) => t + (Number(it.count) || 0), 0)
+  const out = []
+  for (const it of [...list].sort((a, b) => a.count - b.count || a.slot - b.slot)) {
+    if (left - it.count < COBBLE_WELL_RESERVE) break
+    out.push({ slot: it.slot, name: it.name, count: it.count }); left -= it.count
+  }
+  return out
+}
+
+/**
+ * AT-TARGET SURPLUS (stocktarget-01 x junkwell-02; design 3.4, owner-approved deletion). For each targeted group whose town
+ * is PROVEN at or above its target on the AVAILABLE floor (the caller decides the `groups`; target 0 always is), whole
+ * stacks go down the well, smallest first per name, while the bag keeps:
+ *   - every name's keep (`keeps`: towndeposit.mjs townKeeps -- stockpile wood counting planks/4, the stone family 64,
+ *     ladder means, dirt 16 / sand 8, the active rung's wants), and nothing of a name a withdraw hold covers;
+ *   - STOCK_SCAFFOLD_MIN pillar-capable blocks in all after every stack (exit-contract scaffoldCount + the pillar/rescue
+ *     blocks it does not list): the escape reserve, whatever the group.
+ * Never a tool, a protected kind or anything the composter takes (isProtected / isCompostJunk), never cobble (stonecap's
+ * own path, cobbleWellStacks). -> [{ slot, name, count, group }]. Pure.
+ */
+export const STOCK_SCAFFOLD_MIN = 64
+const PILLAR_EXTRA = /^(sandstone|red_sandstone|calcite|dripstone_block|blackstone)$/
+const isPillarName = name => scaffoldCount([{ name, count: 1 }]) > 0 || PILLAR_EXTRA.test(name)
+export function pillarCount (items = []) {
+  let n = scaffoldCount(items)
+  for (const it of (Array.isArray(items) ? items : [])) if (it?.name && PILLAR_EXTRA.test(it.name)) n += Number(it.count) || 0
+  return n
+}
+export function stockWellStacks (items = [], { groups = [], keeps = {}, holds = {} } = {}) {
+  const gs = new Set(groups)
+  const list = (Array.isArray(items) ? items : []).filter(it => it?.name && (Number(it.count) || 0) > 0)
+  const counts = {}
+  for (const it of list) counts[it.name] = (counts[it.name] ?? 0) + (Number(it.count) || 0)
+  let pillar = pillarCount(list)
+  const out = []
+  const cands = list.filter(it => {
+    const g = groupOf(it.name)
+    // cobble is stonecap's own path (cobbleWellStacks)
+    return g && g !== 'cobble' && gs.has(g) && !isToolGroup(g) && !isProtected(it.name) && !isCompostJunk(it.name) && Number.isInteger(it.slot) && !((holds[it.name] ?? 0) > 0)
+  }).sort((a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0) || a.count - b.count || a.slot - b.slot)
+  const taken = {}
+  for (const it of cands) {
+    const left = counts[it.name] - (taken[it.name] ?? 0) - it.count
+    if (left < Math.max(0, Number(keeps[it.name]) || 0)) continue
+    if (isPillarName(it.name) && pillar - it.count < STOCK_SCAFFOLD_MIN) continue
+    out.push({ slot: it.slot, name: it.name, count: it.count, group: groupOf(it.name) })
+    taken[it.name] = (taken[it.name] ?? 0) + it.count
+    if (isPillarName(it.name)) pillar -= it.count
+  }
+  return out
+}
+
 /** RESERVE_STONE held in a bag (mineflayer Items or { name, count }). */
 export function reserveStone (items = []) {
   let n = 0
@@ -167,19 +235,26 @@ export const MAX_STACKS_PER_VISIT = 9
  * a scaffold-capable decoration only while the bag keeps STONE_GUARD RESERVE_STONE after it (`stone`: the reserve held).
  * `junkStacks` counts every listed stack in the bag (what the trigger reads).
  */
-export function disposePlan (items = [], { maxStacks = MAX_STACKS_PER_VISIT, swords = false } = {}) {
+export function disposePlan (items = [], { maxStacks = MAX_STACKS_PER_VISIT, swords = false, cobbleAtCap = false, stock = null } = {}) {
   const list = (Array.isArray(items) ? items : []).filter(it => it?.name && (it.count ?? 0) > 0)
+  // COBBLE AT THE CAP: chosen first and charged to the reserve in full, so a guarded stone judged later never counts on it
+  const cobble = cobbleAtCap ? cobbleWellStacks(list) : []
+  // AT-TARGET SURPLUS of every other targeted group (stocktarget), chosen with it (none of them is reserve stone)
+  for (const st of (stock ? stockWellStacks(list, stock) : [])) cobble.push(st)
+  const cobbleSlots = new Set(cobble.map(c => c.slot))
+  const stockSlots = new Set(cobble.filter(c => c.group).map(c => c.slot))
   // In slot order, each stack judged against the reserve the stacks BEFORE it leave (the plan is thrown in this order).
-  let reserve = reserveStone(list)
+  let reserve = reserveStone(list) - cobble.reduce((t, c) => t + (RESERVE_SET.has(c.name) ? c.count : 0), 0)
   const junk = []
-  for (const it of list.filter(x => (isWellJunk(x.name) || swordGoes(x.name, swords)) && Number.isInteger(x.slot)).sort((a, b) => a.slot - b.slot)) {
+  for (const it of list.filter(x => (isWellJunk(x.name) || swordGoes(x.name, swords) || cobbleSlots.has(x.slot)) && Number.isInteger(x.slot)).sort((a, b) => a.slot - b.slot)) {
+    if (cobbleSlots.has(it.slot)) { junk.push(it); continue }
     const left = guardLeft(it.name, it.count, reserve)
     if (left === null) continue
     reserve = left
     junk.push(it)
   }
   return { slots: list.length, junkStacks: junk.length, stone: reserveStone(list),
-           stacks: junk.slice(0, Math.max(0, maxStacks)).map(it => ({ slot: it.slot, name: it.name, count: it.count })) }
+           stacks: junk.slice(0, Math.max(0, maxStacks)).map(it => ({ slot: it.slot, name: it.name, count: it.count, ...(stockSlots.has(it.slot) ? { stock: groupOf(it.name) } : {}) })) }
 }
 
 // ---- the blocks ------------------------------------------------------------------------------------------------------
@@ -701,16 +776,22 @@ export function tossOutcome ({ items = [], cap }) {
  * [{ name, count }] read from each spawned item entity's metadata (the server's own item stack), name null when none
  * arrived. offlist counts ENTITIES whose item is not on the list: the C3 quantity, independent of the bag plan.
  */
-export function thrownNames (thrown = [], { swords = 0 } = {}) {
+export function thrownNames (thrown = [], { swords = 0, cobble = 0, stock = null } = {}) {
   const names = {}, offlistItems = {}
   let offlist = 0, unnamed = 0
+  const stockRoom = { ...(stock ?? {}) }           // at-target surplus (stocktarget): listed only up to what was CLICKED, by name
   let swordRoom = Number(swords) || 0              // swords are listed only up to the number this visit CLICKED
+  let cobbleRoom = Number(cobble) || 0
   for (const t of (Array.isArray(thrown) ? thrown : [])) {
     if (!t?.name) { unnamed++; continue }
     names[t.name] = (names[t.name] ?? 0) + (t.count ?? 1)
     const swordOk = isSword(t.name) && swordRoom >= (t.count ?? 1)
     if (swordOk) swordRoom -= (t.count ?? 1)
-    if (!isWellJunk(t.name) && !swordOk) { offlist++; offlistItems[t.name] = (offlistItems[t.name] ?? 0) + (t.count ?? 1) }
+    const cobbleOk = !swordOk && isWellCobble(t.name) && cobbleRoom >= (t.count ?? 1)   // cobble only up to what was CLICKED
+    if (cobbleOk) cobbleRoom -= (t.count ?? 1)
+    const stockOk = !swordOk && !cobbleOk && (stockRoom[t.name] ?? 0) >= (t.count ?? 1)
+    if (stockOk) stockRoom[t.name] -= (t.count ?? 1)
+    if (!isWellJunk(t.name) && !swordOk && !cobbleOk && !stockOk) { offlist++; offlistItems[t.name] = (offlistItems[t.name] ?? 0) + (t.count ?? 1) }
   }
   return { names, offlist, offlistItems, unnamed }
 }
@@ -834,7 +915,7 @@ const lazy = v => (typeof v === 'function' ? v() : v)
  * holding a cover block: a build aborted or killed before it could cover its own). Cooldowns are charged when an
  * order is ISSUED.
  */
-export function wellOrder ({ now = 0, slots = 0, freeSlots = 0, junkStacks = 0, distHome = Infinity, well = null,
+export function wellOrder ({ now = 0, slots = 0, freeSlots = 0, junkStacks = 0, buildJunkStacks = junkStacks, distHome = Infinity, well = null,
                              buildPlan = null, myName = '', peers = [], state = {}, inside = false, pit = null } = {}) {
   const s = { ...state }
   const none = () => ({ order: null, state: s })
@@ -866,7 +947,8 @@ export function wellOrder ({ now = 0, slots = 0, freeSlots = 0, junkStacks = 0, 
     return { order: { skill: 'close_well', args: {}, why: 'the town junk well is open and nobody is at it: close it' }, state: s }
   }
   const plan = buildReady ? lazy(buildPlan) : null
-  const room = plan ? wellBuildRoom({ free: freeSlots, slotsNeeded: plan.slotsNeeded, junkStacks }) : null
+  // the pit-first build tosses only what IT may toss (never cobble: Codex r1 P2 on the cap coupling)
+  const room = plan ? wellBuildRoom({ free: freeSlots, slotsNeeded: plan.slotsNeeded, junkStacks: buildJunkStacks }) : null
   if (plan && room.ok) {
     s.lastBuildAt = now
     const who = builderDecision({ myName, peers: lazy(peers) ?? [], deferrals: s.deferrals ?? 0 })
@@ -991,13 +1073,13 @@ const list = items => Object.entries(items ?? {}).filter(([, c]) => c > 0).map((
  */
 export function wellDisposeDetail ({ slotsBefore, slotsAfter, items = {}, tossed = 0, misses = 0, retaken = 0, recollected = 0, nonlisted = 0, otherLoss = 0,
                                      source = 'local', closedOpen = false, stop = 'done', at = null, offlist = 0, offlistItems = {}, unnamed = 0, capEnd = null,
-                                     stone = null, gclicked = 0, swords = 0, peaceful = null, swordLost = 0, swordsKept = 0, aimOff = 0, aimRead = 0 } = {}) {
+                                     stone = null, gclicked = 0, swords = 0, peaceful = null, swordLost = 0, swordsKept = 0, cobble = 0, cobbleLeft = null, cap = null, aimOff = 0, aimRead = 0, stock = 0 } = {}) {
   const n = Object.values(items).reduce((a, b) => a + b, 0)
   // offlist= FIRST after slots (the read's C3 gate): thrown entities whose item, AS THE SERVER NAMES IT, is off the list
   // gclicked= / stone= right after offlist (the read's C7 gate): scaffold-capable decorations CLICKED (from the clicks, so an
   // unanswered final resync cannot hide them) and the least RESERVE_STONE any of those clicks left (STONE_GUARD+ or a breach)
   // swords= (swords CLICKED) and peaceful= (the switch as read at the last sword click) next: the read's sword gate
-  return (`slots=${slotsBefore}->${slotsAfter} offlist=${offlist} gclicked=${gclicked}${stone != null ? ` stone=${stone}` : ''} swords=${swords}${peaceful != null ? ` peaceful=${peaceful ? 1 : 0}` : ''} sword_lost=${swordLost} sword_kept=${swordsKept} offlist_items=${list(offlistItems)} unnamed=${unnamed} ` +
+  return (`slots=${slotsBefore}->${slotsAfter} offlist=${offlist} gclicked=${gclicked}${stone != null ? ` stone=${stone}` : ''} swords=${swords}${peaceful != null ? ` peaceful=${peaceful ? 1 : 0}` : ''} sword_lost=${swordLost} sword_kept=${swordsKept} cobble=${cobble}${cobbleLeft != null ? ` cobble_left=${cobbleLeft}` : ''}${cap ? ` cap=${cap}` : ''}${stock ? ` stock=${stock}` : ''} offlist_items=${list(offlistItems)} unnamed=${unnamed} ` +
           `freed=${(slotsBefore ?? 0) - (slotsAfter ?? 0)} tossed=${tossed} n=${n} misses=${misses} aim_off=${aimOff} aim_read=${aimRead} ` +
           `retaken=${retaken} recollected=${recollected} nonlisted=${nonlisted} other_loss=${otherLoss} server=${source} closed_open=${closedOpen ? 1 : 0}` +
           `${capEnd ? ` cap_end=${capEnd}` : ''}` +
