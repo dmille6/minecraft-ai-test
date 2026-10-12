@@ -309,15 +309,16 @@ export const ROOM_WEAR_TRUST_MS = 10 * 60 * 1000
 
 /**
  * WHICH REMEDY KINDS TO LEAVE OUT -> Set. Backing off, or refused by the gate's memory (AdmissionControl.memoryRefuses).
- * AND `home` WHEN THE DEPOSIT IT LEADS TO IS BLOCKED BY SOMETHING THE WALK WILL NOT CLEAR (Codex r2): learned failures,
- * a full repeat window, or the deposit's own backoff -- arriving home would only find `none`. A deposit cooldown (45 s) is
- * over long before a walk home is, so it does not stop the walk.
+ * AND `home_deposit` (the walk home FOR A DEPOSIT) WHEN THAT DEPOSIT IS BLOCKED BY SOMETHING THE WALK WILL NOT CLEAR (Codex r2):
+ * learned failures, a full repeat window, or the deposit's own backoff -- arriving home would only find `none`. A deposit
+ * cooldown (45 s) is over long before a walk home is, so it does not stop the walk. The walk home for the town's WELL
+ * (stocktarget tips) does not depend on the deposit and is not excluded by it; `home` itself excludes both.
  */
 export function roomExclusions ({ backedOff = new Set(), memory = {} } = {}) {
   const ex = new Set(backedOff)
   for (const [kind, why] of Object.entries(memory ?? {})) if (why) ex.add(kind)
   const dep = memory?.deposit
-  if ((dep && dep !== 'cooldown') || backedOff.has('deposit')) ex.add('home')
+  if ((dep && dep !== 'cooldown') || backedOff.has('deposit')) ex.add('home_deposit')
   return ex
 }
 
