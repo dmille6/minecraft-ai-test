@@ -164,6 +164,7 @@ await t('the local fallback COOLING DOWN and the Studio hanging: the local is st
   const r = await call(c)
   assert.deepEqual(bodies.map(b => b.base), ['http://studio:11601', 'http://local:11434'], 'studio once, then the untried local')
   assert.equal(r.schemaValid, true); assert.equal(r.brain, 'local')
+  assert.equal(bodies[1].body.messages.length, 2, 'after a TRANSPORT failure the fallback gets the plain request, not a "rejected" repair')
 })
 await t('both endpoints failing with one cooling: each asked once, then the error counts what was asked', async () => {
   stub(() => { throw new Error('down') })
@@ -173,6 +174,46 @@ await t('both endpoints failing with one cooling: each asked once, then the erro
   const r = await call(c)
   assert.deepEqual(bodies.map(b => b.base), ['http://studio:11601', 'http://local:11434'])
   assert.match(r.error, /all 2 of 2 llm endpoint/); assert.equal(r.brain, null)
+})
+await t('Studio times out, then local answers MALFORMED: local is NOT asked again, total <= the budgets once (Codex r3)', async () => {
+  stub(base => base === 'http://studio:11601' ? 'hang' : { ok: true, json: async () => ({ model: 'qwen2.5:7b-instruct', message: { content: 'nope' } }) })
+  const c = mk(['http://studio:11601|gemma4:26b|gemma4|1000', 'http://local:11434|qwen2.5:7b-instruct|local|1000'])
+  bodies.length = 0
+  const t0 = Date.now(); const r = await call(c); const ms = Date.now() - t0
+  assert.deepEqual(bodies.map(b => b.base), ['http://studio:11601', 'http://local:11434'], 'each endpoint once')
+  assert.ok(ms < 2300, `within the sum of the budgets (took ${ms} ms)`); assert.equal(r.schemaValid, false)
+})
+await t('Studio COOLING, local answers MALFORMED: the repair goes to the cooling Studio, not local again (Codex r3)', async () => {
+  stub(base => base === 'http://studio:11601' ? answer('gemma4:26b') : { ok: true, json: async () => ({ model: 'qwen2.5:7b-instruct', message: { content: 'nope' } }) })
+  const c = mk(); c.pool.markFail(c.pool.eps[0], 'earlier')
+  bodies.length = 0
+  const r = await call(c)
+  assert.deepEqual(bodies.map(b => b.base), ['http://local:11434', 'http://studio:11601'])
+  assert.equal(r.schemaValid, true); assert.equal(r.brain, 'gemma4')
+})
+await t('INVARIANT over 400 random cases: each endpoint asked at most once per decision; with two endpoints, any valid answer is reached', async () => {
+  const kinds = ['ok', 'malformed', 'sentinel', '500', 'throw']
+  let seed = 7; const rnd = n => { seed = (seed * 1103515245 + 12345) % 2147483648; return seed % n }
+  for (let i = 0; i < 400; i++) {
+    const n = 2 + rnd(2)
+    const urls = Array.from({ length: n }, (_, k) => `http://e${k}:1` + (k === 0 ? '|gemma4:26b|gemma4|1000' : '|qwen2.5:7b-instruct'))
+    const kind = Object.fromEntries(urls.map((u, k) => [`http://e${k}:1`, kinds[rnd(kinds.length)]]))
+    stub(base => {
+      const k = kind[base]
+      if (k === 'throw') throw new Error('down')
+      if (k === '500') return { ok: false, status: 500, text: async () => 'x' }
+      if (k === 'malformed') return { ok: true, json: async () => ({ message: { content: 'nope' } }) }
+      if (k === 'sentinel') return { ok: true, json: async () => ({ message: { content: JSON.stringify({ skill: 'gather', args: {}, reason: 'r', saw_end: 'END-X' }) } }) }
+      return answer('m')
+    })
+    const c = mk(urls)
+    for (const ep of c.pool.eps) if (rnd(3) === 0) c.pool.markFail(ep, 'earlier')
+    bodies.length = 0
+    const r = await call(c)
+    const counts = bodies.reduce((m, b) => ((m[b.base] = (m[b.base] ?? 0) + 1), m), {})
+    assert.ok(Object.values(counts).every(v => v === 1), `case ${i}: an endpoint asked twice ${JSON.stringify(counts)} ${JSON.stringify(kind)}`)
+    if (n === 2 && Object.values(kind).includes('ok')) assert.equal(r.schemaValid, true, `case ${i}: a valid answer existed ${JSON.stringify(kind)}`)
+  }
 })
 await t('an UNLABELLED pool keeps today\'s retry exactly: a second walk after total failure, repair on the same endpoint', async () => {
   stub(() => { throw new Error('down') }); bodies.length = 0
