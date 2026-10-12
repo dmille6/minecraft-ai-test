@@ -6,11 +6,11 @@
  "ladder_change": false,
  "promotion": "none",
  "canary_env": [
-  "OLLAMA_BRAIN_PRIMARY=http://127.0.0.1:11601|gemma4:26b|gemma4|15000",
+  "OLLAMA_BRAIN_PRIMARY=http://127.0.0.1:11611|gemma4:26b|gemma4|15000",
   "OLLAMA_THINK=false"
  ],
  "draw_k": 2,
- "notes": "brain-01 = the per-bot brain on gemma4:26b (Gemma 4 26B-A4B, LM Studio MLX 8-bit on the Studio, thinking off, the fleet's JSON-schema grammar through infra/brain/brainproxy.py) for 2 pools (10 bots), against the rest of the fleet as control. CODE (branch brain01-on-0cdb1a8, inert unless the env is set; both engines must APPROVE before queueing): OLLAMA_BRAIN_PRIMARY prepended to each bot's own pool; per-endpoint 15 s budget then the bot's own local endpoints; llm.brain on every decision row; _brain_config/_brain_share skill rows (baseline 0). PATH: 127.0.0.1:11601 on the fleet host = mcai-studio-tunnel.service (OWNER: key placement not yet approved). STUDIO: brainproxy + brain-keeper (GPU_RESERVED=brain01-live holds the bench queue). promotion 'none' for this run: a KEEP records the result and tears down. Keeping the brain on a fixed subset is a later owner decision (amend promotion to keep-subset; the loop then pages the operator to run mcai-brain-subset, design s.8). Evidence: docs/reports/brain01-design-2026-10-12.md.",
+ "notes": "brain-01 = the per-bot brain on gemma4:26b (Gemma 4 26B-A4B, LM Studio MLX 8-bit on the Studio, thinking off, the fleet's JSON-schema grammar through infra/brain/brainproxy.py) for 2 pools (10 bots), against the rest of the fleet as control. CODE (branch brain01-on-0cdb1a8, inert unless the env is set; both engines must APPROVE before queueing): OLLAMA_BRAIN_PRIMARY prepended to each bot's own pool; per-endpoint 15 s budget then the bot's own local endpoints; llm.brain on every decision row; _brain_config/_brain_share skill rows (baseline 0). PATH: 127.0.0.1:11611 on the fleet host = mcai-studio-tunnel.service (OWNER: key placement not yet approved). STUDIO: brainproxy + brain-keeper (GPU_RESERVED=brain01-live holds the bench queue). promotion 'none' for this run: a KEEP records the result and tears down. Keeping the brain on a fixed subset is a later owner decision (amend promotion to keep-subset; the loop then pages the operator to run mcai-brain-subset, design s.8). Evidence: docs/reports/brain01-design-2026-10-12.md.",
  "licence": {
   "class": "kind",
   "kind": "_brain_config",
