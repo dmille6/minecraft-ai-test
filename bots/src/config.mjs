@@ -263,6 +263,9 @@ export const config = {
     maxTokens: Number(req('LLM_MAX_TOKENS', '512')),
     temperature: Number(req('LLM_TEMPERATURE', '0.3')),
     timeoutMs: Number(req('LLM_TIMEOUT_MS', '90000')),
+    // brain-01: OLLAMA_THINK, sent per request as Ollama's `think` (llm.mjs parseThink). UNSET = the key is not
+    // sent, so every bot without it is byte-identical to before.
+    think: process.env.OLLAMA_THINK || undefined,
     // Client-side budget, deliberately well under numCtx.
     promptTokenBudget: Number(req('LLM_PROMPT_TOKEN_BUDGET', '3000')),
     // Handoff doc S16: strategic decisions every 30-90s, not per tick.
@@ -352,6 +355,8 @@ config.code.configHash = crypto.createHash('sha256').update(JSON.stringify({
   },
 
   llm: { model: config.llm.model, numCtx: config.llm.numCtx,
-         temperature: config.llm.temperature, budget: config.llm.promptTokenBudget },
+         temperature: config.llm.temperature, budget: config.llm.promptTokenBudget,
+         // brain-01: undefined when unset, and JSON.stringify drops it -- so an unchanged bot keeps its hash.
+         think: config.llm.think },
   world: config.world,
 })).digest('hex').slice(0, 12)

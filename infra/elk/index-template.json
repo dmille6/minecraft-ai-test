@@ -79,7 +79,12 @@
             "eval_duration_ns":        { "type": "long" },
             "schema_valid":     { "type": "boolean" },
             "error":            { "type": "keyword" },
-            "retry_count":      { "type": "short" }
+            "retry_count":      { "type": "short" },
+            "admission":        { "type": "keyword" },
+            "args_cleaned":     { "type": "integer" },
+            "args_cleaned_fields": { "type": "keyword" },
+            "model_mismatch":   { "type": "keyword" },
+            "brain":            { "type": "keyword" }
           }
         },
 
