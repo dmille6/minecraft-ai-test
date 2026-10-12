@@ -240,6 +240,29 @@ brain, as they must.
 - **(c)** before any keep-subset, every reader with its own control must adopt the subset exclusion. verdict.py and
   immobiledid are patched; the others are listed at that time.
 
+## 9b. Gate calibration on untouched pools (Claude r2, before queueing)
+
+**Why:** G3, G5 and G8's floor compare against the control or set a population floor, and `gates_failed` is
+`evidence: defect`, read 5 times. So these clauses were run on untouched pools. G1, G4 and G7 fail on brainless pools
+by construction and were not read.
+
+**What ran:**
+- `brainread.py` dry-run on 4 untouched pool pairs: hive-a+b, hive-c+d, board-c+placebo-b, placebo-d+isolated-a;
+- windows of 180, 360 and 1440 min, each ending now, 8 h ago and 16 h ago;
+- 36 reads on the fleet host, one process at a time under nice, about 300 MB, with no emit;
+- output in `brain01-staging/gate-calibration-20261012.txt`.
+
+**Result: 0 of 36 tripped.**
+
+| clause | worst value seen | gate |
+|---|---|---|
+| G3 unserved per bot-h | 0 in both arms, every window | <= control + 0.5 |
+| G5 decision p95 | at most +1.9 s over the control (the d-pools, on the 3090: 5.2-6.2 s vs 4.0-4.4 s) | <= control + 15 s |
+| G8 floor | no bot below it, in any window | per bot |
+
+**One false failure fixed before it could happen:** 16 pools carry a stale `-Charlie` log dir from a rename, and it
+would have failed G8 on every read. The read now takes bots from the live roster (`/srv/mcbots/harness/env`).
+
 ## 10. Order (owner 10-10, coordinator 10-12)
 
 1. Step (0): done.
