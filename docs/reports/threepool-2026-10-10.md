@@ -240,3 +240,30 @@ airpocket-02 has exposure only in hive-d, the ice-trap pool. A registration may 
 - **`scripts/host/test_bagfix_loop.py`: 20/20.** The new `keep3` runs the real loop on a three-pool manifest. It extends
   to +1920, reads +180, +360 and +1920 (never +1440), and the final KEEPs on the three-pool bands.
 - **`scripts/test_bagfix.py`:** unchanged behaviour. One mutant anchor follows the renamed minute variable.
+
+## Review log (gate v35: A', throughput, heavyread, draw_require_pools)
+
+**Final verdicts.**
+- Codex round 10 (f3e9b263): APPROVE, with no findings.
+- Claude: APPROVE of rounds 6–7 (045876e6). After that came one production line (heavyread `reset-failed` on its own unit) and test-only changes; their confirmation is requested in the coordinator's report.
+
+**Codex rounds 8–10, as the coordinator asked.**
+
+| round | finding | severity | concerns |
+|---|---|---|---|
+| 8 | The failed-unit assertion matched every `heavyread-*` unit, so the "failed unit left behind" mutant's leftover units could falsely kill later mutants. Fixed: the check targets the run's own unit, and each section cleans up its own units in `finally`. | P2 | test-suite strength only |
+| 9 | `pr.wait(300)` raised without killing the wrapper. A timed-out mutant run kept the shared lock, and later runs inherited it. Fixed: a timeout kills and reaps the run's own scope and wrapper, then resets its unit. | P2 | test-suite strength only |
+| 10 | none | – | – |
+
+In the same span, Codex rounds 5–7 found one live-behaviour issue in heavyread.sh, fixed and approved:
+- a missing `--kill-after`;
+- a failed preemption that could leave two heavy jobs running;
+- holder validation.
+
+All other round-6–9 findings concerned mutation-test anchors or cases (test strength only).
+
+**Follow-ups tracked (P3, non-blocking):**
+- drawrec's own `POOLS=1 immobiledid` draw-time call, and bagfixgate's poll/final, do not run under the heavy-read lock. They are lighter, and this is stated above.
+- The calibration refusal's loop-lock probe momentarily takes `/tmp/mcai-canary.lock`. A loop launched in that instant exits 3, and the scheduler retries it.
+- Preemption depends on sudoers allowing `systemctl kill`. If it does not, the loop read is refused (exit 75), so it fails closed; it is never run beside the calibration job.
+- The `--expand-environment=no` flag has no effect on systemd 255. It guards later versions, and the verbatim-environment test stays.
