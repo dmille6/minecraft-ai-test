@@ -46,7 +46,7 @@ const [SERVER, PLAN_S] = process.argv.slice(2)
 const PORTS = { sandbox: 25599, sandbox2: 25600, sandbox3: 25601 }        // sandbox4 is the model benchmark's: never
 if (!PORTS[SERVER] || !PLAN_S) throw new Error('usage: node airpocket-ab.cjs <sandbox|sandbox2|sandbox3> <arm:scene,...>')
 const ROOTS = { cand: process.env.CAND_ROOT || '/home/mike/ap-sbx/cand-950e89c', ctrl: process.env.CTRL_ROOT || '/home/mike/ap-sbx/ctrl' }
-const SHAS = { '/home/mike/ap-sbx/cand-950e89c': '950e89c', '/home/mike/ap-sbx/cand': 'c783e79', '/home/mike/ap-sbx/ctrl': 'c6e91a8' }
+const SHAS = { '/home/mike/ap-sbx/cand-950e89c': '950e89c', '/home/mike/ap-sbx/cand': 'c783e79', '/home/mike/ap-sbx/ctrl': 'c6e91a8', '/home/mike/ap-sbx/ctrl-dbb4d78': 'dbb4d78', '/home/mike/ap-sbx/ctrl-0cdb1a8': '0cdb1a8' }   // a cand-<sha> root names its own sha (below)
 const PLAN = PLAN_S.split(',').map(s => { const [arm, scene] = s.split(':'); if (!ROOTS[arm]) throw new Error(`arm ${arm}`); return { arm, scene } })
 const NAME = process.env.AP_BOT_NAME || `sandbox-AirP${SERVER.replace(/\D/g, '') || '1'}`
 if (!/^sandbox-/.test(NAME)) throw new Error('bot name must start with sandbox-')
@@ -87,12 +87,38 @@ const SPEC = {
   // AF (A-floor): the bot STANDING on a stone floor in a 1x1x2 water pocket (feet 40, head 41, stone 39 and roof 42)
   AF: { setup: ['fill 700 40 700 700 41 700 minecraft:water'], expect: [[700, 39, 700, 'stone'], [700, 40, 700, 'water'], [700, 41, 700, 'water'], [700, 42, 700, 'stone'], [700, 43, 700, 'stone']], secs: 150 },
   J: { setup: [COL], expect: [[700, 31, 700, 'water'], [700, 41, 700, 'water'], [700, 42, 700, 'stone'], [700, 43, 700, 'stone']], secs: 300 },
+  // SM (the window handoff, 10-09): AF + a FURNACE in the wall at the feet (701 40 700, facing the pocket). The brain answers
+  // `smelt raw_iron` (AP_BRAIN_SKILL), so a smelt holds the furnace window open when the rescue interrupts it and the
+  // interrupted smelt's drain is still clicking while the step wants to equip. Kit `smelt`: the pickaxe in the MAIN inventory
+  // (container.9), so the equip must CLICK (moveSlotItem) rather than only change the hotbar selection.
+  SM: { setup: ['fill 700 40 700 700 41 700 minecraft:water', 'setblock 701 40 700 minecraft:furnace[facing=west]'],
+        expect: [[700, 39, 700, 'stone'], [700, 40, 700, 'water'], [700, 41, 700, 'water'], [700, 42, 700, 'stone'], [700, 43, 700, 'stone'], [701, 40, 700, 'furnace']], secs: 150 },
+  // CR (10-12, a craft in flight at the trap): AF's pocket, no furnace; run with AP_KIT=craft and AP_BRAIN_SKILL=craft so every
+  // decision crafts planks from logs (a 2x2 craft clicks in the player inventory, window 0) while the rescue wants to equip
+  CR: { setup: ['fill 700 40 700 700 41 700 minecraft:water'], expect: [[700, 39, 700, 'stone'], [700, 40, 700, 'water'], [700, 41, 700, 'water'], [700, 42, 700, 'stone'], [700, 43, 700, 'stone']], secs: 150 },
 }
 const CLEAR_ITEMS = 'kill @e[type=item,x=700,y=40,z=700,distance=..24]'
 function arenaCmds (spec) { return [CLEAR_ITEMS, 'fill 692 30 692 708 52 708 minecraft:stone', ...spec.setup] }
 const KIT = process.env.AP_KIT || 'default'
-if (!['default', 'worn1', 'iron1stone', 'iron1'].includes(KIT)) throw new Error(`AP_KIT ${KIT}`)
+if (!['default', 'worn1', 'iron1stone', 'iron1', 'smelt', 'craft'].includes(KIT)) throw new Error(`AP_KIT ${KIT}`)
 function kitCmds () {
+  if (KIT === 'smelt') {   // held: cobblestone (hotbar 0); the pickaxe in the main inventory; the smelt's ore and fuel beside it
+    return [`clear ${NAME}`,
+      `item replace entity ${NAME} container.0 with minecraft:cobblestone 64`,
+      `item replace entity ${NAME} container.9 with minecraft:stone_pickaxe[damage=31] 1`,
+      `item replace entity ${NAME} container.10 with minecraft:raw_iron 8`,
+      `item replace entity ${NAME} container.11 with minecraft:coal 2`,
+      `item replace entity ${NAME} container.12 with minecraft:bucket 1`,
+      `effect clear ${NAME}`, `effect give ${NAME} minecraft:saturation 1 20 true`]
+  }
+  if (KIT === 'craft') {   // held: cobblestone (hotbar 0); the pickaxe in the main inventory; logs to craft planks from
+    return [`clear ${NAME}`,
+      `item replace entity ${NAME} container.0 with minecraft:cobblestone 64`,
+      `item replace entity ${NAME} container.9 with minecraft:stone_pickaxe[damage=31] 1`,
+      `item replace entity ${NAME} container.10 with minecraft:oak_log 64`,
+      `item replace entity ${NAME} container.12 with minecraft:bucket 1`,
+      `effect clear ${NAME}`, `effect give ${NAME} minecraft:saturation 1 20 true`]
+  }
   if (KIT === 'iron1stone' || KIT === 'iron1') {   // a 1-use IRON pickaxe (faster) in slot 0, ahead of a ~100-use stone one / alone
     const two = KIT === 'iron1stone'
     return [`clear ${NAME}`,
@@ -129,6 +155,7 @@ const CELLS = {   // cell -> candidate blocks, first that passes names it; any n
   side: [[701, 42, 700], ['stone', 'water', 'air']],
   head: [[700, 41, 700], ['water', 'air', 'stone', 'cobblestone']],
   feet: [[700, 40, 700], ['water', 'air', 'stone', 'cobblestone']],   // a block placed under a standing bot (cand 9ad287a)
+  furnace: [[701, 40, 700], ['furnace', 'air', 'stone']],
 }
 function pollCmds () {
   const c = [`data get entity ${NAME} Air`, `data get entity ${NAME} Health`, `data get entity ${NAME} Pos`, `scoreboard players get ${NAME} ${OBJ}`,
@@ -164,12 +191,17 @@ const KEEP = /^_(air_pocket|death|entombed|marooned|maroon_|pocket|hold_lava|cli
 function skillRows (text) {
   return text.split('\n').filter(Boolean).map(l => { try { return JSON.parse(l) } catch { return null } }).filter(r => r && r.skill)
     .map(r => ({ ts: Date.parse(r['@timestamp']), name: r.skill.name, status: r.skill.status, detail: String(r.skill.detail || '').slice(0, 600),
-                 pos: r.bot?.pos ?? null, health: r.bot?.health ?? null }))
+                 pos: r.bot?.pos ?? null, health: r.bot?.health ?? null, dur: r.skill.duration_ms ?? null }))
 }
 async function waitFor (pred, ms, step = 250) { for (const t0 = Date.now(); Date.now() - t0 < ms;) { const v = await pred(); if (v) return v; await sleep(step) } return null }
 
 // ---------------------------------------------------------------- the brain (loopback here, tunnelled to the bot)
 let brainLog = null
+// AP_BRAIN_SKILL / AP_BRAIN_ARGS (scene SM): what the scripted brain answers every decision with (default: status, observe only)
+const BRAIN_SKILL = process.env.AP_BRAIN_SKILL || 'status'
+const BRAIN_ARGS = JSON.parse(process.env.AP_BRAIN_ARGS || '{}')
+if (!/^(status|smelt|craft)$/.test(BRAIN_SKILL)) throw new Error(`AP_BRAIN_SKILL ${BRAIN_SKILL}`)
+let brainActive = false     // the scripted skill is answered only while the bot is IN the scene (status before and after)
 const brainServer = http.createServer((req, res) => {
   let body = ''; req.on('data', c => { body += c })
   req.on('end', () => {
@@ -177,9 +209,10 @@ const brainServer = http.createServer((req, res) => {
     if (!req.url.startsWith('/api/chat')) { res.statusCode = 404; res.end('ap brain'); return }
     let msgs = []; try { msgs = JSON.parse(body).messages || [] } catch {}
     const sentinel = (msgs.map(m => String(m.content || '')).join('\n').match(/END-[A-Z0-9]{4,12}/g) || []).pop() || ''
-    if (brainLog) fs.appendFileSync(brainLog, `${new Date().toISOString()} decision: status\n`)
+    const skill = brainActive ? BRAIN_SKILL : 'status', args = brainActive ? BRAIN_ARGS : {}
+    if (brainLog) fs.appendFileSync(brainLog, `${new Date().toISOString()} decision: ${skill}\n`)
     res.setHeader('Content-Type', 'application/json')
-    res.end(JSON.stringify({ model: 'sandbox-script', created_at: new Date().toISOString(), message: { role: 'assistant', content: JSON.stringify({ skill: 'status', args: {}, reason: 'sandbox: observe only', saw_end: sentinel }) },
+    res.end(JSON.stringify({ model: 'sandbox-script', created_at: new Date().toISOString(), message: { role: 'assistant', content: JSON.stringify({ skill, args, reason: 'sandbox: scripted', saw_end: sentinel }) },
       done: true, total_duration: 1e6, load_duration: 0, prompt_eval_count: 10, prompt_eval_duration: 5e5, eval_count: 5, eval_duration: 5e5 }))
   })
 })
@@ -194,6 +227,8 @@ async function stopBot () {
   await waitFor(() => /There are 0 of/.test(rcon('list')[0].reply), 30000, 1000)
 }
 let baseEnv = null
+// THE PROBE (main's probe hook, reconciled): AP_PROBE = the posprobe.cjs path on 10.0.0.31 (default ~/ap-sbx/posprobe.cjs; 'off' = none)
+const PROBE = process.env.AP_PROBE === 'off' ? null : (process.env.AP_PROBE || '/home/mike/ap-sbx/posprobe.cjs')
 let initialDifficulty = null
 async function startBot (tag, root) {
   const envRel = `sandbox/.env.ap-${tag}`
@@ -208,8 +243,8 @@ async function startBot (tag, root) {
   botPidFile = `${ROUT}/${tag}.pid`
   const botOut = `${LOUT}/bot-${tag}.out`
   const bo = fs.openSync(botOut, 'a')
-  const cmd = `cd ${MAIN} && echo $$ > ${botPidFile} && exec env BOT_ROOT=${root} NODE_OPTIONS='--require ${MAIN}/sandbox/craft/trace.cjs --require /home/mike/ap-sbx/posprobe.cjs' ` +
-              `CRAFT_TRACE=${ROUT}/trace-${tag}.jsonl POSPROBE_OUT=${ROUT}/probe-${tag}.jsonl bash sandbox/run-bot.sh ${envRel}`
+  const cmd = `cd ${MAIN} && echo $$ > ${botPidFile} && exec env BOT_ROOT=${root} NODE_OPTIONS='--require ${MAIN}/sandbox/craft/trace.cjs${PROBE ? ' --require ' + PROBE : ''}' ` +
+              `CRAFT_TRACE=${ROUT}/trace-${tag}.jsonl${PROBE ? ` POSPROBE_OUT=${ROUT}/probe-${tag}.jsonl` : ''} bash sandbox/run-bot.sh ${envRel}`
   bot = spawn('ssh', ['-o', 'BatchMode=yes', '-o', 'ControlPath=none', '-o', 'ExitOnForwardFailure=yes', '-R', `${REMOTE_BRAIN_PORT}:127.0.0.1:${BRAIN_PORT}`, 'mike@10.0.0.31', cmd],
     { stdio: ['ignore', bo, bo] })
   const ok = await waitFor(() => { try { return /spawned pos=/.test(fs.readFileSync(botOut, 'utf8')) } catch { return false } }, 90000, 500)
@@ -245,6 +280,7 @@ async function runTrial (arm, scene, k) {
     rcon(`scoreboard players set ${NAME} ${OBJ} 0`, ...kitCmds())
     rcon(`tp ${NAME} ${STAND.x} ${STAND.y} ${STAND.z}`, `gamemode survival ${NAME}`, `effect give ${NAME} minecraft:instant_health 1 5 true`)
     t0 = Date.now()
+    brainActive = true
     while (Date.now() - t0 < spec.secs * 1000) {
       const ts = Date.now()
       try {
@@ -256,16 +292,19 @@ async function runTrial (arm, scene, k) {
       await sleep(Math.max(0, 1000 - (Date.now() - ts)))
     }
   } finally {
+    brainActive = false
     if (spec.difficulty) { try { rcon(`difficulty ${difficultyBefore || 'peaceful'}`) } catch {} }
   }
   const difficultyAfter = (rcon('difficulty')[0].reply.match(/is (\w+)/) || [])[1]?.toLowerCase() ?? null
   let invEnd = null
   // per entry: Paper cuts a long `data get ... Inventory` reply with '...'
-  try { invEnd = rcon(...[0, 1, 2, 3, 4, 5].map(i => `data get entity ${NAME} Inventory[${i}]`)).map(x => x.reply.replace(/^.*entity data: /, '').trim()).join(' | ').slice(0, 1500) } catch (e) { invEnd = 'unreadable: ' + e.message }
+  try { invEnd = rcon(...[0, 1, 2, 3, 4, 5, 6, 7].map(i => `data get entity ${NAME} Inventory[${i}]`), `data get entity ${NAME} SelectedItemSlot`).map(x => x.reply.replace(/^.*entity data: /, '').trim()).join(' | ').slice(0, 2000) } catch (e) { invEnd = 'unreadable: ' + e.message }
+  let furnaceEnd = null
+  if (scene === 'SM') { try { furnaceEnd = rcon('data get block 701 40 700 Items')[0].reply.replace(/^.*block data: /, '').trim().slice(0, 600) } catch (e) { furnaceEnd = 'unreadable: ' + e.message } }
   await stopBot()
   try { r31(`rm -f ${MAIN}/${envRel}`) } catch {}
   const skillText = (() => { try { return r31(`cat ${ROUT}/${tag}/skill-${NAME}.jsonl 2>/dev/null || true`) } catch { return '' } })()
-  const probeText = (() => { try { return r31(`cat ${ROUT}/probe-${tag}.jsonl 2>/dev/null || true`) } catch { return '' } })()
+  const probeText = PROBE ? (() => { try { return r31(`cat ${ROUT}/probe-${tag}.jsonl 2>/dev/null || true`) } catch { return '' } })() : ''
   const traceText = (() => { try { return r31(`cat ${ROUT}/trace-${tag}.jsonl 2>/dev/null || true`) } catch { return '' } })()
   try { r31(`cat > ${ROUT}/bot-${tag}.out`, fs.readFileSync(botOut, 'utf8')); r31(`cat > ${ROUT}/brain-${tag}.log`, fs.existsSync(brainLog) ? fs.readFileSync(brainLog, 'utf8') : '') } catch {}
   const rel = ts => +((ts - t0) / 1000).toFixed(1)
@@ -273,6 +312,9 @@ async function runTrial (arm, scene, k) {
   const tr = traceText.split('\n').filter(Boolean).map(l => { try { return JSON.parse(l) } catch { return null } }).filter(e => e && e.ts >= t0 - 1000)
   const digs = tr.filter(e => e.pkt === 'dig' && e.loc && (e.status === 0 || e.status === 2 || e.status === 1))
     .map(e => ({ t: rel(e.ts), status: e.status, loc: `${e.loc.x},${e.loc.y},${e.loc.z}`, held: e.held?.name ?? null }))
+  // THE WINDOW EVIDENCE (scene SM): every click/open/close the trace saw, relative to t0, plus the rescue rows' times, so
+  // a click inside the furnace window while the step ran is a fact read off the wire, not the bot's word
+  const win = tr.filter(e => /^(click|open_window|close_window_in|close_window_out)$/.test(e.pkt)).map(e => ({ t: +((e.ts - t0) / 1000).toFixed(3), pkt: e.pkt, win: e.win, slot: e.slot, mode: e.mode }))
   const good = polls.filter(p => !p.err)
   const roof0 = good[0]?.roof ?? null
   const roofOpened = good.some(p => roof0 && p.roof !== roof0 && p.roof !== 'unknown' && p.roof !== 'other')
@@ -306,13 +348,13 @@ async function runTrial (arm, scene, k) {
     sideEnd: final.side ?? null, aboveEnd: final.above ?? null, feetEnd: final.feet ?? null, headEnd: final.head ?? null,
     breathT: firstBreath?.t ?? null, healthAtBreath: firstBreath?.health ?? null, airAtBreath: firstBreath?.air ?? null,
     eyeAirEnd: final.eyeAir ?? null, episodes, resub, minHealth: Math.min(...good.map(p => p.health ?? 99)), minAir: Math.min(...good.map(p => p.air ?? 999)),
-    kinds, digs,
-    ap: rows.filter(r => /^_air_pocket/.test(r.name)).map(r => ({ t: rel(r.ts), name: r.name, status: r.status, detail: r.detail })),
+    kinds, digs, win, furnaceEnd, brain: BRAIN_SKILL,
+    ap: rows.filter(r => /^_air_pocket/.test(r.name)).map(r => ({ t: rel(r.ts), tMs: +((r.ts - t0) / 1000).toFixed(3), name: r.name, status: r.status, detail: r.detail })),
+    smelt: rows.filter(r => r.name === 'smelt' || r.name === 'craft' || /^_(reflex_drowning|interrupt)/.test(r.name)).map(r => ({ tMs: +((r.ts - t0) / 1000).toFixed(3), name: r.name, status: r.status, dur: r.dur, detail: r.detail.slice(0, 160) })),
     drown: rows.filter(r => WATERY.test(r.name) || /^_(death|flooded_pocket)/.test(r.name)).map(r => ({ t: rel(r.ts), name: r.name, detail: r.detail.slice(0, 200) })),
     other: rows.filter(r => /^_(entombed|marooned|maroon_|pocket|climb_flood_)/.test(r.name)).map(r => ({ t: rel(r.ts), name: r.name, detail: r.detail.slice(0, 200) })),
     pollErrors: polls.filter(p => p.err).length, polls,
     probe: probeText.split('\n').filter(Boolean).map(l => { try { return JSON.parse(l) } catch { return null } }).filter(e => e && e.ts >= t0 - 1000).map(e => ({ ...e, t: rel(e.ts) })),
-    digsRaw: tr.filter(e => e.pkt === 'dig' && e.loc).map(e => ({ t: rel(e.ts), status: e.status, loc: `${e.loc.x},${e.loc.y},${e.loc.z}` })),
   }
   const line = JSON.stringify(res) + '\n'
   fs.appendFileSync(RESULTS_LOCAL, line)

@@ -3,7 +3,7 @@
 # Denominator first: trials, then for each trial its step(s), the furnace windows, and every click.
 import json, sys
 rows = [json.loads(l) for l in open(sys.argv[1]) if l.strip()]
-rows = [r for r in rows if r.get('scene') == 'SM']
+rows = [r for r in rows if r.get('scene') in (sys.argv[2].split(',') if len(sys.argv) > 2 else ['SM'])]
 print(f'trials: {len(rows)}')
 for r in rows:
     ap = r.get('ap', []); win = r.get('win', [])
