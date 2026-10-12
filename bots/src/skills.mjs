@@ -3369,7 +3369,7 @@ export function stockRefusedRow (bot, via, items, opts = {}, { throttleMs = 0, n
     if (!rf.length) return rf
     // ADMISSION is asked on every proposal (Codex fold-r1 P2): one row per refused set per throttle window there
     if (throttleMs > 0) {
-      const k = `${via}|${rf.map(r => `${r.name}:${r.why}`).sort().join(',')}`
+      const k = `${bot?.username ?? '?'}|${via}|${rf.map(r => `${r.name}:${r.why}`).sort().join(',')}`   // per bot (Claude fold-r2 P3)
       if (now - (refusedSeen.get(k) ?? -Infinity) < throttleMs) return rf
       refusedSeen.set(k, now)
     }

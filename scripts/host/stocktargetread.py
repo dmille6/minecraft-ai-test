@@ -179,7 +179,10 @@ def judge(rows, hours, census=None, draws=None, bank_aids=None):
     out['rows_canary'] = sum(1 for r in post_c if r['name'] in OWN)
     # LIVE = own rows that judged something: every own row but a _stock_refused row whose refusals are ALL unknown (a
     # canary whose journal cannot be replayed refuses everything as unknown and judges nothing: Claude fold-r1 P2-1)
-    proven = lambda r: r['name'] != '_stock_refused' or num(kv(r['detail']), 'at_cobble', 0) + num(kv(r['detail']), 'at_stock', 0) > 0
+    # (Claude fold-r2 P3: nor a recovery stage that came to nothing, nor a bank row whose claim was undecided)
+    proven = lambda r: ((r['name'] != '_stock_refused' or num(kv(r['detail']), 'at_cobble', 0) + num(kv(r['detail']), 'at_stock', 0) > 0)
+                        and not (r['name'] == '_stock_recovery' and r['status'] != 'success')
+                        and not (r['name'] == '_stock_bank' and kv(r['detail']).get('decision') == 'unknown'))
     out['rows_live'] = sum(1 for r in post_c if r['name'] in OWN and proven(r))
     out['rows_control'] = sum(1 for r in post_k if r['name'] in OWN)
     refusals = sum(1 for r in post_c if r['name'] in ('deposit', 'town_deposit') and REFUSAL.search(r['detail']))
@@ -308,6 +311,8 @@ def selftest():
     assert un['refused_rows'] == 1 and un['refused_at_cobble'] == 0 and un['refused_via'] == {'admission': 1}, 'unknown is reported apart, not as a confirmed cap'
     assert un['rows_canary'] == 1 and un['rows_live'] == 0, 'an unknown-only refusal is a row, not liveness (Claude fold-r1 P2-1)'
     assert rf['rows_live'] == 1, 'positive control: a proven refusal is liveness'
+    assert judge([R('_stock_recovery', 'stage=entry aid=A at=1,2,3 untargeted=0 nowell=0 nclaims=0 qualifying=- claims=-', status='no_effect'),
+                  R('_stock_bank', 'group=oak_log name=oak_log planned=64 moved=0 kept=64 target=64 decision=unknown claims=0 refused=1')], 3)['rows_live'] == 0, 'rows that judged nothing'
     assert judge([R('_stock_refused', 'via=deposit n=1 cobble=0 stock=1 oak_log:192:stock_target')], 3)['refused_cobble_rows'] == 0
     ctl = R('_stock_refused', 'via=deposit n=1 cobble=1 stock=0 cobblestone:95:cobble_cap'); ctl['arm'] = 'control'
     assert judge([ctl], 3)['rows_control'] == 1, 'the base writes none: a control refusal row is an arms breach'
