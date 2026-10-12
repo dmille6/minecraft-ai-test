@@ -186,7 +186,7 @@ function promptTemplateHash(systemPrompt) {
  * whole document with no error beyond a dropped-events line in Filebeat.
  * The game agent is bot.*, never agent.* (ECS reserves agent.* for shippers).
  */
-export function logLlm({ startedAt, snapshot, trigger, model, endpoint, res,
+export function logLlm({ startedAt, snapshot, trigger, model, endpoint, brain = null, res,
                          promptText, tokensEstimated, droppedEvents,
                          proposal, rejection, outcome, milestone, admission,
                          systemPrompt, perceptionSnapshot }) {
@@ -248,6 +248,9 @@ export function logLlm({ startedAt, snapshot, trigger, model, endpoint, res,
       // trusted. This is the repo's own rule one layer up: a capability is not
       // shipped until the OBSERVATION names it.
       model_mismatch: res.model_mismatch ?? null,
+      // WHICH BRAIN DECIDED (brain-01): 'order' (a work order; no model asked), the serving endpoint's label
+      // ('gemma4', ...), 'local' (an unlabelled endpoint), null (nothing served). Mapped as a keyword.
+      brain: brain ?? null,
     },
     // WHICH STORED BELIEF ACTED ON THIS DECISION.
     //
