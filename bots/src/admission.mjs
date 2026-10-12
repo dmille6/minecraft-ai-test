@@ -9,7 +9,7 @@
 // "the model is unreliable" into a distribution over specific, fixable causes
 // you can query in Kibana.
 
-import { SKILLS, actionKey, foodSkipNow } from './skills.mjs'
+import { SKILLS, actionKey, foodSkipNow, stockRefusedRow } from './skills.mjs'
 import { swordCraftRefusal, unwantedSword } from './peacefulkit.mjs'
 import { smeltRecipeFor } from './smelting.mjs'
 import { config } from './config.mjs'
@@ -373,6 +373,9 @@ export class AdmissionControl {
       const capNames = args?.item == null ? ['cobblestone', 'cobbled_deepslate'] : /^(cobblestone|cobbled_deepslate)$/.test(args.item) ? [args.item] : []
       const reconcile = capNames.some(n => bankableExclusion(items, n, { wants, noSwords }) === 'town_cobble_unknown') && cobbleReconcileProbe().can
       if (!depositPlan(items, args?.item ?? null, { wants, noSwords }).length && !reconcile) {
+        // THE CAP'S REFUSAL IS A ROW HERE TOO (Codex fold-r1 P2: a bag holding only capped surplus is refused here, before
+        // any skill runs, so the skill's rows never see it); throttled -- admission is asked on every proposal
+        stockRefusedRow(bot, 'admission', items, { wants, noSwords }, { throttleMs: 60_000 })
         return { ok: false, reason: 'deposit_nothing_to_bank', detail: depositNoopReason(items, args?.item ?? null, { wants, noSwords }) }
       }
       const onDepositMilestone = this.activeMilestoneId === 'deposit_surplus'

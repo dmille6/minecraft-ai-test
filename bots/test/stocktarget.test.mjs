@@ -209,6 +209,23 @@ await t('AN OVER-CAP TOWN IS NOT SILENT (stonecap-01 INCONCLUSIVE 10-12): a coun
     assert.equal(RECS.slice(n0).filter(x => x.skill?.name === '_stock_refused' && /cobble_cap/.test(x.skill.detail)).length, 0, 'an empty town: no cap refusal')
   })
 })
+await t('THE ADMISSION REFUSAL IS A ROW (fold-r1 P2, both engines): a bag of capped cobble only, at a town counted at 1,728 -> admission refuses the deposit before any skill runs AND writes one _stock_refused row via=admission naming the cap; a second ask inside a minute writes none (throttled)', async () => {
+  const { AdmissionControl } = await import('../src/admission.mjs')
+  const w = town([stack('cobblestone', 64), stack('cobblestone', 64), stack('cobblestone', 30)])
+  w.fill(5, 64, 0, 'cobblestone', 64)
+  await capped(w, async () => {
+    await cobbleObserve(w.bot, { x: 5, y: 64, z: 0 }, await w.bot.openContainer(w.bot.blockAt({ x: 5, y: 64, z: 0 })))
+    const n0 = RECS.length
+    const adm = new AdmissionControl()
+    const a1 = adm.check({ skill: 'deposit', args: {} }, w.bot)
+    assert.equal(a1.ok, false); assert.equal(a1.reason, 'deposit_nothing_to_bank', JSON.stringify(a1))
+    const rows = () => RECS.slice(n0).filter(x => x.skill?.name === '_stock_refused').map(x => x.skill.detail)
+    assert.equal(rows().length, 1, rows().join(' | '))
+    assert.match(rows()[0], /^via=admission n=1 cobble=1 stock=0 at_cobble=1 at_stock=0 cobblestone:158:cobble_cap/)
+    adm.check({ skill: 'deposit', args: {} }, w.bot)
+    assert.equal(rows().length, 1, 'throttled: one row per refused set per minute')
+  })
+})
 await t('NO CHEST AT TARGET: a full chest, an at-target remainder and a chest in the bag -> no recovery chest; an untargeted remainder (positive control) does go to the recovery', async () => {
   const w = town([stack('oak_log', 64), stack('oak_log', 64), stack('chest', 1)])
   w.fill(5, 64, 0, 'oak_log', 64)
@@ -332,6 +349,8 @@ await t('RECOVERY CHAIN (Codex code r2 P1): full chest -> reserve 64 planks -> t
     assert.ok(planksIn(w.bag) >= 256, `the keep stays: ${planksIn(w.bag)}`)
     const c = livePlanksClaims()
     assert.ok(c.all > 0 && c.live === 0, `claims ${JSON.stringify(c)}`)
+    // the reserved planks are never named refused (fold-r1: the row is judged with the plan's own reservation)
+    assert.equal(RECS.slice(n0).filter(x => x.skill?.name === '_stock_refused' && /oak_planks:/.test(x.skill.detail)).length, 0)
   })
 })
 await t('RECOVERY ROW (Codex code r3 P2): six reservations -> the row says nclaims=6 however its id list is cut, and the journal holds six admitted claims carrying the recovery\'s action id', async () => {

@@ -2606,7 +2606,7 @@ async function deposit(ctx, { item = null }, signal, { noRecovery = false, prefe
       // took it as its nearest chest and failed to open it again, every decision)
       const wantsNow = bot.currentWants ?? []
       if (!depositPlan(bot.inventory.items(), item, { wants: wantsNow }).length) {
-        stockRefusedRow(bot, 'deposit', bot.inventory.items(), { wants: wantsNow })   // the refusal is a row here too
+        stockRefusedRow(bot, 'deposit', bot.inventory.items(), { wants: wantsNow, noSwords: foodSkipNow(bot).active })   // the refusal is a row here too
         return { status: 'no_effect', failClass: null,
                  detail: depositNoopReason(bot.inventory.items(), item, { wants: wantsNow }) ?? 'the cobble stays: the town could not be counted yet (town cobble not yet counted)' }
       }
@@ -2832,7 +2832,7 @@ async function deposit(ctx, { item = null }, signal, { noRecovery = false, prefe
     const stockRoomFor = Object.fromEntries(Object.entries(reserved ?? {}).map(([rn, rv]) => [rn, rv.n]))
     const plan = depositPlan(planItems, item, { wants: bot.currentWants ?? [], noSwords, stockRoomFor })   // the wants admission judged with (set by the gate)
     // THE REFUSAL IS A ROW (stonecap-01 INCONCLUSIVE 10-12): what the cap or a target dropped from this plan, named
-    stockRefusedRow(bot, 'deposit', planItems, { wants: bot.currentWants ?? [], noSwords })
+    if (!noRecovery) stockRefusedRow(bot, 'deposit', planItems, { wants: bot.currentWants ?? [], noSwords, stockRoomFor })   // the plan's own options (Codex fold-r1 P2); a recovery's nested deposit is the same bag (Claude fold-r1 P3)
     for (const { name, count } of plan) {
       check(signal)
       // A TOOL GOES BY SLOT, A USABLE COPY AT A TIME (Codex round 2 on withdraw: chest.deposit(type) takes the first copy
@@ -3362,10 +3362,18 @@ export function stockQualifies (bot, item = null, stage = 'entry', { reserveAt =
   return out
 }
 /** One `_stock_refused` row when the cap or a stock target drops a held name from this plan (bankable.mjs stockRefusals). */
-export function stockRefusedRow (bot, via, items, opts = {}) {
+const refusedSeen = new Map()   // `${via}|${names}` -> last row (one bot per process)
+export function stockRefusedRow (bot, via, items, opts = {}, { throttleMs = 0, now = Date.now() } = {}) {
   try {
     const rf = stockRefusals(items, opts)
-    if (rf.length) logEvent({ kind: 'stock_refused', status: 'success', snapshot: snapshot(bot), detail: stockRefusedDetail(via, rf) })
+    if (!rf.length) return rf
+    // ADMISSION is asked on every proposal (Codex fold-r1 P2): one row per refused set per throttle window there
+    if (throttleMs > 0) {
+      const k = `${via}|${rf.map(r => `${r.name}:${r.why}`).sort().join(',')}`
+      if (now - (refusedSeen.get(k) ?? -Infinity) < throttleMs) return rf
+      refusedSeen.set(k, now)
+    }
+    logEvent({ kind: 'stock_refused', status: 'success', snapshot: snapshot(bot), detail: stockRefusedDetail(via, rf) })
     return rf
   } catch { return [] }   // a row never breaks a deposit
 }

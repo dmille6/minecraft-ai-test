@@ -16,7 +16,7 @@ const [ccPath, sinceS, untilS, ...dirs] = process.argv.slice(2)
 const CC = await import(path.resolve(ccPath))
 const ST = await import(path.join(path.dirname(path.resolve(ccPath)), 'stocktarget.mjs'))
 const since = Number(sinceS), until = Number(untilS)
-const out = { towns: [], g3: [], g4: [], g4_overlap: [], valve: [], resets: [], unreadable: [], live_over_1h: {}, generations: {}, admitted: { bank: 0, take: 0, draw: 0, valve: 0, nowell: 0 }, draws: {}, bank_ids: [], bank_aids: {} }
+const out = { towns: [], g3: [], g4: [], g4_overlap: [], valve: [], resets: [], unreadable: [], live_over_1h: {}, generations: {}, admitted: { bank: 0, take: 0, draw: 0, valve: 0, nowell: 0 }, draws: {}, bank_ids: [], bank_aids: {}, admitted_cobble_bank: 0 }
 
 // a generation's records, cut at `upto` bytes (the successor base's prevEnd: what was appended after it is NOT folded by
 // any bot -- design r3 section 4 -- so the audit must not fold it either; Codex code r1 P2)
@@ -62,6 +62,7 @@ for (const dir of dirs) {
         if (r.t === 'claim') {
           const c = state.claims?.[r.id]
           if (c && r.at >= since && r.at <= until && c.decision in out.admitted) out.admitted[c.decision]++
+          if (c && r.at >= since && r.at <= until && c.decision === 'bank' && (c.g ?? 'cobble') === 'cobble') out.admitted_cobble_bank++   // C5's exposure
           // the read's G2 checks a recovery's reservations against these (Codex code r2 P2)
           if (c && (c.decision === 'bank' || c.decision === 'nowell') && r.at >= since - 600_000 && r.at <= until) {
             out.bank_ids.push(r.id)

@@ -460,7 +460,10 @@ export function stockRefusals (items = [], opts = {}) {
 /** The `_stock_refused` row's detail (key=value first: the detail is cut at 300). */
 export function stockRefusedDetail (via, refusals = []) {
   const cap = refusals.filter(r => /cobble/.test(r.why)).length
-  return `via=${via} n=${refusals.length} cobble=${cap} stock=${refusals.length - cap} ${refusals.map(r => `${r.name}:${r.held}:${r.why.replace(/^town_/, '')}`).join(' ')}`.slice(0, 300)
+  // confirmed = refused AT a counted cap/target; the rest only could not be judged (unknown: fail-closed, not proof)
+  const conf = refusals.filter(r => /(_cap|_target)$/.test(r.why))
+  const confCob = conf.filter(r => /cobble/.test(r.why)).length
+  return `via=${via} n=${refusals.length} cobble=${cap} stock=${refusals.length - cap} at_cobble=${confCob} at_stock=${conf.length - confCob} ${refusals.map(r => `${r.name}:${r.held}:${r.why.replace(/^town_/, '')}`).join(' ')}`.slice(0, 300)
 }
 
 export function bankableExclusion (items = [], item = null, opts = {}) {

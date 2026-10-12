@@ -177,12 +177,20 @@ def judge(rows, hours, census=None, draws=None, bank_aids=None):
     pre_k = [r for r in rows if r['per'] == 'pre' and r['arm'] == 'control']
     out = {}
     out['rows_canary'] = sum(1 for r in post_c if r['name'] in OWN)
+    # LIVE = own rows that judged something: every own row but a _stock_refused row whose refusals are ALL unknown (a
+    # canary whose journal cannot be replayed refuses everything as unknown and judges nothing: Claude fold-r1 P2-1)
+    proven = lambda r: r['name'] != '_stock_refused' or num(kv(r['detail']), 'at_cobble', 0) + num(kv(r['detail']), 'at_stock', 0) > 0
+    out['rows_live'] = sum(1 for r in post_c if r['name'] in OWN and proven(r))
     out['rows_control'] = sum(1 for r in post_k if r['name'] in OWN)
     refusals = sum(1 for r in post_c if r['name'] in ('deposit', 'town_deposit') and REFUSAL.search(r['detail']))
     # THE AT-TARGET REFUSAL ROWS (stonecap-01 INCONCLUSIVE 10-12: on a town already above its cap the only evidence the
     # rule is live is a refusal; the plan used to drop the item silently): rows, and the cobble cap's share of them
     refused_rows = [r for r in post_c if r['name'] == '_stock_refused']
     refused_cobble = sum(1 for r in refused_rows if num(kv(r['detail']), 'cobble', 0) > 0)
+    # CONFIRMED at a counted cap/target, apart from unknown-only (fail-closed is not proof: Codex fold-r1); cobble apart
+    refused_at_cobble = sum(1 for r in refused_rows if num(kv(r['detail']), 'at_cobble', 0) > 0)
+    refused_at_stock = sum(1 for r in refused_rows if num(kv(r['detail']), 'at_stock', 0) > 0)
+    refused_via = Counter(kv(r['detail']).get('via', '?') for r in refused_rows)
     g1, g2, g3, g3v, disposed_groups = [], [], [], [], set()
     disposed_by_pool = defaultdict(set)
     disp = prn = bank_rows = valves = nowell = 0
@@ -282,6 +290,7 @@ def judge(rows, hours, census=None, draws=None, bank_aids=None):
                 'fullfail_canary': fullfail(post_c), 'fullfail_control': fullfail(post_k),
                 'fullfail_pre_canary': fullfail(pre_c), 'fullfail_pre_control': fullfail(pre_k)})
     out['refused_rows'] = len(refused_rows); out['refused_cobble_rows'] = refused_cobble
+    out['refused_at_cobble'] = refused_at_cobble; out['refused_at_stock'] = refused_at_stock; out['refused_via'] = dict(refused_via)
     out['_lists'] = {'g1': g1[:5], 'g2': g2[:5], 'g3': g3[:5], 'g3v': g3v[:5], 'g1b': g1b[:5]}
     return out
 
@@ -293,8 +302,12 @@ def selftest():
     ok = judge([R('_stock_dispose', 'group=oak_log name=oak_log count=64 floor=900 avail=900 target=64 keep=64 pillar_after=200 pruned_left=0')], 3)
     assert ok['breach_g1'] == 0 and ok['dispose_clicks'] == 1, ok
     # LIVENESS ON AN OVER-CAP TOWN (stonecap-01 INCONCLUSIVE 10-12): a refusal row is a canary row; cobble counted apart
-    rf = judge([R('_stock_refused', 'via=deposit n=2 cobble=1 stock=1 cobblestone:95:cobble_cap oak_log:192:stock_target')], 3)
-    assert rf['rows_canary'] == 1 and rf['refused_rows'] == 1 and rf['refused_cobble_rows'] == 1, rf
+    rf = judge([R('_stock_refused', 'via=deposit n=2 cobble=1 stock=1 at_cobble=1 at_stock=1 cobblestone:95:cobble_cap oak_log:192:stock_target')], 3)
+    assert rf['rows_canary'] == 1 and rf['refused_rows'] == 1 and rf['refused_cobble_rows'] == 1 and rf['refused_at_cobble'] == 1 and rf['refused_at_stock'] == 1, rf
+    un = judge([R('_stock_refused', 'via=admission n=1 cobble=1 stock=0 at_cobble=0 at_stock=0 cobblestone:95:cobble_unknown')], 3)
+    assert un['refused_rows'] == 1 and un['refused_at_cobble'] == 0 and un['refused_via'] == {'admission': 1}, 'unknown is reported apart, not as a confirmed cap'
+    assert un['rows_canary'] == 1 and un['rows_live'] == 0, 'an unknown-only refusal is a row, not liveness (Claude fold-r1 P2-1)'
+    assert rf['rows_live'] == 1, 'positive control: a proven refusal is liveness'
     assert judge([R('_stock_refused', 'via=deposit n=1 cobble=0 stock=1 oak_log:192:stock_target')], 3)['refused_cobble_rows'] == 0
     ctl = R('_stock_refused', 'via=deposit n=1 cobble=1 stock=0 cobblestone:95:cobble_cap'); ctl['arm'] = 'control'
     assert judge([ctl], 3)['rows_control'] == 1, 'the base writes none: a control refusal row is an arms breach'
@@ -374,7 +387,20 @@ def journal_selftest():
     assert [x['g'] for x in other['g4']] == ['stick'] and other['g4_overlap'] == [], ('another GROUP\'s draw is no overlap', other['g4'], other['g4_overlap'])
     same = run(576, 512, between=[{'t': 'claim', 'id': 'o2', 'n': 64, 'k': 'a', 'at': T + 3, 'bot': 'b2', 'keys': ['a'], 'coverage': True, 'gone': [], 'g': 'stick', 'kind': 'draw', 'w': None}])
     assert same['g4'] == [] and [x['g'] for x in same['g4_overlap']] == ['stick'], ('the same group\'s draw is an overlap (tripwire)', same['g4'], same['g4_overlap'])
-    print('JOURNAL SELFTEST ok: G4 per group (legal, excess, hidden, overlap)')
+    # C5 ON THE COMBINED JOURNAL (Codex fold-r1 P2-3 probe): cobble 160 counted, a cobble bank claim of 64 admitted, an
+    # unrelated live oak claim of 64, the release count says 270 -> the cobble overshoot is found (stonecapread's fold missed it)
+    import tempfile
+    d = tempfile.mkdtemp(prefix='stockjournal-c5-')
+    recs = [{'t': 'cnt', 'k': 'a', 'n': 160, 'cap': T, 'at': T, 'v': 2, 'm': {'cobble': 160, 'oak_log': 0}, 'ids': [], 'scan': {'keys': ['a'], 'at': T}, 'w': None},
+            {'t': 'claim', 'id': 'o1', 'n': 64, 'k': 'a', 'at': T + 1, 'bot': 'b2', 'keys': ['a'], 'coverage': True, 'gone': [], 'g': 'oak_log', 'w': None},
+            {'t': 'claim', 'id': 'c1', 'n': 64, 'k': 'a', 'at': T + 2, 'bot': 'b1', 'keys': ['a'], 'coverage': True, 'gone': [], 'w': None},
+            {'t': 'cnt', 'k': 'a', 'n': 270, 'cap': T + 5, 'at': T + 5, 'v': 2, 'm': {'cobble': 270, 'oak_log': 0}, 'ids': ['c1'], 'w': None}]
+    with open(os.path.join(d, 'town.cobble.jsonl'), 'w') as fh:
+        fh.write(''.join(json.dumps(r) + '\n' for r in recs))
+    r = subprocess.run(['node', os.path.join(HERE, 'stockjournal.mjs'), cc, '0', str(T + 600000), d], capture_output=True, text=True, timeout=120)
+    c5 = json.loads(r.stdout)
+    assert c5['admitted_cobble_bank'] == 1 and [x['g'] for x in c5['g3']] == ['cobble'], ('C5 on the combined journal', c5['admitted'], c5['g3'])
+    print('JOURNAL SELFTEST ok: G4 per group (legal, excess, hidden, overlap); C5 cobble overshoot beside an oak claim')
 
 
 if __name__ == '__main__':
@@ -432,8 +458,8 @@ if __name__ == '__main__':
     rate = lambda n, per, arm: n / hrs(per, arm) if hrs(per, arm) else float('nan')
     print('DENOMINATORS rows walked %d (unparsable %d) | bots pre canary %d control %d | post canary %d control %d | window %d min'
           % (walked, bad, len(bots[('pre', 'canary')]), len(bots[('pre', 'control')]), len(bots[('post', 'canary')]), len(bots[('post', 'control')]), W))
-    print('LIVENESS     canary own rows %d (of them _stock_refused %d, naming cobble %d) + refusal sentences %d | control own rows %d (must be 0)' % (
-        res['rows_canary'], res['refused_rows'], res['refused_cobble_rows'], res['refusals_canary'], res['rows_control']))
+    print('LIVENESS     canary own rows that judged something (rows_live, the line) %d | all own rows %d (of them _stock_refused %d: at a counted cobble cap %d, at a counted stock target %d, naming cobble %d, via %s) | refusal sentences %d (reported apart) | control own rows %d (must be 0)' % (
+        res['rows_live'], res['rows_canary'], res['refused_rows'], res['refused_at_cobble'], res['refused_at_stock'], res['refused_cobble_rows'], res['refused_via'], res['refusals_canary'], res['rows_control']))
     print('CORRECTNESS  G1 %d %s | G1b %s %s | G2 %d %s | G3 row %d %s | G3v row %d %s' % (
         res['breach_g1'], res['_lists']['g1'], res['breach_g1b'] if res['g1b_tested'] else 'UNTESTED (no STOCK_CENSUS)', res['_lists']['g1b'],
         res['breach_g2'], res['_lists']['g2'], res['breach_g3_row'], res['_lists']['g3'], res['breach_g3v_row'], res['_lists']['g3v']))
@@ -469,11 +495,17 @@ if __name__ == '__main__':
         from readjson import emit
         clean = lambda v: None if v != v else round(v, 4)
         emit('stocktargetread', W, {
-            'rows_canary': res['rows_canary'] + res['refusals_canary'], 'rows_control': res['rows_control'],
+            # own rows only (Codex fold-r1 P3: the liveness field is what its name says); sentences apart
+            'rows_canary': res['rows_canary'], 'rows_live': res['rows_live'], 'refusal_sentences': res['refusals_canary'], 'rows_control': res['rows_control'],
+            'refused_at_cobble': res['refused_at_cobble'], 'refused_at_stock': res['refused_at_stock'],
             'breach_g1': res['breach_g1'], 'breach_g1b': res['breach_g1b'], 'g1b_tested': res['g1b_tested'], 'breach_g2': res['breach_g2'],
             'breach_g3_row': res['breach_g3_row'], 'breach_g3v_row': res['breach_g3v_row'],
             'journal_audit_ran': int(journal is not None),
             'breach_g3_journal': len(jr.get('g3', [])) if journal is not None else 0,
+            # stonecap's C5 (journal), judged by the canary's own generation-aware fold (stonecapread's hand-rolled fold
+            # predates the groups and kinds: fold-r1 P2-3); UNTESTED while no cobble bank claim is admitted
+            'breach_c5_cobble_journal': sum(1 for g in jr.get('g3', []) if g.get('g') == 'cobble') if journal is not None else 0,
+            'admitted_cobble_bank': jr.get('admitted_cobble_bank', 0), 'c5_tested': int(bool(jr.get('admitted_cobble_bank'))),
             # (the claim's own proof, not the row text -- Claude code r1 P3)
             'breach_g3v_journal': int(journal is not None and (len(jr.get('valve', [])) > res['valve_uses'] or any(v.get('proof') != 'nothing_else' for v in jr.get('valve', [])))),
             'breach_g4_journal': len(jr.get('g4', [])) if journal is not None else 0,
