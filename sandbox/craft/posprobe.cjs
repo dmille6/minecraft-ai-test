@@ -36,6 +36,14 @@ mf.createBot = function (opts) {
   // so eyeHeight / pose / onGround read at that write are what the timer was computed from. Read only; the packet passes.
   const rawWrite = c.write.bind(c)
   c.write = function (name, params) {
+    if (name === 'window_click') {
+      // every click with the state that decides whether it is a race: the open window, craftsync's ACTIVE craft (the
+      // controller's own active(), not busy()), and what the hand held at the click
+      try {
+        w({ pkt: 'click_state', win: params?.windowId, slot: params?.slot, mode: params?.mode, curWin: bot.currentWindow?.id ?? 0,
+            craftActive: !!bot.craftSync?.active?.(), craftBusy: !!bot.craftSync?.busy?.(), held: bot.heldItem?.name ?? null })
+      } catch {}
+    }
     if (name === 'block_dig') {
       try {
         const e = bot.entity, l = params?.location
@@ -52,7 +60,8 @@ mf.createBot = function (opts) {
     w({ x: +p.x.toFixed(3), y: +p.y.toFixed(3), z: +p.z.toFixed(3),
       vy: +(e.velocity?.y ?? 0).toFixed(3), onGround: !!e.onGround, feet: name(p), head1: name(p.offset(0, 1, 0)),
       eye: name(p.offset(0, 1.62, 0)), oxygen: bot.oxygenLevel ?? null, health: bot.health ?? null,
-      eyeHeight: e.eyeHeight ?? null, pose: e.metadata?.[6] ?? null, digging: !!bot.targetDigBlock })
+      eyeHeight: e.eyeHeight ?? null, pose: e.metadata?.[6] ?? null, digging: !!bot.targetDigBlock,
+      win: bot.currentWindow?.id ?? 0, craftActive: (() => { try { return !!bot.craftSync?.active?.() } catch { return null } })() })
   }, 250)
   bot.once('end', () => clearInterval(t))
   return bot

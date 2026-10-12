@@ -1,0 +1,95 @@
+orderroom-01 reviews, 2026-10-10..12. Codex: final answers verbatim. Claude subagent: condensed from its replies.
+FINAL: Codex APPROVE r6, Claude APPROVE r6.
+
+=== CODEX r1 ===
+CHANGE
+
+1. **`craftRoomCheck` would not check the recipe the skill necessarily executes.** `craftLevel` first takes `recipesFor(...)[0]`; `craftPlanFor` runs only as fallback and ranks variants by supply/preference. Different wood/stone variants can consume a singleton versus part of a large stack, changing room in either direction. Also, with a carried table and an existing table outside immediate reach, the proposed check subtracts a table placement; craft can walk to and use the existing table, leaving the carried stack occupied. Share the executor’s recipe/station selection. (`bots/src/skills.mjs:3383`, `:3391`, `:3567`; `bots/src/craftplan.mjs:57`)
+
+2. **Internal make-room is lost in concrete cases.** A full bag containing one spent pickaxe plus a usable survivor can craft a replacement by destroying the spent copy; housekeeping retains up to three spent pickaxes. Thus suppression can block a craft that would succeed. Housekeeping also lacks craft’s `wearKeepsSlot` restriction, so its block drop can refill the slot. Its cooldown is another difference. (`bots/src/craftroom.mjs:269`; `bots/src/hygiene.mjs:50`; `bots/src/skills.mjs:4290`, `:5311`; `bots/src/cognitive.mjs:809`)
+
+3. **Omitting pickup reservation admits known refusals, not merely pickup races.** An item already present can remain uncollectable; `settlePickup` may return a refusal, and subsequent encounters are refused after its single attempt. Omitting table reservation is defensible because of `tableYields`, but that does not make the entire check equivalent. Unknown simulation results also deliberately admit unchecked orders; document that limitation. (`bots/src/skills.mjs:3912`, `:3925`, `:3951`; `docs/reports/orderroom-design-2026-10-10.md:20`)
+
+4. **Deposit advice does not establish admission or completion.** It checks bank closure and worth, but deposit still faces cooldown, learned avoidance and repeat-loop rejection. All named deposits share `deposit:{}` because the declared argument list is empty; changing X cannot escape that history. Arriving home only resolves distance—it does not establish an open, reachable chest or clear admission history. Specify how these refusals advance the remedy chain. (`bots/src/skills.mjs:4313`, `:9103`, `:10212`; `bots/src/admission.mjs:337`, `:533`, `:696`, `:712`)
+
+5. **Backoff can create a home/deposit loop.** Excluding a backed-off deposit can make advice fall through to `home`, whose fallback currently requires only a deposit target, not being far away. Already home, arrival then counts as success without backoff; repeated home orders can monopolize decisions until deposit reopens. Require measurable distance progress and a viable successor deposit; distinguish arrival from an already-home no-op. Also, `travel_incomplete` still traverses admission failure cooldown despite roomState’s “no backoff.” (`bots/src/skills.mjs:4346`, `:2412`; `bots/src/cognitive.mjs:983`; `docs/reports/orderroom-design-2026-10-10.md:53`)
+
+6. **Four placement sites and y ≥ 50 do not prove escape safety.** The scan counts replaceable cells across heights and diagonals, including underfoot-side fallbacks; these are not four traversable exits. An elevated confined chamber can qualify while its first candidate obstructs the only exit. Select and revalidate a specific safe placement. Eat’s first-food/singleton rule does match execution, but hunger changes, equip/consume failure and subsequent pickups still require verification. (`bots/src/skills.mjs:4670`, `:4710`, `:3271`; `docs/reports/orderroom-design-2026-10-10.md:38`)
+
+7. **Order and progress bookkeeping need explicit composition rules.** Town deposit actually overrides the rung order; its latch/backoff permits later remedies, but not necessarily the immediately following tick. Home/place/eat/deposit do not serve a craft rung, so successful repairs do not reset its 45-minute deadline; fallback ingredient gathering can reset it while refilling the bag. Admitted ineffective remedies reset `consecutiveRejections`, whereas rejected remedies can trigger escape and move the bot away. Preserve bounded rung residence and test these full chains, including runner refusals and slot refill. (`bots/src/cognitive.mjs:805`, `:1138`, `:1156`, `:1170`; `bots/src/milestones.mjs:66`, `:937`; `bots/src/towndeposit.mjs:240`)
+
+8. **C2 and C3 are not valid instruments as specified.** C2’s `lost ⊆ {X}` proves neither bankability nor chest transfer: deposit recovery can legitimately consume other items constructing storage, while pickups can mask losses. Its `lost` tail can also exceed the event’s 300-character limit. C3 joins outcome events to suppression events emitted every five minutes using a 60-second window—ordinary later remedies and long home walks become false orphans. Record a correlated, issue-time room verdict and execution-time deposit allowance/transfer evidence. (`docs/reports/orderroom-design-2026-10-10.md:66`, `:81`; `bots/src/skills.mjs:2679`, `:3118`; `bots/src/logger.mjs:134`)
+
+9. **The primary is measurable but insufficient to establish benefit.** Filtering decision rows by craft proposal, zero latency and null admission supports refused-order DiD. However, suppressing all crafts or replacing them with long ineffective walks improves that primary. Require a productive-progress gate, remedy-to-craft completion denominator, and thresholds for travel/give-up regressions. C1 is a tolerated failure-rate gate, not “no craft without room”; classify pickup refusals separately. Add positive controls for admission joins, each remedy path, bankability and room verdicts. C4 should also verify deployed versions/exposure, since absent events alone cannot prove isolation. (`docs/reports/orderroom-design-2026-10-10.md:77`; `bots/src/logger.mjs:234`)
+
+10. **The paper control and ORDINARY rationale are unsound.** A singleton carried table frees a slot when placed; the pickaxe can occupy it and `tableYields` permits leaving the table standing. That proposed full-bag control need not fail. Use a standing table or a carried table stack that remains occupied, with ingredients that do not empty stacks. Furthermore, named deposit transfers its entire allowance and can free multiple slots; crafting need not immediately follow. Treat this as a **bag-fix intervention**, or establish an explicit classification rule beyond the unsupported “net ~0” claim. (`docs/reports/orderroom-design-2026-10-10.md:70`, `:97`; `bots/src/skills.mjs:3935`, `:4166`, `:2679`)
+
+Read-only review completed; no edits, SSH, or tests.
+
+=== CLAUDE r1 ===
+Lost to an API rate limit (10-10); not counted.
+
+=== CODEX r2 ===
+CHANGE
+
+1. **Route B can suppress a craft that would make its own room.** `bots/src/skills.mjs:4380` assumes a found table means no placement. Execution at `:3786` instead places the carried table if the approach fails. With a full bag, one carried table, and ingredients whose stacks remain occupied, placement frees the required slot—but the precheck withholds the craft and sends the bot banking. Represent this fallback or return unknown when the route depends on travel.
+
+2. **Route C places the table at the wrong point.** `bots/src/skills.mjs:4388` simulates placement before every craft step; `runCraftPlan` at `:4163` places it immediately before the first table-dependent step. This can invent capacity for preceding planks/sticks crafts. It also omits placement when the plan crafts its own table. Insert placement at the actual transition. The new tests exercise route B, leaving these discrepancies uncovered.
+
+3. **The wear verdict overpromises capacity.** `bots/src/skills.mjs:4416` accepts a two-slot shortage after finding just one expendable tool. Two attempts are not two available tools. It also accepts pickup-only shortages via wear, although `craftExecutions` at `:3907` explicitly settles/refuses the pickup before wearing anything. Simulate successive eligible removals and distinguish pickup reservations; the ten-minute failure timer only limits recurrence after an avoidable failure.
+
+4. **Home can still lead to a known-blocked deposit.** `bots/src/skills.mjs:4446` checks only the home exclusion. When deposit is excluded by learned failures, repeat memory, or backoff, a distant bot still receives “home—then deposit X.” Arrival does not clear those conditions; the next remedy becomes `none`. Require the destination deposit to remain executable and add a chain test with deposit memory blocked before departure.
+
+5. **C2 cannot reliably distinguish an invalid deposit from legitimate recovery.** `docs/reports/orderroom-design-2026-10-10.md:44` permits only X, chest, and food losses, but deposit recovery crafts a chest (`bots/src/skills.mjs:3062`), legitimately consuming logs/planks. Conversely, `bots/src/cognitive.mjs:1214` truncates `lost` to 120 characters, potentially hiding disallowed losses. Record actual banked items separately from recovery consumption, with explicit completeness, and gate C2 on that evidence.
+
+ORDINARY is defensible under the stated owner rule; the DiD primary, positive controls, and productive gates are appropriate. Static review only: no edits, SSH, or test execution.
+
+=== CLAUDE r2 ===
+APPROVE-WITH-CHANGES (2a1e097f): C2 false positives (recovery chest from planks, pathfinder scaffold, tool wear); the primary falls partly by construction -> productive gates; wear route not logged (C1 cannot separate it); home credited while still far; C6 must use origin distance; interruptions should be free; lost cap vs the 300-char row; paused-remedy HINT lies; minor comment; unrelated admission.mjs:371 [wanted].flat() does not spread a Set.
+
+=== CODEX r3 ===
+CHANGE
+
+1. **P2 — Bot-hours depend on action duration.** `orderroomread.py:147` caps every decision gap at 120 seconds, while `home` permits 240 seconds (`bots/src/skills.mjs:10605`). Long remedies therefore lose exposure time, potentially inflating canary productivity rates and masking travel cost. Use independently measured uptime for the rate denominator.
+
+2. **P2 — Productive gates fail open on insufficient evidence.** `orderroomread.py:216–217,256`: five failed remedies can set `exposure_ready=1` while zero successful remedies leave `completion_low=0`. Missing PRE/POST exposure also produces NaN comparisons that do not breach. Require complete exposure and sufficient completion observations; otherwise explicitly mark the read inconclusive.
+
+3. **P2 — Completion failures include unfinished observation windows.** `orderroomread.py:202–205` counts remedies near `END` as unsuccessful without allowing their full 15 minutes, and searches only the next 199 events. Exclude immature observations and search the entire time window. Otherwise event volume and read timing can incorrectly block KEEP.
+
+4. **P2 — C2 still has a legitimate-food false positive.** `orderroomread.py:65–68,199` omits `golden_carrot` from `FOODS`, although it heads the reflex’s food priority (`bots/src/reflex.mjs:52`). Eating one during a deposit can therefore trigger a correctness breach.
+
+The code-side r1/r2 fixes check out on inspection, including route B ambiguity, route C placement timing, wear accounting, blocked-deposit composition, interruptions, outcome logging, and paused hints. The three conflict resolutions preserve both features correctly; junk-well orders remain ahead of room orders. I found no additional code-level refusal-chain defect.
+
+The supplied Paper cases support the repaired chain on `37149b74`; they do not exercise the merged junk-well precedence on `852477b0`. No edits, SSH, or tests performed.
+
+=== CLAUDE r3 ===
+APPROVE-WITH-CHANGES (852477b0 on 0cdb1a8): code right, conflicts right (junk well ahead of the room order; NEVER_DISPOSE protects the ingredients); read: C2 exempted the pickaxe's own ingredients (sticks, cobble), completion bounded by row count not time and no matcher control, bot-h gap cap 120 s undercounts walks; minor: skill-reported interruptions back off; paused HINT wording.
+
+=== CODEX r4 ===
+CHANGE
+
+1. **[P1] orderroomread.py:247 — Catastrophe-only gating permits KEEP despite severe productivity loss.** With comparable exposure and stable control, 100 PRE → 2 POST rung successes avoids `prod_breach`; 2/5 completed remedies also passes completion and evidence gates. Refusals can improve simply because crafts are withheld. The identical-code dry run justifies removing the old automatic **REVERT**, but not removing productivity protection from **KEEP**. Retain catastrophe REVERT and make concerning productivity declines **INCONCLUSIVE**, pending sufficient evidence under a calibrated rule.
+
+No new correctness findings in c5519d04 or 1a227067. Read-only review; no tests or SSH.
+
+=== CLAUDE r4 ===
+APPROVE-WITH-CHANGES (c5519d04 + 1a227067): code approved; read: catastrophe line inactive on one pool (use an expected count), C1 blind to "(room via unknown)" crafts -> gate them, completion double-counts home+deposit; the productive downgrade is justified (identical-code dry run -0.211 vs base 0.201).
+
+=== CODEX r5 ===
+CHANGE
+
+1. **P1 — [orderroomread.py:258](/private/tmp/claude-501/-Users-darrellmiller-Documents-code-minecraft-ai--claude-worktrees-heuristic-nightingale-49eee9/2a199c24-8dc2-4c02-9509-8499787c3dd1/scratchpad/orderroomread.py:258): Undefined productivity still permits KEEP.** With positive exposure but zero control PRE rung successes, `expected` and `prod_p` become NaN; both productivity flags become 0. `evidence_short` checks exposure, completion and matcher evidence, so it can also remain 0. Make nonfinite expected/P block KEEP as insufficient evidence.
+
+No additional code findings: r7 preserves the iron-ladder fallback, and bamboo retains the stated order precedence. Unknown-room gating and removal of home completion double-counting match the requested changes.
+
+Read-only review; no edits, SSH or tests.
+
+=== CLAUDE r5 ===
+APPROVE-WITH-CHANGES (read + 00ffba5d + variants): variants hash identical; bamboo composition right; fold the KEEP blockers into exposure_ready (a checker nobody calls otherwise); ladder fallback should take the cheapest stack (coal before ingots); NaN productivity silent; note the short=2 double count.
+
+=== CODEX r6 ===
+APPROVE. The r8 fallback and reader/registration wiring address the round-5 findings. No remaining blocking findings from static review. No edits, SSH, or tests performed.
+
+=== CLAUDE r6 ===
+APPROVE, no findings (4825f176 / 8223061b / 411aa378 + read + registration generator): cheapest-ladder fallback correct and identical on all three; productivity_undefined -> evidence_short; keep_blocked folded into exposure_ready; own_lines follow the bamboo-01 convention (defect lines revert; the rest block KEEP); the primary stays REPORTED given null dry runs +4.78/+5.19/-2.78.
+

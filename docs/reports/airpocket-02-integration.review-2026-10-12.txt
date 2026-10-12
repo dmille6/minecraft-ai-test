@@ -1,0 +1,58 @@
+airpocket-02 INTEGRATION review log, 2026-10-12. Codex = `codex exec`; Claude = an independent subagent. Both are read-only on git.
+
+Change under review: branch ap2w-on-0cdb1a8 (variants ap2w-on-82aef34 and ap2w-on-8212674 have identical diffs over their bases).
+- 3038c1c3: one inventory core. rescueInventoryDecision feeds admission, the pre-empt and the step. The owner's window
+  handoff is hand-merged: 39ac212, 978c887, dafc276, d2df552 (their own review log is
+  docs/reports/airpocket-02-window-handoff.review-2026-10-09.txt, r5 both APPROVE). Two more owners join the core:
+  - a craft in flight, which counts as owned and locked;
+  - a junk-well hold, which counts as owned and is released.
+  It also adds a rescue epoch, so settleAndRestore keeps the rescue's pickaxe.
+- f711ad34: holdInventory registers bot.inventoryHold. Well tests: the hold yields; a rescue mid-visit keeps its pickaxe.
+- f0649dfd (r1 fix): release the hold before ANY equip.
+- 0ace031c (r1 fix): craftActive = craftsync active() (not busy()); wiring asserts plus G4 mutants; rescueInventoryActive;
+  a well hold no longer makes an open window owned; the pre-empt row text.
+- 776766cb (r2 fix): the rescue's release DROPS (rejects) what was queued behind the hold; a hand replaced after a good
+  equip gets the short cooldown.
+
+ROUND 1 (on f711ad34)
+- Codex: REQUEST CHANGES.
+  - P1: a quick-bar pickaxe skips the handoff, so releaseHold never runs. Codex reproduced it with the real holdInventory:
+    slot 9 dug; slot 37 timed out after 1501 ms and sent 0 digs.
+- Claude: REQUEST CHANGES.
+  - P1: the same quick-bar release gap; the repro waited out the whole hold.
+  - P2: a zombie craft (busy() but not active()) locks the rescue for up to the 20-s windowOpen timeout, with nothing left
+    to interrupt.
+  - P2: the craft and well signals in reflex.mjs were untested. Deleting all four left the suite 190/190 green.
+  - P3s:
+    - the epoch is bumped even when the step later refuses (accepted);
+    - an order that starts during the step restores over the rescue;
+    - the pre-empt row says "window" during a craft;
+    - with an unowned window plus a well hold, admission and the step disagree.
+  -> fixed in f0649dfd and 0ace031c. Each fix has a test, and each test has a mutant that fails for the intended reason.
+
+ROUND 2 (on 0ace031c)
+- Codex: REQUEST CHANGES.
+  - P1: releasing the hold wakes queued actions. A hunger bread equip queued behind it lands after the rescue's quick-bar
+    equip. In the repro the bread was held, 0 digs were sent, and the 60-s cooldown applied.
+  -> fixed in 776766cb.
+- Claude (reviewed f0649dfd, 0ace031c and 776766cb together): APPROVE.
+  - The round-1 repros are re-run and all are fixed.
+  - Deleting each of the six wiring lines now fails G1 plus its own G4 mutant.
+  - The mid-review waiter race it found independently is closed by 776766cb.
+  - P3 for the record:
+    - the rescue flag clears at step return (harmless);
+    - the replaced-hand backstop acts only in the over-budget branch.
+
+ROUND 3 (on 776766cb)
+- Codex: APPROVE, no findings.
+  - The round-2 repro now rejects the bread; the pickaxe stays held and 1 dig is sent.
+  - The hunger handler catches the rejection under strict unhandled-rejection mode.
+  - Codex found no remaining queued or in-flight overwrite path.
+
+Tests at 776766cb:
+- airpocket 199/199; well 179/179.
+- Full suites: 243/243 (0cdb1a8), 245/245 (82aef34 -> 70cb0d41), 246/246 (8212674 -> 71032630).
+- Lint: only the base's pre-existing withinBody no-undef.
+
+Paper: docs/reports/airpocket-02-paper-2026-10-12.md, with the SM and CR tables. The CR log loss is pre-existing on 0cdb1a8,
+and no variant is queued there.

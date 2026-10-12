@@ -1,0 +1,42 @@
+{
+ "run": "orderroom-01",
+ "after": [
+  "bamboo-01"
+ ],
+ "variants": {
+  "0cdb1a8c84436ce67567a1b88242496f295d2395": {
+   "registration": "/home/mike/mcai-analysis/orderroom-01.4825f17.json",
+   "approved": "orderroom agent 2026-10-12: or-on-0cdb1a8 @ 4825f17 (design r1->r8 on 4970c91, applied to 0cdb1a8 with three conflicts resolved); Codex APPROVE r6 + Claude subagent APPROVE r6 (docs/reports/orderroom-reviews-2026-10-12.txt); npm test 244/244 (r8); Paper sandbox4 cand far/kept/room crafted, ctrl 0cdb1a8 never crafted; ORDINARY canary",
+   "registration_sha256": "60caee9336ac70b19b156e5be124ead6470c9e0d8e3e85b57ba24ec2e7e329a2",
+   "canary_sha": "4825f176dc2080e7c668a0dadc64d197c445f2a6",
+   "reads_src": "/home/mike/mcai-analysis",
+   "reads": {
+    "orderroomread": "4c96f5095446f018ca927c2aad387d6c",
+    "immobiledid": "53af289df12208901931dbeeb1ae325a"
+   }
+  },
+  "82aef3499bba99a503f6591fdbd1f76d5605bdad": {
+   "registration": "/home/mike/mcai-analysis/orderroom-01.8223061.json",
+   "approved": "orderroom agent 2026-10-12: or-on-82aef34 @ 8223061 = the 0cdb1a8 variant's net diff on gridfix-01 82aef34 (no conflicts; identical +/- lines verified by the Claude reviewer); Codex APPROVE r6 + Claude subagent APPROVE r6; npm test 246/246 (r8); ORDINARY canary",
+   "registration_sha256": "9815fe59746cb81c748fb21a75f11db730810dee044b51ca7306f899116fa1d6",
+   "canary_sha": "8223061bb07b99321eddccee444b2fa360fbadaa",
+   "reads_src": "/home/mike/mcai-analysis",
+   "reads": {
+    "orderroomread": "4c96f5095446f018ca927c2aad387d6c",
+    "immobiledid": "53af289df12208901931dbeeb1ae325a"
+   }
+  },
+  "8212674888fe3704e347eb416dae59ab1fd5164f": {
+   "registration": "/home/mike/mcai-analysis/orderroom-01.411aa37.json",
+   "approved": "orderroom agent 2026-10-12: or-on-8212674 @ 411aa37 = the same net diff on bamboo-01 8212674 (no conflicts; bamboo's fold runs before the room order); Codex APPROVE r6 + Claude subagent APPROVE r6; npm test 247/247 on this variant (r8); ORDINARY canary",
+   "registration_sha256": "d264b92daf67fa80eab5016576b9fbb36962e216c80e8b9f2f2bd268c349cbeb",
+   "canary_sha": "411aa37861789a29c3343e630db5d45fad3c12f5",
+   "reads_src": "/home/mike/mcai-analysis",
+   "reads": {
+    "orderroomread": "4c96f5095446f018ca927c2aad387d6c",
+    "immobiledid": "53af289df12208901931dbeeb1ae325a"
+   }
+  }
+ },
+ "note": "ordinary canary: no rung craft order without room (the craft's own room check); the named remedy (eat / deposit X / home toward a deposit that can run) is the order. Variants for the fleet 0cdb1a8 and for gridfix-01 82aef34 / bamboo-01 8212674 if they are kept. The read is installed at ~/mcai-analysis/orderroomread.py (md5 above); draw_exposure needs pools with >= 10 no-room craft refusals in 12 h."
+}

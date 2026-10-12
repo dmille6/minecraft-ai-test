@@ -1,0 +1,35 @@
+airpocket-ab.cjs scene CR (a craft in flight at the trap), Paper sandbox + sandbox2, 2026-10-12, 12:3x-13:14Z
+
+Setup:
+- Kit `craft`: a pickaxe in container.9 and 64 oak_log. AP_BRAIN_SKILL=craft {item: oak_planks}.
+- Every trial is a fresh bot on peaceful.
+- "Logs at end" is the server's Inventory, read by RCON.
+- Clicks come from trace.cjs, which gives the window id per click. craftsync active/busy at each click comes from the
+  posprobe.cjs click_state.
+
+Reader: sandbox/craft/crlogs.py. Raw results are on 10.0.0.31 at ~/ap-sbx/main/sandbox/log/airpocket-ab/results-sandbox{,2}.jsonl
+and the traces at trace-*-CR-*.jsonl.
+
+| build | trials | alive | 2nd abort ms into the craft | clicks after the 2nd abort (all win=0) | trials losing logs (end counts) | next craft |
+|---|---|---|---|---|---|---|
+| 0cdb1a8 (fleet control) | 4 | 4 | 350, 364, 361, 366 | 1: [-999]; 3: [-999, slot 10] | 3/4 (0, 0, 0; survivor 62) | failed x3, ok x1 |
+| 776766cb (ap2 candidate) | 4 | 4 | 397, 369, 388, 350 | 2: [-999, slot 10]; 2: [-999] | 2/4 (0, 0; others 62, 62) | failed x2, ok x2 |
+| 82aef34 (gridfix-01 base) | 2 | 2 | 594, 628 | [-999, slot 10, close, -999] | 0/2 (62, 62) | ok x2 |
+| 70cb0d41 (ap2 on gridfix) | 2 | 2 | 673; the other trial had no 2nd abort | [-999, slot 10, close, -999] | 0/2 (62, 61) | ok x2 |
+
+- Equip clicks while craftsync was active: 0 of 4. This was measured in the first two candidate trials.
+- First aborts (243-910 ms, 12 of 12 trials) never lost anything.
+
+Mechanism (ctrl CR:0, s from trial start):
+1. 20.304: the craft is aborted.
+2. close_window_out.
+3. The server returns the grid: set_slot 10 = oak_log x63.
+4. 20.417: click -999, the no-op resync.
+5. 20.531: click slot 10. This picks the 63 up onto the cursor. Nothing follows: no put-back, close, drop or spawn_item.
+   The stack stays on the server-side cursor and is absent from Inventory, so the next craft fails with "0x oak_log".
+On gridfix the same pickup is followed by close_window_out. The server returns the cursor stack to the inventory.
+
+Loss decided by the pickup click (non-gridfix): 5/5 lost when it happened, 0/3 when it did not.
+
+CAVEAT: every gridfix abort came at >= 594 ms, so no gridfix abort under 0.5 s was observed. Re-run CR on 82aef34 with an
+abort under 0.5 s when the sandbox is free.
