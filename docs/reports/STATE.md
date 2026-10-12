@@ -3,8 +3,8 @@ _updated 2026-10-12 18:25Z by the daily operator session (10-12). **FLEET `82aef
 promoted 18:20Z; every live bot reports 82aef34 at 18:22Z). NO CANARY. **V35 INSTALL CLAIMED by the daily operator
 session 18:23Z** (host marker ~/gate-v35/INSTALL-CLAIMED): running the 14:20Z checklist steps 0-6 now -- do NOT run it
 in parallel. Queue: bamboo-01 (held for v35) -> airpocket-02 -> stocktarget-01 -> orderroom-01. main still needs the
-82aef34 merge (fast-forward/merge, keep main-pre-<date>). OWNER DECISIONS PENDING: brain-01 ssh key; kept-subset GPU
-reservation; clear caps bamboo 0 / bucket 2._
+82aef34 merge (fast-forward/merge, keep main-pre-<date>). OWNER DECISIONS PENDING: none for brain-01 (ssh key and kept-subset
+Studio reservation both closed 10-12); clear caps bamboo 0 / bucket 2._
 
 > **THIS FILE ALSO EXISTS ON `main`.** `bots/test/nothing-important-is-orphaned.test.mjs` asserts it stays there.
 > If the two copies disagree, take the later `_updated` stamp. Long history: `git show 40a09da:docs/reports/STATE.md`
