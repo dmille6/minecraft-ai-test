@@ -1,19 +1,26 @@
 --- host-orig/canary-loop.sh	2026-10-12 07:06:37
-+++ patched/canary-loop.sh	2026-10-12 08:06:19
-@@ -25,6 +25,12 @@
++++ patched/canary-loop.sh	2026-10-12 08:11:09
+@@ -25,6 +25,19 @@
  # below behaves as before.
  BAGFIX=$(python3 -c "import json; print('1' if json.load(open('$REG')).get('class') == 'bag-fix' else '')")
  BAGFIX_POOLS=4
 +# brain-01 (staged 2026-10-12): a MODEL/ENV canary carries `canary_env`, a list of KEY=VALUE strings, written into the
 +# canary pool's canary.env by mcai-canary-tree (via fleet-deploy's CANARY_ENV, which survives the sudo and is checked
 +# in a live bot's /proc/<pid>/environ: FLAG MISSING exits 4). Unset or empty = every line below behaves as before.
-+CENV=$(python3 -c "import json,re,sys; e=json.load(open('$REG')).get('canary_env') or []; bad=[x for x in e if not re.fullmatch(r'[A-Z_][A-Z0-9_]*=[^\s]+', x)]; print('BAD:'+' '.join(bad) if bad else ' '.join(e))")
-+case "$CENV" in BAD:*) page error "registration $RUN canary_env entries are not KEY=VALUE without spaces: ${CENV#BAD:}"; exit 2;; esac
++# Values may hold `|` and `:` (verified through mcai-canary-tree and a real systemd EnvironmentFile, 10-12) but no
++# whitespace and no glob characters: mcai-canary-tree word-splits CANARY_ENV UNQUOTED, so `*`, `?` or `[` would glob.
++CENV=$(python3 -c "import json,re,sys; e=json.load(open('$REG')).get('canary_env') or []; bad=[x for x in e if not re.fullmatch(r'[A-Z_][A-Z0-9_]*=[^\s*?\[\]]+', x)]; print('BAD:'+' '.join(bad) if bad else ' '.join(e))")
++case "$CENV" in BAD:*) page error "registration $RUN canary_env entries are not KEY=VALUE without spaces or glob characters: ${CENV#BAD:}"; exit 2;; esac
 +CENV_KEYS=$(for kv in $CENV; do printf '%s ' "${kv%%=*}"; done)
++# THE WRITER OF canary.env IS PINNED (Claude r1): an env canary deploys only through the mcai-canary-tree whose CANARY_ENV
++# handling was read and tested (snapshot: infra/brain/host-snapshot/mcai-canary-tree in the brain-01 branch).
++if [ -n "$CENV" ] && [ "$(md5sum /usr/local/sbin/mcai-canary-tree 2>/dev/null | cut -d' ' -f1)" != "26da45dabfa8830b361d09b6a7dd236e" ]; then
++  page error "registration $RUN sets canary_env, but /usr/local/sbin/mcai-canary-tree is not the pinned build (md5 26da45da...): re-verify its CANARY_ENV handling first"; exit 2
++fi
  PH=$(lastphase); echo "loop $RUN sha $SHA resumes from phase: $PH"
  _jhas() { grep -q "\"run\":\"$RUN\".*\"phase\":\"$1\"" $J 2>/dev/null; }
  _guards() { python3 -c "import json,sys; print(bool(json.load(open(sys.argv[1])).get('guards')))" $H/digest/reads/$RUN-verdict-$1.json 2>/dev/null; }
-@@ -149,7 +155,7 @@
+@@ -149,7 +162,7 @@
        *) journal refused-v34 "matched control not frozen: $FZ"; page error "underground-safety $RUN NOT DEPLOYED: the matched control could not be frozen: $FZ (an earlier record for other pools is never overwritten; a re-run needs a new run id)"; exit 2;;
      esac
    fi
@@ -22,7 +29,7 @@
    grep -q "VERIFIED" $H/digest/deploy-$RUN.log || { page error "deploy not verified: $(tail -2 $H/digest/deploy-$RUN.log | tr '\n' ' ')"; exit 2; }
    journal deployed "$P $(mf declared_at)"; page info "canary $RUN $SHA deployed to $P at $(mf declared_at)"
  fi
-@@ -207,6 +213,26 @@
+@@ -207,6 +220,26 @@
    _restart_assigned
    sleep 90
    local LIVE=$(for pool in ${P//,/ }; do for d in /var/log/mcai/$pool-*; do f=$(ls -t $d/skill-*.jsonl 2>/dev/null | head -1); [ -n "$f" ] && tail -1 $f | python3 -c 'import sys,json; print(json.loads(sys.stdin.readline())["code"]["version"][:7])' 2>/dev/null; done; done | sort | uniq -c | tr '\n' ' ')
@@ -49,7 +56,7 @@
    journal torn-down "$LIVE"
    page verdict "$FINAL $RUN; torn down; pools live: $LIVE"
  }
-@@ -487,6 +513,15 @@
+@@ -487,6 +520,15 @@
      # promotion "none", because fleet-wide promotion is forbidden there, so every KEEP in that
      # window would have stranded its treatment. Record the KEEP, then tear down; the verdict is
      # preserved and the fleet is returned to baseline.

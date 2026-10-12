@@ -44,7 +44,7 @@
   "read": "brainread",
   "field": "exposure_ready",
   "min": 1,
-  "note": ">= 1,500 gemma4 decisions and >= 50 canary bot-hours."
+  "note": ">= 6,000 gemma4 decisions AND >= 200 canary bot-hours (~20 h of 10 bots) AND every canary bot on gemma4 (G8). So no KEEP before ~20 h; the gates still REVERT at any read."
  },
  "own_lines": [
   {
@@ -54,7 +54,7 @@
    "value": 0,
    "on_fail": "REVERT",
    "evidence": "defect",
-   "note": "G1 liveness >= 0.80 gemma4; G2 fallback <= 0.20; G3 unserved decisions <= control + 0.5/bot-h; G4 gemma4 schema-valid >= control - 0.01; G5 slow (> 45 s) <= 0.5%; G6 mismatch 0; G7 every canary bot's FIRST endpoint is gemma4; G8 every canary bot decides (>= 1 per 10 min) and >= 60% by gemma4. Deterministic mechanism checks on the canary's own rows: a failure is a defect, not a noisy estimate."
+   "note": "G1 liveness >= 0.80 gemma4; G2 fallback <= 0.20; G3 unserved decisions <= control + 0.5/bot-h; G4 gemma4 schema-valid >= control - 0.01; G5 canary model-decision p95 <= control p95 + 15 s; G6 mismatch 0; G7 every canary bot's FIRST endpoint is gemma4; G8 every canary bot decides (>= 1 per 10 min) and >= 60% by gemma4. Deterministic mechanism checks on the canary's own rows: a failure is a defect, not a noisy estimate."
   },
   {
    "read": "brainread",
