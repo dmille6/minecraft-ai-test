@@ -41,7 +41,8 @@ def scope_ok():
 HOG = "import sys; x = bytearray(400 * 1024 * 1024); x[::4096] = b'1' * len(x[::4096]); open(sys.argv[1], 'w').write(sys.argv[2])"
 
 
-def hr(hr_path, tmp, cmd, cap='1G', lock=None, wait='5', timeout='60', env=None, role='calibration', man=None, bg=False):
+def hr(hr_path, tmp, cmd, cap='1G', lock=None, wait='5', timeout='60', env=None, role='calibration', man=None, bg=False,
+       limit=300):
     out = tempfile.mktemp(dir=tmp)
     if man is None:
         man = os.path.join(tmp, 'man-idle.json')
@@ -61,7 +62,16 @@ def hr(hr_path, tmp, cmd, cap='1G', lock=None, wait='5', timeout='60', env=None,
     LAST_UNIT[0] = TEST_UNITS[-1]
     if bg:
         return pr, out
-    pr.wait(300)
+    try:
+        pr.wait(limit)
+    except subprocess.TimeoutExpired:
+        # NEVER leave a run behind (round 9, Codex): kill this run's OWN scope and wrapper, reap it, clear its unit --
+        # a live wrapper would keep the shared lock and contaminate every later case and mutant
+        unit = 'heavyread-%s-%d.scope' % (role, pr.pid)
+        subprocess.run(['sudo', '-n', 'systemctl', 'kill', '--signal=KILL', unit], capture_output=True)
+        pr.kill(); pr.wait(30)
+        subprocess.run(['sudo', '-n', 'systemctl', 'reset-failed', unit], capture_output=True)
+        return 'TIMEOUT', (open(out).read() if os.path.exists(out) else '')
     return pr.returncode, (open(out).read() if os.path.exists(out) else '')
 
 
@@ -71,6 +81,9 @@ TEST_UNITS = []; LAST_UNIT = ['']
 def reset_test_units():
     """Clear the failed state of every unit THIS test created (never anyone else's), so no case or mutant inherits it."""
     if TEST_UNITS:
+        # stop this test's own units that still run (e.g. the orphan case's deliberate sleep), then clear failed state
+        subprocess.run(['sudo', '-n', 'systemctl', 'kill', '--signal=KILL'] + TEST_UNITS, capture_output=True)
+        time.sleep(1)
         subprocess.run(['sudo', '-n', 'systemctl', 'reset-failed'] + TEST_UNITS, capture_output=True)
     del TEST_UNITS[:]
 
@@ -174,7 +187,7 @@ def _section_a(hr_path, tmp):
     # a read that IGNORES SIGTERM is SIGKILLed after the 60-s grace (round 5, Codex)
     t0 = time.time()
     rc, o = hr(hr_path, tmp, [sys.executable, '-c', 'import signal, time; signal.signal(signal.SIGTERM, signal.SIG_IGN); time.sleep(600)'],
-               timeout='3')
+               timeout='3', limit=120)
     c('a TERM-ignoring read is KILLED (137) within timeout + 60 s (%.0f s)' % (time.time() - t0), rc == 137 and time.time() - t0 < 90, (rc, o))
     # a malformed or foreign holder record is never signalled: the loop read waits and is not run
     lock = tempfile.mktemp(dir=tmp, prefix='plock4-')

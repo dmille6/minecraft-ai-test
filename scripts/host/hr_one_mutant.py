@@ -17,6 +17,8 @@ md = tempfile.mkdtemp(dir=tmp); mp = os.path.join(md, 'heavyread.sh'); open(mp, 
 r2 = M.section_a(mp, tmp)
 killed = [n for n, ok, _d in r2 if not ok]
 print('mutant "%s": %s by %s' % (NAME, 'KILLED' if killed else 'SURVIVED', killed[:3]))
+import subprocess
+print('heavyread units still loaded after the mutant: %d; lock holders: %s' % (len(subprocess.run(['systemctl', 'list-units', '--all', '--no-legend', '--plain', 'heavyread-*'], capture_output=True, text=True).stdout.splitlines()), subprocess.run('pgrep -fc "^bash .*heavyread.sh"', shell=True, capture_output=True, text=True).stdout.strip()))
 r3 = M.section_a(os.path.join(D, 'heavyread.sh'), tmp)          # no contamination: the unmutated file passes again
 bad3 = [n for n, ok, _d in r3 if not ok]
 print('unmutated section A AFTER the mutant: %d/%d pass%s' % (len(r3) - len(bad3), len(r3), ('; FAIL: ' + '; '.join(bad3)) if bad3 else ''))
