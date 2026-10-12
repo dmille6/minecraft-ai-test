@@ -4,35 +4,73 @@
  "registered_at": "STAGED 2026-10-12 (not registered; rebase onto the fleet base at queue time, after junkwell-02 and airpocket-02)",
  "class": "model-env",
  "ladder_change": false,
- "promotion": "keep-subset",
+ "promotion": "none",
  "canary_env": [
   "OLLAMA_BRAIN_PRIMARY=http://127.0.0.1:11601|gemma4:26b|gemma4|15000",
   "OLLAMA_THINK=false"
  ],
  "draw_k": 2,
- "notes": "brain-01 = the per-bot brain on gemma4:26b (Gemma 4 26B-A4B, LM Studio MLX 8-bit on the Studio, thinking off, the fleet's JSON-schema grammar through infra/brain/brainproxy.py) for 2 pools (10 bots), against the rest of the fleet as control. CODE (branch brain01-on-0cdb1a8, inert unless the env is set; both engines must APPROVE before queueing): OLLAMA_BRAIN_PRIMARY prepended to each bot's own pool; per-endpoint 15 s budget then the bot's own local endpoints; llm.brain on every decision row; _brain_config/_brain_share skill rows (baseline 0). PATH: 127.0.0.1:11601 on the fleet host = mcai-studio-tunnel.service (OWNER: key placement not yet approved). STUDIO: brainproxy + brain-keeper (GPU_RESERVED=brain01-live holds the bench queue). KEEP = keep-subset: code fleet-wide, env permanent on the 2 pools only (mcai-brain-subset), never drawn again, never a later control. Evidence: docs/reports/brain01-design-2026-10-12.md.",
+ "notes": "brain-01 = the per-bot brain on gemma4:26b (Gemma 4 26B-A4B, LM Studio MLX 8-bit on the Studio, thinking off, the fleet's JSON-schema grammar through infra/brain/brainproxy.py) for 2 pools (10 bots), against the rest of the fleet as control. CODE (branch brain01-on-0cdb1a8, inert unless the env is set; both engines must APPROVE before queueing): OLLAMA_BRAIN_PRIMARY prepended to each bot's own pool; per-endpoint 15 s budget then the bot's own local endpoints; llm.brain on every decision row; _brain_config/_brain_share skill rows (baseline 0). PATH: 127.0.0.1:11601 on the fleet host = mcai-studio-tunnel.service (OWNER: key placement not yet approved). STUDIO: brainproxy + brain-keeper (GPU_RESERVED=brain01-live holds the bench queue). promotion 'none' for this run: a KEEP records the result and tears down. Keeping the brain on a fixed subset is a later owner decision (amend promotion to keep-subset; the loop then pages the operator to run mcai-brain-subset, design s.8). Evidence: docs/reports/brain01-design-2026-10-12.md.",
  "licence": {
   "class": "kind",
   "kind": "_brain_config",
   "min_rows": 10,
   "note": "Written once per process start by a bot whose pool has a labelled endpoint; the fleet (0cdb1a8) writes none (it has no such row kind)."
  },
- "reads": ["brainread"],
- "read_minutes": [180, 360],
+ "reads": [
+  "brainread",
+  "immobiledid"
+ ],
+ "read_minutes": [
+  180,
+  360
+ ],
  "extension": {
   "until_exposure": true,
-  "extra_reads": [720, 1080, 1440],
+  "extra_reads": [
+   720,
+   1080,
+   1440
+  ],
   "note": "Primaries need ~24 h at 10 bots (design s.6 power); gates (liveness, fallback, nothing served, schema, slow, mismatch, config) are read at every read."
  },
  "deadline_min": 1680,
- "change_rows": ["_brain_config", "_brain_share"],
- "linkage_extra": [],
- "exposure": {"read": "brainread", "field": "exposure_ready", "min": 1, "note": ">= 1,500 gemma4 decisions and >= 50 canary bot-hours."},
- "own_lines": [
-  {"read": "brainread", "field": "gates_failed", "op": "<=", "value": 0, "on_fail": "REVERT", "note": "G1 liveness >= 0.80 gemma4, G2 fallback <= 0.20, G3 nothing served, G4 schema-valid, G5 slow decisions, G6 mismatch 0, G7 every canary bot names gemma4 first."},
-  {"read": "brainread", "field": "model_mismatch_rows", "op": "<=", "value": 0, "on_fail": "REVERT", "note": "No row may claim gemma4 for a decision something else served."}
+ "change_rows": [
+  "_brain_config",
+  "_brain_share"
  ],
- "primary": {"read": "brainread", "field": "primary", "note": "DiD refused-at-admission share (expected down: step (0) and the replay), success share, stagnation/bot-h, stone and iron pickaxe crafts/bot-h; items/bot-h report-only. Reported with the 10-12 null-DiD SDs."},
+ "linkage_extra": [],
+ "exposure": {
+  "read": "brainread",
+  "field": "exposure_ready",
+  "min": 1,
+  "note": ">= 1,500 gemma4 decisions and >= 50 canary bot-hours."
+ },
+ "own_lines": [
+  {
+   "read": "brainread",
+   "field": "gates_failed",
+   "op": "<=",
+   "value": 0,
+   "on_fail": "REVERT",
+   "evidence": "defect",
+   "note": "G1 liveness >= 0.80 gemma4; G2 fallback <= 0.20; G3 unserved decisions <= control + 0.5/bot-h; G4 gemma4 schema-valid >= control - 0.01; G5 slow (> 45 s) <= 0.5%; G6 mismatch 0; G7 every canary bot's FIRST endpoint is gemma4; G8 every canary bot decides (>= 1 per 10 min) and >= 60% by gemma4. Deterministic mechanism checks on the canary's own rows: a failure is a defect, not a noisy estimate."
+  },
+  {
+   "read": "brainread",
+   "field": "model_mismatch_rows",
+   "op": "<=",
+   "value": 0,
+   "on_fail": "REVERT",
+   "evidence": "defect",
+   "note": "No row may claim gemma4 for a decision something else served (the proxy names lmstudio:<it> on any non-match)."
+  }
+ ],
+ "primary": {
+  "read": "brainread",
+  "field": "primary",
+  "note": "ADVISORY BY DESIGN (verdict.py: primary is advisory). A KEEP of brain-01 means: the gates held (it was live, safe, and decided by gemma4) -- NOT that it helped. promotion is 'none', so a KEEP changes nothing on the fleet; the DiDs (refused share, success share, stagnation/bot-h, stone/iron pickaxe crafts/bot-h, decisions/bot-h, items/bot-h) with their 10-12 null SDs go to the OWNER, who decides whether to keep the brain on a fixed subset (an amendment to promotion 'keep-subset', then mcai-brain-subset)."
+ },
  "harm": "The loop's death gate (two-death floor) is authoritative; brainread reports deaths/bot-h DiD.",
  "teardown": "THREE steps plus the env check: drop-ins, canary_pool, restart; then no canary bot's /proc/<pid>/environ may carry OLLAMA_BRAIN_PRIMARY (staged canary-loop.sh env-cleared check).",
  "amendments": []

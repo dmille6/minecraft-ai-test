@@ -1,0 +1,18 @@
+--- host-orig/immobiledid.py	2026-10-12 08:04:05
++++ patched/immobiledid.py	2026-10-12 08:04:25
+@@ -49,7 +49,15 @@
+ imm = Counter(); mins = Counter(); ll = Counter(); llok = Counter(); climbs = Counter(); gath = Counter(); expl = Counter(); deaths = Counter(); exh = []; spent = []
+ pimm = Counter(); pmins = Counter(); pll = Counter(); pclimb = Counter(); pimmbots = defaultdict(set)
+ bots = defaultdict(set); pool = {}; posby = {}; invby = {}
++# brain-01 (staged): bots kept on a fixed remote brain are a different population -- never control, never canary here
++# unless they ARE the canary (the brain-01 run itself). Absent file = no subset = unchanged.
++try:
++    _SUBSET_POOLS = set(json.load(open('/srv/mcbots/brain-subset.json')).get('pools') or []) - CANS
++except FileNotFoundError:
++    _SUBSET_POOLS = set()
+ for b, rs in by.items():
++    if b.rsplit('-', 1)[0] in _SUBSET_POOLS:
++        continue
+     rs.sort(key=lambda r: r['t']); p = b.rsplit('-', 1)[0]; pool[b] = p
+     pos = [(r['t'], r['bot'].get('pos')) for r in rs if (r['bot'].get('pos') or {}).get('x') is not None]; posby[b] = pos; invby[b] = [(r['t'], sum((r['bot'].get('inventory') or {}).values())) for r in rs if r['bot'].get('inventory') is not None]
+     # minute grid over [CUT-PRE, CUT+W]

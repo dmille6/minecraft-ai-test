@@ -1,5 +1,5 @@
 --- host-orig/canary-loop.sh	2026-10-12 07:06:37
-+++ patched/canary-loop.sh	2026-10-12 07:12:58
++++ patched/canary-loop.sh	2026-10-12 08:06:19
 @@ -25,6 +25,12 @@
  # below behaves as before.
  BAGFIX=$(python3 -c "import json; print('1' if json.load(open('$REG')).get('class') == 'bag-fix' else '')")
@@ -22,38 +22,45 @@
    grep -q "VERIFIED" $H/digest/deploy-$RUN.log || { page error "deploy not verified: $(tail -2 $H/digest/deploy-$RUN.log | tr '\n' ' ')"; exit 2; }
    journal deployed "$P $(mf declared_at)"; page info "canary $RUN $SHA deployed to $P at $(mf declared_at)"
  fi
-@@ -208,6 +214,12 @@
+@@ -207,6 +213,26 @@
+   _restart_assigned
    sleep 90
    local LIVE=$(for pool in ${P//,/ }; do for d in /var/log/mcai/$pool-*; do f=$(ls -t $d/skill-*.jsonl 2>/dev/null | head -1); [ -n "$f" ] && tail -1 $f | python3 -c 'import sys,json; print(json.loads(sys.stdin.readline())["code"]["version"][:7])' 2>/dev/null; done; done | sort | uniq -c | tr '\n' ' ')
-   journal torn-down "$LIVE"
-+  # AN ENV CANARY IS TORN DOWN ONLY WHEN NO BOT STILL CARRIES ITS ENV. The version labels cannot show it (a model/env
-+  # canary changes no code the labels see), so read the live processes' environment directly.
++  # AN ENV CANARY IS TORN DOWN ONLY WHEN EVERY BOT OF THE POOLS IS PROVEN FREE OF ITS ENV (Codex r1). The version labels
++  # cannot show it, so read each live process's environment AS ROOT (`sudo cat`: the open itself is privileged). A bot
++  # with no running process, or an environ that cannot be read, is NOT proof -- it is named, and the teardown is not
++  # journalled as done: the scheduler keeps the slot open and the operator restarts the named units.
 +  if [ -n "$CENV_KEYS" ]; then
-+    local STILL=$(for pool in ${P//,/ }; do for d in /var/log/mcai/$pool-*; do b=$(basename "$d"); pid=$(systemctl show -p MainPID --value "mcbot@$b.service" 2>/dev/null); [ -n "$pid" ] && [ "$pid" != 0 ] || continue; for k in $CENV_KEYS; do sudo tr '\0' '\n' < /proc/$pid/environ 2>/dev/null | grep -q "^$k=" && echo "$b:$k"; done; done; done | tr '\n' ' ')
-+    if [ -n "$STILL" ]; then journal env-not-cleared "$STILL"; page error "TEARDOWN INCOMPLETE $RUN: canary env still live in $STILL -- restart those units"; else journal env-cleared "$CENV_KEYS"; fi
++    local BAD="" N=0
++    for pool in ${P//,/ }; do for d in /var/log/mcai/$pool-*; do [ -d "$d" ] || continue; b=$(basename "$d"); N=$((N+1))
++      pid=$(systemctl show -p MainPID --value "mcbot@$b.service" 2>/dev/null)
++      if [ -z "$pid" ] || [ "$pid" = 0 ]; then BAD="$BAD $b:no-process"; continue; fi
++      envtxt=$(sudo cat /proc/$pid/environ 2>/dev/null | tr '\0' '\n') || { BAD="$BAD $b:unreadable"; continue; }
++      [ -n "$envtxt" ] || { BAD="$BAD $b:unreadable"; continue; }
++      for k in $CENV_KEYS; do echo "$envtxt" | grep -q "^$k=" && BAD="$BAD $b:$k"; done
++    done; done
++    if [ -n "$BAD" ] || [ "$N" = 0 ]; then
++      journal teardown-incomplete "env not proven cleared on ${N} bot(s):${BAD:- no bots found}"
++      page error "TEARDOWN INCOMPLETE $RUN: canary env not proven cleared:${BAD:- no bots found} -- restart those units, then journal torn-down by hand"
++      return 1
++    fi
++    journal env-cleared "$CENV_KEYS proven absent on $N bot(s)"
 +  fi
+   journal torn-down "$LIVE"
    page verdict "$FINAL $RUN; torn down; pools live: $LIVE"
  }
- 
-@@ -487,6 +499,22 @@
+@@ -487,6 +513,15 @@
      # promotion "none", because fleet-wide promotion is forbidden there, so every KEEP in that
      # window would have stranded its treatment. Record the KEEP, then tear down; the verdict is
      # preserved and the fleet is returned to baseline.
-+    # brain-01: KEEP ON A FIXED SUBSET. The code is promoted fleet-wide (it is inert without the env); the env is made
-+    # PERMANENT on exactly the canary's pools by mcai-brain-subset, which records them in /srv/mcbots/brain-subset.json
-+    # (drawrec never draws them again; verdict.py leaves them out of every later control) and verifies each bot's
-+    # process environment. Any failure pages and leaves the subset un-applied -- the fleet is on promoted code either way.
++    # brain-01: KEEP ON A FIXED SUBSET is NOT done by the loop (Codex r1: a promote-then-apply inside the loop could close
++    # the run before the subset was kept, and could not resume). The loop records the KEEP and tears the canary down
++    # exactly like any non-fleet-wide KEEP below; then it pages the operator with the one verified command that makes
++    # the env permanent on these pools (mcai-brain-subset: record first, exact-value verification, resumable). The code
++    # is inert without the env and rides the next fleet-wide promotion.
 +    if [ "$(jf promotion)" = "keep-subset" ]; then
-+      _recorded || _record KEEP
-+      _jhas recorded || { journal promote-held "KEEP not recorded in the ledger; not promoting"; page error "KEEP $RUN NOT PROMOTED: the ledger record failed; relaunch the loop to retry"; exit 2; }
-+      $H/bin/fleet-deploy "$SHA" "$RUN-promote" "PROMOTION of $RUN code (KEEP by the canary loop; env kept on $P only)" > $H/digest/deploy-$RUN-promote.log 2>&1; grep -q "VERIFIED" $H/digest/deploy-$RUN-promote.log || { page error "promotion not verified"; exit 2; }
-+      journal promoted "$SHA fleet-wide (code only)"
-+      if sudo /usr/local/sbin/mcai-brain-subset apply --run "$RUN" --pools "$P" --env "$CENV" > $H/digest/subset-$RUN.log 2>&1; then
-+        journal subset-kept "$P :: $CENV"; page verdict "KEPT $RUN on the fixed subset $P (env permanent; code $SHA fleet-wide)"
-+      else
-+        journal subset-failed "$(tail -2 $H/digest/subset-$RUN.log | tr '\n' ' ')"; page error "KEEP $RUN: code promoted but the subset env was NOT applied: $(tail -1 $H/digest/subset-$RUN.log)"; exit 2
-+      fi
-+      exit 0
++      journal subset-pending "operator: sudo /usr/local/sbin/mcai-brain-subset apply --run $RUN --pools $P --env \"$CENV\""
++      page verdict "KEEP $RUN (keep-subset): after teardown, the operator applies the subset: sudo /usr/local/sbin/mcai-brain-subset apply --run $RUN --pools $P --env \"$CENV\""
 +    fi
      if [ "$(jf promotion)" != "fleet-wide" ]; then
        page verdict "KEEP $RUN, promotion '$(jf promotion)' -- recording and tearing down rather than promoting"

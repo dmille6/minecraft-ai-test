@@ -52,8 +52,12 @@ def translate(req):
 
 
 def served_name(upstream_model, model, serve_as):
-    """What the bot is told served it. Pure (tested)."""
-    return serve_as if (upstream_model or model) == model else 'lmstudio:%s' % upstream_model
+    """What the bot is told served it. Pure (tested). The pinned name ONLY on a positive match: an upstream reply that
+    names no model is `lmstudio:unknown`, so the bot's model_mismatch fires (Codex r1: a missing identity was
+    certified as gemma4)."""
+    if upstream_model == model:
+        return serve_as
+    return 'lmstudio:%s' % (upstream_model or 'unknown')
 
 
 class H(BaseHTTPRequestHandler):
