@@ -372,12 +372,17 @@ export function windowOwned ({ open, busy = false, held = false }) {
  * (stonecap review, Codex P2: an interrupted well/compost visit's settleAndRestore re-equipped its pre-visit item OVER
  * the pickaxe the rescue had just equipped). The rescue bumps bot.rescueInventoryEpoch before its step; hkGuards records it.
  */
-export function handRestoreAllowed ({ epochAtStart, epochNow }) {
-  return (epochAtStart ?? 0) === (epochNow ?? 0)
+export function handRestoreAllowed ({ epochAtStart, epochNow, rescueActive = false }) {
+  // rescueActive: an order that STARTED during the step captured the bumped epoch; while the step runs it never restores
+  return !rescueActive && (epochAtStart ?? 0) === (epochNow ?? 0)
 }
 
 export function rescueInventoryDecision ({ windowOpen = false, skillBusy = false, unsettledHold = false, craftBusy = false, wellHold = false } = {}) {
-  const owned = (windowOpen && (!!skillBusy || !!unsettledHold)) || !!craftBusy || !!wellHold
+  // a window is owned only by what closes it (the interrupted skill, a withdraw hold, the craft); a well's hold opens no
+  // window, so with an UNOWNED window open it does not make the window owned (Claude r1 P3: admission must price as the
+  // step will, and the step releases the hold and then finds the window unowned)
+  const windowOwner = !!skillBusy || !!unsettledHold || !!craftBusy
+  const owned = windowOpen ? windowOwner : (!!craftBusy || !!wellHold)
   const locked = !!windowOpen || !!craftBusy
   return { owned, locked, price: windowOpen && !owned ? 'held' : 'all', preempt: locked && owned ? 'hold' : 'go', release: !!wellHold }
 }
