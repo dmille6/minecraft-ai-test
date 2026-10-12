@@ -1,6 +1,6 @@
 # brain-01: gemma4 on the Studio as the per-bot brain for 10 live bots (design, 2026-10-12)
 
-Status: **STAGED, nothing installed or deployed.** Branch `brain01-on-0cdb1a8`. Owner approved planning on 10-10.
+Status: **STAGED, nothing installed or deployed. Both engines APPROVE the code, Studio/host pieces and operator patches (A/B/C, round 4, 10-12).** Branch `brain01-on-0cdb1a8`. Owner approved planning on 10-10.
 The new key on the fleet host (s.3) waits for the owner. Both engines review every piece before anything is queued.
 
 ## 1. Why: what a smarter brain can move
