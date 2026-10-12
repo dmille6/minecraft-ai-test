@@ -1462,9 +1462,11 @@ export function cobbleWellCap (bot, items = bot?.inventory?.items?.() ?? []) {
  * town is PROVEN at or above target on the AVAILABLE floor (target 0: always), only while the cap binds (a usable well:
  * stockCapBinds); the keeps are towndeposit's townKeeps for this bag and the bot's wants; holds are withdraw's.
  */
-export function stockWellOpts (bot, items = bot?.inventory?.items?.() ?? [], { group = null } = {}) {
+export function stockWellOpts (bot, items = bot?.inventory?.items?.() ?? [], { group = null, assumeCap = false } = {}) {
   try {
-    if (!stockCapBinds()) return null
+    // assumeCap (orderroom-01, Codex st-2 P2): planning a walk to a RECORDED well from afar, where the live well probe cannot
+    // see the town; the well's own order re-judges at town with the live probe. Every existing caller passes nothing.
+    if (!assumeCap && !stockCapBinds()) return null
     const st = capTown(bot)
     const groups = []
     for (const g of (group ? [group] : Object.keys(stockCounts(items)))) {
@@ -5200,8 +5202,8 @@ export function roomRemedy (bot, items, keep = [], { exclude = new Set() } = {})
     if (far) return { kind: 'home', item: far, text: `home -- then deposit ${far}: banking is refused out here (no usable chest in reach) and the town chest frees slots` }
     // ...OR THE TOWN'S WELL (Claude st-r1 1a): at target the bank takes no bulk, and the town's exit for that surplus is the
     // junk well, whose order runs at town before this one. `item` stays null: the room order names no deposit.
-    const well = townWellTakes(bot, items, keep)
-    if (well) return { kind: 'home', item: null, text: `home -- the town's junk well takes ${well} (junk, or at its town stock target) and frees slots` }
+    const well = exclude.has('home_well') ? null : townWellTakes(bot, items, keep)
+    if (well) return { kind: 'home', item: null, via: 'well', text: `home -- the town's junk well takes ${well} (junk, or at its town stock target) and frees slots` }
   }
   return { kind: 'none', item: null, text: advice.text }
 }
@@ -5221,10 +5223,13 @@ export const ROOM_FUEL_RESERVE = 16
  * the stocktarget tips' exit for surplus the bank no longer takes), never a craft ingredient. Read from the bot's own
  * memory of the town (no trip): a guess from afar, so the walk is credited only on arrival and the well order decides there.
  */
-export function townWellTakes (bot, items, keep = []) {
+export function townWellTakes (bot, items, keep = [], { wellSite = recordedWellSite } = {}) {
   try {
+    // A DESTINATION, NOT A HOPE (both engines st-2): only toward a well this pool has RECORDED (readable from afar, no
+    // trip); with one recorded, the stock targets' at-target groups count as the well would count them (assumeCap).
+    if (!wellSite(bot)) return null
     const used = new Set((keep ?? []).map(k => k?.name ?? k))
-    const plan = disposePlan(items, { swords: wellSwordsNow(bot), cobbleAtCap: cobbleWellCap(bot, items) === 'at_cap', stock: stockWellOpts(bot, items) })
+    const plan = disposePlan(items, { swords: wellSwordsNow(bot), cobbleAtCap: cobbleWellCap(bot, items) === 'at_cap', stock: stockWellOpts(bot, items, { assumeCap: true }) })
     return (plan.stacks ?? []).find(st => !used.has(st.name))?.name ?? null
   } catch { return null }
 }

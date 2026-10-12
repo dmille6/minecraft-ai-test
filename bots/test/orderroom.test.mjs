@@ -207,20 +207,30 @@ test('REMEDY: the iron ladder is not the price of a stone pickaxe -- another sta
   assert.deepEqual([...SK.LADDER_CHEAPEST_FIRST].sort(), [...BK_IRON].sort(), 'the cheapest-first list is exactly the town deposit\'s ladder')
 })
 
-test('REMEDY (stocktarget tips): far, nothing bankable, but the town\'s junk well takes a stack -> home, naming no deposit', () => {
+test('REMEDY (stocktarget tips): the walk to the junk well -- only toward a RECORDED well; the well\'s rule; never for an ingredient', () => {
   const keep = [{ name: 'cobblestone', count: 1 }, { name: 'stick', count: 1 }]
   const far = bagBot({ sticks: 10, at: new Vec3(400, 70, 0) })
   far.items[far.items.length - 1] = item('flint', 12, 44)
-  const w = SK.townWellTakes(far.bot, far.items, keep)
-  assert.ok(w, 'positive control: the well\'s own rule takes a stack of this bag (flint, wool)')
-  const r = SK.roomRemedy(far.bot, far.items, keep, { exclude: new Set(['deposit', 'home_deposit']) })
-  assert.equal(r.kind, 'home'); assert.equal(r.item, null); assert.match(r.text, new RegExp(`junk well takes ${w}`))
-  // at home the well's own order (ahead of the room order) does it; the room remedy never walks a bot that is home
-  const near = bagBot({ sticks: 10, at: new Vec3(3, 70, 0) }); near.items[near.items.length - 1] = item('flint', 12, 44)
-  assert.notEqual(SK.roomRemedy(near.bot, near.items, keep, { exclude: new Set(['deposit', 'home_deposit']) }).kind, 'home')
-  // a craft ingredient is never the well's stack named here: with every well-able name in the craft's keep, nothing
+  const site = () => ({ x: 5, y: 70, z: 5, gen: 1 })
+  const w = SK.townWellTakes(far.bot, far.items, keep, { wellSite: site })
+  assert.ok(w, 'positive control: with a recorded well the well\'s own rule takes a stack of this bag (flint, wool)')
+  assert.equal(SK.townWellTakes(far.bot, far.items, keep, { wellSite: () => null }), null, 'no recorded well: no walk for it')
   const all = far.items.map(i => ({ name: i.name, count: 1 }))
-  assert.equal(SK.townWellTakes(far.bot, far.items, all), null)
+  assert.equal(SK.townWellTakes(far.bot, far.items, all, { wellSite: site }), null, 'never a craft ingredient')
+  // roomRemedy uses the pool's real record: none in this test pool -> no well walk; deposit excluded -> none
+  const r = SK.roomRemedy(far.bot, far.items, keep, { exclude: new Set(['deposit', 'home_deposit']) })
+  assert.equal(r.kind, 'none', JSON.stringify(r))
+  assert.equal(SK.roomRemedy(far.bot, far.items, keep, { exclude: new Set(['deposit', 'home_deposit', 'home_well']) }).kind, 'none')
+})
+
+test('OUTCOME: a well walk that arrives backs further well walks off for 30 min, whatever the well then did', () => {
+  const out = WO.roomOutcome({ status: 'success', slotsAfter: 36, stillFar: false, now: 1000, state: { pending: { kind: 'home', item: null, via: 'well', slots: 36 } } })
+  assert.equal(out.verdict, 'ok'); assert.equal(out.state.backoff.home_well, 1000 + WO.ROOM_WELL_WALK_BACKOFF_MS)
+  assert.ok(WO.roomBackedOff(out.state, 2000).has('home_well'))
+  const dep = WO.roomOutcome({ status: 'success', slotsAfter: 36, stillFar: false, now: 1000, state: { pending: { kind: 'home', item: 'oak_log', slots: 36 } } })
+  assert.equal(dep.state.backoff.home_well, undefined, 'a deposit walk does not')
+  const o = WO.roomOrder({ noRoom: { item: 'stone_pickaxe', short: 1 }, remedy: { kind: 'home', item: null, via: 'well', text: 't' }, now: 0, slots: 36 })
+  assert.equal(o.state.pending.via, 'well')
 })
 
 test('MUTANT KILLED: without the fuel reserve the coal is banked to make a pickaxe', async () => {
