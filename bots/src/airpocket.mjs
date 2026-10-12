@@ -601,13 +601,15 @@ export async function airPocketStep (bot, plan, { Vec3, predict, sleep = ms => n
     // handoff waits for it to go idle and never calls bot.equip behind it (craftsync's wrapper would queue the equip)
     const lockedNow = () => !!bot.currentWindow || craftBusy()
     const handoff = async () => {
-      try { releaseHold() } catch { /* a well's hold is released before any equip; none held is fine */ }
       const h = await awaitWindowHandoff(bot, { sleep, now, busy: () => !unsettled && skillBusy(), locked: craftBusy,
         poke: () => { guard(); try { if (bot.controlState?.jump !== wantJump) bot.setControlState('jump', wantJump) } catch { /* not connected */ } } })
       if (h === 'unsettled') unsettled = true
       return h
     }
     const heldSlot = () => bot.heldItem?.slot ?? null
+    // a junk well's hold is RELEASED before ANY equip -- a quick-bar selection goes through its wrapper too, and skips the
+    // handoff below (Codex r1 P1 10-12: a slot-37 pickaxe waited out the hold, timed out, and the rescue dug nothing)
+    try { releaseHold() } catch { /* none held is fine */ }
     res.window = 'none'
     if (lockedNow() || equipClicks(best.item, heldSlot())) {
       const tw = now()
