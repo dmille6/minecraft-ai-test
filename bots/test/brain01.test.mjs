@@ -118,7 +118,15 @@ await t('think is absent unless set: an unset bot sends exactly today\'s keys', 
   assert.deepEqual(Object.keys(bodies[0].body).sort(), ['format', 'keep_alive', 'messages', 'model', 'options', 'stream'])
   bodies.length = 0
   await call(mk(['http://local:11434'], { think: false }))
-  assert.strictEqual(bodies[0].body.think, false)
+  assert.strictEqual(bodies[0].body.think, false, 'a lone unlabelled endpoint (the bench) gets think')
+})
+await t('with a labelled pool, think goes to the remote brain only; the local fallback gets today\'s request', async () => {
+  stub(base => base === 'http://studio:11601' ? { ok: false, status: 502, text: async () => 'x' } : answer('qwen2.5:7b-instruct'))
+  bodies.length = 0
+  await call(mk(POOL, { think: false }))
+  const studio = bodies.find(b => b.base === 'http://studio:11601'), local = bodies.find(b => b.base === 'http://local:11434')
+  assert.strictEqual(studio.body.think, false)
+  assert.deepEqual(Object.keys(local.body).sort(), ['format', 'keep_alive', 'messages', 'model', 'options', 'stream'])
 })
 
 // ---- 6. mismatch against the pinned model -------------------------------------------------------------------------
