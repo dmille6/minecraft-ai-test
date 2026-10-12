@@ -151,6 +151,21 @@ await t('logLlm writes llm.brain, and EVERY llm field it writes is mapped in the
 })
 
 // ---- 8. brain.mjs + the real loop --------------------------------------------------------------------------------
+await t('OLLAMA_BRAIN_PRIMARY is prepended to the bot\'s OWN pool, which keeps its order', () => {
+  const own = ['http://10.0.0.16:11434', 'http://10.0.0.72:11434']
+  assert.deepEqual(B.composePool('http://s:1|gemma4:26b|gemma4|15000', own), ['http://s:1|gemma4:26b|gemma4|15000', ...own])
+  assert.deepEqual(B.composePool(undefined, own), own, 'unset: unchanged')
+  assert.deepEqual(B.composePool('', own), own)
+  assert.deepEqual(B.composePool('http://10.0.0.72:11434|x|y|2000', own), ['http://10.0.0.72:11434|x|y|2000', 'http://10.0.0.16:11434'], 'no duplicate url')
+  assert.throws(() => B.composePool('http://a|m|b|2000,http://c', own), /ONE endpoint/)
+})
+await t('config: a process started with OLLAMA_BRAIN_PRIMARY really has it first in config.llm.baseUrls', async () => {
+  const { execFileSync } = await import('node:child_process')
+  const out = execFileSync(process.execPath, ['--input-type=module', '-e',
+    "const { config } = await import('" + new URL('../src/config.mjs', import.meta.url).href + "'); console.log(JSON.stringify(config.llm.baseUrls))"],
+    { env: { ...process.env, OLLAMA_BRAIN_PRIMARY: 'http://s:1|gemma4:26b|gemma4|15000', OLLAMA_BASE_URLS: 'http://10.0.0.16:11434,http://10.0.0.72:11434' } }).toString()
+  assert.deepEqual(JSON.parse(out.trim().split('\n').at(-1)), ['http://s:1|gemma4:26b|gemma4|15000', 'http://10.0.0.16:11434', 'http://10.0.0.72:11434'])
+})
 await t('BrainTally: a share row every 10 min, then it resets', () => {
   const tl = new B.BrainTally(0)
   tl.note('gemma4'); tl.note('gemma4'); tl.note('local'); tl.note('order'); tl.note(null)

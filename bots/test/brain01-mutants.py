@@ -16,6 +16,8 @@ M = [
  ('work order not labelled', 'src/cognitive.mjs', 'brain: decisionBrain(!!order, res),', 'brain: decisionBrain(false, res),'),
  ('_brain_config on every bot', 'src/cognitive.mjs', "this.brainTally = labelled(this.llm.pool?.eps).length ? new BrainTally() : null", "this.brainTally = new BrainTally()"),
  ('_brain_share never written', 'src/cognitive.mjs', "if (share) { try { logEvent({ kind: 'brain_share',", "if (false) { try { logEvent({ kind: 'brain_share',"),
+ ('brain primary not prepended', 'src/brain.mjs', "return [p, ...own.filter(e => e.split('|')[0] !== p.split('|')[0])]", "return own"),
+ ('config ignores OLLAMA_BRAIN_PRIMARY', 'src/config.mjs', 'composePool(process.env.OLLAMA_BRAIN_PRIMARY,', 'composePool(undefined,'),
  ('_brain_config never written', 'src/cognitive.mjs', "logEvent({ kind: 'brain_config',", "void ({ kind: 'brain_config',"),
 ]
 for name, f, old, new in M:

@@ -12,6 +12,19 @@
  */
 export const SHARE_EVERY_MS = 10 * 60_000
 
+/**
+ * OLLAMA_BRAIN_PRIMARY (one `url|model|brain|timeoutMs` entry) is PREPENDED to the bot's own pool. A canary sets
+ * this one variable in canary.env, and every canary bot keeps ITS OWN local endpoints, in its own order, as the
+ * fallback -- a d-pool bot still falls back to its 3090 first. Unset = the bot's own list, unchanged.
+ */
+export function composePool (brainPrimary, ownList) {
+  const own = (ownList ?? []).filter(Boolean)
+  const p = String(brainPrimary ?? '').trim()
+  if (!p) return own
+  if (p.includes(',')) throw new Error('OLLAMA_BRAIN_PRIMARY is ONE endpoint entry (url|model|brain|timeoutMs), not a list')
+  return [p, ...own.filter(e => e.split('|')[0] !== p.split('|')[0])]
+}
+
 /** The labelled endpoints of a pool (pool.eps); empty = this bot is not on a remote brain. */
 export function labelled (eps) {
   return (eps ?? []).filter(e => e.brain)
