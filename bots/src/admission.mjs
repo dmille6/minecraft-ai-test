@@ -187,6 +187,22 @@ export class AdmissionControl {
   clearRepeatWindow() { this.recent = [] }
 
   /**
+   * WOULD THE GATE'S MEMORY REFUSE THIS? -> 'cooldown' | 'learned_avoid' | 'repeat_loop' | null. A READ: nothing here
+   * mutates (no probation count, no streak, no window push). CONSERVATIVE on purpose (orderroom-01): a remedy order is
+   * not issued when its key is cooling down, carries >= 4 learned failures (probation may still let one through -- the
+   * remedy is skipped rather than gambled), or already fills the repeat window. The next remedy, or the model, takes the
+   * turn instead of a refused order. Never used to ADMIT anything: check() stays the only door.
+   */
+  memoryRefuses(skill, args, now = Date.now()) {
+    const key = AdmissionControl.key(skill, args)
+    const until = this.failedCooldowns.get(key)
+    if (until && now < until) return 'cooldown'
+    if ((this.lessons?.failCount?.(skill, args) ?? 0) >= 4) return 'learned_avoid'
+    if (this.recent.filter(k => k === key).length >= REPEAT_WINDOW) return 'repeat_loop'
+    return null
+  }
+
+  /**
    * What this action would put in the inventory, or null when we cannot say.
    * Deliberately narrow: only the two skills whose output is named directly in
    * their own args. Guessing what `mine` or `explore` might yield would make
