@@ -158,7 +158,7 @@ def main():
     ap.add_argument('--model', default='brain', help='the LM Studio identifier the model was loaded under')
     ap.add_argument('--serve-as', default='gemma4:26b', help='the name the bots pin (OLLAMA_BASE_URLS url|<this>|gemma4|ms)')
     ap.add_argument('--max-inflight', type=int, default=12)
-    ap.add_argument('--timeout', type=float, default=60)
+    ap.add_argument('--timeout', type=float, default=20, help='upstream budget: just above the bot\'s 15 s, so a stuck upstream frees its slot')
     ap.add_argument('--log', default=None)
     ap.add_argument('--drill-dir', default=None, help='SANDBOX DRILLS ONLY: see the module doc')
     A = ap.parse_args()

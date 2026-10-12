@@ -30,6 +30,7 @@ M = [
  ('brain primary not prepended', 'src/brain.mjs', "return [p, ...own.filter(e => e.split('|')[0] !== p.split('|')[0])]", "return own"),
  ('config ignores OLLAMA_BRAIN_PRIMARY', 'src/config.mjs', 'composePool(process.env.OLLAMA_BRAIN_PRIMARY,', 'composePool(undefined,'),
  ('_brain_config never written', 'src/cognitive.mjs', "logEvent({ kind: 'brain_config',", "void ({ kind: 'brain_config',"),
+ ('tally never constructed', 'src/cognitive.mjs', "this.brainTally = labelled(this.llm.pool?.eps).length ? new BrainTally() : null", "this.brainTally = null"),
  ('repair goes back to the rejected endpoint', 'src/llm.mjs', 'if (labelledPool && servedEp?.brain) skip = servedEp\n        attempt++\n        continue\n      }\n\n      // Trimmed.', 'attempt++\n        continue\n      }\n\n      // Trimmed.'),
  ('second walk after total failure', 'src/llm.mjs', '        if (labelledPool) break\n', ''),
  ('skip ignored by #post', 'src/llm.mjs', "for (const ep of (skip && eps.length > 1 ? eps.filter(e => e !== skip) : eps)) {", "for (const ep of eps) {"),

@@ -17,7 +17,7 @@ GATES (any FAIL = the canary is broken, whatever the primaries say):
   G2 fallback        share with brain == local (the Studio slow or down)                 <= 0.20
   G3 nothing served  model decisions no endpoint answered (llm.endpoint null) per bot-h <= control's + 0.5
   G4 schema-valid    canary gemma4 decisions' schema-valid share                         >= control's - 0.01
-  G5 slow decisions  gemma4 decisions slower than the fleet's own 45 s budget             <= 0.5%
+  G5 decision time   canary model-decision p95 (gemma4 + fallback + the wait)            <= control p95 + 15 s
   G6 model_mismatch  canary rows carrying a mismatch                                     == 0
   G7 config          every canary bot's _brain_config names gemma4 as its FIRST endpoint all
   G8 every bot       each canary bot >= 1 model decision / 10 min, >= 60% of them gemma4 all
@@ -32,9 +32,26 @@ P = lambda s: datetime.fromisoformat(s.replace('Z', '+00:00'))
 TS = re.compile(r'\{"@timestamp":\s*"([^"]+)"')
 
 
+ROT = re.compile(r'-(\d{8})(?:\.gz)?$')
+
+
+def files_for(path, t0, t1):
+    """The current file plus ONLY the rotated generations that can hold [t0, t1) (Claude r1: every generation of
+    every bot, twice, would not fit the loop's 900 s budget). A generation `-YYYYMMDD[.gz]` is rotated at ~23:59Z of
+    the day BEFORE its suffix and holds that day's rows: keep suffixes in [t0's date + 1, t1's date + 1]."""
+    lo = (P(t0 + 'Z' if not t0.endswith('Z') else t0) + timedelta(days=1)).strftime('%Y%m%d')
+    hi = (P(t1 + 'Z' if not t1.endswith('Z') else t1) + timedelta(days=1)).strftime('%Y%m%d')
+    keep = [path] if os.path.exists(path) else []
+    for f in glob.glob(path + '-*'):
+        m = ROT.search(f)
+        if m and lo <= m.group(1) <= hi:
+            keep.append(f)
+    return sorted(keep)
+
+
 def rows(path, t0, t1):
     out = []
-    for f in sorted(glob.glob(path) + glob.glob(path + '-*')):
+    for f in files_for(path, t0, t1):
         op = gzip.open if f.endswith('.gz') else open
         try:
             with op(f, 'rt', errors='replace') as fh:
@@ -79,7 +96,7 @@ def main():
     res = {'pools': pools, 'declared': a.declared, 'minutes': round(mins, 1), 'canary_bots': canary, 'control_bots': len(control), 'gates': {}, 'primary': {}}
 
     def tally(group, win):
-        c = collections.Counter(); hours = collections.Counter(); cfg = {}; per = collections.defaultdict(collections.Counter)
+        c = collections.Counter(); hours = collections.Counter(); cfg = {}; per = collections.defaultdict(collections.Counter); lat = []
         for b in group:
             L = rows('%s/%s/llm-%s.jsonl' % (a.logroot, b, b), iso(win[0]), iso(win[1]))
             S = rows('%s/%s/skill-%s.jsonl' % (a.logroot, b, b), iso(win[0]), iso(win[1]))
@@ -97,7 +114,7 @@ def main():
                     c['refused'] += (o == 'aborted' and llm.get('admission') is None); c['success'] += (o == 'success')
                     if br == 'gemma4':
                         c['g_valid'] += bool(llm.get('schema_valid')); c['g_n'] += 1
-                        c['g_slow'] += (llm.get('latency_ms') or 0) > 45000
+                    lat.append((llm.get('latency_ms') or 0) / 1000)
                     c['valid'] += bool(llm.get('schema_valid'))
                 c['mismatch'] += bool(llm.get('model_mismatch'))
                 for tc in (r.get('tool_calls') or [])[:1]:
@@ -113,6 +130,7 @@ def main():
                     c['deaths'] += 1
                 c['items'] += sum(v for v in (sk.get('inventory_delta') or {}).values() if isinstance(v, (int, float)) and v > 0)
         c['bot_h'] = sum(hours.values())
+        lat.sort(); c['p95_s'] = lat[min(len(lat) - 1, int(0.95 * len(lat)))] if lat else None
         return c, cfg, per
 
     ca, cfg, per = tally(canary, t_after); cb, _, _ = tally(canary, t_before)
@@ -135,7 +153,11 @@ def main():
     # directly instead: G3 (nothing served) and G5 (a gemma4 decision slower than the fleet's own 45 s budget).
     dd, v = did('rows', perh)
     res['primary']['decisions_per_bot_h'] = {'did': dd, 'canary_after_before_control_after_before': v}
-    G['G5_slow_gemma4_decisions'] = {'value': ca['g_slow'], 'of': ca['g_n'], 'pass': ca['g_slow'] <= 0.005 * ca['g_n']}
+    # G5 TOTAL DECISION TIME, canary vs control (Claude r1: a per-decision 45 s threshold could almost never fire under a
+    # 15 s Studio budget). Every model decision of the canary -- gemma4, its fallback, and the wait between them -- at
+    # p95, against the control's p95: no worse than the control's plus the Studio budget (15 s).
+    G['G5_decision_time_p95_s'] = {'value': ca['p95_s'], 'control': oa['p95_s'],
+                                   'pass': ca['p95_s'] is not None and oa['p95_s'] is not None and ca['p95_s'] <= oa['p95_s'] + 15}
     G['G6_model_mismatch_rows'] = {'value': ca['mismatch'], 'pass': ca['mismatch'] == 0}
     first = lambda d: d.split('pool=[', 1)[1].split(' ', 1)[0] if 'pool=[' in d else None   # the FIRST pool entry's label
     G['G7_brain_config'] = {'bots_with_gemma4_first': sum(1 for b in canary if first(cfg.get(b, '')) == 'gemma4'), 'of': len(canary),
@@ -157,7 +179,8 @@ def main():
     res['canary_model_decisions'] = ca['model']
     res['canary_bot_h'] = round(ca['bot_h'], 1)
     # Exposure: enough gemma4 decisions to read the primaries at all (power: docs/reports/brain01-design-2026-10-12.md).
-    res['exposure_ready'] = int(ca['brain:gemma4'] >= 1500 and ca['bot_h'] >= 50 and not lame)
+    # EXPOSURE: ~20 h of 10 bots (Claude r1: at 50 bot-h verdict.py could KEEP at +360 and the 24 h read never ran).
+    res['exposure_ready'] = int(ca['brain:gemma4'] >= 6000 and ca['bot_h'] >= 200 and not lame)
     print(json.dumps(res, indent=1, default=str))
     if a.json:
         json.dump(res, open(a.json, 'w'), indent=1, default=str)
