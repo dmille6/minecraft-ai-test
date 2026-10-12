@@ -277,41 +277,47 @@ export class LlmClient {
     let attempt = 0, lastErr = null, proposal = null, raw = '', meta = {}
     let servedBy = null, servedModel = null, servedEp = null
     // brain-01, ONLY when the pool has a labelled endpoint (the fleet today has none, so its behaviour is unchanged):
-    //  - a malformed answer from a LABELLED endpoint is repaired by the NEXT endpoint, not the same one (Codex r1:
-    //    the repair went back to the Studio, so a bad gemma answer never reached a healthy local fallback);
-    //  - when every endpoint failed in transport, the decision ENDS (no second walk): with all endpoints cooling down
-    //    available() offers them all again, so a second walk paid every timeout twice (Studio, local, Studio, local).
+    // EVERY ENDPOINT IS ASKED AT MOST ONCE PER DECISION (Codex r1-r3, Claude r2). The first walk is today's (the pool's
+    // healthy endpoints in order). After any failure -- transport, malformed JSON, a bad sentinel -- the next walk asks
+    // only endpoints NOT YET ASKED, healthy ones first, then ones still cooling down; when none is left the decision
+    // ends. So a bad answer is repaired somewhere else, a cooling-but-healthy endpoint is never left unasked, and the
+    // decision costs at most the sum of the endpoints' budgets once.
     const labelledPool = this.pool.eps.some(e => e.brain)
-    let skip = null, only = null
-    const attempted = new Set()   // labelled pools: every endpoint asked in this decision (Claude r2)
+    const attempted = new Set()
+    let only = null, repair = false
+    const untried = () => {
+      const up = new Set(this.pool.available().filter(e => e.downUntil <= Date.now()))
+      const left = this.pool.eps.filter(e => !attempted.has(e))
+      return [...left.filter(e => up.has(e)), ...left.filter(e => !up.has(e))]
+    }
     // One repair retry, then stop. ADR-0002 D1: never best-effort parse a
     // malformed response into an action.
     while (attempt < 2) {
-      const msgs = attempt === 0 ? messages : [
+      // Unlabelled pools: today's rule (attempt 1 is always the repair message). Labelled pools: the repair message
+      // only after a REJECTED answer; after a transport failure the untried endpoint gets the plain request.
+      const msgs = (attempt === 0 || (labelledPool && !repair)) ? messages : [
         ...messages,
         { role: 'assistant', content: raw.slice(0, 500) },
         { role: 'user', content:
           `That response was rejected: ${lastErr}. Reply again with ONLY valid JSON ` +
           `matching the schema. Include the exact saw_end value given above.` },
       ]
+      const next = () => {           // labelled pools: the endpoints the NEXT attempt may ask; false = end the decision
+        attempt++
+        if (!labelledPool) return true
+        only = untried()
+        return only.length > 0
+      }
 
       let res
       try {
-        res = await this.#post({ messages: msgs, schema, skip, only, attempted })
+        res = await this.#post({ messages: msgs, schema, only, attempted })
       } catch (e) {
         lastErr = e.message
-        attempt++
-        if (labelledPool) {
-          // End the decision only when EVERY endpoint has been asked (Claude r2: with the local fallback cooling down,
-          // available() offered the Studio alone, it hung, and the healthy local was never asked). Otherwise ask the
-          // ones not yet asked, once, cooldown or not -- still each timeout at most once per decision.
-          const untried = this.pool.eps.filter(ep => !attempted.has(ep))
-          if (!untried.length || only) break
-          only = untried; skip = null
-        }
+        repair = false
+        if (!next()) break
         continue
       }
-      only = null
 
       meta = res.meta
       servedBy = res.endpoint ?? null
@@ -322,8 +328,8 @@ export class LlmClient {
         proposal = JSON.parse(raw)
       } catch {
         lastErr = 'response was not valid JSON'
-        if (labelledPool && servedEp?.brain) skip = servedEp
-        attempt++
+        repair = true
+        if (!next()) break
         continue
       }
 
@@ -339,8 +345,8 @@ export class LlmClient {
           prompt_tokens: meta.prompt_tokens,
         })
         proposal = null
-        if (labelledPool && servedEp?.brain) skip = servedEp
-        attempt++
+        repair = true
+        if (!next()) break
         continue
       }
 
@@ -382,21 +388,13 @@ export class LlmClient {
     }
   }
 
-  async #post({ messages, schema, skip = null, only = null, attempted = null }) {
+  async #post({ messages, schema, only = null, attempted = null }) {
     // Walk the pool in preference order. A saturated primary costs one timeout,
     // then goes into cooldown so the NEXT decision starts at the fallback
     // rather than paying that timeout again.
     let lastErr = null
-    let eps = only ?? this.pool.available()
-    // `skip` (brain-01): the labelled endpoint whose answer was just rejected; the repair goes ELSEWHERE whenever the
-    // pool has anywhere else -- even an endpoint still cooling down (Codex r2: with the local cooling, available() was
-    // the Studio alone and the repair went Studio -> Studio).
-    // `only` (brain-01): the endpoints not yet asked in this decision, after a walk in which every asked one failed.
-    if (skip) {
-      const others = eps.filter(e => e !== skip)
-      const rest = others.length ? others : this.pool.eps.filter(e => e !== skip)
-      if (rest.length) eps = rest
-    }
+    // `only` (brain-01, labelled pools): the endpoints not yet asked in this decision (decide's untried()).
+    const eps = only ?? this.pool.available()
     for (const ep of eps) {
       attempted?.add(ep)
       const started = Date.now()
