@@ -59,8 +59,28 @@ try:
             print(_l[:300])
         if _l.startswith('STEADY RELEASE '):
             _early = set(_ast2.literal_eval(_l[len('STEADY RELEASE '):]))
+    _refused = [l for l in _sr.stdout.splitlines() if l.startswith('STEADY inputs unreadable') or l.startswith('STEADY measurement failed')]
+    if not any(l.startswith('STEADY RELEASE ') for l in _sr.stdout.splitlines()):
+        _refused.append('STEADY gave no RELEASE line (exit %s): %s' % (_sr.returncode, ' '.join((_sr.stdout + _sr.stderr).split())[-160:]))
 except Exception as _e:
     _early = set(); print('STEADY not answered (%s): 12 h for every pool' % type(_e).__name__)
+    _refused = ['STEADY not answered (%s)' % type(_e).__name__]
+# A REFUSAL IS PAGED (v35.1, round 1 Claude: v35's refusal ran SILENTLY for 8.5 h and cost an idle slot). Once per 6 h,
+# deduplicated by ~/digest/steady-refusal.stamp; the page goes to the loop's own ~/digest/page.jsonl. A normal "no candidate"
+# is not a refusal and never pages. Paging failures are printed, never fatal: the draw goes on at 12 h.
+if _refused:
+    try:
+        _st = os.path.expanduser('~/digest/steady-refusal.stamp')
+        _last = float(open(_st).read().strip()) if os.path.exists(_st) else 0.0
+        if now.timestamp() - _last > 6 * 3600:
+            with open(os.path.expanduser('~/digest/page.jsonl'), 'a') as _pf:
+                _pf.write(json.dumps({'ts': now.strftime('%Y-%m-%dT%H:%M:%SZ'), 'run': os.environ.get('DRAW_RUN') or 'drawrec',
+                                      'level': 'error', 'msg': 'drawsteady REFUSED: the 6-h steady release is OFF (12 h for every '
+                                      'pool) until fixed: ' + _refused[0][:240]}) + '\n')
+            open(_st, 'w').write(str(now.timestamp()))
+            print('STEADY refusal PAGED')
+    except Exception as _pe:
+        print('STEADY refusal could not be paged (%s)' % type(_pe).__name__)
 excl -= _early
 try:
     man = json.loads(txt.split('=== MANIFEST')[1]) if '=== MANIFEST' in txt else {}

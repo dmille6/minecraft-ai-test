@@ -79,7 +79,8 @@ def parse_ledger(lines, now):
     Now:
       * a line that is not JSON, a row that is not a dict, or an unreadable ts REFUSES (ValueError): its time is unknown,
         so it could be inside the window and be the decision that holds a pool;
-      * a row older than EXCL_H is irrelevant to the exclusion and is skipped WITHOUT validating its pools;
+      * a row older than EXCL_H is irrelevant to the exclusion and is skipped WITHOUT validating its pools; so is a row
+        more than 10 min in the future (not yet decided at `now`: a replay; the same cutoff candidates() applies);
       * inside the window, a canary_pool starting "FLEET-WIDE" is a fleet-wide deploy: it names no canary pool (as in
         drawrec's own 12-h loop, where it excludes nothing) and is returned in fleet_wide -- the caller suspends the
         release, because every pool just changed code and so did every control;
@@ -95,6 +96,8 @@ def parse_ledger(lines, now):
             raise ValueError('ledger line %d: not a row with a readable ts' % (i + 1))
         if (now - t).total_seconds() >= EXCL_H * 3600:
             continue
+        if t > now + dt.timedelta(minutes=10):
+            continue    # not yet decided at `now` (a replay), exactly as candidates(); <= 10 min ahead is clock skew and counts
         cp = r.get('canary_pool')
         if isinstance(cp, str) and FLEET_WIDE_RE.match(cp.strip()):
             fleet.append(r); continue

@@ -50,10 +50,11 @@ def loop_pipeline():
 PIPE = loop_pipeline()
 
 
-def run(drawrec, drq, reg=None, run_id='r1', ledger=(), manifest_pool=None, drop=(), manual=None, steady_release=None):
-    d = tempfile.mkdtemp(prefix='drawreq-')
+def run(drawrec, drq, reg=None, run_id='r1', ledger=(), manifest_pool=None, drop=(), manual=None, steady_release=None,
+        steady_text=None, home=None):
+    d = home or tempfile.mkdtemp(prefix='drawreq-')
     try:
-        ma = os.path.join(d, 'mcai-analysis'); os.makedirs(os.path.join(ma, 'registrations'))
+        ma = os.path.join(d, 'mcai-analysis'); os.makedirs(os.path.join(ma, 'registrations'), exist_ok=True); os.makedirs(os.path.join(d, 'digest'), exist_ok=True)
         shutil.copy(drq, os.path.join(ma, 'drawrequire.py'))
         if reg == 'corrupt':
             open(os.path.join(ma, 'registrations', run_id + '.json'), 'w').write('{"draw_require_pools": ["hive-d"')
@@ -62,6 +63,8 @@ def run(drawrec, drq, reg=None, run_id='r1', ledger=(), manifest_pool=None, drop
         open(os.path.join(ma, 'drawexposure.py'), 'w').write('print("no requirement")\n')
         if steady_release is not None:
             open(os.path.join(ma, 'drawsteady.py'), 'w').write('print("STEADY RELEASE %r")\n' % (steady_release,))
+        if steady_text is not None:
+            open(os.path.join(ma, 'drawsteady.py'), 'w').write('print(%r)\n' % steady_text)
         if manual:
             open(os.path.join(ma, 'draw-exclude.txt'), 'w').write('%s %s fixture\n' % (manual, (NOW + dt.timedelta(hours=5)).strftime('%Y-%m-%dT%H:%M:%SZ')))
         tf = os.path.join(d, 'drawrec.txt'); open(tf, 'w').write(txt(ledger, manifest_pool, drop))
@@ -73,9 +76,11 @@ def run(drawrec, drq, reg=None, run_id='r1', ledger=(), manifest_pool=None, drop
         out = r.stdout + r.stderr
         tail4 = '\n'.join(r.stdout.strip().splitlines()[-4:])
         p = subprocess.run(['bash', '-c', 'D=$(cat); ' + PIPE + '; echo "$P"'], input=tail4, capture_output=True, text=True).stdout.strip()
-        return (p.split(',') if p else []), out
+        pg = os.path.join(d, 'digest', 'page.jsonl')
+        return (p.split(',') if p else []), out + ('\nPAGES:' + open(pg).read() if os.path.exists(pg) else '\nPAGES:')
     finally:
-        shutil.rmtree(d, ignore_errors=True)
+        if home is None:
+            shutil.rmtree(d, ignore_errors=True)
 
 
 def cases(drawrec, drq):
@@ -101,9 +106,9 @@ def cases(drawrec, drq):
     P, o = run(drawrec, drq, reg=R, drop=('hive-d',))
     c('hive-d has no band row (no data) -> NO draw', P == [] and 'no band row' in o, (P, o))
     P, o = run(drawrec, drq, reg={'draw_require_pools': 'hive-d'})
-    c('a malformed field (a string) -> NO draw (fail closed), says REFUSED', P == [] and 'REFUSED' in o, (P, o))
+    c('a malformed field (a string) -> NO draw (fail closed), says REFUSED', P == [] and 'draw_require_pools REFUSED' in o, (P, o))
     P, o = run(drawrec, drq, reg={'draw_require_pools': ['hive-d', 'hive-d']})
-    c('duplicate names -> NO draw', P == [] and 'REFUSED' in o, (P, o))
+    c('duplicate names -> NO draw', P == [] and 'draw_require_pools REFUSED' in o, (P, o))
     P, o = run(drawrec, drq, reg={'draw_require_pools': ['placebo-c']})
     c('placebo-c required -> NO draw (never drawable)', P == [] and 'never drawable' in o, (P, o))
     P, o = run(drawrec, drq, reg={'draw_require_pools': ['board-a', 'board-b', 'board-c', 'board-d', 'hive-a']})
@@ -117,6 +122,20 @@ def cases(drawrec, drq):
     c('hive-d free but every other pool excluded -> 1 pool < 2: NO draw', P == [] and 'waiting' in o, (P, o))
     P, o = run(drawrec, drq, reg={'draw_require_pools': ['hive-d', 'board-a']}, ledger=[(p, 'KEEP', 1) for p in POOLS if p not in ('hive-d', 'board-a')])
     c('two required pools, nothing else eligible -> exactly those two (MIN_K 2)', sorted(P) == ['board-a', 'hive-d'], (P, o))
+    # v35.1 (round 1, Claude): a drawsteady REFUSAL pages once per 6 h; a normal answer never pages
+    h = tempfile.mkdtemp(prefix='drawreq-page-')
+    REF = 'STEADY inputs unreadable or malformed (ValueError: x): 12 h for every pool\nSTEADY RELEASE []'
+    P, o = run(drawrec, drq, reg={}, steady_text=REF, home=h)
+    c('a drawsteady REFUSAL is PAGED (level error, names the refusal)', o.count('"level": "error"') == 1 and 'drawsteady REFUSED' in o, o[-500:])
+    P, o = run(drawrec, drq, reg={}, steady_text=REF, home=h)
+    c('a second refusal within 6 h is NOT paged again (one page)', o.split('PAGES:')[1].count('drawsteady REFUSED') == 1, o[-500:])
+    shutil.rmtree(h, ignore_errors=True)
+    h = tempfile.mkdtemp(prefix='drawreq-page-')
+    P, o = run(drawrec, drq, reg={}, steady_text='STEADY no KEEP+promoted pool between 6 and 12 h\nSTEADY RELEASE []', home=h)
+    c('a normal "no candidate" answer never pages', 'drawsteady REFUSED' not in o, o[-300:])
+    P, o = run(drawrec, drq, reg={}, steady_text='STEADY something without a release line', home=h)
+    c('an answer with NO RELEASE line pages (a crash is a refusal)', 'drawsteady REFUSED' in o, o[-300:])
+    shutil.rmtree(h, ignore_errors=True)
     return out
 
 
@@ -128,6 +147,9 @@ MUTANTS = [
     ('drawrequire.py', 'over-target accepted', "    if len(required) > target_k:\n", "    if False:\n"),
     ('drawrequire.py', 'MIN_K ignored', "    if len(out) < min_k:\n", "    if False:\n"),
     ('drawrequire.py', 'required dropped from the draw', "    out = list(required) + (sample(rest, k) if k > 0 else [])", "    out = (sample(rest, min(target_k, len(rest))) if rest else [])"),
+    ('drawrec.sh', 'a refusal is never paged', "if _refused:\n    try:\n        _st =", "if False:\n    try:\n        _st ="),
+    ('drawrec.sh', 'no 6-h dedupe', "        if now.timestamp() - _last > 6 * 3600:", "        if True:"),
+    ('drawrec.sh', 'a missing RELEASE line not treated as a refusal', "    if not any(l.startswith('STEADY RELEASE ') for l in _sr.stdout.splitlines()):", "    if False:"),
     ('drawrec.sh', 'requirement never applied', "    elif _REQ:\n", "    elif False:\n"),
     ('drawrec.sh', 'unreadable registration draws anyway', "    if _REQ is None:\n        pick = None;", "    if False:\n        pick = None;"),
 ]

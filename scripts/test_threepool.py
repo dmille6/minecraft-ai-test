@@ -282,7 +282,7 @@ def steady_pure(DS):
              'note': 'PROMOTION OF drop5-01 (maxDrop 3->5 on every blind-step candidate, plu', 'ts': '2026-09-25T11:53:22.485145+00:00'}
     old_fleet = json.dumps(FLEET)
     rows, fl = DS.parse_ledger([old_fleet, good_line], now)
-    c('v35.1: the exact live FLEET-WIDE row from September (outside the window) is SKIPPED, not a refusal; the 7-h KEEP still parses',
+    c('v35.1: the exact live FLEET-WIDE row from September (outside the window) is ignored, not a refusal; the 7-h KEEP still parses',
       len(rows) == 1 and not fl, (rows, fl))
     rows, fl = DS.parse_ledger([json.dumps(dict(FLEET, ts=(now - dt.timedelta(hours=3)).isoformat())), good_line], now)
     c('v35.1: the same FLEET-WIDE row 3 h old is returned as fleet_wide (the caller suspends the release), not as pools',
@@ -290,6 +290,11 @@ def steady_pure(DS):
     c('v35.1: a malformed pool OUTSIDE the window is skipped; INSIDE it still refuses',
       not raises([json.dumps(dict(L('REVERT', 'pool-a', 30), canary_pool='Pool A?'))])
       and raises([json.dumps(dict(L('REVERT', 'pool-a', 1), canary_pool='Pool A?'))]))
+    rows, fl = DS.parse_ledger([json.dumps(dict(FLEET, ts=(now + dt.timedelta(hours=3)).isoformat())), good_line], now)
+    c('v35.1 (Codex): a FLEET-WIDE row 3 h AFTER `now` (a replay) does not exist yet: not fleet_wide, no suspension',
+      len(rows) == 1 and not fl, (rows, fl))
+    rows, fl = DS.parse_ledger([json.dumps(dict(FLEET, ts=(now + dt.timedelta(minutes=5)).isoformat()))], now)
+    c('v35.1: a FLEET-WIDE row 5 min ahead (clock skew) still suspends', len(fl) == 1, (rows, fl))
     c('v35.1: an unreadable ts refuses even on an old-looking row (its time is unknown)',
       raises([json.dumps(dict(FLEET, ts='2026-09-25 noon'))]))
     c('parse_ledger: a malformed line REFUSES (it could be the REVERT that holds a pool)', raises([good_line, '{"canary_pool": "p1", "decision": "REV']))
@@ -612,12 +617,13 @@ MUTANTS = [
     ('drawsteady.py', 'promotion not required', "        elif not prom:", "        elif False:"),
     ('drawsteady.py', 'no 6-h floor', "        elif age_h < EARLY_H:", "        elif False:"),
     ('drawsteady.py', 'a held pool can still be released', "    return {p: v for p, v in ok.items() if p not in held}, held", "    return ok, held"),
-    ('drawsteady.py', 'clock skew ignored', "        if t > now + dt.timedelta(minutes=10):", "        if t > now:"),
+    ('drawsteady.py', 'clock skew ignored', "        if t > now + dt.timedelta(minutes=10):\n            continue          # not yet decided", "        if t > now:\n            continue          # not yet decided"),
     ('drawsteady.py', 'promotion before the decision accepted', "if s == sha and pt is not None and t <= pt <= now]", "if s == sha and pt is not None]"),
     ('drawsteady.py', 'a malformed ledger row tolerated', "            raise ValueError('ledger line %d unusable: no canary pool' % (i + 1))", "            continue"),
     ('drawsteady.py', 'v35 defect: every row validated regardless of age', "        if (now - t).total_seconds() >= EXCL_H * 3600:\n            continue\n", ""),
     ('drawsteady.py', 'fleet-wide rows not recognised', "        if isinstance(cp, str) and FLEET_WIDE_RE.match(cp.strip()):", "        if False:"),
     ('drawsteady.py', 'a recent fleet-wide deploy does not suspend the release', "    if fleet:\n        print('STEADY a fleet-wide", "    if False:\n        print('STEADY a fleet-wide"),
+    ('drawsteady.py', 'future rows kept (a later fleet-wide deploy suspends a replay)', "        if t > now + dt.timedelta(minutes=10):\n            continue    # not yet", "        if False:\n            continue    # not yet"),
     ('drawsteady.py', 'an unreadable ts tolerated', "        if t is None:\n            raise ValueError('ledger line %d: not a row", "        if t is None:\n            continue\n            raise ValueError('ledger line %d: not a row"),
     ('drawsteady.py', 'down unit ignored', "        if not units[b]:", "        if False:"),
     ('drawsteady.py', 'a member with no logs dropped', "        if s is None:\n            return None, '%s: no log rows", "        if s is None and False:\n            return None, '%s: no log rows"),
