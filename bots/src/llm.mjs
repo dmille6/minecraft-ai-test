@@ -280,8 +280,9 @@ export class LlmClient {
     // EVERY ENDPOINT IS ASKED AT MOST ONCE PER DECISION (Codex r1-r3, Claude r2). The first walk is today's (the pool's
     // healthy endpoints in order). After any failure -- transport, malformed JSON, a bad sentinel -- the next walk asks
     // only endpoints NOT YET ASKED, healthy ones first, then ones still cooling down; when none is left the decision
-    // ends. So a bad answer is repaired somewhere else, a cooling-but-healthy endpoint is never left unasked, and the
-    // decision costs at most the sum of the endpoints' budgets once.
+    // ends, and the existing cap of two attempts still holds. So a bad answer is repaired somewhere else, a cooling but
+    // healthy endpoint is asked before the decision gives up (with two endpoints, always; with three, two rejected
+    // answers still end it), and the decision costs at most the sum of the endpoints' budgets once.
     const labelledPool = this.pool.eps.some(e => e.brain)
     const attempted = new Set()
     let only = null, repair = false

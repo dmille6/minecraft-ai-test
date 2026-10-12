@@ -192,8 +192,8 @@ await t('Studio COOLING, local answers MALFORMED: the repair goes to the cooling
   assert.equal(r.schemaValid, true); assert.equal(r.brain, 'gemma4')
 })
 await t('INVARIANT over 400 random cases: each endpoint asked at most once per decision; with two endpoints, any valid answer is reached', async () => {
-  const kinds = ['ok', 'malformed', 'sentinel', '500', 'throw']
-  let seed = 7; const rnd = n => { seed = (seed * 1103515245 + 12345) % 2147483648; return seed % n }
+  const kinds = ['ok', 'malformed', 'sentinel', '500', 'throw']; const sizes = {}
+  let seed = 7; const rnd = n => { seed = (seed * 1103515245 + 12345) % 2147483648; return Math.floor((seed / 2147483648) * n) }   // high bits (Codex r4: the low bits gave only 3 three-endpoint cases)
   for (let i = 0; i < 400; i++) {
     const n = 2 + rnd(2)
     const urls = Array.from({ length: n }, (_, k) => `http://e${k}:1` + (k === 0 ? '|gemma4:26b|gemma4|1000' : '|qwen2.5:7b-instruct'))
@@ -209,11 +209,12 @@ await t('INVARIANT over 400 random cases: each endpoint asked at most once per d
     const c = mk(urls)
     for (const ep of c.pool.eps) if (rnd(3) === 0) c.pool.markFail(ep, 'earlier')
     bodies.length = 0
-    const r = await call(c)
+    const r = await call(c); sizes[n] = (sizes[n] ?? 0) + 1
     const counts = bodies.reduce((m, b) => ((m[b.base] = (m[b.base] ?? 0) + 1), m), {})
     assert.ok(Object.values(counts).every(v => v === 1), `case ${i}: an endpoint asked twice ${JSON.stringify(counts)} ${JSON.stringify(kind)}`)
     if (n === 2 && Object.values(kind).includes('ok')) assert.equal(r.schemaValid, true, `case ${i}: a valid answer existed ${JSON.stringify(kind)}`)
   }
+  assert.ok(sizes[2] > 100 && sizes[3] > 100, `both pool sizes exercised ${JSON.stringify(sizes)}`)
 })
 await t('an UNLABELLED pool keeps today\'s retry exactly: a second walk after total failure, repair on the same endpoint', async () => {
   stub(() => { throw new Error('down') }); bodies.length = 0
