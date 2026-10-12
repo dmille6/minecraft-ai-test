@@ -1238,13 +1238,15 @@ await t('AP2-U1 the core (pure): window/skill/withdraw as 10-09; a craft in flig
   assert.deepEqual(d({ skillBusy: true }), { owned: false, locked: false, price: 'all', preempt: 'go', release: false })    // no window: the handoff waits
   assert.deepEqual(d({ craftBusy: true }), { owned: true, locked: true, price: 'all', preempt: 'hold', release: false })
   assert.deepEqual(d({ wellHold: true }), { owned: true, locked: false, price: 'all', preempt: 'go', release: true })
-  assert.deepEqual(d({ windowOpen: true, wellHold: true }), { owned: true, locked: true, price: 'all', preempt: 'hold', release: true })
+  // a well's hold opens no window: with an unowned window open the step can only dig with what is held (r1 P3)
+  assert.deepEqual(d({ windowOpen: true, wellHold: true }), { owned: false, locked: true, price: 'held', preempt: 'go', release: true })
+  assert.deepEqual(d({ windowOpen: true, craftBusy: true }), { owned: true, locked: true, price: 'all', preempt: 'hold', release: false })
   // windowOwned is the core's answer for a window
   assert.equal(windowOwned({ open: true, busy: true }), true); assert.equal(windowOwned({ open: true }), false); assert.equal(windowOwned({ open: false, busy: true }), false)
 })
 await t('AP2-U2 MUTANTS: a craft not owned prices only the hand; a craft not locked lets the equip queue behind it (U1 catches both)', async () => {
-  await withMutant(AP_PATH, "  const owned = (windowOpen && (!!skillBusy || !!unsettledHold)) || !!craftBusy || !!wellHold\n",
-    "  const owned = (windowOpen && (!!skillBusy || !!unsettledHold)) || !!wellHold\n", m => {
+  await withMutant(AP_PATH, "  const owned = windowOpen ? windowOwner : (!!craftBusy || !!wellHold)\n",
+    "  const owned = windowOpen ? windowOwner : !!wellHold\n", m => {
       assert.equal(m.rescueInventoryDecision({ craftBusy: true }).owned, false)
     })
   await withMutant(AP_PATH, "  const locked = !!windowOpen || !!craftBusy\n", "  const locked = !!windowOpen\n", m => {
@@ -1302,13 +1304,14 @@ await t('AP2-U5 handRestoreAllowed (pure): a housekeeping order restores its old
   assert.equal(handRestoreAllowed({ epochAtStart: 3, epochNow: 4 }), false)
   assert.equal(handRestoreAllowed({ epochAtStart: undefined, epochNow: 1 }), false)
   assert.equal(handRestoreAllowed({ epochAtStart: undefined, epochNow: undefined }), true)
+  assert.equal(handRestoreAllowed({ epochAtStart: 4, epochNow: 4, rescueActive: true }), false)   // started during the step
 })
 const restoreWired = (rxSrc, skSrc) => {
   const strip2 = t => t.replace(/\/\*[\s\S]*?\*\//g, '').replace(/(^|[^:'"`\\])\/\/.*$/gm, '$1')
   const rx = strip2(rxSrc), sk = strip2(skSrc)
   const i = rx.indexOf('bot.rescueInventoryEpoch = (bot.rescueInventoryEpoch ?? 0) + 1'), j = rx.indexOf('r = await airPocketStep(')
   return i > 0 && i < j &&
-    /if \(!handRestoreAllowed\(\{ epochAtStart: g\.epoch, epochNow: bot\.rescueInventoryEpoch \}\)\) \{/.test(sk) &&
+    /if \(!handRestoreAllowed\(\{ epochAtStart: g\.epoch, epochNow: bot\.rescueInventoryEpoch, rescueActive: bot\.rescueInventoryActive === true \}\)\) \{/.test(sk) &&
     /return \{ bound, restoreBound: [^\n]*, epoch: bot\.rescueInventoryEpoch \?\? 0 \}/.test(sk)
 }
 await t('AP2-U6 WIRED: the rescue bumps the inventory epoch before its step; skills\' settleAndRestore asks handRestoreAllowed; hkGuards records the epoch', () => {
@@ -1318,10 +1321,12 @@ await t('AP2-U6 WIRED: the rescue bumps the inventory epoch before its step; ski
   const once = (src, a) => { assert.equal(src.split(a).length, 2, 'ANCHOR MISSING OR NOT UNIQUE: ' + a.slice(0, 60)); return a }
   const ep = once(rx, '    bot.rescueInventoryEpoch = (bot.rescueInventoryEpoch ?? 0) + 1\n')
   assert.equal(restoreWired(rx.replace(ep, ''), sk), false)
-  const gd = once(sk, '  if (!handRestoreAllowed({ epochAtStart: g.epoch, epochNow: bot.rescueInventoryEpoch })) {')
+  const gd = once(sk, '  if (!handRestoreAllowed({ epochAtStart: g.epoch, epochNow: bot.rescueInventoryEpoch, rescueActive: bot.rescueInventoryActive === true })) {')
   assert.equal(restoreWired(rx, sk.replace(gd, '  if (false) {')), false)
   const ret = once(sk, ', epoch: bot.rescueInventoryEpoch ?? 0 }')
   assert.equal(restoreWired(rx, sk.replace(ret, ' }')), false)
+  const ra = once(sk, ', rescueActive: bot.rescueInventoryActive === true })) {')
+  assert.equal(restoreWired(rx, sk.replace(ra, ' })) {')), false)
 })
 
 // ---------------------------------------------------------------- I. the world's inputs, read the way 1.21.8 needs
@@ -1494,7 +1499,7 @@ function wiring (src) {
   return { tickStart, earlyReturn, drowningBranch, trigger,
            ok: tickStart > 0 && earlyReturn > tickStart && earlyReturn < drowningBranch && trigger > 0 && trigger < drowningBranch &&
                /await runAirPocket\(apRoute, /.test(code.slice(trigger, drowningBranch)) &&
-               /airPocketing = true[\s\S]{0,900}airPocketStep\(/.test(code) && /finally \{ airPocketing = false; airPocketWants = 0 \}/.test(code) &&
+               /airPocketing = true[\s\S]{0,900}airPocketStep\(/.test(code) && /finally \{ airPocketing = false; airPocketWants = 0; bot\.rescueInventoryActive = false \}/.test(code) &&
                /airPocketAfter\(r\.ok \|\| r\.outcome === 'opened', /.test(code) && /othersBusy: escaping \|\| pocketing \|\| marooned/.test(code) &&
                /const inputs = airPocketInputs\(bot\)/.test(code) && !/bot\.game\?\.difficulty/.test(code.slice(code.indexOf('const runAirPocket'), code.indexOf('const rescueExpired'))) &&
                code.indexOf("kind: 'air_pocket_start'") > 0 && code.indexOf("kind: 'air_pocket_start'") < code.indexOf('r = await airPocketStep(') &&
@@ -1504,7 +1509,12 @@ function wiring (src) {
                /const env = withPoseEye\(bot, pe\.pose, \(\) => \(worstCase \? \{ \.\.\.digEnv\(bot\), inWater: true, notOnGround: true \} : digEnv\(bot\)\)\)/.test(code) &&
                /standItem: \(\{ unsupported = false \} = \{\}\) => unsupported\s*\? pickScaffold\(standCandidates\(bot\.inventory\?\.items\?\.\(\) \?\? \[\], \{ unsupported: true \}\), PLACEABLE\)\s*: scaffoldFor\(bot, 'air_pocket'\)/.test(code) &&
                /isEntombed\(bot\) && Date\.now\(\) >= airPocketBreatheUntil &&/.test(code) && /!runner\.isBusy\(\) && Date\.now\(\) >= airPocketBreatheUntil &&/.test(code) && /\} else if \(rescuing && route\.sealed === true && route\.dir !== 'up' && \(escaping \|\| marooned\) && !pocketing && !airPocketing &&\s*throttled\('air_pocket_held_off'/.test(code) && /Date\.now\(\) - airPocketWants < AP_WANT_LAPSE_MS/.test(code) &&
-               /airPocketWants = 0 {16}\/\/ a refused step/.test(src) && /finally \{ airPocketing = false; airPocketWants = 0 \}/.test(code) &&
+               /airPocketWants = 0 {16}\/\/ a refused step/.test(src) && /finally \{ airPocketing = false; airPocketWants = 0; bot\.rescueInventoryActive = false \}/.test(code) &&
+               // THE CRAFT AND WELL SIGNALS (Claude r1 P2: deleting all four left 190/190 green)
+               /const craftActive = \(\) => \{ try \{ return !!bot\.craftSync\?\.active\?\.\(\) \} catch \{ return false \} \}/.test(code) &&
+               /const inventoryState = \(\) => \(\{[\s\S]{0,400}?craftBusy: craftActive\(\),\s*wellHold: typeof bot\.inventoryHold\?\.release === 'function',/.test(code) &&
+               /craftBusy: craftActive,\s*\/\/[^\n]*\n\s*releaseHold: \(\) => \{ try \{ bot\.inventoryHold\?\.release\?\.\('air_pocket'\) \}/.test(src.slice(src.indexOf('r = await airPocketStep('), src.indexOf('finally { airPocketing = false'))) &&
+               /bot\.rescueInventoryActive = true\n/.test(code.slice(0, code.indexOf('r = await airPocketStep('))) &&
                /const ran = await runAirPocket\(apRoute, Date\.now\(\) - seizedAt, apBlockedBy\)\s*if \(ran\) return/.test(code) &&
                code.indexOf('airPocketPreemptDecision({ rescuing, routeDir: apRoute.dir') > 0 && code.indexOf('airPocketPreemptDecision({ rescuing, routeDir: apRoute.dir') < trigger &&
                /return \{ windowOpen: d\.locked, windowOwnedNow: d\.owned \} \}\)\(\),\s*stepWouldRun: \(\) => prepareAirPocket\(\{ worstCase: true \}\)\.ok \}\)\s*if \(apPre === 'window'\) \{\s*try \{ if \(runner\?\.isBusy\?\.\(\)\) runner\.interrupt\('air_pocket'\) \}/.test(code) &&
@@ -1551,7 +1561,14 @@ for (const [name, old, neu] of [
   ['the breathe hold on the entombed arm', 'isEntombed(bot) && Date.now() >= airPocketBreatheUntil &&', 'isEntombed(bot) &&'],
   ['the breathe hold on the maroon arm', '!runner.isBusy() && Date.now() >= airPocketBreatheUntil &&', '!runner.isBusy() &&'],
   ['clearing the request on refusal', '      airPocketWants = 0                // a refused step never keeps an escape held off\n', ''],
-  ['clearing the request after the step', 'finally { airPocketing = false; airPocketWants = 0 }', 'finally { airPocketing = false }'],
+  ['clearing the request after the step', 'finally { airPocketing = false; airPocketWants = 0;', 'finally { airPocketing = false;'],
+  ['clearing the rescue flag after the step', '; bot.rescueInventoryActive = false }', ' }'],
+  ['setting the rescue flag before the step', '      bot.rescueInventoryActive = true\n', ''],
+  ['the ACTIVE craft (not a zombie)', 'return !!bot.craftSync?.active?.()', 'return bot.craftSync?.busy?.() === true'],
+  ['the craft signal in the inventory state', '    craftBusy: craftActive(),\n', ''],
+  ['the well signal in the inventory state', "    wellHold: typeof bot.inventoryHold?.release === 'function',\n", ''],
+  ['the craft signal passed to the step', '                                           craftBusy: craftActive,\n', ''],
+  ['the well release passed to the step', "releaseHold: () => { try { bot.inventoryHold?.release?.('air_pocket') }", "releaseHold: () => { try { }"],
   ['the return after a step', '            if (ran) return\n', ''],
   ['the pre-empt stopping the escape dig', '            airPocketWants = Date.now()\n', ''],
   ['the entombed pillar yielding', '{ alive: () => ownsBody(() => entombedGrant)() && !airPocketWanted() }', '{ alive: ownsBody(() => entombedGrant) }'],
