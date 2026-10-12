@@ -10,7 +10,7 @@ Driver: `sandbox/craft/airpocket-ab.cjs`. This is fabd968's scene SM, plus:
 - scene CR, a craft in flight at the trap: kit `craft`, `AP_BRAIN_SKILL=craft`;
 - craft and smelt durations.
 
-Readers: `scripts/host/sm-read.py` and `scripts/host/crlogs.py`.
+Readers: `scripts/host/sm-read.py` and `sandbox/craft/crlogs.py`. Per-trial CR table: `sandbox/craft/airpocket-ab-CR-2026-10-12.txt`. Reviews: `docs/reports/airpocket-02-integration.review-2026-10-12.txt`.
 
 ## Scenes
 

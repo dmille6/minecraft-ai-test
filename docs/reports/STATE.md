@@ -1,5 +1,5 @@
 # STATE — the operator's state file (a fresh session starts from THIS, not from the handoff history)
-_updated 2026-10-10 12:05Z by the daily operator session (10-10). **FLEET `4970c91`** (toolhygiene-01 KEEP +360,
+_updated 2026-10-12 13:30Z (airpocket agent: airpocket-02 entry + craftsync cursor defect, see the 13:30Z entry); before that 2026-10-10 12:05Z by the daily operator session (10-10). **FLEET `4970c91`** (toolhygiene-01 KEEP +360,
 promoted 11:31Z, all live bots verified; includes airpocket-01 `dbb4d78`), merged to main as `b5dfa0d` (backup branch
 `main-pre-20261010` = the previous main `b4d70a0`). **CANARY: peacefulkit-01 @ `6f1921a`** launched by the scheduler
 11:35Z; preflight/licence/gatedigest/bag-fix OK; DRAW SHORT 11:39Z (bag fix needs 4 pools, band gave 3) -- see the
@@ -24,6 +24,57 @@ AGENTS DOWN until ~10-12 11Z (weekly limit): no new builds before then._
 > **THIS FILE ALSO EXISTS ON `main`.** `bots/test/nothing-important-is-orphaned.test.mjs` asserts it stays there.
 > If the two copies disagree, take the later `_updated` stamp. Long history: `git show 40a09da:docs/reports/STATE.md`
 > (to 09-30 morning), `git show 6a18e70:docs/reports/STATE.md` (09-30 evening), `git show d67d840:docs/reports/STATE.md` (10-01).
+
+---
+
+## 10-12 13:30Z — AIRPOCKET-02 READY (both engines APPROVE), queue entry on main (after bamboo-01; NO 0cdb1a8 variant); FLEET DEFECT: craftsync abort strands a stack on the cursor (0cdb1a8 line; gridfix-01 covers it)
+
+**THE BUILD.** airpocket-02 now has the owner's open-window equip race fix integrated:
+- the owner's commits 39ac212, 978c887, dafc276 and d2df552, hand-merged;
+- ONE inventory core, `rescueInventoryDecision`, which feeds admission, the pre-empt and the step;
+- a craft that is in flight (craftsync `active()`, not a zombie) counts as owned and locked, so no equip is ever queued behind it;
+- a junk well's hold counts as owned. The rescue RELEASES it before any equip and DROPS whatever was queued behind it;
+- a rescue epoch plus an in-progress flag, so an interrupted housekeeping order never restores its old item over the rescue's pickaxe.
+
+**Reviews.** Codex approved at r3 and Claude at r2 (docs/reports/airpocket-02-integration.review-2026-10-12.txt). Round 1 found two P1s and two P2s; round 2 found one P1. All were fixed, each with a test and a mutant.
+
+**Variants.** The diffs are identical across bases.
+
+| base | branch | canary sha | suite |
+|---|---|---|---|
+| 82aef34 (gridfix-01) | ap2w-on-82aef34 | 70cb0d41 | 245/245 |
+| 8212674 (bamboo-01) | ap2w-on-8212674 | 71032630 | 246/246 |
+| 0cdb1a8 (current fleet) | ap2w-on-0cdb1a8 | 776766cb | 243/243 |
+
+The 0cdb1a8 build was tested on Paper but is deliberately NOT in the queue entry.
+
+**Queue entry and read.**
+- The queue entry is docs/reports/airpocket-02.queue-entry.json, with `after: [bamboo-01]` and variants for 82aef34 and 8212674 ONLY. If gridfix-01 reverts, the entry BLOCKS (H2).
+- Registrations are installed at ~/mcai-analysis/airpocket-02.{70cb0d41,71032630}.json. They require **hive-d in the draw** (the ice trap). drawexposure over 24 h finds board-d, hive-d and placebo-b eligible.
+- The read is ~/mcai-analysis/airpocket2read.py (md5 4fa3b83e). It parses `window=<state>:<ms>`. The old copy is saved as airpocket2read.py.bak-20261012.
+
+**PAPER** (docs/reports/airpocket-02-paper-2026-10-12.md; sandbox/craft/airpocket-ab.cjs with the CR scene; sandbox/craft/airpocket-ab-CR-2026-10-12.txt):
+- **SM:** the candidate 776766cb was 3/3 alive, with 0 of 6 equip clicks into a window. The control 0cdb1a8 was 0/2 alive: 6 of 6 equip clicks went into the furnace window (the owner's defect, reproduced).
+- **A / AF / F:** no regression.
+- **CR (a craft in flight at the trap):** no equip landed while craftsync was active.
+- **Smelt restarts:** in SM on the candidate, cognition restarted smelt twice during the dig. Each time it made 9 furnace clicks before the step's guard aborted it, with no harm. A start gate while `airPocketing` is set would remove this; it is follow-up work.
+
+**FLEET DEFECT (0cdb1a8 line, pre-existing): an aborted craft can strand the crafted-from stack on the server cursor.**
+- **Mechanism.** The craft is aborted about 350-400 ms in. The table closes and the server returns the grid to slot 10. craftsync's abort cleanup then clicks -999 (its resync) and **slot 10**. That click picks the stack up onto the cursor, and nothing puts it back. The items vanish from the Inventory and the next craft fails with "0x oak_log". Nothing is dropped into the world and nothing is tossed. The stack is dropped when the bot disconnects, which would explain a stray item at the arena on the next login.
+- **Results in Paper CR:**
+
+  | build | trials losing the stack |
+  |---|---|
+  | 0cdb1a8 (fleet) | 3/4 |
+  | 776766cb (airpocket-02 candidate) | 2/4 |
+  | 82aef34 (gridfix-01) | 0/2 |
+  | 70cb0d41 (airpocket-02 on gridfix) | 0/2 |
+
+  On the non-gridfix builds the stack was lost exactly when the slot-10 pickup happened: 5 of 5 pickups lost it, and 0 of 3 trials without the pickup did.
+- **What gridfix changes.** gridfix-01's grid clear follows the same pickup with a close, and the server returns the cursor stack to the inventory.
+- **Why airpocket-02 is not queued on 0cdb1a8.** airpocket-02 does not cause the loss, but its guard aborts crafts about 0.35-0.4 s in, which would surface the defect more often. That is the only reason.
+- **CAVEAT:** every gridfix abort came at 594 ms or later, so **no gridfix abort under 0.5 s was observed**. TODO when the sandbox is free: a Paper CR trial on 82aef34 whose second abort lands under 0.5 s.
+- **Fleet exposure today:** any craft aborted early on 0cdb1a8. The fleet has not been measured for it. The tell is a `craft` failure "you have 0x <item>" right after a `craft` abort row.
 
 ---
 

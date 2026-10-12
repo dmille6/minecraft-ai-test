@@ -1,0 +1,32 @@
+{
+ "run": "airpocket-02",
+ "class": "underground-safety",
+ "after": [
+  "bamboo-01"
+ ],
+ "variants": {
+  "82aef3499bba99a503f6591fdbd1f76d5605bdad": {
+   "registration": "/home/mike/mcai-analysis/airpocket-02.70cb0d41.json",
+   "approved": "airpocket agent 2026-10-12: ap2w-on-82aef34 @ 70cb0d41 = the ap2w-on-0cdb1a8 series (airpocket-02 + the owner window-race fix 39ac212/978c887/dafc276/d2df552 hand-merged + one rescueInventoryDecision core + well hold yields/drops) cherry-picked onto gridfix-01 with no conflicts; diff over base identical to the 0cdb1a8 build (verified). Reviews: owner window fix r1-r5 docs/reports/airpocket-02-window-handoff.review-2026-10-09.txt (Codex+Claude APPROVE r5); integration docs/reports/airpocket-02-integration.review-2026-10-12.txt (Codex APPROVE r3 + Claude subagent APPROVE r2 on 776766cb). npm test 245/245. Paper docs/reports/airpocket-02-paper-2026-10-12.md + sandbox/craft/airpocket-ab-CR-2026-10-12.txt: SM cand 776766cb 3/3 alive, 0/6 equip clicks in a window vs ctrl 0cdb1a8 0/2 alive, 6/6 into the furnace; A/AF/F no regression; CR (craft in flight) no equip while craftsync active, and this variant 70cb0d41 CR 2/2 alive, 0/2 logs lost. Registration requires hive-d in the draw (ice trap). UNDERGROUND-SAFETY canary",
+   "registration_sha256": "80e6033ecb027e29a536b73677c7c8b56bcc71e149e4523945413fd4398f9c57",
+   "canary_sha": "70cb0d41bd0a9f7918e066e53ea10ce20f709ada",
+   "reads_src": "/home/mike/mcai-analysis",
+   "reads": {
+    "airpocket2read": "4fa3b83e668a6e4455982d61e45b11fa",
+    "immobiledid": "53af289df12208901931dbeeb1ae325a"
+   }
+  },
+  "8212674888fe3704e347eb416dae59ab1fd5164f": {
+   "registration": "/home/mike/mcai-analysis/airpocket-02.71032630.json",
+   "approved": "airpocket agent 2026-10-12: ap2w-on-8212674 @ 71032630 = the same series cherry-picked onto bamboo-01 with no conflicts; diff over base identical to the 82aef34 and 0cdb1a8 builds (verified). Reviews as the 82aef34 variant: docs/reports/airpocket-02-window-handoff.review-2026-10-09.txt (owner fix r5 both APPROVE); integration docs/reports/airpocket-02-integration.review-2026-10-12.txt (Codex APPROVE r3 + Claude subagent APPROVE r2 on 776766cb). npm test 246/246. Paper docs/reports/airpocket-02-paper-2026-10-12.md (SM/CR tables; run on 776766cb and 70cb0d41, not on this base). Registration requires hive-d in the draw. UNDERGROUND-SAFETY canary",
+   "registration_sha256": "06a9be067729e9e43d9e1ab8cf9879283ac9290d7b0109e9e1bc3be727dc4a17",
+   "canary_sha": "71032630ca63b74abf019d247177949f7ea119f6",
+   "reads_src": "/home/mike/mcai-analysis",
+   "reads": {
+    "airpocket2read": "4fa3b83e668a6e4455982d61e45b11fa",
+    "immobiledid": "53af289df12208901931dbeeb1ae325a"
+   }
+  }
+ },
+ "note": "underground-safety canary: the hive-d ice trap (pose-aware eye, upblocked route, server-grounded success, re-dig, well guard) plus the open-window / craft-in-flight / junk-well inventory handoff. NO variant for 0cdb1a8 ON PURPOSE (coordinator 10-12): on the 0cdb1a8 line craftsync's abort cleanup strands a crafted-from stack on the server cursor (fleet 3/4, candidate 2/4 in Paper CR), and this rescue's guard aborts crafts ~0.35-0.4 s in, so it would surface that defect more often; gridfix-01's close covers it (0/4). If gridfix-01 reverts the fleet stays on 0cdb1a8 and this entry BLOCKS (H2: no variant for the fleet base) -- never run it there. THE DRAW MUST INCLUDE hive-d (registration draw_exposure.draw_pools_required); drawexposure 24 h finds board-d, hive-d, placebo-b eligible. Install the drawn variant's registration as ~/mcai-analysis/registrations/airpocket-02.json. Read: ~/mcai-analysis/airpocket2read.py (md5 above; parses window=<state>:<ms>)."
+}
