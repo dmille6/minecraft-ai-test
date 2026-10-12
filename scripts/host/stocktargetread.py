@@ -472,9 +472,9 @@ if __name__ == '__main__':
     print('EXPOSURE     canary stock actions: refusals %d + dispose clicks %d + prune clicks %d + bank rows %d | instrument (control runs that banked a targeted group) %d'
           % (res['refusals_canary'], res['dispose_clicks'], res['prune_clicks'], res['bank_rows'], res['instrument_control']))
     adm = jr.get('admitted', {}) if journal is not None else {}
-    print('UNTESTED     (a gate with no exposure is UNTESTED, never "0 breaches"): G3 %s (admitted bank claims %s) | G4 %s (admitted takes %s) | G1b %s'
+    print('UNTESTED     (a gate with no exposure is UNTESTED, never "0 breaches"): G3 %s (admitted bank claims %s) | G4 %s (admitted takes %s) | G1b %s | stonecap C1-C5 cobble banking %s (admitted cobble bank claims %s)'
           % ('tested' if adm.get('bank') else 'UNTESTED', adm.get('bank', 'n/a'), 'tested' if adm.get('take') else 'UNTESTED', adm.get('take', 'n/a'),
-             'tested' if res['g1b_tested'] else 'UNTESTED'))
+             'tested' if res['g1b_tested'] else 'UNTESTED', 'tested' if jr.get('admitted_cobble_bank') else 'UNTESTED', jr.get('admitted_cobble_bank', 'n/a')))
     # DIFFERENCE-IN-DIFFERENCES (Codex code r1 P2: post minus post was not one): per bot-hour, (post - pre) canary minus control
     did = lambda key: (rate(res[key + '_canary'], 'post', 'canary') - rate(res[key + '_pre_canary'], 'pre', 'canary')) - (rate(res[key + '_control'], 'post', 'control') - rate(res[key + '_pre_control'], 'pre', 'control'))
     bd, fd = did('banked'), did('fullfail')
