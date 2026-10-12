@@ -56,6 +56,9 @@ const KEPT_BAG = [['cobblestone', 64], ['stick', 10], ['crafting_table', 1], ['o
   ['wooden_pickaxe', 1, 9], ['furnace', 1], ['sand', 8], ...wool(26)]
 const SPEC = {
   kept: { bag: KEPT_BAG, stand: SITE },
+  // THE BANK REFUSES (the town chest is full of diorite, no chest in the bag to build another): the remedy must back off
+  // cleanly -- nothing dropped, nothing lost, no repeated room order inside the window.
+  keptfull: { bag: KEPT_BAG, stand: SITE, chestFill: Array.from({ length: 27 }, () => ['diorite', 64]) },
   far: { bag: FULL_BAG, stand: SITE },          // the chain: home -> deposit/town deposit -> craft
   room: { bag: ROOM_BAG, stand: SITE },         // positive control: room -> the craft order runs at once, no walk
 }
@@ -72,7 +75,8 @@ function bagCmds (spec) {
   spec.bag.forEach(([id, n, dmg], s) => c.push(`item replace entity ${NAME} container.${s} with ${itemArg(id, dmg)} ${n}`))
   return c
 }
-const chestCmds = () => [`setblock ${at(CHEST)} minecraft:chest[facing=west]`]
+const chestCmds = spec => [`setblock ${at(CHEST)} minecraft:chest[facing=west]`,
+  ...(spec?.chestFill ?? []).map(([id, n], s) => `item replace block ${at(CHEST)} container.${s} with minecraft:${id} ${n}`)]
 
 // ---------------------------------------------------------------- oracle (the server's slots, never the bot's claim)
 const parseItem = seg => {
@@ -154,7 +158,7 @@ async function runTrial (scene, k) {
   if (!await waitFor(() => lines(botOut).some(l => /spawned pos=/.test(l)), 90000, 300)) { await stopBot(); throw new Error('no spawn') }
   rcon(`gamemode survival ${NAME}`, `tp ${NAME} ${spec.stand.x} ${spec.stand.y} ${spec.stand.z}`, `effect clear ${NAME}`)
   await sleep(2000)
-  const built = [...rcon(...arenaCmds()), ...rcon(...bagCmds(spec)), ...rcon(...chestCmds())]
+  const built = [...rcon(...arenaCmds()), ...rcon(...bagCmds(spec)), ...rcon(...chestCmds(spec))]
   const bad = built.filter(x => /not loaded|Cannot place|Unknown|Incorrect|Expected/i.test(x.reply) && !/^(kill|forceload) /.test(x.cmd))
   if (bad.length) { await stopBot(); throw new Error('arena not built: ' + bad.map(x => x.cmd + ' => ' + x.reply).join('; ')) }
   await sleep(2000)

@@ -1,6 +1,6 @@
 stocktarget-01 CODE REVIEWS (2026-10-10). Both engines, independent, read-only; probes in scratch copies.
 Codex: `codex exec --skip-git-repo-check "<prompt>" < /dev/null`. Claude: an independent subagent (same reviewer across rounds).
-Final: CODE Codex r4 APPROVE (on 08e0ea18 = 2ee8988f + an inert generated file it asked to remove: removed), Claude r3 APPROVE (on 4f43459a; its three P3s taken in 2ee8988f). FOLD (10-12: the refusal row + carrying stonecap-01 cobble cap): Codex r1 CHANGE -> r2 APPROVE (on 7628b9fa); Claude r1 APPROVE with P2s -> r2 APPROVE (P3s taken in f1b52eaf).
+Final: CODE Codex r4 APPROVE (on 08e0ea18 = 2ee8988f + an inert generated file it asked to remove: removed), Claude r3 APPROVE (on 4f43459a; its three P3s taken in 2ee8988f). FOLD (10-12: the refusal row + carrying stonecap-01 cobble cap): Codex r1 CHANGE -> r2 APPROVE (on 7628b9fa); Claude r1 APPROVE with P2s -> r2 APPROVE (P3s taken in f1b52eaf). REBASE onto airpocket-02 (70cb0d41, 71032630): Codex APPROVE, Claude APPROVE.
 
 ===== CODEX CODE-R1 =====
 VERDICT: CHANGE
@@ -149,7 +149,22 @@ The fold is sound to register as described: use `rows_live` for liveness, the co
 
 Validation against archived **7628b9fa**, in `/private/tmp`: stocktarget and journal suites **2/2 passed**, towndeposit **1/1 passed**, and reader selftests passed, including unknown-only liveness and mixed-group C5. Cross-base variants were not independently validated. Checkout unchanged; no network used.
 
-===== CLAUDE CODE REVIEW, VERDICT MESSAGE 1 of 6 (code r1-r3, then fold r1-r2, in order) =====
+===== CODEX REBASE-AP2 =====
+VERDICT: APPROVE
+
+No rebase-introduced P1/P2/P3 findings; no corrective change required.
+
+- **Exact composition:** Reconstructed both variants from pinned base archives plus their respective approved stocktarget diffs. Across all 565 files in `a88f763d` and 567 in `1940574d`, the only initial difference was `sandbox/well/stock-e2e.cjs`. Applying each tip’s declared driver commit produced exact file-content equality. `airpocket.mjs` and `reflex.mjs` are unchanged from their respective airpocket-02 bases.
+
+- **Rescue ownership:** The prune chain preserves the intended handoff. `withdrawVisit` closes or transfers ownership of its window and invalidates late clicks; its `own.restore()` restores method wrappers, not the held item. `pruneTown` checks cancellation before entering `disposeWell` (`bots/src/skills.mjs:8971`). Disposal uses the same registered inventory hold, rescue release that rejects queued actions, and epoch/active-rescue guard in `settleAndRestore` (`skills.mjs:6219`). A prune adds no separate hand-restoration path that could overwrite the rescue’s tool.
+
+- **Throws and evidence:** Stock/pruned throws retain cancellation checks and revalidate inventory, keeps, reserves, and town availability before clicking. `disposeWell` returns accounted `lost` quantities; prune evidence intersects those quantities with verified chest withdrawals. The runner forwards `pruned`, and `classifyOutcome` recognizes `prune_effect` despite the intentionally zero net inventory change. Failed or aborted outcomes still short-circuit to failure. The overlapping `skills.mjs` changes preserve both implementations.
+
+- **Inherited lint:** Confirmed exactly one configured `no-undef` hit on each tip: `bots/src/reflex.mjs:2451:67`, `withinBody`. The whole file matches its corresponding base, including the guarded expression at the same line. This is not a stocktarget rebase regression.
+
+Validation ran offline in `/private/tmp` archives: stocktarget and journal tests passed on both variants; airpocket, well, and well/gridfix composition tests passed on `a88f763d`, including embedded rescue-ownership mutants. The stocktarget reader self-test passed. Full-suite and standalone mutant results remain outside this review’s completed checks.
+
+===== CLAUDE CODE REVIEW, VERDICT MESSAGE 1 of 7 (code r1-r3, fold r1-r2, the airpocket-02 rebase; in order) =====
 VERDICT: CHANGE
 
 I reviewed HEAD `95459322` from a `git archive` copy and ran the probes there. Probes and output are in `.../scratchpad/reviews/claude-code-probes/`. The worktree also has uncommitted edits to `cobblecap.mjs` and `skills.mjs` that look like responses to Codex's review. Where they fix one of my findings I say so, but the verdict is on HEAD. The mutant run on HEAD: 30 killed, 3 survived, and the script exits 1.
@@ -229,7 +244,7 @@ I reviewed HEAD `95459322` from a `git archive` copy and ran the probes there. P
 
 They do not touch findings 2, 4, 5, 6 or 7.
 
-===== CLAUDE CODE REVIEW, VERDICT MESSAGE 2 of 6 (code r1-r3, then fold r1-r2, in order) =====
+===== CLAUDE CODE REVIEW, VERDICT MESSAGE 2 of 7 (code r1-r3, fold r1-r2, the airpocket-02 rebase; in order) =====
 **VERDICT: APPROVE** (no P1s left; two P2s should be fixed before the deploy)
 
 I reviewed HEAD `51f270d5` from a fresh `git archive` copy, re-ran my round-1 probes against it, and ran the read's `--selftest` and the mutant script. The selftest passes. The mutant script gives 39 killed and 1 survived, so it still exits 1 (see P2-1).
@@ -284,7 +299,7 @@ I reviewed HEAD `51f270d5` from a fresh `git archive` copy, re-ran my round-1 pr
 
 The probes are in `/private/tmp/claude-501/-Users-darrellmiller-Documents-code-minecraft-ai--claude-worktrees-heuristic-nightingale-49eee9/2a199c24-8dc2-4c02-9509-8499787c3dd1/scratchpad/reviews/claude-code-probes/`. `tree` there is now a symlink to `tree2` (HEAD `51f270d5`); the round-1 copy is in `tree1`. The new probe is `p_r2_cobble.mjs`.
 
-===== CLAUDE CODE REVIEW, VERDICT MESSAGE 3 of 6 (code r1-r3, then fold r1-r2, in order) =====
+===== CLAUDE CODE REVIEW, VERDICT MESSAGE 3 of 7 (code r1-r3, fold r1-r2, the airpocket-02 rebase; in order) =====
 **VERDICT: APPROVE** for round 2 of the stocktarget-01 code review (HEAD `51f270d5`). No must-fix (P1) defects remain; two should-fix (P2) items need fixing before the deploy. I sent the full review to the session that asked for it.
 
 I reviewed a fresh copy of that commit and re-ran my round-1 probes against it. The read's self-test passes; the mutant script kills 39 of 40, and the one survivor makes it exit 1.
@@ -313,7 +328,7 @@ The reset fix works in my probe but has no test (P2-1).
 
 The probes are in `.../scratchpad/reviews/claude-code-probes/`. `tree` there now points at the round-2 copy; the round-1 copy is `tree1`.
 
-===== CLAUDE CODE REVIEW, VERDICT MESSAGE 4 of 6 (code r1-r3, then fold r1-r2, in order) =====
+===== CLAUDE CODE REVIEW, VERDICT MESSAGE 4 of 7 (code r1-r3, fold r1-r2, the airpocket-02 rebase; in order) =====
 **VERDICT: APPROVE** for round 3 of the stocktarget-01 code review. Every finding I raised in round 2 is resolved, and only three minor notes remain. I sent the full review to the session that asked for it.
 
 I reviewed the fix commit and the rebased build that will actually ship, from a fresh copy of the rebased branch. Apart from the rebase onto the new stonecap base, the stocktarget patch is identical across the rebase. The read's self-test passes, the mutant script now kills all 51 mutants, and the neighbouring test files pass on the rebased build. My earlier probes still hold.
@@ -335,7 +350,7 @@ I reviewed the fix commit and the rebased build that will actually ship, from a 
 
 Probes are in `.../scratchpad/reviews/claude-code-probes/`; `tree` there now points at the rebased copy (`tree3`).
 
-===== CLAUDE CODE REVIEW, VERDICT MESSAGE 5 of 6 (code r1-r3, then fold r1-r2, in order) =====
+===== CLAUDE CODE REVIEW, VERDICT MESSAGE 5 of 7 (code r1-r3, fold r1-r2, the airpocket-02 rebase; in order) =====
 **VERDICT: APPROVE**, with three should-fix (P2) items to apply when the canary is registered. There are no must-fix (P1) defects and nothing here can lose an item. I sent the full review to the session that asked.
 
 I reviewed the change (`git diff 08e0ea18 7b23dd08`) from a scratch copy and read stonecap's read script on `origin/main`. The read's self-test passes, and so do the stocktarget, stocktarget-journal, towndeposit and deposit-plan tests.
@@ -363,7 +378,7 @@ Yes in principle. Stonecap proved nothing (it had no exposure), and this branch 
 
 The new probe is `p_fold.mjs` in the scratchpad's `reviews/claude-code-probes/` folder.
 
-===== CLAUDE CODE REVIEW, VERDICT MESSAGE 6 of 6 (code r1-r3, then fold r1-r2, in order) =====
+===== CLAUDE CODE REVIEW, VERDICT MESSAGE 6 of 7 (code r1-r3, fold r1-r2, the airpocket-02 rebase; in order) =====
 **VERDICT: APPROVE.** The stonecap fold is sound to register on fleet 0cdb1a8; there are no must-fix or should-fix items, only two minor notes. I sent the full review to the session that asked.
 
 I reviewed from my own copies of `7628b9fa` and of the bamboo variant `537b56ce`. The read's self-test passes, including the new check that a cobble overshoot is still caught beside an unrelated oak claim. On `7628b9fa` the stocktarget and admission tests pass; on the bamboo variant the stocktarget, towndeposit, bamboo and hygiene tests pass.
@@ -382,4 +397,22 @@ I reviewed from my own copies of `7628b9fa` and of the bamboo variant `537b56ce`
 **Minor notes:**
 - The liveness count still includes two kinds of row that judged nothing when the journal can't be read: recovery rows with no effect, and bank rows with an "unknown" decision. A broken journal is already visible in the read's journal-audit lines, so this is low priority.
 - The admission throttle is shared across the process. That is correct for one bot per process, which is the fleet's layout, but it should be keyed per bot if several bots ever run in one process.
+
+===== CLAUDE CODE REVIEW, VERDICT MESSAGE 7 of 7 (code r1-r3, fold r1-r2, the airpocket-02 rebase; in order) =====
+**VERDICT: APPROVE** for the stocktarget-01 rebase onto the airpocket-02 builds. Nothing needs fixing; I sent the review to the session that asked.
+
+1. **Interdiff:** both variants (`a88f763d` and `1940574d`) are the previously approved stocktarget diff with nothing added or dropped. The only difference is one context line where the old base imported from `toolhygiene.mjs`. The driver commits on top touch only the Paper test driver, identically in both. Neither stocktarget diff touches `reflex.mjs` or `airpocket.mjs`.
+
+2. **Interaction with airpocket-02:** I found no conflict. Airpocket-02's changes and stocktarget's touch different lines.
+   - **Well visits:** stocktarget only adds checks and log rows before the click the well already makes. It takes no hand and wraps no inventory method, so airpocket's rule that the well never restores the old hand over a rescue's pickaxe still applies.
+   - **Prune visits, chest phase:** the prune reuses the existing withdraw code unchanged. A rescue during it stops the skill, exactly as for a pickaxe withdraw, and the throw is then skipped.
+   - **Prune visits, well phase:** the well disposal runs inside the same skill and picks up the rescue state when it starts. A rescue there is handled like a standalone well visit: no hand restore, and queued equips are dropped. The ownership rule assigned to airpocket-02 therefore covers prunes with no new code.
+
+   The stocktarget, towndeposit, well and airpocket tests pass on an archive of `a88f763d`.
+
+3. **Lint:** the undefined-name check finds exactly one hit, `withinBody` at `reflex.mjs:2451`. That line is identical on both tips and guarded by `typeof`, so it cannot throw. It is the known hit, and `reflex.mjs` is untouched by the diff.
+
+One minor note, no change needed: a rescue that lands between a well-disposal or prune log row and its click leaves a row with no throw. That is the residual already stated, and prune outcomes are measured from the items actually thrown (`prune_effect`), not from those rows.
+
+I only exported and tested the grid tip. The bamboo tip's interdiff is identical and its `reflex.mjs` line matches, but I didn't run its tests.
 

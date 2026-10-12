@@ -80,6 +80,7 @@ FOODS = {'apple', 'mushroom_stew', 'bread', 'porkchop', 'cooked_porkchop', 'gold
          'cooked_beef', 'chicken', 'cooked_chicken', 'rotten_flesh', 'spider_eye', 'carrot', 'potato', 'baked_potato',
          'poisonous_potato', 'golden_carrot', 'pumpkin_pie', 'rabbit', 'cooked_rabbit', 'rabbit_stew', 'mutton', 'cooked_mutton',
          'chorus_fruit', 'beetroot', 'beetroot_soup', 'suspicious_stew', 'sweet_berries', 'glow_berries', 'honey_bottle'}
+LADDER = {'raw_iron', 'iron_ingot', 'iron_nugget', 'iron_ore', 'deepslate_iron_ore', 'coal', 'charcoal'}
 ROOMRE = re.compile(r'^kind=(\w+) item=(\S+) craft=(\S+) short=(\S+) slots=(\d+)->(\d+) freed=(\d+) verdict=(\w+) run=(\S+) lost=(.*)$')
 NOROOMRE = re.compile(r'^item=(\S+) short=(\d+) slots=(\d+) route=(\S+) remedy=(\S+) target=(\S+) order=(\S+)')
 
@@ -146,7 +147,7 @@ def llm_rows(bot):
 C = defaultdict(Counter)            # (period, arm) -> counters
 bh = Counter()                      # (period, arm) -> bot-seconds
 c1, c2, c6 = [], [], []
-room = Counter(); room_kind = Counter(); room_verdict = Counter(); room_refused = 0; room_freed = 0
+room = Counter(); room_kind = Counter(); room_verdict = Counter(); room_refused = 0; room_freed = 0; room_ladder = 0
 completion = Counter()              # ok room orders: 'crafted' within 15 min | 'not' | 'immature'
 craft_rows = Counter()
 liveness = Counter(); offbuild = 0
@@ -219,7 +220,9 @@ for b in bots:
             if not m:
                 c2.append((b, str(t)[11:19], 'UNPARSED ' + d[:80])); continue
             kind, x, craft, short, s0, s1, freed, verdict, run, lost = m.groups()
-            room[arm] += 1; room_kind[kind] += 1; room_verdict[verdict] += 1; room_freed += int(freed)
+            room[arm] += 1; room_kind[kind if not (kind == 'home' and x == '-') else 'home_well'] += 1; room_verdict[verdict] += 1; room_freed += int(freed)
+            if kind == 'deposit' and x in LADDER:
+                room_ladder += 1          # Claude st-r1: on stocktarget tips the ladder fallback is no longer rare -- report its share
             if run.startswith('refused'):
                 room_refused += 1
             if kind == 'deposit':
@@ -228,7 +231,9 @@ for b in bots:
                        and not (k in SCAFFOLD and v < C2_SCAFFOLD) and not (WOODISH.search(k) and v < C2_WOOD)}
                 if bad or lost.endswith('+more'):
                     c2.append((b, str(t)[11:19], x, bad or 'UNVERIFIABLE +more'))
-            if verdict == 'ok' and kind != 'home':   # one judgement per episode: home's ok is followed by that episode's deposit (Claude r4)
+            # one judgement per episode: a deposit walk's ok is followed by that episode's deposit (Claude r4); a WELL walk
+            # (item '-') is its own episode -- judged by the craft that follows (Claude st-2 3: its `freed` is read before the well acts)
+            if verdict == 'ok' and (kind != 'home' or x == '-'):
                 if (END - t).total_seconds() < COMPLETION_S:
                     completion['immature'] += 1          # its 15 minutes are not over inside the window: not judged (Codex r3)
                 else:
@@ -287,11 +292,14 @@ print('PRODUCTIVE   rung craft successes/bot-h DiD %+.3f (REPORTED) | canary POS
     did('rung_success'), observed, expected, prod_p, productive_low, prod_breach, PROD_EXPECT_MIN, dict(completion), did('giveups'), did('executed')))
 print('UNKNOWN      canary rung orders issued on an unknown room %d of %d (share %.3f) | their no-room failures %d -> unknown_high %d (blocks KEEP)' % (
     C[('post', 'canary')]['rung_unknown'], C[('post', 'canary')]['rung_orders'], unknown_share, C[('post', 'canary')]['rung_noroom_unknown'], unknown_high))
+print('             deposit room orders banking an iron-ladder item %d of %d (kinds: home_well = a walk to the town\'s junk well)' % (
+    room_ladder, room_kind['deposit']))
 print('REPORTED     room orders by kind %s verdict %s slots freed %d | pickup refusals canary %d control %d | deaths %s' % (
     dict(room_kind), dict(room_verdict), room_freed, C[('post', 'canary')]['rung_pickup'], C[('post', 'control')]['rung_pickup'], deaths[:6]))
 print('EVIDENCE     judged room orders %d (immature %d) of >= %d | canary craft-success rows %d (matcher positive control, >= 1) | rates computable %s | productivity undefined %d -> evidence_short %d | keep_blocked %d (folded into exposure_ready)' % (
     n_ok, completion['immature'], COMPLETION_MIN, craft_rows['canary'], rates_ok, productivity_undefined, evidence_short, keep_blocked))
 print('             (completion counts one episode twice when it needed two deposits -- short 2 -- Claude r5 #4; reported as is)')
+print('             (stocktarget tips: the live well probe is cached 30 s, so a bot just home may see the stock cap unbound and bank at-target bulk once -- stocktarget\'s race, Claude st-2 #2; reported, not gated)')
 print('             no-room craft orders on the wear route canary %d control %d, room unknown canary %d | completion low %d | _craft_noroom rows/bot-h canary %.2f' % (
     C[('post', 'canary')]['rung_noroom_wear'], C[('post', 'control')]['rung_noroom_wear'], C[('post', 'canary')]['rung_noroom_unknown'], completion_low,
     liveness[('post', 'canary', '_craft_noroom')] / hours[('post', 'canary')] if hours.get(('post', 'canary')) else float('nan')))
@@ -318,7 +326,7 @@ try:
         'instrument_refused_control': C[('post', 'control')]['rung_refused'], 'instrument_noroom_control': ctrl_noroom,
         'evidence_short': evidence_short, 'completion_judged': n_ok, 'completion_immature': completion['immature'], 'craft_rows_canary': craft_rows['canary'],
         'productive_low': productive_low, 'productive_p': nan(prod_p), 'unknown_high': unknown_high, 'unknown_share': nan(unknown_share),
-        'productivity_undefined': productivity_undefined, 'keep_blocked': keep_blocked,
+        'productivity_undefined': productivity_undefined, 'keep_blocked': keep_blocked, 'room_ladder': room_ladder, 'room_home_well': room_kind['home_well'],
         'exposure_ready': int(not keep_blocked and C[('post', 'control')]['rung_refused'] >= 1 and ctrl_noroom >= 1),
     })
 except Exception as e:

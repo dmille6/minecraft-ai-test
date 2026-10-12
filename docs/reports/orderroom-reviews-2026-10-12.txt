@@ -93,3 +93,81 @@ APPROVE. The r8 fallback and reader/registration wiring address the round-5 find
 === CLAUDE r6 ===
 APPROVE, no findings (4825f176 / 8223061b / 411aa378 + read + registration generator): cheapest-ladder fallback correct and identical on all three; productivity_undefined -> evidence_short; keep_blocked folded into exposure_ready; own_lines follow the bamboo-01 convention (defect lines revert; the rest block KEEP); the primary stays REPORTED given null dry runs +4.78/+5.19/-2.78.
 
+
+
+######## THE REBASE ONTO STOCKTARGET-01 (10-12 13:00-15:00Z) ########
+FINAL: Codex APPROVE st-4, Claude APPROVE st-4.
+
+=== CODEX st1 ===
+**APPROVE** — no rebase-induced blocker found across all three variants. Line references below use `90daabd7`.
+
+1. **Deposit composition is consistent** — `skills.mjs:5215`, `bankable.mjs:474`, `craftroom.mjs:291`. Room selection and named deposit use the same capped plan; naming X filters *after* group allowances are calculated. Slot prediction respects cobble’s smallest-stack-first transfer. Unknown/at-target names are omitted when their cap binds; another remedy or the model gets the turn.
+
+2. **Execution remains conditional, bounded** — `skills.mjs:2608,2833,2918`; `workorder.mjs:296–303`. Fresh observations or competing reservations can invalidate X after selection, producing a stock refusal and freeing nothing. That triggers the existing **10-minute** room backoff; admission rejection triggers **2 minutes**. Selection is not a transfer guarantee.
+
+3. **No new admission mismatch found** — `skills.mjs:5028`; `admission.mjs:378–408`. `depositWorthIt` retains the same bankable/distance/occupancy gate. Admission’s reconciliation and deposit-milestone exceptions are more permissive, not stricter.
+
+4. **Precedence correction:** town deposit **overrides** the room-gated rung (`cognitive.mjs:844`). Effective priority: **town deposit/recount → rung → wear_out[/bamboo] → town orders → well → pruning → room → planting → model**. Pruning requires **two free slots**, preserving one (`prune.mjs:123`). Recount’s latch/cooldowns prevent a tight retry loop (`towndeposit.mjs:263–275`).
+
+5. **Merge integrity** — all three normalized deltas preserve the approved changes, with only the expected import merges and pruning-comment adjustment. No new TDZ, missing import, or displaced test-anchor issue found by inspection.
+
+Read-only review; no edits, SSH, or tests run.
+
+=== CLAUDE st1 ===
+APPROVE-WITH-CHANGES: the rebase is clean (identical deltas on the three tips; precedence town deposit -> rung -> wear_out -> town orders -> well -> pruning -> room order); finding 1: on stocktarget tips the bank takes no bulk at target, so far full bags mostly get `none` (the well is the exit) and the iron-ladder fallback becomes common; finding 2: noSwords parity.
+
+=== CODEX st2 ===
+**APPROVE-WITH-CHANGES** — two remaining composition issues, shared by all three tips. Lines refer to `fad48986`.
+
+1. **[P2] Well prediction does not establish an executable destination** — `bots/src/skills.mjs:5227`. Ordinary junk, swords, and at-cap cobble qualify without a usable well or feasible build. A full bot carrying flint but no build materials can walk home, receive no well order, and reach `none`. `workorder.mjs:297` nevertheless clears home backoff on arrival. This stops locally, but leaving town permits another identical unsuccessful trip; disposal failure never reaches the room state. Require destination evidence or remember an unsuccessful well visit until relevant conditions change.
+
+2. **[P2] At-target stock prediction is not reliably available from afar** — `bots/src/skills.mjs:5227`. `stockWellOpts` requires `stockCapBinds()`, whose installed probe refreshes through a live town-block scan (`skills.mjs:3420`). With town chunks unavailable, it returns false despite remembered stock counts. With `home_deposit` excluded, a bag containing only eligible at-target stock therefore gets `none`, although disposal would work on arrival. Use remembered well evidence for travel planning and revalidate at town; cover this blocked-deposit chain.
+
+Fuel accounting correctly subtracts the whole named-item allowance and preserves 16 combined coal/charcoal. `noSwords` parity is fixed. Cobble’s stock view supports remembered town counts.
+
+Read-only review; no edits, SSH, or tests.
+
+=== CLAUDE st2 ===
+APPROVE-WITH-CHANGES (r9): fuel rule and noSwords right; the well walk needs destination evidence (a recorded well, the dispose backoff) and a state bound for wasted walks; split deposit vs well walks in the read; note the 30 s probe race.
+
+=== CODEX st3 ===
+**APPROVE-WITH-CHANGES** for `0b18f7d9`.
+
+1. **P3 — `bots/test/_mutant-21313-ulam06uo1n.mjs:1`:** Remove the accidentally committed 5,787-line generated mutant. It is absent from the cherry-picked tip `77ac5597` observed during review.
+
+No blocking logic findings. Recorded-site gating, planning-only `assumeCap`, disposal-backoff exclusion, and the 30-minute well-walk bound address st-2. The scratchpad read correctly judges well walks by craft completion within 15 minutes and documents the probe race.
+
+Read-only review; no edits, SSH, or tests.
+
+=== CLAUDE st3 ===
+APPROVE (r10): recorded-well gate, planning-only assumeCap, dispose-backoff exclusion, 30-min well-walk backoff; note: a recorded site may be a pit or breached well -- bounded by the same backoff.
+
+=== CODEX st4 ===
+APPROVE.
+
+All five specified ranges have identical `+/-` lines across the same eight files. The generated `_mutant` finding is resolved.
+
+No composition issues found with airpocket-02, gridfix/bamboo, or stocktarget: cognitive order precedence and skills imports remain consistent.
+
+Read-only review; no edits, SSH, or tests run.
+
+=== CLAUDE st4 ===
+APPROVE, no findings: identical +/- lines on all five variants (hash af9db8a2), no _mutant file, no composition issue with airpocket-02 (cognitive order chain untouched), the keptfull Paper result is what the design predicts.
+
+
+
+######## THE FALLBACK VARIANTS (non-stocktarget bases, r9g) ########
+FINAL: Codex APPROVE, Claude APPROVE.
+
+=== CODEX fb ===
+**APPROVE.** No findings.
+
+- r9g is correct for non-stocktarget bases: the 16-fuel floor and `noSwords` forwarding require no stocktarget code.
+- All five base-to-tip deltas have identical added/removed lines.
+- No composition problem found with either airpocket-02 tip.
+- `orderroomread.py` matches MD5 `8a22256f8fe8bc4363323c377171ad50`; no gate requires stocktarget rows. Well-walk counts stay zero; ladder counts remain valid and may be nonzero.
+
+Read-only review; no edits, SSH, or tests.
+
+=== CLAUDE fb ===
+APPROVE, no findings: r9g right and complete for a base without stocktarget (foodSkipNow present; depositPlan forwards noSwords on 0cdb1a8; the fuel floor holds whether the ladder fallback is rare or common; the original roomExclusions rule is right without the well walk); the five deltas hash identically (195fe38f), no _mutant file; airpocket-02 touches only airpocket/reflex/skills rescue code, not the order chain; read 8a22256f valid without stocktarget.

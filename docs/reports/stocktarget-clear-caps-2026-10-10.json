@@ -69,8 +69,8 @@
    "cap": 256
   }
  },
- "OWNER_TO_CONFIRM": {
-  "bamboo": "cap 0 (plan2 draft): class E for the bots; bamboo/bamboocraft will use it",
-  "bucket": "cap 2 (plan2 draft): iron (3 ingots each); the owner said never iron"
+ "OWNER_CONFIRMED_2026_10_12": {
+  "bamboo": "cap 0 -- owner confirmed 10-12: \"bamboo 0 and bucket 2 are fine\"",
+  "bucket": "cap 2 -- owner confirmed 10-12: \"bamboo 0 and bucket 2 are fine\""
  }
 }
