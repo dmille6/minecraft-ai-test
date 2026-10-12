@@ -35,7 +35,8 @@ const botWithTable = (dist, { carried = false, recipes = true } = {}) => {
     registry: { itemsByName: { stone_pickaxe: { id: 889 } }, blocks: { 7: { name: 'crafting_table' } } },
     findBlock: ({ matching, maxDistance }) =>
       (matching({ type: 7 }) && dist <= maxDistance) ? { type: 7, position: vec(dist, 64, 0) } : null,
-    recipesFor: (id, m, n, table) => { asked.table = table; return (recipes && table) ? [{ id }] : [] },
+    // FIRST call only: readyFor's own question. orderroom-01's room check (craftRouteFor) asks recipesFor again after it.
+    recipesFor: (id, m, n, table) => { if (asked.table === undefined) asked.table = table; return (recipes && table) ? [{ id }] : [] },
   }
 }
 
@@ -169,7 +170,9 @@ test('the hook is wired and emits a liveness counter', async () => {
   // when no craft/smelt rung is ready. The ASSERTION'S INTENT is unchanged -- the
   // rung order must still be computed from readyFor and must still come FIRST --
   // and planting.test.mjs asserts the ordering separately with a mutant.
-  assert.match(exec, /(const|let) order = orderFor\(readyFor\(this\.bot, milestone\)\)/)
+  // orderroom-01: readyFor is computed once, BEFORE the prompt (the room check feeds the HINT), and the rung order is
+  // still the first order computed from it.
+  assert.match(exec, /const ready = readyFor\(this\.bot, milestone[,)][\s\S]*?let order = orderFor\(ready\)/)
   assert.match(exec, /kind: 'work_order'/, 'it must be observable or it can ship inert')
   // Synthesised as a PROPOSAL so admission still vets it and the outcome still
   // feeds noteAttempt -- bypassing those would let a bot loop forever on an
