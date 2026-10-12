@@ -1364,12 +1364,16 @@ export function startReflexes(bot, runner, lessons = null, worldFacts = null) {
   // the bot sinks back, its own scan now reads `up dist=1` into the pocket and the ordinary rescue lifts it there.
   // PLAN + ADMISSION, no side effects: what the step WOULD do here. The pre-empt asks it first (both reviews r2: an
   // escape must never be stopped for a step that would then be refused).
+  // a craft IN FLIGHT is craftsync's ACTIVE craft -- not an abandoned one (Claude r1 P2, 10-12): a zombie has already
+  // unwound its equip wrapper and only its clickWindow fuse remains, which a quick-bar selection never touches and a
+  // clicking equip trips safely; locking on it held a drowning bot off for up to mineflayer's 20-s windowOpen timeout
+  const craftActive = () => { try { return !!bot.craftSync?.active?.() } catch { return false } }
   // WHO HOLDS THE INVENTORY right now -- the one reading every airpocket decision takes (rescueInventoryDecision)
   const inventoryState = () => ({
     windowOpen: !!bot.currentWindow,
     skillBusy: (() => { try { return runner?.isBusy?.() === true } catch { return false } })(),
     unsettledHold: !!bot.inventoryUnsettled,
-    craftBusy: (() => { try { return bot.craftSync?.busy?.() === true } catch { return false } })(),
+    craftBusy: craftActive(),
     wellHold: typeof bot.inventoryHold?.release === 'function',
   })
   const prepareAirPocket = ({ worstCase = false } = {}) => {
@@ -1439,18 +1443,20 @@ export function startReflexes(bot, runner, lessons = null, worldFacts = null) {
       // THE RESCUE OWNS THE INVENTORY from here: an interrupted housekeeping order's cleanup (settleAndRestore) sees the
       // epoch move and never restores its old hand over the rescue's tool (stonecap review, Codex P2)
       bot.rescueInventoryEpoch = (bot.rescueInventoryEpoch ?? 0) + 1
+      // ...and an order that STARTS during the step never restores either (Claude r1 P3: its epoch is the bumped one)
+      bot.rescueInventoryActive = true
       r = await airPocketStep(bot, plan, { Vec3, predict: (b, item) => predictedDigMs(b, item, digEnv(bot)), envelope: admit.envelope,
                                            guard: () => { try { if (runner?.isBusy?.()) runner.interrupt('air_pocket'); if (bot.pathfinder?.goal) haltPath(bot) } catch {} return null },
                                            // the window handoff waits for the interrupted skill to unwind (its finally: smelt's drain)
                                            skillBusy: () => { try { return runner?.isBusy?.() === true } catch { return false } },
                                            // no equip ever queued behind a craft (craftsync wraps bot.equip with a 2-s preempt wait)
-                                           craftBusy: () => { try { return bot.craftSync?.busy?.() === true } catch { return false } },
+                                           craftBusy: craftActive,
                                            // a junk well's throw-phase hold is released BEFORE the rescue equips (it would hold equip 8 s)
                                            releaseHold: () => { try { bot.inventoryHold?.release?.('air_pocket') } catch { /* already released */ } },
                                            standItem: ({ unsupported = false } = {}) => unsupported
                                              ? pickScaffold(standCandidates(bot.inventory?.items?.() ?? [], { unsupported: true }), PLACEABLE)
                                              : scaffoldFor(bot, 'air_pocket') })
-    } finally { airPocketing = false; airPocketWants = 0 }
+    } finally { airPocketing = false; airPocketWants = 0; bot.rescueInventoryActive = false }
     logEvent({ kind: 'air_pocket', status: r.ok ? 'success' : r.outcome === 'opened' ? 'no_effect' : 'failed',
                detail: airPocketRow({ id: attemptId, r, requiredMs: admit.requiredMs, budgetMs: admit.budgetMs,
                                       difficulty: inputs.difficulty }), snapshot: snapshot(bot) })
@@ -2325,7 +2331,7 @@ export function startReflexes(bot, runner, lessons = null, worldFacts = null) {
             try { if (runner?.isBusy?.()) runner.interrupt('air_pocket') } catch { /* nothing running */ }
             if (throttled('air_pocket_window_open', 30_000)) {
               logEvent({ kind: 'air_pocket_refused', status: 'no_effect',
-                         detail: `reason=a container window is open (${runner?.isBusy?.() ? 'its skill interrupted' : 'a withdraw hold'}; the escape is not pre-empted) ` +
+                         detail: `reason=${bot.currentWindow ? 'a container window is open' : 'a craft is in flight'} (${runner?.isBusy?.() ? 'its skill interrupted' : bot.currentWindow ? 'a withdraw hold' : 'craftsync unwinding'}; the escape is not pre-empted) ` +
                                  `health=${bot.health} held_ms=${Date.now() - seizedAt}`, snapshot: snapshot(bot) })
             }
           } else if (apPre === 'preempt') {
