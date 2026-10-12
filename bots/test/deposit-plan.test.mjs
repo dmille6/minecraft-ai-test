@@ -9,7 +9,7 @@ const BANKSRC = readFileSync(new URL('../src/bankable.mjs', import.meta.url), 'u
 const { PATHFINDER_SCAFFOLD } = await import('../src/scaffold.mjs')
 const SCAFFOLD = new Set(PATHFINDER_SCAFFOLD)
 const inv = [
-  { name: 'cobblestone', count: 40, type: 1 }, { name: 'stone_pickaxe', count: 1, type: 2 }, { name: 'iron_pickaxe', count: 1, type: 3 },
+  { name: 'cobblestone', count: 64, type: 1 }, { name: 'cobblestone', count: 40, type: 1 }, { name: 'stone_pickaxe', count: 1, type: 2 }, { name: 'iron_pickaxe', count: 1, type: 3 },
   { name: 'furnace', count: 2, type: 4 }, { name: 'crafting_table', count: 1, type: 5 }, { name: 'raw_iron', count: 9, type: 6 },
   { name: 'oak_log', count: 12, type: 7 }, { name: 'bucket', count: 1, type: 8 }, { name: 'leaf_litter', count: 30, type: 9 },
 ]
@@ -18,10 +18,10 @@ t('the only pickaxe of a family, the stations, the bucket and the junk are never
   for (const keep of ['furnace', 'crafting_table', 'bucket', 'leaf_litter']) assert.ok(!names.includes(keep), `${keep} must stay`)
   assert.ok(!names.includes('iron_pickaxe') && !names.includes('stone_pickaxe'), 'one pickaxe of each family is kept (there is one of each)')
 })
-t('a second pickaxe of the same family is banked; the scaffold reserve of 8 cobblestone stays', () => {
+t('a second pickaxe of the same family is banked; the cobble reserve of 64 stays (the cobble rule, stonecap)', () => {
   const plan = depositPlan([...inv, { name: 'stone_pickaxe', count: 1, type: 2 }])
   assert.equal(plan.find(p => p.name === 'stone_pickaxe')?.count, 1, 'the spare pickaxe goes, the working one stays')
-  assert.equal(plan.find(p => p.name === 'cobblestone')?.count, 32, '40 held, 8 kept to pillar out')
+  assert.equal(plan.find(p => p.name === 'cobblestone')?.count, 40, '104 held in [64, 40]: the whole 40 goes, 64 kept')
 })
 t('the valuable stacks go first, so a short chest keeps the iron', () => {
   const names = depositPlan(inv).map(p => p.name)
@@ -52,9 +52,10 @@ t('the deposit skill hands over the plan (source anchor) and a mutant that depos
   assert.match(f, /planItems = bot\.inventory\.items\(\)/, 'the snapshot the plan and the refusal share')
   // (2026-10-07, peacefulkit) the plan also carries the peaceful kit's ONE reading of the switch (`swords`), which the tool
   // transfer below reuses, so plan and transfer cannot disagree.
-  assert.match(f, /const plan = depositPlan\(planItems, item, \{ wants: bot\.currentWants \?\? \[\], noSwords \}\)/, 'the loop is driven by the plan, with the wants admission judged with')
+  assert.match(f, /const plan = depositPlan\(planItems, item, \{ wants: bot\.currentWants \?\? \[\], noSwords, stockRoomFor \}\)/, 'the loop is driven by the plan, with the wants admission judged with')
   assert.ok(!/for \(const it of bot\.inventory\.items\(\)\) \{\s*check\(signal\)\s*if \(item && it\.name !== item\) continue/.test(f), 'the old everything loop is gone')
-  const anchor = 'const plan = depositPlan(planItems, item, { wants: bot.currentWants ?? [], noSwords })'
+  // (2026-10-10, stocktarget) + stockRoomFor: a chest-full recovery's reservation is the room of its reserved names
+  const anchor = 'const plan = depositPlan(planItems, item, { wants: bot.currentWants ?? [], noSwords, stockRoomFor })'
   assert.equal(c.split(anchor).length - 1, 1, 'ANCHOR MISSING or not unique')
   const bad = c.replace(anchor, "const plan = planItems.map(it => ({ name: it.name, count: it.count }))")
   assert.ok(!bad.includes(anchor))

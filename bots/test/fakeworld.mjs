@@ -126,6 +126,28 @@ export function fakeWorld ({ bag = [], at = [6.5, 64, 0.5] } = {}) {
           }
           if (w.selectedItem) { bag.push(w.selectedItem); w.selectedItem = null }
         },
+        // mineflayer's transfer() narrowed to ONE source slot (bot.transfer below): the same placement as deposit
+        async transferFrom (slot, type, count) {
+          const i = slot - size
+          let left = count
+          while (left > 0) {
+            if (!w.selectedItem) {
+              const it = bag[i]
+              if (!it || it.type !== type) throw new Error(`Can't find ${type} in slots [${slot} - ${slot + 1}]`)
+              w.selectedItem = it; bag[i] = null
+            }
+            let dest = c.slots.findIndex(s => s && s.type === type && s.count < 64)
+            if (dest < 0) dest = c.slots.findIndex(s => !s)
+            if (dest < 0) throw new Error('destination full')
+            const sel = w.selectedItem
+            const room = c.slots[dest] ? 64 - c.slots[dest].count : 64
+            const mv = Math.min(room, sel.count, left)
+            c.slots[dest] = c.slots[dest] ? { ...c.slots[dest], count: c.slots[dest].count + mv } : { name: sel.name, type: sel.type, count: mv }
+            sel.count -= mv; left -= mv
+            if (sel.count === 0) w.selectedItem = null
+          }
+          if (w.selectedItem) { bag[i] = w.selectedItem; w.selectedItem = null }
+        },
         close () { if (w.selectedItem) { dropped.push(w.selectedItem); w.selectedItem = null } bot.currentWindow = null },
       }
       bot.currentWindow = w
@@ -192,6 +214,11 @@ export function fakeWorld ({ bag = [], at = [6.5, 64, 0.5] } = {}) {
       held.count -= 1
       if (held.count === 0) { bag.splice(bag.indexOf(held), 1); bot.heldItem = null }
       spy.placed.push(key(t.x, t.y, t.z))
+    },
+    async transfer ({ window: w, itemType, count, sourceStart }) {
+      spy.transfers = (spy.transfers ?? 0) + 1
+      if (!w?.transferFrom) throw new Error('no window')
+      return w.transferFrom(sourceStart, itemType, count)
     },
     recipesFor () { spy.recipesFor++; return [] },
     async craft () { spy.craft++; throw new Error('the fake cannot craft') },
