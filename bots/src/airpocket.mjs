@@ -653,8 +653,10 @@ export async function airPocketStep (bot, plan, { Vec3, predict, sleep = ms => n
     if (!(Number.isFinite(heldMs) && heldMs > 0) || heldMs * AP_MARGIN + AP_LATENCY_MS > airPocketBudgetMs({ health: bot.health, envelope })) {
       // the handoff waited or held the equip off, or the equip was refused (r2 Codex P2: withdraw's ownInventory refuses
       // EVERY equip during a visit, a quick-bar selection too): nothing dug, so the caller retries on the SHORT cooldown
-      if (res.window !== 'none' || equipErr) res.handoffHeld = true
-      res.why = `the held ${res.tool} needs ${res.predictedMs} ms: over the budget after equip${equipErr ? ` (equip refused: ${String(equipErr.message ?? equipErr).slice(0, 40)})` : ''}`; return res
+      // the hand LOST after a good equip (something else's equip landed over it, Codex r2 P1) is a handoff too: short cooldown
+      const lost = !!pick.item && res.window !== 'unowned' && !equipErr && held?.name !== pick.item.name
+      if (res.window !== 'none' || equipErr || lost) res.handoffHeld = true
+      res.why = `the held ${res.tool} needs ${res.predictedMs} ms: over the budget after equip${equipErr ? ` (equip refused: ${String(equipErr.message ?? equipErr).slice(0, 40)})` : lost ? ` (the ${pick.item.name} was replaced)` : ''}`; return res
     }
     const p1 = bot.entity.position
     if (Math.floor(p1.x) !== fx || Math.floor(p1.z) !== fz || Math.floor(p1.y) < fy - 1) { res.why = 'moved off the planned column'; return res }

@@ -7453,22 +7453,28 @@ function holdInventory (bot) {
     orig[name] = bot[name]
     mine[name] = async function (...args) {
       if (!released) {
-        await new Promise(resolve => { const t = setTimeout(resolve, WELL_HOLD_MAX_MS); waiters.push(() => { clearTimeout(t); resolve() }) })
+        await new Promise((resolve, reject) => {
+          const t = setTimeout(resolve, WELL_HOLD_MAX_MS)
+          waiters.push(drop => { clearTimeout(t); if (drop) reject(new Error(`${name} dropped: the inventory was taken by ${drop}`)); else resolve() })
+        })
       }
       return orig[name].apply(bot, args)
     }
     bot[name] = mine[name]
   }
-  const release = () => {
+  // release(by): the well's own end lets every held action through; a RESCUE's release (by = 'air_pocket') DROPS them
+  // (Codex r2 P1, 10-12): a hunger equip queued behind the hold would otherwise land after the rescue's equip and replace
+  // its pickaxe. The dropped callers see a rejected promise, as any refused equip.
+  const release = (by = null) => {
     if (released) return
     released = true
     for (const [name, fn] of Object.entries(mine)) if (bot[name] === fn) bot[name] = orig[name]
-    for (const w of waiters.splice(0)) w()
+    for (const w of waiters.splice(0)) w(by)
     if (bot.inventoryHold === hold) bot.inventoryHold = null
   }
   // REGISTERED so the air_pocket rescue can RELEASE it before it equips (rescueInventoryDecision: a well hold is owned
   // and released, never waited on -- 8 s of a held equip is a drowning; Codex P2, stonecap review)
-  const hold = { owner: 'well', release: () => release() }
+  const hold = { owner: 'well', release: (by = 'air_pocket') => release(by) }
   bot.inventoryHold = hold
   return release
 }
