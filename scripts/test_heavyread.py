@@ -55,13 +55,34 @@ def hr(hr_path, tmp, cmd, cap='1G', lock=None, wait='5', timeout='60', env=None,
         e['HEAVYREAD_MAX'] = cap
     else:
         e.pop('HEAVYREAD_MAX', None)
+    pr = subprocess.Popen(['bash', hr_path, timeout, out, '--'] + cmd, env=e, cwd=tmp,
+                          stdout=None if bg else subprocess.DEVNULL, stderr=None if bg else subprocess.DEVNULL)
+    TEST_UNITS.append('heavyread-%s-%d.scope' % (role, pr.pid))     # the wrapper's $$ is pr.pid
+    LAST_UNIT[0] = TEST_UNITS[-1]
     if bg:
-        return subprocess.Popen(['bash', hr_path, timeout, out, '--'] + cmd, env=e, cwd=tmp), out
-    r = subprocess.run(['bash', hr_path, timeout, out, '--'] + cmd, capture_output=True, text=True, env=e, cwd=tmp, timeout=300)
-    return r.returncode, (open(out).read() if os.path.exists(out) else '')
+        return pr, out
+    pr.wait(300)
+    return pr.returncode, (open(out).read() if os.path.exists(out) else '')
+
+
+TEST_UNITS = []; LAST_UNIT = ['']
+
+
+def reset_test_units():
+    """Clear the failed state of every unit THIS test created (never anyone else's), so no case or mutant inherits it."""
+    if TEST_UNITS:
+        subprocess.run(['sudo', '-n', 'systemctl', 'reset-failed'] + TEST_UNITS, capture_output=True)
+    del TEST_UNITS[:]
 
 
 def section_a(hr_path, tmp):
+    try:
+        return _section_a(hr_path, tmp)
+    finally:
+        reset_test_units()
+
+
+def _section_a(hr_path, tmp):
     out = []
     c = lambda n, ok, d='': out.append((n, bool(ok), d))
     if not shutil.which('flock') or not scope_ok():
@@ -69,8 +90,10 @@ def section_a(hr_path, tmp):
     f = tempfile.mktemp(dir=tmp, prefix='ev-')
     rc, o = hr(hr_path, tmp, [sys.executable, '-c', HOG, f, 'x'], cap='300M')
     c('a 400 MB read under a 300M cap is KILLED before it writes (137), and says so', rc == 137 and not os.path.exists(f) and 'KILLED' in o, (rc, o))
-    failed = subprocess.run(['systemctl', 'list-units', '--all', '--failed', '--no-legend', '--plain', 'heavyread-*'], capture_output=True, text=True).stdout
-    c('the killed run leaves no FAILED heavyread unit behind (its name would block a reused PID)', 'heavyread-' not in failed, failed[:300])
+    killed_unit = LAST_UNIT[0]
+    failed = subprocess.run(['systemctl', 'list-units', '--all', '--failed', '--no-legend', '--plain', killed_unit], capture_output=True, text=True).stdout
+    c('the killed run leaves ITS unit (%s) not failed-and-loaded (the name would block a reused PID)' % killed_unit,
+      killed_unit not in failed, failed[:300])
     f = tempfile.mktemp(dir=tmp, prefix='ev2-')
     rc, o = hr(hr_path, tmp, [sys.executable, '-c', HOG, f, 'x'], cap='2G')
     c('the same read under a 2G cap runs and writes (positive control)', rc == 0 and os.path.exists(f), (rc, o))
@@ -215,6 +238,13 @@ def section_a(hr_path, tmp):
 
 
 def section_b(hr_path, tmp):
+    try:
+        return _section_b(hr_path, tmp)
+    finally:
+        reset_test_units()
+
+
+def _section_b(hr_path, tmp):
     """The OOM path through the real verdict.py, with test_keep180's clean A' case."""
     out = []
     c = lambda n, ok, d='': out.append((n, bool(ok), d))

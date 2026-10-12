@@ -17,4 +17,7 @@ md = tempfile.mkdtemp(dir=tmp); mp = os.path.join(md, 'heavyread.sh'); open(mp, 
 r2 = M.section_a(mp, tmp)
 killed = [n for n, ok, _d in r2 if not ok]
 print('mutant "%s": %s by %s' % (NAME, 'KILLED' if killed else 'SURVIVED', killed[:3]))
+r3 = M.section_a(os.path.join(D, 'heavyread.sh'), tmp)          # no contamination: the unmutated file passes again
+bad3 = [n for n, ok, _d in r3 if not ok]
+print('unmutated section A AFTER the mutant: %d/%d pass%s' % (len(r3) - len(bad3), len(r3), ('; FAIL: ' + '; '.join(bad3)) if bad3 else ''))
 shutil.rmtree(tmp, ignore_errors=True)
