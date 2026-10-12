@@ -10,14 +10,14 @@
 // keeps a bad generation from becoming a bad action.
 
 import { HARD_STOP } from './toolfor.mjs'
-import { SKILLS, classifyOutcome, SKILL_CONTRACTS, plantableSpotNear, findTownComposter, townBuildPlan, townPickMiss, townIngredientMiss, foodSkipNow, townContainers, townWellState, townWellBuildPlan, insideTownWell, wellSwordsNow, cobbleWellCap, townPitState, stockWellOpts, valveProof, stockCountKeys, pruneTarget } from './skills.mjs'
+import { SKILLS, roomRemedy, farFromBank, classifyOutcome, SKILL_CONTRACTS, plantableSpotNear, findTownComposter, townBuildPlan, townPickMiss, townIngredientMiss, foodSkipNow, townContainers, townWellState, townWellBuildPlan, insideTownWell, wellSwordsNow, cobbleWellCap, townPitState, stockWellOpts, valveProof, stockCountKeys, pruneTarget } from './skills.mjs'
 import { disposePlan, wellOrder, wellOrderOutcome, WELL_ORDERS, pitCoverItem } from './well.mjs'
 import { smeltInputsFor } from './smelting.mjs'
 import { makeClient, skillSchema } from './llm.mjs'
 import { buildSystemPrompt, buildUserPrompt, makeSentinel, WorkingMemory } from './prompt.mjs'
 import { AdmissionControl } from './admission.mjs'
 import { MilestoneController, servesRung, NO_PROGRESS_MS, RUNNER_REFUSALS } from './milestones.mjs'
-import { orderFor, readyFor, plantingOrder, plantingEnabled, PLANT_COOLDOWN_MS } from './workorder.mjs'
+import { orderFor, readyFor, plantingOrder, plantingEnabled, PLANT_COOLDOWN_MS, roomOrder, roomOutcome, roomBackedOff, roomExclusions, lostLine, ROOM_WEAR_TRUST_MS } from './workorder.mjs'
 import { wearOutPlan, isHousekeeping } from './hygiene.mjs'
 import { bambooOrder, bambooOrderOutcome, firstOrder } from './bamboo.mjs'
 import { compostPlan, townOrder, townOrderOutcome, boneMealRoom, composterLevel, TOWN_ORDERS, STORAGE_NEAR, TOWN_RADIUS, startableJunk } from './composter.mjs'
@@ -760,6 +760,27 @@ export class CognitiveLoop {
     return want
   }
 
+  /**
+   * THE REMEDY FOR A WITHHELD CRAFT (orderroom-01) -> { kind, item, text }: skills.mjs roomRemedy with every kind left
+   * out that is backing off (roomState) or that the gate's memory would refuse (AdmissionControl.memoryRefuses: cooldown,
+   * learned failures, a full repeat window) -- so the next remedy, or the model, takes the turn instead of a refused order.
+   */
+  #roomRemedy(noRoom) {
+    try {
+      const now = Date.now()
+      const memory = {}
+      for (const kind of ['eat', 'deposit', 'home']) memory[kind] = this.admission.memoryRefuses(kind, {}, now)
+      const exclude = roomExclusions({ backedOff: roomBackedOff(this.roomState ?? {}, now), memory })
+      const r = roomRemedy(this.bot, this.bot.inventory?.items?.() ?? [], noRoom.keep ?? [], { exclude })
+      // A PAUSED REMEDY IS NOT "NOTHING CAN BE FREED" (Claude r2): say which is waiting, so the prompt does not lie.
+      // Only the remedies that make room from anywhere (deposit, home): an excluded `eat` with no single food would not
+      // have applied anyway (Claude r3).
+      const paused = [...exclude].filter(k => k === 'deposit' || k === 'home').sort()
+      if (r?.kind === 'none' && paused.length) return { ...r, text: `free a slot first -- ${paused.join('/')} paused (backing off or refused recently); keep working and craft later` }
+      return r
+    } catch { return null }
+  }
+
   async #tick(trigger) {
     { const at = this.bot.entity?.position; if (at) { const inv = this.bot.inventory?.items?.() ?? []; this.fixationSamples.push({ t: Date.now(), x: at.x, z: at.z, items: inv.reduce((n, it) => n + (it.count ?? 0), 0) }); const lo = Date.now() - 300_000; while (this.fixationSamples.length && this.fixationSamples[0].t < lo) this.fixationSamples.shift() } }
     if (this.stopped || this.runner.isBusy()) return
@@ -780,9 +801,14 @@ export class CognitiveLoop {
 
     const milestone = this.#activeTask()
     const sentinel = makeSentinel()
+    // NO CRAFT ORDER WITHOUT ROOM (orderroom-01; workorder.mjs readyFor, skills.mjs craftRoomCheck): computed BEFORE the
+    // prompt, so the prompt stops advertising a craft the bag cannot hold and names the remedy instead.
+    const ready = readyFor(this.bot, milestone, { wearFailedRecently: Date.now() - (this.roomWearFailAt?.[milestone?.wants] ?? -Infinity) < ROOM_WEAR_TRUST_MS })
+    const room = ready.noRoom ? this.#roomRemedy(ready.noRoom) : null
     const { user, tokens, dropped, affordance } = buildUserPrompt({
       bot: this.bot, milestone, memory: this.memory, wanted: this.#wantedItems(milestone),
       lastOutcome: this.lastOutcome, trigger, sentinel,
+      noRoom: ready.noRoom ? { item: ready.noRoom.item, short: ready.noRoom.short, text: room?.text ?? null } : null,
       // Own experience first, then what peers reported. Peer lines carry the
       // reporter's name ("Gather02 hit entombed 16x near ...") so the model can
       // weigh first-hand knowledge against hearsay, and so a bad fact can be
@@ -829,7 +855,11 @@ export class CognitiveLoop {
     // The cooldown is charged when the order is ISSUED, not when it succeeds, so a
     // spot that cannot be planted costs one decision every ten minutes rather than
     // every decision.
-    let order = orderFor(readyFor(this.bot, milestone))
+    let order = orderFor(ready)
+    // THE CRAFT'S OWN MAKE-ROOM ROUTE IS NAMED on the order (Claude r2), so the read can tell a designed wear-out attempt
+    // from a craft issued into a bag without room.
+    // ...and when the check could not say (unknown route, a pickup-only shortage): the read counts those apart too.
+    if (order?.skill === 'craft' && (ready.roomVia === 'wear' || ready.roomVia === 'unknown')) order = { ...order, why: `${order.why} (room via ${ready.roomVia})` }
     // THE TOWN DEPOSIT GOES FIRST (towndeposit.mjs; owner 10-05 "add automatic town deposit"): a bag at 34+ at town
     // banks its surplus before other work. AHEAD of the milestone order on purpose: a craft-ready rung re-issues its
     // craft every decision, craftroom refuses it at 36/36, and an order placed after it would never get a turn
@@ -924,6 +954,31 @@ export class CognitiveLoop {
         this.pruneState = r.state
         if (r.order) order = r.order
       } catch { /* an inventory or world read must never break the decision loop */ }
+    }
+    // THE ROOM ORDER (orderroom-01): the rung craft was withheld for no room, nothing above freed a slot this tick (the
+    // town deposit, wear_out, the town orders, the junk well and chest pruning all run first), so the remedy the craft would have named is the order.
+    let roomIssued = null, roomBefore = null
+    if (ready.noRoom) {
+      try {
+        const items = this.bot.inventory?.items?.() ?? []
+        const n = ready.noRoom
+        this.noRoomLoggedAt ??= {}
+        if (Date.now() - (this.noRoomLoggedAt[n.item] ?? -Infinity) >= 5 * 60 * 1000) {
+          this.noRoomLoggedAt[n.item] = Date.now()
+          logEvent({ kind: 'craft_noroom', status: 'no_effect',
+                     detail: `item=${n.item} short=${n.short} slots=${items.length} route=${n.route ?? '?'} remedy=${room?.kind ?? '?'} target=${room?.item ?? '-'} order=${order ? order.skill : '-'}`,
+                     snapshot: snap })
+        }
+        if (!order) {
+          const r = roomOrder({ noRoom: n, remedy: room, now: Date.now(), state: this.roomState ?? {}, slots: items.length })
+          this.roomState = r.state
+          if (r.order) {
+            order = r.order; roomIssued = r.order.room
+            roomBefore = {}
+            for (const it of items) roomBefore[it.name] = (roomBefore[it.name] ?? 0) + (it.count ?? 0)
+          }
+        }
+      } catch { /* a world read must never break the decision loop */ }
     }
     if (!order) {
       const sap = {}
@@ -1231,6 +1286,27 @@ export class CognitiveLoop {
       }
     }
     if (admitted) this.consecutiveRejections = 0
+    // THE ROOM ORDER'S OUTCOME, MEASURED: the bag's slots now against when it was issued (workorder.mjs roomOutcome).
+    if (roomIssued) {
+      try {
+        const items = this.bot.inventory?.items?.() ?? []
+        const after = {}
+        for (const it of items) after[it.name] = (after[it.name] ?? 0) + (it.count ?? 0)
+        const lost = lostLine(roomBefore ?? {}, after)
+        const stillFar = roomIssued.kind === 'home' && admitted ? farFromBank(this.bot) : false
+        const out = roomOutcome({ status: outcome.status, failClass: runFailClass, refused: !admitted, slotsAfter: items.length, stillFar, now: Date.now(), state: this.roomState ?? {} })
+        this.roomState = out.state
+        const st = out.verdict === 'ok' ? 'success' : out.verdict === 'walking' ? 'no_effect' : 'failed'
+        logEvent({ kind: 'room_order', status: st,
+                   detail: `kind=${roomIssued.kind} item=${roomIssued.item ?? '-'} craft=${roomIssued.craft} short=${roomIssued.short ?? '?'} slots=${roomIssued.slots}->${items.length} freed=${out.freed} verdict=${out.verdict} run=${admitted ? outcome.status : 'refused:' + (rejection?.reason ?? '?')} lost=${lost}`,
+                   snapshot: snapshot(this.bot) })
+      } catch { /* a log row must never break the decision loop */ }
+    }
+    // A RUNG CRAFT REFUSED FOR ROOM stops trusting the craft's own wear-out route for a while (craftRoomCheck).
+    if (admitted?.skill === 'craft' && runFailClass === 'inventory_full' && admitted.args?.item) {
+      this.roomWearFailAt ??= {}
+      this.roomWearFailAt[admitted.args.item] = Date.now()
+    }
 
     // Track whether this milestone is going anywhere at all.
     // Flush immediately. noteAttempt runs AFTER both save() calls above, so a

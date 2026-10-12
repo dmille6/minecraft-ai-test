@@ -500,7 +500,7 @@ export function tableAccess (bot) {
   return { has: !!near, carried: false, near }
 }
 
-export function craftableNow (bot, milestone = null, wantedSet = null) {
+export function craftableNow (bot, milestone = null, wantedSet = null, noRoomItem = null) {
   try {
     const items = bot.inventory?.items() ?? []
     // TOOL HYGIENE: never advertise a pickaxe the admission gate refuses as redundant -- the same function on the same
@@ -514,6 +514,8 @@ export function craftableNow (bot, milestone = null, wantedSet = null) {
     const peaceful = peacefulFoodActive()   // never advise a craft admission refuses (peacefulkit.mjs swordCraftRefusal)
     for (const name of CRAFT_TARGETS) {
       if (peaceful && isSword(name)) continue
+      // NO ROOM, NOT ADVERTISED (orderroom-01): the craft's own room check withheld this craft; the HINT names the remedy.
+      if (name === noRoomItem) continue
       if (items.some(i => i.name === name && i.count > 0) && !name.endsWith('_pickaxe')) continue
       if (name.endsWith('_pickaxe') && redundantCraft(name, items, { wanted, y: bot.entity?.position?.y, exitShort: bot.exitPickShort })) continue
       const it = bot.registry?.itemsByName?.[name]
@@ -685,7 +687,7 @@ export function bucketSituation (bot) {
   } catch { return '' }
 }
 
-export function buildUserPrompt({ bot, milestone, memory, lastOutcome, trigger, sentinel, lessons, wanted = null }) {
+export function buildUserPrompt({ bot, milestone, memory, lastOutcome, trigger, sentinel, lessons, wanted = null, noRoom = null }) {
   const p = bot.entity.position
   const actionable = actionableBlocks(bot, 8, { wants: milestone?.wants })
   const inv = inventorySummary(bot)
@@ -694,14 +696,14 @@ export function buildUserPrompt({ bot, milestone, memory, lastOutcome, trigger, 
   const head = [
     `TASK: ${milestone.describe}`,
     `PROGRESS: ${milestone.progress}`,
-    milestone.hint ? `HINT: ${milestone.hint}` : '',
+    noRoomHint(milestone, noRoom) ?? (milestone.hint ? `HINT: ${milestone.hint}` : ''),
     ``,
     `TRIGGER: ${trigger}`,
     `STATE: health ${bot.health ?? '?'}/20, hunger ${bot.food ?? '?'}/20, ` +
       `position ${p.x.toFixed(0)},${p.y.toFixed(0)},${p.z.toFixed(0)}, ` +
       `${isNight(bot) ? 'night' : 'day'}, day ${Math.floor(bot.time?.day ?? 0)}`,
     `INVENTORY: ${invStr}`,
-    craftableNow(bot, milestone, wanted),
+    craftableNow(bot, milestone, wanted, noRoom?.item ?? null),
     smeltableNow(bot),
     depositSituation(bot, memory),
     `NEARBY: ${nearbyBlocks(bot, 8, { wants: milestone?.wants }).join(', ') || 'nothing notable'}`,
@@ -748,4 +750,15 @@ export function buildUserPrompt({ bot, milestone, memory, lastOutcome, trigger, 
 
 export function makeSentinel() {
   return 'END-' + Math.random().toString(36).slice(2, 8).toUpperCase()
+}
+
+/**
+ * THE HINT WHEN THE RUNG'S CRAFT HAS NO ROOM (orderroom-01) -> a line | null. `HINT: craft with item=X` pulled the model
+ * back to a craft the bag cannot hold (the model re-proposes a refused action 70.9% of the time, 2fba1a88), so while the
+ * craft's own room check fails the hint names the shortfall and the remedy instead. null = the milestone's own hint.
+ */
+export function noRoomHint (milestone, noRoom) {
+  if (!noRoom?.item || milestone?.wants !== noRoom.item) return null
+  return `HINT: no room in the bag to craft ${noRoom.item} (${noRoom.short ?? '?'} slot(s) short)` +
+         (noRoom.text ? `: ${String(noRoom.text).slice(0, 160)}` : '; free a slot first')
 }
