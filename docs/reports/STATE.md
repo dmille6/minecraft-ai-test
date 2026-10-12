@@ -27,6 +27,19 @@ AGENTS DOWN until ~10-12 11Z (weekly limit): no new builds before then._
 
 ---
 
+## 10-12 13:50Z — QUEUE (host): gridfix-01 (live) -> bamboo-01 -> airpocket-02 -> stocktarget-01 (HELD: Paper) -> orderroom-01
+Order agreed Claude + Codex (codex exec 10-12): airpocket-02 (drowning; Paper 0/10 equips into open windows, 0 deaths)
+ahead of the held stocktarget. airpocket-02 has variants ONLY on gridfix lineage (82aef34 -> 70cb0d41, 8212674 ->
+71032630): if gridfix REVERTS it BLOCKS by design (never on 0cdb1a8: the craftsync cursor log-loss, Paper 3/4 on 0cdb1a8).
+OPERATOR RULE (Codex): if airpocket-02 is blocked when its turn comes, move stocktarget-01/orderroom-01 ahead of it (hand
+edit under flock ~/sched.lock with a .bak) so bags/chests are not held. Done today: host repo fetched for the new shas;
+stocktarget-01 queued held (lift: `canary-sched.py queue release stocktarget-01` when
+docs/reports/stocktarget-paper-2026-10-12.txt says PASS); orderroom-01 queued (after stocktarget); airpocket-02 inserted by
+hand (backup ~/canary-queue.json.bak-ap2-*), stocktarget.after -> airpocket-02. Variant builds in progress: stocktarget and
+orderroom on the airpocket tips; orderroom on the stocktarget tips. v35: Claude APPROVE, Codex r10 + dry run running;
+install only after gridfix is decided. brain-01: Claude r1 A CHANGE / B APPROVE / C CHANGE, fixes + r2 in progress;
+OWNER DECISIONS PENDING: the 10.0.0.31 -> Studio restricted ssh key; a kept gemma subset would hold GPU_RESERVED indefinitely.
+
 ## 10-12 13:30Z — AIRPOCKET-02 READY (both engines APPROVE), queue entry on main (after bamboo-01; NO 0cdb1a8 variant); FLEET DEFECT: craftsync abort strands a stack on the cursor (0cdb1a8 line; gridfix-01 covers it)
 
 **THE BUILD.** airpocket-02 now has the owner's open-window equip race fix integrated:
