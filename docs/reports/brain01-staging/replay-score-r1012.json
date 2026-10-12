@@ -1,0 +1,194 @@
+{
+ "gemma4-mlx8-r1012": {
+  "model": "brain",
+  "brain": {
+   "n": 420,
+   "valid": 99.3,
+   "infeasible": 0.7,
+   "soft": 1.2,
+   "ignores_lesson": 3.8,
+   "bad": 1.4,
+   "rep_fail": 15.9,
+   "rep_exact": 9.6,
+   "loop_repeat": 28.3,
+   "agree_skill": 57.8,
+   "agree_key": 43.3,
+   "flags": {
+    "invalid:not_json": 3,
+    "craft_not_craftable": 2,
+    "mine_above_ceiling": 1
+   },
+   "skills": {
+    "gather": 122,
+    "surface": 64,
+    "mine": 59,
+    "explore": 52,
+    "deposit": 47,
+    "goto": 40,
+    "home": 20,
+    "place": 9
+   },
+   "by_stratum": {
+    "bad_args": {
+     "n": 30,
+     "bad": 0.0,
+     "rep_fail": 0.0
+    },
+    "cooldown": {
+     "n": 45,
+     "bad": 0.0,
+     "rep_fail": 11.1
+    },
+    "craft_missing": {
+     "n": 40,
+     "bad": 2.5,
+     "rep_fail": 0.0
+    },
+    "failed_other": {
+     "n": 45,
+     "bad": 0.0,
+     "rep_fail": 4.4
+    },
+    "repeat_loop": {
+     "n": 60,
+     "bad": 5.0,
+     "rep_fail": 28.3
+    },
+    "success": {
+     "n": 90,
+     "bad": 1.1,
+     "rep_fail": 0.0
+    },
+    "trigger_other": {
+     "n": 40,
+     "bad": 0.0,
+     "rep_fail": 0.0
+    },
+    "unknown_noeff": {
+     "n": 20,
+     "bad": 0.0,
+     "rep_fail": 0.0
+    },
+    "unreachable": {
+     "n": 50,
+     "bad": 2.0,
+     "rep_fail": 38.0
+    }
+   }
+  },
+  "stuck": null,
+  "overseer": {},
+  "timing": {
+   "brain": {
+    "n": 420,
+    "reloads": 0,
+    "p50_s": 8.98,
+    "p90_s": 11.04,
+    "max_s": 72.0,
+    "prompt_tps_med": null,
+    "gen_tps_med": null,
+    "gen_tokens_med": 51.0,
+    "thinking_chars_med": 0.0,
+    "concurrency": 4
+   },
+   "stuck": null,
+   "overseer": null
+  }
+ },
+ "q25-7b-r1012": {
+  "model": "qwen2.5:7b-instruct",
+  "brain": {
+   "n": 420,
+   "valid": 99.5,
+   "infeasible": 11.0,
+   "soft": 5.0,
+   "ignores_lesson": 11.7,
+   "bad": 11.4,
+   "rep_fail": 67.8,
+   "rep_exact": 38.9,
+   "loop_repeat": 95.0,
+   "agree_skill": 86.7,
+   "agree_key": 76.7,
+   "flags": {
+    "craft_not_craftable": 27,
+    "mine_above_ceiling": 12,
+    "goto_too_high": 7,
+    "invalid:sentinel": 2
+   },
+   "skills": {
+    "gather": 155,
+    "explore": 86,
+    "mine": 60,
+    "goto": 55,
+    "craft": 35,
+    "deposit": 28,
+    "smelt": 1
+   },
+   "by_stratum": {
+    "bad_args": {
+     "n": 30,
+     "bad": 36.7,
+     "rep_fail": 56.7
+    },
+    "cooldown": {
+     "n": 45,
+     "bad": 2.2,
+     "rep_fail": 62.2
+    },
+    "craft_missing": {
+     "n": 40,
+     "bad": 65.0,
+     "rep_fail": 47.5
+    },
+    "failed_other": {
+     "n": 45,
+     "bad": 4.4,
+     "rep_fail": 60.0
+    },
+    "repeat_loop": {
+     "n": 60,
+     "bad": 3.3,
+     "rep_fail": 95.0
+    },
+    "success": {
+     "n": 90,
+     "bad": 4.4,
+     "rep_fail": 0.0
+    },
+    "trigger_other": {
+     "n": 40,
+     "bad": 2.5,
+     "rep_fail": 0.0
+    },
+    "unknown_noeff": {
+     "n": 20,
+     "bad": 0.0,
+     "rep_fail": 0.0
+    },
+    "unreachable": {
+     "n": 50,
+     "bad": 2.0,
+     "rep_fail": 70.0
+    }
+   }
+  },
+  "stuck": null,
+  "overseer": {},
+  "timing": {
+   "brain": {
+    "n": 420,
+    "reloads": 0,
+    "p50_s": 10.09,
+    "p90_s": 13.66,
+    "max_s": 17.3,
+    "prompt_tps_med": 1370,
+    "gen_tps_med": 7.5,
+    "gen_tokens_med": 59.0,
+    "thinking_chars_med": 0.0,
+    "concurrency": 4
+   },
+   "stuck": null,
+   "overseer": null
+  }
+ }
+}

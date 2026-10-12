@@ -249,6 +249,34 @@ brain, as they must.
 5. The owner's key decision, then the tunnel drill.
 6. Queue brain-01 after airpocket-02.
 
-## 11. Replay (pending)
+## 11. Replay on today's prompts (step 2, 10-12)
+
+**The sample:** 420 real decisions from 10-12, drawn from the fleet's own `llm-*.jsonl` (75,433 model decisions, 80
+bots). It is stratified as in A2 and capped per bot. Every prompt is from 0cdb1a8, so the town-deposit, withdraw,
+compost and well era is in it.
+- Each model got the fleet's own system prompt, rebuilt from 0cdb1a8 and matched by hash: 3 of 3 hashes, 420 of 420
+  items.
+- gemma4 ran on LM Studio MLX 8-bit with the strict json_schema (the proxy's translation). qwen2.5:7b ran on Ollama
+  with the fleet's grammar.
+- Scored by `bench/models/score.py`. Positive control: on the 7B's own logged actions, the hard check fires on 100%
+  of `craft_missing` items and 50% of `bad_args` items.
+
+| | gemma4 (MLX 8-bit) | qwen2.5:7b (the fleet's) |
+|---|---|---|
+| schema-valid | 99.3% (3 not_json) | 99.5% (2 sentinel) |
+| hard-infeasible or bad args | **1.4%** | 11.4% |
+| **executable choice (100 - bad)** | **98.6%** | 88.6% |
+| repeats the action that really failed | **15.9%** | 67.8% |
+| repeats the 4x loop | **28.3%** | 95.0% |
+| same skill as the logged action | 57.8% | 86.7% (mostly self-agreement) |
+
+**The three invalid gemma answers** each ran an integer into thousands of digits (`"count": 125000000…`) until
+`num_predict` (512 tokens) cut it off. The fleet's grammar has no `maximum` on integers.
+- qwen does the same at a lower rate: today the gate refused `count 1000000000000000 outside 1..128` 738 times.
+- Live, such an answer is repaired by the local fallback (s.9a), at the cost of one long generation.
+- **Follow-up (not brain-01):** bound the integers in `skillSchema`. It is a fleet-wide schema change, so it needs its
+  own canary.
+
+## 11b. Sandbox closed loop (step 3): see s.12
 
 ## 12. Sandbox closed loop (pending)
