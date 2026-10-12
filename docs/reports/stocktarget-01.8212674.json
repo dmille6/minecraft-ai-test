@@ -254,6 +254,17 @@
    "value": -1.366
   },
   "extended_deadline_min": 1560,
-  "note": "OWNER D1 (10-08): class bag-fix, four pools from the start; primary bagread.slots_did beyond its no-change band. The value is stonecap-01's band (-1.366: the 2.5th percentile of 175 no-change 4-pool draws under the same draw_exposure filter, deposit >= 8 / 3 h -- scripts/host/bagnull.py + bagbands.py); this fix's draw filter is identical, so the band is reused, not re-estimated (both engines fold-r1/r2: valid only under that same filter -- keep draw_exposure as is). own_kinds: the rows this build writes, + the well and the cobble cap rows (a death after a disposal or prune is linked)."
+  "note": "OWNER D1 (10-08): class bag-fix, four pools from the start; primary bagread.slots_did beyond its no-change band. The value is stonecap-01's band (-1.366: the 2.5th percentile of 175 no-change 4-pool draws under the same draw_exposure filter, deposit >= 8 / 3 h -- scripts/host/bagnull.py + bagbands.py); this fix's draw filter is identical, so the band is reused, not re-estimated (both engines fold-r1/r2: valid only under that same filter -- keep draw_exposure as is). own_kinds: the rows this build writes, + the well and the cobble cap rows (a death after a disposal or prune is linked).",
+  "primary_by_pools": {
+   "3": {
+    "value": -1.598,
+    "n": 220,
+    "cuts": 22,
+    "days": 7,
+    "median": -0.101,
+    "source": "REUSED from stonecap-01's 3 pools x 32 h no-change null (bagnull-3x32-2026-10-10.bands.json, stonecap-01.slots_did): this fix's draw_exposure filter is mechanically identical to stonecap-01's (hours 3, kind deposit, min 8; only the label differs), the same reuse its four-pool edge already follows (both engines fold-r1/r2: valid only under that same filter). Gate v35: a three-pool final uses this edge; the four-pool primary.value is never applied to it."
+   }
+  },
+  "keep_rule": "A-prime (owner delegation 2026-10-08 to operator + Codex; gate v35, bagfixrule.keep_early): drawn at FOUR pools, this canary may KEEP at its +180 read when every gate and guard passes (no WATCH, no blocked line), exposure is ready, no bag-fix extension is in force, every registered read is readable (bagread's primary not None) and the cumulative canary death rate is <= the control's (point estimate); otherwise it continues to +360 under the existing rules. The bag metric (bagread) is REPORTED at the KEEP read, never gated on there."
  }
 }

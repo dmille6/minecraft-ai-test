@@ -25,7 +25,8 @@ PROCS = int(sys.argv[3]) if len(sys.argv) > 3 else 3
 # BAGNULL_CUTS=<iso>[,<iso>] restricts the cuts (the positive control re-runs shipped cuts and must match them exactly).
 K = int(os.environ.get('BAGNULL_K', '4'))
 H = int(os.environ.get('BAGNULL_H', '24'))
-RUNS = ('toolhygiene-01', 'peacefulkit-01', 'junkwell-02', 'gridfix-01', 'stonecap-01')   # bamboo-01, bamboocraft-01: ordinary canaries (operator + Codex 10-08)
+RUNS = tuple(os.environ['BAGNULL_RUNS'].split(',')) if os.environ.get('BAGNULL_RUNS') else \
+    ('toolhygiene-01', 'peacefulkit-01', 'junkwell-02', 'gridfix-01', 'stonecap-01')   # BAGNULL_RUNS: e.g. stocktarget-01   # bamboo-01, bamboocraft-01: ordinary canaries (operator + Codex 10-08)
 FILTERS = {}
 for run in RUNS:
     f = sorted(glob.glob(os.path.join(REGDIR, '%s.*.json' % run)))[0]

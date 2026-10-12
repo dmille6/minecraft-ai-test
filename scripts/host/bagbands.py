@@ -11,7 +11,7 @@ for r in recs:
     if r.get('draw') and not r.get('unreadable') and not r.get('invalid'):     # the live read's validity rule
         by[r['scheme']].append(r)
 out = {}
-for scheme in ['random'] + list(PRIMARY):
+for scheme in ['random'] + list(PRIMARY) + sorted(set(by) - set(PRIMARY) - {'random'}):   # any other run: its slots_did
     rs = by.get(scheme, [])
     for field in sorted({PRIMARY.get(scheme, 'slots_did'), 'slots_did'}):
         xs = sorted(r[field] for r in rs if r.get(field) == r.get(field) and r.get(field) is not None)
