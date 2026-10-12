@@ -14,6 +14,12 @@ AGENTS DOWN until ~10-12 11Z (weekly limit): no new builds before then._
 
 ---
 
+## 10-12 03:10Z — gridfix-01 launched 03:00Z, preflight/licence/gatedigest/bag-fix OK, DRAW SHORT (board-a,board-d)
+Bag fix needs 4 pools; 8 of the drawable pools are inside their 12 h exclusion (junkwell-02's placebo-a,board-b,
+placebo-d,hive-b until 07:21Z; stonecap-01's four until 14:50Z). The loop re-draws every 20 min and pages once at 3 h;
+expected 4-pool draw ~07:20-07:40Z. Deliberately NOT re-run as ordinary (that needs both engines, as peacefulkit-02 did);
+v35's three-pool fallback is the structural fix and is still in review.
+
 ## 10-12 03:05Z — STONECAP-01 INCONCLUSIVE (+360, 02:50Z): the cap works, but its liveness row CANNOT occur on these towns
 Read: deaths canary 1/120 bh vs control 3/240 bh; breaches 0; exposure_ready 1; own line rows_canary (_cobble_bank) = 0
 blocks KEEP (no evidence class, so no revert). Torn down 02:56Z, 20 bots back on 0cdb1a8. NOT promoted; fleet stays 0cdb1a8.
