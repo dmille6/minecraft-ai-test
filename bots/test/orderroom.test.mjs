@@ -429,8 +429,16 @@ test('MUTANT KILLED: crediting any home arrival re-issues home every tick while 
   })
 })
 
+test('OUTCOME: a walk the skill reports as interrupted (a reflex stopped the path) is free too', () => {
+  for (const fc of ['path_interrupted', 'interrupted', 'hazard_interrupt']) {
+    const r = WO.roomOutcome({ status: 'failed', failClass: fc, slotsAfter: 36, now: 0, state: { pending: { kind: 'deposit', slots: 36 } } })
+    assert.equal(r.verdict, 'interrupted', fc); assert.equal(r.state.backoff.deposit, undefined)
+  }
+  assert.equal(WO.roomOutcome({ status: 'failed', failClass: 'no_path', slotsAfter: 36, now: 0, state: { pending: { kind: 'deposit', slots: 36 } } }).verdict, 'backoff', 'positive control')
+})
+
 test('MUTANT KILLED: an interruption charged as a failure costs the remedy ten minutes', async () => {
-  await withMutant(WORKORDER_PATH, "  else if (status === 'aborted') verdict = 'interrupted'\n", '\n', async mod => {
+  await withMutant(WORKORDER_PATH, "  else if (status === 'aborted' || ROOM_INTERRUPTED.has(failClass)) verdict = 'interrupted'\n", '\n', async mod => {
     const r = mod.roomOutcome({ status: 'aborted', slotsAfter: 36, now: 0, state: { pending: { kind: 'deposit', slots: 36 } } })
     assert.equal(r.state.backoff.deposit, mod.ROOM_BACKOFF_MS)
   })

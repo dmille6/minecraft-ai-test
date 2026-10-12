@@ -742,7 +742,10 @@ export class CognitiveLoop {
       const exclude = roomExclusions({ backedOff: roomBackedOff(this.roomState ?? {}, now), memory })
       const r = roomRemedy(this.bot, this.bot.inventory?.items?.() ?? [], noRoom.keep ?? [], { exclude })
       // A PAUSED REMEDY IS NOT "NOTHING CAN BE FREED" (Claude r2): say which is waiting, so the prompt does not lie.
-      if (r?.kind === 'none' && exclude.size) return { ...r, text: `free a slot first -- ${[...exclude].sort().join('/')} paused (backing off or refused recently); keep working and craft later` }
+      // Only the remedies that make room from anywhere (deposit, home): an excluded `eat` with no single food would not
+      // have applied anyway (Claude r3).
+      const paused = [...exclude].filter(k => k === 'deposit' || k === 'home').sort()
+      if (r?.kind === 'none' && paused.length) return { ...r, text: `free a slot first -- ${paused.join('/')} paused (backing off or refused recently); keep working and craft later` }
       return r
     } catch { return null }
   }

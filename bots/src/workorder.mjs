@@ -248,6 +248,7 @@ export function readyFor (bot, milestone, { roomCheck = craftRoomCheck, wearFail
 // Pure: the caller reads the world (noRoom, the remedy, the bag) and keeps the state.
 
 export const ROOM_BACKOFF_MS = 10 * 60 * 1000
+export const ROOM_INTERRUPTED = new Set(['path_interrupted', 'interrupted', 'hazard_interrupt'])
 export const ROOM_REFUSED_BACKOFF_MS = 2 * 60 * 1000
 // NO `place`: craft never places to make room (a block beside the bot can seal a tunnel or a stair) and no cheap test
 // proves an exit stays open (Codex r1); skills.mjs roomRemedy never names it as an order.
@@ -295,7 +296,9 @@ export function roomOutcome ({ status = null, failClass = null, refused = false,
   if (refused) { s.backoff[p.kind] = now + ROOM_REFUSED_BACKOFF_MS; verdict = 'refused' }
   else if (freed > 0 || (p.kind === 'home' && status === 'success' && !stillFar)) { s.backoff[p.kind] = 0; verdict = 'ok' }
   // AN INTERRUPTION IS FREE (Claude r2), as for the town orders: a reflex took the body; nothing was learned about the remedy.
-  else if (status === 'aborted') verdict = 'interrupted'
+  // ...and so is one the SKILL reports as an interrupted walk (deposit/home return failed + path_interrupted when a reflex
+  // stops the path mid-walk, skills.mjs deposit) -- Claude r3.
+  else if (status === 'aborted' || ROOM_INTERRUPTED.has(failClass)) verdict = 'interrupted'
   else if (p.kind === 'home' && failClass === 'travel_incomplete') verdict = 'walking'
   else { s.backoff[p.kind] = now + ROOM_BACKOFF_MS; verdict = 'backoff' }
   return { state: s, freed, verdict, pending: p }
