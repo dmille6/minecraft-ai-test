@@ -11,6 +11,13 @@ decided and torn down. OWNER DECISIONS PENDING: brain-01 ssh key; kept-subset GP
 
 ---
 
+## 10-12 15:35Z — gridfix-01 +360 NOT_YET (still unexposed; extends, reads +720/+1080..., deadline 1680 = ~13:03Z 10-13)
+deaths 1/120 bh vs control 3/240; aborted 2x2 exits with clicks 0 canary / 0 control. Queue waits behind it (bamboo held
+for the v35 gap). orderroom-01: five stocktarget-tip variants INSTALLED (replace-variant; host repo fetched first; backup
+~/canary-queue.json.bak-or5-*). GAP: no orderroom variant on a non-stocktarget fleet -- if stocktarget-01 REVERTS the queue
+blocks at orderroom; fallbacks (current read md5 8a22256f) requested from the orderroom agent. stocktarget-01 Paper hold
+released 14:45Z.
+
 ## 10-12 15:10Z — ORDERROOM-01 REBASED ONTO STOCKTARGET-01 (both engines APPROVE st-4); replace-variant entry ready, NOT installed
 The queue runs orderroom after stocktarget, so its variants are now keyed by STOCKTARGET's canary shas (the fleet then):
 764fad4f -> or-on-764fad4 @ 1e1bcc86 (247/247); 48b093ce -> or-on-48b093c @ 2ec19385 (249/249); 31e64375 -> or-on-31e6437 @ 77ac5597
