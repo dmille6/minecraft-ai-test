@@ -15,7 +15,7 @@ def tree(spec):
             for era, n in (('before', s.get('n_before', s['n'])), ('after', s['n'])):
                 for i in range(n):
                     t = (D0 - timedelta(minutes=170) if era == 'before' else D0 + timedelta(minutes=5)) + timedelta(seconds=i * 160 * 60 // max(1, n))
-                    llm = {'latency_ms': 2000, 'schema_valid': True, 'admission': 'normal', 'endpoint': 'http://x'}
+                    llm = {'latency_ms': s.get('lat', 2000) if era == 'after' else 2000, 'schema_valid': True, 'admission': 'normal', 'endpoint': 'http://x'}
                     if s.get('brain', 'absent') != 'absent' and era == 'after':
                         llm['brain'] = s['brain']
                     if i < s.get('endpoint_null', 0) and era == 'after':
@@ -58,4 +58,7 @@ check('unserved decisions (endpoint null) fail G3; the control (no brain field) 
 none = {**ctrl, **{'hive-a-%s' % n: {'n': 60} for n in ('Alpha', 'Bravo', 'Comet', 'Delta', 'Echo')}}
 r = read(tree(none), 'hive-a')
 check('negative control: pools with no brain fail G1, G7, G8', not r['gates']['G1_liveness']['pass'] and not r['gates']['G7_brain_config']['pass'] and not r['gates']['G8_every_bot_on_gemma4']['pass'])
+slow = {**ctrl, **{'hive-a-%s' % n: {'n': 60, 'brain': 'gemma4', 'cfg': CFG, 'lat': 30000} for n in ('Alpha', 'Bravo', 'Comet', 'Delta', 'Echo')}}
+r = read(tree(slow), 'hive-a')
+check('decisions 28 s slower than the control at p95 fail G5', not r['gates']['G5_decision_time_p95_s']['pass'])
 sys.exit(1 if fails else 0)

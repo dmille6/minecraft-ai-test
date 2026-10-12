@@ -210,6 +210,36 @@ brain, as they must.
 - **nightwatch:** its MODEL/ENV branch triggers only on equal shas, so it is not used here. Its lost scripts
   (`modelshare`, `cooldid4`) are replaced by brainread.
 
+## 9a. Round-1 reviews (Codex: A/B/C CHANGE; Claude: A CHANGE, B APPROVE, C CHANGE) and what changed
+
+| finding | change |
+|---|---|
+| a bad 200 from gemma was repaired by gemma again; total failure walked the pool twice | for a LABELLED pool: repair goes to the next endpoint; total transport failure ends the decision. Unlabelled pools are unchanged, with request bytes verified identical to 0cdb1a8 |
+| no positive test that a real loop builds the tally | a child-process test constructs a real CognitiveLoop with and without `OLLAMA_BRAIN_PRIMARY`. Mutants: 19 of 19, each killed by an assertion; the driver restores in `finally` and exits 1 on a survivor |
+| ES template does not touch existing indices | `apply-mappings.sh` also PUTs the four llm fields onto existing `mcai-llm-*` indices. Live ES already maps the other three; only `brain` is new. **Apply before the deploy** |
+| the proxy certified a missing identity as gemma4 | `lmstudio:unknown` unless LM Studio names the loaded identifier. Upstream timeout cut from 60 s to 20 s |
+| keeper: no release, no job, could overwrite | owns only `brain01-live`, never overwrites another holder (writes KEEPER-BLOCKED), releases when not live; its own launchd job. Tested on every state |
+| the key line allowed `-R` | `permitlisten="127.0.0.1:1"`, plus a verification list to run after the owner places the key |
+| subset tool not resumable or exact | record first, removed last; exact-value verification of every bot; resumable; refuses a second subset; positive proof on remove (`test_brain_subset.sh`) |
+| the read did not fit the loop contract, and was slow | `brainread.py <M>`, bound to the manifest, `readjson.emit`. It reads only the window's rotated files: **11 s at +180 and 18 s at +360** on the fleet host, against 111 s before |
+| the gates could pass on one live bot | per-bot G8; unserved counted by `endpoint` null in both arms; G7 checks the FIRST endpoint; G5 is total decision time p95 canary vs control + 15 s. Synthetic tests include one-live-bot-of-five and a no-brain negative control |
+| own_lines would not REVERT | `evidence: defect` on the gates; `immobiledid` added to reads |
+| KEEP at +360 on 50 bot-h | exposure is now 200 bot-h + 6,000 gemma4 decisions + every bot on gemma4, so no KEEP before ~20 h. **KEEP means "live, safe and decided by gemma4 for a day"; the primaries are ADVISORY and go to the owner** |
+| keep-subset inside the loop could close early | the loop does a normal KEEP teardown, then pages the operator's one command (`subset-pending`); this run registers `promotion: none` |
+| teardown could claim success on an unreadable environ | each pool bot's environ is read as root; missing or unreadable is not proof; `torn-down` is journalled only after proof |
+| canary-tree not pinned; `\|` and `:` unverified | snapshot + md5 pin `26da45da...` checked by the loop; a value with `\|` and `:` verified through the real CANARY_ENV loop and a real systemd EnvironmentFile on the fleet host. Glob characters are refused, because canary-tree word-splits unquoted |
+| draw cap could fall back to 4 pools | drawrec fails closed: an unreadable registration, or model-env without draw_k 1..2, draws nothing |
+
+**Not changed, by design:**
+- fleet-deploy checks one unit's environ; G7 and G8 check every canary bot from its own rows.
+
+**Owner decisions:**
+- **(a)** the key placement (s.3);
+- **(b)** a kept subset holds `GPU_RESERVED=brain01-live` for as long as it lives, so the Studio bench queue stops for
+  that time;
+- **(c)** before any keep-subset, every reader with its own control must adopt the subset exclusion. verdict.py and
+  immobiledid are patched; the others are listed at that time.
+
 ## 10. Order (owner 10-10, coordinator 10-12)
 
 1. Step (0): done.
