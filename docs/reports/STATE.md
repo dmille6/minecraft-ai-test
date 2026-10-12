@@ -3,13 +3,43 @@ _updated 2026-10-12 15:20Z by the daily operator session (10-12; entry below). *
 **CANARY: gridfix-01 @ `82aef34`** on placebo-a,board-a,board-d,board-b (declared 09:03:55Z; +180 and +360 NOT_YET, unexposed;
 extension reads ~18:11Z / ~21:11Z / ..., deadline 1680 min = 10-13 13:04Z). Host queue: gridfix-01 -> bamboo-01 (QUEUE HOLD for the v35 install gap) -> airpocket-02 ->
 stocktarget-01 -> orderroom-01. Next operator action: the V35 INSTALL CHECKLIST entry (10-12 14:20Z) after gridfix-01 is
-decided and torn down. OWNER DECISIONS PENDING: brain-01 ssh key; kept-subset GPU reservation; clear caps bamboo 0 / bucket 2._
+decided and torn down. OWNER DECISIONS PENDING: kept-subset GPU reservation (brain-01 key: DONE 10-12); clear caps bamboo 0 / bucket 2._
 
 > **THIS FILE ALSO EXISTS ON `main`.** `bots/test/nothing-important-is-orphaned.test.mjs` asserts it stays there.
 > If the two copies disagree, take the later `_updated` stamp. Long history: `git show 40a09da:docs/reports/STATE.md`
 > (to 09-30 morning), `git show 6a18e70:docs/reports/STATE.md` (09-30 evening), `git show d67d840:docs/reports/STATE.md` (10-01).
 
 ---
+
+## 10-12 18:40Z — brain-01 (model agent): BOTH ENGINES APPROVE the plumbing; Studio restored; 10-12 sandbox gemma blocks INVALID
+- **Branch `brain01-on-0cdb1a8`** @ 8d7f9206; design `docs/reports/brain01-design-2026-10-12.md` on that branch.
+  - Codex and Claude APPROVE A (bot code), B (Studio/host pieces) and C (operator patches + registration) after 4 rounds.
+  - Nothing is queued or deployed.
+- **Key decision (a) is DONE.** The coordinator placed the key; the owner said they do not hold one.
+  - `mcai-studio-tunnel.service` is installed and enabled on .31, on **127.0.0.1:11611**. 11601 is held by an unrelated
+    mini relay (pids 32742/42146, started 10-11 21:34Z, not the model agent's). It is left alive pending its owner.
+  - Tunnel-drop drill on the real unit: refused in ~9 ms (instant local fallback), back within 6 s.
+- **The Studio is restored.**
+  - gemma4 MLX 8-bit is loaded as `brain`; brainproxy is healthy on :11501.
+  - The launchd agents `com.mcai.brain01.proxy` and `com.mcai.brain01.keeper` are now INSTALLED. They were only staged
+    before, which is why nothing put gemma back after andy-eval's `lms unload --all; lms server stop` at 12:32Z and
+    13:48Z.
+  - The keeper reloads within a minute (proven 18:13:46 -> 18:14:26Z).
+  - **To free the memory on purpose:** `touch ~/brain01/PAUSE` and then `lms unload brain`. Remove PAUSE to restore.
+- **LEDGER (bots' own llm.brain rows):**
+  - INVALID: `cl-brain01-gemma4-…-b0` and `…-b1` (14:51-17:55Z), 0% gemma4.
+  - Unpaired and never averaged in: `cl-brain01-local-…-b0`; the b1 local run was stopped 18:10Z.
+  - INVALID: the drill's "337 s recovery" (real: 26 s).
+  - STILL VALID: the replay (gemma 12:45-13:02Z) — executable choice 98.6% vs qwen 88.6%, repeats-failed 15.9% vs
+    67.8%, 4x loop 28.3% vs 95.0%, schema-valid 99.3% vs 99.5%. Also the capacity runs (10 bots p95 6.8 s), the drill
+    windows before 12:30Z (0 unserved of 214), the gate calibration (0 trips) and the abort analysis.
+- **Sandbox series re-run AFTER andy-eval, on the coordinator's word.** `brain01_series.py` now refuses a gemma block
+  without `/healthz` ok and aborts one whose gemma4 share falls below 0.90 over 10 min (positive control: it fires on the
+  invalid run).
+- **Studio share with andy-eval:** gemma stays idle during its round. For its fine-tune: PAUSE + unload `brain` only,
+  then remove PAUSE.
+- **Owner decisions still pending:** (b) a kept subset holds the Studio reservation indefinitely; (c) every reader that
+  builds its own control must adopt the subset exclusion before any keep-subset.
 
 ## 10-12 16:45Z — ORDERROOM-01 FALLBACKS for a stocktarget REVERT: merged 10-variant entry ready (both engines APPROVE), NOT installed
 Closes the gap noted above: if stocktarget-01 is not kept, orderroom had no variant on the non-stocktarget bases, and the old r8
