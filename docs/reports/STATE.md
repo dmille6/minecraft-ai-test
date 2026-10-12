@@ -38,7 +38,10 @@ bamboo-01 carries a QUEUE hold for this gap (a per-entry hold does NOT block the
     canary-sched.py queue replace-variant airpocket-02 ~/ap2-v35-regs/airpocket-02.queue-entry.json
     (WHY: the live regs carry draw_exposure.draw_pools_required, which NO code reads -- hive-d was never enforced; v35's
     drawrequire reads top-level draw_require_pools.)
- 5. stocktarget-01: canary-sched.py queue replace-variant stocktarget-01 ~/st-v35-regs/stocktarget-01.queue-entry.json
+ 5. stocktarget-01: canary-sched.py queue replace-variant stocktarget-01 ~/st-v35-regs/stocktarget-01.queue-entry.5variants.json
+    (FIVE variants: 0cdb1a8, 82aef34, 8212674 + airpocket tips 70cb0d41, 71032630; replace-variant re-hashes the files NOW and
+    refuses on a mismatch -- if the 3 older ~/mcai-analysis copies were not refreshed by step 3, copy them from ~/st-v35-regs.)
+    stocktarget-01's Paper hold was RELEASED 14:45Z (stocktarget-paper-2026-10-12.txt VERDICT PASS).
     (3-pool edge -1.598 reused from stonecap-01's identical draw filter; without it a 3-pool final is INCONCLUSIVE).
     Its airpocket-tip variants (being built) need the same edge.
  6. canary-sched.py queue release bamboo-01
