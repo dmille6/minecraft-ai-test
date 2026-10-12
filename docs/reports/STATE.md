@@ -1,15 +1,23 @@
 # STATE — the operator's state file (a fresh session starts from THIS, not from the handoff history)
-_updated 2026-10-12 15:20Z by the daily operator session (10-12; entry below). **FLEET `0cdb1a8`** (junkwell-02 promoted 10-11 19:31Z).
-**CANARY: gridfix-01 @ `82aef34`** on placebo-a,board-a,board-d,board-b (declared 09:03:55Z; +180 and +360 NOT_YET, unexposed;
-extension reads ~18:11Z / ~21:11Z / ..., deadline 1680 min = 10-13 13:04Z). Host queue: gridfix-01 -> bamboo-01 (QUEUE HOLD for the v35 install gap) -> airpocket-02 ->
-stocktarget-01 -> orderroom-01. Next operator action: the V35 INSTALL CHECKLIST entry (10-12 14:20Z) after gridfix-01 is
-decided and torn down. OWNER DECISIONS PENDING: kept-subset GPU reservation (brain-01 key: DONE 10-12); clear caps bamboo 0 / bucket 2._
+_updated 2026-10-12 18:25Z by the daily operator session (10-12). **FLEET `82aef34`** (gridfix-01 KEEP +540 18:10Z,
+promoted 18:20Z; every live bot reports 82aef34 at 18:22Z). NO CANARY. **V35 INSTALL CLAIMED by the daily operator
+session 18:23Z** (host marker ~/gate-v35/INSTALL-CLAIMED): running the 14:20Z checklist steps 0-6 now -- do NOT run it
+in parallel. Queue: bamboo-01 (held for v35) -> airpocket-02 -> stocktarget-01 -> orderroom-01. main still needs the
+82aef34 merge (fast-forward/merge, keep main-pre-<date>). OWNER DECISIONS PENDING: brain-01 ssh key; kept-subset GPU
+reservation; clear caps bamboo 0 / bucket 2._
 
 > **THIS FILE ALSO EXISTS ON `main`.** `bots/test/nothing-important-is-orphaned.test.mjs` asserts it stays there.
 > If the two copies disagree, take the later `_updated` stamp. Long history: `git show 40a09da:docs/reports/STATE.md`
 > (to 09-30 morning), `git show 6a18e70:docs/reports/STATE.md` (09-30 evening), `git show d67d840:docs/reports/STATE.md` (10-01).
 
 ---
+
+## 10-12 18:25Z — GRIDFIX-01 KEPT (+540, 18:10Z) and PROMOTED: FLEET 82aef34 (18:20Z); v35 install claimed
++540 (exposure reached): aborted 2x2 exits with clicks canary 1 / control 4; canary grid_clear yes 1, no 0, unverified 0;
+liveness grid_clear 135 of 135 canary craftsync rows, 0 control; deaths canary 1/180 bh vs control 4/360 bh. Recorded KEEP
+18:10:34Z, promoted 18:20:15Z, one build live 18:22Z. Watch (n=1, not a gate): the canary's next craft after its abort
+still failed (1 of 1; control 2 of 3). The INCONCLUSIVE risk in the 15:20Z entry is moot: bamboo-01 and airpocket-02
+both have 82aef34 variants.
 
 ## 10-12 18:40Z — brain-01 (model agent): BOTH ENGINES APPROVE the plumbing; Studio restored; 10-12 sandbox gemma blocks INVALID
 - **Branch `brain01-on-0cdb1a8`** @ 8d7f9206; design `docs/reports/brain01-design-2026-10-12.md` on that branch.
