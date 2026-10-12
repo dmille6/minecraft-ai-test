@@ -11,6 +11,22 @@ decided and torn down. OWNER DECISIONS PENDING: brain-01 ssh key; kept-subset GP
 
 ---
 
+## 10-12 16:45Z — ORDERROOM-01 FALLBACKS for a stocktarget REVERT: merged 10-variant entry ready (both engines APPROVE), NOT installed
+Closes the gap noted above: if stocktarget-01 is not kept, orderroom had no variant on the non-stocktarget bases, and the old r8
+fallbacks pinned read md5 4c96f509 (refused by the scheduler). The fallbacks are r1-r8 + r9g (f5776239: the 16-fuel floor in the
+iron-ladder fallback, and the peaceful sword switch in the room order's deposit plan), WITHOUT the stocktarget-only walk to the
+junk well. Codex + Claude APPROVE on the fallback delta (identical +/- lines on all five; no airpocket-02 composition issue).
+- 0cdb1a8 -> or-on-0cdb1a8 @ f5776239 (244/244); 82aef34 -> or-on-82aef34 @ 08c791aa (246/246); 8212674 -> or-on-8212674 @
+  fb75ac48 (247/247); 70cb0d41 -> or-on-70cb0d4 @ 7ffe2c40 (246/246); 71032630 -> or-on-7103263 @ 92f4f819 (247/247). no-undef clean.
+- READ 8a22256f IS VALID WITHOUT STOCKTARGET (both engines): no gate reads a stocktarget row; on these bases a `home` room order
+  always names its deposit X, so the well-walk counts (`home_well`, the item '-' completion branch) read zero, the iron-ladder share
+  is just reported, and the 30 s probe-race line is an inert note. Its dry runs on 10-12 were taken on the non-stocktarget fleet.
+- MERGED ENTRY (the five stocktarget variants + the five fallbacks; every registration pins read 8a22256f; registration hashes
+  verified on the host): ~/mcai-analysis/orderroom-01.entry-merged.json = docs/reports/orderroom-01.queue-entry.json ->
+  `python3 ~/canary-sched.py queue replace-variant orderroom-01 ~/mcai-analysis/orderroom-01.entry-merged.json`.
+
+---
+
 ## 10-12 15:35Z — gridfix-01 +360 NOT_YET (still unexposed; extends, reads +720/+1080..., deadline 1680 = ~13:03Z 10-13)
 deaths 1/120 bh vs control 3/240; aborted 2x2 exits with clicks 0 canary / 0 control. Queue waits behind it (bamboo held
 for the v35 gap). orderroom-01: five stocktarget-tip variants INSTALLED (replace-variant; host repo fetched first; backup

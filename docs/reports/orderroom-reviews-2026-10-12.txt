@@ -154,3 +154,20 @@ Read-only review; no edits, SSH, or tests run.
 === CLAUDE st4 ===
 APPROVE, no findings: identical +/- lines on all five variants (hash af9db8a2), no _mutant file, no composition issue with airpocket-02 (cognitive order chain untouched), the keptfull Paper result is what the design predicts.
 
+
+
+######## THE FALLBACK VARIANTS (non-stocktarget bases, r9g) ########
+FINAL: Codex APPROVE, Claude APPROVE.
+
+=== CODEX fb ===
+**APPROVE.** No findings.
+
+- r9g is correct for non-stocktarget bases: the 16-fuel floor and `noSwords` forwarding require no stocktarget code.
+- All five base-to-tip deltas have identical added/removed lines.
+- No composition problem found with either airpocket-02 tip.
+- `orderroomread.py` matches MD5 `8a22256f8fe8bc4363323c377171ad50`; no gate requires stocktarget rows. Well-walk counts stay zero; ladder counts remain valid and may be nonzero.
+
+Read-only review; no edits, SSH, or tests.
+
+=== CLAUDE fb ===
+APPROVE, no findings: r9g right and complete for a base without stocktarget (foodSkipNow present; depositPlan forwards noSwords on 0cdb1a8; the fuel floor holds whether the ladder fallback is rare or common; the original roomExclusions rule is right without the well walk); the five deltas hash identically (195fe38f), no _mutant file; airpocket-02 touches only airpocket/reflex/skills rescue code, not the order chain; read 8a22256f valid without stocktarget.

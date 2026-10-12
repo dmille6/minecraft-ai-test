@@ -58,7 +58,62 @@
     "orderroomread": "8a22256f8fe8bc4363323c377171ad50",
     "immobiledid": "53af289df12208901931dbeeb1ae325a"
    }
+  },
+  "0cdb1a8c84436ce67567a1b88242496f295d2395": {
+   "registration": "/home/mike/mcai-analysis/orderroom-01.f577623.json",
+   "approved": "orderroom agent 2026-10-12: FALLBACK or-on-0cdb1a8 @ f5776239 = the approved orderroom (r1-r8, both engines APPROVE r6) + r9g (fuel floor, sword switch; Codex APPROVE + Claude subagent APPROVE on the fallback delta, identical +/- lines on all five); npm test 244/244; no-undef clean; ORDINARY canary",
+   "registration_sha256": "75792486c48babfa2dcf21f0a9a5113636a9bb7d7414f49a82b0fbe8b6f5bad8",
+   "canary_sha": "f5776239c1ce01351bbe264ba38b2179eb3f23ed",
+   "reads_src": "/home/mike/mcai-analysis",
+   "reads": {
+    "orderroomread": "8a22256f8fe8bc4363323c377171ad50",
+    "immobiledid": "53af289df12208901931dbeeb1ae325a"
+   }
+  },
+  "82aef3499bba99a503f6591fdbd1f76d5605bdad": {
+   "registration": "/home/mike/mcai-analysis/orderroom-01.08c791a.json",
+   "approved": "orderroom agent 2026-10-12: FALLBACK or-on-82aef34 @ 08c791aa = the approved orderroom (r1-r8, both engines APPROVE r6) + r9g (fuel floor, sword switch; Codex APPROVE + Claude subagent APPROVE on the fallback delta, identical +/- lines on all five); npm test 246/246; no-undef clean; ORDINARY canary",
+   "registration_sha256": "df61675d1aaa1f24e12b7f7dc7b80ef87d4ff55d14f604768bd207eb80d5035a",
+   "canary_sha": "08c791aa9a54d4f2d241800c761cfce21c197f02",
+   "reads_src": "/home/mike/mcai-analysis",
+   "reads": {
+    "orderroomread": "8a22256f8fe8bc4363323c377171ad50",
+    "immobiledid": "53af289df12208901931dbeeb1ae325a"
+   }
+  },
+  "8212674888fe3704e347eb416dae59ab1fd5164f": {
+   "registration": "/home/mike/mcai-analysis/orderroom-01.fb75ac4.json",
+   "approved": "orderroom agent 2026-10-12: FALLBACK or-on-8212674 @ fb75ac48 = the approved orderroom (r1-r8, both engines APPROVE r6) + r9g (fuel floor, sword switch; Codex APPROVE + Claude subagent APPROVE on the fallback delta, identical +/- lines on all five); npm test 247/247; no-undef clean; ORDINARY canary",
+   "registration_sha256": "b639300a21442dae0be94c61dfacb7887d3474435478bbeb7cb168a2f50c81f5",
+   "canary_sha": "fb75ac48cf324208763d06a8485108fd65781974",
+   "reads_src": "/home/mike/mcai-analysis",
+   "reads": {
+    "orderroomread": "8a22256f8fe8bc4363323c377171ad50",
+    "immobiledid": "53af289df12208901931dbeeb1ae325a"
+   }
+  },
+  "70cb0d41bd0a9f7918e066e53ea10ce20f709ada": {
+   "registration": "/home/mike/mcai-analysis/orderroom-01.7ffe2c4.json",
+   "approved": "orderroom agent 2026-10-12: FALLBACK or-on-70cb0d4 @ 7ffe2c40 = the approved orderroom (r1-r8, both engines APPROVE r6) + r9g (fuel floor, sword switch; Codex APPROVE + Claude subagent APPROVE on the fallback delta, identical +/- lines on all five); npm test 246/246; no-undef clean; ORDINARY canary",
+   "registration_sha256": "7276d981ef90107c7aa93daef3e25c30ac94cadca36a031f40cc90e30ff4f0df",
+   "canary_sha": "7ffe2c40942a054c750935ca1d0a4e41d21563dd",
+   "reads_src": "/home/mike/mcai-analysis",
+   "reads": {
+    "orderroomread": "8a22256f8fe8bc4363323c377171ad50",
+    "immobiledid": "53af289df12208901931dbeeb1ae325a"
+   }
+  },
+  "71032630ca63b74abf019d247177949f7ea119f6": {
+   "registration": "/home/mike/mcai-analysis/orderroom-01.92f4f81.json",
+   "approved": "orderroom agent 2026-10-12: FALLBACK or-on-7103263 @ 92f4f819 = the approved orderroom (r1-r8, both engines APPROVE r6) + r9g (fuel floor, sword switch; Codex APPROVE + Claude subagent APPROVE on the fallback delta, identical +/- lines on all five); npm test 247/247; no-undef clean; ORDINARY canary",
+   "registration_sha256": "4fd08354a9072fe2c4e2dc496d7f69a4c952da49f63c96c6aa6e40dfb22792a5",
+   "canary_sha": "92f4f819fe0f87946cc835deab2f2795191121ad",
+   "reads_src": "/home/mike/mcai-analysis",
+   "reads": {
+    "orderroomread": "8a22256f8fe8bc4363323c377171ad50",
+    "immobiledid": "53af289df12208901931dbeeb1ae325a"
+   }
   }
  },
- "note": "ordinary canary: no rung craft order without room; the named remedy (eat / deposit X / home toward a deposit or a recorded junk well) is the order. Variants keyed by STOCKTARGET-01's canary shas (the fleet when orderroom reaches the head): 764fad4f (0cdb1a8), 48b093ce (gridfix), 31e64375 (bamboo), a88f763d / 1940574d (airpocket-02 tips). Read ~/mcai-analysis/orderroomread.py; draw_exposure needs >= 10 no-room craft refusals per pool in 12 h."
+ "note": "ordinary canary: no rung craft order without room; the named remedy (eat / deposit X / home toward a deposit or a recorded junk well) is the order. Variants keyed by STOCKTARGET-01's canary shas (the fleet when orderroom reaches the head): 764fad4f (0cdb1a8), 48b093ce (gridfix), 31e64375 (bamboo), a88f763d / 1940574d (airpocket-02 tips). Read ~/mcai-analysis/orderroomread.py; draw_exposure needs >= 10 no-room craft refusals per pool in 12 h. FALLBACKS (if stocktarget-01 is not kept): 0cdb1a8, 82aef34, 8212674, 70cb0d41, 71032630 -> the non-stocktarget build (r1-r8 + r9g); every registration pins the installed read md5 8a22256f."
 }
