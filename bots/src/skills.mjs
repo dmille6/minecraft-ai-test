@@ -4542,17 +4542,25 @@ export function roomRemedy (bot, items, keep = [], { exclude = new Set() } = {})
  * a stone pickaxe. Only when nothing else frees a stack is a ladder item named -- the slot the craft needs still comes free.
  */
 export const LADDER_CHEAPEST_FIRST = Object.freeze(['coal', 'charcoal', 'iron_nugget', 'iron_ore', 'deepslate_iron_ore', 'raw_iron', 'iron_ingot'])
+export const ROOM_FUEL_RESERVE = 16
+
 export function roomDepositTarget (bot, items, keep = []) {
   try {
-    const plan = depositPlan(items, null, { wants: bot.currentWants ?? [] })
+    // THE SAME PLAN deposit() and admission build (Claude st-r1 2: the peaceful sword switch passed for parity)
+    const plan = depositPlan(items, null, { wants: bot.currentWants ?? [], noSwords: foodSkipNow(bot).active })
     const first = depositTarget(items, plan, [...keep, ...IRON_LADDER.map(name => ({ name, count: 1 }))])
     if (first) return first
-    // ONLY THE LADDER CAN FREE A STACK: the cheapest rung first (Claude r5) -- coal before ingots.
+    // ONLY THE LADDER CAN FREE A STACK: the cheapest rung first (Claude r5) -- coal before ingots -- and NEVER THE FUEL
+    // RESERVE (Claude st-r1 1b): coal/charcoal is named only while ROOM_FUEL_RESERVE fuel stays in the bag after the deposit.
+    const fuel = (items ?? []).filter(i => i?.name === 'coal' || i?.name === 'charcoal').reduce((n, i) => n + (i.count ?? 0), 0)
     for (const name of LADDER_CHEAPEST_FIRST) {
-      const x = depositTarget(items, plan.filter(e => e.name === name), keep)
+      const entry = plan.find(e => e.name === name)
+      if (!entry) continue
+      if ((name === 'coal' || name === 'charcoal') && fuel - (entry.count ?? 0) < ROOM_FUEL_RESERVE) continue
+      const x = depositTarget(items, [entry], keep)
       if (x) return x
     }
-    return depositTarget(items, plan, keep)
+    return null
   } catch { return null }
 }
 

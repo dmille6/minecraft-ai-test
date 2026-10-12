@@ -198,10 +198,12 @@ test('REMEDY: the iron ladder is not the price of a stone pickaxe -- another sta
   for (const it of only.items) if (it.name === 'oak_log' || it.name === 'raw_copper') it.name = 'white_wool'
   only.items[only.items.length - 1] = item('iron_ingot', 9, 44)
   assert.equal(SK.roomRemedy(only.bot, only.items, keep).item, 'iron_ingot')
-  // ...and of the ladder, the cheapest rung first: coal before the ingots
+  // ...and of the ladder, the cheapest rung first -- but NEVER THE FUEL RESERVE (Claude st-r1 1b): banking all 20 coal would
+  // leave 0 < ROOM_FUEL_RESERVE, so the ingots go
   only.items.push(item('coal', 20, 45)); only.items.splice(only.items.findIndex(i => i.name === 'white_wool'), 1)
   assert.equal(only.items.length, 36)
-  assert.equal(SK.roomRemedy(only.bot, only.items, keep).item, 'coal')
+  assert.equal(SK.ROOM_FUEL_RESERVE, 16)
+  assert.equal(SK.roomRemedy(only.bot, only.items, keep).item, 'iron_ingot', 'the fuel stays')
   assert.deepEqual([...SK.LADDER_CHEAPEST_FIRST].sort(), [...BK_IRON].sort(), 'the cheapest-first list is exactly the town deposit\'s ladder')
 })
 
@@ -345,6 +347,28 @@ test('CHAIN CONTROL: the base readyFor (no room check) issues the craft into a f
       assert.equal(ran[0], 'craft:stone_pickaxe', `the base: the craft goes straight into the full bag: ${JSON.stringify(ran)}`)
       assert.ok(!ran.includes('home'))
     })
+})
+
+test('MUTANT KILLED: without the fuel reserve the coal is banked to make a pickaxe', async () => {
+  await withMutant(SKILLS_PATH, 'export const ROOM_FUEL_RESERVE = 16', 'export const ROOM_FUEL_RESERVE = 0', async mod => {
+    const keep = [{ name: 'cobblestone', count: 1 }, { name: 'stick', count: 1 }]
+    const only = bagBot({ sticks: 10, at: new Vec3(3, 70, 0) })
+    for (const it of only.items) if (it.name === 'oak_log' || it.name === 'raw_copper') it.name = 'white_wool'
+    only.items[only.items.length - 1] = item('iron_ingot', 9, 44)
+    only.items.push(item('coal', 20, 45)); only.items.splice(only.items.findIndex(i => i.name === 'white_wool'), 1)
+    assert.equal(mod.roomRemedy(only.bot, only.items, keep).item, 'coal', 'the mutant takes the fuel')
+  })
+})
+
+test('PARITY: the room order\'s deposit plan reads the peaceful sword switch, as deposit() and admission do', () => {
+  const src = fs.readFileSync(SKILLS_PATH, 'utf8').replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '')
+  const fn = src.slice(src.indexOf('export function roomDepositTarget'), src.indexOf('export function farFromBank'))
+  const re = /depositPlan\(items, null, \{ wants: bot\.currentWants \?\? \[\], noSwords: foodSkipNow\(bot\)\.active \}\)/
+  assert.match(fn, re)
+  // MUTANT: the r8 call without the switch must fail this assertion (anchor present and unique first)
+  const anchor = ', noSwords: foodSkipNow(bot).active }'
+  assert.equal(fn.split(anchor).length, 2, 'ANCHOR MISSING or not unique')
+  assert.doesNotMatch(fn.replace(anchor, ' }'), re)
 })
 
 test('MUTANT KILLED: `home` without the far-from-bank test walks a bot that is already home', async () => {
