@@ -161,6 +161,33 @@ def section_a(hr_path, tmp):
     c('a holder record whose pid is not a heavyread wrapper is NOT signalled: victim alive, read not run (75)',
       rc == 75 and victim.poll() is None, (rc, o, victim.poll()))
     victim.kill(); victim.wait(); hold.wait()
+    # THE PREEMPTED SCOPE SURVIVES (a refused `systemctl kill`, via a sudo shim on PATH): the loop read is NOT run
+    shim = tempfile.mkdtemp(dir=tmp, prefix='shim-')
+    open(os.path.join(shim, 'sudo'), 'w').write('#!/bin/bash\n[ "$2" = systemctl ] && [ "$3" = kill ] && exit 1\nexec /usr/bin/sudo "$@"\n')
+    os.chmod(os.path.join(shim, 'sudo'), 0o755)
+    lock = tempfile.mktemp(dir=tmp, prefix='plock5-')
+    pc, pout = hr(hr_path, tmp, ['sleep', '60'], lock=lock, bg=True)
+    time.sleep(3)
+    marker = tempfile.mktemp(dir=tmp, prefix='must-not-exist-')
+    rc, o = hr(hr_path, tmp, ['touch', marker], lock=lock, wait='3', role='loop', env={'PATH': shim + ':' + os.environ['PATH']})
+    alive = pc.poll() is None
+    c('a preempted scope that SURVIVES (kill refused) -> the loop read is NOT run (75); never two heavy jobs (round 5, Codex)',
+      rc == 75 and not os.path.exists(marker) and alive and 'did not stop' in o, (rc, o, alive))
+    subprocess.run(['sudo', '-n', 'systemctl', 'kill', '--signal=KILL', 'heavyread-calibration-%d.scope' % pc.pid], capture_output=True)
+    pc.wait(30)
+    # A RECORD NAMING A LIVE HEAVYREAD PID WITH ANOTHER UNIT: that unit is never signalled
+    vunit = 'hrtest-victim-%d' % os.getpid()
+    victim = subprocess.Popen(['sudo', '-n', 'systemd-run', '--scope', '--quiet', '--unit=' + vunit, '--uid=%d' % os.getuid(), 'sleep', '60'])
+    lock = tempfile.mktemp(dir=tmp, prefix='plock6-')
+    pc, pout = hr(hr_path, tmp, ['sleep', '30'], lock=lock, bg=True)
+    time.sleep(3)
+    open(lock + '.holder', 'w').write('calibration %d %s.scope\n' % (pc.pid, vunit))
+    rc, o = hr(hr_path, tmp, ['true'], lock=lock, wait='3', role='loop')
+    va = subprocess.run(['systemctl', 'is-active', vunit + '.scope'], capture_output=True, text=True).stdout.strip()
+    c('a holder record whose unit is not heavyread-calibration-<pid>.scope is NOT signalled (victim scope %s; read 75)' % va,
+      va == 'active' and rc == 75, (rc, o, va))
+    subprocess.run(['sudo', '-n', 'systemctl', 'kill', '--signal=KILL', vunit + '.scope'], capture_output=True); victim.wait(30)
+    subprocess.run(['sudo', '-n', 'systemctl', 'kill', '--signal=KILL', 'heavyread-calibration-%d.scope' % pc.pid], capture_output=True); pc.wait(60)
     lock2 = tempfile.mktemp(dir=tmp, prefix='orphanlock-')
     rc, o = hr(hr_path, tmp, ['bash', '-c', 'sleep 20 >/dev/null 2>&1 &'], lock=lock2)
     r2 = subprocess.run(['flock', '-w', '2', lock2, 'true'])
@@ -244,8 +271,9 @@ MUTANTS = [
     ('heavyread.sh', 'calibration runs during a canary', '  if [ "$_cp" != "no" ] || [ -n "$_lp" ] || [ -n "$_ll" ]; then', '  if false; then'),
     ('heavyread.sh', 'loop lock not checked', '  if [ "$_cp" != "no" ] || [ -n "$_lp" ] || [ -n "$_ll" ]; then', '  if [ "$_cp" != "no" ] || [ -n "$_lp" ]; then'),
     ('heavyread.sh', 'loop never preempts', '  if [ "$ROLE" = loop ] && [ "$_hrole" = calibration ] && [[', '  if false && [ "$_hrole" = calibration ] && [['),
-    ('heavyread.sh', 'loop preempts another loop read', '  if [ "$ROLE" = loop ] && [ "$_hrole" = calibration ] && [[', '  if [ "$ROLE" = loop ] && [[ "$_hrole" =~ . ]] && [['),
-    ('heavyread.sh', 'environment expanded', '--expand-environment=no --unit=', '--unit='),
+    ('heavyread.sh', 'loop preempts another loop read',
+     'if [ "$ROLE" = loop ] && [ "$_hrole" = calibration ] && [[ "$_hpid" =~ ^[0-9]+$ ]] \\\n     && [ "$_hunit" = "heavyread-calibration-$_hpid.scope" ]',
+     'if [ "$ROLE" = loop ] && [[ "$_hrole" =~ . ]] && [[ "$_hpid" =~ ^[0-9]+$ ]] \\\n     && [ "$_hunit" = "heavyread-$_hrole-$_hpid.scope" ]'),
     ('heavyread.sh', 'no SIGKILL escalation', 'timeout --kill-after=60 "$T"', 'timeout "$T"'),
     ('heavyread.sh', 'loop read runs although the scope survived', '    if [ -z "$_dead" ] || ! flock -w "$WAIT" 7; then', '    if ! flock -w "$WAIT" 7; then'),
     ('heavyread.sh', 'any holder record is preempted', '     && [ "$_hunit" = "heavyread-calibration-$_hpid.scope" ] && grep', '     && true && grep'),
