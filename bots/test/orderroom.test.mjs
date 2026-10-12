@@ -34,6 +34,7 @@ const { tapRecords } = await import('../src/logger.mjs')
 const PR = await import('../src/prompt.mjs')
 const BK = await import('../src/bankable.mjs')
 const CR = await import('../src/craftroom.mjs')
+const BK_IRON = (await import('../src/towndeposit.mjs')).IRON_LADDER
 const await_plan = b => BK.depositPlan(b.items, null, { wants: [] })
 
 const COGNITIVE_PATH = new URL('../src/cognitive.mjs', import.meta.url)
@@ -197,6 +198,11 @@ test('REMEDY: the iron ladder is not the price of a stone pickaxe -- another sta
   for (const it of only.items) if (it.name === 'oak_log' || it.name === 'raw_copper') it.name = 'white_wool'
   only.items[only.items.length - 1] = item('iron_ingot', 9, 44)
   assert.equal(SK.roomRemedy(only.bot, only.items, keep).item, 'iron_ingot')
+  // ...and of the ladder, the cheapest rung first: coal before the ingots
+  only.items.push(item('coal', 20, 45)); only.items.splice(only.items.findIndex(i => i.name === 'white_wool'), 1)
+  assert.equal(only.items.length, 36)
+  assert.equal(SK.roomRemedy(only.bot, only.items, keep).item, 'coal')
+  assert.deepEqual([...SK.LADDER_CHEAPEST_FIRST].sort(), [...BK_IRON].sort(), 'the cheapest-first list is exactly the town deposit\'s ladder')
 })
 
 test('REMEDY: never a placement; never `home` where the bot already is; a closed bank is no order', () => {
