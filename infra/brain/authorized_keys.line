@@ -1,4 +1,14 @@
-# brain-01: the ONE line the owner would add to the Studio's ~/.ssh/authorized_keys (after creating the key on
-# 10.0.0.31 with: ssh-keygen -t ed25519 -N '' -f ~/.ssh/id_ed25519_brain01 -C brain01-fleet-tunnel).
-# It permits nothing but this forward: no shell, no other port, no agent or X11.
-restrict,port-forwarding,permitopen="127.0.0.1:11501",command="/usr/bin/false" ssh-ed25519 <PUBLIC KEY OF id_ed25519_brain01> brain01-fleet-tunnel
+# brain-01: the ONE line the owner would add to the Studio's ~/.ssh/authorized_keys, after creating the key on 10.0.0.31
+#   ssh-keygen -t ed25519 -N '' -f ~/.ssh/id_ed25519_brain01 -C brain01-fleet-tunnel
+# `restrict` turns off everything (pty, agent, X11, user rc, ALL forwarding); `port-forwarding` turns forwarding back on,
+# which re-enables BOTH -L and -R (Codex r1). The two limits then pin each direction:
+#   permitopen="127.0.0.1:11501"  -L may reach only the brain proxy's port on the Studio's loopback
+#   permitlisten="127.0.0.1:1"    -R may listen only on port 1, which a non-root user cannot bind: no remote listener
+#   command="/usr/bin/false"      any session that asks for a command or shell runs false and ends
+restrict,port-forwarding,permitopen="127.0.0.1:11501",permitlisten="127.0.0.1:1",command="/usr/bin/false" ssh-ed25519 <PUBLIC KEY OF id_ed25519_brain01> brain01-fleet-tunnel
+#
+# VERIFY AFTER PLACING IT (from 10.0.0.31, with -i ~/.ssh/id_ed25519_brain01 -o BatchMode=yes); each must hold:
+#   ssh -N -L 127.0.0.1:11601:127.0.0.1:11501 mike@ai.ticrcorp.com &   curl -s 127.0.0.1:11601/api/version  -> brainproxy
+#   ssh -N -L 127.0.0.1:11602:127.0.0.1:22 mike@ai.ticrcorp.com &      curl -s 127.0.0.1:11602            -> refused/empty (open denied)
+#   ssh -N -R 127.0.0.1:2222:127.0.0.1:22 mike@ai.ticrcorp.com         -> "remote port forwarding failed" / "rejected"
+#   ssh mike@ai.ticrcorp.com uname                                     -> no output, exit 1 (/usr/bin/false)

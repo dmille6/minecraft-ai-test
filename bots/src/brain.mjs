@@ -32,7 +32,7 @@ export function labelled (eps) {
 
 /** `_brain_config` detail: `brain=gemma4 pool=[gemma4 gemma4:26b@http://127.0.0.1:11601 15000ms > local qwen2.5:7b-instruct@http://10.0.0.72:11434 45000ms]` */
 export function configDetail (eps, globalModel, globalTimeoutMs) {
-  const first = labelled(eps)[0]
+  const first = (eps ?? [])[0]          // the FIRST endpoint's label: the brain this bot asks first (Codex r1)
   const parts = (eps ?? []).map(e => `${e.brain ?? 'local'} ${e.model ?? globalModel}@${e.url} ${e.timeoutMs ?? globalTimeoutMs}ms`)
   return `brain=${first?.brain ?? 'local'} pool=[${parts.join(' > ')}]`
 }
