@@ -26,7 +26,7 @@
 // invented its own feasibility test would be the tenth.
 
 import { smeltInputsFor, smeltPlan } from './smelting.mjs'
-import { STATION_REACH } from './skills.mjs'
+import { STATION_REACH, craftRoomCheck } from './skills.mjs'
 
 /**
  * Rung ids are `craft_<item>_<n>` and `smelt_<output>_<n>` AS CONSTRUCTED --
@@ -182,10 +182,11 @@ export function plantingOrder ({ saplings = {}, spot = null, now = 0, lastPlante
  * Impure by necessity -- it reads the world -- and deliberately thin, so the
  * decision above stays testable without a server.
  */
-export function readyFor (bot, milestone) {
+export function readyFor (bot, milestone, { roomCheck = craftRoomCheck, wearFailedRecently = false } = {}) {
   const id = milestone?.id ?? null
   const wants = milestone?.wants ?? null
-  if (!id || !wants) return { id, wants, craftReady: false, smeltReady: false, smeltInput: null }
+  if (!id || !wants) return { id, wants, craftReady: false, smeltReady: false, smeltInput: null, noRoom: null }
+  let noRoom = null, roomVia = null
 
   // This runs on EVERY decision, before the LLM call. An exception here costs
   // the bot its whole turn, so nothing in this function may propagate one --
@@ -209,6 +210,14 @@ export function readyFor (bot, milestone) {
       const carried = !!held.crafting_table
       const near = carried || stationInReach(bot, 'crafting_table')
       craftReady = !!def && (bot.recipesFor(def.id, null, 1, near ? true : null) ?? []).length > 0
+      // NO CRAFT ORDER WITHOUT ROOM (orderroom-01): the craft skill's own room check (skills.mjs craftRoomCheck). No
+      // room -> no order, and `noRoom` names the shortfall so the caller can issue the remedy instead. `ok: null`
+      // (cannot say) issues the order exactly as before.
+      if (craftReady && roomCheck) {
+        const room = roomCheck(bot, wants, 1, { wearFailedRecently })
+        if (room?.ok === false) { craftReady = false; noRoom = { item: wants, short: room.short, slots: room.slots, keep: room.keep ?? [], route: room.route ?? null } }
+        else roomVia = room?.ok === true ? room.via ?? null : room?.ok === null ? 'unknown' : null
+      }
     } catch { craftReady = false }
   }
 
@@ -226,5 +235,110 @@ export function readyFor (bot, milestone) {
       }
     } catch { smeltReady = false; smeltInput = null }
   }
-  return { id, wants, craftReady, smeltReady, smeltInput }
+  return { id, wants, craftReady, smeltReady, smeltInput, noRoom, roomVia }
+}
+
+// --------------------------------------------------------------------------
+// THE ROOM ORDER (orderroom-01, 2026-10-10)
+// --------------------------------------------------------------------------
+//
+// readyFor withholds a rung craft the bag cannot hold (noRoom). The remedy the craft's own refusal would name
+// (skills.mjs roomRemedy) becomes the order, so it is EXECUTED rather than printed: measured 10-10, the model took the
+// named remedy 14 of 112 times it had the turn, and the order it replaced was refused 3,608 times in 13.5 h.
+// Pure: the caller reads the world (noRoom, the remedy, the bag) and keeps the state.
+
+export const ROOM_BACKOFF_MS = 10 * 60 * 1000
+export const ROOM_INTERRUPTED = new Set(['path_interrupted', 'interrupted', 'hazard_interrupt'])
+export const ROOM_REFUSED_BACKOFF_MS = 2 * 60 * 1000
+// A WALK TO THE WELL is a guess made from afar (both engines st-2): after one arrives, the next waits this long whatever the
+// well then did -- the well's own order acts at town; a bag it could not empty must not send the bot back each time it leaves.
+export const ROOM_WELL_WALK_BACKOFF_MS = 30 * 60 * 1000
+// NO `place`: craft never places to make room (a block beside the bot can seal a tunnel or a stair) and no cheap test
+// proves an exit stays open (Codex r1); skills.mjs roomRemedy never names it as an order.
+const ROOM_ORDER_OF = {
+  eat: () => ({ skill: 'eat', args: {} }),
+  deposit: item => ({ skill: 'deposit', args: { item } }),
+  home: () => ({ skill: 'home', args: {} }),
+}
+export const ROOM_ORDER_KINDS = new Set(Object.keys(ROOM_ORDER_OF))
+
+/** The kinds still backing off at `now` (roomRemedy skips them, so the next remedy is named). */
+export function roomBackedOff (state = {}, now = 0) {
+  return new Set(Object.entries(state.backoff ?? {}).filter(([, t]) => now < t).map(([k]) => k))
+}
+
+/**
+ * -> { order, state }. An order only for a kind that runs (eat, deposit, home) and that is not backing off, and
+ * issued at most once per tick (the caller resolves `pending` with roomOutcome in the same tick). closed / none: no order --
+ * the model decides.
+ */
+export function roomOrder ({ noRoom = null, remedy = null, now = 0, state = {}, slots = 0 } = {}) {
+  const s = { ...state, backoff: { ...(state.backoff ?? {}) } }
+  const none = () => ({ order: null, state: s })
+  if (!noRoom || !remedy || !ROOM_ORDER_KINDS.has(remedy.kind)) return none()
+  if (roomBackedOff(s, now).has(remedy.kind)) return none()
+  if (remedy.kind === 'deposit' && !remedy.item) return none()
+  const o = ROOM_ORDER_OF[remedy.kind](remedy.item)
+  s.pending = { kind: remedy.kind, item: remedy.item ?? null, craft: noRoom.item, short: noRoom.short ?? null, slots, at: now, ...(remedy.via ? { via: remedy.via } : {}) }
+  return { order: { ...o, why: `no room for ${noRoom.item} (${noRoom.short ?? '?'} slot(s) short): ${String(remedy.text ?? '').slice(0, 140)}`, room: s.pending }, state: s }
+}
+
+/**
+ * After the room order ran (or was refused) -> { state, freed, verdict }. FREED IS MEASURED, never assumed: the bag's
+ * slot count after the run against the count when it was issued. A home walk that arrived is its own success (the
+ * deposit at home is the next room order); one that made progress (travel_incomplete) keeps walking. Anything else
+ * -- failed, no_effect, nothing freed, refused at admission -- backs that kind off, and the next tick names the next one.
+ */
+export function roomOutcome ({ status = null, failClass = null, refused = false, slotsAfter = 0, stillFar = false, now = 0, state = {} } = {}) {
+  const s = { ...state, backoff: { ...(state.backoff ?? {}) } }
+  const p = s.pending
+  s.pending = null
+  if (!p) return { state: s, freed: 0, verdict: 'none' }
+  const freed = Math.max(0, (p.slots ?? 0) - (slotsAfter ?? 0))
+  let verdict
+  if (refused) { s.backoff[p.kind] = now + ROOM_REFUSED_BACKOFF_MS; verdict = 'refused' }
+  else if (freed > 0 || (p.kind === 'home' && status === 'success' && !stillFar)) {
+    s.backoff[p.kind] = 0; verdict = 'ok'
+    if (p.via === 'well') s.backoff.home_well = now + ROOM_WELL_WALK_BACKOFF_MS
+  }
+  // AN INTERRUPTION IS FREE (Claude r2), as for the town orders: a reflex took the body; nothing was learned about the remedy.
+  // ...and so is one the SKILL reports as an interrupted walk (deposit/home return failed + path_interrupted when a reflex
+  // stops the path mid-walk, skills.mjs deposit) -- Claude r3.
+  else if (status === 'aborted' || ROOM_INTERRUPTED.has(failClass)) verdict = 'interrupted'
+  else if (p.kind === 'home' && failClass === 'travel_incomplete') verdict = 'walking'
+  else { s.backoff[p.kind] = now + ROOM_BACKOFF_MS; verdict = 'backoff' }
+  return { state: s, freed, verdict, pending: p }
+}
+
+/** How long a craft refused for room keeps the craft's own wear-out route from being trusted (craftRoomCheck). */
+export const ROOM_WEAR_TRUST_MS = 10 * 60 * 1000
+
+/**
+ * WHICH REMEDY KINDS TO LEAVE OUT -> Set. Backing off, or refused by the gate's memory (AdmissionControl.memoryRefuses).
+ * AND `home_deposit` (the walk home FOR A DEPOSIT) WHEN THAT DEPOSIT IS BLOCKED BY SOMETHING THE WALK WILL NOT CLEAR (Codex r2):
+ * learned failures, a full repeat window, or the deposit's own backoff -- arriving home would only find `none`. A deposit
+ * cooldown (45 s) is over long before a walk home is, so it does not stop the walk. The walk home for the town's WELL
+ * (stocktarget tips) does not depend on the deposit and is not excluded by it; `home` itself excludes both.
+ */
+export function roomExclusions ({ backedOff = new Set(), memory = {} } = {}) {
+  const ex = new Set(backedOff)
+  for (const [kind, why] of Object.entries(memory ?? {})) if (why) ex.add(kind)
+  const dep = memory?.deposit
+  if ((dep && dep !== 'cooldown') || backedOff.has('deposit')) ex.add('home_deposit')
+  return ex
+}
+
+/**
+ * The `_room_order` row's `lost`: every name whose count fell between the issue and the outcome, `name:n` comma-joined,
+ * at most `cap` characters; more is marked `+more` so the read can see the list is incomplete (Codex r2: a silent
+ * truncation could hide the very loss C2 looks for). `-` when nothing fell.
+ */
+export function lostLine (before = {}, after = {}, cap = 110) {
+  const lost = Object.entries(before).filter(([k, v]) => (after[k] ?? 0) < v).sort((a, b) => (a[0] < b[0] ? -1 : 1))
+    .map(([k, v]) => `${k}:${v - (after[k] ?? 0)}`)
+  if (!lost.length) return '-'
+  // CAPPED BY CHARACTERS (Claude r2): the row's 300-char cap must never cut the `+more` marker itself.
+  const kept = []
+  for (const e of lost) { if ([...kept, e].join(',').length > cap) break; kept.push(e) }
+  return kept.join(',') + (kept.length < lost.length ? ',+more' : '')
 }
