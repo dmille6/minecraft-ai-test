@@ -1272,16 +1272,29 @@ await t('AP2-U3 NO EQUIP QUEUED BEHIND A CRAFT: a craft that goes idle first -> 
     assert.ok(n >= 1)   // the equip went in behind the craft
   })
 })
-await t('AP2-U4 THE WELL\'S HOLD IS RELEASED BEFORE THE EQUIP (never waited on); without a hold the release is harmless', async () => {
-  const a = fakeBot({}); let releasedAt = null, equipAt = null
-  a.inventory.items = () => [hb('stone_pickaxe', 9)]
-  const eq0 = a.equip; a.equip = async it => { equipAt = Date.now(); return eq0(it) }
-  const ra = await airPocketStep(a, airPocketPlan(world(HIVE_C)), deps({ releaseHold: () => { releasedAt = releasedAt ?? Date.now() } })); clearInterval(a._healthTimer)
-  assert.equal(ra.ok, true, ra.why); assert.ok(releasedAt != null && equipAt != null && releasedAt <= equipAt)
-  await withMutant(AP_PATH, "      try { releaseHold() } catch { /* a well's hold is released before any equip; none held is fine */ }\n", '', async m => {
-    const b = fakeBot({}); let rel = 0; b.inventory.items = () => [hb('stone_pickaxe', 9)]
-    await m.airPocketStep(b, m.airPocketPlan(world(HIVE_C)), deps({ releaseHold: () => { rel++ } })); clearInterval(b._healthTimer)
-    assert.equal(rel, 0)
+// a faithful junk-well hold: every equip waits for release (or 8 s), exactly as holdInventory wraps it
+const wellHeld = bot => {
+  const orig = bot.equip; let released = false; const waiters = []
+  bot.equip = async (...a) => { if (!released) await new Promise(r => { const t = setTimeout(r, 8000); waiters.push(() => { clearTimeout(t); r() }) }); return orig.apply(bot, a) }
+  const release = () => { if (released) return; released = true; bot.equip = orig; for (const w of waiters.splice(0)) w() }
+  return release
+}
+await t('AP2-U4 THE WELL\'S HOLD IS RELEASED BEFORE ANY EQUIP: a main-inventory pickaxe (slot 9) AND a quick-bar one (slot 37) equip and dig', async () => {
+  for (const slot of [9, 37]) {
+    const a = fakeBot({}); a.inventory.items = () => [hb('stone_pickaxe', slot)]; a.heldItem = hb('cobblestone', 36)
+    let rel = 0; const release = wellHeld(a)
+    const ra = await airPocketStep(a, airPocketPlan(world(HIVE_C)), deps({ releaseHold: () => { rel++; release() } })); clearInterval(a._healthTimer); release()
+    assert.ok(rel >= 1, `slot ${slot}: the hold was never released`)
+    assert.equal(ra.tool, 'stone_pickaxe', `slot ${slot}: ${ra.why}`); assert.ok(a.digSends.length >= 1, `slot ${slot}: nothing dug`)
+  }
+})
+await t('AP2-U4b MUTANT KILLED: a release only inside the handoff (the r1 shape) leaves the quick-bar pickaxe waiting on the hold (U4 catches it)', async () => {
+  await withMutantsAll(AP_PATH, [["    try { releaseHold() } catch { /* none held is fine */ }\n", ''],
+                                 ['    const handoff = async () => {\n', '    const handoff = async () => {\n      try { releaseHold() } catch { }\n']], async m => {
+    const b = fakeBot({}); b.inventory.items = () => [hb('stone_pickaxe', 37)]; b.heldItem = hb('cobblestone', 36)
+    const release = wellHeld(b)
+    const rb = await m.airPocketStep(b, m.airPocketPlan(world(HIVE_C)), deps({ releaseHold: release })); clearInterval(b._healthTimer); release()
+    assert.notEqual(rb.tool, 'stone_pickaxe', 'mutant inert: the quick-bar pickaxe was equipped')   // it waited out AP_EQUIP_MS on the hold
   })
 })
 await t('AP2-U5 handRestoreAllowed (pure): a housekeeping order restores its old hand only if the rescue never took the inventory since it began', () => {
