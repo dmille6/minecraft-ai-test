@@ -1,6 +1,6 @@
 # brain-01: gemma4 on the Studio as the per-bot brain for 10 live bots (design, 2026-10-12)
 
-Status: **STAGED, nothing installed or deployed. Both engines APPROVE the code, Studio/host pieces and operator patches (A/B/C, round 4, 10-12).** Branch `brain01-on-0cdb1a8`. Owner approved planning on 10-10.
+Status: **STAGED, nothing installed or deployed. Both engines APPROVE the code, Studio/host pieces and operator patches (A/B/C, round 4, 10-12).** Branch `brain01-on-0cdb1a8`; **the fleet-base variant is `brain01-on-82aef34`** (fleet 82aef34 since 10-12 18:20Z; the 12 commits cherry-picked cleanly, and the patch is byte-identical to the approved one). Owner approved planning on 10-10.
 The new key on the fleet host (s.3) waits for the owner. Both engines review every piece before anything is queued.
 
 ## 1. Why: what a smarter brain can move
@@ -148,6 +148,14 @@ every 60 s). Before this the launchd pieces were only staged: the sandbox proxy 
 put gemma back after another session's cleanup.
 - **Proof:** model unloaded and server stopped at 18:13:46Z; both restored and the proxy healthy at 18:14:26Z.
 - **`~/brain01/PAUSE`** is how anyone frees the memory on purpose: touch it, then `lms unload brain`.
+- **After the Studio REBOOT at 18:47Z (checked, not assumed):** both agents came back by themselves once the console
+  session logged in at 18:53Z.
+  - `launchctl print`: the keeper had run 67 times, last exit 0; the proxy was running (runs = 1, never exited).
+  - The keeper log shows the server restarted and gemma loaded at 18:53:36-18:53:50Z.
+  - **Caveat:** these are per-user LaunchAgents, and the Studio has no auto-login. After an unattended reboot nothing
+    comes back until someone logs in at the console.
+  - Until then, live bots fall back to their local model (safe), and brainread's G1/G8 would REVERT a running canary.
+  - Making it unattended needs auto-login or a system LaunchDaemon. That is a Studio system change, for the owner.
 
 ## 6. Power at today's rates
 
