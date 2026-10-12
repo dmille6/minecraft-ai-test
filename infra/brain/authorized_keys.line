@@ -8,7 +8,7 @@
 restrict,port-forwarding,permitopen="127.0.0.1:11501",permitlisten="127.0.0.1:1",command="/usr/bin/false" ssh-ed25519 <PUBLIC KEY OF id_ed25519_brain01> brain01-fleet-tunnel
 #
 # VERIFY AFTER PLACING IT (from 10.0.0.31, with -i ~/.ssh/id_ed25519_brain01 -o BatchMode=yes); each must hold:
-#   ssh -N -L 127.0.0.1:11601:127.0.0.1:11501 mike@ai.ticrcorp.com &   curl -s 127.0.0.1:11601/api/version  -> brainproxy
+#   ssh -N -L 127.0.0.1:11611:127.0.0.1:11501 mike@ai.ticrcorp.com &   curl -s 127.0.0.1:11611/api/version  -> brainproxy
 #   ssh -N -L 127.0.0.1:11602:127.0.0.1:22 mike@ai.ticrcorp.com &      curl -s 127.0.0.1:11602            -> refused/empty (open denied)
 #   ssh -N -R 127.0.0.1:2222:127.0.0.1:22 mike@ai.ticrcorp.com         -> "remote port forwarding failed" / "rejected"
 #   ssh mike@ai.ticrcorp.com uname                                     -> no output, exit 1 (/usr/bin/false)

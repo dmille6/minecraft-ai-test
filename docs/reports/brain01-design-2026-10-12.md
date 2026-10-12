@@ -81,7 +81,7 @@ not brain-01).
 
 The Studio is reached only by ssh to `ai.ticrcorp.com` (WAN :11434 closed; never 192.168.19x). The mini is controller
 only, so the live path is on the fleet host itself:
-- `infra/brain/mcai-studio-tunnel.service` forwards `127.0.0.1:11601` to the Studio's `127.0.0.1:11501`, with
+- `infra/brain/mcai-studio-tunnel.service` forwards `127.0.0.1:11611` to the Studio's `127.0.0.1:11501`, with
   ServerAlive 10/3, ExitOnForwardFailure and Restart=always/5 s.
 - **Owner decision needed:** a new key `id_ed25519_brain01` on 10.0.0.31, added to the Studio's authorized_keys
   restricted to `restrict,port-forwarding,permitopen="127.0.0.1:11501",command="/usr/bin/false"`
