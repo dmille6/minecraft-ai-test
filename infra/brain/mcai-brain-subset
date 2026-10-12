@@ -1,0 +1,73 @@
+#!/bin/bash
+# mcai-brain-subset -- KEEP ON A FIXED SUBSET (brain-01). Installed at /usr/local/sbin, run as root by the canary
+# loop's keep-subset promotion (or by the operator). STAGED 2026-10-12: not installed.
+#   apply  --run R --pools P,Q --env "K=V K=V"   write the env PERMANENTLY into each bot's harness env file of those
+#                                                pools (a marked block, backup first), record the subset, restart the
+#                                                bots 12 s apart, verify each live process's environment
+#   remove --pools P,Q                            strip the block, restart, verify the keys are gone, update the record
+#   status                                        the record, and for each subset bot whether its process carries the env
+# The record /srv/mcbots/brain-subset.json {run, pools, bots, env, since} is what drawrec (never draws these pools)
+# and verdict.py (never uses these bots as control) read. Env files are edited only inside the marked block;
+# deploy-fleet.sh's CODE_VERSION/RUN_ID edits leave it alone. generate-roster.py would NOT -- regenerate the roster
+# only with `remove` first and `apply` after.
+set -euo pipefail
+H=${MCAI_HARNESS:-/srv/mcbots/harness}; REC=${MCAI_SUBSET_REC:-/srv/mcbots/brain-subset.json};   # overrides: tests only
+ BEGIN='# >>> brain-subset'; END='# <<< brain-subset'
+CMD=${1:-status}; shift || true
+RUN=""; POOLS=""; ENVKV=""
+while [ $# -gt 0 ]; do case "$1" in --run) RUN=$2; shift 2;; --pools) POOLS=$2; shift 2;; --env) ENVKV=$2; shift 2;; *) echo "unknown arg $1" >&2; exit 2;; esac; done
+bots_of() { for p in ${1//,/ }; do for f in $H/env/$p-*.env; do [ -e "$f" ] && basename "$f" .env; done; done; }
+strip_block() { python3 - "$1" "$BEGIN" "$END" <<'PY'
+import sys
+f, b, e = sys.argv[1:]; out, skip = [], False
+for l in open(f).read().splitlines(True):
+    if l.startswith(b): skip = True; continue
+    if skip and l.startswith(e): skip = False; continue
+    if not skip: out.append(l)
+open(f, 'w').write(''.join(out))
+PY
+}
+pid_of() { systemctl show -p MainPID --value "mcbot@$1.service"; }
+has_env() { if [ -n "${MCAI_SUBSET_TEST:-}" ]; then grep -q "^$2=" "$H/env/$1.env"; return; fi; local pid; pid=$(pid_of "$1"); [ -n "$pid" ] && [ "$pid" != 0 ] && tr '\0' '\n' < /proc/$pid/environ | grep -q "^$2="; }
+restart_all() { [ -n "${MCAI_SUBSET_TEST:-}" ] && return 0; local first=1; for b in $1; do [ $first = 1 ] || sleep 12; first=0; systemctl restart "mcbot@$b.service"; done; sleep 20; }
+case "$CMD" in
+  apply)
+    [ -n "$RUN" ] && [ -n "$POOLS" ] && [ -n "$ENVKV" ] || { echo "apply needs --run --pools --env" >&2; exit 2; }
+    for kv in $ENVKV; do [[ "$kv" =~ ^[A-Z_][A-Z0-9_]*=[^[:space:]]+$ ]] || { echo "not KEY=VALUE: $kv" >&2; exit 2; }; case "${kv%%=*}" in CODE_VERSION|RUN_ID) echo "may not set ${kv%%=*}" >&2; exit 2;; esac; done
+    BOTS=$(bots_of "$POOLS"); [ -n "$BOTS" ] || { echo "no env files for pools $POOLS" >&2; exit 2; }
+    TS=$(date -u +%Y%m%dT%H%M%SZ)
+    for b in $BOTS; do f=$H/env/$b.env; cp -p "$f" "$f.bak-brainsubset-$TS"; strip_block "$f"
+      { echo "$BEGIN $RUN $TS (do not edit; mcai-brain-subset)"; for kv in $ENVKV; do echo "$kv"; done; echo "$END"; } >> "$f"; done
+    python3 - "$REC" "$RUN" "$POOLS" "$ENVKV" "$TS" $BOTS <<'PY'
+import json, sys
+rec, run, pools, env, ts, *bots = sys.argv[1:]
+json.dump({'run': run, 'pools': pools.split(','), 'bots': bots, 'env': env.split(), 'since': ts}, open(rec, 'w'), indent=1)
+PY
+    restart_all "$BOTS"
+    MISS=""; for b in $BOTS; do for kv in $ENVKV; do has_env "$b" "${kv%%=*}" || MISS="$MISS $b:${kv%%=*}"; done; done
+    [ -z "$MISS" ] || { echo "SUBSET NOT LIVE:$MISS" >&2; exit 4; }
+    echo "SUBSET LIVE: $(echo $BOTS | wc -w) bot(s) in $POOLS carry $ENVKV";;
+  remove)
+    [ -n "$POOLS" ] || { echo "remove needs --pools" >&2; exit 2; }
+    BOTS=$(bots_of "$POOLS"); TS=$(date -u +%Y%m%dT%H%M%SZ)
+    KEYS=$(python3 -c "import json; print(' '.join(kv.split('=')[0] for kv in json.load(open('$REC')).get('env') or []))" 2>/dev/null || true)
+    for b in $BOTS; do f=$H/env/$b.env; cp -p "$f" "$f.bak-brainsubset-$TS"; strip_block "$f"; done
+    python3 - "$REC" "$POOLS" <<'PY'
+import json, os, sys
+rec, pools = sys.argv[1], sys.argv[2].split(',')
+if os.path.exists(rec):
+    r = json.load(open(rec)); r['pools'] = [p for p in r.get('pools', []) if p not in pools]
+    r['bots'] = [b for b in r.get('bots', []) if not any(b.startswith(p + '-') for p in pools)]
+    (json.dump(r, open(rec, 'w'), indent=1) if r['pools'] else os.remove(rec))
+PY
+    restart_all "$BOTS"
+    STILL=""; for b in $BOTS; do for k in $KEYS; do has_env "$b" "$k" && STILL="$STILL $b:$k"; done; done
+    [ -z "$STILL" ] || { echo "ENV STILL LIVE:$STILL" >&2; exit 4; }
+    echo "SUBSET REMOVED from $POOLS";;
+  status)
+    [ -f "$REC" ] || { echo "no brain subset"; exit 0; }
+    cat "$REC"
+    for b in $(python3 -c "import json; print(' '.join(json.load(open('$REC'))['bots']))"); do
+      k=$(python3 -c "import json; print(json.load(open('$REC'))['env'][0].split('=')[0])"); has_env "$b" "$k" && echo "  $b live" || echo "  $b NOT LIVE"; done;;
+  *) echo "usage: mcai-brain-subset apply|remove|status" >&2; exit 2;;
+esac
