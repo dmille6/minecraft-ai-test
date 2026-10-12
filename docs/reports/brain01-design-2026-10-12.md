@@ -51,6 +51,18 @@ and 20% cooldown). Those are code.
 | `_brain_config` / `_brain_share` skill rows | written only by a bot with a labelled endpoint; the baseline writes 0 | licencecheck scans skill rows only, so this is the canary's licence kind |
 | ES mapping | `brain` plus `args_cleaned`, `args_cleaned_fields`, `model_mismatch` | the logger already wrote those three and the strict template lacked them. Under `dynamic:strict` an unmapped field rejects the whole row |
 
+**The retry rule for a labelled pool** (reviews r1-r4) asks each endpoint at most once per decision:
+- the first walk is today's;
+- after any failure, only endpoints not yet asked are tried, healthy first, then cooling;
+- after a transport failure the next endpoint gets the plain request, and after a rejected answer it gets the repair
+  message;
+- the existing cap of two attempts stays.
+
+**The price** (Claude r4): when the Studio fails in transport AND the local then answers malformed, a canary bot ends
+that decision unrepaired, where a control bot would repair on the same local. This is rare, needing a Studio outage and
+a bad local answer at once. It moves no gate: the endpoint is non-null, so G3 ignores it, and G4 counts gemma4 rows
+only. Expect at most a small refused/success shift during Studio outages, and do not misread it.
+
 **Tests:** `bots/test/brain01.test.mjs`, 20 tests with a fetch stub that honours AbortSignal, the real logger and
 the real CognitiveLoop. They cover:
 - falling back within the primary's own budget;
