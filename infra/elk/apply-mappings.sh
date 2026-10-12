@@ -88,6 +88,15 @@ q -XPUT "http://localhost:9200/_index_template/mcai-llm" -H 'Content-Type: appli
   \"outcome\":{\"properties\":{\"status\":{\"type\":\"keyword\"},\"detail\":{\"type\":\"text\"}}}}}}}" >/dev/null
 ok "mcai-llm-* template"
 
+# A TEMPLATE DOES NOT CHANGE INDICES THAT ALREADY EXIST (Codex r1 on brain-01). The strict backing indices of the live
+# mcai-llm-* data streams must learn the four llm fields BEFORE any bot writes them, or every such row is rejected
+# whole until the next rollover. Adding fields to an existing mapping is allowed; this is idempotent.
+q -XPUT "http://localhost:9200/mcai-llm-*/_mapping" -H 'Content-Type: application/json' -d '{
+ "properties":{"llm":{"properties":{
+  "args_cleaned":{"type":"integer"},"args_cleaned_fields":{"type":"keyword"},
+  "model_mismatch":{"type":"keyword"},"brain":{"type":"keyword"}}}}}' >/dev/null
+ok "mcai-llm-* existing indices: llm.args_cleaned/args_cleaned_fields/model_mismatch/brain"
+
 q -XPUT "http://localhost:9200/_index_template/mcai-mc" -H 'Content-Type: application/json' -d "{
  \"index_patterns\":[\"mcai-mc-*\"],\"data_stream\":{},\"priority\":500,
  \"template\":{\"settings\":{$SETTINGS},\"mappings\":{\"dynamic\":\"false\",\"properties\":{

@@ -276,6 +276,13 @@ export class LlmClient {
     // reported without evidence, wearing a different hat.
     let attempt = 0, lastErr = null, proposal = null, raw = '', meta = {}
     let servedBy = null, servedModel = null, servedEp = null
+    // brain-01, ONLY when the pool has a labelled endpoint (the fleet today has none, so its behaviour is unchanged):
+    //  - a malformed answer from a LABELLED endpoint is repaired by the NEXT endpoint, not the same one (Codex r1:
+    //    the repair went back to the Studio, so a bad gemma answer never reached a healthy local fallback);
+    //  - when every endpoint failed in transport, the decision ENDS (no second walk): with all endpoints cooling down
+    //    available() offers them all again, so a second walk paid every timeout twice (Studio, local, Studio, local).
+    const labelledPool = this.pool.eps.some(e => e.brain)
+    let skip = null
     // One repair retry, then stop. ADR-0002 D1: never best-effort parse a
     // malformed response into an action.
     while (attempt < 2) {
@@ -289,10 +296,11 @@ export class LlmClient {
 
       let res
       try {
-        res = await this.#post({ messages: msgs, schema })
+        res = await this.#post({ messages: msgs, schema, skip })
       } catch (e) {
         lastErr = e.message
         attempt++
+        if (labelledPool) break
         continue
       }
 
@@ -305,6 +313,7 @@ export class LlmClient {
         proposal = JSON.parse(raw)
       } catch {
         lastErr = 'response was not valid JSON'
+        if (labelledPool && servedEp?.brain) skip = servedEp
         attempt++
         continue
       }
@@ -321,6 +330,7 @@ export class LlmClient {
           prompt_tokens: meta.prompt_tokens,
         })
         proposal = null
+        if (labelledPool && servedEp?.brain) skip = servedEp
         attempt++
         continue
       }
@@ -356,18 +366,21 @@ export class LlmClient {
       // Against the model THAT ENDPOINT was pinned to, not the global one: a pinned fallback (or a pinned
       // remote primary) serving exactly what it was asked for is not a mismatch.
       model_mismatch: modelMismatch(servedEp?.model ?? this.model, servedModel),
-      // WHICH BRAIN DECIDED (brain-01): the label of the endpoint that served the accepted answer, 'local'
-      // when it carries none, null when nothing served. Work orders are labelled by the caller.
+      // WHICH BRAIN ANSWERED (brain-01): the label of the endpoint whose response was received LAST -- the same
+      // endpoint `endpoint` names -- 'local' when it carries none, null when no endpoint returned a response at all.
+      // With schema_valid false it names the brain whose answer was rejected. Work orders are labelled by the caller.
       brain: servedEp ? (servedEp.brain ?? 'local') : null,
     }
   }
 
-  async #post({ messages, schema }) {
+  async #post({ messages, schema, skip = null }) {
     // Walk the pool in preference order. A saturated primary costs one timeout,
     // then goes into cooldown so the NEXT decision starts at the fallback
     // rather than paying that timeout again.
     let lastErr = null
-    for (const ep of this.pool.available()) {
+    const eps = this.pool.available()
+    // `skip` (brain-01): the labelled endpoint whose answer was just rejected; the repair goes elsewhere if it can.
+    for (const ep of (skip && eps.length > 1 ? eps.filter(e => e !== skip) : eps)) {
       const started = Date.now()
       const ctl = new AbortController()
       // PER-ENDPOINT TIMEOUT (brain-01): a remote primary gets a short budget so a slow or dead Studio costs one

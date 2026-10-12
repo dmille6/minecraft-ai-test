@@ -29,9 +29,13 @@ const { logLlm } = await import('../src/logger.mjs')
 const B = await import('../src/brain.mjs')
 
 let pass = 0, fail = 0
+// Every test has a 10 s ceiling: a fallback that waits a global 45 s budget must FAIL here, not hang the run.
 const t = async (name, fn) => {
-  try { await fn(); pass++; console.log(`  PASS  ${name}`) }
+  let timer
+  const ceiling = new Promise((_, rej) => { timer = setTimeout(() => rej(new Error('exceeded the 10 s test ceiling')), 10_000) })
+  try { await Promise.race([fn(), ceiling]); pass++; console.log(`  PASS  ${name}`) }
   catch (e) { fail++; console.log(`  FAIL  ${name}\n        ${e.stack?.split('\n').slice(0, 3).join(' | ')}`) }
+  finally { clearTimeout(timer) }
 }
 const SENT = 'END-TEST'
 const answer = (model) => ({ ok: true, json: async () => ({ model,
@@ -109,6 +113,49 @@ await t('nothing served -> brain null (never the configured primary)', async () 
   stub(() => { throw new Error('down') })
   const r = await call(mk())
   assert.equal(r.brain, null); assert.equal(r.endpoint, null); assert.equal(r.schemaValid, false)
+})
+
+await t('a MALFORMED gemma answer is repaired by the LOCAL fallback, not by the Studio again (Codex r1)', async () => {
+  stub(base => base === 'http://studio:11601'
+    ? { ok: true, json: async () => ({ model: 'gemma4:26b', message: { content: 'not json at all' } }) }
+    : answer('qwen2.5:7b-instruct'))
+  bodies.length = 0
+  const r = await call(mk())
+  assert.deepEqual(bodies.map(b => b.base), ['http://studio:11601', 'http://local:11434'], 'one Studio call, then the repair goes local')
+  assert.equal(r.schemaValid, true); assert.equal(r.brain, 'local'); assert.equal(r.retryCount, 1)
+})
+await t('a bad SENTINEL from gemma is repaired locally too', async () => {
+  stub(base => base === 'http://studio:11601'
+    ? { ok: true, json: async () => ({ model: 'gemma4:26b', message: { content: JSON.stringify({ skill: 'gather', args: {}, reason: 'r', saw_end: 'END-WRONG' }) } }) }
+    : answer('qwen2.5:7b-instruct'))
+  bodies.length = 0
+  const r = await call(mk())
+  assert.deepEqual(bodies.map(b => b.base), ['http://studio:11601', 'http://local:11434']); assert.equal(r.brain, 'local')
+})
+await t('TOTAL transport failure on a labelled pool pays each timeout ONCE, then the decision ends (Codex r1)', async () => {
+  stub(() => 'hang')
+  const c = mk(['http://studio:11601|gemma4:26b|gemma4|1000', 'http://local:11434|qwen2.5:7b-instruct|local|1000'])
+  bodies.length = 0
+  const t0 = Date.now(); const r = await call(c); const ms = Date.now() - t0
+  assert.deepEqual(bodies.map(b => b.base), ['http://studio:11601', 'http://local:11434'], 'no second walk')
+  assert.ok(ms < 2600, `bounded by the sum of the budgets once (took ${ms} ms)`); assert.equal(r.brain, null); assert.equal(r.schemaValid, false)
+})
+await t('an UNLABELLED pool keeps today\'s retry exactly: a second walk after total failure, repair on the same endpoint', async () => {
+  stub(() => { throw new Error('down') }); bodies.length = 0
+  await call(mk(['http://a:1', 'http://b:2']))
+  assert.equal(bodies.length, 4, 'today: two walks of two endpoints')
+  stub(base => base === 'http://a:1' ? { ok: true, json: async () => ({ message: { content: 'nope' } }) } : answer('m')); bodies.length = 0
+  await call(mk(['http://a:1', 'http://b:2']))
+  assert.deepEqual(bodies.map(b => b.base), ['http://a:1', 'http://a:1'], 'today: the repair goes to the same (first healthy) endpoint')
+})
+await t('BYTE identity: an unconfigured bot\'s request body serializes exactly as 0cdb1a8\'s did', async () => {
+  // 0cdb1a8 #post body, key order and all (llm.mjs at that sha): model, stream, keep_alive, messages, format, options.
+  const expected = (msgs, schema) => JSON.stringify({ model: 'qwen2.5:7b-instruct', stream: false, keep_alive: '30m', messages: msgs, format: schema,
+    options: { temperature: 0.7, num_ctx: 8192, num_predict: 512 } })
+  let raw = null
+  globalThis.fetch = (u, opts) => { raw = opts.body; return Promise.resolve(answer('qwen2.5:7b-instruct')) }
+  await call(mk(['http://local:11434']))
+  assert.equal(raw, expected([{ role: 'system', content: 's' }, { role: 'user', content: 'u' }], { type: 'object' }))
 })
 
 // ---- 5. think ---------------------------------------------------------------------------------------------------

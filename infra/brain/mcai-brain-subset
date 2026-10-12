@@ -1,73 +1,165 @@
-#!/bin/bash
-# mcai-brain-subset -- KEEP ON A FIXED SUBSET (brain-01). Installed at /usr/local/sbin, run as root by the canary
-# loop's keep-subset promotion (or by the operator). STAGED 2026-10-12: not installed.
-#   apply  --run R --pools P,Q --env "K=V K=V"   write the env PERMANENTLY into each bot's harness env file of those
-#                                                pools (a marked block, backup first), record the subset, restart the
-#                                                bots 12 s apart, verify each live process's environment
-#   remove --pools P,Q                            strip the block, restart, verify the keys are gone, update the record
-#   status                                        the record, and for each subset bot whether its process carries the env
-# The record /srv/mcbots/brain-subset.json {run, pools, bots, env, since} is what drawrec (never draws these pools)
-# and verdict.py (never uses these bots as control) read. Env files are edited only inside the marked block;
-# deploy-fleet.sh's CODE_VERSION/RUN_ID edits leave it alone. generate-roster.py would NOT -- regenerate the roster
-# only with `remove` first and `apply` after.
-set -euo pipefail
-H=${MCAI_HARNESS:-/srv/mcbots/harness}; REC=${MCAI_SUBSET_REC:-/srv/mcbots/brain-subset.json};   # overrides: tests only
- BEGIN='# >>> brain-subset'; END='# <<< brain-subset'
-CMD=${1:-status}; shift || true
-RUN=""; POOLS=""; ENVKV=""
-while [ $# -gt 0 ]; do case "$1" in --run) RUN=$2; shift 2;; --pools) POOLS=$2; shift 2;; --env) ENVKV=$2; shift 2;; *) echo "unknown arg $1" >&2; exit 2;; esac; done
-bots_of() { for p in ${1//,/ }; do for f in $H/env/$p-*.env; do [ -e "$f" ] && basename "$f" .env; done; done; }
-strip_block() { python3 - "$1" "$BEGIN" "$END" <<'PY'
-import sys
-f, b, e = sys.argv[1:]; out, skip = [], False
-for l in open(f).read().splitlines(True):
-    if l.startswith(b): skip = True; continue
-    if skip and l.startswith(e): skip = False; continue
-    if not skip: out.append(l)
-open(f, 'w').write(''.join(out))
-PY
-}
-pid_of() { systemctl show -p MainPID --value "mcbot@$1.service"; }
-has_env() { if [ -n "${MCAI_SUBSET_TEST:-}" ]; then grep -q "^$2=" "$H/env/$1.env"; return; fi; local pid; pid=$(pid_of "$1"); [ -n "$pid" ] && [ "$pid" != 0 ] && tr '\0' '\n' < /proc/$pid/environ | grep -q "^$2="; }
-restart_all() { [ -n "${MCAI_SUBSET_TEST:-}" ] && return 0; local first=1; for b in $1; do [ $first = 1 ] || sleep 12; first=0; systemctl restart "mcbot@$b.service"; done; sleep 20; }
-case "$CMD" in
-  apply)
-    [ -n "$RUN" ] && [ -n "$POOLS" ] && [ -n "$ENVKV" ] || { echo "apply needs --run --pools --env" >&2; exit 2; }
-    for kv in $ENVKV; do [[ "$kv" =~ ^[A-Z_][A-Z0-9_]*=[^[:space:]]+$ ]] || { echo "not KEY=VALUE: $kv" >&2; exit 2; }; case "${kv%%=*}" in CODE_VERSION|RUN_ID) echo "may not set ${kv%%=*}" >&2; exit 2;; esac; done
-    BOTS=$(bots_of "$POOLS"); [ -n "$BOTS" ] || { echo "no env files for pools $POOLS" >&2; exit 2; }
-    TS=$(date -u +%Y%m%dT%H%M%SZ)
-    for b in $BOTS; do f=$H/env/$b.env; cp -p "$f" "$f.bak-brainsubset-$TS"; strip_block "$f"
-      { echo "$BEGIN $RUN $TS (do not edit; mcai-brain-subset)"; for kv in $ENVKV; do echo "$kv"; done; echo "$END"; } >> "$f"; done
-    python3 - "$REC" "$RUN" "$POOLS" "$ENVKV" "$TS" $BOTS <<'PY'
-import json, sys
-rec, run, pools, env, ts, *bots = sys.argv[1:]
-json.dump({'run': run, 'pools': pools.split(','), 'bots': bots, 'env': env.split(), 'since': ts}, open(rec, 'w'), indent=1)
-PY
-    restart_all "$BOTS"
-    MISS=""; for b in $BOTS; do for kv in $ENVKV; do has_env "$b" "${kv%%=*}" || MISS="$MISS $b:${kv%%=*}"; done; done
-    [ -z "$MISS" ] || { echo "SUBSET NOT LIVE:$MISS" >&2; exit 4; }
-    echo "SUBSET LIVE: $(echo $BOTS | wc -w) bot(s) in $POOLS carry $ENVKV";;
-  remove)
-    [ -n "$POOLS" ] || { echo "remove needs --pools" >&2; exit 2; }
-    BOTS=$(bots_of "$POOLS"); TS=$(date -u +%Y%m%dT%H%M%SZ)
-    KEYS=$(python3 -c "import json; print(' '.join(kv.split('=')[0] for kv in json.load(open('$REC')).get('env') or []))" 2>/dev/null || true)
-    for b in $BOTS; do f=$H/env/$b.env; cp -p "$f" "$f.bak-brainsubset-$TS"; strip_block "$f"; done
-    python3 - "$REC" "$POOLS" <<'PY'
-import json, os, sys
-rec, pools = sys.argv[1], sys.argv[2].split(',')
-if os.path.exists(rec):
-    r = json.load(open(rec)); r['pools'] = [p for p in r.get('pools', []) if p not in pools]
-    r['bots'] = [b for b in r.get('bots', []) if not any(b.startswith(p + '-') for p in pools)]
-    (json.dump(r, open(rec, 'w'), indent=1) if r['pools'] else os.remove(rec))
-PY
-    restart_all "$BOTS"
-    STILL=""; for b in $BOTS; do for k in $KEYS; do has_env "$b" "$k" && STILL="$STILL $b:$k"; done; done
-    [ -z "$STILL" ] || { echo "ENV STILL LIVE:$STILL" >&2; exit 4; }
-    echo "SUBSET REMOVED from $POOLS";;
-  status)
-    [ -f "$REC" ] || { echo "no brain subset"; exit 0; }
-    cat "$REC"
-    for b in $(python3 -c "import json; print(' '.join(json.load(open('$REC'))['bots']))"); do
-      k=$(python3 -c "import json; print(json.load(open('$REC'))['env'][0].split('=')[0])"); has_env "$b" "$k" && echo "  $b live" || echo "  $b NOT LIVE"; done;;
-  *) echo "usage: mcai-brain-subset apply|remove|status" >&2; exit 2;;
-esac
+#!/usr/bin/env python3
+"""mcai-brain-subset -- KEEP ON A FIXED SUBSET (brain-01). /usr/local/sbin, run as root by the canary loop's keep-subset
+phase or by the operator. STAGED 2026-10-12: NOT INSTALLED.
+
+    mcai-brain-subset apply  --run R --pools P,Q --env "K=V K=V"
+    mcai-brain-subset remove --pools P,Q
+    mcai-brain-subset status
+
+THE RECORD /srv/mcbots/brain-subset.json {run, pools, bots, env, state, since} is what drawrec (never draws these pools)
+and verdict.py / every read (never uses these bots as control) read. It is written FIRST and removed LAST, so the
+exclusion covers every moment the env might be live:
+  apply:  record state=applying (exclusion on) -> marked env block in each bot's harness env file (backup first) ->
+          restart 12 s apart -> verify EVERY bot's live process carries EXACTLY K=V -> state=live. A failure exits
+          non-zero and leaves state=applying: still excluded, and `apply` again with the same run/pools/env RESUMES.
+  remove: state=removing -> strip the block -> restart -> verify, POSITIVELY, that every bot's process is readable and
+          carries none of the keys -> only then drop the pools from the record. A failure leaves them excluded.
+Another `apply` while a record exists for a different run, pools or env is REFUSED (one subset at a time).
+The env block is `# >>> brain-subset ...` .. `# <<< brain-subset`; deploy-fleet.sh's CODE_VERSION/RUN_ID edits leave it
+alone. generate-roster.py rewrites env files: run `remove` before regenerating and `apply` after.
+Overrides (tests only): MCAI_HARNESS, MCAI_SUBSET_REC, MCAI_SUBSET_TEST=1 (no restarts; the env FILE stands in for the
+process environment).
+"""
+import json, os, re, shutil, subprocess, sys, time
+H = os.environ.get('MCAI_HARNESS', '/srv/mcbots/harness'); REC = os.environ.get('MCAI_SUBSET_REC', '/srv/mcbots/brain-subset.json')
+TEST = bool(os.environ.get('MCAI_SUBSET_TEST'))
+BEGIN, END = '# >>> brain-subset', '# <<< brain-subset'
+KV = re.compile(r'^[A-Z_][A-Z0-9_]*=\S+$')
+
+
+def die(msg, code=2):
+    print(msg, file=sys.stderr); sys.exit(code)
+
+
+def bots_of(pools):
+    out = []
+    for p in pools:
+        out += sorted(f[:-4] for f in os.listdir(os.path.join(H, 'env')) if f.startswith(p + '-') and f.endswith('.env'))
+    return out
+
+
+def read_rec():
+    return json.load(open(REC)) if os.path.exists(REC) else None
+
+
+def write_rec(r):
+    tmp = REC + '.tmp'; json.dump(r, open(tmp, 'w'), indent=1); os.replace(tmp, REC)
+
+
+def strip_block(text):
+    out, skip = [], False
+    for l in text.splitlines(True):
+        if l.startswith(BEGIN): skip = True; continue
+        if skip and l.startswith(END): skip = False; continue
+        if not skip: out.append(l)
+    return ''.join(out)
+
+
+def live_env(bot):
+    """The bot's PROCESS environment as {K: V}, or None when it cannot be read (no pid, unreadable): never 'absent'."""
+    if TEST:
+        try:
+            return dict(l.rstrip('\n').split('=', 1) for l in open(os.path.join(H, 'env', bot + '.env')) if '=' in l and not l.startswith('#'))
+        except OSError:
+            return None
+    pid = subprocess.run(['systemctl', 'show', '-p', 'MainPID', '--value', 'mcbot@%s.service' % bot], capture_output=True, text=True).stdout.strip()
+    if not pid or pid == '0':
+        return None
+    try:
+        raw = open('/proc/%s/environ' % pid, 'rb').read().split(b'\0')
+    except OSError:
+        return None
+    return dict(x.decode(errors='replace').split('=', 1) for x in raw if b'=' in x)
+
+
+def restart(bots):
+    if TEST:
+        return
+    for i, b in enumerate(bots):
+        if i:
+            time.sleep(12)
+        subprocess.run(['systemctl', 'restart', 'mcbot@%s.service' % b], check=False)
+    time.sleep(20)
+
+
+def apply(run, pools, env):
+    if not env or not all(KV.match(kv) for kv in env):
+        die('apply: --env must be KEY=VALUE entries without spaces')
+    if any(kv.split('=', 1)[0] in ('CODE_VERSION', 'RUN_ID') for kv in env):
+        die('apply: may not set CODE_VERSION or RUN_ID')
+    bots = bots_of(pools)
+    if not bots:
+        die('apply: no env files for pools %s' % pools)
+    r = read_rec()
+    if r and (r.get('run') != run or sorted(r.get('pools', [])) != sorted(pools) or r.get('env') != env):
+        die('apply: a different subset is recorded (%s %s); remove it first' % (r.get('run'), r.get('pools')))
+    ts = time.strftime('%Y%m%dT%H%M%SZ', time.gmtime())
+    write_rec({'run': run, 'pools': pools, 'bots': bots, 'env': env, 'state': 'applying', 'since': (r or {}).get('since', ts)})
+    for b in bots:
+        f = os.path.join(H, 'env', b + '.env'); shutil.copy2(f, f + '.bak-brainsubset-' + ts)
+        text = strip_block(open(f).read())
+        if not text.endswith('\n'): text += '\n'
+        open(f, 'w').write(text + '%s %s %s (do not edit; mcai-brain-subset)\n%s\n%s\n' % (BEGIN, run, ts, '\n'.join(env), END))
+    restart(bots)
+    want = dict(kv.split('=', 1) for kv in env)
+    bad = []
+    for b in bots:
+        e = live_env(b)
+        if e is None: bad.append('%s:unreadable' % b); continue
+        bad += ['%s:%s' % (b, k) for k, v in want.items() if e.get(k) != v]
+    if bad:
+        die('SUBSET NOT LIVE (state stays applying; still excluded; re-run apply to resume): ' + ' '.join(bad), 4)
+    r = read_rec(); r['state'] = 'live'; write_rec(r)
+    print('SUBSET LIVE: %d bot(s) in %s carry exactly %s' % (len(bots), ','.join(pools), ' '.join(env)))
+
+
+def remove(pools):
+    r = read_rec()
+    if not r:
+        die('remove: no subset recorded')
+    keys = [kv.split('=', 1)[0] for kv in r.get('env', [])]
+    bots = bots_of(pools)
+    r['state'] = 'removing'; write_rec(r)
+    ts = time.strftime('%Y%m%dT%H%M%SZ', time.gmtime())
+    for b in bots:
+        f = os.path.join(H, 'env', b + '.env'); shutil.copy2(f, f + '.bak-brainsubset-' + ts)
+        open(f, 'w').write(strip_block(open(f).read()))
+    restart(bots)
+    bad = []
+    for b in bots:
+        e = live_env(b)
+        if e is None: bad.append('%s:unreadable' % b); continue
+        bad += ['%s:%s' % (b, k) for k in keys if k in e]
+    if bad:
+        die('ENV STILL LIVE or UNPROVEN (state stays removing; still excluded): ' + ' '.join(bad), 4)
+    r['pools'] = [p for p in r['pools'] if p not in pools]
+    r['bots'] = [b for b in r['bots'] if b not in bots]
+    if r['pools']:
+        write_rec(r)
+    else:
+        os.remove(REC)
+    print('SUBSET REMOVED from %s (verified on %d bot(s))' % (','.join(pools), len(bots)))
+
+
+def status():
+    r = read_rec()
+    if not r:
+        print('no brain subset'); return
+    print(json.dumps(r, indent=1))
+    want = dict(kv.split('=', 1) for kv in r.get('env', []))
+    for b in r.get('bots', []):
+        e = live_env(b)
+        print('  %s %s' % (b, 'UNREADABLE' if e is None else ('live' if all(e.get(k) == v for k, v in want.items()) else 'NOT LIVE')))
+
+
+if __name__ == '__main__':
+    a = sys.argv[1:]; cmd = a[0] if a else 'status'
+    opt = {a[i]: a[i + 1] for i in range(1, len(a) - 1, 2)}
+    if cmd == 'apply':
+        apply(opt.get('--run') or die('apply needs --run'), [p for p in (opt.get('--pools') or '').split(',') if p], (opt.get('--env') or '').split())
+    elif cmd == 'remove':
+        remove([p for p in (opt.get('--pools') or '').split(',') if p])
+    elif cmd == 'status':
+        status()
+    else:
+        die('usage: mcai-brain-subset apply|remove|status')

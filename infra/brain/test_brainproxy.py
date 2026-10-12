@@ -14,4 +14,6 @@ check('think "low" (not a boolean) is not translated', 'chat_template_kwargs' no
 check('num_predict -> max_tokens', b['max_tokens'] == 512)
 check('served by the loaded identifier -> the pinned name', bp.served_name('brain', 'brain', 'gemma4:26b') == 'gemma4:26b')
 check('served by anything else -> lmstudio:<it> (the bot will flag a mismatch)', bp.served_name('qwen3-4b', 'brain', 'gemma4:26b') == 'lmstudio:qwen3-4b')
+check('an upstream reply naming NO model is never certified as the pinned name', bp.served_name(None, 'brain', 'gemma4:26b') == 'lmstudio:unknown')
+check('an empty model string likewise', bp.served_name('', 'brain', 'gemma4:26b') == 'lmstudio:unknown')
 sys.exit(1 if fails else 0)
