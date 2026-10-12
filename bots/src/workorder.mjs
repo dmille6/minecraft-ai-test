@@ -250,6 +250,9 @@ export function readyFor (bot, milestone, { roomCheck = craftRoomCheck, wearFail
 export const ROOM_BACKOFF_MS = 10 * 60 * 1000
 export const ROOM_INTERRUPTED = new Set(['path_interrupted', 'interrupted', 'hazard_interrupt'])
 export const ROOM_REFUSED_BACKOFF_MS = 2 * 60 * 1000
+// A WALK TO THE WELL is a guess made from afar (both engines st-2): after one arrives, the next waits this long whatever the
+// well then did -- the well's own order acts at town; a bag it could not empty must not send the bot back each time it leaves.
+export const ROOM_WELL_WALK_BACKOFF_MS = 30 * 60 * 1000
 // NO `place`: craft never places to make room (a block beside the bot can seal a tunnel or a stair) and no cheap test
 // proves an exit stays open (Codex r1); skills.mjs roomRemedy never names it as an order.
 const ROOM_ORDER_OF = {
@@ -276,7 +279,7 @@ export function roomOrder ({ noRoom = null, remedy = null, now = 0, state = {}, 
   if (roomBackedOff(s, now).has(remedy.kind)) return none()
   if (remedy.kind === 'deposit' && !remedy.item) return none()
   const o = ROOM_ORDER_OF[remedy.kind](remedy.item)
-  s.pending = { kind: remedy.kind, item: remedy.item ?? null, craft: noRoom.item, short: noRoom.short ?? null, slots, at: now }
+  s.pending = { kind: remedy.kind, item: remedy.item ?? null, craft: noRoom.item, short: noRoom.short ?? null, slots, at: now, ...(remedy.via ? { via: remedy.via } : {}) }
   return { order: { ...o, why: `no room for ${noRoom.item} (${noRoom.short ?? '?'} slot(s) short): ${String(remedy.text ?? '').slice(0, 140)}`, room: s.pending }, state: s }
 }
 
@@ -294,7 +297,10 @@ export function roomOutcome ({ status = null, failClass = null, refused = false,
   const freed = Math.max(0, (p.slots ?? 0) - (slotsAfter ?? 0))
   let verdict
   if (refused) { s.backoff[p.kind] = now + ROOM_REFUSED_BACKOFF_MS; verdict = 'refused' }
-  else if (freed > 0 || (p.kind === 'home' && status === 'success' && !stillFar)) { s.backoff[p.kind] = 0; verdict = 'ok' }
+  else if (freed > 0 || (p.kind === 'home' && status === 'success' && !stillFar)) {
+    s.backoff[p.kind] = 0; verdict = 'ok'
+    if (p.via === 'well') s.backoff.home_well = now + ROOM_WELL_WALK_BACKOFF_MS
+  }
   // AN INTERRUPTION IS FREE (Claude r2), as for the town orders: a reflex took the body; nothing was learned about the remedy.
   // ...and so is one the SKILL reports as an interrupted walk (deposit/home return failed + path_interrupted when a reflex
   // stops the path mid-walk, skills.mjs deposit) -- Claude r3.
