@@ -1238,7 +1238,7 @@ await t('AIRPOCKET-02: A RESCUE MID-VISIT KEEPS ITS PICKAXE: the interrupted wel
   assert.equal(o.fired, true); assert.equal(o.held, 'stone_pickaxe')
 })
 await t('MUTANT (skills): a restore that ignores the rescue epoch puts the cobblestone back over the pickaxe', async () => {
-  const a = '  if (!handRestoreAllowed({ epochAtStart: g.epoch, epochNow: bot.rescueInventoryEpoch })) {\n'
+  const a = '  if (!handRestoreAllowed({ epochAtStart: g.epoch, epochNow: bot.rescueInventoryEpoch, rescueActive: bot.rescueInventoryActive === true })) {\n'
   assert.equal(readFileSync(SP, 'utf8').split(a).length, 2, 'ANCHOR MISSING OR NOT UNIQUE')
   await withMutant(SP, a, '  if (false) {\n', async m => {
     const o = await rescueMidVisit(m)
