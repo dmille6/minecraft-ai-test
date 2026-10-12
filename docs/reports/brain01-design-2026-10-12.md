@@ -127,14 +127,27 @@ Drills on the Studio, 3 min each. Rows are the bots' own decision rows (`bench/m
 
 **Recovery after each drill:**
 - 13 to 55 s for most of them.
-- 337 s after the proxy restart. That is the pool's existing exponential cooldown: 60 s·2^(n-1), at most 900 s.
-  Bots decide locally in the meantime.
+- **CORRECTED 10-12 18Z:** "337 s after the proxy restart" was INVALID. Another session's cleanup ran
+  `lms unload --all; lms server stop` at 12:32Z, inside the proxy-killed window, so the restarted proxy had no LM
+  Studio behind it. The real recovery ran from my own model reload at 12:38 and took 26 s.
+- In general, after a long outage the pool's exponential cooldown (60 s·2^(n-1), at most 900 s) delays the return to
+  gemma; the bots decide locally meanwhile.
 - After the model reloaded: 26 s.
 
-**Before going live (tunnel-drop drill):** the long local p95 in the kill windows (36.7 s) is qwen2.5 on the Studio's
-Ollama standing in for the fleet's 5080 in this sandbox. Live, the fallback is the bot's own fleet GPU. A drop of the
-fleet-host tunnel itself is the one drill not run, because the tunnel does not exist yet. It must be run (`systemctl
-stop mcai-studio-tunnel` for 3 min) before the canary.
+The long local p95 in the kill windows (36.7 s) is qwen2.5 on the Studio's Ollama standing in for the fleet's 5080 in
+this sandbox. Live, the fallback is the bot's own fleet GPU.
+
+**Tunnel-drop drill, DONE 10-12 18:13Z against the real `mcai-studio-tunnel.service`.** The owner's key was placed
+by the coordinator. The tunnel listens on **127.0.0.1:11611**, because 11601 is held by an unrelated relay.
+- Killing the ssh process gave connection refused in about 9 ms, which is an instant local fallback; systemd
+  restarted it within 6 s.
+- `systemctl stop` gave instant refusal; `start` restored it in under 1 s.
+
+**Studio keeper, INSTALLED 10-12 18:11Z** (launchd `com.mcai.brain01.proxy`, KeepAlive, and `com.mcai.brain01.keeper`,
+every 60 s). Before this the launchd pieces were only staged: the sandbox proxy had been started by hand, and nothing
+put gemma back after another session's cleanup.
+- **Proof:** model unloaded and server stopped at 18:13:46Z; both restored and the proxy healthy at 18:14:26Z.
+- **`~/brain01/PAUSE`** is how anyone frees the memory on purpose: touch it, then `lms unload brain`.
 
 ## 6. Power at today's rates
 
@@ -313,5 +326,26 @@ compost and well era is in it.
   own canary.
 
 ## 11b. Sandbox closed loop (step 3): see s.12
+
+**LEDGER 10-12 (decided from the bots' own llm.brain rows):**
+- **INVALID:** `cl-brain01-gemma4-…-b0` (14:51-16:23Z) and `…-b1` (16:24-17:55Z): 0% gemma4, 927 of 927 and 951 of 951
+  model decisions local. Another session stopped LM Studio at 13:48Z; the proxy answered 502 from 14Z on.
+- **Valid but unpaired, never averaged in:** `cl-brain01-local-…-b0` (13:18-14:49Z), and the b1 local run stopped at
+  18:10Z.
+- **A free placebo:** the gemma-less b0 run and the local b0 run had the SAME configuration (qwen only), yet gave
+  refused share 0.264 vs 0.385 and output 197 vs 67 at 70 min. That is the run-to-run noise any single-block
+  comparison sits in.
+- **Still valid:**
+  - the replay (gemma 12:45-13:02Z, 420 of 420, before the 13:48Z stop);
+  - the capacity runs (10-10);
+  - the drill windows before 12:30Z;
+  - the gate calibration and the abort analysis (fleet logs).
+- **Re-run:** 3 blocks after the Studio's other job, with the GEMMA-SHARE FLOOR in `brain01_series.py`:
+  - a gemma block starts only if `/healthz` is ok;
+  - it is aborted (bots stopped, row flagged INVALID, series stopped) if the gemma4 share of its last 10 min falls
+    below 0.90;
+  - a local block is aborted on any gemma4 decision;
+  - positive control: replayed on the invalid b1 run, the rule fires at 0 of 951.
+- Bots reach gemma through the fleet host's real tunnel (11611).
 
 ## 12. Sandbox closed loop (pending)
