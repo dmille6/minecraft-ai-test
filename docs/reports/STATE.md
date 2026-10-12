@@ -1,7 +1,7 @@
 # STATE — the operator's state file (a fresh session starts from THIS, not from the handoff history)
-_updated 2026-10-12 14:40Z by the operator session. **FLEET `0cdb1a8`** (junkwell-02 promoted 10-11 19:31Z).
-**CANARY: gridfix-01 @ `82aef34`** on placebo-a,board-a,board-d,board-b (declared 09:03:55Z; +180 NOT_YET, unexposed;
-deadline 1680 min). Host queue: gridfix-01 -> bamboo-01 (QUEUE HOLD for the v35 install gap) -> airpocket-02 ->
+_updated 2026-10-12 15:20Z by the daily operator session (10-12; entry below). **FLEET `0cdb1a8`** (junkwell-02 promoted 10-11 19:31Z).
+**CANARY: gridfix-01 @ `82aef34`** on placebo-a,board-a,board-d,board-b (declared 09:03:55Z; +180 and +360 NOT_YET, unexposed;
+extension reads ~18:11Z / ~21:11Z / ..., deadline 1680 min = 10-13 13:04Z). Host queue: gridfix-01 -> bamboo-01 (QUEUE HOLD for the v35 install gap) -> airpocket-02 ->
 stocktarget-01 -> orderroom-01. Next operator action: the V35 INSTALL CHECKLIST entry (10-12 14:20Z) after gridfix-01 is
 decided and torn down. OWNER DECISIONS PENDING: brain-01 ssh key; kept-subset GPU reservation; clear caps bamboo 0 / bucket 2._
 
@@ -10,6 +10,24 @@ decided and torn down. OWNER DECISIONS PENDING: brain-01 ssh key; kept-subset GP
 > (to 09-30 morning), `git show 6a18e70:docs/reports/STATE.md` (09-30 evening), `git show d67d840:docs/reports/STATE.md` (10-01).
 
 ---
+
+## 10-12 15:20Z — (daily operator session) gridfix-01 +360 NOT_YET: ZERO aborted 2x2 exits on EITHER arm in 6 h
+- +180 (12:08Z) and +360 (15:11Z) both NOT_YET; no breach; deaths canary 1/120 bh vs control 3/240 bh. Blocks KEEP:
+  exposure_ready 0 and own line aborted_control 0 (no evidence class, so no revert). The loop extends (pid 538005).
+- gridfixread +360 by hand (654,249 rows walked). POSITIVE CONTROLS: liveness grid_clear on 84 of 84 canary _craft_sync
+  rows, 0 of 236 control; craftsync "nothing changed" 0/184 vs 0/578. So the instrument sees craftsync rows. What is absent
+  is the EVENT itself: unclean 2x2 exits with clicks are canary 0, control 0. The registration's measured rate was ~0.5/h
+  fleet-wide. That would put ~2.3 in the control's 6 h; P(0) ~0.10. Possible reasons, NOT tested: the bag fixes
+  (peacefulkit, junkwell) lowered abort pressure, or the registered rate is stale.
+- LIKELY OUTCOME: INCONCLUSIVE at the deadline (10-13 13:04Z) unless the extensions find >= 1 abort on each arm.
+  CONSEQUENCE FOR THE QUEUE: on INCONCLUSIVE or REVERT the fleet stays 0cdb1a8. bamboo-01's variants are e29c1e7, 79ab946
+  and 82aef34; there is NO 0cdb1a8 variant (checked: no origin/bb-on-0cdb1a8). airpocket-02 is gridfix-lineage only by
+  design. Both would BLOCK, so apply the 13:50Z operator rule and move stocktarget-01/orderroom-01 up. Prepare a
+  bb-on-0cdb1a8 variant now if bamboo should not wait.
+- Also: the craftsync cursor defect (13:30Z entry) argues for KEEPing the grid fix. But a KEEP needs exposure under the
+  registration. Any shortcut (Paper evidence as exposure) is an amendment: PROSPECTIVE only, both engines.
+- The local analyst's newest *.verdict.json is still 20261006T1500 (6 days stale).
+- The docs branch copy (mcai-rl02, recovery-ladder-03) was 2 days behind main; synced from main + this entry.
 
 ## 10-12 14:00Z — STOCKTARGET-01: Paper PASS (from the world); five variants incl. the airpocket-02 builds; one replace-variant entry
 PAPER (docs/reports/stocktarget-paper-2026-10-12.txt, VERDICT PASS): no chest at target (run 5: chests 1 -> 1, the carried
