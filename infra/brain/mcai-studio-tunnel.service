@@ -1,0 +1,22 @@
+# brain-01: the fleet host's own path to the Studio's brain proxy. STAGED 2026-10-12, NOT INSTALLED.
+# OWNER DECISION NEEDED FIRST: a new key on 10.0.0.31, placed in the Studio's ~/.ssh/authorized_keys restricted to
+# this one forward (see authorized_keys.line). Until then nothing here can connect -- by design.
+# Install: /etc/systemd/system/mcai-studio-tunnel.service; systemctl enable --now mcai-studio-tunnel.
+# Bots use OLLAMA_BRAIN_PRIMARY=http://127.0.0.1:11601|gemma4:26b|gemma4|15000. A dead tunnel = connection refused
+# on 127.0.0.1:11601 = the bot's local fallback, at once; systemd restarts the tunnel within 5 s.
+[Unit]
+Description=brain-01 ssh tunnel to the Studio brain proxy (127.0.0.1:11601 -> Studio 127.0.0.1:11501)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+User=mike
+ExecStart=/usr/bin/ssh -N -o BatchMode=yes -o ExitOnForwardFailure=yes -o ServerAliveInterval=10 -o ServerAliveCountMax=3 \
+  -o ConnectTimeout=15 -o StrictHostKeyChecking=yes -i /home/mike/.ssh/id_ed25519_brain01 \
+  -L 127.0.0.1:11601:127.0.0.1:11501 mike@ai.ticrcorp.com
+Restart=always
+RestartSec=5
+# every start and exit is in the journal: journalctl -u mcai-studio-tunnel
+
+[Install]
+WantedBy=multi-user.target
