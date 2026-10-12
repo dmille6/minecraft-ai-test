@@ -12,6 +12,17 @@ Studio reservation both closed 10-12); clear caps bamboo 0 / bucket 2._
 
 ---
 
+## 10-12 22:20Z — airpocket-02 LIVE (hive-d,placebo-d, 10 bots, declared 21:55:59Z); v35.1 STAGED for the next gap
+airpocket-02 @ 70cb0d41 on 82aef34: preflight, licence, gatedigest, usafe registration OK; drawn hive-d + placebo-d (hive-d
+required by draw_require_pools); matched control FROZEN hive-c,placebo-a,placebo-b. Reads +180 ~00:56Z, +360 ~03:56Z.
+v35.1 (Codex + Claude APPROVE r2, main 56f983b6, ~/gate-v35_1): drawsteady validates only rows inside its 12 h window
+(the refusing rows were three SEPTEMBER hand-recorded 'FLEET-WIDE (80 bots)' promotions, not gridfix's), a FLEET-WIDE row
+inside the window suspends the release, drawrec PAGES on a drawsteady refusal (once / 6 h). Digest unchanged b7ce36d7.
+stocktarget-01 carries a QUEUE HOLD for the gap. INSTALL after airpocket-02 is decided + torn down:
+  bash ~/gate-v35_1/install-gate-v35_1.sh --dry-run   (no WOULD REFUSE, rc=0, ~5 min)
+  bash ~/gate-v35_1/install-gate-v35_1.sh             (holdtoken + loop lock; backups *.bak-v35_1-<stamp>; digest verified)
+  python3 ~/canary-sched.py queue release stocktarget-01
+
 ## 10-12 21:55Z — v35 INSTALLED (20:33Z, by the claiming operator session); bamboo-01 -> bamboo-02 at the END; airpocket-02 launching
 v35 bundle b7ce36d777443eae018e804f4776e95a installed + verified 20:33Z; steps 3-6 applied (airpocket-02 regs carry
 top-level draw_require_pools ['hive-d'], sha 05710889/b9a85ad6; stocktarget-01 five variants with the 3-pool edge).
