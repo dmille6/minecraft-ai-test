@@ -29,7 +29,7 @@ def tree(spec):
 
 def read(root, pools):
     r = subprocess.run([sys.executable, os.path.join(HERE, 'brainread.py'), '--pools', pools, '--declared', iso(D0), '--minutes', '180',
-                        '--logroot', root, '--subset', '/nonexistent'], capture_output=True, text=True)
+                        '--logroot', root, '--subset', '/nonexistent', '--roster', '/nonexistent'], capture_output=True, text=True)
     return json.loads(r.stdout)
 
 
@@ -61,4 +61,16 @@ check('negative control: pools with no brain fail G1, G7, G8', not r['gates']['G
 slow = {**ctrl, **{'hive-a-%s' % n: {'n': 60, 'brain': 'gemma4', 'cfg': CFG, 'lat': 30000} for n in ('Alpha', 'Bravo', 'Comet', 'Delta', 'Echo')}}
 r = read(tree(slow), 'hive-a')
 check('decisions 28 s slower than the control at p95 fail G5', not r['gates']['G5_decision_time_p95_s']['pass'])
+stale = tree({**good, 'hive-a-Charlie': {'n': 0}})
+os.makedirs(stale + '/roster')
+for b in good: open(stale + '/roster/%s.env' % b, 'w').close()
+r2 = subprocess.run([sys.executable, os.path.join(HERE, 'brainread.py'), '--pools', 'hive-a', '--declared', iso(D0), '--minutes', '180',
+                     '--logroot', stale, '--subset', '/nonexistent', '--roster', stale + '/roster'], capture_output=True, text=True)
+r2 = json.loads(r2.stdout)
+check('a stale log dir of a renamed bot (not in the roster) is not a canary bot', 'hive-a-Charlie' not in r2['canary_bots'] and r2['gates']['G8_every_bot_on_gemma4']['pass'])
+sys.path.insert(0, HERE); import brainread as BR
+d = tempfile.mkdtemp(); base = d + '/llm-X.jsonl'
+for suf in ['', '-20261011.gz', '-20261012.gz', '-20261013.gz', '-20261014.gz', '-20261016.gz']: open(base + suf, 'w').close()
+got = [os.path.basename(f) for f in BR.files_for(base, '2026-10-12T21:00:00', '2026-10-12T23:59:59')]
+check('a window ending 23:59:59 also reads the generation after next (a post-rotation row lands there; Codex r2)', 'llm-X.jsonl-20261014.gz' in got and 'llm-X.jsonl-20261012.gz' in got and 'llm-X.jsonl-20261016.gz' not in got)
 sys.exit(1 if fails else 0)

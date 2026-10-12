@@ -30,5 +30,6 @@ rm -f $T/rec.json; printf 'BOT_NAME=hive-a-Alpha\nCODE_VERSION=0cdb1a8\n' > $T/e
 $X apply --run brain-01 --pools hive-a --env "$E" >/dev/null
 $X remove --pools hive-a >/dev/null
 ok "remove: blocks gone" "! grep -q brain $T/env/hive-a-Alpha.env && ! grep -q brain $T/env/hive-a-Bravo.env"
+ok "remove: every setting OUTSIDE the block survives (Codex r2)" "grep -qx 'BOT_NAME=hive-a-Alpha' $T/env/hive-a-Alpha.env && grep -qx 'CODE_VERSION=0cdb1a8' $T/env/hive-a-Alpha.env"
 ok "remove: record dropped only after verification" "[ ! -e $T/rec.json ]"
 exit $F
