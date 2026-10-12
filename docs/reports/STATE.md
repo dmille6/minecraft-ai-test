@@ -27,6 +27,23 @@ AGENTS DOWN until ~10-12 11Z (weekly limit): no new builds before then._
 
 ---
 
+## 10-12 14:20Z — V35 INSTALL CHECKLIST (run in the gap after gridfix-01 is decided AND torn down; no agent needed)
+v35 STAGED, NOT installed: Codex r10 + Claude APPROVE, dry run rc=0, main 2377a88c/be41ea54, bundle b7ce36d777443eae018e804f4776e95a.
+bamboo-01 carries a QUEUE hold for this gap (a per-entry hold does NOT block the installer; never add `install-hold`).
+ 0. Confirm teardown: drop-ins gone, canary_pool empty, pool bots restarted, exactly 2 builds live.
+ 1. bash ~/gate-v35/install-gate-v35.sh --dry-run    (~1.5 h; no WOULD REFUSE lines)
+ 2. bash ~/gate-v35/install-gate-v35.sh              (backs up *.bak-v35-<stamp>; registers + verifies digest; rolls back on mismatch)
+ 3. python3 ~/bagfix-regs/install-bagfix-regs.py --dry-run ; then without --dry-run   (36 regs: 3-pool edges + keep_rule)
+ 4. airpocket-02: cp ~/ap2-v35-regs/airpocket-02.{70cb0d41,71032630}.json ~/mcai-analysis/ ; then
+    canary-sched.py queue replace-variant airpocket-02 ~/ap2-v35-regs/airpocket-02.queue-entry.json
+    (WHY: the live regs carry draw_exposure.draw_pools_required, which NO code reads -- hive-d was never enforced; v35's
+    drawrequire reads top-level draw_require_pools.)
+ 5. stocktarget-01: canary-sched.py queue replace-variant stocktarget-01 ~/st-v35-regs/stocktarget-01.queue-entry.json
+    (3-pool edge -1.598 reused from stonecap-01's identical draw filter; without it a 3-pool final is INCONCLUSIVE).
+    Its airpocket-tip variants (being built) need the same edge.
+ 6. canary-sched.py queue release bamboo-01
+Host needs the 94 GB VM (reads peak 23 GB at +1920). Calibration jobs now refuse while any canary is active.
+
 ## 10-12 13:50Z — QUEUE (host): gridfix-01 (live) -> bamboo-01 -> airpocket-02 -> stocktarget-01 (HELD: Paper) -> orderroom-01
 Order agreed Claude + Codex (codex exec 10-12): airpocket-02 (drowning; Paper 0/10 equips into open windows, 0 deaths)
 ahead of the held stocktarget. airpocket-02 has variants ONLY on gridfix lineage (82aef34 -> 70cb0d41, 8212674 ->
