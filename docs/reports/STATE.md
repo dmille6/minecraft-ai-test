@@ -14,6 +14,19 @@ AGENTS DOWN until ~10-12 11Z (weekly limit): no new builds before then._
 
 ---
 
+## 10-12 12:25Z — gridfix-01 LIVE @ 82aef34 (declared 09:03:55Z, placebo-a,board-a,board-d,board-b, 20 bots); agents resumed 11:03Z
++180 (12:08Z) NOT_YET: deaths 1/60 bh vs control 2/120 bh (equal rate); liveness 43/43 canary _craft_sync rows carry
+grid_clear (control 0); defect (grid_clear=no) 0; tripwire 0; craftsync holds 0/113. NOT EXPOSED: aborted 2x2 exits with
+clicks 0 canary / 0 control (registered rate ~0.0065/bot-h; deadline 1680 min carries the extensions). Reported: crafts/bh
+DiD +0.09, craft success share DiD -0.070 (small n), _reflex_stuck/bh DiD -0.27.
+FLEET 24 h (to 12:15Z): 80 bots, 27 deaths (drowned 8, lava 8, wall 3, stalagmite 2 ...). Bags: 90% of slots used
+(10-07 96%, 10-11 92%); >=34 slots 37/80, full 19/80; cobblestone is still the top slot user (248 slots, 13,579 items).
+AGENTS (Codex answering again 11:03Z): v35 Claude APPROVE, Codex r8 + install dry run running (install only between
+canaries); stocktarget-01 code APPROVE both (st-on-0cdb1a8), adds _stock_refused liveness, proposes folding the cobble cap
+in (fold-r1 under review), Paper re-check after the sandbox frees ~12:30Z, variants on 0cdb1a8/82aef34/8212674 asked;
+airpocket-02, orderroom-01 resumed; brain-01: capacity 10 bots (p95 6.8 s), bot change + sandbox drills going ahead,
+OWNER DECISION NEEDED: a dedicated, permitopen-restricted ssh key from 10.0.0.31 to the Studio for the live path.
+
 ## 10-12 03:10Z — gridfix-01 launched 03:00Z, preflight/licence/gatedigest/bag-fix OK, DRAW SHORT (board-a,board-d)
 Bag fix needs 4 pools; 8 of the drawable pools are inside their 12 h exclusion (junkwell-02's placebo-a,board-b,
 placebo-d,hive-b until 07:21Z; stonecap-01's four until 14:50Z). The loop re-draws every 20 min and pages once at 3 h;
