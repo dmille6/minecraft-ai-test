@@ -86,7 +86,7 @@ function fakeTown ({ items = [], name = 'b-Alpha', extra = {}, at = null } = {})
       slots[d] = item; item.slot = d; slots[from] = other; if (other) other.slot = from
       bot.quickBarSlot = 0
     },
-    lookAt: async () => {}, setControlState () {}, clearControlStates () {}, waitForTicks: async () => { await new Promise(r => setImmediate(r)) },
+    lookAt: async () => {}, setControlState () {}, clearControlStates () {}, waitForTicks: async () => { st.ticks = (st.ticks ?? 0) + 1; await st.tickHook?.(); await new Promise(r => setImmediate(r)) },
     pathfinder: {
       setGoal () {}, stop () {},
       goto: async goal => {
@@ -381,7 +381,7 @@ await t('A FAILED SEARCH KEEPS WATCHING (Codex r1 P1-3): a voided plinth with a 
   const r = await visit(poor)
   assert.equal(r.failClass, 'plinth_none', r.detail)
   assert.equal(recNow().state, 'none')
-  assert.deepEqual(recNow().prev, [cap], 'the walled-in column is carried')
+  assert.deepEqual(recNow().prev.map(c => ({ x: c.x, y: c.y, z: c.z })), [cap], 'the walled-in column is carried')
   assert.ok(S.knownWellCells(poor.bot).some(c => c.x === cap.x && c.y === cap.y && c.z === cap.z))
   assert.ok(S.townPitState(poor.bot)?.plinth, 'still a pit a visitor covers')
 })
@@ -449,6 +449,67 @@ await t('THE STALL COUNTER HOLDS FOR CAUSES A PLAN OUTGROWS (Claude r2 P3-4): un
   assert.deepEqual(recNow().stuck, { step: 0, n: 1 })
 })
 
+// ---- REVIEW r2 (Codex REJECT) ----
+await t('A LEASE LOST DURING THE PRE-CLICK WAIT (Codex r2 P1-2): the click itself is fenced -- no block after the lease is gone', async () => {
+  reset(); noSite()
+  const town = fakeTown({ items: [['cobblestone', 64], ['cobblestone', 64], ['cobblestone', 64], ['dirt', 4]] })
+  await visit(town)
+  let stolen = false
+  town.st.placeHook = () => { if (town.st.places.length === 3) town.st.tickHook = () => {
+    if (stolen) return
+    stolen = true
+    const n = Math.max(...leaseFiles().map(f => Number(/g(\d+)/.exec(f)[1])))
+    writeFileSync(path.join(STORE, `junkwell-plinth-0_64_0.lease.g${n + 1}.json`), JSON.stringify({ by: 'b-Thief', token: 'x', at: Date.now(), until: Date.now() + 60_000, n: n + 1 }))
+  } }
+  const r = await visit(town)
+  town.st.placeHook = null; town.st.tickHook = null
+  assert.equal(stolen, true)
+  assert.equal(town.st.places.length, 3, 'nothing placed after the lease was taken in the wait before the click')
+  assert.match(r.detail, /stopped: lease/)
+})
+await t('A BODY ARRIVING IN THE COLUMN DURING THE PRE-CLICK WAIT (Codex r2 P1-3): the walling-in click is refused at the click', async () => {
+  reset(); noSite()
+  const town = fakeTown({ items: [['cobblestone', 64], ['cobblestone', 64], ['cobblestone', 64], ['dirt', 4]] })
+  await visit(town)
+  const plan = recNow().plan, cap = plan.cap
+  const pre = plan.steps[plan.hazardStep - 1].c.join(',')
+  town.st.placeHook = at => { if (KEY(at.x, at.y, at.z) === pre) town.st.tickHook = () => { town.bot.entities[43] = { id: 43, name: 'chicken', position: new Vec3(cap.x + 0.5, cap.y - 1, cap.z + 0.5), width: 0.4, height: 0.7 } } }
+  await buildTo(town, () => recNow().state !== 'plan' || !!town.bot.entities[43], 4)
+  if (recNow().state === 'plan') await visit(town)
+  town.st.placeHook = null; town.st.tickHook = null
+  assert.ok(town.bot.entities[43], 'the chicken arrived in the wait')
+  assert.equal(P.plinthHazard(town.read, cap), false, 'not walled in over it')
+  assert.equal(recNow().state, 'plan')
+  delete town.bot.entities[43]
+})
+await t('PARTIAL HAND-OFF RECOVERY (Codex r2 P2-6): the site generation written and the hold lifted but the record still a plan -> the next visit completes it, needing no funds', async () => {
+  reset(); noSite()
+  const town = fakeTown({ items: [['cobblestone', 64], ['cobblestone', 64], ['cobblestone', 64], ['dirt', 4]] })
+  await visit(town)
+  const rec = recNow(), cap = rec.plan.cap
+  for (const s of rec.plan.steps) town.world.set(s.c.join(','), 'cobblestone')
+  town.world.set(KEY(cap.x, cap.y, cap.z), 'dirt')                                 // covered, as the owner left it
+  const { createSiteGen } = await import('../src/composter.mjs')
+  assert.ok(createSiteGen(STORE, 'junkwell-site-0_64_0', 1, cap, 'w1'))
+  rmSync(NOSITE)
+  writeFileSync(PLINTH, JSON.stringify({ ...rec, left: 1 }))                         // the stale count of the failed write
+  assert.equal(S.townPlinthState(town.bot).want.want, 'build')
+  const poor = fakeTown({ items: [['dirt', 1]], name: 'b-Poor' })
+  for (const [k, v] of town.world) poor.world.set(k, v)
+  const r = await visit(poor)
+  assert.equal(r.status, 'success', r.detail)
+  assert.equal(recNow().state, 'complete')
+})
+await t('NO EVICTION (Codex r2 P2-4): a town already carrying PLINTH_PREV_MAX unresolved columns starts no new plan; every one stays carried', async () => {
+  reset(); noSite()
+  const town = fakeTown({ items: [['cobblestone', 200], ['dirt', 4]] })
+  const prev = Array.from({ length: P.PLINTH_PREV_MAX }, (_, i) => ({ x: 100 + i, y: 70, z: 100, stair: [] }))   // unloaded: unknown, kept
+  writeFileSync(PLINTH, JSON.stringify({ v: P.PLINTH_VERSION, state: 'none', world: 'w1', at: Date.now() - 3 * 3600_000, why: 'test', prev }))
+  const r = await visit(town)
+  assert.equal(r.failClass, 'plinth_none'); assert.match(r.detail, /too_many_unresolved/)
+  assert.equal(recNow().prev.length, P.PLINTH_PREV_MAX)
+})
+
 await t('ONE BUILDER: a live lease held by another bot -> no_effect plinth_lease, nothing placed; an expired one is taken', async () => {
   reset(); noSite()
   const town = fakeTown({ items: [['cobblestone', 200], ['dirt', 4]] })
@@ -501,7 +562,7 @@ await t('A VOIDED PLAN WITH A WALLED-IN PIT: the voiding visit covers it; the ne
   await visit(town)                                                        // plans again
   const rec = recNow()
   assert.equal(rec.state, 'plan')
-  assert.deepEqual(rec.prev, [cap])
+  assert.deepEqual(rec.prev.map(c => ({ x: c.x, y: c.y, z: c.z })), [cap])
   assert.ok(S.knownWellCells(town.bot).some(c => c.x === cap.x && c.y === cap.y && c.z === cap.z), 'the old column stays out of every path')
 })
 
@@ -538,14 +599,15 @@ const buildAll = async (m, town) => {
   await m.SKILLS.build_plinth.run({ bot: town.bot }, {}, { aborted: false })
   for (let n = 0; n < 6 && recNow().state === 'plan'; n++) { ageRecord(); await m.SKILLS.build_plinth.run({ bot: town.bot }, {}, { aborted: false }) }
 }
-await t('MUTANT (skills): no ownership at the walling-in placement -> the finished column is left an open pit (the chain asserts "covered")', async () => {
+await t('MUTANT (skills): no ownership at the walling-in click -> the click guard refuses it ("changed"): the column is never walled in unowned, the build stops there', async () => {
   await withMutant(SP, "    owned = true\n    logEvent({ kind: 'well_pit_dug', status: 'success', snapshot: snapshot(bot), detail: `at=${cap.x},${cap.y},${cap.z} from=${from}` })\n",
     "    logEvent({ kind: 'well_pit_dug', status: 'success', snapshot: snapshot(bot), detail: `at=${cap.x},${cap.y},${cap.z} from=${from}` })\n", async m => {
       reset(); noSite()
       const town = fakeTown({ items: [['cobblestone', 64], ['cobblestone', 64], ['cobblestone', 64], ['dirt', 4]] })
       await buildAll(m, town)
-      assert.equal(recNow().state, 'complete')
-      assert.equal(W.wellStage(town.read, recNow().plan.cap), 'dug', 'the mutant leaves the pit open')
+      assert.equal(recNow().state, 'plan', 'the mutant never finishes')
+      assert.equal(P.plinthHazard(town.read, recNow().plan.cap), false, 'and never walls the column in')
+      assert.equal(P.plinthProgress(town.read, recNow().plan).next, recNow().plan.hazardStep, 'it stops at the walling-in step')
     })
 })
 await t('MUTANT (skills): the handoff keeps the no-site hold -> build_well would wait 2 h for a site that exists', async () => {
@@ -576,7 +638,7 @@ await t('MUTANT (skills): the finally does not cover -> an unfinished, walled-in
   })
 })
 
-await t('MUTANT (skills): the walling-in check only for placements -> a leaf clear opens the pit unowned and the finished build leaves it open', async () => {
+await t('MUTANT (skills): the walling-in ownership only for placements -> the leaf clear that would wall the column in is refused by the click guard; the build stops there', async () => {
   await withMutant(SP, "      if (!owned && plinthHazard(read, cap) === false && plinthHazard(post, cap) === true) {\n", "      if (s.op === 'place' && !owned && plinthHazard(read, cap) === false && plinthHazard(post, cap) === true) {\n", async m => {
     reset(); noSite()
     const extra = {}
@@ -586,7 +648,8 @@ await t('MUTANT (skills): the walling-in check only for placements -> a leaf cle
     const sq = P.sequencePlinth(town.read, P.plinthCandidate(town.read, { home: HOME, x: 10, z: 0, t: SLAB_Y - 2, k: 2 }), { home: HOME })
     writeFileSync(PLINTH, JSON.stringify({ v: P.PLINTH_VERSION, state: 'plan', id: 'leafy-m', world: 'w1', at: Date.now() - 60_000, by: 'test', plan: sq.plan, prev: [], left: sq.plan.cost, stuck: null }))
     for (let n = 0; n < 4 && recNow().state === 'plan'; n++) { ageRecord(); await m.SKILLS.build_plinth.run({ bot: town.bot }, {}, { aborted: false }) }
-    assert.equal(P.plinthHazard(town.read, sq.plan.cap), true, 'the mutant leaves the pit it opened')
+    assert.equal(recNow().state, 'plan', 'the mutant never finishes')
+    assert.equal(P.plinthHazard(town.read, sq.plan.cap), false, 'the column is not opened unowned')
   })
 })
 await t('MUTANT (skills): no settle wait -> a second bot builds the instant the plan is recorded (the SETTLE test asserts it does not)', async () => {

@@ -450,7 +450,7 @@ async function sceneTomb (fx) {
   rcon(...seal, `setblock ${ex} ${ey} ${ez} minecraft:air`, `setblock ${ex} ${ey + 1} ${ez} minecraft:air`)
   const before = planCells(plan)
   const f1 = await startBot(fx, `tomb-${fx}`, [['cobblestone', 64], ['dirt', 8], ['stone_pickaxe', 1]], { at: { x: ex + 0.5, y: ey, z: ez + 0.5 } })
-  const out1 = await waitFor(() => { const r = rcon(`data get entity ${NAME} Pos`)[0]?.reply || ''; const m = /\[([-\d.]+)d, ([-\d.]+)d, ([-\d.]+)d\]/.exec(r); if (!m) return null; const p = { x: +m[1], y: +m[2], z: +m[3] }; return Math.floor(p.x) !== ex || Math.floor(p.z) !== ez || Math.floor(p.y) !== ey ? p : null }, 180000, 2000)
+  const out1 = await waitFor(() => { const r = rcon(`data get entity ${NAME} Pos`)[0]?.reply || ''; const m = /\[([-\d.]+)d, ([-\d.]+)d, ([-\d.]+)d\]/.exec(r); if (!m) return null; const p = { x: +m[1], y: +m[2], z: +m[3] }; return Math.floor(p.x) !== ex || Math.floor(p.z) !== ez || Math.floor(p.y) !== ey ? p : null }, 300000, 2000)
   await sleep(5000)
   const after1 = planCells(plan)
   const rows1 = rowsOf(f1.skillLog).filter(r => /entomb|escape|marooned|pillar|surface|dig|plinth/.test(r.name)).map(r => `${r.name} ${r.detail.slice(0, 140)}`).slice(0, 20)
@@ -458,7 +458,8 @@ async function sceneTomb (fx) {
   result({ scene: 'tomb', fx, out: out1, plinthLost: [...before.placed].filter(k => !after1.placed.has(k)), rows: rows1 })
   // A TOWN PIT: 3 deep, 1 wide, right beside the plinth's foot on the far side from the stair
   const px = cap.x - 3, pz = cap.z, py = plan.t
-  rcon(`fill ${px} ${py - 2} ${pz} ${px} ${py} ${pz} minecraft:air`)
+  // a real pit: a 3x3 block of dirt down to py-3 (the fixtures float), then its centre column carved 3 deep
+  rcon(`fill ${px - 1} ${py - 3} ${pz - 1} ${px + 1} ${py} ${pz + 1} minecraft:dirt`, `fill ${px} ${py - 2} ${pz} ${px} ${py} ${pz} minecraft:air`)
   const before2 = planCells(plan)
   const f2 = await startBot(fx, `pit-${fx}`, [['cobblestone', 64], ['dirt', 8], ['stone_pickaxe', 1]], { at: { x: px + 0.5, y: py - 2, z: pz + 0.5 } })
   const out2 = await waitFor(() => { const r = rcon(`data get entity ${NAME} Pos`)[0]?.reply || ''; const m = /\[([-\d.]+)d, ([-\d.]+)d, ([-\d.]+)d\]/.exec(r); if (!m) return null; const p = { x: +m[1], y: +m[2], z: +m[3] }; return p.y >= py + 1 ? p : null }, 180000, 2000)
