@@ -5,8 +5,14 @@ plan, it removes nothing). The caps file is docs/reports/stocktarget-clear-caps-
   KEEP_GROUPS       group -> {names, cap}: one cap shared by several names (cobblestone + cobbled_deepslate = 256)
   USABLE_TOOL_KEEP  tool name -> usable copies (> 10 uses left) kept per town; spent copies are always removed
   names in neither map are NOT capped (iron, ores, raw_*, ingots, coal, gems, food, books, iron/diamond tools)
-The one-time clear (owner 10-10) runs only after stocktarget-01 ships; then scripts/host/stockreset.py fences the bots'
-journals (every count captured before the clear is dropped; no prune until the hold ends)."""
+The one-time clear (owner 10-10) runs only after stocktarget-01 ships; then bots/scripts/stockreset.mjs fences the bots'
+journals (every count captured before the clear is dropped).
+
+10-13 (chestclear3, the census3.py format): NEVER acted on, whatever the caps say --
+  * an ABBREVIATED element (Paper cut its NBT: its damage and components are unknown);
+  * a container whose census read was INCOMPLETE (the whole container is pinned);
+  * iron, diamond and netherite tools, spent or not (the owner's KEPT list); spent-tool removal is wooden/stone/golden.
+A tool's own max_damage component, when present, replaces the material table. Pinned items count as kept."""
 import json, sys
 from collections import Counter, defaultdict
 d = json.load(open(sys.argv[1])); caps = json.load(open(sys.argv[2]))
@@ -15,21 +21,31 @@ GROUP_OF, GCAP = {}, {}
 for g, e in caps.get('KEEP_GROUPS', {}).items():
     GCAP[g] = e['cap']
     for n in e['names']: GROUP_OF[n] = g
+SPENT_REMOVABLE = ('wooden', 'stone', 'golden')
 MAXDUR = {'wooden': 59, 'stone': 131, 'iron': 250, 'golden': 32, 'diamond': 1561, 'netherite': 2031}
 TOOLS = ('_pickaxe', '_axe', '_shovel', '_hoe', '_sword')
 JUNK = set(caps.get('JUNK', ['egg', 'brown_egg', 'blue_egg', 'armadillo_scute', 'ink_sac', 'glow_ink_sac', 'flint', 'clay_ball',
                              'pointed_dripstone', 'rail', 'andesite', 'diorite', 'granite', 'glass', 'lead', 'stone_bricks',
                              'mossy_cobblestone', 'smooth_basalt', 'dead_bush', 'white_wool', 'oak_button', 'brick']))
 rem = Counter(); remslots = Counter(); keep = Counter(); byname = Counter(); fullafter = 0; ncont = 0; fullbefore = 0
+pinned = Counter()
 plan = []
 for w, v in d['worlds'].items():
     tally = Counter(); usable = Counter(); freed = defaultdict(int)
     slots = [(c, it) for c in v['containers'] for it in c['items']]
+    for c, it in slots:
+        mat = it['id'].split('_')[0]
+        why_pin = ('incomplete_container' if c.get('incomplete') else 'abbreviated' if it.get('abbreviated')
+                   else 'iron_diamond_netherite_tool' if it['id'].endswith(TOOLS) and mat in MAXDUR and mat not in SPENT_REMOVABLE
+                   else None)
+        if why_pin: it['_pin'] = why_pin
     slots.sort(key=lambda ci: -ci[1]['count'])
     for c, it in slots:
         i = it['id']; why = None
+        if it.get('_pin'):
+            pinned[it['_pin']] += it['count']; keep[i] += it['count']; continue
         if i.endswith(TOOLS) and i.split('_')[0] in MAXDUR:
-            left = MAXDUR[i.split('_')[0]] - (it['damage'] or 0)
+            left = (it.get('max_damage') or MAXDUR[i.split('_')[0]]) - (it['damage'] or 0)
             if left <= 10: why = 'spent_tool'
             elif i in TK:
                 usable[i] += 1
@@ -61,3 +77,4 @@ for k in rem: print('REMOVE %-12s slots %5d items %7d' % (k, remslots[k], rem[k]
 print('total slots freed', sum(remslots.values()), 'items', sum(rem.values()), '(reduce entries keep their slot)')
 print('removed by name:', byname.most_common(14))
 print('kept top:', keep.most_common(14))
+print('pinned (never acted on):', dict(pinned))

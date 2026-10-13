@@ -1,0 +1,383 @@
+{
+ "census_started_utc": "2026-10-13T19:55:05Z",
+ "towns": {
+  "board-a": {
+   "containers": 35,
+   "capacity_slots": 945,
+   "full_before": 33,
+   "full_after": 0,
+   "used_before": 930,
+   "used_after": 157,
+   "items_before": 25132,
+   "items_removed": 22683,
+   "slots_freed": 773,
+   "items_reduced": 91,
+   "reduce_slots": 3,
+   "items_after": 2358
+  },
+  "board-b": {
+   "containers": 20,
+   "capacity_slots": 540,
+   "full_before": 17,
+   "full_after": 0,
+   "used_before": 477,
+   "used_after": 80,
+   "items_before": 21084,
+   "items_removed": 19869,
+   "slots_freed": 397,
+   "items_reduced": 0,
+   "reduce_slots": 0,
+   "items_after": 1215
+  },
+  "board-c": {
+   "containers": 32,
+   "capacity_slots": 864,
+   "full_before": 25,
+   "full_after": 0,
+   "used_before": 822,
+   "used_after": 158,
+   "items_before": 23091,
+   "items_removed": 21042,
+   "slots_freed": 664,
+   "items_reduced": 65,
+   "reduce_slots": 2,
+   "items_after": 1984
+  },
+  "board-d": {
+   "containers": 31,
+   "capacity_slots": 837,
+   "full_before": 24,
+   "full_after": 0,
+   "used_before": 796,
+   "used_after": 138,
+   "items_before": 22519,
+   "items_removed": 20708,
+   "slots_freed": 658,
+   "items_reduced": 76,
+   "reduce_slots": 2,
+   "items_after": 1735
+  },
+  "hive-a": {
+   "containers": 24,
+   "capacity_slots": 648,
+   "full_before": 12,
+   "full_after": 0,
+   "used_before": 500,
+   "used_after": 138,
+   "items_before": 16188,
+   "items_removed": 13715,
+   "slots_freed": 362,
+   "items_reduced": 87,
+   "reduce_slots": 4,
+   "items_after": 2386
+  },
+  "hive-b": {
+   "containers": 11,
+   "capacity_slots": 297,
+   "full_before": 6,
+   "full_after": 0,
+   "used_before": 242,
+   "used_after": 92,
+   "items_before": 7856,
+   "items_removed": 6573,
+   "slots_freed": 150,
+   "items_reduced": 0,
+   "reduce_slots": 0,
+   "items_after": 1283
+  },
+  "hive-c": {
+   "containers": 31,
+   "capacity_slots": 837,
+   "full_before": 18,
+   "full_after": 0,
+   "used_before": 602,
+   "used_after": 103,
+   "items_before": 24608,
+   "items_removed": 23105,
+   "slots_freed": 499,
+   "items_reduced": 0,
+   "reduce_slots": 0,
+   "items_after": 1503
+  },
+  "hive-d": {
+   "containers": 14,
+   "capacity_slots": 378,
+   "full_before": 13,
+   "full_after": 0,
+   "used_before": 366,
+   "used_after": 71,
+   "items_before": 14305,
+   "items_removed": 13115,
+   "slots_freed": 295,
+   "items_reduced": 0,
+   "reduce_slots": 0,
+   "items_after": 1190
+  },
+  "isolated-a": {
+   "containers": 21,
+   "capacity_slots": 567,
+   "full_before": 17,
+   "full_after": 0,
+   "used_before": 524,
+   "used_after": 138,
+   "items_before": 16327,
+   "items_removed": 14124,
+   "slots_freed": 386,
+   "items_reduced": 62,
+   "reduce_slots": 1,
+   "items_after": 2141
+  },
+  "isolated-b": {
+   "containers": 20,
+   "capacity_slots": 540,
+   "full_before": 17,
+   "full_after": 0,
+   "used_before": 509,
+   "used_after": 123,
+   "items_before": 17189,
+   "items_removed": 15128,
+   "slots_freed": 386,
+   "items_reduced": 76,
+   "reduce_slots": 4,
+   "items_after": 1985
+  },
+  "isolated-c": {
+   "containers": 17,
+   "capacity_slots": 459,
+   "full_before": 16,
+   "full_after": 0,
+   "used_before": 441,
+   "used_after": 124,
+   "items_before": 16076,
+   "items_removed": 13814,
+   "slots_freed": 317,
+   "items_reduced": 64,
+   "reduce_slots": 3,
+   "items_after": 2198
+  },
+  "isolated-d": {
+   "containers": 14,
+   "capacity_slots": 378,
+   "full_before": 13,
+   "full_after": 0,
+   "used_before": 376,
+   "used_after": 109,
+   "items_before": 14038,
+   "items_removed": 11825,
+   "slots_freed": 267,
+   "items_reduced": 65,
+   "reduce_slots": 4,
+   "items_after": 2148
+  },
+  "placebo-a": {
+   "containers": 17,
+   "capacity_slots": 459,
+   "full_before": 8,
+   "full_after": 0,
+   "used_before": 358,
+   "used_after": 77,
+   "items_before": 12296,
+   "items_removed": 11145,
+   "slots_freed": 281,
+   "items_reduced": 0,
+   "reduce_slots": 0,
+   "items_after": 1151
+  },
+  "placebo-b": {
+   "containers": 23,
+   "capacity_slots": 621,
+   "full_before": 18,
+   "full_after": 0,
+   "used_before": 569,
+   "used_after": 93,
+   "items_before": 24277,
+   "items_removed": 22845,
+   "slots_freed": 476,
+   "items_reduced": 0,
+   "reduce_slots": 0,
+   "items_after": 1432
+  },
+  "placebo-c": {
+   "containers": 28,
+   "capacity_slots": 756,
+   "full_before": 7,
+   "full_after": 0,
+   "used_before": 535,
+   "used_after": 126,
+   "items_before": 14694,
+   "items_removed": 12916,
+   "slots_freed": 409,
+   "items_reduced": 82,
+   "reduce_slots": 4,
+   "items_after": 1696
+  },
+  "placebo-d": {
+   "containers": 15,
+   "capacity_slots": 405,
+   "full_before": 14,
+   "full_after": 0,
+   "used_before": 383,
+   "used_after": 87,
+   "items_before": 14538,
+   "items_removed": 12901,
+   "slots_freed": 296,
+   "items_reduced": 0,
+   "reduce_slots": 0,
+   "items_after": 1637
+  }
+ },
+ "total": {
+  "containers": 353,
+  "capacity_slots": 9531,
+  "full_before": 258,
+  "full_after": 0,
+  "used_before": 8430,
+  "used_after": 1814,
+  "items_before": 284218,
+  "items_removed": 255508,
+  "slots_freed": 6616,
+  "items_reduced": 668,
+  "reduce_slots": 27,
+  "items_after": 28042
+ },
+ "removed_by_category": {
+  "logs above 64 per type": {
+   "items": 109654,
+   "slots_freed": 1940
+  },
+  "cobblestone + cobbled_deepslate above 256": {
+   "items": 109445,
+   "slots_freed": 1980
+  },
+  "sticks above 64": {
+   "items": 17361,
+   "slots_freed": 382
+  },
+  "planks above 64 per type": {
+   "items": 6465,
+   "slots_freed": 213
+  },
+  "bamboo (cap 0)": {
+   "items": 6058,
+   "slots_freed": 120
+  },
+  "saplings above 64 per type": {
+   "items": 3387,
+   "slots_freed": 95
+  },
+  "stations/torches/ladders/buckets above cap": {
+   "items": 2134,
+   "slots_freed": 214
+  },
+  "usable stone/wooden tools above the per-town keep": {
+   "items": 1495,
+   "slots_freed": 1495
+  },
+  "spent tools (10 uses or fewer left)": {
+   "items": 177,
+   "slots_freed": 177
+  }
+ },
+ "kept_by_category": {
+  "ores and raw metal": 9990,
+  "coal, gems, lapis, redstone": 4753,
+  "wood (logs, planks, sticks) within cap": 4185,
+  "stone/cobble within cap": 4103,
+  "ingots / metal": 2031,
+  "stations/torches/ladders/buckets within cap": 1194,
+  "saplings within cap": 975,
+  "everything else uncapped (food, misc)": 462,
+  "stone/wooden tools (usable, within keep)": 339,
+  "iron/diamond tools": 10
+ },
+ "removed_by_name_top": [
+  [
+   "cobblestone",
+   107588
+  ],
+  [
+   "oak_log",
+   99296
+  ],
+  [
+   "stick",
+   17361
+  ],
+  [
+   "birch_log",
+   10358
+  ],
+  [
+   "oak_planks",
+   6465
+  ],
+  [
+   "bamboo",
+   6058
+  ],
+  [
+   "oak_sapling",
+   3325
+  ],
+  [
+   "cobbled_deepslate",
+   1857
+  ],
+  [
+   "stone_pickaxe",
+   1366
+  ],
+  [
+   "torch",
+   962
+  ],
+  [
+   "crafting_table",
+   765
+  ],
+  [
+   "furnace",
+   272
+  ],
+  [
+   "wooden_pickaxe",
+   251
+  ],
+  [
+   "chest",
+   101
+  ],
+  [
+   "birch_sapling",
+   62
+  ],
+  [
+   "bucket",
+   34
+  ],
+  [
+   "stone_sword",
+   22
+  ],
+  [
+   "wooden_axe",
+   16
+  ],
+  [
+   "wooden_sword",
+   12
+  ],
+  [
+   "wooden_shovel",
+   2
+  ],
+  [
+   "stone_shovel",
+   2
+  ],
+  [
+   "stone_axe",
+   1
+  ]
+ ]
+}
