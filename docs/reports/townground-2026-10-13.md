@@ -570,6 +570,29 @@ Codex r4's two remaining changes to A were applied after r4. They were wording a
 13. Server-confirmed outcomes (Codex r3).
 14. The selector test and dedupe (Codex r4).
 
+## 8. Implementation amendment (steps 2-3 built, 10-13 evening; owner GO "yes do 2-4")
+
+Built as digtown-01 (branch `dt-on-82aef34`) and townzone-01 (`tz-on-82aef34`); review record
+`docs/reports/townground-steps23-review-2026-10-13.txt`. Where the build departs from sections 2.3-2.7:
+
+- **Transit is UNTOUCHED, not priced.** mineflayer-pathfinder 2.4.5 adds the break exclusion to a move's cost only in a
+  few scaffold branches (`safeOrBreak` uses it as the < 100 permission), and it discards any move whose cost passes 100.
+  A surcharge therefore removes moves the base allows (a 2-high stone wall dug by hand costs 48; with +30 per broken cell
+  the move vanished -- Codex code r2, reproduced on real `Movements.getNeighbors`). The zone refuses TARGET digs only
+  (gather, mine, the ore tunnel's own profile); paths dig exactly as before.
+- **The instrument's purpose comes from an async scope**, not a field on the bot (`AsyncLocalStorage`: an abandoned or
+  overlapping goto cannot leak its scope). goto and surface run their own digs as transit, the reflex tick as survival.
+- **The instrument's outcome is the server's word** (raw `block_change` / `multi_block_change`): confirmed / foreign /
+  rejected / unconfirmed (10 s) / aborted / death / hung. Paper sandbox4: 7/7 fixtures, including two bots on one cell
+  (both read confirmed; the read dedupes per world, cell and +-2 s) and a dig 300 ms after join, which Paper ignores
+  (unconfirmed, and the world still holds the block: a real ghost).
+- **mine's walk-out**: exits nearest first, accepted only where a clear stair with a dry first tread starts; a bot under
+  a roof climbs first (surface below sea level, then a goto to the column's open top) and never tunnels to an exit at
+  depth; a bot outside the square never walks across town. The 12-block full-depth rule stays.
+- **Canary order (both engines)**: digtown-01 on its own instrument-only canary -> KEEP + fleet-wide promotion -> the
+  restart lag and a 180-min instrumented pre-window -> townzone-01 (one pool). townzoneread refuses exposure until every
+  arm x period carries `_dig_town_sum`. Z4/Z5/Z6 thresholds calibrated on 44 null samples (24 h, W 180).
+
 ## Files (scratch, not committed)
 The townground agent's scratch, under `.../scratchpad/tg/`:
 - `an/*.mjs`: dayone, sites, ctrl2, ctrl3, flow, plinth (r1), plinth2 (r2), saplings, sap2, plat.

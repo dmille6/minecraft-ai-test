@@ -1,0 +1,34 @@
+townground steps 2-3 -- review record (2026-10-13). digtown-01 (branch dt-on-82aef34) and townzone-01 (tz-on-82aef34).
+Owner GO 10-13 "yes do 2-4" (steps 2 and 3 here; step 4, the raised-well planner, is another agent's).
+
+CODEX r1 (code): A digtown APPROVE-WITH-CHANGES (goto's float digs inside mine read target:mine; fixtures did not assert
+  purposes); B read APPROVE-WITH-CHANGES (readiness before the blindness check); C zone REJECT (exclusionAreasBreak never
+  reaches A* cost; no deterministic fallback after a failed walk-out); D read REJECT (dedupe merged worlds; a missing
+  instrument could read as protection; Z5/Z6 missing); E own canary APPROVE.
+CLAUDE r1 (code, subagent): A APPROVE-WITH-CHANGES (P1 the bot.digScope slot breaks under abandoned/overlapping gotos;
+  P2 unflagged reflex digs read target); B APPROVE; C APPROVE-WITH-CHANGES (pond loop; walk toward town from outside; the
+  water test could not fail; pit only shown by one neighbour's cost); D APPROVE-WITH-CHANGES (Z2 blind to the pond loop;
+  Z1 trust); E APPROVE.
+FIXED: dt r2 eccc88e8 (goto transit scope; readiness = blindness at 50; dedupe per world), dt r3 d05ec2ba
+  (AsyncLocalStorage scope; reflex tick in {survival, reflex}; hung digs; configuredHome), tz r2/r3 (step price on real
+  Movements -> later removed; every exit; dry-start acceptance; never toward town; Z5/Z6 calibrated; coverage; Z7).
+CODEX r2: A APPROVE-WITH-CHANGES (reflex preemption not exercised on Paper); B APPROVE; C REJECT (NEW P2: the +30 step
+  price is a veto -- pathfinder discards moves over 100; a 2-high stone wall by hand: 48 without, no neighbour with); D
+  APPROVE-WITH-CHANGES (gate selector tests); E APPROVE.
+FIXED: tz r4 (TRANSIT UNTOUCHED: no town entry on the shared arrays, real-Movements regression + positive control; the
+  surface fallback; Z gates as pure functions with firing/non-firing self-tests), dt r4 (two structural anchors).
+CLAUDE r2: A/B/E APPROVE; C/D APPROVE-WITH-CHANGES (NEW P1: surface's shaft digs inside mine read target:mine -> false Z1;
+  P2 exits tried at depth under town; P3 crossing town from outside).
+FIXED: dt r5 9dc2ad5e (surface in {transit, surface}), tz r5/r5.1 (under town climb first, no tunnels at depth; no
+  far-side exit; refusal names the climb).
+CODEX r3: B-E APPROVE, A APPROVE-WITH-CHANGES (Paper reflex preemption). CLAUDE r3: A-E APPROVE (C after a green full suite).
+CODEX r4: A APPROVE-WITH-CHANGES (scene E must prove gather holds the body and fail the run otherwise); B/D/E APPROVE;
+  C APPROVE-WITH-CHANGES (NEW P2: surface stops at sea level 63 but towns sit at 65-75: a home-relative depth test refused
+  every exit or never helped).
+FIXED: tz r6 b945226a ("under" = a roof over the head; climb = surface below 63 then goto the column's open top); scene E
+  now requires gather running at the entombment and fails the run on tomb_pass=false.
+OPEN, ACCEPTED: P3 scopeStore.exit on reconnect (Claude); Z5 does not cover gather oak_log in town (Claude P3).
+DECISION (both engines): digtown-01 runs its OWN canary (instrument-only, deterministic gates), KEEP + fleet-wide
+  promotion, then townzone-01 after the restart lag and a 180-min instrumented pre-window -- the zone's primary is a DiD on
+  the instrument's rows, which the control arm must carry pre and post; a canary-only before/after is world-drift
+  confounded (CLAUDE.md). townzoneread's COVERAGE gate refuses exposure until every arm x period is instrumented.

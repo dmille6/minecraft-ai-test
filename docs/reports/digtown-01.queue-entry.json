@@ -1,0 +1,22 @@
+{
+ "run": "digtown-01",
+ "after": [
+  "wellsite-01"
+ ],
+ "class": "",
+ "hold": null,
+ "note": "ordinary canary, TELEMETRY ONLY (the `_dig_town` instrument; owner GO 10-13 'yes do 2-4', step 2). Its own canary because townzone-01's primary is a DiD on its rows: KEEP -> promote fleet-wide (then merge into main), and only then townzone-01. Variant keyed by the fleet base 82aef34 only; any other base at its turn (stocktarget-01 live now, orderroom, bamboo, wellsite) NEEDS a variant (git merge-tree with st-on-82aef34 and wellsite-on-82aef34 is clean).",
+ "variants": {
+  "82aef3499bba99a503f6591fdbd1f76d5605bdad": {
+   "registration": "/home/mike/mcai-analysis/digtown-01.82aef34.json",
+   "approved": "townground agent 2026-10-13: Codex code r1-r4 + Claude subagent code r1-r3 (docs/reports/townground-steps23-review-2026-10-13.txt); Claude final APPROVE A-E; Codex final APPROVE B/D/E, A/C APPROVE-WITH-CHANGES whose last items (scene E proving preemption; the roof-based climb) are fixed in the tips; npm test DT 246/246 at 9dc2ad5e, TZ 247/247 at b945226a; eslint no-undef: only the pre-existing reflex.mjs withinBody; licencecheck PASS (kind, baseline 0 / 6 h) and changerowcheck PASS (no change rows) on 82aef34 10-13 ~18:25Z; ORDINARY canary",
+   "canary_sha": "9dc2ad5eb7a86bc2717790ed8de4009bdd91dfa9",
+   "reads_src": "/home/mike/mcai-analysis",
+   "reads": {
+    "digtownread": "f3cfbc5da95c5753a05e22d673cb1ace",
+    "immobiledid": "53af289df12208901931dbeeb1ae325a"
+   },
+   "registration_sha256": "4c4230acc40e4af1bc41e23ff50a7f640ab4e6c0782f2e24897a0f4dcf525736"
+  }
+ }
+}

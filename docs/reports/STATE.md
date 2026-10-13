@@ -12,6 +12,29 @@ Studio reservation both closed 10-12); clear caps bamboo 0 / bucket 2._
 
 ---
 
+## 10-13 18:50Z — digtown-01 + townzone-01 BUILT, reviewed, registered; NOT queued (the townground agent; owner GO "yes do 2-4")
+Design: docs/reports/townground-2026-10-13.md (r4) + its IMPLEMENTATION AMENDMENT section. Order: digtown-01 (instrument,
+its own canary) -> KEEP + fleet-wide promotion -> restart lag + a 180-min instrumented pre-window -> townzone-01.
+- **digtown-01** branch dt-on-82aef34 @ 9dc2ad5e (pushed, new). TELEMETRY ONLY: bot.dig wrapped (`_dig_town_sum` exact
+  per-minute counts of every dig; `_dig_town` per town-ground dig) with class, purpose (pathfinder tag/transit > reflex >
+  async scope: goto/surface transit, the reflex tick survival > skill) and the server's word as outcome. Paper (sandbox4,
+  bare bots + the instrument): 7/7 fixtures incl. two bots on one cell (both confirmed, deduped = removed) and a ghost dig
+  300 ms after join (unconfirmed, the block still there). npm test 246/246. Registration ~/mcai-analysis/digtown-01.82aef34.json;
+  read ~/mcai-analysis/digtownread.py (md5 f3cfbc5d); licencecheck PASS (kind _dig_town_sum, baseline 0 rows / 6 h).
+- **townzone-01** branch tz-on-82aef34 @ b945226a (pushed, new) = digtown-01 + the zone. Launch ONLY on a fleet running
+  9dc2ad5e (digtown promoted). gather: town candidates filtered at enumeration + conjunctions; mine: 12-block rule kept,
+  bearing filter, per-step check, walk-out (exits nearest first, accepted at a dry clear stair; under a roof climb first,
+  never tunnel at depth); ore tunnel: 100 on town ground; TRANSIT UNTOUCHED (pathfinder discards moves > 100, so a price
+  is a veto); survival untouched. npm test 247/247. Paper: the real-bot zone scenes (sandbox/townground/zone-scenes.mjs: G gather from home, M mine in the square, P a 5-deep town pit, E entombed WHILE gathering -> survival digs + escape, F no dirt outside; candidate tz vs control dt) are PENDING -- /tmp/mcai-sandbox.lock has been held by the plinth agent since 15:51Z; the townground agent runs them when it frees and appends the result here. The queue entry for townzone-01 carries a hold until then anyway. Registration
+  ~/mcai-analysis/townzone-01.9dc2ad5e.json; read ~/mcai-analysis/townzoneread.py (md5 d40891f8; Z4/Z5/Z6 calibrated on
+  44 null samples); licencecheck PASS (kind _town_ground, baseline 0).
+- Reviews: Codex r1-r4 + Claude subagent r1-r3 (docs/reports/townground-steps23-review-2026-10-13.txt). Final: Claude
+  APPROVE A-E; Codex APPROVE B/D/E, A and C APPROVE-WITH-CHANGES whose last items are fixed in the tips (scene E written to
+  prove preemption: pending the lock).
+- Queue entries (for the coordinator to `queue add`): docs/reports/digtown-01.queue-entry.json,
+  docs/reports/townzone-01.queue-entry.json. Both need a variant on whatever the fleet is at their turn (stocktarget-01 is
+  live now; `git merge-tree` of tz-on-82aef34 with st-on-82aef34 and wellsite-on-82aef34 is clean).
+
 ## 10-13 16:30Z — AIRPOCKET-02 CLOSED INCONCLUSIVE (operator early close); v35.1 INSTALLED; stocktarget-01 launching
 airpocket-02 @ 70cb0d41: +1080 NOT_YET; exposure_ready_ap2 0 -- the only upblocked attempt (hive-d-Delta 10:59-11:00Z, kind=ice)
 FAILED: the step waited 1,528 ms for the interrupted `mine` to unwind (window=unsettled), dug, and mine's own still-running

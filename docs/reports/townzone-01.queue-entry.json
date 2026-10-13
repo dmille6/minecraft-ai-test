@@ -1,0 +1,22 @@
+{
+ "run": "townzone-01",
+ "after": [
+  "digtown-01"
+ ],
+ "class": "",
+ "hold": "launch only on a fleet running digtown-01 promoted (9dc2ad5e) AND >= 180 min after the promotion's restarts (the instrumented pre-window; townzoneread's coverage gate also refuses exposure until every arm x period carries _dig_town_sum)",
+ "note": "ordinary canary: THE TOWN'S GROUND (owner GO 10-13, step 3): target digs refused in a 33-wide square above home.y - 12 (gather enumeration filter, mine bearing filter + per-step check + walk-out, ore tunnel 100); TRANSIT UNTOUCHED; SURVIVAL untouched. ONE pool. Variant keyed by the fleet = digtown-01 promoted on 82aef34 only.",
+ "variants": {
+  "9dc2ad5eb7a86bc2717790ed8de4009bdd91dfa9": {
+   "registration": "/home/mike/mcai-analysis/townzone-01.9dc2ad5e.json",
+   "approved": "townground agent 2026-10-13: Codex code r1-r4 + Claude subagent code r1-r3 (docs/reports/townground-steps23-review-2026-10-13.txt); Claude final APPROVE A-E; Codex final APPROVE B/D/E, A/C APPROVE-WITH-CHANGES whose last items (scene E proving preemption; the roof-based climb) are fixed in the tips; npm test DT 246/246 at 9dc2ad5e, TZ 247/247 at b945226a; eslint no-undef: only the pre-existing reflex.mjs withinBody; licencecheck PASS (kind, baseline 0 / 6 h) and changerowcheck PASS (no change rows) on 82aef34 10-13 ~18:25Z; ORDINARY canary",
+   "canary_sha": "b945226a87282c77e1f876e3c13ae93784f8d271",
+   "reads_src": "/home/mike/mcai-analysis",
+   "reads": {
+    "townzoneread": "d40891f8eda17c59f0e7afe0aacf860d",
+    "immobiledid": "53af289df12208901931dbeeb1ae325a"
+   },
+   "registration_sha256": "819a5ed1de8f0d475d45f7d9f0f4e048625709380af823d111a20737ce690a1c"
+  }
+ }
+}
