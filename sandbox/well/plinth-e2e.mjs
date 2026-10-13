@@ -34,7 +34,8 @@ if (!/plinth/.test(lock)) throw new Error(`the sandbox lock does not name plinth
 const __dir = path.dirname(fileURLToPath(import.meta.url))
 const R = process.env.WELL_REPO || path.resolve(__dir, '../..')
 const REGION = process.env.PLINTH_REGION || ''
-const NAME = 'sandbox-Plinth', WALKER = 'sandbox-PWalk'
+const NAME = process.env.PLINTH_BOT_NAME || 'sandbox-Plinth', WALKER = process.env.PLINTH_WALKER_NAME || 'sandbox-PWalk'
+const BRAIN_PORT = Number(process.env.PLINTH_BRAIN_PORT || 11499)
 const OUT = process.env.PLINTH_OUT || `${R}/sandbox/log/plinth-e2e`
 fs.mkdirSync(OUT, { recursive: true })
 const RES = `${OUT}/results.jsonl`
@@ -189,6 +190,7 @@ async function startBot (fx, scene, slotsSpec, { tp = true, at = null } = {}) {
   set('BOT_NAME', NAME); set('LOG_DIR', logRel); set('STATE_DIR', `./sandbox/state/plinth-${RUN}-${fx}`); set('MEMORY_POOL', poolOf(fx))
   set('MINECRAFT_PORT', PORTS[SERVER]); set('MAX_CONSECUTIVE_FAILURES', 50); set('FAILED_COOLDOWN_MS', 1000); set('STUCK_SECONDS', 20)
   set('PLINTH_COOLDOWN_MS', 20000)
+  set('OLLAMA_BASE_URL', `http://127.0.0.1:${BRAIN_PORT}`)
   for (const a of ['X', 'Y', 'Z']) { set(`HOME_${a}`, home[a.toLowerCase()]); set(`BOARD_${a}`, home[a.toLowerCase()]) }
   fs.writeFileSync(`${R}/${envRel}`, env + '\n')
   const bo = fs.openSync(botOut, 'a')
@@ -438,7 +440,10 @@ async function scenePath (fx) {
 }
 
 // ---------------------------------------------------------------- S4 entombed beside the plinth; a bot in a town pit
-async function sceneTomb (fx) {
+async function sceneTomb (fx, control = false) {
+  // CONTROL: the same pocket and pit where the plinth WOULD stand (the offline plan), with no plinth built (no no-site record:
+  // the plinth code is present but never triggered), so the base reflexes are measured in the same fixture
+  if (control) { FIX[fx].build(); CTX[fx] = { plan: PL.planPlinth({ read: FIX[fx].read, home: FIX[fx].home }).plan } }
   const cx = CTX[fx]
   if (!cx) throw new Error(`no plinth for ${fx}`)
   const plan = cx.plan, cap = plan.cap
@@ -455,7 +460,7 @@ async function sceneTomb (fx) {
   const after1 = planCells(plan)
   const rows1 = rowsOf(f1.skillLog).filter(r => /entomb|escape|marooned|pillar|surface|dig|plinth/.test(r.name)).map(r => `${r.name} ${r.detail.slice(0, 140)}`).slice(0, 20)
   await stopBot()
-  result({ scene: 'tomb', fx, out: out1, plinthLost: [...before.placed].filter(k => !after1.placed.has(k)), rows: rows1 })
+  result({ scene: control ? 'tomb-control' : 'tomb', fx, out: out1, plinthLost: [...before.placed].filter(k => !after1.placed.has(k)), rows: rows1 })
   // A TOWN PIT: 3 deep, 1 wide, right beside the plinth's foot on the far side from the stair
   const px = cap.x - 3, pz = cap.z, py = plan.t
   // a real pit: a 3x3 block of dirt down to py-3 (the fixtures float), then its centre column carved 3 deep
@@ -467,12 +472,12 @@ async function sceneTomb (fx) {
   const after2 = planCells(plan)
   const rows2 = rowsOf(f2.skillLog).filter(r => /entomb|escape|marooned|pillar|surface|stuck|pit|plinth/.test(r.name)).map(r => `${r.name} ${r.detail.slice(0, 140)}`).slice(0, 20)
   await stopBot()
-  result({ scene: 'pit', fx, out: out2, plinthLost: [...before2.placed].filter(k => !after2.placed.has(k)), rows: rows2 })
+  result({ scene: control ? 'pit-control' : 'pit', fx, out: out2, plinthLost: [...before2.placed].filter(k => !after2.placed.has(k)), rows: rows2 })
 }
 
 async function main () {
   const pl = r1('list'); if (!/There are 0 of/.test(pl)) throw new Error('sandbox not empty: ' + pl)
-  await new Promise((resolve, reject) => { brain.once('error', reject); brain.listen(11499, '127.0.0.1', resolve) })
+  await new Promise((resolve, reject) => { brain.once('error', reject); brain.listen(BRAIN_PORT, '127.0.0.1', resolve) })
   P_(`root=${BOT_ROOT} sha=${execFileSync('git', ['-C', BOT_ROOT, 'rev-parse', '--short', 'HEAD'], { encoding: 'utf8' }).trim()} server=${SERVER} scenes=${SCENES_S}`)
   rcon(`forceload add ${A.x0} ${A.z0} ${A.x1} ${A.z1}`)
   for (const s of SCENES_S.split(',')) {
@@ -483,6 +488,7 @@ async function main () {
       else if (kind === 'well') await sceneWell(fx)
       else if (kind === 'path') await scenePath(fx)
       else if (kind === 'tomb') await sceneTomb(fx)
+      else if (kind === 'tombctl') await sceneTomb(fx, true)
       else throw new Error(`unknown scene ${s}`)
     } catch (e) { P_('scene failed', s, e.stack || e.message); result({ scene: kind, fx, error: String(e.message).slice(0, 300) }); await stopBot().catch(() => {}) }
   }
