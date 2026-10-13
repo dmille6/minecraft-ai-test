@@ -295,6 +295,7 @@ for b in bots:
         wn = WINRE.search(d); a['window'] = wn.group(1) if wn else 'none'
         a['window_ms'] = int(wn.group(2)) if wn and wn.group(2) else None
         a['contested'] = ' contested=1 ' in d   # airpocket-03: the dig was taken by a skill that still held the body
+        a['_t'] = t; a['_starts'] = starts       # the contested attempt's NEXT attempt is found after this bot's walk
         # C6 -- a success the server did not confirm: the rescue's next ceiling (20 s, no air) within 30 s, no breath between
         if outcome == 'success':
             nxt = [c for c in ceilings if t < c <= t + dt.timedelta(seconds=30)]
@@ -309,6 +310,12 @@ for b in bots:
             want = start_cell.get(aid)
             if not mb or not want or PASSABLE_NAME.match(mb.group(1)) or (mb.group(1), mb.group(2)) != want:
                 breach['C7_upblocked_unproven'].append(a)
+    # CONTESTED -> NEXT ATTEMPT (airpocket-03): the same bot's next _air_pocket_start after the contested end row. The fix
+    # promises a fresh attempt ~5 s later (AP_REFUSE_COOLDOWN_MS) instead of 60 s; `None` = no later start in the window
+    for a in attempts:
+        if a.get('bot') == b and a.get('contested') and '_t' in a:
+            nxt = sorted(st_ for st_ in starts.values() if st_ > a['_t'])
+            a['next_s'] = round((nxt[0] - a['_t']).total_seconds(), 1) if nxt else None
     # STARTS WITH NO END ROW: died during the attempt (judged as C2/C3 by cause) or unfinished while the bot went on
     hp_rows_total[0] += len(hp_series)
     for aid, t0 in starts.items():
@@ -362,6 +369,14 @@ wins = [a for a in attempts if a.get('window', 'none') != 'none']
 print('HANDOFF      (reported, never gated) attempts that waited on the inventory %d of %d | by state %s | max wait %s ms | contested %d' % (
       len(wins), len(attempts), dict(Counter(a['window'] for a in wins)), max([a['window_ms'] for a in wins if a.get('window_ms') is not None], default='-'),
       sum(1 for a in attempts if a.get('contested'))))
+# CONTESTED (airpocket-03; reported even at 0 -- the fleet canary is the first real observation, Paper cannot stage it)
+con = [a for a in attempts if a.get('contested')]
+lat = sorted(a['next_s'] for a in con if a.get('next_s') is not None)
+print('CONTESTED    (reported, never gated) contested attempts %d of %d | next attempt after s: %s | median %s | none later %d | '
+      'within 15 s %d' % (len(con), len(attempts), lat[:12], (lat[len(lat) // 2] if lat else '-'),
+                         sum(1 for a in con if a.get('next_s') is None), sum(1 for x in lat if x <= 15)))
+for a in con:
+    print('   contested %s %s %s window=%s:%s next=%s' % (a['t'], a['bot'], a['outcome'], a.get('window'), a.get('window_ms'), a.get('next_s')))
 print('REFUSALS     %d: %s' % (refusals_n, dict(refusals.most_common(8))))
 print('INSTRUMENT   control capped rescues (post) %d (>= 1) | control no-air sealed ceilings (post) %d (>= 1)' % (inst_capped, inst_noair))
 for f, nm in (('capped_rescue', 'capped rescues/bot-h'), ('noair_ceiling', 'no-air ceilings/bot-h'), ('death_drown', 'drowning deaths/bot-h'),

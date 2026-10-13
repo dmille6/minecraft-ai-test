@@ -317,6 +317,8 @@ def window_rows():
     assert n == 0 and 'C0' not in str(which), (which, txt[-900:])
     assert 'waited on the inventory 2 of 3' in line and "'settled': 1" in line and "'open': 1" in line and 'max wait 1500 ms' in line, line
     assert line.endswith('contested 0'), line
+    # REPORTED EVEN AT ZERO (coordinator 10-13): the line is there with no contested attempt at all
+    assert re.search(r'CONTESTED +\(reported, never gated\) contested attempts 0 of 3 \| next attempt after s: \[\] \| median - \| none later 0', txt), txt[-600:]
 
 
 def contested_rows():
@@ -337,6 +339,17 @@ def contested_rows():
     line = re.search(r'HANDOFF .*', txt).group(0)
     assert n == 0, (which, txt[-900:])
     assert line.endswith('contested 1') and "'unsettled': 1" in line, line
+    # THE NEXT ATTEMPT: none yet -> reported as none later
+    cl = re.search(r'CONTESTED .*', txt).group(0)
+    assert 'contested attempts 1 of 1' in cl and 'none later 1' in cl and 'within 15 s 0' in cl, cl
+    # a fresh attempt 7 s after the contested end row (the 5-s cooldown + admission): latency 7.0, within 15 s
+    ok = end('c2').replace('id=c2 ', 'id=c2 ')
+    rows2 = rows + [row(1009, 'pa-a-Alpha', '_air_pocket_start', start2('c2', trig='upblocked:1', blocked='ice@62', pose='swim', kind='ice', block='ice')),
+                    row(1027, 'pa-a-Alpha', '_air_pocket', ok)]
+    n2, which2, *_r, txt2 = run(rows2)
+    cl2 = re.search(r'CONTESTED .*', txt2).group(0)
+    assert 'contested attempts 1 of 2' in cl2 and 'next attempt after s: [7.0]' in cl2 and 'within 15 s 1' in cl2 and 'none later 0' in cl2, cl2
+    assert re.search(r'contested \S+ pa-a-Alpha failed window=unsettled:1528 next=7.0', txt2), txt2[-600:]
 
 
 t("CONTESTED (airpocket-03): the bot's own contested row parses clean and is counted, never gated", contested_rows)

@@ -5,7 +5,7 @@
   "stocktarget-01"
  ],
  "not_before": "2026-10-14T12:00:00Z",
- "hold": "PAPER FIRST (airpocket agent 10-13): queue nothing until scene FM (the hive-d ice trap with a `mine` that ignores its interrupt; sandbox/craft/airpocket-ab.cjs) shows the candidate 9f29a031 either keeping mine off the rescue's dig or retrying a contested dig within ~5 s, and the bot breathing, read from the world (evidence: docs/reports/airpocket-03-paper-2026-10-13.md). Lift with `canary-sched.py queue release airpocket-03` once that file says PASS.",
+ "hold": "PAPER REGRESSION FIRST (re-scoped by the coordinator 10-13): queue nothing until docs/reports/airpocket-03-paper-2026-10-13.md says PASS -- FM with home moved on the candidate 9f29a031 x3 and airpocket-02 70cb0d41 x2, plus F and AF on the candidate, all alive, no regressions. The contested dig itself is NOT reproducible on Paper (mine's own water guards stop it within ~0.15 s of a wet dig; the live case needs a mid-dig freeze or flow); it is covered by the unit tests (AP3-V1..V6, mine-abort) and both reviewers' repros against mineflayer's real digging.js, and the read (airpocket2read CONTESTED line) reports contested attempts and their next-attempt latency even at 0. Lift with `canary-sched.py queue release airpocket-03` once that file says PASS.",
  "variants": {
   "82aef3499bba99a503f6591fdbd1f76d5605bdad": {
    "registration": "/home/mike/mcai-analysis/airpocket-03.9f29a031.json",
@@ -14,7 +14,7 @@
    "canary_sha": "9f29a0319a3a4ea807c2339eed782a562f56a075",
    "reads_src": "/home/mike/mcai-analysis",
    "reads": {
-    "airpocket2read": "6e5a461a1f9c4f81b8667177e4dfc8da",
+    "airpocket2read": "6461d11f9e68a7a9f0ece8531e082756",
     "immobiledid": "53af289df12208901931dbeeb1ae325a"
    }
   },
@@ -25,10 +25,10 @@
    "canary_sha": "8ae76d9ffc3a592e8b46a6b33e856545d7fbebdd",
    "reads_src": "/home/mike/mcai-analysis",
    "reads": {
-    "airpocket2read": "6e5a461a1f9c4f81b8667177e4dfc8da",
+    "airpocket2read": "6461d11f9e68a7a9f0ece8531e082756",
     "immobiledid": "53af289df12208901931dbeeb1ae325a"
    }
   }
  },
- "note": "underground-safety canary: airpocket-02 + a contested dig takes the 5-s cooldown and a fresh attempt (row contested=1), and mine's stair step sends no dig, walk, look or shove after its abort. Variants for 82aef34 (the fleet) and 48b093ce (stocktarget-01, if kept). `after: stocktarget-01`: stocktarget-01 is launching (10-13); the 48b093ce variant covers its KEEP. NOT_BEFORE 2026-10-14T12:00Z: the licence row `_air_pocket_upblocked` was written 3x in the last 24 h by the CLOSED airpocket-02 canary (70cb0d41, hive-d-Delta 10:59-11:55Z 10-13), so licencecheck REFUSES until those rows leave its 24-h baseline (last at 11:55:33Z). THE DRAW MUST INCLUDE hive-d (draw_require_pools); drawexposure 24 h finds board-d, hive-a, hive-d, placebo-a, placebo-d eligible. Install the drawn variant's registration as ~/mcai-analysis/registrations/airpocket-03.json. Read: ~/mcai-analysis/airpocket2read.py (md5 above; counts contested=1; the old copy is airpocket2read.py.bak-20261013)."
+ "note": "underground-safety canary: airpocket-02 + a contested dig takes the 5-s cooldown and a fresh attempt (row contested=1), and mine's stair step sends no dig, walk, look or shove after its abort. Variants for 82aef34 (the fleet) and 48b093ce (stocktarget-01, if kept). `after: stocktarget-01`: stocktarget-01 is launching (10-13); the 48b093ce variant covers its KEEP. NOT_BEFORE 2026-10-14T12:00Z: the licence row `_air_pocket_upblocked` was written 3x in the last 24 h by the CLOSED airpocket-02 canary (70cb0d41, hive-d-Delta 10:59-11:55Z 10-13), so licencecheck REFUSES until those rows leave its 24-h baseline (last at 11:55:33Z). THE DRAW MUST INCLUDE hive-d (draw_require_pools); drawexposure 24 h finds board-d, hive-a, hive-d, placebo-a, placebo-d eligible. Install the drawn variant's registration as ~/mcai-analysis/registrations/airpocket-03.json. Read: ~/mcai-analysis/airpocket2read.py (md5 above; counts contested=1 and reports their next-attempt latency, even at 0; earlier copies airpocket2read.py.bak-20261013, .bak-20261013b)."
 }
