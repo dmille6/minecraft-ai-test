@@ -8909,10 +8909,10 @@ async function mine(ctx, { y: targetY = 12 }, signal) {
       noteTownGround(bot, 'mine_refused')
       return {
         status: 'failed', failClass: 'town_ground',
-        detail: `reason=town_ground walked_out=${walked?.status ?? '?'} surfaced=${surfaced?.status ?? '-'} last=${out?.x},${out?.z}: no exit from the town's ground ` +
+        detail: `reason=town_ground walked_out=${walked?.status ?? '-'} surfaced=${surfaced?.status ?? '-'} last=${out ? `${out.x},${out.z}` : '-'}: no exit from the town's ground ` +
                 `gave a dry stair start (every stair from ` +
                 `${Math.round(bot.entity.position.x)},${Math.round(bot.entity.position.y)},${Math.round(bot.entity.position.z)} ` +
-                `cuts the town's ground or meets water) -- goto a dry spot ${TOWN_GROUND_HALF + 14}+ blocks from home, then mine`,
+                `cuts the town's ground or meets water) -- ${below() ? 'surface first, then ' : ''}goto a dry spot ${TOWN_GROUND_HALF + 14}+ blocks from home, then mine`,
       }
     }
   } else {
