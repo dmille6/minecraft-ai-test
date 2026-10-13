@@ -37,6 +37,7 @@ import { isSword as pkIsSword, unwantedSword } from './peacefulkit.mjs'
 import { TRIGGER_SLOTS } from './hygiene.mjs'
 import { isCompostJunk, townDistance, ADOPT_RADIUS, TOWN_RADIUS, CLEARANCE_CONTAINER,
          builderDecision, RUNNER_DECLINED } from './composter.mjs'
+import { sameWorld } from './composter.mjs'   // wellsite-01 (its own statement)
 import { chainPeak } from './craftroom.mjs'
 import { foodSkipActive } from './foodskip.mjs'
 
@@ -204,7 +205,30 @@ const isTrap = (b, half = null) => !!b && WOODEN_TRAPDOOR.test(b.name ?? '') && 
 export const fullCube = b => solid(b) && Array.isArray(b.shapes) && b.shapes.length === 1 &&
   b.shapes[0].length === 6 && b.shapes[0].every((v, i) => Math.abs(v - (i < 3 ? 0 : 1)) < 1e-9)
 const ground = b => fullCube(b) && !NOT_GROUND.test(b.name ?? '') && !LIQUID.test(b.name ?? '')
+/** The well's own ground test, for the raised well's planner (plinth.mjs): a placed cobblestone is ground like any other. */
+export const wellGround = ground
+/** ...and its open-cell test (no liquid). */
+export const wellPassable = passable
 const diggable = b => ground(b) && Number.isFinite(b.hardness) && b.hardness >= 0 && b.hardness <= MAX_DIG_HARDNESS
+/**
+ * A FALLING BLOCK THAT CANNOT FALL IS A WALL (wellsite-01, placebo-b 10-12): vanilla moves sand or gravel only when the
+ * cell BELOW it is free (air, fire, a liquid, a replaceable plant). Over full, non-falling ground it is a full cube that
+ * stays put -- and a body cannot stand in a full cube, which is all a wall is for. Measured: a marooned escape climbed
+ * straight up placebo-b's well's diagonal column and left andesite/granite/dirt/SAND behind it; the sealed well was
+ * retired as "wall is sand", refused every disposal after, and the town tried to build a new one 404 times in 24 h.
+ * WALLS ONLY: never the shaft, the floor, a stand or the hinge (those keep `ground`). Suspicious sand/gravel and concrete
+ * powder are left out on purpose. A support dug away later is read again at the stand before the cap opens (throwPhase)
+ * and at every throw click (throwStacks).
+ *   b      the wall cell; below  the cell directly under it (null = not loaded: never on a guess)
+ * -> true | false | null (unknown)
+ */
+export const STEADY_FALLERS = /^(sand|red_sand|gravel)$/
+export function steadyWall (b, below) {
+  if (ground(b)) return true
+  if (!b || !STEADY_FALLERS.test(b.name ?? '') || !fullCube(b)) return false
+  if (!below) return null
+  return ground(below)
+}
 
 /** The well's cells from its CAP (the trapdoor's cell, at ground level g). */
 export const wellCells = cap => ({ cap: { x: cap.x, y: cap.y, z: cap.z }, shaft: { x: cap.x, y: cap.y - 1, z: cap.z },
@@ -450,9 +474,10 @@ export function wellSiteRefusal (read, cap, home = null, { avoid = [] } = {}) {
 }
 
 /**
- * IS THE SHAFT STILL SEALED? -> reason | null. Pure. The walls (the 8 neighbours at g and g-1: full cubes of solid,
- * non-falling ground), the underground ring and the liquid clearance -- asked of a SITE before it is built and of a BUILT
- * well before every disposal (Codex review: a wall dug out after the build lets a body stand beside the items).
+ * IS THE SHAFT STILL SEALED? -> reason | null. Pure. The walls (the 8 neighbours at g and g-1: full cubes of solid
+ * ground; sand/red_sand/gravel only while the cell under them is non-falling ground -- steadyWall, wellsite-01), the
+ * underground ring and the liquid clearance -- asked of a SITE before it is built and of a BUILT well before every
+ * disposal (Codex review: a wall dug out after the build lets a body stand beside the items).
  */
 export function containmentRefusal (read, cap) {
   if (typeof read !== 'function' || !cap) return 'no site'
@@ -464,7 +489,11 @@ export function containmentRefusal (read, cap) {
         if (!dx && !dz) continue
         const b = read(x + dx, g + dy, z + dz)
         if (!b) return 'unknown'
-        if (!ground(b)) return `wall is ${b.name}`
+        if (ground(b)) continue
+        // a supported sand/gravel wall (steadyWall); its support is read only when the wall itself is a faller
+        const steady = STEADY_FALLERS.test(b.name ?? '') ? steadyWall(b, read(x + dx, g + dy - 1, z + dz)) : false
+        if (steady === null) return 'unknown'
+        if (!steady) return `wall is ${b.name}`
       }
     }
   }
@@ -504,7 +533,7 @@ export const WELL_HOME_CLEARANCE = ADMISSION_RADIUS_FOR_SITE + 2
 /** Rings searched for the well: WELL_HOME_CLEARANCE out to here (townDistance <= ADOPT_RADIUS still applies). */
 export const WELL_SEARCH_RADIUS = 14
 /** The fixed ring order composter.mjs uses, starting further out. */
-function wellSpiral (home) {
+export function wellSpiral (home) {
   const out = []
   for (let r = WELL_HOME_CLEARANCE; r <= WELL_SEARCH_RADIUS; r++) {
     const ring = []
@@ -521,22 +550,67 @@ function wellSpiral (home) {
  *   avoid  [{ x, z, r? }]: places bots stand (the composter, bank containers); the cap stays r (default 3) away
  */
 export function canonicalWellSite ({ home, read, avoid = [] } = {}) {
-  if (!home || typeof read !== 'function') return { site: null, why: 'no home' }
+  if (!home || typeof read !== 'function') return { site: null, why: 'no home', exhausted: false, tally: null }
   const hy = Math.floor(home.y ?? 64)
+  const tally = { cols: 0 }
+  const count = k => { tally[k] = (tally[k] ?? 0) + 1 }
   for (const { x, z } of wellSpiral(home)) {
+    tally.cols++
     let cap = null
     for (let y = hy + COLUMN_UP; y >= hy - COLUMN_DOWN; y--) {
       const cell = read(x, y, z), under = read(x, y - 1, z)
-      if (!cell || !under) return { site: null, why: `unknown cell at ${x},${y},${z}` }
+      if (!cell || !under) return { site: null, why: `unknown cell at ${x},${y},${z}`, exhausted: false, tally }
       if (passable(cell) && solid(under)) { cap = { x, y: y - 1, z }; break }
     }
-    if (!cap) continue
-    if (townDistance(home, { x, y: cap.y + 1, z }) > ADOPT_RADIUS) continue
+    if (!cap) { count('nocap'); continue }
+    if (townDistance(home, { x, y: cap.y + 1, z }) > ADOPT_RADIUS) { count('beyond'); continue }
     const why = wellSiteRefusal(read, cap, home, { avoid })
-    if (why === 'unknown') return { site: null, why: `unknown cell near ${x},${cap.y},${z}` }
-    if (!why) return { site: cap, why: null }
+    if (why === 'unknown') return { site: null, why: `unknown cell near ${x},${cap.y},${z}`, exhausted: false, tally }
+    if (!why) return { site: cap, why: null, exhausted: false, tally }
+    count(refusalClass(why))
   }
-  return { site: null, why: 'no valid cell for a well near home' }
+  // EXHAUSTED: every column of the search was READ and refused -- the only no-site answer that is a fact about the
+  // town's ground rather than about what this bot has loaded (wellsite-01: only this one backs the build order off).
+  return { site: null, why: NO_VALID_CELL, exhausted: true, tally }
+}
+export const NO_VALID_CELL = 'no valid cell for a well near home'
+
+/**
+ * WHICH RULE REFUSED A CELL -> a short class name for the no-site tally (wellsite-01). Pure. Every reason wellSiteRefusal
+ * and containmentRefusal can return maps to one class; an unforeseen one is 'other', never dropped.
+ */
+export function refusalClass (why) {
+  const w = String(why ?? '')
+  if (/^too near home/.test(w)) return 'home'
+  if (w === 'not open above') return 'open'
+  if (w === 'already a well') return 'well'
+  if (/^column is /.test(w)) return 'column'
+  if (/^floor is /.test(w)) return 'floor'
+  if (/^wall is /.test(w)) return 'walls'
+  if (/^underground .* beside the shaft$/.test(w)) return 'ring'
+  if (/^\S+ within \d+$/.test(w)) return LIQUID.test(w.split(' ')[0]) ? 'liquid' : 'container'
+  if (w === 'door') return 'container'
+  if (/ is within \d+$/.test(w)) return 'avoid'
+  if (/^nowhere to stand/.test(w)) return 'stand'
+  return 'other'
+}
+/**
+ * SAY A RETIREMENT ONCE (wellsite-01): -> { say(cap, why) -> true the first time this cap is retired for this reason,
+ * clear(cap) -> forget it (the well read sealed again) }. Pure state, one per process.
+ */
+export function retireLog () {
+  const said = new Map()
+  const key = c => `${c?.x},${c?.y},${c?.z}`
+  return {
+    say (cap, why) { const k = key(cap); if (said.get(k) === why) return false; said.set(k, why); return true },
+    clear (cap) { said.delete(key(cap)) },
+  }
+}
+/** The tally as one compact field, largest first: "cols:672,walls:401,floor:150,...". Pure. */
+export function tallyText (tally) {
+  if (!tally) return '-'
+  const rest = Object.entries(tally).filter(([k, v]) => k !== 'cols' && v > 0).sort((a, b) => b[1] - a[1] || (a[0] < b[0] ? -1 : 1))
+  return [`cols:${tally.cols ?? 0}`, ...rest.map(([k, v]) => `${k}:${v}`)].join(',')
 }
 
 // ---- the toss ---------------------------------------------------------------------------------------------------------
@@ -815,6 +889,21 @@ export const DISPOSE_COOLDOWN_MS = 3 * 60 * 1000
 export const DISPOSE_BACKOFF_MS = 15 * 60 * 1000
 export const WELL_BUILD_COOLDOWN_MS = 5 * 60 * 1000
 export const WELL_BUILD_BACKOFF_MS = 30 * 60 * 1000
+/** An exhausted site search (no cell anywhere) backs the build order off this long (wellOrderOutcome, wellsite-01). */
+export const WELL_NO_SITE_BACKOFF_MS = 2 * 60 * 60 * 1000
+/**
+ * THE TOWN REMEMBERS AN EXHAUSTED SEARCH (wellsite-01): the outcome's backoff lives in the CognitiveLoop, which a
+ * reconnect rebuilds, so the bot that searched in vain writes { at, world, by, tally } beside the site record and every
+ * bot of the pool -- after a reconnect or a restart too -- skips the search while it is fresh. -> { held, leftMs }. Pure.
+ * Held only for the same world (a reseed keeps the pool and home), and only for a record that is not from the future.
+ */
+export function noSiteHold ({ record = null, now = 0, world = null } = {}) {
+  const at = Number(record?.at)
+  if (!record || !Number.isFinite(at) || !sameWorld(record.world ?? null, world)) return { held: false, leftMs: 0 }
+  const age = now - at
+  if (age < 0 || age >= WELL_NO_SITE_BACKOFF_MS) return { held: false, leftMs: 0 }
+  return { held: true, leftMs: WELL_NO_SITE_BACKOFF_MS - age }
+}
 export const CLOSE_COOLDOWN_MS = 30 * 1000
 /** World scans (well, peers, plan) at most this often per bot, however often it decides. */
 export const WELL_SCAN_MS = 30 * 1000
@@ -903,6 +992,14 @@ export function wellOrderOutcome (skill, status, now = 0, state = {}, failClass 
     }
     return s
   }
+  // NO SITE ANYWHERE IN THE SEARCH IS A FACT ABOUT THE GROUND, NOT ABOUT THIS VISIT (wellsite-01): measured 10-12, 3,197
+  // build orders in 24 h across 12 towns (55 bots) each re-ran the whole search and refused, every town visit, because a
+  // skip cost nothing. Only an EXHAUSTED search says it (buildWell's failClass well_no_site): an unloaded cell, a record
+  // race or an unreadable record stays a free skip. The bot cannot make a site, so the order waits for the ground to change.
+  if (skill === 'build_well' && status === 'no_effect' && failClass === 'well_no_site') {
+    s.buildBackoffUntil = Math.max(s.buildBackoffUntil ?? 0, now + WELL_NO_SITE_BACKOFF_MS)
+    return s
+  }
   if (!WELL_ORDERS.has(skill) || status === 'no_effect' || status === 'aborted' || RUNNER_DECLINED.has(failClass)) return s
   const key = skill === 'dispose_well' ? 'disposeBackoffUntil' : 'buildBackoffUntil'
   // room and someone-at-the-site are a matter of the next visit (a cooldown), not a fault (the long backoff)
@@ -940,7 +1037,8 @@ export function wellStepCost (cols, block, skip = null) {
   return 0
 }
 
-/** exclusionAreasBreak entry: the cap, shaft, floor, walls and the underground ring are never a path's (or gather's) dig. */
+/** exclusionAreasBreak entry: the cap, shaft, floor, walls and the underground ring are never a path's (or gather's) dig.
+ *  A raised well's column (plinth-01) also carries its STAIR (`c.stair`: [[x,y,z]], outside the 5x5 box): never dug either. */
 export function wellBreakCost (cols, block, skip = null) {
   const p = block?.position
   if (!p || !cols || !cols.length) return 0
@@ -948,6 +1046,8 @@ export function wellBreakCost (cols, block, skip = null) {
     const c = cols[i]
     if (c === skip) continue   // THE BOT'S OWN WELL (Claude review P2-1): a body inside digs out through a wall (the well is breached and rebuilt)
     if (Math.abs(p.x - c.x) <= UNDERGROUND_RING && Math.abs(p.z - c.z) <= UNDERGROUND_RING && p.y >= c.y - 3 && p.y <= c.y) return 100
+    const st = c.stair
+    if (st) for (let j = 0; j < st.length; j++) if (p.x === st[j][0] && p.y === st[j][1] && p.z === st[j][2]) return 100
   }
   return 0
 }
