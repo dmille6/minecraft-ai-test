@@ -14,10 +14,12 @@
 //     OWN promise is returned unchanged (e.aborted, withTimeout cancels and every caller's catch keep working).
 //   PURPOSE, in this order (digPurpose): while the pathfinder is mining, the active Movements' `digPurpose` tag (the ore
 //     tunnel's profile is tagged target:ore_tunnel -- pathfinder sets digging=true BEFORE it calls bot.dig,
-//     mineflayer-pathfinder index.js:485-492) or `transit`; else a reflex holding the body (`survival`); else an explicit
-//     `bot.digScope` (goto sets transit around its own direct digs -- float dig, ride-floor-down -- so a goto called from
-//     inside mine or gather is not read as their target: Codex code r1 P2); else the running skill: gather and mine are
-//     `target`, anything else `other`.
+//     mineflayer-pathfinder index.js:485-492) or `transit`; else a reflex holding the body (`survival`); else the dig's
+//     ASYNC SCOPE (AsyncLocalStorage, so it follows the call chain that reached bot.dig, never a shared slot: Claude code
+//     r1 P1 -- an abandoned goto must not leave its scope on the bot): goto runs its legs in { transit, goto } (its float
+//     dig and ride-floor-down are transit also inside mine or gather, Codex code r1 P2) and the reflex tick runs in
+//     { survival, reflex } (a reflex dig with no flag set while gather/mine still holds the body is not their target,
+//     Claude code r1 P2); else the running skill: gather and mine are `target`, anything else `other`.
 //   OUTCOME (digOutcome): mineflayer resolves when its OWN timer writes air into its world model (a prediction, :150-167)
 //     and ALSO when another actor's break reaches it first (:196-208). So a resolved dig is not proof. The server's word
 //     is: a block_change / multi_block_change for the cell, read from the raw packets (the bot's own prediction never
@@ -30,10 +32,13 @@
 //   EXACT COUNTS: every dig anywhere is counted in a one-minute summary (`_dig_town_sum`, structured counts in args),
 //     never sampled; every dig of a `ground` cell gets its own `_dig_town` row (about 300 a town-day measured), never
 //     rate-limited. Pending digs at shutdown are counted as `pending`.
+import { AsyncLocalStorage } from 'node:async_hooks'
 import { townDigClass, inTownBox, TOWN_MARGIN } from './townground.mjs'
 import { attributeTo } from './pickuplog.mjs'
 
 export const CONFIRM_GRACE_MS = 10_000
+/** A dig whose promise has not settled after this is counted `hung` and released (a mineflayer hang must not fill MAX_PENDING). */
+export const HUNG_MS = 120_000
 export const SUMMARY_MS = 60_000
 /** Digs awaiting the server's word at once; beyond this a dig is counted `overflow` and not tracked. */
 export const MAX_PENDING = 256
@@ -69,8 +74,8 @@ export function digPurpose ({ scope = null, pathfinderMining = false, movementsP
  *   before     the server named a DIFFERENT block for the cell before the settle (bool)
  *   after      the first server word for the cell after the settle: { t, same } | null
  */
-export function digOutcome ({ settledAt = null, error = null, died = false, before = false, after = null, now = Date.now(), graceMs = CONFIRM_GRACE_MS } = {}) {
-  if (settledAt == null) return 'pending'
+export function digOutcome ({ settledAt = null, error = null, died = false, before = false, after = null, now = Date.now(), graceMs = CONFIRM_GRACE_MS, t0 = null, hungMs = HUNG_MS } = {}) {
+  if (settledAt == null) return t0 != null && now - t0 >= hungMs ? 'hung' : 'pending'
   if (error) return died ? 'death' : /abort/i.test(String(error?.message ?? error)) ? 'aborted' : 'error'
   if (before) return 'foreign'
   if (after && after.t - settledAt <= graceMs) return after.same ? 'rejected' : 'confirmed'
@@ -78,14 +83,14 @@ export function digOutcome ({ settledAt = null, error = null, died = false, befo
 }
 
 /**
- * Run fn with bot.digScope set (restored after, nesting-safe). TELEMETRY ONLY: digPurpose is its only reader.
+ * THE DIG SCOPE follows the async chain (AsyncLocalStorage), not the bot: two gotos that overlap (the runner abandons a
+ * skill it cannot stop) or unwind out of order cannot see each other's scope. TELEMETRY ONLY: digPurpose is its reader.
  */
-export async function withDigScope (bot, scope, fn) {
-  if (!bot) return fn()
-  const prev = bot.digScope
-  bot.digScope = scope
-  try { return await fn() } finally { bot.digScope = prev }
-}
+const scopeStore = new AsyncLocalStorage()
+export function withDigScope (_bot, scope, fn) { return scopeStore.run(scope, fn) }
+/** fn wrapped so every call runs inside `scope` (the reflex tick). */
+export const digScoped = (scope, fn) => (...a) => scopeStore.run(scope, () => fn(...a))
+export const currentDigScope = () => scopeStore.getStore() ?? null
 
 /** The cells a multi_block_change names, as mineflayer 4.37.1 decodes them for 1.21.x (single-long records). */
 export function multiBlockCells (packet) {
@@ -103,7 +108,7 @@ export function multiBlockCells (packet) {
 /** The one-minute counts as a compact detail (most important first; the structured counts ride in args). Pure. */
 export function summaryDetail (sum, windowS) {
   const o = sum.outcomes
-  const head = `w=${windowS}s all=${sum.all} conf=${o.confirmed ?? 0} unconf=${o.unconfirmed ?? 0} foreign=${o.foreign ?? 0} rej=${o.rejected ?? 0} abort=${o.aborted ?? 0} death=${o.death ?? 0} err=${o.error ?? 0} pend=${o.pending ?? 0} ovf=${sum.overflow} ierr=${sum.ierr}`
+  const head = `w=${windowS}s all=${sum.all} conf=${o.confirmed ?? 0} unconf=${o.unconfirmed ?? 0} foreign=${o.foreign ?? 0} rej=${o.rejected ?? 0} abort=${o.aborted ?? 0} death=${o.death ?? 0} err=${o.error ?? 0} hung=${o.hung ?? 0} pend=${o.pending ?? 0} ovf=${sum.overflow} ierr=${sum.ierr}`
   const zone = Object.entries(sum.zone).sort((a, b) => b[1] - a[1]).map(([k, v]) => `${k} ${v}`).join('; ')
   return zone ? `${head} | ${zone}` : head
 }
@@ -128,7 +133,7 @@ export function attachDigTown (bot, { home, context = () => ({}), emitDig, emitS
 
   const finish = (rec) => {
     if (rec.final || closed) return
-    const outcome = digOutcome({ settledAt: rec.settledAt, error: rec.error, died: rec.died, before: rec.before, after: rec.after, now: now(), graceMs })
+    const outcome = digOutcome({ settledAt: rec.settledAt, error: rec.error, died: rec.died, before: rec.before, after: rec.after, now: now(), graceMs, t0: rec.t0 })
     if (outcome === 'pending' && !done) return
     rec.final = outcome
     if (rec.timer) clearTimeout(rec.timer)
@@ -169,7 +174,7 @@ export function attachDigTown (bot, { home, context = () => ({}), emitDig, emitS
     const c = (() => { try { return context() ?? {} } catch { ierr(); return {} } })()
     let mining = false, tag = null
     try { mining = !!bot.pathfinder?.isMining?.(); tag = bot.pathfinder?.movements?.digPurpose ?? null } catch { ierr() }
-    const { purpose, by } = digPurpose({ scope: bot.digScope ?? null, pathfinderMining: mining, movementsPurpose: tag, ...c })
+    const { purpose, by } = digPurpose({ scope: currentDigScope(), pathfinderMining: mining, movementsPurpose: tag, ...c })
     const cell = { x: Math.floor(p.x), y: Math.floor(p.y), z: Math.floor(p.z) }
     const zone = inTownBox(cell, home) ? 'zone' : inTownBox(cell, home, { margin: TOWN_MARGIN }) ? 'margin' : null
     return { p: cell, k: key(cell), name: block.name ?? '?', state: stateOf(block), cls: townDigClass(cell, block.name, home),

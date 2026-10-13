@@ -47,3 +47,12 @@ export const isTerrain = name => typeof name === 'string' && TERRAIN.test(name)
 export function townDigClass (p, blockName, home) {
   return inTownBox(p, home) && isTerrain(blockName) ? 'ground' : 'free'
 }
+
+/**
+ * THE TOWN'S HOME: config's home ONLY when HOME_X, HOME_Y and HOME_Z were set in the environment (every fleet env file
+ * sets them; config.mjs defaults a missing one to 0/70/0, which is not a town). Unset -> null -> every cell is 'free'.
+ */
+export function configuredHome (world, env = process.env) {
+  if (env.HOME_X == null || env.HOME_Y == null || env.HOME_Z == null || env.HOME_X === '' || env.HOME_Y === '' || env.HOME_Z === '') return null
+  return homeOf({ x: world?.homeX, y: world?.homeY, z: world?.homeZ })
+}

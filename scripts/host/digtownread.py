@@ -181,6 +181,8 @@ if __name__ == '__main__':
             n[(period, arm, 'gather_ok')] += 1
         elif k == 'mine':
             n[(period, arm, 'mine')] += 1
+        elif k == 'goto' and (((r.get('raw') or {}).get('skill') or {}).get('status') == 'success'):
+            n[(period, arm, 'goto_ok')] += 1   # r2 wraps goto in a scope (Claude code r1 P3): goto success reported
 
     hours = W / 60.0
     def rate(period, arm, what):
@@ -213,7 +215,7 @@ if __name__ == '__main__':
     print('PRIMARY      town-ground rows by (purpose, skill, outcome): %s' % dict(ground_rows.most_common(12)))
     print('             zone counts from the summaries: %s' % dict(zone.most_common(10)))
     print('             confirmed town-ground digs deduped %d (ambiguous extra confirmations %d)' % (uniq, amb))
-    for what, label in (('gather_ok', 'gather successes'), ('mine', 'mine rows'), ('ground_items', 'ground items picked')):
+    for what, label in (('gather_ok', 'gather successes'), ('mine', 'mine rows'), ('goto_ok', 'goto successes'), ('ground_items', 'ground items picked')):
         print('NEUTRALITY   %-20s per bot-h  canary %.3f -> %.3f  control %.3f -> %.3f  DiD %+.3f'
               % (label, rate('pre', 'canary', what), rate('post', 'canary', what), rate('pre', 'control', what), rate('post', 'control', what), did(what)))
     try:
@@ -228,7 +230,7 @@ if __name__ == '__main__':
             'breach_overflow': overflow_rows, 'breach_ierr': int(ierr_share > 0.01), 'ierr': ierr,
             'breach_blind': blind, 'heard_share': None if hs is None else round(hs, 4), 'breach_coverage': len(uncovered),
             'control_dig_rows': leak, 'confirmed_ground_deduped': uniq, 'confirmed_ground_ambiguous': amb,
-            'gather_ok_did': nanless(did('gather_ok')), 'mine_did': nanless(did('mine')), 'ground_items_did': nanless(did('ground_items')),
+            'gather_ok_did': nanless(did('gather_ok')), 'mine_did': nanless(did('mine')), 'goto_ok_did': nanless(did('goto_ok')), 'ground_items_did': nanless(did('ground_items')),
             'exposure_ready': int(n['licence'] >= 1 and len(summ_bots) >= max(1, can_bots - 1) and settled >= 50 and W >= 150),
         })
     except Exception as e:

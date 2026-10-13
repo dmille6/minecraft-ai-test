@@ -82,6 +82,8 @@ test('OUTCOME: the server\'s word decides; a resolved promise alone is not proof
   assert.equal(digOutcome({ settledAt: 0, error: new Error('Digging aborted') }), 'aborted')
   assert.equal(digOutcome({ settledAt: 0, error: new Error('Digging aborted'), died: true }), 'death')
   assert.equal(digOutcome({ settledAt: 0, error: new Error('dig exceeded 60000ms') }), 'error')
+  assert.equal(digOutcome({ settledAt: null, t0: 0, now: 119_999 }), 'pending')
+  assert.equal(digOutcome({ settledAt: null, t0: 0, now: 120_000 }), 'hung', 'a dig that never settles is released, not held for ever')
 })
 
 test('MULTI BLOCK: cells decoded exactly as mineflayer 4.37.1 decodes 1.21 single-long records (positive control)', () => {
@@ -122,16 +124,29 @@ function attach (bot, ctx = {}, opts = {}) {
   return { h, rows, sums, clock }
 }
 
-test('SCOPE: withDigScope sets and restores bot.digScope, nesting-safe, also on a throw', async () => {
+test('SCOPE: the scope follows the async chain -- nested, thrown, and two OVERLAPPING gotos (one abandoned) never see each other (Claude code r1 P1)', async () => {
   const bot = {}
   await D.withDigScope(bot, { purpose: 'transit', by: 'goto' }, async () => {
-    assert.equal(bot.digScope.by, 'goto')
-    await D.withDigScope(bot, { purpose: 'x', by: 'inner' }, async () => assert.equal(bot.digScope.by, 'inner'))
-    assert.equal(bot.digScope.by, 'goto')
+    assert.equal(D.currentDigScope().by, 'goto')
+    await D.withDigScope(bot, { purpose: 'x', by: 'inner' }, async () => { await tick(); assert.equal(D.currentDigScope().by, 'inner') })
+    assert.equal(D.currentDigScope().by, 'goto')
   })
-  assert.equal(bot.digScope, undefined)
+  assert.equal(D.currentDigScope(), null)
   await assert.rejects(D.withDigScope(bot, { purpose: 'p' }, async () => { throw new Error('x') }))
-  assert.equal(bot.digScope, undefined)
+  assert.equal(D.currentDigScope(), null)
+  // G1 is abandoned (never resolves); G2 starts; a skill dig outside both reads no scope; G2's dig reads G2's
+  let releaseG1
+  const g1 = D.withDigScope(bot, { purpose: 'transit', by: 'g1' }, () => new Promise(r => { releaseG1 = r }))
+  const seen = []
+  await D.withDigScope(bot, { purpose: 'transit', by: 'g2' }, async () => { await tick(); seen.push(D.currentDigScope()?.by) })
+  seen.push(D.currentDigScope()?.by ?? null)
+  releaseG1(); await g1
+  seen.push(D.currentDigScope()?.by ?? null)
+  assert.deepEqual(seen, ['g2', null, null])
+  // a reflex tick wrapped with digScoped is survival all the way down its awaits
+  const tickFn = D.digScoped({ purpose: 'survival', by: 'reflex' }, async () => { await tick(); return D.currentDigScope() })
+  assert.equal((await tickFn()).purpose, 'survival')
+  assert.equal(D.currentDigScope(), null)
   const src = strip(readFileSync(new URL('../src/skills.mjs', import.meta.url), 'utf8'))
   assert.match(src, /async function goto \(ctx, args, signal\) \{ return withDigScope\(ctx\?\.bot, \{ purpose: 'transit', by: 'goto' \}, \(\) => gotoLegs\(ctx, args, signal\)\) \}/, 'goto wraps its legs in the transit scope')
 })
@@ -155,7 +170,7 @@ test('WRAPPER: invisible -- same arguments, the original promise object, rejecti
   assert.equal(attachDigTown(bot2, { home: HOME, emitDig () {}, emitSummary () {} }), null)
 })
 
-test('WRAPPER: the block is captured SYNCHRONOUSLY before the original dig runs (it writes air locally)', async () => {
+test('WRAPPER: the block is captured SYNCHRONOUSLY before the original dig runs (the fake mutates the block; a later capture would read it)', async () => {
   const bot = fakeBot(); const { rows, clock } = attach(bot, { skill: 'gather', args: { block: 'dirt' } })
   const p = bot.dig(blk(360, 72, 150, 'dirt', 10))
   bot.ctl[0].resolve(); await p; await tick()
@@ -191,7 +206,7 @@ test('WRAPPER: foreign, rejected, unconfirmed, aborted, death -- and free digs a
   assert.equal(sums[0].args.all, 6, 'every dig is counted, the free one included')
   assert.equal(sums[0].args.o_confirmed, 1)
   assert.equal(sums[0].args.z_zone_ground_target_foreign, 1)
-  assert.match(sums[0].detail, /^w=\d+s all=6 conf=1 unconf=1 foreign=1 rej=1 abort=1 death=1 err=0 pend=0 ovf=0 ierr=0 \| /)
+  assert.match(sums[0].detail, /^w=\d+s all=6 conf=1 unconf=1 foreign=1 rej=1 abort=1 death=1 err=0 hung=0 pend=0 ovf=0 ierr=0 \| /)
 })
 
 test('WRAPPER: the server word arrives in a multi_block_change too', async () => {
@@ -254,14 +269,21 @@ test('MUTANT KILLED: a wrapper that returns a NEW promise breaks caller identity
   })
 })
 
-test('MUTANT KILLED: capturing AFTER the original call records the air mineflayer wrote', async () => {
-  await withMutant(SRC, '      rec = closed ? null : capture(block)', '      rec = null', async mod => {
+test('MUTANT KILLED: capturing AFTER the original call reads the mutated block (and loses the town-ground row)', async () => {
+  const src = readFileSync(SRC, 'utf8')
+  const A1 = '      rec = closed ? null : capture(block)\n', A2 = '    const promise = orig.call(this, block, ...rest)\n'
+  for (const a of [A1, A2]) { assert.ok(src.includes(a), 'anchor present'); assert.equal(src.split(a).length, 2, 'anchor unique') }
+  const body = src.replace(A1, '      rec = null\n').replace(A2, A2 + '    try { rec = closed ? null : capture(block); if (rec) { sum.all++; const list = pending.get(rec.k) ?? []; list.push(rec); pending.set(rec.k, list); npending++ } } catch { rec = null }\n').replace(/from '\.\//g, "from '../src/")
+  const out = new URL(`./_mutant-${process.pid}-late.mjs`, import.meta.url)
+  writeFileSync(out, body)
+  try {
+    const mod = await import(out.href)
     const bot = fakeBot(); const rows = []
     mod.attachDigTown(bot, { home: HOME, context: () => ({ skill: 'gather' }), emitDig: r => rows.push(r), emitSummary () {}, timers: false })
     const p = bot.dig(blk(360, 72, 150)); bot.ctl[0].resolve(); await p; await tick()
     bot._client.emit('block_change', { location: { x: 360, y: 72, z: 150 }, type: 0 })
-    assert.equal(rows.length, 0, 'the mutant records nothing: the synchronous-capture test above kills it')
-  })
+    assert.equal(rows.length, 0, 'the late capture saw air (class free): no row -- the synchronous-capture test above kills this mutant')
+  } finally { try { unlinkSync(out) } catch {} }
 })
 
 test('MUTANT KILLED: without the profile tag the tunnel\'s excavation reads as transit', async () => {
@@ -280,7 +302,9 @@ test('MUTANT KILLED: a word before our finish counted as confirmation would cred
 test('WIRED: index.mjs attaches the instrument with home from config, the runner context, and finalises it on a stop', () => {
   const src = strip(readFileSync(INDEX, 'utf8'))
   assert.match(src, /import \{ attachDigTown \} from '\.\/digtown\.mjs'/)
-  assert.match(src, /attachDigTown\(bot, \{\s*home: \{ x: config\.world\.homeX, y: config\.world\.homeY, z: config\.world\.homeZ \}/)
+  assert.match(src, /attachDigTown\(bot, \{\s*home: configuredHome\(config\.world\),/)
+  const rf = strip(readFileSync(new URL('../src/reflex.mjs', import.meta.url), 'utf8'))
+  assert.match(rf, /const timer = setInterval\(digScoped\(\{ purpose: 'survival', by: 'reflex' \}, async \(\) => \{/, 'the reflex tick runs in the survival scope')
   assert.match(src, /kind: 'dig_town', status: 'success'/)
   assert.match(src, /kind: 'dig_town_sum', status: 'success'/)
   assert.match(src, /try \{ digTownFinal\?\.\(\) \} catch \{\}\s*closeLogs\(\)/, 'the final summary is written BEFORE the logs close')

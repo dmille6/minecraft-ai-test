@@ -27,6 +27,7 @@ import { pathfinderWedged, stillnessMs } from './path-watchdog.mjs'
 import { log, closeLogs, logSkill, logEvent, tapRecords } from './logger.mjs'
 import { attachPickupLog } from './pickuplog.mjs'
 import { attachDigTown } from './digtown.mjs'
+import { configuredHome } from './townground.mjs'
 import { attachDifficulty } from './foodskip.mjs'
 import { Runner } from './runner.mjs'
 import { startReflexes } from './reflex.mjs'
@@ -994,7 +995,7 @@ function connect() {
     try {
       const reflexes = stopReflexes
       const dt = attachDigTown(bot, {
-        home: { x: config.world.homeX, y: config.world.homeY, z: config.world.homeZ },
+        home: configuredHome(config.world),
         context: () => ({ skill: runner.current?.skill ?? null, args: runner.current?.args ?? null,
                           reflex: reflexes?.activeReflex?.() ?? null, holder: runner.arb?.holder?.owner ?? null }),
         emitDig: ({ detail, args }) => { try { logEvent({ kind: 'dig_town', status: 'success', detail, args }) } catch { /* telemetry */ } },
