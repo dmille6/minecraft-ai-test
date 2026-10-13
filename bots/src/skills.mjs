@@ -7913,7 +7913,7 @@ async function buildPlinth (ctx, _args, signal) {
             if (bot.heldItem?.name !== name) await g.bound(bot.equip(item, 'hand'), HK_AWAIT_MS, 'equip')
             const refBlock = bot.blockAt(new Vec3(sp.ref.x, sp.ref.y, sp.ref.z))
             const why = clickOk()
-            if (why === 'done') { done = true; byOther = true; break }
+            if (why === 'done') { done = true; byOther = attempt === 0; break }   // a late landing of OUR first click is ours
             if (why) { stop = why; break }
             await g.bound(bot._placeBlockWithOptions(refBlock, new Vec3(sp.face[0], sp.face[1], sp.face[2]), { forceLook: true, swingArm: 'right' }), HK_AWAIT_MS * 2, 'place')
           } catch (e) { if (e?.aborted || signal?.aborted) throw e }
@@ -7921,7 +7921,7 @@ async function buildPlinth (ctx, _args, signal) {
           done = wellGround(read(x, y, z))
         } else {
           const why = clickOk()
-          if (why === 'done') { done = true; byOther = true; break }
+          if (why === 'done') { done = true; byOther = attempt === 0; break }
           if (why) { stop = why; break }
           try { await g.bound(bot.dig(bot.blockAt(new Vec3(x, y, z)), true), HK_CRAFT_MS, 'dig') } catch (e) { if (e?.aborted || signal?.aborted) throw e }
           for (let k = 0; k < 10 && LEAF.test(read(x, y, z)?.name ?? ''); k++) await g.bound(bot.waitForTicks?.(1), 50 + HK_AWAIT_MS, 'tick wait')

@@ -534,6 +534,13 @@ await t('N5 (Codex r4): the cover removal is guarded -- a chest in the cap cell 
     await visit(town)
     assert.ok(town.st.digs.includes(KEY(cap.x, cap.y, cap.z)), 'the dirt cover is dug out')
   }
+  { // a dirt cover that turned to grass (Claude r5 P2) is still a cover: dug, not voided
+    const { town, cap } = await coveredPitTown()
+    town.world.set(KEY(cap.x, cap.y, cap.z), 'grass_block')
+    const r = await visit(town)
+    assert.notEqual(r.failClass, 'plinth_blocked', r.detail)
+    assert.ok(town.st.digs.includes(KEY(cap.x, cap.y, cap.z)), 'the grassed cover is dug out')
+  }
   { // a chest already in the cap
     const { town, cap } = await coveredPitTown()
     town.world.set(KEY(cap.x, cap.y, cap.z), 'chest')

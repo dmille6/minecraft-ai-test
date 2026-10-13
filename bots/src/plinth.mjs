@@ -928,5 +928,7 @@ export function plinthDetail ({ stage, at = null, k = null, placed = 0, cleared 
 export const isPlinthBlock = name => PLINTH_SET.has(name)
 /** A block a pit is covered with (well.mjs PIT_COVER_BLOCKS: what coverPit / coverPlinthPit place): the only block the
  *  build ever digs out of a plan's cap cell. Pure. */
-export const isPitCover = b => !!b && PIT_COVER_BLOCKS.includes(b.name)
+export const isPitCover = b => !!b && (PIT_COVER_BLOCKS.includes(b.name) || COVER_BECOMES.has(b.name))
+/** What a cover turns into on its own (Claude r5 P2): grass and mycelium spread onto a dirt cover under open sky. */
+const COVER_BECOMES = new Set(['grass_block', 'mycelium', 'podzol'])
 export { RESERVE_STONE }
