@@ -213,7 +213,8 @@ const diggable = b => ground(b) && Number.isFinite(b.hardness) && b.hardness >= 
  * straight up placebo-b's well's diagonal column and left andesite/granite/dirt/SAND behind it; the sealed well was
  * retired as "wall is sand", refused every disposal after, and the town tried to build a new one 404 times in 24 h.
  * WALLS ONLY: never the shaft, the floor, a stand or the hinge (those keep `ground`). Suspicious sand/gravel and concrete
- * powder are left out on purpose. A support dug away later is read again immediately before every throw (throwPhase).
+ * powder are left out on purpose. A support dug away later is read again at the stand before the cap opens (throwPhase)
+ * and at every throw click (throwStacks).
  *   b      the wall cell; below  the cell directly under it (null = not loaded: never on a guess)
  * -> true | false | null (unknown)
  */
@@ -469,9 +470,10 @@ export function wellSiteRefusal (read, cap, home = null, { avoid = [] } = {}) {
 }
 
 /**
- * IS THE SHAFT STILL SEALED? -> reason | null. Pure. The walls (the 8 neighbours at g and g-1: full cubes of solid,
- * non-falling ground), the underground ring and the liquid clearance -- asked of a SITE before it is built and of a BUILT
- * well before every disposal (Codex review: a wall dug out after the build lets a body stand beside the items).
+ * IS THE SHAFT STILL SEALED? -> reason | null. Pure. The walls (the 8 neighbours at g and g-1: full cubes of solid
+ * ground; sand/red_sand/gravel only while the cell under them is non-falling ground -- steadyWall, wellsite-01), the
+ * underground ring and the liquid clearance -- asked of a SITE before it is built and of a BUILT well before every
+ * disposal (Codex review: a wall dug out after the build lets a body stand beside the items).
  */
 export function containmentRefusal (read, cap) {
   if (typeof read !== 'function' || !cap) return 'no site'

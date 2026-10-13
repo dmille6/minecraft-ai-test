@@ -61,22 +61,37 @@ def tally_of(d):
 
 
 def search_repeats(searches):
-    """PURE. searches: [(pool, t)] completed searches of the canary arm. -> [(pool, t_prev, t_next)]: pairs closer than the
-    hold (less SLACK) and further apart than SLACK (a same-second race between two bots is not a repeat)."""
+    """PURE. searches: [(town, t, rec, world)] completed searches (reason=no_site rows). -> [(town, t_prev, t_next)].
+    EPISODES (Codex r2 P2): searches within SLACK of an episode's FIRST search are one episode (two bots searching in the
+    same instant, before either record landed) -- anchored on the start, so searches every 30 s for ever are many episodes,
+    never one. A repeat is an episode that starts less than HOLD - SLACK after the previous one, when that previous one
+    STORED its record (rec=ok) for the SAME world: a failed write or a reseed is a legitimate new search, not A1 failing."""
     by = defaultdict(list)
-    for p, t in searches:
-        by[p].append(t)
+    for town, t, rec, world in searches:
+        by[town].append((t, rec, world))
     out = []
-    for p, ts in by.items():
-        ts.sort()
-        for a, b in zip(ts, ts[1:]):
-            if SLACK < (b - a) < HOLD - SLACK:
-                out.append((p, a, b))
+    for town, xs in by.items():
+        xs.sort(key=lambda x: x[0])
+        eps = []                                     # [start, stored, world]
+        for t, rec, world in xs:
+            if eps and (t - eps[-1][0]) <= SLACK and world == eps[-1][2]:
+                eps[-1][1] = eps[-1][1] or rec == 'ok'
+                continue
+            eps.append([t, rec == 'ok', world])
+        for a, b in zip(eps, eps[1:]):
+            if a[1] and a[2] == b[2] and (b[0] - a[0]) < HOLD - SLACK:
+                out.append((town, a[0], b[0]))
     return out
 
 
 def pool_of(bot):
     return '-'.join((bot or '').split('-')[:2])
+
+
+def town_of(bot):
+    """The holder of a no-site record: the pool state dir. isolated-* bots each have their own (_pool-self-isolated-x-Bot),
+    so there the town is the bot; every other pool shares one."""
+    return bot if (bot or '').startswith('isolated-') else pool_of(bot)
 
 
 # ---- positive controls on the bot's own row strings (bots/src/skills.mjs wellRefused: "order=... reason=... <said>") ----
@@ -86,10 +101,16 @@ assert reason_of("order=build reason=no_site_held the town's last junk well site
 assert tally_of("order=build reason=no_site the town's junk well site cannot be settled from here: no valid cell for a well near home") is None, 'the base row has no tally'
 _T = dt.datetime(2026, 10, 13, tzinfo=dt.timezone.utc)
 _m = lambda n: _T + dt.timedelta(minutes=n)
-assert search_repeats([('board-a', _m(0)), ('board-a', _m(30))]) == [('board-a', _m(0), _m(30))], 'a search inside the hold is a repeat'
-assert search_repeats([('board-a', _m(0)), ('board-a', _m(121))]) == [], 'after the hold it is not'
-assert search_repeats([('board-a', _m(0)), ('board-a', _m(0) + dt.timedelta(seconds=5))]) == [], 'a same-second race is not'
-assert search_repeats([('board-a', _m(0)), ('board-b', _m(30))]) == [], 'two towns are two holds'
+_s = lambda town, t, rec='ok', w='w1': (town, t, rec, w)
+assert search_repeats([_s('board-a', _m(0)), _s('board-a', _m(30))]) == [('board-a', _m(0), _m(30))], 'a search inside the hold is a repeat'
+assert search_repeats([_s('board-a', _m(0)), _s('board-a', _m(121))]) == [], 'after the hold it is not'
+assert search_repeats([_s('board-a', _m(0)), _s('board-a', _m(0) + dt.timedelta(seconds=5))]) == [], 'a same-second race is not'
+assert search_repeats([_s('board-a', _m(0)), _s('board-b', _m(30))]) == [], 'two towns are two holds'
+assert search_repeats([_s('board-a', _m(0), rec='fail'), _s('board-a', _m(30))]) == [], 'a failed write held nobody'
+assert search_repeats([_s('board-a', _m(0), w='old'), _s('board-a', _m(30), w='new')]) == [], 'a reseed is a new world'
+_every30s = [_s('board-a', _T + dt.timedelta(seconds=30 * k)) for k in range(20)]
+assert len(search_repeats(_every30s)) == 6, 'searches every 30 s are not one long race (Codex r2 P2)'
+assert town_of('isolated-a-Alpha') == 'isolated-a-Alpha' and town_of('board-a-Alpha') == 'board-a', 'isolated bots hold their own records'
 
 if __name__ == '__main__':
     import json
@@ -131,7 +152,7 @@ if __name__ == '__main__':
     ev_rows = sorted(load_window(PRE, END), key=lambda r: r['t'])
     bots = defaultdict(set); rows = Counter(); offbuild = 0
     n = Counter()                                   # (period, arm, what)
-    searches = []; untallied = []; disposed = Counter(); last_tally = {}; held_by_pool = Counter()
+    searches = []; searches_control = []; untallied = []; disposed = Counter(); last_tally = {}; held_by_pool = Counter(); leak = 0
     for r in ev_rows:
         t = r.get('t'); b = (r.get('bot') or {}).get('name')
         if t is None or not b:
@@ -148,13 +169,17 @@ if __name__ == '__main__':
             rs = reason_of(d)
             n[(period, arm, 'refused_' + str(rs))] += 1
             if rs == 'no_site':
+                if period == 'post':
+                    f = kv(d)
+                    (searches if arm == 'canary' else searches_control).append((town_of(b), t, f.get('rec'), f.get('w')))
                 if period == 'post' and arm == 'canary':
-                    searches.append((pool_of(b), t))
                     tl = tally_of(d)
                     if tl is None:
                         untallied.append((b, t.strftime('%H:%M:%S')))
                     else:
                         last_tally[pool_of(b)] = kv(d).get('tally')
+                if period == 'post' and arm == 'control' and ' tally=' in d:
+                    leak += 1                       # a control row with the canary's field: the control is not the base
             if rs == 'no_site_held' and period == 'post' and arm == 'canary':
                 held_by_pool[pool_of(b)] += 1
             if ' tally=cols:' in d and arm == 'canary' and period == 'post':
@@ -163,7 +188,7 @@ if __name__ == '__main__':
             n[(period, arm, 'build_orders')] += 1
         elif k == 'well_retired':
             n[(period, arm, 'retired')] += 1
-        elif k == 'dispose_well' and (r.get('status') == 'success'):
+        elif k == 'dispose_well' and (((r.get('raw') or {}).get('skill') or {}).get('status') == 'success'):   # Events rows carry no status (Claude r2 P2)
             n[(period, arm, 'dispose_success')] += 1
             if period == 'post' and arm == 'canary':
                 disposed[pool_of(b)] += 1
@@ -176,6 +201,9 @@ if __name__ == '__main__':
         return (rate('post', 'canary', what) - rate('pre', 'canary', what)) - (rate('post', 'control', what) - rate('pre', 'control', what))
 
     g1 = search_repeats(searches)
+    # THE BASE, judged by the same function (control rows carry no rec/w: treated as stored, one world) -- G1's positive
+    # control: in the same window the query finds the repeats the old code makes.
+    ctrl_rep = search_repeats([(tw, t, 'ok', '-') for tw, t, _r, _w in searches_control])
     inst = n[('post', 'control', 'refused_no_site')]
     print('rows walked %d  |  canary %s  sha %s  cutoff %s  window +%d min  |  bots pre/post canary %d/%d control %d/%d  |  offbuild canary rows %d'
           % (len(ev_rows), CAN, CV, CUT.strftime('%H:%MZ'), W, len(bots[('pre', 'canary')]), len(bots[('post', 'canary')]),
@@ -184,8 +212,9 @@ if __name__ == '__main__':
     print('G1 (gate)    completed searches repeated inside the 2 h hold, per canary town: %d %s | completed searches %d'
           % (len(g1), [(p, a.strftime('%H:%M'), b.strftime('%H:%M')) for p, a, b in g1[:4]], len(searches)))
     print('G2 (gate)    canary no_site rows with no tally=: %d %s' % (len(untallied), untallied[:3]))
-    print('INSTRUMENT   control no_site rows post %d (>= 1: the population exists and the query sees it); control pre %d'
-          % (inst, n[('pre', 'control', 'refused_no_site')]))
+    print('INSTRUMENT   control no_site rows post %d (>= 1: the population exists and the query sees it); control pre %d | G1 on the control (the base): %d repeats (>= 1: the gate sees the defect where it runs) | control rows with tally= (leak) %d'
+          % (inst, n[('pre', 'control', 'refused_no_site')], len(ctrl_rep), leak))
+    print('             NOTE: the search-rate DiD is biased toward the canary by construction -- the base logs a deferral as no_site, the canary as site_deferred. Report-only.')
     for what, label in (('refused_no_site', 'completed searches'), ('build_orders', 'build_well orders'), ('retired', 'well_retired rows'),
                         ('dispose_success', 'dispose_well successes')):
         print('PRIMARY      %-22s per bot-h  canary %.3f -> %.3f  control %.3f -> %.3f  DiD %+.3f'
@@ -208,7 +237,8 @@ if __name__ == '__main__':
             'search_rate_did': nanless(did('refused_no_site')), 'build_order_rate_did': nanless(did('build_orders')),
             'retired_rate_did': nanless(did('retired')), 'dispose_rate_did': nanless(did('dispose_success')),
             'dispose_success_canary': n[('post', 'canary', 'dispose_success')],
-            'exposure_ready': int(n[('post', 'canary', 'licence')] >= 1 and inst >= 1 and W >= 150),
+            'control_repeats': len(ctrl_rep), 'control_tally_rows': leak,
+            'exposure_ready': int(n[('post', 'canary', 'licence')] >= 1 and len(ctrl_rep) >= 1 and W >= 150),
         })
     except Exception as e:
         print('emit failed:', e)
