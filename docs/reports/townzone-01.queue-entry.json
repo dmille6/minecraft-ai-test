@@ -9,14 +9,14 @@
  "variants": {
   "9dc2ad5eb7a86bc2717790ed8de4009bdd91dfa9": {
    "registration": "/home/mike/mcai-analysis/townzone-01.9dc2ad5e.json",
-   "approved": "townground agent 2026-10-13: Codex code r1-r4 + Claude subagent code r1-r3 (docs/reports/townground-steps23-review-2026-10-13.txt); Claude final APPROVE A-E; Codex final APPROVE B/D/E, A/C APPROVE-WITH-CHANGES whose last items (scene E proving preemption; the roof-based climb) are fixed in the tips; npm test DT 246/246 at 9dc2ad5e, TZ 247/247 at b945226a; eslint no-undef: only the pre-existing reflex.mjs withinBody; licencecheck PASS (kind, baseline 0 / 6 h) and changerowcheck PASS (no change rows) on 82aef34 10-13 ~18:25Z; ORDINARY canary",
+   "approved": "townground agent 2026-10-13: Codex code r1-r4 + Claude subagent code r1-r3 (docs/reports/townground-steps23-review-2026-10-13.txt); Claude final APPROVE A-E; Codex final APPROVE B/D/E, A/C APPROVE-WITH-CHANGES whose last items (scene E proving preemption; the roof-based climb) are fixed in the tips; npm test DT 246/246 at 9dc2ad5e, TZ 247/247 at b945226a; eslint no-undef: only the pre-existing reflex.mjs withinBody; licencecheck PASS (kind, baseline 0 / 6 h) and changerowcheck PASS (no change rows) on 82aef34 10-13 ~18:25Z; Paper sandbox4 cand vs ctrl: town TARGET digs 0 vs 49 (docs/reports/townground-paper-2026-10-13.txt); ORDINARY canary",
    "canary_sha": "b945226a87282c77e1f876e3c13ae93784f8d271",
    "reads_src": "/home/mike/mcai-analysis",
    "reads": {
     "townzoneread": "d40891f8eda17c59f0e7afe0aacf860d",
     "immobiledid": "53af289df12208901931dbeeb1ae325a"
    },
-   "registration_sha256": "819a5ed1de8f0d475d45f7d9f0f4e048625709380af823d111a20737ce690a1c"
+   "registration_sha256": "07106e17fde73bf9af68694330f3b4fd9c37fb807c521e51bdd1998db547c867"
   }
  }
 }

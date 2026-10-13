@@ -69,12 +69,12 @@ its own canary) -> KEEP + fleet-wide promotion -> restart lag + a 180-min instru
   9dc2ad5e (digtown promoted). gather: town candidates filtered at enumeration + conjunctions; mine: 12-block rule kept,
   bearing filter, per-step check, walk-out (exits nearest first, accepted at a dry clear stair; under a roof climb first,
   never tunnel at depth); ore tunnel: 100 on town ground; TRANSIT UNTOUCHED (pathfinder discards moves > 100, so a price
-  is a veto); survival untouched. npm test 247/247. Paper: the real-bot zone scenes (sandbox/townground/zone-scenes.mjs: G gather from home, M mine in the square, P a 5-deep town pit, E entombed WHILE gathering -> survival digs + escape, F no dirt outside; candidate tz vs control dt) are PENDING -- /tmp/mcai-sandbox.lock has been held by the plinth agent since 15:51Z; the townground agent runs them when it frees and appends the result here. The queue entry for townzone-01 carries a hold until then anyway. Registration
+  is a veto); survival untouched. npm test 247/247. Paper: sandbox4 19:28-19:47Z (docs/reports/townground-paper-2026-10-13.txt), the real bot cand vs ctrl, world read by RCON: confirmed town-ground TARGET digs 0 vs 49 over five scenes (gather from home 0 vs 4 with +4 dirt from outside; mine 16 out walked out 0 vs 42; a 5-deep town pit: got out and gathered outside; entombed WHILE gathering: no tomb dig read target, escaped; no dirt outside: 0 vs 2, an honest failure). The queue entry for townzone-01 carries a hold (digtown promoted + 180 min). Registration
   ~/mcai-analysis/townzone-01.9dc2ad5e.json; read ~/mcai-analysis/townzoneread.py (md5 d40891f8; Z4/Z5/Z6 calibrated on
   44 null samples); licencecheck PASS (kind _town_ground, baseline 0).
 - Reviews: Codex r1-r4 + Claude subagent r1-r3 (docs/reports/townground-steps23-review-2026-10-13.txt). Final: Claude
-  APPROVE A-E; Codex APPROVE B/D/E, A and C APPROVE-WITH-CHANGES whose last items are fixed in the tips (scene E written to
-  prove preemption: pending the lock).
+  APPROVE A-E; Codex APPROVE B/D/E, A and C APPROVE-WITH-CHANGES whose last items are fixed in the tips (scene E run: no tomb dig
+  read target; reflex attribution seen on the real bot in P and E).
 - Queue entries (for the coordinator to `queue add`): docs/reports/digtown-01.queue-entry.json,
   docs/reports/townzone-01.queue-entry.json. Both need a variant on whatever the fleet is at their turn (stocktarget-01 is
   live now; `git merge-tree` of tz-on-82aef34 with st-on-82aef34 and wellsite-on-82aef34 is clean).

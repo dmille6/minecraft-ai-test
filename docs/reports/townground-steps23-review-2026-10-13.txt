@@ -32,3 +32,7 @@ DECISION (both engines): digtown-01 runs its OWN canary (instrument-only, determ
   promotion, then townzone-01 after the restart lag and a 180-min instrumented pre-window -- the zone's primary is a DiD on
   the instrument's rows, which the control arm must carry pre and post; a canary-only before/after is world-drift
   confounded (CLAUDE.md). townzoneread's COVERAGE gate refuses exposure until every arm x period is instrumented.
+PAPER (after the reviews, 19:28-19:47Z, docs/reports/townground-paper-2026-10-13.txt): instrument fixtures 7/7 with purposes
+  asserted at 9dc2ad5e; zone scenes cand b945226a vs ctrl 9dc2ad5e: town TARGET digs 0 vs 49. Scene E's first rule (every
+  tomb dig survival) was wrong -- the running gather's own pathfinder dug out first (transit) in the candidate, the reflex in
+  the control; the rule is now "no tomb dig reads target" plus escape, and both arms meet it.

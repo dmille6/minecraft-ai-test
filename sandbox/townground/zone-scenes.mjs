@@ -10,8 +10,8 @@
 //   P  a bot at the bottom of a 5-deep 1x1 pit inside town asks for dirt: candidate digs out (transit, priced) and gathers
 //      outside; control digs the town (Claude code r1 P2: the pit trap shown on real Paper, not only by a neighbour's cost).
 //   E  REFLEX PREEMPTION: the bot is GATHERING (an order of 30 dirt, so gather holds the body) when RCON entombs it in town
-//      (stone on every side and above). The reflexes take the body and dig out -- in both arms -- and every dig of the tomb
-//      must be labelled `survival` (never gather's target), and the bot must end outside the tomb (Codex code r2/r3 A).
+//      (stone on every side and above). Whatever digs it out -- a reflex (survival) or the running gather's own pathfinder
+//      (transit) -- no dig of the tomb may read as gather's TARGET, and the bot must end outside the tomb (Codex code r2-r4 A).
 //   F  gather dirt with NO dirt outside the square within reach (a stone floor beyond it): candidate refuses naming the
 //      remedy and digs nothing in town; control digs town.
 // Refuses unless /tmp/mcai-sandbox.lock on 10.0.0.31 names 'townground'.
@@ -92,14 +92,14 @@ const rowsOf = f => lines(f).map(l => { try { return JSON.parse(l) } catch { ret
 async function waitFor (pred, ms, step = 500) { for (const t0 = Date.now(); Date.now() - t0 < ms;) { const v = pred(); if (v) return v; await sleep(step) } return null }
 async function stopBot () { try { bot && bot.kill('SIGTERM') } catch {} bot = null; await waitFor(() => !new RegExp(NAME).test(rcon('list')[0]?.reply || ''), 30000, 1000) }
 async function startBot (scene, at, kit) {
-  const tag = `${RUN}-${ARM}-${scene}`
+  const tag = `${RUN}-${ARM}-${String(scene).split(" ")[0]}`   // no spaces: the env file is sourced
   const logRel = `./sandbox/log/townground/${tag}`
   const skillLog = `${R}/sandbox/log/townground/${tag}/skill-${NAME}.jsonl`
   const botOut = `${OUT}/bot-${tag}.out`
   let env = fs.readFileSync(`${R}/sandbox/sandbox-bot-scripted.env`, 'utf8')
   const set = (k, v) => { env = new RegExp(`^${k}=`, 'm').test(env) ? env.replace(new RegExp(`^${k}=.*$`, 'm'), `${k}=${v}`) : env + `\n${k}=${v}` }
   set('BOT_NAME', NAME); set('LOG_DIR', logRel); set('STATE_DIR', `./sandbox/state/townground-${tag}`); set('MEMORY_POOL', `sbxzone-${tag}`)
-  set('MINECRAFT_PORT', PORTS[SERVER]); set('MAX_CONSECUTIVE_FAILURES', 50); set('STUCK_SECONDS', 30); set('LLM_DECISION_COOLDOWN_MS', 3000)
+  set('MINECRAFT_PORT', PORTS[SERVER]); set('WORLD_BORDER_RADIUS', 5000); set('MAX_CONSECUTIVE_FAILURES', 50); set('STUCK_SECONDS', 30); set('LLM_DECISION_COOLDOWN_MS', 3000)
   for (const a of ['X', 'Y', 'Z']) { set(`HOME_${a}`, HOME[a.toLowerCase()]); set(`BOARD_${a}`, HOME[a.toLowerCase()]) }
   fs.writeFileSync(`${R}/sandbox/.env.townground`, env + '\n')
   const bo = fs.openSync(botOut, 'a')
@@ -144,7 +144,9 @@ async function scene (name, { at, decision, pit = 0, outsideDirt = true, ms = 15
     town_ground_rows: zrows.slice(0, 4), summaries: rows.filter(r => r.skill.name === '_dig_town_sum').length,
     during: duringOut, tomb_rows: duringOut?.tomb ? dig.filter(a => duringOut.tomb.some(c => c[0] === a.x && c[1] === a.y && c[2] === a.z)).map(a => `${a.purpose}:${String(a.by).split(':')[0]}:${a.outcome}`) : undefined,
   }
-  if (duringOut?.tomb) out.tomb_pass = duringOut.gatherStarted && duringOut.runningAtEntomb && out.tomb_rows.length > 0 && out.tomb_rows.every(x => x.startsWith('survival:')) && duringOut.escaped === true
+  // PASS: gather held the body at the entombment, the bot got out, and no dig of the tomb was read as a TARGET dig. Who dug
+  // it out is reported: on 10-13 the running gather's own pathfinder dug out first (transit) before any reflex fired.
+  if (duringOut?.tomb) out.tomb_pass = duringOut.gatherStarted && duringOut.runningAtEntomb && out.tomb_rows.length > 0 && out.tomb_rows.every(x => !x.startsWith('target:')) && duringOut.escaped === true
   record(out)
   return out
 }

@@ -1,0 +1,28 @@
+townzone-01 / digtown-01 -- Paper sandbox record (sandbox4, Paper 1.21.8-60, 10-13; lock held 19:28-19:47Z by the townground agent)
+
+INSTRUMENT FIXTURES (sandbox/townground/digtown-fixtures.mjs, bare mineflayer bots carrying digtown.mjs @ 9dc2ad5e):
+7/7 PASS with outcome AND purpose asserted -- S1 normal 5/5 confirmed = 5 removed (target:gather); S2 two bots, one cell x3:
+6 confirmed rows, deduped 3 = 3 removed; S3 abort: aborted, intact; S4 RCON kill mid-dig: death, intact; S5 dig 300 ms after
+join: unconfirmed, the world still holds the block (Paper ignores it: a ghost); S6a pathfinder dig: transit 4/4; S6b the
+tunnel's tagged profile: target:ore_tunnel 4/4.
+
+REAL-BOT ZONE SCENES (sandbox/townground/zone-scenes.mjs; the real bot from the branch, the WORLD read by RCON afterwards:
+removed = air cells the replace-fill found in the town square's slab, pit cells subtracted). Home 2410,120,2410.
+                                         CANDIDATE tz @ b945226a             CONTROL dt @ 9dc2ad5e (instrument only)
+ G gather dirt 4 from home               removed 0; +4 dirt (outside town)   removed 4; instrument 4 target:gather
+ M mine y=104 from 2425 (16 out, >12)    removed 0; walked out, y=105;        removed 42 (36 target:mine in the band
+                                         _town_ground mine_walkout=1          + 6 below it, class free)
+ P gather from a 5-deep 1x1 town pit     got out, +2 dirt; removed 1 (dug     removed 6; target:gather 2, survival 5
+                                         out: survival:reflex 3, transit)
+ E entombed in town WHILE gathering 30   gather held the body (running at     the entombed REFLEX dug out
+   (stone on every side and above)       entombment); its own pathfinder dug  (survival:reflex), then gather went on
+                                         out: tomb digs transit:gather 2,     taking town dirt (target:gather 5)
+                                         none target; escaped; +31 dirt
+ F gather dirt, no dirt outside town     removed 0; failed (unreachable       removed 2; target:gather 2
+                                         dirt below the arena), honestly
+TOTAL confirmed town-ground TARGET digs:  0                                    49
+Instrument vs world in the control: G 4/4, F 2/2; M 36 band rows vs 42 removed (the 6 below the band are class free).
+Notes: scene E's first rule (every tomb dig survival) was wrong for a bot whose running skill digs out first; it now
+requires no TARGET dig of the tomb (both arms meet that) and reports the actor. Reflex attribution on the real bot is shown
+in P (both arms) and E (control). The first two attempts died on the harness (a scene name with spaces in the sourced env;
+the bot's WORLD_BORDER_RADIUS 1950 from 0,0 excluded the arena at 2410): fixed, not code under test.
