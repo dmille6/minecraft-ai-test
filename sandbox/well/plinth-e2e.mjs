@@ -233,7 +233,8 @@ async function sceneBuild (fx, rep, kill) {
   const seen = new Map()   // cell -> first ms it read placed on the server
   const kills = []
   let lastPlaced = 0, sawHazard = null
-  const killAt = kill ? [Math.floor(plan.cost * 0.4), plan.hazardStep != null ? plan.hazardStep + 1 : Math.floor(plan.cost * 0.8)] : []
+  // first kill MID-VISIT (a visit places at most 40), second in the walled-in window (after the hazard step)
+  const killAt = kill ? [Math.min(15, Math.floor(plan.cost * 0.3)), plan.hazardStep != null ? plan.hazardStep + 1 : Math.floor(plan.cost * 0.8)] : []
   let done = null
   while (Date.now() - t0 < 30 * 60_000) {
     const { placed, cleared } = planCells(plan)

@@ -273,6 +273,42 @@ export function supportsFor (read, cell) {
   return out
 }
 
+/** May a click use this block as its support? Solid, not a liquid, and not a block a click would USE instead (a door, a
+ *  trapdoor, a container: the click opens it). Pure; supportsFor's own rule, for a recorded ref read again at its turn. */
+export function refUsable (b) {
+  return solid(b) && !LIQUID.test(b.name ?? '') && !/_trapdoor$|_door$|^chest$|^trapped_chest$|^barrel$|_shulker_box$|^crafting_table$|furnace$|^smoker$|^hopper$|^lectern$/.test(b.name ?? '')
+}
+
+/**
+ * IS THIS STAND GOOD FOR THIS CLICK, IN THE WORLD AS IT IS NOW? -> null (yes) | reason. Pure; the planner's own checks,
+ * asked again at the click's turn of a recorded stand and of any substitute (Codex r1 P1-1, Claude r1 P2-2):
+ *   standable, never in a forbidden column, never the target cell (feet or head), the eye within PLINTH_REACH of the
+ *   point, a top face only from above, a clear line of sight -- and AFTER the click (the target placed or cleared) the
+ *   stand still walks to `start` (the town): a click never walls its own builder in.
+ */
+export function standOk (read, { stand, target, point, topFace = false, op = 'place', start, box = null, forbid = () => false }) {
+  if (!stand || !target || !point || !start) return 'incomplete'
+  const { x, y, z } = stand
+  if (!standable(read, x, y, z)) return 'not standable'
+  if (forbid(x, y, z) || forbid(x, y + 1, z)) return 'in a well column'
+  if (x === target.x && z === target.z && (y === target.y || y + 1 === target.y)) return 'in the target cell'
+  const eye = { x: x + 0.5, y: y + EYE_HEIGHT, z: z + 0.5 }
+  if (topFace && eye.y <= point.y + 1e-9) return 'below the top face'
+  if (Math.hypot(eye.x - point.x, eye.y - point.y, eye.z - point.z) > PLINTH_REACH) return 'out of reach'
+  if (!sightClear(read, eye, point, new Set([K(target.x, target.y, target.z)]))) return 'no line of sight'
+  const after = overlay(read, new Map([[K(target.x, target.y, target.z), op === 'clear' ? AIR : PLACED]]))
+  if (!walkReach(after, start, { box, forbid }).has(K(x, y, z))) return 'walled in after the click'
+  return null
+}
+
+/** After a click that walls the column in, can a cover still be placed from a stand that walks to `start`? Pure. */
+export function coverableAfter (read, cap, { start, box = null, forbid = () => false }) {
+  const cr = coverRef(read, cap, null)
+  if (!cr) return false
+  const reach = walkReach(read, start, { box, forbid })
+  return !!standFor(read, { target: cap, point: faceCentre(cr.ref, [cr.face.x, cr.face.y, cr.face.z]), topFace: cr.face.y === 1, reach, avoid: forbid })
+}
+
 // ---- the hazard --------------------------------------------------------------------------------------------------------
 
 /**
@@ -306,7 +342,8 @@ export function plinthHazard (read, cap) {
 
 // ---- the planner -------------------------------------------------------------------------------------------------------
 
-const boxAround = (home, cap, pad = 6) => ({
+/** The walk probe's box: home and the cap, 6 around, 10 below and 8 above. Pure. */
+export const planBox = (home, cap, pad = 6) => ({
   x0: Math.min(Math.floor(home.x), cap.x) - pad, x1: Math.max(Math.floor(home.x), cap.x) + pad,
   z0: Math.min(Math.floor(home.z), cap.z) - pad, z1: Math.max(Math.floor(home.z), cap.z) + pad,
   y0: Math.min(Math.floor(home.y), cap.y) - 10, y1: Math.max(Math.floor(home.y), cap.y) + 8,
@@ -451,14 +488,17 @@ const finalStands = (read, cap) => CARD.map(([dx, dz]) => ({ x: cap.x + dx, y: c
  * placed in every hazardous state, and probes a walk from the town to a throwing stand at the end (with the cheapest
  * stair that makes it walkable).
  */
-export function sequencePlinth (read, cand, { home, start = null, clearLeaves = true, keepOut = [] } = {}) {
+export function sequencePlinth (read, cand, { home, start = null, clearLeaves = true, keepOut = [], otherColumns = [] } = {}) {
   const { cap } = cand
   const st = start ?? startNear(read, home)
   if (!st) return { why: 'no_start' }
-  const box = boxAround(home, cap)
-  const forbid = (x, y, z) => inColumn(cap, x, y, z)
+  const box = planBox(home, cap)
+  // THE OTHER COLUMNS this town has started (a voided or replaced plinth: still priced out of every path) are no stand
+  // and no route for this plan either (Claude r1 P3-4)
+  const others = (Array.isArray(otherColumns) ? otherColumns : []).filter(o => o && !(o.x === cap.x && o.y === cap.y && o.z === cap.z))
+  const forbid = (x, y, z) => inColumn(cap, x, y, z) || others.some(o => inColumn(o, x, y, z))
   let lastWhy = 'no_stair', lastStuck = null
-  for (const stair of stairOptions(read, cap, { keepOut })) {
+  for (const stair of stairOptions(read, cap, { keepOut }).filter(st => !st.some(c => others.some(o => inColumn(o, c.x, c.y, c.z))))) {
     // the finished world must be walkable to a throwing stand before any sequencing is worth doing
     const fin = new Map()
     for (const c of cand.fills) fin.set(K(c.x, c.y, c.z), PLACED)
@@ -550,7 +590,7 @@ export function planPlinth (opts = {}) {
 }
 /** planPlinth as a generator: it yields after each candidate it sequences, so a bot can let its event loop run between
  *  them (skills.mjs buildPlinth); the return value is planPlinth's. Pure. */
-export function * planPlinthSteps ({ read, home, avoid = [], keepOut = [], clearLeaves = true, start = null, maxTries = PLINTH_MAX_TRIES } = {}) {
+export function * planPlinthSteps ({ read, home, avoid = [], keepOut = [], clearLeaves = true, start = null, maxTries = PLINTH_MAX_TRIES, otherColumns = [] } = {}) {
   if (typeof read !== 'function' || !home) return { plan: null, why: 'no_home', tally: null, tried: 0 }
   const r = memoRead(read)
   const { cands, tally } = plinthCandidates({ read: r, home, avoid, keepOut, clearLeaves })
@@ -561,7 +601,7 @@ export function * planPlinthSteps ({ read, home, avoid = [], keepOut = [], clear
     // a candidate's cheap cost is a lower bound of its total (the stair only adds): none further can beat the best
     if (best && c.cost >= plinthTotal(best)) break
     tried++
-    const s = sequencePlinth(r, c, { home, start, clearLeaves, keepOut })
+    const s = sequencePlinth(r, c, { home, start, clearLeaves, keepOut, otherColumns })
     yield tried
     if (s.plan) { found++; if (!best || plinthTotal(s.plan) < plinthTotal(best)) best = s.plan; continue }
     tally[`seq_${s.why}`] = (tally[`seq_${s.why}`] ?? 0) + 1
@@ -666,11 +706,15 @@ export function plinthRecordState (rec, world = null) {
   return rec.state === 'complete' ? 'complete' : 'plan'
 }
 
-/** WHO HOLDS THE TOWN'S BUILD -> { free, mine, holder, leftMs }. Pure. An expired lease is free; a lease from the future too. */
-export function leaseState (lease, now = 0, me = '') {
+/**
+ * WHO HOLDS THE TOWN'S BUILD -> { free, mine, holder, leftMs }. Pure. An expired lease is free; a lease from the future
+ * too. `me` is the holder's TOKEN (one per acquisition, Codex r1 P1-2): the same username on a new connection is not the
+ * holder, and waits out the old one's lease like anyone else. A lease without a token compares its `by`.
+ */
+export function leaseState (lease, now = 0, me = null) {
   const until = Number(lease?.until), at = Number(lease?.at)
   if (!lease || !Number.isFinite(until) || until <= now || (Number.isFinite(at) && at > now + 60_000)) return { free: true, mine: false, holder: null, leftMs: 0 }
-  if (lease.by === me) return { free: true, mine: true, holder: me, leftMs: until - now }
+  if (me != null && (lease.token ?? lease.by) === me) return { free: true, mine: true, holder: lease.by ?? null, leftMs: until - now }
   return { free: false, mine: false, holder: lease.by ?? '?', leftMs: until - now }
 }
 
@@ -686,7 +730,8 @@ export function plinthWant ({ wellUsable = false, rec = null, noSite = null, wor
   if (wellUsable) return { want: null, why: 'well' }
   const state = plinthRecordState(rec, world)
   const noSiteHere = !!noSite && Number.isFinite(Number(noSite.at)) && sameWorld(noSite.world ?? null, world)
-  if (state === 'plan') return { want: 'build', why: 'plan' }
+  // `left`: the places the last visit left (0: only the hand-off is owed, which needs no blocks)
+  if (state === 'plan') return { want: 'build', why: 'plan', left: Number.isFinite(Number(rec.left)) ? Number(rec.left) : null }
   if (state === 'none') {
     const age = now - Number(rec.at)
     if (Number.isFinite(age) && age >= 0 && age < PLINTH_NONE_BACKOFF_MS) return { want: null, why: 'none_held' }
@@ -710,7 +755,7 @@ export function plinthWant ({ wellUsable = false, rec = null, noSite = null, wor
  * Funded: budget >= PLINTH_MIN_FUND, or a free slot and a town chest to withdraw from. A planning visit needs no funds.
  */
 export function plinthOrder ({ now = 0, distHome = Infinity, inside = false, want = null, lease = null, budget = 0, freeSlots = 0,
-                               chests = false, state = {} } = {}) {
+                               chests = false, chestSlots = 1, state = {} } = {}) {
   const s = { ...state }
   const none = () => ({ order: null, state: s })
   if (!(distHome <= TOWN_RADIUS)) return none()
@@ -724,8 +769,9 @@ export function plinthOrder ({ now = 0, distHome = Infinity, inside = false, wan
   const l = lz(lease)
   if (l && !l.free) return none()
   const b = Number(lz(budget)) || 0
-  const funded = b >= PLINTH_MIN_FUND || (freeSlots >= 1 && !!lz(chests))
-  if (w.want === 'build' && !funded) return none()
+  // THE CHEST ROUTE needs room for what would make the bag spendable (Claude r1 P3-5: one slot only topped up the reserve)
+  const funded = b >= PLINTH_MIN_FUND || (freeSlots >= Math.max(1, Number(lz(chestSlots)) || 1) && !!lz(chests))
+  if (w.want === 'build' && !funded && w.left !== 0) return none()
   s.lastAt = now
   return { order: { skill: 'build_plinth', args: {}, why: w.want === 'plan' ? 'no junk well site in town: plan a raised well' : `the town's raised junk well is unfinished; ${b} block(s) to spend${b < PLINTH_MIN_FUND ? ' (more from a town chest)' : ''}` }, state: s }
 }
@@ -738,6 +784,38 @@ export function plinthOrderOutcome (status, now = 0, state = {}, failClass = nul
   if (status !== 'failed') return s
   s.backoffUntil = now + (failClass === 'plinth_attended' || failClass === 'plinth_lease' ? PLINTH_COOLDOWN_MS : PLINTH_BACKOFF_MS)
   return s
+}
+
+/** At most this many earlier plinth columns are remembered (each one a column every path prices out). */
+export const PLINTH_PREV_MAX = 32
+/**
+ * THE COLUMNS A NEW RECORD MUST KEEP WATCHING -> [cap]. Pure. The old record's plan cap (plan, void or complete) and its
+ * own `prev`, deduplicated, keeping only those whose column is still a hazard or cannot be read (`hazardOf(cap)` true or
+ * null; the caller judges the column WITH ITS CAP CELL OPEN, since a cover is one block a gatherer may take): a part-built
+ * plinth whose column could trap no body is a block of cobble and is let go; one that may trap a body is never forgotten
+ * by a replan or a failed search (Codex r1 P1-3). The new plan's own cap is not one of them.
+ */
+export function carryPrev (rec, hazardOf, newCap = null) {
+  const caps = []
+  if (rec?.plan?.cap) caps.push(rec.plan.cap)
+  for (const c of (Array.isArray(rec?.prev) ? rec.prev : [])) caps.push(c)
+  const out = []
+  for (const c of caps) {
+    if (!c || !Number.isFinite(c.x) || !Number.isFinite(c.y) || !Number.isFinite(c.z)) continue
+    if (newCap && c.x === newCap.x && c.y === newCap.y && c.z === newCap.z) continue
+    if (out.some(o => o.x === c.x && o.y === c.y && o.z === c.z)) continue
+    if (hazardOf(c) === false) continue
+    out.push({ x: c.x, y: c.y, z: c.z })
+  }
+  return out.slice(0, PLINTH_PREV_MAX)
+}
+/** Visits that made no progress on the same step before the plan is voided and replanned (Claude r1 P2-1). */
+export const PLINTH_STUCK_VISITS = 3
+/** The record's stall counter after a visit -> { step, n } | null. Pure: progress clears it; no progress on the same
+ *  first-remaining step counts up; a different step starts again at 1. */
+export function stuckNext (stuck, { step, progressed }) {
+  if (progressed || step == null) return null
+  return stuck && stuck.step === step ? { step, n: (Number(stuck.n) || 0) + 1 } : { step, n: 1 }
 }
 
 /** The pathfinder's dig veto for the plan's cells outside the well's own 5x5 box (the stair): 100 = never dug. */

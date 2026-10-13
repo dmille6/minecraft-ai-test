@@ -434,6 +434,87 @@ await t('plinthDetail: stage first, key=value, cut at 300', () => {
 })
 
 // =====================================================================================================================
+// REVIEW r1: the click re-proved at its turn; carried columns; stalls; leases with tokens; the chest route's room
+// =====================================================================================================================
+await t('standOk: the planner\'s checks asked again -- standable, not the column, not the target, reach, top face, sight, and never walled in by its own click (Codex r1 P1-1)', () => {
+  const read = slabWorld()
+  const start = { x: 0, y: SLAB_Y + 1, z: 0 }, box = { x0: -10, x1: 20, y0: 50, y1: 80, z0: -10, z1: 10 }
+  const target = { x: 5, y: SLAB_Y + 1, z: 0 }, pt = P.faceCentre({ x: 5, y: SLAB_Y, z: 0 }, [0, 1, 0])
+  const base = { target, point: pt, topFace: true, op: 'place', start, box }
+  assert.equal(P.standOk(read, { ...base, stand: { x: 4, y: SLAB_Y + 1, z: 0 } }), null, 'positive control')
+  assert.equal(P.standOk(read, { ...base, stand: { x: 5, y: SLAB_Y + 1, z: 0 } }), 'in the target cell')
+  assert.equal(P.standOk(read, { ...base, stand: { x: 4, y: SLAB_Y + 1, z: 0 }, forbid: (x, y, z) => x === 4 }), 'in a well column')
+  assert.equal(P.standOk(read, { ...base, stand: { x: 12, y: SLAB_Y + 1, z: 0 } }), 'out of reach')
+  assert.equal(P.standOk(read, { ...base, stand: { x: 4, y: SLAB_Y + 2, z: 0 } }), 'not standable')
+  const wall = slabWorld({ [K(5, SLAB_Y + 2, 0)]: B('stone'), [K(4, SLAB_Y + 3, 0)]: B('stone') })
+  assert.equal(P.standOk(wall, { ...base, stand: { x: 5, y: SLAB_Y + 1, z: 1 }, point: P.faceCentre({ x: 5, y: SLAB_Y + 2, z: 0 }, [0, -1, 0]), topFace: false }), 'no line of sight', 'a face whose only view is through stone')
+  // AN ALCOVE: a 1-wide dead end whose only way out is the cell the click fills
+  const alcove = {}
+  for (let x = 3; x <= 7; x++) for (let y = SLAB_Y + 1; y <= SLAB_Y + 3; y++) { alcove[K(x, y, 1)] = B('stone'); alcove[K(x, y, -1)] = B('stone') }
+  for (let y = SLAB_Y + 1; y <= SLAB_Y + 3; y++) alcove[K(8, y, 0)] = B('stone')
+  for (let x = 3; x <= 7; x++) alcove[K(x, SLAB_Y + 3, 0)] = B('stone')   // the alcove's roof: no stepping up onto the new block
+  const ar = slabWorld(alcove)
+  const t2 = { x: 6, y: SLAB_Y + 1, z: 0 }, p2 = P.faceCentre({ x: 6, y: SLAB_Y, z: 0 }, [0, 1, 0])
+  assert.equal(P.standOk(ar, { target: t2, point: p2, topFace: true, op: 'place', start, box, stand: { x: 7, y: SLAB_Y + 1, z: 0 } }), 'walled in after the click', 'the stand behind the cell it fills')
+  assert.equal(P.standOk(ar, { target: t2, point: p2, topFace: true, op: 'place', start, box, stand: { x: 5, y: SLAB_Y + 1, z: 0 } }), null, 'the stand on the town side')
+})
+await t('refUsable: a recorded support read again -- a chest, a barrel, a door, a trapdoor or a crafting table put there is no support (the click would use it)', () => {
+  assert.equal(P.refUsable(B('cobblestone')), true)
+  for (const n of ['chest', 'barrel', 'oak_door', 'crafting_table', 'furnace', 'water']) assert.equal(P.refUsable(B(n)), false, n)
+  assert.equal(P.refUsable({ name: 'oak_trapdoor', boundingBox: 'block', shapes: [] }), false)
+  assert.equal(P.refUsable(AIR), false)
+})
+await t('carryPrev: a replan or a failed search keeps every column that may still trap a body (true or unknown) and lets go only of the safe ones (Codex r1 P1-3)', () => {
+  const c1 = { x: 1, y: 70, z: 1 }, c2 = { x: 9, y: 70, z: 9 }, c3 = { x: 20, y: 70, z: 20 }
+  const rec = { plan: { cap: c1 }, prev: [c2, c3, c2] }
+  const hz = c => (c.x === 1 ? true : c.x === 9 ? null : false)
+  assert.deepEqual(P.carryPrev(rec, hz), [c1, c2], 'hazard and unknown kept, the safe one dropped, no duplicates')
+  assert.deepEqual(P.carryPrev(rec, hz, c1), [c2], 'the new plan\'s own cap is not carried')
+  assert.deepEqual(P.carryPrev({ state: 'none', prev: [c1] }, () => true), [c1], 'a no-plan record still carries')
+  assert.deepEqual(P.carryPrev(null, () => true), [])
+  const many = { prev: Array.from({ length: 50 }, (_, i) => ({ x: i, y: 70, z: 0 })) }
+  assert.equal(P.carryPrev(many, () => true).length, P.PLINTH_PREV_MAX)
+})
+await t('stuckNext: progress clears it; no progress on the same step counts up; another step starts again', () => {
+  assert.equal(P.stuckNext({ step: 3, n: 2 }, { step: 3, progressed: true }), null)
+  assert.deepEqual(P.stuckNext(null, { step: 3, progressed: false }), { step: 3, n: 1 })
+  assert.deepEqual(P.stuckNext({ step: 3, n: 2 }, { step: 3, progressed: false }), { step: 3, n: 3 })
+  assert.deepEqual(P.stuckNext({ step: 3, n: 2 }, { step: 4, progressed: false }), { step: 4, n: 1 })
+})
+await t('coverableAfter: a walled-in column can be covered from a stand that walks to town; not when nothing walls the cap level', () => {
+  const plan = SLAB_PLAN.plan, cap = plan.cap
+  const forbid = (x, y, z) => P.inColumn(cap, x, y, z)
+  const walled = applied(slabWorld(), plan, plan.hazardStep + 1)
+  assert.equal(P.plinthHazard(walled, cap), true)
+  assert.equal(P.coverableAfter(walled, cap, { start: plan.start, box: boxOf(plan), forbid }), true, 'the plan\'s walled-in state')
+  assert.equal(P.coverableAfter(slabWorld(), cap, { start: plan.start, box: boxOf(plan), forbid }), false, 'no wall at the cap level: no cover reference')
+  assert.equal(P.coverableAfter(walled, cap, { start: plan.start, box: boxOf(plan), forbid: () => true }), false, 'no stand that walks to town')
+})
+await t('leaseState with tokens: the same username on a new connection is not the holder (Codex r1 P1-2)', () => {
+  const L = { by: 'a', token: 'a-1', at: 900, until: 2000 }
+  assert.equal(P.leaseState(L, 1000, 'a-1').mine, true)
+  assert.equal(P.leaseState(L, 1000, 'a-2').free, false, 'a new token waits out the old lease')
+  assert.equal(P.leaseState(L, 1000, null).free, false)
+  assert.equal(P.leaseState(L, 2000, 'a-2').free, true, 'expired')
+})
+await t('plinthOrder: the chest route needs room for what makes the bag spendable (Claude r1 P3-5); a hand-off-only plan needs no funds', () => {
+  const NOW = 90_000_000
+  const base = { now: NOW, distHome: 5, want: { want: 'build', left: 20 }, lease: { free: true }, budget: 0, freeSlots: 1, chests: true, state: {} }
+  assert.equal(P.plinthOrder({ ...base, chestSlots: 2 }).order, null, 'one slot where two are needed')
+  assert.equal(P.plinthOrder({ ...base, freeSlots: 2, chestSlots: 2 }).order?.skill, 'build_plinth')
+  assert.equal(P.plinthOrder({ ...base, chests: false, want: { want: 'build', left: 0 } }).order?.skill, 'build_plinth', 'only the hand-off is owed')
+})
+await t('otherColumns: a plan keeps its stands and stair out of every other column the town started (Claude r1 P3-4)', () => {
+  const plan = SLAB_PLAN.plan
+  // an old column right where the slab plan stands: the plan around it must not stand in it
+  const s0 = plan.steps[0].s
+  const other = { x: s0[0], y: s0[1] + 1, z: s0[2] }
+  const r = P.planPlinth({ read: slabWorld(), home: HOME, otherColumns: [other] })
+  assert.ok(r.plan)
+  for (const s of r.plan.steps) assert.ok(!P.inColumn(other, ...s.s) && !P.inColumn(other, s.s[0], s.s[1] + 1, s.s[2]), `stand ${s.s} in the other column`)
+})
+
+// =====================================================================================================================
 // MUTANTS: each anchor present and unique; each must change an outcome above
 // =====================================================================================================================
 await t('MUTANT: support from the block ABOVE allowed -> a bottom-face click appears in some plan, and the step test catches it', async () => {
@@ -488,6 +569,24 @@ await t('MUTANT: the hazard never recorded -> hazardStep stays null on a raised 
     const r = M.planPlinth({ read: slabWorld(), home: HOME })
     assert.equal(r.plan.hazardStep, null)
     assert.notEqual(SLAB_PLAN.plan.hazardStep, null)
+  })
+})
+
+await t('MUTANT: standOk without the after-click walk -> the alcove stand behind the cell it fills is accepted', async () => {
+  await withMutant(PP, "  if (!walkReach(after, start, { box, forbid }).has(K(x, y, z))) return 'walled in after the click'\n", '', async M => {
+    const alcove = {}
+    for (let x = 3; x <= 7; x++) for (let y = SLAB_Y + 1; y <= SLAB_Y + 3; y++) { alcove[K(x, y, 1)] = B('stone'); alcove[K(x, y, -1)] = B('stone') }
+    for (let y = SLAB_Y + 1; y <= SLAB_Y + 3; y++) alcove[K(8, y, 0)] = B('stone')
+    for (let x = 3; x <= 7; x++) alcove[K(x, SLAB_Y + 3, 0)] = B('stone')
+    const args = { target: { x: 6, y: SLAB_Y + 1, z: 0 }, point: P.faceCentre({ x: 6, y: SLAB_Y, z: 0 }, [0, 1, 0]), topFace: true, op: 'place', start: { x: 0, y: SLAB_Y + 1, z: 0 }, box: { x0: -10, x1: 20, y0: 50, y1: 80, z0: -10, z1: 10 }, stand: { x: 7, y: SLAB_Y + 1, z: 0 } }
+    assert.equal(M.standOk(slabWorld(alcove), args), null, 'the mutant accepts it')
+    assert.equal(P.standOk(slabWorld(alcove), args), 'walled in after the click')
+  })
+})
+await t('MUTANT: carryPrev drops the unknown columns -> an unreadable pit is forgotten', async () => {
+  await withMutant(PP, "    if (hazardOf(c) === false) continue\n", "    if (hazardOf(c) !== true) continue\n", async M => {
+    assert.deepEqual(M.carryPrev({ prev: [{ x: 9, y: 70, z: 9 }] }, () => null), [])
+    assert.deepEqual(P.carryPrev({ prev: [{ x: 9, y: 70, z: 9 }] }, () => null), [{ x: 9, y: 70, z: 9 }])
   })
 })
 
