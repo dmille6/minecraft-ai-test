@@ -10391,6 +10391,7 @@ async function mine(ctx, { y: targetY = 12 }, signal) {
       try {
         // Guarded: a missing lookAt must not turn a recovery into a throw that
         // aborts the whole descent. The impulse is worth trying without it.
+        check(signal)                                 // not even a head turn after the abort (Claude ap3 r1 P3-2)
         if (typeof bot.lookAt === 'function') await bot.lookAt(cellFeet.offset(0.5, 0.5, 0.5), true)
         check(signal)                                 // no shove into the tread after the abort
         bot.setControlState('forward', true)
