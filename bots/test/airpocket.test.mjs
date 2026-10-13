@@ -889,12 +889,14 @@ await t('P8 the wait POKES the guard (a skill that starts meanwhile is interrupt
   const run = async mod => {
     const bot = fakeBot({}); bot.currentWindow = { id: 3 }
     setTimeout(() => { bot.currentWindow = null }, 60)
-    let pokes = 0, equipAt = null
-    const eq0 = bot.equip; bot.equip = async it => { if (equipAt == null) equipAt = Date.now(); return eq0(it) }
+    // ORDER, not milliseconds (ap3 r1: the pre-dig guard runs in the same ms as the equip and counted as "before" it)
+    let seq = 0, equipAt = null
+    const eq0 = bot.equip; bot.equip = async it => { if (equipAt == null) equipAt = ++seq; return eq0(it) }
     const guardAt = []
-    await mod.airPocketStep(bot, mod.airPocketPlan(world(HIVE_C)), deps({ guard: () => { guardAt.push(Date.now()); return null } }))
+    await mod.airPocketStep(bot, mod.airPocketPlan(world(HIVE_C)), deps({ guard: () => { guardAt.push(++seq); return null } }))
     clearInterval(bot._healthTimer)
-    return guardAt.filter(g => g <= equipAt).length
+    assert.ok(equipAt != null, 'the step never equipped')
+    return guardAt.filter(g => g < equipAt).length
   }
   assert.ok(await run({ airPocketStep, airPocketPlan }) > 0)
   await withMutant(AP_PATH, '        poke: () => { guard(); try {', '        poke: () => { try {', async m => { assert.equal(await run(m), 0) })
@@ -1384,6 +1386,24 @@ await t('AP3-V4 NOT contested: the same abort with nobody else on the body keeps
   const b = fakeBot({ digMs: 1e6 }); b.inventory.items = () => [hb('stone_pickaxe', 9)]
   const rb = await airPocketStep(b, airPocketPlan(world(HIVE_C)), deps({ skillBusy: () => true })); clearInterval(b._healthTimer)
   assert.equal(rb.window, 'unsettled'); assert.ok(b.stopped >= 1); assert.notEqual(rb.contested, true)
+})
+await t('AP3-V6 A LIVE PATH IS HALTED BEFORE THE DIG (Claude r1 P3-1): a goal left by a skill would dig on the next tick and take ours', async () => {
+  // the pathfinder: while a goal is set it digs on its next tick, cancelling whatever dig is in flight
+  const mk = () => {
+    const a = fakeBot({ onDig: b => setTimeout(() => { if (b.pathfinder.goal) b.stopDigging() }, 10) })
+    a.inventory.items = () => [hb('stone_pickaxe', 37)]; a.heldItem = hb('stone_pickaxe', 37)   // held: no handoff, no poke
+    a.pathfinder = { goal: { x: 1 } }
+    return a
+  }
+  const guardOf = b => () => { if (b.pathfinder.goal) b.pathfinder.goal = null; return null }
+  const a = mk()
+  const r = await airPocketStep(a, airPocketPlan(world(HIVE_C)), deps({ guard: guardOf(a) })); clearInterval(a._healthTimer)
+  assert.equal(a.pathfinder.goal, null); assert.equal(r.ok, true, r.why); assert.equal(a.controls.jump, true)
+  await withMutant(AP_PATH, "      { const g = guard(); if (g) aborted = aborted ?? g }\n", '', async m => {
+    const b = mk()
+    const rb = await m.airPocketStep(b, m.airPocketPlan(world(HIVE_C)), deps({ guard: guardOf(b) })); clearInterval(b._healthTimer)
+    assert.equal(rb.ok, false, 'mutant inert'); assert.match(rb.why, /Digging aborted/)
+  })
 })
 await t('AP3-V5 MUTANTS: no contested branch (V2 fails), no timedOut exclusion (V4 fails), no skillBusyNow (V3 fails), no handoffUnsettled (V2 fails)', async () => {
   await withMutant(AP_PATH, "          res.contested = true; res.handoffHeld = true; res.why += ' (contested: a skill still held the body)'\n", '', async m => {
