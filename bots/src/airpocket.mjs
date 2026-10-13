@@ -725,6 +725,9 @@ export async function airPocketStep (bot, plan, { Vec3, predict, sleep = ms => n
       { const g = guard(); if (g) aborted = aborted ?? g }
       try { bot.setControlState('jump', wantJump) } catch { /* not connected */ }
       try { await Promise.race([bot.lookAt(cellPos.offset(0.5, 0, 0.5), true), sleep(500)]) } catch { /* a late look moves only the head */ }
+      // ...and AGAIN after the look (both r2 reviews, P3): a halted pathfinder dig's catch runs resetPath('dig_error') ->
+      // clearControlStates during the look's await, after the re-assert above
+      try { bot.setControlState('jump', wantJump) } catch { /* not connected */ }
       // SETTLE AT THE CALL (Claude r3 P2): the jump follows the client's ground state until the two agree, at most 3 x
       // 300 ms, and the dig is RE-PRICED in the state it will be sent in (mineflayer prices it the same way at the call)
       for (let k = 0; k < 3 && !bodyAgrees({ onGround: bot.entity?.onGround, wantJump }); k++) {
