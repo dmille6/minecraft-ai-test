@@ -163,5 +163,5 @@ export function walkOutPoints (from, home) {
   return [
     { d: (hx + R) - x, x: hx + R, z, bear: { x: 1, z: 0 } }, { d: x - (hx - R), x: hx - R, z, bear: { x: -1, z: 0 } },
     { d: (hz + R) - z, x, z: hz + R, bear: { x: 0, z: 1 } }, { d: z - (hz - R), x, z: hz - R, bear: { x: 0, z: -1 } },
-  ].sort((a, b) => a.d - b.d).map(({ x, z, bear }) => ({ x, z, bear }))
+  ].filter(o => o.d >= 0).sort((a, b) => a.d - b.d).map(({ x, z, bear }) => ({ x, z, bear }))   // never toward town (Claude code r1 P2)
 }

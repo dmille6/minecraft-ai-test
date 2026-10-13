@@ -69,7 +69,7 @@ import { WOODEN_TRAPDOOR, isWellJunk, disposePlan, wellIdentity, wellStage, well
 import { resyncPacket, GUARDED_INVENTORY_ACTIONS } from './craftsync.mjs'
 import path from 'node:path'
 import { IRON_KINDS, MIN_TRIP_USES, CANDIDATE_RADIUS, breakHazard, nearHome, pickBudget, rankCandidates, clusterOf, tunnelMovements, planTunnel, ONE_PICK_USES, tripDecision } from './oretunnel.mjs'
-import { townDigClass, townTargetPermit, stairTownClear, walkOutPoints, noteTownGround, configuredHome, TOWN_GROUND_HALF } from './townground.mjs'
+import { townDigClass, townTargetPermit, stairTownClear, walkOutPoints, noteTownGround, configuredHome, inTownBox, TOWN_GROUND_HALF } from './townground.mjs'
 import pkg from 'mineflayer-pathfinder'
 const { goals, Movements } = pkg
 import { Vec3 } from 'vec3'
@@ -1594,7 +1594,7 @@ async function tunnelToOre(ctx, signal, { deadlineMs = 150_000 } = {}) {
   if (!candidates.length) {
     return out({ status: 'failed', failClass: 'no_tunnel', detail: `iron within ${CANDIDATE_RADIUS} blocks, but every ore has liquid or a falling block beside it` }, `refused: ${found.length} found, 0 safe`)
   }
-  const moves = bot.tunnelMovements ?? tunnelMovements(bot, bot.gatherMovements, { home: townHome() })
+  const moves = bot.tunnelMovements ?? tunnelMovements(bot, bot.gatherMovements, { home: townHome() ?? home })
   const plan = await planTunnel(bot, { candidates, moves })
   check(signal)
   if (!plan.ok) {
@@ -8772,7 +8772,7 @@ async function mine(ctx, { y: targetY = 12 }, signal) {
       status: 'failed',
       failClass: 'forbidden',
       detail: `will not dig down within ${Math.round(dHome)} blocks of home — ` +
-              'the base floor is not a resource; walk out at least 12 blocks first',
+              `the base floor is not a resource; walk out at least ${TOWN_GROUND_HALF + 4} blocks first (the town's ground reaches ${TOWN_GROUND_HALF})`,
     }
   }
 
@@ -8860,34 +8860,44 @@ async function mine(ctx, { y: targetY = 12 }, signal) {
   // NO CLEAR BEARING, or the only clear ones are wet at the first tread while a dry one runs into town (the water case,
   // Claude r2 P2-e): walk out first. A wet bearing with a dry town bearing beside it is not a choice this skill may leave
   // the model with -- "water in every other direction" would be false.
+  // Only a bot INSIDE the town's box walks out (Claude code r1 P2: from outside, the nearest "exit" lies back toward town).
+  const inTown = () => inTownBox(bot.entity.position.floored(), townHome())
+  const dryClear = () => { const from = bot.entity.position.floored(); return stairBearings(bot).some(b => townAllow(b) && stairRunway(bot, from, b) > 0) }
   const townBlocked = () => {
     const all = stairBearings(bot), from = bot.entity.position.floored()
     const ok = all.filter(townAllow)
     if (!ok.length) return true
-    if (ok.length === all.length) return false
+    if (ok.length === all.length || !inTown()) return false
     return ok.every(bear => stairRunway(bot, from, bear) === 0) && all.some(bear => !townAllow(bear) && stairRunway(bot, from, bear) > 0)
   }
+  // the dry way was the town's: said in the water refusal below, so "in every other direction" is never claimed falsely
+  let townExcludedDry = false
   if (townBlocked()) {
     noteTownGround(bot, 'mine_bearing_refused')
-    // EVERY EXIT, nearest first, until one is reached and a stair can start there (Codex code r1 P2: one obstructed exit
-    // must not end the chain). Bounded: four gotos at most.
-    let walked = null, out = null
+    // EVERY EXIT, nearest first, until one is reached AND a clear stair with a dry first tread can start there (Codex code
+    // r1 P2: one obstructed exit must not end the chain; Claude code r1 P2: a pond at the nearest exit must not hand the
+    // bot back to the water refusal and from there to town). Bounded: four gotos at most.
+    let walked = null, out = null, found = false
     for (const p of walkOutPoints(bot.entity.position, townHome())) {
       out = p
       noteTownGround(bot, 'mine_walkout')
       walked = await goto(ctx, { x: p.x, y: Math.floor(bot.entity.position.y), z: p.z, range: 2 }, signal).catch(e => ({ status: 'failed', detail: String(e?.message ?? e) }))
       check(signal)
-      if (!townBlocked()) break
+      if (!townBlocked() && dryClear()) { found = true; break }
     }
-    if (!out || townBlocked()) {
+    if (!found) {
       noteTownGround(bot, 'mine_refused')
       return {
         status: 'failed', failClass: 'town_ground',
-        detail: `reason=town_ground walked_out=${walked?.status ?? '?'} last=${out?.x},${out?.z}: every stair from ` +
+        detail: `reason=town_ground walked_out=${walked?.status ?? '?'} last=${out?.x},${out?.z}: no exit from the town's ground ` +
+                `gave a dry stair start (every stair from ` +
                 `${Math.round(bot.entity.position.x)},${Math.round(bot.entity.position.y)},${Math.round(bot.entity.position.z)} ` +
-                `would cut the town's ground -- goto a spot ${TOWN_GROUND_HALF + 4}+ blocks from home, then mine`,
+                `cuts the town's ground or meets water) -- goto a dry spot ${TOWN_GROUND_HALF + 14}+ blocks from home, then mine`,
       }
     }
+  } else {
+    const from = bot.entity.position.floored()
+    townExcludedDry = stairBearings(bot).some(b => !townAllow(b) && stairRunway(bot, from, b) > 0)
   }
   const choice = chooseStairBearing(bot, bot.entity.position.floored(), undefined, townAllow)
   const bear = choice.bear
@@ -9015,9 +9025,12 @@ async function mine(ctx, { y: targetY = 12 }, signal) {
                          // cell cannot do anything -- which is precisely the
                          // loop the fleet was in. Say so, and name `goto`.
                          (choice.runway === 0
-                           ? ' — and in every other direction from here, so mining ' +
-                             'again from this spot cannot help; goto somewhere ' +
-                             'drier first, or gather on the surface'
+                           ? (townExcludedDry
+                               ? ' — and in every direction from here except the one under the town\'s ground, so ' +
+                                 'mining again from this spot cannot help; goto somewhere drier away from home first'
+                               : ' — and in every other direction from here, so mining ' +
+                                 'again from this spot cannot help; goto somewhere ' +
+                                 'drier first, or gather on the surface')
                            : '') }
       }
     }

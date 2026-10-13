@@ -95,6 +95,7 @@ test('STAIR CLEAR: from home every bearing cuts town ground; at the edge facing 
 
 test('WALK OUT: every exit, nearest first, 3 past the square, keeping the other coordinate', () => {
   assert.deepEqual(walkOutPoints({ x: 214, y: 65, z: 200 }, HOME).map(p => [p.x, p.z]), [[219, 200], [214, 219], [214, 181], [181, 200]])
+  assert.deepEqual(walkOutPoints({ x: 240, y: 65, z: 200 }, HOME).map(p => [p.x, p.z]), [[240, 219], [240, 181], [181, 200]], 'from outside, never an exit behind the bot toward town')
   assert.deepEqual(walkOutPoint({ x: 210.4, y: 65, z: 203 }, HOME), { x: 219, z: 203, bear: { x: 1, z: 0 } })
   assert.deepEqual(walkOutPoint({ x: 199, y: 65, z: 188 }, HOME), { x: 199, z: 181, bear: { x: 0, z: -1 } })
   assert.equal(walkOutPoint({ x: 1, y: 1, z: 1 }, null), null)
@@ -185,7 +186,7 @@ test('CHAIN gather: the nearest 32 dirt cells are town ground and three lie outs
   const r = await SKILLS.gather.run({ bot }, { block: 'dirt', count: 1 }, new AbortController().signal).catch(e => ({ status: 'threw', detail: e.message }))
   for (const p of digs) assert.equal(townDigClass(p, 'dirt', HOME), 'free', `dug town ground at ${p}`)
   assert.ok(digs.some(p => p.x >= 219), `the dirt outside the town was the one taken (digs ${JSON.stringify(digs)}, result ${JSON.stringify(r).slice(0, 200)})`)
-  assert.ok(bot.townGround?.gather_skipped > 0 || true)
+  assert.ok(bot.townGround?.gather_skipped > 0, 'the skipped town candidates are counted for the liveness row')
 })
 
 test('CHAIN gather: only town dirt anywhere -> a refusal naming where to go (and nothing dug)', async () => {
@@ -263,7 +264,7 @@ test('CHAIN mine: from inside the square (not within 12) it walks out, then cuts
 test('CHAIN mine: at home the 12-block rule refuses first (unchanged, full depth) and names its remedy', async () => {
   const bot = stairWorld({ at: [200, 65, 200] })
   const r = await runMine(SK, bot)
-  assert.equal(r.failClass, 'forbidden'); assert.match(r.detail, /walk out at least 12 blocks/); assert.equal(bot._digs.length, 0)
+  assert.equal(r.failClass, 'forbidden'); assert.match(r.detail, /walk out at least 20 blocks/); assert.equal(bot._digs.length, 0)
 })
 
 test('CHAIN mine: below the band the zone does not apply (the 12-block rule still does)', async () => {
@@ -279,8 +280,30 @@ test('CHAIN mine: the water case -- the outward bearings are wet, the dry one ru
   const r = await runMine(SK, bot)
   const town = bot._digs.filter(p => townDigClass(p, 'stone', HOME) === 'ground')
   assert.equal(town.length, 0, `dug town ground: ${JSON.stringify(town.slice(0, 3))}`)
-  assert.ok(r.status !== 'success' || bot._digs.length > 0)
-  if (r.status !== 'success') assert.match(String(r.detail), /goto|blocks from home|drier/, `the refusal names an executable move: ${r.detail}`)
+  // the pond fills the nearest exit (x = 219): the walk-out goes on to the next exit and cuts a DRY stair there
+  assert.ok(bot._digs.length > 0, `a stair was cut at a dry exit (${r.status} ${String(r.detail).slice(0, 160)})`)
+  assert.ok(bot._digs.every(p => p.x < 215), 'not in the pond')
+})
+
+test('MUTANT KILLED: without the water branch the bot is left with the water refusal (no stair)', async () => {
+  await withMutant(SKILLS_URL, "    return ok.every(bear => stairRunway(bot, from, bear) === 0) && all.some(bear => !townAllow(bear) && stairRunway(bot, from, bear) > 0)\n",
+    '    return false\n', async mod => {
+      const bot = stairWorld({ at: [214, 65, 200], wet: (x, y, z) => x >= 215 && y <= 64 && y >= 40 })
+      const r = await runMine(mod, bot)
+      assert.equal(bot._digs.length, 0, `the mutant cut nothing (${r.status} ${r.failClass})`)
+      assert.equal(r.failClass, 'hazard_interrupt')
+      assert.match(r.detail, /except the one under the town's ground/, 'and the refusal does not claim water everywhere')
+    })
+})
+
+test('CHAIN mine: from OUTSIDE the box there is no walk-out; a stair running toward town is fine when it passes BELOW the band', async () => {
+  // from x=240, y=65 the only dry bearing is -x (toward town): it reaches the square at x=216 at y=41, below the band (53)
+  const bot = stairWorld({ at: [240, 65, 200], wet: (x, y, z) => x >= 241 && y <= 64 && y >= 40 || (z !== 200 && x === 240 && y === 64) })
+  const r = await runMine(SK, bot)
+  const exits = bot._walks.filter(w => w.y >= 64 && (w.z === 219 || w.z === 181 || w.x === 181 || w.x === 219))   // a walk-out is a level goto, a stair tread descends
+  assert.equal(exits.length, 0, `no walk-out from outside the box: ${JSON.stringify(exits.slice(0, 3))}`)
+  assert.equal(bot._digs.filter(p => townDigClass(p, 'stone', HOME) === 'ground').length, 0, 'no town ground dug')
+  assert.ok(bot._digs.length > 0, `the stair under the town was cut (${r.status} ${String(r.detail).slice(0, 100)})`)
 })
 
 test('CHAIN mine: the nearest exit is obstructed (goto fails) -> the next exit is taken and the stair starts there', async () => {

@@ -32,6 +32,9 @@
 #                   max +0.24.
 #                Z6 breach_nopath: goto no-path rows with the bot within 20 of home per bot-h DiD > NOPATH_DID with >=
 #                   NOPATH_MIN canary rows (the transit price making town unwalkable). Null calibration: max +0.64.
+#                Z7 breach_walkout_loop: one canary bot with >= 3 mine calls that needed a walk-out (mine_bearing_refused)
+#                   inside 30 min, whatever the refusal class after it (Claude code r1 P2: a pond-and-town loop ends in the
+#                   WATER refusal, which Z2 cannot see).
 #                LEAK control `_town_ground` rows (BLOCKS KEEP).
 #   COVERAGE     the read can judge only where the instrument ran: `_dig_town_sum` from >= 80% of the bots in EACH of
 #                canary/control x pre/post (Codex code r1 P2: a missing instrument must not read as protection); else
@@ -51,6 +54,7 @@ MINE_LOOP, GATHER_LOOP = 3, 6
 TRAP_DID, TRAP_MIN = 3.0, 20          # null calibration 10-13 (24 h, 44 pool x cut samples, W 180): max DiD 2.04, 1 of 44 over 2.0, 0 over 3.0
 GFAIL_DID, GFAIL_MIN = 0.30, 30
 NOPATH_DID, NOPATH_MIN = 1.0, 15
+WALKOUT_LOOP, WALKOUT_WIN = 3, dt.timedelta(minutes=30)
 COVER_MIN = 0.8
 TRAP_KINDS = {'entombed', 'stranded_escape_result', 'livelock_escape'}
 TARGET_BY = {'gather', 'mine', 'ore_tunnel'}
@@ -120,6 +124,7 @@ _m = lambda n: _T + dt.timedelta(minutes=n)
 assert dedupe([(_T, 'board-a-Alpha', 1, 2, 3), (_T + dt.timedelta(seconds=1), 'board-a-Bravo', 1, 2, 3)]) == 1
 assert dedupe([(_T, 'board-a-Alpha', 1, 2, 3), (_T, 'board-c-Alpha', 1, 2, 3)]) == 2, 'two worlds'
 assert loops([('a', _m(0)), ('a', _m(4)), ('a', _m(9))], 3) == ['a'] and loops([('a', _m(0)), ('a', _m(6)), ('a', _m(12))], 3) == []
+assert loops([('a', _m(0)), ('a', _m(10)), ('a', _m(25))], 3, dt.timedelta(minutes=30)) == ['a'] and loops([('a', _m(0)), ('a', _m(20)), ('a', _m(40))], 3, dt.timedelta(minutes=30)) == []
 assert is_target_town({'outcome': 'confirmed', 'cls': 'ground', 'purpose': 'target', 'by': 'gather:dirt'})
 assert is_target_town({'outcome': 'confirmed', 'cls': 'ground', 'purpose': 'target', 'by': 'ore_tunnel'})
 assert not is_target_town({'outcome': 'confirmed', 'cls': 'ground', 'purpose': 'transit', 'by': 'gather:dirt'}), 'transit is allowed'
@@ -178,7 +183,7 @@ if __name__ == '__main__':
     rows = sorted(load_window(PRE, END), key=lambda r: r['t'])
     bots = defaultdict(set); nrows = Counter(); offbuild = 0
     n = Counter(); target = defaultdict(list); transit = Counter(); leak = 0; licence = 0
-    mine_ref = []; gather_ref = []; zargs = Counter(); summ = defaultdict(set)
+    mine_ref = []; gather_ref = []; zargs = Counter(); summ = defaultdict(set); walkouts = []; z1rows = []
     for r in rows:
         t = r.get('t'); b = (r.get('bot') or {}).get('name')
         if t is None or not b:
@@ -199,6 +204,7 @@ if __name__ == '__main__':
                 licence += 1
                 for kk, v in args_of(r).items():
                     zargs[kk] += int(v or 0)
+                walkouts += [(b, t)] * int(args_of(r).get('mine_bearing_refused') or 0)
         elif k == 'dig_town_sum':
             summ[(period, arm)].add(b)
         elif k == 'dig_town':
@@ -206,6 +212,8 @@ if __name__ == '__main__':
             n[(period, arm, 'dig_town_rows')] += 1
             if is_target_town(a):
                 target[(period, arm)].append((t, b, a.get('x'), a.get('y'), a.get('z')))
+                if period == 'post' and arm == 'canary':
+                    z1rows.append((t.strftime('%H:%M:%S'), b, a.get('by'), a.get('block'), (a.get('x'), a.get('y'), a.get('z'))))
             elif a.get('outcome') == 'confirmed':
                 transit[(period, arm, a.get('purpose'))] += 1
         else:
@@ -236,7 +244,7 @@ if __name__ == '__main__':
     did_t = (trate('post', 'canary') - trate('pre', 'canary')) - (trate('post', 'control') - trate('pre', 'control'))
     did_trap = (rate('post', 'canary', 'trapped') - rate('pre', 'canary', 'trapped')) - (rate('post', 'control', 'trapped') - rate('pre', 'control', 'trapped'))
     z1 = dedupe(target[('post', 'canary')])
-    z2 = loops(mine_ref, MINE_LOOP); z3 = loops(gather_ref, GATHER_LOOP)
+    z2 = loops(mine_ref, MINE_LOOP); z3 = loops(gather_ref, GATHER_LOOP); z7 = loops(walkouts, WALKOUT_LOOP, WALKOUT_WIN)
     z4 = int(did_trap > TRAP_DID and n[('post', 'canary', 'trapped')] >= TRAP_MIN)
     share = lambda p, a: (n[(p, a, 'gather_ground_fail')] / n[(p, a, 'gather_ground')]) if n[(p, a, 'gather_ground')] else float('nan')
     did_gf = (share('post', 'canary') - share('pre', 'canary')) - (share('post', 'control') - share('pre', 'control'))
@@ -251,12 +259,13 @@ if __name__ == '__main__':
           % (len(rows), CAN, CV, CUT.strftime('%H:%MZ'), W, nb('pre', 'canary'), nb('post', 'canary'), nb('pre', 'control'), nb('post', 'control'), offbuild))
     print('LIVENESS     canary _town_ground rows %d | refused: %s | _dig_town rows on both arms %d (0 = the instrument is not live: this read cannot judge)'
           % (licence, dict(zargs), instr_any))
-    print('Z1 (gate)    canary confirmed town-ground TARGET digs (gather/mine/ore_tunnel), deduped: %d' % z1)
+    print('Z1 (gate)    canary confirmed town-ground TARGET digs (gather/mine/ore_tunnel), deduped: %d %s' % (z1, z1rows[:5]))
     print('Z2 (gate)    canary bots with >= %d zone mine refusals in 10 min: %s (zone mine refusals %d)' % (MINE_LOOP, z2, len(mine_ref)))
     print('Z3 (gate)    canary bots with >= %d zone gather refusals in 10 min: %s (zone gather refusals %d)' % (GATHER_LOOP, z3, len(gather_ref)))
     print('Z4 (gate)    trapped-in-town rows per bot-h  canary %.3f -> %.3f  control %.3f -> %.3f  DiD %+.3f (gate > %.1f with >= %d canary rows; canary rows %d)'
           % (rate('pre', 'canary', 'trapped'), rate('post', 'canary', 'trapped'), rate('pre', 'control', 'trapped'), rate('post', 'control', 'trapped'),
              did_trap, TRAP_DID, TRAP_MIN, n[('post', 'canary', 'trapped')]))
+    print('Z7 (gate)    canary bots with >= %d walk-out mine calls in 30 min: %s (walk-out mine calls %d)' % (WALKOUT_LOOP, z7, len(walkouts)))
     print('Z5 (gate)    gather dirt/cobblestone/stone failure share DiD %+.3f (gate > %.2f with >= %d canary attempts; canary attempts %d)' % (did_gf, GFAIL_DID, GFAIL_MIN, n[('post', 'canary', 'gather_ground')]))
     print('Z6 (gate)    goto no-path within 20 of home per bot-h DiD %+.3f (gate > %.1f with >= %d canary rows; canary rows %d)' % (did_np, NOPATH_DID, NOPATH_MIN, n[('post', 'canary', 'nopath')]))
     print('COVERAGE     _dig_town_sum bots / bots: %s (every cell >= %.0f%% or the read cannot judge)' % ({'%s-%s' % k: round(v, 2) for k, v in cover.items()}, 100 * COVER_MIN))
@@ -279,7 +288,7 @@ if __name__ == '__main__':
             'rows_canary': nrows[('post', 'canary')], 'rows_control': nrows[('post', 'control')], 'offbuild_canary': offbuild,
             'licence_rows': licence, 'instrument_rows': instr_any,
             'breach_target_ground': z1, 'breach_mine_loop': len(z2), 'breach_gather_loop': len(z3), 'breach_trapped': z4,
-            'breach_gather_fail': z5, 'breach_nopath': z6, 'gather_fail_did': nanless(did_gf), 'nopath_did': nanless(did_np), 'instrument_coverage_min': round(cover_min, 3),
+            'breach_gather_fail': z5, 'breach_nopath': z6, 'breach_walkout_loop': len(z7), 'gather_fail_did': nanless(did_gf), 'nopath_did': nanless(did_np), 'instrument_coverage_min': round(cover_min, 3),
             'control_town_rows': leak, 'instrument_control': inst,
             'target_ground_did': nanless(did_t), 'trapped_did': nanless(did_trap),
             'mine_zone_refusals': len(mine_ref), 'gather_zone_refusals': len(gather_ref),
