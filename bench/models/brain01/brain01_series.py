@@ -91,12 +91,16 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument('--blocks', type=int, default=3); ap.add_argument('--minutes', type=float, default=90)
     ap.add_argument('--bots', type=int, default=8); ap.add_argument('--seed', type=int, default=1013); ap.add_argument('--block-offset', type=int, default=10)
+    ap.add_argument('--order', default='', help='resume: explicit "block:arm,..." (e.g. after a pause), overrides the seeded order')
     a = ap.parse_args()
     install_share()
     rng = random.Random(a.seed)
     order = []
     for b in range(a.blocks):
         arms = list(ARMS); rng.shuffle(arms); order += [(a.block_offset + b, x) for x in arms]
+    if a.order:
+        order = [(int(x.split(':')[0]), x.split(':')[1]) for x in a.order.split(',')]
+        assert all(arm in ARMS for _, arm in order), order
     print('ORDER', order, flush=True)
     for b, arm in order:
         if arm == 'gemma4':

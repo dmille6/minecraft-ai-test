@@ -963,3 +963,27 @@ active calls, not co-residency.
   - About 1.7x as many bots reached a stone pickaxe (4.0 vs 2.3).
   - Team output remained INCONCLUSIVE.
   - C2 does not retest the brain comparison.
+
+### brain-01: the brain alone, sandbox closed loop on today's fleet code (10-12/13)
+
+Full design and evidence: `docs/reports/brain01-design-2026-10-12.md` on branch `brain01-on-82aef34`. Both engines
+APPROVE the plumbing. Nothing is deployed.
+
+**Replay.** 420 of today's real decisions, gemma4 MLX 8-bit vs the fleet's qwen2.5:7b:
+
+| | gemma4 | qwen2.5:7b |
+|---|---|---|
+| executable choice | 98.6% | 88.6% |
+| repeats the failed action | 15.9% | 67.8% |
+| repeats the 4x loop | 28.3% | 95.0% |
+| schema-valid | 99.3% | 99.5% |
+
+**Closed loop.** 3 valid pairs, 8 bots, fleet code 82aef34 + brain-01. Gemma blocks were 100% gemma4, enforced by a
+gemma-share floor added after another session's cleanup left two earlier blocks gemma-less (INVALID).
+- **Stuck time** per bot is lower in 3 of 3 blocks: -10.4 min, 95% CI [-19.7, -1.1].
+- **Refused share, success share, pickaxes and output** are INCONCLUSIVE and flat.
+- **The replay's predicted drop in refusals did not appear.** After a repeat_loop veto, gemma re-proposes the identical
+  action 76-85% of the time, against qwen's 29-59%, although the next prompt carries the rejection (99-100%).
+- **That is a model finding.** The replay scored single decisions and could not see it.
+- **Recommended:** fix the post-veto loop (a veto that names an alternative, or a forced change after N identical
+  vetoes) before the live brain canary.
