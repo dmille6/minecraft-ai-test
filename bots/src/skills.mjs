@@ -7507,7 +7507,7 @@ async function plinthStandFor (bot, g, signal, { cap, target, point, topFace, op
  * The checks immediately before the place run with nothing awaited between them and the packet, like coverPit's.
  * -> { ok: true, item } | { why, soft }
  */
-async function coverPlinthPit (bot, { cap, recId, g, signal, by }) {
+async function coverPlinthPit (bot, { cap, recId, g, signal, by, start = null }) {
   const read = readWellCell(bot)
   const items = () => bot.inventory?.items?.() ?? []
   check(signal)
@@ -7517,7 +7517,8 @@ async function coverPlinthPit (bot, { cap, recId, g, signal, by }) {
   if (!cr) return { why: 'nothing to place the cover against' }
   const face = [cr.face.x, cr.face.y, cr.face.z], point = faceCentre(cr.ref, face)
   const home = { x: config.world.homeX, y: config.world.homeY, z: config.world.homeZ }
-  const start = startNear(read, home) ?? (() => { const f = bot.entity.position.floored(); return { x: f.x, y: f.y, z: f.z } })()
+  // the build's own start (coverableAfter judged the cover from it, Claude r2 P3-5); a visitor's, the town's nearest cell
+  start = start ?? startNear(read, home) ?? (() => { const f = bot.entity.position.floored(); return { x: f.x, y: f.y, z: f.z } })()
   const st = await plinthStandFor(bot, g, signal, { cap, target: cap, point, topFace: face[1] === 1, op: 'place', recorded: null, start, box: planBox(start, cap), forbid: plinthForbid(bot, cap) })
   if (!st) return { why: 'no stand within reach of the pit that walks to the town' }
   if (bot.entity.position.offset(0, EYE_HEIGHT, 0).distanceTo(new Vec3(point.x, point.y, point.z)) > PLINTH_REACH) return { why: 'out of reach of the pit' }
@@ -7627,7 +7628,25 @@ async function buildPlinth (ctx, _args, signal) {
   if (!lease.ok) return skip('lease', `${lease.holder ?? 'another bot'} is building the town's raised junk well`, 'plinth_lease')
   const was = handOf(bot.heldItem)
   const g = hkGuards(bot, signal)
-  let owned = false, abortedRun = false, stationary = 0, recId = null, cap = null, stop = null
+  let owned = false, abortedRun = false, stationary = 0, recId = null, cap = null, stop = null, coveredHere = false, start = null
+  /** THE STALL COUNTER (Claude r1 P2-1, r2 P2-A/P3-4): a visit that made no progress for a cause the plan cannot outgrow
+   *  (a stand, a support, a click that never lands, an uncoverable step, a foreign block, a cover that cannot be dug) counts;
+   *  time, a body, the lease or funds hold it; progress clears it. PLINTH_STUCK_VISITS in a row void the plan. -> voided */
+  const STALL = ['unreachable', 'support', 'place', 'uncoverable', 'blocked', 'dig']
+  const noteStall = (why, next) => {
+    if (!recId) return false
+    const progressed = stats.placed + stats.cleared > 0
+    const cur = readPlinth()
+    if (cur?.id !== recId || cur.state !== 'plan') return false
+    const stuck = progressed ? null : STALL.includes(why) ? stuckNext(cur.stuck ?? null, { step: next, progressed: false }) : (cur.stuck ?? null)
+    if (stuck && stuck.n >= PLINTH_STUCK_VISITS) {
+      writeRecordAtomic(plinthFile(), { ...cur, state: 'void', voidAt: Date.now(), why: `stuck at step ${next} (${why}) for ${stuck.n} visits` })
+      try { bot.refreshWells?.() } catch { /* timer */ }
+      return true
+    }
+    writeRecordAtomic(plinthFile(), { ...cur, stuck })
+    return false
+  }
   /** THE PIT IS THIS RUN'S from here: never with a body in the column, never without a cover (Claude r1 P3-2). */
   const own = (from, afterItems = items()) => {
     if (owned) return null
@@ -7649,15 +7668,16 @@ async function buildPlinth (ctx, _args, signal) {
       // A COVERED PIT IS STILL A PIT (a cover is one dirt block a gatherer may take): a column is let go only if it would not
       // trap a body even with its cap cell open
       const hazardOf = c => plinthHazard(plinthOverlay(read0, new Map([[cellKey(c.x, c.y, c.z), PLINTH_AIR]])), c)
+      const mine = plinthRecordState(rec, world) ? rec : null          // never another world's columns (Claude r2 P3-6)
       if (!res.plan) {
         // A FAILED SEARCH KEEPS WATCHING EVERY COLUMN THE TOWN STARTED (carryPrev): the record changes, the obligations do not
-        writeRecordAtomic(plinthFile(), { v: PLINTH_VERSION, state: 'none', world, at: Date.now(), by: bot.username ?? null, why: res.why, tally: tallyText(res.tally), prev: carryPrev(rec, hazardOf) })
+        writeRecordAtomic(plinthFile(), { v: PLINTH_VERSION, state: 'none', world, at: Date.now(), by: bot.username ?? null, why: res.why, tally: tallyText(res.tally), prev: carryPrev(mine, hazardOf) })
         try { bot.refreshWells?.() } catch { /* timer */ }
         plinthRow(bot, 'refused', { stage: 'none', why: res.why, tally: tallyText(res.tally) })
         return { status: 'no_effect', failClass: 'plinth_none', detail: `no raised junk well fits within ${WELL_SEARCH_RADIUS} of home (${res.why}); the town plans again in ${Math.round(PLINTH_NONE_BACKOFF_MS / 60000)} min` }
       }
       const id = `${bot.username ?? 'bot'}-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`
-      const next = { v: PLINTH_VERSION, state: 'plan', id, world, at: Date.now(), by: bot.username ?? null, plan: res.plan, prev: carryPrev(rec, hazardOf, res.plan.cap), left: res.plan.cost, stuck: null }
+      const next = { v: PLINTH_VERSION, state: 'plan', id, world, at: Date.now(), by: bot.username ?? null, plan: res.plan, prev: carryPrev(mine, hazardOf, res.plan.cap), left: res.plan.cost, stuck: null }
       if (!holdPlinthLease(token, lease.n) || !writeRecordAtomic(plinthFile(), next) || readPlinth()?.id !== id) {
         plinthRow(bot, 'failed', { stage: 'plinth_record', why: 'the plan could not be stored' })
         return { status: 'failed', failClass: 'plinth_record', detail: 'the raised junk well plan could not be stored; nothing was built' }
@@ -7672,7 +7692,8 @@ async function buildPlinth (ctx, _args, signal) {
     const plan = rec.plan
     recId = rec.id; cap = plan.cap
     const read = readWellCell(bot)
-    const start = plan.start, box = planBox(start, cap), forbid = plinthForbid(bot, cap)
+    start = plan.start
+    const box = planBox(start, cap), forbid = plinthForbid(bot, cap)
     const live = () => { const cur = readPlinth(); return cur?.id === recId && cur.state === 'plan' && holdPlinthLease(token, lease.n) }
     const voidPlan = why => {
       const cur = readPlinth()
@@ -7761,9 +7782,9 @@ async function buildPlinth (ctx, _args, signal) {
             let tool = null
             try { tool = bestTool(bot, b) } catch { tool = null }
             if (tool && bot.heldItem !== tool) { try { await g.bound(bot.equip(tool, 'hand'), HK_AWAIT_MS, 'equip') } catch (e) { if (e?.aborted) throw e } }
-            try { await g.bound(bot.dig(b, true), HK_CRAFT_MS, 'dig') } catch (e) { if (e?.aborted || signal?.aborted) throw e; throw hkStop('plinth_dig', `could not dig the pit cover at ${c.x},${c.y},${c.z}: ${String(e?.message ?? e).slice(0, 80)}`) }
+            try { await g.bound(bot.dig(b, true), HK_CRAFT_MS, 'dig') } catch (e) { if (e?.aborted || signal?.aborted) throw e }
             for (let i = 0; i < 10 && solidCell(read(c.x, c.y, c.z)); i++) await g.bound(bot.waitForTicks?.(1), 50 + HK_AWAIT_MS, 'tick wait')
-            if (solidCell(read(c.x, c.y, c.z))) throw hkStop('plinth_dig', `dug the pit cover at ${c.x},${c.y},${c.z} but it still reads solid`)
+            if (solidCell(read(c.x, c.y, c.z))) stop = 'dig'
           }
         }
       }
@@ -7778,7 +7799,18 @@ async function buildPlinth (ctx, _args, signal) {
       if (s.op === 'clear' ? !LEAF.test(here.name ?? '') : wellGround(here)) continue
       if (!live()) { stop = 'lease'; break }                       // the plan replaced, or the lease lost (Codex r1 P1-2)
       const target = { x, y, z }
-      if (s.op === 'place' && !PLINTH_REPLACEABLE.has(here.name)) throw hkStop('plinth_blocked', `${here.name} is in the raised junk well's cell ${x},${y},${z}`)
+      // LEAVES GROWN INTO A CELL TO PLACE (a tree planted near the plinth after it was planned; Claude r2 P2-A): the approved
+      // leaf clear first, from a stand proved for it, then the placement
+      if (s.op === 'place' && LEAF.test(here.name ?? '')) {
+        const cp = { x: x + 0.5, y: y + 0.5, z: z + 0.5 }
+        const cst = await plinthStandFor(bot, g, signal, { cap, target: { x, y, z }, point: cp, topFace: false, op: 'clear', recorded: null, start, box, forbid })
+        if (!cst) { stop = 'unreachable'; break }
+        try { await g.bound(bot.dig(bot.blockAt(new Vec3(x, y, z)), true), HK_CRAFT_MS, 'dig') } catch (e) { if (e?.aborted || signal?.aborted) throw e }
+        for (let k = 0; k < 10 && LEAF.test(read(x, y, z)?.name ?? ''); k++) await g.bound(bot.waitForTicks?.(1), 50 + HK_AWAIT_MS, 'tick wait')
+        if (LEAF.test(read(x, y, z)?.name ?? '')) { stop = 'dig'; break }
+        stats.cleared++
+      }
+      if (s.op === 'place' && !PLINTH_REPLACEABLE.has(read(x, y, z)?.name)) { stop = 'blocked'; break }
       const sp = stepPoint(s)
       if (!sp) { stop = 'support'; break }
       const name = s.op === 'place' ? plinthBlockFor(items()) : null
@@ -7795,6 +7827,7 @@ async function buildPlinth (ctx, _args, signal) {
       const st = await plinthStandFor(bot, g, signal, { cap, target, point: sp.point, topFace: sp.topFace, op: s.op, recorded: { x: s.s[0], y: s.s[1], z: s.s[2] }, start, box, forbid })
       if (!st) { stop = 'unreachable'; break }
       const isAlt = st.x !== s.s[0] || st.y !== s.s[1] || st.z !== s.s[2]
+      const walls = plinthHazard(read, cap) === false && plinthHazard(post, cap) === true   // this click walls the column in
       if (isAlt) stats.alt++
       // NOBODY IN THE CELL (the server refuses a place into a body; a dig is no business of a body's)
       if (s.op === 'place' && bodiesAround(bot).some(b => bodyInCell(b, target))) { stop = 'body'; break }
@@ -7810,16 +7843,20 @@ async function buildPlinth (ctx, _args, signal) {
           try {
             if (bot.heldItem?.name !== name) await g.bound(bot.equip(item, 'hand'), HK_AWAIT_MS, 'equip')
             const refBlock = bot.blockAt(new Vec3(sp.ref.x, sp.ref.y, sp.ref.z))
+            // the column asked again with nothing awaited before the place's own look (Claude r2 P3-2)
+            if (walls && bodyInPit(Object.values(bot.entities ?? {}), cap)) { stop = 'body'; break }
             await g.bound(bot._placeBlockWithOptions(refBlock, new Vec3(sp.face[0], sp.face[1], sp.face[2]), { forceLook: true, swingArm: 'right' }), HK_AWAIT_MS * 2, 'place')
           } catch (e) { if (e?.aborted || signal?.aborted) throw e }
           for (let k = 0; k < 10 && !wellGround(read(x, y, z)); k++) await g.bound(bot.waitForTicks?.(1), 50 + HK_AWAIT_MS, 'tick wait')
           done = wellGround(read(x, y, z))
         } else {
+          if (walls && bodyInPit(Object.values(bot.entities ?? {}), cap)) { stop = 'body'; break }
           try { await g.bound(bot.dig(bot.blockAt(new Vec3(x, y, z)), true), HK_CRAFT_MS, 'dig') } catch (e) { if (e?.aborted || signal?.aborted) throw e }
           for (let k = 0; k < 10 && LEAF.test(read(x, y, z)?.name ?? ''); k++) await g.bound(bot.waitForTicks?.(1), 50 + HK_AWAIT_MS, 'tick wait')
           done = !LEAF.test(read(x, y, z)?.name ?? '')
         }
       }
+      if (stop === 'body') break
       if (!done) { stop = 'place'; break }
       // ONE ROW PER STEP (at most ~100 per town, once): the read checks every cell against the shell's geometry
       logEvent({ kind: 'plinth_step', status: 'success', snapshot: snapshot(bot),
@@ -7830,11 +7867,9 @@ async function buildPlinth (ctx, _args, signal) {
     prog = plinthProgress(read, plan)
     if (prog.complete) return finish()
     // A STEP THAT CANNOT RUN does not hold the town for ever (Claude r1 P2-1): PLINTH_STUCK_VISITS visits with no progress
-    // on the same step void the plan, and the town plans again from the world (the part built is kept as ground)
-    const stuck = stuckNext(rec.stuck ?? null, { step: prog.next, progressed: acted > 0 })
-    const voided = !!stuck && stuck.n >= PLINTH_STUCK_VISITS && ['unreachable', 'support', 'place', 'uncoverable'].includes(stop)
-    if (voided) voidPlan(`stuck at step ${prog.next} (${stop}) for ${stuck.n} visits`)
-    else plinthNote(recId, { stuck, left: prog.placesLeft })
+    // on the same step, for a cause the plan cannot outgrow, void the plan; the town plans again from the world
+    const voided = noteStall(stop, prog.next)
+    if (!voided) plinthNote(recId, { left: prog.placesLeft })
     plinthRow(bot, acted ? 'success' : 'failed', { stage: voided ? 'plinth_stuck' : 'build', at: cap, k: plan.k, ...stats, done: prog.done, total: prog.total,
                                                    left: prog.placesLeft, budget: plinthBudget(items(), 999), hazard: plinthHazard(read, cap), id: recId, why: stop })
     if (!acted) return { status: 'failed', failClass: stop === 'unfunded' || stop === 'no_cover' ? 'plinth_unfunded' : stop === 'body' ? 'plinth_attended' : stop === 'lease' ? 'plinth_lease' : 'plinth_stuck',
@@ -7842,6 +7877,7 @@ async function buildPlinth (ctx, _args, signal) {
     return { status: 'success', placed: stats.placed, detail: `built ${stats.placed} block(s)${stats.cleared ? ` and cleared ${stats.cleared} leaves` : ''} of the town's raised junk well at ${cap.x},${cap.y},${cap.z} (${prog.done}/${prog.total} steps${stop ? `; stopped: ${stop}` : ''})` }
   } catch (e) {
     if (e?.hkStop) {
+      try { noteStall(e.failClass === 'plinth_dig' ? 'dig' : e.failClass === 'plinth_blocked' ? 'blocked' : e.failClass, -1) } catch { /* bookkeeping only */ }
       plinthRow(bot, 'failed', { stage: e.failClass, at: cap, ...stats, why: e.message })
       return { status: 'failed', failClass: e.failClass, detail: e.message }
     }
@@ -7855,8 +7891,12 @@ async function buildPlinth (ctx, _args, signal) {
       if (owned && cap && plinthHazard(readWellCell(bot), cap) === true) {
         if (abortedRun || signal?.aborted) why = 'aborted'
         else if (!(await g.settle().catch(() => false))) why = 'an operation still in flight'
-        else { const res = await coverPlinthPit(bot, { cap, recId: null, g, signal, by: 'build' }); why = res.ok ? null : res.why }
+        else { const res = await coverPlinthPit(bot, { cap, recId: null, g, signal, by: 'build', start }); why = res.ok ? null : res.why; coveredHere = !!res.ok }
         if (why) logEvent({ kind: 'well_pit_open', status: 'failed', snapshot: snapshot(bot), detail: `at=${cap.x},${cap.y},${cap.z} stage=plinth why=${String(why).replace(/\s+/g, '_').slice(0, 80)}` })
+      } else if (owned && cap && !coveredHere && plinthHazard(readWellCell(bot), cap) === false) {
+        // OWNED, BUT THE PIT NEVER OPENED (the click did not happen) or was closed otherwise: said, so the read's open-pit
+        // clock (wellread C9, plinthread P3) is closed by this run's own row (Claude r2 P2-B), as build_well's by=closed
+        logEvent({ kind: 'well_pit_covered', status: 'success', snapshot: snapshot(bot), detail: `at=${cap.x},${cap.y},${cap.z} stage=plinth by=closed` })
       }
     } catch (e) {
       try { logEvent({ kind: 'well_pit_open', status: 'failed', snapshot: snapshot(bot), detail: `at=${cap?.x},${cap?.y},${cap?.z} stage=plinth why=${e?.aborted || signal?.aborted ? 'aborted' : `cover:_${String(e?.message ?? e).replace(/\s+/g, '_').slice(0, 60)}`}` }) } catch { /* never breaks the cleanup */ }

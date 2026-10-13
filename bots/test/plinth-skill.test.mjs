@@ -398,6 +398,57 @@ await t('A BODY IN THE COLUMN (Claude r1 P3-2): the click that would wall it in 
   delete town.bot.entities[42]
 })
 
+// ---- REVIEW r2 (Claude APPROVE-WITH-CHANGES) ----
+await t('LEAVES GROWN INTO A CELL TO PLACE (Claude r2 P2-A): the builder clears them (the approved leaf clear) and places -- no stall, no void', async () => {
+  reset(); noSite()
+  const town = fakeTown({ items: [['cobblestone', 64], ['cobblestone', 64], ['cobblestone', 64], ['dirt', 4]] })
+  await visit(town)
+  const plan = recNow().plan
+  const s5 = plan.steps[5].c.join(',')
+  town.world.set(s5, 'oak_leaves')
+  assert.equal(P.plinthProgress(town.read, plan).blocked, null, 'leaves are not a foreign block')
+  await buildTo(town, () => recNow().state !== 'plan')
+  assert.equal(recNow().state, 'complete')
+  assert.equal(town.read(...plan.steps[5].c).name, 'cobblestone')
+  assert.ok(town.st.digs.includes(s5), 'cleared first')
+})
+await t('OWNED BUT NEVER OPENED (Claude r2 P2-B): the walling-in click that never happens leaves a closing row (by=closed), so the read\'s open-pit clock stops', async () => {
+  reset(); noSite()
+  const town = fakeTown({ items: [['cobblestone', 64], ['cobblestone', 64], ['cobblestone', 64], ['dirt', 4]] })
+  await visit(town)
+  const plan = recNow().plan, cap = plan.cap
+  const pre = plan.steps[plan.hazardStep - 1].c.join(',')
+  const sig = { aborted: false }
+  town.st.placeHook = at => { if (KEY(at.x, at.y, at.z) === pre) sig.aborted = true }
+  for (let n = 0; n < 4 && !sig.aborted; n++) { try { await visit(town, sig) } catch (e) { if (!sig.aborted) throw e } }
+  town.st.placeHook = null
+  assert.equal(P.plinthProgress(town.read, plan).next, plan.hazardStep, 'the walling-in step is next')
+  // every walk now fails and the bot stands far off: the hazard step is owned (row first) but its click never happens
+  town.st.gotoFail = () => true
+  town.bot.entity.position = new Vec3(-20.5, SLAB_Y + 1, -20.5)
+  const before = (await rowsOf('_well_pit_covered')).length
+  await visit(town)
+  town.st.gotoFail = null
+  assert.equal(P.plinthHazard(town.read, cap), false, 'never opened')
+  const closed = (await rowsOf('_well_pit_covered')).slice(before).filter(x => /stage=plinth by=closed/.test(x.skill.detail))
+  assert.equal(closed.length, 1, 'the closing row')
+  const last = (await rowsOf('_well_pit_dug')).at(-1)
+  assert.match(last.skill.detail, new RegExp(`at=${cap.x},${cap.y},${cap.z} from=plinth step=${plan.hazardStep}`), 'owned at the walling-in step')
+})
+await t('THE STALL COUNTER HOLDS FOR CAUSES A PLAN OUTGROWS (Claude r2 P3-4): unfunded visits neither count nor clear; only a stand, a support or a click that never lands counts', async () => {
+  reset(); noSite()
+  const rich = fakeTown({ items: [['cobblestone', 200], ['dirt', 4]] })
+  await visit(rich)
+  const poor = fakeTown({ items: [['cobblestone', 65]], name: 'b-Poor' })
+  for (let n = 0; n < 3; n++) { const r = await visit(poor); assert.equal(r.failClass, 'plinth_unfunded') }
+  assert.equal(recNow().state, 'plan', 'three unfunded visits void nothing')
+  assert.equal(recNow().stuck ?? null, null)
+  rich.st.gotoFail = () => true
+  rich.bot.entity.position = new Vec3(-20.5, SLAB_Y + 1, -20.5)
+  await visit(rich)
+  assert.deepEqual(recNow().stuck, { step: 0, n: 1 })
+})
+
 await t('ONE BUILDER: a live lease held by another bot -> no_effect plinth_lease, nothing placed; an expired one is taken', async () => {
   reset(); noSite()
   const town = fakeTown({ items: [['cobblestone', 200], ['dirt', 4]] })
@@ -516,7 +567,7 @@ await t('MUTANT (skills): the lease not honoured -> a second builder builds whil
   })
 })
 await t('MUTANT (skills): the finally does not cover -> an unfinished, walled-in pit is left open by a run that could cover it', async () => {
-  await withMutant(SP, "        else { const res = await coverPlinthPit(bot, { cap, recId: null, g, signal, by: 'build' }); why = res.ok ? null : res.why }\n", "        else why = 'mutant'\n", async m => {
+  await withMutant(SP, "        else { const res = await coverPlinthPit(bot, { cap, recId: null, g, signal, by: 'build', start }); why = res.ok ? null : res.why; coveredHere = !!res.ok }\n", "        else why = 'mutant'\n", async m => {
     reset(); noSite()
     const town = fakeTown({ items: [['cobblestone', 64], ['cobblestone', 64], ['cobblestone', 64], ['dirt', 4]] })
     await buildAll(m, town)
@@ -567,6 +618,7 @@ const cogPlinth = src => {
   once(src, 'order = this.#plinthOrder() ?? this.#townDepositOrder(milestone) ?? order', 'cognitive')
   once(src, "if (admitted.skill === 'build_plinth') this.plinthState = plinthOrderOutcome(r.status, Date.now(), this.plinthState ?? {}, r.failClass ?? null)", 'cognitive')
   once(src, 'const r = plinthOrder({', 'cognitive')
+  once(src, 'chestSlots: () => Math.max(1, Math.ceil(plinthShortfall(items, PLINTH_MIN_FUND) / 64))', 'cognitive')
 }
 await t('index.mjs: the stair veto rides the shared break array (before the clones); refreshed with the wells', () => idxPlinth(IDX))
 await t('MUTANT (index): the stair veto pushed after the clones, or dropped, is detected', () => {

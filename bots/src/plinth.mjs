@@ -266,8 +266,7 @@ export function supportsFor (read, cell) {
   const out = []
   for (const [dx, dy, dz] of FACES) {
     const ref = { x: cell.x + dx, y: cell.y + dy, z: cell.z + dz }
-    const b = read(ref.x, ref.y, ref.z)
-    if (!solid(b) || LIQUID.test(b.name ?? '') || /_trapdoor$|_door$|^chest$|^trapped_chest$|^barrel$/.test(b.name ?? '')) continue
+    if (!refUsable(read(ref.x, ref.y, ref.z))) continue        // one rule with the click's re-read (Claude r2 P3-3)
     out.push({ ref, face: [-dx || 0, -dy || 0, -dz || 0] })   // never -0 (a face is compared and stored)
   }
   return out
