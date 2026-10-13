@@ -12,6 +12,8 @@ import { corridorSafe } from './lavaguard.mjs'
 import { deathSiteStepCost, pathCrossesDeathSite } from './deathsites.mjs'
 import { wellStepCost, wellBreakCost, protectWellBlocks, bodyInWell } from './well.mjs'
 import { knownWellCells, installWellWatch } from './skills.mjs'
+import { knownPlinthStair } from './skills.mjs'   // plinth-01
+import { plinthBreakCost } from './plinth.mjs'
 import { pathDropProfile, composeFallRow, markPathEnded } from './fallpath.mjs'
 import net from 'node:net'
 import mineflayer from 'mineflayer'
@@ -529,7 +531,9 @@ function connect() {
     const trackSelf = () => { try { selfWell = bodyInWell(wellCols, bot.entity?.position) } catch { selfWell = null } }
     bot.on('move', trackSelf)
     const wellWatch = installWellWatch(bot, () => wellCols)
-    const refreshWells = () => { try { wellCols = knownWellCells(bot) } catch { wellCols = [] } trackSelf(); wellWatch.checkInside() }
+    // THE RAISED WELL'S STAIR (plinth-01): its cells lie outside the well's own 5x5 break box, so they are listed apart
+    let plinthStair = []
+    const refreshWells = () => { try { wellCols = knownWellCells(bot) } catch { wellCols = [] } try { plinthStair = knownPlinthStair(bot) } catch { plinthStair = [] } trackSelf(); wellWatch.checkInside() }
     const wellsTimer = setInterval(refreshWells, 20_000); wellsTimer.unref?.()
     // FILLED BEFORE THE FIRST WALK, not 20 s after it (Codex review), and once more when the town's chunks have arrived.
     refreshWells()
@@ -542,6 +546,7 @@ function connect() {
     // A NEW array for the base's break exclusions, shared by reference with every clone below (Object.assign), and spread
     // into the tunnel profile's own array.
     moves.exclusionAreasBreak = [(block) => wellBreakCost(wellCols, block, selfWell)]
+    moves.exclusionAreasBreak.push((block) => plinthBreakCost(plinthStair, block))   // plinth-01: the raised well's stair, same shared array
     // ORDER IS LOad-BEARING: gatherMoves, ascendMoves and descendMoves are all
     // built below with Object.assign(clone, moves), so they copy this array's
     // reference and inherit one shared policy. That is deliberate -- gathering
