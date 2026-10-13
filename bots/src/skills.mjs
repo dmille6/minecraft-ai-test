@@ -7562,7 +7562,7 @@ async function buildPlinth (ctx, _args, signal) {
   const items = () => bot.inventory?.items?.() ?? []
   const world = bot.worldId ?? null
   const home = { x: config.world.homeX, y: config.world.homeY, z: config.world.homeZ }
-  const stats = { placed: 0, cleared: 0, took: 0 }
+  const stats = { placed: 0, cleared: 0, took: 0, alt: 0, retries: 0 }
   const skip = (reason, why, failClass = null) => { plinthRow(bot, 'refused', { stage: reason, why }); return { status: 'no_effect', ...(failClass ? { failClass } : {}), detail: why } }
   if (insideTownWell(bot)) return skip('inside', 'this bot is inside a junk well; it climbs out before any well order')
   if (wellUsableNow(bot)) return skip('well_exists', 'the town already has a junk well')
@@ -7617,6 +7617,13 @@ async function buildPlinth (ctx, _args, signal) {
       plinthRow(bot, ok ? 'success' : 'failed', { stage: 'complete', at: cap, k: plan.k, done: prog.done, total: prog.total, id: recId })
       return ok ? { status: 'success', placed: 0, detail: `the raised junk well at ${cap.x},${cap.y},${cap.z} is complete; build_well floors and caps it` }
                 : { status: 'failed', failClass: 'plinth_record', detail: 'the raised junk well is complete but its records could not be written' }
+    }
+    // AN UNCOVERED HAZARD LEFT BY A KILLED OR ABORTED BUILD is this builder's from the start (nobody covered it): it covers
+    // it if this visit cannot finish either -- or cannot even start (no funds). Said, so the read times it from here as well.
+    if (plinthHazard(read, cap) === true) {
+      if (!pitCoverItem(items())) throw hkStop('plinth_no_cover', PIT_COVER_REMEDY)
+      owned = true
+      logEvent({ kind: 'well_pit_dug', status: 'success', snapshot: snapshot(bot), detail: `at=${cap.x},${cap.y},${cap.z} from=plinth_resume` })
     }
     // FUNDING: the bag's surplus first (above STONE_GUARD and a cover), then a town chest's cobble (the withdraw verb:
     // it walks to the town chest, verifies the server's bag, and holds what it took back from the next deposit)
@@ -7691,10 +7698,12 @@ async function buildPlinth (ctx, _args, signal) {
       }
       const st = await plinthStandFor(bot, g, signal, { cap, target, point, topFace, recorded: { x: s.s[0], y: s.s[1], z: s.s[2] } })
       if (!st) { stop = 'unreachable'; break }
+      if (st.x !== s.s[0] || st.y !== s.s[1] || st.z !== s.s[2]) stats.alt++
       // NOBODY IN THE CELL (the server refuses a place into a body; a dig is no business of a body's)
       if (s.op === 'place' && bodiesAround(bot).some(b => bodyInCell(b, target))) { stop = 'body'; break }
       let done = false
       for (let attempt = 0; attempt < 2 && !done; attempt++) {
+        if (attempt) stats.retries++
         if (s.op === 'place') {
           const item = items().find(it2 => it2.name === name)
           if (!item) break

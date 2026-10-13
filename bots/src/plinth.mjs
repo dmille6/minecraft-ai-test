@@ -53,7 +53,9 @@ export const PLINTH_STEPS_PER_VISIT = 40
 export const PLINTH_MIN_FUND = 8
 /** One builder per town: the lease is held this long and renewed at every placement. */
 export const PLINTH_LEASE_MS = 4 * 60 * 1000
-export const PLINTH_COOLDOWN_MS = 5 * 60 * 1000
+/** Between two plinth orders of one bot (production 5 min; the sandbox paces it with PLINTH_COOLDOWN_MS, as build_well's
+ *  record settle has WELL_RECORD_SETTLE_MS). */
+export const PLINTH_COOLDOWN_MS = Number.isFinite(Number(process.env.PLINTH_COOLDOWN_MS)) && process.env.PLINTH_COOLDOWN_MS !== '' ? Number(process.env.PLINTH_COOLDOWN_MS) : 5 * 60 * 1000
 export const PLINTH_BACKOFF_MS = WELL_BUILD_BACKOFF_MS
 /** A town where the planner found no plan is not planned again for this long (the ground rarely improves). */
 export const PLINTH_NONE_BACKOFF_MS = WELL_NO_SITE_BACKOFF_MS
@@ -748,8 +750,8 @@ export function plinthBreakCost (cells, block) {
 
 /** THE _plinth ROW, key=value, stage first (the read parses fields): cut at 300. */
 export function plinthDetail ({ stage, at = null, k = null, placed = 0, cleared = 0, done = null, total = null, left = null, budget = null,
-                                took = 0, why = null, hazard = null, id = null, tally = null } = {}) {
-  return (`stage=${stage}${at ? ` at=${at.x},${at.y},${at.z}` : ''}${k != null ? ` k=${k}` : ''} placed=${placed} cleared=${cleared}` +
+                                took = 0, why = null, hazard = null, id = null, tally = null, alt = 0, retries = 0 } = {}) {
+  return (`stage=${stage}${at ? ` at=${at.x},${at.y},${at.z}` : ''}${k != null ? ` k=${k}` : ''} placed=${placed} cleared=${cleared} alt=${alt} retries=${retries}` +
           `${done != null ? ` done=${done}/${total}` : ''}${left != null ? ` left=${left}` : ''}${budget != null ? ` budget=${budget}` : ''}` +
           ` took=${took}${hazard != null ? ` hazard=${hazard ? 1 : 0}` : ''}${id ? ` id=${id}` : ''}${tally ? ` tally=${tally}` : ''}` +
           `${why ? ` why=${String(why).replace(/\s+/g, '_').slice(0, 120)}` : ''}`).slice(0, 300)

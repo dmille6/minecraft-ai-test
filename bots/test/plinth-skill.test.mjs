@@ -229,6 +229,26 @@ await t('THE HAZARD, ABORTED: the walled-in pit is not covered by an aborted run
   assert.ok((await rowsOf('_well_pit_dug')).some(r => /from=plinth_cover/.test(r.skill.detail)))
 })
 
+await t('RESUME OF AN UNCOVERED HAZARD WITH NO FUNDS: the builder owns it from the start and covers it before it reports unfunded', async () => {
+  reset(); noSite()
+  const town = fakeTown({ items: [['cobblestone', 64], ['cobblestone', 64], ['cobblestone', 64], ['dirt', 4]] })
+  await visit(town)
+  const plan = recNow().plan, cap = plan.cap
+  const hz = plan.steps[plan.hazardStep].c.join(',')
+  const sig = { aborted: false }
+  town.st.placeHook = at => { if (KEY(at.x, at.y, at.z) === hz) sig.aborted = true }
+  for (let n = 0; n < 4 && !sig.aborted; n++) { try { await visit(town, sig) } catch (e) { if (!sig.aborted) throw e } }
+  assert.equal(P.plinthHazard(town.read, cap), true)
+  town.st.placeHook = null
+  // the same builder comes back with only its reserve and a cover block
+  for (const it of town.bot.inventory.items()) if (it.name === 'cobblestone') { it.count = 0; town.slots[it.slot] = null }
+  town.slots[20] = { name: 'cobblestone', count: 64, slot: 20, type: 1, stackSize: 64 }; town.slots[21] = { name: 'dirt', count: 1, slot: 21, type: 2, stackSize: 64 }
+  const r = await visit(town)
+  assert.equal(r.failClass, 'plinth_unfunded', r.detail)
+  assert.equal(P.plinthHazard(town.read, cap), false, 'covered on the way out')
+  assert.ok((await rowsOf('_well_pit_dug')).some(x => /from=plinth_resume/.test(x.skill.detail)))
+})
+
 await t('ONE BUILDER: a live lease held by another bot -> no_effect plinth_lease, nothing placed; an expired one is taken', async () => {
   reset(); noSite()
   const town = fakeTown({ items: [['cobblestone', 200], ['dirt', 4]] })

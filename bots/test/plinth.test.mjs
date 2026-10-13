@@ -429,7 +429,7 @@ await t('plinthBreakCost: a stair cell is never dug (100); anything else is free
 
 await t('plinthDetail: stage first, key=value, cut at 300', () => {
   const d = P.plinthDetail({ stage: 'build', at: { x: 1, y: 2, z: 3 }, k: 3, placed: 5, done: 5, total: 60, why: 'a b c'.repeat(200) })
-  assert.match(d, /^stage=build at=1,2,3 k=3 placed=5 cleared=0 done=5\/60 took=0 why=a_b_c/)
+  assert.match(d, /^stage=build at=1,2,3 k=3 placed=5 cleared=0 alt=0 retries=0 done=5\/60 took=0 why=a_b_c/)
   assert.ok(d.length <= 300)
 })
 
