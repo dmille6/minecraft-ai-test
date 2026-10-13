@@ -294,6 +294,7 @@ for b in bots:
         # the inventory handoff (owner window-race fix + one core, 10-12): present only when the step waited or held off
         wn = WINRE.search(d); a['window'] = wn.group(1) if wn else 'none'
         a['window_ms'] = int(wn.group(2)) if wn and wn.group(2) else None
+        a['contested'] = ' contested=1 ' in d   # airpocket-03: the dig was taken by a skill that still held the body
         # C6 -- a success the server did not confirm: the rescue's next ceiling (20 s, no air) within 30 s, no breath between
         if outcome == 'success':
             nxt = [c for c in ceilings if t < c <= t + dt.timedelta(seconds=30)]
@@ -358,8 +359,9 @@ print('AIRPOCKET-02 upblocked attempts %d mature (%d successes) | by trigger %s 
           ub_attempts, ub_success, dict(Counter(a['trigger'] for a in attempts)), dict(Counter(a.get('pose', '?') for a in attempts)),
           sum(a.get('redig', 0) for a in attempts), can_upblocked_rows, 'READY' if ub_success >= 1 else 'NOT YET'))
 wins = [a for a in attempts if a.get('window', 'none') != 'none']
-print('HANDOFF      (reported, never gated) attempts that waited on the inventory %d of %d | by state %s | max wait %s ms' % (
-      len(wins), len(attempts), dict(Counter(a['window'] for a in wins)), max([a['window_ms'] for a in wins if a.get('window_ms') is not None], default='-')))
+print('HANDOFF      (reported, never gated) attempts that waited on the inventory %d of %d | by state %s | max wait %s ms | contested %d' % (
+      len(wins), len(attempts), dict(Counter(a['window'] for a in wins)), max([a['window_ms'] for a in wins if a.get('window_ms') is not None], default='-'),
+      sum(1 for a in attempts if a.get('contested'))))
 print('REFUSALS     %d: %s' % (refusals_n, dict(refusals.most_common(8))))
 print('INSTRUMENT   control capped rescues (post) %d (>= 1) | control no-air sealed ceilings (post) %d (>= 1)' % (inst_capped, inst_noair))
 for f, nm in (('capped_rescue', 'capped rescues/bot-h'), ('noair_ceiling', 'no-air ceilings/bot-h'), ('death_drown', 'drowning deaths/bot-h'),

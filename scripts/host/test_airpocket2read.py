@@ -180,7 +180,7 @@ def airpocket_src(ref, marker='export function botPose'):
     return os.path.join(d, 'airpocket.mjs')
 
 
-AP = airpocket_src(os.environ.get('AIRPOCKET_SRC_REF', 'origin/ap2w-on-0cdb1a8'), marker='export function rescueInventoryDecision')
+AP = airpocket_src(os.environ.get('AIRPOCKET_SRC_REF', 'origin/ap3-on-82aef34'), marker='export function contestedDig')
 
 
 def bot_rows():
@@ -316,6 +316,30 @@ def window_rows():
     line = re.search(r'HANDOFF .*', txt).group(0)
     assert n == 0 and 'C0' not in str(which), (which, txt[-900:])
     assert 'waited on the inventory 2 of 3' in line and "'settled': 1" in line and "'open': 1" in line and 'max wait 1500 ms' in line, line
+    assert line.endswith('contested 0'), line
+
+
+def contested_rows():
+    """airpocket-03: the bot's own CONTESTED row (window=unsettled, contested=1) parses clean and is counted; when the source
+    lacks the field (an airpocket-02 build) the test says so instead of passing on hand-written text."""
+    js = ("import('" + os.path.abspath(AP) + "').then(m => { const r = { kind: 'ice', cell: '58,62,181', block: 'ice', tool: 'stone_pickaxe', "
+          "standing: false, predictedMs: 4700, digMs: null, ms: 1937, envelope: 0.5, healthStart: 18, healthEnd: 18, eye: null, pose: 'na', "
+          "outcome: 'failed', window: 'unsettled', windowMs: 1528, contested: true, why: 'dig failed: Digging aborted (contested: a skill still held the body)' }; "
+          "console.log(JSON.stringify(String(m.airPocketRow({ id: 'c1', r, requiredMs: 10050, budgetMs: 28000, difficulty: 'peaceful' })).slice(0, 300))) })")
+    out = subprocess.run(['node', '-e', js], capture_output=True, text=True, timeout=60)
+    assert out.returncode == 0, out.stderr[-600:]
+    c1 = json.loads(out.stdout.strip().splitlines()[-1])
+    if ' contested=1 ' not in c1:
+        raise AssertionError('the airpocket.mjs under test writes no contested field (set AIRPOCKET_SRC_REF to an airpocket-03 build): ' + c1)
+    rows = [row(1000, 'pa-a-Alpha', '_air_pocket_start', start2('c1', trig='upblocked:1', blocked='ice@62', pose='swim', kind='ice', block='ice')),
+            row(1002, 'pa-a-Alpha', '_air_pocket', c1)]
+    n, which, live, ctl, mature, imm, txt = run(rows)
+    line = re.search(r'HANDOFF .*', txt).group(0)
+    assert n == 0, (which, txt[-900:])
+    assert line.endswith('contested 1') and "'unsettled': 1" in line, line
+
+
+t("CONTESTED (airpocket-03): the bot's own contested row parses clean and is counted, never gated", contested_rows)
 
 
 t("HANDOFF (airpocket-02 + window fix): the bot's own rows with window=<state>:<ms> parse clean and are counted, never gated", window_rows)
