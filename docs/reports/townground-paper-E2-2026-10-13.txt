@@ -1,0 +1,62 @@
+SCENE E2 (Codex re-review), sandbox4 20:03-20:07Z, instrument build dt 9dc2ad5e, real bot; raw: main/sandbox/log/townground/1013T200333-ctrl-E2
+[225.6] ctrl RESULT {"scene":"E2 reflex dig during an active gather","decision":{"skill":"gather","args":{"block":"dirt","count":30}},"result":"success entombed — but inventory_gain: dirt +25 and cost: health -1, which is what gather is for, so it worked","removed_in_square":{"dirtLayer":39,"stoneLayer":0,"total":39},"dirt_gained":61,"instrument_confirmed_in_square":43,"instrument_by_purpose":[["survival:reflex",16],["target:gather",27]],"town_ground_rows":[],"summaries":3,"during":{"entombedAt":1791921874652},"gather_runs":["20:03:50+45s","20:04:39+1s","20:05:29+47s","20:06:20+23s"],"survival_digs":["20:04:40 reflex:escape stone@2412,116,2410 confirmed","20:04:50 reflex:escape dirt@2412,117,2410 confirmed","20:05:03 reflex:escape dirt@2412,118,2410 confirmed","20:05:12 reflex:marooned dirt@2412,119,2410 confirmed","20:06:15 reflex:escape dirt@2414,115,2413 confirmed","20:06:20 reflex:escape dirt@2414,114,2414 confirmed","20:06:22 reflex:escape dirt@2415,114,2415 confirmed","20:06:24 reflex:escape dirt@2414,113,2415 confirmed","20:06:26 reflex:escape dirt@2414,114,2415 confirmed","20:06:27 reflex:escape dirt@2413,113,2415 aborted","20:06:28 reflex:escape dirt@2414,115,2415 confirmed","20:06:33 reflex:escape dirt@2414,113,2412 confirmed","20:06:36 reflex:escape dirt@2413,113,2414 confirmed","20:06:38 reflex:escape dirt@2413,113,2413 confirmed","20:06:40 reflex:escape dirt@2413,114,2414 confirmed","20:06:41 reflex:escape dirt@2414,115,2414 aborted","20:06:42 reflex:escape dirt@2412,113,2414 aborted","20:06:42 reflex:escape dirt@2413,115,2414 confirmed","20:06:49 reflex:escape dirt@2414,115,2414 confirmed"],"reflex_during_gather":14,"e2_pass":true}
+
+every _dig_town row (t0 = the dig's start):
+20:04:40.830 survival reflex:escape stone 2412 116 2410 confirmed
+20:04:50.073 survival reflex:escape dirt 2412 117 2410 confirmed
+20:05:03.954 survival reflex:escape dirt 2412 118 2410 confirmed
+20:05:12.339 survival reflex:marooned dirt 2412 119 2410 confirmed
+20:05:29.016 target gather:dirt dirt 2412 119 2411 confirmed
+20:05:30.297 target gather:dirt dirt 2413 119 2410 confirmed
+20:05:32.099 target gather:dirt dirt 2413 119 2411 confirmed
+20:05:33.850 target gather:dirt dirt 2413 119 2412 confirmed
+20:05:35.400 target gather:dirt dirt 2414 119 2411 confirmed
+20:05:37.185 target gather:dirt dirt 2414 119 2412 confirmed
+20:05:38.944 target gather:dirt dirt 2414 119 2413 confirmed
+20:05:40.443 target gather:dirt dirt 2415 119 2412 confirmed
+20:05:42.193 target gather:dirt dirt 2415 119 2413 confirmed
+20:05:43.939 target gather:dirt dirt 2415 119 2414 confirmed
+20:05:45.434 target gather:dirt dirt 2415 118 2413 confirmed
+20:05:46.726 target gather:dirt dirt 2415 118 2414 confirmed
+20:05:48.001 target gather:dirt dirt 2415 117 2413 confirmed
+20:05:49.291 target gather:dirt dirt 2415 117 2414 confirmed
+20:05:50.586 target gather:dirt dirt 2415 116 2413 confirmed
+20:05:51.881 target gather:dirt dirt 2415 116 2414 confirmed
+20:05:53.157 target gather:dirt dirt 2415 115 2413 confirmed
+20:05:54.447 target gather:dirt dirt 2415 115 2414 confirmed
+20:05:55.772 target gather:dirt dirt 2415 114 2413 confirmed
+20:05:57.039 target gather:dirt dirt 2415 114 2414 confirmed
+20:05:58.329 target gather:dirt dirt 2415 113 2413 confirmed
+20:05:59.617 target gather:dirt dirt 2415 113 2414 confirmed
+20:06:00.904 target gather:dirt dirt 2414 113 2413 confirmed
+20:06:02.701 target gather:dirt dirt 2415 113 2412 confirmed
+20:06:04.510 target gather:dirt dirt 2414 113 2414 confirmed
+20:06:06.789 target gather:dirt dirt 2415 113 2415 confirmed
+20:06:13.087 target gather:dirt dirt 2414 114 2413 confirmed
+20:06:15.238 survival reflex:escape dirt 2414 115 2413 confirmed
+20:06:20.096 survival reflex:escape dirt 2414 114 2414 confirmed
+20:06:22.096 survival reflex:escape dirt 2415 114 2415 confirmed
+20:06:24.146 survival reflex:escape dirt 2414 113 2415 confirmed
+20:06:26.011 survival reflex:escape dirt 2414 114 2415 confirmed
+20:06:27.500 survival reflex:escape dirt 2413 113 2415 aborted
+20:06:28.130 survival reflex:escape dirt 2414 115 2415 confirmed
+20:06:33.224 survival reflex:escape dirt 2414 113 2412 confirmed
+20:06:36.513 survival reflex:escape dirt 2413 113 2414 confirmed
+20:06:38.404 survival reflex:escape dirt 2413 113 2413 confirmed
+20:06:40.571 survival reflex:escape dirt 2413 114 2414 confirmed
+20:06:41.103 survival reflex:escape dirt 2414 115 2414 aborted
+20:06:42.162 survival reflex:escape dirt 2412 113 2414 aborted
+20:06:42.245 survival reflex:escape dirt 2413 115 2414 confirmed
+20:06:49.234 survival reflex:escape dirt 2414 115 2414 confirmed
+
+gather runs (runner rows: start + duration_ms):
+2026-10-13T20:03:50.430Z 44532 success entombed — but inventory_gain: dirt +25 and cost: health -1, which is what gather is for, so it work
+2026-10-13T20:04:39.393Z 1183 failed dirt found but unreachable after 3 attempts [collect said: arrived_out_of_reach: [pathfinder said: r
+2026-10-13T20:05:29.014Z 46639 success entombed — but inventory_gain: dirt +26, which is what gather is for, so it worked
+2026-10-13T20:06:20.094Z 22762 success entombed — but inventory_gain: dirt +10, which is what gather is for, so it worked
+
+reflex rows:
+2026-10-13T20:04:34.534Z _entombed walled in at y=114
+2026-10-13T20:05:11.785Z _marooned no path can start from y=116 with an open column above -- climbing out
+2026-10-13T20:06:15.233Z _entombed walled in at y=113
+2026-10-13T20:06:42.244Z _entombed walled in at y=113

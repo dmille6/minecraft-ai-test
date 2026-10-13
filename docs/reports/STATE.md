@@ -56,6 +56,14 @@ generation plus a 25-s settle. The finished cap becomes the well site; build_wel
   Both merges are clean. The stair veto rides wellBreakCost, so townzone's frozen arrays are untouched.
 - **Sandbox lock** /tmp/mcai-sandbox.lock released 19:00Z (the townground agent was waiting on it for its zone scenes).
 
+## 10-13 20:25Z — Codex RE-REVIEW of digtown-01/townzone-01 deltas: APPROVE / APPROVE (digtown-01's hold may be released)
+- (a) counter: Paper scene E2 (docs/reports/townground-paper-E2-2026-10-13.txt): 14 reflex digs inside ACTIVE gather runs,
+  all survival, none target -> Codex APPROVE. digtown-01 registration/sha unchanged (9dc2ad5e).
+- (b) zone: r7 3be6de18 (the roofed climb really rises: surface aimed at the column top) -> Codex APPROVE. townzone-01's
+  canary sha is now 3be6de18; its registration (~/mcai-analysis/townzone-01.9dc2ad5e.json, sha256 8d594826) and entry
+  (docs/reports/townzone-01.queue-entry.json) are updated -> the queued variant needs `queue replace-variant townzone-01`.
+- Fleet -> 48b093ce (stocktarget-01 KEPT): both runs need variants on whatever the fleet tip is at their turn.
+
 ## 10-13 18:50Z — digtown-01 + townzone-01 BUILT, reviewed, registered; NOT queued (the townground agent; owner GO "yes do 2-4")
 Design: docs/reports/townground-2026-10-13.md (r4) + its IMPLEMENTATION AMENDMENT section. Order: digtown-01 (instrument,
 its own canary) -> KEEP + fleet-wide promotion -> restart lag + a 180-min instrumented pre-window -> townzone-01.

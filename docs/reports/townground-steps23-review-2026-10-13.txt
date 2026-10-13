@@ -36,3 +36,13 @@ PAPER (after the reviews, 19:28-19:47Z, docs/reports/townground-paper-2026-10-13
   asserted at 9dc2ad5e; zone scenes cand b945226a vs ctrl 9dc2ad5e: town TARGET digs 0 vs 49. Scene E's first rule (every
   tomb dig survival) was wrong -- the running gather's own pathfinder dug out first (transit) in the candidate, the reflex in
   the control; the rule is now "no tomb dig reads target" plus escape, and both arms meet it.
+CODEX RE-REVIEW (coordinator, ~20:00Z; digtown-01 HELD for it):
+  r5: (a) APPROVE-WITH-CHANGES -- the control's reflex dig in scene E came 17 s AFTER gather ended (start 19:44:23.096 +
+      52653 ms); (b) APPROVE-WITH-CHANGES -- goto ends a leg at horizontal range, so goto(x, top+1, z) never climbed.
+  FIXED: scene E2 (Paper, instrument build dt 9dc2ad5e): gather ordered back to back, the bot sealed in an obsidian box
+      in a hole with one stone ceiling cell and no blocks; 14 reflex:escape digs start inside active gather runs, all
+      survival, none target (docs/reports/townground-paper-E2-2026-10-13.txt). tz r7 3be6de18: surface takes an internal
+      _toY and mine's roofed climb aims it at the column's open top; test: rises through a town roof above sea level
+      (y >= 71), roof digs transit:surface, then stairs outside town; mutant never rises. TZ 247/247.
+  r6: (a) APPROVE (Codex re-parsed the raw logs: 14 survival reflex digs inside gather windows, 11 confirmed, no reflex
+      dig labelled target). (b) APPROVE. No new P1/P2.

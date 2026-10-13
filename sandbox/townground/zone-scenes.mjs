@@ -119,12 +119,12 @@ const results = []
 function record (r) { results.push(r); fs.appendFileSync(RES, JSON.stringify({ run: RUN, arm: ARM, botRoot: BOT_ROOT, ...r }) + '\n'); P('RESULT', r) }
 const KIT = [['stone_pickaxe', 1], ['stone_pickaxe', 1], ['cobblestone', 64], ['cobblestone', 64], ['oak_log', 16], ['bread', 16]]
 
-async function scene (name, { at, decision, pit = 0, outsideDirt = true, ms = 150000, setup = null, during = null }) {
+async function scene (name, { at, decision, pit = 0, outsideDirt = true, ms = 150000, setup = null, during = null, repeat = 1, judge = null, kit = KIT }) {
   buildArena({ outsideDirt })
   if (setup) setup()
-  const f = await startBot(name, at, KIT)
+  const f = await startBot(name, at, kit)
   const dirt0 = countItem('dirt')
-  queue = [decision]
+  queue = Array.from({ length: repeat }, () => decision)
   const t0 = Date.now()
   let duringOut = null
   if (during) duringOut = await during(f, t0)
@@ -147,6 +147,7 @@ async function scene (name, { at, decision, pit = 0, outsideDirt = true, ms = 15
   // PASS: gather held the body at the entombment, the bot got out, and no dig of the tomb was read as a TARGET dig. Who dug
   // it out is reported: on 10-13 the running gather's own pathfinder dug out first (transit) before any reflex fired.
   if (duringOut?.tomb) out.tomb_pass = duringOut.gatherStarted && duringOut.runningAtEntomb && out.tomb_rows.length > 0 && out.tomb_rows.every(x => !x.startsWith('target:')) && duringOut.escaped === true
+  if (judge) Object.assign(out, judge(rows, duringOut))
   record(out)
   return out
 }
@@ -182,6 +183,38 @@ try {
       return { gatherStarted: !!started, runningAtEntomb, tomb, pos: p, escaped }
     },
   })
+  // E2 (Codex re-review 10-13): a REFLEX dig while gather is ACTIVE. gather is ordered six times back to back so it is the
+  // running skill nearly all the time; the bot is entombed in stone after its first dig. Judged from the rows: a dig labelled
+  // survival whose own start (args.t0) lies inside a gather run's [start, start + duration_ms] (the runner's row), and no
+  // dig labelled survival ever labelled target. Run on the INSTRUMENT build (dt): that is what digtown-01 ships.
+  if (want.has('E2')) await scene('E2 reflex dig during an active gather', {
+    at: [2440, 120, 2410], decision: { skill: 'gather', args: { block: 'dirt', count: 30 } }, repeat: 30, ms: 240000,
+    kit: [['stone_pickaxe', 1], ['stone_pickaxe', 1], ['bread', 16]],
+    during: async (f) => {
+      await waitFor(() => rowsOf(f.skillLog).some(r => r.skill.name === '_dig_town_sum' && (r.skill.args?.all ?? 0) > 0) || null, 60000, 500)
+      // IN A HOLE (the entombment detector needs ground well above the head within 4: a flat arena reads as a corridor):
+      // the bot at y 114, six below the slab's top
+      const x = 2412, y = 114, z = 2410
+      rcon(`fill ${x - 1} ${y - 1} ${z - 1} ${x + 1} ${y + 3} ${z + 1} minecraft:obsidian`)
+      rcon(`tp ${NAME} ${x + 0.5} ${y} ${z + 0.5}`); await sleep(400)
+      // an OBSIDIAN box (neither gather's pathfinder nor a stone pickaxe can take it) with ONE stone ceiling cell, and no
+      // placeable block in the bag: gather has no route out, so it keeps failing and being re-ordered, while the reflexes
+      // (marooned / entombed) are the only ones that can act -- on the stone ceiling
+      rcon(`fill ${x - 1} ${y - 1} ${z - 1} ${x + 1} ${y + 3} ${z + 1} minecraft:obsidian`, `fill ${x} ${y} ${z} ${x} ${y + 1} ${z} minecraft:air`, `setblock ${x} ${y + 2} ${z} minecraft:stone`, `setblock ${x} ${y + 3} ${z} minecraft:dirt`)
+      await sleep(150000)
+      return { entombedAt: Date.now() - 150000 }
+    },
+    judge: (rows) => {
+      const gathers = rows.filter(r => r.skill.name === 'gather').map(r => [Date.parse(r['@timestamp']), Date.parse(r['@timestamp']) + (r.skill.duration_ms ?? 0)])
+      const digs = rows.filter(r => r.skill.name === '_dig_town').map(r => r.skill.args || {})
+      const inGather = t => gathers.some(([a, b]) => t >= a && t <= b)
+      const reflexDuring = digs.filter(a => a.purpose === 'survival' && inGather(a.t0))
+      const mislabel = digs.filter(a => a.purpose === 'target' && /^(reflex|holder):/.test(String(a.by)))
+      return { gather_runs: gathers.map(([a, b]) => `${new Date(a).toISOString().slice(11, 19)}+${Math.round((b - a) / 1000)}s`),
+               survival_digs: digs.filter(a => a.purpose === 'survival').map(a => `${new Date(a.t0).toISOString().slice(11, 19)} ${a.by} ${a.block}@${a.x},${a.y},${a.z} ${a.outcome}`),
+               reflex_during_gather: reflexDuring.length, e2_pass: reflexDuring.length > 0 && mislabel.length === 0 }
+    },
+  })
   if (want.has('F')) await scene('F gather dirt, none outside', { at: [2410, 120, 2410], outsideDirt: false, decision: { skill: 'gather', args: { block: 'dirt', count: 2 } } })
 } finally {
   await stopBot().catch(() => {})
@@ -189,4 +222,4 @@ try {
   brain.close()
 }
 P('DONE', results.map(r => `${r.scene}: removed ${r.removed_in_square.total} (instrument ${r.instrument_confirmed_in_square}), dirt +${r.dirt_gained} :: ${r.result.slice(0, 90)}`))
-process.exit(results.some(r => r.tomb_pass === false) ? 1 : 0)
+process.exit(results.some(r => r.tomb_pass === false || r.e2_pass === false) ? 1 : 0)

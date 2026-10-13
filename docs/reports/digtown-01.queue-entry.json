@@ -9,7 +9,7 @@
  "variants": {
   "82aef3499bba99a503f6591fdbd1f76d5605bdad": {
    "registration": "/home/mike/mcai-analysis/digtown-01.82aef34.json",
-   "approved": "townground agent 2026-10-13: Codex code r1-r4 + Claude subagent code r1-r3 (docs/reports/townground-steps23-review-2026-10-13.txt); Claude final APPROVE A-E; Codex final APPROVE B/D/E, A/C APPROVE-WITH-CHANGES whose last items (scene E proving preemption; the roof-based climb) are fixed in the tips; npm test DT 246/246 at 9dc2ad5e, TZ 247/247 at b945226a; eslint no-undef: only the pre-existing reflex.mjs withinBody; licencecheck PASS (kind, baseline 0 / 6 h) and changerowcheck PASS (no change rows) on 82aef34 10-13 ~18:25Z; ORDINARY canary",
+   "approved": "townground agent 2026-10-13: Codex code r1-r4 + Claude subagent code r1-r3 (docs/reports/townground-steps23-review-2026-10-13.txt); Claude final APPROVE A-E; Codex final APPROVE B/D/E, A/C APPROVE-WITH-CHANGES whose last items (scene E proving preemption; the roof-based climb) are fixed in the tips; npm test DT 246/246 at 9dc2ad5e, TZ 247/247 at b945226a; eslint no-undef: only the pre-existing reflex.mjs withinBody; licencecheck PASS (kind, baseline 0 / 6 h) and changerowcheck PASS (no change rows) on 82aef34 10-13 ~18:25Z; ORDINARY canary; CODEX RE-REVIEW 10-13: (a) APPROVE on Paper scene E2 (reflex digs inside active gather runs read survival, 14/14)",
    "canary_sha": "9dc2ad5eb7a86bc2717790ed8de4009bdd91dfa9",
    "reads_src": "/home/mike/mcai-analysis",
    "reads": {
