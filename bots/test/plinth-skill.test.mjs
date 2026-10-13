@@ -58,6 +58,8 @@ function fakeTown ({ items = [], name = 'b-Alpha', extra = {}, at = null } = {})
   const nameAt = (x, y, z) => world.get(KEY(x, y, z)) ?? (Math.abs(x) > 40 || Math.abs(z) > 40 ? null : y === SLAB_Y ? 'grass_block' : y === SLAB_Y - 10 ? 'stone' : 'air')
   const blockAt = p => {
     const x = Math.floor(p.x), y = Math.floor(p.y), z = Math.floor(p.z)
+    // the late block update arrives after the click's read-back window (11 reads), before its retry's guard reads it
+    if (st.late && st.late.key === KEY(x, y, z) && ++st.late.reads >= 12) { st.late.land(); st.late = null }
     if (y < 40 || y > 100) return null
     const n = nameAt(x, y, z)
     if (!n) return null
@@ -110,7 +112,9 @@ function fakeTown ({ items = [], name = 'b-Alpha', extra = {}, at = null } = {})
       if (!['air', 'cave_air', 'short_grass'].includes(target.name)) { st.refused.push('full'); throw new Error('placing into a full cell') }
       const f = bot.entity.position
       if (f.x + 0.3 > at.x && f.x - 0.3 < at.x + 1 && f.z + 0.3 > at.z && f.z - 0.3 < at.z + 1 && f.y + 1.8 > at.y && f.y < at.y + 1) { st.refused.push('body'); throw new Error('a body in the cell') }
-      world.set(KEY(at.x, at.y, at.z), h.name); h.count--; if (!h.count) slots[h.slot] = null
+      const land = () => { world.set(KEY(at.x, at.y, at.z), h.name); h.count--; if (!h.count) slots[h.slot] = null }
+      // A LATE LANDING (the server's block update after the client's read-back window): the block appears 12 ticks on
+      if (st.lateOnce) { st.lateOnce = false; st.late = { key: KEY(at.x, at.y, at.z), reads: 0, land } } else land()
       st.places.push(KEY(at.x, at.y, at.z))
       await st.placeHook?.(at)
     },
@@ -511,6 +515,20 @@ await t('NO EVICTION (Codex r2 P2-4): a town already carrying PLINTH_PREV_MAX un
   assert.equal(recNow().prev.length, P.PLINTH_PREV_MAX)
 })
 
+// ---- REVIEW r5 (Claude: the late landing) ----
+await t('A LATE LANDING OF OUR OWN CLICK (Claude r5 P3): the retry finds the block there -- it is this run\'s step (row and count), not another hand\'s', async () => {
+  reset(); noSite()
+  const town = fakeTown({ items: [['cobblestone', 64], ['cobblestone', 64], ['cobblestone', 64], ['dirt', 4]] })
+  await visit(town)
+  const first = recNow().plan.steps[0].c.join(',')
+  town.st.lateOnce = true
+  const before = (await rowsOf('_plinth_step')).length
+  await visit(town)
+  const rows = (await rowsOf('_plinth_step')).slice(before)
+  assert.ok(rows.some(x => x.skill.detail.includes(`at=${first} `)), 'the late-landed first step has its row')
+  assert.equal(town.read(...recNow().plan.steps[0].c).name, 'cobblestone')
+})
+
 // ---- REVIEW r4 (Codex REJECT: N5) ----
 /** A slab plinth whose pit was covered by its builder after an abort at the walling-in step (the cover: dirt). */
 async function coveredPitTown () {
@@ -857,6 +875,20 @@ await t('MUTANT (skills): the cover dig without its guard -> a body that walked 
     assert.ok(town.bot.entities[45], 'positive control: the shovel was equipped for the dig')
     assert.ok(town.st.digs.includes(KEY(cap.x, cap.y, cap.z)), 'the mutant digs the cover over the chicken')
     delete town.bot.entities[45]
+  })
+})
+
+await t('MUTANT (skills): every retry-time "done" counted as another hand\'s -> the late-landed step loses its row (Claude r5 P3)', async () => {
+  await withMutant(SP, "            if (why === 'done') { done = true; byOther = attempt === 0; break }   // a late landing of OUR first click is ours\n", "            if (why === 'done') { done = true; byOther = true; break }\n", async m => {
+    reset(); noSite()
+    const town = fakeTown({ items: [['cobblestone', 64], ['cobblestone', 64], ['cobblestone', 64], ['dirt', 4]] })
+    await m.SKILLS.build_plinth.run({ bot: town.bot }, {}, { aborted: false })
+    const first = recNow().plan.steps[0].c.join(',')
+    town.st.lateOnce = true
+    const before = (await rowsOf('_plinth_step')).length
+    ageRecord(); await m.SKILLS.build_plinth.run({ bot: town.bot }, {}, { aborted: false })
+    const rows = (await rowsOf('_plinth_step')).slice(before)
+    assert.ok(!rows.some(x => x.skill.detail.includes(`at=${first} `)), 'the mutant drops the row')
   })
 })
 
