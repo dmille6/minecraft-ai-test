@@ -12,6 +12,36 @@ Studio reservation both closed 10-12); clear caps bamboo 0 / bucket 2._
 
 ---
 
+## 10-13 10:05Z — wellsite-01 STAGED for the queue (after bamboo-02); junk-well site defect diagnosed
+DIAGNOSIS (24 h to 08:07Z, full walk, 1.29M rows, 80 bots):
+- 3,197 build_well no_site refusals from 55 bots in 12 pools; per-bot gap p50 7.2 min. Every attempt was free: no_effect
+  carried no backoff.
+- Town region files were read offline (read-only copy; 10/10 cells matched read-only RCON; the 5 live wells read intact).
+  Within 14 of home the bots have dug out the ground: the walls and the 2-wide underground ring fail on 80-100% of
+  candidates in EVERY town.
+- The 741 well_retired rows/day were TWO wells:
+  - board-b: a real breach (its ring was mined out);
+  - placebo-b: a FALSE breach. An escape pillar left sand resting on dirt in the well's wall. The well is sealed but was
+    retired, and has had no disposals since 10-12 09:31Z.
+CHANGE wellsite-on-82aef34, canary sha baa94879 (both engines APPROVE r4):
+- an exhausted search backs off 2 h, and the town remembers it in junkwell-nosite-<home>.json;
+- a supported sand/gravel wall counts as a wall;
+- containment is re-read at the stand and at every throw click;
+- tally= on the no_site row; one retirement row per well.
+- Searching to radius 32 was REJECTED by both reviews.
+STILL NO WELL after this change: board-c, board-d, placebo-c, isolated-a, isolated-b have no valid cell even at radius 32.
+Follow-up design (analysis only, sandbox first): docs/reports/wellsite-selfbuild-design-2026-10-13.md.
+STAGED ON 10.0.0.31:
+- ~/mcai-analysis/wellsite-01.82aef34.json (sha256 c6369c3d...)
+- wellsiteread.py c8dff7cc, in ~/mcai-analysis and /tmp
+- licencecheck PASS (text ' tally=cols:': 0 hits in 747 baseline rows); changerowcheck PASS (change_rows emptied: the base
+  emits both well rows)
+- entry ~/mcai-analysis/wellsite-01.entry.json: after bamboo-02, ONE variant 82aef34 -> baa94879; draw_require_pools placebo-b
+- NOT queued: the coordinator runs `queue add`.
+VARIANTS NEEDED by its turn (not built): 70cb0d41, 48b093ce, a88f763d, 08c791aa, 7ffe2c40, 2ec19385, 1d6dd516, 82126748,
+and bamboo-02 on each of those. stocktarget-01's well arms act only in towns with a live well.
+Review record: docs/reports/wellsite-01-review-2026-10-13.txt.
+
 ## 10-13 08:10Z — overnight: airpocket-02 extending (+540 NOT_YET, gate held); brain-01 series done; junk-well investigation started
 airpocket-02 (hive-d,placebo-d): +180/+360/+540 NOT_YET. Deaths canary 2/90.8 bh (hive-d-Comet drowned idle 22:45Z;
 placebo-d-Comet lava idle 05:48Z) vs matched 1/136.2; DiD psi 0.93x, lower bound 0.14x, matched lower 0.23x -- held.
