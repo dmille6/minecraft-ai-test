@@ -449,11 +449,20 @@ await t('THE REFUSAL CHAIN: an unfunded build backs the plinth off, and the town
   assert.equal(P.plinthOrder({ now: NOW + P.PLINTH_BACKOFF_MS, distHome: 5, want: { want: 'build' }, lease: { free: true }, budget: 30, state: s1 }).order?.skill, 'build_plinth', 'and it comes back')
 })
 
-await t('plinthBreakCost: a stair cell is never dug (100); anything else is free', () => {
-  const st = [[1, 2, 3], [4, 5, 6]]
-  assert.equal(P.plinthBreakCost(st, { position: { x: 4, y: 5, z: 6 } }), 100)
-  assert.equal(P.plinthBreakCost(st, { position: { x: 4, y: 6, z: 6 } }), 0)
-  assert.equal(P.plinthBreakCost([], { position: { x: 4, y: 5, z: 6 } }), 0)
+await t('wellBreakCost honours a raised well column\'s STAIR (outside the 5x5 box): a stair cell is never dug (100); the box still is; anything else is free; the own-well skip skips both', () => {
+  const col = { x: 0, y: 70, z: 0, stair: [[4, 66, 0], [5, 65, 0]] }
+  const at = (x, y, z) => ({ position: { x, y, z } })
+  assert.equal(W.wellBreakCost([col], at(4, 66, 0)), 100, 'a stair cell')
+  assert.equal(W.wellBreakCost([col], at(2, 68, 2)), 100, 'positive control: the 5x5 box')
+  assert.equal(W.wellBreakCost([col], at(4, 67, 0)), 0, 'above the step')
+  assert.equal(W.wellBreakCost([{ x: 0, y: 70, z: 0 }], at(4, 66, 0)), 0, 'a natural well has no stair')
+  assert.equal(W.wellBreakCost([col], at(4, 66, 0), col), 0, 'the own-well skip (a body inside) skips the column, stair included')
+})
+const WP = new URL('../src/well.mjs', import.meta.url)
+await t('MUTANT (well): the stair check dropped -> a stair cell is diggable', async () => {
+  await withMutant(WP, "    if (st) for (let j = 0; j < st.length; j++) if (p.x === st[j][0] && p.y === st[j][1] && p.z === st[j][2]) return 100\n", '', async M => {
+    assert.equal(M.wellBreakCost([{ x: 0, y: 70, z: 0, stair: [[4, 66, 0]] }], { position: { x: 4, y: 66, z: 0 } }), 0)
+  })
 })
 
 await t('plinthDetail: stage first, key=value, cut at 300', () => {

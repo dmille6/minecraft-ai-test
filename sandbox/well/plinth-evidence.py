@@ -62,7 +62,7 @@ if p:
     for r in p:
         print(f"| {r['fx']} | {r.get('toStandOk')}/{r.get('toStand')} | {r.get('homeOk')}/50 | {r.get('pathNodesInColumn')} | {r.get('bodySamplesInColumn')} | {r.get('standMsP50')} | {len(r.get('fails') or [])} |")
     print()
-for kind in ('tomb', 'pit'):
+for kind in ('tomb', 'pit', 'tomb-control', 'pit-control'):
     for r in by.get(kind, []):
         print(f"**S4 {kind}** ({r['fx']}): out={r.get('out')} plinth cells lost (server)={len(r.get('plinthLost') or [])}; rows: {'; '.join(x[:110] for x in (r.get('rows') or [])[:4])}\n")
 errs = [r for r in rows if r.get('error')]

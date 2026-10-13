@@ -1119,7 +1119,8 @@ export function wellStepCost (cols, block, skip = null) {
   return 0
 }
 
-/** exclusionAreasBreak entry: the cap, shaft, floor, walls and the underground ring are never a path's (or gather's) dig. */
+/** exclusionAreasBreak entry: the cap, shaft, floor, walls and the underground ring are never a path's (or gather's) dig.
+ *  A raised well's column (plinth-01) also carries its STAIR (`c.stair`: [[x,y,z]], outside the 5x5 box): never dug either. */
 export function wellBreakCost (cols, block, skip = null) {
   const p = block?.position
   if (!p || !cols || !cols.length) return 0
@@ -1127,6 +1128,8 @@ export function wellBreakCost (cols, block, skip = null) {
     const c = cols[i]
     if (c === skip) continue   // THE BOT'S OWN WELL (Claude review P2-1): a body inside digs out through a wall (the well is breached and rebuilt)
     if (Math.abs(p.x - c.x) <= UNDERGROUND_RING && Math.abs(p.z - c.z) <= UNDERGROUND_RING && p.y >= c.y - 3 && p.y <= c.y) return 100
+    const st = c.stair
+    if (st) for (let j = 0; j < st.length; j++) if (p.x === st[j][0] && p.y === st[j][1] && p.z === st[j][2]) return 100
   }
   return 0
 }

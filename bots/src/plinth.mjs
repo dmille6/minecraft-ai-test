@@ -908,14 +908,6 @@ export function stuckNext (stuck, { step, progressed }) {
   return stuck && stuck.step === step ? { step, n: (Number(stuck.n) || 0) + 1 } : { step, n: 1 }
 }
 
-/** The pathfinder's dig veto for the plan's cells outside the well's own 5x5 box (the stair): 100 = never dug. */
-export function plinthBreakCost (cells, block) {
-  const p = block?.position
-  if (!p || !cells || !cells.length) return 0
-  for (let i = 0; i < cells.length; i++) { const c = cells[i]; if (p.x === c[0] && p.y === c[1] && p.z === c[2]) return 100 }
-  return 0
-}
-
 /** THE _plinth ROW, key=value, stage first (the read parses fields): cut at 300. */
 export function plinthDetail ({ stage, at = null, k = null, placed = 0, cleared = 0, done = null, total = null, left = null, budget = null,
                                 took = 0, why = null, hazard = null, id = null, tally = null, alt = 0, retries = 0 } = {}) {
