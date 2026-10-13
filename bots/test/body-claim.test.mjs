@@ -55,7 +55,8 @@ t('the harvest watchdog is ON by default — gather still wants the drop', () =>
 
 t('THE CLIMB OPTS OUT: it wants the hole, not the cobble', () => {
   const code = strip('../src/skills.mjs')
-  const digs = code.match(/withTimeout\(bot\.dig\([^;]*?\}\)/gs) ?? []
+  // the staircase re-dig goes through abortableDig since airpocket-03 (an interrupted mine sends no dig after its abort)
+  const digs = code.match(/withTimeout\((?:bot\.dig|abortableDig)\([^;]*?\}\)/gs) ?? []
   assert.equal(digs.length, 9, `expected 9 dig call sites, found ${digs.length}`)   // + deposit's chest-lid dig (2026-09-13), + wear_out's dig (2026-09-29), + withdraw's chest-lid dig (2026-10-04)
   const optedOut = digs.filter(d => /needsDrop:\s*false/.test(d))
   // wear_out opts out too: it digs to BREAK THE TOOL, and the drop is irrelevant (hygiene.mjs)
