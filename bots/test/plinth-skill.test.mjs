@@ -511,8 +511,106 @@ await t('NO EVICTION (Codex r2 P2-4): a town already carrying PLINTH_PREV_MAX un
   assert.equal(recNow().prev.length, P.PLINTH_PREV_MAX)
 })
 
+// ---- REVIEW r4 (Codex REJECT: N5) ----
+/** A slab plinth whose pit was covered by its builder after an abort at the walling-in step (the cover: dirt). */
+async function coveredPitTown () {
+  reset(); noSite()
+  const town = fakeTown({ items: [['cobblestone', 64], ['cobblestone', 64], ['cobblestone', 64], ['dirt', 4]] })
+  await visit(town)
+  const plan = recNow().plan, cap = plan.cap
+  const hz = plan.steps[plan.hazardStep].c.join(',')
+  town.st.placeHook = at => { if (KEY(at.x, at.y, at.z) === hz) town.world.set(KEY(cap.x, cap.y, cap.z), 'dirt') }   // covered at once
+  const sig = { aborted: false }
+  const h2 = town.st.placeHook
+  town.st.placeHook = at => { h2(at); if (KEY(at.x, at.y, at.z) === hz) sig.aborted = true }
+  for (let n = 0; n < 4 && !sig.aborted; n++) { try { await visit(town, sig) } catch (e) { if (!sig.aborted) throw e } }
+  town.st.placeHook = null
+  assert.equal(P.plinthProgress(town.read, plan).covered, true)
+  return { town, plan, cap }
+}
+await t('N5 (Codex r4): the cover removal is guarded -- a chest in the cap cell voids the plan and is never dug; a cover swapped for a chest in the walk is not dug; a body arriving before the dig stops it; a dirt cover is dug (positive control)', async () => {
+  { // positive control
+    const { town, cap } = await coveredPitTown()
+    await visit(town)
+    assert.ok(town.st.digs.includes(KEY(cap.x, cap.y, cap.z)), 'the dirt cover is dug out')
+  }
+  { // a dirt cover that turned to grass (Claude r5 P2) is still a cover: dug, not voided
+    const { town, cap } = await coveredPitTown()
+    town.world.set(KEY(cap.x, cap.y, cap.z), 'grass_block')
+    const r = await visit(town)
+    assert.notEqual(r.failClass, 'plinth_blocked', r.detail)
+    assert.ok(town.st.digs.includes(KEY(cap.x, cap.y, cap.z)), 'the grassed cover is dug out')
+  }
+  { // a chest already in the cap
+    const { town, cap } = await coveredPitTown()
+    town.world.set(KEY(cap.x, cap.y, cap.z), 'chest')
+    const r = await visit(town)
+    assert.equal(r.failClass, 'plinth_blocked'); assert.equal(recNow().state, 'void')
+    assert.ok(!town.st.digs.includes(KEY(cap.x, cap.y, cap.z)))
+  }
+  { // swapped during the approach walk
+    const { town, cap } = await coveredPitTown()
+    town.bot.entity.position = new Vec3(-5.5, SLAB_Y + 1, -5.5)
+    town.st.gotoFail = () => { town.world.set(KEY(cap.x, cap.y, cap.z), 'chest'); return false }
+    await visit(town)
+    town.st.gotoFail = null
+    assert.ok(!town.st.digs.includes(KEY(cap.x, cap.y, cap.z)), 'the chest is not dug')
+  }
+  { // a body arrives in the column during the walk to the dig's stand (after own(), before the dig)
+    const { town, cap } = await coveredPitTown()
+    town.bot.entity.position = new Vec3(-5.5, SLAB_Y + 1, -5.5)
+    town.st.gotoFail = () => { town.bot.entities[44] = { id: 44, name: 'chicken', position: new Vec3(cap.x + 0.5, cap.y - 1, cap.z + 0.5), width: 0.4, height: 0.7 }; return false }
+    await visit(town)
+    town.st.gotoFail = null
+    assert.ok(!town.st.digs.includes(KEY(cap.x, cap.y, cap.z)), 'not dug with a body in the column')
+    delete town.bot.entities[44]
+  }
+  { // a body arrives AFTER own(): during the equip of the dig's tool -- the guard at the dig stops it
+    const { town, cap } = await coveredPitTown()
+    town.slots[30] = { name: 'stone_shovel', count: 1, slot: 30, type: REG.itemsByName.stone_shovel.id, stackSize: 1, durabilityUsed: 0, maxDurability: 131 }
+    const eq = town.bot.equip
+    town.bot.equip = async (item, d) => { if (item?.name === 'stone_shovel') town.bot.entities[46] = { id: 46, name: 'chicken', position: new Vec3(cap.x + 0.5, cap.y - 1, cap.z + 0.5), width: 0.4, height: 0.7 }; return eq(item, d) }
+    await visit(town)
+    town.bot.equip = eq
+    assert.ok(town.bot.entities[46], 'positive control: the shovel was equipped for the dig')
+    assert.ok(!town.st.digs.includes(KEY(cap.x, cap.y, cap.z)), 'not dug over the chicken')
+    delete town.bot.entities[46]
+  }
+})
+
 // ---- REVIEW r3 (Codex REJECT: N1-N4) ----
-await t('N3/N4 (Codex r3): a planned leaf replaced by a chest during the walk is NOT dug (the plan voids); a support replaced by a crafting table in the wait is NOT clicked', async () => {
+/** The slab plan built through its first cardinal wall at g, then the FLOOR's block swapped for leaves (grown in): the next
+ *  visit's first step is the floor, and clearing its leaf drops the column's bottom below the g-1 walls -> walled in. */
+async function floorLeafTown () {
+  reset(); noSite()
+  const town = fakeTown({ items: [['cobblestone', 64], ['cobblestone', 64], ['cobblestone', 64], ['dirt', 4]] })
+  await visit(town)
+  const plan = recNow().plan, cap = plan.cap
+  // stop right after the FIRST CARDINAL wall at g: a cover has something to go against, three cardinals are still exits
+  const firstCard = plan.steps.findIndex(st => st.op === 'place' && st.c[1] === cap.y && Math.abs(st.c[0] - cap.x) + Math.abs(st.c[2] - cap.z) === 1)
+  const stopAt = plan.steps[firstCard].c.join(',')
+  const sig = { aborted: false }
+  town.st.placeHook = at => { if (KEY(at.x, at.y, at.z) === stopAt) sig.aborted = true }
+  for (let n = 0; n < 4 && !sig.aborted; n++) { try { await visit(town, sig) } catch (e) { if (!sig.aborted) throw e } }
+  town.st.placeHook = null
+  const floor = `${cap.x},${cap.y - 2},${cap.z}`
+  town.world.set(floor, 'oak_leaves')
+  const floorIdx = plan.steps.findIndex(st => st.c.join(',') === floor)
+  void stopAt
+  return { town, plan, cap, floor, floorIdx }
+}
+await t('N1 (Codex r3, Claude r4 mutant C): leaves grown into the FLOOR -- the clear that walls the column in is owned first (row from=plinth_clear) and the pit it opens is covered before the visit ends', async () => {
+  const { town, cap, floor, floorIdx } = await floorLeafTown()
+  const leafWorld = P.overlay(town.read, new Map())
+  assert.equal(P.plinthHazard(leafWorld, cap), false, 'with the leaf floor the column has a step out')
+  assert.equal(P.plinthHazard(P.overlay(town.read, new Map([[P.cellKey(cap.x, cap.y - 2, cap.z), P.AIR]])), cap), true, 'without it, walled in')
+  await visit(town)
+  const dug = (await rowsOf('_well_pit_dug')).filter(x => new RegExp(`from=plinth_clear step=${floorIdx}`).test(x.skill.detail))
+  assert.equal(dug.length, 1, 'owned at the clear, before it')
+  assert.ok(town.st.digs.includes(floor), 'the leaf was cleared')
+  assert.equal(P.plinthHazard(town.read, cap), false, 'and the pit it opened is not left open (re-floored or covered)')
+})
+await t('N3/N4 (Codex r3): a planned leaf replaced by a chest during the walk is NOT dug; a support replaced by a crafting table in the wait is NOT clicked', async () => {
   reset(); noSite()
   const extra = {}
   for (let x = -30; x <= 30; x++) for (let z = -30; z <= 30; z++) for (let y = SLAB_Y - 4; y < SLAB_Y; y++) extra[KEY(x, y, z)] = 'dirt'
@@ -538,6 +636,23 @@ await t('N3/N4 (Codex r3): a planned leaf replaced by a chest during the walk is
   assert.ok(swapped)
   assert.ok(!(t2.st.refNames ?? []).includes('crafting_table'), 'no click on the crafting table')
   assert.match(r2.detail, /\(support\)/, 'the visit stopped on the support, at the click')
+})
+await t('N2 WRITER (Claude r4): a void, then a search that finds nothing -> the none record carries trigger void; aged, with the no-site hold gone, the town plans again', async () => {
+  reset(); noSite()
+  const town = fakeTown({ items: [['cobblestone', 200], ['dirt', 4]] })
+  await visit(town)
+  const s3 = recNow().plan.steps[3]
+  town.world.set(s3.c.join(','), 'chest')
+  assert.equal((await visit(town)).failClass, 'plinth_blocked')
+  assert.equal(recNow().state, 'void')
+  rmSync(NOSITE)                                                                    // as a partial hand-off left it
+  for (let x = -24; x <= 40; x++) for (let z = -24; z <= 24; z++) town.world.set(KEY(x, SLAB_Y + 1, z), 'water')   // no plan anywhere now
+  const r = await visit(town)
+  assert.equal(r.failClass, 'plinth_none', r.detail)
+  assert.equal(recNow().state, 'none'); assert.equal(recNow().trigger, 'void')
+  const aged = { ...recNow(), at: Date.now() - P.PLINTH_NONE_BACKOFF_MS - 1 }
+  writeFileSync(PLINTH, JSON.stringify(aged))
+  assert.equal(S.townPlinthState(town.bot).want.want, 'plan', 'the void is still the trigger')
 })
 await t('N2 (Codex r3): void -> a failed search -> aged none still plans again with the no-site hold gone (the void is carried as the trigger)', () => {
   const NOW = 100_000_000
@@ -696,6 +811,52 @@ await t('MUTANT (skills): no settle wait -> a second bot builds the instant the 
     const b = fakeTown({ items: [['cobblestone', 200], ['dirt', 4]], name: 'b-Bravo' })
     await m.SKILLS.build_plinth.run({ bot: b.bot }, {}, { aborted: false })
     assert.ok(b.st.places.length > 0, 'the mutant builds at once')
+  })
+})
+
+await t('MUTANT (skills): the opportunistic clear without ownIfWalls -> the guard refuses the dig ("changed"); nothing owned, nothing dug (Claude r4 mutant C)', async () => {
+  await withMutant(SP, "        const ow = ownIfWalls(postClear, `plinth_clear step=${i}`, items())\n", "        const ow = null\n", async m => {
+    const { town, floor } = await floorLeafTown()
+    ageRecord()
+    const r = await m.SKILLS.build_plinth.run({ bot: town.bot }, {}, { aborted: false })
+    assert.ok(!town.st.digs.includes(floor), 'the mutant does not dig unowned')
+    assert.match(r.detail, /changed/)
+  })
+})
+await t('MUTANT (skills): the none record without its void trigger -> the N2 writer test sees trigger null (Claude r4 mutant D)', async () => {
+  await withMutant(SP, "        const trigger = want.why === 'void' || mine?.trigger === 'void' ? 'void' : null\n", "        const trigger = null\n", async m => {
+    reset(); noSite()
+    const town = fakeTown({ items: [['cobblestone', 200], ['dirt', 4]] })
+    await m.SKILLS.build_plinth.run({ bot: town.bot }, {}, { aborted: false })
+    town.world.set(recNow().plan.steps[3].c.join(','), 'chest')
+    ageRecord(); await m.SKILLS.build_plinth.run({ bot: town.bot }, {}, { aborted: false })
+    rmSync(NOSITE)
+    for (let x = -24; x <= 40; x++) for (let z = -24; z <= 24; z++) town.world.set(KEY(x, SLAB_Y + 1, z), 'water')
+    await m.SKILLS.build_plinth.run({ bot: town.bot }, {}, { aborted: false })
+    assert.equal(recNow().state, 'none'); assert.equal(recNow().trigger ?? null, null, 'the mutant drops the trigger')
+  })
+})
+
+await t('MUTANT (skills): the cover dig without its guard -> a body that walked into the column meanwhile has the cover dug over it (Codex r4 N5)', async () => {
+  await withMutant(SP, "            const gw = clickGuard({ op: 'uncover', target: c, post: plinthOverlay(read, new Map([[cellKey(c.x, c.y, c.z), PLINTH_AIR]])) })\n", "            const gw = null\n", async m => {
+    reset(); noSite()
+    const town = fakeTown({ items: [['cobblestone', 64], ['cobblestone', 64], ['cobblestone', 64], ['dirt', 4]] })
+    await m.SKILLS.build_plinth.run({ bot: town.bot }, {}, { aborted: false })
+    const plan = recNow().plan, cap = plan.cap
+    const hz = plan.steps[plan.hazardStep].c.join(',')
+    const sig = { aborted: false }
+    town.st.placeHook = at => { if (KEY(at.x, at.y, at.z) === hz) { town.world.set(KEY(cap.x, cap.y, cap.z), 'dirt'); sig.aborted = true } }
+    for (let n = 0; n < 4 && !sig.aborted; n++) { ageRecord(); try { await m.SKILLS.build_plinth.run({ bot: town.bot }, {}, sig) } catch (e) { if (!sig.aborted) throw e } }
+    town.st.placeHook = null
+    // the body arrives AFTER own() took the pit: during the equip of the dig's tool (a shovel for the dirt cover)
+    town.slots[30] = { name: 'stone_shovel', count: 1, slot: 30, type: REG.itemsByName.stone_shovel.id, stackSize: 1, durabilityUsed: 0, maxDurability: 131 }
+    const eq = town.bot.equip
+    town.bot.equip = async (item, d) => { if (item?.name === 'stone_shovel') town.bot.entities[45] = { id: 45, name: 'chicken', position: new Vec3(cap.x + 0.5, cap.y - 1, cap.z + 0.5), width: 0.4, height: 0.7 }; return eq(item, d) }
+    ageRecord(); await m.SKILLS.build_plinth.run({ bot: town.bot }, {}, { aborted: false })
+    town.bot.equip = eq
+    assert.ok(town.bot.entities[45], 'positive control: the shovel was equipped for the dig')
+    assert.ok(town.st.digs.includes(KEY(cap.x, cap.y, cap.z)), 'the mutant digs the cover over the chicken')
+    delete town.bot.entities[45]
   })
 })
 
