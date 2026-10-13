@@ -102,6 +102,20 @@ const SPEC = {
   // decision crafts planks from logs (a 2x2 craft clicks in the player inventory, window 0) while the rescue wants to equip
   FM: { setup: ['fill 700 40 700 700 41 700 minecraft:water', 'setblock 700 42 700 minecraft:ice', 'fill 699 43 699 701 45 701 minecraft:air'],
        expect: [[700, 39, 700, 'stone'], [700, 40, 700, 'water'], [700, 41, 700, 'water'], [700, 42, 700, 'ice'], [700, 43, 700, 'air']], secs: 150 },
+  // FMD (10-13): FM started DRY so `mine` is really running at the trap: in a flooded 1x1x2 pocket mine refuses at once
+  // ("water beside the ceiling cell ahead", 0.15 s; measured on the FM pilot), so nothing is in flight when the rescue
+  // fires. Here the pocket is air, the brain answers `mine`, and the driver floods 700 40..41 700 (air only) the moment
+  // the trace shows mine's FIRST dig start -- the bot is then submerged in F's ice trap with mine mid-dig. Fallback: flood
+  // at 25 s if no dig was seen (recorded as floodBy=fallback).
+  FMD: { setup: ['fill 700 40 700 700 41 700 minecraft:air', 'setblock 700 42 700 minecraft:ice', 'fill 699 43 699 701 45 701 minecraft:air'], flood: ['fill 700 40 700 700 41 700 minecraft:water replace minecraft:air'],
+         expect: [[700, 39, 700, 'stone'], [700, 40, 700, 'air'], [700, 41, 700, 'air'], [700, 42, 700, 'ice'], [700, 43, 700, 'air']], secs: 150 },
+  // FMR (10-13): FMD in a 3x3x2 DRY room (not walled in, so the entombed escape does not break the ice first -- measured on
+  // the FMD pilot: it dug the ice at 1.1 s and pillared out at 4.1 s). The ice is over the centre (700 42 700) with F's air
+  // room above; the rest of the ceiling is stone. The room is flooded (air only) at mine's first PICKAXE dig that is not
+  // the ice cell, so the bot is submerged under the ice with mine mid-dig. Fallback flood at 25 s.
+  FMR: { setup: ['fill 699 40 699 701 41 701 minecraft:air', 'setblock 700 42 700 minecraft:ice', 'fill 699 43 699 701 45 701 minecraft:air'],
+         flood: ['fill 699 40 699 701 41 701 minecraft:water replace minecraft:air'], floodOnPickaxe: true,
+         expect: [[700, 39, 700, 'stone'], [700, 40, 700, 'air'], [701, 41, 701, 'air'], [700, 42, 700, 'ice'], [701, 42, 700, 'stone'], [700, 43, 700, 'air']], secs: 150 },
   CR: { setup: ['fill 700 40 700 700 41 700 minecraft:water'], expect: [[700, 39, 700, 'stone'], [700, 40, 700, 'water'], [700, 41, 700, 'water'], [700, 42, 700, 'stone'], [700, 43, 700, 'stone']], secs: 150 },
 }
 const CLEAR_ITEMS = 'kill @e[type=item,x=700,y=40,z=700,distance=..24]'
@@ -251,6 +265,9 @@ async function startBot (tag, root) {
   if (process.env.AP_TOOL_HYGIENE) set('TOOL_HYGIENE', process.env.AP_TOOL_HYGIENE)   // on|off (unset = the build's default, on)
   set('OLLAMA_BASE_URL', `http://127.0.0.1:${REMOTE_BRAIN_PORT}`); set('OLLAMA_BASE_URLS', `http://127.0.0.1:${REMOTE_BRAIN_PORT}`)
   for (const a of ['X', 'Y', 'Z']) { set(`HOME_${a}`, Math.floor(STAND[a.toLowerCase()])); set(`BOARD_${a}`, Math.floor(STAND[a.toLowerCase()])) }
+  // AP_HOME=x,y,z moves HOME/BOARD off the trap (scene FM: mine refuses to dig down within 12 blocks of home, "the base
+  // floor is not a resource", so with home at the stand mine fails in 0.15 s and is never running when the rescue fires)
+  if (process.env.AP_HOME) { const [hx, hy, hz] = process.env.AP_HOME.split(',').map(Number); set('HOME_X', hx); set('HOME_Y', hy); set('HOME_Z', hz); set('BOARD_X', hx); set('BOARD_Y', hy); set('BOARD_Z', hz) }
   r31(`mkdir -p ${ROUT} && cat > ${MAIN}/${envRel}`, env + '\n')
   botPidFile = `${ROUT}/${tag}.pid`
   const botOut = `${LOUT}/bot-${tag}.out`
@@ -278,7 +295,7 @@ async function runTrial (arm, scene, k) {
   const { ok, envRel, botOut } = await startBot(tag, root)
   if (!ok) { await stopBot(); throw new Error('no spawn') }
   let difficultyBefore = null, difficultyDuring = null
-  const polls = []; let t0 = null; let deathT = null; let airAt0 = null
+  const polls = []; let t0 = null; let deathT = null; let airAt0 = null; let floodT = null, floodBy = null, floodReply = null
   try {
     rcon(`gamemode spectator ${NAME}`, `tp ${NAME} ${STAND.x} 60 ${STAND.z}`)
     await sleep(3000)
@@ -294,6 +311,15 @@ async function runTrial (arm, scene, k) {
     t0 = Date.now()
     brainActive = true
     while (Date.now() - t0 < spec.secs * 1000) {
+      if (spec.flood && floodT == null) {
+        let seen = false
+        try {
+          const pat = spec.floodOnPickaxe ? `'"pkt":"dig","status":0,.*"name":"[a-z_]*pickaxe"' ${ROUT}/trace-${tag}.jsonl | grep -v '"x":700,"y":42,"z":700'` : `'"pkt":"dig","status":0' ${ROUT}/trace-${tag}.jsonl`
+          seen = Number(r31(`grep -a ${pat} 2>/dev/null | wc -l`).trim() || 0) > 0
+        } catch {}
+        const fallback = Date.now() - t0 > 25000
+        if (seen || fallback) { floodReply = rcon(...spec.flood).map(x => x.reply.trim()).join(' | '); floodT = +((Date.now() - t0) / 1000).toFixed(2); floodBy = seen ? 'first-dig' : 'fallback' }
+      }
       const ts = Date.now()
       try {
         const p = poll(); p.t = +((ts - t0) / 1000).toFixed(1); polls.push(p)
@@ -360,7 +386,7 @@ async function runTrial (arm, scene, k) {
     sideEnd: final.side ?? null, aboveEnd: final.above ?? null, feetEnd: final.feet ?? null, headEnd: final.head ?? null,
     breathT: firstBreath?.t ?? null, healthAtBreath: firstBreath?.health ?? null, airAtBreath: firstBreath?.air ?? null,
     eyeAirEnd: final.eyeAir ?? null, episodes, resub, minHealth: Math.min(...good.map(p => p.health ?? 99)), minAir: Math.min(...good.map(p => p.air ?? 999)),
-    kinds, digs, win, furnaceEnd, brain: BRAIN_SKILL,
+    kinds, digs, win, furnaceEnd, brain: BRAIN_SKILL, floodT, floodBy, floodReply,
     ap: rows.filter(r => /^_air_pocket/.test(r.name)).map(r => ({ t: rel(r.ts), tMs: +((r.ts - t0) / 1000).toFixed(3), name: r.name, status: r.status, detail: r.detail })),
     smelt: rows.filter(r => r.name === 'smelt' || r.name === 'craft' || r.name === 'mine' || /^_(reflex_drowning|interrupt|mine_stair)/.test(r.name)).map(r => ({ tMs: +((r.ts - t0) / 1000).toFixed(3), name: r.name, status: r.status, dur: r.dur, detail: r.detail.slice(0, 160) })),
     drown: rows.filter(r => WATERY.test(r.name) || /^_(death|flooded_pocket)/.test(r.name)).map(r => ({ t: rel(r.ts), name: r.name, detail: r.detail.slice(0, 200) })),
