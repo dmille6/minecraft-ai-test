@@ -12,6 +12,21 @@ Studio reservation both closed 10-12); clear caps bamboo 0 / bucket 2._
 
 ---
 
+## 10-13 08:10Z — overnight: airpocket-02 extending (+540 NOT_YET, gate held); brain-01 series done; junk-well investigation started
+airpocket-02 (hive-d,placebo-d): +180/+360/+540 NOT_YET. Deaths canary 2/90.8 bh (hive-d-Comet drowned idle 22:45Z;
+placebo-d-Comet lava idle 05:48Z) vs matched 1/136.2; DiD psi 0.93x, lower bound 0.14x, matched lower 0.23x -- held.
+Rescues on the canary: 2 success (placebo-d 02:06Z, 06:38Z), 1 opened (hive-d 06:00Z). exposure_ready_ap2 = 0 (no mature
+`upblocked` attempt yet); extension continues to deadline 1680 (~01:56Z 10-14). stocktarget-01 queue-held for v35.1.
+brain-01 closed-loop (3 valid pairs b10-b12, 82aef34 + brain-01, 8 bots, 70 min): stuck -10.4 min/bot [-19.7,-1.1] (3/3
+same direction); refused share, success share, output INCONCLUSIVE. MODEL FINDING: after a repeat_loop veto gemma
+re-proposes the identical action 76-85% (qwen 29-59%) with the rejection text in its prompt 99-100%. Recommendation
+(agent + operator): a fleet fix for post-veto loops (veto names an executable alternative, or deterministic change after
+N identical vetoes) BEFORE the brain-01 canary; owner to decide. brain-01 otherwise ready (key, tunnel :11611, keeper,
+variant on 82aef34). Open: Studio unattended-reboot recovery (no auto-login; LaunchDaemon recommended) -- owner.
+JUNK WELL DEFECT (10-12 24 h): 12 of 16 pools cannot site a well (build_well no_site 3,068x from 55 bots); disposals only
+in hive-a/b/c, placebo-b/d. Investigation agent started 08:05Z (analysis + both-engine design; build only if both agree;
+no queue/deploy).
+
 ## 10-12 22:20Z — airpocket-02 LIVE (hive-d,placebo-d, 10 bots, declared 21:55:59Z); v35.1 STAGED for the next gap
 airpocket-02 @ 70cb0d41 on 82aef34: preflight, licence, gatedigest, usafe registration OK; drawn hive-d + placebo-d (hive-d
 required by draw_require_pools); matched control FROZEN hive-c,placebo-a,placebo-b. Reads +180 ~00:56Z, +360 ~03:56Z.
