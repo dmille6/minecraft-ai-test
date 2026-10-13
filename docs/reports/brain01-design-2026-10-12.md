@@ -364,4 +364,62 @@ compost and well era is in it.
   - positive control: replayed on the invalid b1 run, the rule fires at 0 of 951.
 - Bots reach gemma through the fleet host's real tunnel (11611).
 
-## 12. Sandbox closed loop (pending)
+## 12. Sandbox closed loop (step 3): RESULT, 3 valid pairs (b10-b12, 10-12 20:00Z to 10-13 07:50Z)
+
+**What ran.**
+- Fleet code 82aef34 + brain-01 (`brain01-on-82aef34`), 8 bots, sandbox4 restored before every run, 90 min per run,
+  read at 70 min.
+- **gemma4 arm:** gemma4 through the fleet host's real tunnel (11611, 15 s budget), then qwen as fallback.
+- **local arm:** qwen2.5:7b only.
+- **The gemma-share floor was live.** Every gemma run was 100% gemma4 (731, 703 and 719 model decisions); every local
+  run had 0 gemma4; 0 unserved, 0 invalid.
+- **A pause** for another job's fine-tune came between b10 and b11. Each block ran whole; PAUSE and RESUME rows are in
+  runs.jsonl.
+
+**Paired t, df 2, gemma4 minus local per block (b10, b11, b12):**
+
+| metric (70 min) | per block | mean, 95% CI |
+|---|---|---|
+| stuck min per bot | -8.7, -7.8, -14.7 | **-10.4 [-19.7, -1.1]** |
+| refused-at-admission share | -0.017, +0.071, -0.008 | +0.015 [-0.105, +0.136] |
+| success share | +0.039, -0.031, -0.027 | -0.006 [-0.104, +0.091] |
+| bots with a stone pickaxe | +1, -1, -2 | -0.7 [-4.5, +3.1] |
+| bots with an iron ingot | 0, +1, 0 | +0.3 |
+| team output | -24, +7, +10 | -2 [-49, +44] |
+| deaths | 0 in every run | |
+
+**Reading:**
+- **Stuck time falls in 3 of 3 blocks.** That is C1's direction, and the only interval here excluding 0. With 3 blocks
+  and the same-config noise measured on 10-12 (two qwen-only runs differing by 0.12 in refused share and 3x in
+  output), treat it as a consistent direction, not a size.
+- **Everything else is INCONCLUSIVE.** The refused and success shares are flat, and the replay's large predicted drop
+  in refusals does NOT appear in the closed loop.
+
+**Why the refusals do not fall: a MODEL finding, not a harness gap.** After a repeat_loop veto, the bot's next model
+decision repeats the identical vetoed action. The denominator is vetoes followed by a decision by the same bot.
+
+| run | next identical | next prompt carries the rejection |
+|---|---|---|
+| gemma4 b10 | 154 of 192 (80%) | 99% |
+| gemma4 b11 | 229 of 268 (85%) | 100% |
+| gemma4 b12 | 99 of 131 (76%) | 99% |
+| local b10 | 80 of 136 (59%) | 100% |
+| local b11 | 35 of 121 (29%) | 100% |
+| local b12 | 24 of 76 (32%) | 100% |
+
+- Every prompt after a veto says `LAST ACTION: rejected: repeat_loop (chose the identical action 4x in a row)`. The
+  only exception is a process restart, which has no LAST ACTION line yet.
+- So gemma is told, and ignores it more than qwen does. It is vetoed more often too (192/268/131 vs 136/121/76).
+- Gemma's fewer cooldown, impossible-y and no-target refusals and failures are offset by this loop.
+- The replay could not see it: it scores one decision per logged prompt and never feeds a model its own vetoes in
+  sequence.
+- **Candidate fixes (separate work, every model):**
+  - a veto message naming a concrete alternative;
+  - a deterministic change of action after N identical vetoes.
+
+**What this means for brain-01.**
+- The plumbing is ready and approved, and the live canary would measure the same thing at fleet scale. Its gates
+  (live, safe, gemma4) would most likely pass.
+- On today's evidence its primaries would most likely show lower stuck time and flat refusals.
+- **Recommended order:** fix the post-veto loop first (one fleet change, tested on qwen and gemma), then run brain-01,
+  so the canary tests the brain on a harness that can use it. This is the owner's call.
