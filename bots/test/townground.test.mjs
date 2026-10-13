@@ -316,18 +316,17 @@ test('CHAIN mine: the nearest exit is obstructed (goto fails) -> the next exit i
   assert.ok(bot._digs.length > 0, `a stair was cut from the second exit (${r.status} ${String(r.detail).slice(0, 100)})`)
 })
 
-test('CHAIN mine: EVERY exit obstructed -> the surface fallback runs once, then a refusal of the zone that names a reachable move (never a dig in town)', async () => {
+test('CHAIN mine: EVERY exit obstructed (open sky) -> a refusal of the zone that names a reachable move (never a dig in town)', async () => {
   const bot = stairWorld({ at: [214, 65, 200] })
   const goto0 = bot.pathfinder.goto
   bot.pathfinder.goto = async goal => { const x = Math.round(goal.x), z = Math.round(goal.z); if (x >= 217 || x <= 183 || z >= 217 || z <= 183) return; return goto0(goal) }
   const r = await runMine(SK, bot)
   assert.equal(bot._digs.filter(p => townDigClass(p, 'stone', HOME) === 'ground').length, 0)
   assert.equal(r.failClass, 'town_ground', `${r.status} ${r.detail}`)
-  assert.match(r.detail, /surfaced=\S+/, 'the surface fallback was attempted')
   assert.match(r.detail, /goto a dry spot \d+\+ blocks from home/)
 })
 
-test('CHAIN mine: UNDER town (a tunnel 8 below home) -> surface FIRST, never four horizontal tunnels through town; surface digs are transit, never mine\'s target (Claude code r2 P1/P2)', async () => {
+test('CHAIN mine: UNDER a roof in town (8 below home, solid above) -> climb FIRST (to the column top: surface stops at 63), never four horizontal tunnels at depth; climb digs are scoped, never mine\'s target (Claude code r2 P1/P2, Codex code r4 P2)', async () => {
   const D = await import('../src/digtown.mjs')
   const bot = stairWorld({ at: [214, 57, 200] })
   const scopes = []

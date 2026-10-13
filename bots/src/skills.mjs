@@ -8888,23 +8888,31 @@ async function mine(ctx, { y: targetY = 12 }, signal) {
       }
       return false
     }
-    // UNDER TOWN, SURFACE FIRST (Claude code r2 P2): exits at the bot's own depth would be up to four horizontal tunnels
-    // through town ground (transit: invisible to Z1). Above home.y - 2 the exits come first and `surface` is the fallback
-    // (the design's, Codex code r1/r2) when every exit failed.
-    const doSurface = async () => {
-      surfaced = await surface(ctx, {}, signal).catch(e => ({ status: 'failed', detail: String(e?.message ?? e) }))
-      check(signal)
+    // UNDER A ROOF, CLIMB FIRST (Claude code r2 P2; Codex code r4 P2): exits at the bot's own depth would be up to four
+    // horizontal tunnels through town ground (transit: invisible to Z1). "Under" is a ROOF over the head, not a depth
+    // relative to home -- towns are dug out, so open ground below home.y is common -- and the climb is surface (which stops
+    // at sea level 63) and then, still roofed, a goto to the open top of this column (towns sit at 65-75).
+    const roofTop = () => {
+      const p = bot.entity.position.floored(); let top = null
+      for (let dy = 2; dy <= 40; dy++) { const b = bot.blockAt(p.offset(0, dy, 0)); if (b && b.boundingBox === 'block' && !/_leaves$/.test(b.name ?? '')) top = p.y + dy }
+      return top
     }
-    const below = () => bot.entity.position.y < (townHome()?.y ?? -Infinity) - 2
-    const underTown = below()
-    if (underTown) await doSurface()
+    const climbOut = async () => {
+      if (bot.entity.position.y < SEA_LEVEL) {
+        surfaced = await surface(ctx, {}, signal).catch(e => ({ status: 'failed', detail: String(e?.message ?? e) }))
+        check(signal)
+      }
+      const top = roofTop()
+      if (top != null) {
+        const p = bot.entity.position.floored()
+        surfaced = await goto(ctx, { x: p.x, y: top + 1, z: p.z, range: 1 }, signal).catch(e => ({ status: 'failed', detail: String(e?.message ?? e) }))
+        check(signal)
+      }
+    }
+    const below = () => roofTop() != null
+    if (below()) await climbOut()
     if (!townBlocked() && dryClear()) found = true
-    else if (inTown() && !below()) found = await tryExits()   // still under town after surface: no tunnels at depth
-    if (!found && !underTown) {
-      await doSurface()
-      if (!townBlocked() && dryClear()) found = true
-      else if (inTown()) found = await tryExits()
-    }
+    else if (inTown() && !below()) found = await tryExits()   // still under a roof after the climb: no tunnels at depth
     if (!found) {
       noteTownGround(bot, 'mine_refused')
       return {
@@ -8912,7 +8920,7 @@ async function mine(ctx, { y: targetY = 12 }, signal) {
         detail: `reason=town_ground walked_out=${walked?.status ?? '-'} surfaced=${surfaced?.status ?? '-'} last=${out ? `${out.x},${out.z}` : '-'}: no exit from the town's ground ` +
                 `gave a dry stair start (every stair from ` +
                 `${Math.round(bot.entity.position.x)},${Math.round(bot.entity.position.y)},${Math.round(bot.entity.position.z)} ` +
-                `cuts the town's ground or meets water) -- ${below() ? 'surface first, then ' : ''}goto a dry spot ${TOWN_GROUND_HALF + 14}+ blocks from home, then mine`,
+                `cuts the town's ground or meets water) -- ${below() ? 'climb to open sky first (surface), then ' : ''}goto a dry spot ${TOWN_GROUND_HALF + 14}+ blocks from home, then mine`,
       }
     }
   } else {
