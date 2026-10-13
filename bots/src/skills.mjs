@@ -6379,8 +6379,11 @@ export function knownWellCells (bot) {
   const r = recordedWellSite(bot)
   if (r && !cols.some(c => c.x === r.x && c.y === r.y && c.z === r.z)) cols.push({ x: r.x, y: r.y, z: r.z })
   // A RAISED WELL'S PLAN (plinth-01) is a well column from the moment it is recorded: no node stands in it, and its shell
-  // (the 5x5 box g-3..g) is never a path's or gather's dig
-  for (const p of knownPlinthCaps(bot)) if (!cols.some(c => c.x === p.x && c.y === p.y && c.z === p.z)) cols.push(p)
+  // (the 5x5 box g-3..g) and its STAIR (the column's `stair`, which wellBreakCost reads) are never a path's or gather's dig
+  for (const p of knownPlinthColumns(bot)) {
+    const have = cols.find(c => c.x === p.x && c.y === p.y && c.z === p.z)
+    if (have) { if (p.stair.length) have.stair = p.stair } else cols.push(p)
+  }
   return cols
 }
 /**
@@ -7443,13 +7446,16 @@ export function knownPlinthCaps (bot) {
     return out
   } catch { return [] }
 }
-/** The plan's stair cells (outside the well's own 5x5 break box): never a path's or gather's dig. -> [[x,y,z]] */
-export function knownPlinthStair (bot) {
+/** Every plinth column with its stair -> [{ x, y, z, stair: [[x,y,z]] }]: the plan's and the carried ones (Codex r2 P2-4),
+ *  for the movement exclusions (knownWellCells; wellBreakCost reads `stair`). */
+export function knownPlinthColumns (bot) {
   try {
     const rec = readPlinth()
     if (!plinthRecordState(rec, bot.worldId ?? null)) return []
-    const out = (rec.plan?.stair ?? []).map(c => [c[0], c[1], c[2]])
-    for (const p of (Array.isArray(rec.prev) ? rec.prev : [])) for (const c of (Array.isArray(p?.stair) ? p.stair : [])) out.push([c[0], c[1], c[2]])   // carried stairs (Codex r2 P2-4)
+    const out = []
+    const add = (c, stair) => { if (c && Number.isFinite(c.x) && !out.some(o => o.x === c.x && o.y === c.y && o.z === c.z)) out.push({ x: c.x, y: c.y, z: c.z, stair: (Array.isArray(stair) ? stair : []).filter(a => Array.isArray(a) && a.length === 3).map(a => [a[0], a[1], a[2]]) }) }
+    if (rec.plan?.cap) add(rec.plan.cap, rec.plan.stair)
+    for (const p of (Array.isArray(rec.prev) ? rec.prev : [])) add(p, p?.stair)
     return out
   } catch { return [] }
 }
