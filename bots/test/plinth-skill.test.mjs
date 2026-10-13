@@ -921,6 +921,29 @@ await t('THE STAIR IS NEVER A PATH\'S DIG, through the well columns index.mjs al
   assert.equal(W.wellBreakCost(cols, { position: { x: s0[0], y: s0[1], z: s0[2] } }), 100)
   assert.equal(readFileSync(new URL('../src/index.mjs', import.meta.url), 'utf8').includes('plinth'), false, 'index.mjs is untouched by plinth-01')
 })
+await t('THE STAIR SURVIVES THE HAND-OFF (Claude r7): once the well-site record names the plinth cap, that column still carries the stair', async () => {
+  reset(); noSite()
+  const town = fakeTown({ items: [['cobblestone', 64], ['cobblestone', 64], ['cobblestone', 64], ['dirt', 4]] })
+  await visit(town)
+  for (let n = 0; n < 6 && recNow().state === 'plan'; n++) await visit(town)
+  const plan = recNow().plan
+  assert.equal(recNow().state, 'complete'); assert.ok(plan.stair.length >= 1)
+  assert.deepEqual(readTownSite(STORE, 'junkwell-site-0_64_0').site, { x: plan.cap.x, y: plan.cap.y, z: plan.cap.z }, 'the site record names the cap')
+  const cols = S.knownWellCells(town.bot).filter(c => c.x === plan.cap.x && c.y === plan.cap.y && c.z === plan.cap.z)
+  assert.equal(cols.length, 1, 'one column, not two')
+  assert.equal(cols[0].stair?.length, plan.stair.length, 'the recorded site\'s column carries the stair')
+})
+await t('MUTANT (skills): the stair not merged into an existing column -> the handed-off well loses its stair veto', async () => {
+  await withMutant(SP, "    if (have) { if (p.stair.length) have.stair = p.stair } else cols.push(p)\n", "    if (!have) cols.push(p)\n", async m => {
+    reset(); noSite()
+    const town = fakeTown({ items: [['cobblestone', 64], ['cobblestone', 64], ['cobblestone', 64], ['dirt', 4]] })
+    await m.SKILLS.build_plinth.run({ bot: town.bot }, {}, { aborted: false })
+    for (let n = 0; n < 6 && recNow().state === 'plan'; n++) { ageRecord(); await m.SKILLS.build_plinth.run({ bot: town.bot }, {}, { aborted: false }) }
+    const plan = recNow().plan
+    const col = m.knownWellCells(town.bot).find(c => c.x === plan.cap.x && c.y === plan.cap.y && c.z === plan.cap.z)
+    assert.ok(!col?.stair?.length, 'the mutant drops it')
+  })
+})
 await t('cognitive.mjs: the plinth order goes before the town deposit, and its outcome is fed back', () => cogPlinth(COG))
 await t('MUTANT (cognitive): the deposit first, or the outcome line removed, is detected', () => {
   const m1 = COG.replace('order = this.#plinthOrder() ?? this.#townDepositOrder(milestone) ?? order', 'order = this.#townDepositOrder(milestone) ?? this.#plinthOrder() ?? order')
