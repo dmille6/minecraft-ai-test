@@ -26,6 +26,7 @@ import { extendScaffolding } from './scaffold.mjs'
 import { pathfinderWedged, stillnessMs } from './path-watchdog.mjs'
 import { log, closeLogs, logSkill, logEvent, tapRecords } from './logger.mjs'
 import { attachPickupLog } from './pickuplog.mjs'
+import { attachDigTown } from './digtown.mjs'
 import { attachDifficulty } from './foodskip.mjs'
 import { Runner } from './runner.mjs'
 import { startReflexes } from './reflex.mjs'
@@ -55,6 +56,8 @@ let stopReflexes = null
 // The pickup log's final _pickups row (pickuplog.mjs): the signal handler closes the logs and exits without ending
 // the bot, so an 'end' listener never runs on a systemd stop. It calls this before closeLogs().
 let pickupFinal = null
+// The `_dig_town` instrument's final summary (digtown.mjs), for the same reason.
+let digTownFinal = null
 let stopComms = null
 let worldFacts = null
 let cognitive = null
@@ -986,6 +989,22 @@ function connect() {
       pickupFinal = pl.final
       bot.once('end', () => { try { pl.final() } catch { /* telemetry */ } })
     } catch (e) { log('warn', 'pickup log not attached', { err: e?.message }) }
+    // THE `_dig_town` INSTRUMENT (digtown.mjs, townground-2026-10-13.md 2.3). TELEMETRY ONLY: wraps bot.dig to record
+    // every dig (class, purpose, the server's word); nothing reads its rows to decide anything.
+    try {
+      const reflexes = stopReflexes
+      const dt = attachDigTown(bot, {
+        home: { x: config.world.homeX, y: config.world.homeY, z: config.world.homeZ },
+        context: () => ({ skill: runner.current?.skill ?? null, args: runner.current?.args ?? null,
+                          reflex: reflexes?.activeReflex?.() ?? null, holder: runner.arb?.holder?.owner ?? null }),
+        emitDig: ({ detail, args }) => { try { logEvent({ kind: 'dig_town', status: 'success', detail, args }) } catch { /* telemetry */ } },
+        emitSummary: ({ detail, args }) => { try { logEvent({ kind: 'dig_town_sum', status: 'success', snapshot: snapshot(bot), detail, args }) } catch { /* telemetry */ } },
+      })
+      if (dt) {
+        digTownFinal = dt.final
+        bot.once('end', () => { try { dt.final() } catch { /* telemetry */ } })
+      }
+    } catch (e) { log('warn', 'dig town instrument not attached', { err: e?.message }) }
     // Bound the bot's world model. Without this every process reached its 1GB
     // cgroup ceiling in about fifteen hours -- not in the JS heap, which stayed
     // flat at 172MB, but in ArrayBuffers holding chunk columns nothing released.
@@ -1210,6 +1229,7 @@ for (const sig of ['SIGINT', 'SIGTERM']) {
     if (watchdog) watchdog.stop()
     try { lessons?.save() } catch {}
     try { pickupFinal?.() } catch {}
+    try { digTownFinal?.() } catch {}
     closeLogs()
     setTimeout(() => process.exit(0), 300)
   })
