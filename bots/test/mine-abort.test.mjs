@@ -51,7 +51,7 @@ function mineWorld ({ canMove = true, lookAt = true } = {}) {
     setControlState: (n, on) => { if (on) note(`control:${n}`) }, clearControlStates: () => {},
     registry: { blocksByName: {}, itemsByName: {} }, players: {}, digs: 0, hooks: {},
   }
-  if (lookAt) bot.lookAt = async () => { await bot.hooks.look?.() }
+  if (lookAt) bot.lookAt = async () => { note('look'); await bot.hooks.look?.() }
   return { bot, ac, after }
 }
 const run = (S, w, y = 56) => S.mine.run({ bot: w.bot }, { y }, w.ac.signal).catch(e => ({ thrown: e }))
@@ -88,8 +88,15 @@ await t('ABORTED MINE IN RECOVERY: the abort lands during a walk that went nowhe
   const w = mineWorld({ canMove: false }); abortAt('walk', 1)(w)
   const r = await run(SKILLS, w)
   assert.ok(w.ac.signal.aborted)
-  assert.deepEqual(w.after.filter(x => x !== 'walk'), [], `after the abort: ${w.after.join(', ')}`)
+  assert.deepEqual(w.after.filter(x => x !== 'walk'), [], `after the abort: ${w.after.join(', ')}`)   // no look either (P3-2)
   assert.ok(r.thrown?.aborted === true || r.status !== 'success')
+})
+// the abort lands during the RECOVERY's own head turn (after a walk that went nowhere): no shove after it
+const abortAtRecoveryLook = w => { w.bot.hooks.walk = () => { w.inRecovery = true }; w.bot.hooks.look = () => { if (w.inRecovery) w.ac.abort() } }
+await t('ABORTED MINE IN RECOVERY: the abort lands during the recovery\'s look -- no shove', async () => {
+  const w = mineWorld({ canMove: false }); abortAtRecoveryLook(w)
+  await run(SKILLS, w)
+  assert.ok(w.ac.signal.aborted, 'the recovery look never ran'); assert.deepEqual(w.after, [], `after the abort: ${w.after.join(', ')}`)
 })
 
 await t('abortableDig (unit): an aborted signal before or during its look sends no dig; a live one sends start-dig with forceLook ignore', async () => {
@@ -129,9 +136,12 @@ await killed('the stair dig as a bare bot.dig: an abort during the equip still d
 await killed('without the check before the walk, an abort during the step\'s last dig still walks',
   "    check(signal)                                     // no walk (and no pathfinder dig) after the abort\n", '',
   abortAt('dig', 3), ['walk'])
-await killed('without the check before the shove, an abort during a walk that went nowhere still pushes forward',
+await killed('without the check before the recovery look, an abort during a walk that went nowhere still turns the head',
+  "        check(signal)                                 // not even a head turn after the abort (Claude ap3 r1 P3-2)\n", '',
+  abortAt('walk', 1), ['look'], { canMove: false })
+await killed('without the check before the shove, an abort during the recovery look still pushes forward',
   "        check(signal)                                 // no shove into the tread after the abort\n", '',
-  abortAt('walk', 1), ['control:forward'], { canMove: false })
+  abortAtRecoveryLook, ['control:forward'], { canMove: false })
 
 // ---------------------------------------------------------------- structural: no bare dig left in mine
 const stripC = s => s.replace(/\/\*[\s\S]*?\*\//g, '').replace(/(^|[^:'"`\\])\/\/.*$/gm, '$1')

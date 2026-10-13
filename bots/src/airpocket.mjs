@@ -718,6 +718,12 @@ export async function airPocketStep (bot, plan, { Vec3, predict, sleep = ms => n
       // whose look stalled could start after the step returned and cancel a newer dig. So the look is bounded here, the
       // preconditions are re-checked synchronously (`digGate`), and the dig is sent with forceLook 'ignore', which writes
       // start-dig inside the call with no await before it (the face sent is mineflayer's default either way).
+      // HALT A LIVE PATH BEFORE THE DIG, not at the watch's first tick (Claude ap3 r1 P3-1): a goal left by a skill that never
+      // unwound makes the pathfinder dig on its next physics tick -- cancelling ours -- and the watch first runs after start-dig.
+      // The halt clears every control, so the jump is put back at once; the look's await lets the halted path's own cleanup
+      // (its dig's catch -> resetPath) run before our start-dig.
+      { const g = guard(); if (g) aborted = aborted ?? g }
+      try { bot.setControlState('jump', wantJump) } catch { /* not connected */ }
       try { await Promise.race([bot.lookAt(cellPos.offset(0.5, 0, 0.5), true), sleep(500)]) } catch { /* a late look moves only the head */ }
       // SETTLE AT THE CALL (Claude r3 P2): the jump follows the client's ground state until the two agree, at most 3 x
       // 300 ms, and the dig is RE-PRICED in the state it will be sent in (mineflayer prices it the same way at the call)
