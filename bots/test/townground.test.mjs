@@ -18,7 +18,7 @@ import { Vec3 } from 'vec3'
 const require_ = createRequire(import.meta.url)
 const mcData = require_('minecraft-data')('1.21.8')
 const TG = await import('../src/townground.mjs')
-const { townTargetPermit, makeTownBreakCost, makeTownStepCost, stairTownClear, walkOutPoint, walkOutPoints, TRANSIT_COST, TOWN_GROUND_HALF, TOWN_GROUND_DEPTH, townDigClass } = TG
+const { townTargetPermit, makeTownBreakCost, stairTownClear, walkOutPoint, walkOutPoints, TOWN_GROUND_HALF, TOWN_GROUND_DEPTH, townDigClass } = TG
 const SK = await import('../src/skills.mjs')
 const { SKILLS, chooseStairBearing } = SK
 const { tunnelMovements } = await import('../src/oretunnel.mjs')
@@ -66,16 +66,14 @@ test('PERMIT: a target dig of town ground is refused with an executable remedy; 
   assert.equal(TG.configuredHome({ homeX: 355, homeY: 73, homeZ: 147 }, { HOME_X: '355', HOME_Y: '73' }), null)
 })
 
-test('BREAK COST: transit 30 (< 100, never a refusal), the tunnel 100, zero outside, below, on vegetation, without home', () => {
-  const tr = makeTownBreakCost(HOME, TRANSIT_COST), tu = makeTownBreakCost(HOME, 100)
+test('TUNNEL COST: 100 on town ground (a target profile), 0 outside, below the band, on vegetation, without home', () => {
+  const tu = makeTownBreakCost(HOME, 100)
   const b = (x, y, z, name = 'dirt') => ({ position: { x, y, z }, name })
-  assert.equal(tr(b(200, 64, 200)), 30); assert.ok(tr(b(200, 64, 200)) < 100, 'transit is priced, never refused')
-  assert.equal(tu(b(200, 64, 200)), 100)
-  assert.equal(tr(b(216, 64, 184)), 30, 'the square\'s corner'); assert.equal(tr(b(217, 64, 200)), 0)
-  assert.equal(tr(b(200, HOME.y - TOWN_GROUND_DEPTH, 200)), 30); assert.equal(tr(b(200, HOME.y - TOWN_GROUND_DEPTH - 1, 200)), 0)
-  assert.equal(tr(b(200, 64, 200, 'oak_leaves')), 0); assert.equal(tr(b(200, 64, 200, 'chest')), 0)
-  assert.equal(makeTownBreakCost(null, 30)(b(200, 64, 200)), 0)
-  assert.equal(tr({}), 0); assert.equal(tr(null), 0)
+  assert.equal(tu(b(200, 64, 200)), 100); assert.equal(tu(b(216, 64, 184)), 100, 'the square\'s corner'); assert.equal(tu(b(217, 64, 200)), 0)
+  assert.equal(tu(b(200, HOME.y - TOWN_GROUND_DEPTH, 200)), 100); assert.equal(tu(b(200, HOME.y - TOWN_GROUND_DEPTH - 1, 200)), 0)
+  assert.equal(tu(b(200, 64, 200, 'oak_leaves')), 0); assert.equal(tu(b(200, 64, 200, 'chest')), 0)
+  assert.equal(makeTownBreakCost(null, 100)(b(200, 64, 200)), 0)
+  assert.equal(tu({}), 0); assert.equal(tu(null), 0)
 })
 
 test('STAIR CLEAR: from home every bearing cuts town ground; at the edge facing out it is clear; below the band it is free', () => {
@@ -102,44 +100,46 @@ test('WALK OUT: every exit, nearest first, 3 past the square, keeping the other 
 })
 
 // ---- the profiles, built for real (index.mjs/oretunnel.mjs shapes) ---------------------------------------------------
-test('PROFILES: the tunnel copies the transit entry AND refuses town ground; a transit profile admits it at cost 30', () => {
+test('PROFILES: the tunnel refuses town ground; the transit profile is untouched', () => {
   const { Movements } = require_('mineflayer-pathfinder')
   const bot = { registry: mcData, world: { getBlock: () => null }, version: '1.21.8', entity: { position: new Vec3(0, 0, 0) },
                 blockAt: () => ({ name: 'stone', boundingBox: 'block', type: 1 }), game: { minY: -64, height: 384 }, supportFeature: () => false }
   let base
   try { base = new Movements(bot) } catch { base = { exclusionAreasBreak: [], exclusionBreak (b) { return this.exclusionAreasBreak.reduce((w, a) => w + a(b), 0) } } }
-  base.exclusionAreasBreak = [makeTownBreakCost(HOME, TRANSIT_COST)]
+  base.exclusionAreasBreak = []
   const tun = tunnelMovements(bot, base, { home: HOME })
-  const cell = { position: new Vec3(205, 64, 205), name: 'dirt', type: 1 }
+  const cell = { position: new Vec3(214, 64, 212), name: 'dirt', type: 1 }   // in the square, OUTSIDE nearHome's 12 (so only the town entry can refuse it)
   const sum = m => m.exclusionAreasBreak.reduce((w, a) => w + a(cell), 0)
-  assert.equal(sum(base), 30, 'transit: priced')
+  assert.equal(sum(base), 0, 'transit: untouched')
   assert.ok(sum(tun) >= 100, `the tunnel refuses town ground (got ${sum(tun)})`)
   assert.notEqual(tun.exclusionAreasBreak, base.exclusionAreasBreak, 'the tunnel has its own array (a later push to the transit array does not reach it)')
   const far = { position: new Vec3(260, 64, 260), name: 'dirt', type: 1 }
   assert.equal(tun.exclusionAreasBreak.reduce((w, a) => w + a(far), 0), 0, 'outside town the tunnel is unchanged')
 })
 
-test('A* PRICE (real mineflayer-pathfinder 2.4.5 Movements): a forward move through a town dirt wall costs more than the same move outside town; never refused; without the step entry it would cost the same (Codex code r1 P2)', () => {
+test('TRANSIT UNTOUCHED (real mineflayer-pathfinder 2.4.5 Movements): a forward move through a 2-high STONE wall by hand exists in town exactly as outside -- no veto, no price (Codex code r2 P2: a 30 surcharge pushed it past the 100 discard)', () => {
   const { Movements } = require_('mineflayer-pathfinder')
   const registry = require_('prismarine-registry')('1.21.8')
   const Block = require_('prismarine-block')(registry)
-  const walls = new Set(['205,65,200', '205,66,200', '235,65,200', '235,66,200'])   // a 2-high dirt wall, in town and out
+  const walls = new Set(['205,65,200', '205,66,200', '235,65,200', '235,66,200'])
   const blockAt = p => {
-    const name = p.y <= 64 ? 'stone' : walls.has(`${p.x},${p.y},${p.z}`) ? 'dirt' : 'air'
+    const name = p.y <= 64 ? 'stone' : walls.has(`${p.x},${p.y},${p.z}`) ? 'stone' : 'air'
     const b = Block.fromStateId(registry.blocksByName[name].defaultState, 0); b.position = new Vec3(p.x, p.y, p.z); return b
   }
   const bot = { registry, version: '1.21.8', blockAt, entity: { position: new Vec3(204.5, 65, 200.5), effects: {} }, entities: {}, inventory: { items: () => [] },
                 pathfinder: { bestHarvestTool: () => null }, game: { minY: -64, height: 384 } }
-  const mk = (withStep) => { const m = new Movements(bot); m.canDig = true; m.allowParkour = false; m.allowSprinting = false; m.scafoldingBlocks = []
-    m.exclusionAreasBreak = [makeTownBreakCost(HOME, TRANSIT_COST)]; m.exclusionAreasStep = withStep ? [makeTownStepCost(HOME, TRANSIT_COST)] : []; return m }
-  const forward = (m, x) => m.getNeighbors({ x, y: 65, z: 200, remainingBlocks: 0 }).find(n => n.x === x + 1 && n.y === 65 && n.z === 200)
-  const inTown = forward(mk(true), 204), outTown = forward(mk(true), 234)
-  assert.ok(inTown && outTown, 'both moves exist (transit is never refused)')
-  assert.ok(inTown.cost >= outTown.cost + TRANSIT_COST, `in town ${inTown.cost} vs outside ${outTown.cost}`)
-  const inNoStep = forward(mk(false), 204), outNoStep = forward(mk(false), 234)
-  assert.equal(inNoStep.cost, outNoStep.cost, 'control: the break exclusion alone does not reach the dig cost in safeOrBreak')
-  assert.equal(makeTownStepCost(HOME, 30)({ position: { x: 205, y: 65, z: 200 }, name: 'air', boundingBox: 'empty' }), 0, 'air is free')
-  assert.equal(makeTownStepCost(HOME, 30)({ position: { x: 205, y: 64, z: 200 }, name: 'dirt', boundingBox: 'block' }), 30)
+  const m = new Movements(bot); m.canDig = true; m.allowParkour = false; m.allowSprinting = false; m.scafoldingBlocks = []
+  const idx = strip(readFileSync(INDEX_URL, 'utf8'))
+  // the shared arrays exactly as index.mjs builds them: no town entry on either
+  assert.doesNotMatch(idx, /moves\.exclusionAreas(Step|Break)\.push\(/, 'nothing is pushed onto the shared step or break arrays')
+  const forward = x => m.getNeighbors({ x, y: 65, z: 200, remainingBlocks: 0 }).find(n => n.x === x + 1 && n.y === 65 && n.z === 200)
+  const inTown = forward(204), outTown = forward(234)
+  assert.ok(inTown && outTown, 'the move through the wall exists in town and outside')
+  assert.equal(inTown.cost, outTown.cost, 'and costs the same')
+  // positive control: the SAME move with a 30 surcharge per broken cell is discarded (the reason transit is not priced)
+  const priced = new Movements(bot); priced.canDig = true; priced.allowParkour = false; priced.scafoldingBlocks = []
+  priced.exclusionAreasStep = [b => (b?.boundingBox === 'block' && Math.abs(b.position.x - 200) <= 16 ? 30 : 0)]
+  assert.equal(priced.getNeighbors({ x: 204, y: 65, z: 200, remainingBlocks: 0 }).find(n => n.x === 205 && n.y === 65 && n.z === 200), undefined, 'a priced stone wall is no move at all')
 })
 
 // ---- the refusal chain: gather -----------------------------------------------------------------------------------------
@@ -316,6 +316,17 @@ test('CHAIN mine: the nearest exit is obstructed (goto fails) -> the next exit i
   assert.ok(bot._digs.length > 0, `a stair was cut from the second exit (${r.status} ${String(r.detail).slice(0, 100)})`)
 })
 
+test('CHAIN mine: EVERY exit obstructed -> the surface fallback runs once, then a refusal of the zone that names a reachable move (never a dig in town)', async () => {
+  const bot = stairWorld({ at: [214, 65, 200] })
+  const goto0 = bot.pathfinder.goto
+  bot.pathfinder.goto = async goal => { const x = Math.round(goal.x), z = Math.round(goal.z); if (x >= 217 || x <= 183 || z >= 217 || z <= 183) return; return goto0(goal) }
+  const r = await runMine(SK, bot)
+  assert.equal(bot._digs.filter(p => townDigClass(p, 'stone', HOME) === 'ground').length, 0)
+  assert.equal(r.failClass, 'town_ground', `${r.status} ${r.detail}`)
+  assert.match(r.detail, /surfaced=\S+/, 'the surface fallback was attempted')
+  assert.match(r.detail, /goto a dry spot \d+\+ blocks from home/)
+})
+
 test('MUTANT KILLED: without the bearing filter the stair from inside the square cuts town ground', async () => {
   await withMutant(SKILLS_URL, '  const choice = chooseStairBearing(bot, bot.entity.position.floored(), undefined, townAllow)\n',
     '  const choice = chooseStairBearing(bot, bot.entity.position.floored())\n', async mod => {
@@ -357,14 +368,10 @@ test('MUTANT KILLED: without the per-step check the stale stair cuts town ground
 })
 
 // ---- wiring --------------------------------------------------------------------------------------------------------
-test('WIRED: transit cost in the shared break array; the tunnel adds 100; the liveness row; chooseStairBearing honours allow', () => {
+test('WIRED: no town entry on the transit arrays; the tunnel adds 100; the liveness row; chooseStairBearing honours allow', () => {
   const idx = strip(readFileSync(INDEX_URL, 'utf8'))
-  assert.match(idx, /moves\.exclusionAreasBreak = \[\(block\) => wellBreakCost\(wellCols, block, selfWell\)\]\s*moves\.exclusionAreasBreak\.push\(makeTownBreakCost\(townHome, TRANSIT_COST\)\)/)
-  assert.match(idx, /moves\.exclusionAreasStep = \[waterEntryPenalty, deathSitePenalty, wellPenalty\]\s*const townHome = configuredHome\(config\.world\)\s*moves\.exclusionAreasStep\.push\(makeTownStepCost\(townHome, TRANSIT_COST\)\)/)
-  assert.ok(idx.indexOf('moves.exclusionAreasStep.push(makeTownStepCost(townHome, TRANSIT_COST))') < idx.indexOf('Object.assign(gatherMoves, moves)'), 'the step price before the clones')
-  assert.ok(idx.indexOf('moves.exclusionAreasBreak.push(makeTownBreakCost(townHome, TRANSIT_COST))') < idx.indexOf('Object.assign(gatherMoves, moves)'), 'before the clones copy the array')
+  assert.doesNotMatch(idx, /makeTownStepCost|makeTownBreakCost\(townHome/, 'transit profiles carry no town entry')
   assert.match(idx, /tunnelMovements\(bot, gatherMoves, \{ home: configuredHome\(config\.world\) \?\? \{ x: config\.world\.homeX, z: config\.world\.homeZ \} \}\)/)
-  assert.match(idx, /const townHome = configuredHome\(config\.world\)/)
   assert.match(idx, /logEvent\(\{ kind: 'town_ground', status: 'success'/)
   const tun = strip(readFileSync(TUNNEL_URL, 'utf8'))
   assert.match(tun, /m\.exclusionAreasBreak = \[\.\.\.\(base\?\.exclusionAreasBreak \?\? \[\]\), b => \(nearHome\(b\?\.position, home\) \? 100 : breakHazard\(at, b\)\), makeTownBreakCost\(home, 100\)\]/,
@@ -374,9 +381,16 @@ test('WIRED: transit cost in the shared break array; the tunnel adds 100; the li
   assert.equal(none, null, 'no allowed bearing -> null (mine walks out before calling it that way)')
 })
 
-test('MUTANT KILLED: the wiring assertion fails without the transit entry', () => {
-  const src = readFileSync(INDEX_URL, 'utf8')
-  const old = '    moves.exclusionAreasBreak.push(makeTownBreakCost(townHome, TRANSIT_COST))\n'
-  assert.ok(src.includes(old) && src.split(old).length === 2)
-  assert.doesNotMatch(strip(src.replace(old, '')), /makeTownBreakCost\(townHome, TRANSIT_COST\)/)
+test('MUTANT KILLED: the tunnel without its town entry digs town ground (the profile test above catches it)', async () => {
+  await withMutant(TUNNEL_URL, ', makeTownBreakCost(home, 100)]\n', ']\n', async mod => {
+    const { Movements } = require_('mineflayer-pathfinder')
+    const bot = { registry: mcData, world: { getBlock: () => null }, version: '1.21.8', entity: { position: new Vec3(0, 0, 0) },
+                  blockAt: () => ({ name: 'stone', boundingBox: 'block', type: 1 }), game: { minY: -64, height: 384 }, supportFeature: () => false }
+    let base
+    try { base = new Movements(bot) } catch { base = {} }
+    base.exclusionAreasBreak = []
+    const tun = mod.tunnelMovements(bot, base, { home: HOME })
+    const cell = { position: new Vec3(214, 64, 212), name: 'dirt', type: 1 }   // in the square, OUTSIDE nearHome's 12 (so only the town entry can refuse it)
+    assert.equal(tun.exclusionAreasBreak.reduce((w, a) => w + a(cell), 0), 0, 'the mutant tunnel would dig town ground')
+  })
 })

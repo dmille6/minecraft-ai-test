@@ -58,8 +58,8 @@ export function townDigClass (p, blockName, home) {
 //   mine     the old full-depth 12-block rule stays; a bearing whose stair would cut town ground is not chosen; every step
 //            re-checks its three cells; with no clear bearing the skill WALKS OUT (deterministic) and tries once more.
 //   tunnel   ground costs 100 in the tunnel's own profile (a refusal: the tunnel re-plans around it).
-//   transit  every other dig-capable profile prices ground at TRANSIT_COST (< 100): a bot in a town pit can always dig out.
-export const TRANSIT_COST = 30
+//   transit  UNTOUCHED: no veto (the pit trap) and no price (pathfinder discards a move over 100, so any surcharge is a
+//            veto on slow digs). A bot in a town pit digs out exactly as it does today.
 export const TOWN_GROUND_REMEDY = `town ground: within ${TOWN_GROUND_HALF} blocks of home (above home.y - ${TOWN_GROUND_DEPTH}) the town's ground is kept -- take dirt, sand, gravel or stone more than ${TOWN_GROUND_HALF} blocks from home`
 
 /** May a DISCRETIONARY dig take this cell? -> { ok, reason, remedy }. Pure. */
@@ -114,8 +114,8 @@ export function noteTownGround (bot, key, n = 1) {
 }
 
 /**
- * A precomputed exclusionAreasBreak entry (the A* hot path: no allocation per call). cost TRANSIT_COST for a transit
- * profile, 100 for a target profile. Unknown home -> always 0 (the zone is off).
+ * A precomputed exclusionAreasBreak entry (the A* hot path: no allocation per call) for the ORE TUNNEL only: 100 on town
+ * ground (a target profile: refused, the tunnel re-plans). Unknown home -> always 0 (the zone is off).
  */
 export function makeTownBreakCost (home, cost) {
   const h = homeOf(home)
@@ -135,24 +135,6 @@ export function makeTownBreakCost (home, cost) {
 export function configuredHome (world, env = process.env) {
   if (env.HOME_X == null || env.HOME_Y == null || env.HOME_Z == null || env.HOME_X === '' || env.HOME_Y === '' || env.HOME_Z === '') return null
   return homeOf({ x: world?.homeX, y: world?.homeY, z: world?.homeZ })
-}
-
-/**
- * THE TRANSIT PRICE, where A* actually reads it (Codex code r1 P2): mineflayer-pathfinder 2.4.5's safeOrBreak -- the dig
- * branch of nearly every move -- uses exclusionAreasBreak only as the < 100 PERMISSION and never adds it to the cost
- * (movements.js:282-299); it does add exclusionStep(block) for the very cell it breaks (:284). So the price is an
- * exclusionAreasStep entry that charges only a SOLID town-terrain cell (one the move must break): air cells, the floor
- * under the feet and everything outside the box cost 0. Precomputed for the hot path.
- */
-export function makeTownStepCost (home, cost) {
-  const h = homeOf(home)
-  if (!h) return () => 0
-  const hx = Math.floor(h.x), hz = Math.floor(h.z), ymin = Math.floor(h.y) - TOWN_GROUND_DEPTH, R = TOWN_GROUND_HALF
-  return (block) => {
-    const p = block?.position
-    if (!p || block.boundingBox !== 'block' || p.y < ymin || Math.abs(p.x - hx) > R || Math.abs(p.z - hz) > R) return 0
-    return TERRAIN.test(block.name ?? '') ? cost : 0
-  }
 }
 
 /** Every walk-out point, nearest edge first (mine tries them in order until one is reached: Codex code r1 P2). */

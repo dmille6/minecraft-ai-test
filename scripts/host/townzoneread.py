@@ -135,6 +135,38 @@ assert zone_refusal('mine', 'stopped at y=40: water in the tread ahead', 'hazard
 assert zone_refusal('gather', "no dirt within 32 blocks outside the town's ground (16 blocks around home is kept: walk 20+ blocks from home)", 'nothing_found') == 'gather'
 
 
+def in_town(pos, home):
+    """PURE. the bot within HALF + 4 (Chebyshev) of home."""
+    return bool(home and pos and 'x' in pos and max(abs(pos['x'] - home[0]), abs(pos['z'] - home[1])) <= HALF + 4)
+
+
+def nopath(detail):
+    return bool(re.search(NOPATH, detail or ''))
+
+
+def share_did(n, fail, tot):
+    """PURE. n: Counter keyed (period, arm, what). -> (post-pre) canary minus control, of the share fail/tot (nan if any is empty)."""
+    s = lambda p, a: (n[(p, a, fail)] / n[(p, a, tot)]) if n[(p, a, tot)] else float('nan')
+    return (s('post', 'canary') - s('pre', 'canary')) - (s('post', 'control') - s('pre', 'control'))
+
+
+def gate(did, count, thr, minimum):
+    """PURE. a DiD gate: fires only above the calibrated threshold AND with enough canary rows (nan never fires)."""
+    return int(did == did and did > thr and count >= minimum)
+
+
+_n = Counter({('pre', 'canary', 'f'): 10, ('pre', 'canary', 't'): 50, ('post', 'canary', 'f'): 40, ('post', 'canary', 't'): 50,
+              ('pre', 'control', 'f'): 100, ('pre', 'control', 't'): 500, ('post', 'control', 'f'): 100, ('post', 'control', 't'): 500})
+assert abs(share_did(_n, 'f', 't') - 0.6) < 1e-9
+assert gate(share_did(_n, 'f', 't'), 50, GFAIL_DID, GFAIL_MIN) == 1, 'Z5 fires on a +0.6 share DiD with 50 attempts'
+assert gate(share_did(_n, 'f', 't'), 20, GFAIL_DID, GFAIL_MIN) == 0, 'not with 20 attempts'
+assert gate(0.24, 200, GFAIL_DID, GFAIL_MIN) == 0, 'the null maximum (+0.24) does not fire'
+assert gate(float('nan'), 99, GFAIL_DID, GFAIL_MIN) == 0
+assert gate(1.2, 15, NOPATH_DID, NOPATH_MIN) == 1 and gate(0.64, 40, NOPATH_DID, NOPATH_MIN) == 0, 'Z6 fires above 1.0, not at the null max'
+assert nopath('no route out of here even with digging allowed, 26 blocks short of 380,235') and nopath('pathfinder said: NoPath') and not nopath('arrived')
+assert in_town({'x': 375.0, 'z': 147.0}, (355.0, 147.0)) and not in_town({'x': 376.0, 'z': 147.0}, (355.0, 147.0))
+
+
 def homes():
     out = {}
     for f in glob.glob('/srv/mcbots/harness/env/*.env'):
@@ -220,16 +252,10 @@ if __name__ == '__main__':
             z = zone_refusal(k, d, r.get('fail_class') or sk.get('fail_class'))
             if z and period == 'post' and arm == 'canary':
                 (mine_ref if z == 'mine' else gather_ref).append((b, t))
-            if k in TRAP_KINDS:
-                pos = (r.get('bot') or {}).get('pos') or {}
-                h = HOMES.get(b)
-                if h and 'x' in pos and max(abs(pos['x'] - h[0]), abs(pos['z'] - h[1])) <= HALF + 4:
-                    n[(period, arm, 'trapped')] += 1
-            if k == 'goto' and sk.get('status') != 'success' and re.search(NOPATH, d):
-                pos = (r.get('bot') or {}).get('pos') or {}
-                h = HOMES.get(b)
-                if h and 'x' in pos and max(abs(pos['x'] - h[0]), abs(pos['z'] - h[1])) <= HALF + 4:
-                    n[(period, arm, 'nopath')] += 1
+            if k in TRAP_KINDS and in_town((r.get('bot') or {}).get('pos'), HOMES.get(b)):
+                n[(period, arm, 'trapped')] += 1
+            if k == 'goto' and sk.get('status') != 'success' and nopath(d) and in_town((r.get('bot') or {}).get('pos'), HOMES.get(b)):
+                n[(period, arm, 'nopath')] += 1
             if k == 'gather' and re.search(r'^(dirt|cobblestone|stone)\b', str((sk.get('args') or {}).get('block') or '')):
                 n[(period, arm, 'gather_ground')] += 1
                 if sk.get('status') != 'success':
@@ -245,12 +271,11 @@ if __name__ == '__main__':
     did_trap = (rate('post', 'canary', 'trapped') - rate('pre', 'canary', 'trapped')) - (rate('post', 'control', 'trapped') - rate('pre', 'control', 'trapped'))
     z1 = dedupe(target[('post', 'canary')])
     z2 = loops(mine_ref, MINE_LOOP); z3 = loops(gather_ref, GATHER_LOOP); z7 = loops(walkouts, WALKOUT_LOOP, WALKOUT_WIN)
-    z4 = int(did_trap > TRAP_DID and n[('post', 'canary', 'trapped')] >= TRAP_MIN)
-    share = lambda p, a: (n[(p, a, 'gather_ground_fail')] / n[(p, a, 'gather_ground')]) if n[(p, a, 'gather_ground')] else float('nan')
-    did_gf = (share('post', 'canary') - share('pre', 'canary')) - (share('post', 'control') - share('pre', 'control'))
-    z5 = int(did_gf == did_gf and did_gf > GFAIL_DID and n[('post', 'canary', 'gather_ground')] >= GFAIL_MIN)
+    z4 = gate(did_trap, n[('post', 'canary', 'trapped')], TRAP_DID, TRAP_MIN)
+    did_gf = share_did(n, 'gather_ground_fail', 'gather_ground')
+    z5 = gate(did_gf, n[('post', 'canary', 'gather_ground')], GFAIL_DID, GFAIL_MIN)
     did_np = (rate('post', 'canary', 'nopath') - rate('pre', 'canary', 'nopath')) - (rate('post', 'control', 'nopath') - rate('pre', 'control', 'nopath'))
-    z6 = int(did_np > NOPATH_DID and n[('post', 'canary', 'nopath')] >= NOPATH_MIN)
+    z6 = gate(did_np, n[('post', 'canary', 'nopath')], NOPATH_DID, NOPATH_MIN)
     cover = {pa: (len(summ[pa] & bots[pa]) / len(bots[pa]) if bots[pa] else 0.0) for pa in (('pre', 'canary'), ('post', 'canary'), ('pre', 'control'), ('post', 'control'))}
     cover_min = min(cover.values())
     inst = dedupe(target[('post', 'control')])

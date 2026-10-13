@@ -8877,19 +8877,31 @@ async function mine(ctx, { y: targetY = 12 }, signal) {
     // EVERY EXIT, nearest first, until one is reached AND a clear stair with a dry first tread can start there (Codex code
     // r1 P2: one obstructed exit must not end the chain; Claude code r1 P2: a pond at the nearest exit must not hand the
     // bot back to the water refusal and from there to town). Bounded: four gotos at most.
-    let walked = null, out = null, found = false
-    for (const p of walkOutPoints(bot.entity.position, townHome())) {
-      out = p
-      noteTownGround(bot, 'mine_walkout')
-      walked = await goto(ctx, { x: p.x, y: Math.floor(bot.entity.position.y), z: p.z, range: 2 }, signal).catch(e => ({ status: 'failed', detail: String(e?.message ?? e) }))
+    let walked = null, out = null, found = false, surfaced = null
+    const tryExits = async () => {
+      for (const p of walkOutPoints(bot.entity.position, townHome())) {
+        out = p
+        noteTownGround(bot, 'mine_walkout')
+        walked = await goto(ctx, { x: p.x, y: Math.floor(bot.entity.position.y), z: p.z, range: 2 }, signal).catch(e => ({ status: 'failed', detail: String(e?.message ?? e) }))
+        check(signal)
+        if (!townBlocked() && dryClear()) return true
+      }
+      return false
+    }
+    found = await tryExits()
+    // THE FALLBACK (the design's `surface`, Codex code r1/r2): every exit failed from here -- a bot in a tunnel under the
+    // town cannot walk to the edge -- so climb to open sky once, then the exits again from up there.
+    if (!found) {
+      surfaced = await surface(ctx, {}, signal).catch(e => ({ status: 'failed', detail: String(e?.message ?? e) }))
       check(signal)
-      if (!townBlocked() && dryClear()) { found = true; break }
+      if (!townBlocked() && dryClear()) found = true
+      else if (inTown()) found = await tryExits()
     }
     if (!found) {
       noteTownGround(bot, 'mine_refused')
       return {
         status: 'failed', failClass: 'town_ground',
-        detail: `reason=town_ground walked_out=${walked?.status ?? '?'} last=${out?.x},${out?.z}: no exit from the town's ground ` +
+        detail: `reason=town_ground walked_out=${walked?.status ?? '?'} surfaced=${surfaced?.status ?? '-'} last=${out?.x},${out?.z}: no exit from the town's ground ` +
                 `gave a dry stair start (every stair from ` +
                 `${Math.round(bot.entity.position.x)},${Math.round(bot.entity.position.y)},${Math.round(bot.entity.position.z)} ` +
                 `cuts the town's ground or meets water) -- goto a dry spot ${TOWN_GROUND_HALF + 14}+ blocks from home, then mine`,
