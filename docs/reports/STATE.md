@@ -12,6 +12,50 @@ Studio reservation both closed 10-12); clear caps bamboo 0 / bucket 2._
 
 ---
 
+## 10-13 19:10Z — plinth-01 (the raised, self-building junk well) BUILT, reviewed, registered; NOT queued (owner GO "yes do 2-4", step 4)
+For the towns that cannot site a well (13 of 16 on 10-13). A town whose wellsite-01 search found no cell PLANS a raised
+well once and BUILDS it from cobble in bounded visits. The plan is checked by the unchanged oracle (wellSiteRefusal) on
+the world with the plan applied. It is placements only, apart from leaves in planned cells. Each step has a support face,
+a proved stand that walks back to town, and a cover for every hazardous state. One builder per town: an exclusive lease
+generation plus a 25-s settle. The finished cap becomes the well site; build_well floors it and caps it.
+- **Branch** plinth-on-baa9487. CANARY SHA **4774bec1**; later commits are docs only. It sits on wellsite-01's canary sha
+  baa94879, so it launches ONLY after wellsite-01 KEEP + promotion. Without wellsite-01 there is no trigger.
+- **Tests.** npm test 248/248. plinth.test 51/51 with 10 mutant tests; plinth-skill.test 51/51 (real SKILLS on a fake
+  town) with 12 mutant tests. Every mutant asserts that its anchor is present and unique. Offline replay: 16/16 real towns
+  plan, verify, and route by A* with 0 column nodes; planning blocks at most 58 ms at a time.
+- **Paper** (sandbox2/3; docs/reports/plinth-01-sandbox-2026-10-13.md; runs at 3d9448f6, 0e288720 and 4774bec1):
+  - 17/17 builds, 5 of them SIGKILLed twice and resumed;
+  - 1,170/1,170 placements read back by RCON, 0 new cobble outside the plan;
+  - build_well on the plinth 5/5;
+  - 2,880/2,880 junk items in the shaft, 0 outside (+30 s also);
+  - a walker picked up 0 items in 60 passes + the 4 ledge cells (egg control 5/5);
+  - 800/800 pathfinder trips, 0 column nodes;
+  - plinth cells lost to an entombed or pit bot: 0.
+  - The S4 bots did not get out in 300/180 s. The pit CONTROL (no plinth) did not either, so that is base behaviour.
+    The tomb control is not comparable: open on the plinth side, the bot fell 48 blocks off the fixture.
+  - Caveat: chest funding is proved in unit tests only.
+- **Reviews** (docs/reports/plinth-01-review-2026-10-13.txt):
+  - Codex r1-r5 (r5 APPROVE), plus the r7 and r8 diffs APPROVE;
+  - Claude subagent r1-r7 (r6 and r7 APPROVE).
+  - Nothing open.
+- **Read** ~/mcai-analysis/plinthread.py (md5 30f2778a):
+  - liveness is licence _plinth;
+  - DEFECT gates: P1 outside the shell, P2 reserve, P3 pit open > 10 min, P4 retired plinth, P5 stuck near a plinth
+    (more than 1 episode), P6 control leak;
+  - INSTRUMENT: control no_site rows.
+  - Dry run 19:00Z, under nice: 327k rows, 295 control no_site rows, P5 instrument 2,029 rows, gates 0.
+- **Staged on .31:**
+  - registration ~/mcai-analysis/plinth-01.baa9487.json (sha256 07c10c15...): reads plinthread + wellread + immobiledid;
+    180/360; draw_exposure _well_refused reason=no_site >= 2 / 3 h;
+  - entry ~/mcai-analysis/plinth-01.entry.json (= docs/reports/plinth-01.queue-entry.json): after wellsite-01, one variant
+    baa94879 -> 4774bec1. NOT queued.
+- **VARIANTS NEEDED**, one per wellsite-01 variant that gets promoted. None of those exists yet. Compositions already
+  proven:
+  - plinth-on-st-ws @ fa270a1e: stocktarget-01 48b093ce + wellsite + plinth; npm test 251/251;
+  - plinth-x-tz @ 30c495e1: townzone-01 b945226a + plinth; npm test 250/250; Paper S4 plinth cells lost 0.
+  Both merges are clean. The stair veto rides wellBreakCost, so townzone's frozen arrays are untouched.
+- **Sandbox lock** /tmp/mcai-sandbox.lock released 19:00Z (the townground agent was waiting on it for its zone scenes).
+
 ## 10-13 18:50Z — digtown-01 + townzone-01 BUILT, reviewed, registered; NOT queued (the townground agent; owner GO "yes do 2-4")
 Design: docs/reports/townground-2026-10-13.md (r4) + its IMPLEMENTATION AMENDMENT section. Order: digtown-01 (instrument,
 its own canary) -> KEEP + fleet-wide promotion -> restart lag + a 180-min instrumented pre-window -> townzone-01.
