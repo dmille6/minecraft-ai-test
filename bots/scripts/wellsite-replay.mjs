@@ -13,8 +13,11 @@
 import fs from 'node:fs'
 import zlib from 'node:zlib'
 import { createRequire } from 'node:module'
-import { canonicalWellSite, tallyText, wellStage, wellStand, fullCube, wellBreach, containmentRefusal, wellIdentity,
-         WELL_HOME_CLEARANCE, WELL_SEARCH_RADIUS, UNDERGROUND_RING, LIQUID_CLEARANCE, WELL_CONTAINER_DISTANCE } from '../src/well.mjs'
+import * as W from '../src/well.mjs'
+// Runs against whichever well.mjs is checked out: the tally exists from wellsite-01 on, and is '-' before it.
+const { canonicalWellSite, wellStage, wellStand, fullCube, wellBreach, containmentRefusal, wellIdentity,
+        WELL_HOME_CLEARANCE, WELL_SEARCH_RADIUS, UNDERGROUND_RING, LIQUID_CLEARANCE, WELL_CONTAINER_DISTANCE } = W
+const tallyText = W.tallyText ?? (() => '-')
 import { townDistance, ADOPT_RADIUS, CLEARANCE_CONTAINER } from '../src/composter.mjs'
 const require = createRequire(import.meta.url)
 const nbt = require('prismarine-nbt')
