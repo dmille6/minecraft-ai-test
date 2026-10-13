@@ -8902,10 +8902,11 @@ async function mine(ctx, { y: targetY = 12 }, signal) {
         surfaced = await surface(ctx, {}, signal).catch(e => ({ status: 'failed', detail: String(e?.message ?? e) }))
         check(signal)
       }
+      // ...then up through the roof to the column's open top: surface's own ascent, aimed above sea level (goto cannot:
+      // it ends a leg at horizontal range, whatever the height -- Codex code r5 P2)
       const top = roofTop()
       if (top != null) {
-        const p = bot.entity.position.floored()
-        surfaced = await goto(ctx, { x: p.x, y: top + 1, z: p.z, range: 1 }, signal).catch(e => ({ status: 'failed', detail: String(e?.message ?? e) }))
+        surfaced = await surface(ctx, { _toY: top + 1 }, signal).catch(e => ({ status: 'failed', detail: String(e?.message ?? e) }))
         check(signal)
       }
     }
@@ -8917,7 +8918,7 @@ async function mine(ctx, { y: targetY = 12 }, signal) {
       noteTownGround(bot, 'mine_refused')
       return {
         status: 'failed', failClass: 'town_ground',
-        detail: `reason=town_ground walked_out=${walked?.status ?? '-'} surfaced=${surfaced?.status ?? '-'} last=${out ? `${out.x},${out.z}` : '-'}: no exit from the town's ground ` +
+        detail: `reason=town_ground walked_out=${walked?.status ?? '-'} surfaced=${surfaced ? `${surfaced.status}${surfaced.failClass ? '/' + surfaced.failClass : ''}` : '-'} last=${out ? `${out.x},${out.z}` : '-'}: no exit from the town's ground ` +
                 `gave a dry stair start (every stair from ` +
                 `${Math.round(bot.entity.position.x)},${Math.round(bot.entity.position.y)},${Math.round(bot.entity.position.z)} ` +
                 `cuts the town's ground or meets water) -- ${below() ? 'climb to open sky first (surface), then ' : ''}goto a dry spot ${TOWN_GROUND_HALF + 14}+ blocks from home, then mine`,
@@ -11391,14 +11392,17 @@ export function climbAdvice(stopped) {
 // THE `_dig_town` INSTRUMENT'S SCOPE (telemetry only): surface's own digs (shaftAscend) are transit, also when surface runs
 // inside mine (the zone's walk-out fallback) -- never mine's target (Claude code r2 P1: a false Z1 trip).
 async function surface (ctx, args, signal) { return withDigScope(ctx?.bot, { purpose: 'transit', by: 'surface' }, () => surfaceClimb(ctx, args, signal)) }
-async function surfaceClimb(ctx, _args, signal) {
+async function surfaceClimb(ctx, args, signal) {
   const { bot, runner } = ctx
   const startY = bot.entity.position.y
+  // THE CLIMB'S TOP: sea level, unless an internal caller names a higher one (mine's town walk-out: the open top of the
+  // column above a roofed bot, which in a town at 65-75 is above 63 -- Codex code r5 P2). Not a model argument.
+  const TOP = Number.isFinite(args?._toY) ? Math.max(SEA_LEVEL, args._toY) : SEA_LEVEL
 
   // Already up here. Report it as a refusal, not a success: a call that cannot
   // change anything must not be recorded as an achievement, or it clears the
   // avoid rules that would otherwise stop it being proposed again.
-  if (startY >= SEA_LEVEL) {
+  if (startY >= TOP) {
     return {
       status: 'failed',
       failClass: 'already_surfaced',
@@ -11456,10 +11460,10 @@ async function surfaceClimb(ctx, _args, signal) {
   // ours rather than the terrain's.
   let plannerCommitted = false
 
-  while (bot.entity.position.y < SEA_LEVEL && Date.now() < DEADLINE) {
+  while (bot.entity.position.y < TOP && Date.now() < DEADLINE) {
     check(signal)
     const y0 = bot.entity.position.y
-    const stageY = Math.min(SEA_LEVEL, Math.round(y0) + STEP_UP)
+    const stageY = Math.min(TOP, Math.round(y0) + STEP_UP)
 
     const walk = probe(bot.pathfinder.movements, stageY)
     const dig = walk === 'success' ? null : probe(bot.ascentMovements, stageY)
@@ -11548,7 +11552,7 @@ async function surfaceClimb(ctx, _args, signal) {
   const climbed = endY - startY
   const how = usedDig ? 'digging where it had to' : 'without digging'
 
-  if (endY >= SEA_LEVEL) {
+  if (endY >= TOP) {
     return { status: 'success', placed: undefined,
              detail: `climbed ${Math.round(climbed)} blocks to y=${Math.round(endY)}, ${how}` }
   }

@@ -343,6 +343,54 @@ test('CHAIN mine: UNDER a roof in town (8 below home, solid above) -> climb FIRS
   assert.equal(town.length, 0, `town digs with no scope (would read target:mine): ${JSON.stringify(town.slice(0, 3))}; result ${r.status} ${String(r.detail).slice(0, 80)}`)
 })
 
+// A ROOFED BOT ABOVE SEA LEVEL (Codex code r5 P2): a stone roof at y 69-70 over the town's east side, the bot at 214,65,200
+// under it. The fake's ascent: getPathTo says the walk profile has no path and the ascent profile has one; a GoalY goto digs
+// each solid cell of the column up to the stage (through bot.dig, so the instrument scope is visible) and moves the bot.
+function roofedWorld () {
+  const bot = stairWorld({ at: [214, 65, 200] })
+  const roof = (x, y, z) => (y === 69 || y === 70) && x >= 205 && x <= 230 && z >= 190 && z <= 210
+  const base = bot.blockAt
+  const dug = new Set()
+  bot.blockAt = p => (roof(p.x, p.y, p.z) && !dug.has(`${p.x},${p.y},${p.z}`)) ? { ...STONE, position: V(p.x, p.y, p.z), canHarvest: () => true, digTime: () => 50, material: 'rock' } : base(p)
+  const dig0 = bot.dig
+  bot.dig = async b => { dug.add(`${b.position.x},${b.position.y},${b.position.z}`); return dig0(b) }
+  bot.ascentMovements = { tag: 'ascend' }
+  bot.withAscentMovements = async fn => fn()
+  bot.pathfinder.getPathTo = (moves) => ({ status: moves === bot.ascentMovements ? 'success' : 'noPath' })
+  const goto0 = bot.pathfinder.goto
+  bot.maxY = 65
+  bot.pathfinder.goto = async goal => {
+    if (goal.x === undefined && Number.isFinite(goal.y)) {          // GoalY
+      const p = bot.entity.position.floored()
+      for (let y = p.y; y <= goal.y + 1; y++) { const b = bot.blockAt(V(p.x, y, p.z)); if (b.boundingBox === 'block') await bot.dig(b) }
+      bot.entity.position = V(p.x, goal.y, p.z); bot.maxY = Math.max(bot.maxY, goal.y); return
+    }
+    const r = await goto0(goal); bot.maxY = Math.max(bot.maxY, bot.entity.position.y); return r
+  }
+  return bot
+}
+test('CHAIN mine: roofed ABOVE sea level -> the climb really rises through the roof (surface aimed at the column top), then walks out and stairs outside town; climb digs are transit:surface, never target', async () => {
+  const D = await import('../src/digtown.mjs')
+  const bot = roofedWorld()
+  const scopes = []
+  const dig1 = bot.dig
+  bot.dig = async b => { scopes.push([V(b.position.x, b.position.y, b.position.z), D.currentDigScope()?.by ?? 'none']); return dig1(b) }
+  const r = await runMine(SK, bot)
+  assert.ok(bot.maxY >= 71, `it rose through the roof (max y ${bot.maxY}; ${r.status} ${String(r.detail).slice(0, 160)})`)
+  const unscopedTown = scopes.filter(([p, by]) => townDigClass(p, 'stone', HOME) === 'ground' && by === 'none')
+  assert.equal(unscopedTown.length, 0, `town digs outside any scope (would read target:mine): ${JSON.stringify(unscopedTown.slice(0, 3))}`)
+  assert.ok(scopes.some(([p, by]) => by === 'surface' && p.y >= 69), 'the roof was dug by the climb, labelled surface')
+  assert.ok(bot._digs.some(p => p.x > 216), `a stair was cut outside town after the climb (${r.status} ${String(r.detail).slice(0, 120)})`)
+})
+test('MUTANT KILLED: surface without the named top refuses at once above sea level ("already_surfaced") and the bot never rises', async () => {
+  await withMutant(SKILLS_URL, '  const TOP = Number.isFinite(args?._toY) ? Math.max(SEA_LEVEL, args._toY) : SEA_LEVEL\n', '  const TOP = SEA_LEVEL\n', async mod => {
+    const bot = roofedWorld()
+    const r = await runMine(mod, bot)
+    assert.equal(bot.maxY, 65, 'no climb')
+    assert.match(String(r.detail), /surfaced=failed\/already_surfaced/, r.detail)
+  })
+})
+
 test('MUTANT KILLED: without the bearing filter the stair from inside the square cuts town ground', async () => {
   await withMutant(SKILLS_URL, '  const choice = chooseStairBearing(bot, bot.entity.position.floored(), undefined, townAllow)\n',
     '  const choice = chooseStairBearing(bot, bot.entity.position.floored())\n', async mod => {
