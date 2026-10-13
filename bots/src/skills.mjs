@@ -6682,14 +6682,14 @@ async function throwStacks (bot, { cap, facing, stacks, bound, waitTick, signal,
       // ---- from here to the click nothing of OURS awaits (mineflayer's own dig-click gap aside, below). mineflayer's clickWindow may still await its dig-click gap if a
       // reflex dug in the last 550 ms (inventory.js); a slot change in that gap is a reflex click sent before ours on the same
       // connection, which the server applies first -- the THROW then drops what the server holds, and offlist= says so ----
-      const it = bot.inventory?.slots?.[st.slot]
-      const sword = isSword(it?.name)
-      if (!it || it.name !== st.name || !(isWellJunk(it.name) || (sword && acc.swordsAllowed)) || bot.currentWindow || bot.inventory?.selectedItem) continue
       // THE SHAFT STILL SEALED AT THIS CLICK (wellsite-01, Codex r2 P1): the aim, the resends and the dig-click gap
       // awaited since the phase's own check; read again in the same synchronous run as the click (the pit, with no cap
       // or facing yet, by its containment alone). Nothing more goes in; what went in before stays the shaft's.
       const unsealed = facing ? wellBreach(read, cap, facing) : containmentRefusal(read, cap)
       if (unsealed) { acc.stop = `breached: ${unsealed}`; break }
+      const it = bot.inventory?.slots?.[st.slot]
+      const sword = isSword(it?.name)
+      if (!it || it.name !== st.name || !(isWellJunk(it.name) || (sword && acc.swordsAllowed)) || bot.currentWindow || bot.inventory?.selectedItem) continue
       // A SWORD GOES ONLY IF THE WORLD IS STILL PEACEFUL AT THIS CLICK (the switch re-read now, not at the plan)
       // (peacefulkit's classifier, fed the well's strict switch as read NOW)
       if (sword) { const p = wellSwordsNow(bot); if (!unwantedSword(it, p)) { acc.swordsKept++; continue } acc.peaceful = (acc.peaceful ?? true) && p }
