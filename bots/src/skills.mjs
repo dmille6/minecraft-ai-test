@@ -66,6 +66,8 @@ import { WOODEN_TRAPDOOR, isWellJunk, disposePlan, wellIdentity, wellStage, well
          trapdoorsNeeded, MAX_STACKS_PER_VISIT, wellBreach, usableStands, thrownNames, WELL_HOME_CLEARANCE,
          disposableIn, guardLeft, reserveStone, SCAFFOLD_DECORATIONS, isSword, swordSwitch, aimApplied, packetVelocity,
          isOpenPit, isCoveredPit, pitCoverItem, PIT_COVER_REMEDY, coverRef, bodyInPit } from './well.mjs'
+// wellsite-01 (its own statement: stocktarget-01 rewrites the import above)
+import { containmentRefusal, tallyText, WELL_SEARCH_RADIUS, WELL_NO_SITE_BACKOFF_MS, NO_VALID_CELL, retireLog, noSiteHold } from './well.mjs'
 import { resyncPacket, GUARDED_INVENTORY_ACTIONS } from './craftsync.mjs'
 import path from 'node:path'
 import { IRON_KINDS, MIN_TRIP_USES, CANDIDATE_RADIUS, breakHazard, nearHome, pickBudget, rankCandidates, clusterOf, tunnelMovements, planTunnel, ONE_PICK_USES, tripDecision } from './oretunnel.mjs'
@@ -6226,6 +6228,21 @@ async function buildComposter (ctx, _args, signal) {
 // flight (bot.craftSync.busy()).
 
 const wellSiteKey = () => `junkwell-site-${config.world.homeX}_${config.world.homeY}_${config.world.homeZ}`
+/** Retired wells this bot already said in a row (wellsite-01: well_retired once per well and reason, per bot process). */
+const retiredSaid = bot => (bot.wellRetiredLog ??= retireLog())
+/** The town's last exhausted site search (well.mjs noSiteHold), beside the site record. Never throws; null if none. */
+const wellNoSiteFile = () => path.join(poolStateDir(config.memory.pool), `junkwell-nosite-${config.world.homeX}_${config.world.homeY}_${config.world.homeZ}.json`)
+export function readWellNoSite () {
+  try { const r = JSON.parse(fs.readFileSync(wellNoSiteFile(), 'utf8')); return r && typeof r === 'object' ? r : null } catch { return null }
+}
+function writeWellNoSite (bot, tally) {
+  const file = wellNoSiteFile(), tmp = `${file}.${process.pid}.${Math.random().toString(36).slice(2)}.tmp`
+  try {
+    fs.mkdirSync(path.dirname(file), { recursive: true })
+    fs.writeFileSync(tmp, JSON.stringify({ at: Date.now(), world: bot.worldId ?? null, by: bot.username ?? null, tally: tallyText(tally) }))
+    fs.renameSync(tmp, file)   // atomic: a reader never sees half a record
+  } catch { try { fs.unlinkSync(tmp) } catch { /* never written */ } }
+}
 /** A cell for well.mjs: name, box, collision shapes, hardness and block state properties (a trapdoor's half/open/facing). */
 const readWellCell = bot => (x, y, z) => {
   const b = bot.blockAt(new Vec3(x, y, z))
@@ -6310,16 +6327,29 @@ export function chestWellKeepouts (bot) {
   } catch { /* no record */ }
   return out
 }
-/** The town's well cap cell from the shared generation record (composter.mjs resolveTownSite, its own key). */
+/**
+ * The town's well cap cell from the shared generation record (composter.mjs resolveTownSite, its own key).
+ * -> resolveTownSite's answer + { exhausted, tally }: `exhausted` only when THIS call ran the canonical search and it read
+ * and refused every column (wellsite-01: the one no-site answer that backs the build order off), with its tally. A
+ * reused record, an unloaded cell or a record race is never exhausted (resolveTownSite drops the search's own fields, so
+ * they are taken from the compute call itself).
+ */
 export function townWellSite (bot) {
   const home = homeVec(), read = readWellCell(bot), avoid = wellAvoid(bot)
-  return resolveTownSite({
+  let searched = null
+  const res = resolveTownSite({
     dir: poolStateDir(config.memory.pool),
     key: wellSiteKey(),
     world: bot.worldId ?? null,
-    compute: () => canonicalWellSite({ home, read, avoid }),
+    compute: () => (searched = canonicalWellSite({ home, read, avoid })),
     refuse: site => wellSiteRefusal(read, site, home, { avoid }),
   })
+  return siteAnswer(res, searched)
+}
+/** Pure: a resolver answer joined with the search this call ran (or null) -> { ...res, exhausted, tally }. */
+export function siteAnswer (res, searched) {
+  const exhausted = !res?.site && !!searched && searched.exhausted === true && !searched.site && res?.why === searched.why
+  return { ...res, exhausted, tally: searched?.tally ?? null }
 }
 /** The recorded site (this world), or null: what a peer excludes, and what a resumed build's stage is read from. */
 function recordedWellSite (bot) {
@@ -6768,6 +6798,13 @@ async function throwPhase (bot, { cap, facing, pit = false, maxStacks = MAX_STAC
       out.stone = plan.stone   // the guard stone the plan saw (STONE_GUARD): on the row, so the read can judge the guard
       out.acc.swordsAllowed = out.swordsAllowed
       if (!plan.stacks.length) { out.refused = 'nothing_listed'; return out }
+      // THE SHAFT IS READ SEALED AGAIN IMMEDIATELY BEFORE THE FIRST THROW (wellsite-01, Codex r1 P1): the well was judged
+      // at the order and at the skill's entry, then the walk, the centring, the hold and the resync awaited. A wall or a
+      // wall's support dug away meanwhile (a supported sand wall counts only while its support stands: well.mjs
+      // steadyWall) is caught here, before anything goes in; an unloaded cell refuses too. The pit (no cap, no facing
+      // yet) is judged by its containment alone.
+      const sealed = pit ? containmentRefusal(read, cap) : wellBreach(read, cap, facing)
+      if (sealed) { out.refused = 'breached'; out.stop = sealed; return out }
       if (!pit) {
         if (wellIdentity(read, cap).open) out.closedOpen = await setWellOpen(bot, cap, false, g.bound, tick)
         // THE ADMISSION AGAIN, IMMEDIATELY BEFORE THE OPEN (Claude review P2-8): the hold and the resync took up to ~23 ticks.
@@ -6902,6 +6939,7 @@ async function disposeWell (ctx, _args, signal) {
     if (stationary && bot.stationaryUntil === stationary) bot.stationaryUntil = 0
     await settleAndRestore(bot, was, g, 'dispose_well')
   }
+  if (ph.refused === 'breached') return skip('breached', `at=${cap.x},${cap.y},${cap.z} the town junk well read unsealed at the stand (${ph.stop}); nothing was thrown, and the next town visit with wood builds a new one`)
   if (ph.refused === 'server_unanswered') return fail('well_unverified', 'server_unanswered', 'the server did not answer the inventory resync; nothing is thrown on a bag it has not confirmed, and the next town visit tries again')
   if (ph.refused === 'player_near') return skip('player_near', `wait: ${ph.stop}; the cap never opened, and the next town visit disposes`)
   if (ph.refused === 'grid_loaded') return skip('grid_loaded', `the next craft returns what an aborted craft left in the 2x2 grid (${ph.stop}); nothing is thrown until then, because closing the inventory now would drop what does not fit beside the well`)
@@ -7002,11 +7040,25 @@ async function buildWell (ctx, _args, signal) {
   const skip = (reason, why) => { wellRefused(bot, 'build', reason, why); return { status: 'no_effect', detail: why } }
   const fail = (failClass, why) => { wellRefused(bot, 'build', failClass, why); return { status: 'failed', failClass, detail: why } }
   if (insideTownWell(bot)) return skip('inside', 'this bot is inside a junk well; it climbs out before any well order')
-  const existing = findTownWell(bot)
+  const wells = findTownWells(bot)
+  for (const w of wells) if (!w.breach && !w.unsure) retiredSaid(bot).clear(w.cap)   // a well read sealed again may be retired again
+  const existing = wells.find(w => !w.breach) ?? wells[0] ?? null
   if (existing && !existing.breach) return skip('exists', 'the town already has a junk well')
-  // A BREACHED WELL IS RETIRED, SAID SO (Codex round 5): the read counts active wells, not wells ever built.
-  for (const w of findTownWells(bot).filter(w => w.breach)) {
-    logEvent({ kind: 'well_retired', status: 'success', snapshot: snapshot(bot), detail: `at=${w.cap.x},${w.cap.y},${w.cap.z} why=${String(w.breach).replace(/\s+/g, '_').slice(0, 80)}` })
+  // A BREACHED WELL IS RETIRED, SAID SO (Codex round 5): the read counts active wells, not wells ever built. ONCE per
+  // well and reason per process (wellsite-01: 741 rows in 24 h were two wells, re-said by every build order).
+  for (const w of wells.filter(w => w.breach)) {
+    const why = String(w.breach).replace(/\s+/g, '_').slice(0, 80)
+    if (!retiredSaid(bot).say(w.cap, why)) continue
+    logEvent({ kind: 'well_retired', status: 'success', snapshot: snapshot(bot), detail: `at=${w.cap.x},${w.cap.y},${w.cap.z} why=${why}` })
+  }
+  // THE TOWN'S LAST SEARCH FOUND NO CELL (wellsite-01): no search again until the record ages out, whoever asks --
+  // the order's own backoff is lost on a reconnect, this record is not. Said under its own reason, not no_site: no
+  // search ran.
+  const rec = readWellNoSite(), hold = noSiteHold({ record: rec, now: Date.now(), world: bot.worldId ?? null })
+  if (hold.held) {
+    const said = `the town's last junk well site search (${rec.by ?? 'a bot'}, ${Math.round((Date.now() - rec.at) / 60000)} min ago) found no cell within ${WELL_SEARCH_RADIUS} of home; no search for ${Math.ceil(hold.leftMs / 60000)} min more`
+    wellRefused(bot, 'build', 'no_site_held', said)
+    return { status: 'no_effect', failClass: 'well_no_site', detail: said }
   }
   const pre = townWellBuildPlan(bot)
   if (!pre) return skip('no_wood', WELL_WOOD_REMEDY)
@@ -7025,8 +7077,16 @@ async function buildWell (ctx, _args, signal) {
   if (bot.craftSync?.busy?.()) return skip('craft_busy', 'a craft is in flight; the well build waits for the next town visit')
   if (bot.currentWindow) return skip('window_open', 'a container window is open; the well build waits for the next town visit')
   const home = homeVec(), read = readWellCell(bot)
-  const { site, gen, why } = townWellSite(bot)
-  if (!site) return skip('no_site', `the town's junk well site cannot be settled from here: ${String(why).replace(/composter/g, 'well')}`)
+  const { site, gen, why, exhausted, tally } = townWellSite(bot)
+  // AN EXHAUSTED SEARCH (every column read and refused) is the town's ground, said with its tally FIRST (the row is cut at
+  // 300) and backed off for WELL_NO_SITE_BACKOFF_MS by wellOrderOutcome. Anything else (an unloaded cell, a record race,
+  // an unreadable record) is a free skip under its own reason: a deferral is not a verdict on the ground.
+  if (!site && exhausted) {
+    writeWellNoSite(bot, tally)
+    wellRefused(bot, 'build', 'no_site', `tally=${tallyText(tally)} the town's junk well site cannot be settled: no cell within ${WELL_SEARCH_RADIUS} of home passes the containment rule; the build order waits ${Math.round(WELL_NO_SITE_BACKOFF_MS / 60000)} min for the ground to change`)
+    return { status: 'no_effect', failClass: 'well_no_site', detail: `the town's junk well site cannot be settled: ${NO_VALID_CELL} (${tallyText(tally)})` }
+  }
+  if (!site) return skip('site_deferred', `the town's junk well site cannot be settled from here: ${String(why).replace(/composter/g, 'well')}`)
   try { bot.refreshWells?.() } catch { /* the cache refreshes on its own timer too */ }   // the site is excluded from this bot's paths now
   const st = wellStand(read, site)
   if (!st) return skip('no_stand', `nowhere to stand beside the junk well site at ${site.x},${site.y},${site.z}`)
@@ -7161,7 +7221,7 @@ async function buildWell (ctx, _args, signal) {
       await digShaft()
       pit = await throwPhase(bot, { cap: site, facing: null, pit: true, maxStacks: room.toss, g, tick, tickNA, signal })
       if (pit.aborted) { logEvent({ kind: 'well_dispose', status: 'aborted', snapshot: snapshot(bot), detail: phaseDetail(pit, site, 'pit_first_aborted') }); throw pit.aborted }
-      if (pit.refused) throw hkStop(pit.refused === 'server_unanswered' ? 'well_unverified' : pit.refused === 'player_near' ? 'well_attended' : 'well_no_room', `the pit-first throw was refused (${pit.refused}${pit.stop ? `: ${pit.stop}` : ''}); the open shaft is finished by the next visit`)
+      if (pit.refused) throw hkStop(pit.refused === 'server_unanswered' ? 'well_unverified' : pit.refused === 'player_near' ? 'well_attended' : pit.refused === 'breached' ? 'well_site' : 'well_no_room', `the pit-first throw was refused (${pit.refused}${pit.stop ? `: ${pit.stop}` : ''}); the open shaft is finished by the next visit`)
       pitItems += pit.account.n; pitTossed += pit.acc.tossed
       logEvent({ kind: 'well_dispose', status: pit.account.n ? 'success' : 'failed', snapshot: snapshot(bot), detail: phaseDetail(pit, site, pit.stop ? `pit_first_${pit.stop}` : 'pit_first') })
       if (pit.stop) throw hkStop('well_no_room', `the pit-first throw stopped: ${pit.stop}; the open shaft is finished by the next visit`)
