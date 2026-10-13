@@ -38,6 +38,10 @@ def box_chunks(home):
 def main():
     P = json.load(open(sys.argv[1])); mode = sys.argv[2]; sp = sys.argv[3]; only = set(sys.argv[4:])
     worlds = sorted(w for w in P if not only or w in only)
+    if mode == 'add' and os.path.exists(sp):
+        # a second `add` with the same state file would record the first run's tickets as pre-existing and lose them
+        # (Codex r3): refuse; remove with the existing file first, or use a new state path
+        print('REFUSED: %s exists (tickets already added by an earlier run?) -- run `remove` with it first' % sp); sys.exit(2)
     state = json.load(open(sp)) if mode == 'remove' else {'added': {}, 'before': {}}
     bad = 0
     for w in worlds:

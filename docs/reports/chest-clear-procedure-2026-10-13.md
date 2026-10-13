@@ -17,7 +17,8 @@ Run from the operator's machine at a `main` checkout. `W` is the worlds host and
 ```bash
 W() { ssh -o BatchMode=yes mike@10.0.0.30 "$@" < /dev/null; }
 B() { ssh -o BatchMode=yes mike@10.0.0.31 "$@" < /dev/null; }
-T=$(date -u +%Y%m%dT%H%MZ)       # one tag for every file of this run
+T=$(date -u +%Y%m%dT%H%MZ)       # the SESSION tag: discovery (positions-run-$T), chunk tickets (forceload-$T), units
+A=1                              # the ATTEMPT tag: census, plan, summary, trial, result (a retry sets A=2; Codex r3)
 ```
 
 ## Two kinds of STOP
@@ -119,7 +120,7 @@ B 'sudo systemctl stop $(cat ~/chestclear3/units.txt); sleep 5; \
 ## 4. Fresh census with the bots stopped (read-only)
 
 ```bash
-W "cd ~/chestclear3 && sudo nice -n 10 python3 census3.py positions-run-$T.json census-before-$T.json; sudo chown mike census-before-$T.json"
+W "cd ~/chestclear3 && sudo nice -n 10 python3 census3.py positions-run-$T.json census-before-$T-a$A.json; sudo chown mike census-before-$T-a$A.json"
 ```
 
 - **Required:** `worlds 16 with problems 0`. A position that cannot be read, for example "not loaded", counts as a
@@ -130,14 +131,14 @@ W "cd ~/chestclear3 && sudo nice -n 10 python3 census3.py positions-run-$T.json 
 ## 5. Plan, and compare it with what the owner approved
 
 ```bash
-W "cd ~/chestclear3 && python3 plan3.py census-before-$T.json stocktarget-clear-caps-2026-10-10.json plan-$T.json \
-   && python3 summary3.py census-before-$T.json plan-$T.json summary-$T.json"
+W "cd ~/chestclear3 && python3 plan3.py census-before-$T-a$A.json stocktarget-clear-caps-2026-10-10.json plan-$T-a$A.json \
+   && python3 summary3.py census-before-$T-a$A.json plan-$T-a$A.json summary-$T-a$A.json"
 ```
 
 **Compare it with the manifest:**
 - The same categories.
 - The total (removed + reduced) within 10% of 255,058. On a retry after an abort, use round one's removed + reduced
-  items (from `result-$T.json` + `trial-$T.json`) plus the new plan.
+  items (from `result-$T-a1.json` + `trial-$T-a1.json`) plus the new plan.
 - Only `iron_diamond_netherite_tool`, `abbreviated` and `has_components` may appear as pinned.
 - `caps exceeded by pinned items alone: none`, or a short list that you then report.
 
@@ -145,11 +146,11 @@ A new category, or a total outside the band, is STOP-A. Re-show the owner, and r
 
 ## 6. Offline check
 
-`W "cd ~/chestclear3 && python3 cc_clear3.py check census-before-$T.json plan-$T.json"` must print `problems 0`.
+`W "cd ~/chestclear3 && python3 cc_clear3.py check census-before-$T-a$A.json plan-$T-a$A.json"` must print `problems 0`.
 
 ## 7. Validate (read-only RCON, with positive and negative controls)
 
-`W "cd ~/chestclear3 && sudo python3 cc_clear3.py validate census-before-$T.json plan-$T.json"`
+`W "cd ~/chestclear3 && sudo python3 cc_clear3.py validate census-before-$T-a$A.json plan-$T-a$A.json"`
 
 It must print `VALIDATE PASS`, with:
 - `world_nobody_online` = 16;
@@ -167,13 +168,13 @@ It must print `VALIDATE PASS`, with:
 ## 8. Trial: one remove and one reduce
 
 ```bash
-W "cd ~/chestclear3 && sudo python3 cc_clear3.py trial census-before-$T.json plan-$T.json trial-$T.json"            # dry: prints the 2 commands
-W "cd ~/chestclear3 && sudo python3 cc_clear3.py trial census-before-$T.json plan-$T.json trial-$T.json --execute"
+W "cd ~/chestclear3 && sudo python3 cc_clear3.py trial census-before-$T-a$A.json plan-$T-a$A.json trial-$T-a$A.json"            # dry: prints the 2 commands
+W "cd ~/chestclear3 && sudo python3 cc_clear3.py trial census-before-$T-a$A.json plan-$T-a$A.json trial-$T-a$A.json --execute"
 ```
 
 - **Required:** both `readback OK`, and `TRIAL PASS`.
 - **Pre-read.** Before each edit, the slot is read and compared with the census, on the element's full text.
-- **Receipt.** `trial-$T.json` is bound to this census and plan: their sha256 and the exact two commands. It is written
+- **Receipt.** `trial-$T-a$A.json` is bound to this census and plan: their sha256 and the exact two commands. It is written
   after every step.
 - **In `run`.** It refuses a receipt that does not match, and re-reads both trial slots before skipping them.
 - **Failure.** Any trial failure is STOP-B.
@@ -181,8 +182,8 @@ W "cd ~/chestclear3 && sudo python3 cc_clear3.py trial census-before-$T.json pla
 ## 9. Run
 
 ```bash
-W "cd ~/chestclear3 && sudo python3 cc_clear3.py run census-before-$T.json plan-$T.json trial-$T.json result-$T.json"          # dry
-W "cd ~/chestclear3 && sudo python3 cc_clear3.py run census-before-$T.json plan-$T.json trial-$T.json result-$T.json --execute"
+W "cd ~/chestclear3 && sudo python3 cc_clear3.py run census-before-$T-a$A.json plan-$T-a$A.json trial-$T-a$A.json result-$T-a$A.json"          # dry
+W "cd ~/chestclear3 && sudo python3 cc_clear3.py run census-before-$T-a$A.json plan-$T-a$A.json trial-$T-a$A.json result-$T-a$A.json --execute"
 ```
 
 **Required:** `RUN COMPLETE`.
@@ -203,23 +204,24 @@ W "cd ~/chestclear3 && sudo python3 cc_clear3.py run census-before-$T.json plan-
 After an abort:
 - In the failing world, nothing after the failing point was sent.
 - The other worlds stopped after their current command.
-- `result-$T.json` lists every action that landed (`done_keys`).
+- `result-$T-a$A.json` lists every action that landed (`done_keys`).
 
 **One retry is allowed:**
-1. Take a new census: step 4 with tag `T2`.
+1. Set `A=2`. Take a new census: step 4, which now writes `census-before-$T-a2.json` from the same `positions-run-$T.json`.
 2. Verify round one as a partial run:
-   `python3 cc_clear3.py verify census-before-$T.json plan-$T.json census-before-$T2.json result-$T.json trial-$T.json`.
+   `W "cd ~/chestclear3 && python3 cc_clear3.py verify census-before-$T-a1.json plan-$T-a1.json census-before-$T-a2.json result-$T-a1.json trial-$T-a1.json"`.
    Its problems must be exactly the slot(s) named in the abort, with nothing else changed.
-3. Then do steps 5-9 with `T2` and a new trial receipt.
+3. Then do steps 5-9 with `A=2`, which gives a new plan and a new trial receipt. Keep the forceload state
+   `forceload-$T.json` from step 2. Do not run `forceload3 add` again; it refuses an existing state file.
 
 A second abort is STOP-B.
 
 ## 10. Re-census and verify
 
 ```bash
-W "cd ~/chestclear3 && sudo python3 census3.py positions-run-$T.json census-after-$T.json && sudo chown mike census-after-$T.json \
-   && python3 cc_clear3.py verify census-before-$T.json plan-$T.json census-after-$T.json \
-   && python3 plan3.py census-after-$T.json stocktarget-clear-caps-2026-10-10.json replan-$T.json | head -6"
+W "cd ~/chestclear3 && sudo python3 census3.py positions-run-$T.json census-after-$T-a$A.json && sudo chown mike census-after-$T-a$A.json \
+   && python3 cc_clear3.py verify census-before-$T-a$A.json plan-$T-a$A.json census-after-$T-a$A.json \
+   && python3 plan3.py census-after-$T-a$A.json stocktarget-clear-caps-2026-10-10.json replan-$T-a$A.json | head -6"
 ```
 
 **Required: `VERIFY PASS`.**
@@ -236,8 +238,8 @@ W "cd ~/chestclear3 && sudo python3 census3.py positions-run-$T.json census-afte
 **Required: the re-plan** prints `full after 0` and `total slots freed 0 items 0`. That shows the clear reached the caps,
 and that running it again would change nothing.
 
-A FAIL is STOP-B: fence, then restart, and report the mismatch. If the run went through the retry, verify from the
-latest census-before.
+A FAIL is STOP-B: fence, then restart, and report the mismatch. After a retry, `A=2` here, so verify compares
+census-before-a2 with census-after-a2; round one was already verified in step 9.
 
 ## 10b. Remove the chunk tickets the clear added
 
@@ -315,9 +317,9 @@ This is the operator's call; the scheduler cannot see the clear.
 ## 15. Recount verification (+60 min, read-only)
 
 ```bash
-W "cd ~/chestclear3 && sudo python3 census3.py positions-run-$T.json census-recount-$T.json && sudo chown mike census-recount-$T.json"
-scp mike@10.0.0.30:chestclear3/census-recount-$T.json . && scp census-recount-$T.json mike@10.0.0.31:chestclear3/
-B "cd ~/chestclear3 && sudo python3 recountcheck.py census-recount-$T.json --reset-after $TFENCE \$(ls -d /var/lib/mcai/_pool-* | grep -v pre-reseed)"
+W "cd ~/chestclear3 && sudo python3 census3.py positions-run-$T.json census-recount-$T-a$A.json && sudo chown mike census-recount-$T-a$A.json"
+scp mike@10.0.0.30:chestclear3/census-recount-$T-a$A.json . && scp census-recount-$T-a$A.json mike@10.0.0.31:chestclear3/
+B "cd ~/chestclear3 && sudo python3 recountcheck.py census-recount-$T-a$A.json --reset-after $TFENCE \$(ls -d /var/lib/mcai/_pool-* | grep -v pre-reseed)"
 ```
 
 **Required:** `RESET PASS`, meaning all 32 dirs carry a reset at or after the fence.
@@ -403,4 +405,15 @@ with 0 actions.
   commands sent, and the partial verify flagged exactly that slot.
 - **(D) Full positive run** with a double chest and the far chest: 52 actions, verify PASS, and a re-plan with 0
   actions. Then a KEPT slot gained a name, and verify FAILED on exactly that slot.
-- **(E) `forceload3 remove`.** The world went back to exactly its 18 pre-existing tickets.
+- **(E) `forceload3 remove`.** The world went back to exactly its 18 pre-existing tickets. The run still printed FAIL
+  (1) at r3, because the scene's own setup had removed one of the clear's tickets; r4 explains it.
+
+**r4, forceload3 at HEAD:**
+- `add` exits 0.
+- A second `add` with the same state file is REFUSED (exit 2).
+- `remove` exits 0 and reports PASS, with 18 tickets before and 18 after.
+- With one ticket removed behind its back, `remove` reports it and still PASSes on the end state.
+
+**Residual.** Chunk tickets are not reference-counted. If another tool removes a bank-chunk ticket during the clear,
+that chunk can unload, and the next census or pre-read fails. That fails safe as STOP-A or STOP-B. Keep other agents
+off forceload during the run.
