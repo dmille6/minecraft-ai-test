@@ -372,6 +372,21 @@ export function windowOwned ({ open, busy = false, held = false }) {
  * (stonecap review, Codex P2: an interrupted well/compost visit's settleAndRestore re-equipped its pre-visit item OVER
  * the pickaxe the rescue had just equipped). The rescue bumps bot.rescueInventoryEpoch before its step; hkGuards records it.
  */
+/**
+ * WAS THE STEP'S DIG TAKEN BY SOMEONE ELSE? Pure. (airpocket-03; live airpocket-02 10-13 hive-d-Delta: the handoff waited
+ * 1528 ms for an interrupted `mine` that never unwound, went ahead `unsettled` as designed, and mine's next dig cancelled
+ * the rescue's -- mineflayer rejects the older dig with "Digging aborted". The step then took the 60-s FAILURE cooldown,
+ * the drowning reflex yielded inside it, and the one upblocked attempt of the canary was spent.)
+ * Contested = mineflayer's "Digging aborted", NOT our own abort (the watch: envelope, budget, the guard's verdict) and NOT
+ * our own deadline (its timer calls stopDigging, which rejects the dig with the same words first), while a skill still
+ * held the body: the handoff ended `unsettled`, or the runner is busy right now (a skill that started during the step).
+ * A contested dig is a HANDOFF failure: the short cooldown and a FRESH attempt (new plan, tool, pose, budget, ownership)
+ * once the skill is gone -- never an inline re-dig into a body that is still contested (Codex, 10-13).
+ */
+export function contestedDig ({ message = '', aborted = null, timedOut = false, handoffUnsettled = false, skillBusyNow = false }) {
+  return /Digging aborted/.test(String(message)) && !aborted && !timedOut && (!!handoffUnsettled || !!skillBusyNow)
+}
+
 export function handRestoreAllowed ({ epochAtStart, epochNow, rescueActive = false }) {
   // rescueActive: an order that STARTED during the step captured the bumped epoch; while the step runs it never restores
   return !rescueActive && (epochAtStart ?? 0) === (epochNow ?? 0)
@@ -732,15 +747,23 @@ export async function airPocketStep (bot, plan, { Vec3, predict, sleep = ms => n
       if (noDig) { res.why = noDig; res.outcome = aborted ? 'aborted' : (attempt > 0 && cellOpen() ? 'opened' : 'failed'); if (attempt > 0) res.refrozen = !cellOpen(); return res }
       const deadline = Math.max(1000, Math.min(budgetLeft(), Math.max(2 * pick.ms, pick.ms + 2000)))
       const tDig = now()
-      let timer
+      let timer, timedOut = false
       digging = true
       try {
         await Promise.race([
           // mineflayer prices its finish timer synchronously inside this call from bot.entity.eyeHeight: the pose's eye
           withPoseEye(bot, botPose(bot, Vec3).pose, () => bot.dig(cur, 'ignore')),
-          new Promise((_, rej) => { timer = setTimeout(() => { try { bot.stopDigging?.() } catch {} rej(new Error(`dig exceeded ${Math.round(deadline)} ms`)) }, deadline) }),
+          new Promise((_, rej) => { timer = setTimeout(() => { timedOut = true; try { bot.stopDigging?.() } catch {} rej(new Error(`dig exceeded ${Math.round(deadline)} ms`)) }, deadline) }),
         ])
-      } catch (e) { res.why = aborted ?? `dig failed: ${String(e?.message ?? e).slice(0, 60)}`; res.outcome = aborted ? 'aborted' : (attempt > 0 && cellOpen() ? 'opened' : 'failed'); if (attempt > 0 && !aborted) res.refrozen = !cellOpen(); return res } finally { clearTimeout(timer); digging = false }
+      } catch (e) {
+        res.why = aborted ?? `dig failed: ${String(e?.message ?? e).slice(0, 60)}`; res.outcome = aborted ? 'aborted' : (attempt > 0 && cellOpen() ? 'opened' : 'failed'); if (attempt > 0 && !aborted) res.refrozen = !cellOpen()
+        // TAKEN BY THE SKILL THAT NEVER UNWOUND (airpocket-03): the short cooldown and a fresh attempt, not 60 s
+        let busyNow = false; try { busyNow = skillBusy() === true } catch { /* runner gone */ }
+        if (contestedDig({ message: e?.message ?? e, aborted, timedOut, handoffUnsettled: unsettled, skillBusyNow: busyNow })) {
+          res.contested = true; res.handoffHeld = true; res.why += ' (contested: a skill still held the body)'
+        }
+        return res
+      } finally { clearTimeout(timer); digging = false }
       if (attempt === 0) res.digMs = now() - tDig
       wantJump = true
       try { bot.setControlState('jump', true) } catch { /* the rise */ }
@@ -941,7 +964,7 @@ export function airPocketRow ({ id, r, requiredMs, budgetMs, difficulty }) {
                `health=${r1(r.healthStart)}->${r1(r.healthEnd)} | required_ms=${Math.round(requiredMs)} budget_ms=${Math.round(budgetMs)} ` +
                `difficulty=${difficulty} | standing=${r.standing ? 1 : 0} pose=${r.pose ?? 'na'}` +
                // only when they say something: a re-dig, a window that held the equip off
-               `${r.redigs ? ` redig=${r.redigs}` : ''}${r.window && r.window !== 'none' ? ` window=${r.window}${Number.isFinite(r.windowMs) ? `:${r.windowMs}` : ''}` : ''} eye=${r.eye} ` +
+               `${r.redigs ? ` redig=${r.redigs}` : ''}${r.window && r.window !== 'none' ? ` window=${r.window}${Number.isFinite(r.windowMs) ? `:${r.windowMs}` : ''}` : ''}${r.contested ? ' contested=1' : ''} eye=${r.eye} ` +
                `stand=${String(r.stand ?? 'none').slice(0, 40)} -- `
   // a success's why is always "breathing in …" (the outcome already says it); a failure's why is the diagnosis
   return (head + (r.outcome === 'success' ? '' : String(r.why ?? ''))).slice(0, AP_ROW_MAX)
