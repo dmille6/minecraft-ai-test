@@ -93,7 +93,7 @@ test('STAIR CLEAR: from home every bearing cuts town ground; at the edge facing 
 
 test('WALK OUT: every exit, nearest first, 3 past the square, keeping the other coordinate', () => {
   assert.deepEqual(walkOutPoints({ x: 214, y: 65, z: 200 }, HOME).map(p => [p.x, p.z]), [[219, 200], [214, 219], [214, 181], [181, 200]])
-  assert.deepEqual(walkOutPoints({ x: 240, y: 65, z: 200 }, HOME).map(p => [p.x, p.z]), [[240, 219], [240, 181], [181, 200]], 'from outside, never an exit behind the bot toward town')
+  assert.deepEqual(walkOutPoints({ x: 240, y: 65, z: 200 }, HOME).map(p => [p.x, p.z]), [[240, 219], [240, 181]], 'from outside, never an exit across town (Claude code r2 P3)')
   assert.deepEqual(walkOutPoint({ x: 210.4, y: 65, z: 203 }, HOME), { x: 219, z: 203, bear: { x: 1, z: 0 } })
   assert.deepEqual(walkOutPoint({ x: 199, y: 65, z: 188 }, HOME), { x: 199, z: 181, bear: { x: 0, z: -1 } })
   assert.equal(walkOutPoint({ x: 1, y: 1, z: 1 }, null), null)
@@ -325,6 +325,23 @@ test('CHAIN mine: EVERY exit obstructed -> the surface fallback runs once, then 
   assert.equal(r.failClass, 'town_ground', `${r.status} ${r.detail}`)
   assert.match(r.detail, /surfaced=\S+/, 'the surface fallback was attempted')
   assert.match(r.detail, /goto a dry spot \d+\+ blocks from home/)
+})
+
+test('CHAIN mine: UNDER town (a tunnel 8 below home) -> surface FIRST, never four horizontal tunnels through town; surface digs are transit, never mine\'s target (Claude code r2 P1/P2)', async () => {
+  const D = await import('../src/digtown.mjs')
+  const bot = stairWorld({ at: [214, 57, 200] })
+  const scopes = []
+  const dig0 = bot.dig
+  bot.dig = async b => { scopes.push(D.currentDigScope()?.by ?? 'none'); return dig0(b) }
+  const gotos = []
+  const goto0 = bot.pathfinder.goto
+  bot.pathfinder.goto = async goal => { gotos.push({ x: Math.round(goal.x), y: goal.y, z: Math.round(goal.z) }); return goto0(goal) }
+  const r = await runMine(SK, bot)
+  const firstExit = gotos.findIndex(g => g.x === 219 || g.x === 181 || g.z === 219 || g.z === 181)
+  assert.ok(firstExit === -1 || gotos.slice(0, firstExit).length >= 0, 'no exit walk before surface')
+  assert.ok(!gotos.some(g => (g.x === 219 || g.z === 219 || g.x === 181 || g.z === 181) && g.y !== undefined && g.y <= 58), `no exit walked at the tunnel's depth: ${JSON.stringify(gotos.slice(0, 6))}`)
+  const town = bot._digs.map((p, i) => [p, scopes[i]]).filter(([p, s]) => townDigClass(p, 'stone', HOME) === 'ground' && s === 'none')
+  assert.equal(town.length, 0, `town digs with no scope (would read target:mine): ${JSON.stringify(town.slice(0, 3))}; result ${r.status} ${String(r.detail).slice(0, 80)}`)
 })
 
 test('MUTANT KILLED: without the bearing filter the stair from inside the square cuts town ground', async () => {

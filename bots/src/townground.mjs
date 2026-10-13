@@ -142,8 +142,10 @@ export function walkOutPoints (from, home) {
   const h = homeOf(home)
   if (!h || !from) return []
   const hx = Math.floor(h.x), hz = Math.floor(h.z), x = Math.floor(from.x), z = Math.floor(from.z), R = TOWN_GROUND_HALF + 3
+  // OUTSIDE the square on an axis: never the exit on the far side of town along that axis (it crosses town: Claude code r2 P3)
+  const outX = Math.abs(x - hx) > TOWN_GROUND_HALF ? Math.sign(x - hx) : 0, outZ = Math.abs(z - hz) > TOWN_GROUND_HALF ? Math.sign(z - hz) : 0
   return [
     { d: (hx + R) - x, x: hx + R, z, bear: { x: 1, z: 0 } }, { d: x - (hx - R), x: hx - R, z, bear: { x: -1, z: 0 } },
     { d: (hz + R) - z, x, z: hz + R, bear: { x: 0, z: 1 } }, { d: z - (hz - R), x, z: hz - R, bear: { x: 0, z: -1 } },
-  ].filter(o => o.d >= 0).sort((a, b) => a.d - b.d).map(({ x, z, bear }) => ({ x, z, bear }))   // never toward town (Claude code r1 P2)
+  ].filter(o => o.d >= 0 && !(outX && o.bear.x === -outX) && !(outZ && o.bear.z === -outZ)).sort((a, b) => a.d - b.d).map(({ x, z, bear }) => ({ x, z, bear }))   // never toward town (Claude code r1 P2)
 }

@@ -8888,12 +8888,20 @@ async function mine(ctx, { y: targetY = 12 }, signal) {
       }
       return false
     }
-    found = await tryExits()
-    // THE FALLBACK (the design's `surface`, Codex code r1/r2): every exit failed from here -- a bot in a tunnel under the
-    // town cannot walk to the edge -- so climb to open sky once, then the exits again from up there.
-    if (!found) {
+    // UNDER TOWN, SURFACE FIRST (Claude code r2 P2): exits at the bot's own depth would be up to four horizontal tunnels
+    // through town ground (transit: invisible to Z1). Above home.y - 2 the exits come first and `surface` is the fallback
+    // (the design's, Codex code r1/r2) when every exit failed.
+    const doSurface = async () => {
       surfaced = await surface(ctx, {}, signal).catch(e => ({ status: 'failed', detail: String(e?.message ?? e) }))
       check(signal)
+    }
+    const below = () => bot.entity.position.y < (townHome()?.y ?? -Infinity) - 2
+    const underTown = below()
+    if (underTown) await doSurface()
+    if (!townBlocked() && dryClear()) found = true
+    else if (inTown() && !below()) found = await tryExits()   // still under town after surface: no tunnels at depth
+    if (!found && !underTown) {
+      await doSurface()
       if (!townBlocked() && dryClear()) found = true
       else if (inTown()) found = await tryExits()
     }
