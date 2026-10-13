@@ -92,6 +92,7 @@ import { canContinueDescent } from './exit-contract.mjs'
 import { openLessons } from './lessons.mjs'
 import { dropsOf, heldFromBlock, sourcesOf } from './drops.mjs'
 import { smeltPlan, smeltRecipeFor, chooseFuel, fuelTicks, SMELT_TICKS } from './smelting.mjs'
+import { withDigScope } from './digtown.mjs'
 
 /**
  * FAILURE CLASSES THAT NAME OUR IGNORANCE RATHER THAN THE WORLD.
@@ -371,7 +372,10 @@ const STEP_IMPULSE_MS = Math.max(30, Math.min(350, Math.floor(config.skills.defa
 const COLLECT_MS = 40_000
 const BARREN_LIMIT = 3
 
-async function goto(ctx, { x, y, z, range = 1 }, signal) {
+// THE `_dig_town` INSTRUMENT'S SCOPE (digtown.mjs, telemetry only): goto's own direct digs (float dig, ride-floor-down) are
+// transit, also when goto runs inside mine or gather. Nothing reads digScope but the instrument.
+async function goto (ctx, args, signal) { return withDigScope(ctx?.bot, { purpose: 'transit', by: 'goto' }, () => gotoLegs(ctx, args, signal)) }
+async function gotoLegs(ctx, { x, y, z, range = 1 }, signal) {
   const { bot } = ctx
   assertInsideBorder(x, z)
   check(signal)

@@ -12,10 +12,12 @@
 //     entry the pathfinder, collectblock and the skills all call -- is wrapped: the block's name, position, class and
 //     the invocation's PURPOSE are read synchronously, then the ORIGINAL dig is called with the SAME arguments and its
 //     OWN promise is returned unchanged (e.aborted, withTimeout cancels and every caller's catch keep working).
-//   PURPOSE, in this order (digPurpose): an explicit `bot.digScope`; else, while the pathfinder is mining, the active
-//     Movements' `digPurpose` tag (the ore tunnel's profile is tagged target:ore_tunnel -- pathfinder sets digging=true
-//     BEFORE it calls bot.dig, mineflayer-pathfinder index.js:485-492) or `transit`; else a reflex holding the body
-//     (`survival`); else the running skill: gather and mine are `target`, anything else `other`.
+//   PURPOSE, in this order (digPurpose): while the pathfinder is mining, the active Movements' `digPurpose` tag (the ore
+//     tunnel's profile is tagged target:ore_tunnel -- pathfinder sets digging=true BEFORE it calls bot.dig,
+//     mineflayer-pathfinder index.js:485-492) or `transit`; else a reflex holding the body (`survival`); else an explicit
+//     `bot.digScope` (goto sets transit around its own direct digs -- float dig, ride-floor-down -- so a goto called from
+//     inside mine or gather is not read as their target: Codex code r1 P2); else the running skill: gather and mine are
+//     `target`, anything else `other`.
 //   OUTCOME (digOutcome): mineflayer resolves when its OWN timer writes air into its world model (a prediction, :150-167)
 //     and ALSO when another actor's break reaches it first (:196-208). So a resolved dig is not proof. The server's word
 //     is: a block_change / multi_block_change for the cell, read from the raw packets (the bot's own prediction never
@@ -46,7 +48,6 @@ const AIRS = new Set(['air', 'cave_air', 'void_air'])
  *   skill, args, holder, reflex   as pickuplog's attributeTo reads them
  */
 export function digPurpose ({ scope = null, pathfinderMining = false, movementsPurpose = null, skill = null, args = null, holder = null, reflex = null } = {}) {
-  if (scope && typeof scope.purpose === 'string') return { purpose: scope.purpose, by: String(scope.by ?? scope.purpose) }
   const who = attributeTo({ skill, args, holder, reflex })
   if (pathfinderMining) {
     if (typeof movementsPurpose === 'string' && movementsPurpose.includes(':')) {
@@ -56,6 +57,7 @@ export function digPurpose ({ scope = null, pathfinderMining = false, movementsP
     return { purpose: 'transit', by: who }
   }
   if (reflex || (holder && holder !== skill)) return { purpose: 'survival', by: who.startsWith('holder:') || who.startsWith('reflex:') ? who : `reflex:${reflex}` }
+  if (scope && typeof scope.purpose === 'string') return { purpose: scope.purpose, by: String(scope.by ?? scope.purpose) }
   if (skill && TARGET_SKILLS.has(skill)) return { purpose: 'target', by: who }
   return { purpose: 'other', by: who }
 }
@@ -73,6 +75,16 @@ export function digOutcome ({ settledAt = null, error = null, died = false, befo
   if (before) return 'foreign'
   if (after && after.t - settledAt <= graceMs) return after.same ? 'rejected' : 'confirmed'
   return now - settledAt >= graceMs ? 'unconfirmed' : 'pending'
+}
+
+/**
+ * Run fn with bot.digScope set (restored after, nesting-safe). TELEMETRY ONLY: digPurpose is its only reader.
+ */
+export async function withDigScope (bot, scope, fn) {
+  if (!bot) return fn()
+  const prev = bot.digScope
+  bot.digScope = scope
+  try { return await fn() } finally { bot.digScope = prev }
 }
 
 /** The cells a multi_block_change names, as mineflayer 4.37.1 decodes them for 1.21.x (single-long records). */

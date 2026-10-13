@@ -53,7 +53,9 @@ test('CLASS: terrain inside the square half-width 16, from home.y - 12 up, is gr
 
 // ---- purpose ----------------------------------------------------------------------------------------------------------
 test('PURPOSE: scope > pathfinder (its profile tag, else transit) > a reflex holding the body > the skill', () => {
-  assert.deepEqual(digPurpose({ scope: { purpose: 'target', by: 'ore_tunnel' }, pathfinderMining: true, skill: 'goto' }), { purpose: 'target', by: 'ore_tunnel' })
+  assert.deepEqual(digPurpose({ scope: { purpose: 'transit', by: 'goto' }, skill: 'mine', args: { y: 12 } }), { purpose: 'transit', by: 'goto' }, 'goto inside mine: its own digs are transit (Codex code r1 P2)')
+  assert.deepEqual(digPurpose({ scope: { purpose: 'transit', by: 'goto' }, skill: 'mine', reflex: 'escape' }), { purpose: 'survival', by: 'reflex:escape' }, 'a reflex digging during goto is survival, not transit')
+  assert.deepEqual(digPurpose({ scope: { purpose: 'transit', by: 'goto' }, pathfinderMining: true, movementsPurpose: 'target:ore_tunnel' }), { purpose: 'target', by: 'ore_tunnel' }, 'the tunnel tag beats an outer scope')
   assert.deepEqual(digPurpose({ pathfinderMining: true, movementsPurpose: 'target:ore_tunnel', skill: 'gather', args: { block: 'iron_ore' } }), { purpose: 'target', by: 'ore_tunnel' },
     'the tunnel excavation is a target dig although the pathfinder makes it (Codex r3 P1)')
   assert.deepEqual(digPurpose({ pathfinderMining: true, skill: 'gather', args: { block: 'dirt' } }), { purpose: 'transit', by: 'gather:dirt' }, 'gather\'s dig-approach walk')
@@ -119,6 +121,20 @@ function attach (bot, ctx = {}, opts = {}) {
   const h = attachDigTown(bot, { home: bot.home, context: () => ctx, emitDig: r => rows.push(r), emitSummary: r => sums.push(r), timers: false, now: clock.now, ...opts })
   return { h, rows, sums, clock }
 }
+
+test('SCOPE: withDigScope sets and restores bot.digScope, nesting-safe, also on a throw', async () => {
+  const bot = {}
+  await D.withDigScope(bot, { purpose: 'transit', by: 'goto' }, async () => {
+    assert.equal(bot.digScope.by, 'goto')
+    await D.withDigScope(bot, { purpose: 'x', by: 'inner' }, async () => assert.equal(bot.digScope.by, 'inner'))
+    assert.equal(bot.digScope.by, 'goto')
+  })
+  assert.equal(bot.digScope, undefined)
+  await assert.rejects(D.withDigScope(bot, { purpose: 'p' }, async () => { throw new Error('x') }))
+  assert.equal(bot.digScope, undefined)
+  const src = strip(readFileSync(new URL('../src/skills.mjs', import.meta.url), 'utf8'))
+  assert.match(src, /async function goto \(ctx, args, signal\) \{ return withDigScope\(ctx\?\.bot, \{ purpose: 'transit', by: 'goto' \}, \(\) => gotoLegs\(ctx, args, signal\)\) \}/, 'goto wraps its legs in the transit scope')
+})
 
 test('WRAPPER: invisible -- same arguments, the original promise object, rejections unchanged', async () => {
   const bot = fakeBot()

@@ -17,8 +17,9 @@
 #   LICENCE      kind `_dig_town_sum` (the base cannot write it).
 #   GATES        I1 breach_overflow: any canary summary with overflow > 0 (digs not tracked: the instrument incomplete).
 #                I2 breach_ierr: instrument errors > 1% of canary digs (ierr / all).
-#                I3 breach_blind: >= 200 canary digs settled and the server's word seen for < 50% of the non-aborted ones
+#                I3 breach_blind: >= 50 non-aborted settled canary digs and the server's word seen for < 50% of them
 #                   (confirmed + foreign + rejected) / (those + unconfirmed): the packet listener is not hearing the server.
+#                   Readiness needs the SAME 50 (Codex code r1 P2: ready must not precede the blindness check).
 #                   Paper sandbox 10-13: 19/19 non-aborted fixture digs heard (the one refused dig is the only silence).
 #                I4 breach_coverage: canary bots online >= 60 min in the window that wrote NO summary while their
 #                   _pickups show ground items (the wrapper missing on a live bot).
@@ -49,12 +50,14 @@ def args_of(r):
 
 
 def dedupe_confirmed(rows):
-    """PURE. rows: [(t, bot, x, y, z)] confirmed digs. -> (unique, ambiguous): one per (cell, +-2 s) cluster across bots,
+    """PURE. rows: [(t, bot, x, y, z)] confirmed digs. Keyed by the bot's POOL too: two worlds share coordinates
+    (ten towns share one seed and one home), so the same cell in two pools is two removals (Codex code r1 P2). -> (unique, ambiguous): one per (cell, +-2 s) cluster across bots,
     and how many extra confirmations were folded (two bots finishing one cell in the same instant both read confirmed:
     attempt attribution, not actor attribution -- Paper fixture S2, 10-13)."""
     by = defaultdict(list)
     for t, b, x, y, z in rows:
-        by[(x, y, z)].append(t)
+        w = b if (b or '').startswith('isolated-') else pool_of(b)
+        by[(w, x, y, z)].append(t)
     uniq = amb = 0
     for cell, ts in by.items():
         ts.sort()
@@ -87,10 +90,11 @@ def pickup_ground_items(detail):
 # ---- positive controls on the bot's own row shapes (digtown.mjs summaryDetail / the row args) ---------------------------
 _T = dt.datetime(2026, 10, 13, tzinfo=dt.timezone.utc)
 _s = lambda n: _T + dt.timedelta(seconds=n)
-assert dedupe_confirmed([(_s(0), 'a', 1, 2, 3), (_s(1), 'b', 1, 2, 3)]) == (1, 1), 'two bots, one cell, one second apart: one removal'
+assert dedupe_confirmed([(_s(0), 'board-a-Alpha', 1, 2, 3), (_s(1), 'board-a-Bravo', 1, 2, 3)]) == (1, 1), 'two bots, one cell, one second apart: one removal'
 assert dedupe_confirmed([(_s(0), 'a', 1, 2, 3), (_s(30), 'a', 1, 2, 3)]) == (2, 0), 'the same cell dug again later (re-placed): two'
 assert dedupe_confirmed([(_s(0), 'a', 1, 2, 3), (_s(0), 'a', 1, 2, 4)]) == (2, 0)
 assert dedupe_confirmed([]) == (0, 0)
+assert dedupe_confirmed([(_s(0), 'board-a-Alpha', 1, 2, 3), (_s(0), 'board-c-Alpha', 1, 2, 3)]) == (2, 0), 'same cell, two worlds'
 assert heard_share(Counter(confirmed=9, unconfirmed=1)) == 0.9 and heard_share(Counter(aborted=5)) is None
 assert pickup_ground_items('cobblestone 6 mine:y66 passive; dirt 3 gather:dirt sought; oak_log 2 gather:oak_log sought | 11 items in 9 pickups in 60s') == 9
 
@@ -186,8 +190,8 @@ if __name__ == '__main__':
         return (rate('post', 'canary', what) - rate('pre', 'canary', what)) - (rate('post', 'control', what) - rate('pre', 'control', what))
 
     hs = heard_share(outc)
-    settled = sum(v for kk, v in outc.items() if kk != 'pending')
-    blind = int(settled >= 200 and hs is not None and hs < 0.5)
+    settled = sum(outc.get(kk, 0) for kk in ('confirmed', 'foreign', 'rejected', 'unconfirmed'))   # non-aborted, settled
+    blind = int(settled >= 50 and hs is not None and hs < 0.5)
     long_online = {b for b, (a0, a1) in span.items() if a0 and a1 and (a1 - a0) >= dt.timedelta(minutes=60)}
     uncovered = sorted(b for b in long_online if b not in summ_bots and pick_bots[b] > 0)
     ierr_share = (ierr / alldigs) if alldigs else 0.0
@@ -200,7 +204,7 @@ if __name__ == '__main__':
           % (n['licence'], len(summ_bots), can_bots, alldigs, alldigs / (can_bots * hours) if can_bots and hours else float('nan')))
     print('I1 (gate)    summaries with overflow > 0: %d' % overflow_rows)
     print('I2 (gate)    instrument errors %d of %d digs (%.3f%%; gate > 1%%)' % (ierr, alldigs, 100 * ierr_share))
-    print('I3 (gate)    server word heard for %s of %d settled non-aborted digs (gate: < 50%% with >= 200 settled) | outcomes %s'
+    print('I3 (gate)    server word heard for %s of %d settled non-aborted digs (gate: < 50%% with >= 50) | outcomes %s'
           % ('-' if hs is None else '%.1f%%' % (100 * hs), settled, dict(outc)))
     print('I4 (gate)    canary bots online >= 60 min with ground pickups but NO summary: %d %s' % (len(uncovered), uncovered[:5]))
     print('LEAK         control _dig_town* rows post %d (blocks KEEP)' % leak)
