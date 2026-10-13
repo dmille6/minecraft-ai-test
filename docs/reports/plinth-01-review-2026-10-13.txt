@@ -10,7 +10,8 @@ VERDICTS BY ROUND
   r3    | 3d9448f6  | REJECT (1 P1, 3 P2: N1-N4)    | APPROVE-WITH-CHANGES (2 P2 in the read, 5 P3)
   r4    | f0e1b82e  | REJECT (1 P2: N5)             | APPROVE-WITH-CHANGES (a missing N2 writer test; mutant C survived)
   r5    | 0e288720  | APPROVE                       | APPROVE-WITH-CHANGES (1 P2: a grassed dirt cover voided; 1 P3)
-  final | 3760658e  | see the STATE entry           | see the STATE entry
+  r6/r7 | 3760658e  | APPROVE (confirmation, diff)  | APPROVE (r6, the r7 diff; 1 non-blocking note -> 4cea2932)
+  r8    | 95c7403b  | APPROVE (diff)                | APPROVE (r7, the r8 diff; 1 gap -> 4774bec1, test-only)
 Disagreements left open: none (see FINAL below).
 
 WHAT CHANGED BECAUSE OF A REVIEW (each fixed with a behaviour test; the mutants assert their anchors present and unique)
@@ -74,6 +75,15 @@ ACCEPTED DEFERRALS (both engines)
   - A crashed builder's lease is waited out (4 min) before the restarted bot resumes (Paper-measured: ~4.4 min gap).
   - Planner vs runtime: the pathfinder's route between stands is not bounded to the plan's box (stands are).
 
-FINAL
-  Codex r5 APPROVE at 0e288720; the r7 diff (3760658e: grassed covers, late landings) went to both engines as a final
-  confirmation -- the verdicts are in the STATE entry for plinth-01.
+FINAL (canary sha 4774bec1)
+  Codex: r5 APPROVE at 0e288720; the r7 diff (3760658e: grassed covers, late landings) APPROVE ("FINAL CONFIRMATION (round 6)");
+    the r8 diff (95c7403b: the stair veto moved into wellBreakCost via the column's `stair`, index.mjs untouched, so townzone-01
+    composes cleanly) APPROVE: "No defect found in the scoped diff: profile inheritance, self-well identity, and stair refresh
+    across replans remain sound." Codex saw the SETTLE test fail without the runner's short skill budgets -> 4dcfe2af made it
+    budget-independent.
+  Claude: r6 APPROVE on the r7 diff (non-blocking: a late landing of the builder's own first click -> 4cea2932 test + mutant);
+    r7 APPROVE on the r8 diff (gap: no test that a stair survives the hand-off into the recorded site's column -> 4774bec1,
+    a skill-level test + its mutant; test-only, no source change after the approvals).
+  Both engines APPROVE. Nothing left open.
+  At 4774bec1: npm test 248/248 files; plinth.test 51/51 (10 mutant tests), plinth-skill.test 51/51 (12 mutant tests);
+  plinthread.py self-tests 22 asserts, run on every read.

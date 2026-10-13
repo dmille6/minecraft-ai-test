@@ -1,0 +1,23 @@
+{
+ "run": "plinth-01",
+ "class": "",
+ "after": [
+  "wellsite-01"
+ ],
+ "hold": "PREREQUISITE: wellsite-01 KEPT and PROMOTED. The plinth's trigger is wellsite-01's junkwell-nosite-<home>.json record and its _well_refused reason=no_site rows; on a fleet without wellsite-01 the build never starts (licence _plinth would read 0). Launch only on the variant matching the promoted fleet sha.",
+ "variants": {
+  "baa9487945dbb52e1b1c677d0d551aa30fee53af": {
+   "registration": "/home/mike/mcai-analysis/plinth-01.baa9487.json",
+   "approved": "plinth agent 2026-10-13: plinth-on-baa9487 @ 4774bec1. Codex r1-r5 (r5 APPROVE at 0e288720) + r7 and r8 diffs APPROVE; Claude subagent r1-r7 (r6 and r7 APPROVE; r7's gap closed by a test-only commit, 4774bec1) -- docs/reports/plinth-01-review-2026-10-13.txt. npm test 248/248 files; plinth.test 51/51 (10 mutant tests) + plinth-skill.test 51/51 (12 mutant tests), every mutant asserts its anchor present and unique; plinthread self-tests 22. Paper sandbox: docs/reports/plinth-01-sandbox-2026-10-13.md (17/17 builds incl. 5 killed+resumed, 0 cells outside the plan, 5/5 wells, 2,880/2,880 items in the shaft, 800/800 pathfinder trips, 0 column nodes). Offline replay 16/16 real towns. ORDINARY canary (deterministic defect gates decide).",
+   "registration_sha256": "07c10c156cd7aeff19563855c72c5e77d100f4ca85864d6eb4ae965d6dd71992",
+   "canary_sha": "4774bec1c9971a6a38139504ceb66f135a6a166a",
+   "reads_src": "/home/mike/mcai-analysis",
+   "reads": {
+    "plinthread": "30f2778a0ae959ddb792fa3a2d1eda3d",
+    "wellread": "a1a3deee547f8ec4ebcba84a487c8ba8",
+    "immobiledid": "53af289df12208901931dbeeb1ae325a"
+   }
+  }
+ },
+ "note": "The raised (self-building) junk well for towns that cannot site one (13 of 16 towns on 10-13). ONE variant built: the fleet after wellsite-01 is promoted from 82aef34 (baa94879). VARIANTS NEEDED before the turn, one per wellsite-01 variant that can be promoted: wellsite-01 on 48b093ce (stocktarget-01), on 70cb0d41/a88f763d (airpocket), on 08c791aa/2ec19385/7ffe2c40/1d6dd516 (orderroom), on 82126748 (bamboo-02), and townzone-01 if it promotes first. None is built because wellsite-01 has no variant on those bases yet. Composition already PROVEN: plinth-on-st-ws @ fa270a1e (stocktarget-01 48b093ce + wellsite-01 + plinth 4774bec1; npm test 251/251; the cobble cap and the plinth fund draw compose: the plinth spends bag stone above STONE_GUARD first, then the chest's cobble through the withdraw verb); plinth-x-tz (townzone-01 b945226a + plinth; clean merge, the stair veto rides wellBreakCost so townzone's frozen arrays are untouched; Paper S4 on sandbox3: plinth cells lost 0). Draw: draw_exposure _well_refused reason=no_site >= 2 in 3 h (towns without a well). Install the registration as ~/mcai-analysis/registrations/plinth-01.json for the variant drawn. NOT QUEUED by the build agent."
+}
