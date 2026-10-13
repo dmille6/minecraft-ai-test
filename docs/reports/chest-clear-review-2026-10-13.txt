@@ -1,0 +1,114 @@
+CHEST CLEAR #2 -- REVIEW RECORD (2026-10-13). Independent Codex (codex exec, read-only) and a separate labelled Claude subagent pass.
+Rounds: Codex r1 BLOCK (9) -> r2 BLOCK (8 open + component BLOCKER) -> r3 APPROVE (3 SHOULD-FIX, fixed in r4) -> r4 delta APPROVE (2 SHOULD-FIX, fixed in r6).
+        Claude r1 BLOCK (2 BLOCKER: offline chunks unload; r2 paths never run) -> r2 APPROVE (3 SHOULD-FIX, fixed in r5) -> r3 delta APPROVE (NITs; Ctrl-C path fixed in r6).
+r6 (after both final APPROVEs): Ctrl-C during the run sets ABORT, waits for the workers, then writes the final snapshot (timed join); unit check with a fake run_world: interrupt at 0.6 s -> 36 of 200 commands, worker 'abort flag', final snapshot after the last command. Retry keeps A=1 until round one's partial verify is accepted; STOP-B gives the census command explicitly.
+
+==================== CODEX r1 (final message) ====================
+1. **BLOCKER — Abort recovery bypasses the journal fence.** `docs/reports/chest-clear-procedure-2026-10-13.md:16` sends every STOP directly to restart, including trial failure, a second run abort, and verification failure. These paths can leave partially cleared chests with pre-clear journal counts. Line 138 also contradicts this blanket restart instruction. **Fix:** after any attempted edit—including a command with an unknown outcome—require successful fencing of every affected pool before restarting its bots. Preserve the partial-run evidence; explicitly distinguish recovery before and after mutation.
+
+2. **SHOULD-FIX — Recycle protection expires while the procedure can still be running.** `docs/reports/chest-clear-procedure-2026-10-13.md:26` checks that the timer is at least 60 minutes away, but operator review, retries, or recovery can exceed that window. The canary hold does not prevent recycling from restarting stopped bots. **Fix:** suspend the recycle timer, confirm its service is not already running, and restore its original timer state after recovery or completion.
+
+3. **SHOULD-FIX — Verification can certify an incomplete census.** `scripts/host/chestclear3/cc_clear3.py:251` ignores census error and incomplete flags. I reproduced `VERIFY PASS` after adding both flags to an otherwise expected post-state. A partial container read can also make unread removals appear empty. The procedure’s `&&` gate helps, but the verifier itself remains unsound. **Fix:** reject errors, incomplete containers, duplicate keys, and mismatched world sets before comparing slots; run the offline plan check too.
+
+4. **SHOULD-FIX — “Unchanged” does not mean component values are unchanged.** `scripts/host/chestclear3/census3.py:32` retains component names, but discards most values; `cc_clear3.py:257` compares that lossy representation. Changes to enchantment levels, names, or potion contents can pass verification. Reduced slots receive only an ID/count check. Predicates at line 58 likewise do not detect these changes despite the stronger safety claim. **Fix:** retain and compare complete component data for readable items, compare reductions with only count changed, and explicitly report abbreviated items as only partially verified. Narrow the predicate guarantee or add the missing guards.
+
+5. **SHOULD-FIX — Pinned items do not consume their cap.** `scripts/host/chestclear2/plan3.py:45` increments reporting totals and immediately continues without updating `tally` or `usable`. I reproduced a cap-64 town retaining 128 oak logs: one pinned stack plus one ordinary stack, with zero planned actions. The current census avoids this because its pins are ten iron tools and a potion. **Fix:** account for pinned capped items before allocating the remaining allowance; report unavoidable excess when pinned stock alone exceeds the cap.
+
+6. **SHOULD-FIX — Trial failure does not stop subsequent edits.** `scripts/host/chestclear3/cc_clear3.py:180` sends the edit even if the preliminary readback reports a problem. At line 188, a failed trial merely updates `ok_all`; the next trial action still executes. Exceptions can also leave mutations without a trial record. **Fix:** stop before editing on a failed preliminary read, stop immediately on any failed action/readback, and persist attempted-command evidence as each action progresses.
+
+7. **SHOULD-FIX — Trial receipts are not bound to the current plan.** `scripts/host/chestclear3/cc_clear3.py:226` accepts any executed receipt whose listed actions passed, then skips matching coordinates and slots without comparing commands or census identity. An empty action list passes `all(...)`; a stale receipt can skip a current action and still yield `RUN COMPLETE`. **Fix:** bind the receipt to census/plan hashes, validate the expected trial actions exactly, and confirm their current postconditions before skipping them.
+
+8. **SHOULD-FIX — Recount agreement can be a cheap positive.** `scripts/host/chestclear3/recountcheck.py:27` scans all journal generations without reproducing current-generation/base-state and process-fence semantics. It accepts any historical reset. At line 61, each item name can independently match a different hypothetical chest pairing, while zero-valued names contribute equally to agreement. Consequently, `agree >> differ` does not establish a correct recount. **Fix:** require this run’s reset, reconstruct effective current state read-only, compare each complete count map against one consistent container view, and report nonzero matches, coverage, and missing observations separately.
+
+9. **SHOULD-FIX — Discovery failures do not fail the discovery gate.** `scripts/host/chestclear3/regionscan.py:58` skips external chunks and decoding failures but still writes output and exits successfully; the procedure at line 51 specifies no required error counters. `census3.py:68` also treats unexpected block-ID replies as ordinary non-containers. The checked-in region evidence has zero such errors, but a fresh run could silently lose coverage. **Fix:** make unhandled discovery/read failures explicit failures and require complete coverage before asserting absence of item categories.
+
+The checked-in plan regenerates exactly: **6,616 removals, 27 reductions, 256,176 items removed**. The command grammar binds test and edit to the same block and slot. The supplied fleet and sandbox measurements support the damage-zero predicate; I found no basis to block on that predicate.
+
+VERDICT: BLOCK
+
+==================== CODEX r2 (final message) ====================
+Reviewed HEAD `2891d6d`, its parent diff, and the uncommitted sandbox evidence. No repository files changed; additional checks used local fixtures and mocked RCON.
+
+1. **RESOLVED — Fence bypass after edits.** Procedure lines 16–21 distinguish STOP-A from STOP-B and require fencing before any post-edit restart, including failed trials.
+
+2. **RESOLVED — Recycle timer.** Procedure lines 48–52 suspend the timer and require both timer and service inactive. Restoration follows fencing and restart.
+
+3. **RESOLVED — Verify accepted incomplete census.** `cc_clear3.py:295` checks both censuses for world/container incompleteness and errors, plus differing world sets. My incomplete-world mutant returned `VERIFY FAIL`.
+
+4. **RESOLVED — Lossy component comparison.** `census3.py:38` retains full unabridged element text; verification compares it for kept slots and normalizes count for reductions. My added-custom-name mutant returned `VERIFY FAIL`. Abbreviated items remain explicitly only partially verified.
+
+5. **RESOLVED — Pinned items did not consume caps.** `plan3.py:44–53` charges pinned stacks against individual/group caps and pinned tools against copy allowances, reporting pinned-only excess.
+
+6. **RESOLVED — Trial continued after failure.** `cc_clear3.py:219–230` refuses missing/unreadable pre-state before editing and returns immediately on exceptions or failed readback. Incremental receipts retain failure state.
+
+7. **RESOLVED — Trial receipt not bound.** `cc_clear3.py:264–266` requires matching census/plan hashes, the complete expected command sequence, execution, and successful readbacks. The supplied stale-receipt test supports this.
+
+8. **NOT RESOLVED — Recount cheap positive.** `recountcheck.py:85–88` uses one consistent view, but excludes zeros from comparison and still increments `match` when there are no nonzero observations. A local fixture containing **64 oak logs**, with a bot observation of **`oak_log: 0`**, reported `match 1`, `partial 0`, coverage `1/1`, and `RESET PASS`. This still satisfies the procedure’s reassuring match/coverage criteria despite a completely wrong count. **Fix:** compare zero-valued observations too; report zero-only observations separately from positive matches and require nonzero evidence for the positive-control criterion.
+
+9. **RESOLVED — Discovery holes passed.** `regionscan.py:84–87` fails on missing, absent, external, or unreadable chunks. `census3.py:71–74` records unexpected ID-read replies as incomplete instead of treating them as empty.
+
+New finding:
+
+- **BLOCKER — Component-only changes can still be deleted without detection.** `scripts/host/chestclear3/cc_clear3.py:58–62, 220–227, 246`. The predicate checks ID/count and optionally damage; the new component restriction checks only the saved census. If a planned removal acquires a custom name after census, its edit command is unchanged. Trial accepts the changed live item as its baseline, removes it, and reports success; subsequent verification sees the expected empty slot and also passes. A mocked-RCON reproduction produced both `TRIAL PASS` and `VERIFY PASS` for this case. The supplied changed-slot sandbox test does not cover this mutation.
+
+  **Concrete fix:** compare the complete live target against the census before editing in both trial and run, refusing any component difference. Preserve the claimed atomic guarantee by also guarding the expected component state in the edit command, or explicitly enforce quiescence across the read/edit interval. Add a component-only removal mutant requiring refusal with zero edits.
+
+VERDICT: BLOCK
+
+==================== CODEX r3 (final message) ====================
+Read-only review complete. I reproduced the 6,623-action plan exactly, ran `check` with 0 problems, and exercised recount cases for matching zeros, contradictory zeros, and matching nonzeros.
+
+| Open item | Status | Basis |
+|---|---|---|
+| Round 2 #8: zero-only recount matches | **RESOLVED** | Zeros participate in comparison; agreeing zero-only observations contribute neither matches nor coverage. |
+| Round 2 component BLOCKER | **RESOLVED** | Trial and run compare planned slots’ full element text against the census before editing. The rename-after-trial control aborts with 0 commands sent. |
+| Claude #1: unloaded bank chunks | **RESOLVED** | Bank chunks receive force-load tickets before bots stop; the sandbox demonstrates the unloaded failure and successful census after loading. |
+| Claude #2: r2 never sandbox-tested | **RESOLVED** | Committed r2 evidence includes positive execution and negative controls; r3 additionally exercises the new pre-read behavior. |
+| Claude #3: most-worn tools retained | **RESOLVED** | Tools sort by descending uses left before allocating the keep allowance. |
+| Claude #4: unsupported components planned | **RESOLVED** | Planner pins non-damage components, consistent with executor checks. |
+| Claude #5: retry versus 10% band | **RESOLVED** | The comparison now includes round-one removals plus the retry plan. |
+| Claude #6: round one unverified after abort | **RESOLVED** | Partial verification checks recorded completed actions and requires other slots unchanged before retry. |
+| Claude #7: restart skips units | **RESOLVED** | Restart order appends the complete captured unit list and deduplicates it. |
+
+New findings:
+
+- **SHOULD-FIX — `docs/reports/chest-clear-procedure-2026-10-13.md:209`: Retry filenames are ambiguous.** “Step 4 with tag `T2`” also changes its input to `positions-run-$T2.json`, which was never created. Switching `T` globally likewise makes cleanup seek a nonexistent `forceload-$T2.json`. Preserve a fixed session tag for discovery and ticket ownership, use a separate attempt tag for census/plan/trial/result files, and provide explicit retry and final-verification commands.
+
+- **SHOULD-FIX — `docs/reports/census/chest-clear-sandbox-2026-10-13.txt:91`: Cleanup evidence ends in failure.** The final ticket set matches the original set, supporting restoration, but `FORCELOAD remove FAIL (1)` does not demonstrate the procedure’s required successful exit. Re-run cleanup using the exact HEAD script, record its exit status and command replies, and explain the previous failure.
+
+- **SHOULD-FIX — `scripts/host/chestclear3/forceload3.py:41`: Repeating `add` overwrites ownership history.** A repeated invocation with the same state path treats previously added tickets as pre-existing and loses the list needed to remove them. Refuse an existing state file before sending commands, or explicitly resume while preserving the original `before` and accumulated `added` sets.
+
+No new blocker found for the documented single-attempt execution with stopped bots and nobody online.
+
+VERDICT: APPROVE
+
+==================== CODEX r4 (final message) ====================
+1. **SHOULD-FIX — `scripts/host/chestclear3/cc_clear3.py:323`:** An interrupted `join()` reaches `snapshot(final=True)` before workers finish, potentially recording `aborted: false` while edits continue. Reproduced with an injected `KeyboardInterrupt`. Set `ABORT` on interruption, wait for workers to finish, then publish the final snapshot.
+
+2. **SHOULD-FIX — `docs/reports/chest-clear-procedure-2026-10-13.md:216`:** Setting `A=2` before verifying attempt 1 means a verification failure routes STOP-B to nonexistent attempt-2 plan/trial/result files. Keep `A=1` while creating the explicitly named attempt-2 census and verifying attempt 1; switch to `A=2` after that verification is accepted.
+
+No blockers found. Snapshot writes are serialized and mutable collections copied before serialization. Trial-only verification and forceload parsing/refusal changes look correct; all four r5 script hashes match.
+
+VERDICT: APPROVE
+
+==================== CLAUDE r1 (VERDICT: BLOCK), against 2891d6d2 ====================
+Re-derived: plan3 reproduces the committed plan byte-equal; summary3 reproduces clear-summary; every manifest number checks; zero rows have a positive control (59 names incl. 7 stone); 126 tools without a damage component passed live validate with damage:0.
+1 BLOCKER town chunks unload when the bots stop (spawnChunkRadius 2; board-a 313,69,169 and placebo-d 136,66,77 / 136,68,77 at chunk distance 3): census fails at step 4 every time -> forceload or pin; sandbox control for "not loaded".
+2 BLOCKER the r2 code (check raw, trial receipt, run re-read, verify census_ok/raw, census3 not-loaded) has never run -> sandbox end to end + abort control + verify-sensitivity mutant + double chest + unloaded-chunk control.
+3 SHOULD-FIX planner keeps the most worn tools (kept median 44.5 uses, removed median 60.5) -> sort tools by uses left.
+4 SHOULD-FIX check() refuses components plan3 does not pin -> pin has_components.
+5 SHOULD-FIX abort retry contradicts the 10% band -> round-one items + new plan.
+6 SHOULD-FIX round one never verified after an abort -> done index + partial verify.
+7 SHOULD-FIX restart order may skip units with other suffixes -> append units.txt then dedupe.
+8-11 NITs: timer may fire at once; the real control for "0 incomplete" is regionscan 353=353; food ~455; hold-time wording / extend on retry.
+
+==================== CLAUDE r2 (VERDICT: APPROVE), against 64ddc55e (= be547fd9 after rebase) ====================
+All r1 findings and both Codex r2 items RESOLVED (numbers re-derived: plan byte-identical, 6,623 actions; every manifest figure matches).
+S1 SHOULD-FIX run result written only at the end -> write in finally and per container.
+S2 SHOULD-FIX STOP-B should use the partial verify; verify should take a trial-only receipt; "any other problem is STOP-B, no retry".
+S3 SHOULD-FIX forceload query singular reply ("A force loaded chunk was found ...") -> accept it (fails closed otherwise).
+N1-N4 NITs: add/remove race with other tickets (negligible; residual documented); STATE should name forceload-$T.json; record script md5s in the sandbox evidence; partial-verify note.
+"None of the open items can edit an unapproved slot or pass a wrong result."
+
+==================== CLAUDE r3 delta (VERDICT: APPROVE), be547fd9..77216a6b ====================
+S1, S2, S3, N3 RESOLVED (atomic os.replace under SAVE_LOCK; GIL-level copies consistent; snapshot failure inside a worker fails closed). NITs: N2 STATE still open (closed in r6); Ctrl-C during join leaves workers running (fixed in r6); a crash mid-container loses that container's done_keys (fails safe: the partial verify flags them -> STOP-B, no retry); give the STOP-B census command explicitly (done in r6). "No BLOCKER or SHOULD-FIX found in the delta."

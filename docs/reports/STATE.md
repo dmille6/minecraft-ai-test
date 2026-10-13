@@ -12,6 +12,63 @@ Studio reservation both closed 10-12); clear caps bamboo 0 / bucket 2._
 
 ---
 
+## 10-13 20:35Z — CHEST CLEAR #2 (stock targets): PREPARED, awaiting owner go. NOTHING RUN; no world changed, no bot stopped
+
+The owner's one-time clear (10-10). It runs only after the inflow fix: stocktarget-01 was KEPT and promoted to fleet
+48b093c. Caps are owner-confirmed 10-12 in `docs/reports/stocktarget-clear-caps-2026-10-10.json`. Standing rule from
+10-04: the owner sees the list first.
+
+**Next action: the owner reads the manifest and says GO, or not.** The operator then runs the procedure. Run it only
+when no canary is live; it holds the slot for about 35-45 min.
+
+- **Manifest (owner-facing):** `docs/reports/chest-clear-manifest-2026-10-13.md`. Read-only RCON census 20:13:54Z, 16
+  towns, 353 bank containers, every slot read. Two discovery instruments agree in every town.
+  - 255 -> 0 full containers.
+  - 254,390 items removed in 6,596 slots, plus 668 reduced. Logs over 64/type 109,429; cobble over 256 108,549; sticks
+    17,364; planks 6,466; bamboo 6,058; saplings 3,387; stations/torches 2,134; surplus usable tools 1,494 (the best 16
+    stone pickaxes per town are kept); spent tools 177.
+  - Junk, ballast and stone over 64: 0 (positive control: 59 names, 7 stone).
+  - Ores, raw metal, ingots, coal, gems, food, iron tools, and any named/enchanted/abbreviated item are never touched.
+- **Procedure:** `docs/reports/chest-clear-procedure-2026-10-13.md`.
+  1. Hold the canary slot (install-hold plus the loop lock) and stop `fleet-recycle.timer`.
+  2. Run regionscan (DISCOVERY PASS), then forceload3 add (chunk tickets: with nobody online, bank chunks 2-3 from
+     home unload).
+  3. Stop all 80 bots.
+  4. census3 -> plan3 -> check -> validate -> trial -> run (one atomic `execute if items` per slot, with a
+     per-container pre-read against the census).
+  5. Re-census and verify, then forceload3 remove.
+  6. `stockreset.mjs` on all 32 pool dirs, then restart 12 s apart and run fleetversion.
+  7. Release the slot and the timer. Run recountcheck at +60 min.
+  - Downtime: about 5-25 min per bot (about 15 on average).
+- **Tools:** `scripts/host/chestclear3/` (rcon3, census3, regionscan, positions3, forceload3, cc_clear3, summary3,
+  recountcheck, fleetversion, sandbox_scene) and `scripts/host/chestclear2/plan3.py`. The plan pins
+  abbreviated/component/iron+ items, which still consume their cap, and keeps tools best-first.
+- **Data:** `docs/reports/census/{census-2026-10-13T2013Z,clear-plan-2026-10-13,clear-summary-2026-10-13,positions-union-2026-10-13}.json`.
+- **Evidence:** `docs/reports/census/chest-clear-sandbox-2026-10-13.txt`, on Paper sandbox r1-r5:
+  - full positive runs;
+  - stale receipt refused;
+  - count change -> abort, 0 edits;
+  - rename after trial -> abort, 0 sent;
+  - tamper after run -> verify FAIL;
+  - unloaded-chunk control;
+  - double chest;
+  - forceload add/remove restores the exact pre-existing tickets.
+
+  Fleet read-only validate: 6,623/6,623 predicates pass, all negative controls fail; it refused only for bots online.
+- **Reviews:** `docs/reports/chest-clear-review-2026-10-13.txt`.
+  - Codex r1 BLOCK, r2 BLOCK, r3 APPROVE, r4 delta APPROVE.
+  - Claude r1 BLOCK, r2 APPROVE, r3 delta APPROVE.
+  - Every later SHOULD-FIX and NIT is applied (r6).
+- **Found on the way:**
+  - chestclear2/positions.py matched bot logs by exp.pool, but isolated bots log `self-isolated-X-Name`. The four
+    isolated towns therefore had only 10-04 positions. The region scan proves no container was missed.
+  - Paper abbreviates deep NBT even for one `Items[k]` element.
+  - An empty-command RCON sentinel makes Paper close the connection.
+- **AFTER THE RUN:**
+  - The STATE entry must name `forceload-$T.json` and the `FORCELOAD remove PASS` line, so any leftover chunk tickets
+    can be found.
+  - The next canary's pre-period must not straddle the clear, or its notes must record it.
+
 ## 10-13 19:10Z — plinth-01 (the raised, self-building junk well) BUILT, reviewed, registered; NOT queued (owner GO "yes do 2-4", step 4)
 For the towns that cannot site a well (13 of 16 on 10-13). A town whose wellsite-01 search found no cell PLANS a raised
 well once and BUILDS it from cobble in bounded visits. The plan is checked by the unchanged oracle (wellSiteRefusal) on

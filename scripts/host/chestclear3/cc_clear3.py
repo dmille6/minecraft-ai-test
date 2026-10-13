@@ -319,7 +319,15 @@ def run(census, plan):
     th = [threading.Thread(target=run_world, args=(w, acts, out, ix)) for w, acts in sorted(byw.items())]
     try:
         for t in th: t.start()
-        for t in th: t.join()
+        for t in th:
+            while t.is_alive(): t.join(0.5)                     # a timed join, so Ctrl-C is seen while workers run
+    except BaseException:
+        # Ctrl-C / SIGTERM while waiting (Codex r4 1, Claude r3 6): stop every world, wait for the workers to finish
+        # their current command, THEN publish the final snapshot
+        ABORT.set()
+        for t in th:
+            if t.is_alive(): t.join()
+        raise
     finally:
         res = snapshot(final=True)
     for w, rec in res['worlds'].items():

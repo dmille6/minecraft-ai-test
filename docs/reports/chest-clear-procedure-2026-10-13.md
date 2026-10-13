@@ -38,7 +38,9 @@ Chests and journals are untouched, so no fence is needed.
 This applies once `trial --execute` has run, whatever it printed, and to every later step.
 1. Do not continue the clear.
 2. Do NOT restart before the fence.
-3. Re-census for the record: step 10's `census3.py` line only. Then run the PARTIAL verify of this attempt (Claude r2 S2):
+3. Re-census for the record:
+   `W "cd ~/chestclear3 && sudo python3 census3.py positions-run-$T.json census-after-$T-a$A.json && sudo chown mike census-after-$T-a$A.json"`.
+   Then run the PARTIAL verify of this attempt (Claude r2 S2):
    `W "cd ~/chestclear3 && python3 cc_clear3.py verify census-before-$T-a$A.json plan-$T-a$A.json census-after-$T-a$A.json result-$T-a$A.json trial-$T-a$A.json"`
    If only the trial ran, pass `-` for the result file. Its problems should be exactly the slot(s) named in the failure.
    Report anything else.
@@ -213,13 +215,16 @@ After an abort:
   launched with `setsid nohup ... &` and polled.
 
 **One retry is allowed:**
-1. Set `A=2`. Take a new census: step 4, which now writes `census-before-$T-a2.json` from the same `positions-run-$T.json`.
+1. Keep `A=1` for now (Codex r4 2). Take the attempt-2 census by its explicit name:
+   `W "cd ~/chestclear3 && sudo nice -n 10 python3 census3.py positions-run-$T.json census-before-$T-a2.json; sudo chown mike census-before-$T-a2.json"`
+   (the same requirements as step 4).
 2. Verify round one as a partial run:
    `W "cd ~/chestclear3 && python3 cc_clear3.py verify census-before-$T-a1.json plan-$T-a1.json census-before-$T-a2.json result-$T-a1.json trial-$T-a1.json"`.
    Its problems must be exactly the slot(s) named in the abort, with nothing else changed. Any other problem is
    STOP-B, with no retry: an RCON exception after a command was sent can land an edit that `done_keys` does not list,
    and this check is what catches it.
-3. Then do steps 5-9 with `A=2`, which gives a new plan and a new trial receipt. Keep the forceload state
+3. Only after that verify is accepted, set `A=2`. Then do steps 5-9, which give a new plan and a new trial receipt. If
+   the verify is not accepted, STOP-B runs with `A=1`, whose files all exist. Keep the forceload state
    `forceload-$T.json` from step 2. Do not run `forceload3 add` again; it refuses an existing state file.
 
 A second abort is STOP-B.
