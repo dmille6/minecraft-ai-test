@@ -12,6 +12,19 @@ Studio reservation both closed 10-12); clear caps bamboo 0 / bucket 2._
 
 ---
 
+## 10-13 16:30Z — AIRPOCKET-02 CLOSED INCONCLUSIVE (operator early close); v35.1 INSTALLED; stocktarget-01 launching
+airpocket-02 @ 70cb0d41: +1080 NOT_YET; exposure_ready_ap2 0 -- the only upblocked attempt (hive-d-Delta 10:59-11:00Z, kind=ice)
+FAILED: the step waited 1,528 ms for the interrupted `mine` to unwind (window=unsettled), dug, and mine's own still-running
+dig cancelled it ("Digging aborted"); no retry (60-s cooldown); bot survived (air -1, health 18.33 -> 20). Not the window
+logic; a design gap (a skill that ignores its interrupt keeps the body). Deaths canary 3/181 bh vs matched 5/272, gate held;
+2 pocket rescues succeeded. Claude + Codex agree: close INCONCLUSIVE and fix as airpocket-03 (contested handoff -> short
+cooldown + contested=1; mine's stair loop honours its abort; Paper scene: a skill ignoring its interrupt at the ice trap).
+Closed by hand: loop stopped, ledger INCONCLUSIVE (check-open-loop --record), drop-ins removed (10), canary_pool cleared,
+10 bots restarted from the env roster (no ghost units), all on 82aef34; `canary-sched closed airpocket-02`.
+v35.1 installed 16:26Z (dry run rc=0; drawsteady b4a20bc7, drawrec 792a7cfd; digest b7ce36d7 unchanged, verified).
+stocktarget-01 hold released 16:26Z; the scheduler launches it next (variant 82aef34 -> 48b093ce).
+Building (owner "yes do 2-4", 10-13): the _dig_town counter + no-dig zone; the raised (self-building) junk well.
+
 ## 10-13 10:05Z — wellsite-01 STAGED for the queue (after bamboo-02); junk-well site defect diagnosed
 DIAGNOSIS (24 h to 08:07Z, full walk, 1.29M rows, 80 bots):
 - 3,197 build_well no_site refusals from 55 bots in 12 pools; per-bot gap p50 7.2 min. Every attempt was free: no_effect
