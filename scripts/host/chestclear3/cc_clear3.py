@@ -9,8 +9,10 @@ the host). DRY RUN BY DEFAULT: without --execute nothing but read-only commands 
                                                         with the census count; negative controls must all fail
   cc_clear3.py trial    <census> <plan> <trial.json> [--execute]   one remove + one reduce, then read the containers back
   cc_clear3.py run      <census> <plan> <trial.json> <result.json> [--execute]   every other action, worlds in parallel
-  cc_clear3.py verify   <census-before> <plan> <census-after>      offline: kept slots unchanged, removed slots empty,
-                                                        reduced slots at exactly `keep`, no new slot anywhere
+  cc_clear3.py verify   <census-before> <plan> <census-after> [<result.json> <trial.json>]   offline: kept slots
+                                                        unchanged, removed slots empty, reduced slots at exactly `keep`, no
+                                                        new slot anywhere; with a result + trial (an ABORTED run): only the
+                                                        actions they list as done may have changed anything
 
 ONE ACTION = ONE COMMAND, ATOMIC IN ITS TICK. The test and the edit name the same block and slot (enforced by the
 grammar's back-references):
@@ -218,7 +220,9 @@ def trial(census, plan):
             online, lrep = nobody_online(r)
             if not online: step['state'] = 'refused: online %s' % lrep[:80]; save(); print('REFUSED', step['state']); return 1
             before, p1 = readback(r, a)
-            if p1 or a['slot'] not in (before or {}): step['state'] = 'refused: pre-read %s' % p1; save(); print('REFUSED', step['state']); return 1
+            if p1 or a['slot'] not in (before or {}) or before[a['slot']].get('raw') != index(census)[key(a['world'], a['pos'], a['slot'])][1].get('raw'):
+                step['state'] = 'refused: pre-read differs from the census %s' % (p1 or (before or {}).get(a['slot'])); save()
+                print('REFUSED', step['state']); return 1
             step['state'] = 'sent'; save()
             rep = r.cmd(step['cmd']); step['reply'] = rep; save()
             after, p2 = readback(r, a); r.close()
@@ -234,28 +238,45 @@ def trial(census, plan):
 ABORT = threading.Event()
 
 
-def run_world(w, acts, out):
-    rec = {'done': Counter(), 'items': Counter(), 'failed': [], 'other': [], 'sent': 0}
+def run_world(w, acts, out, ix):
+    """Container by container: ONE read of the container first -- every planned slot must still be, element for
+    element (full text, so a name or enchantment added since the census shows), what the census saw; any difference
+    aborts the run before that container is edited (Codex r2: the predicate cannot see components other than damage;
+    with the bots stopped and nobody online the read-then-edit interval is quiescent). Then one atomic command per slot.
+    Every action that landed is listed in `done_keys`, so a partial run can be verified (Claude r1 6)."""
+    rec = {'done': Counter(), 'items': Counter(), 'failed': [], 'other': [], 'sent': 0, 'done_keys': []}
     out[w] = rec
     try:
         r = rcon3.Rcon(w, GRAMMAR)
         online, lrep = nobody_online(r)
-        if not online: rec['other'].append('someone online: ' + lrep[:100]); ABORT.set(); return
-        for a in acts:
-            if ABORT.is_set(): rec['aborted'] = 'abort flag (another world failed)'; break
-            rep = r.cmd(act_cmd(a)); rec['sent'] += 1
-            if rep.startswith('Replaced a slot at'):
-                rec['done'][a['why']] += 1; rec['items'][a['why']] += a['count'] - a.get('keep', 0) if a['why'] == 'reduce' else a['count']
-            elif rep == '':                                     # the test failed: the slot changed since the census
-                rec['failed'].append([a['pos'], a['slot'], a['id'], a['count']]); rec['aborted'] = 'own predicate failed'
-                ABORT.set(); break
-            else:
-                rec['other'].append([a['pos'], a['slot'], rep[:120]]); rec['aborted'] = 'own unexpected reply'; ABORT.set(); break
-            lat = r.lat[-20:]
-            if lat and sum(lat) / len(lat) > 0.5: rec['aborted'] = 'mean latency > 0.5 s'; ABORT.set(); break
+        if not online: rec['other'].append('someone online: ' + lrep[:100]); rec['aborted'] = 'someone online'; ABORT.set(); return
+        bycont = {}
+        for a in acts: bycont.setdefault(tuple(a['pos']), []).append(a)
+        for pos, cacts in bycont.items():
+            if ABORT.is_set(): rec['aborted'] = rec.get('aborted') or 'abort flag (another world failed)'; break
+            live, prob = census3.read_container(r, *pos)
+            livemap = {i['slot']: i for i in live}
+            diff = [a['slot'] for a in cacts if prob or a['slot'] not in livemap
+                    or livemap[a['slot']].get('raw') != ix[key(w, pos, a['slot'])][1].get('raw')]
+            if diff:
+                rec['failed'].append([list(pos), diff[:5], 'pre-read differs from the census' + (' (%s)' % prob if prob else '')])
+                rec['aborted'] = 'pre-read differs'; ABORT.set(); break
+            for a in cacts:
+                if ABORT.is_set(): rec['aborted'] = rec.get('aborted') or 'abort flag (another world failed)'; break
+                rep = r.cmd(act_cmd(a)); rec['sent'] += 1
+                if rep.startswith('Replaced a slot at'):
+                    rec['done'][a['why']] += 1; rec['done_keys'].append([list(a['pos']), a['slot']])
+                    rec['items'][a['why']] += a['count'] - a.get('keep', 0) if a['why'] == 'reduce' else a['count']
+                elif rep == '':                                 # the test failed: the slot changed since the census
+                    rec['failed'].append([a['pos'], a['slot'], a['id'], a['count']]); rec['aborted'] = 'own predicate failed'
+                    ABORT.set(); break
+                else:
+                    rec['other'].append([a['pos'], a['slot'], rep[:120]]); rec['aborted'] = 'own unexpected reply'; ABORT.set(); break
+                lat = r.lat[-20:]
+                if lat and sum(lat) / len(lat) > 0.5: rec['aborted'] = 'mean latency > 0.5 s'; ABORT.set(); break
         r.close()
     except Exception as e:
-        rec['other'].append('%s: %s' % (type(e).__name__, e)); ABORT.set()
+        rec['other'].append('%s: %s' % (type(e).__name__, e)); rec['aborted'] = 'exception'; ABORT.set()
 
 
 def run(census, plan):
@@ -278,7 +299,8 @@ def run(census, plan):
         for w, acts in sorted(byw.items()): print('DRY RUN %-11s would send %4d commands, e.g. %s' % (w, len(acts), act_cmd(acts[0])))
         print('DRY RUN: nothing sent (%d commands; the trial covered %d)' % (sum(map(len, byw.values())), len(done))); return 0
     out = {}; t0 = time.time()
-    th = [threading.Thread(target=run_world, args=(w, acts, out)) for w, acts in sorted(byw.items())]
+    ix = index(census)
+    th = [threading.Thread(target=run_world, args=(w, acts, out, ix)) for w, acts in sorted(byw.items())]
     for t in th: t.start()
     for t in th: t.join()
     res = {'started_utc': time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime(t0)), 'wall_s': round(time.time() - t0, 1),
@@ -293,7 +315,13 @@ def run(census, plan):
     return 1 if res['aborted'] else 0
 
 
-def verify(before, plan, after):
+def verify(before, plan, after, result=None):
+    """With a run result (an ABORTED run), only the actions it lists as done must have happened; every other planned
+    slot must be unchanged, exactly like a kept one (Claude r1 6). The trial receipt's two actions count as done."""
+    if result is not None:
+        done = {key(w, p, s) for w, rec in result['run']['worlds'].items() for p, s in rec.get('done_keys', [])}
+        done |= {key(t['world'], t['pos'], t['slot']) for t in result['trial']['actions'] if t.get('readback_ok')}
+        plan = [a for a in plan if key(a['world'], a['pos'], a['slot']) in done]
     bad = census_ok(before, 'before') + census_ok(after, 'after')
     if set(before['worlds']) != set(after['worlds']): bad.append('world sets differ: %s vs %s' % (sorted(before['worlds']), sorted(after['worlds'])))
     ib = index(before); ia = index(after); acts = {key(a['world'], a['pos'], a['slot']): a for a in plan}
@@ -331,5 +359,7 @@ if __name__ == '__main__':
     if mode == 'validate': sys.exit(validate(*load()))
     if mode == 'trial': sys.exit(trial(*load()))
     if mode == 'run': sys.exit(run(*load()))
-    if mode == 'verify': sys.exit(verify(json.load(open(ARGS[1])), json.load(open(ARGS[2])), json.load(open(ARGS[3]))))
+    if mode == 'verify':
+        res = {'run': json.load(open(ARGS[4])), 'trial': json.load(open(ARGS[5]))} if len(ARGS) > 5 else None
+        sys.exit(verify(json.load(open(ARGS[1])), json.load(open(ARGS[2])), json.load(open(ARGS[3])), res))
     print(__doc__); sys.exit(2)

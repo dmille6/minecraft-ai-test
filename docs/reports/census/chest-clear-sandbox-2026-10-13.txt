@@ -1,0 +1,92 @@
+# chest clear #2 sandbox evidence (Paper 1.21.11, world 'sandbox', /tmp/mcai-sandbox.lock held). r1 (19:54Z) is summarised in the procedure; r2 and r3 verbatim below.
+
+## r2 20:08Z (scripts as of 2891d6d2)
+== POSITIVE end to end
+scene built {(-3000, 200, -3000): 23, (-2998, 200, -3000): 27, (-2996, 200, -3000): 27}
+census 2026-10-13T20:08:18Z -> 2026-10-13T20:08:18Z worlds 1 with problems 0
+pinned (never acted on): {'abbreviated': 1, 'iron_diamond_netherite_tool': 1}
+caps exceeded by pinned items alone (left as they are): none
+plan actions 44 ({'surplus': 32, 'reduce': 2, 'junk': 1, 'surplus_tool': 6, 'spent_tool': 3}) over 1 worlds; census 2026-10-13T20:08:18Z; problems 0
+{'neg_kept_tool_spentpred_fail(ok)': 4, 'neg_wrong_count_fail(ok)': 8, 'neg_wrong_id_fail(ok)': 8, 'planned_pass': 44, 'pos_kept_tool_usablepred_pass(ok)': 4, 'world_nobody_online': 1}
+VALIDATE PASS
+TRIAL sandbox reduce [-3000, 200, -3000] slot 15 crafting_table -> 'Replaced a slot at -3000, 200, -3000 with [Crafting Table]' readback OK
+TRIAL sandbox surplus [-3000, 200, -3000] slot 1 oak_log -> 'Replaced a slot at -3000, 200, -3000 with [Air]' readback OK
+TRIAL PASS
+RUN COMPLETE items {'surplus': 1864, 'reduce': 16, 'junk': 16, 'surplus_tool': 6, 'spent_tool': 3} wall 0.0 s
+census 2026-10-13T20:08:18Z -> 2026-10-13T20:08:18Z worlds 1 with problems 0
+{'kept_unchanged': 33, 'removed_empty': 42, 'reduced_exact': 2, 'kept_abbreviated_partially_verified': 1} problems 0
+VERIFY PASS
+total slots freed 0 items 0 (reduce entries keep their slot)
+== NEGATIVE: stale receipt (t1 is for census s1, used with a new census s2)
+scene built {(-3000, 200, -3000): 23, (-2998, 200, -3000): 27, (-2996, 200, -3000): 27}
+census 2026-10-13T20:08:19Z -> 2026-10-13T20:08:19Z worlds 1 with problems 0
+REFUSED: the trial receipt does not belong to this census + plan, or did not pass
+exit=1
+== NEGATIVE: a planned slot changes after the trial -> abort
+TRIAL PASS
+Replaced a slot at -3000, 200, -3000 with [Oak Log]
+sandbox     sent    1 done {} failed 1 other [] own predicate failed
+RUN ABORTED items {} wall 0.0 s
+exit=1
+== NEGATIVE: trial whose pre-read slot is gone refuses before editing
+scene built {(-3000, 200, -3000): 23, (-2998, 200, -3000): 27, (-2996, 200, -3000): 27}
+census 2026-10-13T20:08:19Z -> 2026-10-13T20:08:19Z worlds 1 with problems 0
+Replaced a slot at -3000, 200, -3000 with [Air]
+REFUSED refused: pre-read None
+exit=1
+['refused: pre-read None']
+Unmarked chunk [-188, -188] in minecraft:overworld for force loading
+
+## r3 20:13Z (receipt binding, pre-read, forceload3, double chest, unloaded chunk, rename/tamper mutants)
+== A. UNLOADED-CHUNK CONTROL (nobody online)
+scene built {(-3000, 200, -3000): 23, (-2998, 200, -3000): 27, (-2996, 200, -3000): 27}
+far chunk unloaded after ~2 s: That position is not loaded
+sandbox     positions    8 (outside box    0) containers   5 {'chest': 4, 'barrel': 1} slots    82 full   2 incomplete 1 err None 0s | There are 0 of a max of 3 players online:
+census 2026-10-13T20:13:13Z -> 2026-10-13T20:13:13Z worlds 1 with problems 1
+census_exit=0
+[[-2960, 200, -3000, "id read: 'That position is not loaded'"]]
+== B. forceload3 add -> the far chest reads
+sandbox     added  48 chunk tickets; force-loaded 18 -> 66 OK
+FORCELOAD add PASS
+sandbox     positions    8 (outside box    0) containers   6 {'chest': 5, 'barrel': 1} slots    85 full   2 incomplete 0 err None 0s | There are 0 of a max of 3 players online:
+census 2026-10-13T20:13:20Z -> 2026-10-13T20:13:20Z worlds 1 with problems 0
+== C. RENAME after the trial (id/count unchanged) -> abort before that container is edited; partial verify
+pinned (never acted on): {'iron_diamond_netherite_tool': 1, 'abbreviated': 1}
+caps exceeded by pinned items alone (left as they are): none
+plan actions 52 ({'surplus': 40, 'reduce': 2, 'junk': 1, 'surplus_tool': 6, 'spent_tool': 3}) over 1 worlds; census 2026-10-13T20:13:20Z; problems 0
+VALIDATE PASS
+TRIAL PASS
+Replaced a slot at -3000, 200, -3000 with [x]
+sandbox     sent    0 done {} failed 1 other [] pre-read differs
+RUN ABORTED items {} wall 0.0 s
+run_exit=1
+{'sandbox': (0, [[[-3000, 200, -3000], [3], 'pre-read differs from the census']], 'pre-read differs')}
+census 2026-10-13T20:13:20Z -> 2026-10-13T20:13:20Z worlds 1 with problems 0
+{'kept_unchanged': 82, 'removed_empty': 1, 'reduced_exact': 1, 'kept_abbreviated_partially_verified': 1} problems 1
+  BAD KEPT slot changed ('sandbox', (-3000, 200, -3000), 3): {'id': 'oak_log', 'count': 64, 'damage': 0, 'max_damage': None, 'components': [], 'abbreviated': False, 'raw': '{id: "minecraft:oak_log", count: 64}'} -> {'id': 'oak_log', 'count': 64, 'damage': None, 'max_damage': None, 'components': ['custom_name'], 'abbreviated': True, 'raw': None}
+VERIFY FAIL
+== D. FULL POSITIVE (double chest + far chest), then TAMPER a kept slot -> verify FAIL
+scene built {(-3000, 200, -3000): 23, (-2998, 200, -3000): 27, (-2996, 200, -3000): 27}
+sandbox     positions    8 (outside box    0) containers   6 {'chest': 5, 'barrel': 1} slots    85 full   2 incomplete 0 err None 0s | There are 0 of a max of 3 players online:
+census 2026-10-13T20:13:23Z -> 2026-10-13T20:13:23Z worlds 1 with problems 0
+pinned (never acted on): {'iron_diamond_netherite_tool': 1, 'abbreviated': 1}
+caps exceeded by pinned items alone (left as they are): none
+| sandbox | 6 | 2 -> 0 | 85 -> 35 | 3,023 | 2,465 (50) | 19 | 539 |
+plan actions 52 ({'surplus': 40, 'reduce': 2, 'junk': 1, 'surplus_tool': 6, 'spent_tool': 3}) over 1 worlds; census 2026-10-13T20:13:23Z; problems 0
+{'neg_kept_tool_spentpred_fail(ok)': 4, 'neg_wrong_count_fail(ok)': 8, 'neg_wrong_id_fail(ok)': 8, 'planned_pass': 52, 'pos_kept_tool_usablepred_pass(ok)': 4, 'world_nobody_online': 1}
+VALIDATE PASS
+TRIAL PASS
+RUN COMPLETE items {'surplus': 2376, 'junk': 16, 'reduce': 16, 'surplus_tool': 6, 'spent_tool': 3} wall 0.0 s
+census 2026-10-13T20:13:23Z -> 2026-10-13T20:13:23Z worlds 1 with problems 0
+{'kept_unchanged': 33, 'removed_empty': 50, 'reduced_exact': 2, 'kept_abbreviated_partially_verified': 1} problems 0
+VERIFY PASS
+total slots freed 0 items 0 (reduce entries keep their slot)
+Replaced a slot at -3000, 200, -3000 with [y]
+census 2026-10-13T20:13:23Z -> 2026-10-13T20:13:23Z worlds 1 with problems 0
+{'kept_unchanged': 32, 'removed_empty': 50, 'reduced_exact': 2, 'kept_abbreviated_partially_verified': 1} problems 1
+  BAD KEPT slot changed ('sandbox', (-3000, 200, -3000), 22): {'id': 'bread', 'count': 5, 'damage': 0, 'max_damage': None, 'components': [], 'abbreviated': False, 'raw': '{id: "minecraft:bread", count: 5}'} -> {'id': 'bread', 'count': 5, 'damage': None, 'max_damage': None, 'components': ['custom_name'], 'abbreviated': True, 'raw': None}
+VERIFY FAIL
+== E. forceload3 remove: only the tickets it added
+sandbox     removed  48 chunk tickets; force-loaded now 18 (before the clear 18) OK
+FORCELOAD remove FAIL (1)
+Unmarked chunk [-188, -188] in minecraft:overworld for force loading

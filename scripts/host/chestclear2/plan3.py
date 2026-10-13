@@ -11,7 +11,10 @@ journals (every count captured before the clear is dropped).
 10-13 (chestclear3, the census3.py format): NEVER acted on, whatever the caps say --
   * an ABBREVIATED element (Paper cut its NBT: its damage and components are unknown);
   * a container whose census read was INCOMPLETE (the whole container is pinned);
-  * iron, diamond and netherite tools, spent or not (the owner's KEPT list); spent-tool removal is wooden/stone/golden.
+  * iron, diamond and netherite tools, spent or not (the owner's KEPT list); spent-tool removal is wooden/stone/golden;
+  * an element with any component other than damage (a name, enchantment, potion...): the executor's predicate tests
+    id, count and damage only, so such a stack is never planned.
+Pinned items still consume their cap. Tools are kept best-first (most uses left).
 A tool's own max_damage component, when present, replaces the material table. Pinned items count as kept."""
 import json, sys
 from collections import Counter, defaultdict
@@ -36,6 +39,7 @@ for w, v in d['worlds'].items():
     for c, it in slots:
         mat = it['id'].split('_')[0]
         why_pin = ('incomplete_container' if c.get('incomplete') else 'abbreviated' if it.get('abbreviated')
+                   else 'has_components' if set(it.get('components') or []) - {'damage'}
                    else 'iron_diamond_netherite_tool' if it['id'].endswith(TOOLS) and mat in MAXDUR and mat not in SPENT_REMOVABLE
                    else None)
         if why_pin:
@@ -48,7 +52,13 @@ for w, v in d['worlds'].items():
             elif it['id'] in TK:
                 usable[it['id']] += 1
                 if usable[it['id']] > TK[it['id']]: over_cap_pinned[(w, it['id'])] = usable[it['id']] - TK[it['id']]
-    slots.sort(key=lambda ci: -ci[1]['count'])
+    # largest stacks first; among tools (count 1) the MOST uses left first, so the keep holds the best copies
+    # (Claude r1 3: census order kept a median 44.5 uses left while removing copies with 120+)
+    def left_of(it):
+        mat = it['id'].split('_')[0]
+        if not (it['id'].endswith(TOOLS) and mat in MAXDUR) or it.get('damage') is None: return 0
+        return (it.get('max_damage') or MAXDUR[mat]) - it['damage']
+    slots.sort(key=lambda ci: (-ci[1]['count'], -left_of(ci[1])))
     for c, it in slots:
         i = it['id']; why = None
         if it.get('_pin'):

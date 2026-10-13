@@ -10,7 +10,8 @@ After the clear: did every town journal get THIS run's `reset`, and have the bot
   match/partial each recounted container is compared as ONE consistent view (the container alone, or it plus ONE
                 horizontally adjacent chest: a double chest is one window over two block entities and the census cannot
                 see type=left/right). `match` = every NONZERO name the bot counted equals the census in that view;
-                zero-valued names are reported apart (a 0 agrees with an empty chest, so it is weak evidence).
+                every name is compared, zeros included; a container whose recount is ALL zeros and agrees is reported as
+                zero-only (weak evidence) and does not count toward `match` or coverage.
 Bots count usable tool copies (> 10 uses left) and the cobble group (cobblestone + cobbled_deepslate) as one.
 Without --reset-after (before the clear) it is the instrument's positive control: the latest counts against the census.
 World of a pool dir: _pool-<world> or _pool-self-<world>-<Bot>. Exit 1 if any dir lacks the required reset."""
@@ -72,7 +73,7 @@ for d in args:
             for k, o in ((ws or {}).get('obs') or {}).items() if isinstance(ws, dict) else []:
                 if isinstance(o, dict): take(k, o.get('at'), o.get('m'))
     cont = {','.join(map(str, c['pos'])): c for c in (census.get(w) or {}).get('containers', [])}
-    full = partial = notin = nz = zero = 0
+    full = partial = notin = nz = zero = zero_only = 0
     for k, (cap, mm) in last.items():
         c = cont.get(k)
         if c is None: notin += 1; continue
@@ -80,21 +81,23 @@ for d in args:
         views = [[c]] + [[c, cont[a]] for a in ('%d,%d,%d' % (x + 1, y, z), '%d,%d,%d' % (x - 1, y, z), '%d,%d,%d' % (x, y, z + 1),
                                                    '%d,%d,%d' % (x, y, z - 1)) if a in cont and cont[a]['kind'] == c['kind'] == 'chest']
         best = None
-        for cs in views:
+        for cs in views:                                # EVERY name, zeros included (Codex r2 8: a 0 against 64 logs is wrong)
             h = counts(cs)
-            ok = sum(1 for name, n in mm.items() if n and sum(h[q] for q in GROUP.get(name, (name,))) == n)
+            ok = sum(1 for name, n in mm.items() if sum(h[q] for q in GROUP.get(name, (name,))) == n)
             if best is None or ok > best[0]: best = (ok, h)
-        want = sum(1 for n in mm.values() if n); zero += sum(1 for n in mm.values() if not n); nz += best[0]
-        if best[0] == want: full += 1
+        nzn = sum(1 for n in mm.values() if n); zero += len(mm) - nzn
+        nz += sum(1 for name, n in mm.items() if n and sum(best[1][q] for q in GROUP.get(name, (name,))) == n)
+        if best[0] == len(mm) and not nzn: zero_only += 1           # agrees, but only that the chest holds none: weak evidence
+        elif best[0] == len(mm): full += 1
         else:
             partial += 1
-            worst.append((base, k, {n: (v, sum(best[1][q] for q in GROUP.get(n, (n,)))) for n, v in mm.items() if v}))
-    cover.setdefault(w, set()).update(k for k in last if k in cont)
+            worst.append((base, k, {n: (v, sum(best[1][q] for q in GROUP.get(n, (n,)))) for n, v in mm.items()}))
+    cover.setdefault(w, set()).update(k for k, (cap, mm) in last.items() if k in cont and any(mm.values()))
     tot.update({'dirs': 1, 'with_reset': reset_at is not None, 'recounted': len(last), 'match': full, 'partial': partial,
-                'nonzero_names_matched': nz, 'zero_names': zero})
-    print('%-30s %-10s reset_at %-20s recounted %3d/%3d match %3d partial %2d not-in-census %d' % (
-        base, w, reset_at and time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime(reset_at / 1000)), len(last), len(cont), full, partial, notin))
-print('COVERAGE per world (containers recounted by any of its dirs / census containers):',
+                'zero_only_match': zero_only, 'nonzero_names_matched': nz, 'zero_names': zero})
+    print('%-30s %-10s reset_at %-20s recounted %3d/%3d match %3d zero-only %2d partial %2d not-in-census %d' % (
+        base, w, reset_at and time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime(reset_at / 1000)), len(last), len(cont), full, zero_only, partial, notin))
+print('COVERAGE per world (containers with a NONZERO recount by any of its dirs / census containers):',
       {w: '%d/%d' % (len(v), len((census.get(w) or {}).get('containers', []))) for w, v in sorted(cover.items())})
 print('TOTAL', dict(tot))
 print('partial matches (first 10: dir, container, {name: (bots, census)}):', worst[:10])
