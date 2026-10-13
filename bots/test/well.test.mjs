@@ -1385,6 +1385,25 @@ await t('wellsite-01 THE CLICK RE-CHECK (Codex r2 P1): the support dug during th
   assert.equal(r.status, 'no_effect', r.detail); assert.match(r.detail, /unsealed at the click \(wall is sand\)/)
   assert.equal(town.world.get(town.key(CAP)).props.open, false, 'the cap was left open')
 })
+await t('wellsite-01 THE DIG-CLICK GAP WAITED TO THE END (Codex r3 P1): a dig renewed during the wait -- the click comes a whole gap after the LATEST dig', async () => {
+  const town = steadyTown()
+  let gapAtClick = null, renewed = false
+  town.state.onLook = () => { if (town.bot.lastDigTime == null) { town.bot.lastDigTime = Date.now(); setTimeout(() => { renewed = true; town.bot.lastDigTime = Date.now() }, 300) } }
+  town.state.onClick = async () => { if (gapAtClick == null) gapAtClick = Date.now() - town.bot.lastDigTime }
+  const r = await run('dispose_well', town.bot)
+  assert.equal(r.status, 'success', r.detail); assert.ok(renewed, 'positive control: the dig was renewed inside the wait')
+  assert.ok(gapAtClick >= 540, `clicked ${gapAtClick} ms after the latest dig`)
+})
+await t('MUTANT (skills): a one-shot dig-gap wait clicks inside a renewed gap', async () => {
+  await withMutant(SP, '        if (++digWaits > DIG_CLICK_MAX_WAITS) break\n        await sleep(DIG_CLICK_GAP_MS - sinceDig, signal)\n', '        if (++digWaits > DIG_CLICK_MAX_WAITS) break\n        await sleep(DIG_CLICK_GAP_MS - sinceDig, signal)\n        break\n', async m => {
+    const town = steadyTown()
+    let gapAtClick = null
+    town.state.onLook = () => { if (town.bot.lastDigTime == null) { town.bot.lastDigTime = Date.now(); setTimeout(() => { town.bot.lastDigTime = Date.now() }, 300) } }
+    town.state.onClick = async () => { if (gapAtClick == null) gapAtClick = Date.now() - town.bot.lastDigTime }
+    await within(m.SKILLS.dispose_well.run({ bot: town.bot }, {}, { aborted: false }), 15000, 'mutant')
+    assert.ok(gapAtClick != null && gapAtClick < 540, `mutant inert (${gapAtClick})`)
+  })
+})
 await t('MUTANT (skills): without the click re-check a support dug during the aim is thrown past', async () => {
   await withMutant(SP, '      if (unsealed) { acc.stop = `breached: ${unsealed}`; break }\n', '', async m => {
     const town = steadyTown()

@@ -6618,6 +6618,8 @@ export function resendLook (bot) {
 /** mineflayer's clickWindow waits out DIG_CLICK_TIMEOUT (500 ms) after a dig before a hotbar click: let it pass FIRST, so the
  *  final slot check and the click's own read of the slot happen in the same synchronous run. */
 const DIG_CLICK_GAP_MS = 550
+/** At most this many gap waits before one throw click (a bot digging continuously throws nothing that stack). */
+const DIG_CLICK_MAX_WAITS = 8
 /**
  * THROW THE PLANNED STACKS into `acc` (partial results survive an exception: Codex review). Per stack: the admission
  * again, the aim from where the feet ARE (refused beyond 1.15), a look and two ticks so the server has the rotation,
@@ -6676,8 +6678,16 @@ async function throwStacks (bot, { cap, facing, stacks, bound, waitTick, signal,
         await bound(bot.lookAt(new Vec3(p.x, p.y, p.z), true), HK_AWAIT_MS, 'aim'); await waitTick(); resendLook(bot); await waitTick()
       }
       acc.aimPitch = aim.pitch
-      const sinceDig = bot.lastDigTime != null ? Date.now() - bot.lastDigTime : Infinity
-      if (sinceDig < DIG_CLICK_GAP_MS) await sleep(DIG_CLICK_GAP_MS - sinceDig, signal)
+      // THE DIG-CLICK GAP WAITED OUT TO THE END (wellsite-01, Codex r3 P1): a reflex dig DURING the wait renews
+      // lastDigTime, and mineflayer's clickWindow would then await again after the containment read below -- so wait until
+      // a whole gap has passed since the LATEST dig (bounded: a bot digging on and on throws nothing this stack).
+      let digWaits = 0
+      for (let sinceDig = bot.lastDigTime != null ? Date.now() - bot.lastDigTime : Infinity; sinceDig < DIG_CLICK_GAP_MS;
+        sinceDig = bot.lastDigTime != null ? Date.now() - bot.lastDigTime : Infinity) {
+        if (++digWaits > DIG_CLICK_MAX_WAITS) break
+        await sleep(DIG_CLICK_GAP_MS - sinceDig, signal)
+      }
+      if (digWaits > DIG_CLICK_MAX_WAITS) { acc.stop = 'a dig kept renewing the dig-click gap'; break }
       check(signal)
       // ---- from here to the click nothing of OURS awaits (mineflayer's own dig-click gap aside, below). mineflayer's clickWindow may still await its dig-click gap if a
       // reflex dug in the last 550 ms (inventory.js); a slot change in that gap is a reflex click sent before ours on the same

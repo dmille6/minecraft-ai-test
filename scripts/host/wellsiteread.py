@@ -201,6 +201,9 @@ if __name__ == '__main__':
         return (rate('post', 'canary', what) - rate('pre', 'canary', what)) - (rate('post', 'control', what) - rate('pre', 'control', what))
 
     g1 = search_repeats(searches)
+    # Claude r3 P2: a record that never lands (permissions, a pool dir mismatch) makes every episode rec=fail, which G1
+    # rightly never counts -- so the failed writes are their own gate, or A1's town hold could fail invisibly and KEEP.
+    rec_fail = sum(1 for _tw, _t, rec, _w in searches if rec != 'ok')
     # THE BASE, judged by the same function (control rows carry no rec/w: treated as stored, one world) -- G1's positive
     # control: in the same window the query finds the repeats the old code makes.
     ctrl_rep = search_repeats([(tw, t, 'ok', '-') for tw, t, _r, _w in searches_control])
@@ -211,6 +214,7 @@ if __name__ == '__main__':
     print('LIVENESS     canary rows post %d | licence (canary _well_refused with tally=cols:) %d (>= 1)' % (rows[('post', 'canary')], n[('post', 'canary', 'licence')]))
     print('G1 (gate)    completed searches repeated inside the 2 h hold, per canary town: %d %s | completed searches %d'
           % (len(g1), [(p, a.strftime('%H:%M'), b.strftime('%H:%M')) for p, a, b in g1[:4]], len(searches)))
+    print('G3 (gate)    canary completed searches whose town record was NOT stored (rec!=ok): %d of %d' % (rec_fail, len(searches)))
     print('G2 (gate)    canary no_site rows with no tally=: %d %s' % (len(untallied), untallied[:3]))
     print('INSTRUMENT   control no_site rows post %d (>= 1: the population exists and the query sees it); control pre %d | G1 on the control (the base): %d repeats (>= 1: the gate sees the defect where it runs) | control rows with tally= (leak) %d'
           % (inst, n[('pre', 'control', 'refused_no_site')], len(ctrl_rep), leak))
@@ -231,7 +235,7 @@ if __name__ == '__main__':
         emit('wellsiteread', W, {
             'rows_canary': rows[('post', 'canary')], 'rows_control': rows[('post', 'control')], 'offbuild_canary': offbuild,
             'licence_rows': n[('post', 'canary', 'licence')],
-            'breach_search_repeat': len(g1), 'breach_untallied': len(untallied),
+            'breach_search_repeat': len(g1), 'breach_untallied': len(untallied), 'breach_record_unstored': rec_fail,
             'searches_canary': len(searches), 'held_canary': sum(held_by_pool.values()),
             'deferred_canary': n[('post', 'canary', 'refused_site_deferred')], 'instrument_control': inst,
             'search_rate_did': nanless(did('refused_no_site')), 'build_order_rate_did': nanless(did('build_orders')),
