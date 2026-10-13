@@ -149,6 +149,8 @@ test('SCOPE: the scope follows the async chain -- nested, thrown, and two OVERLA
   assert.equal(D.currentDigScope(), null)
   const src = strip(readFileSync(new URL('../src/skills.mjs', import.meta.url), 'utf8'))
   assert.match(src, /async function goto \(ctx, args, signal\) \{ return withDigScope\(ctx\?\.bot, \{ purpose: 'transit', by: 'goto' \}, \(\) => gotoLegs\(ctx, args, signal\)\) \}/, 'goto wraps its legs in the transit scope')
+  assert.match(src, /async function surface \(ctx, args, signal\) \{ return withDigScope\(ctx\?\.bot, \{ purpose: 'transit', by: 'surface' \}, \(\) => surfaceClimb\(ctx, args, signal\)\) \}/, 'surface too (its shaft digs inside mine are not mine\'s target)')
+  assert.deepEqual(digPurpose({ scope: { purpose: 'transit', by: 'surface' }, skill: 'mine', args: { y: 12 }, holder: 'mine' }), { purpose: 'transit', by: 'surface' })
 })
 
 test('WRAPPER: invisible -- same arguments, the original promise object, rejections unchanged', async () => {

@@ -11274,7 +11274,10 @@ export function climbAdvice(stopped) {
   return ' — run surface again to keep climbing'
 }
 
-async function surface(ctx, _args, signal) {
+// THE `_dig_town` INSTRUMENT'S SCOPE (telemetry only): surface's own digs (shaftAscend) are transit, also when surface runs
+// inside mine (the zone's walk-out fallback) -- never mine's target (Claude code r2 P1: a false Z1 trip).
+async function surface (ctx, args, signal) { return withDigScope(ctx?.bot, { purpose: 'transit', by: 'surface' }, () => surfaceClimb(ctx, args, signal)) }
+async function surfaceClimb(ctx, _args, signal) {
   const { bot, runner } = ctx
   const startY = bot.entity.position.y
 
