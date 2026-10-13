@@ -69,6 +69,7 @@ import { WOODEN_TRAPDOOR, isWellJunk, disposePlan, wellIdentity, wellStage, well
 import { resyncPacket, GUARDED_INVENTORY_ACTIONS } from './craftsync.mjs'
 import path from 'node:path'
 import { IRON_KINDS, MIN_TRIP_USES, CANDIDATE_RADIUS, breakHazard, nearHome, pickBudget, rankCandidates, clusterOf, tunnelMovements, planTunnel, ONE_PICK_USES, tripDecision } from './oretunnel.mjs'
+import { townDigClass, townTargetPermit, stairTownClear, walkOutPoint, noteTownGround, configuredHome, TOWN_GROUND_HALF } from './townground.mjs'
 import pkg from 'mineflayer-pathfinder'
 const { goals, Movements } = pkg
 import { Vec3 } from 'vec3'
@@ -93,6 +94,8 @@ import { openLessons } from './lessons.mjs'
 import { dropsOf, heldFromBlock, sourcesOf } from './drops.mjs'
 import { smeltPlan, smeltRecipeFor, chooseFuel, fuelTicks, SMELT_TICKS } from './smelting.mjs'
 import { withDigScope } from './digtown.mjs'
+/** The town's home for the zone (townground.mjs): null unless HOME_X/Y/Z are set (then the zone is off). */
+const townHome = () => configuredHome(config.world)
 
 /**
  * FAILURE CLASSES THAT NAME OUR IGNORANCE RATHER THAN THE WORLD.
@@ -1350,6 +1353,13 @@ export async function collectManually(bot, block, signal, { beforeDig = null } =
   //
   // Only for a block the ORDINARY rule refuses -- an unexempted block is
   // unaffected, so this cannot make the baseline stricter.
+  // THE TOWN'S GROUND (townground.mjs): an independent conjunction, outside isSafeToBreak's fail-open path.
+  const townOk = townTargetPermit(block.position, block.name, townHome())
+  if (!townOk.ok) {
+    noteTownGround(bot, 'gather_refused')
+    throw Object.assign(new Error(`town_ground: ${block.name} at ${block.position.x},${block.position.y},${block.position.z} -- ${townOk.remedy}`),
+      { failClass: 'no_safe_target' })
+  }
   if (!isSafeToBreak(bot, block.position) && !shorelineExemptAt(bot, block.position)) {
     throw Object.assign(
       new Error(`unsafe_now: ${block.name} at ${block.position.x},${block.position.y},${block.position.z} ` +
@@ -1584,7 +1594,7 @@ async function tunnelToOre(ctx, signal, { deadlineMs = 150_000 } = {}) {
   if (!candidates.length) {
     return out({ status: 'failed', failClass: 'no_tunnel', detail: `iron within ${CANDIDATE_RADIUS} blocks, but every ore has liquid or a falling block beside it` }, `refused: ${found.length} found, 0 safe`)
   }
-  const moves = bot.tunnelMovements ?? tunnelMovements(bot, bot.gatherMovements, { home })
+  const moves = bot.tunnelMovements ?? tunnelMovements(bot, bot.gatherMovements, { home: townHome() })
   const plan = await planTunnel(bot, { candidates, moves })
   check(signal)
   if (!plan.ok) {
@@ -1723,6 +1733,7 @@ async function gather(ctx, { block: blockName, count = 16, maxDistance = 32 }, s
   // transient geometric fact is not one.
   const excluded = new Set()
   const key = q => `${q.x},${q.y},${q.z}`
+  let townSkipped = 0   // town-ground candidates the enumeration skipped this round (the _town_ground row)
   let collected = 0, rounds = 0, barren = 0, timedOut = 0
   // Rounds this RUN whose candidates came only from the cover fallback. Run-scoped
   // on purpose: `viaCover` resets every round, and the question this answers is
@@ -1755,8 +1766,16 @@ async function gather(ctx, { block: blockName, count = 16, maxDistance = 32 }, s
     // first and alternates are consulted only when it found nothing, so this
     // can only turn a failure into an attempt. It never redirects a search that
     // was already working.
+    // TOWN GROUND IS FILTERED AT ENUMERATION (townground.mjs; Codex r1 P1): a matcher that also sees the cell, so the
+    // 32 candidates are all eligible -- filtering after the search would let 32 town cells hide every one outside.
+    // The palette pre-check calls the matcher with no position (a type test only); every real cell has one.
+    const notTown = id => b => {
+      if (!b || b.type !== id) return false
+      if (b.position && townDigClass(b.position, b.name, townHome()) === 'ground') { townSkipped++; return false }
+      return true
+    }
     let positions = bot
-      .findBlocks({ matching: type.id, maxDistance, count: 32 })
+      .findBlocks({ matching: notTown(type.id), maxDistance, count: 32 })
       .filter(p => horizontalDistanceFromSpawn(p) <= config.world.borderRadius)
     let viaSource = null
     // How many foliage-covered logs the fallback below admitted this round, or 0.
@@ -1769,7 +1788,7 @@ async function gather(ctx, { block: blockName, count = 16, maxDistance = 32 }, s
         const altType = bot.registry?.blocksByName?.[alt]
         if (!altType) continue
         const found = bot
-          .findBlocks({ matching: altType.id, maxDistance, count: 32 })
+          .findBlocks({ matching: notTown(altType.id), maxDistance, count: 32 })
           .filter(p => horizontalDistanceFromSpawn(p) <= config.world.borderRadius)
         if (found.length) {
           positions = found
@@ -1783,11 +1802,14 @@ async function gather(ctx, { block: blockName, count = 16, maxDistance = 32 }, s
       }
     }
 
+    const skippedNow = townSkipped
+    if (townSkipped) { noteTownGround(bot, 'gather_skipped', townSkipped); townSkipped = 0 }
     if (positions.length === 0) {
       return collected > 0
         ? { status: 'success', detail: `collected ${collected} ${blockName} (none left within ${maxDistance})` }
         : { status: 'failed', failClass: 'nothing_found',
             detail: `no ${blockName} within ${maxDistance} blocks` +
+              (skippedNow ? ` outside the town's ground (${TOWN_GROUND_HALF} blocks around home is kept: walk ${TOWN_GROUND_HALF + 4}+ blocks from home)` : '') +
               (renamed ? ` (read ${asked} as ${blockName}: ${renamed})` : '') +
               belowGroundHint(bot) }
     }
@@ -1838,7 +1860,8 @@ async function gather(ctx, { block: blockName, count = 16, maxDistance = 32 }, s
     // IRON GETS THE TUNNEL'S SIX-FACE CHECK (Codex review): after a tunnel arrives, gather's own collection takes the
     // cluster, and collectblock's safeToBreak does not look below or at unloaded faces.
     const ironStrict = IRON_KINDS.includes(blockName)
-    const safeTarget = p => (isSafeToBreak(bot, p) || shorelineExemptAt(bot, p)) && (!ironStrict || breakHazard(q => bot.blockAt(q), bot.blockAt(p)) === 0)
+    const safeTarget = p => townTargetPermit(p, bot.blockAt(p)?.name, townHome()).ok &&
+      (isSafeToBreak(bot, p) || shorelineExemptAt(bot, p)) && (!ironStrict || breakHazard(q => bot.blockAt(q), bot.blockAt(p)) === 0)
     // Prefer blocks the bot can STAND BESIDE. `exposed` only asks whether the
     // block has an air face, which is true of every log in a tree canopy -- so
     // findBlocks would return a trunk section five blocks up in the foliage,
@@ -1947,7 +1970,7 @@ async function gather(ctx, { block: blockName, count = 16, maxDistance = 32 }, s
         const altType = bot.registry?.blocksByName?.[alt]
         if (!altType) continue
         const found = bot
-          .findBlocks({ matching: altType.id, maxDistance, count: 32 })
+          .findBlocks({ matching: notTown(altType.id), maxDistance, count: 32 })
           .filter(q => horizontalDistanceFromSpawn(q) <= config.world.borderRadius)
         const cand = found.filter(exposed).filter(safeTarget)
         const ok = [...cand.filter(approachable), ...cand.filter(q => !approachable(q))]
@@ -8828,7 +8851,39 @@ async function mine(ctx, { y: targetY = 12 }, signal) {
   // demotes the candidate that failed instead of the task. A refusal that does
   // not retire the candidate that caused it hands the next decision the same
   // input and gets the same output -- which is the 1,418 above, exactly.
-  const choice = chooseStairBearing(bot, bot.entity.position.floored())
+  // THE TOWN'S GROUND (townground.mjs; townground-2026-10-13.md 2.5). The 12-block rule above stays (full depth). A stair
+  // whose cells would cut town ground (a 33-wide square around home, above home.y - 12) is not a bearing this skill may
+  // choose; with no clear bearing the skill WALKS OUT -- deterministic, not advice -- and chooses again. Survival digs
+  // (the reflexes) are not this skill's and are untouched.
+  const nameAt = (x, y, z) => bot.blockAt(new Vec3(x, y, z))?.name ?? null
+  const townAllow = bear => stairTownClear(bot.entity.position.floored(), bear, townHome(), nameAt).clear
+  // NO CLEAR BEARING, or the only clear ones are wet at the first tread while a dry one runs into town (the water case,
+  // Claude r2 P2-e): walk out first. A wet bearing with a dry town bearing beside it is not a choice this skill may leave
+  // the model with -- "water in every other direction" would be false.
+  const townBlocked = () => {
+    const all = stairBearings(bot), from = bot.entity.position.floored()
+    const ok = all.filter(townAllow)
+    if (!ok.length) return true
+    if (ok.length === all.length) return false
+    return ok.every(bear => stairRunway(bot, from, bear) === 0) && all.some(bear => !townAllow(bear) && stairRunway(bot, from, bear) > 0)
+  }
+  if (townBlocked()) {
+    noteTownGround(bot, 'mine_bearing_refused')
+    const out = walkOutPoint(bot.entity.position, townHome())
+    noteTownGround(bot, 'mine_walkout')
+    const walked = await goto(ctx, { x: out.x, y: Math.floor(bot.entity.position.y), z: out.z, range: 2 }, signal)
+    check(signal)
+    if (townBlocked()) {
+      noteTownGround(bot, 'mine_refused')
+      return {
+        status: 'failed', failClass: 'town_ground',
+        detail: `reason=town_ground walked_out=${walked?.status ?? '?'} to ${out.x},${out.z}: every stair from ` +
+                `${Math.round(bot.entity.position.x)},${Math.round(bot.entity.position.y)},${Math.round(bot.entity.position.z)} ` +
+                `would cut the town's ground -- goto a spot ${TOWN_GROUND_HALF + 4}+ blocks from home, then mine`,
+      }
+    }
+  }
+  const choice = chooseStairBearing(bot, bot.entity.position.floored(), undefined, townAllow)
   const bear = choice.bear
   const facing = stairBearing(bot)
   // Compared BY VALUE. Both come from the same CARDINALS array today, so `!==`
@@ -8922,6 +8977,17 @@ async function mine(ctx, { y: targetY = 12 }, signal) {
     const treadFloor = cells.floor                   // what holds it up
     const below = bot.blockAt(cellFeet)
     if (!below) break
+    // EVERY STEP RE-CHECKS ITS THREE CELLS against the town's ground (the bearing was cleared on the world as it was).
+    // The remedy is executable from here: mine again (a clear bearing is chosen, or the skill walks out).
+    for (const [pos, what] of [[cellFeet, 'tread'], [cellHead, 'headroom'], [cellAbove, 'ceiling']]) {
+      const b = bot.blockAt(pos)
+      if (b && b.name !== 'air' && b.name !== 'cave_air' && townDigClass(pos, b.name, townHome()) === 'ground') {
+        noteTownGround(bot, 'mine_step_refused')
+        return { status: 'failed', failClass: 'town_ground',
+                 detail: `reason=town_ground_step stopped at y=${Math.round(bot.entity.position.y)}: the ${what} ahead (${b.name}) ` +
+                         `is the town's ground -- mine again (a clear bearing is chosen, or it walks out first)` }
+      }
+    }
     for (const [pos, what] of [[cellFeet, 'tread'], [cellHead, 'headroom'], [cellAbove, 'ceiling']]) {
       const b = bot.blockAt(pos)
       // ONE PREDICATE. stairLiquid is what chooseStairBearing scored the four
@@ -9342,9 +9408,10 @@ export function stairFlowRisk (bot, from, bear, depth = STAIR_LOOKAHEAD) {
  * Nothing is dug and nothing moves: at most 4 bearings x 4 steps x 2 cells x
  * 6 reads of an already-loaded chunk.
  */
-export function chooseStairBearing (bot, from, depth = STAIR_LOOKAHEAD) {
+export function chooseStairBearing (bot, from, depth = STAIR_LOOKAHEAD, allow = null) {
   let best = null
   for (const bear of stairBearings(bot)) {
+    if (typeof allow === 'function' && !allow(bear)) continue   // the town's ground (mine): never a bearing that cuts it
     const runway = stairRunway(bot, from, bear, depth)
     const flow = runway === 0 ? 0 : stairFlowRisk(bot, from, bear, depth)
     if (!best || runway > best.runway || (runway === best.runway && flow < best.flow)) {
