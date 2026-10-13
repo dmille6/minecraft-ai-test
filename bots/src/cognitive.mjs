@@ -13,7 +13,7 @@ import { HARD_STOP } from './toolfor.mjs'
 import { SKILLS, classifyOutcome, SKILL_CONTRACTS, plantableSpotNear, findTownComposter, townBuildPlan, townPickMiss, townIngredientMiss, foodSkipNow, townContainers, townWellState, townWellBuildPlan, insideTownWell, wellSwordsNow, cobbleWellCap, townPitState, stockWellOpts, valveProof, stockCountKeys, pruneTarget } from './skills.mjs'
 import { disposePlan, wellOrder, wellOrderOutcome, WELL_ORDERS, pitCoverItem } from './well.mjs'
 // plinth-01, the raised junk well (its own statements)
-import { plinthOrder, plinthOrderOutcome, plinthBudget, PLINTH_STEPS_PER_VISIT } from './plinth.mjs'
+import { plinthOrder, plinthOrderOutcome, plinthBudget, plinthShortfall, PLINTH_STEPS_PER_VISIT, PLINTH_MIN_FUND } from './plinth.mjs'
 import { townPlinthState } from './skills.mjs'
 import { smeltInputsFor } from './smelting.mjs'
 import { makeClient, skillSchema } from './llm.mjs'
@@ -709,7 +709,8 @@ export class CognitiveLoop {
         now: Date.now(), distHome: p ? Math.hypot(config.world.homeX - p.x, config.world.homeZ - p.z) : Infinity,
         inside: () => insideTownWell(bot), want: () => town().want, lease: () => town().lease,
         budget: () => plinthBudget(items, PLINTH_STEPS_PER_VISIT), freeSlots: 36 - items.length,
-        chests: () => townContainers(bot).length > 0, state: this.plinthState ?? {},
+        chests: () => townContainers(bot).length > 0, chestSlots: () => Math.max(1, Math.ceil(plinthShortfall(items, PLINTH_MIN_FUND) / 64)),
+        state: this.plinthState ?? {},
       })
       this.plinthState = r.state
       return r.order

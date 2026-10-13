@@ -118,6 +118,7 @@ assert pit_open([(_m(0), _CAP, 'dug')], _m(9)) == [], 'not yet'
 assert pit_open([(_m(0), _CAP, 'dug'), (_m(1), _CAP, 'covered')], _m(30)) == [], 'covered'
 assert pit_open([(_m(0), _CAP, 'dug'), (_m(1), _CAP, 'covered'), (_m(5), _CAP, 'dug')], _m(30)) == [_CAP], 'a resume re-opens it'
 assert pit_open([(_m(0), _CAP, 'dug'), (_m(2), _CAP, 'built')], _m(30)) == [], 'a built well closes it'
+assert pit_open([(_m(0), _CAP, 'dug'), (_m(0), _CAP, 'covered')], _m(30)) == [], 'owned but never opened: the by=closed row closes it (Claude r2 P2-B)'
 
 if __name__ == '__main__':
     import json

@@ -37,14 +37,18 @@ for (let x = hx - R; x <= hx + R; x++) for (let z = hz - R; z <= hz + R; z++) fo
 }
 
 const t0 = Date.now()
-const res = P.planPlinth({ read, home, avoid, keepOut, clearLeaves })
+// the planner as the bot drives it (planPlinthSteps, yielding between candidates): the longest stretch between yields is
+// how long the bot's event loop is blocked at once (Claude r1 P3-7)
+const it = P.planPlinthSteps({ read, home, avoid, keepOut, clearLeaves })
+let res, last = Date.now(), maxStretch = 0
+for (;;) { const r = it.next(); const now = Date.now(); maxStretch = Math.max(maxStretch, now - last); last = now; if (r.done) { res = r.value; break } }
 const ms = Date.now() - t0
-const out = { home, clearLeaves, ms, tried: res.tried, why: res.why, tally: res.tally, plan: res.plan }
+const out = { home, clearLeaves, ms, maxStretch, tried: res.tried, why: res.why, tally: res.tally, plan: res.plan }
 if (rest.includes('--verify') && res.plan) out.verify = verify(res.plan)
 if (rest.includes('--astar') && res.plan) out.astar = astar(res.plan)
 const p = res.plan
 console.log(p
-  ? `PLAN cap=${p.cap.x},${p.cap.y},${p.cap.z} k=${p.k} place=${p.cost} clear=${p.clears} stair=${p.stair.length} hazardStep=${p.hazardStep} facing=${p.facing} stands=${new Set(p.steps.map(x => x.s.join(','))).size} tried=${res.tried} ms=${ms}${out.verify ? ` verify=${out.verify.ok ? 'OK' : `FAIL(${out.verify.why})`}` : ''}`
+  ? `PLAN cap=${p.cap.x},${p.cap.y},${p.cap.z} k=${p.k} place=${p.cost} clear=${p.clears} stair=${p.stair.length} hazardStep=${p.hazardStep} facing=${p.facing} stands=${new Set(p.steps.map(x => x.s.join(','))).size} tried=${res.tried} ms=${ms} block=${maxStretch}${out.verify ? ` verify=${out.verify.ok ? 'OK' : `FAIL(${out.verify.why})`}` : ''}`
   + (out.astar ? ` astar=${out.astar.ok ? `OK(${out.astar.nodes} nodes, stair ${out.astar.stairUsed}/${p.stair.length}, column ${out.astar.inColumn})` : `FAIL(${out.astar.why})`}` : '')
   : `NONE why=${res.why} tried=${res.tried} ms=${ms} tally=${JSON.stringify(res.tally)}`)
 if (jsonOut) fs.writeFileSync(jsonOut, JSON.stringify(out))
@@ -72,8 +76,10 @@ function verify (plan) {
       if (!/_leaves$/.test(w(...s.c)?.name ?? '')) return { ok: false, why: `step ${i} clear of ${w(...s.c)?.name}` }
       cells.set(P.cellKey(...s.c), P.AIR)
     }
-    const after = P.walkReach(w, plan.start, { box, forbid })
-    if (!after.has(P.cellKey(...s.s))) return { ok: false, why: `step ${i} strands its stand` }
+    // the stand walks BACK to the town after the click (Codex r2 P1-1: the walk is not symmetric)
+    if (!P.walksBack(w, { x: s.s[0], y: s.s[1], z: s.s[2] }, plan.start, { box, forbid })) return { ok: false, why: `step ${i} strands its stand` }
+    // bottom-up in every column: no placement over a cell of the plan still to be placed
+    if (s.op === 'place' && plan.steps.slice(i + 1).some(o => o.op === 'place' && o.c[0] === s.c[0] && o.c[2] === s.c[2] && o.c[1] < s.c[1])) return { ok: false, why: `step ${i} placed over a later cell` }
     if (firstHazard === null && P.plinthHazard(w, plan.cap)) firstHazard = i
   }
   if (firstHazard !== plan.hazardStep) return { ok: false, why: `hazard step ${firstHazard} != plan ${plan.hazardStep}` }
