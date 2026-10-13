@@ -38,7 +38,11 @@ Chests and journals are untouched, so no fence is needed.
 This applies once `trial --execute` has run, whatever it printed, and to every later step.
 1. Do not continue the clear.
 2. Do NOT restart before the fence.
-3. Run step 10 (the re-census) for the record. Then do step 10b, step 11 (fence every journal), and steps 12-14.
+3. Re-census for the record: step 10's `census3.py` line only. Then run the PARTIAL verify of this attempt (Claude r2 S2):
+   `W "cd ~/chestclear3 && python3 cc_clear3.py verify census-before-$T-a$A.json plan-$T-a$A.json census-after-$T-a$A.json result-$T-a$A.json trial-$T-a$A.json"`
+   If only the trial ran, pass `-` for the result file. Its problems should be exactly the slot(s) named in the failure.
+   Report anything else.
+4. Then do step 10b, step 11 (fence every journal), and steps 12-14.
 
 The fence is harmless on a partial clear: the bots just recount. Keep every file of the run.
 
@@ -204,13 +208,17 @@ W "cd ~/chestclear3 && sudo python3 cc_clear3.py run census-before-$T-a$A.json p
 After an abort:
 - In the failing world, nothing after the failing point was sent.
 - The other worlds stopped after their current command.
-- `result-$T-a$A.json` lists every action that landed (`done_keys`).
+- `result-$T-a$A.json` lists every action that landed (`done_keys`). It is written before the first edit, after every
+  container and at the end (`final: true`), so a dropped ssh session or a crash still leaves it. A long run can also be
+  launched with `setsid nohup ... &` and polled.
 
 **One retry is allowed:**
 1. Set `A=2`. Take a new census: step 4, which now writes `census-before-$T-a2.json` from the same `positions-run-$T.json`.
 2. Verify round one as a partial run:
    `W "cd ~/chestclear3 && python3 cc_clear3.py verify census-before-$T-a1.json plan-$T-a1.json census-before-$T-a2.json result-$T-a1.json trial-$T-a1.json"`.
-   Its problems must be exactly the slot(s) named in the abort, with nothing else changed.
+   Its problems must be exactly the slot(s) named in the abort, with nothing else changed. Any other problem is
+   STOP-B, with no retry: an RCON exception after a command was sent can land an edit that `done_keys` does not list,
+   and this check is what catches it.
 3. Then do steps 5-9 with `A=2`, which gives a new plan and a new trial receipt. Keep the forceload state
    `forceload-$T.json` from step 2. Do not run `forceload3 add` again; it refuses an existing state file.
 
@@ -413,6 +421,10 @@ with 0 actions.
 - A second `add` with the same state file is REFUSED (exit 2).
 - `remove` exits 0 and reports PASS, with 18 tickets before and 18 after.
 - With one ticket removed behind its back, `remove` reports it and still PASSes on the end state.
+
+**r5, 20:22Z, the final scripts.** The md5s are in the log.
+- A full positive run: the result file has `final: true` and 50 `done_keys`, and verify PASSes.
+- Trial only: the partial verify with result `-` PASSes, and the full verify FAILs, as it must.
 
 **Residual.** Chunk tickets are not reference-counted. If another tool removes a bank-chunk ticket during the clear,
 that chunk can unload, and the next census or pre-read fails. That fails safe as STOP-A or STOP-B. Keep other agents

@@ -110,3 +110,29 @@ sandbox     removed  48 chunk tickets; force-loaded now 18 (before the clear 18)
 FORCELOAD remove PASS
 remove_exit=0
 Unmarked chunk [-188, -188] in minecraft:overworld for force loading
+
+## r5 20:22Z (Claude r2 S1-S3: result written during the run, trial-only partial verify; md5s of the scripts that ran are printed first -- r3/r4 ran the scripts of commits 631585ec / be547fd9)
+md5 at r5:
+cfe46c689f2f395263c630fd18dfb10d  cc_clear3.py
+c2d067f2e92094ad96dae2f6ad0495d1  forceload3.py
+caa6a6903aac4093fad774b18a6a3914  census3.py
+0d83abbb47332692d1fe2b5da08dbc24  plan3.py
+scene built {(-3000, 200, -3000): 23, (-2998, 200, -3000): 27, (-2996, 200, -3000): 27}
+FORCELOAD add PASS
+== result file written during the run; full positive
+census 2026-10-13T20:22:29Z -> 2026-10-13T20:22:29Z worlds 1 with problems 0
+VALIDATE PASS
+TRIAL PASS
+RUN COMPLETE items {'surplus': 2376, 'junk': 16, 'reduce': 16, 'surplus_tool': 6, 'spent_tool': 3} wall 0.0 s
+result final True done_keys 50
+census 2026-10-13T20:22:29Z -> 2026-10-13T20:22:29Z worlds 1 with problems 0
+VERIFY PASS
+== trial-only STOP-B: partial verify with result '-'
+scene built {(-3000, 200, -3000): 23, (-2998, 200, -3000): 27, (-2996, 200, -3000): 27}
+census 2026-10-13T20:22:30Z -> 2026-10-13T20:22:30Z worlds 1 with problems 0
+TRIAL PASS
+census 2026-10-13T20:22:30Z -> 2026-10-13T20:22:30Z worlds 1 with problems 0
+VERIFY PASS
+VERIFY FAIL
+FORCELOAD remove PASS
+Unmarked chunk [-188, -188] in minecraft:overworld for force loading

@@ -25,8 +25,12 @@ def forced(r):
     m = re.search(r'at: (.*)$', rep, re.S)
     if not m: raise RuntimeError('unparsed forceload query reply %r' % rep[:120])
     got = {tuple(map(int, p)) for p in re.findall(r'\[(-?\d+), (-?\d+)\]', m.group(1))}
-    n = re.match(r'(\d+) force loaded chunks? (was|were) found', rep)
-    if not n or int(n.group(1)) != len(got): raise RuntimeError('forceload query count mismatch %r' % rep[:120])
+    # plural "<N> force loaded chunks were found ..."; singular "A force loaded chunk was found ..." (Claude r2 S3: the
+    # singular form is from vanilla's language file, not yet seen on this Paper; anything else raises -- fails closed)
+    n = re.match(r'(\d+) force loaded chunks? (?:was|were) found', rep)
+    one = rep.startswith('A force loaded chunk was found')
+    if not ((n and int(n.group(1)) == len(got)) or (one and len(got) == 1)):
+        raise RuntimeError('forceload query count mismatch %r' % rep[:120])
     return got
 
 

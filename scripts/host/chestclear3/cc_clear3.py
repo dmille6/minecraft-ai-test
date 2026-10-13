@@ -11,8 +11,9 @@ the host). DRY RUN BY DEFAULT: without --execute nothing but read-only commands 
   cc_clear3.py run      <census> <plan> <trial.json> <result.json> [--execute]   every other action, worlds in parallel
   cc_clear3.py verify   <census-before> <plan> <census-after> [<result.json> <trial.json>]   offline: kept slots
                                                         unchanged, removed slots empty, reduced slots at exactly `keep`, no
-                                                        new slot anywhere; with a result + trial (an ABORTED run): only the
-                                                        actions they list as done may have changed anything
+                                                        new slot anywhere; with a result + trial (an ABORTED run; result `-`
+                                                        when only the trial ran): only the actions they list as done may
+                                                        have changed anything
 
 ONE ACTION = ONE COMMAND, ATOMIC IN ITS TICK. The test and the edit name the same block and slot (enforced by the
 grammar's back-references):
@@ -236,6 +237,8 @@ def trial(census, plan):
 
 
 ABORT = threading.Event()
+SAVE_LOCK = threading.Lock()
+SAVE = [None]          # run() sets it: writes the result file (Claude r2 S1: after every container and at the end)
 
 
 def run_world(w, acts, out, ix):
@@ -274,6 +277,7 @@ def run_world(w, acts, out, ix):
                     rec['other'].append([a['pos'], a['slot'], rep[:120]]); rec['aborted'] = 'own unexpected reply'; ABORT.set(); break
                 lat = r.lat[-20:]
                 if lat and sum(lat) / len(lat) > 0.5: rec['aborted'] = 'mean latency > 0.5 s'; ABORT.set(); break
+            if SAVE[0]: SAVE[0]()
         r.close()
     except Exception as e:
         rec['other'].append('%s: %s' % (type(e).__name__, e)); rec['aborted'] = 'exception'; ABORT.set()
@@ -300,13 +304,24 @@ def run(census, plan):
         print('DRY RUN: nothing sent (%d commands; the trial covered %d)' % (sum(map(len, byw.values())), len(done))); return 0
     out = {}; t0 = time.time()
     ix = index(census)
+
+    def snapshot(final=False):
+        with SAVE_LOCK:
+            res = {'started_utc': time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime(t0)), 'wall_s': round(time.time() - t0, 1),
+                   'census_started_utc': census['started_utc'], 'aborted': ABORT.is_set(), 'final': final,
+                   'worlds': {w: {k: (dict(v) if isinstance(v, Counter) else list(v) if isinstance(v, list) else v)
+                                  for k, v in list(rec.items())} for w, rec in sorted(list(out.items()))}}
+            tmp = ARGS[4] + '.tmp'
+            json.dump(res, open(tmp, 'w'), indent=1); os.replace(tmp, ARGS[4])
+            return res
+    SAVE[0] = snapshot
+    snapshot()                                                  # the file exists before the first edit
     th = [threading.Thread(target=run_world, args=(w, acts, out, ix)) for w, acts in sorted(byw.items())]
-    for t in th: t.start()
-    for t in th: t.join()
-    res = {'started_utc': time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime(t0)), 'wall_s': round(time.time() - t0, 1),
-           'census_started_utc': census['started_utc'], 'aborted': ABORT.is_set(),
-           'worlds': {w: {k: (dict(v) if isinstance(v, Counter) else v) for k, v in rec.items()} for w, rec in sorted(out.items())}}
-    json.dump(res, open(ARGS[4], 'w'), indent=1)
+    try:
+        for t in th: t.start()
+        for t in th: t.join()
+    finally:
+        res = snapshot(final=True)
     for w, rec in res['worlds'].items():
         print('%-11s sent %4d done %s failed %d other %s %s' % (w, rec['sent'], rec['done'], len(rec['failed']), rec['other'][:2], rec.get('aborted', '')))
     tot = Counter()
@@ -319,7 +334,7 @@ def verify(before, plan, after, result=None):
     """With a run result (an ABORTED run), only the actions it lists as done must have happened; every other planned
     slot must be unchanged, exactly like a kept one (Claude r1 6). The trial receipt's two actions count as done."""
     if result is not None:
-        done = {key(w, p, s) for w, rec in result['run']['worlds'].items() for p, s in rec.get('done_keys', [])}
+        done = {key(w, p, s) for w, rec in ((result['run'] or {}).get('worlds') or {}).items() for p, s in rec.get('done_keys', [])}
         done |= {key(t['world'], t['pos'], t['slot']) for t in result['trial']['actions'] if t.get('readback_ok')}
         plan = [a for a in plan if key(a['world'], a['pos'], a['slot']) in done]
     bad = census_ok(before, 'before') + census_ok(after, 'after')
@@ -360,6 +375,7 @@ if __name__ == '__main__':
     if mode == 'trial': sys.exit(trial(*load()))
     if mode == 'run': sys.exit(run(*load()))
     if mode == 'verify':
-        res = {'run': json.load(open(ARGS[4])), 'trial': json.load(open(ARGS[5]))} if len(ARGS) > 5 else None
+        # result '-' = the run never started (a trial-only STOP-B): only the trial's actions may have changed anything
+        res = {'run': None if ARGS[4] == '-' else json.load(open(ARGS[4])), 'trial': json.load(open(ARGS[5]))} if len(ARGS) > 5 else None
         sys.exit(verify(json.load(open(ARGS[1])), json.load(open(ARGS[2])), json.load(open(ARGS[3])), res))
     print(__doc__); sys.exit(2)
