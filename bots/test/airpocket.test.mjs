@@ -1399,6 +1399,23 @@ await t('AP3-V6 A LIVE PATH IS HALTED BEFORE THE DIG (Claude r1 P3-1): a goal le
   const a = mk()
   const r = await airPocketStep(a, airPocketPlan(world(HIVE_C)), deps({ guard: guardOf(a) })); clearInterval(a._healthTimer)
   assert.equal(a.pathfinder.goal, null); assert.equal(r.ok, true, r.why); assert.equal(a.controls.jump, true)
+  // THE HALTED PATH'S OWN CLEANUP (both r2 reviews, P3): its dig's catch -> resetPath('dig_error') -> clearControlStates
+  // lands during the look's await, after the guard's re-assert; the jump must still be held when start-dig goes out
+  const mkDigging = () => {
+    const c = mk(); c.lookMs = 20
+    const d0 = c.dig; c.dig = (blk, fl) => { c.jumpAtDig = c.controls.jump; return d0(blk, fl) }
+    return c
+  }
+  const guardDigging = b => () => { if (b.pathfinder.goal) { b.pathfinder.goal = null; setTimeout(() => { b.controls = {} }, 5) } return null }
+  const c = mkDigging()
+  await airPocketStep(c, airPocketPlan(world(HIVE_C)), deps({ guard: guardDigging(c) })); clearInterval(c._healthTimer)
+  assert.equal(c.jumpAtDig, true, 'start-dig went out with the jump released')
+  await withMutant(AP_PATH, "      // clearControlStates during the look's await, after the re-assert above\n      try { bot.setControlState('jump', wantJump) } catch { /* not connected */ }\n",
+    "      // clearControlStates during the look's await, after the re-assert above\n", async m => {
+      const e = mkDigging()
+      await m.airPocketStep(e, m.airPocketPlan(world(HIVE_C)), deps({ guard: guardDigging(e) })); clearInterval(e._healthTimer)
+      assert.notEqual(e.jumpAtDig, true, 'mutant inert')
+    })
   await withMutant(AP_PATH, "      { const g = guard(); if (g) aborted = aborted ?? g }\n", '', async m => {
     const b = mk()
     const rb = await m.airPocketStep(b, m.airPocketPlan(world(HIVE_C)), deps({ guard: guardOf(b) })); clearInterval(b._healthTimer)
