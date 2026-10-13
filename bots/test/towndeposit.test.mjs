@@ -772,3 +772,164 @@ test('BACKOFF: a container in its backoff after a failure is skipped like a full
   const r = await run(w.bot)
   assert.equal(r.status, 'no_effect'); assert.equal(w.st.opened.length, 0)
 })
+
+// THE COBBLE RULE x THE TOWN DEPOSIT (stonecap on 92bc84f): the town deposit reads its allowance from depositPlan, which
+// now holds cobble to whole stacks above a 64 reserve; its own plan banks whole stacks smallest first and keeps 64 of the
+// stone family. The two must agree: never a partial cobble stack, never under 64 cobble + deepslate.
+test('COBBLE RULE: the town deposit banks only whole cobble stacks above the 64 reserve', () => {
+  const it = (name, count, slot) => ({ name, count, slot })
+  const fill = Array.from({ length: 30 }, (_, i) => it('dirt', 64, 12 + i))
+  const cobbleSteps = bag => TD.townDepositPlan([...bag, ...fill]).steps.filter(s => /^cobble/.test(s.name)).map(s => `${s.name}:${s.count}`)
+  assert.deepEqual(cobbleSteps([it('cobblestone', 64, 9), it('cobblestone', 30, 10)]), ['cobblestone:30'])
+  assert.deepEqual(cobbleSteps([it('cobblestone', 64, 9)]), [], 'exactly the reserve: nothing')
+  assert.deepEqual(cobbleSteps([it('cobblestone', 64, 9), it('cobblestone', 64, 10), it('cobblestone', 20, 11)]), ['cobblestone:20'])
+  assert.deepEqual(cobbleSteps([it('cobblestone', 30, 9), it('cobblestone', 40, 11)]), [], '70 held: no whole stack leaves 64')
+  for (const bag of [[it('cobblestone', 64, 9), it('cobblestone', 30, 10)], [it('cobblestone', 64, 9), it('cobbled_deepslate', 64, 10), it('cobblestone', 5, 11)]]) {
+    const all = [...bag, ...fill]
+    const left = all.reduce((n, x) => n + (/^cobble/.test(x.name) ? x.count : 0), 0) -
+      TD.townDepositPlan(all).steps.reduce((n, s) => n + (/^cobble/.test(s.name) ? s.count : 0), 0)
+    assert.ok(left >= 64, `kept ${left}`)
+  }
+})
+
+// THE TOWN COBBLE CAP x THE TOWN DEPOSIT (stonecap on 92bc84f): the town deposit's own transfer admits each cobble stack
+// under the town's lock (cobblecap.mjs). A chest holding 250 -> its 20-stack would pass 256: refused, the logs still go.
+test('COBBLE CAP: at 250 the town deposit banks no cobble (the rest of the plan goes); at 100 it banks the whole 20-stack', async () => {
+  const saved = process.env.POOL_STATE_DIR
+  const cobbleChest = (x, n) => chestAt(x, 70, 0, { items: Array.from({ length: 27 }, (_, i) => (i * 64 < n ? item('cobblestone', Math.min(64, n - i * 64)) : null)) })
+  try {
+    process.env.POOL_STATE_DIR = fs.mkdtempSync(path.join(os.tmpdir(), 'td-cap-'))
+    const c = cobbleChest(2, 250)
+    const w = world({ items: fullBag(), containers: [c] })
+    const r = await run(w.bot)
+    assert.equal(r.status, 'success', r.detail)
+    assert.equal(sumOf(c.items, 'cobblestone'), 250, 'no cobble went in: 250 + 20 would pass 256')
+    assert.ok(sumOf(c.items, 'oak_log') > 0, 'positive control: the logs were banked in the same run')
+    process.env.POOL_STATE_DIR = fs.mkdtempSync(path.join(os.tmpdir(), 'td-cap-'))
+    const c2 = cobbleChest(2, 100)
+    const w2 = world({ items: fullBag(), containers: [c2] })
+    const r2 = await run(w2.bot)
+    assert.equal(r2.status, 'success', r2.detail)
+    assert.equal(sumOf(c2.items, 'cobblestone'), 120, 'counted and complete: 100 + 20 <= 256')
+  } finally { process.env.POOL_STATE_DIR = saved }
+})
+
+// EVERY LIVE RESERVATION COUNTS, THIS RUN'S OWN TOO (Claude's r1 probe; both reviews P1): a chest at 220 and two surplus
+// stacks of 20 and 30 -- either alone fits (240 / 250), both would make 270. Exactly one goes, the row names the refusal.
+test('COBBLE CAP: two surplus stacks into a chest at 220 -> only one goes (this run\'s own reservation counts); the row says cobble_cap 1/0/0', async () => {
+  const saved = process.env.POOL_STATE_DIR
+  try {
+    process.env.POOL_STATE_DIR = fs.mkdtempSync(path.join(os.tmpdir(), 'td-cap-'))
+    const c = chestAt(2, 70, 0, { items: Array.from({ length: 27 }, (_, i) => (i * 64 < 220 ? item('cobblestone', Math.min(64, 220 - i * 64)) : null)) })
+    const items = bag([['cobblestone', 64], ['cobblestone', 20], ['cobbled_deepslate', 30], ['oak_log', 64], ['oak_log', 64], ...filler(31)])
+    const w = world({ items, containers: [c] })
+    const { out, rows } = await rowsOf(() => run(w.bot))
+    assert.equal(out.status, 'success', out.detail)
+    const town = sumOf(c.items, 'cobblestone') + sumOf(c.items, 'cobbled_deepslate')
+    assert.ok(town <= 256, `the town passed the cap: ${town}`)
+    assert.ok(town === 240 || town === 250, `exactly one surplus stack went (positive control: one fits): ${town}`)
+    assert.ok(sumOf(c.items, 'oak_log') > 0, 'positive control: the logs went in the same run')
+    assert.match(rows.at(-1)?.skill?.detail ?? '', / cobble_cap 1\/0\/0 /)
+  } finally { process.env.POOL_STATE_DIR = saved }
+})
+
+// ==================================================================================================================
+// STOCK TARGETS (stocktarget-01, design section 5): the remedy chains through the REAL decision loop and the REAL
+// town_deposit skill. The stock readers are the bot's own (installCobbleCap) and the town's journal is a fresh pool dir.
+const stockChain = async ({ items, chest, well = true, seed = null }) => {
+  const saved = process.env.POOL_STATE_DIR
+  process.env.POOL_STATE_DIR = fs.mkdtempSync(path.join(os.tmpdir(), 'td-stock-'))
+  const { installCobbleCap } = await import('../src/skills.mjs')
+  const B = await import('../src/bankable.mjs')
+  const CC = await import('../src/cobblecap.mjs')
+  const { bot } = world({ items, containers: [chest], botAt: new Vec3(3, 70, 0) })
+  Object.assign(bot, { health: 20, food: 20, oxygenLevel: 300, time: { day: 1, age: 1, timeOfDay: 1000 }, game: { dimension: 'overworld' },
+    recipesFor: () => [], recipesAll: () => [], findBlock: () => null, clearControlStates: () => {}, players: {}, entities: {}, experience: { level: 0 }, username: 'TownBot' })
+  if (seed) CC.appendJournal(process.env.POOL_STATE_DIR, CF.townKey(new Vec3(0, 70, 0)), bot.worldId ?? null, seed)
+  installCobbleCap(bot)
+  B.setStockWellProbe(() => well)
+  const done = () => { B.setStockReaders({ town: null, well: null }); B.setCobbleTownReader(null); process.env.POOL_STATE_DIR = saved }
+  return { bot, done }
+}
+test('STOCK CHAIN (a): a full bag of at-target logs whose town has never been counted -> the town deposit\'s COUNT step fires (no dead end)', async () => {
+  const items = bag([['oak_log', 64], ['oak_log', 64], ['oak_log', 64], ['crafting_table', 1], ['wooden_pickaxe', 1, 50], ...filler(31)])
+  const chest = chestAt(2, 70, 0, { items: Array.from({ length: 27 }, (_, i) => (i < 10 ? item('oak_log', 64) : null)) })
+  const { bot, done } = await stockChain({ items, chest })
+  const refused = []
+  const untap = tapRecords(r => { if (r?.skill?.name === '_stock_refused') refused.push(r.skill.detail) })
+  try {
+    const { ran } = await decisions(bot, 1)
+    assert.equal(ran[0]?.skill, 'town_deposit', JSON.stringify(ran))
+    // THE REFUSAL IS A ROW (stonecap-01 INCONCLUSIVE 10-12): the visit names what it keeps out
+    assert.ok(refused.some(d => /^via=town_deposit .*oak_log:192:stock_(unknown|target)/.test(d)), `a town-deposit refusal row: ${refused.join(' | ')}`)
+    const CC = await import('../src/cobblecap.mjs')
+    const st = CC.readTown(process.env.POOL_STATE_DIR, CF.townKey(new Vec3(0, 70, 0)), bot.worldId ?? null)
+    assert.ok(Object.values(st?.obs ?? {}).some(o => (o.m?.oak_log ?? 0) === 640), `the chest was counted: ${JSON.stringify(st?.obs)}`)
+    assert.equal(sumOf(chest.items, 'oak_log'), 640, 'nothing banked into an at-target town')
+  } finally { untap(); done() }
+})
+test('STOCK CHAIN (b): a full bag at a town at its tool target, nothing else to free -> the VALVE banks ONE spare copy (two copies are enough)', async () => {
+  // filler: torches (never bankable, never junk, never compost) -- wool would be the well's junk, and the valve rightly waits for the well
+  const items = bag([['stone_pickaxe', 1, 131], ['stone_pickaxe', 1, 100], ['crafting_table', 1], ...Array.from({ length: 33 }, (_, i) => ['torch', 1 + (i % 3)])])
+  // the town really holds its 16 usable stone pickaxes (the bot's own count at the open must agree with the seed)
+  const chest = chestAt(2, 70, 0, { items: Array.from({ length: 27 }, (_, i) => (i < 16 ? item('stone_pickaxe', 1) : null)) })
+  const now = Date.now()
+  const { bot, done } = await stockChain({ items, chest, seed: { t: 'cnt', k: '2,70,0', n: 0, cap: now - 100, v: 2, m: { stone_pickaxe: 16 }, ids: [], scan: { keys: ['2,70,0'], at: now - 100 } } })
+  try {
+    const { ran } = await decisions(bot, 1)
+    assert.equal(ran[0]?.skill, 'town_deposit', JSON.stringify(ran))
+    assert.equal(chest.items.filter(x => x?.name === 'stone_pickaxe').length, 17, 'one copy went in, above the target')
+    assert.equal(bot.inventory.items().filter(x => x.name === 'stone_pickaxe').length, 1, 'the best copy stays')
+    const CC = await import('../src/cobblecap.mjs')
+    assert.ok((CC.readJournal(process.env.POOL_STATE_DIR, CF.townKey(new Vec3(0, 70, 0)), bot.worldId ?? null) ?? []).some(r => r.t === 'claim' && r.kind === 'valve' && r.proof === 'nothing_else'), 'under a valve claim with its proof: ' + JSON.stringify(CC.readJournal(process.env.POOL_STATE_DIR, CF.townKey(new Vec3(0, 70, 0)), bot.worldId ?? null)))
+  } finally { done() }
+})
+test('STOCK CHAIN (b) CONTROL: the same bag with a junk stack the well can take -> no valve (the well frees the slot)', async () => {
+  const items = bag([['stone_pickaxe', 1, 131], ['stone_pickaxe', 1, 100], ['crafting_table', 1], ...filler(33)])
+  const chest = chestAt(2)
+  const now = Date.now()
+  const { bot, done } = await stockChain({ items, chest, seed: { t: 'cnt', k: '2,70,0', n: 0, cap: now - 100, v: 2, m: { stone_pickaxe: 16 }, ids: [], scan: { keys: ['2,70,0'], at: now - 100 } } })
+  try {
+    const { ran } = await decisions(bot, 1)
+    assert.notEqual(ran[0]?.skill, 'town_deposit', JSON.stringify(ran))
+    assert.equal(chest.items.filter(x => x?.name === 'stone_pickaxe').length, 0)
+  } finally { done() }
+})
+test('STOCK CHAIN (d) (Codex code r2 P2-6): at-target logs whose only count is 2 h old (a stale floor: the well may not throw) -> the COUNT step fires -> the fresh count makes the surplus stacks ELIGIBLE for the well (the plan), keeping the keep; the throw itself is the Paper stockdispose scene (count step, then the well), not this fake world', async () => {
+  const items = bag([['oak_log', 64], ['oak_log', 64], ['oak_log', 64], ['crafting_table', 1], ['wooden_pickaxe', 1, 50], ...filler(31)])
+  const chest = chestAt(2, 70, 0, { items: Array.from({ length: 27 }, (_, i) => (i < 10 ? item('oak_log', 64) : null)) })
+  const old = Date.now() - 2 * 3_600_000
+  const { bot, done } = await stockChain({ items, chest, seed: { t: 'cnt', k: '2,70,0', n: 0, cap: old, v: 2, m: { oak_log: 640 }, ids: [], scan: { keys: ['2,70,0'], at: old } } })
+  try {
+    const SK = await import('../src/skills.mjs')
+    const W = await import('../src/well.mjs')
+    const wellLogs = () => W.disposePlan(bot.inventory.items(), { maxStacks: Infinity, stock: SK.stockWellOpts(bot) }).stacks.filter(x => x.stock === 'oak_log').reduce((t, x) => t + x.count, 0)
+    assert.equal(wellLogs(), 0, 'positive control of the gate: a stale floor throws nothing')
+    // ONLY A BAG ABOVE ITS KEEP RECOUNTS (Claude code r2 P3): the same stale town, a bag holding just its keep -> no keys
+    const TD0 = await import('../src/towndeposit.mjs')
+    assert.ok((TD0.townKeeps({ oak_log: 64 }, { wanted: bot.currentWants ?? [] }).keep.oak_log ?? 0) >= 64, 'the fixture: 64 logs are all keep')
+    assert.deepEqual(SK.stockCountKeys(bot, bag([['oak_log', 64], ['crafting_table', 1]]), { floor: true }), [], 'a bag at its keep: no recount')
+    assert.deepEqual(SK.stockCountKeys(bot, bot.inventory.items(), { floor: true }), ['2,70,0'], 'positive control: 192 logs recount the stale chest')
+    const { ran } = await decisions(bot, 1)
+    assert.equal(ran[0]?.skill, 'town_deposit', JSON.stringify(ran))
+    assert.equal(sumOf(chest.items, 'oak_log'), 640, 'nothing banked into an at-target town')
+    const thrown = wellLogs()
+    assert.ok(thrown >= 64 && 192 - thrown >= 0, `after the count the well takes the surplus: ${thrown} of 192`)
+    const TD = await import('../src/towndeposit.mjs')
+    const keep = TD.townKeeps({ oak_log: 192 }, { wanted: bot.currentWants ?? [] }).keep.oak_log ?? 0
+    assert.ok(192 - thrown >= keep, `the keep (${keep}) stays: ${192 - thrown}`)
+  } finally { done() }
+})
+test('STOCK CHAIN (c): NO USABLE WELL -> no stop: at-target logs bank as today (a nowell claim), so the well build is never starved', async () => {
+  const items = bag([['oak_log', 64], ['oak_log', 64], ['oak_log', 64], ['crafting_table', 1], ['wooden_pickaxe', 1, 50], ...filler(31)])
+  const chest = chestAt(2)
+  const now = Date.now()
+  const { bot, done } = await stockChain({ items, chest, well: false, seed: { t: 'cnt', k: '2,70,0', n: 0, cap: now - 100, v: 2, m: { oak_log: 640 }, ids: [], scan: { keys: ['2,70,0'], at: now - 100 } } })
+  try {
+    const { ran } = await decisions(bot, 1)
+    assert.equal(ran[0]?.skill, 'town_deposit', JSON.stringify(ran))
+    assert.ok(sumOf(chest.items, 'oak_log') > 0, 'the logs were banked')
+    const CC = await import('../src/cobblecap.mjs')
+    assert.ok((CC.readJournal(process.env.POOL_STATE_DIR, CF.townKey(new Vec3(0, 70, 0)), bot.worldId ?? null) ?? []).some(r => r.t === 'claim' && r.kind === 'nowell'), 'under a nowell claim')
+  } finally { done() }
+})

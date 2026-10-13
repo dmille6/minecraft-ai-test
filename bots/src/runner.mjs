@@ -310,6 +310,8 @@ export class Runner {
       // planks are not evidence about a pickaxe, and a replacement (spent copy out, new copy in) moves no name count.
       crafted: result.item != null && result.item === args?.item ? Number(result.produced ?? 0) : 0,
       craftedItem: result.item ?? null,
+      // THE PRUNE'S verified count (pruneTown: taken from the chest and accounted lost down the well), same rule
+      pruned: Number(result.pruned ?? 0),
     }
 
     // THE EVIDENCE GATE. A claim of success does not leave this function unless
