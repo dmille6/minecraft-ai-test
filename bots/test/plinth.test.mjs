@@ -569,6 +569,20 @@ await t('plinthWant: a voided structure is its own trigger, even after a partial
   assert.equal(P.plinthWant({ rec: v, noSite: null, world: 'w1', now: 5 }).want, 'plan')
   assert.equal(P.plinthWant({ rec: v, noSite: null, world: 'w1', now: 5, wellUsable: true }).want, null)
 })
+await t('walkReachBack is walkReach run backwards: for every standable cell c, back(t).has(c) iff walkReach(c).has(t) (pit, bush, tree, the slab plan half built)', () => {
+  const worlds = [['pit', PIT], ['bush', treeWorld(3)], ['tree', treeWorld(6)], ['half', applied(slabWorld(), SLAB_PLAN.plan, 40)]]
+  const t0 = { x: 0, y: SLAB_Y + 1, z: 0 }, box = { x0: -4, x1: 16, y0: SLAB_Y - 3, y1: SLAB_Y + 8, z0: -4, z1: 4 }
+  let cells = 0
+  for (const [name, read] of worlds) {
+    const back = P.walkReachBack(read, t0, { box })
+    for (let x = box.x0; x <= box.x1; x++) for (let z = box.z0; z <= box.z1; z++) for (let y = box.y0; y <= box.y1; y++) {
+      if (!P.standable(read, x, y, z)) continue
+      cells++
+      assert.equal(back.has(P.cellKey(x, y, z)), P.walkReach(read, { x, y, z }, { box }).has(P.cellKey(t0.x, t0.y, t0.z)), `${name} ${x},${y},${z}`)
+    }
+  }
+  assert.ok(cells > 500, `positive control: ${cells} standable cells compared`)
+})
 await t('walkReach until: a probe for one cell stops as soon as it is found (and still finds it)', () => {
   const start = { x: 0, y: SLAB_Y + 1, z: 0 }, box = { x0: -40, x1: 40, y0: 50, y1: 80, z0: -40, z1: 40 }
   const full = P.walkReach(slabWorld(), start, { box })
