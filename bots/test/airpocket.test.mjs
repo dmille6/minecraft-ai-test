@@ -19,7 +19,7 @@ import { airPocketPlan, airPocketEnvelope, airPocketAdmit, airPocketBudgetMs, en
          standGate, standInPocket, digGate, standRef, standCandidates, airPocketRow, AP_ROW_MAX,
          poseEye, planBaseY, routeUpBlocked, windowHandoff, AP_REDIG_MAX, boxCollides, standsOn, serverPose, botPose, withPoseEye, bodyAgrees,
          awaitWindowHandoff, AP_REFUSE_COOLDOWN_MS, AP_WINDOW_WAIT_MS, equipClicks, windowOwned, admissionTools,
-         rescueInventoryDecision, handRestoreAllowed } from '../src/airpocket.mjs'
+         rescueInventoryDecision, handRestoreAllowed, contestedDig } from '../src/airpocket.mjs'
 
 let pass = 0, fail = 0
 const t = (name, fn) => Promise.resolve()
@@ -1339,6 +1339,74 @@ await t('AP2-U6 WIRED: the rescue bumps the inventory epoch before its step; ski
   assert.equal(restoreWired(rx, sk.replace(ret, ' }')), false)
   const ra = once(sk, ', rescueActive: bot.rescueInventoryActive === true })) {')
   assert.equal(restoreWired(rx, sk.replace(ra, ' })) {')), false)
+})
+
+
+// V. A CONTESTED DIG (airpocket-03). Live 10-13 11:00Z hive-d-Delta: the handoff waited 1528 ms for an interrupted `mine`,
+// went ahead `unsettled`, and mine's next dig cancelled the rescue's ("Digging aborted"); the step took the 60-s FAILURE
+// cooldown and the canary's only upblocked attempt was spent. A contested dig is a handoff failure: 5-s cooldown, a fresh try.
+await t('AP3-V1 contestedDig (pure): "Digging aborted" while a skill held the body; never our own abort or our own deadline', () => {
+  const c = x => contestedDig({ message: 'Digging aborted', ...x })
+  assert.equal(c({ handoffUnsettled: true }), true)
+  assert.equal(c({ skillBusyNow: true }), true)                              // a skill that started during the step
+  assert.equal(c({}), false)                                                // nobody else held the body: an ordinary failure
+  assert.equal(c({ handoffUnsettled: true, aborted: 'envelope breached (> 7 HP in 10 s)' }), false)
+  assert.equal(c({ handoffUnsettled: true, timedOut: true }), false)        // our deadline's stopDigging says the same words
+  assert.equal(contestedDig({ message: 'dig exceeded 2300 ms', handoffUnsettled: true }), false)
+  assert.equal(contestedDig({ message: new Error('Digging aborted').message, skillBusyNow: true }), true)
+})
+// the interrupted skill's next dig cancels ours: mineflayer's stopDigging on the in-flight dig, a few ms after it starts
+const foreignDig = (ms = 30) => b => setTimeout(() => b.stopDigging(), ms)
+const unwindsOnDig = () => { let busy = true; return { busy: () => busy, onDig: b => { foreignDig()(b); setTimeout(() => { busy = false }, 5) } } }
+await t('AP3-V2 THE LIVE CASE: an unsettled handoff, then the skill\'s dig takes ours -> contested, handoffHeld (5 s), row contested=1', async () => {
+  const u = unwindsOnDig()   // mine ended right after its dig (11:00:08 live): busy at the handoff, idle by the catch
+  const a = fakeBot({ onDig: u.onDig }); a.inventory.items = () => [hb('stone_pickaxe', 9)]
+  const r = await airPocketStep(a, airPocketPlan(world(HIVE_C)), deps({ skillBusy: u.busy })); clearInterval(a._healthTimer)
+  assert.equal(r.window, 'unsettled'); assert.equal(r.ok, false); assert.equal(r.contested, true); assert.equal(r.handoffHeld, true)
+  assert.match(r.why, /dig failed: Digging aborted \(contested: a skill still held the body\)/)
+  const row = airPocketRow({ id: 'x', r, requiredMs: 10050, budgetMs: 28000, difficulty: 'peaceful' })
+  assert.match(row, / window=unsettled:\d+ contested=1 eye=/); assert.ok(row.length <= AP_ROW_MAX)
+  // the after-state: the SHORT cooldown, so a fresh attempt comes 5 s later, not 60
+  const st = airPocketAfter(false, {}, 1000, { handoffHeld: r.handoffHeld === true })
+  assert.equal(st.cooldownUntil, 1000 + AP_REFUSE_COOLDOWN_MS)
+})
+await t('AP3-V3 a skill that STARTED during the step (no handoff ran) and took the dig is contested too', async () => {
+  let busy = false
+  const a = fakeBot({ onDig: b => { busy = true; foreignDig()(b) } }); a.inventory.items = () => [hb('stone_pickaxe', 37)]
+  const r = await airPocketStep(a, airPocketPlan(world(HIVE_C)), deps({ skillBusy: () => busy })); clearInterval(a._healthTimer)
+  assert.equal(r.window, 'none'); assert.equal(r.contested, true); assert.equal(r.handoffHeld, true)
+})
+await t('AP3-V4 NOT contested: the same abort with nobody else on the body keeps the 60-s failure cooldown; so does our own deadline', async () => {
+  const a = fakeBot({ onDig: foreignDig() }); a.inventory.items = () => [hb('stone_pickaxe', 37)]
+  const r = await airPocketStep(a, airPocketPlan(world(HIVE_C)), deps()); clearInterval(a._healthTimer)
+  assert.equal(r.ok, false); assert.match(r.why, /Digging aborted$/); assert.notEqual(r.contested, true); assert.notEqual(r.handoffHeld, true)
+  // our own deadline: the timer's stopDigging rejects the dig with "Digging aborted" first -- a skill busy all along
+  const b = fakeBot({ digMs: 1e6 }); b.inventory.items = () => [hb('stone_pickaxe', 9)]
+  const rb = await airPocketStep(b, airPocketPlan(world(HIVE_C)), deps({ skillBusy: () => true })); clearInterval(b._healthTimer)
+  assert.equal(rb.window, 'unsettled'); assert.ok(b.stopped >= 1); assert.notEqual(rb.contested, true)
+})
+await t('AP3-V5 MUTANTS: no contested branch (V2 fails), no timedOut exclusion (V4 fails), no skillBusyNow (V3 fails), no handoffUnsettled (V2 fails)', async () => {
+  await withMutant(AP_PATH, "          res.contested = true; res.handoffHeld = true; res.why += ' (contested: a skill still held the body)'\n", '', async m => {
+    const u = unwindsOnDig(); const a = fakeBot({ onDig: u.onDig }); a.inventory.items = () => [hb('stone_pickaxe', 9)]
+    const r = await m.airPocketStep(a, m.airPocketPlan(world(HIVE_C)), deps({ skillBusy: u.busy })); clearInterval(a._healthTimer)
+    assert.notEqual(r.handoffHeld, true, 'mutant inert')
+  })
+  await withMutant(AP_PATH, "/Digging aborted/.test(String(message)) && !aborted && !timedOut && (", "/Digging aborted/.test(String(message)) && !aborted && (", async m => {
+    const b = fakeBot({ digMs: 1e6 }); b.inventory.items = () => [hb('stone_pickaxe', 9)]
+    const rb = await m.airPocketStep(b, m.airPocketPlan(world(HIVE_C)), deps({ skillBusy: () => true })); clearInterval(b._healthTimer)
+    assert.equal(rb.contested, true, 'mutant inert')
+  })
+  await withMutant(AP_PATH, "(!!handoffUnsettled || !!skillBusyNow)", "(!!handoffUnsettled)", async m => {
+    let busy = false
+    const a = fakeBot({ onDig: b => { busy = true; foreignDig()(b) } }); a.inventory.items = () => [hb('stone_pickaxe', 37)]
+    const r = await m.airPocketStep(a, m.airPocketPlan(world(HIVE_C)), deps({ skillBusy: () => busy })); clearInterval(a._healthTimer)
+    assert.notEqual(r.contested, true, 'mutant inert')
+  })
+  await withMutant(AP_PATH, "(!!handoffUnsettled || !!skillBusyNow)", "(!!skillBusyNow)", async m => {
+    const u = unwindsOnDig(); const a = fakeBot({ onDig: u.onDig }); a.inventory.items = () => [hb('stone_pickaxe', 9)]
+    const r = await m.airPocketStep(a, m.airPocketPlan(world(HIVE_C)), deps({ skillBusy: u.busy })); clearInterval(a._healthTimer)
+    assert.notEqual(r.contested, true, 'mutant inert')
+  })
 })
 
 // ---------------------------------------------------------------- I. the world's inputs, read the way 1.21.8 needs

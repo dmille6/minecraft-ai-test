@@ -160,6 +160,23 @@ export const statusFor = failClass => UNKNOWN_FAIL_CLASSES.has(failClass) ? 'unk
 
 class Aborted extends Error { constructor() { super('aborted'); this.aborted = true } }
 const check = signal => { if (signal?.aborted) throw new Aborted() }
+/**
+ * A DIG AN ABORT CAN STOP BEFORE IT STARTS (airpocket-03). An interrupted skill must not start a dig after its abort: a
+ * new bot.dig() cancels whatever dig is in flight -- on 10-13 an interrupted `mine` cancelled the drowning rescue's ice
+ * dig ("Digging aborted") 1.5 s after the interrupt. A check before bot.dig() is not enough: mineflayer's dig AWAITS its
+ * own lookAt before it sends start-dig, and the abort can land inside that await (Codex, 10-13). So: check, look
+ * (bounded, forced), check again, then send start-dig with forceLook 'ignore' -- no await between the last check and the
+ * packet. Throws Aborted (e.aborted) when the signal fired.
+ */
+export async function abortableDig (bot, block, signal, { lookMs = 500 } = {}) {
+  check(signal)
+  if (typeof bot.lookAt === 'function' && block?.position) {
+    let t
+    try { await Promise.race([bot.lookAt(block.position.offset(0.5, 0.5, 0.5), true), new Promise(r => { t = setTimeout(r, lookMs) })]) } catch { /* a missed look moves only the head */ } finally { clearTimeout(t) }
+  }
+  check(signal)
+  return bot.dig(block, 'ignore')
+}
 const sleep = (ms, signal) => new Promise((res, rej) => {
   const t = setTimeout(res, ms)
   // `?.` on the method too: housekeeping orders tolerate a plain-object signal ({ aborted }), and they now sleep here
@@ -9028,7 +9045,9 @@ async function mine(ctx, { y: targetY = 12 }, signal) {
       const b = bot.blockAt(pos)
       if (!b || b.name === 'air' || b.name === 'cave_air') continue
       const tool = bestTool(bot, b)
+      check(signal)                                   // an interrupted mine touches neither the hand nor the block
       if (tool) await bot.equip(tool, 'hand').catch(() => {})
+      // (the check AFTER the equip is abortableDig's first line: nothing between here and it touches the world)
       if (!b.canHarvest(bot.heldItem?.type ?? null)) {
         // `missing_tool` is what the classifier derived from the word "tool" in
         // this string, and it is right. Stated here so it survives a rewording --
@@ -9037,7 +9056,7 @@ async function mine(ctx, { y: targetY = 12 }, signal) {
         return { status: 'failed', failClass: 'missing_tool',
                  detail: `need a better tool for ${b.name} at y=${Math.round(bot.entity.position.y)}` }
       }
-      try { await bot.dig(b) } catch (e) { if (e.aborted) throw e; break }
+      try { await abortableDig(bot, b, signal) } catch (e) { if (e.aborted) throw e; break }
     }
 
     // DIGGING IS NOT DESCENDING. `bot.dig()` removes a block; it does not move
@@ -9063,7 +9082,7 @@ async function mine(ctx, { y: targetY = 12 }, signal) {
         const stepCells = [cellAbove, cellHead, cellFeet]
         for (const pos of stepCells) {   // re-open top-down
           const b = bot.blockAt(pos)
-          if (b && b.boundingBox === 'block') { try { await bot.dig(b) } catch (e) { if (e.aborted) throw e } }
+          if (b && b.boundingBox === 'block') { try { await abortableDig(bot, b, signal) } catch (e) { if (e.aborted) throw e } }
         }
         await sleep(300, signal)
         settled = stepCells.every(pos => bot.blockAt(pos)?.boundingBox !== 'block') &&
@@ -9077,6 +9096,7 @@ async function mine(ctx, { y: targetY = 12 }, signal) {
     }
     const before = bot.entity.position.clone()
     let moved = 0
+    check(signal)                                     // no walk (and no pathfinder dig) after the abort
     try {
       await withTimeout(
         bot.pathfinder.goto(new goals.GoalBlock(cellFeet.x, cellFeet.y, cellFeet.z)),
@@ -9153,7 +9173,7 @@ async function mine(ctx, { y: targetY = 12 }, signal) {
         // for a drop that unharvestable stone will never produce, turning a
         // sub-second recovery into a spin. body-claim.test.mjs caught this.
         try {
-          await withTimeout(bot.dig(stillThere), STEP_REDIG_MS, bot,
+          await withTimeout(abortableDig(bot, stillThere, signal), STEP_REDIG_MS, bot,
             { what: 'redigging the tread', needsDrop: false })
         }
         catch (e) { if (e.aborted) throw e }
@@ -9163,6 +9183,7 @@ async function mine(ctx, { y: targetY = 12 }, signal) {
         // Guarded: a missing lookAt must not turn a recovery into a throw that
         // aborts the whole descent. The impulse is worth trying without it.
         if (typeof bot.lookAt === 'function') await bot.lookAt(cellFeet.offset(0.5, 0.5, 0.5), true)
+        check(signal)                                 // no shove into the tread after the abort
         bot.setControlState('forward', true)
         await sleep(STEP_IMPULSE_MS, signal)
       } catch (e) {
