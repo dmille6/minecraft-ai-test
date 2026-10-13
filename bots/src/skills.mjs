@@ -7597,7 +7597,8 @@ async function buildPlinth (ctx, _args, signal) {
       // PEERS LEARN THE PLAN BEFORE ITS FIRST BLOCK (as build_well's record settles before its dig): the build starts on
       // the next visit, by when every bot of the pool has re-read its exclusions (20 s) and prices the plan's cells.
       plinthRow(bot, 'success', { stage: 'planned', at: res.plan.cap, k: res.plan.k, done: 0, total: res.plan.steps.length, left: res.plan.cost, id, tally: `tried:${res.tried}` })
-      return { status: 'success', placed: 0, detail: `planned the town's raised junk well at ${res.plan.cap.x},${res.plan.cap.y},${res.plan.cap.z}: ${res.plan.cost} block(s) and ${res.plan.clears} leaf clear(s), built over the next visits` }
+      // NOT a success: a plan changes nothing in the world (the runner would downgrade it to unknown and throttle the order)
+      return { status: 'no_effect', placed: 0, detail: `planned the town's raised junk well at ${res.plan.cap.x},${res.plan.cap.y},${res.plan.cap.z}: ${res.plan.cost} block(s) and ${res.plan.clears} leaf clear(s), built over the next visits` }
     }
     // ---- BUILD ----
     if (plinthRecordState(rec, world) !== 'plan') return skip('no_plan', 'the raised junk well record is not a plan for this world')
@@ -7702,6 +7703,9 @@ async function buildPlinth (ctx, _args, signal) {
       // NOBODY IN THE CELL (the server refuses a place into a body; a dig is no business of a body's)
       if (s.op === 'place' && bodiesAround(bot).some(b => bodyInCell(b, target))) { stop = 'body'; break }
       let done = false
+      // A VANILLA CLIENT'S PACE (its use-item delay is 4 ticks): Paper 10-13, ten placements sent within 216 ms from one
+      // stand lost one (no block update in 5 s; the retry landed). One click per 4 ticks, as a player could.
+      for (let k = 0; k < 4; k++) await g.bound(bot.waitForTicks?.(1), 50 + HK_AWAIT_MS, 'tick wait')
       for (let attempt = 0; attempt < 2 && !done; attempt++) {
         if (attempt) stats.retries++
         if (s.op === 'place') {
@@ -7721,6 +7725,9 @@ async function buildPlinth (ctx, _args, signal) {
         }
       }
       if (!done) throw hkStop('plinth_place', `the ${s.op === 'place' ? 'block placed' : 'leaves dug'} at ${x},${y},${z} did not read back after two tries (step ${i})`)
+      // ONE ROW PER STEP (at most ~100 per town, once): the read checks every cell against the town's recorded plan
+      logEvent({ kind: 'plinth_step', status: 'success', snapshot: snapshot(bot),
+                 detail: `op=${s.op} at=${x},${y},${z} step=${i} id=${recId} stand=${st.x},${st.y},${st.z} alt=${st.x !== s.s[0] || st.y !== s.s[1] || st.z !== s.s[2] ? 1 : 0} block=${s.op === 'place' ? name : '-'}` })
       acted++
       if (s.op === 'place') stats.placed++; else stats.cleared++
     }

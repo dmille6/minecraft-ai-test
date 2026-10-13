@@ -139,7 +139,7 @@ await t('THE CHAIN: no-site record -> plan visit (record, no block) -> build vis
   reset(); noSite()
   const town = fakeTown({ items: [['cobblestone', 64], ['cobblestone', 64], ['cobblestone', 64], ['andesite', 20], ['dirt', 4]] })
   const r1 = await visit(town)
-  assert.equal(r1.status, 'success', r1.detail); assert.match(r1.detail, /^planned the town's raised junk well/)
+  assert.equal(r1.status, 'no_effect', r1.detail); assert.match(r1.detail, /^planned the town's raised junk well/)
   assert.equal(town.st.places.length, 0, 'the planning visit places nothing (peers learn the plan first)')
   const rec = recNow()
   assert.equal(rec.state, 'plan'); assert.equal(rec.world, 'w1'); PLAN = rec.plan
@@ -256,7 +256,7 @@ await t('ONE BUILDER: a live lease held by another bot -> no_effect plinth_lease
   const r = await visit(town)
   assert.equal(r.status, 'no_effect'); assert.equal(r.failClass, 'plinth_lease'); assert.match(r.detail, /b-Other is building/)
   writeFileSync(LEASE, JSON.stringify({ by: 'b-Other', at: Date.now() - 600_000, until: Date.now() - 1 }))
-  assert.equal((await visit(town)).status, 'success')
+  assert.match((await visit(town)).detail, /^planned the town's raised junk well/)
 })
 
 await t('NO FUNDS: a bag at the reserve with no town chest -> failed plinth_unfunded naming the remedy; nothing placed; the reserve untouched', async () => {
