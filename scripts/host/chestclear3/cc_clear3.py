@@ -24,7 +24,7 @@ If anything about the slot changed since the census the test fails, nothing is e
 (the bots are stopped, so a change is a fault, not a race). Abbreviated elements, incomplete containers and
 iron/diamond/netherite tools are never in a plan (plan3.py pins them); `check` refuses a plan that names one.
 """
-import json, os, re, sys, threading, time
+import hashlib, json, os, re, sys, threading, time
 from collections import Counter
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import rcon3, census3
@@ -77,11 +77,29 @@ def act_cmd(a):
 def load(): return json.load(open(ARGS[1])), json.load(open(ARGS[2]))
 
 
+def sha(path):
+    return hashlib.sha256(open(path, 'rb').read()).hexdigest()
+
+
+def census_ok(census, label):
+    """A census with any error or incomplete read cannot certify anything (Codex r1 3)."""
+    bad = []
+    for w, v in census['worlds'].items():
+        if v.get('error') or v.get('incomplete'):
+            bad.append('%s census world %s: error %s incomplete %s' % (label, w, v.get('error'), (v.get('incomplete') or [])[:3]))
+        for c in v.get('containers', []):
+            sl = [i['slot'] for i in c['items']]
+            if c.get('incomplete') or len(sl) != len(set(sl)):
+                bad.append('%s census %s %s: incomplete or duplicate Slot' % (label, w, c['pos']))
+    return bad
+
+
+NORM = lambda raw: re.sub(r'\bcount: \d+', 'count: N', raw or '')
+
+
 def check(census, plan, quiet=False):
     """Offline consistency. Returns a list of problems (empty = OK)."""
-    bad = []; ix = index(census); seen = set()
-    for w, v in census['worlds'].items():
-        if v.get('error') or v.get('incomplete'): bad.append('census world %s: error %s incomplete %s' % (w, v.get('error'), v.get('incomplete')))
+    bad = census_ok(census, 'the'); ix = index(census); seen = set()
     for a in plan:
         k = key(a['world'], a['pos'], a['slot'])
         if k in seen: bad.append('duplicate action %s' % (k,)); continue
@@ -89,7 +107,10 @@ def check(census, plan, quiet=False):
         if k not in ix: bad.append('no such slot in the census %s' % (k,)); continue
         c, it = ix[k]
         if (it['id'], it['count']) != (a['id'], a['count']): bad.append('plan/census differ %s: %s' % (k, (it['id'], it['count'], a['id'], a['count'])))
-        if it.get('abbreviated') or c.get('incomplete'): bad.append('abbreviated/incomplete targeted %s' % (k,))
+        if it.get('abbreviated') or c.get('incomplete') or not it.get('raw'): bad.append('abbreviated/incomplete targeted %s' % (k,))
+        # the predicate tests id, count and (tools) damage only, so a planned item may carry NO other component:
+        # a named, enchanted or otherwise special stack is never in a plan (Codex r1 4)
+        if set(it.get('components') or []) - {'damage'}: bad.append('planned item carries components %s %s' % (it['components'], k))
         if a['why'] not in ('reduce', 'surplus', 'spent_tool', 'surplus_tool', 'junk'): bad.append('unknown why %s' % a['why'])
         if a['why'] == 'reduce' and not (0 < a['keep'] < a['count']): bad.append('reduce keep out of range %s' % (k,))
         if a['why'] in ('spent_tool', 'surplus_tool'):
@@ -162,36 +183,52 @@ def readback(r, a):
     return {i['slot']: i for i in items}, None
 
 
-def trial(census, plan):
-    if check(census, plan, quiet=True): print('check failed'); return 1
+def trial_picks(plan):
     picks = []
-    for why in ('reduce', None):
-        cand = [a for a in plan if (a['why'] == 'reduce') == (why == 'reduce')]
+    for want_reduce in (True, False):
+        cand = [a for a in plan if (a['why'] == 'reduce') == want_reduce]
         if cand: picks.append(sorted(cand, key=lambda a: (a['world'], a['pos'], a['slot']))[0])
-    rec = {'at_utc': time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime()), 'executed': EXECUTE, 'actions': []}
-    ok_all = True
+    return picks
+
+
+def expected_after(before, a):
+    exp = {k: dict(v) for k, v in (before or {}).items()}
+    if a['why'] == 'reduce': exp[a['slot']] = dict(exp[a['slot']], count=a['keep'], raw=re.sub(r'\bcount: \d+', 'count: %d' % a['keep'], exp[a['slot']]['raw']))
+    else: exp.pop(a['slot'], None)
+    return exp
+
+
+def trial(census, plan):
+    """One reduce and one remove. The receipt is BOUND to this census and plan (sha256) and written after every step;
+    a failed read before the edit sends nothing, and the first failure stops the trial (Codex r1 6, 7)."""
+    if check(census, plan, quiet=True): print('check failed'); return 1
+    picks = trial_picks(plan)
+    rec = {'at_utc': time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime()), 'executed': EXECUTE,
+           'census_sha256': sha(ARGS[1]), 'plan_sha256': sha(ARGS[2]), 'expected_cmds': [act_cmd(a) for a in picks], 'actions': []}
+    save = lambda: json.dump(rec, open(ARGS[3], 'w'), indent=1) if EXECUTE else None
+    if not EXECUTE:
+        for a in picks: print('DRY RUN would send to %s: %s' % (a['world'], act_cmd(a)))
+        print('TRIAL (dry run: nothing sent)'); return 0
+    save()
     for a in picks:
-        cmd = act_cmd(a)
-        if not EXECUTE:
-            print('DRY RUN would send to %s: %s' % (a['world'], cmd)); continue
-        r = rcon3.Rcon(a['world'], GRAMMAR)
-        online, lrep = nobody_online(r)
-        if not online: print('REFUSED: someone is online in %s: %s' % (a['world'], lrep)); return 1
-        before, p1 = readback(r, a)
-        rep = r.cmd(cmd)
-        after, p2 = readback(r, a)
-        r.close()
-        exp = dict(before or {})
-        if a['why'] == 'reduce': exp[a['slot']] = dict(exp[a['slot']], count=a['keep'])
-        else: exp.pop(a['slot'], None)
-        good = rep.startswith('Replaced a slot at') and not p1 and not p2 and after == exp
-        ok_all &= good
-        rec['actions'].append({'world': a['world'], 'pos': a['pos'], 'slot': a['slot'], 'why': a['why'], 'cmd': cmd,
-                               'reply': rep, 'readback_ok': good})
+        step = {'world': a['world'], 'pos': a['pos'], 'slot': a['slot'], 'why': a['why'], 'cmd': act_cmd(a), 'state': 'started', 'readback_ok': False}
+        rec['actions'].append(step); save()
+        try:
+            r = rcon3.Rcon(a['world'], GRAMMAR)
+            online, lrep = nobody_online(r)
+            if not online: step['state'] = 'refused: online %s' % lrep[:80]; save(); print('REFUSED', step['state']); return 1
+            before, p1 = readback(r, a)
+            if p1 or a['slot'] not in (before or {}): step['state'] = 'refused: pre-read %s' % p1; save(); print('REFUSED', step['state']); return 1
+            step['state'] = 'sent'; save()
+            rep = r.cmd(step['cmd']); step['reply'] = rep; save()
+            after, p2 = readback(r, a); r.close()
+        except Exception as e:
+            step['state'] += ' / exception %s: %s' % (type(e).__name__, e); save(); print('TRIAL FAIL', step['state']); return 1
+        good = rep.startswith('Replaced a slot at') and not p2 and after == expected_after(before, a)
+        step['readback_ok'] = good; step['state'] = 'done'; save()
         print('TRIAL %s %s %s slot %d %s -> %r readback %s' % (a['world'], a['why'], a['pos'], a['slot'], a['id'], rep, 'OK' if good else 'MISMATCH'))
-    if EXECUTE: json.dump(rec, open(ARGS[3], 'w'), indent=1)
-    print('TRIAL', 'PASS' if ok_all else 'FAIL', '' if EXECUTE else '(dry run: nothing sent)')
-    return 0 if ok_all else 1
+        if not good: print('TRIAL FAIL'); return 1
+    print('TRIAL PASS'); return 0
 
 
 ABORT = threading.Event()
@@ -223,9 +260,17 @@ def run_world(w, acts, out):
 
 def run(census, plan):
     if check(census, plan, quiet=True): print('check failed'); return 1
-    tr = json.load(open(ARGS[3]))
-    if not all(t['readback_ok'] for t in tr['actions']) or not tr['executed']: print('REFUSED: the trial did not pass'); return 1
-    done = {key(t['world'], t['pos'], t['slot']) for t in tr['actions']}
+    tr = json.load(open(ARGS[3])); picks = trial_picks(plan)
+    if (not tr.get('executed') or tr.get('census_sha256') != sha(ARGS[1]) or tr.get('plan_sha256') != sha(ARGS[2])
+            or [t['cmd'] for t in tr['actions']] != [act_cmd(a) for a in picks] or not all(t['readback_ok'] for t in tr['actions'])):
+        print('REFUSED: the trial receipt does not belong to this census + plan, or did not pass'); return 1
+    # ...and its postconditions still hold now (read-only), before those slots are skipped
+    for a in picks:
+        r = rcon3.Rcon(a['world'], GRAMMAR); now, p = readback(r, a); r.close()
+        got = (now or {}).get(a['slot'])
+        ok = not p and ((got is None) if a['why'] != 'reduce' else (got is not None and got['id'] == a['id'] and got['count'] == a['keep']))
+        if not ok: print('REFUSED: trial slot %s %s %d no longer as the trial left it: %s' % (a['world'], a['pos'], a['slot'], got)); return 1
+    done = {key(a['world'], a['pos'], a['slot']) for a in picks}
     byw = {}
     for a in plan:
         if key(a['world'], a['pos'], a['slot']) not in done: byw.setdefault(a['world'], []).append(a)
@@ -249,12 +294,14 @@ def run(census, plan):
 
 
 def verify(before, plan, after):
-    bad = []; ib = index(before); ia = index(after); acts = {key(a['world'], a['pos'], a['slot']): a for a in plan}
+    bad = census_ok(before, 'before') + census_ok(after, 'after')
+    if set(before['worlds']) != set(after['worlds']): bad.append('world sets differ: %s vs %s' % (sorted(before['worlds']), sorted(after['worlds'])))
+    ib = index(before); ia = index(after); acts = {key(a['world'], a['pos'], a['slot']): a for a in plan}
     for w in before['worlds']:
         cb = {tuple(c['pos']) for c in before['worlds'][w]['containers']}
         ca = {tuple(c['pos']) for c in after['worlds'].get(w, {}).get('containers', [])}
         if cb != ca: bad.append('%s containers differ: lost %s new %s' % (w, sorted(cb - ca)[:3], sorted(ca - cb)[:3]))
-    strip = lambda it: {k: it[k] for k in ('id', 'count', 'damage', 'max_damage', 'components', 'abbreviated') if k in it}
+    strip = lambda it: {k: it[k] for k in ('id', 'count', 'damage', 'max_damage', 'components', 'abbreviated', 'raw') if k in it}
     res = Counter()
     for k, (c, it) in ib.items():
         a = acts.get(k); got = ia.get(k)
@@ -262,13 +309,16 @@ def verify(before, plan, after):
             if got is None or strip(got[1]) != strip(it): bad.append('KEPT slot changed %s: %s -> %s' % (k, strip(it), got and strip(got[1])))
             else: res['kept_unchanged'] += 1
         elif a['why'] == 'reduce':
-            if got is None or got[1]['id'] != it['id'] or got[1]['count'] != a['keep']: bad.append('reduce wrong %s: %s' % (k, got and strip(got[1])))
+            if (got is None or got[1]['id'] != it['id'] or got[1]['count'] != a['keep']
+                    or NORM(got[1].get('raw')) != NORM(it.get('raw')) or got[1].get('abbreviated')):
+                bad.append('reduce wrong %s: %s' % (k, got and strip(got[1])))
             else: res['reduced_exact'] += 1
         else:
             if got is not None: bad.append('removed slot still holds %s: %s' % (k, strip(got[1])))
             else: res['removed_empty'] += 1
     for k in ia:
         if k not in ib: bad.append('NEW slot after the clear %s: %s' % (k, strip(ia[k][1])))
+    res['kept_abbreviated_partially_verified'] = sum(1 for k, (c, it) in ib.items() if k not in acts and it.get('abbreviated'))
     print(dict(res), 'problems', len(bad))
     for b in bad[:20]: print('  BAD', b)
     print('VERIFY', 'PASS' if not bad else 'FAIL')

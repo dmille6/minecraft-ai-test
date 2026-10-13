@@ -35,7 +35,10 @@ def parse_item(e):
     return {'id': idm.group(1), 'count': int(cm.group(1)), 'slot': int(sm.group(1)),
             'damage': None if abbreviated else (int(dm.group(1)) if dm else 0),
             'max_damage': None if abbreviated else (int(mdm.group(1)) if mdm else None),
-            'components': comps, 'abbreviated': abbreviated}
+            'components': comps, 'abbreviated': abbreviated,
+            # the element's full text minus its Slot: verify compares it, so a changed enchantment level, name or
+            # potion is a difference even though only component NAMES are parsed (Codex r1 4); None when abbreviated
+            'raw': None if abbreviated else re.sub(r'\bSlot: \d+b, ', '', e.strip())}
 
 
 def read_container(r, x, y, z):
@@ -65,8 +68,10 @@ def census_world(w, v, out):
                 rec['outside_box'] += 1; continue
             rep = r.cmd('data get block %d %d %d id' % (x, y, z))
             m = re.search(r'has the following block data: "minecraft:([a-z_]+)"', rep)
-            if not m or m.group(1) not in KINDS:
+            if rep == 'The target block is not a block entity' or (m and m.group(1) not in KINDS):
                 rec['not_container'] += 1; continue
+            if not m:                       # e.g. "That position is not loaded": the position is UNREAD, not empty (Codex r1 9)
+                rec['incomplete'].append([x, y, z, 'id read: %r' % rep[:100]]); continue
             items, prob = read_container(r, x, y, z)
             c = {'kind': m.group(1), 'pos': [x, y, z], 'items': items}
             if prob:

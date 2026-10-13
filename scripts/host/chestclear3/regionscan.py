@@ -45,7 +45,7 @@ def nbt(buf):
 KINDS = {'minecraft:chest', 'minecraft:trapped_chest', 'minecraft:barrel'}
 
 def scan(world, home):
-    hx, hy, hz = home; found = set(); stats = {'chunks': 0, 'errors': 0, 'external': 0, 'missing_region': 0}
+    hx, hy, hz = home; found = set(); stats = {'chunks': 0, 'errors': 0, 'external': 0, 'missing_region': 0, 'absent': 0}
     for cx in range((hx - 48) >> 4, ((hx + 48) >> 4) + 1):
         for cz in range((hz - 48) >> 4, ((hz + 48) >> 4) + 1):
             rf = '/srv/block2/%s/world/region/r.%d.%d.mca' % (world, cx >> 5, cz >> 5)
@@ -53,7 +53,7 @@ def scan(world, home):
             with open(rf, 'rb') as f:
                 idx = 4 * ((cx & 31) + (cz & 31) * 32); f.seek(idx); e = f.read(4)
                 off = (e[0] << 16 | e[1] << 8 | e[2]) * 4096
-                if not off: continue
+                if not off: stats['absent'] += 1; continue
                 f.seek(off); ln, comp = struct.unpack('>iB', f.read(5)); data = f.read(ln - 1)
             if comp & 128: stats['external'] += 1; continue
             try:
@@ -79,3 +79,9 @@ if __name__ == '__main__':
                   'region_stats': st}
         print('%-11s input %4d  region containers %3d  region-only %3d  %s' % (w, len(have), len(found), len(new), st), flush=True)
     json.dump(out, open(sys.argv[2], 'w'))
+    # A chunk the scan could not read is a hole in the instrument, not an empty chunk (Codex r1 9): the output is
+    # written (it is still a superset of the input) but the exit says the discovery gate did not pass.
+    holes = {w: v['region_stats'] for w, v in out.items()
+             if any(v['region_stats'][k] for k in ('errors', 'external', 'missing_region', 'absent'))}
+    print('DISCOVERY', 'PASS (every chunk of every bank box read)' if not holes else 'FAIL: unread chunks %s' % holes)
+    sys.exit(1 if holes else 0)

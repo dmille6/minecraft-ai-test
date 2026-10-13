@@ -13,7 +13,12 @@ B() { ssh -o BatchMode=yes mike@10.0.0.31 "$@" < /dev/null; }
 T=$(date -u +%Y%m%dT%H%MZ)       # one tag for every file of this run
 ```
 
-Every STOP below means: do not continue; if bots are already stopped go to step 12 (restart) and report.
+Two kinds of STOP (Codex r1 1):
+- **STOP-A, no edit attempted yet** (anything before `trial --execute` in step 8): do not continue. If the bots are
+  stopped, go to step 12 (restart), then 13-14, and report. Chests and journals are untouched, so no fence is needed.
+- **STOP-B, an edit was attempted** (`trial --execute` was run, whatever it printed, or any later step): do not continue
+  the clear, and do NOT restart before the fence. First run step 10's re-census (for the record), then step 11 (fence
+  every journal: harmless on a partial clear, the bots just recount), then 12-14. Keep every file of the run.
 
 ## 0. Preconditions (read-only)
 
@@ -23,8 +28,8 @@ Every STOP below means: do not continue; if bots are already stopped go to step 
    -> `canary_pool: ""`, and the DECISION line names no live run (no S1/S2/S5/S7). If a canary is live: do not stop
    bots during it. Either wait for its close, or write the install hold now (step 1) so the slot is free when it ends.
 3. The fence exists in the deployed tree: `B 'git -C /opt/minecraft-ai log -1 --format=%h; test -f /opt/minecraft-ai/bots/scripts/stockreset.mjs && echo OK'`.
-4. `fleet-recycle.timer` is not due within 60 min (a recycle `restart`s every unit, which STARTS a stopped bot):
-   `B 'systemctl list-timers fleet-recycle.timer --no-legend'`. If it is due sooner, wait until it has run.
+4. `fleet-recycle` is not running now: `B 'systemctl is-active fleet-recycle.service'` -> `inactive`. (A recycle
+   `restart`s every unit, which STARTS a stopped bot; step 1 suspends its timer for the run, step 14 restores it.)
 5. Copy the tools (they live in ~/chestclear3 on both hosts; /tmp does not survive a reboot):
    ```bash
    W 'mkdir -p ~/chestclear3'; B 'mkdir -p ~/chestclear3'
@@ -40,6 +45,12 @@ B 'python3 ~/canary-sched.py install-hold chestclear3 90'      # must print "the
 B 'nohup flock -n /tmp/mcai-canary.lock sleep 5400 >/dev/null 2>&1 & echo $! > ~/chestclear3/lock.pid; sleep 1; \
    flock -n /tmp/mcai-canary.lock true && echo "LOCK NOT HELD -- STOP" || echo "loop lock held by $(cat ~/chestclear3/lock.pid)"'
 ```
+Then suspend the recycle timer for the run (Codex r1 2; restored in step 14):
+```bash
+B 'systemctl is-active fleet-recycle.timer; sudo systemctl stop fleet-recycle.timer; systemctl is-active fleet-recycle.timer fleet-recycle.service'
+```
+-> `active`, then `inactive` / `inactive`. (If the timer was not active to begin with, note that and do not start it in step 14.)
+
 Exit 2 from install-hold = the slot is not free: the hold is written (blocks new launches) but STOP here until the live
 run closes, then re-run the command until it exits 0.
 
@@ -48,7 +59,7 @@ run closes, then re-run the command until it exits 0.
 ```bash
 W "cd ~/chestclear3 && sudo nice -n 10 python3 regionscan.py positions-union-2026-10-13.json positions-run-$T.json"
 ```
-Required. It adds any chest or barrel saved in the region files since 10-13 (it prints `region-only` per town; 10-13:
+Required: it ends `DISCOVERY PASS` (every chunk of every bank box read; any unread chunk = exit 1 = STOP-A). It adds any chest or barrel saved in the region files since 10-13 (it prints `region-only` per town; 10-13:
 0 in every town, and its container counts equalled the RCON census's in all 16). Optional, for chests placed in the
 last autosave interval: `B "cd ~/chestclear3 && nice -n 19 ionice -c3 python3 positions3.py positions-$T.json <census
 files>"` (log mentions, ~5 min, under nice), copy its output to W and give it to regionscan instead of the union file.
@@ -69,7 +80,7 @@ TSTOP=$(date -u +%FT%TZ)
 ```bash
 W "cd ~/chestclear3 && sudo nice -n 10 python3 census3.py positions-run-$T.json census-before-$T.json; sudo chown mike census-before-$T.json"
 ```
-Required: `worlds 16 with problems 0`, and every line ends `There are 0 of a max of 20 players online`. A bot still
+Required: `worlds 16 with problems 0` (an unreadable position, e.g. "not loaded", counts as a problem), and every line ends `There are 0 of a max of 20 players online`. A bot still
 listed = STOP (it is not stopped; find it before anything else).
 
 ## 5. Plan and compare with what the owner approved
@@ -101,7 +112,9 @@ refused only because 80 bots were online -- as it must.)
 W "cd ~/chestclear3 && sudo python3 cc_clear3.py trial census-before-$T.json plan-$T.json trial-$T.json"            # dry: prints the 2 commands
 W "cd ~/chestclear3 && sudo python3 cc_clear3.py trial census-before-$T.json plan-$T.json trial-$T.json --execute"
 ```
-Required: both `readback OK` and `TRIAL PASS`.
+Required: both `readback OK` and `TRIAL PASS`. The receipt `trial-$T.json` is bound to this census and plan (sha256 and the
+exact two commands) and is written after every step; `run` refuses a receipt that does not match, and re-reads both trial
+slots before skipping them. A trial failure is STOP-B.
 
 ## 9. Run
 
@@ -111,8 +124,8 @@ W "cd ~/chestclear3 && sudo python3 cc_clear3.py run census-before-$T.json plan-
 ```
 Required `RUN COMPLETE`. On `RUN ABORTED` (a slot differed from the census, an unexpected reply, a dropped connection or
 latency): nothing after the failing command was sent in that world, and the other worlds stopped after their current
-command. Do not retry blindly: repeat steps 4-9 once with new file names (the plan is rebuilt from the world as it now
-is, so finished actions are not repeated). A second abort = STOP.
+command. Do not retry blindly: repeat steps 4-9 once with a new tag (`T2=...`, new census, plan and trial receipt) (the plan is rebuilt from the world as it now
+is, so finished actions are not repeated). A second abort = STOP-B.
 
 ## 10. Re-census and verify
 
@@ -122,15 +135,17 @@ W "cd ~/chestclear3 && sudo python3 census3.py positions-run-$T.json census-afte
    && python3 plan3.py census-after-$T.json stocktarget-clear-caps-2026-10-10.json replan-$T.json | head -6"
 ```
 Required: `VERIFY PASS` (`kept_unchanged` = every slot not planned, `removed_empty` = removals, `reduced_exact` = reduces, 0
-problems: no kept slot changed, no slot appeared, no container lost), and the re-plan prints `full after 0` with
-`total slots freed 0 items 0` (the clear is at cap; idempotent). A FAIL = STOP before the restart and report (the bots
-stay stopped only as long as it takes to read the mismatch).
+problems: no kept slot changed -- compared on the element's full text, so a changed name, enchantment or count shows --,
+no slot appeared, no container lost; verify also refuses a census with any error or incomplete read;
+`kept_abbreviated_partially_verified` counts the kept elements the server abbreviates, compared on id/count/slot only), and the re-plan prints `full after 0` with
+`total slots freed 0 items 0` (the clear is at cap; idempotent). A FAIL = STOP-B (fence, then restart; report the mismatch).
 
 ## 11. Fence the town journals
 
 ```bash
 B 'D=$(ls -d /var/lib/mcai/_pool-* | grep -v pre-reseed); echo "$D" | wc -l; \
    sudo -u mcbot node /opt/minecraft-ai/bots/scripts/stockreset.mjs --check $D'                   # 32 dirs, 32 journal lines
+TFENCE=$(date -u -v-1M +%FT%TZ 2>/dev/null || date -u -d '-1 min' +%FT%TZ)   # a minute of slack for clock skew
 B 'D=$(ls -d /var/lib/mcai/_pool-* | grep -v pre-reseed); \
    sudo -u mcbot node /opt/minecraft-ai/bots/scripts/stockreset.mjs $D; echo exit=$?'
 ```
@@ -160,7 +175,8 @@ logged yet), and no S5 in the DECISION line.
 ## 14. Release the slot
 
 ```bash
-B 'kill $(cat ~/chestclear3/lock.pid); python3 ~/canary-sched.py install-release'
+B 'kill $(cat ~/chestclear3/lock.pid); sudo systemctl start fleet-recycle.timer; systemctl is-active fleet-recycle.timer; \
+   systemctl list-timers fleet-recycle.timer --no-legend; python3 ~/canary-sched.py install-release'
 ```
 NOTE for the next canary: the clear is a fleet-wide step change in town stock. A canary whose pre-period straddles it
 compares pools across the clear. Either keep the hold until one read pre-window of post-clear time has passed, or
@@ -172,12 +188,11 @@ the scheduler cannot see it.
 ```bash
 W "cd ~/chestclear3 && sudo python3 census3.py positions-run-$T.json census-recount-$T.json && sudo chown mike census-recount-$T.json"
 scp mike@10.0.0.30:chestclear3/census-recount-$T.json /tmp/ && scp /tmp/census-recount-$T.json mike@10.0.0.31:chestclear3/
-B "cd ~/chestclear3 && sudo python3 recountcheck.py census-recount-$T.json \$(ls -d /var/lib/mcai/_pool-* | grep -v pre-reseed)"
+B "cd ~/chestclear3 && sudo python3 recountcheck.py census-recount-$T.json --reset-after $TFENCE \$(ls -d /var/lib/mcai/_pool-* | grep -v pre-reseed)"
 ```
-Expect: `with_reset` 32 of 32; `counts_after` > 0 for every shared pool and for at least one bot dir of each isolated
-world; `agree` >> `differ` (a few differences right after a deposit are honest; a container whose every count
-differs is a finding). Instrument check, 10-13 19:56Z (pre-clear, no reset): 193 of 193 bot counts matched the census
-(double chests and usable-tool copies handled). Then run the design's tripwire reads (stocktargetread + stonecapread on
+Required: `RESET PASS` (all 32 dirs carry a reset at/after the fence). Expect: COVERAGE > 0 in every world, rising over
+the hours as bots visit; `match` >> `partial` (each container compared as ONE consistent view; zero-valued names are
+counted apart). A few partials right after a deposit are honest; many, or a world at 0 coverage after 2 h, is a finding. Then run the design's tripwire reads (stocktargetread + stonecapread on
 the promoted fleet: first exposure of near-cap banking).
 
 ## 16. Record

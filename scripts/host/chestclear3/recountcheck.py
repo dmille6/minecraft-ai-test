@@ -1,68 +1,102 @@
 #!/usr/bin/env python3
-"""recountcheck.py <census.json> <pool state dir>... -- READ-ONLY (runs on 10.0.0.31 as any user that can read the pool
-dirs; it opens journals for reading only and never folds through cobblecap.mjs, whose readTown may write a checkpoint).
+"""recountcheck.py <census.json> [--reset-after ISO-Z] <pool state dir>... -- READ-ONLY (10.0.0.31; run with sudo to read
+the mcbot-owned pool dirs). It opens journal files for reading only and never folds through cobblecap.mjs, whose readTown
+may write a checkpoint.
 
-After the clear: did every town journal get its `reset`, and have the bots RECOUNTED the town since? Per pool dir:
-  reset_at          the latest reset record (none -> FAIL)
-  counts_after      distinct containers with a cnt/obs captured strictly after the reset
-  agree / differ    for each such container, the bots' latest per-name count (field m; group `cobble` =
-                    cobblestone + cobbled_deepslate) against the census of that world at that position
-Pass the census taken closest to the read (bots move items, so a few honest differences are expected right after a
-deposit; a container whose every count differs, or zero counts_after an hour after the restart, is the failure).
-Before the clear it is the instrument's positive control: with no reset it reports the latest counts against the census.
-World of a pool dir: _pool-<world> or _pool-self-<world>-<Bot>."""
-import glob, json, os, re, sys
+After the clear: did every town journal get THIS run's `reset`, and have the bots RECOUNTED the town since? Per pool dir:
+  reset_at      the latest reset record; with --reset-after it must be at or after that time (this run's fence), else FAIL
+  recounted     containers with a count (cnt/obs record, or a checkpoint/base obs entry) captured strictly after the reset
+                -- also shown as a share of the census's containers for that world (coverage)
+  match/partial each recounted container is compared as ONE consistent view (the container alone, or it plus ONE
+                horizontally adjacent chest: a double chest is one window over two block entities and the census cannot
+                see type=left/right). `match` = every NONZERO name the bot counted equals the census in that view;
+                zero-valued names are reported apart (a 0 agrees with an empty chest, so it is weak evidence).
+Bots count usable tool copies (> 10 uses left) and the cobble group (cobblestone + cobbled_deepslate) as one.
+Without --reset-after (before the clear) it is the instrument's positive control: the latest counts against the census.
+World of a pool dir: _pool-<world> or _pool-self-<world>-<Bot>. Exit 1 if any dir lacks the required reset."""
+import glob, json, os, re, sys, time
+from calendar import timegm
 from collections import Counter
 
-census = json.load(open(sys.argv[1]))['worlds']
+args = sys.argv[1:]
+census = json.load(open(args.pop(0)))['worlds']
+after_ms = None
+if args and args[0] == '--reset-after':
+    args.pop(0); after_ms = timegm(time.strptime(args.pop(0), '%Y-%m-%dT%H:%M:%SZ')) * 1000
 GROUP = {'cobble': ('cobblestone', 'cobbled_deepslate')}
 TOOLS = ('_pickaxe', '_axe', '_shovel', '_hoe', '_sword')
 MAXDUR = {'wooden': 59, 'stone': 131, 'iron': 250, 'golden': 32, 'diamond': 1561, 'netherite': 2031}
-tot = Counter(); worst = []
-for d in sys.argv[2:]:
+
+
+def counts(cs):
+    have = Counter()
+    for cc in cs:
+        for it in cc['items']:
+            mat = it['id'].split('_')[0]
+            if it['id'].endswith(TOOLS) and mat in MAXDUR:
+                if it.get('damage') is None or (it.get('max_damage') or MAXDUR[mat]) - it['damage'] <= 10: continue
+            have[it['id']] += it['count']
+    return have
+
+
+tot = Counter(); worst = []; fail = 0; cover = {}
+for d in args:
     base = os.path.basename(d.rstrip('/'))
     m = re.match(r'^_pool-(?:self-)?((?:board|hive|placebo|isolated)-[a-d])(?:-[A-Za-z]+)?$', base)
     w = m.group(1) if m else None
-    recs = []
+    recs, bases = [], []
     for f in sorted(glob.glob(os.path.join(d, '*.cobble*.jsonl'))):
         for ln in open(f, errors='replace'):
             try: recs.append(json.loads(ln))
             except Exception: pass
+    for f in sorted(glob.glob(os.path.join(d, '*.cobble*.json'))):          # base / checkpoint states (a rotation folds records into them)
+        try: bases.append(json.load(open(f)))
+        except Exception: pass
     resets = [r['at'] for r in recs if r.get('t') == 'reset' and isinstance(r.get('at'), (int, float))]
+    for b in bases:
+        st = b.get('state') if isinstance(b.get('state'), dict) else b
+        for ws in ([st] + list((st.get('worlds') or {}).values() if isinstance(st.get('worlds'), dict) else [])):
+            if isinstance(ws, dict) and isinstance(ws.get('resetAt'), (int, float)): resets.append(ws['resetAt'])
     reset_at = max(resets) if resets else None
+    if after_ms is not None and not (reset_at and reset_at >= after_ms): fail += 1
     last = {}
+    def take(k, cap, mm):
+        if not k or not isinstance(cap, (int, float)) or not isinstance(mm, dict): return
+        if reset_at is not None and not cap > reset_at: return
+        if k not in last or cap >= last[k][0]: last[k] = (cap, mm)
     for r in recs:
-        if r.get('t') in ('cnt', 'obs') and r.get('k') and isinstance(r.get('cap'), (int, float)) and isinstance(r.get('m'), dict):
-            if reset_at is not None and not r['cap'] > reset_at: continue
-            if r['k'] not in last or r['cap'] >= last[r['k']]['cap']: last[r['k']] = r
+        if r.get('t') in ('cnt', 'obs'): take(r.get('k'), r.get('cap'), r.get('m'))
+    for b in bases:
+        st = b.get('state') if isinstance(b.get('state'), dict) else b
+        for ws in ([st] + list((st.get('worlds') or {}).values() if isinstance(st.get('worlds'), dict) else [])):
+            for k, o in ((ws or {}).get('obs') or {}).items() if isinstance(ws, dict) else []:
+                if isinstance(o, dict): take(k, o.get('at'), o.get('m'))
     cont = {','.join(map(str, c['pos'])): c for c in (census.get(w) or {}).get('containers', [])}
-    agree = differ = notincensus = 0
-    for k, r in last.items():
+    full = partial = notin = nz = zero = 0
+    for k, (cap, mm) in last.items():
         c = cont.get(k)
-        if c is None: notincensus += 1; continue
+        if c is None: notin += 1; continue
         x, y, z = c['pos']
-        # a DOUBLE chest is one window over two block entities: the bot's count covers both halves, keyed by one of them.
-        # The census does not see the chest's type=left/right state, so a count may match the half alone or the half
-        # plus one horizontally adjacent chest.
         views = [[c]] + [[c, cont[a]] for a in ('%d,%d,%d' % (x + 1, y, z), '%d,%d,%d' % (x - 1, y, z), '%d,%d,%d' % (x, y, z + 1),
                                                    '%d,%d,%d' % (x, y, z - 1)) if a in cont and cont[a]['kind'] == c['kind'] == 'chest']
-        haves = []
+        best = None
         for cs in views:
-            have = Counter()
-            for cc in cs:
-                for it in cc['items']:
-                    tool = it['id'].endswith(TOOLS) and it['id'].split('_')[0] in MAXDUR
-                    if tool and (it.get('damage') is None or (it.get('max_damage') or MAXDUR[it['id'].split('_')[0]]) - it['damage'] <= 10):
-                        continue                         # the bots count USABLE tool copies (> 10 uses left)
-                    have[it['id']] += it['count']
-            haves.append(have)
-        for name, n in r['m'].items():
-            reals = [sum(h[x] for x in GROUP.get(name, (name,))) for h in haves]
-            if n in reals: agree += 1
-            else: differ += 1; worst.append((base, k, name, n, reals))
-    tot.update({'dirs': 1, 'with_reset': reset_at is not None, 'counts_after': len(last), 'agree': agree, 'differ': differ})
-    print('%-38s world %-10s reset_at %s counts_after %3d (census containers %3d, not in census %d) agree %4d differ %3d' % (
-        base, w, reset_at and __import__('time').strftime('%Y-%m-%dT%H:%M:%SZ', __import__('time').gmtime(reset_at / 1000)),
-        len(last), len(cont), notincensus, agree, differ))
+            h = counts(cs)
+            ok = sum(1 for name, n in mm.items() if n and sum(h[q] for q in GROUP.get(name, (name,))) == n)
+            if best is None or ok > best[0]: best = (ok, h)
+        want = sum(1 for n in mm.values() if n); zero += sum(1 for n in mm.values() if not n); nz += best[0]
+        if best[0] == want: full += 1
+        else:
+            partial += 1
+            worst.append((base, k, {n: (v, sum(best[1][q] for q in GROUP.get(n, (n,)))) for n, v in mm.items() if v}))
+    cover.setdefault(w, set()).update(k for k in last if k in cont)
+    tot.update({'dirs': 1, 'with_reset': reset_at is not None, 'recounted': len(last), 'match': full, 'partial': partial,
+                'nonzero_names_matched': nz, 'zero_names': zero})
+    print('%-30s %-10s reset_at %-20s recounted %3d/%3d match %3d partial %2d not-in-census %d' % (
+        base, w, reset_at and time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime(reset_at / 1000)), len(last), len(cont), full, partial, notin))
+print('COVERAGE per world (containers recounted by any of its dirs / census containers):',
+      {w: '%d/%d' % (len(v), len((census.get(w) or {}).get('containers', []))) for w, v in sorted(cover.items())})
 print('TOTAL', dict(tot))
-print('differences (first 15: dir, container, name, bots say, census says):', worst[:15])
+print('partial matches (first 10: dir, container, {name: (bots, census)}):', worst[:10])
+if after_ms is not None: print('RESET', 'PASS' if not fail else 'FAIL: %d dir(s) without a reset at/after the fence time' % fail)
+sys.exit(1 if fail else 0)

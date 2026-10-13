@@ -28,7 +28,7 @@ JUNK = set(caps.get('JUNK', ['egg', 'brown_egg', 'blue_egg', 'armadillo_scute', 
                              'pointed_dripstone', 'rail', 'andesite', 'diorite', 'granite', 'glass', 'lead', 'stone_bricks',
                              'mossy_cobblestone', 'smooth_basalt', 'dead_bush', 'white_wool', 'oak_button', 'brick']))
 rem = Counter(); remslots = Counter(); keep = Counter(); byname = Counter(); fullafter = 0; ncont = 0; fullbefore = 0
-pinned = Counter()
+pinned = Counter(); over_cap_pinned = {}
 plan = []
 for w, v in d['worlds'].items():
     tally = Counter(); usable = Counter(); freed = defaultdict(int)
@@ -38,7 +38,16 @@ for w, v in d['worlds'].items():
         why_pin = ('incomplete_container' if c.get('incomplete') else 'abbreviated' if it.get('abbreviated')
                    else 'iron_diamond_netherite_tool' if it['id'].endswith(TOOLS) and mat in MAXDUR and mat not in SPENT_REMOVABLE
                    else None)
-        if why_pin: it['_pin'] = why_pin
+        if why_pin:
+            it['_pin'] = why_pin
+            # a pinned item still CONSUMES its cap (Codex r1 5): it stays, so the allowance left for the rest is smaller
+            if it['id'] in GROUP_OF or it['id'] in KEEP:
+                tk, cap = ('@' + GROUP_OF[it['id']], GCAP[GROUP_OF[it['id']]]) if it['id'] in GROUP_OF else (it['id'], KEEP[it['id']])
+                tally[tk] += it['count']
+                if tally[tk] > cap: over_cap_pinned[(w, tk)] = tally[tk] - cap
+            elif it['id'] in TK:
+                usable[it['id']] += 1
+                if usable[it['id']] > TK[it['id']]: over_cap_pinned[(w, it['id'])] = usable[it['id']] - TK[it['id']]
     slots.sort(key=lambda ci: -ci[1]['count'])
     for c, it in slots:
         i = it['id']; why = None
@@ -78,3 +87,4 @@ print('total slots freed', sum(remslots.values()), 'items', sum(rem.values()), '
 print('removed by name:', byname.most_common(14))
 print('kept top:', keep.most_common(14))
 print('pinned (never acted on):', dict(pinned))
+print('caps exceeded by pinned items alone (left as they are):', over_cap_pinned or 'none')
