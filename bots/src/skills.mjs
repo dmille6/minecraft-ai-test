@@ -69,7 +69,7 @@ import { WOODEN_TRAPDOOR, isWellJunk, disposePlan, wellIdentity, wellStage, well
 import { resyncPacket, GUARDED_INVENTORY_ACTIONS } from './craftsync.mjs'
 import path from 'node:path'
 import { IRON_KINDS, MIN_TRIP_USES, CANDIDATE_RADIUS, breakHazard, nearHome, pickBudget, rankCandidates, clusterOf, tunnelMovements, planTunnel, ONE_PICK_USES, tripDecision } from './oretunnel.mjs'
-import { townDigClass, townTargetPermit, stairTownClear, walkOutPoint, noteTownGround, configuredHome, TOWN_GROUND_HALF } from './townground.mjs'
+import { townDigClass, townTargetPermit, stairTownClear, walkOutPoints, noteTownGround, configuredHome, TOWN_GROUND_HALF } from './townground.mjs'
 import pkg from 'mineflayer-pathfinder'
 const { goals, Movements } = pkg
 import { Vec3 } from 'vec3'
@@ -8869,15 +8869,21 @@ async function mine(ctx, { y: targetY = 12 }, signal) {
   }
   if (townBlocked()) {
     noteTownGround(bot, 'mine_bearing_refused')
-    const out = walkOutPoint(bot.entity.position, townHome())
-    noteTownGround(bot, 'mine_walkout')
-    const walked = await goto(ctx, { x: out.x, y: Math.floor(bot.entity.position.y), z: out.z, range: 2 }, signal)
-    check(signal)
-    if (townBlocked()) {
+    // EVERY EXIT, nearest first, until one is reached and a stair can start there (Codex code r1 P2: one obstructed exit
+    // must not end the chain). Bounded: four gotos at most.
+    let walked = null, out = null
+    for (const p of walkOutPoints(bot.entity.position, townHome())) {
+      out = p
+      noteTownGround(bot, 'mine_walkout')
+      walked = await goto(ctx, { x: p.x, y: Math.floor(bot.entity.position.y), z: p.z, range: 2 }, signal).catch(e => ({ status: 'failed', detail: String(e?.message ?? e) }))
+      check(signal)
+      if (!townBlocked()) break
+    }
+    if (!out || townBlocked()) {
       noteTownGround(bot, 'mine_refused')
       return {
         status: 'failed', failClass: 'town_ground',
-        detail: `reason=town_ground walked_out=${walked?.status ?? '?'} to ${out.x},${out.z}: every stair from ` +
+        detail: `reason=town_ground walked_out=${walked?.status ?? '?'} last=${out?.x},${out?.z}: every stair from ` +
                 `${Math.round(bot.entity.position.x)},${Math.round(bot.entity.position.y)},${Math.round(bot.entity.position.z)} ` +
                 `would cut the town's ground -- goto a spot ${TOWN_GROUND_HALF + 4}+ blocks from home, then mine`,
       }

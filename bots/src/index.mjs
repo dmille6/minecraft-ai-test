@@ -27,7 +27,7 @@ import { pathfinderWedged, stillnessMs } from './path-watchdog.mjs'
 import { log, closeLogs, logSkill, logEvent, tapRecords } from './logger.mjs'
 import { attachPickupLog } from './pickuplog.mjs'
 import { attachDigTown } from './digtown.mjs'
-import { makeTownBreakCost, townGroundCounters, configuredHome, TRANSIT_COST } from './townground.mjs'
+import { makeTownBreakCost, makeTownStepCost, townGroundCounters, configuredHome, TRANSIT_COST } from './townground.mjs'
 import { attachDifficulty } from './foodskip.mjs'
 import { Runner } from './runner.mjs'
 import { startReflexes } from './reflex.mjs'
@@ -540,12 +540,15 @@ function connect() {
     bot.refreshWells = refreshWells
     const wellPenalty = (block) => wellStepCost(wellCols, block, selfWell)
     moves.exclusionAreasStep = [waterEntryPenalty, deathSitePenalty, wellPenalty]
+    // THE TOWN'S GROUND, PRICED where A* reads it (townground.mjs makeTownStepCost): a solid town-terrain cell a move must
+    // break costs TRANSIT_COST more; air, the floor and anything outside the town cost nothing.
+    const townHome = configuredHome(config.world)
+    moves.exclusionAreasStep.push(makeTownStepCost(townHome, TRANSIT_COST))
     // A NEW array for the base's break exclusions, shared by reference with every clone below (Object.assign), and spread
     // into the tunnel profile's own array.
     // THE TOWN'S GROUND, PRICED NOT REFUSED (townground.mjs; townground-2026-10-13.md 2.5): a path may dig through it at
     // TRANSIT_COST (< 100), so a bot in a town pit can always dig out on any of these profiles, gatherMoves included
     // (a hard veto there was the pit trap, Claude r1 P1-1). TARGET digs are refused in the skills, not here.
-    const townHome = configuredHome(config.world)
     moves.exclusionAreasBreak = [(block) => wellBreakCost(wellCols, block, selfWell)]
     moves.exclusionAreasBreak.push(makeTownBreakCost(townHome, TRANSIT_COST))
     // ORDER IS LOad-BEARING: gatherMoves, ascendMoves and descendMoves are all

@@ -102,16 +102,7 @@ export function stairTownClear (from, bear, home, nameAt, maxSteps = 2 * TOWN_GR
  * square soonest, at the bot's own coordinate on the other axis. Pure. -> { x, z, bear }
  */
 export function walkOutPoint (from, home) {
-  const h = homeOf(home)
-  if (!h || !from) return null
-  const hx = Math.floor(h.x), hz = Math.floor(h.z), x = Math.floor(from.x), z = Math.floor(from.z), R = TOWN_GROUND_HALF + 3
-  const opts = [
-    { d: (hx + R) - x, x: hx + R, z, bear: { x: 1, z: 0 } }, { d: x - (hx - R), x: hx - R, z, bear: { x: -1, z: 0 } },
-    { d: (hz + R) - z, x, z: hz + R, bear: { x: 0, z: 1 } }, { d: z - (hz - R), x, z: hz - R, bear: { x: 0, z: -1 } },
-  ]
-  opts.sort((a, b) => a.d - b.d)
-  const o = opts[0]
-  return { x: o.x, z: o.z, bear: o.bear }
+  return walkOutPoints(from, home)[0] ?? null
 }
 
 /** Per-bot counters for the `_town_ground` liveness row (index.mjs flushes them once a minute). */
@@ -144,4 +135,33 @@ export function makeTownBreakCost (home, cost) {
 export function configuredHome (world, env = process.env) {
   if (env.HOME_X == null || env.HOME_Y == null || env.HOME_Z == null || env.HOME_X === '' || env.HOME_Y === '' || env.HOME_Z === '') return null
   return homeOf({ x: world?.homeX, y: world?.homeY, z: world?.homeZ })
+}
+
+/**
+ * THE TRANSIT PRICE, where A* actually reads it (Codex code r1 P2): mineflayer-pathfinder 2.4.5's safeOrBreak -- the dig
+ * branch of nearly every move -- uses exclusionAreasBreak only as the < 100 PERMISSION and never adds it to the cost
+ * (movements.js:282-299); it does add exclusionStep(block) for the very cell it breaks (:284). So the price is an
+ * exclusionAreasStep entry that charges only a SOLID town-terrain cell (one the move must break): air cells, the floor
+ * under the feet and everything outside the box cost 0. Precomputed for the hot path.
+ */
+export function makeTownStepCost (home, cost) {
+  const h = homeOf(home)
+  if (!h) return () => 0
+  const hx = Math.floor(h.x), hz = Math.floor(h.z), ymin = Math.floor(h.y) - TOWN_GROUND_DEPTH, R = TOWN_GROUND_HALF
+  return (block) => {
+    const p = block?.position
+    if (!p || block.boundingBox !== 'block' || p.y < ymin || Math.abs(p.x - hx) > R || Math.abs(p.z - hz) > R) return 0
+    return TERRAIN.test(block.name ?? '') ? cost : 0
+  }
+}
+
+/** Every walk-out point, nearest edge first (mine tries them in order until one is reached: Codex code r1 P2). */
+export function walkOutPoints (from, home) {
+  const h = homeOf(home)
+  if (!h || !from) return []
+  const hx = Math.floor(h.x), hz = Math.floor(h.z), x = Math.floor(from.x), z = Math.floor(from.z), R = TOWN_GROUND_HALF + 3
+  return [
+    { d: (hx + R) - x, x: hx + R, z, bear: { x: 1, z: 0 } }, { d: x - (hx - R), x: hx - R, z, bear: { x: -1, z: 0 } },
+    { d: (hz + R) - z, x, z: hz + R, bear: { x: 0, z: 1 } }, { d: z - (hz - R), x, z: hz - R, bear: { x: 0, z: -1 } },
+  ].sort((a, b) => a.d - b.d).map(({ x, z, bear }) => ({ x, z, bear }))
 }
