@@ -413,6 +413,7 @@ async function scenePath (fx) {
   m.exclusionAreasStep = [b => W.wellStepCost([cap], b)]
   walker.pathfinder.setMovements(m)
   const home = FIX[fx].home
+  await tpWalker(home.x + 0.5, home.y, home.z + 0.5); await sleep(4000)   // the town's chunks first
   const trips = []
   let colNodes = 0, inColSamples = 0
   for (let i = 0; i < 50; i++) {

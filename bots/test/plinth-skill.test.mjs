@@ -283,6 +283,28 @@ await t('A FOREIGN BLOCK IN A PLAN CELL (a chest put there) voids the plan: fail
   assert.equal(S.townPlinthState(town.bot).want.want, 'plan')
 })
 
+await t('A VOIDED PLAN WITH A WALLED-IN PIT: the voiding visit covers it; the next plan keeps the old cap excluded and watched (prev)', async () => {
+  reset(); noSite()
+  const town = fakeTown({ items: [['cobblestone', 64], ['cobblestone', 64], ['cobblestone', 64], ['dirt', 4]] })
+  await visit(town)
+  const plan = recNow().plan, cap = plan.cap
+  const hz = plan.steps[plan.hazardStep].c.join(',')
+  const sig = { aborted: false }
+  town.st.placeHook = at => { if (KEY(at.x, at.y, at.z) === hz) sig.aborted = true }
+  for (let n = 0; n < 4 && !sig.aborted; n++) { try { await visit(town, sig) } catch (e) { if (!sig.aborted) throw e } }
+  town.st.placeHook = null
+  assert.equal(P.plinthHazard(town.read, cap), true)
+  town.world.set(plan.steps[plan.steps.length - 1].c.join(','), 'chest')   // a foreign block in a cell still to place
+  const r = await visit(town)
+  assert.equal(r.failClass, 'plinth_blocked')
+  assert.equal(P.plinthHazard(town.read, cap), false, 'covered by the visit that voided it')
+  await visit(town)                                                        // plans again
+  const rec = recNow()
+  assert.equal(rec.state, 'plan')
+  assert.deepEqual(rec.prev, [cap])
+  assert.ok(S.knownWellCells(town.bot).some(c => c.x === cap.x && c.y === cap.y && c.z === cap.z), 'the old column stays out of every path')
+})
+
 await t('THE PLAN IS NOT THE WORLD: a block a bot dug out of the finished part is placed again on the next visit', async () => {
   reset(); noSite()
   const town = fakeTown({ items: [['cobblestone', 64], ['cobblestone', 64], ['cobblestone', 64], ['dirt', 4]] })

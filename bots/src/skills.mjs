@@ -7396,14 +7396,24 @@ function releasePlinthLease (bot) {
   const cur = readPlinthLease()
   if (cur?.by === (bot.username ?? null)) writeRecordAtomic(plinthLeaseFile(), { ...cur, until: Date.now() })
 }
-/** The plan this world builds, or null (plinth.mjs plinthRecordState 'plan' or 'complete'). */
-function plinthPlanHere (bot, { complete = true } = {}) {
+/** The plan this world builds, or null (plinth.mjs plinthRecordState 'plan' or 'complete'; a 'void' plan with `voided`). */
+function plinthPlanHere (bot, { complete = true, voided = false } = {}) {
   const rec = readPlinth(), st = plinthRecordState(rec, bot.worldId ?? null)
-  return st === 'plan' || (complete && st === 'complete') ? rec : null
+  return st === 'plan' || (complete && st === 'complete') || (voided && st === 'void' && rec?.plan?.cap) ? rec : null
 }
-/** The plan's cap, for the movement exclusions and the chests' keep-out, from the moment the plan is recorded. */
+/**
+ * EVERY PLINTH COLUMN THIS TOWN HAS STARTED -> [cap]: the current plan (or a voided one) and the caps of the plans it
+ * replaced (`prev`): a part-built plinth stays a block of cobble whose column may still be walled in, so it stays out of
+ * every path and every pit reading keeps covering it.
+ */
 export function knownPlinthCaps (bot) {
-  try { const rec = plinthPlanHere(bot); return rec ? [{ ...rec.plan.cap }] : [] } catch { return [] }
+  try {
+    const rec = plinthPlanHere(bot, { voided: true })
+    if (!rec) return []
+    const out = [{ ...rec.plan.cap }]
+    for (const c of (Array.isArray(rec.prev) ? rec.prev : [])) if (c && Number.isFinite(c.x) && !out.some(o => o.x === c.x && o.y === c.y && o.z === c.z)) out.push({ x: c.x, y: c.y, z: c.z })
+    return out
+  } catch { return [] }
 }
 /** The plan's stair cells (outside the well's own 5x5 break box): never a path's or gather's dig. -> [[x,y,z]] */
 export function knownPlinthStair (bot) {
@@ -7515,27 +7525,30 @@ async function coverPlinthPit (bot, { cap, recId, g, signal, by }) {
   return { ok: true, item: name }
 }
 /** The town's plinth as a PIT for the scheduler (wellOrder's `pit`): a walled-in, uncovered column nobody is building. */
+function plinthPitCap (bot) {
+  const read = readWellCell(bot)
+  const done = plinthPlanHere(bot)?.state === 'complete' ? plinthPlanHere(bot).plan.cap : null   // the well site's own pit then
+  return knownPlinthCaps(bot).find(c => !(done && c.x === done.x && c.y === done.y && c.z === done.z) && plinthHazard(read, c) === true) ?? null
+}
 function plinthPitState (bot) {
-  const rec = plinthPlanHere(bot, { complete: false })
-  if (!rec) return null
-  const cap = rec.plan.cap
-  if (plinthHazard(readWellCell(bot), cap) !== true) return null
+  const cap = plinthPitCap(bot)
+  if (!cap) return null
   const lease = leaseState(readPlinthLease(), Date.now(), bot.username ?? '')
   return { stage: 'plinth', plinth: true, attended: !!wellAdmission({ players: playersSeen(bot), cap, me: bot.username }) || !lease.free,
            coverable: !!pitCoverItem(bot.inventory?.items?.() ?? []) }
 }
 /** close_well's third job: a visitor covers an uncovered plinth hazard nobody is building. */
 async function coverPlinthVisitor (bot, signal) {
-  const rec = plinthPlanHere(bot, { complete: false })
-  if (!rec) return { status: 'no_effect', detail: 'no raised junk well is being built here' }
-  const cap = rec.plan.cap
+  const cap = plinthPitCap(bot)
+  if (!cap) return { status: 'no_effect', detail: 'no raised junk well pit is open here' }
+  const rec = readPlinth()
   if (insideTownWell(bot)) return { status: 'no_effect', detail: 'this bot is inside the raised junk well; it never covers a pit over itself' }
   const lease = leaseState(readPlinthLease(), Date.now(), bot.username ?? '')
   if (!lease.free) return { status: 'no_effect', detail: `${lease.holder} is building the raised junk well; the pit is theirs to cover` }
   const was = handOf(bot.heldItem)
   const g = hkGuards(bot, signal)
   let res
-  try { res = await coverPlinthPit(bot, { cap, recId: rec.id, g, signal, by: 'visitor' }) } finally { await settleAndRestore(bot, was, g, 'close_well') }
+  try { res = await coverPlinthPit(bot, { cap, recId: rec?.id ?? null, g, signal, by: 'visitor' }) } finally { await settleAndRestore(bot, was, g, 'close_well') }
   if (res.ok) return { status: 'success', placed: 1, detail: `covered the raised junk well's open pit at ${cap.x},${cap.y},${cap.z} with ${res.item}` }
   if (res.soft) return { status: 'no_effect', detail: `the raised junk well's pit was not covered: ${res.why}` }
   return { status: 'failed', failClass: 'well_cover', detail: `could not cover the raised junk well's pit at ${cap.x},${cap.y},${cap.z}: ${res.why}` }
@@ -7588,7 +7601,9 @@ async function buildPlinth (ctx, _args, signal) {
         return { status: 'no_effect', failClass: 'plinth_none', detail: `no raised junk well fits within ${WELL_SEARCH_RADIUS} of home (${res.why}); the town plans again in ${Math.round(PLINTH_NONE_BACKOFF_MS / 60000)} min` }
       }
       const id = `${bot.username ?? 'bot'}-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`
-      rec = { v: PLINTH_VERSION, state: 'plan', id, world, at: Date.now(), by: bot.username ?? null, plan: res.plan }
+      // the caps of the plans this one replaces (a voided or lost plinth) stay excluded and watched for a pit
+      const prev = [...(rec?.plan?.cap && plinthRecordState(rec, world) ? [rec.plan.cap] : []), ...(Array.isArray(rec?.prev) ? rec.prev : [])].slice(0, 8)
+      rec = { v: PLINTH_VERSION, state: 'plan', id, world, at: Date.now(), by: bot.username ?? null, plan: res.plan, prev }
       if (!writeRecordAtomic(plinthFile(), rec) || readPlinth()?.id !== id) {
         plinthRow(bot, 'failed', { stage: 'plinth_record', why: 'the plan could not be stored' })
         return { status: 'failed', failClass: 'plinth_record', detail: 'the raised junk well plan could not be stored; nothing was built' }
@@ -7610,6 +7625,8 @@ async function buildPlinth (ctx, _args, signal) {
     if (prog.unknown) return skip('unknown', `a cell of the raised junk well at ${cap.x},${cap.y},${cap.z} is not loaded; the build waits for another visit`)
     if (prog.blocked) {
       writeRecordAtomic(plinthFile(), { ...rec, state: 'void', voidAt: Date.now(), why: prog.blocked })
+      // a walled-in column of the voided plan is this visitor's to cover now (the finally covers what this run owns)
+      if (plinthHazard(read, cap) === true && pitCoverItem(items())) owned = true
       plinthRow(bot, 'failed', { stage: 'plinth_blocked', at: cap, why: prog.blocked })
       return { status: 'failed', failClass: 'plinth_blocked', detail: `the raised junk well's plan is blocked (${prog.blocked}); the town plans it again` }
     }
