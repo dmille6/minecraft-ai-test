@@ -1,0 +1,53 @@
+airpocket-03 review log, 2026-10-13. Codex = `codex exec`; Claude = an independent subagent. Both are read-only on git.
+
+WHY: airpocket-02 @ 70cb0d41 was closed INCONCLUSIVE at 16:20Z with exposure 0. Its one upblocked attempt was hive-d-Delta, 10-13 11:00Z:
+1. The handoff waited 1528 ms for an interrupted `mine` that never unwound.
+2. It went ahead `unsettled`, as designed.
+3. mine's next dig cancelled the rescue's ice dig ("Digging aborted").
+4. The step took the 60-s failure cooldown, and the drowning reflex yielded inside it.
+5. The bot lived (min health 18.33).
+Codex's diagnosis read: AGREE.
+
+BRANCHES
+- ap3-on-82aef34: 78e9e61e -> 48ba3a9c (r1) -> 9f29a031 (r2).
+- ap3-on-48b093ce: e77f0fd8 -> 62ac5e9d -> 8ae76d9f, the same diffs on stocktarget-01.
+
+CHANGE
+- contestedDig: a dig rejected "Digging aborted" while a skill still held the body (handoff `unsettled`, or the runner busy at
+  the catch) is contested. Our own abort or our own deadline (timedOut) never is. A contested dig sets handoffHeld, which
+  gives the 5-s cooldown and a fresh attempt; the row gets `contested=1`.
+- abortableDig in skills.mjs: check, then a bounded forced look, then check, then dig with forceLook 'ignore'.
+- mine's stair step: a check before the equip; every dig is abortable; a check before the walk; checks before and after
+  the recovery look.
+- r1: guard() before the pre-dig look halts a live pathfinder goal; the jump is re-asserted after it.
+- r2: the jump is re-asserted again after the look.
+
+ROUND 1 (78e9e61e)
+- Codex: APPROVE, no findings. It notes ownership attribution is heuristic: a late cancel from an already-idle skill with
+  no unsettled handoff can be missed.
+- Claude: APPROVE, five P3s. Its repro drove mineflayer 4.37.1's real digging.js.
+  - P3-1 TAKEN: a live pathfinder goal (or its in-flight dig's dig_error resetPath) cancels the rescue's dig before the
+    watch's first guard tick. Fix: guard() before the dig.
+  - P3-2 TAKEN: the recovery look ran before the abort check.
+  - P3-3 recorded: setGoal(null) on the not-arrived branch after an abort is pre-existing.
+  - P3-4 recorded: an abandoned skill after a hard stop with no unsettled handoff is not seen as contested.
+  - P3-5 recorded: the fake's synchronous stopDigging.
+
+ROUND 2 (48ba3a9c)
+- Codex: APPROVE, with one P3: a halted pathfinder dig's dig_error resetPath clears controls during the look's await,
+  after the jump re-assert.
+- Claude: APPROVE, with the same P3. Its step-level repro C showed jump=false at START with a dig in flight.
+- Both TAKEN in 9f29a031: the jump is re-asserted after the look. AP3-V6 models the late clear and has an anchored mutant.
+
+ROUND 3 (9f29a031)
+- Codex: APPROVE, no findings.
+- Claude: APPROVE, no findings. Repro C on 9f29a031: floating with a dig in flight gives jump=true at START and ok; without
+  a dig in flight, true and ok; standing with a dig in flight, false and ok (correct).
+
+TESTS
+- airpocket 205/205: AP3-V1..V6, P8 now order-based, and the mutants.
+- mine-abort 15/15: a positive control; aborts at equip, look, dig, last dig, walk and recovery look; the abortableDig
+  unit; 6 anchored mutants; the structural check for no bare bot.dig in mine.
+- body-claim: the dig-site regex now includes abortableDig.
+- npm test: 246/246 on ap3-on-82aef34 @ 9f29a031 and 249/249 on ap3-on-48b093ce @ 8ae76d9f.
+- Lint: only the base's withinBody.

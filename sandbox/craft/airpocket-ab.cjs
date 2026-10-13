@@ -32,6 +32,11 @@
 //   I  head cell solid: water 700 31..40 700, STONE at the head cell 700 41 700
 //   AF A-floor: the bot STANDING on stone (39) in a 1x1x2 water pocket, feet 40, head 41, stone roof 42
 //   J  A for 300 s (the full stack: after the pocket, does it sink back / re-seize / re-drown?)
+//   FM F (the hive-d ice trap) with a skill that IGNORES ITS INTERRUPT (airpocket-03, live 10-13 hive-d-Delta): run with
+//      AP_BRAIN_SKILL=mine AP_BRAIN_ARGS='{"y":20}' AP_KIT=mine, so `mine` is cutting stair steps in the trap's walls when the
+//      rescue interrupts it; the pickaxe sits in the MAIN inventory, so the step's equip clicks and the handoff runs.
+//      ap2 (70cb0d41): mine keeps digging after the abort and its dig cancels the rescue's ("Digging aborted"), 60-s cooldown.
+//      ap3: mine stops at the abort (abortableDig), or a contested dig takes the 5-s cooldown and a fresh attempt.
 // KITS (env AP_KIT; toolhygiene x airpocket, 10-08): default = one stone_pickaxe ~100 uses (as before);
 //   worn1 = a 1-use stone_pickaxe (damage 130 of 131) in slot 0 AHEAD of a ~100-use one in slot 1 -- the step must take the
 //   healthy copy with TOOL_HYGIENE on (the fix) and took slot 0 before it (control). iron1stone = a 1-use IRON copy (faster)
@@ -95,13 +100,20 @@ const SPEC = {
         expect: [[700, 39, 700, 'stone'], [700, 40, 700, 'water'], [700, 41, 700, 'water'], [700, 42, 700, 'stone'], [700, 43, 700, 'stone'], [701, 40, 700, 'furnace']], secs: 150 },
   // CR (10-12, a craft in flight at the trap): AF's pocket, no furnace; run with AP_KIT=craft and AP_BRAIN_SKILL=craft so every
   // decision crafts planks from logs (a 2x2 craft clicks in the player inventory, window 0) while the rescue wants to equip
+  FM: { setup: ['fill 700 40 700 700 41 700 minecraft:water', 'setblock 700 42 700 minecraft:ice', 'fill 699 43 699 701 45 701 minecraft:air'],
+       expect: [[700, 39, 700, 'stone'], [700, 40, 700, 'water'], [700, 41, 700, 'water'], [700, 42, 700, 'ice'], [700, 43, 700, 'air']], secs: 150 },
   CR: { setup: ['fill 700 40 700 700 41 700 minecraft:water'], expect: [[700, 39, 700, 'stone'], [700, 40, 700, 'water'], [700, 41, 700, 'water'], [700, 42, 700, 'stone'], [700, 43, 700, 'stone']], secs: 150 },
 }
 const CLEAR_ITEMS = 'kill @e[type=item,x=700,y=40,z=700,distance=..24]'
 function arenaCmds (spec) { return [CLEAR_ITEMS, 'fill 692 30 692 708 52 708 minecraft:stone', ...spec.setup] }
 const KIT = process.env.AP_KIT || 'default'
-if (!['default', 'worn1', 'iron1stone', 'iron1', 'smelt', 'craft'].includes(KIT)) throw new Error(`AP_KIT ${KIT}`)
+if (!['default', 'worn1', 'iron1stone', 'iron1', 'smelt', 'craft', 'mine'].includes(KIT)) throw new Error(`AP_KIT ${KIT}`)
 function kitCmds () {
+  if (KIT === 'mine') {    // held: cobblestone (hotbar 0); the only pickaxe in the MAIN inventory (the step's equip clicks)
+    return [`clear ${NAME}`,
+      `item replace entity ${NAME} container.0 with minecraft:cobblestone 64`,
+      `item replace entity ${NAME} container.9 with minecraft:stone_pickaxe[damage=31] 1`]
+  }
   if (KIT === 'smelt') {   // held: cobblestone (hotbar 0); the pickaxe in the main inventory; the smelt's ore and fuel beside it
     return [`clear ${NAME}`,
       `item replace entity ${NAME} container.0 with minecraft:cobblestone 64`,
@@ -200,7 +212,7 @@ let brainLog = null
 // AP_BRAIN_SKILL / AP_BRAIN_ARGS (scene SM): what the scripted brain answers every decision with (default: status, observe only)
 const BRAIN_SKILL = process.env.AP_BRAIN_SKILL || 'status'
 const BRAIN_ARGS = JSON.parse(process.env.AP_BRAIN_ARGS || '{}')
-if (!/^(status|smelt|craft)$/.test(BRAIN_SKILL)) throw new Error(`AP_BRAIN_SKILL ${BRAIN_SKILL}`)
+if (!/^(status|smelt|craft|mine)$/.test(BRAIN_SKILL)) throw new Error(`AP_BRAIN_SKILL ${BRAIN_SKILL}`)
 let brainActive = false     // the scripted skill is answered only while the bot is IN the scene (status before and after)
 const brainServer = http.createServer((req, res) => {
   let body = ''; req.on('data', c => { body += c })
@@ -350,7 +362,7 @@ async function runTrial (arm, scene, k) {
     eyeAirEnd: final.eyeAir ?? null, episodes, resub, minHealth: Math.min(...good.map(p => p.health ?? 99)), minAir: Math.min(...good.map(p => p.air ?? 999)),
     kinds, digs, win, furnaceEnd, brain: BRAIN_SKILL,
     ap: rows.filter(r => /^_air_pocket/.test(r.name)).map(r => ({ t: rel(r.ts), tMs: +((r.ts - t0) / 1000).toFixed(3), name: r.name, status: r.status, detail: r.detail })),
-    smelt: rows.filter(r => r.name === 'smelt' || r.name === 'craft' || /^_(reflex_drowning|interrupt)/.test(r.name)).map(r => ({ tMs: +((r.ts - t0) / 1000).toFixed(3), name: r.name, status: r.status, dur: r.dur, detail: r.detail.slice(0, 160) })),
+    smelt: rows.filter(r => r.name === 'smelt' || r.name === 'craft' || r.name === 'mine' || /^_(reflex_drowning|interrupt|mine_stair)/.test(r.name)).map(r => ({ tMs: +((r.ts - t0) / 1000).toFixed(3), name: r.name, status: r.status, dur: r.dur, detail: r.detail.slice(0, 160) })),
     drown: rows.filter(r => WATERY.test(r.name) || /^_(death|flooded_pocket)/.test(r.name)).map(r => ({ t: rel(r.ts), name: r.name, detail: r.detail.slice(0, 200) })),
     other: rows.filter(r => /^_(entombed|marooned|maroon_|pocket|climb_flood_)/.test(r.name)).map(r => ({ t: rel(r.ts), name: r.name, detail: r.detail.slice(0, 200) })),
     pollErrors: polls.filter(p => p.err).length, polls,
