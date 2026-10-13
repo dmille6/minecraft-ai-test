@@ -336,6 +336,9 @@ await t('plinthProgress reads the world: done steps, places left, the next step;
   assert.match(chest.blocked, /^chest at /)
   const covered = P.plinthProgress(P.overlay(applied(slabWorld(), plan), new Map([[P.cellKey(plan.cap.x, plan.cap.y, plan.cap.z), B('dirt')]])), plan)
   assert.equal(covered.covered, true)
+  // ONLY A PIT COVER IS A COVER (Codex r4 N5): a chest in the cap cell is a foreign block, never dug -- the plan voids
+  const chestCap = P.plinthProgress(P.overlay(applied(slabWorld(), plan), new Map([[P.cellKey(plan.cap.x, plan.cap.y, plan.cap.z), B('chest')]])), plan)
+  assert.equal(chestCap.covered, false); assert.match(chestCap.blocked, /^chest at /)
   assert.equal(P.plinthProgress(slabWorld({ [K(...s.c)]: null }), plan).unknown, true)
 })
 

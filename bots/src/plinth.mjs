@@ -31,7 +31,7 @@
 //
 // Nothing here touches the world or the disk: skills.mjs supplies read(), the records and the clicks.
 
-import { fullCube, wellGround, wellPassable, wellSiteRefusal, wellStand, coverRef, wellSpiral, pitCoverItem, reserveStone,
+import { fullCube, wellGround, wellPassable, wellSiteRefusal, wellStand, coverRef, wellSpiral, pitCoverItem, reserveStone, PIT_COVER_BLOCKS,
          STONE_GUARD, RESERVE_STONE, WELL_HOME_CLEARANCE, WELL_NO_SITE_BACKOFF_MS, WELL_BUILD_BACKOFF_MS, WELL_SCAN_MS } from './well.mjs'
 import { townDistance, ADOPT_RADIUS, TOWN_RADIUS, CLEARANCE_CONTAINER, sameWorld } from './composter.mjs'
 
@@ -727,7 +727,11 @@ export function plinthProgress (read, plan) {
   }
   const c = plan.cap, capCell = read(c.x, c.y, c.z)
   if (!capCell) out.unknown = true
-  else if (plan.capWas?.[0] === 'open' && !passable(capCell)) out.covered = true
+  else if (plan.capWas?.[0] === 'open' && !passable(capCell)) {
+    // ONLY A PIT COVER IS A COVER (Codex r4 N5): any other block in the cap cell is a foreign block -- never dug, the plan voids
+    if (isPitCover(capCell)) out.covered = true
+    else out.blocked ??= `${capCell.name} at ${c.x},${c.y},${c.z}`
+  }
   out.complete = out.done === out.total && !out.unknown
   return out
 }
@@ -922,4 +926,7 @@ export function plinthDetail ({ stage, at = null, k = null, placed = 0, cleared 
 }
 
 export const isPlinthBlock = name => PLINTH_SET.has(name)
+/** A block a pit is covered with (well.mjs PIT_COVER_BLOCKS: what coverPit / coverPlinthPit place): the only block the
+ *  build ever digs out of a plan's cap cell. Pure. */
+export const isPitCover = b => !!b && PIT_COVER_BLOCKS.includes(b.name)
 export { RESERVE_STONE }
