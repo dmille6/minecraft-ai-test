@@ -1,0 +1,42 @@
+wellsite-01 -- review record (2026-10-13). Branch wellsite-on-82aef34 (base = fleet 82aef34).
+
+DIAGNOSIS (evidence in the commit messages; replay tool bots/scripts/wellsite-replay.mjs):
+- 24 h to 10-13 08:07Z, Events full walk, 1,291,314 rows, 80 bots, 24.02 h: 3,197 _well_refused reason=no_site
+  ("no valid cell for a well near home") from 55 bots in 12 pools; per-bot gap p10 5.2 / p50 7.2 / p90 47 min;
+  positive control: dispose_well successes in hive-a 4, hive-b 4, hive-c 8, placebo-d 16, placebo-a 3, placebo-b 2.
+- Region files copied read-only from 10.0.0.30, decoded, real well.mjs run on them. Decoder validated: 10/10 cells vs
+  read-only RCON `execute if block` on board-a (negative control failed); 5 live wells read intact, placebo-d's retired
+  well reads breached. Every no-well town: canonical search exhausted. Independent criteria: WALLS and the R=2 RING fail
+  80-100% of candidates in every town, working ones included. Cause: bot excavation within 14 of home (soil layer reduced
+  to a lattice of floating grass; ten same-seed worlds differ by 677-2,761 bot-dug cells in the town box).
+- well_retired 741 rows = two wells: board-b -260,64,146 (real breach, g-1 ring mined out) and placebo-b 280,58,-398
+  (false: a marooned escape climbed its diagonal column 10-12 09:20-09:31 and left sand on dirt in the wall).
+
+ROUND 1 (proposal A1-A5):
+- Codex: A1 APPROVE-WITH-CHANGES (backoff only for an EXHAUSTED search), A2 REJECT (trapdoor scan count 16 at radius 48,
+  container scan 24, 6x synchronous scan, unreachable far/pit sites), A3 APPROVE-WITH-CHANGES (walls only; P1 re-check
+  containment at the stand before throwing), A4 APPROVE-WITH-CHANGES (tally through the resolver, first in the row),
+  A5 APPROVE. Diagnosis corrections taken (hive-d ring 80.5%, ten worlds, wellBreakCost also guards gather digs).
+- Claude: same verdicts; A5 log on the bot object; separate import; reword the refusal; A2 deferred.
+ROUND 2 (built 51f025f8 + a town no-site record added since r1):
+- Codex CHANGE: P1 check not immediately before the click; P2 held answer extends the hold; P2 G1 false trips (reseed,
+  failed write); P2 adjacent-gap race exemption hides sustained repeats; P2 ambiguous G1 as REVERT.
+- Claude: code APPROVE; read CHANGE (status field, G1 positive control); registration CHANGE (sha, lint, review file);
+  P3 import conflict with stocktarget, comments, held backoff length.
+- Fixed in a4e8d79c / 49fb01c7: click re-check; the hold moved into the scheduler's plan reading (no order, no row, no
+  bot backoff); rec=/w= on the row; G1 by episode after a stored record; control-arm positive control; import moved.
+ROUND 3: Codex code CHANGE (P1: the dig-click wait was one-shot), read APPROVE, registration APPROVE.
+         Claude code APPROVE, read APPROVE after P2 (unstored record invisible to G1), registration P3s.
+         Fixed in baa94879: the wait loops to a full gap after the latest dig (max 8); G3 breach_record_unstored;
+         own_lines for G3 and control_tally_rows.
+ROUND 4: Codex APPROVE / APPROVE / APPROVE. Claude APPROVE / APPROVE / APPROVE (P3 taken: control_tally_rows without
+         the defect evidence key, BLOCKS KEEP). Open P3s accepted: no test for the 8-wait cap or the pit-phase click
+         breach; the dig-gap mutant is timing-based (can only go red, never pass falsely).
+
+TESTS: node scripts/run-tests.mjs (the only test command). See the final line below for the tip and the merged tree.
+LINT: eslint no-undef: only the fleet's pre-existing reflex.mjs:2382 withinBody.
+COMPOSITION: git merge-tree of the tip with origin/st-on-82aef34 (48b093ce): clean.
+FINAL: npm test at baa94879: 246/246 files. Merged with origin/st-on-82aef34: 249/249 at e3268ac7 (pre-r3 tip);
+at baa94879 + stocktarget, well.test.mjs + wellsite.test.mjs + well-gridfix-compose 3/3. Read dry run on the live base
+(canary board-a,board-c,placebo-b on 82aef34, 3 h): licence 0, G2 115, control-arm G1 234, instrument 267 -- the gates
+see the base's failure mode. Registration sha = baa94879 (the docs commit above it changes no bots/ file).
