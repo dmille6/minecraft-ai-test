@@ -100,7 +100,7 @@ function fakeTown ({ items = [], name = 'b-Alpha', extra = {}, at = null } = {})
       },
     },
     _placeBlockWithOptions: async (ref, face) => {
-      (st.refNames ??= []).push(ref.name)
+      (st.refNames ??= []).push(ref.name); (st.placeTimes ??= []).push(Date.now())
       const at = ref.position.plus(face)
       const h = bot.heldItem
       assert.ok(h, 'placing with an empty hand')
@@ -265,9 +265,13 @@ await t('SETTLE (Codex r1 P1-5): a plan younger than WELL_RECORD_SETTLE_MS is no
   const a = fakeTown({ items: [['cobblestone', 200], ['dirt', 4]] })
   await visit(a)
   const b = fakeTown({ items: [['cobblestone', 200], ['dirt', 4]], name: 'b-Bravo' })
+  const at = recNow().at
   const r = await visit(b, { aborted: false }, { age: false })
-  assert.equal(r.status, 'no_effect'); assert.match(r.detail, /plan is too new/)
-  assert.equal(b.st.places.length, 0)
+  // under the suite's short budgets the visit gives up waiting ('too new'); under production budgets it waits the settle
+  // out -- either way no block is placed before the plan is WELL_RECORD_SETTLE_MS old (Codex r8: env-independent)
+  const first = (b.st.placeTimes ?? [])[0]
+  assert.ok(first === undefined || first - at >= S.WELL_RECORD_SETTLE_MS, `a block ${first - at} ms after the plan`)
+  if (first === undefined) { assert.equal(r.status, 'no_effect'); assert.match(r.detail, /plan is too new/) }
   ageRecord()
   assert.equal((await visit(b)).status, 'success', 'once the plan has settled')
 })
