@@ -364,7 +364,12 @@ export function standOk (read, { stand, target, point, topFace = false, op = 'pl
 export function coverableAfter (read, cap, { start, box = null, forbid = () => false }) {
   const cr = coverRef(read, cap, null)
   if (!cr) return false
-  const reach = walkReach(read, start, { box, forbid })
+  // a cover stand the town reaches AND that walks back to the town once the cover is in (Claude r3 P3-3: the cover's own
+  // standOk asks both; the proof must not promise less)
+  const there = walkReach(read, start, { box, forbid })
+  const covered = overlay(read, new Map([[K(cap.x, cap.y, cap.z), PLACED]]))
+  const back = walkReachBack(covered, start, { box, forbid })
+  const reach = { has: k => there.has(k) && back.has(k) }
   return !!standFor(read, { target: cap, point: faceCentre(cr.ref, [cr.face.x, cr.face.y, cr.face.z]), topFace: cr.face.y === 1, reach, avoid: forbid })
 }
 
@@ -581,7 +586,7 @@ export function * sequencePlinthSteps (read, cand, { home, start = null, clearLe
     return { plan: {
       v: PLINTH_VERSION, cap: { ...cap }, t: cand.t, k: cand.k, facing: ws.facing, start: { ...st },
       steps, cost: steps.filter(s => s.op === 'place').length, clears: steps.filter(s => s.op === 'clear').length,
-      stair: stair.map(c => [c.x, c.y, c.z]), hazardStep: r.hazardStep,
+      stair: stair.map(c => [c.x, c.y, c.z]), hazardStep: r.hazardStep, box: { ...box },
       capWas: plinthColumn(cap).map(c => (passable(read(c.x, c.y, c.z)) ? 'open' : 'ground')),
     } }
   }
@@ -638,7 +643,7 @@ function * orderSteps (read0, cand, stair, { st, box, forbid }) {
         const hz = plinthHazard(world, cap)
         if (hz) {
           const cr = coverRef(world, cap, null)
-          const cs = cr && standFor(world, { target: cap, point: faceCentre(cr.ref, [cr.face.x, cr.face.y, cr.face.z]), topFace: cr.face.y === 1, reach: next, avoid: avoidStand })
+          const cs = cr && coverableAfter(world, cap, { start: st, box, forbid })   // both directions (Claude r3 P3-3)
           if (!cs) { cells.delete(key); continue }
           if (hazardStep === null) hazardStep = steps.length
         }
@@ -812,7 +817,7 @@ export function plinthWant ({ wellUsable = false, rec = null, noSite = null, wor
   if (state === 'none') {
     const age = now - Number(rec.at)
     if (Number.isFinite(age) && age >= 0 && age < PLINTH_NONE_BACKOFF_MS) return { want: null, why: 'none_held' }
-    return noSiteHere ? { want: 'plan', why: 'none_aged' } : { want: null, why: 'no_trigger' }
+    return noSiteHere || rec.trigger === 'void' ? { want: 'plan', why: 'none_aged' } : { want: null, why: 'no_trigger' }
   }
   if (state === 'complete') {
     if (noSiteHere && Number(noSite.at) > Number(rec.doneAt ?? rec.at)) return { want: 'plan', why: 'complete_lost' }

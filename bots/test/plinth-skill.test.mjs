@@ -98,6 +98,7 @@ function fakeTown ({ items = [], name = 'b-Alpha', extra = {}, at = null } = {})
       },
     },
     _placeBlockWithOptions: async (ref, face) => {
+      (st.refNames ??= []).push(ref.name)
       const at = ref.position.plus(face)
       const h = bot.heldItem
       assert.ok(h, 'placing with an empty hand')
@@ -510,6 +511,41 @@ await t('NO EVICTION (Codex r2 P2-4): a town already carrying PLINTH_PREV_MAX un
   assert.equal(recNow().prev.length, P.PLINTH_PREV_MAX)
 })
 
+// ---- REVIEW r3 (Codex REJECT: N1-N4) ----
+await t('N3/N4 (Codex r3): a planned leaf replaced by a chest during the walk is NOT dug (the plan voids); a support replaced by a crafting table in the wait is NOT clicked', async () => {
+  reset(); noSite()
+  const extra = {}
+  for (let x = -30; x <= 30; x++) for (let z = -30; z <= 30; z++) for (let y = SLAB_Y - 4; y < SLAB_Y; y++) extra[KEY(x, y, z)] = 'dirt'
+  for (const y of [SLAB_Y, SLAB_Y - 1]) extra[KEY(10, y, 0)] = 'oak_leaves'
+  const town = fakeTown({ items: [['cobblestone', 200], ['dirt', 4]], extra })
+  const sq = P.sequencePlinth(town.read, P.plinthCandidate(town.read, { home: HOME, x: 10, z: 0, t: SLAB_Y - 2, k: 2 }), { home: HOME })
+  writeFileSync(PLINTH, JSON.stringify({ v: P.PLINTH_VERSION, state: 'plan', id: 'leafy-n3', world: 'w1', at: Date.now() - 60_000, by: 'test', plan: sq.plan, prev: [], left: sq.plan.cost, stuck: null }))
+  const leaf = sq.plan.steps.find(st => st.op === 'clear').c.join(',')
+  town.st.gotoFail = goal => { if (!town.st.swapped) { town.st.swapped = true; town.world.set(leaf, 'chest') } return false }
+  town.bot.entity.position = new Vec3(-5.5, SLAB_Y + 1, -5.5)
+  await visit(town)
+  town.st.gotoFail = null
+  assert.ok(!town.st.digs.includes(leaf), 'the chest was not dug')
+  // N4: the support turns into a crafting table during the pre-click ticks
+  reset(); noSite()
+  const t2 = fakeTown({ items: [['cobblestone', 64], ['cobblestone', 64], ['cobblestone', 64], ['dirt', 4]] })
+  await visit(t2)
+  const s0 = recNow().plan.steps[0]
+  let swapped = false
+  t2.st.tickHook = () => { if (!swapped && t2.st.places.length === 0) { swapped = true; t2.world.set(s0.r.join(','), 'crafting_table') } }
+  const r2 = await visit(t2)
+  t2.st.tickHook = null
+  assert.ok(swapped)
+  assert.ok(!(t2.st.refNames ?? []).includes('crafting_table'), 'no click on the crafting table')
+  assert.match(r2.detail, /\(support\)/, 'the visit stopped on the support, at the click')
+})
+await t('N2 (Codex r3): void -> a failed search -> aged none still plans again with the no-site hold gone (the void is carried as the trigger)', () => {
+  const NOW = 100_000_000
+  const none = { v: P.PLINTH_VERSION, state: 'none', world: 'w1', at: NOW - P.PLINTH_NONE_BACKOFF_MS - 1, trigger: 'void', prev: [] }
+  assert.equal(P.plinthWant({ rec: none, noSite: null, world: 'w1', now: NOW }).want, 'plan')
+  assert.equal(P.plinthWant({ rec: { ...none, trigger: null }, noSite: null, world: 'w1', now: NOW }).want, null, 'positive control: no trigger, no plan')
+})
+
 await t('ONE BUILDER: a live lease held by another bot -> no_effect plinth_lease, nothing placed; an expired one is taken', async () => {
   reset(); noSite()
   const town = fakeTown({ items: [['cobblestone', 200], ['dirt', 4]] })
@@ -639,7 +675,7 @@ await t('MUTANT (skills): the finally does not cover -> an unfinished, walled-in
 })
 
 await t('MUTANT (skills): the walling-in ownership only for placements -> the leaf clear that would wall the column in is refused by the click guard; the build stops there', async () => {
-  await withMutant(SP, "      if (!owned && plinthHazard(read, cap) === false && plinthHazard(post, cap) === true) {\n", "      if (s.op === 'place' && !owned && plinthHazard(read, cap) === false && plinthHazard(post, cap) === true) {\n", async m => {
+  await withMutant(SP, "      return own(from, afterItems)\n", "      return /clear/.test(from) ? null : own(from, afterItems)\n", async m => {
     reset(); noSite()
     const extra = {}
     for (let x = -30; x <= 30; x++) for (let z = -30; z <= 30; z++) for (let y = SLAB_Y - 4; y < SLAB_Y; y++) extra[KEY(x, y, z)] = 'dirt'

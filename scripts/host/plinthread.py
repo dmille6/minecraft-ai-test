@@ -15,15 +15,17 @@
 #   POPULATION   a canary town with NO junk well (draw_exposure: no_site rows); control towns without a well are the DiD's
 #                comparison (towns with a well are an instrument control only).
 #   GATES (defect)
-#     P1 breach_outside_shell   a canary _plinth_step op=place whose cell is neither in the 81-cell shell of its cap
-#                               (plinthShell) nor on a stair line (a cardinal from the cap, 3..6 out, lateral -1..1, below g).
+#     P1 breach_outside_shell   a canary _plinth_step op=place whose cell is neither in the 81-cell shell of ITS OWN plan's
+#                               cap (the step's id=, mapped by the _plinth rows) nor on its stair lines (a cardinal from
+#                               the cap, 3..6 out, lateral -1..1, below g-1).
 #     P2 breach_reserve         a canary _plinth build/complete row with placed>0 whose bag (the row's inventory) holds
 #                               fewer than 64 RESERVE_STONE (cobblestone, cobbled_deepslate, andesite, diorite, granite).
 #     P3 breach_pit_open_10m    a canary plinth pit (the last pit event at a plinth cap is dug/open, not covered/built)
 #                               older than 10 min at the read's end -- an uncovered walled-in column nobody covered.
 #     P4 breach_retired_plinth  a _well_retired at a canary plinth's cap (a raised well that did not hold).
-#     P5 breach_stuck_plinth    > 1 canary entombment/stranded/livelock escape row with the body within 3 (horizontal
-#                               Chebyshev, |dy| <= 5) of a plinth cap.
+#     P5 breach_stuck_plinth    > 1 canary stuck EPISODE (entombed / stranded_escape_try / livelock_escape, one per bot per
+#                               10 min; _result rows never) with the body within 3 (horizontal Chebyshev, |dy| <= 5) of a
+#                               plinth cap.
 #     P6 control_plinth_rows    a CONTROL _plinth row (the control is not running the base). Blocks KEEP.
 #   INSTRUMENT   the same row selectors on fixture rows (self-tests below, run every read); control no_site rows post >= 1.
 #   PRIMARY      canary towns: planned / complete, blocks placed, alt stands, retries, step pace; _well_built at a plinth
@@ -98,6 +100,39 @@ def pool_of(bot):
     return '-'.join((bot or '').split('-')[:2])
 
 
+def outside_steps(steps, id_cap):
+    """PURE. steps: [(bot, t, fields)] _plinth_step rows; id_cap: {plan id: cap} from the _plinth rows (planned/build/
+    complete carry both id= and at=). -> [(bot, t, at)] placements outside THEIR OWN plan's shell and stair lines (Claude r3
+    P2-1: a replan to a nearby cap must not judge the old plan's cells against the new cap). A step whose id names no
+    known cap is judged against nothing and counted: the instrument must see its own plan."""
+    out = []
+    for b, t, f in steps:
+        if f.get('op') != 'place':
+            continue
+        c = xyz(f.get('at')); cap = id_cap.get(f.get('id'))
+        if not c or not cap or not (in_shell(cap, c) or on_stair_line(cap, c)):
+            out.append((b, t, f.get('at')))
+    return out
+
+
+EPISODE = dt.timedelta(minutes=10)
+
+
+def stuck_episodes(rows):
+    """PURE. rows: [(bot, t, kind, pos)] stuck-family rows. -> [(bot, t, pos)], one per (bot, 10-min episode) (Claude r3
+    P2-2: reflex.mjs writes _stranded_escape_try AND _result per attempt, and an entombment repeats its row; one episode is
+    one event, so the gate's 'more than one' means two episodes). _stranded_escape_result is never counted."""
+    out, last = [], {}
+    for b, t, k, pos in sorted(rows, key=lambda r: r[1]):
+        if k == 'stranded_escape_result':
+            continue
+        if b in last and t - last[b] < EPISODE:
+            continue
+        last[b] = t
+        out.append((b, t, pos))
+    return out
+
+
 # ---- self-tests on the bot's own row strings (skills.mjs plinthDetail / the step row / the pit rows) ----
 _CAP = (100, 70, 100)
 assert in_shell(_CAP, (101, 70, 100)) and in_shell(_CAP, (102, 69, 100)) and in_shell(_CAP, (100, 68, 100)) and in_shell(_CAP, (98, 67, 98))
@@ -119,6 +154,17 @@ assert pit_open([(_m(0), _CAP, 'dug'), (_m(1), _CAP, 'covered')], _m(30)) == [],
 assert pit_open([(_m(0), _CAP, 'dug'), (_m(1), _CAP, 'covered'), (_m(5), _CAP, 'dug')], _m(30)) == [_CAP], 'a resume re-opens it'
 assert pit_open([(_m(0), _CAP, 'dug'), (_m(2), _CAP, 'built')], _m(30)) == [], 'a built well closes it'
 assert pit_open([(_m(0), _CAP, 'dug'), (_m(0), _CAP, 'covered')], _m(30)) == [], 'owned but never opened: the by=closed row closes it (Claude r2 P2-B)'
+_OLD, _NEW = (100, 70, 100), (103, 70, 100)
+_ids = {'a': _OLD, 'b': _NEW}
+assert outside_steps([('x', _T, kv('op=place at=101,69,100 id=a'))], _ids) == [], 'judged against its own plan'
+assert outside_steps([('x', _T, kv('op=place at=98,69,100 id=a'))], _ids) == [], 'a g-1 ring cell of the old plan'
+assert outside_steps([('x', _T, kv('op=place at=98,69,100 id=b'))], _ids) == [('x', _T, '98,69,100')], 'the same cell is outside the NEW plan (the false trip r3 found)'
+assert outside_steps([('x', _T, kv('op=place at=110,69,100 id=a'))], _ids) == [('x', _T, '110,69,100')], 'positive control: a real outside placement'
+assert outside_steps([('x', _T, kv('op=place at=101,69,100 id=zz'))], _ids) == [('x', _T, '101,69,100')], 'an unknown plan id is counted, never trusted'
+assert outside_steps([('x', _T, kv('op=clear at=110,69,100 id=a'))], _ids) == [], 'clears are not placements'
+_ep = [('b1', _m(0), 'stranded_escape_try', (1, 2, 3)), ('b1', _m(0), 'stranded_escape_result', (1, 2, 3)), ('b1', _m(3), 'entombed', (1, 2, 3)),
+       ('b1', _m(12), 'entombed', (1, 2, 3)), ('b2', _m(1), 'livelock_escape', (1, 2, 3))]
+assert [(b, t) for b, t, _p in stuck_episodes(_ep)] == [('b1', _m(0)), ('b2', _m(1)), ('b1', _m(12))], 'one per bot and 10 min; results never'
 
 if __name__ == '__main__':
     import json
@@ -160,6 +206,7 @@ if __name__ == '__main__':
     ev_rows = sorted(load_window(PRE, END), key=lambda r: r['t'])
     bots = defaultdict(set); rows = Counter(); offbuild = 0; n = Counter()
     caps = {}                                       # canary plinth cap -> pool
+    id_cap = {}                                     # plan id -> its cap (the _plinth rows carry both)
     steps = []; reserve_breach = []; pit_events = []; retired = []; stuck = []; leak = 0
     no_well_pre = defaultdict(int); well_pre = defaultdict(int); disposed = Counter()
     plinth_rows = defaultdict(list); step_ts = defaultdict(list); built_at = set()
@@ -196,6 +243,8 @@ if __name__ == '__main__':
             st = f.get('stage'); cap = xyz(f.get('at'))
             if cap:
                 caps[cap] = pool_of(b)
+                if f.get('id'):
+                    id_cap[f.get('id')] = cap
             plinth_rows[pool_of(b)].append((t, st, f))
             n[('post', 'canary', 'stage_' + str(st))] += 1
             if st in ('build', 'complete') and int(f.get('placed', '0') or 0) > 0:
@@ -216,29 +265,19 @@ if __name__ == '__main__':
             at = xyz(f.get('at'))
             if at:
                 retired.append((b, t, at))
-        elif k in ('entombed', 'livelock_escape') or k.startswith('stranded_escape'):
+        elif k in ('entombed', 'livelock_escape', 'stranded_escape_try', 'stranded_escape_result'):
             p = ((raw.get('bot') or {}).get('pos') or {})
             if arm == 'canary' and 'x' in p:
-                stuck.append((b, t, (p['x'], p['y'], p['z'])))
+                stuck.append((b, t, k, (p['x'], p['y'], p['z'])))
             n[('post', arm, 'stuck_any')] += 1
 
-    outside = []
-    for b, t, f in steps:
-        if f.get('op') != 'place':
-            continue
-        c = xyz(f.get('at'))
-        cap = None
-        for cp in caps:
-            if abs(cp[0] - (c or (0, 0, 0))[0]) <= 2 + MAX_RAISE and abs(cp[2] - (c or (0, 0, 0))[2]) <= 2 + MAX_RAISE:
-                cap = cp
-        if not c or not cap or not (in_shell(cap, c) or on_stair_line(cap, c)):
-            outside.append((b, t.strftime('%H:%M:%S'), f.get('at')))
+    outside = [(b, t.strftime('%H:%M:%S'), at) for b, t, at in outside_steps(steps, id_cap)]
     plinth_caps = set(caps)
     pit_events = [e for e in pit_events if e[1] in plinth_caps]
     open_pits = pit_open(pit_events, END)
     retired_p = [x for x in retired if x[2] in plinth_caps]
     near = lambda p, cap: max(abs(p[0] - cap[0] - 0.5), abs(p[2] - cap[2] - 0.5)) <= 3.5 and abs(p[1] - cap[1]) <= 5
-    stuck_p = [(b, t.strftime('%H:%M'), p) for b, t, p in stuck if any(near(p, c) for c in plinth_caps)]
+    stuck_p = [(b, t.strftime('%H:%M'), p) for b, t, p in stuck_episodes([x for x in stuck if any(near(x[3], c) for c in plinth_caps)])]
     complete = {caps[c] for c in caps if any(st == 'complete' for _t, st, _f in plinth_rows[caps[c]])}
     built_plinths = [c for c in plinth_caps if c in built_at]
 
