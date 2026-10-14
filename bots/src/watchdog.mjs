@@ -319,9 +319,13 @@ export class StagnationWatchdog {
     const climbed = Math.max(...ys) - Math.min(...ys)
     const gained = busy[busy.length - 1].items - busy[0].items
 
+    // BUILDING IS PROGRESS (townfloor-01, Paper 10-14): a bot placing blocks stands still and its bag shrinks, which is
+    // every sign of being stuck but the one that matters -- the world changed. A block read back since the window's first
+    // busy sample (bot.worldWorkAt, set by the skill after each placement it verified) is progress.
+    const built = Number(this.bot.worldWorkAt) >= busy[0].t
     const stagnant = spread < config.watchdog.minMoveBlocks &&
                      climbed < config.watchdog.minMoveBlocks &&
-                     gained <= 0
+                     gained <= 0 && !built
 
     // HOW LONG HAS IT ACTUALLY NOT MOVED -- the number people kept wanting when
     // they read the old message. `span` cannot answer it: the gate above refuses

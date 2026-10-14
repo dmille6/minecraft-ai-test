@@ -61,7 +61,7 @@ function fakeTown ({ items = [], name = 'FloorBot', cells = dugTown(), at = null
   const nameAt = (x, y, z) => world.get(KEY(x, y, z)) ?? (Math.abs(x) > 40 || Math.abs(z) > 40 ? null : y > L ? 'air' : y === L ? (Math.max(Math.abs(x), Math.abs(z)) <= 6 ? 'stone_bricks' : 'grass_block') : 'stone')
   const blockAt = p => {
     const x = Math.floor(p.x), y = Math.floor(p.y), z = Math.floor(p.z)
-    if (y < 30 || y > 100) return null
+    if (y < 30 || y > 319) return null              // the column is loaded to the world top, as mineflayer has it
     const n = nameAt(x, y, z)
     if (!n) return null
     const b = PBlock.fromStateId(stateOf(n), 0); b.position = new Vec3(x, y, z); return b
@@ -260,6 +260,22 @@ await t('ONE BUILDER PER TOWN: two fill_town runs started together on one store 
   assert.equal(placers.length, 1, `exactly one placed: ${ra.status}/${ra.failClass} ${rb.status}/${rb.failClass}`)
   const other = placers[0] === a ? rb : ra
   assert.equal(other.failClass, 'floor_lease', other.detail)
+})
+
+await t('THE BUILDER IS RE-CHECKED ON ITS STAND AT THE CLICK (Codex r2 P2): pushed off-centre during the pacing -> no click, the visit replans', async () => {
+  reset()
+  const town = fakeTown({ items: [['cobblestone', 64], ['cobblestone', 64]], cells: carve({}, -10, -8, 62, 62, -10, -8) })
+  let pushed = 0
+  const placesAtPush = []
+  town.st.tickHook = () => {
+    if (pushed < 1 && town.st.places.length === 1) { pushed++; placesAtPush.push(town.st.places.length); const p = town.bot.entity.position; town.bot.entity.position = new Vec3(p.x + 0.45, p.y, p.z) }
+  }
+  const r = await visit(town)
+  assert.equal(pushed, 1, 'positive control: the push happened')
+  const row = (await rowsOf('_town_floor')).at(-1)
+  assert.match(row.skill.detail, /refused=[1-9]/, row.skill.detail)
+  assert.equal(r.status, 'success', 'the replan goes on from where it stands')
+  assert.deepEqual(town.st.refused, [], 'the server never refused a click')
 })
 
 await t('REFUSALS NAME THE STATE: another builder\'s lease, or being away from town -- nothing placed, no lease taken', async () => {
