@@ -1,0 +1,24 @@
+wellsite-01 rebase onto fleet 2ec19385 (orderroom-01 on stocktarget-01 on 82aef34) -- review record, 2026-10-14
+
+BRANCH ws-on-2ec1938 @ 8f2fcfb2 = the approved wellsite-on-82aef34 net diff (code baa94879; Codex + Claude r4 APPROVE,
+docs/reports/wellsite-01-review-2026-10-13.txt on wellsite-on-82aef34 and main), one commit, git apply --3way, no conflict.
+Sorted +/- lines over bots/ and scripts/: IDENTICAL to the approved diff.
+TESTS: node scripts/run-tests.mjs 250/250 files. LINT: no-undef only the pre-existing reflex.mjs:2382 withinBody.
+CHECKS on the live base 2ec1938 (10-14 ~03:45Z): licencecheck PASS (' tally=cols:' 0 hits in 813 baseline _well_refused
+rows); changerowcheck PASS (no change rows declared).
+
+SEMANTIC COMPOSITION (both engines APPROVE, no P1/P2):
+- throwStacks: the click-time containment check sits before `const it`, so a breach exits before stocktarget's stock/cobble
+  branches write a stock_prune/stock_dispose row or spend acc.pruned; everything after it to the click stays synchronous.
+- prune_town -> disposeWell({pruned}) refused at the stand or the click: nothing (more) thrown, a failed stock_prune_visit,
+  PRUNE_BACKOFF 30 min, the taken stacks stay in the bag as ordinary at-target surplus (thrown later by a sealed well's
+  dispose). No dead end; before wellsite the same timing threw into a breached shaft.
+- wellOrder (stocktarget buildJunkStacks) with the hold: townWellBuildPlan null -> no build order, no cooldown charged;
+  close_well's pit cover and an open breached well's close still run.
+- prune wellUsable, the stand check and the click check all go through wellBreach/containmentRefusal with steadyWall.
+- No stocktarget/orderroom test or read depends on the old no_site text.
+P3 (not blocking, follow-ups): an unloaded cell at the stand/click is labelled "breached" (behaviour correct, label wrong);
+no test of the prune -> breach chain; orderroom's townWellTakes walks home toward a RECORDED site that may be a retired
+well during the no-site hold (pre-existing, bounded by the 30 min well-walk backoff; noSiteHold could gate it).
+PRE-PERIOD CAVEAT: the one-time chest clear ran 10-14 02:22Z; a read whose pre-window starts before it straddles it.
+G1-G3 are canary/post-window only and unaffected; the rate DiDs are report-only and confounded across it.
