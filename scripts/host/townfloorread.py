@@ -28,6 +28,7 @@
 #                truncated step rows (300 chars, nb cut) are counted and judged on what they carry.
 #   PRIMARY (report only)  blocks placed per canary town and tier; cobble held per bot (canary vs control, pre vs post DiD);
 #                junk-well cobble throws; _fall_path rows inside the box per bot-h (DiD); visits and why they stopped.
+#   TRIPWIRE     visits with why=no_start (no standable cell on the floor within 4 of home: a crater around home), reported.
 #   EXPOSURE     a canary town with >= 50 blocks placed, in a window >= 180 min.
 import sys, os, re
 import datetime as dt
@@ -271,6 +272,8 @@ if __name__ == '__main__':
             n[('post', 'canary', 'licence')] += 1
             f = kv(d)
             visits[pool_of(b)][f.get('stage', '?') + ':' + (f.get('why') or '-')] += 1
+            if (f.get('why') or '') == 'no_start':
+                n[('post', 'canary', 'no_start')] += 1
         elif k == 'town_floor_step':
             if arm == 'control':
                 leak += 1
@@ -312,6 +315,7 @@ if __name__ == '__main__':
           % (NEAR, len(trapped), trapped[:3], n[('post', 'canary', 'stuck_any')], n[('post', 'control', 'stuck_any')]))
     print('F6 (leak)    control _town_floor rows: %d' % leak)
     print('INSTRUMENT   self-tests PASS | truncated step rows %d' % trunc)
+    print('TRIPWIRE     visits that found no anchor near home (why=no_start: a crater around home, Claude r6 P3): %d' % n[('post', 'canary', 'no_start')])
     print('PRIMARY      cobble held per bot: canary %.1f -> %.1f | control %.1f -> %.1f'
           % (mean_held('pre', 'canary'), mean_held('post', 'canary'), mean_held('pre', 'control'), mean_held('post', 'control')))
     print('             _fall_path in the box per bot-h: canary %.3f -> %.3f | control %.3f -> %.3f | junk-well cobble disposals canary %d -> %d'
@@ -328,6 +332,7 @@ if __name__ == '__main__':
             'licence_rows': n[('post', 'canary', 'licence')], 'placed_canary': sum(total.values()),
             'breach_outside_box': len(out_box), 'breach_unsupported': len(unsup), 'breach_protected': len(prot),
             'breach_reserve': len(reserve), 'breach_trapped': len(trapped), 'control_floor_rows': leak,
+            'no_start_visits': n[('post', 'canary', 'no_start')],
             'instrument_stuck_rows': n[('post', 'canary', 'stuck_any')] + n[('post', 'control', 'stuck_any')], 'truncated_steps': trunc,
             'held_did': nanless((mean_held('post', 'canary') - mean_held('pre', 'canary')) - (mean_held('post', 'control') - mean_held('pre', 'control'))),
             'fall_box_did': nanless((rate('post', 'canary', 'fall_box') - rate('pre', 'canary', 'fall_box')) - (rate('post', 'control', 'fall_box') - rate('pre', 'control', 'fall_box'))),
