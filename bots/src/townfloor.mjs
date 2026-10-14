@@ -321,15 +321,18 @@ export function walkBack (read, target, { box, maxNodes = 120_000, strict = fals
 
 /** The standable feet cell nearest home (within 4 horizontally, home.y -3..+3), or null: where the probe starts. Pure. */
 /**
- * THE TOWN'S ANCHOR -> [cell]: every feet cell within 4 of home horizontally and 3 vertically where a body can stand
+ * THE TOWN'S ANCHOR -> [cell]: every feet cell within 4 of home horizontally, ON OR ABOVE the floor level (feet L+1..L+4),
+ * where a body can stand
  * (permissively; each walk keeps the ones its own mode can stand on). "Walks to the town" means walks to any of them: a
  * single cell beside home was an anchor a crowd of chests and tables could wall off (Paper 10-14, board-a / hive-b). Pure.
  */
 export function townAnchor (read, home) {
   const out = []
-  const hy = Math.floor(home.y)
-  for (let dx = -4; dx <= 4; dx++) for (let dz = -4; dz <= 4; dz++) for (let dy = -3; dy <= 3; dy++) {
-    const x = Math.floor(home.x) + dx, y = hy + dy, z = Math.floor(home.z) + dz
+  const L = floorLevel(home)
+  // ON OR ABOVE THE FLOOR only (Claude r5 P1: a hole beside home counted as "the town", so a fill could cut a way to it and a
+  // builder could stand in it): feet from L+1 (on the floor) to L+4
+  for (let dx = -4; dx <= 4; dx++) for (let dz = -4; dz <= 4; dz++) for (let y = L + 1; y <= L + 4; y++) {
+    const x = Math.floor(home.x) + dx, z = Math.floor(home.z) + dz
     if (standable(read, x, y, z)) out.push({ x, y, z })
   }
   return out
