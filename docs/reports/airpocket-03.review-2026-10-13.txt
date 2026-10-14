@@ -65,3 +65,31 @@ REBASE ONTO THE FLEET 2ec19385 (orderroom-01 on stocktarget-01), 10-14
   - It also ran: airpocket 205/205, mine-abort 15/15, body-claim 20/20, orderroom 34/34, well 192/192; repro C held the
     jump at START.
 - npm test on b96db01b: 250/250. Lint: only the base's withinBody.
+
+REBASES ONTO THE QUEUE'S FLEET TIPS (digtown-01, stocktarget-02), 10-14
+- The variants. Each is a cherry-pick -x of the 17 commits 2ec19385..b96db01b, with no conflicts. On each, the +/- lines
+  are byte-identical to b96db01b over 2ec19385.
+
+  | base | what it is | branch | head |
+  |---|---|---|---|
+  | eb543899 | digtown-01 | ap3-on-eb543899 | e2fd06c6 |
+  | 4798b708 | stocktarget-02 | ap3-on-4798b708 | 99c5e96c |
+  | 5e663860 | stocktarget-02 on digtown | ap3-on-5e663860 | 1957811e |
+
+- Codex: APPROVE, no findings.
+  - All 17 commits match on each variant, and each variant is its base plus airpocket-03.
+  - digtown adds no dig. Its bot.dig wrapper forwards the arguments synchronously and keeps `ignore`, the abort errors and
+    the pose-eye scope.
+  - stocktarget-02's count_town runs in the runner and checks its abort before every open and walk. It adds no holds,
+    equips or hand restores.
+  - There is no change to isBusy or the interrupt path.
+- Claude: APPROVE, no findings.
+  - Each variant is its base plus airpocket-03: diff(b96db01b, variant) has the same changed lines as diff(2ec19385, base).
+  - The digtown wrapper was checked with repros on mineflayer 4.37.1's real digging.js. Start-dig goes out synchronously
+    inside the wrapped call. A foreign dig still rejects ours as "Digging aborted", which is classified as contested.
+    abortableDig through the wrapper sends start-dig within 4 microtasks. Repro C through the wrapper: jump held at START,
+    and the step succeeds.
+  - count_town is the owned-window case that the airpocket-02 handoff covers.
+  - Tests per variant: airpocket 205/205, mine-abort 15/15, body-claim 20/20, withdraw-hold 26/26, digtown 18/18 where
+    present, stocktarget 22-30, towndeposit 57-59, orderroom 34/34, well 192/192.
+- npm test: 251/251 on e2fd06c6, 250/250 on 99c5e96c, 251/251 on 1957811e. Lint shows only the base's withinBody.

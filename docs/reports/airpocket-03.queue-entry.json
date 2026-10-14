@@ -39,7 +39,40 @@
     "airpocket2read": "6461d11f9e68a7a9f0ece8531e082756",
     "immobiledid": "53af289df12208901931dbeeb1ae325a"
    }
+  },
+  "eb54389918053686aa617cbf0b0f74111579b44b": {
+   "registration": "/home/mike/mcai-analysis/airpocket-03.e2fd06c6.json",
+   "approved": "airpocket agent 2026-10-14: ap3-on-eb543899 @ e2fd06c6 = the 17 airpocket commits (2ec19385..b96db01b) cherry-picked (-x) onto eb543899 = digtown-01 (dt-on-2ec19385), no conflicts; +/- lines byte-identical to b96db01b over 2ec19385. Rebase review (10-14): Codex APPROVE, no findings (all 17 commits match per variant; each variant = its base + airpocket-03 exactly; digtown adds no dig operation -- its bot.dig wrapper forwards arguments synchronously and keeps `ignore`, abort errors and the pose-eye scope; stocktarget-02 count_town runs in the runner, checks its abort before opening or walking, no holds/equips/hand restores; no isBusy/interrupt change) + Claude subagent APPROVE (docs/reports/airpocket-03.review-2026-10-13.txt, rebase sections). Base series r1-r3 both engines. npm test 251/251 on this variant; lint only the base's withinBody. Paper regression PASS (docs/reports/airpocket-03-paper-2026-10-13.md). Registration requires hive-d (draw_require_pools). UNDERGROUND-SAFETY canary",
+   "registration_sha256": "ed7aae2528730e0694e40a3ae74af29697c109280725eb61e73af1b12ef2efc0",
+   "canary_sha": "e2fd06c6c26391da6cc6629262b676b89fab067a",
+   "reads_src": "/home/mike/mcai-analysis",
+   "reads": {
+    "airpocket2read": "6461d11f9e68a7a9f0ece8531e082756",
+    "immobiledid": "53af289df12208901931dbeeb1ae325a"
+   }
+  },
+  "4798b70897e9aa7f21daa468851500e48090ea58": {
+   "registration": "/home/mike/mcai-analysis/airpocket-03.99c5e96c.json",
+   "approved": "airpocket agent 2026-10-14: ap3-on-4798b708 @ 99c5e96c = the 17 airpocket commits (2ec19385..b96db01b) cherry-picked (-x) onto 4798b708 = stocktarget-02 (st2-on-2ec1938), no conflicts; +/- lines byte-identical to b96db01b over 2ec19385. Rebase review (10-14): Codex APPROVE, no findings (all 17 commits match per variant; each variant = its base + airpocket-03 exactly; digtown adds no dig operation -- its bot.dig wrapper forwards arguments synchronously and keeps `ignore`, abort errors and the pose-eye scope; stocktarget-02 count_town runs in the runner, checks its abort before opening or walking, no holds/equips/hand restores; no isBusy/interrupt change) + Claude subagent APPROVE (docs/reports/airpocket-03.review-2026-10-13.txt, rebase sections). Base series r1-r3 both engines. npm test 250/250 on this variant; lint only the base's withinBody. Paper regression PASS (docs/reports/airpocket-03-paper-2026-10-13.md). Registration requires hive-d (draw_require_pools). UNDERGROUND-SAFETY canary",
+   "registration_sha256": "a25ade3b3ac1c8d5236be13287cdf74002b0b2bc758fea64f3cc13b8b5c27856",
+   "canary_sha": "99c5e96cb39c744360a29064a99c4ebe8cf9cc07",
+   "reads_src": "/home/mike/mcai-analysis",
+   "reads": {
+    "airpocket2read": "6461d11f9e68a7a9f0ece8531e082756",
+    "immobiledid": "53af289df12208901931dbeeb1ae325a"
+   }
+  },
+  "5e6638601af6714478690eae4b2bb83b158ba97c": {
+   "registration": "/home/mike/mcai-analysis/airpocket-03.1957811e.json",
+   "approved": "airpocket agent 2026-10-14: ap3-on-5e663860 @ 1957811e = the 17 airpocket commits (2ec19385..b96db01b) cherry-picked (-x) onto 5e663860 = stocktarget-02 on digtown (st2-on-eb54389), no conflicts; +/- lines byte-identical to b96db01b over 2ec19385. Rebase review (10-14): Codex APPROVE, no findings (all 17 commits match per variant; each variant = its base + airpocket-03 exactly; digtown adds no dig operation -- its bot.dig wrapper forwards arguments synchronously and keeps `ignore`, abort errors and the pose-eye scope; stocktarget-02 count_town runs in the runner, checks its abort before opening or walking, no holds/equips/hand restores; no isBusy/interrupt change) + Claude subagent APPROVE (docs/reports/airpocket-03.review-2026-10-13.txt, rebase sections). Base series r1-r3 both engines. npm test 251/251 on this variant; lint only the base's withinBody. Paper regression PASS (docs/reports/airpocket-03-paper-2026-10-13.md). Registration requires hive-d (draw_require_pools). UNDERGROUND-SAFETY canary",
+   "registration_sha256": "473ba13c4a3feef4a83ada8e8647ef72df3e915d29a8942adf0856b179192b83",
+   "canary_sha": "1957811ea79ba0ace216f8fc7af7b2877391ca19",
+   "reads_src": "/home/mike/mcai-analysis",
+   "reads": {
+    "airpocket2read": "6461d11f9e68a7a9f0ece8531e082756",
+    "immobiledid": "53af289df12208901931dbeeb1ae325a"
+   }
   }
  },
- "note": "underground-safety canary: airpocket-02 + a contested dig takes the 5-s cooldown and a fresh attempt (row contested=1), and mine's stair step sends no dig, walk, look or shove after its abort. Variants for 2ec19385 (the fleet since 10-14 02:19Z: orderroom-01 on stocktarget-01), 82aef34 and 48b093ce. `after: stocktarget-01`: stocktarget-01 is launching (10-13); the 48b093ce variant covers its KEEP. NOT_BEFORE 2026-10-14T12:00Z: the licence row `_air_pocket_upblocked` was written 3x in the last 24 h by the CLOSED airpocket-02 canary (70cb0d41, hive-d-Delta 10:59-11:55Z 10-13), so licencecheck REFUSES until those rows leave its 24-h baseline (last at 11:55:33Z). THE DRAW MUST INCLUDE hive-d (draw_require_pools); drawexposure 24 h finds board-d, hive-a, hive-d, placebo-a, placebo-d eligible. Install the drawn variant's registration as ~/mcai-analysis/registrations/airpocket-03.json. Read: ~/mcai-analysis/airpocket2read.py (md5 above; counts contested=1 and reports their next-attempt latency, even at 0; earlier copies airpocket2read.py.bak-20261013, .bak-20261013b). 10-14 03:44Z drawexposure (24 h): hive-d 2/3 sealed no-air ceilings and 0/1 drownings, so NOT exposure-eligible on its own -- draw_require_pools exempts a required pool from the exposure filter (drawrequire.py), so the draw still takes hive-d plus eligible pools (board-d, hive-a, hive-b, hive-c, placebo-a)."
+ "note": "underground-safety canary: airpocket-02 + a contested dig takes the 5-s cooldown and a fresh attempt (row contested=1), and mine's stair step sends no dig, walk, look or shove after its abort. Variants for 2ec19385 (the fleet since 10-14 02:19Z: orderroom-01 on stocktarget-01), eb543899 (digtown-01), 4798b708 (stocktarget-02), 5e663860 (stocktarget-02 on digtown-01), 82aef34 and 48b093ce. `after: stocktarget-01`: stocktarget-01 is launching (10-13); the 48b093ce variant covers its KEEP. NOT_BEFORE 2026-10-14T12:00Z: the licence row `_air_pocket_upblocked` was written 3x in the last 24 h by the CLOSED airpocket-02 canary (70cb0d41, hive-d-Delta 10:59-11:55Z 10-13), so licencecheck REFUSES until those rows leave its 24-h baseline (last at 11:55:33Z). THE DRAW MUST INCLUDE hive-d (draw_require_pools); drawexposure 24 h finds board-d, hive-a, hive-d, placebo-a, placebo-d eligible. Install the drawn variant's registration as ~/mcai-analysis/registrations/airpocket-03.json. Read: ~/mcai-analysis/airpocket2read.py (md5 above; counts contested=1 and reports their next-attempt latency, even at 0; earlier copies airpocket2read.py.bak-20261013, .bak-20261013b). 10-14 03:44Z drawexposure (24 h): hive-d 2/3 sealed no-air ceilings and 0/1 drownings, so NOT exposure-eligible on its own -- draw_require_pools exempts a required pool from the exposure filter (drawrequire.py), so the draw still takes hive-d plus eligible pools (board-d, hive-a, hive-b, hive-c, placebo-a)."
 }
