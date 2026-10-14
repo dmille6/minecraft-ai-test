@@ -12,6 +12,23 @@ Studio reservation both closed 10-12); clear caps bamboo 0 / bucket 2._
 
 ---
 
+## 10-14 12:15Z — townzone-01 FINAL: two variants + ONE replace-variant entry (the townground agent); NOT queued by me
+Variants (both pushed, new branches): `tz-on-eb54389` @ `523a7dd8` (fleet eb543899; tree identical to the prepared
+22c01bd3) and `tz-on-5e66386` @ `3b1ae8bb` (fleet 5e663860 = stocktarget-02 on digtown-01; skills.mjs auto-merged, no
+conflict). Both are the approved zone diff exactly (988 +/- lines; Claude: full-context byte-identical, merge commutes).
+npm test 251/251 each; eslint no-undef only the base's reflex.mjs:2384 withinBody. Registrations
+`~/mcai-analysis/townzone-01.523a7dd8.json` / `.3b1ae8bb.json`: NO draw_require_pools key, drawrequire.parse ([], None),
+licencecheck PASS (_town_ground 0 rows / 6 h baseline) + changerowcheck PASS. Positive control: townzoneread dry run with
+digtown's instrumented unzoned pools (hive-d,placebo-d, 07:55Z +180) -> Z1 = 22 town target digs; control coverage 0.0 before
+the promotion (gate fails closed). Reviews incl. composition with count_town + the recount file: Codex code/merge APPROVE,
+notes P3 -> fixed -> APPROVE both; Claude APPROVE both (notes P3s applied). Entry:
+`~/mcai-analysis/townzone-01.queue-entry-final.json` (copy in docs/reports/): `python3 ~/canary-sched.py queue
+replace-variant townzone-01 ~/mcai-analysis/townzone-01.queue-entry-final.json`. HOLD: digtown promoted + 180 min AND
+>= 180 min after stocktarget-02's decision restart (teardown after REVERT -> eb543899 variant; promotion after KEEP ->
+5e663860 variant). The read needs one build per pool across its pre-window; it does NOT need stocktarget-02's pools
+excluded. KEPT-but-not-promoted: neither variant matches -> new variant. Known P3 (comment-only, unfixed):
+townzoneread.py lines 2/13 stale.
+
 ## 10-14 07:10Z — digtown-01 LIVE (hive-d,placebo-d, 04:55Z); queue stocked through airpocket-03; follow-ups recorded
 QUEUE: digtown-01 (live; +180 ~07:55Z, +360 ~10:55Z) -> stocktarget-02 (count_town recount fix for the post-clear
 "not yet counted" dead end; both engines APPROVE; Paper PASS) -> wellsite-02 (5 variants) -> airpocket-03 (6 variants,

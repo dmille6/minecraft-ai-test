@@ -1,0 +1,34 @@
+{
+ "run": "townzone-01",
+ "class": "",
+ "after": [
+  "digtown-01",
+  "stocktarget-02"
+ ],
+ "hold": "digtown promoted + 180 min, AND >= 180 min after stocktarget-02's decision restart (its pools' teardown restart after REVERT/INCONCLUSIVE -> the eb543899 variant; the fleet's promotion restart after KEEP -> the 5e663860 variant). townzoneread needs ONE build per pool across its 180-min pre-window; it does NOT need stocktarget-02's pools excluded. KEPT-but-not-promoted: neither variant matches (H2) -- ask for a new variant.",
+ "note": "REPLACE-VARIANT (coordinator 10-14 ~11:00Z: digtown-01 KEPT +360, fleet -> eb543899). The no-dig town zone (owner GO 10-13, step 3): target digs refused in a 33-wide square above home.y - 12 (gather enumeration filter + conjunction, mine bearing filter + per-step check + walk-out/climb-out, ore tunnel 100); TRANSIT and SURVIVAL untouched. Variants: eb543899 (branch tz-on-eb54389) and 5e663860 = stocktarget-02 on digtown-01 (branch tz-on-5e66386). Read ~/mcai-analysis/townzoneread.py (md5 above, unchanged since 10-13). Install the drawn variant's registration as ~/mcai-analysis/registrations/townzone-01.json; only the one matching the live fleet.",
+ "variants": {
+  "eb54389918053686aa617cbf0b0f74111579b44b": {
+   "registration": "/home/mike/mcai-analysis/townzone-01.523a7dd8.json",
+   "canary_sha": "523a7dd88224639dc8344dfa3c36e04bef668c5c",
+   "reads_src": "/home/mike/mcai-analysis",
+   "reads": {
+    "townzoneread": "d40891f8eda17c59f0e7afe0aacf860d",
+    "immobiledid": "53af289df12208901931dbeeb1ae325a"
+   },
+   "approved": "townground agent 2026-10-14: the approved zone (tz-on-82aef34 3be6de18: Codex r1-r7 + re-review APPROVE, Claude r1-r3 APPROVE) as ONE commit, patch-identical (Claude: full-context diff byte-identical; sorted +/- lines equal, 988). FINAL REVIEW 10-14 of both variants incl. composition with stocktarget-02's count_town and <townKey>.recount.json: Codex code+merge APPROVE, notes CHANGES (P3) -> fixed -> APPROVE; Claude APPROVE (P3s on the notes, fixed). eslint no-undef: only the pre-existing reflex.mjs:2384 withinBody, also on the plain base. Registration: NO draw_require_pools key; drawrequire.parse ([], None); licencecheck PASS (_town_ground: 0 baseline rows / 6 h, ~340k rows, 80 bots) + changerowcheck PASS (no change rows) 10-14 ~11:20Z and re-run on the final file. townzoneread dry run (positive control, digtown's instrumented unzoned pools hive-d,placebo-d, 07:55Z +180): Z1 = 22 town-ground target digs; control coverage 0.0 before the promotion (the coverage gate fails closed). ORDINARY canary, ONE pool; npm test 251/251 (tree identical to the prepared 22c01bd3)",
+   "registration_sha256": "3071ca4c5462093c6c7be02cdbcf99c89947f6d0413a00bcfdb0a31d0b439c1d"
+  },
+  "5e6638601af6714478690eae4b2bb83b158ba97c": {
+   "registration": "/home/mike/mcai-analysis/townzone-01.3b1ae8bb.json",
+   "canary_sha": "3b1ae8bb610eda86b7a8cff3061747089b62501c",
+   "reads_src": "/home/mike/mcai-analysis",
+   "reads": {
+    "townzoneread": "d40891f8eda17c59f0e7afe0aacf860d",
+    "immobiledid": "53af289df12208901931dbeeb1ae325a"
+   },
+   "approved": "townground agent 2026-10-14: the approved zone (tz-on-82aef34 3be6de18: Codex r1-r7 + re-review APPROVE, Claude r1-r3 APPROVE) as ONE commit, patch-identical (Claude: full-context diff byte-identical; sorted +/- lines equal, 988). FINAL REVIEW 10-14 of both variants incl. composition with stocktarget-02's count_town and <townKey>.recount.json: Codex code+merge APPROVE, notes CHANGES (P3) -> fixed -> APPROVE; Claude APPROVE (P3s on the notes, fixed). eslint no-undef: only the pre-existing reflex.mjs:2384 withinBody, also on the plain base. Registration: NO draw_require_pools key; drawrequire.parse ([], None); licencecheck PASS (_town_ground: 0 baseline rows / 6 h, ~340k rows, 80 bots) + changerowcheck PASS (no change rows) 10-14 ~11:20Z and re-run on the final file. townzoneread dry run (positive control, digtown's instrumented unzoned pools hive-d,placebo-d, 07:55Z +180): Z1 = 22 town-ground target digs; control coverage 0.0 before the promotion (the coverage gate fails closed). ORDINARY canary, ONE pool; skills.mjs auto-merged with no conflict, the merge commutes (Claude); stocktarget-02's 82 mutant anchors still present once; npm test 251/251",
+   "registration_sha256": "a566f785c96fba18a8ac92e518e3290c87ecd3c9cca76e1c9efda28820fbef32"
+  }
+ }
+}

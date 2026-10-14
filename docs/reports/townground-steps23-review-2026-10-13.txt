@@ -55,3 +55,35 @@ Claude: APPROVE. Its P3s on the registration were applied:
  (1) harm gather_ratio < 0.43 is computed in scripts/canary-report.py (canary/control, post only), not immobiledid. The
      immobiledid rdid guards use PRE=180.
  (2) The pre-window also holds the 02:19Z fleet restart, so declare at or after ~05:25Z.
+
+==== 10-14 ~11:30-12:10Z: townzone-01 FINAL variants (tz-on-eb54389 @ 523a7dd8 on eb543899; tz-on-5e66386 @ 3b1ae8bb on 5e663860) ====
+-- Codex (final review):
+One P3 finding applies to both variants; no implementation or merge defect found.
+
+**P3 — Registration overstates control-arm isolation:** `regs/townzone-01.523a7dd8.json:7` and `regs/townzone-01.3b1ae8bb.json:7`.
+
+The claim that stocktarget-02 can affect Z4 “only toward masking” is unsupported. If recount increases trapped events during the control pre-window and is then reverted, control improves, producing a positive townzone DiD without townzone harm. The reverse can mask harm. Z5/Z6 exclude recount rows directly, but recount can change subsequent gather/goto activity. Five of 75 bots is a population fraction, not a bound on metric contamination.
+
+Correct those notes. Exclusion is not inherently necessary, but an unconditional “NO” needs stronger support: a stable comparison window or a sensitivity read excluding the previously treated pools from **both** periods.
+
+The remaining review results:
+
+- **Merge and identity:** A/B’s ordered added/removed lines match the approved zone delta. A’s tree matches `22c01bd3`. B-minus-A source edits exactly match `st2-src.diff`; both parents and registered SHAs match.
+- **Recount composition:** `countTown → reconcileCobble → chestWalk → pathfinder.goto` bypasses the zone’s target guards. Pathfinder mining classification precedes ALS scope; normal recount travel is transit. No new zone refusal blocks recount.
+- **State and priority:** The zone neither reads nor writes `.recount.json` and adds no housekeeping order. Recount’s cooldown, failure backoff, and container-miss exclusions remain intact. No new deterministic recount/zone loop identified.
+- **Reachability and observability:** No direct recount path restriction is introduced. Indirect terrain/activity effects remain possible. `stockrecountread` reports unreachable failures and fruitless recounts; Z4 sees associated trapping, but Z6 does **not** directly see failed chest walks.
+- **Other registration fields:** No defect found in SHA, base selection, instrument hold, or harm attribution. Coverage remains independently gated.
+
+The supplied B suite log contains only startup output, not a completed result. I ran no tests, edited no files, and contacted no hosts.
+
+**Variant A: CHANGES — P3 registration correction; code approved.**  
+**Variant B: CHANGES — P3 registration correction; code and merge approved.**
+-- Codex (r2, on the corrected notes):
+**Variant A (523a7dd8, fleet eb543899): APPROVE.** The hold correctly requires declaration at least 180 minutes after the later of digtown-01’s promotion restart and stocktarget-02’s teardown restart following REVERT/INCONCLUSIVE.
+
+**Variant B (3b1ae8bb, fleet 5e663860): APPROVE.** The prefix and hold now correctly anchor the 180-minute wait to stocktarget-02’s promotion restart after KEEP, when the fleet actually becomes 5e663860.
+
+The corrections resolve all three cited P3s. Both notes replace the unsupported “only toward masking” claim with bidirectional, unbounded contamination and a stable-window requirement. Both explicitly prohibit launching either existing variant when stocktarget-02 is KEPT but not promoted, requiring a new variant.
+
+The constant-effect DiD statement is appropriately conditional; unchanged builds alone do not guarantee constant behavioral effects. The separate issues disclosed under KNOWN P3s remain outside these corrections.
+-- Claude (final review): APPROVE A and B, no P1/P2. Q1: A tree == 22c01bd3; full-context diffs byte-identical to 9dc2ad5e->3be6de18; the merge commutes; 82 stocktarget mutant anchors present once on B. Q2: count_town -> reconcileCobble -> chestWalk -> pathfinder.goto on the base moves profile: its digs are transit; count_town never reaches a zone refusal; townground.mjs has no file I/O (recount file is per pool, stocktarget-02's alone); walk-out points are 19 from home, outside inTown's 16, so the recount cannot drive a mine/walk-out/recount loop. P3 edge: an abandoned tunnelToOre inside withTunnelMovements widens the pre-existing nearHome veto for a concurrent recount walk (rare, no change). Q3: agree no exclusion is needed, but a build change inside the pre-window pushes Z4 toward a FALSE TRIP, not masking -> hold until stocktarget-02's decision restart + 180 (applied). Q4 P3s applied: B's hold keyed to stocktarget-02's promotion; KEPT-not-promoted case named. Read P3 (not fixed; comment-only): townzoneread.py lines 2 and 13 are stale (branch name; 'transit prices 30').
