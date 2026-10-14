@@ -415,7 +415,7 @@ await t('N. the loaded mode is HOLD by default; close and junkswap only when set
 
 await t('B. THE REFLEX WIRING (structural: the reflex tick is not driven here): a held cursor is released by survivalRelease before the reflexes run', async () => {
   const src = fs.readFileSync(new URL('../src/reflex.mjs', import.meta.url), 'utf8').replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '')
-  const tick = src.slice(src.indexOf('const timer = setInterval(async () => {'))
+  const tick = src.slice(src.indexOf("const timer = setInterval(digScoped({ purpose: 'survival', by: 'reflex' }, async () => {"))
   const rel = tick.indexOf('await bot.inventoryUnsettled.release(why)'), surv = tick.indexOf('survivalRelease({'), hunger = tick.indexOf('pickFood(bot)')
   assert.ok(surv > 0 && rel > surv, 'survivalRelease decides, release acts')
   assert.ok(rel < hunger, 'before the reflexes (hunger among them) run')

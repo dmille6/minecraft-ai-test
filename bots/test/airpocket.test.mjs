@@ -731,7 +731,7 @@ await t('J4 MUTANT KILLED: ignoring othersBusy lets the step start under an in-f
 const strip = s => s.replace(/\/\*[\s\S]*?\*\//g, '').replace(/(^|[^:'"`\\])\/\/.*$/gm, '$1')
 function wiring (src) {
   const code = strip(src)
-  const tickStart = code.indexOf('const timer = setInterval(async () => {')
+  const tickStart = code.indexOf("const timer = setInterval(digScoped({ purpose: 'survival', by: 'reflex' }, async () => {")
   const earlyReturn = code.indexOf('if (airPocketing) return', tickStart)
   const drowningBranch = code.indexOf('const ctl = drowningControls({ losing: true', tickStart)
   const trigger = code.indexOf('airPocketTrigger({ rescuing, routeDir: route.dir', tickStart)
