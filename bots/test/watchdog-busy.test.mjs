@@ -44,7 +44,7 @@ const N = Math.floor(W / STEP) + 2      // enough that a full window survives pr
  * `busy` is both the flag on the scripted samples and the runner's live state,
  * since check() takes a fresh sample of its own before judging.
  */
-async function verdict({ busy, moves = false }) {
+async function verdict({ busy, moves = false, builtAgo = null }) {
   const cancels = []
   const pos = { x: 0, y: 64, z: 0 }
   const bot = {
@@ -70,6 +70,7 @@ async function verdict({ busy, moves = false }) {
     items: 0, busy,
   }))
   wd.lastActionAt = now
+  if (builtAgo != null) bot.worldWorkAt = now - builtAgo
   await wd.check()
   return { cancels, fired: cancels.length > 0 }
 }
@@ -86,6 +87,11 @@ await t('a bot motionless while a skill runs IS stagnant', async () => {
   const { cancels } = await verdict({ busy: true })
   assert.deepEqual(cancels, ['stagnation'],
     'the watchdog must still catch a genuinely wedged bot — entombed at y=49 for 20 minutes')
+})
+
+await t('a bot PLACING BLOCKS while busy is not stagnant (townfloor-01: it stands still and its bag shrinks); a block placed before the window is no excuse', async () => {
+  assert.equal((await verdict({ busy: true, builtAgo: 5_000 })).fired, false, 'a block read back within the window is progress')
+  assert.equal((await verdict({ busy: true, builtAgo: W * 2 })).fired, true, 'positive control: an old block is not')
 })
 
 await t('a bot making distance while busy is not stagnant', async () => {

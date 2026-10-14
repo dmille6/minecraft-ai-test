@@ -136,10 +136,13 @@ export function walkBox (home) {
   const b = floorBox(home)
   return { x0: b.x0 - 8, x1: b.x1 + 8, z0: b.z0 - 8, z1: b.z1 + 8, y0: b.y0 - 8, y1: b.y1 + 6 }
 }
-/** How far above the floor level the seal flood looks for the open sky. */
+/** How far above the floor level the seal flood travels. */
 export const SKY_ABOVE = 10
+/** The overworld's top cell (1.18+: build height 320). The sky is a column open from the cell up to here. */
+export const WORLD_TOP = 319
 /** The seal flood's region: the repair box, 8 around, 8 below and SKY_ABOVE above. "Outside" is an open cell at or above
- *  L+1 whose whole column up to the region's top is open (the sky), never mere height (Codex r2 P1). Pure. */
+ *  L+1 whose whole column up to WORLD_TOP is open -- the real sky, never mere height and never a finite scan (Codex r2/r3
+ *  P1: a chamber roofed above any scan limit). Pure. */
 export function sealBox (home) {
   const b = floorBox(home)
   return { x0: b.x0 - 8, x1: b.x1 + 8, z0: b.z0 - 8, z1: b.z1 + 8, y0: b.y0 - 8, y1: b.y1 + SKY_ABOVE }
@@ -401,23 +404,26 @@ export function standFor (read, { target, point, topFace = false, reach, prefer 
  *   pocket     it ends inside the region without reaching the surface (a closed void; `cells` lists it)
  *   unbounded  it leaves the region, or passes `max` cells: where it leads is not known (never treated as safe)
  */
-export function openReach (read, from, { region, surfaceY, max = SEAL_FLOOD_MAX } = {}) {
+export function openReach (read, from, { region, surfaceY, max = SEAL_FLOOD_MAX, skyCache = null } = {}) {
   read = memoRead(read)
   if (!passable(read(from.x, from.y, from.z))) return { kind: 'solid', cells: [] }
   const seen = new Set([K(from.x, from.y, from.z)])
   const q = [[from.x, from.y, from.z]]
   let leaked = false
-  // THE SKY, per column: the lowest y from which every cell up to the region's top is open (memoised)
-  const skyFrom = new Map()
+  // THE SKY, per column: the lowest y from which every cell up to WORLD_TOP is open (memoised; a cell not loaded, or
+  // anything solid or liquid, closes the column there). Placements are never above the floor level, so a plan may share
+  // one cache (skyCache) across all its steps.
+  const skyFrom = skyCache ?? new Map()
   const sky = (x, y, z) => {
+    if (y < surfaceY) return false
     const ck = K(x, 0, z)
     let f = skyFrom.get(ck)
     if (f === undefined) {
-      f = region.y1 + 1
-      for (let yy = region.y1; yy >= surfaceY; yy--) { if (!passable(read(x, yy, z))) break; f = yy }
+      f = WORLD_TOP + 1
+      for (let yy = WORLD_TOP; yy >= surfaceY; yy--) { if (!passable(read(x, yy, z))) break; f = yy }
       skyFrom.set(ck, f)
     }
-    return y >= surfaceY && y >= f
+    return y >= f
   }
   for (let i = 0; i < q.length; i++) {
     const [x, y, z] = q[i]
@@ -441,12 +447,13 @@ export function openReach (read, from, { region, surfaceY, max = SEAL_FLOOD_MAX 
 
 /**
  * DOES PLACING INTO `cell` SEAL ANYTHING? -> null (no) | reason. Pure. After the placement, every passable 6-neighbour of
- * the cell must still lead to the surface (an open cell at or above L+1), or be an EMPTY pocket of at most POCKET_MAX
+ * the cell must still lead to the sky (an open cell at or above L+1 whose column is open up to WORLD_TOP), or be an EMPTY
+ * pocket of at most POCKET_MAX
  * cells (a small dead end the fill closes, whether or not it was closed before). A pocket holding a body or an item
  * ('entities': [{ x, y, z }] feet/item cells) is never closed, a larger pocket refuses, and space whose end is not known
  * ('unbounded') is never cut. Bodies that can WALK to the town are protected by lostWay, not by this air rule.
  */
-export function sealRefusal (read, cell, { home, entities = [] } = {}) {
+export function sealRefusal (read, cell, { home, entities = [], skyCache = null } = {}) {
   const region = sealBox(home), surfaceY = floorLevel(home) + 1
   const after = overlay(read, new Map([[K(cell.x, cell.y, cell.z), PLACED]]))
   const seen = new Set()
@@ -455,7 +462,7 @@ export function sealRefusal (read, cell, { home, entities = [] } = {}) {
     // (no height shortcut: a neighbour above the floor level is outside only if its flood reaches the sky -- Codex r2 P1)
     if (!passable(after(n.x, n.y, n.z))) continue
     if (seen.has(K(n.x, n.y, n.z))) continue
-    const r = openReach(after, n, { region, surfaceY })
+    const r = openReach(after, n, { region, surfaceY, skyCache })
     if (r.kind === 'surface') continue
     // space whose end is not known (it leaves the region, or a cell is not loaded) is never cut off from the surface
     if (r.kind === 'unbounded') return 'unbounded'
@@ -564,6 +571,8 @@ export function * planFloorSteps ({ read, home, start = null, entities = [], kee
   // A REFUSED CANDIDATE IS NOT RE-TRIED until a placement lands within 6 of it (its stand, support or seal can only
   // change through a nearby placement in this plan's view)
   const failedAt = new Map()
+  const transient = new Set()                       // refused for a body or an item: never made cold (Claude r2 NEW-4)
+  const skyCache = new Map()
   const near = (c, k) => { for (let i = k; i < steps.length; i++) { const p = steps[i].c; if (Math.max(Math.abs(p[0] - c.x), Math.abs(p[1] - c.y), Math.abs(p[2] - c.z)) <= 6) return true } return false }
   let why = null
   while (steps.length < maxSteps) {
@@ -581,7 +590,7 @@ export function * planFloorSteps ({ read, home, start = null, entities = [], kee
     // COLD cells (refused on an earlier visit: the record's) go last, so a visit whose first FLOOR_MAX_TRIES candidates all
     // refuse does not make the next visit try the same ones first (Claude r1 P2-2)
     const isCold = t => (cold.has(K(t.x, t.y, t.z)) ? 1 : 0)
-    eligible.sort((p, q) => isCold(p.t) - isCold(q.t) || p.t.tier - q.t.tier || q.t.y - p.t.y || q.a - p.a || K(p.t.x, p.t.y, p.t.z) - K(q.t.x, q.t.y, q.t.z))
+    eligible.sort((p, q) => p.t.tier - q.t.tier || isCold(p.t) - isCold(q.t) || q.t.y - p.t.y || q.a - p.a || K(p.t.x, p.t.y, p.t.z) - K(q.t.x, q.t.y, q.t.z))
     if (!eligible.length) { why = 'none_reachable'; break }
     let took = null, tookDist = null
     let tries = 0, exhausted = false
@@ -592,14 +601,14 @@ export function * planFloorSteps ({ read, home, start = null, entities = [], kee
       if (tries++ >= maxTries) { exhausted = true; break }
       if (tries > 1) yield steps.length                        // one candidate per slice: a live bot's event loop runs between them
       tally.tried++
-      const fail = w => { tally[w] = (tally[w] ?? 0) + 1; failedAt.set(key, steps.length) }
+      const fail = w => { tally[w] = (tally[w] ?? 0) + 1; failedAt.set(key, steps.length); if (w === 'occupied') transient.add(key) }
       if (occ.has(key)) { fail('occupied'); continue }
       const sup = floorSupports(world, t)
       if (!sup.length) { fail('nosupport'); continue }
       const options = sup.map(s => ({ ...s, point: faceCentre(s.ref, s.face), topFace: s.face[1] === 1 }))
       if (!options.some(o => standFor(world, { target: t, point: o.point, topFace: o.topFace, reach: dist }))) { fail('nostand'); continue }
-      const sw = sealRefusal(world, t, { home, entities: ents })
-      if (sw) { tally.sealwhy[sw] = (tally.sealwhy[sw] ?? 0) + 1; fail('seal'); continue }
+      const sw = sealRefusal(world, t, { home, entities: ents, skyCache })
+      if (sw) { tally.sealwhy[sw] = (tally.sealwhy[sw] ?? 0) + 1; fail(sw === 'entity' ? 'occupied' : 'seal'); continue }
       placed.set(key, PLACED)
       const back = walkBack(world, st, { box })
       placed.delete(key)
@@ -628,7 +637,7 @@ export function * planFloorSteps ({ read, home, start = null, entities = [], kee
   if (!why && steps.length >= maxSteps) why = 'budget'
   // the cells refused this plan and never placed: the record makes them cold for the next visits
   const placedKeys = new Set(steps.map(q => K(q.c[0], q.c[1], q.c[2])))
-  const refusedKeys = [...failedAt.keys()].filter(k => !placedKeys.has(k))
+  const refusedKeys = [...failedAt.keys()].filter(k => !placedKeys.has(k) && !transient.has(k))
   return { steps, tally, why, start: st, left: todo.length, refusedKeys }
 }
 

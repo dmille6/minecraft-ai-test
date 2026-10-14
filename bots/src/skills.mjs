@@ -8587,6 +8587,7 @@ async function fillTown (ctx, _args, signal) {
         if (!ok) { stats.dropped++; lastWhy = 'dropped'; replan = true; break }
         stats.placed++; stats.spent++
         placedAll.push(cellKey(target.x, target.y, target.z))
+        bot.worldWorkAt = Date.now()                    // the stagnation watchdog counts a verified block as progress
         if (s.tier === 0) stats.tier0++
         // ONE ROW PER BLOCK: the read checks every placed cell against the box and the protected cells
         // ...with the neighbourhood as the world shows it now (the read re-judges "protected" from it, independently)

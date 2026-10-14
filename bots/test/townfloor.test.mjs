@@ -396,6 +396,21 @@ await t('A ROOFED POCKET ABOVE THE FLOOR LEVEL is not "outside" (Codex r2 P1 rep
   replay(w, p, { entities: [item] })
 })
 
+await t('A CHAMBER ROOFED ABOVE ANY SCAN LIMIT is not sky (Codex r3 P1 repro): an 11-high shaft roofed at L+11 with an item at its foot is never closed; its roof at L+10 also refuses (positive control)', () => {
+  for (const roof of [73, 72]) {
+    const c = {}
+    c['7,62,0'] = 'air'; c['8,62,0'] = 'air'; c['8,63,0'] = 'stone'
+    for (let y = 62; y < roof; y++) { c[`9,${y},0`] = 'air'; if (y > 62) for (const k of [`10,${y},0`, `9,${y},1`, `9,${y},-1`, `8,${y},0`]) c[k] = 'stone' }
+    c[`9,${roof},0`] = 'stone'
+    const w = town(c)
+    const item = { x: 9.5, y: 62.1, z: 0.5 }
+    assert.equal(F.sealRefusal(w.read, { x: 8, y: 62, z: 0 }, { home: HOME, entities: [item] }), 'entity', `roof at ${roof}`)
+    const p = F.planFloor({ read: w.read, home: HOME, entities: [item], maxSteps: 50 })
+    assert.ok(!p.steps.some(s => s.c.join(',') === '8,62,0'), `never closed (roof ${roof})`)
+    replay(w, p, { entities: [item] })
+  }
+})
+
 await t('A SLAB IS NO FOUNDATION and no builder floor (Codex r2 P2): a hole over a slab is not filled; a stand on a slab is not used', () => {
   const OPENB = blk('air')
   const slab = { name: 'stone_slab', boundingBox: 'block', shapes: [[0, 0, 0, 1, 0.5, 1]], hardness: 2, props: null }
