@@ -12,6 +12,50 @@ Studio reservation both closed 10-12); clear caps bamboo 0 / bucket 2._
 
 ---
 
+
+## 10-14 02:40Z — CHEST CLEAR #2 DONE (owner GO 10-13 ~20:40Z, "do the chest clear"); fleet 2ec1938; bamboo-02 hold released
+
+Ran `docs/reports/chest-clear-procedure-2026-10-13.md` step by step in the gap after orderroom-01 was KEPT and promoted
+(2ec1938, 02:19:37Z). Every pass line passed; nothing aborted. Files: `docs/reports/census/clear2-20261014T0221Z/`.
+
+**Result.**
+- Full bank containers: 249 -> 0.
+- Used slots: 8,305 -> 1,829, out of 354 x 27 = 9,558.
+- Items: 276,870 -> 28,442.
+- Removed: 248,428 = 247,760 in 6,476 whole stacks + 668 cut from 27 boundary stacks. That is cobble 104,517,
+  logs 106,874, sticks 17,366, planks 6,434, bamboo 6,058, saplings 3,387, stations/torches 2,134, surplus usable tools
+  1,481 and spent tools 177.
+- Kept and untouched: ores 10,306, coal/gems 4,802, ingots 2,065, food, the 10 iron pickaxes and 1 potion.
+
+**Timeline and pass lines.**
+- 02:21:34 install-hold, loop lock and recycle timer stopped.
+- regionscan: DISCOVERY PASS. It found 2 new containers (board-b, placebo-b).
+- forceload3 add PASS: 0-49 tickets per world.
+- 02:21:55 all 80 stopped.
+- census-before 02:21:58Z: 0 problems, 0 online in all 16 worlds.
+- plan: 6,503 actions, total 248,428 (-2.6% against the manifest).
+- check: 0 problems.
+- validate: PASS (6,503/6,503 planned, all negative controls failed).
+- trial: PASS (board-a reduce chest 21 -> 8, remove oak_log 64).
+- run: COMPLETE, 6,501 commands in 7.7 s, 0 failed.
+- census-after 02:22:28Z, verify: PASS (kept_unchanged 1,802, removed_empty 6,476, reduced_exact 27, 0 problems).
+- re-plan: 0 actions, full after 0.
+- forceload3 remove PASS: every world back to its exact pre-clear tickets. The state file is `forceload-20261014T0221Z.json`, so there are no leftover tickets.
+- stockreset: 32/32 `written=true counts_left_from_before=0`, exit 0, reset at 02:22:39Z.
+- 02:22:44-02:38 restart, 12 s apart: 80 active.
+- fleetversion since 02:22:44Z: 80/80 `2ec1938+f21576`, 0 silent.
+- recycle timer restarted, next run 07:29Z. install-release done.
+- `queue release bamboo-02` 02:39Z. **bamboo-02 is now blocked H2: no variant for fleet base 2ec1938.**
+
+**Bot downtime:** 02:21:55 -> 02:22:44..02:38:4x, about 1-17 min per bot.
+
+**Procedure fix found in the run.** Killing the flock pid left its `sleep` child holding `/tmp/mcai-canary.lock`. It
+was killed by hand and the lock confirmed FREE; step 14 now uses `pkill -P`.
+
+**Next canary:** its pre-period must not straddle 02:22Z, or its notes must record the clear.
+
+**PENDING:** recountcheck at about 03:40Z (+60 min). The entry below this one is the PREPARED record.
+
 ## 10-13 20:35Z — CHEST CLEAR #2 (stock targets): PREPARED, awaiting owner go. NOTHING RUN; no world changed, no bot stopped
 
 The owner's one-time clear (10-10). It runs only after the inflow fix: stocktarget-01 was KEPT and promoted to fleet

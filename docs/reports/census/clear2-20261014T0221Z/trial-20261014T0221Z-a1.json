@@ -1,0 +1,40 @@
+{
+ "at_utc": "2026-10-14T02:22:12Z",
+ "executed": true,
+ "census_sha256": "1bd36124139f0fb211fc3daccd98bded1453a69ca0733def69fd0d045e243757",
+ "plan_sha256": "fbe95a9d53b7882efe38c7c1a5baa3bdf3be848b2330b18117862f9c18088693",
+ "expected_cmds": [
+  "execute if items block 354 72 149 container.6 minecraft:chest[count=21] run item modify block 354 72 149 container.6 {function:\"minecraft:set_count\",count:8}",
+  "execute if items block 313 69 169 container.1 minecraft:oak_log[count=64] run item replace block 313 69 169 container.1 with minecraft:air"
+ ],
+ "actions": [
+  {
+   "world": "board-a",
+   "pos": [
+    354,
+    72,
+    149
+   ],
+   "slot": 6,
+   "why": "reduce",
+   "cmd": "execute if items block 354 72 149 container.6 minecraft:chest[count=21] run item modify block 354 72 149 container.6 {function:\"minecraft:set_count\",count:8}",
+   "state": "done",
+   "readback_ok": true,
+   "reply": "Replaced a slot at 354, 72, 149 with [Chest]"
+  },
+  {
+   "world": "board-a",
+   "pos": [
+    313,
+    69,
+    169
+   ],
+   "slot": 1,
+   "why": "surplus",
+   "cmd": "execute if items block 313 69 169 container.1 minecraft:oak_log[count=64] run item replace block 313 69 169 container.1 with minecraft:air",
+   "state": "done",
+   "readback_ok": true,
+   "reply": "Replaced a slot at 313, 69, 169 with [Air]"
+  }
+ ]
+}

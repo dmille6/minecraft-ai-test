@@ -310,10 +310,14 @@ B "cd ~/chestclear3 && python3 fleetversion.py $TSTART units.txt; python3 ~/cana
 ## 14. Release
 
 ```bash
-B 'kill $(cat ~/chestclear3/lock.pid); systemctl list-timers fleet-recycle.timer --all --no-legend; \
+B 'pkill -P $(cat ~/chestclear3/lock.pid); kill $(cat ~/chestclear3/lock.pid); sleep 1; \
+   flock -n /tmp/mcai-canary.lock true && echo "loop lock FREE" || echo "STILL HELD: pgrep -af sleep"; systemctl list-timers fleet-recycle.timer --all --no-legend; \
    sudo systemctl start fleet-recycle.timer; systemctl is-active fleet-recycle.timer; \
    systemctl list-timers fleet-recycle.timer --no-legend; python3 ~/canary-sched.py install-release'
 ```
+
+**The loop lock is held by flock's CHILD.** Killing only the flock pid leaves `sleep` holding the lock; this happened
+on the 10-14 run. Kill the child too (`pkill -P`), and confirm `loop lock FREE`.
 
 **The timer may fire at once.** The timer is `OnUnitActiveSec=6h`. If 6 h have passed since the last recycle, starting
 it fires a recycle right away. That restarts every bot again, 6 s apart. This is harmless, but read NEXT first. If the
