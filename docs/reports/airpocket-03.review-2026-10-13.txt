@@ -51,3 +51,17 @@ TESTS
 - body-claim: the dig-site regex now includes abortableDig.
 - npm test: 246/246 on ap3-on-82aef34 @ 9f29a031 and 249/249 on ap3-on-48b093ce @ 8ae76d9f.
 - Lint: only the base's withinBody.
+
+REBASE ONTO THE FLEET 2ec19385 (orderroom-01 on stocktarget-01), 10-14
+- ap3-on-2ec19385 @ b96db01b: cherry-pick -x of the 17 commits 48b093ce..8ae76d9f, with no conflicts. The +/- lines are
+  byte-identical to 8ae76d9f over 48b093ce. Only one CONTEXT line differs: an import line that gained IRON_LADDER.
+- Codex: APPROVE, no findings. All 17 commits match. airpocket.mjs and reflex.mjs are byte-identical to the approved tip.
+  orderroom adds no new path that digs, equips, holds the inventory or restores a hand.
+- Claude: APPROVE, no findings.
+  - The diffs commute: 8ae76d9f..b96db01b equals 48b093ce..2ec19385.
+  - orderroom's skills.mjs changes are pure planners. Its eat/deposit/home orders run through the existing runner, so the
+    interrupt, the handoff and the contested-dig classification apply unchanged.
+  - Observation: room `home` walks make a live goal at the rescue more common, and the r2 early guard covers that.
+  - It also ran: airpocket 205/205, mine-abort 15/15, body-claim 20/20, orderroom 34/34, well 192/192; repro C held the
+    jump at START.
+- npm test on b96db01b: 250/250. Lint: only the base's withinBody.
