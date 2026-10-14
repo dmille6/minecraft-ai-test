@@ -42,7 +42,7 @@ MUTANTS = [
      '          { const f = bot.entity.position.floored(); if (false) {', SK),
     ('building is stagnation to the watchdog', 'bots/src/watchdog.mjs', '                     gained <= 0 && !built', '                     gained <= 0', ['watchdog-busy']),
     ('a chest is a support', TF, "|^chest$|^trapped_chest$|^barrel$|_shulker_box$|^crafting_table$|furnace$|^smoker$|^hopper$|^lectern$|^composter$|_bed$|_sign$|^bell$|^anvil$/", "|^trapped_chest$|^barrel$|_shulker_box$|^crafting_table$|furnace$|^smoker$|^hopper$|^lectern$|^composter$|_bed$|_sign$|^bell$|^anvil$/", P),
-    ('a stand need not walk back after the click', TF, '      const usable = { has: k => dist.has(k) && backB.has(k) }', '      const usable = { has: k => dist.has(k) }', P),
+    ('a stand need not walk back after the click', TF, '      const usable = { has: k => dist.has(k) && backB.has(k) && !badStands.has(k) }', '      const usable = { has: k => dist.has(k) && !badStands.has(k) }', P),
     ('the seal check is skipped by the planner', TF,
      "      if (sw) { tally.sealwhy[sw] = (tally.sealwhy[sw] ?? 0) + 1; fail(sw === 'entity' ? 'occupied' : 'seal'); continue }", "      if (false) { fail('seal'); continue }", P),
     ('a big void may be closed', TF, "    if (r.cells.length > POCKET_MAX) return 'pocket'\n", '', P),
