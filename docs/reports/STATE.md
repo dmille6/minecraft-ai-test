@@ -12,6 +12,32 @@ Studio reservation both closed 10-12); clear caps bamboo 0 / bucket 2._
 
 ---
 
+## 10-14 22:15Z — ESTELEMETRY BUILT (OWNER step 4 "Yes use the elastic for analysis"): ES is the default for WIDE analysis; gates/canary reads stay on the files
+`scripts/lib/estelemetry.py` (EsEvents.load('skill'|'llm', since_minutes=..|since/until, pools=, bots=, version=, gaps='raise'|'clip'|'allow'))
+provides count/by_bot/by_pool/terms/histogram/latest/coverage/rate(bots= REQUIRED)/rows/where. Everything is aggregated
+server-side; rows() is PIT-streamed, capped at 200k, and refuses before reading. The zero guard is the same class as lib/telemetry.py's
+ZeroLooksWrong. Its positive controls: the window has docs; no near-miss name (incl. the `_kind`/`kind` variant: names
+are EXACT here, because town_deposit and _town_deposit both exist and canon() folds them); every filter, grouping and split field is
+carried, or is mapped (quiet windows); a detail_contains (TOKEN phrase) zero always raises. Known gaps are guards: windows touching 10-07 are
+REFUSED (clip/allow on request); null==absent (match None raises); caveats name rotations crossed (~40-60 skill rows lost
+each), windows past the reconciled 10-14 18:46Z, pre-10-07 history, llm 09-08/09-16 holes. Key: ~/.config/mcai/es-readonly.key
+read per call; no redirects; scrubbed from errors.
+`scripts/host/fleetstatus.py` (3h/24h/7d; replaces the lost /tmp/quickstatus.py and the 24 h summary that hit WalkTooWide) reports:
+deaths by cause and by pool; per ACTIVE bot-hour; gather/craft/deposit/town_deposit ok/attempts; drownings by pool x
+hour (by day for 7 d); and bags (latest snapshot per bot via the bot.pos.x marker; ~/stack.json; a lower bound). It refuses empty or
+stale windows, names empty hours and 10-min stalls, and every table reconciles to its direct count. Runs in <1 s. Live 22:04Z:
+3 h 4 deaths (3 drowning), gather 42.8% ok; 7 d (clipped to 10-08) 273 deaths, 115 drowning, isolated-d 25 and hive-d 24
+drownings; bags median 33.5 of 36, 40 of 80 bots at >= 34.
+Run it from a checkout of main (the host's /opt/minecraft-ai is reset to the fleet sha by deploys), e.g.
+`python3 <main-checkout>/scripts/host/fleetstatus.py`.
+TESTS: scripts/test_estelemetry.py 48 (FakeES with real exists/phrase/missing semantics); scripts/test_fleetstatus.py 10;
+scripts/test_estelemetry_mutants.py 21/21 killed (anchors asserted unique); MCAI_ES_LIVE=1 scripts/test_estelemetry_live.py 8/8 on .31
+(reproduces 10-13 skill 1,306,930 / llm 162,828); npm test 252/252. Independent check: _death files-grep = ES (3 h 4, today 31).
+REVIEWS (docs/reports/estelemetry-review-2026-10-14.txt): Codex and Claude both REQUEST-CHANGES twice, then APPROVE at round 3.
+CLAUDE.md telemetry section: one bullet added (wide -> estelemetry; gates/canary reads -> files).
+NOTE (not fixed, out of scope): lib/telemetry.py rate(bots='auto') builds a set of bot DICTS (unhashable) -> TypeError;
+and its canon() merges town_deposit with _town_deposit.
+
 ## 10-14 21:40Z — plinth-01 VARIANT ON 8cd0bc62 built, reviewed and registered; hold reworded (the plinth agent, at the coordinator's request)
 - **Branch** plinth-on-8cd0bc6, canary sha **b4174a09**; the tip fd86d351 adds docs only.
   - It is the approved plinth-01 net diff on wellsite-02's 8cd0bc62, as one commit (2fd7197b).

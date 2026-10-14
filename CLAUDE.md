@@ -75,6 +75,11 @@ failure bucket as if it were the population; it had placed 140).
   `bot.inventory`, arm/pool in `exp`. There is no top-level `snapshot`.
 - **`Events.rate()` requires `bots=`** — pass `bots='auto'` to count the bots
   actually present. It used to default to 40 against an 80-bot fleet.
+- **Wide windows -> `scripts/lib/estelemetry.py` (Elasticsearch); gates and canary
+  reads -> the files.** OWNER 2026-10-14. Same zero guard. It refuses a window that
+  touches 10-07, which holds duplicate docs, and it cannot tell null from absent.
+  `scripts/host/fleetstatus.py` is the 3 h / 24 h / 7 d status built on it. Evidence
+  is in `docs/reports/es-completeness-2026-10-14.md`.
 
 ## Tests: run `node scripts/run-tests.mjs` from `bots/`. Never a homegrown loop.
 

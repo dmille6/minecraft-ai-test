@@ -1,0 +1,90 @@
+estelemetry + fleetstatus review record, 2026-10-14 (OWNER step 4: 'Yes use the elastic for analysis')
+Codex: verbatim final answers. Claude: separate subagent, condensed. Both APPROVE at round 3.
+
+===== ROUND 1: CODEX -- REQUEST-CHANGES =====
+The host evidence supports the reconciled counts, but several guards still accept answers from instruments that could not see the relevant presence.
+
+1. **High — bag snapshots silently exclude empty inventories.** `fleetstatus.py:124` uses `latest(require='bot.inventory')`. This field is `flattened`: Elasticsearch indexes its leaf values, so `{}` has no indexed value for `exists` to find. A newly emptied bag can therefore display its older, full inventory; a bot with only empty snapshots disappears from the sample. FakeES treats `{}` as existing, masking this defect. Select snapshots using a reliable snapshot marker and preserve empty inventories; test full→empty transitions. This follows Elasticsearch’s documented [flattened indexing](https://www.elastic.co/guide/en/elasticsearch/reference/current/flattened.html) and [exists semantics](https://www.elastic.co/docs/reference/query-languages/query-dsl/query-dsl-exists-query).
+
+2. **High — aggregation and detail zeros lack the required field control.** `estelemetry.py:439–444` calls `_zero()` without checking the aggregation field. I reproduced `terms('exp.poool', '_death') == {}` despite positive death records. Likewise, `_zero()` merely records a string describing `detail_contains`; it never verifies searchable detail exists. A fixture with empty details returned zero for `detail_contains='diamond'`. Validate the actual grouping/search field before blessing an empty result, including `histogram(split=...)` and `latest(per=...)`.
+
+3. **High — fleetstatus’s historical name proof does not establish current visibility.** `fleetstatus.py:93–117` bypasses guards throughout each window. I reproduced a report containing `docs=0`, `bots=0`, `deaths=0`, `drownings=0`. Historical names can remain proven during a recent ingestion outage. Require per-window visibility before reporting outcomes; flag missing bot/pool coverage. Also count drownings directly: summing pool buckets silently excludes drowning documents missing `exp.pool`. Report an unknown-pool bucket or reconcile bucket totals against the direct count.
+
+4. **Medium — the row limit is not enforced against the streamed snapshot.** `estelemetry.py:502–529` counts before opening the PIT, which happens only when iteration starts. Documents arriving between those operations bypass `max_rows`. I reproduced `max_rows=1` yielding eleven rows before the final mismatch exception. Count within the PIT and enforce the cap during iteration, before yielding excess rows. Add a mutation-between-count-and-iteration test.
+
+5. **Medium — FakeES gives false assurance about text matching.** `test_estelemetry.py` implements `match_phrase` as Python substring membership, whereas Elasticsearch performs analyzed phrase matching. Consequently `t_detail_contains` does not establish the advertised matching behavior. Make the API’s phrase semantics explicit and test token boundaries, punctuation, and case against Elasticsearch or an appropriately faithful fixture. See [Elastic’s full-text query semantics](https://www.elastic.co/docs/reference/query-languages/query-dsl/full-text-queries).
+
+The mutant harness correctly requires unique anchors, a passing baseline, and named failing tests. Replay exclusion, half-open windows, version boundaries, and call-time credential reads look sound. I reviewed the supplied host results and ran focused read-only reproductions; I did not rerun the live suite.
+
+VERDICT: REQUEST-CHANGES -- preserve empty inventory snapshots; validate aggregation/detail visibility; require per-window fleet controls and reconcile drowning totals; enforce the row cap within the PIT; correct FakeES phrase semantics.
+
+===== ROUND 1: CLAUDE -- REQUEST-CHANGES =====
+Blocking:
+(1) The zero guard ignored the GROUPING field. terms('exp.pol','_death') returned {},
+    histogram(split='exp.pol') returned buckets of {}, and latest(per='bot.nam') returned {}.
+(2) A detail_contains zero passed silently. match_phrase is a token match, so 'water' misses
+    water_bucket, and the FakeES substring hid this.
+(3) fleetstatus had no per-window freshness or coverage check before allow_zero, and its
+    per-bot-hour denominators were bots x nominal hours.
+Should-fix: drownings summed from pool buckets; by-cause dropping docs without fail_class; no
+caveat past the validated range; latest(require='bot.inventory') missing empty bags; plain-http
+redirects carrying Authorization; a key test that could not fail; no short-read mutant;
+error-bound FakeES; fleetstatus missing from the orphan list.
+
+===== ROUND 2: CODEX -- REQUEST-CHANGES =====
+The five round-1 fixes are implemented: fleetstatus selects snapshots using `bot.pos.x`; aggregation/detail field controls exist; each window checks presence and freshness, with drownings counted directly; `rows()` counts inside its PIT and enforces the count while streaming; FakeES uses adjacent tokens for phrase matching. Targeted assertions would fail against the corresponding old behaviors.
+
+Three blocking gaps remain:
+
+- **Credential scrubbing is incomplete** (`estelemetry.py:167–214`). HTTP/non-JSON bodies are truncated **before** scrubbing, exposing partial credentials when the cutoff intersects a key. I reproduced this. `_NoRedirect` also includes the destination URL in an `EsError` that bypasses scrubbing; a destination containing the token exposes the complete credential. Scrub before truncating and sanitize redirect errors. Add tests for both paths; the current echo test covers neither.
+
+- **Detail-filtered aggregations bypass the new zero rule** (`terms()` / `histogram()`). On the supplied fixture, both `terms('exp.pool', '_affordance_scan', detail_contains='sable=19')` and the equivalent histogram return `{}` without raising or carrying the token-match caveat. `count()` correctly raises for the same filter. Apply the detail-zero guard and caveat consistently across these APIs, including `by_pool()`/`by_bot()`.
+
+- **Error-bound rejection is incomplete.** `_terms()` checks `doc_count_error_upper_bound`, but `coverage()`, split histograms, and `latest()` check only `sum_other_doc_count`. I injected `err=2` through FakeES: all three accepted it. Fleetstatus reconciles its aggregate pool/cause totals, but never reconciles its hourly/daily drowning breakdown, leaving that output without a comparable backstop. Extend the checks and tests.
+
+Coverage’s edge-hour overlap arithmetic looks correct, and `_field_seen` retains grouping-field validation under `allow_zero` except its documented empty-window exemption. Fleetstatus’s aggregate reconciliation checks correctly include missing-field buckets. The validation-range caveat and orphan-list additions are present.
+
+I ran 42 filesystem-independent telemetry tests successfully. The read-only sandbox prevented running temporary-file-dependent suites; the reported 43/43, 6/6, 15/15 and live results remain host evidence. The live inventory test still uses `require='bot.inventory'`, so it should be updated to exercise the corrected snapshot selector.
+
+VERDICT: REQUEST-CHANGES -- credential leaks in error paths; detail-filtered aggregation zeros bypass guards/caveats; incomplete nested aggregation error-bound and histogram reconciliation checks
+
+===== ROUND 2: CLAUDE -- REQUEST-CHANGES =====
+Every round-1 item was fixed in the code: field checks, the missing bucket with reconciles, stale
+and empty windows, coverage weighting, the PIT-first rows(), scrub and redirect refusal, the
+bot.pos.x snapshot marker.
+Blocking: detail_contains was fixed in count() only. by_pool, histogram and rows still returned
+{} or [] silently, with no TOKEN caveat.
+Should-fix: the quiet-window field check used the wrong population; sub-hour stalls were
+invisible; a pos row without inventory read as an empty bag; the stale message wrapped; the
+redirect test did not prove http() uses the opener; terms() needed a keyword-only message; no
+error-bound mutant.
+
+===== ROUND 3: CODEX -- APPROVE =====
+The round-2 blockers are fixed in the code:
+
+- `http()` scrubs complete error text before truncation, uses `_OPENER`, and scrubs opener exceptions. Redirect refusal no longer echoes its target.
+- Detail-filtered `terms()`, `by_pool()`, `by_bot()`, `histogram()`, and `rows()` now reject ambiguous empty results through `_empty()`. Aggregation results carry the TOKEN caveat.
+- `_complete()` checks both truncation and error bounds in ordinary terms, coverage’s nested bot terms, histogram splits, and `latest()`.
+- Fleetstatus reconciles drowning time buckets against the direct count. The live inventory test now requires `bot.pos.x`.
+
+I also verified the mapping-based quiet-window check, 10-minute coverage buckets, missing-inventory handling, stale-message correction, and the expanded mutation runner.
+
+Two nonblocking inconsistencies remain: successful `rows(detail_contains=...)` results expose no TOKEN caveat, and its empty-result exception suggests `allow_zero=True`, which `rows()` does not accept. The module’s introductory `latest()` example also still recommends `require='bot.inventory'`.
+
+Local verification: 45 telemetry tests passed; three credential tests and all ten fleetstatus tests were prevented from running by this environment’s read-only temporary-directory restriction. I inspected their implementations and the 21-mutant runner. The reported full-suite, mutant, and live successes remain host evidence from `REVIEW-NOTES.txt`, not independently reproduced here.
+
+No remaining blocking defect found.
+
+VERDICT: APPROVE
+
+===== ROUND 3: CLAUDE -- APPROVE =====
+Blocker fixed: the detail_contains zero is refused by the shared _empty() on every path, and
+terms and histogram carry DETAIL_CAVEAT. Every should-fix was checked in the code: the
+quiet-window mapping check, 10-minute slots, _complete() on all terms aggregations, scrub
+before truncate, no URL echo, total_seconds.
+Nonblocking: _mapped() on flattened subfields can raise a false 'typo' (loud); the field name is
+unencoded in the URL; rows(detail_contains) carries no caveat; latest() empty path uses _zero().
+ALL FOUR, and Codex's three nonblocking notes, were applied after APPROVE: quote() on the field;
+docstrings on flattened subfields and substring questions; latest() via _empty(); allow_zero on
+rows()/where(); the module example uses bot.pos.x. Suites were re-run green.
+VERDICT: APPROVE

@@ -47,6 +47,13 @@ const REQUIRED = [
   'scripts/ops/fleet-deploy',
   // the telemetry library CLAUDE.md forbids hand-rolling a query instead of
   'scripts/lib/telemetry.py',
+  // its Elasticsearch counterpart, the default for wide windows (OWNER 10-14), and its tests
+  'scripts/lib/estelemetry.py',
+  'scripts/test_estelemetry.py',
+  'scripts/test_estelemetry_mutants.py',
+  // the 3 h / 24 h / 7 d fleet status built on it (replaces the lost quickstatus.py)
+  'scripts/host/fleetstatus.py',
+  'scripts/test_fleetstatus.py',
   // the movement-writer ratchet, wired into package.json and the deploy
   'bots/scripts/check-movement-writers.mjs',
 ]
