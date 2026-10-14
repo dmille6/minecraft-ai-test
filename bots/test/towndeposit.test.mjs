@@ -631,16 +631,21 @@ function chainBot ({ at = new Vec3(3, 70, 0), chest = chestAt(2) } = {}) {
 }
 /** n real decisions. The town deposit RUNS (the real skill against the fake window); any other skill is recorded with the
  *  bag's slot count at the moment it was dispatched, and succeeds. */
-async function decisions (bot, n) {
+async function decisions (bot, n, { propose = 'status', real = [] } = {}) {
   const ran = []
   const runner = { isBusy: () => false, run: async (skill, args) => {
     const slots = bot.inventory.items().length
-    if (skill === 'town_deposit') { const r = await SKILLS.town_deposit.run({ bot }, args ?? {}, null); ran.push({ skill, slots, status: r.status }); return r }
+    // the town deposit RUNS; so do the skills a test names (`real`), with the runner's measured fields the loop reads
+    if (skill === 'town_deposit' || real.includes(skill)) {
+      const r = await SKILLS[skill].run({ bot }, args ?? {}, null)
+      ran.push({ skill, slots, status: r.status, detail: r.detail })
+      return { ...r, delta: { counted: Number(r.counted ?? 0) } }
+    }
     ran.push({ skill, slots, status: 'success' })
     return { status: 'success', detail: 'ok', delta: {}, contractEvidence: [`${skill}: probe 1`] }
   } }
   const loop = new CognitiveLoop(bot, runner, freshLessons(), null)
-  loop.llm = { decide: async () => ({ schemaValid: true, latencyMs: 1, proposal: { skill: 'status', args: {}, reason: 'probe' } }) }
+  loop.llm = { decide: async () => ({ schemaValid: true, latencyMs: 1, proposal: { skill: propose, args: {}, reason: 'probe' } }) }
   loop.milestones.cycle = 540
   loop.start()
   for (let i = 0; i < 200 && ran.length < n; i++) await new Promise(r => setTimeout(r, 30))
@@ -916,6 +921,69 @@ test('STOCK CHAIN (d) (Codex code r2 P2-6): at-target logs whose only count is 2
     const keep = TD.townKeeps({ oak_log: 192 }, { wanted: bot.currentWants ?? [] }).keep.oak_log ?? 0
     assert.ok(192 - thrown >= keep, `the keep (${keep}) stays: ${192 - thrown}`)
   } finally { done() }
+})
+// THE RECOUNT CHAIN (stocktarget-02; chest clear #2 10-14: hive-a/placebo-a stayed uncounted for hours because the only
+// deterministic count fired at 34+ slots, while every deposit was refused as `*_unknown`). A FENCED town (a count, then the
+// operator's reset), a bag of 7 slots holding logs, the model proposing `deposit` every decision, through the REAL loop,
+// admission and skills. Expected: the count_town order fires first (whatever the bag's size), counts the chest, and the
+// next deposit is judged on the count -- under target it BANKS. CONTROL (the dead end, today's 34-slot rule): with the
+// recount held off, the same deposit is refused at admission as not yet counted, and the chest is unchanged.
+const fencedTown = async () => {
+  const items = bag([['oak_log', 64], ['oak_log', 64], ['crafting_table', 1], ['wooden_pickaxe', 1, 50], ['dirt', 16], ['stick', 4], ['torch', 8]])
+  const chest = chestAt(2, 70, 0, { items: Array.from({ length: 27 }, (_, i) => (i === 0 ? item('oak_log', 20) : null)) })
+  const now = Date.now()
+  const { bot, done } = await stockChain({ items, chest, seed: { t: 'cnt', k: '2,70,0', n: 0, cap: now - 5_000, v: 2, m: { oak_log: 20 }, ids: [], scan: { keys: ['2,70,0'], at: now - 5_000 } } })
+  const CC = await import('../src/cobblecap.mjs')
+  CC.appendJournal(process.env.POOL_STATE_DIR, CF.townKey(new Vec3(0, 70, 0)), bot.worldId ?? null, { t: 'reset', at: now - 1_000 })
+  // the deposit finds its chest (stockChain's bot finds nothing: its tests never reach a chest by findBlock)
+  bot.findBlock = ({ maxDistance = 64 } = {}) => { const ps = bot.findBlocks({ maxDistance }); return ps.length ? bot.blockAt(ps[0]) : null }
+  const refused = []
+  const untap = tapRecords(r => { if (/^_(stock_refused|stock_recount|stock_bank|deposit_new_chest)$/.test(r?.skill?.name ?? '')) refused.push(`${r.skill.name} ${r.skill.detail}`) })
+  const { ran, loop } = await decisions(bot, 6, { propose: 'deposit', real: ['count_town', 'deposit'] })   // other town orders (the well's build) may come between
+  untap()
+  void loop
+  return { bot, chest, ran, rows: refused, done, items }
+}
+test('RECOUNT CHAIN (stocktarget-02): a fenced town, a bag of 7 slots, the model proposing deposit -> count_town counts the chest at once, and the next deposit is admitted and judged on the count (a claim of the room under target)', async () => {
+  const { chest, ran, rows, done } = await fencedTown()
+  try {
+    assert.equal(ran[0]?.skill, 'count_town', JSON.stringify(ran) + ' ' + rows.join(' | '))
+    assert.equal(ran[0].status, 'success', ran[0].detail)
+    assert.ok(ran[0].slots < 34, `below the town deposit's trigger: ${ran[0].slots}`)
+    assert.ok(rows.some(r => /^_stock_recount trigger=order refused=2 keys=1 counted=1 tried=1 unknown_after=0 fails=- names=oak_log:stock_unknown,stick:stock_unknown/.test(r)), rows.join(' | '))
+    // the deposit is ADMITTED (no admission refusal) and judged on the count: a claim of the room under 64 (64 - 20 = 44)
+    // admitted on a COMPLETE count. (This fake world's chest does not take a chest.deposit transfer -- the transfer itself
+    // is stocktarget.test's DEPOSIT tests and the Paper `stockrecount` scene.)
+    assert.ok(ran.some(x => x.skill === 'deposit'), JSON.stringify(ran))
+    assert.ok(rows.some(r => /^_stock_bank group=oak_log name=oak_log planned=44 .*decision=bank town_before=20 .*complete=1 claims=1 refused=0/.test(r)), rows.join(' | '))
+    assert.ok(!rows.some(r => /^_stock_refused .*_unknown/.test(r)), `no not-yet-counted refusal after the count: ${rows.join(' | ')}`)
+    assert.equal(ran.filter(x => x.skill === 'count_town').length, 1, 'counted once: the town is judged now')
+    void chest
+  } finally { done() }
+})
+test('RECOUNT CHAIN CONTROL (the dead end): the same fenced town with the recount held off -> every deposit is refused at admission as not yet counted; the chest is unchanged', async () => {
+  const items = bag([['oak_log', 64], ['oak_log', 64], ['crafting_table', 1], ['wooden_pickaxe', 1, 50], ['dirt', 16], ['stick', 4], ['torch', 8]])
+  const chest = chestAt(2, 70, 0, { items: Array.from({ length: 27 }, (_, i) => (i === 0 ? item('oak_log', 20) : null)) })
+  const now = Date.now()
+  const { bot, done } = await stockChain({ items, chest, seed: { t: 'cnt', k: '2,70,0', n: 0, cap: now - 5_000, v: 2, m: { oak_log: 20 }, ids: [], scan: { keys: ['2,70,0'], at: now - 5_000 } } })
+  const CC = await import('../src/cobblecap.mjs')
+  CC.appendJournal(process.env.POOL_STATE_DIR, CF.townKey(new Vec3(0, 70, 0)), bot.worldId ?? null, { t: 'reset', at: now - 1_000 })
+  const rows = []
+  const untap = tapRecords(r => { if (r?.skill?.name === '_stock_refused') rows.push(r.skill.detail) })
+  try {
+    const ran = []
+    const runner = { isBusy: () => false, run: async (skill, args) => { ran.push(skill); const r = await SKILLS[skill].run({ bot }, args ?? {}, null); return { ...r, delta: {} } } }
+    const loop = new CognitiveLoop(bot, runner, freshLessons(), null)
+    loop.llm = { decide: async () => ({ schemaValid: true, latencyMs: 1, proposal: { skill: 'deposit', args: {}, reason: 'probe' } }) }
+    loop.milestones.cycle = 540
+    loop.recountState = { backoffUntil: Infinity }   // today's rule: no recount below 34 slots
+    loop.start()
+    for (let i = 0; i < 60 && rows.length < 1; i++) await new Promise(r => setTimeout(r, 30))
+    loop.stop()
+    assert.ok(rows.some(d => /^via=admission .*oak_log:128:stock_unknown/.test(d)), `refused as not yet counted: ${rows.join(' | ')} ran=${ran}`)
+    assert.ok(!ran.includes('count_town') && !ran.includes('deposit'), `nothing counts, nothing deposits: ${ran}`)
+    assert.equal(sumOf(chest.items, 'oak_log'), 20)
+  } finally { untap(); done() }
 })
 test('STOCK CHAIN (c): NO USABLE WELL -> no stop: at-target logs bank as today (a nowell claim), so the well build is never starved', async () => {
   const items = bag([['oak_log', 64], ['oak_log', 64], ['oak_log', 64], ['crafting_table', 1], ['wooden_pickaxe', 1, 50], ...filler(31)])

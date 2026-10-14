@@ -15,7 +15,8 @@ ENV = dict(os.environ, SKILL_TIMEOUT_MS='300', SKILL_HARD_STOP_GRACE_MS='300',
 J = ['stocktarget-journal']
 T = ['stocktarget']
 TD = ['towndeposit']
-PY = ['py:scripts/host/stocktargetread.py']   # the read's --selftest (its gates and the journal audit's G4 fixtures)
+PY = ['py:scripts/host/stocktargetread.py']
+PYR = ['py:scripts/host/stockrecountread.py']   # stocktarget-02's read   # the read's --selftest (its gates and the journal audit's G4 fixtures)
 CC = 'bots/src/cobblecap.mjs'
 MUTANTS = [
     # ---- the journal (cobblecap.mjs)
@@ -165,6 +166,50 @@ MUTANTS = [
      ", ...(aid ? { aid } : {}) }", " }", T),
     ('G2 never checks the reservations against the journal', 'scripts/host/stocktargetread.py',
      'if bank_aids is not None and nclaims > 0 and bank_aids.get(aid, 0) < nclaims:', 'if False:', PY),
+    # ---- stocktarget-02 (the town recount order; chest clear #2 10-14)
+    ('the recount order is never given (the dead end: today\'s 34-slot rule)', 'bots/src/cognitive.mjs',
+     "    if (!order || order.skill !== 'town_deposit') order = this.#recountOrder() ?? order\n", '', TD),
+    ('the recount fires on a PROVEN refusal too', 'bots/src/recount.mjs',
+     "filter(r => r?.name && /_unknown$/.test(r.why ?? ''))", "filter(r => r?.name)", T),
+    ('the recount has no cooldown (the issue gate AND the look gate: either alone is the other\'s 60 s -- Claude st2-r2)', 'bots/src/recount.mjs',
+     "  if (now - (s.lastIssuedAt ?? -Infinity) < RECOUNT_COOLDOWN_MS || now < (s.backoffUntil ?? 0)) return none()\n  // THE LOOK IS CHARGED TOO (a plan, a journal fold, the town files): at most one per cooldown, order or not\n  if (now - (s.lastLookAt ?? -Infinity) < RECOUNT_COOLDOWN_MS) return none()\n",
+     "  if (now < (s.backoffUntil ?? 0)) return none()\n", T),
+    ('a fruitless recount is not backed off', 'bots/src/recount.mjs',
+     "  s.backoffUntil = status === 'success' && Number(counted) > 0 ? 0 : now + RECOUNT_BACKOFF_MS",
+     "  s.backoffUntil = 0", T),
+    ('the look is not charged', 'bots/src/recount.mjs',
+     "  if (now - (s.lastLookAt ?? -Infinity) < RECOUNT_COOLDOWN_MS) return none()\n", '', T),
+    ('the recount walks to an unusable container (no reachability check)', 'bots/src/skills.mjs',
+     " && !RECOUNT_SKIP.has(containerStatus(mem[k], now)) && recountMissStatus(misses[k], now) === 'ok')", ")", T),
+    ('a recount miss is never written', 'bots/src/skills.mjs',
+     "    if (remember && RECOUNT_MISS_REASONS.has(why)) noteRecountMiss(bot, k)\n", '', T),
+    ('a recount miss goes into the container memory the deposit reads (st2-r1 P1)', 'bots/src/skills.mjs',
+     "    if (remember && RECOUNT_MISS_REASONS.has(why)) noteRecountMiss(bot, k)\n",
+     "    if (remember && RECOUNT_MISS_REASONS.has(why)) { noteRecountMiss(bot, k); rememberTown(bot, keyVec(k), 'unknown') }\n", T),
+    ('an interrupted walk is a miss (st2-r1)', 'bots/src/skills.mjs',
+     "        if (kind === 'interrupted') { interrupted = true; break }\n", '', T),
+    ('an unloaded cell is a shared miss (Claude st2-r2 P3-a)', 'bots/src/skills.mjs',
+     "      if (!b) { fail(k, 'not loaded'); continue }\n", '', T),
+    ('a budget timeout is a miss', 'bots/src/skills.mjs',
+     "        fail(k, kind === 'no_path' ? 'unreachable' : `walk ${kind}`); continue", "        fail(k, 'unreachable'); continue", T),
+    ('no arrival check before the open', 'bots/src/skills.mjs',
+     "        if (remember && !(eyeToBlock(bot.entity.position, c) <= OPEN_REACH)) { fail(k, 'unreachable'); continue }\n", '', T),
+    ('the recount opens while an open is pending (Codex st2-r1 P2)', 'bots/src/skills.mjs',
+     "  if (bot.cobbleOpenPending) return { counted, timedOut, tried, pending: true, fails }\n", '', T),
+    ('an aborted recount writes no row (Codex st2-r1 P2)', 'bots/src/skills.mjs',
+     "    row('aborted', `trigger=order refused=${before.length} keys=${keys.length} counted=${progress.counted} tried=${progress.tried} aborted=1 names=${refusedS}`, progress.counted)\n", '', T),
+    ('a declined order keeps the look charged (Codex st2-r1 P3)', 'bots/src/recount.mjs',
+     "    s.lastLookAt = s.refund?.lastLookAt ?? -Infinity\n", '', T),
+    ('two misses never make a container unusable', 'bots/src/recount.mjs',
+     "  if (Math.max(...live) - Math.min(...live) >= RECOUNT_MISS_GAP_MS) return 'unusable'\n", '', T),
+    ('the read: a placed new chest is not counted', 'scripts/host/stockrecountread.py',
+     "                                                       and r['status'] == 'success' and 'placed=1' in r['detail'])", "                                                       and False)", PYR),
+    ('the read: a fruitless recount counts as liveness', 'scripts/host/stockrecountread.py',
+     "    out['recount_live'] = sum(1 for r in rc_c if num(kv(r['detail']), 'counted') >= 1)", "    out['recount_live'] = len(rc_c)", PYR),
+    ('the read: the loop gate never fires', 'scripts/host/stockrecountread.py',
+     "            if i - j + 1 > LOOP_MAX_PER_H:", "            if False:", PYR),
+    ('the read: the backoff gate never fires', 'scripts/host/stockrecountread.py',
+     "            if num(kv(a['detail']), 'counted') == 0 and (c['t'] - a['t']).total_seconds() < BACKOFF_MIN_S:", "            if False:", PYR),
     ('the tripwire weighs rows, not bot-minutes (Codex code r2 P2)', 'scripts/host/stocktargetread.py',
      "        return sum(f / n for f, n in mins) / len(mins) if mins else float('nan')", "        return sum(f for f, n in mins) / sum(n for f, n in mins) if mins else float('nan')", PY),
 ]

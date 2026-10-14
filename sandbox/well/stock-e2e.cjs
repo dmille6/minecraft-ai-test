@@ -4,7 +4,7 @@
 // runs its own deterministic town orders; a queue in the loopback brain can hand it a model verb (`deposit`).
 //
 //   node sandbox/well/stock-e2e.cjs <botRoot> <scene,scene,...> [server]
-//   scenes: build (the well; every later scene uses it)  stockdispose  stockbank  stockprune  stockprunekeep  stocknochest  stockrace  stockrefuse
+//   scenes: build (the well; every later scene uses it)  stockdispose  stockbank  stockprune  stockprunekeep  stocknochest  stockrace  stockrefuse  stockrecount
 //
 // RCON only through `ssh mike@10.0.0.30 python3 /tmp/sbx-rcon.py <sandboxN> -`. Sandbox servers and sandbox-* names
 // only. Refuses to run unless the sandbox lock (/tmp/mcai-sandbox.lock on 10.0.0.31) names `stocktarget`.
@@ -583,6 +583,43 @@ scenes.stockrefuse = async () => {
     trial2: { admissionRow: adm?.detail ?? null, chestCobbleGained: cob(c2.totals) - cob(c1.totals), bagCobble: cob(b2.totals) },
     PASS: !!(d1 && rows1.some(d => /^via=deposit .*at_cobble=1 .*cobblestone:\d+:cobble_cap/.test(d)) && (c1.totals.oak_log ?? 0) > (c0.totals.oak_log ?? 0)
       && cob(c1.totals) <= cob(c0.totals) && cob(b1.totals) >= 158 && adm && /at_cobble=1/.test(adm.detail) && cob(c2.totals) <= cob(c1.totals)) })
+}
+
+// THE RECOUNT (stocktarget-02; chest clear #2 10-14: the fenced towns stayed uncounted while bags sat under 34 slots).
+// A well (the stock caps bind), a town chest of 20 oak, a 7-slot bag of oak 64+64. Life 1 counts the town (the journal
+// must exist to be fenced). Then the clear's procedure: the bot stopped, the operator's fence (bots/scripts/stockreset.mjs
+// on the pool dir), the bot started. Life 2, still 7 slots: the count_town order counts the chest AT ONCE (a
+// _stock_recount row counted >= 1), and the queued `deposit` then GOES THROUGH under the target -- the server's chest
+// 20 -> 64 oak (the room under 64), read from the world.
+scenes.stockrecount = async () => {
+  if (!CAP) throw new Error('no well (run build first)')
+  rcon(`kill ${ARENA_SEL}`); CHEST = CHEST ?? pickChest()
+  setChest([['oak_log', 20]])
+  const pool = `sbxstock-${RUN}-rc`
+  const spec = [['oak_log', 64], ['oak_log', 64], ['stone_pickaxe', 1], ...TORCH(4)]
+  const counted = f => rowsOf(f.skillLog).find(r => r.name === '_stock_recount' && /counted=[1-9]/.test(r.detail))
+  let files = await startBot('stockrecount1', spec, { pool })
+  // life 1 only needs the town COUNTED by anything (run 7: its withdraw_pick opened the chest and counted it first)
+  const life1 = await waitFor(() => journalOf(files).find(r => r.t === 'cnt' && r.m), 150000, 500)
+  await stopBot()
+  const fence = execFileSync('node', [path.join(BOT_ROOT, 'bots/scripts/stockreset.mjs'), files.poolDir], { encoding: 'utf8' }).trim()
+  setChest([['oak_log', 20]])
+  files = await startBot('stockrecount2', spec, { pool })
+  const c0 = chestTotals(), b0 = bag(NAME)
+  const life2 = await waitFor(() => counted(files), 150000, 500)
+  const slotsAtCount = b0.used   // the server's bag: well under the town deposit's 34
+  brainQueue.push('deposit')
+  const dep = await waitFor(() => lines(files.botOut).find(l => /skill deposit ->/.test(l)), 180000, 500)
+  await sleep(2000)
+  const c1 = chestTotals(), b1 = bag(NAME)
+  const rows = stockRows(files)
+  await stopBot()
+  brainQueue.length = 0
+  const unknownAfter = rowsOf(files.skillLog).filter(r => r.name === '_stock_refused' && /_unknown/.test(r.detail) && life2 && r.ts > life2.ts).length
+  result({ scene: 'stockrecount', life1: life1 ? `count of ${life1.k} oak=${life1.m.oak_log ?? 0}` : null, fence, life2: life2?.detail ?? null, slotsAtCount, deposit: dep?.slice(0, 200) ?? null,
+    world: { chest: [c0.totals, c1.totals], bag: [b0.totals, b1.totals] }, unknownRefusalsAfterCount: unknownAfter, rows,
+    PASS: !!(life1 && /reset/i.test(fence) && slotsAtCount < 34 && life2 && dep && /-> success/.test(dep) && (c1.totals.oak_log ?? 0) > (c0.totals.oak_log ?? 0)
+      && (c1.totals.oak_log ?? 0) <= 64 && unknownAfter === 0) })
 }
 
 // RACE: two bots, one town at target + ONE stack (128 oak, target 64), both with room and a fresh count: both get prune
