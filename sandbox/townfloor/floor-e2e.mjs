@@ -222,8 +222,8 @@ const brain = http.createServer((req, res) => {
     const sentinel = (msgs.map(m => String(m.content || '')).join('\n').match(/END-[A-Z0-9]{4,12}/g) || []).pop() || ''
     // THE MODEL'S OWN TURNS VARY (status, then a step to a cell beside home): the admission gate refuses a 4th identical
     // action within 8, and a brain that only ever says 'status' would make the fleet's repeat guard stall every order
-    const n = brainN++ % 3
-    const decision = n === 0 ? { skill: 'status', args: {} } : n === 1 ? { skill: 'goto', args: { x: HOME.x + 2, y: HOME.y - 1, z: HOME.z + 2 } } : { skill: 'goto', args: { x: HOME.x - 2, y: HOME.y - 1, z: HOME.z - 2 } }
+    const n = brainN++ % 4
+    const decision = n === 0 ? { skill: 'status', args: {} } : n === 1 ? { skill: 'goto', args: { x: HOME.x + 2, y: HOME.y - 1, z: HOME.z + 2 } } : n === 2 ? { skill: 'goto', args: { x: HOME.x - 2, y: HOME.y - 1, z: HOME.z - 2 } } : { skill: 'goto', args: { x: HOME.x + 2, y: HOME.y - 1, z: HOME.z - 2 } }
     res.setHeader('Content-Type', 'application/json')
     res.end(JSON.stringify({ model: 'sandbox-script', created_at: new Date().toISOString(), message: { role: 'assistant', content: JSON.stringify({ ...decision, reason: 'sandbox: idle', saw_end: sentinel }) },
       done: true, total_duration: 1e6, load_duration: 0, prompt_eval_count: 10, prompt_eval_duration: 5e5, eval_count: 5, eval_duration: 5e5 }))
@@ -248,7 +248,10 @@ async function startBot (fx, tag, slotsSpec, { tp = true } = {}) {
   const set = (key, v) => { env = new RegExp(`^${key}=`, 'm').test(env) ? env.replace(new RegExp(`^${key}=.*$`, 'm'), `${key}=${v}`) : env + `\n${key}=${v}` }
   set('BOT_NAME', NAME); set('LOG_DIR', logRel); set('STATE_DIR', `./sandbox/state/floor-${RUN}-${fx}`); set('MEMORY_POOL', poolOf(fx))
   set('MINECRAFT_PORT', PORTS[SERVER]); set('MAX_CONSECUTIVE_FAILURES', 50); set('FAILED_COOLDOWN_MS', 1000); set('STUCK_SECONDS', 20)
-  set('FLOOR_COOLDOWN_MS', 15000); set('WORLD_BORDER_RADIUS', 4000)   // the arena is at 2400: the model's goto must not be refused at the border
+  // A REALISTIC RHYTHM: the fleet's order runs at most every 10 min with ~20 model decisions between; at 15 s the
+  // admission gate's repeat window (4 identical in 8) refused the 5th visit and the livelock breaker walked the bot off the
+  // arena (Paper 10-14). 60 s keeps <= 2 visits in any 8 admitted actions while the scenes stay short.
+  set('FLOOR_COOLDOWN_MS', 60000); set('WORLD_BORDER_RADIUS', 4000)   // the arena is at 2400: the model's goto must not be refused at the border
   set('OLLAMA_BASE_URL', `http://127.0.0.1:${BRAIN_PORT}`); set('OLLAMA_BASE_URLS', `http://127.0.0.1:${BRAIN_PORT}`)
   for (const a of ['X', 'Y', 'Z']) { set(`HOME_${a}`, HOME[a.toLowerCase()]); set(`BOARD_${a}`, HOME[a.toLowerCase()]) }
   fs.writeFileSync(`${R}/${envRel}`, env + '\n')
