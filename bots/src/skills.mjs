@@ -99,6 +99,7 @@ import { canContinueDescent } from './exit-contract.mjs'
 import { openLessons } from './lessons.mjs'
 import { dropsOf, heldFromBlock, sourcesOf } from './drops.mjs'
 import { smeltPlan, smeltRecipeFor, chooseFuel, fuelTicks, SMELT_TICKS } from './smelting.mjs'
+import { withDigScope } from './digtown.mjs'
 
 /**
  * FAILURE CLASSES THAT NAME OUR IGNORANCE RATHER THAN THE WORLD.
@@ -378,7 +379,10 @@ const STEP_IMPULSE_MS = Math.max(30, Math.min(350, Math.floor(config.skills.defa
 const COLLECT_MS = 40_000
 const BARREN_LIMIT = 3
 
-async function goto(ctx, { x, y, z, range = 1 }, signal) {
+// THE `_dig_town` INSTRUMENT'S SCOPE (digtown.mjs, telemetry only): goto's own direct digs (float dig, ride-floor-down) are
+// transit, also when goto runs inside mine or gather. Nothing reads digScope but the instrument.
+async function goto (ctx, args, signal) { return withDigScope(ctx?.bot, { purpose: 'transit', by: 'goto' }, () => gotoLegs(ctx, args, signal)) }
+async function gotoLegs(ctx, { x, y, z, range = 1 }, signal) {
   const { bot } = ctx
   assertInsideBorder(x, z)
   check(signal)
@@ -12366,7 +12370,10 @@ export function climbAdvice(stopped) {
   return ' — run surface again to keep climbing'
 }
 
-async function surface(ctx, _args, signal) {
+// THE `_dig_town` INSTRUMENT'S SCOPE (telemetry only): surface's own digs (shaftAscend) are transit, also when surface runs
+// inside mine (the zone's walk-out fallback) -- never mine's target (Claude code r2 P1: a false Z1 trip).
+async function surface (ctx, args, signal) { return withDigScope(ctx?.bot, { purpose: 'transit', by: 'surface' }, () => surfaceClimb(ctx, args, signal)) }
+async function surfaceClimb(ctx, _args, signal) {
   const { bot, runner } = ctx
   const startY = bot.entity.position.y
 

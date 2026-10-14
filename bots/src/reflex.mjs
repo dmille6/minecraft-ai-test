@@ -46,6 +46,7 @@ import { airPocketPlan, airPocketAdmit, airPocketTrigger, airPocketStep, airPock
          airPocketPreempt, AP_WANT_LAPSE_MS,
          AP_REFUSE_COOLDOWN_MS, standCandidates, airPocketTools } from './airpocket.mjs'
 import pathfinderPkg from 'mineflayer-pathfinder'
+import { digScoped } from './digtown.mjs'
 const pkgGoals = pathfinderPkg?.goals
 
 const FOOD_PRIORITY = [
@@ -1481,7 +1482,8 @@ export function startReflexes(bot, runner, lessons = null, worldFacts = null) {
   let reflexErrors = 0
 
   let healthBeforeTick = null   // for the held-cursor release: damage taken since the last tick
-  const timer = setInterval(async () => {
+  // THE `_dig_town` INSTRUMENT'S SCOPE (digtown.mjs, telemetry only): a dig reached from the reflex tick is survival.
+  const timer = setInterval(digScoped({ purpose: 'survival', by: 'reflex' }, async () => {
     if (!bot.entity) return
 
     try {
@@ -3174,7 +3176,7 @@ export function startReflexes(bot, runner, lessons = null, worldFacts = null) {
     }
     // Only a clean pass proves the layer is actually working.
     reflexErrors = 0
-  }, config.reflex.tickMs)
+  }), config.reflex.tickMs)
 
   const stop = () => clearInterval(timer)
   // TELEMETRY ONLY (pickuplog.mjs): which reflex arm is driving the body right now, for attributing an item
