@@ -1,0 +1,114 @@
+{
+ "run_id": "stocktarget-02",
+ "sha": "4798b70",
+ "registered_at": "2026-10-14T06:30:00Z",
+ "ladder_change": false,
+ "promotion": "fleet-wide",
+ "notes": "[Variant for fleet 2ec19385 (orderroom on stocktarget-01): branch st2-on-2ec1938 @ 4798b708.] THE TOWN RECOUNT ORDER (operator 10-14, after chest clear #2: STATE f9331b98, docs/reports/census/clear2-20261014T0221Z/). The clear's fence left every town container UNKNOWN; a deposit the cobble cap or a stock target cannot judge is refused (`_stock_refused ... *_unknown`), and the only deterministic recount fired at 34+ slots, so hive-a and placebo-a stayed 0/24 and 0/17 recounted for 2 h while hive-a-Delta was refused 55 times -- a refusal with no remedy the bot performs from where it is (CLAUDE.md). Counts also expire after 6 h, so the refusal recurs on every town (12 h: hive-c 123 ... hive-d 4 rows). THE CHANGE: at town (inTown), holding a name a plan refuses as town_stock_unknown/town_cobble_unknown, with a reachable uncounted town container, the deterministic order count_town counts up to 3 containers now (the existing reconciliation), whatever the bag's size; 60 s cooldown (the look charged too), 10 min backoff after a fruitless count; a container the recount cannot reach (a real no-path, or a walk that resolved out of reach) or open is a RECOUNT MISS in the town's own <townKey>.recount.json -- never in the container memory the deposit/withdraw/full-chest recovery read (both reviews st2-r1: that would close the bank and let the recovery build chests) -- and two misses >= 10 min apart within 6 h keep it out of every bot's recount (the reachability check: placebo-a-Echo's 'No path' chest 251,74,-148); an interrupted walk ends the recount, our own clock, a slow open and an unloaded cell back off that bot only; an arrival check before the open; the pending-open interlock. One _stock_recount row per order; runner evidence count_effect. Admission is unchanged (the order runs before the model is asked). RESIDUALS (both reviews): a refusal from coverage=false (an unloaded column under the town square, or the 256-scan cap) has no key and no order (today's rule); after a clear a bot may run count_town back to back until its town is counted (~1 run per 3 containers, ahead of its milestone work); an aborted run backs off 10 min even if it counted some (its row keeps the partial count; its row omits fails=). REVIEWS: Codex r1 CHANGE -> r2/r3 APPROVE; Claude r1 CHANGE (P1) -> r2 CHANGE (tests/mutants) -> r3 APPROVE. TESTS: npm test 249/249; mutants-stocktarget 82/82 killed on a fresh archive (reproduced by the Claude reviewer); towndeposit RECOUNT CHAIN through the real loop/admission/skills (a fenced town, a 7-slot bag, the model proposing deposit: count_town first, then the deposit admitted and judged on the count) + its CONTROL (recount held off: refused at admission, nothing counts -- the dead end reproduced); stocktarget.test pure order / keys / count_town incl. no-path -> a recount miss with the container memory untouched, interrupted / timeout / unloaded -> no miss, out of reach -> a miss, pending open, abort -> one aborted row. REVIEWS and PAPER: docs/reports/stocktarget-02-reviews-2026-10-14.txt, docs/reports/stocktarget-02-paper-2026-10-14.txt. DRY RUN (host, hive-a,placebo-a as canary on the base, 10-14 02:30Z +157 min): liveness 0 (the base cannot count), arms 0, gates 0, instrument 477 control not-yet-counted refusals, new-chest tripwire 0, exposure READY. PAPER (run 8 on d28f2d0e; 4798b708 differs only by the unloaded-cell reason, the groups simplification and the row's fails=): a fenced town, a 7-slot bag -> recount counted=1 at once, then `deposit` deposited 44, server chest oak 20 -> 64.",
+ "lint": "eslint no-undef: exactly one hit, bots/src/reflex.mjs:2382:67 'withinBody' (2384:67 on the digtown variant) -- the same line on the untouched base (2ec19385 / eb543899); reflex.mjs is untouched by this diff; `typeof withinBody === 'function' ? ... : fallback` cannot throw a ReferenceError.",
+ "licence": {
+  "class": "kind",
+  "kind": "_stock_recount",
+  "min_rows": 1,
+  "note": "Written only by this build: one row per count_town order. The fleet (2ec19385) has no count_town and no _stock_recount row."
+ },
+ "reads": [
+  "stockrecountread",
+  "immobiledid"
+ ],
+ "read_minutes": [
+  180,
+  360
+ ],
+ "deadline_min": 1680,
+ "change_rows": [
+  "stock_recount",
+  "cobble_reconcile"
+ ],
+ "linkage_extra": [],
+ "draw_exposure": {
+  "hours": 12,
+  "require": [
+   {
+    "name": "not-yet-counted refusals (a deposit a cap or target cannot judge)",
+    "kind": "stock_refused",
+    "detail_contains": "_unknown",
+    "min": 5
+   }
+  ],
+  "note": "12 h to 10-14 04:50Z per pool (rows `_stock_refused` naming *_unknown with no counted cap): hive-c 123, isolated-c 92, hive-a 69, isolated-b 44, board-a 37, isolated-a 34, hive-b 29, placebo-b 25, isolated-d 17, board-d 16, placebo-a 14, placebo-d 14, board-c 12, placebo-c 6, board-b 5, hive-d 4. CLAUDE.md: a canary pool must contain the population the fix targets."
+ },
+ "exposure": {
+  "read": "stockrecountread",
+  "field": "exposure_ready",
+  "min": 1,
+  "note": "Ready = >= 3 canary not-yet-counted refusals or recount rows, and the instrument (control not-yet-counted refusals >= 1). Dry run 10-14: control 426 in 142 min."
+ },
+ "own_lines": [
+  {
+   "read": "stockrecountread",
+   "field": "breach_recount_loop",
+   "op": "<=",
+   "value": 0,
+   "on_fail": "REVERT",
+   "evidence": "defect",
+   "note": "L1: a canary bot with more than 61 _stock_recount rows in any 60 min (the 60 s cooldown broken)."
+  },
+  {
+   "read": "stockrecountread",
+   "field": "breach_recount_backoff",
+   "op": "<=",
+   "value": 0,
+   "on_fail": "REVERT",
+   "evidence": "defect",
+   "note": "L2: a canary bot recounting < 9.5 min after its own recount that counted nothing (the 10 min backoff broken)."
+  },
+  {
+   "read": "stockrecountread",
+   "field": "recount_rows_control",
+   "op": "<=",
+   "value": 0,
+   "on_fail": "REVERT",
+   "note": "Arms. BLOCKS KEEP."
+  },
+  {
+   "read": "stockrecountread",
+   "field": "recount_live",
+   "op": ">=",
+   "value": 1,
+   "on_fail": "REVERT",
+   "note": "LIVENESS: canary recounts that COUNTED >= 1 town container (the immediate count seen; a fruitless one is not liveness). BLOCKS KEEP (INCONCLUSIVE)."
+  },
+  {
+   "read": "stockrecountread",
+   "field": "instrument_control",
+   "op": ">=",
+   "value": 1,
+   "on_fail": "REVERT",
+   "note": "POSITIVE CONTROL: control not-yet-counted refusals visible. BLOCKS KEEP."
+  }
+ ],
+ "primary": {
+  "read": "stockrecountread",
+  "field": "unknown_refusal_did",
+  "note": "REPORTED: not-yet-counted refusals per bot-h, DiD vs the same-length PRE (should FALL: the town is counted at once); refusals followed by a recount within 120 s; containers counted/tried; fruitless recounts."
+ },
+ "harm": {
+  "note": "Unchanged: the two-death floor (OWNER 2026-09-11) and gather_ratio < 0.43 of control, from immobiledid. The recount walks inside town only (<= 3 containers, 15 s each)."
+ },
+ "teardown": {
+  "note": "THREE STEPS: drop-ins, clear canary_pool, restart the pool's bots 12 s apart; then confirm the live versions. The town memory's strikes stay (shared with the base's deposit, which reads them as it always has)."
+ },
+ "amendments": [],
+ "extension": {
+  "until_exposure": true,
+  "extra_reads": [
+   540,
+   720,
+   1080,
+   1560
+  ],
+  "final_on_zero_exposure": "INCONCLUSIVE",
+  "note": "SHORT CANARY for a fix (owner 2026-09-29)."
+ }
+}

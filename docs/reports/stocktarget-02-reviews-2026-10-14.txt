@@ -1,0 +1,171 @@
+stocktarget-02 REVIEWS (2026-10-14): design + code, both engines, independent, read-only (git archive scratch copies).
+Codex: `codex exec --skip-git-repo-check "<prompt>" < /dev/null`. Claude: an independent subagent (the same reviewer as stocktarget-01).
+Final: Codex r1 CHANGE -> r2 APPROVE -> r3 APPROVE (on 4798b708); Claude r1 CHANGE (P1) -> r2 CHANGE (tests/mutants) -> r3 APPROVE (on 4798b708, mutants 82/0 reproduced).
+
+===== CODEX ST2-R1 =====
+VERDICT: CHANGE
+
+The rule is the right remedy for the measured small-bag dead end: deterministic counting at town, before milestone work, makes the refusal chain executable. The current implementation has four gaps. Line references below are for `5cd9f6ba`; the variant has the same patch identity.
+
+1. **P2 — Recount bypasses the pending-open interlock.** `bots/src/skills.mjs:3357`  
+   `deposit` and `townDeposit` check `bot.cobbleOpenPending`; `countTown` does not. After an earlier open times out but remains unresolved, a later recount can open another container and overwrite the pending promise. A scratch probe with an unresolved pending open observed **one additional open and one count**. This defeats the existing protection against overlapping opens and late-window cleanup interfering with subsequent work.  
+   **Fix:** enforce the interlock in the shared reconciliation entry point, and avoid selecting a recount while an open remains pending. Test timeout → next recount → late resolution, with a positive control after settlement.
+
+2. **P2 — A pathfinder interruption poisons the town’s shared container memory.** `bots/src/skills.mjs:3506`, `bots/src/skills.mjs:3522`  
+   The reconciliation catch labels every non-abort walk rejection “unreachable.” With the new `remember: true`, `"The goal was changed!"` now writes an `unknown` strike; the scratch probe reproduced this. The deposit recovery explicitly excludes this case using `walkFailure(e) === 'interrupted'`.  
+   This composes badly with the full-chest sweep: `containerStatus` becomes `backoff`, the sweep increments `unknown`, and expansion defers. Repeated interruptions at least ten minutes apart can mark an otherwise usable chest unusable for six hours across the town.  
+   **Fix:** classify walk failures before recording them. An interruption must end the attempt without a container strike or another walk. Also distinguish a shortened remaining budget from evidence of unreachability. Add a chain test covering interruption → shared memory → deposit sweep, alongside the genuine no-path control.
+
+3. **P2 — Aborted recounts disappear from the read’s population.** `bots/src/skills.mjs:3357`, `scripts/host/stockrecountread.py:92`  
+   `_stock_recount` is emitted only after `reconcileCobble` returns. An abort propagates past that emission; the scratch probe recorded **zero recount rows for one invoked, aborted recount**. Thus “one row, always” is false. L1/L2 cannot audit those attempts, and an abort after partial progress can hide actual counting from liveness.  
+   **Fix:** emit exactly one terminal row for every started recount, preserving partial `counted`/`tried` totals and an explicit interrupted status while still propagating cancellation. Add interrupted-before-count and interrupted-after-count fixtures, then exercise the read’s gates against those rows.
+
+4. **P3 — Runner decline still charges the look cooldown.** `bots/src/recount.mjs:58`  
+   Decline clears `lastIssuedAt` but retains `lastLookAt`. The scratch probe issued an order, returned `runner_busy`, and retried one second later: no order was produced. The existing test checks only the cleared field, so it misses the effective charge.  
+   **Fix:** refund or restore both timestamps on runner decline; test the subsequent order decision.
+
+Priority composition otherwise looks reasonable: town deposit wins; recount precedes milestone, compost, well and prune work; successful counts remove their own trigger, while cooldown/backoff bound retries. Shared town memory is appropriate for actual reachability evidence, subject to finding 2. The lazy key lookup is throttled, but `unknownRefusals` is evaluated before the town/cooldown gates and can invoke cached journal readers; the entire check is not limited to once per minute.
+
+Validation used scratch `git archive` exports only, with no network or checkout modifications. Existing stock-target/journal and town-deposit tests passed on both pinned builds; the variant’s digtown tests and the read’s selftest passed. Four added behavioral probes failed as described. Patch identities match, and the digtown instrumentation introduces no additional scheduling interaction identified here. Paper-scene results were not available for verification.
+
+===== CODEX ST2-R2 =====
+VERDICT: APPROVE
+
+All four of my round-1 findings are resolved:
+
+1. **P2 pending-open interlock — resolved.** `bots/src/skills.mjs:3345,3376,3542` gates key selection, `countTown`, and reconciliation on `cobbleOpenPending`. The direct order reports `pending_open=1`; the positive control restores eligibility after settlement.
+
+2. **P2 interruption poisons shared memory — resolved.** `bots/src/skills.mjs:3313–3327,3534–3539,3562–3569` isolates recount misses in the recount file. Interrupted walks end reconciliation; budget timeouts do not become shared misses. Recount failures no longer write the container memory used by deposit, withdrawal, and recovery.
+
+3. **P2 aborted recounts vanish from the read — resolved.** `bots/src/skills.mjs:3381–3390,3540,3552,3589` preserves partial progress, emits one aborted row, and propagates the abort. `scripts/host/stockrecountread.py:106–112,143` includes aborted rows and credits their counts. My additional scratch probe aborted on the second walk after counting one chest: exactly one row reported `status=aborted counted=1 tried=2`.
+
+4. **P3 declined order keeps the look charged — resolved.** `bots/src/recount.mjs:65–75,85–89` saves and restores both timestamps. The test confirms another order can issue one second after runner decline.
+
+**New findings:** None requiring changes. The disclosed coverage-only refusal and consecutive successful recount behavior remain limitations; this patch does not eliminate them.
+
+Validation used `git archive` scratch copies, with no network or checkout edits. The official runner passed stocktarget and towndeposit tests on both `d28f2d0e` and `bb04d3a8`, plus digtown tests on the variant. The read self-test and additional partial-abort probe passed. I did not independently verify the pending Paper rerun or rerun the mutant suite.
+
+===== CODEX ST2-R3 =====
+VERDICT: APPROVE
+
+My round-2 verdict had no outstanding blockers. The earlier findings remain resolved: pending-open interlock, interruption handling without poisoning container memory, aborted recount visibility, and refunding the look on runner decline.
+
+The round-3 tests close both reported coverage gaps. I independently ran the four affected mutants: **4 killed, 0 survived**, covering interruption, pending open, both cooldown gates, and unloaded cells. The equivalent cobble mutant was appropriately removed.
+
+1. **P3 — Aborted recounts omit the failure breakdown.** `bots/src/skills.mjs:3387` discards `progress.fails` when emitting the aborted row. A scratch probe produced a walk timeout on the first chest, then aborted the second walk: the row retained `counted=0 tried=2` but omitted `fails=walk_timeout:1`. Consequently, `scripts/host/stockrecountread.py:149` undercounts failures preceding an abort. The positive control, without aborting, correctly reported `fails=walk_timeout:2`. Serialize `progress.fails` on aborted rows using the normal row’s formatting and add this fixture. Nonblocking diagnostic omission.
+
+P3-a is resolved. P3-c works for completed runs, with the omission above. The explicitly retained ten-minute backoff after a partially successful abort is conservative and acceptable.
+
+Validation: archived `4798b708`; stocktarget, stocktarget-journal, towndeposit, and reader selftest passed. The additional scratch probe exposed the P3 above. I did not rerun all 82 mutants. Repository unchanged; no network used.
+
+===== CLAUDE ST2 VERDICT MESSAGE 1 of 3 (r1-r3, in order) =====
+stocktarget-02 design+code r1: VERDICT: CHANGE. The design is right and the refusal chain now closes, but one P1: the recount writes town-wide memory strikes on failures the deposit deliberately does not strike.
+
+Reviewed from git archive 5cd9f6ba (claude-code-probes/tree8). Tests pass: stocktarget, stocktarget-journal, towndeposit (incl. RECOUNT CHAIN and its control), deposit-plan. stockrecountread --selftest OK. The digtown variant c52c5a1d is the same diff; eb543899's digtown is telemetry-only (bot.dig wrapper + withDigScope), so no composition issue today.
+
+(1) THE REMEDY AND THE CHAIN
+Right remedy. The ceiling's unknown refusal now names an executable remedy at town at any bag size, the order runs before the model, and RECOUNT CHAIN shows the full chain: fenced town -> count_town -> the deposit admitted on the count (complete=1) -> no further unknown refusal, against a control that stays refused.
+Composition:
+- Town deposit wins (it has its own count step).
+- Prune, well, compost and wear-out run only when no order is set, so the recount pre-empts them at most once per cooldown; they need counts anyway.
+- Orderroom (2ec19385) and digtown do not touch the order list.
+- One residual dead end remains (P3-3).
+
+(2) LOOPS AND STARVATION
+Bounded:
+- Each successful run shrinks the shared unknown set (the journal is shared), so the total work is about (unknown containers / 3) runs per town per 6 h TTL.
+- A fruitless run backs off 10 min; a declined run is not charged.
+- The L1 gate (> 61 rows/h) matches the 60 s cooldown.
+- recountOutcome reads r.delta.counted, which the runner does return (runner.mjs:497 delta: measured).
+Note: the cooldown is charged at issue and the run is up to 60 s (maxMs 90 s), so a bot can run count_town back to back until its town is counted. After a clear that is ~8 consecutive runs for a 24-container town, all ahead of the milestone order. Acceptable and bounded; state it in the registration.
+
+(3) THE REACHABILITY STORE: one P1
+P1 bots/src/skills.mjs:3502-3505 (reconcileCobble's fail with remember) and :3522 (the walk catch). With remember=true, EVERY non-abort walk failure becomes 'unreachable' and an 'unknown' strike in the town's shared memory, and so does 'open timed out' / 'unopenable'. The deposit learned not to do this (skills.mjs ~2720-2740, STRIKE_WALK_MIN_MS=30 s, Paper 10-05 "struck a good town chest and closed the bank"). It strikes only after a real travel failure with >= 30 s of walk, and never on:
+- an interrupted walk ('goal was changed'/'was stopped': walkFailure 'interrupted', not aborted);
+- its own clock;
+- a walk that resolved without arriving (treated as no_path only after the arrival check).
+The recount walks with at most RECONCILE_WALK_MS = 15 s and has no arrival check before the open, so all three become strikes, from every bot at town, once a minute.
+Why it matters: two strikes >= 10 min apart make a GOOD container unusable for 6 h for the whole town:
+- the deposit and the town deposit skip it (skills.mjs:6724);
+- withdraw's sweep hides it (`shut`, :8966) -- possibly the pickaxe chest;
+- the full-chest recovery marks it unusable instead of unknown (:3610), so the town no longer DEFERS and may craft and place a NEW chest. A recount can thus cause chest growth.
+That is exactly your question (3): yes, it interferes, through the backoff -> unusable transition.
+Fix (pick one):
+(a) Strike only what the deposit strikes: walkFailure(e) === 'no_path', or a resolved walk whose eyeToBlock > OPEN_REACH, with the walk bound >= STRIKE_WALK_MIN_MS. Never strike on 'interrupted', a budget timeout or 'open timed out'. Add the arrival check before openContainer.
+(b) Keep recount failures OUT of the shared outcome memory: a separate field only stockRecountKeys reads (e.g. entries[k].recountMiss: [t...] with its own 2-strikes/6 h rule), so deposit/withdraw/recovery semantics are untouched.
+I'd take (b), with (a)'s arrival check.
+Add a test: an interrupted walk and a 15 s clock expiry each leave the town memory unchanged; a real no_path does strike (positive control). Add a mutant that strikes on 'interrupted'.
+
+(4) THE READ
+Liveness recount_live (a recount that counted >= 1), arms = 0, L1 loop and L2 backoff are right and selftested. Add a tripwire for the P1's effect: town-memory entries that went unusable during the window, split by writer (_stock_recount vs deposit rows), plus canary _deposit_new_chest placements DiD. Then a recount that is closing the bank is visible even after the fix.
+
+(5) OTHER
+- P3-1 bots/src/cognitive.mjs:670-678: unknownRefusals(bot, items) (a full depositView plan) is evaluated eagerly on EVERY decision fleet-wide, before atTown and the cooldown. Make it lazy (pass a function; evaluate after atTown and the cooldown), as keys already is.
+- P3-2 skills.mjs:3335: stockRecountKeys requires inTown(home, key) but not the reachability that admission/deposit use (depositTargetOk: not deep). The view's unknown list comes from townCobbleScan, which already filters depositTargetOk; dirty keys from voids do not. Add depositTargetOk to the filter.
+- P3-3: a refusal caused by coverage=false (an unloaded column under the town square, or the 256-scan cap) has unknown=[] -> keys=0 -> no order; the refusal persists with no remedy. Today's rule, not new, but the row should say `coverage=0` so the read can count that residual separately.
+- P3-4 (registration): when digtown's step 3 (the zone that prices or refuses digs of town ground) lands, recount walks inside town will fail more often. With the P1 unfixed, that converts directly into unusable town chests. Fixing the P1 first removes the coupling.
+
+===== CLAUDE ST2 VERDICT MESSAGE 2 of 3 (r1-r3, in order) =====
+stocktarget-02 r2: VERDICT: CHANGE, but only on P2s about tests and mutants. The code itself has no remaining P1/P2 from me: the round-1 P1 and all my P3s are resolved. On my run the mutant gate does NOT pass: 78 killed, 4 SURVIVED, not 82/0.
+
+Reviewed from git archive d28f2d0e (claude-code-probes/tree9).
+- Tests pass: stocktarget, stocktarget-journal, towndeposit, deposit-plan.
+- stockrecountread --selftest OK.
+- The digtown variant: `git diff eb543899 bb04d3a8` and `git diff 2ec19385 d28f2d0e` are identical apart from hunk headers.
+
+ROUND-1 FINDINGS
+- P1 (town-wide strikes in the shared container memory): RESOLVED.
+  - Misses go only to <townKey>.recount.json. Writers: noteRecountMiss/clearRecountMiss, skills.mjs ~3326. Reader: stockRecountKeys only.
+  - The memory that deposit, withdraw and recovery read is never written by the recount.
+  - Only evidence is a miss: no_path, out of reach after the walk, unopenable, not a container.
+  - An interrupted walk ends the recount. Our own clock and a slow open only back off this bot.
+  - The arrival check (eyeToBlock <= OPEN_REACH) runs before the open.
+  - This removes the bank-closing and new-chest path.
+- P3-1 (eager plan): RESOLVED. unknownRefused is lazy, read after atTown, the cooldown and the look charge.
+- P3-2 (depositTargetOk): RESOLVED (stockRecountKeys filter).
+- P3-3 (coverage=0 residual): RESOLVED as a stated residual.
+- P3-4 (digtown coupling): RESOLVED. With misses in their own file, a zone that fails more town walks costs recounts only, never the bank.
+- Read tripwire: RESOLVED. New-chest DiD and aborted recounts are both in, with selftest fixtures.
+
+NEW
+P2-1: the mutant gate fails with 4 survivors (scripts/mutants/mutants-stocktarget.py, run on the archive with STOCK_CC set; the baseline passed). Two are real test gaps, two are equivalent mutants.
+- (a) Test gap, "an interrupted walk is a miss" (:189). Deleting the `interrupted -> break` line still writes no miss, because `walk interrupted` is not in RECOUNT_MISS_REASONS, so the test's "no miss" passes. What the line actually does is END the recount: no further walk while someone else holds the pathfinder. Nothing tests that.
+  Fix: in the interrupted test, assert tried == 1, that no second walk or open happens with 2+ keys, and interrupted=1 on the row.
+- (b) Test gap, "the recount opens while an open is pending" (:195). countTown and stockRecountKeys check cobbleOpenPending first, so the reconcileCobble guard is unreachable from the count_town tests. It is NOT redundant for townDeposit: its count step (`_args.recount`, skills.mjs ~6590) calls reconcileCobble BEFORE townDeposit's own cobbleOpenPending check.
+  Fix: test the town deposit's recount with a pending open (no open, no count), or test reconcileCobble directly.
+- (c) Equivalent, "the recount has no cooldown" (:174). The look gate (lastLookAt, also set at issue) gives the same 60 s, so dropping the lastIssuedAt check changes nothing observable.
+  Fix: mutate both gates together, or drop this mutant and keep "the look is not charged".
+- (d) Equivalent, "cobble's not-yet-counted refusal is not a recount key" (:205). groupOf('cobblestone') and groupOf('cobbled_deepslate') are already 'cobble', so the ternary is redundant.
+  Fix: delete the mutant, or simplify the code to groupOf(r.name) and drop it.
+After this, please re-run the full mutant driver on a fresh archive and state the survivor count from that run. The 82/0 in the prompt does not reproduce here.
+
+P3-a skills.mjs ~3554: `!b` (an unloaded cell) becomes 'not a container' and is recorded as a SHARED miss. An unloaded cell is not evidence about the container. Only write the miss when the block is loaded and is not a container; for `!b`, a per-bot backoff only.
+
+P3-b: an aborted count_town throws, so the runner's measured.counted is 0 and recountOutcome backs the bot off 10 min, even when the run counted some containers before the abort (progress.counted). That is conservative, and the aborted row keeps the partial counts for the read. Optional fix: return the partial count in the error and use it.
+
+P3-c: RECONCILE_WALK_MS (15 s) bounds each walk, and a walk timeout backs that container off for this bot only. A container more than 15 s from where a bot stands is only counted by a bot that starts closer. In a dug-out town (digtown's measurements) a container could then stay unknown for every bot. The read's "counted / tried" and "rows that counted nothing" will show it; consider reporting `walk timeout` reasons explicitly.
+
+Bottom line: approve the code. Fix the two test gaps, clear the two equivalent mutants, and get a fresh survivor count, then this is APPROVE.
+
+===== CLAUDE ST2 VERDICT MESSAGE 3 of 3 (r1-r3, in order) =====
+stocktarget-02 r3: VERDICT: APPROVE. No P1 or P2.
+
+What I checked, all on a fresh git archive of 4798b708 (claude-code-probes/tree10):
+- The full mutant driver, run with STOCK_CC set: stocktarget 82 killed, 0 survived. This reproduces your count; the driver's baseline passes over its test files first.
+- stockrecountread --selftest OK, including the new walk-timeout fixture.
+- The digtown variant: `git diff eb543899 5e663860` and `git diff 2ec19385 4798b708` are identical apart from hunk headers and index lines.
+
+ROUND-2 FINDINGS
+- (a) Interrupted walk: RESOLVED. The new test asserts one walk, no open and interrupted=1, with a no_path control that walks a second time, and its mutant is killed.
+- (b) Pending-open guard in reconcileCobble itself: RESOLVED. It is tested directly, which covers the town deposit's count-step path.
+- (c) Equivalent cooldown mutant: RESOLVED. It now drops both the issue gate and the look gate, and it is killed.
+- (d) The cobble ternary: RESOLVED. stockRecountKeys uses groupOf(r.name) (both cobble names are group 'cobble'), and the mutant is gone.
+- P3-a, unloaded cell: RESOLVED. `!b` gives 'not loaded', a per-bot backoff only. RECOUNT_MISS_REASONS still holds only unreachable, unopenable and not a container, so it is never a shared miss.
+- P3-b, aborted backoff: accepted as stated (conservative; the aborted row keeps the partial counts).
+- P3-c, walk timeouts: RESOLVED. The row carries fails=why:n (spaces become '_', so `walk timeout` is reported as walk_timeout), and the read reports recount_fails and recount_walk_timeouts.
+
+NEW (P3, note only)
+- The aborted row has no fails= (only counted/tried). If you want the read's fails breakdown to cover aborted runs, add `fails=` from progress.fails, which note() already fills. Not needed for any gate.
+
+Ready to register on 2ec19385. The digtown variant 5e663860 carries the same diff.
+

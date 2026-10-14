@@ -12,6 +12,26 @@ Studio reservation both closed 10-12); clear caps bamboo 0 / bucket 2._
 
 ---
 
+## 10-14 06:01Z — STOCKTARGET-02 READY (the town recount order); queue entry for the operator, NOT queued
+THE DEFECT (the clear #2 recount, f9331b98): after the fence a not-yet-counted refusal had no remedy below 34 slots
+(hive-a/placebo-a 0/24, 0/17 recounted in 2 h; hive-a-Delta refused 55 times). THE FIX: at town, holding a name a plan
+refuses as not yet counted, with a reachable uncounted container -> the deterministic order `count_town` counts up to 3
+containers at once, whatever the bag's size (60 s cooldown, the look charged too; 10 min backoff after a fruitless count).
+Reachability: misses (a real no-path, out of reach after the walk, unopenable) go to the town's own
+`<townKey>.recount.json` -- NEVER the container memory the deposit/withdraw/recovery read (Claude r1 P1) -- two misses
+>= 10 min apart = out of every bot's recount for 6 h; interruptions, our clock, slow opens and unloaded cells are never
+misses. Reviews: Codex r1 CHANGE -> r2/r3 APPROVE; Claude r1 CHANGE -> r2 CHANGE -> r3 APPROVE
+(docs/reports/stocktarget-02-reviews-2026-10-14.txt). npm test 249/249 (2ec1938), 250/250 (eb54389); mutants 82/82 on
+fresh archives of both; eslint no-undef only the base's guarded withinBody. Paper PASS
+(docs/reports/stocktarget-02-paper-2026-10-14.txt): fenced town, 7-slot bag -> recount counted=1 at once -> deposit 44,
+server chest 20 -> 64. Dry run (hive-a,placebo-a on the base, 02:30Z +157 min): instrument 477 control not-yet-counted
+refusals, exposure READY. Registrations (ordinary class; liveness recount_live; L1 loop, L2 backoff; arms):
+docs/reports/stocktarget-02.{2ec1938,eb54389}.json, copies in ~/mcai-analysis (sha256 in the entry); licencecheck
+`_stock_recount` baseline 0; staged v35 registration_problems []. Branches pushed: st2-on-2ec1938 @ 4798b708,
+st2-on-eb54389 @ 5e663860. QUEUE ENTRY (for the operator): docs/reports/stocktarget-02.queue-entry.json ("after"
+digtown-01 -- the operator's to set). Read stockrecountread.py md5 84a80157 in ~/mcai-analysis and /tmp.
+Residuals: coverage=false refusals (no key, today's rule); back-to-back recounts after a clear until the town is counted;
+an aborted run backs off 10 min and its row omits fails=.
 
 ## 10-14 04:25Z — digtown-01 VARIANT for 2ec19385 READY (the townground agent); townzone-01 variant PREPARED only
 `dt-on-2ec19385` @ `eb543899` (pushed; new branch): 9dc2ad5e's net diff over 82aef34 as ONE commit on 2ec19385,

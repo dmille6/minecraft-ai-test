@@ -1,0 +1,29 @@
+stocktarget-02 PAPER EVIDENCE (sandbox3 = Paper 1.21.8 on 10.0.0.30:25601; driver sandbox/well/stock-e2e.cjs scene
+`stockrecount` after `build`; the bot code an export of st2-on-2ec1938; the chest and the bag read from the SERVER by RCON;
+the sandbox lock taken and released by the run)
+
+VERDICT: PASS -- the operator's scene, read from the world: a fenced town, a bot under 34 slots, a deposit -> the count
+happens and the deposit goes through.
+
+run 8, 10-14 05:04-05:08Z, bot code d28f2d0e (the round-2 build)                                                PASS
+  setup      a junk well (the stock caps bind only with one), town chest 1319,120,1311 holding 20 oak, bag oak 64+64, a
+             stone pickaxe, torches: 7 slots.
+  life 1     the town gets counted (its withdraw_pick opened the chest: a count of 1319,120,1311 oak=20).
+  fence      the bot stopped; the operator's fence exactly as for the clear (bots/scripts/stockreset.mjs on the pool dir):
+             "reset at=2026-10-14T05:05:50Z written=true counts_left_from_before=0"; the bot started.
+  life 2     still 7 slots (server bag: 7 used). FIRST decision at town:
+               _stock_recount success trigger=order refused=1 keys=1 counted=1 tried=1 unknown_after=0 names=oak_log:stock_unknown
+               (+ _cobble_reconcile success counted=1 of 1 tried)
+             then the queued `deposit`: "deposited 44 items"
+               _stock_bank success group=oak_log planned=44 moved=44 kept=81 target=64 decision=bank town_before=20
+               town_after=64 complete=1 claims=1 refused=0
+  world      server chest oak 20 -> 64 (exactly the room under the 64 target); server bag oak 128 -> 81.
+  after      0 not-yet-counted refusals after the count.
+
+run 7, 10-14 04:54-04:59Z, bot code 5cd9f6ba (round 1): the same life 2 -- recount counted=1 at 7 slots, deposited 44,
+  chest 20 -> 64 -- the scene's PASS flag was false only because it waited for a _stock_recount in life 1 (the town had
+  been counted by withdraw_pick instead); the driver now accepts any count there.
+
+Scope: Paper ran the 2ec19385 variant at d28f2d0e; the registered 4798b708 differs only by the unloaded-cell reason, the
+groups simplification and the row's fails= (tests + 82/82 mutants on 4798b708). The digtown variant (bb04d3a8) carries the same diff; digtown-01's eb543899 only
+records digs (both reviewers), verified by npm test and the mutants.
