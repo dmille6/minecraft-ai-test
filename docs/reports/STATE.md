@@ -12,6 +12,20 @@ Studio reservation both closed 10-12); clear caps bamboo 0 / bucket 2._
 
 ---
 
+## 10-14 07:10Z — digtown-01 LIVE (hive-d,placebo-d, 04:55Z); queue stocked through airpocket-03; follow-ups recorded
+QUEUE: digtown-01 (live; +180 ~07:55Z, +360 ~10:55Z) -> stocktarget-02 (count_town recount fix for the post-clear
+"not yet counted" dead end; both engines APPROVE; Paper PASS) -> wellsite-02 (5 variants) -> airpocket-03 (6 variants,
+not before 12:00Z, needs hive-d which digtown holds) -> townzone-01 (needs digtown promoted + 180 min) -> plinth-01 ->
+bamboo-02 (needs a variant on the then fleet tip).
+OPERATOR ACTIONS 04:40-05:00Z: wellsite-01 abandoned+cancelled (required pool placebo-b excluded after orderroom) and
+re-queued as wellsite-02 (Claude+Codex agree); digtown-01 + townzone-01 registrations carried draw_require_pools [] which
+v35 refuses as malformed -> key removed (backups .bak-emptydrp-*), digtown rearmed; generator fixed by its agent.
+FOLLOW-UPS (not blocking): (1) stocktarget: recountOrder needs a real `inside` gate (no count_town while
+insideTownWell; seen 2x in 26k bot-h, P3, Codex SHIP) + close_well/pit-cover priority vs count_town + failure reasons on
+aborted recount rows. (2) well dig-click gap compares performance.now() lastDigTime to wall clock -> the wait never runs
+(pre-existing mineflayer 4.37.1 detail; harmless for the sealed check). (3) placebo-a-Echo cannot path to chest
+251,74,-148. (4) brain-01: post-veto loop fix before the live canary (owner to decide); Studio unattended-reboot recovery.
+
 ## 10-14 06:01Z — STOCKTARGET-02 READY (the town recount order); queue entry for the operator, NOT queued
 THE DEFECT (the clear #2 recount, f9331b98): after the fence a not-yet-counted refusal had no remedy below 34 slots
 (hive-a/placebo-a 0/24, 0/17 recounted in 2 h; hive-a-Delta refused 55 times). THE FIX: at town, holding a name a plan
