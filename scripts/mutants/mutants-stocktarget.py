@@ -15,7 +15,8 @@ ENV = dict(os.environ, SKILL_TIMEOUT_MS='300', SKILL_HARD_STOP_GRACE_MS='300',
 J = ['stocktarget-journal']
 T = ['stocktarget']
 TD = ['towndeposit']
-PY = ['py:scripts/host/stocktargetread.py']   # the read's --selftest (its gates and the journal audit's G4 fixtures)
+PY = ['py:scripts/host/stocktargetread.py']
+PYR = ['py:scripts/host/stockrecountread.py']   # stocktarget-02's read   # the read's --selftest (its gates and the journal audit's G4 fixtures)
 CC = 'bots/src/cobblecap.mjs'
 MUTANTS = [
     # ---- the journal (cobblecap.mjs)
@@ -165,6 +166,32 @@ MUTANTS = [
      ", ...(aid ? { aid } : {}) }", " }", T),
     ('G2 never checks the reservations against the journal', 'scripts/host/stocktargetread.py',
      'if bank_aids is not None and nclaims > 0 and bank_aids.get(aid, 0) < nclaims:', 'if False:', PY),
+    # ---- stocktarget-02 (the town recount order; chest clear #2 10-14)
+    ('the recount order is never given (the dead end: today\'s 34-slot rule)', 'bots/src/cognitive.mjs',
+     "    if (!order || order.skill !== 'town_deposit') order = this.#recountOrder() ?? order\n", '', TD),
+    ('the recount fires on a PROVEN refusal too', 'bots/src/recount.mjs',
+     "filter(r => r?.name && /_unknown$/.test(r.why ?? ''))", "filter(r => r?.name)", T),
+    ('the recount has no cooldown', 'bots/src/recount.mjs',
+     "  if (now - (s.lastIssuedAt ?? -Infinity) < RECOUNT_COOLDOWN_MS || now < (s.backoffUntil ?? 0)) return none()\n",
+     "  if (now < (s.backoffUntil ?? 0)) return none()\n", T),
+    ('a fruitless recount is not backed off', 'bots/src/recount.mjs',
+     "  s.backoffUntil = status === 'success' && Number(counted) > 0 ? 0 : now + RECOUNT_BACKOFF_MS",
+     "  s.backoffUntil = 0", T),
+    ('the look is not charged', 'bots/src/recount.mjs',
+     "  if (now - (s.lastLookAt ?? -Infinity) < RECOUNT_COOLDOWN_MS) return none()\n", '', T),
+    ('the recount walks to an unusable container (no reachability check)', 'bots/src/skills.mjs',
+     "      && !RECOUNT_SKIP.has(containerStatus(mem[k], now)))", ")", T),
+    ('a recount failure is not written to the town memory', 'bots/src/skills.mjs',
+     "  const rc = await reconcileCobble(bot, signal, cap => Math.max(0, Math.min(cap, until - Date.now())), keys, { remember: true })",
+     "  const rc = await reconcileCobble(bot, signal, cap => Math.max(0, Math.min(cap, until - Date.now())), keys)", T),
+    ('cobble\'s not-yet-counted refusal is not a recount key', 'bots/src/skills.mjs',
+     "(r.why === 'town_cobble_unknown' ? 'cobble' : groupOf(r.name))", "groupOf(r.name)", T),
+    ('the read: a fruitless recount counts as liveness', 'scripts/host/stockrecountread.py',
+     "    out['recount_live'] = sum(1 for r in rc_c if num(kv(r['detail']), 'counted') >= 1)", "    out['recount_live'] = len(rc_c)", PYR),
+    ('the read: the loop gate never fires', 'scripts/host/stockrecountread.py',
+     "            if i - j + 1 > LOOP_MAX_PER_H:", "            if False:", PYR),
+    ('the read: the backoff gate never fires', 'scripts/host/stockrecountread.py',
+     "            if num(kv(a['detail']), 'counted') == 0 and (c['t'] - a['t']).total_seconds() < BACKOFF_MIN_S:", "            if False:", PYR),
     ('the tripwire weighs rows, not bot-minutes (Codex code r2 P2)', 'scripts/host/stocktargetread.py',
      "        return sum(f / n for f, n in mins) / len(mins) if mins else float('nan')", "        return sum(f for f, n in mins) / sum(n for f, n in mins) if mins else float('nan')", PY),
 ]

@@ -40,6 +40,9 @@ export function recountOrder ({ now = 0, atTown = false, unknownRefused = [], ke
   const refused = (Array.isArray(unknownRefused) ? unknownRefused : []).filter(r => r?.name && /_unknown$/.test(r.why ?? ''))
   if (!refused.length) return none()
   if (now - (s.lastIssuedAt ?? -Infinity) < RECOUNT_COOLDOWN_MS || now < (s.backoffUntil ?? 0)) return none()
+  // THE LOOK IS CHARGED TOO (a journal fold and a town-memory read): at most one per cooldown, order or not
+  if (now - (s.lastLookAt ?? -Infinity) < RECOUNT_COOLDOWN_MS) return none()
+  s.lastLookAt = now
   let k = []
   try { k = lazy(keys) ?? [] } catch { k = [] }
   if (!k.length) return none()
