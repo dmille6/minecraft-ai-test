@@ -10,7 +10,7 @@
 // keeps a bad generation from becoming a bad action.
 
 import { HARD_STOP } from './toolfor.mjs'
-import { SKILLS, roomRemedy, farFromBank, classifyOutcome, SKILL_CONTRACTS, plantableSpotNear, findTownComposter, townBuildPlan, townPickMiss, townIngredientMiss, foodSkipNow, townContainers, townWellState, townWellBuildPlan, insideTownWell, wellSwordsNow, cobbleWellCap, townPitState, stockWellOpts, valveProof, stockCountKeys, pruneTarget, unknownRefusals, stockRecountKeys } from './skills.mjs'
+import { SKILLS, roomRemedy, farFromBank, classifyOutcome, SKILL_CONTRACTS, plantableSpotNear, findTownComposter, townBuildPlan, townPickMiss, townIngredientMiss, foodSkipNow, townContainers, townWellState, townWellBuildPlan, insideTownWell, wellSwordsNow, cobbleWellCap, townPitState, stockWellOpts, valveProof, stockCountKeys, pruneTarget, unknownRefusals, stockRecountKeys, townFloorState } from './skills.mjs'
 import { disposePlan, wellOrder, wellOrderOutcome, WELL_ORDERS, pitCoverItem } from './well.mjs'
 import { smeltInputsFor } from './smelting.mjs'
 import { makeClient, skillSchema } from './llm.mjs'
@@ -24,6 +24,7 @@ import { hasUsablePick, roomPlan, pickTakes, roomKeep } from './withdrawpick.mjs
 import { townDepositOrder, townDepositOutcome, townDepositPlan } from './towndeposit.mjs'
 import { pruneOrder, pruneOutcome } from './prune.mjs'
 import { recountOrder, recountOutcome } from './recount.mjs'
+import { floorOrder, floorOrderOutcome, floorBudget, zoneLive } from './townfloor.mjs'
 import { bankClosed, inTown } from './chestfull.mjs'
 import { redundantRow, admitRow, HYGIENE_ITEMS } from './toolhygiene.mjs'
 /** One wear-out order per bot per two minutes at most. */
@@ -983,6 +984,25 @@ export class CognitiveLoop {
         }
       } catch { /* a world read must never break the decision loop */ }
     }
+    // THE TOWN FLOOR (townfloor-01, townfloor.mjs floorOrder): at town with surplus stone above the reserve, the town's dug-out
+    // floor is filled -- after every town order above (the deposit, the recount, wear-out, the composter, the junk well,
+    // chest pruning and the room order all come first), never ahead of a milestone conversion, one builder per town, on its own cooldown.
+    // The junk well stays the overflow; this is where surplus stone goes first.
+    if (!order) {
+      try {
+        const bot = this.bot
+        const p = bot.entity?.position
+        const home = { x: config.world.homeX, z: config.world.homeZ }
+        let fs = null
+        const floor = () => (fs ??= townFloorState(bot))
+        const r = floorOrder({ now: Date.now(), distHome: p ? Math.hypot(home.x - p.x, home.z - p.z) : Infinity, zone: zoneLive(),
+          dy: p ? p.y - config.world.homeY : Infinity,
+          inside: () => insideTownWell(bot), budget: () => floorBudget(bot.inventory?.items?.() ?? []),
+          lease: () => floor().lease, held: () => floor().held, state: this.floorState ?? {} })
+        this.floorState = r.state
+        if (r.order) order = r.order
+      } catch { /* a world or record read must never break the decision loop */ }
+    }
     if (!order) {
       const sap = {}
       try {
@@ -1091,6 +1111,7 @@ export class CognitiveLoop {
       if (admitted.skill === 'town_deposit') this.townDepositState = townDepositOutcome(r.status, r.failClass ?? null, Date.now(), this.townDepositState ?? {})
       if (WELL_ORDERS.has(admitted.skill)) this.wellState = wellOrderOutcome(admitted.skill, r.status, Date.now(), this.wellState ?? {}, r.failClass ?? null)
       if (admitted.skill === 'prune_town') this.pruneState = pruneOutcome(r.status, Date.now(), this.pruneState ?? {})
+      if (admitted.skill === 'fill_town') this.floorState = floorOrderOutcome(r.status, Date.now(), this.floorState ?? {}, r.failClass ?? null)
       if (admitted.skill === 'count_town') this.recountState = recountOutcome(r.status, r.delta?.counted ?? 0, Date.now(), this.recountState ?? {}, r.failClass ?? null)
       // THE REFLEX TOOK THE BODY -- SAY SO ON THE NEXT DECISION.
       if (r.interruptedBy) this.#raiseTrigger(r.interruptedBy, r.detail)
