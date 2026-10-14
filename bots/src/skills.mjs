@@ -8573,6 +8573,9 @@ async function fillTown (ctx, _args, signal) {
           if (why) { stats.refused++; lastWhy = why; replan = true; break }
           // NOBODY IN THE CELL, read last (Claude r1 P3-7): the server refuses a place into a body
           if (bodiesAround(bot).some(b => floorBodyIn(b, target))) { stats.refused++; lastWhy = 'body'; replan = true; break }
+          // THE BUILDER IS STILL ON THE STAND THE PROOF WAS FOR (Codex r2 P2): a push or a slide during the pacing moves the
+          // eye the reach and sight were judged from
+          { const f = bot.entity.position.floored(); if (f.x !== stand.x || f.y !== stand.y || f.z !== stand.z || !centredOn(bot, stand)) { stats.refused++; lastWhy = 'moved'; replan = true; break } }
           const refBlock = bot.blockAt(new Vec3(s.r[0], s.r[1], s.r[2]))
           await g.bound(bot._placeBlockWithOptions(refBlock, new Vec3(s.f[0], s.f[1], s.f[2]), { forceLook: true, swingArm: 'right' }), HK_AWAIT_MS * 2, 'place')
         } catch (e) { if (e?.aborted || signal?.aborted) throw e }

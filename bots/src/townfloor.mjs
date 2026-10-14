@@ -93,6 +93,12 @@ const isLiquid = b => !!b && LIQUID.test(b.name ?? '')
 /** Open for a body or for air: no collision, not a liquid. */
 export const passable = b => !!b && b.boundingBox === 'empty' && !isLiquid(b)
 const replaceable = b => !!b && FLOOR_REPLACEABLE.has(b.name)
+/** A full collision cube (well.mjs fullCube) -- or, for a reader without collision shapes, any solid block. */
+const fullFloor = b => solid(b) && (!Array.isArray(b.shapes) || fullCube(b))
+/** Where the BUILDER stands for a click: standable on a full cube, so its eye is where the reach and sight math put it
+ *  (Codex r2 P2: a slab or a path block lowers the eye). The walk model itself stays permissive -- any solid floor is a
+ *  node -- so lostWay protects every route a bot can walk. Pure. */
+export const builderStand = (read, x, y, z) => standable(read, x, y, z) && fullFloor(read(x, y - 1, z))
 const CARD = Object.freeze([[1, 0], [-1, 0], [0, 1], [0, -1]])
 const SIX = Object.freeze([[1, 0, 0], [-1, 0, 0], [0, 1, 0], [0, -1, 0], [0, 0, 1], [0, 0, -1]])
 
@@ -130,10 +136,13 @@ export function walkBox (home) {
   const b = floorBox(home)
   return { x0: b.x0 - 8, x1: b.x1 + 8, z0: b.z0 - 8, z1: b.z1 + 8, y0: b.y0 - 8, y1: b.y1 + 6 }
 }
-/** The seal flood's region: the repair box, 8 around, 8 below; open air at or above L+1 is "the surface". Pure. */
+/** How far above the floor level the seal flood looks for the open sky. */
+export const SKY_ABOVE = 10
+/** The seal flood's region: the repair box, 8 around, 8 below and SKY_ABOVE above. "Outside" is an open cell at or above
+ *  L+1 whose whole column up to the region's top is open (the sky), never mere height (Codex r2 P1). Pure. */
 export function sealBox (home) {
   const b = floorBox(home)
-  return { x0: b.x0 - 8, x1: b.x1 + 8, z0: b.z0 - 8, z1: b.z1 + 8, y0: b.y0 - 8, y1: b.y1 + 2 }
+  return { x0: b.x0 - 8, x1: b.x1 + 8, z0: b.z0 - 8, z1: b.z1 + 8, y0: b.y0 - 8, y1: b.y1 + SKY_ABOVE }
 }
 const inBox = (box, x, y, z) => x >= box.x0 && x <= box.x1 && y >= box.y0 && y <= box.y1 && z >= box.z0 && z <= box.z1
 /** 0 = the platform square, 1 = the rest of the box. Pure. */
@@ -345,7 +354,7 @@ export function refUsable (b) {
  */
 export function floorSupports (read, cell) {
   const below = read(cell.x, cell.y - 1, cell.z)
-  if (!solid(below)) return []
+  if (!fullFloor(below)) return []                       // a FULL cube under it (Codex r2 P2: not a slab, not a fence)
   const out = []
   if (refUsable(below)) out.push({ ref: { x: cell.x, y: cell.y - 1, z: cell.z }, face: [0, 1, 0] })
   for (const [dx, dz] of CARD) {
@@ -370,6 +379,7 @@ export function standFor (read, { target, point, topFace = false, reach, prefer 
         const k = K(x, y, z)
         if (!reach.has(k)) continue
         if (x === target.x && z === target.z && (y === target.y || y + 1 === target.y || y - 1 === target.y)) continue
+        if (!builderStand(read, x, y, z)) continue
         const eye = { x: x + 0.5, y: y + EYE_HEIGHT, z: z + 0.5 }
         if (topFace && eye.y <= point.y + 1e-9) continue
         if (Math.hypot(eye.x - point.x, eye.y - point.y, eye.z - point.z) > FLOOR_REACH) continue
@@ -392,13 +402,26 @@ export function standFor (read, { target, point, topFace = false, reach, prefer 
  *   unbounded  it leaves the region, or passes `max` cells: where it leads is not known (never treated as safe)
  */
 export function openReach (read, from, { region, surfaceY, max = SEAL_FLOOD_MAX } = {}) {
+  read = memoRead(read)
   if (!passable(read(from.x, from.y, from.z))) return { kind: 'solid', cells: [] }
   const seen = new Set([K(from.x, from.y, from.z)])
   const q = [[from.x, from.y, from.z]]
   let leaked = false
+  // THE SKY, per column: the lowest y from which every cell up to the region's top is open (memoised)
+  const skyFrom = new Map()
+  const sky = (x, y, z) => {
+    const ck = K(x, 0, z)
+    let f = skyFrom.get(ck)
+    if (f === undefined) {
+      f = region.y1 + 1
+      for (let yy = region.y1; yy >= surfaceY; yy--) { if (!passable(read(x, yy, z))) break; f = yy }
+      skyFrom.set(ck, f)
+    }
+    return y >= surfaceY && y >= f
+  }
   for (let i = 0; i < q.length; i++) {
     const [x, y, z] = q[i]
-    if (y >= surfaceY) return { kind: 'surface', cells: null }
+    if (sky(x, y, z)) return { kind: 'surface', cells: null }
     for (const [dx, dy, dz] of SIX) {
       const nx = x + dx, ny = y + dy, nz = z + dz
       const k = K(nx, ny, nz)
@@ -429,7 +452,7 @@ export function sealRefusal (read, cell, { home, entities = [] } = {}) {
   const seen = new Set()
   for (const [dx, dy, dz] of SIX) {
     const n = { x: cell.x + dx, y: cell.y + dy, z: cell.z + dz }
-    if (n.y >= surfaceY) continue                                   // the air over the floor is the surface itself
+    // (no height shortcut: a neighbour above the floor level is outside only if its flood reaches the sky -- Codex r2 P1)
     if (!passable(after(n.x, n.y, n.z))) continue
     if (seen.has(K(n.x, n.y, n.z))) continue
     const r = openReach(after, n, { region, surfaceY })
@@ -550,7 +573,7 @@ export function * planFloorSteps ({ read, home, start = null, entities = [], kee
     const eligible = []
     for (const t of todo) {
       if (!replaceable(world(t.x, t.y, t.z))) continue
-      if (!solid(world(t.x, t.y - 1, t.z))) continue
+      if (!fullFloor(world(t.x, t.y - 1, t.z))) continue
       const a = access(t)
       if (a === Infinity) continue
       eligible.push({ t, a })
@@ -632,7 +655,7 @@ export function stepRefusal (read0, step, { home, start, entities = [], keepOut 
   const c = read(x, y, z)
   if (!c) return 'unknown'
   if (!replaceable(c)) return solid(c) ? 'filled' : `not_replaceable:${c.name}`
-  if (!solid(read(x, y - 1, z))) return 'no_floor'
+  if (!fullFloor(read(x, y - 1, z))) return 'no_floor'
   if (!refUsable(read(step.r[0], step.r[1], step.r[2]))) return 'ref'
   // protection is re-judged locally (a chest or a sapling may have appeared since the plan)
   for (let dx = -1; dx <= 1; dx++) for (let dy = -1; dy <= 1; dy++) for (let dz = -1; dz <= 1; dz++) {
@@ -652,7 +675,7 @@ export function stepRefusal (read0, step, { home, start, entities = [], keepOut 
     if (ex === x && ez === z && (ey === y || (e.player && ey + 1 === y))) return 'occupied'
   }
   const [sx, sy, sz] = step.s
-  if (!standable(read, sx, sy, sz)) return 'stand'
+  if (!builderStand(read, sx, sy, sz)) return 'stand'
   if (sx === x && sz === z && (sy === y || sy + 1 === y || sy - 1 === y)) return 'stand_in_target'
   const point = faceCentre({ x: step.r[0], y: step.r[1], z: step.r[2] }, step.f)
   const eye = { x: sx + 0.5, y: sy + EYE_HEIGHT, z: sz + 0.5 }

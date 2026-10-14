@@ -218,12 +218,16 @@ const brain = http.createServer((req, res) => {
     if (!req.url.startsWith('/api/chat')) { res.statusCode = 404; res.end('brain'); return }
     let msgs = []; try { msgs = JSON.parse(body).messages || [] } catch {}
     const sentinel = (msgs.map(m => String(m.content || '')).join('\n').match(/END-[A-Z0-9]{4,12}/g) || []).pop() || ''
+    // THE MODEL'S OWN TURNS VARY (status, then a step to a cell beside home): the admission gate refuses a 4th identical
+    // action within 8, and a brain that only ever says 'status' would make the fleet's repeat guard stall every order
+    const n = brainN++ % 3
+    const decision = n === 0 ? { skill: 'status', args: {} } : n === 1 ? { skill: 'goto', args: { x: HOME.x + 2, y: HOME.y - 1, z: HOME.z + 2 } } : { skill: 'goto', args: { x: HOME.x - 2, y: HOME.y - 1, z: HOME.z - 2 } }
     res.setHeader('Content-Type', 'application/json')
-    res.end(JSON.stringify({ model: 'sandbox-script', created_at: new Date().toISOString(), message: { role: 'assistant', content: JSON.stringify({ skill: 'status', args: {}, reason: 'sandbox: idle', saw_end: sentinel }) },
+    res.end(JSON.stringify({ model: 'sandbox-script', created_at: new Date().toISOString(), message: { role: 'assistant', content: JSON.stringify({ ...decision, reason: 'sandbox: idle', saw_end: sentinel }) },
       done: true, total_duration: 1e6, load_duration: 0, prompt_eval_count: 10, prompt_eval_duration: 5e5, eval_count: 5, eval_duration: 5e5 }))
   })
 })
-let bot = null
+let bot = null, brainN = 0
 async function stopBot (sig = 'SIGTERM') {
   try { bot && bot.kill(sig) } catch {}
   bot = null
@@ -337,7 +341,9 @@ async function sceneFill (fx, rep, { kill = false, withWalker = false } = {}) {
   const gaps = ts.slice(1).map((v, i) => v - ts[i]).filter(g => g < 20000).sort((a, b) => a - b)
   const prot = fx === 'town' ? protectedOk() : null
   result({ scene: withWalker ? 'walker' : 'fill', fx, rep, kill: !!kill, kills, readerControl: { before: base.size, seen: ctl },
-    ok: j.outside.length === 0 && j.bridges.length === 0 && j.cut.length === 0 && (prot ?? []).every(p => p.ok) && reserve === 0 && (walkerStillHome !== false),
+    // OK needs PROGRESS and AGREEMENT too (Codex r2 P2): an unchanged fixture satisfies every safety predicate
+    ok: j.placed > 0 && rowCells.size === placed.size && [...placed.keys()].every(k => rowCells.has(k)) &&
+        j.outside.length === 0 && j.bridges.length === 0 && j.cut.length === 0 && (prot ?? []).every(p => p.ok) && reserve === 0 && (walkerStillHome !== false),
     targets: j.targets, offlineFillable: offline.steps.length, serverPlaced: j.placed, rowsPlaced: stepRows.length,
     rowsMatchServer: rowCells.size === placed.size && [...placed.keys()].every(k => rowCells.has(k)),
     outside: j.outside.slice(0, 10), outsideN: j.outside.length, bridges: j.bridges.slice(0, 10), cutWays: j.cut.slice(0, 10), cutN: j.cut.length,
@@ -350,6 +356,10 @@ async function sceneFill (fx, rep, { kill = false, withWalker = false } = {}) {
 }
 
 await new Promise(r => brain.listen(BRAIN_PORT, '127.0.0.1', r))
+let failed = 0
+// THE ARENA'S CHUNKS stay loaded for the run (sandbox only), and are released at the end
+P_('forceload', rcon(`forceload add ${A.x0} ${A.z0} ${A.x1} ${A.z1}`).map(x => x.reply).join(' '))
+await sleep(3000)
 try {
   for (const sc of SCENES_S.split(',')) {
     const [kind, fx, rep = '1', opt] = sc.split(':')
@@ -359,6 +369,9 @@ try {
       if (kind === 'fill') await sceneFill(fx, rep, { kill: opt === 'kill' })
       else if (kind === 'walker') await sceneFill(fx, rep, { withWalker: true })
       else throw new Error(`no scene ${kind}`)
-    } catch (e) { P_('SCENE FAILED', sc, String(e?.stack ?? e).slice(0, 400)); await stopBot('SIGKILL'); await walkerLeave() }
+    } catch (e) { failed++; P_('SCENE FAILED', sc, String(e?.stack ?? e).slice(0, 400)); await stopBot('SIGKILL'); await walkerLeave() }
   }
-} finally { brain.close() }
+} finally { brain.close(); try { rcon(`forceload remove ${A.x0} ${A.z0} ${A.x1} ${A.z1}`) } catch {} }
+const bad = lines(RES).map(l => { try { return JSON.parse(l) } catch { return null } }).filter(r => r && r.run === RUN && !r.ok).length
+P_(`DONE: ${failed} scene(s) failed to run, ${bad} result(s) not ok`)
+process.exit(failed || bad ? 1 : 0)
