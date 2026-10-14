@@ -267,6 +267,7 @@ export function walkDist (read, start, { box, maxNodes = 120_000, strict = false
   if (!seeds.length) return dist
   const ok = (x, y, z) => (!box || inBox(box, x, y, z)) && standable(read, x, y, z, strict)
   const step = b => (strict ? fullFloor(b) : solid(b))
+  const pass = strict ? clearBody : passable                     // strict transit too: never a drop through a cobweb (Codex r6)
   const q = seeds.map(c => [c.x, c.y, c.z, 0])
   for (const c of seeds) dist.set(K(c.x, c.y, c.z), 0)
   const push = (x, y, z, d) => { const k = K(x, y, z); if (!dist.has(k)) { dist.set(k, d); q.push([x, y, z, d]) } }
@@ -275,11 +276,11 @@ export function walkDist (read, start, { box, maxNodes = 120_000, strict = false
     for (const [dx, dz] of CARD) {
       const nx = x + dx, nz = z + dz
       if (ok(nx, y, nz)) { push(nx, y, nz, d + 1); continue }
-      if (step(read(nx, y, nz)) && passable(read(x, y + 2, z)) && ok(nx, y + 1, nz)) { push(nx, y + 1, nz, d + 1); continue }
-      if ((box && !inBox(box, nx, y, nz)) || !passable(read(nx, y, nz)) || !passable(read(nx, y + 1, nz))) continue
+      if (step(read(nx, y, nz)) && pass(read(x, y + 2, z)) && ok(nx, y + 1, nz)) { push(nx, y + 1, nz, d + 1); continue }
+      if ((box && !inBox(box, nx, y, nz)) || !pass(read(nx, y, nz)) || !pass(read(nx, y + 1, nz))) continue
       for (let dd = 1; dd <= 3; dd++) {
         const fy = y - dd
-        if (!passable(read(nx, fy, nz))) break
+        if (!pass(read(nx, fy, nz))) break
         if (solid(read(nx, fy - 1, nz))) { if (ok(nx, fy, nz)) push(nx, fy, nz, d + 1); break }   // ok() judges its floor
       }
     }
@@ -296,6 +297,7 @@ export function walkBack (read, target, { box, maxNodes = 120_000, strict = fals
   const seeds = (Array.isArray(target) ? target : [target]).filter(c => c && standable(read, c.x, c.y, c.z, strict))
   if (!seeds.length) return seen
   const ok = (x, y, z) => (!box || inBox(box, x, y, z)) && standable(read, x, y, z, strict)
+  const pass = strict ? clearBody : passable
   const q = seeds.map(c => [c.x, c.y, c.z])
   for (const c of seeds) seen.add(K(c.x, c.y, c.z))
   const push = (x, y, z) => { const k = K(x, y, z); if (!seen.has(k)) { seen.add(k); q.push([x, y, z]) } }
@@ -304,11 +306,11 @@ export function walkBack (read, target, { box, maxNodes = 120_000, strict = fals
     for (const [dx, dz] of CARD) {
       const ax = x - dx, az = z - dz
       if (ok(ax, y, az)) push(ax, y, az)
-      if (ok(ax, y - 1, az) && passable(read(ax, y + 1, az))) push(ax, y - 1, az)
+      if (ok(ax, y - 1, az) && pass(read(ax, y + 1, az))) push(ax, y - 1, az)
       for (let d = 1; d <= 3; d++) {
         const ya = y + d
         let clear = true
-        for (let c = y; c <= ya + 1; c++) { if ((box && !inBox(box, x, c, z) && c >= ya) || !passable(read(x, c, z))) { clear = false; break } }
+        for (let c = y; c <= ya + 1; c++) { if ((box && !inBox(box, x, c, z) && c >= ya) || !pass(read(x, c, z))) { clear = false; break } }
         if (!clear) break
         if (ok(ax, ya, az)) push(ax, ya, az)
       }
