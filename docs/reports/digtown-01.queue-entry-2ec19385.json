@@ -1,0 +1,22 @@
+{
+ "run": "digtown-01",
+ "after": [
+  "wellsite-01"
+ ],
+ "class": "",
+ "hold": null,
+ "note": "REPLACE-VARIANT (coordinator 10-14): digtown-01 on the fleet 2ec19385 (orderroom-01 on stocktarget-01, promoted 02:19Z). Ordinary canary, TELEMETRY ONLY; its own canary because townzone-01's primary is a DiD on its rows. PRE-PERIOD: the town chest clear ran 02:22Z on this base and the fleet restarted at 02:19Z -- a declaration before ~05:25Z puts both in the 180-min pre-window; the gates are instrument facts with no pre-period term, only the reported neutrality DiDs are affected. Prefer a declaration at or after ~05:25Z.",
+ "variants": {
+  "2ec19385314625da13bc05ee376b402b8b63233b": {
+   "registration": "/home/mike/mcai-analysis/digtown-01.2ec19385.json",
+   "approved": "townground agent 2026-10-14: dt-on-2ec19385 @ eb543899 = dt-on-82aef34 9dc2ad5e's net diff (approved: Codex code r1-r6 incl. the re-review APPROVE, Claude r1-r3 APPROVE) as one commit, patch-identical (sorted +/- lines equal, 901), no conflict; variant review: Codex APPROVE (no findings), Claude APPROVE (two registration P3s, applied); npm test 250/250; eslint no-undef: only the pre-existing reflex.mjs withinBody (2384 here); licencecheck PASS (kind _dig_town_sum, baseline 0 rows / 6 h on 2ec19385, 339,610 rows, 80 bots) and changerowcheck PASS (no change rows) 10-14 04:00Z; digtownread dry run on 2ec19385 (board-a, 00:30Z +180): I4 flags 4 of 5 canary bots (the positive control); ORDINARY canary",
+   "canary_sha": "eb54389918053686aa617cbf0b0f74111579b44b",
+   "reads_src": "/home/mike/mcai-analysis",
+   "reads": {
+    "digtownread": "f3cfbc5da95c5753a05e22d673cb1ace",
+    "immobiledid": "53af289df12208901931dbeeb1ae325a"
+   },
+   "registration_sha256": "ee35fa40ed2c0c645b9531477a09a6483e2a466a6aea003178924ba43d0e0c9a"
+  }
+ }
+}

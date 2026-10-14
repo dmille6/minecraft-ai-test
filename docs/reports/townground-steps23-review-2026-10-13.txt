@@ -46,3 +46,12 @@ CODEX RE-REVIEW (coordinator, ~20:00Z; digtown-01 HELD for it):
       (y >= 71), roof digs transit:surface, then stairs outside town; mutant never rises. TZ 247/247.
   r6: (a) APPROVE (Codex re-parsed the raw logs: 14 survival reflex digs inside gather windows, 11 confirmed, no reflex
       dig labelled target). (b) APPROVE. No new P1/P2.
+
+==== 10-14 ~04:05Z: digtown-01 variant on 2ec19385 (dt-on-2ec19385 @ eb543899) ====
+Codex: APPROVE. No P1/P2/P3 findings introduced by this rebase. It verified the parent is 2ec19385 and that the 901 net
++/- lines are identical. The base adds no bot.dig callers, raw block-change listeners or reflex-tick changes. Chest
+reconciliation uses the existing pathfinder walk (transit). Cobble-cap does not interfere with attach/flush.
+Claude: APPROVE. Its P3s on the registration were applied:
+ (1) harm gather_ratio < 0.43 is computed in scripts/canary-report.py (canary/control, post only), not immobiledid. The
+     immobiledid rdid guards use PRE=180.
+ (2) The pre-window also holds the 02:19Z fleet restart, so declare at or after ~05:25Z.

@@ -13,6 +13,21 @@ Studio reservation both closed 10-12); clear caps bamboo 0 / bucket 2._
 ---
 
 
+## 10-14 04:25Z — digtown-01 VARIANT for 2ec19385 READY (the townground agent); townzone-01 variant PREPARED only
+`dt-on-2ec19385` @ `eb543899` (pushed; new branch): 9dc2ad5e's net diff over 82aef34 as ONE commit on 2ec19385,
+patch-identical (901 sorted +/- lines equal), no conflict. npm test 250/250; eslint no-undef only the pre-existing
+reflex.mjs withinBody (2384). Registration `~/mcai-analysis/digtown-01.2ec19385.json` (sha256 ee35fa40...):
+licencecheck PASS (_dig_town_sum: 0 baseline rows in 6 h; 337,509 rows, 80 bots) + changerowcheck PASS, re-run 04:20Z
+on the final file; digtownread dry run on 2ec19385 flags I4 on 4/5 (positive control). Variant review: Codex APPROVE
+(no findings), Claude APPROVE (two registration P3s, applied: harm gather_ratio is canary-report.py, and the pre-window
+also holds the 02:19Z restart). Entry: `~/mcai-analysis/digtown-01.queue-entry-2ec19385.json` (copy in
+docs/reports/), after wellsite-01. **To install (coordinator):** `python3 ~/canary-sched.py queue replace-variant
+digtown-01 ~/mcai-analysis/digtown-01.queue-entry-2ec19385.json`. PRE-PERIOD: declare at or after ~05:25Z to keep the
+02:19Z restart and the 02:22Z clear out of the 180-min pre-window. The gates carry no pre-period term, so an earlier
+declaration only affects the reported neutrality DiDs.
+townzone-01: `tz-on-2ec19385` @ `22c01bd3` (local only; NOT pushed, NOT registered). It is the zone's net diff over
+dt-on-82aef34, applied onto eb543899 and patch-identical; npm test 251/251. It is finalised only after digtown-01 is decided.
+
 ## 10-14 03:45Z — FLEET 2ec19385 (stocktarget-01 KEEP+180 19:40Z, orderroom-01 KEEP+360 02:09Z); CHEST CLEAR DONE; queue reordered
 stocktarget-01 promoted 19:50Z, merged to main 3ef61dd2 (250/250). orderroom-01 promoted 02:19Z, merged 1ff85475 (251/251).
 ONE-TIME CHEST CLEAR (owner GO 10-13 "do the chest clear") ran 02:21-02:39Z: 354 containers, full 249 -> 0, items
