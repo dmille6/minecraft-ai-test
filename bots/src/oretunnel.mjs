@@ -25,6 +25,7 @@
 //     clean path ending beside an ore sitting on lava).
 //   - Water is TERRAIN (owner rule): the step veto is lava/fire/climbables only; water appears only in the
 //     BREAK veto, which stops the tunnel from OPENING liquid into itself.
+import { makeTownBreakCost } from './townground.mjs'
 import pkg from 'mineflayer-pathfinder'
 import { remaining, HARD_STOP, tier } from './toolfor.mjs'
 import { cellLavaSafe, dropLavaSafe } from './lavaguard.mjs'
@@ -188,7 +189,9 @@ export function tunnelMovements (bot, base = null, { home = null } = {}) {
   m.getMoveDiagonal = () => {}
   const at = p => bot.blockAt(p)
   m.exclusionAreasStep = [...(base?.exclusionAreasStep ?? []), b => stepHazard(at, b)]
-  m.exclusionAreasBreak = [...(base?.exclusionAreasBreak ?? []), b => (nearHome(b?.position, home) ? 100 : breakHazard(at, b))]
+  // THE TOWN'S GROUND (townground.mjs): a tunnel dig is a TARGET dig -- 100 on town ground, so the tunnel re-plans around
+  // it. nearHome's full-depth cylinder of 12 stays as it was.
+  m.exclusionAreasBreak = [...(base?.exclusionAreasBreak ?? []), b => (nearHome(b?.position, home) ? 100 : breakHazard(at, b)), makeTownBreakCost(home, 100)]
   // TELEMETRY TAG (digtown.mjs): the tunnel's own excavation is a TARGET dig, not transit. Nothing else reads it.
   m.digPurpose = 'target:ore_tunnel'
   return m

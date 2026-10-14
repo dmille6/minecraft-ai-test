@@ -27,7 +27,7 @@ import { pathfinderWedged, stillnessMs } from './path-watchdog.mjs'
 import { log, closeLogs, logSkill, logEvent, tapRecords } from './logger.mjs'
 import { attachPickupLog } from './pickuplog.mjs'
 import { attachDigTown } from './digtown.mjs'
-import { configuredHome } from './townground.mjs'
+import { townGroundCounters, configuredHome } from './townground.mjs'
 import { attachDifficulty } from './foodskip.mjs'
 import { Runner } from './runner.mjs'
 import { startReflexes } from './reflex.mjs'
@@ -546,6 +546,11 @@ function connect() {
     // A NEW array for the base's break exclusions, shared by reference with every clone below (Object.assign), and spread
     // into the tunnel profile's own array.
     moves.exclusionAreasBreak = [(block) => wellBreakCost(wellCols, block, selfWell)]
+    // THE TOWN'S GROUND IS NOT A PATH'S CONCERN (townground.mjs; townground-2026-10-13.md 2.5): transit digs stay exactly
+    // as they are. A hard veto here was the pit trap (Claude r1 P1-1), and a PRICE is one too: mineflayer-pathfinder 2.4.5
+    // discards any move whose cost passes 100 (movements.js `if (cost > 100) return`), so a surcharge on a slow dig (a
+    // 2-high stone wall by hand: 48) removes moves the base allows (Codex code r2 P2). TARGET digs are refused in the
+    // skills (gather, mine) and in the ore tunnel's own profile, nowhere else.
     // ORDER IS LOad-BEARING: gatherMoves, ascendMoves and descendMoves are all
     // built below with Object.assign(clone, moves), so they copy this array's
     // reference and inherit one shared policy. That is deliberate -- gathering
@@ -600,7 +605,7 @@ function connect() {
     bot.gatherMovements = gatherMoves
     // THE ORE TUNNEL'S PROFILE (oretunnel.mjs: staircases only, no drops > 1, no towers, hazard vetoes), built
     // here because index.mjs owns every setMovements (dep-contract.test.mjs). Same shape as withGatherMovements.
-    bot.tunnelMovements = tunnelMovements(bot, gatherMoves, { home: { x: config.world.homeX, z: config.world.homeZ } })
+    bot.tunnelMovements = tunnelMovements(bot, gatherMoves, { home: configuredHome(config.world) ?? { x: config.world.homeX, z: config.world.homeZ } })
     bot.withTunnelMovements = async (fn) => {
       bot.pathfinder.setMovements(bot.tunnelMovements); bot.movementProfile = 'tunnel'
       try { return await withApproachBound(bot, fn) }
@@ -1008,6 +1013,19 @@ function connect() {
         digTownFinal = dt.final
         bot.once('end', () => { try { dt.final() } catch { /* telemetry */ } })
       }
+      // THE ZONE'S LIVENESS ROW (`_town_ground`): what the zone refused in the last minute, only when it refused anything.
+      bot.townGround = townGroundCounters()
+      const tgTimer = setInterval(() => {
+        try {
+          const c = bot.townGround ?? {}
+          if (!Object.values(c).some(v => v > 0)) return
+          logEvent({ kind: 'town_ground', status: 'success', snapshot: snapshot(bot), args: { ...c },
+                     detail: Object.entries(c).filter(([, v]) => v > 0).map(([k, v]) => `${k}=${v}`).join(' ') })
+          bot.townGround = townGroundCounters()
+        } catch { /* telemetry */ }
+      }, 60_000)
+      tgTimer.unref?.()
+      bot.once('end', () => clearInterval(tgTimer))
     } catch (e) { log('warn', 'dig town instrument not attached', { err: e?.message }) }
     // Bound the bot's world model. Without this every process reached its 1GB
     // cgroup ceiling in about fifteen hours -- not in the JS heap, which stayed
