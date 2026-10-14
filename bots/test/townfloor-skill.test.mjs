@@ -173,7 +173,8 @@ await t('THE CHAIN: visits fill the dug-out floor bounded at 32 per visit, decor
   assert.equal(r4.status, 'no_effect'); assert.equal(r4.failClass, 'floor_none', r4.detail)
   assert.ok(recNow().noneAt > 0)
   assert.equal(S.townFloorState(town.bot).held, true, 'the town holds every bot\'s order for an hour')
-  assert.equal((await visit(town)).failClass, 'floor_none', 'held: no plan is even made')
+  const held = await visit(town)
+  assert.equal(held.failClass, 'floor_none'); assert.match(held.detail, /a recent visit found no hole/, 'held: no plan is even made')
 })
 
 await t('A DROPPED PLACEMENT is retried by a replan; a cell dropped twice is skipped for a day, the rest is filled', async () => {
