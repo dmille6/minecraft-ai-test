@@ -10,7 +10,7 @@
 // keeps a bad generation from becoming a bad action.
 
 import { HARD_STOP } from './toolfor.mjs'
-import { SKILLS, roomRemedy, farFromBank, classifyOutcome, SKILL_CONTRACTS, plantableSpotNear, findTownComposter, townBuildPlan, townPickMiss, townIngredientMiss, foodSkipNow, townContainers, townWellState, townWellBuildPlan, insideTownWell, wellSwordsNow, cobbleWellCap, townPitState, stockWellOpts, valveProof, stockCountKeys, pruneTarget } from './skills.mjs'
+import { SKILLS, roomRemedy, farFromBank, classifyOutcome, SKILL_CONTRACTS, plantableSpotNear, findTownComposter, townBuildPlan, townPickMiss, townIngredientMiss, foodSkipNow, townContainers, townWellState, townWellBuildPlan, insideTownWell, wellSwordsNow, cobbleWellCap, townPitState, stockWellOpts, valveProof, stockCountKeys, pruneTarget, unknownRefusals, stockRecountKeys } from './skills.mjs'
 import { disposePlan, wellOrder, wellOrderOutcome, WELL_ORDERS, pitCoverItem } from './well.mjs'
 import { smeltInputsFor } from './smelting.mjs'
 import { makeClient, skillSchema } from './llm.mjs'
@@ -23,7 +23,8 @@ import { compostPlan, townOrder, townOrderOutcome, boneMealRoom, composterLevel,
 import { hasUsablePick, roomPlan, pickTakes, roomKeep } from './withdrawpick.mjs'
 import { townDepositOrder, townDepositOutcome, townDepositPlan } from './towndeposit.mjs'
 import { pruneOrder, pruneOutcome } from './prune.mjs'
-import { bankClosed } from './chestfull.mjs'
+import { recountOrder, recountOutcome } from './recount.mjs'
+import { bankClosed, inTown } from './chestfull.mjs'
 import { redundantRow, admitRow, HYGIENE_ITEMS } from './toolhygiene.mjs'
 /** One wear-out order per bot per two minutes at most. */
 export const WEAR_OUT_COOLDOWN_MS = 2 * 60 * 1000
@@ -666,6 +667,18 @@ export class CognitiveLoop {
    * state). The plan keeps the active rung's wants, handed to the skill through the bot like admission's currentWants.
    * Every read is guarded: a town deposit must never cost the bot its decision.
    */
+  #recountOrder() {
+    try {
+      const bot = this.bot
+      const items = bot.inventory?.items?.() ?? []
+      const home = { x: config.world.homeX, y: config.world.homeY, z: config.world.homeZ }
+      const r = recountOrder({ now: Date.now(), atTown: inTown(home, bot.entity?.position), unknownRefused: unknownRefusals(bot, items),
+        keys: () => stockRecountKeys(bot, items), state: this.recountState ?? {} })
+      this.recountState = r.state
+      return r.order
+    } catch { return null }
+  }
+
   #townDepositOrder(milestone) {
     try {
       const bot = this.bot
@@ -844,6 +857,11 @@ export class CognitiveLoop {
     // craft every decision, craftroom refuses it at 36/36, and an order placed after it would never get a turn
     // (test/towndeposit.test.mjs CHAIN drives this through the real loop).
     order = this.#townDepositOrder(milestone) ?? order
+    // THE TOWN RECOUNT (stocktarget-02, recount.mjs): at town, holding what a plan refuses as NOT YET COUNTED, the town's
+    // reachable unknown containers are counted now -- whatever the bag's size (the 34-slot town deposit left hive-a and
+    // placebo-a uncounted for hours after the clear). Ahead of the milestone order like the town deposit: a craft-ready
+    // rung re-issues every decision and would starve it.
+    if (!order || order.skill !== 'town_deposit') order = this.#recountOrder() ?? order
     // HYGIENE BEFORE PLANTING, and before the model: a bot at 34+ of 36 slots breaks blocks and leaves the drop
     // on the ground (hygiene.mjs has the measurement). Spent tools are worn out -- destroyed by use, never
     // dropped. Rate-limited by a cooldown charged when the order is ISSUED, like planting.
@@ -1073,6 +1091,7 @@ export class CognitiveLoop {
       if (admitted.skill === 'town_deposit') this.townDepositState = townDepositOutcome(r.status, r.failClass ?? null, Date.now(), this.townDepositState ?? {})
       if (WELL_ORDERS.has(admitted.skill)) this.wellState = wellOrderOutcome(admitted.skill, r.status, Date.now(), this.wellState ?? {}, r.failClass ?? null)
       if (admitted.skill === 'prune_town') this.pruneState = pruneOutcome(r.status, Date.now(), this.pruneState ?? {})
+      if (admitted.skill === 'count_town') this.recountState = recountOutcome(r.status, r.delta?.counted ?? 0, Date.now(), this.recountState ?? {}, r.failClass ?? null)
       // THE REFLEX TOOK THE BODY -- SAY SO ON THE NEXT DECISION.
       if (r.interruptedBy) this.#raiseTrigger(r.interruptedBy, r.detail)
       // A PREREQUISITE THE GOAL LAYER CANNOT SEE IS NOT A PREREQUISITE.

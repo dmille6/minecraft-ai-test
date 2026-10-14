@@ -391,5 +391,86 @@ await t('RECOVERY ABORT (Codex code r2 P2): aborted during the chest craft (afte
   })
 })
 
+// ----------------------------------------------------------------------------------------------- the recount (stocktarget-02)
+await t('RECOUNT ORDER (pure): at town + a not-yet-counted refusal + a reachable key -> count_town; never away, never without a refusal or a key; a 60 s cooldown; 10 min backoff after a count that counted nothing', async () => {
+  const R = await import('../src/recount.mjs')
+  const uk = [{ name: 'oak_log', why: 'town_stock_unknown' }]
+  let asked = 0
+  const keys = () => { asked++; return ['5,64,0'] }
+  assert.equal(R.recountOrder({ now: 1e9, atTown: false, unknownRefused: uk, keys }).order, null, 'away from town')
+  assert.equal(R.recountOrder({ now: 1e9, atTown: true, unknownRefused: [{ name: 'oak_log', why: 'town_stock_target' }], keys }).order, null, 'a PROVEN refusal is not a recount')
+  assert.equal(asked, 0, 'the keys are read only after the cheap gates')
+  assert.equal(R.recountOrder({ now: 1e9, atTown: true, unknownRefused: uk, keys: () => [] }).order, null, 'no reachable key: nothing')
+  const r1 = R.recountOrder({ now: 1e9, atTown: true, unknownRefused: uk, keys })
+  assert.equal(r1.order?.skill, 'count_town')
+  assert.equal(R.recountOrder({ now: 1e9 + 30_000, atTown: true, unknownRefused: uk, keys, state: r1.state }).order, null, 'the cooldown')
+  assert.equal(R.recountOrder({ now: 1e9 + 61_000, atTown: true, unknownRefused: uk, keys, state: r1.state }).order?.skill, 'count_town', 'after the cooldown')
+  const zero = R.recountOutcome('no_effect', 0, 1e9, r1.state)
+  assert.equal(R.recountOrder({ now: 1e9 + 5 * 60_000, atTown: true, unknownRefused: uk, keys, state: zero }).order, null, 'counted nothing: backed off')
+  assert.equal(R.recountOrder({ now: 1e9 + 11 * 60_000, atTown: true, unknownRefused: uk, keys, state: zero }).order?.skill, 'count_town', 'after the backoff')
+  const ok = R.recountOutcome('success', 2, 1e9, zero)
+  assert.equal(ok.backoffUntil, 0, 'a count clears the backoff')
+  assert.ok(R.recountOutcome('failed', 0, 1e9, r1.state, 'runner_busy').lastIssuedAt === -Infinity, 'declined by the runner: not charged')
+})
+const fenced = async bagStacks => {
+  const w = town(bagStacks)
+  w.stock(5, 64, 0, [stack('oak_log', 20)])
+  installCobbleCap(w.bot); B.setStockWellProbe(() => true)
+  await cobbleObserve(w.bot, { x: 5, y: 64, z: 0 }, await w.bot.openContainer(w.bot.blockAt({ x: 5, y: 64, z: 0 })))
+  const dir = process.env.POOL_STATE_DIR
+  const key = fs.readdirSync(dir).find(f => f.endsWith('.cobble.jsonl')).replace('.cobble.jsonl', '')
+  await new Promise(r => setTimeout(r, 5))
+  CC.appendJournal(dir, key, w.bot.worldId ?? null, { t: 'reset', at: Date.now() - 1 })
+  return { w, dir, key }
+}
+await t('RECOUNT KEYS: a fenced town -> its chest is a key; the town memory holding it UNUSABLE (two failures >= 10 min apart) or in backoff -> no key (the reachability check, shared by the town)', async () => {
+  const SK = await import('../src/skills.mjs')
+  const CF2 = await import('../src/chestfull.mjs')
+  const { w, dir, key } = await fenced([stack('oak_log', 64), stack('oak_log', 64)])
+  try {
+    SK.resetCobbleReconcile()
+    assert.deepEqual(SK.unknownRefusals(w.bot).map(r => `${r.name}:${r.why}`), ['oak_log:town_stock_unknown'])
+    assert.deepEqual(SK.stockRecountKeys(w.bot), ['5,64,0'])
+    const t0 = Date.now()
+    CF2.updateTownMemory(dir, key, w.bot.worldId ?? null, e => { e['5,64,0'] = CF2.recordOutcome(CF2.recordOutcome(undefined, 'unknown', t0 - 11 * 60_000), 'unknown', t0) })
+    assert.deepEqual(SK.stockRecountKeys(w.bot), [], 'unusable: never walked to')
+    CF2.updateTownMemory(dir, key, w.bot.worldId ?? null, e => { e['5,64,0'] = CF2.recordOutcome(undefined, 'unknown', t0) })
+    assert.deepEqual(SK.stockRecountKeys(w.bot), [], 'in backoff: not now')
+    CF2.updateTownMemory(dir, key, w.bot.worldId ?? null, e => { e['5,64,0'] = CF2.recordOutcome(undefined, 'took', t0) })
+    assert.deepEqual(SK.stockRecountKeys(w.bot), ['5,64,0'], 'positive control: a container that opened is a key again')
+  } finally { B.setStockReaders({ town: null, well: null }) }
+})
+await t('COUNT_TOWN: counts the fenced chest (the next plan is judged: room 44 under 64); UNREACHABLE -> a strike in the town memory, nothing counted, the row says so -- and a second strike >= 10 min later makes it unusable (no key, no order)', async () => {
+  const SK = await import('../src/skills.mjs')
+  const CF2 = await import('../src/chestfull.mjs')
+  {
+    const { w } = await fenced([stack('oak_log', 64), stack('oak_log', 64)])
+    try {
+      SK.resetCobbleReconcile()
+      const n0 = RECS.length
+      const r = await SKILLS.count_town.run({ bot: w.bot }, {}, new AbortController().signal)
+      assert.equal(r.status, 'success', r.detail); assert.equal(r.counted, 1)
+      assert.match(RECS.slice(n0).find(x => x.skill?.name === '_stock_recount')?.skill?.detail ?? '', /^trigger=order refused=1 keys=1 counted=1 tried=1 unknown_after=0 /)
+      assert.equal(B.bankableInventory(w.bot.inventory.items(), { wants: ['oak_log'] }).detail.oak_log, 44, 'judged on the count')
+    } finally { B.setStockReaders({ town: null, well: null }) }
+  }
+  {
+    const { w, dir, key } = await fenced([stack('oak_log', 64), stack('oak_log', 64)])
+    try {
+      SK.resetCobbleReconcile()
+      w.bot.pathfinder.goto = async () => { throw new Error('No path to the goal!') }
+      const n0 = RECS.length
+      const r = await SKILLS.count_town.run({ bot: w.bot }, {}, new AbortController().signal)
+      assert.equal(r.status, 'no_effect'); assert.equal(r.counted, 0)
+      assert.match(RECS.slice(n0).find(x => x.skill?.name === '_stock_recount')?.skill?.detail ?? '', /counted=0 tried=1 unknown_after=1/)
+      const e = CF2.readTownMemory(dir, key, w.bot.worldId ?? null)['5,64,0']
+      assert.equal(e?.o, 'unknown', 'the strike is in the town memory'); assert.equal(e.strikes.length, 1)
+      SK.resetCobbleReconcile()
+      CF2.updateTownMemory(dir, key, w.bot.worldId ?? null, m => { m['5,64,0'] = CF2.recordOutcome({ ...e, strikes: [Date.now() - 11 * 60_000] }, 'unknown') })
+      assert.deepEqual(SK.stockRecountKeys(w.bot), [], 'two strikes 10 min apart: unusable, no key -- the order cannot loop on it')
+    } finally { B.setStockReaders({ town: null, well: null }) }
+  }
+})
+
 console.log(`\n${pass} passed, ${fail} failed`)
 process.exit(fail ? 1 : 0)

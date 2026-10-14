@@ -92,7 +92,8 @@ import { prunePick, pruneTakes, pruneAccepted, PRUNE_MAX_STACKS, PRUNE_FREE_AFTE
 import { scaffoldCount } from './exit-contract.mjs'
 /** Is this a pillar/scaffold block (well.mjs pillarCount's names)? */
 const isPillarItem = name => scaffoldCount([{ name, count: 1 }]) > 0 || /^(sandstone|red_sandstone|calcite|dripstone_block|blackstone)$/.test(name)
-import { bankableInventory, depositDue, DEPOSIT_ALWAYS, stockRefusals, stockRefusedDetail } from './bankable.mjs'   // chestfull-02: advice agrees with admission
+import { bankableInventory, depositDue, DEPOSIT_ALWAYS, stockRefusals, stockRefusedDetail } from './bankable.mjs'
+import { RECOUNT_SKIP } from './recount.mjs'   // chestfull-02: advice agrees with admission
 import fs from 'node:fs'
 import { doVisit, openBoard, withinBoard } from './board-visit.mjs'
 import { canContinueDescent } from './exit-contract.mjs'
@@ -3304,6 +3305,61 @@ export function cobbleReconcilable (view, now = Date.now()) {
  *            but not by the 1 h available floor -> the containers whose count of that group is older than the floor's
  *            hour (a full bag of at-target surplus must not wait for a count nobody takes: Claude r2 P1-2)
  */
+/**
+ * WHAT A PLAN REFUSES AS NOT YET COUNTED -> [{ name, held, why }] (bankable.mjs stockRefusals, the *_unknown ones). The
+ * deposit's own options: the goal's wants and the peaceful switch. Never throws.
+ */
+export function unknownRefusals (bot, items = bot?.inventory?.items?.() ?? []) {
+  try {
+    return stockRefusals(items, { wants: bot?.currentWants ?? [], noSwords: foodSkipNow(bot).active }).filter(r => /_unknown$/.test(r.why))
+  } catch { return [] }
+}
+/**
+ * THE CONTAINERS THE RECOUNT ORDER MAY COUNT NOW (stocktarget-02) -> [k]. For every group a plan refuses as not yet counted
+ * (town_stock_unknown -> its group; town_cobble_unknown -> cobble), that group's unknown town containers -- only real
+ * container cells IN TOWN, outside the reconciliation's backoff, and never one the town's memory holds unusable, in
+ * backoff or lid-blocked (RECOUNT_SKIP: the reachability check, shared by the town's bots).
+ */
+export function stockRecountKeys (bot, items = bot?.inventory?.items?.() ?? [], now = Date.now()) {
+  try {
+    const rf = unknownRefusals(bot, items)
+    if (!rf.length) return []
+    const st = capTown(bot)
+    if (!st) return []
+    const groups = new Set(rf.map(r => (r.why === 'town_cobble_unknown' ? 'cobble' : groupOf(r.name))).filter(Boolean))
+    const home = homeVec()
+    const mem = readTownMemory(townDir(), homeTownKey(), bot.worldId ?? null) ?? {}
+    const keys = new Set()
+    for (const g of groups) for (const k of stockTownViewFor(bot, g, now, { state: st }).unknown ?? []) keys.add(k)
+    return cobbleReconcilable({ unknown: [...keys] }, now).filter(k => /^-?\d+,-?\d+,-?\d+$/.test(k) && inTown(home, keyVec(k))
+      && !RECOUNT_SKIP.has(containerStatus(mem[k], now)))
+  } catch { return [] }
+}
+/**
+ * COUNT_TOWN (stocktarget-02, recount.mjs): a deterministic town order, never the model's. The bag holds a name a plan
+ * refuses as not yet counted -> count up to three of the town's reachable unknown containers now (reconcileCobble, the
+ * same walk/open/count every deposit uses; failures written to the town's memory), whatever the bag's size, so the next
+ * deposit is judged on counts. One `_stock_recount` row, always. -> counted (the runner's count_effect).
+ */
+export const COUNT_TOWN_BUDGET_MS = 60_000
+async function countTown (ctx, _args, signal) {
+  const { bot } = ctx
+  const before = unknownRefusals(bot)
+  const keys = stockRecountKeys(bot)
+  const row = (status, detail, counted = 0) => {
+    try { logEvent({ kind: 'stock_recount', status, snapshot: snapshot(bot), detail: detail.slice(0, 300) }) } catch { /* never break the order */ }
+    return { status, detail, counted }
+  }
+  const refusedS = before.map(r => `${r.name}:${r.why.replace(/^town_/, '')}`).join(',') || '-'
+  if (!before.length) return row('no_effect', `trigger=order refused=0 keys=${keys.length} counted=0 tried=0 nothing held is refused as not yet counted`)
+  if (!keys.length) return row('no_effect', `trigger=order refused=${before.length} keys=0 counted=0 tried=0 no reachable uncounted town container (all counted, backed off or unusable) names=${refusedS}`)
+  const until = Date.now() + COUNT_TOWN_BUDGET_MS
+  const rc = await reconcileCobble(bot, signal, cap => Math.max(0, Math.min(cap, until - Date.now())), keys, { remember: true })
+  capEpoch++                                                          // the plan's next view reads the new counts
+  const after = unknownRefusals(bot)
+  return row(rc.counted ? 'success' : 'no_effect',
+    `trigger=order refused=${before.length} keys=${keys.length} counted=${rc.counted} tried=${rc.tried ?? 0} unknown_after=${after.length}${rc.timedOut ? ' timed_out=1' : ''} names=${refusedS}`, rc.counted)
+}
 export function stockCountKeys (bot, items = bot.inventory?.items?.() ?? [], { floor = false, now = Date.now() } = {}) {
   try {
     if (!stockReaderInstalled()) return []
@@ -3440,9 +3496,15 @@ export function resetCobbleReconcile () { reconcileFailed.clear(); capScan = { a
  * window that opens after its timeout is closed by that open's own promise, and a timeout ends the reconciliation (Codex r3
  * P2: two opens are never in flight). A count that cannot be written backs off too. -> { counted, timedOut }.
  */
-export async function reconcileCobble (bot, signal, msLeft, keys = null) {
+export async function reconcileCobble (bot, signal, msLeft, keys = null, { remember = false } = {}) {
   let counted = 0, tried = 0, timedOut = false
-  const fail = (k, why) => reconcileFailed.set(failKey(k), { until: Date.now() + RECONCILE_BACKOFF_MS, why })
+  const fail = (k, why) => {
+    reconcileFailed.set(failKey(k), { until: Date.now() + RECONCILE_BACKOFF_MS, why })
+    // THE RECOUNT ORDER (stocktarget-02): a container it cannot reach or open is a STRIKE in the town's memory, shared by
+    // every bot of the town -- a second one >= 10 min later makes it unusable for 6 h (chestfull.mjs recordOutcome), and
+    // a recount never walks to an unusable or backed-off container (stockRecountKeys)
+    if (remember && why !== 'count not written') { try { rememberTown(bot, keyVec(k), why === 'lid blocked' ? 'unavailable' : 'unknown') } catch { /* the backoff above still holds */ } }
+  }
   try {
     const view = cobbleTownViewFor(bot, Date.now(), { fresh: true })
     const here = bot.entity.position
@@ -3479,7 +3541,7 @@ export async function reconcileCobble (bot, signal, msLeft, keys = null) {
     }
   } catch (e) { if (e?.aborted || signal?.aborted) throw e }
   logEvent({ kind: 'cobble_reconcile', status: counted ? 'success' : 'no_effect', snapshot: snapshot(bot), detail: `counted=${counted} of ${tried} tried (max ${RECONCILE_MAX})${timedOut ? ' timed_out=1' : ''}` })
-  return { counted, timedOut }
+  return { counted, timedOut, tried }
 }
 /** One outcome into the town's container memory (chestfull.mjs), for TOWN containers only (inTown: the same boundary
  *  as the memory read, so a container the recovery treats as town always gets its backoff written). */
@@ -11586,6 +11648,7 @@ export const SKILL_CONTRACTS = {
   // Banks whole stacks into a town container: the change it exists for is the loss from the bag.
   town_deposit: { expects: ['inventory_loss'],    maxMs: 60_000 },
   prune_town: { expects: ['prune_effect'], maxMs: 180_000 },
+  count_town: { expects: ['count_effect'], maxMs: 90_000 },
   // THE JUNK WELL (well.mjs). A visit LOSES listed junk (well_effect: never any other loss) -- or, a visitor that only
   // closed an open well, changes one block (world_change). A build digs and places: the cap and floor read back.
   dispose_well: { expects: ['well_effect', 'world_change'], maxMs: 120_000 },
@@ -11713,6 +11776,8 @@ export function classifyOutcome(skillName, status, delta = {}, wanted = null) {
   }
   // A PRUNE MOVES TOWN STOCK DOWN THE WELL THROUGH THE BAG: taken and thrown, the bag ends where it began (pruneTown's count)
   if (expects.includes('prune_effect') && (delta.pruned ?? 0) > 0) because.push(`prune_effect: ${delta.pruned} item(s) taken from a town chest and thrown down the well`)
+  // A RECOUNT CHANGES THE TOWN'S JOURNAL AND NOTHING ELSE: its own verified count of containers counted (countTown)
+  if (expects.includes('count_effect') && (delta.counted ?? 0) > 0) because.push(`count_effect: ${delta.counted} town container(s) counted`)
   if (expects.includes('position') && (delta.distance ?? 0) >= 2) {
     because.push(`position: moved ${Math.round(delta.distance)} blocks`)
   }
@@ -12669,6 +12734,7 @@ export const SKILLS = {
   town_deposit: { run: townDeposit, usage: 'town_deposit', args: [], chatOnly: true },
   // CHEST PRUNING (stocktarget-01, prune.mjs): a deterministic town order, never the model's choice.
   prune_town: { run: pruneTown, usage: 'prune_town', args: [], chatOnly: true },
+  count_town: { run: countTown, usage: 'count_town', args: [], chatOnly: true },
   // THE JUNK WELL'S THREE TOWN ORDERS (well.mjs wellOrder), never the model's choice.
   dispose_well: { run: disposeWell, usage: 'dispose_well', args: [], chatOnly: true },
   build_well:   { run: buildWell,   usage: 'build_well',   args: [], chatOnly: true },
