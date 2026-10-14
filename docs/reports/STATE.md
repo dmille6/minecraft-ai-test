@@ -87,6 +87,32 @@ was killed by hand and the lock confirmed FREE; step 14 now uses `pkill -P`.
 - **hive-a, hive-c, placebo-a and placebo-b are still at 0 nonzero coverage at +60 min.** The procedure's finding
   threshold is 0 coverage after 2 h: re-run step 15 at about 04:40Z.
 
+**Recount +2 h (census 04:40:28Z, 0 problems; `recount2-20261014T0221Z-a1.txt`): RESET PASS.**
+- All 32/32 pool dirs reset. 101 containers recounted: 68 match, 0 partial, 33 zero-only. Coverage is above 0 in 13 of
+  16 worlds.
+- The four towns flagged at +60:
+  - **placebo-b: RECOUNTED.** 3/23, all 3 match the census.
+  - **hive-c: recounted but ZERO-ONLY.** 5 containers; the bots counted 0 of every group, and the census agrees. They
+    are empty chests, so this is weak evidence; nonzero coverage is 0/31.
+  - **hive-a: NOT recounted** (0/24).
+  - **placebo-a: NOT recounted** (0/17).
+- **Diagnosis (read-only; scripts in `clear2-20261014T0221Z/diag/`).** This is not a broken fence and not absent bots.
+  - **The bots are in town.** Since the 02:22:44Z restart, hive-a logged 7,352 rows and placebo-a 9,138, with 1,972 and
+    3,044 position rows within 48 blocks of home.
+  - **Ordinary deposit is refused.** It returns `_stock_refused via=admission ... *_unknown` (hive-a 59, placebo-a 11).
+    That is the design: an unknown container is refused for the ceiling.
+  - **What unlocks the recount.** Per design 3.7 the only deterministic recount is the town-deposit order. It fires at
+    >= 34 used slots. Estimated slots: hive-a bots peaked at 22-31, except Alpha (36, 199 of 925 rows at >= 34);
+    placebo-a peaked at 28-34 (Bravo 91 of 1,412 rows at >= 34).
+  - **The towns that did recount have full bags.** placebo-b and board-c had 274-1,361 rows at >= 34 slots per bot, and
+    their town_deposit / _cobble_reconcile rows are there; hive-a and placebo-a have none.
+  - **So the recount is LAZY, not stuck.** It waits for a bag to fill. The refusals make bags fill, so it should come.
+    Re-check at about +6 h.
+  - **Separately:** placebo-a-Echo failed 3 deposits with `could not reach the chest at 251,74,-148: No path to the goal`.
+- **For the coordinator (no change made).** The unknown refusal names no remedy the bot performs now: hive-a-Delta was
+  refused 55 times in 2 h. A refusal on `*_unknown` that triggers the count step at once, rather than at 34 slots,
+  would close the gap. That is a design question for the stocktarget owner.
+
 The entry below this one is the PREPARED record.
 
 ## 10-13 20:35Z — CHEST CLEAR #2 (stock targets): PREPARED, awaiting owner go. NOTHING RUN; no world changed, no bot stopped
