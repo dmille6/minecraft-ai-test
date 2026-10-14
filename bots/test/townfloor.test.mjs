@@ -411,6 +411,17 @@ await t('A CHAMBER ROOFED ABOVE ANY SCAN LIMIT is not sky (Codex r3 P1 repro): a
   }
 })
 
+await t('THE BUILDER WALKS ONLY ON FULL CUBES (Paper 10-14, board-a: a stand reached in the model only over beds was unreachable to the pathfinder); the protected ways still count the bed route', () => {
+  const bed = { name: 'red_bed', boundingBox: 'block', shapes: [[0, 0, 0, 1, 0.5625, 1]], hardness: 0.2, props: null }
+  // a pocket at (10,63,0) walled by stone on three sides, reached only by stepping over a bed at (9,63,0)... the pocket's
+  // own floor is the grass at L; the bed sits on the grass beside it
+  const base = town({ '11,63,0': 'stone', '10,63,1': 'stone', '10,63,-1': 'stone', '11,64,0': 'stone', '10,64,1': 'stone', '10,64,-1': 'stone', '9,64,1': 'stone', '9,64,-1': 'stone', '9,63,1': 'stone', '9,63,-1': 'stone' })
+  const read = (x, y, z) => (x === 9 && y === 63 && z === 0 ? bed : base.read(x, y, z))
+  const st = F.startNear(read, HOME), box = F.walkBox(HOME)
+  assert.ok(F.walkBack(read, st, { box }).has(F.cellKey(10, 63, 0)), 'permissive: the pocket walks home over the bed (a way lostWay protects)')
+  assert.ok(!F.walkDist(read, st, { box, strict: true }).has(F.cellKey(10, 63, 0)), 'strict: the builder never plans to stand there')
+})
+
 await t('A SLAB IS NO FOUNDATION and no builder floor (Codex r2 P2): a hole over a slab is not filled; a stand on a slab is not used', () => {
   const OPENB = blk('air')
   const slab = { name: 'stone_slab', boundingBox: 'block', shapes: [[0, 0, 0, 1, 0.5, 1]], hardness: 2, props: null }
@@ -505,7 +516,7 @@ await t('A STAND THAT CANNOT WALK HOME ALREADY is refused at the click (walled_i
   assert.equal(F.stepRefusal(w.read, step, { home: HOME, start: st }), 'walled_in')
 })
 
-await t('walkBack(r, t).has(c) iff walkDist(r, c).has(t), on 30 random rough towns (the reverse search is exact)', () => {
+await t('walkBack(r, t).has(c) iff walkDist(r, c).has(t), on 30 random rough towns, permissive and strict (the reverse search is exact)', () => {
   let seed = 7
   const rnd = () => { seed = (seed * 1103515245 + 12345) % 2147483648; return seed / 2147483648 }
   for (let n = 0; n < 30; n++) {
@@ -516,10 +527,12 @@ await t('walkBack(r, t).has(c) iff walkDist(r, c).has(t), on 30 random rough tow
     const box = { x0: -7, x1: 7, z0: -7, z1: 7, y0: 55, y1: 66 }
     const target = F.startNear(w.read, HOME)
     if (!target) continue
-    const back = F.walkBack(w.read, target, { box })
-    for (let x = -7; x <= 7; x++) for (let z = -7; z <= 7; z++) for (let y = 56; y <= 65; y++) {
-      if (!F.standable(w.read, x, y, z)) continue
-      assert.equal(back.has(F.cellKey(x, y, z)), F.walkDist(w.read, { x, y, z }, { box }).has(F.cellKey(target.x, target.y, target.z)), `town ${n} cell ${x},${y},${z}`)
+    for (const strict of [false, true]) {
+      const back = F.walkBack(w.read, target, { box, strict })
+      for (let x = -7; x <= 7; x++) for (let z = -7; z <= 7; z++) for (let y = 56; y <= 65; y++) {
+        if (!F.standable(w.read, x, y, z, strict)) continue
+        assert.equal(back.has(F.cellKey(x, y, z)), F.walkDist(w.read, { x, y, z }, { box, strict }).has(F.cellKey(target.x, target.y, target.z)), `town ${n} cell ${x},${y},${z} strict=${strict}`)
+      }
     }
   }
 })

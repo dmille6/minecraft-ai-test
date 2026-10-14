@@ -96,6 +96,7 @@ function fakeTown ({ items = [], name = 'FloorBot', cells = dugTown(), at = null
       goto: async goal => {
         st.goals.push([goal.x, goal.y, goal.z])
         await st.gotoHook?.(goal)
+        if (st.gotoFail?.(goal)) throw new Error('no path')
         const ok = blockAt(new Vec3(goal.x, goal.y, goal.z))?.boundingBox === 'empty' && blockAt(new Vec3(goal.x, goal.y + 1, goal.z))?.boundingBox === 'empty' && blockAt(new Vec3(goal.x, goal.y - 1, goal.z))?.boundingBox === 'block'
         if (!ok) throw new Error('no path')
         bot.entity.position = new Vec3(goal.x + 0.5, goal.y, goal.z + 0.5)
@@ -277,6 +278,19 @@ await t('THE BUILDER IS RE-CHECKED ON ITS STAND AT THE CLICK (Codex r2 P2): push
   assert.match(row.skill.detail, /refused=[1-9]/, row.skill.detail)
   assert.equal(r.status, 'success', 'the replan goes on from where it stands')
   assert.deepEqual(town.st.refused, [], 'the server never refused a click')
+})
+
+await t('A STAND THE PATHFINDER CANNOT REACH (Paper 10-14, board-a): the step is skipped for the rest of the visit and made cold, the visit fills the others', async () => {
+  reset()
+  const town = fakeTown({ items: [['cobblestone', 64], ['cobblestone', 64]], cells: carve({}, -10, -8, 62, 62, -10, -8) })
+  const first = F.planFloor({ read: town.read, home: HOME, maxSteps: 1 }).steps[0]
+  let failed = 0
+  town.st.gotoFail = goal => { if (goal.x === first.s[0] && goal.y === first.s[1] && goal.z === first.s[2] && failed < 99) { failed++; return true } return false }
+  const r = await visit(town)
+  assert.equal(r.status, 'success', r.detail)
+  assert.equal(failed, 1, 'that stand was tried once in the visit, not on every replan')
+  assert.ok(town.st.places.length >= 7, `the others were filled (${town.st.places.length})`)
+  assert.ok(F.coldKeys(recNow(), Date.now()).has(F.cellKey(...first.c)), 'the refused cell is cold for the next visits')
 })
 
 await t('REFUSALS NAME THE STATE: another builder\'s lease, or being away from town -- nothing placed, no lease taken', async () => {
