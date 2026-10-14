@@ -22,8 +22,7 @@
  ],
  "deadline_min": 1680,
  "change_rows": [
-  "stock_recount",
-  "cobble_reconcile"
+  "stock_recount"
  ],
  "linkage_extra": [],
  "draw_exposure": {
