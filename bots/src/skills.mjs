@@ -35,7 +35,7 @@ import { foodSkipMode, foodSkipActive, skipFoodDrop, foodSkipDetail, difficultyO
 // THE PEACEFUL KIT (peacefulkit.mjs, owner 10-07): swords banked, never crafted, never chased; the plants composted.
 import { swordCraftRefusal, skipSwordDrop, isPeacefulCompost, peacefulKitDetail, swordFuelCount, burnableSword, unwantedSword } from './peacefulkit.mjs'
 import { inPickupBox, pickupGoalClass, pickupGoal, standHeight } from './pickupbox.mjs'
-import { BAG_SLOTS, roomRecipe, admitRoom, pickupNearest, heldLine, collectDecision, placeStackOf, depositTarget, roomAdvice, craftArrived, craftRoomRemedy, wearKeepsSlot, bagFill, placeableBlock, roomForOne, executionVerdict } from './craftroom.mjs'
+import { BAG_SLOTS, roomRecipe, admitRoom, pickupNearest, heldLine, collectDecision, placeStackOf, depositTarget, roomAdvice, craftArrived, craftRoomRemedy, wearKeepsSlot, bagFill, placeableBlock, roomForOne, executionVerdict, chainPeak } from './craftroom.mjs'
 import { compostPlan, nextInsert, boneMealRoom, fillDecision, composterLevel, compostDetail, composterBuildPlan,
          canonicalComposterSite, siteRefusal, standableBeside, tableCellFor, townPlanTableAvailable, resolveTownSite, readTownSite,
          handPlan, isCompostInput, sameWorld, ADOPT_RADIUS, VISIT_BUDGET_MS, MAX_ITEMS_PER_VISIT } from './composter.mjs'
@@ -60,7 +60,7 @@ import { FLOOR } from './toolfor.mjs'
 import { noteExitShort } from './toolhygiene.mjs'
 /** Tools deposit moves one usable copy at a time, by slot (bankable.mjs's own tool families). */
 const DEPOSIT_TOOL_RE = /_(pickaxe|axe|shovel|sword|hoe)$/
-import { townDepositPlan, fitToContainer, townDepositDetail, inTownZone, doubleChestPartner, STORAGE_REACH, TD_MAX_CONTAINERS, TD_BUDGET_MS, TD_WALK_MS, TD_OPEN_MS, TD_SETTLE_MS, townKeeps, TD_TRIGGER_SLOTS } from './towndeposit.mjs'
+import { IRON_LADDER, townDepositPlan, fitToContainer, townDepositDetail, inTownZone, doubleChestPartner, STORAGE_REACH, TD_MAX_CONTAINERS, TD_BUDGET_MS, TD_WALK_MS, TD_OPEN_MS, TD_SETTLE_MS, townKeeps, TD_TRIGGER_SLOTS } from './towndeposit.mjs'
 import { WOODEN_TRAPDOOR, isWellJunk, disposePlan, wellIdentity, wellStage, wellStand, standForFacing, wellSiteRefusal, canonicalWellSite,
          wellBuildPlan, wellBuildRoom, wellAim, aimPoint, tossOutcome, wellAdmission, wellDisposeDetail, itemInWell, bodyInWell, TOSS,
          trapdoorsNeeded, MAX_STACKS_PER_VISIT, wellBreach, usableStands, thrownNames, WELL_HOME_CLEARANCE,
@@ -1462,9 +1462,11 @@ export function cobbleWellCap (bot, items = bot?.inventory?.items?.() ?? []) {
  * town is PROVEN at or above target on the AVAILABLE floor (target 0: always), only while the cap binds (a usable well:
  * stockCapBinds); the keeps are towndeposit's townKeeps for this bag and the bot's wants; holds are withdraw's.
  */
-export function stockWellOpts (bot, items = bot?.inventory?.items?.() ?? [], { group = null } = {}) {
+export function stockWellOpts (bot, items = bot?.inventory?.items?.() ?? [], { group = null, assumeCap = false } = {}) {
   try {
-    if (!stockCapBinds()) return null
+    // assumeCap (orderroom-01, Codex st-2 P2): planning a walk to a RECORDED well from afar, where the live well probe cannot
+    // see the town; the well's own order re-judges at town with the live probe. Every existing caller passes nothing.
+    if (!assumeCap && !stockCapBinds()) return null
     const st = capTown(bot)
     const groups = []
     for (const g of (group ? [group] : Object.keys(stockCounts(items)))) {
@@ -5054,6 +5056,212 @@ export function slotRemedy(bot, items, keep = []) {
     if (far) advice = { kind: 'home', text: `home -- then deposit ${far}: banking is refused out here (no usable chest in reach) and the town chest frees slots` }
   }
   return { fill, remedy: advice.text, kind: advice.kind }
+}
+
+// ---- orderroom-01: THE CRAFT'S OWN ROOM CHECK, ASKED BEFORE THE ORDER, AND ITS REMEDY AS THE ORDER ----------------------
+//
+// Measured 10-10 (80 bots, 13.5 h; docs/reports/orderveto-investigation-2026-10-10.md): the rung's craft order was issued
+// on recipe availability alone, failed for NO ROOM 1,124 times, and was then refused by the admission gate 3,608 times
+// (cooldown / repeat_loop), up to ~41 min in a row -- while the refusal named a remedy (home then deposit 62%, deposit
+// 21%, place 14%) that nothing executed. So the order is issued only with room, and the remedy is the order.
+
+/**
+ * THE ROUTE THE CRAFT TAKES, AND THE STEPS IT RUNS -> { route, steps, keep } | { route, ambiguous } | null. Mirrors
+ * craftLevel's order exactly (Codex r1: the plan is only its fallback):
+ *   A  a recipe needing no table (recipesFor(.., null)[0])                       -> that recipe, no table
+ *   B  else a crafting_table within 32: recipesFor(.., table)[0]. In reach, nothing is placed. Out of reach the craft
+ *      WALKS, and puts its carried table down only if the walk falls short (craftLevel ~L3786) -- which of the two
+ *      happens is not knowable here, so with a carried table the placing variant is returned as `alt` (Codex r2)
+ *   C  else craftPlanFor: runCraftPlan puts a table down IMMEDIATELY BEFORE the first step that needs one (none in
+ *      reach), from the bag as it stands then -- carried, or made by an earlier step of the plan (Codex r2)
+ * Each step is { recipe: roomRecipe(...), times } -- chainPeak's shape; a placement is a recipe with no output.
+ */
+export function craftRouteFor (bot, item, count = 1) {
+  const def = bot.registry?.itemsByName?.[item]
+  if (!def) return null
+  const items = bot.inventory?.items?.() ?? []
+  const carried = items.some(i => i.name === 'crafting_table')
+  const PUT_TABLE = { recipe: { consumes: [{ name: 'crafting_table', count: 1 }], outputs: [] }, times: 1 }
+  const one = (route, r) => {
+    const rr = roomRecipe(bot.registry, r, item)
+    return { route, steps: [{ recipe: rr, times: craftsFor(count, r) }], keep: rr.consumes.map(c => ({ name: c.name, count: 1 })) }
+  }
+  const bare = bot.recipesFor(def.id, null, count, null)?.[0]
+  if (bare) return one('A', bare)
+  const tableBlock = bot.findBlock?.({ matching: b => bot.registry.blocks[b.type]?.name === 'crafting_table', maxDistance: 32 })
+  if (tableBlock) {
+    const r = bot.recipesFor(def.id, null, count, tableBlock)?.[0]
+    if (!r) return null
+    // Out of reach with a carried table: the craft walks, or puts its table down if the walk falls short. Both are
+    // simulated; only when they DISAGREE is the verdict unknown (craftRoomCheck).
+    const b = one('B', r)
+    if (carried && !stationWithin(bot, STATION_REACH)) return { ...b, alt: [PUT_TABLE, ...b.steps] }
+    return b
+  }
+  const plan = craftPlanFor(bot, item, count, carried)
+  if (!plan?.ok || !plan.steps?.length) return null
+  const steps = []
+  let placed = stationWithin(bot, STATION_REACH)
+  for (const st of plan.steps) {
+    if (st.recipe.table && !placed) { steps.push(PUT_TABLE); placed = true }
+    steps.push({ recipe: roomRecipe(bot.registry, st.recipe.ref, st.item), times: Math.max(1, st.crafts ?? 1) })
+  }
+  const keep = [...new Set(plan.steps.flatMap(st => (st.recipe.ingredients ?? []).map(i => i.name)))].map(name => ({ name, count: 1 }))
+  return { route: 'C', steps, keep }
+}
+
+/** A crafting_table standing within `reach` of the bot, measured to the block centre (runCraftPlan's findStation). */
+function stationWithin (bot, reach) {
+  try {
+    const b = bot.findBlock?.({ matching: x => bot.registry?.blocks?.[x.type]?.name === 'crafting_table', maxDistance: Math.ceil(reach) + 1 })
+    return !!b?.position && bot.entity.position.distanceTo(b.position.offset(0.5, 0.5, 0.5)) <= reach
+  } catch { return false }
+}
+
+/**
+ * HOW MANY SLOTS THE CRAFT'S OWN MAKE-ROOM CAN FREE -> 0..2. makeCraftRoom wears out ONE tool per try, two tries; each
+ * try asks craftRoomRemedy on the bag as it is then. So: pick, remove that copy, pick again (Codex r2: two tries are not
+ * two tools).
+ */
+export function wearableSlots (items = [], item = '') {
+  let bag = (Array.isArray(items) ? items : []).slice()
+  let n = 0
+  for (let i = 0; i < 2; i++) {
+    const pick = craftRoomRemedy(bag, item)
+    if (!pick) break
+    bag = bag.filter(x => x !== pick.tool)
+    n++
+  }
+  return n
+}
+
+/**
+ * WOULD THE CRAFT FIND ROOM? -> { ok: true|false|null, short, peak, slots, keep, route, via, why }.
+ *   chainPeak over the route's steps = craftRoom per execution, the simulation admitRoom runs, against BAG_SLOTS.
+ *   The table-retake slot is NOT held: when it is the only one missing the craft goes first (rs.tableYields).
+ *   THE PICKUP SLOT: admitRoom holds one back while an item lies in pickup range, and craftExecutions SETTLES that first
+ *   (waits, collects, or refuses naming the item) before it wears anything out (Codex r2). So a shortage that is ONLY
+ *   the pickup slot is `null` (the craft's own settle decides, as today); otherwise the pickup slot is part of the short.
+ *   THE CRAFT'S OWN MAKE-ROOM: short <= wearableSlots (successive craftRoomRemedy picks, at most two) -> ok via 'wear' --
+ *   unless `wearFailedRecently` (this craft was refused for room in the last ROOM_WEAR_TRUST_MS), so a wear that finds
+ *   no safe cell does not loop.
+ *   ok: null = cannot say (no route, an ambiguous route, an ingredient the simulation cannot name, a pickup-only
+ *   shortage, an unreadable world): the caller issues the order exactly as before.
+ */
+export function craftRoomCheck (bot, item, count = 1, { wearFailedRecently = false } = {}) {
+  try {
+    const items = bot.inventory?.items?.() ?? []
+    const r = craftRouteFor(bot, item, count)
+    if (!r) return { ok: null, why: 'no_route' }
+    const peak = chainPeak(items, r.steps)
+    // THE TWO OUTCOMES OF A B-WALK: the same verdict -> that verdict; different (the walk would not fit, putting the
+    // carried table down would) -> unknown, issued as before.
+    if (r.alt && peak.ok) {
+      const alt = chainPeak(items, r.alt)
+      if (!alt.ok || (alt.peak <= BAG_SLOTS) !== (peak.peak <= BAG_SLOTS)) return { ok: null, why: 'ambiguous route B: walk_or_place', route: r.route, keep: r.keep }
+    }
+    if (!peak.ok) return { ok: null, why: `simulation: ${peak.reason}${peak.missing ? ` ${peak.missing}` : ''}`, keep: r.keep, route: r.route }
+    const pickup = pickupNearest(bot.entity?.position, bot.entities) ? 1 : 0
+    const bare = Math.max(0, peak.peak - BAG_SLOTS)
+    const short = bare + (bare > 0 ? pickup : 0)
+    const base = { short, peak: peak.peak, slots: items.length, keep: r.keep, route: r.route, why: null }
+    if (bare === 0 && pickup) return { ...base, short: 1, ok: null, why: 'pickup_only' }
+    if (short === 0) return { ...base, ok: true, via: 'room' }
+    if (!wearFailedRecently && short <= wearableSlots(items, item)) return { ...base, ok: true, via: 'wear' }
+    return { ...base, ok: false, via: null }
+  } catch (e) { return { ok: null, why: `error: ${String(e?.message ?? e).slice(0, 40)}` } }
+}
+
+/**
+ * THE NAMED REMEDY, AS AN ORDER CAN RUN IT -> { kind, item, text }. The craft refusal's own pieces (roomAdvice,
+ * adviseDeposit, the far-from-home branch of slotRemedy), with three differences, all toward "only what runs from here":
+ *   - NO PLACEMENT. craft never places to make room (makeCraftRoom: a block put down beside the bot can seal a 1x2
+ *     tunnel or an escape stair), and no cheap site test proves an exit stays open (Codex r1). The advice may still
+ *     name it; the order never does, and the next remedy is taken.
+ *   - `home` only when FAR (no usable chest within 48 and more than DEPOSIT_NEAR_HOME from home): at home a backed-off
+ *     deposit must not turn into home orders that arrive where the bot already stands (Codex r1).
+ *   - kinds in `exclude` (backing off, or the gate's memory would refuse them) are skipped.
+ *   eat      a single food, hunger < 20 (roomAdvice)
+ *   deposit  item = depositTarget: X's deposit, as deposit() runs it, empties a stack; never a craft ingredient; only when
+ *            admission's own depositDue and bankClosed would let it through (adviseDeposit)
+ *   home     item = the X that deposit would bank once there
+ *   closed / none   nothing executable: no order
+ */
+export const DEPOSIT_NEAR_HOME = 96   // bankable.mjs depositDue's nearHome default: inside it a deposit is worth it
+export function roomRemedy (bot, items, keep = [], { exclude = new Set() } = {}) {
+  const isPlaceable = n => placeableBlock(bot.registry, n)
+  const depositItem = exclude.has('deposit') || bankClosed(bot) || !depositWorthIt(bot, items) ? null : roomDepositTarget(bot, items, keep)
+  const hunger = exclude.has('eat') ? 20 : (bot.food ?? 20)
+  const advice = roomAdvice({ items, consumes: keep, isPlaceable, placeSite: false, foodOrder: FOOD_PRIORITY, hunger, depositItem })
+  if (advice.kind === 'eat') return { kind: 'eat', item: null, text: advice.text }
+  if (advice.kind === 'deposit') return { kind: 'deposit', item: advice.item, text: advice.text }
+  const closed = bankClosed(bot)
+  if (closed) return { kind: 'closed', item: null, text: closedRoomText(closed) }
+  if (!exclude.has('home') && farFromBank(bot)) {
+    const far = exclude.has('home_deposit') ? null : roomDepositTarget(bot, items, keep)
+    if (far) return { kind: 'home', item: far, text: `home -- then deposit ${far}: banking is refused out here (no usable chest in reach) and the town chest frees slots` }
+    // ...OR THE TOWN'S WELL (Claude st-r1 1a): at target the bank takes no bulk, and the town's exit for that surplus is the
+    // junk well, whose order runs at town before this one. `item` stays null: the room order names no deposit.
+    const well = exclude.has('home_well') ? null : townWellTakes(bot, items, keep)
+    if (well) return { kind: 'home', item: null, via: 'well', text: `home -- the town's junk well takes ${well} (junk, or at its town stock target) and frees slots` }
+  }
+  return { kind: 'none', item: null, text: advice.text }
+}
+
+/**
+ * THE X A ROOM ORDER BANKS -> name | null. depositTarget (X's deposit, as deposit() runs it, empties a stack; never one of the
+ * craft's ingredients), FIRST AMONG WHAT THE TOWN DEPOSIT WOULD ALSO BANK: the iron ladder (raw/ore/ingot/nugget, coal,
+ * charcoal) is the next tier's means, and the 10-12 dry run showed the advice naming `deposit iron_ingot` to make room for
+ * a stone pickaxe. Only when nothing else frees a stack is a ladder item named -- the slot the craft needs still comes free.
+ */
+export const LADDER_CHEAPEST_FIRST = Object.freeze(['coal', 'charcoal', 'iron_nugget', 'iron_ore', 'deepslate_iron_ore', 'raw_iron', 'iron_ingot'])
+export const ROOM_FUEL_RESERVE = 16
+
+/**
+ * WOULD THE TOWN'S JUNK WELL TAKE A STACK OF THIS BAG? -> the first such stack's name | null. The well's own rule, as the
+ * town orders ask it (well.mjs disposePlan with the sword switch, the cobble cap and the stock targets' at-target groups --
+ * the stocktarget tips' exit for surplus the bank no longer takes), never a craft ingredient. Read from the bot's own
+ * memory of the town (no trip): a guess from afar, so the walk is credited only on arrival and the well order decides there.
+ */
+export function townWellTakes (bot, items, keep = [], { wellSite = recordedWellSite } = {}) {
+  try {
+    // A DESTINATION, NOT A HOPE (both engines st-2): only toward a well this pool has RECORDED (readable from afar, no
+    // trip); with one recorded, the stock targets' at-target groups count as the well would count them (assumeCap).
+    if (!wellSite(bot)) return null
+    const used = new Set((keep ?? []).map(k => k?.name ?? k))
+    const plan = disposePlan(items, { swords: wellSwordsNow(bot), cobbleAtCap: cobbleWellCap(bot, items) === 'at_cap', stock: stockWellOpts(bot, items, { assumeCap: true }) })
+    return (plan.stacks ?? []).find(st => !used.has(st.name))?.name ?? null
+  } catch { return null }
+}
+
+export function roomDepositTarget (bot, items, keep = []) {
+  try {
+    // THE SAME PLAN deposit() and admission build (Claude st-r1 2: the peaceful sword switch passed for parity)
+    const plan = depositPlan(items, null, { wants: bot.currentWants ?? [], noSwords: foodSkipNow(bot).active })
+    const first = depositTarget(items, plan, [...keep, ...IRON_LADDER.map(name => ({ name, count: 1 }))])
+    if (first) return first
+    // ONLY THE LADDER CAN FREE A STACK: the cheapest rung first (Claude r5) -- coal before ingots -- and NEVER THE FUEL
+    // RESERVE (Claude st-r1 1b): on the stocktarget tips the bulk groups leave the plan at target, so the ladder fallback is
+    // no longer rare; coal/charcoal is named only while ROOM_FUEL_RESERVE fuel stays in the bag after the deposit.
+    const fuel = (items ?? []).filter(i => i?.name === 'coal' || i?.name === 'charcoal').reduce((n, i) => n + (i.count ?? 0), 0)
+    for (const name of LADDER_CHEAPEST_FIRST) {
+      const entry = plan.find(e => e.name === name)
+      if (!entry) continue
+      if ((name === 'coal' || name === 'charcoal') && fuel - (entry.count ?? 0) < ROOM_FUEL_RESERVE) continue
+      const x = depositTarget(items, [entry], keep)
+      if (x) return x
+    }
+    return null
+  } catch { return null }
+}
+
+/** No usable (non-deep) chest within 48 and more than DEPOSIT_NEAR_HOME from home: admission's deposit_not_worth_it place. */
+export function farFromBank (bot) {
+  try {
+    if (horizontalDistanceFromSpawn(bot.entity.position) <= DEPOSIT_NEAR_HOME) return false
+    const home = homeVec()
+    return !bot.findBlock?.({ maxDistance: 48, matching: b => ['chest', 'barrel', 'trapped_chest'].includes(bot.registry?.blocks?.[b.type]?.name) && depositTargetOk(home, b.position) })
+  } catch { return false }
 }
 
 /** The refusal: the remedy first, then what fills the bag. Craft itself never deposits, never tosses. */
