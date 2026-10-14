@@ -141,6 +141,8 @@ await t('THE BOX IS THE ZONE\'S: every cell the floor may fill is town ground th
     for (const x of [b.x0, b.x1]) for (const z of [b.z0, b.z1]) for (const y of [b.y0, b.y1]) {
       assert.equal(TG.inTownBox({ x, y, z }, home), true, `corner ${x},${y},${z} of ${JSON.stringify(home)} is in the zone box`)
       for (const n of F.FLOOR_BLOCKS) assert.equal(TG.townDigClass({ x, y, z }, n, home), 'ground', `${n} placed there is ground`)
+      // WITH THE ZONE IN THE BUILD (townfloor x townzone): a gatherer's or a miner's target dig of the fill is refused
+      if (F.zoneLive(TG)) for (const n of F.FLOOR_BLOCKS) assert.equal(TG.townTargetPermit({ x, y, z }, n, home).ok, false, `${n} at a box corner is refused as a target`)
     }
     // positive control: one outside the box is not the floor's (and the zone's edge is where the box ends)
     assert.equal(TG.inTownBox({ x: b.x1 + 1, y: b.y1, z: b.z0 }, home), false)
