@@ -400,11 +400,14 @@ export function standFor (read, { target, point, topFace = false, reach, prefer 
 /**
  * WHERE DOES THE OPEN SPACE AT `from` LEAD? -> 'surface' | 'pocket' | 'unbounded', with its cells for a pocket. Pure.
  * A 6-neighbour flood through passable cells (a liquid is not air: water does not count as a way out) inside `region`:
- *   surface    it reaches an open cell at y >= surfaceY (the open air over the town's floor)
- *   pocket     it ends inside the region without reaching the surface (a closed void; `cells` lists it)
+ *   surface    it reaches the SKY: an open cell at or above surfaceY whose whole column up to WORLD_TOP is open
+ *   pocket     it ends inside the region without reaching the sky (a closed void; `cells` lists it)
  *   unbounded  it leaves the region, or passes `max` cells: where it leads is not known (never treated as safe)
  */
-export function openReach (read, from, { region, surfaceY, max = SEAL_FLOOD_MAX, skyCache = null } = {}) {
+export function openReach (read, from, { region, surfaceY, max = SEAL_FLOOD_MAX, skyCache = null, skyRead = null } = {}) {
+  // the column above the region is read RAW (Claude r3 P3-1: ~250 cells a column through a memo cost 160 MB under a full
+  // canopy); placements are never above the floor level, so the unplaced world is the sky's world
+  const above = typeof skyRead === 'function' ? skyRead : read
   read = memoRead(read)
   if (!passable(read(from.x, from.y, from.z))) return { kind: 'solid', cells: [] }
   const seen = new Set([K(from.x, from.y, from.z)])
@@ -420,7 +423,7 @@ export function openReach (read, from, { region, surfaceY, max = SEAL_FLOOD_MAX,
     let f = skyFrom.get(ck)
     if (f === undefined) {
       f = WORLD_TOP + 1
-      for (let yy = WORLD_TOP; yy >= surfaceY; yy--) { if (!passable(read(x, yy, z))) break; f = yy }
+      for (let yy = WORLD_TOP; yy >= surfaceY; yy--) { if (!passable(yy > region.y1 ? above(x, yy, z) : read(x, yy, z))) break; f = yy }
       skyFrom.set(ck, f)
     }
     return y >= f
@@ -453,7 +456,7 @@ export function openReach (read, from, { region, surfaceY, max = SEAL_FLOOD_MAX,
  * ('entities': [{ x, y, z }] feet/item cells) is never closed, a larger pocket refuses, and space whose end is not known
  * ('unbounded') is never cut. Bodies that can WALK to the town are protected by lostWay, not by this air rule.
  */
-export function sealRefusal (read, cell, { home, entities = [], skyCache = null } = {}) {
+export function sealRefusal (read, cell, { home, entities = [], skyCache = null, skyRead = null } = {}) {
   const region = sealBox(home), surfaceY = floorLevel(home) + 1
   const after = overlay(read, new Map([[K(cell.x, cell.y, cell.z), PLACED]]))
   const seen = new Set()
@@ -462,7 +465,7 @@ export function sealRefusal (read, cell, { home, entities = [], skyCache = null 
     // (no height shortcut: a neighbour above the floor level is outside only if its flood reaches the sky -- Codex r2 P1)
     if (!passable(after(n.x, n.y, n.z))) continue
     if (seen.has(K(n.x, n.y, n.z))) continue
-    const r = openReach(after, n, { region, surfaceY, skyCache })
+    const r = openReach(after, n, { region, surfaceY, skyCache, skyRead })
     if (r.kind === 'surface') continue
     // space whose end is not known (it leaves the region, or a cell is not loaded) is never cut off from the surface
     if (r.kind === 'unbounded') return 'unbounded'
@@ -487,13 +490,14 @@ export function sealRefusal (read, cell, { home, entities = [], skyCache = null 
  *   keepOut   records' cells (floorCells)
  *   skip      Set of cellKeys never tried (stuck cells)
  *   maxSteps  placements to plan (the visit's budget)
- * Each step: the eligible targets (open, not protected, solid below) in order -- tier (the platform square first), the
- * HIGHEST first (a column is topped out before the bot moves on: a 1-high gap under a roof can never be stood in, so a
- * layer filled everywhere first would strand the layer over it), then FAR FIRST (the walk distance of the nearest stand),
- * then key -- and the first one with a support, a stand the town reaches that walks back to the town after the click, no
- * seal (sealRefusal), nobody boxed in, and NO CUT (no other stand loses its way there and back) is taken; a cut is taken
- * only when nothing else can be. It is applied to the view and the next step is planned on it. `why` names what stopped
- * the plan short of maxSteps.
+ * Each step: the eligible targets (open, not protected, a full cube below) in order -- COLD last (cells refused on an
+ * earlier visit wait behind every untried one), then the tier (the platform square first), then the HIGHEST (a column is
+ * topped out before the bot moves on: a 1-high gap under a roof can never be stood in, so a layer filled everywhere first
+ * would strand the layer over it), then FAR FIRST (the walk distance of the nearest stand), then the key -- and the first
+ * one with a support, a builder's stand the town reaches that walks back to the town after the click, no seal
+ * (sealRefusal) and NO CUT (lostWay: no other stand loses its way to the town; a cut is always refused) is taken. It is
+ * applied to the view and the next step is planned on it. `why` names what stopped the plan short of maxSteps
+ * ('search_budget': the tries ran out, which is not "nothing to do").
  */
 export function planFloor (opts = {}) {
   const it = planFloorSteps(opts)
@@ -609,7 +613,7 @@ export function * planFloorSteps ({ read, home, start = null, entities = [], kee
       if (!sup.length) { fail('nosupport'); continue }
       const options = sup.map(s => ({ ...s, point: faceCentre(s.ref, s.face), topFace: s.face[1] === 1 }))
       if (!options.some(o => standFor(world, { target: t, point: o.point, topFace: o.topFace, reach: dist }))) { fail('nostand'); continue }
-      const sw = sealRefusal(world, t, { home, entities: ents, skyCache })
+      const sw = sealRefusal(world, t, { home, entities: ents, skyCache, skyRead: read })
       if (sw) { tally.sealwhy[sw] = (tally.sealwhy[sw] ?? 0) + 1; fail(sw === 'entity' ? 'occupied' : 'seal'); continue }
       placed.set(key, PLACED)
       const back = walkBack(world, st, { box })
@@ -697,7 +701,7 @@ export function stepRefusal (read0, step, { home, start, entities = [], keepOut 
   if (hz) return hz
   // CHEAP (the pre-check before the walk): the local judgement only; the click's own check runs everything below
   if (cheap) return null
-  const sw = sealRefusal(read, t, { home, entities })
+  const sw = sealRefusal(read, t, { home, entities, skyRead: read0 })
   if (sw) return `seal:${sw}`
   const after = overlay(read, new Map([[K(x, y, z), PLACED]]))
   const box = walkBox(home)
