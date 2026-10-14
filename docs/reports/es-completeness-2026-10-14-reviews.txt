@@ -1,0 +1,82 @@
+ES completeness check 2026-10-14 -- review texts (Codex: verbatim final answers; Claude: condensed from the reviewer subagent's final answers)
+
+===== ROUND 1: CODEX (codex exec, read-only) =====
+The evidence supports close **net agreement**, but not the headline completeness guarantee.
+
+1. **Offsetting errors remain unresolved.** Equal bot-hour counts can hide loss plus duplication within that hour. Only 16/640 bot-days per stream receive seeded multiset reconciliation. Board-d-Comet 10-11 explicitly has nine losses plus one extra. Thus neither “≥99.99% retained” nor “all loss at midnight” follows fleet-wide. Reconcile every bot-day, separating missing and extra multiplicities. Even `(timestamp, kind)` can collide; compare canonical payloads or event IDs. The reported 12,000 matching bot-hours are not reproduced by `compare.py`, which emits net hourly totals.
+
+2. **Artifacts disagree.** `digest.txt` gives board-d-Comet 10-11 **19,081** file rows; its drill and `summary.json` give **19,080**. Resolve this provenance discrepancy before accepting precision to individual rows. The “at most three per-kind deficits outside 10-07” claim also uses whole-window totals that include offsetting 10-07 surpluses; individual daily deficits already exceed three.
+
+3. **10-07 retransmission is plausible, not fully established.** `botday.py` correctly computes positive multiplicity differences, but calls every excess at an existing key a duplicate without comparing payloads. Keys absent from files do not prove crash loss. “Over-counted, not under-counted” is misleading: board-b-Comet has two missing rows alongside ten extras. Deduplicating solely by timestamp/kind risks deleting legitimate simultaneous events.
+
+4. **Mapping negatives exceed the classifier’s capability.** Planted probes call `classify()` directly, bypassing `walk()`. Nonempty objects lose their parent type; the advertised `bot.name <- dict` control therefore does not test actual census behavior. I reproduced `flat_mapping()` losing explicit `dynamic:false` on an object without `properties`. Type-only checks cannot validate date strings, numeric bounds/coercion, or flattened depth limits; descendants of flattened fields are accepted unconditionally. [Elastic’s flattened documentation](https://www.elastic.co/docs/reference/elasticsearch/mapping-reference/flattened) documents those limits. Use complete planted rows through the entire pipeline and mapping-compatible parsing tests.
+
+5. **Rejection evidence needs narrower wording.** There were **27 strict rejections on 10-07**, so zero across the requested window is false. The 31/31 and 27/27 counter/log matches are valuable controls for later observed zeros. However, `fbjournal.py` ignores individual `cat` failures, silently skips malformed metric records, and has only 2,878 snapshots on 10-10. Verify coverage and processing-time versus event-time boundaries. `_ignored` has no positive control, correctly acknowledged by the report.
+
+6. **Several mechanics are sound, with limits.** Reservoir sampling is correct; half-open cutoff handling works for canonical UTC timestamps. Composite terms preserve timestamp values, with appropriate `after_key` pagination. But `ts_ms()` rounds submillisecond values and mishandles offsets; validate timestamp format. `botday.py` ignores the run cutoff, making current-day drills incomparable.
+
+7. **Source equality is sample-only.** The matcher controls establish visibility, not content-comparison sensitivity. A reproduced bug treats changed string `"null"` as a dropped null. Python equality also conflates some boolean/numeric values. Fix these and plant mutations. The report additionally claims exact `skill.args` equality despite only 1,598/1,600 equal comparisons.
+
+A non-null unmapped `llm.brain` would reject the document under [strict mapping](https://www.elastic.co/docs/reference/elasticsearch/mapping-reference/dynamic), conditional on confirming the actual write index. The census denominator is eligible window rows, not all scanned lines; neither side measures events lost from both.
+
+VERDICT: NOT-COMPLETE-ENOUGH -- reconcile gross loss and extras fleet-wide, resolve artifact discrepancies, repair classifier and equality controls, verify rejection coverage, and map llm.brain before deployment.
+
+===== ROUND 2: CODEX =====
+The evidence supports ES as the default for wide analysis from 10-08 through the validated cutoff, although “every defect fixed” overstates the result.
+
+- **Core completeness checks pass.** All eight daily count rows match `summary.json`. Reconciliation covers 640 bot-days per stream; its totals match the independent counts. After 10-07: **344/8,851,670 skill rows lost, 59/1,089,658 llm rows lost, zero extra four-field keys**, all losses at 23:57–00:00. Per-bot-hour comparisons are now emitted. Board-d-Comet’s walk and drill agree at **19,081**.
+- **Most round-1 code defects are fixed.** Classifier controls traverse `walk()`; property-less objects retain `dynamic:false`; integer-range, term-length and flattened-depth checks exist. Local probes confirmed strict boolean/string-null comparisons and rejection of noncanonical timestamps. `botday` applies the whole-second cutoff to both sides. Filebeat read failures raise, malformed metric JSON is counted, and the report correctly states **27 rejections on 10-07**. Content controls match **160/160 and 200/200**. `skill.args` equality now explicitly permits dropped null keys.
+- **Retransmission evidence improved but remains sampled.** The 169 skill and 37 llm confirmations count checked **keys**, not all extra documents, and compare normalized payloads—not bytes. A new defect in `check_extra()` labels an **empty hit list** “identical payload (re-send)”—reproduced locally. It also caps retrieval at 20 without checking completeness and omits missing-field constraints. This weakens the blanket “exact doubles” claim and the recommendation to halve every payload group. Prefer files or exclusion for 10-07.
+- **Four-field reconciliation is not full-payload reconciliation.** Loss and replacement within the same key remain invisible; 26,072 file-side key repeats demonstrate collisions exist. Combined with the successful source samples, this is adequate evidence for wide analysis, but “no duplicate hides” is too absolute.
+- **Some report numbers remain wrong or unauditable here.** Dropped `bot.held` counts are **34 skill / 64 llm**, not **40/89**. Other headline counts, field totals, controls and rounded freshness figures match. Raw line/file totals, numeric extrema and maximum depth are not preserved in `summary.json`; the underlying census/mappings were not supplied locally. Also, `census_strmax` counts characters for strings ≤8,000 characters, so **70/182 “bytes”** is not established. Its rejection threshold remains conservative for those short strings, but configured flattened depth limits are discarded in favor of hardcoded 20.
+
+These limitations do not overturn the narrow default-source decision.
+
+VERDICT: COMPLETE-ENOUGH-AS-DEFAULT -- handle midnight rotation loss, use files or exclude 10-07 replay windows, preserve null-versus-absent analyses in files, map llm.brain before deployment, and validate history before 10-07 separately
+
+===== ROUND 1: CLAUDE (separate subagent, read-only) =====
+Verdict: COMPLETE-ENOUGH-AS-DEFAULT for 10-08 onward, with conditions.
+Findings:
+(1) "Per-kind deficits <=3 outside 10-07" was false: it netted the 10-07 surplus against later
+    losses. Gross from 10-08: _path_reset 66, _affordance_scan 56, _pickup_skipped >=22.
+(2) "12,000 bot-hours match" was not emitted by any shipped script, and the day of the
+    hour-11 -1 was not named.
+(3) llm losses at 23:57 and 23:58 were omitted.
+(4) The botday.py file window read D and D+1 only. It missed a late-stamped row
+    (board-d-Comet 10-11, 19,080 vs 19,081) and called it an ES-only extra.
+(5) The copytruncate narrative was half right: rows filebeat read before the truncate become
+    ES-only. The multiset extras' timestamps should be emitted.
+(6) The dedup key (bot, @timestamp, kind) would delete legitimate same-key rows. File-side
+    repeats should be counted first.
+Checked and sound: the classifier's dynamic inheritance; llm.brain (non-null on essentially
+every decision, template-only on the branch, weekly rollover due about 10-15); null-only
+_source differences; the filebeat 31=31 / 27=27 control.
+VERDICT: COMPLETE-ENOUGH-AS-DEFAULT -- for 10-08 onward, provided the per-kind claim is
+corrected, the per-bot-hour claim is backed by script output, botday's window is fixed,
+multiset extras' timestamps are emitted, the 23:57/23:58 losses and ES-only rotation rows are
+stated, the dedup key is replaced, and llm.brain is mapped (or the rollover sequenced) before
+brain-01 deploys.
+
+===== ROUND 2: CLAUDE =====
+Conditions met in code and numbers: the gross per-kind figures (_path_reset 66, max day-kind
+13); bot_hours (0 of 1,760/day differ in hours 01-22 from 10-08); the D..D+2 window
+(board-d-Comet 19,081, 0 ES-only); the full 640-bot-day reconcile (skill 372 lost / 4,633
+extra = -4,261 net; from 10-08, 344/0 and 59/0, nothing outside 23:50-00:10); the 23:57/23:58
+losses stated; llm.brain confirmed. The Codex fixes were verified: type-strict _same, mutants
+160/160 and 200/200, dict nodes in walk(), and the range, term-length and depth checks.
+Headline numbers match summary.json.
+New items:
+ - Option (b), halving, is exact only in the doubled windows. Name them, or make whole-day
+   exclusion the default.
+ - Name the 10-07 hour-11 extra.
+ - The term-length probe should record its status and also target a keyword known to be
+   mapped.
+ - The extras _source check covered only the earliest 25 keys per bot-day.
+ - Cosmetic: first_day omitted small bot-days.
+(All addressed after the review: whole-day exclusion is the default with the doubled windows
+named; 11:55 placebo-b-Bravo is named; the per-probe status is recorded, with a bot.name
+40 KB probe; extras are sampled evenly over the day; first_day_totals are added.)
+VERDICT: COMPLETE-ENOUGH-AS-DEFAULT -- for 10-08 onward. Before 10-07 is used: define (b)'s
+exact doubled windows or make whole-day exclusion the default, and name the hour-11 extra.
+Before the classifier is relied on for new fields: emit a status per probe, with the
+term-length probe on a keyword known to be mapped.

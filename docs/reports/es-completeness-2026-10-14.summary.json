@@ -1,0 +1,3698 @@
+{
+ "days": [
+  "2026-10-07",
+  "2026-10-08",
+  "2026-10-09",
+  "2026-10-10",
+  "2026-10-11",
+  "2026-10-12",
+  "2026-10-13",
+  "2026-10-14"
+ ],
+ "cutoff": "2026-10-14T18:46:00Z",
+ "controls": {
+  "skill": {
+   "nonexistent_bot_all_window": 0,
+   "year_2001_window": 0,
+   "whole_window": 9745563,
+   "one_known_bot_whole_window": [
+    "placebo-c-Echo",
+    271958
+   ]
+  },
+  "llm": {
+   "nonexistent_bot_all_window": 0,
+   "year_2001_window": 0,
+   "whole_window": 1203874,
+   "one_known_bot_whole_window": [
+    "isolated-b-Echo",
+    17385
+   ]
+  }
+ },
+ "file_bad_lines": {
+  "skill": {
+   "not_json": 35
+  },
+  "llm": {
+   "not_json": 24
+  }
+ },
+ "file_bad_by_file": {
+  "skill": {
+   "skill-board-a-Alpha.jsonl-20261007.gz": 1,
+   "skill-board-a-Bravo.jsonl-20261008.gz": 1,
+   "skill-board-c-Bravo.jsonl-20261008.gz": 1,
+   "skill-board-c-Delta.jsonl-20261008.gz": 1,
+   "skill-board-d-Alpha.jsonl-20261007.gz": 1,
+   "skill-board-d-Bravo.jsonl-20261007.gz": 1,
+   "skill-board-d-Comet.jsonl-20261007.gz": 1,
+   "skill-hive-a-Comet.jsonl-20261007.gz": 1,
+   "skill-hive-a-Delta.jsonl-20261007.gz": 1,
+   "skill-hive-b-Bravo.jsonl-20261008.gz": 1,
+   "skill-hive-b-Echo.jsonl-20261007.gz": 1,
+   "skill-hive-c-Bravo.jsonl-20261007.gz": 1,
+   "skill-hive-c-Bravo.jsonl-20261008.gz": 1,
+   "skill-hive-c-Echo.jsonl-20261007.gz": 1,
+   "skill-hive-d-Comet.jsonl-20261008.gz": 1,
+   "skill-isolated-a-Comet.jsonl-20261008.gz": 1,
+   "skill-isolated-a-Echo.jsonl-20261007.gz": 1,
+   "skill-isolated-b-Bravo.jsonl-20261007.gz": 1,
+   "skill-isolated-b-Echo.jsonl-20261008.gz": 1,
+   "skill-isolated-c-Alpha.jsonl-20261008.gz": 1,
+   "skill-isolated-c-Bravo.jsonl-20261008.gz": 1,
+   "skill-isolated-c-Comet.jsonl-20261008.gz": 1,
+   "skill-isolated-c-Delta.jsonl-20261007.gz": 1,
+   "skill-isolated-c-Echo.jsonl-20261008.gz": 1,
+   "skill-isolated-d-Bravo.jsonl-20261008.gz": 1,
+   "skill-placebo-a-Alpha.jsonl-20261007.gz": 1,
+   "skill-placebo-a-Bravo.jsonl-20261007.gz": 1,
+   "skill-placebo-a-Comet.jsonl-20261007.gz": 1,
+   "skill-placebo-a-Comet.jsonl-20261008.gz": 1,
+   "skill-placebo-b-Bravo.jsonl-20261007.gz": 1,
+   "skill-placebo-b-Bravo.jsonl-20261008.gz": 1,
+   "skill-placebo-b-Delta.jsonl-20261007.gz": 1,
+   "skill-placebo-b-Echo.jsonl-20261007.gz": 1,
+   "skill-placebo-c-Alpha.jsonl-20261008.gz": 1,
+   "skill-placebo-d-Alpha.jsonl-20261007.gz": 1
+  },
+  "llm": {
+   "llm-board-a-Alpha.jsonl-20261007.gz": 1,
+   "llm-board-b-Alpha.jsonl-20261008.gz": 1,
+   "llm-board-d-Bravo.jsonl-20261007.gz": 1,
+   "llm-board-d-Comet.jsonl-20261008.gz": 1,
+   "llm-hive-a-Bravo.jsonl-20261008.gz": 1,
+   "llm-hive-a-Comet.jsonl-20261007.gz": 1,
+   "llm-hive-a-Comet.jsonl-20261008.gz": 1,
+   "llm-hive-b-Delta.jsonl-20261007.gz": 1,
+   "llm-hive-c-Bravo.jsonl-20261007.gz": 1,
+   "llm-hive-c-Comet.jsonl-20261008.gz": 1,
+   "llm-hive-c-Delta.jsonl-20261007.gz": 1,
+   "llm-hive-d-Alpha.jsonl-20261007.gz": 1,
+   "llm-hive-d-Comet.jsonl-20261008.gz": 1,
+   "llm-isolated-b-Bravo.jsonl-20261007.gz": 1,
+   "llm-isolated-b-Echo.jsonl-20261008.gz": 1,
+   "llm-isolated-c-Bravo.jsonl-20261008.gz": 1,
+   "llm-isolated-c-Comet.jsonl-20261008.gz": 1,
+   "llm-isolated-c-Echo.jsonl-20261008.gz": 1,
+   "llm-placebo-a-Alpha.jsonl-20261007.gz": 1,
+   "llm-placebo-a-Bravo.jsonl-20261007.gz": 1,
+   "llm-placebo-a-Comet.jsonl-20261008.gz": 1,
+   "llm-placebo-b-Bravo.jsonl-20261008.gz": 1,
+   "llm-placebo-d-Alpha.jsonl-20261007.gz": 1,
+   "llm-placebo-d-Bravo.jsonl-20261007.gz": 1
+  }
+ },
+ "dir_mismatch": {
+  "skill": {},
+  "llm": {}
+ },
+ "walk_seconds": 1292.8,
+ "backing_in_window": {
+  "skill": {
+   ".ds-mcai-skill-agents-2026.10.08-000010": 8828319,
+   ".ds-mcai-skill-agents-2026.10.01-000009": 917244
+  },
+  "llm": {
+   ".ds-mcai-llm-agents-2026.10.08-000010": 1088281,
+   ".ds-mcai-llm-agents-2026.10.01-000009": 115593
+  }
+ },
+ "file_lines_read": {
+  "skill": 10845247,
+  "llm": 1345031
+ },
+ "files_read": {
+  "skill": 724,
+  "llm": 724
+ },
+ "bot_dirs": 88,
+ "day_totals": {
+  "skill": {
+   "rows": [
+    {
+     "day": "2026-10-07",
+     "file_rows": 889632,
+     "es_docs": 894237,
+     "file_minus_es": -4605,
+     "es_over_file": 1.005176
+    },
+    {
+     "day": "2026-10-08",
+     "file_rows": 1281875,
+     "es_docs": 1281826,
+     "file_minus_es": 49,
+     "es_over_file": 0.999962
+    },
+    {
+     "day": "2026-10-09",
+     "file_rows": 1270361,
+     "es_docs": 1270309,
+     "file_minus_es": 52,
+     "es_over_file": 0.999959
+    },
+    {
+     "day": "2026-10-10",
+     "file_rows": 1279431,
+     "es_docs": 1279373,
+     "file_minus_es": 58,
+     "es_over_file": 0.999955
+    },
+    {
+     "day": "2026-10-11",
+     "file_rows": 1322949,
+     "es_docs": 1322887,
+     "file_minus_es": 62,
+     "es_over_file": 0.999953
+    },
+    {
+     "day": "2026-10-12",
+     "file_rows": 1303669,
+     "es_docs": 1303632,
+     "file_minus_es": 37,
+     "es_over_file": 0.999972
+    },
+    {
+     "day": "2026-10-13",
+     "file_rows": 1306974,
+     "es_docs": 1306930,
+     "file_minus_es": 44,
+     "es_over_file": 0.999966
+    },
+    {
+     "day": "2026-10-14",
+     "file_rows": 1086411,
+     "es_docs": 1086369,
+     "file_minus_es": 42,
+     "es_over_file": 0.999961
+    }
+   ],
+   "total_file": 9741302,
+   "total_es": 9745563,
+   "total_diff": -4261,
+   "ratio": 1.000437
+  },
+  "llm": {
+   "rows": [
+    {
+     "day": "2026-10-07",
+     "file_rows": 113868,
+     "es_docs": 114275,
+     "file_minus_es": -407,
+     "es_over_file": 1.003574
+    },
+    {
+     "day": "2026-10-08",
+     "file_rows": 158601,
+     "es_docs": 158591,
+     "file_minus_es": 10,
+     "es_over_file": 0.999937
+    },
+    {
+     "day": "2026-10-09",
+     "file_rows": 160586,
+     "es_docs": 160579,
+     "file_minus_es": 7,
+     "es_over_file": 0.999956
+    },
+    {
+     "day": "2026-10-10",
+     "file_rows": 162388,
+     "es_docs": 162381,
+     "file_minus_es": 7,
+     "es_over_file": 0.999957
+    },
+    {
+     "day": "2026-10-11",
+     "file_rows": 160185,
+     "es_docs": 160176,
+     "file_minus_es": 9,
+     "es_over_file": 0.999944
+    },
+    {
+     "day": "2026-10-12",
+     "file_rows": 161684,
+     "es_docs": 161674,
+     "file_minus_es": 10,
+     "es_over_file": 0.999938
+    },
+    {
+     "day": "2026-10-13",
+     "file_rows": 162840,
+     "es_docs": 162828,
+     "file_minus_es": 12,
+     "es_over_file": 0.999926
+    },
+    {
+     "day": "2026-10-14",
+     "file_rows": 123374,
+     "es_docs": 123370,
+     "file_minus_es": 4,
+     "es_over_file": 0.999968
+    }
+   ],
+   "total_file": 1203526,
+   "total_es": 1203874,
+   "total_diff": -348,
+   "ratio": 1.000289
+  }
+ },
+ "bot_days": {
+  "skill": {
+   "n_bot_days": 640,
+   "exact": 426,
+   "abs_diff_le_2": 581,
+   "file_only_bot_days": [],
+   "es_only_bot_days": [],
+   "worst_deficit": [
+    [
+     "hive-d-Alpha|2026-10-10",
+     14248,
+     14236,
+     12
+    ],
+    [
+     "board-d-Comet|2026-10-11",
+     19081,
+     19072,
+     9
+    ],
+    [
+     "hive-d-Delta|2026-10-08",
+     15982,
+     15976,
+     6
+    ],
+    [
+     "hive-a-Delta|2026-10-10",
+     13399,
+     13394,
+     5
+    ],
+    [
+     "isolated-c-Echo|2026-10-08",
+     15716,
+     15711,
+     5
+    ],
+    [
+     "isolated-c-Delta|2026-10-10",
+     17626,
+     17621,
+     5
+    ],
+    [
+     "board-b-Alpha|2026-10-13",
+     14254,
+     14249,
+     5
+    ],
+    [
+     "isolated-c-Alpha|2026-10-09",
+     13278,
+     13273,
+     5
+    ],
+    [
+     "hive-b-Alpha|2026-10-13",
+     14355,
+     14350,
+     5
+    ],
+    [
+     "isolated-d-Bravo|2026-10-11",
+     18485,
+     18480,
+     5
+    ]
+   ],
+   "worst_surplus": [
+    [
+     "placebo-a-Comet|2026-10-07",
+     11000,
+     13508,
+     -2508
+    ],
+    [
+     "isolated-c-Echo|2026-10-07",
+     6962,
+     8948,
+     -1986
+    ],
+    [
+     "board-b-Comet|2026-10-07",
+     7824,
+     7832,
+     -8
+    ],
+    [
+     "hive-c-Bravo|2026-10-07",
+     10435,
+     10442,
+     -7
+    ],
+    [
+     "board-c-Delta|2026-10-07",
+     13378,
+     13384,
+     -6
+    ]
+   ],
+   "worst_ratio": [
+    [
+     "hive-d-Alpha|2026-10-10",
+     14248,
+     14236,
+     0.9992
+    ],
+    [
+     "board-d-Comet|2026-10-11",
+     19081,
+     19072,
+     0.9995
+    ],
+    [
+     "isolated-c-Alpha|2026-10-09",
+     13278,
+     13273,
+     0.9996
+    ],
+    [
+     "hive-d-Delta|2026-10-08",
+     15982,
+     15976,
+     0.9996
+    ],
+    [
+     "hive-a-Delta|2026-10-10",
+     13399,
+     13394,
+     0.9996
+    ],
+    [
+     "placebo-a-Delta|2026-10-10",
+     8519,
+     8516,
+     0.9996
+    ],
+    [
+     "board-b-Alpha|2026-10-13",
+     14254,
+     14249,
+     0.9996
+    ],
+    [
+     "hive-b-Alpha|2026-10-13",
+     14355,
+     14350,
+     0.9997
+    ],
+    [
+     "isolated-c-Echo|2026-10-08",
+     15716,
+     15711,
+     0.9997
+    ],
+    [
+     "isolated-c-Bravo|2026-10-14",
+     13905,
+     13901,
+     0.9997
+    ]
+   ],
+   "net_diff_by_hour": {
+    "00": -720,
+    "01": -794,
+    "02": -789,
+    "03": -750,
+    "04": -1058,
+    "05": -201,
+    "06": 0,
+    "07": 0,
+    "08": 0,
+    "09": 0,
+    "10": 0,
+    "11": -1,
+    "12": 0,
+    "13": 0,
+    "14": 0,
+    "15": 0,
+    "16": 0,
+    "17": 0,
+    "18": 0,
+    "19": 0,
+    "20": 0,
+    "21": 0,
+    "22": 0,
+    "23": 52
+   },
+   "bot_hours": {
+    "2026-10-07": {
+     "hours_01_22": [
+      55,
+      1360
+     ],
+     "rotation_hours_00_23": [
+      19,
+      160
+     ]
+    },
+    "2026-10-08": {
+     "hours_01_22": [
+      0,
+      1760
+     ],
+     "rotation_hours_00_23": [
+      26,
+      160
+     ]
+    },
+    "2026-10-09": {
+     "hours_01_22": [
+      0,
+      1760
+     ],
+     "rotation_hours_00_23": [
+      31,
+      160
+     ]
+    },
+    "2026-10-10": {
+     "hours_01_22": [
+      0,
+      1760
+     ],
+     "rotation_hours_00_23": [
+      28,
+      160
+     ]
+    },
+    "2026-10-11": {
+     "hours_01_22": [
+      0,
+      1760
+     ],
+     "rotation_hours_00_23": [
+      33,
+      160
+     ]
+    },
+    "2026-10-12": {
+     "hours_01_22": [
+      0,
+      1760
+     ],
+     "rotation_hours_00_23": [
+      20,
+      160
+     ]
+    },
+    "2026-10-13": {
+     "hours_01_22": [
+      0,
+      1760
+     ],
+     "rotation_hours_00_23": [
+      23,
+      160
+     ]
+    },
+    "2026-10-14": {
+     "hours_01_22": [
+      0,
+      1440
+     ],
+     "rotation_hours_00_23": [
+      21,
+      80
+     ]
+    }
+   },
+   "bot_hours_nonzero_01_22": [
+    [
+     "board-a-Alpha|2026-10-07",
+     "05",
+     46,
+     51
+    ],
+    [
+     "board-a-Bravo|2026-10-07",
+     "05",
+     53,
+     59
+    ],
+    [
+     "board-b-Alpha|2026-10-07",
+     "05",
+     7,
+     9
+    ],
+    [
+     "board-b-Comet|2026-10-07",
+     "05",
+     14,
+     24
+    ],
+    [
+     "board-b-Echo|2026-10-07",
+     "05",
+     6,
+     7
+    ],
+    [
+     "board-c-Comet|2026-10-07",
+     "05",
+     9,
+     11
+    ],
+    [
+     "board-c-Delta|2026-10-07",
+     "05",
+     25,
+     31
+    ],
+    [
+     "board-c-Echo|2026-10-07",
+     "05",
+     9,
+     10
+    ],
+    [
+     "board-d-Alpha|2026-10-07",
+     "05",
+     58,
+     62
+    ],
+    [
+     "board-d-Bravo|2026-10-07",
+     "05",
+     7,
+     9
+    ],
+    [
+     "board-d-Comet|2026-10-07",
+     "05",
+     12,
+     14
+    ],
+    [
+     "board-d-Delta|2026-10-07",
+     "05",
+     10,
+     11
+    ],
+    [
+     "board-d-Echo|2026-10-07",
+     "05",
+     35,
+     37
+    ],
+    [
+     "hive-a-Alpha|2026-10-07",
+     "05",
+     21,
+     24
+    ],
+    [
+     "hive-a-Delta|2026-10-07",
+     "05",
+     46,
+     51
+    ],
+    [
+     "hive-a-Echo|2026-10-07",
+     "05",
+     19,
+     21
+    ],
+    [
+     "hive-b-Bravo|2026-10-07",
+     "05",
+     27,
+     31
+    ],
+    [
+     "hive-b-Echo|2026-10-07",
+     "05",
+     9,
+     11
+    ],
+    [
+     "hive-c-Bravo|2026-10-07",
+     "05",
+     11,
+     18
+    ],
+    [
+     "hive-c-Comet|2026-10-07",
+     "05",
+     12,
+     14
+    ],
+    [
+     "hive-c-Delta|2026-10-07",
+     "05",
+     16,
+     18
+    ],
+    [
+     "hive-d-Bravo|2026-10-07",
+     "05",
+     58,
+     61
+    ],
+    [
+     "hive-d-Comet|2026-10-07",
+     "05",
+     6,
+     8
+    ],
+    [
+     "hive-d-Delta|2026-10-07",
+     "05",
+     9,
+     10
+    ],
+    [
+     "isolated-a-Comet|2026-10-07",
+     "05",
+     36,
+     39
+    ],
+    [
+     "isolated-a-Delta|2026-10-07",
+     "05",
+     16,
+     19
+    ],
+    [
+     "isolated-c-Alpha|2026-10-07",
+     "05",
+     15,
+     20
+    ],
+    [
+     "isolated-c-Bravo|2026-10-07",
+     "05",
+     20,
+     26
+    ],
+    [
+     "isolated-c-Echo|2026-10-07",
+     "01",
+     360,
+     720
+    ],
+    [
+     "isolated-c-Echo|2026-10-07",
+     "02",
+     433,
+     866
+    ],
+    [
+     "isolated-c-Echo|2026-10-07",
+     "03",
+     302,
+     604
+    ],
+    [
+     "isolated-c-Echo|2026-10-07",
+     "04",
+     410,
+     820
+    ],
+    [
+     "isolated-c-Echo|2026-10-07",
+     "05",
+     9,
+     27
+    ],
+    [
+     "isolated-d-Bravo|2026-10-07",
+     "05",
+     27,
+     30
+    ],
+    [
+     "isolated-d-Echo|2026-10-07",
+     "05",
+     6,
+     8
+    ],
+    [
+     "placebo-a-Bravo|2026-10-07",
+     "05",
+     28,
+     29
+    ],
+    [
+     "placebo-a-Comet|2026-10-07",
+     "01",
+     434,
+     868
+    ],
+    [
+     "placebo-a-Comet|2026-10-07",
+     "02",
+     356,
+     712
+    ],
+    [
+     "placebo-a-Comet|2026-10-07",
+     "03",
+     448,
+     896
+    ],
+    [
+     "placebo-a-Comet|2026-10-07",
+     "04",
+     648,
+     1296
+    ]
+   ],
+   "deficit_by_day": {
+    "2026-10-07": 7,
+    "2026-10-08": 49,
+    "2026-10-09": 52,
+    "2026-10-10": 58,
+    "2026-10-11": 62,
+    "2026-10-12": 37,
+    "2026-10-13": 44,
+    "2026-10-14": 42
+   },
+   "surplus_by_day": {
+    "2026-10-07": 4612,
+    "2026-10-08": 0,
+    "2026-10-09": 0,
+    "2026-10-10": 0,
+    "2026-10-11": 0,
+    "2026-10-12": 0,
+    "2026-10-13": 0,
+    "2026-10-14": 0
+   }
+  },
+  "llm": {
+   "n_bot_days": 640,
+   "exact": 566,
+   "abs_diff_le_2": 639,
+   "file_only_bot_days": [],
+   "es_only_bot_days": [],
+   "worst_deficit": [
+    [
+     "isolated-d-Comet|2026-10-07",
+     1374,
+     1372,
+     2
+    ],
+    [
+     "placebo-c-Comet|2026-10-13",
+     1904,
+     1902,
+     2
+    ],
+    [
+     "isolated-b-Alpha|2026-10-14",
+     1525,
+     1524,
+     1
+    ],
+    [
+     "isolated-a-Alpha|2026-10-10",
+     1924,
+     1923,
+     1
+    ],
+    [
+     "board-a-Echo|2026-10-12",
+     2094,
+     2093,
+     1
+    ],
+    [
+     "board-c-Alpha|2026-10-09",
+     1931,
+     1930,
+     1
+    ],
+    [
+     "board-c-Bravo|2026-10-14",
+     1560,
+     1559,
+     1
+    ],
+    [
+     "isolated-b-Delta|2026-10-08",
+     2096,
+     2095,
+     1
+    ],
+    [
+     "board-c-Alpha|2026-10-12",
+     2064,
+     2063,
+     1
+    ],
+    [
+     "hive-b-Alpha|2026-10-08",
+     2191,
+     2190,
+     1
+    ]
+   ],
+   "worst_surplus": [
+    [
+     "placebo-b-Bravo|2026-10-07",
+     1268,
+     1665,
+     -397
+    ],
+    [
+     "board-c-Alpha|2026-10-07",
+     1318,
+     1319,
+     -1
+    ],
+    [
+     "isolated-d-Echo|2026-10-07",
+     1472,
+     1473,
+     -1
+    ],
+    [
+     "placebo-b-Delta|2026-10-07",
+     1349,
+     1350,
+     -1
+    ],
+    [
+     "hive-c-Bravo|2026-10-07",
+     1460,
+     1461,
+     -1
+    ]
+   ],
+   "worst_ratio": [
+    [
+     "isolated-d-Comet|2026-10-07",
+     1374,
+     1372,
+     0.9985
+    ],
+    [
+     "placebo-c-Comet|2026-10-13",
+     1904,
+     1902,
+     0.9989
+    ],
+    [
+     "board-d-Alpha|2026-10-14",
+     1417,
+     1416,
+     0.9993
+    ],
+    [
+     "isolated-d-Alpha|2026-10-07",
+     1419,
+     1418,
+     0.9993
+    ],
+    [
+     "isolated-c-Delta|2026-10-14",
+     1512,
+     1511,
+     0.9993
+    ],
+    [
+     "isolated-b-Alpha|2026-10-14",
+     1525,
+     1524,
+     0.9993
+    ],
+    [
+     "board-c-Bravo|2026-10-14",
+     1560,
+     1559,
+     0.9994
+    ],
+    [
+     "board-d-Echo|2026-10-10",
+     1687,
+     1686,
+     0.9994
+    ],
+    [
+     "placebo-d-Echo|2026-10-10",
+     1728,
+     1727,
+     0.9994
+    ],
+    [
+     "isolated-d-Echo|2026-10-08",
+     1769,
+     1768,
+     0.9994
+    ]
+   ],
+   "net_diff_by_hour": {
+    "00": -4,
+    "01": -71,
+    "02": -101,
+    "03": -86,
+    "04": -83,
+    "05": -21,
+    "06": 0,
+    "07": 0,
+    "08": 0,
+    "09": 0,
+    "10": 0,
+    "11": 0,
+    "12": 0,
+    "13": 0,
+    "14": 0,
+    "15": 0,
+    "16": 0,
+    "17": 0,
+    "18": 0,
+    "19": 0,
+    "20": 0,
+    "21": 0,
+    "22": 0,
+    "23": 18
+   },
+   "bot_hours": {
+    "2026-10-07": {
+     "hours_01_22": [
+      23,
+      1353
+     ],
+     "rotation_hours_00_23": [
+      9,
+      160
+     ]
+    },
+    "2026-10-08": {
+     "hours_01_22": [
+      0,
+      1760
+     ],
+     "rotation_hours_00_23": [
+      10,
+      160
+     ]
+    },
+    "2026-10-09": {
+     "hours_01_22": [
+      0,
+      1760
+     ],
+     "rotation_hours_00_23": [
+      7,
+      160
+     ]
+    },
+    "2026-10-10": {
+     "hours_01_22": [
+      0,
+      1760
+     ],
+     "rotation_hours_00_23": [
+      7,
+      160
+     ]
+    },
+    "2026-10-11": {
+     "hours_01_22": [
+      0,
+      1760
+     ],
+     "rotation_hours_00_23": [
+      9,
+      160
+     ]
+    },
+    "2026-10-12": {
+     "hours_01_22": [
+      0,
+      1760
+     ],
+     "rotation_hours_00_23": [
+      10,
+      160
+     ]
+    },
+    "2026-10-13": {
+     "hours_01_22": [
+      0,
+      1760
+     ],
+     "rotation_hours_00_23": [
+      12,
+      160
+     ]
+    },
+    "2026-10-14": {
+     "hours_01_22": [
+      0,
+      1440
+     ],
+     "rotation_hours_00_23": [
+      4,
+      80
+     ]
+    }
+   },
+   "bot_hours_nonzero_01_22": [
+    [
+     "board-b-Alpha|2026-10-07",
+     "05",
+     2,
+     3
+    ],
+    [
+     "board-b-Comet|2026-10-07",
+     "05",
+     4,
+     5
+    ],
+    [
+     "board-c-Alpha|2026-10-07",
+     "05",
+     3,
+     4
+    ],
+    [
+     "board-c-Delta|2026-10-07",
+     "05",
+     3,
+     4
+    ],
+    [
+     "board-d-Comet|2026-10-07",
+     "05",
+     3,
+     4
+    ],
+    [
+     "board-d-Echo|2026-10-07",
+     "05",
+     4,
+     5
+    ],
+    [
+     "hive-a-Bravo|2026-10-07",
+     "05",
+     1,
+     2
+    ],
+    [
+     "hive-a-Comet|2026-10-07",
+     "05",
+     2,
+     3
+    ],
+    [
+     "hive-b-Echo|2026-10-07",
+     "05",
+     3,
+     4
+    ],
+    [
+     "hive-c-Bravo|2026-10-07",
+     "05",
+     3,
+     4
+    ],
+    [
+     "hive-c-Comet|2026-10-07",
+     "05",
+     3,
+     4
+    ],
+    [
+     "isolated-a-Bravo|2026-10-07",
+     "05",
+     2,
+     3
+    ],
+    [
+     "isolated-c-Echo|2026-10-07",
+     "05",
+     0,
+     1
+    ],
+    [
+     "isolated-d-Echo|2026-10-07",
+     "05",
+     3,
+     4
+    ],
+    [
+     "placebo-a-Alpha|2026-10-07",
+     "05",
+     4,
+     5
+    ],
+    [
+     "placebo-b-Bravo|2026-10-07",
+     "01",
+     71,
+     142
+    ],
+    [
+     "placebo-b-Bravo|2026-10-07",
+     "02",
+     101,
+     202
+    ],
+    [
+     "placebo-b-Bravo|2026-10-07",
+     "03",
+     86,
+     172
+    ],
+    [
+     "placebo-b-Bravo|2026-10-07",
+     "04",
+     83,
+     166
+    ],
+    [
+     "placebo-b-Bravo|2026-10-07",
+     "05",
+     2,
+     5
+    ],
+    [
+     "placebo-b-Comet|2026-10-07",
+     "05",
+     3,
+     4
+    ],
+    [
+     "placebo-b-Delta|2026-10-07",
+     "05",
+     3,
+     4
+    ],
+    [
+     "placebo-d-Alpha|2026-10-07",
+     "05",
+     4,
+     5
+    ]
+   ],
+   "deficit_by_day": {
+    "2026-10-07": 3,
+    "2026-10-08": 10,
+    "2026-10-09": 7,
+    "2026-10-10": 7,
+    "2026-10-11": 9,
+    "2026-10-12": 10,
+    "2026-10-13": 12,
+    "2026-10-14": 4
+   },
+   "surplus_by_day": {
+    "2026-10-07": 410,
+    "2026-10-08": 0,
+    "2026-10-09": 0,
+    "2026-10-10": 0,
+    "2026-10-11": 0,
+    "2026-10-12": 0,
+    "2026-10-13": 0,
+    "2026-10-14": 0
+   }
+  }
+ },
+ "rotation": {
+  "skill": {
+   "net_file_minus_es_by_minute": {
+    "00:00": 302,
+    "00:01": -37,
+    "00:02": -14,
+    "00:03": -27,
+    "00:04": -24,
+    "00:05": -19,
+    "00:06": -11,
+    "00:07": -11,
+    "00:08": -7,
+    "00:09": -5,
+    "23:59": 52
+   },
+   "net_by_boundary_ending_day": {
+    "2026-10-06": -148,
+    "2026-10-07": 45,
+    "2026-10-08": 49,
+    "2026-10-09": 62,
+    "2026-10-10": 59,
+    "2026-10-11": 38,
+    "2026-10-12": 43,
+    "2026-10-13": 51
+   },
+   "total_in_rotation_windows": 199
+  },
+  "llm": {
+   "net_file_minus_es_by_minute": {
+    "00:00": 49,
+    "00:02": -1,
+    "00:03": -1,
+    "00:04": -2,
+    "00:05": -1,
+    "00:07": -1,
+    "00:08": -1,
+    "00:09": -1,
+    "23:57": 2,
+    "23:58": 1,
+    "23:59": 15
+   },
+   "net_by_boundary_ending_day": {
+    "2026-10-06": -2,
+    "2026-10-07": 7,
+    "2026-10-08": 10,
+    "2026-10-09": 7,
+    "2026-10-10": 9,
+    "2026-10-11": 10,
+    "2026-10-12": 11,
+    "2026-10-13": 7
+   },
+   "total_in_rotation_windows": 59
+  }
+ },
+ "kinds": {
+  "skill_gross": {
+   "deficit_total_by_kind_excl_first_day": {
+    "_path_reset": 66,
+    "_affordance_scan": 56,
+    "_pickup_skipped": 25,
+    "_scaffold_pick": 19,
+    "_reach_probe": 17,
+    "_path_timeout": 16,
+    "_path_failure_shapes": 13,
+    "_path_noPath": 10,
+    "gather": 8,
+    "_entombed": 7,
+    "_path_no_legal_move": 7,
+    "_work_order": 7
+   },
+   "max_single_day_kind_deficit": [
+    13,
+    "2026-10-11",
+    "_path_reset"
+   ],
+   "surplus_day_kinds": [
+    [
+     "2026-10-07",
+     "_path_reset",
+     1163
+    ],
+    [
+     "2026-10-07",
+     "_affordance_scan",
+     796
+    ],
+    [
+     "2026-10-07",
+     "_reach_probe",
+     215
+    ],
+    [
+     "2026-10-07",
+     "_explore_toward_known",
+     178
+    ],
+    [
+     "2026-10-07",
+     "explore",
+     176
+    ],
+    [
+     "2026-10-07",
+     "_explore_blind_step_refused",
+     170
+    ],
+    [
+     "2026-10-07",
+     "_path_timeout",
+     165
+    ],
+    [
+     "2026-10-07",
+     "goto",
+     160
+    ],
+    [
+     "2026-10-07",
+     "_pickup_skipped",
+     156
+    ],
+    [
+     "2026-10-07",
+     "_scaffold_pick",
+     156
+    ],
+    [
+     "2026-10-07",
+     "gather",
+     132
+    ],
+    [
+     "2026-10-07",
+     "_livelock_not_fixated",
+     128
+    ]
+   ]
+  },
+  "skill": {
+   "by_day_top": {
+    "2026-10-07": {
+     "_path_reset": -1163,
+     "_affordance_scan": -796,
+     "_reach_probe": -215,
+     "_explore_toward_known": -178,
+     "explore": -176,
+     "_explore_blind_step_refused": -170,
+     "_path_timeout": -165,
+     "goto": -160
+    },
+    "2026-10-08": {
+     "_affordance_scan": 10,
+     "_path_reset": 9,
+     "_milestone_complete": 3,
+     "_path_no_legal_move": 3,
+     "_path_failure_shapes": 2,
+     "_craft_room": 2,
+     "_pickup_skipped": 2,
+     "_work_order": 2
+    },
+    "2026-10-09": {
+     "_path_reset": 9,
+     "_pickup_skipped": 6,
+     "_affordance_scan": 5,
+     "_path_timeout": 5,
+     "_scaffold_pick": 5,
+     "gather": 4,
+     "_climb_flood_guard": 2,
+     "_reach_probe": 2
+    },
+    "2026-10-10": {
+     "_path_reset": 13,
+     "_pickup_skipped": 10,
+     "_path_noPath": 7,
+     "_affordance_scan": 5,
+     "_scaffold_pick": 4,
+     "_reach_probe": 3,
+     "_path_timeout": 3,
+     "explore": 2
+    },
+    "2026-10-11": {
+     "_path_reset": 13,
+     "_affordance_scan": 11,
+     "_reach_probe": 6,
+     "_pickup_skipped": 4,
+     "_path_no_legal_move": 4,
+     "_path_timeout": 3,
+     "_entombed": 2,
+     "gather": 2
+    },
+    "2026-10-12": {
+     "_affordance_scan": 9,
+     "_path_reset": 5,
+     "_marooned": 2,
+     "_reach_probe": 2,
+     "_path_failure_shapes": 2,
+     "_pickups": 2,
+     "_work_order": 2,
+     "_scaffold_pick": 2
+    },
+    "2026-10-13": {
+     "_path_reset": 9,
+     "_affordance_scan": 6,
+     "_scaffold_pick": 4,
+     "_inventory_mutation": 2,
+     "_reach_probe": 2,
+     "goto": 2,
+     "_entombed": 1,
+     "_worn_first": 1
+    },
+    "2026-10-14": {
+     "_affordance_scan": 10,
+     "_path_reset": 8,
+     "_path_failure_shapes": 3,
+     "_entombed": 2,
+     "_pickup_skipped": 2,
+     "_plant_spot": 2,
+     "_path_timeout": 2,
+     "town_deposit": 1
+    }
+   },
+   "window_total_top": {
+    "_craft_admit": 3,
+    "_climb_flood_guard": 2,
+    "_drowning_rescue_yielded": 2,
+    "_town_deposit": 2,
+    "_air_drowning_observed": 1,
+    "_food_skip": 1,
+    "_climb_flood_ramp": 1,
+    "_climb_flood_refused": 1,
+    "_maroon_climb_refused": 1,
+    "_worn_first": 1
+   },
+   "kinds_in_files": 188,
+   "kinds_in_es": 188
+  },
+  "llm_gross": {
+   "deficit_total_by_kind_excl_first_day": {
+    "idle": 56,
+    "entombed": 2,
+    "liveness_restart": 1
+   },
+   "max_single_day_kind_deficit": [
+    11,
+    "2026-10-13",
+    "idle"
+   ],
+   "surplus_day_kinds": [
+    [
+     "2026-10-07",
+     "idle",
+     369
+    ],
+    [
+     "2026-10-07",
+     "liveness_restart",
+     13
+    ],
+    [
+     "2026-10-07",
+     "stagnation",
+     11
+    ],
+    [
+     "2026-10-07",
+     "entombed",
+     10
+    ],
+    [
+     "2026-10-07",
+     "timeout",
+     3
+    ],
+    [
+     "2026-10-07",
+     "startup",
+     1
+    ]
+   ]
+  },
+  "llm": {
+   "by_day_top": {
+    "2026-10-07": {
+     "idle": -369,
+     "liveness_restart": -13,
+     "stagnation": -11,
+     "entombed": -10,
+     "timeout": -3,
+     "startup": -1
+    },
+    "2026-10-08": {
+     "idle": 10
+    },
+    "2026-10-09": {
+     "idle": 7
+    },
+    "2026-10-10": {
+     "idle": 6,
+     "entombed": 1
+    },
+    "2026-10-11": {
+     "idle": 9
+    },
+    "2026-10-12": {
+     "idle": 9,
+     "liveness_restart": 1
+    },
+    "2026-10-13": {
+     "idle": 11,
+     "entombed": 1
+    },
+    "2026-10-14": {
+     "idle": 4
+    }
+   },
+   "window_total_top": {
+    "startup": -1,
+    "timeout": -3,
+    "entombed": -8,
+    "stagnation": -11,
+    "liveness_restart": -12,
+    "idle": -313
+   },
+   "kinds_in_files": 13,
+   "kinds_in_es": 13
+  }
+ },
+ "fields": {
+  "skill": {
+   "paths_in_files": 586,
+   "status_latest_index": {
+    "mapped": 48,
+    "under_flattened": 536,
+    "null_only": 2
+   },
+   "problems": [],
+   "mapped_leaf_fields_latest": 41,
+   "mapped_never_seen_in_files": [],
+   "numeric_ranges_of_integer_mapped": {
+    "board.carried_ms": [
+     "long",
+     [
+      0,
+      115175335
+     ]
+    ],
+    "board.reporters": [
+     "integer",
+     [
+      0,
+      5
+     ]
+    ],
+    "game.day": [
+     "long",
+     [
+      669,
+      3793
+     ]
+    ],
+    "game.tick": [
+     "long",
+     [
+      16066879,
+      91047612
+     ]
+    ],
+    "skill.duration_ms": [
+     "long",
+     [
+      0,
+      211281
+     ]
+    ]
+   },
+   "longest_strings_top": [
+    [
+     "skill.detail",
+     500
+    ],
+    [
+     "skill.args.wants",
+     182
+    ],
+    [
+     "skill.args.picks",
+     130
+    ],
+    [
+     "skill.args.iron",
+     57
+    ],
+    [
+     "skill.args.recent",
+     49
+    ],
+    [
+     "code.version",
+     47
+    ],
+    [
+     "board.claim",
+     47
+    ],
+    [
+     "skill.args.stop",
+     35
+    ]
+   ],
+   "max_flattened_depth": [
+    2,
+    "skill.args.took.stone_pickaxe"
+   ],
+   "brain_paths": [],
+   "ignored": {
+    "2026-10-07": {},
+    "2026-10-08": {},
+    "2026-10-09": {},
+    "2026-10-10": {},
+    "2026-10-11": {},
+    "2026-10-12": {},
+    "2026-10-13": {},
+    "2026-10-14": {},
+    "<all time>": {}
+   }
+  },
+  "llm": {
+   "paths_in_files": 317,
+   "status_latest_index": {
+    "mapped": 60,
+    "under_flattened": 255,
+    "null_only": 2
+   },
+   "problems": [],
+   "mapped_leaf_fields_latest": 52,
+   "mapped_never_seen_in_files": [],
+   "numeric_ranges_of_integer_mapped": {
+    "game.day": [
+     "long",
+     [
+      669,
+      3793
+     ]
+    ],
+    "game.tick": [
+     "long",
+     [
+      16066876,
+      91047091
+     ]
+    ],
+    "llm.args_cleaned": [
+     "integer",
+     [
+      0,
+      0
+     ]
+    ],
+    "llm.completion_tokens": [
+     "long",
+     [
+      29,
+      133
+     ]
+    ],
+    "llm.eval_duration_ns": [
+     "long",
+     [
+      206623000,
+      15378369000
+     ]
+    ],
+    "llm.latency_ms": [
+     "long",
+     [
+      0,
+      20738
+     ]
+    ],
+    "llm.load_duration_ns": [
+     "long",
+     [
+      454751,
+      17146294699
+     ]
+    ],
+    "llm.prompt_eval_duration_ns": [
+     "long",
+     [
+      12920000,
+      8732703000
+     ]
+    ],
+    "llm.prompt_tokens": [
+     "long",
+     [
+      539,
+      3196
+     ]
+    ],
+    "llm.retry_count": [
+     "short",
+     [
+      0,
+      1
+     ]
+    ],
+    "llm.total_duration_ns": [
+     "long",
+     [
+      246489347,
+      20670483311
+     ]
+    ],
+    "memory.cited_fails": [
+     "integer",
+     [
+      4,
+      5057
+     ]
+    ]
+   },
+   "longest_strings_top": [
+    [
+     "prompt.text",
+     6000
+    ],
+    [
+     "response.text",
+     415
+    ],
+    [
+     "outcome.detail",
+     400
+    ],
+    [
+     "tool_calls.reason",
+     161
+    ],
+    [
+     "llm.error",
+     70
+    ],
+    [
+     "code.version",
+     47
+    ],
+    [
+     "memory.cited_rule",
+     41
+    ],
+    [
+     "messages.milestone",
+     34
+    ]
+   ],
+   "max_flattened_depth": [
+    2,
+    "tool_calls.args.z"
+   ],
+   "brain_paths": [],
+   "ignored": {
+    "2026-10-07": {},
+    "2026-10-08": {},
+    "2026-10-09": {},
+    "2026-10-10": {},
+    "2026-10-11": {},
+    "2026-10-12": {},
+    "2026-10-13": {},
+    "2026-10-14": {},
+    "<all time>": {}
+   }
+  }
+ },
+ "spot": {
+  "skill": {
+   "n": 1600,
+   "found": 1600,
+   "multi_hit": 8,
+   "exact_source_equal": 1558,
+   "equal_modulo_null_fields": 1600,
+   "field_equal": {
+    "skill.detail": 1600,
+    "skill.status": 1600,
+    "bot.pos": 991,
+    "bot.inventory": 991,
+    "skill.args": 1600,
+    "skill.name": 1600
+   },
+   "field_compared": {
+    "skill.detail": 1600,
+    "skill.status": 1600,
+    "bot.pos": 991,
+    "bot.inventory": 991,
+    "skill.args": 1600,
+    "skill.name": 1600
+   },
+   "by_day": {
+    "2026-10-07": [
+     200,
+     200
+    ],
+    "2026-10-08": [
+     200,
+     200
+    ],
+    "2026-10-09": [
+     200,
+     200
+    ],
+    "2026-10-10": [
+     200,
+     200
+    ],
+    "2026-10-11": [
+     200,
+     200
+    ],
+    "2026-10-12": [
+     200,
+     200
+    ],
+    "2026-10-13": [
+     200,
+     200
+    ],
+    "2026-10-14": [
+     200,
+     200
+    ]
+   },
+   "diff_paths": {
+    "bot.held [null dropped]": 34,
+    "skill.args.holder [null dropped]": 3,
+    "skill.args.reflex [null dropped]": 2,
+    "skill.args.sought_by [null dropped]": 2,
+    "bot.health [null dropped]": 1,
+    "bot.hunger [null dropped]": 1,
+    "skill.args.stop [null dropped]": 1,
+    "skill.args.item [null dropped]": 2,
+    "skill.args.exit_need [null dropped]": 1,
+    "skill.args.pick_uses [null dropped]": 1,
+    "skill.args.uses [null dropped]": 1
+   },
+   "missing_examples": [],
+   "controls": {
+    "positive_drawn_from_es": 30,
+    "positive_found": 30,
+    "negative_shifted_rows": 30,
+    "negative_found": 0
+   },
+   "mutation_rows": 40,
+   "mutants_planted": {
+    "string edited": 40,
+    "number +1": 40,
+    "value -> \"null\"": 40,
+    "key deleted": 40
+   },
+   "mutants_detected": {
+    "string edited": 40,
+    "number +1": 40,
+    "value -> \"null\"": 40,
+    "key deleted": 40
+   },
+   "multi_hit_days": {
+    "2026-10-07": 5,
+    "2026-10-11": 2,
+    "2026-10-13": 1
+   },
+   "nonnull_loss_paths": {}
+  },
+  "llm": {
+   "n": 1600,
+   "found": 1600,
+   "multi_hit": 2,
+   "exact_source_equal": 0,
+   "equal_modulo_null_fields": 1600,
+   "field_equal": {
+    "llm.model": 1600,
+    "llm.latency_ms": 1600,
+    "outcome.status": 1600,
+    "bot.pos": 1600,
+    "bot.inventory": 1600,
+    "prompt.text": 1600,
+    "response.text": 1600
+   },
+   "field_compared": {
+    "llm.model": 1600,
+    "llm.latency_ms": 1600,
+    "outcome.status": 1600,
+    "bot.pos": 1600,
+    "bot.inventory": 1600,
+    "prompt.text": 1600,
+    "response.text": 1600
+   },
+   "by_day": {
+    "2026-10-07": [
+     200,
+     200
+    ],
+    "2026-10-08": [
+     200,
+     200
+    ],
+    "2026-10-09": [
+     200,
+     200
+    ],
+    "2026-10-10": [
+     200,
+     200
+    ],
+    "2026-10-11": [
+     200,
+     200
+    ],
+    "2026-10-12": [
+     200,
+     200
+    ],
+    "2026-10-13": [
+     200,
+     200
+    ],
+    "2026-10-14": [
+     200,
+     200
+    ]
+   },
+   "diff_paths": {
+    "llm.admission [null dropped]": 688,
+    "llm.args_cleaned_fields [null dropped]": 1600,
+    "llm.completion_tokens [null dropped]": 120,
+    "llm.eval_duration_ns [null dropped]": 120,
+    "llm.load_duration_ns [null dropped]": 120,
+    "llm.model_mismatch [null dropped]": 1600,
+    "llm.prompt_eval_duration_ns [null dropped]": 120,
+    "llm.total_duration_ns [null dropped]": 120,
+    "llm.error [null dropped]": 912,
+    "memory.cited_reporters [null dropped]": 25,
+    "bot.held [null dropped]": 64
+   },
+   "missing_examples": [],
+   "controls": {
+    "positive_drawn_from_es": 30,
+    "positive_found": 30,
+    "negative_shifted_rows": 30,
+    "negative_found": 0
+   },
+   "mutation_rows": 40,
+   "mutants_planted": {
+    "string edited": 40,
+    "number +1": 40,
+    "bool -> 1": 40,
+    "value -> \"null\"": 40,
+    "key deleted": 40
+   },
+   "mutants_detected": {
+    "string edited": 40,
+    "number +1": 40,
+    "bool -> 1": 40,
+    "value -> \"null\"": 40,
+    "key deleted": 40
+   },
+   "multi_hit_days": {
+    "2026-10-07": 2
+   },
+   "nonnull_loss_paths": {}
+  }
+ },
+ "multiset": {
+  "skill": {
+   "bot_days": 16,
+   "file_rows": 240444,
+   "es_docs": 240438,
+   "lost": 7,
+   "extra_in_es": 1,
+   "lost_examples": [
+    [
+     "board-d-Echo|2026-10-08",
+     "1791417601363|_path_reset",
+     1,
+     0,
+     "2026-10-08T00:00:01.363+00:00"
+    ],
+    [
+     "board-d-Echo|2026-10-12",
+     "1791763204505|_reflex_stuck",
+     1,
+     0,
+     "2026-10-12T00:00:04.505+00:00"
+    ],
+    [
+     "board-d-Echo|2026-10-12",
+     "1791763204506|_path_reset",
+     1,
+     0,
+     "2026-10-12T00:00:04.506+00:00"
+    ],
+    [
+     "isolated-a-Alpha|2026-10-11",
+     "1791676806067|_affordance_scan",
+     1,
+     0,
+     "2026-10-11T00:00:06.067+00:00"
+    ],
+    [
+     "isolated-a-Alpha|2026-10-11",
+     "1791676807704|goto",
+     1,
+     0,
+     "2026-10-11T00:00:07.704+00:00"
+    ],
+    [
+     "isolated-b-Alpha|2026-10-12",
+     "1791763208613|_affordance_scan",
+     1,
+     0,
+     "2026-10-12T00:00:08.613+00:00"
+    ],
+    [
+     "placebo-a-Bravo|2026-10-08",
+     "1791417607921|_path_reset",
+     1,
+     0,
+     "2026-10-08T00:00:07.921+00:00"
+    ]
+   ]
+  },
+  "llm": {
+   "bot_days": 16,
+   "file_rows": 29772,
+   "es_docs": 29771,
+   "lost": 2,
+   "extra_in_es": 1,
+   "lost_examples": [
+    [
+     "board-d-Echo|2026-10-08",
+     "1791503969020|idle",
+     1,
+     0,
+     "2026-10-08T23:59:29.020+00:00"
+    ],
+    [
+     "isolated-d-Alpha|2026-10-13",
+     "1791935988189|idle",
+     1,
+     0,
+     "2026-10-13T23:59:48.189+00:00"
+    ]
+   ]
+  }
+ },
+ "lag": {
+  "skill": {
+   "bots": 80,
+   "no_recent_es_doc": [],
+   "median_s": 5.65,
+   "max_s": 62.2,
+   "p90_s": 31.0,
+   "queried_at": "2026-10-14T19:13:38+00:00",
+   "tails_read_at": "2026-10-14T19:13:38+00:00"
+  },
+  "llm": {
+   "bots": 80,
+   "no_recent_es_doc": [],
+   "median_s": 0.0,
+   "max_s": 200.6,
+   "p90_s": 38.2,
+   "queried_at": "2026-10-14T19:13:38+00:00",
+   "tails_read_at": "2026-10-14T19:13:38+00:00"
+  }
+ },
+ "drill": {
+  "skill": [
+   {
+    "bot_day": "placebo-a-Comet|2026-10-07",
+    "file_rows": 11000,
+    "es_docs": 13508,
+    "lost": 0,
+    "lost_minutes": [],
+    "es_duplicates": 2494,
+    "dup_span": [
+     "00:00",
+     "05:01"
+    ],
+    "es_only_keys": 14,
+    "es_only_minutes": [
+     "05:01"
+    ],
+    "not_json_lines": 2
+   },
+   {
+    "bot_day": "isolated-c-Echo|2026-10-07",
+    "file_rows": 6962,
+    "es_docs": 8948,
+    "lost": 0,
+    "lost_minutes": [],
+    "es_duplicates": 1977,
+    "dup_span": [
+     "00:00",
+     "05:01"
+    ],
+    "es_only_keys": 9,
+    "es_only_minutes": [
+     "05:00",
+     "05:01"
+    ],
+    "not_json_lines": 1
+   },
+   {
+    "bot_day": "hive-d-Alpha|2026-10-10",
+    "file_rows": 14248,
+    "es_docs": 14236,
+    "lost": 12,
+    "lost_minutes": [
+     "00:00"
+    ],
+    "es_duplicates": 0,
+    "dup_span": [
+     null,
+     null
+    ],
+    "es_only_keys": 0,
+    "es_only_minutes": [],
+    "not_json_lines": 0
+   },
+   {
+    "bot_day": "board-d-Comet|2026-10-11",
+    "file_rows": 19081,
+    "es_docs": 19072,
+    "lost": 9,
+    "lost_minutes": [
+     "00:00"
+    ],
+    "es_duplicates": 0,
+    "dup_span": [
+     null,
+     null
+    ],
+    "es_only_keys": 0,
+    "es_only_minutes": [],
+    "not_json_lines": 0
+   },
+   {
+    "bot_day": "board-b-Comet|2026-10-07",
+    "file_rows": 7824,
+    "es_docs": 7832,
+    "lost": 2,
+    "lost_minutes": [
+     "00:00"
+    ],
+    "es_duplicates": 10,
+    "dup_span": [
+     "05:01",
+     "05:01"
+    ],
+    "es_only_keys": 0,
+    "es_only_minutes": [],
+    "not_json_lines": 0
+   },
+   {
+    "bot_day": "hive-c-Bravo|2026-10-07",
+    "file_rows": 10435,
+    "es_docs": 10442,
+    "lost": 0,
+    "lost_minutes": [],
+    "es_duplicates": 5,
+    "dup_span": [
+     "05:01",
+     "05:01"
+    ],
+    "es_only_keys": 2,
+    "es_only_minutes": [
+     "05:01"
+    ],
+    "not_json_lines": 2
+   }
+  ],
+  "llm": [
+   {
+    "bot_day": "placebo-b-Bravo|2026-10-07",
+    "file_rows": 1268,
+    "es_docs": 1665,
+    "lost": 0,
+    "lost_minutes": [],
+    "es_duplicates": 396,
+    "dup_span": [
+     "00:02",
+     "05:00"
+    ],
+    "es_only_keys": 1,
+    "es_only_minutes": [
+     "05:01"
+    ],
+    "not_json_lines": 1
+   }
+  ]
+ },
+ "classifier_controls": {
+  "skill": {
+   "llm.brain <- str": [
+    "REJECT_strict_unmapped",
+    "REJECT_strict_unmapped",
+    true
+   ],
+   "brain.mode <- str": [
+    "REJECT_strict_unmapped",
+    "REJECT_strict_unmapped",
+    true
+   ],
+   "zz_new_top_level <- int": [
+    "REJECT_strict_unmapped",
+    "REJECT_strict_unmapped",
+    true
+   ],
+   "bot.name <- dict": [
+    "TYPE_CONFLICT",
+    "TYPE_CONFLICT",
+    true
+   ],
+   "bot.inventory <- int": [
+    "TYPE_CONFLICT",
+    "TYPE_CONFLICT",
+    true
+   ],
+   "bot.inventory.oak_log <- int": [
+    "under_flattened",
+    "under_flattened",
+    true
+   ],
+   "bot.pos.x <- float": [
+    "mapped",
+    "mapped",
+    true
+   ],
+   "bot.held <- null": [
+    "null_only",
+    "null_only",
+    true
+   ]
+  },
+  "llm": {
+   "llm.brain <- str": [
+    "REJECT_strict_unmapped",
+    "REJECT_strict_unmapped",
+    true
+   ],
+   "brain.mode <- str": [
+    "REJECT_strict_unmapped",
+    "REJECT_strict_unmapped",
+    true
+   ],
+   "zz_new_top_level <- int": [
+    "REJECT_strict_unmapped",
+    "REJECT_strict_unmapped",
+    true
+   ],
+   "bot.name <- dict": [
+    "TYPE_CONFLICT",
+    "TYPE_CONFLICT",
+    true
+   ],
+   "bot.inventory <- int": [
+    "TYPE_CONFLICT",
+    "TYPE_CONFLICT",
+    true
+   ],
+   "bot.inventory.oak_log <- int": [
+    "under_flattened",
+    "under_flattened",
+    true
+   ],
+   "bot.pos.x <- float": [
+    "mapped",
+    "mapped",
+    true
+   ],
+   "bot.held <- null": [
+    "null_only",
+    "null_only",
+    true
+   ]
+  }
+ },
+ "classifier_e2e": {
+  "skill": [
+   [
+    "{\"bot\": {\"name\": {\"first\": \"x\"}}}",
+    "flagged",
+    true,
+    {
+     "bot.name": "TYPE_CONFLICT",
+     "bot.name.first": "REJECT_strict_unmapped"
+    }
+   ],
+   [
+    "{\"llm\": {\"brain\": \"local\"}}",
+    "flagged",
+    true,
+    {
+     "llm": "REJECT_strict_unmapped",
+     "llm.brain": "REJECT_strict_unmapped"
+    }
+   ],
+   [
+    "{\"bot\": {\"inventory\": 5}}",
+    "flagged",
+    true,
+    {
+     "bot.inventory": "TYPE_CONFLICT"
+    }
+   ],
+   [
+    "{\"zz_top\": 1}",
+    "flagged",
+    true,
+    {
+     "zz_top": "REJECT_strict_unmapped"
+    }
+   ],
+   [
+    "{\"bot\": {\"pos\": {\"x\": \"abc\"}}}",
+    "flagged",
+    true,
+    {
+     "bot.pos.x": "TYPE_CONFLICT"
+    }
+   ],
+   [
+    "{\"game\": {\"tick\": 18446744073709551616}}",
+    "flagged",
+    true,
+    {
+     "game.tick": "TYPE_CONFLICT"
+    }
+   ],
+   [
+    "{\"bot\": {\"held\": \"xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+    "flagged",
+    true,
+    {
+     "bot.held": "TYPE_CONFLICT"
+    }
+   ],
+   [
+    "{\"bot\": {\"name\": \"xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+    "flagged",
+    true,
+    {
+     "bot.name": "TYPE_CONFLICT"
+    }
+   ],
+   [
+    "{\"bot\": {\"name\": \"xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+    "clean",
+    true,
+    "all mapped"
+   ],
+   [
+    "{\"bot\": {\"inventory\": {\"oak_log\": 3}, \"name\": \"b\", \"pos\": {\"",
+    "clean",
+    true,
+    "all mapped"
+   ],
+   [
+    "{\"bot\": {\"held\": null}}",
+    "clean",
+    true,
+    {
+     "bot.held": "null_only"
+    }
+   ]
+  ],
+  "llm": [
+   [
+    "{\"bot\": {\"name\": {\"first\": \"x\"}}}",
+    "flagged",
+    true,
+    {
+     "bot.name": "TYPE_CONFLICT",
+     "bot.name.first": "REJECT_strict_unmapped"
+    }
+   ],
+   [
+    "{\"llm\": {\"brain\": \"local\"}}",
+    "flagged",
+    true,
+    {
+     "llm.brain": "REJECT_strict_unmapped"
+    }
+   ],
+   [
+    "{\"bot\": {\"inventory\": 5}}",
+    "flagged",
+    true,
+    {
+     "bot.inventory": "TYPE_CONFLICT"
+    }
+   ],
+   [
+    "{\"zz_top\": 1}",
+    "flagged",
+    true,
+    {
+     "zz_top": "REJECT_strict_unmapped"
+    }
+   ],
+   [
+    "{\"bot\": {\"pos\": {\"x\": \"abc\"}}}",
+    "flagged",
+    true,
+    {
+     "bot.pos.x": "TYPE_CONFLICT"
+    }
+   ],
+   [
+    "{\"game\": {\"tick\": 18446744073709551616}}",
+    "flagged",
+    true,
+    {
+     "game.tick": "TYPE_CONFLICT"
+    }
+   ],
+   [
+    "{\"bot\": {\"held\": \"xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+    "flagged",
+    true,
+    {
+     "bot.held": "TYPE_CONFLICT"
+    }
+   ],
+   [
+    "{\"bot\": {\"name\": \"xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+    "flagged",
+    true,
+    {
+     "bot.name": "TYPE_CONFLICT"
+    }
+   ],
+   [
+    "{\"bot\": {\"name\": \"xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+    "clean",
+    true,
+    "all mapped"
+   ],
+   [
+    "{\"bot\": {\"inventory\": {\"oak_log\": 3}, \"name\": \"b\", \"pos\": {\"",
+    "clean",
+    true,
+    "all mapped"
+   ],
+   [
+    "{\"bot\": {\"held\": null}}",
+    "clean",
+    true,
+    {
+     "bot.held": "null_only"
+    }
+   ]
+  ]
+ },
+ "reconcile_overlays": [
+  "reconcile-2026-10-07.json"
+ ],
+ "reconcile": {
+  "skill": {
+   "bot_days": 640,
+   "file": 9741302,
+   "es": 9745563,
+   "lost_all": 372,
+   "extra_all": 4633,
+   "after_first_day": {
+    "file": 8851670,
+    "lost": 344,
+    "extra": 0,
+    "lost_outside_23:50-00:10": 0,
+    "extra_outside_23:50-00:10": 0,
+    "lost_by_minute": {
+     "00:00": 295,
+     "23:59": 49
+    },
+    "extra_by_minute": {}
+   },
+   "first_day_totals": {
+    "lost": 28,
+    "extra": 4633
+   },
+   "first_day": {
+    "board-a-Alpha|2026-10-07": {
+     "file": 12215,
+     "es": 12220,
+     "lost": 0,
+     "extra": 5,
+     "extra_checked": {
+      "identical payload (re-send)": 4,
+      "no file row at this key": 1
+     },
+     "extra_key_minutes": [
+      "05:01"
+     ]
+    },
+    "board-a-Bravo|2026-10-07": {
+     "file": 12699,
+     "es": 12704,
+     "lost": 1,
+     "extra": 6,
+     "extra_checked": {
+      "identical payload (re-send)": 4,
+      "no file row at this key": 2
+     },
+     "extra_key_minutes": [
+      "05:01"
+     ]
+    },
+    "board-b-Alpha|2026-10-07": {
+     "file": 9609,
+     "es": 9611,
+     "lost": 0,
+     "extra": 2,
+     "extra_checked": {
+      "identical payload (re-send)": 2
+     },
+     "extra_key_minutes": [
+      "05:01"
+     ]
+    },
+    "board-b-Comet|2026-10-07": {
+     "file": 7824,
+     "es": 7832,
+     "lost": 2,
+     "extra": 10,
+     "extra_checked": {
+      "identical payload (re-send)": 10
+     },
+     "extra_key_minutes": [
+      "05:01"
+     ]
+    },
+    "board-b-Echo|2026-10-07": {
+     "file": 9420,
+     "es": 9421,
+     "lost": 0,
+     "extra": 1,
+     "extra_checked": {
+      "identical payload (re-send)": 1
+     },
+     "extra_key_minutes": [
+      "05:01"
+     ]
+    },
+    "board-c-Comet|2026-10-07": {
+     "file": 12566,
+     "es": 12568,
+     "lost": 0,
+     "extra": 2,
+     "extra_checked": {
+      "identical payload (re-send)": 2
+     },
+     "extra_key_minutes": [
+      "05:01"
+     ]
+    },
+    "board-c-Delta|2026-10-07": {
+     "file": 13378,
+     "es": 13384,
+     "lost": 0,
+     "extra": 6,
+     "extra_checked": {
+      "identical payload (re-send)": 5,
+      "no file row at this key": 1
+     },
+     "extra_key_minutes": [
+      "05:01"
+     ]
+    },
+    "board-c-Echo|2026-10-07": {
+     "file": 12278,
+     "es": 12277,
+     "lost": 2,
+     "extra": 1,
+     "extra_checked": {
+      "identical payload (re-send)": 1
+     },
+     "extra_key_minutes": [
+      "05:01"
+     ]
+    },
+    "board-d-Alpha|2026-10-07": {
+     "file": 12604,
+     "es": 12608,
+     "lost": 0,
+     "extra": 4,
+     "extra_checked": {
+      "identical payload (re-send)": 4
+     },
+     "extra_key_minutes": [
+      "05:01"
+     ]
+    },
+    "board-d-Bravo|2026-10-07": {
+     "file": 9812,
+     "es": 9814,
+     "lost": 0,
+     "extra": 2,
+     "extra_checked": {
+      "identical payload (re-send)": 2
+     },
+     "extra_key_minutes": [
+      "05:01"
+     ]
+    },
+    "board-d-Comet|2026-10-07": {
+     "file": 9590,
+     "es": 9591,
+     "lost": 1,
+     "extra": 2,
+     "extra_checked": {
+      "identical payload (re-send)": 2
+     },
+     "extra_key_minutes": [
+      "05:01"
+     ]
+    },
+    "board-d-Delta|2026-10-07": {
+     "file": 12140,
+     "es": 12141,
+     "lost": 0,
+     "extra": 1,
+     "extra_checked": {
+      "identical payload (re-send)": 1
+     },
+     "extra_key_minutes": [
+      "05:01"
+     ]
+    },
+    "board-d-Echo|2026-10-07": {
+     "file": 9612,
+     "es": 9614,
+     "lost": 0,
+     "extra": 2,
+     "extra_checked": {
+      "identical payload (re-send)": 2
+     },
+     "extra_key_minutes": [
+      "05:01"
+     ]
+    },
+    "hive-a-Alpha|2026-10-07": {
+     "file": 10187,
+     "es": 10190,
+     "lost": 0,
+     "extra": 3,
+     "extra_checked": {
+      "identical payload (re-send)": 3
+     },
+     "extra_key_minutes": [
+      "05:01"
+     ]
+    },
+    "hive-a-Delta|2026-10-07": {
+     "file": 11911,
+     "es": 11915,
+     "lost": 1,
+     "extra": 5,
+     "extra_checked": {
+      "identical payload (re-send)": 5
+     },
+     "extra_key_minutes": [
+      "05:01"
+     ]
+    },
+    "hive-a-Echo|2026-10-07": {
+     "file": 8620,
+     "es": 8618,
+     "lost": 4,
+     "extra": 2,
+     "extra_checked": {
+      "identical payload (re-send)": 2
+     },
+     "extra_key_minutes": [
+      "05:01"
+     ]
+    },
+    "hive-b-Bravo|2026-10-07": {
+     "file": 9644,
+     "es": 9648,
+     "lost": 0,
+     "extra": 4,
+     "extra_checked": {
+      "no file row at this key": 2,
+      "identical payload (re-send)": 2
+     },
+     "extra_key_minutes": [
+      "05:00",
+      "05:01"
+     ]
+    },
+    "hive-b-Echo|2026-10-07": {
+     "file": 7104,
+     "es": 7106,
+     "lost": 0,
+     "extra": 2,
+     "extra_checked": {
+      "identical payload (re-send)": 2
+     },
+     "extra_key_minutes": [
+      "05:01"
+     ]
+    },
+    "hive-c-Bravo|2026-10-07": {
+     "file": 10435,
+     "es": 10442,
+     "lost": 0,
+     "extra": 7,
+     "extra_checked": {
+      "identical payload (re-send)": 5,
+      "no file row at this key": 2
+     },
+     "extra_key_minutes": [
+      "05:01"
+     ]
+    },
+    "hive-c-Comet|2026-10-07": {
+     "file": 12348,
+     "es": 12349,
+     "lost": 1,
+     "extra": 2,
+     "extra_checked": {
+      "identical payload (re-send)": 2
+     },
+     "extra_key_minutes": [
+      "05:01"
+     ]
+    },
+    "hive-c-Delta|2026-10-07": {
+     "file": 10139,
+     "es": 10141,
+     "lost": 0,
+     "extra": 2,
+     "extra_checked": {
+      "identical payload (re-send)": 2
+     },
+     "extra_key_minutes": [
+      "05:01"
+     ]
+    },
+    "hive-d-Bravo|2026-10-07": {
+     "file": 11572,
+     "es": 11575,
+     "lost": 0,
+     "extra": 3,
+     "extra_checked": {
+      "identical payload (re-send)": 3
+     },
+     "extra_key_minutes": [
+      "05:01"
+     ]
+    },
+    "hive-d-Comet|2026-10-07": {
+     "file": 10691,
+     "es": 10693,
+     "lost": 0,
+     "extra": 2,
+     "extra_checked": {
+      "no file row at this key": 2
+     },
+     "extra_key_minutes": [
+      "05:01"
+     ]
+    },
+    "hive-d-Delta|2026-10-07": {
+     "file": 10638,
+     "es": 10638,
+     "lost": 1,
+     "extra": 1,
+     "extra_checked": {
+      "identical payload (re-send)": 1
+     },
+     "extra_key_minutes": [
+      "05:01"
+     ]
+    },
+    "isolated-a-Comet|2026-10-07": {
+     "file": 12495,
+     "es": 12497,
+     "lost": 1,
+     "extra": 3,
+     "extra_checked": {
+      "identical payload (re-send)": 2,
+      "no file row at this key": 1
+     },
+     "extra_key_minutes": [
+      "05:01"
+     ]
+    },
+    "isolated-a-Delta|2026-10-07": {
+     "file": 10932,
+     "es": 10935,
+     "lost": 0,
+     "extra": 3,
+     "extra_checked": {
+      "identical payload (re-send)": 3
+     },
+     "extra_key_minutes": [
+      "05:01"
+     ]
+    },
+    "isolated-b-Comet|2026-10-07": {
+     "file": 10660,
+     "es": 10658,
+     "lost": 2,
+     "extra": 0,
+     "extra_checked": {},
+     "extra_key_minutes": []
+    },
+    "isolated-c-Alpha|2026-10-07": {
+     "file": 9363,
+     "es": 9368,
+     "lost": 0,
+     "extra": 5,
+     "extra_checked": {
+      "identical payload (re-send)": 5
+     },
+     "extra_key_minutes": [
+      "05:01"
+     ]
+    },
+    "isolated-c-Bravo|2026-10-07": {
+     "file": 10520,
+     "es": 10526,
+     "lost": 0,
+     "extra": 6,
+     "extra_checked": {
+      "no file row at this key": 2,
+      "identical payload (re-send)": 4
+     },
+     "extra_key_minutes": [
+      "05:00",
+      "05:01"
+     ]
+    },
+    "isolated-c-Echo|2026-10-07": {
+     "file": 6962,
+     "es": 8948,
+     "lost": 0,
+     "extra": 1986,
+     "extra_checked": {
+      "identical payload (re-send)": 25
+     },
+     "extra_key_minutes": [
+      "00:00",
+      "00:01",
+      "00:02",
+      "00:03",
+      "00:04",
+      "00:05",
+      "00:06",
+      "00:07",
+      "00:08",
+      "00:09",
+      "00:10",
+      "00:11",
+      "00:12",
+      "00:13",
+      "00:14",
+      "00:15",
+      "00:16",
+      "00:17",
+      "00:18",
+      "00:19",
+      "00:20",
+      "00:21",
+      "00:22",
+      "00:23",
+      "00:24",
+      "00:25",
+      "00:26",
+      "00:27",
+      "00:28",
+      "00:29",
+      "00:30",
+      "00:31",
+      "00:32",
+      "00:33",
+      "00:34",
+      "00:35",
+      "00:36",
+      "00:37",
+      "00:38",
+      "00:39",
+      "00:40",
+      "00:41",
+      "00:42",
+      "00:43",
+      "00:44",
+      "00:45",
+      "00:46",
+      "00:47",
+      "00:48",
+      "00:49"
+     ]
+    },
+    "isolated-d-Bravo|2026-10-07": {
+     "file": 9873,
+     "es": 9875,
+     "lost": 1,
+     "extra": 3,
+     "extra_checked": {
+      "identical payload (re-send)": 2,
+      "no file row at this key": 1
+     },
+     "extra_key_minutes": [
+      "05:01"
+     ]
+    },
+    "isolated-d-Echo|2026-10-07": {
+     "file": 11297,
+     "es": 11299,
+     "lost": 0,
+     "extra": 2,
+     "extra_checked": {
+      "identical payload (re-send)": 2
+     },
+     "extra_key_minutes": [
+      "05:01"
+     ]
+    },
+    "placebo-a-Bravo|2026-10-07": {
+     "file": 12179,
+     "es": 12179,
+     "lost": 1,
+     "extra": 1,
+     "extra_checked": {
+      "identical payload (re-send)": 1
+     },
+     "extra_key_minutes": [
+      "05:01"
+     ]
+    },
+    "placebo-a-Comet|2026-10-07": {
+     "file": 11000,
+     "es": 13508,
+     "lost": 0,
+     "extra": 2508,
+     "extra_checked": {
+      "identical payload (re-send)": 25
+     },
+     "extra_key_minutes": [
+      "00:00",
+      "00:01",
+      "00:02",
+      "00:03",
+      "00:04",
+      "00:05",
+      "00:06",
+      "00:07",
+      "00:08",
+      "00:09",
+      "00:10",
+      "00:11",
+      "00:12",
+      "00:13",
+      "00:14",
+      "00:15",
+      "00:16",
+      "00:17",
+      "00:18",
+      "00:19",
+      "00:20",
+      "00:21",
+      "00:22",
+      "00:23",
+      "00:24",
+      "00:25",
+      "00:26",
+      "00:27",
+      "00:28",
+      "00:29",
+      "00:30",
+      "00:31",
+      "00:32",
+      "00:33",
+      "00:34",
+      "00:35",
+      "00:36",
+      "00:37",
+      "00:38",
+      "00:39",
+      "00:40",
+      "00:41",
+      "00:42",
+      "00:43",
+      "00:44",
+      "00:45",
+      "00:46",
+      "00:47",
+      "00:48",
+      "00:49"
+     ]
+    },
+    "placebo-a-Echo|2026-10-07": {
+     "file": 13528,
+     "es": 13532,
+     "lost": 0,
+     "extra": 4,
+     "extra_checked": {
+      "identical payload (re-send)": 4
+     },
+     "extra_key_minutes": [
+      "05:01"
+     ]
+    },
+    "placebo-b-Alpha|2026-10-07": {
+     "file": 9911,
+     "es": 9915,
+     "lost": 0,
+     "extra": 4,
+     "extra_checked": {
+      "identical payload (re-send)": 4
+     },
+     "extra_key_minutes": [
+      "05:01"
+     ]
+    },
+    "placebo-b-Bravo|2026-10-07": {
+     "file": 10831,
+     "es": 10829,
+     "lost": 5,
+     "extra": 3,
+     "extra_checked": {
+      "no file row at this key": 3
+     },
+     "extra_key_minutes": [
+      "05:01",
+      "11:55"
+     ]
+    },
+    "placebo-b-Comet|2026-10-07": {
+     "file": 10143,
+     "es": 10146,
+     "lost": 0,
+     "extra": 3,
+     "extra_checked": {
+      "identical payload (re-send)": 3
+     },
+     "extra_key_minutes": [
+      "05:01"
+     ]
+    },
+    "placebo-b-Delta|2026-10-07": {
+     "file": 11940,
+     "es": 11940,
+     "lost": 1,
+     "extra": 1,
+     "extra_checked": {
+      "identical payload (re-send)": 1
+     },
+     "extra_key_minutes": [
+      "05:01"
+     ]
+    },
+    "placebo-b-Echo|2026-10-07": {
+     "file": 9959,
+     "es": 9960,
+     "lost": 0,
+     "extra": 1,
+     "extra_checked": {
+      "identical payload (re-send)": 1
+     },
+     "extra_key_minutes": [
+      "05:01"
+     ]
+    },
+    "placebo-c-Alpha|2026-10-07": {
+     "file": 9322,
+     "es": 9326,
+     "lost": 0,
+     "extra": 4,
+     "extra_checked": {
+      "identical payload (re-send)": 1,
+      "no file row at this key": 3
+     },
+     "extra_key_minutes": [
+      "05:01"
+     ]
+    },
+    "placebo-c-Bravo|2026-10-07": {
+     "file": 12805,
+     "es": 12806,
+     "lost": 0,
+     "extra": 1,
+     "extra_checked": {
+      "identical payload (re-send)": 1
+     },
+     "extra_key_minutes": [
+      "05:01"
+     ]
+    },
+    "placebo-c-Comet|2026-10-07": {
+     "file": 12390,
+     "es": 12392,
+     "lost": 1,
+     "extra": 3,
+     "extra_checked": {
+      "identical payload (re-send)": 3
+     },
+     "extra_key_minutes": [
+      "05:01"
+     ]
+    },
+    "placebo-c-Delta|2026-10-07": {
+     "file": 11898,
+     "es": 11898,
+     "lost": 1,
+     "extra": 1,
+     "extra_checked": {
+      "identical payload (re-send)": 1
+     },
+     "extra_key_minutes": [
+      "05:01"
+     ]
+    },
+    "placebo-d-Alpha|2026-10-07": {
+     "file": 10662,
+     "es": 10667,
+     "lost": 0,
+     "extra": 5,
+     "extra_checked": {
+      "identical payload (re-send)": 5
+     },
+     "extra_key_minutes": [
+      "05:01"
+     ]
+    },
+    "placebo-d-Bravo|2026-10-07": {
+     "file": 11387,
+     "es": 11392,
+     "lost": 2,
+     "extra": 7,
+     "extra_checked": {
+      "identical payload (re-send)": 7
+     },
+     "extra_key_minutes": [
+      "05:01"
+     ]
+    },
+    "placebo-d-Comet|2026-10-07": {
+     "file": 11788,
+     "es": 11790,
+     "lost": 0,
+     "extra": 2,
+     "extra_checked": {
+      "identical payload (re-send)": 2
+     },
+     "extra_key_minutes": [
+      "05:01"
+     ]
+    }
+   },
+   "extra_checked_all": {
+    "identical payload (re-send)": 169,
+    "no file row at this key": 20
+   },
+   "file_key_repeats": 26072,
+   "file_identical_rows": 16293
+  },
+  "llm": {
+   "bot_days": 640,
+   "file": 1203526,
+   "es": 1203874,
+   "lost_all": 67,
+   "extra_all": 415,
+   "after_first_day": {
+    "file": 1089658,
+    "lost": 59,
+    "extra": 0,
+    "lost_outside_23:50-00:10": 0,
+    "extra_outside_23:50-00:10": 0,
+    "lost_by_minute": {
+     "00:00": 43,
+     "23:57": 2,
+     "23:58": 1,
+     "23:59": 13
+    },
+    "extra_by_minute": {}
+   },
+   "first_day_totals": {
+    "lost": 8,
+    "extra": 415
+   },
+   "first_day": {
+    "board-b-Alpha|2026-10-07": {
+     "file": 1395,
+     "es": 1395,
+     "lost": 1,
+     "extra": 1,
+     "extra_checked": {
+      "no file row at this key": 1
+     },
+     "extra_key_minutes": [
+      "05:01"
+     ]
+    },
+    "board-b-Comet|2026-10-07": {
+     "file": 1397,
+     "es": 1397,
+     "lost": 1,
+     "extra": 1,
+     "extra_checked": {
+      "identical payload (re-send)": 1
+     },
+     "extra_key_minutes": [
+      "05:01"
+     ]
+    },
+    "board-c-Alpha|2026-10-07": {
+     "file": 1318,
+     "es": 1319,
+     "lost": 0,
+     "extra": 1,
+     "extra_checked": {
+      "identical payload (re-send)": 1
+     },
+     "extra_key_minutes": [
+      "05:01"
+     ]
+    },
+    "board-c-Delta|2026-10-07": {
+     "file": 1196,
+     "es": 1197,
+     "lost": 0,
+     "extra": 1,
+     "extra_checked": {
+      "identical payload (re-send)": 1
+     },
+     "extra_key_minutes": [
+      "05:01"
+     ]
+    },
+    "board-d-Comet|2026-10-07": {
+     "file": 1403,
+     "es": 1403,
+     "lost": 1,
+     "extra": 1,
+     "extra_checked": {
+      "no file row at this key": 1
+     },
+     "extra_key_minutes": [
+      "05:01"
+     ]
+    },
+    "board-d-Echo|2026-10-07": {
+     "file": 1381,
+     "es": 1381,
+     "lost": 1,
+     "extra": 1,
+     "extra_checked": {
+      "identical payload (re-send)": 1
+     },
+     "extra_key_minutes": [
+      "05:01"
+     ]
+    },
+    "hive-a-Bravo|2026-10-07": {
+     "file": 1596,
+     "es": 1597,
+     "lost": 0,
+     "extra": 1,
+     "extra_checked": {
+      "no file row at this key": 1
+     },
+     "extra_key_minutes": [
+      "05:01"
+     ]
+    },
+    "hive-a-Comet|2026-10-07": {
+     "file": 1480,
+     "es": 1481,
+     "lost": 0,
+     "extra": 1,
+     "extra_checked": {
+      "no file row at this key": 1
+     },
+     "extra_key_minutes": [
+      "05:01"
+     ]
+    },
+    "hive-b-Echo|2026-10-07": {
+     "file": 1461,
+     "es": 1462,
+     "lost": 0,
+     "extra": 1,
+     "extra_checked": {
+      "identical payload (re-send)": 1
+     },
+     "extra_key_minutes": [
+      "05:01"
+     ]
+    },
+    "hive-c-Bravo|2026-10-07": {
+     "file": 1460,
+     "es": 1461,
+     "lost": 0,
+     "extra": 1,
+     "extra_checked": {
+      "identical payload (re-send)": 1
+     },
+     "extra_key_minutes": [
+      "05:01"
+     ]
+    },
+    "hive-c-Comet|2026-10-07": {
+     "file": 1469,
+     "es": 1470,
+     "lost": 0,
+     "extra": 1,
+     "extra_checked": {
+      "no file row at this key": 1
+     },
+     "extra_key_minutes": [
+      "05:01"
+     ]
+    },
+    "isolated-a-Bravo|2026-10-07": {
+     "file": 1418,
+     "es": 1419,
+     "lost": 0,
+     "extra": 1,
+     "extra_checked": {
+      "identical payload (re-send)": 1
+     },
+     "extra_key_minutes": [
+      "05:01"
+     ]
+    },
+    "isolated-c-Echo|2026-10-07": {
+     "file": 1680,
+     "es": 1681,
+     "lost": 0,
+     "extra": 1,
+     "extra_checked": {
+      "no file row at this key": 1
+     },
+     "extra_key_minutes": [
+      "05:00"
+     ]
+    },
+    "isolated-d-Alpha|2026-10-07": {
+     "file": 1419,
+     "es": 1418,
+     "lost": 1,
+     "extra": 0,
+     "extra_checked": {},
+     "extra_key_minutes": []
+    },
+    "isolated-d-Comet|2026-10-07": {
+     "file": 1374,
+     "es": 1372,
+     "lost": 2,
+     "extra": 0,
+     "extra_checked": {},
+     "extra_key_minutes": []
+    },
+    "isolated-d-Echo|2026-10-07": {
+     "file": 1472,
+     "es": 1473,
+     "lost": 0,
+     "extra": 1,
+     "extra_checked": {
+      "identical payload (re-send)": 1
+     },
+     "extra_key_minutes": [
+      "05:01"
+     ]
+    },
+    "placebo-a-Alpha|2026-10-07": {
+     "file": 1458,
+     "es": 1459,
+     "lost": 0,
+     "extra": 1,
+     "extra_checked": {
+      "identical payload (re-send)": 1
+     },
+     "extra_key_minutes": [
+      "05:01"
+     ]
+    },
+    "placebo-b-Bravo|2026-10-07": {
+     "file": 1268,
+     "es": 1665,
+     "lost": 0,
+     "extra": 397,
+     "extra_checked": {
+      "identical payload (re-send)": 25
+     },
+     "extra_key_minutes": [
+      "00:02",
+      "00:03",
+      "00:04",
+      "00:05",
+      "00:07",
+      "00:08",
+      "00:09",
+      "00:12",
+      "00:13",
+      "00:17",
+      "00:18",
+      "00:19",
+      "00:20",
+      "00:21",
+      "00:22",
+      "00:25",
+      "00:26",
+      "00:27",
+      "00:28",
+      "00:30",
+      "00:31",
+      "00:34",
+      "00:36",
+      "00:38",
+      "00:40",
+      "00:41",
+      "00:42",
+      "00:43",
+      "00:44",
+      "00:45",
+      "00:46",
+      "00:47",
+      "00:48",
+      "00:49",
+      "00:50",
+      "00:51",
+      "00:52",
+      "00:53",
+      "00:54",
+      "00:55",
+      "00:56",
+      "00:57",
+      "00:58",
+      "01:01",
+      "01:02",
+      "01:03",
+      "01:04",
+      "01:05",
+      "01:06",
+      "01:07"
+     ]
+    },
+    "placebo-b-Comet|2026-10-07": {
+     "file": 1355,
+     "es": 1355,
+     "lost": 1,
+     "extra": 1,
+     "extra_checked": {
+      "identical payload (re-send)": 1
+     },
+     "extra_key_minutes": [
+      "05:01"
+     ]
+    },
+    "placebo-b-Delta|2026-10-07": {
+     "file": 1349,
+     "es": 1350,
+     "lost": 0,
+     "extra": 1,
+     "extra_checked": {
+      "identical payload (re-send)": 1
+     },
+     "extra_key_minutes": [
+      "05:01"
+     ]
+    },
+    "placebo-d-Alpha|2026-10-07": {
+     "file": 1401,
+     "es": 1402,
+     "lost": 0,
+     "extra": 1,
+     "extra_checked": {
+      "identical payload (re-send)": 1
+     },
+     "extra_key_minutes": [
+      "05:01"
+     ]
+    }
+   },
+   "extra_checked_all": {
+    "no file row at this key": 6,
+    "identical payload (re-send)": 37
+   },
+   "file_key_repeats": 0,
+   "file_identical_rows": 0
+  }
+ },
+ "filebeat": {
+  "metrics_by_day": {
+   "2026-10-06": {
+    "output.acked": 1442800,
+    "output.active": 1414,
+    "output.batches": 7625,
+    "output.total": 1442831,
+    "agent-skill-jsonl.messages_read": 1143807,
+    "agent-skill-jsonl.published": 1143807,
+    "agent-llm-jsonl.messages_read": 143846,
+    "agent-llm-jsonl.published": 143846,
+    "snapshots(2880=full day)": 2552,
+    "output.dropped": 31
+   },
+   "2026-10-07": {
+    "output.acked": 1137638,
+    "output.active": 840,
+    "output.batches": 6118,
+    "output.total": 1137665,
+    "agent-skill-jsonl.messages_read": 894065,
+    "agent-skill-jsonl.published": 894065,
+    "agent-llm-jsonl.messages_read": 114268,
+    "agent-llm-jsonl.published": 114268,
+    "snapshots(2880=full day)": 2057,
+    "output.dropped": 27
+   },
+   "2026-10-08": {
+    "output.acked": 1620488,
+    "output.active": 812,
+    "output.batches": 8560,
+    "output.total": 1620488,
+    "agent-skill-jsonl.messages_read": 1281871,
+    "agent-skill-jsonl.published": 1281871,
+    "agent-llm-jsonl.messages_read": 158599,
+    "agent-llm-jsonl.published": 158599,
+    "snapshots(2880=full day)": 2880
+   },
+   "2026-10-09": {
+    "output.acked": 1612885,
+    "output.active": 2210,
+    "output.batches": 8567,
+    "output.total": 1612885,
+    "agent-skill-jsonl.messages_read": 1270235,
+    "agent-skill-jsonl.published": 1270235,
+    "agent-llm-jsonl.messages_read": 160568,
+    "agent-llm-jsonl.published": 160568,
+    "snapshots(2880=full day)": 2880
+   },
+   "2026-10-10": {
+    "output.acked": 1630068,
+    "output.active": 732,
+    "output.batches": 8560,
+    "output.total": 1630068,
+    "agent-skill-jsonl.messages_read": 1279066,
+    "agent-skill-jsonl.published": 1279066,
+    "agent-llm-jsonl.messages_read": 162337,
+    "agent-llm-jsonl.published": 162337,
+    "snapshots(2880=full day)": 2878
+   },
+   "2026-10-11": {
+    "output.acked": 1664883,
+    "output.active": 2040,
+    "output.batches": 8565,
+    "output.total": 1664883,
+    "agent-skill-jsonl.messages_read": 1322907,
+    "agent-skill-jsonl.published": 1322907,
+    "agent-llm-jsonl.messages_read": 160179,
+    "agent-llm-jsonl.published": 160179,
+    "snapshots(2880=full day)": 2880
+   },
+   "2026-10-12": {
+    "output.acked": 1648247,
+    "output.active": 1692,
+    "output.batches": 8567,
+    "output.total": 1648247,
+    "agent-skill-jsonl.messages_read": 1303677,
+    "agent-skill-jsonl.published": 1303677,
+    "agent-llm-jsonl.messages_read": 161676,
+    "agent-llm-jsonl.published": 161676,
+    "snapshots(2880=full day)": 2880
+   },
+   "2026-10-13": {
+    "output.acked": 1654170,
+    "output.active": 1351,
+    "output.batches": 8567,
+    "output.total": 1654170,
+    "agent-skill-jsonl.messages_read": 1306917,
+    "agent-skill-jsonl.published": 1306917,
+    "agent-llm-jsonl.messages_read": 162827,
+    "agent-llm-jsonl.published": 162827,
+    "snapshots(2880=full day)": 2880
+   },
+   "2026-10-14": {
+    "output.acked": 1384181,
+    "output.active": 1537,
+    "output.batches": 6858,
+    "output.total": 1384181,
+    "agent-skill-jsonl.messages_read": 1113060,
+    "agent-skill-jsonl.published": 1113060,
+    "agent-llm-jsonl.messages_read": 126226,
+    "agent-llm-jsonl.published": 126226,
+    "snapshots(2880=full day)": 2306
+   }
+  },
+  "events_data_files": [
+   "/var/log/filebeat/filebeat-events-data-20260916-376.ndjson",
+   "/var/log/filebeat/filebeat-events-data-20260916-377.ndjson",
+   "/var/log/filebeat/filebeat-events-data-20260916-378.ndjson"
+  ],
+  "rejections": [
+   {
+    "day": "2026-09-16",
+    "stream": "llm",
+    "reason": "failed to parse field [llm.args_cleaned] of type [flattened] in document",
+    "n": 246
+   },
+   {
+    "day": "2026-09-16",
+    "stream": "llm",
+    "reason": "mapping set to strict, dynamic introduction of [args_cleaned] within [llm] is not allowed",
+    "n": 358
+   },
+   {
+    "day": "2026-09-16",
+    "stream": "llm",
+    "reason": "mapping set to strict, dynamic introduction of [tools] within [bot] is not allowed",
+    "n": 373
+   },
+   {
+    "day": "2026-09-16",
+    "stream": "skill/other",
+    "reason": "mapping set to strict, dynamic introduction of [tools] within [bot] is not allowed",
+    "n": 1973
+   },
+   {
+    "day": "2026-10-06",
+    "stream": "llm",
+    "reason": "mapping set to strict, dynamic introduction of [error] within [_doc] is not allowed",
+    "n": 2
+   },
+   {
+    "day": "2026-10-06",
+    "stream": "llm",
+    "reason": "mapping set to strict, dynamic introduction of [message] within [_doc] is not allowed",
+    "n": 10
+   },
+   {
+    "day": "2026-10-06",
+    "stream": "skill/other",
+    "reason": "mapping set to strict, dynamic introduction of [error] within [_doc] is not allowed",
+    "n": 7
+   },
+   {
+    "day": "2026-10-06",
+    "stream": "skill/other",
+    "reason": "mapping set to strict, dynamic introduction of [message] within [_doc] is not allowed",
+    "n": 12
+   },
+   {
+    "day": "2026-10-07",
+    "stream": "llm",
+    "reason": "mapping set to strict, dynamic introduction of [message] within [_doc] is not allowed",
+    "n": 12
+   },
+   {
+    "day": "2026-10-07",
+    "stream": "skill/other",
+    "reason": "mapping set to strict, dynamic introduction of [error] within [_doc] is not allowed",
+    "n": 3
+   },
+   {
+    "day": "2026-10-07",
+    "stream": "skill/other",
+    "reason": "mapping set to strict, dynamic introduction of [message] within [_doc] is not allowed",
+    "n": 12
+   }
+  ]
+ }
+}

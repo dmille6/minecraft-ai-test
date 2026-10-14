@@ -12,6 +12,25 @@ Studio reservation both closed 10-12); clear caps bamboo 0 / bucket 2._
 
 ---
 
+## 10-14 19:50Z — ES COMPLETENESS CHECK DONE: ES is the default for wide analysis from 10-08 (both engines agree); read-only, nothing live changed
+Report docs/reports/es-completeness-2026-10-14.md (+ .summary.json, -reviews.txt); scripts scripts/host/escheck/ (run.sh FIRST LAST
+on 10.0.0.31; auth = the owner's read-only API key file ~/.config/mcai/es-readonly.key, never printed). Raw: ~/escheck/final2/.
+NUMBERS (every bot-day row-by-row, gross): from 10-08 to 10-14 18:46Z, ES lost 344/8,851,670 skill rows and 59/1,089,658 llm,
+0 extras. All the loss sits in 23:57-00:00, the logrotate copytruncate race. 0 of 1,760 bot-hours/day differ in hours
+01-22. Field census over all 12.2M rows: 0 strict-rejected paths, 0 type/range conflicts. filebeat dropped=0 every day
+10-08..10-14. 3,200 spot rows equal field by field, ignoring keys whose value is null (filebeat drops those).
+GAPS: (1) 10-07 is OVER-counted: 4,633 skill + 415 llm extras, filebeat re-sends after the 05:01Z host crash (exact
+doubles 00-04h on placebo-a-Comet, isolated-c-Echo, llm placebo-b-Bravo). EXCLUDE 10-07 from ES counts, or use its files
+until ~10-21. Never dedup by (bot,ts,kind) or by whole _source: there are 16,293 legitimate identical skill rows.
+(2) null and absent look the same in ES. (3) **llm.brain is UNMAPPED in the live write index .ds-mcai-llm-agents-2026.10.08-000010.**
+brain-01 writes a non-null llm.brain and changes the template only, so every brain-01 llm doc would be REJECTED WHOLE
+until the field is mapped (PUT _mapping) or the ~10-15 rollover picks up an applied template. This is a PRE-DEPLOY step
+for brain-01 and needs an owner/operator decision. (4) Nothing before 10-07 was validated.
+The brain-01 agent's claim that args_cleaned, args_cleaned_fields and model_mismatch are unmapped is WRONG: they have been
+mapped since backing index 000007 (09-16); the last two are null in every row.
+Reviews: Codex round 1 NOT-COMPLETE-ENOUGH (method defects, all fixed; see the report's appendix) -> round 2 COMPLETE-ENOUGH;
+Claude round 1 and round 2 COMPLETE-ENOUGH (conditions met).
+
 ## 10-14 12:15Z — townzone-01 FINAL: two variants + ONE replace-variant entry (the townground agent); NOT queued by me
 Variants (both pushed, new branches): `tz-on-eb54389` @ `523a7dd8` (fleet eb543899; tree identical to the prepared
 22c01bd3) and `tz-on-5e66386` @ `3b1ae8bb` (fleet 5e663860 = stocktarget-02 on digtown-01; skills.mjs auto-merged, no
