@@ -196,7 +196,7 @@ function judge (F, placed) {
   const post = TF.overlay(pre, cells)
   const outside = [...placed.keys()].filter(k => !targets.has(k))
   const bridges = [...placed.keys()].filter(k => { const [x, y, z] = k.split(',').map(Number); return post(x, y - 1, z)?.boundingBox !== 'block' })
-  const st = TF.startNear(pre, HOME), box = TF.walkBox(HOME)
+  const st = TF.townAnchor(pre, HOME), box = TF.walkBox(HOME)
   const before = TF.walkBack(pre, st, { box }), after = TF.walkBack(post, st, { box })
   const cut = [...before].filter(k => !after.has(k) && !cells.has(k)).map(k => { const c = TF.keyCell(k); return `${c.x},${c.y},${c.z}` })
   return { targets: targets.size, placed: placed.size, outside, bridges, cut, left: TF.floorCells(post, HOME).targets.length, protectedTally: cls.tally }

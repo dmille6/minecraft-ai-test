@@ -8548,10 +8548,13 @@ async function fillTown (ctx, _args, signal) {
   // replanned three times and the visit ended with nothing); a refusal the world will not outgrow soon (not a body, not a
   // push) also makes the cell cold for the next visits
   const visitSkip = new Set()
+  const badStands = new Set()
+  let transientSkip = false
   const refuse = (s, why) => {
     const k = cellKey(s.c[0], s.c[1], s.c[2])
     visitSkip.add(k)
-    if (!['body', 'moved', 'occupied'].includes(why)) refusedAll.push(k)
+    if (!['body', 'moved', 'occupied', 'seal:entity'].includes(why)) refusedAll.push(k)
+    if (['body', 'moved', 'occupied', 'seal:entity'].includes(why)) transientSkip = true
     stats.refused++; lastWhy = why
   }
   try {
@@ -8564,7 +8567,7 @@ async function fillTown (ctx, _args, signal) {
       // ---- PLAN the next steps from the world as it is (yielding: this bot's event loop keeps running) ----
       const read = readWellCell(bot)
       const skipNow = new Set([...stuckSkips({ stuck }, Date.now()), ...visitSkip])
-      const it = planFloorSteps({ read, home, entities: floorEntities(bot), keepOut, skip: skipNow, cold: coldKeys(rec0, Date.now()),
+      const it = planFloorSteps({ read, home, entities: floorEntities(bot), keepOut, skip: skipNow, badStands, cold: coldKeys(rec0, Date.now()),
                                   maxSteps: Math.max(1, Math.min(FLOOR_STEPS_PER_VISIT - stats.placed, floorBudget(items()))) })
       let res
       for (;;) {
@@ -8578,6 +8581,7 @@ async function fillTown (ctx, _args, signal) {
       start = res.start ?? start
       left = res.left ?? left
       refusedAll.push(...(res.refusedKeys ?? []))
+      if ((res.tally?.occupied ?? 0) > 0) transientSkip = true      // a body or an item in the way: not "no work"
       lastWhy = res.why
       if (res.why === 'unknown') { stop = 'unknown'; break }
       if (!res.steps.length) { stop = res.why ?? 'none'; break }
@@ -8598,7 +8602,7 @@ async function fillTown (ctx, _args, signal) {
         const pre = stepRefusal(readWellCell(bot), s, { home, start, entities: floorEntities(bot), keepOut, cheap: true })
         if (pre === 'filled') continue                                     // another hand filled it: not this run's
         if (pre) { refuse(s, pre); replan = true; break }
-        if (!(await floorToStand(bot, g, signal, stand))) { refuse(s, 'unreachable'); replan = true; break }
+        if (!(await floorToStand(bot, g, signal, stand))) { badStands.add(cellKey(stand.x, stand.y, stand.z)); refuse(s, 'unreachable'); replan = true; break }
         // A VANILLA CLIENT'S PACE (plinth-01, Paper 10-13: placements faster than the use-item delay were lost)
         for (let k = 0; k < 4; k++) await g.bound(bot.waitForTicks?.(1), 50 + HK_AWAIT_MS, 'tick wait')
         const item = items().find(i2 => i2.name === name)
@@ -8641,12 +8645,14 @@ async function fillTown (ctx, _args, signal) {
     // THE TOWN'S RECORD: only the lease holder writes it
     if (holdFloorLease(token, lease.n)) {
       const cur = readTownFloor(bot) ?? rec0
-      const none = !stats.placed && (lastWhy === 'none_reachable' || lastWhy === 'none_feasible')
+      // NO HOLD when this visit skipped a cell for a passing body or push (Claude r4 P2): the town is not out of work
+      const none = !stats.placed && !transientSkip && (lastWhy === 'none_reachable' || lastWhy === 'none_feasible')
       writeFloorAtomic(floorFile(), { ...cur, v: FLOOR_VERSION, world, placed: (Number(cur.placed) || 0) + stats.placed, visits: (Number(cur.visits) || 0) + 1,
                                       stuck, cold: coldAfter(cur.cold, refusedAll, placedAll, Date.now()), lastAt: Date.now(), lastBy: bot.username ?? null, left, ...(none ? { noneAt: Date.now() } : stats.placed ? { noneAt: null } : {}) })
     }
     floorRow(bot, stats.placed ? 'success' : 'failed', { stage: 'visit', ...stats, budget, left, why: stop ?? lastWhy, ms: Date.now() - t0 })
     if (stats.placed) return { status: 'success', placed: stats.placed, detail: `filled ${stats.placed} hole(s) in the town floor (${stats.tier0} under the platform)${left != null ? `; ${left} left` : ''}${stop ? `; stopped: ${stop}` : ''}` }
+    if (transientSkip && !stats.placed) return { status: 'no_effect', detail: 'the only work this visit found was beside a body or a bot that moved; the next visit tries again' }
     if (lastWhy === 'none_reachable' || lastWhy === 'none_feasible' || stop === 'none_reachable' || stop === 'none_feasible') return { status: 'no_effect', failClass: 'floor_none', detail: `no hole in the town floor that this town can reach and fill safely now (${lastWhy}); the town waits ${Math.round(FLOOR_NONE_BACKOFF_MS / 60000)} min` }
     if (stop === 'unknown') return { status: 'no_effect', detail: 'a cell of the town floor is not loaded; filled on another visit' }
     // the planner's search ran out of tries on this visit: not "nothing to do" (no hold) and not a fault (no backoff)

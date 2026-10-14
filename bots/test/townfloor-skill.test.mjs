@@ -309,6 +309,18 @@ await t('A RAISED-WELL (plinth-01) RECORD IS A KEEP-OUT, whatever its state: its
   } finally { rmSync(plinth, { force: true }) }
 })
 
+await t('A BODY IN THE ONLY HOLE never holds the town (Claude r4 P2): no noneAt, and once it leaves the next visit fills the hole', async () => {
+  reset()
+  const town = fakeTown({ items: [['cobblestone', 64], ['cobblestone', 64]], cells: { [KEY(-10, 62, -10)]: 'air' } })
+  town.bot.entities = { 9: { type: 'player', username: 'Sitter', position: new Vec3(-9.5, 62, -9.5), height: 1.8, width: 0.6 } }
+  const r1 = await visit(town)
+  assert.equal(r1.status, 'no_effect', r1.detail); assert.notEqual(r1.failClass, 'floor_none', r1.detail)
+  assert.ok(!(existsSync(REC) && recNow().noneAt), 'no hold')
+  town.bot.entities = {}
+  const r2 = await visit(town)
+  assert.equal(r2.status, 'success', r2.detail); assert.deepEqual(town.st.places, [KEY(-10, 62, -10)])
+})
+
 await t('REFUSALS NAME THE STATE: another builder\'s lease, or being away from town -- nothing placed, no lease taken', async () => {
   reset()
   const town = fakeTown({ items: [['cobblestone', 64], ['cobblestone', 64]] })
@@ -350,7 +362,7 @@ function loopTown (opts = {}) {
   })
   return town
 }
-async function decisions (bot, n) {
+async function decisions (bot, n, { waits = 200 } = {}) {
   const ran = []
   const runner = { isBusy: () => false, run: async (skill, args) => {
     if (skill === 'fill_town') {
@@ -365,7 +377,7 @@ async function decisions (bot, n) {
   loop.llm = { decide: async () => ({ schemaValid: true, latencyMs: 1, proposal: { skill: 'status', args: {}, reason: 'probe' } }) }
   loop.milestones.cycle = 540
   loop.start()
-  for (let i = 0; i < 200 && ran.length < n; i++) await new Promise(r => setTimeout(r, 30))
+  for (let i = 0; i < waits && ran.length < n; i++) await new Promise(r => setTimeout(r, 30))
   loop.stop()
   ran.rung = loop.milestones.current()?.id
   return ran
@@ -392,7 +404,8 @@ await t(`REFUSAL CHAIN IN THE LOOP: a floor that cannot make progress (every cli
   reset()
   const town = loopTown({ items: [['cobblestone', 64], ['cobblestone', 64], ['crafting_table', 1], ['stone_pickaxe', 1]] })
   town.st.dropAll = true
-  const ran = await decisions(town.bot, 5)
+  // a visit whose every click drops replans five times (~25 s under the suite's load): the window is wide for that
+  const ran = await decisions(town.bot, 5, { waits: 2000 })
   assert.ok(ran.length >= 3, `positive control: the loop kept deciding (${JSON.stringify(ran)})`)
   const floors = ran.filter(x => x.skill === 'fill_town')
   if (ZONE) {

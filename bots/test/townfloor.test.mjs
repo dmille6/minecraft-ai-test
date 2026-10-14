@@ -21,7 +21,8 @@ const t = async (name, fn) => {
 const HOME = { x: 0, y: 64, z: 0 }
 const L = 62
 const OPEN = new Set(['air', 'cave_air', 'short_grass', 'poppy', 'oak_sapling', 'torch', 'water', 'lava'])
-const blk = name => (name == null ? null : { name, boundingBox: OPEN.has(name) ? 'empty' : 'block', shapes: OPEN.has(name) ? [] : [[0, 0, 0, 1, 1, 1]], hardness: 1.5, props: null })
+const HALF = /(_slab|_bed)$/
+const blk = name => (name == null ? null : { name, boundingBox: OPEN.has(name) ? 'empty' : 'block', shapes: OPEN.has(name) ? [] : HALF.test(name) ? [[0, 0, 0, 1, 0.5, 1]] : [[0, 0, 0, 1, 1, 1]], hardness: 1.5, props: null })
 /** A town: stone up to the floor level, the 13x13 platform of stone_bricks at L, grass around it, air above; loaded within
  *  40 of home. `cells` overrides ({ 'x,y,z': name }). */
 function town (cells = {}, { loaded = 40 } = {}) {
@@ -46,7 +47,7 @@ const isSolid = b => !!b && b.boundingBox === 'block'
 const stands = (r, x, y, z) => isOpen(r(x, y, z)) && isOpen(r(x, y + 1, z)) && isSolid(r(x, y - 1, z))
 /** Every feet cell from which a body walks to `to` (walk, step up 1, drop 1..3; no dig), found by a FORWARD search from each
  *  cell -- slow and simple, written apart from townfloor.mjs. -> Set of 'x,y,z'. */
-function homeWalkers (r, to, box) {
+function homeWalkers (r, goals, box) {
   const ok = (x, y, z) => x >= box.x0 && x <= box.x1 && z >= box.z0 && z <= box.z1 && y >= box.y0 && y <= box.y1 && stands(r, x, y, z)
   const next = (x, y, z) => {
     const out = []
@@ -61,7 +62,7 @@ function homeWalkers (r, to, box) {
   }
   const all = []
   for (let x = box.x0; x <= box.x1; x++) for (let z = box.z0; z <= box.z1; z++) for (let y = box.y0; y <= box.y1; y++) if (ok(x, y, z)) all.push([x, y, z])
-  const goal = `${to.x},${to.y},${to.z}`, good = new Set([goal]), bad = new Set()
+  const good = new Set((Array.isArray(goals) ? goals : [goals]).map(g => `${g.x},${g.y},${g.z}`)), bad = new Set()
   for (const c of all) {
     const k0 = c.join(',')
     if (good.has(k0) || bad.has(k0)) continue
@@ -97,7 +98,7 @@ function closedPockets (r, box) {
 /** THE ORACLE on a whole replay: nobody who walked home before (and was not filled over) cannot after; no new closed pocket
  *  bigger than POCKET_MAX; no closed pocket holds an entity that was not in one before. */
 function oracle (before, after, filled, entities = []) {
-  const st = F.startNear(before, HOME), box = { ...F.floorBox(HOME), x0: F.floorBox(HOME).x0 - 3, x1: F.floorBox(HOME).x1 + 3, z0: F.floorBox(HOME).z0 - 3, z1: F.floorBox(HOME).z1 + 3, y0: F.floorBox(HOME).y0 - 2, y1: L + 3 }
+  const st = F.townAnchor(before, HOME), box = { ...F.floorBox(HOME), x0: F.floorBox(HOME).x0 - 3, x1: F.floorBox(HOME).x1 + 3, z0: F.floorBox(HOME).z0 - 3, z1: F.floorBox(HOME).z1 + 3, y0: F.floorBox(HOME).y0 - 2, y1: L + 3 }
   const pbox = { ...box, y1: L + 12 }
   const w0 = homeWalkers(before, st, box), w1 = homeWalkers(after, st, box)
   const lost = [...w0].filter(k => !w1.has(k) && !filled.has(k))
@@ -128,7 +129,7 @@ function replay (w, plan, { entities = [], start = null } = {}) {
     if (!snap.has(`${x},${y},${z}`)) snap.set(`${x},${y},${z}`, w.read(x, y, z))
     filled.add(`${x},${y},${z}`)
     w.set(x, y, z, 'cobblestone')
-    assert.ok(F.walkDist(w.read, { x: s.s[0], y: s.s[1], z: s.s[2] }, { box: F.walkBox(HOME) }).has(F.cellKey(st.x, st.y, st.z)), `${tag}: the stand walks back to the town after the click`)
+    assert.ok(F.walkBack(w.read, st, { box: F.walkBox(HOME), strict: true }).has(F.cellKey(s.s[0], s.s[1], s.s[2])), `${tag}: the stand walks back to the town after the click`)
   }
   oracle(before, w.read, filled, entities)
   return w
@@ -321,11 +322,11 @@ await t('NOBODY IS SEALED IN OR PLACED INTO: an item in a dead end keeps its way
   const c2 = carve({}, 8, 10, 60, 62, -10, -8); carve(c2, 11, 11, 61, 62, -9, -9); carve(c2, 12, 12, 62, 62, -9, -9)
   const w2 = town(c2)
   const bot = { x: 9.5, y: 60, z: -8.5, player: true }
-  assert.ok(F.walkBack(w2.read, F.startNear(w2.read, HOME), { box: F.walkBox(HOME) }).has(F.cellKey(9, 60, -9)), 'positive control: the player walks to the town before')
+  assert.ok(F.walkBack(w2.read, F.townAnchor(w2.read, HOME), { box: F.walkBox(HOME) }).has(F.cellKey(9, 60, -9)), 'positive control: the player walks to the town before')
   const p2 = F.planFloor({ read: w2.read, home: HOME, entities: [bot], maxSteps: 200 })
   assert.ok(!p2.steps.some(s => s.c[0] === 9 && s.c[2] === -9 && (s.c[1] === 60 || s.c[1] === 61)), 'never into the player\'s feet or head')
   replay(w2, p2, { entities: [bot] })
-  assert.ok(F.walkBack(w2.read, F.startNear(w2.read, HOME), { box: F.walkBox(HOME) }).has(F.cellKey(9, 60, -9)), 'the player still walks to the town after the whole plan')
+  assert.ok(F.walkBack(w2.read, F.townAnchor(w2.read, HOME), { box: F.walkBox(HOME) }).has(F.cellKey(9, 60, -9)), 'the player still walks to the town after the whole plan')
 })
 
 await t('NO WAY IS CUT (Codex r1 P1 repro): the mouth of a 2-high tunnel is never filled while a stand beyond it walks to the town -- planned or re-proved at the click, a player there or not', () => {
@@ -333,7 +334,7 @@ await t('NO WAY IS CUT (Codex r1 P1 repro): the mouth of a 2-high tunnel is neve
   for (const [x, f] of [[4, 62], [5, 61], [6, 60], [7, 60]]) carve(c, x, x, f, 62, 0, 0)   // a stair down from the surface
   carve(c, 8, 14, 60, 61, 0, 0)                                                           // a 2-high tunnel east
   const w = town(c)
-  const st = F.startNear(w.read, HOME)
+  const st = F.townAnchor(w.read, HOME)
   const box = F.walkBox(HOME)
   assert.ok(F.walkBack(w.read, st, { box }).has(F.cellKey(12, 60, 0)), 'positive control: a stand deep in the tunnel walks to the town')
   // a hand-made step at the mouth, as a stale plan would hold it: refused at the click
@@ -355,7 +356,7 @@ await t('FILLED TO EXHAUSTION AROUND TOWN FURNITURE: a chest and a sapling at th
   carve(c, -12, -8, 59, 62, 8, 12); for (const [x, f] of [[-13, 60], [-14, 61], [-15, 62]]) carve(c, x, x, f, 62, 10, 10)    // a 4-deep pit, a stair west
   c['-10,59,10'] = 'oak_sapling'; c['-10,58,10'] = 'dirt'
   const w = town(c)
-  const chestWay = r => [[9, 58, 10], [11, 58, 10], [10, 58, 9], [10, 58, 11]].some(([x, y, z]) => F.walkBack(r, F.startNear(r, HOME), { box: F.walkBox(HOME) }).has(F.cellKey(x, y, z)))
+  const chestWay = r => [[9, 58, 10], [11, 58, 10], [10, 58, 9], [10, 58, 11]].some(([x, y, z]) => F.walkBack(r, F.townAnchor(r, HOME), { box: F.walkBox(HOME) }).has(F.cellKey(x, y, z)))
   assert.ok(chestWay(w.read), 'positive control: before the fill a bot walks to the chest and back')
   const p = F.planFloor({ read: w.read, home: HOME, maxSteps: 5000 })
   replay(w, p)
@@ -417,9 +418,29 @@ await t('THE BUILDER WALKS ONLY ON FULL CUBES (Paper 10-14, board-a: a stand rea
   // own floor is the grass at L; the bed sits on the grass beside it
   const base = town({ '11,63,0': 'stone', '10,63,1': 'stone', '10,63,-1': 'stone', '11,64,0': 'stone', '10,64,1': 'stone', '10,64,-1': 'stone', '9,64,1': 'stone', '9,64,-1': 'stone', '9,63,1': 'stone', '9,63,-1': 'stone' })
   const read = (x, y, z) => (x === 9 && y === 63 && z === 0 ? bed : base.read(x, y, z))
-  const st = F.startNear(read, HOME), box = F.walkBox(HOME)
+  const st = F.townAnchor(read, HOME), box = F.walkBox(HOME)
   assert.ok(F.walkBack(read, st, { box }).has(F.cellKey(10, 63, 0)), 'permissive: the pocket walks home over the bed (a way lostWay protects)')
   assert.ok(!F.walkDist(read, st, { box, strict: true }).has(F.cellKey(10, 63, 0)), 'strict: the builder never plans to stand there')
+})
+
+// A TRENCH whose far end is reached STRICTLY by a drop from the rim but returns home only over a bed (permissively)
+const bedTrench = () => {
+  const c = carve({}, 8, 14, 60, 62, 0, 0)                                     // a 3-high trench, floor at 59
+  carve(c, 7, 7, 61, 62, 0, 0); c['6,62,0'] = 'air'                            // a stair out at its west end: (8,60) -> (7,61) -> (6,62) -> (5,63)
+  c['11,60,0'] = 'red_bed'                                                     // a bed across it
+  return town(c)
+}
+await t('STRICT AND PERMISSIVE KEPT APART (Claude r4): the ways a body walks home count the route over a bed (the planner never cuts the trench beyond it) while the builder never relies on it (no stand that returns only over the bed); the replay\'s oracle judges permissively', () => {
+  const w = bedTrench()
+  const box = F.walkBox(HOME), anchor = F.townAnchor(w.read, HOME)
+  assert.ok(F.walkBack(w.read, anchor, { box }).has(F.cellKey(13, 60, 0)), 'positive control: beyond the bed walks home permissively')
+  assert.ok(!F.walkBack(w.read, anchor, { box, strict: true }).has(F.cellKey(13, 60, 0)), '...and not strictly')
+  assert.ok(F.walkDist(w.read, anchor, { box, strict: true }).has(F.cellKey(14, 60, 0)), '...though the builder reaches it by a drop')
+  const p = F.planFloor({ read: w.read, home: HOME, maxSteps: 200 })
+  replay(w, p)
+  // the click's own judge: a stand beyond the bed is walled in for the builder, however it walked in
+  const w2 = bedTrench()
+  assert.equal(F.stepRefusal(w2.read, { c: [14, 60, 0], r: [14, 59, 0], f: [0, 1, 0], s: [13, 60, 0], tier: 1 }, { home: HOME, start: anchor }), 'walled_in')
 })
 
 await t('A SLAB IS NO FOUNDATION and no builder floor (Codex r2 P2): a hole over a slab is not filled; a stand on a slab is not used', () => {
@@ -510,7 +531,7 @@ await t('stepRefusal re-judges a recorded step against the world NOW: filled by 
 await t('A STAND THAT CANNOT WALK HOME ALREADY is refused at the click (walled_in): lostWay alone would not see it, since it was never on a way home', () => {
   const c = carve({}, 8, 10, 60, 62, 8, 10)                                    // a 3-deep pit, no stair: its floor is a dead end
   const w = town(c)
-  const st = F.startNear(w.read, HOME)
+  const st = F.townAnchor(w.read, HOME)
   assert.ok(!F.walkBack(w.read, st, { box: F.walkBox(HOME) }).has(F.cellKey(9, 60, 9)), 'positive control: the pit floor does not walk home')
   const step = { c: [10, 60, 9], r: [10, 59, 9], f: [0, 1, 0], s: [9, 60, 9], tier: 1 }
   assert.equal(F.stepRefusal(w.read, step, { home: HOME, start: st }), 'walled_in')
@@ -523,15 +544,17 @@ await t('walkBack(r, t).has(c) iff walkDist(r, c).has(t), on 30 random rough tow
     const c = {}
     for (let i = 0; i < 60; i++) { const x = Math.floor(rnd() * 13) - 6, z = Math.floor(rnd() * 13) - 6, y = 58 + Math.floor(rnd() * 5); c[`${x},${y},${z}`] = 'air'; if (rnd() < 0.4) c[`${x},${y + 1},${z}`] = 'air' }
     for (let i = 0; i < 10; i++) { const x = Math.floor(rnd() * 13) - 6, z = Math.floor(rnd() * 13) - 6; c[`${x},63,${z}`] = 'stone' }
+    for (let i = 0; i < 12; i++) { const x = Math.floor(rnd() * 13) - 6, z = Math.floor(rnd() * 13) - 6, y = 58 + Math.floor(rnd() * 6); c[`${x},${y},${z}`] = rnd() < 0.5 ? 'stone_slab' : 'red_bed' }   // non-full blocks: strict differs
     const w = town(c)
     const box = { x0: -7, x1: 7, z0: -7, z1: 7, y0: 55, y1: 66 }
-    const target = F.startNear(w.read, HOME)
-    if (!target) continue
+    const target = F.townAnchor(w.read, HOME)
+    if (!target.length) continue
     for (const strict of [false, true]) {
       const back = F.walkBack(w.read, target, { box, strict })
       for (let x = -7; x <= 7; x++) for (let z = -7; z <= 7; z++) for (let y = 56; y <= 65; y++) {
         if (!F.standable(w.read, x, y, z, strict)) continue
-        assert.equal(back.has(F.cellKey(x, y, z)), F.walkDist(w.read, { x, y, z }, { box, strict }).has(F.cellKey(target.x, target.y, target.z)), `town ${n} cell ${x},${y},${z} strict=${strict}`)
+        const fwd = F.walkDist(w.read, { x, y, z }, { box, strict })
+        assert.equal(back.has(F.cellKey(x, y, z)), target.some(a => F.standable(w.read, a.x, a.y, a.z, strict) && fwd.has(F.cellKey(a.x, a.y, a.z))), `town ${n} cell ${x},${y},${z} strict=${strict}`)
       }
     }
   }
