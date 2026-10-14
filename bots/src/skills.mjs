@@ -8496,7 +8496,7 @@ export const FLOOR_FUND_REMEDY = `carry more than ${COBBLE_RESERVE} cobblestone 
 /** A visit fills for at most this long (scaled like the housekeeping bounds; production 100 s). */
 const FLOOR_VISIT_MS = Number(process.env.FLOOR_VISIT_MS) > 0 ? Number(process.env.FLOOR_VISIT_MS) : Math.max(2_000, Math.min(100_000, Math.floor(config.skills.defaultTimeoutMs * 0.55)))
 /** Replans per visit, at most: a refused or dropped click replans from the world as it is. */
-const FLOOR_REPLANS = 2
+const FLOOR_REPLANS = 4
 /** Walk to a feet cell and centre on it, on foot only; -> true when the feet are in it. Bounded and abortable. */
 async function floorToStand (bot, g, signal, st) {
   const at = () => { const f = bot.entity.position.floored(); return f.x === st.x && f.y === st.y && f.z === st.z }
@@ -8538,6 +8538,16 @@ async function fillTown (ctx, _args, signal) {
   const rec0 = readTownFloor(bot) ?? { v: FLOOR_VERSION, world, placed: 0, visits: 0, stuck: {} }
   let stuck = { ...(rec0.stuck ?? {}) }
   const refusedAll = [], placedAll = []
+  // A STEP REFUSED IN THIS VISIT is not planned again in it (Paper 10-14, board-a: the same unreachable first step was
+  // replanned three times and the visit ended with nothing); a refusal the world will not outgrow soon (not a body, not a
+  // push) also makes the cell cold for the next visits
+  const visitSkip = new Set()
+  const refuse = (s, why) => {
+    const k = cellKey(s.c[0], s.c[1], s.c[2])
+    visitSkip.add(k)
+    if (!['body', 'moved', 'occupied'].includes(why)) refusedAll.push(k)
+    stats.refused++; lastWhy = why
+  }
   try {
     stationary = Date.now() + FLOOR_VISIT_MS + 10_000
     bot.stationaryUntil = stationary
@@ -8547,7 +8557,8 @@ async function fillTown (ctx, _args, signal) {
       let keepOut = floorKeepOut(bot)
       // ---- PLAN the next steps from the world as it is (yielding: this bot's event loop keeps running) ----
       const read = readWellCell(bot)
-      const it = planFloorSteps({ read, home, entities: floorEntities(bot), keepOut, skip: stuckSkips({ stuck }, Date.now()), cold: coldKeys(rec0, Date.now()),
+      const skipNow = new Set([...stuckSkips({ stuck }, Date.now()), ...visitSkip])
+      const it = planFloorSteps({ read, home, entities: floorEntities(bot), keepOut, skip: skipNow, cold: coldKeys(rec0, Date.now()),
                                   maxSteps: Math.max(1, Math.min(FLOOR_STEPS_PER_VISIT - stats.placed, floorBudget(items()))) })
       let res
       for (;;) {
@@ -8580,8 +8591,8 @@ async function fillTown (ctx, _args, signal) {
         keepOut = floorKeepOut(bot)
         const pre = stepRefusal(readWellCell(bot), s, { home, start, entities: floorEntities(bot), keepOut, cheap: true })
         if (pre === 'filled') continue                                     // another hand filled it: not this run's
-        if (pre) { stats.refused++; lastWhy = pre; replan = true; break }
-        if (!(await floorToStand(bot, g, signal, stand))) { stats.refused++; lastWhy = 'unreachable'; replan = true; break }
+        if (pre) { refuse(s, pre); replan = true; break }
+        if (!(await floorToStand(bot, g, signal, stand))) { refuse(s, 'unreachable'); replan = true; break }
         // A VANILLA CLIENT'S PACE (plinth-01, Paper 10-13: placements faster than the use-item delay were lost)
         for (let k = 0; k < 4; k++) await g.bound(bot.waitForTicks?.(1), 50 + HK_AWAIT_MS, 'tick wait')
         const item = items().find(i2 => i2.name === name)
@@ -8593,12 +8604,12 @@ async function fillTown (ctx, _args, signal) {
           keepOut = floorKeepOut(bot)
           const why = stepRefusal(readWellCell(bot), s, { home, start, entities: floorEntities(bot), keepOut })
           if (why === 'filled') continue
-          if (why) { stats.refused++; lastWhy = why; replan = true; break }
+          if (why) { refuse(s, why); replan = true; break }
           // NOBODY IN THE CELL, read last (Claude r1 P3-7): the server refuses a place into a body
-          if (bodiesAround(bot).some(b => floorBodyIn(b, target))) { stats.refused++; lastWhy = 'body'; replan = true; break }
+          if (bodiesAround(bot).some(b => floorBodyIn(b, target))) { refuse(s, 'body'); replan = true; break }
           // THE BUILDER IS STILL ON THE STAND THE PROOF WAS FOR (Codex r2 P2): a push or a slide during the pacing moves the
           // eye the reach and sight were judged from
-          { const f = bot.entity.position.floored(); if (f.x !== stand.x || f.y !== stand.y || f.z !== stand.z || !centredOn(bot, stand)) { stats.refused++; lastWhy = 'moved'; replan = true; break } }
+          { const f = bot.entity.position.floored(); if (f.x !== stand.x || f.y !== stand.y || f.z !== stand.z || !centredOn(bot, stand)) { refuse(s, 'moved'); replan = true; break } }
           const refBlock = bot.blockAt(new Vec3(s.r[0], s.r[1], s.r[2]))
           await g.bound(bot._placeBlockWithOptions(refBlock, new Vec3(s.f[0], s.f[1], s.f[2]), { forceLook: true, swingArm: 'right' }), HK_AWAIT_MS * 2, 'place')
         } catch (e) { if (e?.aborted || signal?.aborted) throw e }

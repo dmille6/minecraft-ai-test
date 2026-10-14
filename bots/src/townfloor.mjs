@@ -245,19 +245,26 @@ export function floorCells (read, home, { keepOut = [] } = {}) {
 // ---- walking: the probe that stands in for the pathfinder (plinth-01's rules) ----------------------------------------------
 
 /** Can a body stand with its feet here? feet and head open (no liquid), a solid floor. Pure. */
-export function standable (read, x, y, z) {
-  return passable(read(x, y, z)) && passable(read(x, y + 1, z)) && solid(read(x, y - 1, z))
+export function standable (read, x, y, z, strict = false) {
+  if (!strict) return passable(read(x, y, z)) && passable(read(x, y + 1, z)) && solid(read(x, y - 1, z))
+  const f = read(x, y, z), h = read(x, y + 1, z)
+  return clearBody(f) && clearBody(h) && fullFloor(read(x, y - 1, z))
 }
+/** STRICT walking (the builder's own route, Paper 10-14: a stand reached in the model only over beds and chests was
+ *  unreachable to the pathfinder): floors are full cubes, and the body never passes what the pathfinder avoids. */
+const AVOID = /(cobweb|fire$|sweet_berry_bush|powder_snow|wither_rose|campfire|magma_block|pointed_dripstone|_pressure_plate$|tripwire)/
+const clearBody = b => passable(b) && !AVOID.test(b.name ?? '')
 
 /**
  * EVERY FEET CELL REACHABLE ON FOOT FROM `start`, WITH ITS WALK DISTANCE -> Map cellKey -> steps. Pure. A conservative
  * stand-in for the pathfinder (plinth.mjs walkReach): the four cardinal moves -- walk, step up 1 (head room above the
  * origin), drop 1..3 -- within `box`, no digging, no placing, no swimming, no diagonal.
  */
-export function walkDist (read, start, { box, maxNodes = 120_000 } = {}) {
+export function walkDist (read, start, { box, maxNodes = 120_000, strict = false } = {}) {
   const dist = new Map()
-  if (!start || !standable(read, start.x, start.y, start.z)) return dist
-  const ok = (x, y, z) => (!box || inBox(box, x, y, z)) && standable(read, x, y, z)
+  if (!start || !standable(read, start.x, start.y, start.z, strict)) return dist
+  const ok = (x, y, z) => (!box || inBox(box, x, y, z)) && standable(read, x, y, z, strict)
+  const step = b => (strict ? fullFloor(b) : solid(b))
   const q = [[start.x, start.y, start.z, 0]]
   dist.set(K(start.x, start.y, start.z), 0)
   const push = (x, y, z, d) => { const k = K(x, y, z); if (!dist.has(k)) { dist.set(k, d); q.push([x, y, z, d]) } }
@@ -266,12 +273,12 @@ export function walkDist (read, start, { box, maxNodes = 120_000 } = {}) {
     for (const [dx, dz] of CARD) {
       const nx = x + dx, nz = z + dz
       if (ok(nx, y, nz)) { push(nx, y, nz, d + 1); continue }
-      if (solid(read(nx, y, nz)) && passable(read(x, y + 2, z)) && ok(nx, y + 1, nz)) { push(nx, y + 1, nz, d + 1); continue }
+      if (step(read(nx, y, nz)) && passable(read(x, y + 2, z)) && ok(nx, y + 1, nz)) { push(nx, y + 1, nz, d + 1); continue }
       if ((box && !inBox(box, nx, y, nz)) || !passable(read(nx, y, nz)) || !passable(read(nx, y + 1, nz))) continue
       for (let dd = 1; dd <= 3; dd++) {
         const fy = y - dd
         if (!passable(read(nx, fy, nz))) break
-        if (solid(read(nx, fy - 1, nz))) { if (ok(nx, fy, nz)) push(nx, fy, nz, d + 1); break }
+        if (solid(read(nx, fy - 1, nz))) { if (ok(nx, fy, nz)) push(nx, fy, nz, d + 1); break }   // ok() judges its floor
       }
     }
   }
@@ -282,10 +289,10 @@ export function walkDist (read, start, { box, maxNodes = 120_000 } = {}) {
  * EVERY FEET CELL FROM WHICH A BODY WALKS TO `target` -> Set of cellKey. Pure. walkDist's moves run backwards (plinth.mjs
  * walkReachBack): `walkBack(r, t).has(c)` iff `walkDist(r, c).has(t)` (a property test checks it).
  */
-export function walkBack (read, target, { box, maxNodes = 120_000 } = {}) {
+export function walkBack (read, target, { box, maxNodes = 120_000, strict = false } = {}) {
   const seen = new Set()
-  if (!target || !standable(read, target.x, target.y, target.z)) return seen
-  const ok = (x, y, z) => (!box || inBox(box, x, y, z)) && standable(read, x, y, z)
+  if (!target || !standable(read, target.x, target.y, target.z, strict)) return seen
+  const ok = (x, y, z) => (!box || inBox(box, x, y, z)) && standable(read, x, y, z, strict)
   const q = [[target.x, target.y, target.z]]
   seen.add(K(target.x, target.y, target.z))
   const push = (x, y, z) => { const k = K(x, y, z); if (!seen.has(k)) { seen.add(k); q.push([x, y, z]) } }
@@ -315,7 +322,7 @@ export function startNear (read, home) {
     for (let dz = -4; dz <= 4; dz++) {
       for (let dy = -3; dy <= 3; dy++) {
         const x = Math.floor(home.x) + dx, y = hy + dy, z = Math.floor(home.z) + dz
-        if (!standable(read, x, y, z)) continue
+        if (!standable(read, x, y, z, true)) continue
         const d = dx * dx + dz * dz + 2 * dy * dy
         if (!best || d < best.d || (d === best.d && K(x, y, z) < K(best.x, best.y, best.z))) best = { x, y, z, d }
       }
@@ -571,7 +578,7 @@ export function * planFloorSteps ({ read, home, start = null, entities = [], kee
   tally.skipped = cls.targets.length - todo.length
   const steps = []
   let prev = st
-  let dist = walkDist(world, st, { box })
+  let dist = walkDist(world, st, { box, strict: true })              // where the BUILDER can go (strict)
   // A REFUSED CANDIDATE IS NOT RE-TRIED until a placement lands within 6 of it (its stand, support or seal can only
   // change through a nearby placement in this plan's view)
   const failedAt = new Map()
@@ -616,12 +623,13 @@ export function * planFloorSteps ({ read, home, start = null, entities = [], kee
       const sw = sealRefusal(world, t, { home, entities: ents, skyCache, skyRead: read })
       if (sw) { tally.sealwhy[sw] = (tally.sealwhy[sw] ?? 0) + 1; fail(sw === 'entity' ? 'occupied' : 'seal'); continue }
       placed.set(key, PLACED)
-      const back = walkBack(world, st, { box })
+      const back = walkBack(world, st, { box })                         // every way a body walks home (permissive)
+      const backB = walkBack(world, st, { box, strict: true })          // the builder's own way home (strict)
       placed.delete(key)
       // NO WAY IS CUT (Codex r1 P1): every stand that walked to the town before still does after, the filled cell's own
       // excepted -- whoever stands there (another bot, one coming up from the mines) or will stand there later
       if (lostWay(backNow, back, key) != null) { fail('cut'); continue }
-      const usable = { has: k => dist.has(k) && back.has(k) }
+      const usable = { has: k => dist.has(k) && backB.has(k) }
       let stand = null, opt = null
       for (const o of options) {
         stand = standFor(world, { target: t, point: o.point, topFace: o.topFace, reach: usable, prefer: prev })
@@ -630,7 +638,7 @@ export function * planFloorSteps ({ read, home, start = null, entities = [], kee
       if (!stand) { fail('nostand'); continue }
       took = { c: [t.x, t.y, t.z], r: [opt.ref.x, opt.ref.y, opt.ref.z], f: opt.face, s: [stand.x, stand.y, stand.z], tier: t.tier }
       placed.set(key, PLACED)
-      tookDist = walkDist(world, st, { box })
+      tookDist = walkDist(world, st, { box, strict: true })
       break
     }
     // the search ran out of tries: not "nothing can be done" (no hold), only "not on this visit"
@@ -706,7 +714,7 @@ export function stepRefusal (read0, step, { home, start, entities = [], keepOut 
   const after = overlay(read, new Map([[K(x, y, z), PLACED]]))
   const box = walkBox(home)
   const backAfter = walkBack(after, start, { box })
-  if (!backAfter.has(K(sx, sy, sz))) return 'walled_in'
+  if (!walkBack(after, start, { box, strict: true }).has(K(sx, sy, sz))) return 'walled_in'
   // NO WAY IS CUT, judged again now (Codex r1 P1: a bot that walked in after the plan is protected at the click)
   if (lostWay(walkBack(read, start, { box }), backAfter, K(x, y, z)) != null) return 'cut'
   return null
