@@ -420,7 +420,28 @@ await t('A SLAB IS NO FOUNDATION and no builder floor (Codex r2 P2): a hole over
   assert.ok(!F.planFloor({ read, home: HOME }).steps.some(s => s.c.join(',') === '8,62,8'))
   assert.equal(F.builderStand(read, 8, 62, 8), false, 'on a slab: no builder stand')
   assert.equal(F.standable(read, 8, 62, 8), true, '...but still a walk node (lostWay protects routes over slabs)')
+  // standFor never offers a stand on a slab, even when it is the only reachable one (positive control: on stone it does)
+  const target = { x: 9, y: 62, z: 8 }, point = { x: 9.5, y: 62, z: 8.5 }
+  const slabRead = (x, y, z) => (x === 8 && y === 61 && z === 8 ? slab : x === 9 && y === 62 && z === 8 ? blk('air') : base.read(x, y, z))
+  const only = new Set([F.cellKey(8, 62, 8)])
+  assert.equal(F.standFor(slabRead, { target, point, topFace: true, reach: only }), null)
+  const stoneRead = (x, y, z) => (x === 9 && y === 62 && z === 8 ? blk('air') : base.read(x, y, z))
+  assert.deepEqual(F.standFor(stoneRead, { target, point, topFace: true, reach: only }), { x: 8, y: 62, z: 8 })
   void OPENB
+})
+
+await t('COLD CELLS NEVER STARVE THE REST (Codex r4 P2 repro): an unreachable platform cell refused on every visit does not keep a reachable hole beyond the platform waiting, visit after visit', () => {
+  const c = {}
+  c['0,61,0'] = 'air'; c['0,60,0'] = 'stone'                                  // a sealed cell under the platform (no stand reaches it)
+  c['8,62,0'] = 'air'                                                          // a plain hole beyond the platform
+  const w = town(c)
+  let cold = {}, placed = null
+  for (let visit = 0; visit < 3 && !placed; visit++) {
+    const p = F.planFloor({ read: w.read, home: HOME, maxSteps: 1, maxTries: 1, cold: F.coldKeys({ cold }, 1000) })
+    if (p.steps.length) placed = p.steps[0].c.join(',')
+    cold = F.coldAfter(cold, p.refusedKeys, [], 1000)
+  }
+  assert.equal(placed, '8,62,0', 'the reachable hole is filled within three one-try visits')
 })
 
 await t('a skipped (stuck) cell is never planned; maxSteps bounds the plan and says budget', () => {

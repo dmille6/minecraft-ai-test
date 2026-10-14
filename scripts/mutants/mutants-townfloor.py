@@ -57,12 +57,13 @@ MUTANTS = [
     ('no liquid clearance', TF, 'export const LIQUID_CLEAR_H = 2', 'export const LIQUID_CLEAR_H = 0', P),
     ('floating sand is no hazard', TF, "    if (unsupportedGravity(read, x + dx, y + dy, z + dz)) return 'gravity'\n", '', P),
     ('cold cells are not put last', TF, 'isCold(p.t) - isCold(q.t) || ', '', P),
+    ('cold only after the tier (refused platform cells starve the rest)', TF, 'eligible.sort((p, q) => isCold(p.t) - isCold(q.t) || p.t.tier - q.t.tier || ', 'eligible.sort((p, q) => p.t.tier - q.t.tier || isCold(p.t) - isCold(q.t) || ', P),
     ('a body or an item makes a cell cold', TF, '!placedKeys.has(k) && !transient.has(k)', '!placedKeys.has(k)', P),
     ('a cell holding a body is placed into', TF, "      if (occ.has(key)) { fail('occupied'); continue }", '', P),
     # ---- the order
-    ('lowest first (strands the layer under a roof)', TF, 'isCold(p.t) - isCold(q.t) || q.t.y - p.t.y || q.a - p.a ||', 'isCold(p.t) - isCold(q.t) || p.t.y - q.t.y || q.a - p.a ||', P),
-    ('near first', TF, 'isCold(p.t) - isCold(q.t) || q.t.y - p.t.y || q.a - p.a ||', 'isCold(p.t) - isCold(q.t) || q.t.y - p.t.y || p.a - q.a ||', P),
-    ('no platform tier', TF, 'eligible.sort((p, q) => p.t.tier - q.t.tier || ', 'eligible.sort((p, q) => ', P),
+    ('lowest first (strands the layer under a roof)', TF, 'p.t.tier - q.t.tier || q.t.y - p.t.y || q.a - p.a ||', 'p.t.tier - q.t.tier || p.t.y - q.t.y || q.a - p.a ||', P),
+    ('near first', TF, 'p.t.tier - q.t.tier || q.t.y - p.t.y || q.a - p.a ||', 'p.t.tier - q.t.tier || q.t.y - p.t.y || p.a - q.a ||', P),
+    ('no platform tier', TF, 'isCold(p.t) - isCold(q.t) || p.t.tier - q.t.tier || ', 'isCold(p.t) - isCold(q.t) || ', P),
     # ---- the click's re-proof (pure)
     ('the re-proof misses a chest put beside', TF, "    if (b && isFurniture(b.name)) return 'furniture'\n  }\n  for (let u = 1;", "    if (false) return 'furniture'\n  }\n  for (let u = 1;", P + SK),
     ('the re-proof misses a body in the cell', TF, "    if (ex === x && ez === z && (ey === y || (e.player && ey + 1 === y))) return 'occupied'", '', P),

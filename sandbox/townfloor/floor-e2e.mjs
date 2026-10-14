@@ -336,6 +336,7 @@ async function sceneFill (fx, rep, { kill = false, withWalker = false } = {}) {
   const j = judge(F, placed)
   const rows = runs.flatMap(rowsOf)
   const stepRows = rows.filter(r => r.name === '_town_floor_step')
+  const afterKill = kills ? rowsOf(runs.at(-1)).filter(r => r.name === '_town_floor_step').length : 0
   const visitRows = rows.filter(r => r.name === '_town_floor')
   const rowCells = new Set(stepRows.map(r => /at=(\S+)/.exec(r.detail)?.[1]))
   const reserve = stepRows.filter(r => /block=cobble/.test(r.detail) && r.inv && ((r.inv.cobblestone ?? 0) + (r.inv.cobbled_deepslate ?? 0)) < 64).length
@@ -345,11 +346,13 @@ async function sceneFill (fx, rep, { kill = false, withWalker = false } = {}) {
   result({ scene: withWalker ? 'walker' : 'fill', fx, rep, kill: !!kill, kills, readerControl: { before: base.size, seen: ctl },
     // OK needs PROGRESS and AGREEMENT too (Codex r2 P2): an unchanged fixture satisfies every safety predicate
     ok: j.placed > 0 && rowCells.size === placed.size && [...placed.keys()].every(k => rowCells.has(k)) &&
-        j.outside.length === 0 && j.bridges.length === 0 && j.cut.length === 0 && (prot ?? []).every(p => p.ok) && reserve === 0 && (walkerStillHome !== false),
+        j.outside.length === 0 && j.bridges.length === 0 && j.cut.length === 0 && (prot ?? []).every(p => p.ok) && reserve === 0 &&
+        // THE SCENE MUST HAVE HAPPENED (Codex r4 P2): the walker walked home; both kills ran and the bot placed after the last
+        (!withWalker || walkerStillHome === true) && (!kill || (kills === 2 && afterKill > 0)),
     targets: j.targets, offlineFillable: offline.steps.length, serverPlaced: j.placed, rowsPlaced: stepRows.length,
     rowsMatchServer: rowCells.size === placed.size && [...placed.keys()].every(k => rowCells.has(k)),
     outside: j.outside.slice(0, 10), outsideN: j.outside.length, bridges: j.bridges.slice(0, 10), cutWays: j.cut.slice(0, 10), cutN: j.cut.length,
-    leftTargets: j.left, protected: prot, reserveBreaches: reserve, walkerWalkedHome: walkerStillHome,
+    leftTargets: j.left, protected: prot, reserveBreaches: reserve, walkerWalkedHome: walkerStillHome, placedAfterLastRestart: afterKill,
     visits: visitRows.length, visitWhy: visitRows.map(r => /why=(\S+)/.exec(r.detail)?.[1] ?? '-'), doneMs: done,
     placeGapMs: gaps.length ? { p50: gaps[Math.floor(gaps.length / 2)], p90: gaps[Math.floor(gaps.length * 0.9)] } : null,
     refused: visitRows.reduce((t, r) => t + (Number(/refused=(\d+)/.exec(r.detail)?.[1]) || 0), 0), dropped: visitRows.reduce((t, r) => t + (Number(/dropped=(\d+)/.exec(r.detail)?.[1]) || 0), 0) })
