@@ -147,6 +147,20 @@ was killed by hand and the lock confirmed FREE; step 14 now uses `pkill -P`.
   refused 55 times in 2 h. A refusal on `*_unknown` that triggers the count step at once, rather than at 34 slots,
   would close the gap. That is a design question for the stocktarget owner.
 
+**Recount +6 h (census 08:30:24Z, 0 problems; `recount6-20261014T0221Z-a1.txt`): RESET PASS, 32/32.**
+- **The three lagging towns have now been recounted:**
+  - **hive-a:** 4/24 recounted, all 4 match the census.
+  - **placebo-a:** 4/17 recounted, 3 match and 1 is zero-only.
+  - **hive-c:** 8/31 recounted, 1 matches and 7 are zero-only. Nonzero coverage is still only 1/31.
+- **Fleet:**
+  - 266 containers recounted: 193 match, 64 zero-only, 8 partial.
+  - Nonzero coverage is above 0 in all 16 worlds, from 1/31 (hive-c) to 21/32 (board-c).
+- **The 8 partials** are all in isolated per-bot dirs. In most of them the bot's count is lower than the census, for
+  example oak_log 72 vs 136 and 26 vs 90. That fits deposits after the bot counted, so it is honest drift, not a
+  wrong recount.
+- **Conclusion:** the lazy recount closes on its own, slowly. The stocktarget-02 fix (an immediate count on an
+  `*_unknown` refusal) is still worth doing; hive-c is the slowest town.
+
 The entry below this one is the PREPARED record.
 
 ## 10-13 20:35Z — CHEST CLEAR #2 (stock targets): PREPARED, awaiting owner go. NOTHING RUN; no world changed, no bot stopped

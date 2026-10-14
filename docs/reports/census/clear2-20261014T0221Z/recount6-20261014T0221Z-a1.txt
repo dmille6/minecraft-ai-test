@@ -1,0 +1,37 @@
+_pool-board-a                  board-a    reset_at 2026-10-14T02:22:39Z recounted  29/ 35 match  16 zero-only 13 partial  0 not-in-census 0
+_pool-board-b                  board-b    reset_at 2026-10-14T02:22:39Z recounted  18/ 20 match  13 zero-only  4 partial  0 not-in-census 1
+_pool-board-c                  board-c    reset_at 2026-10-14T02:22:39Z recounted  30/ 32 match  21 zero-only  9 partial  0 not-in-census 0
+_pool-board-d                  board-d    reset_at 2026-10-14T02:22:39Z recounted  15/ 31 match  11 zero-only  4 partial  0 not-in-census 0
+_pool-hive-a                   hive-a     reset_at 2026-10-14T02:22:39Z recounted   4/ 24 match   4 zero-only  0 partial  0 not-in-census 0
+_pool-hive-b                   hive-b     reset_at 2026-10-14T02:22:39Z recounted   6/ 11 match   5 zero-only  1 partial  0 not-in-census 0
+_pool-hive-c                   hive-c     reset_at 2026-10-14T02:22:39Z recounted   8/ 31 match   1 zero-only  7 partial  0 not-in-census 0
+_pool-hive-d                   hive-d     reset_at 2026-10-14T02:22:39Z recounted   7/ 14 match   3 zero-only  4 partial  0 not-in-census 0
+_pool-placebo-a                placebo-a  reset_at 2026-10-14T02:22:39Z recounted   4/ 17 match   3 zero-only  1 partial  0 not-in-census 0
+_pool-placebo-b                placebo-b  reset_at 2026-10-14T02:22:39Z recounted  17/ 23 match  12 zero-only  5 partial  0 not-in-census 0
+_pool-placebo-c                placebo-c  reset_at 2026-10-14T02:22:39Z recounted  11/ 28 match   7 zero-only  4 partial  0 not-in-census 0
+_pool-placebo-d                placebo-d  reset_at 2026-10-14T02:22:39Z recounted  13/ 15 match  10 zero-only  3 partial  0 not-in-census 0
+_pool-self-isolated-a-Alpha    isolated-a reset_at 2026-10-14T02:22:39Z recounted   5/ 21 match   4 zero-only  0 partial  1 not-in-census 0
+_pool-self-isolated-a-Bravo    isolated-a reset_at 2026-10-14T02:22:39Z recounted   2/ 21 match   2 zero-only  0 partial  0 not-in-census 0
+_pool-self-isolated-a-Comet    isolated-a reset_at 2026-10-14T02:22:39Z recounted  10/ 21 match   9 zero-only  1 partial  0 not-in-census 0
+_pool-self-isolated-a-Delta    isolated-a reset_at 2026-10-14T02:22:39Z recounted   1/ 21 match   1 zero-only  0 partial  0 not-in-census 0
+_pool-self-isolated-a-Echo     isolated-a reset_at 2026-10-14T02:22:39Z recounted  20/ 21 match  15 zero-only  3 partial  2 not-in-census 0
+_pool-self-isolated-b-Alpha    isolated-b reset_at 2026-10-14T02:22:39Z recounted   1/ 20 match   1 zero-only  0 partial  0 not-in-census 0
+_pool-self-isolated-b-Bravo    isolated-b reset_at 2026-10-14T02:22:39Z recounted  10/ 20 match   7 zero-only  3 partial  0 not-in-census 0
+_pool-self-isolated-b-Comet    isolated-b reset_at 2026-10-14T02:22:39Z recounted   5/ 20 match   3 zero-only  1 partial  1 not-in-census 0
+_pool-self-isolated-b-Delta    isolated-b reset_at 2026-10-14T02:22:39Z recounted  10/ 20 match   9 zero-only  1 partial  0 not-in-census 0
+_pool-self-isolated-b-Echo     isolated-b reset_at 2026-10-14T02:22:39Z recounted   0/ 20 match   0 zero-only  0 partial  0 not-in-census 0
+_pool-self-isolated-c-Alpha    isolated-c reset_at 2026-10-14T02:22:39Z recounted   0/ 17 match   0 zero-only  0 partial  0 not-in-census 0
+_pool-self-isolated-c-Bravo    isolated-c reset_at 2026-10-14T02:22:39Z recounted   5/ 17 match   5 zero-only  0 partial  0 not-in-census 0
+_pool-self-isolated-c-Comet    isolated-c reset_at 2026-10-14T02:22:39Z recounted   2/ 17 match   2 zero-only  0 partial  0 not-in-census 0
+_pool-self-isolated-c-Delta    isolated-c reset_at 2026-10-14T02:22:39Z recounted   9/ 17 match   9 zero-only  0 partial  0 not-in-census 0
+_pool-self-isolated-c-Echo     isolated-c reset_at 2026-10-14T02:22:39Z recounted   6/ 17 match   6 zero-only  0 partial  0 not-in-census 0
+_pool-self-isolated-d-Alpha    isolated-d reset_at 2026-10-14T02:22:39Z recounted   0/ 14 match   0 zero-only  0 partial  0 not-in-census 0
+_pool-self-isolated-d-Bravo    isolated-d reset_at 2026-10-14T02:22:39Z recounted   5/ 14 match   3 zero-only  0 partial  2 not-in-census 0
+_pool-self-isolated-d-Comet    isolated-d reset_at 2026-10-14T02:22:39Z recounted   6/ 14 match   5 zero-only  0 partial  1 not-in-census 0
+_pool-self-isolated-d-Delta    isolated-d reset_at 2026-10-14T02:22:39Z recounted   2/ 14 match   2 zero-only  0 partial  0 not-in-census 0
+_pool-self-isolated-d-Echo     isolated-d reset_at 2026-10-14T02:22:39Z recounted   5/ 14 match   4 zero-only  0 partial  1 not-in-census 0
+COVERAGE per world (containers with a NONZERO recount by any of its dirs / census containers): {'board-a': '16/35', 'board-b': '13/20', 'board-c': '21/32', 'board-d': '11/31', 'hive-a': '4/24', 'hive-b': '5/11', 'hive-c': '1/31', 'hive-d': '3/14', 'isolated-a': '17/21', 'isolated-b': '11/20', 'isolated-c': '12/17', 'isolated-d': '7/14', 'placebo-a': '3/17', 'placebo-b': '12/23', 'placebo-c': '7/28', 'placebo-d': '10/15'}
+TOTAL {'dirs': 32, 'with_reset': 32, 'recounted': 266, 'match': 193, 'partial': 8, 'zero_only_match': 64, 'nonzero_names_matched': 346, 'zero_names': 0}
+partial matches (first 10: dir, container, {name: (bots, census)}): [('_pool-self-isolated-a-Alpha', '362,71,146', {'oak_log': (72, 136), 'oak_planks': (3, 3), 'stone_pickaxe': (3, 3)}), ('_pool-self-isolated-a-Echo', '355,72,149', {'oak_log': (4, 15), 'stone_pickaxe': (3, 3), 'birch_log': (64, 64)}), ('_pool-self-isolated-a-Echo', '362,71,146', {'oak_log': (72, 136), 'oak_planks': (3, 3), 'stone_pickaxe': (3, 3)}), ('_pool-self-isolated-b-Comet', '356,72,145', {'stone_pickaxe': (3, 2), 'wooden_pickaxe': (1, 1)}), ('_pool-self-isolated-d-Bravo', '356,72,148', {'oak_log': (26, 90), 'jungle_log': (1, 1)}), ('_pool-self-isolated-d-Bravo', '353,72,147', {'oak_log': (64, 65), 'cobble': (256, 256), 'stick': (61, 59), 'oak_planks': (64, 64)}), ('_pool-self-isolated-d-Comet', '355,72,145', {'jungle_log': (1, 1), 'oak_log': (26, 90)}), ('_pool-self-isolated-d-Echo', '356,72,148', {'oak_log': (26, 90), 'jungle_log': (1, 1)})]
+RESET PASS
+exit=0
