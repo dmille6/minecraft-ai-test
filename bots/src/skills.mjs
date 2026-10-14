@@ -8450,6 +8450,12 @@ function floorKeepOut (bot) {
     for (const s of [...(Array.isArray(p?.plan?.stair) ? p.plan.stair : []), ...(Array.isArray(p?.prev) ? p.prev.flatMap(c => (Array.isArray(c?.stair) ? c.stair : [])) : [])]) {
       if (Array.isArray(s) && s.length === 3) out.push({ x: s[0], y: s[1], z: s[2], r: 0, up: 2, down: 0 })
     }
+    // EVERY CELL THE PLAN WILL TOUCH, whatever its state (plinth agent 10-14: a foreign block in a plan cell VOIDS the plan
+    // and forces a replan), and the cap's column kept open from cap.y-1 to cap.y+2
+    for (const st of (Array.isArray(p?.plan?.steps) ? p.plan.steps : [])) {
+      if (Array.isArray(st?.c) && st.c.length === 3 && st.c.every(Number.isFinite)) out.push({ x: st.c[0], y: st.c[1], z: st.c[2], r: 0, up: 0, down: 0 })
+    }
+    if (p?.plan?.cap && Number.isFinite(p.plan.cap.x)) out.push({ x: p.plan.cap.x, y: p.plan.cap.y, z: p.plan.cap.z, r: 0, up: 2, down: 1 })
   } catch { /* no plinth record */ }
   return out
 }

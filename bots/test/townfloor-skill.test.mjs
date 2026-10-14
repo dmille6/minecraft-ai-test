@@ -293,6 +293,22 @@ await t('A STAND THE PATHFINDER CANNOT REACH (Paper 10-14, board-a): the step is
   assert.ok(F.coldKeys(recNow(), Date.now()).has(F.cellKey(...first.c)), 'the refused cell is cold for the next visits')
 })
 
+await t('A RAISED-WELL (plinth-01) RECORD IS A KEEP-OUT, whatever its state: its plan cells, its cap column, its stair and every column it ever started (the plinth agent\'s format)', async () => {
+  reset()
+  const cells = carve({}, -12, -8, 62, 62, -10, -8)
+  const plinth = path.join(STORE, 'junkwell-plinth-0_64_0.json')
+  writeFileSync(plinth, JSON.stringify({ v: 1, state: 'void', world: 'w1', plan: { cap: { x: -20, y: 70, z: -20 }, stair: [[-12, 62, -10]],
+    steps: [{ op: 'place', c: [-11, 62, -9] }, { op: 'clear', c: [-10, 62, -9] }] }, prev: [{ x: -8, y: 64, z: -8, stair: [] }] }))
+  try {
+    const town = fakeTown({ items: [['cobblestone', 64], ['cobblestone', 64]], cells })
+    const r = await visit(town)
+    assert.equal(r.status, 'success', r.detail)
+    for (const k of [KEY(-11, 62, -9), KEY(-10, 62, -9), KEY(-12, 62, -10)]) assert.ok(!town.st.places.includes(k), `${k} is the plinth's`)
+    assert.ok(!town.st.places.some(k => { const [x, , z] = k.split(',').map(Number); return Math.abs(x + 8) <= 3 && Math.abs(z + 8) <= 3 }), 'nothing within the old column\'s 7x7')
+    assert.deepEqual([...town.st.places].sort(), [KEY(-12, 62, -9), KEY(-12, 62, -8)].sort(), 'positive control: exactly the two cells outside every keep-out were filled')
+  } finally { rmSync(plinth, { force: true }) }
+})
+
 await t('REFUSALS NAME THE STATE: another builder\'s lease, or being away from town -- nothing placed, no lease taken', async () => {
   reset()
   const town = fakeTown({ items: [['cobblestone', 64], ['cobblestone', 64]] })
