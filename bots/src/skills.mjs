@@ -101,6 +101,9 @@ import { openLessons } from './lessons.mjs'
 import { dropsOf, heldFromBlock, sourcesOf } from './drops.mjs'
 import { smeltPlan, smeltRecipeFor, chooseFuel, fuelTicks, SMELT_TICKS } from './smelting.mjs'
 import { withDigScope } from './digtown.mjs'
+// townfloor-01, the town floor (its own statements)
+import { planFloorSteps, stepRefusal, stepEvidence, floorBlockFor, floorBudget, floorRecordFor, floorHeld, floorDetail, stuckSkips, stuckAfter, coldKeys, coldAfter, cellKey, floorLevel,
+         leaseState as floorLeaseState, FLOOR_VERSION, FLOOR_LEASE_MS, FLOOR_STEPS_PER_VISIT, FLOOR_MIN_FUND, FLOOR_NONE_BACKOFF_MS, FLOOR_HALF, FLOOR_DEPTH, TOWN_RADIUS } from './townfloor.mjs'
 
 /**
  * FAILURE CLASSES THAT NAME OUR IGNORANCE RATHER THAN THE WORLD.
@@ -8360,6 +8363,263 @@ async function buildWell (ctx, _args, signal) {
   }
 }
 
+// ------------------------------------------------------ the town floor (townfloor-01) -----
+//
+// THE BOTS FILL THE GROUND THEY DUG FROM UNDER THEIR OWN TOWN, with the surplus stone they carry (townfloor.mjs has the
+// box, the targets, the protected cells, the planner and every decision). One deterministic town order, fill_town
+// (townfloor.mjs floorOrder), at town only, never a trip:
+//   - ONE BUILDER PER TOWN: lease generations created exclusively (the plinth's protocol), renewed at every placement;
+//   - THE PLAN IS THE WORLD'S: every visit plans its next FLOOR_STEPS_PER_VISIT placements from the world as it is now
+//     (planFloorSteps, yielding to the event loop), and every click is re-proved at its turn (stepRefusal: the cell still
+//     open, its floor solid, nothing protected by now, the stand in reach with a clear sight, nothing sealed, the builder
+//     still walking to the town after it);
+//   - PLACEMENTS ONLY, never a dig; on foot only (the town deposit's walk: no digging, no towers, no scaffold);
+//   - FUNDED by the bag's surplus (townfloor.mjs floorBlockFor: decorations first, cobble above COBBLE_RESERVE);
+//   - THE RECORD (<pool dir>/townfloor-<home>.json): counters, the stuck cells (dropped twice: skipped a day), and noneAt
+//     -- a visit that found nothing the town reaches holds every bot's order for FLOOR_NONE_BACKOFF_MS.
+const floorKey = () => `townfloor-${config.world.homeX}_${config.world.homeY}_${config.world.homeZ}`
+const floorDir = () => poolStateDir(config.memory.pool)
+const floorFile = () => path.join(floorDir(), `${floorKey()}.json`)
+const readFloorJson = file => { try { const r = JSON.parse(fs.readFileSync(file, 'utf8')); return r && typeof r === 'object' ? r : null } catch { return null } }
+/** The town's floor record (townfloor.mjs floorRecordFor: this world's, this version), or null. Never throws. */
+export const readTownFloor = bot => floorRecordFor(readFloorJson(floorFile()), bot?.worldId ?? null)
+function writeFloorAtomic (file, obj) {
+  const tmp = `${file}.${process.pid}.${Math.random().toString(36).slice(2)}.tmp`
+  try {
+    fs.mkdirSync(path.dirname(file), { recursive: true })
+    fs.writeFileSync(tmp, JSON.stringify(obj))
+    fs.renameSync(tmp, file)
+    return true
+  } catch { try { fs.unlinkSync(tmp) } catch { /* never written */ } return false }
+}
+function createFloorExclusive (file, obj) {
+  const tmp = `${file}.${process.pid}.${Math.random().toString(36).slice(2)}.tmp`
+  try {
+    fs.mkdirSync(path.dirname(file), { recursive: true })
+    fs.writeFileSync(tmp, JSON.stringify(obj))
+    fs.linkSync(tmp, file)
+    return true
+  } catch { return false } finally { try { fs.unlinkSync(tmp) } catch { /* gone */ } }
+}
+const FLOOR_LEASE_GEN = () => new RegExp(`^${floorKey().replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\.lease\\.g(\\d+)\\.json$`)
+const floorLeaseFile = n => path.join(floorDir(), `${floorKey()}.lease.g${n}.json`)
+function floorLeaseCurrent () {
+  let n = 0
+  try { const re = FLOOR_LEASE_GEN(); for (const f of fs.readdirSync(floorDir())) { const m = re.exec(f); if (m) n = Math.max(n, Number(m[1])) } } catch { /* no dir yet */ }
+  return { n, lease: n ? readFloorJson(floorLeaseFile(n)) : null }
+}
+/** Take the town's floor job: only when the newest lease is expired (or none), by CREATING the next generation. */
+function takeFloorLease (bot, token) {
+  const now = Date.now(), cur = floorLeaseCurrent()
+  const st = floorLeaseState(cur.lease, now, token)
+  if (!st.free) return { ok: false, holder: st.holder }
+  const n = cur.n + 1
+  if (!createFloorExclusive(floorLeaseFile(n), { by: bot.username ?? null, token, at: now, until: now + FLOOR_LEASE_MS, n })) return { ok: false, holder: floorLeaseCurrent().lease?.by ?? null }
+  try { const re = FLOOR_LEASE_GEN(); for (const f of fs.readdirSync(floorDir())) { const m = re.exec(f); if (m && Number(m[1]) < n - 2) fs.unlinkSync(path.join(floorDir(), f)) } } catch { /* another bot pruned it */ }
+  return { ok: true, n }
+}
+/** Still this run's lease (the newest generation, this token, not expired)? Renewed when it is. */
+function holdFloorLease (token, n) {
+  const cur = floorLeaseCurrent()
+  if (cur.n !== n || cur.lease?.token !== token || !(Number(cur.lease?.until) > Date.now())) return false
+  if (!writeFloorAtomic(floorLeaseFile(n), { ...cur.lease, until: Date.now() + FLOOR_LEASE_MS })) return false
+  return floorLeaseCurrent().n === n
+}
+function releaseFloorLease (token, n) {
+  const cur = floorLeaseCurrent()
+  if (cur.n === n && cur.lease?.token === token) writeFloorAtomic(floorLeaseFile(n), { ...cur.lease, until: Date.now() })
+}
+/** For the scheduler (cognitive.mjs floorOrder): who holds the town's floor job, and whether the town holds it back. */
+export function townFloorState (bot) {
+  const now = Date.now()
+  return { lease: floorLeaseState(floorLeaseCurrent().lease, now, null), held: floorHeld(readTownFloor(bot), now) }
+}
+/**
+ * WHAT A FLOOR PLAN NEVER TOUCHES besides townfloor.mjs's own protected cells: every junk well the town has (a breached
+ * one too) and the recorded site -- their 5x5 shell and column from 3 below the cap to 3 above -- and, when a raised-well
+ * record exists (plinth-01, not on this base), its cap's 7x7 from 4 below to 3 above and its stair cells.
+ */
+function floorKeepOut (bot) {
+  const out = []
+  try { for (const w of findTownWells(bot)) out.push({ x: w.cap.x, y: w.cap.y, z: w.cap.z, r: 2, up: 3, down: 3 }) } catch { /* none */ }
+  try { const r = recordedWellSite(bot); if (r) out.push({ x: r.x, y: r.y, z: r.z, r: 2, up: 3, down: 3 }) } catch { /* none */ }
+  try {
+    const p = readFloorJson(path.join(floorDir(), `junkwell-plinth-${config.world.homeX}_${config.world.homeY}_${config.world.homeZ}.json`))
+    const caps = [p?.plan?.cap, ...(Array.isArray(p?.prev) ? p.prev : [])].filter(c => c && Number.isFinite(c.x) && Number.isFinite(c.y) && Number.isFinite(c.z))
+    for (const c of caps) out.push({ x: c.x, y: c.y, z: c.z, r: 3, up: 3, down: 4 })
+    for (const s of [...(Array.isArray(p?.plan?.stair) ? p.plan.stair : []), ...(Array.isArray(p?.prev) ? p.prev.flatMap(c => (Array.isArray(c?.stair) ? c.stair : [])) : [])]) {
+      if (Array.isArray(s) && s.length === 3) out.push({ x: s[0], y: s[1], z: s[2], r: 0, up: 2, down: 0 })
+    }
+  } catch { /* no plinth record */ }
+  return out
+}
+/** The bodies and items around the town a placement must never seal in or place into -> [{ x, y, z, player }]. */
+function floorEntities (bot) {
+  const home = { x: config.world.homeX, y: config.world.homeY, z: config.world.homeZ }
+  const out = []
+  for (const e of Object.values(bot.entities ?? {})) {
+    if (!e?.position || e === bot.entity) continue
+    const p = e.position
+    if (Math.max(Math.abs(p.x - home.x), Math.abs(p.z - home.z)) > FLOOR_HALF + 10) continue
+    if (e.type === 'player' || e.name === 'item' || e.type === 'mob' || e.type === 'animal' || e.type === 'hostile' || e.type === 'passive') out.push({ x: p.x, y: p.y, z: p.z, player: e.type !== 'object' && e.name !== 'item' })
+  }
+  return out
+}
+const floorRow = (bot, status, fields) => logEvent({ kind: 'town_floor', status, snapshot: snapshot(bot), detail: floorDetail(fields) })
+/** THE REMEDY for a visit with nothing to build from (an executable move: stone is mined anywhere with a pickaxe). */
+export const FLOOR_FUND_REMEDY = `carry more than ${COBBLE_RESERVE} cobblestone or cobbled deepslate, or any andesite, diorite or granite ` +
+  `(${COBBLE_RESERVE} cobble stay as the reserve): mine stone with a pickaxe more than ${FLOOR_HALF} blocks from home (the town's own ground is what ` +
+  `this fills); the floor order never fires below this, so nothing waits on it`
+/** A visit fills for at most this long (scaled like the housekeeping bounds; production 100 s). */
+const FLOOR_VISIT_MS = Number(process.env.FLOOR_VISIT_MS) > 0 ? Number(process.env.FLOOR_VISIT_MS) : Math.max(2_000, Math.min(100_000, Math.floor(config.skills.defaultTimeoutMs * 0.55)))
+/** Replans per visit, at most: a refused or dropped click replans from the world as it is. */
+const FLOOR_REPLANS = 2
+/** Walk to a feet cell and centre on it, on foot only; -> true when the feet are in it. Bounded and abortable. */
+async function floorToStand (bot, g, signal, st) {
+  const at = () => { const f = bot.entity.position.floored(); return f.x === st.x && f.y === st.y && f.z === st.z }
+  const walk = fn => (typeof bot.withTownDepositWalk === 'function' ? bot.withTownDepositWalk(fn) : fn())
+  if (!at()) {
+    try { await walk(() => g.bound(bot.pathfinder.goto(new goals.GoalBlock(st.x, st.y, st.z)), HK_PATH_MS, 'pathfinding', { path: true })) } catch (e) { if (e?.aborted || signal?.aborted) throw e }
+    check(signal)
+  }
+  if (at() && !centredOn(bot, st)) await centreOn(bot, st, signal)
+  return at()
+}
+/** A body's box intersects the cell? (the server refuses a placement into a body) */
+const floorBodyIn = (b, c) => b.x + b.w / 2 > c.x && b.x - b.w / 2 < c.x + 1 && b.z + b.w / 2 > c.z && b.z - b.w / 2 < c.z + 1 && b.y + b.h > c.y && b.y < c.y + 1
+
+async function fillTown (ctx, _args, signal) {
+  const { bot } = ctx
+  const t0 = Date.now()
+  const items = () => bot.inventory?.items?.() ?? []
+  const world = bot.worldId ?? null
+  const home = { x: config.world.homeX, y: config.world.homeY, z: config.world.homeZ }
+  const stats = { placed: 0, planned: 0, refused: 0, dropped: 0, spent: 0, tier0: 0, replans: 0 }
+  const skip = (stage, why, failClass = null) => { floorRow(bot, 'refused', { stage, why }); return { status: 'no_effect', ...(failClass ? { failClass } : {}), detail: why } }
+  if (insideTownWell(bot)) return skip('inside', 'this bot is inside a junk well; it climbs out before any town order')
+  if (bot.currentWindow) return skip('window_open', 'a container window is open; the town floor waits for the next visit')
+  const p0 = bot.entity?.position
+  if (!p0 || Math.hypot(p0.x - home.x, p0.z - home.z) > TOWN_RADIUS || Math.abs(p0.y - home.y) > FLOOR_DEPTH + 6) return skip('away', 'not at town; the town floor is filled only by a bot already there (never a trip)')
+  const budget0 = floorBudget(items())
+  if (budget0 < FLOOR_MIN_FUND) {
+    floorRow(bot, 'refused', { stage: 'unfunded', budget: budget0, why: 'nothing to fill from' })
+    return { status: 'no_effect', failClass: 'floor_unfunded', detail: `${FLOOR_FUND_REMEDY}. Not filled: this bag can spend ${budget0} block(s), a visit needs ${FLOOR_MIN_FUND}` }
+  }
+  if (floorHeld(readTownFloor(bot), Date.now())) return skip('held', 'a recent visit found no hole the town can reach; the town floor waits', 'floor_none')
+  const token = `${bot.username ?? 'bot'}-${process.pid}-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 7)}`
+  const lease = takeFloorLease(bot, token)
+  if (!lease.ok) return skip('lease', `${lease.holder ?? 'another bot'} is filling the town floor`, 'floor_lease')
+  const was = handOf(bot.heldItem)
+  const g = hkGuards(bot, signal)
+  let stationary = 0, stop = null, start = null, left = null, lastWhy = null
+  const rec0 = readTownFloor(bot) ?? { v: FLOOR_VERSION, world, placed: 0, visits: 0, stuck: {} }
+  let stuck = { ...(rec0.stuck ?? {}) }
+  const refusedAll = [], placedAll = []
+  try {
+    stationary = Date.now() + FLOOR_VISIT_MS + 10_000
+    bot.stationaryUntil = stationary
+    for (let pass = 0; pass <= FLOOR_REPLANS && !stop; pass++) {
+      if (pass) stats.replans++
+      // the keep-outs are read again for every plan and every click (Codex r1 P2: a well site recorded mid-visit)
+      let keepOut = floorKeepOut(bot)
+      // ---- PLAN the next steps from the world as it is (yielding: this bot's event loop keeps running) ----
+      const read = readWellCell(bot)
+      const it = planFloorSteps({ read, home, entities: floorEntities(bot), keepOut, skip: stuckSkips({ stuck }, Date.now()), cold: coldKeys(rec0, Date.now()),
+                                  maxSteps: Math.max(1, Math.min(FLOOR_STEPS_PER_VISIT - stats.placed, floorBudget(items()))) })
+      let res
+      for (;;) {
+        const r = it.next()
+        if (r.done) { res = r.value; break }
+        check(signal)
+        if (Date.now() - t0 > FLOOR_VISIT_MS) { stop = 'plan_slow'; break }
+        await new Promise(resolve => setImmediate(resolve))
+      }
+      if (stop) break
+      start = res.start ?? start
+      left = res.left ?? left
+      refusedAll.push(...(res.refusedKeys ?? []))
+      lastWhy = res.why
+      if (res.why === 'unknown') { stop = 'unknown'; break }
+      if (!res.steps.length) { stop = res.why ?? 'none'; break }
+      stats.planned += res.steps.length
+      // ---- PLACE, each click re-proved at its turn ----
+      let replan = false
+      for (const s of res.steps) {
+        check(signal)
+        if (Date.now() - t0 > FLOOR_VISIT_MS) { stop = 'time'; break }
+        if (!holdFloorLease(token, lease.n)) { stop = 'lease'; break }
+        const name = floorBlockFor(items())
+        if (!name) { stop = 'unfunded'; break }
+        const target = { x: s.c[0], y: s.c[1], z: s.c[2] }
+        const stand = { x: s.s[0], y: s.s[1], z: s.s[2] }
+        // a refusal before the walk is cheap; the same proof is asked again after it, with nothing awaited between it and
+        // the packet but the equip
+        keepOut = floorKeepOut(bot)
+        const pre = stepRefusal(readWellCell(bot), s, { home, start, entities: floorEntities(bot), keepOut, cheap: true })
+        if (pre === 'filled') continue                                     // another hand filled it: not this run's
+        if (pre) { stats.refused++; lastWhy = pre; replan = true; break }
+        if (!(await floorToStand(bot, g, signal, stand))) { stats.refused++; lastWhy = 'unreachable'; replan = true; break }
+        // A VANILLA CLIENT'S PACE (plinth-01, Paper 10-13: placements faster than the use-item delay were lost)
+        for (let k = 0; k < 4; k++) await g.bound(bot.waitForTicks?.(1), 50 + HK_AWAIT_MS, 'tick wait')
+        const item = items().find(i2 => i2.name === name)
+        if (!item) { stop = 'unfunded'; break }
+        try {
+          if (bot.heldItem?.name !== name) await g.bound(bot.equip(item, 'hand'), HK_AWAIT_MS, 'equip')
+          // THE LEASE AND THE PROOF, LAST, with nothing awaited between them and the click but mineflayer's own look
+          if (!holdFloorLease(token, lease.n)) { stop = 'lease'; break }
+          keepOut = floorKeepOut(bot)
+          const why = stepRefusal(readWellCell(bot), s, { home, start, entities: floorEntities(bot), keepOut })
+          if (why === 'filled') continue
+          if (why) { stats.refused++; lastWhy = why; replan = true; break }
+          // NOBODY IN THE CELL, read last (Claude r1 P3-7): the server refuses a place into a body
+          if (bodiesAround(bot).some(b => floorBodyIn(b, target))) { stats.refused++; lastWhy = 'body'; replan = true; break }
+          const refBlock = bot.blockAt(new Vec3(s.r[0], s.r[1], s.r[2]))
+          await g.bound(bot._placeBlockWithOptions(refBlock, new Vec3(s.f[0], s.f[1], s.f[2]), { forceLook: true, swingArm: 'right' }), HK_AWAIT_MS * 2, 'place')
+        } catch (e) { if (e?.aborted || signal?.aborted) throw e }
+        const read = readWellCell(bot)
+        const solidAt = () => { const b = read(target.x, target.y, target.z); return !!b && b.boundingBox === 'block' }
+        for (let k = 0; k < 10 && !solidAt(); k++) await g.bound(bot.waitForTicks?.(1), 50 + HK_AWAIT_MS, 'tick wait')
+        const ok = solidAt()
+        stuck = stuckAfter(stuck, String(cellKey(target.x, target.y, target.z)), ok, Date.now())
+        if (!ok) { stats.dropped++; lastWhy = 'dropped'; replan = true; break }
+        stats.placed++; stats.spent++
+        placedAll.push(cellKey(target.x, target.y, target.z))
+        if (s.tier === 0) stats.tier0++
+        // ONE ROW PER BLOCK: the read checks every placed cell against the box and the protected cells
+        // ...with the neighbourhood as the world shows it now (the read re-judges "protected" from it, independently)
+        const ev = stepEvidence(read, target)
+        logEvent({ kind: 'town_floor_step', status: 'success', snapshot: snapshot(bot),
+                   detail: `at=${target.x},${target.y},${target.z} block=${name} stand=${stand.x},${stand.y},${stand.z} tier=${s.tier} L=${floorLevel(home)} home=${home.x},${home.y},${home.z} col=${ev.col} nb=${ev.nb}`.slice(0, 300) })
+      }
+      if (!replan) break
+    }
+    const budget = floorBudget(items())
+    // THE TOWN'S RECORD: only the lease holder writes it
+    if (holdFloorLease(token, lease.n)) {
+      const cur = readTownFloor(bot) ?? rec0
+      const none = !stats.placed && (lastWhy === 'none_reachable' || lastWhy === 'none_feasible')
+      writeFloorAtomic(floorFile(), { ...cur, v: FLOOR_VERSION, world, placed: (Number(cur.placed) || 0) + stats.placed, visits: (Number(cur.visits) || 0) + 1,
+                                      stuck, cold: coldAfter(cur.cold, refusedAll, placedAll, Date.now()), lastAt: Date.now(), lastBy: bot.username ?? null, left, ...(none ? { noneAt: Date.now() } : stats.placed ? { noneAt: null } : {}) })
+    }
+    floorRow(bot, stats.placed ? 'success' : 'failed', { stage: 'visit', ...stats, budget, left, why: stop ?? lastWhy, ms: Date.now() - t0 })
+    if (stats.placed) return { status: 'success', placed: stats.placed, detail: `filled ${stats.placed} hole(s) in the town floor (${stats.tier0} under the platform)${left != null ? `; ${left} left` : ''}${stop ? `; stopped: ${stop}` : ''}` }
+    if (lastWhy === 'none_reachable' || lastWhy === 'none_feasible' || stop === 'none_reachable' || stop === 'none_feasible') return { status: 'no_effect', failClass: 'floor_none', detail: `no hole in the town floor that this town can reach and fill safely now (${lastWhy}); the town waits ${Math.round(FLOOR_NONE_BACKOFF_MS / 60000)} min` }
+    if (stop === 'unknown') return { status: 'no_effect', detail: 'a cell of the town floor is not loaded; filled on another visit' }
+    // the planner's search ran out of tries on this visit: not "nothing to do" (no hold) and not a fault (no backoff)
+    if (stop === 'search_budget' || lastWhy === 'search_budget') return { status: 'no_effect', detail: 'the town floor\'s search found nothing placeable within its budget this visit; the next visit searches again' }
+    if (stop === 'lease') return { status: 'failed', failClass: 'floor_lease', detail: 'the town floor lease was lost; nothing filled' }
+    if (stop === 'unfunded') return { status: 'failed', failClass: 'floor_unfunded', detail: `${FLOOR_FUND_REMEDY}. Nothing filled` }
+    return { status: 'failed', failClass: 'floor_stuck', detail: `the town floor made no progress this visit (${stop ?? lastWhy})` }
+  } catch (e) {
+    if (e?.hkStop) { floorRow(bot, 'failed', { stage: e.failClass, ...stats, why: e.message }); return { status: 'failed', failClass: e.failClass, detail: e.message } }
+    throw e
+  } finally {
+    try { releaseFloorLease(token, lease.n) } catch { /* expires on its own */ }
+    if (stationary && bot.stationaryUntil === stationary) bot.stationaryUntil = 0
+    await settleAndRestore(bot, was, g, 'fill_town')
+  }
+}
+
 // ------------------------------------------------------------- withdraw -----
 //
 // The inverse of deposit, and its absence was structural: the town chests hold 124,894 items (09-27) -- 16,383
@@ -11707,6 +11967,8 @@ export const SKILL_CONTRACTS = {
   town_deposit: { expects: ['inventory_loss'],    maxMs: 60_000 },
   prune_town: { expects: ['prune_effect'], maxMs: 180_000 },
   count_town: { expects: ['count_effect'], maxMs: 90_000 },
+  // THE TOWN FLOOR (townfloor-01): the blocks it placed, each read back from the world.
+  fill_town: { expects: ['world_change'], maxMs: 150_000 },
   // THE JUNK WELL (well.mjs). A visit LOSES listed junk (well_effect: never any other loss) -- or, a visitor that only
   // closed an open well, changes one block (world_change). A build digs and places: the cap and floor read back.
   dispose_well: { expects: ['well_effect', 'world_change'], maxMs: 120_000 },
@@ -12796,6 +13058,7 @@ export const SKILLS = {
   // CHEST PRUNING (stocktarget-01, prune.mjs): a deterministic town order, never the model's choice.
   prune_town: { run: pruneTown, usage: 'prune_town', args: [], chatOnly: true },
   count_town: { run: countTown, usage: 'count_town', args: [], chatOnly: true },
+  fill_town: { run: fillTown, usage: 'fill_town', args: [], chatOnly: true },
   // THE JUNK WELL'S THREE TOWN ORDERS (well.mjs wellOrder), never the model's choice.
   dispose_well: { run: disposeWell, usage: 'dispose_well', args: [], chatOnly: true },
   build_well:   { run: buildWell,   usage: 'build_well',   args: [], chatOnly: true },
