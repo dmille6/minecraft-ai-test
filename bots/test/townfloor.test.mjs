@@ -504,6 +504,13 @@ await t('A BODY OR AN ITEM NEVER MAKES A CELL COLD: refused for an item in it, t
   assert.ok(p.tally.occupied >= 1, 'positive control: it was refused for the item')
 })
 
+await t('THE FIRST STAND IS THE ONE NEAREST THE BUILDER (Codex r7 P3): planned from either side of a 1-deep hole, the stand is on that side', () => {
+  const w = town({ '10,62,0': 'air' })
+  const east = F.planFloor({ read: w.read, home: HOME, from: { x: 14.5, y: 63, z: 0.5 }, maxSteps: 1 }).steps[0].s
+  const west = F.planFloor({ read: w.read, home: HOME, from: { x: 6.5, y: 63, z: 0.5 }, maxSteps: 1 }).steps[0].s
+  assert.ok(east[0] > 10 && west[0] < 10, `east ${east} west ${west}`)
+})
+
 await t('a skipped (stuck) cell is never planned; maxSteps bounds the plan and says budget', () => {
   const w = town(carve({}, 8, 10, 62, 62, 8, 10))
   const p = F.planFloor({ read: w.read, home: HOME, skip: new Set([F.cellKey(9, 62, 9)]), maxSteps: 3 })

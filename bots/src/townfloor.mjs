@@ -502,6 +502,7 @@ export function sealRefusal (read, cell, { home, entities = [], skyCache = null,
  *   keepOut   records' cells (floorCells)
  *   skip      Set of cellKeys never tried (stuck cells)
  *   badStands Set of cellKeys never used as a stand (the pathfinder could not reach them this visit)
+ *   from      the builder's feet: the first stand is chosen nearest to it, each next one nearest the last
  *   maxSteps  placements to plan (the visit's budget)
  * Each step: the eligible targets (open, not protected, a full cube below) in order -- COLD last (cells refused on an
  * earlier visit wait behind every untried one), then the tier (the platform square first), then the HIGHEST (a column is
@@ -562,7 +563,7 @@ export function accessIndex (dist, home) {
   }
 }
 
-export function * planFloorSteps ({ read, home, start = null, entities = [], keepOut = [], skip = new Set(), cold = new Set(), badStands = new Set(), maxSteps = FLOOR_STEPS_PER_VISIT, maxTries = FLOOR_MAX_TRIES } = {}) {
+export function * planFloorSteps ({ read, home, start = null, entities = [], keepOut = [], skip = new Set(), cold = new Set(), badStands = new Set(), from = null, maxSteps = FLOOR_STEPS_PER_VISIT, maxTries = FLOOR_MAX_TRIES } = {}) {
   const tally = { tried: 0, nostand: 0, nosupport: 0, seal: 0, sealwhy: {}, occupied: 0, skipped: 0 }
   if (typeof read !== 'function' || !home) return { steps: [], tally, why: 'no_home' }
   const r0 = memoRead(read)
@@ -583,7 +584,8 @@ export function * planFloorSteps ({ read, home, start = null, entities = [], kee
   let todo = cls.targets.filter(t => !skip.has(K(t.x, t.y, t.z)))
   tally.skipped = cls.targets.length - todo.length
   const steps = []
-  let prev = st
+  // the stand nearest the builder's own feet first (Codex r7 P3: the anchor is many cells, never a position)
+  let prev = from && Number.isFinite(from.x) ? { x: Math.floor(from.x), y: Math.floor(from.y), z: Math.floor(from.z) } : null
   let dist = walkDist(world, st, { box, strict: true })              // where the BUILDER can go (strict)
   // A REFUSED CANDIDATE IS NOT RE-TRIED until a placement lands within 6 of it (its stand, support or seal can only
   // change through a nearby placement in this plan's view)
