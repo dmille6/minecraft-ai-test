@@ -48,11 +48,104 @@ export function townDigClass (p, blockName, home) {
   return inTownBox(p, home) && isTerrain(blockName) ? 'ground' : 'free'
 }
 
+// ---- THE ZONE (step 3; townground-2026-10-13.md 2.4-2.5) -------------------------------------------------------------
+//
+// TARGETS are refused, TRANSIT is priced, SURVIVAL is untouched. A target dig is a discretionary one: gather taking a
+// block, mine cutting a stair, the ore tunnel excavating. Every refusal names a remedy the bot can perform from where it
+// stands -- town ground ends 16 blocks from home and dirt and stone are everywhere past it.
+//   gather   candidates are filtered AT ENUMERATION (the 32 nearest matches would otherwise all be town ground and the
+//            reachable ones outside never enter the list: Codex r1 P1); its target test is an independent conjunction.
+//   mine     the old full-depth 12-block rule stays; a bearing whose stair would cut town ground is not chosen; every step
+//            re-checks its three cells; with no clear bearing the skill WALKS OUT (deterministic) and tries once more.
+//   tunnel   ground costs 100 in the tunnel's own profile (a refusal: the tunnel re-plans around it).
+//   transit  UNTOUCHED: no veto (the pit trap) and no price (pathfinder discards a move over 100, so any surcharge is a
+//            veto on slow digs). A bot in a town pit digs out exactly as it does today.
+export const TOWN_GROUND_REMEDY = `town ground: within ${TOWN_GROUND_HALF} blocks of home (above home.y - ${TOWN_GROUND_DEPTH}) the town's ground is kept -- take dirt, sand, gravel or stone more than ${TOWN_GROUND_HALF} blocks from home`
+
+/** May a DISCRETIONARY dig take this cell? -> { ok, reason, remedy }. Pure. */
+export function townTargetPermit (p, blockName, home) {
+  if (townDigClass(p, blockName, home) !== 'ground') return { ok: true, reason: null, remedy: null }
+  return { ok: false, reason: 'town_ground', remedy: TOWN_GROUND_REMEDY }
+}
+
 /**
- * THE TOWN'S HOME: config's home ONLY when HOME_X, HOME_Y and HOME_Z were set in the environment (every fleet env file
- * sets them; config.mjs defaults a missing one to 0/70/0, which is not a town). Unset -> null -> every cell is 'free'.
+ * Would a `mine` staircase from `from` along `bear` cut town ground? Pure (nameAt(x,y,z) -> block name | null).
+ * The stair's cells at step i (skills.mjs descentStepCells): feet/head/above one along and i down. Followed until every
+ * cell of a step is outside the box (horizontally beyond it, or below the band); an unknown cell inside the box counts
+ * as ground (never on a guess). -> { clear, steps, cell } (cell: the first ground cell, if any).
+ */
+export function stairTownClear (from, bear, home, nameAt, maxSteps = 2 * TOWN_GROUND_HALF + TOWN_GROUND_DEPTH + 8) {
+  const h = homeOf(home)
+  if (!h || !from || !bear) return { clear: true, steps: 0, cell: null }
+  for (let i = 0; i < maxSteps; i++) {
+    const sx = Math.floor(from.x) + bear.x * (i + 1), sy = Math.floor(from.y) - i, sz = Math.floor(from.z) + bear.z * (i + 1)
+    const cells = [{ x: sx, y: sy - 1, z: sz }, { x: sx, y: sy, z: sz }, { x: sx, y: sy + 1, z: sz }]
+    const inside = cells.filter(c => inTownBox(c, h))
+    if (!inside.length) {
+      // below the band, or beyond the square while still descending: a later step cannot climb back in
+      if (sy + 1 < Math.floor(h.y) - TOWN_GROUND_DEPTH) return { clear: true, steps: i, cell: null }
+      const dx = sx - Math.floor(h.x), dz = sz - Math.floor(h.z)
+      if (Math.sign(dx) === Math.sign(bear.x) && bear.x && Math.abs(dx) > TOWN_GROUND_HALF) return { clear: true, steps: i, cell: null }
+      if (Math.sign(dz) === Math.sign(bear.z) && bear.z && Math.abs(dz) > TOWN_GROUND_HALF) return { clear: true, steps: i, cell: null }
+      continue
+    }
+    for (const c of inside) {
+      const n = nameAt(c.x, c.y, c.z)
+      if (n == null || isTerrain(n)) return { clear: false, steps: i, cell: { ...c, name: n } }
+    }
+  }
+  return { clear: true, steps: maxSteps, cell: null }
+}
+
+/**
+ * WHERE TO WALK so a stair can start outside the town: the nearest point HALF + 3 out along the cardinal that leaves the
+ * square soonest, at the bot's own coordinate on the other axis. Pure. -> { x, z, bear }
+ */
+export function walkOutPoint (from, home) {
+  return walkOutPoints(from, home)[0] ?? null
+}
+
+/** Per-bot counters for the `_town_ground` liveness row (index.mjs flushes them once a minute). */
+export function townGroundCounters () {
+  return { gather_skipped: 0, gather_refused: 0, mine_bearing_refused: 0, mine_walkout: 0, mine_step_refused: 0, mine_refused: 0 }
+}
+export function noteTownGround (bot, key, n = 1) {
+  try { if (bot) { bot.townGround ??= townGroundCounters(); bot.townGround[key] = (bot.townGround[key] ?? 0) + n } } catch { /* telemetry */ }
+}
+
+/**
+ * A precomputed exclusionAreasBreak entry (the A* hot path: no allocation per call) for the ORE TUNNEL only: 100 on town
+ * ground (a target profile: refused, the tunnel re-plans). Unknown home -> always 0 (the zone is off).
+ */
+export function makeTownBreakCost (home, cost) {
+  const h = homeOf(home)
+  if (!h) return () => 0
+  const hx = Math.floor(h.x), hz = Math.floor(h.z), ymin = Math.floor(h.y) - TOWN_GROUND_DEPTH, R = TOWN_GROUND_HALF
+  return (block) => {
+    const p = block?.position
+    if (!p || p.y < ymin || Math.abs(p.x - hx) > R || Math.abs(p.z - hz) > R) return 0
+    return TERRAIN.test(block.name ?? '') ? cost : 0
+  }
+}
+
+/**
+ * THE ZONE'S HOME: config's home ONLY when HOME_X, HOME_Y and HOME_Z were set in the environment (every fleet env file
+ * sets them; config.mjs defaults a missing one to 0/70/0, which is not a town). Unset -> null -> the zone is off.
  */
 export function configuredHome (world, env = process.env) {
   if (env.HOME_X == null || env.HOME_Y == null || env.HOME_Z == null || env.HOME_X === '' || env.HOME_Y === '' || env.HOME_Z === '') return null
   return homeOf({ x: world?.homeX, y: world?.homeY, z: world?.homeZ })
+}
+
+/** Every walk-out point, nearest edge first (mine tries them in order until one is reached: Codex code r1 P2). */
+export function walkOutPoints (from, home) {
+  const h = homeOf(home)
+  if (!h || !from) return []
+  const hx = Math.floor(h.x), hz = Math.floor(h.z), x = Math.floor(from.x), z = Math.floor(from.z), R = TOWN_GROUND_HALF + 3
+  // OUTSIDE the square on an axis: never the exit on the far side of town along that axis (it crosses town: Claude code r2 P3)
+  const outX = Math.abs(x - hx) > TOWN_GROUND_HALF ? Math.sign(x - hx) : 0, outZ = Math.abs(z - hz) > TOWN_GROUND_HALF ? Math.sign(z - hz) : 0
+  return [
+    { d: (hx + R) - x, x: hx + R, z, bear: { x: 1, z: 0 } }, { d: x - (hx - R), x: hx - R, z, bear: { x: -1, z: 0 } },
+    { d: (hz + R) - z, x, z: hz + R, bear: { x: 0, z: 1 } }, { d: z - (hz - R), x, z: hz - R, bear: { x: 0, z: -1 } },
+  ].filter(o => o.d >= 0 && !(outX && o.bear.x === -outX) && !(outZ && o.bear.z === -outZ)).sort((a, b) => a.d - b.d).map(({ x, z, bear }) => ({ x, z, bear }))   // never toward town (Claude code r1 P2)
 }
