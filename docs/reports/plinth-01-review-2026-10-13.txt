@@ -1,0 +1,79 @@
+plinth-01 (the raised junk well) -- review record, 2026-10-13
+Branch plinth-on-baa9487 (on wellsite-01's canary sha baa94879; base tip 3b094adc). Codex = `codex exec` (independent).
+Claude = a separate reviewing subagent with a fresh, skeptical read each round (clearly labelled CLAUDE REVIEW rN).
+Transcripts: the build agent's scratch, plo/codex-r{1..5}.txt, plo/codex-final.txt (Claude passes returned inline).
+
+VERDICTS BY ROUND
+  round | sha       | Codex                         | Claude
+  r1    | ae7a5644  | REJECT (5 P1, 3 P2)           | APPROVE-WITH-CHANGES (2 P2, 7 P3)
+  r2    | 6609da7a+ | REJECT (3 P1, 3 P2, 1 P3)     | APPROVE-WITH-CHANGES (2 P2, 6 P3)
+  r3    | 3d9448f6  | REJECT (1 P1, 3 P2: N1-N4)    | APPROVE-WITH-CHANGES (2 P2 in the read, 5 P3)
+  r4    | f0e1b82e  | REJECT (1 P2: N5)             | APPROVE-WITH-CHANGES (a missing N2 writer test; mutant C survived)
+  r5    | 0e288720  | APPROVE                       | APPROVE-WITH-CHANGES (1 P2: a grassed dirt cover voided; 1 P3)
+  final | 3760658e  | see the STATE entry           | see the STATE entry
+Disagreements left open: none (see FINAL below).
+
+WHAT CHANGED BECAUSE OF A REVIEW (each fixed with a behaviour test; the mutants assert their anchors present and unique)
+ Codex r1
+  P1 an alternate stand could entomb the builder        -> plinth.mjs standOk (reach, sight, top face, the stand still walks
+                                                           to the town after the click); recorded + substitute stands re-proved
+  P1 the lease was not mutual exclusion                 -> lease GENERATIONS created exclusively (link), a token per acquisition
+  P1 a failed replan forgot a hazardous plinth          -> carryPrev (the record's prev: every column that may still trap a body)
+  P1 a leaf clear could open the pit unowned            -> ownership for clears and placements alike
+  P1 another bot could build before peers had the plan  -> no click before WELL_RECORD_SETTLE_MS, whoever builds
+  P2 hand-off order / resume after the last placement / completion ignoring natural cells
+                                                        -> site generation read back, hold lifted, THEN complete; an
+                                                           uncovered pit at the start is owned first; the live oracle before
+                                                           the hand-off (a dug natural cell voids the plan)
+ Claude r1
+  P2 a step that can never run stalled the town         -> one stall counter; PLINTH_STUCK_VISITS visits void the plan
+  P2 execution used stands/supports never proved        -> standOk / refUsable at the click's turn
+  P3 lease, a body in the column, hand-off order, prev caps in the next plan, the chest route's slots, the cover-dig tool,
+     blocking-time evidence                             -> all fixed (otherColumns, chestSlots, bestTool, replay block=)
+ Codex r2
+  P1 the escape proof was town->stand (a one-way drop)  -> walksBack / walkReachBack (reverse search, property-tested against
+                                                           brute force on four worlds)
+  P1 a lease lost during the awaits still clicked       -> clickGuard immediately before every mutation, after the awaits
+  P1 the body check went stale before the click         -> same guard
+  P2 carryPrev evicted beyond 32, stairs dropped        -> never evicted (a town at PLINTH_PREV_MAX plans nothing new); stairs
+                                                           carried and protected
+  P2 partial hand-off lost the replan trigger / stale funds -> void is its own trigger; left 0 for a hand-off-only plan
+  P2 replacement supports bypassed refUsable            -> one support predicate everywhere
+  (measured while fixing: the reverse proof made one candidate block 6 s -> the planner became a generator that yields after
+   every ordered step: <= 58 ms blocked at a time on the 16 real towns)
+ Claude r2
+  P2 leaves grown into a placement cell stalled forever -> the approved leaf clear, then the placement
+  P2 an owned pit that never opened left an unclosed row (false trip of the read's pit gate) -> a by=closed row
+  P3 chestSlots wired, body re-check at the click, refUsable in supportsFor, held stall causes, the cover's start, carryPrev
+     per world                                          -> fixed
+ Codex r3 (N1-N4)
+  N1 the opportunistic leaf clear bypassed ownership    -> ownIfWalls + clickGuard on that path too
+  N2 a failed search after a void erased the trigger    -> the none record keeps trigger 'void'
+  N3 a leaf replaced by a foreign block was dug         -> the guard re-reads the target: a foreign block is never dug
+  N4 the final support read skipped refUsable           -> the guard checks the support at the click
+ Claude r3
+  P2 read: P1 gate judged steps against a newer plan's cap -> id -> cap from the _plinth rows (self-tests)
+  P2 read: P5 counted stranded _try AND _result rows    -> one stuck EPISODE per bot per 10 min
+  P3 cover proof one-way; planner vs runtime box; stale left; scaffolding walks -> both directions; plan.box; fixed; the
+     town-deposit walk profile (no dig, no tower, no scaffold)
+ Codex r4
+  N5 the cover removal bypassed the guard (a chest in the cap was dug; a body arriving in the equip did not stop it)
+                                                        -> only PIT_COVER_BLOCKS are a cover (anything else voids the plan);
+                                                           clickGuard({op:'uncover'}) after the equip
+ Claude r4
+  required: an N2 writer test at the skill level        -> added, with its mutant (trigger = null)
+  mutant C (no ownIfWalls in the opportunistic clear) survived -> a floor-leaf test that dies to it
+ Claude r5
+  P2 a dirt cover turned to grass was voided as foreign -> grass_block / mycelium / podzol count as a cover (test)
+  P3 a late landing of the first click was counted as another hand's -> byOther only on the first attempt
+
+ACCEPTED DEFERRALS (both engines)
+  - The design's "no sapling within 3 of a plinth" is not implemented: planting is untouched. A sapling (or any foreign non-leaf
+    block) in a plan cell voids the plan and the town replans; leaves are cleared.
+  - The cleanup cover is not lease-fenced: covering only removes a hazard, and any visitor may do it (close_well).
+  - A crashed builder's lease is waited out (4 min) before the restarted bot resumes (Paper-measured: ~4.4 min gap).
+  - Planner vs runtime: the pathfinder's route between stands is not bounded to the plan's box (stands are).
+
+FINAL
+  Codex r5 APPROVE at 0e288720; the r7 diff (3760658e: grassed covers, late landings) went to both engines as a final
+  confirmation -- the verdicts are in the STATE entry for plinth-01.
