@@ -96,8 +96,8 @@ const replaceable = b => !!b && FLOOR_REPLACEABLE.has(b.name)
 /** A full collision cube (well.mjs fullCube) -- or, for a reader without collision shapes, any solid block. */
 const fullFloor = b => solid(b) && (!Array.isArray(b.shapes) || fullCube(b))
 /** Where the BUILDER stands for a click: standable on a full cube, so its eye is where the reach and sight math put it
- *  (Codex r2 P2: a slab or a path block lowers the eye). The walk model itself stays permissive -- any solid floor is a
- *  node -- so lostWay protects every route a bot can walk. Pure. */
+ *  (Codex r2 P2: a slab or a path block lowers the eye). The builder's own walks are strict too (walkDist/walkBack
+ *  `strict`); only the ways lostWay protects stay permissive -- any solid floor is a node -- so they over-protect. Pure. */
 export const builderStand = (read, x, y, z) => standable(read, x, y, z) && fullFloor(read(x, y - 1, z))
 const CARD = Object.freeze([[1, 0], [-1, 0], [0, 1], [0, -1]])
 const SIX = Object.freeze([[1, 0, 0], [-1, 0, 0], [0, 1, 0], [0, -1, 0], [0, 0, 1], [0, 0, -1]])
@@ -262,11 +262,13 @@ const clearBody = b => passable(b) && !AVOID.test(b.name ?? '')
  */
 export function walkDist (read, start, { box, maxNodes = 120_000, strict = false } = {}) {
   const dist = new Map()
-  if (!start || !standable(read, start.x, start.y, start.z, strict)) return dist
+  // ONE CELL OR SEVERAL (the town's anchor: every cell near home): a multi-source search
+  const seeds = (Array.isArray(start) ? start : [start]).filter(c => c && standable(read, c.x, c.y, c.z, strict))
+  if (!seeds.length) return dist
   const ok = (x, y, z) => (!box || inBox(box, x, y, z)) && standable(read, x, y, z, strict)
   const step = b => (strict ? fullFloor(b) : solid(b))
-  const q = [[start.x, start.y, start.z, 0]]
-  dist.set(K(start.x, start.y, start.z), 0)
+  const q = seeds.map(c => [c.x, c.y, c.z, 0])
+  for (const c of seeds) dist.set(K(c.x, c.y, c.z), 0)
   const push = (x, y, z, d) => { const k = K(x, y, z); if (!dist.has(k)) { dist.set(k, d); q.push([x, y, z, d]) } }
   for (let i = 0; i < q.length && dist.size < maxNodes; i++) {
     const [x, y, z, d] = q[i]
@@ -291,10 +293,11 @@ export function walkDist (read, start, { box, maxNodes = 120_000, strict = false
  */
 export function walkBack (read, target, { box, maxNodes = 120_000, strict = false } = {}) {
   const seen = new Set()
-  if (!target || !standable(read, target.x, target.y, target.z, strict)) return seen
+  const seeds = (Array.isArray(target) ? target : [target]).filter(c => c && standable(read, c.x, c.y, c.z, strict))
+  if (!seeds.length) return seen
   const ok = (x, y, z) => (!box || inBox(box, x, y, z)) && standable(read, x, y, z, strict)
-  const q = [[target.x, target.y, target.z]]
-  seen.add(K(target.x, target.y, target.z))
+  const q = seeds.map(c => [c.x, c.y, c.z])
+  for (const c of seeds) seen.add(K(c.x, c.y, c.z))
   const push = (x, y, z) => { const k = K(x, y, z); if (!seen.has(k)) { seen.add(k); q.push([x, y, z]) } }
   for (let i = 0; i < q.length && seen.size < maxNodes; i++) {
     const [x, y, z] = q[i]
@@ -315,21 +318,21 @@ export function walkBack (read, target, { box, maxNodes = 120_000, strict = fals
 }
 
 /** The standable feet cell nearest home (within 4 horizontally, home.y -3..+3), or null: where the probe starts. Pure. */
-export function startNear (read, home) {
-  let best = null
+/**
+ * THE TOWN'S ANCHOR -> [cell]: every feet cell within 4 of home horizontally and 3 vertically where a body can stand
+ * (permissively; each walk keeps the ones its own mode can stand on). "Walks to the town" means walks to any of them: a
+ * single cell beside home was an anchor a crowd of chests and tables could wall off (Paper 10-14, board-a / hive-b). Pure.
+ */
+export function townAnchor (read, home) {
+  const out = []
   const hy = Math.floor(home.y)
-  for (let dx = -4; dx <= 4; dx++) {
-    for (let dz = -4; dz <= 4; dz++) {
-      for (let dy = -3; dy <= 3; dy++) {
-        const x = Math.floor(home.x) + dx, y = hy + dy, z = Math.floor(home.z) + dz
-        if (!standable(read, x, y, z, true)) continue
-        const d = dx * dx + dz * dz + 2 * dy * dy
-        if (!best || d < best.d || (d === best.d && K(x, y, z) < K(best.x, best.y, best.z))) best = { x, y, z, d }
-      }
-    }
+  for (let dx = -4; dx <= 4; dx++) for (let dz = -4; dz <= 4; dz++) for (let dy = -3; dy <= 3; dy++) {
+    const x = Math.floor(home.x) + dx, y = hy + dy, z = Math.floor(home.z) + dz
+    if (standable(read, x, y, z)) out.push({ x, y, z })
   }
-  return best ? { x: best.x, y: best.y, z: best.z } : null
+  return out
 }
+
 
 // ---- one click (plinth.mjs's rules) -------------------------------------------------------------------------------------
 
@@ -492,10 +495,11 @@ export function sealRefusal (read, cell, { home, entities = [], skyCache = null,
  * A generator (`planFloorSteps`) so a bot's event loop runs between steps; `planFloor` runs it to the end.
  *   read      the world (cells not loaded are null)
  *   home      the town
- *   start     where the walk starts (startNear(home) when absent)
+ *   start     the town's anchor the walks start from and return to (townAnchor(home) when absent; a cell or cells)
  *   entities  other bodies and items: never sealed in, never placed into ([{ x, y, z, player? }])
  *   keepOut   records' cells (floorCells)
  *   skip      Set of cellKeys never tried (stuck cells)
+ *   badStands Set of cellKeys never used as a stand (the pathfinder could not reach them this visit)
  *   maxSteps  placements to plan (the visit's budget)
  * Each step: the eligible targets (open, not protected, a full cube below) in order -- COLD last (cells refused on an
  * earlier visit wait behind every untried one), then the tier (the platform square first), then the HIGHEST (a column is
@@ -556,7 +560,7 @@ export function accessIndex (dist, home) {
   }
 }
 
-export function * planFloorSteps ({ read, home, start = null, entities = [], keepOut = [], skip = new Set(), cold = new Set(), maxSteps = FLOOR_STEPS_PER_VISIT, maxTries = FLOOR_MAX_TRIES } = {}) {
+export function * planFloorSteps ({ read, home, start = null, entities = [], keepOut = [], skip = new Set(), cold = new Set(), badStands = new Set(), maxSteps = FLOOR_STEPS_PER_VISIT, maxTries = FLOOR_MAX_TRIES } = {}) {
   const tally = { tried: 0, nostand: 0, nosupport: 0, seal: 0, sealwhy: {}, occupied: 0, skipped: 0 }
   if (typeof read !== 'function' || !home) return { steps: [], tally, why: 'no_home' }
   const r0 = memoRead(read)
@@ -565,8 +569,8 @@ export function * planFloorSteps ({ read, home, start = null, entities = [], kee
   const cls = floorCells(world, home, { keepOut })
   tally.cells = cls.tally
   if (cls.tally.unknown) return { steps: [], tally, why: 'unknown' }
-  const st = start ?? startNear(world, home)
-  if (!st) return { steps: [], tally, why: 'no_start' }
+  const st = start ?? townAnchor(world, home)
+  if (!st || (Array.isArray(st) && !st.length)) return { steps: [], tally, why: 'no_start' }
   const box = walkBox(home)
   const ents = Array.isArray(entities) ? entities.filter(Boolean) : []
   const occ = new Set()
@@ -619,7 +623,8 @@ export function * planFloorSteps ({ read, home, start = null, entities = [], kee
       const sup = floorSupports(world, t)
       if (!sup.length) { fail('nosupport'); continue }
       const options = sup.map(s => ({ ...s, point: faceCentre(s.ref, s.face), topFace: s.face[1] === 1 }))
-      if (!options.some(o => standFor(world, { target: t, point: o.point, topFace: o.topFace, reach: dist }))) { fail('nostand'); continue }
+      const reachOk = { has: k => dist.has(k) && !badStands.has(k) }   // a stand the pathfinder failed to reach this visit is no stand
+      if (!options.some(o => standFor(world, { target: t, point: o.point, topFace: o.topFace, reach: reachOk }))) { fail('nostand'); continue }
       const sw = sealRefusal(world, t, { home, entities: ents, skyCache, skyRead: read })
       if (sw) { tally.sealwhy[sw] = (tally.sealwhy[sw] ?? 0) + 1; fail(sw === 'entity' ? 'occupied' : 'seal'); continue }
       placed.set(key, PLACED)
@@ -629,7 +634,7 @@ export function * planFloorSteps ({ read, home, start = null, entities = [], kee
       // NO WAY IS CUT (Codex r1 P1): every stand that walked to the town before still does after, the filled cell's own
       // excepted -- whoever stands there (another bot, one coming up from the mines) or will stand there later
       if (lostWay(backNow, back, key) != null) { fail('cut'); continue }
-      const usable = { has: k => dist.has(k) && backB.has(k) }
+      const usable = { has: k => dist.has(k) && backB.has(k) && !badStands.has(k) }
       let stand = null, opt = null
       for (const o of options) {
         stand = standFor(world, { target: t, point: o.point, topFace: o.topFace, reach: usable, prefer: prev })
