@@ -309,7 +309,7 @@ await t('STRICT AND PERMISSIVE KEPT APART (Claude r4): the ways a body walks hom
 
 await t('STRICT TRANSIT (Codex r6 P2): the builder never drops through a cobweb; the permissive ways still count it', () => {
   const c = carve({}, 8, 8, 60, 62, 0, 0)                                      // a 3-deep shaft
-  c['8,61,0'] = 'cobweb'
+  c['8,62,0'] = 'cobweb'                                                       // in the drop's path, not at the landing
   const w = town(c), anchor = F.townAnchor(w.read, HOME), box = F.walkBox(HOME)
   assert.ok(F.walkDist(w.read, anchor, { box }).has(F.cellKey(8, 60, 0)), 'positive control: permissively the drop lands')
   assert.ok(!F.walkDist(w.read, anchor, { box, strict: true }).has(F.cellKey(8, 60, 0)), 'strictly it does not')
