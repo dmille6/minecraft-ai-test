@@ -3347,7 +3347,7 @@ export function stockRecountKeys (bot, items = bot?.inventory?.items?.() ?? [], 
     if (!rf.length) return []
     const st = capTown(bot)
     if (!st) return []
-    const groups = new Set(rf.map(r => (r.why === 'town_cobble_unknown' ? 'cobble' : groupOf(r.name))).filter(Boolean))
+    const groups = new Set(rf.map(r => groupOf(r.name)).filter(Boolean))   // cobblestone and cobbled_deepslate are group 'cobble'
     const home = homeVec()
     const mem = readTownMemory(townDir(), homeTownKey(), bot.worldId ?? null) ?? {}
     const misses = readRecountMisses(bot)
@@ -3390,7 +3390,7 @@ async function countTown (ctx, _args, signal) {
   capEpoch++                                                          // the plan's next view reads the new counts
   const after = unknownRefusals(bot)
   return row(rc.counted ? 'success' : 'no_effect',
-    `trigger=order refused=${before.length} keys=${keys.length} counted=${rc.counted} tried=${rc.tried ?? 0} unknown_after=${after.length}${rc.timedOut ? ' timed_out=1' : ''}${rc.interrupted ? ' interrupted=1' : ''}${rc.pending ? ' pending_open=1' : ''} names=${refusedS}`, rc.counted)
+    `trigger=order refused=${before.length} keys=${keys.length} counted=${rc.counted} tried=${rc.tried ?? 0} unknown_after=${after.length}${rc.timedOut ? ' timed_out=1' : ''}${rc.interrupted ? ' interrupted=1' : ''}${rc.pending ? ' pending_open=1' : ''} fails=${Object.entries(rc.fails ?? {}).map(([w, n]) => `${w.replace(/\s+/g, '_')}:${n}`).join(',') || '-'} names=${refusedS}`, rc.counted)
 }
 export function stockCountKeys (bot, items = bot.inventory?.items?.() ?? [], { floor = false, now = Date.now() } = {}) {
   try {
@@ -3530,16 +3530,18 @@ export function resetCobbleReconcile () { reconcileFailed.clear(); capScan = { a
  */
 export async function reconcileCobble (bot, signal, msLeft, keys = null, { remember = false, progress = null } = {}) {
   let counted = 0, tried = 0, timedOut = false, interrupted = false
+  const fails = {}   // why -> n (the recount's row names them: Claude st2-r2 P3-c, a dug-out town's walk timeouts)
   const fail = (k, why) => {
+    fails[why] = (fails[why] ?? 0) + 1
     reconcileFailed.set(failKey(k), { until: Date.now() + RECONCILE_BACKOFF_MS, why })
     // THE RECOUNT ORDER (stocktarget-02): a container it could not reach or open is a RECOUNT MISS in the town's own
     // recount file (recount.mjs) -- never a strike in the container memory the deposit, the withdraw and the full-chest
     // recovery read (both reviews st2-r1 P1/P2) -- and only on evidence (RECOUNT_MISS_REASONS)
     if (remember && RECOUNT_MISS_REASONS.has(why)) noteRecountMiss(bot, k)
   }
-  const note = () => { if (progress) { progress.counted = counted; progress.tried = tried } }
+  const note = () => { if (progress) { progress.counted = counted; progress.tried = tried; progress.fails = fails } }
   // ONE OPEN AT A TIME, here too (Codex st2-r1 P2: the recount did not check the pending open the deposit checks)
-  if (bot.cobbleOpenPending) return { counted, timedOut, tried, pending: true }
+  if (bot.cobbleOpenPending) return { counted, timedOut, tried, pending: true, fails }
   try {
     const view = cobbleTownViewFor(bot, Date.now(), { fresh: true })
     const here = bot.entity.position
@@ -3551,7 +3553,9 @@ export async function reconcileCobble (bot, signal, msLeft, keys = null, { remem
       if (msLeft(RECONCILE_WALK_MS) < 2_000) break
       tried++; note()
       const b = bot.blockAt(c)
-      if (!b || !CONTAINER_RE.test(blockNameOf(bot, b) ?? '')) { fail(k, 'not a container'); continue }
+      // an UNLOADED cell is no evidence about the container: this bot's backoff only, never a recount miss (Claude st2-r2 P3-a)
+      if (!b) { fail(k, 'not loaded'); continue }
+      if (!CONTAINER_RE.test(blockNameOf(bot, b) ?? '')) { fail(k, 'not a container'); continue }
       const lid = bot.blockAt(c.offset(0, 1, 0))
       if (/chest/.test(blockNameOf(bot, b) ?? '') && lid && chestLidBlocked(lid)) { fail(k, 'lid blocked'); continue }
       try {
@@ -3591,7 +3595,7 @@ export async function reconcileCobble (bot, signal, msLeft, keys = null, { remem
     }
   } catch (e) { if (e?.aborted || signal?.aborted) throw e }
   logEvent({ kind: 'cobble_reconcile', status: counted ? 'success' : 'no_effect', snapshot: snapshot(bot), detail: `counted=${counted} of ${tried} tried (max ${RECONCILE_MAX})${timedOut ? ' timed_out=1' : ''}${interrupted ? ' interrupted=1' : ''}` })
-  return { counted, timedOut, tried, interrupted }
+  return { counted, timedOut, tried, interrupted, fails }
 }
 /** One outcome into the town's container memory (chestfull.mjs), for TOWN containers only (inTown: the same boundary
  *  as the memory read, so a container the recovery treats as town always gets its backoff written). */

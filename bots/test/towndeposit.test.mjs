@@ -950,7 +950,7 @@ test('RECOUNT CHAIN (stocktarget-02): a fenced town, a bag of 7 slots, the model
     assert.equal(ran[0]?.skill, 'count_town', JSON.stringify(ran) + ' ' + rows.join(' | '))
     assert.equal(ran[0].status, 'success', ran[0].detail)
     assert.ok(ran[0].slots < 34, `below the town deposit's trigger: ${ran[0].slots}`)
-    assert.ok(rows.some(r => /^_stock_recount trigger=order refused=2 keys=1 counted=1 tried=1 unknown_after=0 names=oak_log:stock_unknown,stick:stock_unknown/.test(r)), rows.join(' | '))
+    assert.ok(rows.some(r => /^_stock_recount trigger=order refused=2 keys=1 counted=1 tried=1 unknown_after=0 fails=- names=oak_log:stock_unknown,stick:stock_unknown/.test(r)), rows.join(' | '))
     // the deposit is ADMITTED (no admission refusal) and judged on the count: a claim of the room under 64 (64 - 20 = 44)
     // admitted on a COMPLETE count. (This fake world's chest does not take a chest.deposit transfer -- the transfer itself
     // is stocktarget.test's DEPOSIT tests and the Paper `stockrecount` scene.)

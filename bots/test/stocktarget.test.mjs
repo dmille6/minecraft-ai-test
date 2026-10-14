@@ -548,5 +548,56 @@ await t('COUNT_TOWN: an open still PENDING -> nothing is opened (Codex st2-r1 P2
   }
 })
 
+await t('AN INTERRUPTION ENDS THE RECOUNT (Claude st2-r2 P2-1a): two uncounted chests, the first walk interrupted -> ONE walk, nothing opened, no second walk, the row says interrupted=1 tried=1; positive control: a no-path on the first goes on to the second', async () => {
+  const SK = await import('../src/skills.mjs')
+  for (const [name, err, wantGotos] of [['interrupted', 'The goal was changed before it could be completed!', 1], ['no path', 'No path to the goal!', 2]]) {
+    const w = town([stack('oak_log', 64), stack('oak_log', 64)])
+    w.stock(5, 64, 0, [stack('oak_log', 20)])
+    w.set(5, 64, 3, 'chest'); w.stock(5, 64, 3, [stack('oak_log', 10)])
+    installCobbleCap(w.bot); B.setStockWellProbe(() => true)
+    try {
+      SK.resetCobbleReconcile()
+      assert.equal(SK.stockRecountKeys(w.bot).length, 2, `${name}: two uncounted chests`)
+      const g0 = w.spy.gotos.length, o0 = w.spy.opened.length
+      w.bot.pathfinder.goto = async goal => { w.spy.gotos.push({ x: goal.x, y: goal.y, z: goal.z }); throw new Error(err) }
+      const n0 = RECS.length
+      await SKILLS.count_town.run({ bot: w.bot }, {}, new AbortController().signal)
+      assert.equal(w.spy.gotos.length - g0, wantGotos, `${name}: walks`)
+      assert.equal(w.spy.opened.length - o0, 0, `${name}: nothing opened`)
+      const row = RECS.slice(n0).find(x => x.skill?.name === '_stock_recount')?.skill?.detail ?? ''
+      if (name === 'interrupted') assert.match(row, /counted=0 tried=1 unknown_after=\d+ interrupted=1 /)
+      else assert.match(row, /counted=0 tried=2 .*fails=unreachable:2 /)
+    } finally { B.setStockReaders({ town: null, well: null }) }
+  }
+})
+await t('THE PENDING-OPEN GUARD IN THE SHARED ENTRY (Claude st2-r2 P2-1b): reconcileCobble itself -- the town deposit\'s count step calls it before its own check -- opens nothing while an open is pending; positive control: settled, it counts', async () => {
+  const SK = await import('../src/skills.mjs')
+  const { w } = await fenced([stack('oak_log', 64), stack('oak_log', 64)])
+  try {
+    SK.resetCobbleReconcile()
+    const msLeft = cap => cap
+    w.bot.cobbleOpenPending = new Promise(() => {})
+    const o0 = w.spy.opened.length
+    const r1 = await SK.reconcileCobble(w.bot, new AbortController().signal, msLeft, ['5,64,0'])
+    assert.equal(r1.pending, true); assert.equal(r1.counted, 0); assert.equal(w.spy.opened.length - o0, 0, 'no open while one is pending')
+    w.bot.cobbleOpenPending = null
+    const r2 = await SK.reconcileCobble(w.bot, new AbortController().signal, msLeft, ['5,64,0'])
+    assert.equal(r2.counted, 1, 'settled: counted')
+  } finally { B.setStockReaders({ town: null, well: null }) }
+})
+await t('AN UNLOADED CELL IS NO MISS (Claude st2-r2 P3-a): a key whose cell is not loaded -> this bot backs off, the recount file is untouched; the row names fails=not_loaded', async () => {
+  const SK = await import('../src/skills.mjs')
+  const { w, dir } = await fenced([stack('oak_log', 64), stack('oak_log', 64)])
+  try {
+    SK.resetCobbleReconcile()
+    const blockAt0 = w.bot.blockAt
+    w.bot.blockAt = p => (p && p.x === 5 && p.y === 64 && p.z === 0 ? null : blockAt0(p))
+    const n0 = RECS.length
+    await SKILLS.count_town.run({ bot: w.bot }, {}, new AbortController().signal)
+    assert.match(RECS.slice(n0).find(x => x.skill?.name === '_stock_recount')?.skill?.detail ?? '', /counted=0 tried=1 .*fails=not_loaded:1 /)
+    assert.equal((missesOf(dir)['5,64,0'] ?? []).length, 0, 'no shared miss')
+  } finally { B.setStockReaders({ town: null, well: null }) }
+})
+
 console.log(`\n${pass} passed, ${fail} failed`)
 process.exit(fail ? 1 : 0)

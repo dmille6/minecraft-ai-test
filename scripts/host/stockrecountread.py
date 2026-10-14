@@ -142,6 +142,16 @@ def judge(rows):
             out['new_chests_%s_%s' % (per, arm)] = sum(1 for r in rows if r['per'] == per and r['arm'] == arm and r['name'] == '_deposit_new_chest'
                                                        and r['status'] == 'success' and 'placed=1' in r['detail'])
     out['recount_aborted'] = sum(1 for r in rc_c if r['status'] == 'aborted')
+    # why containers were not counted (the row's fails=why:n,...): walk timeouts apart -- a container too far from every
+    # bot's position for the 15 s walk would stay unknown (Claude st2-r2 P3-c)
+    fails = Counter()
+    for r in rc_c:
+        for part in (kv(r['detail']).get('fails') or '-').split(','):
+            w, _, n = part.partition(':')
+            if n.isdigit():
+                fails[w] += int(n)
+    out['recount_fails'] = dict(fails)
+    out['recount_walk_timeouts'] = fails.get('walk_timeout', 0)
     out['instrument_control'] = out['unknown_refusals_post_control']
     out['exposure_ready'] = int((len(ur) + len(rc_c)) >= 3 and out['instrument_control'] >= 1)
     out['_lists'] = {'loop': loop[:5], 'backoff': backoff[:5]}
@@ -169,6 +179,8 @@ def selftest():
     assert ready['exposure_ready'] == 1, ready
     nc = judge([R('_deposit_new_chest', 'decision=place_carried aid=x near_home=true placed=1 tried=[]'), R('_deposit_new_chest', 'decision=craft aid=y placed=0 tried=[]')])
     assert nc['new_chests_post_canary'] == 1, nc
+    wt = judge([R('_stock_recount', 'trigger=order refused=1 keys=3 counted=0 tried=2 unknown_after=1 fails=walk_timeout:1,unreachable:1 names=oak_log:stock_unknown')])
+    assert wt['recount_walk_timeouts'] == 1 and wt['recount_fails'] == {'walk_timeout': 1, 'unreachable': 1}, wt
     ab = judge([dict(RC(1), status='aborted')])
     assert ab['recount_aborted'] == 1 and ab['recount_live'] == 1, 'an aborted recount that counted is still a count'
     print('SELFTEST ok: every gate fails on its fixture and passes its control')
@@ -207,6 +219,7 @@ if __name__ == '__main__':
     print('REPORTED     not-yet-counted refusals canary %d -> %d control %d -> %d | per bot-h DiD %+.3f | canary refusals followed by a recount within %d s: %d of %d'
           % (res['unknown_refusals_pre_canary'], res['unknown_refusals_post_canary'], res['unknown_refusals_pre_control'], res['unknown_refusals_post_control'],
              did, FOLLOW_S, res['refusals_followed'], res['refusals_unknown_canary']))
+    print('FAILS        why containers were not counted %s (walk timeouts %d)' % (res['recount_fails'], res['recount_walk_timeouts']))
     print('TRIPWIRE     new town chests placed canary %d -> %d control %d -> %d | per bot-h DiD %+.4f | aborted recounts %d'
           % (res['new_chests_pre_canary'], res['new_chests_post_canary'], res['new_chests_pre_control'], res['new_chests_post_control'], nc_did, res['recount_aborted']))
     print('EXPOSURE     -> %s (instrument: control not-yet-counted refusals %d)' % ('READY' if res['exposure_ready'] else 'NOT YET', res['instrument_control']))
