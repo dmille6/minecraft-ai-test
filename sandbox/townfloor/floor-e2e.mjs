@@ -85,7 +85,8 @@ function townModel () {
   carve(-4, -4, 118, 118, -4, -4)                                                     // a plain platform hole
   set(-10, 116, -10, 'dirt'); set(-10, 117, -10, 'oak_sapling'); set(-10, 118, -10, 'air')   // a sapling in a hole
   const read = (x, y, z) => {
-    if (x < A.x0 || x > A.x1 || z < A.z0 || z > A.z1 || y < A.y0 || y > A.y1) return null
+    if (x < A.x0 || x > A.x1 || z < A.z0 || z > A.z1 || y < A.y0 || y > 319) return null
+    if (y > A.y1) return blk('air')                       // the arena is cleared to the sky: air up to the world top
     const k = `${x},${y},${z}`
     if (m.has(k)) return blk(m.get(k))
     if (y > L) return blk('air')
@@ -115,7 +116,8 @@ function boardaModel () {
   let rd = null, raw = null
   const read = (x, y, z) => {
     const sx = x - OFF.x, sy = y - OFF.y, sz = z - OFF.z
-    if (x < A.x0 || x > A.x1 || z < A.z0 || z > A.z1 || y < A.y0 || y > A.y1) return null
+    if (x < A.x0 || x > A.x1 || z < A.z0 || z > A.z1 || y < A.y0 || y > 319) return null
+    if (y > A.y1) return blk('air')
     if (sx < BA.box.x0 || sx > BA.box.x1 || sz < BA.box.z0 || sz > BA.box.z1 || sy < BA.box.y0 || sy > BA.box.y1) return blk(y < BA.box.y0 + OFF.y ? 'stone' : 'air')
     return rd(sx, sy, sz)
   }
@@ -334,6 +336,7 @@ async function sceneFill (fx, rep, { kill = false, withWalker = false } = {}) {
   const j = judge(F, placed)
   const rows = runs.flatMap(rowsOf)
   const stepRows = rows.filter(r => r.name === '_town_floor_step')
+  const afterKill = kills ? rowsOf(runs.at(-1)).filter(r => r.name === '_town_floor_step').length : 0
   const visitRows = rows.filter(r => r.name === '_town_floor')
   const rowCells = new Set(stepRows.map(r => /at=(\S+)/.exec(r.detail)?.[1]))
   const reserve = stepRows.filter(r => /block=cobble/.test(r.detail) && r.inv && ((r.inv.cobblestone ?? 0) + (r.inv.cobbled_deepslate ?? 0)) < 64).length
@@ -343,11 +346,13 @@ async function sceneFill (fx, rep, { kill = false, withWalker = false } = {}) {
   result({ scene: withWalker ? 'walker' : 'fill', fx, rep, kill: !!kill, kills, readerControl: { before: base.size, seen: ctl },
     // OK needs PROGRESS and AGREEMENT too (Codex r2 P2): an unchanged fixture satisfies every safety predicate
     ok: j.placed > 0 && rowCells.size === placed.size && [...placed.keys()].every(k => rowCells.has(k)) &&
-        j.outside.length === 0 && j.bridges.length === 0 && j.cut.length === 0 && (prot ?? []).every(p => p.ok) && reserve === 0 && (walkerStillHome !== false),
+        j.outside.length === 0 && j.bridges.length === 0 && j.cut.length === 0 && (prot ?? []).every(p => p.ok) && reserve === 0 &&
+        // THE SCENE MUST HAVE HAPPENED (Codex r4 P2): the walker walked home; both kills ran and the bot placed after the last
+        (!withWalker || walkerStillHome === true) && (!kill || (kills === 2 && afterKill > 0)),
     targets: j.targets, offlineFillable: offline.steps.length, serverPlaced: j.placed, rowsPlaced: stepRows.length,
     rowsMatchServer: rowCells.size === placed.size && [...placed.keys()].every(k => rowCells.has(k)),
     outside: j.outside.slice(0, 10), outsideN: j.outside.length, bridges: j.bridges.slice(0, 10), cutWays: j.cut.slice(0, 10), cutN: j.cut.length,
-    leftTargets: j.left, protected: prot, reserveBreaches: reserve, walkerWalkedHome: walkerStillHome,
+    leftTargets: j.left, protected: prot, reserveBreaches: reserve, walkerWalkedHome: walkerStillHome, placedAfterLastRestart: afterKill,
     visits: visitRows.length, visitWhy: visitRows.map(r => /why=(\S+)/.exec(r.detail)?.[1] ?? '-'), doneMs: done,
     placeGapMs: gaps.length ? { p50: gaps[Math.floor(gaps.length / 2)], p90: gaps[Math.floor(gaps.length * 0.9)] } : null,
     refused: visitRows.reduce((t, r) => t + (Number(/refused=(\d+)/.exec(r.detail)?.[1]) || 0), 0), dropped: visitRows.reduce((t, r) => t + (Number(/dropped=(\d+)/.exec(r.detail)?.[1]) || 0), 0) })

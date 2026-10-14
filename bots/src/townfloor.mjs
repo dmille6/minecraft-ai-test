@@ -587,10 +587,12 @@ export function * planFloorSteps ({ read, home, start = null, entities = [], kee
       if (a === Infinity) continue
       eligible.push({ t, a })
     }
-    // COLD cells (refused on an earlier visit: the record's) go last, so a visit whose first FLOOR_MAX_TRIES candidates all
-    // refuse does not make the next visit try the same ones first (Claude r1 P2-2)
+    // COLD cells (refused on an earlier visit: the record's) go LAST, ahead of the tier (Codex r4 P2: a cold platform cell
+    // first would let refused tier-0 cells eat every visit's tries and starve the rest of the floor). The platform's
+    // preference holds among the cells not yet refused; a refused cell is tried again once nothing untried is left, or
+    // when it ages out (Claude r1 P2-2)
     const isCold = t => (cold.has(K(t.x, t.y, t.z)) ? 1 : 0)
-    eligible.sort((p, q) => p.t.tier - q.t.tier || isCold(p.t) - isCold(q.t) || q.t.y - p.t.y || q.a - p.a || K(p.t.x, p.t.y, p.t.z) - K(q.t.x, q.t.y, q.t.z))
+    eligible.sort((p, q) => isCold(p.t) - isCold(q.t) || p.t.tier - q.t.tier || q.t.y - p.t.y || q.a - p.a || K(p.t.x, p.t.y, p.t.z) - K(q.t.x, q.t.y, q.t.z))
     if (!eligible.length) { why = 'none_reachable'; break }
     let took = null, tookDist = null
     let tries = 0, exhausted = false
