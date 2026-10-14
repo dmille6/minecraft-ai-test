@@ -189,6 +189,8 @@ export function tunnelMovements (bot, base = null, { home = null } = {}) {
   const at = p => bot.blockAt(p)
   m.exclusionAreasStep = [...(base?.exclusionAreasStep ?? []), b => stepHazard(at, b)]
   m.exclusionAreasBreak = [...(base?.exclusionAreasBreak ?? []), b => (nearHome(b?.position, home) ? 100 : breakHazard(at, b))]
+  // TELEMETRY TAG (digtown.mjs): the tunnel's own excavation is a TARGET dig, not transit. Nothing else reads it.
+  m.digPurpose = 'target:ore_tunnel'
   return m
 }
 
