@@ -58,6 +58,7 @@ MUTANTS = [
     ('protected ways judged strictly (the bed route may be cut)', TF, '    const backNow = walkBack(world, st, { box })', '    const backNow = walkBack(world, st, { box, strict: true })', P),
     ('the builder returns permissively (over beds)', TF, "      const backB = walkBack(world, st, { box, strict: true })", "      const backB = walkBack(world, st, { box })", P),
     ('walled_in judged permissively', TF, '  if (!walkBack(after, start, { box, strict: true }).has(K(sx, sy, sz))) return', '  if (!walkBack(after, start, { box }).has(K(sx, sy, sz))) return', P),
+    ('strict transit is permissive (a drop through a cobweb)', TF, '  const pass = strict ? clearBody : passable                     // strict transit too', '  const pass = passable                     // strict transit too', P),
     ('a passing body holds the town an hour', S, '      const none = !stats.placed && !transientSkip && ', '      const none = !stats.placed && ', SK),
     ('a plinth plan cell is not a keep-out', S, '      if (Array.isArray(st?.c) && st.c.length === 3 && st.c.every(Number.isFinite)) out.push({ x: st.c[0], y: st.c[1], z: st.c[2], r: 0, up: 0, down: 0 })\n', '', SK),
     ('any empty pocket may be closed', TF, 'export const POCKET_MAX = 8', 'export const POCKET_MAX = 1e9', P),

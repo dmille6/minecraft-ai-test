@@ -20,7 +20,7 @@ const t = async (name, fn) => {
 
 const HOME = { x: 0, y: 64, z: 0 }
 const L = 62
-const OPEN = new Set(['air', 'cave_air', 'short_grass', 'poppy', 'oak_sapling', 'torch', 'water', 'lava'])
+const OPEN = new Set(['air', 'cave_air', 'short_grass', 'poppy', 'oak_sapling', 'torch', 'water', 'lava', 'cobweb'])
 const HALF = /(_slab|_bed)$/
 const blk = name => (name == null ? null : { name, boundingBox: OPEN.has(name) ? 'empty' : 'block', shapes: OPEN.has(name) ? [] : HALF.test(name) ? [[0, 0, 0, 1, 0.5, 1]] : [[0, 0, 0, 1, 1, 1]], hardness: 1.5, props: null })
 /** A town: stone up to the floor level, the 13x13 platform of stone_bricks at L, grass around it, air above; loaded within
@@ -441,6 +441,14 @@ await t('STRICT AND PERMISSIVE KEPT APART (Claude r4): the ways a body walks hom
   // the click's own judge: a stand beyond the bed is walled in for the builder, however it walked in
   const w2 = bedTrench()
   assert.equal(F.stepRefusal(w2.read, { c: [14, 60, 0], r: [14, 59, 0], f: [0, 1, 0], s: [13, 60, 0], tier: 1 }, { home: HOME, start: anchor }), 'walled_in')
+})
+
+await t('STRICT TRANSIT (Codex r6 P2): the builder never drops through a cobweb; the permissive ways still count it', () => {
+  const c = carve({}, 8, 8, 60, 62, 0, 0)                                      // a 3-deep shaft
+  c['8,61,0'] = 'cobweb'
+  const w = town(c), anchor = F.townAnchor(w.read, HOME), box = F.walkBox(HOME)
+  assert.ok(F.walkDist(w.read, anchor, { box }).has(F.cellKey(8, 60, 0)), 'positive control: permissively the drop lands')
+  assert.ok(!F.walkDist(w.read, anchor, { box, strict: true }).has(F.cellKey(8, 60, 0)), 'strictly it does not')
 })
 
 await t('A SLAB IS NO FOUNDATION and no builder floor (Codex r2 P2): a hole over a slab is not filled; a stand on a slab is not used', () => {
