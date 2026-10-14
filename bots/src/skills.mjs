@@ -8544,7 +8544,7 @@ async function fillTown (ctx, _args, signal) {
       // ---- PLAN the next steps from the world as it is (yielding: this bot's event loop keeps running) ----
       const read = readWellCell(bot)
       const skipNow = new Set([...stuckSkips({ stuck }, Date.now()), ...visitSkip])
-      const it = planFloorSteps({ read, home, entities: floorEntities(bot), keepOut, skip: skipNow, badStands, cold: coldKeys(rec0, Date.now()),
+      const it = planFloorSteps({ read, home, entities: floorEntities(bot), keepOut, skip: skipNow, badStands, from: bot.entity?.position ?? null, cold: coldKeys(rec0, Date.now()),
                                   maxSteps: Math.max(1, Math.min(FLOOR_STEPS_PER_VISIT - stats.placed, floorBudget(items()))) })
       let res
       for (;;) {
