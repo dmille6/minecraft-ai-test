@@ -98,7 +98,10 @@ function closedPockets (r, box) {
 /** THE ORACLE on a whole replay: nobody who walked home before (and was not filled over) cannot after; no new closed pocket
  *  bigger than POCKET_MAX; no closed pocket holds an entity that was not in one before. */
 function oracle (before, after, filled, entities = []) {
-  const st = F.townAnchor(before, HOME), box = { ...F.floorBox(HOME), x0: F.floorBox(HOME).x0 - 3, x1: F.floorBox(HOME).x1 + 3, z0: F.floorBox(HOME).z0 - 3, z1: F.floorBox(HOME).z1 + 3, y0: F.floorBox(HOME).y0 - 2, y1: L + 3 }
+  // THE ORACLE'S OWN TOWN (Claude r5: not the planner's anchor): standable cells ON the floor (feet L+1) within 4 of home
+  const st = []
+  for (let x = HOME.x - 4; x <= HOME.x + 4; x++) for (let z = HOME.z - 4; z <= HOME.z + 4; z++) if (stands(before, x, L + 1, z)) st.push({ x, y: L + 1, z })
+  const box = { ...F.floorBox(HOME), x0: F.floorBox(HOME).x0 - 3, x1: F.floorBox(HOME).x1 + 3, z0: F.floorBox(HOME).z0 - 3, z1: F.floorBox(HOME).z1 + 3, y0: F.floorBox(HOME).y0 - 2, y1: L + 3 }
   const pbox = { ...box, y1: L + 12 }
   const w0 = homeWalkers(before, st, box), w1 = homeWalkers(after, st, box)
   const lost = [...w0].filter(k => !w1.has(k) && !filled.has(k))
@@ -327,6 +330,18 @@ await t('NOBODY IS SEALED IN OR PLACED INTO: an item in a dead end keeps its way
   assert.ok(!p2.steps.some(s => s.c[0] === 9 && s.c[2] === -9 && (s.c[1] === 60 || s.c[1] === 61)), 'never into the player\'s feet or head')
   replay(w2, p2, { entities: [bot] })
   assert.ok(F.walkBack(w2.read, F.townAnchor(w2.read, HOME), { box: F.walkBox(HOME) }).has(F.cellKey(9, 60, -9)), 'the player still walks to the town after the whole plan')
+})
+
+await t('A HOLE BESIDE HOME IS NOT THE TOWN (Claude r5 P1 repros): the stair one block west of the tunnel test, and a 1x3 pit by home -- no way is cut, no builder stands where it cannot get out', () => {
+  const c = {}
+  for (const [x, f] of [[3, 62], [4, 61], [5, 60], [6, 60]]) carve(c, x, x, f, 62, 0, 0)   // the stair, its top cell within 4 of home
+  carve(c, 7, 14, 60, 61, 0, 0)                                                         // the tunnel
+  const w = town(c)
+  assert.ok(!F.townAnchor(w.read, HOME).some(a => a.y < L + 1), 'no anchor cell below the floor')
+  const p = F.planFloor({ read: w.read, home: HOME, maxSteps: 500 })
+  replay(w, p)
+  const w2 = town(carve({}, 2, 2, 60, 62, -2, 0))                                       // a 1x3 pit beside home, 3 deep
+  replay(w2, F.planFloor({ read: w2.read, home: HOME, maxSteps: 50 }))
 })
 
 await t('NO WAY IS CUT (Codex r1 P1 repro): the mouth of a 2-high tunnel is never filled while a stand beyond it walks to the town -- planned or re-proved at the click, a player there or not', () => {

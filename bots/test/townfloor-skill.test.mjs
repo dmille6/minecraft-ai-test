@@ -283,7 +283,7 @@ await t('THE BUILDER IS RE-CHECKED ON ITS STAND AT THE CLICK (Codex r2 P2): push
 await t('A STAND THE PATHFINDER CANNOT REACH (Paper 10-14, board-a): the step is skipped for the rest of the visit and made cold, the visit fills the others', async () => {
   reset()
   const town = fakeTown({ items: [['cobblestone', 64], ['cobblestone', 64]], cells: carve({}, -10, -8, 62, 62, -10, -8) })
-  const first = F.planFloor({ read: town.read, home: HOME, maxSteps: 1 }).steps[0]
+  const first = F.planFloor({ read: town.read, home: HOME, maxSteps: 1, from: town.bot.entity.position }).steps[0]   // as the skill plans it
   let failed = 0
   town.st.gotoFail = goal => { if (goal.x === first.s[0] && goal.y === first.s[1] && goal.z === first.s[2] && failed < 99) { failed++; return true } return false }
   const r = await visit(town)

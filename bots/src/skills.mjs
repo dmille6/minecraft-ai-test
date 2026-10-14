@@ -8531,7 +8531,7 @@ async function fillTown (ctx, _args, signal) {
     const k = cellKey(s.c[0], s.c[1], s.c[2])
     visitSkip.add(k)
     if (!['body', 'moved', 'occupied', 'seal:entity'].includes(why)) refusedAll.push(k)
-    if (['body', 'moved', 'occupied', 'seal:entity'].includes(why)) transientSkip = true
+    if (['body', 'moved', 'occupied', 'seal:entity', 'unreachable'].includes(why)) transientSkip = true   // no hold (a blocked path may clear)
     stats.refused++; lastWhy = why
   }
   try {
