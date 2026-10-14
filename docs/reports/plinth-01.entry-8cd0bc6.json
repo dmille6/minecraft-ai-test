@@ -1,0 +1,23 @@
+{
+ "run": "plinth-01",
+ "class": "",
+ "after": [
+  "wellsite-02"
+ ],
+ "hold": "wellsite-02 KEPT and PROMOTED",
+ "variants": {
+  "8cd0bc62e5606b021832d808b150007f38ab2d6e": {
+   "registration": "/home/mike/mcai-analysis/plinth-01.8cd0bc6.json",
+   "approved": "plinth agent 2026-10-14: plinth-on-8cd0bc6 @ b4174a09 = the approved plinth-01 net diff (4774bec1 over baa94879; Codex r1-r8 + Claude r1-r7 APPROVE, docs/reports/plinth-01-review-2026-10-13.txt) on wellsite-02's 8cd0bc62, one commit 2fd7197b; bots/src differs from the approved diff only by two conflict unions (decide chain build_plinth > town_deposit > count_town; HOUSEKEEPING). Rebase review Codex APPROVE + Claude subagent APPROVE (3 P3, none blocking) -- docs/reports/plinth-01.rebase-review-8cd0bc62-2026-10-14.txt. npm test 253/253 (2fd7197b; b4174a09 is a test title + the record, plinth-skill 52/52); composition tests: PLINTH x RECOUNT CHAIN through the real CognitiveLoop + mutant, DIGTOWN through the real _dig_town wrapper. eslint no-undef only the pre-existing reflex.mjs withinBody. drawrequire.parse ([], None) -- NO draw_require_pools key; licencecheck PASS (kind _plinth, 0 baseline rows in 356,942 / 6 h); changerowcheck PASS (plinth, plinth_step: baseline 5e66386 silent, positive control 192,752 baseline rows on 80 bots) 10-14 21:27Z. Paper evidence (same plinth code): docs/reports/plinth-01-sandbox-2026-10-13.md. ORDINARY canary.",
+   "registration_sha256": "c9e1038327d2c4ce44fb5e0d6adbf61597034623193f7eef1ed9368b394ecf6e",
+   "canary_sha": "b4174a09e6a68a653d42c8ffad1ccfd148b44e48",
+   "reads_src": "/home/mike/mcai-analysis",
+   "reads": {
+    "plinthread": "30f2778a0ae959ddb792fa3a2d1eda3d",
+    "wellread": "a1a3deee547f8ec4ebcba84a487c8ba8",
+    "immobiledid": "53af289df12208901931dbeeb1ae325a"
+   }
+  }
+ },
+ "note": "REPLACE-VARIANT entry (`canary-sched.py queue replace-variant plinth-01 <this file>`): the only fleet plinth-01 can launch on is 8cd0bc62 (wellsite-02 promoted). replace-variant replaces variants+class only; the hold wording is set separately (`queue hold plinth-01 \"wellsite-02 KEPT and PROMOTED\"`). The scheduler resolves canary_sha b4174a09 in its git: fetch origin there first. Townzone-01 composition: plinth-x-tz-8cd (tz-on-5e66386 3b1ae8bb + plinth) merges clean; its suite is in the STATE entry. If townzone-01 is promoted before plinth-01's turn, plinth needs a variant on that fleet (the merge is clean). Draw: draw_exposure _well_refused reason=no_site >= 2 / 3 h; no required pool."
+}

@@ -12,6 +12,38 @@ Studio reservation both closed 10-12); clear caps bamboo 0 / bucket 2._
 
 ---
 
+## 10-14 21:40Z — plinth-01 VARIANT ON 8cd0bc62 built, reviewed and registered; hold reworded (the plinth agent, at the coordinator's request)
+- **Branch** plinth-on-8cd0bc6, canary sha **b4174a09**; the tip fd86d351 adds docs only.
+  - It is the approved plinth-01 net diff on wellsite-02's 8cd0bc62, as one commit (2fd7197b).
+  - bots/src differs from the approved diff only by two conflict unions:
+    - the decide chain is build_plinth > town_deposit > count_town (stocktarget-02's recount guard yields to the plinth
+      as it does to the deposit);
+    - HOUSEKEEPING.
+- **Composition tests:**
+  - PLINTH x RECOUNT CHAIN, through the real CognitiveLoop, plus its mutant;
+  - DIGTOWN, through the real _dig_town wrapper: plinth leaf clears are class free (summary only); its dirt cover is one
+    ground row with purpose other.
+- **Tests and lint:** npm test 253/253. eslint no-undef shows only the pre-existing withinBody.
+- **townzone-01:** plinth-x-tz-8cd @ 43cc6373 (tz-on-5e66386 + plinth) is a clean merge, npm test 254/254.
+- **orderroom's well walk:** no change needed. The read watches its new window (Claude P3-1).
+- **Reviews** (docs/reports/plinth-01.rebase-review-8cd0bc62-2026-10-14.txt): Codex APPROVE; Claude APPROVE with 3 P3s,
+  none blocking.
+- **Registration** ~/mcai-analysis/plinth-01.8cd0bc6.json (sha256 c9e10383...):
+  - NO draw_require_pools key; drawrequire.parse -> ([], None);
+  - licencecheck PASS (kind _plinth, 0 baseline rows in 356,942 / 6 h);
+  - changerowcheck PASS (baseline 5e66386 silent).
+- **Replace-variant entry** ~/mcai-analysis/plinth-01.entry-8cd0bc6.json, NOT applied:
+  - the coordinator runs `queue replace-variant plinth-01 <it>`;
+  - fetch origin in the scheduler's git first, because b4174a09 does not resolve there yet.
+- **Hold reworded** with `queue hold plinth-01 "wellsite-02 KEPT and PROMOTED"`. The coordinator lifts it.
+- **Plan-cell record** (for the town-floor fill job), /var/lib/mcai/_pool-<pool>/junkwell-plinth-<homeX>_<homeY>_<homeZ>.json:
+  - `state` is plan | complete | none | void;
+  - `plan.steps[].c` = [x,y,z] with `op` place | clear;
+  - `plan.stair` = [[x,y,z]];
+  - `plan.cap`, with its column cap.y-1 .. cap.y+2 kept open;
+  - `prev[]` = {x,y,z,stair}, every column the town ever started.
+  - The lease generations sit beside it as `.lease.g<n>.json`.
+
 ## 10-14 19:50Z — ES COMPLETENESS CHECK DONE: ES is the default for wide analysis from 10-08 (both engines agree); read-only, nothing live changed
 Report docs/reports/es-completeness-2026-10-14.md (+ .summary.json, -reviews.txt); scripts scripts/host/escheck/ (run.sh FIRST LAST
 on 10.0.0.31; auth = the owner's read-only API key file ~/.config/mcai/es-readonly.key, never printed). Raw: ~/escheck/final2/.
