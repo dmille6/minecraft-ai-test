@@ -476,6 +476,15 @@ await t('stepRefusal re-judges a recorded step against the world NOW: filled by 
 
 // ---- the walk probe -----------------------------------------------------------------------------------------------------
 
+await t('A STAND THAT CANNOT WALK HOME ALREADY is refused at the click (walled_in): lostWay alone would not see it, since it was never on a way home', () => {
+  const c = carve({}, 8, 10, 60, 62, 8, 10)                                    // a 3-deep pit, no stair: its floor is a dead end
+  const w = town(c)
+  const st = F.startNear(w.read, HOME)
+  assert.ok(!F.walkBack(w.read, st, { box: F.walkBox(HOME) }).has(F.cellKey(9, 60, 9)), 'positive control: the pit floor does not walk home')
+  const step = { c: [10, 60, 9], r: [10, 59, 9], f: [0, 1, 0], s: [9, 60, 9], tier: 1 }
+  assert.equal(F.stepRefusal(w.read, step, { home: HOME, start: st }), 'walled_in')
+})
+
 await t('walkBack(r, t).has(c) iff walkDist(r, c).has(t), on 30 random rough towns (the reverse search is exact)', () => {
   let seed = 7
   const rnd = () => { seed = (seed * 1103515245 + 12345) % 2147483648; return seed / 2147483648 }

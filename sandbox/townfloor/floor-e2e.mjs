@@ -112,7 +112,7 @@ function boardaModel () {
   const BA = { home: { x: 355, y: 73, z: 147 }, box: { x0: 327, x1: 383, z0: 119, z1: 175, y0: 62, y1: 92 } }
   const OFF = { x: C.x - BA.home.x, y: HOME.y - BA.home.y, z: C.z - BA.home.z }
   const W = { mod: null }
-  const load = async () => { W.mod ??= await import(path.join(BOT_ROOT, 'bots/scripts/wellsite-replay.mjs')); return W.mod }
+  const load = async () => { W.mod ??= await import(path.join(R, 'bots/scripts/wellsite-replay.mjs'))   // the region reader lives on main (WELL_REPO), not on the fleet base; return W.mod }
   let rd = null, raw = null
   const read = (x, y, z) => {
     const sx = x - OFF.x, sy = y - OFF.y, sz = z - OFF.z
