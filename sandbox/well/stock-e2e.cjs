@@ -599,7 +599,8 @@ scenes.stockrecount = async () => {
   const spec = [['oak_log', 64], ['oak_log', 64], ['stone_pickaxe', 1], ...TORCH(4)]
   const counted = f => rowsOf(f.skillLog).find(r => r.name === '_stock_recount' && /counted=[1-9]/.test(r.detail))
   let files = await startBot('stockrecount1', spec, { pool })
-  const life1 = await waitFor(() => counted(files), 150000, 500)
+  // life 1 only needs the town COUNTED by anything (run 7: its withdraw_pick opened the chest and counted it first)
+  const life1 = await waitFor(() => journalOf(files).find(r => r.t === 'cnt' && r.m), 150000, 500)
   await stopBot()
   const fence = execFileSync('node', [path.join(BOT_ROOT, 'bots/scripts/stockreset.mjs'), files.poolDir], { encoding: 'utf8' }).trim()
   setChest([['oak_log', 20]])
@@ -615,7 +616,7 @@ scenes.stockrecount = async () => {
   await stopBot()
   brainQueue.length = 0
   const unknownAfter = rowsOf(files.skillLog).filter(r => r.name === '_stock_refused' && /_unknown/.test(r.detail) && life2 && r.ts > life2.ts).length
-  result({ scene: 'stockrecount', life1: life1?.detail ?? null, fence, life2: life2?.detail ?? null, slotsAtCount, deposit: dep?.slice(0, 200) ?? null,
+  result({ scene: 'stockrecount', life1: life1 ? `count of ${life1.k} oak=${life1.m.oak_log ?? 0}` : null, fence, life2: life2?.detail ?? null, slotsAtCount, deposit: dep?.slice(0, 200) ?? null,
     world: { chest: [c0.totals, c1.totals], bag: [b0.totals, b1.totals] }, unknownRefusalsAfterCount: unknownAfter, rows,
     PASS: !!(life1 && /reset/i.test(fence) && slotsAtCount < 34 && life2 && dep && /-> success/.test(dep) && (c1.totals.oak_log ?? 0) > (c0.totals.oak_log ?? 0)
       && (c1.totals.oak_log ?? 0) <= 64 && unknownAfter === 0) })

@@ -392,28 +392,41 @@ await t('RECOVERY ABORT (Codex code r2 P2): aborted during the chest craft (afte
 })
 
 // ----------------------------------------------------------------------------------------------- the recount (stocktarget-02)
-await t('RECOUNT ORDER (pure): at town + a not-yet-counted refusal + a reachable key -> count_town; never away, never without a refusal or a key; a 60 s cooldown; 10 min backoff after a count that counted nothing', async () => {
+await t('RECOUNT ORDER (pure): at town + a not-yet-counted refusal + a reachable key -> count_town; never away, never on a PROVEN refusal or without a key; the plan and the keys read lazily, once per look; a 60 s cooldown; 10 min backoff after a fruitless count; a declined order refunded (the look too)', async () => {
   const R = await import('../src/recount.mjs')
   const uk = [{ name: 'oak_log', why: 'town_stock_unknown' }]
-  let asked = 0
+  let asked = 0, planned = 0
   const keys = () => { asked++; return ['5,64,0'] }
-  assert.equal(R.recountOrder({ now: 1e9, atTown: false, unknownRefused: uk, keys }).order, null, 'away from town')
-  assert.equal(R.recountOrder({ now: 1e9, atTown: true, unknownRefused: [{ name: 'oak_log', why: 'town_stock_target' }], keys }).order, null, 'a PROVEN refusal is not a recount')
-  assert.equal(asked, 0, 'the keys are read only after the cheap gates')
-  const nk = R.recountOrder({ now: 1e9, atTown: true, unknownRefused: uk, keys: () => [] })
+  const ref = v => () => { planned++; return v }
+  const T = 1e9
+  assert.equal(R.recountOrder({ now: T, atTown: false, unknownRefused: ref(uk), keys }).order, null, 'away from town')
+  assert.equal(planned + asked, 0, 'away: neither the plan nor the keys are read (Claude st2-r1 P3-1)')
+  assert.equal(R.recountOrder({ now: T, atTown: true, unknownRefused: ref([{ name: 'oak_log', why: 'town_stock_target' }]), keys }).order, null, 'a PROVEN refusal is not a recount')
+  assert.equal(asked, 0, 'the keys only after a not-yet-counted refusal')
+  const nk = R.recountOrder({ now: T, atTown: true, unknownRefused: uk, keys: () => [] })
   assert.equal(nk.order, null, 'no reachable key: nothing')
-  assert.equal(R.recountOrder({ now: 1e9 + 1_000, atTown: true, unknownRefused: uk, keys, state: nk.state }).order, null, 'the look is charged: no second look inside the cooldown')
-  assert.equal(asked, 0)
-  const r1 = R.recountOrder({ now: 1e9, atTown: true, unknownRefused: uk, keys })
+  planned = 0
+  assert.equal(R.recountOrder({ now: T + 1_000, atTown: true, unknownRefused: ref(uk), keys, state: nk.state }).order, null, 'the look is charged: no second look inside the cooldown')
+  assert.equal(planned + asked, 0, 'not even the plan')
+  const r1 = R.recountOrder({ now: T, atTown: true, unknownRefused: uk, keys })
   assert.equal(r1.order?.skill, 'count_town')
-  assert.equal(R.recountOrder({ now: 1e9 + 30_000, atTown: true, unknownRefused: uk, keys, state: r1.state }).order, null, 'the cooldown')
-  assert.equal(R.recountOrder({ now: 1e9 + 61_000, atTown: true, unknownRefused: uk, keys, state: r1.state }).order?.skill, 'count_town', 'after the cooldown')
-  const zero = R.recountOutcome('no_effect', 0, 1e9, r1.state)
-  assert.equal(R.recountOrder({ now: 1e9 + 5 * 60_000, atTown: true, unknownRefused: uk, keys, state: zero }).order, null, 'counted nothing: backed off')
-  assert.equal(R.recountOrder({ now: 1e9 + 11 * 60_000, atTown: true, unknownRefused: uk, keys, state: zero }).order?.skill, 'count_town', 'after the backoff')
-  const ok = R.recountOutcome('success', 2, 1e9, zero)
-  assert.equal(ok.backoffUntil, 0, 'a count clears the backoff')
-  assert.ok(R.recountOutcome('failed', 0, 1e9, r1.state, 'runner_busy').lastIssuedAt === -Infinity, 'declined by the runner: not charged')
+  assert.equal(R.recountOrder({ now: T + 30_000, atTown: true, unknownRefused: uk, keys, state: r1.state }).order, null, 'the cooldown')
+  assert.equal(R.recountOrder({ now: T + 61_000, atTown: true, unknownRefused: uk, keys, state: r1.state }).order?.skill, 'count_town', 'after the cooldown')
+  const zero = R.recountOutcome('no_effect', 0, T, r1.state)
+  assert.equal(R.recountOrder({ now: T + 5 * 60_000, atTown: true, unknownRefused: uk, keys, state: zero }).order, null, 'counted nothing: backed off')
+  assert.equal(R.recountOrder({ now: T + 11 * 60_000, atTown: true, unknownRefused: uk, keys, state: zero }).order?.skill, 'count_town', 'after the backoff')
+  assert.equal(R.recountOutcome('success', 2, T, zero).backoffUntil, 0, 'a count clears the backoff')
+  // DECLINED (Codex st2-r1 P3): both the issue and the look are refunded -- the next decision may order again at once
+  const dec = R.recountOutcome('failed', 0, T, r1.state, 'runner_busy')
+  assert.equal(R.recountOrder({ now: T + 1_000, atTown: true, unknownRefused: uk, keys, state: dec }).order?.skill, 'count_town', 'declined: ordered again a second later')
+  // THE MISS RULE (recount file): one miss -> 10 min backoff; two >= 10 min apart within 6 h -> unusable; older than 6 h -> forgotten
+  assert.equal(R.recountMissStatus([], T), 'ok')
+  assert.equal(R.recountMissStatus([T - 60_000], T), 'backoff')
+  assert.equal(R.recountMissStatus([T - 11 * 60_000], T), 'ok')
+  assert.equal(R.recountMissStatus([T - 30 * 60_000, T - 15 * 60_000], T), 'unusable')
+  assert.equal(R.recountMissStatus([T - 7 * 3600_000, T - 15 * 60_000], T), 'ok', 'the old miss expired')
+  assert.deepEqual(R.recordRecountMiss([T - 7 * 3600_000, T - 60_000], T), [T - 60_000, T])
+  assert.ok(!R.RECOUNT_MISS_REASONS.has('walk interrupted') && !R.RECOUNT_MISS_REASONS.has('walk timeout') && !R.RECOUNT_MISS_REASONS.has('open timed out'), 'never a miss')
 })
 const fenced = async bagStacks => {
   const w = town(bagStacks)
@@ -443,7 +456,8 @@ await t('RECOUNT KEYS: a fenced town -> its chest is a key; the town memory hold
     assert.deepEqual(SK.stockRecountKeys(w.bot), ['5,64,0'], 'positive control: a container that opened is a key again')
   } finally { B.setStockReaders({ town: null, well: null }) }
 })
-await t('COUNT_TOWN: counts the fenced chest (the next plan is judged: room 44 under 64); UNREACHABLE -> a strike in the town memory, nothing counted, the row says so -- and a second strike >= 10 min later makes it unusable (no key, no order)', async () => {
+const missesOf = dir => { try { return JSON.parse(fs.readFileSync(path.join(dir, fs.readdirSync(dir).find(f => f.endsWith('.recount.json'))), 'utf8')).m } catch { return {} } }
+await t('COUNT_TOWN: counts the fenced chest (the next plan is judged: room 44 under 64); a REAL no-path -> a recount miss in the recount file, the container memory UNTOUCHED (both reviews st2-r1 P1/P2); a second miss >= 10 min later -> no key, no order', async () => {
   const SK = await import('../src/skills.mjs')
   const CF2 = await import('../src/chestfull.mjs')
   {
@@ -466,11 +480,70 @@ await t('COUNT_TOWN: counts the fenced chest (the next plan is judged: room 44 u
       const r = await SKILLS.count_town.run({ bot: w.bot }, {}, new AbortController().signal)
       assert.equal(r.status, 'no_effect'); assert.equal(r.counted, 0)
       assert.match(RECS.slice(n0).find(x => x.skill?.name === '_stock_recount')?.skill?.detail ?? '', /counted=0 tried=1 unknown_after=1/)
-      const e = CF2.readTownMemory(dir, key, w.bot.worldId ?? null)['5,64,0']
-      assert.equal(e?.o, 'unknown', 'the strike is in the town memory'); assert.equal(e.strikes.length, 1)
+      assert.equal(CF2.readTownMemory(dir, key, w.bot.worldId ?? null)['5,64,0'], undefined, 'the container memory the deposit reads is untouched')
+      assert.equal((missesOf(dir)['5,64,0'] ?? []).length, 1, 'one recount miss')
       SK.resetCobbleReconcile()
-      CF2.updateTownMemory(dir, key, w.bot.worldId ?? null, m => { m['5,64,0'] = CF2.recordOutcome({ ...e, strikes: [Date.now() - 11 * 60_000] }, 'unknown') })
-      assert.deepEqual(SK.stockRecountKeys(w.bot), [], 'two strikes 10 min apart: unusable, no key -- the order cannot loop on it')
+      assert.deepEqual(SK.stockRecountKeys(w.bot), [], 'one miss: the town backs it off for 10 min')
+      const m = missesOf(dir)
+      fs.writeFileSync(path.join(dir, `${key}.recount.json`), JSON.stringify({ w: w.bot.worldId ?? null, m: { '5,64,0': [Date.now() - 25 * 60_000, Date.now() - 12 * 60_000] } }))
+      void m
+      assert.deepEqual(SK.stockRecountKeys(w.bot), [], 'two misses 10+ min apart: unusable, no key -- the order cannot loop on it')
+      fs.writeFileSync(path.join(dir, `${key}.recount.json`), JSON.stringify({ w: w.bot.worldId ?? null, m: { '5,64,0': [Date.now() - 12 * 60_000] } }))
+      assert.deepEqual(SK.stockRecountKeys(w.bot), ['5,64,0'], 'positive control: one old miss, a key again')
+    } finally { B.setStockReaders({ town: null, well: null }) }
+  }
+})
+await t('COUNT_TOWN NEVER MISSES ON NON-EVIDENCE (both reviews st2-r1): an INTERRUPTED walk ends the recount (no miss, no second walk); our own CLOCK (a budget timeout) backs off this bot only; a walk that RESOLVES out of reach is a miss (the arrival check)', async () => {
+  const SK = await import('../src/skills.mjs')
+  const CF2 = await import('../src/chestfull.mjs')
+  const cases = [
+    ['interrupted', async () => { throw new Error('The goal was changed before it could be completed!') }, 0],
+    ['timeout', async () => { throw Object.assign(new Error('pathfinding exceeded 15000ms'), { budgetExceeded: true }) }, 0],
+    ['resolved out of reach', async () => {}, 1],
+  ]
+  for (const [name, goto, wantMiss] of cases) {
+    const { w, dir, key } = await fenced([stack('oak_log', 64), stack('oak_log', 64)])
+    try {
+      SK.resetCobbleReconcile()
+      w.bot.pathfinder.goto = goto
+      if (name === 'resolved out of reach') w.bot.entity.position = w.bot.entity.position.offset(0, 0, 9)   // 9+ blocks from the chest
+      const o0 = w.spy.opened.length
+      const r = await SKILLS.count_town.run({ bot: w.bot }, {}, new AbortController().signal)
+      assert.equal(r.counted, 0, name)
+      assert.equal((missesOf(dir)['5,64,0'] ?? []).length, wantMiss, `${name}: misses`)
+      assert.equal(CF2.readTownMemory(dir, key, w.bot.worldId ?? null)['5,64,0'], undefined, `${name}: the container memory untouched`)
+      assert.equal(w.spy.opened.length - o0, 0, `${name}: never opened`)
+    } finally { B.setStockReaders({ town: null, well: null }) }
+  }
+})
+await t('COUNT_TOWN: an open still PENDING -> nothing is opened (Codex st2-r1 P2), the row says so; an ABORT mid-recount -> one row, status aborted, with what it had counted (Codex st2-r1 P2), and the abort propagates', async () => {
+  const SK = await import('../src/skills.mjs')
+  {
+    const { w } = await fenced([stack('oak_log', 64), stack('oak_log', 64)])
+    try {
+      SK.resetCobbleReconcile()
+      w.bot.cobbleOpenPending = new Promise(() => {})
+      const n0 = RECS.length, o0 = w.spy.opened.length
+      const r = await SKILLS.count_town.run({ bot: w.bot }, {}, new AbortController().signal)
+      assert.equal(r.counted, 0); assert.equal(w.spy.opened.length - o0, 0, 'no open while one is pending')
+      assert.match(RECS.slice(n0).find(x => x.skill?.name === '_stock_recount')?.skill?.detail ?? '', /pending_open=1/)
+      w.bot.cobbleOpenPending = null
+      assert.deepEqual(SK.stockRecountKeys(w.bot), ['5,64,0'], 'positive control: settled, a key again')
+    } finally { B.setStockReaders({ town: null, well: null }) }
+  }
+  {
+    const { w } = await fenced([stack('oak_log', 64), stack('oak_log', 64)])
+    try {
+      SK.resetCobbleReconcile()
+      const ac = new AbortController()
+      w.bot.pathfinder.goto = async () => { ac.abort(); throw Object.assign(new Error('aborted'), { aborted: true }) }
+      const n0 = RECS.length
+      let threw = false
+      try { await SKILLS.count_town.run({ bot: w.bot }, {}, ac.signal) } catch { threw = true }
+      assert.ok(threw, 'the abort propagates')
+      const rows = RECS.slice(n0).filter(x => x.skill?.name === '_stock_recount')
+      assert.equal(rows.length, 1, 'one row for the started recount')
+      assert.equal(rows[0].skill.status, 'aborted'); assert.match(rows[0].skill.detail, /counted=0 tried=1 aborted=1/)
     } finally { B.setStockReaders({ town: null, well: null }) }
   }
 })

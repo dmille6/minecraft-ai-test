@@ -672,7 +672,7 @@ export class CognitiveLoop {
       const bot = this.bot
       const items = bot.inventory?.items?.() ?? []
       const home = { x: config.world.homeX, y: config.world.homeY, z: config.world.homeZ }
-      const r = recountOrder({ now: Date.now(), atTown: inTown(home, bot.entity?.position), unknownRefused: unknownRefusals(bot, items),
+      const r = recountOrder({ now: Date.now(), atTown: inTown(home, bot.entity?.position), unknownRefused: () => unknownRefusals(bot, items),
         keys: () => stockRecountKeys(bot, items), state: this.recountState ?? {} })
       this.recountState = r.state
       return r.order

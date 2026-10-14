@@ -22,13 +22,15 @@
 #              canary vs control, DiD with the pre period (the effect: should FALL); the share of canary not-yet-counted
 #              refusals followed by a _stock_recount from the same bot within 120 s (the "at once"); counted / tried;
 #              rows that counted nothing (all unreachable, timed out)
+#   TRIPWIRE   new town chests placed (_deposit_new_chest placed=1) per bot-h DiD: a recount that damaged what the town
+#              knows of its chests would let the full-chest recovery build (Claude st2-r1); reported, never a verdict
 #   INSTRUMENT control not-yet-counted refusals (>= 1: the population the fix targets is visible)
 #   EXPOSURE   >= 3 canary not-yet-counted refusals or recount rows, and the instrument
 import sys, os, json, re, glob, gzip
 import datetime as dt
 from collections import Counter, defaultdict
 
-KEEP = ('_stock_recount', '_stock_refused')
+KEEP = ('_stock_recount', '_stock_refused', '_deposit_new_chest')
 KV = re.compile(r'(?:^| )([a-z_]+)=(\S+)')
 FOLLOW_S = 120
 LOOP_MAX_PER_H = 61
@@ -135,6 +137,11 @@ def judge(rows):
         rc_times[r['bot']].append(r['t'])
     out['refusals_followed'] = sum(1 for r in ur if any(dt.timedelta(0) <= t - r['t'] <= dt.timedelta(seconds=FOLLOW_S) for t in rc_times[r['bot']]))
     out['refusals_unknown_canary'] = len(ur)
+    for per in ('pre', 'post'):
+        for arm in ('canary', 'control'):
+            out['new_chests_%s_%s' % (per, arm)] = sum(1 for r in rows if r['per'] == per and r['arm'] == arm and r['name'] == '_deposit_new_chest'
+                                                       and r['status'] == 'success' and 'placed=1' in r['detail'])
+    out['recount_aborted'] = sum(1 for r in rc_c if r['status'] == 'aborted')
     out['instrument_control'] = out['unknown_refusals_post_control']
     out['exposure_ready'] = int((len(ur) + len(rc_c)) >= 3 and out['instrument_control'] >= 1)
     out['_lists'] = {'loop': loop[:5], 'backoff': backoff[:5]}
@@ -160,6 +167,10 @@ def selftest():
     assert c['recount_rows_control'] == 1 and c['recount_live'] == 0, 'a control row is an arms breach'
     ready = judge([R('_stock_refused', UK), R('_stock_refused', UK, 1), RC(1, 1, 10), R('_stock_refused', UK, arm='control', bot='board-a-Alpha')])
     assert ready['exposure_ready'] == 1, ready
+    nc = judge([R('_deposit_new_chest', 'decision=place_carried aid=x near_home=true placed=1 tried=[]'), R('_deposit_new_chest', 'decision=craft aid=y placed=0 tried=[]')])
+    assert nc['new_chests_post_canary'] == 1, nc
+    ab = judge([dict(RC(1), status='aborted')])
+    assert ab['recount_aborted'] == 1 and ab['recount_live'] == 1, 'an aborted recount that counted is still a count'
     print('SELFTEST ok: every gate fails on its fixture and passes its control')
 
 
@@ -184,8 +195,10 @@ if __name__ == '__main__':
     res = judge(rows)
     hrs = lambda per, arm: len(bots[(per, arm)]) * W / 60
     rate = lambda n, per, arm: n / hrs(per, arm) if hrs(per, arm) else float('nan')
-    did = (rate(res['unknown_refusals_post_canary'], 'post', 'canary') - rate(res['unknown_refusals_pre_canary'], 'pre', 'canary')) \
-        - (rate(res['unknown_refusals_post_control'], 'post', 'control') - rate(res['unknown_refusals_pre_control'], 'pre', 'control'))
+    didof = lambda k: (rate(res[k + '_post_canary'], 'post', 'canary') - rate(res[k + '_pre_canary'], 'pre', 'canary')) \
+        - (rate(res[k + '_post_control'], 'post', 'control') - rate(res[k + '_pre_control'], 'pre', 'control'))
+    did = didof('unknown_refusals')
+    nc_did = didof('new_chests')
     print('DENOMINATORS rows walked %d (unparsable %d) | bots pre canary %d control %d | post canary %d control %d | window %d min'
           % (walked, bad, len(bots[('pre', 'canary')]), len(bots[('pre', 'control')]), len(bots[('post', 'canary')]), len(bots[('post', 'control')]), W))
     print('LIVENESS     canary recounts that counted %d (of %d rows; %d counted nothing) | containers counted %d of %d tried | control recount rows %d (must be 0)'
@@ -194,6 +207,8 @@ if __name__ == '__main__':
     print('REPORTED     not-yet-counted refusals canary %d -> %d control %d -> %d | per bot-h DiD %+.3f | canary refusals followed by a recount within %d s: %d of %d'
           % (res['unknown_refusals_pre_canary'], res['unknown_refusals_post_canary'], res['unknown_refusals_pre_control'], res['unknown_refusals_post_control'],
              did, FOLLOW_S, res['refusals_followed'], res['refusals_unknown_canary']))
+    print('TRIPWIRE     new town chests placed canary %d -> %d control %d -> %d | per bot-h DiD %+.4f | aborted recounts %d'
+          % (res['new_chests_pre_canary'], res['new_chests_post_canary'], res['new_chests_pre_control'], res['new_chests_post_control'], nc_did, res['recount_aborted']))
     print('EXPOSURE     -> %s (instrument: control not-yet-counted refusals %d)' % ('READY' if res['exposure_ready'] else 'NOT YET', res['instrument_control']))
     try:
         if ovr:
@@ -201,6 +216,6 @@ if __name__ == '__main__':
         sys.path.insert(0, os.path.expanduser('~')); sys.path.insert(0, '/tmp')
         from readjson import emit
         clean = lambda v: None if v != v else round(v, 4)
-        emit('stockrecountread', W, {k: v for k, v in res.items() if not k.startswith('_')} | {'unknown_refusal_did': clean(did)})
+        emit('stockrecountread', W, {k: v for k, v in res.items() if not k.startswith('_')} | {'unknown_refusal_did': clean(did), 'new_chest_did': clean(nc_did)})
     except Exception as e:
         print('emit failed:', e)
