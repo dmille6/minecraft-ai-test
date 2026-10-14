@@ -246,7 +246,7 @@ async function startBot (fx, tag, slotsSpec, { tp = true } = {}) {
   const set = (key, v) => { env = new RegExp(`^${key}=`, 'm').test(env) ? env.replace(new RegExp(`^${key}=.*$`, 'm'), `${key}=${v}`) : env + `\n${key}=${v}` }
   set('BOT_NAME', NAME); set('LOG_DIR', logRel); set('STATE_DIR', `./sandbox/state/floor-${RUN}-${fx}`); set('MEMORY_POOL', poolOf(fx))
   set('MINECRAFT_PORT', PORTS[SERVER]); set('MAX_CONSECUTIVE_FAILURES', 50); set('FAILED_COOLDOWN_MS', 1000); set('STUCK_SECONDS', 20)
-  set('FLOOR_COOLDOWN_MS', 15000)
+  set('FLOOR_COOLDOWN_MS', 15000); set('WORLD_BORDER_RADIUS', 4000)   // the arena is at 2400: the model's goto must not be refused at the border
   set('OLLAMA_BASE_URL', `http://127.0.0.1:${BRAIN_PORT}`); set('OLLAMA_BASE_URLS', `http://127.0.0.1:${BRAIN_PORT}`)
   for (const a of ['X', 'Y', 'Z']) { set(`HOME_${a}`, HOME[a.toLowerCase()]); set(`BOARD_${a}`, HOME[a.toLowerCase()]) }
   fs.writeFileSync(`${R}/${envRel}`, env + '\n')
