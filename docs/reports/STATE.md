@@ -54,7 +54,14 @@ was killed by hand and the lock confirmed FREE; step 14 now uses `pkill -P`.
 
 **Next canary:** its pre-period must not straddle 02:22Z, or its notes must record the clear.
 
-**PENDING:** recountcheck at about 03:40Z (+60 min). The entry below this one is the PREPARED record.
+**Recount check, +60 min (census 03:40:19Z, 0 problems; `recount-20261014T0221Z-a1.txt`): RESET PASS.**
+- All 32/32 pool dirs carry the 02:22:39Z reset.
+- 48 containers have been recounted since: 35 match the census exactly, 0 partial, 13 zero-only (agreeing zeros).
+- Nonzero coverage is above 0 in 12 of 16 worlds.
+- **hive-a, hive-c, placebo-a and placebo-b are still at 0 nonzero coverage at +60 min.** The procedure's finding
+  threshold is 0 coverage after 2 h: re-run step 15 at about 04:40Z.
+
+The entry below this one is the PREPARED record.
 
 ## 10-13 20:35Z — CHEST CLEAR #2 (stock targets): PREPARED, awaiting owner go. NOTHING RUN; no world changed, no bot stopped
 
