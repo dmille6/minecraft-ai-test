@@ -32,6 +32,8 @@ export const RELOCATE_RADIUS = 8
 /** The second, longer walk-off when nothing within RELOCATE_RADIUS has a clear stair (mine walks there itself). */
 export const FAR_RADIUS = 16
 export const MAX_STAIR_STEPS = 90
+/** A failed walk-off target rules out the starts within this many blocks of it (horizontally; 1 vertically). */
+export const EXCLUDE_NEAR = 2
 
 /** The well column whose SHELL holds this cell -> cap | null. Pure. The same box as wellBreakCost (the pathfinder's). */
 export function shellOf (cols, pos) {
@@ -51,15 +53,21 @@ export function stepCells (p0, bear, i) {
  * IS THE WHOLE STAIR CLEAR OF EVERY SHELL? -> { clear, hit: { step, cell, cap } | null }. Pure. Simulated until the
  * step's highest dug cell (its ceiling, y0 - i + 1) is below the deepest shell (min cap.y - 3), or `maxSteps`.
  */
-export function stairClear (cols, p0, bear, { maxSteps = MAX_STAIR_STEPS, goalY = null } = {}) {
-  if (!Array.isArray(cols) || !cols.length) return { clear: true, hit: null }
-  const bottom = Math.min(...cols.map(c => c.y - 3))
+export function stairClear (cols, p0, bear, { maxSteps = MAX_STAIR_STEPS, goalY = null, forbid = null, forbidBottom = null } = {}) {
+  const wells = Array.isArray(cols) ? cols : []
+  // THE TOWN TREE FARM (treefarm-02 on minewell-01): `forbid(cell)` names the farm's cells a stair must never dig (a plot's
+  // soil and column, a torch cell and its floor); `forbidBottom` the lowest of them. Same simulation, same stop rule.
+  const farm = typeof forbid === 'function' && Number.isFinite(forbidBottom)
+  if (!wells.length && !farm) return { clear: true, hit: null }
+  const bottom = Math.min(...wells.map(c => c.y - 3), farm ? forbidBottom : Infinity)
   for (let i = 0; i < maxSteps; i++) {
     if (p0.y - i + 1 < bottom) break
     if (Number.isFinite(goalY) && p0.y - i <= goalY + 1) break   // mine stops there (its loop: y > goalY + 1); Claude r1 P3
     for (const cell of stepCells(p0, bear, i)) {
-      const cap = shellOf(cols, cell)
+      const cap = shellOf(wells, cell)
       if (cap) return { clear: false, hit: { step: i, cell, cap } }
+      const kind = farm && forbid(cell)
+      if (kind) return { clear: false, hit: { step: i, cell, cap: null, farm: true, kind: kind === true ? 'farm' : String(kind) } }
     }
   }
   return { clear: true, hit: null }
@@ -90,9 +98,37 @@ export function relocateCandidates (p0, radius = RELOCATE_RADIUS) {
  *   bearings   the stair's candidate cardinals (skills.mjs stairBearings)
  *   standable  (cell) -> bool: feet and head open, a solid floor (the caller reads the world)
  */
-export function planMineStart ({ cols = [], p0, feet = null, bearings = [], standable = () => false, rimStandable = null, radius = RELOCATE_RADIUS, goalY = null, exclude = [] } = {}) {
+/**
+ * WHAT A KEEP-OUT HIT PROTECTS, in words. Pure. `forbid` answers true (the farm) or its KIND: 'monument'
+ * (structureguard-01), 'town' (townzone-01: the town's ground). The farm's sentence is unchanged.
+ */
+const KEEP_OUT_WORDS = {
+  farm: { label: 'the town tree farm', why: c => `the town tree farm (its soil or a plot at ${c})` },
+  monument: { label: 'the town monument (the ziggurat)', why: c => `the town monument (the ziggurat; a reserved cell at ${c})` },
+  town: { label: "the town's ground", why: c => `the town's ground (terrain within the town's square around home, at ${c})` },
+}
+export const keepOutLabel = kind => (KEEP_OUT_WORDS[kind] ?? KEEP_OUT_WORDS.farm).label
+export const keepOutWhy = hit => (KEEP_OUT_WORDS[hit?.kind] ?? KEEP_OUT_WORDS.farm).why(`${hit.cell.x},${hit.cell.y},${hit.cell.z}`)
+/** A hit's kind: 'well' for a shell, else the keep-out's (a farm hit without a kind is the farm's). Pure. */
+export const hitKind = hit => (hit?.cap ? 'well' : hit ? (hit.kind ?? 'farm') : null)
+
+/**
+ * COMPOSE KEEP-OUTS for planMineStart (`forbid`, `forbidBottom`) -> { forbid(cell) -> kind | false, bottom }. Pure,
+ * VARIADIC (townzone-01 x structureguard-01: one shape, any number of keep-outs -- a two-argument compose would drop a
+ * third silently). Each part is { forbid(cell) -> kind | true | null, bottom }; the first part that claims a cell names
+ * it; the bottom is the lowest; a part without a forbid is ignored.
+ */
+export function composeKeepOut (...parts) {
+  const live = parts.filter(p => typeof p?.forbid === 'function')
+  if (!live.length) return { forbid: null, bottom: null }
+  const bots = live.map(p => p.bottom).filter(Number.isFinite)
+  return { forbid: c => { for (const p of live) { const k = p.forbid(c); if (k) return k } return false }, bottom: bots.length ? Math.min(...bots) : null }
+}
+
+export function planMineStart ({ cols = [], p0, feet = null, bearings = [], standable = () => false, rimStandable = null, radius = RELOCATE_RADIUS, goalY = null, exclude = [], forbid = null, forbidBottom = null, dry = null, far = null } = {}) {
   const wells = Array.isArray(cols) ? cols : []
-  if (!wells.length) return { action: 'go', bearings }
+  const farm = typeof forbid === 'function' && Number.isFinite(forbidBottom)
+  if (!wells.length && !farm) return { action: 'go', bearings }
   const inside = bodyInWell(wells, feet ?? { x: p0.x + 0.5, y: p0.y, z: p0.z + 0.5 })
   if (inside) {
     // THE WAY OUT, NAMED (Claude r1 P3): a rim cell beside the column a goto can reach (the pathfinder exempts the bot's own well)
@@ -100,20 +136,56 @@ export function planMineStart ({ cols = [], p0, feet = null, bearings = [], stan
     return { action: 'refuse', inside: true, cap: inside, to: rim ?? null,
              why: `this bot is inside the junk well at ${inside.x},${inside.y},${inside.z}: a stair from here would dig the well's own floor; ${rim ? `goto ${rim.x} ${rim.y} ${rim.z} (the well's rim) first` : 'climb out to the rim first'}` }
   }
-  const clearFrom = from => bearings.filter(b => stairClear(wells, from, b, { goalY }).clear)
-  const skip = new Set((Array.isArray(exclude) ? exclude : []).map(c => `${c.x},${c.y},${c.z}`))
+  const clearFrom = from => bearings.filter(b => stairClear(wells, from, b, { goalY, forbid, forbidBottom }).clear)
+  // A TARGET THE PATHFINDER FAILED TO REACH, AND ITS NEIGHBOURHOOD (townzone-01: walk-off targets cluster -- the next ring
+  // cell beside an unreachable one is unreachable for the same reason, and two tries were spent on one wall): never a
+  // start within EXCLUDE_NEAR of it horizontally and 1 vertically
+  const failed = (Array.isArray(exclude) ? exclude : []).filter(c => c && Number.isFinite(c.x) && Number.isFinite(c.y) && Number.isFinite(c.z))
+  const nearFailed = c => failed.some(e => Math.max(Math.abs(e.x - c.x), Math.abs(e.z - c.z)) <= EXCLUDE_NEAR && Math.abs(e.y - c.y) <= 1)
   const here = clearFrom(p0)
-  if (here.length) return { action: 'go', bearings: here }
-  const hit = stairClear(wells, p0, bearings[0] ?? { x: 0, z: 1 }, { goalY }).hit
+  // WHAT A KEEP-OUT TOOK AWAY (townzone-01): the kinds that block the bearings left out
+  const kindsOf = bs => [...new Set(bs.map(b => stairClear(wells, p0, b, { goalY, forbid, forbidBottom }).hit).filter(Boolean).map(hitKind))]
+  const isDry = (from, b) => typeof dry !== 'function' || dry(from, b)
+  // A KEEP-OUT MUST NOT LEAVE ONLY WET WAYS WHEN IT TOOK A DRY ONE (townzone-01, the zone's water case, Claude r2 P2-e): "water in
+  // every other direction" would be false -- the planner walks off instead
+  const left = bearings.filter(b => !here.includes(b))
+  if (here.length && (here.some(b => isDry(p0, b)) || !left.some(b => isDry(p0, b)))) return { action: 'go', bearings: here, kinds: kindsOf(left) }
+  // WHAT BLOCKS, over every bearing (Claude r8 P2: a farm-caused refusal named a far-away well when the town has one)
+  const hits = (bearings.length ? bearings : [{ x: 0, z: 1 }]).map(b => stairClear(wells, p0, b, { goalY, forbid, forbidBottom }).hit).filter(Boolean)
+  const farmHit = hits.find(h => h.farm) ?? null, wellHit = hits.find(h => h.cap) ?? null
+  const hit = wellHit ?? farmHit
+  const kinds = [...new Set(hits.map(hitKind))].concat(here.length && !hits.length ? ['water'] : [])
+  // A START ALL KEEP-OUTS ALLOW: a stand not in a well column or a keep-out cell, standable, not failed before, with a clear
+  // stair that is DRY at its first tread when `dry` is given (a walk-off must not hand the bot to the water refusal)
+  const startAt = cell => {
+    if (bodyInWell(wells, { x: cell.x + 0.5, y: cell.y, z: cell.z + 0.5 })) return null
+    if (farm && (forbid(cell) || forbid({ x: cell.x, y: cell.y + 1, z: cell.z }))) return null
+    if (nearFailed(cell)) return null
+    if (!standable(cell)) return null
+    const ok = clearFrom(cell)
+    return ok.length && ok.some(b => isDry(cell, b)) ? ok : null
+  }
+  // never a feet cell inside a well column (its stand on the rim is fine: the stair from it is what is simulated); never a
+  // stand in a keep-out cell (the head check is belt and braces); never a target the pathfinder already failed to reach
   for (const c of relocateCandidates(p0, radius)) {
     const cell = { x: c.x, y: c.y, z: c.z }
-    // never a feet cell inside a well column (its stand on the rim is fine: the stair from it is what is simulated)
-    if (bodyInWell(wells, { x: c.x + 0.5, y: c.y, z: c.z + 0.5 })) continue
-    if (skip.has(`${cell.x},${cell.y},${cell.z}`)) continue   // a target the pathfinder already failed to reach
-    if (!standable(cell)) continue
-    const ok = clearFrom(cell)
-    if (ok.length) return { action: 'relocate', to: cell, bearings: ok, hit }
+    const ok = startAt(cell)
+    if (ok) return { action: 'relocate', to: cell, bearings: ok, hit, kinds, ...(farmHit ? { farm: true, kind: farmHit.kind ?? 'farm' } : {}) }
   }
-  const cap = hit?.cap ?? wells[0]
-  return { action: 'refuse', cap, why: `every stair from here and from every standable cell within ${radius} would dig the junk well's shell at ${cap.x},${cap.y},${cap.z}` }
+  // THEN THE FAR STARTS a keep-out names (townzone-01: cells just beyond the town's square, which no ring within FAR_RADIUS
+  // of a bot inside it reaches) -- judged by the SAME test, so the one target satisfies every keep-out at once. Lazy: asked
+  // only when the rings found nothing, and told what blocked (`far(kinds)`), so a keep-out offers its starts only when it
+  // is the one in the way -- a well alone keeps minewell's own two walks exactly.
+  let farCells = []
+  try { farCells = (typeof far === 'function' ? far(kinds) : far) ?? [] } catch { farCells = [] }
+  for (const c of Array.isArray(farCells) ? farCells : []) {
+    const cell = { x: c.x, y: c.y, z: c.z }
+    const ok = startAt(cell)
+    if (ok) return { action: 'relocate', to: cell, bearings: ok, hit, kinds, far: true, ...(farmHit ? { farm: true, kind: farmHit.kind ?? 'farm' } : {}) }
+  }
+  const farmWhy = farmHit ? keepOutWhy(farmHit) : null
+  if (farmHit && !wellHit) return { action: 'refuse', cap: null, farm: true, kind: farmHit.kind ?? 'farm', kinds, hit: farmHit, why: `every stair from here and from every standable cell within ${radius} would dig ${farmWhy}` }
+  const cap = wellHit?.cap ?? wells[0] ?? null
+  if (!cap) return { action: 'refuse', cap: null, farm: !!farm, kinds, why: here.length ? `every clear stair from here meets water at its first tread, and no standable cell within ${radius} has a dry one` : `no stair from here or from any standable cell within ${radius} is clear` }   // (4 bearings: the second is unreachable in production; Claude r10 P3)
+  return { action: 'refuse', cap, kinds, ...(farmHit ? { farm: true, kind: farmHit.kind ?? 'farm' } : {}), why: `every stair from here and from every standable cell within ${radius} would dig the junk well's shell at ${cap.x},${cap.y},${cap.z}${farmWhy ? ` or ${farmWhy}` : ''}` }
 }
