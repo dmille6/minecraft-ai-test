@@ -24,7 +24,10 @@ process.env.LOG_DIR = `/tmp/mcbot-test-logs-minewell-${process.pid}`
 process.env.BOT_NAME = 'TestBot'
 // HOME 14 south of the well: the NEAREST clear walk-off cells (south of the stand) lie within 12 of it, so the home guard
 // must steer the walk-off elsewhere (Claude r3 P2: with home 13 east the guard was never exercised)
-process.env.HOME_X = '200'; process.env.HOME_Y = '64'; process.env.HOME_Z = '214'
+// HOME_Y 100 (townzone-01 on minewell-01): the town's ground band (y >= home.y - 12 = 88) sits ABOVE this scene, so these
+// tests keep pinning the shell rule and the 12-block guard (both horizontal) alone; the town x well composition, with the
+// band over the scene, is test/townzone-minewell.test.mjs
+process.env.HOME_X = '200'; process.env.HOME_Y = '100'; process.env.HOME_Z = '214'
 const here = path.dirname(fileURLToPath(import.meta.url))
 const SKP = path.join(here, '../src/skills.mjs'), MWP = path.join(here, '../src/minewell.mjs')
 const { SKILLS } = await import('../src/skills.mjs')
