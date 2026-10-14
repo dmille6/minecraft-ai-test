@@ -1,0 +1,14 @@
+wellsite-02 on 5e663860 (stocktarget-02 on eb543899 (digtown-01)) -- rebase review record, 2026-10-14
+BRANCH ws-on-5e66386 @ 8cd0bc62 = the approved wellsite net diff (code baa94879), one commit, git apply --3way, no conflict;
+sorted +/- lines over bots/ and scripts/ IDENTICAL to the approved diff (1,047 lines). LINT: no-undef only reflex.mjs withinBody.
+CHECKS (live base, run_id wellsite-02): licencecheck PASS (' tally=cols:' 0 baseline hits); changerowcheck PASS (none declared).
+REVIEW of the composition with stocktarget-02 (count_town, recount.mjs, <townKey>.recount.json): Codex APPROVE (no findings);
+Claude subagent APPROVE (P3s). No starvation dead end: the no-site hold stops only build orders; close_well and the pit cover
+stay eligible; the bulk/cobble caps bind only while a usable well stands, so a held town's recount is for tool groups only.
+Files: the recount file (town-chest-<home>.recount.json) and junkwell-nosite-<home>.json share the pool state dir; no scanner
+(chestfull readClaims, cobblecap rotateTown, composter site generations, the recount reader) matches or deletes either.
+A recount makes more stock/cobble disposals possible; each still passes the stand and per-click containment checks.
+P3 (stocktarget-02's, not wellsite's): #recountOrder runs ahead of wellOrder's inside-a-well check, so a bot standing in a
+well shaft can get count_town and, if its walk fails, write a town-wide recount miss against a good container; and
+back-to-back count_town runs can delay close_well/pit cover by minutes (bounded). Suggested: pass inside: insideTownWell(bot)
+to recountOrder.
