@@ -444,6 +444,26 @@ await t('COLD CELLS NEVER STARVE THE REST (Codex r4 P2 repro): an unreachable pl
   assert.equal(placed, '8,62,0', 'the reachable hole is filled within three one-try visits')
 })
 
+await t('THE PLATFORM FIRST among untried cells: a hole in the platform goes before an equally high, farther hole outside it', () => {
+  const c = {}
+  c['3,62,3'] = 'air'                                                          // a platform hole (tier 0)
+  c['12,62,0'] = 'air'                                                         // a hole outside the platform (tier 1), farther
+  const w = town(c)
+  const p = F.planFloor({ read: w.read, home: HOME, maxSteps: 1 })
+  assert.equal(p.steps[0].c.join(','), '3,62,3')
+  assert.equal(F.planFloor({ read: w.read, home: HOME, maxSteps: 2 }).steps.length, 2, 'positive control: both are fillable')
+})
+
+await t('A BODY OR AN ITEM NEVER MAKES A CELL COLD: refused for an item in it, the cell is not in refusedKeys (a transient refusal)', () => {
+  const c = {}
+  c['3,62,3'] = 'air'
+  c['0,61,0'] = 'air'; c['0,60,0'] = 'stone'                                  // sealed under the platform: no stand reaches it
+  const w = town(c)
+  const p = F.planFloor({ read: w.read, home: HOME, entities: [{ x: 3.5, y: 62.1, z: 3.5 }], maxSteps: 5 })
+  assert.ok(!p.refusedKeys.includes(F.cellKey(3, 62, 3)), 'the item\'s cell is not cold')
+  assert.ok(p.tally.occupied >= 1, 'positive control: it was refused for the item')
+})
+
 await t('a skipped (stuck) cell is never planned; maxSteps bounds the plan and says budget', () => {
   const w = town(carve({}, 8, 10, 62, 62, 8, 10))
   const p = F.planFloor({ read: w.read, home: HOME, skip: new Set([F.cellKey(9, 62, 9)]), maxSteps: 3 })
