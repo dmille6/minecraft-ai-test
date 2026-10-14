@@ -953,7 +953,7 @@ await t('MUTANT (cognitive): the deposit first, or the outcome line removed, is 
 })
 
 // ---- COMPOSITION with digtown-01 (the `_dig_town` instrument wraps bot.dig on 8cd0bc62) ----
-await t('DIGTOWN (composition, 8cd0bc62): the plinth\'s digs go through the real instrument -- a leaf clear is vegetation (class free: counted in the summary, never a _dig_town row), the dirt cover is town ground (one row), both purpose=other by=build_plinth, never target or transit', async () => {
+await t('DIGTOWN (composition, 8cd0bc62): the plinth\'s own digs (no dig scope; the runner\'s context supplied as build_plinth) through the real wrapper -- a leaf clear is vegetation (class free: counted in the summary, never a _dig_town row), the dirt cover is town ground (one row), purpose other. (No pathfinder dig is possible: the plinth walks on townWalkMovements, canDig=false -- not exercised here.)', async () => {
   const D = await import('../src/digtown.mjs')
   const attach = (bot) => {
     const rows = [], sums = []
