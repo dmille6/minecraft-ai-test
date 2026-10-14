@@ -85,7 +85,8 @@ function townModel () {
   carve(-4, -4, 118, 118, -4, -4)                                                     // a plain platform hole
   set(-10, 116, -10, 'dirt'); set(-10, 117, -10, 'oak_sapling'); set(-10, 118, -10, 'air')   // a sapling in a hole
   const read = (x, y, z) => {
-    if (x < A.x0 || x > A.x1 || z < A.z0 || z > A.z1 || y < A.y0 || y > A.y1) return null
+    if (x < A.x0 || x > A.x1 || z < A.z0 || z > A.z1 || y < A.y0 || y > 319) return null
+    if (y > A.y1) return blk('air')                       // the arena is cleared to the sky: air up to the world top
     const k = `${x},${y},${z}`
     if (m.has(k)) return blk(m.get(k))
     if (y > L) return blk('air')
@@ -115,7 +116,8 @@ function boardaModel () {
   let rd = null, raw = null
   const read = (x, y, z) => {
     const sx = x - OFF.x, sy = y - OFF.y, sz = z - OFF.z
-    if (x < A.x0 || x > A.x1 || z < A.z0 || z > A.z1 || y < A.y0 || y > A.y1) return null
+    if (x < A.x0 || x > A.x1 || z < A.z0 || z > A.z1 || y < A.y0 || y > 319) return null
+    if (y > A.y1) return blk('air')
     if (sx < BA.box.x0 || sx > BA.box.x1 || sz < BA.box.z0 || sz > BA.box.z1 || sy < BA.box.y0 || sy > BA.box.y1) return blk(y < BA.box.y0 + OFF.y ? 'stone' : 'air')
     return rd(sx, sy, sz)
   }
