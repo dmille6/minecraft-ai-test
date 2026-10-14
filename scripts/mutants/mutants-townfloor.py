@@ -13,6 +13,7 @@ import os, subprocess, sys
 ENV = dict(os.environ, SKILL_TIMEOUT_MS='300', SKILL_HARD_STOP_GRACE_MS='300',
            OLLAMA_MODEL='qwen2.5:7b-instruct', OLLAMA_BASE_URL='http://127.0.0.1:11434')
 P = ['townfloor']
+PC = ['townfloor', 'townfloor-cavern']   # the order mutants: the cavern replay is where a wrong order shows
 SK = ['townfloor-skill']
 PY = ['py:scripts/host/townfloorread.py']
 TF = 'bots/src/townfloor.mjs'
@@ -72,8 +73,8 @@ MUTANTS = [
     ('a body or an item makes a cell cold', TF, '!placedKeys.has(k) && !transient.has(k)', '!placedKeys.has(k)', P),
     ('a cell holding a body is placed into', TF, "      if (occ.has(key)) { fail('occupied'); continue }", '', P),
     # ---- the order
-    ('lowest first (strands the layer under a roof)', TF, 'p.t.tier - q.t.tier || q.t.y - p.t.y || q.a - p.a ||', 'p.t.tier - q.t.tier || p.t.y - q.t.y || q.a - p.a ||', P),
-    ('near first', TF, 'p.t.tier - q.t.tier || q.t.y - p.t.y || q.a - p.a ||', 'p.t.tier - q.t.tier || q.t.y - p.t.y || p.a - q.a ||', P),
+    ('lowest first (strands the layer under a roof)', TF, 'p.t.tier - q.t.tier || q.t.y - p.t.y || q.a - p.a ||', 'p.t.tier - q.t.tier || p.t.y - q.t.y || q.a - p.a ||', PC),
+    ('near first', TF, 'p.t.tier - q.t.tier || q.t.y - p.t.y || q.a - p.a ||', 'p.t.tier - q.t.tier || q.t.y - p.t.y || p.a - q.a ||', PC),
     ('no platform tier', TF, 'isCold(p.t) - isCold(q.t) || p.t.tier - q.t.tier || ', 'isCold(p.t) - isCold(q.t) || ', P),
     # ---- the click's re-proof (pure)
     ('the re-proof misses a chest put beside', TF, "    if (b && isFurniture(b.name)) return 'furniture'\n  }\n  for (let u = 1;", "    if (false) return 'furniture'\n  }\n  for (let u = 1;", P + SK),
