@@ -13,6 +13,17 @@ Studio reservation both closed 10-12); clear caps bamboo 0 / bucket 2._
 ---
 
 
+## 10-14 03:45Z — FLEET 2ec19385 (stocktarget-01 KEEP+180 19:40Z, orderroom-01 KEEP+360 02:09Z); CHEST CLEAR DONE; queue reordered
+stocktarget-01 promoted 19:50Z, merged to main 3ef61dd2 (250/250). orderroom-01 promoted 02:19Z, merged 1ff85475 (251/251).
+ONE-TIME CHEST CLEAR (owner GO 10-13 "do the chest clear") ran 02:21-02:39Z: 354 containers, full 249 -> 0, items
+276,870 -> 28,442 (248,428 removed: logs 106,874, cobble 104,517, ...), ores/coal/gems/ingots/food/iron tools untouched;
+validate 6,503/6,503, run 6,501 cmds 0 failed, verify PASS, 32/32 pool journals fenced, 80 bots back on 2ec1938.
+Details docs/reports/census/clear2-20261014T0221Z/. Recount re-check for hive-a/hive-c/placebo-a/placebo-b ~04:40Z.
+QUEUE (operator, Claude only -- ordering): wellsite-01 -> digtown-01 -> airpocket-03 (not before 12Z) -> townzone-01 ->
+plinth-01 -> bamboo-02 (backup ~/canary-queue.json.bak-reorder2-*). ALL BLOCKED for want of 2ec1938 variants: wellsite,
+digtown, airpocket-03 being built now by their agents. Canaries starting before ~08:22Z have a pre-period straddling the
+02:22Z clear: notes record it.
+
 ## 10-14 02:40Z — CHEST CLEAR #2 DONE (owner GO 10-13 ~20:40Z, "do the chest clear"); fleet 2ec1938; bamboo-02 hold released
 
 Ran `docs/reports/chest-clear-procedure-2026-10-13.md` step by step in the gap after orderroom-01 was KEPT and promoted
