@@ -118,6 +118,7 @@ function fakeTown ({ items = [], name = 'FloorBot', cells = dugTown(), at = null
       }
       // THE SERVER DROPS IT (no block update): the test says which cell, how many times
       if (st.drop && st.drop.key === KEY(at.x, at.y, at.z) && st.drop.n > 0) { st.drop.n--; st.dropped = (st.dropped ?? 0) + 1; return }
+      if (st.dropAll) { st.dropped = (st.dropped ?? 0) + 1; return }
       world.set(KEY(at.x, at.y, at.z), h.name); h.count--; if (!h.count) slots[h.slot] = null
       st.places.push(KEY(at.x, at.y, at.z))
       await st.placeHook?.(at)
@@ -338,6 +339,20 @@ await t(`LOOP CHAIN: at town with surplus stone and a dug floor, ${ZONE ? 'the f
     assert.ok(!ran.some(x => x.skill === 'fill_town'), JSON.stringify(ran))
     assert.equal((await visit(fakeTown({ items: [['cobblestone', 64], ['cobblestone', 64]] }))).status, 'success', 'positive control: the skill itself works; only the ORDER waits for the zone')
   }
+})
+
+await t(`REFUSAL CHAIN IN THE LOOP: a floor that cannot make progress (every click dropped) backs off and the bot goes on with the model's work -- no fill_town loop${ZONE ? '' : ' (this build: the order never fires at all)'}`, async () => {
+  reset()
+  const town = loopTown({ items: [['cobblestone', 64], ['cobblestone', 64], ['crafting_table', 1], ['stone_pickaxe', 1]] })
+  town.st.dropAll = true
+  const ran = await decisions(town.bot, 5)
+  assert.ok(ran.length >= 3, `positive control: the loop kept deciding (${JSON.stringify(ran)})`)
+  const floors = ran.filter(x => x.skill === 'fill_town')
+  if (ZONE) {
+    assert.equal(floors.length, 1, `one attempt, then the backoff: ${JSON.stringify(ran)}`)
+    assert.equal(floors[0].status, 'failed')
+    assert.ok(ran.slice(ran.indexOf(floors[0]) + 1).length >= 2 && ran.slice(ran.indexOf(floors[0]) + 1).every(x => x.skill !== 'fill_town'), 'the model\'s work resumes')
+  } else assert.equal(floors.length, 0)
 })
 
 await t('LOOP CONTROLS: away from town, or with only the 64 reserve, the loop never issues fill_town (the model decides)', async () => {

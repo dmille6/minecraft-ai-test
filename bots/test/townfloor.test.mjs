@@ -72,20 +72,20 @@ function homeWalkers (r, to, box) {
   }
   return good
 }
-/** The closed air pockets of a world (6-connected open cells in the seal box that never reach y >= L+1 and never leave the
- *  box) -> [Set of 'x,y,z']. Written apart from townfloor.mjs. */
-function closedPockets (r, box, surfaceY) {
+/** The closed air pockets of a world: 6-connected open cells that never LEAVE the box (its top is L+12, above anything a
+ *  town stands; no height counts as outside -- Codex r2: the oracle must not share the planner's surface rule)
+ *  -> [Set of 'x,y,z']. Written apart from townfloor.mjs. */
+function closedPockets (r, box) {
   const seen = new Set(), out = []
-  for (let x = box.x0; x <= box.x1; x++) for (let z = box.z0; z <= box.z1; z++) for (let y = box.y0; y < surfaceY; y++) {
+  for (let x = box.x0; x <= box.x1; x++) for (let z = box.z0; z <= box.z1; z++) for (let y = box.y0; y <= box.y1; y++) {
     const k0 = `${x},${y},${z}`
     if (seen.has(k0) || !isOpen(r(x, y, z))) continue
     const comp = new Set([k0]), q = [[x, y, z]]; seen.add(k0); let open = false
     for (let i = 0; i < q.length; i++) {
       const [a, b, c] = q[i]
-      if (b >= surfaceY) open = true
       for (const [dx, dy, dz] of [[1, 0, 0], [-1, 0, 0], [0, 1, 0], [0, -1, 0], [0, 0, 1], [0, 0, -1]]) {
         const n = [a + dx, b + dy, c + dz], k = n.join(',')
-        if (n[0] < box.x0 || n[0] > box.x1 || n[2] < box.z0 || n[2] > box.z1 || n[1] < box.y0 || n[1] > box.y1 + 2) { if (isOpen(r(...n))) open = true; continue }
+        if (n[0] < box.x0 || n[0] > box.x1 || n[2] < box.z0 || n[2] > box.z1 || n[1] < box.y0 || n[1] > box.y1) { if (isOpen(r(...n))) open = true; continue }
         if (comp.has(k) || !isOpen(r(...n))) continue
         comp.add(k); seen.add(k); q.push(n)
       }
@@ -98,11 +98,12 @@ function closedPockets (r, box, surfaceY) {
  *  bigger than POCKET_MAX; no closed pocket holds an entity that was not in one before. */
 function oracle (before, after, filled, entities = []) {
   const st = F.startNear(before, HOME), box = { ...F.floorBox(HOME), x0: F.floorBox(HOME).x0 - 3, x1: F.floorBox(HOME).x1 + 3, z0: F.floorBox(HOME).z0 - 3, z1: F.floorBox(HOME).z1 + 3, y0: F.floorBox(HOME).y0 - 2, y1: L + 3 }
+  const pbox = { ...box, y1: L + 12 }
   const w0 = homeWalkers(before, st, box), w1 = homeWalkers(after, st, box)
   const lost = [...w0].filter(k => !w1.has(k) && !filled.has(k))
   assert.deepEqual(lost, [], 'ORACLE: stands that walked home before and do not now')
-  const p0 = closedPockets(before, box, L + 1)
-  for (const pk of closedPockets(after, box, L + 1)) {
+  const p0 = closedPockets(before, pbox)
+  for (const pk of closedPockets(after, pbox)) {
     const old = p0.some(o => [...pk].every(k => o.has(k)))
     if (!old) assert.ok(pk.size <= F.POCKET_MAX, `ORACLE: a new closed pocket of ${pk.size} cells at ${[...pk][0]}`)
     for (const e of entities) assert.ok(!pk.has(`${Math.floor(e.x)},${Math.floor(e.y)},${Math.floor(e.z)}`) || old, `ORACLE: an entity sealed in at ${e.x},${e.y},${e.z}`)
@@ -378,6 +379,33 @@ await t('COLD CELLS GO LAST (Claude r1 P2-2): a visit whose budget of tries ran 
   cold = F.coldAfter(cold, [], [k], 2000)
   assert.ok(!F.coldKeys({ cold }, 2000).has(k) && F.coldKeys({ cold }, 2000).has(5), 'a placed cell is no longer cold')
   assert.equal(F.coldKeys({ cold }, 1000 + F.STUCK_HOLD_MS).size, 0, 'cold ages out')
+})
+
+await t('A ROOFED POCKET ABOVE THE FLOOR LEVEL is not "outside" (Codex r2 P1 repro): its one-high entrance is never closed on an item in it; empty, the 2-cell dead end may be', () => {
+  const c = {}
+  c['7,62,0'] = 'air'                                                          // a 1-deep hole, open to the sky
+  c['8,62,0'] = 'air'; c['8,63,0'] = 'stone'                                   // the entrance: one high, roofed
+  c['9,62,0'] = 'air'; c['9,63,0'] = 'air'                                     // the pocket, one cell above the floor level
+  for (const k of ['10,63,0', '9,63,1', '9,63,-1', '9,64,0']) c[k] = 'stone'
+  const w = town(c)
+  const item = { x: 9.5, y: 63.1, z: 0.5 }
+  assert.equal(F.sealRefusal(w.read, { x: 8, y: 62, z: 0 }, { home: HOME, entities: [item] }), 'entity')
+  assert.equal(F.sealRefusal(w.read, { x: 8, y: 62, z: 0 }, { home: HOME }), null, 'positive control: empty, a 2-cell dead end may close')
+  const p = F.planFloor({ read: w.read, home: HOME, entities: [item], maxSteps: 50 })
+  assert.ok(!p.steps.some(s => s.c.join(',') === '8,62,0'), 'never closed on the item')
+  replay(w, p, { entities: [item] })
+})
+
+await t('A SLAB IS NO FOUNDATION and no builder floor (Codex r2 P2): a hole over a slab is not filled; a stand on a slab is not used', () => {
+  const OPENB = blk('air')
+  const slab = { name: 'stone_slab', boundingBox: 'block', shapes: [[0, 0, 0, 1, 0.5, 1]], hardness: 2, props: null }
+  const base = town(carve({}, 8, 8, 62, 62, 8, 8))
+  const read = (x, y, z) => (x === 8 && y === 61 && z === 8 ? slab : base.read(x, y, z))
+  assert.deepEqual(F.floorSupports(read, { x: 8, y: 62, z: 8 }), [])
+  assert.ok(!F.planFloor({ read, home: HOME }).steps.some(s => s.c.join(',') === '8,62,8'))
+  assert.equal(F.builderStand(read, 8, 62, 8), false, 'on a slab: no builder stand')
+  assert.equal(F.standable(read, 8, 62, 8), true, '...but still a walk node (lostWay protects routes over slabs)')
+  void OPENB
 })
 
 await t('a skipped (stuck) cell is never planned; maxSteps bounds the plan and says budget', () => {
