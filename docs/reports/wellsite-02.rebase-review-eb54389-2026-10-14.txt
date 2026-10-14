@@ -1,0 +1,20 @@
+wellsite-02 on eb543899 (digtown-01 on 2ec19385) -- rebase review record, 2026-10-14
+
+BRANCH ws-on-eb54389 @ 78ef611f = the approved wellsite net diff (code baa94879 on 82aef34; 8f2fcfb2 on 2ec19385), one
+commit, git apply --3way, no conflict; sorted +/- lines over bots/ and scripts/ IDENTICAL to the approved diff.
+TESTS: node scripts/run-tests.mjs 251/251 files. LINT: no-undef only the pre-existing reflex.mjs withinBody.
+CHECKS (live base, run_id wellsite-02): licencecheck PASS (' tally=cols:' 0 hits in 812 baseline _well_refused rows);
+changerowcheck PASS (no change rows declared).
+REVIEW: Codex APPROVE (no findings); Claude subagent APPROVE (P3s only). digtown-01 is telemetry only: bot.dig is wrapped
+(this, arguments, forceLook, the original promise and its rejection preserved; lastDigTime/digTime untouched); the
+AsyncLocalStorage scopes do not leak into buildWell's digs; wellsiteread matches exact row names, so _dig_town* never
+counts as a well row; digtown never reads the well's cells, rows or the no-site record; neither change's tests anchor on
+the other's text.
+FINDING (pre-existing, not the rebase; both engines): mineflayer 4.37.1 sets bot.lastDigTime = performance.now(), while
+mineflayer's own clickWindow dig-click wait (inventory.js:548) and the well's dig-click gap (skills.mjs throwStacks) subtract
+it from wall-clock time -- so BOTH waits are inert in production. Consequence: nothing awaits between wellsite's
+click-time containment read and the click (the protection holds); the r3 dig-gap loop is dead in production and its test
+fakes lastDigTime with Date.now(). Follow-up, separate change: use performance.now() in the well's gap (it would add real
+waits after a dig), or drop the loop.
+P3: the well's own shaft/cover digs inside the town box appear in digtownread as purpose=other by=build_well (small,
+separable); wellsite lowers build_well volume (moot if digtown is decided before wellsite deploys, as queued).
