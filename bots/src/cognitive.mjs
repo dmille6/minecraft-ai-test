@@ -10,7 +10,7 @@
 // keeps a bad generation from becoming a bad action.
 
 import { HARD_STOP } from './toolfor.mjs'
-import { SKILLS, roomRemedy, farFromBank, classifyOutcome, SKILL_CONTRACTS, plantableSpotNear, findTownComposter, townBuildPlan, townPickMiss, townIngredientMiss, foodSkipNow, townContainers, townWellState, townWellBuildPlan, insideTownWell, wellSwordsNow, cobbleWellCap, townPitState, stockWellOpts, valveProof, stockCountKeys, pruneTarget, unknownRefusals, stockRecountKeys } from './skills.mjs'
+import { SKILLS, roomRemedy, farFromBank, classifyOutcome, SKILL_CONTRACTS, plantableSpotNear, findTownComposter, townBuildPlan, townPickMiss, townIngredientMiss, townKitIronMiss, foodSkipNow, townContainers, townWellState, townWellBuildPlan, insideTownWell, wellSwordsNow, cobbleWellCap, townPitState, stockWellOpts, valveProof, stockCountKeys, pruneTarget, unknownRefusals, stockRecountKeys } from './skills.mjs'
 import { disposePlan, wellOrder, wellOrderOutcome, WELL_ORDERS, pitCoverItem } from './well.mjs'
 // plinth-01, the raised junk well (its own statements)
 import { plinthOrder, plinthOrderOutcome, plinthBudget, plinthShortfall, PLINTH_STEPS_PER_VISIT, PLINTH_MIN_FUND } from './plinth.mjs'
@@ -24,6 +24,7 @@ import { orderFor, readyFor, plantingOrder, plantingEnabled, PLANT_COOLDOWN_MS, 
 import { wearOutPlan, isHousekeeping } from './hygiene.mjs'
 import { compostPlan, townOrder, townOrderOutcome, boneMealRoom, composterLevel, TOWN_ORDERS, STORAGE_NEAR, TOWN_RADIUS, startableJunk } from './composter.mjs'
 import { hasUsablePick, roomPlan, pickTakes, roomKeep } from './withdrawpick.mjs'
+import { toolkitOrder, toolkitOutcome } from './toolkit.mjs'
 import { townDepositOrder, townDepositOutcome, townDepositPlan } from './towndeposit.mjs'
 import { pruneOrder, pruneOutcome } from './prune.mjs'
 import { recountOrder, recountOutcome } from './recount.mjs'
@@ -682,6 +683,26 @@ export class CognitiveLoop {
     } catch { return null }
   }
 
+  #toolkitOrder() {
+    try {
+      const bot = this.bot
+      const items = bot.inventory?.items?.() ?? []
+      const home = { x: config.world.homeX, y: config.world.homeY, z: config.world.homeZ }
+      const keep = [...roomKeep(bot.currentWants ?? []), 'iron_ingot']
+      const r = toolkitOrder({
+        now: Date.now(), atTown: inTown(home, bot.entity?.position), items, credit: this.kitCredit ?? 0,
+        container: () => townContainers(bot).length > 0,
+        townMiss: () => townKitIronMiss(bot),
+        // the bag can take the draw: the same room plan and keep as at the chest (withdrawpick roomPlan)
+        room: d => roomPlan(items, [{ name: 'iron_ingot', count: d.ingots }, { name: 'stick', count: d.sticks }].filter(t => t.count > 0), { keep }).ok,
+        tableNear: () => !!bot.findBlock?.({ matching: b => bot.registry?.blocks?.[b.type]?.name === 'crafting_table', maxDistance: 32 }),
+        state: this.toolkitState ?? {},
+      })
+      this.toolkitState = r.state
+      return r.order
+    } catch { return null }   // an inventory or world read must never break the decision loop
+  }
+
   #townDepositOrder(milestone) {
     try {
       const bot = this.bot
@@ -1009,6 +1030,10 @@ export class CognitiveLoop {
         }
       } catch { /* a world read must never break the decision loop */ }
     }
+    // THE TOOLKIT (toolkit-01, toolkit.mjs): at town with no usable iron axe / iron shovel, the town's iron makes them.
+    // LAST of the deterministic orders: every one above -- the milestone's work order and its room order included -- goes
+    // first, so a ready milestone step is never displaced; only planting and the model come after.
+    if (!order) order = this.#toolkitOrder()
     if (!order) {
       const sap = {}
       try {
@@ -1117,6 +1142,8 @@ export class CognitiveLoop {
       if (admitted.skill === 'town_deposit') this.townDepositState = townDepositOutcome(r.status, r.failClass ?? null, Date.now(), this.townDepositState ?? {})
       if (WELL_ORDERS.has(admitted.skill)) this.wellState = wellOrderOutcome(admitted.skill, r.status, Date.now(), this.wellState ?? {}, r.failClass ?? null)
       if (admitted.skill === 'prune_town') this.pruneState = pruneOutcome(r.status, Date.now(), this.pruneState ?? {})
+      // THE TOOLKIT: a failure backs off, a decline is refunded; what a run drew and did not use is carried (kitCredit)
+      if (admitted.skill === 'toolkit') { this.toolkitState = toolkitOutcome(r.status, Date.now(), this.toolkitState ?? {}, r.failClass ?? null); if (Number.isFinite(r.kitCredit)) this.kitCredit = r.kitCredit }
       if (admitted.skill === 'count_town') this.recountState = recountOutcome(r.status, r.delta?.counted ?? 0, Date.now(), this.recountState ?? {}, r.failClass ?? null)
       if (admitted.skill === 'build_plinth') this.plinthState = plinthOrderOutcome(r.status, Date.now(), this.plinthState ?? {}, r.failClass ?? null)
       // THE REFLEX TOOK THE BODY -- SAY SO ON THE NEXT DECISION.
