@@ -51,11 +51,12 @@ async function withMutants (file, pairs, fn) {
 const CAP = { x: 200, y: 63, z: 200 }
 const key = (x, y, z) => `${x},${y},${z}`
 const inBox = (p, c = CAP) => Math.abs(p.x - c.x) <= 2 && Math.abs(p.z - c.z) <= 2 && p.y >= c.y - 3 && p.y <= c.y
-function wellWorld ({ at = new V(200.5, 64, 201.5), yaw = Math.PI, cols = () => [CAP], solidAbove = new Set(), canMove = () => true } = {}) {
+function wellWorld ({ at = new V(200.5, 64, 201.5), yaw = Math.PI, cols = () => [CAP], solidAbove = new Set(), canMove = () => true, sand = new Set() } = {}) {
   const carved = new Set([key(CAP.x, CAP.y - 1, CAP.z)])   // the shaft is open under the cap
   const digs = [], gotos = []
   const raw = p => {
     if (carved.has(key(p.x, p.y, p.z))) return AIR
+    if (sand.has(key(p.x, p.y, p.z))) return { name: 'sand', boundingBox: 'block' }
     if (solidAbove.has(key(p.x, p.y, p.z))) return STONE
     if (p.x === CAP.x && p.z === CAP.z && p.y === CAP.y) return { name: 'oak_trapdoor', boundingBox: 'block' }
     return p.y < 64 ? STONE : AIR
@@ -79,7 +80,7 @@ function wellWorld ({ at = new V(200.5, 64, 201.5), yaw = Math.PI, cols = () => 
     },
     setControlState: () => {}, clearControlStates: () => {},
     registry: { blocksByName: {}, itemsByName: {} }, players: {},
-    wellCellsNow: cols, _digs: digs, _gotos: gotos,
+    wellCellsNow: cols, _digs: digs, _gotos: gotos, _carved: carved,
   }
   return bot
 }
@@ -97,7 +98,13 @@ await t('THE SHELL is the pathfinder\'s box (wellBreakCost): +-2 around the colu
   // a raised plinth (plinth-01): cap at s+3, a 5x5x3 plinth on the surface s -- every plinth cell and the filled surface
   const s = 70, pcap = { x: 0, y: s + 3, z: 0 }
   for (let dx = -2; dx <= 2; dx++) for (let dz = -2; dz <= 2; dz++) for (let y = s; y <= s + 3; y++) assert.ok(MW.shellOf([pcap], { x: dx, y, z: dz }), `plinth cell ${dx},${y},${dz}`)
-  assert.equal(MW.shellOf([pcap], { x: 3, y: s + 1, z: 0 }), null, 'its access stair (outside the 5x5) is not the shell')
+  // the shell IS wellBreakCost, column by column (Claude r3 P2): whatever that box covers for a column (plinth-01 adds the
+  // access stair to it), shellOf covers -- checked here on a column carrying extra fields
+  const pcol = { ...pcap, stair: [{ x: 3, y: s + 1, z: 0 }] }
+  for (let dx = -4; dx <= 4; dx++) for (let dz = -4; dz <= 4; dz++) for (let y = s - 1; y <= s + 4; y++) {
+    const p = { x: dx, y, z: dz }
+    assert.equal(!!MW.shellOf([pcol], p), wellBreakCost([pcol], { position: p }) > 0, JSON.stringify(p))
+  }
   assert.equal(MW.shellOf([], { x: 0, y: 0, z: 0 }), null)
 })
 await t('THE STAIR SIMULATED: from the hive-d stand every bearing digs the shell; 3 south of the box, south is clear and north is not', () => {
@@ -222,6 +229,46 @@ await t('READ AFRESH AT EVERY DIG: a well found DURING the step\'s ceiling dig s
   assert.equal(r.status, 'failed', `${r.status}: ${r.detail}`); assert.match(r.detail, /junk well's shell/)
   assert.deepEqual(bot._digs.filter(d => inBox(d)), [], 'the head cell (in the shell) was dug on a stale read')
 })
+// step 1 of a stair heading south from 200,64,196 digs 200,{64,63,62},198: the head and tread are in the shell. The well
+// becomes known right after that step's digs, and the cell is REFILLED (sand fell / a block was placed) -- only the
+// re-open (falling column) or the tread re-dig could dig it now, and each must read the shell first.
+const lateWell = ({ refill, sand = new Set() }) => {
+  let known = [], knownAt = null
+  const bot = wellWorld({ at: new V(200.5, 64, 196.5), yaw: 0, cols: () => known, sand })
+  const dig0 = bot.dig
+  bot.dig = async b => {
+    await dig0(b)
+    if (knownAt == null && b.position.x === 200 && b.position.y === 62 && b.position.z === 198) { bot._carved.delete(key(refill.x, refill.y, refill.z)); known = [CAP]; knownAt = bot._digs.length }
+  }
+  return { bot, after: () => (knownAt == null ? [] : bot._digs.slice(knownAt)) }
+}
+await t('THE RE-OPEN READS THE SHELL: a falling column refills the head cell after the well became known -- the re-open stops, never digs it', async () => {
+  // a sand block over the step's ceiling cell makes the step a falling column (mine re-opens the three cells top-down)
+  const { bot, after } = lateWell({ refill: { x: 200, y: 63, z: 198 }, sand: new Set([key(200, 65, 198)]) })
+  const r = await run({ SKILLS }, bot)
+  assert.equal(r.status, 'failed', `${r.status}: ${r.detail}`); assert.match(r.detail, /junk well's shell/)
+  assert.deepEqual(after().filter(d => inBox(d)), [], 'the re-open dug a shell cell after the well was known')
+})
+await t('THE TREAD RE-DIG READS THE SHELL: the tread refilled after the well became known -- the re-dig stops, never digs it', async () => {
+  const { bot, after } = lateWell({ refill: { x: 200, y: 62, z: 198 } })
+  const r = await run({ SKILLS }, bot)
+  assert.equal(r.status, 'failed', `${r.status}: ${r.detail}`); assert.match(r.detail, /junk well's shell/)
+  assert.deepEqual(after().filter(d => inBox(d)), [], 'the re-dig dug a shell cell after the well was known')
+})
+await t('MUTANT (skills): the re-open without its shell read digs the refilled head cell', async () => {
+  await withMutant(SKP, "          const stopRe = shellStop(pos)\n          if (stopRe) return stopRe\n", "", async m => {
+    const { bot, after } = lateWell({ refill: { x: 200, y: 63, z: 198 }, sand: new Set([key(200, 65, 198)]) })
+    await run(m, bot).catch(() => {})
+    assert.ok(after().some(d => inBox(d)), 'mutant inert')
+  })
+})
+await t('MUTANT (skills): the tread re-dig without its shell read digs the refilled tread', async () => {
+  await withMutant(SKP, "      if (stopRedig) return stopRedig\n", "", async m => {
+    const { bot, after } = lateWell({ refill: { x: 200, y: 62, z: 198 } })
+    const r = await run(m, bot).catch(e => ({ status: 'threw', detail: String(e) }))
+    assert.ok(after().some(d => inBox(d)), `mutant inert: ${r.status} ${r.detail} after=${JSON.stringify(after())} digs=${JSON.stringify(bot._digs)} gotos=${JSON.stringify(bot._gotos)}`)
+  })
+})
 await t('POSITIVE CONTROL for the chain: with no well known, the same stand descends straight through where the shell would be', async () => {
   const bot = wellWorld({ cols: () => [] })
   const r = await run({ SKILLS }, bot)
@@ -250,10 +297,11 @@ await t('MUTANT (minewell): every stair called clear', async () => {
     assert.equal(m.stairClear([CAP], { x: 200, y: 64, z: 201 }, { x: 0, z: -1 }).clear, true, 'mutant inert')
   })
 })
-await t('MUTANT (minewell): a 1-wide shell (the ring\'s second ring left diggable)', async () => {
-  await withMutant(MWP, "  return cols.find(c => Math.abs(pos.x - c.x) <= 2 && Math.abs(pos.z - c.z) <= 2 && pos.y >= c.y - 3 && pos.y <= c.y) ?? null",
-                         "  return cols.find(c => Math.abs(pos.x - c.x) <= 1 && Math.abs(pos.z - c.z) <= 1 && pos.y >= c.y - 3 && pos.y <= c.y) ?? null", async m => {
+await t('MUTANT (minewell): the shell no longer asks wellBreakCost (nothing is shell)', async () => {
+  await withMutant(MWP, "  return cols.find(c => wellBreakCost([c], { position: pos }) > 0) ?? null", "  return null", async m => {
     assert.equal(m.shellOf([CAP], { x: 202, y: 61, z: 200 }), null, 'mutant inert')
+    const bot = wellWorld()
+    await run({ SKILLS: (await import(pathToFileURL(SKP))).SKILLS }, wellWorld()).catch(() => {})
   })
 })
 await t('MUTANT (minewell): the inside-the-well refusal removed -- a bot in the shaft plans a stair', async () => {

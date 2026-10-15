@@ -36,8 +36,9 @@ export const MAX_STAIR_STEPS = 90
 /** The well column whose SHELL holds this cell -> cap | null. Pure. The same box as wellBreakCost (the pathfinder's). */
 export function shellOf (cols, pos) {
   if (!pos || !Array.isArray(cols) || !cols.length) return null
-  if (wellBreakCost(cols, { position: pos }) <= 0) return null
-  return cols.find(c => Math.abs(pos.x - c.x) <= 2 && Math.abs(pos.z - c.z) <= 2 && pos.y >= c.y - 3 && pos.y <= c.y) ?? null
+  // wellBreakCost ITSELF, per column, so the stair and the pathfinder can never disagree -- whatever that box grows to
+  // (plinth-01 adds the plinth's access stair to it: Claude r3 P2)
+  return cols.find(c => wellBreakCost([c], { position: pos }) > 0) ?? null
 }
 
 /** The cells step i of a stair from p0 along `bear` digs (skills.mjs descentStepCells: ceiling, headroom, tread). Pure. */
@@ -89,13 +90,13 @@ export function relocateCandidates (p0, radius = RELOCATE_RADIUS) {
  *   bearings   the stair's candidate cardinals (skills.mjs stairBearings)
  *   standable  (cell) -> bool: feet and head open, a solid floor (the caller reads the world)
  */
-export function planMineStart ({ cols = [], p0, feet = null, bearings = [], standable = () => false, radius = RELOCATE_RADIUS, goalY = null, exclude = [] } = {}) {
+export function planMineStart ({ cols = [], p0, feet = null, bearings = [], standable = () => false, rimStandable = null, radius = RELOCATE_RADIUS, goalY = null, exclude = [] } = {}) {
   const wells = Array.isArray(cols) ? cols : []
   if (!wells.length) return { action: 'go', bearings }
   const inside = bodyInWell(wells, feet ?? { x: p0.x + 0.5, y: p0.y, z: p0.z + 0.5 })
   if (inside) {
     // THE WAY OUT, NAMED (Claude r1 P3): a rim cell beside the column a goto can reach (the pathfinder exempts the bot's own well)
-    const rim = [[1, 0], [-1, 0], [0, 1], [0, -1]].map(([dx, dz]) => ({ x: inside.x + dx, y: inside.y + 1, z: inside.z + dz })).find(c => standable(c))
+    const rim = [[1, 0], [-1, 0], [0, 1], [0, -1]].map(([dx, dz]) => ({ x: inside.x + dx, y: inside.y + 1, z: inside.z + dz })).find(c => (rimStandable ?? standable)(c))   // a place to walk to, not to mine from (Claude r3 P3)
     return { action: 'refuse', inside: true, cap: inside, to: rim ?? null,
              why: `this bot is inside the junk well at ${inside.x},${inside.y},${inside.z}: a stair from here would dig the well's own floor; ${rim ? `goto ${rim.x} ${rim.y} ${rim.z} (the well's rim) first` : 'climb out to the rim first'}` }
   }

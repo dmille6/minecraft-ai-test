@@ -10045,16 +10045,16 @@ async function mine(ctx, { y: targetY = 12 }, signal) {
   // here the bot WALKS to the nearest standable cell that has one (planned again on arrival); with none, a refusal that
   // names the well and where to walk.
   const wellCols = () => { try { return bot.wellCellsNow?.() ?? knownWellCells(bot) } catch { return [] } }
-  const standableAt = c => {
+  const canStand = c => {
     const feetB = bot.blockAt(new Vec3(c.x, c.y, c.z)), headB = bot.blockAt(new Vec3(c.x, c.y + 1, c.z)), floorB = bot.blockAt(new Vec3(c.x, c.y - 1, c.z))
     const open = b => !!b && b.boundingBox === 'empty' && !stairLiquid(b)
-    // NEVER A START THE HOME GUARD REFUSES (Claude r1 P2: town wells sit 7-16 from home, the guard is 12)
-    if (Math.hypot(c.x + 0.5 - config.world.homeX, c.z + 0.5 - config.world.homeZ) <= 12) return false
     return open(feetB) && open(headB) && !!floorB && floorB.boundingBox === 'block' && !stairLiquid(floorB)
   }
+  // NEVER A START THE HOME GUARD REFUSES (Claude r1 P2: town wells sit 7-16 from home, the guard is 12)
+  const standableAt = c => Math.hypot(c.x + 0.5 - config.world.homeX, c.z + 0.5 - config.world.homeZ) > 12 && canStand(c)
   const failedTargets = []
   const planHere = (radius = RELOCATE_RADIUS) => planMineStart({ cols: wellCols(), p0: bot.entity.position.floored(), feet: bot.entity.position,
-                                         bearings: stairBearings(bot), standable: standableAt, radius, goalY, exclude: failedTargets })
+                                         bearings: stairBearings(bot), standable: standableAt, rimStandable: canStand, radius, goalY, exclude: failedTargets })
   let wellPlan = planHere()
   const wellRow = (what, plan, extra = '') => logEvent({ kind: 'mine_well_guard', status: what === 'relocate' ? 'success' : 'refused', snapshot: snapshot(bot),
     detail: `action=${what} at=${plan.cap ? `${plan.cap.x},${plan.cap.y},${plan.cap.z}` : plan.hit?.cap ? `${plan.hit.cap.x},${plan.hit.cap.y},${plan.hit.cap.z}` : '-'} from=${(() => { const f = bot.entity.position.floored(); return `${f.x},${f.y},${f.z}` })()}${plan.to ? ` to=${plan.to.x},${plan.to.y},${plan.to.z}` : ''}${extra}` })
