@@ -71,6 +71,31 @@ def in_box(site, x, y, z, bottom=16):
     return -2 <= u <= 3 and -2 <= v <= 9 and bottom - 1 <= math.floor(y) <= c + 2
 
 
+def landing_levels(c, floor=16):
+    """PURE. shaftplan.mjs landingLevels: every 8 below c down to floor, plus a terminal landing more than 3 below the last."""
+    out, y = [], c - 8
+    while y >= floor:
+        out.append(y); y -= 8
+    last = out[-1] if out else c
+    if last - floor > 3:
+        out.append(floor)
+    return out
+
+
+def in_shaft(site, x, y, z, bottom=16):
+    """PURE. The ENVELOPE plus one cell (Claude code r5 P3: the box's surface over the rooms is ordinary ground): the two
+    columns (u 0..1, v 0) and their lining (u -1..2, v -1..1) from bottom-1 to c+1; each landing's portal/room/stub and their
+    walls (u -2..3, v 1..9) from yL-1 to yL+2 only."""
+    if not site:
+        return False
+    (origin, away, c) = site
+    u, v = to_local(origin, away, math.floor(x), math.floor(z))
+    fy = math.floor(y)
+    if -1 <= u <= 2 and -1 <= v <= 1 and bottom - 1 <= fy <= c + 1:
+        return True
+    return any(-2 <= u <= 3 and 1 <= v <= 9 and yl - 1 <= fy <= yl + 2 for yl in landing_levels(c, 16) if yl >= bottom - 8)
+
+
 def near_collar(site, pos, r=8):
     if not site or not pos:
         return False
@@ -127,6 +152,8 @@ assert still_runs([(t, p, i == 7) for i, (t, p, _) in enumerate(_s)], _site) == 
 assert held_runs([0, 60, 120, 180, 240, 1000, 1060]) == [240, 60]
 assert unexplained(['1,2,3', '4,5,6'], ['4,5,6']) == ['1,2,3']
 assert in_box(_site, 100, 29, 200, 30) and not in_box(_site, 100, 28, 200, 30), 'frontier 30: y=29 (the floor under it) in, y=28 out'
+assert in_shaft(_site, 100, 29, 200, 30) and not in_shaft(_site, 100, 28, 200, 30)
+assert in_shaft(_site, 99, 62, 205, 16) and not in_shaft(_site, 99, 70, 205, 16), 'over a stub at the surface is not the shaft; the stub at its landing (62) is'
 
 if __name__ == '__main__':
     from lib.telemetry import Events
@@ -284,7 +311,7 @@ if __name__ == '__main__':
             # THE FRONTIER AS KNOWN AT THE DEATH (the latest observation at or before it; none -> nothing built that we know of),
             # and in_box's own bottom-1 makes the boundary frontier-1 inclusive (Codex code r3 P2: never subtract twice)
             known = [fv for (tt, fv) in frontier_seen.get(pool, []) if tt <= t.timestamp()]
-            if pos and known and in_box(sites.get(pool), pos['x'], pos['y'], pos['z'], max(bottoms.get(pool, 16), known[-1])):
+            if pos and known and in_shaft(sites.get(pool), pos['x'], pos['y'], pos['z'], max(bottoms.get(pool, 16), known[-1])):
                 deaths_in.append((b, pos))
     lost = {p: unexplained(missing[p], absorbed[p]) for p in missing}
     lost_n = sum(len(v) for v in lost.values())

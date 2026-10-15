@@ -7821,7 +7821,7 @@ async function digShaft (ctx, _args, signal) {
   // NO PROGRESS (Claude code r2 P2-1, Codex code r2 P1): counted per record; three counted visits spanning >= 60 min stop a
   // BUILDING shaft -- a closure_pending one never (only a witnessed closure stops it); transient reasons (occupied, a marker,
   // unloaded) are not counted at all (the order's cooldown backs them off)
-  const TRANSIENT = new Set(['shaft_occupied', 'shaft_occupied_marker', 'shaft_unloaded'])
+  const TRANSIENT = new Set(['shaft_occupied', 'shaft_occupied_marker', 'shaft_unloaded', 'deadline', 'deadline_descent'])   // the clock is no evidence (Claude code r5 P3)
   const noProgress = async why => {
     if (TRANSIENT.has(why)) return
     const r0 = readShaft(dir, key).record
@@ -7863,7 +7863,7 @@ async function digShaft (ctx, _args, signal) {
     // ---- 4. the pad (cleared first: a table, a chest, a sapling or snow on it is the shaft's only door shut -- Claude code r1
     //         P2-2; the pad is not reserved, so this is an ordinary dig); nobody inside; the cap off ----
     try { await (bot.withTownDepositWalk ?? (fn => fn()))(() => g.bound(bot.pathfinder.goto(new goals.GoalNear(pad.x, pad.y, pad.z, 2)), 45_000, 'pathfinding', { path: true })) } catch (e) { if (e?.aborted || signal?.aborted) throw e }
-    for (const u of [0, 1]) for (const dy of [0, 1]) {
+    for (const u of [0, 1]) for (const dy of [1, 0]) {   // TOP-DOWN (Claude code r5 P3): a falling block above never refills a cleared cell
       const c = worldOf(site, u, site.c + dy, -1), b = bot.blockAt(new Vec3(c.x, c.y, c.z))
       if (b && b.name !== 'air' && b.name !== 'cave_air' && !/torch/.test(b.name)) {
         // PLAIN LITTER ONLY (Claude code r2 P2-2): never a chest, barrel, furnace, bed, composter or anything with a block
