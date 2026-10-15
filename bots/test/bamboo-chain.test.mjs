@@ -1,7 +1,8 @@
 // BAMBOO -> STICKS ON THE STOCK-TARGET FLEET (bamboo-02 rebase onto 8cd0bc62 / 75cfb447): the order through the REAL
-// CognitiveLoop, composed with what landed since bamboo-01 -- stocktarget's recount and pruning, orderroom's room order,
-// digtown, the wellsite well orders. The pure plan and the fold itself are bamboo.test.mjs's; this asks only "which order
-// does a real decision give", with a positive control for every negative.
+// CognitiveLoop on the rebased decide() chain. The pure plan and the fold itself are bamboo.test.mjs's; this asks only
+// "which order does a real decision give" AWAY FROM TOWN (no town order can fire there), with the model's fallback
+// asserted on every negative. The town precedence (deposit -> recount -> firstOrder -> town/well/prune -> room order) is
+// the structural WIRED test in bamboo.test.mjs plus towndeposit/stocktarget's own chains (Codex r1 P3: said, not implied).
 import assert from 'node:assert'
 import fs from 'node:fs'
 import os from 'node:os'
@@ -53,6 +54,8 @@ async function decisions (w, n) {
   loop.start()
   for (let i = 0; i < 300 && ran.length < n; i++) await new Promise(r => setTimeout(r, 30))
   loop.stop()
+  // THE LOOP KEPT DECIDING (Codex r1 P3): a stalled loop returns fewer than n, and every negative below would pass on []
+  assert.ok(ran.length >= n, `only ${ran.length} of ${n} decisions: ${JSON.stringify(ran)}`)
   return ran
 }
 const fill = (n, name = 'dirt') => Array.from({ length: n }, () => stack(name, 64))
@@ -64,15 +67,16 @@ await t('CHAIN (real loop): a full bag holding bamboo [64] + sticks [32] away fr
 })
 await t('CHAIN CONTROL (real loop): bamboo [63] (no batch frees a slot) -> no bamboo order; the model decides', async () => {
   const ran = await decisions(world([stack('bamboo', 63), stack('stick', 32), ...fill(34)]), 2)
-  assert.ok(!ran.includes('bamboo_sticks'), JSON.stringify(ran))
+  assert.ok(!ran.includes('bamboo_sticks'), JSON.stringify(ran)); assert.ok(ran.includes('status'), 'the model decides')
 })
 await t('CHAIN CONTROL (real loop): below 34 slots -> no bamboo order (the trigger is the full bag)', async () => {
   const ran = await decisions(world([stack('bamboo', 64), stack('stick', 32), ...fill(30)]), 2)
-  assert.ok(!ran.includes('bamboo_sticks'), JSON.stringify(ran))
+  assert.ok(!ran.includes('bamboo_sticks'), JSON.stringify(ran)); assert.ok(ran.includes('status'), 'the model decides')
 })
 await t('CHAIN (real loop): the fold is ONE order per cooldown -- a success that leaves the bag full does not loop', async () => {
   const ran = await decisions(world([stack('bamboo', 64), stack('stick', 32), ...fill(34)]), 4)
   assert.equal(ran.filter(s => s === 'bamboo_sticks').length, 1, JSON.stringify(ran))
+  assert.ok(ran.slice(1).every(s => s === 'status'), `after the fold the model decides: ${JSON.stringify(ran)}`)
 })
 
 console.log(`\n${pass} passed, ${fail} failed`)
