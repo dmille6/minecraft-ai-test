@@ -293,7 +293,7 @@ await t('EXECUTOR: a stand the bot did not reach is re-proved where it is -- nev
 })
 
 await t('MUTANT KILLED: the fence dropped from the gate -- a lease lost during the look still places', async () => {
-  await withMutant(BP, "      if (!fence()) return 'fence'\n", '', async m => {
+  await withMutant(BP, "return 'body_walled'\n      if (!fence()) return 'fence'\n", "return 'body_walled'\n", async m => {
     const w = world()
     let clicks = 0, lost = false
     await m.runPlacements({ read: w.read, cells: [{ x: 3, y: 64, z: 0 }], start: START, feet: () => ({ x: 1, y: 64, z: 0 }), maxSteps: 1,
@@ -331,7 +331,7 @@ await t('GATE: the builder shifted out of reach during the look is refused at th
   assert.equal(a.clicks, 0); assert.match(a.verdicts[0], /^stand:/)
 })
 await t('MUTANT KILLED: the gate without the stand re-proof -- it clicks from 7 blocks away', async () => {
-  await withMutant(BP, "      if (st) return `stand:${st}`\n", '', async m => {
+  await withMutant(BP, "      const st = standOk(nw, { stand: feet(), target: c, point: s.point, topFace: s.topFace, start, box, forbid })\n      if (st) return `stand:${st}`\n", '', async m => {
     assert.equal((await gateScene(m, { during: ({ setFeet }) => setFeet({ x: -6, y: 64, z: 0 }) })).clicks, 1)
   })
 })
@@ -380,7 +380,7 @@ await t('ADAPTER: a lease lost during the tick wait never places (the gate runs 
   eff.close(); e2.close()
 })
 await t('MUTANT KILLED (adapter): the gate skipped -- the lost lease places anyway', async () => {
-  await withMutant(BBP, "      const no = gate()\n      if (no) return `gate:${no}`\n", '', async m => {
+  await withMutant(BBP, "      if (bot.heldItem?.name !== want) return 'gate:not_held'\n      const no = gate()\n      if (no) return `gate:${no}`\n", "      if (bot.heldItem?.name !== want) return 'gate:not_held'\n", async m => {
     let leased = true
     const f = fakeBot({ onTicks: () => { leased = false } })
     const eff = m.botBuildEffects(f.bot)

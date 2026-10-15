@@ -210,6 +210,19 @@ export function standOk (read, { stand, target, point, topFace = false, start, b
 
 // ---- bodies ----------------------------------------------------------------------------------------------------------
 
+/** A clear's stand, re-proved where the bot is: standable, not avoided, the block's centre in reach and in sight. Pure. */
+export function standOkClear (read, { stand, target, point, forbid = () => false }) {
+  if (!stand || !target || !point) return 'incomplete'
+  const { x, y, z } = stand
+  if (!standable(read, x, y, z)) return 'not standable'
+  if (forbid(x, y, z) || forbid(x, y + 1, z)) return 'forbidden stand'
+  if (x === target.x && z === target.z && (y === target.y || y + 1 === target.y)) return 'in the target cell'
+  const eye = { x: x + 0.5, y: y + EYE_HEIGHT, z: z + 0.5 }
+  if (Math.hypot(eye.x - point.x, eye.y - point.y, eye.z - point.z) > BUILD_REACH) return 'out of reach'
+  if (!sightClear(read, eye, point, new Set([bk(target.x, target.y, target.z)]))) return 'no line of sight'
+  return null
+}
+
 /** Does a body ({ x, y, z } feet centre, w, h) overlap block cell c? Pure (blueprint.mjs bodyInCell's rule). */
 export function bodyInCell (b, c) {
   const hw = (Number(b?.w) || 0.6) / 2, h = Number(b?.h) || 1.8
@@ -234,14 +247,14 @@ export const cellDone = (b, want) => !!b && (typeof want === 'function' ? !!want
  * cell is replaceable now; blocked = it holds something else (never dug: the caller decides -- waive, degrade, report);
  * unknown = not loaded (never a guess).
  */
-export function buildProgress (read, cells = []) {
-  const out = { done: 0, open: 0, blocked: 0, unknown: 0, total: 0, left: [] }
+export function buildProgress (read, cells = [], { fillable = replaceable, clearable = () => false } = {}) {
+  const out = { done: 0, open: 0, clear: 0, blocked: 0, unknown: 0, total: 0, left: [] }
   for (const c of cells) {
     out.total++
     const b = read(c.x, c.y, c.z)
     if (!b) { out.unknown++; continue }
     if (cellDone(b, c.want)) { out.done++; continue }
-    if (replaceable(b)) { out.open++; out.left.push(c) } else out.blocked++
+    if (fillable(b)) { out.open++; out.left.push(c) } else if (clearable(b)) { out.clear++; out.left.push(c) } else out.blocked++
   }
   return out
 }
@@ -253,16 +266,21 @@ export function buildProgress (read, cells = []) {
  *   reach    optional precomputed walkReach(read, start) (the executor's per-step cache)
  *   bodies   other entities ({ x, y, z, w, h }): a cell they touch, or touch the cell above, waits
  *   skip     (cell) -> true for cells this visit gave up on (two failed clicks)
+ *   fillable (block) -> may a block be placed INTO it (default: replaceable; the monument adds water)
+ *   clearable (block) -> a non-solid block a bare hand removes at once (a flower): a CLEAR step (op 'clear') comes first --
+ *            no support, a stand in reach of the block's centre with a clear sight (removing it never walls anyone in)
  * A cell is feasible when it is replaceable, no open cell of the list lies below it in its column, a body does not block
  * it, it has a support face, and a stand that the town reaches before the click and that walks back to the town after it.
  */
-export function nextPlacement (read, { todo = [], start, box = null, forbid = () => false, bodies = [], prefer = null, reach = null, skip = () => false, scan = Infinity }) {
+export function nextPlacement (read, { todo = [], start, box = null, forbid = () => false, bodies = [], prefer = null, reach = null, skip = () => false, scan = Infinity,
+  fillable = replaceable, clearable = () => false }) {
   if (!start) return { step: null, why: 'no_start', stuck: [] }
   const r = reach ?? walkReach(read, start, { box, forbid })
   if (!r.has(bk(start.x, start.y, start.z))) return { step: null, why: 'start_not_standable', stuck: [] }
   const openCols = new Map()                       // column -> lowest open y in the list
   for (const c of todo) {
-    if (!replaceable(read(c.x, c.y, c.z))) continue
+    const b0 = read(c.x, c.y, c.z)
+    if (!fillable(b0) && !clearable(b0)) continue
     const k = `${c.x},${c.z}`
     if (!openCols.has(k) || c.y < openCols.get(k)) openCols.set(k, c.y)
   }
@@ -271,7 +289,17 @@ export function nextPlacement (read, { todo = [], start, box = null, forbid = ()
   for (const c of todo) {
     if (looked >= scan) break
     if (skip(c)) continue
-    if (!replaceable(read(c.x, c.y, c.z))) continue
+    const now = read(c.x, c.y, c.z)
+    if (clearable(now)) {
+      // A CLEAR STEP: the block's centre in reach and sight from a stand the town reaches (a flower walls nobody in)
+      looked++
+      const point = { x: c.x + 0.5, y: c.y + 0.5, z: c.z + 0.5 }
+      const stand = standFor(read, { target: c, point, topFace: false, reach: r, avoid: forbid, prefer })
+      if (stand) return { step: { op: 'clear', cell: c, ref: null, face: null, point, topFace: false, stand }, why: null, stuck }
+      stuck.push(`${c.x},${c.y},${c.z}:stand`)
+      continue
+    }
+    if (!fillable(now)) continue
     if (openCols.get(`${c.x},${c.z}`) < c.y) continue                     // bottom-up in every column
     looked++
     if (bodyBlocks(bodies, c)) { stuck.push(`${c.x},${c.y},${c.z}:body`); continue }
@@ -289,7 +317,7 @@ export function nextPlacement (read, { todo = [], start, box = null, forbid = ()
     const usable = { has: k => r.has(k) && back.has(k) }
     for (const o of options) {
       const stand = standFor(read, { target: c, point: o.point, topFace: o.topFace, reach: usable, avoid: forbid, prefer })
-      if (stand) return { step: { cell: c, ref: o.ref, face: o.face, point: o.point, topFace: o.topFace, stand }, why: null, stuck }
+      if (stand) return { step: { op: 'place', cell: c, ref: o.ref, face: o.face, point: o.point, topFace: o.topFace, stand }, why: null, stuck }
     }
     stuck.push(`${c.x},${c.y},${c.z}:walled_in`)
   }
@@ -353,6 +381,9 @@ export const BUILD_ATTEMPTS = 2
  *   walkTo(stand)            -> truthy when the walk ended (anywhere: the stand is re-proved where the bot is)
  *   hold(cell)               -> true when a block for this cell is in hand; false = out of material (the visit ends)
  *   fence()                  -> true while this builder may still mutate (lease, record generation)
+ *   clear(step, gate)        -> the same verdicts for a CLEAR step (the cell's block broken by hand); only with `clearable`
+ *   nearest                  true: each step tries the open cells nearest the bot's feet first (the caller's order breaks ties)
+ *   fillable, clearable      as nextPlacement. The result carries timings: gateMs (per gate) and planMs (per step).
  *   click(step, gate)        -> 'confirmed' | 'refused' | 'silent' (the server's word: the caller's witness) | 'gate:<why>'.
  *                               The adapter does its awaits (look, the tick pacing) FIRST, then calls gate() -- null to
  *                               click, else the reason not to -- and clicks with NO await between (Codex stage-3 r1 P1-1:
@@ -365,8 +396,9 @@ export const BUILD_ATTEMPTS = 2
  * `blocked` / `unknown` (Codex stage-3 r1 P2-5: never a success-shaped stop for an unfinished list).
  */
 export async function runPlacements ({ read, cells, start, box = null, forbid = () => false, feet, bodies = () => [], walkTo, hold, fence, click,
-  aborted = () => false, maxSteps = 40, deadline = Infinity, now = () => Date.now(), scan = Infinity, self = null }) {
-  const out = { placed: 0, refused: 0, silent: 0, unreachable: 0, stop: null, why: null, stuck: [], cells: [] }
+  aborted = () => false, maxSteps = 40, deadline = Infinity, now = () => Date.now(), scan = Infinity, self = null,
+  clear = null, clearable = () => false, fillable = replaceable, nearest = false, clock = () => performance.now() }) {
+  const out = { placed: 0, cleared: 0, refused: 0, silent: 0, unreachable: 0, stop: null, why: null, stuck: [], cells: [], gateMs: [], planMs: [] }
   box ??= boxAround([...cells, start])
   const live = read
   const tries = new Map()
@@ -378,24 +410,54 @@ export async function runPlacements ({ read, cells, start, box = null, forbid = 
     tries.set(k, n)
     if (n >= BUILD_ATTEMPTS) gaveUp.add(k)
   }
+  const timed = fn => () => { const t0 = clock(); try { return fn() } finally { out.gateMs.push(clock() - t0) } }
   for (let steps = 0; ; steps++) {
     if (aborted()) { out.stop = 'aborted'; break }
     if (steps >= maxSteps) { out.stop = 'max_steps'; break }
     if (now() > deadline) { out.stop = 'deadline'; break }
     read = memo(live)                                       // one coherent, cached view per step; re-read every step
-    const prog = buildProgress(read, cells)
+    const tPlan = clock()
+    const prog = buildProgress(read, cells, { fillable, clearable })
     if (prog.done === prog.total) { out.stop = 'complete'; break }
     if (!prog.left.length) { out.stop = prog.unknown ? 'unknown' : 'blocked'; out.why = `${prog.blocked} blocked, ${prog.unknown} unloaded`; break }
-    const n = nextPlacement(read, { todo: prog.left, start, box, forbid, bodies: bodies(), prefer: feet(), skip, scan })
+    // NEAREST FIRST (coordinator 10-15): the open cells by distance from the bot's feet now -- the walk is the cost
+    let todo = prog.left
+    if (nearest) { const f = feet(); todo = [...todo].sort((a, b) => Math.hypot(a.x - f.x, a.y - f.y, a.z - f.z) - Math.hypot(b.x - f.x, b.y - f.y, b.z - f.z)) }
+    const n = nextPlacement(read, { todo, start, box, forbid, bodies: bodies(), prefer: feet(), skip, scan, fillable, clearable })
+    out.planMs.push(clock() - tPlan)
     if (!n.step) { out.stop = 'no_step'; out.why = n.why; out.stuck = n.stuck; break }
     const s = n.step, c = s.cell
     await walkTo(s.stand)
     if (aborted()) { out.stop = 'aborted'; break }
+    read = memo(live)                                       // the walk changed the world around the bot: a fresh view
+    if (s.op === 'clear') {
+      // A CLEAR: re-proved where the bot is (standable, in reach, in sight), then a gate of the same shape -- no material,
+      // no support and no walk-back (removing a non-solid block walls nobody in)
+      const bad = standOkClear(read, { stand: feet(), target: c, point: s.point, forbid })
+      if (bad) { out.unreachable++; fail(c, `stand:${bad}`); continue }
+      const gateC = timed(() => {
+        if (aborted()) return 'aborted'
+        const nw = memo(live)
+        if (!clearable(nw(c.x, c.y, c.z))) return 'cell_changed'
+        const st = standOkClear(nw, { stand: feet(), target: c, point: s.point, forbid })
+        if (st) return `stand:${st}`
+        if (!fence()) return 'fence'
+        return null
+      })
+      if (typeof clear !== 'function') { fail(c, 'no_clear_effect'); continue }
+      if (gateC() === 'fence') { out.stop = 'fence'; break }
+      const v = await clear(s, gateC)
+      if (v === 'gate:aborted') { out.stop = 'aborted'; break }
+      if (v === 'gate:fence') { out.stop = 'fence'; break }
+      if (typeof v === 'string' && v.startsWith('gate:')) { fail(c, v.slice(5)); continue }
+      if (v === 'confirmed') { out.cleared++; out.cells.push({ c: [c.x, c.y, c.z], verdict: 'cleared' }); continue }
+      if (v === 'refused') out.refused++; else out.silent++
+      fail(c, v)
+      continue
+    }
     // RE-PROVED WHERE THE BOT IS (it may have stopped short, or somewhere else as good): never a click from a stand the
     // planner would refuse -- out of reach, under a top face, or one that walls it in
-    read = memo(live)                                       // the walk changed the world around the bot: a fresh view
-    const at = feet()
-    const bad = standOk(read, { stand: at, target: c, point: s.point, topFace: s.topFace, start, box, forbid })
+    const bad = standOk(read, { stand: feet(), target: c, point: s.point, topFace: s.topFace, start, box, forbid })
     if (bad) { out.unreachable++; fail(c, `stand:${bad}`); continue }
     if (!(await hold(c))) { out.stop = 'no_material'; break }
     // THE GATE, asked by the adapter after its last await and immediately before the click packet: everything that can
@@ -403,19 +465,19 @@ export async function runPlacements ({ read, cells, start, box = null, forbid = 
     // ...AND EVERY PROOF THE PLAN MADE, AGAIN, on a fresh view (Codex stage-3 r2 P1-1: a bystander walked into a dead end
     // during the equip, and the bot itself may have shifted during the look): the stand where the bot is now, and no body
     // that walks out now is walled in by this click
-    const gate = () => {
+    const gate = timed(() => {
       if (aborted()) return 'aborted'
-      const now = memo(live)
-      if (!replaceable(now(c.x, c.y, c.z))) return 'cell_changed'
-      if (!refUsable(now(s.ref.x, s.ref.y, s.ref.z))) return 'support_changed'
+      const nw = memo(live)
+      if (!fillable(nw(c.x, c.y, c.z))) return 'cell_changed'
+      if (!refUsable(nw(s.ref.x, s.ref.y, s.ref.z))) return 'support_changed'
       const bs = bodies()
       if (bodyBlocks([...bs, ...(self ? [self()] : [])], c)) return 'body'
-      const st = standOk(now, { stand: feet(), target: c, point: s.point, topFace: s.topFace, start, box, forbid })
+      const st = standOk(nw, { stand: feet(), target: c, point: s.point, topFace: s.topFace, start, box, forbid })
       if (st) return `stand:${st}`
-      if (bs.length && wallsInBody(bs, walkReachBack(now, start, { box, forbid }), walkReachBack(overlay(now, new Map([[bk(c.x, c.y, c.z), PLACED]])), start, { box, forbid }))) return 'body_walled'
+      if (bs.length && wallsInBody(bs, walkReachBack(nw, start, { box, forbid }), walkReachBack(overlay(nw, new Map([[bk(c.x, c.y, c.z), PLACED]])), start, { box, forbid }))) return 'body_walled'
       if (!fence()) return 'fence'
       return null
-    }
+    })
     if (gate() === 'fence') { out.stop = 'fence'; break }   // a lease already lost: no look, no wait
     const v = await click(s, gate)
     if (v === 'gate:aborted') { out.stop = 'aborted'; break }
