@@ -12,6 +12,7 @@ import fs from 'node:fs'
 import path from 'node:path'
 import { ZIG, zigCells, scoreSite, faceToward, profileAt, MAX_EDGE_DROP, inApproach } from './monument.mjs'
 import { structureKey, readStructureRecord } from './structures.mjs'
+import { takeLease, releaseLease } from './blueprint.mjs'
 import { solid, replaceable, bk, bodyBlocks } from './builder.mjs'
 import { STONE_GUARD, RESERVE_STONE } from './well.mjs'
 
@@ -139,57 +140,62 @@ export function monumentPlan (rec) {
  *   blocked   anything else (lava, a non-full block that is not instant): waited on, waived after WAIVE_BOTS bots
  *   unknown   not loaded (never a guess)
  */
-// INSTANT BREAKS ONLY (Codex stage-4 r1 P2-6, Claude r1 P2-1): every block with hardness 0 in minecraft-data 1.21.8 (generated;
-// liquids, fire, portals and TNT left out; the replaceable grasses are `open` already). A cobweb (4: a 20 s bare-hand dig),
-// vines, glow lichen, carpets and snow are NOT here: they wait and are waived. Checked BEFORE `solid` (a lily pad, a slime
-// block, a flower pot have a block bounding box and are cleared, never kept as thin footing).
+// NATURAL PLANTS, TORCHES AND THIN COVERINGS ONLY (Codex stage-4 r1 P2-6; Claude r1 P2-1, r2 P2-1/P3): generated from
+// minecraft-data 1.21.8 -- every one breaks by hand in <= 0.3 s (hardness <= 0.2: snow, vines, glow lichen and carpets
+// included, so a snow-covered site is buildable). NOT here: redstone parts, pots, scaffolding, slime/honey/resin blocks, a
+// decorated pot (a container), a cobweb (a 20 s dig), a bamboo shoot (hardness 1). Checked BEFORE `solid`.
 const CLEARABLE = new Set([
   'oak_sapling', 'spruce_sapling', 'birch_sapling', 'jungle_sapling', 'acacia_sapling', 'cherry_sapling',
   'dark_oak_sapling', 'pale_oak_sapling', 'mangrove_propagule', 'bush', 'short_dry_grass', 'tall_dry_grass', 'seagrass',
   'tall_seagrass', 'dandelion', 'torchflower', 'poppy', 'blue_orchid', 'allium', 'azure_bluet', 'red_tulip',
   'orange_tulip', 'white_tulip', 'pink_tulip', 'oxeye_daisy', 'cornflower', 'wither_rose', 'lily_of_the_valley',
-  'brown_mushroom', 'red_mushroom', 'torch', 'wall_torch', 'redstone_wire', 'wheat', 'redstone_torch',
-  'redstone_wall_torch', 'cactus_flower', 'sugar_cane', 'soul_torch', 'soul_wall_torch', 'repeater',
-  'attached_pumpkin_stem', 'attached_melon_stem', 'pumpkin_stem', 'melon_stem', 'resin_clump', 'lily_pad',
-  'resin_block', 'nether_wart', 'tripwire_hook', 'tripwire', 'flower_pot', 'potted_torchflower', 'potted_oak_sapling',
-  'potted_spruce_sapling', 'potted_birch_sapling', 'potted_jungle_sapling', 'potted_acacia_sapling',
-  'potted_cherry_sapling', 'potted_dark_oak_sapling', 'potted_pale_oak_sapling', 'potted_mangrove_propagule',
-  'potted_fern', 'potted_dandelion', 'potted_poppy', 'potted_blue_orchid', 'potted_allium', 'potted_azure_bluet',
-  'potted_red_tulip', 'potted_orange_tulip', 'potted_white_tulip', 'potted_pink_tulip', 'potted_oxeye_daisy',
-  'potted_cornflower', 'potted_lily_of_the_valley', 'potted_wither_rose', 'potted_red_mushroom',
-  'potted_brown_mushroom', 'potted_dead_bush', 'potted_cactus', 'carrots', 'potatoes', 'comparator', 'slime_block',
-  'sunflower', 'lilac', 'rose_bush', 'peony', 'end_rod', 'torchflower_crop', 'pitcher_crop', 'pitcher_plant',
-  'beetroots', 'kelp', 'kelp_plant', 'dried_ghast', 'dead_tube_coral', 'dead_brain_coral', 'dead_bubble_coral',
-  'dead_fire_coral', 'dead_horn_coral', 'tube_coral', 'brain_coral', 'bubble_coral', 'fire_coral', 'horn_coral',
-  'dead_tube_coral_fan', 'dead_brain_coral_fan', 'dead_bubble_coral_fan', 'dead_fire_coral_fan', 'dead_horn_coral_fan',
-  'tube_coral_fan', 'brain_coral_fan', 'bubble_coral_fan', 'fire_coral_fan', 'horn_coral_fan',
-  'dead_tube_coral_wall_fan', 'dead_brain_coral_wall_fan', 'dead_bubble_coral_wall_fan', 'dead_fire_coral_wall_fan',
-  'dead_horn_coral_wall_fan', 'tube_coral_wall_fan', 'brain_coral_wall_fan', 'bubble_coral_wall_fan',
-  'fire_coral_wall_fan', 'horn_coral_wall_fan', 'sea_pickle', 'potted_bamboo', 'scaffolding', 'sweet_berry_bush',
-  'warped_fungus', 'warped_roots', 'nether_sprouts', 'crimson_fungus', 'weeping_vines', 'weeping_vines_plant',
-  'twisting_vines', 'twisting_vines_plant', 'crimson_roots', 'honey_block', 'potted_crimson_fungus',
-  'potted_warped_fungus', 'potted_crimson_roots', 'potted_warped_roots', 'cave_vines', 'cave_vines_plant',
-  'spore_blossom', 'azalea', 'flowering_azalea', 'pink_petals', 'wildflowers', 'leaf_litter', 'small_dripleaf',
-  'hanging_roots', 'potted_azalea_bush', 'potted_flowering_azalea_bush', 'frogspawn', 'decorated_pot',
-  'pale_hanging_moss', 'open_eyeblossom', 'closed_eyeblossom', 'potted_open_eyeblossom', 'potted_closed_eyeblossom',
-  'firefly_bush',
+  'brown_mushroom', 'red_mushroom', 'torch', 'wall_torch', 'wheat', 'redstone_torch', 'redstone_wall_torch', 'snow',
+  'cactus_flower', 'sugar_cane', 'soul_torch', 'soul_wall_torch', 'attached_pumpkin_stem', 'attached_melon_stem',
+  'pumpkin_stem', 'melon_stem', 'vine', 'glow_lichen', 'lily_pad', 'nether_wart', 'carrots', 'potatoes', 'white_carpet',
+  'orange_carpet', 'magenta_carpet', 'light_blue_carpet', 'yellow_carpet', 'lime_carpet', 'pink_carpet', 'gray_carpet',
+  'light_gray_carpet', 'cyan_carpet', 'purple_carpet', 'blue_carpet', 'brown_carpet', 'green_carpet', 'red_carpet',
+  'black_carpet', 'sunflower', 'lilac', 'rose_bush', 'peony', 'torchflower_crop', 'pitcher_crop', 'pitcher_plant',
+  'beetroots', 'kelp', 'kelp_plant', 'dead_tube_coral', 'dead_brain_coral', 'dead_bubble_coral', 'dead_fire_coral',
+  'dead_horn_coral', 'tube_coral', 'brain_coral', 'bubble_coral', 'fire_coral', 'horn_coral', 'dead_tube_coral_fan',
+  'dead_brain_coral_fan', 'dead_bubble_coral_fan', 'dead_fire_coral_fan', 'dead_horn_coral_fan', 'tube_coral_fan',
+  'brain_coral_fan', 'bubble_coral_fan', 'fire_coral_fan', 'horn_coral_fan', 'dead_tube_coral_wall_fan',
+  'dead_brain_coral_wall_fan', 'dead_bubble_coral_wall_fan', 'dead_fire_coral_wall_fan', 'dead_horn_coral_wall_fan',
+  'tube_coral_wall_fan', 'brain_coral_wall_fan', 'bubble_coral_wall_fan', 'fire_coral_wall_fan', 'horn_coral_wall_fan',
+  'sea_pickle', 'sweet_berry_bush', 'warped_fungus', 'warped_roots', 'nether_sprouts', 'crimson_fungus',
+  'weeping_vines', 'weeping_vines_plant', 'twisting_vines', 'twisting_vines_plant', 'crimson_roots', 'cave_vines',
+  'cave_vines_plant', 'spore_blossom', 'azalea', 'flowering_azalea', 'moss_carpet', 'pink_petals', 'wildflowers',
+  'leaf_litter', 'small_dripleaf', 'hanging_roots', 'pale_moss_carpet', 'pale_hanging_moss', 'open_eyeblossom',
+  'closed_eyeblossom', 'firefly_bush',
 ])
-export const isClearable = b => !!b && CLEARABLE.has(b.name ?? '')
+// ...and never a full cube (Codex stage-4 r2 P2-3: a slime or resin block is a full cube -- the builder calls it done, so it
+// is degraded footing here too, never a clear the builder will not make)
+export const isClearable = b => !!b && CLEARABLE.has(b.name ?? '') && !fullSolid(b)
 export const isFillable = b => !!b && (replaceable(b) || (WATER.test(b.name ?? '') && b.name !== 'bubble_column'))
 /**
  * FULL, NON-FALLING FOOTING (design 3.3; Codex stage-4 r1 P1-3): a full collision cube that cannot fall. A slab, a fence, a
  * stair block or sand is NOT footing -- not done, not degraded, not a cover. `full` comes from the read (the block's collision
  * shapes: one unit cube); a read that does not say (a test fake) is taken at its bounding box.
  */
-export const fullSolid = b => !!b && solid(b) && b.full !== false && !FALLING.test(b.name ?? '')
-export function cellState (b, cell) {
+export const fullSolid = (b, below = undefined) => !!b && solid(b) && b.full !== false &&
+  // a falling block RESTING on a solid block cannot fall (Claude stage-4 r2 P1-1: sand and gravel in the ground under a sunken
+  // base were all "blocked", then waived); only one over air or water is not footing. `below` undefined: not known -> not footing
+  (!FALLING.test(b.name ?? '') || (below !== undefined && solid(below)))
+export function cellState (b, cell, below = undefined) {
   if (!b) return 'unknown'
   if (SKIN_ROLES.has(cell.role) ? b.name === 'cobblestone' : CORE_SET.has(b.name)) return 'done'
   if (isFillable(b)) return 'open'
   if (isClearable(b)) return 'clear'
-  if (fullSolid(b)) return SKIN_ROLES.has(cell.role) ? 'foreign' : 'degraded'
+  if (fullSolid(b, below)) return SKIN_ROLES.has(cell.role) ? 'foreign' : 'degraded'
   return 'blocked'
 }
+/**
+ * THE BUILDER'S VIEW: only full footing is footing (Codex stage-4 r2 P1-2). A block with a block bounding box that is not full,
+ * non-falling footing (a slab, a fence, a stair block, sand over air) reads as 'partial' -- neither floor nor passable -- so no
+ * escape proof ever crosses one and no stand is chosen on one. Pure wrapper over a read.
+ */
+export const footingView = r => (x, y, z) => { const b = r(x, y, z); return b && b.boundingBox === 'block' && !fullSolid(b, r(x, y - 1, z) ?? undefined) ? { ...b, boundingBox: 'partial' } : b }
+/** cellState with the cell below read too (the falling-block rule). */
+export const cellStateAt = (read, c) => cellState(read(c.x, c.y, c.z), c, read(c.x, c.y - 1, c.z) ?? undefined)
 /** What a cell accepts as placed: the skin's cobblestone, or any planned core material. */
 export const cellWants = cell => (SKIN_ROLES.has(cell.role) ? 'cobblestone' : b => CORE_SET.has(b?.name))
 
@@ -204,7 +210,7 @@ export function layerCensus (read, cells, waived = new Set()) {
   for (const c of cells) {
     out.total++
     if (waived.has(`${c.x},${c.y},${c.z}`)) { out.waived++; continue }
-    const st = cellState(read(c.x, c.y, c.z), c)
+    const st = cellStateAt(read, c)
     out[st]++
     if (st === 'open' || st === 'clear') out.work.push(c)
   }
@@ -227,9 +233,9 @@ export function coverHold (read, plan, y, waived = new Set()) {
   // EVERY PENDING COVER FIRST (Claude stage-4 r1 P1-1: two adjacent waived holes made each cover hold the other, forever)
   const pending = []
   for (const w of plan.byY.get(y - 1) ?? []) {
-    if (!waived.has(k3(w)) || fullSolid(read(w.x, w.y, w.z))) continue   // not waived, or footing after all
+    if (!waived.has(k3(w)) || fullSolid(read(w.x, w.y, w.z), read(w.x, w.y - 1, w.z))) continue   // not waived, or footing after all
     const cover = atKey.get(`${w.x},${w.z}`)
-    if (!cover || fullSolid(read(cover.x, cover.y, cover.z))) continue   // nothing above it in the plan, or already covered
+    if (!cover || fullSolid(read(cover.x, cover.y, cover.z), read(cover.x, cover.y - 1, cover.z))) continue   // nothing above it in the plan, or already covered
     pending.push({ cover, waived: w })
   }
   const coverKeys = new Set(pending.map(p => k3(p.cover)))
@@ -239,9 +245,9 @@ export function coverHold (read, plan, y, waived = new Set()) {
     const sides = [[1, 0], [-1, 0], [0, 1], [0, -1]].map(([dx, dz]) => atKey.get(`${cover.x + dx},${cover.z + dz}`)).filter(Boolean)
     // the anchor: a standing side neighbour (a placed cover counts), else a side cell that is no pending cover, not waived, with
     // full footing below it; else an adjacent pending cover (it is placed against its own anchor first, then serves as this one's)
-    const standing = sides.find(s => fullSolid(read(s.x, s.y, s.z)))
+    const standing = sides.find(s => fullSolid(read(s.x, s.y, s.z), read(s.x, s.y - 1, s.z)))
     const anchor = standing ??
-      sides.find(s => !coverKeys.has(k3(s)) && !waived.has(k3(s)) && fullSolid(read(s.x, s.y - 1, s.z))) ??
+      sides.find(s => !coverKeys.has(k3(s)) && !waived.has(k3(s)) && fullSolid(read(s.x, s.y - 1, s.z), read(s.x, s.y - 2, s.z))) ??
       sides.find(s => coverKeys.has(k3(s))) ?? null
     p.anchor = anchor
     if (anchor) anchors.add(k3(anchor))
@@ -376,29 +382,32 @@ export const CLICK_LOCK_MS = 5_000
  * lock file (created exclusively; stale after CLICK_LOCK_MS) from its gate to its verdict, and the next builder may not click
  * until ITS OWN world shows the last confirmed placement (the proof must see it). Never throws; a lock it cannot read is busy.
  */
-export function clickLock (dir, key, me, read, now = () => Date.now()) {
-  const lockF = path.join(dir, `${key}.click.lock`), lastF = path.join(dir, `${key}.click.last.json`)
-  let held = false
+export function clickLock (dir, key, me, read, now = () => Date.now(), heard = () => false) {
+  const lastF = path.join(dir, `${key}.click.last.json`), lockKey = `${key}.click`
+  let held = null
+  // THE LOCK IS blueprint.mjs's LEASE (generation files created with link(); a taker verifies it holds the generation it made):
+  // an expired holder is replaced by exactly one taker -- never the unlink-and-recreate race of a plain lock file (Claude r2 P3)
+  const drop = () => { if (held) { try { releaseLease(dir, lockKey, me, held.gen, now()) } catch { /* expires */ } } held = null }
   return {
     acquire (cell) {
+      // OWNERSHIP FIRST (Codex stage-4 r2 P1-1): the last click is read UNDER the lock, so none can land between the check and it
+      let l
+      try { l = takeLease(dir, lockKey, me, now(), CLICK_LOCK_MS) } catch { return 'busy' }
+      if (!l?.ok) return 'busy'
+      held = l
+      // ...and THIS bot's world must know the last confirmed click -- its block shows, or this bot's client heard the server
+      // speak about that cell since the click (it was removed again after). Never elapsed time alone.
       try {
         const last = JSON.parse(fs.readFileSync(lastF, 'utf8'))
-        if (last?.verdict === 'confirmed' && last.holder !== me && now() - last.at < CLICK_LOCK_MS && Array.isArray(last.cell) && !solid(read(...last.cell))) return 'busy'
+        if (last?.verdict === 'confirmed' && last.holder !== me && Array.isArray(last.cell) && !solid(read(...last.cell)) && !heard(last.cell, last.at)) { drop(); return 'busy' }
       } catch { /* no last click */ }
-      for (let i = 0; i < 2; i++) {
-        try { fs.writeFileSync(lockF, JSON.stringify({ holder: me, cell: [cell.x, cell.y, cell.z], at: now() }), { flag: 'wx' }); held = true; return null } catch (e) {
-          if (e?.code !== 'EEXIST') return 'busy'
-          try { if (now() - fs.statSync(lockF).mtimeMs > CLICK_LOCK_MS) { fs.unlinkSync(lockF); continue } } catch { continue }
-          return 'busy'
-        }
-      }
-      return 'busy'
+      return null
     },
     release (cell, verdict) {
       if (!held) return
-      held = false
-      try { fs.writeFileSync(lastF, JSON.stringify({ holder: me, cell: [cell.x, cell.y, cell.z], verdict, at: now() })) } catch { /* best effort */ }
-      try { fs.unlinkSync(lockF) } catch { /* gone */ }
+      // the last click is recorded only when a click was SENT (null: the gate refused under the lock)
+      if (verdict) { try { fs.writeFileSync(lastF, JSON.stringify({ holder: me, cell: [cell.x, cell.y, cell.z], verdict, at: now() })) } catch { /* best effort */ } }
+      drop()
     },
   }
 }
@@ -494,7 +503,7 @@ export function monumentDetail (f = {}) {
   const kv = (k, v) => `${k}=${v ?? '-'}`
   const parts = [kv('gen', f.gen), kv('layer', f.layer), kv('seg', f.seg), kv('stop', String(f.stop ?? 'done').replace(/\s+/g, '_').slice(0, 40)), kv('placed', f.placed ?? 0), kv('cleared', f.cleared ?? 0), kv('refused', f.refused ?? 0),
     kv('silent', f.silent ?? 0), kv('unreach', f.unreachable ?? 0), kv('repair', f.repair ?? 0), kv('open', f.open), kv('done', f.done), kv('degraded', f.degraded),
-    kv('foreign', f.foreign), kv('waived', f.waived), kv('blocked', f.blocked), kv('held', f.held ?? 0), kv('covers', f.covers ?? 0), kv('repair_cand', f.repairCand ?? 0), kv('busy', f.busy ?? 0), kv('fund', f.fund), kv('cobble0', f.cobble0), kv('cobble1', f.cobble1),
+    kv('foreign', f.foreign), kv('waived', f.waived), kv('wkinds', f.wkinds), kv('blocked', f.blocked), kv('held', f.held ?? 0), kv('covers', f.covers ?? 0), kv('repair_cand', f.repairCand ?? 0), kv('busy', f.busy ?? 0), kv('fund', f.fund), kv('cobble0', f.cobble0), kv('cobble1', f.cobble1),
     kv('stuck', f.stuckWhy), kv('gate_ms_p95', f.gateP95), kv('gate_ms_max', f.gateMax), kv('lag_ms_max', f.lagMax), kv('advanced', f.advanced ?? 0), kv('slot', f.slot), kv('t0', Math.round(f.t0 ?? 0)),
     kv('why', String(f.why ?? '-').replace(/\s+/g, '_').slice(0, 60))]
   return parts.join(' ').slice(0, 560)

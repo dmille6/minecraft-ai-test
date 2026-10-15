@@ -98,7 +98,13 @@ await t('CELL STATES: skin wants cobble (another solid is foreign), core accepts
   assert.equal(MJ.cellState(LAVA, core), 'blocked'); assert.equal(MJ.cellState(null, core), 'unknown')
   assert.equal(MJ.cellState({ name: 'cobweb', boundingBox: 'empty' }, core), 'blocked')
   assert.equal(MJ.cellState({ name: 'sugar_cane', boundingBox: 'empty' }, core), 'clear', 'hardness 0 (Claude stage-4 r1 P2-1)')
-  assert.equal(MJ.cellState({ name: 'lily_pad', boundingBox: 'block' }, core), 'clear', 'a lily pad is cleared, never kept as thin footing')
+  assert.equal(MJ.cellState({ name: 'lily_pad', boundingBox: 'block', full: false }, core), 'clear', 'a lily pad is cleared, never kept as thin footing')
+  assert.equal(MJ.cellState({ name: 'snow', boundingBox: 'empty' }, core), 'clear', 'snow is cleared (Claude stage-4 r2 P2-1)')
+  assert.equal(MJ.cellState({ name: 'slime_block', boundingBox: 'block', full: true }, core), 'degraded', 'a full cube kept, never a clear: not a plant')
+  const SAND = { name: 'sand', boundingBox: 'block', full: true }
+  assert.equal(MJ.cellState(SAND, core, STONE), 'degraded', 'sand resting on stone is footing (Claude stage-4 r2 P1-1)')
+  assert.equal(MJ.cellState(SAND, core, AIR), 'blocked', 'sand over air is not')
+  assert.equal(MJ.cellState(SAND, core), 'blocked', 'below unknown: not footing')
   assert.equal(MJ.cellState({ name: 'lantern', boundingBox: 'block' }, skin), 'foreign')
 })
 
@@ -284,6 +290,30 @@ await t('FOOTING on real block states (prismarine): a slab, a fence, a stair blo
   assert.equal(MJ.cellState(of('oak_slab'), { role: 'core' }), 'blocked', 'a slab waits (and is waived), it is not footing')
 })
 
+await t('FOOTING VIEW (Codex stage-4 r2 P1-2): an exit across a real slab is no exit -- the placement that leaves only it is refused', async () => {
+  const { createRequire } = await import('node:module')
+  const req = createRequire(import.meta.url)
+  const reg = req('prismarine-registry')('1.21.8'), Blk = req('prismarine-block')(reg)
+  const sb = Blk.fromStateId(reg.blocksByName.oak_slab.defaultState, 0)
+  const SLAB = { name: 'oak_slab', boundingBox: sb.boundingBox, full: B.isFullCube(sb) }
+  // a room (walls 3 high) with two 2-high doors, west (4,64,0) and east (8,64,0); the east door's floor is a slab; a bystander
+  // inside. Closing the west door leaves only the east one: an exit across the slab
+  const w = world()
+  for (let x = 4; x <= 8; x++) for (let z = -2; z <= 2; z++) for (let y = 64; y <= 66; y++) {
+    const wall = x === 4 || x === 8 || z === -2 || z === 2
+    if (wall && !(z === 0 && (x === 4 || x === 8) && y < 66)) w.set(x, y, z, STONE)
+  }
+  w.set(8, 63, 0, SLAB)
+  const start = { x: 6, y: 64, z: 6 }, body = [{ x: 6.5, y: 64, z: 0.5 }], box = { x0: -2, x1: 14, y0: 58, y1: 70, z0: -6, z1: 10 }
+  const todo = [{ x: 4, y: 64, z: 0 }]
+  const raw = B.nextPlacement(w.read, { todo, start, box, bodies: body })
+  assert.ok(raw.step, 'positive control: the raw view counts the slab as floor and offers the click')
+  const view = MJ.footingView(w.read)
+  const v = B.nextPlacement(view, { todo, start, box, bodies: body })
+  assert.equal(v.step, null); assert.match(v.stuck[0], /body_walled/)
+  assert.equal(B.standable(w.read, 8, 64, 0), true); assert.equal(B.standable(view, 8, 64, 0), false)
+})
+
 await t('CLICK LOCK: one holder at a time; the next waits until ITS world shows the last confirmed click; a stale lock is broken', () => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'clk2-'))
   let seen = false
@@ -294,6 +324,15 @@ await t('CLICK LOCK: one holder at a time; the next waits until ITS world shows 
   assert.equal(b.acquire(cell), 'busy', 'b has not seen a\'s block yet')
   seen = true
   assert.equal(b.acquire(cell), null); b.release(cell, 'refused')
+  // SEPARATE WORLD VIEWS (Codex stage-4 r2 P1-1): e confirms; f's world never shows it, and f's client never heard of the cell:
+  // busy however long it waits; f heard the server speak about the cell (it was dug again): free
+  let heard = false
+  const e = MJ.clickLock(dir, 'k3', 'e', () => STONE), f2 = MJ.clickLock(dir, 'k3', 'f', () => AIR, () => Date.now() + 3_600_000, () => heard)
+  assert.equal(e.acquire(cell), null); e.release(cell, 'confirmed')
+  assert.equal(f2.acquire(cell), 'busy', 'an hour later and still unseen: busy (never elapsed time alone)')
+  heard = true
+  assert.equal(f2.acquire(cell), null); f2.release(cell, null)
+  assert.equal(JSON.parse(fs.readFileSync(path.join(dir, 'k3.click.last.json'), 'utf8')).holder, 'e', 'a refused gate (null) records no click')
   let t0 = 0
   const c = MJ.clickLock(dir, 'k2', 'c', () => STONE, () => t0), d = MJ.clickLock(dir, 'k2', 'd', () => STONE, () => t0)
   assert.equal(c.acquire(cell), null)

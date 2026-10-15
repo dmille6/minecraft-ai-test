@@ -16,15 +16,19 @@
 #             M1 loop_stall          >= 2 visits AND >= 5% of visits whose bot's event loop lagged > 2000 ms (the decision
 #                                    loop stalls: the coordinator's tripwire on the synchronous pre-click work; never one
 #                                    visit alone -- the death-gate lesson); defect; the stalls are named
-#             M5 guard_misfire       a canary gather refused `town_structure` at a cell OUTSIDE its pool's site box (the guard
+#             M5 guard_misfire       a canary structure-guard refusal (`_structure_refusal` by gather or the ore tunnel; mine's
+#                                    `_mine_well_guard ... keepout=monument` stop) at a cell OUTSIDE its pool's site box (the guard
 #                                    reserving what it should not); defect
-#             M6 waived_share        a `_monument` row whose open layer has >= 50 cells and > 2% of them waived (design 3.3:
-#                                    "a waived share above 2% of a layer is a read defect"); defect; the layer is named
+#             M6 waived_share        a `_monument` row whose open layer has >= 50 cells, >= 10 waived and > 2% of them (design 3.3:
+#                                    "a waived share above 2% of a layer is a read defect"); BLOCKS KEEP (never a revert: terrain
+#                                    such as lava pockets can waive cells -- Claude stage-4 r2 P1-1); the layer and the waived
+#                                    blocks' kinds are named
 #             STALL (reported)       visits that stopped on a pending cover (covers > 0 and nothing placed): the cell is
 #                                    the record's; the design's 72 h stall is beyond a canary window
 #             M2 gate_slow           visits whose pre-click gate p95 > 500 ms; defect
-#             M3 stuck_near          a canary bot STILL for >= 10 min within 4 of the site box (rolling: a move of >= 2 blocks
-#                                    or a build_monument row restarts the clock; design G4); blocks KEEP
+#             M3 stuck_near          canary STILL runs (>= 10 min within 4 of the site box; a move of >= 2 blocks or a
+#                                    build_monument row restarts the clock; design G4) in the post period beyond the same bots'
+#                                    pre-period count; blocks KEEP
 #             M4 gather_regressed    the NO-REGRESSION gate (coordinator 10-15): gather success share DiD below its no-change
 #                                    1% quantile, or the (unconfirmed + rejected) dig share DiD above its 99% quantile, from the
 #                                    band calibrated for THIS read's window and population (~/mcai-analysis/monument-gathernull
@@ -83,6 +87,23 @@ def near_site(pos, corner, margin=4):
     return x0 <= pos['x'] <= corner[0] + B + A + margin and z0 <= pos['z'] <= corner[1] + B + A + margin
 
 
+REFUSAL = re.compile(r'by=(\S+) at=(-?\d+),(-?\d+),(-?\d+)')
+STOPCELL = re.compile(r'action=stop at=- cell=(-?\d+),(-?\d+),(-?\d+) keepout=monument')
+
+
+def refusal_cell(kind, detail):
+    """PURE. A structure-guard refusal row -> (by, x, z) or None: `_structure_refusal` (gather, ore tunnel) and mine's per-dig
+    stop (`_mine_well_guard ... keepout=monument`)."""
+    d = str(detail or '')
+    if kind == 'structure_refusal':
+        m = REFUSAL.search(d)
+        return (m.group(1), int(m.group(2)), int(m.group(4))) if m else None
+    if kind == 'mine_well_guard':
+        m = STOPCELL.search(d)
+        return ('mine', int(m.group(1)), int(m.group(3))) if m else None
+    return None
+
+
 def stuck_spans(samples, corner, min_s=600, move=2.0):
     """PURE. samples = [(t_seconds, pos, building)] of one bot, time-sorted -> the lengths (seconds) of STILL runs near the site:
     a run starts at a row near the site and is RESET (Codex stage-4 r1 P2-5: rolling, never the whole stay) by a move of >= move
@@ -106,15 +127,20 @@ def stuck_spans(samples, corner, min_s=600, move=2.0):
 POWER_MIN = 0.8
 
 
+BAND_SLACK_MIN = 10
+
+
 def band_for(cal, post_min):
-    """PURE. The calibration band for a read of `post_min` minutes: the one calibrated for that window (180 or 360; a window between
-    them uses 180's -- narrower post, wider noise), never a band calibrated for another experiment; None when there is none."""
-    bands = (cal or {}).get('bands') or {}
-    key = '360' if post_min >= 360 else '180'
-    b = bands.get(key)
-    if not b or b.get('post') != int(key):
+    """PURE. The calibration band for THIS read (Codex stage-4 r2 P2-4): a band whose post window is within BAND_SLACK_MIN of the
+    read's, whose pre is min(post, 180) as the read aggregates, from a calibration over the read's population (shared pools only).
+    Anything else -> None (the gate is then unread, which blocks KEEP)."""
+    if not cal or 'shared pools only' not in str(cal.get('population') or ''):
         return None
-    return dict(b, min_calls=(cal or {}).get('min_calls', 50))
+    for b in ((cal.get('bands') or {}).values()):
+        post = b.get('post')
+        if isinstance(post, (int, float)) and abs(post - post_min) <= BAND_SLACK_MIN and b.get('pre') == min(post, 180):
+            return dict(b, min_calls=cal.get('min_calls', 50))
+    return None
 
 
 def regressed(succ_did, bad_did, calls, band):
@@ -136,6 +162,11 @@ def regressed(succ_did, bad_did, calls, band):
 
 
 # self-tests (pure)
+assert refusal_cell('structure_refusal', 'by=gather at=300,64,70 kind=monument block=cobblestone') == ('gather', 300, 70)
+assert refusal_cell('structure_refusal', 'by=ore_tunnel at=-5,40,9 kind=monument block=stone') == ('ore_tunnel', -5, 9)
+assert refusal_cell('mine_well_guard', 'action=stop at=- cell=290,66,60 keepout=monument') == ('mine', 290, 60)
+assert refusal_cell('mine_well_guard', 'action=stop at=- cell=290,66,60 farm=1') is None
+assert refusal_cell('gather', 'by=gather at=1,2,3') is None
 assert kv('gen=3 layer=69 placed=12 stop=max_steps')['placed'] == '12'
 assert near_site({'x': 289, 'z': 51}, (289, 51)) and not near_site({'x': 200, 'z': 51}, (289, 51))
 _s = [(i * 60, {'x': 300.0, 'z': 60.0}, False) for i in range(25)]
@@ -152,9 +183,11 @@ assert regressed(-0.5, 0.5, 10, _band)[0] is None and regressed(0, 0, 60, None)[
 _weak = dict(_band, mde_success_loss=None)
 assert regressed(-0.9, 0.0, 60, _weak) == (0, {'success': 'unpowered', 'bad_dig': 'ok'}), 'an unpowered component never decides'
 assert regressed(0, 0, 60, dict(_weak, mde_bad_rise=None))[0] is None
-_cal = {'min_calls': 50, 'bands': {'180': {'post': 180, 'pre': 180}, '360': {'post': 360, 'pre': 180}}}
-assert band_for(_cal, 180)['post'] == 180 and band_for(_cal, 359)['post'] == 180 and band_for(_cal, 540)['post'] == 360
-assert band_for({'bands': {'180': {'post': 360}}}, 180) is None, 'a band for another window is refused'
+_cal = {'min_calls': 50, 'population': 'shared pools only (no isolated, no sandbox)', 'bands': {'180': {'post': 180, 'pre': 180}, '360': {'post': 360, 'pre': 180}}}
+assert band_for(_cal, 180)['post'] == 180 and band_for(_cal, 355)['post'] == 360 and band_for(_cal, 540) is None, 'no 540 band: unread'
+assert band_for(_cal, 150) is None, 'a 150-min read has no band (Codex r2 P2-4)'
+assert band_for(dict(_cal, bands={'180': {'post': 180, 'pre': 360}}), 180) is None, 'a different pre is refused'
+assert band_for(dict(_cal, population='isolated pools'), 180) is None, 'another population is refused'
 assert band_for(None, 180) is None
 
 if __name__ == '__main__':
@@ -201,7 +234,7 @@ if __name__ == '__main__':
     n = Counter(); stops = Counter(); stuckw = Counter(); gate95 = []; lags = []
     visits = 0; placed = 0; cleared = 0; repairs = 0; refused = 0
     sites = {}
-    samples = defaultdict(list)
+    samples = defaultdict(list); samples_pre = defaultdict(list)
     waived_rows, cover_stalls = [], []
     for r in rows:
         t = r.get('t'); b = (r.get('bot') or {}).get('name')
@@ -221,8 +254,8 @@ if __name__ == '__main__':
         k = (r.get('name') or '').lstrip('_')
         sk = (r.get('raw') or {}).get('skill') or {}
         pos = ((r.get('raw') or {}).get('bot') or {}).get('pos') or (r.get('bot') or {}).get('pos')
-        if arm == 'canary' and period == 'post' and pos:
-            samples[b].append((t.timestamp(), pos, k in ('build_monument', 'monument')))
+        if arm == 'canary' and pos:
+            (samples if period == 'post' else samples_pre)[b].append((t.timestamp(), pos, k in ('build_monument', 'monument')))
         if k == 'monument':
             if arm == 'control' and period == 'post':
                 leak += 1
@@ -237,8 +270,9 @@ if __name__ == '__main__':
                     stuckw[part.split(':')[0]] += int(part.split(':')[1] or 0)
             tot = sum(int(num(f, k) or 0) for k in ('done', 'degraded', 'foreign', 'waived', 'open', 'blocked'))
             wv = int(num(f, 'waived') or 0)
-            if tot >= 50 and wv > 0.02 * tot:
-                waived_rows.append((b, f.get('layer'), wv, tot))
+            # M6 (Claude stage-4 r2 P1-1): > 2% of a >= 50-cell layer AND >= 10 cells; the kinds name terrain vs a fault
+            if tot >= 50 and wv >= 10 and wv > 0.02 * tot:
+                waived_rows.append((b, f.get('layer'), wv, tot, f.get('wkinds')))
             if int(num(f, 'covers') or 0) > 0 and int(num(f, 'placed') or 0) == 0:
                 cover_stalls.append((b, f.get('layer'), f.get('covers')))
             g = num(f, 'gate_ms_p95'); lg = num(f, 'lag_ms_max')
@@ -285,22 +319,30 @@ if __name__ == '__main__':
     stalls = [v for v in lags if v > 2000]
     loop_stall = int(len(stalls) >= 2 and len(stalls) >= 0.05 * max(1, len(lags)))
     gate_slow = sum(1 for v in gate95 if v > 500)
-    # M5: a canary gather refused for a town structure at a cell outside its own pool's site box
-    misfire = []
+    # M5: a canary structure-guard refusal (gather, ore tunnel, mine's stop) at a cell outside its own pool's site box
+    misfire, refusals = [], Counter()
     for r in rows:
         b = (r.get('bot') or {}).get('name') or ''
-        if pool_of(b) not in CANS or r.get('t') is None or r['t'] < CUT or (r.get('name') or '') != 'gather':
+        if pool_of(b) not in CANS or r.get('t') is None or r['t'] < CUT:
             continue
+        k = (r.get('name') or '').lstrip('_')
         det = str(((r.get('raw') or {}).get('skill') or {}).get('detail') or r.get('detail') or '')
-        m = re.search(r'town_structure: \S+ at (-?\d+),(-?\d+),(-?\d+)', det)
-        if m:
+        rc = refusal_cell(k, det)
+        if rc:
+            refusals[rc[0]] += 1
             corner = sites.get(pool_of(b)) or SITES.get(pool_of(b))
-            if not near_site({'x': int(m.group(1)), 'z': int(m.group(3))}, corner, margin=1):
-                misfire.append((b, m.group(0)[:60]))
+            if not near_site({'x': rc[1], 'z': rc[2]}, corner, margin=1):
+                misfire.append((b, rc))
     stuck = []
     for b, s in samples.items():
         corner = sites.get(pool_of(b)) or SITES.get(pool_of(b))
         stuck += [(b, v) for v in stuck_spans(sorted(s, key=lambda x: x[0]), corner)]
+    # M3's BASELINE (Claude stage-4 r2 P3): the same canary bots' still runs near the site in the PRE period (no monument code);
+    # the gate fires only on more post spans than pre ones (a pre-existing idle spot is not the change)
+    stuck_pre = []
+    for b, s in samples_pre.items():
+        corner = sites.get(pool_of(b)) or SITES.get(pool_of(b))
+        stuck_pre += [(b, v) for v in stuck_spans(sorted(s, key=lambda x: x[0]), corner)]
     pct = lambda xs, q: (sorted(xs)[min(len(xs) - 1, int(q * (len(xs) - 1)))] if xs else None)
     print('rows walked %d  |  canary %s  sha %s  cutoff %s  window +%d min  |  bots pre/post canary %d/%d control %d/%d  |  offbuild canary rows %d'
           % (len(rows), CAN, CV, CUT.strftime('%H:%MZ'), W, len(bots[('pre', 'canary')]), len(bots[('post', 'canary')]),
@@ -310,8 +352,8 @@ if __name__ == '__main__':
     print('M1 (gate)    visits with event-loop lag > 2000 ms: %d   (lag p50 %s p95 %s max %s ms)' % (loop_stall, pct(lags, .5), pct(lags, .95), max(lags) if lags else None))
     print('M2 (gate)    visits with gate p95 > 500 ms: %d   (gate p95 per visit: p50 %s p95 %s max %s ms)' % (gate_slow, pct(gate95, .5), pct(gate95, .95), max(gate95) if gate95 else None))
     print('M1 named     %s' % (sorted(stalls, reverse=True)[:6],))
-    print('M3 (gate)    canary still runs >= 10 min near the site (rolling): %d %s' % (len(stuck), stuck[:4]))
-    print('M5 (gate)    town_structure gather refusals outside the site box: %d %s' % (len(misfire), misfire[:3]))
+    print('M3 (gate)    canary still runs >= 10 min near the site (rolling): post %d vs pre %d %s' % (len(stuck), len(stuck_pre), stuck[:4]))
+    print('M5 (gate)    structure-guard refusals outside the site box: %d %s | refusals by guard %s' % (len(misfire), misfire[:3], dict(refusals)))
     print('M6 (gate)    rows with > 2%% of the open layer waived: %d %s' % (len(waived_rows), waived_rows[:3]))
     print('STALL        visits stopped on a pending cover: %d %s' % (len(cover_stalls), cover_stalls[:3]))
     print('M4 (gate)    gather success share DiD %+.4f (band q01 %s, %s) | (unconf+rej) dig share DiD %+.4f (band q99 %s, %s) | canary calls post %d -> regressed %s %s'
@@ -332,7 +374,9 @@ if __name__ == '__main__':
         emit('monumentread', W, {
             'rows_canary_bots': len(bots[('post', 'canary')]), 'offbuild_canary': offbuild,
             'licence_rows': visits, 'placed': placed, 'cleared': cleared, 'repairs': repairs, 'refused_or_silent': refused,
-            'loop_stall': loop_stall, 'loop_stalls_named': sorted(stalls, reverse=True)[:6], 'gate_slow': gate_slow, 'stuck_near': len(stuck),
+            'loop_stall': loop_stall, 'loop_stalls_named': sorted(stalls, reverse=True)[:6], 'gate_slow': gate_slow,
+            'stuck_near': max(0, len(stuck) - len(stuck_pre)), 'stuck_near_post': len(stuck), 'stuck_near_pre': len(stuck_pre),
+            'refusals_by_guard': dict(refusals), 'waived_rows_named': waived_rows[:4],
             'guard_misfire': len(misfire), 'waived_share_defect': len(waived_rows), 'cover_stalls': len(cover_stalls),
             'gather_regressed': 0 if reg is None else reg, 'gather_regression_unread': int(reg is None), 'gather_components': comps,
             'gather_success_did': nanless(succ_did), 'bad_dig_share_did': nanless(bad_did), 'gather_calls_did': nanless(did('gather_calls')),

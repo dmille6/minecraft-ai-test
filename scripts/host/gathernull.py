@@ -120,7 +120,7 @@ if __name__ == '__main__':
     # ONE BAND PER READ WINDOW (Codex stage-4 r1 P2-4): the read's +180 and +360 reads, each with its own pre (min(post, 180))
     out = {'hours': HOURS, 'draws_asked': DRAWS, 'min_calls': 50, 'population': 'shared pools only (no isolated, no sandbox)', 'bands': {},
            'at': dt.datetime.now(dt.timezone.utc).isoformat()}
-    for post in (180, 360):
+    for post in (180, 360, 540, 720, 1080):   # every read and extension read of the registration
         null, draws = [], []
         for _ in range(DRAWS):
             cut = random.uniform(T0 + min(post, PRE) * 60, T1 - post * 60)

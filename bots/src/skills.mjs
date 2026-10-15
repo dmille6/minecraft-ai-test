@@ -80,7 +80,7 @@ import { runPlacements, standable as bdStandable, bk, isFullCube, walksTo as bdW
 import { botBuildEffects } from './buildbot.mjs'
 import { siteCandidates, verifySite, newRecord, readMonument, createMonumentGen, monumentKey, monumentPlan, layerCensus, coverHold, nextLayer,
          segmentOf, mergeVisit, cellState, isClearable, isFillable, fundable, fundPick, monumentDetail, p95, SLOTS, SLOT_LEASE_MS, VISIT_MS,
-         VISIT_MAX_PLACEMENTS, REPAIR_PER_VISIT, layerClosable, unwaivable, fullSolid, clickLock, segmentChoice } from './monumentjob.mjs'
+         VISIT_MAX_PLACEMENTS, REPAIR_PER_VISIT, layerClosable, unwaivable, fullSolid, clickLock, segmentChoice, cellStateAt, footingView } from './monumentjob.mjs'
 import { canonicalFarm, farmRecordRefusal, plotsOf, torchesOf, plotState, torchState, tendPlan, farmIndex, emptyFarmIndex, inPlotColumn,
          isPlotCell, farmNoDig, inFarmBox, farmPlaceRefusal, farmTendDetail, bonemealEnabled, farmEnabled, FARM_SPECIES, MIN_PLOTS,
          farmWellAvoid, inFloorBand, farmYields, FARM_WELL_DISTANCE, FARM_TORCH_WELL_DISTANCE, FARM_CONTAINER_DISTANCE } from './treefarm.mjs'
@@ -1402,7 +1402,11 @@ export async function collectManually(bot, block, signal, { beforeDig = null } =
   try { await bot.lookAt(p.offset(0.5, 0.5, 0.5), true) } catch { /* not fatal: the dig still faces the block */ }
   check(signal)
   { let kind = null; try { const k = structuresFresh(bot); kind = k.forbid ? k.forbid(p) : null } catch { kind = null }
-    if (kind) throw Object.assign(new Error(`town_structure: ${block.name} at ${p.x},${p.y},${p.z} is part of ${keepOutLabel(kind)}; gather elsewhere`), { failClass: 'no_safe_target' }) }
+    if (kind) {
+      // ONE STRUCTURED ROW PER REFUSAL (Claude stage-4 r2 P2-2): the read's guard-misfire gate reads these, never prose
+      logEvent({ kind: 'structure_refusal', status: 'refused', snapshot: snapshot(bot), detail: `by=gather at=${p.x},${p.y},${p.z} kind=${kind} block=${block.name}` })
+      throw Object.assign(new Error(`town_structure: ${block.name} at ${p.x},${p.y},${p.z} is part of ${keepOutLabel(kind)}; gather elsewhere`), { failClass: 'no_safe_target' })
+    } }
   if (beforeDig) beforeDig()
   const forceLook = 'ignore'
   await withTimeout(bot.dig(block, forceLook), 20_000, bot, {
@@ -7457,6 +7461,9 @@ async function buildMonument (ctx, _args, signal) {
       const ring = monumentStart(readFull(), rec)
       await walkNear(ring ? new goals.GoalNear(ring.x, ring.y, ring.z, 2) : new goals.GoalNearXZ(centre.x, centre.z, plan0.g.B / 2 + plan0.g.APRON + 4), 45_000)
     }
+    // THE BUILDER WALKS ONLY ON FULL FOOTING (Codex stage-4 r2 P1-2): a slab, a fence, a stair block or sand is neither floor nor
+    // passable to the escape proofs -- an obstacle -- so no placement is ever proved safe by an exit across one
+    const footingRead = footingView
     const read = readFull()
     let plan = plan0, y = rec.layer_open, census = null, closable = null
     for (let k = 0; k < 3; k++) {
@@ -7471,6 +7478,9 @@ async function buildMonument (ctx, _args, signal) {
     }
     f.gen = rec.gen; f.layer = y
     Object.assign(f, { done: census.done, degraded: census.degraded, foreign: census.foreign, waived: census.waived, open: census.open + census.clear, blocked: census.blocked, covers: closable.covers.length })
+    // WHAT THE WAIVED CELLS HOLD (Claude stage-4 r2 P1-1): terrain (sand over a cave, lava) is told apart from a code fault in the read
+    { const kinds = {}; for (const c of plan.byY.get(y) ?? []) if ((rec.waived ?? []).includes(`${c.x},${c.y},${c.z}`)) { const n = read(c.x, c.y, c.z)?.name ?? 'unloaded'; kinds[n] = (kinds[n] ?? 0) + 1 }
+      f.wkinds = Object.entries(kinds).sort((a, b) => b[1] - a[1]).slice(0, 3).map(([k, n]) => `${k}:${n}`).join(',') || '-' }
     if (census.unknown) return end('no_effect', 'monument_unloaded', `${census.unknown} cell(s) of the open layer y=${y} are not loaded from here`)
     // ---- 4. the cover rule, then a segment with work this bot may lease (the centre first, else the nearest) ----
     const waived = new Set(rec.waived ?? [])
@@ -7490,11 +7500,14 @@ async function buildMonument (ctx, _args, signal) {
     const bySeg = choice.bySeg, segOrder = choice.order
     for (const s of segOrder) { const l = takeLease(dir, `${key}.seg${s}`, me, Date.now(), SLOT_LEASE_MS); if (l.ok) { seg = l; segKey = `${key}.seg${s}`; f.seg = s; break } }
     // NOTHING TO DO HERE: blocked cells still count toward their waiver (every visit that finds them blocked is one bot's)
-    const blockedKeys = (plan.byY.get(y) ?? []).filter(c => !waived.has(`${c.x},${c.y},${c.z}`) && cellState(read(c.x, c.y, c.z), c) === 'blocked').map(c => `${c.x},${c.y},${c.z}`)
+    const blockedKeys = (plan.byY.get(y) ?? []).filter(c => !waived.has(`${c.x},${c.y},${c.z}`) && cellStateAt(read, c) === 'blocked').map(c => `${c.x},${c.y},${c.z}`)
     if (!seg) {
       const next = mergeVisit(rec, { me, failed: blockedKeys, now: Date.now(), protect })
       if (blockedKeys.length) createMonumentGen(dir, key, rec.gen + 1, next)
       const bodyOnly = choice.bodyOnly   // the rest waits on a body: a cooldown, not "nothing open"
+      // NOTHING THIS BAG CAN PAY FOR (Claude stage-4 r2 P3): skin left, no spare cobble -- the funds' cooldown, not "nothing open"
+      const unfunded = !census.work.filter(fundedOk).length && census.work.some(c => !held.has(bk(c.x, c.y, c.z)))
+      if (!bodyOnly && unfunded) return end('no_effect', 'monument_funds', `the open layer y=${y}'s remaining cells need cobblestone this bag cannot spare`)
       return end('no_effect', work.length ? 'monument_segments_busy' : bodyOnly ? 'monument_bodies' : 'monument_nothing_open',
                  work.length ? 'every segment of the open layer with work is being built by another bot'
                    : bodyOnly ? `the open layer y=${y}'s remaining cells have a body in them; the next visit places them`
@@ -7504,17 +7517,17 @@ async function buildMonument (ctx, _args, signal) {
     // WAIVED BUT PLACEABLE NOW (Claude stage-4 r1 P2-2): offered as optional work in this segment -- placed when they can be,
     // never needed to close the layer
     const optional = (plan.byY.get(y) ?? []).filter(c => waived.has(`${c.x},${c.y},${c.z}`) && segmentOf(c, plan.g) === f.seg && fundedOk(c) &&
-      ['open', 'clear'].includes(cellState(read(c.x, c.y, c.z), c)) && !held.has(bk(c.x, c.y, c.z)))
+      ['open', 'clear'].includes(cellStateAt(read, c)) && !held.has(bk(c.x, c.y, c.z)))
     // ---- 5. repairs: exposed air in the two closed layers below, in this segment (at most REPAIR_PER_VISIT, first) ----
     const repairs = []
     for (const yy of [y - 1, y - 2]) for (const c of plan.byY.get(yy) ?? []) {
       if (repairs.length >= REPAIR_PER_VISIT) break
       if (segmentOf(c, plan.g) !== f.seg || waived.has(`${c.x},${c.y},${c.z}`)) continue
-      if (cellState(read(c.x, c.y, c.z), c) === 'open') repairs.push(c)
+      if (cellStateAt(read, c) === 'open') repairs.push(c)
     }
     f.repairCand = repairs.length
     // ---- 6. build: the generic builder over this segment's cells, nearest first, fenced ----
-    const start = monumentStart(read, rec)
+    const start = monumentStart(footingRead(read), rec)
     if (!start) return end('no_effect', 'monument_nothing_open', 'no standable cell around the monument site to work from')
     const box = monumentBox(rec, plan)
     eff = botBuildEffects(bot, { bound: (p, ms, what) => g.bound(p, ms, what, { path: what === 'pathfinding' }), withWalk: bot.withTownDepositWalk ?? (fn => fn()), aborted: () => !!signal?.aborted })
@@ -7532,8 +7545,8 @@ async function buildMonument (ctx, _args, signal) {
     f.fund = fund0.total
     const r = await runPlacements({
       // done = full, non-falling footing (a slab in a plan cell is not done: it waits and is waived)
-      read: eff.read, cells: [...repairs, ...mine, ...optional].map(c => ({ ...c, want: fullSolid })), start, box, feet: eff.feet, bodies: eff.bodies, self: eff.self, walkTo: eff.walkTo,
-      lock: clickLock(dir, key, me, eff.read),
+      read: footingRead(eff.read), cells: [...repairs, ...mine, ...optional].map(c => ({ ...c, want: fullSolid })), start, box, feet: eff.feet, bodies: eff.bodies, self: eff.self, walkTo: eff.walkTo,
+      lock: clickLock(dir, key, me, eff.read, () => Date.now(), eff.heard),
       hold: async cell => { const name = fundPick(items(), cell); return name ? eff.hold({ ...cell, want: name }) : false },
       fence, click: eff.click,
       clear: (s, gate) => withDigScope(bot, { purpose: 'target', by: 'build_monument' }, () => eff.clear(s, gate)),
@@ -7556,7 +7569,7 @@ async function buildMonument (ctx, _args, signal) {
     const failedKeys = new Set(blockedKeys)
     if (r.stop === 'no_step') for (const st of r.stuck) { const [c, why] = st.split(':'); if (/^(support|walled_in)$/.test(why) && Number(c.split(',')[1]) === y) failedKeys.add(c) }
     for (const v of r.cells) if (v.verdict === 'confirmed' || v.verdict === 'cleared') failedKeys.delete(v.c.join(','))
-    if (!bdWalksTo(readFull(), eff.feet(), start, { box })) failedKeys.clear()
+    if (!bdWalksTo(footingRead(readFull()), eff.feet(), start, { box })) failedKeys.clear()
     const after = layerClosable(readFull(), plan, y, waived)
     // A GENERATION ONLY WHEN SOMETHING CHANGED (Claude stage-4 r1 P2-4): a vote, a placement, a close
     for (let tries = 0; tries < 3 && (failedKeys.size || r.placed || after.closed); tries++) {
@@ -7648,6 +7661,7 @@ export function guardTunnelDigs (bot, onRefuse = () => {}) {
     let kind = null
     try { const k = structuresFresh(bot); kind = k.forbid ? k.forbid(p) : null } catch { kind = null }
     if (kind) {
+      try { logEvent({ kind: 'structure_refusal', status: 'refused', snapshot: snapshot(bot), detail: `by=ore_tunnel at=${p.x},${p.y},${p.z} kind=${kind} block=${block.name}` }) } catch { /* telemetry */ }
       try { onRefuse({ x: p.x, y: p.y, z: p.z }) } catch { /* the walk stops anyway */ }
       throw Object.assign(new Error(`town_structure: ${block.name} at ${p.x},${p.y},${p.z} is part of ${keepOutLabel(kind)}`), { reserved: true })
     }

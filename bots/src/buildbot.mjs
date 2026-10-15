@@ -6,7 +6,7 @@
 // one of its scoped wrappers (`bot.withTownDepositWalk`: no digging, no towers, no scaffold -- a builder's walk).
 import pkg from 'mineflayer-pathfinder'
 import { Vec3 } from 'vec3'
-import { installBlockWitness } from './blueprint.mjs'
+import { installBlockWitness, decodeMultiRecord } from './blueprint.mjs'
 import { faceCentre, isFullCube } from './builder.mjs'
 const { goals } = pkg
 
@@ -32,6 +32,13 @@ export const timeoutBound = bot => (p, ms, what) => new Promise((resolve, reject
 })
 export function botBuildEffects (bot, { items = ['cobblestone'], bound = timeoutBound(bot), pathMs = 20_000, withWalk = fn => fn(), aborted = () => false } = {}) {
   const witness = installBlockWitness(bot)
+  // WHAT THIS CLIENT HEARD: the last time the server spoke about each cell (any block update), for the click lock's handoff --
+  // a builder may click after another's confirmed placement only once its own world knows of it (monument-01, Codex r2 P1-1)
+  const heardAt = new Map()
+  const noteHeard = (x, y, z) => { heardAt.set(`${x},${y},${z}`, Date.now()); if (heardAt.size > 20_000) { const cut = Date.now() - 120_000; for (const [k, t] of heardAt) if (t < cut) heardAt.delete(k) } }
+  const onOne = p => { try { noteHeard(p.location.x, p.location.y, p.location.z) } catch { /* malformed */ } }
+  const onMulti = p => { try { for (const r of p.records ?? []) { const d = decodeMultiRecord(p.chunkCoordinates, r); noteHeard(d.x, d.y, d.z) } } catch { /* malformed */ } }
+  try { bot._client?.on?.('block_change', onOne); bot._client?.on?.('multi_block_change', onMulti) } catch { /* no client */ }
   let heldName = null
   const sleep = ms => new Promise(r => setTimeout(r, ms))
   const ticks = n => bound(bot.waitForTicks?.(n) ?? sleep(n * 50), n * 50 + 2_000, 'tick wait')
@@ -92,8 +99,13 @@ export function botBuildEffects (bot, { items = ['cobblestone'], bound = timeout
       witness.watch(c)
       // an unfinished dig is CANCELLED (Codex stage-4 r1 P2-6): a timed-out or aborted clear never keeps swinging
       try { await bound(bot.dig(block, 'ignore'), BUILD_ACK_MS, 'clearing') } catch (e) { try { bot.stopDigging?.() } catch { /* not digging */ } if (e?.aborted || aborted()) throw e }
-      return witness.until(c, n => n === 'air' || n === 'cave_air' || n === 'void_air', BUILD_ACK_MS)
+      // water is a cleared result too: a waterlogged plant (seagrass, kelp) leaves its water (Claude stage-4 r1 P2-1)
+      return witness.until(c, n => n === 'air' || n === 'cave_air' || n === 'void_air' || n === 'water', BUILD_ACK_MS)
     },
-    close: () => { try { witness.stop() } catch { /* gone */ } },
+    heard: (cell, since) => (heardAt.get(`${cell[0]},${cell[1]},${cell[2]}`) ?? -Infinity) >= since,
+    close: () => {
+      try { witness.stop() } catch { /* gone */ }
+      try { bot._client?.removeListener?.('block_change', onOne); bot._client?.removeListener?.('multi_block_change', onMulti) } catch { /* gone */ }
+    },
   }
 }

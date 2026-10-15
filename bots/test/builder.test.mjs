@@ -144,7 +144,7 @@ await t('MUTANT KILLED: without the after-click walk-back, the trench cell is pl
 })
 
 await t('MUTANT KILLED: without the body check, a cell under a bystander is placed', async () => {
-  await withMutant(BP, "    if (bodyBlocks(bodies, c)) { stuck.push(`${c.x},${c.y},${c.z}:body`); continue }\n", '', async m => {
+  await withMutant(BP, "    if (bodyBlocks(bodies, c)) { stuck.push(`${c.x},${c.y},${c.z}:body`); continue }\n    const options", '    const options', async m => {
     const w = world()
     const n = m.nextPlacement(w.read, { todo: [{ x: 3, y: 64, z: 0 }], start: START, box: { x0: -8, x1: 8, y0: 60, y1: 72, z0: -8, z1: 8 }, bodies: [{ x: 3.5, y: 65, z: 0.5 }] })
     assert.ok(n.step, 'the mutant places under the body')
@@ -293,7 +293,7 @@ await t('EXECUTOR: a stand the bot did not reach is re-proved where it is -- nev
 })
 
 await t('MUTANT KILLED: the fence dropped from the gate -- a lease lost during the look still places', async () => {
-  await withMutant(BP, "      if (!fence()) { if (locked) { lock.release(c, 'fence'); locked = false } return 'fence' }\n", '', async m => {
+  await withMutant(BP, "return 'body_walled'\n      if (!fence()) return 'fence'\n", "return 'body_walled'\n", async m => {
     const w = world()
     let clicks = 0, lost = false
     // the lease is lost DURING the click's look (after the pre-click fence): only the gate can see it
