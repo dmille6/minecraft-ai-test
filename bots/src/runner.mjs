@@ -312,6 +312,8 @@ export class Runner {
       craftedItem: result.item ?? null,
       // THE PRUNE'S verified count (pruneTown: taken from the chest and accounted lost down the well), same rule
       pruned: Number(result.pruned ?? 0),
+      // THE RECOUNT's verified count of town containers counted (countTown), same rule
+      counted: Number(result.counted ?? 0),
     }
 
     // THE EVIDENCE GATE. A claim of success does not leave this function unless
