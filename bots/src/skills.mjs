@@ -66,7 +66,7 @@ import { WOODEN_TRAPDOOR, isWellJunk, disposePlan, wellIdentity, wellStage, well
          trapdoorsNeeded, MAX_STACKS_PER_VISIT, wellBreach, usableStands, thrownNames, WELL_HOME_CLEARANCE,
          disposableIn, guardLeft, reserveStone, SCAFFOLD_DECORATIONS, isSword, swordSwitch, cobbleWellStacks, isWellCobble, COBBLE_WELL_RESERVE,
          aimApplied, packetVelocity, isOpenPit, isCoveredPit, pitCoverItem, PIT_COVER_REMEDY, coverRef, bodyInPit,
-         stockWellStacks, pillarCount, STOCK_SCAFFOLD_MIN } from './well.mjs'
+         stockWellStacks, pillarCount, STOCK_SCAFFOLD_MIN, wellStepCost } from './well.mjs'
 import { resyncPacket, GUARDED_INVENTORY_ACTIONS } from './craftsync.mjs'
 import { resolveRecord, readRecord, takeLease, holdsLease, releaseLease, standsFor, refFaceFor, installBlockWitness,
          reachOf as bpReachOf, REACH as BP_REACH, DIG_REACH as BP_DIG_REACH, REPLACEABLE as BP_REPLACEABLE, bodyInCell as bpBodyInCell } from './blueprint.mjs'
@@ -7509,7 +7509,11 @@ async function tendFarm (ctx, _args, signal) {
     }
     return true
   }
-  const forbidden = c => isPlotCell(idx, c.x, c.y, c.z) || idx.torch.has(`${c.x},${c.y},${c.z}`)
+  // NEVER A STAND IN A JUNK WELL'S COLUMN (feet or head): a torch may be FARM_TORCH_WELL_DISTANCE from a cap, so a stand 3
+  // around it can be the well's column -- the cell every path prices at WELL_STEP_COST (a goal on it fell in 2/2, sandbox)
+  const wellCols = (() => { try { return bot.wellCellsNow?.() ?? knownWellCells(bot) } catch { return [] } })()
+  const inWell = c => wellStepCost(wellCols, { position: c }) > 0 || wellStepCost(wellCols, { position: { x: c.x, y: c.y + 1, z: c.z } }) > 0
+  const forbidden = c => isPlotCell(idx, c.x, c.y, c.z) || idx.torch.has(`${c.x},${c.y},${c.z}`) || inWell(c)
   // WALK INTO REACH of `reachTo`, standing around `around`, never on a plot cell or a torch cell (unless allowTarget).
   const approach = async (around, reachTo, { allowTarget = false, reach = BP_REACH } = {}) => {
     const feet = () => bot.entity.position.floored()

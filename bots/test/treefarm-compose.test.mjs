@@ -125,6 +125,44 @@ await t('CHEST CLAIM IN FLIGHT (Codex r1 P2): a farm founded while a new chest i
   assert.equal(moved.gen, 2); assert.deepEqual(moved.record.cells.filter(q => flat(q, site) <= TF.FARM_CONTAINER_DISTANCE), [])
 })
 
+async function wellStandScene (SKmod) {
+  // a planted farm; a junk well recorded diagonally off its corner plot (4.24 away: the farm does not yield); that plot
+  // emptied (ready to replant); the replanting bot standing just beyond the well, so the NEAREST stand to it is the column
+  const dir = pool('wellstand')
+  const a = fakeTown({ items: [S('birch_sapling', 9)], storeDir: dir })
+  await SKmod.SKILLS.tend_farm.run({ bot: a.bot }, {}, new AbortController().signal)
+  const rec = SKmod.knownFarmRecord(a.bot)
+  const corner = plotsOf(rec).reduce((m, p) => (p.x + p.z < m.x + m.z ? p : m))
+  const cap = { x: corner.x - 3, y: 63, z: corner.z - 3 }
+  writeWellSite(dir, cap)
+  assert.equal(TF.farmYields(rec, [{ x: cap.x, z: cap.z, r: TF.FARM_WELL_DISTANCE, what: 'junk_well' }]), null, 'the farm does not yield to it')
+  a.w.set(corner.x, corner.y, corner.z, 'air')
+  const b = fakeTown({ items: [S('birch_sapling', 1)], storeDir: dir, shared: a.w, name: 'b-Stand' })
+  b.bot.entity.position = new Vec3(cap.x - 0.5, 64, cap.z - 0.5)
+  const goals = []
+  b.state.onGoto = g => goals.push({ x: g.x, y: g.y, z: g.z })
+  const r = await SKmod.SKILLS.tend_farm.run({ bot: b.bot }, {}, new AbortController().signal)
+  const inCol = goals.filter(g => g.x === cap.x && g.z === cap.z)
+  return { r, goals, inCol, planted: /_sapling$/.test(a.w.nameAt(corner.x, corner.y, corner.z)) }
+}
+await t('WELL STAND: a farm visit never walks to a stand in a junk well\'s column (a stand 3 around a plot can be one); it plants from another', async () => {
+  const s0 = await wellStandScene(SK)
+  assert.deepEqual(s0.inCol, [], JSON.stringify(s0.goals))
+  assert.equal(s0.planted, true, s0.r.detail)
+})
+await t('MUTANT KILLED: without the well-column forbid the same visit walks into the well\'s column', async () => {
+  const src = readFileSync(new URL('../src/skills.mjs', import.meta.url), 'utf8')
+  const old = ' || idx.torch.has(`${c.x},${c.y},${c.z}`) || inWell(c)'
+  assert.equal(src.split(old).length, 2, 'anchor present and unique')
+  const out = new URL(`./_mutant-${process.pid}-ws.mjs`, import.meta.url)
+  writeFileSync(out, src.replace(old, ' || idx.torch.has(`${c.x},${c.y},${c.z}`)').replace(/from '\.\//g, "from '../src/"))
+  try {
+    const m = await import(out.href)
+    const s1 = await wellStandScene(m)
+    assert.ok(s1.inCol.length > 0, `the mutant walks to the column: ${JSON.stringify(s1.goals)}`)
+  } finally { try { (await import('node:fs')).unlinkSync(out) } catch {} }
+})
+
 await t('PLINTH -> FARM: a raised-well plan on disk (plinth-01) keeps the farm off its cap and every planned cell and stand', async () => {
   const dir = pool('plinth')
   const free = TF.canonicalFarm({ home: HOME, read: world().read }).record
