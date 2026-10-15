@@ -33,7 +33,7 @@
 #                       a visitor's close_well over a pit an abort or a kill left
 #   NOTE (registration): a build digs 1-2 blocks (the shaft) whose drops fall into the shaft and despawn with the junk.
 #
-#   LIVENESS     canary well rows from the canary build (>= 1); control 0 (control runs the base code).
+#   LIVENESS     canary well rows from the canary build (>= 1); the control writes well rows too (fleet-wide since junkwell-02).
 #   CORRECTNESS  (each judged ON THE CANARY ARM -- well_gates, 10-15: the control's counts are diagnostics, emitted as
 #                control_*; wellsite-02 was reverted by a CONTROL bot's recollection while C1-C8 counted both arms;
 #                any canary breach REVERTS. rows_control is NO LONGER a leak check: every pool has the well now; the
@@ -508,7 +508,6 @@ for r in ev_rows:
         offbuild += 1
         continue
     rows[arm] += 1; kinds[(arm, k)] += 1
-    st = ((r.get('raw') or {}).get('skill') or {}).get('status') or r.get('status')
     f = kv(d)
     if f.get('at'):
         well_cells.add(f['at'])

@@ -89,6 +89,9 @@ def run(g):
     aborted = [row(CAN, '_well_dispose', VISIT.replace('misses=0', 'misses=1').replace('stop=done', 'stop=aborted'), m(10), 'aborted')]
     if g['well_gates'](aborted, {'board-a'}, CUT, 'abc1234', END)['canary']['c5']:
         fails.append('C5: an aborted visit\'s miss was judged')
+    unknown = [row(CAN, '_well_dispose', VISIT.replace('misses=0', 'misses=1'), m(10), 'unknown')]
+    if g['well_gates'](unknown, {'board-a'}, CUT, 'abc1234', END)['canary']['c5']:
+        fails.append('C5: an incomplete (status unknown) visit\'s miss was judged')
     two = [row(CAN, '_well_built', 'at=79,57,76 facing=south floor=1 wood=oak pit_first=0 pit_tossed=0 pit_items=0 free=3', m(5)),
            row(CAN, '_well_built', 'at=90,57,76 facing=south floor=1 wood=oak pit_first=0 pit_tossed=0 pit_items=0 free=3', m(6))]
     if g['well_gates'](two + [row(CAN, '_well_retired', 'at=79,57,76 why=wall_is_air', m(5.5))], {'board-a'}, CUT, 'abc1234', END)['canary']['c6']:
@@ -149,6 +152,7 @@ MUTANTS = [
     ('C8 not judged', "for key_, fn_ in (('c3', c3_breach), ('c7', c7_breach), ('c8', c8_breach)):", "for key_, fn_ in (('c3', c3_breach), ('c7', c7_breach)):"),
     ('C2 closes dropped', "                a['closes'].append((t, (pool_of(b), f['at'])))", "                pass"),
     ('C5 counts aborted visits', "            if st in ('success', 'failed') and f.get('stop') != 'aborted':\n                a['misses']", "            if True:\n                a['misses']"),
+    ('C5 counts incomplete visits', "            if st in ('success', 'failed') and f.get('stop') != 'aborted':", "            if f.get('stop') != 'aborted':"),
     ('C6 ignores retirements', "        elif k == '_well_retired':\n            if f.get('at'):\n                a['breached'][pool_of(b)].add(f['at'])", "        elif k == '_well_retired':\n            pass"),
     ('C6 input dropped', "            a['built'][pool_of(b)][f.get('at', '?')] += 1", "            pass"),
     ('C4 input dropped', "            a['inside'].append((t, b, f.get('at', '?')))", "            pass"),
