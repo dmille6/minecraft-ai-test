@@ -41,8 +41,8 @@
 #                                    calls-per-bot-h line beside it.
 #             LEAK control `_monument` rows post (blocks KEEP)
 #   EXPOSURE  >= 100 confirmed placements and >= 10 visits, in a window >= 150 min.
-#   PRIMARY   REPORTED: confirmed placements per pool-hour (a level, with exposure); cobble + stone-family well disposal per
-#             bot-h DiD (expected to fall); gather calls per bot-h DiD (population stability); milestones DiD (G2);
+#   PRIMARY   REPORTED: confirmed placements per pool-hour (a level, with exposure); well disposal VISITS per bot-h DiD (expected to fall; the
+#             items are cut off the row's detail); gather calls per bot-h DiD (population stability); milestones DiD (G2);
 #             the per-visit stop mix, stuck reasons, gate and lag distributions; repairs (G1's proxy: cells lost below the
 #             frontier are only seen when a visit re-places them -- the rows cannot see an enclosed loss).
 import sys, os, json, re
@@ -332,10 +332,10 @@ if __name__ == '__main__':
         elif k == 'milestone_complete':
             n[(period, arm, 'milestones')] += 1
         elif k == 'well_dispose':
-            f = kv(r.get('detail') or sk.get('detail'))
-            items = str(f.get('items') or '')
-            stone = sum(int(c) for nm, c in re.findall(r'(cobblestone|cobbled_deepslate|andesite|diorite|granite|tuff):(\d+)', items))
-            n[(period, arm, 'well_stone')] += stone
+            # THE ITEMS ARE NOT READABLE: `_well_dispose`'s detail is cut at 300 chars by logEvent and `items=` sits at its tail
+            # (10-15 host check: 'items=flin', 'items='). So the well is counted in VISITS (a row is one disposal visit), never
+            # in stone
+            n[(period, arm, 'well_visits')] += 1
 
     hours = W / 60.0
     prehours = min(W, 180) / 60.0
@@ -409,7 +409,7 @@ if __name__ == '__main__':
              bad_did, None if not BAND else round(BAND['bad_dig_share_did_q99'], 4), None if not BAND else 'MDE %s' % BAND.get('mde_bad_rise'), can_calls, reg, comps))
     print('G2/G3        milestones DiD and bag-full share are REPORTED, not gated here (rate-class: the project rule); bag-full = bagread full_share_did, a read of this registration')
     print('LEAK         control _monument rows post %d (blocks KEEP)' % leak)
-    for what, label in (('gather_calls', 'gather calls'), ('well_stone', 'well stone disposal'), ('milestones', 'milestones completed')):
+    for what, label in (('gather_calls', 'gather calls'), ('well_visits', 'well disposal visits'), ('milestones', 'milestones completed')):
         print('PRIMARY      %-24s per bot-h  canary %.3f -> %.3f  control %.3f -> %.3f  DiD %+.3f'
               % (label, rate('pre', 'canary', what), rate('post', 'canary', what), rate('pre', 'control', what), rate('post', 'control', what), did(what)))
     print('PRIMARY      confirmed placements per pool-hour %.1f (level, with exposure)' % ((placed / hours / max(1, len(CANS))) if hours else 0))
@@ -429,7 +429,7 @@ if __name__ == '__main__':
             'guard_misfire': len(misfire), 'waived_share_defect': len(waived_rows), 'cover_stalls': len(cover_stalls),
             'gather_regressed': 0 if reg is None else reg, 'gather_regression_unread': int(reg is None), 'gather_components': comps,
             'gather_success_did': nanless(succ_did), 'bad_dig_share_did': nanless(bad_did), 'gather_calls_did': nanless(did('gather_calls')),
-            'well_stone_did': nanless(did('well_stone')), 'milestones_did': nanless(did('milestones')),
+            'well_visits_did': nanless(did('well_visits')), 'milestones_did': nanless(did('milestones')),
             'control_monument_rows': leak, 'stops': dict(stops), 'stuck_reasons': dict(stuckw),
             'lag_ms_p95': pct(lags, .95), 'gate_ms_p95_p95': pct(gate95, .95),
             'exposure_ready': int(placed >= 100 and visits >= 10 and W >= 150),
