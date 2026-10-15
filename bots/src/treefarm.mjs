@@ -456,11 +456,23 @@ export const FARM_YIELDS_TO = new Set(['junk_well', 'plinth', 'chest_claim'])
  * always the same way, the farm moves (Codex r1 P2).
  */
 export function farmYields (record, avoid = []) {
+  let idx = null
   for (const a of (Array.isArray(avoid) ? avoid : [])) {
     if (!a || !FARM_YIELDS_TO.has(a.what) || !Number.isFinite(a.x) || !Number.isFinite(a.z)) continue
+    // A CHEST: exactly chest-full's own rule (farmChestRefusal), so a chest chest-full was allowed to place never makes the
+    // farm yield -- only one that beat the farm's founding to a cell the rule refuses (Claude r1 P2: a 3.5 horizontal
+    // radius here against chest-full's <= 3 in the column's span re-founded the farm for a legal chest)
+    if (a.what === 'chest_claim' && Number.isFinite(a.y)) {
+      idx ??= farmIndex(record)
+      const why = farmChestRefusal(idx, { x: a.x, y: a.y, z: a.z })
+      if (why) return `a chest claim at ${a.x},${a.y},${a.z} is ${why}`
+      continue
+    }
     const r = Number.isFinite(a.r) ? a.r : FARM_CONTAINER_DISTANCE
-    const c = (record?.cells ?? []).find(q => Math.hypot(q.x - a.x, q.z - a.z) < r)
-    if (c) return `a ${a.what.replace('_', ' ')} at ${a.x},${a.z} is within ${r} of the farm's ${c.role} at ${c.x},${c.y},${c.z}`
+    // A TORCH keeps FARM_TORCH_WELL_DISTANCE from a well (the well's own search keeps exactly that from it: Claude r1 P3)
+    const rOf = q => (q.role === 'torch' ? Math.min(r, FARM_TORCH_WELL_DISTANCE) : r)
+    const c = (record?.cells ?? []).find(q => Math.hypot(q.x - a.x, q.z - a.z) < rOf(q))
+    if (c) return `a ${a.what.replace('_', ' ')} at ${a.x},${a.z} is within ${rOf(c)} of the farm's ${c.role} at ${c.x},${c.y},${c.z}`
   }
   return null
 }
@@ -560,18 +572,19 @@ export function farmOrderOutcome (skill, status, now = 0, state = {}, failClass 
  * THE _farm_tend ROW, key=value (the read parses fields, never prose); stop= before the plot census (cut at 300).
  *   planted / soil / cleared / torches   VERIFIED by a server block update at the cell (never the click)
  *   bonemeal   uses VERIFIED by the server's bag (one fewer bone meal); bm_grew  of those, the ones after which the server
- *              named a log at the sapling's cell within the visit (the stage-0 -> 1 step is invisible to clients: vanilla
- *              sets it with flag 4, so only a grown tree is ever seen)
+ *              named a log at the sapling's cell within the visit (a stage 0 -> 1 step is not counted: the sapling keeps its
+ *              name, and only a grown tree is a log); bm_spent  the bag's bone-meal loss over the whole visit (a use whose
+ *              bag update came too late for `bonemeal` still shows here)
  *   failed     mutations the server refused or never answered;  offplan  mutations at a cell not in the record (must be 0)
  *   lost       non-farm items the bag lost during the visit (must be 0)
  *   census     the plots as this visit read them before acting: tree, sapling, ready, logs_above, ...
  *   t0         the visit's start (epoch ms): with the row's own time, the span the read checks for two builders at once
  */
-export function farmTendDetail ({ gen = 0, planted = 0, soil = 0, cleared = 0, torches = 0, bonemeal = 0, bmGrew = 0, failed = 0, offplan = 0, lost = 0,
+export function farmTendDetail ({ gen = 0, planted = 0, soil = 0, cleared = 0, torches = 0, bonemeal = 0, bmGrew = 0, bmSpent = 0, failed = 0, offplan = 0, lost = 0,
                                   lease = '-', stop = 'done', census = {}, species = {}, at = null, t0 = 0 } = {}) {
   const c = Object.entries(census).filter(([, n]) => n > 0).map(([k, n]) => `${k}:${n}`).join(',') || '-'
   const sp = Object.entries(species).filter(([, n]) => n > 0).map(([k, n]) => `${k}:${n}`).join(',') || '-'
-  return (`gen=${gen} planted=${planted} soil=${soil} cleared=${cleared} torches=${torches} bonemeal=${bonemeal} bm_grew=${bmGrew} failed=${failed} ` +
+  return (`gen=${gen} planted=${planted} soil=${soil} cleared=${cleared} torches=${torches} bonemeal=${bonemeal} bm_grew=${bmGrew} bm_spent=${bmSpent} failed=${failed} ` +
           `offplan=${offplan} lost=${lost} lease=${lease}${at ? ` at=${at.x},${at.y},${at.z}` : ''} t0=${Math.round(t0) || 0} ` +
           `stop=${String(stop).replace(/\s+/g, '_').slice(0, 80)} census=${c} species=${sp}`).slice(0, 300)
 }

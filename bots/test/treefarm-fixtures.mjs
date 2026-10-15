@@ -98,7 +98,8 @@ export function fakeTown ({ items = [], over = {}, name = 'b-Alpha', worldId = '
       const h = bot.heldItem, c = b.position
       state.activations = (state.activations ?? 0) + 1
       if (h?.name !== 'bone_meal' || !/_sapling$/.test(w.nameAt(c.x, c.y, c.z))) return
-      h.count--; if (!h.count) slots[h.slot] = null
+      const take = () => { h.count--; if (!h.count) slots[h.slot] = null }
+      if (state.bagLagMs) setTimeout(take, state.bagLagMs); else take()   // the server's bag update may come late
       state.bonemealed = [...(state.bonemealed ?? []), `${c.x},${c.y},${c.z}`]
       if (state.bonemeal?.(c) === 'grow') { w.set(c.x, c.y, c.z, 'birch_log'); setTimeout(() => send(c, 'birch_log'), 5) }
     },

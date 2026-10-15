@@ -163,6 +163,33 @@ await t('MUTANT KILLED: without the well-column forbid the same visit walks into
   } finally { try { (await import('node:fs')).unlinkSync(out) } catch {} }
 })
 
+await t('farmYields: a chest chest-full may place never moves the farm (one rule both sides); a torch keeps FARM_TORCH_WELL_DISTANCE from a well', () => {
+  const rec = TF.canonicalFarm({ home: HOME, read: world().read }).record
+  const idx = TF.farmIndex(rec), p = plotsOf(rec).reduce((m, q) => (q.x + q.z < m.x + m.z ? q : m))   // a corner plot
+  // chest-full's boundary cell: (3,1) outward off the corner plot is 3.16 away -- allowed there, so the farm must not yield
+  const legal = { x: p.x - 3, y: p.y, z: p.z - 1 }
+  assert.equal(TF.farmChestRefusal(idx, legal), null, 'positive control: chest-full allows it')
+  assert.equal(TF.farmYields(rec, [{ ...legal, r: 3.5, what: 'chest_claim' }]), null)
+  const illegal = { x: p.x - 2, y: p.y, z: p.z }
+  assert.ok(TF.farmChestRefusal(idx, illegal))
+  assert.match(TF.farmYields(rec, [{ ...illegal, r: 3.5, what: 'chest_claim' }]) ?? '', /chest claim/)
+  // a chest in a cellar far under a plot: chest-full allows it (outside the column's span), so no yield
+  const cellar = { x: p.x, y: p.y - 6, z: p.z }
+  assert.equal(TF.farmChestRefusal(idx, cellar), null); assert.equal(TF.farmYields(rec, [{ ...cellar, r: 3.5, what: 'chest_claim' }]), null)
+  // a well 2..4 from a torch and >= 4 from every plot: the well's search allows it (torch 2), so the farm does not yield.
+  // Such a torch is at the grid's EDGE, which happens when plots were refused at founding: drop one column of plots.
+  const maxX = Math.max(...plotsOf(rec).map(q => q.x))
+  const rec6 = { ...rec, cells: rec.cells.filter(c => !(c.role === 'plot' && c.x === maxX)) }
+  const cands = []
+  for (const t0 of TF.torchesOf(rec6)) for (let dx = -4; dx <= 4; dx++) for (let dz = -4; dz <= 4; dz++) {
+    const q = { x: t0.x + dx, z: t0.z + dz }
+    const dT = Math.hypot(dx, dz)
+    if (dT >= 2 && dT < 4 && plotsOf(rec6).every(pp => flat(pp, q) >= TF.FARM_WELL_DISTANCE) && TF.torchesOf(rec6).every(tt => flat(tt, q) >= 2)) cands.push(q)
+  }
+  assert.ok(cands.length > 0, 'the edge torch has well cells the well\'s search allows within 4 of it')
+  for (const q of cands) assert.equal(TF.farmYields(rec6, [{ ...q, r: TF.FARM_WELL_DISTANCE, what: 'junk_well' }]), null, `well at ${q.x},${q.z}`)
+})
+
 await t('PLINTH -> FARM: a raised-well plan on disk (plinth-01) keeps the farm off its cap and every planned cell and stand', async () => {
   const dir = pool('plinth')
   const free = TF.canonicalFarm({ home: HOME, read: world().read }).record

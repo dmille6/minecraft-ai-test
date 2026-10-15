@@ -492,7 +492,8 @@ function fakeTown ({ items = [], over = {}, name = 'b-Alpha', worldId = 'w1', mo
       const h = bot.heldItem, c = b.position
       state.activations = (state.activations ?? 0) + 1
       if (h?.name !== 'bone_meal' || !/_sapling$/.test(w.nameAt(c.x, c.y, c.z))) return
-      h.count--; if (!h.count) slots[h.slot] = null
+      const take = () => { h.count--; if (!h.count) slots[h.slot] = null }
+      if (state.bagLagMs) setTimeout(take, state.bagLagMs); else take()   // the server's bag update may come late
       state.bonemealed = [...(state.bonemealed ?? []), `${c.x},${c.y},${c.z}`]
       if (state.bonemeal?.(c) === 'grow') { w.set(c.x, c.y, c.z, 'birch_log'); setTimeout(() => send(c, 'birch_log'), 5) }
     },
@@ -647,6 +648,7 @@ await t('SKILL tend_farm, BONE MEAL ON BY DEFAULT (owner 10-15): clear saplings 
   const row = (await rows('farm_tend')).at(-1)
   assert.equal(+field(row.skill.detail, 'bonemeal'), TF.BONEMEAL_PER_VISIT)
   assert.equal(+field(row.skill.detail, 'bm_grew'), 2, 'grew counts only the server-named logs')
+  assert.equal(+field(row.skill.detail, 'bm_spent'), TF.BONEMEAL_PER_VISIT, 'the bag\'s own count agrees')
   // AT THE RESERVE: nothing is spent, and a visit whose only work would be bone meal is never ordered
   const c = fakeTown({ items: [S('bone_meal', TF.BONEMEAL_RESERVE)], storeDir, shared: a.w, name: 'b-Charlie' })
   const plan = SK.townFarmPlan(c.bot)
@@ -658,6 +660,19 @@ await t('SKILL tend_farm, BONE MEAL ON BY DEFAULT (owner 10-15): clear saplings 
     const d = fakeTown({ items: [S('bone_meal', 40)], storeDir, shared: a.w, name: 'b-Delta' })
     assert.equal(SK.townFarmPlan(d.bot).actions.filter(x => x.kind === 'bonemeal').length, 0)
   } finally { delete process.env.TREEFARM_BONEMEAL }
+})
+
+await t('SKILL tend_farm, BONE MEAL: a bag update that lags the click (300 ms) is still counted as a use (Claude r1 P3)', async () => {
+  const storeDir = mkdtempSync(path.join(tmpdir(), 'treefarm-bmlag-'))
+  const a = fakeTown({ items: [S('birch_sapling', 9)], storeDir })
+  await tend(a.bot)
+  const b = fakeTown({ items: [S('bone_meal', TF.BONEMEAL_RESERVE + 2)], storeDir, shared: a.w, name: 'b-Lag' })
+  b.state.bagLagMs = 300
+  const r = await tend(b.bot)
+  assert.equal(r.status, 'success', r.detail)
+  const row = (await rows('farm_tend')).at(-1)
+  assert.equal(+field(row.skill.detail, 'bonemeal'), 2, row.skill.detail)
+  assert.equal(+field(row.skill.detail, 'bm_spent'), 2)
 })
 
 await t('REFUSAL CHAIN: no saplings -> no order at all (never a loop); with a farm and no saplings the skip names a gather the bot can do here', async () => {

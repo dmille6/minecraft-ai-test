@@ -7371,7 +7371,8 @@ function farmAvoid (bot = null) {
   try { for (const w of (bot ? findTownWells(bot) : [])) well(w.cap?.x, w.cap?.z, FARM_WELL_DISTANCE, 'junk_well') } catch { /* none found */ }
   // A NEW CHEST IN FLIGHT (Codex r1 P2): chest-full's claim is written before its equip/submit awaits, while the cell still
   // reads as air; a claim keeps the farm's own container distance (plotRefusal's FARM_CONTAINER_DISTANCE, <= 3)
-  try { for (const c of (bot ? liveChestClaims(bot) : [])) well(c.x, c.z, FARM_CONTAINER_DISTANCE + 0.5, 'chest_claim') } catch { /* no ledger */ }
+  // (founding keeps 3.5 horizontally at any height -- conservative; a recorded farm yields only to chest-full's exact rule)
+  try { for (const c of (bot ? liveChestClaims(bot) : [])) if (Number.isFinite(c.x) && Number.isFinite(c.z)) out.push({ x: c.x, y: c.y, z: c.z, r: FARM_CONTAINER_DISTANCE + 0.5, what: 'chest_claim' }) } catch { /* no ledger */ }
   try { const r = bot ? recordedWellSite(bot) : null; if (r) well(r.x, r.z, FARM_WELL_DISTANCE, 'junk_well') } catch { /* no record */ }
   try {
     const rec = readPlinthRecordForFarm(bot)
@@ -7458,7 +7459,7 @@ async function tendFarm (ctx, _args, signal) {
   const { bot } = ctx
   const items = () => bot.inventory?.items?.() ?? []
   const me = bot.username ?? '?'
-  const f = { planted: 0, soil: 0, cleared: 0, torches: 0, bonemeal: 0, bmGrew: 0, failed: 0, offplan: 0, lost: 0, species: {} }
+  const f = { planted: 0, soil: 0, cleared: 0, torches: 0, bonemeal: 0, bmGrew: 0, bmSpent: 0, failed: 0, offplan: 0, lost: 0, species: {} }
   let census = {}, gen = 0, leaseNote = '-', stop = null
   const t0 = Date.now()
   const row = status => logEvent({ kind: 'farm_tend', status, snapshot: snapshot(bot),
@@ -7605,7 +7606,9 @@ async function tendFarm (ctx, _args, signal) {
     const n0 = countItem(bot, 'bone_meal')
     witness.watch(a.cell)
     try { await g.bound(bot.activateBlock(bot.blockAt(new Vec3(a.cell.x, a.cell.y, a.cell.z)), new Vec3(0, 1, 0)), HK_AWAIT_MS, 'bone meal') } catch (e) { if (e?.aborted) throw e }
+    // THE BAG'S WORD may lag the click (Claude r1 P3): wait for it up to BONEMEAL_GROW_WAIT_MS before calling it unconsumed
     await ticks(4)
+    for (const until = Date.now() + BONEMEAL_GROW_WAIT_MS; countItem(bot, 'bone_meal') >= n0 && Date.now() < until;) await ticks(2)
     if (countItem(bot, 'bone_meal') >= n0) return done(a, 'not_consumed')
     // a tree is placed in the same tick as the use; its packets arrive with the bag's -- a short wait for the log, never long
     const grew = (await witness.until(a.cell, n => /_log$/.test(n ?? ''), BONEMEAL_GROW_WAIT_MS)) === 'confirmed'
@@ -7653,6 +7656,8 @@ async function tendFarm (ctx, _args, signal) {
   }
   // LOST: anything the bag holds less of that a farm visit neither plants, places, digs nor gets from a tree.
   const after = Object.fromEntries(heldCounts(items()))
+  // BONE MEAL SPENT by the bag (the read's C5 counts this too: a use whose bag update came late is still a use)
+  f.bmSpent = Math.max(0, (before.bone_meal ?? 0) - (after.bone_meal ?? 0))
   for (const [n, c] of Object.entries(before)) if (!FARM_FLOW.test(n) && (after[n] ?? 0) < c) f.lost += c - (after[n] ?? 0)
   const did = f.planted + f.soil + f.cleared + f.torches + f.bonemeal
   if (did) {
