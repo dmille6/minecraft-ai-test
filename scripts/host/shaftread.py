@@ -15,8 +15,8 @@
 #                           `_shaft_absorbed` row in the window accounts for (a survival dig by a bot with no exit is
 #                           absorbed by design); defect. Absorbed cells are reported.
 #     S3 wet                liquid found in a built level's lining (audit or visit); defect
-#     S4 deaths_in_shaft    a death whose position is inside the recorded shaft box; defect (mechanism-linked), with every
-#                           canary death as its positive control
+#     S4 deaths_in_shaft    a death whose position is inside the recorded shaft box AT OR ABOVE the built frontier (minus one);
+#                           defect (mechanism-linked), with every canary death as its positive control
 #     S5 guard_misfire      a kind=shaft refusal whose REFUSED CELL lies outside the recorded box; defect (refusals inside
 #                           are the control)
 #     S8 absorbed_inside    a dig of a reserved cell absorbed while the digger stood INSIDE the envelope (its hold had released:
@@ -163,11 +163,11 @@ if __name__ == '__main__':
 
     rows = sorted(load_window(PRE, END), key=lambda r: r['t'])
     # THE CANARY'S SITES FIRST (Codex code r1 P2: a refusal before the first audit row must not read as outside a box not yet seen)
-    sites, bottoms = {}, {}
+    sites, bottoms, frontier_pre = {}, {}, {}
     for r in rows:
         b0 = (r.get('bot') or {}).get('name') or ''
         k0 = (r.get('name') or '').lstrip('_')
-        if pool_of(b0) not in CANS or k0 not in ('shaft_site', 'shaft_audit'):
+        if pool_of(b0) not in CANS or k0 not in ('shaft_site', 'shaft_audit', 'shaft'):
             continue
         sk0 = (r.get('raw') or {}).get('skill') or {}
         f0 = dict(kv(r.get('detail') or sk0.get('detail')), **{kk: str(vv) for kk, vv in (sk0.get('args') or {}).items()})
@@ -176,9 +176,11 @@ if __name__ == '__main__':
             sites[pool_of(b0)] = ((ox, oz), f0['away'], int(f0['c'])); bottoms[pool_of(b0)] = int(f0.get('bottom', 16))
         except (KeyError, ValueError):
             pass
+        try: frontier_pre[pool_of(b0)] = min(frontier_pre.get(pool_of(b0), 999), int(float(f0.get('frontier') or f0.get('frontier0'))))
+        except (TypeError, ValueError): pass
     bots = defaultdict(set); offbuild = 0; leak = 0
     visits, stops, deaths, deaths_in = 0, Counter(), 0, []
-    levels_max = defaultdict(int); state_last = {}; clean_levels = defaultdict(int); clean_complete = set()
+    levels_max = defaultdict(int); state_last = {}; clean_levels = defaultdict(int); clean_complete = set(); frontier_of = dict(frontier_pre)
     missing, absorbed, wet, absorbed_inside = defaultdict(set), defaultdict(set), [], []
     refusals_in, misfire = 0, []
     holds = defaultdict(list); exits = 0; exit_fails = 0; audits = 0; audit_unloaded = 0; ladders_found = []
@@ -230,6 +232,8 @@ if __name__ == '__main__':
             audits += 1
             audit_unloaded += int(float(f.get('unloaded') or 0))
             levels_max[pool] = max(levels_max[pool], int(float(f.get('levels') or 0)))
+            try: frontier_of[pool] = min(frontier_of.get(pool, 999), int(float(f.get('frontier'))))
+            except (TypeError, ValueError): pass
             state_last[pool] = f.get('state')
             lf_, le_ = int(float(f.get('ladders') or 0)), int(float(f.get('ladders_expected') or 0))
             ladders_found.append((lf_, le_))
@@ -249,7 +253,10 @@ if __name__ == '__main__':
             if m:
                 # a dig absorbed while the digger stood INSIDE the envelope means its hold had released (Claude code r1
                 # P2-5): its own gate, never an explanation for S1
-                if 'inside=1' in d:
+                # ONLY IN THE BUILT PART (Claude code r2 P2-3: a cave crossing an unbuilt future cell is not the shaft)
+                fy = re.search(r'feet_y=(-?\d+)', d); fr = re.search(r'frontier=(-?\d+)', d)
+                built_part = bool(fy and fr and int(fy.group(1)) >= int(fr.group(1)))
+                if 'inside=1' in d and built_part:
                     absorbed_inside.append((b, '%s,%s,%s' % m.groups()))
                 else:
                     absorbed[pool].add('%s,%s,%s' % m.groups())
@@ -269,7 +276,7 @@ if __name__ == '__main__':
             exit_fails += 1
         elif k in ('death', 'died', 'bot_death'):
             deaths += 1
-            if pos and in_box(sites.get(pool), pos['x'], pos['y'], pos['z'], bottoms.get(pool, 16)):
+            if pos and in_box(sites.get(pool), pos['x'], pos['y'], pos['z'], max(bottoms.get(pool, 16), frontier_of.get(pool, 999) - 1)):
                 deaths_in.append((b, pos))
     lost = {p: unexplained(missing[p], absorbed[p]) for p in missing}
     lost_n = sum(len(v) for v in lost.values())

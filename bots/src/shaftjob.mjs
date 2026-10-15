@@ -131,6 +131,10 @@ export function shaftNextOp ({ rec, read, feet, digSet }) {
   const y = rec.frontier - 1
   if (rec.state !== 'building' || y < rec.bottom) return { op: 'done' }
   const at = (u, yy, v) => read(u, yy, v)
+  // A FUTURE PORTAL IS A WALL until its landing is built (plan r2 item 8, Claude code r2 P2-4): at levels yL and yL+1 the +v
+  // cell beside a core cell is a portal dig cell -- checked for liquid and lined like any wall now; the landing digs it later
+  const coreDone = yy => at(0, yy, 0)?.name === 'ladder' && at(1, yy, 0)?.name === 'ladder'
+  const futurePortal = (u, yy) => !coreDone(yy) && (rec.landings ?? []).some(yL => !(rec.landings_done ?? []).includes(yL) && (yy === yL || yy === yL + 1)) ? [[u, yy, 1]] : []
   // every placement op passes through here: a cell with no solid neighbour gets its chain cell first, or closes
   const placeOp = (op) => {
     const ch = supportChain(read, digSet, op.cell)
@@ -167,7 +171,7 @@ export function shaftNextOp ({ rec, read, feet, digSet }) {
     if (cb == null) return { op: 'wait', why: 'core unloaded' }
     if (isWet(cb)) return { op: 'close', why: `liquid in the core at ${b},${y},0` }   // Codex code r1 P2: never 'dig' water
     if (!isOpen(cb)) return { op: 'dig', cell: [b, y, 0] }
-    const ln = need(coreShell(b, y).filter(([u, yy, v]) => !digSet.has(`${u},${yy},${v}`)).concat(y === rec.bottom ? [[b, y - 1, 0]] : []), 'core')
+    const ln = need(coreShell(b, y).filter(([u, yy, v]) => !digSet.has(`${u},${yy},${v}`)).concat(y === rec.bottom ? [[b, y - 1, 0]] : []).concat(futurePortal(b, y)), 'core')
     if (ln) return ln
     const fl = at(b, y - 1, 0)
     if (fl == null) return { op: 'wait', why: 'floor unloaded' }
@@ -181,7 +185,7 @@ export function shaftNextOp ({ rec, read, feet, digSet }) {
     if (ca == null) return { op: 'wait', why: 'core unloaded' }
     if (isWet(ca)) return { op: 'close', why: `liquid in the core at ${a},${y},0` }
     if (!isOpen(ca)) return { op: 'dig', cell: [a, y, 0] }
-    const ln = need(coreShell(a, y).filter(([u, yy, v]) => !digSet.has(`${u},${yy},${v}`)).concat(y === rec.bottom ? [[a, y - 1, 0], [b, y - 1, 0]] : []), 'core')
+    const ln = need(coreShell(a, y).filter(([u, yy, v]) => !digSet.has(`${u},${yy},${v}`)).concat(y === rec.bottom ? [[a, y - 1, 0], [b, y - 1, 0]] : []).concat(futurePortal(a, y)), 'core')
     if (ln) return ln
     if (ca.name !== 'ladder') return { op: 'ladder', u: a, y }
     const cb = at(b, y, 0)

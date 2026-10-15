@@ -7713,6 +7713,8 @@ const shaftKeyNow = () => shaftKey(structureHome())
 const shaftSiteFor = pool => { try { if (process.env.SHAFT_SITE) return JSON.parse(process.env.SHAFT_SITE) } catch { /* the table */ } return SHAFT_SITES[pool] ?? null }
 const shaftFloor = () => { const v = Number(process.env.SHAFT_FLOOR_Y); return Number.isInteger(v) && v > 0 ? v : 16 }
 const SHAFT_BUILD_LEASE_MS = 4 * 60_000
+/** What the builder may clear off the entry pad: a table, plants, saplings, snow, leaves, plain natural or building blocks. */
+const PAD_LITTER = /^(crafting_table|snow|short_grass|tall_grass|grass|fern|large_fern|dead_bush|.*_sapling|.*_flower|dandelion|poppy|.*_tulip|azure_bluet|oxeye_daisy|cornflower|lily_of_the_valley|allium|blue_orchid|.*_leaves|dirt|grass_block|coarse_dirt|gravel|sand|cobblestone|stone|andesite|diorite|granite|tuff|deepslate|cobbled_deepslate|.*_planks|.*_log|vine|moss_carpet|.*_carpet|sugar_cane|sweet_berry_bush|pumpkin|melon)$/
 const SHAFT_CLIMB_S_PER_LEVEL = 0.4
 /** For cognitive: the lane (lazy reads; the record at most once a minute). */
 let shaftMemo = { at: -Infinity, v: null }
@@ -7746,13 +7748,16 @@ export function verifyShaft (rec, read) {
     if (!built(y) || (role !== 'core' && !landingBuilt(y >= 0 && (rec.plan_landings ?? rec.landings).includes(y) ? y : y - 1))) continue
     const b = read(u, y, v); out.checked++
     if (b == null) { out.unknown++; continue }
+    if (isWetBlock(b) || b.props?.waterlogged === true || b.props?.waterlogged === 'true') { out.wet.push(`${u},${y},${v}`); continue }   // Codex code r2 P2
     if (role === 'core' && y < s.c) { if (b.name === 'ladder' && b.facing === ladderFacing(s.away, u)) out.ladders++; else out.missing.push(`ladder ${u},${y},${v}`) }
     else if (role === 'core' && y === s.c) { if (!(b.boundingBox === 'empty' || goodSolid(b, null) || b.name === 'cobblestone')) out.missing.push(`collar ${u},${y},${v}`) }
     else if (!(b.boundingBox === 'empty' || b.name === 'torch')) out.missing.push(`open ${u},${y},${v}`)
   }
   for (const [u, y, v] of env.shell) {
     // ONLY BUILT LEVELS (Codex code r1 P1-1: an untouched collar's surface is not damage); the bottom's floor once complete
-    if (!built(y) && !(rec.state === 'complete' && y === (rec.plan_bottom ?? rec.bottom) - 1)) continue
+    const landingFloor = v >= 1 && (rec.landings_done ?? []).includes(y + 1)
+    const padFloor = v === -1 && y === s.c - 1 && rec.frontier <= s.c
+    if (!built(y) && !landingFloor && !padFloor && !(rec.state === 'complete' && y === (rec.plan_bottom ?? rec.bottom) - 1)) continue
     const isLandingShell = v >= 1 && (rec.plan_landings ?? rec.landings).some(yL => y >= yL - 1 && y <= yL + 2)
     if (isLandingShell && !(rec.landings_done ?? []).some(yL => y >= yL - 1 && y <= yL + 2)) continue
     const b = read(u, y, v); out.checked++
@@ -7813,7 +7818,18 @@ async function digShaft (ctx, _args, signal) {
   const runGen = ctx.runner?.current ?? null
   const fence = () => renew() && holdsLease(dir, leaseKey, me, lease.gen) && (!runGen || ctx.runner?.current === runGen) && !signal?.aborted
   // NO PROGRESS, NO FOREVER (Claude plan r2 P2-6, code r1 P2-2): an early return counts too; three in a row stop the shaft
-  const noProgress = async why => { const np = (readShaft(dir, key).record?.no_progress ?? 0) + 1; await markShaft(dir, key, np >= 3 ? { no_progress: np, state: 'stopped', why: `no progress in 3 visits (last: ${why})` } : { no_progress: np }) }
+  // NO PROGRESS (Claude code r2 P2-1, Codex code r2 P1): counted per record; three counted visits spanning >= 60 min stop a
+  // BUILDING shaft -- a closure_pending one never (only a witnessed closure stops it); transient reasons (occupied, a marker,
+  // unloaded) are not counted at all (the order's cooldown backs them off)
+  const TRANSIENT = new Set(['shaft_occupied', 'shaft_occupied_marker', 'shaft_unloaded'])
+  const noProgress = async why => {
+    if (TRANSIENT.has(why)) return
+    const r0 = readShaft(dir, key).record
+    if (!r0) return
+    const np = (r0.no_progress ?? 0) + 1, since = r0.no_progress_since ?? Date.now()
+    const stop = np >= 3 && Date.now() - since >= 60 * 60_000 && r0.state === 'building'
+    await markShaft(dir, key, stop ? { no_progress: np, no_progress_since: since, state: 'stopped', why: `no progress in ${np} visits over ${Math.round((Date.now() - since) / 60_000)} min (last: ${why})` } : { no_progress: np, no_progress_since: since })
+  }
   const claim = ctx.runner?.claimBody?.('climb') ?? null
   const was = handOf(bot.heldItem)
   const site = rec.site, pad = worldOf(site, 0, site.c, -1), padCell = (u = 0) => worldOf(site, u, site.c, -1)
@@ -7826,6 +7842,7 @@ async function digShaft (ctx, _args, signal) {
   try {
     bb = botBuildEffects(bot, { bound: (p, ms, what) => g.bound(p, ms, what), aborted: () => !!signal?.aborted })
     const mlock = clickLock(dir, `${key}.mut`, me, { session: bb.session, present: bb.present, leftAt: bb.leftAt, joinedAt: bb.joinedAt, ord: bb.ord })
+    bot.__shaftHooks = { session: bb.session, present: bb.present, leftAt: bb.leftAt, joinedAt: bb.joinedAt, ord: bb.ord }
     eff = shaftEffects(bot, { bound: (p, ms, what) => g.bound(p, ms, what), aborted: () => !!signal?.aborted, allowed: n => CORE_ITEMS.includes(n) || n === 'ladder' || /_pickaxe$/.test(n) })
     const mut = { lock: mlock, fence }
     // MY OWN UNANSWERED MUTATIONS first (a session of mine that died mid-dig)
@@ -7849,6 +7866,9 @@ async function digShaft (ctx, _args, signal) {
     for (const u of [0, 1]) for (const dy of [0, 1]) {
       const c = worldOf(site, u, site.c + dy, -1), b = bot.blockAt(new Vec3(c.x, c.y, c.z))
       if (b && b.name !== 'air' && b.name !== 'cave_air' && !/torch/.test(b.name)) {
+        // PLAIN LITTER ONLY (Claude code r2 P2-2): never a chest, barrel, furnace, bed, composter or anything with a block
+        // entity or a town role -- that is named and the visit counts no progress
+        if (!PAD_LITTER.test(b.name)) { await noProgress('shaft_pad'); return end('no_effect', 'shaft_pad', `the entry pad holds ${b.name} at ${c.x},${c.y},${c.z}; not digging town property`) }
         try { await bot.lookAt(new Vec3(c.x + 0.5, c.y + 0.5, c.z + 0.5), true); await g.bound(bot.dig(b, 'ignore'), 15_000, 'pad clear'); f.padCleared = (f.padCleared ?? 0) + 1 } catch (e) { if (e?.aborted || signal?.aborted) throw e }
       }
     }
@@ -7883,7 +7903,7 @@ async function digShaft (ctx, _args, signal) {
       const lf = (() => { const p = eff.feet(); const l = toLocal(site.origin, site.away, p.x, p.z); return { u: l.u, y: p.y, v: l.v } })()
       // A PENDING CLOSURE (Claude code r1 P2-3): the visit rides down to the frontier and retries the refill, nothing else
       if (rec.state === 'closure_pending') {
-        if (!inside) { const d = descentPlan({ rec: { ...rec, state: 'building' }, read: lread }); if (d.blocked) { f.stop = 'closure_blocked'; break } if (!((await eff.centreOver(W0([d.col, site.c, 0]))) && (await eff.settleAt(d.land.y, 60_000)))) { f.stop = 'closure_descent'; break } inside = true }
+        if (!inside) { const d = descentPlan({ rec: { ...rec, state: 'building' }, read: lread }); if (d.blocked) { f.stop = 'closure_blocked'; break } if (Date.now() + (site.c - d.land.y) * SHAFT_CLIMB_S_PER_LEVEL * 1000 * 3 + 15_000 > deadline) { f.stop = 'deadline_descent'; break } if (!((await eff.centreOver(W0([d.col, site.c, 0]))) && (await eff.settleAt(d.land.y, 60_000)))) { f.stop = 'closure_descent'; break } inside = true }
         f.why = rec.why; await safeClose(); f.stop = 'closure_retry'; break
       }
       let op = shaftNextOp({ rec, read: lread, feet: lf, digSet })
@@ -7950,9 +7970,9 @@ async function digShaft (ctx, _args, signal) {
     f.levels = Math.max(f.levels, level0 - rec.frontier)
     // NO PROGRESS, NO FOREVER (Claude plan r2 P2-6): three visits in a row with no confirmed dig or placement stop the shaft
     // with the last stop named; any progress resets the count
-    const progressed = (f.digs ?? 0) + (f.lined ?? 0) + (f.filled ?? 0) + (f.ladders ?? 0) > 0
-    const np = progressed ? 0 : (readShaft(dir, key).record?.no_progress ?? 0) + 1
-    await markShaft(dir, key, np >= 3 ? { no_progress: np, state: 'stopped', why: `no progress in 3 visits (last stop: ${f.stop})` } : { no_progress: np })
+    const progressed = (f.digs ?? 0) + (f.lined ?? 0) + (f.filled ?? 0) + (f.ladders ?? 0) + (f.sealed ?? 0) > 0
+    if (progressed) await markShaft(dir, key, { no_progress: 0, no_progress_since: null })
+    else await noProgress(f.stop ?? 'nothing')
     finished = true
   } finally {
     // ---- 6. out, and the cap back on (bounded, after an abort too) ----
@@ -8003,7 +8023,7 @@ async function digShaft (ctx, _args, signal) {
     }
     const mutC = { lock: clickLock(dir, `${key}.mut`, me, { session: bb.session, present: bb.present, leftAt: bb.leftAt, joinedAt: bb.joinedAt, ord: bb.ord }), fence }
     let ok = unknown === 0
-    for (const c of todo) { const v = await eff.place(mutC, worldOf(site, ...c), 'cobblestone'); if (v !== 'confirmed') ok = false }
+    for (const c of todo) { const v = await eff.place(mutC, worldOf(site, ...c), 'cobblestone'); if (v !== 'confirmed') ok = false; else f.sealed = (f.sealed ?? 0) + 1 }
     await markShaft(dir, key, ok ? { state: 'stopped', bottom: rec.frontier, why: f.why } : { state: 'closure_pending', bottom: rec.frontier, why: f.why, unfinished: todo, unread: unknown })
   }
 }
@@ -8047,7 +8067,8 @@ async function leaveShaft (bot, eff, sh, signal) {
     // THE MUTATION CONTRACT (Codex code r1 P2) under the shaft_exit scope (the chokepoint passes that one cell)
     if (!(await eff.climbTo(sh.site.c - 2, toward))) return fail('could not reach the top rung under the cap')
     const cap = worldOf(sh.site, ex.col, sh.site.c, 0)
-    const mut = { lock: clickLock(townDir(), `${shaftKeyNow()}.mut`, bot.username ?? '?', {}), fence: () => !signal?.aborted }
+    const hooks = bot.__shaftHooks ?? {}   // dig_shaft's session hooks when it is the caller (Claude code r2 P3), else conservative defaults
+    const mut = { lock: clickLock(townDir(), `${shaftKeyNow()}.mut`, bot.username ?? '?', hooks), fence: () => !signal?.aborted }
     const v = await eff.dig(mut, cap, 'shaft_exit')
     if (v !== 'confirmed') return fail(`the cap would not come off: ${v}`)
   }

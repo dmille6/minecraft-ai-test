@@ -188,6 +188,7 @@ export function shaftEffects (bot, { bound, aborted = () => false, allowed = () 
      */
     climbOut: async (pad, toward, ms = 120_000) => {
       const t0 = Date.now(), end = t0 + ms
+      bot.setControlState('sneak', false)   // climbTo leaves sneak on to hold the rung (Claude code r2 P3)
       try {
         while (Date.now() < end) {
           if (aborted()) break

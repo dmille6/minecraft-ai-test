@@ -304,7 +304,7 @@ t('A REFUSED PILLAR IS NOT SCORED AS A FAILED ESCAPE — but an EXHAUSTED one is
 
 t('the entombment guard stands down for a climb', () => {
   const code = strip('../src/reflex.mjs')
-  assert.match(code, /!escaping && !marooned && !climbing && !inDanger && isEntombed\(bot\)/,   // the danger gate sits between the climb guard and the entombment test (2026-09-14)
+  assert.match(code, /!escaping && !marooned && !climbing && !inDanger && (?:!inShaft && )?isEntombed\(bot\)/   /* shaft-01: the shaft hold sits beside the danger gate */,   // the danger gate sits between the climb guard and the entombment test (2026-09-14)
     'the entombed branch still has no climb guard')
 })
 

@@ -373,11 +373,13 @@ await t('A BAD stairFace reserves nothing and never throws (Claude stage-3 r2 P2
   assert.equal(rd().forbid, null); rd(); assert.equal(reads, 1, 'cached for CACHE_MS even after a throw')
 })
 
-await t('WIRED (structural): survival and transit stay unguarded -- reflex.mjs and escape.mjs never consult a structure (design 3.6)', () => {
-  for (const f of ['reflex.mjs', 'escape.mjs']) {
-    const src = fs.readFileSync(path.join(here, '../src', f), 'utf8')
-    assert.doesNotMatch(src, /structures\.mjs|structureNoDig|structuresNow|structuresFresh/, f)
-  }
+await t('WIRED (structural): survival and transit stay unguarded by the MONUMENT -- escape.mjs never consults a structure; reflex.mjs consults only the SHAFT (shaft-01 T1: its hold), never the monument (design 3.6)', () => {
+  const esc = fs.readFileSync(path.join(here, '../src', 'escape.mjs'), 'utf8')
+  assert.doesNotMatch(esc, /structures\.mjs|structureNoDig|structuresNow|structuresFresh/, 'escape.mjs')
+  const rx = fs.readFileSync(path.join(here, '../src', 'reflex.mjs'), 'utf8').replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '')
+  assert.doesNotMatch(rx, /structures\.mjs|structureNoDig|structuresFresh/, 'reflex.mjs')
+  const uses = rx.match(/structuresNow\(bot\)[^\n]{0,12}/g) ?? []
+  assert.ok(uses.length >= 1 && uses.every(u => /structuresNow\(bot\)\?\.shaft/.test(u)), `reflex.mjs reads only the shaft: ${uses.join(' | ')}`)
 })
 
 const stripSrc = f => fs.readFileSync(f, 'utf8').replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '')

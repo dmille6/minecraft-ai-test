@@ -254,6 +254,10 @@ await t('THE HOLD IS BOUNDED (Claude plan r2 P1-1): two failed climbs in 10 min 
   assert.equal(SG.shaftHold(ix, read, f(5, 41, 5), { now }).hold, false, 'outside: nothing held')
 })
 await t('LIQUID IN THE LINING CLOSES (never digs into it); an unloaded cell waits', () => {
+  const rp = simulate({ c: 40, bottom: 16, wet: [[0, 33, 1]] })
+  assert.equal(rp.op.op, 'close', 'water behind a FUTURE PORTAL (landing 32, level 33) closes at the core step, before the landing digs it'); assert.equal(rp.rec.frontier, 34)
+  const ra = simulate({ c: 40, bottom: 16, holes: [[1, 32, 1], [1, 33, 1]] })
+  assert.equal(ra.op.op, 'done', 'an air portal is lined at the core step and dug again by the landing')
   const r = simulate({ c: 40, bottom: 16, wet: [[2, 30, 0]] })
   assert.equal(r.op.op, 'close'); assert.match(r.op.why, /liquid/); assert.equal(r.rec.frontier, 31, 'stopped at the level above')
 })
