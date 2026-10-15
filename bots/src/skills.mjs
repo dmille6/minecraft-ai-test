@@ -7460,14 +7460,18 @@ export function farmScaffoldNames (bot) {
  * that cell credits it ONCE (Codex r4 P2: another bot's placement nearby, or a repeated update, never earns credit). The
  * bag's loss of a scaffold block is scaffold= only up to this count; the rest is lost=.
  */
+/** How long a settled placement attempt waits for its server word before it can earn no credit (1 s in production;
+ *  scaled like the other housekeeping bounds). */
+export const SCAFFOLD_SETTLE_MS = Math.max(100, Math.min(1000, Math.floor(config.skills.defaultTimeoutMs / 180)))
 export function installScaffoldCounter (bot, names) {
   const pending = new Map(), credited = new Map()
+  let seq = 0
   const nameOf = id => bot?.registry?.blocksByStateId?.[id]?.name ?? null
   const note = (x, y, z, id) => {
-    const k = `${x},${y},${z}`, want = pending.get(k)
-    if (!want || nameOf(id) !== want) return
+    const k = `${x},${y},${z}`, att = pending.get(k)
+    if (!att || nameOf(id) !== att.name) return
     pending.delete(k)
-    credited.set(want, (credited.get(want) ?? 0) + 1)
+    credited.set(att.name, (credited.get(att.name) ?? 0) + 1)
   }
   const onOne = p => { try { note(p.location.x, p.location.y, p.location.z, p.type) } catch { /* malformed */ } }
   const onMulti = p => { try { for (const r of p.records ?? []) { const d = decodeMultiRecord(p.chunkCoordinates, r); note(d.x, d.y, d.z, d.stateId) } } catch { /* malformed */ } }
@@ -7476,11 +7480,20 @@ export function installScaffoldCounter (bot, names) {
   const orig = bot?.placeBlock
   const wrapped = typeof orig === 'function'
     ? function (ref, face, ...rest) {
+      let k = null, att = null
       try {
         const n = bot.heldItem?.name, p = ref?.position
-        if (n && names.has(n) && p && face) pending.set(`${p.x + face.x},${p.y + face.y},${p.z + face.z}`, n)
+        if (n && names.has(n) && p && face) { k = `${p.x + face.x},${p.y + face.y},${p.z + face.z}`; att = { name: n, id: ++seq }; pending.set(k, att) }
       } catch { /* never in the way of the placement */ }
-      return orig.call(this, ref, face, ...rest)
+      const out = orig.call(this, ref, face, ...rest)
+      // A PLACEMENT THAT FAILED OR WENT UNCONFIRMED leaves no credit behind (Codex r5 P2: a later placement by another bot at
+      // that cell would have earned it): once the call settles, its attempt is dropped after SCAFFOLD_SETTLE_MS -- only
+      // that attempt, a newer one at the same cell stays. The caller gets the original promise, unchanged.
+      if (att) {
+        const drop = () => { const t = setTimeout(() => { if (pending.get(k) === att) pending.delete(k) }, SCAFFOLD_SETTLE_MS); t.unref?.() }
+        try { Promise.resolve(out).then(drop, drop) } catch { drop() }
+      }
+      return out
     }
     : null
   if (wrapped) bot.placeBlock = wrapped
@@ -7607,10 +7620,11 @@ async function tendFarm (ctx, _args, signal) {
     if (!(await approach(a.cell, a.cell))) return done(a, 'unreachable')
     if (a.role === 'soil' && bodiesAround(bot).some(b => bpBodyInCell(b, a.cell))) return done(a, 'body_in_cell')
     if (!(await holdItem(a.item))) return done(a, 'not_held')
-    if (!fence()) return null
     const refBlock = bot.blockAt(new Vec3(rf.ref.x, rf.ref.y, rf.ref.z))
     if (!refBlock) return done(a, 'ref_unloaded')
     try { await bot.lookAt(new Vec3(rf.ref.x + 0.5 + rf.face.x * 0.5, rf.ref.y + 0.5 + rf.face.y * 0.5, rf.ref.z + 0.5 + rf.face.z * 0.5), true) } catch { /* not fatal */ }
+    // THE FENCE IS THE LAST THING BEFORE THE CLICK (Codex r5 P2: a structure recorded during the look was missed)
+    if (!fence()) return null
     witness.watch(a.cell)
     try { await g.bound(bot.placeBlock(refBlock, new Vec3(rf.face.x, rf.face.y, rf.face.z)), FARM_ACK_MS, 'placing') } catch (e) { if (e?.aborted || signal?.aborted) throw e }
     const v = await witness.until(a.cell, a.item, FARM_ACK_MS)

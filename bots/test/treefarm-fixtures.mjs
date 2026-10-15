@@ -67,7 +67,7 @@ export function fakeTown ({ items = [], over = {}, name = 'b-Alpha', worldId = '
       slots[d] = item; item.slot = d; slots[from] = other; if (other) other.slot = from
     },
     unequip: async () => { throw new Error('unequip tosses on a full bag: never used') },
-    lookAt: async () => {}, setControlState () {}, clearControlStates () {}, stopDigging () {},
+    lookAt: async p => { await state.onLook?.(p) }, setControlState () {}, clearControlStates () {}, stopDigging () {},
     blockAt,
     waitForTicks: async n => { await new Promise(r => setTimeout(r, Math.min(20, n))) },
     pathfinder: {

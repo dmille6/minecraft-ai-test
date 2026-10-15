@@ -461,7 +461,7 @@ function fakeTown ({ items = [], over = {}, name = 'b-Alpha', worldId = 'w1', mo
       slots[d] = item; item.slot = d; slots[from] = other; if (other) other.slot = from
     },
     unequip: async () => { throw new Error('unequip tosses on a full bag: never used') },
-    lookAt: async () => {}, setControlState () {}, clearControlStates () {}, stopDigging () {},
+    lookAt: async p => { await state.onLook?.(p) }, setControlState () {}, clearControlStates () {}, stopDigging () {},
     blockAt,
     waitForTicks: async n => { await new Promise(r => setTimeout(r, Math.min(20, n))) },
     pathfinder: {
@@ -675,7 +675,7 @@ await t('SKILL tend_farm, BONE MEAL: a bag update that lags the click (300 ms) i
   assert.equal(+field(row.skill.detail, 'bm_spent'), 2)
 })
 
-async function scaffoldScene ({ place = 0, toss = 0, other = 0, dup = 0 }) {
+async function scaffoldScene ({ place = 0, toss = 0, other = 0, dup = 0, rejected = false }) {
   // every walk, like the pathfinder: `place` times hold andesite and bot.placeBlock it beside the bot (the server confirms);
   // `dup` repeats of that confirmation; `other` andesite placed by ANOTHER bot two cells away (a packet, no call of ours);
   // `toss` more leave the bag with no placement anywhere
@@ -688,8 +688,17 @@ async function scaffoldScene ({ place = 0, toss = 0, other = 0, dup = 0 }) {
       const and = a.slots.find(x => x?.name === 'andesite')
       await a.bot.equip(and, 'hand')
       const ref = a.bot.blockAt(new Vec3(goal.x + 1, 63, goal.z + (k++ % 3)))
-      await a.bot.placeBlock(ref, new Vec3(0, 1, 0))
       const c = ref.position.plus(new Vec3(0, 1, 0))
+      if (rejected) {
+        // the placement call REJECTS (nothing placed, nothing taken); after it settles another bot places andesite there
+        a.state.onPlace = (cc, item) => { if (item === 'andesite') throw new Error('place rejected') }
+        await a.bot.placeBlock(ref, new Vec3(0, 1, 0)).catch(() => {})
+        a.state.onPlace = null
+        await new Promise(r => setTimeout(r, SK.SCAFFOLD_SETTLE_MS + 100))
+        a.client.emit('block_change', { location: c, type: STATE_ID('andesite') })
+        continue
+      }
+      await a.bot.placeBlock(ref, new Vec3(0, 1, 0))
       for (let d = 0; d < dup; d++) setTimeout(() => a.client.emit('block_change', { location: c, type: STATE_ID('andesite') }), 8)
     }
     for (let q = 0; q < other; q++) a.client.emit('block_change', { location: { x: goal.x + 2, y: 64, z: goal.z - 2 - q }, type: STATE_ID('andesite') })
@@ -709,6 +718,9 @@ await t('SKILL tend_farm: only THIS bot\'s server-confirmed placements are scaff
   assert.equal(+field(both.row, 'scaffold'), both.walks, both.row); assert.equal(+field(both.row, 'lost'), 2 * both.walks, both.row)
   const other = await scaffoldScene({ toss: 1, other: 2 })
   assert.equal(+field(other.row, 'scaffold'), 0, `another bot's placements earn nothing: ${other.row}`); assert.equal(+field(other.row, 'lost'), other.walks)
+  const rej = await scaffoldScene({ place: 1, rejected: true, toss: 1 })
+  assert.equal(+field(rej.row, 'scaffold'), 0, `a rejected attempt leaves no credit for a later placement by another bot (Codex r5): ${rej.row}`)
+  assert.equal(+field(rej.row, 'lost'), rej.walks)
   const dup = await scaffoldScene({ place: 1, dup: 3, toss: 1 })
   assert.equal(+field(dup.row, 'scaffold'), dup.walks, `a repeated update credits once: ${dup.row}`); assert.equal(+field(dup.row, 'lost'), dup.walks)
 })
