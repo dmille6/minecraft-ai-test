@@ -11,6 +11,7 @@
 // With an exit the refusal names it ("climb column N to the pad"), and cognitive's first order for a bot in the shaft is that
 // climb (shaft_exit), so the remedy is not advice but the next thing that happens.
 import { ladderExit } from './shaftindex.mjs'
+import { isFullCube } from './builder.mjs'
 
 /**
  * THE DECISION -> { allow: true } | { allow: false, why, exit }. Pure.
@@ -61,9 +62,10 @@ export function shaftRead (bot) {
     try {
       const b = bot.blockAt({ x, y, z, offset () { return this }, floored () { return this } })
       if (!b) return null
-      let facing = null
-      if (b.name === 'ladder') { try { facing = b.getProperties?.()?.facing ?? null } catch { facing = null } }
-      return { name: b.name, boundingBox: b.boundingBox, facing }
+      let props = null
+      try { props = b.getProperties?.() ?? null } catch { props = null }
+      // the properties ride along (Codex code r1 P2: a waterlogged block is wet to the shared predicates)
+      return { name: b.name, boundingBox: b.boundingBox, facing: b.name === 'ladder' ? (props?.facing ?? null) : null, props, full: isFullCube(b) }
     } catch { return null }
   }
 }

@@ -10,7 +10,7 @@
 // keeps a bad generation from becoming a bad action.
 
 import { HARD_STOP } from './toolfor.mjs'
-import { SKILLS, roomRemedy, farFromBank, classifyOutcome, SKILL_CONTRACTS, plantableSpotNear, findTownComposter, townBuildPlan, townPickMiss, townIngredientMiss, foodSkipNow, townContainers, townWellState, townWellBuildPlan, insideTownWell, wellSwordsNow, cobbleWellCap, townPitState, stockWellOpts, valveProof, stockCountKeys, pruneTarget, unknownRefusals, stockRecountKeys, townFarmPlan, monumentLane, settleMonumentClicks, shaftLane, shaftAuditPassive } from './skills.mjs'
+import { SKILLS, roomRemedy, farFromBank, classifyOutcome, SKILL_CONTRACTS, plantableSpotNear, findTownComposter, townBuildPlan, townPickMiss, townIngredientMiss, foodSkipNow, townContainers, townWellState, townWellBuildPlan, insideTownWell, wellSwordsNow, cobbleWellCap, townPitState, stockWellOpts, valveProof, stockCountKeys, pruneTarget, unknownRefusals, stockRecountKeys, townFarmPlan, monumentLane, settleMonumentClicks, shaftLane, shaftAuditPassive, shaftOccupancyTidy } from './skills.mjs'
 import { monumentOrder, monumentOrderOutcome, MONUMENT_ORDERS } from './monumentjob.mjs'
 import { shaftOrder, shaftOrderOutcome, SHAFT_ORDERS } from './shaftjob.mjs'
 import { exitExhausted } from './shaftguard.mjs'
@@ -855,7 +855,7 @@ export class CognitiveLoop {
     let order = orderFor(ready)
     // IN THE SHARED MINESHAFT and not building it: the climb out comes before everything (shaft-01 recovery, Codex plan r1 P1-2)
     // THE PASSIVE AUDIT (Claude plan r2 P3: a read in the tick, no runner, no walk): every 30 min, a bot within 32 of the collar
-    try { shaftAuditPassive(this.bot) } catch { /* telemetry */ }
+    try { shaftAuditPassive(this.bot); shaftOccupancyTidy(this.bot) } catch { /* telemetry */ }
     let shaftExitFirst = null
     try { const lane = shaftLane(); if (lane.on && lane.inShaft(this.bot) && !exitExhausted(this.bot.__shaftExitFails ?? [])) shaftExitFirst = { skill: 'shaft_exit', args: {}, why: 'in the shared mineshaft: climb out to the pad' } } catch { /* never breaks the loop */ }
     // THE CRAFT'S OWN MAKE-ROOM ROUTE IS NAMED on the order (Claude r2), so the read can tell a designed wear-out attempt

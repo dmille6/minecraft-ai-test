@@ -19,6 +19,8 @@
 #                           canary death as its positive control
 #     S5 guard_misfire      a kind=shaft refusal whose REFUSED CELL lies outside the recorded box; defect (refusals inside
 #                           are the control)
+#     S8 absorbed_inside    a dig of a reserved cell absorbed while the digger stood INSIDE the envelope (its hold had released:
+#                           two failed climbs, or no verified exit); defect at 1
 #     S7 held_long          a bot held in the shaft (`_shaft_hold`, one a minute) for > 3 min in one run; defect
 #     S6 stuck_near         still runs >= 10 min within 8 of the collar, the builders' dig_shaft time excluded, per bot on
 #                           measured exposure, as a DiD against the control pools at their M0 collars; blocks KEEP
@@ -60,13 +62,13 @@ def to_local(origin, away, x, z):
 
 
 def in_box(site, x, y, z, bottom=16):
-    """PURE. Is a world cell inside the shaft's box (u -1..2, v -1..9, y bottom-1..c+1)? The box, not the envelope: a
-    death or a refusal there is the shaft's."""
+    """PURE. Is a world cell inside the shaft's box -- the envelope AND its lining: u -2..3 (the rooms' side walls), v -2..9
+    (the pad side to the stub end), y bottom-1..c+2 (Codex code r1 P2: the landing walls are reserved too)?"""
     if not site:
         return False
     (origin, away, c) = site
     u, v = to_local(origin, away, math.floor(x), math.floor(z))
-    return -1 <= u <= 2 and -1 <= v <= 9 and bottom - 1 <= math.floor(y) <= c + 1
+    return -2 <= u <= 3 and -2 <= v <= 9 and bottom - 1 <= math.floor(y) <= c + 2
 
 
 def near_collar(site, pos, r=8):
@@ -117,7 +119,7 @@ def unexplained(missing_cells, absorbed_cells):
 # self-tests (pure)
 assert to_local((0, 0), 'e', 0, 1) == (-1, 0) and to_local((0, 0), 'w', -2, 0) == (0, 2)
 _site = ((100, 200), 's', 70)
-assert in_box(_site, 100.5, 40, 200.5) and in_box(_site, 99, 70, 199) and not in_box(_site, 103, 40, 200) and not in_box(_site, 100, 72, 200)
+assert in_box(_site, 100.5, 40, 200.5) and in_box(_site, 99, 70, 199) and in_box(_site, 98, 40, 203) and not in_box(_site, 104, 40, 200) and not in_box(_site, 100, 73, 200)
 assert in_box(_site, 101, 50, 209) and not in_box(_site, 101, 50, 210), 'the stub end face (v=9) is in the box, v=10 is not'
 _s = [(i * 60, {'x': 101.0, 'z': 201.0}, False) for i in range(15)]
 assert still_runs(_s, _site) == [840]
@@ -160,12 +162,24 @@ if __name__ == '__main__':
         return out
 
     rows = sorted(load_window(PRE, END), key=lambda r: r['t'])
+    # THE CANARY'S SITES FIRST (Codex code r1 P2: a refusal before the first audit row must not read as outside a box not yet seen)
+    sites, bottoms = {}, {}
+    for r in rows:
+        b0 = (r.get('bot') or {}).get('name') or ''
+        k0 = (r.get('name') or '').lstrip('_')
+        if pool_of(b0) not in CANS or k0 not in ('shaft_site', 'shaft_audit'):
+            continue
+        sk0 = (r.get('raw') or {}).get('skill') or {}
+        f0 = dict(kv(r.get('detail') or sk0.get('detail')), **{kk: str(vv) for kk, vv in (sk0.get('args') or {}).items()})
+        try:
+            ox, oz = [int(x) for x in f0['origin'].split(',')]
+            sites[pool_of(b0)] = ((ox, oz), f0['away'], int(f0['c'])); bottoms[pool_of(b0)] = int(f0.get('bottom', 16))
+        except (KeyError, ValueError):
+            pass
     bots = defaultdict(set); offbuild = 0; leak = 0
-    sites = {}                    # pool -> (origin, away, c) from the canary's own rows
-    bottoms = {}
     visits, stops, deaths, deaths_in = 0, Counter(), 0, []
-    levels_max = defaultdict(int); state_last = {}
-    missing, absorbed, wet = defaultdict(set), defaultdict(set), []
+    levels_max = defaultdict(int); state_last = {}; clean_levels = defaultdict(int); clean_complete = set()
+    missing, absorbed, wet, absorbed_inside = defaultdict(set), defaultdict(set), [], []
     refusals_in, misfire = 0, []
     holds = defaultdict(list); exits = 0; exit_fails = 0; audits = 0; audit_unloaded = 0; ladders_found = []
     samples = defaultdict(list); samples_pre = defaultdict(list)
@@ -209,21 +223,36 @@ if __name__ == '__main__':
                 except ValueError: pass
             if int(float(f.get('wet') or 0)) > 0:
                 wet.append((b, 'visit', f.get('why')))
+            for c in str(f.get('lost_cells') or '').split(';'):
+                if c and c != '-':
+                    missing[pool].add(c)
         elif k == 'shaft_audit':
             audits += 1
             audit_unloaded += int(float(f.get('unloaded') or 0))
             levels_max[pool] = max(levels_max[pool], int(float(f.get('levels') or 0)))
             state_last[pool] = f.get('state')
-            ladders_found.append((int(float(f.get('ladders') or 0)), int(float(f.get('ladders_expected') or 0))))
+            lf_, le_ = int(float(f.get('ladders') or 0)), int(float(f.get('ladders_expected') or 0))
+            ladders_found.append((lf_, le_))
+            # A CLEAN OBSERVATION (Codex code r1 P2): every cell read, every ladder found -- only these count toward exposure
+            if int(float(f.get('unloaded') or 0)) == 0 and lf_ == le_ and le_ > 0:
+                clean_levels[pool] = max(clean_levels[pool], int(float(f.get('levels') or 0)))
+                if f.get('state') == 'complete':
+                    clean_complete.add(pool)
             for c in str(f.get('cells') or '').split(';'):
                 if c:
                     missing[pool].add(c)
             if int(float(f.get('wet') or 0)) > 0:
                 wet.append((b, 'audit', f.get('cells')))
         elif k == 'shaft_absorbed':
-            m = re.search(r'at=(-?\d+),(-?\d+),(-?\d+)', str(r.get('detail') or sk.get('detail') or ''))
+            d = str(r.get('detail') or sk.get('detail') or '')
+            m = re.search(r'at=(-?\d+),(-?\d+),(-?\d+)', d)
             if m:
-                absorbed[pool].add('%s,%s,%s' % m.groups())
+                # a dig absorbed while the digger stood INSIDE the envelope means its hold had released (Claude code r1
+                # P2-5): its own gate, never an explanation for S1
+                if 'inside=1' in d:
+                    absorbed_inside.append((b, '%s,%s,%s' % m.groups()))
+                else:
+                    absorbed[pool].add('%s,%s,%s' % m.groups())
         elif k == 'structure_refusal' and 'kind=shaft' in str(r.get('detail') or sk.get('detail') or ''):
             m = re.search(r'at=(-?\d+),(-?\d+),(-?\d+)', str(r.get('detail') or sk.get('detail') or ''))
             if m:
@@ -260,8 +289,8 @@ if __name__ == '__main__':
         return (obs - exp) / hp if hp else float('nan')
     s6 = per_arm('canary', samples, samples_pre) - per_arm('control', samples, samples_pre)
     s6_trip = int(s6 == s6 and s6 > 0.05)
-    lv = max(levels_max.values()) if levels_max else 0
-    complete = any(s == 'complete' for s in state_last.values())
+    lv = max(clean_levels.values()) if clean_levels else 0   # levels OBSERVED clean, not claimed
+    complete = bool(clean_complete)
     exposure = int((lv >= 20 or complete) and W >= 150)
     stopped_early = int(any(s in ('stopped', 'damaged') for s in state_last.values()) and lv < 20)
     print('rows walked %d | canary %s sha %s cutoff %s window +%d min | bots pre/post canary %d/%d control %d/%d | offbuild %d'
@@ -269,6 +298,7 @@ if __name__ == '__main__':
     print('LIVENESS     visits %d stops %s | placed %s | audits %d (unloaded cells %d) | levels max %d state %s | sites %s' % (visits, dict(stops.most_common(8)), dict(placed), audits, audit_unloaded, lv, state_last, sites))
     print('CONTROL+     ladders found vs expected (last 5 audits): %s' % ladders_found[-5:])
     print('S1 (gate)    lost cells unexplained %d %s | absorbed %d' % (lost_n, {p: v[:4] for p, v in lost.items() if v}, sum(len(v) for v in absorbed.values())))
+    print('S8 (gate)    digs absorbed while the digger stood INSIDE (a released hold) %d %s' % (len(absorbed_inside), absorbed_inside[:3]))
     print('S3 (gate)    liquid in built lining %d %s' % (len(wet), wet[:3]))
     print('S4 (gate)    deaths inside the shaft box %d %s (all canary deaths %d)' % (len(deaths_in), deaths_in[:3], deaths))
     print('S5 (gate)    kind=shaft refusals outside the box %d %s (inside: %d)' % (len(misfire), misfire[:3], refusals_in))
@@ -283,7 +313,7 @@ if __name__ == '__main__':
         from readjson import emit
         emit('shaftread', W, {
             'licence_rows': visits, 'offbuild_canary': offbuild, 'lost_unexplained': lost_n, 'absorbed': sum(len(v) for v in absorbed.values()),
-            'wet': len(wet), 'deaths_in_shaft': len(deaths_in), 'deaths_all': deaths, 'guard_misfire': len(misfire), 'refusals_in_box': refusals_in,
+            'absorbed_inside': len(absorbed_inside), 'wet': len(wet), 'deaths_in_shaft': len(deaths_in), 'deaths_all': deaths, 'guard_misfire': len(misfire), 'refusals_in_box': refusals_in,
             'held_long': len(held_long), 'exits': exits, 'exit_fails': exit_fails, 'stuck_near': s6_trip, 'stuck_near_did': None if s6 != s6 else round(s6, 4),
             'control_shaft_rows': leak, 'levels': lv, 'complete': int(complete), 'stopped_early': stopped_early, 'exposure_ready': exposure,
             'audits': audits, 'audit_unloaded': audit_unloaded, 'stops': dict(stops), 'placed': dict(placed),

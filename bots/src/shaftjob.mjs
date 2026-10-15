@@ -150,7 +150,7 @@ export function shaftNextOp ({ rec, read, feet, digSet }) {
   }
   // THE COLLAR (level c): the two collar cells open, the rim lined, the pad floor proven
   if (y === c) {
-    for (const u of [0, 1]) { const b = at(u, c, 0); if (b == null) return { op: 'wait', why: 'collar unloaded' }; if (!isOpen(b)) return { op: 'collar_dig', cell: [u, c, 0] } }
+    for (const u of [0, 1]) { const b = at(u, c, 0); if (b == null) return { op: 'wait', why: 'collar unloaded' }; if (isWet(b)) return { op: 'close', why: 'liquid in the collar' }; if (!isOpen(b)) return { op: 'collar_dig', cell: [u, c, 0] } }
     const rim = need([[-1, c, 0], [2, c, 0], [0, c, 1], [1, c, 1], [0, c - 1, -1], [1, c - 1, -1]], 'collar')
     if (rim) return rim
     return { op: 'advance', y: c }
@@ -165,6 +165,7 @@ export function shaftNextOp ({ rec, read, feet, digSet }) {
     const a = feet.u, b = 1 - a
     const cb = at(b, y, 0)
     if (cb == null) return { op: 'wait', why: 'core unloaded' }
+    if (isWet(cb)) return { op: 'close', why: `liquid in the core at ${b},${y},0` }   // Codex code r1 P2: never 'dig' water
     if (!isOpen(cb)) return { op: 'dig', cell: [b, y, 0] }
     const ln = need(coreShell(b, y).filter(([u, yy, v]) => !digSet.has(`${u},${yy},${v}`)).concat(y === rec.bottom ? [[b, y - 1, 0]] : []), 'core')
     if (ln) return ln
@@ -178,6 +179,7 @@ export function shaftNextOp ({ rec, read, feet, digSet }) {
     const b = feet.u, a = 1 - b
     const ca = at(a, y, 0)
     if (ca == null) return { op: 'wait', why: 'core unloaded' }
+    if (isWet(ca)) return { op: 'close', why: `liquid in the core at ${a},${y},0` }
     if (!isOpen(ca)) return { op: 'dig', cell: [a, y, 0] }
     const ln = need(coreShell(a, y).filter(([u, yy, v]) => !digSet.has(`${u},${yy},${v}`)).concat(y === rec.bottom ? [[a, y - 1, 0], [b, y - 1, 0]] : []), 'core')
     if (ln) return ln
@@ -203,6 +205,7 @@ export function landingNextOp ({ yL, read, feet, digSet }) {
     const [u, v] = order[i]
     const feetB = at(u, yL, v), headB = at(u, yL + 1, v)
     if (feetB == null || headB == null) return { op: 'wait', why: `landing unloaded ${u},${v}` }
+    if (isWet(feetB) || isWet(headB)) return { op: 'close', why: `liquid in the landing at ${u},${v}` }
     const opened = isOpen(feetB) && isOpen(headB)
     if (!opened) {
       // a stance: an open neighbour at feet yL, earlier in the order (or a core column cell)
@@ -268,7 +271,7 @@ export function shaftOrder ({ now = 0, on = false, state: rs = 'unsited', distPa
   const state = { ...st }
   const no = why => ({ order: null, why, state })
   if (!on) return no('off')
-  if (!(rs === 'building' || rs === 'unsited')) return no(`shaft ${rs}`)
+  if (!(rs === 'building' || rs === 'unsited' || rs === 'closure_pending')) return no(`shaft ${rs}`)
   if (distPad > SHAFT_ORDER_RADIUS) return no('far')
   if (now < (state.cooldownUntil ?? 0) || now < (state.backoffUntil ?? 0)) return no('cooldown')
   const spent = (state.spent ?? []).filter(v => now - v.t < 3_600_000).reduce((a, v) => a + v.ms, 0)

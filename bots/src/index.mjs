@@ -1043,7 +1043,7 @@ function connect() {
       const unguard = installShaftDigGuard(bot, {
         keepOut: () => structuresNow(bot), scopeBy: () => currentDigScope()?.by ?? null, read: shaftRead(bot),
         onRefuse: ({ cell, why }) => { try { logEvent({ kind: 'structure_refusal', status: 'refused', snapshot: snapshot(bot), detail: `by=survival at=${cell.x},${cell.y},${cell.z} kind=shaft why=${String(why).replace(/\s+/g, '_').slice(0, 120)}` }) } catch { /* telemetry */ } },
-        onAbsorb: ({ cell, why }) => { try { logEvent({ kind: 'shaft_absorbed', status: 'success', snapshot: snapshot(bot), detail: `at=${cell.x},${cell.y},${cell.z} why=${String(why).replace(/\s+/g, '_').slice(0, 120)} reflex=${stopReflexes?.activeReflex?.() ?? '-'} skill=${runner.current?.skill ?? '-'}` }) } catch { /* telemetry */ } },
+        onAbsorb: ({ cell, why }) => { try { logEvent({ kind: 'shaft_absorbed', status: 'success', snapshot: snapshot(bot), detail: `at=${cell.x},${cell.y},${cell.z} inside=${(() => { try { const p = bot.entity.position; return structuresNow(bot)?.shaft?.inEnvelope(p.x, p.y, p.z) ? 1 : 0 } catch { return '?' } })()} why=${String(why).replace(/\s+/g, '_').slice(0, 120)} reflex=${stopReflexes?.activeReflex?.() ?? '-'} skill=${runner.current?.skill ?? '-'}` }) } catch { /* telemetry */ } },
       })
       bot.once('end', () => { try { unguard() } catch { /* gone */ } })
     } catch (e) { log('warn', 'shaft dig guard not attached', { err: e?.message }) }

@@ -90,8 +90,11 @@ export function ladderExit (idx, read, feet, { capOk = false } = {}) {
   const L = toLocal(s.origin, s.away, fx, fz)
   const at = (u, y, v) => { const w = toWorld(s.origin, s.away, u, v); return read(w.x, y, w.z) }
   const inDig = (u, y, v) => { const w = toWorld(s.origin, s.away, u, v); return idx.inEnvelope(w.x, y, w.z) }
-  const stand = (u, y, v) => bodyOpen(at(u, y, v)) && bodyOpen(at(u, y + 1, v))
-  if (!stand(L.u, fy, L.v)) return { ok: false, why: 'the bot\'s own cell is not open' }
+  // A CELL TO WALK THROUGH: feet and head open AND a footing -- a stable floor, or (a column cell) a ladder that holds the bot
+  // (Codex code r1 P1-4: a route across a missing floor is no route)
+  const stand = (u, y, v) => bodyOpen(at(u, y, v)) && bodyOpen(at(u, y + 1, v)) &&
+    (goodSolid(at(u, y - 1, v), at(u, y - 2, v)) || (v === 0 && (u === 0 || u === 1) && at(u, y, v)?.name === 'ladder'))
+  if (!stand(L.u, fy, L.v)) return { ok: false, why: 'the bot\'s own cell is not open or has no footing' }
   // BFS on the bot's level over envelope cells (feet and head open) to the core columns
   const key = (u, v) => `${u},${v}`
   const prev = new Map([[key(L.u, L.v), null]]), q = [[L.u, L.v]]
@@ -104,7 +107,8 @@ export function ladderExit (idx, read, feet, { capOk = false } = {}) {
     }
   }
   const ladderOn = (b, u) => !!b && b.name === 'ladder' && b.facing != null && b.facing === ladderFacing(s.away, u)
-  for (const col of [1, 0]) {
+  // the bot's OWN column first when it qualifies (Claude code r1 P3: never a sideways step it does not need)
+  for (const col of (L.v === 0 && (L.u === 0 || L.u === 1) ? [L.u, 1 - L.u] : [1, 0])) {
     if (!prev.has(key(col, 0))) continue
     let ok = true
     for (let y = fy; y <= s.c - 1 && ok; y++) {
@@ -115,7 +119,7 @@ export function ladderExit (idx, read, feet, { capOk = false } = {}) {
     }
     if (!ok) continue
     // THE COLLAR: open; or (capOk: a bot that can dig cobble) the cap's cobble, dug from the top rung (Claude plan r2 P2-1)
-    const capB = at(col, s.c, 0), capped = capB?.name === 'cobblestone'
+    const capB = at(col, s.c, 0), capped = goodSolid(capB, null)
     if (!((bodyOpen(capB) || (capOk && capped)) && bodyOpen(at(col, s.c + 1, 0)))) continue
     if (!(bodyOpen(at(col, s.c, -1)) && bodyOpen(at(col, s.c + 1, -1)) && goodSolid(at(col, s.c - 1, -1), at(col, s.c - 2, -1)))) continue
     const route = []

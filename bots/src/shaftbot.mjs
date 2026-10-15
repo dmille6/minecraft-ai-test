@@ -17,9 +17,9 @@ export const REACH = 4.5
 /** A block as the shaft code reads it: name, collision class, collision shapes, a ladder's facing, full cube. */
 export function shaftBlock (b) {
   if (!b) return null
-  let facing = null
-  if (b.name === 'ladder') { try { facing = b.getProperties?.()?.facing ?? null } catch { facing = null } }
-  return { name: b.name, boundingBox: b.boundingBox, shapes: b.shapes ?? null, facing, full: isFullCube(b) }
+  let props = null
+  try { props = b.getProperties?.() ?? null } catch { props = null }
+  return { name: b.name, boundingBox: b.boundingBox, shapes: b.shapes ?? null, facing: b.name === 'ladder' ? (props?.facing ?? null) : null, props, full: isFullCube(b) }
 }
 
 /**
@@ -106,16 +106,21 @@ export function shaftEffects (bot, { bound, aborted = () => false, allowed = () 
       if (aborted()) { mut.lock.release(cell, null); return 'gate:aborted' }
       if (!mut.fence()) { mut.lock.release(cell, null); return 'gate:fence' }
       if (mut.lock.acquire(cell)) { mut.lock.release(cell, null); return 'gate:busy' }
-      let p
-      try { p = send() } catch { mut.lock.release(cell, 'error'); return 'error' }
-      try { await p } catch (e) { if (e?.aborted || aborted()) { mut.lock.release(cell, 'error'); throw e } }
+      let p, cancel = () => {}
+      try { const r = send(); if (r && typeof r.then !== 'function' && r.promise) { p = r.promise; cancel = r.cancel ?? cancel } else p = r } catch { mut.lock.release(cell, 'error'); return 'error' }
+      try { await p } catch (e) {
+        // A DIG THAT OUTLIVED ITS GUARD (Codex code r1 P1-2): cancel it (stopDigging sends the abort) BEFORE the barrier, so the
+        // barrier proves the server has seen the cancel; an abort cancels too and keeps the record pending
+        try { cancel() } catch { /* not digging */ }
+        if (e?.aborted || aborted()) { await sync().catch(() => false); mut.lock.release(cell, 'error'); throw e }
+      }
       const done = await sync()
       const v = done ? verdictOf() : 'silent'
       mut.lock.release(cell, done && (v === 'confirmed' || v === 'refused') ? v : 'silent')
       return v
     },
     /** DIG ONE CELL -> 'confirmed' | 'refused' | 'silent' | 'unknown' | 'gate:<why>' (look, pace, then the mutation). */
-    dig: async (mut, cell) => {
+    dig: async (mut, cell, by = 'dig_shaft') => {
       const b0 = bot.blockAt(new Vec3(cell.x, cell.y, cell.z))
       if (!b0) return 'unknown'
       if (b0.boundingBox !== 'block') return 'confirmed'
@@ -128,7 +133,7 @@ export function shaftEffects (bot, { bound, aborted = () => false, allowed = () 
         if (!b || b.boundingBox !== 'block') return Promise.resolve()
         // nothing awaited before the dig's first packet: withDigScope runs synchronously into bot.dig, which with
         // forceLook 'ignore' writes block_dig in this turn
-        return withDigScope(bot, { purpose: 'target', by: 'dig_shaft' }, () => bound(bot.dig(b, 'ignore'), 15_000, 'digging'))
+        return { promise: withDigScope(bot, { purpose: by === 'dig_shaft' ? 'target' : 'survival', by }, () => bound(bot.dig(b, 'ignore'), 15_000, 'digging')), cancel: () => bot.stopDigging?.() }
       }, () => { const after = bot.blockAt(new Vec3(cell.x, cell.y, cell.z)); return !after ? 'unknown' : after.boundingBox === 'empty' ? 'confirmed' : 'refused' })
     },
     /**
@@ -197,6 +202,20 @@ export function shaftEffects (bot, { bound, aborted = () => false, allowed = () 
       await ticks(6)
       const p = pos(), f = { x: Math.floor(p.x), y: Math.floor(p.y + 1e-6), z: Math.floor(p.z) }
       return { ok: f.x === pad.x && f.z === pad.z && f.y === pad.y && !!bot.entity.onGround, ms: Date.now() - t0, y: p.y }
+    },
+    /** CLIMB to feet level y (the top rung under a cap) holding forward toward `toward`, then hold on (sneak) -> boolean */
+    climbTo: async (y, toward, ms = 90_000) => {
+      const end = Date.now() + ms
+      try {
+        while (Date.now() < end && !aborted()) {
+          const p = pos()
+          if (p.y >= y - 0.05) break
+          await bot.lookAt(new Vec3(toward.x, p.y + 1.62, toward.z), true)
+          bot.setControlState('forward', true)
+          await ticks(1)
+        }
+      } finally { bot.clearControlStates(); bot.setControlState('sneak', true) }
+      return pos().y >= y - 0.3
     },
     /** WALK ONE STEP to an adjacent open cell on the same level (rooms and stubs) -> boolean */
     stepTo: async (cell, ms = 6_000) => {
