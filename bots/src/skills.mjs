@@ -52,8 +52,8 @@ import { STORAGE_NEAR, startableJunk } from './composter.mjs'
 // Withdraw (withdrawpick.mjs): the town order and the model's verb share one transfer, verified by the server's bag.
 import { bestToolCopy, roomPlan, roomKeep, roomCandidates, allocate, pickTakes, hasUsablePick, stonePickDeficits, NEEDS, PICK_RE, transferVerdict, bagDelta, withdrawRow, HOLD_MS,
   ingredientNeedsAbsent, noteIngredientMisses, townIngredientMissComplete } from './withdrawpick.mjs'
-import { setWithdrawHold, withdrawHolds } from './bankable.mjs'
-import { containerPickMiss, notePickMisses, townPickMissComplete } from './chestfull.mjs'
+import { setWithdrawHold, withdrawHolds, releaseWithdrawHold } from './bankable.mjs'
+import { containerPickMiss, notePickMisses, townPickMissComplete, containerItemMiss, noteItemMisses, townItemMissComplete } from './chestfull.mjs'
 import { serverRecount, lockstepClicks, confirmCursor, clicksInFlight, invalidateClicks } from './craftsync.mjs'
 import { inflightTracker } from './inflight.mjs'
 import { FLOOR } from './toolfor.mjs'
@@ -100,6 +100,9 @@ import { canContinueDescent } from './exit-contract.mjs'
 import { openLessons } from './lessons.mjs'
 import { dropsOf, heldFromBlock, sourcesOf } from './drops.mjs'
 import { smeltPlan, smeltRecipeFor, chooseFuel, fuelTicks, SMELT_TICKS } from './smelting.mjs'
+import { acquireFurnaceLease, furnaceLeaseState } from './furnacelease.mjs'
+import { SMELT_JOB_INPUT, SMELT_JOB_OUTPUT, SMELT_JOB_BATCH, JOB_FUELS, COPPER_MISS_KEY, COPPER_MISS_TTL_MS, DRAIN_RADIUS,
+         copperBalance, smeltTownDetail, drainDetail, drainPick, noteFurnacesLit } from './smeltjob.mjs'
 import { withDigScope } from './digtown.mjs'
 
 /**
@@ -161,6 +164,11 @@ export const UNKNOWN_FAIL_CLASSES = new Set([
   //               delivered. Running out of clock on a big batch is the smelt_budget case again: "call craft
   //               again for the rest", not evidence that the recipe does not work.
   'craft_deadline',
+  // furnace_busy  every furnace in reach is LEASED by another bot's session right now (furnacelease.mjs, smeltjob-01). A
+  //               true, transient fact about this minute, none about whether the item smelts: `smelt raw_iron` carries no
+  //               position, so a `failed` here would teach the fleet that smelting iron is impossible (the furnace_window
+  //               argument). The remedy is to smelt again in a few minutes.
+  'furnace_busy',
 ])
 
 /** The honest status for a failure class: a don't-know is not a no. */
@@ -9015,14 +9023,14 @@ async function withdrawVisit (ctx, chestBlock, decide, signal, msLeft, deadline)
 /** The containers to look in: nearest first, a double chest's other half never counted twice, none the town's memory
  *  knows is unusable or has a blocked lid (chestfull.mjs containerStatus), and -- for a pickaxe -- none that showed no
  *  usable copy in the last 15 min and has taken nothing since (per container: both reviews). */
-function withdrawSweep (bot, { pick = false, town = false } = {}) {
+function withdrawSweep (bot, { pick = false, town = false, missKey = null, missTtl = 0 } = {}) {
   const isContainer = b => ['chest', 'barrel', 'trapped_chest'].includes(bot.registry.blocks[b.type]?.name)
   const tried = new Set()
   let mem = {}
   try { mem = readTownMemory(townDir(), homeTownKey(), bot.worldId ?? null) } catch { mem = {} }
   const home = homeVec()
   const shut = q => { const st = containerStatus(mem[posKey(q)]); return st === 'unusable' || st === 'unavailable' }
-  const skip = q => shut(q) || (pick && containerPickMiss(mem, posKey(q)))
+  const skip = q => shut(q) || (pick && containerPickMiss(mem, posKey(q))) || (!!missKey && containerItemMiss(mem, missKey, missTtl, posKey(q)))
   // WHERE (chestfull-02's boundary): the town order looks only at TOWN containers -- inTown, searched around HOME with
   // the deposit's TOWN_SCAN_RADIUS, the same set its misses are judged over; the model's verb at any container in reach
   // that is not DEEP (depositTargetOk). Never a container WITHDRAW backed off after a failed walk outside town -- its own
@@ -9527,7 +9535,26 @@ export async function drainFurnace (furnace, ms = SMELT_RECOVERY_MS, bot = null)
   }
   if (stuck) noteSword(stuck, stuckFate())
   if (furnace) furnace.drainStop = stuck ? 'stuck' : timedOut ? 'timeout' : null
+  // WHAT IS STILL IN IT AT THE CLOSE (smeltjob-01, Codex code r1 P1-3): a take that threw is swallowed above, so "no stop"
+  // does not prove "empty". Read the three slots right before the close: { output, input, fuel } each null (empty), a
+  // { name, count }, or undefined (unreadable).
+  if (furnace) {
+    const rd = s => { try { const it = furnace[s]?.(); return it ? { name: it.name, count: it.count ?? 0 } : null } catch { return undefined } }
+    furnace.closing = { output: rd('outputItem'), input: rd('inputItem'), fuel: rd('fuelItem') }
+  }
   try { furnace?.close?.() } catch { /* already closed */ }
+}
+/** What a closing read says -> { items: {name: count}, unreadable: bool, empty: bool }. Pure. */
+export function closingContents (closing) {
+  const out = { items: {}, unreadable: !closing, empty: false }
+  if (!closing) return out
+  for (const k of ['output', 'input', 'fuel']) {
+    const v = closing[k]
+    if (v === undefined) { out.unreadable = true; continue }
+    if (v) out.items[v.name] = (out.items[v.name] ?? 0) + (v.count ?? 0)
+  }
+  out.empty = !out.unreadable && !Object.keys(out.items).length
+  return out
 }
 
 /** Polls a sword waits for the furnace's burn reading before ordinary fuel takes its place (peacefulkit). */
@@ -9540,9 +9567,77 @@ function heldMap (bot, items = bot.inventory?.items?.() ?? []) {
   return out
 }
 
-async function smelt(ctx, { item, count = 1 }, signal) {
+/**
+ * THE FURNACE SESSION'S ONE OWNER (smeltjob-01; design 3.4, Codex r3 P3 "one acquisition owner"): every caller of `smelt` --
+ * the model, the iron rung's work order, the town smelt job -- goes through this wrapper, which releases the furnace lease
+ * the inner function took, on every exit path. `smelt_town` calls it too and never takes a lease of its own.
+ */
+async function smelt (ctx, args, signal, opts = {}) {
+  const session = { lease: null, furnace: null, leaseN: null, unleased: false, prior: {}, held: [], closing: null, opts }
+  try {
+    const r = await smeltInner(ctx, args ?? {}, signal, session)
+    return { ...r, furnace: session.furnace, lease: session.unleased ? 'unleased' : session.leaseN, prior: session.prior,
+             drainStop: session.drainStop ?? null, closing: session.closing }
+  } finally {
+    endLease(session)
+    // ONE ROW PER LEASE ACTUALLY HELD, timed from its acquisition to just before its release (Codex code r1 P1-4, Claude
+    // r1 P2-4): a session that switched furnaces (it placed its own) logs both, each with its own interval.
+    for (const h of session.held) {
+      try { logEvent({ kind: 'furnace_session', status: 'success', snapshot: snapshot(ctx.bot), detail: `furnace=${h.furnace} lease=${h.unleased ? 'unleased' : h.n ?? '-'} t0=${h.at} t1=${h.end ?? Date.now()} by=${opts.by ?? 'smelt'}` }) } catch { /* never break a smelt */ }
+    }
+  }
+}
+/** Close the session's current lease: its end time is taken BEFORE the release (the interval the lease really covered). */
+function endLease (session) {
+  const h = session.held[session.held.length - 1]
+  if (h && h.end == null) h.end = Date.now()
+  try { session.lease?.release?.() } catch { /* expires by TTL */ }
+  session.lease = null
+}
+
+/** The holder name a furnace lease records: the bot and this process (a restarted bot is a new holder). */
+const leaseHolder = bot => `${bot?.username ?? config.bot?.name ?? 'bot'}:${process.pid}`
+
+/**
+ * THE NEAREST FURNACE THIS SESSION CAN HAVE -> { block, lease, n, unleased } | { block: null, busy: [holder...] }.
+ * Furnaces within `radius`, nearest first; a furnace whose lease another bot holds is skipped (furnacelease.mjs).
+ * `avoid(pos)` excludes furnaces this caller may not use (none in stage 1).
+ */
+export function pickLeasedFurnace (bot, { radius = 32, avoid = () => false, dir = null } = {}) {
+  const isFurnace = b => bot.registry?.blocks?.[b.type]?.name === 'furnace'
+  let blocks = []
+  if (typeof bot.findBlocks === 'function') {
+    blocks = (bot.findBlocks({ matching: isFurnace, maxDistance: radius, count: 16 }) ?? []).map(p => bot.blockAt(p)).filter(Boolean)
+  } else {
+    const one = bot.findBlock?.({ matching: isFurnace, maxDistance: radius })
+    if (one) blocks = [one]
+  }
+  const me = bot.entity?.position
+  blocks = blocks.filter(b => b?.position && !avoid(b.position))
+    .sort((a, b) => (me ? me.distanceTo(a.position) - me.distanceTo(b.position) : 0) || a.position.x - b.position.x || a.position.y - b.position.y || a.position.z - b.position.z)
+  let d = dir
+  if (d == null) { try { d = townDir() } catch { d = null } }
+  const busy = []
+  for (const b of blocks) {
+    if (!d) return { block: b, lease: null, n: null, unleased: true }
+    const l = acquireFurnaceLease(d, b.position, leaseHolder(bot))
+    if (l.ok) return { block: b, lease: l, n: l.n, unleased: !!l.unleased }
+    busy.push(l.holder)
+  }
+  return { block: null, busy }
+}
+
+async function smeltInner (ctx, { item, count = 1 }, signal, session) {
   const { bot } = ctx
   const deadline = Date.now() + SMELT_DEADLINE_MS
+  // THE JOB'S FUEL ALLOW-LIST (Claude code r1 P2-2): with opts.fuels the plan sees only the input and those fuels, so a
+  // town job never burns the bag's planks, logs, bamboo or sticks (the wood stockpile and the ladder's keeps).
+  const allowFuels = Array.isArray(session.opts?.fuels) ? new Set(session.opts.fuels) : null
+  const heldFor = items => {
+    const h = heldMap(bot, items)
+    if (!allowFuels) return h
+    return Object.fromEntries(Object.entries(h).filter(([n]) => n === item || allowFuels.has(n)))
+  }
 
   // TWO DIFFERENT WRONG NAMES, AND ONLY ONE OF THEM IS EVIDENCE.
   //
@@ -9560,7 +9655,7 @@ async function smelt(ctx, { item, count = 1 }, signal) {
   // Plan BEFORE walking. Discovering "you have no fuel" after a 40-second hike
   // to a furnace spends the decision to learn something the inventory already
   // knew, and travel is where 80% of this fleet's deposit failures went.
-  const dry = smeltPlan({ held: heldMap(bot), item, count,
+  const dry = smeltPlan({ held: heldFor(), item, count,
                           budgetMs: SMELT_DEADLINE_MS, hasFurnace: true })
   if (!dry.ok && dry.reason === 'not_smeltable') {
     return { status: 'failed', failClass: 'bad_target',
@@ -9586,10 +9681,24 @@ async function smelt(ctx, { item, count = 1 }, signal) {
   }
 
   // ---- get a furnace into the world, mirroring craft's two-stage station ----
-  const findFurnace = () => bot.findBlock({
-    matching: b => bot.registry.blocks[b.type]?.name === 'furnace',
-    maxDistance: 32,
-  })
+  // A LEASED FURNACE IS NOT OURS (smeltjob-01): the nearest one no other session holds, its lease taken here and held
+  // by `session` until the wrapper's finally. Taking a new furnace releases the one held before.
+  let busy = []
+  const take = () => {
+    const pk = pickLeasedFurnace(bot, { avoid: session.opts?.avoid ?? (() => false) })
+    // THE TOWN JOB FAILS CLOSED (Codex code r1 P2-5): a lease that could not be recorded (the fail-open path) is no
+    // exclusion, so a deterministic job does not share a furnace on it; the model's/rung's smelt keeps the base behaviour.
+    if (pk.block && pk.unleased && session.opts?.requireLease) { try { pk.lease?.release?.() } catch { /* noop lease */ } busy = ['(the lease could not be recorded)']; return null }
+    if (pk.block) {
+      endLease(session)
+      session.lease = pk.lease; session.leaseN = pk.n; session.unleased = !!pk.unleased
+      session.furnace = `${pk.block.position.x},${pk.block.position.y},${pk.block.position.z}`
+      session.held.push({ furnace: session.furnace, n: pk.n, unleased: !!pk.unleased, at: Date.now(), end: null })
+      busy = []
+    } else busy = pk.busy ?? []
+    return pk.block
+  }
+  const findFurnace = take
   let block = findFurnace()
   let placed = 0
   if (!block && bot.inventory.items().some(i => i.name === 'furnace')) {
@@ -9600,8 +9709,16 @@ async function smelt(ctx, { item, count = 1 }, signal) {
     const put = await place(ctx, { item: 'furnace' }, signal)
     if (put.status === 'success') { placed = 1; block = findFurnace() }
   }
+  // EVERY FURNACE IN REACH IS IN ANOTHER BOT'S SESSION and none is carried: a transient fact, not a lesson. A busy furnace
+  // is never a reason to CRAFT one (that would recreate the scatter -- Claude r2 N4); the remedy is time.
+  // NO_EFFECT, NOT UNKNOWN (Claude code r1 P1): the smelt never started, so it is neither a rung attempt (RUNNER_REFUSALS)
+  // nor a failure toward the runner's consecutive-failure pause.
+  if (!block && busy.length) {
+    return { status: 'no_effect', failClass: 'furnace_busy',
+             detail: `every furnace within 32 blocks is in use by another bot right now (${busy.length}); smelt again in a few minutes` }
+  }
   if (!block) {
-    const noStation = smeltPlan({ held: heldMap(bot), item, count,
+    const noStation = smeltPlan({ held: heldFor(), item, count,
                                   budgetMs: SMELT_DEADLINE_MS, hasFurnace: false })
     return { status: 'failed', failClass: 'needs_station', gap: 'furnace',
              need: noStation.need,
@@ -9666,8 +9783,9 @@ async function smelt(ctx, { item, count = 1 }, signal) {
   // THE PEACEFUL KIT (peacefulkit.mjs, owner 10-07 ~19:50Z): a smelt that is ALREADY happening prefers the carried wooden
   // swords the switch calls unwanted as its fuel. Only here, at the furnace: the dry plans above never count them, so a
   // sword can never start a smelt job. The switch is read again before EACH sword goes in (below).
-  const plan = smeltPlan({ held: heldMap(bot), item, count, budgetMs, hasFurnace: true,
-                           swordFuel: swordFuelCount(bot.inventory?.items?.() ?? [], foodSkipNow(bot).active) })
+  const plan = smeltPlan({ held: heldFor(), item, count, budgetMs, hasFurnace: true,
+                           // the job's allow-list excludes the peaceful kit's swords too (Codex code r2 P2): coal or charcoal only
+                           swordFuel: allowFuels && !allowFuels.has('wooden_sword') ? 0 : swordFuelCount(bot.inventory?.items?.() ?? [], foodSkipNow(bot).active) })
   if (!plan.ok) {
     // The walk consumed the batch. Our own clock, so a don't-know, not a no.
     return { status: 'unknown', failClass: 'smelt_budget',
@@ -9723,7 +9841,7 @@ async function smelt(ctx, { item, count = 1 }, signal) {
     queue.length = 0
     const need = plan.batch - covered
     if (need <= 0) return
-    const alt = chooseFuel(heldMap(bot, bagNow()), { exclude: plan.input, needTicks: need * SMELT_TICKS })
+    const alt = chooseFuel(heldFor(bagNow()), { exclude: plan.input, needTicks: need * SMELT_TICKS })
     if (alt) queue.push({ name: alt.name, count: Math.min(alt.count, Math.ceil(need * SMELT_TICKS / alt.ticks)) })
   }
   // -> true when a load went in. A SWORD GOES ONLY INTO A COLD FURNACE WITH AN EMPTY FUEL SLOT (both reviews, r-rev1): it
@@ -9782,13 +9900,26 @@ async function smelt(ctx, { item, count = 1 }, signal) {
   }
 
   let loaded = false
+  // A FURNACE SESSION IS STATIONARY BY DESIGN (smeltjob-01, Paper 10-15): eight items are 80 s standing at the furnace, and
+  // the stuck reflex (35 s on the fleet) and the stagnation watchdog (60 s busy, < 8 blocks, no item gain -- a smelt
+  // converts 1:1, so it never gains) both cancelled it: fleet 24 h to 10-15 00:30Z, 115 of 650 smelt rows aborted, 9 by
+  // `stuck` and 35 by `stagnation`. So the session DECLARES its bounded window, as the compost visit and the town deposit
+  // do (reflex.mjs stuckDecision; watchdog.mjs samples): never past this call's own deadline, cleared in the finally.
+  const stationary = deadline + 1000
+  bot.stationaryUntil = stationary
+  // the watchdog's furnace exemption has its OWN deadline (Claude code r2 P3): a kind flag left by a hard-stopped session
+  // could mislabel a later compost or deposit window; this value simply expires
+  bot.furnaceWindowUntil = stationary
   try {
     // Anything already inside is ours to take: a previous call that was
     // preempted between the burn and the harvest leaves finished output here,
     // and leaving it would make an interrupt permanently lossy.
-    try { if (furnace.outputItem()) await furnace.takeOutput() } catch { /* empty */ }
+    // PRIOR STOCK, booked apart (smeltjob-01 design 5): what this session found in the furnace and took, by name.
+    try { const o = furnace.outputItem(); if (o) { await furnace.takeOutput(); session.prior[o.name] = (session.prior[o.name] ?? 0) + (o.count ?? 0) } } catch { /* empty */ }
     try {
       const inSlot = furnace.inputItem()
+      // same-name input already in the slot is merged with ours and comes back in the drain: prior stock too
+      if (inSlot) session.prior[inSlot.name] = (session.prior[inSlot.name] ?? 0) + (inSlot.count ?? 0)
       if (inSlot && inSlot.name !== plan.input) await furnace.takeInput()
     } catch { /* empty or full inventory; putInput below will report it */ }
     // A WOODEN SWORD ALREADY IN THE FUEL SLOT (an earlier call left it there because the bag was full -- Codex r-rev3):
@@ -9881,6 +10012,10 @@ async function smelt(ctx, { item, count = 1 }, signal) {
     // empty slot: then it stays in the furnace as fuel (never tossed). The row is written after the actual outcome.
     if (furnace) { furnace.swordKept = false; furnace.swordFate = null }
     await drainFurnace(furnace, SMELT_RECOVERY_MS, bot)
+    session.drainStop = furnace?.drainStop ?? null
+    if (bot.stationaryUntil === stationary) bot.stationaryUntil = 0
+    if (bot.furnaceWindowUntil === stationary) bot.furnaceWindowUntil = 0
+    session.closing = furnace?.closing ?? null
     const after = fslot('fuelItem')
     const drained = swordDrainRow(furnace?.swordFate ?? null, !!left, after === undefined ? undefined : after?.name === 'wooden_sword', furnace?.drainStop ?? null)
     if (drained) swordRow(drained.outcome, drained.what, left ? staged.active : foodSkipNow(bot).active)
@@ -9911,6 +10046,305 @@ async function smelt(ctx, { item, count = 1 }, signal) {
            detail: loaded
              ? `the furnace produced no ${plan.output}; the ${plan.input} and fuel are back in your inventory`
              : `nothing was loaded into the furnace` }
+}
+
+// ----------------------------------------------------- smelt_town / furnace_drain (smeltjob-01) -----
+//
+// THE TOWN SMELT JOB AND THE FURNACE DRAIN. The decisions are smeltjob.mjs's (pure); these only walk, open, click and
+// measure. Both are HOUSEKEEPING (chatOnly): the model can never choose them, and they never feed the milestone give-up.
+
+/** EVERY reachable town container has shown no raw copper recently (COMPLETE coverage) -> true. For the order. */
+export function townCopperMiss (bot) {
+  try {
+    const home = homeVec()
+    const isContainer = b => ['chest', 'barrel', 'trapped_chest'].includes(bot.registry.blocks[b.type]?.name)
+    const keys = townContainerKeys(bot, home, isContainer)
+    if (keys == null) return false
+    return townItemMissComplete(readTownMemory(townDir(), homeTownKey(), bot.worldId ?? null), COPPER_MISS_KEY, COPPER_MISS_TTL_MS, keys)
+  } catch { return false }
+}
+
+/** The furnaces within DRAIN_RADIUS of home -> [{ k, pos, dist, lit }] (lit from the block state: no window needed). */
+export function townFurnaces (bot) {
+  try {
+    const home = homeVec()
+    const found = bot.findBlocks?.({ point: home, maxDistance: DRAIN_RADIUS, count: 32,
+      matching: b => bot.registry?.blocks?.[b.type]?.name === 'furnace' }) ?? []
+    const out = []
+    for (const p of found) {
+      const dist = Math.hypot(p.x - home.x, p.z - home.z)
+      if (dist > DRAIN_RADIUS) continue
+      // never a furnace in a mine below (or a tower above) town: TOWN_DY, the deposit's own rule (Claude code r1 P2-3)
+      if (!depositTargetOk(home, p)) continue
+      const b = bot.blockAt?.(p)
+      if (!b || bot.registry?.blocks?.[b.type]?.name !== 'furnace') continue
+      let lit = null
+      try { const v = b.getProperties?.()?.lit; lit = v === true || v === 'true' } catch { lit = null }
+      out.push({ k: posKey(p), pos: p, dist, lit: lit === true })
+    }
+    return out
+  } catch { return [] }
+}
+/** Is furnace `k` in another session's lease now? */
+export function furnaceLeasedNow (k) {
+  try { return furnaceLeaseState(townDir(), keyVec(k)).live } catch { return false }
+}
+
+const copperIn = held => (held[SMELT_JOB_INPUT] ?? 0) + (held[SMELT_JOB_OUTPUT] ?? 0)
+
+/**
+ * TAKE THE JOB'S INPUT FROM TOWN -> { took: {name: n}, chest, unsettled, looked }. Town containers only (withdrawSweep
+ * town), nearest first, never one the town's memory says showed no raw copper in the last 2 h and has taken nothing
+ * since; up to WITHDRAW_CONTAINERS. Each container that holds none is remembered (the order's complete-coverage miss).
+ */
+async function jobWithdraw (ctx, { copper = 0, coal = 0 }, signal) {
+  const { bot } = ctx
+  const { deadline, msLeft } = withdrawClock(ctx)
+  const out = { took: {}, chest: null, unsettled: false, looked: 0, misses: 0 }
+  const sweep = withdrawSweep(bot, { town: true, missKey: copper > 0 ? COPPER_MISS_KEY : null, missTtl: COPPER_MISS_TTL_MS })
+  const keep = roomKeep(bot.currentWants ?? [])
+  let needCopper = copper, needCoal = coal
+  // FUEL ONLY WITH COPPER IN HAND (Claude code r2 P3): a look that finds no copper must not carry town coal away (the town
+  // deposit never banks coal back) -- coal is taken from a container only once the bag holds copper or this one has it
+  let copperInHand = copper <= 0
+  for (let n = 0; n < WITHDRAW_CONTAINERS && (needCopper > 0 || needCoal > 0); n++) {
+    check(signal)
+    const cb = sweep.next(TOWN_SCAN_RADIUS)
+    if (!cb) break
+    const decide = (inChest, bag, { chestEmpty }) => {
+      const takes = []
+      const cu = Math.min(needCopper, haveIn(inChest, SMELT_JOB_INPUT))
+      if (cu > 0) takes.push({ name: SMELT_JOB_INPUT, count: cu })
+      const fuel = needCoal > 0 && (copperInHand || cu > 0) ? JOB_FUELS.find(f => haveIn(inChest, f) > 0) : null
+      if (fuel) takes.push({ name: fuel, count: 1 })
+      return takes.length ? decideTakes(takes, inChest, bag, chestEmpty, keep) : null
+    }
+    const v = await withdrawVisit(ctx, cb, decide, signal, msLeft, deadline - 2_000)
+    sweep.mark(cb.position, v.double)
+    out.looked++
+    const keys = sweep.halves(cb.position, v.double)
+    if (copper > 0 && !(v.saw ?? []).some(it => it.name === SMELT_JOB_INPUT) && v.saw) {
+      out.misses++
+      try { updateTownMemory(townDir(), homeTownKey(), bot.worldId ?? null, e => noteItemMisses(e, COPPER_MISS_KEY, COPPER_MISS_TTL_MS, keys)) } catch { /* advisory */ }
+    }
+    if (v.result?.failClass === 'transfer_unsettled') { out.unsettled = true; break }
+    const took = v.verified ? (v.moved?.took ?? {}) : {}
+    for (const [k, c] of Object.entries(took)) out.took[k] = (out.took[k] ?? 0) + c
+    if (took[SMELT_JOB_INPUT]) { needCopper = Math.max(0, needCopper - took[SMELT_JOB_INPUT]); out.chest = posKey(cb.position); copperInHand = true }
+    if (JOB_FUELS.some(f => took[f])) needCoal = 0
+    if (v.result && !v.verified && v.moved) { out.unsettled = true; break }
+  }
+  return out
+}
+
+/**
+ * smelt_town -- the town order (smeltjob.mjs smeltTownOrder): take up to 8 raw copper (the bag's own first) and ONE coal
+ * (or charcoal) from the town -- always from the town, never the bag's own fuel, which the town deposit keeps for the iron
+ * ladder (Claude code r1 P2-2) -- smelt in a LEASED furnace (the job fails closed when the lease cannot be recorded) with
+ * the EXISTING `smelt`, burning only coal or charcoal, and bank the ingots and any unsmelted input -- one skill, one
+ * budget, so no other order comes between the withdraw and the deposit. One `_smelt_town` row, ALWAYS, with the copper
+ * balance (smeltjob.mjs copperBalance) the read re-derives.
+ *
+ * CARRY RECOVERY (Codex code r1 P2-6): an interrupted job leaves what it took in the bag. It is not stranded: the order's
+ * own eligibility takes the BAG'S raw copper first and needs no town copper for it, so the bot's next smelt_town at town
+ * (after the 10 min cooldown) smelts it and banks it -- and its ingots, which every job banks. After a restart the
+ * withdraw hold is gone and raw_copper/copper_ingot are DEPOSIT_ALWAYS.
+ */
+async function smeltTown (ctx, _args, signal) {
+  const { bot } = ctx
+  const f = { stop: null, n: 0, bag0: 0, withdrawn: 0, coal: 0, smelted: 0, prior: 0, deposited: 0, depI: 0, depR: 0, bag1: 0, furnaceLeft: 0,
+              furnace: '-', lease: '-', verdict: null, diff: null, chest: '-', t0: Date.now() }
+  let uncertain = false, result = null
+  const home = homeVec()
+  f.bag0 = copperIn(heldMap(bot))
+  // BANK THE COPPER: the job's own hold on the input it did not smelt is given back first (the withdraw held it from every
+  // deposit), then one deposit per name, into the chest it came from when that has room. Every exit after a withdraw
+  // passes here, so the job never leaves town copper in a bag.
+  const bankCopper = async () => {
+    const leftRaw = heldMap(bot)[SMELT_JOB_INPUT] ?? 0
+    if (f.withdrawn > 0 && leftRaw > 0) releaseWithdrawHold(SMELT_JOB_INPUT, Math.min(leftRaw, f.withdrawn))
+    const preferAt = f.chest !== '-' ? keyVec(f.chest) : null
+    for (const name of [SMELT_JOB_OUTPUT, SMELT_JOB_INPUT]) {
+      const had = heldMap(bot)[name] ?? 0
+      if (!(had > 0)) continue
+      check(signal)
+      await deposit(ctx, { item: name }, signal, { noRecovery: true, preferAt })
+      const gone = Math.max(0, had - (heldMap(bot)[name] ?? 0))
+      if (name === SMELT_JOB_OUTPUT) f.depI += gone; else f.depR += gone
+      f.deposited += gone
+    }
+  }
+  try {
+    const carried = heldMap(bot)[SMELT_JOB_INPUT] ?? 0
+    const w = await jobWithdraw(ctx, { copper: carried < 1 ? SMELT_JOB_BATCH : 0, coal: 1 }, signal)
+    f.withdrawn = w.took[SMELT_JOB_INPUT] ?? 0
+    f.coal = JOB_FUELS.reduce((t, n) => t + (w.took[n] ?? 0), 0)
+    f.chest = w.chest ?? '-'
+    if (w.unsettled) { uncertain = true; f.stop = 'withdraw_unsettled'; return (result = { status: 'failed', failClass: 'transfer_unsettled', detail: 'a take from the town chest could not be confirmed; the job stops until the bag settles' }) }
+    const have = heldMap(bot)[SMELT_JOB_INPUT] ?? 0
+    if (have < 1) {
+      // NOTHING TO SMELT -- BUT INGOTS IN THE BAG ARE BANKED (Codex code r2: the deterministic carry return). An earlier job
+      // interrupted after its smelt, or a deposit that found the chest full, leaves ingots; the order fires on them and
+      // this banks them.
+      if ((heldMap(bot)[SMELT_JOB_OUTPUT] ?? 0) > 0) {
+        await bankCopper()
+        f.stop = 'banked_carry'
+        return (result = f.depI > 0
+          ? { status: 'success', detail: `no raw copper to smelt; banked ${f.depI} copper ingots carried from an earlier job` }
+          : { status: 'no_effect', detail: 'no raw copper to smelt, and the carried ingots could not be banked here now' })
+      }
+      f.stop = 'town_has_none'
+      return (result = { status: 'no_effect', detail: 'no raw copper in the bag or in the town containers looked in (each is remembered for 2 h); nothing to smelt' })
+    }
+    // NO TOWN FUEL: the job does not burn the bot's own (the iron ladder's keep) -- the copper goes back and the job waits.
+    if (f.coal < 1) {
+      f.stop = 'no_fuel'
+      await bankCopper()
+      return (result = { status: 'no_effect', detail: 'no coal or charcoal in the town containers looked in; the job does not burn the bag\'s own fuel, so the copper goes back and the job waits' })
+    }
+    f.n = Math.min(SMELT_JOB_BATCH, have)
+    // NO FURNACE IN REACH AND NONE CARRIED: the remedy `smelt` would print ("craft item=furnace (8 cobblestone); smelt
+    // places it for you") is PERFORMED here, deterministically (CLAUDE.md: advice printed is not advice taken) -- only
+    // when no furnace exists within smelt's 32 at all (a leased one is a skip, never a reason to craft: Claude r2 N4).
+    const anyFurnace = !!bot.findBlock?.({ matching: b => bot.registry?.blocks?.[b.type]?.name === 'furnace', maxDistance: 32 })
+    const held = heldMap(bot)
+    if (!anyFurnace && !((held.furnace ?? 0) > 0)) {
+      if (((held.cobblestone ?? 0) + (held.cobbled_deepslate ?? 0)) < 8) {
+        f.stop = 'no_furnace'
+        await bankCopper()
+        return (result = { status: 'no_effect', detail: 'no furnace within 32 blocks, none carried, and fewer than 8 cobblestone to craft one; the job waits for one' })
+      }
+      check(signal)
+      const c = await craft(ctx, { item: 'furnace', count: 1 }, signal)
+      if (!((heldMap(bot).furnace ?? 0) > 0)) {
+        f.stop = 'no_furnace'
+        await bankCopper()
+        return (result = { status: 'no_effect', detail: `no furnace within 32 blocks and crafting one did not work (${c.failClass ?? c.status}); the job waits` })
+      }
+    }
+    const ingots0 = heldMap(bot)[SMELT_JOB_OUTPUT] ?? 0
+    check(signal)
+    // the job's smelt: town furnaces only (never one more than TOWN_DY above or below home: Claude code r1 P2-3), coal or
+    // charcoal only, and a lease that could be recorded (fail closed)
+    const r = await smelt(ctx, { item: SMELT_JOB_INPUT, count: f.n }, signal,
+      { fuels: JOB_FUELS, requireLease: true, avoid: q => !depositTargetOk(home, q), by: 'smelt_town' })
+    f.furnace = r.furnace ?? '-'; f.lease = r.lease ?? '-'
+    f.prior = (r.prior?.[SMELT_JOB_OUTPUT] ?? 0) + (r.prior?.[SMELT_JOB_INPUT] ?? 0)
+    f.smelted = Math.max(0, ((heldMap(bot)[SMELT_JOB_OUTPUT] ?? 0) - ingots0) - (r.prior?.[SMELT_JOB_OUTPUT] ?? 0))
+    // WHAT THE FURNACE STILL HOLDS AT THE CLOSE (Codex code r1 P1-3): known copper there is OUT of the boundary (the drain
+    // job will take it); an unreadable slot, or a drain that stopped, cannot be closed from the bag -> UNRECONCILED
+    if (r.furnace) {
+      const cc = closingContents(r.closing)
+      f.furnaceLeft = (cc.items[SMELT_JOB_INPUT] ?? 0) + (cc.items[SMELT_JOB_OUTPUT] ?? 0)
+      if (cc.unreadable || r.drainStop) uncertain = true
+    }
+    if (r.status !== 'success') f.stop = `smelt:${r.failClass ?? r.status}`
+    check(signal)
+    await bankCopper()
+    if (r.status !== 'success') {
+      return (result = { status: r.status === 'unknown' ? 'unknown' : (f.smelted > 0 ? 'success' : 'no_effect'), failClass: r.status === 'unknown' ? r.failClass : null,
+                         detail: `the smelt did not finish (${r.failClass ?? r.status}: ${String(r.detail ?? '').slice(0, 120)}); banked ${f.deposited} copper` })
+    }
+    f.stop = f.stop ?? (f.depI >= f.smelted ? 'done' : 'deposit_short')
+    return (result = { status: 'success', detail: `smelted ${f.smelted} raw copper into ingots and banked ${f.depI} ingots (and ${f.depR} raw) in town (${f.withdrawn} taken from the town chest)` })
+  } catch (e) {
+    if (e?.aborted || signal?.aborted) { f.stop = f.stop ?? 'interrupted'; throw e }
+    f.stop = f.stop ?? 'error'
+    uncertain = true
+    return (result = { status: 'failed', failClass: 'other', detail: `the town smelt job stopped: ${String(e?.message ?? e).slice(0, 120)}` })
+  } finally {
+    f.bag1 = copperIn(heldMap(bot))
+    if (f.stop === 'interrupted' || f.stop === 'error') uncertain = true
+    const b = copperBalance({ bag0: f.bag0, withdrawn: f.withdrawn, prior: f.prior, deposited: f.deposited, bag1: f.bag1, furnaceLeft: Number(f.furnaceLeft) || 0, uncertain })
+    f.verdict = b.verdict; f.diff = b.diff
+    try { logEvent({ kind: 'smelt_town', status: result?.status ?? 'aborted', snapshot: snapshot(bot), detail: smeltTownDetail(f) }) } catch { /* never break the job */ }
+    if (result) { result.smelted = f.smelted; result.stop = f.stop }
+  }
+}
+
+/**
+ * furnace_drain -- the town order (smeltjob.mjs drainOrder): walk to the idle furnace the order named, lease it, open it,
+ * and take everything in it (output, stranded input, stranded fuel) with smelt's own guarded drain. A furnace found LIT
+ * (cooking) is left alone. This bot remembers an empty furnace (bot.furnaceSeen) so it is not opened again for 6 h unless
+ * it has been seen lit since. One `_furnace_drain` row, always.
+ */
+async function furnaceDrain (ctx, _args, signal) {
+  const { bot } = ctx
+  // THE TARGET IS RE-PICKED HERE (as prune_town re-picks its container): the order's pick is not carried in the args --
+  // housekeeping declares none -- and the world may have changed since the decision (smeltjob.mjs drainPick, the same rule).
+  let at = null
+  try {
+    const fs0 = townFurnaces(bot)
+    bot.furnaceSeen = noteFurnacesLit(bot.furnaceSeen ?? {}, fs0)
+    at = drainPick({ furnaces: fs0, leased: k => furnaceLeasedNow(k), seen: bot.furnaceSeen, now: Date.now() })?.k ?? null
+  } catch { at = null }
+  const f = { stop: null, furnace: at ?? '-', lease: '-', out: '-', inp: '-', fuel: '-', taken: 0, left: '-', t0: Date.now() }
+  let lease = null, furnace = null, result = null, opened = false, leaseAt = null, leaseEnd = null
+  const bagBefore = heldMap(bot)
+  const remember = empty => { try { bot.furnaceSeen = { ...(bot.furnaceSeen ?? {}), [f.furnace]: { empty, at: Date.now(), litSince: false } } } catch { /* memory is advisory */ } }
+  try {
+    if (!at) { f.stop = 'no_target'; return (result = { status: 'no_effect', detail: 'no furnace named' }) }
+    const pos = keyVec(at)
+    const isLit = blk => { try { const v = blk?.getProperties?.()?.lit; return v === true || v === 'true' } catch { return false } }
+    let block = bot.blockAt?.(pos)
+    if (!block || bot.registry?.blocks?.[block.type]?.name !== 'furnace') { f.stop = 'gone'; return (result = { status: 'no_effect', detail: `no furnace at ${at} now` }) }
+    if (isLit(block)) { f.stop = 'lit'; return (result = { status: 'no_effect', detail: `the furnace at ${at} is cooking; it is left alone` }) }
+    let dir = null
+    try { dir = townDir() } catch { dir = null }
+    lease = dir ? acquireFurnaceLease(dir, pos, leaseHolder(bot), { what: 'drain' }) : { ok: true, unleased: true, release () {} }
+    if (!lease.ok) { f.stop = 'busy'; f.lease = 'busy'; return (result = { status: 'no_effect', detail: `another bot is using the furnace at ${at}` }) }
+    // FAIL CLOSED (Codex code r1 P2-5): no recorded lease, no shared furnace for a deterministic job
+    if (lease.unleased) { f.stop = 'lease_unavailable'; f.lease = 'unleased'; return (result = { status: 'no_effect', detail: 'the furnace lease cannot be recorded here; the drain waits' }) }
+    f.lease = lease.n
+    leaseAt = Date.now()
+    for (const range of [1, 3]) {
+      check(signal)
+      try { await withTimeout(bot.pathfinder.goto(new goals.GoalNear(pos.x, pos.y, pos.z, range)), 20000, bot); break } catch (e) { if (e.aborted) throw e }
+    }
+    check(signal)
+    const reach = bot.entity.position.distanceTo(pos.offset(0.5, 0.5, 0.5))
+    if (reach > STATION_REACH) { f.stop = 'unreachable'; return (result = { status: 'failed', failClass: 'no_path', detail: `the furnace at ${at} is ${Math.round(reach)} blocks away and could not be reached` }) }
+    block = bot.blockAt?.(pos)
+    if (!block || bot.registry?.blocks?.[block.type]?.name !== 'furnace') { f.stop = 'gone'; return (result = { status: 'no_effect', detail: `no furnace at ${at} now` }) }
+    if (isLit(block)) { f.stop = 'lit'; return (result = { status: 'no_effect', detail: `the furnace at ${at} started cooking; it is left alone` }) }
+    try { await bot.lookAt(pos.offset(0.5, 0.5, 0.5), true) } catch { /* not fatal */ }
+    try {
+      furnace = await withTimeout(bot.openFurnace(block), SMELT_OPEN_MS, bot, { what: 'furnace', needsDrop: false, onTimeout: () => {} })
+    } catch (e) {
+      if (e.aborted) throw e
+      f.stop = 'window'; return (result = { status: 'unknown', failClass: 'furnace_window', detail: `the furnace at ${at} did not open` })
+    }
+    opened = true
+    const rd = which => { try { const it = furnace[which](); return it ? `${it.name}:${it.count}` : '0' } catch { return '?' } }
+    f.out = rd('outputItem'); f.inp = rd('inputItem'); f.fuel = rd('fuelItem')
+    if ((furnace.fuel ?? 0) > 0) { f.stop = 'lit'; try { furnace.close() } catch { /* closed */ } furnace = null; return (result = { status: 'no_effect', detail: `the furnace at ${at} is burning; it is left alone` }) }
+    if ([f.out, f.inp, f.fuel].every(x => x === '0')) { f.stop = 'empty'; try { furnace.close() } catch { /* closed */ } furnace = null; remember(true); return (result = { status: 'no_effect', detail: `the furnace at ${at} is empty` }) }
+    const win = furnace
+    furnace = null
+    await drainFurnace(win, SMELT_RECOVERY_MS, bot)
+    // EMPTY ONLY WHEN THE CLOSING READ SAYS SO (Codex code r1 P1-3): a take that threw leaves items behind with no stop
+    const cc = closingContents(win.closing)
+    f.left = win.drainStop ?? (cc.empty ? 'none' : cc.unreadable ? 'unreadable' : Object.entries(cc.items).map(([n, c]) => `${n}:${c}`).join(','))
+    const after = heldMap(bot)
+    f.taken = Object.entries(after).reduce((t, [n, c]) => t + Math.max(0, c - (bagBefore[n] ?? 0)), 0)
+    remember(cc.empty)
+    f.stop = cc.empty ? 'drained' : `drain_${win.drainStop ?? (cc.unreadable ? 'unreadable' : 'left')}`
+    return (result = f.taken > 0
+      ? { status: 'success', detail: `took ${f.taken} item(s) left in the idle furnace at ${at} (output ${f.out}, input ${f.inp}, fuel ${f.fuel})` }
+      : { status: 'no_effect', detail: `nothing could be taken from the furnace at ${at} (${f.left})` })
+  } catch (e) {
+    if (e?.aborted || signal?.aborted) { f.stop = f.stop ?? 'interrupted'; throw e }
+    f.stop = f.stop ?? 'error'
+    return (result = { status: 'failed', failClass: 'other', detail: `the furnace drain stopped: ${String(e?.message ?? e).slice(0, 120)}` })
+  } finally {
+    if (furnace) { try { await drainFurnace(furnace, SMELT_RECOVERY_MS, bot) } catch { /* bounded */ } }
+    if (leaseAt != null) leaseEnd = Date.now()
+    try { lease?.release?.() } catch { /* expires by TTL */ }
+    try { logEvent({ kind: 'furnace_drain', status: result?.status ?? 'aborted', snapshot: snapshot(bot), detail: drainDetail(f) }) } catch { /* never break */ }
+    // the session row is the LEASE's interval (acquired .. just before release), as smelt's (Codex code r1 P1-4)
+    if (leaseAt != null) { try { logEvent({ kind: 'furnace_session', status: 'success', snapshot: snapshot(bot), detail: `furnace=${f.furnace} lease=${f.lease} t0=${leaseAt} t1=${leaseEnd} by=drain` }) } catch { /* never break */ } }
+    if (result) { result.drained = f.taken; result.stop = f.stop }
+  }
 }
 
 // ---------------------------------------------------------------- mine -----
@@ -11706,6 +12140,12 @@ export const SKILL_CONTRACTS = {
   // Banks whole stacks into a town container: the change it exists for is the loss from the bag.
   town_deposit: { expects: ['inventory_loss'],    maxMs: 60_000 },
   prune_town: { expects: ['prune_effect'], maxMs: 180_000 },
+  // THE TOWN SMELT JOB (smeltjob-01): raw copper out of a town chest and ingots back in -- the bag ends where it began, so
+  // its evidence is its own verified count of ingots the furnace made (smelt_effect), never a bag delta.
+  // ...and a bank-only run (ingots carried from an interrupted job) is the bag's loss of them
+  smelt_town: { expects: ['smelt_effect', 'inventory_loss'], maxMs: 180_000 },
+  // THE FURNACE DRAIN: what an idle furnace held comes into the bag.
+  furnace_drain: { expects: ['inventory_gain'], maxMs: 90_000 },
   count_town: { expects: ['count_effect'], maxMs: 90_000 },
   // THE JUNK WELL (well.mjs). A visit LOSES listed junk (well_effect: never any other loss) -- or, a visitor that only
   // closed an open well, changes one block (world_change). A build digs and places: the cap and floor read back.
@@ -11836,6 +12276,8 @@ export function classifyOutcome(skillName, status, delta = {}, wanted = null) {
   if (expects.includes('prune_effect') && (delta.pruned ?? 0) > 0) because.push(`prune_effect: ${delta.pruned} item(s) taken from a town chest and thrown down the well`)
   // A RECOUNT CHANGES THE TOWN'S JOURNAL AND NOTHING ELSE: its own verified count of containers counted (countTown)
   if (expects.includes('count_effect') && (delta.counted ?? 0) > 0) because.push(`count_effect: ${delta.counted} town container(s) counted`)
+  // THE TOWN SMELT JOB's own count of ingots the furnace made from the job's input (smeltTown; prior output excluded)
+  if (expects.includes('smelt_effect') && (delta.smelted ?? 0) > 0) because.push(`smelt_effect: ${delta.smelted} raw copper smelted into ingots`)
   if (expects.includes('position') && (delta.distance ?? 0) >= 2) {
     because.push(`position: moved ${Math.round(delta.distance)} blocks`)
   }
@@ -12796,6 +13238,8 @@ export const SKILLS = {
   // CHEST PRUNING (stocktarget-01, prune.mjs): a deterministic town order, never the model's choice.
   prune_town: { run: pruneTown, usage: 'prune_town', args: [], chatOnly: true },
   count_town: { run: countTown, usage: 'count_town', args: [], chatOnly: true },
+  smelt_town: { run: smeltTown, usage: 'smelt_town', args: [], chatOnly: true },
+  furnace_drain: { run: furnaceDrain, usage: 'furnace_drain', args: [], chatOnly: true },
   // THE JUNK WELL'S THREE TOWN ORDERS (well.mjs wellOrder), never the model's choice.
   dispose_well: { run: disposeWell, usage: 'dispose_well', args: [], chatOnly: true },
   build_well:   { run: buildWell,   usage: 'build_well',   args: [], chatOnly: true },

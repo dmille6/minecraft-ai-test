@@ -389,6 +389,14 @@ export function withdrawHolds (now = Date.now()) {
   return out
 }
 export function clearWithdrawHolds () { HOLDS = {} }
+/** Give back part of a hold (smeltjob-01: the town smelt job deposits the input it did not smelt, inside its own skill). */
+export function releaseWithdrawHold (name, count) {
+  const h = HOLDS[name]
+  if (!h || !(count > 0)) return
+  const left = h.count - count
+  if (left > 0) HOLDS[name] = { ...h, count: left }
+  else delete HOLDS[name]
+}
 
 /**
  * Should this bot deposit NOW?
