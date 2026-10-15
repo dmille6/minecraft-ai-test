@@ -1,0 +1,64 @@
+smeltjob-01 PAPER EVIDENCE, THE REBASE (10-15 21:30-21:51Z). Paper 1.21.8 sandbox2 = 10.0.0.30:25600; driver
+sandbox/craft/smeltjob-e2e.cjs (CRAFT_REPO = a main checkout); the real bot from each canary branch's tree; every bag slot,
+the town chest, the furnace's three slots and the ground read from the SERVER by RCON before and after; the sandbox lock on
+.31 taken as `smeltjob` at 21:29Z and released 21:51Z. New scene `nofurnace` (the exit fix): no furnace, too little cobble
+to craft one -> the 8 raw copper and the town coal must go back; the bag's own 2 coal must stay.
+
+VARIANT 4935ef12 (on 8cd0bc62, the fleet): 7/7 PASS
+nofurnace  PASS done=true d(bag){} d(chest){} d(furnace){} ground{} lit=false
+copper     PASS done=true d(bag){} d(chest){raw_copper-8 coal-1 copper_ingot+8} d(furnace){} ground{} lit=false
+drain      PASS done=true d(bag){copper_ingot+5 raw_iron+3} d(chest){} d(furnace){raw_iron-3 copper_ingot-5} ground{} lit=false
+milestone  PASS done=true d(bag){cobblestone-3 stick-2 oak_log-2 raw_copper-5 stone_pickaxe+1 oak_planks+2 oak_slab+5} d(chest){coal-1 copper_ingot+5} d(furnace){} ground{} lit=true
+   positive control (the job ran after the rung): true
+carry      PASS done=true d(bag){copper_ingot-6 raw_copper-2} d(chest){coal-1 copper_ingot+8} d(furnace){} ground{} lit=true
+fullchest  PASS done=true d(bag){copper_ingot-8} d(chest){diorite-64 copper_ingot+8} d(furnace){} ground{} lit=false
+recovery   PASS done=true d(bag){} d(chest){raw_copper-8 coal-1 copper_ingot+8} d(furnace){} ground{} lit=false
+
+VARIANT 8fe41ad7 (on 75cfb447, townzone-01): 5/5 PASS
+copper     PASS done=true d(bag){} d(chest){raw_copper-8 coal-1 copper_ingot+8} d(furnace){} ground{} lit=false
+drain      PASS done=true d(bag){copper_ingot+5 raw_iron+3} d(chest){} d(furnace){raw_iron-3 copper_ingot-5} ground{} lit=false
+milestone  PASS done=true d(bag){cobblestone-3 stick-2 oak_log-2 raw_copper-5 stone_pickaxe+1 oak_planks+2 oak_slab+5} d(chest){coal-1 copper_ingot+5} d(furnace){} ground{} lit=true
+   positive control (the job ran after the rung): true
+nofurnace  PASS done=true d(bag){} d(chest){} d(furnace){} ground{} lit=false
+recovery   PASS done=true d(bag){} d(chest){raw_copper-8 coal-1 copper_ingot+8} d(furnace){} ground{} lit=false
+
+THE ROWS (nofurnace, 4935ef12):
+_smelt_town:no_effect:stop=no_furnace n=8 bag0=0 withdrawn=8 coal=1 smelted=0 prior=0 deposited=8 dep_i=0 dep_r=8 bag1=0 left=0 furnace=- lease=- verdict=ok diff=0 chest=702,120,700   (detail truncated by the report; the scene verdict asserted withdrawn=8 coal=1 dep_r=8 verdict=ok fb=1 on the full row)
+
+Both variants ran the same bots/ diff as their committed trees (the two later nits -- an unused helper removed and the skip row's fuel= counting coal only -- were applied after these runs; telemetry/dead code only, covered by npm test).
+
+================ THE ORIGINAL RUNS (10-15 ~04:25-04:35Z, on 371c08ed / 2a3d9060) ================
+smeltjob-01 PAPER EVIDENCE (Paper 1.21.8 sandbox2 = 10.0.0.30:25600; driver sandbox/craft/smeltjob-e2e.cjs; the real bot from the
+branch tree (bots/ identical to the canary 371c08ed / 2a3d9060 except the sandbox driver); every bag slot, the town chest, the
+furnace's three slots and the ground read from the SERVER by RCON before and after; the sandbox lock on .31 taken and released
+by each run). One fresh bot per scene; the scripted brain alternates status with two arena walks (an all-status brain trips the
+fleet's livelock breaker and relocates the bot off the arena -- a harness artifact, stock-e2e.cjs documents it).
+
+VERDICT: 6/6 PASS
+
+copper     PASS  run copper-042407  d(chest){raw_copper-8 coal-1 copper_ingot+8} d(bag){} d(furnace){} ground{}
+             _smelt_town success: stop=done n=8 bag0=0 withdrawn=8 coal=1 smelted=8 prior=0 deposited=8 dep_i=8 dep_r=0 bag1=0 left=0 furnace=700,120,703 lease=1 verdict=ok diff=0 chest=702,120,700 t0=1792038255302
+drain      PASS  run drain-042545  d(chest){} d(bag){copper_ingot+5 raw_iron+3} d(furnace){raw_iron-3 copper_ingot-5} ground{}
+             _smelt_town no_effect: stop=town_has_none n=0 bag0=0 withdrawn=0 coal=0 smelted=0 prior=0 deposited=0 dep_i=0 dep_r=0 bag1=0 left=0 furnace=- lease=- verdict=ok diff=0 chest=- t0=1792038353798
+             _furnace_drain success: stop=drained furnace=700,120,703 lease=1 out=copper_ingot:5 in=raw_iron:3 fuel=0 taken=8 left=none t0=1792038365681
+carry      PASS  run carry-042613  d(chest){coal-1 copper_ingot+8} d(bag){copper_ingot-6 raw_copper-2} d(furnace){} ground{}
+             _smelt_town success: stop=done n=2 bag0=8 withdrawn=0 coal=1 smelted=2 prior=0 deposited=8 dep_i=8 dep_r=0 bag1=0 left=0 furnace=700,120,703 lease=1 verdict=ok diff=0 chest=- t0=1792038381112
+fullchest  PASS  run fullchest-042650  d(chest){diorite-64 copper_ingot+8} d(bag){copper_ingot-8} d(furnace){} ground{}
+             _smelt_town no_effect: stop=banked_carry n=0 bag0=8 withdrawn=0 coal=0 smelted=0 prior=0 deposited=0 dep_i=0 dep_r=0 bag1=8 left=0 furnace=- lease=- verdict=ok diff=0 chest=- t0=1792038418363
+             _furnace_drain no_effect: stop=empty furnace=700,120,703 lease=1 out=0 in=0 fuel=0 taken=0 left=- t0=1792038430213
+             _smelt_town success: stop=banked_carry n=0 bag0=8 withdrawn=0 coal=0 smelted=0 prior=0 deposited=8 dep_i=8 dep_r=0 bag1=0 left=0 furnace=- lease=- verdict=ok diff=0 chest=- t0=1792038441641
+recovery   PASS  run recovery-043422  d(chest){raw_copper-8 coal-1 copper_ingot+8} d(bag){} d(furnace){} ground{}
+             _smelt_town success: stop=banked_carry n=0 bag0=2 withdrawn=0 coal=0 smelted=0 prior=0 deposited=2 dep_i=2 dep_r=0 bag1=0 left=0 furnace=- lease=- verdict=ok diff=0 chest=- t0=1792039149934
+             _furnace_drain success: stop=drained furnace=700,120,703 lease=2 out=copper_ingot:6 in=0 fuel=0 taken=6 left=none t0=1792039161842
+             _smelt_town success: stop=banked_carry n=0 bag0=6 withdrawn=0 coal=0 smelted=0 prior=0 deposited=6 dep_i=6 dep_r=0 bag1=0 left=0 furnace=- lease=- verdict=ok diff=0 chest=- t0=1792039173159
+milestone  PASS  run milestone-042729  d(chest){coal-1 copper_ingot+5} d(bag){cobblestone-3 stick-2 oak_log-2 raw_copper-5 stone_pickaxe+1 oak_planks+2 oak_slab+5} d(furnace){} ground{}
+             _smelt_town success: stop=done n=5 bag0=5 withdrawn=0 coal=1 smelted=5 prior=0 deposited=5 dep_i=5 dep_r=0 bag1=0 left=0 furnace=700,120,703 lease=1 verdict=ok diff=0 chest=- t0=1792038510585
+             positive control (the job succeeded after the rung craft): True
+
+FINDINGS THE PAPER RUNS MADE (all fixed before the reviews closed):
+  run 1  the stuck reflex (and the stagnation watchdog) cancelled the 80 s furnace wait -> the session declares its stationary
+         window; fleet 24 h had 9 stuck + 35 stagnation smelt aborts of 650.
+  run 1  the runner never carried result.smelted -> a real job graded `unknown` -> the delta field + a real-Runner test.
+  run 4  the recovery scene's kill trigger looked at the output slot, which smelt empties every half second -> bag + slot.
+  run 5-6 the scripted brain's idling tripped the livelock breaker (relocation 100 blocks off the arena) -> wandering brain, and
+         the restart waits out the dead holder's 240 s lease (which the scene thereby proves expires by TTL).

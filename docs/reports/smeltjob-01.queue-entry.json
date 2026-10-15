@@ -1,0 +1,33 @@
+{
+ "run": "smeltjob-01",
+ "class": "",
+ "after": [
+  "townzone-01"
+ ],
+ "hold": null,
+ "note": "TOWN PROJECTS STAGE 1 (owner 10-14 'put the bots to real work using real resources'): the deterministic town smelt job (raw copper from a town chest -> ingots banked), the furnace drain, the furnace lease every smelt session takes (a busy furnace is never a rung attempt), the furnace session's declared stationary window, OWNER D8 (stone_bricks / smooth_stone off the junk list). Two variants: 8cd0bc62 (the fleet now; use if townzone-01 is REVERTED/INCONCLUSIVE and torn down) and 75cfb447 (townzone-01's tip; use if it is KEPT and PROMOTED). 'after' and the position are the operator's: if another canary moves the fleet first, neither variant matches -- ask for a new one (the diff applied to both with no conflict). REPLACES the 10-15 04:46Z smeltjob-01 entry (variants 5e663860 / 1957811e), never queued. Read ~/mcai-analysis/smeltjobread.py (md5 below). Install the drawn variant's registration as ~/mcai-analysis/registrations/smeltjob-01.json. COUPLING NOTE for the wellsite agent: wellread.py's Python copy of WELL_JUNK becomes a superset by two names after this promotes (cannot false-trip C3); drop them when wellread is next edited.",
+ "variants": {
+  "8cd0bc62e5606b021832d808b150007f38ab2d6e": {
+   "registration": "/home/mike/mcai-analysis/smeltjob-01.4935ef12.json",
+   "canary_sha": "4935ef121463721336d4731eb751e6d2fd70e546",
+   "reads_src": "/home/mike/mcai-analysis",
+   "reads": {
+    "smeltjobread": "c2345e995be2341e3ad0c8a3317f49a7",
+    "immobiledid": "53af289df12208901931dbeeb1ae325a"
+   },
+   "approved": "townprojects agent 2026-10-15: stage 1 of docs/reports/townprojects-design-2026-10-14.md (owner D1-D8). The approved 371c08ed diff rebased with no conflict + the exit fix the rebase reviews found (the job's own withdraw hold blocked banking its unsmelted copper; whole-withdrawal release, unburnt town coal returned, coal only). Reviews: rebase Codex r1 APPROVE -> r2 CHANGE -> r3 APPROVE; Claude r1 CHANGE -> r2/r3 APPROVE (docs/reports/smeltjob-01-reviews-2026-10-15.txt). Mutants 40/40. eslint: only the base's withinBody. licencecheck PASS (_smelt_town 0 baseline rows in 1.38M rows / 80 bots / 24 h), changerowcheck PASS, drawrequire.parse ([], None): NO draw_require_pools key. ORDINARY canary, ONE pool (the job is off in isolated pools). Paper 7/7 PASS from the server (nofurnace, copper, drain, milestone, carry, fullchest, recovery). npm test 253/253.",
+   "registration_sha256": "be43a5fb5b62c6bc060ecd19f1fd8d471a64d0a0ff3ed37f480d4521496ef3e1"
+  },
+  "75cfb447fd2d5a882e60a3b3338c904788103ac1": {
+   "registration": "/home/mike/mcai-analysis/smeltjob-01.8fe41ad7.json",
+   "canary_sha": "8fe41ad7a1ea33656ca374f913e9c39e0717d02c",
+   "reads_src": "/home/mike/mcai-analysis",
+   "reads": {
+    "smeltjobread": "c2345e995be2341e3ad0c8a3317f49a7",
+    "immobiledid": "53af289df12208901931dbeeb1ae325a"
+   },
+   "approved": "townprojects agent 2026-10-15: stage 1 of docs/reports/townprojects-design-2026-10-14.md (owner D1-D8). The approved 371c08ed diff rebased with no conflict + the exit fix the rebase reviews found (the job's own withdraw hold blocked banking its unsmelted copper; whole-withdrawal release, unburnt town coal returned, coal only). Reviews: rebase Codex r1 APPROVE -> r2 CHANGE -> r3 APPROVE; Claude r1 CHANGE -> r2/r3 APPROVE (docs/reports/smeltjob-01-reviews-2026-10-15.txt). Mutants 40/40. eslint: only the base's withinBody. licencecheck PASS (_smelt_town 0 baseline rows in 1.38M rows / 80 bots / 24 h), changerowcheck PASS, drawrequire.parse ([], None): NO draw_require_pools key. ORDINARY canary, ONE pool (the job is off in isolated pools). Paper 5/5 PASS from the server (copper, drain, milestone, nofurnace, recovery). npm test 254/254.",
+   "registration_sha256": "3a263fc66aaed01f113bcee8faa256e757320a6f4d7a03e7b024d18775ea2b5d"
+  }
+ }
+}

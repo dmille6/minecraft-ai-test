@@ -1,0 +1,285 @@
+smeltjob-01 CODE REVIEWS (stage 1 of the town projects), 2026-10-15
+Codex: codex exec --skip-git-repo-check on branch smeltjob-on-5e66386. Claude: a separate review agent ('Claude review').
+
+=================== CODEX CODE ROUND 1 ===================
+1. **P1 — Normal jobs falsely trip C3.** `scripts/host/smeltjobread.py:170` strips underscores, merging `_smelt_town` diagnostic rows with the runner’s `smelt_town` result rows. Both enter `job_ts`; four legitimate jobs produce eight rows and trigger REVERT. Drains have the same problem. **Fix:** count exact diagnostic names for accounting, licence, and cooldown gates; keep runner outcomes separate. Test the reader against paired diagnostic/result rows.
+
+2. **P1 — Declared stationary windows still allow stagnation cancellation.** `bots/src/watchdog.mjs:261` excludes new samples, but `check()` still judges earlier busy samples and cancels the current smelt. I reproduced `cancel('stagnation')` with an active declaration and preceding stationary busy history. **Fix:** suppress stagnation intervention while the declaration is active and prevent excluded intervals from being counted between busy endpoints. Test entry, expiry, and subsequent genuinely stuck movement. Keep furnace protection in this canary; scope it to furnace sessions or separately validate the broader compost/deposit/well behavior change.
+
+3. **P1 — `drainStop === null` does not establish an empty furnace.** `bots/src/skills.mjs:10156` treats it as sufficient for reconciliation, but `drainFurnace` swallows take failures and can exit its deadline without setting a stop. I reproduced `drainStop:null` with eight raw copper still present. This can falsely trip C1; `furnaceDrain` also marks that furnace empty for six hours at line 10241. **Fix:** read and record closing slots before closing; reconcile known leftovers and classify unreadable contents as unreconciled. Remember “empty” only after verifying all slots.
+
+4. **P1 — C2 measures overlapping calls, not overlapping lease ownership.** `bots/src/skills.mjs:9557` starts `t0` before acquisition; line 9564 records `t1` after release. Two correctly serialized sessions can therefore overlap in telemetry—for example, B starts planning while A finishes, then acquires after A releases. C2 reverts on one pair. **Fix:** record acquisition and pre-release timestamps for each actual generation, including reacquisitions, and compare those intervals. Apply the same correction to drain sessions.
+
+5. **P2 — Fail-open defeats exclusion without blocking KEEP.** `bots/src/furnacelease.mjs:94` and `:111` authorize furnace access after filesystem failures. Another process may still hold a valid lease; `overlaps()` explicitly excludes unleased sessions, and registration has no unleased gate. **Fix:** skip/back off shared-town furnace sessions when exclusion cannot be established, or disable project work under that condition and block KEEP. Universal session acquisition is the right ownership boundary, including milestone smelts, but this fallback cannot guarantee safe sharing.
+
+6. **P2 — Interrupted jobs lack the promised carry recovery.** `bots/src/skills.mjs:10172` only records accounting in `finally`; it neither returns copper nor records a pending return. An interruption after withdrawal leaves the withdrawal hold active, and a lightly loaded bag need not trigger `town_deposit`. **Fix:** persist a bounded carry-return note and deterministically process it on the next safe town decision, releasing only the job’s allocation. Add a real CognitiveLoop/skill chain test covering interruption, chest-full recovery, and eventual banking.
+
+7. **P2 — “Chain delivered” does not prove withdrawal or ingot delivery.** `scripts/host/smeltjobread.py:233` accepts `withdrawn=0`, and `deposited` combines raw copper with ingots. A partial smelt that returns raw copper while retaining ingots can qualify. **Fix:** record verified deposits separately by item and require both town withdrawal and newly produced ingot delivery for the registered chain exposure. Keep carried-stock jobs as a separate useful metric.
+
+8. **P2 — Exposure denominators do not support the stated measurements.** `scripts/host/smeltjobread.py:166` removes restart-lag rows but `:213` still assigns every observed bot the entire window; missing-version rows are accepted. `bots/src/cognitive.mjs:1017` logs throttled skip reasons rather than the design’s free-decision and eligible-but-for-room denominators. **Fix:** require the expected build, use measured eligible exposure, and emit explicit decision counters before cooldown/throttling. Preserve shared versus isolated population boundaries in the comparison.
+
+9. **P2 — The holds-wiring mutant is killed by a syntax error.** `bots/scripts/smeltjob-mutants.py:21` adds a second `const holds` in the same scope. Its failure proves no behavioral protection. **Fix:** replace the existing initializer with `false`, require successful parsing, and exercise a room-blocked ready rung through CognitiveLoop. The current loop tests stub job execution; they do not establish the withdrawal-to-return failure chain.
+
+10. **P2 — The Paper milestone scene passes without its positive control.** `sandbox/craft/smeltjob-e2e.cjs:171` accepts an absent job, while line 173 merely reports `positiveControl:false`. Timeout completion is also not required by the verdict. **Fix:** require the scene’s completion condition and a successful subsequent job; assert specifically that the stone-pickaxe craft preceded it.
+
+11. **P2 — Registration is outside the reviewed commit range.** `docs/reports/smeltjob-01.REG.json:1` exists as an untracked file, so `git diff 5e663860..HEAD` does not deliver it. **Fix:** include the corrected registration in the reviewed branch before deployment.
+
+**D8 verdict:** fold it into this canary. Removing these two materials from disposal is a small, directly tested owner requirement; I see no reason to require a separate canary. The remaining pathfinder scaffold treatment is a separate material-protection concern.
+
+I found no path in the added decision placement that displaces an already-ready milestone order; `ready.noRoom` also holds the job. No duplicate dig guard was introduced.
+
+Validation: all six smelt-related and both well-related test files passed through the prescribed runner; diff whitespace checks passed. The two targeted reproductions above exposed gaps despite those passes. I did not run Paper or edit files.
+
+VERDICT: CHANGE
+
+=================== CODEX CODE ROUND 2 ===================
+1. **RESOLVED** — Exact diagnostic names separate accounting, licence, and cooldown counts from runner results.
+2. **RESOLVED** — Furnace-scoped declarations suppress active-session intervention and exclude furnace intervals from busy time.
+3. **RESOLVED** — Closing-slot reads account for leftovers; unreadable contents remain unreconciled; empty-memory requires verified emptiness.
+4. **PARTIAL** — Lease intervals replace call intervals, but `bots/src/skills.mjs:10328` omits acquired drain leases when opening fails. Emit every acquired lease’s interval.
+5. **PARTIAL** — Jobs/drains fail closed, but ordinary smelts still fail open and can overlap a leased job; unleased sessions still cannot block KEEP. Require exclusion for every shared-furnace caller.
+6. **NOT RESOLVED** — Retrying raw copper is not deterministic return recovery. Ingots alone plus absent town copper skip the job (`bots/src/smeltjob.mjs:95`), and a light bag need not trigger deposit. Add pending-return processing and a real interruption/chest-full/eventual-banking chain test.
+7. **RESOLVED** — Chain exposure now requires withdrawal, production, and ingot-specific deposit; carried-stock jobs are separate.
+8. **PARTIAL** — Build filtering and observed spans improve attribution, but isolated/shared controls remain combined (`scripts/host/smeltjobread.py:182`); room eligibility is checked before copper availability, and the tally double-counts drains.
+9. **PARTIAL** — The invalid mutant is removed from scoring, but the holds-wiring behavioral test remains absent; the harness also lacks a parse-success prerequisite.
+10. **PARTIAL** — Completion and successful subsequent work are required, but `sandbox/craft/smeltjob-e2e.cjs:165` still accepts any successful craft rather than specifically the stone pickaxe; the updated fixture also lacks required fuel.
+11. **RESOLVED** — Registration is committed in the reviewed range.
+
+New issues introduced by the fixes:
+
+- **P2 — Fuel allow-list bypass:** `bots/src/skills.mjs:9787` supplies unrestricted `swordFuel` alongside filtered inventory. Reproduction produces a wooden-sword-first queue despite coal being available. Disable sword planning/loading when the allow-list excludes swords; test with the peaceful switch active.
+- **P2 — Paper milestone fixture cannot supply required town fuel:** `sandbox/craft/smeltjob-e2e.cjs:63` stocks only raw copper. Carried coal no longer qualifies, so the required positive-control job cannot succeed in the declared scene. Stock town coal and rerun Paper.
+- **P2 — Decision denominator double-counts drains:** `bots/src/cognitive.mjs:1034` adds `drain_issued` after already tallying the job skip; `scripts/host/smeltjobread.py:280` sums both as decisions, inflating totals and free share. Keep drain counters separate from mutually exclusive decision buckets.
+
+Validation: all six smelt-related and both well-related test files passed through the prescribed runner; reader assertions and diff whitespace checks passed. No files edited; Paper not run. D8 remains appropriate for this canary.
+
+VERDICT: CHANGE
+
+=================== CODEX CODE ROUND 3 ===================
+1. **RESOLVED** — Exact diagnostic names separate accounting from runner results.
+2. **RESOLVED** — Furnace windows suppress intervention and exclude furnace time from busy spans.
+3. **RESOLVED** — Closing reads distinguish leftovers, unreadable contents, and verified emptiness.
+4. **RESOLVED** — Acquired drain leases emit session intervals even when opening fails.
+5. **RESOLVED** — Under the accepted fail-open policy for ordinary smelts: jobs/drains fail closed, and unleased sessions block KEEP.
+6. **PARTIAL — P2 remains** — Ingots alone now trigger deterministic banking, but the required recovery-chain test is absent. `sandbox/craft/smeltjob-e2e.cjs:69` seeds **6 ingots plus 2 raw copper**, so it exercises ordinary smelting and banking, bypassing the new bank-only branch at `bots/src/skills.mjs:10189`. It never interrupts a job or tests a full chest. **Fix:** interrupt after production, verify retained ingots when banking encounters a full chest, free chest capacity, and verify deterministic retry banks them with no raw copper available. Assert conservation and runner success.
+7. **RESOLVED** — Chain exposure requires withdrawal, production, and ingot deposit.
+8. **RESOLVED** — Controls exclude isolated bots; drain counters are outside decision buckets; room reporting accurately states copper remains unchecked.
+9. **RESOLVED** — Real CognitiveLoop holds-wiring test and mutant parse prerequisite are present.
+10. **RESOLVED in code** — Milestone fixture supplies town coal and requires successful stone-pickaxe crafting before subsequent job success. Paper execution remains pending.
+11. **RESOLVED** — Registration is committed.
+
+The three additional round-2 findings—sword fuel bypass, missing milestone fuel, and drain denominator double-counting—are **RESOLVED**.
+
+**NEW issues:** None identified. Item 6 remains a validation gap from round 2, not a design objection.
+
+Validation: all six smelt-related files, both well-related files, and idle-gap passed through the prescribed runner. Reader assertions, Paper-driver syntax, and diff whitespace checks passed. No files edited; Paper and the mutation campaign were not rerun.
+
+VERDICT: CHANGE
+
+=================== CLAUDE CODE ROUND 1 ===================
+I'd send stage 1 back for changes. There is one blocking problem: a busy furnace counts against a waiting milestone step, which can make the bot give that step up. There are also four smaller fixes. Read only, nothing edited or committed.
+
+**P1: one blocking problem**
+
+1. **A busy furnace counts toward giving up a ready milestone step** (`skills.mjs` smeltInner, the `furnace_busy` return; `cognitive.mjs:1368-1373`).
+   - When every furnace in reach is leased, `smelt` returns `unknown`. The loop counts `failed: status !== 'success'` with `executed` true (`furnace_busy` is not a runner refusal), so the iron step's smelt order adds one failed attempt per decision.
+   - After 25 attempts (8 if a peer reported it), `milestones.noteAttempt` skips the step.
+   - The job makes this likely. Five bots each holding a furnace for up to 150 s every 10 minutes can keep a town's only furnace busy most of the time, and bots that carry no furnace have no way out. That breaks the coordinator's "never displace a ready milestone step", and it is two correct guards meeting with no legal move.
+   - **Fix:** make `furnace_busy` count as not executed (put it beside `RUNNER_REFUSALS` for `noteAttempt`), or back the step's smelt order off until the lease's TTL. Add a chain test through the real loop: a bot ready to smelt iron, its only furnace leased by another holder, 30 decisions, and the step is not skipped.
+
+**P2: should change**
+
+2. **The job burns the bot's own fuel** (`skills.mjs` smeltTown).
+   - It withdraws coal only when the bag holds no coal or charcoal. So it spends the bot's own coal, which the town deposit deliberately keeps for the iron ladder.
+   - If the town has no coal, it never checks whether any arrived. `smelt`'s `chooseFuel` then burns bag bamboo, planks or logs, which can drop below the wood stockpile and plank keeps and reopen a gather step.
+   - **Fix:** always take the job's fuel from town, or use bag coal only above the ladder's keep. Skip with `no_fuel` when no coal or charcoal is in hand. Have the job's smelt exclude wood fuel (an `exclude`/allow-list option on `chooseFuel`).
+3. **The drain has no height limit** (`townFurnaces`).
+   - `findBlocks` searches a 48-block sphere around home and only the horizontal distance is checked afterwards. A furnace in a mine shaft up to 48 blocks below town gets walked to, which breaks "never a trip" and walks bots into the places deaths happen.
+   - **Fix:** filter with `depositTargetOk` / `TOWN_DY` (12), as the deposit does. The job's own furnace pick inherits base `smelt`'s 32-block sphere; consider the same filter there.
+4. **The overlap gate can false-trip** (furnace sessions, gate C2). The session's `t0` is set before the furnace is chosen. When smelt places its carried furnace and switches furnaces mid-session, the row claims the new furnace from `t0`, so it can "overlap" a session that legitimately ended just before. **Fix:** record `t0` per furnace at the moment the lease is acquired, and log a row per furnace held.
+
+**P3: minor**
+
+5. **C1 pickup window.** It explains a gain only by `_pickups` rows within ±2 s of the job. If `_pickups` is a periodic summary rather than a row per skill, real explanations fall outside. Check the row cadence and widen the window to match.
+6. **The drain doesn't deposit.** It leaves what it takes in the bag, while the design says "take, deposit". Copper reaches town later through the town deposit (always-deposited items); iron and coal stay with the bot by design. Say so in the module header.
+7. **Furnace placement count.** A town with no furnace gets one crafted and placed by the job. Report furnace placements per bot-hour so the "scatter" outcome stays visible.
+8. **D8 leftovers.** `stone_bricks` and `smooth_stone` are still in `scaffold.mjs`'s pathfinder scaffold list (the design takes them off later, so that's acceptable). The well's comment still says "any of the six".
+
+**Your two Paper fixes**
+- **Stationary window plus watchdog: correct, safe, and it belongs here.**
+  - It brings the stagnation watchdog in line with the contract the stuck reflex already honours (`reflex.mjs` `stuckDecision`).
+  - The window is bounded by each skill's own budget and cleared in the drain's `finally` (`if (bot.stationaryUntil === stationary)`). The runner's `maxMs` and hard stop still apply.
+  - The job can't work without it, so it should not be a separate canary.
+  - It does change the town deposit, compost and well windows fleet-wide (town deposit declares its window before walking), and it pushes the iron step's smelt-success numbers up while the lease pushes them down. Add a read line: stuck/stagnation aborts per declaring skill, as a DiD, and say the iron-smelt harm line carries both effects.
+- **Runner `smelted`: correct.** It only counts for `smelt_effect`, which only `smelt_town` declares, and it is tested through the real Runner.
+
+**D8: fold it in.** It moves about 2 items a day (18 + 1 in all bags), so on its own it could never reach exposure and would close INCONCLUSIVE. It cannot confound any gate here, and putting both names in `NEVER_DISPOSE` makes it hard to undo by accident.
+
+**What holds up**
+- **Lease:** O_EXCL generations, a check for a higher generation after creating, a 240 s TTL above the 180 + 30 s hard stop, pid-scoped holders, torn records treated as live, and it fails open and flags it. I found no race.
+- **Withdraw hold:** released only for unsmelted raw copper, and the deposit happens inside the same skill, so the town deposit cannot re-bank it.
+- **The balance:** opening and closing contents are included, interrupted or uncertain runs are marked unreconciled, and C1 needs at least 2 bad rows and more than 5% of reconciled rows.
+- **Read:** restart-lag rows on another build are skipped, isolated pools are excluded from C2, the denominators are printed, and the harm lines are DiD.
+- **Tests:** they test behaviour; the chain runs through the real `CognitiveLoop`; the mutants check that their anchor exists and is unique; and the equivalent mutant is named with its reason. The gaps are the tests for 1–3.
+
+VERDICT: CHANGE
+
+=================== CLAUDE CODE ROUND 2 ===================
+Approve: all eight of my round-1 findings are fixed in WIP 4, and the new issues are all P3. Read only, nothing edited or committed.
+
+**Round-1 findings**
+
+1. **P1, a busy furnace counted toward giving up the iron step: resolved.**
+   - `furnace_busy` now returns `no_effect` and is in `RUNNER_REFUSALS` (milestones.mjs:51), so `executed` is false at cognitive.mjs:1387.
+   - `no_effect` teaches no lesson and does not start a failure cooldown (cognitive.mjs:1291).
+   - The chain test runs through the real loop and has a positive control (failed/other drives attempts to 4 or more).
+   - The only remaining clock is the 45-minute `NO_PROGRESS_MS`, which a 240 s lease cannot run out.
+2. **P2, the job burned the bot's own fuel: resolved.**
+   - The job always takes one coal or charcoal from town, and returns `no_fuel` (banking the copper back) when none arrived.
+   - The job's smelt uses a coal/charcoal-only list (skills.mjs:9635–9639), so it never burns wood.
+   - It may burn the bag's own coal in place of the withdrawn one, but that nets to zero.
+3. **P2, no height limit on the drain: resolved.** `depositTargetOk` now filters both the drain's furnace list (skills.mjs:10074) and the job's furnace pick (`avoid`, :10213).
+4. **P2, the overlap gate could false-trip: resolved.** There is now one `_furnace_session` row per lease actually held, from acquisition to before release, including the drain's.
+5. **P3, C1's pickup window: resolved.** It is now ±60 s.
+6. **P3, the drain didn't deposit: resolved.** The header says what the drain leaves in the bag.
+7. **P3, furnace placements unreported: resolved.** The read reports furnaces placed and crafted.
+8. **P3, D8 leftovers: resolved** for the well comment. Removing `stone_bricks` from the pathfinder scaffold list stays deferred, as the design allows.
+
+**Watchdog change:** scoping it to furnace sessions (`stationaryKind === 'furnace'`) is the right narrowing. Compost and town-deposit windows behave as on the base. Skipping judgement during an open furnace window is bounded by the session's own deadline. `activeSpanMs` equals the base calculation when there are no furnace samples. I agree with it.
+
+**New issues, all P3**
+
+- **Town coal can leak into bags** (skills.mjs about 10171–10186). `jobWithdraw` takes the coal in the same visit as the copper. When the town has no copper left, the `town_has_none` return leaves the coal it just withdrew in the bag, and the town deposit never banks coal. The `no_furnace` path and an unfinished smelt also skip returning it. Once the copper backlog is gone this happens at every copper-miss expiry (each 2 h), about one coal per bot per look.
+  - **Fix:** withdraw the fuel only after copper is in hand, or deposit any withdrawn coal in the same skill's exit path.
+- **A stale `stationaryKind` can mislabel a later window** (skills.mjs:9909/10013). The kind is cleared only when the furnace session's cleanup runs. If a hard stop leaves that cleanup pending, a later compost or town-deposit window (which sets `stationaryUntil` but not the kind) is read as a furnace window by `furnaceWindow`.
+  - **Fix:** have every other declarer set `stationaryKind = null`, or store the kind and the deadline as one object.
+- **The iron step can spin while a furnace is busy.** While the only furnace is leased, the ready step's smelt order goes out again on every decision and comes straight back as `furnace_busy`. That is harmless now that it is not counted, but it is a tight loop of empty decisions for up to the lease length, and it costs that bot those decisions.
+  - **Fix:** a short cooldown on that work order, keyed to the lease's remaining TTL.
+
+VERDICT: APPROVE
+
+=================== CLAUDE CODE ROUND 3 ===================
+Nothing new is wrong in WIP 6 (cfbe5b67). I checked each change against the code; read only, nothing edited or committed.
+
+- **Fuel only once copper is in hand: correct.** `jobWithdraw` takes coal only after copper is in hand or in the same take as it (skills.mjs:10109–10133), so a town with no copper no longer leaks coal into bags.
+- **Furnace window deadline: correct.** `bot.furnaceWindowUntil` is set at skills.mjs:9912 and cleared only when it still holds this session's value (:10017). If a hard stop skips the cleanup, it simply expires at the session deadline plus 1 s. The compost and deposit windows can no longer inherit the furnace exemption. `furnaceWindow` (watchdog.mjs:35) keys on this value alone.
+- **Banking carried ingots: sound.**
+  - Ingots in the bag make the order eligible even after a town copper miss (smeltjob.mjs:93–96).
+  - The job still tries to withdraw copper first, so a town that has copper gets it smelted. Otherwise it banks the ingots: `success` if any were deposited, `no_effect` if not (skills.mjs:10186–10196).
+  - A bag full of ingots with every chest full is bounded by the 6-strike pause.
+  - No milestone step uses copper ingots, so banking them displaces nothing.
+  - Adding `inventory_loss` to the contract only gives a claimed success another way to show evidence; it cannot turn a failure into a success.
+- **Sword fuel: correct.** It is zeroed whenever the allow-list excludes `wooden_sword` (skills.mjs:9788). The peaceful kit's sword-burning is unchanged for every other smelt.
+- **Read changes: fine.**
+  - Shared-only controls match the job's scope.
+  - Counting `+drain_issued` outside the decision buckets keeps the denominator clean.
+  - Making `unleased_sessions <= 0` block KEEP turns fail-open into something the read can see.
+- **Busy-step spin, left as a named residual: acceptable.** It is not counted toward giving up, teaches no lesson, and lasts at most one lease.
+
+The holds test now runs through the real `CognitiveLoop`, and the mutant harness requires `node --check`. Both close real gaps.
+
+VERDICT: APPROVE
+
+=================== CODEX CODE ROUND 4 ===================
+6. **RESOLVED** — The new scenes cover ingot-only banking into a full chest, retention without drops, deterministic retry with runner success, and interruption followed by drain and banking. The reported Paper results establish copper conservation across recovery.
+
+**NEW issues:** None identified.
+
+Reviewed the driver and cooldown changes; defaults remain unchanged. Syntax and diff whitespace checks passed. Paper results are operator-reported; I did not rerun Paper or mutations. No files edited.
+
+VERDICT: APPROVE
+
+#################### THE REBASE (10-15 ~21-23Z): 371c08ed's diff on 8cd0bc62 (wellsite-04, the fleet) and 75cfb447 (townzone-01) ####################
+Commits reviewed: e9b1efda (on 8cd0bc62) and 191d3b25 (on 75cfb447), then the staged exit fix (fix 1: jobReturns; fix 2: coal only + swapWithdrawHold).
+
+=================== CODEX REBASE ROUND 1 (composition: wellsite-04, townzone-01, the deposit interaction, milestone priority) ===================
+1. **P3 — Pre-existing ordering claim is inaccurate:** `bots/src/cognitive.mjs:988` says the jobs follow every deterministic order, but sapling planting follows at `:1047`. This is unchanged from approved `371c08ed`. Ready milestone steps remain protected by the existing-order check and `milestoneHolds` at `:1016`; neither rebase adds an order afterward.
+
+No P1/P2 composition findings:
+
+- **Diff equivalence:** Both rebases preserve identical file paths and added/removed lines. Townzone additionally changes surrounding import context, beyond line offsets.
+- **Well/D8:** `scripts/host/wellread.py:111` retains the two building stones, but this is a superset—not a new false-trip condition. C3 checks off-list loss (`:192`); C7 uses actual guarded-click telemetry (`:202`). `wellsiteread.py` contains no copied junk classifier.
+- **Town ground:** Station placement can dig one cell (`bots/src/skills.mjs:5870`), and crafting can reclaim its table (`:5479`). Station excavation and transit remain permitted; tables are not terrain. No new refusal dead end found.
+- **Deposits:** Decisions cannot interleave with the composite job (`bots/src/cognitive.mjs:779`). Withdrawal holds protect input; `bankCopper` releases the job’s leftover-input hold and deposits both copper forms (`bots/src/skills.mjs:10271`). Copper is neither well junk nor a stock-target pruning group. No competing-order churn found on either variant. Interrupted jobs or failed deposits can leave recoverable carry; immediate banking is not guaranteed on those paths.
+- **Other changes:** No additional composition regression found in furnace leases or stationary-window handling.
+
+Prescribed runner: smeltjob, smelt-skill, and well passed on both variants; townground also passed on `191d3b25`—7/7 runs. Both worktrees remain clean.
+
+VERDICT: APPROVE
+
+=================== CLAUDE REBASE ROUND 1 ===================
+1. P2. Copper left over after a partial smelt is never banked by the job itself: the job's own withdraw hold blocks it
+   (skills.mjs smeltTown bankCopper: it released only min(leftRaw, withdrawn) of the hold). Take 8, smelt 5, 3 left: the
+   hold fell to 5 and covered the 3, so the deposit plan for raw_copper was empty (reproduced against bankable.mjs:
+   setWithdrawHold(8) + releaseWithdrawHold(3) -> depositPlan [] with withdraw_hold; without a hold -> [raw_copper:3]).
+   Also a stale hold of 8 after a full smelt. Not lost, no churn, C1 still reconciles (bag1 counts it); banked 10 min
+   later by town_deposit or the next job. But it contradicts "banks the ingots and any unsmelted input", and no test
+   covers releaseWithdrawHold. Fix: release the whole withdrawal; behaviour test with the real holds.
+2. P3. Town coal still leaks into bags when the smelt never starts (no furnace, furnace_busy, needs_station, no_path):
+   bankCopper returns only copper. Bounded by the 6-strike pause.
+3. P3. "Last of the deterministic orders" is not quite true: sapling planting is evaluated after the job block.
+What checks out: the rebases are byte-exact in +/- lines; D8 cannot false-trip (wellread.py's copy is a superset;
+wellsiteread.py has none); townzone-01 leaves the job no dead end (the furnace craft uses held cobble; place's make-room
+dig is not refused by the zone; walks are pathfinder digs; the drain digs nothing); no other order runs between the
+withdraw and the deposit; copper is in no stock group and NEVER_DISPOSE covers ^raw_ and _ingot$; milestone priority
+holds on both bases. Tests: smeltjob 38/38, smelt-skill 17/17, well 202/202, wellsite 19/19, idle-gap 19/19.
+VERDICT: CHANGE
+
+=================== FIX 1 (agent) ===================
+smeltjob.mjs jobReturns (pure): the job's WHOLE withdrawal is released at its exit; unburnt TOWN fuel (bag above its opening
+count, at most what was taken) goes back, the bag's own stays; row field fb=. skills.mjs bankCopper wires it once on every
+exit that runs it. cognitive.mjs comment corrected. test/smeltjob-return.test.mjs (the real smelt_town over the fake world;
+the bug reproduced on the real holds with the old rule as control). 6 anchored mutants.
+
+=================== CLAUDE REBASE ROUND 2 ===================
+APPROVE. P2 and both P3s resolved: the whole withdrawal is released once (the `released` flag) on every exit that calls
+bankCopper; releasing the whole withdrawal subtracts exactly the job's share of a merged count; unburnt town coal goes back
+on the no_furnace / busy / no_path / needs_station exits and the bag keeps its own; the comment is fixed.
+NEW, all P3: (1) the temporary own-fuel hold (setWithdrawHold, 60 s) restarts the clock on the shared coal hold and can
+expire during the deposit's walk; (2) a charcoal return does nothing (charcoal is neither a target nor DEPOSIT_ALWAYS);
+(3) residual: the interrupted / error / withdraw_unsettled exits never reach bankCopper (pre-existing, bounded by the
+10 min hold and the pause); (4) the skill-level scene smelts 0, so the P2 bug is caught by the pure + bankable-level tests,
+not the skill scene (adequate: the delete-the-release mutant is killed by the skill scene).
+VERDICT: APPROVE
+
+=================== CODEX REBASE ROUND 2 ===================
+1. **P2 — `bots/src/skills.mjs:10361`: The job can burn the bag’s own charcoal and return the town’s coal.** `fuels: JOB_FUELS` admits both names, and `smeltPlan` prefers charcoal. With 2 carried charcoal and 1 withdrawn coal, it selects charcoal; the new return logic then banks the untouched coal. Restrict fuel consumption to the withdrawn fuel and quantity. The tests lack this mixed-fuel case.
+
+2. **P3 — `bots/src/skills.mjs:10297`: The temporary hold adds to an existing hold instead of protecting exactly `own`.** With 2 carried coal already held, withdrawing and releasing the job’s 1 coal leaves the original hold of 2. Adding `own=2` produces a hold of 4 against 3 coal, so the return deposits nothing. I reproduced an empty deposit plan, versus 1 coal with no prior hold. The call also changes the existing hold’s expiry. Preserve existing hold state and test this case; the current fixture clears all holds.
+
+3. **P3 — `bots/src/skills.mjs:10300`: Unburnt charcoal is not eligible for this deposit.** Passing `{ item: 'charcoal' }` filters the deposit plan but does not override its wants policy. Charcoal is neither a standing target nor `DEPOSIT_ALWAYS`; with ordinary empty wants, its plan is empty (`not_wanted`). Consequently, a no-furnace exit retains withdrawn town charcoal. Add explicit return eligibility and a charcoal integration case; the new tests cover only coal.
+
+VERDICT: CHANGE
+
+=================== FIX 2 (agent) ===================
+JOB_FUELS = ['coal'] (coal only: the towns hold 1 charcoal in 354 containers, census 10-14; owner D4 defers charcoal), which
+removes the charcoal preference (Codex P2) and the undepositable charcoal return (Codex P3, Claude P3-2). bankable.mjs
+swapWithdrawHold(name, count, until): the hold is EXACTLY the bag's own coal for the one fuel-return deposit, then restore()
+puts the previous entry back, count and clock (Codex P3, Claude P3-1). Tests: coal-only planning with an admitted-charcoal
+control (smeltjob.test.mjs); a live prior coal hold and a charcoal bag (smeltjob-return.test.mjs). 4 more mutants.
+Residuals named: Claude P3-3 (interrupted / error / unsettled exits skip the return; pre-existing, bounded) and P3-4.
+
+=================== CLAUDE REBASE ROUND 3 ===================
+APPROVE. swapWithdrawHold fixes P3-1 (exactly the bag's own coal for the one deposit; the previous entry restored, count and
+clock; a count of 0 deletes it for the call, correct); the job's coal hold is released before the swap, so a live earlier
+hold comes back unchanged and the new test asserts it; JOB_FUELS = ['coal'] closes P3-2 and Codex's P2, and the coal-only
+test with its admitted-charcoal control discriminates; burning the bag's own coal instead of the town's nets to zero.
+The three swap mutants are each pinned by a scene; the charcoal mutant belongs to smeltjob.test. Residuals P3-3/P3-4 accepted
+as recorded. Nits (non-blocking): smeltjob.mjs fuelCount had no caller (pre-existing); cognitive.mjs's skip row added
+charcoal into fuel= (telemetry). Both nits applied in the final commit.
+Targeted: smeltjob-return 7/7, smeltjob 39/39, smelt-skill 17/17 on both variants.
+VERDICT: APPROVE
+
+=================== CODEX REBASE ROUND 3 ===================
+- **RESOLVED — r2 P2:** Coal-only withdrawal and smelting prevent burning the bag’s charcoal while returning town coal.
+- **RESOLVED — r2 P3, temporary hold:** `swapWithdrawHold` replaces the count exactly and restores the saved count and expiry in `finally`. A direct check confirmed both.
+- **RESOLVED — r2 P3, charcoal return:** Coal-only withdrawal removes the undepositable charcoal return path.
+
+NEW issues:
+
+- **P3 — `bots/scripts/smeltjob-mutants.py:84`:** The charcoal mutant targets `RET`, but the coal-only regression assertion lives in `SJ`. The return tests exit before smelting and cannot detect charcoal being admitted as fuel. Point this mutant at `SJ` so it exercises the intended regression.
+
+Validation: `smeltjob.test.mjs` passed with the requested environment. No full suite, edits, commits, or pushes. The return test was not run because it overrides `SKILL_TIMEOUT_MS` to `180000`.
+
+VERDICT: APPROVE
+(the charcoal mutant was re-pointed at smeltjob.test.mjs as Codex asked; killed there.)

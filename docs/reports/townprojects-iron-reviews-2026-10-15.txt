@@ -1,0 +1,258 @@
+TOWN PROJECTS r6-r15 (OWNER 10-15 ~20:30Z: put the town iron to real use; coordinator relay ~22Z: rails against shaft-01's rail field)
+Codex: codex exec --skip-git-repo-check on branch tpd-iron-1015 (read-only). Raw texts, in order.
+
+=================== CODEX ROUND 1 (doc r6) ===================
+Read-only review completed; no files changed. References below are to `docs/reports/townprojects-design-2026-10-14.md` unless stated otherwise. This worktree lacks `bots/node_modules`, so recipe verification used upstream minecraft-data’s 1.21.8 data; Mineflayer checks used the locked 4.37.1 source.
+
+1. **P1 — Hopper accounting no longer satisfies the conservation gate (§12.2, §5).** Input can enter and output leave a furnace during its leased window session. Consequently, §5’s furnace equations fail even during ordinary fueling or draining. Reading only furnace NBT cannot reconcile material in twelve hoppers and two output chests, nor attribute shared output to outstanding reservations. Define conservation and reservation reconciliation over the entire connected assembly, including concurrent transfers and interrupted visits, before replacing the existing accounting.
+
+2. **P2 — H6’s placement-only construction is incomplete (§12.2, §12.5, §4.1).** Stage 3 reserves only the three-cell back-row notch. H6 later requires another five cells in the pad for four output hoppers and a chest. Reserve that entire side-line footprint during Stage 3, including its approach and placement faces, or place a separately reserved extension outside the original pad. H6 also needs **two output chests**, contrary to “one output chest per variant.” The sneak/required-face Paper gate is appropriate, but must prove the complete layout and interruption recovery.
+
+3. **P2 — Census stock exceeds admissible town stock (§12.1–12.3).** The supplied JSON contains **354 container entries**, not 352. Its fleet totals and listed shared-world totals are correct, but some containers fall outside `chestfull.mjs:64`’s `inTown` boundary. Applying that predicate gives **1,297 ingots + 378 raw = 1,675 shared-town units**, not 1,761. Affected totals are board-a **146**, placebo-b **162**, placebo-c **72**, placebo-d **150**. Use these for journal-based admission, or explicitly add retrieval from outside-town containers.
+
+4. **P2 — The variant table implements a different admission policy (§12.3).** With the stated stage-by-stage rule, thresholds including the 50-unit reserve/toolkit deduction are **62.5 / 87.5 / 137.5** for H0/H2/H6. Thus hive-a selects H6 and hive-d selects H2; the table instead assigns H2 and H0. Hive-b can fund H0 but cannot immediately fund the storehouse: `0.8 × (66−50−10) = 4.8`. Choose either whole-program reservation or stage-by-stage admission and recompute the table and projected expenditure. Fleet-average net inflow also cannot guarantee every town’s wait ends within days, particularly after toolkit replacement demand begins.
+
+5. **P2 — Raw iron admission lacks its counting dependency (§12.3, §3.3a).** `stocktarget.mjs:95` counts registered groups; raw iron is not currently one. The proposed closed `PROJECT_COUNTED` list adds `iron_ingot` but omits `raw_iron`, although admission spends both. Add raw iron explicitly, with its smelting/fuel allocation, before this budget can operate from the count journal.
+
+6. **P2 — “Every vanilla item filter needs a comparator” is false (§12.0, §4.2).** The comparator and observer quartz recipes are correct in [minecraft-data 1.21.8](https://raw.githubusercontent.com/PrismarineJS/minecraft-data/master/data/pc/1.21.8/recipes.json). But a non-draining hopper with all five slots seeded with one target item type selectively collects matching items from an item stream without either component. It is a finite filter requiring collection that preserves the seeds, not an indefinitely self-emptying sorter. Therefore the universal impossibility claim does not follow. I would still keep automatic flow out of counted town storage in v1: `skills.mjs:3225` records window snapshots, so the journal objection independently justifies that decision.
+
+7. **P2 — Gold is not a necessary condition for minecart logistics (§12.0, §12.5).** Unridden carts can move through momentum, gravity and pushing; furnace minecarts provide coal-powered propulsion without gold. [Mojang explicitly identifies furnace minecarts as a propulsion option](https://www.minecraft.net/it-it/article/taking-inventory--minecart). Deferral remains reasonable, but base it on route geometry, loading/unloading, return trips and measured benefit. The mineshaft document describes a planned ladder route and a pending traversal proof; it does not establish that ladders already serve this trip. Revisit logistics after shaft completion and a route survey, rather than only after a gold threshold.
+
+8. **P2 — Composition guards need executable exceptions and recovery (§12.4).** “No container … above a hopper” forbids the intended furnace above each output hopper; whitelist the designed connections. Draining only a MIXED furnace does not clear foreign items remaining in its input hopper, which can immediately refill it. Recovery must stop or empty that feed too. General deposit/withdraw exclusion must explicitly permit authorized feed/collect jobs. Also, ordinary `deposit` uses its own container predicate at `skills.mjs:2625`; a structural test of `CONTAINER_RE` alone does not protect that path.
+
+9. **P2 — Rollback does not guarantee “no strand” (§12.4).** Stage 1’s furnace drain cannot recover stock sitting in input/output hoppers or the outside-town output chest. Fuel exhaustion can leave input indefinitely, while removing reservations exposes the output chest to ordinary deposits. Preserve assembly discovery, exclusions and a deterministic recovery job in the rollback baseline, or explicitly accept inaccessible-to-automation stock as the rollback limitation.
+
+10. **P3 — Correct the timing and material arithmetic (§12.0, §12.2).** At the stated rates, 320 items require **53⅓ furnace-minutes or 26⅔ blast-minutes**, not 32/16. Four lanterns consume **32 nuggets**; converting four ingots produces 36, leaving four. Reusing those nuggets and the storehouse’s spare bars makes the hall’s incremental iron **five ingots**, assuming those parts survive. Finally, isolated-world stock cannot form part of the remainder of the **shared-world** 1,761-unit denominator.
+
+11. **P3 — Mineflayer does ship an anvil primitive (§12.3).** Version 4.37.1 provides `openAnvil`, `combine` and `rename` in [anvil.js](https://raw.githubusercontent.com/PrismarineJS/mineflayer/4.37.1/lib/plugins/anvil.js). Deferring repair pending an XP/economics study is reasonable; missing library support is not the reason. The hopper-window claim is correct in that version’s [chest.js](https://raw.githubusercontent.com/PrismarineJS/mineflayer/4.37.1/lib/plugins/chest.js).
+
+I would retain the workshop placement for blast furnaces and initial H2 automation, and the proposed storehouse/hall lighting and bars. Keep the stage order, but reserve every future station in Stage 3 and complete assembly accounting and rollback recovery before Stage 4.
+
+VERDICT: CHANGE
+
+=================== CODEX ROUND 2 (doc r7) ===================
+Read-only review of r7 (`9f96e896`) completed; no files changed. I read CLAUDE.md, both requested diffs, the relevant source, and recomputed the census and admission table. **The placement and stage sequence are sensible, but accounting and recovery still need changes.**
+
+References below are to `docs/reports/townprojects-design-2026-10-14.md` unless otherwise stated.
+
+1. **P1 — Assembly conservation: PARTIAL (§12.4).**  
+   Moving the boundary to the whole line is correct. Internal hopper transfers and 1:1 smelting conserve ore-family units. However, **reading every cell does not provide a simultaneous snapshot**: read a hopper containing one ingot, let it transfer, then read the receiving chest, and that ingot is counted twice. Reading in the opposite order can miss it. The bot lease does not stop hopper flow. Thus ordinary operation can trigger the proposed “mismatch either way” defect gate.
+
+   Require a consistent snapshot protocol, or classify a scan crossed by transfers as UNRECONCILED rather than defective. Define the line as a deduplicated set of all seven cells: four hoppers, two furnaces, one chest.
+
+   Interrupted transfers also need durable reconciliation. `skills.mjs:9050–9082` explicitly handles interrupted/unsettled withdrawals; server verification is not guaranteed after interruption. Marking a visit unreconciled is appropriate, but does not say how its potentially completed transfer enters the ledger or affects subsequent reservations. Include opening stock, recovery removals, and a restart protocol; retain reservations until uncertainty is resolved. Do not reconstruct missing transfers by forcing the conservation equation to balance.
+
+2. **P2 — Placement-only footprint: RESOLVED (§12.2).**  
+   Dropping H6 removes the unreserved side-line footprint and second-chest problem. Reserving H2’s notch, upper cells and stands during Stage 3, with whole-layout placement/interruption proof, addresses the finding.
+
+3. **P2 — Admissible census: RESOLVED (§12.1).**  
+   Independently reproduced: **354 entries**, fleet totals **1,687 ingots + 497 raw**, and shared in-town totals **1,297 + 378 = 1,675** using `chestfull.mjs:64`. All twelve revised town totals match.
+
+4. **P2 — Admission policy/table: PARTIAL (§12.3).**  
+   Stage-by-stage admission is now explicit, and **62.5 for H0 / 87.5 for H2** are correct. The stage-4 selections and stage-5 decisions are correct. The hall column ignores the stated spare-parts credit, however. With storehouse leftovers surviving, placebo-a can fund the five-ingot hall upgrade: `0.8 × 9 = 7.2 ≥ 5`.
+
+   The corrected no-inflow table, applying the specified credit, is:
+
+   | Towns | Stage 4 iron | Stage 5 iron | Stage 6 iron | Total per town |
+   |---|---:|---:|---:|---:|
+   | hive-b, placebo-c | 10 | 0 | 0 | 10 |
+   | placebo-a | 10 | 10 | 5 | 25 |
+   | hive-d | 30 | 10 | 0 | 40 |
+   | Other eight towns | 30 | 10 | 5 | 45 |
+
+   That is **445 project units**, plus **240 toolkit units = 685**. If the table deliberately assumes no surviving parts, its displayed rows instead sum to **496**, not 506: there are two ten-unit towns, not three. State which scenario is being projected.
+
+5. **P2 — Raw-iron counting dependency: RESOLVED for project admission (§12.3).**  
+   `raw_iron` is explicitly counted, with smelting and fuel costs named. Shipping the extension with Stage 3 can precede project admission appropriately. The separate claim that Stage 1 does not need it remains inconsistent with Stage 1’s documented eligibility; see the new issue below.
+
+6. **P2 — Comparator-free filtering: RESOLVED as a design decision (§12.0).**  
+   The finite seeded-hopper filter is acknowledged, and the count-journal argument independently supports excluding automatic flow from town storage. I would still replace “No self-emptying item sorter can be built here” with a narrower statement about the selected sorter design; acknowledging one alternative does not prove a universal impossibility.
+
+7. **P2 — Rails deferral: RESOLVED (§§12.0, 12.5).**  
+   The decision now rests on route geometry, missing bot primitives and unmeasured benefit. The mineshaft document indeed specifies planned ladder columns and pending T7 traversal proof. Revisit after shaft completion and a carry-time survey. Furnace-minecart propulsion is also confirmed by [Mojang’s minecart article](https://www.minecraft.net/en-us/article/taking-inventory--minecart).
+
+8. **P2 — Composition guards: PARTIAL (§12.4).**  
+   The designed furnace/hopper connection exception, explicit collection authorization, input-hopper cleanup and behavioral deposit test address most of this finding. But adding exclusion only to `notTried` misses the **`preferAt` path** immediately below it in `skills.mjs:2659`: that branch selects a container without consulting `notTried`. Apply the reservation predicate to every selection path and test an explicitly preferred output chest.
+
+   Also make furnace drain/cleanup acquire the same line lease and record its removals in the line ledger. The remaining station-keyed fuel lease wording in §12.2 conflicts with §12.4’s line-keyed lease.
+
+9. **P2 — Rollback recovery: PARTIAL (§12.4).**  
+   Explicitly accepting stock inaccessible to automation is a valid correction, but the stated bound is incomplete. A full output chest can leave ingots in **both output hoppers**. Draining the furnace does not drain those hoppers. The claimed remaining loss of only 320 input items per station therefore omits another storage location.
+
+   “Within 48” also establishes neither deterministic collection nor town-stock availability. `withdrawSweep` distinguishes the model’s nearby-container verb from town-only automatic orders (`skills.mjs:9104–9120`, `9396`, `9446`); the output chest lies outside town storage. Either preserve a deterministic assembly-recovery job in the rollback baseline or explicitly include output hoppers and outside-town chest contents in the automation limitation. The fuel guarantee also needs the correction below.
+
+10. **P3 — Arithmetic: PARTIAL (§§12.1–12.3).**  
+    The corrected blast duration, 32-nugget storehouse consumption, five-ingot incremental hall cost and separate isolated-world denominator are right. Recipe quantities agree with upstream [minecraft-data 1.21.8 recipes](https://raw.githubusercontent.com/PrismarineJS/minecraft-data/master/data/pc/1.21.8/recipes.json). The new projected expenditure is still wrong, as detailed in finding 4.
+
+11. **P3 — Anvil primitive: RESOLVED (§12.3).**  
+    The revision correctly acknowledges `openAnvil`, `combine` and `rename`; these exist in [Mineflayer 4.37.1](https://raw.githubusercontent.com/PrismarineJS/mineflayer/4.37.1/lib/plugins/anvil.js). XP and repair economics are reasonable grounds for deferral. The [hopper-container support claim](https://raw.githubusercontent.com/PrismarineJS/mineflayer/4.37.1/lib/plugins/chest.js) is also correct.
+
+**New issues:**
+
+- **P2 — Fuel coverage can spend the same fuel twice (§12.2).**  
+  The rule compares each new feed against fuel present plus fuel added, without subtracting the obligation to input already in the hopper and furnace. For example, eight queued raw items and one unconsumed coal leave no capacity for another eight, yet the stated rule admits them. Require coverage for **all remaining input plus the proposed feed**, account for remaining burn time conservatively, and verify fuel addition before feeding. Backpressure can also waste remaining burn time, so fuel coverage alone does not guarantee eventual cook-through.
+
+- **P2 — Moving counting to Stage 3 leaves Stage-1 eligibility undefined (§§3.3a, 5, 9, 12.3).**  
+  Section 5 still makes `smelt_town` eligible when the count journal reports raw copper. `stockCounts` currently counts registered groups only (`stocktarget.mjs:95`); inspecting a chest after selection cannot satisfy that earlier eligibility condition. An operator’s RCON read is not the scheduler’s input. Moving `PROJECT_COUNTED` is acceptable only if Stage 1 names an executable alternative discovery/selection mechanism. Update the eligibility contract and stale stage table. This worktree does not contain `smelt_town`/`furnace_drain` implementations, so the assertion that the separately built Stage 1 already solves this cannot be verified here.
+
+- **P2 — Admission can double-deduct completed expenditure (§12.3).**  
+  The formula starts from current town stock, then subtracts what earlier stages already took. Those withdrawals are already absent from a fresh stock count. Use current stock minus reserves and **outstanding, unreflected commitments**, or use the fixed census minus historical expenditure for the illustrative projection. Distinguish these explicitly.
+
+- **P2 — The fuel conservation bound rejects legitimate operation (§12.4).**  
+  `fuel consumed ≤ items cooked / 8 + 1` is not a cumulative invariant: repeated short batches can waste partially burned coal, and two furnaces can each have a burning item. Define its measurement interval and account for burn-time waste and authorized fuel removals. Otherwise normal operation can fail the gate.
+
+I agree with **Stage 1 → guards → reserved yard/counting → workshop → storehouse → hall**, and with blast furnaces/H2 in the workshop, decorative iron in the storehouse/hall, and rails deferred. “Iron is an upgrade, never a precondition” is a sound fallback policy; make the zero-iron BOMs explicit, especially for the hall, whose r5 BOM already required iron. Stage 4 should remain gated on corrected accounting, fuel admission and rollback behavior.
+
+VERDICT: CHANGE
+
+=================== CODEX ROUND 3 (doc r8) ===================
+Reviewed r8 (`b974e726`), both requested diffs, and stage-1 code at `e9b1efda`. No files changed.
+
+**The iron placement and stage order are sound, but the accounting protocol and blast-furnace recovery still need changes.**
+
+| r7 finding | Status | Reason |
+|---|---|---|
+| #1 — Consistent line accounting | **PARTIAL** | Deduplicating the seven cells, recording durable INTENT/RESULT pairs, and treating incomplete visits as unreconciled are good fixes. The census still lacks a fenced epoch boundary; two matching passes alone do not provide one. |
+| #4 — Admission table and spare-parts credit | **RESOLVED** | Every row follows the revised admission rule, including placebo-a qualifying for the five-ingot hall upgrade. |
+| #8 — Exclusions, leases and recovery | **PARTIAL** | `preferAt`, other selection paths, cleanup, and drain participation now have explicit contracts. However, the built drain rejects blast furnaces, so the named mixed-furnace remedy is not yet executable for H2. |
+| #9 — Rollback stranding | **PARTIAL** | The design honestly accepts bounded stranding and no longer assumes baseline chest collection. But its fallback claim that stage 1 drains backed-up blast furnaces is false, and the cap needs to survive epoch changes explicitly. |
+| #10 — Arithmetic corrections | **RESOLVED** | Hopper timing, nugget remainder, five-ingot hall reuse, and the shared-world denominator are corrected. The aggregate projection also checks out. |
+| NEW — Fuel double-count | **RESOLVED** | Fuel is loaded and verified first; the coverage calculation includes existing input and proposed feed without adding the same fuel twice. Excluding burning fuel and adding a margin is conservative. |
+| NEW — Stage-1 eligibility | **RESOLVED** | The order can initiate a discovery visit without positive count-journal evidence. The implementation supports the revised description. |
+| NEW — Admission double-deduction | **RESOLVED** | Current stock loses only outstanding, not-yet-withdrawn commitments; earlier withdrawals are not deducted twice. |
+| NEW — Fuel bound | **RESOLVED** | Removing the invalid burn upper bound resolves the finding. The replacement reporting equation has a separate sign error below. |
+
+The recomputed **12.3 table is correct** under its stated assumptions:
+
+- With spare parts surviving: projects **445**, toolkit **240**, combined **685 of 1,675**.
+- Without spare parts: projects **496**, combined **736**. Thus “≈0.50k” for projects is correct.
+- The H2/H0 thresholds of **87.5/62.5** follow from the 30-unit reserve, 20-unit outstanding toolkit allocation, and 80% admission rule.
+
+The discovery mechanism is executable. At `e9b1efda`, `smeltTownOrder` permits a look unless complete recent miss coverage suppresses it; carried copper or ingots bypass that suppression. `townCopperMiss` obtains container coverage, and `jobWithdraw` actually opens containers, records misses, and verifies withdrawals. `cognitive.mjs` wires the order to those functions. Sections 5 and 3.3a therefore no longer depend on counts that arrive only in stage 3.
+
+The **quiescent-census protocol is not sufficient as written**. Empty hoppers and unlit furnaces are useful conditions, and matching passes improve confidence, but the RCON reader is not explicitly included in the line lease or an equivalent mutation fence. For example, both passes can read the same chest contents, then a collect can complete and be recorded in the old epoch before that epoch closes. The closing census still contains the collected items, producing a false conservation failure. A completed RESULT does not trigger the open-visit safeguard.
+
+Require the census and epoch rollover to hold the same line lease, exclude in-flight transfers, and commit the closing/opening boundary before releasing it. Also specify a deliberate drain-to-idle opportunity: a 128-unit outstanding cap does not itself guarantee quiescence if visits continually replenish the line.
+
+**NEW issues**
+
+1. **P2 — The promised blast-furnace drain is absent from the rollback baseline.**  
+   In `e9b1efda:bots/src/skills.mjs`, `townFurnaces` selects only `name === 'furnace'` around lines 10156–10165. `furnace_drain` independently rejects other block types before and after walking. Section 12.4 therefore overstates both mixed-line recovery and post-revert recovery. Put blast-furnace support in a retained prerequisite, or explicitly accept stranding inside the blast furnaces too. Adding support only in stage 4 would not fix its rollback baseline.
+
+2. **P2 — The cap formula omits opening inventory across epochs.**  
+   Section 12.2 uses `FED − COLLECTED ≤ 256`, while 12.4 defines epoch-local transfers and permits nonzero opening inventory. An epoch can open with 256 ingots already in the chest and zero new FED; that formula permits another batch. Define the cap against **OPENING + FED − COLLECTED − REMOVED**, with conservative exposure for unresolved visits. State whether counters are epoch-local or lifetime counters consistently.
+
+3. **P3 — Fuel-burn reporting has the wrong sign and omits recovery.**  
+   Section 12.4 says “loads − the fall in the slot.” With no loads and a fall of one coal, that reports −1 burned. Use **opening fuel + verified loads − closing fuel − verified fuel removals**.
+
+4. **P3 — Section 3.3a retains stale contract text.**  
+   Its heading still calls counting a “stage 1 deliverable,” and its closed contents list omits `raw_iron`, despite the explicit stage-3 requirement in 12.3. Align those statements.
+
+I agree with **workshop hoppers and blast furnaces in stage 4, optional lanterns/bars in stages 5–6, no storehouse hoppers, and deferred rails**. I also agree with **12.5’s stage order**, including the shared builder, protective guard before construction, reserved notch before H2, and toolkit priority. These findings require tightening implementation contracts, not reopening those decisions.
+
+VERDICT: CHANGE
+
+=================== CODEX ROUND 4 (doc r9) ===================
+Reviewed r9 (`38c555a2`) on `tpd-iron-1015`, including `CLAUDE.md` and the r8 → r9 diff. No files changed.
+
+- **#1 — PARTIAL (P1).** §12.4’s record fence correctly assigns completed visits around the census, assuming complete records and clock skew within the stated margin. But §12.2 still does **not guarantee quiescence**: empty station inputs do not imply empty output hoppers or extinguished fuel, and one station can restart while the other remains active. Even an idle interval need not last through both census passes and the margins. Require a line-wide pause in feeding until a valid boundary is recorded.
+
+- **#8 — RESOLVED at design level.** §12.4 now explicitly extends `townFurnaces` and `furnace_drain` to blast furnaces in stage 3, with a Paper scene. Combined with the existing line lease, cleanup and selection exclusions, this answers the outstanding drain compatibility issue.
+
+- **#9 — PARTIAL (P2).** The rollback baseline now contains the required drain extension, and unrecovered inventory is explicitly acknowledged. However, its **320-unit bound still depends on an unproven feed invariant**, as below. Moving the cap out of epoch accounting is correct; its physical enforcement remains incomplete.
+
+- **r8 new: blast-furnace drain absent from rollback baseline — RESOLVED.** Making it a stage-3 deliverable puts it before stage 4 and therefore in stage 4’s rollback baseline.
+
+- **r8 new: cap omitted opening inventory — PARTIAL (P2).** The chest allowance is now included, but older output remaining in furnace output slots or output hoppers is not checked before admitting another batch. “Input empty” does not establish “only one batch remains anywhere downstream.” Consequently, `64 + 2 × 128` is not yet a proven bound.
+
+  **Readability check:** every explicit feed operand—fuel-slot count, input-hopper count, furnace-input count, proposed batch, chest contents and capacity—is available to the feeding bot. Mineflayer exposes the furnace slots directly. ([Versioned source](https://raw.githubusercontent.com/PrismarineJS/mineflayer/4.37.1/lib/plugins/furnace.js)) But “same visit” does not make those readings simultaneous: reading an empty furnace input first, then an empty hopper after its contents move into that furnace, can falsely satisfy the empty-input rule. Specify upstream-to-downstream checks under the lease, and account for or drain outstanding output before admitting a fresh batch.
+
+- **r8 new: fuel-burn sign — RESOLVED.** `opening + verified loads − closing − verified removals` correctly measures fuel items consumed; reporting rather than gating against `cooked / 8` preserves the idle-burn allowance.
+
+- **r8 new: stale §3.3a — RESOLVED.** Both the stage-3 heading and `raw_iron` membership now agree with §12.3.
+
+**NEW — P2: A missing RESULT can permanently prevent recovery (§12.4).** The new fence says a visit without a RESULT invalidates the census and opens no epoch. An interrupted visit can remain without a RESULT forever, so this rejects every subsequent census—contradicting the next paragraph’s promise that a fresh quiescent census restarts accounting and replaces reservations. Define how an abandoned visit is proven unable to make further transfers, retired into its unreconciled epoch, and excluded from future boundary checks. Merely ignoring it after a timeout would reopen the transfer race.
+
+Placement and stage order remain agreed.
+
+VERDICT: CHANGE
+
+=================== CODEX ROUND 5 (doc r10) ===================
+Read-only review of HEAD `3ff481d7` and the requested r9→r10 diff. Placement and stage order remain agreed.
+
+| r9 finding | Status | Reason |
+|---|---|---|
+| **#1 — P1: quiescence and inconsistent reads** | **RESOLVED** | The empty-line pass is a valid topological scan. Once both input hoppers are empty, neither furnace can receive more input. Checking each furnace’s input **and output** catches remaining ore, including cooking input→output internally. Fuel alone cannot create ore; the furnace need not become unlit. Empty output hopper 5 cannot refill from later-read hopper 6, and the chest cannot send items upstream. |
+| **#9 — rollback exposure** | **RESOLVED** | Downstream stock is now included in admission. The remaining stranded stock is explicitly accepted, and the stage-3 blast-furnace drain remains part of the rollback baseline. |
+| **320-unit cap** | **RESOLVED** | With the six upstream cells empty, chest stock `<64`, and at most 128 added per station, total stock is at most **319**, hence ≤320. Internal transfers and cooking preserve ore-family units; collection reduces them. This bounds stock admitted by these rules. |
+| **NEW P2 from r9 — missing RESULT blocks future boundaries** | **RESOLVED** | Retirement by a later lease generation confines the unresolved visit to its old epoch. The new holder can establish a fresh boundary without requiring the missing RESULT. |
+
+The furnace check must inspect both ore-bearing slots from the opened window, without yielding between those checks. Mineflayer exposes input, fuel, and output separately. [Mineflayer furnace implementation](https://raw.githubusercontent.com/PrismarineJS/mineflayer/master/lib/plugins/furnace.js)
+
+**Boundary fencing:** Taking the complete pass and publishing BOUNDARY under one continuously valid lease generation supplies the required exclusion. A generation change during that operation must invalidate the pass; including an old generation in a record alone would not fence it.
+
+**NEW P2 — A feeding visit can straddle its own boundary without separately attributable results.** [§12.4](docs/reports/townprojects-design-2026-10-14.md#124) specifies one INTENT before the visit’s first transfer and one RESULT containing its final verified bag delta. But §12.2 permits that visit to collect first, establish BOUNDARY, and then feed. The collection belongs to the closing epoch; feeding belongs to the opening epoch. The records do not specify how to split that visit’s evidence across them.
+
+For example, collect 64 ingots, record an empty-chest boundary, then feed 128 raw ore. Assigning the whole visit to either epoch makes the other epoch’s conservation equation wrong. Cleanup followed by feeding can also net opposing transfers of the same item.
+
+Require a settled RESULT for pre-boundary transfers before publishing BOUNDARY, followed by a new INTENT/RESULT for feeding—or durable, individually verified transfer records explicitly assigned to each epoch. Keep the line lease throughout.
+
+VERDICT: CHANGE
+
+=================== CODEX ROUND 6 (doc r11) ===================
+Reviewed r10 → r11 on `tpd-iron-1015`, HEAD `fee0775e`. No files changed.
+
+- **Feeding-visit P2: RESOLVED.** Section 12.4 requires pre-boundary transfers to settle in their own RESULT before BOUNDARY; feeding opens a new INTENT/RESULT. An unsettled pre-boundary RESULT prevents the boundary.
+- **Fencing note: RESOLVED.** The pass and BOUNDARY require one continuously valid lease generation, and each furnace’s input/output checks use one window without yielding.
+- **NEW breaking issues:** None found.
+- **Iron placement and §12.5 stage order:** Agree. Stage 3 reserves the geometry and supplies counting; stage 4 adds the workshop upgrades and accounting; stages 5–6 add lanterns and bars. Toolkit priority, protected ladder reserves, zero-iron fallbacks, and deferring rails until after shaft-01 remain coherent.
+
+VERDICT: APPROVE
+
+=================== CODEX ROUND 7 (doc r12) ===================
+1. **P1 — Walking is not yet a guaranteed remedy.** [12.7, lines 1116–1125](docs/reports/townprojects-design-2026-10-14.md#L1116) allows an extension through existing tunnels provided they are straight and two high; it does not require a second walking cell. The ore-tunnel code explicitly supports one-wide tunnels (`bots/src/oretunnel.mjs:188`). Placing the far stop block across that passage can cut off the work site beyond it, and a parked cart introduces another obstruction. Structureguard then prevents removing the reserved obstruction. The original stub’s second lane does not guarantee a bypass throughout the extension. Require a surveyed, protected walking bypass and safe dismount positions, demonstrated with both stop blocks and a parked cart present—including after REVERT. Otherwise reject the site before reservation or placement. The composition table’s “walk back … is the same” is currently unproven.
+
+2. **P2 — R0 can qualify traffic that the built lane cannot serve.** [Lines 1101–1120](docs/reports/townprojects-design-2026-10-14.md#L1101) qualify an entire landing using horizontal haul distance, but R1 stops at the first bend, elevation change or obstruction. A landing with frequent 40-block journeys could consequently receive only the seven-cell stub. Likewise, measured journeys need not have endpoints eligible for `ride_lane`. Require the surveyed, contiguous lane and its eligible journeys to pass the distance/time gate before allocating iron; recheck if construction truncates it. Compare complete mount–ride–dismount journeys against walking, rather than riding speed alone.
+
+3. **P2 — R0’s position rows do not directly measure haul time.** [Lines 1102–1106](docs/reports/townprojects-design-2026-10-14.md#L1102) need an explicit reconstruction and coverage rule. `logger.mjs:59` timestamps skill rows at skill start, while `runner.mjs:433–438` supplies the ending position. Inter-row elapsed time can include digging, idle time and vertical travel. Finding room-to-stub observations is a useful positive control, but does not validate the two-bot-minute threshold. Specify observation-time correction, attributable walking intervals, discontinuity handling and coverage requirements; insufficient evidence must leave R0 unqualified.
+
+The relayed landing and surface coordinates are consistent. R0b honestly treats propulsion, mounted reflexes and pushed-cart stopping as prerequisites, rather than established capabilities. The iron arithmetic is correct: **29 per maximum-length lane; 174–203 for six–seven lanes**. Stage 8’s placement after shaft-01 KEPT and hall-01 is consistent with the approved order.
+
+VERDICT: CHANGE
+
+=================== CODEX ROUND 8 (doc r13) ===================
+1. **P1 walking fallback — RESOLVED.** Section 12.7 now requires a lined, two-wide extension with u=1 reserved and clear throughout, plus proof of passage past both ends with the cart and stop blocks present, including after revert. This addresses `oretunnel.mjs:185`’s one-wide tunnel geometry without relying on digging through protected obstructions.
+
+2. **P2 serviceable journeys — RESOLVED.** R0 restricts eligible journeys to the corridor, compares the same endpoints including mounting and dismounting, and requires savings against the buildable lane, recalculated if shortened.
+
+3. **P2 attributable haul time — PARTIAL.** The timestamp correction and minimum sample requirement help, but lines 1111–1114 incorrectly equate a `goto` duration with walking time. `logger.mjs:85` records the entire attempt; `skills.mjs:521–605` allows digging retries inside that attempt. Failed or stalled attempts are not excluded either, so their elapsed time can falsely qualify rail savings. Also, `runner.mjs:433` supplies an end snapshot; a previous snapshot up to five seconds earlier is only an estimated start position. Require verified walking intervals or explicitly exclude contaminated attempts, and qualify the inferred start positions. Twenty rows cannot fix misattribution.
+
+No additional breaking issues found. Worktree unchanged.
+
+VERDICT: CHANGE
+
+=================== CODEX ROUND 9 (doc r14) ===================
+Reviewed r13 → r14 at `f1073d59` on `tpd-iron-1015`. No files changed.
+
+- **Prior P1 and first P2: RESOLVED.** r14 preserves the walking-lane safeguards and corridor-specific savings gate.
+
+- **R0 instrument: PARTIAL.**
+  - **Failed attempts: RESOLVED.** The explicit `status: success` filter excludes failed attempts.
+  - **Dig/retry exclusion: NOT RESOLVED** (§12.7, lines 1117–1118). `digtown.mjs:145–148` emits individual `_dig_town` rows only for town-ground cells; underground digs outside that classification are absent. Rows can also arrive after confirmation delay. `_pickups` aggregates minute windows (`pickuplog.mjs:335–337,424–437`), so filtering rows timestamped inside a short `goto` misses pickups reported afterward. Digging need not yield a collected item anyway. `skills.mjs:619–628` already emits `_goto_dig_retry` outcomes; these should explicitly disqualify a leg.
+  - **Stall exclusion: NOT RESOLVED** (lines 1119–1120). Average pace ≥3 blocks/s does not establish uninterrupted walking: 48 blocks at 4.3 blocks/s plus a three-second stall still averages about 3.39 blocks/s. `logger.mjs:86` records total elapsed duration, including that stall. Subtracting ride time therefore still overstates walking savings.
+  - **Known start: NOT RESOLVED** (lines 1121–1123). `runner.mjs:433–438` supplies an end snapshot, not the next skill’s start position. Calling the preceding skill stationary does not prove no movement during the intervening five seconds; moreover, craft and smelt explicitly navigate (`skills.mjs:4232,9702`). Runner captures `posBefore` at line 200 but does not log that coordinate as the start.
+
+These are remaining defects in the inherited R0 finding, not new unrelated issues. R0 needs actual start-position evidence and either isolated walking timing or a conservative savings bound that cannot credit dig/retry/stall time. Otherwise it can falsely authorize a rail build.
+
+VERDICT: CHANGE
+
+=================== CODEX ROUND 10 (doc r15) ===================
+RESOLVED — r15 closes all three R0 design gaps:
+
+- **Known start:** logs the runner’s actual `posBefore`, replacing the previous-row inference.
+- **Dig/retry exclusion:** requires the goto’s own retry count to be zero, excluding the retry path in `skills.mjs`.
+- **Stall exclusion:** credits tick-sampled moving time minus ride time, rather than the elapsed duration recorded by `logger.mjs`.
+
+The design explicitly gates construction on shipping the telemetry and obtaining measurements. No new blocking issues found.
+
+VERDICT: APPROVE

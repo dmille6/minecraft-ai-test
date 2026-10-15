@@ -12,6 +12,47 @@ Studio reservation both closed 10-12); clear caps bamboo 0 / bucket 2._
 
 ---
 
+## 10-15 23:30Z — TOWN PROJECTS: STAGE 1 (smeltjob-01) READY on 8cd0bc62 / 75cfb447 + the IRON design (r15, Codex APPROVE) + the RAILS stage; NOTHING queued or deployed (the townprojects agent, restarted 10-15 ~20:40Z)
+**smeltjob-01 (replaces the never-queued 10-15 04:46Z entry on 5e663860 / 1957811e).** `smeltjob-on-8cd0bc6` @ **4935ef12** (fleet
+8cd0bc62) and `smeltjob-on-75cfb44` @ **8fe41ad7** (townzone-01 75cfb447): the approved 371c08ed diff, no conflict, plus THE EXIT FIX the
+rebase reviews found -- **the job fought its own withdraw hold**: it released only the leftover of its hold, so after "take 8, smelt 5"
+the hold covered the 3 raw copper left and its own deposit planned nothing (raw_copper is DEPOSIT_ALWAYS; banked only 10 min later by
+town_deposit). Now the WHOLE withdrawal is released at the exit (smeltjob.mjs `jobReturns`, pure), the town coal it took and did not
+burn goes back while the bag's own stays (bankable.mjs `swapWithdrawHold`, exact and restored), and the job burns COAL ONLY (1 charcoal
+in 354 town containers; owner D4). A ready milestone step is never displaced (milestoneHolds; the Paper milestone scene).
+- Tests: npm test 253/253 and 254/254 (one concurrent-run flake, llm-admission-attribution ENOENT on a shared /tmp log path, passed on a
+  solo rerun); smeltjob 39 + smeltjob-return 7 (the REAL skill over the fake world). Mutants 40/40 on both. eslint: only reflex.mjs:2384.
+- Paper (sandbox2, server-read, lock 21:29-21:51Z): **7/7 on 4935ef12** (nofurnace NEW, copper, drain, milestone, carry, fullchest,
+  recovery after SIGKILL), **5/5 on 8fe41ad7** (copper, drain, milestone, nofurnace, recovery). docs/reports/smeltjob-01-paper-2026-10-15.txt.
+- Reviews (docs/reports/smeltjob-01-reviews-2026-10-15.txt): rebase Codex r1 APPROVE -> r2 CHANGE (charcoal preference; additive hold)
+  -> r3 APPROVE; Claude r1 CHANGE (the hold P2) -> r2 APPROVE -> r3 APPROVE. Named residual: an interrupted/error/unsettled exit skips the
+  return (bounded: holds lapse in 10 min; the next job takes the bag's copper first).
+- Registrations `~/mcai-analysis/smeltjob-01.{4935ef12,8fe41ad7}.json` (copies docs/reports/): licencecheck PASS (_smelt_town 0 baseline
+  rows; 1.38M rows / 80 bots / 24 h), changerowcheck PASS, drawrequire.parse ([], None) -- NO draw_require_pools. Read
+  `~/mcai-analysis/smeltjobread.py` md5 c2345e99 (unchanged; scripts/host/smeltjobread.py). Entry (NOT added; the operator places it):
+  copy docs/reports/smeltjob-01.queue-entry.json to .31 and `python3 ~/canary-sched.py queue add <it>` after
+  `git -C /opt/minecraft-ai fetch origin` (branches pushed). `after` is set to townzone-01; move it as the queue needs.
+
+**IRON (OWNER 10-15 ~20:30Z) -> design r15, section 12 of docs/reports/townprojects-design-2026-10-14.md; Codex APPROVE (r11 iron, r15
+rails), raw texts docs/reports/townprojects-iron-reviews-2026-10-15.txt.**
+- **Hoppers: in the WORKSHOP, not the storehouse.** A self-emptying item sorter needs a comparator (nether quartz: 0 in 354 containers),
+  and any hopper flow inside town storage breaks the count journal. Stage 4 builds the two blast-furnace stations HOPPER-FED (H2: input
+  hopper on top, output hoppers in the pad layer to one output chest; 30 iron) where the town's iron allows, else H0 (blast furnaces,
+  10) or plain; stage 3 reserves the stations' notch so nothing is ever dug. The H2 line has its own fenced ledger (epoch boundaries
+  taken by the feeding bot on an EMPTY line under the line lease; visits fenced by lease generation; <= 320 ore units per line).
+- **Blast furnaces** stage 4 (D6). **Lanterns + bars:** storehouse 10 iron, hall 12 (5 with the storehouse's spare parts).
+- **Budget per town:** the iron-pickaxe reserve 30 first, toolkit-01's <= 20 (4/bot) next, then stage by stage against 80% of spendable
+  iron; IRON IS AN UPGRADE, NEVER A PRECONDITION (each stage has a no-iron variant). At the 10-14 census (in-town shared units 1,675):
+  projects ~445 + toolkit 240 = ~0.69k.
+- **Rails: stage 8**, designed against shaft-01's `rail` field (u=0 at feet yL, v=2..8, stop block v=1; surface terminus v<=-2),
+  GATED: R0 a telemetry-only goto instrument + a measured saving (>= 2 bot-min/bot-h on the buildable lane), R0b Paper riding proof
+  (mount/moveVehicle/dismount; riding must beat walking), R1 lanes only on 2-wide stub continuations dug by shaft-01's own primitive with
+  u=1 a reserved walking lane; ~29 iron per qualifying landing.
+- **STAGE ORDER:** 1 smeltjob-01 (ready) -> 2 structureguard-01 (the ziggurat lane's; reused) -> 3 yard-01 (+ reserved stations,
+  PROJECT_COUNTED with raw_iron, the drain extended to blast furnaces) -> 4 workshop-01 (blast furnaces, hopper auto-smelter) -> 5
+  storehouse-01 (lanterns, bars; no hoppers) -> 6 hall-01 -> 7 demand (only if needed) -> 8 rails (gated, after shaft-01 KEPT).
+  Recorded departure: PROJECT_COUNTED moved from stage 1 to stage 3 (stage 1 discovers copper by looking).
+
 ## 10-15 22:42Z — TOOLKIT-01 READY (new) + BAMBOO-02 REBUILT on 8cd0bc62 / 75cfb447; both engines APPROVE; NOTHING queued or deployed (the toolkit agent)
 **bamboo-02 (replace-variant).** `bb-on-8cd0bc6` @ **6b731312** (fleet 8cd0bc62) and `bb-on-75cfb44` @ **6ac667c0** (townzone-01 75cfb447):
 the reviewed bamboo diff as composed with stocktarget-01 + orderroom-01 (`git diff 2ec19385 77ac5597`) as one commit, sorted +/- lines
