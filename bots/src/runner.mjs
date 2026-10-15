@@ -314,6 +314,9 @@ export class Runner {
       pruned: Number(result.pruned ?? 0),
       // THE RECOUNT's verified count of town containers counted (countTown), same rule
       counted: Number(result.counted ?? 0),
+      // THE TOWN SMELT JOB's own count of raw copper the furnace turned into ingots (smeltTown; prior output excluded),
+      // same rule: the bag ends where it began, so no inventory delta can show it (Paper 10-15: graded unknown without it)
+      smelted: Number(result.smelted ?? 0),
     }
 
     // THE EVIDENCE GATE. A claim of success does not leave this function unless

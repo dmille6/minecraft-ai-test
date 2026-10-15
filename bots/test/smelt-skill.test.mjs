@@ -322,5 +322,46 @@ await t('A BIG ASK BECOMES A BOUNDED BATCH AND SAYS SO', async () => {
   assert.equal(bag.raw_iron, 56, 'the rest is still in the bag, not in a furnace')
 })
 
+// ------------------------------------------------- the declared stationary window (smeltjob-01) ---
+
+await t('THE FURNACE SESSION DECLARES ITS STATIONARY WINDOW: set while it waits at the furnace, bounded by its deadline, cleared at the end', async () => {
+  const { bot, furnace } = makeBot({ raw_iron: 3, coal: 1 }, V(1, 64, 0), { smeltMs: 10 })
+  let during = null
+  const put = furnace.putInput.bind(furnace)
+  let kind = null
+  furnace.putInput = async (...a) => { during = bot.stationaryUntil; kind = bot.furnaceWindowUntil; return put(...a) }
+  const t0 = Date.now()
+  const r = await run(bot, { item: 'raw_iron', count: 3 })
+  assert.equal(r.status, 'success', r.detail)
+  assert.ok(during > t0, `declared while the window was open (${during})`)
+  assert.equal(kind, during, 'declared AS a furnace session too (the watchdog exemption is scoped to it, with its own deadline)')
+  assert.equal(bot.furnaceWindowUntil, 0, 'the furnace window is cleared too')
+  assert.ok(during <= t0 + 150_000 + 2_000, 'never past the session\'s own deadline')
+  assert.equal(bot.stationaryUntil, 0, 'cleared when the session ends')
+})
+
+await t('...and an INTERRUPTED session clears it too (the finally)', async () => {
+  const { bot } = makeBot({ raw_iron: 8, coal: 1 }, V(1, 64, 0), { smeltMs: 30 })
+  const ac = new AbortController()
+  setTimeout(() => ac.abort(), 60)
+  await run(bot, { item: 'raw_iron', count: 8 }, ac.signal).catch(() => {})
+  assert.equal(bot.stationaryUntil, 0)
+})
+
+await t('THE JOB\'S FUEL ALLOW-LIST ALSO EXCLUDES THE PEACEFUL KIT\'S SWORDS (Codex code r2): coal only, the sword stays', async () => {
+  ID.wooden_sword = 10; NAME[10] = 'wooden_sword'
+  // a peaceful server, a COLD furnace (fuel 0): the conditions under which the kit loads a sword (smelt's loadNext)
+  const mk = () => { const m = makeBot({ raw_iron: 1, coal: 1, wooden_sword: 1 }, V(1, 64, 0)); m.bot.game = { difficulty: 'peaceful' }; m.bot.registry.itemsByName.wooden_sword = { id: 10, name: 'wooden_sword' }; m.bot.registry.items[10] = { name: 'wooden_sword' }; m.furnace.fuel = 0; return m }
+  // POSITIVE CONTROL: without the allow-list the same scene DOES burn the sword (the kit's base behaviour)
+  const base = mk()
+  const rb = await SKILLS.smelt.run({ bot: base.bot }, { item: 'raw_iron', count: 1 }, null)
+  assert.ok(base.log.some(l => /putFuel wooden_sword/.test(l)), `control: the base smelt burns the sword (${rb.status}: ${base.log.join(' | ')})`)
+  const job = mk()
+  const r = await SKILLS.smelt.run({ bot: job.bot }, { item: 'raw_iron', count: 1 }, null, { fuels: ['coal', 'charcoal'] })
+  assert.equal(r.status, 'success', r.detail)
+  assert.ok(!job.log.some(l => /putFuel wooden_sword/.test(l)), `no sword went in: ${job.log.join(' | ')}`)
+  assert.equal(job.bag.wooden_sword, 1, 'the sword is still in the bag')
+})
+
 console.log(`\n${pass} passed, ${fail} failed`)
 process.exit(fail ? 1 : 0)
