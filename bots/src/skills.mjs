@@ -77,10 +77,10 @@ import { monitorEventLoopDelay } from 'node:perf_hooks'
 import { ZIG, scanColumn } from './monument.mjs'
 import { validGeom } from './structures.mjs'
 import { runPlacements, standable as bdStandable, bk, isFullCube, walksTo as bdWalksTo } from './builder.mjs'
-import { botBuildEffects } from './buildbot.mjs'
+import { botBuildEffects, worldBarrier } from './buildbot.mjs'
 import { siteCandidates, verifySite, newRecord, readMonument, createMonumentGen, monumentKey, monumentPlan, layerCensus, coverHold, nextLayer,
          segmentOf, mergeVisit, cellState, isClearable, isFillable, fundable, fundPick, monumentDetail, monumentArgs, p95, SLOTS, SLOT_LEASE_MS, VISIT_MS,
-         VISIT_MAX_PLACEMENTS, REPAIR_PER_VISIT, layerClosable, unwaivable, fullSolid, clickLock, segmentChoice, cellStateAt, footingView } from './monumentjob.mjs'
+         VISIT_MAX_PLACEMENTS, REPAIR_PER_VISIT, layerClosable, unwaivable, fullSolid, clickLock, segmentChoice, cellStateAt, footingView, CORE_ITEMS } from './monumentjob.mjs'
 import { canonicalFarm, farmRecordRefusal, plotsOf, torchesOf, plotState, torchState, tendPlan, farmIndex, emptyFarmIndex, inPlotColumn,
          isPlotCell, farmNoDig, inFarmBox, farmPlaceRefusal, farmTendDetail, bonemealEnabled, farmEnabled, FARM_SPECIES, MIN_PLOTS,
          farmWellAvoid, inFloorBand, farmYields, FARM_WELL_DISTANCE, FARM_TORCH_WELL_DISTANCE, FARM_CONTAINER_DISTANCE } from './treefarm.mjs'
@@ -7383,6 +7383,50 @@ const siteColumns = bot => {
   return (x, z) => { const k = `${x},${z}`; if (!m.has(k)) m.set(k, scanColumn(read, x, z, { yHi: hy + 40, yLo: hy - 50 })); return m.get(k) }
 }
 
+/**
+ * MY UNANSWERED CLICKS, SETTLED OUTSIDE A VISIT (Claude stage-4 r5 P2-1 (b)): a pending click record blocks every other builder
+ * of the world until its author settles it, and an author may not build again for hours. The decision loop calls this each
+ * lap (throttled to once a minute; a readdir, and a barrier only when this bot has a record): with an empty hand or a plain
+ * stone-family block in hand, one barrier settles exactly the records that existed before it. Never throws.
+ */
+const settleAt = new WeakMap()
+export async function settleMonumentClicks (bot) {
+  try {
+    if (!monumentEnabled()) return 'off'
+    if (settling.has(bot)) return 'inflight'   // before the throttle (Codex r7 P3): a re-entrant tick must see it in flight
+    if (Date.now() - (settleAt.get(bot) ?? 0) < 60_000) return 'throttled'
+    settleAt.set(bot, Date.now())
+    const lk = clickLock(monumentDir(), monumentKeyNow(), bot.username ?? '?', {})
+    const mine = lk.ownFiles()
+    if (!mine.size) return 'none'
+    settling.add(bot)
+    let ok = false, how = 'held'
+    const old = bot.quickBarSlot
+    let chosen = null
+    try {
+      // A HAND THE BARRIER MAY USE (Codex stage-4 r6 P2 / Claude r6 P3-2: a bot back on its tool never settled): the held item
+      // as it is; else the hotbar's first EMPTY slot, else its first plain stone-family stack -- selected, never equipped (no
+      // inventory move), and the old slot restored only if nothing else changed it meanwhile
+      const allowed = name => CORE_ITEMS.includes(name)
+      const held = bot.heldItem?.name ?? null
+      if (held && !allowed(held) && typeof bot.setQuickBarSlot === 'function') {
+        const slots = bot.inventory?.slots ?? []
+        const at = i => slots[36 + i]
+        const pick = [...Array(9).keys()].find(i => !at(i)) ?? [...Array(9).keys()].find(i => allowed(at(i)?.name))
+        if (pick != null) { chosen = pick; how = at(pick) ? `slot:${at(pick).name}` : 'slot:empty'; bot.setQuickBarSlot(pick) }
+      }
+      ok = await worldBarrier(bot, allowed)
+      if (ok) lk.settleOwn(mine)
+    } finally {
+      try { if (chosen != null && bot.quickBarSlot === chosen && old != null) bot.setQuickBarSlot(old) } catch { /* the next skill equips its own */ }
+      settling.delete(bot)
+    }
+    try { logEvent({ kind: 'monument_settle', status: ok ? 'success' : 'no_effect', snapshot: snapshot(bot), detail: `records=${mine.size} settled=${ok ? mine.size : 0} hand=${how} held=${bot.heldItem?.name ?? '-'}` }) } catch { /* telemetry */ }
+    return ok ? 'settled' : 'unsettled'
+  } catch { return 'error' }
+}
+const settling = new WeakSet()
+
 async function buildMonument (ctx, _args, signal) {
   const { bot } = ctx
   const me = bot.username ?? '?'
@@ -7456,7 +7500,7 @@ async function buildMonument (ctx, _args, signal) {
   }
   const lagMon = (() => { try { const h = monitorEventLoopDelay({ resolution: 20 }); h.enable(); return h } catch { return null } })()
   const was = handOf(bot.heldItem)
-  let eff = null, finished = false
+  let eff = null, finished = false, visitLock = null
   try {
     // ---- 3. walk to the site, then the open layer (the frontier): close it if it is done (at most three closes per visit) ----
     const plan0 = monumentPlan(rec)
@@ -7550,9 +7594,10 @@ async function buildMonument (ctx, _args, signal) {
     }
     const fund0 = fundable(items())
     f.fund = fund0.total
-    const lock = clickLock(dir, key, me, { session: eff.session, present: eff.present, leftAt: eff.leftAt })
+    const lock = clickLock(dir, key, me, { session: eff.session, present: eff.present, leftAt: eff.leftAt, joinedAt: eff.joinedAt, ord: eff.ord })
+    visitLock = lock
     // MY OWN UNANSWERED CLICKS (an earlier visit's, or a session of mine that died mid-click): one barrier of mine settles them
-    if (lock.ownPending() && await eff.sync()) lock.settleOwn()
+    { const mine0 = lock.ownFiles(); if (mine0.size && await eff.sync()) lock.settleOwn(mine0) }
     const r = await runPlacements({
       // done = full, non-falling footing (a slab in a plan cell is not done: it waits and is waived)
       read: footingRead(eff.read), cells: [...repairs, ...mine, ...optional].map(c => ({ ...c, want: fullSolid })), start, box, feet: eff.feet, bodies: eff.bodies, self: eff.self, walkTo: eff.walkTo,
@@ -7564,7 +7609,7 @@ async function buildMonument (ctx, _args, signal) {
       // the visit's 90 s run from ARRIVAL (a walk from town may take most of a minute)
       aborted: () => !!signal?.aborted, maxSteps: VISIT_MAX_PLACEMENTS, deadline: Date.now() + VISIT_MS,
     })
-    if (lock.ownPending() && await eff.sync()) lock.settleOwn()   // a click left unanswered this visit: settle it before leaving
+    f.lockWait = lock.blocker()   // whose pending click made this visit wait (Claude stage-4 r5 P2-1 (c): the stall is named)
     f.stuckWhy = Object.entries(r.reasons ?? {}).map(([k, n]) => `${k}:${n}`).join(',') || '-'
     // ONLY BODIES IN THE WAY (a bot standing in a cell of the open layer) is not "nothing open": no long backoff for it
     f.onlyBodies = r.stop === 'no_step' && Object.keys(r.reasons ?? {}).length > 0 && Object.keys(r.reasons).every(k => /^body/.test(k))
@@ -7593,6 +7638,12 @@ async function buildMonument (ctx, _args, signal) {
     finished = true
   } finally {
     if (lagMon) { try { lagMon.disable(); f.lagMax = Math.round(lagMon.max / 1e6) } catch { /* telemetry */ } }
+    // A CLICK LEFT UNANSWERED (no ack, or the visit thrown / stopped mid-click) IS SETTLED HERE, while the block (or nothing) is
+    // still in hand -- settleAndRestore re-equips a tool the barrier refuses (Claude stage-4 r5 P2-1 (a)); up to 3 barriers
+    if (visitLock && eff) {
+      try { for (let i = 0; i < 3; i++) { const mine = visitLock.ownFiles(); if (!mine.size) break; if (await eff.sync()) visitLock.settleOwn(mine) } } catch { /* settled later */ }
+      try { f.pendingLeft = visitLock.ownPending() } catch { /* telemetry */ }
+    }
     try { eff?.close() } catch { /* gone */ }
     release()
     await settleAndRestore(bot, was, g, 'build_monument')
