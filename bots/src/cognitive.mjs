@@ -10,7 +10,8 @@
 // keeps a bad generation from becoming a bad action.
 
 import { HARD_STOP } from './toolfor.mjs'
-import { SKILLS, roomRemedy, farFromBank, classifyOutcome, SKILL_CONTRACTS, plantableSpotNear, findTownComposter, townBuildPlan, townPickMiss, townIngredientMiss, foodSkipNow, townContainers, townWellState, townWellBuildPlan, insideTownWell, wellSwordsNow, cobbleWellCap, townPitState, stockWellOpts, valveProof, stockCountKeys, pruneTarget, unknownRefusals, stockRecountKeys, townFarmPlan } from './skills.mjs'
+import { SKILLS, roomRemedy, farFromBank, classifyOutcome, SKILL_CONTRACTS, plantableSpotNear, findTownComposter, townBuildPlan, townPickMiss, townIngredientMiss, foodSkipNow, townContainers, townWellState, townWellBuildPlan, insideTownWell, wellSwordsNow, cobbleWellCap, townPitState, stockWellOpts, valveProof, stockCountKeys, pruneTarget, unknownRefusals, stockRecountKeys, townFarmPlan, monumentLane, settleMonumentClicks } from './skills.mjs'
+import { monumentOrder, monumentOrderOutcome, MONUMENT_ORDERS } from './monumentjob.mjs'
 import { disposePlan, wellOrder, wellOrderOutcome, WELL_ORDERS, pitCoverItem } from './well.mjs'
 import { farmOrder, farmOrderOutcome, farmEnabled, FARM_ORDERS } from './treefarm.mjs'
 import { smeltInputsFor } from './smelting.mjs'
@@ -913,6 +914,30 @@ export class CognitiveLoop {
         if (r.order) order = r.order
       } catch { /* an inventory or world read must never break the decision loop */ }
     }
+    // THE TOWN MONUMENT (monument-01; monumentjob.mjs monumentOrder decides, design 3.4): a bot with stone to spend above its
+    // reserve, near the site, a free slot, off cooldown and inside its hourly budget is sent to build. BEFORE the junk
+    // well: on a lap where the issued order is the monument visit, the cobble it would have thrown is placed instead; on
+    // every other lap the well behaves as today (a full bag with a conversion pending is the well's -- monumentOrder
+    // refuses it). After the milestone orders, the town deposit, the recount, wear_out and the town orders.
+    // A CLICK OF MINE LEFT PENDING blocks every other builder of the world: settled here, once a minute at most (a readdir;
+    // a barrier only when there is a record), never only on this bot's next visit (Claude stage-4 r5 P2-1 (b))
+    // only while the runner is idle (Claude r6 P3-3); a re-entrant tick finds it in flight and moves on
+    // A re-entrant tick (notify() while this one awaits the barrier) RETURNS: it must not start a skill whose hand the settle's
+    // restore could switch (Claude stage-4 r7 P3-1)
+    if (!this.runner.isBusy()) { let st = null; try { st = await settleMonumentClicks(this.bot) } catch { /* never breaks the decision loop */ } if (st === 'inflight') return }
+    if (!order) {
+      try {
+        const lane = monumentLane()
+        if (lane.on) {
+          const p = this.bot.entity?.position
+          const items = this.bot.inventory?.items?.() ?? []
+          const r = monumentOrder({ now: Date.now(), enabled: true, siteKnown: true, record: lane.record, items, slots: items.length, noRoom: !!ready.noRoom,
+                                    distSite: p && lane.centre ? Math.hypot(lane.centre.x - p.x, lane.centre.z - p.z) : Infinity, freeSlot: lane.freeSlot, state: this.monumentState ?? {} })
+          this.monumentState = r.state
+          if (r.order) order = r.order
+        }
+      } catch { /* a world or file read must never break the decision loop */ }
+    }
     // THE JUNK WELL'S TOWN ORDERS (well.mjs wellOrder decides; this supplies readings and keeps the state): close an open
     // well nobody is at, dispose listed junk at 34+ slots, or build the well. After the composter: it takes what composts.
     if (!order) {
@@ -1109,6 +1134,8 @@ export class CognitiveLoop {
       if (admitted.skill === 'prune_town') this.pruneState = pruneOutcome(r.status, Date.now(), this.pruneState ?? {})
       if (admitted.skill === 'count_town') this.recountState = recountOutcome(r.status, r.delta?.counted ?? 0, Date.now(), this.recountState ?? {}, r.failClass ?? null)
       if (FARM_ORDERS.has(admitted.skill)) this.farmState = farmOrderOutcome(admitted.skill, r.status, Date.now(), this.farmState ?? {}, r.failClass ?? null, RUNNER_DECLINED)
+      // the visit's body time is charged to the monument's hourly budget (issued -> now)
+      if (MONUMENT_ORDERS.has(admitted.skill)) this.monumentState = monumentOrderOutcome(r.status, r.failClass ?? null, Date.now(), Date.now() - (this.monumentState?.lastIssuedAt ?? Date.now()), this.monumentState ?? {})
       // THE REFLEX TOOK THE BODY -- SAY SO ON THE NEXT DECISION.
       if (r.interruptedBy) this.#raiseTrigger(r.interruptedBy, r.detail)
       // A PREREQUISITE THE GOAL LAYER CANNOT SEE IS NOT A PREREQUISITE.
