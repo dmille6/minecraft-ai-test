@@ -208,6 +208,19 @@ await t('MID-VISIT YIELD (Claude r2 P3): a well site recorded during the foundin
   assert.equal(plotsOf(free).filter(p => /_sapling$/.test(b.w.nameAt(p.x, p.y, p.z))).length, plotsOf(free).length)
 })
 
+await t('MID-WALK YIELD (Codex r4 P2): a well site recorded while the bot walks to a plot stops the visit before that plot is planted', async () => {
+  const dir = pool('midwalk')
+  const free = TF.canonicalFarm({ home: HOME, read: world().read }).record
+  const a = fakeTown({ items: [S('birch_sapling', 9)], storeDir: dir })
+  let walks = 0, target = null
+  a.state.onGoto = goal => { if (++walks === 3) { target = goal; writeWellSite(dir, { x: goal.x + 1, y: 63, z: goal.z }) } }
+  const r = await SK.SKILLS.tend_farm.run({ bot: a.bot }, {}, new AbortController().signal)
+  assert.ok(target, 'a third walk happened')
+  assert.match(r.detail, /farm must yield/, r.detail)
+  const planted = plotsOf(free).filter(p => /_sapling$/.test(a.w.nameAt(p.x, p.y, p.z)))
+  assert.deepEqual(planted.filter(p => flat(p, { x: target.x + 1, z: target.z }) < TF.FARM_WELL_DISTANCE), [], 'nothing planted inside the keep-out of the well recorded during the walk')
+})
+
 await t('PLINTH CELL (Claude r2 P3): a recorded farm yields to a raised-well plan cell only when it lands ON a farm cell (the planner\'s own exact rule)', () => {
   const rec = TF.canonicalFarm({ home: HOME, read: world().read }).record
   const p = plotsOf(rec)[0]

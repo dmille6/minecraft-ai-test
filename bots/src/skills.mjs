@@ -7454,22 +7454,42 @@ export function farmScaffoldNames (bot) {
   return out
 }
 /**
- * SERVER-CONFIRMED PLACEMENTS OF SCAFFOLD BLOCKS NEAR THIS BOT during a visit -> { count(name), stop() }. A block_change /
- * multi_block_change naming a scaffold block within 6 of the bot's feet (the pathfinder places at reach) is one placement.
- * The bag's loss of that block is credited to scaffold only up to this count (anything else is lost).
+ * THIS BOT'S OWN SCAFFOLD PLACEMENTS DURING A VISIT, CONFIRMED BY THE SERVER -> { count(name), stop() }. bot.placeBlock is
+ * wrapped for the visit (the pathfinder places scaffold through it: mineflayer-pathfinder index.js:556): a call while
+ * holding a scaffold block records its TARGET cell and the block; a block_change / multi_block_change naming that block AT
+ * that cell credits it ONCE (Codex r4 P2: another bot's placement nearby, or a repeated update, never earns credit). The
+ * bag's loss of a scaffold block is scaffold= only up to this count; the rest is lost=.
  */
 export function installScaffoldCounter (bot, names) {
-  const seen = new Map()
+  const pending = new Map(), credited = new Map()
   const nameOf = id => bot?.registry?.blocksByStateId?.[id]?.name ?? null
-  const near = (x, y, z) => { const p = bot?.entity?.position; return !!p && Math.abs(p.x - x - 0.5) <= 6 && Math.abs(p.y - y) <= 6 && Math.abs(p.z - z - 0.5) <= 6 }
-  const note = (x, y, z, id) => { const n = nameOf(id); if (n && names.has(n) && near(x, y, z)) seen.set(n, (seen.get(n) ?? 0) + 1) }
+  const note = (x, y, z, id) => {
+    const k = `${x},${y},${z}`, want = pending.get(k)
+    if (!want || nameOf(id) !== want) return
+    pending.delete(k)
+    credited.set(want, (credited.get(want) ?? 0) + 1)
+  }
   const onOne = p => { try { note(p.location.x, p.location.y, p.location.z, p.type) } catch { /* malformed */ } }
   const onMulti = p => { try { for (const r of p.records ?? []) { const d = decodeMultiRecord(p.chunkCoordinates, r); note(d.x, d.y, d.z, d.stateId) } } catch { /* malformed */ } }
   const client = bot?._client
   try { client?.on?.('block_change', onOne); client?.on?.('multi_block_change', onMulti) } catch { /* no client: nothing credited */ }
+  const orig = bot?.placeBlock
+  const wrapped = typeof orig === 'function'
+    ? function (ref, face, ...rest) {
+      try {
+        const n = bot.heldItem?.name, p = ref?.position
+        if (n && names.has(n) && p && face) pending.set(`${p.x + face.x},${p.y + face.y},${p.z + face.z}`, n)
+      } catch { /* never in the way of the placement */ }
+      return orig.call(this, ref, face, ...rest)
+    }
+    : null
+  if (wrapped) bot.placeBlock = wrapped
   return {
-    count: n => seen.get(n) ?? 0,
-    stop () { try { client?.removeListener?.('block_change', onOne); client?.removeListener?.('multi_block_change', onMulti) } catch { /* gone */ } },
+    count: n => credited.get(n) ?? 0,
+    stop () {
+      try { client?.removeListener?.('block_change', onOne); client?.removeListener?.('multi_block_change', onMulti) } catch { /* gone */ }
+      if (wrapped && bot.placeBlock === wrapped) bot.placeBlock = orig
+    },
   }
 }
 /** Items a farm visit may consume or gain without it being a loss: what it plants, places, digs and what trees drop. */
@@ -7534,6 +7554,10 @@ async function tendFarm (ctx, _args, signal) {
   // visit read (a replaced farm's cells are not this visit's to touch).
   const fence = () => {
     if (!holdsLease(dir, key, me, lease.gen)) { stop = 'lease lost'; return false }
+    // A STRUCTURE RECORDED MID-VISIT that the farm yields to (a well site, a plinth plan, a chest claim: Claude r2 P3) stops
+    // the visit HERE, after every await of the preparation (Codex r4 P2) -- a sapling planted inside a well's keep-out would
+    // grow over its shaft
+    if (farmYields(rec, farmAvoid(bot))) { stop = 'farm must yield'; return false }
     if (readRecord(dir, key).gen !== gen) { stop = 'farm record replaced'; return false }
     if (lease.until - Date.now() < LEASE_RENEW_MS) {
       const r = takeLease(dir, key, me)
@@ -7666,9 +7690,6 @@ async function tendFarm (ctx, _args, signal) {
       for (const a of plan.actions) {
         check(signal)
         if (Date.now() > deadline) { stop = 'budget'; break }
-        // A STRUCTURE RECORDED MID-VISIT that the farm yields to (a well site, a plinth plan, a chest claim: Claude r2 P3) stops
-        // the visit before its next mutation -- a sapling planted inside a well's keep-out would grow over its shaft
-        { const why = farmYields(rec, farmAvoid(bot)); if (why) { stop = 'farm must yield'; break } }
         // STRUCTURAL: a mutation outside the record never happens (and the read gates on this count staying 0).
         if (!onFarmPlan(idx, a)) { f.offplan++; continue }
         if (pastBorder(a.cell)) continue   // belt and braces: the plan was built from in-border cells only
