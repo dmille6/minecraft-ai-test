@@ -460,7 +460,8 @@ const wired = src => {
   const s = strip(src)
   assert.equal((s.match(/pickChestSite\(\{[^}]*\bfarm\b[^}]*\}\)/g) ?? []).length, 2, 'both pickChestSite calls pass the farm')
   assert.ok(/chestSiteRefusal\(read, pick\.site, \{[^}]*farm: chestFarmIndex\(bot\)[^}]*\}\)/.test(s), 'the re-check on arrival passes the farm')
-  assert.ok(/compute: \(\) => canonicalWellSite\(\{ home, read, avoid: wellSearchAvoid\(bot\) \}\)/.test(s), 'a NEW well site keeps off the farm')
+  // (wellsite-02/03 capture the search as `(searched = canonicalWellSite(...))`: either form)
+  assert.ok(/compute: \(\) => \(?(?:searched = )?canonicalWellSite\(\{ home, read, avoid: wellSearchAvoid\(bot\) \}\)\)?,/.test(s), 'a NEW well site keeps off the farm')
   assert.ok(/if \(first\.site \|\| !widensChestSearch\(first\.refused\)\) return first/.test(s), 'the pick widens on the farm\'s refusals')
 }
 const SKSRC = readFileSync(new URL('../src/skills.mjs', import.meta.url), 'utf8')
@@ -469,7 +470,8 @@ await t('MUTANTS KILLED: each wiring removed fails the wiring check (anchor pres
   const muts = [
     ['    const first = pickChestSite({ read, anchor, home, composterSites, bodies, wells, farm, skip })', '    const first = pickChestSite({ read, anchor, home, composterSites, bodies, wells, skip })'],
     ['wells: chestWellKeepouts(bot), farm: chestFarmIndex(bot) })) { site = pick.site; break }', 'wells: chestWellKeepouts(bot) })) { site = pick.site; break }'],
-    ['    compute: () => canonicalWellSite({ home, read, avoid: wellSearchAvoid(bot) }),', '    compute: () => canonicalWellSite({ home, read, avoid }),'],
+    (() => { const line = (/\n( {4}compute: \(\) => \(?(?:searched = )?canonicalWellSite\(\{ home, read, avoid: wellSearchAvoid\(bot\) \}\)\)?,)/.exec(SKSRC) ?? [])[1] ?? 'WELL SEARCH LINE NOT FOUND'
+      return [line, line.replace('avoid: wellSearchAvoid(bot)', 'avoid')] })(),
     ['    if (first.site || !widensChestSearch(first.refused)) return first', "    if (first.site || !Object.keys(first.refused ?? {}).some(k => /junk well/.test(k))) return first"],
   ]
   for (const [old, neu] of muts) {
