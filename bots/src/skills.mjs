@@ -76,7 +76,7 @@ import { resolveRecord, readRecord, takeLease, holdsLease, releaseLease, standsF
 import { monitorEventLoopDelay } from 'node:perf_hooks'
 import { ZIG, scanColumn } from './monument.mjs'
 import { validGeom } from './structures.mjs'
-import { runPlacements, standable as bdStandable, bk } from './builder.mjs'
+import { runPlacements, standable as bdStandable, bodyBlocks as bdBodyBlocks, bk } from './builder.mjs'
 import { botBuildEffects } from './buildbot.mjs'
 import { siteCandidates, verifySite, newRecord, readMonument, createMonumentGen, monumentKey, monumentPlan, layerCensus, coverHold, nextLayer,
          segmentOf, mergeVisit, cellState, isClearable, isFillable, fundable, fundPick, monumentDetail, p95, SLOTS, SLOT_LEASE_MS, VISIT_MS,
@@ -7327,7 +7327,14 @@ const monumentGeom = () => { try { const g = process.env.MONUMENT_GEOM ? JSON.pa
 const monumentDir = () => townDir()
 const monumentKeyNow = () => monumentKey(structureHome())
 /** The site's centre for the order's distance test -> {x, z} | null (the record's, else the first candidate's). */
+let centreMemo = { at: -Infinity, v: null }
 export function monumentCentre () {
+  // read at most once a minute: the lane is asked on every decision of every bot (the site never moves while it builds)
+  if (Date.now() - centreMemo.at < 60_000) return centreMemo.v
+  centreMemo = { at: Date.now(), v: monumentCentreNow() }
+  return centreMemo.v
+}
+function monumentCentreNow () {
   const g = monumentGeom()
   try {
     const r = readMonument(monumentDir(), monumentKeyNow()).record
@@ -7459,7 +7466,11 @@ async function buildMonument (ctx, _args, signal) {
     const waived = new Set(rec.waived ?? [])
     const { held, covers } = coverHold(read, plan, y, waived)
     f.held = held.size
-    const work = census.work.filter(c => !held.has(bk(c.x, c.y, c.z)))
+    // ...and never a cell a body stands in or on (Paper stand12: the centre segment held one such cell, was chosen first every
+    // visit, and starved the quadrants for 40 minutes): a body's cell waits, the rest of the layer does not
+    const others = Object.values(bot.entities ?? {}).filter(e => e && e !== bot.entity && e.position && !['item', 'experience_orb'].includes(e.name))
+      .map(e => ({ x: e.position.x, y: e.position.y, z: e.position.z, w: e.width ?? 0.6, h: e.height ?? 1.8 }))
+    const work = census.work.filter(c => !held.has(bk(c.x, c.y, c.z)) && !bdBodyBlocks(others, c))
     const feetNow = bot.entity.position
     const bySeg = new Map()
     for (const c of work) { const s = segmentOf(c, plan.g); if (!bySeg.has(s)) bySeg.set(s, []); bySeg.get(s).push(c) }
@@ -7471,8 +7482,11 @@ async function buildMonument (ctx, _args, signal) {
     if (!seg) {
       const next = mergeVisit(rec, { me, failed: blockedKeys, now: Date.now() })
       if (blockedKeys.length) createMonumentGen(dir, key, rec.gen + 1, next)
-      return end('no_effect', work.length ? 'monument_segments_busy' : 'monument_nothing_open',
-                 work.length ? 'every segment of the open layer with work is being built by another bot' : `the open layer y=${y} has nothing to place now (${census.blocked} blocked, ${held.size} held by the cover rule)`)
+      const bodyOnly = !work.length && census.work.some(c => !held.has(bk(c.x, c.y, c.z)))   // the rest waits on a body: a cooldown, not "nothing open"
+      return end('no_effect', work.length ? 'monument_segments_busy' : bodyOnly ? 'monument_bodies' : 'monument_nothing_open',
+                 work.length ? 'every segment of the open layer with work is being built by another bot'
+                   : bodyOnly ? `the open layer y=${y}'s remaining cells have a body in them; the next visit places them`
+                     : `the open layer y=${y} has nothing to place now (${census.blocked} blocked, ${held.size} held by the cover rule)`)
     }
     const mine = bySeg.get(f.seg)
     // ---- 5. repairs: exposed air in the two closed layers below, in this segment (at most REPAIR_PER_VISIT, first) ----
@@ -7506,8 +7520,12 @@ async function buildMonument (ctx, _args, signal) {
       fence, click: eff.click,
       clear: (s, gate) => withDigScope(bot, { purpose: 'target', by: 'build_monument' }, () => eff.clear(s, gate)),
       clearable: isClearable, fillable: isFillable, nearest: true,
-      aborted: () => !!signal?.aborted, maxSteps: VISIT_MAX_PLACEMENTS, deadline: t0 + VISIT_MS,
+      // the visit's 90 s run from ARRIVAL (a walk from town may take most of a minute)
+      aborted: () => !!signal?.aborted, maxSteps: VISIT_MAX_PLACEMENTS, deadline: Date.now() + VISIT_MS,
     })
+    f.stuckWhy = Object.entries(r.reasons ?? {}).map(([k, n]) => `${k}:${n}`).join(',') || '-'
+    // ONLY BODIES IN THE WAY (a bot standing in a cell of the open layer) is not "nothing open": no long backoff for it
+    f.onlyBodies = r.stop === 'no_step' && Object.keys(r.reasons ?? {}).length > 0 && Object.keys(r.reasons).every(k => /^body/.test(k))
     Object.assign(f, { placed: r.placed, cleared: r.cleared, refused: r.refused, silent: r.silent, unreachable: r.unreachable, stop: r.stop,
                        gateP95: Math.round(p95(r.gateMs)), gateMax: Math.round(Math.max(0, ...r.gateMs)) })
     // ---- 7. the record: this visit's stuck cells (never a body's), the layer closed if it is, the last confirmation ----
@@ -7533,7 +7551,8 @@ async function buildMonument (ctx, _args, signal) {
   // EVERY SERVER-CONFIRMED CHANGE is the contract's world_change (a clear changed the world too)
   if (did) return { ...end('success', null, `built the town monument: ${f.placed} placed, ${f.cleared} cleared at layer y=${f.layer} (segment ${f.seg})${f.refused || f.silent ? `; ${f.refused + f.silent} refused or unanswered` : ''}; stopped: ${f.stop}`), placed: did }
   if (f.stop === 'no_material') return end('no_effect', 'monument_funds', 'nothing left above the stone reserve to build with')
-  return end('no_effect', f.stop === 'no_step' ? 'monument_nothing_open' : 'monument_unconfirmed', `the town monument visit placed nothing (${f.stop}${f.why ? `: ${f.why}` : ''})`)
+  return end('no_effect', f.stop === 'no_step' ? (f.onlyBodies ? 'monument_bodies' : 'monument_nothing_open') : 'monument_unconfirmed',
+             `the town monument visit placed nothing (${f.stop}; stuck ${f.stuckWhy ?? '-'})`)
 }
 
 // ------------------------------------------------------------- tend_farm -----

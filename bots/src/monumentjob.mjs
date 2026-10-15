@@ -370,7 +370,7 @@ export function monumentDetail (f = {}) {
   const parts = [kv('gen', f.gen), kv('layer', f.layer), kv('seg', f.seg), kv('placed', f.placed ?? 0), kv('cleared', f.cleared ?? 0), kv('refused', f.refused ?? 0),
     kv('silent', f.silent ?? 0), kv('unreach', f.unreachable ?? 0), kv('repair', f.repair ?? 0), kv('open', f.open), kv('done', f.done), kv('degraded', f.degraded),
     kv('foreign', f.foreign), kv('waived', f.waived), kv('blocked', f.blocked), kv('held', f.held ?? 0), kv('fund', f.fund), kv('cobble0', f.cobble0), kv('cobble1', f.cobble1),
-    kv('gate_ms_p95', f.gateP95), kv('gate_ms_max', f.gateMax), kv('lag_ms_max', f.lagMax), kv('advanced', f.advanced ?? 0), kv('slot', f.slot), kv('t0', Math.round(f.t0 ?? 0)),
+    kv('stuck', f.stuckWhy), kv('gate_ms_p95', f.gateP95), kv('gate_ms_max', f.gateMax), kv('lag_ms_max', f.lagMax), kv('advanced', f.advanced ?? 0), kv('slot', f.slot), kv('t0', Math.round(f.t0 ?? 0)),
     kv('stop', String(f.stop ?? 'done').replace(/\s+/g, '_').slice(0, 40)), kv('why', String(f.why ?? '-').replace(/\s+/g, '_').slice(0, 60))]
   return parts.join(' ').slice(0, 400)
 }

@@ -321,7 +321,10 @@ export function nextPlacement (read, { todo = [], start, box = null, forbid = ()
     }
     stuck.push(`${c.x},${c.y},${c.z}:walled_in`)
   }
-  return { step: null, why: todo.length ? 'no_feasible_cell' : 'nothing_to_do', stuck: stuck.slice(0, 8) }
+  // every reason counted (the first 8 cells named): a caller tells "bodies in the way" from "nothing placeable"
+  const reasons = {}
+  for (const s of stuck) { const r = s.slice(s.lastIndexOf(':') + 1); reasons[r] = (reasons[r] ?? 0) + 1 }
+  return { step: null, why: todo.length ? 'no_feasible_cell' : 'nothing_to_do', stuck: stuck.slice(0, 8), reasons }
 }
 
 /**
@@ -425,7 +428,7 @@ export async function runPlacements ({ read, cells, start, box = null, forbid = 
     if (nearest) { const f = feet(); todo = [...todo].sort((a, b) => Math.hypot(a.x - f.x, a.y - f.y, a.z - f.z) - Math.hypot(b.x - f.x, b.y - f.y, b.z - f.z)) }
     const n = nextPlacement(read, { todo, start, box, forbid, bodies: bodies(), prefer: feet(), skip, scan, fillable, clearable })
     out.planMs.push(clock() - tPlan)
-    if (!n.step) { out.stop = 'no_step'; out.why = n.why; out.stuck = n.stuck; break }
+    if (!n.step) { out.stop = 'no_step'; out.why = n.why; out.stuck = n.stuck; out.reasons = n.reasons ?? {}; break }
     const s = n.step, c = s.cell
     await walkTo(s.stand)
     if (aborted()) { out.stop = 'aborted'; break }
