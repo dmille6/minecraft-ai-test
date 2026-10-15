@@ -241,8 +241,12 @@ export const bodyBlocks = (bodies, c) => (bodies ?? []).some(b => bodyInCell(b, 
 
 /** Would a placement wall a body in? -> true when some body's feet walk to the town before (`before`) and not after (`after`). */
 export function wallsInBody (bodies, before, after) {
+  // A BODY ON FOOTING THE PROBE WILL NOT STAND ON (a slab, a path, farmland, mud under footingView -- Claude stage-4 r3 P3) is
+  // judged by the cells it can step to: it walks out now if its own cell or a neighbour (+-1 up or down) does, and after likewise
+  // (only then: a body on ordinary footing is judged by its own cell, exactly)
+  const near = (set, f) => [[1, 0], [-1, 0], [0, 1], [0, -1]].some(([dx, dz]) => [-1, 0, 1].some(dy => set.has(bk(f.x + dx, f.y + dy, f.z + dz))))
   return (bodies ?? []).map(b => ({ x: Math.floor(b.x), y: Math.floor(b.y + 1e-6), z: Math.floor(b.z) }))
-    .some(f => before.has(bk(f.x, f.y, f.z)) && !after.has(bk(f.x, f.y, f.z)))
+    .some(f => before.has(bk(f.x, f.y, f.z)) ? !after.has(bk(f.x, f.y, f.z)) : (near(before, f) && !near(after, f)))
 }
 
 /** Is a cell what the list wants? `want` = name | (block) -> boolean; absent: any solid block. Pure. */
@@ -297,8 +301,10 @@ export function nextPlacement (read, { todo = [], start, box = null, forbid = ()
     if (skip(c)) continue
     const now = read(c.x, c.y, c.z)
     if (clearable(now)) {
-      // A CLEAR STEP: the block's centre in reach and sight from a stand the town reaches (a flower walls nobody in)
+      // A CLEAR STEP: the block's centre in reach and sight from a stand the town reaches (a flower walls nobody in) -- never under
+      // or in a body (a lily pad or an azalea can hold one up: Claude stage-4 r2 P3)
       looked++
+      if (bodyBlocks(bodies, c)) { stuck.push(`${c.x},${c.y},${c.z}:body`); continue }
       const point = { x: c.x + 0.5, y: c.y + 0.5, z: c.z + 0.5 }
       const stand = standFor(read, { target: c, point, topFace: false, reach: r, avoid: forbid, prefer })
       if (stand) return { step: { op: 'clear', cell: c, ref: null, face: null, point, topFace: false, stand }, why: null, stuck }
@@ -392,10 +398,14 @@ export const BUILD_ATTEMPTS = 2
  *   fence()                  -> true while this builder may still mutate (lease, record generation)
  *   clear(step, gate)        -> the same verdicts for a CLEAR step (the cell's block broken by hand); only with `clearable`
  *   nearest                  true: each step tries the open cells nearest the bot's feet first (the caller's order breaks ties)
- *   lock                     { acquire(cell) -> null | 'busy', release(cell, verdict) }: ONE placement in flight across all
- *                            builders (monument-01, Codex stage-4 r1 P1-1: two builders' clicks, each proven alone, can wall a
- *                            bystander in together). Taken in the gate after every proof and before the fence; released with
- *                            the verdict. 'busy' is no failure: the step waits `busyMs` and is planned again.
+ *   lock                     { begin() -> null | 'busy', synced(), acquire(cell) -> null | 'busy', release(cell, verdict | null) }:
+ *                            ONE placement in flight across all builders (monument-01, Codex stage-4 r1 P1-1: two builders'
+ *                            clicks, each proven alone, can wall a bystander in together). BEGUN after the hold, then `sync()`
+ *                            (the world-sync barrier) is awaited, then the gate ACQUIRES it first and makes every proof under
+ *                            it; released with the click's verdict (null: no click was sent). 'busy' is no failure: wait
+ *                            `busyMs`, re-plan.
+ *   sync()                   -> true once this client's world holds every change the server made before the call (buildbot's
+ *                            barrier); false = unknown (busy). Only with `lock`; default: already in sync (pure tests).
  *   fillable, clearable      as nextPlacement. The result carries timings: gateMs (per gate) and planMs (per step).
  *   click(step, gate)        -> 'confirmed' | 'refused' | 'silent' (the server's word: the caller's witness) | 'gate:<why>'.
  *                               The adapter does its awaits (look, the tick pacing) FIRST, then calls gate() -- null to
@@ -411,7 +421,7 @@ export const BUILD_ATTEMPTS = 2
 export async function runPlacements ({ read, cells, start, box = null, forbid = () => false, feet, bodies = () => [], walkTo, hold, fence, click,
   aborted = () => false, maxSteps = 40, deadline = Infinity, now = () => Date.now(), scan = Infinity, self = null,
   clear = null, clearable = () => false, fillable = replaceable, nearest = false, clock = () => performance.now(),
-  lock = null, busyMs = 300, wait = ms => new Promise(r => setTimeout(r, ms)) }) {
+  lock = null, sync = async () => true, busyMs = 300, maxBusy = 60, wait = ms => new Promise(r => setTimeout(r, ms)) }) {
   const out = { placed: 0, cleared: 0, refused: 0, silent: 0, unreachable: 0, busy: 0, stop: null, why: null, stuck: [], cells: [], gateMs: [], planMs: [] }
   box ??= boxAround([...cells, start])
   const live = read
@@ -453,6 +463,7 @@ export async function runPlacements ({ read, cells, start, box = null, forbid = 
         if (aborted()) return 'aborted'
         const nw = memo(live)
         if (!clearable(nw(c.x, c.y, c.z))) return 'cell_changed'
+        if (bodyBlocks(bodies(), c)) return 'body'
         const st = standOkClear(nw, { stand: feet(), target: c, point: s.point, forbid })
         if (st) return `stand:${st}`
         if (!fence()) return 'fence'
@@ -479,8 +490,16 @@ export async function runPlacements ({ read, cells, start, box = null, forbid = 
     // ...AND EVERY PROOF THE PLAN MADE, AGAIN, on a fresh view (Codex stage-3 r2 P1-1: a bystander walked into a dead end
     // during the equip, and the bot itself may have shifted during the look): the stand where the bot is now, and no body
     // that walks out now is walled in by this click
+    // THE LOCK FIRST (Codex stage-4 r2 P1-1): ownership, then the previous mutation validated under it, THEN every proof on a
+    // fresh view -- a proof computed before the lock could miss a click another builder confirmed in between
     const gate = timed(() => {
       if (aborted()) return 'aborted'
+      if (lock) { const l = lock.acquire(c); if (l) { lock.release(c, null); locked = false; return l } }
+      const no = gateProofs()
+      if (no && locked) { lock.release(c, null); locked = false }
+      return no
+    })
+    const gateProofs = () => {
       const nw = memo(live)
       if (!fillable(nw(c.x, c.y, c.z))) return 'cell_changed'
       if (!refUsable(nw(s.ref.x, s.ref.y, s.ref.z))) return 'support_changed'
@@ -489,17 +508,28 @@ export async function runPlacements ({ read, cells, start, box = null, forbid = 
       const st = standOk(nw, { stand: feet(), target: c, point: s.point, topFace: s.topFace, start, box, forbid })
       if (st) return `stand:${st}`
       if (bs.length && wallsInBody(bs, walkReachBack(nw, start, { box, forbid }), walkReachBack(overlay(nw, new Map([[bk(c.x, c.y, c.z), PLACED]])), start, { box, forbid }))) return 'body_walled'
-      if (lock) { const l = lock.acquire(c); if (l) return l; locked = true }
-      if (!fence()) { if (locked) { lock.release(c, 'fence'); locked = false } return 'fence' }
+      if (!fence()) return 'fence'
       return null
-    })
+    }
     let locked = false
     if (!fence()) { out.stop = 'fence'; break }   // a lease already lost: no look, no wait
     let v
-    try { v = await click(s, gate) } finally { if (locked) { lock.release(c, v ?? 'error'); locked = false } }
+    // THE LOCK BEGUN, THEN THE BARRIER: the proofs in the gate are made on a world that holds every earlier click
+    if (lock) {
+      if (lock.begin()) v = 'gate:busy'
+      else {
+        locked = true
+        let synced = false
+        try { synced = await sync() } catch (e) { lock.release(c, null); locked = false; throw e }
+        if (synced) lock.synced(); else { lock.release(c, null); locked = false; v = 'gate:busy' }
+      }
+    }
+    // a gate refusal sent no packet (null); an error mid-click may have (the record stays pending)
+    if (v == null) try { v = await click(s, gate) } finally { if (locked) { lock.release(c, typeof v === 'string' && v.startsWith('gate:') ? null : (v ?? 'error')); locked = false } }
     if (v === 'gate:aborted') { out.stop = 'aborted'; break }
     if (v === 'gate:fence') { out.stop = 'fence'; break }
-    if (v === 'gate:busy') { out.busy++; await wait(busyMs); continue }
+    // a busy lock is no step (Claude stage-4 r2 P3): the wait does not use up maxSteps -- but busy waits are bounded too
+    if (v === 'gate:busy') { out.busy++; if (out.busy > maxBusy) { out.stop = 'busy'; break } steps--; await wait(busyMs); continue }
     if (typeof v === 'string' && v.startsWith('gate:')) { fail(c, v.slice(5)); continue }
     if (v === 'confirmed') { out.placed++; out.cells.push({ c: [c.x, c.y, c.z], verdict: v }); continue }
     if (v === 'refused') out.refused++; else out.silent++

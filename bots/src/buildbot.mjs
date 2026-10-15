@@ -12,6 +12,11 @@ const { goals } = pkg
 
 /** The server's answer to one click arrives in ~0.1-1 s (sandbox); 2.5 s is silence (tendFarm FARM_ACK_MS). */
 export const BUILD_ACK_MS = 2_500
+/** A barrier's ack comes from the next server tick (~50 ms; Paper probe 43-51 ms); this long without one is no answer. */
+export const BARRIER_MS = 5_000
+/** Barrier sequences: our own range, far above mineflayer's activateItem counter (the server acks the tick's MAXIMUM). */
+let barrierSeq = 1_000_000
+const nextBarrierSeq = () => (barrierSeq = barrierSeq >= 2_000_000_000 ? 1_000_000 : barrierSeq + 1)
 /** One click per 4 ticks (design 3.5). */
 export const BUILD_CLICK_TICKS = 4
 /** Bodies within this many blocks are asked about: a cell they touch waits, and no click walls one in. Wide (Claude stage-3
@@ -32,8 +37,29 @@ export const timeoutBound = bot => (p, ms, what) => new Promise((resolve, reject
 })
 export function botBuildEffects (bot, { items = ['cobblestone'], bound = timeoutBound(bot), pathMs = 20_000, withWalk = fn => fn(), aborted = () => false } = {}) {
   const witness = installBlockWitness(bot)
+  // WHO LEFT, AND WHEN (this client's clock): the click lock settles a pending click whose author this client saw leave after it
+  // first saw the record (monument-01, Codex stage-4 r4)
+  const left = new Map()
+  const onLeft = p => { try { if (p?.username) left.set(p.username, Date.now()) } catch { /* malformed */ } }
+  try { bot.on?.('playerLeft', onLeft) } catch { /* no events */ }
+  const session = (bot.__buildSession ??= `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 8)}`)
   let heldName = null
   const sleep = ms => new Promise(r => setTimeout(r, ms))
+  const barrier = () => new Promise(resolve => {
+    const held = bot.heldItem?.name ?? null
+    const c = bot._client
+    // only a hand this job filled (hold(): a plan cell's block) or an empty one: never a held item whose use does something
+    if ((held && held !== heldName && !items.includes(held)) || typeof c?.write !== 'function' || typeof c?.on !== 'function') { resolve(false); return }
+    const seq = nextBarrierSeq()
+    let timer = null
+    const done = v => { clearTimeout(timer); try { c.removeListener('acknowledge_player_digging', on) } catch { /* gone */ } resolve(v) }
+    const on = p => { if (Number(p?.sequenceId) >= seq) done(true) }
+    c.on('acknowledge_player_digging', on)
+    timer = setTimeout(() => done(false), BARRIER_MS)
+    try {
+      c.write('use_item', { hand: 0, sequence: seq, rotation: { x: (Math.PI - (bot.entity?.yaw ?? 0)) * 180 / Math.PI, y: -(bot.entity?.pitch ?? 0) * 180 / Math.PI } })
+    } catch { done(false) }
+  })
   const ticks = n => bound(bot.waitForTicks?.(n) ?? sleep(n * 50), n * 50 + 2_000, 'tick wait')
   return {
     read: (x, y, z) => { const b = bot.blockAt(new Vec3(x, y, z)); return b ? { name: b.name, boundingBox: b.boundingBox, full: isFullCube(b) } : null },
@@ -58,6 +84,17 @@ export function botBuildEffects (bot, { items = ['cobblestone'], bound = timeout
       heldName = null
       return false
     },
+    // THE WORLD-SYNC BARRIER (monument-01, Codex stage-4 r4: no step of the click lock rests on elapsed time). `use_item` with a
+    // sequence of our own, holding a plain block (no effect: Paper probe 10-15, 16 cobblestone before and after) or nothing; the
+    // server acks that sequence from its tick after that tick's block broadcasts, on the same ordered stream (probe: the clicked
+    // cell's updates arrived 2-6 ms after the click, the ack after them; 20 barriers took 43-51 ms). When the ack arrives, this
+    // world holds every change the server made before it read the packet. false: no ack within BARRIER_MS, or a held item whose
+    // use could do something (never sent).
+    sync: () => barrier(),
+    session,
+    // the player list is READY once it holds this bot itself; before that, everyone counts as present (busy, never a guess)
+    present: name => !bot.players?.[bot.username] || !!bot.players?.[name],
+    leftAt: name => left.get(name) ?? -Infinity,
     click: async (step, gate = () => null) => {
       const p = faceCentre(step.ref, step.face)
       try { await bot.lookAt(new Vec3(p.x, p.y, p.z), true) } catch { /* not fatal */ }
@@ -76,8 +113,12 @@ export function botBuildEffects (bot, { items = ['cobblestone'], bound = timeout
       const place = typeof bot._placeBlockWithOptions === 'function'
         ? bot._placeBlockWithOptions(ref, face, { swingArm: 'right', forceLook: 'ignore' })
         : bot.placeBlock(ref, face)
-      try { await bound(place, BUILD_ACK_MS, 'placing') } catch (e) { if (e?.aborted || aborted()) throw e }
-      return witness.until(step.cell, n => n === want, BUILD_ACK_MS)
+      Promise.resolve(place).catch(() => { /* mineflayer's own wait for the update: the barrier below is the verdict */ })
+      // THE VERDICT AFTER OUR OWN BARRIER: the server has processed the click and sent us the cell's update -- what the world
+      // shows now is the server's answer (confirmed or refused); no answer at all is 'silent' (the lock keeps the click pending)
+      if (!(await barrier())) return 'silent'
+      const b = bot.blockAt(new Vec3(step.cell.x, step.cell.y, step.cell.z))
+      return b?.name === want ? 'confirmed' : 'refused'
     },
     // A CLEAR (a flower, a sapling, a torch in a planned cell): look, pace, the gate, then the dig with 'ignore' (no await
     // between the gate and the dig packet); the server's update to air is the only success
@@ -92,8 +133,12 @@ export function botBuildEffects (bot, { items = ['cobblestone'], bound = timeout
       witness.watch(c)
       // an unfinished dig is CANCELLED (Codex stage-4 r1 P2-6): a timed-out or aborted clear never keeps swinging
       try { await bound(bot.dig(block, 'ignore'), BUILD_ACK_MS, 'clearing') } catch (e) { try { bot.stopDigging?.() } catch { /* not digging */ } if (e?.aborted || aborted()) throw e }
-      return witness.until(c, n => n === 'air' || n === 'cave_air' || n === 'void_air', BUILD_ACK_MS)
+      // water is a cleared result too: a waterlogged plant (seagrass, kelp) leaves its water (Claude stage-4 r1 P2-1)
+      return witness.until(c, n => n === 'air' || n === 'cave_air' || n === 'void_air' || n === 'water', BUILD_ACK_MS)
     },
-    close: () => { try { witness.stop() } catch { /* gone */ } },
+    close: () => {
+      try { witness.stop() } catch { /* gone */ }
+      try { bot.removeListener?.('playerLeft', onLeft) } catch { /* gone */ }
+    },
   }
 }
