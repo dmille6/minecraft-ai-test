@@ -180,7 +180,7 @@ await t('NEXT: a bystander standing still in a solid block is never walled in --
   assert.equal(r.out, true); assert.ok(r.placed > 60, `most of the block still builds around it (${r.placed})`)
 })
 await t('MUTANT KILLED: without the walled-body check, bottom-up raises the columns around it and it is left in a pit', async () => {
-  await withMutant(BP, "      if (walled) { stuck.push(`${c.x},${c.y},${c.z}:body_walled`); continue }\n", '', async m => {
+  await withMutant(BP, "      if (wallsInBody(bodies, backNow, back)) { stuck.push(`${c.x},${c.y},${c.z}:body_walled`); continue }\n", '', async m => {
     assert.equal(standingStill(m).out, false)
   })
 })
@@ -303,13 +303,36 @@ await t('MUTANT KILLED: the fence dropped from the gate -- a lease lost during t
   })
 })
 
-await t('MUTANT KILLED: the arrival re-proof removed -- the bot clicks from where it stopped, out of reach', async () => {
-  await withMutant(BP, "    if (bad) { out.unreachable++; fail(c, `stand:${bad}`); continue }\n", '', async m => {
-    const w = world()
-    let clicks = 0
-    await m.runPlacements({ read: w.read, cells: [{ x: 8, y: 64, z: 0 }], start: START, feet: () => START, maxSteps: 3,
-      walkTo: async () => {}, hold: async () => true, fence: () => true, click: async (s, gate) => { if (gate()) return 'gate'; clicks++; return 'refused' } })
-    assert.ok(clicks > 0)
+// THE GATE RE-PROVES WHAT THE PREPARATION MAY HAVE CHANGED (Codex stage-3 r2 P1-1)
+async function gateScene (m, { during }) {
+  // the tunnel world; the cell is the tunnel's mouth (1,64,0), placed from outside (0,64,0): fine for the builder itself
+  const { w, start, box } = tunnel()
+  let feetNow = { x: 0, y: 64, z: 0 }, bodiesNow = [], clicks = 0, verdicts = []
+  const r = await m.runPlacements({ read: w.read, cells: [{ x: 1, y: 64, z: 0 }], start, box, maxSteps: 1,
+    feet: () => feetNow, bodies: () => bodiesNow, walkTo: async () => {},
+    hold: async () => { during({ setFeet: f => { feetNow = f }, setBodies: b => { bodiesNow = b } }); return true },
+    fence: () => true,
+    click: async (st, gate) => { const g = gate(); if (g) { verdicts.push(g); return `gate:${g}` } clicks++; w.set(1, 64, 0, COBBLE); return 'confirmed' } })
+  return { clicks, verdicts, r }
+}
+await t('GATE: a bystander walking into the dead end during the equip is not walled in; control: none walks in -> placed', async () => {
+  const a = await gateScene(B, { during: ({ setBodies }) => setBodies([{ x: 4.5, y: 64, z: 0.5 }]) })
+  assert.equal(a.clicks, 0); assert.deepEqual(a.verdicts, ['body_walled'])
+  const b = await gateScene(B, { during: () => {} })
+  assert.equal(b.clicks, 1)
+})
+await t('MUTANT KILLED: the gate without the escape check -- the bystander in the dead end is sealed in', async () => {
+  await withMutant(BP, "      if (bs.length && wallsInBody(", "      if (false && wallsInBody(", async m => {
+    assert.equal((await gateScene(m, { during: ({ setBodies }) => setBodies([{ x: 4.5, y: 64, z: 0.5 }]) })).clicks, 1)
+  })
+})
+await t('GATE: the builder shifted out of reach during the look is refused at the gate (the stand re-proved)', async () => {
+  const a = await gateScene(B, { during: ({ setFeet }) => setFeet({ x: -6, y: 64, z: 0 }) })
+  assert.equal(a.clicks, 0); assert.match(a.verdicts[0], /^stand:/)
+})
+await t('MUTANT KILLED: the gate without the stand re-proof -- it clicks from 7 blocks away', async () => {
+  await withMutant(BP, "      if (st) return `stand:${st}`\n", '', async m => {
+    assert.equal((await gateScene(m, { during: ({ setFeet }) => setFeet({ x: -6, y: 64, z: 0 }) })).clicks, 1)
   })
 })
 

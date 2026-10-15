@@ -14,8 +14,9 @@ const { goals } = pkg
 export const BUILD_ACK_MS = 2_500
 /** One click per 4 ticks (design 3.5). */
 export const BUILD_CLICK_TICKS = 4
-/** Bodies within this many blocks are asked about (a cell they touch waits). */
-export const BODY_RADIUS = 8
+/** Bodies within this many blocks are asked about: a cell they touch waits, and no click walls one in. Wide (Claude stage-3
+ *  r2 P2-B): the next cell of a 48-wide layer is often 16+ blocks from the bot, and a bystander beside IT is the one at risk. */
+export const BODY_RADIUS = 64
 
 /**
  * -> { read, feet, bodies, walkTo, hold, click, close } for runPlacements.

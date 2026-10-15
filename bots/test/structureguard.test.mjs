@@ -214,7 +214,7 @@ await t('...and when that walk cannot be made, mine refuses naming the cell off 
 })
 
 await t('MUTANT KILLED (skills): the off-monument walk removed -- from the summit mine only refuses (no descent)', async () => {
-  await withMutant(SKP, "  if (wellPlan.action === 'refuse' && !wellPlan.inside && wellPlan.hit?.kind === 'monument') {", "  if (false) {", async m => {
+  await withMutant(SKP, "  if (wellPlan.action === 'refuse' && !wellPlan.inside && (wellPlan.hit?.kind ?? wellPlan.kind) === 'monument') {", "  if (false) {", async m => {
     const bot = world({ built: true })
     bot.entity.position = new V(SITE.corner.x + 24.5, 80, SITE.corner.z + 24.5)
     const res = await run(m, bot)
@@ -238,6 +238,16 @@ await t('GATHER AT THE DIG (collectManually): a cell recorded since the scan is 
   try { await SK.collectManually(bot, bot.blockAt(free), new AbortController().signal) } catch (e) { err2 = e }
   assert.ok(!/town_structure/.test(String(err2?.message ?? '')), String(err2?.message))
   assert.ok(bot._digs.some(d => d.x === free.x && d.y === free.y && d.z === free.z), `the control was dug (${String(err2?.message ?? 'ok')})`)
+})
+
+await t('GATHER AT THE DIG: a record written DURING the dig\'s own look is still refused -- the check follows the look (Codex stage-3 r2 P1-3)', async () => {
+  setMonument(false)
+  const bot = world({ monument: false })
+  bot.entity.position = new V(SITE.corner.x - 1 + 0.5, 64, P0.z + 0.5)
+  bot.lookAt = async () => { setMonument(true) }
+  let err = null
+  try { await SK.collectManually(bot, bot.blockAt(new V(SITE.corner.x, 63, P0.z)), new AbortController().signal) } catch (e) { err = e }
+  assert.ok(err && /town_structure/.test(err.message), String(err?.message)); assert.equal(bot._digs.length, 0)
 })
 
 await t('GATHER ENUMERATION (unreservedOf): with 40 reserved stone nearer than one free stone, a 32-count search still finds the free one', () => {
@@ -286,6 +296,34 @@ await t('MUTANT KILLED (skills): the structures left out of mine\'s keep-out -- 
   })
 })
 
+await t('TUNNEL DIG BOUNDARY (guardTunnelDigs): a pathfinder break of a reserved cell is refused uncached; a free cell, a non-pathfinder dig (survival) and the restore pass through', async () => {
+  setMonument(false)
+  const dug = []
+  let mining = true
+  const bot = { worldId: null, pathfinder: { isMining: () => mining }, dig: async b => { dug.push(b.position) } }
+  SK.structuresNow(bot)                                         // a warm 2 s cache that has NO record
+  setMonument(true)
+  const refused = []
+  const restore = SK.guardTunnelDigs(bot, c => refused.push(c))
+  const res = { name: 'stone', position: { x: SITE.corner.x, y: 60, z: SITE.corner.z } }, free = { name: 'stone', position: { x: SITE.corner.x - 3, y: 60, z: SITE.corner.z } }
+  let err = null
+  try { await bot.dig(res, true) } catch (e) { err = e }
+  assert.ok(err?.reserved, String(err?.message)); assert.equal(refused.length, 1); assert.equal(dug.length, 0)
+  await bot.dig(free, true); assert.equal(dug.length, 1, 'a free cell is dug')
+  mining = false
+  await bot.dig(res, true); assert.equal(dug.length, 2, 'not the pathfinder breaking: a reflex or a skill dig is untouched')
+  mining = true
+  restore()
+  await bot.dig(res, true); assert.equal(dug.length, 3, 'restored: the original dig')
+})
+
+await t('A BAD stairFace reserves nothing and never throws (Claude stage-3 r2 P2-C); the reader caches the empty answer', () => {
+  for (const f of ['x', 'S', 7]) assert.equal(ST.monumentIndex({ ...REC, site: { ...SITE, stairFace: f } }), null, String(f))
+  let reads = 0
+  const rd = ST.structureReader(() => { reads++; throw new Error('boom') }, () => HOME, () => null, () => 0)
+  assert.equal(rd().forbid, null); rd(); assert.equal(reads, 1, 'cached for CACHE_MS even after a throw')
+})
+
 await t('WIRED (structural): survival and transit stay unguarded -- reflex.mjs and escape.mjs never consult a structure (design 3.6)', () => {
   for (const f of ['reflex.mjs', 'escape.mjs']) {
     const src = fs.readFileSync(path.join(here, '../src', f), 'utf8')
@@ -316,7 +354,8 @@ await t('WIRED (structural, comments stripped): the tunnel profile prices reserv
   const sk = fs.readFileSync(SKP, 'utf8').replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '')
   assert.match(sk, /tunnelMovements\(bot, bot\.gatherMovements, \{ home, keepOut: \(\) => structuresNow\(bot\) \}\)/, 'the fallback profile too')
   assert.match(sk, /!nearHome\(q, home\) && !structureNoDig\(bot, q\)\)\)/, 'the iron candidates skip reserved ore')
-  assert.match(sk, /const k = structuresFresh\(bot\); const hit = k\.forbid \? plan\.breaks\.find\(b => k\.forbid\(b\)\) : null; if \(hit\) \{ reservedNow = hit; try \{ bot\.pathfinder\.setGoal\(null\) \}/, 'the walk watcher')
+  assert.match(sk, /const unguard = guardTunnelDigs\(bot, hit => \{ reservedNow \?\?= hit; try \{ bot\.pathfinder\.setGoal\(null\) \}/, 'the walk installs the dig boundary')
+  assert.match(sk, /\.finally\(\(\) => \{ clearInterval\(watch\); unguard\(\);/, '...and removes it')
 })
 
 setMonument(false)

@@ -220,6 +220,12 @@ export const bodyBlocks = (bodies, c) => (bodies ?? []).some(b => bodyInCell(b, 
 
 // ---- the work ------------------------------------------------------------------------------------------------------
 
+/** Would a placement wall a body in? -> true when some body's feet walk to the town before (`before`) and not after (`after`). */
+export function wallsInBody (bodies, before, after) {
+  return (bodies ?? []).map(b => ({ x: Math.floor(b.x), y: Math.floor(b.y + 1e-6), z: Math.floor(b.z) }))
+    .some(f => before.has(bk(f.x, f.y, f.z)) && !after.has(bk(f.x, f.y, f.z)))
+}
+
 /** Is a cell what the list wants? `want` = name | (block) -> boolean; absent: any solid block. Pure. */
 export const cellDone = (b, want) => !!b && (typeof want === 'function' ? !!want(b) : typeof want === 'string' ? b.name === want : solid(b))
 
@@ -278,9 +284,7 @@ export function nextPlacement (read, { todo = [], start, box = null, forbid = ()
     // still, a pit and then a shaft): a body whose feet walk to the town now must still walk there after the click
     if (bodies.length) {
       backNow ??= walkReachBack(read, start, { box, forbid })
-      const walled = bodies.map(b => ({ x: Math.floor(b.x), y: Math.floor(b.y + 1e-6), z: Math.floor(b.z) }))
-        .some(f => backNow.has(bk(f.x, f.y, f.z)) && !back.has(bk(f.x, f.y, f.z)))
-      if (walled) { stuck.push(`${c.x},${c.y},${c.z}:body_walled`); continue }
+      if (wallsInBody(bodies, backNow, back)) { stuck.push(`${c.x},${c.y},${c.z}:body_walled`); continue }
     }
     const usable = { has: k => r.has(k) && back.has(k) }
     for (const o of options) {
@@ -396,11 +400,19 @@ export async function runPlacements ({ read, cells, start, box = null, forbid = 
     if (!(await hold(c))) { out.stop = 'no_material'; break }
     // THE GATE, asked by the adapter after its last await and immediately before the click packet: everything that can
     // change while it waits -- the abort, the cell, its support, a body walking in, and LAST the fence (tendFarm's rule)
+    // ...AND EVERY PROOF THE PLAN MADE, AGAIN, on a fresh view (Codex stage-3 r2 P1-1: a bystander walked into a dead end
+    // during the equip, and the bot itself may have shifted during the look): the stand where the bot is now, and no body
+    // that walks out now is walled in by this click
     const gate = () => {
       if (aborted()) return 'aborted'
-      if (!replaceable(live(c.x, c.y, c.z))) return 'cell_changed'
-      if (!refUsable(live(s.ref.x, s.ref.y, s.ref.z))) return 'support_changed'
-      if (bodyBlocks([...bodies(), ...(self ? [self()] : [])], c)) return 'body'
+      const now = memo(live)
+      if (!replaceable(now(c.x, c.y, c.z))) return 'cell_changed'
+      if (!refUsable(now(s.ref.x, s.ref.y, s.ref.z))) return 'support_changed'
+      const bs = bodies()
+      if (bodyBlocks([...bs, ...(self ? [self()] : [])], c)) return 'body'
+      const st = standOk(now, { stand: feet(), target: c, point: s.point, topFace: s.topFace, start, box, forbid })
+      if (st) return `stand:${st}`
+      if (bs.length && wallsInBody(bs, walkReachBack(now, start, { box, forbid }), walkReachBack(overlay(now, new Map([[bk(c.x, c.y, c.z), PLACED]])), start, { box, forbid }))) return 'body_walled'
       if (!fence()) return 'fence'
       return null
     }
