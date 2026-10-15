@@ -17,7 +17,9 @@ import { Vec3 } from 'vec3'
 import { EventEmitter } from 'node:events'
 
 export const NAMES = ['air', 'grass_block', 'stone', 'chest', 'trapped_chest', 'barrel', 'composter', 'oak_log', 'cobblestone', 'dirt', 'oak_planks', 'apple', 'water', 'crafting_table',
-  'stick', 'wooden_pickaxe', 'stone_pickaxe', 'iron_pickaxe', 'golden_pickaxe', 'stone_axe', 'cobbled_deepslate', 'birch_planks', 'bamboo', 'leaf_litter', 'torch', 'oak_trapdoor']
+  'stick', 'wooden_pickaxe', 'stone_pickaxe', 'iron_pickaxe', 'golden_pickaxe', 'stone_axe', 'cobbled_deepslate', 'birch_planks', 'bamboo', 'leaf_litter', 'torch', 'oak_trapdoor',
+  // appended (smeltjob-01's exit test): indices above are unchanged
+  'raw_copper', 'copper_ingot', 'coal', 'charcoal']
 const SOLID = new Set(['grass_block', 'stone', 'chest', 'trapped_chest', 'barrel', 'composter', 'oak_log', 'cobblestone', 'dirt', 'oak_planks', 'crafting_table'])
 const CONTAINER = /^(chest|trapped_chest|barrel)$/
 const HARDNESS = { grass_block: 0.6, dirt: 0.5, stone: 1.5, cobblestone: 2, oak_log: 2, oak_planks: 2, chest: 2.5, trapped_chest: 2.5, barrel: 2.5, crafting_table: 2.5, composter: 0.6 }

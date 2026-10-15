@@ -45,7 +45,10 @@ export const RESIDENCE_MAX_MS = 3 * 3600_000
 /** A restart grants at least this long before the deadline: a bot offline for an hour must not give up on its first decision. */
 export const RESTART_GRACE_MS = 10 * 60_000
 /** runner.mjs failure classes that mean the skill never ran: not an attempt at anything. */
-export const RUNNER_REFUSALS = new Set(['runner_paused', 'runner_busy', 'body_held', 'unknown_skill', 'superseded'])
+// furnace_busy (smeltjob-01, Claude code r1 P1): every furnace in reach is in ANOTHER bot's leased session, so the smelt never
+// started -- not an attempt at the rung. Counted as one, a town job holding the only furnace would drive the iron rung
+// to its 25-attempt give-up: two correct guards meeting with no legal move.
+export const RUNNER_REFUSALS = new Set(['runner_paused', 'runner_busy', 'body_held', 'unknown_skill', 'superseded', 'furnace_busy'])
 /** Which block drops which item, for "does gathering X serve a rung that wants Y". Only the ones the ladder uses. */
 export const DROPS = { stone: 'cobblestone', deepslate: 'cobbled_deepslate', iron_ore: 'raw_iron', deepslate_iron_ore: 'raw_iron',
                        coal_ore: 'coal', deepslate_coal_ore: 'coal', grass_block: 'dirt', gravel: 'flint' }
