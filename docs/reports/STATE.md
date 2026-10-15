@@ -12,6 +12,19 @@ Studio reservation both closed 10-12); clear caps bamboo 0 / bucket 2._
 
 ---
 
+## 10-14 20:55Z — townzone-01: FIVE variants in ONE replace-variant entry (the townground agent); NOT queued by me
+New (pushed, new branches), each the approved zone cherry-picked with no conflict, patch-identical (1,059 +/- lines;
+earlier "988" was my miscount): `tz-on-1957811` @ `5d3b155c` (airpocket-03 kept only), `tz-on-8cd0bc6` @ `75cfb447`
+(wellsite-03 kept only), `tz-on-7dbd6da` @ `bbfb3b47` (both kept); kept: eb543899 -> 523a7dd8, 5e663860 -> 3b1ae8bb.
+npm test 252/252, 252/252, 253/253 rc=0; eslint no-undef only each base's own withinBody. Registrations
+`~/mcai-analysis/townzone-01.<sha8>.json`: no draw_require_pools, drawrequire.parse ([], None), licencecheck + changerowcheck
+PASS. Composition: airpocket-03 rescues run in the reflex tick's survival scope (never refused by the zone); ONE residual:
+a rescue dig while an unwound tunnelToOre's halted path is still mining reads target:ore_tunnel -> check a Z1 row
+by=ore_tunnel against _air_pocket rows before believing it. wellsite-03's no-site record/backoff share nothing with the zone;
+build_well digs are `other`. Codex APPROVE x3; Claude APPROVE x3 (after suite evidence + the P3 wording). Entry:
+`python3 ~/canary-sched.py queue replace-variant townzone-01 ~/mcai-analysis/townzone-01.queue-entry-5var.json`.
+HOLD (coordinator releases): >= 180 min after the LATEST prior decision restart (airpocket-03, wellsite-03, ...).
+
 ## 10-15 00:50Z — townfloor-01 READY (the town floor: bots fill the ground dug from under their towns); both engines APPROVE; NOT queued, NOT deployed
 OWNER 10-14 "lets absolutely do what you recommend with the cobblestones". Doc: `docs/reports/townfloor-2026-10-14.md`;
 reviews: `docs/reports/townfloor-01-reviews-2026-10-14.txt` (Codex r8 APPROVE, Claude r6 APPROVE at 187fe6a4).

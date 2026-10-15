@@ -87,3 +87,23 @@ The corrections resolve all three cited P3s. Both notes replace the unsupported 
 
 The constant-effect DiD statement is appropriately conditional; unchanged builds alone do not guarantee constant behavioral effects. The separate issues disclosed under KNOWN P3s remain outside these corrections.
 -- Claude (final review): APPROVE A and B, no P1/P2. Q1: A tree == 22c01bd3; full-context diffs byte-identical to 9dc2ad5e->3be6de18; the merge commutes; 82 stocktarget mutant anchors present once on B. Q2: count_town -> reconcileCobble -> chestWalk -> pathfinder.goto on the base moves profile: its digs are transit; count_town never reaches a zone refusal; townground.mjs has no file I/O (recount file is per pool, stocktarget-02's alone); walk-out points are 19 from home, outside inTown's 16, so the recount cannot drive a mine/walk-out/recount loop. P3 edge: an abandoned tunnelToOre inside withTunnelMovements widens the pre-existing nearHome veto for a concurrent recount walk (rare, no change). Q3: agree no exclusion is needed, but a build change inside the pre-window pushes Z4 toward a FALSE TRIP, not masking -> hold until stocktarget-02's decision restart + 180 (applied). Q4 P3s applied: B's hold keyed to stocktarget-02's promotion; KEPT-not-promoted case named. Read P3 (not fixed; comment-only): townzoneread.py lines 2 and 13 are stale (branch name; 'transit prices 30').
+
+==== 10-14 ~20:00-20:50Z: townzone-01 variants on 1957811e (5d3b155c), 8cd0bc62 (75cfb447), 7dbd6da6 (bbfb3b47) ====
+-- Codex:
+No new blocking composition defects found.
+
+- **Patch identity:** All three ordered, per-file deltas match approved `3b1ae8bb` over `5e663860`, ignoring hunk offsets and blob IDs. Parents and branch/commit identities match the registrations.
+- **Airpocket:** Fresh attempts return through the survival-scoped reflex tick; cooldown handling does not launch an unscoped retry. The scope survives awaits and `withPoseEye`. The pre-dig guard halts a live path. The zone introduces no rescue refusal or delay.
+- **Mine:** The three-cell town check remains before each stair step’s excavation. Airpocket’s `abortableDig` and signal checks remain intact, including recovery digs. Walk-out and roof-first climb behavior is preserved. This is a per-step check, not a fresh town check immediately before every individual retry.
+- **Wellsite:** The no-site file, retirement state, and backoff are separate from zone counters. Direct well-building digs are ordinarily `other`; approach digs are transit. Neither encounters a zone veto. The hold suppresses new build searches without renewing itself or blocking movement, disposal at an existing well, or gathering outside town. I found no new refusal cycle.
+- **Registrations:** SHA, branch, and inherited lint locations match. The hold correctly requires ≥180 minutes after the latest prior decision restart, with coordinator release.
+
+Evidence limitation: the supplied `suite-1957811e.txt` contains only the test-command header; the other two named suite logs are absent. Thus I could not confirm 251/251 from these artifacts. Also, the actual matching deltas contain 1,059 added/deleted lines, not the stated 988. Neither discrepancy changes patch identity. No tests were run, files edited, or hosts contacted.
+
+| Variant | Verdict |
+|---|---|
+| `tz-1957811e` — `5d3b155c` | **APPROVE** |
+| `tz-8cd0bc62` — `75cfb447` | **APPROVE** |
+| `tz-7dbd6da6` — `bbfb3b47` | **APPROVE** |
+-- Claude r1: code APPROVE on all three; CHANGES on evidence: P2 no finished suite (they were still running) -> 252/252, 252/252, 253/253 rc=0; P3 the registration's 'rescue digs never target' was false: digPurpose reads pathfinderMining first, so a rescue dig while an unwound tunnelToOre's halted path is still mining reads target:ore_tunnel (rare, pre-existing on 5e663860, narrowed by airpocket-03) -> registrations name it and the Z1 check against _air_pocket rows. Line count is 1,059, not 988 (both engines).
+-- Claude r2: APPROVE all three (suites confirmed from the files; P3 resolved). Residual: the ore_tunnel overlap stays in code and needs the manual _air_pocket check at Z1 read time.
