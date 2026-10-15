@@ -242,6 +242,14 @@ await t('THE CHAIN WITH A WELL IN TOWN (Claude r8 P2): walk-offs unreachable -> 
   assert.equal(r.status, 'failed'); assert.match(r.detail, /away from the tree farm/, r.detail); assert.doesNotMatch(r.detail, /away from the well/)
 })
 
+await t('MIXED OBSTACLES, walk-offs unreachable (Codex r10 P3): the well blocks the east stair, the farm the other three -> the refusal names both', async () => {
+  const bot = world({ cols: () => [{ x: P0.x + 3, y: 63, z: P0.z }], canMove: false })
+  fs.writeFileSync(RECFILE, JSON.stringify({ ...FARM, cells: FARM.cells.filter(c => c.x !== P0.x + 1), world: null }))   // no plot east
+  const r = await run(SK, bot)
+  assert.equal(r.status, 'failed'); assert.match(r.detail, /away from the well and the tree farm/, r.detail)
+  assert.equal(bot._digs.length, 0)
+})
+
 console.log(`\n${pass} passed, ${fail} failed`)
 if (fail) { console.log('FAILED:\n  ' + failed.join('\n  ')); process.exit(1) }
 process.exit(0)

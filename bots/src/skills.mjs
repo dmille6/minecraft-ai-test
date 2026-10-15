@@ -10628,7 +10628,7 @@ async function mine(ctx, { y: targetY = 12 }, signal) {
   }
   if (wellPlan.action !== 'go') {
     wellRow('refuse', wellPlan, lastTarget ? ' after=relocate' : '')
-    const isFarm = !!(wellPlan.farm || wellPlan.hit?.farm), bothBlock = isFarm && !!wellPlan.cap
+    const isFarm = !!(wellPlan.farm || wellPlan.hit?.farm), bothBlock = isFarm && !!(wellPlan.cap ?? wellPlan.hit?.cap)   // a relocate plan carries its well in hit (Codex r10 P3)
     const what = bothBlock ? 'the well and the tree farm' : isFarm ? 'the tree farm' : 'the well'
     const where = failedTargets.length ? `the walk-off to ${failedTargets.map(c => `${c.x},${c.y},${c.z}`).join(' and ')} could not be reached from here; explore away from ${what} (or goto any cell ${FAR_RADIUS}+ blocks from it), then mine there`
                                        : `explore away from ${what} (or goto any cell ${FAR_RADIUS}+ blocks from it), then mine there`

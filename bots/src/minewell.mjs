@@ -127,6 +127,7 @@ export function planMineStart ({ cols = [], p0, feet = null, bearings = [], stan
   }
   const farmWhy = farmHit ? `the town tree farm (its soil or a plot at ${farmHit.cell.x},${farmHit.cell.y},${farmHit.cell.z})` : null
   if (farmHit && !wellHit) return { action: 'refuse', cap: null, farm: true, hit: farmHit, why: `every stair from here and from every standable cell within ${radius} would dig ${farmWhy}` }
-  const cap = wellHit?.cap ?? wells[0]
+  const cap = wellHit?.cap ?? wells[0] ?? null
+  if (!cap) return { action: 'refuse', cap: null, farm: !!farm, why: `no stair from here or from any standable cell within ${radius} is clear` }   // unreachable in production (4 bearings); Claude r10 P3
   return { action: 'refuse', cap, ...(farmHit ? { farm: true } : {}), why: `every stair from here and from every standable cell within ${radius} would dig the junk well's shell at ${cap.x},${cap.y},${cap.z}${farmWhy ? ` or ${farmWhy}` : ''}` }
 }
