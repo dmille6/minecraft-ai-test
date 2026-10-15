@@ -11,9 +11,13 @@
 # (CANARY_ST, default ~/mcai-analysis/cobblecap1000/stocktarget.mjs); the base's from the control rows' own cap= field
 # (the build that wrote them), else BASE_ST / ~/mcai-analysis/stocktarget/stocktarget.mjs.
 #
-#   LIVENESS     bank_above_base_cap: canary _cobble_bank rows from the canary build that MOVED cobble with town_after above
-#                the BASE cap (256) -- a bank the old cap would have refused (>= 1)
-#   ARMS         rows_control_canary_cap: control _cobble_bank rows carrying the canary's cap= (must be 0)
+#   LIVENESS     bank_above_base_cap: canary _cobble_bank rows that carry the CANARY's cap= (attribution: a restart-lag or
+#                versionless row of the old build carries cap=256 and never counts -- Codex cc1000-r1 P2) and MOVED cobble
+#                with town_after above the BASE cap (256) -- a bank the old cap would have refused (>= 1)
+#   ARMS         rows_control_canary_cap: control _cobble_bank rows carrying the canary's cap= (must be 0), counted
+#                whatever the base cap is; caps_invalid = 1 when the two modules give the same cap (no comparison)
+#   BASE CAP     from the fleet's module (BASE_ST, default ~/mcai-analysis/stocktarget/stocktarget.mjs), never from the rows
+#                (a contaminated control would move it -- Codex cc1000-r1 P2); the control rows' caps are reported
 #   CORRECTNESS  (each REVERTS; each has a failing fixture in --selftest)
 #     D1  breach_bank_past_cap: a canary _cobble_bank row that moved cobble and left town_after above the CANARY cap
 #         (1000), complete or not (an incomplete count's town_after is a lower bound: above the cap is above it)
@@ -66,6 +70,7 @@ def stream(since, until, cut, cans, cv, logroot='/var/log/mcai'):
         tag = (since.date() + dt.timedelta(days=k)).strftime('%Y%m%d')
         files += sorted(glob.glob(logroot + '/*/skill-*.jsonl-%s.gz' % tag))
     seen, kept, walked, bad, offbuild = set(), [], 0, 0, 0
+    noversion = Counter()
     bots = defaultdict(set)
     s_iso, u_iso = since.strftime('%Y-%m-%dT%H:%M:%S'), until.strftime('%Y-%m-%dT%H:%M:%S')
     for f in files:
@@ -102,34 +107,37 @@ def stream(since, until, cut, cans, cv, logroot='/var/log/mcai'):
                     if arm == 'canary' and per == 'post' and cv and ver and not ver.startswith(cv):
                         offbuild += 1
                         continue
+                    if arm == 'canary' and per == 'post' and not ver:
+                        noversion[n] += 1
                     kept.append({'t': t, 'per': per, 'arm': arm, 'name': n, 'status': sk.get('status'), 'detail': sk.get('detail') or '', 'bot': b})
     kept.sort(key=lambda r: r['t'])
-    return kept, walked, bots, bad, offbuild
+    return kept, walked, bots, bad, offbuild, dict(noversion)
 
 
-def base_cap_of(rows, fallback):
-    """The base's cap from the control rows' own cap= field (the build that judged them); else the module's."""
+def control_caps(rows):
+    """{cap: rows} of the control _cobble_bank rows' own cap= field -- REPORTED only (never the base cap: Codex cc1000-r1 P2)."""
     caps = Counter(row_cap(kv(r['detail']), None) for r in rows if r['arm'] == 'control' and r['name'] == '_cobble_bank')
     caps.pop(None, None)
-    return caps.most_common(1)[0][0] if caps else fallback
+    return dict(caps)
 
 
 def judge(rows, cap, base_cap):
-    out = {'cap': cap, 'base_cap': base_cap}
+    out = {'cap': cap, 'base_cap': base_cap, 'caps_invalid': int(cap == base_cap)}
     post_c = [r for r in rows if r['per'] == 'post' and r['arm'] == 'canary']
     post_k = [r for r in rows if r['per'] == 'post' and r['arm'] == 'control']
     banks_c = [(r, kv(r['detail'])) for r in post_c if r['name'] == '_cobble_bank']
+    mine = [(r, f) for r, f in banks_c if row_cap(f, None) == cap]   # positive evidence: rows that carry the canary's cap
     moved = lambda f: num(f, 'moved') > 0
     ta = lambda f: num(f, 'town_after', None)
     out['bank_rows_canary'] = len(banks_c)
-    out['bank_above_base_cap'] = sum(1 for r, f in banks_c if moved(f) and ta(f) is not None and ta(f) > base_cap)
+    out['bank_above_base_cap'] = sum(1 for r, f in mine if moved(f) and ta(f) is not None and ta(f) > base_cap)
     d1 = [(r['bot'], ta(f), str(r['t'])) for r, f in banks_c if moved(f) and ta(f) is not None and ta(f) > cap]
     out['breach_bank_past_cap'] = len(d1)
-    out['rows_control_canary_cap'] = sum(1 for r in post_k if r['name'] == '_cobble_bank' and row_cap(kv(r['detail']), None) == cap) if cap != base_cap else 0
+    out['rows_control_canary_cap'] = sum(1 for r in post_k if r['name'] == '_cobble_bank' and row_cap(kv(r['detail']), None) == cap)
     out['cap_field_other'] = sum(1 for r, f in banks_c if row_cap(f, cap) != cap)
     out['max_town_after_canary'] = max([ta(f) for r, f in banks_c if ta(f) is not None] or [0])
     out['max_town_after_control'] = max([num(kv(r['detail']), 'town_after', 0) for r in post_k if r['name'] == '_cobble_bank'] or [0])
-    out['exposure_rows'] = sum(1 for r, f in banks_c if num(f, 'town_before', -1) >= base_cap)
+    out['exposure_rows'] = sum(1 for r, f in mine if num(f, 'town_before', -1) >= base_cap)
     for per in ('pre', 'post'):
         for arm in ('canary', 'control'):
             rs = [r for r in rows if r['per'] == per and r['arm'] == arm]
@@ -148,7 +156,7 @@ def judge(rows, cap, base_cap):
                 td['at_cap'] += int(m.group(1)); td['unknown'] += int(m.group(2)); td['outside'] += int(m.group(3))
     out['td_cobble_cap'] = dict(td)
     out['instrument_control'] = out['refused_cobble_post_control']
-    out['exposure_ready'] = int(out['exposure_rows'] >= EXPOSURE_MIN and out['instrument_control'] >= 1)
+    out['exposure_ready'] = int(out['exposure_rows'] >= EXPOSURE_MIN and out['instrument_control'] >= 1 and not out['caps_invalid'])
     out['_lists'] = {'d1': d1[:5]}
     return out
 
@@ -160,7 +168,8 @@ def journal(cc, since_ms, until_ms, dirs):
         raise RuntimeError(r.stderr[-300:])
     j = json.loads(r.stdout)
     return {'breach_c5_journal': sum(1 for g in j.get('g3', []) if g.get('g') == 'cobble'), 'admitted_cobble_bank': j.get('admitted_cobble_bank', 0),
-            '_g3': [g for g in j.get('g3', []) if g.get('g') == 'cobble'][:3], 'towns': len(j.get('towns', [])), 'unreadable': j.get('unreadable', [])}
+            '_g3': [g for g in j.get('g3', []) if g.get('g') == 'cobble'][:3], 'towns': len(j.get('towns', [])), 'unreadable': j.get('unreadable', []),
+            'dirs': len(dirs)}
 
 
 def selftest():
@@ -181,9 +190,21 @@ def selftest():
     assert judge([B(30, 971, 1001, cap=256, **CTL)], 1000, 256)['breach_bank_past_cap'] == 0, 'the control is not judged by the canary cap'
     assert judge([B(30, 100, 130, **CTL)], 1000, 256)['rows_control_canary_cap'] == 1, 'a control row with the canary cap: an arms breach'
     assert judge([B(30, 100, 130, cap=256)], 1000, 256)['cap_field_other'] == 1, 'a canary-build row carrying another cap is reported'
-    assert base_cap_of([B(0, 256, 256, cap=256, at_cap=1, **CTL)], 999) == 256 and base_cap_of([], 999) == 999, 'the base cap from the control rows, else the module'
+    assert control_caps([B(0, 256, 256, cap=256, at_cap=1, **CTL), B(30, 100, 130, **CTL)]) == {256: 1, 1000: 1}, 'the control rows\' caps, reported'
+    # Codex cc1000-r1 P2: a contaminated control still trips arms; equal caps are no comparison
+    con = judge([B(30, 100, 130, **CTL), B(30, 200, 230, **CTL)], 1000, 1000)
+    assert con['rows_control_canary_cap'] == 2 and con['caps_invalid'] == 1, con
+    # Codex cc1000-r1 P2: a versionless restart-lag row of the old build (cap=256) is no liveness and no exposure; D1 still judges it
+    lag = judge([B(30, 250, 280, cap=256, complete=0), B(30, 256, 286, cap=256)], 1000, 256)
+    assert lag['bank_above_base_cap'] == 0 and lag['exposure_rows'] == 0 and lag['cap_field_other'] == 2, lag
+    assert judge([B(30, 990, 1020, cap=256)], 1000, 256)['breach_bank_past_cap'] == 1, 'D1 judges every canary row, whatever cap it carries'
+    try:
+        town_cobble_cap('/nonexistent/cobblecap1000/stocktarget.mjs'); raise AssertionError('an explicit missing module fell back to another build')
+    except FileNotFoundError:
+        pass
     ready = judge([B(30, 256, 286), B(30, 300, 330, mins=1), B(0, 990, 990, mins=2, at_cap=1), RF(**CTL)], 1000, 256)
     assert ready['exposure_ready'] == 1 and ready['exposure_rows'] == 3, ready
+    assert judge([B(30, 256, 286), B(30, 300, 330, mins=1), B(0, 990, 990, mins=2, at_cap=1), RF(**CTL)], 1000, 1000)['exposure_ready'] == 0, 'equal caps: never ready'
     assert judge([B(30, 256, 286), B(30, 300, 330, mins=1), B(0, 990, 990, mins=2, at_cap=1), B(0, 256, 256, cap=256, at_cap=1, **CTL)], 1000, 256)['exposure_ready'] == 0, 'no refusal row: no instrument, not ready'
     unk = judge([R('_stock_refused', 'via=admission n=1 cobble=1 stock=0 at_cobble=0 at_stock=0 cobblestone:95:cobble_unknown', **CTL)], 1000, 256)
     assert unk['instrument_control'] == 0, 'a not-yet-counted refusal is not a town at its cap'
@@ -236,10 +257,10 @@ if __name__ == '__main__':
     END, PRE = CUT + dt.timedelta(minutes=W), CUT - dt.timedelta(minutes=W)
     CANARY_ST = os.environ.get('CANARY_ST') or os.path.expanduser('~/mcai-analysis/cobblecap1000/stocktarget.mjs')
     CAP = town_cobble_cap(CANARY_ST)
-    rows, walked, bots, bad, offbuild = stream(PRE, END, CUT, CANS, CV)
-    BASE = base_cap_of([r for r in rows if r['per'] == 'post'], None)
-    if BASE is None:
-        BASE = town_cobble_cap(os.environ.get('BASE_ST') or os.path.expanduser('~/mcai-analysis/stocktarget/stocktarget.mjs'))
+    rows, walked, bots, bad, offbuild, noversion = stream(PRE, END, CUT, CANS, CV)
+    BASE_ST = os.environ.get('BASE_ST') or os.path.expanduser('~/mcai-analysis/stocktarget/stocktarget.mjs')
+    BASE = town_cobble_cap(BASE_ST)
+    CTL_CAPS = control_caps([r for r in rows if r['per'] == 'post'])
     res = judge(rows, CAP, BASE)
     try:
         jr = journal(os.path.join(os.path.dirname(CANARY_ST), 'cobblecap.mjs'), int(CUT.timestamp() * 1000), int(END.timestamp() * 1000),
@@ -253,7 +274,8 @@ if __name__ == '__main__':
     dids = {k: didof(k) for k in ('moved', 'at_cap', 'well_cobble', 'new_chests', 'fullfail', 'refused_cobble')}
     print('DENOMINATORS rows walked %d (unparsable %d) | bots pre canary %d control %d | post canary %d control %d | window %d min | other-build canary rows %d'
           % (walked, bad, len(bots[('pre', 'canary')]), len(bots[('pre', 'control')]), len(bots[('post', 'canary')]), len(bots[('post', 'control')]), W, offbuild))
-    print('CAPS         canary %d (%s) | base %d (control rows, else the fleet module)' % (CAP, CANARY_ST, BASE))
+    print('CAPS         canary %d (%s) | base %d (%s) | control rows by cap= %s | versionless canary rows %s%s' % (CAP, CANARY_ST, BASE, BASE_ST, CTL_CAPS, noversion or '-',
+          ' | CAPS EQUAL: NO COMPARISON' if res['caps_invalid'] else ''))
     print('LIVENESS     canary banks that moved cobble with town_after above the base cap %d (of %d _cobble_bank rows) | control rows carrying the canary cap %d (must be 0)'
           % (res['bank_above_base_cap'], res['bank_rows_canary'], res['rows_control_canary_cap']))
     d2 = ('%d %s (admitted cobble bank claims %d, towns %d, unreadable %s)%s' % (jr['breach_c5_journal'], jr['_g3'], jr['admitted_cobble_bank'], jr['towns'], jr['unreadable'],
@@ -278,6 +300,10 @@ if __name__ == '__main__':
         fields.update({'moved_did': clean(dids['moved']), 'at_cap_did': clean(dids['at_cap']), 'well_cobble_did': clean(dids['well_cobble']),
                        'new_chest_did': clean(dids['new_chests']), 'fullfail_did': clean(dids['fullfail']), 'refused_cobble_did': clean(dids['refused_cobble']), 'other_build_rows': offbuild,
                        'journal_audit_ran': int(jr is not None), 'breach_c5_journal': jr['breach_c5_journal'] if jr is not None else 0,
+                       # Codex cc1000-r1 P2: a partial audit is visible in the record, not only on the console
+                       'journal_unreadable': len(jr['unreadable']) if jr is not None else None, 'journal_dirs': jr['dirs'] if jr is not None else 0,
+                       'journal_audit_complete': int(jr is not None and not jr['unreadable'] and jr['dirs'] > 0),
+                       'versionless_canary_rows': sum(noversion.values()),
                        'admitted_cobble_bank': jr['admitted_cobble_bank'] if jr is not None else 0})
         emit('cobblecapread', W, fields)
     except Exception as e:
