@@ -64,7 +64,8 @@ export function stairClear (cols, p0, bear, { maxSteps = MAX_STAIR_STEPS, goalY 
     for (const cell of stepCells(p0, bear, i)) {
       const cap = shellOf(wells, cell)
       if (cap) return { clear: false, hit: { step: i, cell, cap } }
-      if (farm && forbid(cell)) return { clear: false, hit: { step: i, cell, cap: null, farm: true } }
+      const kind = farm && forbid(cell)
+      if (kind) return { clear: false, hit: { step: i, cell, cap: null, farm: true, kind: kind === true ? 'farm' : String(kind) } }
     }
   }
   return { clear: true, hit: null }
@@ -95,6 +96,15 @@ export function relocateCandidates (p0, radius = RELOCATE_RADIUS) {
  *   bearings   the stair's candidate cardinals (skills.mjs stairBearings)
  *   standable  (cell) -> bool: feet and head open, a solid floor (the caller reads the world)
  */
+/**
+ * WHAT A KEEP-OUT HIT PROTECTS, in words (structureguard-01: the farm's forbid answers true, the structures' answers their
+ * kind). Pure. The farm's sentence is unchanged.
+ */
+export const keepOutLabel = kind => kind === 'monument' ? 'the town monument (the ziggurat)' : 'the town tree farm'
+export const keepOutWhy = hit => hit?.kind === 'monument'
+  ? `the town monument (the ziggurat; a reserved cell at ${hit.cell.x},${hit.cell.y},${hit.cell.z})`
+  : `the town tree farm (its soil or a plot at ${hit.cell.x},${hit.cell.y},${hit.cell.z})`
+
 export function planMineStart ({ cols = [], p0, feet = null, bearings = [], standable = () => false, rimStandable = null, radius = RELOCATE_RADIUS, goalY = null, exclude = [], forbid = null, forbidBottom = null } = {}) {
   const wells = Array.isArray(cols) ? cols : []
   const farm = typeof forbid === 'function' && Number.isFinite(forbidBottom)
@@ -123,11 +133,11 @@ export function planMineStart ({ cols = [], p0, feet = null, bearings = [], stan
     if (skip.has(`${cell.x},${cell.y},${cell.z}`)) continue   // a target the pathfinder already failed to reach
     if (!standable(cell)) continue
     const ok = clearFrom(cell)
-    if (ok.length) return { action: 'relocate', to: cell, bearings: ok, hit, ...(farmHit ? { farm: true } : {}) }
+    if (ok.length) return { action: 'relocate', to: cell, bearings: ok, hit, ...(farmHit ? { farm: true, kind: farmHit.kind ?? 'farm' } : {}) }
   }
-  const farmWhy = farmHit ? `the town tree farm (its soil or a plot at ${farmHit.cell.x},${farmHit.cell.y},${farmHit.cell.z})` : null
-  if (farmHit && !wellHit) return { action: 'refuse', cap: null, farm: true, hit: farmHit, why: `every stair from here and from every standable cell within ${radius} would dig ${farmWhy}` }
+  const farmWhy = farmHit ? keepOutWhy(farmHit) : null
+  if (farmHit && !wellHit) return { action: 'refuse', cap: null, farm: true, kind: farmHit.kind ?? 'farm', hit: farmHit, why: `every stair from here and from every standable cell within ${radius} would dig ${farmWhy}` }
   const cap = wellHit?.cap ?? wells[0] ?? null
   if (!cap) return { action: 'refuse', cap: null, farm: !!farm, why: `no stair from here or from any standable cell within ${radius} is clear` }   // unreachable in production (4 bearings); Claude r10 P3
-  return { action: 'refuse', cap, ...(farmHit ? { farm: true } : {}), why: `every stair from here and from every standable cell within ${radius} would dig the junk well's shell at ${cap.x},${cap.y},${cap.z}${farmWhy ? ` or ${farmWhy}` : ''}` }
+  return { action: 'refuse', cap, ...(farmHit ? { farm: true, kind: farmHit.kind ?? 'farm' } : {}), why: `every stair from here and from every standable cell within ${radius} would dig the junk well's shell at ${cap.x},${cap.y},${cap.z}${farmWhy ? ` or ${farmWhy}` : ''}` }
 }

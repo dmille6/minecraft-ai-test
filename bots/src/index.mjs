@@ -11,7 +11,7 @@ import { Vec3 } from 'vec3'
 import { corridorSafe } from './lavaguard.mjs'
 import { deathSiteStepCost, pathCrossesDeathSite } from './deathsites.mjs'
 import { wellStepCost, wellBreakCost, protectWellBlocks, bodyInWell } from './well.mjs'
-import { knownWellCells, installWellWatch, knownFarmIndex } from './skills.mjs'
+import { knownWellCells, installWellWatch, knownFarmIndex, structuresNow } from './skills.mjs'
 import { farmBreakCost, farmPlaceCost, emptyFarmIndex } from './treefarm.mjs'
 import { pathDropProfile, composeFallRow, markPathEnded } from './fallpath.mjs'
 import net from 'node:net'
@@ -617,7 +617,7 @@ function connect() {
     bot.gatherMovements = gatherMoves
     // THE ORE TUNNEL'S PROFILE (oretunnel.mjs: staircases only, no drops > 1, no towers, hazard vetoes), built
     // here because index.mjs owns every setMovements (dep-contract.test.mjs). Same shape as withGatherMovements.
-    bot.tunnelMovements = tunnelMovements(bot, gatherMoves, { home: { x: config.world.homeX, z: config.world.homeZ } })
+    bot.tunnelMovements = tunnelMovements(bot, gatherMoves, { home: { x: config.world.homeX, z: config.world.homeZ }, keepOut: () => structuresNow(bot) })
     bot.withTunnelMovements = async (fn) => {
       bot.pathfinder.setMovements(bot.tunnelMovements); bot.movementProfile = 'tunnel'
       try { return await withApproachBound(bot, fn) }

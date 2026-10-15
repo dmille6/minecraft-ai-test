@@ -40,6 +40,7 @@ import { compostPlan, nextInsert, boneMealRoom, fillDecision, composterLevel, co
          canonicalComposterSite, siteRefusal, standableBeside, tableCellFor, townPlanTableAvailable, resolveTownSite, readTownSite,
          handPlan, isCompostInput, sameWorld, ADOPT_RADIUS, VISIT_BUDGET_MS, MAX_ITEMS_PER_VISIT } from './composter.mjs'
 import { poolStateDir } from './worldfacts.mjs'
+import { structureReader, structureKeepOut, structureIndexes, composeKeepOut } from './structures.mjs'
 // The full-chest recovery (deposit): its decisions are chestfull.mjs's. A separate line so a rebase stays mechanical.
 import { fullChestNext, carriedChest, chestBudget, readClaims, claimNewChest, writeClaimState, reconcileClaims, townKey,
          containerStatus, recordOutcome, readTownMemory, updateTownMemory, townRoomAt, setTownRoomReader, timeLeft,
@@ -111,7 +112,7 @@ import { dropsOf, heldFromBlock, sourcesOf } from './drops.mjs'
 import { smeltPlan, smeltRecipeFor, chooseFuel, fuelTicks, SMELT_TICKS } from './smelting.mjs'
 import { withDigScope } from './digtown.mjs'
 // minewell-01 (its own statement)
-import { planMineStart, shellOf, RELOCATE_RADIUS, FAR_RADIUS } from './minewell.mjs'
+import { planMineStart, shellOf, RELOCATE_RADIUS, FAR_RADIUS, keepOutLabel } from './minewell.mjs'
 
 /**
  * FAILURE CLASSES THAT NAME OUR IGNORANCE RATHER THAN THE WORLD.
@@ -1388,13 +1389,16 @@ export async function collectManually(bot, block, signal, { beforeDig = null } =
   // mineflayer's dig AWAITS a lookAt before it sends block_dig unless forceLook is 'ignore' (digging.js, 4.37.1), and
   // a block can change during that look. So with a hook: look first (instant), ask the hook, then dig with 'ignore'
   // -- no second look, and no await between the last check and the dig packet.
-  let forceLook
-  if (beforeDig) {
-    try { await bot.lookAt(p.offset(0.5, 0.5, 0.5), true) } catch { /* not fatal: the dig still faces the block */ }
-    check(signal)
-    beforeDig()
-    forceLook = 'ignore'
-  }
+  // ALWAYS THIS SHAPE NOW (structureguard-01, Codex stage-3 r2 P1-3): the dig's own look awaited a physics tick after any
+  // check made before it, so a town structure recorded during that look was dug. Look (forced: instant), then the last
+  // words -- a recorded structure, read UNCACHED (the enumeration's 2 s cache only chose what to walk toward), then the
+  // caller's hook -- then dig with 'ignore': nothing awaited between the last check and the dig packet.
+  try { await bot.lookAt(p.offset(0.5, 0.5, 0.5), true) } catch { /* not fatal: the dig still faces the block */ }
+  check(signal)
+  { let kind = null; try { const k = structuresFresh(bot); kind = k.forbid ? k.forbid(p) : null } catch { kind = null }
+    if (kind) throw Object.assign(new Error(`town_structure: ${block.name} at ${p.x},${p.y},${p.z} is part of ${keepOutLabel(kind)}; gather elsewhere`), { failClass: 'no_safe_target' }) }
+  if (beforeDig) beforeDig()
+  const forceLook = 'ignore'
   await withTimeout(bot.dig(block, forceLook), 20_000, bot, {
     what: 'dig',
     onTimeout: () => { try { bot.stopDigging?.() } catch { /* not digging */ } },
@@ -1667,11 +1671,13 @@ async function tunnelToOre(ctx, signal, { deadlineMs = 150_000 } = {}) {
   const found = bot.findBlocks({ matching: ids, maxDistance: CANDIDATE_RADIUS, count: 64 }) ?? []
   // The ORE's own dig happens outside the pathfinder, so its hazard check happens here.
   const home = { x: config.world.homeX, z: config.world.homeZ }
-  const candidates = rankCandidates(feet, found.filter(q => breakHazard(at, bot.blockAt(q)) === 0 && !nearHome(q, home)))
+  // ...and never an ore a recorded town structure keeps (structureguard-01, Claude stage-3 r1 P2-3): gather would refuse it
+  // at the end of the walk, and the next `gather iron` would repeat the trip
+  const candidates = rankCandidates(feet, found.filter(q => breakHazard(at, bot.blockAt(q)) === 0 && !nearHome(q, home) && !structureNoDig(bot, q)))
   if (!candidates.length) {
     return out({ status: 'failed', failClass: 'no_tunnel', detail: `iron within ${CANDIDATE_RADIUS} blocks, but every ore has liquid or a falling block beside it` }, `refused: ${found.length} found, 0 safe`)
   }
-  const moves = bot.tunnelMovements ?? tunnelMovements(bot, bot.gatherMovements, { home })
+  const moves = bot.tunnelMovements ?? tunnelMovements(bot, bot.gatherMovements, { home, keepOut: () => structuresNow(bot) })
   const plan = await planTunnel(bot, { candidates, moves })
   check(signal)
   if (!plan.ok) {
@@ -1704,12 +1710,18 @@ async function tunnelToOre(ctx, signal, { deadlineMs = 150_000 } = {}) {
   // 35 s. So the tunnel watches its own progress: no movement and no dig for STALL_MS -> stop the walk, re-centre
   // on the current block, and resume, up to TUNNEL_TRIES times -- long before the reflex.
   const walkLeg = () => new Promise((resolve, reject) => {
-    let last = bot.entity.position.clone(), moved = Date.now(), stalled = false
+    let last = bot.entity.position.clone(), moved = Date.now(), stalled = false, reservedNow = null
+    // A TOWN STRUCTURE RECORDED DURING THE WALK (structureguard-01, Codex stage-3 r1 P1-2, r2 P1-2): the profile priced the
+    // plan with the 2 s cache, so every break the PATHFINDER makes in this walk is asked of the record itself at bot.dig --
+    // pathfinder digs with forceLook true, so nothing is awaited between this check and the dig packet -- and a reserved
+    // cell stops the walk. Survival and transit are untouched: only the pathfinder's own breaks, only in this leg.
+    const unguard = guardTunnelDigs(bot, hit => { reservedNow ??= hit; try { bot.pathfinder.setGoal(null) } catch {} })
     const watch = setInterval(() => {
       const q = bot.entity.position
       if (q.distanceTo(last) > 0.3 || bot.targetDigBlock) { last = q.clone(); moved = Date.now() }
       else if (Date.now() - moved > TUNNEL_STALL_MS && !stalled) { stalled = true; try { bot.pathfinder.setGoal(null) } catch {} }
     }, 500)
+    const reservedErr = () => Object.assign(new Error(`a town structure was recorded over the tunnel at ${reservedNow.x},${reservedNow.y},${reservedNow.z}`), { stalled: false })
     const legMs = Math.max(5000, Math.min(deadlineMs - (Date.now() - t0), 20_000 + plan.breaks.length * 2500))
     // ABORT STOPS THE WALK (Codex review): goto has no signal, so a cancelled gather would keep digging.
     const onAbort = () => { try { bot.pathfinder.setGoal(null) } catch {} }
@@ -1717,10 +1729,11 @@ async function tunnelToOre(ctx, signal, { deadlineMs = 150_000 } = {}) {
     withTimeout(bot.pathfinder.goto(plan.goal), legMs, bot, { needsDrop: false })
       // ARRIVAL IS CHECKED, NOT ASSUMED (both reviews): pathfinder's goto resolves on ANY path_update with an empty
       // path, including a failed search (mineflayer-pathfinder lib/goto.js). Short of the goal is a stall, not success.
-      .then(() => (plan.goal.isEnd(bot.entity.position.floored()) ? resolve()
+      // ONE CHAIN, settled once (Codex stage-3 r2 P3-4: a second .then threw the structure error unhandled)
+      .then(() => (reservedNow ? reject(reservedErr()) : plan.goal.isEnd(bot.entity.position.floored()) ? resolve()
                    : reject(Object.assign(new Error('the walk ended short of the ore'), { stalled: true }))),
-            e => reject(Object.assign(e ?? new Error('walk failed'), { stalled })))
-      .finally(() => { clearInterval(watch); signal?.removeEventListener?.('abort', onAbort) })
+            e => reject(reservedNow ? reservedErr() : Object.assign(e ?? new Error('walk failed'), { stalled })))
+      .finally(() => { clearInterval(watch); unguard(); signal?.removeEventListener?.('abort', onAbort) })
   })
   try {
     const renew = setInterval(() => claim?.renew?.(), 1000)
@@ -1843,7 +1856,10 @@ async function gather(ctx, { block: blockName, count = 16, maxDistance = 32 }, s
     // can only turn a failure into an attempt. It never redirects a search that
     // was already working.
     let positions = bot
-      .findBlocks({ matching: type.id, maxDistance, count: 32 })
+      // NEVER A TOWN STRUCTURE'S CELL (structureguard-01): `gather cobblestone` would mine the monument it was built from.
+      // Excluded INSIDE the search, before its count of 32 (Codex stage-3 r1 P2-4): filtered after, 32 reserved blocks hid
+      // every free one behind them.
+      .findBlocks({ matching: unreservedOf(bot, type.id), maxDistance, count: 32 })
       .filter(p => horizontalDistanceFromSpawn(p) <= config.world.borderRadius)
       // NEVER A TOWN TREE FARM'S SOIL (treefarm.mjs farmIndex): `gather dirt` would dig the plot out from under a sapling.
       .filter(p => !farmNoDig(farmIdx(bot), p.x, p.y, p.z))
@@ -1858,7 +1874,7 @@ async function gather(ctx, { block: blockName, count = 16, maxDistance = 32 }, s
         const altType = bot.registry?.blocksByName?.[alt]
         if (!altType) continue
         const found = bot
-          .findBlocks({ matching: altType.id, maxDistance, count: 32 })
+          .findBlocks({ matching: unreservedOf(bot, altType.id), maxDistance, count: 32 })
           .filter(p => horizontalDistanceFromSpawn(p) <= config.world.borderRadius)
           .filter(p => !farmNoDig(farmIdx(bot), p.x, p.y, p.z))
         if (found.length) {
@@ -2037,7 +2053,7 @@ async function gather(ctx, { block: blockName, count = 16, maxDistance = 32 }, s
         const altType = bot.registry?.blocksByName?.[alt]
         if (!altType) continue
         const found = bot
-          .findBlocks({ matching: altType.id, maxDistance, count: 32 })
+          .findBlocks({ matching: unreservedOf(bot, altType.id), maxDistance, count: 32 })
           .filter(q => horizontalDistanceFromSpawn(q) <= config.world.borderRadius)
           .filter(q => !farmNoDig(farmIdx(bot), q.x, q.y, q.z))
         const cand = found.filter(exposed).filter(safeTarget)
@@ -5541,6 +5557,7 @@ export const STATION_ITEMS = new Set(['crafting_table', 'furnace', 'blast_furnac
 export function roomVeto (bot, p) {
   // A TOWN STRUCTURE'S CELL IS NEVER ROOM (treefarm.mjs): place's make-room dig and wear_out both ask this.
   if (farmNoDig(farmIdx(bot), p.x, p.y, p.z)) return 'town_structure'
+  if (structureNoDig(bot, p)) return 'town_structure'
   const v = breakVetoAt(bot, p)
   if (v) return v
   // Six neighbours, and an UNREADABLE one is a veto: a wall cell that borders
@@ -7328,6 +7345,50 @@ export function knownFarmIndex (bot) {
 }
 /** The index the movement profiles and placement guards use: index.mjs keeps it fresh (20 s), a fake bot has none. */
 const farmIdx = bot => { try { return bot?.farmIndexNow?.() ?? null } catch { return null } }
+/** THE TOWN'S RECORDED STRUCTURES as a target-dig keep-out (structureguard-01, structures.mjs), read fresh every 2 s. */
+const structureHome = () => ({ x: config.world.homeX, y: config.world.homeY, z: config.world.homeZ })
+export const structuresNow = bot => {
+  if (!bot) return { forbid: null, bottom: null }
+  if (!bot.__structures) bot.__structures = structureReader(() => townDir(), structureHome, () => bot.worldId ?? null)
+  return bot.__structures()
+}
+/** ...and UNCACHED, for `mine`'s plan and per-dig stop (the farm's rule, Codex r8 P2 there: a structure founded a moment ago counts). */
+export const structuresFresh = bot => structureKeepOut(structureIndexes(townDir(), structureHome(), bot?.worldId ?? null))
+/** Is this cell a recorded structure's (a target dig must leave it)? -> kind | null. Never throws. */
+export const structureNoDig = (bot, p) => { try { const k = structuresNow(bot); return k.forbid && p ? k.forbid(p) : null } catch { return null } }
+/**
+ * THE ORE TUNNEL'S DIG BOUNDARY (structureguard-01): while installed, a break the PATHFINDER makes of a cell a recorded town
+ * structure keeps -- read UNCACHED -- is refused (the promise rejects, pathfinder resets its path) and `onRefuse(cell)` is
+ * told. -> restore(). Exported for its test.
+ *   WHICH DIGS: pathfinder's own break is `bot.dig(block, true)` with pathfinder.isMining() set first (mineflayer-pathfinder
+ *   index.js); a reflex or escape dig passes no forceLook (reflex.mjs), so it is never asked (Claude stage-3 r3 P3-2: design
+ *   3.6, survival is never guarded).
+ *   WHEN: mineflayer's dig awaits its lookAt even when forced (digging.js), so the guard looks FIRST, then asks the record,
+ *   then digs with 'ignore' -- nothing awaited between the check and the block_dig packet (Codex stage-3 r3 P1).
+ */
+export function guardTunnelDigs (bot, onRefuse = () => {}) {
+  const was = bot.dig
+  const guarded = async function (block, forceLook, ...rest) {
+    if (!(forceLook === true && bot.pathfinder?.isMining?.() && block?.position)) return was.call(this, block, forceLook, ...rest)
+    const p = block.position
+    try { await bot.lookAt(p.offset(0.5, 0.5, 0.5), true) } catch { /* the dig still faces the block */ }
+    let kind = null
+    try { const k = structuresFresh(bot); kind = k.forbid ? k.forbid(p) : null } catch { kind = null }
+    if (kind) {
+      try { onRefuse({ x: p.x, y: p.y, z: p.z }) } catch { /* the walk stops anyway */ }
+      throw Object.assign(new Error(`town_structure: ${block.name} at ${p.x},${p.y},${p.z} is part of ${keepOutLabel(kind)}`), { reserved: true })
+    }
+    return was.call(this, block, 'ignore', ...rest)
+  }
+  bot.dig = guarded
+  return () => { if (bot.dig === guarded) bot.dig = was }
+}
+/**
+ * A findBlocks matcher for block type `id` that never matches a reserved cell. mineflayer calls a matcher twice: on the
+ * section palette's bare states (no position: type only, so the section is searched) and on each block (with position:
+ * the reservation decides). Pure but for the cached keep-out.
+ */
+export const unreservedOf = (bot, id) => b => !!b && b.type === id && !(b.position && structureNoDig(bot, b.position))
 /** The index chest-full's site search asks: the record itself, never the 20 s cache (a farm founded a moment ago counts). */
 const chestFarmIndex = bot => { try { return knownFarmIndex(bot) } catch { return null } }
 
@@ -10690,13 +10751,22 @@ async function mine(ctx, { y: targetY = 12 }, signal) {
   // soil and column and a torch's cell and floor -- and never starts it from one -- read afresh at every plan and dig.
   // THE SHARED RECORD ITSELF, never the 20 s movement cache (Codex r8 P2: a farm founded or moved since the last refresh
   // would be dug until then) -- one small file read per plan and per dig
-  const farmNow = () => { try { return farmStairForbid(knownFarmIndex(bot)) } catch { return { forbid: null, bottom: null } } }
+  // ...AND EVERY RECORDED TOWN STRUCTURE (structureguard-01: the monument now), composed into the SAME keep-out: one plan,
+  // one per-dig stop, never a second guard. The farm's forbid answers true, a structure's its kind (minewell keepOutLabel).
+  const farmNow = () => {
+    let farm = { forbid: null, bottom: null }, built = { forbid: null, bottom: null }
+    try { farm = farmStairForbid(knownFarmIndex(bot)) } catch { /* no farm record: nothing from it */ }
+    try { built = structuresFresh(bot) } catch { /* no structure record: nothing from it */ }
+    return composeKeepOut(farm, built)
+  }
   const planHere = (radius = RELOCATE_RADIUS) => { const fm = farmNow(); return planMineStart({ cols: wellCols(), p0: bot.entity.position.floored(), feet: bot.entity.position,
                                          bearings: stairBearings(bot), standable: standableAt, rimStandable: canStand, radius, goalY, exclude: failedTargets,
                                          forbid: fm.forbid, forbidBottom: fm.bottom }) }
   let wellPlan = planHere()
+  // WHICH KEEP-OUT A PLAN MET: the plan's own kind (a well AND a farm/monument: the hit is the well's -- Claude stage-3 r3 P3-1)
+  const keepKind = p => p?.kind ?? p?.hit?.kind
   const wellRow = (what, plan, extra = '') => logEvent({ kind: 'mine_well_guard', status: what === 'relocate' ? 'success' : 'refused', snapshot: snapshot(bot),
-    detail: `action=${what} at=${plan.cap ? `${plan.cap.x},${plan.cap.y},${plan.cap.z}` : plan.hit?.cap ? `${plan.hit.cap.x},${plan.hit.cap.y},${plan.hit.cap.z}` : '-'} from=${(() => { const f = bot.entity.position.floored(); return `${f.x},${f.y},${f.z}` })()}${plan.to ? ` to=${plan.to.x},${plan.to.y},${plan.to.z}` : ''}${plan.farm || plan.hit?.farm ? ' farm=1' : ''}${extra}` })
+    detail: `action=${what} at=${plan.cap ? `${plan.cap.x},${plan.cap.y},${plan.cap.z}` : plan.hit?.cap ? `${plan.hit.cap.x},${plan.hit.cap.y},${plan.hit.cap.z}` : '-'} from=${(() => { const f = bot.entity.position.floored(); return `${f.x},${f.y},${f.z}` })()}${plan.to ? ` to=${plan.to.x},${plan.to.y},${plan.to.z}` : ''}${plan.farm || plan.hit?.farm ? (keepKind(plan) === 'monument' ? ' keepout=monument' : ' farm=1') : ''}${extra}` })
   // THE WALK-OFF IS PERFORMED, NOT ADVISED (CLAUDE.md; Codex r1 P2): up to two walks -- the nearest clear start within
   // RELOCATE_RADIUS, else the nearest within FAR_RADIUS -- each planned again on arrival. Only when neither is reachable
   // does mine refuse, and then it names the cell a `goto` can reach (or the distance), never a walk nobody can make.
@@ -10716,17 +10786,50 @@ async function mine(ctx, { y: targetY = 12 }, signal) {
     const dHome2 = Math.hypot(bot.entity.position.x - config.world.homeX, bot.entity.position.z - config.world.homeZ)
     if (dHome2 <= 12) {
       return { status: 'failed', failClass: 'forbidden',
-               detail: `walked off ${wellPlan.farm || wellPlan.hit?.farm ? 'the tree farm' : 'the junk well'} to ${Math.round(dHome2)} blocks from home, where the base floor is not dug; walk out at least 12 blocks from home and away from ${wellPlan.farm || wellPlan.hit?.farm ? 'the farm' : 'the well'}, then mine` }
+               detail: `walked off ${wellPlan.farm || wellPlan.hit?.farm ? keepOutLabel(keepKind(wellPlan)).replace(/^the town /, 'the ') : 'the junk well'} to ${Math.round(dHome2)} blocks from home, where the base floor is not dug; walk out at least 12 blocks from home and away from ${wellPlan.farm || wellPlan.hit?.farm ? (keepKind(wellPlan) === 'monument' ? 'the monument' : 'the farm') : 'the well'}, then mine` }
     }
     wellPlan = planHere()
+  }
+  // OFF THE MONUMENT, PERFORMED (structureguard-01, Codex stage-3 r1 P1-3): its footprint is 48 wide, so from its middle no
+  // start within FAR_RADIUS is clear. The cell beyond its nearest side (structures.mjs exitCell) is walked to -- a plain
+  // walk: transit is never guarded -- and the stair is planned again there. Once per call.
+  // (a refusal by a well AND the monument carries the kind on the plan, not in a hit: Claude stage-3 r2 P3)
+  if (wellPlan.action === 'refuse' && !wellPlan.inside && keepKind(wellPlan) === 'monument') {
+    let off = null
+    try { off = structuresFresh(bot).exit?.(bot.entity.position.floored()) ?? null } catch { off = null }
+    if (off) {
+      wellRow('relocate', { ...wellPlan, to: off }, ' try=off_monument')
+      lastTarget = off
+      try {
+        await withTimeout(bot.pathfinder.goto(new goals.GoalNearXZ(off.x, off.z, 1)), 30_000, bot, { what: 'walking off the monument before mining' })
+      } catch (e) { if (e?.aborted) throw e }
+      check(signal)
+      await settleForFall(bot, bot.entity.position.y, { maxMs: STEP_SETTLE_MS })
+      { const f = bot.entity.position.floored(); if (Math.max(Math.abs(f.x - off.x), Math.abs(f.z - off.z)) > 1) failedTargets.push(off) }
+      wellPlan = planHere(FAR_RADIUS)
+      if (wellPlan.action === 'relocate') {
+        wellRow('relocate', wellPlan, ' try=after_off_monument')
+        const to = wellPlan.to
+        try { await withTimeout(bot.pathfinder.goto(new goals.GoalBlock(to.x, to.y, to.z)), 20_000, bot, { what: 'walking to a clear stair start' }) } catch (e) { if (e?.aborted) throw e }
+        check(signal)
+        await settleForFall(bot, bot.entity.position.y, { maxMs: STEP_SETTLE_MS })
+        { const f = bot.entity.position.floored(); if (f.x !== to.x || f.y !== to.y || f.z !== to.z) failedTargets.push(to) }
+        wellPlan = planHere()
+      }
+    }
   }
   if (wellPlan.action !== 'go') {
     wellRow('refuse', wellPlan, lastTarget ? ' after=relocate' : '')
     const isFarm = !!(wellPlan.farm || wellPlan.hit?.farm), bothBlock = isFarm && !!(wellPlan.cap ?? wellPlan.hit?.cap)   // a relocate plan carries its well in hit (Codex r10 P3)
-    const what = bothBlock ? 'the well and the tree farm' : isFarm ? 'the tree farm' : 'the well'
-    const where = failedTargets.length ? `the walk-off to ${failedTargets.map(c => `${c.x},${c.y},${c.z}`).join(' and ')} could not be reached from here; explore away from ${what} (or goto any cell ${FAR_RADIUS}+ blocks from it), then mine there`
+    const lbl = keepOutLabel(keepKind(wellPlan)).replace(/^the town /, 'the ')
+    const what = bothBlock ? `the well and ${lbl}` : isFarm ? lbl : 'the well'
+    // ON THE MONUMENT (structureguard-01): its footprint is 48 wide, so no walk-off within FAR_RADIUS leaves it from the middle;
+    // the remedy is the CELL off its nearest side, a goto from here
+    const off = keepKind(wellPlan) === 'monument' ? (() => { try { return structuresFresh(bot).exit?.(bot.entity.position.floored()) ?? null } catch { return null } })() : null
+    const where = off ? `goto ${off.x} ${off.y} ${off.z} (off the monument's nearest side), then mine there`
+                : failedTargets.length ? `the walk-off to ${failedTargets.map(c => `${c.x},${c.y},${c.z}`).join(' and ')} could not be reached from here; explore away from ${what} (or goto any cell ${FAR_RADIUS}+ blocks from it), then mine there`
                                        : `explore away from ${what} (or goto any cell ${FAR_RADIUS}+ blocks from it), then mine there`
-    return { status: 'failed', failClass: 'forbidden', detail: wellPlan.inside ? wellPlan.why : `${wellPlan.why ?? (isFarm ? 'every stair from here would dig the town tree farm' : 'every stair from here would dig the junk well\'s shell')}; ${where}` }
+    return { status: 'failed', failClass: 'forbidden', detail: wellPlan.inside ? wellPlan.why : `${wellPlan.why ?? (isFarm ? `every stair from here would dig ${keepOutLabel(keepKind(wellPlan))}` : 'every stair from here would dig the junk well\'s shell')}; ${where}` }
   }
   const choice = chooseStairBearing(bot, bot.entity.position.floored(), undefined, wellPlan.bearings)
   const bear = choice.bear
@@ -10917,10 +11020,13 @@ async function mine(ctx, { y: targetY = 12 }, signal) {
       if (!cap) {
         // ...and a tree-farm cell, read afresh (treefarm-02): the stair stops; the next plan walks off the farm
         const fm = farmNow()
-        if (!fm.forbid || !fm.forbid(pos)) return null
-        logEvent({ kind: 'mine_well_guard', status: 'refused', snapshot: snapshot(bot), detail: `action=stop at=- cell=${pos.x},${pos.y},${pos.z} farm=1` })
+        const kind = fm.forbid ? fm.forbid(pos) : null
+        if (!kind) return null
+        const mon = kind === 'monument'
+        logEvent({ kind: 'mine_well_guard', status: 'refused', snapshot: snapshot(bot), detail: `action=stop at=- cell=${pos.x},${pos.y},${pos.z} ${mon ? 'keepout=monument' : 'farm=1'}` })
         return { status: 'failed', failClass: 'forbidden',
-                 detail: `stopped at y=${Math.round(bot.entity.position.y)}: the next stair cell ${pos.x},${pos.y},${pos.z} is the town tree farm's; walk away from the farm and mine again` }
+                 detail: mon ? `stopped at y=${Math.round(bot.entity.position.y)}: the next stair cell ${pos.x},${pos.y},${pos.z} is the town monument's (the ziggurat); walk away from the monument and mine again`
+                             : `stopped at y=${Math.round(bot.entity.position.y)}: the next stair cell ${pos.x},${pos.y},${pos.z} is the town tree farm's; walk away from the farm and mine again` }
       }
       logEvent({ kind: 'mine_well_guard', status: 'refused', snapshot: snapshot(bot), detail: `action=stop at=${cap.x},${cap.y},${cap.z} cell=${pos.x},${pos.y},${pos.z}` })
       return { status: 'failed', failClass: 'forbidden',

@@ -168,7 +168,7 @@ export function clusterOf (blockAt, start, kinds = IRON_KINDS, cap = CLUSTER_CAP
  * configuration above. NEW arrays for the exclusions -- index.mjs shares exclusionAreasStep by reference across
  * every profile, so pushing into it would change them all.
  */
-export function tunnelMovements (bot, base = null, { home = null } = {}) {
+export function tunnelMovements (bot, base = null, { home = null, keepOut = null } = {}) {
   const m = base ? Object.assign(Object.create(Object.getPrototypeOf(base)), base) : new Movements(bot)
   protectTownBlocks(m, bot.registry)   // the composter is never a tunnel's dig, base or not (composter.mjs)
   protectWellBlocks(m, bot.registry)   // nor a junk well's trapdoors (well.mjs)
@@ -188,7 +188,9 @@ export function tunnelMovements (bot, base = null, { home = null } = {}) {
   m.getMoveDiagonal = () => {}
   const at = p => bot.blockAt(p)
   m.exclusionAreasStep = [...(base?.exclusionAreasStep ?? []), b => stepHazard(at, b)]
-  m.exclusionAreasBreak = [...(base?.exclusionAreasBreak ?? []), b => (nearHome(b?.position, home) ? 100 : breakHazard(at, b))]
+  // ...nor a recorded TOWN STRUCTURE's cell (structureguard-01: the tunnel is a TARGET dig; keepOut() -> { forbid } read live)
+  const reserved = p => { try { const k = typeof keepOut === 'function' ? keepOut() : null; return !!(k?.forbid && p && k.forbid(p)) } catch { return false } }
+  m.exclusionAreasBreak = [...(base?.exclusionAreasBreak ?? []), b => (nearHome(b?.position, home) || reserved(b?.position) ? 100 : breakHazard(at, b))]
   // TELEMETRY TAG (digtown.mjs): the tunnel's own excavation is a TARGET dig, not transit. Nothing else reads it.
   m.digPurpose = 'target:ore_tunnel'
   return m
