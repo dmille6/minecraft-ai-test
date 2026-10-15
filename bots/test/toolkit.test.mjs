@@ -320,6 +320,21 @@ await t('SKILL: an abort mid-run writes the row (outcome=aborted) and rethrows; 
   assert.equal(r2.status, 'success', r2.detail); assert.equal(w.spy.opened.length, opened, 'no second draw')
   assert.equal(count(w.containers.get('5,64,0').slots.filter(Boolean), 'iron_ingot'), 26); assert.equal(w.bot.kitCredit, 0)
 })
+await t('SKILL: a craft that makes the tool and THEN throws (an abort in its table retake) is reconciled before the rethrow (Codex r2 P2)', async () => {
+  // 4 credited ingots (an earlier run's draw) + 4 ladder ingots in the bag
+  const w = withServer(town([T('iron_pickaxe', 200), stack('iron_ingot', 8), stack('stick', 9)], [stack('iron_ingot', 30)]))
+  w.bot.kitCredit = 4
+  const make = fakeCraft(w)
+  const crafter = async (c, a) => { await make(c, a); const e = new Error('aborted: low_health'); e.aborted = true; throw e }
+  await assert.rejects(SKILLS.toolkit.run({ bot: w.bot, kitCraft: crafter }, {}, new AbortController().signal), e => e?.aborted)
+  assert.equal(count(w.bag, 'iron_axe'), 1); assert.equal(count(w.bag, 'iron_ingot'), 5)
+  assert.equal(w.bot.kitCredit, 1, 'the axe spent 3 of the 4 credited: 1 left, never 4')
+  assert.match(kitRows().at(-1).skill.detail, /outcome=aborted .*used=3 crafted=iron_axe credit=4->1 /)
+  const r2 = await run(w, {}, { kitCraft: fakeCraft(w) })
+  assert.equal(r2.status, 'success', r2.detail); assert.equal(count(w.bag, 'iron_shovel'), 1)
+  assert.equal(count(w.bag, 'iron_ingot'), 4, 'the ladder\'s 4 ingots are still there'); assert.equal(w.bot.kitCredit, 0)
+  assert.equal(count(w.containers.get('5,64,0').slots.filter(Boolean), 'iron_ingot'), 30, 'no town draw at all')
+})
 await t('SKILL: an abort INSIDE the transfer credits what moved (withdrawState), clamped to the bag; nothing dropped', async () => {
   const w = withServer(town([T('iron_pickaxe', 200), stack('stick', 9)], [stack('iron_ingot', 30)]))
   const ac = new AbortController()
