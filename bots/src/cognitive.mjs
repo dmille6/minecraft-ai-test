@@ -10,8 +10,9 @@
 // keeps a bad generation from becoming a bad action.
 
 import { HARD_STOP } from './toolfor.mjs'
-import { SKILLS, roomRemedy, farFromBank, classifyOutcome, SKILL_CONTRACTS, plantableSpotNear, findTownComposter, townBuildPlan, townPickMiss, townIngredientMiss, foodSkipNow, townContainers, townWellState, townWellBuildPlan, insideTownWell, wellSwordsNow, cobbleWellCap, townPitState, stockWellOpts, valveProof, stockCountKeys, pruneTarget, unknownRefusals, stockRecountKeys } from './skills.mjs'
+import { SKILLS, roomRemedy, farFromBank, classifyOutcome, SKILL_CONTRACTS, plantableSpotNear, findTownComposter, townBuildPlan, townPickMiss, townIngredientMiss, foodSkipNow, townContainers, townWellState, townWellBuildPlan, insideTownWell, wellSwordsNow, cobbleWellCap, townPitState, stockWellOpts, valveProof, stockCountKeys, pruneTarget, unknownRefusals, stockRecountKeys, townFarmPlan } from './skills.mjs'
 import { disposePlan, wellOrder, wellOrderOutcome, WELL_ORDERS, pitCoverItem } from './well.mjs'
+import { farmOrder, farmOrderOutcome, farmEnabled, FARM_ORDERS } from './treefarm.mjs'
 import { smeltInputsFor } from './smelting.mjs'
 import { makeClient, skillSchema } from './llm.mjs'
 import { buildSystemPrompt, buildUserPrompt, makeSentinel, WorkingMemory } from './prompt.mjs'
@@ -19,7 +20,7 @@ import { AdmissionControl } from './admission.mjs'
 import { MilestoneController, servesRung, NO_PROGRESS_MS, RUNNER_REFUSALS } from './milestones.mjs'
 import { orderFor, readyFor, plantingOrder, plantingEnabled, PLANT_COOLDOWN_MS, roomOrder, roomOutcome, roomBackedOff, roomExclusions, lostLine, ROOM_WEAR_TRUST_MS } from './workorder.mjs'
 import { wearOutPlan, isHousekeeping } from './hygiene.mjs'
-import { compostPlan, townOrder, townOrderOutcome, boneMealRoom, composterLevel, TOWN_ORDERS, STORAGE_NEAR, TOWN_RADIUS, startableJunk } from './composter.mjs'
+import { compostPlan, townOrder, townOrderOutcome, boneMealRoom, composterLevel, TOWN_ORDERS, STORAGE_NEAR, TOWN_RADIUS, startableJunk, RUNNER_DECLINED } from './composter.mjs'
 import { hasUsablePick, roomPlan, pickTakes, roomKeep } from './withdrawpick.mjs'
 import { townDepositOrder, townDepositOutcome, townDepositPlan } from './towndeposit.mjs'
 import { pruneOrder, pruneOutcome } from './prune.mjs'
@@ -983,6 +984,21 @@ export class CognitiveLoop {
         }
       } catch { /* a world read must never break the decision loop */ }
     }
+    // THE TOWN TREE FARM (treefarm.mjs farmOrder decides; this supplies readings and keeps the state): tend the farm --
+    // replant, restore soil, clear leftover logs, torches -- when at town and the farm has work this bot can do. After the
+    // composter, the junk well, chest pruning and the room order (a craft's own remedy keeps its turn), before the planting
+    // obligation. The plan's world reads are lazy and at most every FARM_SCAN_MS.
+    if (!order) {
+      try {
+        const bot = this.bot
+        const p = bot.entity?.position
+        const home = { x: config.world.homeX, z: config.world.homeZ }
+        const r = farmOrder({ now: Date.now(), distHome: p ? Math.hypot(home.x - p.x, home.z - p.z) : Infinity, dy: p ? p.y - config.world.homeY : Infinity,
+                              plan: () => townFarmPlan(bot), state: this.farmState ?? {}, enabled: farmEnabled(process.env) })
+        this.farmState = r.state
+        if (r.order) order = r.order
+      } catch { /* a world read must never break the decision loop */ }
+    }
     if (!order) {
       const sap = {}
       try {
@@ -1092,6 +1108,7 @@ export class CognitiveLoop {
       if (WELL_ORDERS.has(admitted.skill)) this.wellState = wellOrderOutcome(admitted.skill, r.status, Date.now(), this.wellState ?? {}, r.failClass ?? null)
       if (admitted.skill === 'prune_town') this.pruneState = pruneOutcome(r.status, Date.now(), this.pruneState ?? {})
       if (admitted.skill === 'count_town') this.recountState = recountOutcome(r.status, r.delta?.counted ?? 0, Date.now(), this.recountState ?? {}, r.failClass ?? null)
+      if (FARM_ORDERS.has(admitted.skill)) this.farmState = farmOrderOutcome(admitted.skill, r.status, Date.now(), this.farmState ?? {}, r.failClass ?? null, RUNNER_DECLINED)
       // THE REFLEX TOOK THE BODY -- SAY SO ON THE NEXT DECISION.
       if (r.interruptedBy) this.#raiseTrigger(r.interruptedBy, r.detail)
       // A PREREQUISITE THE GOAL LAYER CANNOT SEE IS NOT A PREREQUISITE.

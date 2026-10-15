@@ -11,7 +11,8 @@ import { Vec3 } from 'vec3'
 import { corridorSafe } from './lavaguard.mjs'
 import { deathSiteStepCost, pathCrossesDeathSite } from './deathsites.mjs'
 import { wellStepCost, wellBreakCost, protectWellBlocks, bodyInWell } from './well.mjs'
-import { knownWellCells, installWellWatch } from './skills.mjs'
+import { knownWellCells, installWellWatch, knownFarmIndex } from './skills.mjs'
+import { farmBreakCost, farmPlaceCost, emptyFarmIndex } from './treefarm.mjs'
 import { pathDropProfile, composeFallRow, markPathEnded } from './fallpath.mjs'
 import net from 'node:net'
 import mineflayer from 'mineflayer'
@@ -543,9 +544,25 @@ function connect() {
     bot.refreshWells = refreshWells
     const wellPenalty = (block) => wellStepCost(wellCols, block, selfWell)
     moves.exclusionAreasStep = [waterEntryPenalty, deathSitePenalty, wellPenalty]
-    // A NEW array for the base's break exclusions, shared by reference with every clone below (Object.assign), and spread
+    // THE TOWN TREE FARM'S CELLS (treefarm.mjs farmIndex): no path scaffolds into a plot column or a torch cell, and no
+    // path, gather or tunnel digs a plot's soil or a torch's floor. NEW arrays on the base BEFORE any clone below, so
+    // every profile shares them by reference (the tunnel spreads them into its own). Walking through a farm, and
+    // harvesting its trees, stay open: the logs are wood. The index comes from the shared record on a 20 s cache --
+    // never a file read inside an A* step.
+    let farmCells = emptyFarmIndex()
+    const refreshFarm = () => { try { farmCells = knownFarmIndex(bot) } catch { farmCells = emptyFarmIndex() } }
+    const farmTimer = setInterval(refreshFarm, 20_000); farmTimer.unref?.()
+    refreshFarm()
+    const farmFirst = setTimeout(refreshFarm, 5_000); farmFirst.unref?.()
+    bot.once('end', () => { clearInterval(farmTimer); clearTimeout(farmFirst) })
+    bot.farmIndexNow = () => farmCells
+    bot.refreshFarm = refreshFarm
+    // A NEW array for the base's break exclusions (the well's, then the farm's), shared by reference with every clone below (Object.assign), and spread
     // into the tunnel profile's own array.
     moves.exclusionAreasBreak = [(block) => wellBreakCost(wellCols, block, selfWell)]
+    // a NEW array (never a push: townzone's structural test) that leaves the well's own line verbatim (well.test anchors it)
+    moves.exclusionAreasBreak = moves.exclusionAreasBreak.concat([(block) => farmBreakCost(farmCells, block)])
+    moves.exclusionAreasPlace = [(block) => farmPlaceCost(farmCells, block)]
     // ORDER IS LOad-BEARING: gatherMoves, ascendMoves and descendMoves are all
     // built below with Object.assign(clone, moves), so they copy this array's
     // reference and inherit one shared policy. That is deliberate -- gathering
