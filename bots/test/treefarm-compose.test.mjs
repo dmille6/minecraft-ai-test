@@ -415,7 +415,21 @@ await t('LOOP CHAIN (another builder): a lease held by another bot -> the visit 
   assert.ok(ran.slice(1).every(r => r.skill !== 'tend_farm'))
 })
 
-await t('LOOP CHAIN (bone meal at the reserve): a planted farm and a bag of exactly BONEMEAL_RESERVE bone meal -> no order; above it -> one visit spends only the surplus', async () => {
+await t('LOOP CHAIN (bone meal OFF by default): a planted farm and a bag of 40 bone meal -> never a tend_farm order through the real loop', async () => {
+  const storeDir = pool('loop-bmoff')
+  const a = fakeTown({ items: [S('birch_sapling', 9)], storeDir })
+  await SK.SKILLS.tend_farm.run({ bot: a.bot }, {}, new AbortController().signal)
+  const b = fakeTown({ items: [S('bone_meal', 40)], storeDir, shared: a.w, name: 'b-BmOff' })
+  loopReady(b.bot)
+  const r = await decisions(b.bot, 3)
+  assert.ok(r.ran.length >= 3)
+  assert.equal(r.ran.filter(x => x.skill === 'tend_farm').length, 0, r.ran.map(x => x.skill).join(','))
+  assert.equal((b.state.bonemealed ?? []).length, 0)
+})
+
+await t('LOOP CHAIN (bone meal arm ON, at the reserve): a planted farm and a bag of exactly BONEMEAL_RESERVE bone meal -> no order; above it -> one visit spends only the surplus', async () => {
+  process.env.TREEFARM_BONEMEAL = 'on'
+  try {
   const storeDir = pool('loop-bm')
   const a = fakeTown({ items: [S('birch_sapling', 9)], storeDir })
   await SK.SKILLS.tend_farm.run({ bot: a.bot }, {}, new AbortController().signal)
@@ -429,6 +443,7 @@ await t('LOOP CHAIN (bone meal at the reserve): a planted farm and a bag of exac
   assert.equal(r2.ran[0]?.skill, 'tend_farm', r2.ran.map(r => r.skill).join(','))
   assert.equal(c.bot.inventory.items().filter(i => i.name === 'bone_meal').reduce((n, i) => n + i.count, 0), TF.BONEMEAL_RESERVE, 'the reserve stays in the bag')
   assert.equal((c.state.bonemealed ?? []).length, 3)
+  } finally { delete process.env.TREEFARM_BONEMEAL }
 })
 
 await t('LOOP CHAIN (the town orders first): at 34+ slots with a farm to found, the deterministic orders ahead of the farm keep their turn, and the farm order still comes (not starved)', async () => {

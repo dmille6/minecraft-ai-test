@@ -339,12 +339,14 @@ await t('tendPlan: soil, then leftover logs (lowest first), then saplings it HOL
   assert.equal(TF.tendPlan({ states: [{ plot: pl(0), state: 'ready', species: ['oak_sapling'] }], held: {} }).actions.length, 0)
 })
 
-await t('bone meal is ON unless TREEFARM_BONEMEAL says off (OWNER 10-15); the farm is ON unless TREEFARM_ENABLED says off', () => {
-  assert.equal(TF.bonemealEnabled({}), true)
-  assert.equal(TF.bonemealEnabled({ TREEFARM_BONEMEAL: '' }), true)
+await t('bone meal is OFF unless TREEFARM_BONEMEAL says on (OWNER 10-15, after the A/B); the farm is ON unless TREEFARM_ENABLED says off', () => {
+  assert.equal(TF.bonemealEnabled({}), false)
+  assert.equal(TF.bonemealEnabled({ TREEFARM_BONEMEAL: '' }), false)
+  assert.equal(TF.bonemealEnabled({ TREEFARM_BONEMEAL: 'garbage' }), false, 'anything but an explicit on is off')
   assert.equal(TF.bonemealEnabled({ TREEFARM_BONEMEAL: 'on' }), true)
+  assert.equal(TF.bonemealEnabled({ TREEFARM_BONEMEAL: 'ON ' }), true)
+  assert.equal(TF.bonemealEnabled({ TREEFARM_BONEMEAL: '1' }), true)
   assert.equal(TF.bonemealEnabled({ TREEFARM_BONEMEAL: 'off' }), false)
-  assert.equal(TF.bonemealEnabled({ TREEFARM_BONEMEAL: '0' }), false)
   assert.equal(TF.farmEnabled({}), true)
   assert.equal(TF.farmEnabled({ TREEFARM_ENABLED: 'off' }), false)
 })
@@ -625,7 +627,27 @@ await t('SKILL tend_farm: lost soil goes back as dirt (a solid placement through
   assert.equal(field((await rows('farm_tend')).at(-1).skill.detail, 'soil'), '1')
 })
 
-await t('SKILL tend_farm, BONE MEAL ON BY DEFAULT (owner 10-15): clear saplings only, the bag keeps the reserve, the per-visit cap holds; consumption by the bag, growth only on the server\'s log', async () => {
+await t('SKILL tend_farm, BONE MEAL OFF BY DEFAULT (owner 10-15): a bag full of bone meal and a planted farm -> no bone meal planned, no order, none spent', async () => {
+  const storeDir = mkdtempSync(path.join(tmpdir(), 'treefarm-bmoff-'))
+  assert.equal(process.env.TREEFARM_BONEMEAL, undefined, 'the default: unset')
+  const a = fakeTown({ items: [S('birch_sapling', 9)], storeDir })
+  await tend(a.bot)
+  const b = fakeTown({ items: [S('bone_meal', 64)], storeDir, shared: a.w, name: 'b-Off' })
+  const plan = SK.townFarmPlan(b.bot)
+  assert.equal(plan.actions.filter(x => x.kind === 'bonemeal').length, 0)
+  assert.equal(TF.farmOrder({ now: 1e7, distHome: 5, plan }).order, null, 'no farm order: nothing to do but bone meal, and the arm is off')
+  const r = await tend(b.bot)
+  assert.equal(r.status, 'no_effect', r.detail)
+  assert.equal((b.state.bonemealed ?? []).length, 0)
+  assert.equal(b.bot.inventory.items().filter(i => i.name === 'bone_meal').reduce((n, i) => n + i.count, 0), 64)
+  // positive control: the same bag with the arm ON plans bone meal on the same farm
+  process.env.TREEFARM_BONEMEAL = 'on'
+  try { assert.ok(SK.townFarmPlan(b.bot).actions.filter(x => x.kind === 'bonemeal').length > 0) } finally { delete process.env.TREEFARM_BONEMEAL }
+})
+
+await t('SKILL tend_farm, BONE MEAL ARM ON (TREEFARM_BONEMEAL=on): clear saplings only, the bag keeps the reserve, the per-visit cap holds; consumption by the bag, growth only on the server\'s log', async () => {
+  process.env.TREEFARM_BONEMEAL = 'on'
+  try {
   const storeDir = mkdtempSync(path.join(tmpdir(), 'treefarm-bm-'))
   const a = fakeTown({ items: [S('birch_sapling', 9)], storeDir })
   await tend(a.bot)
@@ -656,13 +678,14 @@ await t('SKILL tend_farm, BONE MEAL ON BY DEFAULT (owner 10-15): clear saplings 
   assert.equal(TF.farmOrder({ now: 1e7, distHome: 5, plan }).order, null, 'no order for bone meal the reserve keeps')
   // OFF: TREEFARM_BONEMEAL=off spends none
   process.env.TREEFARM_BONEMEAL = 'off'
-  try {
-    const d = fakeTown({ items: [S('bone_meal', 40)], storeDir, shared: a.w, name: 'b-Delta' })
-    assert.equal(SK.townFarmPlan(d.bot).actions.filter(x => x.kind === 'bonemeal').length, 0)
+  const d = fakeTown({ items: [S('bone_meal', 40)], storeDir, shared: a.w, name: 'b-Delta' })
+  assert.equal(SK.townFarmPlan(d.bot).actions.filter(x => x.kind === 'bonemeal').length, 0)
   } finally { delete process.env.TREEFARM_BONEMEAL }
 })
 
-await t('SKILL tend_farm, BONE MEAL: a bag update that lags the click (300 ms) is still counted as a use (Claude r1 P3)', async () => {
+await t('SKILL tend_farm, BONE MEAL (arm on): a bag update that lags the click (300 ms) is still counted as a use (Claude r1 P3)', async () => {
+  process.env.TREEFARM_BONEMEAL = 'on'
+  try {
   const storeDir = mkdtempSync(path.join(tmpdir(), 'treefarm-bmlag-'))
   const a = fakeTown({ items: [S('birch_sapling', 9)], storeDir })
   await tend(a.bot)
@@ -673,6 +696,7 @@ await t('SKILL tend_farm, BONE MEAL: a bag update that lags the click (300 ms) i
   const row = (await rows('farm_tend')).at(-1)
   assert.equal(+field(row.skill.detail, 'bonemeal'), 2, row.skill.detail)
   assert.equal(+field(row.skill.detail, 'bm_spent'), 2)
+  } finally { delete process.env.TREEFARM_BONEMEAL }
 })
 
 async function scaffoldScene ({ place = 0, toss = 0, other = 0, dup = 0, rejected = false }) {

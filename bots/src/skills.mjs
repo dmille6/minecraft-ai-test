@@ -7661,7 +7661,7 @@ async function tendFarm (ctx, _args, signal) {
     logEvent({ kind: 'farm_place', status: 'success', snapshot: snapshot(bot), detail: `role=${a.role} item=${b.name} at=${a.cell.x},${a.cell.y},${a.cell.z} verdict=confirmed` })
     return true
   }
-  // ONE BONE MEAL (ON unless TREEFARM_BONEMEAL=off; owner 10-15): counted when the bag lost one (server inventory) on a
+  // ONE BONE MEAL (OFF unless TREEFARM_BONEMEAL=on; owner 10-15): counted when the bag lost one (server inventory) on a
   // sapling cell whose column is clear; GREW when the server then names a log at the cell (only a grown tree is visible).
   const boneOne = async a => {
     const read = readCell(bot)

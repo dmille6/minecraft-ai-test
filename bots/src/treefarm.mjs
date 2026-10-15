@@ -16,8 +16,9 @@
 // trees first because they are the nearest logs to town; the farm's own visit only (1) restores lost soil, (2) clears
 // LEFTOVER logs from a plot's column (a gather that took the reachable bottom of a trunk leaves the top floating, and a
 // floating log blocks the next sapling's clearance for ever), (3) replants, (4) places growth torches if it carries
-// them, and (5) bone meals saplings whose column is clear -- ON by default since the OWNER's 10-15 decision ("lets build
-// it and use the bone [meal]"), bounded by a bag reserve and a per-visit cap; TREEFARM_BONEMEAL=off turns it off.
+// them, and (5) -- only with TREEFARM_BONEMEAL=on -- bone meals saplings whose column is clear, bounded by a bag reserve and
+// a per-visit cap. OFF by default: OWNER 10-15, after the Paper A/B (first trees sooner, no log gain measured, 43 bone meal
+// per farm-hour against the fleet's ~70-90 composted a day), "do it the way you recommend". The bounded arm stays for later.
 
 import { placeAt, cellKey, keyOf, REPLACEABLE, solid, passable, isLiquid, materialPlan } from './blueprint.mjs'
 import { TOWN_GROUND_HALF, TOWN_GROUND_DEPTH } from './townground.mjs'
@@ -281,12 +282,11 @@ export function torchState (read, t) {
   return 'blocked'
 }
 
-/** The bone meal arm. ON unless TREEFARM_BONEMEAL says off: OWNER 10-15 "lets build it and use the bone [meal]" (it was
- *  OFF by default from 10-05 while the decision was pending). Pure. */
+/** The bone meal arm. OFF unless TREEFARM_BONEMEAL says on (OWNER 10-15, after the Paper A/B: no log gain measured, and
+ *  43 bone meal per farm-hour against ~70-90 composted a day fleet-wide). The bounded arm stays in the code. Pure. */
 export function bonemealEnabled (env = {}) {
   const v = env?.TREEFARM_BONEMEAL
-  if (v === undefined || v === null || String(v).trim() === '') return true
-  return !/^(0|false|no|off)$/i.test(String(v).trim())
+  return typeof v === 'string' && /^(1|true|yes|on)$/i.test(v.trim())
 }
 /** The farm itself, on unless TREEFARM_ENABLED says off (a kill switch for the canary pool's env). Pure. */
 export function farmEnabled (env = {}) {
