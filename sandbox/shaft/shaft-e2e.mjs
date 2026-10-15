@@ -55,7 +55,7 @@ const C = { x: 3400, z: 2600 }
 const A = { x0: C.x - 24, x1: C.x + 24, z0: C.z - 30, z1: C.z + 24 }
 const HOME = { x: C.x, y: 120, z: C.z - 18 }
 const SITE = { origin: { x: C.x, z: C.z }, away: 's', c: 120 }
-const FLOOR = 100
+const FLOOR = Number(process.env.SHAFT_E2E_FLOOR ?? 100)   // a short shaft for a quick scene (e.g. 112: 8 levels + a landing)
 const W = (u, y, v) => SJ.worldOf(SITE, u, y, v)
 function buildArena (extra = []) {
   const c = [`forceload add ${A.x0} ${A.z0} ${A.x1} ${A.z1}`, `kill @e[type=!player,x=${A.x0},y=80,z=${A.z0},dx=${A.x1 - A.x0},dy=60,dz=${A.z1 - A.z0}]`]

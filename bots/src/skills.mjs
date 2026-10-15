@@ -7987,6 +7987,9 @@ async function digShaft (ctx, _args, signal) {
         // NOBODY INSIDE BEFORE THE CAP (Claude plan r2 P2-2): a player in the envelope (a bystander who fell in) is never sealed in
         const inside = Object.values(bot.entities ?? {}).some(e => e && e !== bot.entity && e.position && e.type === 'player' && structuresFresh(bot)?.shaft?.inEnvelope(e.position.x, e.position.y, e.position.z))
         if (inside) f.cap = 'left_open_occupied'
+        // CENTRED ON THE PAD CELL before the cap (Paper 10-15: a bot at the pad's edge, z+0.3 touching the collar cell, had its
+        // cap placement refused -- the block would intersect its body)
+        else if (!(await eff.centreOver((() => { const p = eff.feet(); return { x: p.x, z: p.z } })()))) f.capOpen = 'left_open_not_centred'
         else for (const u of [0, 1]) {
           const b = lread(u, site.c, 0)
           if (b && b.boundingBox === 'empty') {
