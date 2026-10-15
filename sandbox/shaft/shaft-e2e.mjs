@@ -66,6 +66,8 @@ function buildArena (extra = []) {
   const bad = rcon(...c).filter(x => /not loaded|Cannot|Unknown|Incorrect|Too many/i.test(x.reply))
   if (bad.length) throw new Error('arena: ' + bad.map(x => x.cmd + ' => ' + x.reply).join('; '))
 }
+const countBlock = (cells, id) => rcon(...cells.map(c => `execute if block ${c.x} ${c.y} ${c.z} ${id}`)).filter(r => passed(r.reply)).length
+const solidCount = cells => cells.length - countBlock(cells, '#minecraft:replaceable')   // air and water are in the tag
 const setL = (u, y, v, id) => { const w = W(u, y, v); return `setblock ${w.x} ${y} ${w.z} minecraft:${id}` }
 // the world's awkward bits, all inside the survey envelope's reach but dry
 const HAZARDS = [
@@ -139,7 +141,9 @@ function truth () {
   for (const [u, y, v, role] of env.dig) { const w = W(u, y, v); if (role === 'core' && y < SITE.c) ladders.push({ x: w.x, y, z: w.z }); else if (role !== 'core') open.push({ x: w.x, y, z: w.z }) }
   for (const [u, y, v] of env.shell) { if (y === SITE.c && v === -1) continue; const w = W(u, y, v); lining.push({ x: w.x, y, z: w.z }) }
   const cap = [0, 1].map(u => W(u, SITE.c, 0)), pad = [0, 1].map(u => W(u, SITE.c, -1))
+  const loaded = passed(r1(`execute if block ${A.x0} 110 ${A.z0} minecraft:stone`)) && passed(r1(`execute if block ${A.x0} 125 ${A.z0} minecraft:air`))   // positive control: the arena reads
   return {
+    loaded,
     ladders: countBlock(ladders, 'minecraft:ladder'), laddersOf: ladders.length,
     open: countBlock(open, 'minecraft:air') + countBlock(open, 'minecraft:torch') + countBlock(open, 'minecraft:wall_torch'), openOf: open.length,
     lining: solidCount(lining) - countBlock(lining, 'minecraft:sand') - countBlock(lining, 'minecraft:gravel') + countBlock(lining, 'minecraft:sand'), liningOf: lining.length,
@@ -199,6 +203,7 @@ for (const sc of SCENES_S.split(',')) {
     if (sc === 'build') await sceneBuild('build')
     else if (sc === 'kill') await sceneBuild('kill', { kill: true })
     else if (sc === 'idle') await sceneIdle('idle')
+    else if (sc === 'truth') { rcon(`forceload add ${A.x0} ${A.z0} ${A.x1} ${A.z1}`); await sleep(4000); const tr = truth(); result({ scene: 'truth', truth: tr, ok: tr.ladders === tr.laddersOf && tr.lining === tr.liningOf && tr.open === tr.openOf && tr.cap === 2 && tr.pad === 2 }) }
     else throw new Error('unknown scene ' + sc)
   } catch (e) { failed++; P_('FAILED', sc, String(e?.stack ?? e).slice(0, 600)); try { await stopAll('SIGKILL') } catch {} }
 }
