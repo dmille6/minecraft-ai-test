@@ -67,14 +67,28 @@ export function monumentIndex (rec) {
   const stairs = stairRelFor(s.stairFace ?? null, g)
   let top = 0
   for (let t = 0, L = g.B; L >= 2 * g.S && L > 0; L -= 2 * g.S, t++) top = (t + 1) * g.H
+  // THE RECORDED FILL (monument-01: foundation, apron, the stair approach, the edge guards) is reserved too, column by
+  // column -- a foundation deeper than the guard, the apron the bots walk on, the guard walls. Malformed runs are skipped.
+  const fillCols = new Map()
+  let bottom = y0 - FOUNDATION_GUARD, bx0 = x0 - 1, bx1 = x0 + g.B, bz0 = z0 - 1, bz1 = z0 + g.B
+  for (const r of Array.isArray(rec.fill) ? rec.fill : []) {
+    if (!Array.isArray(r) || !r.slice(0, 4).every(Number.isInteger) || r[2] > r[3]) continue
+    const k = `${r[0]},${r[1]}`
+    if (!fillCols.has(k)) fillCols.set(k, [])
+    fillCols.get(k).push([r[2], r[3]])
+    bottom = Math.min(bottom, r[2]); bx0 = Math.min(bx0, r[0]); bx1 = Math.max(bx1, r[0]); bz0 = Math.min(bz0, r[1]); bz1 = Math.max(bz1, r[1])
+  }
   const has = (x, y, z) => {
     const i = x - x0, j = z - z0
     if (!Number.isFinite(i) || !Number.isFinite(j) || !Number.isFinite(y)) return false
     if (stairs.has(`${i},${j},${y - y0}`)) return true
+    const runs = fillCols.get(`${x},${z}`)
+    if (runs && runs.some(([a, b]) => y >= a && y <= b)) return true
     if (i < 0 || i >= g.B || j < 0 || j >= g.B) return false
     return y >= y0 - FOUNDATION_GUARD && y < y0 + profileAt(i, j, g)
   }
-  return { kind: 'monument', has, base: y0, bottom: y0 - FOUNDATION_GUARD, top: y0 + top - 1, box: { x0: x0 - 1, x1: x0 + g.B, z0: z0 - 1, z1: z0 + g.B } }
+  const isStair = (x, y, z) => stairs.has(`${x - x0},${z - z0},${y - y0}`)
+  return { kind: 'monument', has, isStair, base: y0, bottom, top: y0 + top - 1, box: { x0: bx0, x1: bx1, z0: bz0, z1: bz1 } }
 }
 
 /**
@@ -108,8 +122,9 @@ export function structureIndexes (dir, home, world = null) {
  */
 export function structureKeepOut (indexes = []) {
   const list = (indexes ?? []).filter(Boolean)
-  if (!list.length) return { forbid: null, bottom: null, exit: () => null }
+  if (!list.length) return { forbid: null, bottom: null, exit: () => null, stair: () => false }
   return { forbid: c => { for (const i of list) if (c && i.has(c.x, c.y, c.z)) return i.kind; return null },
+           stair: c => !!c && list.some(i => i.isStair?.(c.x, c.y, c.z)),
            bottom: Math.min(...list.map(i => i.bottom)),
            exit: p => { for (const i of list) { const e = exitCell(i, p); if (e) return e } return null } }
 }
@@ -123,6 +138,14 @@ export function composeKeepOut (a, b) {
   if (!fa && !fb) return { forbid: null, bottom: null }
   const bots = [a?.bottom, b?.bottom].filter(Number.isFinite)
   return { forbid: c => (fa && fa(c)) || (fb && fb(c)) || false, bottom: bots.length ? Math.min(...bots) : null }
+}
+
+/**
+ * pathfinder exclusionAreasPlace entry (design 3.6): never scaffold onto the monument's grand stair -- a cobble block on a
+ * step cell before its layer would be a foreign block in the plan. Hot path: the cached keep-out. Never throws.
+ */
+export function monumentPlaceCost (keepOut, block) {
+  try { const p = block?.position; return p && keepOut?.stair?.(p) ? 100 : 0 } catch { return 0 }
 }
 
 /** A cached reader for one bot's town: () -> keep-out. Reads at most once per CACHE_MS (`now` injectable for tests). */

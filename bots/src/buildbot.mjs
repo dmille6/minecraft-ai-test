@@ -79,6 +79,20 @@ export function botBuildEffects (bot, { items = ['cobblestone'], bound = timeout
       try { await bound(place, BUILD_ACK_MS, 'placing') } catch (e) { if (e?.aborted || aborted()) throw e }
       return witness.until(step.cell, n => n === want, BUILD_ACK_MS)
     },
+    // A CLEAR (a flower, a sapling, a torch in a planned cell): look, pace, the gate, then the dig with 'ignore' (no await
+    // between the gate and the dig packet); the server's update to air is the only success
+    clear: async (step, gate = () => null) => {
+      const c = step.cell
+      try { await bot.lookAt(new Vec3(c.x + 0.5, c.y + 0.5, c.z + 0.5), true) } catch { /* not fatal */ }
+      await ticks(BUILD_CLICK_TICKS)
+      const block = bot.blockAt(new Vec3(c.x, c.y, c.z))
+      if (!block) return 'gate:cell_changed'
+      const no = gate()
+      if (no) return `gate:${no}`
+      witness.watch(c)
+      try { await bound(bot.dig(block, 'ignore'), BUILD_ACK_MS, 'clearing') } catch (e) { if (e?.aborted || aborted()) throw e }
+      return witness.until(c, n => n === 'air' || n === 'cave_air' || n === 'void_air', BUILD_ACK_MS)
+    },
     close: () => { try { witness.stop() } catch { /* gone */ } },
   }
 }

@@ -12,6 +12,7 @@ import { corridorSafe } from './lavaguard.mjs'
 import { deathSiteStepCost, pathCrossesDeathSite } from './deathsites.mjs'
 import { wellStepCost, wellBreakCost, protectWellBlocks, bodyInWell } from './well.mjs'
 import { knownWellCells, installWellWatch, knownFarmIndex, structuresNow } from './skills.mjs'
+import { monumentPlaceCost } from './structures.mjs'
 import { farmBreakCost, farmPlaceCost, emptyFarmIndex } from './treefarm.mjs'
 import { pathDropProfile, composeFallRow, markPathEnded } from './fallpath.mjs'
 import net from 'node:net'
@@ -563,6 +564,8 @@ function connect() {
     // a NEW array (never a push: townzone's structural test) that leaves the well's own line verbatim (well.test anchors it)
     moves.exclusionAreasBreak = moves.exclusionAreasBreak.concat([(block) => farmBreakCost(farmCells, block)])
     moves.exclusionAreasPlace = [(block) => farmPlaceCost(farmCells, block)]
+    // ...and never onto the town monument's grand stair (monument-01, design 3.6): a NEW array, never a push
+    moves.exclusionAreasPlace = moves.exclusionAreasPlace.concat([(block) => monumentPlaceCost(structuresNow(bot), block)])
     // ORDER IS LOad-BEARING: gatherMoves, ascendMoves and descendMoves are all
     // built below with Object.assign(clone, moves), so they copy this array's
     // reference and inherit one shared policy. That is deliberate -- gathering
