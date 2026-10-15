@@ -61,3 +61,7 @@ eval/
 
 # generated per-bot env files - rebuild with generate-roster.py
 env/
+
+# generated mutant copies of src files (withMutant in the tests); never committed
+bots/test/.mutant-*.mjs
+bots/test/_mutant-*.mjs
