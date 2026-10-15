@@ -1,0 +1,315 @@
+REVIEWS for docs/reports/ziggurat-mineshaft-2026-10-15.md (final: Codex APPROVE r5+r6, Claude APPROVE r3+r5)
+
+================ CODEX r1 (codex exec) ================
+1. **P1 — Start-position reconstruction subtracts the duration twice.**  
+   `bots/src/logger.mjs:59` sets `@timestamp` to **startedAt**, not completion time. M:111 subtracts `duration_ms + 500` from that start timestamp. Furthermore, skill rows contain completion snapshots (`bots/src/runner.mjs:431`), while M:122 indexes those snapshots by the start timestamp. The resulting history is neither chronological observation history nor reliable pre-call position history. Reconstruct observation times by row type, report missing/stale positions, and recalculate descent distances, depth bands, session starts, and catchment estimates.
+
+2. **P1 — The shaft adoption rule excludes the dominant measured request pattern.**  
+   R:120 says 75% of calls request less than two blocks of descent; R:508 admits shaft routing only for requests at least eight blocks down. Grouping short calls into sessions does not make any individual call eligible. R:527 nevertheless applies a 50–75% saving to the entire near-home session yield. Measure eligible **calls and their yield**, or specify deterministic routing that actually intercepts incremental requests. Also handle targets below the shaft bottom: bottom 16, target −20 gives a residual of 36, contradicting “≤7” at R:514.
+
+3. **P1 — Exit credit can credit construction that has not happened.**  
+   T6 proposes debt zero after a “walk-profile” probe (R:498). The existing walk profile permits towers and scaffolding (`bots/src/index.mjs:367–387`). A read-only planner can therefore return a route containing future placements; read-only describes the probe’s effects, not the returned route’s requirements. Require a successful, loaded-world, **zero-break/zero-place** route to an intact ascent and safe collar exit. Revalidate the return route for each proposed descent step, while retaining health and working-tool requirements.
+
+4. **P1 — Junk-well interception creates an inventory deadlock.**  
+   R:386–389 withholds stone whenever an open segment is reachable, but monument work can still be disallowed by its 16-block minimum, cooldown, hourly budget, lease contention, or ready conversion (R:379–382). A full bag can then retain unusable surplus while a conversion cannot make room. This is precisely the existing ordering trap documented at `bots/src/cognitive.mjs:842–846`. Suppress disposal only when an executable material-consuming visit is admitted, with deterministic overflow fallback; test full-bag conversion, exhausted budget, and unavailable-lease chains.
+
+5. **P1 — Independent segment advancement invalidates the construction safety argument.**  
+   R:360 requires only the cells below a segment to be complete. One quadrant can therefore rise several layers while another remains low, creating unfinished internal walls and drops exceeding two blocks. Quadrants also meet at the centre; they do not keep builders 20 blocks apart (R:361). Add a global layer barrier or prove safe asynchronous schedules, including access stairs, occupied cells, collision avoidance, and interrupted builds. A serial centre-out stand simulation does not prove concurrent construction safe.
+
+6. **P1 — Monument protection names remedies without establishing their capability.**  
+   “A route … always exists,” “walk 4 off the apron,” and “the bot pillars” (R:412–424) do not follow from a solid final shape. Foundations can border existing underground pockets; neighbouring terrain can block travel; a trapped bot can lack pillar material. `pillarOut` explicitly refuses insufficient inventory (`bots/src/reflex.mjs:5066–5080`). Test partial construction and adjacent entombment with exhausted inventory, blocked overhead, and unloaded terrain. Admission must preserve an executable exit before protection removes the alternatives.
+
+7. **P1 — Shaft geometry and safety are not yet a complete executable specification.**  
+   R:460 requires a solid perimeter at every level, while R:464 requires openings into landing rooms. Those portals need explicit geometry and protection semantics. The 4×3 column survey (R:485) does not cover the rooms, stubs, or newly exposed liquid faces. T9 reserves lining and ladders, but not the tool capability and verified return path needed throughout a partially completed level. Specify portals, terminal landings, excavation envelopes, and safe interruption states, then demonstrate survey → line → dig → ladder → retreat under failures. T8’s “cannot open into liquid later” does not follow from protecting the shaft lining when its landing passages remain open.
+
+8. **P2 — Pickup positions are flush positions, not pickup locations.**  
+   M:99–101 assigns every group in a summary the summary row’s `bot.pos`. The logger accumulates pickups and emits later (`bots/src/pickuplog.mjs:335,385,422–438`); `bots/src/index.mjs:989` snapshots the bot at that later emission. Thus the 88% underground share and near-home pickup yields are not spatial measurements of the underlying pickups. Aggregate location at collection time, or label these as flush-location proxies and remove precise catchment claims.
+
+9. **P2 — Pickup ownership does not establish dig cause or necessity.**  
+   `attributeTo` records the current holder/skill (`bots/src/pickuplog.mjs:74–78`), not the producer of the item. Someone else’s drops can be collected during **any** skill, not just idle/home. Likewise, an iron-gather label does not prove an ore-tunnel excavation, and a survival label does not prove that the excavation was necessary. “Every surface-start descent is a new staircase” also overreaches: `mine` skips already-air cells (`bots/src/skills.mjs:10104–10117`). Report activity-attributed collections; reserve causal and “needed” judgements for traced digs or behavioural evidence.
+
+10. **P2 — Session construction does not implement the stated definition.**  
+    M:138–153 groups only mine rows, so intervening surface, home, gather, death, or restart activity cannot terminate a session. Two separate descents within ten minutes become one session credited to its first position. M:156 also treats valid y=0 as missing through `or 999`. Split on intervening activities and discontinuities, use explicit null checks, and publish the 5/10/20-minute sensitivity results already requested by the script.
+
+11. **P2 — Savings denominators do not match deployment eligibility.**  
+    R:307 excludes isolated pools, yet R:527 uses the whole-fleet catchment and R:145–146 divides by 16 towns; the siting work covers 12 shared worlds. Measurement uses distance from **home**, while routing uses distance from the **collar** (R:507), displaced by 17–21 blocks. R:529 additionally multiplies a near-home count by the fleet-wide 88% depth share instead of measuring their intersection. Recalculate savings using shared-world, actual-site, eligible-request denominators.
+
+12. **P2 — Funding projections are not a closed material budget.**  
+    M:249–254 sums skill inventory deltas, not town-wide stock change. Withdrawals, deposits, deaths, and pickups outside measured skills require reconciliation before “net” becomes renewable supply. R:626 also says surplus falls roughly proportionally: subtracting the proposed 7.8–11.9k/day cut from the stated 9.1k/day net leaves **+1.3k to −2.8k/day**, before redirects and behavioural changes. The 10–15-day estimate omits the stated foundation allowance. Finally, 3,780 cobble is the skin requirement, not guaranteed total cobble consumption when the core also accepts cobble. Publish per-world balances including chest stock, redirects, foundation, floor priority, and post-change supply.
+
+13. **P2 — Siting does not establish the asserted clearances or labour exposure.**  
+    An apron starting at Chebyshev 22 does not clear a radius-16 box’s **+8 read margin**, which reaches 24 (R:314–315). Also, time spent within 48 of home is not time available at a monument whose centre may be 64 away. Distinguish exclusion from read margins, and include travel, loaded-chunk coverage, foundation access, and apron elevation in Z0’s feasibility and labour estimates.
+
+14. **P2 — Record completion and leasing need stronger invariants.**  
+    R:351–352 accepts any allowed full cube as “done,” including a granite skin cell that violates the cobble-skin specification. Completion must be role-specific. Exclusive creation of individual lease files does not itself enforce the world-wide three-lease limit or safe reclamation after expiry. Specify atomic admission and stale-owner fencing, and validate crash/restart and simultaneous-acquisition behaviour. The plan also requires a durable home for its `stuck` state and no-progress timing.
+
+15. **P2 — §5.1 needs consistent material sets and executable refusal handling.**  
+    The measured “full bag” population counts cobble/deepslate only (M:268–293); the proposed refusal counts “stone-family”; the milestone accepts its `COBBLE` family (`bots/src/milestones.mjs:757–764`). These are different predicates. Sixty-four granite, for example, must not block gathering material needed for that rung. Removing mine credit must also add appropriate withdraw attempt attribution (`milestones.mjs:58`). “Names the blocks held” is not an executable remedy: specify the selected conversion, completion, or disposal action. Re-estimate the withdrawal cut after excluding entombed and unreachable cases.
+
+16. **P2 — §5.2 confuses planner failure with physical impossibility.**  
+    `noPath` exhausts the planner’s allowed graph, not every physical walking route. Loaded-world limits, exclusions, movement restrictions, and search bounds matter; partial results also need interpretation. The retry is triggered by inadequate displacement (`bots/src/skills.mjs:499–518`), so executor failure must be distinguished from search failure. Record the correlated plan, profile, goal, bounds, execution outcome, and retry digs. Also, a modest dig surcharge is not automatically a veto: pruning occurs when the relevant cost crosses the threshold. See upstream [A*](https://raw.githubusercontent.com/PrismarineJS/mineflayer-pathfinder/2.4.5/lib/astar.js) and [movement costs](https://raw.githubusercontent.com/PrismarineJS/mineflayer-pathfinder/2.4.5/lib/movements.js).
+
+17. **P2 — Canary zeros need explicit observability and exposure controls.**  
+    “No reserved cell lost” cannot mean only “later reads as air” (R:439): wrong replacements, broken ladder continuity, unloaded cells, and unread cells need separate outcomes. State verified cells/expected cells, shaft trips, builder-hours, and instrument positive controls. One placement proves liveness, not useful construction throughput. The shaft-use read should also measure eligible requests, actual adoption, completed descents/ascents, and output: reduced mine-attributed cobble alone can reward routing failures that stop mining.
+
+18. **P3 — Reconcile the remaining accounting and reproducibility gaps.**  
+    R:82–87 lists outcomes summing to **126,573**, leaving **39 of 126,612** unexplained; the instrument has additional outcome categories. M:83–89 counts pickup rows but does not count successful tail parses, so it does not substantiate “21,817 of 21,817 tails” by itself. The seven-day script ends each day at 23:56 (M:329), which should be explicit. Use the required telemetry reader or document the necessary extension, and retain machine-readable outputs supporting these controls.
+
+VERDICT: CHANGE
+1. **P1 — Start-position reconstruction subtracts the duration twice.**  
+   `bots/src/logger.mjs:59` sets `@timestamp` to **startedAt**, not completion time. M:111 subtracts `duration_ms + 500` from that start timestamp. Furthermore, skill rows contain completion snapshots (`bots/src/runner.mjs:431`), while M:122 indexes those snapshots by the start timestamp. The resulting history is neither chronological observation history nor reliable pre-call position history. Reconstruct observation times by row type, report missing/stale positions, and recalculate descent distances, depth bands, session starts, and catchment estimates.
+
+2. **P1 — The shaft adoption rule excludes the dominant measured request pattern.**  
+   R:120 says 75% of calls request less than two blocks of descent; R:508 admits shaft routing only for requests at least eight blocks down. Grouping short calls into sessions does not make any individual call eligible. R:527 nevertheless applies a 50–75% saving to the entire near-home session yield. Measure eligible **calls and their yield**, or specify deterministic routing that actually intercepts incremental requests. Also handle targets below the shaft bottom: bottom 16, target −20 gives a residual of 36, contradicting “≤7” at R:514.
+
+3. **P1 — Exit credit can credit construction that has not happened.**  
+   T6 proposes debt zero after a “walk-profile” probe (R:498). The existing walk profile permits towers and scaffolding (`bots/src/index.mjs:367–387`). A read-only planner can therefore return a route containing future placements; read-only describes the probe’s effects, not the returned route’s requirements. Require a successful, loaded-world, **zero-break/zero-place** route to an intact ascent and safe collar exit. Revalidate the return route for each proposed descent step, while retaining health and working-tool requirements.
+
+4. **P1 — Junk-well interception creates an inventory deadlock.**  
+   R:386–389 withholds stone whenever an open segment is reachable, but monument work can still be disallowed by its 16-block minimum, cooldown, hourly budget, lease contention, or ready conversion (R:379–382). A full bag can then retain unusable surplus while a conversion cannot make room. This is precisely the existing ordering trap documented at `bots/src/cognitive.mjs:842–846`. Suppress disposal only when an executable material-consuming visit is admitted, with deterministic overflow fallback; test full-bag conversion, exhausted budget, and unavailable-lease chains.
+
+5. **P1 — Independent segment advancement invalidates the construction safety argument.**  
+   R:360 requires only the cells below a segment to be complete. One quadrant can therefore rise several layers while another remains low, creating unfinished internal walls and drops exceeding two blocks. Quadrants also meet at the centre; they do not keep builders 20 blocks apart (R:361). Add a global layer barrier or prove safe asynchronous schedules, including access stairs, occupied cells, collision avoidance, and interrupted builds. A serial centre-out stand simulation does not prove concurrent construction safe.
+
+6. **P1 — Monument protection names remedies without establishing their capability.**  
+   “A route … always exists,” “walk 4 off the apron,” and “the bot pillars” (R:412–424) do not follow from a solid final shape. Foundations can border existing underground pockets; neighbouring terrain can block travel; a trapped bot can lack pillar material. `pillarOut` explicitly refuses insufficient inventory (`bots/src/reflex.mjs:5066–5080`). Test partial construction and adjacent entombment with exhausted inventory, blocked overhead, and unloaded terrain. Admission must preserve an executable exit before protection removes the alternatives.
+
+7. **P1 — Shaft geometry and safety are not yet a complete executable specification.**  
+   R:460 requires a solid perimeter at every level, while R:464 requires openings into landing rooms. Those portals need explicit geometry and protection semantics. The 4×3 column survey (R:485) does not cover the rooms, stubs, or newly exposed liquid faces. T9 reserves lining and ladders, but not the tool capability and verified return path needed throughout a partially completed level. Specify portals, terminal landings, excavation envelopes, and safe interruption states, then demonstrate survey → line → dig → ladder → retreat under failures. T8’s “cannot open into liquid later” does not follow from protecting the shaft lining when its landing passages remain open.
+
+8. **P2 — Pickup positions are flush positions, not pickup locations.**  
+   M:99–101 assigns every group in a summary the summary row’s `bot.pos`. The logger accumulates pickups and emits later (`bots/src/pickuplog.mjs:335,385,422–438`); `bots/src/index.mjs:989` snapshots the bot at that later emission. Thus the 88% underground share and near-home pickup yields are not spatial measurements of the underlying pickups. Aggregate location at collection time, or label these as flush-location proxies and remove precise catchment claims.
+
+9. **P2 — Pickup ownership does not establish dig cause or necessity.**  
+   `attributeTo` records the current holder/skill (`bots/src/pickuplog.mjs:74–78`), not the producer of the item. Someone else’s drops can be collected during **any** skill, not just idle/home. Likewise, an iron-gather label does not prove an ore-tunnel excavation, and a survival label does not prove that the excavation was necessary. “Every surface-start descent is a new staircase” also overreaches: `mine` skips already-air cells (`bots/src/skills.mjs:10104–10117`). Report activity-attributed collections; reserve causal and “needed” judgements for traced digs or behavioural evidence.
+
+10. **P2 — Session construction does not implement the stated definition.**  
+    M:138–153 groups only mine rows, so intervening surface, home, gather, death, or restart activity cannot terminate a session. Two separate descents within ten minutes become one session credited to its first position. M:156 also treats valid y=0 as missing through `or 999`. Split on intervening activities and discontinuities, use explicit null checks, and publish the 5/10/20-minute sensitivity results already requested by the script.
+
+11. **P2 — Savings denominators do not match deployment eligibility.**  
+    R:307 excludes isolated pools, yet R:527 uses the whole-fleet catchment and R:145–146 divides by 16 towns; the siting work covers 12 shared worlds. Measurement uses distance from **home**, while routing uses distance from the **collar** (R:507), displaced by 17–21 blocks. R:529 additionally multiplies a near-home count by the fleet-wide 88% depth share instead of measuring their intersection. Recalculate savings using shared-world, actual-site, eligible-request denominators.
+
+12. **P2 — Funding projections are not a closed material budget.**  
+    M:249–254 sums skill inventory deltas, not town-wide stock change. Withdrawals, deposits, deaths, and pickups outside measured skills require reconciliation before “net” becomes renewable supply. R:626 also says surplus falls roughly proportionally: subtracting the proposed 7.8–11.9k/day cut from the stated 9.1k/day net leaves **+1.3k to −2.8k/day**, before redirects and behavioural changes. The 10–15-day estimate omits the stated foundation allowance. Finally, 3,780 cobble is the skin requirement, not guaranteed total cobble consumption when the core also accepts cobble. Publish per-world balances including chest stock, redirects, foundation, floor priority, and post-change supply.
+
+13. **P2 — Siting does not establish the asserted clearances or labour exposure.**  
+    An apron starting at Chebyshev 22 does not clear a radius-16 box’s **+8 read margin**, which reaches 24 (R:314–315). Also, time spent within 48 of home is not time available at a monument whose centre may be 64 away. Distinguish exclusion from read margins, and include travel, loaded-chunk coverage, foundation access, and apron elevation in Z0’s feasibility and labour estimates.
+
+14. **P2 — Record completion and leasing need stronger invariants.**  
+    R:351–352 accepts any allowed full cube as “done,” including a granite skin cell that violates the cobble-skin specification. Completion must be role-specific. Exclusive creation of individual lease files does not itself enforce the world-wide three-lease limit or safe reclamation after expiry. Specify atomic admission and stale-owner fencing, and validate crash/restart and simultaneous-acquisition behaviour. The plan also requires a durable home for its `stuck` state and no-progress timing.
+
+15. **P2 — §5.1 needs consistent material sets and executable refusal handling.**  
+    The measured “full bag” population counts cobble/deepslate only (M:268–293); the proposed refusal counts “stone-family”; the milestone accepts its `COBBLE` family (`bots/src/milestones.mjs:757–764`). These are different predicates. Sixty-four granite, for example, must not block gathering material needed for that rung. Removing mine credit must also add appropriate withdraw attempt attribution (`milestones.mjs:58`). “Names the blocks held” is not an executable remedy: specify the selected conversion, completion, or disposal action. Re-estimate the withdrawal cut after excluding entombed and unreachable cases.
+
+16. **P2 — §5.2 confuses planner failure with physical impossibility.**  
+    `noPath` exhausts the planner’s allowed graph, not every physical walking route. Loaded-world limits, exclusions, movement restrictions, and search bounds matter; partial results also need interpretation. The retry is triggered by inadequate displacement (`bots/src/skills.mjs:499–518`), so executor failure must be distinguished from search failure. Record the correlated plan, profile, goal, bounds, execution outcome, and retry digs. Also, a modest dig surcharge is not automatically a veto: pruning occurs when the relevant cost crosses the threshold. See upstream [A*](https://raw.githubusercontent.com/PrismarineJS/mineflayer-pathfinder/2.4.5/lib/astar.js) and [movement costs](https://raw.githubusercontent.com/PrismarineJS/mineflayer-pathfinder/2.4.5/lib/movements.js).
+
+17. **P2 — Canary zeros need explicit observability and exposure controls.**  
+    “No reserved cell lost” cannot mean only “later reads as air” (R:439): wrong replacements, broken ladder continuity, unloaded cells, and unread cells need separate outcomes. State verified cells/expected cells, shaft trips, builder-hours, and instrument positive controls. One placement proves liveness, not useful construction throughput. The shaft-use read should also measure eligible requests, actual adoption, completed descents/ascents, and output: reduced mine-attributed cobble alone can reward routing failures that stop mining.
+
+18. **P3 — Reconcile the remaining accounting and reproducibility gaps.**  
+    R:82–87 lists outcomes summing to **126,573**, leaving **39 of 126,612** unexplained; the instrument has additional outcome categories. M:83–89 counts pickup rows but does not count successful tail parses, so it does not substantiate “21,817 of 21,817 tails” by itself. The seven-day script ends each day at 23:56 (M:329), which should be explicit. Use the required telemetry reader or document the necessary extension, and retain machine-readable outputs supporting these controls.
+
+VERDICT: CHANGE
+
+================ CLAUDE r1 (separate Claude subagent) ================
+Claude review r1 (separate Claude subagent, read-only)
+
+P1
+1. Withdraw rule drains a fixed stock, not a daily flow (cap 256, cobblecap.mjs:60, stocktarget.mjs:37; stoneSource withdraws only above need+256, nothing refills that band; "chests overflow" rests on cap refusals; 28% entombed runs excluded -> ceiling ~1.6k not 2.2k).
+2. Shaft expected cut counts sessions the routing cannot serve (328 of 444 near-home sessions started underground; route begins "walk to the collar"; addressable surface-start ≤48 = 1,938 -> 3.1k/day; trigger y ≤ bot.y-8 vs 75% of calls descending <2; 5.1-7.7k not supported).
+3. Trap: a bot underneath the ziggurat footprint (surface GoalY 3,000-node probe skills.mjs:12413 then shaftAscend; pillarOut digs straight up reflex.mjs:2950-2953; with reserved cells refused both fail and the reflex asks for a pickaxe the bot holds reflex.mjs:2903-2917). Needs a named executable remedy + chain test at centre, base-5, base-20.
+4. Well skip must use the monument's own admission rule (3 leases vs 5 bots, cooldown, 10 min/bot-h, conversion-ready, backoff); else full bag with no outlet -> pickaxe toss condition. One shared pure function; canary bag-full/toss gate.
+P2
+5. §2.3 misstates the builder: plinth supportsFor does side faces (plinth.mjs:22,315-322). 2,116 = 46², one roof cell per interior column for every S - property of any roofed hollow.
+6. Stone-family blocks are not junk: well.mjs:97-108 STONE_GUARD 64 over RESERVE_STONE; exit-contract SCAFFOLD counts them. Use guardLeft.
+7. "3.8k cobble" undersells: stone-family flow small, most of the 10.9k core will be cobble. Present Z1-a as 14.7k blocks, mostly cobble.
+8. Z5 needs numbers: net +9.1k/day vs a 7.8-11.9k cut; scaffold sinks unchanged so bags drain and the 64 reserve refills through gather stone; part of the cut moves to gather; after the shaft the ziggurat is funded mostly by the well redirect.
+9. T6 "debt = 0" too broad: keep pickaxe-swing reserve and health floor (exit-contract.mjs:125-175); below a landing debt = y_landing - y; probe inside the per-dig check (skills.mjs:~9975) must be cached; 273 refusals has no denominator.
+10. Falling into the shaft: pathfinder ladder safe+physical (movements.js:233-234) -> routes across the collar step onto the top ladder and slide down; interrupted bot slides to the sump. Permanent step exclusion over both columns except the shaft route; sump a proven stand with route to column 1; DOWN/UP rule not enforced by the planner.
+11. Withdraw order must be deterministic (90% model-originated); positive control that gather reaches buried stone beyond 48 before deleting "or mine".
+12. Scope/denominators: 20 isolated bots; shaft section silent; both cuts fleet-scaled. CLAUDE.md requires an OSS/issues search for designs on mineflayer/Paper behaviour (ladder traversal, climbable fall reset); none recorded.
+13. Trapping a bystander during fill: do not place a cell next to an entity standing below the current layer.
+P3
+14. Start-position: @timestamp is the start (logger.mjs:59); t - duration goes back one extra duration.
+15. Inconsistent figures: 6.3 vs 6.5k; 17-26% vs 18-26%; 2,004 and 351 in no table; funding range 0.3-3k does not follow (≈0 to 4.2k).
+16. Rotated-file cutoffs differ (pool.py/pass2.py ≥20261015, stonecause ≥20261014); no row reconciliation for pass2/pool.
+17. Pickup depth/distance use the summary row's position.
+18. No DiD for the primary (placements per pool-hour is liveness); the well-disposal DiD is the outcome.
+Checked and correct: §1.2 sums/shares; session totals 861/14,003; zig.py tier counts and B64; labour arithmetic; ladders ~32 logs; T1 claims; T3 home refusal Euclidean 12 (skills.mjs:9836); T7.
+VERDICT: CHANGE
+
+================ CODEX r2 (codex exec) ================
+
+codex
+Read `CLAUDE.md`, both r1 reviews, r2, the measurement scripts, and the relevant admission, mining, and escape code. Host measurements were not independently rerun.
+
+References below use **R** = `docs/reports/ziggurat-mineshaft-2026-10-15.md` and **M** = its `.measure.py.txt` companion.
+
+**Disposition of every Codex r1 P1/P2**
+
+| r1 finding | Status | Reason |
+|---|---|---|
+| P1-1: Start-position reconstruction | **RESOLVED** | `mine2.py` timestamps skill observations at start + duration, selects the latest observation preceding admission, and reports missing positions and staleness. These remain estimated start positions; idle throughout the gap is an assumption. |
+| P1-2: Shaft adoption excludes incremental requests | **NOT RESOLVED** | Landing hops address incremental requests and explicitly retain below-bottom residuals. However, their admission and exit-contract ordering is unspecified, and the savings still include unserved digging. See new findings 2 and 6. |
+| P1-3: Exit credit for hypothetical construction | **NOT RESOLVED** | Zero-break/zero-place is the right correction. The cache does not track world changes, and current-cell verification does not establish the exit after the proposed step. See finding 3. |
+| P1-4: Junk-well inventory deadlock | **RESOLVED** | R:516–548 gates suppression on executable admission, directly selects the monument visit, and specifies fallback after failure. Implement lease-acquisition failures through that same fallback. |
+| P1-5: Independent segment advancement | **NOT RESOLVED** | The barrier fixes initial construction, but reopening a buried layer invalidates the one-partial-layer proof and can permanently block progress. See finding 1. |
+| P1-6: Protection without executable escape | **RESOLVED** | Target-only protection leaves survival and transit escape capabilities available. This removes the proposed hard-veto trap; it does not prove every existing escape succeeds. The replacement repair argument has a separate defect. |
+| P1-7: Incomplete shaft specification | **NOT RESOLVED** | Portals and the survey envelope are substantially clearer, but collar geometry, terminal landings, material reservations, and interrupted construction remain inconsistent. See findings 4–5. |
+| P2-8: Flush positions presented as pickup positions | **RESOLVED** | Flush-location proxies are explicitly labelled; mine catchment uses reconstructed call starts. |
+| P2-9: Pickup ownership presented as cause | **RESOLVED** | R:119–127 distinguishes collecting activity from the breaker, and the new-staircase claim is qualified. |
+| P2-10: Session definition | **NOT RESOLVED** | Intervening skills, deaths, null handling, and gap sensitivity are corrected. However, M:173 only admits skill rows and `_death` into the timeline; restart and position discontinuities still cannot terminate sessions. Sessions no longer drive the cut estimate, reducing the impact. |
+| P2-11: Savings denominators | **NOT RESOLVED** | Shared-world separation and the goto intersection are corrected. Actual collar catchment is deferred, while all surface starts are still treated as served. Below-bottom yield also remains included. |
+| P2-12: Closed funding budget | **NOT RESOLVED** | R:275–276 honestly disclaims a closed balance, but R:397–411 still converts those deltas into renewable funding and completion times. Per-world reconciliation of stock, transfers, deaths, redirects, foundation and floor backlog remains absent. |
+| P2-13: Siting clearance/exposure | **RESOLVED** | Apron distance 25 clears the read margin; home exposure is labelled an upper bound, and Z0 must measure site exposure and foundation feasibility. |
+| P2-14: Completion and leases | **RESOLVED** | Role-specific completion, fixed admission slots, fencing, and durable stall state are specified. Crash and concurrent-acquisition validation remains an implementation obligation. |
+| P2-15: Material predicates/refusal handling | **RESOLVED** | The problematic full-bag refusal is dropped. Floor 64 makes withdrawals possible, admission rewrites model proposals, withdraw receives milestone credit, and failure selects gather with backoff. |
+| P2-16: Planner failure versus impossibility | **RESOLVED** | R:815–838 distinguishes planner and executor failures, instruments both, and claims no savings before measurement. |
+| P2-17: Canary observability | **RESOLVED** | Exposure, verified/expected cells, unread/unloaded outcomes, adoption, throughput, and iron/ore output guards are now specified. |
+
+**New findings in r2**
+
+1. **P1 — Self-repair can permanently block the global layer barrier.**  
+   **R:479–497, 556, 574–579.** An escape may replace monument blocks with dirt or another scaffold material: `pillarOut` accepts such materials (`bots/src/reflex.mjs:3335,5067–5070,5130`). Those replacements are not necessarily valid core blocks, and even valid core material can be invalid skin. Completion rejects them, while the builder never digs and explicitly leaves foreign skin blocks alone. Reopening that layer therefore cannot restore completion; the entire monument stalls.
+
+   Buried air damage also needs a repair-access proof: upper layers remain present, so the original open-slab stand/reachability argument no longer applies. This is a construction deadlock, not proof that target-only protection itself traps the escaping bot. Specify an executable repair policy or an explicit degraded-state policy that cannot indefinitely block unrelated construction. Test escape → replacement → reopen → repair → resume.
+
+2. **P1 — Landing hops bypass the location where descent safety is currently enforced.**  
+   **R:695–709; `bots/src/admission.mjs:543–556`; `bots/src/skills.mjs:9975` onward.** Today admission checks requested depth and pickaxe possession; health and durability reserves are checked inside the digging loop. A hop that overshoots the target performs no residual digging, so it can descend without that check.
+
+   Conversely, leaving the existing skill preconditions ahead of routing preserves home-radius refusals that the surface-adoption estimate assumes routing removes. Define the ordering explicitly: validate intent, select the effective landing, check health/tool capability and the complete return route, then travel. Apply digging-specific home restrictions to residual digging. Include low-health, exhausted-pickaxe, near-home, and two-block-request → eight-block-hop cases.
+
+3. **P1 — T6’s cache is not a valid safety certificate for the next descent step.**  
+   **R:686.** `(bot cell, shaft record generation)` does not change when another bot removes a route block, terrain becomes unloaded, or the current operation changes the route. Three digs can occur from the same cell while reusing the same positive cache entry.
+
+   Re-reading ladder continuity alone does not validate the approach, portal, or safe collar exit. Nor does a route from the current position establish a return from the proposed destination. Cache search work if useful, but revalidate the certificate’s world dependencies and the post-step return path before committing each descent.
+
+4. **P1 — Shaft construction still promises interruption states its sequence cannot maintain.**  
+   **R:644–653, 689, 738–744.** “A core cell is never left open without its ladder” conflicts with separate dig and ladder operations: interruption can occur between them. Likewise, construction extending to stub z=8 cannot simply assume the builder always stands in a laddered column; intermediate work positions and their retreat routes need specification.
+
+   The ≤14 lining reserve is also insufficient for a landing in a cavity. Its core/portal/room/stub floor alone spans **2 + 2 + 12 + 8 = 24 cells**, before other shell cells. Reserve the actual planned material requirement and describe safe states after every individual mutation, including rejected placement and disconnect.
+
+5. **P2 — Collar, terminal landing, and profile exceptions need explicit reconciliation.**  
+   **R:627–649, 682, 686, 690.** The collar entry is at z=−1, which is also the ladder-support wall. Give the entry’s actual feet/head elevations and support geometry. Also, `c−8k` generally does not equal 16: for c=73, regular landings end at 17. Specify the additional terminal landing or use the actual terminal elevation consistently.
+
+   T10 permits only two shaft profiles. State explicitly how T6 validates the ascent and how `use_ladder` invokes the permitted ascent profile; an ordinary dedicated probe or escape profile cannot enter excluded columns. Test those compositions, not merely the exclusion’s presence.
+
+6. **P2 — The descent cut includes digging that the design explicitly leaves unchanged.**  
+   **M:255–257; R:711–734.** `a16` includes **all** cobble from calls starting above 16. A call starting at 20 and ending at −20 therefore contributes its entire yield, although the shaft leaves the 16→−20 residual untouched. This contradicts “credits nothing below 16.”
+
+   Furthermore, surface position within 48 of home does not establish a successful zero-edit route to a collar within its different radius. Recompute eligible yield against actual sites and separate below-bottom residual yield. Until then, 0.74k/day is a candidate surface yield, not a guaranteed floor.
+
+7. **P3 — The low/central/high totals and town-stock summary are inconsistent.**  
+   **R:724–730,850.** Using the table’s assumptions:
+
+   - Low: `0.744 + 0 + 0.1984 + 0 = 0.9424k/day`, not 1.1k.
+   - Central: approximately **4.69k/day**, consistent with 4.7k.
+   - High: approximately **8.21k/day**, rounding to 8.2k rather than 8.3k.
+   - Adding withdrawals gives approximately **1.44–8.96k/day**, before correcting eligibility.
+
+   **R:55,287–288:** “every shared town” at cap conflicts with the detailed exceptions. Nine capped towns plus four named exceptions also exceeds twelve towns. Reconcile the town list and distinguish container counts from town totals.
+
+VERDICT: CHANGE
+
+================ CLAUDE r2 (separate Claude subagent) ================
+Claude review r2 (same separate Claude subagent)
+Status of r1: P1-1 withdraw stock RESOLVED; P1-2 shaft eligibility RESOLVED (table sums check 2,366/4,376/4,191/3,839); P1-3 bot under footprint RESOLVED for the bot (opens P1-A); P1-4 well deadlock RESOLVED; P2-5..P2-13 RESOLVED (P2-9 cache nit in P3; P2-10 opens P2-C).
+P1-A Self-repair + layer barrier can stall the build forever: pillarOut refills with the cheapest scaffold (SCAFFOLD_RANK dirt/stone/andesite rank 0, cobblestone rank 2; toolfor.mjs:368-372, reflex.mjs:3326); skin done only if cobblestone, core never accepts dirt, foreign left alone, stuck never skipped -> the layer re-opens and never completes; an escape passage sealed by a later layer has no stand. Fix: barrier on the open frontier only; accept/report voids under closed layers; core/foundation accept any full non-falling solid incl. dirt; foreign skin reported not blocking, or a witnessed replace-dig by the monument only. Chain test: escape through layers 0..k, build reaches k+1.
+P2-B Withdraw rewrite tests horizontal distance only (near.py near48 is Chebyshev xz): a bot at y=20 is sent to the surface chests and may dig more via goto's retry on the way back. Depth limit or zero-dig walk probe; re-measure.
+P2-C T10 leaves no legal move inside a column for other profiles: a bot interrupted mid-ladder slides to y=16; any non-home goto cannot use either column; dig retry refused at the lining cuts a new ~50-block staircase from the stub end. Fix: any path starting inside the envelope uses shaft-up; chain test. index.mjs shares exclusionAreasStep by reference (~545, ~723): shaft profiles need their own arrays; test shaft-down can enter column 0.
+P3: low 0.94k not 1.1k, high 8.2k not 8.3k, §5.4 ≈1.4-9.0k; §0 funding 1-2.5k vs §2.4 0.6-2.5k; median after cuts ≈200 not 250; label 7.0k descent-only ceiling; T6 cache keyed by bot cell never hits - state the probe node budget; state routing vs the 12-block home refusal (276 forbidden calls become descents); well should yield only when the monument is the order actually issued that lap; landing hops send ore tunnels to stub ends - read gather:iron_ore cobble beside the iron guard.
+VERDICT: CHANGE
+
+================ CODEX r3 (codex exec) ================
+
+codex
+Read `CLAUDE.md`, both prior review rounds, r3, and its measurement companion. This is a design review; host measurements and Paper scenes were not rerun.
+
+References: **R** = `docs/reports/ziggurat-mineshaft-2026-10-15.md`; **M** = its `.measure.py.txt` companion. Explicit Paper/offline gates count as resolving design residuals where their stated checks would catch the failure.
+
+**Disposition of Codex r2 findings**
+
+| Finding | Status | Reason |
+|---|---|---|
+| P1-1: Repair permanently blocks the barrier | **RESOLVED** | Foreign solids can complete as degraded; buried damage never reopens layers; unplaceable cells can be waived (R:495–532). This removes the repair deadlock, but introduces the safety issue below. |
+| P1-2: Landing hops bypass descent checks | **RESOLVED** | R:740–749 specifies intent → landing → health/residual-tool reserve → destination return certificate → travel. Home restrictions apply to residual digs. T6 retains the health and pickaxe-swing reserves. |
+| P1-3: Invalid cached safety certificate | **RESOLVED** | T6 requires a post-step return path and revalidates loaded floor/body cells, portals, columns, and collar exit before every dig or hop; only search work is cached (R:731). |
+| P1-4: Unsafe construction interruption states | **RESOLVED** | T9 reserves survey-counted materials and tool durability, specifies states between individual mutations, and requires interruption, disconnect, and rejected-placement Paper tests (R:734). These gates cover the remaining execution questions. |
+| P2-5: Collar, terminal landing, profile exceptions | **NOT RESOLVED** | Collar support conflicts and profile exceptions are addressed, with entry mechanics explicitly Paper-gated. But c=73 ends its landings at 17 while the bottom remains nominally 16; R:694 says both columns end on the bottom landing’s floor. The actual bottom and residual calculation remain inconsistent (R:684–695, 767–768). |
+| P2-6: Cut includes below-bottom digging | **RESOLVED** | M:260–268 prorates crossing calls by descent above 16. Surface yield is now a candidate, with actual-site catchment assigned to M0 (R:780–793). This is an estimated allocation, not measured dig-location attribution. The terminal-height inconsistency remains under P2-5. |
+| P3-7: Totals and town-stock inconsistencies | **RESOLVED** | The town list now reconciles: `7×256 + 248 + 578 + 486 + 1245 + 64 = 4413`, across twelve towns. Shaft totals are approximately 0.9424 / 4.6773 / 8.1912k/day; adding withdrawals supports approximately 1.2 / 5.1 / 8.9k/day. “4.67” should strictly round to “4.68,” but this is immaterial estimate precision. |
+
+**Disposition of still-open Codex r1 findings**
+
+| Finding | Status | Reason |
+|---|---|---|
+| P1-2: Incremental requests excluded | **RESOLVED** | Landing hops explicitly intercept short requests, establish check ordering, and retain residual digging. Eligibility estimates now acknowledge actual-site uncertainty (R:740–793). |
+| P1-3: Exit credit for hypothetical construction | **RESOLVED** | T6 requires zero-break/zero-place return capability from the proposed destination, revalidated before each mutation (R:731). |
+| P1-5: Unsafe independent layer advancement | **NOT RESOLVED** | A single frontier prevents independent quadrant advancement, but arbitrary waived cells invalidate the claimed one-partial-layer safety invariant. See new P1 below. |
+| P1-7: Incomplete shaft specification | **NOT RESOLVED** | Survey, reservations, interruption states, collar gating, and profile composition are substantially resolved. Terminal landing versus actual bottom remains inconsistent. |
+| P2-10: Session discontinuities | **NOT RESOLVED** | M still terminates sessions only on intervening skills/deaths or elapsed gaps. Restart and position discontinuities remain unsplit. R:1013 acknowledges restarts, but removing sessions from savings estimates reduces impact rather than correcting their definition. |
+| P2-11: Savings denominators | **RESOLVED** | Shared-world scope, above-bottom prorating, candidate surface yield, and M0 site-specific catchment now make the assumptions explicit (R:776–793). |
+| P2-12: Closed funding budget | **RESOLVED** | Funding is explicitly provisional, and Z0 must reconcile each world’s stock, transfers, redirects, foundation, and floor backlog before fleet code (R:423–425, 935). This satisfies the stipulated offline-gate standard. |
+
+**NEW P1 — Waivers let the frontier advance past persistent fall hazards.**
+
+**Evidence: R:504–505, 519–532, 547–549.** An open or non-full cell becomes waived after three visits, and waived cells permit the next layer to open. Nothing requires that cell to be safely covered, isolated from walking, or checked against the next layer’s support and access requirements.
+
+For example, waive the same interior coordinate in four successive layers because its supporting cell remains absent. The surrounding slab can rise four blocks while that column remains open. One waived cell is only `1/2304 ≈ 0.043%` of a 48×48 layer—well below the 2% read threshold—yet creates a four-block drop. This contradicts the claimed ±1 unfinished-step invariant at R:521–522. The frozen offline proof predates the missing cells; opportunistic repair expressly applies only when a suitable reachable stand exists.
+
+The stated escape→resume test checks completion, not safe traversal around persistent waived holes. Add a safety condition to advancement: every waived/exposed damaged region must be covered or excluded with verified access and escape preserved. Require a Paper scene with vertically aligned waivers and a bystander; otherwise the barrier’s construction-safety finding remains open.
+
+**NEW P2:** None beyond the unresolved findings above.
+
+VERDICT: CHANGE
+
+================ CLAUDE r3 (separate Claude subagent) ================
+Claude review r3: APPROVE. All r2 findings RESOLVED (P1-A frontier-only barrier, done-degraded core accepts dirt, foreign skin counted, voids accepted, waivers bound the frontier, chain test; P2-B withdraw surface-or-probe, re-measured 0.23k+0.52k; P2-C own arrays, slid bot climbs out; P3 numbers agree: 0.94/4.67/8.19, totals 1.17/5.07/8.94 = 3%/15%/26% of 34.5k, funding median ≈215).
+New P2-1 stub-end semantics: (a) shaft-up forced for any path starting in the envelope breaks mine/tunnel/gather from the stub end -> apply shaft-up only from a core column or goal outside+above; otherwise the skill's profile plus column exclusions. (b) T8 reserves every lined cell incl. the z=9 end face -> all four mine bearings refused from the stub end; name the end face and first tread cells unreserved; extend the T3 test to gather iron and tunnel.
+P3: entity-skipped visits must not count toward waiving; ladder collision is a 3/16 plate - "centred, not against the wall"; withdraw central 0.4k assumption unstated; funding weeks round to 3.5 and 10.5; gravel/sand from a pillar can fall - name it in the damage census.
+VERDICT: APPROVE
+
+================ CODEX r4 ================
+
+codex
+Read `CLAUDE.md`, r4, the review history, and the measurement companion. This is a design review; host measurements and Paper scenes were not rerun. **R** denotes the report; **M** its measurement companion.
+
+| Open item | Status | Reason |
+|---|---|---|
+| r3 waiver P1 | **NOT RESOLVED** | The cover rule addresses air holes, but explicitly exempts non-air, non-full blocks that can provide no footing (R:525–535). Details below. |
+| r1 P1-5: unsafe layer advancement | **NOT RESOLVED** | The same exemption leaves the frontier safety invariant unproven. |
+| r2 P2-5: terminal landing | **RESOLVED** | B now means the lowest actual landing; columns terminate there and residual digging is B − y (R:698–703). M0 reports site-specific bottom and landings. |
+| r1 P1-7: incomplete shaft specification | **RESOLVED** | The bottom inconsistency was its remaining issue. Geometry, interruption safety and traversal residuals have explicit M0/Paper gates. |
+| r1 P2-10: session discontinuities | **RESOLVED** | M:225–230 now splits on end-to-start position jumps exceeding eight blocks; §1.3 states that operational definition and reports ten splits. This detects spatial discontinuities, not every process restart. |
+
+Claude’s stub-end P2 is also **RESOLVED** under the stated gate standard: explicit excavation exceptions and narrowed profile selection are backed by the expanded T3 and T10 scenes. R:715 retains the older blanket `shaft-up` wording; align it with T10.
+
+**Remaining P1 — Non-air does not establish safe footing.** R:533 says non-air waived cells “are not holes” and exempts them from covering. Wall torches, for example, have an empty collision bounding box. [PrismarineJS block data](https://raw.githubusercontent.com/PrismarineJS/minecraft-data/master/data/pc/1.21.4/blocks.json)
+
+A vertical sequence of wall torches attached to neighbouring solids can therefore be waived across successive layers while the surrounding slab rises, leaving the same persistent drop identified in r3. No cover obligation or neighbour freeze applies. The specified cover scene does not explicitly exercise this exempt branch; an air-only fixture could pass.
+
+Base the obligation on actual collision support and exposed drop depth, rather than air versus non-air. Extend the named Paper scene to stacked collision-empty non-air cells, requiring safe covering or a stopped frontier before a dangerous drop develops.
+
+**NEW P1/P2:** None separate from that unresolved waiver defect.
+
+VERDICT: CHANGE
+
+================ CODEX r5 ================
+
+codex
+The r4 P1 is **RESOLVED** at the design level. §3.3 applies the cover obligation and neighbour freeze to every waived cell, excludes waived cells from footing, and requires stacked-wall-torch testing with safe covering or a stopped frontier.
+
+No new P1 found in r5. §4.1 now agrees with T10. Paper scenes were not rerun.
+
+VERDICT: APPROVE
+
+================ CODEX r6 ================
+No new P1 found. The anchor supplies the cover's missing support face; the other sides remain one-block exits, and the neighbour freeze prevents further deepening while the cover is pending. Minor wording fix: the Paper scene still says 'a drop of 2 or more never appears'; align it with the permitted temporary two-block drop beside the anchor. This confirms the design; Paper was not rerun.
+
+VERDICT: APPROVE
+
+================ CLAUDE r5 (confirmation) ================
+Claude review r5 (confirmation of r4/r5 changes): stub-end P2 RESOLVED (z=9 face + first tread unreserved; T8 exempts the end face; shaft-up only from a core column or for goals outside+above; T3 test covers mine, gather iron, tunnel). B=17, position-jump session split, P3s introduce nothing new.
+New P2: the cover rule cannot be placed - the cover cell (x,k+1,z) touches only the waived cell below (no solid face), air above and four k+1 side cells the rule forbids placing first; a layer-k neighbour is diagonal (top face places beside the cover, side face fills the waived cell). supportsFor returns no face, so every waiver stops the frontier (safe, but stalls). Fix: place exactly one k+1 neighbour first from a stand with a walk route, then the cover against its side face; the hole is transiently 2 deep beside that one block (under the 3-block fall threshold), still 1 deep elsewhere; state as the invariant and assert in the scene.
+VERDICT: APPROVE

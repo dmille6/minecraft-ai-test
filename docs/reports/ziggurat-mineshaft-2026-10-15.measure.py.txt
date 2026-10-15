@@ -1,0 +1,512 @@
+# Scripts for docs/reports/ziggurat-mineshaft-2026-10-15.md. Run on the fleet host (10.0.0.31) from ~/zig with scripts/lib copied to ~/zig/lib.
+# Window: python3 <script> 2026-10-14T11:30 2026-10-15T02:30 (es7d.py and zig.py take no args). mine2.py supersedes stonecause.py's mine.json for every per-call number.
+# ===== stonecause.py =====
+#!/usr/bin/env python3
+# stonecause.py SINCE UNTIL -- stone/cobble production by cause (ziggurat-mineshaft design, 10-15).
+# Streaming full walk of /var/log/mcai/<bot>/skill-<bot>.jsonl(+rotated gz) per bot, in time order; nothing held but
+# aggregates. Denominators: rows, bots, active bot-minutes (distinct bot x minute with any row).
+import sys, glob, gzip, json, re, os, datetime as dt
+from collections import Counter, defaultdict, deque
+SINCE, UNTIL = sys.argv[1], sys.argv[2]
+HOMES = {'board-a': (355,73,147), 'board-b': (-249,65,144), 'board-c': (355,73,147), 'board-d': (355,73,147),
+         'hive-a': (355,73,147), 'hive-b': (355,73,147), 'hive-c': (-68,68,-68), 'hive-d': (68,65,68),
+         'placebo-a': (249,75,-144), 'placebo-b': (282,65,-388), 'placebo-c': (355,73,147), 'placebo-d': (177,75,73),
+         'isolated-a': (355,73,147), 'isolated-b': (355,73,147), 'isolated-c': (355,73,147), 'isolated-d': (355,73,147)}
+COB = ('cobblestone', 'cobbled_deepslate')
+STONEFAM = set(COB) | {'stone', 'deepslate', 'andesite', 'diorite', 'granite', 'tuff', 'calcite', 'cobbled_deepslate'}
+def pool_of(b): return '-'.join(b.split('-')[:2])
+def dband(d):
+    for lim in (8, 16, 24, 32, 48, 64, 96, 128, 256): 
+        if d <= lim: return '<=%d' % lim
+    return '>256'
+def yband(dy):
+    for lim in (2, -3, -8, -12, -20, -32, -48, -64, -96):
+        if dy >= lim: return '>=%d' % lim
+    return '<-96'
+def srcclass(src):
+    if src.startswith('mine'): return 'mine'
+    if src.startswith('gather:'):
+        a = src.split(':', 1)[1]
+        if a in ('cobblestone', 'stone', 'cobbled_deepslate', 'deepslate'): return 'gather_stone'
+        if a.endswith('_ore') or a in ('raw_iron', 'iron', 'coal', 'raw_copper'): return 'gather_ore'
+        return 'gather_other'
+    if src.startswith('goto') or src.startswith('explore') or src.startswith('surface') or src.startswith('return'): return 'transit:' + src.split(':')[0]
+    if src.startswith('holder:') or src.startswith('reflex:'): return 'survival'
+    if src == 'idle': return 'idle'
+    return 'other:' + src.split(':')[0]
+rows = 0; bots = set(); minutes = set(); kinds = Counter()
+dsum = Counter(); dzone = Counter(); dsum_bot = Counter()
+dtown = Counter(); dtown_blk = Counter()
+pk = Counter(); pk_src = Counter(); pk_cls = Counter(); pk_cls_mode = Counter(); pk_cls_d = Counter(); pk_cls_y = Counter()
+pk_hidden = 0; pk_rows = 0; pk_items = 0
+inv_gain = Counter(); inv_loss = Counter(); inv_gain_arg = Counter()
+mine = []; 
+gpat = re.compile(r'^(\S+) (\d+) (.+) (sought|passive|-)$')
+def files_for(bdir):
+    b = os.path.basename(bdir)
+    fs = sorted(glob.glob(bdir + '/skill-*.jsonl-*.gz'))
+    fs = [f for f in fs if f[-11:-3] >= '20261014']
+    live = glob.glob(bdir + '/skill-*.jsonl')
+    return fs + live
+for bdir in sorted(glob.glob('/var/log/mcai/*-*-*/')):
+    bdir = bdir.rstrip('/')
+    prevpos = None; prevt = None; hist = deque(maxlen=400)
+    for f in files_for(bdir):
+        op = gzip.open if f.endswith('.gz') else open
+        try: fh = op(f, 'rt', errors='ignore')
+        except OSError: continue
+        for line in fh:
+            try: r = json.loads(line)
+            except Exception: continue
+            t = r.get('@timestamp', '')
+            bot = r.get('bot') or {}
+            pos = bot.get('pos')
+            sk = r.get('skill') or {}
+            k = sk.get('name')
+            if not k: continue
+            if t < SINCE or t >= UNTIL:
+                if pos:
+                    prevpos = pos; hist.append((t[:23], pos))
+                continue
+            name = bot.get('name'); 
+            if not name: continue
+            pool = pool_of(name); home = HOMES.get(pool)
+            rows += 1; bots.add(name); minutes.add((name, t[:16])); kinds[k] += 1
+            args = sk.get('args') or {}
+            if k == '_dig_town_sum':
+                dsum['all'] += args.get('all', 0); dsum_bot[name] += args.get('all', 0)
+                for a, v in args.items():
+                    if a.startswith('o_'): dsum[a] += v
+                    if a.startswith('z_'): dzone[a] += v
+            elif k == '_dig_town':
+                key = (args.get('purpose'), args.get('by', '').split(':')[0], args.get('outcome'))
+                dtown[key] += 1; dtown_blk[(args.get('block'), args.get('purpose'), args.get('outcome'))] += 1
+            elif k == '_pickups':
+                pk_rows += 1
+                d = sk.get('detail') or ''
+                head, _, tail = d.rpartition(' | ') if ' | ' in d else ('', '', d)
+                m = re.search(r'\+(\d+) groups \((\d+) items\) not shown', tail)
+                if m: pk_hidden += int(m.group(2))
+                m = re.match(r'(\d+) items', tail)
+                if m: pk_items += int(m.group(1))
+                for g in head.split('; ') if head else []:
+                    mm = gpat.match(g)
+                    if not mm: pk['unparsed'] += 1; continue
+                    it, c, src, mode = mm.group(1), int(mm.group(2)), mm.group(3), mm.group(4)
+                    pk[it] += c
+                    if it in COB:
+                        cls = srcclass(src)
+                        pk_src[src if not src.startswith('mine') else 'mine:*'] += c
+                        pk_cls[cls] += c; pk_cls_mode[(cls, mode)] += c
+                        if pos and home:
+                            dd = max(abs(pos['x'] - home[0]), abs(pos['z'] - home[2])); dy = pos['y'] - home[1]
+                            pk_cls_d[(cls, dband(dd))] += c; pk_cls_y[(cls, yband(dy))] += c
+            delta = sk.get('inventory_delta') or {}
+            if isinstance(delta, dict) and not k.startswith('_'):
+                c = sum(v for n, v in delta.items() if n in COB and isinstance(v, (int, float)))
+                lab = k
+                if k == 'gather': lab = 'gather:' + str(args.get('block') or args.get('item'))
+                if c > 0: inv_gain[lab] += c
+                elif c < 0: inv_loss[lab] += -c
+            if k == 'mine' and home:
+                c = sum(v for n, v in (delta or {}).items() if n in COB and isinstance(v, (int, float))) if isinstance(delta, dict) else 0
+                ts = dt.datetime.fromisoformat(t.replace('Z', '+00:00')) - dt.timedelta(milliseconds=(sk.get('duration_ms') or 0) + 500)
+                tss = ts.strftime('%Y-%m-%dT%H:%M:%S.%f')[:23]
+                p0 = None
+                for (tt, pp) in reversed(hist):
+                    if tt <= tss: p0 = pp; break
+                mine.append({'bot': name, 'pool': pool, 't': t, 'y0': p0.get('y') if p0 else None, 'x0': p0.get('x') if p0 else None, 'z0': p0.get('z') if p0 else None,
+                             'd0': max(abs(p0['x'] - home[0]), abs(p0['z'] - home[2])) if p0 else None,
+                             'y1': pos.get('y') if pos else None, 'gy': args.get('y'), 'hy': home[1],
+                             'st': sk.get('status'), 'fc': sk.get('fail_class'), 'cob': c, 'mv': sk.get('distance_moved'),
+                             'ms': sk.get('duration_ms'), 'det': (sk.get('detail') or '')[:80]})
+            if pos:
+                prevpos = pos; hist.append((t[:23], pos))
+bh = len(minutes) / 60.0
+out = {'since': SINCE, 'until': UNTIL, 'rows': rows, 'bots': len(bots), 'bot_hours': bh, 'kinds_top': kinds.most_common(40),
+       'dsum': dict(dsum), 'dzone': dict(dzone), 'dtown': [[list(k), v] for k, v in dtown.most_common()],
+       'dtown_blk': [[list(k), v] for k, v in dtown_blk.most_common(40)],
+       'pk_rows': pk_rows, 'pk_items': pk_items, 'pk_hidden': pk_hidden, 'pk_top': pk.most_common(30),
+       'pk_src': pk_src.most_common(60), 'pk_cls': dict(pk_cls), 'pk_cls_mode': [[list(k), v] for k, v in pk_cls_mode.items()],
+       'pk_cls_d': [[list(k), v] for k, v in pk_cls_d.items()], 'pk_cls_y': [[list(k), v] for k, v in pk_cls_y.items()],
+       'inv_gain': inv_gain.most_common(50), 'inv_loss': inv_loss.most_common(50)}
+json.dump(out, open(os.path.expanduser('~/zig/stonecause.json'), 'w'), indent=1)
+json.dump(mine, open(os.path.expanduser('~/zig/mine.json'), 'w'))
+print('rows', rows, 'bots', len(bots), 'bot_h %.1f' % bh, 'mine', len(mine))
+
+# ===== mine2.py =====
+#!/usr/bin/env python3
+# mine2.py SINCE UNTIL -- r2 of the mine measurement (Codex r1 P1-1, P2-10, P2-11, P2-8, P3-18).
+#  * @timestamp of a SKILL row is its START (logger.mjs:59) and its bot snapshot is the END (runner.mjs:431):
+#    an observation's time is t+duration for skill rows, t for events. A mine call's start position is the latest
+#    observation at or before its start; its end position is its own snapshot.
+#  * sessions: consecutive mine calls of one bot with NO other skill row and no _death between them, gap <= G min.
+#  * shared pools (12) vs isolated (4) split; per-call eligibility for shaft routing.
+import sys, glob, gzip, json, re, datetime as dt
+from collections import Counter, defaultdict, deque
+SINCE, UNTIL = sys.argv[1], sys.argv[2]
+HOMES = {'board-a': (355,73,147), 'board-b': (-249,65,144), 'board-c': (355,73,147), 'board-d': (355,73,147),
+         'hive-a': (355,73,147), 'hive-b': (355,73,147), 'hive-c': (-68,68,-68), 'hive-d': (68,65,68),
+         'placebo-a': (249,75,-144), 'placebo-b': (282,65,-388), 'placebo-c': (355,73,147), 'placebo-d': (177,75,73),
+         'isolated-a': (355,73,147), 'isolated-b': (355,73,147), 'isolated-c': (355,73,147), 'isolated-d': (355,73,147)}
+COB = ('cobblestone', 'cobbled_deepslate')
+P = lambda t: dt.datetime.fromisoformat(t.replace('Z', '+00:00'))
+gpat = re.compile(r'^(\S+) (\d+) (.+) (sought|passive|-)$')
+calls = []; tl = defaultdict(list); tails_ok = 0; tails = 0; goto_x = Counter(); nopos = 0
+for bdir in sorted(glob.glob('/var/log/mcai/*-*-*/')):
+    fs = sorted(f for f in glob.glob(bdir + 'skill-*.jsonl-*.gz') if f[-11:-3] >= '20261015') + glob.glob(bdir + 'skill-*.jsonl')
+    hist = deque(maxlen=600)
+    for f in fs:
+        op = gzip.open if f.endswith('.gz') else open
+        for line in op(f, 'rt', errors='ignore'):
+            try: r = json.loads(line)
+            except Exception: continue
+            t = r.get('@timestamp', ''); sk = r.get('skill') or {}; k = sk.get('name'); b = r.get('bot') or {}
+            if not k or not t: continue
+            n = b.get('name'); pos = b.get('pos'); dur = sk.get('duration_ms') or 0
+            try: ts = P(t)
+            except Exception: continue
+            skillrow = not k.startswith('_')
+            obs = ts + dt.timedelta(milliseconds=dur) if skillrow else ts
+            inwin = SINCE <= t < UNTIL
+            if inwin and n:
+                pool = '-'.join(n.split('-')[:2]); home = HOMES.get(pool)
+                if skillrow or k == '_death': tl[n].append((ts, obs, k))
+                if k == '_pickups':
+                    tails += 1
+                    d = sk.get('detail') or ''
+                    if re.search(r'(\d+) items in (\d+) pickups', d): tails_ok += 1
+                    if ' | ' in d and pos and home:
+                        dd = max(abs(pos['x'] - home[0]), abs(pos['z'] - home[2])); dy = pos['y'] - home[1]
+                        for g in d.rpartition(' | ')[0].split('; '):
+                            m = gpat.match(g)
+                            if m and m.group(1) in COB and m.group(3).startswith('goto'):
+                                goto_x[(pool.startswith('isolated'), dd <= 48, dy < -8)] += int(m.group(2))
+                if k == 'mine' and home:
+                    p0 = None; best = None
+                    for (o, pp) in hist:
+                        if o <= ts and (best is None or o > best): best, p0 = o, pp
+                    if p0 is None: nopos += 1
+                    dl = sk.get('inventory_delta') if isinstance(sk.get('inventory_delta'), dict) else {}
+                    c = sum(v for x, v in dl.items() if x in COB and isinstance(v, (int, float)))
+                    calls.append({'bot': n, 'pool': pool, 'iso': pool.startswith('isolated'), 'ts': ts, 'te': obs,
+                                  'y0': p0['y'] if p0 else None, 'stale_s': (ts - best).total_seconds() if best else None,
+                                  'd0': max(abs(p0['x'] - home[0]), abs(p0['z'] - home[2])) if p0 else None,
+                                  'x0': p0['x'] if p0 else None, 'z0': p0['z'] if p0 else None, 'x1': pos['x'] if pos else None, 'z1': pos['z'] if pos else None,
+                                  'y1': pos['y'] if pos else None, 'gy': (sk.get('args') or {}).get('y'), 'hy': home[1],
+                                  'cob': c, 'st': sk.get('status')})
+            if pos: hist.append((obs, pos))
+print('mine calls', len(calls), 'without a start position', nopos, '| _pickups rows', tails, 'tails parsed', tails_ok)
+st = sorted(c['stale_s'] for c in calls if c['stale_s'] is not None)
+print('start-position staleness s: p50 %.1f p90 %.1f p99 %.1f' % (st[len(st)//2], st[int(.9*len(st))], st[int(.99*len(st))]))
+ok = [c for c in calls if c['y0'] is not None and c['y1'] is not None]
+def drop(c): return max(0.0, c['y0'] - c['y1'])
+print('calls with start+end', len(ok), 'cobble', sum(c['cob'] for c in ok), 'total drop %.0f' % sum(drop(c) for c in ok))
+print('calls dropping <2: %d (%.1f%%), cobble %d' % (sum(drop(c) < 2 for c in ok), 100 * sum(drop(c) < 2 for c in ok) / len(ok), sum(c['cob'] for c in ok if drop(c) < 2)))
+# requested descent (start y - goal y)
+rq = Counter(); rqc = Counter()
+for c in ok:
+    if c['gy'] is None: continue
+    q = c['y0'] - c['gy']; b = '<=2' if q <= 2 else '3-7' if q <= 7 else '8+'
+    rq[b] += 1; rqc[b] += c['cob']
+print('requested descent bands (calls, cobble):', {k: (rq[k], rqc[k]) for k in rq})
+# sessions (r3: also split on a position discontinuity > 8 blocks between one call's end and the next call's start: restart, death, teleport)
+nsplit = {}
+for G in (5, 10, 20):
+    sess = []
+    for n, rows in tl.items():
+        rows.sort()
+        cur = None
+        mc = sorted([c for c in calls if c['bot'] == n], key=lambda c: c['ts'])
+        mi = 0
+        for (ts, te, k) in rows:
+            if k == 'mine':
+                c = mc[mi]; mi += 1
+                prev = cur['calls'][-1] if cur else None
+                jump = (prev is not None and c['y0'] is not None and prev['y1'] is not None and
+                        (abs(c['y0'] - prev['y1']) > 8 or (c.get('x0') is not None and prev.get('x1') is not None and
+                         max(abs(c['x0'] - prev['x1']), abs(c['z0'] - prev['z1'])) > 8)))
+                if jump: nsplit[G] = nsplit.get(G, 0) + 1
+                if cur and not jump and (ts - cur['te']).total_seconds() <= G * 60: cur['calls'].append(c); cur['te'] = te
+                else:
+                    if cur: sess.append(cur)
+                    cur = {'bot': n, 'calls': [c], 'te': te}
+            else:
+                if cur: sess.append(cur); cur = None
+        if cur: sess.append(cur)
+    S = []
+    for s in sess:
+        cs = s['calls']; c0 = cs[0]
+        if c0['y0'] is None: continue
+        ymin = min(min(x for x in (c['y0'], c['y1']) if x is not None) for c in cs)
+        S.append({'iso': c0['iso'], 'n': len(cs), 'dy0': c0['y0'] - c0['hy'], 'd0': c0['d0'], 'drop': c0['y0'] - ymin,
+                  'cob': sum(c['cob'] for c in cs), 'y0': c0['y0'], 'ymin': ymin})
+    sh = [s for s in S if not s['iso']]
+    def agg(xs): return '%d sessions, %d cobble, %.0f blocks' % (len(xs), sum(s['cob'] for s in xs), sum(s['drop'] for s in xs))
+    print('\nG=%d min: all %s | SHARED %s | discontinuity splits %d' % (G, agg(S), agg(sh), nsplit.get(G, 0)))
+    if G != 10: continue
+    dr = sorted(s['drop'] for s in sh); print('  shared drop p50 %.0f p75 %.0f p90 %.0f; calls/session p50 %d' % (dr[len(dr)//2], dr[int(.75*len(dr))], dr[int(.9*len(dr))], sorted(s['n'] for s in sh)[len(sh)//2]))
+    for lab, f in (('surface start (dy0>=-4)', lambda s: s['dy0'] >= -4), ('underground start', lambda s: s['dy0'] < -4)):
+        for dl, g in (('<=48', lambda s: s['d0'] <= 48), ('49-96', lambda s: 48 < s['d0'] <= 96), ('>96', lambda s: s['d0'] > 96)):
+            xs = [s for s in sh if f(s) and g(s)]
+            # cobble above y=16 only (shaft bottom): pro-rate by the share of the drop above 16
+            above = sum(s['cob'] * (max(0, min(s['y0'], 999) - max(s['ymin'], 16)) / s['drop'] if s['drop'] > 0 else 1) for s in xs)
+            print('  %-24s %-6s %s; cobble above y16 ~%.0f' % (lab, dl, agg(xs), above))
+print('\ngoto cobble by (isolated, <=48 from home, >8 below home) [flush-position proxy]:', dict(goto_x))
+# per-call table (Codex r1 P1-2: eligibility is per call)
+print('\nPER CALL (shared pools):')
+sc = [c for c in ok if not c['iso']]
+print(' shared calls %d cobble %d drop %.0f' % (len(sc), sum(c['cob'] for c in sc), sum(drop(c) for c in sc)))
+for lab, f in (('surface (y0>=home-4)', lambda c: c['y0'] - c['hy'] >= -4), ('underground', lambda c: c['y0'] - c['hy'] < -4)):
+    for dl, g in (('<=24', lambda c: c['d0'] <= 24), ('25-48', lambda c: 24 < c['d0'] <= 48), ('49-96', lambda c: 48 < c['d0'] <= 96), ('>96', lambda c: c['d0'] > 96)):
+        xs = [c for c in sc if f(c) and g(c)]
+        a16 = sum(c['cob'] for c in xs if c['y0'] > 16)
+        print('  %-22s %-6s calls %5d cobble %5d (start above y16: %5d) drop %5.0f' % (lab, dl, len(xs), sum(c['cob'] for c in xs), a16, sum(drop(c) for c in xs)))
+# r3 (Codex r2 P2-6): credit only the part of each call's descent that lies above y=16 (pro-rated by blocks dropped);
+# a call that did not descend (drop 0) is credited only if it started above 16.
+def above16(c):
+    d = drop(c)
+    if d <= 0: return c['cob'] if c['y0'] > 16 else 0
+    return c['cob'] * max(0.0, c['y0'] - max(c['y1'], 16)) / d
+print('\nPRO-RATED above y16 (shared):')
+for lab, f in (('surface', lambda c: c['y0'] - c['hy'] >= -4), ('underground', lambda c: c['y0'] - c['hy'] < -4)):
+    for dl, g in (('<=48', lambda c: c['d0'] <= 48), ('>48', lambda c: c['d0'] > 48)):
+        xs = [c for c in sc if f(c) and g(c)]
+        print('  %-12s %-5s calls %5d cobble %5d above16 %7.0f' % (lab, dl, len(xs), sum(c['cob'] for c in xs), sum(above16(c) for c in xs)))
+
+# ===== near.py =====
+# near.py: shared-pool, near-home cobble for surface and gather-stone (skill-row END position = flush proxy; start pos via obs history)
+import sys, glob, gzip, json, datetime as dt
+from collections import Counter, deque
+SINCE, UNTIL = sys.argv[1], sys.argv[2]
+HOMES = {'board-a': (355,73,147), 'board-b': (-249,65,144), 'board-c': (355,73,147), 'board-d': (355,73,147),
+         'hive-a': (355,73,147), 'hive-b': (355,73,147), 'hive-c': (-68,68,-68), 'hive-d': (68,65,68),
+         'placebo-a': (249,75,-144), 'placebo-b': (282,65,-388), 'placebo-c': (355,73,147), 'placebo-d': (177,75,73)}
+COB = ('cobblestone', 'cobbled_deepslate'); STONEB = {'stone', 'cobblestone', 'cobbled_deepslate', 'deepslate'}
+P = lambda t: dt.datetime.fromisoformat(t.replace('Z', '+00:00'))
+out = Counter()
+for bdir in sorted(glob.glob('/var/log/mcai/*-*-*/')):
+    fs = sorted(f for f in glob.glob(bdir + 'skill-*.jsonl-*.gz') if f[-11:-3] >= '20261015') + glob.glob(bdir + 'skill-*.jsonl')
+    hist = deque(maxlen=600)
+    for f in fs:
+        op = gzip.open if f.endswith('.gz') else open
+        for line in op(f, 'rt', errors='ignore'):
+            try: r = json.loads(line)
+            except Exception: continue
+            t = r.get('@timestamp', ''); sk = r.get('skill') or {}; k = sk.get('name'); b = r.get('bot') or {}
+            if not k or not t: continue
+            ts = P(t); dur = sk.get('duration_ms') or 0; obs = ts + dt.timedelta(milliseconds=dur) if not k.startswith('_') else ts
+            n = b.get('name') or ''; pool = '-'.join(n.split('-')[:2]); home = HOMES.get(pool); pos = b.get('pos')
+            if SINCE <= t < UNTIL and home and k in ('surface', 'gather'):
+                a = sk.get('args') or {}
+                if k == 'gather' and a.get('block') not in STONEB: pass
+                else:
+                    p0 = None; best = None
+                    for (o, pp) in hist:
+                        if o <= ts and (best is None or o > best): best, p0 = o, pp
+                    dl = sk.get('inventory_delta') if isinstance(sk.get('inventory_delta'), dict) else {}
+                    c = sum(v for x, v in dl.items() if x in COB and isinstance(v, (int, float)))
+                    if p0 and c > 0:
+                        near = max(abs(p0['x'] - home[0]), abs(p0['z'] - home[2])) <= 48
+                        ent = 'entomb' in (r.get('trigger') or '')
+                        lab = 'surface' if k == 'surface' else 'gather_stone'
+                        out[(lab, 'near48' if near else 'far', 'entombed' if ent else 'not_entombed')] += c
+                        if lab == 'gather_stone' and near and not ent: out[('gather_stone_near_notent', 'surface' if p0['y'] >= home[1] - 8 else 'below_home-8')] += c
+            if pos: hist.append((obs, pos))
+for k in sorted(out): print(k, out[k])
+
+# ===== pool.py =====
+import sys, glob, gzip, json, re
+from collections import Counter, defaultdict
+SINCE, UNTIL = sys.argv[1], sys.argv[2]
+COB = ('cobblestone', 'cobbled_deepslate'); FAM = ('andesite', 'diorite', 'granite', 'tuff')
+gpat = re.compile(r'^(\S+) (\d+) (.+) (sought|passive|-)$')
+P = defaultdict(Counter); bags = {}
+for bdir in sorted(glob.glob('/var/log/mcai/*-*-*/')):
+    fs = sorted(f for f in glob.glob(bdir + 'skill-*.jsonl-*.gz') if f[-11:-3] >= '20261015') + glob.glob(bdir + 'skill-*.jsonl')
+    for f in fs:
+        op = gzip.open if f.endswith('.gz') else open
+        for line in op(f, 'rt', errors='ignore'):
+            try: r = json.loads(line)
+            except Exception: continue
+            t = r.get('@timestamp', '')
+            if t < SINCE or t >= UNTIL: continue
+            b = r.get('bot') or {}; n = b.get('name')
+            if not n: continue
+            pool = '-'.join(n.split('-')[:2]); sk = r.get('skill') or {}; k = sk.get('name')
+            inv = b.get('inventory')
+            if isinstance(inv, dict): bags[n] = (pool, sum(inv.get(x, 0) for x in COB), sum(inv.get(x, 0) for x in FAM))
+            if k == '_pickups':
+                d = sk.get('detail') or ''
+                if ' | ' in d:
+                    for g in d.rpartition(' | ')[0].split('; '):
+                        m = gpat.match(g)
+                        if not m: continue
+                        if m.group(1) in COB: P[pool]['cob_pick'] += int(m.group(2))
+                        if m.group(1) in FAM: P[pool]['fam_pick'] += int(m.group(2))
+            dl = sk.get('inventory_delta')
+            if isinstance(dl, dict) and k and not k.startswith('_'):
+                c = sum(v for x, v in dl.items() if x in COB and isinstance(v, (int, float)))
+                fm = sum(v for x, v in dl.items() if x in FAM and isinstance(v, (int, float)))
+                P[pool]['cob_net'] += c; P[pool]['fam_net'] += fm
+                if k == 'dispose_well': P[pool]['cob_well'] += -c; P[pool]['fam_well'] += -fm
+                if k in ('deposit', 'town_deposit'): P[pool]['cob_bank'] += -c
+H = 15.0
+print('pool       cob_pick/d  fam_pick/d  cob_net/d  fam_net/d  cob_well/d fam_well/d cob_bank/d  bag_cob  bag_cob>64  bag_fam')
+for p in sorted(P):
+    c = P[p]; bc = [v for v in bags.values() if v[0] == p]
+    print('%-11s %8.0f %10.0f %10.0f %10.0f %10.0f %10.0f %10.0f %8d %10d %8d' % (p, *(c[k] * 24 / H for k in ('cob_pick', 'fam_pick', 'cob_net', 'fam_net', 'cob_well', 'fam_well', 'cob_bank')), sum(v[1] for v in bc), sum(max(0, v[1] - 64) for v in bc), sum(v[2] for v in bc)))
+T = Counter(); [T.update(c) for c in P.values()]
+print('ALL', {k: round(v * 24 / H) for k, v in T.items()}, 'bags cob', sum(v[1] for v in bags.values()), '>64', sum(max(0, v[1] - 64) for v in bags.values()), 'fam', sum(v[2] for v in bags.values()), 'bots', len(bags))
+
+# ===== pass2.py =====
+import sys, glob, gzip, json, os
+from collections import Counter, defaultdict
+SINCE, UNTIL = sys.argv[1], sys.argv[2]
+COB = ('cobblestone', 'cobbled_deepslate')
+STONEB = {'stone', 'cobblestone', 'cobbled_deepslate', 'deepslate'}
+def bagc(inv): return sum(inv.get(n, 0) for n in COB) if isinstance(inv, dict) else None
+def band(c):
+    for lim in (0, 15, 63, 127, 255, 511): 
+        if c <= lim: return '<=%d' % lim
+    return '>511'
+gs = defaultdict(lambda: [0, 0]); gtrig = Counter(); gst = Counter()
+gt = defaultdict(lambda: [0, 0, 0]); mt = Counter(); mbag = defaultdict(lambda: [0, 0])
+for bdir in sorted(glob.glob('/var/log/mcai/*-*-*/')):
+    fs = sorted(f for f in glob.glob(bdir + 'skill-*.jsonl-*.gz') if f[-11:-3] >= '20261015') + glob.glob(bdir + 'skill-*.jsonl')
+    for f in fs:
+        op = gzip.open if f.endswith('.gz') else open
+        for line in op(f, 'rt', errors='ignore'):
+            if '"gather"' not in line and '"goto"' not in line and '"mine"' not in line: continue
+            try: r = json.loads(line)
+            except Exception: continue
+            t = r.get('@timestamp', '')
+            if t < SINCE or t >= UNTIL: continue
+            sk = r.get('skill') or {}; k = sk.get('name'); a = sk.get('args') or {}
+            inv = (r.get('bot') or {}).get('inventory'); delta = sk.get('inventory_delta') or {}
+            if not isinstance(delta, dict): delta = {}
+            c1 = bagc(inv)
+            if c1 is None: continue
+            dc = sum(v for n, v in delta.items() if n in COB and isinstance(v, (int, float)))
+            c0 = c1 - dc
+            trig = (r.get('trigger') or '?').split(':')[0] + ':' + ((r.get('trigger') or '').split(':')[1] if ':' in (r.get('trigger') or '') else '')
+            if k == 'gather' and (a.get('block') in STONEB):
+                b = band(c0); gs[b][0] += 1; gs[b][1] += max(0, dc); gtrig[r.get('trigger')] += 1; gst[(sk.get('status'), a.get('block'), a.get('count'))] += 1
+            elif k == 'goto' and dc > 0:
+                b = band(c0); gt[b][0] += 1; gt[b][1] += dc
+            elif k == 'goto':
+                gt[band(c0)][2] += 1
+            elif k == 'mine':
+                mt[r.get('trigger')] += 1; b = band(c0); mbag[b][0] += 1; mbag[b][1] += max(0, dc)
+print('gather stone/cobble rows by START bag cobble+deepslate: rows, cobble gained', sorted(gs.items()))
+print('gather stone triggers', gtrig.most_common(10))
+print('gather stone status/block/count', gst.most_common(15))
+print('goto rows by start bag: rows-with-gain, cobble gained, rows-no-gain', sorted(gt.items()))
+print('mine triggers', mt.most_common(8))
+print('mine by start bag: rows, cobble', sorted(mbag.items()))
+
+# ===== between.py =====
+import sys, glob, gzip, json
+from collections import Counter
+SINCE, UNTIL = sys.argv[1], sys.argv[2]
+nxt = Counter(); between = Counter(); pairs = 0
+for bdir in sorted(glob.glob('/var/log/mcai/*-*-*/')):
+    fs = sorted(f for f in glob.glob(bdir + 'skill-*.jsonl-*.gz') if f[-11:-3] >= '20261015') + glob.glob(bdir + 'skill-*.jsonl')
+    rows = []
+    for f in fs:
+        op = gzip.open if f.endswith('.gz') else open
+        for line in op(f, 'rt', errors='ignore'):
+            if '"name"' not in line: continue
+            try: r = json.loads(line)
+            except Exception: continue
+            t = r.get('@timestamp', ''); k = (r.get('skill') or {}).get('name')
+            if not k or not (SINCE <= t < UNTIL): continue
+            if k.startswith('_') and k != '_death': continue
+            a = (r.get('skill') or {}).get('args') or {}
+            rows.append((t, k + (':' + str(a.get('block')) if k == 'gather' else '')))
+    rows.sort()
+    for i, (t, k) in enumerate(rows):
+        if k != 'mine': continue
+        if i + 1 < len(rows): nxt[rows[i + 1][1]] += 1
+        # skills between this mine and the next mine
+        for j in range(i + 1, min(len(rows), i + 6)):
+            if rows[j][1] == 'mine': pairs += 1; [between.update([rows[m][1]]) for m in range(i + 1, j)]; break
+print('next skill after a mine call:', nxt.most_common(15))
+print('skills between two mine calls (<=4 apart):', between.most_common(15), 'pairs', pairs)
+
+# ===== es7d.py =====
+import sys, re, json; sys.path.insert(0, '/home/mike/zig')
+from collections import Counter
+from lib.estelemetry import EsEvents
+sys.path.insert(0, '/home/mike/zig'); 
+gpat = re.compile(r'^(\S+) (\d+) (.+) (sought|passive|-)$')
+def srcclass(src):
+    if src.startswith('mine'): return 'mine'
+    if src.startswith('gather:'):
+        a = src.split(':', 1)[1]
+        if a in ('cobblestone', 'stone', 'cobbled_deepslate', 'deepslate'): return 'gather_stone'
+        if a.endswith('_ore') or a in ('raw_iron',): return 'gather_ore'
+        return 'gather_other'
+    if src.startswith('goto'): return 'goto'
+    if src.startswith('surface'): return 'surface'
+    if src.startswith('holder:') or src.startswith('reflex:'): return 'survival'
+    return 'other'
+tot = Counter()
+for day in ('08', '09', '10', '11', '12', '13', '14'):
+    ev = EsEvents.load('skill', since='2026-10-%sT00:00:00Z' % day, until='2026-10-%sT23:56:00Z' % day)
+    c = Counter(); n = 0
+    for r in ev.rows('_pickups', fields=['skill.detail'], max_rows=200000):
+        n += 1
+        d = ((r.get('skill') or {}).get('detail')) or ''
+        if ' | ' not in d: continue
+        head = d.rpartition(' | ')[0]
+        for g in head.split('; '):
+            m = gpat.match(g)
+            if m and m.group(1) in ('cobblestone', 'cobbled_deepslate'): c[srcclass(m.group(3))] += int(m.group(2))
+    s = sum(c.values()); tot += c
+    print('10-%s rows %d cobble %d ' % (day, n, s) + ' '.join('%s %.1f%%' % (k, 100 * v / s) for k, v in c.most_common()), 'caveats', list(ev.caveats)[:1] if hasattr(ev, 'caveats') else '')
+s = sum(tot.values()); print('7d', s, ' '.join('%s %d (%.1f%%)' % (k, v, 100 * v / s) for k, v in tot.most_common()))
+
+# ===== zig.py =====
+# Ziggurat voxel model: tiers 2 high, setback S per side, base 48. Solid vs hollow (26-adjacent skin) + support check.
+import itertools, sys
+def model(B=48, S=3, H=2, stair_w=3):
+    tiers = []
+    L = B; i = 0
+    while L >= 4:
+        tiers.append((i, L)); i += 1; L -= 2 * S
+    solid = set()
+    for i, L in tiers:
+        o = (B - L) // 2
+        for y in range(i * H, i * H + H):
+            for x in range(o, o + L):
+                for z in range(o, o + L):
+                    solid.add((x, y, z))
+    top = len(tiers) * H
+    def outside(c):
+        return c not in solid
+    skin = set()
+    for c in solid:
+        x, y, z = c
+        for dx, dy, dz in itertools.product((-1, 0, 1), repeat=3):
+            if (dx, dy, dz) == (0, 0, 0): continue
+            n = (x + dx, y + dy, z + dz)
+            if n[1] < 0: continue          # ground below is not air
+            if n not in solid:
+                # interior air does not exist in the solid model, so any non-solid neighbour above ground is outside
+                skin.add(c); break
+    # support: every skin cell has a skin cell below, or y==0 (ground), or a horizontal skin neighbour (bridge risk counted)
+    nosup = [c for c in skin if c[1] > 0 and (c[0], c[1] - 1, c[2]) not in skin]
+    per_tier = []
+    for i, L in tiers:
+        ys = range(i * H, i * H + H)
+        per_tier.append((i, L, sum(1 for c in skin if c[1] in ys), sum(1 for c in solid if c[1] in ys)))
+    # grand stair: on the south face, stair_w wide, one full block step per tier at the foot of each tier wall (i>=1)
+    # tier i wall rises 2 from terrace of tier i-1: steps needed = 1 block at terrace level (+1), per width; plus ground->tier0: 1 step
+    stairs = stair_w * len(tiers)
+    return tiers, len(solid), len(skin), len(nosup), per_tier, stairs, top
+for S in (2, 3, 4):
+    tiers, ns, nk, nos, pt, st, top = model(S=S)
+    print('S=%d tiers=%d height=%d solid=%d hollow_skin=%d unsupported_skin=%d stairs=%d' % (S, len(tiers), top, ns, nk, nos, st))
+    for row in pt: print('   tier %d side %d: hollow %d solid %d' % row)
+

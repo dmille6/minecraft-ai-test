@@ -12,6 +12,59 @@ Studio reservation both closed 10-12); clear caps bamboo 0 / bucket 2._
 
 ---
 
+## 10-15 ~05:30Z — ZIGGURAT + SHARED MINESHAFT + DIG AVOIDANCE: measured and designed (OWNER ~03Z "lets do it"); Codex APPROVE r5+r6, Claude APPROVE r3+r5; NOTHING built, queued or deployed
+Doc: `docs/reports/ziggurat-mineshaft-2026-10-15.md` (r5). Reviews: `docs/reports/ziggurat-mineshaft-reviews-2026-10-15.txt`
+(Codex CHANGE r1-r4, APPROVE r5 and r6; Claude CHANGE r1-r2, APPROVE r3 and r5; the last fix is r5.1's cover
+anchor). Scripts:
+`...measure.py.txt` (host ~/zig on 10.0.0.31).
+
+**Measured** (full walk 10-14 11:30Z to 10-15 02:30Z, 15 h, 80 bots, 1,198 bot-h, 897,944 rows, which reconciles with ES
+897,899; 7-day ES cross-check):
+- **Cobble collected: 28,417, about 45.5k/day.** The shared pools account for 34.5k/day of it.
+- **mine's staircase is 50.7%** (ES 7 d: 47.6%). goto's dig retry is 17.0%, gather stone 9.2% (falling: 27% on 10-08,
+  9% on 10-14), approaches 6.5%, survival 5.4%, the ore tunnel 5.1%, surface 4.2%.
+- **Digs of any block:** 126,612 (105.7 per bot-h).
+- **How mine is called:** 74% of calls descend less than 2 blocks, inside a mine → gather iron_ore → mine loop.
+- **Town chests:** 4,413 cobble across the 12 shared towns (journal fold); 8 towns are at the 256 cap.
+- **Gather stone:** 94% of gather-stone runs start below the 64 reserve.
+
+**Designed:**
+- **(1) Ziggurat.** 48 base, 8 tiers of 2, setback 3, 16 high. **SOLID BY LAYERS: 14,688 blocks, about 11-14k
+  cobble.** The true hollow shell (3,780) has 2,116 cells over air and an open pit while it is built, so it is not v1.
+  - The skin is cobble and the core takes stone-family blocks above the guard.
+  - It is a monument lane with an admission gate and a frontier layer barrier. Waived cells carry a cover rule with an anchor.
+  - It takes cobble before the junk well only on laps where its own order is issued.
+  - Its cells are guarded against target digs only; damage is absorbed.
+  - The plan is funding-bound: about 1-3.5 weeks per world today, 1-10.5 weeks after the cuts.
+- **(2) Shaft.** One per shared town, with the collar at Chebyshev 17-21 from home.
+  - Two ladder columns (down and up), landings every 8, and the bottom B is the lowest landing.
+  - Trap table T1-T11, including a `use_ladder` escape rung and exit-contract credit from a zero-break, zero-place
+    route that is revalidated before every step.
+  - mine "landing hops" route through it deterministically.
+  - **Expected cut: about 0.94 / 4.67 / 8.19k a day (low / central / high).**
+- **(3) Withdraw instead of dig** near town: about 0.2-0.75k a day. The transit cut is instrumented first, and none is
+  claimed.
+- **Total: about 1.2 / 5.1 / 8.9k a day, which is 3 / 15 / 26% of shared gross.**
+
+**Staging:**
+- S0: offline Z0 (sites, foundation, voids, exposure) and M0 (shaft envelope surveys).
+- S1: stonewithdraw-01, plus the goto-retry instrument.
+- S2: monument-01, after structureguard-01 and the generic builder.
+- S3: shaft-01, then shaftuse-01.
+
+**OWNER DECISIONS PENDING: Z1-Z8 (doc §7):**
+- **Z1:** solid by layers (≈1.5x the "hollow ≈ 10k" the owner expected) vs a true hollow.
+- **Z2:** a monument lane outside the projects' WIP=1.
+- **Z3:** the ziggurat as the generic builder's first client, ahead of the yard.
+- **Z4:** the town floor goes first.
+- **Z5:** accept that the cuts slow the ziggurat.
+- **Z6:** setback S=3.
+- **Z7:** stone_bricks for the crown.
+- **Z8:** accept foreign skin blocks.
+
+**Scratch note:** this session overwrote an older `codex-r1.txt` in the shared scratchpad, owner unknown. This round's
+files are under `scratchpad/zigms/`.
+
 ## 10-15 05:10Z — TREEFARM-01 REVIVED on 5e663860; bone meal OFF by default (OWNER, after the A/B); both engines APPROVE; READY, NOT QUEUED (after wellsite-03)
 - **Branches:** `farm-on-5e66386` @ **b7cc60b5** (fleet 5e663860); `farm-on-8cd0bc6` @ **cc16f64e** (if wellsite-03 is kept:
   the same net diff on 8cd0bc62, one union hunk in townWellSite). The airpocket-03 variant is dropped (airpocket-03
