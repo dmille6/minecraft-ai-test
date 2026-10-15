@@ -1165,7 +1165,13 @@ export class CognitiveLoop {
         // literal here to flip -- only the routing, and a nothing_found failure
         // that reaches the store at all is asserted end-to-end through this
         // exact branch in test/learned-avoid-scope.test.mjs.
-        if (EVIDENCE_ABOUT_THE_ACTION.has(fc) || EVIDENCE_ONLY_IF_HERE.has(fc)) {
+        // A REWRITE TEACHES NOTHING (Claude stage-2 r2 P2-A): its successes never reach the win record, so its failures must
+        // not reach the persisted, hive-shared avoid store either -- a success is the only thing that weakens an avoid entry,
+        // and a ratchet that accrues but cannot be disproved ends in learned_avoid on the model's own withdraw. The rewrite's
+        // own 10-min backoff (stoneBackoffUntil) is its memory.
+        if (admitted.rewrittenFrom) {
+          log('info', 'rewritten action failed: no lesson (its backoff is its memory)', { skill: admitted.skill, failClass: fc })
+        } else if (EVIDENCE_ABOUT_THE_ACTION.has(fc) || EVIDENCE_ONLY_IF_HERE.has(fc)) {
           this.lessons.recordFailure(admitted.skill, admitted.args, fc, this.bot.entity?.position)
         } else if (EVIDENCE_ONLY_IF_STUCK.has(fc)) {
           // Passing `gap` is what makes this conditional. A skill that cannot

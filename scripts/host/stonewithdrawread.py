@@ -14,7 +14,7 @@
 #   GATES     (canary arm, post, only -- the wellread lesson: never a control event)
 #             W1 breach_far        a rewrite whose snapshot is > 48 (Chebyshev) from its pool's home
 #             W2 breach_stuck      a rewrite on a stuck trigger (entomb|stuck|strand|marooned|drown|low_health|trapped|pit|livelock)
-#             W3 breach_deep       a rewrite below home.y - 8 whose reason is not deep_walk_ok
+#             W3 breach_deep       a rewrite below home.y - 8 (the rule rewrites at the surface only)
 #             W4 breach_fail_share >= 10 rewrites and > 50% of the withdraws they started failed or were unknown; its positive
 #                control w4_blind: the matcher found < 80% of the rewrites' withdraws (then W4 cannot see, and the read says so)
 #             LEAK control `_stone_withdraw` rows post (blocks KEEP; no evidence key)
@@ -68,7 +68,7 @@ def judge_rewrite(pool, pos, a):
         out.append('far')
     if STUCK.search(str(a.get('trigger') or '')):
         out.append('stuck')
-    if dy < SURF and a.get('reason') != 'deep_walk_ok':
+    if dy < SURF:   # a rewrite is at the surface only (r2: no deep branch)
         out.append('deep')
     return out
 
@@ -84,7 +84,7 @@ assert judge_rewrite('board-a', None, {'trigger': 'idle', 'reason': 'surface', '
 assert judge_rewrite('board-a', {'x': 360, 'y': 73, 'z': 150}, {'trigger': 'idle', 'reason': 'surface'}) == ['from_table']
 assert judge_rewrite('board-a', {'x': 420, 'y': 73, 'z': 150}, {'trigger': 'idle', 'reason': 'surface'}) == ['from_table', 'far']
 assert judge_rewrite('board-a', {'x': 360, 'y': 50, 'z': 150}, {'trigger': 'entombed', 'reason': 'surface'}) == ['from_table', 'stuck', 'deep']
-assert judge_rewrite('board-a', {'x': 360, 'y': 50, 'z': 150}, {'trigger': 'idle', 'reason': 'deep_walk_ok'}) == ['from_table']
+assert judge_rewrite('board-a', {'x': 360, 'y': 50, 'z': 150}, {'trigger': 'idle', 'reason': 'surface'}) == ['from_table', 'deep']
 assert judge_rewrite('nope', {'x': 0, 'y': 0, 'z': 0}, {}) == ['unjudgeable']
 
 if __name__ == '__main__':
