@@ -314,6 +314,8 @@ export class Runner {
       pruned: Number(result.pruned ?? 0),
       // THE RECOUNT's verified count of town containers counted (countTown), same rule
       counted: Number(result.counted ?? 0),
+      // THE TOOLKIT's verified count of kit tools made (a NEW usable copy in the bag after its craft), same rule
+      kitCrafted: Number(result.kitCrafted ?? 0),
     }
 
     // THE EVIDENCE GATE. A claim of success does not leave this function unless
