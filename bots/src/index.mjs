@@ -11,7 +11,8 @@ import { Vec3 } from 'vec3'
 import { corridorSafe } from './lavaguard.mjs'
 import { deathSiteStepCost, pathCrossesDeathSite } from './deathsites.mjs'
 import { wellStepCost, wellBreakCost, protectWellBlocks, bodyInWell } from './well.mjs'
-import { knownWellCells, installWellWatch, knownFarmIndex } from './skills.mjs'
+import { knownWellCells, installWellWatch, knownFarmIndex, structuresNow } from './skills.mjs'
+import { monumentPlaceCost } from './structures.mjs'
 import { farmBreakCost, farmPlaceCost, emptyFarmIndex } from './treefarm.mjs'
 import { pathDropProfile, composeFallRow, markPathEnded } from './fallpath.mjs'
 import net from 'node:net'
@@ -568,6 +569,8 @@ function connect() {
     // discards any move whose cost passes 100 (movements.js `if (cost > 100) return`), so a surcharge on a slow dig (a
     // 2-high stone wall by hand: 48) removes moves the base allows (Codex code r2 P2). TARGET digs are refused in the
     // skills (gather, mine) and in the ore tunnel's own profile, nowhere else.
+    // ...and never onto the town monument's grand stair (monument-01, design 3.6): a NEW array, never a push
+    moves.exclusionAreasPlace = moves.exclusionAreasPlace.concat([(block) => monumentPlaceCost(structuresNow(bot), block)])
     // ORDER IS LOad-BEARING: gatherMoves, ascendMoves and descendMoves are all
     // built below with Object.assign(clone, moves), so they copy this array's
     // reference and inherit one shared policy. That is deliberate -- gathering
@@ -622,7 +625,7 @@ function connect() {
     bot.gatherMovements = gatherMoves
     // THE ORE TUNNEL'S PROFILE (oretunnel.mjs: staircases only, no drops > 1, no towers, hazard vetoes), built
     // here because index.mjs owns every setMovements (dep-contract.test.mjs). Same shape as withGatherMovements.
-    bot.tunnelMovements = tunnelMovements(bot, gatherMoves, { home: configuredHome(config.world) ?? { x: config.world.homeX, z: config.world.homeZ } })
+    bot.tunnelMovements = tunnelMovements(bot, gatherMoves, { home: configuredHome(config.world) ?? { x: config.world.homeX, z: config.world.homeZ }, keepOut: () => structuresNow(bot) })
     bot.withTunnelMovements = async (fn) => {
       bot.pathfinder.setMovements(bot.tunnelMovements); bot.movementProfile = 'tunnel'
       try { return await withApproachBound(bot, fn) }
