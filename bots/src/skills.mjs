@@ -10580,11 +10580,24 @@ async function mine(ctx, { y: targetY = 12 }, signal) {
   // NEVER A START THE HOME GUARD REFUSES (Claude r1 P2: town wells sit 7-16 from home, the guard is 12)
   const standableAt = c => Math.hypot(c.x + 0.5 - config.world.homeX, c.z + 0.5 - config.world.homeZ) > 12 && canStand(c)
   const failedTargets = []
-  const planHere = (radius = RELOCATE_RADIUS) => planMineStart({ cols: wellCols(), p0: bot.entity.position.floored(), feet: bot.entity.position,
-                                         bearings: stairBearings(bot), standable: standableAt, rimStandable: canStand, radius, goalY, exclude: failedTargets })
+  // THE TOWN TREE FARM'S CELLS (treefarm-02 on minewell-01): mine digs with bot.dig directly, so the farm's pathfinder
+  // exclusions never applied to its stair. The same plan that keeps the stair out of a well's shell keeps it out of a plot's
+  // soil and column and a torch's cell and floor -- and never starts it from one -- read afresh at every plan and dig.
+  const farmNow = () => {
+    try {
+      const idx = farmIdx(bot) ?? knownFarmIndex(bot)
+      if (!idx?.soil?.size) return { forbid: null, bottom: null }
+      let bottom = Infinity
+      for (const k of idx.soil) bottom = Math.min(bottom, Number(k.split(',')[1]))
+      return { forbid: c => idx.soil.has(`${c.x},${c.y},${c.z}`) || idx.torch.has(`${c.x},${c.y},${c.z}`) || inPlotColumn(idx, c.x, c.y, c.z), bottom }
+    } catch { return { forbid: null, bottom: null } }
+  }
+  const planHere = (radius = RELOCATE_RADIUS) => { const fm = farmNow(); return planMineStart({ cols: wellCols(), p0: bot.entity.position.floored(), feet: bot.entity.position,
+                                         bearings: stairBearings(bot), standable: standableAt, rimStandable: canStand, radius, goalY, exclude: failedTargets,
+                                         forbid: fm.forbid, forbidBottom: fm.bottom }) }
   let wellPlan = planHere()
   const wellRow = (what, plan, extra = '') => logEvent({ kind: 'mine_well_guard', status: what === 'relocate' ? 'success' : 'refused', snapshot: snapshot(bot),
-    detail: `action=${what} at=${plan.cap ? `${plan.cap.x},${plan.cap.y},${plan.cap.z}` : plan.hit?.cap ? `${plan.hit.cap.x},${plan.hit.cap.y},${plan.hit.cap.z}` : '-'} from=${(() => { const f = bot.entity.position.floored(); return `${f.x},${f.y},${f.z}` })()}${plan.to ? ` to=${plan.to.x},${plan.to.y},${plan.to.z}` : ''}${extra}` })
+    detail: `action=${what} at=${plan.cap ? `${plan.cap.x},${plan.cap.y},${plan.cap.z}` : plan.hit?.cap ? `${plan.hit.cap.x},${plan.hit.cap.y},${plan.hit.cap.z}` : '-'} from=${(() => { const f = bot.entity.position.floored(); return `${f.x},${f.y},${f.z}` })()}${plan.to ? ` to=${plan.to.x},${plan.to.y},${plan.to.z}` : ''}${plan.farm || plan.hit?.farm ? ' farm=1' : ''}${extra}` })
   // THE WALK-OFF IS PERFORMED, NOT ADVISED (CLAUDE.md; Codex r1 P2): up to two walks -- the nearest clear start within
   // RELOCATE_RADIUS, else the nearest within FAR_RADIUS -- each planned again on arrival. Only when neither is reachable
   // does mine refuse, and then it names the cell a `goto` can reach (or the distance), never a walk nobody can make.
@@ -10610,8 +10623,9 @@ async function mine(ctx, { y: targetY = 12 }, signal) {
   }
   if (wellPlan.action !== 'go') {
     wellRow('refuse', wellPlan, lastTarget ? ' after=relocate' : '')
-    const where = failedTargets.length ? `the walk-off to ${failedTargets.map(c => `${c.x},${c.y},${c.z}`).join(' and ')} could not be reached from here; explore away from the well (or goto any cell ${FAR_RADIUS}+ blocks from it), then mine there`
-                                       : `explore away from the well (or goto any cell ${FAR_RADIUS}+ blocks from it), then mine there`
+    const what = wellPlan.farm ? 'the tree farm' : 'the well'
+    const where = failedTargets.length ? `the walk-off to ${failedTargets.map(c => `${c.x},${c.y},${c.z}`).join(' and ')} could not be reached from here; explore away from ${what} (or goto any cell ${FAR_RADIUS}+ blocks from it), then mine there`
+                                       : `explore away from ${what} (or goto any cell ${FAR_RADIUS}+ blocks from it), then mine there`
     return { status: 'failed', failClass: 'forbidden', detail: wellPlan.inside ? wellPlan.why : `${wellPlan.why ?? 'every stair from here would dig the junk well\'s shell'}; ${where}` }
   }
   const choice = chooseStairBearing(bot, bot.entity.position.floored(), undefined, wellPlan.bearings)
@@ -10800,7 +10814,14 @@ async function mine(ctx, { y: targetY = 12 }, signal) {
     // READ AFRESH AT EVERY DIG (Codex r1 P2): a well found while a dig awaited is honoured by the next one
     const shellStop = pos => {
       const cap = shellOf(wellCols(), pos)
-      if (!cap) return null
+      if (!cap) {
+        // ...and a tree-farm cell, read afresh (treefarm-02): the stair stops; the next plan walks off the farm
+        const fm = farmNow()
+        if (!fm.forbid || !fm.forbid(pos)) return null
+        logEvent({ kind: 'mine_well_guard', status: 'refused', snapshot: snapshot(bot), detail: `action=stop at=- cell=${pos.x},${pos.y},${pos.z} farm=1` })
+        return { status: 'failed', failClass: 'forbidden',
+                 detail: `stopped at y=${Math.round(bot.entity.position.y)}: the next stair cell ${pos.x},${pos.y},${pos.z} is the town tree farm's; walk away from the farm and mine again` }
+      }
       logEvent({ kind: 'mine_well_guard', status: 'refused', snapshot: snapshot(bot), detail: `action=stop at=${cap.x},${cap.y},${cap.z} cell=${pos.x},${pos.y},${pos.z}` })
       return { status: 'failed', failClass: 'forbidden',
                detail: `stopped at y=${Math.round(bot.entity.position.y)}: the next stair cell ${pos.x},${pos.y},${pos.z} is the junk well's shell (${cap.x},${cap.y},${cap.z}); walk away from the well and mine again` }
