@@ -6,7 +6,7 @@
 //   - at its target it is no longer banked, never opens a new chest, and -- only where the junk well is in the build --
 //     whole stacks above the bot's own STOCK_RESERVE go down the well at a full bag (owner-approved deletion);
 //   - target 0 is at target by definition (0 >= 0): never banked, provable without any count.
-// Cobble is the group `cobble` (target 256, the owner's cap) and keeps every stonecap behaviour exactly.
+// Cobble is the group `cobble` (target TOWN_COBBLE_CAP: 1000 since cobblecap-1000, the owner's cap) and keeps every stonecap behaviour exactly.
 //
 // MEASURED 10-08 (design section 1): the twelve town chest sets hold 4,696 slots, 2,136 of them in groups this table
 // targets (cobble 674, oak_log 834, birch_log 173, oak_planks 168, stick 287); every town is over target on cobble, oak
@@ -26,15 +26,22 @@ const tool = (name, target) => Object.freeze({ names: Object.freeze([name]), tar
  * THE TARGETS (per town; design r2 section 2 -- PROVISIONAL, re-derived from a blueprint's measured draw once it draws).
  * Each is at once the BANK CAP, the PRUNE FLOOR and the one-time clear's CAP. Measured 48 h to 10-10 12:00Z: the town
  * draw of every bulk material is ZERO; the only draws are pickaxes (~5/town/day stone, ~2 wooden), coal and a few sticks.
- *   A  cobble 256 (OWNER 10-04/10-07); each log type 64, each planks type 64 (by type, as the owner asked; the workshop
+ *   A  cobble TOWN_COBBLE_CAP = 1000 (OWNER 10-14; was 256, OWNER 10-04/10-07); each log type 64, each planks type 64 (by type, as the owner asked; the workshop
  *      needs ~7 logs + 28 planks, the mineshaft's ladders ~14 logs); stick 64 (withdraw2's iron pickaxe: 2); stone 64
  *   B  0: nothing draws them from a town (the bots' own scaffold/pillar/pit cover use them from the BAG, kept by the keeps)
  *   C  usable tools (> FLOOR uses): stone_pickaxe 16 (~3 days of the measured draw), wooden_pickaxe 4, stone axe/shovel 4,
  *      the other wood/stone axes, shovels and hoes 0. A tool is NEVER disposed or pruned: the target caps banking only.
  * andesite / diorite / granite stay junkwell-02's (well junk above STONE_GUARD; never bankable): one rule per item.
  */
+/**
+ * THE TOWN COBBLE CAP -- THE ONE PLACE IT IS WRITTEN (cobblecap-1000). OWNER 10-14 "can we up the chest limit for
+ * cobblestones to 1000": was 256 (OWNER 10-04, stonecap-01). cobblecap.mjs re-exports it; the cobble group's target is it;
+ * the bot's rows carry it (`_cobble_bank cap=`, the pruned cobble row's `target=`), and the reads take it from there or from
+ * this module -- never a literal. The bag's own reserve (64 cobble + deepslate, bankable.mjs COBBLE_RESERVE) is unchanged.
+ */
+export const TOWN_COBBLE_CAP = 1000
 export const STOCK_GROUPS = Object.freeze({
-  cobble: bulk(['cobblestone', 'cobbled_deepslate'], 256),
+  cobble: bulk(['cobblestone', 'cobbled_deepslate'], TOWN_COBBLE_CAP),
   ...Object.fromEntries(WOODS.map(w => [`${w}_log`, bulk([`${w}_log`], 64)])),
   ...Object.fromEntries([...WOODS, 'bamboo'].map(w => [`${w}_planks`, bulk([`${w}_planks`], 64)])),
   stick: bulk(['stick'], 64),
