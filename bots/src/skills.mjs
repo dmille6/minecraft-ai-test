@@ -101,6 +101,8 @@ import { openLessons } from './lessons.mjs'
 import { dropsOf, heldFromBlock, sourcesOf } from './drops.mjs'
 import { smeltPlan, smeltRecipeFor, chooseFuel, fuelTicks, SMELT_TICKS } from './smelting.mjs'
 import { withDigScope } from './digtown.mjs'
+// minewell-01 (its own statement)
+import { planMineStart, shellOf, RELOCATE_RADIUS } from './minewell.mjs'
 
 /**
  * FAILURE CLASSES THAT NAME OUR IGNORANCE RATHER THAN THE WORLD.
@@ -10037,7 +10039,47 @@ async function mine(ctx, { y: targetY = 12 }, signal) {
   // demotes the candidate that failed instead of the task. A refusal that does
   // not retire the candidate that caused it hands the next decision the same
   // input and gets the same output -- which is the 1,418 above, exactly.
-  const choice = chooseStairBearing(bot, bot.entity.position.floored())
+  // THE JUNK WELL'S SHELL (minewell-01, minewell.mjs): hive-d 10-14 -- a `mine` started on the well's stand dug its
+  // wall and floor and the bot collected the shaft's items. Every bearing's whole stair is simulated against the known
+  // well columns BEFORE the first dig; a stair that would touch a shell is never started. With no clear bearing from
+  // here the bot WALKS to the nearest standable cell that has one (planned again on arrival); with none, a refusal that
+  // names the well and where to walk.
+  const wellCols = () => { try { return bot.wellCellsNow?.() ?? knownWellCells(bot) } catch { return [] } }
+  const standableAt = c => {
+    const feetB = bot.blockAt(new Vec3(c.x, c.y, c.z)), headB = bot.blockAt(new Vec3(c.x, c.y + 1, c.z)), floorB = bot.blockAt(new Vec3(c.x, c.y - 1, c.z))
+    const open = b => !!b && b.boundingBox === 'empty' && !stairLiquid(b)
+    return open(feetB) && open(headB) && !!floorB && floorB.boundingBox === 'block' && !stairLiquid(floorB)
+  }
+  const planHere = () => planMineStart({ cols: wellCols(), p0: bot.entity.position.floored(), feet: bot.entity.position,
+                                         bearings: stairBearings(bot), standable: standableAt })
+  let wellPlan = planHere()
+  const wellRow = (what, plan, extra = '') => logEvent({ kind: 'mine_well_guard', status: what === 'relocate' ? 'success' : 'refused', snapshot: snapshot(bot),
+    detail: `action=${what} at=${plan.cap ? `${plan.cap.x},${plan.cap.y},${plan.cap.z}` : plan.hit?.cap ? `${plan.hit.cap.x},${plan.hit.cap.y},${plan.hit.cap.z}` : '-'} from=${(() => { const f = bot.entity.position.floored(); return `${f.x},${f.y},${f.z}` })()}${plan.to ? ` to=${plan.to.x},${plan.to.y},${plan.to.z}` : ''}${extra}` })
+  if (wellPlan.action === 'relocate') {
+    wellRow('relocate', wellPlan)
+    const to = wellPlan.to
+    try {
+      await withTimeout(bot.pathfinder.goto(new goals.GoalBlock(to.x, to.y, to.z)), 15_000, bot, { what: 'walking off the junk well before mining' })
+    } catch (e) { if (e?.aborted) throw e }
+    check(signal)
+    await settleForFall(bot, bot.entity.position.y, { maxMs: STEP_SETTLE_MS })
+    const dHome2 = Math.hypot(bot.entity.position.x - config.world.homeX, bot.entity.position.z - config.world.homeZ)
+    if (dHome2 <= 12) {
+      return { status: 'failed', failClass: 'forbidden',
+               detail: `walked off the junk well to ${Math.round(dHome2)} blocks from home, where the base floor is not dug; walk out at least 12 blocks from home and away from the well, then mine` }
+    }
+    wellPlan = planHere()
+    if (wellPlan.action !== 'go') {
+      const why = wellPlan.action === 'refuse' ? wellPlan.why : `walked toward ${to.x},${to.y},${to.z} but every stair from where the bot stands would still dig the junk well's shell`
+      wellRow('refuse', wellPlan, ' after=relocate')
+      return { status: 'failed', failClass: 'forbidden', detail: `${why}; walk at least ${RELOCATE_RADIUS + 3} blocks from the well and mine there` }
+    }
+  }
+  if (wellPlan.action === 'refuse') {
+    wellRow('refuse', wellPlan)
+    return { status: 'failed', failClass: 'forbidden', detail: wellPlan.why }
+  }
+  const choice = chooseStairBearing(bot, bot.entity.position.floored(), undefined, wellPlan.bearings)
   const bear = choice.bear
   const facing = stairBearing(bot)
   // Compared BY VALUE. Both come from the same CARDINALS array today, so `!==`
@@ -10217,6 +10259,19 @@ async function mine(ctx, { y: targetY = 12 }, signal) {
       }
     }
     const fallingAbove = FALLING.has(bot.blockAt(cellAbove.offset(0, 1, 0))?.name)   // read BEFORE digging
+    // EVERY DIG OF THE STAIR IS CHECKED AGAINST THE SHELL, whatever the plan said (minewell-01): the step, the re-open and the re-dig
+    const stairWells = wellCols()
+    const shellStop = pos => {
+      const cap = shellOf(stairWells, pos)
+      if (!cap) return null
+      logEvent({ kind: 'mine_well_guard', status: 'refused', snapshot: snapshot(bot), detail: `action=stop at=${cap.x},${cap.y},${cap.z} cell=${pos.x},${pos.y},${pos.z}` })
+      return { status: 'failed', failClass: 'forbidden',
+               detail: `stopped at y=${Math.round(bot.entity.position.y)}: the next stair cell ${pos.x},${pos.y},${pos.z} is the junk well's shell (${cap.x},${cap.y},${cap.z}); walk away from the well and mine again` }
+    }
+    for (const cell of [cellAbove, cellHead, cellFeet]) {
+      const stop = shellStop(cell)
+      if (stop) return stop
+    }
     for (const pos of [cellAbove, cellHead, cellFeet]) {
       const b = bot.blockAt(pos)
       if (!b || b.name === 'air' || b.name === 'cave_air') continue
@@ -10255,6 +10310,7 @@ async function mine(ctx, { y: targetY = 12 }, signal) {
         if (fallingNear) continue
         const stepCells = [cellAbove, cellHead, cellFeet]
         for (const pos of stepCells) {   // re-open top-down
+          if (shellOf(stairWells, pos)) return shellStop(pos)
           const b = bot.blockAt(pos)
           if (b && b.boundingBox === 'block') { try { await bot.dig(b) } catch (e) { if (e.aborted) throw e } }
         }
@@ -10340,6 +10396,7 @@ async function mine(ctx, { y: targetY = 12 }, signal) {
     if (!arrived && moved < 0.3) {
       const t0 = Date.now()
       const stillThere = bot.blockAt(cellFeet)
+      if (stillThere && stillThere.boundingBox === 'block' && shellOf(wellCols(), cellFeet)) return shellStop(cellFeet)
       if (stillThere && stillThere.boundingBox === 'block') {
         // needsDrop: false, like the two escape digs. This re-dig wants the HOLE,
         // not the cobble -- and with the default the harvest watchdog would wait
@@ -10551,9 +10608,11 @@ export function stairFlowRisk (bot, from, bear, depth = STAIR_LOOKAHEAD) {
  * Nothing is dug and nothing moves: at most 4 bearings x 4 steps x 2 cells x
  * 6 reads of an already-loaded chunk.
  */
-export function chooseStairBearing (bot, from, depth = STAIR_LOOKAHEAD) {
+export function chooseStairBearing (bot, from, depth = STAIR_LOOKAHEAD, allow = null) {
   let best = null
   for (const bear of stairBearings(bot)) {
+    // minewell-01: only bearings whose whole stair stays clear of every junk well's shell
+    if (Array.isArray(allow) && !allow.some(a => a.x === bear.x && a.z === bear.z)) continue
     const runway = stairRunway(bot, from, bear, depth)
     const flow = runway === 0 ? 0 : stairFlowRisk(bot, from, bear, depth)
     if (!best || runway > best.runway || (runway === best.runway && flow < best.flow)) {
