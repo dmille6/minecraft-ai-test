@@ -130,7 +130,7 @@ await killed('without the check after abortableDig\'s look, an abort during the 
   "  check(signal)\n  return bot.dig(block, 'ignore')\n", "  return bot.dig(block, 'ignore')\n",
   abortAt('look', 2), ['dig'])
 await killed('the stair dig as a bare bot.dig: an abort during the equip still digs',
-  "      try { await abortableDig(bot, b, signal) } catch (e) { if (e.aborted) throw e; break }\n",
+  "      try { await abortableDig(bot, b, signal, { guard: () => (stopLook = shellStop(pos)) }) } catch (e) { if (e.aborted) throw e; break }\n",   // minewell-01 passes its shell guard
   "      try { await bot.dig(b) } catch (e) { if (e.aborted) throw e; break }\n",
   w => { w.bot.hooks.equip = () => w.ac.abort() }, ['dig'])
 await killed('without the check before the walk, an abort during the step\'s last dig still walks',
@@ -150,9 +150,9 @@ await t('WIRED: mine has no bare bot.dig( left (every dig goes through abortable
   const src = readFileSync(SP, 'utf8')
   assert.ok(mineBody(src).length > 5000, 'the mine body was not found')
   assert.equal((mineBody(src).match(/bot\.dig\(/g) || []).length, 0)
-  const a = "          if (b && b.boundingBox === 'block') { try { await abortableDig(bot, b, signal) } catch (e) { if (e.aborted) throw e } }"
+  const a = "          if (b && b.boundingBox === 'block') { try { await abortableDig(bot, b, signal, { guard: () => (stopReLook = shellStop(pos)) }) } catch (e) { if (e.aborted) throw e } }"
   assert.equal(src.split(a).length, 2, 'ANCHOR MISSING OR NOT UNIQUE')
-  assert.ok((mineBody(src.replace(a, a.replace('abortableDig(bot, b, signal)', 'bot.dig(b)'))).match(/bot\.dig\(/g) || []).length === 1)
+  assert.ok((mineBody(src.replace(a, a.replace('abortableDig(bot, b, signal, { guard: () => (stopReLook = shellStop(pos)) })', 'bot.dig(b)'))).match(/bot\.dig\(/g) || []).length === 1)
 })
 
 console.log(`  ${pass} passed, ${fail} failed`)
