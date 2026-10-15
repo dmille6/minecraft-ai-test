@@ -8751,7 +8751,7 @@ async function buildWell (ctx, _args, signal) {
     wellRefused(bot, 'build', 'no_site', `tally=${tallyText(tally)} rec=${rec} w=${String(bot.worldId ?? '-').slice(0, 40)} the town's junk well site cannot be settled: no cell within ${WELL_SEARCH_RADIUS} of home passes the site rules; no bot of the town searches again for ${Math.round(WELL_NO_SITE_BACKOFF_MS / 60000)} min`)
     return { status: 'no_effect', failClass: 'well_no_site', detail: `the town's junk well site cannot be settled: ${NO_VALID_CELL} (${tallyText(tally)})` }
   }
-  if (!site) return skip('site_deferred', `the town's junk well site cannot be settled from here: ${String(why).replace(/composter/g, 'well')}`)
+  if (!site) return skip('site_deferred', `the town's junk well site cannot be settled from here: ${String(why).replace(/composter/g, 'well')}${tally?.farm ? ` (the tree farm's keep-outs refused ${tally.farm} of ${tally.cols} columns; searched again next visit: refused ${tallyText(tally)})` : ''}`)
   try { bot.refreshWells?.() } catch { /* the cache refreshes on its own timer too */ }   // the site is excluded from this bot's paths now
   const st = wellStand(read, site)
   if (!st) return skip('no_stand', `nowhere to stand beside the junk well site at ${site.x},${site.y},${site.z}`)

@@ -642,7 +642,11 @@ export function canonicalWellSite ({ home, read, avoid = [] } = {}) {
   }
   // EXHAUSTED: every column of the search was READ and refused -- the only no-site answer that is a fact about the
   // town's ground rather than about what this bot has loaded (wellsite-01: only this one backs the build order off).
-  return { site: null, why: NO_VALID_CELL, exhausted: true, tally }
+  // A TREE FARM IN THE WAY IS NOT THE GROUND (wellsite-04 on treefarm-01, Codex P2): the farm can re-found or yield and
+  // free a column inside the 2 h hold, and neither the town record nor a bot's backoff would notice. A search that any
+  // farm keep-out refused is a free deferral (searched again next visit), never a hold.
+  const farmed = (tally.farm ?? 0) > 0
+  return { site: null, why: NO_VALID_CELL, exhausted: !farmed, tally }
 }
 export const NO_VALID_CELL = 'no valid cell for a well near home'
 
@@ -661,6 +665,7 @@ export function refusalClass (why) {
   if (/^underground .* beside the shaft$/.test(w)) return 'ring'
   if (/^\S+ within \d+$/.test(w)) return LIQUID.test(w.split(' ')[0]) ? 'liquid' : 'container'
   if (w === 'door') return 'container'
+  if (/^a tree-farm (plot|torch) is within \d+$/.test(w)) return 'farm'   // treefarm-01's keep-outs (farmWellAvoid): the farm can move
   if (/ is within \d+$/.test(w)) return 'avoid'
   if (/^nowhere to stand/.test(w)) return 'stand'
   return 'other'

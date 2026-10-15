@@ -182,6 +182,29 @@ await t('canonicalWellSite: a site found is never exhausted; an unknown cell is 
   const unk = W.canonicalWellSite({ home: HOME0, read: (x, y, z) => (x === 7 && z === 7 ? null : flatRead(noFloor)(x, y, z)) })
   assert.equal(unk.site, null); assert.equal(unk.exhausted, false); assert.match(unk.why, /unknown cell/)
 })
+await t('A TREE FARM IN THE WAY IS NOT THE GROUND: a search the farm\'s keep-outs refused is never exhausted (no 2 h hold to outlive a farm move); any other keep-out still is', () => {
+  const open = W.canonicalWellSite({ home: HOME0, read: flatRead() })
+  assert.ok(open.site, 'positive control: the flat town has a site')
+  const farm = W.canonicalWellSite({ home: HOME0, read: flatRead(), avoid: [{ x: 0, z: 0, r: 40, what: 'a tree-farm plot' }] })
+  assert.equal(farm.site, null); assert.equal(farm.why, W.NO_VALID_CELL)
+  assert.ok(farm.tally.farm > 0, JSON.stringify(farm.tally))
+  assert.equal(farm.exhausted, false, 'a farm-refused search must stay a free deferral')
+  const torch = W.canonicalWellSite({ home: HOME0, read: flatRead(), avoid: [{ x: 0, z: 0, r: 40, what: 'a tree-farm torch' }] })
+  assert.equal(torch.exhausted, false); assert.ok(torch.tally.farm > 0)
+  const bank = W.canonicalWellSite({ home: HOME0, read: flatRead(), avoid: [{ x: 0, z: 0, r: 40, what: 'a bank container' }] })
+  assert.equal(bank.site, null); assert.equal(bank.exhausted, true, 'control: a non-farm keep-out is the ground and holds')
+  assert.ok(!bank.tally.farm && bank.tally.avoid > 0, JSON.stringify(bank.tally))
+})
+await t('MUTANT (well): the farm exception removed -- a farm-refused search is exhausted and would hold the town 2 h', async () => {
+  await withMutant(WP, "  return { site: null, why: NO_VALID_CELL, exhausted: !farmed, tally }", "  return { site: null, why: NO_VALID_CELL, exhausted: true, tally }", async m => {
+    assert.equal(m.canonicalWellSite({ home: HOME0, read: flatRead(), avoid: [{ x: 0, z: 0, r: 40, what: 'a tree-farm plot' }] }).exhausted, true, 'mutant inert')
+  })
+})
+await t('MUTANT (well): no farm refusal class -- the farm keep-out counts as `avoid` and the search holds', async () => {
+  await withMutant(WP, "  if (/^a tree-farm (plot|torch) is within \\d+$/.test(w)) return 'farm'", "", async m => {
+    assert.equal(m.canonicalWellSite({ home: HOME0, read: flatRead(), avoid: [{ x: 0, z: 0, r: 40, what: 'a tree-farm plot' }] }).exhausted, true, 'mutant inert')
+  })
+})
 await t('refusalClass: every refusal the rule can say maps to its class (none to "other"); tallyText is compact, largest first', () => {
   const r = (extra, cap = CAP, home = HOMEFAR, avoid = []) => W.wellSiteRefusal(flatRead(extra), cap, home, { avoid })
   const cases = [
@@ -197,6 +220,8 @@ await t('refusalClass: every refusal the rule can say maps to its class (none to
     [r({ '6,64,2': B('oak_door') }), 'container'],
     [r({}, CAP, HOMEFAR, [{ x: 6, z: 1, r: 7, what: 'a bank container' }]), 'avoid'],
     [r({}, CAP, HOMEFAR, [{ x: 6, z: 1 }]), 'avoid'],
+    [r({}, CAP, HOMEFAR, [{ x: 6, z: 1, r: 4, what: 'a tree-farm plot' }]), 'farm'],
+    [r({}, CAP, HOMEFAR, [{ x: 6, z: 1, r: 2, what: 'a tree-farm torch' }]), 'farm'],
   ]
   for (const [why, cls] of cases) assert.equal(W.refusalClass(why), cls, `${why} -> ${cls}`)
   assert.equal(W.refusalClass('no site'), 'other')
