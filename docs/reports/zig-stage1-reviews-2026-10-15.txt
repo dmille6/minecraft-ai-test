@@ -1,0 +1,196 @@
+REVIEWS for docs/reports/zig-stage1-z0m0-2026-10-15.md (stage 1, offline Z0/M0) -- final: Codex APPROVE r6, Claude APPROVE r2+r3
+
+=== CODEX r1
+
+codex
+Reviewed read-only on `zig-offline` at `b7cc60b5`. The approved design file is absent, so I skipped it. The requested test passes **15/15**. Snapshot files are unavailable here; world-specific results could not be independently regenerated.
+
+The **14,688 body cells, 3,780 skin cells, and 24 stair blocks** check out. The following issues prevent approval.
+
+1. **P1 — Stub end faces escape the liquid survey.**  
+   `bots/src/shaftplan.mjs:59–60` removes the end face from the shell, and `:80–81` surveys only dig and shell cells. With collar 71, water at local `(0,63,9)` yields `bottom:16, stop:null`, although opening the adjacent stub exposes that water. **Control:** moving water to the side shell at `(-1,63,8)` stops the shaft; dry stone reaches 16. Separate the safety survey boundary from the cells requiring permanent lining.
+
+2. **P2 — Partially unread columns are accepted.**  
+   `bots/src/monument.mjs:104` counts unknown cells but continues; `:160–170` never refuses `tally.unknown`. One unread cell inside the proposed structure produces `ok:true, unknown:1`. **Controls:** the fully read dry site passes, visible lava at that same cell refuses, and a wholly unread column refuses. Require complete reads of the relevant construction and clearance volume.
+
+3. **P2 — Base-height selection causes false refusals.**  
+   `bots/src/monument.mjs:186–192` chooses the cheapest height before applying hard constraints. A flat site at ground 69 with one edge column reaching 72 chooses base 70 and refuses its single cut. Base 71 satisfies the strict rules with **zero cuts and 2,303 foundation blocks, a 15.65% share**. **Control:** the unmodified flat site passes. Minimise cost among feasible heights. The strict/r64 qualification counts need rerunning afterward.
+
+4. **P2 — Dirt pillars are classified as terrain.**  
+   `bots/src/monument.mjs:110–115` accepts a natural-looking block whenever the block immediately below is solid. An eleven-block dirt pillar returns `top:80` and no debris; the identical cobble pillar returns ground 69 and eleven debris cells. This affects base height, cuts, clearance and collar eligibility. The report’s blanket pillar-clearing claim at `docs/reports/zig-stage1-z0m0-2026-10-15.md:62` exceeds the implementation.
+
+5. **P2 — Cleared material is also credited as completed construction.**  
+   `bots/scripts/zigsite.mjs:63–67` subtracts every solid plan cell, including logs and litter, from placement demand. A single log produces `clear:1` while reducing placements from 14,712 to 14,711. **Control:** the same dry site without the log needs 14,712. Credit only material actually retained after clearance. The “natural ground” description and aggregate placement estimate at report `:90–95` need correction and regeneration.
+
+6. **P2 — Accepted water columns are not necessarily filled.**  
+   `bots/src/monument.mjs:163` counts water regardless of height; `:181` fills the apron only through `baseY-2`, and `:184` excludes water from clearance. A single apron water cell at `(-1,69,23)` is accepted with `waterCols:1` but **zero foundation and apron fill**, leaving that water outside the plan. **Control:** the dry counterpart also passes with zero fill. Thus `waterColumnsFilled` and report `:59` promise an operation the scorer does not establish. Account for every accepted water cell’s replacement or drainage.
+
+7. **P2 — Farm protection is missing from Z0 and fails open on unavailable farm data.**  
+   `bots/scripts/zigsite.mjs:39` computes farm plots, but `:51` passes only composter/well records into the ziggurat’s avoidance list. Farm plots can extend to 26 from home while the apron can begin there. **Control:** a synthetic site with corner `(28,-24)` passes without a farm exclusion and refuses when plot `(26,0)` is supplied. Additionally, `:39` and `:72` turn farm errors or unknown results into an empty exclusion list. Distinguish confirmed absence from unavailable evidence and protect farm cells in both gates.
+
+8. **P2 — “Each guard with a positive control” is not supported by the committed tests.**  
+   Report `:27` overstates `bots/test/monument-plan.test.mjs`. Missing paired coverage includes lava, partial reads, foundation-share refusal, avoid overlap, collar surface boundaries, shaft unknowns/no-landing, waterlogging and falling-block accounting. The existing shaft water test covers one side-shell location only. My additional controls confirmed foundation refusal against a dry acceptance and falling-block detection against dry stone, but these protections need committed regression coverage—including the failures above.
+
+9. **P3 — The returned plan is not globally ordered by layer.**  
+   `bots/src/monument.mjs:68–75` appends every stair after the completed body. Layer order drops from 15 to 0 at index 14,688. The ordering test at `bots/test/monument-plan.test.mjs:33` filters stairs out, masking this contract violation. Merge stairs into their corresponding layers.
+
+The relaxed rules are **honestly identified as operator choices**, including the additional **96-block exception for placebo-d**; that exception is also recorded in JSON under `rulesUsed`. The collar’s ±6 check implements the stated numeric rule, though its ground input inherits the pillar problem. Landing spacing, stub floor/ceiling inclusion, and falling-shell placement accounting passed the inspected controls. The decoder also passed synthetic solid/air/missing-chunk controls across negative coordinates.
+
+The report should retain those explicit qualifications, withdraw the unsupported “all guards” claim, and regenerate qualification counts and construction totals after the fixes.
+
+VERDICT: CHANGE
+
+=== CLAUDE r1
+Claude stage-1 review r1: CHANGE.
+P1-1 report/JSON stale; produced by the old cheapest-first base search (board-a r64 finds 26 sites with feasible-first; hive-b 184->439).
+P1-2 grand stair first step unreachable: scorer accepted apron tops baseY-2..baseY and filled only to baseY-2; first step +2 (placebo-b all 6 stair-foot apron cells -1; board-d -2,-1,-4); test assumed the apron surface.
+P2-3 entry pad (0..1,c,-1) is in the shell (lined shut).
+P2-4 collarOk reads one column, not reachability (board-a collar drops 23-45 within 2-4 cells; board-d 'ground' was grass on a furnace over air).
+P2-5 apron outer-edge drops unmeasured (board-a 18 cells >3, max 19; board-b 29/20; placebo-b 20/19; hive-c 9/14).
+P2-6 departures from design 3.2 not flagged: trees cleared not excluded (2,245-3,040 per site); voids no score term; liquid below not a refusal (placebo-b 8,902); water <=24 itself a relaxation.
+P3-7 bee_nest labelled furniture; huge mushroom blocks as ground; torchflower matches torch; void_air not counted in voids.
+P3-8 'levelling digs of natural ground' includes air overhangs, melon, leaves, cobble.
+P3-9 exposure figures not reproducible from the branch; denominators unstated.
+Checked sound: geometry 14,688/3,780/24; shaft liquid stop positive control in shaftBottoms; decoder platform 12/12.
+VERDICT: CHANGE
+
+=== CODEX r2
+
+codex
+Read-only review completed; **28/28 tests pass**. Snapshot files are unavailable locally, so world-specific results could not be independently regenerated.
+
+1. **R1 P1 — Stub end faces: RESOLVED.** End faces and the tread below now join the liquid/unknown survey independently of permanent lining. The wet-face regression stops above the affected landing.
+
+2. **R1 P2 — Partial reads: RESOLVED.** `scoreSite` now refuses accumulated unknown cells. Tests cover both partial and wholly unread columns.
+
+3. **R1 P2 — Base-height selection: RESOLVED.** Selection minimises cost among heights satisfying cut and foundation limits. The feasible-higher-base regression passes; report and JSON now record four strict qualifiers.
+
+4. **R1 P2 — Dirt pillars classified as terrain: RESOLVED.** The horizontal-neighbour requirement rejects the reported 1×1 pillar while retaining the tested hill.
+
+5. **R1 P2 — Cleared material credited as construction: NOT RESOLVED.** `keptGround` remains material-based (`bots/src/monument.mjs:229`), while clearance depends on column geometry. Reproducing an eleven-block dirt pillar gives `clear:11` **and eleven credited plan cells** through `bots/scripts/zigsite.mjs:70`. Placement demand becomes 14,701 instead of 14,712. Credit must exclude actual clearance cells.
+
+6. **R1 P2 — Accepted water unaccounted for: RESOLVED.** Water above the foundation/apron fill line now contributes to `waterFill`, covering the original apron case. A separate counting regression appears below.
+
+7. **R1 P2 — Farm protection: NOT RESOLVED.** Farm plots now protect Z0, and exceptions refuse both gates. However, `bots/scripts/zigsite.mjs:43–45` still treats every non-record result as confirmed absence. `canonicalFarm({home:{x:0,y:70,z:0},read:()=>null})` returns `{record:null,why:"unknown cell near -9,70,-1"}` without throwing. Both gates therefore continue without farm exclusions on unavailable evidence.
+
+8. **R1 P2 — Missing regression coverage: RESOLVED.** The added tests cover the previously listed guard categories. They do not catch the remaining integration failures above.
+
+9. **R1 P3 — Global layer order: RESOLVED.** Stairs are emitted with their corresponding layers; the ordering test now checks the entire plan.
+
+**NEW P2 — Water inside the monument is counted twice.** `bots/src/monument.mjs:200–201` adds water already occupying a planned body cell to `waterFill`; `bots/scripts/zigsite.mjs:74` adds that count to the full plan demand. On flat ground at 69, adding one water cell at `(120,70,120)` inside corner `(100,100)` changes placements from **14,712 to 14,713**, although the same planned block replaces that water. This also inflates the foundation-share constraint and can falsely reject borderline sites. Count additional water replacements only outside existing plan/fill cells.
+
+VERDICT: CHANGE
+
+=== CLAUDE r2
+Claude stage-1 review r2: APPROVE. r1 P1-1, P1-2, P2-3, P2-4, P2-5, P2-6 (except water), P3-7, P3-8, P3-9 RESOLVED (r80 re-run on hive-b and board-a matches the JSON field for field; tables match the JSON on all 12; strict 2/12).
+New P2: "No chosen site needs any water fill" is true only of waterFill; waterColumnsFilled on chosen sites: hive-b 89 (beyond even <=24: the site exists only under the 150 limit), board-c 16, placebo-b 10, hive-a 5, placebo-d 5, placebo-c 3 -- filled as foundation/apron.
+P3: test name "more than 4 below refuses that base height" not asserted. P3: Z0 has no reachability check to the stair approach (3/3 reachable with trees clearable; carry to stage 4). P3: an apron cell left at baseY can drop 4 unguarded; measure from max(top, baseY-1).
+VERDICT: APPROVE
+
+=== CODEX r3
+
+codex
+**34/34 tests pass.** Reviewed read-only; world-specific snapshot results were not independently regenerated.
+
+- **R1 P2-5 — RESOLVED.** Construction credit now requires natural material **at or below the scanned column top**, excluding cleared dirt pillars and logs.
+- **R1 P2-7 — RESOLVED.** Only `no farm site` establishes absence; other null results and exceptions refuse both gates. Farm exclusions protect both gates.
+- **R2 NEW water double count — NOT RESOLVED.** Body cells are fixed, but stair cells still count twice. In `bots/src/monument.mjs:222`, the water test uses the body profile rather than the complete plan. On ground 69 with corner `(100,100)` and south-facing stairs, water at either first-step `(122,70,148)` or second-step `(122,72,145)` produces `waterFill:1`. Both coordinates already belong to `zigCells`. The dry control has `waterFill:0`; placement demand incorrectly increases from **14,712 to 14,713**. Exclude all planned stair cells as well as body cells.
+
+**NEW P2 — Approach construction bypasses protected-block and liquid checks.**  
+`bots/src/monument.mjs:181` retains only outer-ring ground heights, discarding clearance contents and unknown counts. Lines 235–237 subsequently place approach fill in those columns.
+
+Reproduction: ground 69, corner `(100,100)`, south-facing stairs, and outer approach row `z=150` lowered to ground 67. The dry control passes with **three approach placements at y=68**. Adding a chest at `(122,68,150)` still returns `ok:true`, `furniture:0`, `clear:0`, and the same three placements—one now overlaps the protected chest. Replacing that chest with lava likewise passes with `lava:0`. Apply the protection, read-completeness, and clearance checks to the approach construction volume before accepting it.
+
+VERDICT: CHANGE
+
+=== CODEX r4
+
+codex
+Added the r4 section to `docs/reports/zig-stage1-z0m0-2026-10-15.md`. **38/38 tests pass.**
+
+- Stair-cell water double count: **RESOLVED**.
+- Approach protection/liquid/read checks: **RESOLVED**.
+- Apron edge surface correction confirmed.
+
+**NEW P2:**
+- Approach water bypasses `maxWater`: a wet approach passes with `maxWater:0`.
+- Water inside approach fill counts twice: three required placements become four.
+
+**NEW P1:** None found. JSON placement sums check out; snapshot results were not independently regenerated.
+
+VERDICT: CHANGE
+diff --git a/docs/reports/zig-stage1-z0m0-2026-10-15.md b/docs/reports/zig-stage1-z0m0-2026-10-15.md
+index d5bcf837cc9c96dc79348b332b1b48e4df4079e8..e33a1d92edf6a91a0952aecd0e45a42f299861b9
+--- a/docs/reports/zig-stage1-z0m0-2026-10-15.md
++++ b/docs/reports/zig-stage1-z0m0-2026-10-15.md
+@@ -158,6 +158,42 @@
+ - **The water wording is corrected** (Claude r2 P2).
+ - **Re-run:** board-b moved to -329,82, 80 from home. The rest are unchanged.
+ 
++## Codex stage-1 review r4 (confirmation)
++
++**Validation:** `cd bots && node test/monument-plan.test.mjs` passes **38/38**. Additional focused checks covered
++all 96 stair coordinates across the four faces, approach unknowns/bees/debris, and approach water with dry and
++footprint controls. The regenerated JSON has consistent placement sums in all 12 worlds (190,023 total), and
++records board-b at (-329,82). World-specific snapshot results were not independently regenerated in this review.
++
++- **R3 stair-cell water double count — RESOLVED.** `bots/src/monument.mjs:239` excludes planned stair cells from
++  extra water fill. Both previously reported south-facing coordinates, (122,70,148) and (122,72,145), now return
++  `waterFill:0`; all 96 planned stair coordinates pass the same check.
++- **R3 approach construction bypassing protection/liquid/read checks — RESOLVED.**
++  `bots/src/monument.mjs:187` now accumulates unknown, lava, furniture and bee refusals for approach columns.
++  The committed chest/lava controls pass; focused unknown and bee cases refuse, and a crafting table contributes
++  `clear:1` while the dry control contributes zero. Separate water-accounting defects are listed below.
++- **Apron edge change confirmed.** The drop now uses the adjacent apron column's surface rather than always
++  `baseY-1`; the regression for ground retained at `baseY` beside a four-block drop passes.
++
++**NEW P2 — Approach water bypasses the water-column limit.** At `bots/src/monument.mjs:187`, approach columns
++accumulate other refusal tallies but never increment `tally.waterCols` before the limit check at line 212.
++Reproduction: ground 69, corner (100,100), south-facing stairs, approach row z=150 at x=122..124 lowered to
++ground 67, and water at (122,68,150). With `maxWater:0`, this returns `ok:true, waterCols:0, waterFill:1`.
++The dry control passes; water at footprint coordinate (120,70,120) with the same limit refuses. Include wet
++approach columns in the tally so acceptance, ranking and reported `waterColumnsFilled` cover the construction.
++
++**NEW P2 — Water inside approach fill is counted twice.** `bots/src/monument.mjs:259` counts approach placements,
++then line 261 counts every water cell above the original ground again. In the same reproduction, dry ground
++requires three approach placements at y=68 (`guardAndApproach:3, waterFill:0`). Adding water at (122,68,150)
++leaves those three placements and adds `waterFill:1`, although one of them already replaces the water.
++Total placement demand incorrectly rises from 14,715 to 14,716; the score and foundation share are inflated too.
++Only count extra water replacements above the actual approach fill surface, and add paired regression coverage
++for both new cases before regenerating the gate results.
++
++**NEW P1:** None found.
++
++VERDICT: CHANGE
++
+ ## Review record
+ 
+ **Codex**
+
+
+=== CLAUDE r3
+Claude stage-1 review r3: APPROVE. No new P1/P2. Tests 38/38; r80 rerun of board-b and hive-b matches the JSON field for field (board-b -329,82, 80 from home, base 71, east stair, fill 2,686, guard+approach 6, levelling 43, blocks 16,881). Approach cells get unread/lava/furniture/bees refusals; water and clearance counted per base; edge drop from max(apron top, baseY-1) errs to more guard; water wording lists all six sites and hive-b's dependence on the 150 limit. P3: board-b sits exactly at the 80 limit (most sensitive to snapshot aging; carried to the live re-score).
+VERDICT: APPROVE
+
+=== CODEX r5
+
+codex
+### r5 (Codex r4)
+
+**39/39 tests pass.**
+
+- **Approach water omitted from `waterCols`: RESOLVED.** Approach water now counts toward the limit; the zero-limit regression passes.
+- **Water inside approach fill counted twice: NOT RESOLVED.** At `bots/src/monument.mjs:264`, the exclusion uses `baseY - 2`, but approach fill uses `surf - r.top - 1`. When adjacent apron ground is at `baseY`, fill reaches `baseY - 1`. Reproduction: base 70, approach ground 67, adjacent apron ground 70. Dry control returns `guardAndApproach:6, waterFill:0`; water at `(122,69,150)` returns `guardAndApproach:6, waterFill:1`, although approach fill already replaces it. Use `surf - 1` as the fill ceiling and add this regression.
+
+**NEW P1/P2:** None.
+
+VERDICT: CHANGE
+
+=== CODEX r6
+
+codex
+RESOLVED — `surf - 1` matches the approach fill height and prevents double-counting water. All 40 tests pass; restoring the old exclusion makes the final regression fail.
+
+NEW P1/P2: None found.
+
+VERDICT: APPROVE

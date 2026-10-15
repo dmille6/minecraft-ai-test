@@ -1,0 +1,1685 @@
+{
+ "snapshot": "/var/tmp/bm-worlds/<pool>/world on 10.0.0.30, taken 2026-10-15 04:14Z (read-only copies)",
+ "rules": {
+  "maxCentre": 80,
+  "maxWater": 150,
+  "maxCut": 250
+ },
+ "exposureWindow": "skill files 2026-10-14T05:00Z..10-15T05:00Z, distinct bot-minutes with a position (scripts/host/zigexposure.py)",
+ "worlds": {
+  "board-a": {
+   "home": {
+    "x": 355,
+    "y": 73,
+    "z": 147
+   },
+   "platform": "stone_bricks",
+   "farm": 8,
+   "columnsScanned": 43871,
+   "ziggurat": {
+    "centre": {
+     "x": 313,
+     "z": 75
+    },
+    "corner": {
+     "x": 289,
+     "z": 51
+    },
+    "baseY": 69,
+    "distFromHome": 72,
+    "stairFace": "s",
+    "planCells": 14712,
+    "foundation": 1952,
+    "apronFill": 555,
+    "waterFill": 0,
+    "guardAndApproach": 38,
+    "maxEdgeDropGuarded": 13,
+    "foundationShare": 0.173,
+    "levellingDigs": 25,
+    "voidsUnder": 979,
+    "liquidBelow": 437,
+    "clear": 3206,
+    "waterColumnsFilled": 0,
+    "groundInsideVolume": 1023,
+    "groundInSkinCells": 99,
+    "blocksToPlace": 16234,
+    "alternatives": 268,
+    "next": [
+     {
+      "centre": {
+       "x": 315,
+       "z": 75
+      },
+      "baseY": 69,
+      "foundation": 2514,
+      "dist": 72
+     },
+     {
+      "centre": {
+       "x": 311,
+       "z": 75
+      },
+      "baseY": 69,
+      "foundation": 2607,
+      "dist": 72
+     },
+     {
+      "centre": {
+       "x": 309,
+       "z": 75
+      },
+      "baseY": 69,
+      "foundation": 2751,
+      "dist": 72
+     }
+    ]
+   },
+   "zigRejects": {
+    "water in N columns": 700,
+    "fill N% of the plan": 646,
+    "town furniture in N columns": 612,
+    "no base height gives the stair an approach": 125,
+    "ok": 268,
+    "N columns unread": 438,
+    "N solid cells above the profile (levelling digs over N)": 673,
+    "lava in N columns": 480,
+    "a bee nest in N columns": 18
+   },
+   "shaft": {
+    "origin": {
+     "x": 374,
+     "z": 166
+    },
+    "away": "e",
+    "collar": 69,
+    "bottom": 16,
+    "landings": [
+     61,
+     53,
+     45,
+     37,
+     29,
+     21,
+     16
+    ],
+    "stop": null,
+    "digs": 365,
+    "lining": 137,
+    "falling": 6,
+    "ores": 11,
+    "unknown": 0,
+    "levels": 54,
+    "walkNodes": 4889
+   },
+   "shaftCandidates": 14,
+   "shaftRejects": {
+    "collar off the surface level": 531,
+    "pad not walkable (no walk)": 28,
+    "near the farm": 131,
+    "near farm plot": 54,
+    "no landing": 2
+   },
+   "shaftBottoms": {
+    "16": 9,
+    "19": 5
+   },
+   "ms": 374953,
+   "exposure": {
+    "botHours24h": 104.7,
+    "home32": {
+     "botH": 26.4,
+     "pct": 25.2
+    },
+    "zig32": {
+     "botH": 3.5,
+     "pct": 3.4
+    },
+    "shaft16": {
+     "botH": 4.3,
+     "pct": 4.1
+    }
+   }
+  },
+  "board-b": {
+   "home": {
+    "x": -249,
+    "y": 65,
+    "z": 144
+   },
+   "platform": "stone_bricks",
+   "farm": 8,
+   "columnsScanned": 43870,
+   "ziggurat": {
+    "centre": {
+     "x": -329,
+     "z": 82
+    },
+    "corner": {
+     "x": -353,
+     "z": 58
+    },
+    "baseY": 71,
+    "distFromHome": 80,
+    "stairFace": "e",
+    "planCells": 14712,
+    "foundation": 2297,
+    "apronFill": 389,
+    "waterFill": 0,
+    "guardAndApproach": 6,
+    "maxEdgeDropGuarded": 6,
+    "foundationShare": 0.183,
+    "levellingDigs": 43,
+    "voidsUnder": 1466,
+    "liquidBelow": 300,
+    "clear": 3690,
+    "waterColumnsFilled": 0,
+    "groundInsideVolume": 523,
+    "groundInSkinCells": 112,
+    "blocksToPlace": 16881,
+    "alternatives": 274,
+    "next": [
+     {
+      "centre": {
+       "x": -329,
+       "z": 80
+      },
+      "baseY": 71,
+      "foundation": 2863,
+      "dist": 80
+     },
+     {
+      "centre": {
+       "x": -329,
+       "z": 78
+      },
+      "baseY": 71,
+      "foundation": 3061,
+      "dist": 80
+     },
+     {
+      "centre": {
+       "x": -329,
+       "z": 76
+      },
+      "baseY": 71,
+      "foundation": 3297,
+      "dist": 80
+     }
+    ]
+   },
+   "zigRejects": {
+    "lava in N columns": 90,
+    "ok": 274,
+    "a bee nest in N columns": 2846,
+    "fill N% of the plan": 206,
+    "N solid cells above the profile (levelling digs over N)": 49,
+    "no base height gives the stair an approach": 36,
+    "town furniture in N columns": 410,
+    "water in N columns": 49
+   },
+   "shaft": {
+    "origin": {
+     "x": -263,
+     "z": 126
+    },
+    "away": "n",
+    "collar": 64,
+    "bottom": 16,
+    "landings": [
+     56,
+     48,
+     40,
+     32,
+     24,
+     16
+    ],
+    "stop": null,
+    "digs": 351,
+    "lining": 22,
+    "falling": 0,
+    "ores": 26,
+    "unknown": 0,
+    "levels": 49,
+    "walkNodes": 2288
+   },
+   "shaftCandidates": 121,
+   "shaftRejects": {
+    "pad not walkable (no walk)": 396,
+    "collar off the surface level": 51,
+    "near the farm": 86,
+    "near farm plot": 15,
+    "bad surface": 6,
+    "near junkwell-site": 85
+   },
+   "shaftBottoms": {
+    "16": 108,
+    "17": 3,
+    "18": 5,
+    "24": 1,
+    "25": 1,
+    "26": 2,
+    "31": 1
+   },
+   "ms": 417496,
+   "exposure": {
+    "botHours24h": 108.8,
+    "home32": {
+     "botH": 34.1,
+     "pct": 31.3
+    },
+    "zig32": {
+     "botH": 3.1,
+     "pct": 2.9
+    },
+    "shaft16": {
+     "botH": 3.1,
+     "pct": 2.9
+    }
+   }
+  },
+  "board-c": {
+   "home": {
+    "x": 355,
+    "y": 73,
+    "z": 147
+   },
+   "platform": "stone_bricks",
+   "farm": 9,
+   "columnsScanned": 43881,
+   "ziggurat": {
+    "centre": {
+     "x": 311,
+     "z": 83
+    },
+    "corner": {
+     "x": 287,
+     "z": 59
+    },
+    "baseY": 69,
+    "distFromHome": 64,
+    "stairFace": "s",
+    "planCells": 14712,
+    "foundation": 1745,
+    "apronFill": 936,
+    "waterFill": 0,
+    "guardAndApproach": 79,
+    "maxEdgeDropGuarded": 13,
+    "foundationShare": 0.188,
+    "levellingDigs": 10,
+    "voidsUnder": 614,
+    "liquidBelow": 523,
+    "clear": 3041,
+    "waterColumnsFilled": 16,
+    "groundInsideVolume": 1157,
+    "groundInSkinCells": 62,
+    "blocksToPlace": 16315,
+    "alternatives": 447,
+    "next": [
+     {
+      "centre": {
+       "x": 309,
+       "z": 83
+      },
+      "baseY": 69,
+      "foundation": 2893,
+      "dist": 64
+     },
+     {
+      "centre": {
+       "x": 311,
+       "z": 85
+      },
+      "baseY": 69,
+      "foundation": 2711,
+      "dist": 62
+     },
+     {
+      "centre": {
+       "x": 311,
+       "z": 79
+      },
+      "baseY": 69,
+      "foundation": 2835,
+      "dist": 68
+     }
+    ]
+   },
+   "zigRejects": {
+    "water in N columns": 1053,
+    "fill N% of the plan": 720,
+    "N solid cells above the profile (levelling digs over N)": 922,
+    "no base height gives the stair an approach": 239,
+    "ok": 447,
+    "lava in N columns": 487,
+    "a bee nest in N columns": 92
+   },
+   "shaft": {
+    "origin": {
+     "x": 368,
+     "z": 167
+    },
+    "away": "s",
+    "collar": 69,
+    "bottom": 16,
+    "landings": [
+     61,
+     53,
+     45,
+     37,
+     29,
+     21,
+     16
+    ],
+    "stop": null,
+    "digs": 345,
+    "lining": 157,
+    "falling": 0,
+    "ores": 11,
+    "unknown": 0,
+    "levels": 54,
+    "walkNodes": 5548
+   },
+   "shaftCandidates": 15,
+   "shaftRejects": {
+    "collar off the surface level": 535,
+    "pad not walkable (no walk)": 32,
+    "near the farm": 94,
+    "near farm plot": 81,
+    "no landing": 2,
+    "bad surface": 1
+   },
+   "shaftBottoms": {
+    "16": 11,
+    "19": 3,
+    "60": 1
+   },
+   "ms": 422899,
+   "exposure": {
+    "botHours24h": 106.5,
+    "home32": {
+     "botH": 43.0,
+     "pct": 40.4
+    },
+    "zig32": {
+     "botH": 5.6,
+     "pct": 5.3
+    },
+    "shaft16": {
+     "botH": 8.5,
+     "pct": 8.0
+    }
+   }
+  },
+  "board-d": {
+   "home": {
+    "x": 355,
+    "y": 73,
+    "z": 147
+   },
+   "platform": "stone_bricks",
+   "farm": 8,
+   "columnsScanned": 43903,
+   "ziggurat": {
+    "centre": {
+     "x": 313,
+     "z": 77
+    },
+    "corner": {
+     "x": 289,
+     "z": 53
+    },
+    "baseY": 69,
+    "distFromHome": 70,
+    "stairFace": "s",
+    "planCells": 14712,
+    "foundation": 1890,
+    "apronFill": 682,
+    "waterFill": 0,
+    "guardAndApproach": 48,
+    "maxEdgeDropGuarded": 9,
+    "foundationShare": 0.178,
+    "levellingDigs": 8,
+    "voidsUnder": 839,
+    "liquidBelow": 441,
+    "clear": 3514,
+    "waterColumnsFilled": 0,
+    "groundInsideVolume": 997,
+    "groundInSkinCells": 59,
+    "blocksToPlace": 16335,
+    "alternatives": 377,
+    "next": [
+     {
+      "centre": {
+       "x": 311,
+       "z": 77
+      },
+      "baseY": 69,
+      "foundation": 2637,
+      "dist": 70
+     },
+     {
+      "centre": {
+       "x": 313,
+       "z": 81
+      },
+      "baseY": 68,
+      "foundation": 1459,
+      "dist": 66
+     },
+     {
+      "centre": {
+       "x": 313,
+       "z": 79
+      },
+      "baseY": 69,
+      "foundation": 2570,
+      "dist": 68
+     }
+    ]
+   },
+   "zigRejects": {
+    "water in N columns": 1051,
+    "fill N% of the plan": 477,
+    "no base height gives the stair an approach": 218,
+    "N solid cells above the profile (levelling digs over N)": 968,
+    "ok": 377,
+    "lava in N columns": 512,
+    "town furniture in N columns": 357
+   },
+   "shaft": {
+    "origin": {
+     "x": 376,
+     "z": 138
+    },
+    "away": "e",
+    "collar": 68,
+    "bottom": 16,
+    "landings": [
+     60,
+     52,
+     44,
+     36,
+     28,
+     20,
+     16
+    ],
+    "stop": null,
+    "digs": 376,
+    "lining": 79,
+    "falling": 0,
+    "ores": 5,
+    "unknown": 0,
+    "levels": 53,
+    "walkNodes": 3087
+   },
+   "shaftCandidates": 8,
+   "shaftRejects": {
+    "collar off the surface level": 550,
+    "pad not walkable (no walk)": 42,
+    "bad surface": 6,
+    "near the farm": 123,
+    "near farm plot": 30,
+    "no landing": 1
+   },
+   "shaftBottoms": {
+    "16": 5,
+    "19": 2,
+    "53": 1
+   },
+   "ms": 415353,
+   "exposure": {
+    "botHours24h": 107.2,
+    "home32": {
+     "botH": 34.9,
+     "pct": 32.5
+    },
+    "zig32": {
+     "botH": 6.5,
+     "pct": 6.0
+    },
+    "shaft16": {
+     "botH": 9.1,
+     "pct": 8.5
+    }
+   }
+  },
+  "hive-a": {
+   "home": {
+    "x": 355,
+    "y": 73,
+    "z": 147
+   },
+   "platform": "stone_bricks",
+   "farm": 9,
+   "columnsScanned": 43857,
+   "ziggurat": {
+    "centre": {
+     "x": 311,
+     "z": 79
+    },
+    "corner": {
+     "x": 287,
+     "z": 55
+    },
+    "baseY": 69,
+    "distFromHome": 68,
+    "stairFace": "s",
+    "planCells": 14712,
+    "foundation": 1724,
+    "apronFill": 740,
+    "waterFill": 0,
+    "guardAndApproach": 42,
+    "maxEdgeDropGuarded": 12,
+    "foundationShare": 0.17,
+    "levellingDigs": 11,
+    "voidsUnder": 563,
+    "liquidBelow": 510,
+    "clear": 3642,
+    "waterColumnsFilled": 5,
+    "groundInsideVolume": 1045,
+    "groundInSkinCells": 64,
+    "blocksToPlace": 16173,
+    "alternatives": 467,
+    "next": [
+     {
+      "centre": {
+       "x": 313,
+       "z": 79
+      },
+      "baseY": 69,
+      "foundation": 2383,
+      "dist": 68
+     },
+     {
+      "centre": {
+       "x": 307,
+       "z": 79
+      },
+      "baseY": 69,
+      "foundation": 2795,
+      "dist": 68
+     },
+     {
+      "centre": {
+       "x": 309,
+       "z": 79
+      },
+      "baseY": 69,
+      "foundation": 2617,
+      "dist": 68
+     }
+    ]
+   },
+   "zigRejects": {
+    "water in N columns": 1055,
+    "fill N% of the plan": 627,
+    "N solid cells above the profile (levelling digs over N)": 1011,
+    "ok": 467,
+    "no base height gives the stair an approach": 289,
+    "lava in N columns": 511
+   },
+   "shaft": {
+    "origin": {
+     "x": 374,
+     "z": 165
+    },
+    "away": "e",
+    "collar": 72,
+    "bottom": 16,
+    "landings": [
+     64,
+     56,
+     48,
+     40,
+     32,
+     24,
+     16
+    ],
+    "stop": null,
+    "digs": 334,
+    "lining": 168,
+    "falling": 3,
+    "ores": 7,
+    "unknown": 0,
+    "levels": 57,
+    "walkNodes": 6863
+   },
+   "shaftCandidates": 12,
+   "shaftRejects": {
+    "collar off the surface level": 510,
+    "pad not walkable (no walk)": 34,
+    "near junkwell-site": 34,
+    "near the farm": 88,
+    "near farm plot": 77,
+    "no landing": 5
+   },
+   "shaftBottoms": {
+    "16": 7,
+    "28": 1,
+    "53": 2,
+    "60": 1,
+    "61": 1
+   },
+   "ms": 424527,
+   "exposure": {
+    "botHours24h": 105.3,
+    "home32": {
+     "botH": 41.8,
+     "pct": 39.7
+    },
+    "zig32": {
+     "botH": 4.7,
+     "pct": 4.5
+    },
+    "shaft16": {
+     "botH": 17.2,
+     "pct": 16.4
+    }
+   }
+  },
+  "hive-b": {
+   "home": {
+    "x": 355,
+    "y": 73,
+    "z": 147
+   },
+   "platform": "stone_bricks",
+   "farm": 7,
+   "columnsScanned": 43789,
+   "ziggurat": {
+    "centre": {
+     "x": 311,
+     "z": 95
+    },
+    "corner": {
+     "x": 287,
+     "z": 71
+    },
+    "baseY": 68,
+    "distFromHome": 52,
+    "stairFace": "s",
+    "planCells": 14712,
+    "foundation": 1133,
+    "apronFill": 642,
+    "waterFill": 0,
+    "guardAndApproach": 85,
+    "maxEdgeDropGuarded": 11,
+    "foundationShare": 0.126,
+    "levellingDigs": 28,
+    "voidsUnder": 434,
+    "liquidBelow": 446,
+    "clear": 2499,
+    "waterColumnsFilled": 89,
+    "groundInsideVolume": 3130,
+    "groundInSkinCells": 148,
+    "blocksToPlace": 13442,
+    "alternatives": 401,
+    "next": [
+     {
+      "centre": {
+       "x": 311,
+       "z": 93
+      },
+      "baseY": 69,
+      "foundation": 2499,
+      "dist": 54
+     },
+     {
+      "centre": {
+       "x": 309,
+       "z": 95
+      },
+      "baseY": 68,
+      "foundation": 2087,
+      "dist": 52
+     },
+     {
+      "centre": {
+       "x": 311,
+       "z": 89
+      },
+      "baseY": 69,
+      "foundation": 2171,
+      "dist": 58
+     }
+    ]
+   },
+   "zigRejects": {
+    "water in N columns": 1050,
+    "fill N% of the plan": 683,
+    "ok": 401,
+    "N solid cells above the profile (levelling digs over N)": 964,
+    "no base height gives the stair an approach": 123,
+    "N columns unread": 270,
+    "lava in N columns": 469
+   },
+   "shaft": {
+    "origin": {
+     "x": 373,
+     "z": 167
+    },
+    "away": "s",
+    "collar": 70,
+    "bottom": 16,
+    "landings": [
+     62,
+     54,
+     46,
+     38,
+     30,
+     22,
+     16
+    ],
+    "stop": null,
+    "digs": 371,
+    "lining": 95,
+    "falling": 0,
+    "ores": 11,
+    "unknown": 0,
+    "levels": 55,
+    "walkNodes": 3193
+   },
+   "shaftCandidates": 13,
+   "shaftRejects": {
+    "near the ziggurat": 48,
+    "collar off the surface level": 417,
+    "bad surface": 1,
+    "near junkwell-site": 34,
+    "near the farm": 129,
+    "near farm plot": 56,
+    "no landing": 7,
+    "pad not walkable (no walk)": 55
+   },
+   "shaftBottoms": {
+    "16": 7,
+    "19": 1,
+    "52": 1,
+    "53": 3,
+    "55": 1
+   },
+   "ms": 419844,
+   "exposure": {
+    "botHours24h": 111.0,
+    "home32": {
+     "botH": 64.8,
+     "pct": 58.3
+    },
+    "zig32": {
+     "botH": 5.7,
+     "pct": 5.1
+    },
+    "shaft16": {
+     "botH": 17.9,
+     "pct": 16.1
+    }
+   }
+  },
+  "hive-c": {
+   "home": {
+    "x": -68,
+    "y": 68,
+    "z": -68
+   },
+   "platform": "stone_bricks",
+   "farm": 6,
+   "columnsScanned": 43943,
+   "ziggurat": {
+    "centre": {
+     "x": 12,
+     "z": -132
+    },
+    "corner": {
+     "x": -12,
+     "z": -156
+    },
+    "baseY": 68,
+    "distFromHome": 80,
+    "stairFace": "w",
+    "planCells": 14712,
+    "foundation": 1855,
+    "apronFill": 621,
+    "waterFill": 0,
+    "guardAndApproach": 92,
+    "maxEdgeDropGuarded": 15,
+    "foundationShare": 0.175,
+    "levellingDigs": 28,
+    "voidsUnder": 1067,
+    "liquidBelow": 61,
+    "clear": 2600,
+    "waterColumnsFilled": 0,
+    "groundInsideVolume": 1092,
+    "groundInSkinCells": 96,
+    "blocksToPlace": 16188,
+    "alternatives": 174,
+    "next": [
+     {
+      "centre": {
+       "x": 12,
+       "z": -130
+      },
+      "baseY": 68,
+      "foundation": 2436,
+      "dist": 80
+     },
+     {
+      "centre": {
+       "x": 10,
+       "z": -132
+      },
+      "baseY": 68,
+      "foundation": 2646,
+      "dist": 78
+     },
+     {
+      "centre": {
+       "x": 10,
+       "z": -130
+      },
+      "baseY": 68,
+      "foundation": 2546,
+      "dist": 78
+     }
+    ]
+   },
+   "zigRejects": {
+    "water in N columns": 1741,
+    "lava in N columns": 486,
+    "a bee nest in N columns": 350,
+    "N solid cells above the profile (levelling digs over N)": 715,
+    "no base height gives the stair an approach": 163,
+    "fill N% of the plan": 331,
+    "ok": 174
+   },
+   "shaft": {
+    "origin": {
+     "x": -85,
+     "z": -65
+    },
+    "away": "w",
+    "collar": 63,
+    "bottom": 16,
+    "landings": [
+     55,
+     47,
+     39,
+     31,
+     23,
+     16
+    ],
+    "stop": null,
+    "digs": 328,
+    "lining": 80,
+    "falling": 0,
+    "ores": 5,
+    "unknown": 0,
+    "levels": 48,
+    "walkNodes": 1092
+   },
+   "shaftCandidates": 44,
+   "shaftRejects": {
+    "collar off the surface level": 361,
+    "pad not walkable (no walk)": 187,
+    "bad surface": 15,
+    "no landing": 40,
+    "near the farm": 58,
+    "near farm plot": 55
+   },
+   "shaftBottoms": {
+    "16": 27,
+    "17": 3,
+    "18": 4,
+    "19": 4,
+    "43": 1,
+    "49": 1,
+    "54": 2,
+    "55": 1,
+    "56": 1
+   },
+   "ms": 429401,
+   "exposure": {
+    "botHours24h": 109.1,
+    "home32": {
+     "botH": 53.6,
+     "pct": 49.1
+    },
+    "zig32": {
+     "botH": 3.0,
+     "pct": 2.7
+    },
+    "shaft16": {
+     "botH": 14.9,
+     "pct": 13.7
+    }
+   }
+  },
+  "hive-d": {
+   "home": {
+    "x": 68,
+    "y": 65,
+    "z": 68
+   },
+   "platform": "stone_bricks",
+   "farm": {
+    "absent": "no farm site within 22 of home (last: 2 usable plots (need 6): no_surface=2 grass_block=4 soil=1)"
+   },
+   "columnsScanned": 44005,
+   "ziggurat": {
+    "centre": {
+     "x": 144,
+     "z": -12
+    },
+    "corner": {
+     "x": 120,
+     "z": -36
+    },
+    "baseY": 75,
+    "distFromHome": 80,
+    "stairFace": "s",
+    "planCells": 14712,
+    "foundation": 1247,
+    "apronFill": 310,
+    "waterFill": 0,
+    "guardAndApproach": 10,
+    "maxEdgeDropGuarded": 5,
+    "foundationShare": 0.107,
+    "levellingDigs": 2,
+    "voidsUnder": 1377,
+    "liquidBelow": 10,
+    "clear": 2324,
+    "waterColumnsFilled": 0,
+    "groundInsideVolume": 2497,
+    "groundInSkinCells": 135,
+    "blocksToPlace": 13782,
+    "alternatives": 234,
+    "next": [
+     {
+      "centre": {
+       "x": 146,
+       "z": -12
+      },
+      "baseY": 75,
+      "foundation": 1657,
+      "dist": 80
+     },
+     {
+      "centre": {
+       "x": 148,
+       "z": -12
+      },
+      "baseY": 75,
+      "foundation": 1752,
+      "dist": 80
+     },
+     {
+      "centre": {
+       "x": 142,
+       "z": -12
+      },
+      "baseY": 75,
+      "foundation": 1476,
+      "dist": 80
+     }
+    ]
+   },
+   "zigRejects": {
+    "water in N columns": 1923,
+    "lava in N columns": 316,
+    "N solid cells above the profile (levelling digs over N)": 631,
+    "fill N% of the plan": 110,
+    "no base height gives the stair an approach": 41,
+    "town furniture in N columns": 705,
+    "ok": 234
+   },
+   "shaft": {
+    "origin": {
+     "x": 56,
+     "z": 50
+    },
+    "away": "n",
+    "collar": 64,
+    "bottom": 16,
+    "landings": [
+     56,
+     48,
+     40,
+     32,
+     24,
+     16
+    ],
+    "stop": null,
+    "digs": 348,
+    "lining": 44,
+    "falling": 32,
+    "ores": 0,
+    "unknown": 0,
+    "levels": 49,
+    "walkNodes": 1695
+   },
+   "shaftCandidates": 299,
+   "shaftRejects": {
+    "bad surface": 5,
+    "no landing": 14,
+    "pad not walkable (no walk)": 263,
+    "collar off the surface level": 128,
+    "near junkwell-site": 51
+   },
+   "shaftBottoms": {
+    "16": 89,
+    "17": 70,
+    "18": 94,
+    "19": 23,
+    "24": 17,
+    "26": 1,
+    "36": 2,
+    "37": 3
+   },
+   "ms": 406901,
+   "exposure": {
+    "botHours24h": 104.7,
+    "home32": {
+     "botH": 34.6,
+     "pct": 33.0
+    },
+    "zig32": {
+     "botH": 0.6,
+     "pct": 0.5
+    },
+    "shaft16": {
+     "botH": 6.0,
+     "pct": 5.8
+    }
+   }
+  },
+  "placebo-a": {
+   "home": {
+    "x": 249,
+    "y": 75,
+    "z": -144
+   },
+   "platform": "oak_planks",
+   "farm": 7,
+   "columnsScanned": 43907,
+   "ziggurat": {
+    "centre": {
+     "x": 213,
+     "z": -88
+    },
+    "corner": {
+     "x": 189,
+     "z": -112
+    },
+    "baseY": 77,
+    "distFromHome": 56,
+    "stairFace": "n",
+    "planCells": 14712,
+    "foundation": 1849,
+    "apronFill": 1118,
+    "waterFill": 0,
+    "guardAndApproach": 178,
+    "maxEdgeDropGuarded": 16,
+    "foundationShare": 0.214,
+    "levellingDigs": 1,
+    "voidsUnder": 3690,
+    "liquidBelow": 49,
+    "clear": 1872,
+    "waterColumnsFilled": 0,
+    "groundInsideVolume": 2923,
+    "groundInSkinCells": 106,
+    "blocksToPlace": 14934,
+    "alternatives": 157,
+    "next": [
+     {
+      "centre": {
+       "x": 211,
+       "z": -88
+      },
+      "baseY": 77,
+      "foundation": 3015,
+      "dist": 56
+     },
+     {
+      "centre": {
+       "x": 211,
+       "z": -90
+      },
+      "baseY": 77,
+      "foundation": 3210,
+      "dist": 54
+     },
+     {
+      "centre": {
+       "x": 215,
+       "z": -88
+      },
+      "baseY": 77,
+      "foundation": 3017,
+      "dist": 56
+     }
+    ]
+   },
+   "zigRejects": {
+    "water in N columns": 1819,
+    "fill N% of the plan": 453,
+    "no base height gives the stair an approach": 45,
+    "ok": 157,
+    "N solid cells above the profile (levelling digs over N)": 123,
+    "a bee nest in N columns": 952,
+    "N columns unread": 411
+   },
+   "shaft": {
+    "origin": {
+     "x": 228,
+     "z": -146
+    },
+    "away": "w",
+    "collar": 72,
+    "bottom": 16,
+    "landings": [
+     64,
+     56,
+     48,
+     40,
+     32,
+     24,
+     16
+    ],
+    "stop": null,
+    "digs": 413,
+    "lining": 24,
+    "falling": 0,
+    "ores": 4,
+    "unknown": 0,
+    "levels": 57,
+    "walkNodes": 2108
+   },
+   "shaftCandidates": 61,
+   "shaftRejects": {
+    "pad not walkable (no walk)": 453,
+    "collar off the surface level": 97,
+    "near the farm": 57,
+    "near junkwell-site": 17,
+    "near farm plot": 75
+   },
+   "shaftBottoms": {
+    "16": 45,
+    "17": 5,
+    "18": 7,
+    "30": 2,
+    "49": 2
+   },
+   "ms": 462721,
+   "exposure": {
+    "botHours24h": 100.5,
+    "home32": {
+     "botH": 46.5,
+     "pct": 46.3
+    },
+    "zig32": {
+     "botH": 9.4,
+     "pct": 9.4
+    },
+    "shaft16": {
+     "botH": 9.0,
+     "pct": 9.0
+    }
+   }
+  },
+  "placebo-b": {
+   "home": {
+    "x": 282,
+    "y": 65,
+    "z": -388
+   },
+   "platform": "stone_bricks",
+   "farm": 7,
+   "columnsScanned": 43941,
+   "ziggurat": {
+    "centre": {
+     "x": 210,
+     "z": -360
+    },
+    "corner": {
+     "x": 186,
+     "z": -384
+    },
+    "baseY": 65,
+    "distFromHome": 72,
+    "stairFace": "e",
+    "planCells": 14712,
+    "foundation": 3395,
+    "apronFill": 613,
+    "waterFill": 0,
+    "guardAndApproach": 56,
+    "maxEdgeDropGuarded": 19,
+    "foundationShare": 0.276,
+    "levellingDigs": 2,
+    "voidsUnder": 3097,
+    "liquidBelow": 7966,
+    "clear": 2772,
+    "waterColumnsFilled": 10,
+    "groundInsideVolume": 149,
+    "groundInSkinCells": 21,
+    "blocksToPlace": 18627,
+    "alternatives": 501,
+    "next": [
+     {
+      "centre": {
+       "x": 204,
+       "z": -360
+      },
+      "baseY": 65,
+      "foundation": 3686,
+      "dist": 78
+     },
+     {
+      "centre": {
+       "x": 202,
+       "z": -360
+      },
+      "baseY": 65,
+      "foundation": 3650,
+      "dist": 80
+     },
+     {
+      "centre": {
+       "x": 210,
+       "z": -362
+      },
+      "baseY": 65,
+      "foundation": 4038,
+      "dist": 72
+     }
+    ]
+   },
+   "zigRejects": {
+    "a bee nest in N columns": 852,
+    "fill N% of the plan": 617,
+    "N solid cells above the profile (levelling digs over N)": 412,
+    "no base height gives the stair an approach": 121,
+    "ok": 501,
+    "water in N columns": 941,
+    "N columns unread": 516
+   },
+   "shaft": {
+    "origin": {
+     "x": 261,
+     "z": -406
+    },
+    "away": "w",
+    "collar": 64,
+    "bottom": 16,
+    "landings": [
+     56,
+     48,
+     40,
+     32,
+     24,
+     16
+    ],
+    "stop": null,
+    "digs": 355,
+    "lining": 33,
+    "falling": 0,
+    "ores": 4,
+    "unknown": 0,
+    "levels": 49,
+    "walkNodes": 2825
+   },
+   "shaftCandidates": 42,
+   "shaftRejects": {
+    "pad not walkable (no walk)": 232,
+    "no landing": 116,
+    "collar off the surface level": 169,
+    "bad surface": 86,
+    "near junkwell-site": 34,
+    "near the farm": 36,
+    "near farm plot": 45
+   },
+   "shaftBottoms": {
+    "16": 34,
+    "19": 7,
+    "51": 1
+   },
+   "ms": 417519,
+   "exposure": {
+    "botHours24h": 113.0,
+    "home32": {
+     "botH": 46.8,
+     "pct": 41.4
+    },
+    "zig32": {
+     "botH": 11.5,
+     "pct": 10.2
+    },
+    "shaft16": {
+     "botH": 3.4,
+     "pct": 3.0
+    }
+   }
+  },
+  "placebo-c": {
+   "home": {
+    "x": 355,
+    "y": 73,
+    "z": 147
+   },
+   "platform": "stone_bricks",
+   "farm": 7,
+   "columnsScanned": 43901,
+   "ziggurat": {
+    "centre": {
+     "x": 311,
+     "z": 79
+    },
+    "corner": {
+     "x": 287,
+     "z": 55
+    },
+    "baseY": 69,
+    "distFromHome": 68,
+    "stairFace": "s",
+    "planCells": 14712,
+    "foundation": 1656,
+    "apronFill": 703,
+    "waterFill": 0,
+    "guardAndApproach": 46,
+    "maxEdgeDropGuarded": 12,
+    "foundationShare": 0.163,
+    "levellingDigs": 28,
+    "voidsUnder": 302,
+    "liquidBelow": 524,
+    "clear": 3506,
+    "waterColumnsFilled": 3,
+    "groundInsideVolume": 1213,
+    "groundInSkinCells": 92,
+    "blocksToPlace": 15904,
+    "alternatives": 452,
+    "next": [
+     {
+      "centre": {
+       "x": 315,
+       "z": 77
+      },
+      "baseY": 69,
+      "foundation": 2211,
+      "dist": 70
+     },
+     {
+      "centre": {
+       "x": 313,
+       "z": 77
+      },
+      "baseY": 69,
+      "foundation": 2246,
+      "dist": 70
+     },
+     {
+      "centre": {
+       "x": 309,
+       "z": 79
+      },
+      "baseY": 69,
+      "foundation": 2574,
+      "dist": 68
+     }
+    ]
+   },
+   "zigRejects": {
+    "water in N columns": 1051,
+    "fill N% of the plan": 587,
+    "ok": 452,
+    "no base height gives the stair an approach": 207,
+    "N solid cells above the profile (levelling digs over N)": 667,
+    "town furniture in N columns": 408,
+    "lava in N columns": 510,
+    "a bee nest in N columns": 78
+   },
+   "shaft": {
+    "origin": {
+     "x": 365,
+     "z": 126
+    },
+    "away": "n",
+    "collar": 71,
+    "bottom": 16,
+    "landings": [
+     63,
+     55,
+     47,
+     39,
+     31,
+     23,
+     16
+    ],
+    "stop": null,
+    "digs": 413,
+    "lining": 46,
+    "falling": 0,
+    "ores": 13,
+    "unknown": 0,
+    "levels": 56,
+    "walkNodes": 3180
+   },
+   "shaftCandidates": 5,
+   "shaftRejects": {
+    "collar off the surface level": 533,
+    "pad not walkable (no walk)": 66,
+    "bad surface": 1,
+    "near the farm": 34,
+    "near farm plot": 121
+   },
+   "shaftBottoms": {
+    "16": 3,
+    "19": 2
+   },
+   "ms": 408287,
+   "exposure": {
+    "botHours24h": 108.7,
+    "home32": {
+     "botH": 38.3,
+     "pct": 35.2
+    },
+    "zig32": {
+     "botH": 3.7,
+     "pct": 3.4
+    },
+    "shaft16": {
+     "botH": 3.2,
+     "pct": 2.9
+    }
+   }
+  },
+  "placebo-d": {
+   "home": {
+    "x": 177,
+    "y": 75,
+    "z": 73
+   },
+   "platform": "stone_bricks",
+   "farm": 8,
+   "columnsScanned": 58601,
+   "ziggurat": {
+    "centre": {
+     "x": 269,
+     "z": -21
+    },
+    "corner": {
+     "x": 245,
+     "z": -45
+    },
+    "baseY": 71,
+    "distFromHome": 94,
+    "stairFace": "s",
+    "planCells": 14712,
+    "foundation": 457,
+    "apronFill": 419,
+    "waterFill": 0,
+    "guardAndApproach": 58,
+    "maxEdgeDropGuarded": 18,
+    "foundationShare": 0.063,
+    "levellingDigs": 0,
+    "voidsUnder": 992,
+    "liquidBelow": 500,
+    "clear": 2160,
+    "waterColumnsFilled": 5,
+    "groundInsideVolume": 438,
+    "groundInSkinCells": 55,
+    "blocksToPlace": 15208,
+    "alternatives": 63,
+    "next": [
+     {
+      "centre": {
+       "x": 267,
+       "z": -21
+      },
+      "baseY": 71,
+      "foundation": 1085,
+      "dist": 94
+     },
+     {
+      "centre": {
+       "x": 269,
+       "z": -19
+      },
+      "baseY": 71,
+      "foundation": 795,
+      "dist": 92
+     },
+     {
+      "centre": {
+       "x": 267,
+       "z": -19
+      },
+      "baseY": 71,
+      "foundation": 1066,
+      "dist": 92
+     }
+    ]
+   },
+   "zigRejects": {
+    "N columns unread": 1145,
+    "water in N columns": 1071,
+    "a bee nest in N columns": 2550,
+    "town furniture in N columns": 203,
+    "lava in N columns": 731,
+    "fill N% of the plan": 435,
+    "no base height gives the stair an approach": 69,
+    "N solid cells above the profile (levelling digs over N)": 541,
+    "ok": 63
+   },
+   "shaft": {
+    "origin": {
+     "x": 158,
+     "z": 79
+    },
+    "away": "w",
+    "collar": 76,
+    "bottom": 16,
+    "landings": [
+     68,
+     60,
+     52,
+     44,
+     36,
+     28,
+     20,
+     16
+    ],
+    "stop": null,
+    "digs": 435,
+    "lining": 84,
+    "falling": 0,
+    "ores": 2,
+    "unknown": 0,
+    "levels": 61,
+    "walkNodes": 3597
+   },
+   "shaftCandidates": 47,
+   "shaftRejects": {
+    "near the farm": 97,
+    "pad not walkable (no walk)": 274,
+    "collar off the surface level": 245,
+    "near farm plot": 78,
+    "bad surface": 18,
+    "no landing": 1
+   },
+   "shaftBottoms": {
+    "16": 39,
+    "17": 5,
+    "18": 1,
+    "19": 2
+   },
+   "ms": 94881,
+   "rulesUsed": {
+    "maxCentre": 96,
+    "maxWater": 150,
+    "maxCut": 250
+   },
+   "exposure": {
+    "botHours24h": 105.8,
+    "home32": {
+     "botH": 59.2,
+     "pct": 55.9
+    },
+    "zig32": {
+     "botH": 0.9,
+     "pct": 0.9
+    },
+    "shaft16": {
+     "botH": 19.0,
+     "pct": 18.0
+    }
+   }
+  }
+ },
+ "sensitivity": {
+  "board-a": {
+   "strict(64,24,0)": false,
+   "r80(80,150,250)": true
+  },
+  "board-b": {
+   "strict(64,24,0)": false,
+   "r80(80,150,250)": true
+  },
+  "board-c": {
+   "strict(64,24,0)": false,
+   "r80(80,150,250)": true
+  },
+  "board-d": {
+   "strict(64,24,0)": false,
+   "r80(80,150,250)": true
+  },
+  "hive-a": {
+   "strict(64,24,0)": true,
+   "r80(80,150,250)": true
+  },
+  "hive-b": {
+   "strict(64,24,0)": false,
+   "r80(80,150,250)": true
+  },
+  "hive-c": {
+   "strict(64,24,0)": false,
+   "r80(80,150,250)": true
+  },
+  "hive-d": {
+   "strict(64,24,0)": false,
+   "r80(80,150,250)": true
+  },
+  "placebo-a": {
+   "strict(64,24,0)": true,
+   "r80(80,150,250)": true
+  },
+  "placebo-b": {
+   "strict(64,24,0)": false,
+   "r80(80,150,250)": true
+  },
+  "placebo-c": {
+   "strict(64,24,0)": false,
+   "r80(80,150,250)": true
+  },
+  "placebo-d": {
+   "strict(64,24,0)": false,
+   "r80(80,150,250)": false
+  }
+ }
+}
