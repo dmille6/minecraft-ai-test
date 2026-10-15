@@ -7,9 +7,10 @@ scene passed on the final sha. Registration `docs/reports/treefarm-01.1918bb5.js
 **Queue position (owner 10-05 ~19:00Z): LAST** — after chestfull-02 (live) → withdraw → climbflood → towndeposit →
 foodskip → grid fix → bamboo → junk well re-run → cobble rule. Registered, **not launched**; rebased when its turn comes.
 
-**REVIVED 10-15 (see the section "REVIVAL 10-15" at the end): rebased onto fleet 5e663860 (`farm-on-5e66386` @ `4dc37cd6`;
-variant `farm-on-1957811` @ `660d872e` for airpocket-03), composed with everything since 1918bb5, bone meal ON by owner
-decision, both engines APPROVE, Paper re-run, registered `docs/reports/treefarm-01.4dc37cd6.json`. NOT QUEUED.**
+**REVIVED 10-15 (see the section "REVIVAL 10-15" at the end): rebased onto fleet 5e663860 (`farm-on-5e66386` @ `b7cc60b5`;
+variant `farm-on-8cd0bc6` @ `cc16f64e` for wellsite-03), composed with everything since 1918bb5, **bone meal OFF by
+default** (owner, after the Paper A/B), both engines APPROVE, Paper re-run, registered `docs/reports/treefarm-01.b7cc60b5.json`
+and `.cc16f64e.json`; queue entry `after: ["wellsite-03"]`. NOT QUEUED.**
 The status below is the 10-06 build's.
 
 ## For the owner, first
@@ -282,17 +283,19 @@ pieces below. Neither is built; each would be its own canary after the farm read
 | 6 | **A refusal with no executable remedy** | the order is only issued when this bot's view has work it can do; the skips name a gather (no saplings), a wait (unknown, leased) or a long backoff (no site). Chain tested. |
 | 7 | **Composition with the queue ahead** (withdraw, towndeposit, junk well, chest-full) | rebase requirement: chest-full's `chestSiteRefusal` and the junk well's site search must refuse `farmIndex` cells; re-run treefarm.test.mjs and the Paper `build`/`paths` scenes on the rebased sha |
 
-## REVIVAL 10-15: treefarm-01 on the current fleet (5e663860), bone meal ON
+## REVIVAL 10-15: treefarm-01 on the current fleet (5e663860); bone meal OFF by default
 
-**STATUS (10-15 03:30Z): REBUILT, REVIEWED, SANDBOX-PROVEN, REGISTERED, NOT QUEUED.** The owner asked about the farm on
-10-15 and wants it running. OWNER DECISION 10-15 ("lets build it and use the bone [meal]"): the bone meal arm is ON.
+**STATUS (10-15 05:10Z): REBUILT, REVIEWED, SANDBOX-PROVEN, REGISTERED, NOT QUEUED.** The owner asked about the farm on
+10-15 and wants it running. Bone meal: the owner first chose ON; after the Paper A/B below (first trees sooner, no log gain
+measured, 43 bone meal per farm-hour) the owner decided "do it the way you recommend": **OFF by default**, the bounded arm
+kept behind `TREEFARM_BONEMEAL=on` (an arm-on pool would need its own registration without the `bonemeal_used <= 0` line).
 
 | | |
 |---|---|
-| branch, fleet 5e663860 | `farm-on-5e66386` @ `4dc37cd6` (registration `docs/reports/treefarm-01.4dc37cd6.json`) |
-| branch, if airpocket-03 is kept (1957811e) | `farm-on-1957811` @ `660d872e` (registration `docs/reports/treefarm-01.660d872e.json`) |
-| read | `scripts/host/treefarmread.py` (md5 `b0b48ddbcdcebef8210847f376ea03ce`; installed on 10.0.0.31 as ~/mcai-analysis/treefarmread.py, the 10-06 one kept as `.bak-20261015-1918bb5`) |
-| queue entry | `docs/reports/treefarm-01.queue-entry.json` (for the operator; NOT queued) |
+| branch, fleet 5e663860 | `farm-on-5e66386` @ `b7cc60b5` (registration `docs/reports/treefarm-01.b7cc60b5.json`) |
+| branch, if wellsite-03 is kept (8cd0bc62) | `farm-on-8cd0bc6` @ `cc16f64e` (registration `docs/reports/treefarm-01.cc16f64e.json`); the same net diff, one union hunk in townWellSite |
+| read | `scripts/host/treefarmread.py` (md5 `600bc66715bf8b8dfe08b299507c2a5e`; installed on 10.0.0.31 as ~/mcai-analysis/treefarmread.py, the 10-06 one kept as `.bak-20261015-1918bb5`) |
+| queue entry | `docs/reports/treefarm-01.queue-entry.json`, `after: ["wellsite-03"]` (for the operator; NOT queued). The airpocket-03 variant was dropped (airpocket-03 closed INCONCLUSIVE). |
 | reviews | `docs/reports/treefarm-01-revival-reviews-2026-10-15.txt` |
 
 ### What changed in the rebase
@@ -328,7 +331,7 @@ HOUSEKEEPING, the index.mjs exclusion arrays, the skill contracts/registrations;
 - **Town projects (designed).** Their siting already keeps off "tree-farm cells and walkways" and any tree within 3. When the
   shared `townsites` file exists, `farmAvoid` must read it (stage 3, yard-01, adds it).
 
-**Bone meal (owner 10-15).** ON unless `TREEFARM_BONEMEAL=off`. Bounds: only a sapling whose column is clear (vanilla eats
+**Bone meal (owner 10-15).** OFF unless `TREEFARM_BONEMEAL=on` (the registration gates `bonemeal_used <= 0`). The arm's bounds: only a sapling whose column is clear (vanilla eats
 bone meal even when the tree cannot fit); never below 8 in the bag; at most 6 a visit; leftover logs above a sapling are
 cleared first. Rows: `bonemeal` (confirmed by the bag), `bm_grew` (a log named by the server at the cell right after),
 `bm_spent` (the bag's loss over the visit).
@@ -358,7 +361,7 @@ per-visit cap are one-line changes.
 Real bot from the branch, loopback brain, RCON as the oracle (`sandbox/treefarm/treefarm-e2e.cjs`; sandbox lock held as
 `treefarm` 01:06-03:20Z; sandbox2/3/4; arena only; randomTickSpeed restored to 3 on every server).
 
-| scene (final sha 38e74f69 = 4dc37cd6 src) | server truth |
+| scene (38e74f69; the final src differs only by the bone-meal default flip) | server truth |
 |---|---|
 | build | 9/9 plots + 4/4 torches confirmed, record = the harness's canonical layout, 0 off-plan cells, bag exact, 0 items on the ground; bone meal 5 in the bag (under the reserve): 0 spent |
 | resume | SIGKILL after the 3rd planting; restart completes 9/9 + 4/4, same record generation, 0 dropped |
@@ -371,9 +374,9 @@ Real bot from the branch, loopback brain, RCON as the oracle (`sandbox/treefarm/
 
 ### Tests and mutants
 
-- `npm test` (node scripts/run-tests.mjs): **252/252** on 4dc37cd6; **253/253** on the airpocket-03 variant 660d872e.
-- `treefarm.test.mjs` 62 tests (the reviewed 57 + bone meal bounds, the skill with bone meal on and a lagging bag, walk
-  scaffold vs toss, the order's level); `treefarm-compose.test.mjs` 24 (each keep-out from both sides, races, mid-walk /
+- `npm test` (node scripts/run-tests.mjs): **252/252** on b7cc60b5; **253/253** on the wellsite-03 variant cc16f64e.
+- `treefarm.test.mjs` 63 tests (the reviewed 57 + bone meal off by default, bone meal bounds, the arm on and a lagging bag, walk
+  scaffold vs toss, the order's level); `treefarm-compose.test.mjs` 25 (each keep-out from both sides, races, mid-walk /
   mid-look / mid-visit yields, chest-full's widening, the floor band, digtown, a stand in a well column, five chains through
   the REAL CognitiveLoop).
 - Test merges (each green on its own tests + the farm's): farm-x-tz (+ `treefarm-zone.test.mjs`: the zone's remedy still

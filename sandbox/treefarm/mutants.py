@@ -45,7 +45,7 @@ M = [
  ('src/skills.mjs', "    try { await withDigScope(bot, { purpose: 'target', by: 'tend_farm' }, () => g.bound(", "    try { await (() => g.bound(", 'digtown: no scope'),
  ('src/skills.mjs', " || idx.torch.has(`${c.x},${c.y},${c.z}`) || inWell(c)", " || idx.torch.has(`${c.x},${c.y},${c.z}`)", 'stand: well column allowed'),
  # ---- revival 10-15: bone meal ----
- ('src/treefarm.mjs', "  if (v === undefined || v === null || String(v).trim() === '') return true\n  return !/^(0|false|no|off)$/i", "  if (v === undefined || v === null || String(v).trim() === '') return false\n  return !/^(0|false|no|off)$/i", 'bone meal: default off'),
+ ('src/treefarm.mjs', "  return typeof v === 'string' && /^(1|true|yes|on)$/i.test(v.trim())\n}\n/** The farm itself", "  return true\n}\n/** The farm itself", 'bone meal: default on'),
  ('src/treefarm.mjs', "s.clear !== true || (left.bone_meal ?? 0) <= BONEMEAL_RESERVE", "(left.bone_meal ?? 0) <= BONEMEAL_RESERVE", 'bone meal: blocked sapling'),
  ('src/treefarm.mjs', "(left.bone_meal ?? 0) <= BONEMEAL_RESERVE || n >= BONEMEAL_PER_VISIT", "(left.bone_meal ?? 0) <= 0 || n >= BONEMEAL_PER_VISIT", 'bone meal: no reserve'),
  ('src/treefarm.mjs', "(left.bone_meal ?? 0) <= BONEMEAL_RESERVE || n >= BONEMEAL_PER_VISIT", "(left.bone_meal ?? 0) <= BONEMEAL_RESERVE", 'bone meal: no per-visit cap'),

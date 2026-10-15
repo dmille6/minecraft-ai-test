@@ -5,8 +5,9 @@
 #
 # THE CHANGE: one tree farm per town (3x3 sapling plots 4 apart, 4 growth torches), founded and tended by a deterministic
 # town order `tend_farm`: plant from the bag (birch first, then oak), restore lost soil, clear LEFTOVER logs from plot
-# columns, place torches the bot carries, and BONE MEAL (OWNER 10-15: ON by default; only on a sapling whose column is clear,
-# never below the bag's reserve of 8, at most 6 a visit; TREEFARM_BONEMEAL=off disables).
+# columns, place torches the bot carries. BONE MEAL is OFF by default (OWNER 10-15, after the Paper A/B): the bounded arm
+# (only a sapling whose column is clear, never below the bag's reserve of 8, at most 6 a visit) runs only with
+# TREEFARM_BONEMEAL=on. With the arm off, bone_meal_used must be 0 (gated in the registration as a defect).
 # Ordinary `gather <log>` harvests the trees -- the farm never chops a standing tree. Every mutation is counted only when a
 # SERVER block_change names the result at that cell. Rows: `_farm_tend` (one per visit, incl. no_effect skips; detail
 # "gen=N planted=N soil=N cleared=N torches=N bonemeal=N bm_grew=N bm_spent=N scaffold=N failed=N offplan=N lost=N lease=gN|held:X [at=..] t0=ms stop=..
@@ -344,7 +345,7 @@ print('INSTRUMENT   control log gathers with logs > 0: %d (>= 20)' % inst)
 print('FARM         sites %d (replaced %s) | visits %s | planted %d cleared %d torches %d soil %d | trees seen at visit max %s | taken by another structure %s'
       % (founded, replaced or 0, dict(tend_status), planted, cleared, torches, soil, max(grown_seen) if grown_seen else '-', dict(foreign) or 0))
 print('WALKS        scaffold blocks placed by farm-visit walks %d (reported; not a loss -- C3 excludes them since 10-15)' % scaffold_used[0])
-print('BONE MEAL    used %d (%.2f per canary bot-hour; fleet composting made 0.047/bot-h on 10-15) | grew a tree %d (%.0f%%) | C5 no-growth %d (floor %d) | C6 reserve breaches %d (inventory on %d visit rows)'
+print('BONE MEAL    used %d (EXPECTED 0: the arm is off by default) (%.2f per canary bot-hour; fleet composting made 0.047/bot-h on 10-15) | grew a tree %d (%.0f%%) | C5 no-growth %d (floor %d; arm on only) | C6 reserve breaches %d (inventory on %d visit rows)'
       % (bonemeal_used, bm_per_bh, bm_grew, 100.0 * bm_grew / bonemeal_used if bonemeal_used else 0, c5, BM_NOGROW_FLOOR, len(c6), inv_seen))
 print('TICKING      canary rows within %d of home: %.1f%% (a farm only grows while someone is that near)' % (TICK, 100 * tick_share))
 print('PRIMARY      logs/bot-h canary %.2f -> %.2f control %.2f -> %.2f DiD %+.2f' % (logs_rate('pre', 'canary'), logs_rate('post', 'canary'), logs_rate('pre', 'control'), logs_rate('post', 'control'), did(logs_rate)))

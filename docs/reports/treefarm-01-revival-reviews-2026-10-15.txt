@@ -76,3 +76,16 @@ VERDICT: APPROVE
 All round-2..5 findings verified fixed; full suite 252/252 in its snapshot. One P3: a scaffold confirmation later than ~6 s (5 s mineflayer wait + 1 s settle) is not credited and reads lost=1 (a false C3 row) -- accepted and documented in the read header and the registration's C3 line. No action needed: a stale pass-through wrapper after a hard-stopped visit is harmless.
 
 4dc37cd6 = 38e74f69 + a test-only change (the well-search wiring check accepts wellsite's (searched = ...) form, so it holds on the wellsite and plinth merges).
+
+## 10-15 later: bone meal OFF by default (OWNER, after the A/B) and the wellsite-03 variant -- round 7
+Codex r7 (reviewed 391a1ca9 vs 4dc37cd6, the read diff, and farm-on-8cd0bc6 @ 5ef07b2b) -- APPROVE:
+No P1/P2/P3 findings.
+
+- Default-off gating holds; explicit enable aliases are `on`, `1`, `true`, and `yes`. Arm tests clean up in `finally`; default-off tests have positive controls.
+- Variant matches the farm changes except the intended `searched =` hunk. Exhaustion handling and recorded-site precedence remain intact.
+- All 5 well/wellsite/treefarm test files passed.
+- Read diff verified. Updated registration wasn’t supplied, so its gate remains unverified.
+- Working tree unchanged.
+
+VERDICT: APPROVE
+Claude r7 (independent subagent, same scope) -- APPROVE, no P1/P2. P3s: (1) the registration note said C5/C6 apply to an arm-on pool, but the bonemeal_used<=0 line would revert it first -> reworded: an arm-on pool needs its own registration without that line; (2) stale registration files -> regenerated for b7cc60b5/cc16f64e; (3) the default-off loop test had no positive control of its own -> added (b7cc60b5, test-only; variant rebuilt as cc16f64e); (4) bm_spent counts any bone-meal loss during a visit, so with the arm off any such loss reverts -- no current path loses one; named in the bonemeal_used gate note.

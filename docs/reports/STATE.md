@@ -12,23 +12,34 @@ Studio reservation both closed 10-12); clear caps bamboo 0 / bucket 2._
 
 ---
 
-## 10-15 03:30Z — TREEFARM-01 REVIVED on 5e663860 (owner asked 10-15); bone meal ON (OWNER 10-15); both engines APPROVE; READY, NOT QUEUED
-- **Branches:** `farm-on-5e66386` @ **4dc37cd6** (fleet 5e663860); `farm-on-1957811` @ **660d872e** (if airpocket-03 is kept).
-  Registrations `docs/reports/treefarm-01.4dc37cd6.json` / `.660d872e.json` (also in ~/mcai-analysis); read
-  `scripts/host/treefarmread.py` = ~/mcai-analysis (md5 b0b48ddb..., the 10-06 read kept as .bak-20261015-1918bb5); queue
-  entry `docs/reports/treefarm-01.queue-entry.json`. No draw_require_pools; licencecheck + changerowcheck PASS.
-- **Rebase:** the 10-06 diff as unions; then composition: the farm YIELDS to the junk well (a recorded well site is judged
-  without the farm; a new one keeps 4 from a plot), plinth plans and chest claims; chest-full keeps off farm cells and widens
-  on a farm refusal; the farm keeps out of the town floor's band; `_dig_town` target scope; order only within 12 of home.y;
-  walk scaffold is scaffold= not lost=. Test merges green: farm-x-tz, farm-x-ws, farm-x-pl, farm-x-floor -- **plinth-01 and
-  townfloor-01 must carry farmKeepOut (+ plinth plans through wellSearchAvoid): whichever lands second** (see the branches).
-- **Bone meal:** clear column only, reserve 8, <= 6 a visit; new gates C5 (spent >= 36, nothing grew, no tree ever seen)
-  and C6 (reserve breached); bone meal per bot-hour reported. Paper A/B (n=2/arm): first trees sooner, **no log gain
-  measured**, **43 bone meal per farm-hour** vs fleet composting ~70-90/day; bags hold 1,403 spendable. Details in the design
-  doc's REVIVAL section.
-- **Reviews:** Codex r1-r5 CHANGE (9 findings, all fixed) -> r6 APPROVE; Claude r1 CHANGE -> r2 APPROVE -> final APPROVE.
-  npm test 252/252 (variant 253/253); mutants 52/56 (4 named survivors). Paper on the final sha: build, SIGKILL resume, lease,
-  well/plinth first, full bag + composter, paths, grow->gather->clear->replant.
+## 10-15 05:10Z — TREEFARM-01 REVIVED on 5e663860; bone meal OFF by default (OWNER, after the A/B); both engines APPROVE; READY, NOT QUEUED (after wellsite-03)
+- **Branches:** `farm-on-5e66386` @ **b7cc60b5** (fleet 5e663860); `farm-on-8cd0bc6` @ **cc16f64e** (if wellsite-03 is kept:
+  the same net diff on 8cd0bc62, one union hunk in townWellSite). The airpocket-03 variant is dropped (airpocket-03
+  INCONCLUSIVE). Registrations `docs/reports/treefarm-01.b7cc60b5.json` / `.cc16f64e.json` (also in ~/mcai-analysis);
+  read `scripts/host/treefarmread.py` = ~/mcai-analysis (md5 600bc667...; the 10-06 read kept as .bak-20261015-1918bb5);
+  queue entry `docs/reports/treefarm-01.queue-entry.json` with `after: ["wellsite-03"]`. No draw_require_pools;
+  licencecheck + changerowcheck PASS on both.
+- **Rebase/composition:** the 10-06 diff as unions; the farm YIELDS to the junk well (a recorded well site is judged without
+  the farm; a NEW one keeps 4 from a plot), plinth plans and chest claims, checked at the fence before every click;
+  chest-full keeps off farm cells and widens on a farm refusal; the farm keeps out of the town floor's band; `_dig_town`
+  target scope; order only within 12 of home.y; a walk's own confirmed scaffold is scaffold= not lost=.
+- **MERGE LINES (whichever lands SECOND carries them; green on the test merges `farm-x-pl`, `farm-x-floor`):**
+  - **plinth-01** (skills.mjs): `plinthKeepOut` ends with
+    `try { out.push(...farmKeepOut(knownFarmRecord(bot))) } catch { /* no farm */ }`, and the planner call becomes
+    `planPlinthSteps({ read: memoRead(read0), home, avoid: wellSearchAvoid(bot), keepOut: plinthKeepOut(bot), otherColumns: others })`
+    (plus `farmKeepOut` in the treefarm import). The hand-off oracle keeps `wellAvoid` (a recorded site is judged without the farm).
+  - **townfloor-01** (skills.mjs): `floorKeepOut` ends with
+    `try { for (const c of farmKeepOut(knownFarmRecord(bot))) out.push({ x: c.x, y: c.y, z: c.z, r: 0, up: 0, down: 0 }) } catch { /* no farm */ }`
+    (plus `farmKeepOut` in the treefarm import); cognitive.mjs runs the floor order, then the farm's; HOUSEKEEPING gets both.
+  - **wellsite-03** (if it lands without the farm first): townWellSite's compute is
+    `(searched = canonicalWellSite({ home, read, avoid: wellSearchAvoid(bot) }))` -- already in cc16f64e.
+- **Bone meal:** OFF unless `TREEFARM_BONEMEAL=on` (gated `bonemeal_used <= 0`; an arm-on pool needs its own registration;
+  C5/C6 kept for it). Paper A/B (n=2/arm): first trees sooner, **no log gain measured**, **43 bone meal per farm-hour** vs
+  fleet composting ~70-90/day.
+- **Reviews:** Codex r1-r5 CHANGE (9 findings, all fixed) -> r6 APPROVE; Claude r1 CHANGE -> r2 APPROVE -> final APPROVE;
+  the OFF flip and the wellsite variant: Codex r7 APPROVE, Claude r7 APPROVE (P3s fixed). npm test 252/252 (variant
+  253/253); mutants 52/56 (4 named survivors). Paper: build, SIGKILL resume, lease, well/plinth first, full bag + composter,
+  paths, grow->gather->clear->replant.
 
 ## 10-15 03:20Z — OWNER: airpocket-03 closes EARLY; a failed airpocket goes to the BOTTOM of the queue
 Owner 10-15: "if airpocket-3 fails.. lets move it to the bottom ... these other things in the queue will have a much larger
