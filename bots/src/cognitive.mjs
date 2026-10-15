@@ -922,7 +922,9 @@ export class CognitiveLoop {
     // A CLICK OF MINE LEFT PENDING blocks every other builder of the world: settled here, once a minute at most (a readdir;
     // a barrier only when there is a record), never only on this bot's next visit (Claude stage-4 r5 P2-1 (b))
     // only while the runner is idle (Claude r6 P3-3); a re-entrant tick finds it in flight and moves on
-    if (!this.runner.isBusy()) { try { await settleMonumentClicks(this.bot) } catch { /* never breaks the decision loop */ } }
+    // A re-entrant tick (notify() while this one awaits the barrier) RETURNS: it must not start a skill whose hand the settle's
+    // restore could switch (Claude stage-4 r7 P3-1)
+    if (!this.runner.isBusy()) { let st = null; try { st = await settleMonumentClicks(this.bot) } catch { /* never breaks the decision loop */ } if (st === 'inflight') return }
     if (!order) {
       try {
         const lane = monumentLane()

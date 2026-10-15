@@ -7391,12 +7391,12 @@ const settleAt = new WeakMap()
 export async function settleMonumentClicks (bot) {
   try {
     if (!monumentEnabled()) return 'off'
+    if (settling.has(bot)) return 'inflight'   // before the throttle (Codex r7 P3): a re-entrant tick must see it in flight
     if (Date.now() - (settleAt.get(bot) ?? 0) < 60_000) return 'throttled'
     settleAt.set(bot, Date.now())
     const lk = clickLock(monumentDir(), monumentKeyNow(), bot.username ?? '?', {})
     const mine = lk.ownFiles()
     if (!mine.size) return 'none'
-    if (settling.has(bot)) return 'inflight'
     settling.add(bot)
     let ok = false, how = 'held'
     const old = bot.quickBarSlot
@@ -7592,7 +7592,7 @@ async function buildMonument (ctx, _args, signal) {
     }
     const fund0 = fundable(items())
     f.fund = fund0.total
-    const lock = clickLock(dir, key, me, { session: eff.session, present: eff.present, leftAt: eff.leftAt, ord: eff.ord })
+    const lock = clickLock(dir, key, me, { session: eff.session, present: eff.present, leftAt: eff.leftAt, joinedAt: eff.joinedAt, ord: eff.ord })
     visitLock = lock
     // MY OWN UNANSWERED CLICKS (an earlier visit's, or a session of mine that died mid-click): one barrier of mine settles them
     { const mine0 = lock.ownFiles(); if (mine0.size && await eff.sync()) lock.settleOwn(mine0) }

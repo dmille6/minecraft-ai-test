@@ -365,6 +365,9 @@ await t('CLICK LOCK (Codex stage-4 r4/r5): one holder; a pending click blocks un
   assert.equal(go(a, cell), null); a.release(cell, 'error')
   aHere = true
   assert.equal(go(c, cell2, () => { aHere = false }), 'busy', 'absent at acquire but not at begin')
+  // a session that JOINED during the cycle (and left again before acquire) -> busy (Claude r7 P3-2)
+  { let joined = -Infinity; const cj = mk('cj', { present: n => n !== 'a' || aHere, joinedAt: () => joined })
+    aHere = false; assert.equal(go(cj, cell2, () => { joined = ord() }), 'busy', 'a join of that name since begin'); }
   assert.equal(go(c, cell2), null, 'absent at begin and at acquire'); c.release(cell2, null)
   // STALE ABSENCE (Codex r5 P1-1): absent at begin, PRESENT once the barrier drained the queued join -> busy
   assert.equal(go(a, cell), null); a.release(cell, 'error')
@@ -622,6 +625,12 @@ await t('SETTLE OUTSIDE A VISIT (Codex stage-4 r6 P2): a bot back on its pickaxe
   pending()
   const cob = mkBot(['iron_pickaxe', 'stone_axe', 'cobblestone', 'bread', 'torch', 'dirt', 'oak_log', 'stick', 'flint'])
   assert.equal(await SK.settleMonumentClicks(cob.bot), 'settled'); assert.equal(cob.bot.quickBarSlot, 0); assert.equal(L.ownPending(), 0)
+  // RE-ENTRANT (Codex r7 P3): a second call while the first barrier is pending says 'inflight' (the tick returns on it)
+  pending()
+  const re = mkBot([null])
+  const first = SK.settleMonumentClicks(re.bot)
+  assert.equal(await SK.settleMonumentClicks(re.bot), 'inflight')
+  assert.equal(await first, 'settled'); assert.equal(re.sent.length, 1, 'one barrier')
 })
 
 await t('THE ROW UNDER THE LOGGER CUT (logger.mjs cuts a detail at 300): the gated fields lead the detail even at worst-case widths; args carry all', () => {

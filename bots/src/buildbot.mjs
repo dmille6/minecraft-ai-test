@@ -70,7 +70,9 @@ export function botBuildEffects (bot, { items = ['cobblestone'], bound = timeout
   // whole connection (one listener per bot), so a leave between two visits still counts
   if (!bot.__leftOrd) {
     bot.__leftOrd = new Map()
+    bot.__joinOrd = new Map()
     try { bot.on?.('playerLeft', p => { try { if (p?.username) bot.__leftOrd.set(p.username, nextOrd()) } catch { /* malformed */ } }) } catch { /* no events */ }
+    try { bot.on?.('playerJoined', p => { try { if (p?.username) bot.__joinOrd.set(p.username, nextOrd()) } catch { /* malformed */ } }) } catch { /* no events */ }
   }
   const session = (bot.__buildSession ??= `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 8)}`)
   let heldName = null
@@ -112,6 +114,7 @@ export function botBuildEffects (bot, { items = ['cobblestone'], bound = timeout
     // the player list is READY once it holds this bot itself; before that, everyone counts as present (busy, never a guess)
     present: name => !bot.players?.[bot.username] || !!bot.players?.[name],
     leftAt: name => bot.__leftOrd?.get(name) ?? -Infinity,
+    joinedAt: name => bot.__joinOrd?.get(name) ?? -Infinity,
     ord: () => nextOrd(),
     click: async (step, gate = () => null) => {
       const p = faceCentre(step.ref, step.face)

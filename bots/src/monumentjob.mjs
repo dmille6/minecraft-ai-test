@@ -404,7 +404,7 @@ export const CLICK_LOCK_MS = 15_000
  * Never throws; anything it cannot read is busy.
  */
 const ARMED = new Map()   // per client: record file -> the event ordinal of the first barrier this client completed after seeing it
-export function clickLock (dir, key, me, { session = 'session', present = () => true, leftAt = () => -Infinity, ord = () => 0, now = () => Date.now() } = {}) {
+export function clickLock (dir, key, me, { session = 'session', present = () => true, leftAt = () => -Infinity, joinedAt = () => -Infinity, ord = () => 0, now = () => Date.now() } = {}) {
   const lockKey = `${key}.click`, prefix = `${key}.clk.`
   const armed = ARMED.get(`${dir}|${key}|${me}`) ?? new Map(); ARMED.set(`${dir}|${key}|${me}`, armed)
   let held = null, began = null, isSynced = false, mineFile = null, blocker = null, absent0 = new Set(), beginOrd = 0
@@ -433,9 +433,10 @@ export function clickLock (dir, key, me, { session = 'session', present = () => 
   // AND OBSERVED BEFORE THIS CYCLE'S BARRIER WAS SENT (Claude stage-4 r6 P3-1: a slow click of the writer's can be processed
   // after my use_item -- the record existing at begin is FILE order, not server order -- and its removal can reach me before
   // that click's broadcast; a barrier sent after the removal follows every broadcast of the writer's processed packets):
-  // absent at begin AND at acquire; a leave between the arming barrier and this cycle's begin
+  // absent at begin AND at acquire with no join of that name processed since begin (Claude r7 P3-2: a session that joined,
+  // clicked slowly and left inside the cycle); a leave between the arming barrier and this cycle's begin
   const resolvable = r => began?.has(r.file) && (r.holder === me || (typeof r.holder === 'string' &&
-    ((absent0.has(r.holder) && !present(r.holder)) || (armed.has(r.file) && leftAt(r.holder) > armed.get(r.file) && leftAt(r.holder) < beginOrd))))
+    ((absent0.has(r.holder) && !present(r.holder) && !(joinedAt(r.holder) > beginOrd)) || (armed.has(r.file) && leftAt(r.holder) > armed.get(r.file) && leftAt(r.holder) < beginOrd))))
   return {
     begin () {
       drop()
