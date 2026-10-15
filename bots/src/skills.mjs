@@ -10773,7 +10773,9 @@ async function mine(ctx, { y: targetY = 12 }, signal) {
     }
   }
   const roofedInTown = () => townIn(wellPlan) && roofed() && inTownBox(bot.entity.position.floored(), townHome())
-  const wellRow = (what, plan, extra = '') => logEvent({ kind: 'mine_well_guard', status: what === 'relocate' ? 'success' : 'refused', snapshot: snapshot(bot),
+  // a plan blocked ONLY by the town's ground (or water) is the zone's to report (`_town_ground`), not minewell's guard row
+  const townOnly = p => (p?.kinds ?? []).length > 0 && p.kinds.every(k => k === 'town' || k === 'water')
+  const wellRow = (what, plan, extra = '') => townOnly(plan) ? null : logEvent({ kind: 'mine_well_guard', status: what === 'relocate' ? 'success' : 'refused', snapshot: snapshot(bot),
     detail: `action=${what} at=${plan.cap ? `${plan.cap.x},${plan.cap.y},${plan.cap.z}` : plan.hit?.cap ? `${plan.hit.cap.x},${plan.hit.cap.y},${plan.hit.cap.z}` : '-'} from=${(() => { const f = bot.entity.position.floored(); return `${f.x},${f.y},${f.z}` })()}${plan.to ? ` to=${plan.to.x},${plan.to.y},${plan.to.z}` : ''}${plan.farm || plan.hit?.farm ? (keepKind(plan) === 'farm' ? ' farm=1' : ` keepout=${keepKind(plan)}`) : ''}${townIn(plan) ? ' town=1' : ''}${extra}` })
   // THE WALK-OFF IS PERFORMED, NOT ADVISED (CLAUDE.md; Codex r1 P2): up to two walks -- the nearest clear start within
   // RELOCATE_RADIUS, else the nearest within FAR_RADIUS -- each planned again on arrival. Only when neither is reachable
@@ -10794,8 +10796,8 @@ async function mine(ctx, { y: targetY = 12 }, signal) {
     { const f = bot.entity.position.floored(); if (f.x !== to.x || f.y !== to.y || f.z !== to.z) failedTargets.push(to) }   // never walked at twice
     const dHome2 = Math.hypot(bot.entity.position.x - config.world.homeX, bot.entity.position.z - config.world.homeZ)
     if (dHome2 <= 12) {
-      return { status: 'failed', failClass: 'forbidden',
-               detail: `walked off ${wellPlan.farm || wellPlan.hit?.farm ? keepOutLabel(keepKind(wellPlan)).replace(/^the town /, 'the ') : 'the junk well'} to ${Math.round(dHome2)} blocks from home, where the base floor is not dug; walk out at least ${townIn(wellPlan) ? TOWN_GROUND_HALF + 14 : 12} blocks from home and away from ${wellPlan.farm || wellPlan.hit?.farm ? keepOutLabel(keepKind(wellPlan)) : 'the well'}, then mine` }
+      return { status: 'failed', failClass: townIn(wellPlan) ? 'town_ground' : 'forbidden',
+               detail: `${townIn(wellPlan) ? 'reason=town_ground ' : ''}walked off ${wellPlan.farm || wellPlan.hit?.farm ? keepOutLabel(keepKind(wellPlan)).replace(/^the town /, 'the ') : 'the junk well'} to ${Math.round(dHome2)} blocks from home, where the base floor is not dug; walk out at least ${townIn(wellPlan) ? TOWN_GROUND_HALF + 14 : 12} blocks from home and away from ${wellPlan.farm || wellPlan.hit?.farm ? keepOutLabel(keepKind(wellPlan)) : 'the well'}, then mine` }
     }
     wellPlan = planHere()
   }
@@ -10811,7 +10813,10 @@ async function mine(ctx, { y: targetY = 12 }, signal) {
       return { status: 'failed', failClass: 'town_ground',
                detail: `reason=town_ground walked=${lastTarget ? `${lastTarget.x},${lastTarget.y},${lastTarget.z}` : '-'} surfaced=${surfaced ? `${surfaced.status}${surfaced.failClass ? '/' + surfaced.failClass : ''}` : '-'}: ` +
                        `no start near ${f.x},${f.y},${f.z} or just beyond the town's square has a dry stair clear of the town's ground${others.length ? ` and ${others.join(' and ')}` : ''} ` +
-                       `-- ${roofed() ? 'climb to open sky first (surface), then ' : ''}goto a dry spot ${TOWN_GROUND_HALF + 14}+ blocks from home${others.length ? ` away from ${others.join(' and ')}` : ''}, then mine` }
+                       `-- goto a dry spot ${TOWN_GROUND_HALF + 14}+ blocks from home${others.length ? ` away from ${others.join(' and ')}` : ''}, then mine` +
+                       // ROOFED: the climb above already ran and failed, and a model `surface` stops at sea level (Codex comp P2): the
+                       // walk is the remedy, and it is executable -- a path's digs through the roof are transit, which the zone allows
+                       `${roofed() ? ' (the walk may dig its way out: a path\'s digs are transit)' : ''}` }
     }
     const isFarm = !!(wellPlan.farm || wellPlan.hit?.farm), bothBlock = isFarm && !!(wellPlan.cap ?? wellPlan.hit?.cap)   // a relocate plan carries its well in hit (Codex r10 P3)
     const what = bothBlock ? 'the well and the tree farm' : isFarm ? 'the tree farm' : 'the well'
@@ -11020,7 +11025,6 @@ async function mine(ctx, { y: targetY = 12 }, signal) {
         // THE TOWN'S GROUND (townzone-01): the zone's per-step refusal, now this one stop's -- same class, same words for the read
         if (kind === 'town') {
           noteTownGround(bot, 'mine_step_refused')
-          logEvent({ kind: 'mine_well_guard', status: 'refused', snapshot: snapshot(bot), detail: `action=stop at=- cell=${pos.x},${pos.y},${pos.z} keepout=town` })
           return { status: 'failed', failClass: 'town_ground',
                    detail: `reason=town_ground_step stopped at y=${Math.round(bot.entity.position.y)}: the next stair cell ${pos.x},${pos.y},${pos.z} is the town's ground ` +
                            `-- mine again (a clear start is planned, or it walks out first)` }
