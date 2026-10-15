@@ -34,7 +34,9 @@
 #   NOTE (registration): a build digs 1-2 blocks (the shaft) whose drops fall into the shaft and despawn with the junk.
 #
 #   LIVENESS     canary well rows from the canary build (>= 1); control 0 (control runs the base code).
-#   CORRECTNESS  (each judged; any breach REVERTS) -- C1 recollected: _well_recollected rows + recollected= > 0;
+#   CORRECTNESS  (each judged ON THE CANARY ARM -- well_gates, 10-15: the control's counts are diagnostics, emitted as
+#                control_*; wellsite-02 was reverted by a CONTROL bot's recollection while C1-C8 counted both arms;
+#                any canary breach REVERTS) -- C1 recollected: _well_recollected rows + recollected= > 0;
 #                C2 left open: a _well_left_open / _well_open_unresolved at a (pool, cell) that no later row of the same
 #                pool shows CLOSED (cap_end=closed, the cap read back) within OPEN_GRACE (2 min) -- a transient row a
 #                visitor fixed is reported, not gated (Claude review P2-4); a visit's status is never taken as a close;
@@ -381,6 +383,78 @@ assert mechanism('fell from a high place after falling 30 blocks; was running ga
 assert not is_close(kv('slots=36->33 offlist=0 freed=3 tossed=3 n=144 server=resync closed_open=0 cap_end=open at=1,2,3 stop=done items=egg:16'))
 assert is_close(kv('slots=36->36 offlist=0 freed=0 tossed=0 n=0 server=local closed_open=1 cap_end=closed at=1,2,3 stop=closed_only items=-'))
 
+def active_wells(built_cells, retired_cells):
+    return set(built_cells) - set(retired_cells)
+
+
+assert active_wells({'1,2,3', '9,2,3'}, {'1,2,3'}) == {'9,2,3'}             # the designed rebuild: one active well
+assert len(active_wells({'1,2,3', '9,2,3'}, set())) == 2                       # two live wells in one pool: C6 fires
+
+
+def well_gates(ev_rows, cans, cut, cv, end):
+    """THE CORRECTNESS GATES C1-C8, JUDGED PER ARM -> {'canary': {...}, 'control': {...}}. Pure over rows.
+
+    WHY PER ARM (wellsite-02, REVERTED 10-14 23:57Z on breach_recollected = 9): all 9 rows were hive-d-Echo, a CONTROL
+    bot on the base build, whose `mine` dug through its town well's wall from the stand. C1-C8 used to accumulate over
+    BOTH arms (only C9 judged the canary alone). That was harmless while junkwell-02 was the canary -- only canary pools
+    had wells -- and wrong once the well was promoted fleet-wide: any control well event could revert any canary
+    registering these gates. A gate now judges the CANARY arm; the control's counts are reported as diagnostics.
+
+    Rows: the walk's own shape ({t, name, detail, bot{name}, raw{code{version}, skill{status}}}); post-window only; a
+    canary row from another build (restart lag) is skipped exactly as the walk skips it. Each gate keeps its evidence:
+      c1 recollected (_well_recollected rows + recollected= > 0 on a visit)   c2 caps left open (open_breaches)
+      c3 non-listed thrown (c3_breach)   c4 stuck inside (stuck_inside)   c5 misses not retaken (completed visits)
+      c6 pools with > 1 active well (built minus breached/retired)   c7 stone guard (c7_breach)   c8 swords (c8_breach)
+    """
+    out = {}
+    acc = {arm: {'c1': [], 'c3': [], 'c7': [], 'c8': [], 'inside': [], 'opens': [], 'closes': [], 'misses': 0, 'retaken': 0,
+                 'built': defaultdict(Counter), 'breached': defaultdict(set)} for arm in ('canary', 'control')}
+    for r in ev_rows:
+        t = r.get('t'); b = (r.get('bot') or {}).get('name')
+        k = r.get('name'); d = r.get('detail') or ''
+        if t is None or not b or k not in WELL_KINDS or t < cut:
+            continue
+        arm = 'canary' if pool_of(b) in cans else 'control'
+        ver = (((r.get('raw') or {}).get('code') or {}).get('version') or '')
+        if arm == 'canary' and cv and ver and not ver.startswith(cv):
+            continue
+        a = acc[arm]
+        f = kv(d)
+        st = ((r.get('raw') or {}).get('skill') or {}).get('status') or r.get('status')
+        if k in ('_well_left_open', '_well_open_unresolved'):
+            a['opens'].append((t, (pool_of(b), f.get('at', '?')), b))
+        elif k == '_well_recollected':
+            a['c1'].append((b, d[:100]))
+        elif k == '_well_inside':
+            a['inside'].append((t, b, f.get('at', '?')))
+        elif k == '_well_refused':
+            if f.get('reason') == 'breached' and f.get('at'):
+                a['breached'][pool_of(b)].add(f['at'])
+        elif k == '_well_retired':
+            if f.get('at'):
+                a['breached'][pool_of(b)].add(f['at'])
+        elif k == '_well_built':
+            a['built'][pool_of(b)][f.get('at', '?')] += 1
+        elif k == '_well_dispose':
+            if num(f, 'recollected'):
+                a['c1'].append((b, 'recollected=%d %s' % (num(f, 'recollected'), d[:80])))
+            for key_, fn_ in (('c3', c3_breach), ('c7', c7_breach), ('c8', c8_breach)):
+                why_ = fn_(f)
+                if why_:
+                    a[key_].append((b, why_, d[:100]))
+            if f.get('at') and is_close(f):
+                a['closes'].append((t, (pool_of(b), f['at'])))
+            if st in ('success', 'failed') and f.get('stop') != 'aborted':
+                a['misses'] += num(f, 'misses'); a['retaken'] += num(f, 'retaken')
+    for arm, a in acc.items():
+        active = {p: active_wells(cells, a['breached'][p]) for p, cells in a['built'].items()}
+        c2, c2_pending = open_breaches(a['opens'], a['closes'], end)
+        out[arm] = {'c1': a['c1'], 'c2': c2, 'c2_pending': c2_pending, 'c3': a['c3'], 'c4': stuck_inside(a['inside']),
+                    'c5': max(0, a['misses'] - a['retaken']), 'misses': a['misses'], 'retaken': a['retaken'],
+                    'c6': {p: len(c) for p, c in active.items() if len(c) > 1}, 'c7': a['c7'], 'c8': a['c8']}
+    return out
+
+
 ev_rows = sorted(load_window(PRE, END), key=lambda r: r['t'])
 print('rows walked %d  |  canary %s  sha %s  cutoff %s  window +%d min' % (len(ev_rows), CAN, CV, CUT.strftime('%H:%MZ'), W))
 rows = Counter(); kinds = Counter(); offbuild = 0
@@ -540,17 +614,12 @@ inst = sum(1 for b, inv in last['post'].items() if pool_of(b) not in CANS and oc
 # C8's POSITIVE CONTROL, at the well's place: control compost runs (the at-town, >= 34-slot gate a dispose order uses) whose
 # bot carried a sword (Codex: latest inventories anywhere are not exposure at the well)
 inst_swords = inst_swords_town
-def active_wells(built_cells, retired_cells):
-    return set(built_cells) - set(retired_cells)
-
-
-assert active_wells({'1,2,3', '9,2,3'}, {'1,2,3'}) == {'9,2,3'}             # the designed rebuild: one active well
-assert len(active_wells({'1,2,3', '9,2,3'}, set())) == 2                       # two live wells in one pool: C6 fires
 active = {p: active_wells(cells, breached[p]) for p, cells in built.items()}
-c6 = {p: len(cells) for p, cells in active.items() if len(cells) > 1}
-c5 = max(0, misses - retaken)
-c2, c2_pending = open_breaches(opens, closes, END)
-c4 = stuck_inside(inside_rows)
+# THE GATES JUDGE THE CANARY ARM (well_gates); the walk's all-arm lists above stay diagnostics only
+G = well_gates(ev_rows, CANS, CUT, CV, END)
+GC, GX = G['canary'], G['control']
+c1, c2, c2_pending, c3, c4, c5, c6, c7, c8 = GC['c1'], GC['c2'], GC['c2_pending'], GC['c3'], GC['c4'], GC['c5'], GC['c6'], GC['c7'], GC['c8']
+misses, retaken = GC['misses'], GC['retaken']
 
 
 def near_well(pos):
@@ -570,13 +639,16 @@ print('-' * 78)
 print('DENOMINATORS rows post canary %d / control %d | bots post canary %d / control %d | snapshots pre %d post %d'
       % (totals[('post', 'canary')], totals[('post', 'control')], len(botsets['post']['canary']), len(botsets['post']['control']),
          len(last['pre']), len(last['post'])))
-print('LIVENESS     canary well rows %d (>= 1) | control %d (must be 0) | other build %d | by kind %s'
+print('LIVENESS     canary well rows %d (>= 1) | control %d (the well is fleet-wide since junkwell-02: expected) | other build %d | by kind %s'
       % (rows['canary'], rows['control'], offbuild, dict((k2, n) for (a, k2), n in kinds.items() if a == 'canary')))
 c9, c9_pending = pit_left_open(pit_open, pit_closed, END)
 print('             throws the server took at another pitch (aim_off, from each item\'s spawn packet) %d of %d receipts read (%d canary throws) (TRIPWIRE: the aim is said twice since 10-08)' % (aim_off, aim_read, canary_throws))
 _by = Counter(x[3] for x in pit_closed if len(x) > 3)
 print('CORRECTNESS  C1 recollected %d | C2 left open > 2 min %d (pending %d) | C3 non-listed thrown %d | C4 bots stuck inside a well >= 2 min %d | C5 misses left out %d (misses %d, retaken %d) | C6 pools with > 1 ACTIVE well %s'
       % (len(c1), len(c2), len(c2_pending), len(c3), len(c4), c5, misses, retaken, c6 or 0))
+print('             (CANARY arm; the CONTROL arm, diagnostic only: C1 %d | C2 %d | C3 %d | C4 %d | C5 %d | C6 %s | C7 %d | C8 %d%s)'
+      % (len(GX['c1']), len(GX['c2']), len(GX['c3']), len(GX['c4']), GX['c5'], GX['c6'] or 0, len(GX['c7']), len(GX['c8']),
+         (' -- e.g. %s' % (GX['c1'][:1] or GX['c4'][:1] or GX['c3'][:1])) if (GX['c1'] or GX['c4'] or GX['c3']) else ''))
 print('             C9 pits left open > 10 min %d %s (pending %d) | OUT OF: canary pits opened %d; closes at a site: built %d, covered by the build %d, by a visitor %d | pits a build left uncovered %d %s'
       % (len(c9), c9[:3], len(c9_pending), pit_opened, _by['built'], _by['build'], _by['visitor'], len(pit_left_rows), pit_left_rows[:3]))
 print('             wells built %s | breached %s | pit-first builds %d | disposal visits %d (server-resynced %d) | refusals %s'
@@ -620,6 +692,8 @@ try:
         'breach_misses_left': c5, 'breach_multi_well': len(c6), 'open_unresolved': unresolved, 'open_pending': len(c2_pending),
         'breach_sword_not_peaceful': len(c8), 'tripwire_sword_food_skip': len(c8_trip), 'sword_visits_known_difficulty': sword_known, 'sword_visits': sword_visits, 'instrument_swords_control': inst_swords,
         'breach_stone_guard': len(c7), 'guard_low_end': len(guard_low_end), 'guarded_unclicked': len(g_unclicked),
+        'control_recollected': len(GX['c1']), 'control_left_open': len(GX['c2']), 'control_nonlisted': len(GX['c3']), 'control_inside': len(GX['c4']),
+        'control_misses_left': GX['c5'], 'control_multi_well': len(GX['c6']), 'control_stone_guard': len(GX['c7']), 'control_sword_not_peaceful': len(GX['c8']),
         'mine_did': None if mine_did != mine_did else round(mine_did, 2),
         'deep_deaths_canary': sum(deep_deaths['canary'].values()), 'deep_deaths_control': sum(deep_deaths['control'].values()),
         'deaths_nopos_canary': deaths_nopos['canary'], 'deaths_nopos_control': deaths_nopos['control'],
