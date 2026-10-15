@@ -13,12 +13,12 @@
 export const STONE_GATHER = new Set(['stone', 'cobblestone', 'cobbled_deepslate', 'deepslate'])
 /** Horizontal (Chebyshev) reach from home within which the town's chests are the nearer source. */
 export const WITHDRAW_NEAR = 48
-/** At the surface: no lower than this below home.y. A deeper bot needs a zero-dig walk to a chest (probe). */
+/** At the surface: no lower than this below home.y. A deeper bot keeps its gather (stage-2 reviews). */
 export const WITHDRAW_SURFACE_DY = -8
 /** The town keeps at least this much cobble after a withdrawal (the reserve the cap's own valve keeps; design 5.1). */
 export const TOWN_STONE_FLOOR = 64
 /** Triggers that mean the bot is stuck: it gathers stone to climb OUT, and a walk home is the wrong remedy. */
-export const STUCK_TRIGGERS = /entomb|stuck|strand|marooned|drown|low_health|trapped|pit|livelock/
+export const STUCK_TRIGGERS = /entomb|stuck|strand|marooned|drown|low_health|trapped|pit|livelock|suffocat|flooded|danger/
 
 /**
  * -> { source: 'withdraw' | 'gather', reason, count }. Pure.
@@ -27,11 +27,12 @@ export const STUCK_TRIGGERS = /entomb|stuck|strand|marooned|drown|low_health|tra
  *   town         { avail, complete } -- the cobble view (cobblecap townStock: avail = fresh floor less live takes)
  *   trigger      the decision's trigger (e.g. 'idle', 'entombed')
  *   cooling      the admission memory refuses `withdraw cobblestone` now (cooldown / learned_avoid / repeat_loop)
- *   probe        () => boolean: a zero-dig, zero-place walk reaches a town chest (asked only when needed: it is a search)
+ *   from         "x,y,z": the fresh-counted town container holding the need (cobbleContainer), or null
  */
-export function stoneSource ({ block, count = 16, pos = null, home = null, town = null, trigger = '', cooling = null, probe = null } = {}) {
+export function stoneSource ({ block, count = 16, pos = null, home = null, town = null, trigger = '', cooling = null, from = null } = {}) {
   const n = Math.max(1, Math.min(64, Math.floor(Number(count) || 16)))
-  const gather = reason => ({ source: 'gather', reason, count: n })
+  const geo = pos && home ? { d: Math.max(Math.abs(pos.x - home.x), Math.abs(pos.z - home.z)), dy: Math.round(pos.y - home.y) } : {}
+  const gather = reason => ({ source: 'gather', reason, count: n, ...geo })
   if (!STONE_GATHER.has(String(block ?? ''))) return gather('not_stone')
   if (!pos || !home || ![pos.x, pos.y, pos.z, home.x, home.y, home.z].every(Number.isFinite)) return gather('no_position')
   if (STUCK_TRIGGERS.test(String(trigger ?? ''))) return gather('stuck_trigger')
@@ -39,15 +40,15 @@ export function stoneSource ({ block, count = 16, pos = null, home = null, town 
   if (d > WITHDRAW_NEAR) return gather('far_from_town')
   if (cooling) return gather(`withdraw_${cooling}`)
   const avail = Number(town?.avail)
-  if (!Number.isFinite(avail)) return gather('town_unknown')
+  if (!Number.isFinite(avail) || town?.known === false) return gather('town_unknown')
   if (avail - n < TOWN_STONE_FLOOR) return gather('town_short')
-  if (pos.y - home.y < WITHDRAW_SURFACE_DY) {
-    let ok = false
-    try { ok = typeof probe === 'function' && probe() === true } catch { ok = false }
-    if (!ok) return gather('deep_no_walk')
-    return { source: 'withdraw', reason: 'deep_walk_ok', count: n }
-  }
-  return { source: 'withdraw', reason: 'surface', count: n }
+  // THE CONTAINER THAT HOLDS IT (Claude stage-2 P1-2: the withdraw searches the 3 containers nearest the BOT, the view counts
+  // every town container): a rewrite needs a fresh-counted container with the cobble, which the withdraw opens first
+  if (!from) return gather('no_counted_container')
+  // AT THE SURFACE ONLY (both stage-2 reviews: a walk probe to home does not prove the withdraw's own route, which may call
+  // home() and goto's dig retry from depth; a bot below the band keeps its gather). The measured cut is the surface share.
+  if (pos.y - home.y < WITHDRAW_SURFACE_DY) return gather('below_surface')
+  return { source: 'withdraw', reason: 'surface', count: n, from, ...geo }
 }
 
 /** The cobble a withdrawal for this gather asks for: the gather's count, 1..64 (stoneSource uses the same rule). Pure. */
@@ -60,5 +61,28 @@ export const withdrawWant = args => ({ item: 'cobblestone', count: Math.max(1, M
 export function rewriteForStone (admitted, verdict) {
   if (!admitted || admitted.skill !== 'gather' || !STONE_GATHER.has(String(admitted.args?.block ?? ''))) return admitted
   if (verdict?.source !== 'withdraw') return admitted
-  return { ...admitted, skill: 'withdraw', args: { item: 'cobblestone', count: verdict.count }, rewrittenFrom: { skill: 'gather', args: admitted.args } }
+  // alt: the town's cobble count includes cobbled_deepslate (Codex stage-2 P2-1): the withdraw takes it when there is no cobblestone
+  return { ...admitted, skill: 'withdraw', args: { item: 'cobblestone', count: verdict.count, alt: 'cobbled_deepslate', ...(verdict.from ? { from: verdict.from } : {}) }, rewrittenFrom: { skill: 'gather', args: admitted.args } }
+}
+
+/** A rewrite that did not succeed backs off this long, whatever its count (Claude stage-2 P1-1). */
+export const STONE_BACKOFF_MS = 10 * 60_000
+/** The rewrite backoff after a rewritten withdraw ended -> the new "no rewrite until" time. Pure. */
+export const stoneBackoffAfter = (status, now, until = 0) => status === 'success' ? until : Math.max(until, now + STONE_BACKOFF_MS)
+
+/**
+ * WHICH TOWN CONTAINER HOLDS THE COBBLE -> "x,y,z" | null. Pure. From the journal's fresh observations (cobblecap foldJournal
+ * state.obs: k -> { n, at, ... }): a container counted within `ttlMs` whose cobble count covers `need`, nearest the bot.
+ */
+export function cobbleContainer (obs = {}, pos = null, need = 16, now = Date.now(), ttlMs = 60 * 60_000) {
+  let best = null, bd = Infinity
+  for (const [k, o] of Object.entries(obs ?? {})) {
+    if (!o || !Number.isFinite(o.at) || now - o.at >= ttlMs) continue
+    if (!(Number(o.n) >= need)) continue
+    const [x, y, z] = k.split(',').map(Number)
+    if (![x, y, z].every(Number.isFinite)) continue
+    const d = pos ? Math.hypot(x - pos.x, y - pos.y, z - pos.z) : 0
+    if (d < bd) { bd = d; best = k }
+  }
+  return best
 }

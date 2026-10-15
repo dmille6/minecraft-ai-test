@@ -8,18 +8,21 @@
 #   floor >= count + 64 and no cooling withdraw, is REWRITTEN to `withdraw cobblestone <count>` (cognitive.mjs; pure decision
 #   stonesource.mjs). Every decision on a stone gather writes one `_stone_withdraw` row (args: source, reason, count, block,
 #   trigger) with the bot's snapshot. `goto_dig_retry` rows gain args (walk_status, walk_visited, walk_len, bag_cobble,
-#   retry_digs). The stockpile rung credits a cobble withdrawal.
+#   retry_dig_attempts). The stockpile rung credits a cobble withdrawal.
 #
 #   LICENCE   kind `_stone_withdraw` (the base cannot write it).
 #   GATES     (canary arm, post, only -- the wellread lesson: never a control event)
 #             W1 breach_far        a rewrite whose snapshot is > 48 (Chebyshev) from its pool's home
 #             W2 breach_stuck      a rewrite on a stuck trigger (entomb|stuck|strand|marooned|drown|low_health|trapped|pit|livelock)
 #             W3 breach_deep       a rewrite below home.y - 8 whose reason is not deep_walk_ok
-#             W4 breach_fail_share >= 10 rewrites and > 50% of the withdraws they started failed (rewriting into failure)
+#             W4 breach_fail_share >= 10 rewrites and > 50% of the withdraws they started failed or were unknown; its positive
+#                control w4_blind: the matcher found < 80% of the rewrites' withdraws (then W4 cannot see, and the read says so)
 #             LEAK control `_stone_withdraw` rows post (blocks KEEP; no evidence key)
-#   EXPOSURE  >= 10 rewrites in a window >= 150 min.
+#   EXPOSURE  >= 10 rewrites whose withdraw was MATCHED, in a window >= 150 min.
 #   PRIMARY   REPORTED: stone-gather cobble per bot-h within 48 of home, DiD (expected to fall); withdraws of cobble per
-#             bot-h DiD; mine cobble per bot-h DiD (neutrality); the decision mix by reason; goto retries by walk_status.
+#             bot-h DiD; mine cobble per bot-h DiD (neutrality); milestones completed and craft successes DiD (the design's
+#             'must not fall' -- reported for the operator, not gated: one pool's milestone rate is too noisy to revert on);
+#             the decision mix by reason; goto retries by walk_status.
 import sys, os, json, re
 import datetime as dt
 from collections import Counter, defaultdict
@@ -50,16 +53,22 @@ def pos_of(r):
 
 
 def judge_rewrite(pool, pos, a):
-    """PURE. One `_stone_withdraw` row that REWROTE (source=withdraw) -> the list of gates it breaches."""
+    """PURE. One `_stone_withdraw` row that REWROTE (source=withdraw) -> the list of gates it breaches. Judged on what the
+    CODE saw (args d = Chebyshev from home, dy = y - home.y: Claude stage-2 P2-3c); the HOMES table is the fallback only for
+    a row without them (and then it is also counted 'from_table')."""
     out = []
-    h = HOMES.get(pool)
-    if h is None or not pos:
-        return ['unjudgeable']
-    if max(abs(pos['x'] - h[0]), abs(pos['z'] - h[2])) > NEAR:
+    d, dy = a.get('d'), a.get('dy')
+    if not isinstance(d, (int, float)) or not isinstance(dy, (int, float)):
+        h = HOMES.get(pool)
+        if h is None or not pos:
+            return ['unjudgeable']
+        d, dy = max(abs(pos['x'] - h[0]), abs(pos['z'] - h[2])), pos['y'] - h[1]
+        out.append('from_table')
+    if d > NEAR:
         out.append('far')
     if STUCK.search(str(a.get('trigger') or '')):
         out.append('stuck')
-    if pos['y'] - h[1] < SURF and a.get('reason') != 'deep_walk_ok':
+    if dy < SURF and a.get('reason') != 'deep_walk_ok':
         out.append('deep')
     return out
 
@@ -70,10 +79,12 @@ def cobble_delta(r):
 
 
 # self-tests (pure)
-assert judge_rewrite('board-a', {'x': 360, 'y': 73, 'z': 150}, {'trigger': 'idle', 'reason': 'surface'}) == []
-assert judge_rewrite('board-a', {'x': 420, 'y': 73, 'z': 150}, {'trigger': 'idle', 'reason': 'surface'}) == ['far']
-assert judge_rewrite('board-a', {'x': 360, 'y': 50, 'z': 150}, {'trigger': 'entombed', 'reason': 'surface'}) == ['stuck', 'deep']
-assert judge_rewrite('board-a', {'x': 360, 'y': 50, 'z': 150}, {'trigger': 'idle', 'reason': 'deep_walk_ok'}) == []
+assert judge_rewrite('board-a', {'x': 360, 'y': 73, 'z': 150}, {'trigger': 'idle', 'reason': 'surface', 'd': 5, 'dy': 0}) == []
+assert judge_rewrite('board-a', None, {'trigger': 'idle', 'reason': 'surface', 'd': 60, 'dy': 0}) == ['far']
+assert judge_rewrite('board-a', {'x': 360, 'y': 73, 'z': 150}, {'trigger': 'idle', 'reason': 'surface'}) == ['from_table']
+assert judge_rewrite('board-a', {'x': 420, 'y': 73, 'z': 150}, {'trigger': 'idle', 'reason': 'surface'}) == ['from_table', 'far']
+assert judge_rewrite('board-a', {'x': 360, 'y': 50, 'z': 150}, {'trigger': 'entombed', 'reason': 'surface'}) == ['from_table', 'stuck', 'deep']
+assert judge_rewrite('board-a', {'x': 360, 'y': 50, 'z': 150}, {'trigger': 'idle', 'reason': 'deep_walk_ok'}) == ['from_table']
 assert judge_rewrite('nope', {'x': 0, 'y': 0, 'z': 0}, {}) == ['unjudgeable']
 
 if __name__ == '__main__':
@@ -146,8 +157,11 @@ if __name__ == '__main__':
             if item in COB:
                 n[(period, arm, 'withdraw_cobble')] += 1
             if arm == 'canary' and period == 'post' and pending[b]:
-                t0 = pending[b][0]
-                if t >= t0 and t - t0 <= dt.timedelta(minutes=5) and item in COB:
+                # EXPIRE, THEN MATCH (Codex stage-2 P2-5: one unmatched rewrite blocked every later match for that bot):
+                # a rewrite with no withdraw within 5 min is counted unmatched and dropped
+                while pending[b] and t - pending[b][0] > dt.timedelta(minutes=5):
+                    pending[b].pop(0); n['unmatched'] += 1
+                if pending[b] and t >= pending[b][0] and item in COB:
                     pending[b].pop(0)
                     wd[(((r.get('raw') or {}).get('skill') or {}).get('status')) or '?'] += 1
         elif k == 'gather':
@@ -156,12 +170,16 @@ if __name__ == '__main__':
                 if h and p and max(abs(p['x'] - h[0]), abs(p['z'] - h[2])) <= NEAR:
                     n[(period, arm, 'stone_cobble_near')] += max(0, cobble_delta(r))
                 n[(period, arm, 'stone_gathers')] += 1
+        elif k == 'milestone_complete':
+            n[(period, arm, 'milestones')] += 1
+        elif k == 'craft' and (((r.get('raw') or {}).get('skill') or {}).get('status') == 'success'):
+            n[(period, arm, 'craft_ok')] += 1
         elif k == 'mine':
             n[(period, arm, 'mine_cobble')] += max(0, cobble_delta(r))
         elif k == 'goto_dig_retry' and arm == 'canary' and period == 'post':
             retry_walk[str(a.get('walk_status') or 'no_args')] += 1
-            if isinstance(a.get('retry_digs'), (int, float)):
-                retry_digs.append(a['retry_digs'])
+            if isinstance(a.get('retry_dig_attempts'), (int, float)):
+                retry_digs.append(a['retry_dig_attempts'])
 
     hours = W / 60.0
     def rate(period, arm, what):
@@ -170,8 +188,11 @@ if __name__ == '__main__':
     def did(what):
         return (rate('post', 'canary', what) - rate('pre', 'canary', what)) - (rate('post', 'control', what) - rate('pre', 'control', what))
     started = sum(wd.values())
-    fail_share = (wd.get('failed', 0) / started) if started else 0.0
+    failed_like = wd.get('failed', 0) + wd.get('unknown', 0)   # unknown = the contract unmet (Claude stage-2 P2-3b); aborted is an interruption
+    fail_share = (failed_like / started) if started else 0.0
     W4 = int(n['rewrites'] >= 10 and fail_share > 0.5)
+    # W4'S POSITIVE CONTROL (Claude stage-2 P2-3a): the matcher must find the withdraws the rewrites started, else W4 is blind
+    w4_blind = int(n['rewrites'] >= 10 and started < 0.8 * n['rewrites'])
     can_bots = len(bots[('post', 'canary')])
     print('rows walked %d  |  canary %s  sha %s  cutoff %s  window +%d min  |  bots pre/post canary %d/%d control %d/%d  |  offbuild canary rows %d'
           % (len(rows), CAN, CV, CUT.strftime('%H:%MZ'), W, len(bots[('pre', 'canary')]), can_bots,
@@ -179,10 +200,11 @@ if __name__ == '__main__':
     print('LIVENESS     canary _stone_withdraw rows %d (rewrites %d) | decision mix %s' % (n['licence'], n['rewrites'], dict(reasons.most_common(10))))
     print('W1-W3 (gate) rewrites far %d | on a stuck trigger %d | deep without a walk %d | unjudgeable %d'
           % (breaches['far'], breaches['stuck'], breaches['deep'], breaches['unjudgeable']))
-    print('W4 (gate)    withdraws started by a rewrite: %d, by status %s (fail share %.0f%%; gate > 50%% with >= 10 rewrites)' % (started, dict(wd), 100 * fail_share))
+    print('W4 (gate)    withdraws started by a rewrite: %d of %d rewrites, by status %s (failed+unknown share %.0f%%; gate > 50%% with >= 10 rewrites) | matcher blind: %d'
+          % (started, n['rewrites'], dict(wd), 100 * fail_share, w4_blind))
     print('LEAK         control _stone_withdraw rows post %d (blocks KEEP)' % leak)
     print('INSTRUMENT   canary goto dig retries by walk_status %s | retry digs median %s' % (dict(retry_walk), sorted(retry_digs)[len(retry_digs) // 2] if retry_digs else '-'))
-    for what, label in (('stone_cobble_near', 'stone-gather cobble <=48'), ('withdraw_cobble', 'cobble withdrawals'), ('stone_gathers', 'stone gathers (any)'), ('mine_cobble', 'mine cobble')):
+    for what, label in (('stone_cobble_near', 'stone-gather cobble <=48'), ('withdraw_cobble', 'cobble withdrawals'), ('stone_gathers', 'stone gathers (any)'), ('mine_cobble', 'mine cobble'), ('milestones', 'milestones completed'), ('craft_ok', 'craft successes')):
         print('PRIMARY      %-26s per bot-h  canary %.3f -> %.3f  control %.3f -> %.3f  DiD %+.3f'
               % (label, rate('pre', 'canary', what), rate('post', 'canary', what), rate('pre', 'control', what), rate('post', 'control', what), did(what)))
     try:
@@ -195,12 +217,13 @@ if __name__ == '__main__':
             'rows_canary': nrows[('post', 'canary')], 'rows_control': nrows[('post', 'control')], 'offbuild_canary': offbuild,
             'licence_rows': n['licence'], 'rewrites': n['rewrites'],
             'breach_far': breaches['far'], 'breach_stuck': breaches['stuck'], 'breach_deep': breaches['deep'], 'unjudgeable': breaches['unjudgeable'],
-            'breach_fail_share': W4, 'withdraws_started': started, 'withdraws_failed': wd.get('failed', 0),
+            'breach_fail_share': W4, 'w4_blind': w4_blind, 'from_table': breaches['from_table'], 'withdraws_started': started, 'withdraws_failed': failed_like,
+            'milestones_did': nanless(did('milestones')), 'craft_ok_did': nanless(did('craft_ok')),
             'control_stone_rows': leak,
             'stone_cobble_near_did': nanless(did('stone_cobble_near')), 'withdraw_cobble_did': nanless(did('withdraw_cobble')),
             'stone_gathers_did': nanless(did('stone_gathers')), 'mine_cobble_did': nanless(did('mine_cobble')),
-            'retry_walk_status': dict(retry_walk),
-            'exposure_ready': int(n['rewrites'] >= 10 and W >= 150),
+            'retry_walk_status': dict(retry_walk), 'unmatched_rewrites': n['unmatched'],
+            'exposure_ready': int(started >= 10 and W >= 150),
         })
     except Exception as e:
         print('emit failed:', e)

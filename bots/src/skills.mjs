@@ -25,7 +25,7 @@
 // Every long loop must check `signal.aborted`, because the reflex layer
 // preempts skills and a skill that ignores that will fight it.
 
-import { stoneSource } from './stonesource.mjs'
+import { stoneSource, cobbleContainer } from './stonesource.mjs'
 import { haltPath } from './pathhalt.mjs'
 import { stepLineSafe } from './lavaguard.mjs'
 import { nearDeathSite, lineHitsDeathSite, DEATH_SITE_TARGET_RADIUS } from './deathsites.mjs'
@@ -405,7 +405,7 @@ export function gotoRetryArgs (bot, ev, moved) {
   const now = Number.isFinite(bot.digTownStats?.wrapped) ? bot.digTownStats.wrapped : null
   return { walk_status: ev?.walk?.status ?? 'none', walk_visited: ev?.walk?.visited ?? null, walk_len: ev?.walk?.len ?? null,
            walk_ms: ev?.walk?.ms ?? null, walk_profile: ev?.walk?.profile ?? null, bag_cobble: ev?.cobble ?? null,
-           retry_digs: ev?.dig0 != null && now != null ? now - ev.dig0 : null, moved: Number.isFinite(moved) ? +moved.toFixed(1) : null }
+           retry_dig_attempts: ev?.dig0 != null && now != null ? now - ev.dig0 : null, moved: Number.isFinite(moved) ? +moved.toFixed(1) : null }
 }
 async function goto (ctx, args, signal) { return withDigScope(ctx?.bot, { purpose: 'transit', by: 'goto' }, () => gotoLegs(ctx, args, signal)) }
 async function gotoLegs(ctx, { x, y, z, range = 1 }, signal) {
@@ -3247,23 +3247,22 @@ export function stockTownViewFor (bot, group = 'cobble', now = Date.now(), { fre
 }
 /**
  * WITHDRAW BEFORE DIG (stonesource.mjs): should this admitted stone gather be a withdrawal from the town instead? ->
- * stoneSource's verdict. The probe (asked only for a bot below the surface band) is a READ-ONLY search on the
- * zero-dig, zero-place profile (index.mjs noEditMovements): a route that would dig or tower is not a walk to the chest.
+ * stoneSource's verdict, with the town's cobble view and the fresh-counted container that holds the need (`from`).
  */
 export function stoneWithdrawFor (bot, args = {}, { trigger = '', cooling = null, now = Date.now() } = {}) {
   const home = homeVec()
   const pos = bot.entity?.position
-  let town = null
-  try { town = stockTownViewFor(bot, 'cobble', now) } catch { town = null }
-  const probe = () => {
-    const mv = bot.noEditMovements
-    if (!mv || typeof bot.pathfinder?.getPathTo !== 'function') return false
-    const r = bot.pathfinder.getPathTo(mv, new goals.GoalNear(home.x, home.y, home.z, 4), STONE_PROBE_MS)
-    return r?.status === 'success'
-  }
-  return stoneSource({ block: args?.block, count: args?.count, pos, home, town, trigger, cooling, probe })
+  const n = Math.max(1, Math.min(64, Math.floor(Number(args?.count) || 16)))
+  let town = null, from = null
+  try {
+    const st = capTown(bot)
+    const v = stockTownViewFor(bot, 'cobble', now, { state: st })
+    // NO JOURNAL IS UNKNOWN, NOT EMPTY (Claude stage-2 P3: it read as town_short)
+    town = { ...v, known: !!st }
+    from = st ? cobbleContainer(st.obs ?? {}, pos, n, now) : null
+  } catch { town = null }
+  return stoneSource({ block: args?.block, count: n, pos, home, town, trigger, cooling, from })
 }
-const STONE_PROBE_MS = 400
 /**
  * THE COUNT: what an OPEN town container's window holds, captured now and appended at once with its capture time, in the
  * same write as any releases (count first: cobblecap.mjs recordCount). `release` / `releaseAll` are appended outside town
@@ -9684,7 +9683,7 @@ async function withdraw (ctx, args, signal) {
     throw e
   }
 }
-async function withdrawVerb (ctx, { item = null, count = 16 }, signal, rs) {
+async function withdrawVerb (ctx, { item = null, count = 16, from = null, alt = null }, signal, rs) {
   if (item == null || ['', 'none', 'null', 'any', 'anything', 'all', 'everything', 'items', 'undefined'].includes(String(item).trim().toLowerCase())) {
     return { status: 'failed', failClass: 'bad_args', detail: 'withdraw needs the item you need, e.g. withdraw stone_pickaxe or withdraw stick 2' }
   }
@@ -9703,12 +9702,16 @@ async function withdrawVerb (ctx, { item = null, count = 16 }, signal, rs) {
       if (p?.tool) rs.uses = uses = Number.isFinite(remaining(p.tool)) ? remaining(p.tool) : 'full'
       return p
     }
-    const have = haveIn(inChest, item)
+    // `alt` (stonewithdraw-01's rewrite: the town's cobble count includes cobbled_deepslate) is taken only when `item` is absent
+    const name = withdrawItemName(inChest, item, alt)
+    const have = haveIn(inChest, name)
     if (!have) return null
-    return decideTakes([{ name: item, count: Math.min(have, Math.max(1, Math.min(64, Math.floor(Number(count) || 16)))) }], inChest, bag, chestEmpty, keep)
+    return decideTakes([{ name, count: Math.min(have, Math.max(1, Math.min(64, Math.floor(Number(count) || 16)))) }], inChest, bag, chestEmpty, keep)
   }
   const sweep = withdrawSweep(bot)
-  let chestBlock = sweep.next(48)
+  // A NAMED CONTAINER FIRST (stonewithdraw-01: the rewrite names the fresh-counted town container holding the cobble, because
+  // the sweep below only reaches the 3 containers nearest the bot); anything else falls back to the sweep, unchanged
+  let chestBlock = namedContainer(bot, from) ?? sweep.next(48)
   if (!chestBlock) {
     // deposit's shape: walk home through the rescue path, then RESCAN before judging the walk.
     const walked = await home(ctx, {}, signal)
@@ -9742,6 +9745,17 @@ async function withdrawVerb (ctx, { item = null, count = 16 }, signal, rs) {
   return out(lastFailure ?? { status: 'failed', failClass: 'other', detail: 'withdraw tried no container' })
 }
 
+/** The name a withdraw takes: `item`, or `alt` only when the chest holds no `item` and does hold `alt`. Pure. */
+export const withdrawItemName = (inChest, item, alt = null) => haveIn(inChest, item) ? item : (typeof alt === 'string' && haveIn(inChest, alt) ? alt : item)
+/** `from` ("x,y,z") as a container block within 64 of the bot, else null. */
+function namedContainer (bot, from) {
+  if (typeof from !== 'string') return null
+  const [x, y, z] = from.split(',').map(Number)
+  if (![x, y, z].every(Number.isFinite)) return null
+  const b = bot.blockAt?.(new Vec3(x, y, z))
+  if (!b || !/^(chest|trapped_chest|barrel)$/.test(String(b.name))) return null
+  return bot.entity?.position && bot.entity.position.distanceTo(b.position) <= 64 ? b : null
+}
 /** THE TOWN'S CONTAINERS, for coverage -> their keys, or null when the scan may be TRUNCATED. The boundary is inside the
  *  matcher (a scan capped before an inTown filter let 63 deep barrels crowd out a town chest -- Codex on e897d44). */
 const TOWN_KEYS_CAP = 256

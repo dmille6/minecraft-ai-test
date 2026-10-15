@@ -687,17 +687,6 @@ function connect() {
     // installing it. Only index.mjs may call setMovements; asking "could I get
     // there if I were allowed to dig?" is a different question from digging.
     bot.ascentMovements = ascendMoves
-    // A ZERO-EDIT PROBE PROFILE (stonewithdraw-01; the shaft's T6 later): no digging, no towering, no bridging, no parkour.
-    // Never installed -- only handed to getPathTo, which is read-only -- so "can I WALK there as the world stands?" has an
-    // answer that cannot be a route needing future placements or digs (Codex r1 P1-3 on the design).
-    const noEditMoves = Object.create(Object.getPrototypeOf(moves))
-    Object.assign(noEditMoves, moves)
-    noEditMoves.canDig = false
-    noEditMoves.allow1by1towers = false
-    noEditMoves.allowParkour = false
-    noEditMoves.scafoldingBlocks = []
-    noEditMoves.maxDropDown = 3
-    bot.noEditMovements = noEditMoves
     bot.withAscentMovements = async (fn) => {
       bot.pathfinder.setMovements(ascendMoves); bot.movementProfile = 'ascend'
       try { return await fn() }
