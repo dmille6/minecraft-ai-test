@@ -876,7 +876,7 @@ const INDEX = new URL('../src/index.mjs', import.meta.url)
 const COG = new URL('../src/cognitive.mjs', import.meta.url)
 function wiringIndex (src) {
   const s = strip(src)
-  const brk = s.indexOf('moves.exclusionAreasBreak.push((block) => farmBreakCost(farmCells, block))')
+  const brk = s.indexOf('moves.exclusionAreasBreak = moves.exclusionAreasBreak.concat([(block) => farmBreakCost(farmCells, block)])')
   const plc = s.indexOf('moves.exclusionAreasPlace = [(block) => farmPlaceCost(farmCells, block)]')
   const clone = s.indexOf('Object.assign(gatherMoves, moves)')
   return { brk, plc, clone, ok: brk > 0 && plc > 0 && clone > 0 && brk < clone && plc < clone }
@@ -904,7 +904,7 @@ async function withMutant (url, old, neu, fn) {
   try { return await fn(out, body) } finally { try { unlinkSync(out) } catch {} }
 }
 await t('MUTANT KILLED: the exclusions moved below the gather clone fail the wiring test', async () => {
-  const brk = '    moves.exclusionAreasBreak.push((block) => farmBreakCost(farmCells, block))\n'
+  const brk = '    moves.exclusionAreasBreak = moves.exclusionAreasBreak.concat([(block) => farmBreakCost(farmCells, block)])\n'
   await withMutant(INDEX, brk, '', async (_u, body) => {
     const moved = body.replace('    Object.assign(gatherMoves, moves)\n', `    Object.assign(gatherMoves, moves)\n${brk}`)
     assert.equal(wiringIndex(moved).ok, false)
