@@ -47,7 +47,11 @@ import datetime as dt
 from collections import Counter, defaultdict
 
 HERE = os.path.dirname(os.path.abspath(__file__))
-TARGETS = {'cobble': 256, 'stick': 64, 'stone': 64, 'dirt': 0, 'sand': 0, 'gravel': 0, 'deepslate': 0, 'tuff': 0,
+sys.path.insert(0, HERE)
+from towncap import town_cobble_cap   # noqa: E402  (cobblecap-1000: the cobble cap is read, never written here)
+# 'cobble' is filled in by set_cobble_target() from the stocktarget.mjs beside the fold being audited (towncap.py): it was a
+# literal 256 here, which would have called every cobble bank between 257 and 1000 a G3 breach once the cap moved
+TARGETS = {'cobble': None, 'stick': 64, 'stone': 64, 'dirt': 0, 'sand': 0, 'gravel': 0, 'deepslate': 0, 'tuff': 0,
            'calcite': 0, 'sandstone': 0, 'stone_pickaxe': 16, 'wooden_pickaxe': 4, 'stone_axe': 4, 'stone_shovel': 4,
            'wooden_axe': 0, 'wooden_shovel': 0, 'stone_hoe': 0, 'wooden_hoe': 0}
 WOODS = ['oak', 'spruce', 'birch', 'jungle', 'acacia', 'dark_oak', 'mangrove', 'cherry', 'pale_oak']
@@ -59,6 +63,12 @@ GROUP_OF = {'cobblestone': 'cobble', 'cobbled_deepslate': 'cobble', 'sand': 'san
             'sandstone': 'sandstone', 'red_sandstone': 'sandstone'}
 for g in TARGETS:
     GROUP_OF.setdefault(g, g)
+
+
+def set_cobble_target(cc=None):
+    """TARGETS['cobble'] from the module beside cobblecap.mjs `cc` (STOCK_CC / the canary's copy / the repo)."""
+    TARGETS['cobble'] = town_cobble_cap(os.path.join(os.path.dirname(cc), 'stocktarget.mjs') if cc else None)
+    return TARGETS['cobble']
 PROTECTED = re.compile(r'(_ore$|^raw_|_ingot$|_nugget$|^(coal|charcoal|diamond|emerald|lapis_lazuli|redstone|quartz|amethyst_shard|netherite_scrap|ancient_debris)$|_(pickaxe|axe|shovel|hoe|sword)$|_(helmet|chestplate|leggings|boots)$|^(bow|crossbow|shield|shears|flint_and_steel|fishing_rod|bucket|water_bucket|lava_bucket|milk_bucket)$|_sapling$|_propagule$|^(torch|crafting_table|furnace|blast_furnace|smoker|chest|barrel|composter|bed|bone_meal|bamboo|wheat|wheat_seeds|apple|bread)$|_bed$)')
 PILLAR = re.compile(r'^(dirt|cobblestone|cobbled_deepslate|stone|andesite|diorite|granite|gravel|sand|netherrack|tuff|deepslate|sandstone|red_sandstone|calcite|dripstone_block|blackstone)$|(_log|_planks|_wood|_hyphae)$')
 KEEP = ('_stock_bank', '_stock_dispose', '_stock_prune', '_stock_prune_visit', '_stock_recovery', '_stock_refused', '_town_deposit',
@@ -300,6 +310,12 @@ def judge(rows, hours, census=None, draws=None, bank_aids=None):
 
 def selftest():
     """Every gate's failing fixture, and a clean positive control."""
+    set_cobble_target(os.environ.get('STOCK_CC'))
+    # cobblecap-1000: G3 on a cobble bank row is judged against the module's cap -- at it is clean, one past it is a breach
+    capc = TARGETS['cobble']
+    g3row = lambda after: {'t': dt.datetime(2026, 10, 14, tzinfo=dt.timezone.utc), 'per': 'post', 'arm': 'canary', 'name': '_stock_bank', 'status': 'success', 'bot': 'hive-a-Alpha',
+                           'delta': {}, 'detail': 'group=cobble name=cobblestone planned=30 moved=30 kept=64 target=%d decision=bank town_before=%d town_after=%d complete=1 claims=1 refused=0' % (capc, after - 30, after)}
+    assert judge([g3row(capc)], 3)['breach_g3_row'] == 0 and judge([g3row(capc + 1)], 3)['breach_g3_row'] == 1, ('G3 at the cobble cap %d' % capc)
     T0 = dt.datetime(2026, 10, 10, 12, 0, tzinfo=dt.timezone.utc)
     R = lambda name, detail, status='success', bot='hive-a-Alpha', mins=0, delta=None: {'t': T0 + dt.timedelta(minutes=mins), 'per': 'post', 'arm': 'canary', 'name': name, 'status': status, 'detail': detail, 'bot': bot, 'delta': delta or {}, 'cv': 'x'}
     ok = judge([R('_stock_dispose', 'group=oak_log name=oak_log count=64 floor=900 avail=900 target=64 keep=64 pillar_after=200 pruned_left=0')], 3)
@@ -395,17 +411,18 @@ def journal_selftest():
     # C5 ON THE COMBINED JOURNAL (Codex fold-r1 P2-3 probe): cobble 160 counted, a cobble bank claim of 64 admitted, an
     # unrelated live oak claim of 64, the release count says 270 -> the cobble overshoot is found (stonecapread's fold missed it)
     import tempfile
+    CAPC = town_cobble_cap(os.path.join(os.path.dirname(cc), 'stocktarget.mjs'))   # the fold's own cap (cobblecap-1000)
     d = tempfile.mkdtemp(prefix='stockjournal-c5-')
-    recs = [{'t': 'cnt', 'k': 'a', 'n': 160, 'cap': T, 'at': T, 'v': 2, 'm': {'cobble': 160, 'oak_log': 0}, 'ids': [], 'scan': {'keys': ['a'], 'at': T}, 'w': None},
+    recs = [{'t': 'cnt', 'k': 'a', 'n': CAPC - 96, 'cap': T, 'at': T, 'v': 2, 'm': {'cobble': CAPC - 96, 'oak_log': 0}, 'ids': [], 'scan': {'keys': ['a'], 'at': T}, 'w': None},
             {'t': 'claim', 'id': 'o1', 'n': 64, 'k': 'a', 'at': T + 1, 'bot': 'b2', 'keys': ['a'], 'coverage': True, 'gone': [], 'g': 'oak_log', 'w': None},
             {'t': 'claim', 'id': 'c1', 'n': 64, 'k': 'a', 'at': T + 2, 'bot': 'b1', 'keys': ['a'], 'coverage': True, 'gone': [], 'w': None},
-            {'t': 'cnt', 'k': 'a', 'n': 270, 'cap': T + 5, 'at': T + 5, 'v': 2, 'm': {'cobble': 270, 'oak_log': 0}, 'ids': ['c1'], 'w': None}]
+            {'t': 'cnt', 'k': 'a', 'n': CAPC + 14, 'cap': T + 5, 'at': T + 5, 'v': 2, 'm': {'cobble': CAPC + 14, 'oak_log': 0}, 'ids': ['c1'], 'w': None}]
     with open(os.path.join(d, 'town.cobble.jsonl'), 'w') as fh:
         fh.write(''.join(json.dumps(r) + '\n' for r in recs))
     r = subprocess.run(['node', os.path.join(HERE, 'stockjournal.mjs'), cc, '0', str(T + 600000), d], capture_output=True, text=True, timeout=120)
     c5 = json.loads(r.stdout)
     assert c5['admitted_cobble_bank'] == 1 and [x['g'] for x in c5['g3']] == ['cobble'], ('C5 on the combined journal', c5['admitted'], c5['g3'])
-    print('JOURNAL SELFTEST ok: G4 per group (legal, excess, hidden, overlap); C5 cobble overshoot beside an oak claim')
+    print('JOURNAL SELFTEST ok: G4 per group (legal, excess, hidden, overlap); C5 cobble overshoot beside an oak claim (cap %d)' % CAPC)
 
 
 if __name__ == '__main__':
@@ -446,6 +463,7 @@ if __name__ == '__main__':
     res = None
     # THE JOURNAL HALF (stockjournal.mjs, the canary's own fold)
     cc = os.environ.get('STOCK_CC') or os.path.expanduser('~/mcai-analysis/stocktarget/cobblecap.mjs')
+    print('TARGETS      cobble %d (from %s)' % (set_cobble_target(cc), os.path.join(os.path.dirname(cc), 'stocktarget.mjs')))
     jdirs = [d for p in sorted(CANS) for d in glob.glob('/var/lib/mcai/_pool-%s' % p)]
     journal = None
     try:
