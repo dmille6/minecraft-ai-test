@@ -1,0 +1,38 @@
+minewell-01 -- review record (2026-10-15)
+
+CHANGE: `mine` never digs a known junk well's shell (well.mjs wellBreakCost box: +-2 around the column, cap.y-3..cap).
+Plan every bearing's stair before the first dig; relocate (walk <= 8, else 16, never within 12 of home, 2 tries,
+failed targets excluded); refuse naming `explore away from the well` (inside a well: the rim). shellStop re-reads the
+well list immediately before every dig (head dig after equip, falling re-open, tread re-dig). Rows: _mine_well_guard.
+WHY: 10-14 21:32Z hive-d (base) -- mine from the well's stand dug the wall/floor, the bot recollected the shaft
+(9 _well_recollected); it false-tripped wellsite-02.
+
+BRANCHES
+  5e663860 (fleet)        minewell-on-5e66386  canary a8af87db (bots/src == 20e77d3b); tip 896c1dcc (driver only)
+  8cd0bc62 (wellsite-03)  mw-on-8cd0bc6        canary 1f066b05 (net diff applied, sorted +/- lines identical)
+  1957811e (airpocket-03) mw-on-1957811 @ 451d0bf6 -- MOOT (airpocket-03 closed INCONCLUSIVE). It needed a post-look
+                          guard in abortableDig (its look is an await after mine's read); Codex r1 P2 (an abort must
+                          still throw) fixed in r2, not re-reviewed. Keep only if airpocket-03 returns.
+
+REVIEWS
+  Codex r1-r4 / Claude r1-r4 on 5e663860: APPROVE at 20e77d3b (Claude r4 test nit applied 6658bb77).
+  8cd0bc62 composition: Codex APPROVE (no findings); Claude APPROVE (P3: steadyWall may site more wells -> more
+  relocations near town; read guard rows by DiD).
+
+TESTS: npm test 252/252 (5e663860), 253/253 (8cd0bc62). test/minewell.test.mjs 27 + minewell-home 2; 12 mutants with
+anchors asserted present and unique. eslint no-undef: only the pre-existing reflex.mjs withinBody (typeof-guarded).
+
+PAPER REPLAY (sandbox/well/minewell-e2e.cjs, sandbox3, lock held 03:20-03:33Z):
+  base 5e663860 x2   mine from the stand dug the CAP trapdoor, stood on the floor trapdoor, collected 64/64 shaft
+                     items, 7 _well_recollected (the shell census missed the cap: the driver now censuses the column)
+  a8af87db x2, 1f066b05, 52ed74b0   1 relocate (1301,120,1315 -> 1302,120,1315), mine success at y=115, cap intact,
+                     64/64 left, 0 recollected
+
+READ: scripts/host/minewellread.py (installed ~/mcai-analysis, md5 in the entry). G1 breach_shell_dug_by_mine; positive
+control on hive-d 10-14 20:00-23:00Z base = 9. Caps truncated by the 300-char detail cap are refused (hive-c
+-76,59,-7 was a phantom). LEAK control_guard_rows. licencecheck PASS (0 baseline rows / 362k), changerowcheck PASS,
+drawexposure: hive-a, hive-c, hive-d, placebo-a, placebo-b.
+
+NOT COVERED: other diggers (gather and reflex dug board-b's shell 10x in the week to 10-15; airpocket, path-watchdog,
+~12 skills.mjs sites); unrecorded wells; ground below cap.y-3. Plinth: covered once its cap is a known well column and
+its stair is in wellBreakCost.

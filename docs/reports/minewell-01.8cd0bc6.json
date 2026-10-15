@@ -1,0 +1,104 @@
+{
+ "run_id": "minewell-01",
+ "sha": "1f066b05",
+ "registered_at": "2026-10-15T04:30:00Z",
+ "ladder_change": false,
+ "promotion": "fleet-wide",
+ "notes": "[VARIANT for fleet 8cd0bc62 (wellsite-03 on 5e663860, if wellsite-03 is KEPT and promoted): branch mw-on-8cd0bc6 @ 1f066b05 = minewell net diff 5e663860..a8af87db, git apply --3way no conflict, sorted +/- lines IDENTICAL. Composition reviews 10-15: Codex APPROVE (no findings), Claude APPROVE (P3: wellsite can site more wells via steadyWall, so more shells and more relocations near town; read guard rows by DiD). wellsite leaves wellBreakCost, bot.wellCellsNow, knownWellCells unchanged; a retired well stays in the shell list. npm test 253/253; no-undef only reflex.mjs:2384 withinBody (pre-existing). Paper replay on sandbox3: 1 relocate, mine success y=115, cap intact, 64/64 shaft items left, 0 recollected.] THE DEFECT (10-14 21:32-21:36Z, hive-d, base build 5e66386): `mine` (target y55/y56), started from the junk well's stand, dug the well's own wall and floor (9 _dig_town rows inside the shell of the well at 79,57,76); the bot then collected the shaft's items (9 _well_recollected rows). That event REVERTED wellsite-02 as a false trip (a control-arm event; wellread fixed to canary-only, md5 b0cd8a4b). ES 10-08..10-15: _dig_town rows inside a well shell by mine 9 (all hive-d), gather 6 + reflex 4 (board-b), build_well 4 (the builder's own shaft); a 48 h walk (10-13 02:31Z..10-15 02:31Z, 2.72M rows, 22,299 mine rows) has 216 mine rows ending within 8 of a known cap across 8 pools. THE CHANGE (bots/src/minewell.mjs + skills.mjs `mine`, +198/-5): the shell is wellBreakCost's keep-out box (+-2 around the well column, cap.y-3..cap) -- the pathfinder already prices it, but `mine` calls bot.dig directly and ignored it. Before the first dig every bearing's whole stair (to goalY) is simulated against every known well (read fresh, not the 20 s snapshot); a bearing that touches a shell is not allowed. With no clear bearing the bot WALKS (pathfinder, 20 s, at most 2 tries, a failed target excluded from the next plan) to the nearest standable start within 8 (else 16), never within 12 of home, and plans again; only then a forbidden refusal naming `explore away from the well`. Inside a well the refusal names the rim (`goto` it): escape stays possible. Every dig of the descent -- first cut, the falling-block re-open, the tread re-dig -- re-reads the shell immediately before bot.dig (after equip) and stops with a forbidden naming the cell. Rows: _mine_well_guard action=relocate|refuse|stop at=<cap> from=<cell> [to=<cell>]. TESTS: npm test 252/252 at 20e77d3b (+ test-only nit 6658bb77, minewell suites 2/2); test/minewell.test.mjs (27, incl. the refusal->relocate->retry CHAIN, the re-open and re-dig re-checks, inside-the-well rim remedy, stale-snapshot) + test/minewell-home.test.mjs (2); 12 in-suite mutants, anchors asserted present and unique. REVIEWS: Codex r1-r4, Claude r1-r4; both APPROVE at 20e77d3b (bots/src identical at a8af87db; later commits touch the read and a test only). LINT: eslint no-undef on the tip: exactly the one pre-existing reflex.mjs 'withinBody' (typeof-guarded; also on plain 5e663860); minewell.mjs, skills.mjs, the tests: 0. NOT COVERED (stated, not gated): diggers other than `mine` (gather, reflex, airpocket, path-watchdog, ~12 other dig sites in skills.mjs) -- gather/reflex dug board-b's shell 10 times in the same week; a well not yet recorded or recognised; ground below cap.y-3.",
+ "licence": {
+  "class": "kind",
+  "kind": "_mine_well_guard",
+  "min_rows": 1,
+  "note": "Only this build writes _mine_well_guard. It fires only when a planned stair would touch a known shell (relocate/refuse) or a descent reaches one (stop): in a drawn pool with a well, mine runs end within 8 of the cap ~4-30 times a day (48 h walk above), so the licence may take hours; the extension runs until exposure."
+ },
+ "reads": [
+  "minewellread",
+  "wellread",
+  "immobiledid"
+ ],
+ "read_minutes": [
+  180,
+  360
+ ],
+ "deadline_min": 1680,
+ "change_rows": [],
+ "linkage_extra": [],
+ "draw_exposure": {
+  "hours": 6,
+  "require": [
+   {
+    "name": "a live junk well in use (disposals)",
+    "kind": "_well_dispose",
+    "min": 2
+   }
+  ],
+  "note": "The guard can only act in a town with a well. 48 h to 10-15 02:31Z _well_dispose: hive-a 35, placebo-d 36, hive-b 29, hive-c 28, placebo-a 28, placebo-b 17; hive-d 2, board-b 1 (wells, rarely used); the other 8 pools have no well and cannot expose the change."
+ },
+ "exposure": {
+  "read": "minewellread",
+  "field": "exposure_ready",
+  "min": 1,
+  "note": "Ready = >= 3 canary guard rows that ACTED (relocate or stop) AND >= 1 control mine row ending within 8 of a known cap (the population the guard targets is present in the window)."
+ },
+ "own_lines": [
+  {
+   "read": "minewellread",
+   "field": "breach_shell_dug_by_mine",
+   "op": "<=",
+   "value": 0,
+   "on_fail": "REVERT",
+   "evidence": "defect",
+   "note": "G1: a CANARY _dig_town row by mine (purpose target) at a cell inside the shell (+-2, cap.y-3..cap) of a well its own pool knows (caps from the pool's well rows, pre and post; a cap cut off by the 300-char detail cap is refused). Positive control: the same function, dry run on hive-d 10-14 20:00-23:00Z on the base build: 9 (the defect's own rows); self-tests on the hive-d row strings run on every read."
+  },
+  {
+   "read": "minewellread",
+   "field": "control_guard_rows",
+   "op": "<=",
+   "value": 0,
+   "on_fail": "REVERT",
+   "note": "Leak check: a CONTROL _mine_well_guard row means the control is not running the base. BLOCKS KEEP (no evidence key: a mis-deployed control is not a defect of this change)."
+  },
+  {
+   "read": "wellread",
+   "field": "breach_recollected",
+   "op": "<=",
+   "value": 0,
+   "on_fail": "REVERT",
+   "evidence": "defect",
+   "note": "junkwell-02 C1 (canary arm only since b0cd8a4b): an item collected out of a well's shaft -- the defect's own consequence."
+  },
+  {
+   "read": "wellread",
+   "field": "breach_inside",
+   "op": "<=",
+   "value": 0,
+   "on_fail": "REVERT",
+   "evidence": "defect",
+   "note": "junkwell-02 C4 (a bot stuck inside a well >= 2 min): the guard refuses `mine` inside a well; escape must stay possible (the refusal names the rim)."
+  }
+ ],
+ "primary": {
+  "read": "minewellread",
+  "field": "mine_success_did",
+  "note": "REPORTED, NOT GATED: mine success share DiD; canary guard rows by action; canary well refusals per mine run (forbidden + names the junk well). A relocate that adds walking may lower mine throughput slightly near wells; dry runs on the base: DiD +0.16/+0.21 on 3 h cross-sections, i.e. the noise band is wide."
+ },
+ "harm": {
+  "note": "Unchanged: the two-death floor (OWNER 2026-09-11) and gather_ratio < 0.43 of control, from immobiledid."
+ },
+ "teardown": {
+  "note": "THREE STEPS: drop-ins, clear canary_pool, restart the pool's bots 12 s apart; then confirm exactly two live versions. The change keeps no state on disk."
+ },
+ "amendments": [],
+ "extension": {
+  "until_exposure": true,
+  "extra_reads": [
+   540,
+   720,
+   1080,
+   1560
+  ],
+  "final_on_zero_exposure": "INCONCLUSIVE",
+  "note": "SHORT CANARY for a fix (owner 2026-09-29): deterministic gates decide."
+ },
+ "lint": "eslint no-undef: exactly ONE hit on the tip, bots/src/reflex.mjs:2384:67 'withinBody' -- the SAME pre-existing hit on plain 5e663860 (typeof-guarded); this diff changes reflex.mjs by 0 lines."
+}
