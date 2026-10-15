@@ -390,7 +390,7 @@ export const CLICK_LOCK_MS = 15_000
  *     barrier and calls synced(), which ARMS every snapshotted record (this client's event ordinal after the barrier).
  *   ACQUIRE (in the gate, synchronous with the packet): my record FIRST (holder, session, cell: 'pending'), THEN the lease
  *     re-checked (a builder that took it after my check sees my record; one that took it before fails my check -- the file
- *     system orders the two), THEN every other record must have existed at begin (my barrier followed its write) AND be
+ *     system orders the two), THEN every other record must have existed at begin (FILE order only: its click may still reach the server after my use_item) AND be
  *     RESOLVABLE now, after the barrier: mine (my barrier follows my earlier packets; my login follows any earlier session's
  *     end); its author ABSENT from my player list now (a disconnected session's unprocessed packets are dropped, its processed
  *     ones were broadcast before its removal, and my barrier drained every membership event sent before it); or its author
@@ -407,7 +407,7 @@ const ARMED = new Map()   // per client: record file -> the event ordinal of the
 export function clickLock (dir, key, me, { session = 'session', present = () => true, leftAt = () => -Infinity, ord = () => 0, now = () => Date.now() } = {}) {
   const lockKey = `${key}.click`, prefix = `${key}.clk.`
   const armed = ARMED.get(`${dir}|${key}|${me}`) ?? new Map(); ARMED.set(`${dir}|${key}|${me}`, armed)
-  let held = null, began = null, isSynced = false, mineFile = null, blocker = null
+  let held = null, began = null, isSynced = false, mineFile = null, blocker = null, absent0 = new Set(), beginOrd = 0
   const drop = () => { if (held) { try { releaseLease(dir, lockKey, me, held.gen, now()) } catch { /* expires */ } } held = null; began = null; isSynced = false }
   const records = () => {
     const out = []
@@ -430,8 +430,12 @@ export function clickLock (dir, key, me, { session = 'session', present = () => 
   // membership event the server sent before my barrier has been processed); or its author seen LEAVING after a barrier of
   // mine that completed after I first saw the record (Codex r5 P1-2: a leave drained BY that barrier may be an older
   // session's; one processed after it was sent after the record existed). Event ordinals, never a wall clock (Codex r5 P2).
+  // AND OBSERVED BEFORE THIS CYCLE'S BARRIER WAS SENT (Claude stage-4 r6 P3-1: a slow click of the writer's can be processed
+  // after my use_item -- the record existing at begin is FILE order, not server order -- and its removal can reach me before
+  // that click's broadcast; a barrier sent after the removal follows every broadcast of the writer's processed packets):
+  // absent at begin AND at acquire; a leave between the arming barrier and this cycle's begin
   const resolvable = r => began?.has(r.file) && (r.holder === me || (typeof r.holder === 'string' &&
-    (!present(r.holder) || (armed.has(r.file) && leftAt(r.holder) > armed.get(r.file)))))
+    ((absent0.has(r.holder) && !present(r.holder)) || (armed.has(r.file) && leftAt(r.holder) > armed.get(r.file) && leftAt(r.holder) < beginOrd))))
   return {
     begin () {
       drop()
@@ -439,7 +443,12 @@ export function clickLock (dir, key, me, { session = 'session', present = () => 
       try { l = takeLease(dir, lockKey, me, now(), CLICK_LOCK_MS) } catch { return 'busy' }
       if (!l?.ok) return 'busy'
       held = l
-      try { began = new Set(records().map(r => r.file)) } catch { drop(); return 'busy' }
+      try {
+        const recs = records()
+        began = new Set(recs.map(r => r.file))
+        beginOrd = ord()
+        absent0 = new Set(recs.filter(r => typeof r.holder === 'string' && r.holder !== me && !present(r.holder)).map(r => r.holder))
+      } catch { drop(); return 'busy' }
       return null
     },
     // the barrier completed: every record seen at begin is now ARMED (a leave processed after this point was sent after it)
@@ -548,11 +557,13 @@ export function monumentOrder ({ now = 0, enabled = true, siteKnown = false, rec
   return { order: { skill: 'build_monument', args: {}, why: `the town monument (the ziggurat): ${f.total} blocks to spend (${f.cobble} cobble), ${Math.round(distSite)} from its centre` }, state: s, why: 'ok' }
 }
 /** After a visit -> the new state. Pure. `ms` = the visit's body time (charged to the hourly budget). */
+const RUNNER_DECLINES = new Set(['runner_paused', 'runner_busy', 'body_held'])
 export function monumentOrderOutcome (status, failClass, now = 0, ms = 0, state = {}) {
   const s = { ...state, spent: [...(state.spent ?? []), { t: now, ms: Math.max(0, ms) }].filter(v => now - v.t < 3_600_000) }
   if (status === 'success') s.backoffUntil = 0
   else if (failClass === 'monument_no_site') s.backoffUntil = now + NO_SITE_BACKOFF_MS
   else if (failClass === 'monument_nothing_open') s.backoffUntil = now + NOTHING_BACKOFF_MS
+  else if (RUNNER_DECLINES.has(failClass)) { /* the runner declined the order (busy, paused, body held): the cooldown alone (Claude r6 P3-3) */ }
   else if (status === 'failed') s.backoffUntil = now + FAULT_BACKOFF_MS
   // any other skip (slots full, nothing affordable this time, aborted): the cooldown alone
   return s

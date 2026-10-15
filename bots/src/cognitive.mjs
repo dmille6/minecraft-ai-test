@@ -921,7 +921,8 @@ export class CognitiveLoop {
     // refuses it). After the milestone orders, the town deposit, the recount, wear_out and the town orders.
     // A CLICK OF MINE LEFT PENDING blocks every other builder of the world: settled here, once a minute at most (a readdir;
     // a barrier only when there is a record), never only on this bot's next visit (Claude stage-4 r5 P2-1 (b))
-    try { await settleMonumentClicks(this.bot) } catch { /* never breaks the decision loop */ }
+    // only while the runner is idle (Claude r6 P3-3); a re-entrant tick finds it in flight and moves on
+    if (!this.runner.isBusy()) { try { await settleMonumentClicks(this.bot) } catch { /* never breaks the decision loop */ } }
     if (!order) {
       try {
         const lane = monumentLane()

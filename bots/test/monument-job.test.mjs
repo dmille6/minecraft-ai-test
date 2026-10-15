@@ -360,6 +360,12 @@ await t('CLICK LOCK (Codex stage-4 r4/r5): one holder; a pending click blocks un
   assert.equal(go(c, cell2), 'busy'); aHere = false
   assert.equal(go(c, cell2), null, 'a is absent after the barrier: its session has ended'); c.release(cell2, null)
   assert.equal(a.ownPending(), 0, 'settled by c')
+  // ABSENT ONLY AFTER THIS CYCLE'S BARRIER WAS SENT (Claude r6 P3-1: the removal may precede a slow click's broadcast) -> busy
+  // this cycle; the next cycle's barrier follows the removal -> resolvable
+  assert.equal(go(a, cell), null); a.release(cell, 'error')
+  aHere = true
+  assert.equal(go(c, cell2, () => { aHere = false }), 'busy', 'absent at acquire but not at begin')
+  assert.equal(go(c, cell2), null, 'absent at begin and at acquire'); c.release(cell2, null)
   // STALE ABSENCE (Codex r5 P1-1): absent at begin, PRESENT once the barrier drained the queued join -> busy
   assert.equal(go(a, cell), null); a.release(cell, 'error')
   aHere = false
@@ -368,8 +374,9 @@ await t('CLICK LOCK (Codex stage-4 r4/r5): one holder; a pending click blocks un
   let leftOrd = -Infinity
   const d = mk('d', { present: () => true, leftAt: () => leftOrd })
   assert.equal(go(d, cell2), 'busy', 'd arms the record on this cycle\'s barrier')
-  leftOrd = ord()                                              // then a leave (a's session ended; a is back already)
-  assert.equal(go(d, cell2), null); d.release(cell2, null)
+  // a leave AFTER the arming barrier but inside this cycle (after its own barrier was sent) -> not yet (Claude r6 P3-1)
+  { const b0 = d.begin(); assert.equal(b0, null); d.synced(); leftOrd = ord(); assert.equal(d.acquire(cell2), 'busy', 'the leave came after this cycle\'s barrier'); d.release(cell2, null) }
+  assert.equal(go(d, cell2), null, 'the next cycle: the leave precedes its barrier'); d.release(cell2, null)
   // A LEAVE DRAINED BY THE ARMING BARRIER ITSELF (Codex r5 P1-2: an older session's buffered leave) -> NOT resolvable
   assert.equal(go(a, cell), null); a.release(cell, 'error')
   const e = mk('e', { present: () => true, leftAt: () => leftOrd })
@@ -589,6 +596,32 @@ await t('ONE ROW PER VISIT: a successful visit writes exactly one _monument row;
   // THE ROW SURVIVES THE LOGGER'S 300-CHAR CUT: every field is in skill.args, the site among them
   const rec = JSON.parse(last)
   assert.equal(rec.skill.args.stop, 'thrown'); assert.ok('placed' in rec.skill.args && 'site' in rec.skill.args, JSON.stringify(rec.skill.args))
+})
+
+await t('SETTLE OUTSIDE A VISIT (Codex stage-4 r6 P2): a bot back on its pickaxe settles its pending click through an empty hotbar slot, and its hand is restored', async () => {
+  fs.mkdirSync(DIR, { recursive: true })
+  const mkBot = (slotItems) => {
+    const client = new EventEmitter(); const sent = []
+    client.write = (packet, p) => { sent.push(packet); if (packet === 'use_item') setImmediate(() => client.emit('acknowledge_player_digging', { sequenceId: p.sequence })) }
+    const slots = []; slotItems.forEach((it, i) => { if (it) slots[36 + i] = { name: it, count: 1, slot: 36 + i } })
+    const bot = { username: 'Settler', _client: client, inventory: { slots, items: () => slots.filter(Boolean) }, quickBarSlot: 0, entity: { yaw: 0, pitch: 0, position: new Vec3(0, 64, 0) },
+      setQuickBarSlot (i) { bot.quickBarSlot = i } }
+    Object.defineProperty(bot, 'heldItem', { get: () => slots[36 + bot.quickBarSlot] ?? null })
+    return { bot, sent }
+  }
+  const pending = () => { const L = MJ.clickLock(DIR, KEY, 'Settler', {}); assert.equal(L.begin(), null); L.synced(); assert.equal(L.acquire({ x: 1, y: 2, z: 3 }), null); L.release({ x: 1, y: 2, z: 3 }, 'silent'); return L }
+  // positive control: the record is there and a tool-only hotbar cannot settle it (no barrier is ever sent with a tool)
+  const L = pending(); assert.equal(L.ownPending(), 1)
+  const full = mkBot(Array(9).fill('iron_pickaxe'))
+  assert.equal(await SK.settleMonumentClicks(full.bot), 'unsettled'); assert.equal(full.sent.length, 0); assert.equal(L.ownPending(), 1)
+  // an empty hotbar slot: selected, the barrier sent, the record settled, the pickaxe slot selected again
+  const one = mkBot(['iron_pickaxe', null, 'stone_axe'])
+  assert.equal(await SK.settleMonumentClicks(one.bot), 'settled'); assert.deepEqual(one.sent, ['use_item']); assert.equal(L.ownPending(), 0)
+  assert.equal(one.bot.quickBarSlot, 0, 'the hand is restored'); assert.equal(one.bot.heldItem.name, 'iron_pickaxe')
+  // no empty slot but a cobblestone stack in the hotbar: that slot serves
+  pending()
+  const cob = mkBot(['iron_pickaxe', 'stone_axe', 'cobblestone', 'bread', 'torch', 'dirt', 'oak_log', 'stick', 'flint'])
+  assert.equal(await SK.settleMonumentClicks(cob.bot), 'settled'); assert.equal(cob.bot.quickBarSlot, 0); assert.equal(L.ownPending(), 0)
 })
 
 await t('THE ROW UNDER THE LOGGER CUT (logger.mjs cuts a detail at 300): the gated fields lead the detail even at worst-case widths; args carry all', () => {

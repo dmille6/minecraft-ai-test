@@ -7396,12 +7396,34 @@ export async function settleMonumentClicks (bot) {
     const lk = clickLock(monumentDir(), monumentKeyNow(), bot.username ?? '?', {})
     const mine = lk.ownFiles()
     if (!mine.size) return 'none'
-    const ok = await worldBarrier(bot, name => CORE_ITEMS.includes(name))
-    if (ok) lk.settleOwn(mine)
-    try { logEvent({ kind: 'monument_settle', status: ok ? 'success' : 'no_effect', snapshot: snapshot(bot), detail: `records=${mine.size} settled=${ok ? mine.size : 0} held=${bot.heldItem?.name ?? '-'}` }) } catch { /* telemetry */ }
+    if (settling.has(bot)) return 'inflight'
+    settling.add(bot)
+    let ok = false, how = 'held'
+    const old = bot.quickBarSlot
+    let chosen = null
+    try {
+      // A HAND THE BARRIER MAY USE (Codex stage-4 r6 P2 / Claude r6 P3-2: a bot back on its tool never settled): the held item
+      // as it is; else the hotbar's first EMPTY slot, else its first plain stone-family stack -- selected, never equipped (no
+      // inventory move), and the old slot restored only if nothing else changed it meanwhile
+      const allowed = name => CORE_ITEMS.includes(name)
+      const held = bot.heldItem?.name ?? null
+      if (held && !allowed(held) && typeof bot.setQuickBarSlot === 'function') {
+        const slots = bot.inventory?.slots ?? []
+        const at = i => slots[36 + i]
+        const pick = [...Array(9).keys()].find(i => !at(i)) ?? [...Array(9).keys()].find(i => allowed(at(i)?.name))
+        if (pick != null) { chosen = pick; how = at(pick) ? `slot:${at(pick).name}` : 'slot:empty'; bot.setQuickBarSlot(pick) }
+      }
+      ok = await worldBarrier(bot, allowed)
+      if (ok) lk.settleOwn(mine)
+    } finally {
+      try { if (chosen != null && bot.quickBarSlot === chosen && old != null) bot.setQuickBarSlot(old) } catch { /* the next skill equips its own */ }
+      settling.delete(bot)
+    }
+    try { logEvent({ kind: 'monument_settle', status: ok ? 'success' : 'no_effect', snapshot: snapshot(bot), detail: `records=${mine.size} settled=${ok ? mine.size : 0} hand=${how} held=${bot.heldItem?.name ?? '-'}` }) } catch { /* telemetry */ }
     return ok ? 'settled' : 'unsettled'
   } catch { return 'error' }
 }
+const settling = new WeakSet()
 
 async function buildMonument (ctx, _args, signal) {
   const { bot } = ctx
