@@ -59,6 +59,8 @@ for (let dx = -2; dx <= 2; dx++) for (let dz = -2; dz <= 2; dz++) for (let y = C
   if (dx === 0 && dz === 0 && y >= CAP.y - 1) continue
   SHELL.push({ x: CAP.x + dx, y, z: CAP.z + dz })
 }
+// the COLUMN (cap trapdoor at g, floor trapdoor at g-1) is not in SHELL: the stair can enter the shaft through the cap
+const column = () => { const r = rcon(`execute if block ${CAP.x} ${CAP.y} ${CAP.z} minecraft:oak_trapdoor[open=false]`, `execute if block ${CAP.x} ${CAP.y} ${CAP.z} minecraft:oak_trapdoor`, `execute if block ${CAP.x} ${CAP.y - 1} ${CAP.z} minecraft:oak_trapdoor`); return { capClosed: passed(r[0]?.reply), capPresent: passed(r[1]?.reply), floorPresent: passed(r[2]?.reply) } }
 const shellAir = () => rcon(...SHELL.map(c => `execute if block ${c.x} ${c.y} ${c.z} minecraft:air`)).filter(x => passed(x.reply)).map(x => x.cmd.split(' ').slice(3, 6).join(','))
 function census () {
   const r = rcon('scoreboard objectives add mw dummy',
@@ -127,14 +129,14 @@ async function scene () {
   // the junk in the shaft (lying on the floor trapdoor, pickup delay 0: a body in reach takes it)
   rcon(...JUNK.map(([id, n]) => `summon item ${CAP.x + 0.5} ${CAP.y - 0.6} ${CAP.z + 0.5} {Item:{id:"minecraft:${id}",count:${n}},PickupDelay:0}`))
   await sleep(25000)   // index.mjs refreshes the known well columns every 20 s
-  const before = { shellAir: shellAir(), inShaft: census(), bag: bag() }
+  const before = { shellAir: shellAir(), column: column(), inShaft: census(), bag: bag() }
   rcon(`tp ${NAME} ${STAND.x + 0.5} ${STAND.y} ${STAND.z + 0.5} 90 0`)   // on the stand, facing the well (west), as hive-d-Echo
   await sleep(2000)
   ORDER = { skill: 'mine', args: { y: 114 } }
   const ended = await waitFor(() => lines(files.botOut).find(l => /skill mine ->/.test(l)), 180000, 500)
   await sleep(3000)
   const rows = rowsOf(files.skillLog)
-  const after = { shellAir: shellAir(), inShaft: census(), bag: bag() }
+  const after = { shellAir: shellAir(), column: column(), inShaft: census(), bag: bag() }
   const gained = Object.fromEntries(Object.entries(after.bag).map(([k, v]) => [k, v - (before.bag[k] || 0)]).filter(([k, d]) => d > 0 && JUNK.some(j => j[0] === k)))
   const mineRow = rows.filter(r => r.name === 'mine').pop()
   const pos = r1(`data get entity ${NAME} Pos`)
@@ -142,7 +144,7 @@ async function scene () {
   const res = {
     label: LABEL, root: BOT_ROOT, sha: (() => { try { return execFileSync('git', ['-C', BOT_ROOT, 'rev-parse', '--short', 'HEAD'], { encoding: 'utf8' }).trim() } catch { return '?' } })(),
     mine: mineRow ? `${mineRow.status} ${mineRow.detail.slice(0, 160)}` : (ended ? ended.slice(0, 160) : 'no mine row'),
-    shellDug: after.shellAir.filter(c => !before.shellAir.includes(c)), shellAirBefore: before.shellAir.length,
+    shellDug: after.shellAir.filter(c => !before.shellAir.includes(c)), shellAirBefore: before.shellAir.length, column: { before: before.column, after: after.column },
     shaftItems: { before: before.inShaft, after: after.inShaft }, junkGained: gained,
     recollectedRows: rows.filter(r => r.name === '_well_recollected').length,
     guardRows: rows.filter(r => r.name === '_mine_well_guard').map(r => r.detail.slice(0, 120)), endPos: pos.slice(0, 120),
