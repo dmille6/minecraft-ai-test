@@ -142,7 +142,9 @@ export function shaftEffects (bot, { bound, aborted = () => false, allowed = () 
      */
     place: async (mut, cell, name, refs = null) => {
       if (!(await equip(name))) return 'gate:no_material'
-      const all = refs ?? supportsFor(read, cell)
+      // supports: full cubes only, never a ladder (Paper 10-15: the cap clicked onto the ladder top below it was refused); an
+      // explicit ref list (the ladder's own wall) is taken as given
+      const all = refs ?? supportsFor(read, cell).filter(sp => { const b = read(sp.ref.x, sp.ref.y, sp.ref.z); return !!b && b.name !== 'ladder' && b.full !== false })
       if (!all.length) return 'gate:no_support'
       const e = eye()
       const opts = rankedSupports(read, e, cell, all)
