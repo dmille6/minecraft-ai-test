@@ -50,6 +50,7 @@ from towncap import town_cobble_cap, row_cap   # noqa: E402
 
 KEEP = ('_cobble_bank', '_well_dispose', '_town_deposit', '_deposit_new_chest', 'deposit', 'town_deposit', '_stock_refused')
 KV = re.compile(r'(?:^| )([a-z_]+)=(\S+)')
+JOURNAL_FILE = re.compile(r'\.cobble\.(g\d+\.)?jsonl$')
 EXPOSURE_MIN = 3
 
 
@@ -182,7 +183,8 @@ def journal_coverage(pools, root='/var/lib/mcai'):
             names = os.listdir(d)
         except OSError as e:
             missing.append('%s:%s' % (p, type(e).__name__)); continue
-        if not any(n.endswith('.cobble.jsonl') for n in names):
+        # any generation (stockjournal.mjs's own key regex): two rotations delete generation 0 (Codex r3 P2, Claude r3 P3)
+        if not any(JOURNAL_FILE.search(n) for n in names):
             missing.append('%s:no_journal' % p); continue
         dirs.append(d)
     return dirs, missing
@@ -248,8 +250,9 @@ def selftest():
     jroot = tempfile.mkdtemp(prefix='cobblecap-pools-')
     os.makedirs(os.path.join(jroot, '_pool-hive-a')); open(os.path.join(jroot, '_pool-hive-a', 'town-x.cobble.jsonl'), 'w').close()
     os.makedirs(os.path.join(jroot, '_pool-hive-b'))
-    jd, jm = journal_coverage({'hive-a', 'hive-b', 'hive-c'}, root=jroot)
-    assert jd == [os.path.join(jroot, '_pool-hive-a')] and jm == ['hive-b:no_journal', 'hive-c:FileNotFoundError'], (jd, jm)
+    os.makedirs(os.path.join(jroot, '_pool-hive-d')); open(os.path.join(jroot, '_pool-hive-d', 'town-y.cobble.g2.jsonl'), 'w').close()   # rotated twice
+    jd, jm = journal_coverage({'hive-a', 'hive-b', 'hive-c', 'hive-d'}, root=jroot)
+    assert jd == [os.path.join(jroot, '_pool-hive-a'), os.path.join(jroot, '_pool-hive-d')] and jm == ['hive-b:no_journal', 'hive-c:FileNotFoundError'], (jd, jm)
     kept, walked, bots, bad, off, nov = stream(T0 - dt.timedelta(hours=1), T0 + dt.timedelta(hours=1), T0, {'hive-a'}, 'abc1234', logroot=lr)
     assert walked == 4 and off == 1 and len(kept) == 3 and nov == {'_cobble_bank': 1}, (walked, off, len(kept), nov)
     ready = judge([B(30, 256, 286), B(30, 300, 330, mins=1), B(0, 990, 990, mins=2, at_cap=1), RF(**CTL)], 1000, 256)
