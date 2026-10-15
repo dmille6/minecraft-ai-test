@@ -110,18 +110,23 @@ export function planMineStart ({ cols = [], p0, feet = null, bearings = [], stan
   const skip = new Set((Array.isArray(exclude) ? exclude : []).map(c => `${c.x},${c.y},${c.z}`))
   const here = clearFrom(p0)
   if (here.length) return { action: 'go', bearings: here }
-  const hit = stairClear(wells, p0, bearings[0] ?? { x: 0, z: 1 }, { goalY, forbid, forbidBottom }).hit
+  // WHAT BLOCKS, over every bearing (Claude r8 P2: a farm-caused refusal named a far-away well when the town has one)
+  const hits = (bearings.length ? bearings : [{ x: 0, z: 1 }]).map(b => stairClear(wells, p0, b, { goalY, forbid, forbidBottom }).hit).filter(Boolean)
+  const farmHit = hits.find(h => h.farm) ?? null, wellHit = hits.find(h => h.cap) ?? null
+  const hit = wellHit ?? farmHit
   for (const c of relocateCandidates(p0, radius)) {
     const cell = { x: c.x, y: c.y, z: c.z }
     // never a feet cell inside a well column (its stand on the rim is fine: the stair from it is what is simulated)
     if (bodyInWell(wells, { x: c.x + 0.5, y: c.y, z: c.z + 0.5 })) continue
-    if (farm && (forbid(cell) || forbid({ x: cell.x, y: cell.y + 1, z: cell.z }))) continue   // never a stand in a farm cell
+    // never a stand in a farm cell (the head check is belt and braces: a standable cell's head is a farm cell only if its feet are)
+    if (farm && (forbid(cell) || forbid({ x: cell.x, y: cell.y + 1, z: cell.z }))) continue
     if (skip.has(`${cell.x},${cell.y},${cell.z}`)) continue   // a target the pathfinder already failed to reach
     if (!standable(cell)) continue
     const ok = clearFrom(cell)
-    if (ok.length) return { action: 'relocate', to: cell, bearings: ok, hit }
+    if (ok.length) return { action: 'relocate', to: cell, bearings: ok, hit, ...(farmHit ? { farm: true } : {}) }
   }
-  const cap = hit?.cap ?? wells[0] ?? null
-  if (!cap) return { action: 'refuse', cap: null, farm: true, why: `every stair from here and from every standable cell within ${radius} would dig the town tree farm (its soil or a plot at ${hit?.cell ? `${hit.cell.x},${hit.cell.y},${hit.cell.z}` : '?'})` }
-  return { action: 'refuse', cap, why: `every stair from here and from every standable cell within ${radius} would dig the junk well's shell at ${cap.x},${cap.y},${cap.z}` }
+  const farmWhy = farmHit ? `the town tree farm (its soil or a plot at ${farmHit.cell.x},${farmHit.cell.y},${farmHit.cell.z})` : null
+  if (farmHit && !wellHit) return { action: 'refuse', cap: null, farm: true, hit: farmHit, why: `every stair from here and from every standable cell within ${radius} would dig ${farmWhy}` }
+  const cap = wellHit?.cap ?? wells[0]
+  return { action: 'refuse', cap, ...(farmHit ? { farm: true } : {}), why: `every stair from here and from every standable cell within ${radius} would dig the junk well's shell at ${cap.x},${cap.y},${cap.z}${farmWhy ? ` or ${farmWhy}` : ''}` }
 }

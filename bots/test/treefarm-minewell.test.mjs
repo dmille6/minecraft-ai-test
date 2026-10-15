@@ -113,12 +113,13 @@ await t('COMPOSED WITH A WELL: a well cap 3 from the bot and the farm on the oth
   assert.ok(bot._digs.length > 3, 'it descended')
 })
 
-await t('FARM CELLS AND WELL SHELLS: a farm founded beside a well keeps every plot (soil and column) out of the shell; only a torch floor may sit in it (and then neither digs it)', () => {
+await t('FARM CELLS AND WELL SHELLS: a farm founded beside a well keeps every plot (soil and column) out of the shell (positive control: the unconstrained farm\'s plot IS in it)', () => {
   const read = (x, y, z) => (y < 64 ? { name: y === 63 ? 'grass_block' : 'dirt', boundingBox: 'block' } : { name: 'air', boundingBox: 'empty' })
   const HOME = { x: 0, y: 64, z: 0 }
   const free = TF.canonicalFarm({ home: HOME, read }).record
   const p = free.cells.find(c => c.role === 'plot')
   const cap = { x: p.x + 2, y: 63, z: p.z + 2 }
+  assert.ok(MW.shellOf([cap], { x: p.x, y: p.y - 1, z: p.z }), 'positive control: without the keep-out a plot soil sits in the shell')
   const rec = TF.canonicalFarm({ home: HOME, read, avoid: [{ x: cap.x, z: cap.z, r: TF.FARM_WELL_DISTANCE, what: 'junk_well' }] }).record
   for (const c of rec.cells) {
     if (c.role !== 'plot') continue
@@ -170,7 +171,7 @@ await t('STALE CACHE (Codex r8 P2): the movement cache says "no farm" but the re
 })
 
 await t('MUTANT KILLED (skills): the stale 20 s cache trusted first -- a farm on disk but not yet in the cache gets dug', async () => {
-  await withMutant(SKP, '      const idx = knownFarmIndex(bot)\n', '      const idx = farmIdx(bot) ?? knownFarmIndex(bot)\n', async m => {
+  await withMutant(SKP, 'return farmStairForbid(knownFarmIndex(bot))', 'return farmStairForbid(farmIdx(bot) ?? knownFarmIndex(bot))', async m => {
     const bot = world()
     await run(m, bot)
     assert.ok(bot._digs.some(farmCell), 'the mutant trusts the empty cache and digs a plot')
@@ -190,6 +191,55 @@ await t('THE REFUSAL CHAIN (Codex r8/r9): the walk-off cells unreachable -> a re
   const r2 = await run(SK, bot)
   assert.equal(bot._digs.filter(farmCell).length, 0)
   assert.ok(bot._digs.length > 3, `then it descends: ${r2.status} ${r2.detail}`)
+})
+
+// ---- the farm's stair keep-out, extracted (farmStairForbid): each guard has a geometry only it catches (Claude r8 P3) ------
+const MB = [{ x: 1, z: 0 }]   // a stair east
+await t('COLUMN ONLY: a bot 3 above a plot (terrain +-2) -- its stair east passes through the plot\'s column and never its soil; still refused', () => {
+  const rec = { blueprint: 'treefarm', version: 1, anchor: { x: 233, y: 64, z: 230 }, cells: [{ x: 233, y: 64, z: 230, role: 'plot' }] }
+  const fs2 = SK.farmStairForbid(TF.farmIndex(rec))
+  const h = MW.stairClear([], { x: 230, y: 67, z: 230 }, MB[0], { forbid: fs2.forbid, forbidBottom: fs2.bottom })
+  assert.equal(h.clear, false); assert.ok(h.hit.cell.y >= 64, `hit in the column, not the soil: ${JSON.stringify(h.hit.cell)}`)
+})
+await t('TORCH CELL: a stair whose head passes a farm torch cell is refused (mine breaks anything that is not air)', () => {
+  const rec = { blueprint: 'treefarm', version: 1, anchor: { x: 240, y: 64, z: 230 }, cells: [{ x: 240, y: 64, z: 236, role: 'plot' }, { x: 232, y: 67, z: 230, role: 'torch' }] }
+  const fs2 = SK.farmStairForbid(TF.farmIndex(rec))
+  // from y=69 the torch cell (67) is step 1's TREAD, so its floor (66) is never in that step: only the torch rule catches it
+  const h = MW.stairClear([], { x: 230, y: 69, z: 230 }, MB[0], { forbid: fs2.forbid, forbidBottom: fs2.bottom })
+  assert.equal(h.clear, false); assert.deepEqual(h.hit.cell, { x: 232, y: 67, z: 230 })
+})
+await t('TWO LEVELS: plots at 66 and 62 -- the lower plot, reached only by a deep step, is still in the simulation (bottom = the lowest soil)', () => {
+  const rec = { blueprint: 'treefarm', version: 1, anchor: { x: 230, y: 66, z: 236 }, cells: [{ x: 236, y: 62, z: 230, role: 'plot' }, { x: 230, y: 66, z: 240, role: 'plot' }] }
+  const fs2 = SK.farmStairForbid(TF.farmIndex(rec))
+  assert.equal(fs2.bottom, 61, 'the lowest soil')
+  // from 230,66,230 east: step i digs x = 231+i at y 67-i .. 65-i; the soil 236,61 is the tread of step 5 (y 61)
+  const h = MW.stairClear([], { x: 230, y: 66, z: 230 }, MB[0], { forbid: fs2.forbid, forbidBottom: fs2.bottom })
+  assert.equal(h.clear, false); assert.ok(h.hit.cell.x === 236, JSON.stringify(h.hit))
+})
+await t('MUTANTS KILLED (farmStairForbid): no column, no torch, a bottom above the lowest soil -- each turns one of the three red', async () => {
+  const cases = [
+    ['|| inPlotColumn(idx, c.x, c.y, c.z), bottom }', '|| false, bottom }', () => { const rec = { blueprint: 'treefarm', version: 1, anchor: { x: 233, y: 64, z: 230 }, cells: [{ x: 233, y: 64, z: 230, role: 'plot' }] }; return { rec, p0: { x: 230, y: 67, z: 230 } } }],
+    ['idx.torch.has(`${c.x},${c.y},${c.z}`) || inPlotColumn', 'false || inPlotColumn', () => { const rec = { blueprint: 'treefarm', version: 1, anchor: { x: 240, y: 64, z: 230 }, cells: [{ x: 240, y: 64, z: 236, role: 'plot' }, { x: 232, y: 67, z: 230, role: 'torch' }] }; return { rec, p0: { x: 230, y: 69, z: 230 } } }],
+    ['  for (const k of idx.soil) bottom = Math.min(bottom, Number(k.split(\',\')[1]))\n', '  for (const k of idx.soil) bottom = Number(k.split(\',\')[1]) + 1\n', () => { const rec = { blueprint: 'treefarm', version: 1, anchor: { x: 230, y: 66, z: 236 }, cells: [{ x: 236, y: 62, z: 230, role: 'plot' }, { x: 230, y: 66, z: 240, role: 'plot' }] }; return { rec, p0: { x: 230, y: 66, z: 230 } } }],
+  ]
+  for (const [old, neu, mk] of cases) {
+    await withMutant(SKP, old, neu, async m => {
+      const { rec, p0 } = mk()
+      const fs2 = m.farmStairForbid(TF.farmIndex(rec))
+      assert.equal(MW.stairClear([], p0, MB[0], { forbid: fs2.forbid, forbidBottom: fs2.bottom }).clear, true, `the mutant lets the stair through: ${old.slice(0, 40)}`)
+    })
+  }
+})
+await t('A TOWN WITH A WELL, BOXED IN BY THE FARM (Claude r8 P2): the refusal names the farm, not the far-away well', () => {
+  let bottom = Infinity; for (const k of IDX.soil) bottom = Math.min(bottom, Number(k.split(',')[1]))
+  const r = MW.planMineStart({ cols: [{ x: 300, y: 63, z: 300 }], p0: P0, bearings: [{ x: 1, z: 0 }, { x: -1, z: 0 }, { x: 0, z: 1 }, { x: 0, z: -1 }], standable: () => false, forbid: farmCell, forbidBottom: bottom })
+  assert.equal(r.action, 'refuse'); assert.equal(r.farm, true); assert.equal(r.cap, null)
+  assert.match(r.why, /tree farm/); assert.doesNotMatch(r.why, /300,63,300/)
+})
+await t('THE CHAIN WITH A WELL IN TOWN (Claude r8 P2): walk-offs unreachable -> the refusal says explore away from the tree farm (not the well)', async () => {
+  const bot = world({ cols: () => [{ x: 300, y: 63, z: 300 }], canMove: false })
+  const r = await run(SK, bot)
+  assert.equal(r.status, 'failed'); assert.match(r.detail, /away from the tree farm/, r.detail); assert.doesNotMatch(r.detail, /away from the well/)
 })
 
 console.log(`\n${pass} passed, ${fail} failed`)

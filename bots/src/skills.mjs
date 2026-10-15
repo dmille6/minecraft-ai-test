@@ -7447,6 +7447,17 @@ export function townFarmPlan (bot) {
   return tendPlan({ states, torches, held, bonemeal: bonemealEnabled(process.env) })
 }
 
+/**
+ * THE TREE FARM'S CELLS AS A MINE STAIR'S KEEP-OUT (treefarm-02 on minewell-01) -> { forbid(cell), bottom } | nulls. Pure.
+ * Every plot's soil and whole column (cell .. CLEAR_ABOVE), every torch cell and its floor; `bottom` the LOWEST of them
+ * (plots follow terrain +-2, so the farm spans several levels and the stair simulation must reach the lowest soil).
+ */
+export function farmStairForbid (idx) {
+  if (!idx?.soil?.size) return { forbid: null, bottom: null }
+  let bottom = Infinity
+  for (const k of idx.soil) bottom = Math.min(bottom, Number(k.split(',')[1]))
+  return { forbid: c => idx.soil.has(`${c.x},${c.y},${c.z}`) || idx.torch.has(`${c.x},${c.y},${c.z}`) || inPlotColumn(idx, c.x, c.y, c.z), bottom }
+}
 /** The block items this bot's pathfinder may place as scaffold on a walk: its movements' scafoldingBlocks when it has
  *  them (Codex r3: never widened by a default), else the fleet's list (index.mjs extends the base with it). */
 export function farmScaffoldNames (bot) {
@@ -10583,17 +10594,9 @@ async function mine(ctx, { y: targetY = 12 }, signal) {
   // THE TOWN TREE FARM'S CELLS (treefarm-02 on minewell-01): mine digs with bot.dig directly, so the farm's pathfinder
   // exclusions never applied to its stair. The same plan that keeps the stair out of a well's shell keeps it out of a plot's
   // soil and column and a torch's cell and floor -- and never starts it from one -- read afresh at every plan and dig.
-  const farmNow = () => {
-    try {
-      // THE SHARED RECORD ITSELF, never the 20 s movement cache (Codex r8 P2: a farm founded or moved since the last refresh
-      // would be dug until then) -- one small file read per plan and per dig
-      const idx = knownFarmIndex(bot)
-      if (!idx?.soil?.size) return { forbid: null, bottom: null }
-      let bottom = Infinity
-      for (const k of idx.soil) bottom = Math.min(bottom, Number(k.split(',')[1]))
-      return { forbid: c => idx.soil.has(`${c.x},${c.y},${c.z}`) || idx.torch.has(`${c.x},${c.y},${c.z}`) || inPlotColumn(idx, c.x, c.y, c.z), bottom }
-    } catch { return { forbid: null, bottom: null } }
-  }
+  // THE SHARED RECORD ITSELF, never the 20 s movement cache (Codex r8 P2: a farm founded or moved since the last refresh
+  // would be dug until then) -- one small file read per plan and per dig
+  const farmNow = () => { try { return farmStairForbid(knownFarmIndex(bot)) } catch { return { forbid: null, bottom: null } } }
   const planHere = (radius = RELOCATE_RADIUS) => { const fm = farmNow(); return planMineStart({ cols: wellCols(), p0: bot.entity.position.floored(), feet: bot.entity.position,
                                          bearings: stairBearings(bot), standable: standableAt, rimStandable: canStand, radius, goalY, exclude: failedTargets,
                                          forbid: fm.forbid, forbidBottom: fm.bottom }) }
@@ -10619,13 +10622,14 @@ async function mine(ctx, { y: targetY = 12 }, signal) {
     const dHome2 = Math.hypot(bot.entity.position.x - config.world.homeX, bot.entity.position.z - config.world.homeZ)
     if (dHome2 <= 12) {
       return { status: 'failed', failClass: 'forbidden',
-               detail: `walked off the junk well to ${Math.round(dHome2)} blocks from home, where the base floor is not dug; walk out at least 12 blocks from home and away from the well, then mine` }
+               detail: `walked off ${wellPlan.farm || wellPlan.hit?.farm ? 'the tree farm' : 'the junk well'} to ${Math.round(dHome2)} blocks from home, where the base floor is not dug; walk out at least 12 blocks from home and away from ${wellPlan.farm || wellPlan.hit?.farm ? 'the farm' : 'the well'}, then mine` }
     }
     wellPlan = planHere()
   }
   if (wellPlan.action !== 'go') {
     wellRow('refuse', wellPlan, lastTarget ? ' after=relocate' : '')
-    const isFarm = !!(wellPlan.farm || wellPlan.hit?.farm), what = isFarm ? 'the tree farm' : 'the well'
+    const isFarm = !!(wellPlan.farm || wellPlan.hit?.farm), bothBlock = isFarm && !!wellPlan.cap
+    const what = bothBlock ? 'the well and the tree farm' : isFarm ? 'the tree farm' : 'the well'
     const where = failedTargets.length ? `the walk-off to ${failedTargets.map(c => `${c.x},${c.y},${c.z}`).join(' and ')} could not be reached from here; explore away from ${what} (or goto any cell ${FAR_RADIUS}+ blocks from it), then mine there`
                                        : `explore away from ${what} (or goto any cell ${FAR_RADIUS}+ blocks from it), then mine there`
     return { status: 'failed', failClass: 'forbidden', detail: wellPlan.inside ? wellPlan.why : `${wellPlan.why ?? (isFarm ? 'every stair from here would dig the town tree farm' : 'every stair from here would dig the junk well\'s shell')}; ${where}` }
