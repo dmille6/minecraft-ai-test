@@ -323,4 +323,25 @@ await t('SLOTS: with three slots held by others, a fourth bot is refused (no_eff
   assert.equal(JSON.stringify([...Array(25).keys()].map(x => w.read(x, 64, 12).name)), before)
 })
 
+await t('A BODY IN THE CENTRE: its cell waits, but the visit takes another segment with work (Paper stand12 starved the quadrants)', async () => {
+  // a 12-wide override would change the module's geometry; the 6-wide plan's centre segment (cheb <= 5 of 2.5) is every cell,
+  // so the body-only segment case is driven on the selection itself: every open layer cell but one done, a body in that one
+  const w = world()
+  fs.rmSync(DIR, { recursive: true, force: true }); fs.mkdirSync(DIR, { recursive: true })
+  const { bot } = fakeBot(w, undefined, 'siter'); await run(bot)
+  const rec = MJ.readMonument(DIR, KEY).record
+  const plan = MJ.monumentPlan({ ...rec, gen: 'b' })
+  const l0 = plan.byY.get(rec.layer_open)
+  for (const c of l0) w.set(c.x, c.y, c.z, AIR)
+  const body = l0[0]
+  for (const c of l0.slice(1)) if (c.role !== 'stair') w.set(c.x, c.y, c.z, COBBLE)
+  const { bot: b2 } = fakeBot(w, undefined, 'withbody')
+  b2.entities = { 7: { name: 'armor_stand', position: new Vec3(body.x + 0.5, body.y, body.z + 0.5), width: 0.5, height: 1.975 } }
+  const r = await run(b2)
+  assert.equal(w.read(body.x, body.y, body.z).name, 'air', 'the body\'s cell is never placed')
+  const st = l0.find(c => c.role === 'stair')
+  if (st) assert.equal(w.read(st.x, st.y, st.z).name, 'cobblestone', `the other work was done (${r.status}: ${r.detail})`)
+  else assert.notEqual(r.failClass, 'monument_nothing_open', 'only a body in the way is never "nothing open"')
+})
+
 console.log(`\n${pass} passed, ${fail} failed`); if (fail) process.exit(1)
