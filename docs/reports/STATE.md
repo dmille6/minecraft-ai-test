@@ -12,6 +12,52 @@ Studio reservation both closed 10-12); clear caps bamboo 0 / bucket 2._
 
 ---
 
+## 10-15 22:42Z — TOOLKIT-01 READY (new) + BAMBOO-02 REBUILT on 8cd0bc62 / 75cfb447; both engines APPROVE; NOTHING queued or deployed (the toolkit agent)
+**bamboo-02 (replace-variant).** `bb-on-8cd0bc6` @ **6b731312** (fleet 8cd0bc62) and `bb-on-75cfb44` @ **6ac667c0** (townzone-01 75cfb447):
+the reviewed bamboo diff as composed with stocktarget-01 + orderroom-01 (`git diff 2ec19385 77ac5597`) as one commit, sorted +/- lines
+identical except ONE union (hygiene HOUSEKEEPING + count_town); the two deltas are line-identical; + test/bamboo-chain.test.mjs (the
+order through the real CognitiveLoop; 2 anchored mutants killed). npm test 253/253 and 254/254; eslint no-undef only reflex.mjs:2384.
+Composition checked: bamboo NEVER_BANKABLE / NEVER_DISPOSE / PROTECTED, sticks = stock group (target 64), order town deposit -> recount
+-> firstOrder(milestone, wear_out, bamboo) -> town/well/prune -> room order. Reviews (docs/reports/bamboo-02.rebase-review-2026-10-15.txt):
+Codex r1 APPROVE, Claude r1 APPROVE (P3s on the chain test fixed; P3-1 inherited: a runner decline costs the fold a 30-min backoff --
+follow-up, wear_out shares it). Registrations `~/mcai-analysis/bamboo-02.{6b731312,6ac667c0}.json`: no draw_require_pools
+(drawrequire.parse ([], None)), licencecheck PASS (_bamboo_sticks 0 baseline rows / 6 h), changerowcheck PASS. **draw_exposure changed
+3 h / min 5 -> 6 h / min 1**: since orderroom-01 the fleet writes few full-bag craft_room refusals (21:55Z: board-c, board-d eligible;
+board-a at the edge). bambooread unchanged (md5 1aeb644a; dry run +180 on board-c,board-d: instrument 18, breaches 0).
+Entry: `python3 ~/canary-sched.py queue replace-variant bamboo-02 ~/mcai-analysis/bamboo-02.queue-entry-replace-1015.json`
+(copy docs/reports/bamboo-02.queue-entry-replace-2026-10-15.json; the old e29c1e7/79ab946/82aef34 variants dropped).
+
+**toolkit-01 (new entry, NOT queued).** `tk-on-8cd0bc6` @ **cb801c52** (fleet 8cd0bc62) and `tk-on-75cfb44` @ **2bce1306** (townzone 75cfb447).
+- MEASURED (ES 24 h, docs/reports/toolkit-01-measure-2026-10-15.txt): 22/80 bots hold a usable iron pickaxe; their usable stone
+  pickaxes 0 x7, 1 x15 -> **0-2 usable extras fleet-wide** (the town deposit already banks them: one usable copy per name stays,
+  stone_pickaxe target 16); they carry 23 SPENT stone copies, 16 at exactly 1 use (84 fleet-wide). 0/80 hold an iron axe/shovel;
+  log gather 15.9 s/log no axe vs 10.4 stone axe.
+- PART 1: with a usable iron(+) pickaxe AND a usable stone spare, wear_out keeps NONE of the 1-use stone copies for last-swing (34+
+  slots). **DEVIATION from the ask:** spent copies go by USE, not down the junk well -- a pickaxe in the well is an off-list throw to
+  wellread.py C3 (a REVERT gate on any later canary that registers wellread) and changing wellread changes pinned md5s. Scope: 1-use
+  copies only, only under bag pressure, only with a usable spare (7 of 22 iron holders have none and keep theirs).
+- PART 2: at town, no usable iron axe/shovel, a table near/carried/makeable: one container keeping 4 gives 3(+1) ingots (+ the short
+  sticks; never iron when the bag cannot make the rest), the craft skill makes axe then shovel; the kit spends only bot.kitCredit + its
+  verified draw (never ladder iron); the credit survives aborts (a restart forgets it: at most one extra draw, iron stays in the bag).
+  The LAST deterministic order (a ready rung is never displaced). toolfor already picks the iron axe for logs and the shovel for soil.
+- PAPER (docs/reports/toolkit-01-paper-2026-10-15.txt, lock 21:11-21:26Z): spare 36->34, three 1-use copies destroyed, iron + spare kept
+  (ctrl unchanged); kitgather chest iron -4, server bag +iron_axe +iron_shovel, then 3 logs with the axe (damage 3) 7.9 s vs ctrl by
+  hand 22.3 s, dirt with the shovel 4.7 s vs 6.0 s; the tz variant the same.
+- Tests: toolkit.test 33 (real 1.21.8 blocks; the skill vs fakeworld; CHAIN through the real CognitiveLoop incl. abort -> retry);
+  13 anchored mutants killed; npm test 252/252 (8cd0bc62 tip) and 253/253 (75cfb447 tip); eslint no-undef only reflex.mjs:2384.
+- Reviews (docs/reports/toolkit-01-reviews-2026-10-15.txt): Codex r1 CHANGES (credit lost on abort; partial draw could spend ladder
+  iron) -> r2 CHANGES (craft-then-throw kept spent credit) -> r3 APPROVE; Claude r1 CHANGES (same + K3 on window timing) -> r2/r3 APPROVE.
+- Read `~/mcai-analysis/toolkitread.py` (NEW, md5 53b09256, /tmp copy matches; repo scripts/host/toolkitread.py): K1 no usable
+  pickaxe left, K2 usable tool lost, K3 iron drawn and no tool (per bot, PENDING inside the last 40 min), K4 unverified craft -- all
+  REVERT; liveness = verified kit crafts; control _toolkit rows 0; instrument = control bots without the kit. Gather-rate DiD
+  REPORTED only (null dry run: log -0.82 s, soil +4.59 s).
+- Registrations `~/mcai-analysis/toolkit-01.{cb801c52,2bce1306}.json`: licence kind `_toolkit` (baseline 0 rows), change_rows [toolkit]
+  (changerowcheck PASS), no draw_require_pools, draw_exposure 6 h `_dig_town` >= 5 (10 of 11 pools). Entry (NOT added):
+  `python3 ~/canary-sched.py queue add ~/mcai-analysis/toolkit-01.queue-entry.json` (copy docs/reports/toolkit-01.queue-entry.json),
+  carries a coordinator HOLD; place it with `after` as the coordinator decides. Driver: sandbox/craft/toolkit-ab.cjs.
+- BOTH ENTRIES dry-validated with canary-sched's own validate_entry: the only refusal is "registration sha does not resolve" --
+  **`git -C /opt/minecraft-ai fetch origin` first** (branches bb-on-8cd0bc6, bb-on-75cfb44, tk-on-8cd0bc6, tk-on-75cfb44 are pushed).
+
 ## 10-15 16:45Z — monument-01 (ziggurat stage 4) READY, queued HELD; minewell-02 moved ahead of it
 Both engines APPROVE (Codex r7/r8, Claude r3-r8). Click lock is a server-ordered barrier (use_item seq ack), no time-based
 expiry. Paper r8 (sandbox4): build12 366/366 in 13.9 min, stand12 ok, kill12 366/366, cost48 gate p95 <= 94 ms, loop lag

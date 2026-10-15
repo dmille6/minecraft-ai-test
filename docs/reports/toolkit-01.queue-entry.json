@@ -1,0 +1,31 @@
+{
+ "run": "toolkit-01",
+ "after": [],
+ "class": "",
+ "hold": "COORDINATOR (toolkit agent 10-15): placed by the coordinator, not by me. Launch >= 180 min after the LATEST prior decision restart (the read compares a 180-min pre-window). Variants: fleet 8cd0bc62 and townzone-01 75cfb447 only; any other fleet tip (townzone KEPT-but-not-promoted, treefarm-02, ...): ask for a new variant. Release: canary-sched.py queue release toolkit-01",
+ "note": "NEW (owner-approved 10-15 ~20:30Z). PART 1: with a usable iron(+) pickaxe and a usable stone spare, wear_out keeps none of the 1-use stone pickaxes (34+ slots); usable extras stay the town deposit's; spent copies by USE, not the junk well (wellread C3). PART 2: at town, no usable iron axe/shovel: 3(+1) ingots from one container keeping 4 (+ sticks), crafted with the craft skill; the kit spends only its own iron (bot.kitCredit + verified draw). Read ~/mcai-analysis/toolkitread.py (new; md5 in the variants; /tmp copy matches). Branches tk-on-8cd0bc6, tk-on-75cfb44 (fetch origin in the scheduler's git first). Paper: docs/reports/toolkit-01-paper-2026-10-15.txt.",
+ "variants": {
+  "8cd0bc62e5606b021832d808b150007f38ab2d6e": {
+   "registration": "/home/mike/mcai-analysis/toolkit-01.cb801c52.json",
+   "approved": "toolkit agent 2026-10-15: Codex r1/r2 CHANGES -> r3 APPROVE, Claude r1 CHANGES -> r2/r3 APPROVE (docs/reports/toolkit-01-reviews-2026-10-15.txt); npm test 252/252; Paper PASS (cand vs ctrl 8cd0bc62)",
+   "canary_sha": "cb801c5273dfaad835d34d0a60091c769bd867a6",
+   "reads_src": "/home/mike/mcai-analysis",
+   "reads": {
+    "toolkitread": "53b0925653bf2584c77ecc96e20c7a14",
+    "immobiledid": "53af289df12208901931dbeeb1ae325a"
+   },
+   "registration_sha256": "be231a2e41151d38dd9a0e649f6d5e07aa1192ede516e88370df6fcb6038f757"
+  },
+  "75cfb447fd2d5a882e60a3b3338c904788103ac1": {
+   "registration": "/home/mike/mcai-analysis/toolkit-01.2bce1306.json",
+   "approved": "toolkit agent 2026-10-15: the same three commits cherry-picked onto townzone-01 75cfb447 (no conflict); reviews as above (docs/reports/toolkit-01-reviews-2026-10-15.txt); npm test 253/253; Paper PASS on this variant (spare + kitgather)",
+   "canary_sha": "2bce13061db39252a2d92ae055b445ede87080de",
+   "reads_src": "/home/mike/mcai-analysis",
+   "reads": {
+    "toolkitread": "53b0925653bf2584c77ecc96e20c7a14",
+    "immobiledid": "53af289df12208901931dbeeb1ae325a"
+   },
+   "registration_sha256": "c656ba999a87fa0722dea4a02e23dabd2b8c13e7ffd15d84585f8c913d6f48f9"
+  }
+ }
+}

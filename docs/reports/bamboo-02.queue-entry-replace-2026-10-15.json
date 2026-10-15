@@ -1,0 +1,33 @@
+{
+ "run": "bamboo-02",
+ "after": [
+  "stonewithdraw-01"
+ ],
+ "class": "",
+ "hold": null,
+ "note": "REPLACE-VARIANT 10-15 (toolkit/bamboo agent): bamboo-02 rebuilt on the fleet 8cd0bc62 and on townzone-01 75cfb447 (the old e29c1e7/79ab946/82aef34 variants are for fleets that will not recur and are dropped). Branches bb-on-8cd0bc6, bb-on-75cfb44. Registrations bamboo-02.6b731312.json / bamboo-02.6ac667c0.json: draw_exposure now 6 h / min 1 (the fleet writes few full-bag craft_room refusals since orderroom-01). Read bambooread unchanged (md5 1aeb644a). KEPT-but-not-promoted townzone, or any other fleet tip: ask for a new variant. Fetch origin in the scheduler's git first.",
+ "variants": {
+  "8cd0bc62e5606b021832d808b150007f38ab2d6e": {
+   "registration": "/home/mike/mcai-analysis/bamboo-02.6b731312.json",
+   "approved": "toolkit/bamboo agent 2026-10-15: the reviewed or-on-31e6437 bamboo diff as one commit on 8cd0bc62 (+ a test-only commit); Codex r1 APPROVE, Claude r1 APPROVE (docs/reports/bamboo-02.rebase-review-2026-10-15.txt); npm test 253/253",
+   "canary_sha": "6b731312bd86d77ccd25c48bbd527d29ba2979ec",
+   "reads_src": "/home/mike/mcai-analysis",
+   "reads": {
+    "bambooread": "1aeb644a3eba8308e55f979ee8b63162",
+    "immobiledid": "53af289df12208901931dbeeb1ae325a"
+   },
+   "registration_sha256": "863ba6f4ea427d29ff86c4f2557e48087d838ed0174d4558743714b5c539fc10"
+  },
+  "75cfb447fd2d5a882e60a3b3338c904788103ac1": {
+   "registration": "/home/mike/mcai-analysis/bamboo-02.6ac667c0.json",
+   "approved": "toolkit/bamboo agent 2026-10-15: the same delta on townzone-01 75cfb447 (line-identical); Codex r1 APPROVE, Claude r1 APPROVE (docs/reports/bamboo-02.rebase-review-2026-10-15.txt); npm test 254/254",
+   "canary_sha": "6ac667c0e42a429bc9e35e31e50a0d26907cf324",
+   "reads_src": "/home/mike/mcai-analysis",
+   "reads": {
+    "bambooread": "1aeb644a3eba8308e55f979ee8b63162",
+    "immobiledid": "53af289df12208901931dbeeb1ae325a"
+   },
+   "registration_sha256": "5bd2be46227a58daedcb0cd22fec4d81a472be772a5666603abfcf9731a71b79"
+  }
+ }
+}

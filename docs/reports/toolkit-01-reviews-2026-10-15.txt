@@ -1,0 +1,83 @@
+toolkit-01 REVIEW RECORD (10-15). tk-on-8cd0bc6: 1d18a4cb (r1) -> 574cf3ab (r2 fixes) -> cb801c52 (r3 fix); tk-on-75cfb44: b056142e -> 29adfa16 -> 2bce1306
+(the same commits cherry-picked onto 75cfb447, no conflict). Brief given to both engines: the design, the ES measurement, the Paper
+evidence, the deliberate deviation (spent stone copies worn out by use, not thrown in the junk well). FINAL: Codex r3 APPROVE, Claude r3 APPROVE.
+
+==================================================================== Codex r1 (codex exec, read-only): CHANGES ===========================
+**CHANGES.** Two P2 findings block approval.
+
+- **P2 — Aborted runs lose their iron credit, allowing repeat draws.** `bots/src/skills.mjs:9600–9607` calculates `creditOut` for telemetry, then rethrows without delivering `kitCredit`. The runner’s exception handler (`bots/src/runner.mjs:259`) preserves only craft tally fields; consequently, `cognitive.mjs:1120` cannot update `this.kitCredit`. Reproduction: withdraw four ingots, abort before crafting, wait for cooldown; the next order requests another four despite the previous four remaining in the bag. An abort *during withdrawal* is worse: `withdrawVisit` supplies `e.withdrawState`, but toolkit ignores it, so its row can report `drew=0` after a transfer. Preserve reconciled transfer amounts, remaining credit, and verified kit crafts through exceptions and the runner. Add an abort→runner→real-loop→retry test asserting no second draw. The current abort test checks only the row and absence of drops.
+
+- **P2 — A successful partial withdrawal can consume the ladder’s iron.** `bots/src/skills.mjs:9560` accepts any successful `withdrawVisit`; `:9584` then checks total bag iron, not the toolkit’s funded balance. The reused transfer permits incomplete takes: changed sources are skipped (`:8919`), and verification compares inventory against **actual moved amounts**, not requested amounts. For example, if another bot removes the iron source after planning while sticks remain, a sticks-only transfer can succeed. A bot already carrying four ladder ingots then crafts both tools from those ingots. K1–K4 all pass: tools appeared, and drawing zero iron is not prohibited. Require sufficient verified toolkit credit before each craft, and treat an incomplete iron draw as a retained-credit failure. Test a changed chest source with pre-existing bag iron, alongside a complete-transfer positive control.
+
+- **P3 — The spare statistic includes spent copies.** `scripts/host/toolkitread.py:244` counts every stone pickaxe, although the documented metric is usable stone copies per iron holder. This can present destruction of one-use copies as improvement in usable-spare compliance. Filter stone copies with `rem(c) > FLOOR`; report spent copies separately.
+
+**Deviation A is acceptable as a narrower canary scope.** The changed plan destroys only exactly-one-use stone copies, and only with both a usable iron-or-better pickaxe and a usable stone spare. Those destroyed copies do not count toward the reflex’s above-`HARD_STOP` escape reserve. Existing town deposit selects the best usable copy to retain and applies stock caps. Reusing `wearOutPlan` in craft-room remedies preserves that restriction.
+
+However, this does **not** implement the complete original disposal request: copies with 2–10 uses remain, and cleanup requires inventory pressure. Describe it explicitly as one-use cleanup rather than full spent-pickaxe disposal. Avoiding the incompatible well gate is reasonable for this scoped canary.
+
+The toolkit order is correctly placed after milestone and room orders. The verified-craft contract also correctly prevents a withdrawal alone from satisfying `kit_effect`. Neither protects against the two accounting failures above.
+
+Read-only review completed. The Python read-gate self-tests passed. I did not rerun the JavaScript suite because its fixtures write temporary files; the supplied sandbox and suite evidence does not cover these exception/retry and partial-transfer cases.
+
+VERDICT: CHANGES
+exit=0
+
+==================================================================== Claude r1 (independent subagent): CHANGES ==========================
+P2-1 credit lost on abort -> repeat draws; crafts at HEAD could spend ladder iron after a short draw (same as Codex P2-1/P2-2).
+P2-2 K3 fired on every drew>0/no-craft row: a draw-then-fail in the last 30 min of a window could not be retried -> a REVERT on
+window timing. Fix: K3 open per bot until a later verified craft; PENDING when opened < backoff + cooldown before the end.
+P3-1 the first unreachable chest ended the run (withdraw_pick moves on). P3-2 a ladder rung can spend credited ingots (bounded to one
+kit). P3-3 the 32-block table scan ran on every in-town decision before the cheap checks. P3-4 room check counts the draw only.
+P3-5 the no-sticks refusal is advice, not an action. Design A (wear-out instead of the well): acceptable and safer; escape reserve
+unaffected (mayDigForEscape counts > 1 use); craftRoomRemedy composes; tell the owner it acts only at 34+ slots and the last-swing
+reserve rebuilds from 2 working pickaxes, not 3 spent copies.
+
+FIX r2 (574cf3ab): bot.kitCredit written on every exit (abort-in-transfer from withdrawState.took or the bag delta); funded() gate
+on every craft; K3 per bot with the 40-min PENDING edge; unreachable/unconfirmed containers fall through; table scan last; the read
+reports usable and spent stone per iron holder. Tests +4 (abort -> real loop -> retry, abort in transfer, real partial draw with
+ladder iron + positive control, unreachable first chest); mutants funded/credit/abort-delta/fallthrough killed.
+
+==================================================================== Codex r2: CHANGES ===================================================
+**P2 — Aborting after a completed craft preserves already-spent credit.** In [skills.mjs:9601](/private/tmp/claude-501/-Users-darrellmiller-Documents-code-minecraft-ai--claude-worktrees-heuristic-nightingale-49eee9/2a199c24-8dc2-4c02-9509-8499787c3dd1/scratchpad/tk8/bots/src/skills.mjs:9601), the abort is rethrown before updating `st.crafted` and `st.used`. Production `craft()` can throw after producing the tool—for example, during table retrieval. The outer catch then preserves excessive credit whenever the bag also contains ladder iron; clamping to total bag iron does not distinguish ownership.
+
+A read-only reproduction executing the extracted toolkit function with a simulated craft confirmed:
+
+- Start with four credited ingots plus four ladder ingots.
+- Craft the axe, then abort: five ingots remain, but credit remains **four instead of one**.
+- Retry crafts the shovel: four ladder ingots remain, with **three incorrectly credited**.
+- After the axe breaks, its replacement consumes three ladder ingots without another town draw.
+
+Reconcile the attempted craft’s inventory changes before propagating an abort, recording verified output and consumed iron. Add a regression where crafting updates the bag and then throws, with ladder ingots present. The existing abort tests throw before crafting changes inventory, so they miss this case.
+
+The other reviewed fixes address the reported scenarios: bot-owned credit survives transfer aborts, the funding gate prevents unfunded partial-draw crafts, unreachable containers fall through, and the read separates usable/spent stone copies and pending K3 cases. The accepted “1-use copies only, under bag pressure” scope remains appropriate.
+
+Validation: `toolkitread` self-tests passed. The official toolkit test runner was blocked before executing tests by the sandbox’s prohibition on temporary-directory creation; I could not independently confirm 32/32.
+
+VERDICT: CHANGES
+exit=0
+
+==================================================================== Claude r2: APPROVE ==================================================
+Both P2s and Codex's funded() fix verified correct; nothing new broke (32/32, read self-tests pass, tk7 diff identical). P3s:
+the bag-delta credit can count iron picked off the ground in-run (rare, bounded); a second real draw in the last 40 min could turn
+an older open K3 into PENDING (only after a restart). Housekeeping: a stray untracked _mutant file in tk8 -- removed, never committed.
+
+FIX r3 (cb801c52): a craft that made the tool and then threw is reconciled from the bag BEFORE the rethrow; regression test (4
+credited + 4 ladder ingots; axe then abort -> credit 1; retry makes the shovel, ladder's 4 stay, no draw) + its mutant killed. 33/33.
+
+==================================================================== Codex r3: APPROVE ==================================================
+Confirmed: `cb801c52` closes the round-2 P2. The craft’s inventory changes now update `st.crafted`, `st.used`, and credit before the abort is rethrown. The outer catch preserves that accounting and writes the aborted row.
+
+The regression covers the reported failure and retry: credit falls from 4 to 1 after the axe, the shovel consumes the remaining credit, and all four ladder ingots remain without another town draw.
+
+No remaining actionable findings in this re-review; earlier accepted limitations remain unchanged.
+
+Both changed JavaScript files pass syntax checks. I inspected the regression but did not rerun the suite or mutant: they require filesystem writes, unavailable in this read-only session. The reported 33/33 result is therefore not independently reproduced.
+
+VERDICT: APPROVE
+exit=0
+
+==================================================================== Claude r3: APPROVE ==================================================
+The reconcile-before-rethrow fix is correct (the outer catch's bag delta then equals the real draw; credit 4 -> axe -> abort -> 1);
+a non-abort error after the tool landed now counts the craft and goes on to the shovel (better); remaining P3: a craft that consumed
+iron before the bag showed the tool keeps that iron credited (clamped; corrected by the next verified run). Nothing open from either
+engine; accepted P3s stand (ladder can spend credited iron; room check counts the draw; no-sticks is advice; restart forgets the credit).

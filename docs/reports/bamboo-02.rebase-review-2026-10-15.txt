@@ -1,0 +1,39 @@
+bamboo-02 REBASE REVIEW RECORD (10-15) -- bb-on-8cd0bc6 @ 418a92b1 (+ 6b731312 test-only) and bb-on-75cfb44 @ d6612927 (+ 6ac667c0)
+The reviewed bamboo diff as composed with stocktarget-01 + orderroom-01 (git diff 2ec19385 77ac5597, or-on-31e6437) applied onto
+8cd0bc62 (fleet, wellsite-04) and 75cfb447 (townzone-01 on 8cd0bc62). One union conflict: hygiene HOUSEKEEPING (+ count_town).
+New test bots/test/bamboo-chain.test.mjs. Both reviewers verified the sorted +/- lines equal the reviewed diff except that union.
+
+==================================================================== Codex r1 (codex exec, read-only) ====================================
+APPROVE — no P1/P2 rebase regressions found. One nonblocking P3 test finding.
+
+- **P3 — Chain assertions can pass without continued decisions** (`bots/test/bamboo-chain.test.mjs:54–75`). The helper returns after its polling limit without asserting `ran.length >= n`. Both negative controls pass with `ran=[]`; the cooldown case passes with only the initial bamboo execution, even if cognition subsequently stalls. Assert the requested execution count and explicitly verify the expected model fallback. Also, every fixture is away from town: these tests do not establish recount/well/prune precedence despite the introductory comment. The two killed mutants don’t close those coverage gaps.
+
+The production composition looks sound:
+
+- **Ordering:** Town deposit and recount retain precedence; `firstOrder` never invokes bamboo once an earlier order exists, preserving its cooldown. Recount has a 60-second cooldown, bounded container batches, and a ten-minute backoff after no progress. Successful counts reduce remaining unknowns; I found no new unconditional starvation loop.
+- **Execution interactions:** The busy runner prevents ordinary decisions during another skill. Craftsync retains exclusive craft admission and window-change checks; well execution checks craft busy state. Bamboo performs no digging or walking, so digtown accounting and townzone target restrictions do not conflict with it. Its stationary exemption remains deadline-bounded and conditionally cleared.
+- **Outcome evidence:** `slotsFreed` remains independently measured from occupied bag slots. `slots_freed`, `count_effect`, and `prune_effect` read separate fields under separate contracts. Adding `inventory_slots` to durable evidence does not accidentally promote recount/prune evidence.
+- **Housekeeping:** The union correctly retains both `count_town` and `bamboo_sticks`. Both housekeeping consumers—lesson-success recording and milestone-attempt accounting—use the shared predicate; bamboo also remains `chatOnly`.
+
+I independently confirmed that both rebased source deltas match, and that their difference from the approved source delta is confined to the HOUSEKEEPING union. Tests were not rerun: their temporary-file setup requires writes unavailable in this read-only environment.
+
+VERDICT: APPROVE
+
+FIX (6b731312 / 6ac667c0): decisions() asserts ran.length >= n; every negative asserts the model's fallback ran; the header
+says the chain is away from town and where the town precedence is covered (bamboo.test.mjs WIRED + towndeposit/stocktarget chains).
+
+==================================================================== Claude r1 (independent subagent) ===================================
+VERDICT: APPROVE. Verified the author's claim (sorted +/- lines identical except the HOUSEKEEPING pair at hygiene.mjs:102; bb7 delta
+byte-identical to bb8's); lint clean with a probe. 1. Order: town_deposit -> recount (cognitive.mjs:887) -> firstOrder(order, wearOut,
+bamboo) (:894) -> town/well/prune/room; recount cannot starve the fold (60 s cooldown, 10 min backoff, fires only at town on an
+unknown refusal); firstOrder never asks bamboo once an earlier order issued; one skill at a time, so no overlap with a well/recount
+window; stationaryUntil set/cleared by owner-compare in a finally (skills.mjs:6436,6460); craftsync/craftroom unchanged since
+2ec19385; townzone does not touch cognitive.mjs or the craft path. 2. runner.mjs:314-318 slotsFreed beside pruned/counted, no clash;
+only reader slots_freed (skills.mjs:12040). 3. HOUSEKEEPING complete (11 skills). 4. bamboo-chain.test: instrumented runs show real
+decisions in the controls; mutants (bamboo step removed from firstOrder: 2 fails; lastBambooAt uncharged: 1 fail) killed;
+bamboo.test 36/36, hygiene 19/19, craftsync 40/40, towndeposit 59/59 on both branches. 5. bamboo can't be banked/well-thrown/pruned
+(bankable.mjs:38, well.mjs:117, stocktarget.mjs:83); sticks target 64 (stocktarget.mjs:40) -- folded sticks bank to target or go
+down the well through the stock path at town (well.mjs:182-205); the fold's 64-stick bag cap is independent. No conflict.
+P3-1 (inherited, NOT changed): a runner decline (runner_busy/paused/body_held) reports failed and bambooOrderOutcome backs off 30 min
+though the fold never started; stocktarget-02's recountOutcome refunds these declines; wear_out shares the gap. Follow-up.
+P3-2 the test header claimed composition at town -- FIXED (reworded). P3-3 controls did not assert decisions ran -- FIXED.

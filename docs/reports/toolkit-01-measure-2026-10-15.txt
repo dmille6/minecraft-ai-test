@@ -1,0 +1,98 @@
+toolkit-01 MEASUREMENT (Elasticsearch, read-only key on 10.0.0.31; EsEvents.load('skill'); script: the toolkit agent's measure.py/measure2.py, 24 h window ending 10-15 ~22:00Z; positive controls printed)
+bot.tools is the per-copy durability snapshot on every snapshot row; inventory is name->count only.
+
+caveats: ['after 2026-10-14T18:46:00Z completeness is assumed, not reconciled: an unclean filebeat restart re-sends (as on 10-07) and an unmapped field (llm.brain) rejects whole docs -- check the filebeat dropped counter (scripts/host/escheck/fbjournal.py).', 'window crosses 1 log rotation(s) (23:57-00:00Z): ES is missing ~40-60 skill rows per rotation (copytruncate race).', 'window ends within 240 s of now: ingest lag (median ~6 s, max ~3 min observed) can leave the newest minutes short.']
+
+M1/M2 POSITIVE CONTROL: 80 bots with a snapshot; 80 carry bot.tools
+M1 bots holding a USABLE iron pickaxe (> 10 uses): 22 of 80
+  stone_pickaxe copies per iron holder (all):     {0: 1, 1: 10, 2: 7, 3: 2, 4: 2}
+  ...usable (> FLOOR):                            {0: 7, 1: 15}
+  ...spent (<= FLOOR):                            {0: 9, 1: 7, 2: 3, 3: 2, 4: 1}
+  usable stone copies beyond ONE per iron holder: 0; spent copies held by iron holders: 23
+  pickaxe copies per bot (all bots): {0: 2, 1: 2, 2: 27, 3: 16, 4: 10, 5: 20, 6: 2, 8: 1}
+M2 axe holders 22/80 {'stone_axe': 20, 'wooden_axe': 5}; shovel holders 6/80 {'stone_shovel': 6}; usable iron axe 0, iron shovel 0
+  iron_ingot in bags: total 113, bots holding any 43
+
+M3 POSITIVE CONTROL: gather rows 30637, log rows 5940, soil rows 20131
+  log  tool=none             n= 2242  sec/item median   15.9  p25   10.5
+  log  tool=stone            n=  157  sec/item median   10.4  p25    7.4
+  log  tool=stone+wooden     n=    5  sec/item median   25.9  p25   20.3
+  log  tool=wooden           n=  138  sec/item median   15.0  p25    9.6
+  soil tool=none             n= 8459  sec/item median    7.9  p25    2.6
+  soil tool=stone            n=   97  sec/item median    7.1  p25    3.3
+iron holders 22 spent stone copies by uses left (iron holders): {1: 16, 2: 1, 8: 1, 9: 2, 10: 3}
+all bots spent stone copies by uses left: {1: 84, 2: 2, 3: 2, 4: 1, 6: 3, 8: 2, 9: 10, 10: 13}
+wooden pickaxe copies per iron holder: {0: 16, 1: 6}
+iron_pickaxe copies per bot (any wear): {0: 33, 1: 42, 2: 3, 3: 2}
+dispose_well 5 {'placebo-b': 5}
+_well_dispose 3 {'placebo-b': 3}
+withdraw_pick 5 {'hive-b': 2, 'hive-d': 2, 'board-c': 1}
+_withdraw_pick 8 {'hive-b': 2, 'hive-d': 2, 'placebo-a': 2, 'board-c': 1, 'self-isolated-a-Comet': 1}
+town_deposit 12 {'board-d': 2, 'placebo-b': 2, 'board-a': 1, 'board-b': 1, 'board-c': 1, 'placebo-c': 1, 'self-isolated-a-Echo': 1, 'self-isolated-c-Comet': 1, 'self-isolated-c-Echo': 1, 'self-isolated-d-Delta': 1}
+
+---- measure.py ----
+"""toolkit-01 measurement (ES, read-only). M1 stone pickaxes among iron-pickaxe holders; M2 axe/shovel ownership;
+M3 gather seconds per item by tool class. Positive controls printed beside every count."""
+import sys, json, re, statistics as st, collections as C
+sys.path.insert(0, '/home/mike/tk-measure')
+from lib.estelemetry import EsEvents
+FLOOR = 10
+HOURS = int(sys.argv[1]) if len(sys.argv) > 1 else 24
+ev = EsEvents.load('skill', since_minutes=HOURS * 60)
+print('caveats:', ev.caveats)
+# --- M1/M2: latest bot.tools per bot. bot.tools rides on snapshot rows; require bot.held marks them (held is a leaf).
+lat = ev.latest(require='bot.pos.x', fields=['bot.tools', 'bot.inventory', 'exp.pool'])
+bots = sorted(lat)
+print(f'\nM1/M2 POSITIVE CONTROL: {len(bots)} bots with a snapshot; {sum(1 for b in bots if lat[b].get("bot",{}).get("tools"))} carry bot.tools')
+rem = lambda c: c.get('max', 0) - c.get('used', 0)
+iron_holders, dist_all, dist_usable, dist_spent, stone_slots = [], C.Counter(), C.Counter(), C.Counter(), 0
+axe = C.Counter(); shovel = C.Counter(); axe_any = shovel_any = 0; iron_axe = iron_shovel = 0
+picks_per_bot = C.Counter()
+for b in bots:
+    tools = lat[b].get('bot', {}).get('tools') or {}
+    ip = [c for c in tools.get('iron_pickaxe', []) if rem(c) > FLOOR]
+    sp = tools.get('stone_pickaxe', [])
+    picks_per_bot[sum(len(v) for k, v in tools.items() if k.endswith('_pickaxe'))] += 1
+    if ip:
+        iron_holders.append(b)
+        dist_all[len(sp)] += 1
+        dist_usable[sum(1 for c in sp if rem(c) > FLOOR)] += 1
+        dist_spent[sum(1 for c in sp if rem(c) <= FLOOR)] += 1
+    a = [k for k in tools if k.endswith('_axe') and not k.endswith('pickaxe')]
+    s = [k for k in tools if k.endswith('_shovel')]
+    for k in a: axe[k] += 1
+    for k in s: shovel[k] += 1
+    axe_any += bool(a); shovel_any += bool(s)
+    iron_axe += any(rem(c) > FLOOR for c in tools.get('iron_axe', [])); iron_shovel += any(rem(c) > FLOOR for c in tools.get('iron_shovel', []))
+print(f'M1 bots holding a USABLE iron pickaxe (> {FLOOR} uses): {len(iron_holders)} of {len(bots)}')
+print('  stone_pickaxe copies per iron holder (all):    ', dict(sorted(dist_all.items())))
+print('  ...usable (> FLOOR):                           ', dict(sorted(dist_usable.items())))
+print('  ...spent (<= FLOOR):                           ', dict(sorted(dist_spent.items())))
+extra_usable = sum((k - 1) * n for k, n in dist_usable.items() if k > 1)
+print(f'  usable stone copies beyond ONE per iron holder: {extra_usable}; spent copies held by iron holders: {sum(k*n for k,n in dist_spent.items())}')
+print('  pickaxe copies per bot (all bots):', dict(sorted(picks_per_bot.items())))
+print(f'M2 axe holders {axe_any}/{len(bots)} {dict(axe)}; shovel holders {shovel_any}/{len(bots)} {dict(shovel)}; usable iron axe {iron_axe}, iron shovel {iron_shovel}')
+# town iron: inventory iron_ingot held in bags (town chest counts are not in ES)
+ing = [lat[b].get('bot', {}).get('inventory', {}).get('iron_ingot', 0) for b in bots]
+print(f'  iron_ingot in bags: total {sum(ing)}, bots holding any {sum(1 for x in ing if x)}')
+# --- M3: gather success, seconds per item, by tool class at the row (end-of-run snapshot)
+LOG = re.compile(r'_log$'); SOIL = {'dirt', 'sand', 'gravel', 'grass_block', 'coarse_dirt', 'red_sand'}
+res = C.defaultdict(list); tot = C.Counter()
+for r in ev.rows('gather', fields=['skill', 'bot.tools'], max_rows=150000):
+    sk = r.get('skill', {}); b = (sk.get('args') or {}).get('block') or ''
+    fam = 'log' if LOG.search(b) else ('soil' if b in SOIL else None)
+    tot['gather_rows'] += 1
+    if not fam: continue
+    tot[f'{fam}_rows'] += 1
+    if sk.get('status') != 'success': continue
+    d = sk.get('inventory_delta') or {}
+    got = sum(v for k, v in d.items() if v > 0 and ((fam == 'log' and LOG.search(k)) or (fam == 'soil' and k in SOIL | {'dirt', 'flint'})))
+    if got <= 0: continue
+    tools = (r.get('bot') or {}).get('tools') or {}
+    kind = 'axe' if fam == 'log' else 'shovel'
+    have = sorted({k.split('_')[0] for k, v in tools.items() if k.endswith('_' + kind) and not k.endswith('pickaxe') and any(rem(c) > 0 for c in v)})
+    cls = (have[-1] if len(have) == 1 else ('+'.join(have))) if have else 'none'
+    res[(fam, cls)].append(sk.get('duration_ms', 0) / 1000 / got)
+print(f'\nM3 POSITIVE CONTROL: gather rows {tot["gather_rows"]}, log rows {tot["log_rows"]}, soil rows {tot["soil_rows"]}')
+for (fam, cls), v in sorted(res.items()):
+    print(f'  {fam:4s} tool={cls:16s} n={len(v):5d}  sec/item median {st.median(v):6.1f}  p25 {sorted(v)[len(v)//4]:6.1f}')

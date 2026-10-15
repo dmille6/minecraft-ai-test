@@ -1,0 +1,76 @@
+toolkit-01 PAPER RECORD (10-15, sandbox 25599; lock /tmp/mcai-sandbox.lock on 10.0.0.31 taken 21:11Z, released 21:26Z)
+Driver sandbox/craft/toolkit-ab.cjs (one fresh bot per trial; scene by RCON; the SERVER's slots, damage, chest and ground are the
+oracle). cand = tk-on-8cd0bc6 @ 1d18a4cb, cand-tz = tk-on-75cfb44 @ b056142e, ctrl = 8cd0bc62 (the fleet).
+Pilot runs 1-2 (kept below for the record) built the arena AFTER the bot was teleported: the marooned reflex pillared the bot onto a
+placed block and the wear dig from there was a server-rejected ghost (client air, ground empty, the tool not broken). The driver now
+builds the forceloaded arena before the spawn and waits 5 s on it; runs 3+ are the evidence.
+Scene artifact (both arms): during the 5 s settle the bag is empty, so withdraw_pick (no usable pickaxe) took 2 sticks once.
+
+---- evidence runs ----
+## paper-cand-3
+cand:spare:0       bag 36->34 chest 0->0 d(bag){stone_pickaxe-3 cobblestone+3} d(chest){} ground{}
+   tools before iron_pickaxe@50,stone_pickaxe@130,stone_pickaxe@130,stone_pickaxe@130,stone_pickaxe@41
+   tools after  iron_pickaxe@50,stone_pickaxe@41
+   decisions: model status no_effect | ORDER wear_out success
+   rows: _toolkit:success:phase=wear outcome=done listed=3 worn=3 stop=- before=iron_pickaxe@200,stone_pickaxe@1,stone_pickaxe@1,stone_pickaxe@1,stone_pickaxe@90 afte || _wear_out:success:36 -> 34 slots: 3 of 3 spent tool(s) worn out (stone_pickaxe on stone, stone_pickaxe on stone, stone_pickaxe on stone) || wear_out:success:wore out 3 spent tool(s) (36 -> 34 slots)
+## paper-cand-4
+cand:kitgather:0   bag 5->9 chest 2->2 d(bag){dirt+2 iron_axe+1 oak_log+3 iron_shovel+1 stick+2} d(chest){iron_ingot-4 stick-6} ground{}
+   tools before iron_pickaxe@50,stone_pickaxe@41
+   tools mid    iron_axe@0,iron_pickaxe@50,iron_shovel@0,stone_pickaxe@41
+   tools after  iron_axe@3,iron_pickaxe@50,iron_shovel@3,stone_pickaxe@41
+   decisions: ORDER withdraw_pick success | ORDER toolkit success | model gather:oak_log success | ORDER build_well no_effect | model gather:dirt success
+   rows: _craft_room:success:verified iron_axe rep 1/1 (+1) source=server verdict=server retried=0 (8/36 slots, predicted peak 8) || _craft_room:success:verified iron_shovel rep 1/1 (+1) source=server verdict=server retried=0 (8/36 slots, predicted peak 8) || _toolkit:success:phase=kit outcome=crafted needs=iron_axe+iron_shovel drew=4 sticks=4 used=4 crafted=iron_axe+iron_shovel credit=0->0 stop=- before=iron_pick || toolkit:success:made iron_axe and iron_shovel from the town's iron (4 ingot(s) drawn, 4 used) || gather:success:collected 3 oak_log || gather:success:collected 3 dirt
+## paper-ctrl-1
+ctrl:spare:0       bag 36->36 chest 0->0 d(bag){} d(chest){} ground{}
+   tools before iron_pickaxe@50,stone_pickaxe@130,stone_pickaxe@130,stone_pickaxe@130,stone_pickaxe@41
+   tools after  iron_pickaxe@50,stone_pickaxe@130,stone_pickaxe@130,stone_pickaxe@130,stone_pickaxe@41
+   decisions: model status no_effect | model status no_effect | model status no_effect | model status no_effect | model status REFUSED repeat_loop | model status REFUSED repeat_loop | model status REFUSED repeat_loop | model status REFUSED repeat_loop | model status REFUSED repeat_loop | model status REFUSED repeat_loop | model status REFUSED repeat_loop | model status REFUSED repeat_loop | model status REFUSED repeat_loop | model status REFUSED repeat_loop | model status REFUSED repeat_loop
+   rows: 
+ctrl:kitgather:0   bag 5->7 chest 2->2 d(bag){dirt+3 oak_log+3 stick+2} d(chest){stick-2} ground{}
+   tools before iron_pickaxe@50,stone_pickaxe@41
+   tools mid    iron_pickaxe@50,stone_pickaxe@41
+   tools after  iron_pickaxe@50,stone_pickaxe@41
+   decisions: ORDER withdraw_pick success | model status no_effect | model status no_effect | model status no_effect | model status no_effect | model status REFUSED repeat_loop | model status REFUSED repeat_loop | model status REFUSED repeat_loop | model status REFUSED repeat_loop | model status REFUSED repeat_loop | model status REFUSED repeat_loop | model status REFUSED repeat_loop | model status REFUSED repeat_loop | model gather:oak_log success | ORDER build_well no_effect | model gather:dirt success
+   rows: gather:success:collected 3 oak_log || gather:success:collected 3 dirt
+## paper-candtz-1
+cand-tz:spare:0    bag 36->34 chest 0->0 d(bag){stone_pickaxe-3 cobblestone+3} d(chest){} ground{}
+   tools before iron_pickaxe@50,stone_pickaxe@130,stone_pickaxe@130,stone_pickaxe@130,stone_pickaxe@41
+   tools after  iron_pickaxe@50,stone_pickaxe@41
+   decisions: model status no_effect | ORDER wear_out success
+   rows: _toolkit:success:phase=wear outcome=done listed=3 worn=3 stop=- before=iron_pickaxe@200,stone_pickaxe@1,stone_pickaxe@1,stone_pickaxe@1,stone_pickaxe@90 afte || _wear_out:success:36 -> 34 slots: 3 of 3 spent tool(s) worn out (stone_pickaxe on stone, stone_pickaxe on stone, stone_pickaxe on stone) || wear_out:success:wore out 3 spent tool(s) (36 -> 34 slots)
+cand-tz:kitgather:0 bag 5->9 chest 2->2 d(bag){dirt+4 iron_axe+1 oak_log+3 iron_shovel+1 stick+2} d(chest){iron_ingot-4 stick-6} ground{}
+   tools before iron_pickaxe@50,stone_pickaxe@41
+   tools mid    iron_axe@0,iron_pickaxe@50,iron_shovel@0,stone_pickaxe@41
+   tools after  iron_axe@3,iron_pickaxe@50,iron_shovel@4,stone_pickaxe@41
+   decisions: ORDER withdraw_pick success | ORDER toolkit success | model gather:oak_log success | ORDER build_well no_effect | model gather:dirt success
+   rows: _craft_room:success:verified iron_axe rep 1/1 (+1) source=server verdict=server retried=0 (8/36 slots, predicted peak 8) || _craft_room:success:verified iron_shovel rep 1/1 (+1) source=server verdict=server retried=0 (8/36 slots, predicted peak 8) || _toolkit:success:phase=kit outcome=crafted needs=iron_axe+iron_shovel drew=4 sticks=4 used=4 crafted=iron_axe+iron_shovel credit=0->0 stop=- before=iron_pick || toolkit:success:made iron_axe and iron_shovel from the town's iron (4 ingot(s) drawn, 4 used) || gather:success:collected 3 oak_log || gather:success:collected 4 dirt
+
+gather durations from the bot's own rows (kitgather; 3 logs then 3-4 dirt): cand oak_log 7.9 s (iron_axe damage 0->3), dirt 4.7 s
+(iron_shovel 0->3); ctrl oak_log 22.3 s and dirt 6.0 s by hand. toolkit run 6.4 s (draw + two crafts).
+The 8 real _toolkit rows of these runs fed through toolkitread.gates(): no defect on any; verified crafts iron_axe+iron_shovel on all 4 kit runs.
+
+---- pilot runs (arena built after the teleport; superseded) ----
+## paper-cand-1
+cand:spare:0       bag 36->36 chest 0->0 d(bag){} d(chest){} ground{}
+   tools before iron_pickaxe@50,stone_pickaxe@130,stone_pickaxe@130,stone_pickaxe@130,stone_pickaxe@41
+   tools after  iron_pickaxe@50,stone_pickaxe@130,stone_pickaxe@130,stone_pickaxe@130,stone_pickaxe@41
+   decisions: ORDER wear_out failed
+   rows: _toolkit:failed:phase=wear outcome=none listed=3 worn=0 stop=no_safe_block_within_reach_[12_cells:_not_natural_8,_no_supp before=iron_pickaxe@200,stone_pick || _wear_out:failed:36 -> 36 slots: 0 of 3 spent tool(s) worn out; stopped: no safe block within reach [12 cells: not_natural 8, no_support 4] || wear_out:failed:wore out nothing at 36 slots: no safe block within reach [12 cells: not_natural 8, no_support 4]
+cand:kitgather:0   bag 5->9 chest 2->2 d(bag){dirt-2 iron_axe+1 oak_log+3 iron_shovel+1 stick+2} d(chest){iron_ingot-4 stick-6} ground{dirt+2}
+   tools before iron_pickaxe@50,stone_pickaxe@41
+   tools mid    iron_axe@0,iron_pickaxe@50,iron_shovel@0,stone_pickaxe@41
+   tools after  iron_axe@3,iron_pickaxe@50,iron_shovel@3,stone_pickaxe@41
+   decisions: ORDER toolkit success | model gather:oak_log success | ORDER build_well no_effect | model gather:dirt failed
+   rows: _toolkit:success:phase=mode on=1 mode=on note=TOOLKIT_unset || _craft_room:success:verified iron_axe rep 1/1 (+1) source=server verdict=server retried=0 (8/36 slots, predicted peak 8) || _craft_room:success:verified iron_shovel rep 1/1 (+1) source=server verdict=server retried=0 (8/36 slots, predicted peak 8) || _toolkit:success:phase=kit outcome=crafted needs=iron_axe+iron_shovel drew=4 sticks=6 used=4 crafted=iron_axe+iron_shovel credit=0->0 stop=- before=iron_pick || toolkit:success:
+## paper-cand-2
+cand:spare:0       bag 36->36 chest 0->0 d(bag){cobblestone-1} d(chest){} ground{}
+   tools before iron_pickaxe@50,stone_pickaxe@130,stone_pickaxe@130,stone_pickaxe@130,stone_pickaxe@41
+   tools after  iron_pickaxe@50,stone_pickaxe@130,stone_pickaxe@130,stone_pickaxe@130,stone_pickaxe@41
+   decisions: ORDER wear_out failed
+   rows: _toolkit:success:phase=mode on=1 mode=on note=TOOLKIT_unset || _toolkit:failed:phase=wear outcome=none listed=3 worn=0 stop=stone_pickaxe_not_confirmed_destroyed_after_the_dig_on_stone before=iron_pickaxe@200,stone_pick || _wear_out:failed:36 -> 36 slots: 0 of 3 spent tool(s) worn out; stopped: stone_pickaxe not confirmed destroyed after the dig on stone (unconfirmed at 1500 ms || wear_out:failed:wore out nothing at 36 slots: stone_pickaxe not confirmed destroyed after the dig on stone 
+cand:kitgather:0   bag 5->9 chest 2->2 d(bag){dirt+4 iron_axe+1 oak_log+3 iron_shovel+1 stick+2} d(chest){iron_ingot-4 stick-6} ground{}
+   tools before iron_pickaxe@50,stone_pickaxe@41
+   tools mid    iron_axe@0,iron_pickaxe@50,iron_shovel@0,stone_pickaxe@41
+   tools after  iron_axe@3,iron_pickaxe@50,iron_shovel@4,stone_pickaxe@41
+   decisions: ORDER toolkit success | model gather:oak_log success | ORDER build_well no_effect | model gather:dirt success
+   rows: _toolkit:success:phase=mode on=1 mode=on note=TOOLKIT_unset || _craft_room:success:verified iron_axe rep 1/1 (+1) source=server verdict=server retried=0 (8/36 slots, predicted peak 8) || _craft_room:success:verified iron_shovel rep 1/1 (+1) source=server verdict=server retried=0 (8/36 slots, predicted peak 8) || _toolkit:success:phase=kit outcome=crafted needs=iron_axe+iron_shovel drew=4 sticks=6 used=4 crafted=iron_axe+iron_shovel credit=0->0 stop=- before=iron_pick || toolkit:success:
