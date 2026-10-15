@@ -130,7 +130,8 @@ test('FULLY BOXED through the real skill: a refusal (never a throw, never a dig)
   assert.ok(m, r.detail)
   // THE REMEDY, PERFORMED: a dry spot that far from home (south, away from the wells), then mine
   const spot = { x: HOME.x, y: 65, z: HOME.z + Number(m[1]) + 10 }
-  await bot.pathfinder.goto(spot)
+  const walked = await SK.SKILLS.goto.run({ bot }, spot, new AbortController().signal)   // the PRODUCTION goto skill
+  assert.equal(walked.status, 'success', `${walked.status} ${walked.detail}`)
   assert.equal(bot.entity.position.z, spot.z, 'the walk was made')
   const again = await runMine(SK, bot)
   assert.equal(again.status, 'success', `${again.status} ${String(again.detail).slice(0, 160)}`)
@@ -220,7 +221,10 @@ test('ROOFED IN TOWN ABOVE SEA LEVEL, THE CLIMB FAILS (a bedrock roof): the refu
   const m = r.detail.match(/goto a dry spot (\d+)\+ blocks from home/)
   assert.ok(m, r.detail)
   // THE REMEDY, PERFORMED: the walk to that far a spot (east, past the roof's edge), then mine
-  await bot.pathfinder.goto({ x: HOME.x + Number(m[1]) + 1, y: 65, z: HOME.z })
+  // (the PRODUCTION goto skill; the micro-world's pathfinder does not dig, so the route-aware half -- a walk that digs
+  // through the roof's walls as transit -- is the Paper scene sandbox/townground/composition-scene.cjs ROOF)
+  const walked = await SK.SKILLS.goto.run({ bot }, { x: HOME.x + Number(m[1]) + 1, y: 65, z: HOME.z }, new AbortController().signal)
+  assert.equal(walked.status, 'success', `${walked.status} ${walked.detail}`)
   assert.equal(bot.entity.position.x, HOME.x + Number(m[1]) + 1, 'the walk was made')
   const again = await runMine(SK, bot)
   assert.equal(again.status, 'success', `${again.status} ${String(again.detail).slice(0, 160)}`)
