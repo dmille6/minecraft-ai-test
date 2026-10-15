@@ -40,6 +40,7 @@ import { compostPlan, nextInsert, boneMealRoom, fillDecision, composterLevel, co
          canonicalComposterSite, siteRefusal, standableBeside, tableCellFor, townPlanTableAvailable, resolveTownSite, readTownSite,
          handPlan, isCompostInput, sameWorld, ADOPT_RADIUS, VISIT_BUDGET_MS, MAX_ITEMS_PER_VISIT } from './composter.mjs'
 import { poolStateDir } from './worldfacts.mjs'
+import { structureReader, structureKeepOut, structureIndexes, composeKeepOut } from './structures.mjs'
 // The full-chest recovery (deposit): its decisions are chestfull.mjs's. A separate line so a rebase stays mechanical.
 import { fullChestNext, carriedChest, chestBudget, readClaims, claimNewChest, writeClaimState, reconcileClaims, townKey,
          containerStatus, recordOutcome, readTownMemory, updateTownMemory, townRoomAt, setTownRoomReader, timeLeft,
@@ -111,7 +112,7 @@ import { dropsOf, heldFromBlock, sourcesOf } from './drops.mjs'
 import { smeltPlan, smeltRecipeFor, chooseFuel, fuelTicks, SMELT_TICKS } from './smelting.mjs'
 import { withDigScope } from './digtown.mjs'
 // minewell-01 (its own statement)
-import { planMineStart, shellOf, RELOCATE_RADIUS, FAR_RADIUS } from './minewell.mjs'
+import { planMineStart, shellOf, RELOCATE_RADIUS, FAR_RADIUS, keepOutLabel } from './minewell.mjs'
 
 /**
  * FAILURE CLASSES THAT NAME OUR IGNORANCE RATHER THAN THE WORLD.
@@ -1671,7 +1672,7 @@ async function tunnelToOre(ctx, signal, { deadlineMs = 150_000 } = {}) {
   if (!candidates.length) {
     return out({ status: 'failed', failClass: 'no_tunnel', detail: `iron within ${CANDIDATE_RADIUS} blocks, but every ore has liquid or a falling block beside it` }, `refused: ${found.length} found, 0 safe`)
   }
-  const moves = bot.tunnelMovements ?? tunnelMovements(bot, bot.gatherMovements, { home })
+  const moves = bot.tunnelMovements ?? tunnelMovements(bot, bot.gatherMovements, { home, keepOut: () => structuresNow(bot) })
   const plan = await planTunnel(bot, { candidates, moves })
   check(signal)
   if (!plan.ok) {
@@ -1845,6 +1846,8 @@ async function gather(ctx, { block: blockName, count = 16, maxDistance = 32 }, s
     let positions = bot
       .findBlocks({ matching: type.id, maxDistance, count: 32 })
       .filter(p => horizontalDistanceFromSpawn(p) <= config.world.borderRadius)
+      // NEVER A TOWN STRUCTURE'S CELL (structureguard-01): `gather cobblestone` would mine the monument it was built from
+      .filter(p => !structureNoDig(bot, p))
       // NEVER A TOWN TREE FARM'S SOIL (treefarm.mjs farmIndex): `gather dirt` would dig the plot out from under a sapling.
       .filter(p => !farmNoDig(farmIdx(bot), p.x, p.y, p.z))
     let viaSource = null
@@ -1861,6 +1864,7 @@ async function gather(ctx, { block: blockName, count = 16, maxDistance = 32 }, s
           .findBlocks({ matching: altType.id, maxDistance, count: 32 })
           .filter(p => horizontalDistanceFromSpawn(p) <= config.world.borderRadius)
           .filter(p => !farmNoDig(farmIdx(bot), p.x, p.y, p.z))
+          .filter(p => !structureNoDig(bot, p))
         if (found.length) {
           positions = found
           viaSource = alt
@@ -2040,6 +2044,7 @@ async function gather(ctx, { block: blockName, count = 16, maxDistance = 32 }, s
           .findBlocks({ matching: altType.id, maxDistance, count: 32 })
           .filter(q => horizontalDistanceFromSpawn(q) <= config.world.borderRadius)
           .filter(q => !farmNoDig(farmIdx(bot), q.x, q.y, q.z))
+          .filter(q => !structureNoDig(bot, q))
         const cand = found.filter(exposed).filter(safeTarget)
         const ok = [...cand.filter(approachable), ...cand.filter(q => !approachable(q))]
         if (ok.length) {
@@ -5541,6 +5546,7 @@ export const STATION_ITEMS = new Set(['crafting_table', 'furnace', 'blast_furnac
 export function roomVeto (bot, p) {
   // A TOWN STRUCTURE'S CELL IS NEVER ROOM (treefarm.mjs): place's make-room dig and wear_out both ask this.
   if (farmNoDig(farmIdx(bot), p.x, p.y, p.z)) return 'town_structure'
+  if (structureNoDig(bot, p)) return 'town_structure'
   const v = breakVetoAt(bot, p)
   if (v) return v
   // Six neighbours, and an UNREADABLE one is a veto: a wall cell that borders
@@ -7328,6 +7334,17 @@ export function knownFarmIndex (bot) {
 }
 /** The index the movement profiles and placement guards use: index.mjs keeps it fresh (20 s), a fake bot has none. */
 const farmIdx = bot => { try { return bot?.farmIndexNow?.() ?? null } catch { return null } }
+/** THE TOWN'S RECORDED STRUCTURES as a target-dig keep-out (structureguard-01, structures.mjs), read fresh every 2 s. */
+const structureHome = () => ({ x: config.world.homeX, y: config.world.homeY, z: config.world.homeZ })
+export const structuresNow = bot => {
+  if (!bot) return { forbid: null, bottom: null }
+  if (!bot.__structures) bot.__structures = structureReader(() => townDir(), structureHome, () => bot.worldId ?? null)
+  return bot.__structures()
+}
+/** ...and UNCACHED, for `mine`'s plan and per-dig stop (the farm's rule, Codex r8 P2 there: a structure founded a moment ago counts). */
+export const structuresFresh = bot => structureKeepOut(structureIndexes(townDir(), structureHome(), bot?.worldId ?? null))
+/** Is this cell a recorded structure's (a target dig must leave it)? -> kind | null. Never throws. */
+export const structureNoDig = (bot, p) => { try { const k = structuresNow(bot); return k.forbid && p ? k.forbid(p) : null } catch { return null } }
 /** The index chest-full's site search asks: the record itself, never the 20 s cache (a farm founded a moment ago counts). */
 const chestFarmIndex = bot => { try { return knownFarmIndex(bot) } catch { return null } }
 
@@ -10690,7 +10707,14 @@ async function mine(ctx, { y: targetY = 12 }, signal) {
   // soil and column and a torch's cell and floor -- and never starts it from one -- read afresh at every plan and dig.
   // THE SHARED RECORD ITSELF, never the 20 s movement cache (Codex r8 P2: a farm founded or moved since the last refresh
   // would be dug until then) -- one small file read per plan and per dig
-  const farmNow = () => { try { return farmStairForbid(knownFarmIndex(bot)) } catch { return { forbid: null, bottom: null } } }
+  // ...AND EVERY RECORDED TOWN STRUCTURE (structureguard-01: the monument now), composed into the SAME keep-out: one plan,
+  // one per-dig stop, never a second guard. The farm's forbid answers true, a structure's its kind (minewell keepOutLabel).
+  const farmNow = () => {
+    let farm = { forbid: null, bottom: null }, built = { forbid: null, bottom: null }
+    try { farm = farmStairForbid(knownFarmIndex(bot)) } catch { /* no farm record: nothing from it */ }
+    try { built = structuresFresh(bot) } catch { /* no structure record: nothing from it */ }
+    return composeKeepOut(farm, built)
+  }
   const planHere = (radius = RELOCATE_RADIUS) => { const fm = farmNow(); return planMineStart({ cols: wellCols(), p0: bot.entity.position.floored(), feet: bot.entity.position,
                                          bearings: stairBearings(bot), standable: standableAt, rimStandable: canStand, radius, goalY, exclude: failedTargets,
                                          forbid: fm.forbid, forbidBottom: fm.bottom }) }
@@ -10716,17 +10740,18 @@ async function mine(ctx, { y: targetY = 12 }, signal) {
     const dHome2 = Math.hypot(bot.entity.position.x - config.world.homeX, bot.entity.position.z - config.world.homeZ)
     if (dHome2 <= 12) {
       return { status: 'failed', failClass: 'forbidden',
-               detail: `walked off ${wellPlan.farm || wellPlan.hit?.farm ? 'the tree farm' : 'the junk well'} to ${Math.round(dHome2)} blocks from home, where the base floor is not dug; walk out at least 12 blocks from home and away from ${wellPlan.farm || wellPlan.hit?.farm ? 'the farm' : 'the well'}, then mine` }
+               detail: `walked off ${wellPlan.farm || wellPlan.hit?.farm ? keepOutLabel(wellPlan.hit?.kind).replace(/^the town /, 'the ') : 'the junk well'} to ${Math.round(dHome2)} blocks from home, where the base floor is not dug; walk out at least 12 blocks from home and away from ${wellPlan.farm || wellPlan.hit?.farm ? (wellPlan.hit?.kind === 'monument' ? 'the monument' : 'the farm') : 'the well'}, then mine` }
     }
     wellPlan = planHere()
   }
   if (wellPlan.action !== 'go') {
     wellRow('refuse', wellPlan, lastTarget ? ' after=relocate' : '')
     const isFarm = !!(wellPlan.farm || wellPlan.hit?.farm), bothBlock = isFarm && !!(wellPlan.cap ?? wellPlan.hit?.cap)   // a relocate plan carries its well in hit (Codex r10 P3)
-    const what = bothBlock ? 'the well and the tree farm' : isFarm ? 'the tree farm' : 'the well'
+    const lbl = keepOutLabel(wellPlan.hit?.kind).replace(/^the town /, 'the ')
+    const what = bothBlock ? `the well and ${lbl}` : isFarm ? lbl : 'the well'
     const where = failedTargets.length ? `the walk-off to ${failedTargets.map(c => `${c.x},${c.y},${c.z}`).join(' and ')} could not be reached from here; explore away from ${what} (or goto any cell ${FAR_RADIUS}+ blocks from it), then mine there`
                                        : `explore away from ${what} (or goto any cell ${FAR_RADIUS}+ blocks from it), then mine there`
-    return { status: 'failed', failClass: 'forbidden', detail: wellPlan.inside ? wellPlan.why : `${wellPlan.why ?? (isFarm ? 'every stair from here would dig the town tree farm' : 'every stair from here would dig the junk well\'s shell')}; ${where}` }
+    return { status: 'failed', failClass: 'forbidden', detail: wellPlan.inside ? wellPlan.why : `${wellPlan.why ?? (isFarm ? `every stair from here would dig ${keepOutLabel(wellPlan.hit?.kind)}` : 'every stair from here would dig the junk well\'s shell')}; ${where}` }
   }
   const choice = chooseStairBearing(bot, bot.entity.position.floored(), undefined, wellPlan.bearings)
   const bear = choice.bear
@@ -10917,10 +10942,13 @@ async function mine(ctx, { y: targetY = 12 }, signal) {
       if (!cap) {
         // ...and a tree-farm cell, read afresh (treefarm-02): the stair stops; the next plan walks off the farm
         const fm = farmNow()
-        if (!fm.forbid || !fm.forbid(pos)) return null
-        logEvent({ kind: 'mine_well_guard', status: 'refused', snapshot: snapshot(bot), detail: `action=stop at=- cell=${pos.x},${pos.y},${pos.z} farm=1` })
+        const kind = fm.forbid ? fm.forbid(pos) : null
+        if (!kind) return null
+        const mon = kind === 'monument'
+        logEvent({ kind: 'mine_well_guard', status: 'refused', snapshot: snapshot(bot), detail: `action=stop at=- cell=${pos.x},${pos.y},${pos.z} farm=1${mon ? ' structure=monument' : ''}` })
         return { status: 'failed', failClass: 'forbidden',
-                 detail: `stopped at y=${Math.round(bot.entity.position.y)}: the next stair cell ${pos.x},${pos.y},${pos.z} is the town tree farm's; walk away from the farm and mine again` }
+                 detail: mon ? `stopped at y=${Math.round(bot.entity.position.y)}: the next stair cell ${pos.x},${pos.y},${pos.z} is the town monument's (the ziggurat); walk away from the monument and mine again`
+                             : `stopped at y=${Math.round(bot.entity.position.y)}: the next stair cell ${pos.x},${pos.y},${pos.z} is the town tree farm's; walk away from the farm and mine again` }
       }
       logEvent({ kind: 'mine_well_guard', status: 'refused', snapshot: snapshot(bot), detail: `action=stop at=${cap.x},${cap.y},${cap.z} cell=${pos.x},${pos.y},${pos.z}` })
       return { status: 'failed', failClass: 'forbidden',

@@ -137,7 +137,8 @@ await t('MUTANT KILLED (skills): the farm not passed to the planner -- the stair
 })
 
 await t('MUTANT KILLED (minewell): a farm cell never counted as a hit -- the planner sends the stair into a plot', async () => {
-  await withMutant(MWP, '      if (farm && forbid(cell)) return { clear: false, hit: { step: i, cell, cap: null, farm: true } }\n', '', async m => {
+  // structureguard-01 split the line in two (the hit carries its kind); the mutant removes the hit
+  await withMutant(MWP, "      if (kind) return { clear: false, hit: { step: i, cell, cap: null, farm: true, kind: kind === true ? 'farm' : String(kind) } }\n", '', async m => {
     const bottom = 63
     const p = m.planMineStart({ cols: [], p0: P0, bearings: [{ x: 1, z: 0 }], standable: () => true, forbid: farmCell, forbidBottom: bottom })
     assert.equal(p.action, 'go', 'the mutant calls the stair into the plot clear')
@@ -150,7 +151,7 @@ const IDX2 = TF.farmIndex(FARM2)
 const farm2Cell = c => IDX2.soil.has(key(c.x, c.y, c.z)) || TF.inPlotColumn(IDX2, c.x, c.y, c.z)
 const midDescent = bot => { let n = 0; const dig = bot.dig; bot.dig = async b => { if (++n === 1) fs.writeFileSync(RECFILE, JSON.stringify({ ...FARM2, world: null })); return dig(b) } }
 await t('MUTANT KILLED (skills): the per-dig farm check removed -- a farm recorded mid-descent gets its cell dug', async () => {
-  await withMutant(SKP, '        if (!fm.forbid || !fm.forbid(pos)) return null\n', '        return null\n', async m => {
+  await withMutant(SKP, '        if (!kind) return null\n', '        return null\n', async m => {
     const bot = world({ farm: false }); midDescent(bot)
     await run(m, bot)
     assert.ok(bot._digs.some(farm2Cell), `the mutant digs into the plot: ${JSON.stringify(bot._digs.slice(0, 9))}`)
@@ -171,7 +172,7 @@ await t('STALE CACHE (Codex r8 P2): the movement cache says "no farm" but the re
 })
 
 await t('MUTANT KILLED (skills): the stale 20 s cache trusted first -- a farm on disk but not yet in the cache gets dug', async () => {
-  await withMutant(SKP, 'return farmStairForbid(knownFarmIndex(bot))', 'return farmStairForbid(farmIdx(bot) ?? knownFarmIndex(bot))', async m => {
+  await withMutant(SKP, 'farm = farmStairForbid(knownFarmIndex(bot))', 'farm = farmStairForbid(farmIdx(bot) ?? knownFarmIndex(bot))', async m => {
     const bot = world()
     await run(m, bot)
     assert.ok(bot._digs.some(farmCell), 'the mutant trusts the empty cache and digs a plot')
