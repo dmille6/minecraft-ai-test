@@ -270,6 +270,44 @@ async function sceneOffMonument () {
     ok: !!done && done.skill.status === 'success' && s0 - s1 === 0 && guard.some(g => /try=off_monument/.test(g)) })
   A = { x0: C.x - 30, x1: C.x + 30, z0: C.z - 30, z1: C.z + 30 }
 }
+// THE ORE TUNNEL'S DIG BOUNDARY (Claude stage-3 r3 P3-3): the bot stands 3 inside a monument's west edge, iron 7 west and
+// 7 down, OUTSIDE the box; the staircase west must cross the foundation guard. The record is written only once the bot has
+// started down (its y < 119.5) -- after the tunnel was planned without it -- so the pathfinder's own breaks meet the
+// guard at bot.dig. Measured: reserved stone broken AFTER the record existed (0 expected).
+async function sceneTunnel () {
+  buildArena('stone')
+  const P2 = { x: C.x + 24, y: 120, z: C.z }
+  const site = { corner: { x: P2.x - 3, z: P2.z - 24 }, baseY: 120, stairFace: 'w' }
+  const ore = { x: P2.x - 7, y: 113, z: P2.z }
+  rcon(`setblock ${ore.x} ${ore.y} ${ore.z} minecraft:iron_ore`)
+  const vol = []; for (let x = site.corner.x; x <= P2.x + 2; x++) for (let z = P2.z - 3; z <= P2.z + 3; z++) for (let y = 112; y <= 119; y++) vol.push({ x, y, z })
+  const tag = 'tunnel'
+  const f = await startBot(tag, KIT.slice(0, 3), P2, { yaw: 90 })
+  queue.push({ skill: 'gather', args: { block: 'iron_ore', count: 1 } })
+  const dir = `${R}/sandbox/state/_pool-sbxsguard-${RUN}-${tag}`
+  let wroteAt = null, s0 = null
+  const t0 = Date.now()
+  while (Date.now() - t0 < 120000 && !wroteAt) {
+    const m = /\[([-\d.]+)d, ([-\d.]+)d, ([-\d.]+)d\]/.exec(r1(`data get entity ${NAME} Pos`))
+    if (m && Number(m[2]) < 119.5) {
+      fs.mkdirSync(dir, { recursive: true })
+      fs.writeFileSync(`${dir}/monument-${HOME.x}_${HOME.y}_${HOME.z}.g1.json`, JSON.stringify({ ...REC, site }))
+      wroteAt = { t: Date.now() - t0, pos: m.slice(1).map(Number) }
+      s0 = countBlock(vol, 'stone')
+    }
+    await sleep(250)
+  }
+  const done = await waitFor(() => rowsOf(f.skillLog).find(r => r.skill.name === 'gather'), 240000)
+  await sleep(2000)
+  const s1 = countBlock(vol, 'stone')
+  await stopBot()
+  const tunnelRows = rowsOf(f.skillLog).filter(r => /tunnel/.test(r.skill.name)).map(r => `${r.skill.name} ${r.skill.status}: ${String(r.skill.detail).slice(0, 140)}`)
+  const out = { scene: 'tunnel', wroteAt, reservedStoneAtWrite: s0, reservedDugAfterWrite: s0 == null ? null : s0 - s1,
+    gather: done ? `${done.skill.status}: ${String(done.skill.detail).slice(0, 200)}` : null, tunnelRows: tunnelRows.slice(-4) }
+  out.ok = !!wroteAt && s0 - s1 === 0
+  if (!wroteAt) out.note = 'INCONCLUSIVE: the bot never started down, so the boundary was not exercised'
+  result(out)
+}
 async function sceneGather (withRecord) {
   buildArena('dirt')
   const near = [], far = []
@@ -304,6 +342,7 @@ try {
       else if (sc === 'gather') await sceneGather(true)
       else if (sc === 'gatherctl') await sceneGather(false)
       else if (sc === 'offmon') await sceneOffMonument()
+      else if (sc === 'tunnel') await sceneTunnel()
       else throw new Error(`no scene ${sc}`)
     } catch (e) { failed++; P_('SCENE FAILED', sc, String(e?.stack ?? e).slice(0, 600)); await stopBot('SIGKILL') }
     queue.length = 0
