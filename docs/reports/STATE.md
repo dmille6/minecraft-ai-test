@@ -12,6 +12,18 @@ Studio reservation both closed 10-12); clear caps bamboo 0 / bucket 2._
 
 ---
 
+## 10-15 00:15Z — wellsite-02 REVERTED at +360 -- a FALSE TRIP (control-arm event); airpocket-03 launching
+Ledger says REVERT (wellread.breach_recollected = 9). Diagnosis (wellsite agent, Codex agrees): all 9 recollected items
+were in hive-d, a CONTROL pool on the base 5e66386 (no wellsite code): hive-d-Echo started `mine` on the well's stand
+(79,58,77) and its staircase dug the well's south wall and floor (base defect: mine's direct digs ignore the well dig
+keep-out; its 12-block home guard did not fire at 14.9 blocks). Canary arm: 0 recollections, 17 disposals at placebo-b's
+sand-wall well (sealed, read from the world). ROOT GATE BUG: wellread.py C1-C8 count BOTH arms (only C9 is canary-only)
+-- harmless while only canaries had wells; since junkwell-02 promoted every pool has one, so any control event can revert
+any canary registering these gates (stocktarget-01, orderroom-01, wellsite, plinth-01). Actions: fix wellread to judge
+the canary arm only (both engines; install between canaries -- no queued-next canary uses it), re-queue wellsite unchanged
+as wellsite-03 after airpocket-03, and build minewell-01 (mine refuses to dig a known well/plinth shell, with an executable
+relocate remedy). plinth-01 stays blocked until wellsite-03 is kept. Fleet unchanged: 5e663860.
+
 ## 10-14 22:15Z — ESTELEMETRY BUILT (OWNER step 4 "Yes use the elastic for analysis"): ES is the default for WIDE analysis; gates/canary reads stay on the files
 `scripts/lib/estelemetry.py` (EsEvents.load('skill'|'llm', since_minutes=..|since/until, pools=, bots=, version=, gaps='raise'|'clip'|'allow'))
 provides count/by_bot/by_pool/terms/histogram/latest/coverage/rate(bots= REQUIRED)/rows/where. Everything is aggregated
