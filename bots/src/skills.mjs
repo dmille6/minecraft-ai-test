@@ -9618,17 +9618,19 @@ async function toolkit (ctx, args, signal) {
       if (!kitNeeds(items()).includes(name)) continue
       if (funded() < KIT[name].ingots || ingots() < KIT[name].ingots) { st.stop = `short_of_drawn_iron_for_${name}`; break }
       const had = usableOf(name), ing0 = ingots()
-      let r
+      let r, err = null
       // ctx.kitCraft: a TEST SEAM only (the unit suite's fake world cannot craft); production always runs `craft` itself
-      try { r = await (ctx.kitCraft ?? craft)(ctx, { item: name, count: 1 }, signal) } catch (e) {
-        if (e?.aborted || signal?.aborted) throw e
-        r = { status: 'failed', detail: String(e?.message ?? e) }
-      }
-      if (usableOf(name) > had) {
+      try { r = await (ctx.kitCraft ?? craft)(ctx, { item: name, count: 1 }, signal) } catch (e) { err = e; r = { status: 'failed', detail: String(e?.message ?? e) } }
+      // RECONCILED BEFORE ANY RETHROW (Codex r2 P2): `craft` can throw AFTER the tool landed (its table retake); the bag says
+      // whether this craft made a new usable copy and what iron it consumed, so the credit never keeps iron already spent
+      const made = usableOf(name) > had
+      if (made) {
         st.crafted.push(name)
         st.used += Math.max(0, ing0 - ingots())
         keepCredit()
-      } else { st.stop = `${name}:${String(r?.failClass ?? r?.status ?? '?')}:${String(r?.detail ?? '').slice(0, 60)}`; break }
+      }
+      if (err && (err.aborted || signal?.aborted)) throw err
+      if (!made) { st.stop = `${name}:${String(r?.failClass ?? r?.status ?? '?')}:${String(r?.detail ?? '').slice(0, 60)}`; break }
     }
     if (st.crafted.length === draw.needs.length) return out('success', 'crafted', `made ${st.crafted.join(' and ')} from the town's iron (${st.drew} ingot(s) drawn, ${st.used} used)`)
     if (st.crafted.length) return out('success', 'partial', `made ${st.crafted.join(' and ')}; stopped: ${st.stop}`)
