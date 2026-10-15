@@ -187,6 +187,16 @@ export class AdmissionControl {
   clearRepeatWindow() { this.recent = [] }
 
   /**
+   * THE ACTION ACTUALLY RUN replaces the proposal in the repeat window (stonewithdraw-01, Codex stage-2 P2-4: check() pushed
+   * the gather key, then the gather was rewritten to a withdraw -- four rewrites could repeat-block the gather fallback while
+   * the withdraws never entered the window). Only the LAST entry, and only when it is the proposal's key.
+   */
+  retargetRecent(fromSkill, fromArgs, toSkill, toArgs) {
+    const from = AdmissionControl.key(fromSkill, fromArgs), i = this.recent.length - 1
+    if (i >= 0 && this.recent[i] === from) this.recent[i] = AdmissionControl.key(toSkill, toArgs)
+  }
+
+  /**
    * WOULD THE GATE'S MEMORY REFUSE THIS? -> 'cooldown' | 'learned_avoid' | 'repeat_loop' | null. A READ: nothing here
    * mutates (no probation count, no streak, no window push). CONSERVATIVE on purpose (orderroom-01): a remedy order is
    * not issued when its key is cooling down, carries >= 4 learned failures (probation may still let one through -- the

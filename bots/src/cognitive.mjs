@@ -11,7 +11,7 @@
 
 import { HARD_STOP } from './toolfor.mjs'
 import { stoneWithdrawFor } from './skills.mjs'
-import { STONE_GATHER, rewriteForStone, withdrawWant } from './stonesource.mjs'
+import { STONE_GATHER, rewriteForStone, withdrawWant, stoneBackoffAfter } from './stonesource.mjs'
 import { SKILLS, roomRemedy, farFromBank, classifyOutcome, SKILL_CONTRACTS, plantableSpotNear, findTownComposter, townBuildPlan, townPickMiss, townIngredientMiss, foodSkipNow, townContainers, townWellState, townWellBuildPlan, insideTownWell, wellSwordsNow, cobbleWellCap, townPitState, stockWellOpts, valveProof, stockCountKeys, pruneTarget, unknownRefusals, stockRecountKeys } from './skills.mjs'
 import { disposePlan, wellOrder, wellOrderOutcome, WELL_ORDERS, pitCoverItem } from './well.mjs'
 import { smeltInputsFor } from './smelting.mjs'
@@ -1064,11 +1064,15 @@ export class CognitiveLoop {
       if (admitted && admitted.skill === 'gather' && STONE_GATHER.has(String(admitted.args?.block ?? ''))) {
         try {
           const asked = admitted
-          const v = stoneWithdrawFor(this.bot, asked.args, { trigger, cooling: this.admission.memoryRefuses('withdraw', withdrawWant(asked.args)) })
+          // A FAILED REWRITE BACKS OFF 10 MIN, WHATEVER ITS COUNT (Claude stage-2 P1-1: the admission cooldown is 45 s and keyed per
+          // count, so a chronic failure alternated withdraw/gather forever)
+          const cooling = this.admission.memoryRefuses('withdraw', withdrawWant(asked.args)) ?? (Date.now() < (this.stoneBackoffUntil ?? 0) ? 'backoff' : null)
+          const v = stoneWithdrawFor(this.bot, asked.args, { trigger, cooling })
           admitted = rewriteForStone(asked, v)
+          if (admitted !== asked) this.admission.retargetRecent(asked.skill, asked.args, admitted.skill, admitted.args)
           logEvent({ kind: 'stone_withdraw', status: v.source === 'withdraw' ? 'success' : 'no_effect',
                      detail: `${v.source} (${v.reason}) for gather ${asked.args?.block} ${v.count} trigger=${trigger}`,
-                     args: { source: v.source, reason: v.reason, count: v.count, block: String(asked.args?.block), trigger: String(trigger ?? ''), order: !!order }, snapshot: snapshot(this.bot) })
+                     args: { source: v.source, reason: v.reason, count: v.count, block: String(asked.args?.block), trigger: String(trigger ?? ''), order: !!order, d: v.d ?? null, dy: v.dy ?? null, from: v.from ?? null }, snapshot: snapshot(this.bot) })
         } catch { /* the rewrite is an optimisation: on any error the gather runs exactly as admitted */ }
       }
       // TOOL HYGIENE, PART 1: one row per refusal -- the canary's liveness, and the read's G2/G4 evidence (the
@@ -1098,6 +1102,7 @@ export class CognitiveLoop {
       })
       const r = await this.runner.run(admitted.skill, admitted.args, { trigger: `llm:${trigger}` })
       outcome = { status: r.status, detail: r.detail }
+      if (admitted.rewrittenFrom) this.stoneBackoffUntil = stoneBackoffAfter(r.status, Date.now(), this.stoneBackoffUntil ?? 0)
       runFailClass = r.failClass ?? null
       // A FAILED WEAR-OUT BACKS OFF (both reviews): a bot with no safe block (deepslate, a pillar, water) would
       // otherwise take a decision every cooldown, forever.
@@ -1208,7 +1213,8 @@ export class CognitiveLoop {
         // a `neutral` branch calling recordSuccess -- there is one call, and it
         // cannot be made without the measurement in hand.
         // Housekeeping (wear_out, compost, build_composter) is never the model's choice, nor a "reliable choice" in its prompt.
-        if (!isHousekeeping(admitted.skill)) this.lessons.recordSuccess(admitted.skill, admitted.args, r.contractEvidence)
+        // a deterministic REWRITE is not the model's choice: it never feeds the 'reliable choice' wins (Claude stage-2 P2-2)
+        if (!isHousekeeping(admitted.skill) && !admitted.rewrittenFrom) this.lessons.recordSuccess(admitted.skill, admitted.args, r.contractEvidence)
 
         // Preference -- what makes a bot KEENER -- stays gated on `valuable`.
         if (value === 'valuable') {

@@ -8,6 +8,7 @@
 //                     the server's bag gains the cobble, the chest loses it, and NOT ONE stone cell is dug
 //           short     the same town with 70 cobble (the floor of 64 refuses a 16 withdrawal): the gather must run and dig
 //                     stone (the positive control: the rule did not just stop stone gathering)
+//           deepslate the town holds only cobbled_deepslate: the rewrite's `alt` takes it (Codex stage-2 P2-1)
 //           retry     the bot sealed in a 1x1 stone pocket asked to goto 12 blocks away: the walk cannot leave, goto's dig
 //                     retry runs, and its `_goto_dig_retry` row must carry the evidence args (walk_status, bag_cobble,
 //                     retry_digs > 0)
@@ -140,9 +141,9 @@ async function startBot (tag, slotsSpec, at = { x: HOME.x + 0.5, y: HOME.y, z: H
 const result = r => { fs.appendFileSync(RES, JSON.stringify({ run: RUN, at: new Date().toISOString(), ...r }) + '\n'); P_('RESULT', r) }
 const KIT = [['stone_pickaxe', 1], ['stone_pickaxe', 1], ['bread', 16]]
 
-async function sceneTown (scene, cobble) {
+async function sceneTown (scene, cobble, item = 'cobblestone') {
   buildArena()
-  const stacks = [['stick', 5]]; for (let left = cobble; left > 0; left -= 64) stacks.push(['cobblestone', Math.min(64, left)])
+  const stacks = [['stick', 5]]; for (let left = cobble; left > 0; left -= 64) stacks.push([item, Math.min(64, left)])
   setChest(stacks)
   const stone0 = stoneCells(), chest0 = chestTotals()
   const f = await startBot(scene, KIT)
@@ -163,8 +164,9 @@ async function sceneTown (scene, cobble) {
   const pickCobble = rowsOf(f.skillLog).filter(r => r.skill.name === '_withdraw_pick' && /verb=withdraw_pick/.test(String(r.skill.detail))).reduce((t, r) => t + Number((/srv=[^ ]*cobblestone:\+(\d+)/.exec(String(r.skill.detail)) || [])[1] || 0), 0)
   const out = { scene, cobbleInChest: cobble, counted: counted ? `${counted.skill.status}: ${String(counted.skill.detail).slice(0, 80)}` : null,
     verdict: sw?.skill?.args ?? null, action: done ? `${done.skill.name} ${done.skill.status}: ${String(done.skill.detail).slice(0, 100)}` : null,
-    server: { bagCobble: d('cobblestone'), chestCobble: (chest1.cobblestone || 0) - (chest0.cobblestone || 0), stoneDug: stone0 - stone1 }, withdrawPickCobble: pickCobble }
+    server: { bagCobble: d('cobblestone'), bagDeepslate: d('cobbled_deepslate'), chestCobble: (chest1.cobblestone || 0) - (chest0.cobblestone || 0), chestDeepslate: (chest1.cobbled_deepslate || 0) - (chest0.cobbled_deepslate || 0), stoneDug: stone0 - stone1 }, withdrawPickCobble: pickCobble }
   if (scene === 'surface') out.ok = !!(sw && sw.skill.args.source === 'withdraw' && done && done.skill.status === 'success' && out.server.bagCobble >= 16 && out.server.chestCobble + pickCobble === -16 && out.server.stoneDug === 0)
+  else if (scene === 'deepslate') out.ok = !!(sw && sw.skill.args.source === 'withdraw' && done && done.skill.status === 'success' && out.server.bagDeepslate >= 16 && out.server.chestDeepslate <= -16 && out.server.stoneDug === 0)
   else out.ok = !!(sw && sw.skill.args.source === 'gather' && sw.skill.args.reason === 'town_short' && out.server.stoneDug > 0 && out.server.chestCobble + pickCobble === 0)
   result(out)
 }
@@ -181,7 +183,7 @@ async function sceneRetry () {
   await stopBot()
   const a = row?.skill?.args ?? null
   result({ scene: 'retry', row: row ? `${row.skill.status}: ${String(row.skill.detail).slice(0, 120)}` : null, args: a,
-    ok: !!(a && typeof a.walk_status === 'string' && Number.isFinite(a.bag_cobble) && Number.isFinite(a.retry_digs) && a.retry_digs > 0) })
+    ok: !!(a && typeof a.walk_status === 'string' && Number.isFinite(a.bag_cobble) && Number.isFinite(a.retry_dig_attempts) && a.retry_dig_attempts > 0) })
 }
 
 await new Promise(r => brain.listen(BRAIN_PORT, '127.0.0.1', r))
@@ -196,6 +198,7 @@ try {
       if (sc === 'surface') await sceneTown('surface', 192)
       else if (sc === 'short') await sceneTown('short', 70)
       else if (sc === 'retry') await sceneRetry()
+      else if (sc === 'deepslate') await sceneTown('deepslate', 192, 'cobbled_deepslate')
       else throw new Error(`no scene ${sc}`)
     } catch (e) { failed++; P_('SCENE FAILED', sc, String(e?.stack ?? e).slice(0, 400)); await stopBot('SIGKILL') }
     queue.length = 0
