@@ -1,0 +1,30 @@
+shaft-01 (ziggurat stage 5, the shared mineshaft, BUILD ONLY) -- REVIEW RECORD, 2026-10-15
+Branch shaft-on-1f066b0 (dev base fbc36216 = mw-on-8cd0bc6 1f066b05 + treefarm-02 + monument-01). Final 41dc9d66.
+FINAL: Codex code r4 APPROVE (98c53cb9); Claude code r2 APPROVE (f93bdd0a), r3 APPROVE (98c53cb9). After: Claude r3 P3s (8bf84b12), the cap-centring Paper fix (41dc9d66).
+
+====================================================================================================
+PLAN r1 Codex
+
+
+====================================================================================================
+PLAN r2 Codex
+
+
+====================================================================================================
+CODE r1 Codex (e9afad8a)
+
+
+====================================================================================================
+CODE r2 Codex (f93bdd0a)
+
+
+====================================================================================================
+CODE r3 Codex (086ac683)
+
+
+====================================================================================================
+CODE r4 Codex (98c53cb9)
+
+
+====================================================================================================
+CLAUDE (independent subagent): plan r1 CHANGE (6 P1: step-down floor, idle reflex entombment, blind gates, T10 diagonal/place leaks at the collar, liquid behind falling lining, cavity frequency unknown); plan r2 CHANGE (P1: the hold has no bounded exit); code r1 CHANGE (P1: aborted climbs counted as strikes); code r2 APPROVE with P2s (transient no-progress, pad property, S8/S4 in the unbuilt part, future portals); code r3 APPROVE with P3s (S4 envelope, the clock as no progress, pad top-down). Every point folded; commits name them.

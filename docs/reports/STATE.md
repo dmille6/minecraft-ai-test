@@ -12,6 +12,18 @@ Studio reservation both closed 10-12); clear caps bamboo 0 / bucket 2._
 
 ---
 
+## 10-15 23:45Z — shaft-01 (ziggurat stage 5, shared mineshaft) READY on a dev base, queued HELD after monument-01
+Branch shaft-on-1f066b0 @ 41dc9d66 (dev base: mw-on-8cd0bc6 1f066b05 + treefarm-02 + monument-01) -> REBASE onto the real
+tip when monument-01 is decided. Codex r4 APPROVE, Claude r2/r3 APPROVE. Offline: 12/12 snapshot shafts complete to y=16
+(94-120 ladders, 15-169 lining). Paper: build to y=100 (40/40 ladders, 132/132 landing open, 332/332 lining), cap 2/2
+after the centring fix, idle-kill climb-out with 0 shaft digs, SIGKILL resume complete. npm 261/261. Gates: REVERT on
+unexplained shaft-cell loss, digs from inside the built part, liquid in the lining, deaths in the shaft, guard refusals
+outside it, a bot held > 3 min; block KEEP on stuck bots near the collar or control shaft rows. Rail geometry recorded in
+the shaft record's `rail` field (relayed to town projects). Next: shaftuse-01 (mine/surface route through the shaft).
+smeltjob-01 (town projects stage 1, copper) queued after treefarm-02; iron design r15 Codex APPROVE (hoppers feed the
+workshop blast furnaces; rails gated as stage 8). Queue: townzone-01 (live) -> [cobblecap-1000 when built] -> toolkit-01 ->
+bamboo-02 -> treefarm-02 -> smeltjob-01 -> plinth-01 -> townfloor-01 -> minewell-02 -> monument-01 -> shaft-01 -> stonewithdraw-01.
+
 ## 10-15 23:12Z — TOWN PROJECTS: STAGE 1 (smeltjob-01) READY on 8cd0bc62 / 75cfb447 + the IRON design (r15, Codex APPROVE) + the RAILS stage; NOTHING queued or deployed (the townprojects agent, restarted 10-15 ~20:40Z)
 **smeltjob-01 (replaces the never-queued 10-15 04:46Z entry on 5e663860 / 1957811e).** `smeltjob-on-8cd0bc6` @ **4935ef12** (fleet
 8cd0bc62) and `smeltjob-on-75cfb44` @ **8fe41ad7** (townzone-01 75cfb447): the approved 371c08ed diff, no conflict, plus THE EXIT FIX the
