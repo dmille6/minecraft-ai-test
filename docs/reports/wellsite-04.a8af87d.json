@@ -1,0 +1,164 @@
+{
+ "run_id": "wellsite-04",
+ "sha": "389b44fb",
+ "registered_at": "2026-10-15T06:30:00Z",
+ "ladder_change": false,
+ "promotion": "fleet-wide",
+ "notes": "[wellsite-04 VARIANT for fleet a8af87db (minewell-01 KEPT and promoted, farm reverted): branch ws-on-a8af87d @ 389b44fb = the approved wellsite net diff (5e663860..8cd0bc62) applied on a8af87db, git apply --3way no conflict, sorted +/- lines IDENTICAL (1,047); its bots/ and scripts/ tree is byte-identical to mw-on-8cd0bc6 @ 1f066b05 (minewell applied on wellsite-03), whose composition Codex and Claude APPROVED 10-15 (wellsite leaves wellBreakCost, wellCellsNow, knownWellCells unchanged; a retired well stays in the shell list mine avoids). Paper replay of that tree (sandbox3 10-15): mine relocates off the well, cap intact, 0 recollected. For the read: once minewell is promoted, the base's mine-through-the-shell recollections (the wellsite-02 false trip) are gone on both arms. wellsiteread fa8ba46f adds a report-only farm_deferred count (0 without a farm).] [wellsite-03 = wellsite-02 RE-QUEUED UNCHANGED (coordinator 10-15). wellsite-02 (8cd0bc62 on 5e663860; pools placebo-b, board-a, board-b, board-d; declared 10-14 17:50:00Z) was REVERTED at +360 (23:57Z) on wellread.breach_recollected = 9 -- a FALSE TRIP: all 9 rows were hive-d-Echo, a CONTROL bot on the base build 5e66386 whose `mine` dug through its town well's wall from the stand (21:33Z); the canary arm had 0 recollections (17 canary disposals at placebo-b's restored sand-wall well). wellread's C1-C8 then counted both arms; fixed 10-15 (branch wellread-arm, md5 b0cd8a4b: canary arm only, control_* diagnostics; both engines APPROVE; replay of that window: canary C1 0, control C1 9). The base defect (mine through a well's shell) is a separate change, minewell-01.] [wellsite-02 variant for fleet 5e663860 (stocktarget-02 on eb543899 = digtown-01 on 2ec19385; branch st2-on-eb54389): branch ws-on-5e66386 @ 8cd0bc62 = the approved wellsite net diff (code baa94879 on 82aef34), one commit, git apply --3way with no conflict, sorted +/- lines IDENTICAL (1,047). stocktarget-02's recount (count_town, `<townKey>.recount.json`) runs ahead of the well orders; it touches no well code and no scanner reads junkwell-nosite-<home>.json. PRE-PERIOD CAVEAT (unchanged): the one-time chest clear ran 10-14 02:22Z.] [wellsite-01 on 82aef34 (branch wellsite-on-82aef34). Launch ONLY on a fleet running 82aef34. NOT QUEUED: the operator queues it.] THE DEFECT (10-12, 24 h, 1.29M rows, 80 bots): 3,197 build_well orders in 12 towns (55 bots) ran the whole junk-well site search, found no cell, and came back every town visit (per-bot gap p10 5.2 / p50 7.2 / p90 47 min): a no_effect skip cost nothing. WHY NO CELL (region files read offline, validated 10/10 against read-only RCON; the 5 live wells read intact, placebo-d's retired one breached): the ground within 14 of home is dug out by the bots -- the 8 walls at g/g-1 and the 2-wide underground ring fail on 80-100% of candidates in every town, working ones included; ten worlds share one seed and differ by 677-2,761 bot-dug cells in the town box. Searching to radius 32 (A2) was REJECTED by both reviews (trapdoor scan truncation at 16, the container clearance scan at 24, a 6x synchronous scan, unreachable far/pit sites) and is NOT in this change; board-c, board-d, placebo-c, isolated-a, isolated-b have no valid cell even at 32 -- a well that completes its own shell is the follow-up design (sandbox first). THE CHANGE: A1 an EXHAUSTED search (every column read and refused) returns failClass well_no_site; the build order backs off 2 h and the town records it (junkwell-nosite-<home>.json in the pool state dir) so no bot of the pool searches again for 2 h, across reconnects (a reconnect rebuilds the CognitiveLoop) and restarts; anything else that finds no site is reason=site_deferred and free. A3 a sand/red_sand/gravel WALL cell resting on non-falling full ground is a wall (steadyWall; walls only), and the shaft is read sealed again at the stand immediately before the first throw (Codex r1 P1). placebo-b's well 280,58,-398 (retired 10-12 09:31 'wall is sand' after a marooned escape pillared up its diagonal column) reads sealed under the new rule. A4 the no_site row carries tally= first. A5 _well_retired once per well and reason per bot. REVIEWS: see docs/reports/wellsite-01-review-2026-10-13.txt. TESTS: npm test; test/wellsite.test.mjs + well.test.mjs wellsite-01 block, 12 in-suite mutants with anchors asserted present and unique. INTERACTION: stocktarget-01's well arms (cobble at the cap, stock surplus) act only through dispose_well, which needs a live town well; under this change placebo-b regains one, no other town does. Read stocktarget's well exposure against the towns that have a well. OMITTED wellread gates, on purpose: C3 non-listed, C7 stone guard, C8 swords -- the disposal PLAN is unchanged by this diff (only whether a well counts as sealed, and when the shaft is re-read); the junkwell-02 gates that touch containment and the pit are registered (C1, C2, C4, C5, C6, C9). COMPOSITION with stocktarget-01: `git merge-tree` of this tip with origin/st-on-82aef34 (48b093ce) is clean; the merged tree's suite: 249/249 (pre-r3 tip) and the well suites 3/3 at baa94879 (review record). change_rows is EMPTY (changerowcheck 10-13: the base emits _well_refused 658 and _well_retired 183 times in 6 h, so neither can license a single-death REVERT; the change adds no row kind of its own -- its licence is the text tally=cols: on _well_refused).",
+ "licence": {
+  "class": "text",
+  "row": "_well_refused",
+  "text": " tally=cols:",
+  "min_rows": 1,
+  "note": "Only this build writes tally= on a _well_refused row (the base's no_site row is prose only). In a no-well canary town the first build order of the window searches and writes it (control 10-13 06:00-09:00Z: 262 no_site rows in 3 h across the control pools). A drawn town whose well A3 restores (placebo-b) writes none: the licence comes from the other drawn pools."
+ },
+ "reads": [
+  "wellsiteread",
+  "wellread",
+  "immobiledid"
+ ],
+ "read_minutes": [
+  180,
+  360
+ ],
+ "deadline_min": 1680,
+ "change_rows": [],
+ "linkage_extra": [],
+ "draw_exposure": {
+  "hours": 3,
+  "require": [
+   {
+    "name": "completed no-site searches (a town with no junk well site)",
+    "kind": "_well_refused",
+    "detail_contains": "reason=no_site",
+    "min": 6
+   }
+  ],
+  "note": "10-12 24 h no_site rows: board-b 320, board-c 302, board-d 230, board-a 199, hive-d 254, placebo-b 398 (drawable); placebo-a built a well 10-13 04:01Z and drops out; hive-a/b/c, placebo-d have wells; placebo-c and isolated-* are never drawn. Dry run 10-13 06:00-09:00Z (board-a, board-c, placebo-b as canary on the base): 114 no_site rows in 3 h."
+ },
+ "draw_require_pools": [
+  "placebo-b"
+ ],
+ "exposure": {
+  "read": "wellsiteread",
+  "field": "exposure_ready",
+  "min": 1,
+  "note": "Ready = the licence (>= 1 canary no_site row with tally=) AND G1's positive control (the same search_repeats function on the CONTROL arm finds >= 1 repeat in the window: the base re-searches every visit -- dry run 10-13 06:14-09:14Z: 234) AND a window >= 150 min (a repeat inside the 2 h hold must have had time to happen)."
+ },
+ "own_lines": [
+  {
+   "read": "wellsiteread",
+   "field": "breach_search_repeat",
+   "op": "<=",
+   "value": 0,
+   "on_fail": "REVERT",
+   "evidence": "defect",
+   "note": "G1: two search EPISODES in one canary town (a pool; an isolated bot holds its own record) less than the 2 h hold (less 60 s) apart, where the earlier episode STORED its record (rec=ok) for the SAME world (w=). An episode is every search within 60 s of its first (two bots in the same instant, before either record landed); anchored on the start, so searches every 30 s are many episodes. A failed record write or a reseed is a legitimate new search. With the scheduler holding the town (townWellBuildPlan null) a second episode inside the hold means A1 is not holding. Positive control: the same function on the control arm (234 base repeats in the 3 h dry run); its own self-tests run on every read."
+  },
+  {
+   "read": "wellsiteread",
+   "field": "breach_untallied",
+   "op": "<=",
+   "value": 0,
+   "on_fail": "REVERT",
+   "evidence": "defect",
+   "note": "G2: a canary no_site row without tally= (the instrument incomplete). Positive control: the base fires it on every no_site row (114 in the dry run)."
+  },
+  {
+   "read": "wellsiteread",
+   "field": "breach_record_unstored",
+   "op": "<=",
+   "value": 0,
+   "on_fail": "REVERT",
+   "evidence": "defect",
+   "note": "G3 (Claude r3 P2): a canary completed search whose town record was not stored (rec=fail). G1 rightly never counts those, so a record that never lands (permissions, a pool-dir mismatch) would make the town hold fail invisibly; the per-bot 2 h backoff still applies, but A1 as registered did not hold."
+  },
+  {
+   "read": "wellsiteread",
+   "field": "control_tally_rows",
+   "op": "<=",
+   "value": 0,
+   "on_fail": "REVERT",
+   "note": "Leak check: a CONTROL _well_refused row carrying tally= means the control is not running the base. BLOCKS KEEP (airpocket-02's rows_control pattern, no evidence key: a mis-deployed control is not a defect of this change)."
+  },
+  {
+   "read": "wellread",
+   "field": "breach_recollected",
+   "op": "<=",
+   "value": 0,
+   "on_fail": "REVERT",
+   "evidence": "defect",
+   "note": "junkwell-02 C1 (an item collected out of a well's shaft): A3 changes which wells are sealed."
+  },
+  {
+   "read": "wellread",
+   "field": "breach_inside",
+   "op": "<=",
+   "value": 0,
+   "on_fail": "REVERT",
+   "evidence": "defect",
+   "note": "junkwell-02 C4 (a bot stuck inside a well)."
+  },
+  {
+   "read": "wellread",
+   "field": "breach_misses_left",
+   "op": "<=",
+   "value": 0,
+   "on_fail": "REVERT",
+   "evidence": "defect",
+   "note": "junkwell-02 C5."
+  },
+  {
+   "read": "wellread",
+   "field": "breach_multi_well",
+   "op": "<=",
+   "value": 0,
+   "on_fail": "REVERT",
+   "evidence": "defect",
+   "note": "junkwell-02 C6 (two active wells in one town): placebo-b's restored well must not gain a twin."
+  },
+  {
+   "read": "wellread",
+   "field": "breach_left_open",
+   "op": "<=",
+   "value": 0,
+   "on_fail": "REVERT",
+   "evidence": "defect",
+   "note": "junkwell-02 C2."
+  },
+  {
+   "read": "wellread",
+   "field": "breach_pit_left_open",
+   "op": "<=",
+   "value": 0,
+   "on_fail": "REVERT",
+   "evidence": "defect",
+   "note": "junkwell-02 C9: the pit-first build's new 'breached' refusal must still cover its pit."
+  }
+ ],
+ "primary": {
+  "read": "wellsiteread",
+  "field": "search_rate_did",
+  "note": "REPORTED, NOT GATED: completed searches per bot-h DiD (expected strongly negative: <= 12 per town per day instead of ~2 per bot-h); held rows, deferrals, build_well orders per bot-h DiD, well_retired per bot-h DiD, canary dispose_well successes by town (placebo-b's restored well: A3's effect), the latest tally per canary town."
+ },
+ "harm": {
+  "note": "Unchanged: the two-death floor (OWNER 2026-09-11) and gather_ratio < 0.43 of control, from immobiledid."
+ },
+ "teardown": {
+  "note": "THREE STEPS: drop-ins, clear canary_pool, restart the pool's bots 12 s apart; then confirm the live versions. The junkwell-nosite-<home>.json records the canary wrote are never read by the base code; they may stay."
+ },
+ "amendments": [],
+ "extension": {
+  "until_exposure": true,
+  "extra_reads": [
+   540,
+   720,
+   1080,
+   1560
+  ],
+  "final_on_zero_exposure": "INCONCLUSIVE",
+  "note": "SHORT CANARY for a fix (owner 2026-09-29): deterministic gates decide."
+ },
+ "lint": "eslint no-undef: exactly ONE hit on the tip, bots/src/reflex.mjs:2384:67 withinBody -- the same pre-existing typeof-guarded hit as on 5e663860; this diff changes reflex.mjs by 0 lines.",
+ "requeued_from": "wellsite-03"
+}

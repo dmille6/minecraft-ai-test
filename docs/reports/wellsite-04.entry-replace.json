@@ -1,0 +1,48 @@
+{
+ "run": "wellsite-04",
+ "after": [
+  "treefarm-02"
+ ],
+ "class": "",
+ "hold": null,
+ "not_before": null,
+ "note": "REPLACE-VARIANT entry (wellsite agent 10-15): the queued 5e663860 variant kept (8cd0bc62, unchanged); 1957811e DROPPED (airpocket-03 closed INCONCLUSIVE); added a8af87db (minewell kept) and b7cc60b5 (treefarm-01 kept). The treefarm-02-on-a8af87db variant is PENDING its sha (ask the wellsite agent). wellsiteread is now 3db8f8c6bde32d701ec607e3c51e34cd (was c8dff7cc; .bak kept): a report-only farm_deferred line per canary town, no gate change, so every variant pins it. The b7cc60b5 variant carries a composition fix both engines required (a search only the FARM refused never sets the 2 h town hold; it is a farm_deferred with a 30 min per-bot backoff); towns without a farm behave identically. Original note: wellsite-03 re-queued 10-15 05:00Z on the OWNER's word (\"swap tree farm and wellsite-03\"): its draw was blocked by draw_require_pools placebo-b (exclusion after wellsite-02's 23:57Z decision, until ~11:57Z). Same code and registrations, run_id changed. Needs a variant on treefarm-01's tip if the farm is kept. Lineage: RE-QUEUE of wellsite-02, code UNCHANGED. LINEAGE: wellsite-01 (cancelled: placebo-b in exclusion) -> wellsite-02 (8cd0bc62 on 5e663860; placebo-b, board-a, board-b, board-d; declared 10-14 17:50:00Z) REVERTED at +360 on wellread.breach_recollected = 9 = a FALSE TRIP from a CONTROL-arm event (hive-d-Echo, base build 5e66386, `mine` dug through its town well's wall from the stand at 21:33Z; canary a",
+ "variants": {
+  "5e6638601af6714478690eae4b2bb83b158ba97c": {
+   "registration": "/home/mike/mcai-analysis/wellsite-04.5e66386.json",
+   "approved": "wellsite agent 2026-10-15: RE-QUEUE of wellsite-02's 8cd0bc62 unchanged (ws-on-5e66386; Codex + Claude APPROVE 10-14, docs/reports/wellsite-02.rebase-review-5e663860-2026-10-14.txt; npm test 251/251); reverted only by the wellread false trip, now fixed (md5 b0cd8a4b); licencecheck PASS on a 2 h window (see note), changerowcheck PASS; ORDINARY canary | 10-15 wellsiteread re-pinned to 3db8f8c6bde32d701ec607e3c51e34cd (report-only farm_deferred line)",
+   "canary_sha": "8cd0bc62e5606b021832d808b150007f38ab2d6e",
+   "reads_src": "/home/mike/mcai-analysis",
+   "reads": {
+    "wellsiteread": "3db8f8c6bde32d701ec607e3c51e34cd",
+    "wellread": "b0cd8a4b6da00eb3cd44bf413569e417",
+    "immobiledid": "53af289df12208901931dbeeb1ae325a"
+   },
+   "registration_sha256": "9256c44244c578621fa24e1949fe59e2a825cb2c1d7cf9290f98cf17fc1d41e8"
+  },
+  "a8af87dbc135819ace2cdcc27e48042df3b942e4": {
+   "registration": "/home/mike/mcai-analysis/wellsite-04.a8af87d.json",
+   "approved": "wellsite agent 2026-10-15: ws-on-a8af87d @ 389b44fb = the approved wellsite net diff on minewell-01 (a8af87db), no conflict, sorted +/- lines identical (1,047); bots/ and scripts/ tree byte-identical to mw-on-8cd0bc6 @ 1f066b05, whose composition Codex and Claude APPROVED; npm test 253/253; no-undef only the pre-existing reflex.mjs withinBody; licencecheck PASS (2 h: 0 hits in 256 baseline rows), changerowcheck PASS; ORDINARY canary",
+   "canary_sha": "389b44fba76db50f3ffc8675aa46df33082391c9",
+   "reads_src": "/home/mike/mcai-analysis",
+   "reads": {
+    "wellsiteread": "3db8f8c6bde32d701ec607e3c51e34cd",
+    "wellread": "b0cd8a4b6da00eb3cd44bf413569e417",
+    "immobiledid": "53af289df12208901931dbeeb1ae325a"
+   },
+   "registration_sha256": "981fbe331e06eded6828c0dcbdac911c108f4ef7ac740da8b9ac240c7d837ed1"
+  },
+  "b7cc60b5fbce6cbebd5b8433fb95b370da37f6c5": {
+   "registration": "/home/mike/mcai-analysis/wellsite-04.b7cc60b.json",
+   "approved": "wellsite agent 2026-10-15: ws-on-b7cc60b @ 8ae2ccf0 = wellsite on treefarm-01 (b7cc60b5): one conflict (townWellSite: farm avoid kept with the search capture) + the composition fix (farm-only columns -> farm_deferred, 30 min per-bot backoff, no town hold); Codex r3 APPROVE (no findings) + Claude r3 APPROVE (P3s applied, tests/read only); npm test 253/253 at a9a20e4e (bots/src identical); wellsite 26/26, well 205/205 at 8ae2ccf0; no-undef only the pre-existing reflex.mjs withinBody; licencecheck PASS (2 h: 0 hits in 249 baseline rows), changerowcheck PASS; ORDINARY canary",
+   "canary_sha": "8ae2ccf03719cf365e4534b7b8550b072d8ed719",
+   "reads_src": "/home/mike/mcai-analysis",
+   "reads": {
+    "wellsiteread": "3db8f8c6bde32d701ec607e3c51e34cd",
+    "wellread": "b0cd8a4b6da00eb3cd44bf413569e417",
+    "immobiledid": "53af289df12208901931dbeeb1ae325a"
+   },
+   "registration_sha256": "1a85372ec6dabf05a7987023b4ca506ce922a3c72170ead116b83acd7ac881cc"
+  }
+ }
+}

@@ -152,7 +152,7 @@ if __name__ == '__main__':
     ev_rows = sorted(load_window(PRE, END), key=lambda r: r['t'])
     bots = defaultdict(set); rows = Counter(); offbuild = 0
     n = Counter()                                   # (period, arm, what)
-    searches = []; searches_control = []; untallied = []; disposed = Counter(); last_tally = {}; held_by_pool = Counter(); leak = 0
+    searches = []; searches_control = []; untallied = []; disposed = Counter(); last_tally = {}; held_by_pool = Counter(); leak = 0; farm_by_pool = {}
     for r in ev_rows:
         t = r.get('t'); b = (r.get('bot') or {}).get('name')
         if t is None or not b:
@@ -180,6 +180,9 @@ if __name__ == '__main__':
                         last_tally[pool_of(b)] = kv(d).get('tally')
                 if period == 'post' and arm == 'control' and ' tally=' in d:
                     leak += 1                       # a control row with the canary's field: the control is not the base
+            if rs == 'farm_deferred' and period == 'post' and arm == 'canary':
+                # Claude r3 P3: per town, first and last -- a town deferred all window long is the farm/well dead end
+                v = farm_by_pool.get(pool_of(b)); farm_by_pool[pool_of(b)] = (1, t, t) if v is None else (v[0] + 1, v[1], t)
             if rs == 'no_site_held' and period == 'post' and arm == 'canary':
                 held_by_pool[pool_of(b)] += 1
             if ' tally=cols:' in d and arm == 'canary' and period == 'post':
@@ -225,6 +228,11 @@ if __name__ == '__main__':
               % (label, rate('pre', 'canary', what), rate('post', 'canary', what), rate('pre', 'control', what), rate('post', 'control', what), did(what)))
     print('             canary held rows (no search ran) %s | deferrals (site_deferred) post canary %d control %d'
           % (dict(held_by_pool), n[('post', 'canary', 'refused_site_deferred')], n[('post', 'control', 'refused_site_deferred')]))
+    # wellsite-04 on treefarm-01 (r3): a search whose only open columns lie under the farm's keep-outs -- a 30 min per-bot
+    # backoff, no town record; REPORTED (the canary's search rate in farm towns), never gated
+    print('             farm deferrals (farm_deferred) post canary %d control %d | per canary town (n, first, last): %s'
+          % (n[('post', 'canary', 'refused_farm_deferred')], n[('post', 'control', 'refused_farm_deferred')],
+             {p: (v[0], v[1].strftime('%H:%MZ'), v[2].strftime('%H:%MZ')) for p, v in sorted(farm_by_pool.items())}))
     print('             canary dispose successes by town %s | latest tally per canary town %s' % (dict(disposed), last_tally))
     try:
         if ovr:
@@ -237,7 +245,7 @@ if __name__ == '__main__':
             'licence_rows': n[('post', 'canary', 'licence')],
             'breach_search_repeat': len(g1), 'breach_untallied': len(untallied), 'breach_record_unstored': rec_fail,
             'searches_canary': len(searches), 'held_canary': sum(held_by_pool.values()),
-            'deferred_canary': n[('post', 'canary', 'refused_site_deferred')], 'instrument_control': inst,
+            'deferred_canary': n[('post', 'canary', 'refused_site_deferred')], 'farm_deferred_canary': n[('post', 'canary', 'refused_farm_deferred')], 'instrument_control': inst,
             'search_rate_did': nanless(did('refused_no_site')), 'build_order_rate_did': nanless(did('build_orders')),
             'retired_rate_did': nanless(did('retired')), 'dispose_rate_did': nanless(did('dispose_success')),
             'dispose_success_canary': n[('post', 'canary', 'dispose_success')],
