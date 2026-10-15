@@ -10,6 +10,8 @@
 // keeps a bad generation from becoming a bad action.
 
 import { HARD_STOP } from './toolfor.mjs'
+import { stoneWithdrawFor } from './skills.mjs'
+import { STONE_GATHER, rewriteForStone, withdrawWant } from './stonesource.mjs'
 import { SKILLS, roomRemedy, farFromBank, classifyOutcome, SKILL_CONTRACTS, plantableSpotNear, findTownComposter, townBuildPlan, townPickMiss, townIngredientMiss, foodSkipNow, townContainers, townWellState, townWellBuildPlan, insideTownWell, wellSwordsNow, cobbleWellCap, townPitState, stockWellOpts, valveProof, stockCountKeys, pruneTarget, unknownRefusals, stockRecountKeys, townFarmPlan } from './skills.mjs'
 import { disposePlan, wellOrder, wellOrderOutcome, WELL_ORDERS, pitCoverItem } from './well.mjs'
 import { farmOrder, farmOrderOutcome, farmEnabled, FARM_ORDERS } from './treefarm.mjs'
@@ -1071,6 +1073,20 @@ export class CognitiveLoop {
       const check = this.admission.check(res.proposal, this.bot, wantedNow)
       if (check.ok) admitted = check
       else rejection = check
+      // WITHDRAW BEFORE DIG (stonewithdraw-01, stonesource.mjs): an admitted stone gather near town, at the surface (or with
+      // a zero-dig walk to a chest), with the town above its floor, becomes a withdrawal. Deterministic: the model keeps
+      // proposing gather (~90% of these runs), so advice would not be taken. Every decision on a stone gather is logged,
+      // rewritten or not, so the read has its denominator and the reason the rule declined.
+      if (admitted && admitted.skill === 'gather' && STONE_GATHER.has(String(admitted.args?.block ?? ''))) {
+        try {
+          const asked = admitted
+          const v = stoneWithdrawFor(this.bot, asked.args, { trigger, cooling: this.admission.memoryRefuses('withdraw', withdrawWant(asked.args)) })
+          admitted = rewriteForStone(asked, v)
+          logEvent({ kind: 'stone_withdraw', status: v.source === 'withdraw' ? 'success' : 'no_effect',
+                     detail: `${v.source} (${v.reason}) for gather ${asked.args?.block} ${v.count} trigger=${trigger}`,
+                     args: { source: v.source, reason: v.reason, count: v.count, block: String(asked.args?.block), trigger: String(trigger ?? ''), order: !!order }, snapshot: snapshot(this.bot) })
+        } catch { /* the rewrite is an optimisation: on any error the gather runs exactly as admitted */ }
+      }
       // TOOL HYGIENE, PART 1: one row per refusal -- the canary's liveness, and the read's G2/G4 evidence (the
       // snapshot is the bag the refusal judged; `wanted` and `source` must always read 0 / model).
       if (rejection?.reason === 'redundant_craft' && rejection.redundant) {

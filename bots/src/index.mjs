@@ -687,6 +687,17 @@ function connect() {
     // installing it. Only index.mjs may call setMovements; asking "could I get
     // there if I were allowed to dig?" is a different question from digging.
     bot.ascentMovements = ascendMoves
+    // A ZERO-EDIT PROBE PROFILE (stonewithdraw-01; the shaft's T6 later): no digging, no towering, no bridging, no parkour.
+    // Never installed -- only handed to getPathTo, which is read-only -- so "can I WALK there as the world stands?" has an
+    // answer that cannot be a route needing future placements or digs (Codex r1 P1-3 on the design).
+    const noEditMoves = Object.create(Object.getPrototypeOf(moves))
+    Object.assign(noEditMoves, moves)
+    noEditMoves.canDig = false
+    noEditMoves.allow1by1towers = false
+    noEditMoves.allowParkour = false
+    noEditMoves.scafoldingBlocks = []
+    noEditMoves.maxDropDown = 3
+    bot.noEditMovements = noEditMoves
     bot.withAscentMovements = async (fn) => {
       bot.pathfinder.setMovements(ascendMoves); bot.movementProfile = 'ascend'
       try { return await fn() }
@@ -939,6 +950,9 @@ function connect() {
     })
     bot.on('path_update', (r) => {
       if (!r || !r.status) return
+      // THE LAST PLANNER VERDICT, any status (goto's dig retry reads it: was the walk a noPath, a timeout or a path that
+      // went nowhere? stonewithdraw-01 instrument). Telemetry only.
+      bot.lastPathVerdict = { t: Date.now(), status: r.status, visited: r.visitedNodes ?? null, len: Array.isArray(r.path) ? r.path.length : null, ms: Math.round(r.time ?? 0), profile: bot.movementProfile ?? 'walk' }
       pathUpdates[r.status] = (pathUpdates[r.status] ?? 0) + 1
       // LAVA GUARD 1 (docs/lava-prevention.md v3): the EXECUTED route's swept footprint must be known, supported and
       // lava-free; a failing sample stops the leg before the first step and again on every replan. The pathfinder
@@ -1023,6 +1037,7 @@ function connect() {
       })
       if (dt) {
         digTownFinal = dt.final
+        bot.digTownStats = dt.stats   // read-only: goto's dig retry counts its own digs from `wrapped` (stonewithdraw-01 instrument)
         bot.once('end', () => { try { dt.final() } catch { /* telemetry */ } })
       }
     } catch (e) { log('warn', 'dig town instrument not attached', { err: e?.message }) }

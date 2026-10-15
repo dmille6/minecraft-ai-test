@@ -25,6 +25,7 @@
 // Every long loop must check `signal.aborted`, because the reflex layer
 // preempts skills and a skill that ignores that will fight it.
 
+import { stoneSource } from './stonesource.mjs'
 import { haltPath } from './pathhalt.mjs'
 import { stepLineSafe } from './lavaguard.mjs'
 import { nearDeathSite, lineHitsDeathSite, DEATH_SITE_TARGET_RADIUS } from './deathsites.mjs'
@@ -389,6 +390,23 @@ const BARREN_LIMIT = 3
 
 // THE `_dig_town` INSTRUMENT'S SCOPE (digtown.mjs, telemetry only): goto's own direct digs (float dig, ride-floor-down) are
 // transit, also when goto runs inside mine or gather. Nothing reads digScope but the instrument.
+/**
+ * GOTO'S DIG RETRY, MEASURED (stonewithdraw-01 instrument; design 5.2 step 1). TELEMETRY ONLY: nothing reads these to
+ * decide. At retry entry: the leg's last planner verdict (only one stamped after the leg started counts), the bag's
+ * cobble, and the dig counter (digtown's `wrapped`); at the row: the digs made since. Pure over its inputs.
+ */
+export function gotoRetryEvidence (bot, legT0) {
+  const v = bot.lastPathVerdict
+  const fresh = v && Number.isFinite(v.t) && v.t >= legT0 ? v : null
+  const cobble = (bot.inventory?.items?.() ?? []).reduce((n, it) => n + (it && (it.name === 'cobblestone' || it.name === 'cobbled_deepslate') ? it.count : 0), 0)
+  return { walk: fresh ? { status: fresh.status, visited: fresh.visited, len: fresh.len, ms: fresh.ms, profile: fresh.profile } : null, cobble, dig0: Number.isFinite(bot.digTownStats?.wrapped) ? bot.digTownStats.wrapped : null }
+}
+export function gotoRetryArgs (bot, ev, moved) {
+  const now = Number.isFinite(bot.digTownStats?.wrapped) ? bot.digTownStats.wrapped : null
+  return { walk_status: ev?.walk?.status ?? 'none', walk_visited: ev?.walk?.visited ?? null, walk_len: ev?.walk?.len ?? null,
+           walk_ms: ev?.walk?.ms ?? null, walk_profile: ev?.walk?.profile ?? null, bag_cobble: ev?.cobble ?? null,
+           retry_digs: ev?.dig0 != null && now != null ? now - ev.dig0 : null, moved: Number.isFinite(moved) ? +moved.toFixed(1) : null }
+}
 async function goto (ctx, args, signal) { return withDigScope(ctx?.bot, { purpose: 'transit', by: 'goto' }, () => gotoLegs(ctx, args, signal)) }
 async function gotoLegs(ctx, { x, y, z, range = 1 }, signal) {
   const { bot } = ctx
@@ -451,6 +469,7 @@ async function gotoLegs(ctx, { x, y, z, range = 1 }, signal) {
     }
 
     const before = here.clone()
+    const legT0 = Date.now()
     try {
       // AN INTERMEDIATE WAYPOINT HAS NO BUSINESS SPECIFYING AN ELEVATION.
       //
@@ -537,6 +556,9 @@ async function gotoLegs(ctx, { x, y, z, range = 1 }, signal) {
           // (Codex review, 2026-09-11). The water->land bit is the escape
           // itself for a floating bot: hive-b-Delta's ledge is 1.5 blocks away.
           const retryFrom = bot.entity.position.clone(); const retryT0 = Date.now()
+          // THE RETRY'S EVIDENCE (stonewithdraw-01 instrument, design 5.2 step 1): what the walk planner said for THIS leg
+          // (noPath / timeout / partial / success that went nowhere), the bag's cobble, and the digs the retry then made.
+          const retryEv = gotoRetryEvidence(bot, legT0)
           const retryWet = !!bot.entity.isInWater
           // PLAN FIRST, THEN SIZE THE CLOCK FROM THE PLAN. A flat 25 s cannot
           // hold a bare-handed dig made floating (x5) in water (x5): hive-b-Delta
@@ -618,13 +640,13 @@ async function gotoLegs(ctx, { x, y, z, range = 1 }, signal) {
           const nowWet = !!bot.entity.isInWater
           const where = `from ${retryFrom.x.toFixed(1)},${retryFrom.y.toFixed(1)},${retryFrom.z.toFixed(1)} in ${Date.now() - retryT0}ms budget=${retryBudget}ms plan=${retryPlan.status} planned_dig=${Math.round(retryPlan.digMs)}ms floating=${retryPlan.notOnGround} float_dug=${floatDug}`
           if (moved >= 2 || (retryWet && !nowWet)) {   // it worked; carry on
-            logEvent({ kind: 'goto_dig_retry', status: 'success',
+            logEvent({ kind: 'goto_dig_retry', status: 'success', args: gotoRetryArgs(bot, retryEv, moved),
                        detail: `moved ${moved.toFixed(1)} blocks dy=${(bot.entity.position.y - retryFrom.y).toFixed(1)} ` +
                                `wet=${retryWet}->${nowWet}${retryErr ? ` then ${String(retryErr?.message || retryErr).slice(0, 60)}` : ''} ${where}` })
             if (retryErr && signal?.aborted) throw retryErr
             continue
           }
-          logEvent({ kind: 'goto_dig_retry', status: 'failed',
+          logEvent({ kind: 'goto_dig_retry', status: 'failed', args: gotoRetryArgs(bot, retryEv, moved),
                      detail: `${retryErr ? String(retryErr?.message || retryErr).slice(0, 100) : `moved only ${moved.toFixed(1)} blocks`} ` +
                              `wet=${retryWet}->${nowWet} ${where}` })
           // fall through to the honest failure below
@@ -3223,6 +3245,25 @@ export function stockTownViewFor (bot, group = 'cobble', now = Date.now(), { fre
   if (!sc.coverage && st.scan && now - st.scan.at < OBS_TTL_MS && !inTown(homeVec(), bot.entity?.position)) sc = { keys: st.scan.keys, coverage: true, gone: sc.gone }
   return townStock(st, sc.keys, now, { me: bot.username ?? null, coverage: sc.coverage, gone: sc.gone, group })
 }
+/**
+ * WITHDRAW BEFORE DIG (stonesource.mjs): should this admitted stone gather be a withdrawal from the town instead? ->
+ * stoneSource's verdict. The probe (asked only for a bot below the surface band) is a READ-ONLY search on the
+ * zero-dig, zero-place profile (index.mjs noEditMovements): a route that would dig or tower is not a walk to the chest.
+ */
+export function stoneWithdrawFor (bot, args = {}, { trigger = '', cooling = null, now = Date.now() } = {}) {
+  const home = homeVec()
+  const pos = bot.entity?.position
+  let town = null
+  try { town = stockTownViewFor(bot, 'cobble', now) } catch { town = null }
+  const probe = () => {
+    const mv = bot.noEditMovements
+    if (!mv || typeof bot.pathfinder?.getPathTo !== 'function') return false
+    const r = bot.pathfinder.getPathTo(mv, new goals.GoalNear(home.x, home.y, home.z, 4), STONE_PROBE_MS)
+    return r?.status === 'success'
+  }
+  return stoneSource({ block: args?.block, count: args?.count, pos, home, town, trigger, cooling, probe })
+}
+const STONE_PROBE_MS = 400
 /**
  * THE COUNT: what an OPEN town container's window holds, captured now and appended at once with its capture time, in the
  * same write as any releases (count first: cobblecap.mjs recordCount). `release` / `releaseAll` are appended outside town

@@ -55,7 +55,8 @@ const ROUTE = {
   return: s => s === 'home' || s === 'goto',
   deposit_surplus: s => s === 'deposit',
   stockpile_wood: (s, a) => (s === 'gather' && /_(log|wood|stem)$/.test(String(a?.block ?? ''))) || (s === 'craft' && /_planks$/.test(String(a?.item ?? ''))),
-  stockpile_stone: (s, a) => s === 'mine' || (s === 'gather' && /^(stone|cobblestone|deepslate|cobbled_deepslate|blackstone)$/.test(String(a?.block ?? a?.item ?? ''))),
+  // withdraw of the stone family serves it too (stonewithdraw-01: near town the stone gather is REWRITTEN to a withdrawal)
+  stockpile_stone: (s, a) => s === 'mine' || ((s === 'gather' || s === 'withdraw') && /^(stone|cobblestone|deepslate|cobbled_deepslate|blackstone)$/.test(String(a?.block ?? a?.item ?? ''))),
 }
 /**
  * Does this action serve the task? Pure. `task` is what the bot was working on (a prereq detour carries its own
@@ -761,7 +762,7 @@ export const SUSTAINING = [
     describe: n => `Stockpile ${stockpileTarget(16, 8, n)} cobblestone (or deepslate/blackstone).`,
     done: (b, n) => countAny(b, COBBLE) >= stockpileTarget(16, 8, n),
     progress: (b, n) => `${countAny(b, COBBLE)}/${stockpileTarget(16, 8, n)} stone-type blocks`,
-    hint: 'gather with block=stone (needs a pickaxe), or mine to reach it.',
+    hint: 'near town, withdraw cobblestone from the town chest; elsewhere gather with block=stone (needs a pickaxe), or mine to reach it.',
   },
   {
     id: 'patrol',
