@@ -1220,7 +1220,7 @@ export class CognitiveLoop {
         // cannot be made without the measurement in hand.
         // Housekeeping (wear_out, compost, build_composter) is never the model's choice, nor a "reliable choice" in its prompt.
         // a deterministic REWRITE is not the model's choice: it never feeds the 'reliable choice' wins (Claude stage-2 P2-2)
-        if (!isHousekeeping(admitted.skill) && !admitted.rewrittenFrom) this.lessons.recordSuccess(admitted.skill, admitted.args, r.contractEvidence)
+        if (admitted.rewrittenFrom !== undefined) { /* a rewrite: no win (its failures teach nothing either) */ } else if (!isHousekeeping(admitted.skill)) this.lessons.recordSuccess(admitted.skill, admitted.args, r.contractEvidence)
 
         // Preference -- what makes a bot KEENER -- stays gated on `valuable`.
         if (value === 'valuable') {
