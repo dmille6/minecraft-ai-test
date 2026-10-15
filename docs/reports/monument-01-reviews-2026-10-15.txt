@@ -1,0 +1,149 @@
+monument-01 (ziggurat stage 4) -- REVIEW RECORD, 2026-10-15
+Branch monument-on-835ef3f (base 835ef3f0); variants on a784c0fe, 4716d12d (townzone x wellsite-04), d0cf6c5c (townzone).
+Briefs: the round's brief is quoted in each engine's prompt; Codex via `codex exec`, Claude via an independent subagent.
+FINAL: Codex r7 APPROVE (ba64b139) + r8 APPROVE (7ffee682); Claude r3..r8 APPROVE (5824ecb6..7ffee682).
+r10 (after both approvals): builder.mjs imports `performance` from node:perf_hooks -- the deploy's no-undef lint gate found
+the bare global on every variant; no logic change.
+
+====================================================================================================
+ROUND r1 at 1a10dba4
+-- CODEX --
+1. **P1 — Segment leases do not serialize the escape proofs.** `bots/src/skills.mjs:7510` permits simultaneous clicks in different segments. I reproduced two individually feasible placements that preserve a bystander’s alternate exit, but jointly wall it in. Each builder can pass its gate before receiving the other’s block update. **Fix:** coordinate pending placements across the world, so every escape proof includes other admitted clicks, or serialize gate-through-confirmation and require the next builder to observe the preceding mutation. Add a two-exit, two-builder race test.
+
+2. **P1 — An unresolved cover obligation does not prevent frontier advancement.** `bots/src/monumentjob.mjs:170` unconditionally counts waived cells closed; both advance paths at `bots/src/skills.mjs:7453` and `:7535` use that census without checking covers. A blocked cover can itself receive three waivers. I reproduced `coverHold(...).covers.length === 1` alongside `layerCensus(...).closed === true`. Existing solid or waived neighbours allow the frontier to pass the uncovered column. **Fix:** make unresolved cover obligations an explicit barrier at both advance paths, regardless of the cover’s waiver status. Test stacked waivers through successive layers, including the required stopped-frontier outcome.
+
+3. **P1 — Partial and falling blocks are accepted as full, stable footing.** `bots/src/monumentjob.mjs:148`, `:151`, and `:192` use the builder’s `boundingBox === 'block'` predicate. Using the installed block library, an oak slab, oak fence and sand all classify as `degraded`; slabs and fences can also discharge cover obligations. This violates the design’s full-cube, non-falling requirement and invalidates the assumed walk geometry. **Fix:** preserve collision shapes in monument reads and use a full-cube, non-falling predicate for completion, cover/anchor decisions and footing proofs. Exercise real slab, fence and falling-block states.
+
+4. **P2 — The gather gate uses a calibration for a different experiment.** `scripts/host/gathernull.py:22` calibrates 180-minute pre / 360-minute post windows and excludes isolated pools; `scripts/host/monumentread.py:124` defaults to 180 minutes post and includes every non-canary pool as control. Consequently, the supplied 1.2% false-trip rate does not establish this read’s false-trip rate. Moreover, the supplied 7% detection rate for an injected 20% success loss makes a passing success gate weak evidence of no regression. **Fix:** share window/population definitions between calibration and read, reject incompatible calibration metadata, and require adequate positive-control power before treating the result as clearance.
+
+5. **P2 — The stuck-near gate misses stationary tails after arrival or building.** `scripts/host/monumentread.py:83` accumulates the entire continuous stay near the site. Any earlier movement exceeding two blocks, or any earlier build row, disqualifies the whole stay. I reproduced an arrival/build followed by 30 stationary minutes returning no stuck span. **Fix:** evaluate rolling stationary intervals, resetting their start on movement or building; use the design’s ten-minute threshold unless explicitly relaxed. Add arrival-then-stuck and build-then-stuck tests.
+
+6. **P2 — The clear whitelist admits non-instant digs.** `bots/src/monumentjob.mjs:141` includes cobwebs. The installed library reports a 20,000 ms bare-hand dig, while `bots/src/buildbot.mjs:93` bounds clearing at 2,500 ms. The adapter neither equips an empty hand nor explicitly cancels a timed-out dig. This exceeds the stated instant-break plant/torch scope. **Fix:** restrict clearing to verified instant-break targets, and cancel any outstanding dig on timeout or interruption. Test the real adapter’s refusal of cobwebs.
+
+7. **P2 — The read omits the designed well-skip safety measurements.** `scripts/host/monumentread.py:193` collects gather, dig outcomes, milestones and disposal, but no bag-full minutes or tool tosses; `:243` only reports milestone DiD. Thus the read cannot evaluate design G3, and G2 has no implemented decision threshold here. **Fix:** add calibrated bag-full/tool-toss DiDs and explicitly wire milestone regression into the canary decision. Identify any separately supplied gates rather than silently omitting them.
+
+8. **P3 — “Repairs” counts selected candidates, not repairs completed.** `bots/src/skills.mjs:7499` assigns `repairs.length` before execution; `scripts/host/monumentread.py:179` sums it as repaired cells. An unreachable hole can be counted repeatedly without a placement. **Fix:** report candidates separately and count repairs only from confirmed placements at repair coordinates.
+
+The monument test file passed through the repository runner. The full-suite run had not finished when this review concluded. The targeted reproductions above expose cases its passing tests do not cover.
+
+VERDICT: CHANGE
+-- CLAUDE --
+CHANGE -- P1s on the cover rule and the waiver path, P2s (snow/clearables, the plain walk, the row in finally, structural votes only, generations only on change), P3s.
+
+====================================================================================================
+ROUND r2 at 04f6f847
+-- CODEX --
+1. **P1 — The click-lock handoff still permits an unseen concurrent placement.** `bots/src/monumentjob.mjs:385–391` reads the previous verdict **before** acquiring the lock. A can confirm and release between B’s read and exclusive create; B then acquires using proofs that never saw A’s placement. I reproduced this interleaving: B still read air but `acquire()` returned `null`. Independently, line 386 stops requiring observation after five seconds; that also reproduced. **Fix:** acquire ownership first, validate the preceding mutation under that ownership, then recompute the escape proofs. Do not treat elapsed time as evidence that an unseen mutation is safe. Add a cross-process handoff test with separate world views; the current shared-world test cannot exercise this gap.
+
+2. **P1 — Full, stable footing still does not govern the escape proofs.** `bots/src/builder.mjs:60` continues using `solid()` for standing support; `walkReach` and `walkReachBack` inherit it. The new `full` field and monument `want: fullSolid` only fix classification/completion, not walk geometry. With real prismarine states, oak slab, oak fence and sand all returned `fullSolid=false` but `standable=true`. Consequently, placement safety can still depend on an invalid assumed exit. **Fix:** thread the full-cube, non-falling footing predicate through monument stand selection and both escape probes, while retaining a separate collision predicate. Test a placement whose only alleged escape uses such footing.
+
+3. **P2 — Clearable full cubes permanently stall the frontier.** `bots/src/skills.mjs:7535` assigns `want: fullSolid`, but `bots/src/monumentjob.mjs:189` classifies clearable blocks before full solids. Real slime and resin blocks therefore produce census state `clear`, while `buildProgress()` reports `done=1` and no remaining work. They are neither cleared nor eligible for blocked-cell waiver, so repeated visits cannot close their layer. **Fix:** use a completion predicate consistent with `cellState`, or restrict the whitelist so retained full cubes are classified consistently. Add a full-visit regression test.
+
+4. **P2 — Calibration compatibility checks still accept a different experiment.** `scripts/host/monumentread.py:109–117` maps every window below 360 minutes to the 180-minute band and validates neither `pre` nor population. I reproduced acceptance of a band declaring `pre=360` and an isolated-only population for a 150-minute shared-pool read. The actual aggregation uses `pre=min(W,180)` and post `W`; the claimed conservative substitution is not established by the calibration. **Fix:** require matching pre/post windows and population metadata, or explicitly aggregate the exact calibrated window. Return unread for unsupported windows and incompatible metadata.
+
+Both targeted test files passed through the repository runner. The read’s existing self-tests also passed; the reproductions above expose cases they omit. I did not rerun the full suite.
+
+VERDICT: CHANGE
+-- CLAUDE --
+CHANGE -- P1 sand/gravel as footing (falling block resting on solid is footing), M6 must block KEEP not revert; P2 snow etc. clearable set, M5 blind (refusal rows), water as a cleared result; P3s.
+
+====================================================================================================
+ROUND r3 at 5824ecb6
+-- CODEX --
+1. **P1 — A later refusal erases an unseen confirmed placement.** `bots/src/monumentjob.mjs:402,409` checks only the latest verdict, but every non-null verdict replaces it. Reproduced: A confirms; C’s separate world still sees air and correctly gets `busy`; B sees A’s block, acquires, then releases `refused`; C now acquires despite still not seeing A. Its escape proof can therefore close the remaining exit. **Fix:** preserve outstanding confirmed mutations across refusals, silence, and errors, and require each acquiring client to observe all mutations it has not acknowledged. Add a three-client regression; one latest-click record cannot represent independent clients’ observation state.
+
+2. **P1 — Lease expiry permits overlapping unresolved clicks and stale result writes.** `bots/src/monumentjob.mjs:395–409` allows takeover after five seconds without resolving the previous attempt, and `release()` writes the result without checking generation ownership. The adapter’s consecutive waits at `bots/src/buildbot.mjs:86–87` already total five seconds, excluding proof time and scheduling delays. Reproduced with an injected clock: A acquires; B acquires at 5001 ms while A remains unresolved; B confirms; A’s late `silent` release overwrites B’s confirmation. **Fix:** persist an in-flight mutation before sending the packet, require reconciliation on takeover, and fence result publication by generation. Renew ownership during normal acknowledgement waits; expiry alone must not establish safe handoff. Test delayed acknowledgements and stale-holder release.
+
+The monument-job, builder, and structureguard test files passed through the repository runner. Measurement self-tests also passed. I did not rerun the full suite or Paper scenes.
+
+VERDICT: CHANGE
+-- CLAUDE --
+APPROVE (5824ecb6) -- P2 the click lock can stall a world for good on a removed cell; P3 bystander on partial footing, M3 per bot-hour, M5 without the offline site fallback.
+
+====================================================================================================
+ROUND r4/r5 at 2b5aa1e5
+-- CODEX --
+- **P1 — Loaded-chunk grace still permits unresolved overlapping clicks.** `bots/src/monumentjob.mjs:425`: A records `pending`, pauses before sending, and outlives its lease. B’s loaded chunk still shows air; B acquires successfully, then A resumes and sends its packet. The new test explicitly permits this handoff. Even for confirmed records, chunk subscription does not bound network or client processing delay to three seconds. **Fix:** keep unresolved pending clicks blocking until completion or explicit recovery that prevents the old holder from sending. Replace loaded-plus-time acceptance with an observed server update or fresh chunk snapshot ordered after resolution. Add a paused-holder-resumes test.
+
+- **P1 — Log expiry unconditionally discards unacknowledged placements.** `bots/src/monumentjob.mjs:410`: after `CLICK_LOG_MS`, an acquirer deletes a confirmed or pending record without checking its own view, acknowledgements, or chunk freshness. I reproduced successful acquisition with air, `heard=false`, and `loaded=false` after ten minutes. This independently bypasses the handoff invariant even if the grace fallback is fixed. **Fix:** separate history retention from safety obligations; retain unresolved obligations until acknowledged or superseded by verified server synchronization. Never expire pending records solely by age.
+
+- **P2 — M3 still compares different bot populations and assumes full-window exposure.** `scripts/host/monumentread.py:365–368`: pre/post samples are aggregated independently, and any sampled bot contributes the entire window’s bot-hours. A departed bot’s pre-period stuck spans can therefore excuse a new bot’s post-period stalls; a briefly present bot also inflates exposure. **Fix:** calculate expectations per bot from that bot’s measured pre/post exposure, then sum them. Treat bots without pre exposure according to the existing zero-baseline policy. Test population turnover and partial-window activity.
+
+Validation: monument-job suite passed; builder tests passed 28/28; reader self-tests passed. The three lock bypasses above were reproduced with injected clocks. No files changed.
+
+VERDICT: CHANGE
+-- CLAUDE --
+APPROVE (2b5aa1e5) -- P2 the 3 s wall-clock grace (late silent clicks; a lagging client); P3 gate re-lists every click file; clock skew.
+
+====================================================================================================
+ROUND r6 at ad2b0615
+-- CODEX --
+Three remaining findings, reproduced against `ad2b0615`. They hold even assuming the barrier’s world-ordering guarantee is correct.
+
+1. **P1 — An “absent” decision survives evidence that the author is present.** `bots/src/monumentjob.mjs:436,444–453`
+
+   B’s event loop stalls before processing A’s join. A writes its record, passes its lease check, then pauses before sending its placement. After lease expiry, B resumes: `begin()` sees A absent and puts A’s record into `ok`. B’s barrier drains the queued join, making A present, but `synced()` and `acquire()` never reconsider resolution. B deletes A’s record and clicks; A can subsequently resume and click using its earlier proof.
+
+   **Fix:** Snapshot pending records, complete a barrier, then evaluate absence against the refreshed player list. Require that snapshot to remain valid through acquisition. Add a regression where `present(A)` changes from false to true during `sync()`; acquisition must remain busy.
+
+2. **P1 — A buffered departure from an older session can settle the current session’s pending click.** `bots/src/monumentjob.mjs:434–436`
+
+   B stalls while A disconnects and reconnects. The new A session writes a pending record and pauses before its packet. B first observes that record while its player list still contains old A, so it returns busy. B then processes the buffered old-session leave and new-session join. On its next attempt, `leftAt(A) > first` authorizes deletion of the **new session’s** record, although that session remains present and can still click. The recorded `session` is never consulted.
+
+   **Fix:** Establish departure eligibility only after a barrier following the record snapshot has drained older membership events. For an author present then, require a subsequent departure, followed by another barrier before settlement—or use an authoritative connection-generation identity. Add the queued leave/rejoin regression; merely checking presence again does not fix this branch.
+
+3. **P2 — Departure ordering still depends on an adjustable wall clock.** `bots/src/buildbot.mjs:43`; `bots/src/monumentjob.mjs:432–436`
+
+   If an old departure is recorded at time 2000, the clock rolls back, and a current-session record is first observed at 1000, the second `begin()` treats the old departure as subsequent. I reproduced acquisition succeeding without any new departure while the author remained present.
+
+   **Fix:** Use client-local event ordinals for observation/departure ordering, scoped to the observing connection. Keep wall-clock timestamps for diagnostics and lease expiry, not settlement evidence. This also avoids equal-millisecond departures being missed. The session-ordering fix above remains necessary.
+
+On the other requested points:
+
+- **Record-first / lease-second:** the ordering addresses the stated takeover race, provided pending-record resolution is sound.
+- **Barrier ordering:** I did not establish a counterexample in the inspected Paper paths, but the supplied single-client probe does not prove the universal cross-client broadcast guarantee. Paper explicitly sends the clicked cells directly back to the clicker, so those updates preceding its ack are insufficient evidence for an observer’s barrier. Add a two-client probe with delayed observer processing. [Paper placement handling](https://raw.githubusercontent.com/PaperMC/Paper/ver/1.21.8/paper-server/patches/sources/net/minecraft/server/network/ServerGamePacketListenerImpl.java.patch)
+- **`use_item`:** the monument’s plain stone-family blocks have no ordinary air-use placement behavior. However, Paper fires interaction events for nonempty hands, so “no effect” is conditional on plugin behavior. [Paper use-item handling](https://raw.githubusercontent.com/PaperMC/Paper/ver/1.21.8/paper-server/patches/sources/net/minecraft/server/network/ServerGamePacketListenerImpl.java.patch)
+- **Remaining stall:** a present author whose barrier never answers blocks progress indefinitely. That is the intended conservative behavior; recovery requires an answered barrier or proven connection termination.
+- **M3:** no additional finding.
+
+Validation: monument-job and structureguard passed through the repository runner; builder passed 28/28; `monumentread.py` assertions passed. All three added adversarial reproductions incorrectly permitted acquisition. Checkout unchanged.
+
+VERDICT: CHANGE
+-- CLAUDE --
+APPROVE (ad2b0615) -- the barrier ordering sound by the vanilla/Paper tick structure; P2-1 one unsettled record stalls the world (settle in finally, outside visits, name the waiter); P3 torn record by name, local FS, newly-tracked chunk caveat.
+
+====================================================================================================
+ROUND r7 at acae5404
+-- CODEX --
+- **P2 — Periodic settlement can still stall all builders indefinitely** — `bots/src/skills.mjs:7399`. If the visit’s three cleanup barriers fail, `settleAndRestore()` restores the previous tool. Every subsequent periodic settlement then refuses to send a barrier while that tool remains held, even after connectivity recovers. Reproduced with a pending record and an iron pickaxe: three minute-spaced attempts returned `unsettled`, sent zero packets, and retained the record; emptying the hand immediately settled it. **Fix:** under exclusive bot ownership, temporarily select an empty hand or equip an allowed block, await the barrier, settle the snapshotted records, and restore the hand in `finally`. Add a regression covering recovery while holding a tool.
+
+The monument-job, builder, and structureguard suites pass. No remaining P1 found in the revised presence/ordinal ordering.
+
+VERDICT: CHANGE
+-- CLAUDE --
+APPROVE (acae5404) -- arming sound; the decision-loop settle cannot delete an in-flight record; P3-1 absence/leave observed before the cycle barrier; P3-2 settle needs a hand; P3-3 re-entrant tick, runner_busy backoff.
+
+====================================================================================================
+ROUND r8 at ba64b139
+-- CODEX --
+- **P3 — `bots/src/skills.mjs:7394–7399`:** Re-entrant settlement calls normally return `'throttled'`, not the promised `'inflight'`, because the throttle check precedes the in-flight guard. Duplicate barriers remain prevented. Move `settling.has(bot)` before the throttle check and add a regression calling settlement twice while the first acknowledgment is pending.
+
+No remaining P1/P2 findings in this diff. The hotbar selection resolves the previous P2, and the revised departure checks align with the supplied Paper evidence.
+
+Validation: `monument-job`, `monument-plan`, and `builder` tests passed.
+
+VERDICT: APPROVE
+-- CLAUDE --
+APPROVE (ba64b139) -- P3-1 re-entrant tick during the settle; P3-2 join inside the cycle.
+
+====================================================================================================
+ROUND r9 at 7ffee682
+-- CODEX --
+No regressions found in `git diff ba64b139 7ffee682`. All three fixes are correctly wired, with regressions covering the join ordinal and concurrent settle calls.
+
+Validation was partial: the click-lock tests passed, but execution stopped on missing `OLLAMA_MODEL`; the sandbox also denied `nice`’s priority adjustment. Full npm tests were not run.
+
+VERDICT: APPROVE
+-- CLAUDE --
+APPROVE (7ffee682) -- nothing open.
+

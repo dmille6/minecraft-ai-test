@@ -12,6 +12,18 @@ Studio reservation both closed 10-12); clear caps bamboo 0 / bucket 2._
 
 ---
 
+## 10-15 16:45Z — monument-01 (ziggurat stage 4) READY, queued HELD; minewell-02 moved ahead of it
+Both engines APPROVE (Codex r7/r8, Claude r3-r8). Click lock is a server-ordered barrier (use_item seq ack), no time-based
+expiry. Paper r8 (sandbox4): build12 366/366 in 13.9 min, stand12 ok, kill12 366/366, cost48 gate p95 <= 94 ms, loop lag
+<= 292 ms. Gates: REVERT M1 stall, M2 slow gate, M5 guard refusal outside the site; block KEEP M3 stuck near site, M4
+gather regression (dig-share half powered, false trip 1.25%; gather-success half effectively UNPOWERED), M6 waived cells,
+any control _monument row. Variants (monument-on-835ef3f d59eed78, -a784c0f 16c9acde, -4716d12 d2d7e6ff, -d0cf6c5
+b5788efb) are all on minewell-01 lineage; structureguard plugs into minewell's stair planner, so monument-01 is HELD until
+minewell-02 is KEPT+promoted and then needs a variant on that fleet tip. Queue: wellsite-04 (live) -> townzone-01 ->
+treefarm-02 -> plinth-01 -> townfloor-01 -> minewell-02 -> monument-01 -> stonewithdraw-01 -> bamboo-02.
+Known gaps: idle bot on an open cell holds a layer; a never-settling author keeps a world busy (named in lock_wait);
+tree felling / litter pickup / chest draw not built. Review record: docs/reports/monument-01-reviews-2026-10-15.txt.
+
 ## 10-15 15:05Z — townzone-01 x minewell-01: PAPER PASSED, Codex r4 APPROVE -> all nine townzone variants approved (the townground agent)
 Sandbox lock taken 14:54Z, RELEASED 15:02Z (sandbox4 empty, forceload removed). sandbox/townground/composition-scene.cjs,
 cand tz-on-835ef3f d0cf6c5c vs ctrl 835ef3f0: CORNER (town S/W, a real well N/E) cand one walk-off -> mine success, 0 shell / 0 town
