@@ -32,7 +32,6 @@ export const timeoutBound = bot => (p, ms, what) => new Promise((resolve, reject
 })
 export function botBuildEffects (bot, { items = ['cobblestone'], bound = timeoutBound(bot), pathMs = 20_000, withWalk = fn => fn(), aborted = () => false } = {}) {
   const witness = installBlockWitness(bot)
-  const startedAt = Date.now()
   // WHAT THIS CLIENT HEARD: the last time the server spoke about each cell (any block update), for the click lock's handoff --
   // a builder may click after another's confirmed placement only once its own world knows of it (monument-01, Codex r2 P1-1)
   const heardAt = new Map()
@@ -40,12 +39,6 @@ export function botBuildEffects (bot, { items = ['cobblestone'], bound = timeout
   const onOne = p => { try { noteHeard(p.location.x, p.location.y, p.location.z) } catch { /* malformed */ } }
   const onMulti = p => { try { for (const r of p.records ?? []) { const d = decodeMultiRecord(p.chunkCoordinates, r); noteHeard(d.x, d.y, d.z) } } catch { /* malformed */ } }
   try { bot._client?.on?.('block_change', onOne); bot._client?.on?.('multi_block_change', onMulti) } catch { /* no client */ }
-  // ...and since when it has TRACKED each chunk column (loaded and not unloaded): an update that never came for a tracked cell is
-  // evidence that nothing changed there (the click lock's pending clicks)
-  const loadedAt = new Map()
-  const onLoad = p => { try { loadedAt.set(`${Math.floor(p.x / 16)},${Math.floor(p.z / 16)}`, Date.now()) } catch { /* malformed */ } }
-  const onUnload = p => { try { loadedAt.delete(`${Math.floor(p.x / 16)},${Math.floor(p.z / 16)}`) } catch { /* malformed */ } }
-  try { bot.on?.('chunkColumnLoad', onLoad); bot.on?.('chunkColumnUnload', onUnload) } catch { /* no events */ }
   let heldName = null
   const sleep = ms => new Promise(r => setTimeout(r, ms))
   const ticks = n => bound(bot.waitForTicks?.(n) ?? sleep(n * 50), n * 50 + 2_000, 'tick wait')
@@ -110,12 +103,11 @@ export function botBuildEffects (bot, { items = ['cobblestone'], bound = timeout
       return witness.until(c, n => n === 'air' || n === 'cave_air' || n === 'void_air' || n === 'water', BUILD_ACK_MS)
     },
     heard: (cell, since) => (heardAt.get(`${cell[0]},${cell[1]},${cell[2]}`) ?? -Infinity) >= since,
-    // a chunk loaded before this adapter existed counts from the adapter's start (a conservative lower bound: never earlier)
-    tracked: (cell, since) => { const k = `${Math.floor(cell[0] / 16)},${Math.floor(cell[2] / 16)}`; const t = loadedAt.get(k) ?? (bot.world?.getColumnAt?.({ x: cell[0], z: cell[2] }) ? startedAt : undefined); return t !== undefined && t <= since },
+    // is the cell's chunk loaded in this client's world (kept current by the server while it is)?
+    loaded: cell => { try { return !!bot.world?.getColumnAt?.(new Vec3(cell[0], 0, cell[2])) } catch { return false } },
     close: () => {
       try { witness.stop() } catch { /* gone */ }
       try { bot._client?.removeListener?.('block_change', onOne); bot._client?.removeListener?.('multi_block_change', onMulti) } catch { /* gone */ }
-      try { bot.removeListener?.('chunkColumnLoad', onLoad); bot.removeListener?.('chunkColumnUnload', onUnload) } catch { /* gone */ }
     },
   }
 }

@@ -241,8 +241,12 @@ export const bodyBlocks = (bodies, c) => (bodies ?? []).some(b => bodyInCell(b, 
 
 /** Would a placement wall a body in? -> true when some body's feet walk to the town before (`before`) and not after (`after`). */
 export function wallsInBody (bodies, before, after) {
+  // A BODY ON FOOTING THE PROBE WILL NOT STAND ON (a slab, a path, farmland, mud under footingView -- Claude stage-4 r3 P3) is
+  // judged by the cells it can step to: it walks out now if its own cell or a neighbour (+-1 up or down) does, and after likewise
+  // (only then: a body on ordinary footing is judged by its own cell, exactly)
+  const near = (set, f) => [[1, 0], [-1, 0], [0, 1], [0, -1]].some(([dx, dz]) => [-1, 0, 1].some(dy => set.has(bk(f.x + dx, f.y + dy, f.z + dz))))
   return (bodies ?? []).map(b => ({ x: Math.floor(b.x), y: Math.floor(b.y + 1e-6), z: Math.floor(b.z) }))
-    .some(f => before.has(bk(f.x, f.y, f.z)) && !after.has(bk(f.x, f.y, f.z)))
+    .some(f => before.has(bk(f.x, f.y, f.z)) ? !after.has(bk(f.x, f.y, f.z)) : (near(before, f) && !near(after, f)))
 }
 
 /** Is a cell what the list wants? `want` = name | (block) -> boolean; absent: any solid block. Pure. */

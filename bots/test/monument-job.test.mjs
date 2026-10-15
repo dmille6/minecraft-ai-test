@@ -314,6 +314,20 @@ await t('FOOTING VIEW (Codex stage-4 r2 P1-2): an exit across a real slab is no 
   assert.equal(B.standable(w.read, 8, 64, 0), true); assert.equal(B.standable(view, 8, 64, 0), false)
 })
 
+await t('A BYSTANDER ON A SLAB (Claude stage-4 r3 P3): judged by the cells it can step to -- still never walled in under the footing view', () => {
+  const w = world()
+  for (let x = 4; x <= 8; x++) for (let z = -2; z <= 2; z++) for (let y = 64; y <= 66; y++) {
+    const wall = x === 4 || x === 8 || z === -2 || z === 2
+    if (wall && !(z === 0 && x === 4 && y < 66)) w.set(x, y, z, STONE)        // one 2-high door, west
+  }
+  const SLAB = { name: 'oak_slab', boundingBox: 'block', full: false }
+  w.set(6, 63, 0, SLAB)                                                      // the bystander stands on a slab
+  const view = MJ.footingView(w.read)
+  const start = { x: 0, y: 64, z: 0 }, box = { x0: -4, x1: 12, y0: 58, y1: 70, z0: -6, z1: 6 }
+  const n = B.nextPlacement(view, { todo: [{ x: 4, y: 64, z: 0 }], start, box, bodies: [{ x: 6.5, y: 63.5, z: 0.5 }] })
+  assert.equal(n.step, null, 'closing the only door would wall it in'); assert.match(n.stuck[0], /body_walled/)
+})
+
 await t('CLICK LOCK: one holder at a time; the next waits until ITS world shows the last confirmed click; a stale lock is broken', () => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'clk2-'))
   let seen = false
@@ -358,8 +372,21 @@ await t('CLICK LOCK: one holder at a time; the next waits until ITS world shows 
   const I = MJ.clickLock(dir, 'k6', 'I', () => STONE, tick), J = MJ.clickLock(dir, 'k6', 'J', () => AIR, tick, () => false, () => true)
   assert.equal(I.acquire(cG), null)                          // I never releases (killed)
   clock += MJ.CLICK_LOCK_MS + 1
-  assert.equal(J.acquire(cH), null, 'tracked, nothing heard past the grace: no mutation')
+  assert.equal(J.acquire(cH), null, 'the chunk loaded in J\'s world, past the grace: J\'s air is the server\'s word')
   J.release(cH, null)
+  // A CONFIRMED CELL REMOVED LATER (Claude stage-4 r3 P2): a builder whose world has the chunk loaded is free once the grace is
+  // past -- after 1 s, 60 s, 1 h, 24 h alike -- never stalled for good
+  const K = MJ.clickLock(dir, 'k7', 'K', () => STONE, tick)
+  assert.equal(K.acquire(cG), null)
+  clock += 2_500                                              // the confirmation came 2.5 s after the click
+  K.release(cG, 'confirmed')
+  const early = MJ.clickLock(dir, 'k7', 'E', () => AIR, () => clock + 1_000, () => false, () => true)
+  assert.equal(early.acquire(cH), 'busy', '3.5 s after the click but 1 s after the confirmation: the grace runs from the verdict')
+  for (const later of [1_000, 60_000, 3_600_000, 86_400_000 - 1]) {
+    const L = MJ.clickLock(dir, 'k7', `L${later}`, () => AIR, () => clock + later, () => false, () => true)
+    if (later < MJ.ACK_GRACE_MS) assert.equal(L.acquire(cH), 'busy', 'inside the grace: the update may still be on its way')
+    else { assert.equal(L.acquire(cH), null, `free after ${later} ms`); L.release(cH, null) }
+  }
   let t0 = 0
   const c = MJ.clickLock(dir, 'k2', 'c', () => STONE, () => t0), d = MJ.clickLock(dir, 'k2', 'd', () => STONE, () => t0)
   assert.equal(c.acquire(cell), null)
@@ -539,6 +566,25 @@ await t('ONE ROW PER VISIT: a successful visit writes exactly one _monument row;
   assert.equal(monRows(), n0 + 2)
   const last = fs.readFileSync(path.join(process.env.LOG_DIR, 'skill-TestBot.jsonl'), 'utf8').trim().split('\n').filter(l => l.includes('"_monument"')).pop()
   assert.match(last, /stop=thrown/)
+  // THE ROW SURVIVES THE LOGGER'S 300-CHAR CUT: every field is in skill.args, the site among them
+  const rec = JSON.parse(last)
+  assert.equal(rec.skill.args.stop, 'thrown'); assert.ok('placed' in rec.skill.args && 'site' in rec.skill.args, JSON.stringify(rec.skill.args))
+})
+
+await t('THE ROW UNDER THE LOGGER CUT (logger.mjs cuts a detail at 300): the gated fields lead the detail even at worst-case widths; args carry all', () => {
+  const f = { gen: 123456, site: '-29999984,-29999984', layer: 319, seg: 'centre', placed: 48, refused: 48, silent: 48, gateP95: 123456, gateMax: 123456, lagMax: 1234567,
+    covers: 2304, waived: 2304, open: 2304, done: 2304, degraded: 2304, foreign: 2304, blocked: 2304, held: 2304, cleared: 48, unreachable: 48, repair: 8,
+    repairCand: 2304, busy: 48, advanced: 2, slot: 2, cobble0: 2304, cobble1: 2304, t0: 1792000000000.4,
+    stop: 'x'.repeat(99), wkinds: 'lava:9,water:9,'.repeat(20), fund: 'y'.repeat(99), stuckWhy: 'support:99,body:99,'.repeat(20), why: 'z'.repeat(99) }
+  const d = MJ.monumentDetail(f)
+  assert.ok(d.length <= 300, `${d.length}`)
+  const kvs = Object.fromEntries(d.split(' ').map(x => x.split('=')).filter(a => a.length === 2))
+  for (const [k, v] of [['site', f.site], ['placed', '48'], ['refused', '48'], ['silent', '48'], ['gate_ms_p95', '123456'], ['gate_ms_max', '123456'], ['lag_ms_max', '1234567'], ['covers', '2304'], ['waived', '2304'], ['open', '2304']]) {
+    assert.equal(kvs[k], v, `${k} in the cut detail`)
+  }
+  const a = MJ.monumentArgs(f)
+  assert.equal(a.lag_ms_max, 1234567); assert.equal(a.t0, 1792000000000); assert.ok(a.why.length === 60 && a.stuck.length === 80)
+  assert.deepEqual(Object.keys(a), MJ.monumentFields(f).map(([k]) => k), 'args carry every field')
 })
 
 console.log(`\n${pass} passed, ${fail} failed`); if (fail) process.exit(1)

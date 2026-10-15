@@ -389,13 +389,14 @@ export const ACK_GRACE_MS = 3_000
  *     by anyone never erases it (Codex r3 P1-1: one shared "last click" record lost an unseen confirmation), and a stale holder
  *     never overwrites another's result (Codex r3 P1-2).
  *   - BEFORE ANY CLICK, UNDER THE LOCK, this client must KNOW every other recorded click it has not yet acknowledged: its world
- *     shows the block; or the server spoke about that cell to this client since the click; or -- for a click still pending or
- *     silent, i.e. one whose author never learned the outcome -- this client has tracked that cell's chunk since before the click
- *     and heard nothing for ACK_GRACE_MS (a placement that landed would have been pushed to it). A confirmed click is known only
- *     by the block or an update. A refused click changed nothing. Otherwise: busy.
+ *     shows the block; or the server spoke about that cell to this client since the click; or the cell's chunk is LOADED in this
+ *     client's world and the click is at least ACK_GRACE_MS old -- a loaded chunk is kept current by the server (any change
+ *     reaches it within ticks, a chunk loaded later carries the block), so its air then IS the server's word, never a stale view
+ *     (Claude stage-4 r3 P2: without it, a cell removed after a confirmation stalled every other builder forever). A refused
+ *     click changed nothing. Otherwise: busy.
  * Never throws; anything it cannot read is busy.
  */
-export function clickLock (dir, key, me, read, now = () => Date.now(), heard = () => false, tracked = () => false) {
+export function clickLock (dir, key, me, read, now = () => Date.now(), heard = () => false, loaded = () => false) {
   const lockKey = `${key}.click`, prefix = `${key}.clk.`
   let held = null, mineFile = null, mineRec = null
   const acked = new Set()
@@ -417,7 +418,11 @@ export function clickLock (dir, key, me, read, now = () => Date.now(), heard = (
     if (r.verdict === 'refused') return true
     if (solid(read(...r.cell))) return true
     if (heard(r.cell, r.at)) return true
-    if ((r.verdict === 'pending' || r.verdict === 'silent') && tracked(r.cell, r.at) && now() - r.at >= ACK_GRACE_MS) return true
+    // THE CHUNK IS LOADED HERE (Claude stage-4 r3 P2: never stalled for good): a loaded chunk receives every block update the
+    // server sends for it, and a chunk loaded later arrives server-current -- so once the update has had ACK_GRACE_MS to arrive,
+    // counted from the LATER of the click and its verdict (the confirmer saw the update then; so, within the grace, did we),
+    // this world's air is the server's air
+    if (loaded(r.cell) && now() - Math.max(r.at ?? 0, r.done ?? 0) >= ACK_GRACE_MS) return true
     return false
   }
   const write = (file, rec) => {
@@ -543,15 +548,28 @@ export function monumentOrderOutcome (status, failClass, now = 0, ms = 0, state 
 
 // ---- the visit row ------------------------------------------------------------------------------------------------------
 
-/** THE `_monument` ROW, key=value (the read parses fields, never prose), cut at 560; the stop is near the front. */
+/** THE `_monument` ROW'S FIELDS, in order: the GATED and fixed-width ones first, the variable-length ones (stop, wkinds, fund,
+ * stuck, why) last. Pure. */
+export function monumentFields (f = {}) {
+  const cut = (v, n) => v == null ? null : String(v).replace(/\s+/g, '_').slice(0, n)
+  return [['gen', f.gen], ['site', f.site], ['layer', f.layer], ['seg', f.seg], ['placed', f.placed ?? 0], ['refused', f.refused ?? 0], ['silent', f.silent ?? 0],
+    ['gate_ms_p95', f.gateP95], ['gate_ms_max', f.gateMax], ['lag_ms_max', f.lagMax], ['covers', f.covers ?? 0], ['waived', f.waived], ['open', f.open],
+    ['done', f.done], ['degraded', f.degraded], ['foreign', f.foreign], ['blocked', f.blocked], ['held', f.held ?? 0], ['cleared', f.cleared ?? 0],
+    ['unreach', f.unreachable ?? 0], ['repair', f.repair ?? 0], ['repair_cand', f.repairCand ?? 0], ['busy', f.busy ?? 0], ['advanced', f.advanced ?? 0],
+    ['slot', f.slot], ['cobble0', f.cobble0], ['cobble1', f.cobble1], ['t0', Math.round(f.t0 ?? 0)],
+    ['stop', cut(f.stop ?? 'done', 40)], ['wkinds', cut(f.wkinds, 60)], ['fund', cut(f.fund, 40)], ['stuck', cut(f.stuckWhy, 80)], ['why', cut(f.why ?? '-', 60)]]
+}
+
+/** THE `_monument` ROW, key=value (the read parses fields, never prose). logEvent CUTS A DETAIL AT 300 CHARACTERS (logger.mjs),
+ * so a long row lost its tail -- lag_ms_max among it, or worse a number cut mid-digit. The row therefore carries every field
+ * STRUCTURED in `args` too (monumentArgs: the read's source of truth), and the detail puts the gated fields first. */
+export const DETAIL_CAP = 300
 export function monumentDetail (f = {}) {
-  const kv = (k, v) => `${k}=${v ?? '-'}`
-  const parts = [kv('gen', f.gen), kv('layer', f.layer), kv('seg', f.seg), kv('stop', String(f.stop ?? 'done').replace(/\s+/g, '_').slice(0, 40)), kv('placed', f.placed ?? 0), kv('cleared', f.cleared ?? 0), kv('refused', f.refused ?? 0),
-    kv('silent', f.silent ?? 0), kv('unreach', f.unreachable ?? 0), kv('repair', f.repair ?? 0), kv('open', f.open), kv('done', f.done), kv('degraded', f.degraded),
-    kv('foreign', f.foreign), kv('waived', f.waived), kv('wkinds', f.wkinds), kv('blocked', f.blocked), kv('held', f.held ?? 0), kv('covers', f.covers ?? 0), kv('repair_cand', f.repairCand ?? 0), kv('busy', f.busy ?? 0), kv('fund', f.fund), kv('cobble0', f.cobble0), kv('cobble1', f.cobble1),
-    kv('stuck', f.stuckWhy), kv('gate_ms_p95', f.gateP95), kv('gate_ms_max', f.gateMax), kv('lag_ms_max', f.lagMax), kv('advanced', f.advanced ?? 0), kv('slot', f.slot), kv('t0', Math.round(f.t0 ?? 0)),
-    kv('why', String(f.why ?? '-').replace(/\s+/g, '_').slice(0, 60))]
-  return parts.join(' ').slice(0, 560)
+  return monumentFields(f).map(([k, v]) => `${k}=${v ?? '-'}`).join(' ').slice(0, DETAIL_CAP)
+}
+/** The same fields as the row's `args` (never cut). Pure. */
+export function monumentArgs (f = {}) {
+  return Object.fromEntries(monumentFields(f).filter(([, v]) => v != null).map(([k, v]) => [k, typeof v === 'number' ? v : String(v)]))
 }
 
 /** p95 of a list of numbers (0 for none). Pure. */
