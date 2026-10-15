@@ -313,6 +313,9 @@ def selftest():
     set_cobble_target(os.environ.get('STOCK_CC'))
     # cobblecap-1000: G3 on a cobble bank row is judged against the module's cap -- at it is clean, one past it is a breach
     capc = TARGETS['cobble']
+    # the target judged with is the module's, loaded independently here (Codex cc1000-r1 P2: a literal put back must not pass)
+    cc0 = os.environ.get('STOCK_CC')
+    assert capc == town_cobble_cap(os.path.join(os.path.dirname(cc0), 'stocktarget.mjs') if cc0 else None), ('the cobble target is not the module\'s', capc)
     g3row = lambda after: {'t': dt.datetime(2026, 10, 14, tzinfo=dt.timezone.utc), 'per': 'post', 'arm': 'canary', 'name': '_stock_bank', 'status': 'success', 'bot': 'hive-a-Alpha',
                            'delta': {}, 'detail': 'group=cobble name=cobblestone planned=30 moved=30 kept=64 target=%d decision=bank town_before=%d town_after=%d complete=1 claims=1 refused=0' % (capc, after - 30, after)}
     assert judge([g3row(capc)], 3)['breach_g3_row'] == 0 and judge([g3row(capc + 1)], 3)['breach_g3_row'] == 1, ('G3 at the cobble cap %d' % capc)

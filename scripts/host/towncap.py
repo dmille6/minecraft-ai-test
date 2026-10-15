@@ -32,6 +32,11 @@ def module_candidates(explicit=None):
 
 
 def module_path(explicit=None):
+    # an EXPLICIT path that is missing fails -- never a silent fall back to another build's module (Codex cc1000-r1 P2)
+    if explicit is not None:
+        if not os.path.exists(explicit):
+            raise FileNotFoundError('towncap: %s does not exist' % explicit)
+        return os.path.abspath(explicit)
     for c in module_candidates(explicit):
         if os.path.exists(c):
             return os.path.abspath(c)
