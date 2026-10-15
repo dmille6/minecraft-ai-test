@@ -1,0 +1,271 @@
+#!/usr/bin/env python3
+# cobblecapread.py [window_min] -- the read for canary `cobblecap-1000` (OWNER 10-14 "can we up the chest limit for
+# cobblestones to 1000"). CANARY_DRYRUN=pool[,pool]:sha:iso for dry runs (never emits).
+#
+# THE CHANGE: the town cobble cap TOWN_COBBLE_CAP (bots/src/stocktarget.mjs, the one place it is written) is 1000; it was
+# 256. Every rule keyed off it moves with it: the deposit's whole-stack admission, the town deposit's, the well's cobble
+# switch (the town HOLDS its cap), the cobble prune (a stack spare only past the cap), the at-cap refusal sentence. The bag's
+# 64 reserve is unchanged. The base writes `_cobble_bank ... cap=256`, this build `cap=1000` (the licence text).
+#
+# THE CAPS ARE NEVER LITERALS HERE (towncap.py): the canary's cap from the canary's own stocktarget.mjs copy
+# (CANARY_ST, default ~/mcai-analysis/cobblecap1000/stocktarget.mjs); the base's from the control rows' own cap= field
+# (the build that wrote them), else BASE_ST / ~/mcai-analysis/stocktarget/stocktarget.mjs.
+#
+#   LIVENESS     bank_above_base_cap: canary _cobble_bank rows from the canary build that MOVED cobble with town_after above
+#                the BASE cap (256) -- a bank the old cap would have refused (>= 1)
+#   ARMS         rows_control_canary_cap: control _cobble_bank rows carrying the canary's cap= (must be 0)
+#   CORRECTNESS  (each REVERTS; each has a failing fixture in --selftest)
+#     D1  breach_bank_past_cap: a canary _cobble_bank row that moved cobble and left town_after above the CANARY cap
+#         (1000), complete or not (an incomplete count's town_after is a lower bound: above the cap is above it)
+#     D2  breach_c5_journal: (stockjournal.mjs, the canary's own fold) an admitted cobble bank claim released into a town
+#         total above the canary's cap -- UNTESTED while no cobble bank claim is admitted
+#   REPORTED     cobble moved per bot-h DiD (_cobble_bank moved=); at-cap refusals per bot-h DiD (_cobble_bank at_cap=1); the
+#                well's cobble clicks per bot-h DiD (_well_dispose cobble=; should FALL: the well takes cobble only at 1000);
+#                the town deposit's cobble_cap at_cap; the max town_after seen per arm; rows whose cap= is neither cap
+#   TRIPWIRE     new town chests placed (_deposit_new_chest placed=1) per bot-h DiD and chest-full deposit failures per
+#                bot-h DiD: 1000 cobble is 16 chest slots, so a town fills sooner (reported, never a verdict)
+#   INSTRUMENT   control _cobble_bank rows refused at the base cap (at_cap=1) (>= 1: the population the change targets)
+#   EXPOSURE     >= 3 canary _cobble_bank rows with town_before >= the base cap (rows the old cap would have refused), and
+#                the instrument
+import sys, os, json, re, glob, gzip, subprocess
+import datetime as dt
+from collections import Counter, defaultdict
+
+HERE = os.path.dirname(os.path.abspath(__file__))
+sys.path.insert(0, HERE)
+from towncap import town_cobble_cap, row_cap   # noqa: E402
+
+KEEP = ('_cobble_bank', '_well_dispose', '_town_deposit', '_deposit_new_chest', 'deposit', 'town_deposit')
+KV = re.compile(r'(?:^| )([a-z_]+)=(\S+)')
+EXPOSURE_MIN = 3
+
+
+def kv(d):
+    return {m.group(1): m.group(2) for m in KV.finditer(d or '')}
+
+
+def num(f, k, default=0):
+    try:
+        return int(f.get(k))
+    except (TypeError, ValueError):
+        return default
+
+
+def pool_of(bot):
+    return '-'.join((bot or '').split('-')[:2])
+
+
+def stream(since, until, cut, cans, cv, logroot='/var/log/mcai'):
+    files = sorted(glob.glob(logroot + '/*/skill-*.jsonl'))
+    for k in range(0, (until.date() - since.date()).days + 2):
+        tag = (since.date() + dt.timedelta(days=k)).strftime('%Y%m%d')
+        files += sorted(glob.glob(logroot + '/*/skill-*.jsonl-%s.gz' % tag))
+    seen, kept, walked, bad, offbuild = set(), [], 0, 0, 0
+    bots = defaultdict(set)
+    s_iso, u_iso = since.strftime('%Y-%m-%dT%H:%M:%S'), until.strftime('%Y-%m-%dT%H:%M:%S')
+    for f in files:
+        try:
+            fh = gzip.open(f, 'rt', errors='replace') if f.endswith('.gz') else open(f, errors='replace')
+        except OSError:
+            continue
+        with fh:
+            for line in fh:
+                ts = line[15:34] if line.startswith('{"@timestamp":"') else None
+                if ts is None or ts < s_iso or ts >= u_iso:
+                    continue
+                try:
+                    d = json.loads(line)
+                except Exception:
+                    bad += 1
+                    continue
+                sk = d.get('skill') or {}
+                n = sk.get('name')
+                b = (d.get('bot') or {}).get('name')
+                key = (d.get('@timestamp'), b, n, sk.get('detail'))
+                if key in seen:
+                    continue
+                seen.add(key)
+                walked += 1
+                t = dt.datetime.fromisoformat(d['@timestamp'].replace('Z', '+00:00'))
+                arm = 'canary' if pool_of(b) in cans else 'control'
+                per = 'post' if t >= cut else 'pre'
+                if b:
+                    bots[(per, arm)].add(b)
+                if n in KEEP:
+                    ver = ((d.get('code') or {}).get('version') or '')
+                    # a canary POST row from another build (restart lag) is not the canary's (memory: restart-lag rows)
+                    if arm == 'canary' and per == 'post' and cv and ver and not ver.startswith(cv):
+                        offbuild += 1
+                        continue
+                    kept.append({'t': t, 'per': per, 'arm': arm, 'name': n, 'status': sk.get('status'), 'detail': sk.get('detail') or '', 'bot': b})
+    kept.sort(key=lambda r: r['t'])
+    return kept, walked, bots, bad, offbuild
+
+
+def base_cap_of(rows, fallback):
+    """The base's cap from the control rows' own cap= field (the build that judged them); else the module's."""
+    caps = Counter(row_cap(kv(r['detail']), None) for r in rows if r['arm'] == 'control' and r['name'] == '_cobble_bank')
+    caps.pop(None, None)
+    return caps.most_common(1)[0][0] if caps else fallback
+
+
+def judge(rows, cap, base_cap):
+    out = {'cap': cap, 'base_cap': base_cap}
+    post_c = [r for r in rows if r['per'] == 'post' and r['arm'] == 'canary']
+    post_k = [r for r in rows if r['per'] == 'post' and r['arm'] == 'control']
+    banks_c = [(r, kv(r['detail'])) for r in post_c if r['name'] == '_cobble_bank']
+    moved = lambda f: num(f, 'moved') > 0
+    ta = lambda f: num(f, 'town_after', None)
+    out['bank_rows_canary'] = len(banks_c)
+    out['bank_above_base_cap'] = sum(1 for r, f in banks_c if moved(f) and ta(f) is not None and ta(f) > base_cap)
+    d1 = [(r['bot'], ta(f), str(r['t'])) for r, f in banks_c if moved(f) and ta(f) is not None and ta(f) > cap]
+    out['breach_bank_past_cap'] = len(d1)
+    out['rows_control_canary_cap'] = sum(1 for r in post_k if r['name'] == '_cobble_bank' and row_cap(kv(r['detail']), None) == cap) if cap != base_cap else 0
+    out['cap_field_other'] = sum(1 for r, f in banks_c if row_cap(f, cap) != cap)
+    out['max_town_after_canary'] = max([ta(f) for r, f in banks_c if ta(f) is not None] or [0])
+    out['max_town_after_control'] = max([num(kv(r['detail']), 'town_after', 0) for r in post_k if r['name'] == '_cobble_bank'] or [0])
+    out['exposure_rows'] = sum(1 for r, f in banks_c if num(f, 'town_before', -1) >= base_cap)
+    for per in ('pre', 'post'):
+        for arm in ('canary', 'control'):
+            rs = [r for r in rows if r['per'] == per and r['arm'] == arm]
+            fs = [kv(r['detail']) for r in rs if r['name'] == '_cobble_bank']
+            out['moved_%s_%s' % (per, arm)] = sum(num(f, 'moved') for f in fs)
+            out['at_cap_%s_%s' % (per, arm)] = sum(1 for f in fs if num(f, 'at_cap') > 0)
+            out['well_cobble_%s_%s' % (per, arm)] = sum(num(kv(r['detail']), 'cobble') for r in rs if r['name'] == '_well_dispose')
+            out['new_chests_%s_%s' % (per, arm)] = sum(1 for r in rs if r['name'] == '_deposit_new_chest' and r['status'] == 'success' and 'placed=1' in r['detail'])
+            out['fullfail_%s_%s' % (per, arm)] = sum(1 for r in rs if r['name'] in ('deposit', 'town_deposit') and r['status'] == 'failed' and 'full' in r['detail'])
+    td = Counter()
+    for r in post_c:
+        if r['name'] == '_town_deposit':
+            m = re.search(r' cobble_cap (\d+)/(\d+)/(\d+)', r['detail'])
+            if m:
+                td['at_cap'] += int(m.group(1)); td['unknown'] += int(m.group(2)); td['outside'] += int(m.group(3))
+    out['td_cobble_cap'] = dict(td)
+    out['instrument_control'] = out['at_cap_post_control']
+    out['exposure_ready'] = int(out['exposure_rows'] >= EXPOSURE_MIN and out['instrument_control'] >= 1)
+    out['_lists'] = {'d1': d1[:5]}
+    return out
+
+
+def journal(cc, since_ms, until_ms, dirs):
+    """D2 through stockjournal.mjs with the CANARY's cobblecap.mjs (its targetOf('cobble') is the canary's cap)."""
+    r = subprocess.run(['node', os.path.join(HERE, 'stockjournal.mjs'), cc, str(since_ms), str(until_ms), *dirs], capture_output=True, text=True, timeout=600)
+    if r.returncode != 0 or not r.stdout.strip():
+        raise RuntimeError(r.stderr[-300:])
+    j = json.loads(r.stdout)
+    return {'breach_c5_journal': sum(1 for g in j.get('g3', []) if g.get('g') == 'cobble'), 'admitted_cobble_bank': j.get('admitted_cobble_bank', 0),
+            '_g3': [g for g in j.get('g3', []) if g.get('g') == 'cobble'][:3], 'towns': len(j.get('towns', [])), 'unreadable': j.get('unreadable', [])}
+
+
+def selftest():
+    T0 = dt.datetime(2026, 10, 14, 12, 0, tzinfo=dt.timezone.utc)
+    R = lambda name, detail, mins=0, bot='hive-a-Alpha', arm='canary', per='post', status='success': {'t': T0 + dt.timedelta(minutes=mins), 'per': per, 'arm': arm, 'name': name, 'status': status, 'detail': detail, 'bot': bot}
+    B = lambda moved, before, after, cap=1000, at_cap=0, complete=1, **k: R('_cobble_bank', 'name=cobblestone planned=30 tried=%s moved=%d before=94 kept=64 src=server reserve=64 no_room=0 town_before=%d town_after=%d complete=%d cap=%d at_cap=%d unknown=0 outside=0 unknown_keys=0'
+                                                                    % ('30' if moved else '-', moved, before, after, complete, cap, at_cap), **k)
+    CTL = dict(arm='control', bot='board-a-Alpha')
+    ok = judge([B(30, 800, 830), B(0, 256, 256, cap=256, at_cap=1, **CTL)], 1000, 256)
+    assert ok['bank_above_base_cap'] == 1 and ok['breach_bank_past_cap'] == 0 and ok['rows_control_canary_cap'] == 0 and ok['instrument_control'] == 1, ok
+    assert judge([B(30, 200, 230)], 1000, 256)['bank_above_base_cap'] == 0, 'a bank under the old cap is not the change seen'
+    assert judge([B(0, 900, 900, at_cap=1)], 1000, 256)['bank_above_base_cap'] == 0, 'a refusal is not a bank'
+    assert judge([B(30, 970, 1000)], 1000, 256)['breach_bank_past_cap'] == 0, 'exactly 1000 is allowed'
+    assert judge([B(30, 971, 1001)], 1000, 256)['breach_bank_past_cap'] == 1, 'positive control: 1001 is past the cap'
+    assert judge([B(30, 990, 1020, complete=0)], 1000, 256)['breach_bank_past_cap'] == 1, 'an incomplete count above the cap is above it'
+    assert judge([B(0, 1200, 1200, at_cap=1)], 1000, 256)['breach_bank_past_cap'] == 0, 'a town already past the cap that banks nothing is no breach'
+    assert judge([B(30, 971, 1001, cap=256, **CTL)], 1000, 256)['breach_bank_past_cap'] == 0, 'the control is not judged by the canary cap'
+    assert judge([B(30, 100, 130, **CTL)], 1000, 256)['rows_control_canary_cap'] == 1, 'a control row with the canary cap: an arms breach'
+    assert judge([B(30, 100, 130, cap=256)], 1000, 256)['cap_field_other'] == 1, 'a canary-build row carrying another cap is reported'
+    assert base_cap_of([B(0, 256, 256, cap=256, at_cap=1, **CTL)], 999) == 256 and base_cap_of([], 999) == 999, 'the base cap from the control rows, else the module'
+    ready = judge([B(30, 256, 286), B(30, 300, 330, mins=1), B(0, 990, 990, mins=2, at_cap=1), B(0, 256, 256, cap=256, at_cap=1, **CTL)], 1000, 256)
+    assert ready['exposure_ready'] == 1 and ready['exposure_rows'] == 3, ready
+    assert judge([B(30, 256, 286), B(30, 300, 330, mins=1), B(0, 990, 990, mins=2, at_cap=1)], 1000, 256)['exposure_ready'] == 0, 'no instrument, not ready'
+    w = judge([R('_well_dispose', 'slots=36->35 offlist=0 cobble=30 cobble_left=64 cap=at_cap'), R('_well_dispose', 'slots=36->35 offlist=0 cobble=64 cobble_left=64 cap=at_cap', **CTL)], 1000, 256)
+    assert w['well_cobble_post_canary'] == 30 and w['well_cobble_post_control'] == 64, w
+    nc = judge([R('_deposit_new_chest', 'decision=place_carried aid=x placed=1'), R('deposit', 'chest is full', status='failed')], 1000, 256)
+    assert nc['new_chests_post_canary'] == 1 and nc['fullfail_post_canary'] == 1, nc
+    # D2 through the real stockjournal.mjs with a cobblecap.mjs whose cap is the module's (the repo's, or STOCK_CC's)
+    cands = [os.environ.get('STOCK_CC'), os.path.join(HERE, '..', '..', 'bots', 'src', 'cobblecap.mjs')]
+    cc = next((c for c in cands if c and os.path.exists(c)), None)
+    if not cc:
+        print('JOURNAL SELFTEST SKIPPED: no cobblecap.mjs'); return
+    import tempfile
+    cap = town_cobble_cap(os.path.join(os.path.dirname(cc), 'stocktarget.mjs'))
+    T = int(dt.datetime.now(dt.timezone.utc).timestamp() * 1000) - 60000
+
+    def jrun(after):
+        d = tempfile.mkdtemp(prefix='cobblecap-fx-')
+        recs = [{'t': 'cnt', 'k': 'a', 'n': cap - 64, 'cap': T, 'at': T, 'v': 2, 'm': {'cobble': cap - 64}, 'ids': [], 'scan': {'keys': ['a'], 'at': T}, 'w': None},
+                {'t': 'claim', 'id': 'c1', 'n': 64, 'k': 'a', 'at': T + 1, 'bot': 'b1', 'keys': ['a'], 'coverage': True, 'gone': [], 'w': None},
+                {'t': 'cnt', 'k': 'a', 'n': after, 'cap': T + 5, 'at': T + 5, 'v': 2, 'm': {'cobble': after}, 'ids': ['c1'], 'w': None}]
+        with open(os.path.join(d, 'town.cobble.jsonl'), 'w') as fh:
+            fh.write(''.join(json.dumps(x) + '\n' for x in recs))
+        return journal(cc, 0, T + 600000, [d])
+    good = jrun(cap)
+    assert good['admitted_cobble_bank'] == 1 and good['breach_c5_journal'] == 0, ('a bank into exactly the cap', good)
+    over = jrun(cap + 1)
+    assert over['breach_c5_journal'] == 1, ('positive control: released into cap + 1', over)
+    print('SELFTEST ok: every gate fails on its fixture and passes its control (journal cap %d from %s)' % (cap, cc))
+
+
+if __name__ == '__main__':
+    if '--selftest' in sys.argv:
+        selftest(); sys.exit(0)
+    ovr = os.environ.get('CANARY_DRYRUN')
+    if ovr:
+        CAN, CV, ISO = ovr.split(':', 2)
+        CUT = dt.datetime.fromisoformat(ISO.replace('Z', '+00:00'))
+    else:
+        man = json.load(open('/srv/mcbots/trial-manifest.json'))
+        CUT = dt.datetime.fromisoformat(man['declared_at'].replace('Z', '+00:00'))
+        CAN = man['canary_pool']; CV = man.get('canary_code_version') or ''
+    CANS = {x.strip() for x in str(CAN).split(',') if x.strip()}
+    now = dt.datetime.now(dt.timezone.utc)
+    elapsed = (now - CUT).total_seconds() / 60
+    assert elapsed > 0 and CAN, 'no canary declared'
+    W = min(elapsed, float(sys.argv[1]) if len(sys.argv) > 1 and not sys.argv[1].startswith('-') else 180)
+    END, PRE = CUT + dt.timedelta(minutes=W), CUT - dt.timedelta(minutes=W)
+    CANARY_ST = os.environ.get('CANARY_ST') or os.path.expanduser('~/mcai-analysis/cobblecap1000/stocktarget.mjs')
+    CAP = town_cobble_cap(CANARY_ST)
+    rows, walked, bots, bad, offbuild = stream(PRE, END, CUT, CANS, CV)
+    BASE = base_cap_of([r for r in rows if r['per'] == 'post'], None)
+    if BASE is None:
+        BASE = town_cobble_cap(os.environ.get('BASE_ST') or os.path.expanduser('~/mcai-analysis/stocktarget/stocktarget.mjs'))
+    res = judge(rows, CAP, BASE)
+    try:
+        jr = journal(os.path.join(os.path.dirname(CANARY_ST), 'cobblecap.mjs'), int(CUT.timestamp() * 1000), int(END.timestamp() * 1000),
+                     [d for p in sorted(CANS) for d in glob.glob('/var/lib/mcai/_pool-%s' % p)])
+    except Exception as e:
+        print('journal audit failed:', e); jr = None
+    hrs = lambda per, arm: len(bots[(per, arm)]) * W / 60
+    rate = lambda n, per, arm: n / hrs(per, arm) if hrs(per, arm) else float('nan')
+    didof = lambda k: (rate(res[k + '_post_canary'], 'post', 'canary') - rate(res[k + '_pre_canary'], 'pre', 'canary')) \
+        - (rate(res[k + '_post_control'], 'post', 'control') - rate(res[k + '_pre_control'], 'pre', 'control'))
+    dids = {k: didof(k) for k in ('moved', 'at_cap', 'well_cobble', 'new_chests', 'fullfail')}
+    print('DENOMINATORS rows walked %d (unparsable %d) | bots pre canary %d control %d | post canary %d control %d | window %d min | other-build canary rows %d'
+          % (walked, bad, len(bots[('pre', 'canary')]), len(bots[('pre', 'control')]), len(bots[('post', 'canary')]), len(bots[('post', 'control')]), W, offbuild))
+    print('CAPS         canary %d (%s) | base %d (control rows, else the fleet module)' % (CAP, CANARY_ST, BASE))
+    print('LIVENESS     canary banks that moved cobble with town_after above the base cap %d (of %d _cobble_bank rows) | control rows carrying the canary cap %d (must be 0)'
+          % (res['bank_above_base_cap'], res['bank_rows_canary'], res['rows_control_canary_cap']))
+    d2 = ('%d %s (admitted cobble bank claims %d, towns %d, unreadable %s)%s' % (jr['breach_c5_journal'], jr['_g3'], jr['admitted_cobble_bank'], jr['towns'], jr['unreadable'],
+          '' if jr['admitted_cobble_bank'] else ' UNTESTED') if jr is not None else 'UNREADABLE (blind this read)')
+    print('CORRECTNESS  D1 banks past the canary cap %d %s | D2 journal %s' % (res['breach_bank_past_cap'], res['_lists']['d1'], d2))
+    print('REPORTED     cobble moved canary %d -> %d control %d -> %d (DiD %+.2f/bot-h) | at-cap refusals DiD %+.3f | well cobble DiD %+.2f | max town_after canary %d control %d | town deposit cobble_cap %s | rows with another cap %d'
+          % (res['moved_pre_canary'], res['moved_post_canary'], res['moved_pre_control'], res['moved_post_control'], dids['moved'], dids['at_cap'], dids['well_cobble'],
+             res['max_town_after_canary'], res['max_town_after_control'], res['td_cobble_cap'], res['cap_field_other']))
+    print('TRIPWIRE     new town chests DiD %+.4f/bot-h (canary %d control %d) | chest-full deposit failures DiD %+.4f/bot-h (canary %d control %d)'
+          % (dids['new_chests'], res['new_chests_post_canary'], res['new_chests_post_control'], dids['fullfail'], res['fullfail_post_canary'], res['fullfail_post_control']))
+    print('EXPOSURE     canary rows at or above the base cap %d (>= %d) | instrument (control at-cap refusals) %d -> %s'
+          % (res['exposure_rows'], EXPOSURE_MIN, res['instrument_control'], 'READY' if res['exposure_ready'] else 'NOT YET'))
+    try:
+        if ovr:
+            raise RuntimeError('CANARY_DRYRUN set -- not emitting')
+        sys.path.insert(0, os.path.expanduser('~')); sys.path.insert(0, '/tmp')
+        from readjson import emit
+        clean = lambda v: None if v != v else round(v, 4)
+        fields = {k: v for k, v in res.items() if not k.startswith('_') and not isinstance(v, dict)}
+        fields.update({'moved_did': clean(dids['moved']), 'at_cap_did': clean(dids['at_cap']), 'well_cobble_did': clean(dids['well_cobble']),
+                       'new_chest_did': clean(dids['new_chests']), 'fullfail_did': clean(dids['fullfail']), 'other_build_rows': offbuild,
+                       'journal_audit_ran': int(jr is not None), 'breach_c5_journal': jr['breach_c5_journal'] if jr is not None else 0,
+                       'admitted_cobble_bank': jr['admitted_cobble_bank'] if jr is not None else 0})
+        emit('cobblecapread', W, fields)
+    except Exception as e:
+        print('emit failed:', e)
