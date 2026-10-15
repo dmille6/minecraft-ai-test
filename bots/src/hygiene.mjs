@@ -17,6 +17,8 @@
 // Stackable ballast (leaf_litter, eggs, seeds...) needs a pile-free disposal; both reviews laid out what burial
 // would take (settle-before-seal, Paper's cross-wall merging, trap holes) -- that is Phase 2, a separate change.
 
+import { spentStoneKept, TOOLKIT } from './toolkit.mjs'
+
 /** Worth nothing to this fleet in any quantity: never walked to by pickupNearbyItems. */
 export const NEVER_KEEP = new Set([
   'leaf_litter', 'egg', 'brown_egg', 'blue_egg', 'wheat_seeds', 'beetroot_seeds', 'melon_seeds', 'pumpkin_seeds',
@@ -44,16 +46,24 @@ const usesLeft = it => (it?.maxDurability ? it.maxDurability - (it.durabilityUse
  *   tools  the spent copies (<= 1 use) to destroy: every spent axe/shovel/hoe, and every spent pickaxe beyond
  *          the SPENT_PICKAXES_KEPT most-worn-last. Empty below TRIGGER_SLOTS. A tool with 2+ uses is never listed.
  */
-export function wearOutPlan (items = []) {
+export function wearOutPlan (items = [], { toolkit = TOOLKIT.on } = {}) {
   const list = (Array.isArray(items) ? items : []).filter(it => it?.name)
   const slots = list.length
-  if (slots < TRIGGER_SLOTS) return { slots, tools: [] }
+  if (slots < TRIGGER_SLOTS) return { slots, tools: [], toolkit: 0 }
   // EXACTLY 1 use. A copy the client still shows at 0 has already broken on the server (durability lags); it is
   // not real, so it is neither worn out nor counted toward the three last-swing keeps (both reviews: the old
   // ascending sort KEPT the phantom 0-use copies and wore out working 1-use ones).
   const spent = list.filter(it => TOOL.test(it.name) && usesLeft(it) === 1)
   const picks = spent.filter(it => it.name.endsWith('_pickaxe'))
-  return { slots, tools: [...spent.filter(it => !it.name.endsWith('_pickaxe')), ...picks.slice(SPENT_PICKAXES_KEPT)].slice(0, MAX_PER_ORDER) }
+  // THE TOOLKIT (toolkit.mjs, toolkit-01): a bag holding a usable iron pickaxe AND a usable stone spare keeps NONE of its
+  // spent STONE copies for last-swing -- two working pickaxes are the reserve. They go first; every other spent pickaxe
+  // keeps the deployed rule (the three last-swing keeps, counted over the others). `toolkit` = how many were listed only
+  // because of this rule (the row's and the read's count).
+  const stoneOut = spentStoneKept(list, SPENT_PICKAXES_KEPT, toolkit) === 0 ? picks.filter(it => it.name === 'stone_pickaxe') : []
+  const rest = picks.filter(it => !stoneOut.includes(it))
+  const base = picks.slice(SPENT_PICKAXES_KEPT)
+  const tools = [...spent.filter(it => !it.name.endsWith('_pickaxe')), ...stoneOut, ...rest.slice(SPENT_PICKAXES_KEPT)].slice(0, MAX_PER_ORDER)
+  return { slots, tools, toolkit: tools.filter(it => stoneOut.includes(it) && !base.includes(it)).length }
 }
 
 /**
@@ -99,5 +109,5 @@ export function slotObservation ({ slotKnown = false, item = null, name = '', al
  * milestone give-up either way) and never become a "reliable choice" in the prompt. cognitive.mjs asks this, so a
  * new housekeeping order cannot be wired into one of those sites and forgotten at the other.
  */
-export const HOUSEKEEPING = new Set(['wear_out', 'compost', 'build_composter', 'withdraw_pick', 'town_deposit', 'dispose_well', 'build_well', 'close_well', 'prune_town', 'count_town'])
+export const HOUSEKEEPING = new Set(['wear_out', 'compost', 'build_composter', 'withdraw_pick', 'town_deposit', 'dispose_well', 'build_well', 'close_well', 'prune_town', 'count_town', 'toolkit'])
 export const isHousekeeping = skill => HOUSEKEEPING.has(skill)
