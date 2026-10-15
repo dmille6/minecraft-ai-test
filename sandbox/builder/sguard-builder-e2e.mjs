@@ -59,12 +59,14 @@ const RUN = new Date().toISOString().replace(/[-:]/g, '').slice(4, 15)
 
 // ---------------------------------------------------------------- the arena: solid y 96..119, air 120..140, ground 119
 const C = { x: 2700, z: 2600 }
-const A = { x0: C.x - 30, x1: C.x + 30, z0: C.z - 30, z1: C.z + 30 }
+let A = { x0: C.x - 30, x1: C.x + 30, z0: C.z - 30, z1: C.z + 30 }
+const A_BIG = { x0: C.x - 50, x1: C.x + 50, z0: C.z - 50, z1: C.z + 50 }
 const HOME = { x: C.x, y: 120, z: C.z }
 function buildArena (fillTop = 'dirt') {
   const c = [`kill @e[type=!player,x=${A.x0},y=90,z=${A.z0},dx=${A.x1 - A.x0},dy=60,dz=${A.z1 - A.z0}]`]
-  for (let y = 120; y <= 140; y += 5) c.push(`fill ${A.x0} ${y} ${A.z0} ${A.x1} ${Math.min(140, y + 4)} ${A.z1} minecraft:air`)
-  for (let y = 96; y <= 119; y += 4) c.push(`fill ${A.x0} ${y} ${A.z0} ${A.x1} ${y + 3} ${A.z1} minecraft:${y >= 112 ? fillTop : 'dirt'}`)
+  const step = (A.x1 - A.x0 + 1) * (A.z1 - A.z0 + 1) > 8000 ? 3 : 4
+  for (let y = 120; y <= 140; y += step) c.push(`fill ${A.x0} ${y} ${A.z0} ${A.x1} ${Math.min(140, y + step - 1)} ${A.z1} minecraft:air`)
+  for (let y = 96; y <= 119; y += step) c.push(`fill ${A.x0} ${y} ${A.z0} ${A.x1} ${Math.min(119, y + step - 1)} ${A.z1} minecraft:${y >= 112 ? fillTop : 'dirt'}`)
   const bad = rcon(...c).filter(x => /not loaded|Cannot|Unknown|Incorrect|Too many/i.test(x.reply))
   if (bad.length) throw new Error('arena: ' + bad.map(x => x.cmd + ' => ' + x.reply).join('; '))
 }
@@ -98,7 +100,7 @@ async function visit (bb, cells, start, box, opts = {}) {
   // the driver is not src/: it sets the walk profile itself, as index.mjs's scoped wrappers do for the fleet
   const eff = BB.botBuildEffects(bb.bot, { withWalk: async fn => { bb.bot.pathfinder.setMovements(bb.moves); return fn() } })
   try {
-    return await B.runPlacements({ read: eff.read, cells, start, box, feet: eff.feet, bodies: eff.bodies, walkTo: eff.walkTo, hold: eff.hold, click: eff.click,
+    return await B.runPlacements({ read: eff.read, cells, start, box, feet: eff.feet, bodies: eff.bodies, self: eff.self, walkTo: eff.walkTo, hold: eff.hold, click: eff.click,
       fence: () => true, maxSteps: opts.maxSteps ?? 2000, deadline: Date.now() + (opts.ms ?? 20 * 60_000) })
   } finally { eff.close() }
 }
@@ -239,10 +241,34 @@ async function sceneMine (withRecord) {
   await sleep(2000)
   const s1 = countBlock(vol, 'stone')
   await stopBot()
-  const guard = rowsOf(f.skillLog).filter(r => r.skill.name === 'mine_well_guard').map(r => String(r.skill.detail).slice(0, 120))
+  const guard = rowsOf(f.skillLog).filter(r => /^_?mine_well_guard$/.test(r.skill.name)).map(r => String(r.skill.detail).slice(0, 120))
   const out = { scene: withRecord ? 'mine' : 'minectl', mine: done ? `${done.skill.status}: ${String(done.skill.detail).slice(0, 160)}` : null, reservedStoneBefore: s0, reservedStoneDug: s0 - s1, guard }
   out.ok = !!done && (withRecord ? s0 - s1 === 0 : s0 - s1 > 0)
   result(out)
+}
+// THE PERFORMED WALK-OFF (Codex stage-3 r1 P1-3): the bot stands INSIDE a 48-wide monument's box (unbuilt: its foundation
+// guard is the arena's stone), 14 from its nearest side, where every start within FAR_RADIUS is reserved. mine must walk
+// off that side itself and descend there, digging no reserved cell.
+async function sceneOffMonument () {
+  A = A_BIG
+  buildArena('stone')
+  // the box spans x C-11..C+38, z C-41..C+8; the bot is 24+ from every side (beyond FAR_RADIUS 16) and 22 from home
+  const site = { corner: { x: C.x - 10, z: C.z - 40 }, baseY: 120, stairFace: 'w' }
+  const rec = { ...REC, site }
+  const at = { x: C.x + 14, y: 120, z: C.z - 17 }
+  const vol = []; for (let x = C.x + 28; x <= C.x + 37; x++) for (let z = C.z - 23; z <= C.z - 11; z++) for (let y = 112; y <= 119; y++) vol.push({ x, y, z })
+  const s0 = countBlock(vol, 'stone')
+  const f = await startBot('offmon', KIT, at, { record: rec, yaw: 90 })   // facing west, back into the monument
+  queue.push({ skill: 'mine', args: { y: 113 } })   // 7 steps: any bearing stays inside the 101-wide arena
+  const done = await waitFor(() => rowsOf(f.skillLog).find(r => r.skill.name === 'mine'), 300000)
+  await sleep(2000)
+  const s1 = countBlock(vol, 'stone')
+  const pos = r1(`data get entity ${NAME} Pos`)
+  await stopBot()
+  const guard = rowsOf(f.skillLog).filter(r => /^_?mine_well_guard$/.test(r.skill.name)).map(r => String(r.skill.detail).slice(0, 140))
+  result({ scene: 'offmon', mine: done ? `${done.skill.status}: ${String(done.skill.detail).slice(0, 160)}` : null, reservedStoneBefore: s0, reservedStoneDug: s0 - s1, guard, pos: pos.slice(-60),
+    ok: !!done && done.skill.status === 'success' && s0 - s1 === 0 && guard.some(g => /try=off_monument/.test(g)) })
+  A = { x0: C.x - 30, x1: C.x + 30, z0: C.z - 30, z1: C.z + 30 }
 }
 async function sceneGather (withRecord) {
   buildArena('dirt')
@@ -263,7 +289,7 @@ async function sceneGather (withRecord) {
 
 await new Promise(r => brain.listen(BRAIN_PORT, '127.0.0.1', r))
 let failed = 0
-P_('forceload', rcon(`forceload add ${A.x0} ${A.z0} ${A.x1} ${A.z1}`).map(x => x.reply).join(' '))
+P_('forceload', rcon(`forceload add ${A_BIG.x0} ${A_BIG.z0} ${A_BIG.x1} ${A_BIG.z1}`).map(x => x.reply).join(' '))
 P_(`root=${BOT_ROOT} server=${SERVER} scenes=${SCENES_S}`)
 await sleep(3000)
 try {
@@ -277,6 +303,7 @@ try {
       else if (sc === 'minectl') await sceneMine(false)
       else if (sc === 'gather') await sceneGather(true)
       else if (sc === 'gatherctl') await sceneGather(false)
+      else if (sc === 'offmon') await sceneOffMonument()
       else throw new Error(`no scene ${sc}`)
     } catch (e) { failed++; P_('SCENE FAILED', sc, String(e?.stack ?? e).slice(0, 600)); await stopBot('SIGKILL') }
     queue.length = 0
@@ -284,8 +311,9 @@ try {
 } finally {
   brain.close()
   try {
-    const c = []; for (let y = 96; y <= 140; y += 5) c.push(`fill ${A.x0} ${y} ${A.z0} ${A.x1} ${Math.min(140, y + 4)} ${A.z1} minecraft:air`)
-    rcon(...c, `kill @e[type=!player,x=${A.x0},y=90,z=${A.z0},dx=${A.x1 - A.x0},dy=60,dz=${A.z1 - A.z0}]`, `forceload remove ${A.x0} ${A.z0} ${A.x1} ${A.z1}`)
+    const Z = A_BIG
+    const c = []; for (let y = 96; y <= 140; y += 3) c.push(`fill ${Z.x0} ${y} ${Z.z0} ${Z.x1} ${Math.min(140, y + 2)} ${Z.z1} minecraft:air`)
+    rcon(...c, `kill @e[type=!player,x=${Z.x0},y=90,z=${Z.z0},dx=${Z.x1 - Z.x0},dy=60,dz=${Z.z1 - Z.z0}]`, `forceload remove ${Z.x0} ${Z.z0} ${Z.x1} ${Z.z1}`)
   } catch {}
   try { fs.unlinkSync(`${R}/sandbox/.env.sguard-e2e`) } catch {}
 }

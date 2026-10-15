@@ -16,6 +16,7 @@
 import fs from 'node:fs'
 import path from 'node:path'
 import { profileAt, ZIG, stairRelFor } from './monument.mjs'
+import { sameWorld } from './blueprint.mjs'
 
 export const STRUCTURE_KINDS = ['monument']
 /** How far below the monument's base its footprint stays reserved: the foundation fill and the ground that holds it. */
@@ -51,28 +52,48 @@ export function readStructureRecord (dir, key) {
  * columns from base-FOUNDATION_GUARD up to the finished profile, plus the grand stair's cells. A record without a site, or
  * abandoned, reserves nothing.
  */
+const posInt = (v, max = 256) => Number.isInteger(v) && v > 0 && v <= max
+/** A geometry the profile functions can walk (Claude stage-3 r1 P2-5: S <= 0 never ended the tier loop). Pure. */
+export const validGeom = g => !!g && posInt(g.B) && posInt(g.S, 64) && posInt(g.H, 64) && posInt(g.STAIR_W, 64) && g.B >= 2 * g.S
 export function monumentIndex (rec) {
   const s = rec?.site
-  if (!s || !s.corner || !Number.isFinite(s.baseY) || rec.state === 'abandoned') return null
+  // A MALFORMED RECORD RESERVES NOTHING (Claude stage-3 r1 P2-5: a corner without x made every offset NaN, and NaN passed the
+  // bounds test -- a world-long band reserved, mine refused pool-wide)
+  if (!s || !s.corner || !Number.isInteger(s.corner.x) || !Number.isInteger(s.corner.z) || !Number.isInteger(s.baseY) || rec.state === 'abandoned') return null
   const g = rec.geom ?? ZIG
+  if (!validGeom(g)) return null
   const x0 = s.corner.x, z0 = s.corner.z, y0 = s.baseY
   const stairs = stairRelFor(s.stairFace ?? null, g)
   let top = 0
   for (let t = 0, L = g.B; L >= 2 * g.S && L > 0; L -= 2 * g.S, t++) top = (t + 1) * g.H
   const has = (x, y, z) => {
     const i = x - x0, j = z - z0
+    if (!Number.isFinite(i) || !Number.isFinite(j) || !Number.isFinite(y)) return false
     if (stairs.has(`${i},${j},${y - y0}`)) return true
     if (i < 0 || i >= g.B || j < 0 || j >= g.B) return false
     return y >= y0 - FOUNDATION_GUARD && y < y0 + profileAt(i, j, g)
   }
-  return { kind: 'monument', has, bottom: y0 - FOUNDATION_GUARD, top: y0 + top - 1, box: { x0: x0 - 1, x1: x0 + g.B, z0: z0 - 1, z1: z0 + g.B } }
+  return { kind: 'monument', has, base: y0, bottom: y0 - FOUNDATION_GUARD, top: y0 + top - 1, box: { x0: x0 - 1, x1: x0 + g.B, z0: z0 - 1, z1: z0 + g.B } }
+}
+
+/**
+ * THE WAY OFF A STRUCTURE for a bot standing over its box -> { x, y, z } | null (null: p is not over it). Pure. The nearest
+ * side, two cells beyond the box, at the base level (the apron): the cell a refusal names so the remedy is a `goto` the
+ * bot can make from where it is (CLAUDE.md: a refusal names a remedy performable from here).
+ */
+export function exitCell (idx, p) {
+  const b = idx?.box
+  if (!b || !p || p.x < b.x0 || p.x > b.x1 || p.z < b.z0 || p.z > b.z1) return null
+  const opts = [{ x: b.x0 - 2, z: p.z, d: p.x - b.x0 }, { x: b.x1 + 2, z: p.z, d: b.x1 - p.x }, { x: p.x, z: b.z0 - 2, d: p.z - b.z0 }, { x: p.x, z: b.z1 + 2, d: b.z1 - p.z }]
+  opts.sort((u, v) => u.d - v.d)
+  return { x: opts[0].x, y: idx.base ?? p.y, z: opts[0].z }
 }
 
 /** Every structure's index for a town (`home` = its home cell) -> [index]. Never throws. */
 export function structureIndexes (dir, home, world = null) {
   const out = []
   const rec = home ? readStructureRecord(dir, structureKey('monument', home)) : null
-  if (rec && (world == null || rec.world == null || String(rec.world) === String(world))) {
+  if (rec && sameWorld(rec.world, world)) {
     const idx = monumentIndex(rec)
     if (idx) out.push(idx)
   }
@@ -85,9 +106,10 @@ export function structureIndexes (dir, home, world = null) {
  */
 export function structureKeepOut (indexes = []) {
   const list = (indexes ?? []).filter(Boolean)
-  if (!list.length) return { forbid: null, bottom: null }
+  if (!list.length) return { forbid: null, bottom: null, exit: () => null }
   return { forbid: c => { for (const i of list) if (c && i.has(c.x, c.y, c.z)) return i.kind; return null },
-           bottom: Math.min(...list.map(i => i.bottom)) }
+           bottom: Math.min(...list.map(i => i.bottom)),
+           exit: p => { for (const i of list) { const e = exitCell(i, p); if (e) return e } return null } }
 }
 
 /**

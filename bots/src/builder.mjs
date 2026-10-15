@@ -108,7 +108,9 @@ export function walkReachBack (read, target, { box = null, forbid = () => false,
       for (let d = 1; d <= 3; d++) {
         const ya = y + d
         let clear = true
-        for (let c = y; c <= ya + 1; c++) { if ((!inBox(x, c, z) && c >= ya) || forbid(x, c, z) || !passable(read(x, c, z))) { clear = false; break } }
+        // EXACTLY walkReach's walk-off-and-drop tests (Claude stage-3 r1 P3; plinth's copy checked the box and forbid one cell
+        // higher -- safe-side, but not the inverse): the box at the walk-off height, forbid from there down, open to the head
+        for (let c = y; c <= ya + 1; c++) { if ((c === ya && !inBox(x, c, z)) || (c <= ya && forbid(x, c, z)) || !passable(read(x, c, z))) { clear = false; break } }
         if (!clear) break
         if (ok(ax, ya, az)) push(ax, ya, az)
       }
@@ -259,7 +261,7 @@ export function nextPlacement (read, { todo = [], start, box = null, forbid = ()
     if (!openCols.has(k) || c.y < openCols.get(k)) openCols.set(k, c.y)
   }
   const stuck = []
-  let looked = 0
+  let looked = 0, backNow = null
   for (const c of todo) {
     if (looked >= scan) break
     if (skip(c)) continue
@@ -272,6 +274,14 @@ export function nextPlacement (read, { todo = [], start, box = null, forbid = ()
     if (!options.some(o => standFor(read, { target: c, point: o.point, topFace: o.topFace, reach: r, avoid: forbid }))) { stuck.push(`${c.x},${c.y},${c.z}:stand`); continue }
     // THE WORLD AFTER THIS CLICK: who walks BACK to the town (a drop of 3 is a move, a climb of 2 is not -- plinth Codex r2 P1-1)
     const back = walkReachBack(overlay(read, new Map([[bk(c.x, c.y, c.z), PLACED]])), start, { box, forbid })
+    // ...AND NO BYSTANDER LOSES ITS WAY OUT (Claude stage-3 r1 P2-1: bottom-up raised every column around a body that stood
+    // still, a pit and then a shaft): a body whose feet walk to the town now must still walk there after the click
+    if (bodies.length) {
+      backNow ??= walkReachBack(read, start, { box, forbid })
+      const walled = bodies.map(b => ({ x: Math.floor(b.x), y: Math.floor(b.y + 1e-6), z: Math.floor(b.z) }))
+        .some(f => backNow.has(bk(f.x, f.y, f.z)) && !back.has(bk(f.x, f.y, f.z)))
+      if (walled) { stuck.push(`${c.x},${c.y},${c.z}:body_walled`); continue }
+    }
     const usable = { has: k => r.has(k) && back.has(k) }
     for (const o of options) {
       const stand = standFor(read, { target: c, point: o.point, topFace: o.topFace, reach: usable, avoid: forbid, prefer })
@@ -305,6 +315,8 @@ export function * sequenceSteps (read0, cells, { start, box = null, forbid = () 
     steps.push({ c: [cell.x, cell.y, cell.z], r: [ref.x, ref.y, ref.z], f: face, s: [stand.x, stand.y, stand.z] })
     prefer = stand
   }
+  // A PROOF CUT SHORT IS NOT A PROOF (Codex stage-3 r1 P2-5)
+  if (placed.size < todo.length) return { why: 'max_steps', stuck: [], steps }
   return { steps }
 }
 export function sequence (read, cells, opts = {}) {
@@ -313,6 +325,16 @@ export function sequence (read, cells, opts = {}) {
 }
 
 // ---- the executor (effects injected) ---------------------------------------------------------------------------------
+
+/** The cells' bounding box with `pad` around (y: -pad..+pad) -> box. Pure. */
+export function boxAround (cells, pad = 8) {
+  const b = { x0: Infinity, x1: -Infinity, y0: Infinity, y1: -Infinity, z0: Infinity, z1: -Infinity }
+  for (const c of cells) {
+    if (!c) continue
+    if (c.x < b.x0) b.x0 = c.x; if (c.x > b.x1) b.x1 = c.x; if (c.y < b.y0) b.y0 = c.y; if (c.y > b.y1) b.y1 = c.y; if (c.z < b.z0) b.z0 = c.z; if (c.z > b.z1) b.z1 = c.z
+  }
+  return { x0: b.x0 - pad, x1: b.x1 + pad, y0: b.y0 - pad, y1: b.y1 + pad, z0: b.z0 - pad, z1: b.z1 + pad }
+}
 
 /** At most this many clicks per cell per visit (design 3.5: one click per 4 ticks, at most 2 attempts). */
 export const BUILD_ATTEMPTS = 2
@@ -326,14 +348,23 @@ export const BUILD_ATTEMPTS = 2
  *   bodies()                 other entities now
  *   walkTo(stand)            -> truthy when the walk ended (anywhere: the stand is re-proved where the bot is)
  *   hold(cell)               -> true when a block for this cell is in hand; false = out of material (the visit ends)
- *   fence()                  -> true while this builder may still mutate (lease, record generation); asked LAST before a click
- *   click(step)              -> 'confirmed' | 'refused' | 'silent' (the server's word: the caller's witness)
+ *   fence()                  -> true while this builder may still mutate (lease, record generation)
+ *   click(step, gate)        -> 'confirmed' | 'refused' | 'silent' (the server's word: the caller's witness) | 'gate:<why>'.
+ *                               The adapter does its awaits (look, the tick pacing) FIRST, then calls gate() -- null to
+ *                               click, else the reason not to -- and clicks with NO await between (Codex stage-3 r1 P1-1:
+ *                               a lease lost or an abort during the look must not still place)
  *   aborted()                the skill's signal
- * Stops: complete | no_step | no_material | fence | max_steps | deadline | aborted.
+ * `box` bounds every walk search; when null it is derived from the cells and the start (+8 around, -8..+8 in y) -- an
+ * unbounded search over bot.blockAt is hundreds of thousands of synchronous reads a step (Claude stage-3 r1 P2-6).
+ * Stops: complete | blocked | unknown | no_step | no_material | fence | max_steps | deadline | aborted. `complete` only when
+ * every cell reads done; open cells none placeable now are `no_step`; only blocked (foreign) or unloaded cells left are
+ * `blocked` / `unknown` (Codex stage-3 r1 P2-5: never a success-shaped stop for an unfinished list).
  */
 export async function runPlacements ({ read, cells, start, box = null, forbid = () => false, feet, bodies = () => [], walkTo, hold, fence, click,
-  aborted = () => false, maxSteps = 40, deadline = Infinity, now = () => Date.now(), scan = Infinity }) {
+  aborted = () => false, maxSteps = 40, deadline = Infinity, now = () => Date.now(), scan = Infinity, self = null }) {
   const out = { placed: 0, refused: 0, silent: 0, unreachable: 0, stop: null, why: null, stuck: [], cells: [] }
+  box ??= boxAround([...cells, start])
+  const live = read
   const tries = new Map()
   const gaveUp = new Set()
   const skip = c => gaveUp.has(bk(c.x, c.y, c.z))
@@ -347,8 +378,10 @@ export async function runPlacements ({ read, cells, start, box = null, forbid = 
     if (aborted()) { out.stop = 'aborted'; break }
     if (steps >= maxSteps) { out.stop = 'max_steps'; break }
     if (now() > deadline) { out.stop = 'deadline'; break }
+    read = memo(live)                                       // one coherent, cached view per step; re-read every step
     const prog = buildProgress(read, cells)
-    if (!prog.left.length) { out.stop = 'complete'; break }
+    if (prog.done === prog.total) { out.stop = 'complete'; break }
+    if (!prog.left.length) { out.stop = prog.unknown ? 'unknown' : 'blocked'; out.why = `${prog.blocked} blocked, ${prog.unknown} unloaded`; break }
     const n = nextPlacement(read, { todo: prog.left, start, box, forbid, bodies: bodies(), prefer: feet(), skip, scan })
     if (!n.step) { out.stop = 'no_step'; out.why = n.why; out.stuck = n.stuck; break }
     const s = n.step, c = s.cell
@@ -356,17 +389,26 @@ export async function runPlacements ({ read, cells, start, box = null, forbid = 
     if (aborted()) { out.stop = 'aborted'; break }
     // RE-PROVED WHERE THE BOT IS (it may have stopped short, or somewhere else as good): never a click from a stand the
     // planner would refuse -- out of reach, under a top face, or one that walls it in
+    read = memo(live)                                       // the walk changed the world around the bot: a fresh view
     const at = feet()
     const bad = standOk(read, { stand: at, target: c, point: s.point, topFace: s.topFace, start, box, forbid })
     if (bad) { out.unreachable++; fail(c, `stand:${bad}`); continue }
-    if (!replaceable(read(c.x, c.y, c.z))) { fail(c, 'cell_changed'); continue }
-    if (!refUsable(read(s.ref.x, s.ref.y, s.ref.z))) { fail(c, 'support_changed'); continue }
-    if (bodyBlocks(bodies(), c)) { fail(c, 'body'); continue }
     if (!(await hold(c))) { out.stop = 'no_material'; break }
-    if (aborted()) { out.stop = 'aborted'; break }
-    // THE FENCE IS THE LAST THING BEFORE THE CLICK (tendFarm's rule, Codex r5 P2 there)
-    if (!fence()) { out.stop = 'fence'; break }
-    const v = await click(s)
+    // THE GATE, asked by the adapter after its last await and immediately before the click packet: everything that can
+    // change while it waits -- the abort, the cell, its support, a body walking in, and LAST the fence (tendFarm's rule)
+    const gate = () => {
+      if (aborted()) return 'aborted'
+      if (!replaceable(live(c.x, c.y, c.z))) return 'cell_changed'
+      if (!refUsable(live(s.ref.x, s.ref.y, s.ref.z))) return 'support_changed'
+      if (bodyBlocks([...bodies(), ...(self ? [self()] : [])], c)) return 'body'
+      if (!fence()) return 'fence'
+      return null
+    }
+    if (gate() === 'fence') { out.stop = 'fence'; break }   // a lease already lost: no look, no wait
+    const v = await click(s, gate)
+    if (v === 'gate:aborted') { out.stop = 'aborted'; break }
+    if (v === 'gate:fence') { out.stop = 'fence'; break }
+    if (typeof v === 'string' && v.startsWith('gate:')) { fail(c, v.slice(5)); continue }
     if (v === 'confirmed') { out.placed++; out.cells.push({ c: [c.x, c.y, c.z], verdict: v }); continue }
     if (v === 'refused') out.refused++; else out.silent++
     fail(c, v)

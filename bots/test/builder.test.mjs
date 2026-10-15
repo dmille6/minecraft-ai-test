@@ -73,6 +73,29 @@ await t('WALK: reach and reach-back agree on random worlds (walkReachBack(r, t).
   assert.ok(checked > 300 && positive > 50 && positive < checked, `both answers occur (${positive}/${checked})`)
 })
 
+await t('WALK: the reverse search is the exact inverse also with a forbid and a box top at the terrain (Claude stage-3 r1 P3)', () => {
+  let rng = 11
+  const rand = () => { rng = (rng * 1103515245 + 12345) % 2147483648; return rng / 2147483648 }
+  let checked = 0, positive = 0
+  for (let trial = 0; trial < 6; trial++) {
+    const w = world()
+    for (let x = -5; x <= 5; x++) for (let z = -5; z <= 5; z++) { const h = Math.floor(rand() * 4); for (let y = 64; y < 64 + h; y++) w.set(x, y, z, STONE) }
+    const box = { x0: -5, x1: 5, y0: 60, y1: 67, z0: -5, z1: 5 }        // the top cuts through the tallest columns' heads
+    const banned = new Set(); for (let i = 0; i < 12; i++) banned.add(`${Math.floor(rand() * 11) - 5},${64 + Math.floor(rand() * 4)},${Math.floor(rand() * 11) - 5}`)
+    const forbid = (x, y, z) => banned.has(`${x},${y},${z}`)
+    const cells = []
+    for (let x = -5; x <= 5; x++) for (let z = -5; z <= 5; z++) for (let y = 64; y <= 67; y++) if (B.standable(w.read, x, y, z) && !forbid(x, y, z)) cells.push({ x, y, z })
+    const tgt = cells[Math.floor(rand() * cells.length)]
+    const back = B.walkReachBack(w.read, tgt, { box, forbid })
+    for (const c of cells) {
+      const fwd = B.walkReach(w.read, c, { box, forbid }).has(B.bk(tgt.x, tgt.y, tgt.z))
+      assert.equal(back.has(B.bk(c.x, c.y, c.z)), fwd, `trial ${trial} ${c.x},${c.y},${c.z} -> ${tgt.x},${tgt.y},${tgt.z}`)
+      checked++; if (fwd) positive++
+    }
+  }
+  assert.ok(positive > 30 && positive < checked, `both answers occur (${positive}/${checked})`)
+})
+
 await t('CLICK: supports are below then sides, never above; a chest is no support; a top face needs the eye above it', () => {
   const w = world()
   const cell = { x: 3, y: 64, z: 0 }
@@ -138,6 +161,30 @@ await t('MUTANT KILLED: without bottom-up, the upper cell of a column is taken f
   })
 })
 
+function standingStill (m) {
+  // a 7x7x4 solid block at x 3..9, z -3..3, a body standing still on the ground in its middle (6, 64, 0)
+  const w = world()
+  const cells = []; for (let y = 64; y <= 67; y++) for (let x = 3; x <= 9; x++) for (let z = -3; z <= 3; z++) cells.push({ x, y, z })
+  const body = { x: 6.5, y: 64, z: 0.5 }
+  const box = { x0: -6, x1: 16, y0: 58, y1: 74, z0: -10, z1: 10 }
+  const placed = new Map(), rd = m.overlay(w.read, placed)
+  for (let i = 0; i < 400; i++) {
+    const n = m.nextPlacement(rd, { todo: cells.filter(c => !placed.has(m.bk(c.x, c.y, c.z))), start: START, box, bodies: [body] })
+    if (!n.step) break
+    placed.set(m.bk(n.step.cell.x, n.step.cell.y, n.step.cell.z), m.PLACED)
+  }
+  return { out: m.walksTo(rd, { x: 6, y: 64, z: 0 }, START, { box }), placed: placed.size }
+}
+await t('NEXT: a bystander standing still in a solid block is never walled in -- it keeps a walk out (Claude stage-3 r1 P2-1)', () => {
+  const r = standingStill(B)
+  assert.equal(r.out, true); assert.ok(r.placed > 60, `most of the block still builds around it (${r.placed})`)
+})
+await t('MUTANT KILLED: without the walled-body check, bottom-up raises the columns around it and it is left in a pit', async () => {
+  await withMutant(BP, "      if (walled) { stuck.push(`${c.x},${c.y},${c.z}:body_walled`); continue }\n", '', async m => {
+    assert.equal(standingStill(m).out, false)
+  })
+})
+
 // ---- the offline proof on a small ziggurat ----------------------------------------------------------------------------
 
 const G = Object.freeze({ B: 12, S: 3, H: 2, STAIR_W: 3, APRON: 2 })
@@ -191,8 +238,9 @@ function exec (w, { verdicts = null, material = Infinity, fenceAt = Infinity, bo
       feet: () => feet, bodies: () => bodiesAt(clicks),
       walkTo: async s => { log.push(`walk ${s.x},${s.y},${s.z}`); feet = { ...s } },
       hold: async () => { if (held >= material) return false; held++; return true },
-      fence: () => { fences++; return fences < fenceAt },
-      click: async s => {
+      fence: () => { fences++; return clicks < fenceAt },
+      click: async (s, gate) => {
+        const g = gate(); if (g) return `gate:${g}`
         clicks++
         const v = verdicts ? verdicts(s, clicks) : 'confirmed'
         if (v === 'confirmed') w.set(s.cell.x, s.cell.y, s.cell.z, COBBLE)
@@ -225,7 +273,7 @@ await t('EXECUTOR: a refused cell is tried at most twice, then left for the next
 
 await t('EXECUTOR: the fence is asked last before every click; a lost fence mutates nothing; out of material stops before the click', async () => {
   const w = world()
-  const e = exec(w, { fenceAt: 2 })
+  const e = exec(w, { fenceAt: 1 })                         // the lease is lost after the first click
   const r = await e.run([{ x: 3, y: 64, z: 0 }, { x: 3, y: 64, z: 2 }])
   assert.equal(r.stop, 'fence'); assert.equal(r.placed, 1); assert.equal(e.log.filter(l => l.startsWith('click')).length, 1)
   const w2 = world()
@@ -239,20 +287,20 @@ await t('EXECUTOR: a stand the bot did not reach is re-proved where it is -- nev
   let clicks = 0
   const r = await B.runPlacements({
     read: w.read, cells: [{ x: 8, y: 64, z: 0 }], start: START, feet: () => START,       // the walk never moves it
-    walkTo: async () => {}, hold: async () => true, fence: () => true, click: async () => { clicks++; return 'confirmed' },
+    walkTo: async () => {}, hold: async () => true, fence: () => true, click: async (s, gate) => { if (gate()) return 'gate'; clicks++; return 'confirmed' },
   })
   assert.equal(clicks, 0); assert.equal(r.unreachable, 2, 'two attempts, both refused on arrival')
 })
 
-await t('MUTANT KILLED: the fence moved after the click -- a lost lease still mutates', async () => {
-  await withMutant(BP, "    if (!fence()) { out.stop = 'fence'; break }\n    const v = await click(s)\n",
-    "    const v = await click(s)\n    if (!fence()) { out.stop = 'fence'; break }\n", async m => {
-      const w = world()
-      let clicks = 0
-      await m.runPlacements({ read: w.read, cells: [{ x: 3, y: 64, z: 0 }], start: START, feet: () => ({ x: 1, y: 64, z: 0 }),
-        walkTo: async () => {}, hold: async () => true, fence: () => false, click: async () => { clicks++; return 'confirmed' } })
-      assert.equal(clicks, 1, 'the mutant clicked without the fence')
-    })
+await t('MUTANT KILLED: the fence dropped from the gate -- a lease lost during the look still places', async () => {
+  await withMutant(BP, "      if (!fence()) return 'fence'\n", '', async m => {
+    const w = world()
+    let clicks = 0, lost = false
+    await m.runPlacements({ read: w.read, cells: [{ x: 3, y: 64, z: 0 }], start: START, feet: () => ({ x: 1, y: 64, z: 0 }), maxSteps: 1,
+      walkTo: async () => {}, hold: async () => { lost = true; return true }, fence: () => !lost,
+      click: async (s, gate) => { if (gate()) return `gate:${gate()}`; clicks++; return 'confirmed' } })
+    assert.equal(clicks, 1, 'the mutant clicked without the lease')
+  })
 })
 
 await t('MUTANT KILLED: the arrival re-proof removed -- the bot clicks from where it stopped, out of reach', async () => {
@@ -260,8 +308,63 @@ await t('MUTANT KILLED: the arrival re-proof removed -- the bot clicks from wher
     const w = world()
     let clicks = 0
     await m.runPlacements({ read: w.read, cells: [{ x: 8, y: 64, z: 0 }], start: START, feet: () => START, maxSteps: 3,
-      walkTo: async () => {}, hold: async () => true, fence: () => true, click: async () => { clicks++; return 'refused' } })
+      walkTo: async () => {}, hold: async () => true, fence: () => true, click: async (s, gate) => { if (gate()) return 'gate'; clicks++; return 'refused' } })
     assert.ok(clicks > 0)
+  })
+})
+
+await t('EXECUTOR: honest stops -- only blocked cells left is `blocked`, never `complete`; a proof cut short is `max_steps`', async () => {
+  const w = world()
+  w.set(3, 64, 0, CHEST)
+  const r = await exec(w).run([{ x: 3, y: 64, z: 0, want: 'cobblestone' }, { x: 3, y: 64, z: 2, want: 'cobblestone' }])
+  assert.equal(r.placed, 1); assert.equal(r.stop, 'blocked')
+  const q = B.sequence(world().read, [{ x: 3, y: 64, z: 0 }, { x: 3, y: 64, z: 2 }], { start: START, maxSteps: 1 })
+  assert.equal(q.why, 'max_steps'); assert.equal(q.steps.length, 1)
+  const ok = B.sequence(world().read, [{ x: 3, y: 64, z: 0 }, { x: 3, y: 64, z: 2 }], { start: START })
+  assert.equal(ok.why, undefined); assert.equal(ok.steps.length, 2)
+})
+
+// ---- the adapter (buildbot.mjs) on a fake mineflayer bot: the gate is asked AFTER the look and the tick wait -------------
+const BBP = path.join(here, '../src/buildbot.mjs')
+const BB = await import('../src/buildbot.mjs')
+const { Vec3 } = await import('vec3')
+function fakeBot ({ onTicks = () => {} } = {}) {
+  const placed = []
+  const bot = {
+    entity: { position: new Vec3(1.5, 64, 0.5) }, entities: {}, heldItem: { name: 'cobblestone' },
+    inventory: { items: () => [{ name: 'cobblestone', count: 64 }] }, equip: async () => {},
+    blockAt: p => ({ name: p.y < 64 ? 'stone' : 'air', boundingBox: p.y < 64 ? 'block' : 'empty', position: p }),
+    lookAt: async () => {}, waitForTicks: async () => { onTicks() },
+    _client: { on: () => {}, removeListener: () => {} }, registry: { blocksByStateId: {} },
+    _placeBlockWithOptions: async (ref, face, opts) => { placed.push({ ref: ref.position, face, opts }) },
+    pathfinder: { goto: async () => {} },
+  }
+  return { bot, placed }
+}
+const STEP = { cell: { x: 3, y: 64, z: 0 }, ref: { x: 3, y: 63, z: 0 }, face: [0, 1, 0], stand: { x: 1, y: 64, z: 0 } }
+await t('ADAPTER: a lease lost during the tick wait never places (the gate runs after the last await); with the lease it clicks, look ignored', async () => {
+  let leased = true
+  const f = fakeBot({ onTicks: () => { leased = false } })
+  const eff = BB.botBuildEffects(f.bot)
+  await eff.hold()
+  const v = await eff.click(STEP, () => (leased ? null : 'fence'))
+  assert.equal(v, 'gate:fence'); assert.equal(f.placed.length, 0)
+  const g = fakeBot()
+  const e2 = BB.botBuildEffects(g.bot)
+  await e2.hold()
+  await e2.click(STEP, () => null)
+  assert.equal(g.placed.length, 1); assert.equal(g.placed[0].opts.forceLook, 'ignore', 'no second look between the gate and the packet')
+  eff.close(); e2.close()
+})
+await t('MUTANT KILLED (adapter): the gate skipped -- the lost lease places anyway', async () => {
+  await withMutant(BBP, "      const no = gate()\n      if (no) return `gate:${no}`\n", '', async m => {
+    let leased = true
+    const f = fakeBot({ onTicks: () => { leased = false } })
+    const eff = m.botBuildEffects(f.bot)
+    await eff.hold()
+    await eff.click(STEP, () => (leased ? null : 'fence')).catch(() => {})
+    eff.close()
+    assert.equal(f.placed.length, 1)
   })
 })
 
