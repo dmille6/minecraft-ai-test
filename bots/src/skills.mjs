@@ -77,7 +77,7 @@ import { canonicalFarm, farmRecordRefusal, plotsOf, torchesOf, plotState, torchS
          farmWellAvoid, inFloorBand, farmYields, FARM_WELL_DISTANCE, FARM_TORCH_WELL_DISTANCE, FARM_CONTAINER_DISTANCE } from './treefarm.mjs'
 import path from 'node:path'
 // wellsite-01 (its own statement, away from the import stocktarget-01 rewrites)
-import { containmentRefusal, tallyText, WELL_SEARCH_RADIUS, WELL_NO_SITE_BACKOFF_MS, NO_VALID_CELL, retireLog, noSiteHold } from './well.mjs'
+import { containmentRefusal, tallyText, WELL_SEARCH_RADIUS, WELL_NO_SITE_BACKOFF_MS, WELL_BUILD_BACKOFF_MS, NO_VALID_CELL, retireLog, noSiteHold } from './well.mjs'
 import { IRON_KINDS, MIN_TRIP_USES, CANDIDATE_RADIUS, breakHazard, nearHome, pickBudget, rankCandidates, clusterOf, tunnelMovements, planTunnel, ONE_PICK_USES, tripDecision } from './oretunnel.mjs'
 import pkg from 'mineflayer-pathfinder'
 const { goals, Movements } = pkg
@@ -7924,7 +7924,9 @@ export function townWellSite (bot) {
 /** Pure: a resolver answer joined with the search this call ran (or null) -> { ...res, exhausted, tally }. */
 export function siteAnswer (res, searched) {
   const exhausted = !res?.site && !!searched && searched.exhausted === true && !searched.site && res?.why === searched.why
-  return { ...res, exhausted, tally: searched?.tally ?? null }
+  // wellsite-04 r3: a finished search whose only open columns are under the tree farm's keep-outs (well.mjs tally.farm)
+  const farmDeferred = !res?.site && !!searched && !searched.site && searched.why === NO_VALID_CELL && (searched.tally?.farm ?? 0) > 0 && res?.why === searched.why
+  return { ...res, exhausted, farmDeferred, tally: searched?.tally ?? null }
 }
 /** The recorded site (this world), or null: what a peer excludes, and what a resumed build's stage is read from. */
 function recordedWellSite (bot) {
@@ -8742,7 +8744,7 @@ async function buildWell (ctx, _args, signal) {
   if (bot.craftSync?.busy?.()) return skip('craft_busy', 'a craft is in flight; the well build waits for the next town visit')
   if (bot.currentWindow) return skip('window_open', 'a container window is open; the well build waits for the next town visit')
   const home = homeVec(), read = readWellCell(bot)
-  const { site, gen, why, exhausted, tally } = townWellSite(bot)
+  const { site, gen, why, exhausted, farmDeferred, tally } = townWellSite(bot)
   // AN EXHAUSTED SEARCH (every column read and refused) is the town's ground, said with its tally FIRST (the row is cut at
   // 300) and backed off for WELL_NO_SITE_BACKOFF_MS by wellOrderOutcome. Anything else (an unloaded cell, a record race,
   // an unreadable record) is a free skip under its own reason: a deferral is not a verdict on the ground.
@@ -8751,7 +8753,14 @@ async function buildWell (ctx, _args, signal) {
     wellRefused(bot, 'build', 'no_site', `tally=${tallyText(tally)} rec=${rec} w=${String(bot.worldId ?? '-').slice(0, 40)} the town's junk well site cannot be settled: no cell within ${WELL_SEARCH_RADIUS} of home passes the site rules; no bot of the town searches again for ${Math.round(WELL_NO_SITE_BACKOFF_MS / 60000)} min`)
     return { status: 'no_effect', failClass: 'well_no_site', detail: `the town's junk well site cannot be settled: ${NO_VALID_CELL} (${tallyText(tally)})` }
   }
-  if (!site) return skip('site_deferred', `the town's junk well site cannot be settled from here: ${String(why).replace(/composter/g, 'well')}${tally?.farm ? ` (the tree farm's keep-outs refused ${tally.farm} of ${tally.cols} columns; searched again next visit: refused ${tallyText(tally)})` : ''}`)
+  // THE TREE FARM STANDS WHERE THE WELL COULD GO (wellsite-04 r3): not the ground (no town record, no 2 h hold), but not
+  // free either -- this bot's build order waits WELL_BUILD_BACKOFF_MS (wellOrderOutcome). No ' tally=' in the row: the
+  // read's licence and leak check key on it.
+  if (!site && farmDeferred) {
+    wellRefused(bot, 'build', 'farm_deferred', `farm=${tally.farm} refused ${tallyText(tally)} the tree farm's keep-outs cover every column that would take the junk well; this bot asks again in ${Math.round(WELL_BUILD_BACKOFF_MS / 60000)} min`)
+    return { status: 'no_effect', failClass: 'well_farm_deferred', detail: `the town's junk well site is under the tree farm (${tally.farm} column(s) would take it but for the farm); asked again in ${Math.round(WELL_BUILD_BACKOFF_MS / 60000)} min` }
+  }
+  if (!site) return skip('site_deferred', `the town's junk well site cannot be settled from here: ${String(why).replace(/composter/g, 'well')}`)
   try { bot.refreshWells?.() } catch { /* the cache refreshes on its own timer too */ }   // the site is excluded from this bot's paths now
   const st = wellStand(read, site)
   if (!st) return skip('no_stand', `nowhere to stand beside the junk well site at ${site.x},${site.y},${site.z}`)

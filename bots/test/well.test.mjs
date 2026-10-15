@@ -1500,6 +1500,39 @@ await t('wellsite-01 AN EXHAUSTED SEARCH: no_effect with failClass well_no_site,
   // the scheduler holds the build order for WELL_NO_SITE_BACKOFF_MS
   assert.equal(W.wellOrderOutcome('build_well', r.status, NOW, {}, r.failClass).buildBackoffUntil, NOW + W.WELL_NO_SITE_BACKOFF_MS)
 })
+// wellsite-04 on treefarm-01 (r3): a farm record whose plots (keep-out r 4) cover every column of rings 7..14
+const farmTown = ({ blocks = {} } = {}) => {
+  const dir = mkdtempSync(path.join(tmpdir(), 'well-farm-'))
+  const cells = []
+  for (let dx = -15; dx <= 15; dx += 5) for (let dz = -15; dz <= 15; dz += 5) cells.push({ role: 'plot', x: HOME.x + dx, y: G0, z: HOME.z + dz })
+  writeFileSync(path.join(dir, `treefarm-${HOME.x}_${HOME.y}_${HOME.z}.g1.json`), JSON.stringify({ blueprint: 'treefarm', anchor: { x: HOME.x, y: G0, z: HOME.z }, cells, world: null, at: new Date().toISOString() }))
+  return { dir, town: fakeTown({ storeDir: dir, items: [S('oak_trapdoor', 2), S('dirt', 1)], blocks }) }
+}
+await t('wellsite-04 THE FARM STANDS WHERE THE WELL COULD GO: well_farm_deferred, a farm_deferred row (no tally=), NO town record, this bot waits 30 min', async () => {
+  const { dir, town } = farmTown()
+  const r = await run('build_well', town.bot)
+  assert.equal(r.status, 'no_effect', r.detail); assert.equal(r.failClass, 'well_farm_deferred', r.detail)
+  const row = (await rows('_well_refused')).pop()
+  assert.match(row.skill.detail, /^order=build reason=farm_deferred farm=\d+ /, row.skill.detail)
+  assert.ok(!row.skill.detail.includes(' tally='), 'the licence/leak key must not appear in a farm deferral')
+  assert.equal(readdirSync(dir).filter(f => f.startsWith('junkwell-nosite-')).length, 0, 'a farm deferral wrote the town hold')
+  assert.equal(W.wellOrderOutcome('build_well', r.status, NOW, {}, r.failClass).buildBackoffUntil, NOW + W.WELL_BUILD_BACKOFF_MS)
+})
+await t('wellsite-04 GROUND UNDER THE FARM IS STILL THE GROUND: the same farm over floorless rings -> well_no_site and the town record (control)', async () => {
+  const { dir, town } = farmTown({ blocks: noFloor() })
+  const r = await run('build_well', town.bot)
+  assert.equal(r.failClass, 'well_no_site', r.detail)
+  assert.equal(readdirSync(dir).filter(f => f.startsWith('junkwell-nosite-')).length, 1)
+  assert.match((await rows('_well_refused')).pop().skill.detail, /^order=build reason=no_site tally=cols:672,/)
+})
+await t('MUTANT (skills): no farm-deferral branch -- the farm-covered town is a free site_deferred skip again (no backoff: a search every visit)', async () => {
+  await withMutant(SP, '  if (!site && farmDeferred) {\n', '  if (false) {\n', async m => {
+    const { town } = farmTown()
+    const r = await within(m.SKILLS.build_well.run({ bot: town.bot }, {}, { aborted: false }), 30000, 'mutant')
+    assert.notEqual(r.failClass, 'well_farm_deferred', 'mutant inert')
+    assert.equal(W.wellOrderOutcome('build_well', r.status, NOW, {}, r.failClass).buildBackoffUntil ?? 0, 0, 'the mutant leaves no backoff')
+  })
+})
 await t('wellsite-01 THE TOWN REMEMBERS (reconnect-proof): A searches in vain -> a record; B of the same pool is held without a search (few cells read); the record aged out, or from another world, B searches', async () => {
   const store = mkdtempSync(path.join(tmpdir(), 'well-store-'))
   const a = fakeTown({ storeDir: store, items: [S('oak_trapdoor', 2), S('dirt', 1)], blocks: noFloor() })

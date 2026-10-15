@@ -620,6 +620,8 @@ function wellSpiral (home) {
  * passes wellSiteRefusal wins. Any UNKNOWN read returns no site.
  *   avoid  [{ x, z, r? }]: places bots stand (the composter, bank containers); the cap stays r (default 3) away
  */
+/** treefarm-01's keep-outs (treefarm.mjs farmWellAvoid `what`): the only avoid entries a farm move can lift. */
+const FARM_AVOID = /^a tree-farm (plot|torch)$/
 export function canonicalWellSite ({ home, read, avoid = [] } = {}) {
   if (!home || typeof read !== 'function') return { site: null, why: 'no home', exhausted: false, tally: null }
   const hy = Math.floor(home.y ?? 64)
@@ -638,13 +640,22 @@ export function canonicalWellSite ({ home, read, avoid = [] } = {}) {
     const why = wellSiteRefusal(read, cap, home, { avoid })
     if (why === 'unknown') return { site: null, why: `unknown cell near ${x},${cap.y},${z}`, exhausted: false, tally }
     if (!why) return { site: cap, why: null, exhausted: false, tally }
-    count(refusalClass(why))
+    let cls = refusalClass(why)
+    if (cls === 'farm') {
+      // FARM-ONLY? (wellsite-04 r3, Claude r2 P2) the same column judged without the farm's keep-outs: a column the ground
+      // (or the stand, the ring...) refuses anyway is the ground's, and a farm move would not free it.
+      const bare = wellSiteRefusal(read, cap, home, { avoid: avoid.filter(a => !FARM_AVOID.test(String(a?.what ?? ''))) })
+      if (bare === 'unknown') return { site: null, why: `unknown cell near ${x},${cap.y},${z}`, exhausted: false, tally }
+      if (bare) cls = refusalClass(bare)
+    }
+    count(cls)
   }
   // EXHAUSTED: every column of the search was READ and refused -- the only no-site answer that is a fact about the
   // town's ground rather than about what this bot has loaded (wellsite-01: only this one backs the build order off).
   // A TREE FARM IN THE WAY IS NOT THE GROUND (wellsite-04 on treefarm-01, Codex P2): the farm can re-found or yield and
-  // free a column inside the 2 h hold, and neither the town record nor a bot's backoff would notice. A search that any
-  // farm keep-out refused is a free deferral (searched again next visit), never a hold.
+  // free a column inside the 2 h hold, and neither the town record nor a bot's backoff would notice. tally.farm counts
+  // only columns that would take the well but for the farm (above); any such column makes the search a farm deferral
+  // (buildWell: well_farm_deferred, a per-bot WELL_BUILD_BACKOFF_MS and no town record), never the town's 2 h hold.
   const farmed = (tally.farm ?? 0) > 0
   return { site: null, why: NO_VALID_CELL, exhausted: !farmed, tally }
 }
@@ -1081,6 +1092,12 @@ export function wellOrderOutcome (skill, status, now = 0, state = {}, failClass 
   // race or an unreadable record stays a free skip. The bot cannot make a site, so the order waits for the ground to change.
   if (skill === 'build_well' && status === 'no_effect' && failClass === 'well_no_site') {
     s.buildBackoffUntil = Math.max(s.buildBackoffUntil ?? 0, now + WELL_NO_SITE_BACKOFF_MS)
+    return s
+  }
+  // THE TREE FARM STANDS WHERE THE WELL COULD GO (wellsite-04 r3, Claude r2 P2): not the ground, so no town hold -- but a
+  // free skip would re-run the whole search every 5 min (the farm yields only to a BUILT well). This bot waits 30 min.
+  if (skill === 'build_well' && status === 'no_effect' && failClass === 'well_farm_deferred') {
+    s.buildBackoffUntil = Math.max(s.buildBackoffUntil ?? 0, now + WELL_BUILD_BACKOFF_MS)
     return s
   }
   if (!WELL_ORDERS.has(skill) || status === 'no_effect' || status === 'aborted' || RUNNER_DECLINED.has(failClass)) return s

@@ -20,6 +20,7 @@ process.env.BOT_NAME = 'TestBot'
 process.env.POOL_STATE_DIR = mkdtempSync(path.join(tmpdir(), 'wellsite-store-'))
 const W = await import('../src/well.mjs')
 const { siteAnswer } = await import('../src/skills.mjs')
+const TF = await import('../src/treefarm.mjs')
 const require = createRequire(import.meta.url)
 const REG = require('minecraft-data')('1.21.11')
 const PBlock = require('prismarine-block')('1.21.11')
@@ -195,6 +196,40 @@ await t('A TREE FARM IN THE WAY IS NOT THE GROUND: a search the farm\'s keep-out
   assert.equal(bank.site, null); assert.equal(bank.exhausted, true, 'control: a non-farm keep-out is the ground and holds')
   assert.ok(!bank.tally.farm && bank.tally.avoid > 0, JSON.stringify(bank.tally))
 })
+// the farm keep-out is judged AFTER every ground rule but the stand (well.mjs wellSiteRefusal), so the one ground fact a
+// farm-refused column can still hide is NOWHERE TO STAND: a fence checkerboard at feet level leaves every even column's
+// ground whole and its four stand cells fenced; the odd columns are refused before the keep-out
+const standless = (x, y, z) => (y === G + 1 && (((x + z) % 2) + 2) % 2 === 1 ? B('oak_fence') : flatRead()(x, y, z))
+const FARM_ALL = [{ x: 0, z: 0, r: 40, what: 'a tree-farm plot' }]
+await t('GROUND UNDER THE FARM IS THE GROUND (r3): a column the farm refuses but the stand rule would refuse anyway counts as stand -- the search holds', () => {
+  const bare = W.canonicalWellSite({ home: HOME0, read: standless })
+  assert.equal(bare.site, null); assert.equal(bare.exhausted, true); assert.ok(bare.tally.stand > 0, 'control: no farm, the stand rule refuses the even columns ' + JSON.stringify(bare.tally))
+  const r = W.canonicalWellSite({ home: HOME0, read: standless, avoid: FARM_ALL })
+  assert.equal(r.site, null); assert.equal(r.exhausted, true, JSON.stringify(r.tally))
+  assert.ok(!r.tally.farm && r.tally.stand === bare.tally.stand, JSON.stringify(r.tally))
+})
+await t('MUTANT (well): no farm-free re-judging -- standless columns under the farm count as farm and the town never holds', async () => {
+  await withMutant(WP, "      if (bare) cls = refusalClass(bare)\n", '', async m => {
+    const r = m.canonicalWellSite({ home: HOME0, read: standless, avoid: FARM_ALL })
+    assert.ok(r.tally.farm > 0 && r.exhausted === false, 'mutant inert ' + JSON.stringify(r.tally))
+  })
+})
+await t('wellOrderOutcome: no_effect + well_farm_deferred -> this bot waits WELL_BUILD_BACKOFF_MS (never the 2 h hold, never free)', async () => {
+  const f = W.wellOrderOutcome
+  assert.equal(f('build_well', 'no_effect', NOW, {}, 'well_farm_deferred').buildBackoffUntil, NOW + W.WELL_BUILD_BACKOFF_MS)
+  assert.ok(W.WELL_BUILD_BACKOFF_MS < W.WELL_NO_SITE_BACKOFF_MS)
+  await withMutant(WP, "  if (skill === 'build_well' && status === 'no_effect' && failClass === 'well_farm_deferred') {", "  if (false) {", async m => {
+    assert.equal(m.wellOrderOutcome('build_well', 'no_effect', NOW, {}, 'well_farm_deferred').buildBackoffUntil ?? 0, 0, 'mutant inert')
+  })
+})
+await t('siteAnswer: farmDeferred only for a finished search with farm-only columns and the resolver\'s own words', () => {
+  const s = { site: null, why: W.NO_VALID_CELL, exhausted: false, tally: { cols: 672, farm: 3, floor: 669 } }
+  assert.equal(siteAnswer({ site: null, why: W.NO_VALID_CELL, defer: true }, s).farmDeferred, true)
+  assert.equal(siteAnswer({ site: null, why: W.NO_VALID_CELL, defer: true }, s).exhausted, false)
+  assert.equal(siteAnswer({ site: null, why: W.NO_VALID_CELL, defer: true }, { ...s, exhausted: true, tally: { cols: 672, floor: 672 } }).farmDeferred, false, 'no farm column')
+  assert.equal(siteAnswer({ site: null, why: 'unknown cell at 1,2,3', defer: true }, s).farmDeferred, false, 'the resolver said something else')
+  assert.equal(siteAnswer({ site: null, why: W.NO_VALID_CELL, defer: true }, null).farmDeferred, false, 'no search ran')
+})
 await t('MUTANT (well): the farm exception removed -- a farm-refused search is exhausted and would hold the town 2 h', async () => {
   await withMutant(WP, "  return { site: null, why: NO_VALID_CELL, exhausted: !farmed, tally }", "  return { site: null, why: NO_VALID_CELL, exhausted: true, tally }", async m => {
     assert.equal(m.canonicalWellSite({ home: HOME0, read: flatRead(), avoid: [{ x: 0, z: 0, r: 40, what: 'a tree-farm plot' }] }).exhausted, true, 'mutant inert')
@@ -220,8 +255,7 @@ await t('refusalClass: every refusal the rule can say maps to its class (none to
     [r({ '6,64,2': B('oak_door') }), 'container'],
     [r({}, CAP, HOMEFAR, [{ x: 6, z: 1, r: 7, what: 'a bank container' }]), 'avoid'],
     [r({}, CAP, HOMEFAR, [{ x: 6, z: 1 }]), 'avoid'],
-    [r({}, CAP, HOMEFAR, [{ x: 6, z: 1, r: 4, what: 'a tree-farm plot' }]), 'farm'],
-    [r({}, CAP, HOMEFAR, [{ x: 6, z: 1, r: 2, what: 'a tree-farm torch' }]), 'farm'],
+    ...TF.farmWellAvoid({ cells: [{ role: 'plot', x: 6, z: 1 }, { role: 'torch', x: 6, z: 0 }] }).map(av => [r({}, CAP, HOMEFAR, [av]), 'farm']),   // treefarm's own entries and distances
   ]
   for (const [why, cls] of cases) assert.equal(W.refusalClass(why), cls, `${why} -> ${cls}`)
   assert.equal(W.refusalClass('no site'), 'other')
@@ -236,7 +270,7 @@ await t('stand refusal class: every stand blocked', () => {
 })
 await t('siteAnswer: exhausted only when THIS call searched, the search finished empty, and the resolver said its words', () => {
   const searched = { site: null, why: W.NO_VALID_CELL, exhausted: true, tally: { cols: 672, floor: 672 } }
-  assert.deepEqual(siteAnswer({ site: null, why: W.NO_VALID_CELL, defer: true }, searched), { site: null, why: W.NO_VALID_CELL, defer: true, exhausted: true, tally: searched.tally })
+  assert.deepEqual(siteAnswer({ site: null, why: W.NO_VALID_CELL, defer: true }, searched), { site: null, why: W.NO_VALID_CELL, defer: true, exhausted: true, farmDeferred: false, tally: searched.tally })
   assert.equal(siteAnswer({ site: null, why: 'unknown cell around the town\'s composter site', defer: true }, null).exhausted, false, 'the record reused: no search ran')
   assert.equal(siteAnswer({ site: null, why: 'the site another bot just recorded is refused here (wall is air)', defer: true }, { site: { x: 1, y: 2, z: 3 }, why: null, exhausted: false }).exhausted, false, 'a race lost after a site was found')
   assert.equal(siteAnswer({ site: null, why: 'unknown cell at 1,2,3', defer: true }, { site: null, why: 'unknown cell at 1,2,3', exhausted: false }).exhausted, false)

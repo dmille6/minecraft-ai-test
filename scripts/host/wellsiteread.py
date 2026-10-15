@@ -225,6 +225,9 @@ if __name__ == '__main__':
               % (label, rate('pre', 'canary', what), rate('post', 'canary', what), rate('pre', 'control', what), rate('post', 'control', what), did(what)))
     print('             canary held rows (no search ran) %s | deferrals (site_deferred) post canary %d control %d'
           % (dict(held_by_pool), n[('post', 'canary', 'refused_site_deferred')], n[('post', 'control', 'refused_site_deferred')]))
+    # wellsite-04 on treefarm-01 (r3): a search whose only open columns lie under the farm's keep-outs -- a 30 min per-bot
+    # backoff, no town record; REPORTED (the canary's search rate in farm towns), never gated
+    print('             farm deferrals (farm_deferred) post canary %d control %d' % (n[('post', 'canary', 'refused_farm_deferred')], n[('post', 'control', 'refused_farm_deferred')]))
     print('             canary dispose successes by town %s | latest tally per canary town %s' % (dict(disposed), last_tally))
     try:
         if ovr:
@@ -237,7 +240,7 @@ if __name__ == '__main__':
             'licence_rows': n[('post', 'canary', 'licence')],
             'breach_search_repeat': len(g1), 'breach_untallied': len(untallied), 'breach_record_unstored': rec_fail,
             'searches_canary': len(searches), 'held_canary': sum(held_by_pool.values()),
-            'deferred_canary': n[('post', 'canary', 'refused_site_deferred')], 'instrument_control': inst,
+            'deferred_canary': n[('post', 'canary', 'refused_site_deferred')], 'farm_deferred_canary': n[('post', 'canary', 'refused_farm_deferred')], 'instrument_control': inst,
             'search_rate_did': nanless(did('refused_no_site')), 'build_order_rate_did': nanless(did('build_orders')),
             'retired_rate_did': nanless(did('retired')), 'dispose_rate_did': nanless(did('dispose_success')),
             'dispose_success_canary': n[('post', 'canary', 'dispose_success')],
