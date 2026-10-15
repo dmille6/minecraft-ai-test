@@ -285,6 +285,31 @@ await t('plotState: every state; ready means CLEAR_ABOVE air, so every farm spec
   assert.deepEqual(st({}).species, ['birch_sapling', 'oak_sapling'])
   assert.equal(st({ [K(20, 71, 20)]: 'stone' }).state, 'column_foreign', 'the seventh cell counts too (birch 6 + margin)')
   assert.equal(TF.plotState(world({}, { unloaded: new Set([K(20, 65, 20)]) }).read, p).state, 'unknown')
+  // A SAPLING'S COLUMN (bone meal 10-15): clear, blocked by a leftover log (which the visit clears), or by a foreign block
+  const sc = st({ [K(20, 64, 20)]: 'birch_sapling' })
+  assert.equal(sc.state, 'sapling'); assert.equal(sc.clear, true); assert.equal(sc.species, 'birch_sapling')
+  assert.equal(st({ [K(20, 64, 20)]: 'birch_sapling', [K(20, 69, 20)]: 'birch_leaves' }).clear, true, 'leaves do not block a sapling either')
+  const sl = st({ [K(20, 64, 20)]: 'birch_sapling', [K(20, 68, 20)]: 'oak_log' })
+  assert.equal(sl.state, 'sapling'); assert.equal(sl.clear, false); assert.deepEqual(sl.logs.map(c => c.y), [68])
+  const sf = st({ [K(20, 64, 20)]: 'birch_sapling', [K(20, 70, 20)]: 'cobblestone' })
+  assert.equal(sf.clear, false); assert.equal(sf.what, 'cobblestone')
+  assert.equal(TF.plotState(world({ [K(20, 64, 20)]: 'oak_sapling' }, { unloaded: new Set([K(20, 66, 20)]) }).read, p).state, 'unknown', 'a sapling whose column is not loaded is unknown, never assumed clear')
+})
+
+await t('BONE MEAL BOUNDS (owner 10-15): only clear saplings, never below BONEMEAL_RESERVE in the bag, at most BONEMEAL_PER_VISIT; a blocked sapling gets its logs cleared, never bone meal', () => {
+  const pl = i => ({ x: i * 4, y: 64, z: 0 })
+  const sap = (i, o = {}) => ({ plot: pl(i), state: 'sapling', species: 'birch_sapling', clear: true, ...o })
+  const states = [0, 1, 2, 3, 4, 5, 6, 7].map(i => sap(i))
+  const bm = (held, st = states) => TF.tendPlan({ states: st, held: { bone_meal: held }, bonemeal: true }).actions.filter(a => a.kind === 'bonemeal').length
+  assert.equal(bm(TF.BONEMEAL_RESERVE), 0, 'at the reserve: none spent')
+  assert.equal(bm(TF.BONEMEAL_RESERVE + 2), 2, 'only what is above the reserve')
+  assert.equal(bm(64), TF.BONEMEAL_PER_VISIT, 'the per-visit cap')
+  assert.equal(TF.BONEMEAL_PER_VISIT < states.length, true, 'the cap binds in this fixture')
+  const blocked = [sap(0, { clear: false, logs: [{ x: 0, y: 68, z: 0 }] }), sap(1, { clear: false, what: 'cobblestone' }), sap(2)]
+  const p = TF.tendPlan({ states: blocked, held: { bone_meal: 64 }, bonemeal: true })
+  assert.deepEqual(p.actions.filter(a => a.kind === 'bonemeal').map(a => a.cell.x), [8], 'only the clear sapling')
+  assert.deepEqual(p.actions.filter(a => a.kind === 'dig').map(a => [a.cell.x, a.cell.y]), [[0, 68]], 'the leftover log over a sapling is cleared')
+  assert.equal(bm(64, [sap(0, { clear: undefined })]), 0, 'a sapling state without a clear verdict is never bone-mealed')
 })
 
 await t('tendPlan: soil, then leftover logs (lowest first), then saplings it HOLDS (birch while it lasts), torches carried; bone meal only with the arm on', () => {
@@ -294,17 +319,17 @@ await t('tendPlan: soil, then leftover logs (lowest first), then saplings it HOL
     { plot: pl(1), state: 'ready', species: ['oak_sapling'] },
     { plot: pl(2), state: 'logs_above', logs: [{ x: 8, y: 67, z: 0 }, { x: 8, y: 66, z: 0 }] },
     { plot: pl(3), state: 'soil_lost' },
-    { plot: pl(4), state: 'sapling', species: 'oak_sapling' },
+    { plot: pl(4), state: 'sapling', species: 'oak_sapling', clear: true },
     { plot: pl(5), state: 'ready', species: ['birch_sapling', 'oak_sapling'] },
   ]
   const torches = [{ cell: { x: 2, y: 64, z: 2 }, state: 'open' }, { cell: { x: 6, y: 64, z: 2 }, state: 'done' }]
-  const held = { birch_sapling: 1, oak_sapling: 1, dirt: 5, torch: 3, bone_meal: 4 }
+  const held = { birch_sapling: 1, oak_sapling: 1, dirt: 5, torch: 3, bone_meal: TF.BONEMEAL_RESERVE + 4 }
   const p = TF.tendPlan({ states, torches, held })
   assert.deepEqual(p.actions.map(a => a.role), ['soil', 'leftover_log', 'leftover_log', 'plant', 'plant', 'torch'])
   assert.deepEqual(p.actions.filter(a => a.kind === 'dig').map(a => a.cell.y), [66, 67])
   const plants = p.actions.filter(a => a.role === 'plant')
   assert.deepEqual(plants.map(a => [a.cell.x, a.item]), [[0, 'birch_sapling'], [4, 'oak_sapling']], 'never more saplings than held; birch first, then oak')
-  assert.equal(p.actions.some(a => a.kind === 'bonemeal'), false, 'the bone meal arm is off by default')
+  assert.equal(p.actions.some(a => a.kind === 'bonemeal'), false, 'tendPlan itself spends none unless asked (the caller passes bonemealEnabled)')
   const on = TF.tendPlan({ states, torches, held, bonemeal: true })
   assert.deepEqual(on.actions.filter(a => a.kind === 'bonemeal').map(a => a.cell.x), [16])
   assert.equal(TF.tendPlan({ states, torches, held, max: 2 }).actions.length, 2)
@@ -314,10 +339,12 @@ await t('tendPlan: soil, then leftover logs (lowest first), then saplings it HOL
   assert.equal(TF.tendPlan({ states: [{ plot: pl(0), state: 'ready', species: ['oak_sapling'] }], held: {} }).actions.length, 0)
 })
 
-await t('bone meal is OFF unless TREEFARM_BONEMEAL says on; the farm is ON unless TREEFARM_ENABLED says off', () => {
-  assert.equal(TF.bonemealEnabled({}), false)
-  assert.equal(TF.bonemealEnabled({ TREEFARM_BONEMEAL: '' }), false)
+await t('bone meal is ON unless TREEFARM_BONEMEAL says off (OWNER 10-15); the farm is ON unless TREEFARM_ENABLED says off', () => {
+  assert.equal(TF.bonemealEnabled({}), true)
+  assert.equal(TF.bonemealEnabled({ TREEFARM_BONEMEAL: '' }), true)
   assert.equal(TF.bonemealEnabled({ TREEFARM_BONEMEAL: 'on' }), true)
+  assert.equal(TF.bonemealEnabled({ TREEFARM_BONEMEAL: 'off' }), false)
+  assert.equal(TF.bonemealEnabled({ TREEFARM_BONEMEAL: '0' }), false)
   assert.equal(TF.farmEnabled({}), true)
   assert.equal(TF.farmEnabled({ TREEFARM_ENABLED: 'off' }), false)
 })
@@ -459,7 +486,16 @@ function fakeTown ({ items = [], over = {}, name = 'b-Alpha', worldId = 'w1', mo
       if (m === 'ghost') w.set(c.x, c.y, c.z, 'air')
       if (m === 'refuse') setTimeout(() => send(c, b.name), 5)
     },
-    activateBlock: async () => {},
+    // BONE MEAL, as vanilla: a use on a sapling always consumes one (the server's bag); `bonemeal(cell)` decides whether
+    // the tree grew ('grow': the cell becomes a log and the server says so) or not (a stage step clients never see)
+    activateBlock: async b => {
+      const h = bot.heldItem, c = b.position
+      state.activations = (state.activations ?? 0) + 1
+      if (h?.name !== 'bone_meal' || !/_sapling$/.test(w.nameAt(c.x, c.y, c.z))) return
+      h.count--; if (!h.count) slots[h.slot] = null
+      state.bonemealed = [...(state.bonemealed ?? []), `${c.x},${c.y},${c.z}`]
+      if (state.bonemeal?.(c) === 'grow') { w.set(c.x, c.y, c.z, 'birch_log'); setTimeout(() => send(c, 'birch_log'), 5) }
+    },
   }
   return { bot, w, state, slots, client }
 }
@@ -586,6 +622,42 @@ await t('SKILL tend_farm: lost soil goes back as dirt (a solid placement through
   assert.equal(r.status, 'success', r.detail)
   assert.equal(town.w.nameAt(p.x, p.y - 1, p.z), 'dirt')
   assert.equal(field((await rows('farm_tend')).at(-1).skill.detail, 'soil'), '1')
+})
+
+await t('SKILL tend_farm, BONE MEAL ON BY DEFAULT (owner 10-15): clear saplings only, the bag keeps the reserve, the per-visit cap holds; consumption by the bag, growth only on the server\'s log', async () => {
+  const storeDir = mkdtempSync(path.join(tmpdir(), 'treefarm-bm-'))
+  const a = fakeTown({ items: [S('birch_sapling', 9)], storeDir })
+  await tend(a.bot)
+  const rec = SK.knownFarmRecord(a.bot)
+  const plots = TF.plotsOf(rec)
+  assert.equal(plots.filter(p => /_sapling$/.test(a.w.nameAt(p.x, p.y, p.z))).length, plots.length, 'the first visit planted every plot')
+  // a leftover log over one sapling (a neighbour's harvest): that column is BLOCKED -- cleared, never bone-mealed this visit
+  const blockedPlot = plots[0]
+  a.w.set(blockedPlot.x, blockedPlot.y + 4, blockedPlot.z, 'oak_log')
+  const b = fakeTown({ items: [S('bone_meal', TF.BONEMEAL_RESERVE + 10), S('stone_axe', 1)], storeDir, shared: a.w, name: 'b-Bravo' })
+  const grows = new Set([1, 2].map(i => `${plots[i].x},${plots[i].y},${plots[i].z}`))
+  b.state.bonemeal = c => (grows.has(`${c.x},${c.y},${c.z}`) ? 'grow' : 'stage')
+  const r = await tend(b.bot)
+  assert.equal(r.status, 'success', r.detail)
+  const used = (b.state.bonemealed ?? []).length
+  assert.equal(used, TF.BONEMEAL_PER_VISIT, `the per-visit cap (${used})`)
+  assert.equal(b.bot.inventory.items().filter(i => i.name === 'bone_meal').reduce((n, i) => n + i.count, 0), TF.BONEMEAL_RESERVE + 10 - TF.BONEMEAL_PER_VISIT)
+  assert.equal((b.state.bonemealed ?? []).includes(`${blockedPlot.x},${blockedPlot.y},${blockedPlot.z}`), false, 'the blocked sapling got none')
+  assert.equal(b.w.nameAt(blockedPlot.x, blockedPlot.y + 4, blockedPlot.z), 'air', 'its leftover log was cleared')
+  const row = (await rows('farm_tend')).at(-1)
+  assert.equal(+field(row.skill.detail, 'bonemeal'), TF.BONEMEAL_PER_VISIT)
+  assert.equal(+field(row.skill.detail, 'bm_grew'), 2, 'grew counts only the server-named logs')
+  // AT THE RESERVE: nothing is spent, and a visit whose only work would be bone meal is never ordered
+  const c = fakeTown({ items: [S('bone_meal', TF.BONEMEAL_RESERVE)], storeDir, shared: a.w, name: 'b-Charlie' })
+  const plan = SK.townFarmPlan(c.bot)
+  assert.equal(plan.actions.filter(x => x.kind === 'bonemeal').length, 0)
+  assert.equal(TF.farmOrder({ now: 1e7, distHome: 5, plan }).order, null, 'no order for bone meal the reserve keeps')
+  // OFF: TREEFARM_BONEMEAL=off spends none
+  process.env.TREEFARM_BONEMEAL = 'off'
+  try {
+    const d = fakeTown({ items: [S('bone_meal', 40)], storeDir, shared: a.w, name: 'b-Delta' })
+    assert.equal(SK.townFarmPlan(d.bot).actions.filter(x => x.kind === 'bonemeal').length, 0)
+  } finally { delete process.env.TREEFARM_BONEMEAL }
 })
 
 await t('REFUSAL CHAIN: no saplings -> no order at all (never a loop); with a farm and no saplings the skip names a gather the bot can do here', async () => {

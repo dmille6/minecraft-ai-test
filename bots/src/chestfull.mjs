@@ -24,6 +24,7 @@ import path from 'node:path'
 import { siteRefusal, standableBeside, narrowTop, bodyInCell, tableCellFor, sameWorld,
          CLEARANCE_CONTAINER, MIN_CONTAINER_DISTANCE, STORAGE_NEAR } from './composter.mjs'
 import { wellReservedCells, FACING, WELL_HOME_CLEARANCE } from './well.mjs'
+import { farmChestRefusal } from './treefarm.mjs'
 
 // ---- the budget on NEW chests ---------------------------------------------------------------------------------------
 
@@ -431,6 +432,8 @@ export function standingCells (read, c) {
  *   bodies         { x, y, z, w, h } of every body nearby, the bot's own included
  *   wells          every town junk well and the recorded well site (wellKeepout): never its cells, never within its
  *                  clearance
+ *   farm           the town tree farm's index (treefarm.mjs farmIndex), or null: never its cells, never within
+ *                  FARM_CONTAINER_DISTANCE of a plot (farmChestRefusal)
  * THE COMPOSTER'S CHECKS, REUSED rather than copied -- cell, floor (never a container's lid: its FLOOR_NO lists every
  * container), one-wide tops, liquid beside, corridor, doors, the home point, somewhere to stand -- by calling its
  * siteRefusal with containers read as stone everywhere but the floor cell: its container clearance is the one rule a
@@ -439,12 +442,15 @@ export function standingCells (read, c) {
  * composter and off its reserved table cell, never the last standing cell of another container, never a standing cell
  * of a crafting table, and no body in the cell.
  */
-export function chestSiteRefusal (read, site, { home = null, composterSites = [], bodies = [], wells = [] } = {}) {
+export function chestSiteRefusal (read, site, { home = null, composterSites = [], bodies = [], wells = [], farm = null } = {}) {
   if (typeof read !== 'function' || !site) return 'no site'
   const { x, y, z } = site
   if (home && !inTown(home, site)) return `outside town (more than ${STORAGE_NEAR} from home, or ${TOWN_DY} above or below it)`
   const well = wellKeepout(site, wells)
   if (well) return well
+  // THE TOWN TREE FARM (treefarm-01): never a farm cell, never within the farm's own container distance of a plot.
+  const tree = farmChestRefusal(farm, site)
+  if (tree) return tree
   const masked = (qx, qy, qz) => {
     const b = read(qx, qy, qz)
     if (!b || (qx === x && qy === y - 1 && qz === z)) return b
@@ -540,7 +546,7 @@ export function chestSiteColumns (anchor, rings = SITE_RINGS) {
  * column is skipped, not fatal: a chest needs no town-wide agreement on its cell -- the claim ledger keeps the count.
  * `skip` lists cells already refused this call.
  */
-export function pickChestSite ({ read, anchor, home = null, composterSites = [], bodies = [], wells = [], rings = SITE_RINGS, skip = [] } = {}) {
+export function pickChestSite ({ read, anchor, home = null, composterSites = [], bodies = [], wells = [], farm = null, rings = SITE_RINGS, skip = [] } = {}) {
   const refused = {}
   const bump = k => { refused[k] = (refused[k] ?? 0) + 1 }
   if (typeof read !== 'function' || !anchor) return { site: null, stand: null, why: 'no anchor', refused }
@@ -553,7 +559,7 @@ export function pickChestSite ({ read, anchor, home = null, composterSites = [],
     }
     if (!surface) { bump('no surface'); continue }
     if ((skip ?? []).some(q => q.x === surface.x && q.y === surface.y && q.z === surface.z)) { bump('tried'); continue }
-    const why = chestSiteRefusal(read, surface, { home, composterSites, bodies, wells })
+    const why = chestSiteRefusal(read, surface, { home, composterSites, bodies, wells, farm })
     if (!why) return { site: surface, stand: standableBeside(read, surface), why: null, refused }
     bump(why.replace(/ at -?\d+,-?\d+,-?\d+$/, ''))
   }

@@ -16,10 +16,11 @@
 // trees first because they are the nearest logs to town; the farm's own visit only (1) restores lost soil, (2) clears
 // LEFTOVER logs from a plot's column (a gather that took the reachable bottom of a trunk leaves the top floating, and a
 // floating log blocks the next sapling's clearance for ever), (3) replants, (4) places growth torches if it carries
-// them, and (5) -- only with TREEFARM_BONEMEAL on, which is OFF by default and not yet an owner decision -- bone meals
-// the saplings.
+// them, and (5) bone meals saplings whose column is clear -- ON by default since the OWNER's 10-15 decision ("lets build
+// it and use the bone [meal]"), bounded by a bag reserve and a per-visit cap; TREEFARM_BONEMEAL=off turns it off.
 
 import { placeAt, cellKey, keyOf, REPLACEABLE, solid, passable, isLiquid, materialPlan } from './blueprint.mjs'
+import { TOWN_GROUND_HALF, TOWN_GROUND_DEPTH } from './townground.mjs'
 
 // ---- the blueprint --------------------------------------------------------------------------------------------------
 
@@ -217,22 +218,36 @@ export function plotState (read, plot) {
   const cell = read(plot.x, plot.y, plot.z), soil = read(plot.x, plot.y - 1, plot.z)
   if (!cell || !soil) return { state: 'unknown' }
   if (isLog(cell.name)) return { state: 'tree' }
-  if (isSaplingName(cell.name)) return { state: 'sapling', species: cell.name }
+  if (isSaplingName(cell.name)) {
+    // A SAPLING'S COLUMN (bone meal 10-15): a log or a foreign block in it means the tree cannot grow there -- bone meal on
+    // it is spent for nothing (vanilla consumes it whether or not the tree fits), so the plot says so and the visit clears
+    // the leftover logs first. Leaves do not block (measured, below).
+    const { logs, foreign, unknown } = columnAbove(read, plot)
+    if (unknown) return { state: 'unknown' }
+    return { state: 'sapling', species: cell.name, ...(logs.length ? { logs } : {}), clear: !logs.length && !foreign, ...(foreign ? { what: foreign } : {}) }
+  }
   if (!PLANTABLE_SOIL.has(soil.name)) return REPLACEABLE.has(soil.name) ? { state: 'soil_lost' } : { state: 'soil_foreign', what: soil.name }
   if (!REPLACEABLE.has(cell.name)) return { state: 'cell_foreign', what: cell.name }
+  const { logs, leaves, foreign, unknown } = columnAbove(read, plot)
+  if (unknown) return { state: 'unknown' }
+  if (logs.length) return { state: 'logs_above', logs }
+  if (foreign) return { state: 'column_foreign', what: foreign }
+  return { state: 'ready', species: [...FARM_SPECIES], leaves }
+}
+
+/** The CLEAR_ABOVE cells over a plot -> { logs, leaves, foreign, unknown }. Pure. Leaves are noted, never an obstruction. */
+function columnAbove (read, plot) {
   const logs = []
   let leaves = false, foreign = null
   for (let k = 1; k <= CLEAR_ABOVE; k++) {
     const b = read(plot.x, plot.y + k, plot.z)
-    if (!b) return { state: 'unknown' }
+    if (!b) return { logs, leaves, foreign, unknown: true }
     if (isLog(b.name)) { logs.push({ x: plot.x, y: plot.y + k, z: plot.z }); continue }
     if (isLeaves(b.name)) { leaves = true; continue }   // a leaf is not an obstruction (measured): noted, not refused
     if (b.name === 'air' || b.name === 'cave_air') continue
     if (!foreign) foreign = b.name
   }
-  if (logs.length) return { state: 'logs_above', logs }
-  if (foreign) return { state: 'column_foreign', what: foreign }
-  return { state: 'ready', species: [...FARM_SPECIES], leaves }
+  return { logs, leaves, foreign, unknown: false }
 }
 
 /**
@@ -266,10 +281,12 @@ export function torchState (read, t) {
   return 'blocked'
 }
 
-/** The bone meal arm. OFF unless TREEFARM_BONEMEAL says on: the owner has not decided bone meal (10-05). Pure. */
+/** The bone meal arm. ON unless TREEFARM_BONEMEAL says off: OWNER 10-15 "lets build it and use the bone [meal]" (it was
+ *  OFF by default from 10-05 while the decision was pending). Pure. */
 export function bonemealEnabled (env = {}) {
   const v = env?.TREEFARM_BONEMEAL
-  return typeof v === 'string' && /^(1|true|yes|on)$/i.test(v.trim())
+  if (v === undefined || v === null || String(v).trim() === '') return true
+  return !/^(0|false|no|off)$/i.test(String(v).trim())
 }
 /** The farm itself, on unless TREEFARM_ENABLED says off (a kill switch for the canary pool's env). Pure. */
 export function farmEnabled (env = {}) {
@@ -283,7 +300,15 @@ export const MAX_MUTATIONS_PER_VISIT = 14
 /** A leftover log above this (relative to the plot cell) is out of a standing bot's dig reach (blueprint DIG_REACH): the
  *  plot is counted `logs_high` and left (a fancy oak's crown), never an action that fails on every visit. */
 export const MAX_DIG_UP = 6
+/** BONE MEAL BOUNDS (owner 10-15: "bound it so it can't starve composting or other uses"). A visit spends at most
+ *  BONEMEAL_PER_VISIT, one per sapling, only on a sapling whose column is clear (a blocked one would eat it for nothing),
+ *  and never below BONEMEAL_RESERVE in the bag: the reserve is what any other use (none in the code today; the fleet held
+ *  ~1,860 on 10-15, ~23 a bot) keeps. Composting is not starved by spending: it MAKES bone meal and needs bag room for it
+ *  (composter.mjs boneMealRoom), which spending only adds. Each use advances a sapling one stage 45% of the time (vanilla
+ *  SaplingBlock: two stages to a tree), so a tree costs ~4.4 bone meal from a fresh sapling -- the farm's own harvest
+ *  rate bounds the spend. */
 export const BONEMEAL_PER_VISIT = 6
+export const BONEMEAL_RESERVE = 8
 
 /**
  * THE VISIT'S WORK, IN ORDER -> { actions: [...], counts, materials }. Pure.
@@ -300,7 +325,7 @@ export function tendPlan ({ states = [], torches = [], held = {}, bonemeal = fal
   for (const s of states) counts[s.state] = (counts[s.state] ?? 0) + 1
   for (const s of states) if (s.state === 'soil_lost' && (left.dirt ?? 0) > 0) { actions.push({ kind: 'place', cell: { x: s.plot.x, y: s.plot.y - 1, z: s.plot.z }, item: 'dirt', role: 'soil' }); left.dirt-- }
   for (const s of states) {
-    if (s.state !== 'logs_above') continue
+    if (s.state !== 'logs_above' && !(s.state === 'sapling' && s.logs?.length)) continue
     const reachable = [...s.logs].sort((a, b) => a.y - b.y).filter(l => l.y - s.plot.y <= MAX_DIG_UP)
     if (reachable.length < s.logs.length) counts.logs_high = (counts.logs_high ?? 0) + 1
     for (const l of reachable) actions.push({ kind: 'dig', cell: l, role: 'leftover_log', plot: s.plot })
@@ -315,7 +340,12 @@ export function tendPlan ({ states = [], torches = [], held = {}, bonemeal = fal
   for (const t of torches) if (t.state === 'open' && (left.torch ?? 0) > 0) { actions.push({ kind: 'place', cell: t.cell, item: 'torch', role: 'torch' }); left.torch-- }
   if (bonemeal) {
     let n = 0
-    for (const s of states) if (s.state === 'sapling' && (left.bone_meal ?? 0) > 0 && n < BONEMEAL_PER_VISIT) { actions.push({ kind: 'bonemeal', cell: { x: s.plot.x, y: s.plot.y, z: s.plot.z }, item: 'bone_meal', role: 'bonemeal' }); left.bone_meal--; n++ }
+    for (const s of states) {
+      // only a sapling whose column is CLEAR (a log or foreign block there: vanilla eats the bone meal and grows nothing),
+      // only above the reserve, at most BONEMEAL_PER_VISIT
+      if (s.state !== 'sapling' || s.clear !== true || (left.bone_meal ?? 0) <= BONEMEAL_RESERVE || n >= BONEMEAL_PER_VISIT) continue
+      actions.push({ kind: 'bonemeal', cell: { x: s.plot.x, y: s.plot.y, z: s.plot.z }, item: 'bone_meal', role: 'bonemeal' }); left.bone_meal--; n++
+    }
   }
   const ready = states.filter(s => s.state === 'ready')
   const materials = materialPlan(ready.map(s => ({ items: s.species?.length ? s.species : FARM_SPECIES })), held)
@@ -396,6 +426,53 @@ export function farmBreakCost (idx, block) {
   return idx.soil.has(cellKey(p.x, p.y, p.z)) ? 100 : 0
 }
 
+// ---- composition: the other town structures ---------------------------------------------------------------------------
+
+/** A tree's canopy (birch radius 2, oak 2-3) must never reach the junk well's throw column, and a plot is never a well's
+ *  stand: the junk well's cap and a farm plot keep this horizontal distance, from EITHER side (the farm's site search
+ *  avoids a well; the well's, and the raised well's, avoid the farm through skills.mjs wellAvoid). */
+export const FARM_WELL_DISTANCE = 4
+/** A torch cell and a well cap (or a plinth's planned cell) keep this horizontal distance. */
+export const FARM_TORCH_WELL_DISTANCE = 2
+
+/** THE FARM AS THE WELL SEARCH'S `avoid` ENTRIES -> [{ x, z, r, what }]. Pure. */
+export function farmWellAvoid (record) {
+  const out = []
+  for (const c of record?.cells ?? []) {
+    if (c.role === 'plot') out.push({ x: c.x, z: c.z, r: FARM_WELL_DISTANCE, what: 'a tree-farm plot' })
+    else if (c.role === 'torch') out.push({ x: c.x, z: c.z, r: FARM_TORCH_WELL_DISTANCE, what: 'a tree-farm torch' })
+  }
+  return out
+}
+
+/**
+ * MAY A NEW CHEST GO AT `site`? (chest-full's site search) -> reason | null. Pure. Never a farm cell (soil, a plot column,
+ * a torch cell), and never within FARM_CONTAINER_DISTANCE of a plot -- the farm's own rule at founding (a grown tree's
+ * leaves would wall in the chest's stand, and a lid must open).
+ */
+export function farmChestRefusal (idx, site) {
+  if (!idx || !site) return null
+  const { x, y, z } = site
+  if (farmPlaceRefusal(idx, x, y, z, 'chest')) return `a tree-farm cell at ${x},${y},${z}`
+  for (const [k, span] of idx.column ?? []) {
+    const [px, pz] = k.split(',').map(Number)
+    if (Math.hypot(px - x, pz - z) <= FARM_CONTAINER_DISTANCE && y >= span[0] - 2 && y <= span[1]) return `within ${FARM_CONTAINER_DISTANCE} of a tree-farm plot at ${px},${span[0]},${pz}`
+  }
+  return null
+}
+
+/**
+ * THE TOWN FLOOR'S BAND (townfloor-2026-10-14.md 2.1: Chebyshev TOWN_GROUND_HALF around home, from home.y-12 up to the
+ * floor level L = home.y-2): the floor job fills open cells there with stone, so a farm plot or torch whose cell is in
+ * the band would be a floor target. The farm's site search refuses those cells. Pure.
+ */
+export const FLOOR_HALF = TOWN_GROUND_HALF, FLOOR_DEPTH = TOWN_GROUND_DEPTH, FLOOR_TOP = 2
+export function inFloorBand (home, c) {
+  if (!home || !c || ![home.x, home.y, home.z, c.x, c.y, c.z].every(Number.isFinite)) return false
+  const L = Math.floor(home.y) - FLOOR_TOP
+  return Math.max(Math.abs(c.x - Math.floor(home.x)), Math.abs(c.z - Math.floor(home.z))) <= FLOOR_HALF && c.y <= L && c.y >= L - (FLOOR_DEPTH - FLOOR_TOP)
+}
+
 // ---- the order ----------------------------------------------------------------------------------------------------------
 
 export const TEND_COOLDOWN_MS = 5 * 60 * 1000
@@ -447,17 +524,20 @@ export function farmOrderOutcome (skill, status, now = 0, state = {}, failClass 
 
 /**
  * THE _farm_tend ROW, key=value (the read parses fields, never prose); stop= before the plot census (cut at 300).
- *   planted / soil / cleared / torches / bonemeal   VERIFIED by a server block update at the cell (never the click)
+ *   planted / soil / cleared / torches   VERIFIED by a server block update at the cell (never the click)
+ *   bonemeal   uses VERIFIED by the server's bag (one fewer bone meal); bm_grew  of those, the ones after which the server
+ *              named a log at the sapling's cell within the visit (the stage-0 -> 1 step is invisible to clients: vanilla
+ *              sets it with flag 4, so only a grown tree is ever seen)
  *   failed     mutations the server refused or never answered;  offplan  mutations at a cell not in the record (must be 0)
  *   lost       non-farm items the bag lost during the visit (must be 0)
  *   census     the plots as this visit read them before acting: tree, sapling, ready, logs_above, ...
  *   t0         the visit's start (epoch ms): with the row's own time, the span the read checks for two builders at once
  */
-export function farmTendDetail ({ gen = 0, planted = 0, soil = 0, cleared = 0, torches = 0, bonemeal = 0, failed = 0, offplan = 0, lost = 0,
+export function farmTendDetail ({ gen = 0, planted = 0, soil = 0, cleared = 0, torches = 0, bonemeal = 0, bmGrew = 0, failed = 0, offplan = 0, lost = 0,
                                   lease = '-', stop = 'done', census = {}, species = {}, at = null, t0 = 0 } = {}) {
   const c = Object.entries(census).filter(([, n]) => n > 0).map(([k, n]) => `${k}:${n}`).join(',') || '-'
   const sp = Object.entries(species).filter(([, n]) => n > 0).map(([k, n]) => `${k}:${n}`).join(',') || '-'
-  return (`gen=${gen} planted=${planted} soil=${soil} cleared=${cleared} torches=${torches} bonemeal=${bonemeal} failed=${failed} ` +
+  return (`gen=${gen} planted=${planted} soil=${soil} cleared=${cleared} torches=${torches} bonemeal=${bonemeal} bm_grew=${bmGrew} failed=${failed} ` +
           `offplan=${offplan} lost=${lost} lease=${lease}${at ? ` at=${at.x},${at.y},${at.z}` : ''} t0=${Math.round(t0) || 0} ` +
           `stop=${String(stop).replace(/\s+/g, '_').slice(0, 80)} census=${c} species=${sp}`).slice(0, 300)
 }
