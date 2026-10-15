@@ -214,7 +214,7 @@ await t('...and when that walk cannot be made, mine refuses naming the cell off 
 })
 
 await t('MUTANT KILLED (skills): the off-monument walk removed -- from the summit mine only refuses (no descent)', async () => {
-  await withMutant(SKP, "  if (wellPlan.action === 'refuse' && !wellPlan.inside && (wellPlan.hit?.kind ?? wellPlan.kind) === 'monument') {", "  if (false) {", async m => {
+  await withMutant(SKP, "  if (wellPlan.action === 'refuse' && !wellPlan.inside && keepKind(wellPlan) === 'monument') {", "  if (false) {", async m => {
     const bot = world({ built: true })
     bot.entity.position = new V(SITE.corner.x + 24.5, 80, SITE.corner.z + 24.5)
     const res = await run(m, bot)
@@ -305,16 +305,63 @@ await t('TUNNEL DIG BOUNDARY (guardTunnelDigs): a pathfinder break of a reserved
   setMonument(true)
   const refused = []
   const restore = SK.guardTunnelDigs(bot, c => refused.push(c))
-  const res = { name: 'stone', position: { x: SITE.corner.x, y: 60, z: SITE.corner.z } }, free = { name: 'stone', position: { x: SITE.corner.x - 3, y: 60, z: SITE.corner.z } }
+  const res = { name: 'stone', position: new V(SITE.corner.x, 60, SITE.corner.z) }, free = { name: 'stone', position: new V(SITE.corner.x - 3, 60, SITE.corner.z) }
   let err = null
   try { await bot.dig(res, true) } catch (e) { err = e }
   assert.ok(err?.reserved, String(err?.message)); assert.equal(refused.length, 1); assert.equal(dug.length, 0)
   await bot.dig(free, true); assert.equal(dug.length, 1, 'a free cell is dug')
   mining = false
-  await bot.dig(res, true); assert.equal(dug.length, 2, 'not the pathfinder breaking: a reflex or a skill dig is untouched')
+  await bot.dig(res, true); assert.equal(dug.length, 2, 'not the pathfinder breaking: a skill dig is untouched')
   mining = true
+  await bot.dig(res); assert.equal(dug.length, 3, 'a reflex dig (no forceLook) during a pathfinder break is untouched (survival: design 3.6)')
   restore()
-  await bot.dig(res, true); assert.equal(dug.length, 3, 'restored: the original dig')
+  await bot.dig(res, true); assert.equal(dug.length, 4, 'restored: the original dig')
+})
+
+await t('TUNNEL DIG BOUNDARY on mineflayer\'s REAL digging plugin: a record written during the look sends NO block_dig (Codex stage-3 r3 P1); control digs', async () => {
+  const { EventEmitter } = await import('node:events')
+  const { createRequire } = await import('node:module')
+  const inject = createRequire(import.meta.url)('mineflayer/lib/plugins/digging.js')
+  const mk = onLook => {
+    const bot = new EventEmitter()
+    const sent = []
+    Object.assign(bot, { worldId: null, _client: { write: (name, pkt) => sent.push({ name, ...pkt }), on: () => {} }, digTime: () => 50, swingArm: () => {},
+      _updateBlockState: () => {}, entity: { position: new V(SITE.corner.x - 1.5, 61, SITE.corner.z + 0.5), eyeHeight: 1.62 },
+      lookAt: async () => { onLook() }, pathfinder: { isMining: () => true } })
+    inject(bot)
+    bot.digTime = () => 50                                   // the plugin's own needs the full inventory plugin
+    return { bot, sent }
+  }
+  setMonument(false)
+  const block = { name: 'stone', position: new V(SITE.corner.x, 60, SITE.corner.z), shapes: [[0, 0, 0, 1, 1, 1]] }
+  // THE MUTANT (the old order: the check before the look, the plugin's own look after it): the packet goes out
+  await withMutant(SKP, "    try { await bot.lookAt(p.offset(0.5, 0.5, 0.5), true) } catch { /* the dig still faces the block */ }\n    let kind = null\n",
+    "    let kind = null\n", async m => {
+      setMonument(false)
+      const x = mk(() => setMonument(true))
+      const un = m.guardTunnelDigs(x.bot)
+      const d = x.bot.dig(block, true).catch(() => {})
+      await new Promise(r => setTimeout(r, 60)); un()
+      x.bot.emit(`blockUpdate:${block.position}`, block, { ...block, type: 0, name: 'air' }); await d
+      // with the look gone nothing wrote the record before the packet: the mutant dug the cell the record now keeps
+      assert.ok(x.sent.some(q => q.name === 'block_dig'), 'the mutant sent the dig')
+    })
+  setMonument(false)
+  const a = mk(() => setMonument(true))
+  const unA = SK.guardTunnelDigs(a.bot)
+  let err = null
+  try { await a.bot.dig(block, true) } catch (e) { err = e }
+  unA()
+  assert.ok(err?.reserved, String(err?.message)); assert.equal(a.sent.filter(x => x.name === 'block_dig').length, 0, 'no dig packet')
+  setMonument(false)
+  const b = mk(() => {})
+  const unB = SK.guardTunnelDigs(b.bot)
+  const d = b.bot.dig(block, true)
+  await new Promise(r => setTimeout(r, 120))
+  unB()
+  assert.ok(b.sent.some(x => x.name === 'block_dig' && x.status === 0), 'control: the dig started')
+  b.bot.emit(`blockUpdate:${block.position}`, block, { ...block, type: 0, name: 'air' }); await d.catch(() => {})
+  setMonument(true)
 })
 
 await t('A BAD stairFace reserves nothing and never throws (Claude stage-3 r2 P2-C); the reader caches the empty answer', () => {
