@@ -51,15 +51,20 @@ export function stepCells (p0, bear, i) {
  * IS THE WHOLE STAIR CLEAR OF EVERY SHELL? -> { clear, hit: { step, cell, cap } | null }. Pure. Simulated until the
  * step's highest dug cell (its ceiling, y0 - i + 1) is below the deepest shell (min cap.y - 3), or `maxSteps`.
  */
-export function stairClear (cols, p0, bear, { maxSteps = MAX_STAIR_STEPS, goalY = null } = {}) {
-  if (!Array.isArray(cols) || !cols.length) return { clear: true, hit: null }
-  const bottom = Math.min(...cols.map(c => c.y - 3))
+export function stairClear (cols, p0, bear, { maxSteps = MAX_STAIR_STEPS, goalY = null, forbid = null, forbidBottom = null } = {}) {
+  const wells = Array.isArray(cols) ? cols : []
+  // THE TOWN TREE FARM (treefarm-02 on minewell-01): `forbid(cell)` names the farm's cells a stair must never dig (a plot's
+  // soil and column, a torch cell and its floor); `forbidBottom` the lowest of them. Same simulation, same stop rule.
+  const farm = typeof forbid === 'function' && Number.isFinite(forbidBottom)
+  if (!wells.length && !farm) return { clear: true, hit: null }
+  const bottom = Math.min(...wells.map(c => c.y - 3), farm ? forbidBottom : Infinity)
   for (let i = 0; i < maxSteps; i++) {
     if (p0.y - i + 1 < bottom) break
     if (Number.isFinite(goalY) && p0.y - i <= goalY + 1) break   // mine stops there (its loop: y > goalY + 1); Claude r1 P3
     for (const cell of stepCells(p0, bear, i)) {
-      const cap = shellOf(cols, cell)
+      const cap = shellOf(wells, cell)
       if (cap) return { clear: false, hit: { step: i, cell, cap } }
+      if (farm && forbid(cell)) return { clear: false, hit: { step: i, cell, cap: null, farm: true } }
     }
   }
   return { clear: true, hit: null }
@@ -90,9 +95,10 @@ export function relocateCandidates (p0, radius = RELOCATE_RADIUS) {
  *   bearings   the stair's candidate cardinals (skills.mjs stairBearings)
  *   standable  (cell) -> bool: feet and head open, a solid floor (the caller reads the world)
  */
-export function planMineStart ({ cols = [], p0, feet = null, bearings = [], standable = () => false, rimStandable = null, radius = RELOCATE_RADIUS, goalY = null, exclude = [] } = {}) {
+export function planMineStart ({ cols = [], p0, feet = null, bearings = [], standable = () => false, rimStandable = null, radius = RELOCATE_RADIUS, goalY = null, exclude = [], forbid = null, forbidBottom = null } = {}) {
   const wells = Array.isArray(cols) ? cols : []
-  if (!wells.length) return { action: 'go', bearings }
+  const farm = typeof forbid === 'function' && Number.isFinite(forbidBottom)
+  if (!wells.length && !farm) return { action: 'go', bearings }
   const inside = bodyInWell(wells, feet ?? { x: p0.x + 0.5, y: p0.y, z: p0.z + 0.5 })
   if (inside) {
     // THE WAY OUT, NAMED (Claude r1 P3): a rim cell beside the column a goto can reach (the pathfinder exempts the bot's own well)
@@ -100,20 +106,28 @@ export function planMineStart ({ cols = [], p0, feet = null, bearings = [], stan
     return { action: 'refuse', inside: true, cap: inside, to: rim ?? null,
              why: `this bot is inside the junk well at ${inside.x},${inside.y},${inside.z}: a stair from here would dig the well's own floor; ${rim ? `goto ${rim.x} ${rim.y} ${rim.z} (the well's rim) first` : 'climb out to the rim first'}` }
   }
-  const clearFrom = from => bearings.filter(b => stairClear(wells, from, b, { goalY }).clear)
+  const clearFrom = from => bearings.filter(b => stairClear(wells, from, b, { goalY, forbid, forbidBottom }).clear)
   const skip = new Set((Array.isArray(exclude) ? exclude : []).map(c => `${c.x},${c.y},${c.z}`))
   const here = clearFrom(p0)
   if (here.length) return { action: 'go', bearings: here }
-  const hit = stairClear(wells, p0, bearings[0] ?? { x: 0, z: 1 }, { goalY }).hit
+  // WHAT BLOCKS, over every bearing (Claude r8 P2: a farm-caused refusal named a far-away well when the town has one)
+  const hits = (bearings.length ? bearings : [{ x: 0, z: 1 }]).map(b => stairClear(wells, p0, b, { goalY, forbid, forbidBottom }).hit).filter(Boolean)
+  const farmHit = hits.find(h => h.farm) ?? null, wellHit = hits.find(h => h.cap) ?? null
+  const hit = wellHit ?? farmHit
   for (const c of relocateCandidates(p0, radius)) {
     const cell = { x: c.x, y: c.y, z: c.z }
     // never a feet cell inside a well column (its stand on the rim is fine: the stair from it is what is simulated)
     if (bodyInWell(wells, { x: c.x + 0.5, y: c.y, z: c.z + 0.5 })) continue
+    // never a stand in a farm cell (the head check is belt and braces: a standable cell's head is a farm cell only if its feet are)
+    if (farm && (forbid(cell) || forbid({ x: cell.x, y: cell.y + 1, z: cell.z }))) continue
     if (skip.has(`${cell.x},${cell.y},${cell.z}`)) continue   // a target the pathfinder already failed to reach
     if (!standable(cell)) continue
     const ok = clearFrom(cell)
-    if (ok.length) return { action: 'relocate', to: cell, bearings: ok, hit }
+    if (ok.length) return { action: 'relocate', to: cell, bearings: ok, hit, ...(farmHit ? { farm: true } : {}) }
   }
-  const cap = hit?.cap ?? wells[0]
-  return { action: 'refuse', cap, why: `every stair from here and from every standable cell within ${radius} would dig the junk well's shell at ${cap.x},${cap.y},${cap.z}` }
+  const farmWhy = farmHit ? `the town tree farm (its soil or a plot at ${farmHit.cell.x},${farmHit.cell.y},${farmHit.cell.z})` : null
+  if (farmHit && !wellHit) return { action: 'refuse', cap: null, farm: true, hit: farmHit, why: `every stair from here and from every standable cell within ${radius} would dig ${farmWhy}` }
+  const cap = wellHit?.cap ?? wells[0] ?? null
+  if (!cap) return { action: 'refuse', cap: null, farm: !!farm, why: `no stair from here or from any standable cell within ${radius} is clear` }   // unreachable in production (4 bearings); Claude r10 P3
+  return { action: 'refuse', cap, ...(farmHit ? { farm: true } : {}), why: `every stair from here and from every standable cell within ${radius} would dig the junk well's shell at ${cap.x},${cap.y},${cap.z}${farmWhy ? ` or ${farmWhy}` : ''}` }
 }
