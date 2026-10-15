@@ -200,7 +200,8 @@ await t('A TREE FARM IN THE WAY IS NOT THE GROUND: a search the farm\'s keep-out
 // farm-refused column can still hide is NOWHERE TO STAND: a fence checkerboard at feet level leaves every even column's
 // ground whole and its four stand cells fenced; the odd columns are refused before the keep-out
 const standless = (x, y, z) => (y === G + 1 && (((x + z) % 2) + 2) % 2 === 1 ? B('oak_fence') : flatRead()(x, y, z))
-const FARM_ALL = [{ x: 0, z: 0, r: 40, what: 'a tree-farm plot' }]
+// treefarm's own entries (plot and torch tags), widened to cover the whole search: pins FARM_AVOID to the real tags
+const FARM_ALL = TF.farmWellAvoid({ cells: [{ role: 'plot', x: 0, z: 0 }, { role: 'torch', x: 1, z: 0 }] }).map(a => ({ ...a, r: 40 }))
 await t('GROUND UNDER THE FARM IS THE GROUND (r3): a column the farm refuses but the stand rule would refuse anyway counts as stand -- the search holds', () => {
   const bare = W.canonicalWellSite({ home: HOME0, read: standless })
   assert.equal(bare.site, null); assert.equal(bare.exhausted, true); assert.ok(bare.tally.stand > 0, 'control: no farm, the stand rule refuses the even columns ' + JSON.stringify(bare.tally))

@@ -1531,6 +1531,7 @@ await t('MUTANT (skills): no farm-deferral branch -- the farm-covered town is a 
     const r = await within(m.SKILLS.build_well.run({ bot: town.bot }, {}, { aborted: false }), 30000, 'mutant')
     assert.notEqual(r.failClass, 'well_farm_deferred', 'mutant inert')
     assert.equal(W.wellOrderOutcome('build_well', r.status, NOW, {}, r.failClass).buildBackoffUntil ?? 0, 0, 'the mutant leaves no backoff')
+    assert.match((await rows('_well_refused')).pop().skill.detail, /^order=build reason=site_deferred /, 'the mutant must fall to the free deferral, nothing else')
   })
 })
 await t('wellsite-01 THE TOWN REMEMBERS (reconnect-proof): A searches in vain -> a record; B of the same pool is held without a search (few cells read); the record aged out, or from another world, B searches', async () => {
