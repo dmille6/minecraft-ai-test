@@ -183,6 +183,9 @@ await t('CAP 1000 (cobblecap-1000, OWNER 10-14), pure: 999 / 1000 / 1001 -- a wh
   assert.equal(CC.cobbleAdmit(v(937), 64), 'at_cap', '937 + 64 = 1001: the whole stack is refused')
   assert.equal(CC.cobbleAdmit(v(936, true, 1), 64), 'at_cap', 'one reserved in flight makes it 1001')
   assert.deepEqual(CC.admitStacks(v(937), [63, 64]), { bank: [63], refused: { at_cap: 1, unknown: 0 } }, '937 + 63 = 1000; the 64 is refused whole -- 0 of it, not 1 of it')
+  // each admitted stack is CHARGED before the next (Codex cc1000-r1 P2): 872 + 64 + 64 = 1000, the third 64 would be 1064
+  assert.deepEqual(CC.admitStacks(v(872), [64, 64, 64]), { bank: [64, 64], refused: { at_cap: 1, unknown: 0 } }, '872 + 64 + 64 = 1000; the third is refused')
+  assert.deepEqual(CC.admitStacks(v(936), [64, 64]), { bank: [64], refused: { at_cap: 1, unknown: 0 } }, '936 + 64 = 1000; the second 64 is refused')
   assert.equal(CC.cobbleAdmit(v(1000, false), 1), 'at_cap', 'proven at 1000 by what is known: no completeness needed')
   assert.equal(CC.cobbleAdmit(v(999, false), 1), 'unknown', 'below 1000 on a partial count: unknown')
   assert.deepEqual(CC.admitStacks(v(256), [64, 64]), { bank: [64, 64], refused: { at_cap: 0, unknown: 0 } }, 'the old 256 cap refuses nothing now')
