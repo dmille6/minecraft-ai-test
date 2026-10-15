@@ -155,10 +155,11 @@ export function toolkitOrder ({ now = 0, on = TOOLKIT.on, atTown = false, items 
   const d = kitDraw(items, { credit })
   if (!d.needs.length) return none()
   if (now - (s.lastIssuedAt ?? -Infinity) < TOOLKIT_COOLDOWN_MS || now < (s.backoffUntil ?? 0)) return none()
-  // THE TABLE: near (the craft's 32-block search), carried, or 4 planks' worth of wood to make one -- else the craft cannot run
-  if (!kitMeans(items, { tableNear: lazy(tableNear) }).tableOk) return none()
   if (!lazy(container)) return none()
   if (d.ingots > 0 && lazy(townMiss)) return none()
+  // THE TABLE: carried or 4 planks' worth of wood (from the bag), else near (the craft's 32-block search, asked LAST: a world
+  // scan on a decision that may decline -- Claude r1 P3-3) -- else the craft cannot run
+  if (!kitMeans(items).tableOk && !lazy(tableNear)) return none()
   if ((d.ingots > 0 || d.sticks > 0) && typeof room === 'function' && !room(d)) return none()
   s.lastIssuedAt = now
   return { order: { skill: 'toolkit', args: { credit: Math.max(0, Number(credit) || 0) },
