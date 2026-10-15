@@ -7546,7 +7546,7 @@ async function buildMonument (ctx, _args, signal) {
     const r = await runPlacements({
       // done = full, non-falling footing (a slab in a plan cell is not done: it waits and is waived)
       read: footingRead(eff.read), cells: [...repairs, ...mine, ...optional].map(c => ({ ...c, want: fullSolid })), start, box, feet: eff.feet, bodies: eff.bodies, self: eff.self, walkTo: eff.walkTo,
-      lock: clickLock(dir, key, me, eff.read, () => Date.now(), eff.heard),
+      lock: clickLock(dir, key, me, eff.read, () => Date.now(), eff.heard, eff.tracked),
       hold: async cell => { const name = fundPick(items(), cell); return name ? eff.hold({ ...cell, want: name }) : false },
       fence, click: eff.click,
       clear: (s, gate) => withDigScope(bot, { purpose: 'target', by: 'build_monument' }, () => eff.clear(s, gate)),

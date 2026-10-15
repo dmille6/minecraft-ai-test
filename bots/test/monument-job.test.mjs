@@ -325,14 +325,41 @@ await t('CLICK LOCK: one holder at a time; the next waits until ITS world shows 
   seen = true
   assert.equal(b.acquire(cell), null); b.release(cell, 'refused')
   // SEPARATE WORLD VIEWS (Codex stage-4 r2 P1-1): e confirms; f's world never shows it, and f's client never heard of the cell:
-  // busy however long it waits; f heard the server speak about the cell (it was dug again): free
+  // busy however long it waits inside the log window; f heard the server speak about the cell (it was dug again): free
   let heard = false
-  const e = MJ.clickLock(dir, 'k3', 'e', () => STONE), f2 = MJ.clickLock(dir, 'k3', 'f', () => AIR, () => Date.now() + 3_600_000, () => heard)
+  const e = MJ.clickLock(dir, 'k3', 'e', () => STONE), f2 = MJ.clickLock(dir, 'k3', 'f', () => AIR, () => Date.now() + 5 * 60_000, () => heard)
   assert.equal(e.acquire(cell), null); e.release(cell, 'confirmed')
-  assert.equal(f2.acquire(cell), 'busy', 'an hour later and still unseen: busy (never elapsed time alone)')
+  assert.equal(f2.acquire(cell), 'busy', 'five minutes later and still unseen: busy (never elapsed time alone)')
   heard = true
   assert.equal(f2.acquire(cell), null); f2.release(cell, null)
-  assert.equal(JSON.parse(fs.readFileSync(path.join(dir, 'k3.click.last.json'), 'utf8')).holder, 'e', 'a refused gate (null) records no click')
+  // THREE CLIENTS (Codex stage-4 r3 P1-1): A confirms; C does not see it; B sees it, clicks and is REFUSED; C is still busy
+  const cA = { x: 5, y: 64, z: 5 }, cB = { x: 6, y: 64, z: 5 }
+  const A = MJ.clickLock(dir, 'k4', 'A', () => STONE), Bk = MJ.clickLock(dir, 'k4', 'B', () => STONE), C = MJ.clickLock(dir, 'k4', 'C', () => AIR)
+  assert.equal(A.acquire(cA), null); A.release(cA, 'confirmed')
+  assert.equal(C.acquire(cB), 'busy')
+  assert.equal(Bk.acquire(cB), null); Bk.release(cB, 'refused')
+  assert.equal(C.acquire(cB), 'busy', 'a later refusal never erases the unseen confirmation')
+  // A STALE HOLDER (Codex stage-4 r3 P1-2): G's lease expires mid-click; H takes over while G's click is PENDING -- H must know
+  // G's cell first; G's late 'silent' lands in G's own record and never touches H's confirmation
+  let clock = 1_000_000
+  const tick = () => clock
+  let hSees = false
+  const G = MJ.clickLock(dir, 'k5', 'G', () => STONE, tick), H = MJ.clickLock(dir, 'k5', 'H', (x) => (x === 7 && hSees ? STONE : AIR), tick)
+  const cG = { x: 7, y: 64, z: 7 }, cH = { x: 8, y: 64, z: 7 }
+  assert.equal(G.acquire(cG), null)
+  clock += MJ.CLICK_LOCK_MS + 1
+  assert.equal(H.acquire(cH), 'busy', 'the expired lease alone never hands over: G\'s pending click is unknown to H')
+  hSees = true
+  assert.equal(H.acquire(cH), null); H.release(cH, 'confirmed')
+  G.release(cG, 'silent')
+  const recs = fs.readdirSync(dir).filter(f => f.startsWith('k5.clk.')).map(f => JSON.parse(fs.readFileSync(path.join(dir, f), 'utf8')))
+  assert.deepEqual(recs.map(r => `${r.holder}:${r.verdict}`).sort(), ['G:silent', 'H:confirmed'])
+  // a pending click whose cell H has TRACKED since before it, with no update for ACK_GRACE_MS, did not land: known
+  const I = MJ.clickLock(dir, 'k6', 'I', () => STONE, tick), J = MJ.clickLock(dir, 'k6', 'J', () => AIR, tick, () => false, () => true)
+  assert.equal(I.acquire(cG), null)                          // I never releases (killed)
+  clock += MJ.CLICK_LOCK_MS + 1
+  assert.equal(J.acquire(cH), null, 'tracked, nothing heard past the grace: no mutation')
+  J.release(cH, null)
   let t0 = 0
   const c = MJ.clickLock(dir, 'k2', 'c', () => STONE, () => t0), d = MJ.clickLock(dir, 'k2', 'd', () => STONE, () => t0)
   assert.equal(c.acquire(cell), null)

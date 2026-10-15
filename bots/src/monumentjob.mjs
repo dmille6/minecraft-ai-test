@@ -375,38 +375,83 @@ export function mergeVisit (rec, { me = '?', failed = [], placed = 0, damage = {
 
 // ---- one placement in flight per world (Codex stage-4 r1 P1-1) -------------------------------------------------------------
 
-export const CLICK_LOCK_MS = 5_000
+export const CLICK_LOCK_MS = 15_000
+/** Click records older than this are history (every builder at the site has long since seen them). */
+export const CLICK_LOG_MS = 10 * 60_000
+/** A pending click whose cell this client has TRACKED since before it, with no update heard this long after, did not land. */
+export const ACK_GRACE_MS = 3_000
 /**
- * THE CLICK LOCK -> { acquire(cell) -> null | 'busy', release(cell, verdict) } for builder.runPlacements `lock`. Two builders in
- * different segments each prove a click alone; together two clicks can wall a bystander in. So a click holds the world's one
- * lock file (created exclusively; stale after CLICK_LOCK_MS) from its gate to its verdict, and the next builder may not click
- * until ITS OWN world shows the last confirmed placement (the proof must see it). Never throws; a lock it cannot read is busy.
+ * THE CLICK LOCK -> { acquire(cell) -> null | 'busy', release(cell, verdict | null) } for builder.runPlacements `lock`.
+ * Two builders' clicks, each proved alone, can wall a bystander in together (Codex stage-4 r1 P1-1). So:
+ *   - ONE CLICK AT A TIME: the lock is blueprint.mjs's lease (generation files, link(); no unlink race).
+ *   - EVERY CLICK IS RECORDED before its packet, in its OWN file (`<key>.clk.<id>.json`: holder, cell, at, verdict 'pending'), and
+ *     its verdict written to that same file afterwards -- by its author, whether or not it still holds the lease. A later refusal
+ *     by anyone never erases it (Codex r3 P1-1: one shared "last click" record lost an unseen confirmation), and a stale holder
+ *     never overwrites another's result (Codex r3 P1-2).
+ *   - BEFORE ANY CLICK, UNDER THE LOCK, this client must KNOW every other recorded click it has not yet acknowledged: its world
+ *     shows the block; or the server spoke about that cell to this client since the click; or -- for a click still pending or
+ *     silent, i.e. one whose author never learned the outcome -- this client has tracked that cell's chunk since before the click
+ *     and heard nothing for ACK_GRACE_MS (a placement that landed would have been pushed to it). A confirmed click is known only
+ *     by the block or an update. A refused click changed nothing. Otherwise: busy.
+ * Never throws; anything it cannot read is busy.
  */
-export function clickLock (dir, key, me, read, now = () => Date.now(), heard = () => false) {
-  const lastF = path.join(dir, `${key}.click.last.json`), lockKey = `${key}.click`
-  let held = null
-  // THE LOCK IS blueprint.mjs's LEASE (generation files created with link(); a taker verifies it holds the generation it made):
-  // an expired holder is replaced by exactly one taker -- never the unlink-and-recreate race of a plain lock file (Claude r2 P3)
+export function clickLock (dir, key, me, read, now = () => Date.now(), heard = () => false, tracked = () => false) {
+  const lockKey = `${key}.click`, prefix = `${key}.clk.`
+  let held = null, mineFile = null, mineRec = null
+  const acked = new Set()
   const drop = () => { if (held) { try { releaseLease(dir, lockKey, me, held.gen, now()) } catch { /* expires */ } } held = null }
+  const records = () => {
+    const out = []
+    for (const f of fs.readdirSync(dir)) {
+      if (!f.startsWith(prefix) || !f.endsWith('.json')) continue
+      try {
+        const r = JSON.parse(fs.readFileSync(path.join(dir, f), 'utf8'))
+        if (now() - (r.at ?? 0) > CLICK_LOG_MS) { try { fs.unlinkSync(path.join(dir, f)) } catch { /* pruned by another */ } continue }
+        out.push({ ...r, file: f })
+      } catch { /* a record mid-write: read next time */ }
+    }
+    return out
+  }
+  const knows = r => {
+    if (!Array.isArray(r.cell)) return true
+    if (r.verdict === 'refused') return true
+    if (solid(read(...r.cell))) return true
+    if (heard(r.cell, r.at)) return true
+    if ((r.verdict === 'pending' || r.verdict === 'silent') && tracked(r.cell, r.at) && now() - r.at >= ACK_GRACE_MS) return true
+    return false
+  }
+  const write = (file, rec) => {
+    const tmp = path.join(dir, `${file}.${process.pid}.${Math.random().toString(36).slice(2)}.tmp`)
+    fs.writeFileSync(tmp, JSON.stringify(rec)); fs.renameSync(tmp, path.join(dir, file))
+  }
   return {
     acquire (cell) {
-      // OWNERSHIP FIRST (Codex stage-4 r2 P1-1): the last click is read UNDER the lock, so none can land between the check and it
       let l
       try { l = takeLease(dir, lockKey, me, now(), CLICK_LOCK_MS) } catch { return 'busy' }
       if (!l?.ok) return 'busy'
       held = l
-      // ...and THIS bot's world must know the last confirmed click -- its block shows, or this bot's client heard the server
-      // speak about that cell since the click (it was removed again after). Never elapsed time alone.
       try {
-        const last = JSON.parse(fs.readFileSync(lastF, 'utf8'))
-        if (last?.verdict === 'confirmed' && last.holder !== me && Array.isArray(last.cell) && !solid(read(...last.cell)) && !heard(last.cell, last.at)) { drop(); return 'busy' }
-      } catch { /* no last click */ }
+        for (const r of records()) {
+          if (r.holder === me || acked.has(r.file + r.verdict)) continue
+          if (!knows(r)) { drop(); return 'busy' }
+          acked.add(r.file + r.verdict)
+        }
+        // THIS click, recorded before its packet
+        mineFile = `${prefix}${now()}.${me.replace(/[^A-Za-z0-9_-]/g, '_')}.${Math.random().toString(36).slice(2, 8)}.json`
+        mineRec = { holder: me, cell: [cell.x, cell.y, cell.z], at: now(), verdict: 'pending', gen: l.gen }
+        write(mineFile, mineRec)
+      } catch { drop(); return 'busy' }
       return null
     },
     release (cell, verdict) {
-      if (!held) return
-      // the last click is recorded only when a click was SENT (null: the gate refused under the lock)
-      if (verdict) { try { fs.writeFileSync(lastF, JSON.stringify({ holder: me, cell: [cell.x, cell.y, cell.z], verdict, at: now() })) } catch { /* best effort */ } }
+      // the author writes its own click's outcome (null: no packet was sent -- the record goes)
+      if (mineFile) {
+        try {
+          if (verdict) write(mineFile, { ...mineRec, verdict, done: now() })
+          else fs.unlinkSync(path.join(dir, mineFile))
+        } catch { /* left pending: the next builder must know the cell before it clicks */ }
+      }
+      mineFile = null; mineRec = null
       drop()
     },
   }
