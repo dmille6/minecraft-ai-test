@@ -44,7 +44,8 @@ import { poolStateDir } from './worldfacts.mjs'
 import { fullChestNext, carriedChest, chestBudget, readClaims, claimNewChest, writeClaimState, reconcileClaims, townKey,
          containerStatus, recordOutcome, readTownMemory, updateTownMemory, townRoomAt, setTownRoomReader, timeLeft,
          pickChestSite, chestSiteRefusal, closeMsFor, closeBank, bankClosed, closedRoomText, bagTotal, returnCursor,
-         chestPartnerOffset, isChestPartner, TOWN_SWEEP_MS, AFTER_SWEEP_MS, CLAIM_BUDGET_MS, PLACE_READBACK_MS, MAX_SITE_TRIES, RECONCILE_AFTER_MS } from './chestfull.mjs'
+         chestPartnerOffset, isChestPartner, TOWN_SWEEP_MS, AFTER_SWEEP_MS, CLAIM_BUDGET_MS, PLACE_READBACK_MS, MAX_SITE_TRIES, RECONCILE_AFTER_MS,
+         widensChestSearch } from './chestfull.mjs'
 // chestfull-02: one town boundary, no deep targets, a walk that never watches digs, closure only when truly closed.
 import { inTown, depositTargetOk, walkFailure, backsOffTarget, travelTimeoutAction, closesBank, TARGET_BACKOFF_MS,
          TOWN_SCAN_RADIUS } from './chestfull.mjs'
@@ -3835,7 +3836,7 @@ async function fullChestRecovery (ctx, { item, signal, first, firstMeta = {}, fi
     const first = pickChestSite({ read, anchor, home, composterSites, bodies, wells, farm, skip })
     // the tree farm's keep-out widens the search exactly as the well's does (treefarm-01): a farm beside the bank must not
     // turn "the chest is full" into a closed bank while the town has room for a chest elsewhere
-    if (first.site || !Object.keys(first.refused ?? {}).some(k => /junk well|tree-farm/.test(k))) return first
+    if (first.site || !widensChestSearch(first.refused)) return first
     for (const a of fallbackAnchors()) {
       const p = pickChestSite({ read, anchor: a, home, composterSites, bodies, wells, farm, skip })
       if (p.site) return p

@@ -528,6 +528,13 @@ export function wellKeepout (site, wells = []) {
   return null
 }
 
+/**
+ * DOES A FAILED PICK WIDEN THE SEARCH? -> boolean. Pure over pickChestSite's `refused` tally. A town structure's keep-out
+ * (the junk well's, and the tree farm's: treefarm-01) covering the rings around the full chest must not turn "the chest is
+ * full" into a closed bank while the town has room elsewhere, so the search moves to the other full containers and home.
+ */
+export const widensChestSearch = refused => Object.keys(refused ?? {}).some(k => /junk well|tree-farm/.test(k))
+
 /** The rings around the full chest, nearest first, each in angle order from east (deterministic). */
 export function chestSiteColumns (anchor, rings = SITE_RINGS) {
   const out = []

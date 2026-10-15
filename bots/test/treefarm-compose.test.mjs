@@ -231,7 +231,12 @@ await t('CHEST: a new chest never goes in a farm cell nor within FARM_CONTAINER_
   const pick = CF.pickChestSite({ read, anchor: { x: p.x + 1, y: p.y, z: p.z }, home: HOME, farm: idx })
   assert.ok(pick.site, pick.why)
   assert.equal(TF.farmChestRefusal(idx, pick.site), null)
-  assert.ok(Object.keys(pick.refused).some(k => /tree-farm/.test(k)), 'the refusals name the farm, which is what widens the search (skills.mjs pickAt)')
+  // A FARM COVERING THE RINGS around the full chest widens the search (as the well's does): the pick from inside the farm,
+  // limited to the rings the farm covers, finds nothing -- and its refusals are the kind that widen
+  const boxed = CF.pickChestSite({ read, anchor: { x: p.x, y: p.y, z: p.z }, home: HOME, farm: idx, rings: 2 })
+  assert.equal(boxed.site, null, 'positive control: every ring cell is refused by the farm')
+  assert.equal(CF.widensChestSearch(boxed.refused), true, JSON.stringify(boxed.refused))
+  assert.equal(CF.widensChestSearch({ 'outside town': 3 }), false, 'an ordinary refusal does not widen')
 })
 
 // ================================================================ the _dig_town instrument ===================================
@@ -377,6 +382,7 @@ const wired = src => {
   assert.equal((s.match(/pickChestSite\(\{[^}]*\bfarm\b[^}]*\}\)/g) ?? []).length, 2, 'both pickChestSite calls pass the farm')
   assert.ok(/chestSiteRefusal\(read, pick\.site, \{[^}]*farm: chestFarmIndex\(bot\)[^}]*\}\)/.test(s), 'the re-check on arrival passes the farm')
   assert.ok(/compute: \(\) => canonicalWellSite\(\{ home, read, avoid: wellSearchAvoid\(bot\) \}\)/.test(s), 'a NEW well site keeps off the farm')
+  assert.ok(/if \(first\.site \|\| !widensChestSearch\(first\.refused\)\) return first/.test(s), 'the pick widens on the farm\'s refusals')
 }
 const SKSRC = readFileSync(new URL('../src/skills.mjs', import.meta.url), 'utf8')
 await t('WIRED: chest-full passes the farm to both chest-site picks and the arrival re-check; the well\'s NEW-site search carries the farm (source, comments stripped)', () => wired(SKSRC))
@@ -385,6 +391,7 @@ await t('MUTANTS KILLED: each wiring removed fails the wiring check (anchor pres
     ['    const first = pickChestSite({ read, anchor, home, composterSites, bodies, wells, farm, skip })', '    const first = pickChestSite({ read, anchor, home, composterSites, bodies, wells, skip })'],
     ['wells: chestWellKeepouts(bot), farm: chestFarmIndex(bot) })) { site = pick.site; break }', 'wells: chestWellKeepouts(bot) })) { site = pick.site; break }'],
     ['    compute: () => canonicalWellSite({ home, read, avoid: wellSearchAvoid(bot) }),', '    compute: () => canonicalWellSite({ home, read, avoid }),'],
+    ['    if (first.site || !widensChestSearch(first.refused)) return first', "    if (first.site || !Object.keys(first.refused ?? {}).some(k => /junk well/.test(k))) return first"],
   ]
   for (const [old, neu] of muts) {
     assert.equal(SKSRC.split(old).length, 2, `anchor present and unique: ${old.slice(0, 50)}`)
