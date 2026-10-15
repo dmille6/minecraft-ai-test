@@ -334,7 +334,9 @@ await t('TUNNEL DIG BOUNDARY on mineflayer\'s REAL digging plugin: a record writ
   }
   setMonument(false)
   const block = { name: 'stone', position: new V(SITE.corner.x, 60, SITE.corner.z), shapes: [[0, 0, 0, 1, 1, 1]] }
-  // THE MUTANT (the old order: the check before the look, the plugin's own look after it): the packet goes out
+  // THE MUTANT (the guard's own look removed: the check then runs before any look). WEAK, said plainly: in this harness the
+  // record is written only by a look, so the mutant shows that the look is where the guard must check after -- it does not
+  // reproduce mineflayer's internal look (with 'ignore' there is none). The regression proper is the next block.
   await withMutant(SKP, "    try { await bot.lookAt(p.offset(0.5, 0.5, 0.5), true) } catch { /* the dig still faces the block */ }\n    let kind = null\n",
     "    let kind = null\n", async m => {
       setMonument(false)
