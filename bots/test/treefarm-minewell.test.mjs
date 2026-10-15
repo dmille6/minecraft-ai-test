@@ -57,7 +57,7 @@ function world ({ farm = true, cols = () => [], canMove = true } = {}) {
     pathfinder: {
       goto: async goal => {
         gotos.push({ x: goal.x, y: goal.y, z: goal.z })
-        if (!bot._canMove) return
+        if (typeof bot._canMove === 'function' ? !bot._canMove(goal) : !bot._canMove) return
         const c = new V(goal.x, goal.y, goal.z)
         if (raw(c).boundingBox !== 'empty' || raw(c.offset(0, 1, 0)).boundingBox !== 'empty') return
         bot.entity.position = new V(c.x + 0.5, c.y, c.z + 0.5)
@@ -177,14 +177,16 @@ await t('MUTANT KILLED (skills): the stale 20 s cache trusted first -- a farm on
   })
 })
 
-await t('THE REFUSAL CHAIN (Codex r8): nowhere reachable to walk off the farm -> a refusal naming explore away from the tree farm; after that move, mine descends clear', async () => {
-  const bot = world({ canMove: false })
+await t('THE REFUSAL CHAIN (Codex r8/r9): the walk-off cells unreachable -> a refusal naming explore away from the tree farm; the REAL explore skill performed; mine descends clear', async () => {
+  // the walk-off cells near the farm cannot be reached (GoalBlock); the open country can (explore's GoalNear legs)
+  const bot = world({ canMove: g => g.rangeSq !== undefined || Math.max(Math.abs(g.x - P0.x), Math.abs(g.z - P0.z)) > 16 })
   const r = await run(SK, bot)
   assert.equal(r.status, 'failed'); assert.equal(r.failClass, 'forbidden')
   assert.match(r.detail, /explore away from the tree farm/, r.detail)
-  assert.equal(bot._digs.length, 0, 'nothing dug')
-  bot.entity.position = new V(P0.x + 20.5, 64, P0.z + 0.5)   // the remedy performed (explore moves the bot away)
-  bot._canMove = true
+  assert.equal(bot._digs.length, 0, 'nothing dug before the refusal')
+  const e = await SK.SKILLS.explore.run({ bot }, { blocks: 40, heading: 90 }, new AbortController().signal)
+  const p = bot.entity.position
+  assert.ok(Math.max(Math.abs(Math.floor(p.x) - P0.x), Math.abs(Math.floor(p.z) - P0.z)) >= 3, `explore moved the bot only to ${p.x},${p.z} (${e.status}: ${e.detail})`)
   const r2 = await run(SK, bot)
   assert.equal(bot._digs.filter(farmCell).length, 0)
   assert.ok(bot._digs.length > 3, `then it descends: ${r2.status} ${r2.detail}`)
