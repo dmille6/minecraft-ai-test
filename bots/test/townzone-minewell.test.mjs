@@ -38,15 +38,15 @@ async function withPlannerMutant (old, neu, fn) {
 
 // ---- the micro-world: stone below y 65, air above; wells injected as known columns -----------------------------------
 const V = (x, y, z) => new Vec3(x, y, z)
-const AIR = { name: 'air', boundingBox: 'empty', type: 0 }, STONE = { name: 'stone', boundingBox: 'block', type: 1 }, WATER = { name: 'water', boundingBox: 'empty', type: 2 }
-function world ({ at, wells = [], wet = () => false } = {}) {
+const AIR = { name: 'air', boundingBox: 'empty', type: 0 }, STONE = { name: 'stone', boundingBox: 'block', type: 1 }, WATER = { name: 'water', boundingBox: 'empty', type: 2 }, BEDROCK = { name: 'bedrock', boundingBox: 'block', type: 7 }
+function world ({ at, wells = [], wet = () => false, roof = () => false } = {}) {
   const carved = new Set(), digs = [], walks = []
   const k = (x, y, z) => `${x},${y},${z}`
-  const base = p => carved.has(k(p.x, p.y, p.z)) ? AIR : wet(p.x, p.y, p.z) ? WATER : p.y < 65 ? STONE : AIR
+  const base = p => carved.has(k(p.x, p.y, p.z)) ? AIR : roof(p.x, p.y, p.z) ? BEDROCK : wet(p.x, p.y, p.z) ? WATER : p.y < 65 ? STONE : AIR
   const bot = {
     entity: { position: V(...at), yaw: 0, velocity: V(0, 0, 0), onGround: true },
     health: 20, food: 20, oxygenLevel: 300, heldItem: { type: 1 },
-    blockAt: p => ({ ...base(p), position: V(p.x, p.y, p.z), canHarvest: () => true, digTime: () => 50, material: 'rock' }),
+    blockAt: p => { const b = base(p); return { ...b, position: V(p.x, p.y, p.z), canHarvest: () => b !== BEDROCK, digTime: () => (b === BEDROCK ? Infinity : 50), material: 'rock', hardness: b === BEDROCK ? -1 : 1.5 } },
     inventory: { items: () => [{ name: 'stone_pickaxe', count: 1, maxDurability: 131, durabilityUsed: 0 }, { name: 'cobblestone', count: 512 }] },
     equip: async () => {},
     dig: async b => { digs.push(V(b.position.x, b.position.y, b.position.z)); carved.add(k(b.position.x, b.position.y, b.position.z)) },
@@ -108,7 +108,8 @@ test('MUTANT KILLED (minewell): starts judged against the wells only -- the plan
     '  const clearFrom = from => bearings.filter(b => stairClear(wells, from, b, { goalY }).clear)\n', async mod => {
       const bot = world({ at: CORNER, wells: WELLS })
       const r = await runMine(mod, bot)
-      assert.notEqual(r.status, 'success', `the mutant cannot descend: ${r.status} ${String(r.detail).slice(0, 160)}`)
+      assert.equal(r.status, 'failed', `the mutant cannot descend: ${r.status} ${String(r.detail).slice(0, 160)}`)
+      assert.equal(r.failClass, 'town_ground'); assert.match(r.detail, /^reason=town_ground_step /, 'stopped by the per-dig stop, for the town')
       assert.deepEqual(townDigs(bot), [], 'the one per-dig stop still guards the town')
     })
 })
@@ -189,10 +190,39 @@ test('NEVER A NULL CHOICE: mine guards chooseStairBearing\'s null and names a mo
   assert.equal(SK.chooseStairBearing(fake, V(0, 70, 0), 4, []), null)
   // the guard is executable code right after the call, before `choice.bear` (structural: behaviour cannot reach it -- a
   // 'go' plan always carries a bearing)
-  const src = readFileSync(SKILLS_URL, 'utf8').replace(/\/\*[\s\S]*?\*\//g, '').replace(/(^|[^:'"`])\/\/.*$/gm, '$1')
-  const i = src.indexOf('const choice = chooseStairBearing(bot, bot.entity.position.floored(), undefined, wellPlan.bearings)')
-  assert.ok(i > 0 && src.indexOf('const choice = chooseStairBearing(bot, bot.entity.position.floored(), undefined, wellPlan.bearings)', i + 1) === -1, 'one call site')
-  const guard = src.indexOf('if (!choice) {', i), use = src.indexOf('const bear = choice.bear', i)
-  assert.ok(guard > i && guard < use, 'the guard sits between the call and the first use')
-  assert.match(src.slice(guard, use), /goto a dry spot/)
+  const CALL = 'const choice = chooseStairBearing(bot, bot.entity.position.floored(), undefined, wellPlan.bearings)'
+  const guarded = raw => {
+    const src = raw.replace(/\/\*[\s\S]*?\*\//g, '').replace(/(^|[^:'"`])\/\/.*$/gm, '$1')
+    const i = src.indexOf(CALL)
+    if (!(i > 0 && src.indexOf(CALL, i + 1) === -1)) return false
+    const guard = src.indexOf('if (!choice) {', i), use = src.indexOf('const bear = choice.bear', i)
+    return guard > i && guard < use && /goto a dry spot/.test(src.slice(guard, use))
+  }
+  const raw = readFileSync(SKILLS_URL, 'utf8')
+  assert.ok(guarded(raw), 'the guard sits between the call and the first use, and names a move')
+  // MUTANT: the guard removed -- the same check must see it (anchor present and unique)
+  const G = '  if (!choice) {\n'
+  assert.equal(raw.split(G).length, 2, 'the guard anchor is present and unique')
+  assert.equal(guarded(raw.replace(G, '  if (false) {\n')), false, 'the check fails on the mutant')
+})
+
+test('ROOFED IN TOWN ABOVE SEA LEVEL, THE CLIMB FAILS (a bedrock roof): the refusal names the walk alone -- never a `surface` that would stop at sea level -- and the walk, performed, works (Codex comp P2)', async () => {
+  // the bot 14 east of home at y 65 (above sea level 63) under a bedrock slab over the town (y 70..72): surface({_toY})
+  // cannot break it, so the internal climb fails and the bot is still roofed in town
+  const roof = (x, y, z) => y >= 70 && y <= 72 && Math.abs(x - 200) <= 18 && Math.abs(z - 200) <= 18
+  const bot = world({ at: [214, 65, 200], roof })
+  const r = await runMine(SK, bot)
+  assert.equal(r.status, 'failed', `${r.status} ${String(r.detail).slice(0, 200)}`)
+  assert.equal(r.failClass, 'town_ground', r.detail)
+  assert.deepEqual(townDigs(bot), [], 'no town ground dug')
+  assert.match(r.detail, /surfaced=failed/, 'positive control: the internal climb ran and failed')
+  assert.doesNotMatch(r.detail.replace(/surfaced=\S+/, ''), /surface|climb to open sky/, 'never a remedy the model cannot perform above sea level')
+  const m = r.detail.match(/goto a dry spot (\d+)\+ blocks from home/)
+  assert.ok(m, r.detail)
+  // THE REMEDY, PERFORMED: the walk to that far a spot (east, past the roof's edge), then mine
+  await bot.pathfinder.goto({ x: HOME.x + Number(m[1]) + 1, y: 65, z: HOME.z })
+  assert.equal(bot.entity.position.x, HOME.x + Number(m[1]) + 1, 'the walk was made')
+  const again = await runMine(SK, bot)
+  assert.equal(again.status, 'success', `${again.status} ${String(again.detail).slice(0, 160)}`)
+  assert.deepEqual(townDigs(bot), [])
 })

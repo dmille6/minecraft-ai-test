@@ -160,12 +160,14 @@ export function walkOutPoints (from, home) {
 /**
  * THE TOWN'S GROUND AS A KEEP-OUT PART -> { forbid(cell) -> 'town' | null, bottom } (minewell.mjs composeKeepOut's shape).
  * Pure over `nameAt(x, y, z) -> block name | null`. A cell is forbidden when it is TERRAIN inside the town's box (the same
- * test as townDigClass: air, a placed block, an unloaded cell are not). The zone off (no home) -> no forbid.
+ * test as townDigClass: air and a placed block are not; an unloaded cell is held as ground). The zone off -> no forbid.
  */
 export function townKeepOut (home, nameAt) {
   const h = homeOf(home)
   if (!h || typeof nameAt !== 'function') return { forbid: null, bottom: null }
-  return { forbid: c => (c && inTownBox(c, h) && isTerrain(nameAt(c.x, c.y, c.z)) ? 'town' : null),
+  // an UNLOADED cell inside the box (nameAt null) is held as ground, as stairTownClear held it (Claude comp P3-b): a stair is
+  // never planned through what this bot cannot see
+  return { forbid: c => { if (!c || !inTownBox(c, h)) return null; const n = nameAt(c.x, c.y, c.z); return n == null || isTerrain(n) ? 'town' : null },
            bottom: Math.floor(h.y) - TOWN_GROUND_DEPTH }
 }
 
