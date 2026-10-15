@@ -126,6 +126,7 @@ assert still_runs(_s, _site) == [840]
 assert still_runs([(t, p, i == 7) for i, (t, p, _) in enumerate(_s)], _site) == [], 'the builder\'s own time cuts the run'
 assert held_runs([0, 60, 120, 180, 240, 1000, 1060]) == [240, 60]
 assert unexplained(['1,2,3', '4,5,6'], ['4,5,6']) == ['1,2,3']
+assert in_box(_site, 100, 29, 200, 30) and not in_box(_site, 100, 28, 200, 30), 'frontier 30: y=29 (the floor under it) in, y=28 out'
 
 if __name__ == '__main__':
     from lib.telemetry import Events
@@ -164,6 +165,7 @@ if __name__ == '__main__':
     rows = sorted(load_window(PRE, END), key=lambda r: r['t'])
     # THE CANARY'S SITES FIRST (Codex code r1 P2: a refusal before the first audit row must not read as outside a box not yet seen)
     sites, bottoms, frontier_pre = {}, {}, {}
+    frontier_seen = defaultdict(list)   # pool -> [(t, frontier)] in time order (Codex code r3 P2: no future evidence)
     for r in rows:
         b0 = (r.get('bot') or {}).get('name') or ''
         k0 = (r.get('name') or '').lstrip('_')
@@ -176,8 +178,11 @@ if __name__ == '__main__':
             sites[pool_of(b0)] = ((ox, oz), f0['away'], int(f0['c'])); bottoms[pool_of(b0)] = int(f0.get('bottom', 16))
         except (KeyError, ValueError):
             pass
-        try: frontier_pre[pool_of(b0)] = min(frontier_pre.get(pool_of(b0), 999), int(float(f0.get('frontier') or f0.get('frontier0'))))
-        except (TypeError, ValueError): pass
+        try:
+            fv = int(float(f0.get('frontier') or f0.get('frontier0')))
+            frontier_pre[pool_of(b0)] = min(frontier_pre.get(pool_of(b0), 999), fv)
+            frontier_seen[pool_of(b0)].append((r['t'].timestamp(), fv))
+        except (TypeError, ValueError, AttributeError): pass
     bots = defaultdict(set); offbuild = 0; leak = 0
     visits, stops, deaths, deaths_in = 0, Counter(), 0, []
     levels_max = defaultdict(int); state_last = {}; clean_levels = defaultdict(int); clean_complete = set(); frontier_of = dict(frontier_pre)
@@ -276,7 +281,10 @@ if __name__ == '__main__':
             exit_fails += 1
         elif k in ('death', 'died', 'bot_death'):
             deaths += 1
-            if pos and in_box(sites.get(pool), pos['x'], pos['y'], pos['z'], max(bottoms.get(pool, 16), frontier_of.get(pool, 999) - 1)):
+            # THE FRONTIER AS KNOWN AT THE DEATH (the latest observation at or before it; none -> nothing built that we know of),
+            # and in_box's own bottom-1 makes the boundary frontier-1 inclusive (Codex code r3 P2: never subtract twice)
+            known = [fv for (tt, fv) in frontier_seen.get(pool, []) if tt <= t.timestamp()]
+            if pos and known and in_box(sites.get(pool), pos['x'], pos['y'], pos['z'], max(bottoms.get(pool, 16), known[-1])):
                 deaths_in.append((b, pos))
     lost = {p: unexplained(missing[p], absorbed[p]) for p in missing}
     lost_n = sum(len(v) for v in lost.values())
