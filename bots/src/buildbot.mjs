@@ -7,7 +7,7 @@
 import pkg from 'mineflayer-pathfinder'
 import { Vec3 } from 'vec3'
 import { installBlockWitness } from './blueprint.mjs'
-import { faceCentre } from './builder.mjs'
+import { faceCentre, isFullCube } from './builder.mjs'
 const { goals } = pkg
 
 /** The server's answer to one click arrives in ~0.1-1 s (sandbox); 2.5 s is silence (tendFarm FARM_ACK_MS). */
@@ -36,7 +36,7 @@ export function botBuildEffects (bot, { items = ['cobblestone'], bound = timeout
   const sleep = ms => new Promise(r => setTimeout(r, ms))
   const ticks = n => bound(bot.waitForTicks?.(n) ?? sleep(n * 50), n * 50 + 2_000, 'tick wait')
   return {
-    read: (x, y, z) => { const b = bot.blockAt(new Vec3(x, y, z)); return b ? { name: b.name, boundingBox: b.boundingBox } : null },
+    read: (x, y, z) => { const b = bot.blockAt(new Vec3(x, y, z)); return b ? { name: b.name, boundingBox: b.boundingBox, full: isFullCube(b) } : null },
     feet: () => { const p = bot.entity.position; return { x: Math.floor(p.x), y: Math.floor(p.y + 1e-6), z: Math.floor(p.z) } },
     bodies: () => Object.values(bot.entities ?? {})
       .filter(e => e && e !== bot.entity && e.position && !['item', 'experience_orb'].includes(e.name) && e.position.distanceTo?.(bot.entity.position) < BODY_RADIUS)
@@ -90,7 +90,8 @@ export function botBuildEffects (bot, { items = ['cobblestone'], bound = timeout
       const no = gate()
       if (no) return `gate:${no}`
       witness.watch(c)
-      try { await bound(bot.dig(block, 'ignore'), BUILD_ACK_MS, 'clearing') } catch (e) { if (e?.aborted || aborted()) throw e }
+      // an unfinished dig is CANCELLED (Codex stage-4 r1 P2-6): a timed-out or aborted clear never keeps swinging
+      try { await bound(bot.dig(block, 'ignore'), BUILD_ACK_MS, 'clearing') } catch (e) { try { bot.stopDigging?.() } catch { /* not digging */ } if (e?.aborted || aborted()) throw e }
       return witness.until(c, n => n === 'air' || n === 'cave_air' || n === 'void_air', BUILD_ACK_MS)
     },
     close: () => { try { witness.stop() } catch { /* gone */ } },

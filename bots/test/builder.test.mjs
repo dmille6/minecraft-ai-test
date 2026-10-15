@@ -293,12 +293,13 @@ await t('EXECUTOR: a stand the bot did not reach is re-proved where it is -- nev
 })
 
 await t('MUTANT KILLED: the fence dropped from the gate -- a lease lost during the look still places', async () => {
-  await withMutant(BP, "return 'body_walled'\n      if (!fence()) return 'fence'\n", "return 'body_walled'\n", async m => {
+  await withMutant(BP, "      if (!fence()) { if (locked) { lock.release(c, 'fence'); locked = false } return 'fence' }\n", '', async m => {
     const w = world()
     let clicks = 0, lost = false
+    // the lease is lost DURING the click's look (after the pre-click fence): only the gate can see it
     await m.runPlacements({ read: w.read, cells: [{ x: 3, y: 64, z: 0 }], start: START, feet: () => ({ x: 1, y: 64, z: 0 }), maxSteps: 1,
-      walkTo: async () => {}, hold: async () => { lost = true; return true }, fence: () => !lost,
-      click: async (s, gate) => { if (gate()) return `gate:${gate()}`; clicks++; return 'confirmed' } })
+      walkTo: async () => {}, hold: async () => true, fence: () => !lost,
+      click: async (s, gate) => { lost = true; if (gate()) return `gate:${gate()}`; clicks++; return 'confirmed' } })
     assert.equal(clicks, 1, 'the mutant clicked without the lease')
   })
 })
@@ -388,6 +389,59 @@ await t('MUTANT KILLED (adapter): the gate skipped -- the lost lease places anyw
     await eff.click(STEP, () => (leased ? null : 'fence')).catch(() => {})
     eff.close()
     assert.equal(f.placed.length, 1)
+  })
+})
+
+// ---- two builders, one bystander, two doors (Codex stage-4 r1 P1-1) ----------------------------------------------------------
+async function twoDoors (lock) {
+  // a 3x3 room (walls 3 high) with a 2-high door west (x=4) and east (x=8) at z=0; a bystander in its middle (6,64,0). A block
+  // at a door's foot leaves a 1-high gap under its lintel: that door is closed
+  const w = world()
+  for (let x = 4; x <= 8; x++) for (let z = -2; z <= 2; z++) for (let y = 64; y <= 66; y++) {
+    const wall = x === 4 || x === 8 || z === -2 || z === 2
+    if (wall && !(z === 0 && (x === 4 || x === 8) && y < 66)) w.set(x, y, z, STONE)
+  }
+  const body = [{ x: 6.5, y: 64, z: 0.5 }]
+  const start = { x: 6, y: 64, z: 6 }
+  const box = { x0: -2, x1: 14, y0: 58, y1: 70, z0: -6, z1: 10 }
+  assert.ok(B.walksTo(w.read, { x: 6, y: 64, z: 0 }, start, { box }), 'positive control: the bystander walks out now')
+  const mk = (feetAt, cell) => B.runPlacements({ read: w.read, cells: [cell], start, box, feet: () => feetAt, bodies: () => body, maxSteps: 3, busyMs: 5,
+    walkTo: async () => {}, hold: async () => true, fence: () => true, lock: lock ? lock(cell) : null,
+    click: async (s, gate) => { await new Promise(r => setTimeout(r, 20)); const g = gate(); if (g) return `gate:${g}`; await new Promise(r => setTimeout(r, 20)); w.set(s.cell.x, s.cell.y, s.cell.z, COBBLE); return 'confirmed' } })
+  await Promise.all([mk({ x: 3, y: 64, z: 0 }, { x: 4, y: 64, z: 0 }), mk({ x: 9, y: 64, z: 0 }, { x: 8, y: 64, z: 0 })])
+  return B.walksTo(w.read, { x: 6, y: 64, z: 0 }, start, { box })
+}
+await t('TWO BUILDERS: each door alone is safe; clicked together without a lock they wall the bystander in; the click lock prevents it', async () => {
+  assert.equal(await twoDoors(null), false, 'positive control: the race walls the bystander in without the lock')
+  const MJ = await import('../src/monumentjob.mjs')
+  const dir = fs.mkdtempSync(path.join((await import('node:os')).tmpdir(), 'clk-'))
+  let n = 0
+  const ok = await twoDoors(() => MJ.clickLock(dir, 'k', `b${n++}`, (x, y, z) => ({ name: 'stone', boundingBox: 'block' })))
+  assert.equal(ok, true, 'with the lock the second click is proved against the first and refused')
+})
+
+// ---- the CLEAR gate (Claude stage-4 r1 P3): the stand re-proved at the gate, the fence last -------------------------------
+async function clearScene (m, { shift = false, lose = false } = {}) {
+  const w = world(); w.set(3, 64, 0, { name: 'poppy', boundingBox: 'empty' })
+  let feetNow = { x: 1, y: 64, z: 0 }, cleared = 0, leased = true
+  await m.runPlacements({ read: w.read, cells: [{ x: 3, y: 64, z: 0 }], start: START, maxSteps: 1, feet: () => feetNow, walkTo: async () => {},
+    hold: async () => true, fence: () => leased, click: async () => 'confirmed', clearable: b => b?.name === 'poppy',
+    clear: async (s, gate) => { if (shift) feetNow = { x: -6, y: 64, z: 0 }; if (lose) leased = false; const g = gate(); if (g) return `gate:${g}`; cleared++; w.set(3, 64, 0, AIR); return 'confirmed' } })
+  return cleared
+}
+await t('CLEAR GATE: a bot shifted out of reach during the look, or a lease lost, never clears; control clears', async () => {
+  assert.equal(await clearScene(B), 1)
+  assert.equal(await clearScene(B, { shift: true }), 0)
+  assert.equal(await clearScene(B, { lose: true }), 0)
+})
+await t('MUTANT KILLED: the clear gate without its stand re-proof clears from 7 away', async () => {
+  await withMutant(BP, "        const st = standOkClear(nw, { stand: feet(), target: c, point: s.point, forbid })\n        if (st) return `stand:${st}`\n", '', async m => {
+    assert.equal(await clearScene(m, { shift: true }), 1)
+  })
+})
+await t('MUTANT KILLED: the clear gate without its fence clears after the lease is lost', async () => {
+  await withMutant(BP, "        if (st) return `stand:${st}`\n        if (!fence()) return 'fence'\n", "        if (st) return `stand:${st}`\n", async m => {
+    assert.equal(await clearScene(m, { lose: true }), 1)
   })
 })
 

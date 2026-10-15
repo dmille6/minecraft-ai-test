@@ -76,11 +76,11 @@ import { resolveRecord, readRecord, takeLease, holdsLease, releaseLease, standsF
 import { monitorEventLoopDelay } from 'node:perf_hooks'
 import { ZIG, scanColumn } from './monument.mjs'
 import { validGeom } from './structures.mjs'
-import { runPlacements, standable as bdStandable, bodyBlocks as bdBodyBlocks, bk } from './builder.mjs'
+import { runPlacements, standable as bdStandable, bk, isFullCube, walksTo as bdWalksTo } from './builder.mjs'
 import { botBuildEffects } from './buildbot.mjs'
 import { siteCandidates, verifySite, newRecord, readMonument, createMonumentGen, monumentKey, monumentPlan, layerCensus, coverHold, nextLayer,
          segmentOf, mergeVisit, cellState, isClearable, isFillable, fundable, fundPick, monumentDetail, p95, SLOTS, SLOT_LEASE_MS, VISIT_MS,
-         VISIT_MAX_PLACEMENTS, REPAIR_PER_VISIT } from './monumentjob.mjs'
+         VISIT_MAX_PLACEMENTS, REPAIR_PER_VISIT, layerClosable, unwaivable, fullSolid, clickLock, segmentChoice } from './monumentjob.mjs'
 import { canonicalFarm, farmRecordRefusal, plotsOf, torchesOf, plotState, torchState, tendPlan, farmIndex, emptyFarmIndex, inPlotColumn,
          isPlotCell, farmNoDig, inFarmBox, farmPlaceRefusal, farmTendDetail, bonemealEnabled, farmEnabled, FARM_SPECIES, MIN_PLOTS,
          farmWellAvoid, inFloorBand, farmYields, FARM_WELL_DISTANCE, FARM_TORCH_WELL_DISTANCE, FARM_CONTAINER_DISTANCE } from './treefarm.mjs'
@@ -7383,13 +7383,17 @@ async function buildMonument (ctx, _args, signal) {
   const t0 = Date.now()
   const items = () => bot.inventory?.items?.() ?? []
   const f = { t0, cobble0: items().reduce((n, it) => n + (it.name === 'cobblestone' ? it.count : 0), 0) }
-  const row = status => logEvent({ kind: 'monument', status, snapshot: snapshot(bot), detail: monumentDetail({ ...f, cobble1: items().reduce((n, it) => n + (it.name === 'cobblestone' ? it.count : 0), 0) }) })
+  let rowDone = false
+  const row = status => { rowDone = true; logEvent({ kind: 'monument', status, snapshot: snapshot(bot), detail: monumentDetail({ ...f, cobble1: items().reduce((n, it) => n + (it.name === 'cobblestone' ? it.count : 0), 0) }) }) }
   const end = (status, failClass, why) => { f.stop ??= failClass ?? status; f.why = why; row(status); return { status, ...(failClass ? { failClass } : {}), detail: why } }
   if (!monumentEnabled()) return end('no_effect', 'monument_off', 'the town monument is switched off here (an isolated pool, or MONUMENT_ENABLED=false)')
   const dir = monumentDir(), key = monumentKeyNow(), g0 = monumentGeom(), home = structureHome()
   const g = hkGuards(bot, signal)
-  const walkNear = async (to, range, ms) => {
-    try { await g.bound(bot.pathfinder.goto(new goals.GoalNearXZ(to.x, to.z, range)), ms, 'pathfinding', { path: true }) } catch (e) { if (e?.aborted || signal?.aborted) throw e }
+  // A PLAIN WALK (Claude stage-4 r1 P2-3): the town deposit's profile -- no digging, no towers, no scaffold -- so the approach
+  // never tunnels into or scaffolds onto the monument it is walking to (transit digs are unguarded by design)
+  const walkProfile = bot.withTownDepositWalk ?? (fn => fn())
+  const walkNear = async (goal, ms) => {
+    try { await walkProfile(() => g.bound(bot.pathfinder.goto(goal), ms, 'pathfinding', { path: true })) } catch (e) { if (e?.aborted || signal?.aborted) throw e }
     check(signal)
   }
   // ---- 1. the record: read it, or site the monument (the offline site, verified on this bot's own reads) ----
@@ -7400,7 +7404,7 @@ async function buildMonument (ctx, _args, signal) {
     if (!cands.length) return end('failed', 'monument_no_site', `no monument site is known for pool ${config.memory.pool}; the lane is off here`)
     const c0 = { x: cands[0].corner.x + g0.B / 2, z: cands[0].corner.z + g0.B / 2 }
     // the site must be LOADED to be read: walk within 24 of its centre first (a plain walk; transit is never guarded)
-    if (Math.hypot(bot.entity.position.x - c0.x, bot.entity.position.z - c0.z) > 24) await walkNear(c0, 16, 60_000)
+    if (Math.hypot(bot.entity.position.x - c0.x, bot.entity.position.z - c0.z) > 24) await walkNear(new goals.GoalNearXZ(c0.x, c0.z, 16), 45_000)
     const col = siteColumns(bot)
     let avoid = []
     try { const fr = knownFarmRecord(bot); if (fr) avoid = plotsOf(fr).map(p => ({ x: p.x, z: p.z, r: 3, what: 'farm plot' })) } catch { /* no farm */ }
@@ -7441,54 +7445,66 @@ async function buildMonument (ctx, _args, signal) {
   }
   const lagMon = (() => { try { const h = monitorEventLoopDelay({ resolution: 20 }); h.enable(); return h } catch { return null } })()
   const was = handOf(bot.heldItem)
-  let eff = null
+  let eff = null, finished = false
   try {
-    // ---- 3. walk to the site, then the open layer (the frontier): close it if it is done, at most twice per visit ----
+    // ---- 3. walk to the site, then the open layer (the frontier): close it if it is done (at most three closes per visit) ----
     const plan0 = monumentPlan(rec)
     const centre = { x: rec.site.corner.x + plan0.g.B / 2, z: rec.site.corner.z + plan0.g.B / 2 }
-    if (Math.hypot(bot.entity.position.x - centre.x, bot.entity.position.z - centre.z) > plan0.g.B / 2 + plan0.g.APRON + 6) await walkNear(centre, plan0.g.B / 2 + plan0.g.APRON + 2, 60_000)
-    const read = readCell(bot)
-    let plan = plan0, y = rec.layer_open, census = null
+    // THE MONUMENT'S READ carries each block's collision shape: only a full, non-falling cube is footing (Codex stage-4 r1 P1-3)
+    const readFull = () => (x, y, z) => { const b = bot.blockAt(new Vec3(x, y, z)); return b ? { name: blockNameOf(bot, b), boundingBox: b.boundingBox, full: isFullCube(b) } : null }
+    // walk to the ring cell in front of the grand stair (never the middle of the body), when not at the site already
+    if (Math.hypot(bot.entity.position.x - centre.x, bot.entity.position.z - centre.z) > plan0.g.B / 2 + plan0.g.APRON + 6) {
+      const ring = monumentStart(readFull(), rec)
+      await walkNear(ring ? new goals.GoalNear(ring.x, ring.y, ring.z, 2) : new goals.GoalNearXZ(centre.x, centre.z, plan0.g.B / 2 + plan0.g.APRON + 4), 45_000)
+    }
+    const read = readFull()
+    let plan = plan0, y = rec.layer_open, census = null, closable = null
     for (let k = 0; k < 3; k++) {
-      census = layerCensus(read, plan.byY.get(y) ?? [], new Set(rec.waived ?? []))
-      if (!census.closed) break
+      closable = layerClosable(read, plan, y, new Set(rec.waived ?? []))
+      census = closable.census
+      if (!closable.closed) break
       const nx = nextLayer(plan, y)
       const next = mergeVisit(rec, { me, advance: nx ?? y, complete: nx == null, now: Date.now() })
-      if (!createMonumentGen(dir, key, rec.gen + 1, next)) { const r2 = readMonument(dir, key); rec = { ...r2.record, key, gen: r2.gen } } else rec = { ...next, key, gen: rec.gen + 1 }
-      f.advanced = (f.advanced ?? 0) + 1
+      if (!createMonumentGen(dir, key, rec.gen + 1, next)) { const r2 = readMonument(dir, key); rec = { ...r2.record, key, gen: r2.gen } } else { rec = { ...next, key, gen: rec.gen + 1 }; f.advanced = (f.advanced ?? 0) + 1 }
       if (rec.state !== 'building') return end('success', null, 'the town monument is complete')
       y = rec.layer_open; plan = monumentPlan(rec)
     }
     f.gen = rec.gen; f.layer = y
-    Object.assign(f, { done: census.done, degraded: census.degraded, foreign: census.foreign, waived: census.waived, open: census.open + census.clear, blocked: census.blocked })
+    Object.assign(f, { done: census.done, degraded: census.degraded, foreign: census.foreign, waived: census.waived, open: census.open + census.clear, blocked: census.blocked, covers: closable.covers.length })
     if (census.unknown) return end('no_effect', 'monument_unloaded', `${census.unknown} cell(s) of the open layer y=${y} are not loaded from here`)
     // ---- 4. the cover rule, then a segment with work this bot may lease (the centre first, else the nearest) ----
     const waived = new Set(rec.waived ?? [])
-    const { held, covers } = coverHold(read, plan, y, waived)
+    const { held, covers } = closable
     f.held = held.size
+    // A COVER, ITS ANCHOR AND EVERY CELL IT HOLDS ARE NEVER WAIVED (Codex stage-4 r1 P1-2): an unplaceable cover stops the frontier
+    const protect = unwaivable(covers, held, plan, y)
     // ...and never a cell a body stands in or on (Paper stand12: the centre segment held one such cell, was chosen first every
     // visit, and starved the quadrants for 40 minutes): a body's cell waits, the rest of the layer does not
     const others = Object.values(bot.entities ?? {}).filter(e => e && e !== bot.entity && e.position && !['item', 'experience_orb'].includes(e.name))
       .map(e => ({ x: e.position.x, y: e.position.y, z: e.position.z, w: e.width ?? 0.6, h: e.height ?? 1.8 }))
-    const work = census.work.filter(c => !held.has(bk(c.x, c.y, c.z)) && !bdBodyBlocks(others, c))
-    const feetNow = bot.entity.position
-    const bySeg = new Map()
-    for (const c of work) { const s = segmentOf(c, plan.g); if (!bySeg.has(s)) bySeg.set(s, []); bySeg.get(s).push(c) }
-    const segOrder = [...bySeg.keys()].sort((a, b) => (a === 0 ? -1 : b === 0 ? 1 : 0) ||
-      Math.min(...bySeg.get(a).map(c => Math.hypot(c.x - feetNow.x, c.z - feetNow.z))) - Math.min(...bySeg.get(b).map(c => Math.hypot(c.x - feetNow.x, c.z - feetNow.z))))
+    // FUNDED WORK ONLY (Claude stage-4 r1 P3): a bag with stone-family but no cobble above the reserve builds core, never a skin
+    // cell it cannot fill (that stopped every such visit at its first skin cell)
+    const fundedOk = c => !!fundPick(items(), c)
+    const choice = segmentChoice({ work: census.work.filter(fundedOk), held, bodies: others, feet: bot.entity.position, g: plan.g })
+    const work = [...choice.bySeg.values()].flat()
+    const bySeg = choice.bySeg, segOrder = choice.order
     for (const s of segOrder) { const l = takeLease(dir, `${key}.seg${s}`, me, Date.now(), SLOT_LEASE_MS); if (l.ok) { seg = l; segKey = `${key}.seg${s}`; f.seg = s; break } }
     // NOTHING TO DO HERE: blocked cells still count toward their waiver (every visit that finds them blocked is one bot's)
     const blockedKeys = (plan.byY.get(y) ?? []).filter(c => !waived.has(`${c.x},${c.y},${c.z}`) && cellState(read(c.x, c.y, c.z), c) === 'blocked').map(c => `${c.x},${c.y},${c.z}`)
     if (!seg) {
-      const next = mergeVisit(rec, { me, failed: blockedKeys, now: Date.now() })
+      const next = mergeVisit(rec, { me, failed: blockedKeys, now: Date.now(), protect })
       if (blockedKeys.length) createMonumentGen(dir, key, rec.gen + 1, next)
-      const bodyOnly = !work.length && census.work.some(c => !held.has(bk(c.x, c.y, c.z)))   // the rest waits on a body: a cooldown, not "nothing open"
+      const bodyOnly = choice.bodyOnly   // the rest waits on a body: a cooldown, not "nothing open"
       return end('no_effect', work.length ? 'monument_segments_busy' : bodyOnly ? 'monument_bodies' : 'monument_nothing_open',
                  work.length ? 'every segment of the open layer with work is being built by another bot'
                    : bodyOnly ? `the open layer y=${y}'s remaining cells have a body in them; the next visit places them`
                      : `the open layer y=${y} has nothing to place now (${census.blocked} blocked, ${held.size} held by the cover rule)`)
     }
     const mine = bySeg.get(f.seg)
+    // WAIVED BUT PLACEABLE NOW (Claude stage-4 r1 P2-2): offered as optional work in this segment -- placed when they can be,
+    // never needed to close the layer
+    const optional = (plan.byY.get(y) ?? []).filter(c => waived.has(`${c.x},${c.y},${c.z}`) && segmentOf(c, plan.g) === f.seg && fundedOk(c) &&
+      ['open', 'clear'].includes(cellState(read(c.x, c.y, c.z), c)) && !held.has(bk(c.x, c.y, c.z)))
     // ---- 5. repairs: exposed air in the two closed layers below, in this segment (at most REPAIR_PER_VISIT, first) ----
     const repairs = []
     for (const yy of [y - 1, y - 2]) for (const c of plan.byY.get(yy) ?? []) {
@@ -7496,7 +7512,7 @@ async function buildMonument (ctx, _args, signal) {
       if (segmentOf(c, plan.g) !== f.seg || waived.has(`${c.x},${c.y},${c.z}`)) continue
       if (cellState(read(c.x, c.y, c.z), c) === 'open') repairs.push(c)
     }
-    f.repair = repairs.length
+    f.repairCand = repairs.length
     // ---- 6. build: the generic builder over this segment's cells, nearest first, fenced ----
     const start = monumentStart(read, rec)
     if (!start) return end('no_effect', 'monument_nothing_open', 'no standable cell around the monument site to work from')
@@ -7515,7 +7531,9 @@ async function buildMonument (ctx, _args, signal) {
     const fund0 = fundable(items())
     f.fund = fund0.total
     const r = await runPlacements({
-      read: eff.read, cells: [...repairs, ...mine], start, box, feet: eff.feet, bodies: eff.bodies, self: eff.self, walkTo: eff.walkTo,
+      // done = full, non-falling footing (a slab in a plan cell is not done: it waits and is waived)
+      read: eff.read, cells: [...repairs, ...mine, ...optional].map(c => ({ ...c, want: fullSolid })), start, box, feet: eff.feet, bodies: eff.bodies, self: eff.self, walkTo: eff.walkTo,
+      lock: clickLock(dir, key, me, eff.read),
       hold: async cell => { const name = fundPick(items(), cell); return name ? eff.hold({ ...cell, want: name }) : false },
       fence, click: eff.click,
       clear: (s, gate) => withDigScope(bot, { purpose: 'target', by: 'build_monument' }, () => eff.clear(s, gate)),
@@ -7526,26 +7544,36 @@ async function buildMonument (ctx, _args, signal) {
     f.stuckWhy = Object.entries(r.reasons ?? {}).map(([k, n]) => `${k}:${n}`).join(',') || '-'
     // ONLY BODIES IN THE WAY (a bot standing in a cell of the open layer) is not "nothing open": no long backoff for it
     f.onlyBodies = r.stop === 'no_step' && Object.keys(r.reasons ?? {}).length > 0 && Object.keys(r.reasons).every(k => /^body/.test(k))
-    Object.assign(f, { placed: r.placed, cleared: r.cleared, refused: r.refused, silent: r.silent, unreachable: r.unreachable, stop: r.stop,
+    // REPAIRS COUNTED BY THE SERVER (Codex stage-4 r1 P3-8): confirmed placements at the repair candidates, not the candidates
+    const repairKeys = new Set(repairs.map(c => `${c.x},${c.y},${c.z}`))
+    f.repair = r.cells.filter(v => v.verdict === 'confirmed' && repairKeys.has(v.c.join(','))).length
+    Object.assign(f, { placed: r.placed, cleared: r.cleared, refused: r.refused, silent: r.silent, unreachable: r.unreachable, stop: r.stop, busy: r.busy,
                        gateP95: Math.round(p95(r.gateMs)), gateMax: Math.round(Math.max(0, ...r.gateMs)) })
     // ---- 7. the record: this visit's stuck cells (never a body's), the layer closed if it is, the last confirmation ----
+    // STRUCTURAL VOTES ONLY (Claude stage-4 r1 P2-2): a cell still blocked, or one the planner found no support for or could only
+    // reach by walling its builder in -- never a refused or silent click, a missed stand, a body, a fence; never a cell that ended
+    // the visit placed; and none at all from a bot that cannot walk back to the start (its view of reachability is its own)
     const failedKeys = new Set(blockedKeys)
-    for (const v of r.cells) if (v.verdict !== 'confirmed' && v.verdict !== 'cleared' && !/^(body|body_walled|fence|aborted)$/.test(v.verdict)) failedKeys.add(v.c.join(','))
-    if (r.stop === 'no_step') for (const st of r.stuck) { const [c, why] = st.split(':'); if (!/^body/.test(why) && Number(c.split(',')[1]) === y) failedKeys.add(c) }
-    const after = layerCensus(readCell(bot), plan.byY.get(y) ?? [], waived)
-    for (let tries = 0; tries < 3; tries++) {
+    if (r.stop === 'no_step') for (const st of r.stuck) { const [c, why] = st.split(':'); if (/^(support|walled_in)$/.test(why) && Number(c.split(',')[1]) === y) failedKeys.add(c) }
+    for (const v of r.cells) if (v.verdict === 'confirmed' || v.verdict === 'cleared') failedKeys.delete(v.c.join(','))
+    if (!bdWalksTo(readFull(), eff.feet(), start, { box })) failedKeys.clear()
+    const after = layerClosable(readFull(), plan, y, waived)
+    // A GENERATION ONLY WHEN SOMETHING CHANGED (Claude stage-4 r1 P2-4): a vote, a placement, a close
+    for (let tries = 0; tries < 3 && (failedKeys.size || r.placed || after.closed); tries++) {
       const latest = readMonument(dir, key)
       if (!latest.record || latest.record.layer_open !== y) break
       const nx = after.closed ? nextLayer(plan, y) : null
-      const next = mergeVisit(latest.record, { me, failed: [...failedKeys], placed: r.placed, now: Date.now(), advance: after.closed ? (nx ?? y) : null, complete: after.closed && nx == null })
+      const next = mergeVisit(latest.record, { me, failed: [...failedKeys], placed: r.placed, now: Date.now(), advance: after.closed ? (nx ?? y) : null, complete: after.closed && nx == null, protect })
       if (createMonumentGen(dir, key, latest.gen + 1, next)) { f.gen = latest.gen + 1; if (after.closed) f.advanced = (f.advanced ?? 0) + 1; break }
     }
-    void covers
+    finished = true
   } finally {
     if (lagMon) { try { lagMon.disable(); f.lagMax = Math.round(lagMon.max / 1e6) } catch { /* telemetry */ } }
     try { eff?.close() } catch { /* gone */ }
     release()
     await settleAndRestore(bot, was, g, 'build_monument')
+    // A VISIT THAT THREW OR WAS STOPPED STILL WRITES ITS ROW (Claude stage-4 r1 P2-5): a stalled visit is the one M1 is for
+    if (!rowDone && !finished) { f.stop ??= signal?.aborted ? 'aborted' : 'thrown'; try { row('failed') } catch { /* telemetry */ } }
   }
   const did = (f.placed ?? 0) + (f.cleared ?? 0)
   // EVERY SERVER-CONFIRMED CHANGE is the contract's world_change (a clear changed the world too)
@@ -7694,6 +7722,16 @@ function farmAvoid (bot = null) {
       for (const st of rec.plan.steps) for (const q of [st?.c, st?.s]) if (Array.isArray(q) && q.every(Number.isFinite)) out.push({ x: q[0], y: q[1], z: q[2], r: FARM_TORCH_WELL_DISTANCE, what: 'plinth_cell' })
     }
   } catch { /* no plinth record */ }
+  // THE TOWN MONUMENT'S BOX (monument-01, Claude stage-4 r1 P3): a farm is never FOUNDED on it (its cells reach 30 from home, the
+  // monument's apron starts at 25). Founding only: 'monument' is not in FARM_YIELDS_TO, so a recorded farm never moves for it
+  // (the monument's own siting avoids recorded plots). A grid of points 2 apart, r 1.5, over the box within 32 of home.
+  try {
+    const hx = config.world.homeX, hz = config.world.homeZ
+    for (const idx of structureIndexes(townDir(), structureHome(), bot?.worldId ?? null)) {
+      const b = idx.box
+      for (let x = b.x0; x <= b.x1; x += 2) for (let z = b.z0; z <= b.z1; z += 2) if (Math.max(Math.abs(x - hx), Math.abs(z - hz)) <= 32) out.push({ x, z, r: 1.5, what: 'monument' })
+    }
+  } catch { /* no monument record */ }
   return out
 }
 /** The town's raised-well plan (plinth-01's junkwell-plinth-<home>.json), read without depending on that module: a plan
@@ -12695,7 +12733,7 @@ export const SKILL_CONTRACTS = {
   close_well:   { expects: ['world_change'],     maxMs: 60_000 },
   // Plants, restores soil and places torches at the town tree farm: the change it exists for is blocks in the world.
   tend_farm: { expects: ['world_change'],         maxMs: 150_000 },
-  build_monument: { expects: ['world_change'],    maxMs: 180_000 },
+  build_monument: { expects: ['world_change'],    maxMs: 240_000 },   // two 45 s walks + a 90 s visit from arrival
   eat:      { expects: ['survival'],              maxMs: 30_000 },
   // Walk-home fallback makes sleep a travel skill too (same as deposit).
   sleep:    { expects: ['survival'],              maxMs: 240_000 },

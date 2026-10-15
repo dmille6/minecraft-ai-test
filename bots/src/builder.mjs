@@ -36,6 +36,12 @@ export const replaceable = b => !!b && BUILD_REPLACEABLE.has(b.name)
 const CARD = Object.freeze([[1, 0], [-1, 0], [0, 1], [0, -1]])
 const FACES = Object.freeze([[0, -1, 0], [1, 0, 0], [-1, 0, 0], [0, 0, 1], [0, 0, -1]])   // ref offsets: below, then the sides
 export const PLACED = Object.freeze({ name: 'cobblestone', boundingBox: 'block' })
+/** One unit collision cube (a prismarine Block's `shapes`) -> true | false; undefined when the block carries no shapes. */
+export function isFullCube (b) {
+  if (!b || b.boundingBox !== 'block') return false
+  if (!Array.isArray(b.shapes)) return undefined
+  return b.shapes.length === 1 && [0, 0, 0, 1, 1, 1].every((v, i) => b.shapes[0][i] === v)
+}
 
 /** An overlay on read(): `cells` (Map key -> block) wins. Pure. */
 export function overlay (read, cells) {
@@ -386,6 +392,10 @@ export const BUILD_ATTEMPTS = 2
  *   fence()                  -> true while this builder may still mutate (lease, record generation)
  *   clear(step, gate)        -> the same verdicts for a CLEAR step (the cell's block broken by hand); only with `clearable`
  *   nearest                  true: each step tries the open cells nearest the bot's feet first (the caller's order breaks ties)
+ *   lock                     { acquire(cell) -> null | 'busy', release(cell, verdict) }: ONE placement in flight across all
+ *                            builders (monument-01, Codex stage-4 r1 P1-1: two builders' clicks, each proven alone, can wall a
+ *                            bystander in together). Taken in the gate after every proof and before the fence; released with
+ *                            the verdict. 'busy' is no failure: the step waits `busyMs` and is planned again.
  *   fillable, clearable      as nextPlacement. The result carries timings: gateMs (per gate) and planMs (per step).
  *   click(step, gate)        -> 'confirmed' | 'refused' | 'silent' (the server's word: the caller's witness) | 'gate:<why>'.
  *                               The adapter does its awaits (look, the tick pacing) FIRST, then calls gate() -- null to
@@ -400,8 +410,9 @@ export const BUILD_ATTEMPTS = 2
  */
 export async function runPlacements ({ read, cells, start, box = null, forbid = () => false, feet, bodies = () => [], walkTo, hold, fence, click,
   aborted = () => false, maxSteps = 40, deadline = Infinity, now = () => Date.now(), scan = Infinity, self = null,
-  clear = null, clearable = () => false, fillable = replaceable, nearest = false, clock = () => performance.now() }) {
-  const out = { placed: 0, cleared: 0, refused: 0, silent: 0, unreachable: 0, stop: null, why: null, stuck: [], cells: [], gateMs: [], planMs: [] }
+  clear = null, clearable = () => false, fillable = replaceable, nearest = false, clock = () => performance.now(),
+  lock = null, busyMs = 300, wait = ms => new Promise(r => setTimeout(r, ms)) }) {
+  const out = { placed: 0, cleared: 0, refused: 0, silent: 0, unreachable: 0, busy: 0, stop: null, why: null, stuck: [], cells: [], gateMs: [], planMs: [] }
   box ??= boxAround([...cells, start])
   const live = read
   const tries = new Map()
@@ -478,13 +489,17 @@ export async function runPlacements ({ read, cells, start, box = null, forbid = 
       const st = standOk(nw, { stand: feet(), target: c, point: s.point, topFace: s.topFace, start, box, forbid })
       if (st) return `stand:${st}`
       if (bs.length && wallsInBody(bs, walkReachBack(nw, start, { box, forbid }), walkReachBack(overlay(nw, new Map([[bk(c.x, c.y, c.z), PLACED]])), start, { box, forbid }))) return 'body_walled'
-      if (!fence()) return 'fence'
+      if (lock) { const l = lock.acquire(c); if (l) return l; locked = true }
+      if (!fence()) { if (locked) { lock.release(c, 'fence'); locked = false } return 'fence' }
       return null
     })
-    if (gate() === 'fence') { out.stop = 'fence'; break }   // a lease already lost: no look, no wait
-    const v = await click(s, gate)
+    let locked = false
+    if (!fence()) { out.stop = 'fence'; break }   // a lease already lost: no look, no wait
+    let v
+    try { v = await click(s, gate) } finally { if (locked) { lock.release(c, v ?? 'error'); locked = false } }
     if (v === 'gate:aborted') { out.stop = 'aborted'; break }
     if (v === 'gate:fence') { out.stop = 'fence'; break }
+    if (v === 'gate:busy') { out.busy++; await wait(busyMs); continue }
     if (typeof v === 'string' && v.startsWith('gate:')) { fail(c, v.slice(5)); continue }
     if (v === 'confirmed') { out.placed++; out.cells.push({ c: [c.x, c.y, c.z], verdict: v }); continue }
     if (v === 'refused') out.refused++; else out.silent++

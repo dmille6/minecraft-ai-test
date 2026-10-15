@@ -89,13 +89,16 @@ await t('PLAN: body + stair + fill, each cell once, layers ascending; the stair 
   assert.equal(p.stairs.size, 1)
 })
 
-await t('CELL STATES: skin wants cobble (another solid is foreign), core accepts stone-family (dirt is degraded); water and air open; a poppy clears; lava and a torch block', () => {
+await t('CELL STATES: skin wants cobble (another solid is foreign), core accepts stone-family (dirt is degraded); water and air open; a poppy and a torch clear; lava and a cobweb block', () => {
   const skin = { role: 'skin' }, core = { role: 'core' }
   assert.equal(MJ.cellState(COBBLE, skin), 'done'); assert.equal(MJ.cellState(STONE, skin), 'foreign')
   assert.equal(MJ.cellState({ name: 'andesite', boundingBox: 'block' }, core), 'done'); assert.equal(MJ.cellState(DIRT, core), 'degraded')
   assert.equal(MJ.cellState(WATER, core), 'open'); assert.equal(MJ.cellState(AIR, skin), 'open')
   assert.equal(MJ.cellState(POPPY, core), 'clear'); assert.equal(MJ.cellState(TORCH, core), 'clear')
   assert.equal(MJ.cellState(LAVA, core), 'blocked'); assert.equal(MJ.cellState(null, core), 'unknown')
+  assert.equal(MJ.cellState({ name: 'cobweb', boundingBox: 'empty' }, core), 'blocked')
+  assert.equal(MJ.cellState({ name: 'sugar_cane', boundingBox: 'empty' }, core), 'clear', 'hardness 0 (Claude stage-4 r1 P2-1)')
+  assert.equal(MJ.cellState({ name: 'lily_pad', boundingBox: 'block' }, core), 'clear', 'a lily pad is cleared, never kept as thin footing')
   assert.equal(MJ.cellState({ name: 'lantern', boundingBox: 'block' }, skin), 'foreign')
 })
 
@@ -140,7 +143,7 @@ await t('COVER RULE: a waived hole in layer y-1 holds every y-cell within Chebys
 })
 
 await t('MUTANT KILLED: the cover rule without its hold -- every neighbour of the cover is free', async () => {
-  await withMutant(MJP, "      if (Math.max(Math.abs(c.x - cover.x), Math.abs(c.z - cover.z)) <= 1) held.add(bk(c.x, c.y, c.z))\n", '', async m => {
+  await withMutant(MJP, "    if (Math.max(Math.abs(c.x - cover.x), Math.abs(c.z - cover.z)) <= 1) held.add(bk(c.x, c.y, c.z))\n", '', async m => {
     const w = world()
     const p = m.monumentPlan({ site: SITE6, geom: G6, fill: [] })
     for (const c of p.byY.get(64)) w.set(c.x, c.y, c.z, COBBLE)
@@ -215,6 +218,87 @@ await t('GUARD COMPOSITION: the recorded fill (a foundation deeper than base-8, 
   const st = MJ.monumentPlan(rec).cells.find(c => c.role === 'stair')
   assert.equal(ST.monumentPlaceCost(k, { position: st }), 100); assert.equal(ST.monumentPlaceCost(k, { position: { x: 0, y: 64, z: 0 } }), 0)
   assert.ok(idx.box.x0 <= 7 && idx.box.z0 <= 7, 'the box covers the fill')
+})
+
+await t('ADJACENT WAIVED HOLES (Claude stage-4 r1 P1-1): neither cover holds the other; the builder places both and the layer closes', () => {
+  const w = world()
+  const p = MJ.monumentPlan({ site: SITE6, geom: G6, fill: [] })
+  for (const c of p.byY.get(64)) w.set(c.x, c.y, c.z, COBBLE)
+  w.set(12, 64, 12, AIR); w.set(13, 64, 12, AIR)                         // two waived holes side by side
+  const waived = new Set(['12,64,12', '13,64,12'])
+  const { held, covers } = MJ.coverHold(w.read, p, 65, waived)
+  assert.equal(covers.length, 2)
+  for (const { cover } of covers) assert.equal(held.has(B.bk(cover.x, cover.y, cover.z)), false, 'a pending cover is never held')
+  // the builder over every unheld cell, repeatedly re-deriving the hold as cells land: the layer completes
+  const box = { x0: 0, x1: 24, y0: 58, y1: 72, z0: 0, z1: 24 }
+  for (let round = 0; round < 8; round++) {
+    const h = MJ.coverHold(w.read, p, 65, waived).held
+    const free = p.byY.get(65).filter(c => !h.has(B.bk(c.x, c.y, c.z)) && w.read(c.x, c.y, c.z).name === 'air')
+    if (!free.length) break
+    const seq = B.sequence(w.read, free, { start: { x: 6, y: 64, z: 13 }, box })
+    for (const st of seq.steps) w.set(st.c[0], st.c[1], st.c[2], COBBLE)
+  }
+  assert.equal(MJ.layerClosable(w.read, p, 65, waived).closed, true, JSON.stringify(MJ.coverHold(w.read, p, 65, waived).covers.map(c => c.cover)))
+})
+
+await t('MUTANT KILLED: pending covers held by each other -- the adjacent pair never closes', async () => {
+  await withMutant(MJP, "    if (coverKeys.has(k) || anchors.has(k)) continue\n", "    if (anchors.has(k) && !coverKeys.has(k)) continue\n", async m => {
+    const w = world()
+    const p = m.monumentPlan({ site: SITE6, geom: G6, fill: [] })
+    for (const c of p.byY.get(64)) w.set(c.x, c.y, c.z, COBBLE)
+    w.set(12, 64, 12, AIR); w.set(13, 64, 12, AIR)
+    const { held, covers } = m.coverHold(w.read, p, 65, new Set(['12,64,12', '13,64,12']))
+    assert.ok(covers.every(({ cover }) => held.has(B.bk(cover.x, cover.y, cover.z))), 'the mutant holds both covers')
+  })
+})
+
+await t('BARRIER + COVER: a layer whose cover obligation is unmet does not close, even with the cover itself waived; covers/anchors/held cells are never waived', () => {
+  const w = world()
+  const p = MJ.monumentPlan({ site: SITE6, geom: G6, fill: [] })
+  for (const c of p.byY.get(64)) w.set(c.x, c.y, c.z, COBBLE)
+  for (const c of p.byY.get(65)) w.set(c.x, c.y, c.z, COBBLE)
+  w.set(12, 64, 12, AIR); w.set(12, 65, 12, AIR)                        // a waived hole and its cover never placed
+  const waived = new Set(['12,64,12', '12,65,12'])
+  assert.equal(MJ.layerCensus(w.read, p.byY.get(65), waived).closed, true, 'positive control: the census alone would close it')
+  const lc = MJ.layerClosable(w.read, p, 65, waived)
+  assert.equal(lc.closed, false); assert.equal(lc.covers.length, 1)
+  w.set(12, 65, 12, COBBLE)
+  assert.equal(MJ.layerClosable(w.read, p, 65, waived).closed, true, 'the cover placed: it closes')
+  const prot = MJ.unwaivable(lc.covers, lc.held, p, 65)
+  assert.ok(prot.has('12,65,12'))
+  let r = { layer_open: 65, stuck: {}, waived: [] }
+  for (const me of ['a', 'b', 'c']) r = MJ.mergeVisit(r, { me, failed: ['12,65,12'], protect: prot })
+  assert.deepEqual(r.waived, [], 'a cover is never waived')
+})
+
+await t('FOOTING on real block states (prismarine): a slab, a fence, a stair block and sand are not footing; stone and cobble are', async () => {
+  const { createRequire } = await import('node:module')
+  const req = createRequire(import.meta.url)
+  const reg = req('prismarine-registry')('1.21.8'), Block = req('prismarine-block')(reg)
+  const of = n => { const b = Block.fromStateId(reg.blocksByName[n].defaultState, 0); return { name: b.name, boundingBox: b.boundingBox, full: B.isFullCube(b) } }
+  for (const n of ['oak_slab', 'oak_fence', 'cobblestone_stairs', 'sand', 'gravel']) {
+    assert.equal(MJ.fullSolid(of(n)), false, n)
+    assert.notEqual(MJ.cellState(of(n), { role: 'core' }), 'degraded', n)
+  }
+  for (const n of ['stone', 'cobblestone', 'dirt', 'oak_log']) assert.equal(MJ.fullSolid(of(n)), true, n)
+  assert.equal(MJ.cellState(of('oak_slab'), { role: 'core' }), 'blocked', 'a slab waits (and is waived), it is not footing')
+})
+
+await t('CLICK LOCK: one holder at a time; the next waits until ITS world shows the last confirmed click; a stale lock is broken', () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'clk2-'))
+  let seen = false
+  const a = MJ.clickLock(dir, 'k', 'a', () => STONE), b = MJ.clickLock(dir, 'k', 'b', () => (seen ? STONE : AIR))
+  const cell = { x: 1, y: 64, z: 1 }
+  assert.equal(a.acquire(cell), null); assert.equal(b.acquire(cell), 'busy')
+  a.release(cell, 'confirmed')
+  assert.equal(b.acquire(cell), 'busy', 'b has not seen a\'s block yet')
+  seen = true
+  assert.equal(b.acquire(cell), null); b.release(cell, 'refused')
+  let t0 = 0
+  const c = MJ.clickLock(dir, 'k2', 'c', () => STONE, () => t0), d = MJ.clickLock(dir, 'k2', 'd', () => STONE, () => t0)
+  assert.equal(c.acquire(cell), null)
+  t0 = Date.now() + MJ.CLICK_LOCK_MS + 1000                 // c never released (killed): stale
+  assert.equal(d.acquire(cell), null)
 })
 
 // ---- the real build_monument skill on a micro-world --------------------------------------------------------------------
@@ -299,10 +383,10 @@ await t('THE CHAIN with a poppy and water in the footprint: the poppy is cleared
   assert.equal(w.read(12, 64, 12).name, 'cobblestone'); assert.equal(w.read(13, 64, 13).name, 'cobblestone')
 })
 
-await t('A BLOCKED CELL (redstone wire: not solid, not clearable, not fillable) waits; three different bots waive it; the layer then closes', async () => {
+await t('A BLOCKED CELL (a cobweb: not solid, not instant, not fillable) waits; three different bots waive it; the layer then closes', async () => {
   const w = world()
   fs.rmSync(DIR, { recursive: true, force: true }); fs.mkdirSync(DIR, { recursive: true })
-  w.set(12, 64, 12, { name: 'redstone_wire', boundingBox: 'empty' })
+  w.set(12, 64, 12, { name: 'cobweb', boundingBox: 'empty' })
   for (const name of ['A', 'A', 'B', 'C', 'C']) { const { bot } = fakeBot(w, undefined, name); await run(bot) }
   const rec = MJ.readMonument(DIR, KEY).record
   assert.ok(rec.waived.includes('12,64,12'), JSON.stringify(rec.stuck))
@@ -342,6 +426,53 @@ await t('A BODY IN THE CENTRE: its cell waits, but the visit takes another segme
   const st = l0.find(c => c.role === 'stair')
   if (st) assert.equal(w.read(st.x, st.y, st.z).name, 'cobblestone', `the other work was done (${r.status}: ${r.detail})`)
   else assert.notEqual(r.failClass, 'monument_nothing_open', 'only a body in the way is never "nothing open"')
+})
+
+await t('SEGMENT CHOICE (pure, a 48 plan): a body on the centre\'s only open cell sends the visit to a quadrant; all work under bodies is bodyOnly', () => {
+  const p = MJ.monumentPlan({ site: { corner: { x: 0, z: 0 }, baseY: 64, stairFace: 's' }, geom: MON.ZIG, fill: [] })
+  const l0 = p.byY.get(64)
+  const centreCell = l0.find(c => MJ.segmentOf(c, MON.ZIG) === 0)
+  const quad = l0.filter(c => MJ.segmentOf(c, MON.ZIG) === 3).slice(0, 5)
+  const body = [{ x: centreCell.x + 0.5, y: 64, z: centreCell.z + 0.5 }]
+  const a = MJ.segmentChoice({ work: [centreCell, ...quad], bodies: body, feet: { x: 0, z: 0 }, g: MON.ZIG })
+  assert.deepEqual(a.order, [3]); assert.equal(a.bodyOnly, false)
+  const b = MJ.segmentChoice({ work: [centreCell, ...quad], bodies: [], feet: { x: 0, z: 0 }, g: MON.ZIG })
+  assert.equal(b.order[0], 0, 'positive control: without the body the centre goes first')
+  const c = MJ.segmentChoice({ work: [centreCell], bodies: body, g: MON.ZIG })
+  assert.deepEqual(c.order, []); assert.equal(c.bodyOnly, true)
+})
+
+await t('MUTANT KILLED: segment choice blind to bodies -- the centre with only a body cell is chosen first', async () => {
+  await withMutant(MJP, "  const usable = free.filter(c => !bodyBlocks(bodies, c))\n", "  const usable = free\n", async m => {
+    const p = m.monumentPlan({ site: { corner: { x: 0, z: 0 }, baseY: 64, stairFace: 's' }, geom: MON.ZIG, fill: [] })
+    const l0 = p.byY.get(64)
+    const centreCell = l0.find(c => m.segmentOf(c, MON.ZIG) === 0)
+    const quad = l0.filter(c => m.segmentOf(c, MON.ZIG) === 3).slice(0, 5)
+    assert.equal(m.segmentChoice({ work: [centreCell, ...quad], bodies: [{ x: centreCell.x + 0.5, y: 64, z: centreCell.z + 0.5 }], g: MON.ZIG }).order[0], 0)
+  })
+})
+
+const monRows = () => { try { return fs.readFileSync(path.join(process.env.LOG_DIR, 'skill-TestBot.jsonl'), 'utf8').split('\n').filter(l => l.includes('"_monument"')).length } catch { return -1 } }
+await t('ONE ROW PER VISIT: a successful visit writes exactly one _monument row; a visit that throws still writes one (stop=thrown)', async () => {
+  const w = world()
+  fs.rmSync(DIR, { recursive: true, force: true }); fs.mkdirSync(DIR, { recursive: true })
+  const { bot } = fakeBot(w)
+  const settle = () => new Promise(r => setTimeout(r, 300))   // the logger writes through a stream: let earlier rows land
+  await settle()
+  const n0 = monRows()
+  await run(bot); await settle()
+  assert.equal(monRows(), n0 + 1, `rows ${n0} -> ${monRows()}`)
+  const { bot: b2 } = fakeBot(w)
+  let calls = 0
+  const ba = b2.blockAt
+  b2.blockAt = p => { if (++calls > 4000) throw new Error('world gone'); return ba(p) }
+  let err = null
+  try { await run(b2) } catch (e) { err = e }
+  assert.ok(err, 'the visit threw')
+  await settle()
+  assert.equal(monRows(), n0 + 2)
+  const last = fs.readFileSync(path.join(process.env.LOG_DIR, 'skill-TestBot.jsonl'), 'utf8').trim().split('\n').filter(l => l.includes('"_monument"')).pop()
+  assert.match(last, /stop=thrown/)
 })
 
 console.log(`\n${pass} passed, ${fail} failed`); if (fail) process.exit(1)
