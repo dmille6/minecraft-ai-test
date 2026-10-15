@@ -28,7 +28,7 @@
 import { haltPath } from './pathhalt.mjs'
 import { stepLineSafe } from './lavaguard.mjs'
 import { nearDeathSite, lineHitsDeathSite, DEATH_SITE_TARGET_RADIUS } from './deathsites.mjs'
-import { applyToolPolicy, remaining, spentEquipOutcome, handHarvests, emptyHand, TOOL_RE as DIG_TOOL_RE, HARD_STOP } from './toolfor.mjs'
+import { applyToolPolicy, remaining, spentEquipOutcome, handHarvests, emptyHand, toolFor, TOOL_RE as DIG_TOOL_RE, HARD_STOP } from './toolfor.mjs'
 import { wearOutPlan, wearTarget, wearRank, wearRefusals, slotObservation, neverPickUp } from './hygiene.mjs'
 import { noteSought } from './pickuplog.mjs'
 import { foodSkipMode, foodSkipActive, skipFoodDrop, foodSkipDetail, difficultyOf, setPeacefulFood, peacefulFoodActive } from './foodskip.mjs'
@@ -68,6 +68,10 @@ import { WOODEN_TRAPDOOR, isWellJunk, disposePlan, wellIdentity, wellStage, well
          aimApplied, packetVelocity, isOpenPit, isCoveredPit, pitCoverItem, PIT_COVER_REMEDY, coverRef, bodyInPit,
          stockWellStacks, pillarCount, STOCK_SCAFFOLD_MIN } from './well.mjs'
 import { resyncPacket, GUARDED_INVENTORY_ACTIONS } from './craftsync.mjs'
+import { resolveRecord, readRecord, takeLease, holdsLease, releaseLease, standsFor, refFaceFor, installBlockWitness,
+         reachOf as bpReachOf, REACH as BP_REACH, DIG_REACH as BP_DIG_REACH, REPLACEABLE as BP_REPLACEABLE, bodyInCell as bpBodyInCell } from './blueprint.mjs'
+import { canonicalFarm, farmRecordRefusal, plotsOf, torchesOf, plotState, torchState, tendPlan, farmIndex, emptyFarmIndex, inPlotColumn,
+         isPlotCell, farmNoDig, inFarmBox, farmPlaceRefusal, farmTendDetail, bonemealEnabled, farmEnabled, FARM_SPECIES, MIN_PLOTS } from './treefarm.mjs'
 import path from 'node:path'
 import { IRON_KINDS, MIN_TRIP_USES, CANDIDATE_RADIUS, breakHazard, nearHome, pickBudget, rankCandidates, clusterOf, tunnelMovements, planTunnel, ONE_PICK_USES, tripDecision } from './oretunnel.mjs'
 import pkg from 'mineflayer-pathfinder'
@@ -1834,6 +1838,8 @@ async function gather(ctx, { block: blockName, count = 16, maxDistance = 32 }, s
     let positions = bot
       .findBlocks({ matching: type.id, maxDistance, count: 32 })
       .filter(p => horizontalDistanceFromSpawn(p) <= config.world.borderRadius)
+      // NEVER A TOWN TREE FARM'S SOIL (treefarm.mjs farmIndex): `gather dirt` would dig the plot out from under a sapling.
+      .filter(p => !farmNoDig(farmIdx(bot), p.x, p.y, p.z))
     let viaSource = null
     // How many foliage-covered logs the fallback below admitted this round, or 0.
     // Carried so the run's OUTCOME can be reported against it: 'the fallback fired'
@@ -1847,6 +1853,7 @@ async function gather(ctx, { block: blockName, count = 16, maxDistance = 32 }, s
         const found = bot
           .findBlocks({ matching: altType.id, maxDistance, count: 32 })
           .filter(p => horizontalDistanceFromSpawn(p) <= config.world.borderRadius)
+          .filter(p => !farmNoDig(farmIdx(bot), p.x, p.y, p.z))
         if (found.length) {
           positions = found
           viaSource = alt
@@ -2025,6 +2032,7 @@ async function gather(ctx, { block: blockName, count = 16, maxDistance = 32 }, s
         const found = bot
           .findBlocks({ matching: altType.id, maxDistance, count: 32 })
           .filter(q => horizontalDistanceFromSpawn(q) <= config.world.borderRadius)
+          .filter(q => !farmNoDig(farmIdx(bot), q.x, q.y, q.z))
         const cand = found.filter(exposed).filter(safeTarget)
         const ok = [...cand.filter(approachable), ...cand.filter(q => !approachable(q))]
         if (ok.length) {
@@ -5522,6 +5530,8 @@ export const STATION_ITEMS = new Set(['crafting_table', 'furnace', 'blast_furnac
  * questions asked of bot.blockAt directly -- never "unknown means yes".
  */
 export function roomVeto (bot, p) {
+  // A TOWN STRUCTURE'S CELL IS NEVER ROOM (treefarm.mjs): place's make-room dig and wear_out both ask this.
+  if (farmNoDig(farmIdx(bot), p.x, p.y, p.z)) return 'town_structure'
   const v = breakVetoAt(bot, p)
   if (v) return v
   // Six neighbours, and an UNREADABLE one is a veto: a wall cell that borders
@@ -5656,6 +5666,8 @@ export function plantableSpotNear (bot, radius = 2, item = 'oak_sapling') {
         // 5-to-7 block column for every one of them would be up to 525 blockAt calls
         // on the decision path, and almost all of it discarded.
         if (!PLANTABLE_SOIL.has(soil.name) || !PLANT_REPLACEABLE.has(cell.name)) continue
+        // NEVER A TOWN TREE FARM'S WALKWAY (a tree there shades and crowds four plots); its plot cells are fine to plant.
+        { const fi = farmIdx(bot), q = cell.position; if (fi && q && inFarmBox(fi, q.x, q.z) && !isPlotCell(fi, q.x, q.y, q.z)) continue }
         const column = []
         for (let i = 1; i <= need; i++) {
           const b = bot.blockAt(p.offset(dx, dy + i, dz))
@@ -5823,6 +5835,22 @@ async function place(ctx, { item, x, y, z }, signal) {
                  snapshot: snapshot(bot) })
     }
   }
+  // A TOWN STRUCTURE'S CELLS TAKE ONLY WHAT THE STRUCTURE WANTS (treefarm.mjs farmPlaceRefusal): a crafting table, a
+  // scaffold block or a stray sapling in a tree-farm plot column would stop that tree for good. A scan simply skips
+  // those cells; explicit coordinates on one are refused with the remedy (any other cell: the scan finds one).
+  {
+    const fidx = farmIdx(bot)
+    const target = c => c.ref?.position?.offset?.(c.face.x, c.face.y, c.face.z)
+    const why = c => { const t = target(c); return t ? farmPlaceRefusal(fidx, t.x, t.y, t.z, item) : null }
+    if (fidx && candidates.length) {
+      const first = why(candidates[0])
+      candidates = candidates.filter(c => !why(c))
+      if (!candidates.length && [x, y, z].every(v => Number.isFinite(Number(v)))) {
+        return { status: 'failed', failClass: 'reserved_cell',
+                 detail: `${x},${y},${z} is ${first}: only the farm's own block goes there. \`place ${item}\` without coordinates picks another cell` }
+      }
+    }
+  }
 
   // MAKE ROOM FOR A STATION. A crafting table is not scaffold: nobody stands
   // on it, so it does not need a free cell above, only a cell. In a one-wide
@@ -5847,6 +5875,8 @@ async function place(ctx, { item, x, y, z }, signal) {
       // Never the town composter either (composter.mjs): it is not a station this bot carries, but it is one the town uses.
       if (cell.name === 'water' || cell.name === 'lava' || STATION_ITEMS.has(cell.name) || cell.name === 'composter' || /_ore$/.test(cell.name)) continue
       if (roomVeto(bot, cellPos)) continue
+      // NOR A CELL THE STATION MAY NOT GO INTO (a tree-farm plot column: digging its trunk and setting a table there kills the plot)
+      if (farmPlaceRefusal(farmIdx(bot), cellPos.x, cellPos.y, cellPos.z, item)) continue
       check(signal)
       // ONE EXCAVATION PER CALL, whatever happens to it. A dig that outlives
       // its budget is cancelled here -- withTimeout's default only stops the
@@ -6065,6 +6095,7 @@ async function build(ctx, { plan = 'pillar', block = 'oak_planks', x, y, z }, si
 
     const current = bot.blockAt(pos)
     if (current && current.name === cell.block) { already++; continue }
+    { const why = farmPlaceRefusal(farmIdx(bot), pos.x, pos.y, pos.z, cell.block); if (why) { failed++; lastErr = `${pos.x},${pos.y},${pos.z} is ${why}`; continue } }
     if (current && current.name !== 'air' && !current.name.includes('leaves') &&
         !current.name.includes('grass') && current.name !== 'snow') {
       failed++; lastErr = `${current.name} in the way at ${pos.x},${pos.y},${pos.z}`; continue
@@ -6575,7 +6606,8 @@ const readCell = bot => (x, y, z) => { const b = bot.blockAt(new Vec3(x, y, z));
  */
 const townSiteKey = () => `composter-site-${config.world.homeX}_${config.world.homeY}_${config.world.homeZ}`
 export function townComposterSite (bot) {
-  const home = homeVec(), read = readCell(bot)
+  // The farm's reserved cells read as occupied, so the composter's search never picks one (reservationAwareRead).
+  const home = homeVec(), read = reservationAwareRead(readCell(bot), farmIdx(bot) ?? knownFarmIndex(bot))
   return resolveTownSite({
     dir: poolStateDir(config.memory.pool),
     key: townSiteKey(),
@@ -7117,7 +7149,7 @@ async function buildComposter (ctx, _args, signal) {
   // NEVER CRAFT INTO A FULL BAG: mineflayer drops crafted output that has no slot. And NO CIRCULAR REMEDY: the
   // composter is what would free slots, and it does not exist yet -- the refusal names what frees one from HERE.
   if (free() < pre.slotsNeeded) return skip(noRoomToBuild(bot, pre, `building needs ${pre.slotsNeeded} free slots for the craft chain and the bag has ${free()}`))
-  const home = homeVec(), read = readCell(bot)
+  const home = homeVec(), read = reservationAwareRead(readCell(bot), farmIdx(bot) ?? knownFarmIndex(bot))
   // NO SITE IS A FREE SKIP: an unloaded cell, no valid cell, or no shared record -- never this bot's private answer.
   const { site, gen, why } = townComposterSite(bot)
   if (!site) return skip(`the town's composter site cannot be settled from here: ${why}`)
@@ -7250,6 +7282,332 @@ async function buildComposter (ctx, _args, signal) {
   } finally {
     await settleAndRestore(bot, was, g, 'build_composter')
   }
+}
+
+// ------------------------------------------------------------- tend_farm -----
+//
+// THE TOWN TREE FARM (treefarm.mjs has the measurements, the layout and every decision; blueprint.mjs the generic
+// builder core). One deterministic town order, never the model's choice: at town, when the farm has work this bot can
+// do. The visit leases the farm (one builder per town), reads every plot, and then -- in tendPlan's order -- puts lost
+// soil back, clears leftover logs out of plot columns, plants, places growth torches it carries, and (arm OFF by
+// default) bone meals. EVERY mutation is fenced on the lease, re-read just before it is made, and counted only when a
+// server packet names the result at that cell (installBlockWitness): never the click, never the client's own model.
+
+/** The farm's shared record and lease, per pool and home (the composter's convention). */
+const farmKey = () => `treefarm-${config.world.homeX}_${config.world.homeY}_${config.world.homeZ}`
+const farmDir = () => poolStateDir(config.memory.pool)
+/** Per-mutation bounds: a server answer to a placement or a dig arrives in ~0.1-1 s (sandbox); 2.5 s is silence. */
+const FARM_ACK_MS = 2_500
+/** The visit's own wall clock, well inside its 150 s contract and the runner's watchdog. */
+export const FARM_VISIT_MS = Math.max(8_000, Math.min(75_000, Math.floor(config.skills.defaultTimeoutMs / 2.4)))
+/** Renew the lease when less than this is left (every mutation is fenced on it). */
+const LEASE_RENEW_MS = 45_000
+
+/** The record this bot's world agrees with, or null. No world reads: a file read (cached by the caller). */
+export function knownFarmRecord (bot) {
+  try {
+    const { record } = readRecord(farmDir(), farmKey())
+    return record && sameWorld(record.world, bot?.worldId ?? null) ? record : null
+  } catch { return null }
+}
+/** The farm's reserved cells as a lookup (treefarm.mjs farmIndex), from the record. */
+export function knownFarmIndex (bot) {
+  const r = knownFarmRecord(bot)
+  return r ? farmIndex(r) : emptyFarmIndex()
+}
+/** The index the movement profiles and placement guards use: index.mjs keeps it fresh (20 s), a fake bot has none. */
+const farmIdx = bot => { try { return bot?.farmIndexNow?.() ?? null } catch { return null } }
+
+/** The world read, memoised for one site search (the spiral reads each cell many times). */
+const farmRead = (bot, { memo = null } = {}) => {
+  const raw = readCell(bot)
+  if (!memo) return raw
+  return (x, y, z) => {
+    const k = `${x},${y},${z}`
+    if (memo.has(k)) return memo.get(k)
+    const v = raw(x, y, z)
+    memo.set(k, v)
+    return v
+  }
+}
+
+/**
+ * A READ THAT SEES OTHER TOWN STRUCTURES' RESERVED CELLS AS OCCUPIED. Handed to another structure's site search (the
+ * composter's), so it never picks a farm plot column, torch cell or soil cell, without that module knowing the farm.
+ */
+export const reservationAwareRead = (read, idx) => (x, y, z) =>
+  (idx && (inPlotColumn(idx, x, y, z) || idx.torch?.has(`${x},${y},${z}`) || idx.soil?.has(`${x},${y},${z}`)))
+    ? { name: 'reserved', boundingBox: 'block' }
+    : read(x, y, z)
+
+/** Other town sites the farm keeps away from: the composter's recorded site (and the composter's own clearance). */
+function farmAvoid () {
+  const out = []
+  try {
+    const c = readTownSite(poolStateDir(config.memory.pool), townSiteKey())
+    if (c.site) out.push({ x: c.site.x, z: c.site.z, r: 4, what: 'composter' })
+  } catch { /* no record: the CONTAINER scan still keeps a placed composter away */ }
+  return out
+}
+
+/** A cell past the world border the other skills keep to (gather, goto and place refuse beyond it). */
+const pastBorder = c => horizontalDistanceFromSpawn(c) > config.world.borderRadius
+/** The town's farm: the shared record if this view accepts it, else a new generation from this bot's own search. */
+export function townFarm (bot) {
+  const home = homeVec()
+  const memo = new Map()
+  const read = farmRead(bot, { memo })
+  return resolveRecord({
+    dir: farmDir(), key: farmKey(), world: bot.worldId ?? null,
+    // NEVER OUTSIDE THE WORLD BORDER the other skills keep to (gather and goto refuse past it: Paper sandbox run 1) -- for a
+    // new farm AND for a recorded one (a border can shrink: Codex r4)
+    compute: () => canonicalFarm({ home, read, avoid: farmAvoid(), reserved: pastBorder }),
+    refuse: rec => farmRecordRefusal(read, rec, { reserved: pastBorder }),
+  })
+}
+
+/**
+ * THE ORDER'S VIEW OF THE FARM'S WORK -> tendPlan | null. Impure (reads the world) and cheap: no record yet -> a
+ * placeholder 'found' action when the bag can plant a farm (MIN_PLOTS allowed saplings), never a site search on the
+ * decision path; a record -> the real plan from this bot's view (~100 block reads).
+ */
+export function townFarmPlan (bot) {
+  const items = bot.inventory?.items?.() ?? []
+  const held = Object.fromEntries(heldCounts(items))
+  const rec = knownFarmRecord(bot)
+  if (!rec) {
+    const saplings = FARM_SPECIES.reduce((a, s) => a + (held[s] ?? 0), 0)
+    return saplings >= MIN_PLOTS ? { actions: [{ kind: 'found', role: 'found' }], counts: {}, materials: null } : null
+  }
+  const read = readCell(bot)
+  // A RECORDED FARM THAT IS NO LONGER A FARM (Codex review) must still be able to schedule its own replacement: the site
+  // search runs inside the skill, under the lease; here only the cheap verdict and the founding prerequisite.
+  const why = farmRecordRefusal(read, rec, { reserved: pastBorder })
+  if (why && why !== 'unknown') {
+    const saplings = FARM_SPECIES.reduce((a, s) => a + (held[s] ?? 0), 0)
+    return saplings >= MIN_PLOTS ? { actions: [{ kind: 'found', role: 'refound' }], counts: {}, materials: null } : null
+  }
+  // AN ACCEPTED RECORD MAY STRADDLE A (SHRUNK) BORDER: its cells past it are never worked (Codex r5)
+  const states = plotsOf(rec).filter(p => !pastBorder(p)).map(p => ({ plot: p, ...plotState(read, p) }))
+  if (states.some(s => s.state === 'unknown')) return null
+  const torches = torchesOf(rec).filter(c => !pastBorder(c)).map(c => ({ cell: c, state: torchState(read, c) }))
+  return tendPlan({ states, torches, held, bonemeal: bonemealEnabled(process.env) })
+}
+
+/** Items a farm visit may consume or gain without it being a loss: what it plants, places, digs and what trees drop. */
+const FARM_FLOW = /(_sapling$|_log$|^dirt$|^torch$|^bone_meal$|^stick$|^apple$|_leaves$)/
+
+/** The cells a mutation may touch: plots, their soil and columns, torch cells. Pure on the record's index. */
+export function onFarmPlan (idx, a) {
+  const { x, y, z } = a?.cell ?? {}
+  if (![x, y, z].every(Number.isInteger) || !idx) return false
+  if (a.kind === 'dig') return inPlotColumn(idx, x, y, z) && !isPlotCell(idx, x, y, z)
+  if (a.role === 'soil') return idx.soil.has(`${x},${y},${z}`) && inPlotColumn(idx, x, y + 1, z)
+  if (a.role === 'torch') return idx.torch.has(`${x},${y},${z}`)
+  return isPlotCell(idx, x, y, z)
+}
+
+async function tendFarm (ctx, _args, signal) {
+  const { bot } = ctx
+  const items = () => bot.inventory?.items?.() ?? []
+  const me = bot.username ?? '?'
+  const f = { planted: 0, soil: 0, cleared: 0, torches: 0, bonemeal: 0, failed: 0, offplan: 0, lost: 0, species: {} }
+  let census = {}, gen = 0, leaseNote = '-', stop = null
+  const t0 = Date.now()
+  const row = status => logEvent({ kind: 'farm_tend', status, snapshot: snapshot(bot),
+                                   detail: farmTendDetail({ gen, ...f, lease: leaseNote, stop: stop ?? 'done', census, t0 }) })
+  const skip = why => { stop = why; row('no_effect'); return { status: 'no_effect', detail: why } }
+  if (!farmEnabled(process.env)) return skip('the town tree farm is switched off here (TREEFARM_ENABLED); nothing to do')
+  const dir = farmDir(), key = farmKey()
+  // ONE BUILDER PER TOWN, AND THE RECORD IS ONLY EVER WRITTEN UNDER IT (Codex review): the lease comes first, so a bot that
+  // would be refused the lease can never replace the farm out from under the bot that holds it. Held: a free skip.
+  let lease = takeLease(dir, key, me)
+  if (!lease.ok) { leaseNote = `held:${lease.holder}`; return skip(`another bot (${lease.holder}) is tending the town tree farm; nothing for this bot to do there now`) }
+  leaseNote = `g${lease.gen}`
+  const release = () => { try { releaseLease(dir, key, me, lease.gen) } catch { /* expires by itself */ } }
+  let farm
+  try { farm = townFarm(bot) } catch (e) { release(); throw e }
+  if (!farm.record) {
+    release()
+    // NO SITE AT ALL around this town (not merely an unloaded cell): a failure with its own long backoff, so a town where
+    // no farm fits does not repeat the whole search every five minutes (farmOrderOutcome farm_no_site).
+    if (/^no farm site within/.test(farm.why ?? '')) {
+      stop = 'no site'; row('failed')
+      return { status: 'failed', failClass: 'farm_no_site', detail: `no place for a tree farm near home (${farm.why}); nothing to do about it from here -- the search is retried in two hours` }
+    }
+    return skip(`the town tree farm cannot be settled from here (${farm.why}); the next town visit looks again`)
+  }
+  gen = farm.gen
+  try { bot.refreshFarm?.() } catch { /* the 20 s timer refreshes the path exclusions anyway */ }
+  if (farm.created) {
+    logEvent({ kind: 'farm_site', status: 'success', snapshot: snapshot(bot),
+               detail: `gen=${gen} anchor=${farm.record.anchor.x},${farm.record.anchor.y},${farm.record.anchor.z} plots=${plotsOf(farm.record).length} torches=${torchesOf(farm.record).length}${farm.replaced ? ` replaced=${farm.replaced.anchor?.x},${farm.replaced.anchor?.y},${farm.replaced.anchor?.z}` : ''}` })
+  }
+  const rec = farm.record
+  const idx = farmIndex(rec)
+  const was = handOf(bot.heldItem)
+  const g = hkGuards(bot, signal)
+  const witness = installBlockWitness(bot)
+  const before = Object.fromEntries(heldCounts(items()))
+  const deadline = Date.now() + FARM_VISIT_MS
+  const ticks = n => g.bound(bot.waitForTicks?.(n) ?? sleep(n * 50, signal), n * 50 + HK_AWAIT_MS, 'tick wait')
+  // THE FENCE before every mutation: this bot still holds the lease, AND the farm record is still the generation this
+  // visit read (a replaced farm's cells are not this visit's to touch).
+  const fence = () => {
+    if (!holdsLease(dir, key, me, lease.gen)) { stop = 'lease lost'; return false }
+    if (readRecord(dir, key).gen !== gen) { stop = 'farm record replaced'; return false }
+    if (lease.until - Date.now() < LEASE_RENEW_MS) {
+      const r = takeLease(dir, key, me)
+      if (!r.ok) { stop = 'lease lost'; return false }
+      lease = r; leaseNote = `g${r.gen}`
+    }
+    return true
+  }
+  const forbidden = c => isPlotCell(idx, c.x, c.y, c.z) || idx.torch.has(`${c.x},${c.y},${c.z}`)
+  // WALK INTO REACH of `reachTo`, standing around `around`, never on a plot cell or a torch cell (unless allowTarget).
+  const approach = async (around, reachTo, { allowTarget = false, reach = BP_REACH } = {}) => {
+    const feet = () => bot.entity.position.floored()
+    if (bpReachOf(feet(), reachTo) <= reach && !(forbidden(feet()) && !allowTarget)) return true
+    const others = bodiesAround(bot).slice(1)
+    const stands = standsFor(readCell(bot), around, { from: feet(), forbidden, bodies: others, allowTarget, reachTo, radius: 3, reach })
+    for (const st of stands.slice(0, 2)) {
+      check(signal)
+      try { await g.bound(bot.pathfinder.goto(new goals.GoalBlock(st.x, st.y, st.z)), HK_PATH_MS, 'pathfinding', { path: true }) } catch (e) { if (e?.aborted || signal?.aborted) throw e }
+      check(signal)
+      if (bpReachOf(feet(), reachTo) <= reach) return true
+    }
+    return false
+  }
+  const holdItem = async name => {
+    const it = items().find(i => i.name === name)
+    if (!it) return false
+    if (bot.heldItem?.name !== name) { try { await g.bound(bot.equip(it, 'hand'), HK_AWAIT_MS, 'equip') } catch (e) { if (e?.aborted) throw e } }
+    check(signal)
+    return bot.heldItem?.name === name
+  }
+  const done = (a, why) => { f.failed++; logEvent({ kind: 'farm_place', status: 'failed', snapshot: snapshot(bot), detail: `role=${a.role} item=${a.item ?? '-'} at=${a.cell.x},${a.cell.y},${a.cell.z} verdict=${why}` }); return false }
+  // ONE PLACEMENT: re-read, reach, hold, click the reference face, and believe only the server.
+  const placeOne = async a => {
+    const read = readCell(bot)
+    const now = read(a.cell.x, a.cell.y, a.cell.z)
+    if (!now || !BP_REPLACEABLE.has(now.name)) return done(a, `cell_now_${now?.name ?? 'unknown'}`)
+    if (a.role === 'plant') {
+      const st = plotState(read, a.cell)
+      if (st.state !== 'ready' || !(st.species ?? []).includes(a.item)) return done(a, `plot_now_${st.state}`)
+    }
+    const rf = refFaceFor(read, a.cell, { needsBelow: a.role !== 'soil' })
+    if (!rf) return done(a, 'no_support')
+    if (!(await approach(a.cell, a.cell))) return done(a, 'unreachable')
+    if (a.role === 'soil' && bodiesAround(bot).some(b => bpBodyInCell(b, a.cell))) return done(a, 'body_in_cell')
+    if (!(await holdItem(a.item))) return done(a, 'not_held')
+    if (!fence()) return null
+    const refBlock = bot.blockAt(new Vec3(rf.ref.x, rf.ref.y, rf.ref.z))
+    if (!refBlock) return done(a, 'ref_unloaded')
+    try { await bot.lookAt(new Vec3(rf.ref.x + 0.5 + rf.face.x * 0.5, rf.ref.y + 0.5 + rf.face.y * 0.5, rf.ref.z + 0.5 + rf.face.z * 0.5), true) } catch { /* not fatal */ }
+    witness.watch(a.cell)
+    try { await g.bound(bot.placeBlock(refBlock, new Vec3(rf.face.x, rf.face.y, rf.face.z)), FARM_ACK_MS, 'placing') } catch (e) { if (e?.aborted || signal?.aborted) throw e }
+    const v = await witness.until(a.cell, a.item, FARM_ACK_MS)
+    if (v !== 'confirmed') return done(a, v)
+    logEvent({ kind: 'farm_place', status: 'success', snapshot: snapshot(bot), detail: `role=${a.role} item=${a.item} at=${a.cell.x},${a.cell.y},${a.cell.z} verdict=confirmed` })
+    return true
+  }
+  // ONE LEFTOVER LOG OUT OF A PLOT COLUMN, with the tool toolFor picks (an axe or the hand, never a pickaxe's last use).
+  const digOne = async a => {
+    const read = readCell(bot)
+    const b = read(a.cell.x, a.cell.y, a.cell.z)
+    if (!b || !/_log$/.test(b.name)) return done(a, `cell_now_${b?.name ?? 'unknown'}`)
+    if (!(await approach(a.plot, a.cell, { allowTarget: true, reach: BP_DIG_REACH }))) return done(a, 'unreachable')
+    // RE-READ AFTER THE WALK (Codex review): only a log is ever dug -- a block that replaced it meanwhile is not ours.
+    const logNow = () => { const b2 = bot.blockAt(new Vec3(a.cell.x, a.cell.y, a.cell.z)); return b2 && /_log$/.test(blockNameOf(bot, b2) ?? '') ? b2 : null }
+    let block = logNow()
+    if (!block) return done(a, 'not_a_log_after_walk')
+    const pick = toolFor(block, items())
+    if (pick.item) { try { await g.bound(bot.equip(pick.item, 'hand'), HK_AWAIT_MS, 'equip') } catch (e) { if (e?.aborted) throw e } } else if (pick.hand) { try { await g.bound(emptyHand(bot), HK_AWAIT_MS, 'empty hand') } catch (e) { if (e?.aborted) throw e } } else return done(a, 'no_tool')
+    check(signal)
+    // THE HAND IS WHAT toolFor CHOSE, CHECKED, NOT ASSUMED (Codex r2): a swap that did not take must not let a protected
+    // pickaxe (or any tool) swing at a log. Wrong hand: no dig.
+    const held = bot.heldItem
+    if (pick.item ? (held?.name !== pick.item.name || (held?.durabilityUsed ?? 0) !== (pick.item.durabilityUsed ?? 0)) : (held && DIG_TOOL_RE.test(held.name))) return done(a, `hand_${held?.name ?? 'empty'}`)
+    if (!fence()) return null
+    block = logNow()
+    if (!block) return done(a, 'not_a_log_before_dig')
+    witness.watch(a.cell)
+    try { await g.bound(bot.dig(block, true), 12_000, 'digging', { controller: { abort: () => { try { bot.stopDigging?.() } catch { /* nothing */ } } } }) } catch (e) { if (e?.aborted || signal?.aborted) throw e }
+    const v = await witness.until(a.cell, n => n === 'air' || n === 'cave_air', FARM_ACK_MS)
+    if (v !== 'confirmed') return done(a, `dig_${v}`)
+    logEvent({ kind: 'farm_place', status: 'success', snapshot: snapshot(bot), detail: `role=${a.role} item=${b.name} at=${a.cell.x},${a.cell.y},${a.cell.z} verdict=confirmed` })
+    return true
+  }
+  // ONE BONE MEAL (arm OFF unless TREEFARM_BONEMEAL): counted when the bag lost one (server inventory) on a sapling cell.
+  const boneOne = async a => {
+    const read = readCell(bot)
+    const b = read(a.cell.x, a.cell.y, a.cell.z)
+    if (!b || !/_sapling$/.test(b.name)) return done(a, `cell_now_${b?.name ?? 'unknown'}`)
+    if (!(await approach(a.cell, a.cell))) return done(a, 'unreachable')
+    if (!(await holdItem('bone_meal'))) return done(a, 'not_held')
+    if (!fence()) return null
+    const n0 = countItem(bot, 'bone_meal')
+    witness.watch(a.cell)
+    try { await g.bound(bot.activateBlock(bot.blockAt(new Vec3(a.cell.x, a.cell.y, a.cell.z)), new Vec3(0, 1, 0)), HK_AWAIT_MS, 'bone meal') } catch (e) { if (e?.aborted) throw e }
+    await ticks(4)
+    if (countItem(bot, 'bone_meal') >= n0) return done(a, 'not_consumed')
+    logEvent({ kind: 'farm_place', status: 'success', snapshot: snapshot(bot), detail: `role=bonemeal item=bone_meal at=${a.cell.x},${a.cell.y},${a.cell.z} verdict=consumed grew=${witness.seen(a.cell).some(n => /_log$/.test(n ?? '')) ? 1 : 0}` })
+    return true
+  }
+  try {
+    const read = readCell(bot)
+    const states = plotsOf(rec).filter(p => !pastBorder(p)).map(p => ({ plot: p, ...plotState(read, p) }))
+    for (const s of states) census[s.state] = (census[s.state] ?? 0) + 1
+    if (census.unknown) return skip(`${census.unknown} farm plot(s) are not loaded from here; the farm waits for a closer visit`)
+    const torches = torchesOf(rec).filter(c => !pastBorder(c)).map(c => ({ cell: c, state: torchState(read, c) }))
+    const plan = tendPlan({ states, torches, held: before, bonemeal: bonemealEnabled(process.env) })
+    if (!plan.actions.length) {
+      const short = Object.keys(plan.materials?.short ?? {})
+      return skip(short.length
+        ? `the town tree farm has ${census.ready ?? 0} plot(s) ready and this bot holds no ${short.join(' or ')}: chop any tree (gather birch_log or oak_log) -- its leaves drop saplings -- and the next town visit plants them`
+        : `the town tree farm needs nothing this bot can do now (${Object.entries(census).map(([k, v]) => `${k}:${v}`).join(' ')})`)
+    }
+    const stationary = deadline + 5_000
+    bot.stationaryUntil = stationary
+    try {
+      for (const a of plan.actions) {
+        check(signal)
+        if (Date.now() > deadline) { stop = 'budget'; break }
+        // STRUCTURAL: a mutation outside the record never happens (and the read gates on this count staying 0).
+        if (!onFarmPlan(idx, a)) { f.offplan++; continue }
+        if (pastBorder(a.cell)) continue   // belt and braces: the plan was built from in-border cells only
+        const r = a.kind === 'dig' ? await digOne(a) : a.kind === 'bonemeal' ? await boneOne(a) : await placeOne(a)
+        if (r === null) break
+        if (!r) continue
+        if (a.role === 'plant') { f.planted++; f.species[a.item] = (f.species[a.item] ?? 0) + 1 } else if (a.role === 'soil') f.soil++
+        else if (a.role === 'leftover_log') f.cleared++
+        else if (a.role === 'torch') f.torches++
+        else if (a.role === 'bonemeal') f.bonemeal++
+      }
+    } finally {
+      if (bot.stationaryUntil === stationary) bot.stationaryUntil = 0
+    }
+  } finally {
+    witness.stop()
+    release()
+    await settleAndRestore(bot, was, g, 'tend_farm')
+  }
+  // LOST: anything the bag holds less of that a farm visit neither plants, places, digs nor gets from a tree.
+  const after = Object.fromEntries(heldCounts(items()))
+  for (const [n, c] of Object.entries(before)) if (!FARM_FLOW.test(n) && (after[n] ?? 0) < c) f.lost += c - (after[n] ?? 0)
+  const did = f.planted + f.soil + f.cleared + f.torches + f.bonemeal
+  if (did) {
+    row('success')
+    // EVERY server-confirmed change counts toward world_change -- a visit that only cleared leftover logs changed the
+    // world too (Paper run 2: counting placements alone scored it `unknown`, which the order backs off as a failure).
+    return { status: 'success', placed: did,
+             detail: `tended the town tree farm: planted ${f.planted}, soil ${f.soil}, cleared ${f.cleared} leftover log(s), torches ${f.torches}, bone meal ${f.bonemeal}${f.failed ? `; ${f.failed} refused or unanswered` : ''}${stop ? `; stopped: ${stop}` : ''}` }
+  }
+  if (stop === 'lease lost' || stop === 'farm record replaced') return skip(`${stop === 'lease lost' ? 'another bot took over the town tree farm' : 'the town tree farm was replaced'} mid-visit; nothing placed`)
+  stop = stop ?? 'nothing confirmed'
+  row('failed')
+  return { status: 'failed', failClass: 'farm_unconfirmed',
+           detail: `the town tree farm visit confirmed nothing: ${f.failed} mutation(s) refused or unanswered by the server; the next visit re-reads every plot` }
 }
 
 // ------------------------------------------------------------ junk well -----
@@ -11712,6 +12070,8 @@ export const SKILL_CONTRACTS = {
   dispose_well: { expects: ['well_effect', 'world_change'], maxMs: 120_000 },
   build_well:   { expects: ['world_change'],     maxMs: 150_000 },
   close_well:   { expects: ['world_change'],     maxMs: 60_000 },
+  // Plants, restores soil and places torches at the town tree farm: the change it exists for is blocks in the world.
+  tend_farm: { expects: ['world_change'],         maxMs: 150_000 },
   eat:      { expects: ['survival'],              maxMs: 30_000 },
   // Walk-home fallback makes sleep a travel skill too (same as deposit).
   sleep:    { expects: ['survival'],              maxMs: 240_000 },
@@ -12800,6 +13160,8 @@ export const SKILLS = {
   dispose_well: { run: disposeWell, usage: 'dispose_well', args: [], chatOnly: true },
   build_well:   { run: buildWell,   usage: 'build_well',   args: [], chatOnly: true },
   close_well:   { run: closeWell,   usage: 'close_well',   args: [], chatOnly: true },
+  // The town tree farm (treefarm.mjs farmOrder): a deterministic town order like the composter's, never the model's choice.
+  tend_farm: { run: tendFarm, usage: 'tend_farm', args: [], chatOnly: true },
   status:  { run: status,  usage: 'status',                        args: [] },
   eat:     { run: eat,     usage: 'eat',                           args: [] },
   craft:   { run: craft,   usage: 'craft <count> <item_name>',     args: ['item', 'count'] },
