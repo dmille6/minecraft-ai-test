@@ -37,6 +37,7 @@ import { attachCommands } from './commands.mjs'
 import { snapshot, inventorySummary } from './state.mjs'
 import { travelTool, TOOL_HYGIENE, takeWornFirst, WORN_FIRST_ROW_MS } from './toolfor.mjs'
 import { kitShrinkModeDetail } from './kitshrink.mjs'
+import { TOOLKIT } from './toolkit.mjs'
 import { diffTools, spentTools } from './toolwatch.mjs'
 import { installPathBackoff } from './pathbackoff.mjs'
 import { attachPacketWitness } from './packet-witness.mjs'
@@ -301,6 +302,11 @@ function connect() {
     try {
       logEvent({ kind: 'tool_hygiene', status: 'success', snapshot: snapshot(bot),
                  detail: `tool hygiene ${TOOL_HYGIENE.on ? 'ON' : 'off'}: mode=${TOOL_HYGIENE.mode}${TOOL_HYGIENE.note ? ` (${TOOL_HYGIENE.note})` : ''}` })
+    } catch {}
+    // THE TOOLKIT (toolkit.mjs TOOLKIT; toolkit-01): the licence row, once per process -- the build's own `_toolkit` kind.
+    try {
+      logEvent({ kind: 'toolkit', status: 'success', snapshot: snapshot(bot),
+                 detail: `phase=mode on=${TOOLKIT.on ? 1 : 0} mode=${TOOLKIT.mode}${TOOLKIT.note ? ` note=${TOOLKIT.note.replace(/\s+/g, '_')}` : ''}` })
     } catch {}
     const wornTimer = setInterval(() => {
       try {
