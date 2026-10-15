@@ -99,6 +99,15 @@ await t('PLINTH -> FARM: a raised-well plan on disk (plinth-01) keeps the farm o
   assert.deepEqual(other.record.cells, free.cells, 'another world\'s plinth plan is not this town\'s')
 })
 
+await t('farmKeepOut: every soil, column and torch cell, exactly (the keep-out a plinth or floor planner takes)', () => {
+  const rec = TF.canonicalFarm({ home: HOME, read: world().read }).record
+  const ko = TF.farmKeepOut(rec), idx = TF.farmIndex(rec)
+  const plots = plotsOf(rec), torches = TF.torchesOf(rec)
+  assert.equal(ko.length, plots.length * (TF.CLEAR_ABOVE + 2) + torches.length * 2)
+  for (const c of ko) assert.ok(TF.farmPlaceRefusal(idx, c.x, c.y, c.z, 'cobblestone'), `a cobble in ${c.x},${c.y},${c.z} is refused by the farm's own rule`)
+  assert.ok(ko.every(c => c.r === 0))
+})
+
 // ================================================================ the town floor's band ======================================
 
 await t('FLOOR: the farm never plants in the town floor\'s band (a dug-out pit inside Chebyshev 16, at or below home.y-2)', async () => {

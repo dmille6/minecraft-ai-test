@@ -446,6 +446,20 @@ export function farmWellAvoid (record) {
 }
 
 /**
+ * THE FARM AS A BUILDER'S CELL KEEP-OUT -> [{ x, y, z, r: 0 }]. Pure. Every cell no other structure may plan into: each
+ * plot's soil and its whole column (the cell and CLEAR_ABOVE above), each torch cell and its floor. For a planner that
+ * takes exact keep-out cells (plinth-01's `keepOut`, Chebyshev r = 0; the town floor's protected set).
+ */
+export function farmKeepOut (record) {
+  const out = []
+  for (const c of record?.cells ?? []) {
+    if (c.role === 'plot') for (let y = c.y - 1; y <= c.y + CLEAR_ABOVE; y++) out.push({ x: c.x, y, z: c.z, r: 0 })
+    else if (c.role === 'torch') out.push({ x: c.x, y: c.y, z: c.z, r: 0 }, { x: c.x, y: c.y - 1, z: c.z, r: 0 })
+  }
+  return out
+}
+
+/**
  * MAY A NEW CHEST GO AT `site`? (chest-full's site search) -> reason | null. Pure. Never a farm cell (soil, a plot column,
  * a torch cell), and never within FARM_CONTAINER_DISTANCE of a plot -- the farm's own rule at founding (a grown tree's
  * leaves would wall in the chest's stand, and a lid must open).
