@@ -16,6 +16,7 @@
 #                shell of a well its pool knows (caps from the pool's own well rows, pre and post: _well_built,
 #                _well_dispose, _well_retired, _well_refused, _well_recollected, _mine_well_guard at=). Positive control:
 #                the same function on the CONTROL arm (the base digs shells: hive-d 9 in the week to 10-15) -- reported.
+#   LEAK         control_guard_rows: a CONTROL _mine_well_guard row (the base cannot write one) -- blocks KEEP.
 #   EXPOSURE     >= 3 canary guard rows that ACTED (relocate or stop) AND >= 1 control mine row ending within 8 of a known
 #                cap (the population this guards exists in the window).
 #   PRIMARY      mine success share canary vs control, pre vs post (DiD); canary guard rows by action; relocations that
@@ -122,7 +123,7 @@ if __name__ == '__main__':
 
     rows = sorted(load_window(PRE, END), key=lambda r: r['t'])
     caps = defaultdict(set); digs = {'canary': [], 'control': []}; offbuild = 0
-    guard = Counter(); mines = Counter(); bots = defaultdict(set); licence = 0; near_ctl = 0; mine_end = []
+    guard = Counter(); control_guard = 0; mines = Counter(); bots = defaultdict(set); licence = 0; near_ctl = 0; mine_end = []
     for r in rows:
         b = (r.get('bot') or {}).get('name'); t = r.get('t'); k = r.get('name') or ''; d = r.get('detail') or ''
         if not b or t is None:
@@ -144,7 +145,9 @@ if __name__ == '__main__':
             continue
         if k == '_dig_town':
             digs[arm].append((p, b, d))
-        elif k == '_mine_well_guard' and arm == 'canary':
+        elif k == '_mine_well_guard' and arm == 'control':
+            control_guard += 1   # LEAK CHECK: the base cannot write this row; a control row means a mis-deployed control
+        elif k == '_mine_well_guard':
             licence += 1
             a = re.search(r'action=(\w+)', d)
             guard[a.group(1) if a else '?'] += 1
@@ -165,7 +168,7 @@ if __name__ == '__main__':
     acted = guard['relocate'] + guard['stop']
     print('rows walked %d | canary %s sha %s cutoff %s window +%d min | bots post canary %d control %d | offbuild canary rows %d'
           % (len(rows), CAN, CV, CUT.strftime('%H:%MZ'), W, len(bots[('post', 'canary')]), len(bots[('post', 'control')]), offbuild))
-    print('LICENCE      canary _mine_well_guard rows %d %s' % (licence, dict(guard)))
+    print('LICENCE      canary _mine_well_guard rows %d %s | LEAK control _mine_well_guard rows %d' % (licence, dict(guard), control_guard))
     print('G1 (gate)    canary mine digs inside a known well shell: %d %s' % (len(g1), g1[:3]))
     print('INSTRUMENT   control: mine digs inside a shell %d %s | control mine runs ending within 8 of a known cap %d | caps known %s'
           % (len(g1c), g1c[:2], near_ctl, {p: len(c) for p, c in caps.items()}))
@@ -178,7 +181,7 @@ if __name__ == '__main__':
         from readjson import emit
         nan = lambda v: None if v != v else round(v, 4)
         emit('minewellread', W, {
-            'licence_rows': licence, 'guard_relocate': guard['relocate'], 'guard_refuse': guard['refuse'], 'guard_stop': guard['stop'],
+            'licence_rows': licence, 'control_guard_rows': control_guard, 'guard_relocate': guard['relocate'], 'guard_refuse': guard['refuse'], 'guard_stop': guard['stop'],
             'breach_shell_dug_by_mine': len(g1), 'control_shell_dug_by_mine': len(g1c), 'instrument_control_near_well': near_ctl,
             'mine_success_did': nan(did), 'mine_runs_canary': mines[('post', 'canary', 'runs')], 'mine_refused_canary': mines[('post', 'canary', 'forbidden')],
             'exposure_ready': int(acted >= 3 and near_ctl >= 1),
