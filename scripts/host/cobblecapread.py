@@ -24,9 +24,14 @@
 #                the town deposit's cobble_cap at_cap; the max town_after seen per arm; rows whose cap= is neither cap
 #   TRIPWIRE     new town chests placed (_deposit_new_chest placed=1) per bot-h DiD and chest-full deposit failures per
 #                bot-h DiD: 1000 cobble is 16 chest slots, so a town fills sooner (reported, never a verdict)
-#   INSTRUMENT   control _cobble_bank rows refused at the base cap (at_cap=1) (>= 1: the population the change targets)
+#   INSTRUMENT   control refusals at a COUNTED cobble cap (`_stock_refused ... at_cobble=1`) (>= 1: the population the
+#                change targets). Measured 10-15 03:10Z: the base wrote ZERO _cobble_bank rows in 3 h fleet-wide -- a town at
+#                its 256 is refused at admission (`_stock_refused via=admission ... at_cobble=1 cobblestone:N:cobble_cap`,
+#                807 rows in 12 h, 13 of 16 pools), so the deposit that writes _cobble_bank never runs. The canary's
+#                _cobble_bank rows are therefore new behaviour; the refusal rows are the instrument.
 #   EXPOSURE     >= 3 canary _cobble_bank rows with town_before >= the base cap (rows the old cap would have refused), and
 #                the instrument
+#   REPORTED     also: at-cobble-cap refusals per bot-h DiD (should FALL: towns between 256 and 1000 now take cobble)
 import sys, os, json, re, glob, gzip, subprocess
 import datetime as dt
 from collections import Counter, defaultdict
@@ -35,7 +40,7 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
 from towncap import town_cobble_cap, row_cap   # noqa: E402
 
-KEEP = ('_cobble_bank', '_well_dispose', '_town_deposit', '_deposit_new_chest', 'deposit', 'town_deposit')
+KEEP = ('_cobble_bank', '_well_dispose', '_town_deposit', '_deposit_new_chest', 'deposit', 'town_deposit', '_stock_refused')
 KV = re.compile(r'(?:^| )([a-z_]+)=(\S+)')
 EXPOSURE_MIN = 3
 
@@ -134,6 +139,7 @@ def judge(rows, cap, base_cap):
             out['well_cobble_%s_%s' % (per, arm)] = sum(num(kv(r['detail']), 'cobble') for r in rs if r['name'] == '_well_dispose')
             out['new_chests_%s_%s' % (per, arm)] = sum(1 for r in rs if r['name'] == '_deposit_new_chest' and r['status'] == 'success' and 'placed=1' in r['detail'])
             out['fullfail_%s_%s' % (per, arm)] = sum(1 for r in rs if r['name'] in ('deposit', 'town_deposit') and r['status'] == 'failed' and 'full' in r['detail'])
+            out['refused_cobble_%s_%s' % (per, arm)] = sum(1 for r in rs if r['name'] == '_stock_refused' and ' at_cobble=1 ' in ' %s ' % r['detail'])
     td = Counter()
     for r in post_c:
         if r['name'] == '_town_deposit':
@@ -141,7 +147,7 @@ def judge(rows, cap, base_cap):
             if m:
                 td['at_cap'] += int(m.group(1)); td['unknown'] += int(m.group(2)); td['outside'] += int(m.group(3))
     out['td_cobble_cap'] = dict(td)
-    out['instrument_control'] = out['at_cap_post_control']
+    out['instrument_control'] = out['refused_cobble_post_control']
     out['exposure_ready'] = int(out['exposure_rows'] >= EXPOSURE_MIN and out['instrument_control'] >= 1)
     out['_lists'] = {'d1': d1[:5]}
     return out
@@ -163,7 +169,8 @@ def selftest():
     B = lambda moved, before, after, cap=1000, at_cap=0, complete=1, **k: R('_cobble_bank', 'name=cobblestone planned=30 tried=%s moved=%d before=94 kept=64 src=server reserve=64 no_room=0 town_before=%d town_after=%d complete=%d cap=%d at_cap=%d unknown=0 outside=0 unknown_keys=0'
                                                                     % ('30' if moved else '-', moved, before, after, complete, cap, at_cap), **k)
     CTL = dict(arm='control', bot='board-a-Alpha')
-    ok = judge([B(30, 800, 830), B(0, 256, 256, cap=256, at_cap=1, **CTL)], 1000, 256)
+    RF = lambda **k: R('_stock_refused', 'via=admission n=1 cobble=1 stock=0 at_cobble=1 at_stock=0 cobblestone:384:cobble_cap', **k)
+    ok = judge([B(30, 800, 830), B(0, 256, 256, cap=256, at_cap=1, **CTL), RF(**CTL)], 1000, 256)
     assert ok['bank_above_base_cap'] == 1 and ok['breach_bank_past_cap'] == 0 and ok['rows_control_canary_cap'] == 0 and ok['instrument_control'] == 1, ok
     assert judge([B(30, 200, 230)], 1000, 256)['bank_above_base_cap'] == 0, 'a bank under the old cap is not the change seen'
     assert judge([B(0, 900, 900, at_cap=1)], 1000, 256)['bank_above_base_cap'] == 0, 'a refusal is not a bank'
@@ -175,9 +182,13 @@ def selftest():
     assert judge([B(30, 100, 130, **CTL)], 1000, 256)['rows_control_canary_cap'] == 1, 'a control row with the canary cap: an arms breach'
     assert judge([B(30, 100, 130, cap=256)], 1000, 256)['cap_field_other'] == 1, 'a canary-build row carrying another cap is reported'
     assert base_cap_of([B(0, 256, 256, cap=256, at_cap=1, **CTL)], 999) == 256 and base_cap_of([], 999) == 999, 'the base cap from the control rows, else the module'
-    ready = judge([B(30, 256, 286), B(30, 300, 330, mins=1), B(0, 990, 990, mins=2, at_cap=1), B(0, 256, 256, cap=256, at_cap=1, **CTL)], 1000, 256)
+    ready = judge([B(30, 256, 286), B(30, 300, 330, mins=1), B(0, 990, 990, mins=2, at_cap=1), RF(**CTL)], 1000, 256)
     assert ready['exposure_ready'] == 1 and ready['exposure_rows'] == 3, ready
-    assert judge([B(30, 256, 286), B(30, 300, 330, mins=1), B(0, 990, 990, mins=2, at_cap=1)], 1000, 256)['exposure_ready'] == 0, 'no instrument, not ready'
+    assert judge([B(30, 256, 286), B(30, 300, 330, mins=1), B(0, 990, 990, mins=2, at_cap=1), B(0, 256, 256, cap=256, at_cap=1, **CTL)], 1000, 256)['exposure_ready'] == 0, 'no refusal row: no instrument, not ready'
+    unk = judge([R('_stock_refused', 'via=admission n=1 cobble=1 stock=0 at_cobble=0 at_stock=0 cobblestone:95:cobble_unknown', **CTL)], 1000, 256)
+    assert unk['instrument_control'] == 0, 'a not-yet-counted refusal is not a town at its cap'
+    rc = judge([RF(), RF(mins=1), RF(per='pre', mins=-5)], 1000, 256)
+    assert rc['refused_cobble_post_canary'] == 2 and rc['refused_cobble_pre_canary'] == 1, rc
     w = judge([R('_well_dispose', 'slots=36->35 offlist=0 cobble=30 cobble_left=64 cap=at_cap'), R('_well_dispose', 'slots=36->35 offlist=0 cobble=64 cobble_left=64 cap=at_cap', **CTL)], 1000, 256)
     assert w['well_cobble_post_canary'] == 30 and w['well_cobble_post_control'] == 64, w
     nc = judge([R('_deposit_new_chest', 'decision=place_carried aid=x placed=1'), R('deposit', 'chest is full', status='failed')], 1000, 256)
@@ -239,7 +250,7 @@ if __name__ == '__main__':
     rate = lambda n, per, arm: n / hrs(per, arm) if hrs(per, arm) else float('nan')
     didof = lambda k: (rate(res[k + '_post_canary'], 'post', 'canary') - rate(res[k + '_pre_canary'], 'pre', 'canary')) \
         - (rate(res[k + '_post_control'], 'post', 'control') - rate(res[k + '_pre_control'], 'pre', 'control'))
-    dids = {k: didof(k) for k in ('moved', 'at_cap', 'well_cobble', 'new_chests', 'fullfail')}
+    dids = {k: didof(k) for k in ('moved', 'at_cap', 'well_cobble', 'new_chests', 'fullfail', 'refused_cobble')}
     print('DENOMINATORS rows walked %d (unparsable %d) | bots pre canary %d control %d | post canary %d control %d | window %d min | other-build canary rows %d'
           % (walked, bad, len(bots[('pre', 'canary')]), len(bots[('pre', 'control')]), len(bots[('post', 'canary')]), len(bots[('post', 'control')]), W, offbuild))
     print('CAPS         canary %d (%s) | base %d (control rows, else the fleet module)' % (CAP, CANARY_ST, BASE))
@@ -253,7 +264,9 @@ if __name__ == '__main__':
              res['max_town_after_canary'], res['max_town_after_control'], res['td_cobble_cap'], res['cap_field_other']))
     print('TRIPWIRE     new town chests DiD %+.4f/bot-h (canary %d control %d) | chest-full deposit failures DiD %+.4f/bot-h (canary %d control %d)'
           % (dids['new_chests'], res['new_chests_post_canary'], res['new_chests_post_control'], dids['fullfail'], res['fullfail_post_canary'], res['fullfail_post_control']))
-    print('EXPOSURE     canary rows at or above the base cap %d (>= %d) | instrument (control at-cap refusals) %d -> %s'
+    print('REFUSALS     at a counted cobble cap: canary %d -> %d control %d -> %d (DiD %+.3f/bot-h; should fall)' % (res['refused_cobble_pre_canary'], res['refused_cobble_post_canary'],
+          res['refused_cobble_pre_control'], res['refused_cobble_post_control'], didof('refused_cobble')))
+    print('EXPOSURE     canary rows at or above the base cap %d (>= %d) | instrument (control refusals at a counted cobble cap) %d -> %s'
           % (res['exposure_rows'], EXPOSURE_MIN, res['instrument_control'], 'READY' if res['exposure_ready'] else 'NOT YET'))
     try:
         if ovr:
@@ -263,7 +276,7 @@ if __name__ == '__main__':
         clean = lambda v: None if v != v else round(v, 4)
         fields = {k: v for k, v in res.items() if not k.startswith('_') and not isinstance(v, dict)}
         fields.update({'moved_did': clean(dids['moved']), 'at_cap_did': clean(dids['at_cap']), 'well_cobble_did': clean(dids['well_cobble']),
-                       'new_chest_did': clean(dids['new_chests']), 'fullfail_did': clean(dids['fullfail']), 'other_build_rows': offbuild,
+                       'new_chest_did': clean(dids['new_chests']), 'fullfail_did': clean(dids['fullfail']), 'refused_cobble_did': clean(dids['refused_cobble']), 'other_build_rows': offbuild,
                        'journal_audit_ran': int(jr is not None), 'breach_c5_journal': jr['breach_c5_journal'] if jr is not None else 0,
                        'admitted_cobble_bank': jr['admitted_cobble_bank'] if jr is not None else 0})
         emit('cobblecapread', W, fields)
