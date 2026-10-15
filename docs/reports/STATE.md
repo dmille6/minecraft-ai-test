@@ -12,7 +12,7 @@ Studio reservation both closed 10-12); clear caps bamboo 0 / bucket 2._
 
 ---
 
-## 10-15 23:30Z — TOWN PROJECTS: STAGE 1 (smeltjob-01) READY on 8cd0bc62 / 75cfb447 + the IRON design (r15, Codex APPROVE) + the RAILS stage; NOTHING queued or deployed (the townprojects agent, restarted 10-15 ~20:40Z)
+## 10-15 23:12Z — TOWN PROJECTS: STAGE 1 (smeltjob-01) READY on 8cd0bc62 / 75cfb447 + the IRON design (r15, Codex APPROVE) + the RAILS stage; NOTHING queued or deployed (the townprojects agent, restarted 10-15 ~20:40Z)
 **smeltjob-01 (replaces the never-queued 10-15 04:46Z entry on 5e663860 / 1957811e).** `smeltjob-on-8cd0bc6` @ **4935ef12** (fleet
 8cd0bc62) and `smeltjob-on-75cfb44` @ **8fe41ad7** (townzone-01 75cfb447): the approved 371c08ed diff, no conflict, plus THE EXIT FIX the
 rebase reviews found -- **the job fought its own withdraw hold**: it released only the leftover of its hold, so after "take 8, smelt 5"
