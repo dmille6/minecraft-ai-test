@@ -12,6 +12,9 @@ import { V, AIR, STONE } from './helpers/microworld.mjs'
 process.env.LOG_DIR = `/tmp/mcbot-test-logs-treefarm-minewell-${process.pid}`
 process.env.BOT_NAME = 'TestBot'
 process.env.HOME_X = '200'; process.env.HOME_Y = '64'; process.env.HOME_Z = '214'
+process.env.POOL_STATE_DIR = fs.mkdtempSync(path.join((await import('node:os')).tmpdir(), 'tfmw-'))
+// the farm is the SHARED RECORD on disk (mine reads it afresh: Codex r8 P2); setFarm(true/false) writes or removes it
+const RECFILE = path.join(process.env.POOL_STATE_DIR, 'treefarm-200_64_214.g1.json')
 const here = path.dirname(fileURLToPath(import.meta.url))
 const SKP = path.join(here, '../src/skills.mjs'), MWP = path.join(here, '../src/minewell.mjs')
 const SK = await import('../src/skills.mjs')
@@ -36,10 +39,13 @@ const key = (x, y, z) => `${x},${y},${z}`
 
 // ---- a stone world (air from y=64), no well; the bot at 230,64,230 with a farm plot on each of its four sides --------
 const P0 = { x: 230, y: 64, z: 230 }
-const FARM = { blueprint: 'treefarm', version: 1, cells: [[1, 0], [-1, 0], [0, 1], [0, -1]].map(([dx, dz]) => ({ x: P0.x + dx, y: 64, z: P0.z + dz, role: 'plot' })) }
+const FARM = { blueprint: 'treefarm', version: 1, anchor: { x: P0.x, y: 64, z: P0.z }, cells: [[1, 0], [-1, 0], [0, 1], [0, -1]].map(([dx, dz]) => ({ x: P0.x + dx, y: 64, z: P0.z + dz, role: 'plot' })) }
 const IDX = TF.farmIndex(FARM)
 const farmCell = c => IDX.soil.has(key(c.x, c.y, c.z)) || IDX.torch.has(key(c.x, c.y, c.z)) || TF.inPlotColumn(IDX, c.x, c.y, c.z)
-function world ({ farm = true, cols = () => [] } = {}) {
+const setFarm = on => { if (on) fs.writeFileSync(RECFILE, JSON.stringify({ ...FARM, world: null })); else { try { fs.unlinkSync(RECFILE) } catch {} } }
+function world ({ farm = true, cols = () => [], canMove = true } = {}) {
+  setFarm(farm)
+  if (farm) assert.equal(SK.knownFarmIndex({}).soil.size, FARM.cells.length, 'the record on disk is a valid farm (positive control for the fixture)')
   const carved = new Set(), digs = [], gotos = []
   const raw = p => (carved.has(key(p.x, p.y, p.z)) ? AIR : p.y < 64 ? STONE : AIR)
   const bot = {
@@ -51,6 +57,7 @@ function world ({ farm = true, cols = () => [] } = {}) {
     pathfinder: {
       goto: async goal => {
         gotos.push({ x: goal.x, y: goal.y, z: goal.z })
+        if (!bot._canMove) return
         const c = new V(goal.x, goal.y, goal.z)
         if (raw(c).boundingBox !== 'empty' || raw(c.offset(0, 1, 0)).boundingBox !== 'empty') return
         bot.entity.position = new V(c.x + 0.5, c.y, c.z + 0.5)
@@ -59,7 +66,8 @@ function world ({ farm = true, cols = () => [] } = {}) {
     },
     setControlState: () => {}, clearControlStates: () => {},
     registry: { blocksByName: {}, itemsByName: {} }, players: {},
-    wellCellsNow: cols, farmIndexNow: () => (farm ? IDX : TF.emptyFarmIndex()), _digs: digs, _gotos: gotos,
+    // the 20 s movement cache, deliberately STALE (empty) -- mine must not trust it
+    wellCellsNow: cols, farmIndexNow: () => TF.emptyFarmIndex(), _digs: digs, _gotos: gotos, _canMove: canMove,
   }
   return bot
 }
@@ -135,19 +143,51 @@ await t('MUTANT KILLED (minewell): a farm cell never counted as a hit -- the pla
   })
 })
 
+// A FARM RECORDED MID-DESCENT, further down the stair the plan chose (south): a plot whose column and soil the third step digs
+const FARM2 = { blueprint: 'treefarm', version: 1, anchor: { x: P0.x, y: 62, z: P0.z + 3 }, cells: [{ x: P0.x, y: 62, z: P0.z + 3, role: 'plot' }] }
+const IDX2 = TF.farmIndex(FARM2)
+const farm2Cell = c => IDX2.soil.has(key(c.x, c.y, c.z)) || TF.inPlotColumn(IDX2, c.x, c.y, c.z)
+const midDescent = bot => { let n = 0; const dig = bot.dig; bot.dig = async b => { if (++n === 1) fs.writeFileSync(RECFILE, JSON.stringify({ ...FARM2, world: null })); return dig(b) } }
 await t('MUTANT KILLED (skills): the per-dig farm check removed -- a farm recorded mid-descent gets its cell dug', async () => {
   await withMutant(SKP, '        if (!fm.forbid || !fm.forbid(pos)) return null\n', '        return null\n', async m => {
-    let n = 0
-    const bot = world({ farm: false })
-    bot.farmIndexNow = () => (++n > 1 ? IDX : TF.emptyFarmIndex())   // unknown at the plan, known at the first dig
+    const bot = world({ farm: false }); midDescent(bot)
     await run(m, bot)
-    assert.ok(bot._digs.some(farmCell), 'the mutant digs into the plot')
+    assert.ok(bot._digs.some(farm2Cell), `the mutant digs into the plot: ${JSON.stringify(bot._digs.slice(0, 9))}`)
   })
-  let n = 0
-  const bot = world({ farm: false })
-  bot.farmIndexNow = () => (++n > 1 ? IDX : TF.emptyFarmIndex())
+  const bot = world({ farm: false }); midDescent(bot)
+  const r = await run(SK, bot)
+  assert.ok(bot._digs.length >= 1, 'it started (positive control: the plan saw no farm)')
+  assert.equal(bot._digs.filter(farm2Cell).length, 0, `the real skill stops at the farm cell: ${JSON.stringify(bot._digs)}`)
+  assert.match(r.detail, /tree farm/, r.detail)
+})
+
+await t('STALE CACHE (Codex r8 P2): the movement cache says "no farm" but the record exists -- mine still keeps out of every farm cell', async () => {
+  const bot = world()
+  assert.equal(bot.farmIndexNow().soil.size, 0, 'the cache is stale (empty)')
   await run(SK, bot)
-  assert.equal(bot._digs.filter(farmCell).length, 0, 'the real skill stops at the farm cell')
+  assert.equal(bot._digs.filter(farmCell).length, 0)
+  assert.ok(bot._digs.length > 3, 'and it descended')
+})
+
+await t('MUTANT KILLED (skills): the stale 20 s cache trusted first -- a farm on disk but not yet in the cache gets dug', async () => {
+  await withMutant(SKP, '      const idx = knownFarmIndex(bot)\n', '      const idx = farmIdx(bot) ?? knownFarmIndex(bot)\n', async m => {
+    const bot = world()
+    await run(m, bot)
+    assert.ok(bot._digs.some(farmCell), 'the mutant trusts the empty cache and digs a plot')
+  })
+})
+
+await t('THE REFUSAL CHAIN (Codex r8): nowhere reachable to walk off the farm -> a refusal naming explore away from the tree farm; after that move, mine descends clear', async () => {
+  const bot = world({ canMove: false })
+  const r = await run(SK, bot)
+  assert.equal(r.status, 'failed'); assert.equal(r.failClass, 'forbidden')
+  assert.match(r.detail, /explore away from the tree farm/, r.detail)
+  assert.equal(bot._digs.length, 0, 'nothing dug')
+  bot.entity.position = new V(P0.x + 20.5, 64, P0.z + 0.5)   // the remedy performed (explore moves the bot away)
+  bot._canMove = true
+  const r2 = await run(SK, bot)
+  assert.equal(bot._digs.filter(farmCell).length, 0)
+  assert.ok(bot._digs.length > 3, `then it descends: ${r2.status} ${r2.detail}`)
 })
 
 console.log(`\n${pass} passed, ${fail} failed`)

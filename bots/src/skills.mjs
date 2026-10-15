@@ -10585,7 +10585,9 @@ async function mine(ctx, { y: targetY = 12 }, signal) {
   // soil and column and a torch's cell and floor -- and never starts it from one -- read afresh at every plan and dig.
   const farmNow = () => {
     try {
-      const idx = farmIdx(bot) ?? knownFarmIndex(bot)
+      // THE SHARED RECORD ITSELF, never the 20 s movement cache (Codex r8 P2: a farm founded or moved since the last refresh
+      // would be dug until then) -- one small file read per plan and per dig
+      const idx = knownFarmIndex(bot)
       if (!idx?.soil?.size) return { forbid: null, bottom: null }
       let bottom = Infinity
       for (const k of idx.soil) bottom = Math.min(bottom, Number(k.split(',')[1]))
@@ -10623,10 +10625,10 @@ async function mine(ctx, { y: targetY = 12 }, signal) {
   }
   if (wellPlan.action !== 'go') {
     wellRow('refuse', wellPlan, lastTarget ? ' after=relocate' : '')
-    const what = wellPlan.farm ? 'the tree farm' : 'the well'
+    const isFarm = !!(wellPlan.farm || wellPlan.hit?.farm), what = isFarm ? 'the tree farm' : 'the well'
     const where = failedTargets.length ? `the walk-off to ${failedTargets.map(c => `${c.x},${c.y},${c.z}`).join(' and ')} could not be reached from here; explore away from ${what} (or goto any cell ${FAR_RADIUS}+ blocks from it), then mine there`
                                        : `explore away from ${what} (or goto any cell ${FAR_RADIUS}+ blocks from it), then mine there`
-    return { status: 'failed', failClass: 'forbidden', detail: wellPlan.inside ? wellPlan.why : `${wellPlan.why ?? 'every stair from here would dig the junk well\'s shell'}; ${where}` }
+    return { status: 'failed', failClass: 'forbidden', detail: wellPlan.inside ? wellPlan.why : `${wellPlan.why ?? (isFarm ? 'every stair from here would dig the town tree farm' : 'every stair from here would dig the junk well\'s shell')}; ${where}` }
   }
   const choice = chooseStairBearing(bot, bot.entity.position.floored(), undefined, wellPlan.bearings)
   const bear = choice.bear
