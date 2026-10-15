@@ -9716,7 +9716,7 @@ async function withdrawVerb (ctx, { item = null, count = 16, from = null, alt = 
     // deposit's shape: walk home through the rescue path, then RESCAN before judging the walk.
     const walked = await home(ctx, {}, signal)
     check(signal)
-    chestBlock = sweep.next(48)
+    chestBlock = namedContainer(bot, from) ?? sweep.next(48)   // at home the named chest is in reach (Claude stage-2 r2 P2-B)
     if (!chestBlock && walked.status === 'failed') return out({ ...walked, detail: `no chest nearby; walking home to the town chest failed: ${walked.detail}` })
   }
   if (!chestBlock) return out({ status: 'failed', failClass: 'nothing_found', detail: 'no chest or barrel within 48 blocks, even at home' })
@@ -9745,8 +9745,8 @@ async function withdrawVerb (ctx, { item = null, count = 16, from = null, alt = 
   return out(lastFailure ?? { status: 'failed', failClass: 'other', detail: 'withdraw tried no container' })
 }
 
-/** The name a withdraw takes: `item`, or `alt` only when the chest holds no `item` and does hold `alt`. Pure. */
-export const withdrawItemName = (inChest, item, alt = null) => haveIn(inChest, item) ? item : (typeof alt === 'string' && haveIn(inChest, alt) ? alt : item)
+/** The name a withdraw takes: `alt` when the chest holds more of it than of `item`, else `item`. Pure. */
+export const withdrawItemName = (inChest, item, alt = null) => (typeof alt === 'string' && haveIn(inChest, alt) > haveIn(inChest, item)) ? alt : item   // the larger of the two (Claude r2 P3)
 /** `from` ("x,y,z") as a container block within 64 of the bot, else null. */
 function namedContainer (bot, from) {
   if (typeof from !== 'string') return null

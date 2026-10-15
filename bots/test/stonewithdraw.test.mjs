@@ -178,11 +178,23 @@ await t('the repeat window holds the action RUN: a rewrite retargets the last en
   ac.retargetRecent('gather', g, 'withdraw', wd)
   assert.deepEqual(ac.recent, [AdmissionControl.key('withdraw', wd)], 'only when the last entry is the proposal')
 })
-await t('the withdraw takes cobbled_deepslate only when the chest holds no cobblestone (withdrawItemName)', () => {
+await t('the withdraw takes whichever of cobblestone / cobbled_deepslate the chest holds more of (withdrawItemName)', () => {
   const chest = n => n.map(([name, count]) => ({ name, count }))
   assert.equal(SK.withdrawItemName(chest([['cobbled_deepslate', 64]]), 'cobblestone', 'cobbled_deepslate'), 'cobbled_deepslate')
-  assert.equal(SK.withdrawItemName(chest([['cobbled_deepslate', 64], ['cobblestone', 5]]), 'cobblestone', 'cobbled_deepslate'), 'cobblestone')
+  assert.equal(SK.withdrawItemName(chest([['cobbled_deepslate', 64], ['cobblestone', 5]]), 'cobblestone', 'cobbled_deepslate'), 'cobbled_deepslate', 'the larger count')
+  assert.equal(SK.withdrawItemName(chest([['cobbled_deepslate', 5], ['cobblestone', 64]]), 'cobblestone', 'cobbled_deepslate'), 'cobblestone')
   assert.equal(SK.withdrawItemName(chest([['cobbled_deepslate', 64]]), 'cobblestone'), 'cobblestone', 'no alt: the item as asked (positive control)')
   assert.equal(SK.withdrawItemName(chest([['oak_log', 64]]), 'cobblestone', 'cobbled_deepslate'), 'cobblestone')
+})
+await t('WIRING: a rewritten failure never reaches the lessons store; the named container is retried after the walk home (mutants)', () => {
+  const cog = strip(fs.readFileSync(new URL('../src/cognitive.mjs', import.meta.url), 'utf8'))
+  const okC = c => /if \(admitted\.rewrittenFrom\) \{[\s\S]{0,300}?\} else if \(EVIDENCE_ABOUT_THE_ACTION/.test(c)
+  assert.equal(okC(cog), true)
+  const oldC = 'if (admitted.rewrittenFrom) {'
+  assert.equal(cog.split(oldC).length - 1, 1, 'ANCHOR present and unique')
+  assert.equal(okC(cog.replace(oldC, 'if (false) {')), false)
+  const sk = strip(fs.readFileSync(new URL('../src/skills.mjs', import.meta.url), 'utf8'))
+  const n2 = (sk.match(/namedContainer\(bot, from\) \?\? sweep\.next\(48\)/g) ?? []).length
+  assert.equal(n2, 2, 'before and after the walk home')
 })
 console.log(`stonewithdraw: ${n} passed`)
