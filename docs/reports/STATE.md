@@ -12,6 +12,15 @@ Studio reservation both closed 10-12); clear caps bamboo 0 / bucket 2._
 
 ---
 
+## 10-15 15:05Z — townzone-01 x minewell-01: PAPER PASSED, Codex r4 APPROVE -> all nine townzone variants approved (the townground agent)
+Sandbox lock taken 14:54Z, RELEASED 15:02Z (sandbox4 empty, forceload removed). sandbox/townground/composition-scene.cjs,
+cand tz-on-835ef3f d0cf6c5c vs ctrl 835ef3f0: CORNER (town S/W, a real well N/E) cand one walk-off -> mine success, 0 shell / 0 town
+cells removed; ctrl 30 cells of the square removed. ROOF (bedrock over the arena, stone chamber in town, above sea level) cand
+refused town_ground with the walk-only remedy -> the real goto -> mine success; 0 town TARGET digs vs ctrl 32. Codex r4 APPROVE
+(last P3 closed); Claude APPROVE. Entry ~/mcai-analysis/townzone-01.queue-entry-9var.json UPDATED (the four new variants' approved
+text + note; registrations and hashes unchanged) -- re-run `python3 ~/canary-sched.py queue replace-variant townzone-01
+~/mcai-analysis/townzone-01.queue-entry-9var.json` to load it. Hold unchanged (coordinator releases).
+
 ## 10-15 14:45Z — townzone-01 COMPOSED INTO minewell-01's keep-out (option (b)): 4 variants built; PAPER BLOCKED on the sandbox lock
 Builds (pushed, new branches; NOT queued): `tz-on-835ef3f` @ `d0cf6c5c` (treefarm-02), `tz-on-a784c0f` @ `4716d12d`
 (wellsite-04 on 835ef3f0), `tz-on-a8af87d` @ `4edce8bb` (minewell-01), `tz-on-389b44f` @ `0a3e973a` (wellsite-04 on a8af87db).

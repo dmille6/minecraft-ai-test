@@ -143,3 +143,13 @@ Read-only inspection; no tests run or hosts contacted.
 -- Claude r2: APPROVE (all P3s resolved; P2-1 stays open for the structureguard merge).
 -- Suites (npm test, r3 + stair-claim window fix): 835ef3f0 257/257, a784c0fe 258/258, a8af87db 254/254, 389b44fb 255/255, all rc=0.
 -- PAPER: sandbox/townground/composition-scene.cjs CORNER + ROOF -- NOT RUN: the sandbox lock has been held by 'monument (ziggurat stage 4)' since 10:41Z (no bot online on any sandbox at 13:47Z and 14:40Z).
+
+-- PAPER 10-15 14:55-15:02Z (sandbox4; results docs/reports/townzone-minewell-paper-2026-10-15.jsonl): CORNER cand d0cf6c5c one walk-off, success y=109, 0 shell, 0 town cells removed; ctrl 835ef3f0 21 dirt + 9 stone removed. ROOF (slab over the square only, first run: the climb dug out sideways and rose -- chain not exercised; slab then widened over the arena) cand: failed/town_ground walk-only remedy (climb surfaced=unknown/no_measurable_change) -> real goto arrived 3029,120,3001 -> mine success y=114; 0 town TARGET digs (4 transit, the climb's); ctrl 32 town TARGET digs.
+-- Codex r4:
+**APPROVE**
+
+The widened-roof run closes the P3: the real execution exercised `failed/town_ground` → prescribed production `goto` → arrival outside the square while still roofed → successful mining, with zero confirmed town-ground target digs. The control’s 32 confirmed target digs establish a meaningful contrast.
+
+The four confirmed transit digs belong to the failed internal climb (`transit:mine:y108`), not `goto`; `surfaced=unknown/no_measurable_change` also does not establish an explicit `surfaced=failed` result. Those distinctions limit the claims, but do not invalidate the demonstrated refusal-to-remedy sequence. The driver’s introductory comments overstate those details.
+
+Read-only review of the prior verdict, driver, and final six results; no files edited or scenes rerun.

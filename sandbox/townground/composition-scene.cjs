@@ -10,12 +10,12 @@
 //   node sandbox/townground/composition-scene.cjs <botRoot> <label> [server=sandbox3] [scenes=CORNER,ROOF]
 //
 // ROOF (Codex comp r2/r3 P3: the route-aware half of the roofed remedy): the bot in a stone chamber 14 east of home, under
-// a BEDROCK slab over the square, above sea level. Its internal climb (surface to the roof's top) cannot break bedrock and
-// fails; still roofed in town, mine refuses naming a walk ("goto a dry spot N+ blocks from home"). The brain then orders
-// exactly that goto: the REAL goto skill and mineflayer-pathfinder must dig through the chamber wall (transit) and walk out
-// from under the slab; then mine again, outside the square. Read from the bot's own rows: the refusal and its
-// surfaced=failed, goto success, mine success, and the `_dig_town` rows -- confirmed town-ground TARGET digs must be 0,
-// transit digs of the wall > 0 (the walk really dug).
+// a BEDROCK slab over the whole floating arena (+3), above sea level. Its internal climb (surface to the roof's top) cannot
+// get out, so it ends without rising (10-15 run: surfaced=unknown/no_measurable_change, after its pathfinder dug the
+// chamber wall -- those are its transit digs, not goto's); still roofed in town, mine refuses naming a walk ("goto a dry
+// spot N+ blocks from home"). The brain then orders exactly that goto (the REAL goto skill, real mineflayer-pathfinder),
+// then mine again, outside the square. Read from the bot's own rows: the refusal, goto success and arrival, mine success,
+// and the `_dig_town` rows -- confirmed town-ground TARGET digs must be 0 (the control: 32).
 //
 // Run it on the base (835ef3f0: minewell + farm, no zone -- the positive control: the stair goes south or west and digs
 // the town's ground) and on the candidate (the zone composed into minewell's keep-out: one walk-off to a start clear of
@@ -173,9 +173,12 @@ const CH = { x: 3014, y: G + 1, z: 3000 }                       // the chamber's
 const kv = d => Object.fromEntries(String(d).split(/\s+/).map(t => t.split('=')).filter(a => a.length === 2))
 async function roof () {
   buildArena()
-  const c = [`fill ${SQ.x0 - 2} 124 ${SQ.z0 - 2} ${SQ.x1 + 2} 126 ${SQ.z1 + 2} minecraft:bedrock`,           // the slab over the square
-             `fill ${CH.x - 1} ${CH.y} ${CH.z - 1} ${CH.x + 1} ${CH.y + 2} ${CH.z + 1} minecraft:stone`,   // the chamber (stone)
-             `fill ${CH.x} ${CH.y} ${CH.z} ${CH.x} ${CH.y + 1} ${CH.z} minecraft:air`]                    // the bot's two cells
+  // THE SLAB OVER THE WHOLE FLOATING ARENA (+3): a slab over the square alone let the internal climb dig out sideways
+  // and pillar past its edge (first run 10-15 15:00Z: the climb SUCCEEDED, so the refusal -> walk chain never ran)
+  const c = []
+  for (let x = A.x0 - 3; x <= A.x1 + 3; x += 25) c.push(`fill ${x} 124 ${A.z0 - 3} ${Math.min(A.x1 + 3, x + 24)} 126 ${A.z1 + 3} minecraft:bedrock`)
+  c.push(`fill ${CH.x - 1} ${CH.y} ${CH.z - 1} ${CH.x + 1} ${CH.y + 2} ${CH.z + 1} minecraft:stone`,   // the chamber (stone)
+             `fill ${CH.x} ${CH.y} ${CH.z} ${CH.x} ${CH.y + 1} ${CH.z} minecraft:air`)                    // the bot's two cells
   const r = rcon(...c); const bad = r.filter(x => /not loaded|Cannot|Unknown|Incorrect|Too many/i.test(x.reply))
   if (bad.length) throw new Error('roof: ' + bad.map(x => x.cmd + ' => ' + x.reply).join('; '))
   const files = await startBot()
@@ -196,7 +199,7 @@ async function roof () {
     await waitFor(() => nGoto() > g0, 240000, 500); await sleep(2000)
     gotoRow = rowsOf(files.skillLog).slice(t0).filter(r => r.name === 'goto').pop()
     const m1 = nMine()
-    ORDER = { skill: 'mine', args: { y: 108 } }
+    ORDER = { skill: 'mine', args: { y: 113 } }   // a short stair: it stays on the floating platform
     await waitFor(() => nMine() > m1, 240000, 500); await sleep(3000)
     second = rowsOf(files.skillLog).slice(t0).filter(r => r.name === 'mine').pop()
   }
@@ -223,7 +226,7 @@ async function main () {
   const pl = r1('list'); if (!/There are 0 of/.test(pl)) throw new Error('sandbox not empty: ' + pl)
   await new Promise((resolve, reject) => { brain.once('error', reject); brain.listen(11499, '127.0.0.1', resolve) })
   P(`root=${BOT_ROOT} label=${LABEL} server=${SERVER}`)
-  rcon(`forceload add ${A.x0} ${A.z0} ${A.x1} ${A.z1}`)
+  rcon(`forceload add ${A.x0 - 3} ${A.z0 - 3} ${A.x1 + 3} ${A.z1 + 3}`)
   for (const sc of SCENES.split(',')) { if (sc === 'CORNER') await corner(); else if (sc === 'ROOF') await roof(); else throw new Error('unknown scene ' + sc) }
 }
 async function cleanup () {
@@ -233,8 +236,8 @@ async function cleanup () {
   try { fs.rmSync(POOL_DIR, { recursive: true, force: true }) } catch {}
   try {
     const c = [`kill ${ARENA_SEL}`]
-    for (let x = A.x0; x <= A.x1; x += 25) { const x1 = Math.min(A.x1, x + 24); c.push(`fill ${x} 112 ${A.z0} ${x1} 123 ${A.z1} minecraft:air`, `fill ${x} 124 ${A.z0} ${x1} 135 ${A.z1} minecraft:air`) }
-    c.push(`forceload remove ${A.x0} ${A.z0} ${A.x1} ${A.z1}`, 'list')
+    for (let x = A.x0 - 3; x <= A.x1 + 3; x += 25) { const x1 = Math.min(A.x1 + 3, x + 24); c.push(`fill ${x} 112 ${A.z0 - 3} ${x1} 123 ${A.z1 + 3} minecraft:air`, `fill ${x} 124 ${A.z0 - 3} ${x1} 135 ${A.z1 + 3} minecraft:air`) }
+    c.push(`forceload remove ${A.x0 - 3} ${A.z0 - 3} ${A.x1 + 3} ${A.z1 + 3}`, 'list')
     P('cleanup', rcon(...c).map(x => `${x.cmd.slice(0, 40)} => ${x.reply.slice(0, 80)}`).slice(-2))
   } catch (e) { P('cleanup failed', e.message) }
 }
