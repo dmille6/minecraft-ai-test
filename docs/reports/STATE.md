@@ -12,6 +12,56 @@ Studio reservation both closed 10-12); clear caps bamboo 0 / bucket 2._
 
 ---
 
+## 10-15 00:30Z — TOWN PROJECTS DESIGNED (owner 10-14 "find real uses ... put the bots to real work" -> "yes do it"); both engines APPROVE r5; NOTHING built, queued or deployed
+**Design:** docs/reports/townprojects-design-2026-10-14.md (r5).
+**Reviews:** docs/reports/townprojects-reviews-2026-10-14.txt.
+- Codex r1-r4 CHANGE, r5 APPROVE.
+- Claude r1 CHANGE, r2-r5 APPROVE.
+- No disagreement remains. On room-making r4 took Claude's position (a skip bounded by stall/pause, measured), and
+  Codex accepted it.
+
+**Facts (10-14):**
+- **Material is not the constraint.** An average world holds ~656 raw copper, ~635 logs, ~250 coal and ~113 iron.
+- **Copper is banked but not smelted:** smelt 318/24 h, of which raw_iron 308 and raw_copper 5.
+- **Time near town:** 48.5% of bot-time is within 48 of home (ES, 3 h, 80/80 bots). That is an upper bound on project
+  time.
+- **Copper bulbs need a blaze rod (Nether), so they cannot be made.** Copper lanterns, torches, chests and bars do
+  not exist on 1.21.8.
+- **The blueprint builder (treefarm-01) never ran on the fleet.**
+- **stone_bricks and smooth_stone are on the junk-well list.**
+- **Isolated pools have per-bot town state,** so they are excluded in v1.
+- **Nothing above pad+2 can be started from the pad** (plinth's standFor rule), so buildings use TERRACED
+  construction: 2-high walls and a 1-high step ring.
+
+**Stages** (each its own canary, after the current queue):
+1. smeltjob-01: composite smelt_town; furnace_drain; the furnace lease; PROJECT_COUNTED.
+2. structureguard-01: **built ON the operator's planned minewell-01**, generalised to every reserved structure cell
+   at bot.dig, never a second guard.
+3. yard-01: the generic builder plus a pad with 6 furnaces and a table, placed at Chebyshev >= 22 and straight-line
+   <= 44 from home. Prerequisite: the town-floor job DECLARES its domain inside 21.
+4. furnaceline-01: load-and-leave furnace jobs.
+5. storehouse-01: 229 placements, 150 cobble, 52 logs, 18 barrels. It sits inside the 16-block town-storage
+   cylinder, so it needs the shared siting file adopted by plinth/well and the town floor first.
+6. hall-01: the landmark, a copper roof terrace. Variant M: 286 placements, 579 raw copper, 687 smelts. The average
+   world qualifies for S.
+7. projectdemand: only if stalls show stock short.
+
+Stage 1 is ~1 week to ready; stages 1-6 take ~9-13 weeks on one lane.
+
+**OWNER DECISIONS (section 10 of the design):**
+- D1: which landmark (recommended: the copper-roofed hall);
+- D2: no isolated pools in v1;
+- D3: lanterns and torches instead of bulbs;
+- D4: no charcoal yet (coal covers the copper 3x);
+- D5: open doorways;
+- D6: blast furnaces;
+- D7: the new stage order;
+- D8: take stone_bricks and smooth_stone off the junk list (otherwise the hall is cobblestone).
+
+**COORDINATION:** the town-floor author is asked, through the doc (section 3.4 and section 8), for (a) a declared
+domain inside Chebyshev 21, (b) adoption of the shared townsites file before stage 5, and (c) to treat
+projectReservedCells as occupied.
+
 ## 10-15 00:15Z — wellsite-02 REVERTED at +360 -- a FALSE TRIP (control-arm event); airpocket-03 launching
 Ledger says REVERT (wellread.breach_recollected = 9). Diagnosis (wellsite agent, Codex agrees): all 9 recollected items
 were in hive-d, a CONTROL pool on the base 5e66386 (no wellsite code): hive-d-Echo started `mine` on the well's stand

@@ -1,0 +1,476 @@
+TOWN PROJECTS design reviews, 2026-10-14/15 (docs/reports/townprojects-design-2026-10-14.md r1..r5)
+Codex: codex exec --skip-git-repo-check (independent; read the repo + plinth branch). Claude: a separate review agent (labelled 'Claude review').
+
+=================== CODEX ROUND 1 ===================
+
+1. **P1 — §§4, 4.1–4.3, 9: The buildings cannot be constructed under the stated stand/face rules.** On the pad, feet are at `s+1` and eyes at `s+2.62`. Placing the third vertical log requires clicking a top face at `s+3`; starting the roof requires one at `s+4`. Plinth’s `standFor` and `standOk` explicitly reject top-face clicks from below. The hall’s upward lightning rod has the same problem. **Fix:** add protected elevated stands/scaffolding with a proven return route, or redesign the structures. Require a complete placement sequence on flat terrain and real town fixtures before estimating builder effort.
+
+2. **P1 — §3.3: Netted procurement demand is not a safe disposal floor.** Suppose 64 roof cells remain and the town holds 64 `cut_copper`. Netted demand becomes zero; the proposed zero-base group then permits pruning the entire stack. The parts disappear precisely because production succeeded. **Fix:** separate procurement shortfall from protected project inventory. Allocate existing parts and inputs to the project, and prevent banking/prune/well calculations from treating those allocations as surplus. Test `craft → deposit → prune/well → builder withdraw` through the real chain.
+
+3. **P1 — §§3.3, 5, 9: Banking and stock visibility are prerequisites, not stage-5 additions.** `bankableInventory` rejects unwanted materials before consulting their stock target. `copper_block`, `cut_copper`, `stone_bricks`, and `barrel` are absent from its standing/deposit-always sets; adding targets alone does not make them bankable. The existing count journal records targeted groups, so it also does not supply the proposed complete census of untargeted copper, iron, and fuel. **Fix:** introduce project-aware banking, counting, holds, and delivery in the first stage that needs each material. Demonstrate that stage-1 compaction can actually deposit its output and stage-2 helpers can deliver parts.
+
+4. **P1 — §§3.2–3.3, 5: Raw-BOM admission conflicts with earlier conversions and base caps.** Stage 1 deliberately converts raw copper into blocks, but siting later requires the *raw* BOM to fit stock. A town with a finished roof’s worth of copper blocks could therefore fail admission. The “all intermediate BOMs fit base targets” assertion is also false: hall M needs 88 stone, versus the existing stone target of 64. **Fix:** assess a recipe-aware inventory allocation across finished parts, intermediates, raw inputs, fuel, and bag reserves. Specify bounded intermediate batches or move demand protection earlier; test admission after compaction and after stock pruning.
+
+5. **P1 — §§3.1, 3.4, 8: World-keyed projects leave isolated-town accounting inconsistent.** `cobblecap.mjs` explicitly says isolated bots have separate journals and cannot see each other’s claims. Sharing only the project record and builder lease leaves helper withdrawals, production, pruning, and banking using incompatible views of the same physical containers. **Fix:** share the relevant inventory journal and claims by physical world/town, with migration and restart rules, or exclude isolated worlds until that prerequisite ships. Test concurrent helper/pruner activity across different `MEMORY_POOL` values.
+
+6. **P1 — §8: Pathfinder exclusions do not protect against every direct dig.** The composition table groups `mine` with gather/pathfinder, but `mine` directly calls `bot.dig` for stair cells and retries without consulting movement exclusions. Other direct maintenance digs also need consideration. Townzone’s bounded area cannot protect every project allowed out to radius 48. **Fix:** enforce project protection at each discretionary direct-dig path, including retries and make-room operations, with explicit survival exceptions. Behaviour tests must attempt to mine through a project outside townzone and verify server cells remain intact.
+
+7. **P1 — §§3.4, 5, 8: Stage-1 furnace sharing is not safe merely because output eventually belongs to town.** Existing `smelt` takes pre-existing output, removes incompatible input, and drains furnace slots on exit. Two deterministic smelters—or a project smelter and a milestone smelter—can interfere throughout the operation. This also defeats per-order loss attribution. **Fix:** lease a furnace for the entire existing `smelt` session, including recovery, and make every caller participate. Stage 3 must strictly exclude workshop furnaces from ordinary `smelt`, rather than merely prefer another furnace. Test interruption and competing milestone calls.
+
+8. **P1 — §§3.5–6: Several refusals have no deterministic path back to progress.** “Raw shortage cannot happen” is contradicted by concurrent consumption, reserves, and disposal. Ordinary gathering does not guarantee replenishment of the named shortage. Unknown cells receive no survey trip; blocked cells can stall the fixed WIP queue indefinitely. Project-specific craft-room refusals also cannot rely on `roomOrder`, which currently runs from the milestone’s `ready.noRoom`. **Fix:** specify resumable recovery states for room-making, stock reconciliation, reachable station selection, material acquisition, and surveys; provide explicit abandonment/replanning for permanent obstruction. Exercise these through CognitiveLoop with full bags, full containers, absent stations, and a pending milestone.
+
+9. **P2 — §§2, 4.3–4.4: The copper BOM ignores crafting batch sizes.** The supplied 1.21.8 registry confirms `4 copper_block → 4 cut_copper`. Producing 63 roof blocks requires 64 copper blocks, leaving one cut-copper spare. From raw materials, M therefore needs **579 copper**, and **667 smelts** including its 88 stone. S/L require **327/903 copper**, respectively. Ideal pooled fuel for M is **84 coal for smelting plus one for torches**, before scheduling losses. `cut_copper` also fits the inventory’s 2×2 grid, contrary to the table’s “needs a table” entry. **Fix:** derive integer BOMs, leftovers, fuel, and sizing thresholds from the chosen recipe route.
+
+10. **P2 — §§4.2, 4.4, 5: Blast-furnace arithmetic is inconsistent.** Three smooth stone require six smelts: **one furnace-minute**, not six. Two blast furnaces require **12 smelts**, not the build-time table’s six. Replacing two of six normal furnaces yields **2,880 ore/hour**, versus 2,160—not twice the workshop throughput. The average copper backlog takes approximately **13.7 ticking minutes**, versus 18.2. **Fix:** distinguish individual-furnace speed, total furnace work, and workshop elapsed time throughout the tables.
+
+11. **P2 — §5: Load/collect scheduling and reconciliation need an explicit state model.** “Empty or same item” does not establish input capacity, fuel capacity, output compatibility, remaining fuel coverage, or recipe eligibility. Fuel `ceil(n/8)` assumes coal/charcoal. Meanwhile `load − collect − contents = 0` cannot hold indiscriminately across raw-to-ingot conversion and fuel consumption. **Fix:** define per-furnace recipe assignment, capacity-aware loads, recipe-specific furnace eligibility, production reservations, and separate material/fuel balances. Include full output, residual fuel, interrupted transfer, and unloaded-furnace recovery cases.
+
+12. **P2 — §§1.3, 6–7: The exposure and time-budget claims overstate available capacity.** Being near home does not mean a bot is available for project work. A 30% decision budget also does not bound body time when one decision occupies a furnace for roughly 80 seconds. Distance to home does not establish ticking exposure for furnaces sited elsewhere; Paper distinguishes loaded chunks from ticking chunks. **Fix:** measure actual project body-seconds and furnace-location exposure, with elapsed load-to-collect observations. Treat the current time estimate as an upper bound on nearby bot-time. [Paper chunk diagnostics](https://docs.papermc.io/paper/reference/commands/)
+
+13. **P2 — §7: Liveness and positive controls are too weak for promotion.** One order or placement can pass liveness while the chain never delivers a usable result. Stage 5 can emit demand without exercising an actual threatened prune. The weekly “previous week and fleet” comparison also reintroduces uncontrolled comparisons if used to judge a change. **Fix:** require stage-specific end-to-end exposure, such as smelt-and-bank, completed structure, load-transform-collect, and a demonstrated protected disposal decision. Add failing fixtures for every defect gate, explicit INCONCLUSIVE deadlines, and pre/post randomized-control DiD for causal conclusions. Keep completion demonstrations and weekly descriptive trends labelled separately.
+
+14. **P2 — §§8–9: Floor/project reservations need atomic arbitration.** Independently checking that the other plan has no occupied cells permits both planners to observe an empty site and publish overlapping plans. An unfinished floor plan can also exclude a site indefinitely. **Fix:** use a common town siting lease or atomic reservation publication, specify precedence and expiry/abandonment semantics, and preserve reservations for already-built cells. Test simultaneous siting and restart between reservation and publication.
+
+15. **P2 — §§7, 9: Staging and rollback are not yet independently reviewable.** The record’s fixed cursor advances into later blueprints, but stage-specific enablement is unspecified. Stage 2 already needs part banking; stage 3 introduces autonomous stock transformations; reverting producer code leaves physical structures and furnace contents behind. Those dependencies are missing from the effort estimate. **Fix:** define enabled blueprints/jobs per stage, persistent protection across rollback, compatible record readers, and recovery of outstanding furnace contents and claims. Re-estimate after incorporating elevated construction, shared accounting, and recovery work; the fleet-wide one-day completion claim is currently unsupported.
+
+VERDICT: CHANGE
+
+=================== CODEX ROUND 2 ===================
+
+r2 resolves the main construction-height problem, but several accounting and recovery contracts still need changes. I read the full design and `CLAUDE.md`, checked the relevant code and plinth branch, and verified recipes against the supplied 1.21.8 registry. No files were edited.
+
+**Round-1 findings**
+
+1. **RESOLVED** — §4.0’s ring supplies the required elevation; a flat-ground probe using plinth’s geometry functions placed all 63 roof cells and reached the roof through the proposed stair.
+2. **PARTIAL** — §3.3 separates protected parts from procurement, but allocation protection is incomplete for materials carried by helpers or interrupted jobs.
+3. **PARTIAL** — `PROJECT_PARTS` addresses most banking, but complete untargeted stock counting remains unassigned, and barrels are omitted from that banking set.
+4. **PARTIAL** — Recipe-aware admission and bounded stone batches fix the original contradictions, but admission still counts bag inventory without subtracting operating reserves.
+5. **RESOLVED** — Excluding isolated worlds explicitly avoids their incompatible journals.
+6. **RESOLVED** — A central `bot.dig` guard covers direct callers and retries; exception attribution needs implementation-level validation.
+7. **RESOLVED** — Whole-session leases for every smelter and strict yard exclusion establish the necessary concurrency contract.
+8. **PARTIAL** — Survey and abandonment states exist, but project-specific room-making and unreachable-station recovery remain unspecified; some jobs can still skip indefinitely.
+9. **RESOLVED** — Copper batch sizes, leftovers, S/M/L copper requirements, and the 2×2 cut-copper recipe are corrected.
+10. **PARTIAL** — Throughput and smelt counts are corrected, but §4.1 incorrectly assigns six cobblestone to each blast furnace’s three smooth stone.
+11. **PARTIAL** — Recipe states and separate fuel accounting help, but the material equation still omits uncollected output and production reservations remain undefined.
+12. **RESOLVED** — Presence is labelled an upper bound; body time and furnace load-to-collect latency replace the overstated capacity claims.
+13. **RESOLVED** — End-to-end exposure, failing fixtures, INCONCLUSIVE deadlines, randomized-control DiD, and descriptive-only weekly reporting are specified.
+14. **PARTIAL** — The shared siting protocol works only after all competing planners adopt it; the interim read-other-records fallback retains the race.
+15. **PARTIAL** — Blueprint switches and estimates are improved, and destructive rollback is disclosed, but rollback does not guarantee recovery of outstanding furnace stock or claims.
+
+**Geometry assessment**
+
+The central terracing sequence is sound under plinth’s stated rules:
+
+- Ring feet at `s+2` give eyes at `s+3.62`, above the wall-top face at `s+3`.
+- Interior roof cells can attach to roof side faces from the pad; no bottom-face click is needed.
+- A step block at `s+2` on the ring provides feet elevations `s+2 → s+3 → s+4`.
+- Parapet blocks at `s+4` can be placed from roof stands.
+
+My flat-ground probe placed **28 roof cells from ring stands and 35 from pad stands**, with `standOk` walk-back checks. This was a geometry probe, not a complete blueprint or Paper validation.
+
+**P3 — §§4.0, 4.3:** Freeze the parapet’s single gap opposite the stair, distinguish permitted transit through that entrance from placement stands near unguarded edges, and validate lantern clicks against actual wall shapes. These belong in the promised complete-sequence and Paper gates.
+
+**Remaining and newly introduced findings**
+
+1. **P2 — §§3.2–3.3, 5: Stock visibility and delivery still lack a complete prerequisite contract.**  
+   The existing journal counts targeted groups, not the copper, fuel, and finished parts that admission and stage-1 eligibility require. Furnace-slot counting in stage 3 does not supply that earlier chest census. Also, `barrel` being `PROTECTED` does not make it bankable: it is absent from both the existing standing bank set and the proposed `PROJECT_PARTS`.
+
+   **Fix:** Assign complete project-relevant chest counting to stage 1, extend it as materials become enabled, and include barrels in project banking from stage 4. Test interrupted production followed by deposit and another bot’s withdrawal.
+
+2. **P2 — §§3.2–3.3: A town disposal floor is not a carried-material allocation hold.**  
+   Raising `target'` protects chest stock against pruning, but does not reserve a helper’s bag against ordinary crafting or scaffolding. Scaffold exclusion applies only during builder visits. Admission also counts the bot’s bag without excluding its escape/material reserves. Thus “the whole BOM allocates” can include stock the project cannot safely spend.
+
+   **Fix:** Allocate only spendable stock after reserves, and carry allocation ownership through withdrawal, transformation, interruption, and deposit. Apply material protection to every job carrying an allocation, with explicit release/reconciliation rules.
+
+3. **P2 — §§3.5, 5: Room-making still has a deterministic dead end.**  
+   “Town deposit runs first” does not imply that it frees space: a full bag can contain reserves or otherwise unbankable items. `roomOrder` currently depends on the milestone’s `ready.noRoom`; a project refusal does not activate it. `smelt_town` can therefore remain ineligible forever, and it has no project abandonment state to close that loop.
+
+   **Fix:** Feed project room requirements into an executable room-making order, and define bounded retry/alternative selection for inaccessible stations. Test the full chain when deposit legitimately frees zero slots.
+
+4. **P2 — §§5, 7: The new furnace balance equation rejects normal operation.**  
+   `inputs loaded = outputs collected + input still in` fails as soon as one item cooks but remains in the output slot. Separately, the stage-1 per-order equation omits opening furnace contents and recovered items retained in the bag after interrupted deposit. Existing `smelt` explicitly collects pre-existing output and drains slots; a lease serializes that behavior but does not attribute those items to the new order.
+
+   **Fix:** Reconcile opening inventory plus confirmed transfers against closing input, closing output, collections, and returned inventory, normalized by recipe. Track recovered prior stock separately from new production. Define outstanding production reservations so multiple furnace assignments cannot independently satisfy the same project shortfall.
+
+5. **P2 — §§3.4, 8: Interim siting remains non-atomic.**  
+   A project can read an empty floor/plinth record while that planner reads an empty project record, then both publish overlapping sites. Three-cell clearance does not prevent this interleaving. An owner-defined expiry also provides no expiry when the older planner has no abandonment rule.
+
+   **Fix:** Make common arbitration a prerequisite for concurrent siting, or disable competing siters during project site publication. Specify retirement of stale unbuilt reservations.
+
+6. **P2 — §§3.1, 8–9: Rollback recovery is asserted rather than ensured.**  
+   Accepting possible structure destruction is an explicit policy choice. However, “ordinary `smelt` drains any furnace it opens” does not guarantee recovery: reverting stage 3 to stage 2 retains ordinary-smelt yard exclusion, and `smelt_town` need not become eligible when the remaining copper is already cooked inside those furnaces.
+
+   **Fix:** Retain a drain-only recovery path in the rollback baseline, including reconciliation and release of outstanding claims. Document any deliberate abandonment separately from guaranteed recovery.
+
+7. **P3 — §§4.1, 5: Two numerical statements remain wrong.**  
+   Each blast furnace requires **three cobblestone and six smelts** for its three smooth stone; the pair requires six cobblestone and twelve smelts. The stage-1 **2.3–2.8 bot-hours/world** divides the fleet estimate by 16 while labelling it as the twelve shared worlds. Their actual copper subtotal is not supplied.
+
+   **Fix:** Correct the blast-furnace input and report shared-world processing estimates from the shared-world census. The main placement totals—70, 229, 286—and hall-M total of 687 smelts are otherwise internally consistent.
+
+8. **P3 — §§3.4, 5, 8: Specify lease ownership and dig-exception authority at integration.**  
+   `smelt_town` says it acquires a furnace lease, while every `smelt` caller must acquire one too. Define one acquisition owner or explicit token passing. Likewise, the dig guard should authorize the actual survival operation or owning builder’s planned clear, not merely trust a broad telemetry purpose label.
+
+   **Fix:** Cover nested smelting, interruption/recovery, and misattributed dig contexts in the stage reviews. The overall lease and central-guard designs are sound.
+
+VERDICT: CHANGE
+
+=================== CODEX ROUND 3 ===================
+
+R3 improves the design, but allocation recovery, furnace accounting, siting, and rollback still need changes. I read the full document and `CLAUDE.md`, checked the relevant bot code, and inspected the specified plinth branch. No files were edited. These are design findings; implementation and Paper validation details are P3.
+
+**Round-2 findings**
+
+| # | Status | Why |
+|---|---|---|
+| 1 — Stock visibility and delivery | **RESOLVED** | §3.3a assigns project counting to stage 1 and extends it with enabled parts; §3.3 explicitly banks barrels from stage 5. |
+| 2 — Carried allocations and reserves | **PARTIAL** | Admission now subtracts reserves, but §3.3 explicitly turns interrupted leftovers into ordinary bag stock without reconciling the outstanding allocation; `finally` cannot guarantee deposit after interruption or disconnect. |
+| 3 — Room and station recovery | **PARTIAL** | Generalised room requests and bounded station retries help, but stage-1 `smelt_town` has no project whose stall/abandon rule can run; a completed yard also has no specified transition back into that lifecycle. |
+| 4 — Furnace accounting and production reservations | **PARTIAL** | Opening/closing inventories and named reservations are improvements, but the equations omit recovered input, and reservation expiry does not reconcile surviving furnace contents. |
+| 5 — Atomic siting | **NOT RESOLVED** | The replacement spatial-disjointness guarantee is false for plinth stairs; reading existing records still cannot prevent concurrent publication. |
+| 6 — Rollback recovery | **PARTIAL** | Shipping `yard_drain` with stage 3 fixes stage-4 rollback, but stage-3 rollback still depends on ordinary `smelt` eventually choosing each furnace; TTL expiry releases claims without reconciling stock. |
+| 7 — Numerical corrections | **RESOLVED** | Blast-furnace inputs are corrected, and the processing estimate is explicitly fleet-average with a shared-world census assigned before launch. |
+| 8 — Lease owner and dig authority | **RESOLVED** | One furnace-session acquisition owner and authority-based dig exceptions are now explicit; operation attribution and interruption races belong in stage integration review. |
+
+**Still-PARTIAL round-1 findings**
+
+| # | Status | Why |
+|---|---|---|
+| 2 — Allocation protection | **PARTIAL** | Disposal protection is specified, but interrupted raw/intermediate stock loses allocation ownership without reconciliation. |
+| 3 — Banking and counting | **RESOLVED** | Project counting and staged part banking now have explicit deliverables, including barrels. |
+| 4 — Admission and operating reserves | **RESOLVED** | §3.2 allocates only spendable inventory after named operating reserves and holds. |
+| 8 — Executable recovery | **PARTIAL** | Room-making and retries are assigned, but standalone production and completed-station recovery still lack applicable terminal states. |
+| 10 — Blast-furnace arithmetic | **RESOLVED** | Each furnace requires three cobblestone and six smelts for its smooth stone. |
+| 11 — Material accounting | **PARTIAL** | Closing output is included, but input recovery and reservation-expiry reconciliation remain incomplete. |
+| 14 — Siting arbitration | **NOT RESOLVED** | The proposed non-overlapping domains still overlap at possible plinth stair cells. |
+| 15 — Staging and rollback | **PARTIAL** | The seven stages improve attribution, but the rollback baseline still does not guarantee furnace recovery and claim reconciliation. |
+
+The remaining old issues need explicit contracts: reconcile or release interrupted allocations before ordinary inventory use; give standalone jobs and completed stations their own recovery states; and retain a deterministic drain/reconciliation path across rollback rather than relying on future ordinary smelting.
+
+**New findings introduced by r3**
+
+1. **P2 — §§3.4, 4.0: The new spatial-disjointness boundary excludes the plinth shell, but not its stairs.**
+
+   `wellSpiral` searches to Chebyshev radius 14. On the specified branch, `stairOptions` places stair columns at offsets `2 + j`, with `j` up to 4. A cap at radius 14 can therefore have stairs reaching radius 20. Project cells beginning at radius 17 can overlap those stairs. Reading `plan` and `prev[]` covers published plans, not a simultaneously planned stair.
+
+   **Fix:** Derive exclusion domains from the entire possible footprint, including stairs and required clearance, or require shared arbitration before concurrent siting. Make the floor planner’s footprint agreement a prerequisite, rather than a requested confirmation.
+
+2. **P2 — §§5, 7: The replacement furnace equations reject legitimate input recovery.**
+
+   `O.input + loaded = C.input + cooked` has no term for input taken back. For example, opening with eight foreign input items and draining them produces `8 = 0 + cooked`; with no output produced, the output equation requires `cooked = 0`. The same contradiction occurs when an interrupted job retrieves its own uncooked input. Existing `smelt` explicitly takes foreign input; `yard_drain` also requires this operation.
+
+   **Fix:** Record confirmed input removals and use:
+
+   `O.input + loaded = C.input + cooked + input_taken`
+
+   Keep the output equation, normalize by recipe, and include cursor/recovery transfers in the inventory boundary. Test foreign-input draining and cancellation before the first item cooks.
+
+3. **P2 — §§5, 7: The revised loss-only gate can conceal losses it already has enough information to detect.**
+
+   Closing furnace contents are already included in “units out,” yet a shortfall is tolerated up to “in-flight items.” That grants the same inventory a second allowance. Separately, counting only prior stock *collected* on the input side while counting all closing furnace stock on the output side creates apparent gains when prior stock remains. A one-sided gate ignores those gains, allowing them to offset actual losses.
+
+   **Fix:** Use one consistent boundary: all opening bag/furnace inventory plus confirmed withdrawals, against deposits and all closing inventory. Once closing input and output are counted, cooking needs no additional material allowance. Treat uncertain reads as unreconciled exposure, not successful conservation. Test loss masked by retained opening stock and by uncooked closing input.
+
+4. **P3 — §§3.4, 5: Time-based reservation expiry needs stock reconciliation before replacement production.**
+
+   Expected completion plus 30 minutes can expire while a furnace still holds the reserved input or output. The design separately acknowledges uncertain ticking exposure. Expiry alone must not make that same shortfall eligible for another load.
+
+   **Fix:** At expiry, inspect and reconcile the furnace, retain attribution for surviving stock, and release only the uncovered remainder. Test delayed collection and an unloaded furnace during stage 4.
+
+5. **P3 — §§3.5, 5, 7: Generalised room-making needs project attribution and budget coverage.**
+
+   The room order runs before project jobs. Unless its request retains the project’s identity, repeated wear-out, compost, deposit, or well work can escape the ten-minute project body-time budget and its exposure accounting.
+
+   **Fix:** Carry the requesting job and measured slot requirement through room-order issue and outcome; charge project-triggered preparation to the project budget while preserving milestone priority. Validate the zero-slots-freed chain in stage 1.
+
+6. **P3 — §§8–9: A reflex-held body is an integration authority, not automatically proof that the particular dig belongs to that reflex.**
+
+   The code distinguishes runner skill claims from reflex arbiter grants, including a legacy path. Checking a current holder alone could exempt a stale discretionary operation still unwinding after preemption.
+
+   **Fix:** Specify the actual grant/operation authority used by the wrapper and validate stale-skill digs, reflex `goto` digs, legacy behavior, and owning-builder clears. This is an integration gate, not a reason to reject the standalone guard architecture.
+
+The seven-stage split is otherwise reasonable. The complete-sequence proof and Paper gates remain the appropriate place to settle parapet access, lantern clicks, barrel placement, and terrain-specific construction behavior.
+
+VERDICT: CHANGE
+
+=================== CODEX ROUND 4 ===================
+
+R4 resolves most earlier findings, including the room-making disagreement. Two new design errors remain: the drain does not cover all stock it promises to recover, and the continuity gate can reject legitimate cooking. I read r4 in full, `CLAUDE.md`, and the relevant scheduling, room-order, dig-scope and arbiter code. No files were edited.
+
+**Round-3 findings**
+
+| # | Status | Assessment |
+|---|---|---|
+| 1 — Plinth stair overlap | **RESOLVED** | The outer boundary includes the stairs and clearance; floor-domain agreement and inner-domain arbitration are now prerequisites. |
+| 2 — Recovered furnace input | **RESOLVED** | The session equations include `input_taken` and `fuel_taken`. |
+| 3 — Loss concealed by accounting allowances | **RESOLVED** | Opening and closing inventories use one boundary, mismatches in either direction fail, and uncertain reads remain unreconciled. |
+| 4 — Reservation expiry | **RESOLVED** | Due reservations require reconciliation, retain surviving stock attribution, and release only the uncovered remainder. |
+| 5 — Room-making attribution and budget | **RESOLVED** | Project-triggered preparation was removed, so that uncharged work no longer exists; optional jobs skip while existing bot work remains available. |
+| 6 — Dig operation authority | **PARTIAL** | Async scope is appropriate, but “generation captured at the dig’s call” must mean the caller’s operation grant, not a fresh sample of the current holder; this remains a P3 integration check. |
+
+The room choice does **not** establish a bot dead end. `ROOM_ORDER_OF` indeed supports only eat/deposit/home, and project proposals run only in the remaining scheduling slot. Skipping an optional project does not remove the bot’s existing legal actions. The composed chain test and measurement of room-related skips are appropriate stage gates.
+
+**Inherited findings and remaining round-1 PARTIALs**
+
+| Earlier finding | Status | Assessment |
+|---|---|---|
+| R2 #1 / R1 #3 — Stock visibility and banking | **RESOLVED** | Explicit counting and staged part banking remain specified. |
+| R2 #2 / R1 #2 — Carried allocation protection | **RESOLVED** | Recomputed allocation removes stale ownership; carry notes provide return handling, with intervening consumption explicitly accepted and reflected in stock. |
+| R1 #4 — Admission and operating reserves | **RESOLVED** | Admission continues to exclude named operating reserves and holds. |
+| R2 #3 / R1 #8 — Executable recovery | **RESOLVED** | Standalone pause states and completed-station reopening/re-siting address the missing lifecycles; optional room skips do not trap the bot. |
+| R2 #4 / R1 #11 — Furnace accounting and reservations | **PARTIAL** | The old balance and expiry defects are fixed, but the new continuity bound introduces finding N2 below. |
+| R2 #5 / R1 #14 — Siting arbitration | **RESOLVED** | Spatial separation and mandatory shared arbitration now cover the respective domains. |
+| R2 #6 / R1 #15 — Staging and rollback | **PARTIAL** | Shipping the drain in stage 1 fixes baseline availability, but its new eligibility contract does not guarantee recovery; see N1. |
+| R2 #7 / R1 #10 — Numerical corrections | **RESOLVED** | Corrected blast-furnace inputs and qualified throughput estimates remain intact. |
+| R2 #8 — Lease owner and dig authority | **RESOLVED** | Single session ownership and authority-based exemptions remain specified; the operation-token detail above stays P3. |
+
+**New findings introduced by r4 only**
+
+1. **P2 — §§3.4, 5, 8: The new baseline drain cannot deliver its promised rollback recovery.**
+
+   The new predicate selects output **≥8**, abandoned input, or MIXED contents. A furnace containing **1–7 output items, no input, and no foreign contents** satisfies none of these conditions. After stage-4 rollback removes `furnace_collect`, that stock can remain indefinitely. Fuel-only leftovers likewise have no drain trigger.
+
+   The spatial guarantee also fails: the outer domain permits Chebyshev distance 44, whereas existing `TOWN_RADIUS` checks use horizontal Euclidean distance. A furnace at offset `(40,40)` is legal in the outer domain but approximately **56.6 blocks** from home, outside the promised 48-block recovery scan.
+
+   **Fix:** Give orphaned/done furnaces an eventual drain trigger for any remaining contents, independent of batch size. Make the yard’s entire furnace footprint fit the recovery scan, or make the baseline scan cover the entire permitted domain. Verify small-output, fuel-only and diagonal-yard rollback cases.
+
+2. **P2 — §§5, 7: The new between-session timing inequality rejects valid partial cooking.**
+
+   `k <= elapsed / 10 s` assumes cooking starts at zero progress when the previous session closes. It need not: Mineflayer exposes partial cooking through [`furnace.progress`](https://github.com/PrismarineJS/mineflayer/blob/master/docs/api.md#furnaceprogress).
+
+   For example, close with one input already nine seconds cooked; reopen two seconds later with that item completed. The balances agree and nothing was lost, but the new gate rejects `1 > 2/10`. Section 7 makes this a deterministic REVERT condition. Its table also omits §5’s five-second blast-furnace exception.
+
+   **Fix:** Include opening cook progress in the timing bound, or use a conservative bound allowing one partially cooked item, with the furnace-specific duration and observation uncertainty. Keep the exact material conservation equations unchanged. Verify a session boundary immediately before completion.
+
+These are errors in the specified predicates and equations, rather than unresolved Paper behavior. Construction sequencing and the remaining dig-authority integration check stay P3.
+
+VERDICT: CHANGE
+
+=================== CODEX ROUND 5 ===================
+
+R5 resolves the round-4 blockers. No files were edited.
+
+| Round-4 finding | Status | Assessment |
+|---|---|---|
+| N1 — Rollback drain coverage | **RESOLVED** | ORPHANED eligibility covers small output, abandoned input and fuel-only leftovers; every yard cell and stand now lies within horizontal radius 44, inside the 48-block scan. |
+| N2 — Partial-cooking continuity | **RESOLVED** | The extra-item allowance admits partial cooking across session boundaries; §§5 and 7 consistently specify furnace-specific durations and preserve material conservation. |
+| Remaining P3 — Dig authority | **RESOLVED** | §8(b) explicitly requires the caller’s operation-start grant; stale-skill and reflex integration tests remain stage-review checks. |
+
+**New issue — P3, nonblocking:** §5 adds `p` directly to elapsed seconds, but Mineflayer’s [`furnace.progress`](https://github.com/PrismarineJS/mineflayer/blob/master/docs/api.md#furnaceprogress) is a fraction from 0 to 1. Convert it to seconds (`p × T`), or simplify to the conservative `floor(elapsed / T) + 1`. The existing `+1` already prevents the original false rejection, so this is a units clarification for implementation, not a design blocker.
+
+VERDICT: APPROVE
+
+=================== CLAUDE REVIEW ROUND 1 ===================
+Claude review of `docs/reports/townprojects-design-2026-10-14.md`. I checked the recipes against minecraft-data 1.21.8 and they all match: barrel, cut_copper 4→4, copper_bulb needs a blaze_rod, and none of the four copper_* items in §2 exist on 1.21.8. Most of the BOM and throughput arithmetic also holds. The problems are in how the design meets existing code.
+
+1. **P1, §4 stands and §4.1–4.3.** No cell at s+3 or higher can get its first block under the planner the design adopts. In plinth's `standFor` (origin/plinth-on-8cd0bc6), a top-face click needs the bot's eye above the face (`if (topFace && eye.y <= point.y) continue`). From the pad, the eye is at s+2.62. The third wall course and the corner-log tops are placed on faces at s+3; the roofs are at s+4 (storehouse, workshop) and s+5 (hall). A cell's first block has no side neighbour to click instead, and §4 forbids standing on walls or the roof. So every project stalls with its roof open. **Fix:** before estimating stage 2, either design a raised-stand mechanism (an interior step or scaffold, removed afterwards, with its own fall analysis), or prove on Paper that a click on a top face below eye level is accepted and drop the sight rule for that case. Re-estimate the 6–9 days after.
+
+2. **P1, §3.3 "junk list unchanged" and §4.3/§4.2 v1b.** `stone_bricks` and `smooth_stone` are already junk: they are in `SCAFFOLD_DECORATIONS`, so in `WELL_JUNK` (well.mjs:106), and the owner named stone_bricks as junk on 10-07. They are also pathfinder scaffold blocks (scaffold.mjs:106), as are planks and logs. The doc's own test ("no blueprint intersects the junk list") fails for hall@1 (88 bricks) and v1b (smooth stone). As written, the well throws away crafted parts and the pathfinder spends carried materials. **Fix:** add owner decision D8 (take them off the well list), or build the hall from cobble. Remove project materials from the builder's scaffold set during a visit.
+
+3. **P1, §5 stage-1 SMELT job.** The design is three orders (withdraw, smelt, town_deposit) spread across decisions. Town deposit runs first at 34+ slots, and the median bag is at 34. `raw_copper` and `copper_ingot` are in `DEPOSIT_ALWAYS` (bankable.mjs:424), so withdrawn copper goes straight back into the chest before `smelt` can run. Separately, coal and charcoal are in `IRON_LADDER`, which the town deposit never banks, so the town's charcoal fuel reserve can never fill and the charcoal job fires indefinitely. **Fix:** make it one composite skill (withdraw, smelt, deposit inside one budget, like `withdraw_pick`), or add a job-hold keep that town deposit honours. Drop charcoal from stage 1.
+
+4. **P2, §3.3 stage 5.** The new groups at "target 0 plus demand" break in two ways:
+   - Target 0 counts as at-target by definition, so `stockWellStacks` sends copper_block and cut_copper above the 64 reserve down the well whenever demand drops to 0 (stalled, complete, or not yet sited).
+   - `barrel` matches `PROTECTED`, and stocktarget.test asserts that no group names a protected item.
+
+   **Fix:** leave project parts untargeted and add them to `PROTECTED` and `NEVER_DISPOSE`.
+
+5. **P2, §3.1 and D2.** Everything the project has to work with is keyed by pool: the claims and count journal (`townDir = poolStateDir(memory.pool)`, skills.mjs:3140), the well site, the composter site and plinth's record. A world-keyed project in an isolated world faces five separate claim journals over the same chests, so draw claims do not exclude each other. **Fix:** recommend "none in v1" for D2 (simplest), or re-key town state by world first.
+
+6. **P2, §8 `smelt` row and §7 gates.** `smelt` takes the nearest furnace within 32 blocks (skills.mjs:9473). It takes that furnace's output, pulls out any input that isn't its own (9673–9676), and empties the furnace on exit. In stage 1, two bots sharing a town furnace makes the "items lost across an order" gate REVERT on what is only a transfer. In stage 3, an iron rung (which always wins) will empty workshop furnaces. Likewise, "an item lost in a visit" fires when the pathfinder spends carried blocks as scaffold. **Fix:** use the furnace lease from stage 1, exclude workshop furnaces from `smelt`, and reconcile the loss gates per furnace or town and against place events, not per order.
+
+7. **P2, overclaims and arithmetic.**
+   - §3.5 "cannot happen for a sited project" is too strong: prune, model deposits and withdraws, and the bag counted as town stock can all take stock away. Say "rare, and it stalls".
+   - The average world holds about 656 raw copper, but hall M needs 570/0.8 = 712 under the 80% rule. The average world gets S, which contradicts §5's "enough for one hall M".
+   - Hall raw copper is 579, not 570: 16 crafts × 4 blocks = 576, plus 3 for the rod.
+   - v1b gives 1.33x, not "halves" (4×360 + 2×720 = 2,880 vs 2,160 per hour).
+   - Six smooth stone is 12 smelts, about 2 furnace-minutes, not 6.
+   - "128 furnaces/day left where smelt put them" counts crafts, not placements (68 of 80 bots carry one, and deposits of furnaces are seen). Measure place rows before making this stage 3's primary.
+
+8. **P2, §7 liveness and denominators.**
+   - The siting rate is unknown, and wellsite found no site in 5 of 10 towns. Run the site predicate on all 16 worlds' region files (wellsite-replay) before stage 2, report n/16, and canary only a pool whose town has a site.
+   - Report what share of at-town decisions currently reach the slot after the room order with `!order`. That share, not the 58 bot-hours, is the real time available.
+   - A stalled storehouse never advances the cursor, and there is no rule for moving to `abandoned`. Stages 3 and 4 can then show nothing. Define stalled → abandoned → re-site or skip.
+
+9. **P3, simplify.**
+   - Drop COMPACT from stage 1: storage is only 23% used, and `copper_block` is not in `DEPOSIT_ALWAYS`, so compacting moves copper out of town and into bags.
+   - Consider making stage 2 the workshop's furnace line on a pad with no roof. Nothing is above s+2, it delivers the owner's copper request first, and it reverses D7.
+
+10. **P3, smaller items.**
+    - The workshop's `in` and `fuel` barrels will receive general town deposits, because `CONTAINER_RE` includes barrel. Drop them.
+    - The sapling keep-out covers only its column. A grown canopy pushes logs into the footprint, which reads as foreign and stalls the project.
+    - Lightning strikes on the rod remove oxidation from nearby copper. This is cosmetic, and the §3.2 families already handle it.
+
+VERDICT: CHANGE
+
+=================== CLAUDE REVIEW ROUND 2 ===================
+Claude review, round 2, of `docs/reports/townprojects-design-2026-10-14.md` (r2). Read only, nothing edited. All three round-1 P1s are fixed, and none of the new findings blocks approval, but four P2s should go into r3.
+
+**Round-1 findings**
+1. **Stand geometry: resolved.** I walked terraced construction through plinth's `standFor`. With the bot on the ring (feet at s+2, eye at s+3.62), it can click the wall tops at s+3. Inner roof cells work from stands on the pad, because the sight line enters the target cell and the "not the target column" rule allows feet at s+1. The hall's stair gives two +1 steps onto the roof edge through the gap in the parapet. Parapet stands sit one cell in, with the eye at s+5.62 above the face at s+4. On flat ground every placement has a legal stand; on real terrain, the offline proof decides.
+2. **stone_bricks and smooth_stone as junk and scaffold: resolved** through D8, removing the visit's materials from scaffolding, and the structural test. Caveats are in N7.
+3. **Town deposit re-banking the withdrawn copper: resolved** by making `smelt_town` a single skill, and charcoal is deferred.
+4. **Target-0 groups going down the well: resolved.** The parts are untargeted and added to `PROTECTED`.
+5. **Isolated pools: resolved.** They are excluded in v1.
+6. **Shared furnaces and per-order loss gates: resolved** by the lease, the yard exclusion and the per-furnace state model. Details are in N4.
+7. **Overclaims: resolved.** I re-derived all of these:
+   - copper per variant: 327 / 579 / 903, and 409 / 724 / 1,129 under the 80% rule;
+   - hall M: 286 placements, 207 cobble, 12 iron, 687 smelts, about 19 min on 6 furnaces and about 14.3 min on 4 furnaces plus 2 blast furnaces;
+   - storehouse: 229 placements, 150 cobble, about 52 logs;
+   - yard: 70 placements, 111 cobble;
+   - furnaces: 1.33x, 2 furnace-minutes, and 128/day are crafts, not placements.
+8. **Liveness: resolved.** r2 adds the 16-world site census, the dry-run measure of free decisions and the stall → abandon → skip rule.
+9. **Simplify: resolved.** COMPACT is dropped and the yard goes first. N3 is the new cost of that.
+10. **Smaller items: resolved.** The yard has no barrels, there is a 3-cell tree keep-out, and lightning is noted.
+
+**New findings**
+
+N1. **P2, §5 and §3.2: the counts r2 relies on do not exist.** The town count journal records only targeted groups (`stockCounts`, skills.mjs:3236). It does not count raw_copper, copper_ingot, coal, iron or any part. Several things in r2 depend on those counts:
+- `smelt_town`'s "town holds raw_copper (counted)";
+- `allocate()`;
+- the per-world choice of hall variant;
+- counting furnace slots in stage 3.
+
+**Fix:** list the journal extension as a stage-1 deliverable, with a named set of untargeted items. Or make `smelt_town` decide from the chest it opens and skip when there is no copper.
+
+N2. **P2, §8: the `bot.dig` guard can refuse a reflex.**
+- `digPurpose` checks "pathfinder is mining" (purpose `transit` or tagged) before "a reflex holds the body". A reflex that escapes through `goto` is therefore labelled `transit`, and the guard would refuse it at a project cell. That is two correct guards meeting with no legal move.
+- digtown.mjs also states it is telemetry only and must change no behaviour.
+
+**Fix:**
+- Put the guard in its own wrapper, not in digtown.mjs.
+- Exempt any dig made while a reflex holds the body.
+- Make a refused dig fail with a typed error that the pathfinder does not retry.
+- Add a chain test: a bot entombed against a project wall still gets out.
+
+N3. **P2, §9 stage 2 and §3.3: stage 2 is overloaded, and its holds contradict r2's own staging.**
+- Stage 2 bundles the builder, the siting file, the hot-path dig guard, allocation holds, the exclusions, `townweekly.py` and the census, at 10-14 days. A REVERT could not be attributed to any one of them.
+- The yard does not need holds: its 111 cobble comes from bags and furnaces are already protected.
+- In stocktarget a target is both the **bank cap** and the prune floor. Raising target' therefore stocks the town up, which is the procurement r2 defers to stage 6, and it confounds stage 2's DiD.
+
+**Fix:**
+- Move the holds to stage 4.
+- Separate the prune floor from the bank cap, or state that this is procurement.
+- Consider canarying the dig guard on its own first.
+
+N4. **P3, §3.4 and §7: lease and conservation details.**
+- Give the lease a TTL for a crash mid-session.
+- State the lease key (isolated bots get no exclusion, the same as today).
+- When the only furnace is leased, the iron rung should wait or skip, not craft and place a new furnace (that recreates the scatter).
+- The conservation check must count copper the bot already carried, and should be one-sided (loss only).
+
+N5. **P3: inconsistencies to tidy.**
+- §5 says `smelt_town` needs ≥2 free slots, but §3.5 says it is not eligible at 34+; with the median bag at 34, say which.
+- The census should be n/12 (isolated excluded), not n/16.
+- The throughput table divides by 16 worlds while saying 12.
+
+N6. **P3, §4.2 and §7: storehouse order, edge gate and falls.**
+- Once the 2-high barrels are in, the sight line to the roof cells above them crosses the barrels, and a barrel is never clicked. The plan must place the roof before the barrels, and the upper barrels against the wall's side face.
+- Define "within 1 of an unguarded edge" so the legal parapet stands, one cell in, do not trip the gate.
+- Compute fall height against the actual terrain outside, not the pad.
+
+N7. **P3, §8.**
+- `PROTECTED` does not protect anything from the well. The well checks `NEVER_DISPOSE` (well.mjs:117), so D8 is the only fix there.
+- D8's timing disagrees: "before stage 5" in §3.3, "from stage 3" in §10.
+- Bots carrying parts outside build visits (make_part helpers) still have stone_bricks as pathfinder scaffold.
+- The bag-delta gate should also count reflex pillar and rescue placements.
+
+VERDICT: APPROVE
+
+=================== CLAUDE REVIEW ROUND 3 ===================
+Claude review, round 3, of `docs/reports/townprojects-design-2026-10-14.md` (r3). Read only, nothing edited. Three new P2s, but none blocks approval: they belong to stages 1, 4 and 5 and can be fixed before those stages are built.
+
+**Round-2 findings**
+- **N1 (counts don't exist): resolved.** `PROJECT_COUNTED` is added to the count record, and `smelt_town` decides from the chest it opens.
+- **N2 (dig guard): partial.** It now has its own wrapper, a typed non-retryable refusal and a chain test. But "reflex.mjs's body claim, checked directly" names something that does not exist as one thing:
+  - claims live in `runner.claimBody`/`bodyClaimFor` and in the arbiter's `holder`;
+  - reflex.mjs about line 4373 deliberately yields without claiming, so some reflex digs carry no claim at all.
+  - **Fix:** name the exact authority (the arbiter holder's priority, or the reflex tick's async scope) and list the reflex paths that dig without a grant. The entombment chain test must cover them.
+- **N3 (stage 2 overloaded; bank cap): resolved.** The guard is its own stage, the holds move to stage 5, and they raise the disposal floor only.
+- **N4 (lease and gate details): resolved.** TTL, key, `furnace_busy` instead of crafting, and a one-sided gate. I checked the stage-1 copper balance and it is sound.
+- **N5 (inconsistencies): resolved.**
+- **N6 (barrel order, edges, falls): resolved.**
+- **N7 (well, D8 timing, scaffold, reflex placements): resolved.**
+
+**New findings in r3**
+
+R1. **P2, §3.4 and §4.0: the interim siting rule puts the storehouse outside "town storage".**
+- Every definition of town storage is a 16-block cylinder around home:
+  - `inTown` uses `STORAGE_NEAR = 16` (chestfull.mjs:64, composter.mjs:207);
+  - the count scan keeps only containers inside it (skills.mjs about line 3181);
+  - the town deposit fires only within 16 of home and reaches containers within 16 of the bot.
+- Projects must sit beyond Chebyshev 16, so the storehouse's barrels would be uncounted (blind to 3.3a and to allocation) and unreachable by the town deposit.
+- Stage 5's "≥1 deposit into its barrels" could then only come from the model's own `deposit`.
+- **Fix:** either count a project record's container cells as town storage explicitly, and let the town deposit target them; or keep the storehouse until plinth and floor adopt the siting file, so it can sit inside 16. The yard and hall are fine where they are.
+
+R2. **P2, §3.5 and stage 1: the generalised `roomOrder` is mis-described.**
+- `roomOrder` only issues `eat`, `deposit` and `home` (workorder.mjs `ROOM_ORDER_OF`). wear_out, compost and the well are not room-order kinds.
+- A deposit remedy driven by a project must not dig into the town deposit's keeps, or it fights the milestone ladder.
+- **Fix:** drop it from stage 1. Below 2 free slots a project job simply skips, the stall rule bounds the wait, and the dry run measures how often it happens.
+
+R3. **P2, §5 furnace accounting: the equations will trip the stage-4 REVERT gate on routine sessions.**
+- The equations have no term for input or fuel taken out during a session. `smelt` and `yard_drain` both take leftover input and fuel back out, which breaks them.
+- Load-and-leave cooking happens between visits, not inside one.
+- **Fix:**
+  - write the per-session balance as `O.input + loaded = C.input + cooked + inputTaken`, with the same for fuel;
+  - add a continuity check from each close to the next open: cooked between visits must be ≥ 0 and no more than the elapsed time ÷ 10 s.
+
+R4. **P3, stage 2 exposure.** townzone-01 already refuses discretionary digs inside the square, and that is where the plinth and well are. So "≥5 refused discretionary digs" may never happen, and the canary closes INCONCLUSIVE by construction. Count only digs townzone passed, and take the base rate from `_dig_town` before launch.
+
+R5. **P3, stage-5 holds and bag room.** In towns with a usable well, a hold that keeps disposal floor above the town's cobble count stops the well from throwing any bag cobble while the project runs. Bags stay full, which can starve the ≥2-free-slot jobs. Say so, and report it in the read.
+
+R6. **P3, interim siting area.** The 17–44 band is where trees grow and where planting happens, so the 3-cell tree keep-out may make sites scarce. The n/12 census will measure this. The site rules otherwise do not conflict with the plinth, well or floor (all within about 14 of home) or with time spent at town (36.9% of bot-time is 16–48).
+
+R7. **P3, stage 1 scope.** Stage 1 changes the milestone `smelt` (the lease, `furnace_busy`) for every bot, not only the new job. The rung-completion DiD covers it. Name the iron rung's `smelt` successes as the specific control row.
+
+The 7-stage plan, its dependencies and the 9–13 week calendar look honest.
+
+VERDICT: APPROVE
+
+=================== CLAUDE REVIEW ROUND 4 ===================
+Claude review, round 4, of `docs/reports/townprojects-design-2026-10-14.md` (r4). Read only, nothing edited. Everything from round 3 is resolved. There is one new P2, a one-line fix to the outer siting bound, and two new P3s.
+
+**Round-3 findings**
+- **N2 (dig-guard authority): resolved.** The authority is now named exactly: the reflex tick's async scope, or the arbiter's reflex grant with a matching generation, or the builder's own planned clears. It is checked before the pathfinder label, and the reflex paths that dig without a grant get their own chain tests.
+- **R1 (storehouse outside town storage): resolved.** The storehouse moves to an INNER domain inside the 16-block cylinder, behind the shared siting file, and that file is listed as a stage-5 prerequisite. I checked the OUTER bound of 22: the well search radius is 14 and plinth's stair reaches the cap's distance + 6, so 20 plus a 1-cell ring is right.
+- **R2 (room order): resolved.** "No room" is now a skip, bounded by the stall and pause states and measured as "eligible but for room".
+- **R3 (furnace accounting): resolved.** The equations now include `input_taken` and `fuel_taken`, plus a check between sessions.
+- **R4 (stage-2 exposure): resolved.** Exposure counts only digs townzone passed, with a base rate taken first and a fallback.
+- **R5 (bags stay full under the hold): resolved.** There is a full-bag DiD in stage 5.
+- **R6 (tree keep-out may cut sites): resolved.** The n/12 census measures it.
+- **R7 (iron rung control): resolved.** The iron rung's `smelt` successes are now the named control row.
+
+**New in r4**
+
+1. **P2, §3.4 and §4.0: the outer domain's far corners fall outside the 48-block town radius.**
+   - "Chebyshev 22–44" lets cells sit at the corners of the square, up to 44√2 ≈ 62 from home.
+   - Job eligibility, `TOWN_RADIUS` (48) and `furnace_drain`'s "every furnace within 48" all measure straight-line distance.
+   - A yard near a corner would therefore sit outside its own jobs' reach and outside the rollback drain that §8 calls guaranteed.
+   - **Fix:** keep Chebyshev ≥ 22 as the inner bound, and make the outer bound a straight-line distance of 44, applied to every cell and stand.
+
+2. **P3, §5: the two-sided conservation gate will flag harmless gains.**
+   - "A gain included" will REVERT on a gain with an innocent cause, such as raw copper the server auto-picked up during the walk. Pickups cannot be refused.
+   - **Fix:** before calling a gain a defect, check it against the session's `_pickups` rows and toss rows; only an unexplained gain trips the gate.
+   - `furnace_drain`'s sessions should also write the same O/C records as the job sessions, so the between-session check on yard furnaces stays continuous.
+
+3. **P3, §3.3: carry-note returns can undercut the milestone keeps.**
+   - A carry note returned "first, whatever the slot count" can push cobble, logs or planks below what the town deposit keeps for the milestone ladder (stockpile 64, the active rung's wants), if the bot used its own stock in the meantime. That re-opens a gather rung, which is the same fight R2 avoided.
+   - **Fix:** cap each return at what the bot holds minus that keep.
+
+VERDICT: APPROVE
+
+=================== CLAUDE REVIEW ROUND 5 ===================
+All round-4 items are resolved in r5, and the r5 changes add nothing new that needs fixing. Read only, nothing edited.
+
+| Item | Status | Why |
+|---|---|---|
+| Outer domain reach (P2) | Resolved | "Chebyshev ≥ 22 and straight-line ≤ 44, for every cell and stand" keeps the whole outer domain inside the 48-block radius that the jobs and `furnace_drain` use. The lower bound of 22 still clears plinth's stair reach (14 + 6 + a 1-cell ring = 21). |
+| Harmless gains (P3) | Resolved | Only a gain not explained by the order's `_pickups` and toss rows counts as a defect. `furnace_drain` now writes O/C records, so the per-furnace record has no gaps. |
+| Carry-note returns (P3) | Resolved | Each return is capped at holdings minus the town deposit's keeps, so it cannot reopen a milestone rung. |
+
+**The other r5 changes**
+- **ORPHANED drain:** sound. It drains only a furnace that is not burning, has no live reservation and has not changed for over an hour, so it never takes from a live load. It also returns a stalled load in an unloaded chunk to town.
+- **Continuity bound** `k <= floor((elapsed + p)/T) + 1`: a correct upper bound. It allows for the partly cooked item, and wall-clock time can only over-allow, which is the safe direction for a REVERT gate.
+- **Dig authority (b), the caller's own grant captured at operation start:** this closes the stale-skill case.
+
+VERDICT: APPROVE
+
