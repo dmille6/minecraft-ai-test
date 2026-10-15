@@ -9,6 +9,10 @@ process.env.LOG_LEVEL = 'error'
 process.env.BOT_ROLE = 'gatherer'
 process.env.LLM_DECISION_COOLDOWN_MS = '50'
 process.env.HOME_X = '0'; process.env.HOME_Y = '70'; process.env.HOME_Z = '0'
+// THE TOWN TREE FARM (treefarm-01) is a later town order: this bot holds 16 saplings at town, so it would be ordered to found
+// a farm after the compost order passes. These tests observe the COMPOST decision (the model's 'status' = no town order), so
+// the farm is switched off here; treefarm-compose.test.mjs drives the farm through this same loop.
+process.env.TREEFARM_ENABLED = 'off'
 import assert from 'node:assert/strict'
 import test from 'node:test'
 import fs from 'node:fs'
