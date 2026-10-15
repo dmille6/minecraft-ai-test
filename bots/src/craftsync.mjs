@@ -158,7 +158,7 @@ export async function lockstepClicks (bot, fn, opts = {}) {
 
 /** Every refusal/failure craftsync raises itself. failClass is the skill's; `aborted` marks an interruption. */
 export class CraftSyncError extends Error {
-  constructor (message, { failClass, aborted = false, produced = null, requested = null, reason = null } = {}) {
+  constructor (message, { failClass, aborted = false, produced = null, requested = null, reason = null, authoritative = false } = {}) {
     super(message)
     this.name = 'CraftSyncError'
     this.failClass = failClass
@@ -166,6 +166,7 @@ export class CraftSyncError extends Error {
     this.produced = produced
     this.requested = requested
     this.reason = reason
+    this.authoritative = authoritative   // produced is the server's own count (both resyncs answered)
   }
 }
 
@@ -829,26 +830,28 @@ export function installCraftSync (bot, opts = {}) {
         const lateStop = st.cancelReason ?? (st.signal?.aborted ? 'aborted' : null)
         if (lateStop) {                                // aborted, preempted or disconnected while verifying
           st.outcome = 'aborted'
-          throw new CraftSyncError(`craft aborted: ${lateStop}`, { failClass: 'interrupted', aborted: true, produced, requested, reason: lateStop })
+          // the craft may already be made: `authoritative` says produced is the server's count (sandbox: an abort here
+          // left a bamboo fold's tally one short of the server's sticks)
+          throw new CraftSyncError(`craft aborted: ${lateStop}`, { failClass: 'interrupted', aborted: true, produced, requested, reason: lateStop, authoritative })
         }
         if (st.refused === 'deadline') {
           st.outcome = 'deadline'
           throw new CraftSyncError(`craft stopped at the deadline: ${produced ?? '?'} of ${requested} made`,
-            { failClass: 'craft_deadline', produced, requested, reason: 'deadline' })
+            { failClass: 'craft_deadline', produced, requested, reason: 'deadline', authoritative })
         }
         if (st.clickTimedOut !== null) {
           st.outcome = 'unconfirmed'
           throw new CraftSyncError(`click on slot ${st.clickTimedOut} not answered in ${cfg.clickCapMs} ms; ` +
-            `${produced ?? '?'} of ${requested} made`, { failClass: 'craft_unconfirmed', produced, requested, reason: 'click_timeout' })
+            `${produced ?? '?'} of ${requested} made`, { failClass: 'craft_unconfirmed', produced, requested, reason: 'click_timeout', authoritative })
         }
         if (st.windowLost) {                           // the craft's window changed: stopped before the click, verified
           st.outcome = 'window_changed'
           throw new CraftSyncError(`craft stopped: its window changed (${st.windowLost}); ${produced ?? '?'} of ${requested} made`,
-            { failClass: 'craft_unconfirmed', produced, requested, reason: 'window_changed' })
+            { failClass: 'craft_unconfirmed', produced, requested, reason: 'window_changed', authoritative })
         }
         if (runError) {
           st.outcome = 'error'
-          runError.produced = produced; runError.requested = requested
+          runError.produced = produced; runError.requested = requested; runError.authoritative = authoritative
           throw runError
         }
         if (!confirmed) {
@@ -856,7 +859,7 @@ export function installCraftSync (bot, opts = {}) {
           throw new CraftSyncError(authoritative
             ? `mineflayer reported the craft done, but ${produced ?? '?'} of ${requested} arrived`
             : `the server did not answer the inventory resync (${st.verify.source}); the craft cannot be confirmed`,
-          { failClass: 'craft_unconfirmed', produced, requested, reason: authoritative ? 'not_in_inventory' : 'unverified' })
+          { failClass: 'craft_unconfirmed', produced, requested, reason: authoritative ? 'not_in_inventory' : 'unverified', authoritative })
         }
         st.outcome = 'ok'
         return result === undefined ? { produced, requested } : result   // mineflayer's craft resolves undefined
