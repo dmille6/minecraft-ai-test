@@ -257,7 +257,7 @@ if __name__ == '__main__':
     rows = sorted(load_window(PRE, END), key=lambda r: r['t'])
     bots = defaultdict(set); offbuild = 0; leak = 0
     n = Counter(); stops = Counter(); stuckw = Counter(); gate95 = []; lags = []
-    visits = 0; placed = 0; cleared = 0; repairs = 0; refused = 0; rows_without_args = 0
+    visits = 0; placed = 0; cleared = 0; repairs = 0; refused = 0; rows_without_args = 0; lockwait = Counter(); pending_left = 0; settles = Counter()
     sites = {}
     samples = defaultdict(list); samples_pre = defaultdict(list)
     waived_rows, cover_stalls = [], []
@@ -289,6 +289,9 @@ if __name__ == '__main__':
             # THE ARGS ARE THE SOURCE (logEvent cuts a detail at 300 chars: a cut row lost lag_ms_max, or cut it mid-digit)
             f = dict(kv(r.get('detail') or sk.get('detail')), **{k: str(v) for k, v in (sk.get('args') or {}).items()})
             visits += 1; stops[f.get('stop', '?')] += 1
+            if f.get('lock_wait') not in (None, '', '-', 'None'):
+                lockwait[f.get('lock_wait')] += 1
+            pending_left += int(num(f, 'pending_left') or 0)
             if not sk.get('args'):
                 rows_without_args += 1
             sm = re.fullmatch(r'(-?\d+),(-?\d+)', str(f.get('site') or ''))
@@ -311,6 +314,8 @@ if __name__ == '__main__':
                 gate95.append(g)
             if lg is not None:
                 lags.append(lg)
+        elif k == 'monument_settle' and arm == 'canary' and period == 'post':
+            settles[str(r.get('status') or sk.get('status'))] += 1
         elif k == 'monument_site' and arm == 'canary':
             m = re.search(r'corner=(-?\d+),(-?\d+)', str(r.get('detail') or sk.get('detail') or ''))
             if m:
@@ -388,6 +393,8 @@ if __name__ == '__main__':
     print('LIVENESS     canary _monument visits %d | placed %d cleared %d repaired %d refused/silent %d | sites %s' % (visits, placed, cleared, repairs, refused, sites))
     print('             stops %s | stuck reasons %s' % (dict(stops.most_common(8)), dict(stuckw.most_common(8))))
     print('ROWS         _monument rows without structured args (detail only, may be cut at 300): %d of %d' % (rows_without_args, visits))
+    print('LOCK         visits that waited on another builder\'s pending click, by author %s | clicks left pending at a visit\'s end %d | out-of-visit settles %s'
+          % (dict(lockwait.most_common(6)), pending_left, dict(settles)))
     print('M1 (gate)    visits with event-loop lag > 2000 ms: %d   (lag p50 %s p95 %s max %s ms)' % (loop_stall, pct(lags, .5), pct(lags, .95), max(lags) if lags else None))
     print('M2 (gate)    visits with gate p95 > 500 ms: %d   (gate p95 per visit: p50 %s p95 %s max %s ms)' % (gate_slow, pct(gate95, .5), pct(gate95, .95), max(gate95) if gate95 else None))
     print('M1 named     %s' % (sorted(stalls, reverse=True)[:6],))
@@ -414,7 +421,7 @@ if __name__ == '__main__':
         nanless = lambda v: None if v is None or v != v else round(v, 4)
         emit('monumentread', W, {
             'rows_canary_bots': len(bots[('post', 'canary')]), 'offbuild_canary': offbuild,
-            'licence_rows': visits, 'rows_without_args': rows_without_args, 'placed': placed, 'cleared': cleared, 'repairs': repairs, 'refused_or_silent': refused,
+            'licence_rows': visits, 'rows_without_args': rows_without_args, 'lock_wait_by_author': dict(lockwait), 'pending_left': pending_left, 'settles': dict(settles), 'placed': placed, 'cleared': cleared, 'repairs': repairs, 'refused_or_silent': refused,
             'loop_stall': loop_stall, 'loop_stalls_named': sorted(stalls, reverse=True)[:6], 'gate_slow': gate_slow,
             'stuck_near': stuck_excess, 'stuck_near_post': len(stuck), 'stuck_near_pre': len(stuck_pre),
             'stuck_bot_h_post': round(bh_post, 2), 'stuck_bot_h_pre': round(bh_pre, 2), 'guard_misfire_unread': len(misfire_unread),
