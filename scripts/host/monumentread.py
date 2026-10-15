@@ -29,7 +29,7 @@
 #             M2 gate_slow           visits whose pre-click gate p95 > 500 ms; defect
 #             M3 stuck_near          canary STILL runs (>= 10 min within 4 of the site box; a move of >= 2 blocks or a
 #                                    build_monument row restarts the clock; design G4) in the post period beyond the same bots'
-#                                    pre-period RATE per bot-hour carried over the post bot-hours; blocks KEEP
+#                                    pre-period RATE, per bot, carried over its own post hours present; blocks KEEP
 #             M4 gather_regressed    the NO-REGRESSION gate (coordinator 10-15): gather success share DiD below its no-change
 #                                    1% quantile, or the (unconfirmed + rejected) dig share DiD above its 99% quantile, from the
 #                                    band calibrated for THIS read's window and population (~/mcai-analysis/monument-gathernull
@@ -124,12 +124,23 @@ def stuck_spans(samples, corner, min_s=600, move=2.0):
     return out
 
 
-def stuck_excess_of(post_n, pre_n, bh_post, bh_pre):
-    """PURE. M3's excess: post still runs beyond the same bots' pre-period RATE carried over the post bot-hours, rounded up
-    (a fraction of an expected span is no allowance). No pre exposure -> the pre rate is 0 (every post span counts)."""
+def stuck_excess_by_bot(post, pre):
+    """PURE. M3's excess (Codex stage-4 r4 P2: per bot, on measured exposure). post/pre: {bot: (spans, hours present)}. Each
+    bot's expectation is ITS OWN pre rate carried over ITS OWN post hours (a bot with no pre exposure expects 0: every post span
+    counts); the excess is the post spans beyond the summed expectation, rounded up -> (excess, expected)."""
     import math
-    expected = (pre_n / bh_pre) * bh_post if bh_pre > 0 else 0.0
-    return max(0, post_n - math.ceil(expected))
+    expected = 0.0
+    for b, (_, h_post) in post.items():
+        n_pre, h_pre = pre.get(b, (0, 0.0))
+        if h_pre > 0:
+            expected += (n_pre / h_pre) * h_post
+    total = sum(n for n, _ in post.values())
+    return max(0, total - math.ceil(expected - 1e-9)), expected
+
+
+def hours_present(samples):
+    """PURE. [(t_seconds, ...)] -> hours, by distinct minutes with a row (a bot that came late or left early is exposed only then)."""
+    return len({int(s[0] // 60) for s in samples}) / 60.0
 
 
 POWER_MIN = 0.8
@@ -185,9 +196,12 @@ assert stuck_spans([(t, {'x': 300.0 + (i % 2) * 3, 'z': 60.0}, b) for i, (t, p, 
 _arr = [(i * 60, {'x': 290.0 + i, 'z': 60.0}, False) for i in range(10)] + [(600 + i * 60, {'x': 300.0, 'z': 60.0}, False) for i in range(31)]
 assert stuck_spans(_arr, (289, 51)) == [1800]
 assert stuck_spans([(i * 60, {'x': 300.0, 'z': 60.0}, False) for i in range(9)], (289, 51)) == [], 'under 10 minutes'
-assert stuck_excess_of(2, 1, 30.0, 15.0) == 0, '2 post spans in twice the bot-hours of 1 pre span: the same rate'
-assert stuck_excess_of(2, 1, 15.0, 15.0) == 1 and stuck_excess_of(1, 0, 30.0, 15.0) == 1 and stuck_excess_of(0, 3, 30.0, 15.0) == 0
-assert stuck_excess_of(3, 1, 30.0, 0.0) == 3, 'no pre exposure: every post span counts'
+assert stuck_excess_by_bot({'a': (2, 6.0)}, {'a': (1, 3.0)}) == (0, 2.0), 'the same rate over twice the hours'
+assert stuck_excess_by_bot({'a': (2, 3.0)}, {'a': (1, 3.0)})[0] == 1
+assert stuck_excess_by_bot({'new': (2, 1.0)}, {'gone': (9, 3.0)})[0] == 2, "a departed bot's pre spans never excuse a new bot's"
+assert stuck_excess_by_bot({'a': (1, 0.5)}, {'a': (3, 3.0)})[0] == 0, 'a brief post presence expects 0.5: one span is within'
+assert stuck_excess_by_bot({'a': (2, 0.5)}, {'a': (3, 3.0)})[0] == 1
+assert hours_present([(60 * i + 5, None) for i in range(30)] + [(60 * 3 + 30, None)]) == 0.5
 _band = {'success_share_did_q01': -0.08, 'bad_dig_share_did_q99': 0.05, 'min_calls': 50, 'mde_success_loss': 0.35, 'mde_bad_rise': 0.02}
 assert regressed(-0.10, 0.0, 60, _band)[0] == 1 and regressed(-0.01, 0.06, 60, _band)[0] == 1 and regressed(-0.01, 0.0, 60, _band)[0] == 0
 assert regressed(-0.5, 0.5, 10, _band)[0] is None and regressed(0, 0, 60, None)[0] is None
@@ -355,17 +369,18 @@ if __name__ == '__main__':
     # M3 PER BOT-HOUR (Claude stage-4 r3 P3): the post window is up to 6x the pre one, so a raw count compare fires on exposure
     # alone. The same canary bots' pre-period rate (no monument code) is scaled to the post bot-hours; the gate is the EXCESS.
     # Only pools whose recorded site is known: with no monument there is nothing to be stuck near.
-    def spans(smp):
-        out = []
-        for b, s in smp.items():
+    def per_bot(smp):
+        out = {}
+        for b, sm in smp.items():
             corner = sites.get(pool_of(b))
             if corner is not None:
-                out += [(b, v) for v in stuck_spans(sorted(s, key=lambda x: x[0]), corner)]
+                sm = sorted(sm, key=lambda x: x[0])
+                out[b] = ([(b, v) for v in stuck_spans(sm, corner)], hours_present(sm))
         return out
-    stuck, stuck_pre = spans(samples), spans(samples_pre)
-    sited = lambda smp: len([b for b in smp if pool_of(b) in sites])
-    bh_post, bh_pre = sited(samples) * W / 60.0, sited(samples_pre) * min(W, 180) / 60.0
-    stuck_excess = stuck_excess_of(len(stuck), len(stuck_pre), bh_post, bh_pre)
+    pb_post, pb_pre = per_bot(samples), per_bot(samples_pre)
+    stuck = [x for v, _ in pb_post.values() for x in v]; stuck_pre = [x for v, _ in pb_pre.values() for x in v]
+    stuck_excess, stuck_expected = stuck_excess_by_bot({b: (len(v), h) for b, (v, h) in pb_post.items()}, {b: (len(v), h) for b, (v, h) in pb_pre.items()})
+    bh_post, bh_pre = sum(h for _, h in pb_post.values()), sum(h for _, h in pb_pre.values())
     pct = lambda xs, q: (sorted(xs)[min(len(xs) - 1, int(q * (len(xs) - 1)))] if xs else None)
     print('rows walked %d  |  canary %s  sha %s  cutoff %s  window +%d min  |  bots pre/post canary %d/%d control %d/%d  |  offbuild canary rows %d'
           % (len(rows), CAN, CV, CUT.strftime('%H:%MZ'), W, len(bots[('pre', 'canary')]), len(bots[('post', 'canary')]),
@@ -376,8 +391,8 @@ if __name__ == '__main__':
     print('M1 (gate)    visits with event-loop lag > 2000 ms: %d   (lag p50 %s p95 %s max %s ms)' % (loop_stall, pct(lags, .5), pct(lags, .95), max(lags) if lags else None))
     print('M2 (gate)    visits with gate p95 > 500 ms: %d   (gate p95 per visit: p50 %s p95 %s max %s ms)' % (gate_slow, pct(gate95, .5), pct(gate95, .95), max(gate95) if gate95 else None))
     print('M1 named     %s' % (sorted(stalls, reverse=True)[:6],))
-    print('M3 (gate)    canary still runs >= 10 min near the RECORDED site (rolling): post %d in %.1f bot-h vs pre %d in %.1f bot-h -> excess %d %s'
-          % (len(stuck), bh_post, len(stuck_pre), bh_pre, stuck_excess, stuck[:4]))
+    print('M3 (gate)    canary still runs >= 10 min near the RECORDED site (rolling): post %d in %.1f bot-h vs pre %d in %.1f bot-h; expected from each bot\'s own pre rate %.2f -> excess %d %s'
+          % (len(stuck), bh_post, len(stuck_pre), bh_pre, stuck_expected, stuck_excess, stuck[:4]))
     print('M5 (gate)    structure-guard refusals outside the recorded site box: %d %s | in a pool with no recorded site (UNREAD, blocks KEEP): %d %s | refusals by guard %s'
           % (len(misfire), misfire[:3], len(misfire_unread), misfire_unread[:3], dict(refusals)))
     print('M6 (gate)    rows with > 2%% of the open layer waived: %d %s' % (len(waived_rows), waived_rows[:3]))

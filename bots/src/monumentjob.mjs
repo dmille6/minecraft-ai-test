@@ -12,7 +12,7 @@ import fs from 'node:fs'
 import path from 'node:path'
 import { ZIG, zigCells, scoreSite, faceToward, profileAt, MAX_EDGE_DROP, inApproach } from './monument.mjs'
 import { structureKey, readStructureRecord } from './structures.mjs'
-import { takeLease, releaseLease } from './blueprint.mjs'
+import { takeLease, releaseLease, holdsLease } from './blueprint.mjs'
 import { solid, replaceable, bk, bodyBlocks } from './builder.mjs'
 import { STONE_GUARD, RESERVE_STONE } from './well.mjs'
 
@@ -376,89 +376,94 @@ export function mergeVisit (rec, { me = '?', failed = [], placed = 0, damage = {
 // ---- one placement in flight per world (Codex stage-4 r1 P1-1) -------------------------------------------------------------
 
 export const CLICK_LOCK_MS = 15_000
-/** Click records older than this are history (every builder at the site has long since seen them). */
-export const CLICK_LOG_MS = 10 * 60_000
-/** A pending click whose cell this client has TRACKED since before it, with no update heard this long after, did not land. */
-export const ACK_GRACE_MS = 3_000
 /**
- * THE CLICK LOCK -> { acquire(cell) -> null | 'busy', release(cell, verdict | null) } for builder.runPlacements `lock`.
- * Two builders' clicks, each proved alone, can wall a bystander in together (Codex stage-4 r1 P1-1). So:
- *   - ONE CLICK AT A TIME: the lock is blueprint.mjs's lease (generation files, link(); no unlink race).
- *   - EVERY CLICK IS RECORDED before its packet, in its OWN file (`<key>.clk.<id>.json`: holder, cell, at, verdict 'pending'), and
- *     its verdict written to that same file afterwards -- by its author, whether or not it still holds the lease. A later refusal
- *     by anyone never erases it (Codex r3 P1-1: one shared "last click" record lost an unseen confirmation), and a stale holder
- *     never overwrites another's result (Codex r3 P1-2).
- *   - BEFORE ANY CLICK, UNDER THE LOCK, this client must KNOW every other recorded click it has not yet acknowledged: its world
- *     shows the block; or the server spoke about that cell to this client since the click; or the cell's chunk is LOADED in this
- *     client's world and the click is at least ACK_GRACE_MS old -- a loaded chunk is kept current by the server (any change
- *     reaches it within ticks, a chunk loaded later carries the block), so its air then IS the server's word, never a stale view
- *     (Claude stage-4 r3 P2: without it, a cell removed after a confirmation stalled every other builder forever). A refused
- *     click changed nothing. Otherwise: busy.
+ * THE CLICK LOCK -> { begin(), synced(), acquire(cell), release(cell, verdict), ownPending(), settleOwn() } for
+ * builder.runPlacements `lock` (with its `sync` effect: buildbot's world-sync barrier). Two builders' clicks, each proved alone,
+ * can wall a bystander in together (Codex stage-4 r1 P1-1), so ONE click is in flight per world and every proof is made on a
+ * world that already holds every earlier click. NO STEP RESTS ON ELAPSED TIME (Codex stage-4 r4: neither a grace nor an age):
+ *   THE BARRIER. buildbot.sync() sends `use_item` (holding a plain block: no effect -- Paper probe 10-15) with a sequence of its
+ *     own and waits for the server's block-changed ack carrying it. The server processes one connection's packets in order and
+ *     sends that ack from its tick AFTER the tick's block broadcasts (probe: the clicked cell's updates, then the ack), all on the
+ *     same ordered stream -- so when it arrives, this client's world holds every change the server made before it read the
+ *     use_item. A clicker's own verdict is read after ITS barrier (no "silent" guess); a builder's proofs are made after its own.
+ *   BEGIN (async part follows): take the lease (blueprint.mjs: generation files, link()); read the pending records. Each is
+ *     RESOLVABLE when its click can no longer land unseen: my own (my barrier follows my earlier packet, and my login follows
+ *     any earlier session's end); or its author is ABSENT from this client's player list (a disconnected session's unprocessed
+ *     packets are dropped, and its processed ones were broadcast before its removal); or this client saw the author LEAVE after
+ *     it first saw the record. Any other record -> busy now. Then the caller runs the barrier and calls synced().
+ *   ACQUIRE (in the gate, synchronous with the packet): my record FIRST (holder, session, cell: 'pending'), THEN the lease
+ *     re-checked (a builder that took it after my check sees my record; one that took it before fails my check -- the file
+ *     system orders the two), THEN every record now present must be mine or one resolvable at begin (a record that appeared
+ *     since, or vanished since, was not covered by my barrier -> busy). Resolvable records are deleted (settled).
+ *   RELEASE: a click whose barrier answered (confirmed / refused) or that sent nothing (null) removes its record; any other
+ *     ending (no answer, an error mid-click) leaves it PENDING -- an obligation, never expired by age; ownPending()/settleOwn()
+ *     let the author clear it after a later barrier of its own.
  * Never throws; anything it cannot read is busy.
  */
-export function clickLock (dir, key, me, read, now = () => Date.now(), heard = () => false, loaded = () => false) {
+const SEEN = new Map()   // per client: record file -> when this client first saw it (its own clock; compared only with its own)
+export function clickLock (dir, key, me, { session = 'session', present = () => true, leftAt = () => -Infinity, now = () => Date.now() } = {}) {
   const lockKey = `${key}.click`, prefix = `${key}.clk.`
-  let held = null, mineFile = null, mineRec = null
-  const acked = new Set()
-  const drop = () => { if (held) { try { releaseLease(dir, lockKey, me, held.gen, now()) } catch { /* expires */ } } held = null }
+  const seen = SEEN.get(`${dir}|${key}|${me}`) ?? new Map(); SEEN.set(`${dir}|${key}|${me}`, seen)
+  let held = null, ok = null, isSynced = false, mineFile = null
+  const drop = () => { if (held) { try { releaseLease(dir, lockKey, me, held.gen, now()) } catch { /* expires */ } } held = null; ok = null; isSynced = false }
   const records = () => {
     const out = []
     for (const f of fs.readdirSync(dir)) {
       if (!f.startsWith(prefix) || !f.endsWith('.json')) continue
-      try {
-        const r = JSON.parse(fs.readFileSync(path.join(dir, f), 'utf8'))
-        if (now() - (r.at ?? 0) > CLICK_LOG_MS) { try { fs.unlinkSync(path.join(dir, f)) } catch { /* pruned by another */ } continue }
-        out.push({ ...r, file: f })
-      } catch { /* a record mid-write: read next time */ }
+      let r = null
+      try { r = JSON.parse(fs.readFileSync(path.join(dir, f), 'utf8')) } catch { r = { holder: null } }   // unreadable: unresolvable
+      out.push({ ...r, file: f })
     }
     return out
-  }
-  const knows = r => {
-    if (!Array.isArray(r.cell)) return true
-    if (r.verdict === 'refused') return true
-    if (solid(read(...r.cell))) return true
-    if (heard(r.cell, r.at)) return true
-    // THE CHUNK IS LOADED HERE (Claude stage-4 r3 P2: never stalled for good): a loaded chunk receives every block update the
-    // server sends for it, and a chunk loaded later arrives server-current -- so once the update has had ACK_GRACE_MS to arrive,
-    // counted from the LATER of the click and its verdict (the confirmer saw the update then; so, within the grace, did we),
-    // this world's air is the server's air
-    if (loaded(r.cell) && now() - Math.max(r.at ?? 0, r.done ?? 0) >= ACK_GRACE_MS) return true
-    return false
   }
   const write = (file, rec) => {
     const tmp = path.join(dir, `${file}.${process.pid}.${Math.random().toString(36).slice(2)}.tmp`)
     fs.writeFileSync(tmp, JSON.stringify(rec)); fs.renameSync(tmp, path.join(dir, file))
   }
+  const unlink = f => { try { fs.unlinkSync(path.join(dir, f)) } catch { /* settled by another */ } }
   return {
-    acquire (cell) {
+    begin () {
+      drop()
       let l
       try { l = takeLease(dir, lockKey, me, now(), CLICK_LOCK_MS) } catch { return 'busy' }
       if (!l?.ok) return 'busy'
       held = l
       try {
+        const t = now(), set = new Set()
         for (const r of records()) {
-          if (r.holder === me || acked.has(r.file + r.verdict)) continue
-          if (!knows(r)) { drop(); return 'busy' }
-          acked.add(r.file + r.verdict)
+          const first = seen.get(r.file)
+          if (first == null) seen.set(r.file, t)
+          const resolvable = r.holder === me || (typeof r.holder === 'string' && (!present(r.holder) || (first != null && leftAt(r.holder) > first)))
+          if (!resolvable) { drop(); return 'busy' }
+          set.add(r.file)
         }
-        // THIS click, recorded before its packet
-        mineFile = `${prefix}${now()}.${me.replace(/[^A-Za-z0-9_-]/g, '_')}.${Math.random().toString(36).slice(2, 8)}.json`
-        mineRec = { holder: me, cell: [cell.x, cell.y, cell.z], at: now(), verdict: 'pending', gen: l.gen }
-        write(mineFile, mineRec)
+        ok = set
       } catch { drop(); return 'busy' }
       return null
     },
+    synced () { if (held && ok) isSynced = true },
+    acquire (cell) {
+      if (!held || !ok || !isSynced) { drop(); return 'busy' }
+      try {
+        mineFile = `${prefix}${now()}.${me.replace(/[^A-Za-z0-9_-]/g, '_')}.${Math.random().toString(36).slice(2, 8)}.json`
+        write(mineFile, { holder: me, session, cell: [cell.x, cell.y, cell.z], at: now(), verdict: 'pending', gen: held.gen })
+        if (!holdsLease(dir, lockKey, me, held.gen)) { unlink(mineFile); mineFile = null; drop(); return 'busy' }
+        const others = records().filter(r => r.file !== mineFile)
+        if (others.some(r => !ok.has(r.file))) { unlink(mineFile); mineFile = null; drop(); return 'busy' }
+        for (const r of others) { unlink(r.file); seen.delete(r.file) }
+      } catch { if (mineFile) unlink(mineFile); mineFile = null; drop(); return 'busy' }
+      return null
+    },
     release (cell, verdict) {
-      // the author writes its own click's outcome (null: no packet was sent -- the record goes)
-      if (mineFile) {
-        try {
-          if (verdict) write(mineFile, { ...mineRec, verdict, done: now() })
-          else fs.unlinkSync(path.join(dir, mineFile))
-        } catch { /* left pending: the next builder must know the cell before it clicks */ }
-      }
-      mineFile = null; mineRec = null
+      if (mineFile && (verdict == null || verdict === 'confirmed' || verdict === 'refused')) unlink(mineFile)
+      else if (mineFile) { try { write(mineFile, { holder: me, session, cell: [cell.x, cell.y, cell.z], at: now(), verdict: 'pending', ended: String(verdict) }) } catch { /* stays as written */ } }
+      mineFile = null
       drop()
     },
+    /** my own pending records (any session of mine) */
+    ownPending () { try { return records().filter(r => r.holder === me).length } catch { return 0 } },
+    /** after a barrier of MINE completed: my pending clicks have all been processed and broadcast -- remove them */
+    settleOwn () { try { for (const r of records()) if (r.holder === me) { unlink(r.file); seen.delete(r.file) } } catch { /* next time */ } },
   }
 }
 

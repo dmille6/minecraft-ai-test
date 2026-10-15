@@ -7548,10 +7548,13 @@ async function buildMonument (ctx, _args, signal) {
     }
     const fund0 = fundable(items())
     f.fund = fund0.total
+    const lock = clickLock(dir, key, me, { session: eff.session, present: eff.present, leftAt: eff.leftAt })
+    // MY OWN UNANSWERED CLICKS (an earlier visit's, or a session of mine that died mid-click): one barrier of mine settles them
+    if (lock.ownPending() && await eff.sync()) lock.settleOwn()
     const r = await runPlacements({
       // done = full, non-falling footing (a slab in a plan cell is not done: it waits and is waived)
       read: footingRead(eff.read), cells: [...repairs, ...mine, ...optional].map(c => ({ ...c, want: fullSolid })), start, box, feet: eff.feet, bodies: eff.bodies, self: eff.self, walkTo: eff.walkTo,
-      lock: clickLock(dir, key, me, eff.read, () => Date.now(), eff.heard, eff.loaded),
+      lock, sync: eff.sync,
       hold: async cell => { const name = fundPick(items(), cell); return name ? eff.hold({ ...cell, want: name }) : false },
       fence, click: eff.click,
       clear: (s, gate) => withDigScope(bot, { purpose: 'target', by: 'build_monument' }, () => eff.clear(s, gate)),
@@ -7559,6 +7562,7 @@ async function buildMonument (ctx, _args, signal) {
       // the visit's 90 s run from ARRIVAL (a walk from town may take most of a minute)
       aborted: () => !!signal?.aborted, maxSteps: VISIT_MAX_PLACEMENTS, deadline: Date.now() + VISIT_MS,
     })
+    if (lock.ownPending() && await eff.sync()) lock.settleOwn()   // a click left unanswered this visit: settle it before leaving
     f.stuckWhy = Object.entries(r.reasons ?? {}).map(([k, n]) => `${k}:${n}`).join(',') || '-'
     // ONLY BODIES IN THE WAY (a bot standing in a cell of the open layer) is not "nothing open": no long backoff for it
     f.onlyBodies = r.stop === 'no_step' && Object.keys(r.reasons ?? {}).length > 0 && Object.keys(r.reasons).every(k => /^body/.test(k))
