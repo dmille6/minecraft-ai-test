@@ -352,7 +352,8 @@ test('CHAIN mine: EVERY walk-off obstructed (open sky) -> a refusal of the zone 
   assert.ok(m, r.detail)
   // THE REMEDY, PERFORMED: walk to a dry spot that far from home, then mine -- it descends, and never in town ground
   bot.pathfinder.goto = goto0
-  await goto0({ x: HOME.x + Number(m[1]) + 1, y: 65, z: 200 })
+  const walked = await SKILLS.goto.run({ bot }, { x: HOME.x + Number(m[1]) + 1, y: 65, z: 200 }, new AbortController().signal)   // the PRODUCTION goto skill
+  assert.equal(walked.status, 'success', `${walked.status} ${walked.detail}`)
   const again = await runMine(SK, bot)
   assert.equal(again.status, 'success', `${again.status} ${String(again.detail).slice(0, 140)}`)
   assert.equal(bot._digs.filter(p => townDigClass(p, 'stone', HOME) === 'ground').length, 0)

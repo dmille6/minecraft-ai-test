@@ -184,10 +184,13 @@ export function planMineStart ({ cols = [], p0, feet = null, bearings = [], stan
     if (ok) return { action: 'relocate', to: cell, bearings: ok, hit, kinds, far: true, ...(farmHit ? { farm: true, kind: farmHit.kind ?? 'farm' } : {}) }
   }
   const farmWhy = farmHit ? keepOutWhy(farmHit) : null
-  if (farmHit && !wellHit) return { action: 'refuse', cap: null, farm: true, kind: farmHit.kind ?? 'farm', kinds, hit: farmHit, why: `every stair from here and from every standable cell within ${radius} would dig ${farmWhy}${here.length ? '; the clear ones from here meet water at their first tread' : ''}` }
+  // THE WORDS (Codex comp r2 P3): when some stairs from here ARE clear but only wet (the dry rule), never claim that every
+  // stair digs the keep-out -- each is either blocked or meets water at its first tread
+  const blockedOrWet = what => here.length
+    ? `no stair from here or from any standable cell within ${radius} is both clear of ${what} and dry at its first tread`
+    : `every stair from here and from every standable cell within ${radius} would dig ${what}`
+  if (farmHit && !wellHit) return { action: 'refuse', cap: null, farm: true, kind: farmHit.kind ?? 'farm', kinds, hit: farmHit, why: blockedOrWet(farmWhy) }
   const cap = wellHit?.cap ?? wells[0] ?? null
   if (!cap) return { action: 'refuse', cap: null, farm: !!farm, kinds, why: here.length ? `every clear stair from here meets water at its first tread, and no standable cell within ${radius} has a dry one` : `no stair from here or from any standable cell within ${radius} is clear` }   // (4 bearings: the second is unreachable in production; Claude r10 P3)
-  // (a clear stair here that is only WET -- the dry rule -- is said so: Claude comp P3-c)
-  const wetHere = here.length ? '; the clear ones from here meet water at their first tread' : ''
-  return { action: 'refuse', cap, kinds, ...(farmHit ? { farm: true, kind: farmHit.kind ?? 'farm' } : {}), why: `every stair from here and from every standable cell within ${radius} would dig the junk well's shell at ${cap.x},${cap.y},${cap.z}${farmWhy ? ` or ${farmWhy}` : ''}${wetHere}` }
+  return { action: 'refuse', cap, kinds, ...(farmHit ? { farm: true, kind: farmHit.kind ?? 'farm' } : {}), why: blockedOrWet(`the junk well's shell at ${cap.x},${cap.y},${cap.z}${farmWhy ? ` or ${farmWhy}` : ''}`) }
 }
