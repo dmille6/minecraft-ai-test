@@ -7924,9 +7924,8 @@ export function townWellSite (bot) {
     dir: poolStateDir(config.memory.pool),
     key: wellSiteKey(),
     world: bot.worldId ?? null,
-    compute: () => (searched = canonicalWellSite({ home, read, avoid })),
     // a NEW site keeps off the tree farm; the recorded one is judged without it (wellSearchAvoid: the farm yields)
-    compute: () => canonicalWellSite({ home, read, avoid: wellSearchAvoid(bot) }),
+    compute: () => (searched = canonicalWellSite({ home, read, avoid: wellSearchAvoid(bot) })),
     refuse: site => wellSiteRefusal(read, site, home, { avoid }),
   })
   return siteAnswer(res, searched)
