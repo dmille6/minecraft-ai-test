@@ -12,6 +12,14 @@ Studio reservation both closed 10-12); clear caps bamboo 0 / bucket 2._
 
 ---
 
+## 10-15 03:20Z — OWNER: airpocket-03 closes EARLY; a failed airpocket goes to the BOTTOM of the queue
+Owner 10-15: "if airpocket-3 fails.. lets move it to the bottom ... these other things in the queue will have a much larger
+effect" and "lets close it early". Rule (operator): if airpocket-03 is still unexposed (exposure_ready_ap2 = 0) at its +720
+read (~12:10Z 10-15), close it INCONCLUSIVE by hand (the airpocket-02 procedure: stop loop, check-open-loop --record
+INCONCLUSIVE, drop-ins, canary_pool, restart pool bots from the env roster, `canary-sched closed`). Any airpocket-04 is
+queued LAST. Rationale: the ice trap is ~9% of drownings (~10 deaths/week, ~4% of all deaths); the queue behind it
+(cobblecap-1000, wellsite-03, townzone-01, plinth-01, townfloor-01, ziggurat/mineshaft) lifts all 80 bots.
+
 ## 10-14 20:55Z — townzone-01: FIVE variants in ONE replace-variant entry (the townground agent); NOT queued by me
 New (pushed, new branches), each the approved zone cherry-picked with no conflict, patch-identical (1,059 +/- lines;
 earlier "988" was my miscount): `tz-on-1957811` @ `5d3b155c` (airpocket-03 kept only), `tz-on-8cd0bc6` @ `75cfb447`
