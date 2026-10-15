@@ -12,6 +12,18 @@ Studio reservation both closed 10-12); clear caps bamboo 0 / bucket 2._
 
 ---
 
+## 10-15 00:19Z — OWNER: town-project decisions D1-D8 all as recommended ("go with your recommendations"); stage 1 build started
+- **Decisions:** D1 copper-roofed hall; D2 isolated pools out of v1; D3 torches + iron lanterns; D4 no charcoal yet;
+  D5 open doorways; D6 blast furnaces yes (10 iron/town); D7 yard -> storehouse -> hall; D8 stone_bricks +
+  smooth_stone OFF the junk list.
+- **Recorded in:** docs/reports/townprojects-design-2026-10-14.md section 10.
+- **Coordinator order:**
+  - build STAGE 1 (smeltjob-01: deterministic copper smelt + furnace drain), D8 folded in unless both engines say it
+    needs its own canary;
+  - base: fleet 5e663860, plus a variant on ap3-on-5e663860 @ 1957811e;
+  - dig guard: coordinate with minewell-01 (the wellsite agent), never duplicate it;
+  - do NOT queue or deploy.
+
 ## 10-15 00:30Z — TOWN PROJECTS DESIGNED (owner 10-14 "find real uses ... put the bots to real work" -> "yes do it"); both engines APPROVE r5; NOTHING built, queued or deployed
 **Design:** docs/reports/townprojects-design-2026-10-14.md (r5).
 **Reviews:** docs/reports/townprojects-reviews-2026-10-14.txt.

@@ -643,6 +643,19 @@ files.
 
 ## 10. Decisions for the owner
 
+**OWNER DECIDED 10-15 (relayed by the coordinator, ~00:19Z), in the owner's words: "go with your recommendations".**
+All eight are taken as recommended:
+- **D1:** the copper-roofed hall;
+- **D2:** isolated pools out of v1;
+- **D3:** torches and iron lanterns;
+- **D4:** no charcoal yet;
+- **D5:** open doorways;
+- **D6:** blast furnaces (10 iron per town);
+- **D7:** yard -> storehouse -> hall;
+- **D8:** stone_bricks and smooth_stone OFF the junk-well list.
+
+Stage 1 (smeltjob-01) is being built next.
+
 | # | decision | recommendation |
 |---|---|---|
 | D1 | Which landmark? | **the copper-roofed stone-brick hall** with a walkable roof terrace, lightning rod and lanterns, sized S/M/L to each town's copper (the average world gets S). Alternatives: a bell tower (more height work), a gate and plaza (small) |
