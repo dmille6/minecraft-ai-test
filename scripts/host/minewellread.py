@@ -19,7 +19,7 @@
 #   EXPOSURE     >= 3 canary guard rows that ACTED (relocate or stop) AND >= 1 control mine row ending within 8 of a known
 #                cap (the population this guards exists in the window).
 #   PRIMARY      mine success share canary vs control, pre vs post (DiD); canary guard rows by action; relocations that
-#                ended in a successful mine; canary refusals (forbidden) per mine run. REPORTED.
+#                ended in a successful mine; canary well refusals (forbidden + 'junk well') per mine run. REPORTED.
 import sys, os, re
 import datetime as dt
 from collections import Counter, defaultdict
@@ -140,7 +140,8 @@ if __name__ == '__main__':
         elif k == 'mine':
             st = ((r.get('raw') or {}).get('skill') or {}).get('status')
             mines[('post', arm, 'runs')] += 1; mines[('post', arm, 'success')] += st == 'success'
-            mines[('post', arm, 'forbidden')] += ((r.get('raw') or {}).get('skill') or {}).get('fail_class') == 'forbidden' or 'junk well' in d
+            # only the guard's refusals: every one names the junk well; the base's own `forbidden` (home floor) never does
+            mines[('post', arm, 'forbidden')] += st != 'success' and ((r.get('raw') or {}).get('skill') or {}).get('fail_class') == 'forbidden' and 'junk well' in d
             pos = ((r.get('raw') or {}).get('bot') or {}).get('pos') or {}
             if arm == 'control' and isinstance(pos, dict) and 'x' in pos:
                 mine_end.append((p, pos))
