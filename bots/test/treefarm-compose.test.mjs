@@ -425,6 +425,14 @@ await t('LOOP CHAIN (bone meal OFF by default): a planted farm and a bag of 40 b
   assert.ok(r.ran.length >= 3)
   assert.equal(r.ran.filter(x => x.skill === 'tend_farm').length, 0, r.ran.map(x => x.skill).join(','))
   assert.equal((b.state.bonemealed ?? []).length, 0)
+  // positive control (Claude r7 P3): the same bag with the arm ON gets the farm order through the same loop
+  process.env.TREEFARM_BONEMEAL = 'on'
+  try {
+    const c = fakeTown({ items: [S('bone_meal', 40)], storeDir, shared: a.w, name: 'b-BmOn' })
+    loopReady(c.bot)
+    const r2 = await decisions(c.bot, 2)
+    assert.equal(r2.ran[0]?.skill, 'tend_farm', r2.ran.map(x => x.skill).join(','))
+  } finally { delete process.env.TREEFARM_BONEMEAL }
 })
 
 await t('LOOP CHAIN (bone meal arm ON, at the reserve): a planted farm and a bag of exactly BONEMEAL_RESERVE bone meal -> no order; above it -> one visit spends only the surplus', async () => {
