@@ -16,7 +16,36 @@ export const BUILD_ACK_MS = 2_500
 export const BARRIER_MS = 5_000
 /** Barrier sequences: our own range, far above mineflayer's activateItem counter (the server acks the tick's MAXIMUM). */
 let barrierSeq = 1_000_000
+/** This process's event ordinals: the click lock orders "armed" against "left" by them (never by a clock). */
+let ORD = 0
+export const nextOrd = () => ++ORD
 const nextBarrierSeq = () => (barrierSeq = barrierSeq >= 2_000_000_000 ? 1_000_000 : barrierSeq + 1)
+/**
+ * THE WORLD-SYNC BARRIER -> Promise<boolean>. `use_item` with a sequence of our own; true on the server's block-changed ack
+ * carrying it (or a later one). The server handles packets between ticks, broadcasts a tick's block changes in the level tick,
+ * then sends each connection's ack in the connection tick -- one ordered stream per client (Claude stage-4 r5 confirmed the
+ * Paper tick structure; Paper probe 10-15: a clicked cell's updates, then the ack). So when it arrives, this client's world
+ * holds every block change the server made before it read the packet. CAVEAT: a chunk this client starts tracking during
+ * the window arrives on Paper's chunk-send path, outside that order; builders stay at a site whose chunks are loaded.
+ * Sent only with an empty hand or a held item `allowed(name)` says is a plain block (its use does nothing: vanilla Item.use
+ * is a PASS; the fleet servers run no plugins -- 10-15: only bStats/spark data dirs); otherwise false, never sent.
+ */
+export function worldBarrier (bot, allowed = () => false) {
+  return new Promise(resolve => {
+    const held = bot.heldItem?.name ?? null
+    const c = bot._client
+    if ((held && !allowed(held)) || typeof c?.write !== 'function' || typeof c?.on !== 'function') { resolve(false); return }
+    const seq = nextBarrierSeq()
+    let timer = null
+    const done = v => { clearTimeout(timer); try { c.removeListener('acknowledge_player_digging', on) } catch { /* gone */ } resolve(v) }
+    const on = p => { if (Number(p?.sequenceId) >= seq) done(true) }
+    c.on('acknowledge_player_digging', on)
+    timer = setTimeout(() => done(false), BARRIER_MS)
+    try {
+      c.write('use_item', { hand: 0, sequence: seq, rotation: { x: (Math.PI - (bot.entity?.yaw ?? 0)) * 180 / Math.PI, y: -(bot.entity?.pitch ?? 0) * 180 / Math.PI } })
+    } catch { done(false) }
+  })
+}
 /** One click per 4 ticks (design 3.5). */
 export const BUILD_CLICK_TICKS = 4
 /** Bodies within this many blocks are asked about: a cell they touch waits, and no click walls one in. Wide (Claude stage-3
@@ -37,29 +66,17 @@ export const timeoutBound = bot => (p, ms, what) => new Promise((resolve, reject
 })
 export function botBuildEffects (bot, { items = ['cobblestone'], bound = timeoutBound(bot), pathMs = 20_000, withWalk = fn => fn(), aborted = () => false } = {}) {
   const witness = installBlockWitness(bot)
-  // WHO LEFT, AND WHEN (this client's clock): the click lock settles a pending click whose author this client saw leave after it
-  // first saw the record (monument-01, Codex stage-4 r4)
-  const left = new Map()
-  const onLeft = p => { try { if (p?.username) left.set(p.username, Date.now()) } catch { /* malformed */ } }
-  try { bot.on?.('playerLeft', onLeft) } catch { /* no events */ }
+  // WHO LEFT, IN THIS PROCESS'S EVENT ORDER (Codex stage-4 r5 P2: an ordinal, never a wall clock): kept on the bot for its
+  // whole connection (one listener per bot), so a leave between two visits still counts
+  if (!bot.__leftOrd) {
+    bot.__leftOrd = new Map()
+    try { bot.on?.('playerLeft', p => { try { if (p?.username) bot.__leftOrd.set(p.username, nextOrd()) } catch { /* malformed */ } }) } catch { /* no events */ }
+  }
   const session = (bot.__buildSession ??= `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 8)}`)
   let heldName = null
   const sleep = ms => new Promise(r => setTimeout(r, ms))
-  const barrier = () => new Promise(resolve => {
-    const held = bot.heldItem?.name ?? null
-    const c = bot._client
-    // only a hand this job filled (hold(): a plan cell's block) or an empty one: never a held item whose use does something
-    if ((held && held !== heldName && !items.includes(held)) || typeof c?.write !== 'function' || typeof c?.on !== 'function') { resolve(false); return }
-    const seq = nextBarrierSeq()
-    let timer = null
-    const done = v => { clearTimeout(timer); try { c.removeListener('acknowledge_player_digging', on) } catch { /* gone */ } resolve(v) }
-    const on = p => { if (Number(p?.sequenceId) >= seq) done(true) }
-    c.on('acknowledge_player_digging', on)
-    timer = setTimeout(() => done(false), BARRIER_MS)
-    try {
-      c.write('use_item', { hand: 0, sequence: seq, rotation: { x: (Math.PI - (bot.entity?.yaw ?? 0)) * 180 / Math.PI, y: -(bot.entity?.pitch ?? 0) * 180 / Math.PI } })
-    } catch { done(false) }
-  })
+  // only a hand this job filled (hold(): a plan cell's block), one of its items, or an empty one
+  const barrier = () => worldBarrier(bot, held => held === heldName || items.includes(held))
   const ticks = n => bound(bot.waitForTicks?.(n) ?? sleep(n * 50), n * 50 + 2_000, 'tick wait')
   return {
     read: (x, y, z) => { const b = bot.blockAt(new Vec3(x, y, z)); return b ? { name: b.name, boundingBox: b.boundingBox, full: isFullCube(b) } : null },
@@ -94,7 +111,8 @@ export function botBuildEffects (bot, { items = ['cobblestone'], bound = timeout
     session,
     // the player list is READY once it holds this bot itself; before that, everyone counts as present (busy, never a guess)
     present: name => !bot.players?.[bot.username] || !!bot.players?.[name],
-    leftAt: name => left.get(name) ?? -Infinity,
+    leftAt: name => bot.__leftOrd?.get(name) ?? -Infinity,
+    ord: () => nextOrd(),
     click: async (step, gate = () => null) => {
       const p = faceCentre(step.ref, step.face)
       try { await bot.lookAt(new Vec3(p.x, p.y, p.z), true) } catch { /* not fatal */ }
@@ -138,7 +156,6 @@ export function botBuildEffects (bot, { items = ['cobblestone'], bound = timeout
     },
     close: () => {
       try { witness.stop() } catch { /* gone */ }
-      try { bot.removeListener?.('playerLeft', onLeft) } catch { /* gone */ }
     },
   }
 }

@@ -10,7 +10,7 @@
 // keeps a bad generation from becoming a bad action.
 
 import { HARD_STOP } from './toolfor.mjs'
-import { SKILLS, roomRemedy, farFromBank, classifyOutcome, SKILL_CONTRACTS, plantableSpotNear, findTownComposter, townBuildPlan, townPickMiss, townIngredientMiss, foodSkipNow, townContainers, townWellState, townWellBuildPlan, insideTownWell, wellSwordsNow, cobbleWellCap, townPitState, stockWellOpts, valveProof, stockCountKeys, pruneTarget, unknownRefusals, stockRecountKeys, townFarmPlan, monumentLane } from './skills.mjs'
+import { SKILLS, roomRemedy, farFromBank, classifyOutcome, SKILL_CONTRACTS, plantableSpotNear, findTownComposter, townBuildPlan, townPickMiss, townIngredientMiss, foodSkipNow, townContainers, townWellState, townWellBuildPlan, insideTownWell, wellSwordsNow, cobbleWellCap, townPitState, stockWellOpts, valveProof, stockCountKeys, pruneTarget, unknownRefusals, stockRecountKeys, townFarmPlan, monumentLane, settleMonumentClicks } from './skills.mjs'
 import { monumentOrder, monumentOrderOutcome, MONUMENT_ORDERS } from './monumentjob.mjs'
 import { disposePlan, wellOrder, wellOrderOutcome, WELL_ORDERS, pitCoverItem } from './well.mjs'
 import { farmOrder, farmOrderOutcome, farmEnabled, FARM_ORDERS } from './treefarm.mjs'
@@ -919,6 +919,9 @@ export class CognitiveLoop {
     // well: on a lap where the issued order is the monument visit, the cobble it would have thrown is placed instead; on
     // every other lap the well behaves as today (a full bag with a conversion pending is the well's -- monumentOrder
     // refuses it). After the milestone orders, the town deposit, the recount, wear_out and the town orders.
+    // A CLICK OF MINE LEFT PENDING blocks every other builder of the world: settled here, once a minute at most (a readdir;
+    // a barrier only when there is a record), never only on this bot's next visit (Claude stage-4 r5 P2-1 (b))
+    try { await settleMonumentClicks(this.bot) } catch { /* never breaks the decision loop */ }
     if (!order) {
       try {
         const lane = monumentLane()

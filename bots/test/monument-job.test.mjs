@@ -328,12 +328,13 @@ await t('A BYSTANDER ON A SLAB (Claude stage-4 r3 P3): judged by the cells it ca
   assert.equal(n.step, null, 'closing the only door would wall it in'); assert.match(n.stuck[0], /body_walled/)
 })
 
-await t('CLICK LOCK (Codex stage-4 r4): one holder; a pending click blocks until its author settles it or is seen gone -- never by age', () => {
+await t('CLICK LOCK (Codex stage-4 r4/r5): one holder; a pending click blocks until its author settles it or is proven gone -- never by age', () => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'clk2-'))
-  let clock = 1_000_000
-  const tick = () => clock
-  const mk = (me, o = {}) => MJ.clickLock(dir, 'k', me, { session: `${me}-1`, now: tick, ...o })
-  const go = (L, cell) => { const b = L.begin(); if (b) return b; L.synced(); return L.acquire(cell) }
+  let clock = 1_000_000, ORD = 0
+  const tick = () => clock, ord = () => ++ORD
+  const mk = (me, o = {}) => MJ.clickLock(dir, 'k', me, { session: `${me}-1`, now: tick, ord, ...o })
+  // one lock cycle: begin, the barrier (during which `during` runs: what the barrier drains), synced, acquire
+  const go = (L, cell, during = () => {}) => { const b = L.begin(); if (b) return b; during(); L.synced(); return L.acquire(cell) }
   const cell = { x: 1, y: 64, z: 1 }, cell2 = { x: 2, y: 64, z: 1 }
   // ONE HOLDER; acquire without the barrier is refused
   const a = mk('a'), b = mk('b')
@@ -341,34 +342,44 @@ await t('CLICK LOCK (Codex stage-4 r4): one holder; a pending click blocks until
   assert.equal(a.acquire(cell), 'busy', 'no barrier since begin: no click'); a.release(cell, null)
   assert.equal(go(a, cell), null); a.release(cell, 'confirmed')
   assert.equal(go(b, cell2), null, 'an answered click leaves no obligation (b\'s barrier follows a\'s ack)'); b.release(cell2, 'refused')
-  // AN UNANSWERED CLICK (a's barrier timed out) STAYS PENDING: busy for a present author, an hour or a day later alike
+  // AN UNANSWERED CLICK STAYS PENDING: busy for a present author, an hour or a day later alike
   let aHere = true
   const c = mk('c', { present: n => n !== 'a' || aHere })
   assert.equal(go(a, cell), null); a.release(cell, 'silent')
-  for (const later of [1_000, 3_600_000, 86_400_000]) { clock += later; assert.equal(c.begin(), 'busy', `still pending after +${later} ms`) }
+  for (const later of [1_000, 3_600_000, 86_400_000]) { clock += later; assert.equal(go(c, cell2), 'busy', `still pending after +${later} ms`) }
   // ...until the author settles it with a barrier of its own
-  assert.equal(a.ownPending(), 1); a.settleOwn(); assert.equal(a.ownPending(), 0)
+  assert.equal(a.ownPending(), 1)
+  // settleOwn removes exactly the records taken BEFORE the barrier (Claude r5 P2-1: a record written since is not covered)
+  const before = a.ownFiles()
+  assert.equal(go(a, cell2), null)                            // a's next click is in flight (pending) when the barrier answers
+  a.settleOwn(before); assert.equal(a.ownPending(), 1, 'the in-flight click stays')
+  a.release(cell2, 'confirmed'); assert.equal(a.ownPending(), 0)
   assert.equal(go(c, cell2), null); c.release(cell2, null)
-  // AN AUTHOR GONE: absent from the player list at begin -> resolvable, and the acquirer settles it
+  // AN AUTHOR ABSENT after the barrier -> resolvable, and the acquirer settles it
   assert.equal(go(a, cell), null); a.release(cell, 'error')
-  assert.equal(c.begin(), 'busy'); aHere = false
-  assert.equal(go(c, cell2), null, 'a is absent: its unprocessed packets were dropped, its processed ones broadcast before it left')
-  c.release(cell2, null); assert.equal(a.ownPending(), 0, 'settled by c')
-  // AN AUTHOR SEEN LEAVING AFTER THE RECORD WAS FIRST SEEN (it is back already: a restart) -> resolvable
-  aHere = true
-  let leftAt = -Infinity
-  const d = mk('d', { present: () => true, leftAt: () => leftAt })
+  assert.equal(go(c, cell2), 'busy'); aHere = false
+  assert.equal(go(c, cell2), null, 'a is absent after the barrier: its session has ended'); c.release(cell2, null)
+  assert.equal(a.ownPending(), 0, 'settled by c')
+  // STALE ABSENCE (Codex r5 P1-1): absent at begin, PRESENT once the barrier drained the queued join -> busy
   assert.equal(go(a, cell), null); a.release(cell, 'error')
-  assert.equal(d.begin(), 'busy', 'd sees the record first')
-  clock += 10; leftAt = clock                                   // then sees a leave (and come back)
+  aHere = false
+  assert.equal(go(c, cell2, () => { aHere = true }), 'busy', 'presence is judged after the barrier')
+  // A LEAVE PROCESSED AFTER THE RECORD WAS ARMED -> resolvable (the writer's session has ended)
+  let leftOrd = -Infinity
+  const d = mk('d', { present: () => true, leftAt: () => leftOrd })
+  assert.equal(go(d, cell2), 'busy', 'd arms the record on this cycle\'s barrier')
+  leftOrd = ord()                                              // then a leave (a's session ended; a is back already)
   assert.equal(go(d, cell2), null); d.release(cell2, null)
-  // A RECORD SEEN ONLY AFTER THE LEAVE is not covered by it
-  leftAt = clock; clock += 10
+  // A LEAVE DRAINED BY THE ARMING BARRIER ITSELF (Codex r5 P1-2: an older session's buffered leave) -> NOT resolvable
   assert.equal(go(a, cell), null); a.release(cell, 'error')
-  const e = mk('e', { present: () => true, leftAt: () => leftAt })
-  assert.equal(e.begin(), 'busy'); clock += 10; assert.equal(e.begin(), 'busy', 'the leave was before e first saw it')
+  const e = mk('e', { present: () => true, leftAt: () => leftOrd })
+  assert.equal(go(e, cell2, () => { leftOrd = ord() }), 'busy', 'the leave was processed before the arming barrier completed')
+  assert.equal(go(e, cell2), 'busy', '...and no later leave: still busy')
+  // NO WALL CLOCK in the ordering (Codex r5 P2): the clock rolled back changes nothing
+  clock -= 10_000_000
+  assert.equal(go(e, cell2), 'busy')
   // MY OWN record of an earlier session is mine to settle (my login follows that session's end)
-  const a2 = MJ.clickLock(dir, 'k', 'a', { session: 'a-2', now: tick })
+  const a2 = MJ.clickLock(dir, 'k', 'a', { session: 'a-2', now: tick, ord })
   assert.equal(go(a2, cell2), null, 'my own pending record of another session is resolvable'); a2.release(cell2, 'confirmed')
   assert.equal(a2.ownPending(), 0)
 })
@@ -386,14 +397,19 @@ await t('CLICK LOCK ORDERING: a record that appears after begin is not covered b
   assert.equal(f.acquire(cell2), 'busy', 'f no longer holds the lease')
   assert.equal(fs.readdirSync(dir).filter(x => x.includes('.clk.')).length, 1, 'f\'s own record was removed: only g\'s pending click')
   g.release(cell, 'confirmed')
-  // a record written between begin and acquire (by a writer that slipped past an expired lease) -> busy
+  // a record written between begin and acquire (its author absent, even) -> busy: h's barrier may predate its packet
   const h = MJ.clickLock(dir, 'k', 'h', { now: tick, present: () => false })
   assert.equal(h.begin(), null); h.synced()
   fs.writeFileSync(path.join(dir, `k.clk.${clock}.zz.abc.json`), JSON.stringify({ holder: 'zz', cell: [9, 64, 9], verdict: 'pending' }))
-  assert.equal(h.acquire(cell2), 'busy', 'appeared after begin: h\'s barrier may predate its packet')
-  // an unreadable record is never resolvable
+  assert.equal(h.acquire(cell2), 'busy', 'appeared after begin')
+  // AN UNREADABLE record (Claude r5 P3-1): its author comes from its name -- busy while that author is present, resolvable once absent
+  for (const x of fs.readdirSync(dir)) if (x.includes('.clk.')) fs.unlinkSync(path.join(dir, x))
   fs.writeFileSync(path.join(dir, `k.clk.${clock}.yy.abc.json`), '{torn')
-  assert.equal(h.begin(), 'busy')
+  let yy = true
+  const j = MJ.clickLock(dir, 'k', 'j', { now: tick, present: n => n !== 'yy' || yy })
+  assert.equal(j.begin(), null); j.synced(); assert.equal(j.acquire(cell2), 'busy'); assert.equal(j.blocker(), 'yy', 'the row names who it waits for')
+  yy = false
+  assert.equal(j.begin(), null); j.synced(); assert.equal(j.acquire(cell2), null, 'its author is gone'); j.release(cell2, null)
 })
 
 // ---- the real build_monument skill on a micro-world --------------------------------------------------------------------
@@ -579,7 +595,7 @@ await t('THE ROW UNDER THE LOGGER CUT (logger.mjs cuts a detail at 300): the gat
   const f = { gen: 123456, site: '-29999984,-29999984', layer: 319, seg: 'centre', placed: 48, refused: 48, silent: 48, gateP95: 123456, gateMax: 123456, lagMax: 1234567,
     covers: 2304, waived: 2304, open: 2304, done: 2304, degraded: 2304, foreign: 2304, blocked: 2304, held: 2304, cleared: 48, unreachable: 48, repair: 8,
     repairCand: 2304, busy: 48, advanced: 2, slot: 2, cobble0: 2304, cobble1: 2304, t0: 1792000000000.4,
-    stop: 'x'.repeat(99), wkinds: 'lava:9,water:9,'.repeat(20), fund: 'y'.repeat(99), stuckWhy: 'support:99,body:99,'.repeat(20), why: 'z'.repeat(99) }
+    stop: 'x'.repeat(99), wkinds: 'lava:9,water:9,'.repeat(20), fund: 'y'.repeat(99), stuckWhy: 'support:99,body:99,'.repeat(20), lockWait: 'w'.repeat(99), pendingLeft: 3, why: 'z'.repeat(99) }
   const d = MJ.monumentDetail(f)
   assert.ok(d.length <= 300, `${d.length}`)
   const kvs = Object.fromEntries(d.split(' ').map(x => x.split('=')).filter(a => a.length === 2))

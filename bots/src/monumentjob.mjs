@@ -386,32 +386,36 @@ export const CLICK_LOCK_MS = 15_000
  *     sends that ack from its tick AFTER the tick's block broadcasts (probe: the clicked cell's updates, then the ack), all on the
  *     same ordered stream -- so when it arrives, this client's world holds every change the server made before it read the
  *     use_item. A clicker's own verdict is read after ITS barrier (no "silent" guess); a builder's proofs are made after its own.
- *   BEGIN (async part follows): take the lease (blueprint.mjs: generation files, link()); read the pending records. Each is
- *     RESOLVABLE when its click can no longer land unseen: my own (my barrier follows my earlier packet, and my login follows
- *     any earlier session's end); or its author is ABSENT from this client's player list (a disconnected session's unprocessed
- *     packets are dropped, and its processed ones were broadcast before its removal); or this client saw the author LEAVE after
- *     it first saw the record. Any other record -> busy now. Then the caller runs the barrier and calls synced().
+ *   BEGIN: take the lease (blueprint.mjs: generation files, link()) and snapshot the pending records. Then the caller runs the
+ *     barrier and calls synced(), which ARMS every snapshotted record (this client's event ordinal after the barrier).
  *   ACQUIRE (in the gate, synchronous with the packet): my record FIRST (holder, session, cell: 'pending'), THEN the lease
  *     re-checked (a builder that took it after my check sees my record; one that took it before fails my check -- the file
- *     system orders the two), THEN every record now present must be mine or one resolvable at begin (a record that appeared
- *     since, or vanished since, was not covered by my barrier -> busy). Resolvable records are deleted (settled).
+ *     system orders the two), THEN every other record must have existed at begin (my barrier followed its write) AND be
+ *     RESOLVABLE now, after the barrier: mine (my barrier follows my earlier packets; my login follows any earlier session's
+ *     end); its author ABSENT from my player list now (a disconnected session's unprocessed packets are dropped, its processed
+ *     ones were broadcast before its removal, and my barrier drained every membership event sent before it); or its author
+ *     seen LEAVING after the record was armed (that leave was sent after the record existed: the writer's session has ended).
+ *     Resolved records are deleted (settled). An unresolvable one -> busy; the next cycle's barrier may arm it.
+ *   THE POOL STATE DIR IS A LOCAL FILE SYSTEM (Claude stage-4 r5 P3-2): rename() and readdir are seen across processes at
+ *     once. 10-15: all 81 fleet bots run on one host, state under /var/lib/mcai (ext4). On NFS the record-first order fails.
  *   RELEASE: a click whose barrier answered (confirmed / refused) or that sent nothing (null) removes its record; any other
  *     ending (no answer, an error mid-click) leaves it PENDING -- an obligation, never expired by age; ownPending()/settleOwn()
  *     let the author clear it after a later barrier of its own.
  * Never throws; anything it cannot read is busy.
  */
-const SEEN = new Map()   // per client: record file -> when this client first saw it (its own clock; compared only with its own)
-export function clickLock (dir, key, me, { session = 'session', present = () => true, leftAt = () => -Infinity, now = () => Date.now() } = {}) {
+const ARMED = new Map()   // per client: record file -> the event ordinal of the first barrier this client completed after seeing it
+export function clickLock (dir, key, me, { session = 'session', present = () => true, leftAt = () => -Infinity, ord = () => 0, now = () => Date.now() } = {}) {
   const lockKey = `${key}.click`, prefix = `${key}.clk.`
-  const seen = SEEN.get(`${dir}|${key}|${me}`) ?? new Map(); SEEN.set(`${dir}|${key}|${me}`, seen)
-  let held = null, ok = null, isSynced = false, mineFile = null
-  const drop = () => { if (held) { try { releaseLease(dir, lockKey, me, held.gen, now()) } catch { /* expires */ } } held = null; ok = null; isSynced = false }
+  const armed = ARMED.get(`${dir}|${key}|${me}`) ?? new Map(); ARMED.set(`${dir}|${key}|${me}`, armed)
+  let held = null, began = null, isSynced = false, mineFile = null, blocker = null
+  const drop = () => { if (held) { try { releaseLease(dir, lockKey, me, held.gen, now()) } catch { /* expires */ } } held = null; began = null; isSynced = false }
   const records = () => {
     const out = []
     for (const f of fs.readdirSync(dir)) {
       if (!f.startsWith(prefix) || !f.endsWith('.json')) continue
       let r = null
-      try { r = JSON.parse(fs.readFileSync(path.join(dir, f), 'utf8')) } catch { r = { holder: null } }   // unreadable: unresolvable
+      // UNREADABLE (torn): its author is in its name (Claude stage-4 r5 P3-1), so absent / left / mine can still resolve it
+      try { r = JSON.parse(fs.readFileSync(path.join(dir, f), 'utf8')) } catch { r = { holder: f.slice(prefix.length).split('.')[1] ?? null, torn: true } }
       out.push({ ...r, file: f })
     }
     return out
@@ -421,6 +425,13 @@ export function clickLock (dir, key, me, { session = 'session', present = () => 
     fs.writeFileSync(tmp, JSON.stringify(rec)); fs.renameSync(tmp, path.join(dir, file))
   }
   const unlink = f => { try { fs.unlinkSync(path.join(dir, f)) } catch { /* settled by another */ } }
+  // RESOLVABLE, judged AFTER the barrier (Codex stage-4 r5 P1-1: a stale "absent" before it proves nothing) on a record that
+  // existed at begin (so the barrier followed its write): mine; or its author absent from the player list NOW (every
+  // membership event the server sent before my barrier has been processed); or its author seen LEAVING after a barrier of
+  // mine that completed after I first saw the record (Codex r5 P1-2: a leave drained BY that barrier may be an older
+  // session's; one processed after it was sent after the record existed). Event ordinals, never a wall clock (Codex r5 P2).
+  const resolvable = r => began?.has(r.file) && (r.holder === me || (typeof r.holder === 'string' &&
+    (!present(r.holder) || (armed.has(r.file) && leftAt(r.holder) > armed.get(r.file)))))
   return {
     begin () {
       drop()
@@ -428,29 +439,21 @@ export function clickLock (dir, key, me, { session = 'session', present = () => 
       try { l = takeLease(dir, lockKey, me, now(), CLICK_LOCK_MS) } catch { return 'busy' }
       if (!l?.ok) return 'busy'
       held = l
-      try {
-        const t = now(), set = new Set()
-        for (const r of records()) {
-          const first = seen.get(r.file)
-          if (first == null) seen.set(r.file, t)
-          const resolvable = r.holder === me || (typeof r.holder === 'string' && (!present(r.holder) || (first != null && leftAt(r.holder) > first)))
-          if (!resolvable) { drop(); return 'busy' }
-          set.add(r.file)
-        }
-        ok = set
-      } catch { drop(); return 'busy' }
+      try { began = new Set(records().map(r => r.file)) } catch { drop(); return 'busy' }
       return null
     },
-    synced () { if (held && ok) isSynced = true },
+    // the barrier completed: every record seen at begin is now ARMED (a leave processed after this point was sent after it)
+    synced () { if (!held || !began) return; isSynced = true; const o = ord(); for (const f of began) if (!armed.has(f)) armed.set(f, o) },
     acquire (cell) {
-      if (!held || !ok || !isSynced) { drop(); return 'busy' }
+      if (!held || !began || !isSynced) { drop(); return 'busy' }
       try {
         mineFile = `${prefix}${now()}.${me.replace(/[^A-Za-z0-9_-]/g, '_')}.${Math.random().toString(36).slice(2, 8)}.json`
         write(mineFile, { holder: me, session, cell: [cell.x, cell.y, cell.z], at: now(), verdict: 'pending', gen: held.gen })
         if (!holdsLease(dir, lockKey, me, held.gen)) { unlink(mineFile); mineFile = null; drop(); return 'busy' }
         const others = records().filter(r => r.file !== mineFile)
-        if (others.some(r => !ok.has(r.file))) { unlink(mineFile); mineFile = null; drop(); return 'busy' }
-        for (const r of others) { unlink(r.file); seen.delete(r.file) }
+        const stuck = others.find(r => !resolvable(r))
+        if (stuck) { blocker = String(stuck.holder ?? '?'); unlink(mineFile); mineFile = null; drop(); return 'busy' }
+        for (const r of others) { unlink(r.file); armed.delete(r.file) }
       } catch { if (mineFile) unlink(mineFile); mineFile = null; drop(); return 'busy' }
       return null
     },
@@ -460,10 +463,14 @@ export function clickLock (dir, key, me, { session = 'session', present = () => 
       mineFile = null
       drop()
     },
-    /** my own pending records (any session of mine) */
-    ownPending () { try { return records().filter(r => r.holder === me).length } catch { return 0 } },
-    /** after a barrier of MINE completed: my pending clicks have all been processed and broadcast -- remove them */
-    settleOwn () { try { for (const r of records()) if (r.holder === me) { unlink(r.file); seen.delete(r.file) } } catch { /* next time */ } },
+    /** the author of the last record that made acquire busy (the row's lock_wait), or null */
+    blocker () { return blocker },
+    /** my own pending records (any session of mine), as a set of record files */
+    ownFiles () { try { return new Set(records().filter(r => r.holder === me).map(r => r.file)) } catch { return new Set() } },
+    ownPending () { return this.ownFiles().size },
+    /** after a barrier of MINE that was SENT after `files` was taken: those clicks have all been processed and broadcast --
+     *  remove exactly them (a record of mine written since is not covered by that barrier) */
+    settleOwn (files) { for (const f of files ?? []) { unlink(f); armed.delete(f) } },
   }
 }
 
@@ -562,7 +569,7 @@ export function monumentFields (f = {}) {
     ['done', f.done], ['degraded', f.degraded], ['foreign', f.foreign], ['blocked', f.blocked], ['held', f.held ?? 0], ['cleared', f.cleared ?? 0],
     ['unreach', f.unreachable ?? 0], ['repair', f.repair ?? 0], ['repair_cand', f.repairCand ?? 0], ['busy', f.busy ?? 0], ['advanced', f.advanced ?? 0],
     ['slot', f.slot], ['cobble0', f.cobble0], ['cobble1', f.cobble1], ['t0', Math.round(f.t0 ?? 0)],
-    ['stop', cut(f.stop ?? 'done', 40)], ['wkinds', cut(f.wkinds, 60)], ['fund', cut(f.fund, 40)], ['stuck', cut(f.stuckWhy, 80)], ['why', cut(f.why ?? '-', 60)]]
+    ['stop', cut(f.stop ?? 'done', 40)], ['wkinds', cut(f.wkinds, 60)], ['fund', cut(f.fund, 40)], ['stuck', cut(f.stuckWhy, 80)], ['lock_wait', cut(f.lockWait, 40)], ['pending_left', f.pendingLeft], ['why', cut(f.why ?? '-', 60)]]
 }
 
 /** THE `_monument` ROW, key=value (the read parses fields, never prose). logEvent CUTS A DETAIL AT 300 CHARACTERS (logger.mjs),
