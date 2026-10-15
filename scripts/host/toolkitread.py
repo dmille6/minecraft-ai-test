@@ -13,7 +13,8 @@
 #   LIVENESS     canary kit rows with >= 1 VERIFIED craft (a new usable copy of the claimed tool in after=) (>= 1).
 #   DEFECTS      (each REVERTs) K1 a run that ended with NO usable pickaxe (> 10 uses) when it began with one;
 #                K2 a clearly usable tool (> FLOOR + 20 uses in before=, slack for in-run wear) missing from after=;
-#                K3 iron drawn and no tool made (drew > 0, crafted none, outcome not aborted);
+#                K3 iron drawn and no tool made: a bot's kit run drew iron and made nothing (not aborted), and NO later kit run
+#                   of that bot in the window verified a craft (the credit is spent by the retry; Codex r1 P2-1/P2-2);
 #                K4 a craft claimed that after= does not show (claimed name: usable copies after <= before).
 #                K1-K4 are EXCUSED (reported by cause) when the bot died inside the run.
 #   ARMS         control `_toolkit` rows 0 (any phase).
@@ -79,12 +80,37 @@ def gates(f):
             g.append('K2_usable_lost'); break
     if f.get('phase') == 'kit':
         crafted = [x for x in (f.get('crafted') or '-').split('+') if x and x != '-']
-        if num(f, 'drew') > 0 and not crafted and f.get('outcome') != 'aborted':
-            g.append('K3_drawn_no_tool')
         for n in crafted:
             if sum(1 for u in a.get(n, []) if u > FLOOR) <= sum(1 for u in b.get(n, []) if u > FLOOR):
                 g.append('K4_unverified_craft'); break
     return g
+
+
+def opens_draw(f):
+    """A kit run that drew iron and made nothing (not an abort): it opens a K3 until a later run verifies a craft. Pure."""
+    return f.get('phase') == 'kit' and num(f, 'drew') > 0 and not verified_crafts(f) and f.get('outcome') != 'aborted'
+
+
+RETRY_S = 40 * 60   # toolkit.mjs TOOLKIT_BACKOFF_MS (30 min) + TOOLKIT_COOLDOWN_MS (10 min): the earliest retry
+
+
+def k3_state(seq, end=None):
+    """One bot's kit rows in time order [(fields, died, t)] -> 'open' | 'pending' | None. Pure. An iron draw with no tool stays
+    open until a later run of the bot verifies a craft; one opened inside the last RETRY_S of the window could not have been
+    retried yet, so it is PENDING (reported), never a verdict (Claude r1 P2-2)."""
+    at = None
+    for f, died, t in seq:
+        if verified_crafts(f):
+            at = None
+        elif opens_draw(f) and not died:
+            at = t
+    if at is None:
+        return None
+    return 'pending' if end is not None and (end - at).total_seconds() < RETRY_S else 'open'
+
+
+def k3_open(seq, end=None):
+    return int(k3_state(seq, end) == 'open')
 
 
 def verified_crafts(f):
@@ -103,8 +129,13 @@ _ok = kv('phase=kit outcome=crafted needs=iron_axe+iron_shovel drew=4 sticks=3 u
 assert _ok['phase'] == 'kit' and _ok['tried'] == '[5,64,0:success]' and gates(_ok) == [] and verified_crafts(_ok) == ['iron_axe', 'iron_shovel']
 assert gates({**_ok, 'after': 'iron_axe@250,iron_shovel@250'}) == ['K1_no_pick', 'K2_usable_lost']
 assert gates({**_ok, 'after': 'iron_axe@250,iron_pickaxe@199,iron_shovel@250'}) == ['K2_usable_lost'], 'the stone spare gone'
-assert gates({**_ok, 'crafted': '-', 'outcome': 'craft_failed', 'after': 'iron_pickaxe@199,stone_pickaxe@90'}) == ['K3_drawn_no_tool']
-assert gates({**_ok, 'crafted': '-', 'outcome': 'aborted', 'after': 'iron_pickaxe@199,stone_pickaxe@90'}) == []
+_fail = {**_ok, 'crafted': '-', 'outcome': 'craft_failed', 'after': 'iron_pickaxe@199,stone_pickaxe@90'}
+assert gates(_fail) == [] and opens_draw(_fail) and not opens_draw({**_fail, 'outcome': 'aborted'}) and not opens_draw(_ok)
+import datetime as _dt
+_t0 = _dt.datetime(2026, 10, 15, 12, 0, tzinfo=_dt.timezone.utc); _m = lambda n: _t0 + _dt.timedelta(minutes=n)
+assert k3_open([(_fail, False, _m(0)), (_ok, False, _m(45))], _m(180)) == 0, 'a later verified craft closes it'
+assert k3_open([(_ok, False, _m(0)), (_fail, False, _m(10))], _m(180)) == 1 and k3_open([(_fail, True, _m(10))], _m(180)) == 0, 'open at the end; a death excuses'
+assert k3_state([(_fail, False, _m(150))], _m(180)) == 'pending' and k3_state([(_fail, False, _m(140))], _m(180)) == 'open', 'the window edge: 40 min to retry'
 assert gates({**_ok, 'after': 'iron_pickaxe@199,stone_pickaxe@90,iron_axe@250'}) == ['K4_unverified_craft'] and verified_crafts({**_ok, 'after': 'iron_pickaxe@199,stone_pickaxe@90,iron_axe@250'}) == ['iron_axe']
 _w = kv('phase=wear outcome=done listed=3 worn=3 stop=- before=iron_pickaxe@200,stone_pickaxe@1,stone_pickaxe@1,stone_pickaxe@1,stone_pickaxe@90 after=iron_pickaxe@200,stone_pickaxe@90 tried=[]')
 assert gates(_w) == [] and gates({**_w, 'after': 'iron_pickaxe@200'}) == ['K2_usable_lost']
@@ -215,9 +246,9 @@ for r in rows:
         (kit if ph == 'kit' else wear).append((b, t, f, sk.get('status'), dm))
 
 S1, S10 = dt.timedelta(seconds=1), dt.timedelta(seconds=10)
-br = Counter(); excused = Counter(); ex = []
+br = Counter(); excused = Counter(); ex = []; perbot = defaultdict(list)
 live = 0; crafts = Counter(); outcomes = Counter(); stops = Counter(); drew = 0; used = 0; worn = 0; listed = 0
-for (b, t, f, st, dm) in kit + wear:
+for (b, t, f, st, dm) in sorted(kit + wear, key=lambda x: x[1]):
     died = any(t - dt.timedelta(milliseconds=dm or 0) - S1 <= d <= t + S10 for d in deaths[b])
     for g in gates(f):
         if died:
@@ -226,6 +257,7 @@ for (b, t, f, st, dm) in kit + wear:
             br[g] += 1
             if len(ex) < 5: ex.append((b, g, {k: f.get(k) for k in ('phase', 'outcome', 'drew', 'crafted', 'before', 'after')}))
     if f.get('phase') == 'kit':
+        perbot[b].append((f, died, t))
         v = verified_crafts(f)
         live += 1 if v else 0
         for n in v: crafts[n] += 1
@@ -234,6 +266,14 @@ for (b, t, f, st, dm) in kit + wear:
     else:
         worn += num(f, 'worn'); listed += num(f, 'listed')
 
+k3_pending = 0
+for b, seq in perbot.items():
+    st3 = k3_state(seq, END)
+    if st3 == 'pending':
+        k3_pending += 1
+    elif st3 == 'open':
+        br['K3_drawn_no_tool'] += 1
+        if len(ex) < 5: ex.append((b, 'K3_drawn_no_tool', {k: seq[-1][0].get(k) for k in ('outcome', 'drew', 'crafted', 'stop')}))
 inst = sum(1 for b, tl in last_tools.items() if pool_of(b) not in CANS and
            (not any(rem(c) > FLOOR for c in tl.get('iron_axe') or []) or not any(rem(c) > FLOOR for c in tl.get('iron_shovel') or [])))
 def spares(arm):
@@ -241,8 +281,9 @@ def spares(arm):
     for b, tl in last_tools.items():
         if (pool_of(b) in CANS) != (arm == 'canary') or not any(rem(c) > FLOOR for c in tl.get('iron_pickaxe') or []):
             continue
-        vals.append(len(tl.get('stone_pickaxe') or []))
-    return (sum(vals) / len(vals) if vals else float('nan')), len(vals)
+        vals.append((sum(1 for c in tl.get('stone_pickaxe') or [] if rem(c) > FLOOR), sum(1 for c in tl.get('stone_pickaxe') or [] if rem(c) <= FLOOR)))
+    n = len(vals)
+    return (sum(v[0] for v in vals) / n if n else float('nan')), (sum(v[1] for v in vals) / n if n else float('nan')), n
 def med(xs):
     xs = sorted(xs); return xs[len(xs) // 2] if xs else float('nan')
 def did(fam):
@@ -253,7 +294,7 @@ bh = len(botsets['canary']) * W / 60 if botsets['canary'] else float('nan')
 print('-' * 78)
 print('LIVENESS     canary kit runs with a verified craft %d (>= 1) | crafts %s | mode rows %s' % (live, dict(crafts), dict(mode_rows)))
 print('ARMS         control _toolkit rows %d (must be 0) | other build %d' % (ctrl, offbuild))
-print('DEFECTS      %s (all must be 0) | excused (died in the run, reported) %s' % (dict(br) or 0, dict(excused) or 0))
+print('DEFECTS      %s (all must be 0) | excused (died in the run, reported) %s | K3 pending (drawn < 40 min before the end) %d' % (dict(br) or 0, dict(excused) or 0, k3_pending))
 print('INSTRUMENT   control bots without a usable iron axe or shovel: %d (>= 1)' % inst)
 print('REPORTED     kit outcomes %s | ingots drawn %d used %d | wear listed %d worn (slots freed) %d | freed/canary bot-h %.2f'
       % (dict(outcomes), drew, used, listed, worn, worn / bh if bh == bh and bh else float('nan')))
@@ -262,8 +303,9 @@ for fam in ('log', 'soil'):
     cells = ' '.join('%s/%s/%s n=%d med=%.1f' % (arm, per, ir, len(gather[(fam, arm, per, ir)]), med(gather[(fam, arm, per, ir)]))
                      for arm in ('canary', 'control') for per in ('pre', 'post') for ir in ('iron', 'other'))
     print('             gather %s s/item: %s | DiD of medians %+.2f' % (fam, cells, did(fam)))
-cs, cn = spares('canary'); ks, kn = spares('control')
-print('             stone pickaxes per usable-iron holder at the end: canary %.2f (n %d) control %.2f (n %d)' % (cs, cn, ks, kn))
+cs, csp, cn = spares('canary'); ks, ksp, kn = spares('control')
+print('             per usable-iron holder at the end -- USABLE stone pickaxes: canary %.2f control %.2f | SPENT stone copies: canary %.2f control %.2f (n %d / %d)'
+      % (cs, ks, csp, ksp, cn, kn))
 for x in ex:
     print('  defect:', x)
 try:
@@ -275,10 +317,10 @@ try:
     emit('toolkitread', W, {
         'kit_crafted_canary': live, 'rows_control': ctrl, 'offbuild_canary': offbuild, 'instrument_control': inst,
         'k1_no_pick': br['K1_no_pick'], 'k2_usable_lost': br['K2_usable_lost'], 'k3_drawn_no_tool': br['K3_drawn_no_tool'],
-        'k4_unverified_craft': br['K4_unverified_craft'], 'defects': sum(br.values()), 'excused': sum(excused.values()),
+        'k4_unverified_craft': br['K4_unverified_craft'], 'defects': sum(br.values()), 'excused': sum(excused.values()), 'k3_pending': k3_pending,
         'ingots_drawn': drew, 'ingots_used': used, 'wear_worn': worn, 'wear_listed': listed,
         'log_did': None if ld != ld else round(ld, 2), 'soil_did': None if sd != sd else round(sd, 2),
-        'stone_per_iron_holder_canary': None if cs != cs else round(cs, 2),
+        'usable_stone_per_iron_holder_canary': None if cs != cs else round(cs, 2), 'spent_stone_per_iron_holder_canary': None if csp != csp else round(csp, 2),
         'exposure_ready': int(live >= 1 and inst >= 1),
     })
 except Exception as e:
