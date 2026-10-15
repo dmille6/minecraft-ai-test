@@ -241,8 +241,12 @@ export const bodyBlocks = (bodies, c) => (bodies ?? []).some(b => bodyInCell(b, 
 
 /** Would a placement wall a body in? -> true when some body's feet walk to the town before (`before`) and not after (`after`). */
 export function wallsInBody (bodies, before, after) {
+  // A BODY ON FOOTING THE PROBE WILL NOT STAND ON (a slab, a path, farmland, mud under footingView -- Claude stage-4 r3 P3) is
+  // judged by the cells it can step to: it walks out now if its own cell or a neighbour (+-1 up or down) does, and after likewise
+  // (only then: a body on ordinary footing is judged by its own cell, exactly)
+  const near = (set, f) => [[1, 0], [-1, 0], [0, 1], [0, -1]].some(([dx, dz]) => [-1, 0, 1].some(dy => set.has(bk(f.x + dx, f.y + dy, f.z + dz))))
   return (bodies ?? []).map(b => ({ x: Math.floor(b.x), y: Math.floor(b.y + 1e-6), z: Math.floor(b.z) }))
-    .some(f => before.has(bk(f.x, f.y, f.z)) && !after.has(bk(f.x, f.y, f.z)))
+    .some(f => before.has(bk(f.x, f.y, f.z)) ? !after.has(bk(f.x, f.y, f.z)) : (near(before, f) && !near(after, f)))
 }
 
 /** Is a cell what the list wants? `want` = name | (block) -> boolean; absent: any solid block. Pure. */
@@ -394,10 +398,14 @@ export const BUILD_ATTEMPTS = 2
  *   fence()                  -> true while this builder may still mutate (lease, record generation)
  *   clear(step, gate)        -> the same verdicts for a CLEAR step (the cell's block broken by hand); only with `clearable`
  *   nearest                  true: each step tries the open cells nearest the bot's feet first (the caller's order breaks ties)
- *   lock                     { acquire(cell) -> null | 'busy', release(cell, verdict | null) }: ONE placement in flight across
- *                            all builders (monument-01, Codex stage-4 r1 P1-1: two builders' clicks, each proven alone, can
- *                            wall a bystander in together). Taken FIRST in the gate; every proof is then made under it; released
- *                            with the click's verdict (null: no click was sent). 'busy' is no failure: wait `busyMs`, re-plan.
+ *   lock                     { begin() -> null | 'busy', synced(), acquire(cell) -> null | 'busy', release(cell, verdict | null) }:
+ *                            ONE placement in flight across all builders (monument-01, Codex stage-4 r1 P1-1: two builders'
+ *                            clicks, each proven alone, can wall a bystander in together). BEGUN after the hold, then `sync()`
+ *                            (the world-sync barrier) is awaited, then the gate ACQUIRES it first and makes every proof under
+ *                            it; released with the click's verdict (null: no click was sent). 'busy' is no failure: wait
+ *                            `busyMs`, re-plan.
+ *   sync()                   -> true once this client's world holds every change the server made before the call (buildbot's
+ *                            barrier); false = unknown (busy). Only with `lock`; default: already in sync (pure tests).
  *   fillable, clearable      as nextPlacement. The result carries timings: gateMs (per gate) and planMs (per step).
  *   click(step, gate)        -> 'confirmed' | 'refused' | 'silent' (the server's word: the caller's witness) | 'gate:<why>'.
  *                               The adapter does its awaits (look, the tick pacing) FIRST, then calls gate() -- null to
@@ -413,7 +421,7 @@ export const BUILD_ATTEMPTS = 2
 export async function runPlacements ({ read, cells, start, box = null, forbid = () => false, feet, bodies = () => [], walkTo, hold, fence, click,
   aborted = () => false, maxSteps = 40, deadline = Infinity, now = () => Date.now(), scan = Infinity, self = null,
   clear = null, clearable = () => false, fillable = replaceable, nearest = false, clock = () => performance.now(),
-  lock = null, busyMs = 300, maxBusy = 60, wait = ms => new Promise(r => setTimeout(r, ms)) }) {
+  lock = null, sync = async () => true, busyMs = 300, maxBusy = 60, wait = ms => new Promise(r => setTimeout(r, ms)) }) {
   const out = { placed: 0, cleared: 0, refused: 0, silent: 0, unreachable: 0, busy: 0, stop: null, why: null, stuck: [], cells: [], gateMs: [], planMs: [] }
   box ??= boxAround([...cells, start])
   const live = read
@@ -486,7 +494,7 @@ export async function runPlacements ({ read, cells, start, box = null, forbid = 
     // fresh view -- a proof computed before the lock could miss a click another builder confirmed in between
     const gate = timed(() => {
       if (aborted()) return 'aborted'
-      if (lock) { const l = lock.acquire(c); if (l) return l; locked = true }
+      if (lock) { const l = lock.acquire(c); if (l) { lock.release(c, null); locked = false; return l } }
       const no = gateProofs()
       if (no && locked) { lock.release(c, null); locked = false }
       return no
@@ -506,7 +514,18 @@ export async function runPlacements ({ read, cells, start, box = null, forbid = 
     let locked = false
     if (!fence()) { out.stop = 'fence'; break }   // a lease already lost: no look, no wait
     let v
-    try { v = await click(s, gate) } finally { if (locked) { lock.release(c, v ?? 'error'); locked = false } }
+    // THE LOCK BEGUN, THEN THE BARRIER: the proofs in the gate are made on a world that holds every earlier click
+    if (lock) {
+      if (lock.begin()) v = 'gate:busy'
+      else {
+        locked = true
+        let synced = false
+        try { synced = await sync() } catch (e) { lock.release(c, null); locked = false; throw e }
+        if (synced) lock.synced(); else { lock.release(c, null); locked = false; v = 'gate:busy' }
+      }
+    }
+    // a gate refusal sent no packet (null); an error mid-click may have (the record stays pending)
+    if (v == null) try { v = await click(s, gate) } finally { if (locked) { lock.release(c, typeof v === 'string' && v.startsWith('gate:') ? null : (v ?? 'error')); locked = false } }
     if (v === 'gate:aborted') { out.stop = 'aborted'; break }
     if (v === 'gate:fence') { out.stop = 'fence'; break }
     // a busy lock is no step (Claude stage-4 r2 P3): the wait does not use up maxSteps -- but busy waits are bounded too

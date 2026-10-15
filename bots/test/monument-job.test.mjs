@@ -314,57 +314,86 @@ await t('FOOTING VIEW (Codex stage-4 r2 P1-2): an exit across a real slab is no 
   assert.equal(B.standable(w.read, 8, 64, 0), true); assert.equal(B.standable(view, 8, 64, 0), false)
 })
 
-await t('CLICK LOCK: one holder at a time; the next waits until ITS world shows the last confirmed click; a stale lock is broken', () => {
+await t('A BYSTANDER ON A SLAB (Claude stage-4 r3 P3): judged by the cells it can step to -- still never walled in under the footing view', () => {
+  const w = world()
+  for (let x = 4; x <= 8; x++) for (let z = -2; z <= 2; z++) for (let y = 64; y <= 66; y++) {
+    const wall = x === 4 || x === 8 || z === -2 || z === 2
+    if (wall && !(z === 0 && x === 4 && y < 66)) w.set(x, y, z, STONE)        // one 2-high door, west
+  }
+  const SLAB = { name: 'oak_slab', boundingBox: 'block', full: false }
+  w.set(6, 63, 0, SLAB)                                                      // the bystander stands on a slab
+  const view = MJ.footingView(w.read)
+  const start = { x: 0, y: 64, z: 0 }, box = { x0: -4, x1: 12, y0: 58, y1: 70, z0: -6, z1: 6 }
+  const n = B.nextPlacement(view, { todo: [{ x: 4, y: 64, z: 0 }], start, box, bodies: [{ x: 6.5, y: 63.5, z: 0.5 }] })
+  assert.equal(n.step, null, 'closing the only door would wall it in'); assert.match(n.stuck[0], /body_walled/)
+})
+
+await t('CLICK LOCK (Codex stage-4 r4): one holder; a pending click blocks until its author settles it or is seen gone -- never by age', () => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'clk2-'))
-  let seen = false
-  const a = MJ.clickLock(dir, 'k', 'a', () => STONE), b = MJ.clickLock(dir, 'k', 'b', () => (seen ? STONE : AIR))
-  const cell = { x: 1, y: 64, z: 1 }
-  assert.equal(a.acquire(cell), null); assert.equal(b.acquire(cell), 'busy')
-  a.release(cell, 'confirmed')
-  assert.equal(b.acquire(cell), 'busy', 'b has not seen a\'s block yet')
-  seen = true
-  assert.equal(b.acquire(cell), null); b.release(cell, 'refused')
-  // SEPARATE WORLD VIEWS (Codex stage-4 r2 P1-1): e confirms; f's world never shows it, and f's client never heard of the cell:
-  // busy however long it waits inside the log window; f heard the server speak about the cell (it was dug again): free
-  let heard = false
-  const e = MJ.clickLock(dir, 'k3', 'e', () => STONE), f2 = MJ.clickLock(dir, 'k3', 'f', () => AIR, () => Date.now() + 5 * 60_000, () => heard)
-  assert.equal(e.acquire(cell), null); e.release(cell, 'confirmed')
-  assert.equal(f2.acquire(cell), 'busy', 'five minutes later and still unseen: busy (never elapsed time alone)')
-  heard = true
-  assert.equal(f2.acquire(cell), null); f2.release(cell, null)
-  // THREE CLIENTS (Codex stage-4 r3 P1-1): A confirms; C does not see it; B sees it, clicks and is REFUSED; C is still busy
-  const cA = { x: 5, y: 64, z: 5 }, cB = { x: 6, y: 64, z: 5 }
-  const A = MJ.clickLock(dir, 'k4', 'A', () => STONE), Bk = MJ.clickLock(dir, 'k4', 'B', () => STONE), C = MJ.clickLock(dir, 'k4', 'C', () => AIR)
-  assert.equal(A.acquire(cA), null); A.release(cA, 'confirmed')
-  assert.equal(C.acquire(cB), 'busy')
-  assert.equal(Bk.acquire(cB), null); Bk.release(cB, 'refused')
-  assert.equal(C.acquire(cB), 'busy', 'a later refusal never erases the unseen confirmation')
-  // A STALE HOLDER (Codex stage-4 r3 P1-2): G's lease expires mid-click; H takes over while G's click is PENDING -- H must know
-  // G's cell first; G's late 'silent' lands in G's own record and never touches H's confirmation
   let clock = 1_000_000
   const tick = () => clock
-  let hSees = false
-  const G = MJ.clickLock(dir, 'k5', 'G', () => STONE, tick), H = MJ.clickLock(dir, 'k5', 'H', (x) => (x === 7 && hSees ? STONE : AIR), tick)
-  const cG = { x: 7, y: 64, z: 7 }, cH = { x: 8, y: 64, z: 7 }
-  assert.equal(G.acquire(cG), null)
+  const mk = (me, o = {}) => MJ.clickLock(dir, 'k', me, { session: `${me}-1`, now: tick, ...o })
+  const go = (L, cell) => { const b = L.begin(); if (b) return b; L.synced(); return L.acquire(cell) }
+  const cell = { x: 1, y: 64, z: 1 }, cell2 = { x: 2, y: 64, z: 1 }
+  // ONE HOLDER; acquire without the barrier is refused
+  const a = mk('a'), b = mk('b')
+  assert.equal(a.begin(), null); assert.equal(b.begin(), 'busy', 'the lease is a\'s')
+  assert.equal(a.acquire(cell), 'busy', 'no barrier since begin: no click'); a.release(cell, null)
+  assert.equal(go(a, cell), null); a.release(cell, 'confirmed')
+  assert.equal(go(b, cell2), null, 'an answered click leaves no obligation (b\'s barrier follows a\'s ack)'); b.release(cell2, 'refused')
+  // AN UNANSWERED CLICK (a's barrier timed out) STAYS PENDING: busy for a present author, an hour or a day later alike
+  let aHere = true
+  const c = mk('c', { present: n => n !== 'a' || aHere })
+  assert.equal(go(a, cell), null); a.release(cell, 'silent')
+  for (const later of [1_000, 3_600_000, 86_400_000]) { clock += later; assert.equal(c.begin(), 'busy', `still pending after +${later} ms`) }
+  // ...until the author settles it with a barrier of its own
+  assert.equal(a.ownPending(), 1); a.settleOwn(); assert.equal(a.ownPending(), 0)
+  assert.equal(go(c, cell2), null); c.release(cell2, null)
+  // AN AUTHOR GONE: absent from the player list at begin -> resolvable, and the acquirer settles it
+  assert.equal(go(a, cell), null); a.release(cell, 'error')
+  assert.equal(c.begin(), 'busy'); aHere = false
+  assert.equal(go(c, cell2), null, 'a is absent: its unprocessed packets were dropped, its processed ones broadcast before it left')
+  c.release(cell2, null); assert.equal(a.ownPending(), 0, 'settled by c')
+  // AN AUTHOR SEEN LEAVING AFTER THE RECORD WAS FIRST SEEN (it is back already: a restart) -> resolvable
+  aHere = true
+  let leftAt = -Infinity
+  const d = mk('d', { present: () => true, leftAt: () => leftAt })
+  assert.equal(go(a, cell), null); a.release(cell, 'error')
+  assert.equal(d.begin(), 'busy', 'd sees the record first')
+  clock += 10; leftAt = clock                                   // then sees a leave (and come back)
+  assert.equal(go(d, cell2), null); d.release(cell2, null)
+  // A RECORD SEEN ONLY AFTER THE LEAVE is not covered by it
+  leftAt = clock; clock += 10
+  assert.equal(go(a, cell), null); a.release(cell, 'error')
+  const e = mk('e', { present: () => true, leftAt: () => leftAt })
+  assert.equal(e.begin(), 'busy'); clock += 10; assert.equal(e.begin(), 'busy', 'the leave was before e first saw it')
+  // MY OWN record of an earlier session is mine to settle (my login follows that session's end)
+  const a2 = MJ.clickLock(dir, 'k', 'a', { session: 'a-2', now: tick })
+  assert.equal(go(a2, cell2), null, 'my own pending record of another session is resolvable'); a2.release(cell2, 'confirmed')
+  assert.equal(a2.ownPending(), 0)
+})
+
+await t('CLICK LOCK ORDERING: a record that appears after begin is not covered by the barrier; the lease is re-checked AFTER my record is written', () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'clk3-'))
+  let clock = 5_000_000
+  const tick = () => clock
+  const cell = { x: 1, y: 64, z: 1 }, cell2 = { x: 2, y: 64, z: 1 }
+  // f begins (no records), its lease expires during the barrier; g takes the lease and clicks (pending); f's acquire: refused
+  const f = MJ.clickLock(dir, 'k', 'f', { now: tick }), g = MJ.clickLock(dir, 'k', 'g', { now: tick })
+  assert.equal(f.begin(), null); f.synced()
   clock += MJ.CLICK_LOCK_MS + 1
-  assert.equal(H.acquire(cH), 'busy', 'the expired lease alone never hands over: G\'s pending click is unknown to H')
-  hSees = true
-  assert.equal(H.acquire(cH), null); H.release(cH, 'confirmed')
-  G.release(cG, 'silent')
-  const recs = fs.readdirSync(dir).filter(f => f.startsWith('k5.clk.')).map(f => JSON.parse(fs.readFileSync(path.join(dir, f), 'utf8')))
-  assert.deepEqual(recs.map(r => `${r.holder}:${r.verdict}`).sort(), ['G:silent', 'H:confirmed'])
-  // a pending click whose cell H has TRACKED since before it, with no update for ACK_GRACE_MS, did not land: known
-  const I = MJ.clickLock(dir, 'k6', 'I', () => STONE, tick), J = MJ.clickLock(dir, 'k6', 'J', () => AIR, tick, () => false, () => true)
-  assert.equal(I.acquire(cG), null)                          // I never releases (killed)
-  clock += MJ.CLICK_LOCK_MS + 1
-  assert.equal(J.acquire(cH), null, 'tracked, nothing heard past the grace: no mutation')
-  J.release(cH, null)
-  let t0 = 0
-  const c = MJ.clickLock(dir, 'k2', 'c', () => STONE, () => t0), d = MJ.clickLock(dir, 'k2', 'd', () => STONE, () => t0)
-  assert.equal(c.acquire(cell), null)
-  t0 = Date.now() + MJ.CLICK_LOCK_MS + 1000                 // c never released (killed): stale
-  assert.equal(d.acquire(cell), null)
+  assert.equal(g.begin(), null); g.synced(); assert.equal(g.acquire(cell), null)
+  assert.equal(f.acquire(cell2), 'busy', 'f no longer holds the lease')
+  assert.equal(fs.readdirSync(dir).filter(x => x.includes('.clk.')).length, 1, 'f\'s own record was removed: only g\'s pending click')
+  g.release(cell, 'confirmed')
+  // a record written between begin and acquire (by a writer that slipped past an expired lease) -> busy
+  const h = MJ.clickLock(dir, 'k', 'h', { now: tick, present: () => false })
+  assert.equal(h.begin(), null); h.synced()
+  fs.writeFileSync(path.join(dir, `k.clk.${clock}.zz.abc.json`), JSON.stringify({ holder: 'zz', cell: [9, 64, 9], verdict: 'pending' }))
+  assert.equal(h.acquire(cell2), 'busy', 'appeared after begin: h\'s barrier may predate its packet')
+  // an unreadable record is never resolvable
+  fs.writeFileSync(path.join(dir, `k.clk.${clock}.yy.abc.json`), '{torn')
+  assert.equal(h.begin(), 'busy')
 })
 
 // ---- the real build_monument skill on a micro-world --------------------------------------------------------------------
@@ -372,6 +401,8 @@ const SK = await import('../src/skills.mjs')
 const { Vec3 } = await import('vec3')
 function fakeBot (w, at = { x: 4, y: 64, z: 13 }, name = 'TestBot') {
   const client = new EventEmitter()
+  // the server's block-changed ack for a use_item's sequence, after the world changes already made (buildbot's barrier)
+  client.write = (packet, p) => { if (packet === 'use_item') setImmediate(() => client.emit('acknowledge_player_digging', { sequenceId: p.sequence })) }
   const ids = { cobblestone: 1, air: 0, andesite: 2 }
   const names = { 0: { name: 'air' }, 1: { name: 'cobblestone' }, 2: { name: 'andesite' } }
   const inv = [{ name: 'cobblestone', count: 300, type: 4 }]
@@ -539,6 +570,25 @@ await t('ONE ROW PER VISIT: a successful visit writes exactly one _monument row;
   assert.equal(monRows(), n0 + 2)
   const last = fs.readFileSync(path.join(process.env.LOG_DIR, 'skill-TestBot.jsonl'), 'utf8').trim().split('\n').filter(l => l.includes('"_monument"')).pop()
   assert.match(last, /stop=thrown/)
+  // THE ROW SURVIVES THE LOGGER'S 300-CHAR CUT: every field is in skill.args, the site among them
+  const rec = JSON.parse(last)
+  assert.equal(rec.skill.args.stop, 'thrown'); assert.ok('placed' in rec.skill.args && 'site' in rec.skill.args, JSON.stringify(rec.skill.args))
+})
+
+await t('THE ROW UNDER THE LOGGER CUT (logger.mjs cuts a detail at 300): the gated fields lead the detail even at worst-case widths; args carry all', () => {
+  const f = { gen: 123456, site: '-29999984,-29999984', layer: 319, seg: 'centre', placed: 48, refused: 48, silent: 48, gateP95: 123456, gateMax: 123456, lagMax: 1234567,
+    covers: 2304, waived: 2304, open: 2304, done: 2304, degraded: 2304, foreign: 2304, blocked: 2304, held: 2304, cleared: 48, unreachable: 48, repair: 8,
+    repairCand: 2304, busy: 48, advanced: 2, slot: 2, cobble0: 2304, cobble1: 2304, t0: 1792000000000.4,
+    stop: 'x'.repeat(99), wkinds: 'lava:9,water:9,'.repeat(20), fund: 'y'.repeat(99), stuckWhy: 'support:99,body:99,'.repeat(20), why: 'z'.repeat(99) }
+  const d = MJ.monumentDetail(f)
+  assert.ok(d.length <= 300, `${d.length}`)
+  const kvs = Object.fromEntries(d.split(' ').map(x => x.split('=')).filter(a => a.length === 2))
+  for (const [k, v] of [['site', f.site], ['placed', '48'], ['refused', '48'], ['silent', '48'], ['gate_ms_p95', '123456'], ['gate_ms_max', '123456'], ['lag_ms_max', '1234567'], ['covers', '2304'], ['waived', '2304'], ['open', '2304']]) {
+    assert.equal(kvs[k], v, `${k} in the cut detail`)
+  }
+  const a = MJ.monumentArgs(f)
+  assert.equal(a.lag_ms_max, 1234567); assert.equal(a.t0, 1792000000000); assert.ok(a.why.length === 60 && a.stuck.length === 80)
+  assert.deepEqual(Object.keys(a), MJ.monumentFields(f).map(([k]) => k), 'args carry every field')
 })
 
 console.log(`\n${pass} passed, ${fail} failed`); if (fail) process.exit(1)

@@ -63,7 +63,7 @@ async function withPlannerMutant (old, neu, fn) {
   writeFileSync(sk, skSrc.replace("from './minewell.mjs'", `from './_mutant-mw-${tag}.mjs'`).replace(/from '\.\/(?!_mutant-mw-)/g, "from '../src/"))
   try { return await fn(await import(sk.href)) } finally { for (const u of [mw, sk]) { try { unlinkSync(u) } catch {} } }
 }
-const ENUM = ["      .findBlocks({ matching: notTown(type.id), maxDistance, count: 32 })\n", "      .findBlocks({ matching: type.id, maxDistance, count: 32 })\n"]
+const ENUM = ["      .findBlocks({ matching: matchAll(notTown(type.id), unreservedOf(bot, type.id)), maxDistance, count: 32 })\n", "      .findBlocks({ matching: matchAll(b => b?.type === type.id, unreservedOf(bot, type.id)), maxDistance, count: 32 })\n"]
 const SAFE = ["    const safeTarget = p => townTargetPermit(p, bot.blockAt(p)?.name, townHome()).ok &&\n", "    const safeTarget = p => true &&\n"]
 const SWING = ["  if (!townOk.ok) {\n    noteTownGround(bot, 'gather_refused')", "  if (false) {\n    noteTownGround(bot, 'gather_refused')"]
 
@@ -213,7 +213,7 @@ test('CHAIN gather: only town dirt anywhere -> a refusal naming where to go (and
 })
 
 test('MUTANT KILLED: filtering after the search (no enumeration filter) starves gather -- the outside dirt is never found', async () => {
-  await withMutant(SKILLS_URL, "      .findBlocks({ matching: notTown(type.id), maxDistance, count: 32 })\n", "      .findBlocks({ matching: type.id, maxDistance, count: 32 })\n", async mod => {
+  await withMutant(SKILLS_URL, "      .findBlocks({ matching: matchAll(notTown(type.id), unreservedOf(bot, type.id)), maxDistance, count: 32 })\n", "      .findBlocks({ matching: matchAll(b => b?.type === type.id, unreservedOf(bot, type.id)), maxDistance, count: 32 })\n", async mod => {
     const { bot, digs } = gatherWorld({ dirt: [...townDirt, ...outside] })
     await mod.SKILLS.gather.run({ bot }, { block: 'dirt', count: 1 }, new AbortController().signal).catch(() => null)
     assert.ok(!digs.some(p => p.x >= 219), 'the mutant does not reach the outside dirt (the starvation Codex r1 P1 named)')
@@ -425,7 +425,7 @@ test('MUTANT KILLED: surface without the named top refuses at once above sea lev
 })
 
 test('MUTANT KILLED: the town left out of the ONE keep-out -- the plan and the per-dig stop both lose it, and the stair cuts town ground', async () => {
-  await withMutant(SKILLS_URL, '    return composeKeepOut(farm, townKeepOut(townHome(), nameAt))\n', '    return composeKeepOut(farm)\n', async mod => {
+  await withMutant(SKILLS_URL, '    return composeKeepOut(farm, built, townKeepOut(townHome(), nameAt))\n', '    return composeKeepOut(farm, built)\n', async mod => {
     const bot = stairWorld({ at: [214, 65, 200], yaw: Math.PI / 2 })
     await runMine(mod, bot)
     const real = stairWorld({ at: [214, 65, 200], yaw: Math.PI / 2 })
@@ -482,17 +482,18 @@ test('MUTANT KILLED: the per-dig stop blind to the town -- the stale stair cuts 
 test('WIRED: no town entry on the transit arrays; the tunnel adds 100; the liveness row; chooseStairBearing honours its allowed bearings', () => {
   const idx = strip(readFileSync(INDEX_URL, 'utf8'))
   assert.doesNotMatch(idx, /makeTownStepCost|makeTownBreakCost\(townHome/, 'transit profiles carry no town entry')
-  assert.match(idx, /tunnelMovements\(bot, gatherMoves, \{ home: configuredHome\(config\.world\) \?\? \{ x: config\.world\.homeX, z: config\.world\.homeZ \} \}\)/)
+  // monument-01 adds the structure keep-out to the same call (structureguard); the town home is unchanged
+  assert.match(idx, /tunnelMovements\(bot, gatherMoves, \{ home: configuredHome\(config\.world\) \?\? \{ x: config\.world\.homeX, z: config\.world\.homeZ \}, keepOut: \(\) => structuresNow\(bot\) \}\)/)
   assert.match(idx, /logEvent\(\{ kind: 'town_ground', status: 'success'/)
   const tun = strip(readFileSync(TUNNEL_URL, 'utf8'))
-  assert.match(tun, /m\.exclusionAreasBreak = \[\.\.\.\(base\?\.exclusionAreasBreak \?\? \[\]\), b => \(nearHome\(b\?\.position, home\) \? 100 : breakHazard\(at, b\)\), makeTownBreakCost\(home, 100\)\]/,
+  assert.match(tun, /m\.exclusionAreasBreak = \[\.\.\.\(base\?\.exclusionAreasBreak \?\? \[\]\), b => \(nearHome\(b\?\.position, home\) \|\| reserved\(b\?\.position\) \? 100 : breakHazard\(at, b\)\), makeTownBreakCost\(home, 100\)\]/,   // + monument-01's reserved cells
     'nearHome stays and the town entry is added')
   const fake = { entity: { yaw: 0 }, blockAt: () => ({ name: 'stone', boundingBox: 'block' }) }
   assert.equal(chooseStairBearing(fake, V(0, 70, 0), 4, []), null, 'no allowed bearing -> null (mine guards it and names a move)')
   assert.deepEqual(chooseStairBearing(fake, V(0, 70, 0), 4, [{ x: 0, z: -1 }])?.bear, { x: 0, z: -1 }, 'only an allowed bearing is chosen')
   // ONE keep-out: the town is composed into minewell's plan (and so into its per-dig stop), and the far starts are offered
   const sk = strip(readFileSync(SKILLS_URL, 'utf8'))
-  assert.match(sk, /return composeKeepOut\(farm, townKeepOut\(townHome\(\), nameAt\)\)/)
+  assert.match(sk, /return composeKeepOut\(farm, built, townKeepOut\(townHome\(\), nameAt\)\)/)
   assert.doesNotMatch(sk, /townAllow|stairTownClear\(/, 'no second bearing filter in mine')
 })
 

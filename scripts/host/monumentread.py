@@ -17,8 +17,9 @@
 #                                    loop stalls: the coordinator's tripwire on the synchronous pre-click work; never one
 #                                    visit alone -- the death-gate lesson); defect; the stalls are named
 #             M5 guard_misfire       a canary structure-guard refusal (`_structure_refusal` by gather or the ore tunnel; mine's
-#                                    `_mine_well_guard ... keepout=monument` stop) at a cell OUTSIDE its pool's site box (the guard
-#                                    reserving what it should not); defect
+#                                    `_mine_well_guard ... keepout=monument` stop) at a cell OUTSIDE its pool's RECORDED site box
+#                                    (the guard reserving what it should not); defect. A refusal in a pool whose site is not in the
+#                                    window is guard_misfire_unread (blocks KEEP; never judged against the offline list)
 #             M6 waived_share        a `_monument` row whose open layer has >= 50 cells, >= 10 waived and > 2% of them (design 3.3:
 #                                    "a waived share above 2% of a layer is a read defect"); BLOCKS KEEP (never a revert: terrain
 #                                    such as lava pockets can waive cells -- Claude stage-4 r2 P1-1); the layer and the waived
@@ -28,7 +29,7 @@
 #             M2 gate_slow           visits whose pre-click gate p95 > 500 ms; defect
 #             M3 stuck_near          canary STILL runs (>= 10 min within 4 of the site box; a move of >= 2 blocks or a
 #                                    build_monument row restarts the clock; design G4) in the post period beyond the same bots'
-#                                    pre-period count; blocks KEEP
+#                                    pre-period RATE, per bot, carried over its own post hours present; blocks KEEP
 #             M4 gather_regressed    the NO-REGRESSION gate (coordinator 10-15): gather success share DiD below its no-change
 #                                    1% quantile, or the (unconfirmed + rejected) dig share DiD above its 99% quantile, from the
 #                                    band calibrated for THIS read's window and population (~/mcai-analysis/monument-gathernull
@@ -51,10 +52,9 @@ sys.path.insert(0, '/srv/mcb-analysis-lib')
 sys.path.insert(0, '/opt/minecraft-ai/scripts')
 sys.path.insert(0, '/home/mike/mcai-analysis')
 
-# the offline sites (bots/src/monumentjob.mjs MONUMENT_SITES): the fallback when no _monument_site row is in the window
-SITES = {'board-a': (289, 51), 'board-b': (-353, 58), 'board-c': (287, 59), 'board-d': (289, 53), 'hive-a': (287, 55),
-         'hive-b': (287, 71), 'hive-c': (-12, -156), 'hive-d': (120, -36), 'placebo-a': (189, -112), 'placebo-b': (186, -384),
-         'placebo-c': (287, 55), 'placebo-d': (245, -45)}
+# NO OFFLINE FALLBACK (Claude stage-4 r3 P3): the site box is the one the canary RECORDED -- `site=` on every `_monument` row,
+# `corner=` on `_monument_site`. Siting may verify a later candidate than the offline first; a pool whose site is not in the
+# window is UNREAD for M5 (a refusal there cannot be judged, and blocks KEEP) and has nothing for M3 to be stuck near.
 B, A = 48, 2
 NULL_PATH = os.path.expanduser('~/mcai-analysis/monument-gathernull.json')
 
@@ -124,6 +124,25 @@ def stuck_spans(samples, corner, min_s=600, move=2.0):
     return out
 
 
+def stuck_excess_by_bot(post, pre):
+    """PURE. M3's excess (Codex stage-4 r4 P2: per bot, on measured exposure). post/pre: {bot: (spans, hours present)}. Each
+    bot's expectation is ITS OWN pre rate carried over ITS OWN post hours (a bot with no pre exposure expects 0: every post span
+    counts); the excess is the post spans beyond the summed expectation, rounded up -> (excess, expected)."""
+    import math
+    expected = 0.0
+    for b, (_, h_post) in post.items():
+        n_pre, h_pre = pre.get(b, (0, 0.0))
+        if h_pre > 0:
+            expected += (n_pre / h_pre) * h_post
+    total = sum(n for n, _ in post.values())
+    return max(0, total - math.ceil(expected - 1e-9)), expected
+
+
+def hours_present(samples):
+    """PURE. [(t_seconds, ...)] -> hours, by distinct minutes with a row (a bot that came late or left early is exposed only then)."""
+    return len({int(s[0] // 60) for s in samples}) / 60.0
+
+
 POWER_MIN = 0.8
 
 
@@ -177,6 +196,12 @@ assert stuck_spans([(t, {'x': 300.0 + (i % 2) * 3, 'z': 60.0}, b) for i, (t, p, 
 _arr = [(i * 60, {'x': 290.0 + i, 'z': 60.0}, False) for i in range(10)] + [(600 + i * 60, {'x': 300.0, 'z': 60.0}, False) for i in range(31)]
 assert stuck_spans(_arr, (289, 51)) == [1800]
 assert stuck_spans([(i * 60, {'x': 300.0, 'z': 60.0}, False) for i in range(9)], (289, 51)) == [], 'under 10 minutes'
+assert stuck_excess_by_bot({'a': (2, 6.0)}, {'a': (1, 3.0)}) == (0, 2.0), 'the same rate over twice the hours'
+assert stuck_excess_by_bot({'a': (2, 3.0)}, {'a': (1, 3.0)})[0] == 1
+assert stuck_excess_by_bot({'new': (2, 1.0)}, {'gone': (9, 3.0)})[0] == 2, "a departed bot's pre spans never excuse a new bot's"
+assert stuck_excess_by_bot({'a': (1, 0.5)}, {'a': (3, 3.0)})[0] == 0, 'a brief post presence expects 0.5: one span is within'
+assert stuck_excess_by_bot({'a': (2, 0.5)}, {'a': (3, 3.0)})[0] == 1
+assert hours_present([(60 * i + 5, None) for i in range(30)] + [(60 * 3 + 30, None)]) == 0.5
 _band = {'success_share_did_q01': -0.08, 'bad_dig_share_did_q99': 0.05, 'min_calls': 50, 'mde_success_loss': 0.35, 'mde_bad_rise': 0.02}
 assert regressed(-0.10, 0.0, 60, _band)[0] == 1 and regressed(-0.01, 0.06, 60, _band)[0] == 1 and regressed(-0.01, 0.0, 60, _band)[0] == 0
 assert regressed(-0.5, 0.5, 10, _band)[0] is None and regressed(0, 0, 60, None)[0] is None
@@ -232,7 +257,7 @@ if __name__ == '__main__':
     rows = sorted(load_window(PRE, END), key=lambda r: r['t'])
     bots = defaultdict(set); offbuild = 0; leak = 0
     n = Counter(); stops = Counter(); stuckw = Counter(); gate95 = []; lags = []
-    visits = 0; placed = 0; cleared = 0; repairs = 0; refused = 0
+    visits = 0; placed = 0; cleared = 0; repairs = 0; refused = 0; rows_without_args = 0
     sites = {}
     samples = defaultdict(list); samples_pre = defaultdict(list)
     waived_rows, cover_stalls = [], []
@@ -261,8 +286,14 @@ if __name__ == '__main__':
                 leak += 1
             if arm != 'canary' or period != 'post':
                 continue
-            f = kv(r.get('detail') or sk.get('detail'))
+            # THE ARGS ARE THE SOURCE (logEvent cuts a detail at 300 chars: a cut row lost lag_ms_max, or cut it mid-digit)
+            f = dict(kv(r.get('detail') or sk.get('detail')), **{k: str(v) for k, v in (sk.get('args') or {}).items()})
             visits += 1; stops[f.get('stop', '?')] += 1
+            if not sk.get('args'):
+                rows_without_args += 1
+            sm = re.fullmatch(r'(-?\d+),(-?\d+)', str(f.get('site') or ''))
+            if sm:
+                sites[pool] = (int(sm.group(1)), int(sm.group(2)))
             placed += int(num(f, 'placed') or 0); cleared += int(num(f, 'cleared') or 0); repairs += int(num(f, 'repair') or 0)
             refused += int(num(f, 'refused') or 0) + int(num(f, 'silent') or 0)
             for part in str(f.get('stuck') or '').split(','):
@@ -320,7 +351,7 @@ if __name__ == '__main__':
     loop_stall = int(len(stalls) >= 2 and len(stalls) >= 0.05 * max(1, len(lags)))
     gate_slow = sum(1 for v in gate95 if v > 500)
     # M5: a canary structure-guard refusal (gather, ore tunnel, mine's stop) at a cell outside its own pool's site box
-    misfire, refusals = [], Counter()
+    misfire, misfire_unread, refusals = [], [], Counter()
     for r in rows:
         b = (r.get('bot') or {}).get('name') or ''
         if pool_of(b) not in CANS or r.get('t') is None or r['t'] < CUT:
@@ -330,30 +361,40 @@ if __name__ == '__main__':
         rc = refusal_cell(k, det)
         if rc:
             refusals[rc[0]] += 1
-            corner = sites.get(pool_of(b)) or SITES.get(pool_of(b))
-            if not near_site({'x': rc[1], 'z': rc[2]}, corner, margin=1):
+            corner = sites.get(pool_of(b))
+            if corner is None:
+                misfire_unread.append((b, rc))
+            elif not near_site({'x': rc[1], 'z': rc[2]}, corner, margin=1):
                 misfire.append((b, rc))
-    stuck = []
-    for b, s in samples.items():
-        corner = sites.get(pool_of(b)) or SITES.get(pool_of(b))
-        stuck += [(b, v) for v in stuck_spans(sorted(s, key=lambda x: x[0]), corner)]
-    # M3's BASELINE (Claude stage-4 r2 P3): the same canary bots' still runs near the site in the PRE period (no monument code);
-    # the gate fires only on more post spans than pre ones (a pre-existing idle spot is not the change)
-    stuck_pre = []
-    for b, s in samples_pre.items():
-        corner = sites.get(pool_of(b)) or SITES.get(pool_of(b))
-        stuck_pre += [(b, v) for v in stuck_spans(sorted(s, key=lambda x: x[0]), corner)]
+    # M3 PER BOT-HOUR (Claude stage-4 r3 P3): the post window is up to 6x the pre one, so a raw count compare fires on exposure
+    # alone. The same canary bots' pre-period rate (no monument code) is scaled to the post bot-hours; the gate is the EXCESS.
+    # Only pools whose recorded site is known: with no monument there is nothing to be stuck near.
+    def per_bot(smp):
+        out = {}
+        for b, sm in smp.items():
+            corner = sites.get(pool_of(b))
+            if corner is not None:
+                sm = sorted(sm, key=lambda x: x[0])
+                out[b] = ([(b, v) for v in stuck_spans(sm, corner)], hours_present(sm))
+        return out
+    pb_post, pb_pre = per_bot(samples), per_bot(samples_pre)
+    stuck = [x for v, _ in pb_post.values() for x in v]; stuck_pre = [x for v, _ in pb_pre.values() for x in v]
+    stuck_excess, stuck_expected = stuck_excess_by_bot({b: (len(v), h) for b, (v, h) in pb_post.items()}, {b: (len(v), h) for b, (v, h) in pb_pre.items()})
+    bh_post, bh_pre = sum(h for _, h in pb_post.values()), sum(h for _, h in pb_pre.values())
     pct = lambda xs, q: (sorted(xs)[min(len(xs) - 1, int(q * (len(xs) - 1)))] if xs else None)
     print('rows walked %d  |  canary %s  sha %s  cutoff %s  window +%d min  |  bots pre/post canary %d/%d control %d/%d  |  offbuild canary rows %d'
           % (len(rows), CAN, CV, CUT.strftime('%H:%MZ'), W, len(bots[('pre', 'canary')]), len(bots[('post', 'canary')]),
              len(bots[('pre', 'control')]), len(bots[('post', 'control')]), offbuild))
     print('LIVENESS     canary _monument visits %d | placed %d cleared %d repaired %d refused/silent %d | sites %s' % (visits, placed, cleared, repairs, refused, sites))
     print('             stops %s | stuck reasons %s' % (dict(stops.most_common(8)), dict(stuckw.most_common(8))))
+    print('ROWS         _monument rows without structured args (detail only, may be cut at 300): %d of %d' % (rows_without_args, visits))
     print('M1 (gate)    visits with event-loop lag > 2000 ms: %d   (lag p50 %s p95 %s max %s ms)' % (loop_stall, pct(lags, .5), pct(lags, .95), max(lags) if lags else None))
     print('M2 (gate)    visits with gate p95 > 500 ms: %d   (gate p95 per visit: p50 %s p95 %s max %s ms)' % (gate_slow, pct(gate95, .5), pct(gate95, .95), max(gate95) if gate95 else None))
     print('M1 named     %s' % (sorted(stalls, reverse=True)[:6],))
-    print('M3 (gate)    canary still runs >= 10 min near the site (rolling): post %d vs pre %d %s' % (len(stuck), len(stuck_pre), stuck[:4]))
-    print('M5 (gate)    structure-guard refusals outside the site box: %d %s | refusals by guard %s' % (len(misfire), misfire[:3], dict(refusals)))
+    print('M3 (gate)    canary still runs >= 10 min near the RECORDED site (rolling): post %d in %.1f bot-h vs pre %d in %.1f bot-h; expected from each bot\'s own pre rate %.2f -> excess %d %s'
+          % (len(stuck), bh_post, len(stuck_pre), bh_pre, stuck_expected, stuck_excess, stuck[:4]))
+    print('M5 (gate)    structure-guard refusals outside the recorded site box: %d %s | in a pool with no recorded site (UNREAD, blocks KEEP): %d %s | refusals by guard %s'
+          % (len(misfire), misfire[:3], len(misfire_unread), misfire_unread[:3], dict(refusals)))
     print('M6 (gate)    rows with > 2%% of the open layer waived: %d %s' % (len(waived_rows), waived_rows[:3]))
     print('STALL        visits stopped on a pending cover: %d %s' % (len(cover_stalls), cover_stalls[:3]))
     print('M4 (gate)    gather success share DiD %+.4f (band q01 %s, %s) | (unconf+rej) dig share DiD %+.4f (band q99 %s, %s) | canary calls post %d -> regressed %s %s'
@@ -373,9 +414,10 @@ if __name__ == '__main__':
         nanless = lambda v: None if v is None or v != v else round(v, 4)
         emit('monumentread', W, {
             'rows_canary_bots': len(bots[('post', 'canary')]), 'offbuild_canary': offbuild,
-            'licence_rows': visits, 'placed': placed, 'cleared': cleared, 'repairs': repairs, 'refused_or_silent': refused,
+            'licence_rows': visits, 'rows_without_args': rows_without_args, 'placed': placed, 'cleared': cleared, 'repairs': repairs, 'refused_or_silent': refused,
             'loop_stall': loop_stall, 'loop_stalls_named': sorted(stalls, reverse=True)[:6], 'gate_slow': gate_slow,
-            'stuck_near': max(0, len(stuck) - len(stuck_pre)), 'stuck_near_post': len(stuck), 'stuck_near_pre': len(stuck_pre),
+            'stuck_near': stuck_excess, 'stuck_near_post': len(stuck), 'stuck_near_pre': len(stuck_pre),
+            'stuck_bot_h_post': round(bh_post, 2), 'stuck_bot_h_pre': round(bh_pre, 2), 'guard_misfire_unread': len(misfire_unread),
             'refusals_by_guard': dict(refusals), 'waived_rows_named': waived_rows[:4],
             'guard_misfire': len(misfire), 'waived_share_defect': len(waived_rows), 'cover_stalls': len(cover_stalls),
             'gather_regressed': 0 if reg is None else reg, 'gather_regression_unread': int(reg is None), 'gather_components': comps,

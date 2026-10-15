@@ -126,7 +126,7 @@ const readRec = tag => MJ.readMonument(poolDir(tag), MJ.monumentKey(HOME)).recor
 const monRows = (tag, names) => names.flatMap(n => rowsOf(skillLog(tag, n)).filter(r => r.skill.name === '_monument' || r.skill.name === 'monument'))
 const fieldsOf = d => Object.fromEntries(String(d ?? '').split(' ').map(kv => kv.split('=')).filter(a => a.length === 2))
 function costSummary (rows) {
-  const f = rows.map(r => fieldsOf(r.skill.detail))
+  const f = rows.map(r => ({ ...fieldsOf(r.skill.detail), ...(r.skill.args ?? {}) }))   // args: never cut (the detail is cut at 300)
   const num = k => f.map(x => Number(x[k])).filter(Number.isFinite)
   return { visits: rows.length, placed: num('placed').reduce((a, b) => a + b, 0), gateP95Max: Math.max(0, ...num('gate_ms_p95')), gateMax: Math.max(0, ...num('gate_ms_max')),
            lagMax: Math.max(0, ...num('lag_ms_max')), stops: f.reduce((m, x) => { m[x.stop] = (m[x.stop] ?? 0) + 1; return m }, {}) }

@@ -79,7 +79,7 @@ import { validGeom } from './structures.mjs'
 import { runPlacements, standable as bdStandable, bk, isFullCube, walksTo as bdWalksTo } from './builder.mjs'
 import { botBuildEffects } from './buildbot.mjs'
 import { siteCandidates, verifySite, newRecord, readMonument, createMonumentGen, monumentKey, monumentPlan, layerCensus, coverHold, nextLayer,
-         segmentOf, mergeVisit, cellState, isClearable, isFillable, fundable, fundPick, monumentDetail, p95, SLOTS, SLOT_LEASE_MS, VISIT_MS,
+         segmentOf, mergeVisit, cellState, isClearable, isFillable, fundable, fundPick, monumentDetail, monumentArgs, p95, SLOTS, SLOT_LEASE_MS, VISIT_MS,
          VISIT_MAX_PLACEMENTS, REPAIR_PER_VISIT, layerClosable, unwaivable, fullSolid, clickLock, segmentChoice, cellStateAt, footingView } from './monumentjob.mjs'
 import { canonicalFarm, farmRecordRefusal, plotsOf, torchesOf, plotState, torchState, tendPlan, farmIndex, emptyFarmIndex, inPlotColumn,
          isPlotCell, farmNoDig, inFarmBox, farmPlaceRefusal, farmTendDetail, bonemealEnabled, farmEnabled, FARM_SPECIES, MIN_PLOTS,
@@ -7412,7 +7412,11 @@ async function buildMonument (ctx, _args, signal) {
   const items = () => bot.inventory?.items?.() ?? []
   const f = { t0, cobble0: items().reduce((n, it) => n + (it.name === 'cobblestone' ? it.count : 0), 0) }
   let rowDone = false
-  const row = status => { rowDone = true; logEvent({ kind: 'monument', status, snapshot: snapshot(bot), detail: monumentDetail({ ...f, cobble1: items().reduce((n, it) => n + (it.name === 'cobblestone' ? it.count : 0), 0) }) }) }
+  const row = status => {
+    rowDone = true
+    const ff = { ...f, cobble1: items().reduce((n, it) => n + (it.name === 'cobblestone' ? it.count : 0), 0) }
+    logEvent({ kind: 'monument', status, snapshot: snapshot(bot), detail: monumentDetail(ff), args: monumentArgs(ff) })
+  }
   const end = (status, failClass, why) => { f.stop ??= failClass ?? status; f.why = why; row(status); return { status, ...(failClass ? { failClass } : {}), detail: why } }
   if (!monumentEnabled()) return end('no_effect', 'monument_off', 'the town monument is switched off here (an isolated pool, or MONUMENT_ENABLED=false)')
   const dir = monumentDir(), key = monumentKeyNow(), g0 = monumentGeom(), home = structureHome()
@@ -7461,6 +7465,7 @@ async function buildMonument (ctx, _args, signal) {
   }
   let rec = { ...cur.record, key, gen: cur.gen }
   f.gen = cur.gen
+  f.site = rec.site?.corner ? `${rec.site.corner.x},${rec.site.corner.z}` : null   // the read's site box (Claude stage-4 r3 P3: never the offline list)
   if (rec.state !== 'building') return end('no_effect', 'monument_' + rec.state, `the town monument is ${rec.state}`)
   // ---- 2. an admission slot (at most SLOTS builders per world) ----
   let slot = null, slotKey = null
@@ -7567,10 +7572,13 @@ async function buildMonument (ctx, _args, signal) {
     }
     const fund0 = fundable(items())
     f.fund = fund0.total
+    const lock = clickLock(dir, key, me, { session: eff.session, present: eff.present, leftAt: eff.leftAt })
+    // MY OWN UNANSWERED CLICKS (an earlier visit's, or a session of mine that died mid-click): one barrier of mine settles them
+    if (lock.ownPending() && await eff.sync()) lock.settleOwn()
     const r = await runPlacements({
       // done = full, non-falling footing (a slab in a plan cell is not done: it waits and is waived)
       read: footingRead(eff.read), cells: [...repairs, ...mine, ...optional].map(c => ({ ...c, want: fullSolid })), start, box, feet: eff.feet, bodies: eff.bodies, self: eff.self, walkTo: eff.walkTo,
-      lock: clickLock(dir, key, me, eff.read, () => Date.now(), eff.heard, eff.tracked),
+      lock, sync: eff.sync,
       hold: async cell => { const name = fundPick(items(), cell); return name ? eff.hold({ ...cell, want: name }) : false },
       fence, click: eff.click,
       clear: (s, gate) => withDigScope(bot, { purpose: 'target', by: 'build_monument' }, () => eff.clear(s, gate)),
@@ -7578,6 +7586,7 @@ async function buildMonument (ctx, _args, signal) {
       // the visit's 90 s run from ARRIVAL (a walk from town may take most of a minute)
       aborted: () => !!signal?.aborted, maxSteps: VISIT_MAX_PLACEMENTS, deadline: Date.now() + VISIT_MS,
     })
+    if (lock.ownPending() && await eff.sync()) lock.settleOwn()   // a click left unanswered this visit: settle it before leaving
     f.stuckWhy = Object.entries(r.reasons ?? {}).map(([k, n]) => `${k}:${n}`).join(',') || '-'
     // ONLY BODIES IN THE WAY (a bot standing in a cell of the open layer) is not "nothing open": no long backoff for it
     f.onlyBodies = r.stop === 'no_step' && Object.keys(r.reasons ?? {}).length > 0 && Object.keys(r.reasons).every(k => /^body/.test(k))
