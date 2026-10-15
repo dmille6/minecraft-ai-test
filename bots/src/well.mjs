@@ -95,15 +95,24 @@ export const DECORATIONS = Object.freeze([
 
 /**
  * SCAFFOLD-CAPABLE DECORATIONS (owner 10-07: diorite, granite, andesite, stone_bricks "and similar"). These ARE used:
- * mineflayer-pathfinder builds with all six (scaffold.mjs PATHFINDER_SCAFFOLD), and the raw three are also the pillar and
+ * mineflayer-pathfinder builds with all of them (scaffold.mjs PATHFINDER_SCAFFOLD; stone_bricks and smooth_stone were two more
+ * until OWNER D8 made them building material, below), and the raw three are also the pillar and
  * rescue reflexes' blocks (reflex.mjs PLACEABLE, skills.mjs RESCUE_BLOCK) and climb-out blocks for the exit contract
- * (exit-contract.mjs scaffoldCount). So the well keeps a RESERVE: after any of the six goes, the bag must still hold
+ * (exit-contract.mjs scaffoldCount). So the well keeps a RESERVE: after any of them goes, the bag must still hold
  * STONE_GUARD of RESERVE_STONE -- cobblestone, cobbled_deepslate, andesite, diorite, granite, which EVERY one of those
  * consumers accepts. 64 covers the exit contract's reserve for an iron-depth descent (y 16 at sea level 63: debt 47 +
  * reserve 12 = 59 blocks). The reserve is kept FROM THE STONES ALREADY HELD (Codex r1): a bag of 36 diorite stacks with no
  * cobble disposes all but 64 diorite, so a guard-only full bag is never a dead end.
  */
-export const SCAFFOLD_DECORATIONS = Object.freeze(['andesite', 'diorite', 'granite', 'stone_bricks', 'mossy_cobblestone', 'smooth_stone'])
+export const SCAFFOLD_DECORATIONS = Object.freeze(['andesite', 'diorite', 'granite', 'mossy_cobblestone'])
+/**
+ * OFF THE JUNK LIST (OWNER D8, 10-15 "go with your recommendations"; docs/reports/townprojects-design-2026-10-14.md): stone_bricks
+ * and smooth_stone are BUILDING MATERIAL now -- the hall's walls and parapet, the blast furnaces' smooth stone -- so the
+ * well never takes them and the prune never pulls them. Measured 10-15: 18 stone_bricks and 1 smooth_stone in all 80 bags,
+ * 2 stone_bricks pickups in 24 h (positive control: 9,474 cobblestone pickups), so the change moves ~2 items a day.
+ * Both names are also in NEVER_DISPOSE below, so no list can put them back by accident.
+ */
+export const BUILDING_STONES = Object.freeze(['stone_bricks', 'smooth_stone'])
 export const STONE_GUARD = 64
 export const RESERVE_STONE = Object.freeze(['cobblestone', 'cobbled_deepslate', 'andesite', 'diorite', 'granite'])
 const RESERVE_SET = new Set(RESERVE_STONE)
@@ -113,7 +122,7 @@ export const WELL_JUNK = Object.freeze(new Set([...OWNER_JUNK_1004, ...DECORATIO
 
 /** Belt and braces: never disposed whatever a list says. (andesite, diorite and granite left this guard on the owner's
  *  10-07 "yes"; STONE_GUARD holds them back instead.) */
-const NEVER_DISPOSE = /(_(pickaxe|axe|shovel|hoe|sword)$|_log$|_wood$|_stem$|_planks$|_sapling$|_propagule$|_ore$|^raw_|_ingot$|_slab$|_trapdoor$|_bed$|^(cobblestone|cobbled_deepslate|stone|dirt|tuff|gravel|sand|netherrack|calcite|deepslate|sandstone|red_sandstone)$|^(apple|bread|carrot|potato|baked_potato|beetroot|melon_slice|sweet_berries|glow_berries|cookie)$|^(cooked_)?(beef|porkchop|chicken|mutton|rabbit|cod|salmon)$|^(stick|coal|charcoal|torch|crafting_table|chest|bone_meal|bamboo)$)/
+const NEVER_DISPOSE = /(^(stone_bricks|smooth_stone)$|_(pickaxe|axe|shovel|hoe|sword)$|_log$|_wood$|_stem$|_planks$|_sapling$|_propagule$|_ore$|^raw_|_ingot$|_slab$|_trapdoor$|_bed$|^(cobblestone|cobbled_deepslate|stone|dirt|tuff|gravel|sand|netherrack|calcite|deepslate|sandstone|red_sandstone)$|^(apple|bread|carrot|potato|baked_potato|beetroot|melon_slice|sweet_berries|glow_berries|cookie)$|^(cooked_)?(beef|porkchop|chicken|mutton|rabbit|cod|salmon)$|^(stick|coal|charcoal|torch|crafting_table|chest|bone_meal|bamboo)$)/
 
 /** May this item go down the well? On the list, AND not a guarded kind, AND not something the composter takes. */
 export function isWellJunk (name) {
