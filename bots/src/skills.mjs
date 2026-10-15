@@ -10285,8 +10285,6 @@ async function mine(ctx, { y: targetY = 12 }, signal) {
     for (const pos of [cellAbove, cellHead, cellFeet]) {
       const b = bot.blockAt(pos)
       if (!b || b.name === 'air' || b.name === 'cave_air') continue
-      const stopNow = shellStop(pos)
-      if (stopNow) return stopNow
       const tool = bestTool(bot, b)
       if (tool) await bot.equip(tool, 'hand').catch(() => {})
       if (!b.canHarvest(bot.heldItem?.type ?? null)) {
@@ -10297,6 +10295,9 @@ async function mine(ctx, { y: targetY = 12 }, signal) {
         return { status: 'failed', failClass: 'missing_tool',
                  detail: `need a better tool for ${b.name} at y=${Math.round(bot.entity.position.y)}` }
       }
+      // IMMEDIATELY BEFORE THE DIG, after the equip's await (Codex r2 P2): nothing awaits between this read and bot.dig
+      const stopNow = shellStop(pos)
+      if (stopNow) return stopNow
       try { await bot.dig(b) } catch (e) { if (e.aborted) throw e; break }
     }
 

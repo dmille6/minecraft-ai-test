@@ -154,20 +154,35 @@ await t('THE CHAIN, walled in within 8: mine looks again within 16 and WALKS the
   const to = bot._gotos[0]
   assert.ok(Math.max(Math.abs(to.x - 200), Math.abs(to.z - 200)) >= 11, `the walk went past the walls: ${JSON.stringify(to)}`)
 })
-await t('THE CHAIN, the walk-off unreachable: two different targets tried (never the same twice), then a refusal naming explore; performing it, mine descends clear', async () => {
-  let moving = false
-  const bot = wellWorld({ canMove: () => moving })
+await t('THE CHAIN, the walk-off unreachable: two different targets tried (never the same twice), then a refusal naming explore; the REAL explore skill performed, mine descends clear', async () => {
+  // the walk-off cells near the well cannot be reached (GoalBlock), the open country can (explore's GoalNear legs)
+  const bot = wellWorld({ canMove: g => g.rangeSq !== undefined || Math.max(Math.abs(g.x - 200), Math.abs(g.z - 200)) > 16 })
   const r = await run({ SKILLS }, bot)
   assert.equal(r.status, 'failed'); assert.equal(r.failClass, 'forbidden')
   assert.match(r.detail, /could not be reached from here; explore away from the well/, r.detail)
   assert.equal(bot._gotos.length, 2, 'two walk-off attempts'); assert.notDeepEqual(bot._gotos[0], bot._gotos[1], 'the same unreachable cell walked at twice')
   assert.equal(bot._digs.length, 0, 'nothing dug before the refusal')
-  // the remedy, as the model performs it: explore moves the bot away from the well; then mine
-  moving = true
-  bot.entity.position = new V(200.5, 64, 221.5)
+  // the remedy the refusal names, performed by the real skill: explore away from the well (heading +z, 40 blocks)
+  const e = await SKILLS.explore.run({ bot }, { blocks: 40, heading: 90 }, new AbortController().signal)
+  const p = bot.entity.position
+  assert.ok(Math.max(Math.abs(Math.floor(p.x) - 200), Math.abs(Math.floor(p.z) - 200)) >= 11, `explore moved the bot only to ${p.x},${p.z} (${e.status}: ${e.detail})`)
   const r2 = await run({ SKILLS }, bot)
   assert.equal(r2.status, 'success', `${r2.status}: ${r2.detail}`)
   assert.deepEqual(bot._digs.filter(d => inBox(d)), [])
+})
+// the well becomes known between the old read point and the dig: during the tool selection for the head cell
+const recogniseAtHead = (bot, set) => {
+  const at0 = bot.blockAt
+  bot.blockAt = p => { const b = at0(p); return p.x === 200 && p.y === 63 && p.z === 198 ? { ...b, canHarvest: () => { set(); return true } } : b }
+}
+await t('READ AFTER THE EQUIP: a well recognised between the tool selection and the head dig stops that dig (the read is the last thing before bot.dig)', async () => {
+  let known = []
+  const bot = wellWorld({ at: new V(200.5, 64, 196.5), yaw: 0, cols: () => known, solidAbove: new Set([key(200, 64, 198)]) })
+  recogniseAtHead(bot, () => { known = [CAP] })
+  const r = await run({ SKILLS }, bot)
+  assert.ok(bot._digs.some(d => d.x === 200 && d.y === 64 && d.z === 198), 'positive control: the ceiling was dug')
+  assert.equal(r.status, 'failed', `${r.status}: ${r.detail}`)
+  assert.deepEqual(bot._digs.filter(d => inBox(d)), [], 'the head cell was dug on a read taken before the equip')
 })
 await t('THE HOME GUARD COMPOSED: home 13 from the well -- the walk-off never ends within 12 of home, and the chain still descends', async () => {
   const bot = wellWorld()
@@ -216,7 +231,7 @@ await t('POSITIVE CONTROL for the chain: with no well known, the same stand desc
 
 // ---- MUTANTS --------------------------------------------------------------------------------------------------------------
 await t('MUTANT (skills): no plan AND no per-dig checks -- the stair from the stand digs the shell (the hive-d defect reproduced)', async () => {
-  await withMutants(SKP, [["  let wellPlan = planHere()\n", "  let wellPlan = { action: 'go', bearings: stairBearings(bot) }\n"], ["    for (const cell of [cellAbove, cellHead, cellFeet]) {\n      const stop = shellStop(cell)\n      if (stop) return stop\n    }\n", ''], ["      const stopNow = shellStop(pos)\n      if (stopNow) return stopNow\n", '']], async m => {
+  await withMutants(SKP, [["  let wellPlan = planHere()\n", "  let wellPlan = { action: 'go', bearings: stairBearings(bot) }\n"], ["    for (const cell of [cellAbove, cellHead, cellFeet]) {\n      const stop = shellStop(cell)\n      if (stop) return stop\n    }\n", ''], ["      // IMMEDIATELY BEFORE THE DIG, after the equip's await (Codex r2 P2): nothing awaits between this read and bot.dig\n      const stopNow = shellStop(pos)\n      if (stopNow) return stopNow\n", '']], async m => {
     const bot = wellWorld()
     await run(m, bot).catch(() => {})
     assert.ok(bot._digs.some(d => inBox(d)), 'mutant inert')
@@ -248,7 +263,7 @@ await t('MUTANT (minewell): the inside-the-well refusal removed -- a bot in the 
   })
 })
 await t('MUTANT (skills): the per-dig checks removed -- a well appearing mid-descent gets its shell dug', async () => {
-  await withMutants(SKP, [["    for (const cell of [cellAbove, cellHead, cellFeet]) {\n      const stop = shellStop(cell)\n      if (stop) return stop\n    }\n", ''], ["      const stopNow = shellStop(pos)\n      if (stopNow) return stopNow\n", '']], async m => {
+  await withMutants(SKP, [["    for (const cell of [cellAbove, cellHead, cellFeet]) {\n      const stop = shellStop(cell)\n      if (stop) return stop\n    }\n", ''], ["      // IMMEDIATELY BEFORE THE DIG, after the equip's await (Codex r2 P2): nothing awaits between this read and bot.dig\n      const stopNow = shellStop(pos)\n      if (stopNow) return stopNow\n", '']], async m => {
     let known = []
     const bot = wellWorld({ at: new V(200.5, 64, 192.5), yaw: 0, cols: () => known })
     const dig0 = bot.dig
@@ -273,6 +288,17 @@ await t('MUTANT (skills): no second, longer walk-off -- walled in within 8, mine
     for (let dx = -10; dx <= 10; dx++) for (let dz = -10; dz <= 10; dz++) for (const y of [63, 64, 65, 66]) if (!(dx === 0 && dz === 1 && y >= 64)) solid.add(key(200 + dx, y, 200 + dz))
     const r = await run(m, wellWorld({ solidAbove: solid }))
     assert.notEqual(r.status, 'success', 'mutant inert')
+  })
+})
+await t('MUTANT (skills): the per-dig read moved back before the equip -- a well recognised during the equip gets its cell dug', async () => {
+  const OLD = "      const tool = bestTool(bot, b)\n      if (tool) await bot.equip(tool, 'hand').catch(() => {})\n"
+  const READ = "      // IMMEDIATELY BEFORE THE DIG, after the equip's await (Codex r2 P2): nothing awaits between this read and bot.dig\n      const stopNow = shellStop(pos)\n      if (stopNow) return stopNow\n"
+  await withMutants(SKP, [[READ, ''], [OLD, "      // IMMEDIATELY BEFORE THE DIG, after the equip's await (Codex r2 P2): nothing awaits between this read and bot.dig\n      const stopNow = shellStop(pos)\n      if (stopNow) return stopNow\n" + OLD]], async m => {
+    let known = []
+    const bot = wellWorld({ at: new V(200.5, 64, 196.5), yaw: 0, cols: () => known, solidAbove: new Set([key(200, 64, 198)]) })
+    recogniseAtHead(bot, () => { known = [CAP] })
+    await run(m, bot).catch(() => {})
+    assert.ok(bot._digs.some(d => inBox(d)), 'mutant inert')
   })
 })
 await t('MUTANT (skills): relocation without the walk -- the replan from the stand refuses, the chain never descends', async () => {
