@@ -97,7 +97,7 @@ export function cobbleBankStacks (items = [], { creditCap = 64, reserve = COBBLE
 }
 
 /**
- * THE TOWN COBBLE CAP (cobblecap.mjs: 256 per town from reconciled chest observations, with reservations). Read through a
+ * THE TOWN COBBLE CAP (cobblecap.mjs: TOWN_COBBLE_CAP, 1000 since cobblecap-1000, per town from reconciled chest observations, with reservations). Read through a
  * reader skills.mjs installs per bot (it knows the town, the pool dir and the scan), like withdrawHolds: () -> the town
  * view { lb, complete, reserved, unknown } or null. No reader (a pure caller, a test) -> no town view: the whole-stack rule
  * alone. The deposit's TRANSFER re-judges every stack with a claim in the town's journal, so this is the plan's view, not

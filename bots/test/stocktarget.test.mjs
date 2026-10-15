@@ -127,9 +127,13 @@ await t('WELL: at-target surplus goes whole, smallest first, keeping the keeps a
 // ----------------------------------------------------------------------------------------------- pruning
 await t('PRUNE PICK: a fresh v2 count with full stacks of a group the town can spare; never a tool; never below target; bounded by free slots', () => {
   const now = 1e12
-  const obs = { a: { n: 0, at: now - 1000, v: 2, m: { oak_log: 640, stone_pickaxe: 40 } }, b: { n: 256, at: now - 1000, v: 2, m: { cobble: 256 } }, c: { n: 0, at: now - CC.FLOOR_TTL_MS - 1, v: 2, m: { stick: 6400 } } }
-  const p = P.prunePick({ obs, keys: ['a', 'b', 'c'], avail: { oak_log: 640, cobble: 256, stick: 6400 }, free: 10, now })
-  assert.equal(p.k, 'a'); assert.deepEqual(p.takes, [{ group: 'oak_log', stacks: 4 }], 'max 4; cobble at exactly 256 has no spare; a stale count is not used')
+  const obs = { a: { n: 0, at: now - 1000, v: 2, m: { oak_log: 640, stone_pickaxe: 40 } }, b: { n: CC.TOWN_COBBLE_CAP, at: now - 1000, v: 2, m: { cobble: CC.TOWN_COBBLE_CAP } }, c: { n: 0, at: now - CC.FLOOR_TTL_MS - 1, v: 2, m: { stick: 6400 } } }
+  const p = P.prunePick({ obs, keys: ['a', 'b', 'c'], avail: { oak_log: 640, cobble: CC.TOWN_COBBLE_CAP, stick: 6400 }, free: 10, now })
+  assert.equal(p.k, 'a'); assert.deepEqual(p.takes, [{ group: 'oak_log', stacks: 4 }], 'max 4; cobble at exactly its cap has no spare; a stale count is not used')
+  // cobblecap-1000: the cobble prune is keyed off the town cap (1000), never 256 -- a whole stack spare only past it
+  const cob = n => P.prunePick({ obs: { b: { n, at: now - 1000, v: 2, m: { cobble: n } } }, keys: ['b'], avail: { cobble: n }, free: 10, now })
+  assert.equal(cob(1063), null, '1000 + 63: no whole stack spare'); assert.equal(cob(384), null, 'the old 256 + 128 is below the cap now')
+  assert.deepEqual(cob(1064)?.takes, [{ group: 'cobble', stacks: 1 }], 'positive control: 1000 + 64 spares one stack')
   assert.equal(P.prunePick({ obs, keys: ['a'], avail: { oak_log: 128 }, free: 10, now }).stacks, 1, '128 - 64 = target: one stack')
   assert.equal(P.prunePick({ obs, keys: ['a'], avail: { oak_log: 127 }, free: 10, now }), null, 'one stack would go below target')
   assert.equal(P.prunePick({ obs, keys: ['a'], avail: { oak_log: 640 }, free: 1, now }), null, 'the bag keeps one empty slot')

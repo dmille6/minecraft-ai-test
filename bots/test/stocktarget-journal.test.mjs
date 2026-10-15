@@ -30,7 +30,7 @@ await t('TABLE: every targeted name is in exactly one group; no group names a pr
   }
   for (const n of ['iron_ingot', 'raw_copper', 'coal', 'oak_sapling', 'torch', 'crafting_table', 'chest', 'bucket', 'bamboo', 'iron_pickaxe', 'diamond'])
     assert.ok(!ST.isTargeted(n) || ST.isToolGroup(ST.groupOf(n)), `${n} must never be a bulk target`)
-  assert.equal(ST.targetOf('cobble'), CC.TOWN_COBBLE_CAP, 'cobble is the owner\'s 256')
+  assert.equal(ST.targetOf('cobble'), CC.TOWN_COBBLE_CAP, 'cobble is the owner\'s cap'); assert.equal(CC.TOWN_COBBLE_CAP, 1000, 'cobblecap-1000: OWNER 10-14')
   assert.deepEqual(['oak_log', 'stick', 'stone', 'dirt', 'gravel', 'stone_pickaxe'].map(ST.targetOf), [64, 64, 64, 0, 0, 16])
   assert.equal(ST.targetOf('no_such_group'), 0, 'an unknown group is never admitted')
 })
