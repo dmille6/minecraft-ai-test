@@ -21,6 +21,10 @@
 // priority), and anything structure-specific (the monument's frontier barrier and cover rule are stage 4's, expressed as
 // the list it hands in). Nothing here touches the world, the disk or mineflayer: the executor's effects are injected.
 
+// the timing clock (gateMs/planMs): imported, never the bare global -- the deploy's no-undef lint gate refuses a harness that
+// names an undeclared identifier (eslint.config.mjs), and stage-4's `performance.now()` default did exactly that
+import { performance } from 'node:perf_hooks'
+
 // ---- cells, reads --------------------------------------------------------------------------------------------------
 
 /** A cell's key: one exact number (plinth.mjs cellKey; |x|,|z| < 2^20, -512 <= y < 512). */
