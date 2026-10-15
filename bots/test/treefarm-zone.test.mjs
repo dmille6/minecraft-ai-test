@@ -80,7 +80,9 @@ test('ZONE x FARM CHAIN: only town ground and farm soil -> a refusal that names 
   bot.farmIndexNow = () => TF.farmIndex(farmRec)
   const r = await SKILLS.gather.run({ bot }, { block: 'dirt', count: 1 }, new AbortController().signal).catch(e => ({ status: 'threw', detail: e.message }))
   assert.equal(digs.length, 0, JSON.stringify(digs))
-  assert.notEqual(r.status, 'success')
+  // a REFUSAL naming the zone's remedy (Claude r12 P3: not merely "not success" -- a crash would have passed)
+  assert.equal(r.status, 'failed', `${r.status}: ${r.detail}`)
+  assert.match(String(r.detail), /town's ground|blocks from home/, r.detail)
 })
 
 // ---- the farm's own cells against the zone's rules (pure) ------------------------------------------------------------
@@ -98,17 +100,28 @@ test('THE FARM NEVER DIGS GROUND: every dig a farm visit can plan is a leftover 
   const states = [{ plot, state: 'logs_above', logs: [{ x: 206, y: 67, z: 206 }, { x: 206, y: 68, z: 206 }] }, { plot: { x: 210, y: 65, z: 206 }, state: 'soil_lost' }]
   const p = TF.tendPlan({ states, held: { dirt: 4 } })
   const digs = p.actions.filter(a => a.kind === 'dig')
-  assert.equal(digs.length, 2)
-  for (const d of digs) assert.equal(townDigClass(d.cell, 'birch_log', HOME), 'free')
+  // exactly the leftover LOG cells given (never the soil under them, never a torch floor) -- checked against the farm's own
+  // index, not by a name (Claude r12 P3: a name-based check passed for a plan that dug soil)
+  assert.deepEqual(digs.map(d => d.cell), [{ x: 206, y: 67, z: 206 }, { x: 206, y: 68, z: 206 }])
+  const idx = TF.farmIndex({ cells: states.map(s2 => ({ ...s2.plot, role: 'plot' })) })
+  for (const d of digs) {
+    assert.equal(TF.farmNoDig(idx, d.cell.x, d.cell.y, d.cell.z), false, 'never a soil cell')
+    assert.equal(TF.inPlotColumn(idx, d.cell.x, d.cell.y, d.cell.z) && !TF.isPlotCell(idx, d.cell.x, d.cell.y, d.cell.z), true, 'only above a plot cell, in its column')
+  }
   // and the soil goes back by PLACEMENT (the zone never restricts a placement)
   assert.deepEqual(p.actions.filter(a => a.role === 'soil').map(a => a.kind), ['place'])
 })
 
-test('MINE AND THE FARM INSIDE THE BOX: the zone\'s stair check (stairTownClear) refuses a stair that would cut a farm plot\'s soil inside the town box', () => {
-  const nameAt = (x, y, z) => (y <= 64 ? 'grass_block' : 'air')
-  const from = { x: 208, y: 65, z: 205 }
-  const r = stairTownClear(from, { x: 1, z: 0 }, HOME, nameAt)
-  assert.equal(r.clear, false, 'the stair eastward from inside the box cuts town ground (a plot\'s soil included)')
+test('MINE AND THE FARM INSIDE THE BOX: the zone\'s stair check refuses a stair whose first cut is a farm plot\'s SOIL (the plot beside the start), and a start outside the box is clear (positive control)', () => {
+  // only the plot's soil and the stone under it are terrain; everything else in the box is air, so the refused cell IS the soil
+  const plot = { x: 209, y: 65, z: 205 }
+  const idx = TF.farmIndex({ cells: [{ ...plot, role: 'plot' }] })
+  const nameAt = (x, y, z) => (TF.farmNoDig(idx, x, y, z) ? 'grass_block' : y < 50 ? 'stone' : 'air')
+  const r = stairTownClear({ x: 208, y: 65, z: 205 }, { x: 1, z: 0 }, HOME, nameAt)
+  assert.equal(r.clear, false)
+  assert.equal(TF.farmNoDig(idx, r.cell.x, r.cell.y, r.cell.z), true, `the refused cell is the plot's soil: ${JSON.stringify(r.cell)}`)
+  const outside = stairTownClear({ x: 200 + TOWN_GROUND_HALF + 4, y: 65, z: 205 }, { x: 1, z: 0 }, HOME, (x, y, z) => (y <= 64 ? 'grass_block' : 'air'))
+  assert.equal(outside.clear, true, 'outside the box (heading out) the zone refuses nothing')
 })
 
 test('THE FLOOR BAND IS THE ZONE\'S BAND: the farm\'s inFloorBand uses the zone\'s own constants (Chebyshev 16, home.y-12 .. home.y-2)', () => {
