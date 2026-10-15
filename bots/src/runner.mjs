@@ -317,6 +317,8 @@ export class Runner {
       // THE TOWN SMELT JOB's own count of raw copper the furnace turned into ingots (smeltTown; prior output excluded),
       // same rule: the bag ends where it began, so no inventory delta can show it (Paper 10-15: graded unknown without it)
       smelted: Number(result.smelted ?? 0),
+      // THE TOOLKIT's verified count of kit tools made (a NEW usable copy in the bag after its craft), same rule
+      kitCrafted: Number(result.kitCrafted ?? 0),
     }
 
     // THE EVIDENCE GATE. A claim of success does not leave this function unless
