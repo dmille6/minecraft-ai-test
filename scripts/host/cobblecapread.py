@@ -28,6 +28,10 @@
 #                the town deposit's cobble_cap at_cap; the max town_after seen per arm; rows whose cap= is neither cap
 #   TRIPWIRE     new town chests placed (_deposit_new_chest placed=1) per bot-h DiD and chest-full deposit failures per
 #                bot-h DiD: 1000 cobble is 16 chest slots, so a town fills sooner (reported, never a verdict)
+#                THE BANK CLOSED BELOW THE CAP (Claude cc1000-r1 P2, composition): a town under 1000 whose containers are
+#                full leaves the bag's surplus cobble nowhere -- no room to bank, cobble never opens a chest, the well takes
+#                cobble only at 1000, no prune. bank_closed rows per bot-h DiD: _cobble_bank rows with no_room > 0 plus
+#                deposit rows "cobble never opens a new chest". At 256 the well relieved it; at 1000 it may not.
 #   INSTRUMENT   control refusals at a COUNTED cobble cap (`_stock_refused ... at_cobble=1`) (>= 1: the population the
 #                change targets). Measured 10-15 03:10Z: the base wrote ZERO _cobble_bank rows in 3 h fleet-wide -- a town at
 #                its 256 is refused at admission (`_stock_refused via=admission ... at_cobble=1 cobblestone:N:cobble_cap`,
@@ -148,6 +152,8 @@ def judge(rows, cap, base_cap):
             out['new_chests_%s_%s' % (per, arm)] = sum(1 for r in rs if r['name'] == '_deposit_new_chest' and r['status'] == 'success' and 'placed=1' in r['detail'])
             out['fullfail_%s_%s' % (per, arm)] = sum(1 for r in rs if r['name'] in ('deposit', 'town_deposit') and r['status'] == 'failed' and 'full' in r['detail'])
             out['refused_cobble_%s_%s' % (per, arm)] = sum(1 for r in rs if r['name'] == '_stock_refused' and ' at_cobble=1 ' in ' %s ' % r['detail'])
+            out['bank_closed_%s_%s' % (per, arm)] = sum(1 for r in rs if (r['name'] == '_cobble_bank' and num(kv(r['detail']), 'no_room') > 0)
+                                                        or (r['name'] in ('deposit', 'town_deposit') and 'cobble never opens a new chest' in r['detail']))
     td = Counter()
     for r in post_c:
         if r['name'] == '_town_deposit':
@@ -202,6 +208,24 @@ def selftest():
         town_cobble_cap('/nonexistent/cobblecap1000/stocktarget.mjs'); raise AssertionError('an explicit missing module fell back to another build')
     except FileNotFoundError:
         pass
+    bc = judge([B(0, 400, 400) | {'detail': B(0, 400, 400)['detail'].replace('no_room=0', 'no_room=1')}, R('deposit', 'cobble never opens a new chest', status='no_effect'),
+                B(30, 400, 430)], 1000, 256)
+    assert bc['bank_closed_post_canary'] == 2, ('the bank closed below the cap', bc['bank_closed_post_canary'])
+    # THE STREAM'S BUILD FILTER (Claude cc1000-r1 P3): a canary post row of another build is dropped and counted; a versionless
+    # one is kept and counted apart; a control row of any build is kept
+    import tempfile
+    lr = tempfile.mkdtemp(prefix='cobblecap-logs-')
+    os.makedirs(os.path.join(lr, 'hive-a-Alpha')); os.makedirs(os.path.join(lr, 'board-a-Alpha'))
+    line = lambda ts, bot, ver, det: json.dumps({'@timestamp': ts, 'code': {'version': ver} if ver else {}, 'bot': {'name': bot},
+                                                 'skill': {'name': '_cobble_bank', 'status': 'success', 'detail': det}}, separators=(',', ':')) + '\n'
+    D = 'name=cobblestone moved=30 town_before=300 town_after=330 complete=1 cap=1000 at_cap=0'
+    with open(os.path.join(lr, 'hive-a-Alpha', 'skill-hive-a-Alpha.jsonl'), 'w') as fh:
+        fh.write(line('2026-10-14T12:01:00.000Z', 'hive-a-Alpha', 'abc1234+x', D) + line('2026-10-14T12:02:00.000Z', 'hive-a-Alpha', '5e66386+y', D)
+                 + line('2026-10-14T12:03:00.000Z', 'hive-a-Alpha', '', D))
+    with open(os.path.join(lr, 'board-a-Alpha', 'skill-board-a-Alpha.jsonl'), 'w') as fh:
+        fh.write(line('2026-10-14T12:01:00.000Z', 'board-a-Alpha', '5e66386+y', D.replace('cap=1000', 'cap=256')))
+    kept, walked, bots, bad, off, nov = stream(T0 - dt.timedelta(hours=1), T0 + dt.timedelta(hours=1), T0, {'hive-a'}, 'abc1234', logroot=lr)
+    assert walked == 4 and off == 1 and len(kept) == 3 and nov == {'_cobble_bank': 1}, (walked, off, len(kept), nov)
     ready = judge([B(30, 256, 286), B(30, 300, 330, mins=1), B(0, 990, 990, mins=2, at_cap=1), RF(**CTL)], 1000, 256)
     assert ready['exposure_ready'] == 1 and ready['exposure_rows'] == 3, ready
     assert judge([B(30, 256, 286), B(30, 300, 330, mins=1), B(0, 990, 990, mins=2, at_cap=1), RF(**CTL)], 1000, 1000)['exposure_ready'] == 0, 'equal caps: never ready'
@@ -271,7 +295,7 @@ if __name__ == '__main__':
     rate = lambda n, per, arm: n / hrs(per, arm) if hrs(per, arm) else float('nan')
     didof = lambda k: (rate(res[k + '_post_canary'], 'post', 'canary') - rate(res[k + '_pre_canary'], 'pre', 'canary')) \
         - (rate(res[k + '_post_control'], 'post', 'control') - rate(res[k + '_pre_control'], 'pre', 'control'))
-    dids = {k: didof(k) for k in ('moved', 'at_cap', 'well_cobble', 'new_chests', 'fullfail', 'refused_cobble')}
+    dids = {k: didof(k) for k in ('moved', 'at_cap', 'well_cobble', 'new_chests', 'fullfail', 'refused_cobble', 'bank_closed')}
     print('DENOMINATORS rows walked %d (unparsable %d) | bots pre canary %d control %d | post canary %d control %d | window %d min | other-build canary rows %d'
           % (walked, bad, len(bots[('pre', 'canary')]), len(bots[('pre', 'control')]), len(bots[('post', 'canary')]), len(bots[('post', 'control')]), W, offbuild))
     print('CAPS         canary %d (%s) | base %d (%s) | control rows by cap= %s | versionless canary rows %s%s' % (CAP, CANARY_ST, BASE, BASE_ST, CTL_CAPS, noversion or '-',
@@ -286,6 +310,8 @@ if __name__ == '__main__':
              res['max_town_after_canary'], res['max_town_after_control'], res['td_cobble_cap'], res['cap_field_other']))
     print('TRIPWIRE     new town chests DiD %+.4f/bot-h (canary %d control %d) | chest-full deposit failures DiD %+.4f/bot-h (canary %d control %d)'
           % (dids['new_chests'], res['new_chests_post_canary'], res['new_chests_post_control'], dids['fullfail'], res['fullfail_post_canary'], res['fullfail_post_control']))
+    print('BANK CLOSED  below the cap (no room / cobble never opens a chest): canary %d -> %d control %d -> %d (DiD %+.4f/bot-h; tripwire, Claude cc1000-r1 P2)'
+          % (res['bank_closed_pre_canary'], res['bank_closed_post_canary'], res['bank_closed_pre_control'], res['bank_closed_post_control'], dids['bank_closed']))
     print('REFUSALS     at a counted cobble cap: canary %d -> %d control %d -> %d (DiD %+.3f/bot-h; should fall)' % (res['refused_cobble_pre_canary'], res['refused_cobble_post_canary'],
           res['refused_cobble_pre_control'], res['refused_cobble_post_control'], didof('refused_cobble')))
     print('EXPOSURE     canary rows at or above the base cap %d (>= %d) | instrument (control refusals at a counted cobble cap) %d -> %s'
@@ -298,7 +324,7 @@ if __name__ == '__main__':
         clean = lambda v: None if v != v else round(v, 4)
         fields = {k: v for k, v in res.items() if not k.startswith('_') and not isinstance(v, dict)}
         fields.update({'moved_did': clean(dids['moved']), 'at_cap_did': clean(dids['at_cap']), 'well_cobble_did': clean(dids['well_cobble']),
-                       'new_chest_did': clean(dids['new_chests']), 'fullfail_did': clean(dids['fullfail']), 'refused_cobble_did': clean(dids['refused_cobble']), 'other_build_rows': offbuild,
+                       'new_chest_did': clean(dids['new_chests']), 'fullfail_did': clean(dids['fullfail']), 'refused_cobble_did': clean(dids['refused_cobble']), 'bank_closed_did': clean(dids['bank_closed']), 'other_build_rows': offbuild,
                        'journal_audit_ran': int(jr is not None), 'breach_c5_journal': jr['breach_c5_journal'] if jr is not None else 0,
                        # Codex cc1000-r1 P2: a partial audit is visible in the record, not only on the console
                        'journal_unreadable': len(jr['unreadable']) if jr is not None else None, 'journal_dirs': jr['dirs'] if jr is not None else 0,
