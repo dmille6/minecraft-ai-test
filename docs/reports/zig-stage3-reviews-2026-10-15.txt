@@ -1,0 +1,171 @@
+ZIGGURAT STAGE 3 (structureguard-01 + the generic placement builder) -- REVIEW RECORD, 2026-10-15
+Branch structureguard-on-835ef3f (base 835ef3f0 = treefarm-02 on minewell-01). Rounds: r1 93c126df, r2 d652ebe5,
+r3 75e651dd, r4 d4edb671 (+6f957f68 test comment), r5 59536c88 (+eb407fa0 Paper scene criterion).
+Briefs: the prompts are reproduced in the report's review section; Codex ran as `codex exec --skip-git-repo-check`
+in the branch worktree; the Claude reviewer was a separate read-only agent working from clean `git archive` exports.
+
+VERDICTS
+  Codex  r1 CHANGE (3 P1, 2 P2, 1 P3) -> r2 CHANGE (3 P1, 1 P3) -> r3 CHANGE (1 P1) -> r4 APPROVE (2 P3, both fixed in r5)
+  Claude r1 CHANGE (0 P1, 6 P2, P3s)  -> r2 CHANGE (3 P2, P3s)  -> r3 APPROVE (4 P3, fixed in r4) -> r4 CHANGE (one committed
+         mutant file) -> r5 APPROVE
+
+======================================================================== CODEX r1 (final answer, verbatim)
+1. **P1 — Placement can occur after lease loss or abort.** `bots/src/buildbot.mjs:56–60`, `bots/src/builder.mjs:364–369`  
+   The executor checks the fence, then the adapter awaits `lookAt` and four ticks before calling `placeBlock`. Body and escape checks also precede asynchronous equip work. I reproduced `placeBlock` executing after both lease loss and abort during the tick wait. **Fix:** finish preparation first, then revalidate bodies, stand/escape, abort, and fence immediately before placement. Test the real adapter with state changes during those awaits.
+
+2. **P1 — Gather/tunnel protection is not enforced at dig time.** `bots/src/skills.mjs:1848`, `bots/src/oretunnel.mjs:192`  
+   Gather checks reservations during enumeration, then collectblock can walk before digging without another structure check. The tunnel exclusion applies during planning; its executor consumes planned breaks without reevaluating that callback. A newly recorded monument can therefore be dug even after the two-second cache expires. **Fix:** add an uncached reservation check at the actual target-dig boundary, including tunnel breaks, while preserving transit/survival exemptions. Test record creation during approach and tunnel execution.
+
+3. **P1 — Mine’s inherited walk-off cannot escape a large reservation.** `bots/src/skills.mjs:10625–10638`, `bots/src/minewell.mjs:74–82`  
+   Relocation searches only 16 blocks horizontally and ±1 vertically. At the centre of an unbuilt 48×48 reservation, every candidate remains reserved; I reproduced refusal despite an unobstructed walk to the apron. Upper terraces also require larger elevation changes. The result merely advises exploration. **Fix:** derive reachable walk-off destinations from the monument boundary and terrain, execute the walk deterministically, then replan. Add centre and summit chain tests.
+
+4. **P2 — Reserved blocks consume gather’s entire candidate allowance.** `bots/src/skills.mjs:1845–1848`  
+   Filtering happens after `findBlocks(count: 32)`. Thirty-two nearby reserved blocks hide farther unreserved material within `maxDistance`, producing `nothing_found`. The alternative searches repeat this pattern. The Paper scene’s 12 reserved stone cells cannot expose it. **Fix:** exclude reservations inside enumeration, before counting results; test more than 32 reserved matches plus reachable unreserved material.
+
+5. **P2 — Incomplete builds and truncated proofs report success.** `bots/src/builder.mjs:351`, `bots/src/builder.mjs:308`  
+   `runPlacements` returns `complete` when only blocked or unloaded cells remain. Separately, `sequence(maxSteps: 1)` returns a success-shaped result for a two-cell plan. I reproduced both. **Fix:** require `done === total` for completion, return explicit blocked/unknown outcomes, and return `why: 'max_steps'` when proof work remains.
+
+6. **P3 — Two “killed mutant” tests never mutate anything.** `bots/test/structureguard.test.mjs:207–221`  
+   The gather and tunnel cases inspect unchanged source; neither applies a mutant nor demonstrates the intended assertion failing. **Fix:** apply uniquely anchored mutations and exercise behavior, especially gather enumeration and adapter timing. Label remaining source checks accurately.
+
+VERDICT: CHANGE
+1. **P1 — Placement can occur after lease loss or abort.** `bots/src/buildbot.mjs:56–60`, `bots/src/builder.mjs:364–369`  
+   The executor checks the fence, then the adapter awaits `lookAt` and four ticks before calling `placeBlock`. Body and escape checks also precede asynchronous equip work. I reproduced `placeBlock` executing after both lease loss and abort during the tick wait. **Fix:** finish preparation first, then revalidate bodies, stand/escape, abort, and fence immediately before placement. Test the real adapter with state changes during those awaits.
+
+2. **P1 — Gather/tunnel protection is not enforced at dig time.** `bots/src/skills.mjs:1848`, `bots/src/oretunnel.mjs:192`  
+   Gather checks reservations during enumeration, then collectblock can walk before digging without another structure check. The tunnel exclusion applies during planning; its executor consumes planned breaks without reevaluating that callback. A newly recorded monument can therefore be dug even after the two-second cache expires. **Fix:** add an uncached reservation check at the actual target-dig boundary, including tunnel breaks, while preserving transit/survival exemptions. Test record creation during approach and tunnel execution.
+
+3. **P1 — Mine’s inherited walk-off cannot escape a large reservation.** `bots/src/skills.mjs:10625–10638`, `bots/src/minewell.mjs:74–82`  
+   Relocation searches only 16 blocks horizontally and ±1 vertically. At the centre of an unbuilt 48×48 reservation, every candidate remains reserved; I reproduced refusal despite an unobstructed walk to the apron. Upper terraces also require larger elevation changes. The result merely advises exploration. **Fix:** derive reachable walk-off destinations from the monument boundary and terrain, execute the walk deterministically, then replan. Add centre and summit chain tests.
+
+4. **P2 — Reserved blocks consume gather’s entire candidate allowance.** `bots/src/skills.mjs:1845–1848`  
+   Filtering happens after `findBlocks(count: 32)`. Thirty-two nearby reserved blocks hide farther unreserved material within `maxDistance`, producing `nothing_found`. The alternative searches repeat this pattern. The Paper scene’s 12 reserved stone cells cannot expose it. **Fix:** exclude reservations inside enumeration, before counting results; test more than 32 reserved matches plus reachable unreserved material.
+
+5. **P2 — Incomplete builds and truncated proofs report success.** `bots/src/builder.mjs:351`, `bots/src/builder.mjs:308`  
+   `runPlacements` returns `complete` when only blocked or unloaded cells remain. Separately, `sequence(maxSteps: 1)` returns a success-shaped result for a two-cell plan. I reproduced both. **Fix:** require `done === total` for completion, return explicit blocked/unknown outcomes, and return `why: 'max_steps'` when proof work remains.
+
+6. **P3 — Two “killed mutant” tests never mutate anything.** `bots/test/structureguard.test.mjs:207–221`  
+   The gather and tunnel cases inspect unchanged source; neither applies a mutant nor demonstrates the intended assertion failing. **Fix:** apply uniquely anchored mutations and exercise behavior, especially gather enumeration and adapter timing. Label remaining source checks accurately.
+
+VERDICT: CHANGE
+
+======================================================================== CODEX r2 (final answer, verbatim)
+1. **P1 — The final placement gate still permits entombment after asynchronous preparation.** `bots/src/builder.mjs:399–405`  
+   The gate checks body overlap, but does not repeat the bystander escape check or `standOk`. I reproduced a bystander entering a dead-end tunnel during `hold()`: fresh planning rejects the placement with `body_walled`, yet the gate returns `null`, placement succeeds, and the bystander cannot exit. The builder’s own stand/escape proof also predates equip, look, and tick waits.  
+   **Fix:** revalidate the current stand and before/after escape routes for current bodies inside the final gate, using fresh reads, with the fence last. Add tests for movement and world changes during preparation.
+
+2. **P1 — Tunnel reservations still are not enforced at the dig boundary.** `bots/src/skills.mjs:1713–1720`  
+   A 500 ms poll cannot guarantee “stops before the next dig.” The installed pathfinder consumes `toBreak`, awaits equip, and calls `bot.dig` without reevaluating exclusions. A reservation recorded between polls can therefore be dug. Furthermore, the watcher checks only the original `plan.breaks`, while execution replans and can choose different breaks.  
+   **Fix:** add an uncached, tunnel-scoped check for the actual block immediately before each dig packet, after equip/look preparation. Preserve transit/survival exemptions. Test reservation creation between polling ticks and breaks introduced by replanning.
+
+3. **P1 — Gather’s fresh reservation check still precedes the final look await.** `bots/src/skills.mjs:1373–1374`, `bots/src/skills.mjs:1398–1407`  
+   Normal `bot.dig(block, undefined)` awaits Mineflayer’s `lookAt` before sending its packet. The explicit `beforeDig` branch likewise awaits a look after the structure check. I reproduced a record appearing during that explicit look: `collectManually` subsequently dug the now-reserved cell at `232,63,230`.  
+   **Fix:** complete the look first for every gather target, then perform the fresh reservation check and other final checks, and call `bot.dig` with `forceLook: 'ignore'`. Test a record created during the look.
+
+4. **P3 — The tunnel reservation error becomes an unhandled rejection.** `bots/src/skills.mjs:1728–1732`  
+   The first `.then` already settles the outer promise through `resolve`/`reject`. The following `.then` throws the reservation error on a detached promise chain. I reproduced the caller receiving `GoalChanged` while the intended structure error surfaced separately as `unhandledRejection`.  
+   **Fix:** check `reservedNow` before settling the returned promise, preferably by returning a single promise chain with cleanup in `finally`.
+
+Validation: builder **21/21** passed; structureguard passed through the repository runner. The additional reproductions above expose gaps those tests do not cover.
+
+VERDICT: CHANGE
+1. **P1 — The final placement gate still permits entombment after asynchronous preparation.** `bots/src/builder.mjs:399–405`  
+   The gate checks body overlap, but does not repeat the bystander escape check or `standOk`. I reproduced a bystander entering a dead-end tunnel during `hold()`: fresh planning rejects the placement with `body_walled`, yet the gate returns `null`, placement succeeds, and the bystander cannot exit. The builder’s own stand/escape proof also predates equip, look, and tick waits.  
+   **Fix:** revalidate the current stand and before/after escape routes for current bodies inside the final gate, using fresh reads, with the fence last. Add tests for movement and world changes during preparation.
+
+2. **P1 — Tunnel reservations still are not enforced at the dig boundary.** `bots/src/skills.mjs:1713–1720`  
+   A 500 ms poll cannot guarantee “stops before the next dig.” The installed pathfinder consumes `toBreak`, awaits equip, and calls `bot.dig` without reevaluating exclusions. A reservation recorded between polls can therefore be dug. Furthermore, the watcher checks only the original `plan.breaks`, while execution replans and can choose different breaks.  
+   **Fix:** add an uncached, tunnel-scoped check for the actual block immediately before each dig packet, after equip/look preparation. Preserve transit/survival exemptions. Test reservation creation between polling ticks and breaks introduced by replanning.
+
+3. **P1 — Gather’s fresh reservation check still precedes the final look await.** `bots/src/skills.mjs:1373–1374`, `bots/src/skills.mjs:1398–1407`  
+   Normal `bot.dig(block, undefined)` awaits Mineflayer’s `lookAt` before sending its packet. The explicit `beforeDig` branch likewise awaits a look after the structure check. I reproduced a record appearing during that explicit look: `collectManually` subsequently dug the now-reserved cell at `232,63,230`.  
+   **Fix:** complete the look first for every gather target, then perform the fresh reservation check and other final checks, and call `bot.dig` with `forceLook: 'ignore'`. Test a record created during the look.
+
+4. **P3 — The tunnel reservation error becomes an unhandled rejection.** `bots/src/skills.mjs:1728–1732`  
+   The first `.then` already settles the outer promise through `resolve`/`reject`. The following `.then` throws the reservation error on a detached promise chain. I reproduced the caller receiving `GoalChanged` while the intended structure error surfaced separately as `unhandledRejection`.  
+   **Fix:** check `reservedNow` before settling the returned promise, preferably by returning a single promise chain with cleanup in `finally`.
+
+Validation: builder **21/21** passed; structureguard passed through the repository runner. The additional reproductions above expose gaps those tests do not cover.
+
+VERDICT: CHANGE
+
+======================================================================== CODEX r3 (final answer, verbatim)
+1. **P1 — The tunnel guard still checks reservations before an await.** `bots/src/skills.mjs:7366–7372`  
+   `forceLook: true` does not remove Mineflayer’s `await bot.lookAt(...)`: the installed `digging.js:121` still yields before sending `block_dig`. I reproduced this using the installed digging plugin: a queued microtask created the monument record after the guard’s check, and the dig packet was sent while that cell was reserved. The new test’s stubbed `bot.dig` misses this boundary.
+
+   **Fix:** for pathfinder digs, complete the forced look first, then perform the uncached reservation check and call the original dig with `'ignore'`, as gather now does. Add a regression using the real digging plugin with a reservation created during the look.
+
+Validation: builder, structureguard, oretunnel, and all three minewell-related test files passed. No additional findings in the reviewed changes.
+
+VERDICT: CHANGE
+1. **P1 — The tunnel guard still checks reservations before an await.** `bots/src/skills.mjs:7366–7372`  
+   `forceLook: true` does not remove Mineflayer’s `await bot.lookAt(...)`: the installed `digging.js:121` still yields before sending `block_dig`. I reproduced this using the installed digging plugin: a queued microtask created the monument record after the guard’s check, and the dig packet was sent while that cell was reserved. The new test’s stubbed `bot.dig` misses this boundary.
+
+   **Fix:** for pathfinder digs, complete the forced look first, then perform the uncached reservation check and call the original dig with `'ignore'`, as gather now does. Add a regression using the real digging plugin with a reservation created during the look.
+
+Validation: builder, structureguard, oretunnel, and all three minewell-related test files passed. No additional findings in the reviewed changes.
+
+VERDICT: CHANGE
+
+======================================================================== CODEX r4 (final answer, verbatim)
+The round-3 P1 is fixed. No remaining P1/P2 findings.
+
+1. **P3 — Generated mutant committed.** `bots/test/.mutant-tfmw-97203-i8seuad8sue.mjs:28`  
+   This 13,601-line temporary copy contains checkout-specific absolute imports and is excluded from the test runner. **Fix:** delete it and ignore generated `.mutant-*.mjs` files.
+
+2. **P3 — Tunnel scene can pass without observing a refusal.** `sandbox/builder/sguard-builder-e2e.mjs:307`  
+   `out.ok` only requires a record write and unchanged stone count. A stalled bot or timed-out gather can therefore pass without exercising the guard. **Fix:** also require gather completion and the expected structure-reservation refusal in the tunnel log.
+
+Validation: builder, structureguard, oretunnel, and all three minewell-related test files passed. Tests ran at `6f957f68`, which differs from `d4edb671` only in the mutant’s explanatory comment. Paper scenes were not rerun.
+
+VERDICT: APPROVE
+The round-3 P1 is fixed. No remaining P1/P2 findings.
+
+1. **P3 — Generated mutant committed.** `bots/test/.mutant-tfmw-97203-i8seuad8sue.mjs:28`  
+   This 13,601-line temporary copy contains checkout-specific absolute imports and is excluded from the test runner. **Fix:** delete it and ignore generated `.mutant-*.mjs` files.
+
+2. **P3 — Tunnel scene can pass without observing a refusal.** `sandbox/builder/sguard-builder-e2e.mjs:307`  
+   `out.ok` only requires a record write and unchanged stone count. A stalled bot or timed-out gather can therefore pass without exercising the guard. **Fix:** also require gather completion and the expected structure-reservation refusal in the tunnel log.
+
+Validation: builder, structureguard, oretunnel, and all three minewell-related test files passed. Tests ran at `6f957f68`, which differs from `d4edb671` only in the mutant’s explanatory comment. Paper scenes were not rerun.
+
+VERDICT: APPROVE
+
+======================================================================== CLAUDE r1 (93c126df) -- CHANGE (condensed; every finding kept)
+P1: none (nothing reaches the fleet until stage 4 writes a record and calls the builder).
+P2-1 builder walls in a stationary bystander: bottom-up raises every column around a body (7x7x4 sim: walksTo(body->start)
+     false). Fix: a body that walks back before a click must after it.                                  -> r2 wallsInBody
+P2-2 gather's findBlocks(count 32) runs before the reserve filter: on/next to a 48x48 monument all 32 are reserved ->
+     false nothing_found.                                                                                -> r2 unreservedOf
+P2-3 reserved iron can be an ore-tunnel candidate (gather then refuses it at the end of the walk).         -> r2 filtered
+P2-4 mine from an upper terrace dead-ends (relocation +-1 level, FAR_RADIUS 16): advice, not a move.       -> r2 off-monument walk
+P2-5 monumentIndex trusts the record: a corner without x reserves a world-long band (NaN passes bounds); S<=0 hangs. -> r2
+P2-6 each executor step: 625k uncached reads (13.3M with box null) on a 48 layer.                        -> r2 memo + box
+P3: walkReachBack not the exact inverse (safe side; 979/4390 mismatches with a tight box); the fence not literally last;
+    hold() ignores cell.want; bodies by distance to the bot and the bot's own body; identity bound (unbounded goto);
+    well+monument labels; farm=1 on monument rows; world check not sameWorld; two "MUTANT KILLED" titles were source greps;
+    mid-descent test asserted conditionally. Answers: the 2 s cache vs uncached mine is not a real gap.
+======================================================================== CLAUDE r2 (d652ebe5) -- CHANGE
+Checked correct: gate after the last await (forceLook 'ignore' -> block_place in the same turn); gather dig-time check;
+bystander fix (7x7x4 rerun: way out kept); walkReachBack 0 mismatches in 4,101 / 4,523 (forbid) / 4,390 (tight box);
+malformed records; reads per step 625k -> 42k; ore filter; unreservedOf vs the palette pass; off-monument walk; honest
+stops; sameWorld; keepout=monument; hold uses want; timeout bound.
+P2-A tunnel stop gave the wrong reason + an unhandled rejection (second .then).                          -> r3 one chain
+P2-B bystanders > 8 from the builder unprotected (mean 16.6 blocks between consecutive cells on a 48 layer). -> r3 radius 64
+P2-C a bad stairFace throws inside the reader and is never cached (retried per matcher call, fails open). -> r3 validated
+P3: walking order (~16.6 blocks per placement) -> stage 4; well+monument refusal carries no kind; re-run Paper on d652ebe5.
+======================================================================== CLAUDE r3 (75e651dd) -- APPROVE
+All r2 fixes confirmed (gate order; tunnel boundary against pathfinder source: digging=true before bot.dig(block,true),
+.catch -> resetPath; one chain; LIFO restore with digtown's wrapper; gather look->check->dig 'ignore'; radius 64; stairFace).
+P3-1 the kind still lost at 4 sites when a well and the monument block                                     -> r4 keepKind
+P3-2 the tunnel guard could refuse a reflex dig issued while pathfinder is mining                          -> r4 forceLook===true
+P3-3 no Paper scene for the tunnel boundary                                                               -> r4 `tunnel`
+P3-4 the gate does ~36k synchronous reads per click (~62 ms in a fake world)                               -> measured on Paper
+VERDICT: APPROVE
+======================================================================== CLAUDE r4 (d4edb671) -- CHANGE
+All four P3 fixes and Codex r3 P1 confirmed correct (the guard looks, checks, digs 'ignore'; digFace unchanged; async guard
+fits pathfinder's chain; real-plugin test). P2: a generated mutant copy (bots/test/.mutant-tfmw-*.mjs, 13,601 lines, 55
+absolute paths) was committed. Fix: git rm + ignore .mutant-*/_mutant-*.                                      -> r5
+======================================================================== CLAUDE r5 (59536c88) -- APPROVE
+File removed; .gitignore patterns confirmed with git check-ignore (they do not catch *-mutants.test.mjs); the tunnel scene
+criterion traced. No findings. VERDICT: APPROVE

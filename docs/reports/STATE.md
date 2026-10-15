@@ -12,6 +12,44 @@ Studio reservation both closed 10-12); clear caps bamboo 0 / bucket 2._
 
 ---
 
+## 10-15 10:17Z — ZIGGURAT STAGE 3 DONE: structureguard-01 + the generic placement builder; both engines APPROVE; NO standalone canary (recommend folding into monument-01, stage 4)
+(The stage 1-2 entry below is stamped ~10:30Z; it was written before this one, so read that stamp as earlier.)
+- **Branch:** `structureguard-on-835ef3f` @ **eb407fa0**, pushed. Base 835ef3f0 = treefarm-02 on minewell-01. The guard
+  composes into minewell's planMineStart, so 5e663860 and b7cc60b5 cannot carry it.
+- **Report:** `docs/reports/zig-stage3-structureguard-builder-2026-10-15.md`.
+- **Reviews:** `zig-stage3-reviews-2026-10-15.txt`.
+  - Codex: CHANGE in r1, r2 and r3 (each a check-then-await race), then r4 APPROVE.
+  - Claude: CHANGE in r1 and r2, r3 APPROVE, r4 CHANGE (a committed mutant file), r5 APPROVE.
+- **What it does:**
+  - A recorded monument (`monument-<home>.g<N>.json` in the pool dir) is kept out of TARGET digs only: mine's plan and
+    per-dig stop, gather (the search and the dig), room vetoes, and the ore tunnel (candidates, route price, and its
+    dig-time boundary).
+  - From inside a large reservation, mine walks off the monument's nearest side itself.
+  - builder.mjs and buildbot.mjs: plinth's placement rules made generic, plus a fenced and gated executor with a mineflayer
+    adapter. It has no caller until stage 4.
+- **Tests and lint:**
+  - npm test 258/258 on eb407fa0.
+  - structureguard.test 26/26, including the tunnel boundary on mineflayer's real digging plugin. builder.test 24/24.
+  - eslint no-undef: only reflex.mjs:2384, as on the base.
+- **Paper (sandbox4):**
+  - zig, a 12-wide solid ziggurat: 366/366 confirmed by the server, 1.14 s per placement.
+  - bystander, resume: pass.
+  - mine: 0 of 528 reserved cells dug (control 17).
+  - gather: 0 near / 6 far (control 6 near).
+  - offmon: walked off, mined, 0 of 780 reserved dug.
+  - tunnel: 7 runs, refused at the dig 2 times and re-routed 5 times, with 1 in-flight dig allowed.
+- **The one fleet-visible change without a record:** every gather dig now does a forced look and then `dig(…, 'ignore')`
+  (craft's table retake already did this). The Paper gather scenes pass with it.
+- **NO registration or queue entry,** deliberately. The guard has nothing to guard until stage 4 writes the first record.
+  A no-regression canary for the look change can be written if the coordinator wants one.
+- **Merge notes:**
+  - townzone-01 edits the same gather, collectManually, tunnel and mine sites; merge by hand.
+  - wellsite-04's 835ef3f0 variant overlaps in skills.mjs, not yet checked.
+  - plinth-01 should import builder.mjs's primitives.
+- **NEXT: stage 4 = monument-01.** Siting and the record writer, the frontier barrier and the cover rule, segment slots and
+  leases, the build_monument job (nearest-first order), funding and the well yield, `_monument` rows and the read, Paper
+  scenes, registration and queue entry.
+
 ## 10-15 ~10:30Z — ZIGGURAT/SHAFT BUILD, STAGES 1-2 DONE (OWNER ~05:00Z: shared mineshaft + a SOLID ziggurat per world; Z2-Z8 operator defaults); stage-2 entry READY, NOT QUEUED
 **STAGE 1 (offline Z0/M0, read-only snapshots 04:14Z):**
 - Branch `zig-offline` @ 568cadd3 (on b7cc60b5): monument.mjs, shaftplan.mjs, zigsite.mjs, zigexposure.py, 40 tests.
