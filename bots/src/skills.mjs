@@ -1368,10 +1368,6 @@ export async function collectManually(bot, block, signal, { beforeDig = null } =
   //
   // Only for a block the ORDINARY rule refuses -- an unexempted block is
   // unaffected, so this cannot make the baseline stricter.
-  // A TOWN STRUCTURE RECORDED SINCE THE SCAN (structureguard-01, Codex stage-3 r1 P1-2): asked UNCACHED here, after the walk
-  // and the equip, as the last word before the dig -- the enumeration's 2 s cache only decided what to walk toward.
-  { let kind = null; try { const k = structuresFresh(bot); kind = k.forbid ? k.forbid(block.position) : null } catch { kind = null }
-    if (kind) throw Object.assign(new Error(`town_structure: ${block.name} at ${block.position.x},${block.position.y},${block.position.z} is part of ${keepOutLabel(kind)}; gather elsewhere`), { failClass: 'no_safe_target' }) }
   if (!isSafeToBreak(bot, block.position) && !shorelineExemptAt(bot, block.position)) {
     throw Object.assign(
       new Error(`unsafe_now: ${block.name} at ${block.position.x},${block.position.y},${block.position.z} ` +
@@ -1391,13 +1387,16 @@ export async function collectManually(bot, block, signal, { beforeDig = null } =
   // mineflayer's dig AWAITS a lookAt before it sends block_dig unless forceLook is 'ignore' (digging.js, 4.37.1), and
   // a block can change during that look. So with a hook: look first (instant), ask the hook, then dig with 'ignore'
   // -- no second look, and no await between the last check and the dig packet.
-  let forceLook
-  if (beforeDig) {
-    try { await bot.lookAt(p.offset(0.5, 0.5, 0.5), true) } catch { /* not fatal: the dig still faces the block */ }
-    check(signal)
-    beforeDig()
-    forceLook = 'ignore'
-  }
+  // ALWAYS THIS SHAPE NOW (structureguard-01, Codex stage-3 r2 P1-3): the dig's own look awaited a physics tick after any
+  // check made before it, so a town structure recorded during that look was dug. Look (forced: instant), then the last
+  // words -- a recorded structure, read UNCACHED (the enumeration's 2 s cache only chose what to walk toward), then the
+  // caller's hook -- then dig with 'ignore': nothing awaited between the last check and the dig packet.
+  try { await bot.lookAt(p.offset(0.5, 0.5, 0.5), true) } catch { /* not fatal: the dig still faces the block */ }
+  check(signal)
+  { let kind = null; try { const k = structuresFresh(bot); kind = k.forbid ? k.forbid(p) : null } catch { kind = null }
+    if (kind) throw Object.assign(new Error(`town_structure: ${block.name} at ${p.x},${p.y},${p.z} is part of ${keepOutLabel(kind)}; gather elsewhere`), { failClass: 'no_safe_target' }) }
+  if (beforeDig) beforeDig()
+  const forceLook = 'ignore'
   await withTimeout(bot.dig(block, forceLook), 20_000, bot, {
     what: 'dig',
     onTimeout: () => { try { bot.stopDigging?.() } catch { /* not digging */ } },
@@ -1710,14 +1709,17 @@ async function tunnelToOre(ctx, signal, { deadlineMs = 150_000 } = {}) {
   // on the current block, and resume, up to TUNNEL_TRIES times -- long before the reflex.
   const walkLeg = () => new Promise((resolve, reject) => {
     let last = bot.entity.position.clone(), moved = Date.now(), stalled = false, reservedNow = null
+    // A TOWN STRUCTURE RECORDED DURING THE WALK (structureguard-01, Codex stage-3 r1 P1-2, r2 P1-2): the profile priced the
+    // plan with the 2 s cache, so every break the PATHFINDER makes in this walk is asked of the record itself at bot.dig --
+    // pathfinder digs with forceLook true, so nothing is awaited between this check and the dig packet -- and a reserved
+    // cell stops the walk. Survival and transit are untouched: only the pathfinder's own breaks, only in this leg.
+    const unguard = guardTunnelDigs(bot, hit => { reservedNow ??= hit; try { bot.pathfinder.setGoal(null) } catch {} })
     const watch = setInterval(() => {
-      // A TOWN STRUCTURE RECORDED OVER THE PLANNED BREAKS (structureguard-01, Codex stage-3 r1 P1-2): the profile priced the
-      // plan with the 2 s cache; the walk re-asks the record itself and stops before the next dig
-      if (!reservedNow) { try { const k = structuresFresh(bot); const hit = k.forbid ? plan.breaks.find(b => k.forbid(b)) : null; if (hit) { reservedNow = hit; try { bot.pathfinder.setGoal(null) } catch {} } } catch { /* no record */ } }
       const q = bot.entity.position
       if (q.distanceTo(last) > 0.3 || bot.targetDigBlock) { last = q.clone(); moved = Date.now() }
       else if (Date.now() - moved > TUNNEL_STALL_MS && !stalled) { stalled = true; try { bot.pathfinder.setGoal(null) } catch {} }
     }, 500)
+    const reservedErr = () => Object.assign(new Error(`a town structure was recorded over the tunnel at ${reservedNow.x},${reservedNow.y},${reservedNow.z}`), { stalled: false })
     const legMs = Math.max(5000, Math.min(deadlineMs - (Date.now() - t0), 20_000 + plan.breaks.length * 2500))
     // ABORT STOPS THE WALK (Codex review): goto has no signal, so a cancelled gather would keep digging.
     const onAbort = () => { try { bot.pathfinder.setGoal(null) } catch {} }
@@ -1725,11 +1727,11 @@ async function tunnelToOre(ctx, signal, { deadlineMs = 150_000 } = {}) {
     withTimeout(bot.pathfinder.goto(plan.goal), legMs, bot, { needsDrop: false })
       // ARRIVAL IS CHECKED, NOT ASSUMED (both reviews): pathfinder's goto resolves on ANY path_update with an empty
       // path, including a failed search (mineflayer-pathfinder lib/goto.js). Short of the goal is a stall, not success.
-      .then(() => (plan.goal.isEnd(bot.entity.position.floored()) ? resolve()
+      // ONE CHAIN, settled once (Codex stage-3 r2 P3-4: a second .then threw the structure error unhandled)
+      .then(() => (reservedNow ? reject(reservedErr()) : plan.goal.isEnd(bot.entity.position.floored()) ? resolve()
                    : reject(Object.assign(new Error('the walk ended short of the ore'), { stalled: true }))),
-            e => reject(Object.assign(e ?? new Error('walk failed'), { stalled: stalled && !reservedNow })))
-      .then(() => { if (reservedNow) throw Object.assign(new Error(`a town structure was recorded over the planned tunnel at ${reservedNow.x},${reservedNow.y},${reservedNow.z}`), { stalled: false }) })
-      .finally(() => { clearInterval(watch); signal?.removeEventListener?.('abort', onAbort) })
+            e => reject(reservedNow ? reservedErr() : Object.assign(e ?? new Error('walk failed'), { stalled })))
+      .finally(() => { clearInterval(watch); unguard(); signal?.removeEventListener?.('abort', onAbort) })
   })
   try {
     const renew = setInterval(() => claim?.renew?.(), 1000)
@@ -7353,6 +7355,26 @@ export const structuresFresh = bot => structureKeepOut(structureIndexes(townDir(
 /** Is this cell a recorded structure's (a target dig must leave it)? -> kind | null. Never throws. */
 export const structureNoDig = (bot, p) => { try { const k = structuresNow(bot); return k.forbid && p ? k.forbid(p) : null } catch { return null } }
 /**
+ * THE ORE TUNNEL'S DIG BOUNDARY (structureguard-01): while installed, a break the PATHFINDER makes (pathfinder.isMining(): its
+ * own toBreak, never a reflex's or a skill's dig) of a cell a recorded town structure keeps -- read UNCACHED -- is refused
+ * (the promise rejects, pathfinder resets its path) and `onRefuse(cell)` is told. -> restore(). Exported for its test.
+ */
+export function guardTunnelDigs (bot, onRefuse = () => {}) {
+  const was = bot.dig
+  const guarded = function (block, ...rest) {
+    let kind = null
+    try { if (bot.pathfinder?.isMining?.() && block?.position) { const k = structuresFresh(bot); kind = k.forbid ? k.forbid(block.position) : null } } catch { kind = null }
+    if (kind) {
+      const p = block.position
+      try { onRefuse({ x: p.x, y: p.y, z: p.z }) } catch { /* the walk stops anyway */ }
+      return Promise.reject(Object.assign(new Error(`town_structure: ${block.name} at ${p.x},${p.y},${p.z} is part of ${keepOutLabel(kind)}`), { reserved: true }))
+    }
+    return was.call(this, block, ...rest)
+  }
+  bot.dig = guarded
+  return () => { if (bot.dig === guarded) bot.dig = was }
+}
+/**
  * A findBlocks matcher for block type `id` that never matches a reserved cell. mineflayer calls a matcher twice: on the
  * section palette's bare states (no position: type only, so the section is searched) and on each block (with position:
  * the reservation decides). Pure but for the cached keep-out.
@@ -10668,7 +10690,8 @@ async function mine(ctx, { y: targetY = 12 }, signal) {
   // OFF THE MONUMENT, PERFORMED (structureguard-01, Codex stage-3 r1 P1-3): its footprint is 48 wide, so from its middle no
   // start within FAR_RADIUS is clear. The cell beyond its nearest side (structures.mjs exitCell) is walked to -- a plain
   // walk: transit is never guarded -- and the stair is planned again there. Once per call.
-  if (wellPlan.action === 'refuse' && !wellPlan.inside && wellPlan.hit?.kind === 'monument') {
+  // (a refusal by a well AND the monument carries the kind on the plan, not in a hit: Claude stage-3 r2 P3)
+  if (wellPlan.action === 'refuse' && !wellPlan.inside && (wellPlan.hit?.kind ?? wellPlan.kind) === 'monument') {
     let off = null
     try { off = structuresFresh(bot).exit?.(bot.entity.position.floored()) ?? null } catch { off = null }
     if (off) {

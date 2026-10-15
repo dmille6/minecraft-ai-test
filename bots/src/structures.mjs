@@ -62,6 +62,7 @@ export function monumentIndex (rec) {
   if (!s || !s.corner || !Number.isInteger(s.corner.x) || !Number.isInteger(s.corner.z) || !Number.isInteger(s.baseY) || rec.state === 'abandoned') return null
   const g = rec.geom ?? ZIG
   if (!validGeom(g)) return null
+  if (s.stairFace != null && !['n', 's', 'e', 'w'].includes(s.stairFace)) return null   // Claude stage-3 r2 P2-C: zigCells threw
   const x0 = s.corner.x, z0 = s.corner.z, y0 = s.baseY
   const stairs = stairRelFor(s.stairFace ?? null, g)
   let top = 0
@@ -94,7 +95,8 @@ export function structureIndexes (dir, home, world = null) {
   const out = []
   const rec = home ? readStructureRecord(dir, structureKey('monument', home)) : null
   if (rec && sameWorld(rec.world, world)) {
-    const idx = monumentIndex(rec)
+    let idx = null
+    try { idx = monumentIndex(rec) } catch { idx = null }   // a record this code cannot read reserves nothing
     if (idx) out.push(idx)
   }
   return out
@@ -128,7 +130,8 @@ export function structureReader (dir, home, world = () => null, now = () => Date
   let at = -Infinity, v = { forbid: null, bottom: null }
   return () => {
     const t = now()
-    if (t - at >= CACHE_MS) { v = structureKeepOut(structureIndexes(dir(), home(), world())); at = t }
+    // the answer is cached for CACHE_MS whatever it is -- a read that throws caches "nothing reserved" (never a retry per call)
+    if (t - at >= CACHE_MS) { try { v = structureKeepOut(structureIndexes(dir(), home(), world())) } catch { v = structureKeepOut([]) } at = t }
     return v
   }
 }
