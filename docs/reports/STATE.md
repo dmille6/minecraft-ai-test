@@ -12,6 +12,20 @@ Studio reservation both closed 10-12); clear caps bamboo 0 / bucket 2._
 
 ---
 
+## 10-15 09:45Z — TREEFARM-02 variant on minewell-01 (a8af87db) READY: replace-variant entry `docs/reports/treefarm-02.queue-entry.json` (after minewell-01); NOT QUEUED
+- **treefarm-01 -> treefarm-02** (coordinator): treefarm-01 was abandoned before its draw (board-b, board-d, hive-c all
+  excluded until ~11:57Z) and re-queued unchanged as treefarm-02 after minewell-01. Variants: 5e663860 (b7cc60b5),
+  8cd0bc62 (cc16f64e), and NEW a8af87db: `farm-on-a8af87d` @ **835ef3f0**, registration `docs/reports/treefarm-02.835ef3f0.json`
+  (= ~/mcai-analysis; run_id treefarm-02; read md5 600bc667; no draw_require_pools; licencecheck + changerowcheck PASS).
+- **What the a8af87db variant adds (composition with minewell's mine guard):** `mine` digs with bot.dig directly, so the
+  farm's pathfinder exclusions never reached its stair -- a gap since the farm's 10-06 design, STILL OPEN on the 5e663860
+  and 8cd0bc62 variants. On a8af87db minewell's planner takes the farm's cells (farmStairForbid) as a forbid predicate,
+  read from the shared record at every plan and dig; a relocation never stands in a farm cell; refusals name the farm (or
+  both) with a performed remedy. No farm -> minewell unchanged (4,000-case side-by-side, 0 differences). Plots never sit in
+  a well's shell (they keep 4 from a cap).
+- **Reviews:** Codex r8 CHANGE -> r9/r10/r11 APPROVE; Claude CHANGE (P2: a farm refusal named a far well) -> APPROVE x2.
+  npm test 255/255; treefarm-minewell.test.mjs 18 with 6 anchored mutants.
+
 ## 10-15 ~05:30Z — ZIGGURAT + SHARED MINESHAFT + DIG AVOIDANCE: measured and designed (OWNER ~03Z "lets do it"); Codex APPROVE r5+r6, Claude APPROVE r3+r5; NOTHING built, queued or deployed
 Doc: `docs/reports/ziggurat-mineshaft-2026-10-15.md` (r5). Reviews: `docs/reports/ziggurat-mineshaft-reviews-2026-10-15.txt`
 (Codex CHANGE r1-r4, APPROVE r5 and r6; Claude CHANGE r1-r2, APPROVE r3 and r5; the last fix is r5.1's cover

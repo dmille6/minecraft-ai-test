@@ -1,0 +1,48 @@
+{
+ "run": "treefarm-02",
+ "class": "",
+ "requeued_from": "treefarm-01",
+ "after": [
+  "minewell-01"
+ ],
+ "hold": "REPLACE-VARIANT (coordinator 10-15: treefarm-01 abandoned before its draw -- board-b, board-d, hive-c all inside exclusions until ~11:57Z -- and re-queued unchanged as treefarm-02 after minewell-01). Launch only on the variant matching the live fleet after minewell-01 decides: minewell-01 KEPT and PROMOTED -> the a8af87db variant; minewell-01 REVERTED/INCONCLUSIVE -> the 5e663860 variant (or, if wellsite-03 was kept and promoted meanwhile, the 8cd0bc62 one), launched >= 180 min after the decision restart (one build per pool across the read's pre-window). KEPT-but-not-promoted, or any other fleet tip: ask for a new variant. Test merges green: farm-x-tz, farm-x-ws, farm-x-pl, farm-x-floor; plinth-01 and townfloor-01 must carry farmKeepOut (and plinth plans through wellSearchAvoid) -- the exact lines are in STATE (10-15 05:10Z).",
+ "note": "The town tree farm (blueprint builder); bone meal OFF by default (OWNER 10-15). Read ~/mcai-analysis/treefarmread.py (md5 above). Install the drawn variant's registration as ~/mcai-analysis/registrations/treefarm-02.json; only the one matching the live fleet. THE a8af87db VARIANT IS NOT THE SAME CHANGE AS THE OTHER TWO in one respect: it also keeps `mine`'s stair out of the farm's cells (minewell-01 adds the stair planner that makes this deterministic). On 5e663860/8cd0bc62 `mine` digs with bot.dig directly and can cut a plot (a gap since the farm's 10-06 design; its pathfinder exclusions never reached mine). NOT QUEUED by the build agent.",
+ "variants": {
+  "5e6638601af6714478690eae4b2bb83b158ba97c": {
+   "registration": "/home/mike/mcai-analysis/treefarm-02.b7cc60b5.json",
+   "canary_sha": "b7cc60b5fbce6cbebd5b8433fb95b370da37f6c5",
+   "branch": "farm-on-5e66386",
+   "reads_src": "/home/mike/mcai-analysis",
+   "reads": {
+    "treefarmread": "600bc66715bf8b8dfe08b299507c2a5e",
+    "immobiledid": "53af289df12208901931dbeeb1ae325a"
+   },
+   "approved": "treefarm revival agent 2026-10-15: the 10-06 build rebased onto 5e663860 (unions only) plus composition with the junk well, plinth-01, chest-full, the town floor, _dig_town and the town zone. npm test 252/252. REVIEWS: Codex r1-r5 CHANGE (9 findings, all fixed with tests) -> r6 APPROVE at 38e74f69; Claude r1 CHANGE -> r2 APPROVE -> final APPROVE (6918d574..38e74f69). Bone meal OFF by default (OWNER 10-15 after the Paper A/B): 391a1ca9, Codex r7 APPROVE + Claude r7 APPROVE (P3s fixed; b7cc60b5 test-only). docs/reports/treefarm-01-revival-reviews-2026-10-15.txt. eslint: only the pre-existing reflex.mjs withinBody. Anchored mutants 52/56 killed (4 named survivors). Paper (src = 38e74f69 + the default flip): build 9/9+4/4 0 off-plan, SIGKILL resume, foreign lease, well+plinth records first, full bag + composter, paths, grow->gather->clear->replant. Registration: NO draw_require_pools; drawrequire.parse ([], None); licencecheck PASS (_farm_tend 0 baseline rows / 6 h, ~354k rows, 80 bots); changerowcheck PASS (farm_tend, farm_place silent). Gates C1-C4, bonemeal_used <= 0 (arm off), C5/C6 kept inert for a future arm-on registration. ORDINARY canary, ONE pool.",
+   "registration_sha256": "0dd660f42b8d80fe829a2c64efdf99ea5a364f65500ac91c82b8deb22773626f"
+  },
+  "8cd0bc62e5606b021832d808b150007f38ab2d6e": {
+   "registration": "/home/mike/mcai-analysis/treefarm-02.cc16f64e.json",
+   "canary_sha": "cc16f64e1dbf48bab55b68294e2ddcab54e850ca",
+   "branch": "farm-on-8cd0bc6",
+   "reads_src": "/home/mike/mcai-analysis",
+   "reads": {
+    "treefarmread": "600bc66715bf8b8dfe08b299507c2a5e",
+    "immobiledid": "53af289df12208901931dbeeb1ae325a"
+   },
+   "approved": "the same net diff (5e663860..b7cc60b5) applied to wellsite-03's 8cd0bc62 as one commit; one union hunk (townWellSite keeps wellsite's searched= capture and plans a NEW site through wellSearchAvoid), checked by both engines in round 7 (diff identical to the base variant apart from that hunk; wellsite exhaustion/no-site logic intact). npm test 253/253. REVIEWS: Codex r1-r5 CHANGE (9 findings, all fixed with tests) -> r6 APPROVE at 38e74f69; Claude r1 CHANGE -> r2 APPROVE -> final APPROVE (6918d574..38e74f69). Bone meal OFF by default (OWNER 10-15 after the Paper A/B): 391a1ca9, Codex r7 APPROVE + Claude r7 APPROVE (P3s fixed; b7cc60b5 test-only). docs/reports/treefarm-01-revival-reviews-2026-10-15.txt. eslint: only the pre-existing reflex.mjs withinBody. Anchored mutants 52/56 killed (4 named survivors). Paper (src = 38e74f69 + the default flip): build 9/9+4/4 0 off-plan, SIGKILL resume, foreign lease, well+plinth records first, full bag + composter, paths, grow->gather->clear->replant. Registration: NO draw_require_pools; drawrequire.parse ([], None); licencecheck PASS (_farm_tend 0 baseline rows / 6 h, ~354k rows, 80 bots); changerowcheck PASS (farm_tend, farm_place silent). Gates C1-C4, bonemeal_used <= 0 (arm off), C5/C6 kept inert for a future arm-on registration. ORDINARY canary, ONE pool.",
+   "registration_sha256": "4c96e7d5ad82677d5be0767a023e53687a9940d0fce24b47f3347fe05cbf60c8"
+  },
+  "a8af87dbc135819ace2cdcc27e48042df3b942e4": {
+   "registration": "/home/mike/mcai-analysis/treefarm-02.835ef3f0.json",
+   "canary_sha": "835ef3f0669da89ce902a265f51723f5f6d20447",
+   "branch": "farm-on-a8af87d",
+   "reads_src": "/home/mike/mcai-analysis",
+   "reads": {
+    "treefarmread": "600bc66715bf8b8dfe08b299507c2a5e",
+    "immobiledid": "53af289df12208901931dbeeb1ae325a"
+   },
+   "approved": "treefarm revival agent 2026-10-15: the approved farm net diff (5e663860..b7cc60b5) applied to minewell-01 a8af87db as one commit, no conflict, plus the COMPOSITION with minewell's mine guard: minewell.mjs stairClear/planMineStart take the farm's cells (farmStairForbid: plot soil and column, torch cell and floor; bottom = the lowest soil) as a forbid predicate, read from the shared record at every plan and dig; a farm cell is a hit like a shell cell, a relocation never stands in a farm cell, a refusal names the farm (or both) with an executable remedy (explore away, performed in the chain test); with no farm minewell is unchanged (Claude: 4,000-case side-by-side, 0 differences). Farm cells vs well shells: plots keep 4 from a cap so no plot soil/column is in a shell (positive control: the unconstrained farm's plot is). REVIEWS: Codex r8 CHANGE (stale 20 s cache) -> r9 APPROVE (P3: real explore in the chain, fixed) -> r10 APPROVE (P3 fixed) -> r11 APPROVE at 835ef3f0; Claude CHANGE (P2: a farm refusal named a far well; 4 P3s) -> APPROVE (P3 fixed) -> APPROVE at 835ef3f0. npm test 255/255; treefarm-minewell.test.mjs 18 (6 anchored mutants, each anchor asserted present and unique); minewell 3/3 files; eslint only the pre-existing reflex.mjs withinBody. Registration (run_id treefarm-02, read md5 600bc667): NO draw_require_pools; drawrequire.parse ([], None); licencecheck PASS (_farm_tend 0 baseline rows / 6 h); changerowcheck PASS (farm_tend, farm_place silent). ORDINARY canary, ONE pool.",
+   "registration_sha256": "befa8af13a2c37d60148e7401b41823987f969bb260e34ad00d17d66c3b0c252"
+  }
+ }
+}

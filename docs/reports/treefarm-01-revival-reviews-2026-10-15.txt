@@ -89,3 +89,26 @@ No P1/P2/P3 findings.
 
 VERDICT: APPROVE
 Claude r7 (independent subagent, same scope) -- APPROVE, no P1/P2. P3s: (1) the registration note said C5/C6 apply to an arm-on pool, but the bonemeal_used<=0 line would revert it first -> reworded: an arm-on pool needs its own registration without that line; (2) stale registration files -> regenerated for b7cc60b5/cc16f64e; (3) the default-off loop test had no positive control of its own -> added (b7cc60b5, test-only; variant rebuilt as cc16f64e); (4) bm_spent counts any bone-meal loss during a visit, so with the arm off any such loss reverts -- no current path loses one; named in the bonemeal_used gate note.
+
+## 10-15: treefarm-02 variant on minewell-01 (a8af87db): farm-on-a8af87d @ 835ef3f0
+Codex r8 (2cf3da6f) -- CHANGE:
+- **P2 — `bots/src/skills.mjs:10588`: per-dig farm checks use stale data.** `farmIdx(bot)` returns the movement cache, refreshed every 20 seconds (`bots/src/index.mjs:553–558`). Even an empty cached index prevents `knownFarmIndex(bot)` from running. If another bot founds or relocates the farm, mining can dig its newly reserved cells until the cache refreshes. **Fix:** read the current shared farm record at each plan and dig, or synchronously invalidate the cache when that record changes. Add a regression with a stale cached index and a newly recorded farm; the current immediate-index-swap test misses this scenario.
+
+Other checks:
+
+- The transplanted farm diff matches the approved diff, excluding blob IDs and hunk offsets.
+- No no-farm behavior regression found.
+- The ≤13-key scan is fine.
+- Plot separation excludes the shell; overlapping torch-floor protection is compatible.
+- No new movement dead end identified: farm exclusions permit walking through plots. However, the combined farm-plus-well refusal beyond `FAR_RADIUS` lacks an executable-remedy chain test.
+
+Tests: `minewell` **3/3 files passed**; `treefarm-compose` **1/1 passed**.
+
+VERDICT: CHANGE
+Fixed in 62909c97 (mine reads the shared record each plan and dig). Codex r9 (62909c97) -- APPROVE:
+- **P3 — `bots/test/treefarm-minewell.test.mjs:186`:** The refusal-chain test directly changes the bot’s position and re-enables movement. It proves mining resumes elsewhere, but would pass even if `explore` could not escape the original location. **Fix:** invoke the real movement skill with a fixture where walk-off targets fail but an escape route remains reachable, then retry mining.
+
+No blocking findings. The stale-cache P2 is fixed. `node scripts/run-tests.mjs minewell`: **3/3 files passed**. Working tree clean.
+
+VERDICT: APPROVE
+P3 fixed in f201fe3a (the chain performs the real explore). Claude (a8af87db..62909c97) -- CHANGE: P2 a farm-caused refusal named a far-away well (every town has one); P3s: three farm guards no test could catch (column-only, torch cell, bottom), the head-cell stand check could never trigger, the shell test lacked a positive control, the home-guard message named the well -- all fixed in 85b054ab (farmStairForbid extracted with geometry tests and mutants). Codex r10 (85b054ab) -- APPROVE with a P3 (mixed well+farm refusal named only the farm); Claude (62909c97..85b054ab) -- APPROVE (no-farm behaviour identical on 4,000 random cases; P3: a missing ?? null). Both P3s fixed in 835ef3f0 with a mixed-obstacle chain test that fails on the old line. Codex r11 (835ef3f0) -- APPROVE; Claude (835ef3f0) -- APPROVE. npm test 255/255.
