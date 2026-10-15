@@ -134,7 +134,8 @@ await t('FRONTIER: one level at a time, only down; complete at the bottom', () =
 })
 
 // ---- THE BUILD, SIMULATED: the pure planner driven to the bottom on a voxel world, every op applied as the bot would ----
-function simulate ({ c = 40, bottom = 16, holes = [], sand = [], wet = [], away = 's', interruptEvery = 0 } = {}) {
+let exitChecks = 0, exitFails = []
+function simulate ({ c = 40, bottom = 16, holes = [], sand = [], wet = [], away = 's', interruptEvery = 0, checkExit = false } = {}) {
   const site = { origin: { x: 0, z: 0 }, away, c }
   let rec = SJ.newShaftRecord({ site, bottom, landings: SJ.plannedLandings(c, null, bottom), home: { x: 0, y: c, z: -20 } })
   const env = SP.envelopeLevels(c, bottom, rec.landings)
@@ -155,7 +156,7 @@ function simulate ({ c = 40, bottom = 16, holes = [], sand = [], wet = [], away 
     switch (op.op) {
       case 'collar_dig': case 'dig': m.set(K(...op.cell), AIR); break
       case 'line': case 'fill_floor': m.set(K(...op.cell), { name: 'cobblestone', boundingBox: 'block' }); break
-      case 'ladder': m.set(K(op.u, op.y, 0), { name: 'ladder', boundingBox: 'block' }); break
+      case 'ladder': m.set(K(op.u, op.y, 0), { name: 'ladder', boundingBox: 'block', facing: SI.ladderFacing(away, op.u) }); break
       case 'move_down': feet = { u: op.u, y: op.y, v: 0 }; break
       case 'walk': feet = { u: op.to[0], y: op.to[1], v: op.to[2] }; break
       case 'descend': { const d = SJ.descentPlan({ rec, read }); if (d.blocked) return { op: { op: 'close', why: d.blocked }, rec, read, counts, log, feet, digSet, site }; feet = d.land; break }
@@ -164,6 +165,17 @@ function simulate ({ c = 40, bottom = 16, holes = [], sand = [], wet = [], away 
       default: throw new Error('op ' + op.op)
     }
     log.push(op.op + JSON.stringify(op.to ?? op.cell ?? op.u ?? ''))
+    // EVERY STATE INSIDE THE SHAFT HAS A VERIFIED, EXECUTABLE EXIT (the hold's remedy exists at every resume state; Codex
+    // plan r2 P1 / Claude r2 P1-1): the world read in world coordinates over the same voxels
+    if (checkExit) {
+      const idx = SJ.shaftIndex(rec), w = SJ.worldOf(site, feet.u, feet.y, feet.v)
+      if (idx.inEnvelope(w.x, feet.y, w.z)) {
+        const wr = (x, y, z) => { const l = SJ.toLocal(site.origin, site.away, x, z); return read(l.u, y, l.v) }
+        const ex = SI.ladderExit(idx, wr, { x: w.x + 0.5, y: feet.y, z: w.z + 0.5 })
+        exitChecks++
+        if (!ex.ok) exitFails.push(`${JSON.stringify(feet)} after ${op.op}: ${ex.why}`)
+      }
+    }
     if (interruptEvery && op.op !== 'descend' && i % interruptEvery === interruptEvery - 1 && rec.frontier <= c) feet = { u: 0, y: c, v: -1 }   // a new visit: back on the pad; only the world and the record carry over
   }
   throw new Error('no end: ' + log.slice(-12).join(',') + ' feet ' + JSON.stringify(feet) + ' frontier ' + rec.frontier)
@@ -219,6 +231,27 @@ await t('A CAVITY (Claude plan r1 P1-6): a lining cell with no solid neighbour i
   assert.equal(SJ.supportChain(only([[5, 5, 6]]), new Set(), [5, 5, 5]), null, 'a solid neighbour: supported')
   assert.deepEqual(SJ.supportChain(only([[5, 5, 7]]), new Set(), [5, 5, 5]), [5, 5, 6], 'one cell away: chain through it')
   assert.equal(SJ.supportChain(only([[5, 5, 8]]), new Set(), [5, 5, 5]), 'none', 'two cells away: none')
+})
+await t('THE HOLD ALWAYS HAS A REMEDY: at every state of a whole build (4 orientations), the bot inside the shaft has a verified, executable ladder exit', () => {
+  for (const away of ['s', 'n', 'e', 'w']) {
+    exitChecks = 0; exitFails = []
+    const r = simulate({ c: 40, bottom: 16, away, holes: [[-1, 35, 0], [0, 25, 0], [0, 32, 3]], checkExit: true })
+    assert.equal(r.op.op, 'done', away)
+    assert.ok(exitChecks > 200, `${away}: positive control: ${exitChecks} states checked`)
+    assert.deepEqual(exitFails.slice(0, 3), [], `${away}: states with no exit`)
+  }
+})
+await t('THE HOLD IS BOUNDED (Claude plan r2 P1-1): two failed climbs in 10 min release it; outside the shaft nothing is held', () => {
+  const st = { origin: { x: 10, z: -7 }, away: 'e', c: 70 }
+  const { idx: ix, read } = builtWorld(st, 40)
+  const f = (u, y, v) => { const w = SJ.worldOf(st, u, y, v); return { x: w.x + 0.5, y, z: w.z + 0.5 } }
+  const now = 1_000_000
+  assert.equal(SG.shaftHold(ix, read, f(0, 41, 0), { now }).hold, true)
+  assert.equal(SG.shaftHold(ix, read, f(0, 41, 0), { now, fails: [now - 1000] }).hold, true, 'one failure: still held')
+  const ex = SG.shaftHold(ix, read, f(0, 41, 0), { now, fails: [now - 1000, now - 2000] })
+  assert.equal(ex.hold, false); assert.ok(ex.exhausted, 'two failures: released')
+  assert.equal(SG.shaftHold(ix, read, f(0, 41, 0), { now, fails: [now - 11 * 60_000, now - 12 * 60_000] }).hold, true, 'old failures expire')
+  assert.equal(SG.shaftHold(ix, read, f(5, 41, 5), { now }).hold, false, 'outside: nothing held')
 })
 await t('LIQUID IN THE LINING CLOSES (never digs into it); an unloaded cell waits', () => {
   const r = simulate({ c: 40, bottom: 16, wet: [[2, 30, 0]] })

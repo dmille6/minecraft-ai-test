@@ -8058,7 +8058,10 @@ async function shaftAudit (ctx) {
   const v = verifyShaft(rec, shaftLocalRead(bot, rec.site))
   const levels = Math.max(0, rec.site.c - rec.frontier)
   const detail = `state=${rec.state} frontier=${rec.frontier} levels=${levels} checked=${v.checked} missing=${v.missing.length} wet=${v.wet.length} unloaded=${v.unknown} ladders=${v.ladders} ladders_expected=${2 * levels} first=${(v.missing[0] ?? '-').replace(/\s+/g, '_')}`
-  try { logEvent({ kind: 'shaft_audit', status: 'success', snapshot: snapshot(bot), detail, args: { state: rec.state, frontier: rec.frontier, levels, checked: v.checked, missing: v.missing.length, wet: v.wet.length, unloaded: v.unknown, ladders: v.ladders, ladders_expected: 2 * levels } }) } catch { /* telemetry */ }
+  // the missing cells in WORLD coordinates (the read attributes each against `_shaft_absorbed` rows: Claude plan r2 P2-5)
+  const toW = lbl => { const m = /(-?\d+),(-?\d+),(-?\d+)$/.exec(lbl); if (!m) return null; const w = worldOf(rec.site, +m[1], +m[2], +m[3]); return `${w.x},${w.y},${w.z}` }
+  const cells = [...v.missing, ...v.wet].slice(0, 24).map(toW).filter(Boolean).join(';')
+  try { logEvent({ kind: 'shaft_audit', status: 'success', snapshot: snapshot(bot), detail, args: { state: rec.state, frontier: rec.frontier, levels, checked: v.checked, missing: v.missing.length, wet: v.wet.length, unloaded: v.unknown, ladders: v.ladders, ladders_expected: 2 * levels, cells, c: rec.site.c, origin: `${rec.site.origin.x},${rec.site.origin.z}`, away: rec.site.away, bottom: rec.plan_bottom ?? rec.bottom } }) } catch { /* telemetry */ }
   return { status: 'success', detail }
 }
 
