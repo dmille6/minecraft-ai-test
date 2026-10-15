@@ -1,0 +1,74 @@
+REVIEWS for stonewithdraw-01 (stage 2 of the ziggurat/shaft build) -- final: Codex APPROVE r2+r3, Claude APPROVE r2+r3
+
+=== CODEX r1
+
+codex
+The focused test passes **16/16**. The recorded final Paper run is **3/3**, but does not cover deep withdrawal or failed-withdraw fallback. No P1 findings.
+
+1. **P2 — Stock eligibility and requested item disagree.** `bots/src/skills.mjs:3246`; `bots/src/stonesource.mjs:63`  
+   The town’s `cobble` view includes cobbled deepslate, but the rewrite always requests literal `cobblestone`; `withdrawVerb` matches that exact item. I reproduced a withdrawal verdict with **192 cobbled deepslate and zero cobblestone**. This replaces a productive gather with a predictably unsuccessful trip. Select an available family member, or require sufficient stock of the requested item.
+
+2. **P2 — The deep probe does not prove the withdrawal route.** `bots/src/skills.mjs:3250`  
+   The probe targets within four blocks of **home**, not a stocked chest. Withdrawal independently selects containers; when none are within its initial scan, it calls `home()`, whose `goto` permits digging retries and targets a tighter radius. A successful probe therefore does not establish the promised zero-edit withdrawal path. Probe the actual destination and constrain execution to that route/profile; fall back to gather when it cannot be walked.
+
+3. **P2 — Failure memory lasts 45 seconds, not ten minutes.** `bots/src/cognitive.mjs:1067`  
+   `memoryRefuses()` consults the ordinary failed-action cooldown, whose default is **45,000 ms**. There is no dedicated ten-minute withdrawal failure memory. Failures such as `chest_unreachable` deliberately do not accumulate persistent lessons, so the same inaccessible stock can repeatedly trigger trips after this short cooldown. Record the specified ten-minute rewrite suppression independently.
+
+4. **P2 — Admission records gathers that never execute.** `bots/src/cognitive.mjs:1057–1068`  
+   `admission.check()` pushes the gather key into its repeat window before the action becomes a withdrawal. Four rewritten proposals can consequently block the original gather fallback, while the executed withdrawals never enter their own repeat window. This is particularly problematic after withdrawal failure: the advertised fallback may already be repeat-blocked. Reconcile admission history with the final action and test the complete rewrite → failure → gather sequence.
+
+5. **P2 — One unmatched rewrite can permanently disable W4 for that bot.** `scripts/host/stonewithdrawread.py:150–154`  
+   Matching only examines `pending[b][0]`, and expired entries are never removed. If one rewrite lacks a matching completion within five minutes, every subsequent withdrawal remains unmatched. `fail_share` then excludes those outcomes—or becomes zero—while `exposure_ready` still counts all rewrites. Expire/report unmatched entries, correlate actions explicitly, and require sufficient matched outcomes before declaring exposure ready.
+
+6. **P2 — The read omits the required milestone regression gates.** `scripts/host/stonewithdrawread.py:185–203`  
+   The read measures gathering, withdrawals and mining, but never stockpile completion or milestone conversions. A reduction in gathering accompanied by stalled progression can therefore satisfy its reported exposure and defect checks. Add the specified progression measures with pre/post canary/control denominators and positive controls.
+
+7. **P3 — `retry_digs` measures attempted calls, not blocks dug.** `bots/src/skills.mjs:395–401`  
+   `digTownStats.wrapped` increments before `bot.dig()` settles, including rejected or interrupted attempts. Reporting its delta as “retry digs” can overstate excavation and mislead the subsequent transit decision. Name it `retry_dig_attempts`, or report confirmed outcomes and associated cells separately.
+
+The goto additions leave the existing retry decisions unchanged on the normal path. The synchronous probe uses only the first generator slice: the installed pathfinder defaults to roughly **40 ms**, despite the supplied 400-ms timeout. It has no explicit 2,000-node bound, and a `partial` result conservatively retains gathering.
+
+VERDICT: CHANGE
+
+=== CODEX r2
+
+codex
+Reviewed HEAD `e14d6147` against `bc0c4a56`. Tests pass **22/22**. The latest recorded Paper run passes **surface, short, deepslate, and retry**; I did not rerun Paper.
+
+1. **RESOLVED — Stock/item mismatch.** Rewritten withdrawals allow `cobbled_deepslate` when cobblestone is absent. The Paper deepslate scene confirms an actual transfer.
+2. **RESOLVED — Deep-route proof.** The deep branch was removed. Bots below the surface band retain gathering. I accept this scope reduction.
+3. **RESOLVED — Failure memory.** Unsuccessful rewritten withdrawals now suppress rewrites for ten minutes, independently of count and admission’s ordinary cooldown.
+4. **RESOLVED — Admission history.** `retargetRecent()` replaces the admitted gather entry with the withdrawal actually executed, preserving gather fallback.
+5. **RESOLVED — W4 queue blockage.** Expired entries no longer block subsequent matches. Exposure requires ten matched outcomes, and `w4_blind` reports inadequate matching coverage. Matching remains time-based rather than identity-based.
+6. **RESOLVED — Progression measures.** Milestone completion and successful crafting now have pre/post canary/control rates and DiD. I accept **report-only**, consistent with the stated project licence rules for rate-class measures; my earlier demand for automatic gates was too strong.
+7. **RESOLVED — Dig-attempt naming.** The telemetry field and reader now use `retry_dig_attempts`.
+
+**NEW P1/P2:** None found.
+
+VERDICT: APPROVE
+
+=== CODEX r3
+
+codex
+No new P1/P2 findings in e14d6147..HEAD.
+
+Verified: stonewithdraw 23/23, hygiene 19/19, learned-avoid-scope 40/40, and reader self-tests pass.
+
+VERDICT: APPROVE
+
+=== CLAUDE r1-r3
+Claude stage-2 review r1: CHANGE.
+P1-1 the design's 10-min withdraw failure memory is not implemented: admission cooldown is 45 s and keyed per count; repeat_loop never sees the withdraw (check() pushes the gather key); container_short/chest_no_room not evidence -> chronic withdraw/gather alternation.
+P1-2 the admitting view (all town containers, cobble group incl. deepslate) is not what withdraw searches (3 containers nearest the BOT, exact item 'cobblestone') -> repeated container_short while avail stays high; Paper had one chest.
+P2-1 deep probe near inert: getPathTo advances one 40 ms slice and answers partial underground; pump it or drop the claim; getPathTo also overwrites module astarContext.
+P2-2 rewritten successes feed the model's 'reliable choice' win record (lessons recordSuccess).
+P2-3 read: (a) W4 lacks a positive control (matcher miss -> blind); (b) unknown/aborted not counted; (c) W1/W3 judged on a hardcoded HOMES table, not what the code saw; (d) milestone/stockpile gates absent.
+P2-4 a wiring mutant (cooling dropped) survives; no key-equality test.
+P3: STUCK_TRIGGERS misses suffocating/flooded_pocket/danger_block; town_unknown unreachable (no journal reads short); count = model's count (churn); concurrent floor advisory; retry_digs counts all digs; 5.1a and mine-credit not implemented.
+VERDICT: CHANGE
+
+Claude stage-2 review r2: APPROVE. r1 P1-1 RESOLVED (10-min backoff whatever the count; retargetRecent); P1-2 mostly RESOLVED (named counted container + alt deepslate); P2-1 RESOLVED (surface only); P2-2 RESOLVED for wins but NEW P2-A: rewritten failures still recordFailure -> a success-free ratchet in the hive-shared avoid store; P2-3 a/b/c/d RESOLVED (d report-only accepted); P2-4 RESOLVED. NEW P2-B: namedContainer refuses > 64 from the bot and is not retried after the walk home. P3: withdrawItemName takes 1 cobblestone over 64 deepslate; cobbleContainer ignores gone/dirty (harmless); W3 deep_walk_ok dead branch. Known gaps into canary notes.
+VERDICT: APPROVE
+
+Claude stage-2 review r3: APPROVE. P2-A fixed (rewrite failures log only); P2-B fixed (named chest retried after the walk home); withdrawItemName larger-of, ties to cobblestone; W3 updated with self-tests. hygiene, learned-avoid-scope, stonewithdraw pass through the runner.
+VERDICT: APPROVE
