@@ -1,0 +1,31 @@
+{
+ "run": "treefarm-01",
+ "class": "",
+ "after": [],
+ "hold": "None for the 5e663860 variant beyond the usual one-canary rule. Launch only on the variant matching the live fleet: 5e663860 (airpocket-03 reverted/inconclusive) or 1957811e (airpocket-03 KEPT and promoted). KEPT-but-not-promoted airpocket-03, or any other fleet tip (wellsite-03, townzone-01, plinth-01, townfloor-01 promoted first): ask for a new variant -- test merges exist (farm-x-ws a3f08b23, farm-x-tz c9138a71, farm-x-pl 23f76e56, farm-x-floor 64037e31), each green; plinth-01 and townfloor-01 must carry farmKeepOut in their keep-out (and plinth plans through wellSearchAvoid) -- the merge branches show the exact lines.",
+ "note": "The town tree farm (blueprint builder), owner 10-05 and asked again 10-15; bone meal ON (owner 10-15). Read ~/mcai-analysis/treefarmread.py (md5 above; the 10-06 read kept as treefarmread.py.bak-20261015-1918bb5). Install the drawn variant's registration as ~/mcai-analysis/registrations/treefarm-01.json; only the one matching the live fleet. NOT QUEUED by the build agent.",
+ "variants": {
+  "5e6638601af6714478690eae4b2bb83b158ba97c": {
+   "registration": "/home/mike/mcai-analysis/treefarm-01.4dc37cd6.json",
+   "canary_sha": "4dc37cd63327651d28f6b809ccf0dae3b6ac2d2b",
+   "reads_src": "/home/mike/mcai-analysis",
+   "reads": {
+    "treefarmread": "b0b48ddbcdcebef8210847f376ea03ce",
+    "immobiledid": "53af289df12208901931dbeeb1ae325a"
+   },
+   "approved": "treefarm revival agent 2026-10-15: the 10-06 build (bp-on-1918bb5 @ 453cd07, Codex APPROVE r6) rebased onto 5e663860 (unions only) plus composition with the junk well, plinth-01, chest-full, the town floor, _dig_town and the town zone, and the OWNER's 10-15 bone meal decision (ON, bounded: clear column only, reserve 8, <= 6 a visit). REVIEWS: Codex r1-r5 CHANGE (9 findings: 2 races on founding, chest claims in flight, scaffold accounting x3, fence ordering x2, stale credit; all fixed with tests) -> r6 APPROVE at 38e74f69; Claude r1 CHANGE (2 P2 + 5 P3, fixed) -> r2 APPROVE -> final APPROVE of 6918d574..38e74f69 (one P3: a scaffold confirmation later than ~6 s reads lost=1; documented in the read and the C3 line). 4dc37cd6 = 38e74f69 + a test-only change. docs/reports/treefarm-01-revival-reviews-2026-10-15.txt. npm test 252/252 (variant 253/253); eslint: only the pre-existing reflex.mjs withinBody; anchored mutants 52/56 killed, 4 named survivors. Paper (final sha): build 9/9+4/4 0 off-plan, SIGKILL resume, foreign lease, well+plinth records first (farm moved; plots >= 17 from the well), full bag with composter (both orders run; composting keeps 16 saplings each), paths; grow->gather->clear->replant loop. Registration: NO draw_require_pools; drawrequire.parse ([], None); licencecheck PASS (_farm_tend 0 baseline rows / 6 h, ~360k rows, 80 bots); changerowcheck PASS (farm_tend, farm_place silent). ORDINARY canary, ONE pool.",
+   "registration_sha256": "7ecc31a005893c5cd568dce7d58463de21ede3957c89a0436cef50296e2e92e8"
+  },
+  "1957811ea79ba0ace216f8fc7af7b2877391ca19": {
+   "registration": "/home/mike/mcai-analysis/treefarm-01.660d872e.json",
+   "canary_sha": "660d872e3077511697fed10c92d1d936f06dafea",
+   "reads_src": "/home/mike/mcai-analysis",
+   "reads": {
+    "treefarmread": "b0b48ddbcdcebef8210847f376ea03ce",
+    "immobiledid": "53af289df12208901931dbeeb1ae325a"
+   },
+   "approved": "the same approved net diff (5e663860..4dc37cd6) applied to airpocket-03 1957811e as one commit with no conflict; npm test 253/253; eslint only the pre-existing withinBody. ",
+   "registration_sha256": "28aa8deea78eb45aae955b2f3c1a9630be5bdeab717ec7928b5d6f196ae9cfe8"
+  }
+ }
+}

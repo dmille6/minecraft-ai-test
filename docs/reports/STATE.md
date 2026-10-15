@@ -12,6 +12,24 @@ Studio reservation both closed 10-12); clear caps bamboo 0 / bucket 2._
 
 ---
 
+## 10-15 03:30Z — TREEFARM-01 REVIVED on 5e663860 (owner asked 10-15); bone meal ON (OWNER 10-15); both engines APPROVE; READY, NOT QUEUED
+- **Branches:** `farm-on-5e66386` @ **4dc37cd6** (fleet 5e663860); `farm-on-1957811` @ **660d872e** (if airpocket-03 is kept).
+  Registrations `docs/reports/treefarm-01.4dc37cd6.json` / `.660d872e.json` (also in ~/mcai-analysis); read
+  `scripts/host/treefarmread.py` = ~/mcai-analysis (md5 b0b48ddb..., the 10-06 read kept as .bak-20261015-1918bb5); queue
+  entry `docs/reports/treefarm-01.queue-entry.json`. No draw_require_pools; licencecheck + changerowcheck PASS.
+- **Rebase:** the 10-06 diff as unions; then composition: the farm YIELDS to the junk well (a recorded well site is judged
+  without the farm; a new one keeps 4 from a plot), plinth plans and chest claims; chest-full keeps off farm cells and widens
+  on a farm refusal; the farm keeps out of the town floor's band; `_dig_town` target scope; order only within 12 of home.y;
+  walk scaffold is scaffold= not lost=. Test merges green: farm-x-tz, farm-x-ws, farm-x-pl, farm-x-floor -- **plinth-01 and
+  townfloor-01 must carry farmKeepOut (+ plinth plans through wellSearchAvoid): whichever lands second** (see the branches).
+- **Bone meal:** clear column only, reserve 8, <= 6 a visit; new gates C5 (spent >= 36, nothing grew, no tree ever seen)
+  and C6 (reserve breached); bone meal per bot-hour reported. Paper A/B (n=2/arm): first trees sooner, **no log gain
+  measured**, **43 bone meal per farm-hour** vs fleet composting ~70-90/day; bags hold 1,403 spendable. Details in the design
+  doc's REVIVAL section.
+- **Reviews:** Codex r1-r5 CHANGE (9 findings, all fixed) -> r6 APPROVE; Claude r1 CHANGE -> r2 APPROVE -> final APPROVE.
+  npm test 252/252 (variant 253/253); mutants 52/56 (4 named survivors). Paper on the final sha: build, SIGKILL resume, lease,
+  well/plinth first, full bag + composter, paths, grow->gather->clear->replant.
+
 ## 10-15 03:20Z — OWNER: airpocket-03 closes EARLY; a failed airpocket goes to the BOTTOM of the queue
 Owner 10-15: "if airpocket-3 fails.. lets move it to the bottom ... these other things in the queue will have a much larger
 effect" and "lets close it early". Rule (operator): if airpocket-03 is still unexposed (exposure_ready_ap2 = 0) at its +720

@@ -3,7 +3,11 @@
 // THIS process answers the model's decisions (status, or a scene's queued gather/goto/place). Two node processes in all.
 //
 //   node sandbox/treefarm/treefarm-e2e.cjs <botRoot> <scene,scene,...> [server]
-//   scenes: build  resume  lease  paths  grow  bonemeal
+//   scenes: build  resume  lease  paths  grow  harvest  bonemeal  well  stock  bmab
+//   env: TF_NAME (a sandbox- bot name), TF_BRAIN (the loopback brain's port), TF_OUT, TF_BM=on|off (bmab), TF_MIN (bmab minutes)
+//   REVIVAL 10-15 (treefarm-01 on 5e663860): `well` (a recorded junk-well site and a plinth plan where the farm would go),
+//   `stock` (a full bag at town with a composter: compost and the farm compose), `bmab` (bone meal A/B on the same farm at
+//   the fleet's randomTickSpeed 3: time from planting to a grown tree, logs gathered per hour)
 //
 // The SERVER is the oracle: every plot, torch and soil cell is read back by RCON (`execute if block`), the bag by
 // `data get entity`, items on the ground by entity selectors. The bot's rows are recorded, never trusted as the outcome.
@@ -19,7 +23,8 @@ if (!BOT_ROOT || !SCENES_S) throw new Error('usage: node treefarm-e2e.cjs <botRo
 const PORTS = { sandbox: 25599, sandbox2: 25600, sandbox3: 25601, sandbox4: 25602 }
 if (!PORTS[SERVER]) throw new Error('sandbox servers only')
 const R = process.env.TF_REPO || path.resolve(__dirname, '../..')
-const NAME = 'sandbox-Farm'
+const NAME = process.env.TF_NAME || 'sandbox-Farm'
+const BRAIN_PORT = Number(process.env.TF_BRAIN || 11499)
 if (!/^sandbox-/.test(NAME)) throw new Error('sandbox bot names only')
 const OUT = process.env.TF_OUT || `${R}/sandbox/log/treefarm-e2e`
 fs.mkdirSync(OUT, { recursive: true })
@@ -150,11 +155,12 @@ async function startBot (scene, slotsSpec, { pool = null, env: extra = {}, keepB
   const logRel = `./sandbox/log/treefarm-e2e/${tag}`
   const skillLog = `${R}/sandbox/log/treefarm-e2e/${tag}/skill-${NAME}.jsonl`
   const botOut = `${OUT}/bot-${tag}.out`
-  const envRel = 'sandbox/.env.treefarm-e2e'
+  const envRel = `sandbox/.env.treefarm-e2e-${NAME}`
   let env = fs.readFileSync(`${R}/sandbox/sandbox-bot-scripted.env`, 'utf8')
   const set = (key, v) => { env = new RegExp(`^${key}=`, 'm').test(env) ? env.replace(new RegExp(`^${key}=.*$`, 'm'), `${key}=${v}`) : env + `\n${key}=${v}` }
   set('BOT_NAME', NAME); set('LOG_DIR', logRel); set('STATE_DIR', `./sandbox/state/treefarm-e2e/${POOL}/bot`); set('MEMORY_POOL', POOL)
   set('MINECRAFT_PORT', PORTS[SERVER]); set('MAX_CONSECUTIVE_FAILURES', 50); set('FAILED_COOLDOWN_MS', 1000); set('STUCK_SECONDS', 20)
+  set('OLLAMA_BASE_URL', `http://127.0.0.1:${BRAIN_PORT}`); set('OLLAMA_BASE_URLS', `http://127.0.0.1:${BRAIN_PORT}`)
   for (const [k, v] of Object.entries(extra)) set(k, v)
   for (const a of ['X', 'Y', 'Z']) { set(`HOME_${a}`, HOME[a.toLowerCase()]); set(`BOARD_${a}`, HOME[a.toLowerCase()]) }
   fs.writeFileSync(`${R}/${envRel}`, env + '\n')
@@ -351,10 +357,106 @@ scenes.bonemeal = async () => {
     rows: placeRows(files).filter(r => /bonemeal/.test(r.detail)).map(r => r.detail) })
 }
 
+
+const flatD = (a, b) => Math.hypot(a.x - b.x, a.z - b.z)
+const wellRecord = (dir, key, cap) => { fs.mkdirSync(dir, { recursive: true }); fs.writeFileSync(path.join(dir, `${key}.g1.json`), JSON.stringify({ ...cap, world: null, at: new Date().toISOString() })) }
+
+scenes.well = async () => {
+  // THE WELL AND THE RAISED WELL ARE THERE FIRST: a recorded junk-well site on the canonical farm's first plot and a plinth
+  // plan (cap + two planned cells) on another; the farm must found elsewhere, every plot FARM_WELL_DISTANCE from each cap.
+  buildArena()
+  const free = TF.canonicalFarm({ home: HOME, read: arenaRead }).record
+  const fp = free.cells.filter(c => c.role === 'plot')
+  const wellCap = { x: fp[0].x, y: G, z: fp[0].z }
+  const pcap = { x: fp[8].x, y: G + 2, z: fp[8].z }
+  const steps = [{ op: 'place', c: [pcap.x + 2, G + 1, pcap.z], s: [pcap.x + 3, G + 1, pcap.z] }, { op: 'place', c: [pcap.x - 2, G + 1, pcap.z - 2], s: [pcap.x - 3, G + 1, pcap.z - 3] }]
+  POOL = `sbxfarm-${RUN}-well`
+  const home = `${HOME.x}_${HOME.y}_${HOME.z}`
+  wellRecord(poolDir(), `junkwell-site-${home}`, wellCap)
+  fs.writeFileSync(path.join(poolDir(), `junkwell-plinth-${home}.json`), JSON.stringify({ v: 1, state: 'plan', world: null, plan: { cap: pcap, steps } }))
+  const files = await startBot('well', fill(BASE_BAG), { pool: POOL })
+  const row = await waitFor(() => tendRows(files).find(r => r.status === 'success' || r.status === 'failed'), 240000)
+  await sleep(3000)
+  const rec = record(), truth = rec ? farmTruth(rec) : null
+  await stopBot()
+  const plots = rec ? rec.cells.filter(c => c.role === 'plot') : []
+  result({ scene: 'well', row: row && `${row.status} ${row.detail}`, movedFromCanonical: !!rec && JSON.stringify(rec.cells) !== JSON.stringify(free.cells),
+    minPlotToWell: plots.length ? Math.min(...plots.map(p => flatD(p, wellCap))) : null, minPlotToPlinthCap: plots.length ? Math.min(...plots.map(p => flatD(p, pcap))) : null,
+    minCellToPlinthPlan: rec ? Math.min(...rec.cells.flatMap(c => steps.flatMap(st => [st.c, st.s].map(q => flatD(c, { x: q[0], z: q[2] }))))) : null, truth })
+}
+
+scenes.stock = async () => {
+  // A FULL BAG AT TOWN WITH A COMPOSTER: the composter's order (leaf litter, surplus saplings above SAPLING_RESERVE 16) runs
+  // ahead of the farm; the farm must still be founded and planted 9/9 from what composting left.
+  buildArena()
+  const comp = { x: HOME.x + 3, y: G + 1, z: HOME.z - 3 }
+  // the composter's town order needs a bank container in sight (composter.mjs townOrder storageNear): one empty chest
+  rcon(`setblock ${comp.x} ${comp.y} ${comp.z} minecraft:composter`, `setblock ${HOME.x - 3} ${G + 1} ${HOME.z + 3} minecraft:chest`)
+  const spec = [['birch_sapling', 40], ['oak_sapling', 40], ['leaf_litter', 32], ['torch', 4], ['stone_axe', 1]]
+  const files = await startBot('stock', fill(spec, 35))
+  const before = bag(NAME)
+  const row = await waitFor(() => tendRows(files).find(r => r.status === 'success'), 420000, 2000)
+  // BOTH orders: the composter's runs on its own scan (a first decision with the bag not yet filled defers it a scan)
+  const compRow = await waitFor(() => rowsOf(files.skillLog).find(r => r.name === "compost"), 420000, 2000)
+  await sleep(3000)
+  const after = bag(NAME), rec = record(), truth = rec ? farmTruth(rec) : null
+  const order = rowsOf(files.skillLog).filter(r => /^(compost|tend_farm|town_deposit|wear_out|dispose_well|prune_town|place)$/.test(r.name)).map(r => `${r.name} ${r.status} ${r.detail.slice(0, 90)}`)
+  await stopBot()
+  result({ scene: 'stock', slotsBefore: before.used, order, row: row && row.detail, compost: compRow && `${compRow.status} ${compRow.detail.slice(0, 160)}`, truth, bagDelta: deltaOf(before.totals, after.totals),
+    saplingsAfter: { birch: after.totals.birch_sapling || 0, oak: after.totals.oak_sapling || 0 },
+    composterLevel: r1(`data get block ${comp.x} ${comp.y} ${comp.z}`).slice(0, 160) })
+}
+
+scenes.bmab = async () => {
+  // BONE MEAL A/B ON THE SAME FARM (owner 10-15): identical arena, layout, bag (18 birch saplings, 4 torches, an axe, 64 bone
+  // meal) and decisions; the arm is the switch alone (TF_BM=on|off -> TREEFARM_BONEMEAL). randomTickSpeed stays 3 (the
+  // fleet's). Clock set to noon at the start, the daylight cycle runs (torches light the night: measured 10-05). Every
+  // 10 min the brain asks `gather birch_log 32` (the fleet's ordinary harvest). Measured by RCON every 30 s: when each plot
+  // first holds a log; the bag's log gain is the harvest.
+  const arm = process.env.TF_BM === 'on' ? 'on' : 'off'
+  const MIN = Number(process.env.TF_MIN || 60)
+  buildArena()
+  rcon('gamerule randomTickSpeed 3', 'time set noon')
+  const files = await startBot(`bmab-${arm}`, fill([['birch_sapling', 18], ['torch', 4], ['stone_axe', 1], ['bone_meal', 64]]), { env: { TREEFARM_BONEMEAL: arm } })
+  const before = bag(NAME), t0 = Date.now()
+  const firstTree = {}, plantedAt = {}
+  let rec = null, nextGather = t0 + 10 * 60000, polls = 0, returned = 0
+  const tl = []
+  while (Date.now() - t0 < MIN * 60000) {
+    await sleep(30000)
+    // THE ARENA FLOATS (y 113..119): a livelock relocation can walk the bot off its edge (run 1015T010624: it fell 58 blocks
+    // and the arm's last 30 min were lost). A bot below or outside the arena is put back on it, and counted.
+    { const pos = /\[(-?[\d.]+)d, (-?[\d.]+)d, (-?[\d.]+)d\]/.exec(r1(`data get entity ${NAME} Pos`))
+      if (pos && (+pos[2] < G - 2 || +pos[1] < A.x0 || +pos[1] > A.x1 || +pos[3] < A.z0 || +pos[3] > A.z1)) { returned++; rcon(`tp ${NAME} ${HOME.x + 0.5} ${HOME.y} ${HOME.z + 0.5}`) } }
+    rec = rec || record()
+    if (!rec) continue
+    for (const r of placeRows(files)) if (/role=plant/.test(r.detail) && /verdict=confirmed/.test(r.detail)) { const at = field(r.detail, 'at'); if (!plantedAt[at] || r.ts > plantedAt[at].last) plantedAt[at] = { first: plantedAt[at]?.first ?? r.ts, last: r.ts } }
+    const t = farmTruth(rec); polls++
+    rec.cells.filter(c => c.role === 'plot').forEach((p, i) => { const k = `${p.x},${p.y},${p.z}`; if (t.plotStates[i] === 'tree' && !firstTree[k]) firstTree[k] = Date.now() })
+    tl.push({ min: +((Date.now() - t0) / 60000).toFixed(1), trees: t.trees, saplings: t.saplings })
+    if (Date.now() >= nextGather) { QUEUE.push({ skill: 'gather', args: { block: 'birch_log', count: 32 } }); nextGather += 10 * 60000 }
+  }
+  const after = bag(NAME)
+  const d = deltaOf(before.totals, after.totals)
+  const logs = Object.entries(d).filter(([k]) => /_log$/.test(k)).reduce((a, [, v]) => a + v, 0)
+  const ttg = Object.entries(firstTree).map(([k, tt]) => plantedAt[k] ? Math.round((tt - plantedAt[k].first) / 1000) : null).filter(v => v != null).sort((a, b) => a - b)
+  const tends = tendRows(files)
+  const bmUsed = tends.reduce((a, r) => a + (+field(r.detail, 'bonemeal') || 0), 0), bmGrew = tends.reduce((a, r) => a + (+field(r.detail, 'bm_grew') || 0), 0)
+  await stopBot()
+  rcon('gamerule randomTickSpeed 3')
+  result({ scene: 'bmab', arm, server: SERVER, minutes: MIN, returnedToArena: returned, logsGathered: logs, logsPerHour: +(logs * 60 / MIN).toFixed(1), treesGrown: Object.keys(firstTree).length,
+    secondsPlantToTree: ttg, medianPlantToTree: ttg.length ? ttg[Math.floor(ttg.length / 2)] : null, firstTreeMin: tl.find(x => x.trees > 0)?.min ?? null,
+    boneMealUsed: bmUsed, boneMealGrew: bmGrew, bagBoneMeal: { before: before.totals.bone_meal || 0, after: after.totals.bone_meal || 0 },
+    gathers: rowsOf(files.skillLog).filter(r => r.name === 'gather').map(r => `${r.status} ${r.detail.slice(0, 100)}`), timeline: tl.filter((x, i) => i % 4 === 0), polls,
+    tends: tends.map(r => `${r.status} ${r.detail.slice(0, 140)}`) })
+}
+
 ;(async () => {
   TF = await import(process.env.TF_SRC || path.join(BOT_ROOT, 'bots/src/treefarm.mjs'))   // TF_SRC: the layout for a control arm
   if (!/There are 0 of/.test(r1('list'))) throw new Error(`${SERVER} is not empty`)
-  await new Promise(r => brain.listen(11499, '127.0.0.1', r))
+  const lock = execFileSync('ssh', ['mike@10.0.0.31', 'cat /tmp/mcai-sandbox.lock/owner 2>/dev/null || echo NOLOCK'], { encoding: 'utf8' })
+  if (!/^treefarm /.test(lock)) throw new Error(`the sandbox lock on 10.0.0.31 does not name treefarm: ${lock.trim()}`)
+  await new Promise(r => brain.listen(BRAIN_PORT, '127.0.0.1', r))
   for (const s of SCENES_S.split(',')) {
     P('=== scene', s)
     try { await scenes[s]() } catch (e) { P('scene failed', s, String(e?.stack || e)); result({ scene: s, error: String(e?.message || e) }); await stopBot() }

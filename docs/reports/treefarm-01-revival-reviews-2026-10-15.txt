@@ -1,0 +1,78 @@
+# treefarm-01 REVIVAL (10-15) -- review record. Branch farm-on-5e66386 (fleet 5e663860); variant farm-on-1957811 (airpocket-03).
+
+## Codex round 1 (reviewed acbb59bc) -- CHANGE
+1. **P2 — Concurrent founding can invalidate an existing well record.** `bots/src/skills.mjs:7402,7748,7775`  
+   Farm and well searches can each read before the other publishes, then commit conflicting records under independent keys. The farm lease excludes only other farm builders. Subsequently, `resolveTownSite` refuses and relocates the recorded well because of the farm. Reproduced geometry on flat terrain: the independently selected well at `(-7,63,-1)` passes initially, then fails with “a tree-farm plot is within 4.”  
+   **Fix:** serialize town-site reservation publication across both builders, re-reading reservations under that lock. Add an interleaved founding test that verifies the first recorded site remains valid.
+
+2. **P2 — Farm founding ignores in-flight chest reservations.** `bots/src/skills.mjs:7360–7376,7402`  
+   Chest recovery can validate its site and publish a claim, then await placement. During that interval, another bot can found a farm on or within three blocks of the claimed chest: `farmAvoid` never reads chest claims, and the block scan still sees air. Placement then proceeds without another fresh `farmChestRefusal`; the generic placement guard also lacks the three-block clearance check. The resulting chest violates the claimed separation.  
+   **Fix:** include live chest claims in farm siting, with the existing world/expiry/reconciliation rules, and coordinate reservation publication. Test founding during a chest placement’s equip/submit interval.
+
+All six test files selected by `treefarm`, `chest-full`, `well`, and `peacefulkit-order` passed. The peacefulkit test’s farm-off setting is reasonable isolation. Working tree is clean.
+
+VERDICT: CHANGE
+Fixed in b7b1dcd9 (precedence: the farm yields; chest claims in flight), with tests.
+
+## Claude round 1 (independent subagent; reviewed acbb59bc, noted b7b1dcd9) -- CHANGE
+P2-1 a farm could move an existing well site -> fixed b7b1dcd9 (wellAvoid judges recorded sites without the farm; wellSearchAvoid for NEW sites; farmYields).
+P2-2 (in b7b1dcd9) the farm yielded to a legal chest (3.5 any height vs chest-full's <=3 in the column span) -> fixed 6918d574 (one rule: farmChestRefusal).
+P3 torches used 4 not the well's torch distance 2 in farmYields -> fixed 6918d574.
+P3 a late bag update scored a bone-meal use not_consumed; the read's gate was blind -> fixed 6918d574 (600 ms wall-clock wait; bm_spent in the row; the read uses max(bonemeal, bm_spent)).
+P3 the stage-visibility comment overstated -> fixed. P3 the WIRED test had no mutant -> anchored mutants added (b7b1dcd9, 484c3af1). P3 index wiring test asserts a style invariant -> kept; the farm entry now joins by concat (f4eaa4df) so townzone's structural no-push test passes on the merge.
+Answers: rebase 0aca7734 correct (unions only); peacefulkit-order TREEFARM_ENABLED=off acceptable; bone meal bounds right, no loop.
+
+## Found by the author between rounds
+ba126e7b: a farm visit could pick a stand in a junk well's column (cap diagonally 4.24 off a corner plot) -> forbidden; behaviour test + mutant.
+484c3af1: chest-full's widening decision as a pure export (widensChestSearch), tested + mutant.
+
+## Codex round 2 (reviewed 6918d574, delta acbb59bc..6918d574) -- APPROVE
+No actionable P1/P2/P3 findings in `acbb59bc..6918d574`.
+
+The suspected stale-cache race is mitigated by the well builder’s existing 25-second record-settlement barrier and refreshed path exclusions.
+
+Validation: `treefarm` and `well` targeted runs passed all 4 test files. Working tree remains clean.
+
+VERDICT: APPROVE
+## Codex round 3 (reviewed e8104d51) -- CHANGE
+- **P2 — `bots/src/skills.mjs:7673`: Scaffold eligibility masks genuine losses.** If a visit loses 64 cobblestone through an accidental toss without placing any blocks, it reports `scaffold=64 lost=0`, bypassing C3. The helper also unconditionally includes the fleet defaults even when movements supplies a narrower list. This is unacceptable for a gate intended to detect unintended item loss. **Fix:** exempt only quantities attributable to confirmed pathfinder placements; count unexplained decreases as `lost`. Test placement, toss, and placement-plus-toss of the same item. The current test merely removes inventory and therefore passes for the defect itself.
+
+The height guard introduces no demonstrated farm dead end: canonical anchors are within ±6 of `floor(home.y)`, and plots within ±2 of anchors. A generated farm cannot have plots more than 12 blocks off home; steeper terrain is already excluded by siting.
+
+Validation: `node scripts/run-tests.mjs treefarm` passed both test files.
+
+VERDICT: CHANGE
+Fixed in 6e0667f1 (credit only for confirmed placements).
+
+## Claude round 2 (independent subagent, reviewed 6918d574) -- APPROVE, with three P3s (plinth-cell yield rule on the merge; a race-founded farm planting inside a keep-out before it yields; the row's census could be cut at 300 chars) -- all fixed in 6e0667f1 (and the plinth merge plans through wellSearchAvoid).
+
+## Codex round 4 (reviewed 6e0667f1) -- CHANGE
+- **P2 — `bots/src/skills.mjs:7671`: Yield check precedes asynchronous preparation.** A well site or chest claim recorded during `approach()`, equip, or `lookAt()` can still be followed by planting or bone meal inside its keep-out. The next iteration stops too late. Move the check to immediately before each mutation, after preparation awaits. Add a test that records the conflicting structure during `onGoto` or equip; the current test records it between actions and misses this window.
+
+- **P2 — `bots/src/skills.mjs:7465`: Nearby block updates still conceal real losses.** Every matching update earns scaffold credit without a corresponding placement attempt by this bot. If another bot places one andesite nearby while the tending bot loses one, accounting reports `scaffold=1 lost=0`. Repeated updates to the same cell can also inflate credit. Track this bot’s placement attempts by target and item, and credit each once upon server confirmation. Test nearby unrelated placements and duplicate updates alongside a toss; the existing 20-block-distance test does not cover these cases.
+
+`node scripts/run-tests.mjs treefarm`: **2/2 files passed**. The additional scans are bounded by 14 actions; the no-site re-founding path retains its two-hour backoff.
+
+VERDICT: CHANGE
+Fixed in a9896a50 (yield check in the fence; bot.placeBlock wrapped: only this bot's own confirmed placements, once per cell).
+
+## Codex round 5 (reviewed a9896a50) -- CHANGE
+- **P2 — `bots/src/skills.mjs:7610–7615`: Placement still awaits after the fence.** `lookAt()` runs after `fence()`, so a well site or chest claim recorded during that await is missed before planting. Move the fence after the look, immediately before placement; add a regression that records the conflicting structure during `lookAt`.
+
+- **P2 — `bots/src/skills.mjs:7481–7483`: Failed placements leave stale pending credit.** If `placeBlock` rejects, its target remains pending throughout the visit. Another bot later placing the same material there earns credit for this bot, potentially concealing an unrelated toss. Remove the matching pending attempt when the call fails or settles unconfirmed, preserving newer attempts at the same cell. Test rejection followed by another bot’s placement and an unrelated loss.
+
+No competing `placeBlock` replacements found in `bots/src`. Treefarm tests: **2/2 files passed**.
+
+VERDICT: CHANGE
+Fixed in 38e74f69 (fence after the look; attempts dropped SCAFFOLD_SETTLE_MS after they settle).
+
+## Codex round 6 (reviewed 38e74f69) -- APPROVE
+No findings in `a9896a50..38e74f69`. Both fixes address the round-5 defects.
+
+Validation: `node scripts/run-tests.mjs treefarm` passed 2/2 test files. Working tree unchanged.
+
+VERDICT: APPROVE
+## Claude final (independent subagent, reviewed 6918d574..38e74f69) -- APPROVE
+All round-2..5 findings verified fixed; full suite 252/252 in its snapshot. One P3: a scaffold confirmation later than ~6 s (5 s mineflayer wait + 1 s settle) is not credited and reads lost=1 (a false C3 row) -- accepted and documented in the read header and the registration's C3 line. No action needed: a stale pass-through wrapper after a hard-stopped visit is harmless.
+
+4dc37cd6 = 38e74f69 + a test-only change (the well-search wiring check accepts wellsite's (searched = ...) form, so it holds on the wellsite and plinth merges).

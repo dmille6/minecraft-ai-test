@@ -7,6 +7,11 @@ scene passed on the final sha. Registration `docs/reports/treefarm-01.1918bb5.js
 **Queue position (owner 10-05 ~19:00Z): LAST** — after chestfull-02 (live) → withdraw → climbflood → towndeposit →
 foodskip → grid fix → bamboo → junk well re-run → cobble rule. Registered, **not launched**; rebased when its turn comes.
 
+**REVIVED 10-15 (see the section "REVIVAL 10-15" at the end): rebased onto fleet 5e663860 (`farm-on-5e66386` @ `4dc37cd6`;
+variant `farm-on-1957811` @ `660d872e` for airpocket-03), composed with everything since 1918bb5, bone meal ON by owner
+decision, both engines APPROVE, Paper re-run, registered `docs/reports/treefarm-01.4dc37cd6.json`. NOT QUEUED.**
+The status below is the 10-06 build's.
+
 ## For the owner, first
 
 **What it is.** A general "build this structure next to town" skill (the *blueprint builder*), proven first on a
@@ -276,3 +281,106 @@ pieces below. Neither is built; each would be its own canary after the farm read
 | 8 | **Walkway clutter**: the gathers' own pillars (6 andesite blocks after one harvest on Paper) accumulate between the plots | not a growth problem (only columns are reserved); visible in the visit census over time. If it grows, the follow-up is a walkway sweep in the farm visit or a place exclusion over the whole box — the latter would also stop gather pillaring up to a farm tree's top logs, so it needs its own A/B |
 | 6 | **A refusal with no executable remedy** | the order is only issued when this bot's view has work it can do; the skips name a gather (no saplings), a wait (unknown, leased) or a long backoff (no site). Chain tested. |
 | 7 | **Composition with the queue ahead** (withdraw, towndeposit, junk well, chest-full) | rebase requirement: chest-full's `chestSiteRefusal` and the junk well's site search must refuse `farmIndex` cells; re-run treefarm.test.mjs and the Paper `build`/`paths` scenes on the rebased sha |
+
+## REVIVAL 10-15: treefarm-01 on the current fleet (5e663860), bone meal ON
+
+**STATUS (10-15 03:30Z): REBUILT, REVIEWED, SANDBOX-PROVEN, REGISTERED, NOT QUEUED.** The owner asked about the farm on
+10-15 and wants it running. OWNER DECISION 10-15 ("lets build it and use the bone [meal]"): the bone meal arm is ON.
+
+| | |
+|---|---|
+| branch, fleet 5e663860 | `farm-on-5e66386` @ `4dc37cd6` (registration `docs/reports/treefarm-01.4dc37cd6.json`) |
+| branch, if airpocket-03 is kept (1957811e) | `farm-on-1957811` @ `660d872e` (registration `docs/reports/treefarm-01.660d872e.json`) |
+| read | `scripts/host/treefarmread.py` (md5 `b0b48ddbcdcebef8210847f376ea03ce`; installed on 10.0.0.31 as ~/mcai-analysis/treefarmread.py, the 10-06 one kept as `.bak-20261015-1918bb5`) |
+| queue entry | `docs/reports/treefarm-01.queue-entry.json` (for the operator; NOT queued) |
+| reviews | `docs/reports/treefarm-01-revival-reviews-2026-10-15.txt` |
+
+### What changed in the rebase
+
+The approved 453cd07 diff applied to 5e663860 as one commit; every conflict was a union (cognitive.mjs order placement,
+HOUSEKEEPING, the index.mjs exclusion arrays, the skill contracts/registrations; `sameWorld` from composter.mjs). Then:
+
+**Composition, each tested from both sides (bots/test/treefarm-compose.test.mjs, 20 tests, five through the REAL CognitiveLoop):**
+- **Junk well.** A well cap and a farm plot keep 4 apart (a torch 2). A NEW well site keeps off the farm (`wellSearchAvoid`;
+  the plinth planner uses the same list); a RECORDED well site is judged without the farm, so a farm can never move a well.
+  The farm yields instead: `farmYields` refuses a farm record inside the keep-out of a well, a plinth plan or a live chest
+  claim, and the town re-founds from the same list (stable). A race between the two foundings resolves one way, always.
+  A farm visit never picks a stand in a well's column. A structure recorded mid-visit stops the visit at the fence (the
+  last step before every click).
+- **Raised well (plinth-01, not in this base).** The farm reads its plan record when present and keeps off the cap and every
+  planned cell/stand. Test merge `farm-x-plinth`: `plinthKeepOut` carries `farmKeepOut`; the planner test proves a plan is
+  still found and never touches a farm cell. **Whichever of the two lands second carries that one-line patch.**
+- **Chest-full.** A new chest never goes in a farm cell or within 3 of a plot; a farm refusal widens the search exactly as the
+  well's (`widensChestSearch`, a pure export). The farm avoids chests in flight (live claims) at founding and yields to a
+  claim only by chest-full's own rule, so a legal chest never moves it.
+- **Town floor (townfloor-01, READY on main).** The farm never sites a plot or torch cell in the floor's band. Test merge
+  `farm-x-floor`: `floorKeepOut` carries `farmKeepOut` (a dug-out farm soil cell AT L is otherwise a floor target);
+  both orders keep their own cooldowns (floor, then farm). **Whichever lands second carries that patch.**
+- **Town zone (townzone-01).** Logs are not terrain, so the zone and the farm's own digs never meet; gather's two dirt
+  filters compose (test merge `farm-x-tz`: the zone's remedy still finds dirt beyond the farm).
+- **_dig_town.** The farm's leftover-log dig is a `target` dig by `tend_farm` (class free).
+- **Walks.** The order is issued only within 12 of home's level. Blocks this bot's own walk placed (bot.placeBlock while
+  holding a scaffold block, confirmed by the server at that cell) are `scaffold=`, never `lost=` (found on Paper: a bot under
+  the farm towered up and would have tripped C3). Known edge: a confirmation later than ~6 s reads lost=1.
+- **Stock targets / composting / prune.** Saplings are PROTECTED (never pruned or disposed); composting keeps 16 of each
+  farm species; the farm needs 6 to found. Tested through the real loop (a full bag at town: the orders ranked ahead keep
+  their turn and the farm order still comes).
+- **Town projects (designed).** Their siting already keeps off "tree-farm cells and walkways" and any tree within 3. When the
+  shared `townsites` file exists, `farmAvoid` must read it (stage 3, yard-01, adds it).
+
+**Bone meal (owner 10-15).** ON unless `TREEFARM_BONEMEAL=off`. Bounds: only a sapling whose column is clear (vanilla eats
+bone meal even when the tree cannot fit); never below 8 in the bag; at most 6 a visit; leftover logs above a sapling are
+cleared first. Rows: `bonemeal` (confirmed by the bag), `bm_grew` (a log named by the server at the cell right after),
+`bm_spent` (the bag's loss over the visit).
+
+### What it costs and gains (measured 10-15)
+
+| | |
+|---|---|
+| fleet bags (ES, latest per bot, 10-15) | **1,984 bone meal**, median 19 a bot; 68 of 80 bots hold more than the reserve of 8; **1,403 spendable** above it |
+| fleet production (composting) | **90 in 24 h / 204 in 72 h** = 0.035-0.047 per bot-hour (~70-90 a day fleet-wide) |
+| what the farm can spend | at most 6 a visit, one visit per bot per 5 min, only on a clear sapling, never below 8 in the bag |
+| Paper A/B, same farm, rtick 3, 60 min, run 1 (01:07Z) | OFF: 90 logs, plant->tree median 812 s, first tree 3 min. ON: 57 logs (the bot fell off the floating arena at ~27 min: confounded), median 481 s, 18 bone meal |
+| Paper A/B, run 2 (02:10Z, bot kept on the arena) | OFF: **114 logs/h**, median 906 s, first tree 8 min, 0 bone meal. ON: **93 logs/h**, median 815 s, first tree **2.5 min**, **43 bone meal** (7 of 61 uses over both runs grew a tree within 600 ms) |
+
+**Gain:** the first trees come sooner (2.5-6 min against 3-8 min) and plant-to-tree is shorter (median 481/815 s
+against 812/906 s). **No log gain was measured:** logs per hour were not higher with bone meal in either run (n = 2 per
+arm, noisy) -- the harvest (the ordinary gather's cadence), not growth, limits a 3x3 farm with growth torches.
+**Cost:** one farm tended continuously spent **43 bone meal an hour** on Paper -- about half the whole fleet's DAILY
+composting output. In production the bags' 1,403 spendable bone meal would drain in days and then spending is capped by
+composting (~5 a town a day); the reserve of 8 per bot stays. Nothing else in the code consumes bone meal (the well and stock
+targets protect it), so nothing is starved; the cost is the stock itself. The read reports bone meal per canary bot-hour
+and the share that grew a tree. If the owner wants the stock kept, `TREEFARM_BONEMEAL=off` (per pool env) or a lower
+per-visit cap are one-line changes.
+
+### Paper sandbox on the rebased build
+
+Real bot from the branch, loopback brain, RCON as the oracle (`sandbox/treefarm/treefarm-e2e.cjs`; sandbox lock held as
+`treefarm` 01:06-03:20Z; sandbox2/3/4; arena only; randomTickSpeed restored to 3 on every server).
+
+| scene (final sha 38e74f69 = 4dc37cd6 src) | server truth |
+|---|---|
+| build | 9/9 plots + 4/4 torches confirmed, record = the harness's canonical layout, 0 off-plan cells, bag exact, 0 items on the ground; bone meal 5 in the bag (under the reserve): 0 spent |
+| resume | SIGKILL after the 3rd planting; restart completes 9/9 + 4/4, same record generation, 0 dropped |
+| lease | another bot's live lease: no record, 0 placements; after expiry it built 9/9 + 4/4 |
+| well | a recorded junk-well site and a plinth plan on the canonical farm's plots: the farm founded elsewhere -- nearest plot 17.0 from the well, 9.1 from the plinth cap, 6.1 from a planned plinth cell; 9/9 + 4/4 |
+| stock | a full bag (35 slots, 40+40 saplings, leaf litter) at town with a composter and a chest: the farm founded 9/9 + 4/4 AND the compost order ran (71 items in); composting stopped at 16 of each sapling (its reserve) |
+| paths | gather dirt, place a crafting table, goto across: all 9 soils, saplings and 4 torches intact (the table and two holes landed in walkways, unreserved by design) |
+| grow (on e8104d51) | 6 trees -> the ordinary `gather birch_log` (10) -> the visit cleared 3 leftover logs -> replanted 2 ready plots |
+| zone (townzone merge) | gather 12 dirt beside the farm with the zone on: 12,144 town-ground candidates skipped, all farm cells intact |
+
+### Tests and mutants
+
+- `npm test` (node scripts/run-tests.mjs): **252/252** on 4dc37cd6; **253/253** on the airpocket-03 variant 660d872e.
+- `treefarm.test.mjs` 62 tests (the reviewed 57 + bone meal bounds, the skill with bone meal on and a lagging bag, walk
+  scaffold vs toss, the order's level); `treefarm-compose.test.mjs` 24 (each keep-out from both sides, races, mid-walk /
+  mid-look / mid-visit yields, chest-full's widening, the floor band, digtown, a stand in a well column, five chains through
+  the REAL CognitiveLoop).
+- Test merges (each green on its own tests + the farm's): farm-x-tz (+ `treefarm-zone.test.mjs`: the zone's remedy still
+  finds dirt past the farm), farm-x-ws (wellsite), farm-x-pl (+ `treefarm-plinth.test.mjs`: the planner never touches a
+  farm cell and still finds a plan), farm-x-floor (+ `treefarm-floor.test.mjs`: a dug farm soil cell at the floor level is
+  not a floor target).
+- Anchored mutants (`sandbox/treefarm/mutants.py`, every anchor asserted present and unique): **52 of 56 killed**. Named
+  survivors: the structural off-plan guard (plan cells are on-plan by construction); the bone-meal column re-read (the plan
+  already excludes a blocked column); chest-full's farm-cell check (every farm cell is also within 3 of a plot, so the
+  distance rule refuses it); the farm avoiding a FOUND well (the fakes build no well; the recorded-site path is killed).

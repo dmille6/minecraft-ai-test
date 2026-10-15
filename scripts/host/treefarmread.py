@@ -1,13 +1,15 @@
 #!/usr/bin/env python3
-# treefarmread.py [window_min] -- the read for canary `treefarm-01` (branch bp-on-1918bb5: the blueprint builder + town tree farm).
+# treefarmread.py [window_min] -- the read for canary `treefarm-01` (the blueprint builder + town tree farm), REVIVED 10-15 on
+# fleet 5e663860 (branch farm-on-5e66386; variant farm-on-1957811 for airpocket-03). First registered 10-06 on 1918bb5.
 # CANARY_DRYRUN=pool[,pool]:sha:iso for dry runs (never emits).
 #
 # THE CHANGE: one tree farm per town (3x3 sapling plots 4 apart, 4 growth torches), founded and tended by a deterministic
 # town order `tend_farm`: plant from the bag (birch first, then oak), restore lost soil, clear LEFTOVER logs from plot
-# columns, place torches the bot carries; bone meal only with TREEFARM_BONEMEAL=on (OFF: not an owner decision yet).
+# columns, place torches the bot carries, and BONE MEAL (OWNER 10-15: ON by default; only on a sapling whose column is clear,
+# never below the bag's reserve of 8, at most 6 a visit; TREEFARM_BONEMEAL=off disables).
 # Ordinary `gather <log>` harvests the trees -- the farm never chops a standing tree. Every mutation is counted only when a
 # SERVER block_change names the result at that cell. Rows: `_farm_tend` (one per visit, incl. no_effect skips; detail
-# "gen=N planted=N soil=N cleared=N torches=N bonemeal=N failed=N offplan=N lost=N lease=gN|held:X [at=..] t0=ms stop=..
+# "gen=N planted=N soil=N cleared=N torches=N bonemeal=N bm_grew=N bm_spent=N scaffold=N failed=N offplan=N lost=N lease=gN|held:X [at=..] t0=ms stop=..
 # census=k:v,.. species=k:v,.."), `_farm_place` (one per mutation: "role=.. item=.. at=x,y,z verdict=.."), `_farm_site`
 # (a record generation created: "gen=N anchor=x,y,z plots=N torches=N [replaced=x,y,z]").
 # PAPER SANDBOX 10-05: see docs/reports/blueprint-builder-design-2026-10-05.md (build, resume after SIGKILL, lease,
@@ -18,13 +20,27 @@
 #                town's farm record (/var/lib/mcai/_pool-<pool>/treefarm-<home>.g<N>.json, any generation still on disk),
 #                or any `_farm_tend` offplan > 0; C2 TWO BUILDERS: two `_farm_tend` visits by different bots of one pool
 #                whose spans [t0, t] overlap and both mutated; C3 LOST: any `_farm_tend` lost > 0 (non-farm items the bag
-#                lost during a visit); C4 DOUBLE FOUNDING: more than one `_farm_site` row per pool without replaced=.
+#                lost during a visit; since 10-15 a block this bot's own walk placed and the server confirmed is scaffold=,
+#                not lost -- KNOWN EDGE (Claude r5 P3): a scaffold placement whose server word comes > ~6 s late (5 s
+#                mineflayer wait + 1 s settle) is not credited and reads lost=1; read a lone C3 row of exactly 1 scaffold-
+#                class block against the bot's lag before treating it as the defect); C4 DOUBLE FOUNDING: more than one `_farm_site` row per pool without replaced=;
+#                C5 BONE MEAL WITH NO GROWTH: canary bone meal used >= BM_NOGROW_FLOOR (36), not one use followed by a
+#                server-named log (bm_grew), AND no canary visit ever saw a grown tree on its farm (census tree) --
+#                vanilla's 45%-per-stage model says a tree per ~4.4 uses (36 spread over 9 saplings: P(0) = 2.2e-4,
+#                _bm_null), but MEASURED on Paper 10-15 only 7 of 61 uses (11%) were followed by a server-named log within
+#                600 ms -- P(0 in 36 | 11%) ~ 0.012 -- so the gate also requires that no canary visit ever saw a grown tree
+#                (census), which a working farm always does: C5 fires only when bone meal is spent on a farm where nothing
+#                grows at all;
+#                C6 RESERVE: a canary visit that used bone meal and left the bag under BONEMEAL_RESERVE (8) by the row's own
+#                inventory snapshot.
 #   INSTRUMENT   control log gathers with a positive log delta (>= 20): the outcome this changes exists and is read.
 #   EXPOSURE     >= 1 canary farm founded or tended with >= 9 confirmed plantings, AND the instrument.
 #   PRIMARY      (REPORTED) logs gathered per bot-hour (gather rows' positive *_log inventory_delta), the same within 48 of
 #                home, median distance from home of successful log gathers, gather seconds per log; each DiD vs the
-#                same-length pre-window. Plus: farm census (plots holding a grown tree when visited), tend outcomes,
-#                bone meal used (must be 0 with the arm off), canary bot-hours within 96 of home (the farm's random
+#                same-length pre-window. Plus: farm census (plots holding a grown tree when visited; plots another
+#                structure took: soil/cell/column_foreign), tend outcomes, BONE MEAL used per canary bot-hour and the share
+#                that grew a tree (the fleet's composters made 90 in 24 h on 10-15 -- 0.047 per bot-hour -- and the bags held
+#                1,982: the read says how fast the farm spends it), canary bot-hours within 96 of home (the farm's random
 #                ticks only fire while a player is that near: a farm nobody visits does not grow).
 import sys, os, json, re, glob, statistics
 import datetime as dt
@@ -51,6 +67,8 @@ END = CUT + dt.timedelta(minutes=W)
 PRE = CUT - dt.timedelta(minutes=W)
 TOWN = 48          # composter.mjs TOWN_RADIUS
 TICK = 96          # simulation-distance 6 chunks on the fleet worlds
+BM_NOGROW_FLOOR = 36   # C5: bone meal uses before zero growth is a defect (P(0 trees | healthy) <= 2e-4: _bm_null below)
+BM_RESERVE = 8         # treefarm.mjs BONEMEAL_RESERVE
 STATE = os.environ.get('TREEFARM_STATE', '/var/lib/mcai')
 
 
@@ -149,6 +167,40 @@ _s = fields('gen=1 planted=0 soil=0 cleared=0 torches=0 bonemeal=0 failed=0 offp
 assert _s['lease'] == 'held:board-a-Bravo' and census(_s['census']) == {}
 _p = fields('role=plant item=birch_sapling at=401,64,229 verdict=confirmed')
 assert _p['at'] == '401,64,229' and _p['verdict'] == 'confirmed'
+_b = fields('gen=2 planted=0 soil=0 cleared=1 torches=0 bonemeal=6 bm_grew=2 bm_spent=6 failed=0 offplan=0 lost=0 lease=g9 t0=1760500000000 stop=done census=sapling:8,tree:1 species=-')
+assert num(_b, 'bonemeal') == 6 and num(_b, 'bm_grew') == 2 and num(_b, 'bm_spent') == 6 and census(_b['census']) == {'sapling': 8, 'tree': 1}
+_q = fields('role=bonemeal item=bone_meal at=401,64,229 verdict=consumed grew=1')
+assert _q['verdict'] == 'consumed' and _q['grew'] == '1'
+
+
+def _bm_null(uses=BM_NOGROW_FLOOR, saplings=9, p=0.45, trials=200000, seed=7):
+    """P(no tree after `uses` uses spread as evenly as possible over `saplings` stage-0 saplings), by simulation. Pure."""
+    import random
+    rnd = random.Random(seed); zero = 0
+    per = [uses // saplings + (1 if i < uses % saplings else 0) for i in range(saplings)]
+    for _ in range(trials):
+        if all(sum(rnd.random() < p for _ in range(n)) < 2 for n in per):
+            zero += 1
+    return zero / trials
+
+
+def inv_of(raw):
+    inv = ((raw or {}).get('bot') or {}).get('inventory')
+    if isinstance(inv, dict):
+        return inv
+    if isinstance(inv, list):
+        out = Counter()
+        for it in inv:
+            if isinstance(it, dict):
+                out[it.get('name')] += it.get('count') or 0
+        return out
+    return None
+
+
+assert inv_of({'bot': {'inventory': {'bone_meal': 7}}}) == {'bone_meal': 7} and inv_of({'bot': {'inventory': [{'name': 'bone_meal', 'count': 3}]}})['bone_meal'] == 3
+assert inv_of({}) is None
+if os.environ.get('TREEFARM_SELFTEST_NULL'):
+    print('C5 null: P(0 trees | 36 uses over 9 saplings) = %.5f' % _bm_null())
 LOG = re.compile(r'_log$|_stem$')
 
 rows_all = sorted(load_window(PRE, END), key=lambda r: r['t'])
@@ -156,7 +208,7 @@ H = homes()
 print('rows walked %d  |  bots with a home %d  |  canary %s  sha %s  cutoff %s  window +%d min' % (len(rows_all), len(H), CAN, CV, CUT.strftime('%H:%MZ'), W))
 rows = Counter(); offbuild = 0
 tends = defaultdict(list); places = []; sites = defaultdict(list)
-c1 = []; c3 = []; bonemeal_used = 0; tend_status = Counter(); planted = 0; cleared = 0; torches = 0; soil = 0; grown_seen = []
+scaffold_used = [0]; c1 = []; c3 = []; c6 = []; bm_grew = 0; inv_seen = 0; foreign = Counter(); bonemeal_used = 0; tend_status = Counter(); planted = 0; cleared = 0; torches = 0; soil = 0; grown_seen = []
 gat = {(p, a): {'logs': 0, 'near': 0, 'secs': 0.0, 'dist': [], 'n': 0, 'pos': 0} for p in ('pre', 'post') for a in ('canary', 'control')}
 seen_bots = defaultdict(set); near_rows = Counter(); all_rows = Counter()
 for r in rows_all:
@@ -213,11 +265,19 @@ for r in rows_all:
             c1.append((b, 'offplan=%s' % f.get('offplan')))
         if num(f, 'lost') > 0:
             c3.append((b, 'lost=%s' % f.get('lost')))
-        planted += num(f, 'planted'); cleared += num(f, 'cleared'); torches += num(f, 'torches'); soil += num(f, 'soil')
-        bonemeal_used += num(f, 'bonemeal')
+        scaffold_used[0] += num(f, 'scaffold'); planted += num(f, 'planted'); cleared += num(f, 'cleared'); torches += num(f, 'torches'); soil += num(f, 'soil')
+        # USED = the larger of the confirmed uses and the bag's own loss over the visit (a use whose bag update came late)
+        bonemeal_used += max(num(f, 'bonemeal'), num(f, 'bm_spent')); bm_grew += num(f, 'bm_grew')
+        inv = inv_of(raw)
+        if inv is not None:
+            inv_seen += 1
+            if max(num(f, 'bonemeal'), num(f, 'bm_spent')) > 0 and (inv.get('bone_meal') or 0) < BM_RESERVE:
+                c6.append((b, 'bone_meal left %s after using %s' % (inv.get('bone_meal') or 0, f.get('bonemeal'))))
         cz = census(f.get('census'))
         if cz:
             grown_seen.append(cz.get('tree', 0))
+            for k2 in ('soil_foreign', 'cell_foreign', 'column_foreign'):
+                foreign[k2] += cz.get(k2, 0)
 
 # C1: confirmed placements against the records on disk
 rec_cache = {}
@@ -272,19 +332,25 @@ near_rate = lambda p, a: rate(p, a, 'near')
 inst = gat[('post', 'control')]['pos']
 founded = sum(len(ss) for ss in sites.values())
 exposure = int((founded >= 1 or planted >= 9) and planted >= 9 and inst >= 20)
+c5 = int(bonemeal_used >= BM_NOGROW_FLOOR and bm_grew == 0 and max(grown_seen or [0]) == 0)
+can_bh = bot_hours('post', 'canary')
+bm_per_bh = bonemeal_used / can_bh if can_bh else float('nan')
 tick_share = (sum(near_rows.values()) / sum(all_rows.values())) if sum(all_rows.values()) else float('nan')
 print('-' * 78)
 print('LIVENESS     canary farm rows %d (>= 1) | control %d (must be 0) | other build %d' % (rows['canary'], rows['control'], offbuild))
 print('CORRECTNESS  C1 off-plan %d | C2 two builders %d | C3 items lost %d | C4 double founding %s | records on disk %d (unreadable pools %s)'
       % (len(c1), len(c2), len(c3), c4 or 0, nrec, unreadable or '-'))
 print('INSTRUMENT   control log gathers with logs > 0: %d (>= 20)' % inst)
-print('FARM         sites %d (replaced %s) | visits %s | planted %d cleared %d torches %d soil %d | bone meal used %d (arm off: 0) | trees seen at visit max %s'
-      % (founded, replaced or 0, dict(tend_status), planted, cleared, torches, soil, bonemeal_used, max(grown_seen) if grown_seen else '-'))
+print('FARM         sites %d (replaced %s) | visits %s | planted %d cleared %d torches %d soil %d | trees seen at visit max %s | taken by another structure %s'
+      % (founded, replaced or 0, dict(tend_status), planted, cleared, torches, soil, max(grown_seen) if grown_seen else '-', dict(foreign) or 0))
+print('WALKS        scaffold blocks placed by farm-visit walks %d (reported; not a loss -- C3 excludes them since 10-15)' % scaffold_used[0])
+print('BONE MEAL    used %d (%.2f per canary bot-hour; fleet composting made 0.047/bot-h on 10-15) | grew a tree %d (%.0f%%) | C5 no-growth %d (floor %d) | C6 reserve breaches %d (inventory on %d visit rows)'
+      % (bonemeal_used, bm_per_bh, bm_grew, 100.0 * bm_grew / bonemeal_used if bonemeal_used else 0, c5, BM_NOGROW_FLOOR, len(c6), inv_seen))
 print('TICKING      canary rows within %d of home: %.1f%% (a farm only grows while someone is that near)' % (TICK, 100 * tick_share))
 print('PRIMARY      logs/bot-h canary %.2f -> %.2f control %.2f -> %.2f DiD %+.2f' % (logs_rate('pre', 'canary'), logs_rate('post', 'canary'), logs_rate('pre', 'control'), logs_rate('post', 'control'), did(logs_rate)))
 print('             near-town logs/bot-h DiD %+.2f | median gather distance canary %.0f -> %.0f control %.0f -> %.0f DiD %+.1f | gather s/log DiD %+.1f'
       % (did(near_rate), med('pre', 'canary'), med('post', 'canary'), med('pre', 'control'), med('post', 'control'), did(med), did(spl)))
-for x in (c1[:5] + c2[:3] + c3[:3]):
+for x in (c1[:5] + c2[:3] + c3[:3] + c6[:3]):
     print('  breach:', x)
 nan = lambda v: None if v != v else round(v, 3)
 try:
@@ -296,7 +362,9 @@ try:
         'rows_canary': rows['canary'], 'rows_control': rows['control'], 'offbuild_canary': offbuild,
         'c1_offplan': len(c1), 'c2_two_builders': len(c2), 'c3_lost': len(c3), 'c4_double_founding': len(c4),
         'instrument_control': inst, 'exposure_ready': exposure, 'sites_founded': founded, 'planted': planted, 'cleared': cleared,
-        'torches': torches, 'bonemeal_used': bonemeal_used, 'tick_share': nan(tick_share),
+        'torches': torches, 'bonemeal_used': bonemeal_used, 'bonemeal_grew': bm_grew, 'bonemeal_per_bh': nan(bm_per_bh),
+        'c5_bonemeal_no_growth': c5, 'c6_bonemeal_reserve': len(c6), 'tend_rows_with_inventory': inv_seen, 'tick_share': nan(tick_share),
+        'farm_cells_foreign': sum(foreign.values()), 'scaffold_used': scaffold_used[0],
         'logs_per_bh_did': nan(did(logs_rate)), 'near_logs_per_bh_did': nan(did(near_rate)),
         'gather_distance_did': nan(did(med)), 'gather_secs_per_log_did': nan(did(spl)),
     })
