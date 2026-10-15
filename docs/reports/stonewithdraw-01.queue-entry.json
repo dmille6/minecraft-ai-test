@@ -1,0 +1,33 @@
+{
+ "run": "stonewithdraw-01",
+ "class": "",
+ "after": [],
+ "hold": "None for the code. Order: any time after the live canary closes. It composes with townfloor-01 / plinth-01 / town projects (it touches only cognitive's admitted stone gather, the withdraw verb's optional `from`/`alt` args, the stockpile rung's credit, and goto_dig_retry's args). If the fleet tip moves off both bases, ask for a variant (cherry-pick of 3 commits; the only conflict seen was the cognitive.mjs import block).",
+ "note": "WITHDRAW BEFORE DIG (design docs/reports/ziggurat-mineshaft-2026-10-15.md 5.1) + goto dig-retry evidence (5.2 step 1). Near town, at the surface, an admitted stone gather becomes a withdrawal from the fresh-counted town container that holds the cobble (expected cut ~0.2-0.75k cobble/day shared); otherwise unchanged. Read ~/mcai-analysis/stonewithdrawread.py. Install the registration as ~/mcai-analysis/registrations/stonewithdraw-01.json. NOT QUEUED by the build agent.",
+ "variants": {
+  "5e6638601af6714478690eae4b2bb83b158ba97c": {
+   "registration": "/home/mike/mcai-analysis/stonewithdraw-01.e08c3b94.json",
+   "canary_sha": "e08c3b947284c609abc9597b3dc2e4b642bd034e",
+   "branch": "stonewithdraw-on-5e66386 (tip d3016d82, docs only after e08c3b94)",
+   "reads_src": "/home/mike/mcai-analysis",
+   "reads": {
+    "stonewithdrawread": "a862bcb6addc3cbebae71cac6ba4d4fd",
+    "immobiledid": "53af289df12208901931dbeeb1ae325a"
+   },
+   "approved": "stage 2 of the ziggurat/shaft build (owner 10-15 ~05:00Z). Both engines APPROVE: Codex r1 CHANGE, r2 APPROVE, r3 APPROVE; Claude r1 CHANGE, r2 APPROVE, r3 APPROVE (docs/reports/stonewithdraw-01-reviews-2026-10-15.txt). npm test 251/251 (5e663860 variant); the b7cc60b5 variant 253/253 (one earlier full run failed llm-admission-attribution once under load; 4/4 alone, and the re-run is 253/253). eslint no-undef: only the pre-existing reflex.mjs:2384 withinBody. Paper sandbox4 (sandbox/stone/stonewithdraw-e2e.mjs): surface / short / deepslate / retry all ok on RCON truth. licencecheck PASS (_stone_withdraw: 0 baseline rows in 343,721 rows / 6 h, 80 bots); changerowcheck PASS (stone_withdraw silent). Later commits on each branch are docs only.",
+   "registration_sha256": "ffc797038dc2180fa6b7e9940e00d31f2e747ea779a9617fca6db045feaa9489"
+  },
+  "b7cc60b5fbce6cbebd5b8433fb95b370da37f6c5": {
+   "registration": "/home/mike/mcai-analysis/stonewithdraw-01.ae5e3e8a.json",
+   "canary_sha": "ae5e3e8a5110214a0318a5e34ecf0592d713157b",
+   "branch": "stonewithdraw-on-b7cc60b (tip b44c7285, docs only after ae5e3e8a) -- on treefarm-01's tip",
+   "reads_src": "/home/mike/mcai-analysis",
+   "reads": {
+    "stonewithdrawread": "a862bcb6addc3cbebae71cac6ba4d4fd",
+    "immobiledid": "53af289df12208901931dbeeb1ae325a"
+   },
+   "approved": "stage 2 of the ziggurat/shaft build (owner 10-15 ~05:00Z). Both engines APPROVE: Codex r1 CHANGE, r2 APPROVE, r3 APPROVE; Claude r1 CHANGE, r2 APPROVE, r3 APPROVE (docs/reports/stonewithdraw-01-reviews-2026-10-15.txt). npm test 251/251 (5e663860 variant); the b7cc60b5 variant 253/253 (one earlier full run failed llm-admission-attribution once under load; 4/4 alone, and the re-run is 253/253). eslint no-undef: only the pre-existing reflex.mjs:2384 withinBody. Paper sandbox4 (sandbox/stone/stonewithdraw-e2e.mjs): surface / short / deepslate / retry all ok on RCON truth. licencecheck PASS (_stone_withdraw: 0 baseline rows in 343,721 rows / 6 h, 80 bots); changerowcheck PASS (stone_withdraw silent). Later commits on each branch are docs only.",
+   "registration_sha256": "08daa9704907b0c4e2ed21e57df353223240ac357d5744a6482c00e515eb0794"
+  }
+ }
+}

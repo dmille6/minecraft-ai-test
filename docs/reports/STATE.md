@@ -12,6 +12,43 @@ Studio reservation both closed 10-12); clear caps bamboo 0 / bucket 2._
 
 ---
 
+## 10-15 ~10:30Z — ZIGGURAT/SHAFT BUILD, STAGES 1-2 DONE (OWNER ~05:00Z: shared mineshaft + a SOLID ziggurat per world; Z2-Z8 operator defaults); stage-2 entry READY, NOT QUEUED
+**STAGE 1 (offline Z0/M0, read-only snapshots 04:14Z):**
+- Branch `zig-offline` @ 568cadd3 (on b7cc60b5): monument.mjs, shaftplan.mjs, zigsite.mjs, zigexposure.py, 40 tests.
+- Report: `docs/reports/zig-stage1-z0m0-2026-10-15.md`. JSON: `zig-z0m0-2026-10-15.json`. Reviews:
+  `zig-stage1-reviews-2026-10-15.txt` (Codex r6 APPROVE; Claude r2+r3 APPROVE).
+- **Ziggurat sites in 12 of 12 shared worlds** under OPERATOR rules: centre <= 80 (placebo-d 96), water <= 150 columns
+  filled, <= 250 levelling digs; trees and litter cleared.
+  - Strict design rules (64 / 24 / 0) give 2 of 12. **hive-b's site exists only under the 150-water rule.**
+  - 13.4-18.6k blocks per world, 190.0k for all 12.
+- **Shafts to y=16 in 12 of 12**, each with a walkable pad from home: 328-435 digs once and 22-168 lining placements per
+  town.
+- The town ring is QUARRIED: 501-537 of about 580 collar candidates are more than 6 below home.y in the shared-seed
+  towns.
+
+**STAGE 2 = stonewithdraw-01** (withdraw before dig near town, at the surface + goto dig-retry evidence).
+- Branches (pushed, new):
+  - `stonewithdraw-on-5e66386`: canary sha **e08c3b94** (tip d3016d82, docs only after);
+  - `stonewithdraw-on-b7cc60b`: canary sha **ae5e3e8a** on treefarm-01's tip (tip b44c7285).
+- npm test 251/251 and 253/253. eslint no-undef: only reflex.mjs:2384, as on the base.
+- Paper sandbox4: surface / short / deepslate / retry all ok on RCON truth.
+- licencecheck PASS (_stone_withdraw 0 rows / 6 h). changerowcheck PASS.
+- Reviews: Codex r1 CHANGE, r2+r3 APPROVE; Claude r1 CHANGE, r2+r3 APPROVE.
+- Read: `~/mcai-analysis/stonewithdrawread.py` (md5 a862bcb6), W1-W4 + leak.
+- Registrations: `~/mcai-analysis/stonewithdraw-01.{e08c3b94,ae5e3e8a}.json` (copies in docs/reports).
+- Entry `~/mcai-analysis/stonewithdraw-01.queue-entry.json`; **the coordinator queues it.**
+- **Known gaps** (in its notes):
+  - the rung's own order (5.1a) is not built;
+  - mine's rung credit within 48 is not changed;
+  - the count is the model's (it may churn against the bank);
+  - the 64 floor is advisory between bots.
+- Expected cut is small: about 0.2-0.75k cobble a day, shared.
+
+**NEXT: stage 3** = structureguard-01 built ON minewell-01 + the generic placement builder, shared with town projects'
+stage 3; built once.
+- Sandbox lock released.
+- Note: a `ziggurat timelapse pipeline` commit (3799f453) by another session is on main.
+
 ## 10-15 09:45Z — TREEFARM-02 variant on minewell-01 (a8af87db) READY: replace-variant entry `docs/reports/treefarm-02.queue-entry.json` (after minewell-01); NOT QUEUED
 - **treefarm-01 -> treefarm-02** (coordinator): treefarm-01 was abandoned before its draw (board-b, board-d, hive-c all
   excluded until ~11:57Z) and re-queued unchanged as treefarm-02 after minewell-01. Variants: 5e663860 (b7cc60b5),

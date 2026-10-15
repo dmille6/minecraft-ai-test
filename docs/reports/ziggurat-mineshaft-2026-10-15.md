@@ -20,6 +20,24 @@ biggest corrections since r1:
   specification gains safe states per mutation, its own exclusion arrays and the routing order (§4). The withdraw rule
   is limited to bots at the surface (§5.1). The numbers are reconciled.
 
+> **OWNER DECISION 10-15 ~05:00Z:** "lets work on a shared mineshaft, and build a ziggurat that is no hollow as an interesting
+> project per world".
+> - **Z1 = SOLID, by layers.**
+> - **Z2-Z8 are operator defaults**, taken from §7's recommendations. The owner can change any of them:
+>   - Z2: a monument lane, sharing the projects' budget;
+>   - Z3: the generic builder's first job;
+>   - Z4: the town floor goes first;
+>   - Z5: S1 → S2 → S3;
+>   - Z6: S=3;
+>   - Z7: no stone_bricks;
+>   - Z8: foreign skin accepted.
+> - **Build progress:**
+>   - Stage 1, the offline gates: `zig-stage1-z0m0-2026-10-15.md`, both engines APPROVE.
+>   - Stage 2, stonewithdraw-01: built, both engines APPROVE (`stonewithdraw-01-reviews-2026-10-15.txt`).
+>   - **Departures recorded by stage 2:**
+>     - the withdraw rewrite is **surface only** (the deep probe was dropped in review);
+>     - §5.1(a), the rung's own order, and the change to mine's rung credit within 48 are not built.
+
 ## 0. Answers first
 
 **1. `mine`'s staircase is the largest single source of cobble.**

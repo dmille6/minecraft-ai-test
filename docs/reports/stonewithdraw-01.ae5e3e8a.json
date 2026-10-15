@@ -1,0 +1,115 @@
+{
+ "run_id": "stonewithdraw-01",
+ "sha": "ae5e3e8a5110214a0318a5e34ecf0592d713157b",
+ "registered_at": "2026-10-15T07:36:59Z",
+ "ladder_change": false,
+ "promotion": "fleet-wide",
+ "notes": "[stonewithdraw-01, WITHDRAW BEFORE DIG (design docs/reports/ziggurat-mineshaft-2026-10-15.md 5.1) + goto dig-retry evidence (5.2 step 1), on base b7cc60b5. NOT QUEUED: the operator queues it.] THE DEFECT (15 h full walk 10-14 11:30Z..10-15 02:30Z, 80 bots): gather stone is 9.2% of the fleet's 45.5k cobble/day; 94% of stone gathers start below the 64 reserve while 8 of 12 shared towns sit at the 256 cobble cap and refuse deposits. THE CHANGE: an ADMITTED stone gather (stone/cobblestone/cobbled_deepslate/deepslate) is rewritten deterministically to `withdraw cobblestone <n>` (alt cobbled_deepslate, from = the fresh-counted town container holding n) when the bot is within Chebyshev 48 of home, at the surface (y >= home.y-8), not on a stuck trigger, the town's fresh cobble floor >= n+64, and neither the admission memory nor the rewrite's own 10-min backoff refuses it; otherwise the gather runs exactly as today. One _stone_withdraw row per stone-gather decision. A rewrite neither records wins nor failures in the lessons store; the repeat window holds the action run. goto_dig_retry rows gain walk_status/walk_visited/walk_len/bag_cobble/retry_dig_attempts (telemetry only). EXPECTED CUT ~0.2-0.75k cobble/day shared (small; cheap; drains refused chests). KNOWN GAPS (reviews): the stockpile rung's own order (5.1a) and mine losing rung credit within 48 are NOT built; the withdraw count is the model's count (may churn against the bank); two bots can pass the 64 floor together (advisory floor). PAPER sandbox4: surface (withdraw 16, chest -16 net of the base's withdraw_pick, 0 stone dug), short (town_short -> gather dug 16), deepslate (alt taken), retry (args present, walk noPath). REVIEWS: Codex r1 CHANGE, r2 APPROVE, r3 see file; Claude r1 CHANGE, r2 APPROVE, r3 see file (docs/reports/stonewithdraw-01-reviews-2026-10-15.txt).",
+ "licence": {
+  "class": "kind",
+  "kind": "_stone_withdraw",
+  "min_rows": 1,
+  "note": "Only this build writes _stone_withdraw (one row per stone-gather decision); the base has no such row."
+ },
+ "reads": [
+  "stonewithdrawread",
+  "immobiledid"
+ ],
+ "read_minutes": [
+  180,
+  360
+ ],
+ "deadline_min": 1680,
+ "change_rows": [
+  "stone_withdraw"
+ ],
+ "linkage_extra": [],
+ "draw_exposure": {
+  "hours": 3,
+  "require": [],
+  "note": "Every shared pool gathers stone near town (~0.5-0.8 stone gathers per bot-h); 8 of 12 towns hold >= 248 cobble."
+ },
+ "exposure": {
+  "read": "stonewithdrawread",
+  "field": "exposure_ready",
+  "min": 1,
+  "note": "Ready = >= 10 rewrites whose withdraw was matched, in a window >= 150 min."
+ },
+ "own_lines": [
+  {
+   "read": "stonewithdrawread",
+   "field": "breach_far",
+   "op": "<=",
+   "value": 0,
+   "on_fail": "REVERT",
+   "evidence": "defect",
+   "note": "W1: a rewrite more than 48 (Chebyshev) from home, judged on the row's own d."
+  },
+  {
+   "read": "stonewithdrawread",
+   "field": "breach_stuck",
+   "op": "<=",
+   "value": 0,
+   "on_fail": "REVERT",
+   "evidence": "defect",
+   "note": "W2: a rewrite on a stuck trigger."
+  },
+  {
+   "read": "stonewithdrawread",
+   "field": "breach_deep",
+   "op": "<=",
+   "value": 0,
+   "on_fail": "REVERT",
+   "evidence": "defect",
+   "note": "W3: a rewrite below home.y-8 (the rule rewrites at the surface only)."
+  },
+  {
+   "read": "stonewithdrawread",
+   "field": "breach_fail_share",
+   "op": "<=",
+   "value": 0,
+   "on_fail": "REVERT",
+   "evidence": "defect",
+   "note": "W4: >= 10 rewrites and > 50% of their matched withdraws failed or were unknown (rewriting into failure)."
+  },
+  {
+   "read": "stonewithdrawread",
+   "field": "w4_blind",
+   "op": "<=",
+   "value": 0,
+   "on_fail": "REVERT",
+   "note": "W4's positive control: the matcher found < 80% of the rewrites' withdraws. Blocks KEEP (no evidence key)."
+  },
+  {
+   "read": "stonewithdrawread",
+   "field": "control_stone_rows",
+   "op": "<=",
+   "value": 0,
+   "on_fail": "REVERT",
+   "note": "Leak: a CONTROL _stone_withdraw row. Blocks KEEP (no evidence key)."
+  }
+ ],
+ "primary": {
+  "read": "stonewithdrawread",
+  "field": "stone_cobble_near_did",
+  "note": "REPORTED: stone-gather cobble per bot-h within 48 of home, DiD (expected to fall); cobble withdrawals DiD (expected to rise); mine cobble DiD; milestones completed and craft successes DiD (the design's 'must not fall', rate-class: report-only); the decision mix by reason; goto dig retries by walk_status."
+ },
+ "harm": {
+  "note": "Unchanged: the two-death floor (OWNER 2026-09-11) and gather_ratio < 0.43 of control (scripts/canary-report.py)."
+ },
+ "teardown": {
+  "note": "THREE STEPS: drop-ins, clear canary_pool, restart the pool's bots 12 s apart; then confirm the live versions. The change writes no persistent state (the backoff is in memory; the lessons store is never written by a rewrite)."
+ },
+ "amendments": [],
+ "extension": {
+  "until_exposure": true,
+  "extra_reads": [
+   540,
+   720,
+   1080
+  ],
+  "final_on_zero_exposure": "INCONCLUSIVE",
+  "note": "SHORT CANARY for a fix-class change: the deterministic defect gates decide."
+ },
+ "lint": "eslint no-undef on stonesource.mjs, skills.mjs, cognitive.mjs, admission.mjs, milestones.mjs, index.mjs, reflex.mjs and the test: exactly ONE hit, bots/src/reflex.mjs:2384:67 'withinBody' -- the pre-existing hit on the base (positive control: an injected undefined symbol is reported); this change does not touch reflex.mjs."
+}
