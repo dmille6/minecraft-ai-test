@@ -10392,7 +10392,8 @@ async function withdrawPickRun (ctx, signal, tried, st, finish) {
  *      a carried one, craft one from planks, planks from logs; retaken after) and the sticks' (crafted from planks).
  *      A tool counts only as a NEW usable copy in the bag afterwards; the ingots it consumed are read from the bag.
  *   3. ONE `_toolkit` row (phase=kit) per run, ALWAYS -- an abort or an exception writes outcome=aborted|error -- with the
- *      bag's tools before and after (toolsTag) for the read's gates; `kitCredit` hands back what was drawn and not used
+ *      bag's tools before and after (toolsTag) for the read's gates; bot.kitCredit keeps what was drawn and not used, on
+ *      every exit (an abort too), and the crafts spend only that credit plus this run's verified draw (never ladder iron)
  *      (toolkit.mjs creditAfter), so a failed craft never draws twice.
  * Never a trip; never the model's choice; never displaces a ready milestone step (the order is placed after them all).
  */
@@ -10403,9 +10404,16 @@ async function toolkit (ctx, args, signal) {
   const usableOf = name => items().filter(it => it?.name === name && remaining(it) > FLOOR).length
   const t0 = Date.now()
   const before = toolsTag(items())
-  const creditIn = Math.max(0, Math.min(Number(args?.credit) || 0, ingots()))
+  // THE CREDIT LIVES ON THE BOT (Codex r1 P2-1): ingots a kit run drew and no verified craft consumed, written on EVERY exit --
+  // an abort included -- so a later order never draws them again (the loop's state could not see a thrown run).
+  const creditIn = Math.max(0, Math.min(Number(bot.kitCredit ?? args?.credit) || 0, ingots()))
   const tried = []
   const st = { needs: [], drew: 0, sticks: 0, used: 0, crafted: [], creditOut: creditIn, stop: '-', outcome: 'nothing' }
+  const keepCredit = () => { st.creditOut = creditAfter(creditIn, st.drew, st.used, ingots()); bot.kitCredit = st.creditOut }
+  // THE KIT'S OWN IRON (Codex r1 P2-2): what this run may spend is its credit plus what it verifiably drew, never the bag's
+  // other (ladder) ingots -- a draw that moved less than asked crafts only what it funded
+  const funded = () => creditIn + st.drew - st.used
+  const ingotsAtStart = ingots()
   let written = false
   const row = status => {
     written = true
@@ -10414,7 +10422,7 @@ async function toolkit (ctx, args, signal) {
   }
   const out = (status, outcome, detail, failClass = null) => {
     st.outcome = outcome
-    st.creditOut = creditAfter(creditIn, st.drew, st.used, ingots())
+    keepCredit()
     row(status)
     return { status, ...(failClass ? { failClass } : {}), detail, kitCrafted: st.crafted.length, kitCredit: st.creditOut }
   }
@@ -10453,6 +10461,9 @@ async function toolkit (ctx, args, signal) {
         if (v.double) sweep.mark(cb.position, true)
         tried.push(`${posKey(cb.position)}:${v.result?.failClass ?? v.result?.status ?? v.skip ?? 'none'}`)
         if (v.result?.status === 'success') { got = v.moved; break }
+        // A CONTAINER THIS BOT CANNOT REACH, or a stock claim the journal could not confirm, moved nothing: the next container
+        // (withdraw_pick's own rule; Claude r1 P3-1 -- one walled-in nearest chest ended every run)
+        if (v.result && ['chest_unreachable', 'stock_unconfirmed'].includes(v.result.failClass)) continue
         if (v.result) {
           st.drew = v.moved?.took?.iron_ingot ?? 0; st.sticks = v.moved?.took?.stick ?? 0; st.stop = v.result.failClass ?? 'failed'
           return out('failed', v.result.failClass === 'inventory_full' ? 'room' : 'draw_failed', v.result.detail, v.result.failClass ?? 'kit_draw')
@@ -10463,6 +10474,7 @@ async function toolkit (ctx, args, signal) {
       }
       st.drew = got?.took?.iron_ingot ?? 0
       st.sticks = got?.took?.stick ?? 0
+      keepCredit()
       if (draw.ingots > 0 && !got && tried.some(x => x.endsWith(':no_sticks'))) {
         st.stop = `${tried.length} container(s) tried`
         return out('failed', 'no_sticks', `no iron drawn: the town container(s) holding it have no sticks and the bag has no wood to make ${draw.sticks}; carry 1 log (it makes 8 sticks) or ${draw.sticks} sticks to town`, 'kit_no_sticks')
@@ -10476,7 +10488,7 @@ async function toolkit (ctx, args, signal) {
     for (const name of draw.needs) {
       check(signal)
       if (!kitNeeds(items()).includes(name)) continue
-      if (ingots() < KIT[name].ingots) { st.stop = `short_of_iron_for_${name}`; break }
+      if (funded() < KIT[name].ingots || ingots() < KIT[name].ingots) { st.stop = `short_of_drawn_iron_for_${name}`; break }
       const had = usableOf(name), ing0 = ingots()
       let r
       // ctx.kitCraft: a TEST SEAM only (the unit suite's fake world cannot craft); production always runs `craft` itself
@@ -10487,6 +10499,7 @@ async function toolkit (ctx, args, signal) {
       if (usableOf(name) > had) {
         st.crafted.push(name)
         st.used += Math.max(0, ing0 - ingots())
+        keepCredit()
       } else { st.stop = `${name}:${String(r?.failClass ?? r?.status ?? '?')}:${String(r?.detail ?? '').slice(0, 60)}`; break }
     }
     if (st.crafted.length === draw.needs.length) return out('success', 'crafted', `made ${st.crafted.join(' and ')} from the town's iron (${st.drew} ingot(s) drawn, ${st.used} used)`)
@@ -10496,7 +10509,13 @@ async function toolkit (ctx, args, signal) {
     if (!written) {
       st.outcome = e?.aborted || signal?.aborted ? 'aborted' : 'error'
       st.stop = String(e?.message ?? e)
-      st.creditOut = creditAfter(creditIn, st.drew, st.used, ingots())
+      // AN ABORT INSIDE THE TRANSFER carries what moved (transferIn's withdrawState): credited, clamped to the bag's ingots
+      // ...and an abort between a partial pickup's clicks can leave a cursor-load the settle put in the BAG with no `took`
+      // (fakeworld: 15 of 30 after one click): the bag's own iron delta since the start, whichever is larger
+      const took = e?.withdrawState?.took ?? {}
+      st.drew = Math.max(st.drew, took.iron_ingot ?? 0, ingots() + st.used - ingotsAtStart)
+      if (!st.sticks && took.stick) st.sticks = took.stick
+      keepCredit()
       row(st.outcome === 'aborted' ? 'aborted' : 'failed')
     }
     throw e
