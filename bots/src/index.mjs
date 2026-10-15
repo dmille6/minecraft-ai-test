@@ -12,7 +12,7 @@ import { corridorSafe } from './lavaguard.mjs'
 import { deathSiteStepCost, pathCrossesDeathSite } from './deathsites.mjs'
 import { wellStepCost, wellBreakCost, protectWellBlocks, bodyInWell } from './well.mjs'
 import { knownWellCells, installWellWatch, knownFarmIndex, structuresNow } from './skills.mjs'
-import { monumentPlaceCost } from './structures.mjs'
+import { monumentPlaceCost, shaftStepCost, shaftBreakCost, shaftPlaceCost } from './structures.mjs'
 import { farmBreakCost, farmPlaceCost, emptyFarmIndex } from './treefarm.mjs'
 import { pathDropProfile, composeFallRow, markPathEnded } from './fallpath.mjs'
 import net from 'node:net'
@@ -28,7 +28,8 @@ import { extendScaffolding } from './scaffold.mjs'
 import { pathfinderWedged, stillnessMs } from './path-watchdog.mjs'
 import { log, closeLogs, logSkill, logEvent, tapRecords } from './logger.mjs'
 import { attachPickupLog } from './pickuplog.mjs'
-import { attachDigTown } from './digtown.mjs'
+import { attachDigTown, currentDigScope } from './digtown.mjs'
+import { installShaftDigGuard, shaftRead } from './shaftguard.mjs'
 import { configuredHome } from './townground.mjs'
 import { attachDifficulty } from './foodskip.mjs'
 import { Runner } from './runner.mjs'
@@ -566,6 +567,11 @@ function connect() {
     moves.exclusionAreasPlace = [(block) => farmPlaceCost(farmCells, block)]
     // ...and never onto the town monument's grand stair (monument-01, design 3.6): a NEW array, never a push
     moves.exclusionAreasPlace = moves.exclusionAreasPlace.concat([(block) => monumentPlaceCost(structuresNow(bot), block)])
+    // ...and THE SHARED MINESHAFT (shaft-01, design T10): never step into its columns, never break its cells, never place into
+    // it -- refusals (>= the library's 100 veto), NEW arrays, every clone below inherits them
+    moves.exclusionAreasStep = moves.exclusionAreasStep.concat([(block) => shaftStepCost(structuresNow(bot), block)])
+    moves.exclusionAreasBreak = moves.exclusionAreasBreak.concat([(block) => shaftBreakCost(structuresNow(bot), block)])
+    moves.exclusionAreasPlace = moves.exclusionAreasPlace.concat([(block) => shaftPlaceCost(structuresNow(bot), block)])
     // ORDER IS LOad-BEARING: gatherMoves, ascendMoves and descendMoves are all
     // built below with Object.assign(clone, moves), so they copy this array's
     // reference and inherit one shared policy. That is deliberate -- gathering
@@ -764,6 +770,7 @@ function connect() {
     // other profiles this one REPLACES the array rather than inheriting the
     // shared reference. Entering the water is the point of the manoeuvre.
     waterMoves.exclusionAreasStep = [deathSitePenalty, wellPenalty]   // the water entry price goes; the death price stays (a drowning site is a death site), and so does the well's
+    waterMoves.exclusionAreasStep = waterMoves.exclusionAreasStep.concat([(block) => shaftStepCost(structuresNow(bot), block)])   // + the shaft's columns (shaft-01 T10): a new array, the line above verbatim
     // Surface swimming is real travel -- about 5.6 m/s sprint-swimming against
     // 4.3 walking -- so a wet step is priced slightly ABOVE a land step rather
     // than as a catastrophe. Not 1: crossing still carries drowning risk that
@@ -1029,6 +1036,17 @@ function connect() {
         bot.once('end', () => { try { dt.final() } catch { /* telemetry */ } })
       }
     } catch (e) { log('warn', 'dig town instrument not attached', { err: e?.message }) }
+    // THE SHAFT'S DIG CHOKEPOINT (shaft-01; shaftguard.mjs): wraps bot.dig OUTSIDE the dig-town instrument, so a refused dig
+    // never reaches the server and never counts as a dig. Every purpose; the builder's own scope passes; a bot with no verified
+    // way out is never refused (the shaft absorbs it, and says so).
+    try {
+      const unguard = installShaftDigGuard(bot, {
+        keepOut: () => structuresNow(bot), scopeBy: () => currentDigScope()?.by ?? null, read: shaftRead(bot),
+        onRefuse: ({ cell, why }) => { try { logEvent({ kind: 'structure_refusal', status: 'refused', snapshot: snapshot(bot), detail: `by=survival at=${cell.x},${cell.y},${cell.z} kind=shaft why=${String(why).replace(/\s+/g, '_').slice(0, 120)}` }) } catch { /* telemetry */ } },
+        onAbsorb: ({ cell, why }) => { try { logEvent({ kind: 'shaft_absorbed', status: 'success', snapshot: snapshot(bot), detail: `at=${cell.x},${cell.y},${cell.z} why=${String(why).replace(/\s+/g, '_').slice(0, 120)} reflex=${stopReflexes?.activeReflex?.() ?? '-'} skill=${runner.current?.skill ?? '-'}` }) } catch { /* telemetry */ } },
+      })
+      bot.once('end', () => { try { unguard() } catch { /* gone */ } })
+    } catch (e) { log('warn', 'shaft dig guard not attached', { err: e?.message }) }
     // Bound the bot's world model. Without this every process reached its 1GB
     // cgroup ceiling in about fifteen hours -- not in the JS heap, which stayed
     // flat at 172MB, but in ArrayBuffers holding chunk columns nothing released.

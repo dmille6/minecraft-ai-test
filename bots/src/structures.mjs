@@ -17,8 +17,9 @@ import fs from 'node:fs'
 import path from 'node:path'
 import { profileAt, ZIG, stairRelFor } from './monument.mjs'
 import { sameWorld } from './blueprint.mjs'
+import { shaftIndex } from './shaftindex.mjs'
 
-export const STRUCTURE_KINDS = ['monument']
+export const STRUCTURE_KINDS = ['monument', 'shaft']
 /** How far below the monument's base its footprint stays reserved: the foundation fill and the ground that holds it. */
 export const FOUNDATION_GUARD = 8
 export const CACHE_MS = 2_000
@@ -113,6 +114,13 @@ export function structureIndexes (dir, home, world = null) {
     try { idx = monumentIndex(rec) } catch { idx = null }   // a record this code cannot read reserves nothing
     if (idx) out.push(idx)
   }
+  // THE SHARED MINESHAFT (shaft-01): its planned envelope, reserved from the moment the record exists
+  const sh = home ? readStructureRecord(dir, structureKey('shaft', home)) : null
+  if (sh && sameWorld(sh.world, world)) {
+    let idx = null
+    try { idx = shaftIndex(sh) } catch { idx = null }
+    if (idx) out.push(idx)
+  }
   return out
 }
 
@@ -126,7 +134,9 @@ export function structureKeepOut (indexes = []) {
   return { forbid: c => { for (const i of list) if (c && i.has(c.x, c.y, c.z)) return i.kind; return null },
            stair: c => !!c && list.some(i => i.isStair?.(c.x, c.y, c.z)),
            bottom: Math.min(...list.map(i => i.bottom)),
-           exit: p => { for (const i of list) { const e = exitCell(i, p); if (e) return e } return null } }
+           exit: p => { for (const i of list) { const e = typeof i.exit === 'function' ? i.exit(p) : exitCell(i, p); if (e) return e } return null },
+           // THE SHAFT'S OWN QUESTIONS (T10 and the dig chokepoint): a core column cell, a cell a bot may stand in, any reserved cell
+           shaft: list.find(i => i.kind === 'shaft') ?? null }
 }
 
 /**
@@ -158,3 +168,19 @@ export function structureReader (dir, home, world = () => null, now = () => Date
     return v
   }
 }
+
+/**
+ * T10 -- NOBODY FALLS IN, NOBODY DIGS IT, NOBODY PLUGS IT (shaft-01; design 4.3 T10, Codex shaft plan r1 P1-3). pathfinder
+ * exclusion entries for EVERY movements profile (index.mjs: new arrays on the base before any clone, and the water profile's
+ * own step array). 1000 is above the library's 100 veto in every move (movements.js `if (cost > 100) return`; a break
+ * exclusion >= 100 makes safeToBreak false): these are refusals, not prices.
+ *   step   both core columns at every level and the open collar cells (a ladder top is "safe" to the pathfinder: T10)
+ *   break  every reserved shaft cell (lining, ladders, core, rooms): a path never digs the shaft
+ *   place  every envelope cell a bot can stand in: a path never scaffolds into the column or a room
+ * A bot already INSIDE gets no path from these profiles -- by design: its way out is the shaft_exit climb (skills.mjs), never
+ * a path that digs sideways. Hot path: the cached keep-out. Never throws.
+ */
+export function shaftStepCost (keepOut, block) { try { const p = block?.position, s = keepOut?.shaft; return p && s && (s.core(p.x, p.y, p.z) || s.aboveCollar?.(p.x, p.y, p.z)) ? 1000 : 0 } catch { return 0 } }
+export function shaftBreakCost (keepOut, block) { try { const p = block?.position, s = keepOut?.shaft; return p && s && s.has(p.x, p.y, p.z) ? 1000 : 0 } catch { return 0 } }
+// getMoveForward charges the cell ABOVE the placed block (Claude plan r2 P2-7): the cell below counts too
+export function shaftPlaceCost (keepOut, block) { try { const p = block?.position, s = keepOut?.shaft; return p && s && (s.inEnvelope(p.x, p.y, p.z) || s.inEnvelope(p.x, p.y - 1, p.z) || s.aboveCollar?.(p.x, p.y, p.z)) ? 1000 : 0 } catch { return 0 } }

@@ -10,8 +10,11 @@
 // keeps a bad generation from becoming a bad action.
 
 import { HARD_STOP } from './toolfor.mjs'
-import { SKILLS, roomRemedy, farFromBank, classifyOutcome, SKILL_CONTRACTS, plantableSpotNear, findTownComposter, townBuildPlan, townPickMiss, townIngredientMiss, foodSkipNow, townContainers, townWellState, townWellBuildPlan, insideTownWell, wellSwordsNow, cobbleWellCap, townPitState, stockWellOpts, valveProof, stockCountKeys, pruneTarget, unknownRefusals, stockRecountKeys, townFarmPlan, monumentLane, settleMonumentClicks } from './skills.mjs'
+import { SKILLS, roomRemedy, farFromBank, classifyOutcome, SKILL_CONTRACTS, plantableSpotNear, findTownComposter, townBuildPlan, townPickMiss, townIngredientMiss, foodSkipNow, townContainers, townWellState, townWellBuildPlan, insideTownWell, wellSwordsNow, cobbleWellCap, townPitState, stockWellOpts, valveProof, stockCountKeys, pruneTarget, unknownRefusals, stockRecountKeys, townFarmPlan, monumentLane, settleMonumentClicks, shaftLane, shaftAuditPassive } from './skills.mjs'
 import { monumentOrder, monumentOrderOutcome, MONUMENT_ORDERS } from './monumentjob.mjs'
+import { shaftOrder, shaftOrderOutcome, SHAFT_ORDERS } from './shaftjob.mjs'
+import { exitExhausted } from './shaftguard.mjs'
+import { fundable } from './monumentjob.mjs'
 import { disposePlan, wellOrder, wellOrderOutcome, WELL_ORDERS, pitCoverItem } from './well.mjs'
 import { farmOrder, farmOrderOutcome, farmEnabled, FARM_ORDERS } from './treefarm.mjs'
 import { smeltInputsFor } from './smelting.mjs'
@@ -850,6 +853,11 @@ export class CognitiveLoop {
     // spot that cannot be planted costs one decision every ten minutes rather than
     // every decision.
     let order = orderFor(ready)
+    // IN THE SHARED MINESHAFT and not building it: the climb out comes before everything (shaft-01 recovery, Codex plan r1 P1-2)
+    // THE PASSIVE AUDIT (Claude plan r2 P3: a read in the tick, no runner, no walk): every 30 min, a bot within 32 of the collar
+    try { shaftAuditPassive(this.bot) } catch { /* telemetry */ }
+    let shaftExitFirst = null
+    try { const lane = shaftLane(); if (lane.on && lane.inShaft(this.bot) && !exitExhausted(this.bot.__shaftExitFails ?? [])) shaftExitFirst = { skill: 'shaft_exit', args: {}, why: 'in the shared mineshaft: climb out to the pad' } } catch { /* never breaks the loop */ }
     // THE CRAFT'S OWN MAKE-ROOM ROUTE IS NAMED on the order (Claude r2), so the read can tell a designed wear-out attempt
     // from a craft issued into a bag without room.
     // ...and when the check could not say (unknown route, a pickup-only shortage): the read counts those apart too.
@@ -934,6 +942,21 @@ export class CognitiveLoop {
           const r = monumentOrder({ now: Date.now(), enabled: true, siteKnown: true, record: lane.record, items, slots: items.length, noRoom: !!ready.noRoom,
                                     distSite: p && lane.centre ? Math.hypot(lane.centre.x - p.x, lane.centre.z - p.z) : Infinity, freeSlot: lane.freeSlot, state: this.monumentState ?? {} })
           this.monumentState = r.state
+          if (r.order) order = r.order
+        }
+      } catch { /* a world or file read must never break the decision loop */ }
+    }
+    // THE SHARED MINESHAFT (shaft-01; shaftjob.mjs shaftOrder decides): after the monument, before the junk well
+    if (!order) {
+      try {
+        const lane = shaftLane()
+        if (lane.on) {
+          const p = this.bot.entity?.position
+          const items = this.bot.inventory?.items?.() ?? []
+          const pick = items.filter(i => /_pickaxe$/.test(i.name)).reduce((m, i) => Math.max(m, (i.maxDurability ?? 0) - (i.durabilityUsed ?? 0)), 0)
+          const r = shaftOrder({ now: Date.now(), on: true, state: lane.state, distPad: p ? Math.max(Math.abs(lane.pad.x - p.x), Math.abs(lane.pad.z - p.z)) : Infinity,
+                                 leaseFree: lane.leaseFree(), spareStone: fundable(items).total, pickDurability: pick, items, st: this.shaftState ?? {} })
+          this.shaftState = r.state
           if (r.order) order = r.order
         }
       } catch { /* a world or file read must never break the decision loop */ }
@@ -1067,6 +1090,7 @@ export class CognitiveLoop {
                    snapshot: snap })
       }
     }
+    if (shaftExitFirst) order = shaftExitFirst   // the climb out outranks every other order (it is the hold's only remedy)
     if (order) {
       // A COUNTER, because five changes shipped inert on this project in one
       // day and each was caught only by asking whether the branch had run.
@@ -1135,6 +1159,7 @@ export class CognitiveLoop {
       if (admitted.skill === 'count_town') this.recountState = recountOutcome(r.status, r.delta?.counted ?? 0, Date.now(), this.recountState ?? {}, r.failClass ?? null)
       if (FARM_ORDERS.has(admitted.skill)) this.farmState = farmOrderOutcome(admitted.skill, r.status, Date.now(), this.farmState ?? {}, r.failClass ?? null, RUNNER_DECLINED)
       // the visit's body time is charged to the monument's hourly budget (issued -> now)
+      if (SHAFT_ORDERS.has(admitted.skill)) this.shaftState = shaftOrderOutcome(r.status, r.failClass ?? null, Date.now(), Date.now() - (this.shaftState?.lastIssuedAt ?? Date.now()), this.shaftState ?? {})
       if (MONUMENT_ORDERS.has(admitted.skill)) this.monumentState = monumentOrderOutcome(r.status, r.failClass ?? null, Date.now(), Date.now() - (this.monumentState?.lastIssuedAt ?? Date.now()), this.monumentState ?? {})
       // THE REFLEX TOOK THE BODY -- SAY SO ON THE NEXT DECISION.
       if (r.interruptedBy) this.#raiseTrigger(r.interruptedBy, r.detail)

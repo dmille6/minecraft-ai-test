@@ -31,7 +31,8 @@ import { scoopLeavesAir, isWaterSource } from './bucket.mjs'
 // import from it -- which is the entire reason the lattice's most-chosen rung
 // hit 'no routine wired'. skills.mjs does not import reflex.mjs, so this is
 // not a cycle.
-import { rideFloorDown } from './skills.mjs'
+import { rideFloorDown, structuresNow } from './skills.mjs'
+import { shaftHold, shaftRead, hasPickaxe } from './shaftguard.mjs'
 // Re-exported from its new home so existing importers and tests keep working;
 // it lives in mining.mjs because skills.mjs needs it too and reflex.mjs already
 // imports FROM skills.mjs -- putting it here would have made an import cycle.
@@ -2426,6 +2427,20 @@ export function startReflexes(bot, runner, lessons = null, worldFacts = null) {
       // alive -- but the four MOVEMENT arms (wall, marooned, entombed, unstick) check `inDanger` and stand down.
       // The escape re-fires every 2.5 s while the danger persists (it clears its controls after 1.5 s).
       const inDanger = !recoveryArmsMayRun({ feetName: feet?.name, belowName: below?.name })
+      // IN THE SHARED MINESHAFT WITH A VERIFIED LADDER EXIT (shaft-01 T1): the movement arms stand down too -- the ladder
+      // overhead is not a ceiling, the lining is not a wall to dig, and the way out is the climb (cognitive orders shaft_exit
+      // first). No exit: nothing is held (the bot may dig itself out; the shaft absorbs it).
+      let inShaft = false
+      try {
+        const sh = structuresNow(bot)?.shaft
+        if (sh) {
+          const h = shaftHold(sh, shaftRead(bot), bot.entity.position, { fails: bot.__shaftExitFails ?? [], capOk: hasPickaxe(bot) })
+          inShaft = h.hold
+          if (h.outside && bot.__shaftExitFails?.length) bot.__shaftExitFails = []   // out of the shaft: the count starts again
+          // HELD TOO LONG is a read defect (Claude plan r2 P1-1): one row a minute while held
+          if (inShaft && throttled('shaft_hold', 60_000)) logEvent({ kind: 'shaft_hold', status: 'success', snapshot: snapshot(bot), detail: `col=${h.exit?.col} from=${h.exit?.from} capped=${h.exit?.capped ? 1 : 0}` })
+        }
+      } catch { inShaft = false }
       if (inDanger && throttled('danger', 2500)) {
         log('error', 'reflex: in danger block, escaping', { block: feet?.name ?? below?.name })
         logEvent({ kind: 'reflex_danger_block', detail: feet?.name ?? below?.name, snapshot: snapshot(bot) })
@@ -2518,7 +2533,7 @@ export function startReflexes(bot, runner, lessons = null, worldFacts = null) {
           : maroonState({ upIsOpen, haveBlocks, blockCount, climbNeed: climbNeedAbove(bmap(bot), bot.entity.position), entombed: entombedNow,
                           canStartPath, cappedNeedsTool,
                           y: bot.entity?.position?.y })
-        if (!pocketing && !pocketPending && mstate === 'need_scaffold' && !inDanger &&
+        if (!pocketing && !pocketPending && mstate === 'need_scaffold' && !inDanger && !inShaft &&
             Date.now() - lastMaroonPrereqAt > MAROON_PREREQ_COOLDOWN_MS) {
           lastMaroonPrereqAt = Date.now()
           // TAKE THE WALL BEFORE ASKING ANYONE FOR ANYTHING.
@@ -2776,7 +2791,7 @@ export function startReflexes(bot, runner, lessons = null, worldFacts = null) {
                      snapshot: snapshot(bot) })
         }
 
-        if (mstate === 'climb' && !pocketing && !pocketPending && !inDanger) {
+        if (mstate === 'climb' && !pocketing && !pocketPending && !inDanger && !inShaft) {
 
           marooned = true
           const invBefore = inventorySummary(bot)
@@ -2890,7 +2905,7 @@ export function startReflexes(bot, runner, lessons = null, worldFacts = null) {
       // by design, and pillaring out of it is the descent's undoing.
       if (!escaping && entombedGrant) { giveBody(runner, entombedGrant, 'entombed arm ended'); entombedGrant = null }   // released within one tick of the arm's finally
       const climbing = !!runner?.bodyClaimFor?.('climb') || !!runner?.bodyClaimFor?.('stair')
-      if (!escaping && !marooned && !climbing && !inDanger && isEntombed(bot) && Date.now() >= airPocketBreatheUntil &&
+      if (!escaping && !marooned && !climbing && !inDanger && !inShaft && isEntombed(bot) && Date.now() >= airPocketBreatheUntil &&
           !pocketing && !pocketPending && Date.now() - lastEscapeAt > ESCAPE_MIN_INTERVAL_MS) {
         // A WET CEILING IS NOT A MISSING PICKAXE (climbflood-01, Codex r1): with
         // failures already counted, this arm would ask for a tool BEFORE the
@@ -3135,7 +3150,7 @@ export function startReflexes(bot, runner, lessons = null, worldFacts = null) {
       // stands still for many seconds and is working perfectly.
       const p = bot.entity.position
       const stuck = stuckDecision({ busy: runner.isBusy(), digging: bot.targetDigBlock != null, stationaryUntil: bot.stationaryUntil,
-                                    moved: !!(lastPos && p.distanceTo(lastPos) > 0.6), inDanger, now: Date.now(), stillSince,
+                                    moved: !!(lastPos && p.distanceTo(lastPos) > 0.6), inDanger: inDanger || inShaft, now: Date.now(), stillSince,
                                     stuckMs: config.reflex.stuckSeconds * 1000 })
       if (stuck.reset) stillSince = Date.now()
       lastPos = p.clone()

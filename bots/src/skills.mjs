@@ -78,6 +78,11 @@ import { ZIG, scanColumn } from './monument.mjs'
 import { validGeom } from './structures.mjs'
 import { runPlacements, standable as bdStandable, bk, isFullCube, walksTo as bdWalksTo } from './builder.mjs'
 import { botBuildEffects, worldBarrier } from './buildbot.mjs'
+import { SHAFT_SITES, shaftKey, readShaft, createShaftGen, newShaftRecord, plannedLandings, worldOf, toLocal, shaftNextOp, landingNextOp, descentPlan, advance, ladderWall, goodSolid } from './shaftjob.mjs'
+import { ladderExit } from './shaftindex.mjs'
+import { shaftEffects } from './shaftbot.mjs'
+import { shaftRead, hasPickaxe } from './shaftguard.mjs'
+import { surveyShaft, collarOk, envelopeLevels } from './shaftplan.mjs'
 import { siteCandidates, verifySite, newRecord, readMonument, createMonumentGen, monumentKey, monumentPlan, layerCensus, coverHold, nextLayer,
          segmentOf, mergeVisit, cellState, isClearable, isFillable, fundable, fundPick, monumentDetail, monumentArgs, p95, SLOTS, SLOT_LEASE_MS, VISIT_MS,
          VISIT_MAX_PLACEMENTS, REPAIR_PER_VISIT, layerClosable, unwaivable, fullSolid, clickLock, segmentChoice, cellStateAt, footingView, CORE_ITEMS } from './monumentjob.mjs'
@@ -7392,12 +7397,15 @@ const siteColumns = bot => {
 const settleAt = new WeakMap()
 export async function settleMonumentClicks (bot) {
   try {
-    if (!monumentEnabled()) return 'off'
+    if (!monumentEnabled() && !shaftEnabled()) return 'off'
     if (settling.has(bot)) return 'inflight'   // before the throttle (Codex r7 P3): a re-entrant tick must see it in flight
     if (Date.now() - (settleAt.get(bot) ?? 0) < 60_000) return 'throttled'
     settleAt.set(bot, Date.now())
-    const lk = clickLock(monumentDir(), monumentKeyNow(), bot.username ?? '?', {})
-    const mine = lk.ownFiles()
+    // the monument's click lock AND the shaft's mutation lock (shaft-01): one barrier settles both
+    const locks = [clickLock(monumentDir(), monumentKeyNow(), bot.username ?? '?', {}), clickLock(townDir(), `${shaftKeyNow()}.mut`, bot.username ?? '?', {})]
+    const owned = locks.map(l => l.ownFiles())
+    const lk = { settleOwn: () => locks.forEach((l, i) => l.settleOwn(owned[i])) }
+    const mine = { size: owned.reduce((n, o) => n + o.size, 0) }
     if (!mine.size) return 'none'
     settling.add(bot)
     let ok = false, how = 'held'
@@ -7416,7 +7424,7 @@ export async function settleMonumentClicks (bot) {
         if (pick != null) { chosen = pick; how = at(pick) ? `slot:${at(pick).name}` : 'slot:empty'; bot.setQuickBarSlot(pick) }
       }
       ok = await worldBarrier(bot, allowed)
-      if (ok) lk.settleOwn(mine)
+      if (ok) lk.settleOwn()
     } finally {
       try { if (chosen != null && bot.quickBarSlot === chosen && old != null) bot.setQuickBarSlot(old) } catch { /* the next skill equips its own */ }
       settling.delete(bot)
@@ -7694,6 +7702,366 @@ export function knownFarmIndex (bot) {
 /** The index the movement profiles and placement guards use: index.mjs keeps it fresh (20 s), a fake bot has none. */
 const farmIdx = bot => { try { return bot?.farmIndexNow?.() ?? null } catch { return null } }
 /** THE TOWN'S RECORDED STRUCTURES as a target-dig keep-out (structureguard-01, structures.mjs), read fresh every 2 s. */
+// ------------------------------------------------------------- dig_shaft / shaft_exit / shaft_audit (shaft-01) -----
+// THE SHARED MINESHAFT, BUILT (docs/reports/ziggurat-mineshaft-2026-10-15.md section 4; plan r2 in the stage-5 review record).
+// shaftjob.mjs decides every operation from the CELLS (resume-safe; a pure simulation builds a whole shaft from any
+// interruption); shaftbot.mjs performs them under the mutation contract; this is the visit: the lease, the cap, the walk,
+// the verification, the ride down, the work, the climb out, the cap again, the row.
+const shaftEnabled = () => config.memory.scope !== 'isolated' && process.env.SHAFT_ENABLED !== 'false'
+const shaftKeyNow = () => shaftKey(structureHome())
+/** A sandbox-only site (SHAFT_SITE='{"origin":{"x":..,"z":..},"away":"s","c":..}'); SHAFT_FLOOR_Y raises the bottom for a short scene. */
+const shaftSiteFor = pool => { try { if (process.env.SHAFT_SITE) return JSON.parse(process.env.SHAFT_SITE) } catch { /* the table */ } return SHAFT_SITES[pool] ?? null }
+const shaftFloor = () => { const v = Number(process.env.SHAFT_FLOOR_Y); return Number.isInteger(v) && v > 0 ? v : 16 }
+const SHAFT_BUILD_LEASE_MS = 4 * 60_000
+const SHAFT_CLIMB_S_PER_LEVEL = 0.4
+/** For cognitive: the lane (lazy reads; the record at most once a minute). */
+let shaftMemo = { at: -Infinity, v: null }
+export function shaftLane () {
+  const on = shaftEnabled()
+  if (!on) return { on: false }
+  if (Date.now() - shaftMemo.at >= 60_000) {
+    let rec = null
+    try { rec = readShaft(townDir(), shaftKeyNow()).record } catch { rec = null }
+    const site = rec?.site ?? shaftSiteFor(config.memory.pool)
+    shaftMemo = { at: Date.now(), v: site ? { site, pad: worldOf(site, 0, site.c, -1), state: rec?.state ?? 'unsited' } : null }
+  }
+  const v = shaftMemo.v
+  return { on: !!v, ...(v ?? {}),
+           leaseFree: () => { try { const l = readLease(townDir(), `${shaftKeyNow()}.build`).lease; return !l || l.released || !(Number(l.until) > Date.now()) } catch { return true } },
+           inShaft: bot => { try { const sh = structuresNow(bot)?.shaft; const p = bot.entity?.position; return !!(sh && p && sh.inEnvelope(p.x, p.y, p.z)) } catch { return false } } }
+}
+/** The shaft's local read over the bot's world (local u, y, v -> block | null), for the pure planner. */
+const shaftLocalRead = (bot, site) => {
+  const rd = shaftRead(bot)
+  return (u, y, v) => { const w = worldOf(site, u, y, v); const b = rd(w.x, y, w.z); if (!b) return null; const blk = bot.blockAt(new Vec3(w.x, y, w.z)); return { ...b, full: blk ? isFullCube(blk) : false } }
+}
+/** VERIFY THE BUILT PART (c..frontier) -> { missing: [...], wet: [...], unknown: n, ladders: n, checked: n }. Pure over read. */
+export function verifyShaft (rec, read) {
+  const s = rec.site, out = { missing: [], wet: [], unknown: 0, ladders: 0, checked: 0 }
+  const env = envelopeLevels(s.c, rec.plan_bottom ?? rec.bottom, rec.plan_landings ?? rec.landings)
+  const built = y => y >= rec.frontier
+  const landingBuilt = yL => (rec.landings_done ?? []).includes(yL)
+  const digRole = new Map(env.dig.map(([u, y, v, role]) => [`${u},${y},${v}`, role]))
+  for (const [u, y, v, role] of env.dig) {
+    if (!built(y) || (role !== 'core' && !landingBuilt(y >= 0 && (rec.plan_landings ?? rec.landings).includes(y) ? y : y - 1))) continue
+    const b = read(u, y, v); out.checked++
+    if (b == null) { out.unknown++; continue }
+    if (role === 'core' && y < s.c) { if (b.name === 'ladder') out.ladders++; else out.missing.push(`ladder ${u},${y},${v}`) }
+    else if (role === 'core' && y === s.c) { if (!(b.boundingBox === 'empty' || b.name === 'cobblestone')) out.missing.push(`collar ${u},${y},${v}`) }
+    else if (!(b.boundingBox === 'empty' || b.name === 'torch')) out.missing.push(`open ${u},${y},${v}`)
+  }
+  for (const [u, y, v] of env.shell) {
+    if (!built(y) && !built(y + 1)) continue
+    if (v >= 1 && !digRole.has(`0,${y},0`) && false) continue
+    const isLandingShell = v >= 1 && (rec.plan_landings ?? rec.landings).some(yL => y >= yL - 1 && y <= yL + 2)
+    if (isLandingShell && !(rec.landings_done ?? []).some(yL => y >= yL - 1 && y <= yL + 2)) continue
+    const b = read(u, y, v); out.checked++
+    if (b == null) { out.unknown++; continue }
+    if (isWetBlock(b)) out.wet.push(`${u},${y},${v}`)
+    else if (!goodSolid(b, read(u, y - 1, v))) out.missing.push(`lining ${u},${y},${v}`)
+  }
+  return out
+}
+const isWetBlock = b => !!b && /^(water|lava|bubble_column|kelp|kelp_plant|seagrass|tall_seagrass)$/.test(b.name ?? '')
+
+async function digShaft (ctx, _args, signal) {
+  const { bot } = ctx
+  const me = bot.username ?? '?'
+  const t0 = Date.now()
+  const f = { t0, levels: 0, digs: 0, lined: 0, ladders: 0, filled: 0, ops: 0, gate: {} }
+  let rowDone = false
+  const row = status => { rowDone = true; try { logEvent({ kind: 'shaft', status, snapshot: snapshot(bot), detail: shaftDetail(f), args: shaftArgs(f) }) } catch { /* telemetry */ } }
+  const end = (status, failClass, why) => { f.stop ??= failClass ?? status; f.why = why; row(status); return { status, ...(failClass ? { failClass } : {}), detail: why } }
+  if (!shaftEnabled()) return end('no_effect', 'shaft_off', 'the shared mineshaft is switched off here')
+  const dir = townDir(), key = shaftKeyNow(), home = structureHome()
+  const g = hkGuards(bot, signal)
+  const items = () => bot.inventory?.items?.() ?? []
+  // ---- 1. the record, or the site verified live ----
+  let cur = readShaft(dir, key)
+  if (cur.record && !sameWorld(cur.record.world, bot.worldId ?? null)) cur = { gen: cur.gen, record: null }
+  if (!cur.record) {
+    const site = shaftSiteFor(config.memory.pool)
+    if (!site) return end('failed', 'shaft_no_site', `no shaft site is known for pool ${config.memory.pool}`)
+    const pad = worldOf(site, 0, site.c, -1)
+    if (Math.hypot(bot.entity.position.x - pad.x, bot.entity.position.z - pad.z) > 24) {
+      try { await (bot.withTownDepositWalk ?? (fn => fn()))(() => g.bound(bot.pathfinder.goto(new goals.GoalNear(pad.x, pad.y, pad.z, 3)), 45_000, 'pathfinding', { path: true })) } catch (e) { if (e?.aborted || signal?.aborted) throw e }
+    }
+    const rd = readCell(bot)
+    const sv = surveyShaft({ read: rd, origin: site.origin, away: site.away, c: site.c, floor: shaftFloor() })
+    if (sv.unknown) return end('no_effect', 'shaft_unloaded', `the shaft site was not fully loaded (${sv.unknown} unread); come nearer`)
+    if (sv.bottom == null) return end('failed', 'shaft_no_site', `the live survey stops the shaft before its first landing: ${sv.why}`)
+    if (!collarOk(site.c - 1, config.world.homeY)) return end('failed', 'shaft_no_site', `the collar (${site.c}) is not at the town's surface level (${config.world.homeY})`)
+    const landings = plannedLandings(site.c, sv.stop, shaftFloor())
+    const rec0 = newShaftRecord({ site, bottom: sv.bottom, landings, home, world: bot.worldId ?? null, by: me, now: Date.now(), survey: { digs: sv.digs, lining: sv.lining, falling: sv.falling, stop: sv.stop } })
+    if (createShaftGen(dir, key, cur.gen + 1, rec0)) {
+      try { logEvent({ kind: 'shaft_site', status: 'success', snapshot: snapshot(bot), detail: `gen=${cur.gen + 1} origin=${site.origin.x},${site.origin.z} away=${site.away} c=${site.c} bottom=${sv.bottom} landings=${landings.join('/')} digs=${sv.digs} lining=${sv.lining} falling=${sv.falling}` }) } catch { /* telemetry */ }
+    }
+    cur = readShaft(dir, key)
+    if (!cur.record) return end('no_effect', 'shaft_record', 'the shaft record could not be written or read')
+    try { bot.__structures = null } catch { /* the guard's 2 s cache */ }
+    // PUBLICATION (Codex plan r1 P2): every bot's cached keep-out sees the reservation before the first dig
+    await g.bound(new Promise(r => setTimeout(r, 3_000)), 5_000, 'publication')
+  }
+  let rec = { ...cur.record }
+  f.gen = cur.gen; f.frontier0 = rec.frontier
+  if (rec.state !== 'building') return end('no_effect', 'shaft_' + rec.state, `the shared mineshaft is ${rec.state}`)
+  // ---- 2. the build lease (one builder per world), taken FIRST (then materials) ----
+  const leaseKey = `${key}.build`
+  let lease = takeLease(dir, leaseKey, me, Date.now(), SHAFT_BUILD_LEASE_MS)
+  if (!lease.ok) return end('no_effect', 'shaft_busy', `another bot (${lease.holder}) is building the shaft`)
+  const renew = () => { if (lease.until - Date.now() > SHAFT_BUILD_LEASE_MS / 2) return true; const r = takeLease(dir, leaseKey, me, Date.now(), SHAFT_BUILD_LEASE_MS); if (r.ok) lease = r; return !!r.ok }
+  const runGen = ctx.runner?.current ?? null
+  const fence = () => renew() && holdsLease(dir, leaseKey, me, lease.gen) && (!runGen || ctx.runner?.current === runGen) && !signal?.aborted
+  const claim = ctx.runner?.claimBody?.('climb') ?? null
+  const was = handOf(bot.heldItem)
+  const site = rec.site, pad = worldOf(site, 0, site.c, -1), padCell = (u = 0) => worldOf(site, u, site.c, -1)
+  const toward = (() => { const w = worldOf(site, 0, site.c, -3); return { x: w.x + 0.5, z: w.z + 0.5 } })()
+  const lread = shaftLocalRead(bot, site)
+  const env = envelopeLevels(site.c, rec.plan_bottom ?? rec.bottom, rec.plan_landings ?? rec.landings)
+  const digSet = new Set(env.dig.map(([u, y, v]) => `${u},${y},${v}`))
+  let eff = null, bb = null, finished = false, inside = false
+  const deadline = Math.min(t0 + 200_000, (ctx.runner?.current?.startedAt ?? t0) + (config.skills?.defaultTimeoutMs ?? 180_000) - 20_000)
+  try {
+    bb = botBuildEffects(bot, { bound: (p, ms, what) => g.bound(p, ms, what), aborted: () => !!signal?.aborted })
+    const mlock = clickLock(dir, `${key}.mut`, me, { session: bb.session, present: bb.present, leftAt: bb.leftAt, joinedAt: bb.joinedAt, ord: bb.ord })
+    eff = shaftEffects(bot, { bound: (p, ms, what) => g.bound(p, ms, what), aborted: () => !!signal?.aborted, allowed: n => CORE_ITEMS.includes(n) || n === 'ladder' || /_pickaxe$/.test(n) })
+    const mut = { lock: mlock, fence }
+    // MY OWN UNANSWERED MUTATIONS first (a session of mine that died mid-dig)
+    { const mine0 = mlock.ownFiles(); if (mine0.size && await eff.sync()) mlock.settleOwn(mine0) }
+    // ---- 3. materials (lease held): ladders crafted here if short and craftable; the next level's reserve ----
+    const ladders = () => items().filter(i => i.name === 'ladder').reduce((n, i) => n + i.count, 0)
+    const levelsWanted = Math.max(1, Math.min(6, rec.frontier - rec.bottom))
+    const ladderNeed = Math.min(13, 2 * levelsWanted + 1)
+    if (ladders() < ladderNeed) {
+      // the lease is RENEWED while the craft runs (Claude plan r2 P3): no other bot takes the build while this one crafts for it
+      const tick = setInterval(() => { try { renew() } catch { /* next */ } }, 30_000)
+      try { await craft(ctx, { item: 'ladder', count: ladderNeed - ladders() }, signal) } catch (e) { if (e?.aborted || signal?.aborted) throw e } finally { clearInterval(tick) }
+    }
+    f.ladders0 = ladders()
+    const stone = () => fundable(items()).total
+    const pick = () => items().filter(i => /_pickaxe$/.test(i.name)).reduce((m, i) => Math.max(m, (i.maxDurability ?? 0) - (i.durabilityUsed ?? 0)), 0)
+    if (ladders() < 2 || stone() < 8 || pick() < 20) return end('no_effect', 'shaft_funds', `not enough for a level: ladders ${ladders()}, spare stone ${stone()}, pickaxe ${pick()}`)
+    // ---- 4. the pad; nobody inside; the cap off ----
+    try { await (bot.withTownDepositWalk ?? (fn => fn()))(() => g.bound(bot.pathfinder.goto(new goals.GoalBlock(pad.x, pad.y, pad.z)), 45_000, 'pathfinding', { path: true })) } catch (e) { if (e?.aborted || signal?.aborted) throw e }
+    const fp = eff.feet()
+    if (!(fp.x === pad.x && fp.z === pad.z && fp.y === pad.y)) return end('no_effect', 'shaft_pad', `could not reach the entry pad at ${pad.x},${pad.y},${pad.z}`)
+    // NO SECOND BODY (Claude plan r1 P2-4): nobody in the envelope, nobody on the collar
+    const occupied = Object.values(bot.entities ?? {}).filter(e => e && e !== bot.entity && e.position && e.type === 'player' && structuresNow(bot)?.shaft?.inEnvelope(e.position.x, e.position.y, e.position.z)).length
+    if (occupied) return end('no_effect', 'shaft_occupied', `${occupied} player(s) inside the shaft; not descending onto them`)
+    const marks = othersInside(bot)
+    if (marks.length) return end('no_effect', 'shaft_occupied', `another builder may still be inside (${marks[0]}); not capping or descending over it`)
+    markOccupancy(bot)
+    // VERIFY what is built before using it
+    const ver = verifyShaft(rec, lread)
+    f.verified = ver.checked; f.vladders = ver.ladders; f.lost = ver.missing.length; f.wet = ver.wet.length; f.vunknown = ver.unknown
+    // the cap is expected missing-as-cobble at the collar: verifyShaft counts collar cells cobble OR open as fine
+    if (ver.wet.length) { await markShaft(dir, key, { state: 'damaged', why: `liquid in the built lining at ${ver.wet.slice(0, 3).join(' ')}` }); return end('failed', 'shaft_wet', `liquid in the built lining: ${ver.wet.slice(0, 4).join(' ')}`) }
+    if (ver.missing.length) { await markShaft(dir, key, { state: 'damaged', why: `missing ${ver.missing.slice(0, 4).join(' ')}` }); return end('failed', 'shaft_damaged', `the built shaft is damaged: ${ver.missing.slice(0, 6).join('; ')}`) }
+    if (ver.unknown) return end('no_effect', 'shaft_unloaded', `${ver.unknown} built cell(s) unread from the pad`)
+    // ---- 5. the work: the pure planner, op by op, until the deadline (leaving the climb out) ----
+    for (const u of [0, 1]) { const c0 = worldOf(site, u, site.c, 0); const b = lread(u, site.c, 0); if (b && b.boundingBox === 'block') { const v = await eff.dig(mut, c0); count(f, 'cap_dig', v); if (v !== 'confirmed') return end('failed', 'shaft_cap', `the cap at ${u} would not come off: ${v}`) } }
+    const climbBudget = () => (site.c - eff.feet().y) * SHAFT_CLIMB_S_PER_LEVEL * 1000 * 2 + 15_000
+    let level0 = rec.frontier
+    for (let i = 0; i < 400; i++) {
+      if (Date.now() + climbBudget() > deadline) { f.stop = 'deadline'; break }
+      if (!fence()) { f.stop = 'fence'; break }
+      claim?.renew?.(bot.entity?.position?.y)
+      const lf = (() => { const p = eff.feet(); const l = toLocal(site.origin, site.away, p.x, p.z); return { u: l.u, y: p.y, v: l.v } })()
+      let op = shaftNextOp({ rec, read: lread, feet: lf, digSet })
+      if (op.op === 'landing') op = landingNextOp({ yL: op.y, read: lread, feet: lf, digSet })
+      f.ops++; f.last = op.op
+      if (op.op === 'done') { f.stop = 'complete'; break }
+      if (op.op === 'wait') { f.stop = 'unloaded'; f.why = op.why; break }
+      if (op.op === 'close') { f.stop = 'closed'; f.why = op.why; await safeClose(); break }
+      const W = c => worldOf(site, c[0], c[1], c[2])
+      let v = null
+      // NO SLIP BEFORE THE LADDER (Codex plan r2 P1-2): every non-move op is done sneaking (prismarine-physics stops a sneaking
+      // bot at an edge and holds it on a ladder), so a bot beside an opened, unladdered cell never steps into it
+      if (!['move_down', 'descend', 'walk', 'advance', 'landing_done'].includes(op.op)) bot.setControlState('sneak', true)
+      // NOBODY ON THE COLLAR while its top levels are opened (Claude plan r2 P3): a player within 3 of the collar waits the op
+      if ((op.op === 'dig' || op.op === 'collar_dig') && op.cell[1] >= site.c - 2) {
+        const col = W([0, site.c, 0])
+        const near = Object.values(bot.entities ?? {}).filter(e => e && e !== bot.entity && e.type === 'player' && e.position && Math.hypot(e.position.x - col.x, e.position.z - col.z) < 4 && Math.abs(e.position.y - site.c) < 3).length
+        if (near) { f.gate.collar_body = (f.gate.collar_body ?? 0) + 1; if (f.gate.collar_body > 20) { f.stop = 'collar_body'; break } await g.bound(new Promise(r => setTimeout(r, 1_000)), 3_000, 'collar wait'); continue }
+      }
+      // A SLIDE LANDS ON AN EMPTY CELL (Claude plan r2 P2-3): any entity in the landing cell waits
+      if (op.op === 'move_down') { const c = W([op.u, op.y, 0]); if (eff.bodiesNear({ x: c.x + 0.5, y: c.y, z: c.z + 0.5 }, 0.9)) { await g.bound(new Promise(r => setTimeout(r, 1_000)), 3_000, 'slide wait'); continue } }
+      switch (op.op) {
+        case 'collar_dig': case 'dig': v = await eff.dig(mut, W(op.cell)); count(f, 'digs', v); break
+        case 'line': case 'fill_floor': {
+          if (op.from) { const st = W(op.from); if (!(await eff.stepTo(st))) { v = 'gate:walk' ; break } }
+          if (op.falling) { // a falling lining cell: its outer neighbours dry first (Claude plan r1 P1-5), then out and cobble in
+            const [u, y, w] = op.cell
+            const wet = [[1, 0, 0], [-1, 0, 0], [0, 1, 0], [0, -1, 0], [0, 0, 1], [0, 0, -1]].some(([du, dy, dw]) => !digSet.has(`${u + du},${y + dy},${w + dw}`) && isWetBlock(lread(u + du, y + dy, w + dw)))
+            if (wet) { f.stop = 'closed'; f.why = `liquid behind the falling lining at ${u},${y},${w}`; await safeClose(); break }
+            v = await eff.dig(mut, W(op.cell)); count(f, 'digs', v); if (v !== 'confirmed') break
+          }
+          v = await eff.place(mut, W(op.cell), 'cobblestone'); if (v === 'gate:no_material') v = await eff.place(mut, W(op.cell), fundPick(items(), { want: null }) ?? 'cobblestone')
+          count(f, op.op === 'fill_floor' ? 'filled' : 'lined', v); break
+        }
+        case 'ladder': v = await eff.place(mut, W([op.u, op.y, 0]), 'ladder', [{ ref: W([ladderWall(op.u), op.y, 0]), face: (() => { const a = W([op.u, op.y, 0]), b = W([ladderWall(op.u), op.y, 0]); return [a.x - b.x, 0, a.z - b.z] })() }]); count(f, 'ladders', v); break
+        case 'move_down': { const c = W([op.u, op.y, 0]); v = (await eff.centreOver(c)) && (await eff.settleAt(op.y)) ? 'confirmed' : 'gate:move'; inside = true; break }
+        case 'descend': {
+          const d = descentPlan({ rec, read: lread })
+          if (d.blocked) { f.stop = 'closed'; f.why = d.blocked; break }
+          const col = W([d.col, site.c, 0])
+          v = (await eff.centreOver(col)) && (await eff.settleAt(d.land.y, 60_000)) ? 'confirmed' : 'gate:descend'; inside = true; break
+        }
+        case 'walk': v = (await eff.stepTo(W(op.to))) ? 'confirmed' : 'gate:walk'; break
+        case 'advance': {
+          const latest = readShaft(dir, key)
+          if (!latest.record || latest.record.frontier !== rec.frontier) { f.stop = 'record_moved'; break }
+          const next = advance(latest.record, op.y, { now: Date.now(), by: me })
+          if (createShaftGen(dir, key, latest.gen + 1, next)) { rec = { ...next }; f.gen = latest.gen + 1; f.levels++ } else { f.stop = 'record_race'; break }
+          v = 'confirmed'; if (op.y === site.c) { const c1 = W([1, site.c, 0]); await eff.stepTo(c1) } break
+        }
+        case 'landing_done': {
+          const latest = readShaft(dir, key)
+          const next = { ...latest.record, landings_done: [...new Set([...(latest.record.landings_done ?? []), op.y])] }
+          if (createShaftGen(dir, key, latest.gen + 1, next)) { rec = { ...next }; f.gen = latest.gen + 1 } else { f.stop = 'record_race'; break }
+          v = 'confirmed'; break
+        }
+        default: f.stop = `op_${op.op}`
+      }
+      if (f.stop) break
+      if (typeof v === 'string' && v !== 'confirmed') { f.gate[v] = (f.gate[v] ?? 0) + 1; if (/^(refused|silent|unknown|error)$/.test(v) || f.gate[v] >= 3) { f.stop = v.startsWith('gate:') ? v.slice(5) : v; f.why = `${op.op} at ${JSON.stringify(op.cell ?? op.to ?? op.u ?? '')}`; break } }
+    }
+    f.levels = Math.max(f.levels, level0 - rec.frontier)
+    // NO PROGRESS, NO FOREVER (Claude plan r2 P2-6): three visits in a row with no confirmed dig or placement stop the shaft
+    // with the last stop named; any progress resets the count
+    const progressed = (f.digs ?? 0) + (f.lined ?? 0) + (f.filled ?? 0) + (f.ladders ?? 0) > 0
+    const np = progressed ? 0 : (readShaft(dir, key).record?.no_progress ?? 0) + 1
+    await markShaft(dir, key, np >= 3 ? { no_progress: np, state: 'stopped', why: `no progress in 3 visits (last stop: ${f.stop})` } : { no_progress: np })
+    finished = true
+  } finally {
+    // ---- 6. out, and the cap back on (bounded, after an abort too) ----
+    try {
+      if (eff && inside) {
+        const r = await leaveShaft(bot, eff, structuresFresh(bot).shaft, signal)
+        f.out = r.ok ? 'pad' : String(r.why).slice(0, 60)
+      }
+      const onPad = !!eff && (() => { const p = eff.feet(); return [0, 1].some(u => { const w = padCell(u); return p.x === w.x && p.y === w.y && p.z === w.z }) })()
+      if (onPad) {
+        clearOccupancy(bot)
+        // NOBODY INSIDE BEFORE THE CAP (Claude plan r2 P2-2): a player in the envelope (a bystander who fell in) is never sealed in
+        const inside = Object.values(bot.entities ?? {}).some(e => e && e !== bot.entity && e.position && e.type === 'player' && structuresFresh(bot)?.shaft?.inEnvelope(e.position.x, e.position.y, e.position.z))
+        if (inside) f.cap = 'left_open_occupied'
+        else for (const u of [0, 1]) { const b = lread(u, site.c, 0); if (b && b.boundingBox === 'empty') { const v = await eff.place({ lock: clickLock(dir, `${key}.mut`, me, { session: bb.session, present: bb.present, leftAt: bb.leftAt, joinedAt: bb.joinedAt, ord: bb.ord }), fence: () => holdsLease(dir, leaseKey, me, lease.gen) }, worldOf(site, u, site.c, 0), 'cobblestone'); count(f, 'cap', v) } }
+      }
+    } catch { /* the next visit or shaft_exit */ }
+    try { claim?.release?.() } catch { /* runner gone */ }
+    try { releaseLease(dir, leaseKey, me, lease.gen) } catch { /* expires */ }
+    try { bb?.close() } catch { /* gone */ }
+    await settleAndRestore(bot, was, g, 'dig_shaft')
+    if (!rowDone) { f.stop ??= signal?.aborted ? 'aborted' : (finished ? 'done' : 'thrown'); try { row(f.levels || f.digs || f.lined ? 'success' : 'no_effect') } catch { /* telemetry */ } }
+  }
+  return { status: f.levels || f.digs || f.lined ? 'success' : 'no_effect', ...(f.levels || f.digs ? {} : { failClass: 'shaft_' + (f.stop ?? 'nothing') }), detail: `shaft: ${f.levels} level(s), ${f.digs} digs, ${f.lined} lined, ${f.ladders} ladders; frontier ${rec?.frontier}; stopped: ${f.stop}${f.why ? ` (${f.why})` : ''}`, placed: (f.ladders ?? 0) + (f.lined ?? 0) }
+
+  async function safeClose () {
+    // SAFE CLOSURE (Codex plan r1 P1-4 / r2 P1-3): refill this level's opened, unfinished core cells, then record
+    // closure_pending -> stopped only when the refill is witnessed
+    const y = rec.frontier - 1, refill = []
+    for (const u of [0, 1]) { const b = lread(u, y, 0); if (b && b.boundingBox === 'empty' && b.name !== 'ladder') refill.push([u, y, 0]) }
+    let ok = true
+    for (const c of refill) { const v = await eff.place({ lock: clickLock(dir, `${key}.mut`, me, { session: bb.session, present: bb.present, leftAt: bb.leftAt, joinedAt: bb.joinedAt, ord: bb.ord }), fence }, worldOf(site, ...c), 'cobblestone'); if (v !== 'confirmed') ok = false }
+    await markShaft(dir, key, ok ? { state: 'stopped', bottom: rec.frontier, why: f.why } : { state: 'closure_pending', bottom: rec.frontier, why: f.why, unfinished: refill })
+  }
+}
+const count = (f, k, v) => { if (v === 'confirmed') f[k] = (f[k] ?? 0) + 1 }
+async function markShaft (dir, key, patch) {
+  for (let i = 0; i < 3; i++) {
+    const latest = readShaft(dir, key)
+    if (!latest.record) return false
+    if (createShaftGen(dir, key, latest.gen + 1, { ...latest.record, ...patch, marked_at: Date.now() })) return true
+  }
+  return false
+}
+const shaftFields = f => [['gen', f.gen], ['frontier0', f.frontier0], ['levels', f.levels], ['digs', f.digs], ['lined', f.lined], ['filled', f.filled], ['ladders', f.ladders],
+  ['lost', f.lost], ['wet', f.wet], ['verified', f.verified], ['vladders', f.vladders], ['vunknown', f.vunknown], ['ops', f.ops], ['out', f.out], ['cap', f.cap],
+  ['stop', String(f.stop ?? 'done').slice(0, 40)], ['why', String(f.why ?? '-').replace(/\s+/g, '_').slice(0, 80)], ['t0', Math.round(f.t0 ?? 0)]]
+const shaftDetail = f => shaftFields(f).map(([k, v]) => `${k}=${v ?? '-'}`).join(' ').slice(0, 300)
+const shaftArgs = f => Object.fromEntries(shaftFields(f).filter(([, v]) => v != null).map(([k, v]) => [k, typeof v === 'number' ? v : String(v)]))
+
+/**
+ * LEAVE THE SHAFT along the verified route (Claude plan r2 P1-1): walk ladderExit's own route (room -> portal -> the column
+ * cell), centre in the exit column, climb out onto the pad; a CAPPED collar (a bot left inside, then capped: Claude r2 P2-1)
+ * is dug from the top rung, holding on with sneak, under the shaft_exit dig scope (the chokepoint lets that one cell through).
+ * -> { ok, why }. A failure is counted on the bot: two within 10 min release the hold (shaftguard exitExhausted).
+ */
+async function leaveShaft (bot, eff, sh, signal) {
+  const ex = ladderExit(sh, shaftRead(bot), bot.entity.position, { capOk: hasPickaxe(bot) })
+  const fail = why => { (bot.__shaftExitFails ??= []).push(Date.now()); try { logEvent({ kind: 'shaft_exit_failed', status: 'failed', snapshot: snapshot(bot), detail: String(why).slice(0, 280) }) } catch { /* telemetry */ } return { ok: false, why } }
+  if (!ex.ok) return fail(`no verified way out: ${ex.why}`)
+  for (const st of ex.route.slice(1)) if (!(await eff.stepTo(worldOf(sh.site, st.u, st.y, st.v)))) return fail(`the walk to column ${ex.col} stopped at ${st.u},${st.y},${st.v}`)
+  if (!(await eff.centreOver(worldOf(sh.site, ex.col, ex.from, 0)))) return fail(`could not centre in column ${ex.col}`)
+  const pad = worldOf(sh.site, ex.col, sh.site.c, -1), tw = worldOf(sh.site, 0, sh.site.c, -3), toward = { x: tw.x + 0.5, z: tw.z + 0.5 }
+  let out = await eff.climbOut(pad, toward)
+  if (!out.ok && ex.capped) {
+    const cap = worldOf(sh.site, ex.col, sh.site.c, 0)
+    try {
+      bot.setControlState('sneak', true)   // holds the bot on the ladder (prismarine-physics: no slide while sneaking)
+      await bot.lookAt(new Vec3(cap.x + 0.5, cap.y + 0.5, cap.z + 0.5), true)
+      const b = bot.blockAt(new Vec3(cap.x, cap.y, cap.z))
+      if (b && b.boundingBox === 'block') await withDigScope(bot, { purpose: 'survival', by: 'shaft_exit' }, () => bot.dig(b, 'ignore'))
+    } catch (e) { if (e?.aborted || signal?.aborted) throw e } finally { bot.clearControlStates() }
+    out = await eff.climbOut(pad, toward)
+  }
+  if (!out.ok) return fail(`the climb stopped at y=${Math.round(out.y)}`)
+  bot.__shaftExitFails = []
+  return { ok: true, why: `climbed column ${ex.col} out to the pad in ${Math.round(out.ms / 1000)} s`, col: ex.col }
+}
+/** shaft_exit: a bot in the shaft climbs out (the recovery order, Codex plan r1 P1-2, Claude r2 P1-1). */
+async function shaftExit (ctx, _args, signal) {
+  const { bot } = ctx
+  const sh = structuresFresh(bot).shaft
+  if (!sh || !sh.inEnvelope(bot.entity.position.x, bot.entity.position.y, bot.entity.position.z)) return { status: 'no_effect', detail: 'not in the shaft' }
+  const claim = ctx.runner?.claimBody?.('climb') ?? null
+  const g = hkGuards(bot, signal)
+  try {
+    const eff = shaftEffects(bot, { bound: (p, ms, what) => g.bound(p, ms, what), aborted: () => !!signal?.aborted })
+    const r = await leaveShaft(bot, eff, sh, signal)
+    if (r.ok) { try { clearOccupancy(bot) } catch { /* best effort */ } try { logEvent({ kind: 'shaft_exit', status: 'success', snapshot: snapshot(bot), detail: r.why }) } catch { /* telemetry */ } }
+    return r.ok ? { status: 'success', detail: r.why } : { status: 'failed', failClass: 'shaft_no_exit', detail: r.why }
+  } finally { try { claim?.release?.() } catch { /* runner gone */ } }
+}
+/** OCCUPANCY (Claude plan r2 P2-1): a builder marks itself inside before the cap comes off; only a climb that ends on the pad
+ *  clears it; another bot's fresh marker (< 2 h) blocks every visit -- a disconnected builder is never capped in. */
+const OCC_MS = 2 * 60 * 60_000
+const occFile = (bot, name = bot.username ?? '?') => path.join(townDir(), `${shaftKeyNow()}.inside.${String(name).replace(/[^A-Za-z0-9_-]/g, '_')}.json`)
+function markOccupancy (bot) { fs.writeFileSync(occFile(bot), JSON.stringify({ at: Date.now(), by: bot.username })) }
+function clearOccupancy (bot) { try { fs.unlinkSync(occFile(bot)) } catch { /* none */ } }
+function othersInside (bot) {
+  const pre = `${shaftKeyNow()}.inside.`, me = String(bot.username ?? '?').replace(/[^A-Za-z0-9_-]/g, '_')
+  try { return fs.readdirSync(townDir()).filter(f => f.startsWith(pre) && f !== `${pre}${me}.json`).filter(f => { try { return Date.now() - JSON.parse(fs.readFileSync(path.join(townDir(), f), 'utf8')).at < OCC_MS } catch { return true } }) } catch { return [] }
+}
+
+const auditAt = new WeakMap()
+/** The passive audit: throttled per bot to one per 30 min (+ up to 5 min jitter), only within 32 of the pad. Never throws. */
+export function shaftAuditPassive (bot) {
+  try {
+    const now = Date.now()
+    if (now < (auditAt.get(bot) ?? 0)) return
+    auditAt.set(bot, now + 30 * 60_000 + Math.floor(Math.random() * 5 * 60_000))
+    const lane = shaftLane()
+    if (!lane.on || lane.state === 'unsited') return
+    const p = bot.entity?.position
+    if (!p || Math.max(Math.abs(p.x - lane.pad.x), Math.abs(p.z - lane.pad.z)) > 32) return
+    shaftAudit({ bot }).catch(() => {})
+  } catch { /* telemetry */ }
+}
+/** shaft_audit (canary): a bot near the collar reads the built shaft and writes `_shaft_audit` (Codex plan r1 P2 / Claude P1-3). */
+async function shaftAudit (ctx) {
+  const { bot } = ctx
+  let rec = null
+  try { rec = readShaft(townDir(), shaftKeyNow()).record } catch { rec = null }
+  if (!rec || !sameWorld(rec.world, bot.worldId ?? null)) return { status: 'no_effect', detail: 'no shaft record here' }
+  const v = verifyShaft(rec, shaftLocalRead(bot, rec.site))
+  const levels = Math.max(0, rec.site.c - rec.frontier)
+  const detail = `state=${rec.state} frontier=${rec.frontier} levels=${levels} checked=${v.checked} missing=${v.missing.length} wet=${v.wet.length} unloaded=${v.unknown} ladders=${v.ladders} ladders_expected=${2 * levels} first=${(v.missing[0] ?? '-').replace(/\s+/g, '_')}`
+  try { logEvent({ kind: 'shaft_audit', status: 'success', snapshot: snapshot(bot), detail, args: { state: rec.state, frontier: rec.frontier, levels, checked: v.checked, missing: v.missing.length, wet: v.wet.length, unloaded: v.unknown, ladders: v.ladders, ladders_expected: 2 * levels } }) } catch { /* telemetry */ }
+  return { status: 'success', detail }
+}
+
 const structureHome = () => ({ x: config.world.homeX, y: config.world.homeY, z: config.world.homeZ })
 export const structuresNow = bot => {
   if (!bot) return { forbid: null, bottom: null }
@@ -12892,7 +13260,10 @@ export const SKILL_CONTRACTS = {
   close_well:   { expects: ['world_change'],     maxMs: 60_000 },
   // Plants, restores soil and places torches at the town tree farm: the change it exists for is blocks in the world.
   tend_farm: { expects: ['world_change'],         maxMs: 150_000 },
-  build_monument: { expects: ['world_change'],    maxMs: 240_000 },   // two 45 s walks + a 90 s visit from arrival
+  build_monument: { expects: ['world_change'],    maxMs: 240_000 },
+  dig_shaft:      { expects: ['world_change'],    maxMs: 240_000 },   // walks, a verification, the ride down, <= 200 s of work, the climb out
+  shaft_exit:     { expects: ['position_change'], maxMs: 120_000 },
+  shaft_audit:    { expects: [],                  maxMs: 10_000 },   // two 45 s walks + a 90 s visit from arrival
   eat:      { expects: ['survival'],              maxMs: 30_000 },
   // Walk-home fallback makes sleep a travel skill too (same as deposit).
   sleep:    { expects: ['survival'],              maxMs: 240_000 },
@@ -13984,6 +14355,9 @@ export const SKILLS = {
   // The town tree farm (treefarm.mjs farmOrder): a deterministic town order like the composter's, never the model's choice.
   tend_farm: { run: tendFarm, usage: 'tend_farm', args: [], chatOnly: true },
   build_monument: { run: buildMonument, usage: 'build_monument', args: [], chatOnly: true },
+  dig_shaft: { run: digShaft, usage: 'dig_shaft', args: [], chatOnly: true },
+  shaft_exit: { run: shaftExit, usage: 'shaft_exit', args: [], chatOnly: true },
+  shaft_audit: { run: shaftAudit, usage: 'shaft_audit', args: [], chatOnly: true },
   status:  { run: status,  usage: 'status',                        args: [] },
   eat:     { run: eat,     usage: 'eat',                           args: [] },
   craft:   { run: craft,   usage: 'craft <count> <item_name>',     args: ['item', 'count'] },
