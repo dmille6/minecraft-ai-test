@@ -185,10 +185,12 @@ export async function abortableDig (bot, block, signal, { lookMs = 500, guard = 
     let t
     try { await Promise.race([bot.lookAt(block.position.offset(0.5, 0.5, 0.5), true), new Promise(r => { t = setTimeout(r, lookMs) })]) } catch { /* a missed look moves only the head */ } finally { clearTimeout(t) }
   }
-  // minewell-01: the look above is an await, so a caller's world read taken before this call is stale here. `guard` runs
-  // after the look with no await before the packet; truthy = do not dig (the caller reads its own reason).
-  if (guard && guard()) return false
   check(signal)
+  // minewell-01: the look above is an await, so a caller's world read taken before this call is stale here. `guard` runs
+  // after the look with no await before the packet; truthy = do not dig (the caller reads its own reason). The abort
+  // is checked BEFORE the guard (an aborted dig logs no refusal) and again after a truthy one: a cancelled skill always
+  // throws Aborted, never returns a refusal in its place (Codex ap3 P2).
+  if (guard && guard()) { check(signal); return false }
   return bot.dig(block, 'ignore')
 }
 const sleep = (ms, signal) => new Promise((res, rej) => {
@@ -10337,7 +10339,7 @@ async function mine(ctx, { y: targetY = 12 }, signal) {
         return { status: 'failed', failClass: 'missing_tool',
                  detail: `need a better tool for ${b.name} at y=${Math.round(bot.entity.position.y)}` }
       }
-      // IMMEDIATELY BEFORE THE DIG, after the equip's await (Codex r2 P2): nothing awaits between this read and bot.dig
+      // IMMEDIATELY BEFORE THE DIG, after the equip's await (Codex r2 P2): abortableDig's guard reads it again after its look
       const stopNow = shellStop(pos)
       if (stopNow) return stopNow
       let stopLook = null   // and again AFTER abortableDig's look (an await of up to 500 ms), the last thing before the packet

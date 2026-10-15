@@ -38,7 +38,7 @@ async function withMutant (file, old, neu, fn) { return withMutants(file, [[old,
 // airpocket-03 base: abortableDig runs mine's shell read again after its look (the guard). A mutant that removes a
 // pre-dig read must also remove that guard, or the guard stops the dig and the mutant tests nothing; the guard alone
 // has its own mutant (MUTANT: abortableDig ignores its guard).
-const GUARD_OFF = ["  if (guard && guard()) return false\n", '']
+const GUARD_OFF = ["  if (guard && guard()) { check(signal); return false }\n", '']
 async function withMutants (file, pairs, fn) {
   let src = fs.readFileSync(file, 'utf8')
   for (const [old, neu] of pairs) {
@@ -282,7 +282,7 @@ await t('POSITIVE CONTROL for the chain: with no well known, the same stand desc
 
 // ---- MUTANTS --------------------------------------------------------------------------------------------------------------
 await t('MUTANT (skills): no plan AND no per-dig checks -- the stair from the stand digs the shell (the hive-d defect reproduced)', async () => {
-  await withMutants(SKP, [["  let wellPlan = planHere()\n", "  let wellPlan = { action: 'go', bearings: stairBearings(bot) }\n"], ["    for (const cell of [cellAbove, cellHead, cellFeet]) {\n      const stop = shellStop(cell)\n      if (stop) return stop\n    }\n", ''], ["      // IMMEDIATELY BEFORE THE DIG, after the equip's await (Codex r2 P2): nothing awaits between this read and bot.dig\n      const stopNow = shellStop(pos)\n      if (stopNow) return stopNow\n", ''], GUARD_OFF], async m => {
+  await withMutants(SKP, [["  let wellPlan = planHere()\n", "  let wellPlan = { action: 'go', bearings: stairBearings(bot) }\n"], ["    for (const cell of [cellAbove, cellHead, cellFeet]) {\n      const stop = shellStop(cell)\n      if (stop) return stop\n    }\n", ''], ["      // IMMEDIATELY BEFORE THE DIG, after the equip's await (Codex r2 P2): abortableDig's guard reads it again after its look\n      const stopNow = shellStop(pos)\n      if (stopNow) return stopNow\n", ''], GUARD_OFF], async m => {
     const bot = wellWorld()
     await run(m, bot).catch(() => {})
     assert.ok(bot._digs.some(d => inBox(d)), 'mutant inert')
@@ -313,7 +313,7 @@ await t('MUTANT (minewell): the inside-the-well refusal removed -- a bot in the 
   })
 })
 await t('MUTANT (skills): the per-dig checks removed -- a well appearing mid-descent gets its shell dug', async () => {
-  await withMutants(SKP, [["    for (const cell of [cellAbove, cellHead, cellFeet]) {\n      const stop = shellStop(cell)\n      if (stop) return stop\n    }\n", ''], ["      // IMMEDIATELY BEFORE THE DIG, after the equip's await (Codex r2 P2): nothing awaits between this read and bot.dig\n      const stopNow = shellStop(pos)\n      if (stopNow) return stopNow\n", ''], GUARD_OFF], async m => {
+  await withMutants(SKP, [["    for (const cell of [cellAbove, cellHead, cellFeet]) {\n      const stop = shellStop(cell)\n      if (stop) return stop\n    }\n", ''], ["      // IMMEDIATELY BEFORE THE DIG, after the equip's await (Codex r2 P2): abortableDig's guard reads it again after its look\n      const stopNow = shellStop(pos)\n      if (stopNow) return stopNow\n", ''], GUARD_OFF], async m => {
     let known = []
     const bot = wellWorld({ at: new V(200.5, 64, 192.5), yaw: 0, cols: () => known })
     const dig0 = bot.dig
@@ -342,8 +342,8 @@ await t('MUTANT (skills): no second, longer walk-off -- walled in within 8, mine
 })
 await t('MUTANT (skills): the per-dig read moved back before the equip -- a well recognised during the equip gets its cell dug', async () => {
   const OLD = "      const tool = bestTool(bot, b)\n      check(signal)                                   // an interrupted mine touches neither the hand nor the block\n      if (tool) await bot.equip(tool, 'hand').catch(() => {})\n"
-  const READ = "      // IMMEDIATELY BEFORE THE DIG, after the equip's await (Codex r2 P2): nothing awaits between this read and bot.dig\n      const stopNow = shellStop(pos)\n      if (stopNow) return stopNow\n"
-  await withMutants(SKP, [[READ, ''], [OLD, "      // IMMEDIATELY BEFORE THE DIG, after the equip's await (Codex r2 P2): nothing awaits between this read and bot.dig\n      const stopNow = shellStop(pos)\n      if (stopNow) return stopNow\n" + OLD], GUARD_OFF], async m => {
+  const READ = "      // IMMEDIATELY BEFORE THE DIG, after the equip's await (Codex r2 P2): abortableDig's guard reads it again after its look\n      const stopNow = shellStop(pos)\n      if (stopNow) return stopNow\n"
+  await withMutants(SKP, [[READ, ''], [OLD, "      // IMMEDIATELY BEFORE THE DIG, after the equip's await (Codex r2 P2): abortableDig's guard reads it again after its look\n      const stopNow = shellStop(pos)\n      if (stopNow) return stopNow\n" + OLD], GUARD_OFF], async m => {
     let known = []
     const bot = wellWorld({ at: new V(200.5, 64, 196.5), yaw: 0, cols: () => known, solidAbove: new Set([key(200, 64, 198)]) })
     recogniseAtHead(bot, () => { known = [CAP] })
@@ -365,12 +365,82 @@ await t('READ AFTER THE LOOK: a well recognised during abortableDig\'s look stop
   assert.deepEqual(bot._digs.filter(d => inBox(d)), [], 'the head cell was dug on a read taken before the look')
 })
 await t('MUTANT (skills): abortableDig ignores its guard -- a well recognised during the look gets its cell dug', async () => {
-  await withMutant(SKP, "  if (guard && guard()) return false\n", '', async m => {
+  await withMutants(SKP, [GUARD_OFF], async m => {
     let known = []
     const bot = wellWorld({ at: new V(200.5, 64, 196.5), yaw: 0, cols: () => known, solidAbove: new Set([key(200, 64, 198)]) })
     recogniseDuringLook(bot, { x: 200, y: 63, z: 198 }, () => { known = [CAP] })
     await run(m, bot).catch(() => {})
     assert.ok(bot._digs.some(d => inBox(d)), 'mutant inert')
+  })
+})
+// the well becomes known DURING the look of the re-open / tread re-dig (the read before each call saw none)
+const lookWell = ({ refill, sand = new Set() }) => {
+  let known = [], refilled = false, refilledAt = null
+  const bot = wellWorld({ at: new V(200.5, 64, 196.5), yaw: 0, cols: () => known, sand })
+  const dig0 = bot.dig
+  bot.dig = async b => {
+    await dig0(b)
+    if (!refilled && b.position.x === 200 && b.position.y === 62 && b.position.z === 198) { bot._carved.delete(key(refill.x, refill.y, refill.z)); refilled = true; refilledAt = bot._digs.length }
+  }
+  bot.lookAt = async p => { if (refilled && Math.floor(p.x) === refill.x && Math.floor(p.y) === refill.y && Math.floor(p.z) === refill.z) known = [CAP] }
+  return { bot, after: () => (refilledAt == null ? [] : bot._digs.slice(refilledAt)), known: () => known }
+}
+const REOPEN = { refill: { x: 200, y: 63, z: 198 }, sand: new Set([key(200, 65, 198)]) }, REDIG = { refill: { x: 200, y: 62, z: 198 } }
+await t('THE RE-OPEN\'S GUARD: a well recognised during the re-open\'s look stops it -- the refilled head cell is never dug', async () => {
+  const { bot, after, known } = lookWell(REOPEN)
+  const r = await run({ SKILLS }, bot)
+  assert.ok(known().length, 'positive control: the look at the refilled cell happened (the well became known)')
+  assert.equal(r.status, 'failed', `${r.status}: ${r.detail}`); assert.match(r.detail, /junk well's shell/)
+  assert.deepEqual(after().filter(d => inBox(d)), [])
+})
+await t('MUTANT (skills): the re-open passes no guard -- a well recognised during its look gets the head cell dug', async () => {
+  await withMutant(SKP, "abortableDig(bot, b, signal, { guard: () => (stopReLook = shellStop(pos)) })", 'abortableDig(bot, b, signal, {})', async m => {
+    const { bot, after } = lookWell(REOPEN)
+    await run(m, bot).catch(() => {})
+    assert.ok(after().some(d => inBox(d)), 'mutant inert')
+  })
+})
+await t('THE TREAD RE-DIG\'S GUARD: a well recognised during the re-dig\'s look stops it -- the refilled tread is never dug', async () => {
+  const { bot, after, known } = lookWell(REDIG)
+  const r = await run({ SKILLS }, bot)
+  assert.ok(known().length, 'positive control: the look at the refilled tread happened (the well became known)')
+  assert.equal(r.status, 'failed', `${r.status}: ${r.detail}`); assert.match(r.detail, /junk well's shell/)
+  assert.deepEqual(after().filter(d => inBox(d)), [])
+})
+await t('MUTANT (skills): the tread re-dig passes no guard -- a well recognised during its look gets the tread dug', async () => {
+  await withMutant(SKP, "const redigShell = { guard: () => (stopRedigLook = shellStop(cellFeet)) }", 'const redigShell = {}', async m => {
+    const { bot, after } = lookWell(REDIG)
+    await run(m, bot).catch(() => {})
+    assert.ok(after().some(d => inBox(d)), 'mutant inert')
+  })
+})
+// Codex ap3 P2: an abort that lands during the look must throw Aborted even when the guard would refuse
+const abortInLook = async (mod) => {
+  const ac = new AbortController(); let digs = 0, guarded = 0
+  const bot = { lookAt: async () => ac.abort(), dig: async () => { digs++ } }
+  const block = { position: new V(1, 2, 3) }
+  const out = await mod.abortableDig(bot, block, ac.signal, { guard: () => { guarded++; return true } }).then(v => ({ v }), e => ({ e }))
+  return { out, digs, guarded }
+}
+await t('ABORT IN THE LOOK + A REFUSING GUARD: abortableDig throws Aborted, sends no dig and runs no guard (no refusal row)', async () => {
+  const { out, digs, guarded } = await abortInLook(await import(pathToFileURL(SKP)))
+  assert.ok(out.e?.aborted, `expected Aborted, got ${JSON.stringify(out)}`)
+  assert.equal(digs, 0); assert.equal(guarded, 0)
+  const live = await (await import(pathToFileURL(SKP))).abortableDig({ dig: async () => 'dug' }, { position: new V(1, 2, 3) }, new AbortController().signal, { guard: () => false })
+  assert.equal(live, 'dug', 'positive control: a live signal and a passing guard dig')
+})
+const PRE_CHECK = ["  check(signal)\n  // minewell-01: the look above is an await", "  // minewell-01: the look above is an await"]
+await t('MUTANT (skills): 52ed74b0\'s order (guard, then the check) -- an abort in the look returns a refusal instead of throwing', async () => {
+  await withMutants(SKP, [PRE_CHECK, ["  if (guard && guard()) { check(signal); return false }\n", "  if (guard && guard()) return false\n  check(signal)\n"]], async m => {
+    const { out } = await abortInLook(m)
+    assert.ok(out.e === undefined && out.v === false, 'mutant inert: ' + JSON.stringify(out))
+  })
+})
+await t('MUTANT (skills): no check before the guard -- an aborted dig still runs the guard (a refusal row for a cancelled mine)', async () => {
+  await withMutants(SKP, [PRE_CHECK], async m => {
+    const { out, guarded } = await abortInLook(m)
+    assert.ok(out.e?.aborted, 'the check after a refusing guard still throws')
+    assert.equal(guarded, 1, 'mutant inert')
   })
 })
 await t('MUTANT (skills): relocation without the walk -- the replan from the stand refuses, the chain never descends', async () => {

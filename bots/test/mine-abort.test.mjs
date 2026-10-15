@@ -127,7 +127,7 @@ await killed('without the check before the equip, an abort during a dig still eq
   "      check(signal)                                   // an interrupted mine touches neither the hand nor the block\n", '',
   abortAt('dig', 2), ['equip'])
 await killed('without the check after abortableDig\'s look, an abort during the look still digs',
-  "  check(signal)\n  return bot.dig(block, 'ignore')\n", "  return bot.dig(block, 'ignore')\n",
+  "  check(signal)\n  // minewell-01: the look above is an await", "  // minewell-01: the look above is an await",   // minewell-01: the post-look check now precedes the shell guard
   abortAt('look', 2), ['dig'])
 await killed('the stair dig as a bare bot.dig: an abort during the equip still digs',
   "      try { await abortableDig(bot, b, signal, { guard: () => (stopLook = shellStop(pos)) }) } catch (e) { if (e.aborted) throw e; break }\n",   // minewell-01 passes its shell guard
