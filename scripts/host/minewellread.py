@@ -37,9 +37,18 @@ def pool_of(bot):
     return '-'.join((bot or '').split('-')[:2])
 
 
+DETAIL_CAP = 300   # the bots cap a row's detail at 300 chars (skills.mjs logEvent); a cap printed last can be cut mid-number
+
+
 def cap_of(detail):
-    m = AT.search(detail or '')
-    return tuple(int(v) for v in m.groups()) if m else None
+    """The well cap a row names, or None. A match that runs to the end of a detail at the cap is TRUNCATED and refused:
+    10-14 hive-c '... cap_end=closed at=-76,59,-7' (300 chars) is the well at -76,59,-75, and a false cap would gate
+    ordinary digs 68 blocks away."""
+    d = detail or ''
+    m = AT.search(d)
+    if not m or (m.end() == len(d) and len(d) >= DETAIL_CAP - 2):
+        return None
+    return tuple(int(v) for v in m.groups())
 
 
 def in_shell(cell, cap):
@@ -72,6 +81,8 @@ _CAPS = {'hive-d': {cap_of('at=79,57,76 facing=south floor=1')}}
 assert [c for _, c, _, _ in shell_digs(_HD, _CAPS)] == [(79, 57, 77), (79, 56, 77)], 'the hive-d digs: the wall at g and g-1, not the builder, not 3 out'
 assert shell_digs(_HD, {'hive-c': _CAPS['hive-d']}) == [], 'another pool\'s well is not this pool\'s'
 assert cap_of('action=relocate at=200,63,200 from=200,64,201 to=203,64,201 try=1') == (200, 63, 200)
+_TRUNC = 'slots=34->25 offlist=0 gclicked=0 stone=587 swords=0 sword_lost=0 sword_kept=0 cobble=456 cobble_left=128 cap=at_cap offlist_items=- unnamed=0 freed=9 tossed=9 n=457 misses=0 aim_off=0 aim_read=9 retaken=0 recollected=0 nonlisted=0 other_loss=0 server=resync closed_open=0 cap_end=closed at=-76,59,-7'
+assert cap_of(_TRUNC) is None and cap_of(_TRUNC[:-60] + ' at=-76,59,-75') == (-76, 59, -75), 'a cap cut by the 300-char detail cap is not a cap; a short row ending in one is'
 assert in_shell((198, 60, 202), (200, 63, 200)) and not in_shell((197, 63, 200), (200, 63, 200)) and not in_shell((200, 59, 200), (200, 63, 200))
 
 if __name__ == '__main__':
