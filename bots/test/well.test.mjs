@@ -39,7 +39,7 @@ await t('the list is the owner\'s eleven (10-04) plus the 10-07 decorations, eve
   for (const n of ['egg', 'brown_egg', 'blue_egg', 'flint', 'clay_ball', 'ink_sac', 'glow_ink_sac', 'armadillo_scute', 'dead_bush', 'pointed_dripstone', 'rail',
     // the owner's 10-07 examples and the census's decorations (glass 59 slots, lead 20, oak_button 17, wool, brick, fences, plates)
     'glass', 'white_wool', 'oak_button', 'lead', 'powered_rail', 'brick', 'bricks', 'oak_fence', 'oak_pressure_plate', 'smooth_basalt', 'polished_diorite',
-    'diorite', 'granite', 'andesite', 'stone_bricks', 'mossy_cobblestone', 'smooth_stone']) {
+    'diorite', 'granite', 'andesite', 'mossy_cobblestone']) {
     assert.ok(W.isWellJunk(n), `positive control: ${n} is on the list`)
   }
   for (const n of W.WELL_JUNK) {
@@ -47,14 +47,18 @@ await t('the list is the owner\'s eleven (10-04) plus the 10-07 decorations, eve
     assert.ok(W.isWellJunk(n), `${n} is listed AND passes every guard (a listed name a guard refuses is a typo or a contradiction)`)
   }
   assert.equal(W.WELL_JUNK.size, W.OWNER_JUNK_1004.length + W.DECORATIONS.length + W.SCAFFOLD_DECORATIONS.length, 'no name listed twice')
-  // scripts/host/wellread.py keeps a Python copy (its C3 gate) and asserts the same 124: change both together
-  assert.equal(W.WELL_JUNK.size, 124)
+  // scripts/host/wellread.py keeps a Python copy (its C3 gate). OWNER D8 (10-15, smeltjob-01) took stone_bricks and
+  // smooth_stone OFF the list: 124 -> 122. The read's copy is a SUPERSET by those two until its owner drops them, which
+  // cannot false-trip C3 (no build throws them any more); change both together when wellread is next edited.
+  assert.equal(W.WELL_JUNK.size, 122)
   for (const n of ['cobblestone', 'cobbled_deepslate', 'dirt', 'gravel', 'sand', 'oak_log', 'oak_planks', 'stick', 'oak_sapling',
     'stone_pickaxe', 'wooden_axe', 'apple', 'bread', 'beef', 'raw_iron', 'iron_ingot', 'coal', 'leaf_litter', 'wheat_seeds', 'poppy', 'bamboo', 'bone_meal',
     // 10-07: what the decoration list must NOT take -- the composter's recipe (wooden slabs), the well's own trapdoors, the
     // sleep skill's bed, desert rescue blocks, raw ballast the stone rung counts, compostables, the furnace and the table
     'oak_slab', 'birch_slab', 'oak_trapdoor', 'red_bed', 'white_bed', 'sandstone', 'red_sandstone', 'calcite', 'tuff', 'stone', 'deepslate',
-    'wildflowers', 'moss_carpet', 'moss_block', 'kelp', 'dried_kelp', 'furnace', 'crafting_table', 'chest', 'ladder', 'torch', 'bucket', 'string']) {
+    'wildflowers', 'moss_carpet', 'moss_block', 'kelp', 'dried_kelp', 'furnace', 'crafting_table', 'chest', 'ladder', 'torch', 'bucket', 'string',
+    // OWNER D8 (10-15): building stone for the town projects (the hall's bricks, the blast furnaces' smooth stone)
+    'stone_bricks', 'smooth_stone']) {
     assert.equal(W.isWellJunk(n), false, `${n} must never go down the well`)
   }
 })
@@ -92,9 +96,11 @@ await t('STONE_GUARD: a scaffold-capable decoration goes only while the bag KEEP
   assert.equal(W.disposePlan(bag(63)).junkStacks, 1, 'the trigger counts only what may go')
   assert.equal(names(W.disposePlan(bag(64))), 'diorite:10,glass:5')
   assert.equal(W.disposePlan(bag(64)).stone, 74)
-  // stone_bricks is pathfinder scaffold but not reserve stone: it goes while the reserve stays at 64+, and costs none of it
-  assert.equal(names(W.disposePlan([{ name: 'stone_bricks', count: 30, slot: 9 }, { name: 'cobblestone', count: 64, slot: 10 }])), 'stone_bricks:30')
-  assert.equal(names(W.disposePlan([{ name: 'stone_bricks', count: 30, slot: 9 }, { name: 'cobblestone', count: 63, slot: 10 }])), '')
+  // mossy_cobblestone is pathfinder scaffold but not reserve stone: it goes while the reserve stays at 64+, and costs none of it
+  // (stone_bricks was this example until OWNER D8 took it off the list -- it never goes now)
+  assert.equal(names(W.disposePlan([{ name: 'mossy_cobblestone', count: 30, slot: 9 }, { name: 'cobblestone', count: 64, slot: 10 }])), 'mossy_cobblestone:30')
+  assert.equal(names(W.disposePlan([{ name: 'mossy_cobblestone', count: 30, slot: 9 }, { name: 'cobblestone', count: 63, slot: 10 }])), '')
+  assert.equal(names(W.disposePlan([{ name: 'stone_bricks', count: 30, slot: 9 }, { name: 'cobblestone', count: 640, slot: 10 }])), '', 'D8: never')
   // cobbled_deepslate counts; 'stone' (not on every consumer list) does not
   assert.equal(names(W.disposePlan([{ name: 'granite', count: 20, slot: 9 }, { name: 'cobbled_deepslate', count: 64, slot: 10 }])), 'granite:20')
   assert.equal(names(W.disposePlan([{ name: 'granite', count: 20, slot: 9 }, { name: 'stone', count: 640, slot: 10 }])), '')
@@ -105,7 +111,7 @@ await t('STONE_GUARD: a scaffold-capable decoration goes only while the bag KEEP
   assert.equal(W.guardLeft('glass', 64, 0), 0, 'a plain decoration passes with any reserve')
   assert.equal(W.guardLeft('diorite', 10, 73), null)
   assert.equal(W.guardLeft('diorite', 10, 74), 64)
-  assert.equal(W.guardLeft('smooth_stone', 64, 64), 64)
+  assert.equal(W.guardLeft('mossy_cobblestone', 64, 64), 64)
 })
 
 await t('NO GUARD-ONLY DEAD END (Codex r1 P2): a full bag of 36 diorite stacks and no cobble disposes down to a 64 reserve, through the order', () => {

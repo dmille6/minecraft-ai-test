@@ -334,6 +334,24 @@ export function notePickMisses (entries, keys = [], now = Date.now()) {
 /** A town-wide miss only with COMPLETE coverage: every container listed has a valid miss of its own. */
 export const townPickMissComplete = (entries = {}, keys = [], now = Date.now()) => keys.length > 0 && keys.every(k => containerPickMiss(entries, k, now))
 
+/**
+ * THE SAME MISS FOR ANY NEED (smeltjob-01: "no raw copper in this container"): kept under its own key in the town's
+ * memory, with its own TTL, and cleared the same way -- a container that has TAKEN items since may hold it now.
+ */
+export function containerItemMiss (entries = {}, missKey, ttl, k, now = Date.now()) {
+  const at = entries?.[missKey]?.[k]
+  if (!Number.isFinite(at) || now - at >= ttl) return false
+  const e = entries?.[k]
+  return !(e?.o === 'took' && e.at > at)
+}
+export function noteItemMisses (entries, missKey, ttl, keys = [], now = Date.now()) {
+  const m = { ...(entries[missKey] ?? {}) }
+  for (const k of keys) m[k] = now
+  for (const [k, at] of Object.entries(m)) if (!(now - at < ttl)) delete m[k]
+  entries[missKey] = m
+}
+export const townItemMissComplete = (entries = {}, missKey, ttl, keys = [], now = Date.now()) => keys.length > 0 && keys.every(k => containerItemMiss(entries, missKey, ttl, k, now))
+
 /** The last time any container of the town TOOK items (or a new chest went down): the "a town chest gained room" signal. */
 export function townRoomAt (entries = {}) {
   let t = -Infinity
