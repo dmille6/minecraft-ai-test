@@ -35,6 +35,10 @@ const t = async (name, fn) => {
   try { await fn(); pass++; console.log(`  PASS  ${name}`) } catch (e) { fail++; failed.push(name); console.log(`  FAIL  ${name}\n        ${String(e?.stack ?? e).split('\n').slice(0, 3).join('\n        ')}`) }
 }
 async function withMutant (file, old, neu, fn) { return withMutants(file, [[old, neu]], fn) }
+// airpocket-03 base: abortableDig runs mine's shell read again after its look (the guard). A mutant that removes a
+// pre-dig read must also remove that guard, or the guard stops the dig and the mutant tests nothing; the guard alone
+// has its own mutant (MUTANT: abortableDig ignores its guard).
+const GUARD_OFF = ["  if (guard && guard()) return false\n", '']
 async function withMutants (file, pairs, fn) {
   let src = fs.readFileSync(file, 'utf8')
   for (const [old, neu] of pairs) {
@@ -256,14 +260,14 @@ await t('THE TREAD RE-DIG READS THE SHELL: the tread refilled after the well bec
   assert.deepEqual(after().filter(d => inBox(d)), [], 'the re-dig dug a shell cell after the well was known')
 })
 await t('MUTANT (skills): the re-open without its shell read digs the refilled head cell', async () => {
-  await withMutant(SKP, "          const stopRe = shellStop(pos)\n          if (stopRe) return stopRe\n", "", async m => {
+  await withMutants(SKP, [["          const stopRe = shellStop(pos)\n          if (stopRe) return stopRe\n", ""], GUARD_OFF], async m => {
     const { bot, after } = lateWell({ refill: { x: 200, y: 63, z: 198 }, sand: new Set([key(200, 65, 198)]) })
     await run(m, bot).catch(() => {})
     assert.ok(after().some(d => inBox(d)), 'mutant inert')
   })
 })
 await t('MUTANT (skills): the tread re-dig without its shell read digs the refilled tread', async () => {
-  await withMutant(SKP, "      if (stopRedig) return stopRedig\n", "", async m => {
+  await withMutants(SKP, [["      if (stopRedig) return stopRedig\n", ""], GUARD_OFF], async m => {
     const { bot, after } = lateWell({ refill: { x: 200, y: 62, z: 198 } })
     const r = await run(m, bot).catch(e => ({ status: 'threw', detail: String(e) }))
     assert.ok(after().some(d => inBox(d)), `mutant inert: ${r.status} ${r.detail} after=${JSON.stringify(after())} digs=${JSON.stringify(bot._digs)} gotos=${JSON.stringify(bot._gotos)}`)
@@ -278,7 +282,7 @@ await t('POSITIVE CONTROL for the chain: with no well known, the same stand desc
 
 // ---- MUTANTS --------------------------------------------------------------------------------------------------------------
 await t('MUTANT (skills): no plan AND no per-dig checks -- the stair from the stand digs the shell (the hive-d defect reproduced)', async () => {
-  await withMutants(SKP, [["  let wellPlan = planHere()\n", "  let wellPlan = { action: 'go', bearings: stairBearings(bot) }\n"], ["    for (const cell of [cellAbove, cellHead, cellFeet]) {\n      const stop = shellStop(cell)\n      if (stop) return stop\n    }\n", ''], ["      // IMMEDIATELY BEFORE THE DIG, after the equip's await (Codex r2 P2): nothing awaits between this read and bot.dig\n      const stopNow = shellStop(pos)\n      if (stopNow) return stopNow\n", '']], async m => {
+  await withMutants(SKP, [["  let wellPlan = planHere()\n", "  let wellPlan = { action: 'go', bearings: stairBearings(bot) }\n"], ["    for (const cell of [cellAbove, cellHead, cellFeet]) {\n      const stop = shellStop(cell)\n      if (stop) return stop\n    }\n", ''], ["      // IMMEDIATELY BEFORE THE DIG, after the equip's await (Codex r2 P2): nothing awaits between this read and bot.dig\n      const stopNow = shellStop(pos)\n      if (stopNow) return stopNow\n", ''], GUARD_OFF], async m => {
     const bot = wellWorld()
     await run(m, bot).catch(() => {})
     assert.ok(bot._digs.some(d => inBox(d)), 'mutant inert')
@@ -309,7 +313,7 @@ await t('MUTANT (minewell): the inside-the-well refusal removed -- a bot in the 
   })
 })
 await t('MUTANT (skills): the per-dig checks removed -- a well appearing mid-descent gets its shell dug', async () => {
-  await withMutants(SKP, [["    for (const cell of [cellAbove, cellHead, cellFeet]) {\n      const stop = shellStop(cell)\n      if (stop) return stop\n    }\n", ''], ["      // IMMEDIATELY BEFORE THE DIG, after the equip's await (Codex r2 P2): nothing awaits between this read and bot.dig\n      const stopNow = shellStop(pos)\n      if (stopNow) return stopNow\n", '']], async m => {
+  await withMutants(SKP, [["    for (const cell of [cellAbove, cellHead, cellFeet]) {\n      const stop = shellStop(cell)\n      if (stop) return stop\n    }\n", ''], ["      // IMMEDIATELY BEFORE THE DIG, after the equip's await (Codex r2 P2): nothing awaits between this read and bot.dig\n      const stopNow = shellStop(pos)\n      if (stopNow) return stopNow\n", ''], GUARD_OFF], async m => {
     let known = []
     const bot = wellWorld({ at: new V(200.5, 64, 192.5), yaw: 0, cols: () => known })
     const dig0 = bot.dig
@@ -337,12 +341,34 @@ await t('MUTANT (skills): no second, longer walk-off -- walled in within 8, mine
   })
 })
 await t('MUTANT (skills): the per-dig read moved back before the equip -- a well recognised during the equip gets its cell dug', async () => {
-  const OLD = "      const tool = bestTool(bot, b)\n      if (tool) await bot.equip(tool, 'hand').catch(() => {})\n"
+  const OLD = "      const tool = bestTool(bot, b)\n      check(signal)                                   // an interrupted mine touches neither the hand nor the block\n      if (tool) await bot.equip(tool, 'hand').catch(() => {})\n"
   const READ = "      // IMMEDIATELY BEFORE THE DIG, after the equip's await (Codex r2 P2): nothing awaits between this read and bot.dig\n      const stopNow = shellStop(pos)\n      if (stopNow) return stopNow\n"
-  await withMutants(SKP, [[READ, ''], [OLD, "      // IMMEDIATELY BEFORE THE DIG, after the equip's await (Codex r2 P2): nothing awaits between this read and bot.dig\n      const stopNow = shellStop(pos)\n      if (stopNow) return stopNow\n" + OLD]], async m => {
+  await withMutants(SKP, [[READ, ''], [OLD, "      // IMMEDIATELY BEFORE THE DIG, after the equip's await (Codex r2 P2): nothing awaits between this read and bot.dig\n      const stopNow = shellStop(pos)\n      if (stopNow) return stopNow\n" + OLD], GUARD_OFF], async m => {
     let known = []
     const bot = wellWorld({ at: new V(200.5, 64, 196.5), yaw: 0, cols: () => known, solidAbove: new Set([key(200, 64, 198)]) })
     recogniseAtHead(bot, () => { known = [CAP] })
+    await run(m, bot).catch(() => {})
+    assert.ok(bot._digs.some(d => inBox(d)), 'mutant inert')
+  })
+})
+// airpocket-03's abortableDig awaits a look (up to 500 ms) after mine's read: the well becomes known DURING that look
+const recogniseDuringLook = (bot, where, set) => {
+  bot.lookAt = async p => { if (Math.floor(p.x) === where.x && Math.floor(p.y) === where.y && Math.floor(p.z) === where.z) set() }
+}
+await t('READ AFTER THE LOOK: a well recognised during abortableDig\'s look stops the head dig (the guard is the last thing before the packet)', async () => {
+  let known = []
+  const bot = wellWorld({ at: new V(200.5, 64, 196.5), yaw: 0, cols: () => known, solidAbove: new Set([key(200, 64, 198)]) })
+  recogniseDuringLook(bot, { x: 200, y: 63, z: 198 }, () => { known = [CAP] })
+  const r = await run({ SKILLS }, bot)
+  assert.ok(bot._digs.some(d => d.x === 200 && d.y === 64 && d.z === 198), 'positive control: the ceiling was dug')
+  assert.equal(r.status, 'failed', `${r.status}: ${r.detail}`)
+  assert.deepEqual(bot._digs.filter(d => inBox(d)), [], 'the head cell was dug on a read taken before the look')
+})
+await t('MUTANT (skills): abortableDig ignores its guard -- a well recognised during the look gets its cell dug', async () => {
+  await withMutant(SKP, "  if (guard && guard()) return false\n", '', async m => {
+    let known = []
+    const bot = wellWorld({ at: new V(200.5, 64, 196.5), yaw: 0, cols: () => known, solidAbove: new Set([key(200, 64, 198)]) })
+    recogniseDuringLook(bot, { x: 200, y: 63, z: 198 }, () => { known = [CAP] })
     await run(m, bot).catch(() => {})
     assert.ok(bot._digs.some(d => inBox(d)), 'mutant inert')
   })

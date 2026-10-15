@@ -179,12 +179,15 @@ const check = signal => { if (signal?.aborted) throw new Aborted() }
  * (bounded, forced), check again, then send start-dig with forceLook 'ignore' -- no await between the last check and the
  * packet. Throws Aborted (e.aborted) when the signal fired.
  */
-export async function abortableDig (bot, block, signal, { lookMs = 500 } = {}) {
+export async function abortableDig (bot, block, signal, { lookMs = 500, guard = null } = {}) {
   check(signal)
   if (typeof bot.lookAt === 'function' && block?.position) {
     let t
     try { await Promise.race([bot.lookAt(block.position.offset(0.5, 0.5, 0.5), true), new Promise(r => { t = setTimeout(r, lookMs) })]) } catch { /* a missed look moves only the head */ } finally { clearTimeout(t) }
   }
+  // minewell-01: the look above is an await, so a caller's world read taken before this call is stale here. `guard` runs
+  // after the look with no await before the packet; truthy = do not dig (the caller reads its own reason).
+  if (guard && guard()) return false
   check(signal)
   return bot.dig(block, 'ignore')
 }
@@ -10337,7 +10340,9 @@ async function mine(ctx, { y: targetY = 12 }, signal) {
       // IMMEDIATELY BEFORE THE DIG, after the equip's await (Codex r2 P2): nothing awaits between this read and bot.dig
       const stopNow = shellStop(pos)
       if (stopNow) return stopNow
-      try { await abortableDig(bot, b, signal) } catch (e) { if (e.aborted) throw e; break }
+      let stopLook = null   // and again AFTER abortableDig's look (an await of up to 500 ms), the last thing before the packet
+      try { await abortableDig(bot, b, signal, { guard: () => (stopLook = shellStop(pos)) }) } catch (e) { if (e.aborted) throw e; break }
+      if (stopLook) return stopLook
     }
 
     // DIGGING IS NOT DESCENDING. `bot.dig()` removes a block; it does not move
@@ -10365,7 +10370,9 @@ async function mine(ctx, { y: targetY = 12 }, signal) {
           const stopRe = shellStop(pos)
           if (stopRe) return stopRe
           const b = bot.blockAt(pos)
-          if (b && b.boundingBox === 'block') { try { await abortableDig(bot, b, signal) } catch (e) { if (e.aborted) throw e } }
+          let stopReLook = null
+          if (b && b.boundingBox === 'block') { try { await abortableDig(bot, b, signal, { guard: () => (stopReLook = shellStop(pos)) }) } catch (e) { if (e.aborted) throw e } }
+          if (stopReLook) return stopReLook
         }
         await sleep(300, signal)
         settled = stepCells.every(pos => bot.blockAt(pos)?.boundingBox !== 'block') &&
@@ -10457,11 +10464,14 @@ async function mine(ctx, { y: targetY = 12 }, signal) {
         // not the cobble -- and with the default the harvest watchdog would wait
         // for a drop that unharvestable stone will never produce, turning a
         // sub-second recovery into a spin. body-claim.test.mjs caught this.
+        let stopRedigLook = null
+        const redigShell = { guard: () => (stopRedigLook = shellStop(cellFeet)) }   // read again after abortableDig's look
         try {
-          await withTimeout(abortableDig(bot, stillThere, signal), STEP_REDIG_MS, bot,
+          await withTimeout(abortableDig(bot, stillThere, signal, redigShell), STEP_REDIG_MS, bot,
             { what: 'redigging the tread', needsDrop: false })
         }
         catch (e) { if (e.aborted) throw e }
+        if (stopRedigLook) return stopRedigLook
       }
       // AN IMPULSE, NOT A PLAN. One step away needs a shove, not a search.
       try {
