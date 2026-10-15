@@ -993,7 +993,7 @@ export class CognitiveLoop {
         const bot = this.bot
         const p = bot.entity?.position
         const home = { x: config.world.homeX, z: config.world.homeZ }
-        const r = farmOrder({ now: Date.now(), distHome: p ? Math.hypot(home.x - p.x, home.z - p.z) : Infinity,
+        const r = farmOrder({ now: Date.now(), distHome: p ? Math.hypot(home.x - p.x, home.z - p.z) : Infinity, dy: p ? p.y - config.world.homeY : Infinity,
                               plan: () => townFarmPlan(bot), state: this.farmState ?? {}, enabled: farmEnabled(process.env) })
         this.farmState = r.state
         if (r.order) order = r.order

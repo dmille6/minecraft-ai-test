@@ -529,6 +529,8 @@ export const NO_SITE_BACKOFF_MS = 2 * 60 * 60 * 1000
 export const TEND_SOFT_FAILS = new Set(['farm_leased', 'farm_unknown'])
 export const FARM_SCAN_MS = 30 * 1000
 export const FARM_ORDERS = new Set(['tend_farm'])
+/** The farm order is issued only within this many blocks of home's level (the farm sits within ~8 of it). */
+export const FARM_ORDER_DY = 12
 const TOWN_RADIUS = 48
 const lazy = v => (typeof v === 'function' ? v() : v)
 
@@ -541,11 +543,14 @@ const lazy = v => (typeof v === 'function' ? v() : v)
  * Never the model's choice and never a trip: only at town, only when the visit has work, a cooldown charged when the
  * order is ISSUED.
  */
-export function farmOrder ({ now = 0, distHome = Infinity, plan = null, state = {}, enabled = true } = {}) {
+export function farmOrder ({ now = 0, distHome = Infinity, dy = 0, plan = null, state = {}, enabled = true } = {}) {
   const s = { ...state }
   const none = () => ({ order: null, state: s })
   if (!enabled) return none()
   if (!(distHome <= TOWN_RADIUS)) return none()
+  // AT TOWN MEANS AT TOWN'S LEVEL (Paper bmab 10-15: a bot 58 below the farm, horizontally at town, got the order and towered
+  // up on its approach): a bot in a cave under town is not sent up by the farm -- its own exit is another rule's job
+  if (!(Math.abs(dy) <= FARM_ORDER_DY)) return none()
   if (now - (s.lastTendAt ?? -Infinity) < TEND_COOLDOWN_MS || now < (s.backoffUntil ?? 0)) return none()
   if (now - (s.lastScanAt ?? -Infinity) < FARM_SCAN_MS) return none()
   s.lastScanAt = now
@@ -576,15 +581,15 @@ export function farmOrderOutcome (skill, status, now = 0, state = {}, failClass 
  *              name, and only a grown tree is a log); bm_spent  the bag's bone-meal loss over the whole visit (a use whose
  *              bag update came too late for `bonemeal` still shows here)
  *   failed     mutations the server refused or never answered;  offplan  mutations at a cell not in the record (must be 0)
- *   lost       non-farm items the bag lost during the visit (must be 0)
+ *   lost       non-farm items the bag lost during the visit (must be 0); scaffold  blocks the walk's pathfinder placed (not a loss)
  *   census     the plots as this visit read them before acting: tree, sapling, ready, logs_above, ...
  *   t0         the visit's start (epoch ms): with the row's own time, the span the read checks for two builders at once
  */
-export function farmTendDetail ({ gen = 0, planted = 0, soil = 0, cleared = 0, torches = 0, bonemeal = 0, bmGrew = 0, bmSpent = 0, failed = 0, offplan = 0, lost = 0,
+export function farmTendDetail ({ gen = 0, planted = 0, soil = 0, cleared = 0, torches = 0, bonemeal = 0, bmGrew = 0, bmSpent = 0, scaffold = 0, failed = 0, offplan = 0, lost = 0,
                                   lease = '-', stop = 'done', census = {}, species = {}, at = null, t0 = 0 } = {}) {
   const c = Object.entries(census).filter(([, n]) => n > 0).map(([k, n]) => `${k}:${n}`).join(',') || '-'
   const sp = Object.entries(species).filter(([, n]) => n > 0).map(([k, n]) => `${k}:${n}`).join(',') || '-'
-  return (`gen=${gen} planted=${planted} soil=${soil} cleared=${cleared} torches=${torches} bonemeal=${bonemeal} bm_grew=${bmGrew} bm_spent=${bmSpent} failed=${failed} ` +
+  return (`gen=${gen} planted=${planted} soil=${soil} cleared=${cleared} torches=${torches} bonemeal=${bonemeal} bm_grew=${bmGrew} bm_spent=${bmSpent} scaffold=${scaffold} failed=${failed} ` +
           `offplan=${offplan} lost=${lost} lease=${lease}${at ? ` at=${at.x},${at.y},${at.z}` : ''} t0=${Math.round(t0) || 0} ` +
           `stop=${String(stop).replace(/\s+/g, '_').slice(0, 80)} census=${c} species=${sp}`).slice(0, 300)
 }

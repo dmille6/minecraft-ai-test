@@ -81,7 +81,7 @@ const { goals, Movements } = pkg
 import { Vec3 } from 'vec3'
 import { config } from './config.mjs'
 import { planCraft } from './craftplan.mjs'
-import { overheadBreakRisk, dryColumnStep, isWaterCell } from './scaffold.mjs'
+import { overheadBreakRisk, dryColumnStep, isWaterCell, PATHFINDER_SCAFFOLD } from './scaffold.mjs'
 import { logFloodGuard, watchClimbDig } from './climbflood.mjs'
 import { mayStepDown, survivableDrop, settleForFall } from './mining.mjs'
 import { planDig, planDigSplit, predictedDigMs, digEnv } from './digbudget.mjs'
@@ -7442,6 +7442,12 @@ export function townFarmPlan (bot) {
   return tendPlan({ states, torches, held, bonemeal: bonemealEnabled(process.env) })
 }
 
+/** The block items this bot's pathfinder may place as scaffold on a walk (its scafoldingBlocks, else the fleet's list). */
+export function farmScaffoldNames (bot) {
+  const out = new Set(['dirt', 'cobblestone', ...PATHFINDER_SCAFFOLD])
+  try { for (const id of bot?.pathfinder?.movements?.scafoldingBlocks ?? []) { const n = bot.registry?.items?.[id]?.name; if (n) out.add(n) } } catch { /* the default list */ }
+  return out
+}
 /** Items a farm visit may consume or gain without it being a loss: what it plants, places, digs and what trees drop. */
 const FARM_FLOW = /(_sapling$|_log$|^dirt$|^torch$|^bone_meal$|^stick$|^apple$|_leaves$)/
 
@@ -7459,7 +7465,7 @@ async function tendFarm (ctx, _args, signal) {
   const { bot } = ctx
   const items = () => bot.inventory?.items?.() ?? []
   const me = bot.username ?? '?'
-  const f = { planted: 0, soil: 0, cleared: 0, torches: 0, bonemeal: 0, bmGrew: 0, bmSpent: 0, failed: 0, offplan: 0, lost: 0, species: {} }
+  const f = { planted: 0, soil: 0, cleared: 0, torches: 0, bonemeal: 0, bmGrew: 0, bmSpent: 0, scaffold: 0, failed: 0, offplan: 0, lost: 0, species: {} }
   let census = {}, gen = 0, leaseNote = '-', stop = null
   const t0 = Date.now()
   const row = status => logEvent({ kind: 'farm_tend', status, snapshot: snapshot(bot),
@@ -7658,7 +7664,14 @@ async function tendFarm (ctx, _args, signal) {
   const after = Object.fromEntries(heldCounts(items()))
   // BONE MEAL SPENT by the bag (the read's C5 counts this too: a use whose bag update came late is still a use)
   f.bmSpent = Math.max(0, (before.bone_meal ?? 0) - (after.bone_meal ?? 0))
-  for (const [n, c] of Object.entries(before)) if (!FARM_FLOW.test(n) && (after[n] ?? 0) < c) f.lost += c - (after[n] ?? 0)
+  // A WALK'S SCAFFOLD IS NOT A LOSS (Paper bmab 10-15: a bot under the farm towered 4 andesite on its approach and scored
+  // lost=4 -- the read's C3 would have reverted on ordinary pathfinding): the blocks the pathfinder may place are counted
+  // apart as scaffold=, never as lost. Everything else a visit neither plants, places, digs nor gets from a tree is lost.
+  const scaffoldNames = farmScaffoldNames(bot)
+  for (const [n, c] of Object.entries(before)) {
+    if (FARM_FLOW.test(n) || !((after[n] ?? 0) < c)) continue
+    if (scaffoldNames.has(n)) f.scaffold += c - (after[n] ?? 0); else f.lost += c - (after[n] ?? 0)
+  }
   const did = f.planted + f.soil + f.cleared + f.torches + f.bonemeal
   if (did) {
     row('success')

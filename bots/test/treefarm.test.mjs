@@ -675,6 +675,31 @@ await t('SKILL tend_farm, BONE MEAL: a bag update that lags the click (300 ms) i
   assert.equal(+field(row.skill.detail, 'bm_spent'), 2)
 })
 
+await t('SKILL tend_farm: blocks the WALK scaffolded are scaffold=, never lost= (Paper bmab 10-15); a non-scaffold item that vanishes is still lost', async () => {
+  const storeDir = mkdtempSync(path.join(tmpdir(), 'treefarm-scaf-'))
+  const a = fakeTown({ items: [S('birch_sapling', 9), S('andesite', 20), S('string', 5)], storeDir })
+  let n = 0
+  a.state.onGoto = () => {   // every walk pillars one andesite (the pathfinder's scaffold); the third also drops a string
+    const sl = a.slots.find(x => x?.name === 'andesite'); if (sl) { sl.count--; if (!sl.count) a.slots[sl.slot] = null }
+    if (++n === 3) { const st = a.slots.find(x => x?.name === 'string'); if (st) { st.count--; if (!st.count) a.slots[st.slot] = null } }
+  }
+  const r = await tend(a.bot)
+  assert.equal(r.status, 'success', r.detail)
+  const row = (await rows('farm_tend')).at(-1).skill.detail
+  assert.ok(a.state.gotos >= 3, `walks ${a.state.gotos}`)
+  assert.equal(+field(row, 'scaffold'), a.state.gotos, row)
+  assert.equal(+field(row, 'lost'), 1, 'the string is still a loss (positive control)')
+})
+
+await t('farmOrder: only at town\'s LEVEL -- a bot in a cave far under town is never sent up by the farm (Paper bmab 10-15)', () => {
+  const plan = () => ({ actions: [{ kind: 'place', role: 'plant' }] })
+  assert.ok(TF.farmOrder({ now: 1e7, distHome: 5, dy: 0, plan }).order, 'positive control: at home level')
+  assert.ok(TF.farmOrder({ now: 1e7, distHome: 5, dy: -TF.FARM_ORDER_DY, plan }).order)
+  assert.equal(TF.farmOrder({ now: 1e7, distHome: 5, dy: -58, plan }).order, null)
+  assert.equal(TF.farmOrder({ now: 1e7, distHome: 5, dy: TF.FARM_ORDER_DY + 1, plan }).order, null)
+  assert.equal(TF.farmOrder({ now: 1e7, distHome: 5, dy: NaN, plan }).order, null, 'an unknown level is not town')
+})
+
 await t('REFUSAL CHAIN: no saplings -> no order at all (never a loop); with a farm and no saplings the skip names a gather the bot can do here', async () => {
   const storeDir = mkdtempSync(path.join(tmpdir(), 'treefarm-chain-'))
   const empty = fakeTown({ items: [S('stick', 3)], storeDir })
