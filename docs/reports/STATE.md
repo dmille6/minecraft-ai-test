@@ -12,6 +12,19 @@ Studio reservation both closed 10-12); clear caps bamboo 0 / bucket 2._
 
 ---
 
+## 10-15 ~13:00Z — TREEFARM-02 variants on townzone-01 READY: entry `docs/reports/treefarm-02.queue-entry.json` now 5 variants, after townzone-01; NOT QUEUED
+- **Queue (coordinator):** wellsite-04 live (5e663860 -> 8cd0bc62; placebo-b, board-c, board-b, board-d -- two of the farm's
+  exposure pools), so townzone-01 runs BEFORE treefarm-02; minewell-01 closed INCONCLUSIVE (fleet 5e663860).
+- **New variants:** 3b1ae8bb (townzone on 5e663860; if wellsite-04 reverts) -> `farm-on-3b1ae8b` @ **02ccaa8b**,
+  registration treefarm-02.02ccaa8b.json; 75cfb447 (townzone on 8cd0bc62; if wellsite-04 is kept) -> `farm-on-75cfb44` @
+  **859b719b**, registration treefarm-02.859b719b.json. Each = the approved farm diff for its base, one index.mjs conflict
+  resolved as on the reviewed farm-x-tz merge, plus treefarm-zone.test.mjs (7). npm test 254/254 and 255/255. Codex r12
+  APPROVE, Claude r12 APPROVE (3 test P3s fixed). licencecheck/changerowcheck PASS, no draw_require_pools.
+- **Zone composition:** plots are inside the town box (soil = ground, guarded by the zone too); farm logs are free for
+  gather; the farm digs only logs and restores soil by placement; mine's zone stair check covers farm soil in the box.
+  **Open (all variants but a8af87db):** `mine` outside the box can cut a plot; the zone's walk-out (Chebyshev 19) can funnel a
+  start there. A fix needs the farm check in mine's bearing filter (as on the minewell variant), not only per step.
+
 ## 10-15 10:17Z — ZIGGURAT STAGE 3 DONE: structureguard-01 + the generic placement builder; both engines APPROVE; NO standalone canary (recommend folding into monument-01, stage 4)
 (The stage 1-2 entry below is stamped ~10:30Z; it was written before this one, so read that stamp as earlier.)
 - **Branch:** `structureguard-on-835ef3f` @ **eb407fa0**, pushed. Base 835ef3f0 = treefarm-02 on minewell-01. The guard

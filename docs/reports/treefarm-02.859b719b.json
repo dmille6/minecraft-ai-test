@@ -1,0 +1,157 @@
+{
+ "run_id": "treefarm-02",
+ "sha": "859b719b",
+ "registered_at": "2026-10-15T12:00:00Z",
+ "ladder_change": false,
+ "promotion": "fleet-wide",
+ "notes": "[treefarm-02 VARIANT on townzone-01 75cfb447 (townzone-01 on 8cd0bc62; used if wellsite-04 is kept): branch farm-on-75cfb44 @ 859b719b = farm cc16f64e's net diff applied to the townzone tip as one commit; one conflict (index.mjs, the farm's exclusion block vs the zone's comment) resolved as on the reviewed farm-x-tz merge (the well's break line verbatim, the farm entry by concat: townzone refuses pushes onto the shared arrays). Composition with the no-dig zone: farm plots sit inside the town box (their soil is town ground, guarded by the zone too); a farm tree's logs are not terrain, so gather harvests them inside the box; the farm only ever digs logs and restores soil by placement; gather's zone filter and the farm's soil filter compose (the zone's remedy still finds dirt beyond the farm); mine's zone stair check covers farm soil inside the box. Known, reported separately: mine OUTSIDE the box can still cut a plot on these bases (no minewell; the zone's walk-out to Chebyshev 19 can funnel a start there). Reviews: Codex r12 APPROVE; Claude r12 APPROVE (3 test P3s fixed, test-only). treefarm-zone.test.mjs 7. Launch ONLY on a fleet running the matching townzone tip.] [treefarm-01 REVIVED 10-15 on base 8cd0bc62 (canary sha cc16f64e). First built/reviewed/registered 10-06 on 1918bb5 (bp-on-1918bb5 @ 453cd07, Codex APPROVE r6), never launched; owner asked for it 10-15. Bone meal: OWNER 10-15 first chose ON; after the Paper A/B (first trees sooner, no log gain measured, 43 bone meal per farm-hour vs ~70-90 composted a day fleet-wide) OWNER 10-15 \"do it the way you recommend\": OFF by default, the bounded arm kept behind TREEFARM_BONEMEAL=on. Design + revival section: docs/reports/blueprint-builder-design-2026-10-05.md; reviews docs/reports/treefarm-01-revival-reviews-2026-10-15.txt.] THE CHANGE: one tree farm per town (3x3 sapling plots 4 apart, 4 growth torches, 6-30 from home), founded and tended by a deterministic town order tend_farm (HOUSEKEEPING, never the model's): plant from the bag (birch first, then oak), restore lost soil, clear LEFTOVER logs from plot columns, place torches it carries; bone meal only with TREEFARM_BONEMEAL=on (OFF by default; bounded: clear column, reserve 8, <= 6 a visit). The ordinary gather harvests the trees. Every mutation counted only on a server block_change at that cell; one builder per town by a fenced lease. COMPOSITION ON THE CURRENT FLEET: the farm YIELDS to the junk well (a recorded well site is judged without the farm; a NEW well site keeps 4 from a plot, 2 from a torch), a raised-well plan record (plinth-01) and a chest-full claim in flight; chest-full never places a chest in a farm cell or within 3 of a plot and widens its search on a farm refusal; the farm never sites in the town floor's band; its leftover-log digs are target digs by tend_farm for _dig_town; the order is issued only within 12 of home's level; a walk's scaffold (this bot's own placements, server-confirmed) is scaffold=, not lost=; every pathfinder profile keeps off farm soil (break) and plot columns/torch cells (place). Test merges with townzone-01, plinth-01, townfloor-01 and wellsite (branches farm-x-tz, farm-x-pl, farm-x-floor, farm-x-ws) are green; plinth-01 and townfloor-01 each need a one-line keep-out (farmKeepOut; and for plinth-01 its planner plans through wellSearchAvoid) carried by whichever lands second. REVIEWS: Codex r1-r5 CHANGE (9 findings, all fixed with tests) -> r6 APPROVE at 38e74f69; Claude r1 CHANGE -> r2 APPROVE (P3s fixed) -> final APPROVE of 6918d574..38e74f69; 4dc37cd6 adds a test-only change; 391a1ca9 = bone meal OFF by default (Codex r7 APPROVE, Claude r7 APPROVE with P3s, fixed: b7cc60b5 adds a positive control, test-only). The wellsite-03 variant (8cd0bc62) is the same net diff with one union hunk (townWellSite keeps wellsite's searched= capture with wellSearchAvoid), checked by both engines. Suite 252/252 (wellsite-03 variant 253/253); anchored mutants 52/56 killed, 4 named survivors (equivalent or unreachable by the fakes).",
+ "licence": {
+  "class": "kind",
+  "kind": "_farm_tend",
+  "min_rows": 1,
+  "note": "Written only by this build: one row per tend_farm visit, including no_effect skips (held lease, nothing to do, unloaded plots). The fleet (8cd0bc62) has no farm module and no _farm_* row of any kind."
+ },
+ "reads": [
+  "treefarmread",
+  "immobiledid"
+ ],
+ "read_minutes": [
+  180,
+  360
+ ],
+ "deadline_min": 780,
+ "change_rows": [
+  "farm_tend",
+  "farm_place"
+ ],
+ "linkage_extra": [],
+ "draw_exposure": {
+  "hours": 3,
+  "require": [
+   {
+    "name": "town deposit visits (bots reach town, where the farm order runs)",
+    "kind": "deposit",
+    "min": 8
+   }
+  ],
+  "note": "The order runs only at town (<= 48 of home, within 12 of its level) for a bot holding >= 6 birch/oak saplings (founding) or with work at an existing farm. 10-15 bags: 79/80 bots hold >= 6 birch+oak saplings. No draw_require_pools: every non-isolated pool has a town and bots that reach it."
+ },
+ "exposure": {
+  "read": "treefarmread",
+  "field": "exposure_ready",
+  "min": 1,
+  "note": "Ready = >= 9 server-confirmed plantings on the canary (a farm founded and planted) AND >= 20 control log gathers with logs > 0 (the instrument). Growth needs a median ~16 min per sapling in light at rtick 3 (Paper, design doc), so +180 can already show grown farm trees."
+ },
+ "own_lines": [
+  {
+   "read": "treefarmread",
+   "field": "c1_offplan",
+   "op": "<=",
+   "value": 0,
+   "on_fail": "REVERT",
+   "evidence": "defect",
+   "note": "C1: a confirmed _farm_place at a cell outside every generation of its town's record on disk (/var/lib/mcai/_pool-<pool>/treefarm-*.g<N>.json), or a visit with offplan > 0."
+  },
+  {
+   "read": "treefarmread",
+   "field": "c2_two_builders",
+   "op": "<=",
+   "value": 0,
+   "on_fail": "REVERT",
+   "evidence": "defect",
+   "note": "C2: two mutating _farm_tend visits by different bots of one pool whose spans [t0, t] overlap (the lease failed)."
+  },
+  {
+   "read": "treefarmread",
+   "field": "c3_lost",
+   "op": "<=",
+   "value": 0,
+   "on_fail": "REVERT",
+   "evidence": "defect",
+   "note": "C3: a visit whose bag lost anything that is not a sapling, log, dirt, torch, bone meal, stick, apple or leaves (what a farm visit plants, places, digs or gets from a tree). Since 10-15 a block this bot's own walk placed (bot.placeBlock while holding a scaffold block) and the server confirmed at that cell is scaffold=, not lost. KNOWN EDGE (Claude review P3): a scaffold confirmation later than ~6 s (5 s mineflayer wait + 1 s settle) is not credited and reads lost=1."
+  },
+  {
+   "read": "treefarmread",
+   "field": "c4_double_founding",
+   "op": "<=",
+   "value": 0,
+   "on_fail": "REVERT",
+   "evidence": "defect",
+   "note": "C4: more than one _farm_site row in a pool without replaced= (two farms founded in one town)."
+  },
+  {
+   "read": "treefarmread",
+   "field": "bonemeal_used",
+   "op": "<=",
+   "value": 0,
+   "on_fail": "REVERT",
+   "evidence": "defect",
+   "note": "The bone meal arm is OFF by default (OWNER 10-15, after the Paper A/B: no log gain measured, 43 per farm-hour). Any bone meal used by a farm visit (max of confirmed uses and the bag's bm_spent) is a defect. (Named for a future REVERT here: bm_spent counts any bone-meal loss during a visit; no current path loses one -- the well and stock targets protect it.) A pool run with TREEFARM_BONEMEAL=on needs its OWN registration without this line; C5/C6 below are kept for that one and are inert here."
+  },
+  {
+   "read": "treefarmread",
+   "field": "c5_bonemeal_no_growth",
+   "op": "<=",
+   "value": 0,
+   "on_fail": "REVERT",
+   "evidence": "defect",
+   "note": "C5 BONE MEAL WITH NO GROWTH (for an arm-on registration; inert here): canary bone meal used (max of confirmed uses and the bag's bm_spent) >= 36, not one use followed by a server-named log (bm_grew), AND no canary visit ever saw a grown tree. Vanilla model: P(0 | 36 uses over 9 saplings) = 2.2e-4; MEASURED on Paper 10-15 only 7/61 uses (11%) grew a tree within 600 ms (P(0 in 36) ~ 0.012), which is why the census clause is required: it fires only when nothing grows at all."
+  },
+  {
+   "read": "treefarmread",
+   "field": "c6_bonemeal_reserve",
+   "op": "<=",
+   "value": 0,
+   "on_fail": "REVERT",
+   "evidence": "defect",
+   "note": "C6 RESERVE (for an arm-on registration; inert here): a canary visit that used bone meal and left the bag under BONEMEAL_RESERVE (8), by the row's own bot.inventory snapshot."
+  },
+  {
+   "read": "treefarmread",
+   "field": "rows_control",
+   "op": "<=",
+   "value": 0,
+   "on_fail": "REVERT",
+   "note": "Arms: control _farm_* rows. BLOCKS KEEP."
+  },
+  {
+   "read": "treefarmread",
+   "field": "rows_canary",
+   "op": ">=",
+   "value": 1,
+   "on_fail": "REVERT",
+   "note": "LIVENESS: canary _farm_* rows on the canary build (restart-lag rows excluded). BLOCKS KEEP (INCONCLUSIVE)."
+  },
+  {
+   "read": "treefarmread",
+   "field": "instrument_control",
+   "op": ">=",
+   "value": 20,
+   "on_fail": "REVERT",
+   "note": "POSITIVE CONTROL: control log gathers with logs > 0 are visible to this query (352 in the 3 h dry run, 10-05 15:24Z). BLOCKS KEEP."
+  }
+ ],
+ "primary": {
+  "read": "treefarmread",
+  "field": "logs_per_bh_did",
+  "note": "REPORTED, NOT GATED: logs gathered per bot-hour DiD; near-town logs per bot-hour DiD; median distance from home of a successful log gather DiD; gather seconds per log DiD; plantings, cleared leftovers, torches, trees seen per visit, farm cells taken by another structure; BONE MEAL used (expected 0: the arm is off by default; gated above) and, if a pool runs the arm on, per canary bot-hour and the share that grew a tree. NULL SPREAD (10-06 dry run with an unrelated canary): logs/bot-h DiD +1.90, gather-distance DiD +35; 10-15 dry run hive-a: +2.85 and +42. A REVERT never rests on these."
+ },
+ "harm": {
+  "note": "Unchanged: the two-death floor (OWNER 2026-09-11) and gather_ratio < 0.43 of control, from immobiledid."
+ },
+ "teardown": {
+  "note": "THREE STEPS: drop-ins, clear canary_pool, restart the pool's bots 12 s apart; then confirm the live versions. The farm records and lease files in /var/lib/mcai/_pool-<pool> are bot state and stay; the planted farms stay in the world (saplings and torches; no world edit is needed or allowed)."
+ },
+ "amendments": [],
+ "extension": {
+  "until_exposure": true,
+  "extra_reads": [
+   540,
+   720
+  ],
+  "final_on_zero_exposure": "INCONCLUSIVE",
+  "note": "Exposure needs bots at town holding saplings; +360 should normally decide."
+ },
+ "lint": "eslint (npm run lint = eslint src/*.mjs) at cc16f64e: exactly ONE hit, the pre-existing bots/src/reflex.mjs withinBody no-undef, also on the plain base 8cd0bc62.",
+ "requeued_from": "treefarm-01"
+}

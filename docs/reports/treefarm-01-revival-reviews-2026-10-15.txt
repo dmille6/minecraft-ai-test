@@ -112,3 +112,19 @@ No blocking findings. The stale-cache P2 is fixed. `node scripts/run-tests.mjs m
 
 VERDICT: APPROVE
 P3 fixed in f201fe3a (the chain performs the real explore). Claude (a8af87db..62909c97) -- CHANGE: P2 a farm-caused refusal named a far-away well (every town has one); P3s: three farm guards no test could catch (column-only, torch cell, bottom), the head-cell stand check could never trigger, the shell test lacked a positive control, the home-guard message named the well -- all fixed in 85b054ab (farmStairForbid extracted with geometry tests and mutants). Codex r10 (85b054ab) -- APPROVE with a P3 (mixed well+farm refusal named only the farm); Claude (62909c97..85b054ab) -- APPROVE (no-farm behaviour identical on 4,000 random cases; P3: a missing ?? null). Both P3s fixed in 835ef3f0 with a mixed-obstacle chain test that fails on the old line. Codex r11 (835ef3f0) -- APPROVE; Claude (835ef3f0) -- APPROVE. npm test 255/255.
+
+## 10-15: treefarm-02 variants on townzone-01 (3b1ae8bb -> farm-on-3b1ae8b @ 02ccaa8b; 75cfb447 -> farm-on-75cfb44 @ 859b719b)
+Codex r12 -- APPROVE:
+No new P1/P2/P3 findings.
+
+- **Both variants preserve the approved changes.** Added/deleted lines match across all seven `bots/src` files. Literal diffs also differ in unchanged `skills.mjs` context (townzone’s import and matchers), besides the expected `index.mjs` context. The well exclusion remains verbatim; the farm exclusion uses `concat`.
+- **Gather composition works.** Town ground is excluded during enumeration; farm soil is filtered afterward. The chain test successfully gathers ordinary dirt beyond both exclusions, with a positive control that takes farm soil when its index is absent.
+- **Harvest and maintenance remain legal.** Logs are not town terrain. Farm clearing rechecks that targets are logs; soil restoration uses placement.
+- **Mine composition is consistent.** Inside the zone, the stair check protects terrain beneath farm plots. The known outside-zone mine vulnerability remains as separately reported.
+- **The bands intentionally differ.** Both use Chebyshev 16 and the lower boundary `home.y-12`; the farm’s floor exclusion ends at `home.y-2`, while the zone has no upper cap. Farm plots can also extend outside the town box.
+- **No new composed refusal dead end identified.** The gather chain retains legal targets beyond protected soil, and mine retains its climb/walk-out remedies. This is supported by code review and fixture tests, not exhaustive world coverage.
+
+All requested tests passed on `b46e31a0`: treefarm **3/3**, townground **1/1**, mine-bearing **1/1**, well **3/3** files. Working tree remains clean; no server actions taken.
+
+VERDICT: APPROVE
+Claude r12 -- APPROVE: both variants carry exactly the approved farm diffs (+/- lines equal in all 11 files; only index.mjs context differs); composition with the zone sound (gather filters, harvest of logs, farm digs logs only, soil by placement, mine's zone stair check, floor band); no dead-end chain. P3s (test-only), fixed in 02ccaa8b/859b719b: the farm-digs check compared names, not cells (a soil-digging mutant survived); the gather refusal asserted only 'not success'; the mine test involved no farm and had no positive control. P3 note (folded into the mine gap report): the zone's walk-out to Chebyshev 19 sits inside the farm's ring, so on these bases it can funnel a mine start toward an outer plot; a fix needs the farm check in mine's bearing filter, not only per step. npm test 254/254 (3b1ae8bb variant), 255/255 (75cfb447 variant).

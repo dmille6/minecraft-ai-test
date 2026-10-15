@@ -3,10 +3,10 @@
  "class": "",
  "requeued_from": "treefarm-01",
  "after": [
-  "minewell-01"
+  "townzone-01"
  ],
- "hold": "REPLACE-VARIANT (coordinator 10-15: treefarm-01 abandoned before its draw -- board-b, board-d, hive-c all inside exclusions until ~11:57Z -- and re-queued unchanged as treefarm-02 after minewell-01). Launch only on the variant matching the live fleet after minewell-01 decides: minewell-01 KEPT and PROMOTED -> the a8af87db variant; minewell-01 REVERTED/INCONCLUSIVE -> the 5e663860 variant (or, if wellsite-03 was kept and promoted meanwhile, the 8cd0bc62 one), launched >= 180 min after the decision restart (one build per pool across the read's pre-window). KEPT-but-not-promoted, or any other fleet tip: ask for a new variant. Test merges green: farm-x-tz, farm-x-ws, farm-x-pl, farm-x-floor; plinth-01 and townfloor-01 must carry farmKeepOut (and plinth plans through wellSearchAvoid) -- the exact lines are in STATE (10-15 05:10Z).",
- "note": "The town tree farm (blueprint builder); bone meal OFF by default (OWNER 10-15). Read ~/mcai-analysis/treefarmread.py (md5 above). Install the drawn variant's registration as ~/mcai-analysis/registrations/treefarm-02.json; only the one matching the live fleet. THE a8af87db VARIANT IS NOT THE SAME CHANGE AS THE OTHER TWO in one respect: it also keeps `mine`'s stair out of the farm's cells (minewell-01 adds the stair planner that makes this deterministic). On 5e663860/8cd0bc62 `mine` digs with bot.dig directly and can cut a plot (a gap since the farm's 10-06 design; its pathfinder exclusions never reached mine). NOT QUEUED by the build agent.",
+ "hold": "REPLACE-VARIANT (coordinator 10-15: wellsite-04 is live on placebo-b, board-c, board-b, board-d -- two of the farm's exposure pools -- so townzone-01 runs BEFORE treefarm-02; minewell-01 closed INCONCLUSIVE, fleet 5e663860). Launch only on the variant matching the live fleet when treefarm-02's turn comes: townzone-01 KEPT and PROMOTED on 5e663860 (wellsite-04 reverted) -> 3b1ae8bb; townzone-01 KEPT and PROMOTED on 8cd0bc62 (wellsite-04 kept) -> 75cfb447; townzone-01 not kept -> 5e663860 or 8cd0bc62 (by wellsite-04's outcome). The a8af87db (minewell-01) variant is kept for completeness; minewell-01 closed INCONCLUSIVE, so it is not expected to match. Launch >= 180 min after the deciding restart (one build per pool across the read's pre-window). KEPT-but-not-promoted, or any other fleet tip: ask for a new variant. plinth-01 and townfloor-01 must carry farmKeepOut (and plinth plans through wellSearchAvoid) -- the exact lines are in STATE (10-15 05:10Z).",
+ "note": "The town tree farm (blueprint builder); bone meal OFF by default (OWNER 10-15). Read ~/mcai-analysis/treefarmread.py (md5 above). Install the drawn variant's registration as ~/mcai-analysis/registrations/treefarm-02.json; only the one matching the live fleet. THE a8af87db VARIANT IS NOT THE SAME CHANGE AS THE OTHER TWO in one respect: it also keeps `mine`'s stair out of the farm's cells (minewell-01 adds the stair planner that makes this deterministic). On 5e663860/8cd0bc62 `mine` digs with bot.dig directly and can cut a plot (a gap since the farm's 10-06 design; its pathfinder exclusions never reached mine). On the two townzone variants the zone's mine stair check also protects farm soil INSIDE the town box; outside it, the mine gap remains (the zone's walk-out to Chebyshev 19 can funnel a mine start toward an outer plot). NOT QUEUED by the build agent.",
  "variants": {
   "5e6638601af6714478690eae4b2bb83b158ba97c": {
    "registration": "/home/mike/mcai-analysis/treefarm-02.b7cc60b5.json",
@@ -43,6 +43,30 @@
    },
    "approved": "treefarm revival agent 2026-10-15: the approved farm net diff (5e663860..b7cc60b5) applied to minewell-01 a8af87db as one commit, no conflict, plus the COMPOSITION with minewell's mine guard: minewell.mjs stairClear/planMineStart take the farm's cells (farmStairForbid: plot soil and column, torch cell and floor; bottom = the lowest soil) as a forbid predicate, read from the shared record at every plan and dig; a farm cell is a hit like a shell cell, a relocation never stands in a farm cell, a refusal names the farm (or both) with an executable remedy (explore away, performed in the chain test); with no farm minewell is unchanged (Claude: 4,000-case side-by-side, 0 differences). Farm cells vs well shells: plots keep 4 from a cap so no plot soil/column is in a shell (positive control: the unconstrained farm's plot is). REVIEWS: Codex r8 CHANGE (stale 20 s cache) -> r9 APPROVE (P3: real explore in the chain, fixed) -> r10 APPROVE (P3 fixed) -> r11 APPROVE at 835ef3f0; Claude CHANGE (P2: a farm refusal named a far well; 4 P3s) -> APPROVE (P3 fixed) -> APPROVE at 835ef3f0. npm test 255/255; treefarm-minewell.test.mjs 18 (6 anchored mutants, each anchor asserted present and unique); minewell 3/3 files; eslint only the pre-existing reflex.mjs withinBody. Registration (run_id treefarm-02, read md5 600bc667): NO draw_require_pools; drawrequire.parse ([], None); licencecheck PASS (_farm_tend 0 baseline rows / 6 h); changerowcheck PASS (farm_tend, farm_place silent). ORDINARY canary, ONE pool.",
    "registration_sha256": "befa8af13a2c37d60148e7401b41823987f969bb260e34ad00d17d66c3b0c252"
+  },
+  "3b1ae8bb610eda86b7a8cff3061747089b62501c": {
+   "registration": "/home/mike/mcai-analysis/treefarm-02.02ccaa8b.json",
+   "canary_sha": "02ccaa8b6e1e4796e77bc22f5ceb3013c07fffc7",
+   "branch": "farm-on-3b1ae8b",
+   "reads_src": "/home/mike/mcai-analysis",
+   "reads": {
+    "treefarmread": "600bc66715bf8b8dfe08b299507c2a5e",
+    "immobiledid": "53af289df12208901931dbeeb1ae325a"
+   },
+   "approved": "treefarm revival agent 2026-10-15: farm b7cc60b5's approved net diff (over 5e663860) applied to townzone-01 3b1ae8bb as one commit. npm test 254/254. Composition with the no-dig zone (both engines, round 12): plots sit inside the town box (their soil is town ground, guarded by the zone too); a farm tree's logs are not terrain, so gather harvests them in the box; the farm only digs logs and restores soil by placement; gather's zone filter and the farm's soil filter compose (the chain test: the zone's remedy still finds dirt beyond the farm; positive control without the farm index). index.mjs conflict resolved as on the reviewed farm-x-tz merge (well line verbatim; farm entry by concat). REVIEWS: Codex r12 APPROVE; Claude r12 APPROVE (diffs equal to the approved farm diffs line for line apart from the index.mjs hunk; 3 test P3s fixed, test-only). treefarm-zone.test.mjs 7. eslint only the pre-existing reflex.mjs withinBody. Registration (run_id treefarm-02, read md5 600bc667): NO draw_require_pools; drawrequire.parse ([], None); licencecheck PASS (_farm_tend 0 baseline rows / 6 h); changerowcheck PASS. ORDINARY canary, ONE pool.",
+   "registration_sha256": "8b3ade1c4936898988915f1f5615cfe33acc24de5f098819f7effafc9181d07b"
+  },
+  "75cfb447fd2d5a882e60a3b3338c904788103ac1": {
+   "registration": "/home/mike/mcai-analysis/treefarm-02.859b719b.json",
+   "canary_sha": "859b719bfd34c29355111a5a3f59bf637dcc8740",
+   "branch": "farm-on-75cfb44",
+   "reads_src": "/home/mike/mcai-analysis",
+   "reads": {
+    "treefarmread": "600bc66715bf8b8dfe08b299507c2a5e",
+    "immobiledid": "53af289df12208901931dbeeb1ae325a"
+   },
+   "approved": "treefarm revival agent 2026-10-15: farm cc16f64e's approved net diff (over 8cd0bc62) applied to townzone-01 75cfb447 as one commit. npm test 255/255. Composition with the no-dig zone (both engines, round 12): plots sit inside the town box (their soil is town ground, guarded by the zone too); a farm tree's logs are not terrain, so gather harvests them in the box; the farm only digs logs and restores soil by placement; gather's zone filter and the farm's soil filter compose (the chain test: the zone's remedy still finds dirt beyond the farm; positive control without the farm index). index.mjs conflict resolved as on the reviewed farm-x-tz merge (well line verbatim; farm entry by concat). REVIEWS: Codex r12 APPROVE; Claude r12 APPROVE (diffs equal to the approved farm diffs line for line apart from the index.mjs hunk; 3 test P3s fixed, test-only). treefarm-zone.test.mjs 7. eslint only the pre-existing reflex.mjs withinBody. Registration (run_id treefarm-02, read md5 600bc667): NO draw_require_pools; drawrequire.parse ([], None); licencecheck PASS (_farm_tend 0 baseline rows / 6 h); changerowcheck PASS. ORDINARY canary, ONE pool.",
+   "registration_sha256": "fd05d511e2f494b70817dbbf5fd24ff99e6c0cd4dc9470c9352d5765c88499cd"
   }
  }
 }
