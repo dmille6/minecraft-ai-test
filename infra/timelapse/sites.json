@@ -1,0 +1,33 @@
+{
+  "_comment": "Timelapse sites. One entry per world: center [x, z] in block coords, half = half-width of the square site box, y = camera look-at height. Defaults are home +-128 until the ziggurat Z0 check names real sites; then set center to the site centre, half to ~64 and min_y to base_y - 12 (y is nominal: BlueMap snaps the camera target to the terrain, so framing is moved with distance_per_half / aim_beyond_frac, or per-site distance / aim_beyond). See docs/reports/ziggurat-timelapse.md.",
+  "source_root": "/srv/block2",
+  "out_root": "/var/tmp/timelapse",
+  "min_free_gb": 50,
+  "snapshot_keep_days": 14,
+  "region_pad": 16,
+  "camera": {
+    "width": 1920,
+    "height": 1080,
+    "angle_deg": 45,
+    "rotation_deg": 0,
+    "fov": 35,
+    "distance_per_half": 3.8,
+    "aim_beyond_frac": 0.3,
+    "slab_below": 24,
+    "settle_ms": 6000
+  },
+  "sites": {
+    "board-a":   {"center": [355, 147],   "half": 128, "y": 70},
+    "board-b":   {"center": [-249, 144],  "half": 128, "y": 70},
+    "board-c":   {"center": [355, 147],   "half": 128, "y": 70},
+    "board-d":   {"center": [355, 147],   "half": 128, "y": 70},
+    "hive-a":    {"center": [355, 147],   "half": 128, "y": 70},
+    "hive-b":    {"center": [355, 147],   "half": 128, "y": 70},
+    "hive-c":    {"center": [-68, -68],   "half": 128, "y": 70},
+    "hive-d":    {"center": [68, 68],     "half": 128, "y": 70},
+    "placebo-a": {"center": [249, -144],  "half": 128, "y": 70},
+    "placebo-b": {"center": [282, -388],  "half": 128, "y": 70},
+    "placebo-c": {"center": [355, 147],   "half": 128, "y": 70},
+    "placebo-d": {"center": [177, 73],    "half": 128, "y": 70}
+  }
+}
