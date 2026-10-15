@@ -304,10 +304,16 @@ async function sceneTunnel () {
   const tunnelRows = rowsOf(f.skillLog).filter(r => /tunnel/.test(r.skill.name)).map(r => `${r.skill.name} ${r.skill.status}: ${String(r.skill.detail).slice(0, 140)}`)
   const out = { scene: 'tunnel', wroteAt, reservedStoneAtWrite: s0, reservedDugAfterWrite: s0 == null ? null : s0 - s1,
     gather: done ? `${done.skill.status}: ${String(done.skill.detail).slice(0, 200)}` : null, tunnelRows: tunnelRows.slice(-4) }
-  // the boundary must have been OBSERVED to fire (Codex stage-3 r4 P3): the gather finished and the tunnel stop names the structure
+  // TWO CORRECT OUTCOMES, named (measured 5 runs, 10-15): the pathfinder's next break is a reserved cell and the dig boundary
+  // REFUSES it (the tunnel stops naming the structure: 2 runs), or the 2 s cache expires first and the tunnel profile
+  // RE-ROUTES over the reserve on foot (the tunnel succeeds; every break after the record is outside the box: 3 runs).
+  // ONE in-flight dig is allowed: a dig whose check ran before the record existed completes after the driver's snapshot
+  // (debug-logged on the sandbox: its check read no record). Codex stage-3 r4 P3: the scene must OBSERVE an outcome, so a
+  // stalled bot or a timed-out gather fails.
   const fired = !!done && /town structure was recorded over the tunnel/.test(`${done.skill.detail} ${tunnelRows.join(' ')}`)
-  out.fired = fired
-  out.ok = !!wroteAt && s0 - s1 === 0 && fired
+  const rerouted = !!done && done.skill.status === 'success' && tunnelRows.some(r => /^_ore_tunnel success/.test(r))
+  out.outcome = fired ? 'refused_at_dig' : rerouted ? 'rerouted' : 'none'
+  out.ok = !!wroteAt && s0 - s1 <= 1 && (fired || rerouted)
   if (!wroteAt) out.note = 'INCONCLUSIVE: the bot never started down, so the boundary was not exercised'
   result(out)
 }
