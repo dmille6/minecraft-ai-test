@@ -12,7 +12,7 @@ import fs from 'node:fs'
 import path from 'node:path'
 import { ZIG, zigCells, scoreSite, faceToward, profileAt, MAX_EDGE_DROP, inApproach } from './monument.mjs'
 import { structureKey, readStructureRecord } from './structures.mjs'
-import { solid, replaceable, bk } from './builder.mjs'
+import { solid, replaceable, bk, bodyBlocks } from './builder.mjs'
 import { STONE_GUARD, RESERVE_STONE } from './well.mjs'
 
 export const MONUMENT_VERSION = 1
@@ -106,7 +106,8 @@ const planMemo = new Map()
  * stairs: Set(bk) }. Pure and memoised per record generation: the body (zigCells) plus the record's fill runs.
  */
 export function monumentPlan (rec) {
-  const memoKey = `${rec?.key ?? ''}|${rec?.gen ?? ''}|${JSON.stringify(rec?.site)}|${(rec?.fill ?? []).length}`
+  // keyed by what the plan IS (site, geometry, fill) -- never the generation: a stuck merge must not rebuild 15k cells
+  const memoKey = `${JSON.stringify(rec?.site)}|${JSON.stringify(rec?.geom ?? null)}|${(rec?.fill ?? []).length}|${JSON.stringify((rec?.fill ?? []).slice(0, 2))}`
   if (planMemo.has(memoKey)) return planMemo.get(memoKey)
   const g = rec.geom ?? ZIG, s = rec.site
   const cells = []
@@ -138,20 +139,55 @@ export function monumentPlan (rec) {
  *   blocked   anything else (lava, a non-full block that is not instant): waited on, waived after WAIVE_BOTS bots
  *   unknown   not loaded (never a guess)
  */
-const CLEARABLE = /(^dandelion$|^poppy$|_tulip$|^azure_bluet$|^oxeye_daisy$|^cornflower$|^lily_of_the_valley$|^allium$|^blue_orchid$|^sunflower$|^lilac$|^rose_bush$|^peony$|^torchflower$|^pitcher_plant$|^sweet_berry_bush$|^bush$|^firefly_bush$|^leaf_litter$|^wildflowers$|^pink_petals$|_mushroom$|^vine$|^glow_lichen$|^moss_carpet$|_carpet$|^short_dry_grass$|^tall_dry_grass$|^cactus_flower$|_sapling$|^mangrove_propagule$|^torch$|^wall_torch$|^soul_torch$|^soul_wall_torch$|^redstone_torch$|^snow$|^cobweb$|^seagrass$|^tall_seagrass$|^lily_pad$)/
-export const isClearable = b => !!b && !solid(b) && !WATER.test(b.name ?? '') && !/lava/.test(b.name ?? '') && CLEARABLE.test(b.name ?? '')
+// INSTANT BREAKS ONLY (Codex stage-4 r1 P2-6, Claude r1 P2-1): every block with hardness 0 in minecraft-data 1.21.8 (generated;
+// liquids, fire, portals and TNT left out; the replaceable grasses are `open` already). A cobweb (4: a 20 s bare-hand dig),
+// vines, glow lichen, carpets and snow are NOT here: they wait and are waived. Checked BEFORE `solid` (a lily pad, a slime
+// block, a flower pot have a block bounding box and are cleared, never kept as thin footing).
+const CLEARABLE = new Set([
+  'oak_sapling', 'spruce_sapling', 'birch_sapling', 'jungle_sapling', 'acacia_sapling', 'cherry_sapling',
+  'dark_oak_sapling', 'pale_oak_sapling', 'mangrove_propagule', 'bush', 'short_dry_grass', 'tall_dry_grass', 'seagrass',
+  'tall_seagrass', 'dandelion', 'torchflower', 'poppy', 'blue_orchid', 'allium', 'azure_bluet', 'red_tulip',
+  'orange_tulip', 'white_tulip', 'pink_tulip', 'oxeye_daisy', 'cornflower', 'wither_rose', 'lily_of_the_valley',
+  'brown_mushroom', 'red_mushroom', 'torch', 'wall_torch', 'redstone_wire', 'wheat', 'redstone_torch',
+  'redstone_wall_torch', 'cactus_flower', 'sugar_cane', 'soul_torch', 'soul_wall_torch', 'repeater',
+  'attached_pumpkin_stem', 'attached_melon_stem', 'pumpkin_stem', 'melon_stem', 'resin_clump', 'lily_pad',
+  'resin_block', 'nether_wart', 'tripwire_hook', 'tripwire', 'flower_pot', 'potted_torchflower', 'potted_oak_sapling',
+  'potted_spruce_sapling', 'potted_birch_sapling', 'potted_jungle_sapling', 'potted_acacia_sapling',
+  'potted_cherry_sapling', 'potted_dark_oak_sapling', 'potted_pale_oak_sapling', 'potted_mangrove_propagule',
+  'potted_fern', 'potted_dandelion', 'potted_poppy', 'potted_blue_orchid', 'potted_allium', 'potted_azure_bluet',
+  'potted_red_tulip', 'potted_orange_tulip', 'potted_white_tulip', 'potted_pink_tulip', 'potted_oxeye_daisy',
+  'potted_cornflower', 'potted_lily_of_the_valley', 'potted_wither_rose', 'potted_red_mushroom',
+  'potted_brown_mushroom', 'potted_dead_bush', 'potted_cactus', 'carrots', 'potatoes', 'comparator', 'slime_block',
+  'sunflower', 'lilac', 'rose_bush', 'peony', 'end_rod', 'torchflower_crop', 'pitcher_crop', 'pitcher_plant',
+  'beetroots', 'kelp', 'kelp_plant', 'dried_ghast', 'dead_tube_coral', 'dead_brain_coral', 'dead_bubble_coral',
+  'dead_fire_coral', 'dead_horn_coral', 'tube_coral', 'brain_coral', 'bubble_coral', 'fire_coral', 'horn_coral',
+  'dead_tube_coral_fan', 'dead_brain_coral_fan', 'dead_bubble_coral_fan', 'dead_fire_coral_fan', 'dead_horn_coral_fan',
+  'tube_coral_fan', 'brain_coral_fan', 'bubble_coral_fan', 'fire_coral_fan', 'horn_coral_fan',
+  'dead_tube_coral_wall_fan', 'dead_brain_coral_wall_fan', 'dead_bubble_coral_wall_fan', 'dead_fire_coral_wall_fan',
+  'dead_horn_coral_wall_fan', 'tube_coral_wall_fan', 'brain_coral_wall_fan', 'bubble_coral_wall_fan',
+  'fire_coral_wall_fan', 'horn_coral_wall_fan', 'sea_pickle', 'potted_bamboo', 'scaffolding', 'sweet_berry_bush',
+  'warped_fungus', 'warped_roots', 'nether_sprouts', 'crimson_fungus', 'weeping_vines', 'weeping_vines_plant',
+  'twisting_vines', 'twisting_vines_plant', 'crimson_roots', 'honey_block', 'potted_crimson_fungus',
+  'potted_warped_fungus', 'potted_crimson_roots', 'potted_warped_roots', 'cave_vines', 'cave_vines_plant',
+  'spore_blossom', 'azalea', 'flowering_azalea', 'pink_petals', 'wildflowers', 'leaf_litter', 'small_dripleaf',
+  'hanging_roots', 'potted_azalea_bush', 'potted_flowering_azalea_bush', 'frogspawn', 'decorated_pot',
+  'pale_hanging_moss', 'open_eyeblossom', 'closed_eyeblossom', 'potted_open_eyeblossom', 'potted_closed_eyeblossom',
+  'firefly_bush',
+])
+export const isClearable = b => !!b && CLEARABLE.has(b.name ?? '')
 export const isFillable = b => !!b && (replaceable(b) || (WATER.test(b.name ?? '') && b.name !== 'bubble_column'))
+/**
+ * FULL, NON-FALLING FOOTING (design 3.3; Codex stage-4 r1 P1-3): a full collision cube that cannot fall. A slab, a fence, a
+ * stair block or sand is NOT footing -- not done, not degraded, not a cover. `full` comes from the read (the block's collision
+ * shapes: one unit cube); a read that does not say (a test fake) is taken at its bounding box.
+ */
+export const fullSolid = b => !!b && solid(b) && b.full !== false && !FALLING.test(b.name ?? '')
 export function cellState (b, cell) {
   if (!b) return 'unknown'
-  if (SKIN_ROLES.has(cell.role)) {
-    if (b.name === 'cobblestone') return 'done'
-    if (solid(b)) return 'foreign'
-  } else {
-    if (CORE_SET.has(b.name)) return 'done'
-    if (solid(b)) return 'degraded'
-  }
+  if (SKIN_ROLES.has(cell.role) ? b.name === 'cobblestone' : CORE_SET.has(b.name)) return 'done'
   if (isFillable(b)) return 'open'
   if (isClearable(b)) return 'clear'
+  if (fullSolid(b)) return SKIN_ROLES.has(cell.role) ? 'foreign' : 'degraded'
   return 'blocked'
 }
 /** What a cell accepts as placed: the skin's cobblestone, or any planned core material. */
@@ -187,24 +223,55 @@ export function coverHold (read, plan, y, waived = new Set()) {
   const held = new Set(), covers = []
   const at = plan.byY.get(y) ?? []
   const atKey = new Map(at.map(c => [`${c.x},${c.z}`, c]))
+  const k3 = c => `${c.x},${c.y},${c.z}`
+  // EVERY PENDING COVER FIRST (Claude stage-4 r1 P1-1: two adjacent waived holes made each cover hold the other, forever)
+  const pending = []
   for (const w of plan.byY.get(y - 1) ?? []) {
-    if (!waived.has(`${w.x},${w.y},${w.z}`)) continue
-    if (solid(read(w.x, w.y, w.z))) continue                     // footing after all: no obligation
+    if (!waived.has(k3(w)) || fullSolid(read(w.x, w.y, w.z))) continue   // not waived, or footing after all
     const cover = atKey.get(`${w.x},${w.z}`)
-    if (!cover) continue
-    if (solid(read(cover.x, cover.y, cover.z))) continue          // already covered
+    if (!cover || fullSolid(read(cover.x, cover.y, cover.z))) continue   // nothing above it in the plan, or already covered
+    pending.push({ cover, waived: w })
+  }
+  const coverKeys = new Set(pending.map(p => k3(p.cover)))
+  const anchors = new Set()
+  for (const p of pending) {
+    const { cover } = p
     const sides = [[1, 0], [-1, 0], [0, 1], [0, -1]].map(([dx, dz]) => atKey.get(`${cover.x + dx},${cover.z + dz}`)).filter(Boolean)
-    const standing = sides.find(s => solid(read(s.x, s.y, s.z)))
-    // the anchor: an already-standing side neighbour, else the first whose own footing (the cell below) is solid
-    const anchor = standing ?? sides.find(s => solid(read(s.x, s.y - 1, s.z))) ?? null
-    covers.push({ cover, anchor, waived: w })
-    for (const c of at) {
-      if (c === cover || c === anchor) continue
-      if (Math.max(Math.abs(c.x - cover.x), Math.abs(c.z - cover.z)) <= 1) held.add(bk(c.x, c.y, c.z))
-    }
-    // the cover itself waits for its anchor (its only faces are the anchor's sides): builder support enforces it
+    // the anchor: a standing side neighbour (a placed cover counts), else a side cell that is no pending cover, not waived, with
+    // full footing below it; else an adjacent pending cover (it is placed against its own anchor first, then serves as this one's)
+    const standing = sides.find(s => fullSolid(read(s.x, s.y, s.z)))
+    const anchor = standing ??
+      sides.find(s => !coverKeys.has(k3(s)) && !waived.has(k3(s)) && fullSolid(read(s.x, s.y - 1, s.z))) ??
+      sides.find(s => coverKeys.has(k3(s))) ?? null
+    p.anchor = anchor
+    if (anchor) anchors.add(k3(anchor))
+    covers.push(p)
+  }
+  // HELD: every y-cell within Chebyshev 1 of a pending cover, except the covers themselves and the anchors
+  for (const { cover } of covers) for (const c of at) {
+    const k = k3(c)
+    if (coverKeys.has(k) || anchors.has(k)) continue
+    if (Math.max(Math.abs(c.x - cover.x), Math.abs(c.z - cover.z)) <= 1) held.add(bk(c.x, c.y, c.z))
   }
   return { held, covers }
+}
+
+/**
+ * MAY LAYER y CLOSE? -> { closed, census, covers }. Pure. The census closes it (nothing open, to clear, blocked or unloaded) AND
+ * no cover obligation in it is unmet (Codex stage-4 r1 P1-2: a cover that was itself waived let the frontier pass an uncovered
+ * column). An unmet cover stops the frontier there -- design 3.3: "safety wins over progress"; the read names the stall.
+ */
+export function layerClosable (read, plan, y, waived = new Set()) {
+  const census = layerCensus(read, plan.byY.get(y) ?? [], waived)
+  const { covers, held } = coverHold(read, plan, y, waived)
+  return { closed: census.closed && covers.length === 0, census, covers, held }
+}
+/** The keys a visit must never WAIVE at layer y: every cover, every anchor and every cell the cover rule holds. Pure. */
+export function unwaivable (covers = [], held = new Set(), plan = null, y = null) {
+  const out = new Set()
+  for (const { cover, anchor } of covers) { out.add(`${cover.x},${cover.y},${cover.z}`); if (anchor) out.add(`${anchor.x},${anchor.y},${anchor.z}`) }
+  for (const c of plan?.byY?.get(y) ?? []) if (held.has(bk(c.x, c.y, c.z))) out.add(`${c.x},${c.y},${c.z}`)
+  return out
 }
 
 /** The next layer above y in the plan, or null when y is the top. Pure. */
@@ -219,6 +286,21 @@ export function segmentOf (cell, g = ZIG) {
   return 1 + (cell.i < g.B / 2 ? 0 : 1) + (cell.j < g.B / 2 ? 0 : 2)
 }
 export const SEGMENTS = [0, 1, 2, 3, 4]
+/**
+ * WHICH SEGMENTS, IN WHAT ORDER -> { order: [seg], bySeg: Map(seg -> cells), bodyOnly }. Pure. The open layer's work minus the
+ * cells the cover rule holds and every cell a body stands in or on (Paper stand12: a centre segment whose only work was a body's
+ * cell was chosen first on every visit and starved the quadrants for 40 minutes); the centre first, then the nearest.
+ * bodyOnly: there was work, and all of it waits on a body (a cooldown, never the 1 h "nothing open").
+ */
+export function segmentChoice ({ work = [], held = new Set(), bodies = [], feet = null, g = ZIG } = {}) {
+  const free = work.filter(c => !held.has(bk(c.x, c.y, c.z)))
+  const usable = free.filter(c => !bodyBlocks(bodies, c))
+  const bySeg = new Map()
+  for (const c of usable) { const s = segmentOf(c, g); if (!bySeg.has(s)) bySeg.set(s, []); bySeg.get(s).push(c) }
+  const near = s => feet ? Math.min(...bySeg.get(s).map(c => Math.hypot(c.x - feet.x, c.z - feet.z))) : 0
+  const order = [...bySeg.keys()].sort((a, b) => (a === 0 ? -1 : b === 0 ? 1 : 0) || near(a) - near(b) || a - b)
+  return { order, bySeg, bodyOnly: !usable.length && free.length > 0 }
+}
 
 // ---- the record (generations) -----------------------------------------------------------------------------------------
 
@@ -229,14 +311,21 @@ export function readMonument (dir, key) {
   return r ? { gen: r.gen, record: r } : { gen: 0, record: null }
 }
 /** Create generation `gen` with link() (one writer wins) -> true when this call created it. */
+/** Generations kept behind the newest (Claude stage-4 r1 P2-4: they grew without bound, each carrying the full fill). A writer
+ *  64 generations behind would be four minutes of lease-held visits stale; its link() then simply loses. */
+export const KEEP_RECORD_GENS = 64
 export function createMonumentGen (dir, key, gen, body) {
   const file = path.join(dir, `${key}.g${gen}.json`)
   const tmp = `${file}.${process.pid}.${Math.random().toString(36).slice(2)}.tmp`
   try {
     fs.mkdirSync(dir, { recursive: true })
-    const { gen: _g, ...clean } = body
+    const { gen: _g, key: _k, ...clean } = body
     fs.writeFileSync(tmp, JSON.stringify({ ...clean, at: new Date().toISOString() }))
     fs.linkSync(tmp, file)
+    try {
+      const re = new RegExp(`^${key.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\.g(\\d+)\\.json$`)
+      for (const f of fs.readdirSync(dir)) { const m = re.exec(f); if (m && Number(m[1]) <= gen - KEEP_RECORD_GENS) { try { fs.unlinkSync(path.join(dir, f)) } catch { /* pruned by another */ } } }
+    } catch { /* best effort */ }
     return true
   } catch { return false } finally { try { fs.unlinkSync(tmp) } catch { /* never written */ } }
 }
@@ -257,11 +346,11 @@ export const WAIVE_BOTS = 3
  *   damage   counters to add
  *   advance  the new layer_open (only ever up), or null
  */
-export function mergeVisit (rec, { me = '?', failed = [], placed = 0, damage = {}, advance = null, complete = false, now = 0 } = {}) {
+export function mergeVisit (rec, { me = '?', failed = [], placed = 0, damage = {}, advance = null, complete = false, now = 0, protect = new Set() } = {}) {
   const out = { ...rec, stuck: { ...(rec.stuck ?? {}) }, waived: [...(rec.waived ?? [])], damage: { ...(rec.damage ?? {}) } }
   const waivedSet = new Set(out.waived)
   for (const k of failed) {
-    if (waivedSet.has(k)) continue
+    if (waivedSet.has(k) || protect.has(k)) continue           // a cover, an anchor or a held cell is never waived
     const bots = new Set(out.stuck[k] ?? [])
     bots.add(me)
     out.stuck[k] = [...bots].slice(0, 8)
@@ -276,6 +365,42 @@ export function mergeVisit (rec, { me = '?', failed = [], placed = 0, damage = {
   }
   if (complete) out.state = 'complete'
   return out
+}
+
+// ---- one placement in flight per world (Codex stage-4 r1 P1-1) -------------------------------------------------------------
+
+export const CLICK_LOCK_MS = 5_000
+/**
+ * THE CLICK LOCK -> { acquire(cell) -> null | 'busy', release(cell, verdict) } for builder.runPlacements `lock`. Two builders in
+ * different segments each prove a click alone; together two clicks can wall a bystander in. So a click holds the world's one
+ * lock file (created exclusively; stale after CLICK_LOCK_MS) from its gate to its verdict, and the next builder may not click
+ * until ITS OWN world shows the last confirmed placement (the proof must see it). Never throws; a lock it cannot read is busy.
+ */
+export function clickLock (dir, key, me, read, now = () => Date.now()) {
+  const lockF = path.join(dir, `${key}.click.lock`), lastF = path.join(dir, `${key}.click.last.json`)
+  let held = false
+  return {
+    acquire (cell) {
+      try {
+        const last = JSON.parse(fs.readFileSync(lastF, 'utf8'))
+        if (last?.verdict === 'confirmed' && last.holder !== me && now() - last.at < CLICK_LOCK_MS && Array.isArray(last.cell) && !solid(read(...last.cell))) return 'busy'
+      } catch { /* no last click */ }
+      for (let i = 0; i < 2; i++) {
+        try { fs.writeFileSync(lockF, JSON.stringify({ holder: me, cell: [cell.x, cell.y, cell.z], at: now() }), { flag: 'wx' }); held = true; return null } catch (e) {
+          if (e?.code !== 'EEXIST') return 'busy'
+          try { if (now() - fs.statSync(lockF).mtimeMs > CLICK_LOCK_MS) { fs.unlinkSync(lockF); continue } } catch { continue }
+          return 'busy'
+        }
+      }
+      return 'busy'
+    },
+    release (cell, verdict) {
+      if (!held) return
+      held = false
+      try { fs.writeFileSync(lastF, JSON.stringify({ holder: me, cell: [cell.x, cell.y, cell.z], verdict, at: now() })) } catch { /* best effort */ }
+      try { fs.unlinkSync(lockF) } catch { /* gone */ }
+    },
+  }
 }
 
 // ---- funding -------------------------------------------------------------------------------------------------------------
@@ -364,15 +489,15 @@ export function monumentOrderOutcome (status, failClass, now = 0, ms = 0, state 
 
 // ---- the visit row ------------------------------------------------------------------------------------------------------
 
-/** THE `_monument` ROW, key=value (the read parses fields, never prose), cut at 400. */
+/** THE `_monument` ROW, key=value (the read parses fields, never prose), cut at 560; the stop is near the front. */
 export function monumentDetail (f = {}) {
   const kv = (k, v) => `${k}=${v ?? '-'}`
-  const parts = [kv('gen', f.gen), kv('layer', f.layer), kv('seg', f.seg), kv('placed', f.placed ?? 0), kv('cleared', f.cleared ?? 0), kv('refused', f.refused ?? 0),
+  const parts = [kv('gen', f.gen), kv('layer', f.layer), kv('seg', f.seg), kv('stop', String(f.stop ?? 'done').replace(/\s+/g, '_').slice(0, 40)), kv('placed', f.placed ?? 0), kv('cleared', f.cleared ?? 0), kv('refused', f.refused ?? 0),
     kv('silent', f.silent ?? 0), kv('unreach', f.unreachable ?? 0), kv('repair', f.repair ?? 0), kv('open', f.open), kv('done', f.done), kv('degraded', f.degraded),
-    kv('foreign', f.foreign), kv('waived', f.waived), kv('blocked', f.blocked), kv('held', f.held ?? 0), kv('fund', f.fund), kv('cobble0', f.cobble0), kv('cobble1', f.cobble1),
+    kv('foreign', f.foreign), kv('waived', f.waived), kv('blocked', f.blocked), kv('held', f.held ?? 0), kv('covers', f.covers ?? 0), kv('repair_cand', f.repairCand ?? 0), kv('busy', f.busy ?? 0), kv('fund', f.fund), kv('cobble0', f.cobble0), kv('cobble1', f.cobble1),
     kv('stuck', f.stuckWhy), kv('gate_ms_p95', f.gateP95), kv('gate_ms_max', f.gateMax), kv('lag_ms_max', f.lagMax), kv('advanced', f.advanced ?? 0), kv('slot', f.slot), kv('t0', Math.round(f.t0 ?? 0)),
-    kv('stop', String(f.stop ?? 'done').replace(/\s+/g, '_').slice(0, 40)), kv('why', String(f.why ?? '-').replace(/\s+/g, '_').slice(0, 60))]
-  return parts.join(' ').slice(0, 400)
+    kv('why', String(f.why ?? '-').replace(/\s+/g, '_').slice(0, 60))]
+  return parts.join(' ').slice(0, 560)
 }
 
 /** p95 of a list of numbers (0 for none). Pure. */
