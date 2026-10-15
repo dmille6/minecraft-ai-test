@@ -190,6 +190,32 @@ await t('farmYields: a chest chest-full may place never moves the farm (one rule
   for (const q of cands) assert.equal(TF.farmYields(rec6, [{ ...q, r: TF.FARM_WELL_DISTANCE, what: 'junk_well' }]), null, `well at ${q.x},${q.z}`)
 })
 
+await t('MID-VISIT YIELD (Claude r2 P3): a well site recorded during the founding visit stops it before its next placement; nothing is planted in the keep-out', async () => {
+  const dir = pool('midvisit')
+  const free = TF.canonicalFarm({ home: HOME, read: world().read }).record
+  const last = plotsOf(free).at(-1)
+  const cap = { x: last.x + 2, y: 63, z: last.z }   // 2 from the last plot: inside its keep-out
+  const a = fakeTown({ items: [S('birch_sapling', 9)], storeDir: dir })
+  let placed = 0
+  a.state.onPlace = () => { if (++placed === 2) writeWellSite(dir, cap) }
+  const r = await SK.SKILLS.tend_farm.run({ bot: a.bot }, {}, new AbortController().signal)
+  assert.ok(placed >= 2 && placed < plotsOf(free).length, `stopped mid-visit after ${placed} placements: ${r.detail}`)
+  assert.match(r.detail, /stopped: farm must yield/)
+  assert.equal(/_sapling$/.test(a.w.nameAt(last.x, last.y, last.z)), false, 'the plot beside the new well was not planted')
+  // positive control: without the mid-visit record every plot is planted
+  const b = fakeTown({ items: [S('birch_sapling', 9)], storeDir: pool('midvisit-ctrl') })
+  await SK.SKILLS.tend_farm.run({ bot: b.bot }, {}, new AbortController().signal)
+  assert.equal(plotsOf(free).filter(p => /_sapling$/.test(b.w.nameAt(p.x, p.y, p.z))).length, plotsOf(free).length)
+})
+
+await t('PLINTH CELL (Claude r2 P3): a recorded farm yields to a raised-well plan cell only when it lands ON a farm cell (the planner\'s own exact rule)', () => {
+  const rec = TF.canonicalFarm({ home: HOME, read: world().read }).record
+  const p = plotsOf(rec)[0]
+  assert.equal(TF.farmYields(rec, [{ x: p.x + 1, y: p.y, z: p.z, r: 2, what: 'plinth_cell' }]), null, 'beside a plot: legal for the planner, no yield')
+  assert.match(TF.farmYields(rec, [{ x: p.x, y: p.y + 2, z: p.z, r: 2, what: 'plinth_cell' }]) ?? '', /tree-farm cell/, 'in a plot column: yield')
+  assert.match(TF.farmYields(rec, [{ x: p.x, y: p.y - 2, z: p.z, r: 2, what: 'plinth_cell' }]) ?? '', /tree-farm cell/, 'a stand whose head is the soil cell: yield')
+})
+
 await t('PLINTH -> FARM: a raised-well plan on disk (plinth-01) keeps the farm off its cap and every planned cell and stand', async () => {
   const dir = pool('plinth')
   const free = TF.canonicalFarm({ home: HOME, read: world().read }).record

@@ -70,7 +70,8 @@ import { WOODEN_TRAPDOOR, isWellJunk, disposePlan, wellIdentity, wellStage, well
          stockWellStacks, pillarCount, STOCK_SCAFFOLD_MIN, wellStepCost } from './well.mjs'
 import { resyncPacket, GUARDED_INVENTORY_ACTIONS } from './craftsync.mjs'
 import { resolveRecord, readRecord, takeLease, holdsLease, releaseLease, standsFor, refFaceFor, installBlockWitness,
-         reachOf as bpReachOf, REACH as BP_REACH, DIG_REACH as BP_DIG_REACH, REPLACEABLE as BP_REPLACEABLE, bodyInCell as bpBodyInCell } from './blueprint.mjs'
+         reachOf as bpReachOf, REACH as BP_REACH, DIG_REACH as BP_DIG_REACH, REPLACEABLE as BP_REPLACEABLE, bodyInCell as bpBodyInCell,
+         decodeMultiRecord } from './blueprint.mjs'
 import { canonicalFarm, farmRecordRefusal, plotsOf, torchesOf, plotState, torchState, tendPlan, farmIndex, emptyFarmIndex, inPlotColumn,
          isPlotCell, farmNoDig, inFarmBox, farmPlaceRefusal, farmTendDetail, bonemealEnabled, farmEnabled, FARM_SPECIES, MIN_PLOTS,
          farmWellAvoid, inFloorBand, farmYields, FARM_WELL_DISTANCE, FARM_TORCH_WELL_DISTANCE, FARM_CONTAINER_DISTANCE } from './treefarm.mjs'
@@ -7378,7 +7379,9 @@ function farmAvoid (bot = null) {
     const rec = readPlinthRecordForFarm(bot)
     if (rec) {
       well(rec.plan.cap.x, rec.plan.cap.z, FARM_WELL_DISTANCE, 'plinth')
-      for (const st of rec.plan.steps) for (const q of [st?.c, st?.s]) if (Array.isArray(q)) well(q[0], q[2], FARM_TORCH_WELL_DISTANCE, 'plinth')
+      // planned cells and stands: kept 2 away at founding; a recorded farm yields to one only if it lands ON a farm cell
+      // (plinth_cell: the planner's own exact keep-out, plinthKeepOut + farmKeepOut on the merge -- Claude r2 P3)
+      for (const st of rec.plan.steps) for (const q of [st?.c, st?.s]) if (Array.isArray(q) && q.every(Number.isFinite)) out.push({ x: q[0], y: q[1], z: q[2], r: FARM_TORCH_WELL_DISTANCE, what: 'plinth_cell' })
     }
   } catch { /* no plinth record */ }
   return out
@@ -7442,11 +7445,32 @@ export function townFarmPlan (bot) {
   return tendPlan({ states, torches, held, bonemeal: bonemealEnabled(process.env) })
 }
 
-/** The block items this bot's pathfinder may place as scaffold on a walk (its scafoldingBlocks, else the fleet's list). */
+/** The block items this bot's pathfinder may place as scaffold on a walk: its movements' scafoldingBlocks when it has
+ *  them (Codex r3: never widened by a default), else the fleet's list (index.mjs extends the base with it). */
 export function farmScaffoldNames (bot) {
-  const out = new Set(['dirt', 'cobblestone', ...PATHFINDER_SCAFFOLD])
+  const out = new Set()
   try { for (const id of bot?.pathfinder?.movements?.scafoldingBlocks ?? []) { const n = bot.registry?.items?.[id]?.name; if (n) out.add(n) } } catch { /* the default list */ }
+  if (!out.size) for (const n of ['dirt', 'cobblestone', ...PATHFINDER_SCAFFOLD]) out.add(n)
   return out
+}
+/**
+ * SERVER-CONFIRMED PLACEMENTS OF SCAFFOLD BLOCKS NEAR THIS BOT during a visit -> { count(name), stop() }. A block_change /
+ * multi_block_change naming a scaffold block within 6 of the bot's feet (the pathfinder places at reach) is one placement.
+ * The bag's loss of that block is credited to scaffold only up to this count (anything else is lost).
+ */
+export function installScaffoldCounter (bot, names) {
+  const seen = new Map()
+  const nameOf = id => bot?.registry?.blocksByStateId?.[id]?.name ?? null
+  const near = (x, y, z) => { const p = bot?.entity?.position; return !!p && Math.abs(p.x - x - 0.5) <= 6 && Math.abs(p.y - y) <= 6 && Math.abs(p.z - z - 0.5) <= 6 }
+  const note = (x, y, z, id) => { const n = nameOf(id); if (n && names.has(n) && near(x, y, z)) seen.set(n, (seen.get(n) ?? 0) + 1) }
+  const onOne = p => { try { note(p.location.x, p.location.y, p.location.z, p.type) } catch { /* malformed */ } }
+  const onMulti = p => { try { for (const r of p.records ?? []) { const d = decodeMultiRecord(p.chunkCoordinates, r); note(d.x, d.y, d.z, d.stateId) } } catch { /* malformed */ } }
+  const client = bot?._client
+  try { client?.on?.('block_change', onOne); client?.on?.('multi_block_change', onMulti) } catch { /* no client: nothing credited */ }
+  return {
+    count: n => seen.get(n) ?? 0,
+    stop () { try { client?.removeListener?.('block_change', onOne); client?.removeListener?.('multi_block_change', onMulti) } catch { /* gone */ } },
+  }
 }
 /** Items a farm visit may consume or gain without it being a loss: what it plants, places, digs and what trees drop. */
 const FARM_FLOW = /(_sapling$|_log$|^dirt$|^torch$|^bone_meal$|^stick$|^apple$|_leaves$)/
@@ -7502,6 +7526,7 @@ async function tendFarm (ctx, _args, signal) {
   const was = handOf(bot.heldItem)
   const g = hkGuards(bot, signal)
   const witness = installBlockWitness(bot)
+  const walkPlaced = installScaffoldCounter(bot, farmScaffoldNames(bot))
   const before = Object.fromEntries(heldCounts(items()))
   const deadline = Date.now() + FARM_VISIT_MS
   const ticks = n => g.bound(bot.waitForTicks?.(n) ?? sleep(n * 50, signal), n * 50 + HK_AWAIT_MS, 'tick wait')
@@ -7641,6 +7666,9 @@ async function tendFarm (ctx, _args, signal) {
       for (const a of plan.actions) {
         check(signal)
         if (Date.now() > deadline) { stop = 'budget'; break }
+        // A STRUCTURE RECORDED MID-VISIT that the farm yields to (a well site, a plinth plan, a chest claim: Claude r2 P3) stops
+        // the visit before its next mutation -- a sapling planted inside a well's keep-out would grow over its shaft
+        { const why = farmYields(rec, farmAvoid(bot)); if (why) { stop = 'farm must yield'; break } }
         // STRUCTURAL: a mutation outside the record never happens (and the read gates on this count staying 0).
         if (!onFarmPlan(idx, a)) { f.offplan++; continue }
         if (pastBorder(a.cell)) continue   // belt and braces: the plan was built from in-border cells only
@@ -7657,6 +7685,7 @@ async function tendFarm (ctx, _args, signal) {
     }
   } finally {
     witness.stop()
+    walkPlaced.stop()
     release()
     await settleAndRestore(bot, was, g, 'tend_farm')
   }
@@ -7667,10 +7696,12 @@ async function tendFarm (ctx, _args, signal) {
   // A WALK'S SCAFFOLD IS NOT A LOSS (Paper bmab 10-15: a bot under the farm towered 4 andesite on its approach and scored
   // lost=4 -- the read's C3 would have reverted on ordinary pathfinding): the blocks the pathfinder may place are counted
   // apart as scaffold=, never as lost. Everything else a visit neither plants, places, digs nor gets from a tree is lost.
-  const scaffoldNames = farmScaffoldNames(bot)
+  // ONLY WHAT THE SERVER SAW PLACED counts as scaffold (Codex r3 P2: a name-based exemption hid a tossed stack): per name,
+  // the bag's loss up to the confirmed placements of that block within reach of this bot; the rest is lost.
   for (const [n, c] of Object.entries(before)) {
     if (FARM_FLOW.test(n) || !((after[n] ?? 0) < c)) continue
-    if (scaffoldNames.has(n)) f.scaffold += c - (after[n] ?? 0); else f.lost += c - (after[n] ?? 0)
+    const gone = c - (after[n] ?? 0), placed = Math.min(gone, walkPlaced.count(n))
+    f.scaffold += placed; f.lost += gone - placed
   }
   const did = f.planted + f.soil + f.cleared + f.torches + f.bonemeal
   if (did) {
@@ -7680,6 +7711,7 @@ async function tendFarm (ctx, _args, signal) {
     return { status: 'success', placed: did,
              detail: `tended the town tree farm: planted ${f.planted}, soil ${f.soil}, cleared ${f.cleared} leftover log(s), torches ${f.torches}, bone meal ${f.bonemeal} (grew ${f.bmGrew})${f.failed ? `; ${f.failed} refused or unanswered` : ''}${stop ? `; stopped: ${stop}` : ''}` }
   }
+  if (stop === 'farm must yield') return skip('another town structure was recorded inside the tree farm\'s keep-out mid-visit; nothing more placed -- the next visit founds the farm away from it')
   if (stop === 'lease lost' || stop === 'farm record replaced') return skip(`${stop === 'lease lost' ? 'another bot took over the town tree farm' : 'the town tree farm was replaced'} mid-visit; nothing placed`)
   stop = stop ?? 'nothing confirmed'
   row('failed')

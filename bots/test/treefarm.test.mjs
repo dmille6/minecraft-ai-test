@@ -675,20 +675,34 @@ await t('SKILL tend_farm, BONE MEAL: a bag update that lags the click (300 ms) i
   assert.equal(+field(row.skill.detail, 'bm_spent'), 2)
 })
 
-await t('SKILL tend_farm: blocks the WALK scaffolded are scaffold=, never lost= (Paper bmab 10-15); a non-scaffold item that vanishes is still lost', async () => {
+async function scaffoldScene ({ place = 0, toss = 0, far = false }) {
+  // every walk: `place` andesite leave the bag AND the server names andesite in a cell beside the bot (or 20 away: `far`);
+  // `toss` more leave the bag with no placement anywhere
   const storeDir = mkdtempSync(path.join(tmpdir(), 'treefarm-scaf-'))
-  const a = fakeTown({ items: [S('birch_sapling', 9), S('andesite', 20), S('string', 5)], storeDir })
-  let n = 0
-  a.state.onGoto = () => {   // every walk pillars one andesite (the pathfinder's scaffold); the third also drops a string
-    const sl = a.slots.find(x => x?.name === 'andesite'); if (sl) { sl.count--; if (!sl.count) a.slots[sl.slot] = null }
-    if (++n === 3) { const st = a.slots.find(x => x?.name === 'string'); if (st) { st.count--; if (!st.count) a.slots[st.slot] = null } }
+  const a = fakeTown({ items: [S('birch_sapling', 9), S('andesite', 64)], storeDir })
+  const take = n => { const sl = a.slots.find(x => x?.name === 'andesite'); if (sl) { sl.count -= n; if (sl.count <= 0) a.slots[sl.slot] = null } }
+  a.state.onGoto = goal => {
+    for (let k = 0; k < place; k++) {
+      take(1)
+      const c = { x: goal.x + (far ? 20 : 1), y: goal.y, z: goal.z + k }
+      a.client.emit('block_change', { location: c, type: STATE_ID('andesite') })
+    }
+    if (toss) take(toss)
   }
-  const r = await tend(a.bot)
-  assert.equal(r.status, 'success', r.detail)
+  await tend(a.bot)
   const row = (await rows('farm_tend')).at(-1).skill.detail
-  assert.ok(a.state.gotos >= 3, `walks ${a.state.gotos}`)
-  assert.equal(+field(row, 'scaffold'), a.state.gotos, row)
-  assert.equal(+field(row, 'lost'), 1, 'the string is still a loss (positive control)')
+  return { row, walks: a.state.gotos }
+}
+await t('SKILL tend_farm: only SERVER-CONFIRMED walk placements are scaffold= (Codex r3 P2); a toss is lost=, alone or beside a placement', async () => {
+  const p = await scaffoldScene({ place: 1 })
+  assert.ok(p.walks >= 3, `walks ${p.walks}`)
+  assert.equal(+field(p.row, 'scaffold'), p.walks, p.row); assert.equal(+field(p.row, 'lost'), 0, p.row)
+  const tz = await scaffoldScene({ toss: 1 })
+  assert.equal(+field(tz.row, 'scaffold'), 0, tz.row); assert.equal(+field(tz.row, 'lost'), tz.walks, 'a toss of a scaffold-class block is still lost')
+  const both = await scaffoldScene({ place: 1, toss: 2 })
+  assert.equal(+field(both.row, 'scaffold'), both.walks, both.row); assert.equal(+field(both.row, 'lost'), 2 * both.walks, both.row)
+  const far = await scaffoldScene({ place: 1, far: true })
+  assert.equal(+field(far.row, 'scaffold'), 0, 'a placement 20 away (another bot) is not this walk\'s'); assert.equal(+field(far.row, 'lost'), far.walks)
 })
 
 await t('farmOrder: only at town\'s LEVEL -- a bot in a cave far under town is never sent up by the farm (Paper bmab 10-15)', () => {

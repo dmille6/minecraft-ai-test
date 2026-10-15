@@ -447,7 +447,7 @@ export function farmWellAvoid (record) {
 
 /** The town structures a recorded farm YIELDS to (skills.mjs farmAvoid `what` tags): the junk well, a raised well's plan
  *  and a chest in flight. The composter is avoided at founding only (its site search already keeps off the farm's cells). */
-export const FARM_YIELDS_TO = new Set(['junk_well', 'plinth', 'chest_claim'])
+export const FARM_YIELDS_TO = new Set(['junk_well', 'plinth', 'plinth_cell', 'chest_claim'])
 
 /**
  * MUST THIS RECORDED FARM MAKE WAY? -> reason | null. Pure. A farm cell within the keep-out of a structure it yields to
@@ -456,7 +456,7 @@ export const FARM_YIELDS_TO = new Set(['junk_well', 'plinth', 'chest_claim'])
  * always the same way, the farm moves (Codex r1 P2).
  */
 export function farmYields (record, avoid = []) {
-  let idx = null
+  let idx = null, keep = null
   for (const a of (Array.isArray(avoid) ? avoid : [])) {
     if (!a || !FARM_YIELDS_TO.has(a.what) || !Number.isFinite(a.x) || !Number.isFinite(a.z)) continue
     // A CHEST: exactly chest-full's own rule (farmChestRefusal), so a chest chest-full was allowed to place never makes the
@@ -466,6 +466,12 @@ export function farmYields (record, avoid = []) {
       idx ??= farmIndex(record)
       const why = farmChestRefusal(idx, { x: a.x, y: a.y, z: a.z })
       if (why) return `a chest claim at ${a.x},${a.y},${a.z} is ${why}`
+      continue
+    }
+    // A RAISED WELL'S PLANNED CELL OR STAND: only one ON a farm cell (farmKeepOut) -- the planner's own rule
+    if (a.what === 'plinth_cell' && Number.isFinite(a.y)) {
+      const ko = (keep ??= new Set(farmKeepOut(record).map(q => `${q.x},${q.y},${q.z}`)))
+      if (ko.has(`${a.x},${a.y},${a.z}`) || ko.has(`${a.x},${a.y + 1},${a.z}`)) return `a raised-well plan cell at ${a.x},${a.y},${a.z} is a tree-farm cell`
       continue
     }
     const r = Number.isFinite(a.r) ? a.r : FARM_CONTAINER_DISTANCE
@@ -590,8 +596,8 @@ export function farmTendDetail ({ gen = 0, planted = 0, soil = 0, cleared = 0, t
   const c = Object.entries(census).filter(([, n]) => n > 0).map(([k, n]) => `${k}:${n}`).join(',') || '-'
   const sp = Object.entries(species).filter(([, n]) => n > 0).map(([k, n]) => `${k}:${n}`).join(',') || '-'
   return (`gen=${gen} planted=${planted} soil=${soil} cleared=${cleared} torches=${torches} bonemeal=${bonemeal} bm_grew=${bmGrew} bm_spent=${bmSpent} scaffold=${scaffold} failed=${failed} ` +
-          `offplan=${offplan} lost=${lost} lease=${lease}${at ? ` at=${at.x},${at.y},${at.z}` : ''} t0=${Math.round(t0) || 0} ` +
-          `stop=${String(stop).replace(/\s+/g, '_').slice(0, 80)} census=${c} species=${sp}`).slice(0, 300)
+          `offplan=${offplan} lost=${lost} t0=${Math.round(t0) || 0} census=${c} species=${sp} lease=${String(lease).slice(0, 40)}` +
+          `${at ? ` at=${at.x},${at.y},${at.z}` : ''} stop=${String(stop).replace(/\s+/g, '_').slice(0, 60)}`).slice(0, 300)
 }
 
 export { passable }
