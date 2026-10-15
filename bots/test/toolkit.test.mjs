@@ -287,6 +287,16 @@ await t('SKILL: no sticks in the container and no wood -> no iron drawn (kit_no_
   const r2 = await run(w2, {}, { kitCraft: fakeCraft(w2) })
   assert.notEqual(r2.failClass, 'kit_no_sticks', r2.detail); assert.equal(count(w2.containers.get('5,64,0').slots.filter(Boolean), 'iron_ingot'), 26)
 })
+await t('SKILL: the first chest unreachable -> the next container gives the kit (Claude r1 P3-1)', async () => {
+  const w = withServer(town([T('iron_pickaxe', 200), stack('stick', 9)], [stack('iron_ingot', 30)]))
+  w.set(1, 64, 0, 'chest'); w.stock(1, 64, 0, [stack('iron_ingot', 30)])   // the town sweep is nearest HOME first: 1,64,0
+  const goto = w.bot.pathfinder.goto
+  w.bot.pathfinder.goto = async g => { if (g.x === 1) throw new Error('No path to the goal!'); return goto(g) }
+  const r = await run(w, {}, { kitCraft: fakeCraft(w) })
+  assert.equal(r.status, 'success', r.detail)
+  assert.equal(count(w.containers.get('5,64,0').slots.filter(Boolean), 'iron_ingot'), 26); assert.equal(count(w.containers.get('1,64,0').slots.filter(Boolean), 'iron_ingot'), 30)
+  assert.match(kitRows().at(-1).skill.detail, /tried=\[1,64,0:chest_unreachable;5,64,0:success\]/)
+})
 await t('SKILL: holds the kit -> no_effect, no chest opened; a usable iron axe held -> only the shovel is drawn for and made', async () => {
   const w = withServer(town([T('iron_axe', 200), T('iron_shovel', 200)], [stack('iron_ingot', 30)]))
   const r = await run(w, {}, { kitCraft: fakeCraft(w) })
@@ -301,8 +311,41 @@ await t('SKILL: an abort mid-run writes the row (outcome=aborted) and rethrows; 
   const ac = new AbortController()
   const crafter = async () => { ac.abort(); const e = new Error('aborted'); e.aborted = true; throw e }
   await assert.rejects(SKILLS.toolkit.run({ bot: w.bot, kitCraft: crafter }, {}, ac.signal), e => e?.aborted)
-  assert.match(kitRows().at(-1).skill.detail, /^phase=kit outcome=aborted .*drew=4 /)
+  assert.match(kitRows().at(-1).skill.detail, /^phase=kit outcome=aborted .*drew=4 .*credit=0->4 /)
   assert.equal(w.dropped.length, 0)
+  // THE CREDIT SURVIVES THE THROW (Codex r1 P2-1): on the bot, so the retry crafts from it and draws nothing
+  assert.equal(w.bot.kitCredit, 4)
+  const opened = w.spy.opened.length
+  const r2 = await run(w, {}, { kitCraft: fakeCraft(w) })
+  assert.equal(r2.status, 'success', r2.detail); assert.equal(w.spy.opened.length, opened, 'no second draw')
+  assert.equal(count(w.containers.get('5,64,0').slots.filter(Boolean), 'iron_ingot'), 26); assert.equal(w.bot.kitCredit, 0)
+})
+await t('SKILL: an abort INSIDE the transfer credits what moved (withdrawState), clamped to the bag; nothing dropped', async () => {
+  const w = withServer(town([T('iron_pickaxe', 200), stack('stick', 9)], [stack('iron_ingot', 30)]))
+  const ac = new AbortController()
+  const click = w.bot.clickWindow.bind(w.bot)
+  w.bot.clickWindow = async (...a) => { const r = await click(...a); ac.abort(); return r }   // the first click lands, then the cancel
+  await assert.rejects(SKILLS.toolkit.run({ bot: w.bot, kitCraft: fakeCraft(w) }, {}, ac.signal), e => e?.aborted)
+  const inBag = count(w.bag, 'iron_ingot')
+  assert.equal(w.bot.kitCredit, inBag, `credited ${w.bot.kitCredit}, bag holds ${inBag}`)
+  assert.equal(inBag + count(w.containers.get('5,64,0').slots.filter(Boolean), 'iron_ingot') + (w.bot.currentWindow?.selectedItem?.count ?? 0), 30, 'iron conserved')
+  assert.equal(w.dropped.length, 0)
+})
+await t('SKILL: a draw that moved LESS iron than asked crafts only what it funded -- never from the ladder\'s own ingots (Codex r1 P2-2)', async () => {
+  // the bag already carries 4 ladder ingots; another bot empties the chest's iron between the plan and the clicks
+  const w = withServer(town([T('iron_pickaxe', 200), stack('iron_ingot', 4), stack('stick', 1)], [stack('iron_ingot', 20), stack('stick', 64)]))
+  // the theft lands AFTER the plan and BEFORE the clicks (transferIn's lockstep): the iron source fails liveSource and is skipped,
+  // the sticks move, and the server's bag verifies exactly what moved -- a successful visit that drew no iron
+  const chest = w.containers.get('5,64,0')
+  w.bot.craftSync.lockstep = fn => { chest.slots = chest.slots.map(x => (x?.name === 'iron_ingot' ? null : x)); return fn() }
+  const r = await run(w, {}, { kitCraft: fakeCraft(w) })
+  assert.equal(count(w.bag, 'iron_axe') + count(w.bag, 'iron_shovel'), 0, `crafted from ladder iron: ${r.detail}`)
+  assert.equal(count(w.bag, 'iron_ingot'), 4, 'the ladder\'s 4 ingots untouched')
+  assert.equal(r.status, 'failed'); assert.match(kitRows().at(-1).skill.detail, /drew=0 sticks=5 .*crafted=- credit=0->0 stop=short_of_drawn_iron_for_iron_axe/, 'a successful visit, no iron drawn, no craft')
+  // POSITIVE CONTROL: the same bag and chest with no theft draws 4 and crafts both, the 4 ladder ingots still there
+  const w2 = withServer(town([T('iron_pickaxe', 200), stack('iron_ingot', 4), stack('stick', 1)], [stack('iron_ingot', 20), stack('stick', 64)]))
+  const r2 = await run(w2, {}, { kitCraft: fakeCraft(w2) })
+  assert.equal(r2.status, 'success', r2.detail); assert.equal(count(w2.bag, 'iron_ingot'), 4)
 })
 
 // ------------------------------------------------------------------------------------------ the CHAIN: the real loop ---
@@ -334,7 +377,9 @@ async function decisions (w, n, { crafter = null } = {}) {
   const ran = []
   const runner = { isBusy: () => false, run: async (skill, args) => {
     if (skill === 'toolkit') {
-      const r = await SKILLS.toolkit.run({ bot: w.bot, ...(crafter ? { kitCraft: crafter } : {}) }, args ?? {}, null)
+      let r
+      // an abort is the runner's to catch (runner.mjs): status aborted, no result fields
+      try { r = await SKILLS.toolkit.run({ bot: w.bot, ...(crafter ? { kitCraft: crafter } : {}) }, args ?? {}, null) } catch (e) { if (!e?.aborted) throw e; r = { status: 'aborted' } }
       ran.push({ skill, args, status: r.status, failClass: r.failClass })
       return { ...r, delta: { kitCrafted: r.kitCrafted ?? 0 } }
     }
@@ -377,8 +422,23 @@ await t('CHAIN (real loop): a failed craft backs off -- the bot goes on, the ing
   assert.ok(i >= 0, JSON.stringify(ran)); assert.equal(ran[i].status, 'failed'); assert.equal(ran[i].failClass, 'kit_craft')
   assert.equal(ran.filter(x => x.skill === 'toolkit').length, 1, `one attempt, then the backoff: ${JSON.stringify(ran)}`)
   assert.ok(ran.slice(i + 1).some(x => x.skill === 'status'), 'the model decides again (no dead end)')
-  assert.equal(loop.kitCredit, 4); assert.equal(count(w.bag, 'iron_ingot'), 4)
+  assert.equal(w.bot.kitCredit, 4); assert.equal(count(w.bag, 'iron_ingot'), 4)
   assert.equal(count(w.containers.get('5,64,0').slots.filter(Boolean), 'iron_ingot'), 16, 'drawn once')
+})
+await t('CHAIN (real loop): an ABORTED run keeps its iron credited on the bot; the next loop\'s order crafts from it and draws nothing (Codex r1 P2-1)', async () => {
+  const w = chainWorld()
+  const aborting = async () => { const e = new Error('aborted: low_health'); e.aborted = true; throw e }
+  const { ran } = await decisions(w, 3, { crafter: aborting })
+  assert.equal(ran.find(x => x.skill === 'toolkit')?.status, 'aborted', JSON.stringify(ran))
+  assert.equal(w.bot.kitCredit, 4); assert.equal(count(w.containers.get('5,64,0').slots.filter(Boolean), 'iron_ingot'), 16)
+  // a restart of the decision loop (fresh order state; the bot -- and its credit -- the same): the retry
+  const opened = w.spy.opened.length
+  const again = await decisions(w, 4, { crafter: fakeCraft(w) })
+  const kit = again.ran.find(x => x.skill === 'toolkit')
+  assert.equal(kit?.status, 'success', JSON.stringify(again.ran)); assert.deepEqual(kit.args, { credit: 4 })
+  assert.equal(w.spy.opened.length, opened, 'no chest opened: no second draw')
+  assert.equal(count(w.containers.get('5,64,0').slots.filter(Boolean), 'iron_ingot'), 16); assert.equal(w.bot.kitCredit, 0)
+  assert.equal(count(w.bag, 'iron_axe'), 1); assert.equal(count(w.bag, 'iron_shovel'), 1)
 })
 await t('CHAIN CONTROL (real loop): the same bot out of town never gets the toolkit order', async () => {
   const w = chainWorld({ at: [80.5, 64, 0.5] })
@@ -391,7 +451,8 @@ await t('WIRED (structural, comments stripped): the toolkit order is the LAST de
   assert.ok(at > 0, 'wired')
   assert.ok(src.indexOf('const r = roomOrder({') < at, 'after the room order')
   assert.ok(at < src.indexOf('order = plantingOrder({'), 'before planting')
-  assert.match(src, /if \(admitted\.skill === 'toolkit'\) \{ this\.toolkitState = toolkitOutcome\(/)
+  assert.match(src, /if \(admitted\.skill === 'toolkit'\) this\.toolkitState = toolkitOutcome\(/)
+  assert.match(src, /credit: bot\.kitCredit \?\? 0,/)
 })
 
 console.log(`\n${pass} passed, ${fail} failed`)
