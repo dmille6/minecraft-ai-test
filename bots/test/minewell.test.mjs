@@ -300,8 +300,6 @@ await t('MUTANT (minewell): every stair called clear', async () => {
 await t('MUTANT (minewell): the shell no longer asks wellBreakCost (nothing is shell)', async () => {
   await withMutant(MWP, "  return cols.find(c => wellBreakCost([c], { position: pos }) > 0) ?? null", "  return null", async m => {
     assert.equal(m.shellOf([CAP], { x: 202, y: 61, z: 200 }), null, 'mutant inert')
-    const bot = wellWorld()
-    await run({ SKILLS: (await import(pathToFileURL(SKP))).SKILLS }, wellWorld()).catch(() => {})
   })
 })
 await t('MUTANT (minewell): the inside-the-well refusal removed -- a bot in the shaft plans a stair', async () => {
