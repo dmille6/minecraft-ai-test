@@ -1,0 +1,118 @@
+{
+ "run_id": "townfloor-01",
+ "sha": "a2d6972f3c7639d5a000a4cfd981712cfe56e25d",
+ "registered_at": "2026-10-15T00:41:57Z",
+ "ladder_change": false,
+ "promotion": "fleet-wide",
+ "notes": "[townfloor-01, the town floor, on townzone-01's variant for the 5e663860 fleet (branch tf-x-tz: tf-on-5e66386 merged onto tz-on-5e66386 @ 3b1ae8bb). Launch ONLY on a fleet running townzone-01 KEPT and promoted from that variant: the floor's order never fires without the town-ground zone in the build (townfloor.mjs zoneLive), because without it a gatherer digs the fill back out. NOT QUEUED: the operator queues it.] THE DEFECT (townfloor-2026-10-14.md, region copies 10-14 18:00Z): inside the town-ground zone's band (Chebyshev 16 of home, home.y-12..home.y-2) 3,300-8,100 cells per town are open, 103,340 over 16 towns, 80% of them dug by the bots; the 13x13 platform floats; 13,465 cobble ride in bags above the 64 reserve and 47,559 are collected a day, with the junk well (usable in 5-6 towns) the only outlet stocktarget leaves. THE CHANGE: a deterministic town order, fill_town (after every other town order and the room order, before planting; never ahead of a ready milestone conversion), one builder per town (lease generations), fills open cells of that band with the bag's surplus (andesite/diorite/granite, then cobble above COBBLE_RESERVE 64): each block rests on a full cube, is placed from a stand reached on foot that walks back after the click, never seals a body, an item or a void larger than 8 cells (the exterior is the real sky, a column open to the world top), never cuts any stand's way to the town (lostWay), never into or beside water, saplings' growth columns, farmland, town furniture, the junk well or a plinth record; at most 32 blocks and 100 s per visit, every click re-proved at its turn and read back. The stagnation watchdog counts a verified placement as progress. OFFLINE (16 real towns, 10-14 copies): see the doc's table 1.3. PAPER: docs/reports/townfloor-2026-10-14.md section 4. REVIEWS: docs/reports/townfloor-01-reviews-2026-10-14.txt.",
+ "licence": {
+  "class": "kind",
+  "kind": "_town_floor",
+  "min_rows": 1,
+  "note": "Only this build writes _town_floor (one row per visit or refusal); the base has no floor code."
+ },
+ "reads": [
+  "townfloorread",
+  "immobiledid"
+ ],
+ "read_minutes": [
+  180,
+  360
+ ],
+ "deadline_min": 1680,
+ "change_rows": [
+  "town_floor",
+  "town_floor_step"
+ ],
+ "linkage_extra": [],
+ "draw_exposure": {
+  "hours": 3,
+  "require": [],
+  "note": "Every town is dug out (3,300-8,100 open cells in the box per town, 10-14) and 79 of 80 bags hold cobble above the reserve; any pool is exposed."
+ },
+ "exposure": {
+  "read": "townfloorread",
+  "field": "exposure_ready",
+  "min": 1,
+  "note": "Ready = a canary town with >= 50 blocks placed in a window >= 180 min."
+ },
+ "own_lines": [
+  {
+   "read": "townfloorread",
+   "field": "breach_outside_box",
+   "op": "<=",
+   "value": 0,
+   "on_fail": "REVERT",
+   "evidence": "defect",
+   "note": "F1: a placement outside its own row's box (Chebyshev 16 of home, home.y-12..home.y-2): the plan's box re-derived by the read. Self-tests on the bot's row strings."
+  },
+  {
+   "read": "townfloorread",
+   "field": "breach_unsupported",
+   "op": "<=",
+   "value": 0,
+   "on_fail": "REVERT",
+   "evidence": "defect",
+   "note": "F2: a placement whose cell below (the row's col=) was not a solid block -- a bridge."
+  },
+  {
+   "read": "townfloorread",
+   "field": "breach_protected",
+   "op": "<=",
+   "value": 0,
+   "on_fail": "REVERT",
+   "evidence": "defect",
+   "note": "F3: a placement into a protected cell by the READ's own classifier on the row's evidence (furniture within Chebyshev 1, over farmland, a sapling below through leaves/air)."
+  },
+  {
+   "read": "townfloorread",
+   "field": "breach_reserve",
+   "op": "<=",
+   "value": 0,
+   "on_fail": "REVERT",
+   "evidence": "defect",
+   "note": "F4: a cobble placement that left the bag (the row's snapshot after the click) under 64 cobble."
+  },
+  {
+   "read": "townfloorread",
+   "field": "breach_trapped",
+   "op": "<=",
+   "value": 1,
+   "on_fail": "REVERT",
+   "evidence": "defect",
+   "note": "F5: two or more canary stuck EPISODES (entombed / stranded_escape_try / livelock_escape, one per bot per 10 min) within 4 of a cell its pool filled in the 30 min before. One is named, not a verdict."
+  },
+  {
+   "read": "townfloorread",
+   "field": "control_floor_rows",
+   "op": "<=",
+   "value": 0,
+   "on_fail": "REVERT",
+   "note": "Leak: a CONTROL _town_floor row. Blocks KEEP (no evidence key)."
+  }
+ ],
+ "primary": {
+  "read": "townfloorread",
+  "field": "placed_canary",
+  "note": "REPORTED: blocks placed per canary town and tier; cobble held per bot DiD (held_did, expected to fall); _fall_path inside the box per bot-h DiD (fall_box_did; secondary, expected to fall slowly); visits and their stop reasons."
+ },
+ "harm": {
+  "note": "Unchanged: the two-death floor (OWNER 2026-09-11) and gather_ratio < 0.43 of control -- computed in scripts/canary-report.py (canary over control, post only). The floor takes bot time at town: gather_ratio is the displacement check."
+ },
+ "teardown": {
+  "note": "THREE STEPS: drop-ins, clear canary_pool, restart the pool's bots 12 s apart; then confirm the live versions. Filled cells stay in the world (stone where the bots had dug; the zone protects them on a zoned fleet); the base never reads townfloor-<home>.json or its lease files."
+ },
+ "amendments": [],
+ "extension": {
+  "until_exposure": true,
+  "extra_reads": [
+   540,
+   720,
+   1080,
+   1560
+  ],
+  "final_on_zero_exposure": "INCONCLUSIVE",
+  "note": "SHORT CANARY for a fix-class change: the deterministic defect gates decide."
+ },
+ "lint": "eslint no-undef on townfloor.mjs, skills.mjs, cognitive.mjs, hygiene.mjs and the two tests: exactly ONE hit, bots/src/reflex.mjs:2384:67 'withinBody' -- the pre-existing typeof-guarded hit on the base (positive control); this change does not touch reflex.mjs."
+}

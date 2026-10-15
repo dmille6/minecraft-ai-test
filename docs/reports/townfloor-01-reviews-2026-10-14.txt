@@ -1,0 +1,88 @@
+townfloor-01 -- review record (2026-10-14). Codex: `codex exec --skip-git-repo-check ... < /dev/null`, run in the branch
+checkout. Claude: a separate reviewing subagent with a fresh, skeptical, read-only pass each round. Full outputs are kept in
+the townfloor scratch (review-design-codex-r1.txt, review-codex-r2..r5.txt).
+
+ROUND 1 (design draft + first build, tf-on-5e66386 @ 7a59c3d5)
+  Codex r1: REJECT.
+    P1 another bot can lose its exit at click time (repro: a 2-high tunnel mouth); P1 air connectivity is not an escape
+    guarantee; P1 falling sand/gravel, fluid redistribution, collision shapes and the planned (not actual) stand; P1 an
+    8.28 s uninterrupted planner slice; P2 search truncation -> hour holds / premature cuts; P2 stale keep-outs; P2 lease
+    fencing; P2 throughput arithmetic wrong (192/h is per bot); P2 measurements need final artefacts and denominators;
+    P2 refusal chains unproved; P2 B (kerb) underspecified, 120 not 124.
+  Claude r1: APPROVE-WITH-CHANGES.
+    P1 doc numbers stale, ~190/town-h wrong (~960); P2 the same 400 candidates every visit (search_budget stall); P2
+    stepRefusal cost (174 ms); P2 the zone prerequisite only in the doc (churn without it); P2 tests judge the planner by
+    its own code + missing tests/mutants; P2 doc drift; P3 body check timing, docstring, L+1 surface, at-town vertical
+    bound, ladders. Positive: a well in a 4-deep pit filled to exhaustion kept its rim walkable.
+  Changes: lostWay (no stand that walks to the town may lose its way; the cut fallback deleted) in the planner and at the
+  click; cellHazard (an unsupported gravity block beside/below, any liquid within 2); full-cube supports; walk box +8;
+  yield per candidate; search_budget distinct from none_feasible, cold cells in the record; keep-outs re-read per plan
+  and click; the lease re-checked at the click; the zone gate (zoneLive: the ORDER never fires without the town-ground
+  zone) and the composition branch tf-x-tz; an INDEPENDENT oracle in the tests (forward walk search, closed-pocket
+  enumeration); tests for the tunnel repro, a takeover, two builders, furniture pits, cold rotation, the refusal chain.
+
+ROUND 2 (tf-x-tz @ 4f504e77)
+  Codex r2: REJECT. P1 a roofed pocket at L+1 holding an item is sealed (repro, the height shortcut); P2 partial-block
+    foundations; P2 the final proof checks the planned stand; P2 the oracle shares the surface rule; P2 the harness
+    reports ok without progress. r1 items: FIXED except the measurements/doc (pending) and refusal chains.
+  Claude r2: APPROVE-WITH-CHANGES. NEW-1 a mutant anchor missing (the battery would abort); NEW-2 the moved check
+    untested; NEW-3 doc drift; NEW-4 transient refusals made cold; NEW-5 the sandbox needs a real run.
+  Changes: the seal flood's exterior is the SKY (no height shortcut; sealRefusal floods neighbours above L too);
+  fullFloor foundations and builderStand (the walk model stays permissive so lostWay over-protects); the builder's actual
+  feet and centring checked immediately before the click; the oracle's exterior = leaving a box topped at L+12; harness
+  verdict needs placements and rows == server; the refusal chain through the real loop; re-anchored + extended mutants.
+
+ROUND 3 (tf-x-tz @ 424ce0cc)
+  Codex r3: REJECT. P1 a shaft roofed at L+11 (the sky was a finite scan to L+10) seals an item (repro + L+10 control).
+  Claude r3 (on ca93296f): APPROVE-WITH-CHANGES. NEW-3 doc/docstring drift (fixed); P3-1 sky-scan memory under a
+    full canopy (451 ms, +161 MB; fixed: the column above the region is read raw); P3-2 watchdog blast radius small,
+    residual accepted; P3-3 cold-first residual (a cold 1-high gap can be stranded: a hole left open, never a hazard).
+  Changes: the sky is a column open to WORLD_TOP (319), unloaded closes it, a plan-wide cache; cold tie-break; transient
+  refusals never cold. PAPER FINDING: the stagnation watchdog judged back-to-back floor visits stagnant (motionless, bag
+  shrinking) and relocated the bot -> a verified placement (bot.worldWorkAt) is progress (watchdog-busy test + mutant).
+
+ROUND 4 (tf-x-tz @ 424ce0cc)
+  Codex r4: APPROVE-WITH-CHANGES. P2 cold-after-tier starvation (three one-try visits never reach a tier-1 hole behind a
+    refused tier-0 cell; repro); P2 the walker/restart scenes could pass without happening; P3 template text.
+  Changes: cold is the primary key (repro test + mutant); scene verdicts require the walker home and both kills with
+  placements after the last restart; standFor slab test; template text.
+
+ROUND 5 (tf-x-tz @ ca93296f)
+  Codex r5: produced no final verdict (the run's transcript ends mid-review); superseded by r6.
+
+ROUND 6 (tf-x-tz @ 4fbb86d9, after the PAPER board-a finding: the planner's first stand was unreachable to
+  mineflayer-pathfinder because the walk model let the builder route over beds and chests -> STRICT walking for the
+  builder's own reach and way home, PERMISSIVE for the ways lostWay protects; a refused step is skipped for the visit)
+  Codex r6: APPROVE-WITH-CHANGES. P2 strict transit still crossed cobwebs on drops/step-ups; P3 seal:entity made cold.
+  Claude r4: APPROVE-WITH-CHANGES. P1 the loop refusal test red (a slower visit than its 6 s window); P2 a transient
+    refusal could become a one-hour floor_none hold; P2 four strict/permissive mutants survived; P3 startNear null over a
+    non-full plaza; P3 the strict property test proved nothing (air and stone only).
+  Changes: strict transit (clearBody) in both searches + cobweb test; body/moved/occupied/seal:entity transient (never
+  cold, never a hold); the town as an ANCHOR SET (one strict start beside home was walled off by chests: hive-b strict
+  reach 2); badStands (a stand the pathfinder failed to reach is no stand for the rest of the visit); the bed-trench
+  fixture (planner + oracle + walled_in) killing the four mutants; the property test with slabs and beds; the window.
+
+ROUND 7 (tf-x-tz @ 85e7388b)
+  Codex r7: APPROVE-WITH-CHANGES. P3 prev = the anchor array -> NaN preference.
+  Claude r5: APPROVE-WITH-CHANGES. P1 the anchor counted holes below the floor beside home as "the town" (repro: a way
+    cut, a builder standing where it cannot get out); P3 an unreachable stand could hold the town.
+  Changes: the builder's own feet as the first preference (from); the anchor is feet L+1..L+4 only; the test oracle's
+  own town (cells on the floor); both repros as replay tests; unreachable never holds the town.
+
+ROUND 8 (tf-x-tz @ 187fe6a4)
+  Codex r8: APPROVE. "FIXED -- r7 P3 ... FIXED -- Claude r5 P1 ... FIXED -- unreachable hold. NEW P1/P2/P3: none found."
+  Claude r6: APPROVE. r5 P1 FIXED (its repros re-run on the new code cut no way; reverting the anchor brings them back);
+    r5 P3 unreachable hold FIXED; parked-entity replans ACCEPTED-RESIDUAL (bounded). New P3s, not blocking: the replay's
+    per-step walk-back check uses the planner's anchor (the oracle's own check runs once at the end); a 9x9 crater around
+    home leaves no anchor and every visit ends floor_stuck "(no_start)" -> a no_start tripwire added to townfloorread
+    (follow-up: a fallback anchor or its own backoff); one no_effect message still names only bodies and pushes.
+
+FINAL: both engines APPROVE at 187fe6a4 (bot code); the canary sha 08e7f513 adds only the read's no_start tripwire.
+
+Also applied outside a review round: the plinth agent's record format (coordinator 10-14): every plinth plan step cell
+(any state) and the cap column cap.y-1..cap.y+2 are keep-outs, with a skill test and a mutant.
+
+Residuals both engines accepted: lease fencing is client-side (a suspended process between the last check and the click);
+ladders, doors and swimming are not in the walk model (lostWay protects modeled routes); gravity/liquid physics are
+exclusions, not simulations; cross-job reservation atomicity with plinth-01 (keep-outs re-read per click); subsequent
+gathering after a refusal is shown by the loop scheduling, not by a real gather.

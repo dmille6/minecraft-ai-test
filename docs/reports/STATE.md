@@ -12,6 +12,28 @@ Studio reservation both closed 10-12); clear caps bamboo 0 / bucket 2._
 
 ---
 
+## 10-15 00:50Z — townfloor-01 READY (the town floor: bots fill the ground dug from under their towns); both engines APPROVE; NOT queued, NOT deployed
+OWNER 10-14 "lets absolutely do what you recommend with the cobblestones". Doc: `docs/reports/townfloor-2026-10-14.md`;
+reviews: `docs/reports/townfloor-01-reviews-2026-10-14.txt` (Codex r8 APPROVE, Claude r6 APPROVE at 187fe6a4).
+- **Scale (read-only, region copies 10-14 18:00Z):** inside townzone's band (Chebyshev 16, home.y-12..home.y-2) 3,300-8,100
+  open cells per town, 103,340 over 16 towns, 80% dug by bots. Offline planner: 52,388 of 98,116 targets fillable (53%;
+  43-69% per town). Bags hold 13,465 cobble above the 64 reserve; 47,559 collected/day (gross).
+- **Drowning (for B):** 2 of 117 drownings in 7 days were within 16 of home -> B (a 120-block kerb) is design only and
+  NOT justified on drowning.
+- **Branches (pushed):** `tf-on-5e66386` @ da99ec95 (inert base build, npm test 254/254); **`tf-x-tz` @ a2d6972f = the
+  canary** (tf merged onto townzone-01's 5e663860 variant tz-on-5e66386 @ 3b1ae8bb; npm test 255/255). Mutants 72/74
+  killed (2 bed-route survivors documented; follow-up).
+- **Paper sandbox (sandbox2, lock released 00:05Z):** fill 241/241, walker 243/243, SIGKILL x2 241/241 -- 0 outside, 0
+  bridges, 0 cut ways. board-a real town 205 rows all on the server; 6 extra blocks + 1 "bridge" are the BASE entombment
+  reflex's escape pillar during count_town (named for gate F5).
+- **Registration:** `~/mcai-analysis/townfloor-01.a2d6972f.json` (sha256 a3fe3315..., copy in docs/reports/), licence +
+  changerow PASS; read `~/mcai-analysis/townfloorread.py` (md5 8cbc47d5; F1-F6 + no_start tripwire); queue entry
+  `docs/reports/townfloor-01.queue-entry.json`.
+- **PREREQUISITE / HOLD:** launch ONLY on a fleet running townzone-01 KEPT and promoted from the 3b1ae8bb variant (the
+  order is gated on zoneLive; without the zone gatherers dig the fill back out). If the fleet moves off 5e663860 first,
+  tf-on-5e66386 must be re-merged onto the new base's townzone variant and re-registered. Composes with plinth-01 /
+  well site / stocktarget recount via keep-outs re-read per click.
+
 ## 10-15 00:19Z — OWNER: town-project decisions D1-D8 all as recommended ("go with your recommendations"); stage 1 build started
 - **Decisions:** D1 copper-roofed hall; D2 isolated pools out of v1; D3 torches + iron lanterns; D4 no charcoal yet;
   D5 open doorways; D6 blast furnaces yes (10 iron/town); D7 yard -> storehouse -> hall; D8 stone_bricks +

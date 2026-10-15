@@ -1,0 +1,22 @@
+{
+ "run": "townfloor-01",
+ "class": "",
+ "after": [
+  "townzone-01"
+ ],
+ "hold": "PREREQUISITE: townzone-01 KEPT and PROMOTED (fleet -> its 5e663860 variant 3b1ae8bb). The floor's order never fires without the town-ground zone in the build (townfloor.mjs zoneLive), and without the zone a gatherer digs the fill back out. This variant is townfloor-01 merged onto tz-on-5e66386. Launch >= 180 min after the townzone promotion restart (one build per pool across the read's pre-window). KEPT-but-not-promoted townzone, or any other fleet tip: ask for a new variant. IF wellsite-02 (live, 8cd0bc62) is KEPT and promoted first, the fleet tip moves to 8cd0bc62: townzone-01 then needs its own variant there, and townfloor-01 is merged onto that (git merge tf-on-5e66386 @ da99ec95; expect only the skills.mjs import-block conflict) before this entry can launch. The plinth-01 record format (plinth-on-8cd0bc6 @ b4174a09) is already a keep-out.",
+ "note": "The town floor (owner 10-14 'lets absolutely do what you recommend with the cobblestones'): at town, surplus stone above the 64-cobble reserve fills the dug-out ground of the town-ground zone's box, placements only, never sealing or cutting a way, one builder per town. Design docs/reports/townfloor-2026-10-14.md. Read ~/mcai-analysis/townfloorread.py. Install the registration as ~/mcai-analysis/registrations/townfloor-01.json. NOT QUEUED by the build agent. Licence check PASS (_town_floor: 0 rows in 6 h, 360,080 rows, 80 bots) and change-row check PASS (town_floor, town_floor_step silent), 10-15 00:42Z, on the final file.",
+ "variants": {
+  "3b1ae8bb610eda86b7a8cff3061747089b62501c": {
+   "registration": "/home/mike/mcai-analysis/townfloor-01.a2d6972f.json",
+   "canary_sha": "a2d6972f3c7639d5a000a4cfd981712cfe56e25d",
+   "reads_src": "/home/mike/mcai-analysis",
+   "reads": {
+    "townfloorread": "8cbc47d53f784cd54ea25b3c5779ed06",
+    "immobiledid": "53af289df12208901931dbeeb1ae325a"
+   },
+   "approved": "townfloor agent 2026-10-14: tf-x-tz @ a2d6972f (townfloor-01 tf-on-5e66386 @ da99ec95 merged onto townzone-01's tz-on-5e66386 @ 3b1ae8bb; one import-block conflict). Both engines APPROVE at the bot code 187fe6a4 (Codex r8 APPROVE after r1-r3 REJECT, r4/r6/r7 APPROVE-WITH-CHANGES; Claude r6 APPROVE after r1-r5 APPROVE-WITH-CHANGES): docs/reports/townfloor-01-reviews-2026-10-14.txt. Later commits touch tests and the read only (bots/src identical to 187fe6a4). npm test 255/255 (tf-x-tz), 254/254 (tf-on-5e66386, where the order is inert: no zone). Mutants 72 of 74 killed, every anchor present once; 2 bed-route strict/permissive mutants survive (equivalent in every fixture; the split is tested at the function level). eslint no-undef: only the pre-existing reflex.mjs:2384 withinBody. Paper sandbox2 (docs/reports/townfloor-2026-10-14.md 4.4): synthetic town fill / walker / two SIGKILLs all green on RCON truth (241/243/241 placed, rows == server, 0 outside, 0 bridges, 0 cut ways, protected 8/8, walker walked home, 165 placed after the last restart); board-a's real town 205 fill_town blocks, all in plan; one entombment 12 s after a visit during count_town's walk (escaped by the base's reflex), named for F5. ORDINARY canary, the deterministic gates decide.",
+   "registration_sha256": "a3fe33151115859512e37f3e48d5675ef48e3da2feed747fad1bab6dc598ec57"
+  }
+ }
+}
