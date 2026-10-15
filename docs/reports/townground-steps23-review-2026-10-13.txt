@@ -107,3 +107,39 @@ Evidence limitation: the supplied `suite-1957811e.txt` contains only the test-co
 | `tz-7dbd6da6` — `bbfb3b47` | **APPROVE** |
 -- Claude r1: code APPROVE on all three; CHANGES on evidence: P2 no finished suite (they were still running) -> 252/252, 252/252, 253/253 rc=0; P3 the registration's 'rescue digs never target' was false: digPurpose reads pathfinderMining first, so a rescue dig while an unwound tunnelToOre's halted path is still mining reads target:ore_tunnel (rare, pre-existing on 5e663860, narrowed by airpocket-03) -> registrations name it and the Z1 check against _air_pocket rows. Line count is 1,059, not 988 (both engines).
 -- Claude r2: APPROVE all three (suites confirmed from the files; P3 resolved). Residual: the ore_tunnel overlap stays in code and needs the manual _air_pocket check at Z1 read time.
+
+==== 10-15: townzone-01 x minewell-01 COMPOSITION (operator option (b)); builds tz-on-835ef3f d0cf6c5c, tz-on-a784c0f 4716d12d, tz-on-a8af87d 4edce8bb, tz-on-389b44f 0a3e973a ====
+-- Codex (review-comp-codex.txt):
+- **P2 — `tzc/bots/src/skills.mjs:10720`: The roofed refusal names a remedy that cannot climb above sea level.** If the internal roof climb fails or stops while the bot remains roofed at y ≥ 63, the refusal instructs it to “climb to open sky first (surface).” Public `surface` accepts no arguments and defaults to sea level; `surfaceClimb` immediately returns `already_surfaced` (`skills.mjs:13237–13245`). The higher `_toY` target is internal only. Thus following the named remedy cannot clear the roof. Provide an executable recovery for this state and test the refusal → public remedy chain, including a failed internal climb above sea level.
+
+Otherwise, static inspection supports the central composition: ring and far targets use the same combined stair check, arrival triggers replanning, the walk loop is bounded, and the null-choice guard precedes dereference. Per-dig checks cover initial digs, falling-column reopening, and tread re-digs.
+
+The no-farm port preserves that machinery. Moving test `HOME_Y` leaves the horizontal home guard and shell geometry intact. Z1/Z2/Z7 retain compatible scopes, classes, and counters for the inspected paths. The mutant helpers assert present, unique anchors; their execution was not verified.
+
+Variadic composition supports a third monument keep-out, but structureguard’s separate exit walk is not itself validated by `startAt`; its eventual merge still needs a composed exit-chain test.
+
+No files edited, tests run, or hosts contacted.
+
+VERDICT: CHANGES
+-- Codex (review-comp-r2-codex.txt):
+VERDICT: **CHANGES**
+
+- **P3 — `bots/test/townzone-minewell.test.mjs:223`: The new test does not prove the advertised escape.** It calls the mocked `bot.pathfinder.goto`, which checks only destination occupancy and assigns `bot.entity.position` directly (lines 57–61). It bypasses the actual `goto` skill and never checks the intervening route or transit digging. The failed-climb and refusal assertions are useful, but subsequent success proves mining works after relocation—not that the bot can perform that relocation. Exercise the production `goto` skill with route-aware movement, including an obstruction requiring transit digging.
+
+- **P3 — `bots/src/minewell.mjs:187`: The dry-rule wording remains contradictory.** It still claims “every stair … would dig” protected ground, then adds that “the clear ones” meet water. The same issue occurs at line 192. State that each candidate is either blocked by a keep-out or lacks a dry first tread; avoid claiming all stairs intersect protected cells.
+
+The roofed refusal now names a plausible executable remedy and removes the unusable above-sea-level `surface` instruction. The town failure classification, town-only logging suppression, and strengthened mutant checks look correct by inspection. Holding unloaded town cells is conservative; I found no demonstrated new chunk-edge dead end, but this delta contains no regression test establishing that behavior.
+
+Read-only review; no tests run or hosts contacted.
+-- Codex (review-comp-r3-codex.txt):
+**CHANGES**
+
+- **P3 — `bots/test/townzone-minewell.test.mjs:226`:** Calling the production `goto` skill resolves the bypass, but its underlying pathfinder remains mocked, so route-aware escape is still unproven. The proposed ROOF scene would address this if implemented and successfully exercised with assertions for failed internal climb, transit wall digging, arrival outside the square, and subsequent mining success. It is absent from the supplied diff and worktree; “being added” does not yet close this finding. Scene P supports transit digging generally but does not exercise this refusal-to-remedy sequence.
+
+The revised dry-rule wording resolves the reported contradiction.
+
+Read-only inspection; no tests run or hosts contacted.
+-- Claude r1: APPROVE. No path throws, leaves no bearing, loops, or targets a shell/farm/town cell; one walk-off target satisfies every keep-out (startAt for ring and far starts); telemetry compatible (Z2 only on 'town' kinds). P2-1 (structureguard merge): compose (farm, monument, town) so cobblestone monument cells are labelled 'monument'; gate the monument exit on kinds.includes('monument'); judge its exit cells through far()/startAt. P3 a (roofed remedy), b (unloaded = ground), c (classes/wording), e (weak mutants), f (town-only mine_well_guard rows), g (cost: time it on a real bot) -- a,b,c,e,f fixed in r2.
+-- Claude r2: APPROVE (all P3s resolved; P2-1 stays open for the structureguard merge).
+-- Suites (npm test, r3 + stair-claim window fix): 835ef3f0 257/257, a784c0fe 258/258, a8af87db 254/254, 389b44fb 255/255, all rc=0.
+-- PAPER: sandbox/townground/composition-scene.cjs CORNER + ROOF -- NOT RUN: the sandbox lock has been held by 'monument (ziggurat stage 4)' since 10:41Z (no bot online on any sandbox at 13:47Z and 14:40Z).

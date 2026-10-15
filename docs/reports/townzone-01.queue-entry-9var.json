@@ -1,0 +1,114 @@
+{
+ "run": "townzone-01",
+ "class": "",
+ "after": [
+  "digtown-01",
+  "stocktarget-02",
+  "airpocket-03",
+  "wellsite-03",
+  "minewell-01"
+ ],
+ "hold": "STABILITY HOLD (the coordinator releases it): declare >= 180 min after EVERY prior decision restart -- digtown-01's and stocktarget-02's promotions, and airpocket-03's and wellsite-03's decision restarts (the canary pool's teardown restart after REVERT/INCONCLUSIVE, the fleet's promotion restart after KEEP) -- i.e. after the LATEST of them. townzoneread needs ONE build per pool across its 180-min pre-window; no pool exclusion is needed. Variant by fleet: 5e663860 (both reverted), 1957811e (airpocket-03 kept only), 8cd0bc62 (wellsite-03 kept only), 7dbd6da6 (both kept); eb543899 kept as asked. A canary KEPT but not promoted: no variant matches (H2) -- ask for a new variant.",
+ "note": "REPLACE-VARIANT (coordinator 10-14, queue airpocket-03 -> wellsite-03 -> townzone-01). The no-dig town zone (owner GO 10-13, step 3): target digs refused in a 33-wide square above home.y - 12 (gather enumeration filter + conjunction, mine bearing filter + per-step check + walk-out/climb-out, ore tunnel 100); TRANSIT and SURVIVAL untouched. Branches: tz-on-eb54389, tz-on-5e66386, tz-on-1957811, tz-on-8cd0bc6, tz-on-7dbd6da. Read ~/mcai-analysis/townzoneread.py (md5 above, unchanged since 10-13). Install only the registration matching the live fleet as ~/mcai-analysis/registrations/townzone-01.json. Z1 caveat on the airpocket bases: a Z1 row by=ore_tunnel at a cell an air-pocket rescue dug in the same second is checked against the _air_pocket rows before it is believed. 10-15: + variants for minewell-01 (a8af87db), treefarm-02 (835ef3f0) and wellsite-04 (389b44fb, a784c0fe): the zone composed into minewell's keep-out (branches tz-on-a8af87d, tz-on-835ef3f, tz-on-389b44f, tz-on-a784c0f). Those four are NOT installable until their Paper scenes pass (see each variant's `approved`).",
+ "variants": {
+  "eb54389918053686aa617cbf0b0f74111579b44b": {
+   "registration": "/home/mike/mcai-analysis/townzone-01.523a7dd8.json",
+   "canary_sha": "523a7dd88224639dc8344dfa3c36e04bef668c5c",
+   "reads_src": "/home/mike/mcai-analysis",
+   "reads": {
+    "townzoneread": "d40891f8eda17c59f0e7afe0aacf860d",
+    "immobiledid": "53af289df12208901931dbeeb1ae325a"
+   },
+   "approved": "townground agent 2026-10-14: the approved zone (tz-on-82aef34 3be6de18: Codex r1-r7 + re-review APPROVE, Claude r1-r3 APPROVE) as ONE commit, patch-identical (Claude: full-context diff byte-identical; sorted +/- lines equal, 988). FINAL REVIEW 10-14 of both variants incl. composition with stocktarget-02's count_town and <townKey>.recount.json: Codex code+merge APPROVE, notes CHANGES (P3) -> fixed -> APPROVE; Claude APPROVE (P3s on the notes, fixed). eslint no-undef: only the pre-existing reflex.mjs:2384 withinBody, also on the plain base. Registration: NO draw_require_pools key; drawrequire.parse ([], None); licencecheck PASS (_town_ground: 0 baseline rows / 6 h, ~340k rows, 80 bots) + changerowcheck PASS (no change rows) 10-14 ~11:20Z and re-run on the final file. townzoneread dry run (positive control, digtown's instrumented unzoned pools hive-d,placebo-d, 07:55Z +180): Z1 = 22 town-ground target digs; control coverage 0.0 before the promotion (the coverage gate fails closed). ORDINARY canary, ONE pool; npm test 251/251 (tree identical to the prepared 22c01bd3)",
+   "registration_sha256": "3071ca4c5462093c6c7be02cdbcf99c89947f6d0413a00bcfdb0a31d0b439c1d"
+  },
+  "5e6638601af6714478690eae4b2bb83b158ba97c": {
+   "registration": "/home/mike/mcai-analysis/townzone-01.3b1ae8bb.json",
+   "canary_sha": "3b1ae8bb610eda86b7a8cff3061747089b62501c",
+   "reads_src": "/home/mike/mcai-analysis",
+   "reads": {
+    "townzoneread": "d40891f8eda17c59f0e7afe0aacf860d",
+    "immobiledid": "53af289df12208901931dbeeb1ae325a"
+   },
+   "approved": "townground agent 2026-10-14: the approved zone (tz-on-82aef34 3be6de18: Codex r1-r7 + re-review APPROVE, Claude r1-r3 APPROVE) as ONE commit, patch-identical (Claude: full-context diff byte-identical; sorted +/- lines equal, 988). FINAL REVIEW 10-14 of both variants incl. composition with stocktarget-02's count_town and <townKey>.recount.json: Codex code+merge APPROVE, notes CHANGES (P3) -> fixed -> APPROVE; Claude APPROVE (P3s on the notes, fixed). eslint no-undef: only the pre-existing reflex.mjs:2384 withinBody, also on the plain base. Registration: NO draw_require_pools key; drawrequire.parse ([], None); licencecheck PASS (_town_ground: 0 baseline rows / 6 h, ~340k rows, 80 bots) + changerowcheck PASS (no change rows) 10-14 ~11:20Z and re-run on the final file. townzoneread dry run (positive control, digtown's instrumented unzoned pools hive-d,placebo-d, 07:55Z +180): Z1 = 22 town-ground target digs; control coverage 0.0 before the promotion (the coverage gate fails closed). ORDINARY canary, ONE pool; skills.mjs auto-merged with no conflict, the merge commutes (Claude); stocktarget-02's 82 mutant anchors still present once; npm test 251/251",
+   "registration_sha256": "a566f785c96fba18a8ac92e518e3290c87ecd3c9cca76e1c9efda28820fbef32"
+  },
+  "1957811ea79ba0ace216f8fc7af7b2877391ca19": {
+   "registration": "/home/mike/mcai-analysis/townzone-01.5d3b155c.json",
+   "canary_sha": "5d3b155cf5a243badd1f7d3de42238984acddc10",
+   "reads_src": "/home/mike/mcai-analysis",
+   "reads": {
+    "townzoneread": "d40891f8eda17c59f0e7afe0aacf860d",
+    "immobiledid": "53af289df12208901931dbeeb1ae325a"
+   },
+   "registration_sha256": "edb92ee2b7cdb40673b580038baca9b388c49222db8737639c56c064b95a0822",
+   "approved": "townground agent 2026-10-14: the approved zone (3be6de18 / 523a7dd8 / 3b1ae8bb) on 1957811e (airpocket-03 on 5e663860) as ONE commit, cherry-picked from 3b1ae8bb with no conflict, patch-identical (sorted +/- lines equal, 1,059; Codex: per-file ordered deltas match; Claude: hunk-by-hunk identical up to context). Review incl. composition with airpocket-03's contested-dig handling and wellsite-03's backoff/no-site record: Codex APPROVE; Claude APPROVE after its P2 (suite evidence) and P3 (a rescue dig can read target:ore_tunnel in a rare pre-existing overlap; registration names it) were addressed. npm test 252/252 rc=0; eslint no-undef: only the base's own reflex.mjs withinBody; registration: NO draw_require_pools, drawrequire.parse ([], None), licencecheck PASS (_town_ground 0 baseline rows / 6 h) + changerowcheck PASS; ORDINARY canary, ONE pool"
+  },
+  "8cd0bc62e5606b021832d808b150007f38ab2d6e": {
+   "registration": "/home/mike/mcai-analysis/townzone-01.75cfb447.json",
+   "canary_sha": "75cfb447fd2d5a882e60a3b3338c904788103ac1",
+   "reads_src": "/home/mike/mcai-analysis",
+   "reads": {
+    "townzoneread": "d40891f8eda17c59f0e7afe0aacf860d",
+    "immobiledid": "53af289df12208901931dbeeb1ae325a"
+   },
+   "registration_sha256": "23d7cdb33f7ead3280e6ac3f786d366b5a0417e0a630fd17c9347b4c5e2c34f3",
+   "approved": "townground agent 2026-10-14: the approved zone (3be6de18 / 523a7dd8 / 3b1ae8bb) on 8cd0bc62 (wellsite-03 on 5e663860) as ONE commit, cherry-picked from 3b1ae8bb with no conflict, patch-identical (sorted +/- lines equal, 1,059; Codex: per-file ordered deltas match; Claude: hunk-by-hunk identical up to context). Review incl. composition with airpocket-03's contested-dig handling and wellsite-03's backoff/no-site record: Codex APPROVE; Claude APPROVE after its P2 (suite evidence) and P3 (a rescue dig can read target:ore_tunnel in a rare pre-existing overlap; registration names it) were addressed. npm test 252/252 rc=0; eslint no-undef: only the base's own reflex.mjs withinBody; registration: NO draw_require_pools, drawrequire.parse ([], None), licencecheck PASS (_town_ground 0 baseline rows / 6 h) + changerowcheck PASS; ORDINARY canary, ONE pool"
+  },
+  "7dbd6da6f685194cd55ebcae3b821523ee0c1756": {
+   "registration": "/home/mike/mcai-analysis/townzone-01.bbfb3b47.json",
+   "canary_sha": "bbfb3b478ac0eeac3686048d377bc2a04dfa51f4",
+   "reads_src": "/home/mike/mcai-analysis",
+   "reads": {
+    "townzoneread": "d40891f8eda17c59f0e7afe0aacf860d",
+    "immobiledid": "53af289df12208901931dbeeb1ae325a"
+   },
+   "registration_sha256": "148f23484abbdae4161baf5fcc0bcf5af636538e44bf92119c2b16f50796a0b2",
+   "approved": "townground agent 2026-10-14: the approved zone (3be6de18 / 523a7dd8 / 3b1ae8bb) on 7dbd6da6 (wellsite-03 on airpocket-03) as ONE commit, cherry-picked from 3b1ae8bb with no conflict, patch-identical (sorted +/- lines equal, 1,059; Codex: per-file ordered deltas match; Claude: hunk-by-hunk identical up to context). Review incl. composition with airpocket-03's contested-dig handling and wellsite-03's backoff/no-site record: Codex APPROVE; Claude APPROVE after its P2 (suite evidence) and P3 (a rescue dig can read target:ore_tunnel in a rare pre-existing overlap; registration names it) were addressed. npm test 253/253 rc=0; eslint no-undef: only the base's own reflex.mjs withinBody; registration: NO draw_require_pools, drawrequire.parse ([], None), licencecheck PASS (_town_ground 0 baseline rows / 6 h) + changerowcheck PASS; ORDINARY canary, ONE pool"
+  },
+  "835ef3f0669da89ce902a265f51723f5f6d20447": {
+   "registration": "/home/mike/mcai-analysis/townzone-01.d0cf6c5c.json",
+   "canary_sha": "d0cf6c5cbe25c627974d0170b0f69a60d6f4417a",
+   "reads_src": "/home/mike/mcai-analysis",
+   "reads": {
+    "townzoneread": "d40891f8eda17c59f0e7afe0aacf860d",
+    "immobiledid": "53af289df12208901931dbeeb1ae325a"
+   },
+   "registration_sha256": "dbc9e739aec7aa6f85a590603b55b2e92dce5f96b2d0543d1f7dfd8acde254c0",
+   "approved": "townground agent 2026-10-15: the zone COMPOSED INTO minewell-01's keep-out (operator option (b)): one plan, one walk-off target satisfying every keep-out, one per-dig stop. Identical composition code on all four minewell bases (835ef3f0/a784c0fe patch-identical; a8af87db/389b44fb patch-identical and differing from them only by the farm read). Claude: r1 APPROVE (P3s, fixed), r2 APPROVE. Codex: r1 CHANGES (P2 roofed remedy -> fixed r2), r2 CHANGES (P3 wording -> fixed r3; P3 remedy test -> production goto), r3 CHANGES (P3: the ROOF Paper scene must actually run -- PENDING). npm test 257/257 rc=0; eslint no-undef only the base's withinBody; registration: no draw_require_pools, drawrequire.parse ([], None), licencecheck + changerowcheck PASS. PAPER (sandbox/townground/composition-scene.cjs CORNER + ROOF, cand vs 835ef3f0): PENDING -- the sandbox lock has been held by the ziggurat agent since 10:41Z. DO NOT INSTALL THIS VARIANT UNTIL PAPER PASSES."
+  },
+  "a784c0fe247c1a722fe86b9282145293bd28298f": {
+   "registration": "/home/mike/mcai-analysis/townzone-01.4716d12d.json",
+   "canary_sha": "4716d12de3f2f3446a04cc252466c46099f7f9b2",
+   "reads_src": "/home/mike/mcai-analysis",
+   "reads": {
+    "townzoneread": "d40891f8eda17c59f0e7afe0aacf860d",
+    "immobiledid": "53af289df12208901931dbeeb1ae325a"
+   },
+   "registration_sha256": "bc6e1dc993fb7a727281649157cc3e2002d55f65961543a36a389a663c424429",
+   "approved": "townground agent 2026-10-15: the zone COMPOSED INTO minewell-01's keep-out (operator option (b)): one plan, one walk-off target satisfying every keep-out, one per-dig stop. Identical composition code on all four minewell bases (835ef3f0/a784c0fe patch-identical; a8af87db/389b44fb patch-identical and differing from them only by the farm read). Claude: r1 APPROVE (P3s, fixed), r2 APPROVE. Codex: r1 CHANGES (P2 roofed remedy -> fixed r2), r2 CHANGES (P3 wording -> fixed r3; P3 remedy test -> production goto), r3 CHANGES (P3: the ROOF Paper scene must actually run -- PENDING). npm test 258/258 rc=0; eslint no-undef only the base's withinBody; registration: no draw_require_pools, drawrequire.parse ([], None), licencecheck + changerowcheck PASS. PAPER (sandbox/townground/composition-scene.cjs CORNER + ROOF, cand vs 835ef3f0): PENDING -- the sandbox lock has been held by the ziggurat agent since 10:41Z. DO NOT INSTALL THIS VARIANT UNTIL PAPER PASSES."
+  },
+  "a8af87dbc135819ace2cdcc27e48042df3b942e4": {
+   "registration": "/home/mike/mcai-analysis/townzone-01.4edce8bb.json",
+   "canary_sha": "4edce8bbba516e74e13476fa5a4e0e7052bfb1fd",
+   "reads_src": "/home/mike/mcai-analysis",
+   "reads": {
+    "townzoneread": "d40891f8eda17c59f0e7afe0aacf860d",
+    "immobiledid": "53af289df12208901931dbeeb1ae325a"
+   },
+   "registration_sha256": "133c43b7a4d18a04542f1cb4b6e1aa93ca8cee3ee49db5d9701152f9f04fa727",
+   "approved": "townground agent 2026-10-15: the zone COMPOSED INTO minewell-01's keep-out (operator option (b)): one plan, one walk-off target satisfying every keep-out, one per-dig stop. Identical composition code on all four minewell bases (835ef3f0/a784c0fe patch-identical; a8af87db/389b44fb patch-identical and differing from them only by the farm read). Claude: r1 APPROVE (P3s, fixed), r2 APPROVE. Codex: r1 CHANGES (P2 roofed remedy -> fixed r2), r2 CHANGES (P3 wording -> fixed r3; P3 remedy test -> production goto), r3 CHANGES (P3: the ROOF Paper scene must actually run -- PENDING). npm test 254/254 rc=0; eslint no-undef only the base's withinBody; registration: no draw_require_pools, drawrequire.parse ([], None), licencecheck + changerowcheck PASS. PAPER (sandbox/townground/composition-scene.cjs CORNER + ROOF, cand vs 835ef3f0): PENDING -- the sandbox lock has been held by the ziggurat agent since 10:41Z. DO NOT INSTALL THIS VARIANT UNTIL PAPER PASSES."
+  },
+  "389b44fba76db50f3ffc8675aa46df33082391c9": {
+   "registration": "/home/mike/mcai-analysis/townzone-01.0a3e973a.json",
+   "canary_sha": "0a3e973aeaacf3d0ce4f7879928ffb33087511a9",
+   "reads_src": "/home/mike/mcai-analysis",
+   "reads": {
+    "townzoneread": "d40891f8eda17c59f0e7afe0aacf860d",
+    "immobiledid": "53af289df12208901931dbeeb1ae325a"
+   },
+   "registration_sha256": "7de17c22c322df71f7926223dd87aea8e5e513dd0581953ae6c7c5b551d2f1b5",
+   "approved": "townground agent 2026-10-15: the zone COMPOSED INTO minewell-01's keep-out (operator option (b)): one plan, one walk-off target satisfying every keep-out, one per-dig stop. Identical composition code on all four minewell bases (835ef3f0/a784c0fe patch-identical; a8af87db/389b44fb patch-identical and differing from them only by the farm read). Claude: r1 APPROVE (P3s, fixed), r2 APPROVE. Codex: r1 CHANGES (P2 roofed remedy -> fixed r2), r2 CHANGES (P3 wording -> fixed r3; P3 remedy test -> production goto), r3 CHANGES (P3: the ROOF Paper scene must actually run -- PENDING). npm test 255/255 rc=0; eslint no-undef only the base's withinBody; registration: no draw_require_pools, drawrequire.parse ([], None), licencecheck + changerowcheck PASS. PAPER (sandbox/townground/composition-scene.cjs CORNER + ROOF, cand vs 835ef3f0): PENDING -- the sandbox lock has been held by the ziggurat agent since 10:41Z. DO NOT INSTALL THIS VARIANT UNTIL PAPER PASSES."
+  }
+ }
+}

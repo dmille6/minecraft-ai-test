@@ -12,6 +12,26 @@ Studio reservation both closed 10-12); clear caps bamboo 0 / bucket 2._
 
 ---
 
+## 10-15 14:45Z — townzone-01 COMPOSED INTO minewell-01's keep-out (option (b)): 4 variants built; PAPER BLOCKED on the sandbox lock
+Builds (pushed, new branches; NOT queued): `tz-on-835ef3f` @ `d0cf6c5c` (treefarm-02), `tz-on-a784c0f` @ `4716d12d`
+(wellsite-04 on 835ef3f0), `tz-on-a8af87d` @ `4edce8bb` (minewell-01), `tz-on-389b44f` @ `0a3e973a` (wellsite-04 on a8af87db).
+ONE plan: the town is a keep-out part (townground.mjs townKeepOut, kind 'town') in minewell's composed forbid; one walk-off
+target satisfies every keep-out (far starts beyond the square when the rings fail and the town blocks); one per-dig stop.
+No-bearing -> an explicit refusal naming every blocking keep-out + "goto a dry spot 30+ blocks from home"; null choice guarded;
+roof climb, inside-a-well escape and zone telemetry kept. npm test 257/258/254/255 rc=0. Registrations
+`~/mcai-analysis/townzone-01.{d0cf6c5c,4716d12d,4edce8bb,0a3e973a}.json`: no draw_require_pools, drawrequire.parse ok,
+licencecheck + changerowcheck PASS. Reviews: Claude APPROVE (r1, r2); Codex r3 CHANGES on ONE P3 -- the ROOF Paper scene must
+actually run. Entry `~/mcai-analysis/townzone-01.queue-entry-9var.json` (keeps eb543899/5e663860/1957811e/8cd0bc62/7dbd6da6
+and adds the four): its four new variants say DO NOT INSTALL until Paper passes. PAPER (sandbox/townground/composition-scene.cjs
+CORNER + ROOF, cand vs 835ef3f0) NOT RUN: /tmp/mcai-sandbox.lock held by "monument (ziggurat stage 4)" since 10:41Z, no bot online.
+**KEEP-OUT SHAPE (for the ziggurat agent / structureguard-01):** minewell.mjs `composeKeepOut(...parts)` is VARIADIC (a
+two-argument compose drops a third part silently -- mutant-tested); a part is `{ forbid(cell) -> kind | true | null, bottom }`
+(true = 'farm'); the first part that claims a cell names it, so compose `composeKeepOut(farm, monument, town)` (town LAST:
+the ziggurat is cobblestone, which is town TERRAIN). stairClear uses structureguard's own kind lines; keepOutLabel/keepOutWhy
+are a table (farm, monument, town); planMineStart returns `kinds` (every kind that blocked) and takes `far(kinds)`: gate the
+monument exit on `kinds.includes('monument')` and offer its exit cells through `far`, so startAt judges them against every
+keep-out (Claude P2-1). structures.mjs should re-export minewell's composeKeepOut rather than keep a two-argument one.
+
 ## 10-15 ~13:00Z — TREEFARM-02 variants on townzone-01 READY: entry `docs/reports/treefarm-02.queue-entry.json` now 5 variants, after townzone-01; NOT QUEUED
 - **Queue (coordinator):** wellsite-04 live (5e663860 -> 8cd0bc62; placebo-b, board-c, board-b, board-d -- two of the farm's
   exposure pools), so townzone-01 runs BEFORE treefarm-02; minewell-01 closed INCONCLUSIVE (fleet 5e663860).
