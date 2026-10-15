@@ -22,12 +22,15 @@
 //   - a clear bearing from here -> mine uses only clear bearings;
 //   - none -> RELOCATE: the nearest standable cell (feet and head open, a solid floor, not in a well column) within
 //     RELOCATE_RADIUS from which a bearing is clear; mine walks there and plans again (once);
-//   - nowhere -> refuse, naming the well and a cell to walk to if one exists further out.
+//   - nowhere within RELOCATE_RADIUS -> mine looks again within FAR_RADIUS and walks there itself (deterministic);
+//   - nowhere reachable -> refuse, naming the well and the cell a `goto` can be pointed at (or the distance).
 // And at EVERY dig of the descent (the step, the falling-column re-open, the tread re-dig) the cell is checked again:
 // a shell cell is never dug (the stair stops), whatever the plan said.
 import { wellBreakCost, bodyInWell } from './well.mjs'
 
 export const RELOCATE_RADIUS = 8
+/** The second, longer walk-off when nothing within RELOCATE_RADIUS has a clear stair (mine walks there itself). */
+export const FAR_RADIUS = 16
 export const MAX_STAIR_STEPS = 90
 
 /** The well column whose SHELL holds this cell -> cap | null. Pure. The same box as wellBreakCost (the pathfinder's). */
@@ -47,11 +50,12 @@ export function stepCells (p0, bear, i) {
  * IS THE WHOLE STAIR CLEAR OF EVERY SHELL? -> { clear, hit: { step, cell, cap } | null }. Pure. Simulated until the
  * step's highest dug cell (its ceiling, y0 - i + 1) is below the deepest shell (min cap.y - 3), or `maxSteps`.
  */
-export function stairClear (cols, p0, bear, { maxSteps = MAX_STAIR_STEPS } = {}) {
+export function stairClear (cols, p0, bear, { maxSteps = MAX_STAIR_STEPS, goalY = null } = {}) {
   if (!Array.isArray(cols) || !cols.length) return { clear: true, hit: null }
   const bottom = Math.min(...cols.map(c => c.y - 3))
   for (let i = 0; i < maxSteps; i++) {
     if (p0.y - i + 1 < bottom) break
+    if (Number.isFinite(goalY) && p0.y - i <= goalY + 1) break   // mine stops there (its loop: y > goalY + 1); Claude r1 P3
     for (const cell of stepCells(p0, bear, i)) {
       const cap = shellOf(cols, cell)
       if (cap) return { clear: false, hit: { step: i, cell, cap } }
@@ -85,25 +89,30 @@ export function relocateCandidates (p0, radius = RELOCATE_RADIUS) {
  *   bearings   the stair's candidate cardinals (skills.mjs stairBearings)
  *   standable  (cell) -> bool: feet and head open, a solid floor (the caller reads the world)
  */
-export function planMineStart ({ cols = [], p0, feet = null, bearings = [], standable = () => false, radius = RELOCATE_RADIUS } = {}) {
+export function planMineStart ({ cols = [], p0, feet = null, bearings = [], standable = () => false, radius = RELOCATE_RADIUS, goalY = null, exclude = [] } = {}) {
   const wells = Array.isArray(cols) ? cols : []
   if (!wells.length) return { action: 'go', bearings }
   const inside = bodyInWell(wells, feet ?? { x: p0.x + 0.5, y: p0.y, z: p0.z + 0.5 })
   if (inside) {
-    return { action: 'refuse', cap: inside, why: `this bot is inside the junk well at ${inside.x},${inside.y},${inside.z}: a stair from here would dig the well's own floor; climb out to the stand first` }
+    // THE WAY OUT, NAMED (Claude r1 P3): a rim cell beside the column a goto can reach (the pathfinder exempts the bot's own well)
+    const rim = [[1, 0], [-1, 0], [0, 1], [0, -1]].map(([dx, dz]) => ({ x: inside.x + dx, y: inside.y + 1, z: inside.z + dz })).find(c => standable(c))
+    return { action: 'refuse', inside: true, cap: inside, to: rim ?? null,
+             why: `this bot is inside the junk well at ${inside.x},${inside.y},${inside.z}: a stair from here would dig the well's own floor; ${rim ? `goto ${rim.x} ${rim.y} ${rim.z} (the well's rim) first` : 'climb out to the rim first'}` }
   }
-  const clearFrom = from => bearings.filter(b => stairClear(wells, from, b).clear)
+  const clearFrom = from => bearings.filter(b => stairClear(wells, from, b, { goalY }).clear)
+  const skip = new Set((Array.isArray(exclude) ? exclude : []).map(c => `${c.x},${c.y},${c.z}`))
   const here = clearFrom(p0)
   if (here.length) return { action: 'go', bearings: here }
-  const hit = stairClear(wells, p0, bearings[0] ?? { x: 0, z: 1 }).hit
+  const hit = stairClear(wells, p0, bearings[0] ?? { x: 0, z: 1 }, { goalY }).hit
   for (const c of relocateCandidates(p0, radius)) {
     const cell = { x: c.x, y: c.y, z: c.z }
     // never a feet cell inside a well column (its stand on the rim is fine: the stair from it is what is simulated)
     if (bodyInWell(wells, { x: c.x + 0.5, y: c.y, z: c.z + 0.5 })) continue
+    if (skip.has(`${cell.x},${cell.y},${cell.z}`)) continue   // a target the pathfinder already failed to reach
     if (!standable(cell)) continue
     const ok = clearFrom(cell)
     if (ok.length) return { action: 'relocate', to: cell, bearings: ok, hit }
   }
   const cap = hit?.cap ?? wells[0]
-  return { action: 'refuse', cap, why: `every stair from here and from every standable cell within ${radius} would dig the junk well's shell at ${cap.x},${cap.y},${cap.z}; walk at least ${radius + 3} blocks away from it and mine there` }
+  return { action: 'refuse', cap, why: `every stair from here and from every standable cell within ${radius} would dig the junk well's shell at ${cap.x},${cap.y},${cap.z}` }
 }

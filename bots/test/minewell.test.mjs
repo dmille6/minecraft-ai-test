@@ -21,6 +21,8 @@ import { V, AIR, STONE } from './helpers/microworld.mjs'
 
 process.env.LOG_DIR = `/tmp/mcbot-test-logs-minewell-${process.pid}`
 process.env.BOT_NAME = 'TestBot'
+// HOME 13 blocks east of the well (hive-d's stand was 14.9 from home): the walk-off must never end inside the 12-block home guard
+process.env.HOME_X = '213'; process.env.HOME_Y = '64'; process.env.HOME_Z = '201'
 const here = path.dirname(fileURLToPath(import.meta.url))
 const SKP = path.join(here, '../src/skills.mjs'), MWP = path.join(here, '../src/minewell.mjs')
 const { SKILLS } = await import('../src/skills.mjs')
@@ -32,12 +34,16 @@ const failed = []
 const t = async (name, fn) => {
   try { await fn(); pass++; console.log(`  PASS  ${name}`) } catch (e) { fail++; failed.push(name); console.log(`  FAIL  ${name}\n        ${String(e?.stack ?? e).split('\n').slice(0, 3).join('\n        ')}`) }
 }
-async function withMutant (file, old, neu, fn) {
-  const src = fs.readFileSync(file, 'utf8')
-  assert.ok(src.includes(old), `MUTATION DID NOT APPLY: ${JSON.stringify(old.slice(0, 70))}`)
-  assert.equal(src.split(old).length, 2, 'the mutation target is not unique; the mutant is ambiguous')
+async function withMutant (file, old, neu, fn) { return withMutants(file, [[old, neu]], fn) }
+async function withMutants (file, pairs, fn) {
+  let src = fs.readFileSync(file, 'utf8')
+  for (const [old, neu] of pairs) {
+    assert.ok(src.includes(old), `MUTATION DID NOT APPLY: ${JSON.stringify(old.slice(0, 70))}`)
+    assert.equal(src.split(old).length, 2, 'the mutation target is not unique; the mutant is ambiguous')
+    src = src.replace(old, neu)
+  }
   const out = path.join(here, `.mutant-minewell-${process.pid}-${Math.random().toString(36).slice(2)}.mjs`)
-  fs.writeFileSync(out, src.replace(old, neu).replace(/from '\.\//g, `from '${path.join(here, '../src')}/`))
+  fs.writeFileSync(out, src.replace(/from '\.\//g, `from '${path.join(here, '../src')}/`))
   try { return await fn(await import(pathToFileURL(out))) } finally { try { fs.unlinkSync(out) } catch {} }
 }
 
@@ -45,7 +51,7 @@ async function withMutant (file, old, neu, fn) {
 const CAP = { x: 200, y: 63, z: 200 }
 const key = (x, y, z) => `${x},${y},${z}`
 const inBox = (p, c = CAP) => Math.abs(p.x - c.x) <= 2 && Math.abs(p.z - c.z) <= 2 && p.y >= c.y - 3 && p.y <= c.y
-function wellWorld ({ at = new V(200.5, 64, 201.5), yaw = Math.PI, cols = () => [CAP], solidAbove = new Set() } = {}) {
+function wellWorld ({ at = new V(200.5, 64, 201.5), yaw = Math.PI, cols = () => [CAP], solidAbove = new Set(), canMove = () => true } = {}) {
   const carved = new Set([key(CAP.x, CAP.y - 1, CAP.z)])   // the shaft is open under the cap
   const digs = [], gotos = []
   const raw = p => {
@@ -63,6 +69,7 @@ function wellWorld ({ at = new V(200.5, 64, 201.5), yaw = Math.PI, cols = () => 
     pathfinder: {
       goto: async goal => {
         gotos.push({ x: goal.x, y: goal.y, z: goal.z })
+        if (!canMove(goal)) return
         const c = new V(goal.x, goal.y, goal.z)
         if (raw(c).boundingBox !== 'empty' || raw(c.offset(0, 1, 0)).boundingBox !== 'empty') return
         bot.entity.position = new V(c.x + 0.5, c.y, c.z + 0.5)
@@ -108,7 +115,7 @@ await t('THE STAIR SIMULATED: from the hive-d stand every bearing digs the shell
 })
 await t('THE PLAN: from the stand -> relocate to the nearest standable cell with a clear stair; far away -> go; inside the well -> refuse; walled in -> refuse naming the well', () => {
   const bearings = [{ x: 0, z: 1 }, { x: -1, z: 0 }, { x: 0, z: -1 }, { x: 1, z: 0 }]
-  const open = c => c.y === 64   // the micro-world's surface
+  const open = c => c.y === 64   // the micro-world's surface (the pure plan: home is the caller's standable())
   const p = MW.planMineStart({ cols: [CAP], p0: { x: 200, y: 64, z: 201 }, bearings, standable: open })
   assert.equal(p.action, 'relocate'); assert.ok(p.bearings.length >= 1)
   assert.ok(p.bearings.every(b => MW.stairClear([CAP], p.to, b).clear), 'every offered bearing is clear from the new cell')
@@ -118,7 +125,7 @@ await t('THE PLAN: from the stand -> relocate to the nearest standable cell with
   const inside = MW.planMineStart({ cols: [CAP], p0: { x: 200, y: 62, z: 200 }, feet: { x: 200.5, y: 62.19, z: 200.5 }, bearings, standable: open })
   assert.equal(inside.action, 'refuse'); assert.match(inside.why, /inside the junk well/)
   const walled = MW.planMineStart({ cols: [CAP], p0: { x: 200, y: 64, z: 201 }, bearings, standable: () => false })
-  assert.equal(walled.action, 'refuse'); assert.match(walled.why, /walk at least 11 blocks away from it/); assert.deepEqual(walled.cap, CAP)
+  assert.equal(walled.action, 'refuse'); assert.match(walled.why, /would dig the junk well's shell at 200,63,200/); assert.deepEqual(walled.cap, CAP)
   assert.equal(MW.planMineStart({ cols: [], p0: { x: 200, y: 64, z: 201 }, bearings, standable: open }).action, 'go')
 })
 
@@ -134,25 +141,50 @@ await t('THE CHAIN, hive-d replayed through the real skill: from the stand mine 
   const g = rows('_mine_well_guard').slice(n0)
   assert.ok(g.some(x => /^action=relocate at=200,63,200 from=200,64,201 to=/.test(x.skill.detail)), JSON.stringify(g.map(x => x.skill.detail)))
 })
-await t('THE CHAIN, walled in: a refusal naming the well and the walk; after that walk the retry descends clear', async () => {
-  const mod = { SKILLS }
-  // every cell around the stand within the radius is filled (no standable cell) except the stand itself
+await t('THE CHAIN, walled in within 8: mine looks again within 16 and WALKS there itself, then descends clear (no advice needed)', async () => {
   const solid = new Set()
   for (let dx = -10; dx <= 10; dx++) for (let dz = -10; dz <= 10; dz++) for (const y of [63, 64, 65, 66]) if (!(dx === 0 && dz === 1 && y >= 64)) solid.add(key(200 + dx, y, 200 + dz))
   const bot = wellWorld({ solidAbove: solid })
-  const r = await run(mod, bot)
-  assert.equal(r.status, 'failed', `${r.status}: ${r.detail} digs=${JSON.stringify(bot._digs.slice(0, 4))} gotos=${JSON.stringify(bot._gotos)}`); assert.equal(r.failClass, 'forbidden'); assert.match(r.detail, /junk well's shell at 200,63,200; walk at least 11 blocks/)
+  const n0 = rows('_mine_well_guard').length
+  const r = await run({ SKILLS }, bot)
+  assert.equal(r.status, 'success', `${r.status}: ${r.detail}`)
+  assert.deepEqual(bot._digs.filter(d => inBox(d)), [], 'dug the shell')
+  const g = rows('_mine_well_guard').slice(n0).map(x => x.skill.detail)
+  assert.ok(g.some(d => /^action=relocate .* to=.* try=1$/.test(d)), JSON.stringify(g))
+  const to = bot._gotos[0]
+  assert.ok(Math.max(Math.abs(to.x - 200), Math.abs(to.z - 200)) >= 11, `the walk went past the walls: ${JSON.stringify(to)}`)
+})
+await t('THE CHAIN, the walk-off unreachable: two different targets tried (never the same twice), then a refusal naming explore; performing it, mine descends clear', async () => {
+  let moving = false
+  const bot = wellWorld({ canMove: () => moving })
+  const r = await run({ SKILLS }, bot)
+  assert.equal(r.status, 'failed'); assert.equal(r.failClass, 'forbidden')
+  assert.match(r.detail, /could not be reached from here; explore away from the well/, r.detail)
+  assert.equal(bot._gotos.length, 2, 'two walk-off attempts'); assert.notDeepEqual(bot._gotos[0], bot._gotos[1], 'the same unreachable cell walked at twice')
   assert.equal(bot._digs.length, 0, 'nothing dug before the refusal')
-  // the remedy, performed: the bot walks 12 blocks away and asks again
-  bot.entity.position = new V(200.5, 64, 213.5)
-  const r2 = await run(mod, bot)
+  // the remedy, as the model performs it: explore moves the bot away from the well; then mine
+  moving = true
+  bot.entity.position = new V(200.5, 64, 221.5)
+  const r2 = await run({ SKILLS }, bot)
   assert.equal(r2.status, 'success', `${r2.status}: ${r2.detail}`)
   assert.deepEqual(bot._digs.filter(d => inBox(d)), [])
+})
+await t('THE HOME GUARD COMPOSED: home 13 from the well -- the walk-off never ends within 12 of home, and the chain still descends', async () => {
+  const bot = wellWorld()
+  const r = await run({ SKILLS }, bot)
+  assert.equal(r.status, 'success', `${r.status}: ${r.detail}`)
+  for (const g of bot._gotos.slice(0, 1)) assert.ok(Math.hypot(g.x + 0.5 - 213, g.z + 0.5 - 201) > 12, `walked to ${JSON.stringify(g)}, inside the home guard`)
+  assert.deepEqual(bot._digs.filter(d => inBox(d)), [])
+})
+await t('THE STAIR STOPS AT goalY: a stair that would reach the shell only below the requested depth is clear', () => {
+  const p0 = { x: 200, y: 66, z: 196 }, south = { x: 0, z: 1 }
+  assert.equal(MW.stairClear([CAP], p0, south).clear, false, 'positive control: all the way down it would hit the shell')
+  assert.equal(MW.stairClear([CAP], p0, south, { goalY: 64 }).clear, true)
 })
 await t('INSIDE THE WELL: mine refuses before any dig (the exit is the stand, not a stair through the floor)', async () => {
   const bot = wellWorld({ at: new V(200.5, 62.19, 200.5) })
   const r = await run({ SKILLS }, bot)
-  assert.equal(r.status, 'failed'); assert.match(r.detail, /inside the junk well/); assert.equal(bot._digs.length, 0)
+  assert.equal(r.status, 'failed'); assert.match(r.detail, /inside the junk well .*goto -?\d+ -?\d+ -?\d+ \(the well's rim\)/); assert.equal(bot._digs.length, 0)
 })
 await t('EVERY DIG IS CHECKED: a well that appears mid-descent stops the stair at its shell (no shell cell dug)', async () => {
   // the stair starts far from any known well; after the first dig a well column becomes known two steps ahead
@@ -165,6 +197,16 @@ await t('EVERY DIG IS CHECKED: a well that appears mid-descent stops the stair a
   assert.deepEqual(bot._digs.filter(d => inBox(d)), [], 'dug the shell')
   assert.ok(bot._digs.length >= 3, 'positive control: the stair had started')
 })
+await t('READ AFRESH AT EVERY DIG: a well found DURING the step\'s ceiling dig stops the head dig in its shell (no stale snapshot)', async () => {
+  let known = []
+  const bot = wellWorld({ at: new V(200.5, 64, 196.5), yaw: 0, cols: () => known, solidAbove: new Set([key(200, 64, 198)]) })
+  const dig0 = bot.dig
+  bot.dig = async b => { await dig0(b); if (b.position.x === 200 && b.position.y === 64 && b.position.z === 198) known = [CAP] }
+  const r = await run({ SKILLS }, bot)
+  assert.ok(bot._digs.some(d => d.x === 200 && d.y === 64 && d.z === 198), 'positive control: the ceiling (outside the box) was dug')
+  assert.equal(r.status, 'failed', `${r.status}: ${r.detail}`); assert.match(r.detail, /junk well's shell/)
+  assert.deepEqual(bot._digs.filter(d => inBox(d)), [], 'the head cell (in the shell) was dug on a stale read')
+})
 await t('POSITIVE CONTROL for the chain: with no well known, the same stand descends straight through where the shell would be', async () => {
   const bot = wellWorld({ cols: () => [] })
   const r = await run({ SKILLS }, bot)
@@ -173,19 +215,12 @@ await t('POSITIVE CONTROL for the chain: with no well known, the same stand desc
 })
 
 // ---- MUTANTS --------------------------------------------------------------------------------------------------------------
-await t('MUTANT (skills): no plan AND no per-dig check -- the stair from the stand digs the shell (the hive-d defect reproduced)', async () => {
-  const src = fs.readFileSync(SKP, 'utf8')
-  const A = "  let wellPlan = planHere()\n", B = "    for (const cell of [cellAbove, cellHead, cellFeet]) {\n      const stop = shellStop(cell)\n      if (stop) return stop\n    }\n"
-  assert.equal(src.split(B).length, 2, 'anchor B unique')
-  await withMutant(SKP, A, "  let wellPlan = { action: 'go', bearings: stairBearings(bot) }\n", async () => {})   // anchor A present and unique
-  const out = path.join(here, `.mutant-minewell-${process.pid}-ab.mjs`)
-  fs.writeFileSync(out, src.replace(A, "  let wellPlan = { action: 'go', bearings: stairBearings(bot) }\n").replace(B, '').replace(/from '\.\//g, `from '${path.join(here, '../src')}/`))
-  try {
-    const m = await import(pathToFileURL(out))
+await t('MUTANT (skills): no plan AND no per-dig checks -- the stair from the stand digs the shell (the hive-d defect reproduced)', async () => {
+  await withMutants(SKP, [["  let wellPlan = planHere()\n", "  let wellPlan = { action: 'go', bearings: stairBearings(bot) }\n"], ["    for (const cell of [cellAbove, cellHead, cellFeet]) {\n      const stop = shellStop(cell)\n      if (stop) return stop\n    }\n", ''], ["      const stopNow = shellStop(pos)\n      if (stopNow) return stopNow\n", '']], async m => {
     const bot = wellWorld()
     await run(m, bot).catch(() => {})
     assert.ok(bot._digs.some(d => inBox(d)), 'mutant inert')
-  } finally { try { fs.unlinkSync(out) } catch {} }
+  })
 })
 await t('MUTANT (skills): no plan, per-dig check kept -- the stair stops at the shell instead of walking off (defence in depth, but no descent)', async () => {
   await withMutant(SKP, "  let wellPlan = planHere()\n", "  let wellPlan = { action: 'go', bearings: stairBearings(bot) }\n", async m => {
@@ -207,13 +242,13 @@ await t('MUTANT (minewell): a 1-wide shell (the ring\'s second ring left diggabl
   })
 })
 await t('MUTANT (minewell): the inside-the-well refusal removed -- a bot in the shaft plans a stair', async () => {
-  await withMutant(MWP, "  if (inside) {\n    return { action: 'refuse'", "  if (false) {\n    return { action: 'refuse'", async m => {
+  await withMutant(MWP, "  if (inside) {\n    // THE WAY OUT", "  if (false) {\n    // THE WAY OUT", async m => {
     const p = m.planMineStart({ cols: [CAP], p0: { x: 200, y: 62, z: 200 }, feet: { x: 200.5, y: 62.19, z: 200.5 }, bearings: [{ x: 0, z: 1 }], standable: c => c.y === 64 })
     assert.ok(!(p.action === 'refuse' && /inside the junk well/.test(p.why)), 'mutant inert')
   })
 })
-await t('MUTANT (skills): the per-dig check removed -- a well appearing mid-descent gets its shell dug', async () => {
-  await withMutant(SKP, "    for (const cell of [cellAbove, cellHead, cellFeet]) {\n      const stop = shellStop(cell)\n      if (stop) return stop\n    }\n", "", async m => {
+await t('MUTANT (skills): the per-dig checks removed -- a well appearing mid-descent gets its shell dug', async () => {
+  await withMutants(SKP, [["    for (const cell of [cellAbove, cellHead, cellFeet]) {\n      const stop = shellStop(cell)\n      if (stop) return stop\n    }\n", ''], ["      const stopNow = shellStop(pos)\n      if (stopNow) return stopNow\n", '']], async m => {
     let known = []
     const bot = wellWorld({ at: new V(200.5, 64, 192.5), yaw: 0, cols: () => known })
     const dig0 = bot.dig
@@ -222,8 +257,26 @@ await t('MUTANT (skills): the per-dig check removed -- a well appearing mid-desc
     assert.ok(bot._digs.some(d => inBox(d)), 'mutant inert')
   })
 })
+await t('MUTANT (skills): the per-dig check on a snapshot taken before the step -- the head dig lands in the shell', async () => {
+  await withMutant(SKP, "    const shellStop = pos => {\n      const cap = shellOf(wellCols(), pos)", "    const snap = wellCols()\n    const shellStop = pos => {\n      const cap = shellOf(snap, pos)", async m => {
+    let known = []
+    const bot = wellWorld({ at: new V(200.5, 64, 196.5), yaw: 0, cols: () => known, solidAbove: new Set([key(200, 64, 198)]) })
+    const dig0 = bot.dig
+    bot.dig = async b => { await dig0(b); if (b.position.x === 200 && b.position.y === 64 && b.position.z === 198) known = [CAP] }
+    await run(m, bot).catch(() => {})
+    assert.ok(bot._digs.some(d => inBox(d)), 'mutant inert')
+  })
+})
+await t('MUTANT (skills): no second, longer walk-off -- walled in within 8, mine refuses instead of walking past the walls', async () => {
+  await withMutant(SKP, "    if (wellPlan.action === 'refuse') wellPlan = planHere(FAR_RADIUS)\n", "", async m => {
+    const solid = new Set()
+    for (let dx = -10; dx <= 10; dx++) for (let dz = -10; dz <= 10; dz++) for (const y of [63, 64, 65, 66]) if (!(dx === 0 && dz === 1 && y >= 64)) solid.add(key(200 + dx, y, 200 + dz))
+    const r = await run(m, wellWorld({ solidAbove: solid }))
+    assert.notEqual(r.status, 'success', 'mutant inert')
+  })
+})
 await t('MUTANT (skills): relocation without the walk -- the replan from the stand refuses, the chain never descends', async () => {
-  await withMutant(SKP, "      await withTimeout(bot.pathfinder.goto(new goals.GoalBlock(to.x, to.y, to.z)), 15_000, bot, { what: 'walking off the junk well before mining' })\n", "", async m => {
+  await withMutant(SKP, "      await withTimeout(bot.pathfinder.goto(new goals.GoalBlock(to.x, to.y, to.z)), 20_000, bot, { what: 'walking off the junk well before mining' })\n", "", async m => {
     const bot = wellWorld()
     const r = await run(m, bot)
     assert.notEqual(r.status, 'success', 'mutant inert')
