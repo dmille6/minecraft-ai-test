@@ -79,6 +79,26 @@ def run(g):
     lag = g['well_gates']([row(CAN, '_well_recollected', 'at=1,2,3 item=egg', m(1), 'failed', ver='9999999+x')], {'board-a'}, CUT, 'abc1234', END)
     if lag['canary']['c1']:
         fails.append('a canary row from ANOTHER build (restart lag) tripped C1')
+    # C2's close, C5's completed-visit rule and C6's retirement are ingested per arm (Codex r1 P3)
+    opened = [row(CAN, '_well_left_open', 'at=79,57,76 why=close_refused', m(10), 'failed')]
+    closed = opened + [row(CAN, '_well_dispose', VISIT, m(11))]                       # cap_end=closed at the same cell, 1 min later
+    if g['well_gates'](closed, {'board-a'}, CUT, 'abc1234', END)['canary']['c2']:
+        fails.append('C2: a canary close (cap_end=closed) did not close the canary open')
+    if not g['well_gates'](opened + [row('board-b-Alpha', '_well_dispose', VISIT, m(11))], {'board-a'}, CUT, 'abc1234', END)['canary']['c2']:
+        fails.append('C2: another pool\'s close closed the canary open')
+    aborted = [row(CAN, '_well_dispose', VISIT.replace('misses=0', 'misses=1').replace('stop=done', 'stop=aborted'), m(10), 'aborted')]
+    if g['well_gates'](aborted, {'board-a'}, CUT, 'abc1234', END)['canary']['c5']:
+        fails.append('C5: an aborted visit\'s miss was judged')
+    two = [row(CAN, '_well_built', 'at=79,57,76 facing=south floor=1 wood=oak pit_first=0 pit_tossed=0 pit_items=0 free=3', m(5)),
+           row(CAN, '_well_built', 'at=90,57,76 facing=south floor=1 wood=oak pit_first=0 pit_tossed=0 pit_items=0 free=3', m(6))]
+    if g['well_gates'](two + [row(CAN, '_well_retired', 'at=79,57,76 why=wall_is_air', m(5.5))], {'board-a'}, CUT, 'abc1234', END)['canary']['c6']:
+        fails.append('C6: a retired well still counted as active')
+    if g['well_gates'](two + [row(CAN, '_well_refused', 'order=dispose reason=breached at=79,57,76 x', m(5.5), 'no_effect')], {'board-a'}, CUT, 'abc1234', END)['canary']['c6']:
+        fails.append('C6: a well refused as breached still counted as active')
+    recent = [row(CAN, '_well_left_open', 'at=79,57,76 why=close_refused', END - dt.timedelta(seconds=30), 'failed')]
+    gr = g['well_gates'](recent, {'board-a'}, CUT, 'abc1234', END)['canary']
+    if gr['c2'] or not gr['c2_pending']:
+        fails.append('C2: an open 30 s before the window end was judged instead of pending')
     # the hive-d sequence of 10-14, as written: 9 control rows -> canary 0, control 9
     hived = [row(CTL, '_well_recollected', 'at=79,57,76 item=%s item_pos=79.6,56.19,76.31 feet=79.50,57.00,77.51' % it, m(223), 'failed')
              for it in ('cobblestone', 'gravel', 'stone_sword', 'blue_egg', 'flint', 'clay_ball', 'glass', 'ink_sac', 'stone_bricks')]
@@ -101,7 +121,10 @@ def structural(src):
         if code.count(need) != 1:
             fails.append('wiring: %r present %d times' % (need[:60], code.count(need)))
     if not fails:
-        i_walk, i_call, i_arm, i_bind, i_emit = (code.index(x) for x in ("for r in ev_rows:", call, arm, bind, "'breach_recollected': len(c1)"))
+        WALK = "for r in ev_rows:\n    t = r.get('t'); b = (r.get('bot') or {}).get('name')\n    if t is None or not b:\n        continue\n    arm ="
+        if code.count(WALK) != 1:
+            return fails + ['wiring: the walk\'s own loop header present %d times' % code.count(WALK)]
+        i_walk, i_call, i_arm, i_bind, i_emit = (code.index(x) for x in (WALK, call, arm, bind, "'breach_recollected': len(c1)"))
         if not (i_walk < i_call < i_arm < i_bind < i_emit):
             fails.append('wiring: the canary-arm binding is not between the walk and the emit')
     return fails
@@ -124,23 +147,28 @@ MUTANTS = [
     ('C3 not judged', "for key_, fn_ in (('c3', c3_breach), ('c7', c7_breach), ('c8', c8_breach)):", "for key_, fn_ in (('c7', c7_breach), ('c8', c8_breach)):"),
     ('C7 not judged', "for key_, fn_ in (('c3', c3_breach), ('c7', c7_breach), ('c8', c8_breach)):", "for key_, fn_ in (('c3', c3_breach), ('c8', c8_breach)):"),
     ('C8 not judged', "for key_, fn_ in (('c3', c3_breach), ('c7', c7_breach), ('c8', c8_breach)):", "for key_, fn_ in (('c3', c3_breach), ('c7', c7_breach)):"),
+    ('C2 closes dropped', "                a['closes'].append((t, (pool_of(b), f['at'])))", "                pass"),
+    ('C5 counts aborted visits', "            if st in ('success', 'failed') and f.get('stop') != 'aborted':\n                a['misses']", "            if True:\n                a['misses']"),
+    ('C6 ignores retirements', "        elif k == '_well_retired':\n            if f.get('at'):\n                a['breached'][pool_of(b)].add(f['at'])", "        elif k == '_well_retired':\n            pass"),
     ('C6 input dropped', "            a['built'][pool_of(b)][f.get('at', '?')] += 1", "            pass"),
     ('C4 input dropped', "            a['inside'].append((t, b, f.get('at', '?')))", "            pass"),
     ('C5 not counted', "                a['misses'] += num(f, 'misses'); a['retaken'] += num(f, 'retaken')", "                pass"),
     ('the walk ignores the gates', "c1, c2, c2_pending, c3, c4, c5, c6, c7, c8 = GC['c1'], GC['c2'], GC['c2_pending'], GC['c3'], GC['c4'], GC['c5'], GC['c6'], GC['c7'], GC['c8']\n", "pass\n"),
+    ('the binding moved above the walk', "G = well_gates(ev_rows, CANS, CUT, CV, END)\nGC, GX = G['canary'], G['control']\nc1, c2, c2_pending, c3, c4, c5, c6, c7, c8 = GC['c1'], GC['c2'], GC['c2_pending'], GC['c3'], GC['c4'], GC['c5'], GC['c6'], GC['c7'], GC['c8']\nmisses, retaken = GC['misses'], GC['retaken']\n", lambda src, old: src.replace(old, '').replace("rows = Counter(); kinds = Counter(); offbuild = 0\n", "rows = Counter(); kinds = Counter(); offbuild = 0\n" + old)),
+    ('C2 pending ignored', "        c2, c2_pending = open_breaches(a['opens'], a['closes'], end)", "        c2, c2_pending = open_breaches(a['opens'], a['closes'], end + dt.timedelta(days=9))"),
     ('the gates read the control arm', "GC, GX = G['canary'], G['control']", "GC, GX = G['control'], G['canary']"),
 ]
 killed = 0
 for name, old, new in MUTANTS:
     assert BASE.count(old) == 1, 'MUTANT ANCHOR %r: present %d times' % (name, BASE.count(old))
-    src = BASE.replace(old, new)
-    if name in ('the walk ignores the gates', 'the gates read the control arm'):
+    src = new(BASE, old) if callable(new) else BASE.replace(old, new)
+    if name in ('the walk ignores the gates', 'the gates read the control arm', 'the binding moved above the walk'):
         ok = bool(structural(src))
     else:
         try:
             ok = bool(run(head(src)))
-        except Exception as e:
-            ok = True
+        except Exception as e:   # a mutant that merely BREAKS the code is a test error, never a kill (Claude r1 P3)
+            print('ERROR mutant %r raised %s: %s' % (name, type(e).__name__, e)); ok = False
     killed += ok
     print('%s mutant: %s' % ('KILLED' if ok else 'SURVIVED', name))
 print('mutants killed %d of %d' % (killed, len(MUTANTS)))

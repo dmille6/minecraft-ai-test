@@ -36,7 +36,9 @@
 #   LIVENESS     canary well rows from the canary build (>= 1); control 0 (control runs the base code).
 #   CORRECTNESS  (each judged ON THE CANARY ARM -- well_gates, 10-15: the control's counts are diagnostics, emitted as
 #                control_*; wellsite-02 was reverted by a CONTROL bot's recollection while C1-C8 counted both arms;
-#                any canary breach REVERTS) -- C1 recollected: _well_recollected rows + recollected= > 0;
+#                any canary breach REVERTS. rows_control is NO LONGER a leak check: every pool has the well now; the
+#                TRIPWIRE lists (inside rows, caps found open, other_loss, unresolved opens, guard_low_end ...) are all-arm,
+#                and exposure_ready / dispose_visits_canary / wells_built_canary / sword_visits count the canary) -- C1 recollected: _well_recollected rows + recollected= > 0;
 #                C2 left open: a _well_left_open / _well_open_unresolved at a (pool, cell) that no later row of the same
 #                pool shows CLOSED (cap_end=closed, the cap read back) within OPEN_GRACE (2 min) -- a transient row a
 #                visitor fixed is reported, not gated (Claude review P2-4); a visit's status is never taken as a close;
@@ -458,11 +460,11 @@ def well_gates(ev_rows, cans, cut, cv, end):
 ev_rows = sorted(load_window(PRE, END), key=lambda r: r['t'])
 print('rows walked %d  |  canary %s  sha %s  cutoff %s  window +%d min' % (len(ev_rows), CAN, CV, CUT.strftime('%H:%MZ'), W))
 rows = Counter(); kinds = Counter(); offbuild = 0
-c1 = []; c3 = []; c4 = []; misses = retaken = 0; built = defaultdict(Counter); breached = defaultdict(set)
+built = defaultdict(Counter); breached = defaultdict(set)   # printed diagnostics (all arms); the gates are well_gates'
 visits = 0; items_out = 0; freed = []; refused = Counter(); resynced = 0; pit = 0; deaths = Counter(); unresolved = 0
 opens = []; closes = []; closed_open = []; other_loss = 0; unnamed = 0; pit_open = []; aborted_misses = 0; pit_closed = []; pit_opened = 0; pit_left_rows = []; aim_off = 0; aim_read = 0; canary_throws = 0
 orders = Counter(); refused_pool = defaultdict(Counter); death_pos = []; well_cells = set(); inside_rows = []
-c7 = []; c8 = []; c8_trip = []; sword_known = 0; sword_visits = 0; inst_swords_town = 0; last_diff = {}; g_unclicked = []; guard_low_end = []; mines = defaultdict(Counter); deep_deaths = defaultdict(Counter); deep_list = []
+c8_trip = []; sword_known = 0; sword_visits = 0; inst_swords_town = 0; last_diff = {}; g_unclicked = []; guard_low_end = []; mines = defaultdict(Counter); deep_deaths = defaultdict(Counter); deep_list = []
 deaths_nopos = Counter(); qual = defaultdict(set)
 botsets = defaultdict(lambda: defaultdict(set)); last = defaultdict(dict); totals = Counter()
 for r in ev_rows:
@@ -513,10 +515,8 @@ for r in ev_rows:
     if k in ('_well_left_open', '_well_open_unresolved'):
         opens.append((t, (pool_of(b), f.get('at', '?')), b))
         unresolved += k == '_well_open_unresolved'
-    elif k == '_well_recollected':
-        c1.append((b, d[:100]))
     elif k == '_well_inside':
-        inside_rows.append((t, b, f.get('at', '?')))
+        inside_rows.append((t, b, f.get('at', '?')))   # a TRIPWIRE list (all arms); C4 itself is well_gates'
     elif k in ('_well_pit_dug', '_well_pit_open', '_well_pit_covered'):
         kind_, ev_ = pit_event(k, f, b, t, pool_of(b), arm)
         (pit_open if kind_ == 'open' else pit_closed).append(ev_)
@@ -539,21 +539,10 @@ for r in ev_rows:
     elif k == '_well_dispose':
         if arm == 'canary':
             aim_off += num(f, 'aim_off'); aim_read += num(f, 'aim_read'); canary_throws += num(f, 'tossed')
-        if num(f, 'recollected'):
-            c1.append((b, 'recollected=%d %s' % (num(f, 'recollected'), d[:80])))
-        why = c3_breach(f)
-        if why:
-            c3.append((b, why, d[:100]))
-        why7 = c7_breach(f)
-        if why7:
-            c7.append((b, why7, d[:100]))
-        w8 = c8_breach(f)
-        if w8:
-            c8.append((b, w8, d[:100]))
         t8 = c8_tripwire(f, last_diff.get(b))
         if t8:
             c8_trip.append((b, t8, d[:100]))
-        if num(f, 'swords') > 0:
+        if num(f, 'swords') > 0 and arm == 'canary':   # exposure counts the canary's sword visits only
             sword_visits += 1
             if last_diff.get(b) not in (None, 'unknown'):
                 sword_known += 1
@@ -568,12 +557,10 @@ for r in ev_rows:
         # A CLOSE: only a row whose cap was READ BACK closed (Codex round 5: status is not evidence)
         if f.get('at') and is_close(f):
             closes.append((t, (pool_of(b), f['at'])))
-        if st in ('success', 'failed') and f.get('stop') != 'aborted':
-            misses += num(f, 'misses'); retaken += num(f, 'retaken')
-        elif f.get('stop') == 'aborted':
+        if f.get('stop') == 'aborted':
             aborted_misses += num(f, 'misses')
         n = num(f, 'n')
-        if n > 0:
+        if n > 0 and arm == 'canary':   # the canary's visits (Codex r1 P3: the exposure must not count the control's)
             visits += 1; items_out += n; freed.append(num(f, 'freed')); resynced += int(f.get('server') == 'resync')
 
 
@@ -614,7 +601,6 @@ inst = sum(1 for b, inv in last['post'].items() if pool_of(b) not in CANS and oc
 # C8's POSITIVE CONTROL, at the well's place: control compost runs (the at-town, >= 34-slot gate a dispose order uses) whose
 # bot carried a sword (Codex: latest inventories anywhere are not exposure at the well)
 inst_swords = inst_swords_town
-active = {p: active_wells(cells, breached[p]) for p, cells in built.items()}
 # THE GATES JUDGE THE CANARY ARM (well_gates); the walk's all-arm lists above stay diagnostics only
 G = well_gates(ev_rows, CANS, CUT, CV, END)
 GC, GX = G['canary'], G['control']
@@ -700,7 +686,7 @@ try:
         'owner_slots_did': None if did('owner') != did('owner') else round(did('owner'), 3),
         'deco_slots_did': None if did('deco') != did('deco') else round(did('deco'), 3),
         'caps_found_open': len(closed_open), 'inside_rows': len(inside_rows), 'other_loss': other_loss, 'pits_left_uncovered': len(pit_left_rows), 'breach_pit_left_open': len(c9), 'pit_pending': len(c9_pending), 'pits_opened_canary': pit_opened, 'pits_covered_build': _by['build'], 'pits_covered_visitor': _by['visitor'], 'aim_off_canary': aim_off, 'aim_read_canary': aim_read, 'deaths_near_well': len(deaths_near),
-        'dispose_visits_canary': visits, 'wells_built_canary': sum(len(c) for c in built.values()), 'instrument_control': inst,
+        'dispose_visits_canary': visits, 'wells_built_canary': sum(len(c) for p_, c in built.items() if p_ in CANS), 'instrument_control': inst,
         'junk_slots_did': None if did('junk') != did('junk') else round(did('junk'), 3),
         'full_share_did': None if did('full') != did('full') else round(did('full'), 4),
         'exposure_ready': int(visits >= 3 and inst >= 1 and sword_visits >= 1 and inst_swords >= 1),
