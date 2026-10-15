@@ -7,7 +7,7 @@
 // wellOrder. Structural assertions only where behaviour cannot reach (the dispatch table, index.mjs's arrays), with
 // comments stripped, unique anchors, and a mutant each.
 import assert from 'node:assert/strict'
-import fsMod, { readFileSync, writeFileSync, unlinkSync, mkdtempSync } from 'node:fs'
+import fsMod, { readFileSync, writeFileSync, unlinkSync, mkdtempSync, readdirSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { createRequire } from 'node:module'
@@ -278,7 +278,9 @@ await t('SITE: flat dirt passes; a cave cell 2 off at g-3 (Codex\'s underground 
   assert.match(W.wellSiteRefusal(flatRead({ '8,63,0': B('water') }), cap, HOMEFAR), /water within 3/)
   assert.match(W.wellSiteRefusal(flatRead({ '6,64,1': B('chest') }), cap, HOMEFAR), /chest within 3/)
   assert.match(W.wellSiteRefusal(flatRead({ '6,64,1': B('composter') }), cap, HOMEFAR), /composter within 3/)
-  assert.match(W.wellSiteRefusal(flatRead({ '4,63,0': B('sand') }), cap, HOMEFAR), /wall is sand/)
+  // wellsite-01: a sand wall is refused only when it can fall (the cell under it is not ground); one resting on dirt holds
+  assert.match(W.wellSiteRefusal(flatRead({ '4,63,0': B('sand'), '4,62,0': AIR }), cap, HOMEFAR), /wall is sand/)
+  assert.equal(W.wellSiteRefusal(flatRead({ '4,63,0': B('sand') }), cap, HOMEFAR), null, 'a sand wall on dirt cannot fall: it is a wall')
   assert.equal(W.wellSiteRefusal(flatRead(), { x: 1, y: 63, z: 0 }, HOME0), 'too near home (bots idle there)')
   assert.equal(W.wellSiteRefusal(flatRead(), { x: 6, y: 63, z: 0 }, HOME0), 'too near home (bots idle there)', 'inside WELL_HOME_CLEARANCE')
   assert.equal(W.wellSiteRefusal(flatRead(), cap, HOMEFAR, { avoid: [{ x: 6, z: 1 }] }), 'the composter site is within 3')
@@ -1394,11 +1396,201 @@ await t('MUTANT (skills): digging without the record settle digs before peers ca
     assert.ok(firstDig !== null && firstDig < fresh, 'mutant inert')
   })
 })
-await t('MUTANT (skills): throwing into a breached well (#6 killed)', async () => {
-  await withMutant(SP, "  if (well.breach) return skip('breached',", "  if (false) return skip('breached',", async m => {
+await t('MUTANT (skills): throwing into a breached well (#6 killed) -- the entry check, the stand re-check and the click re-check (wellsite-01) all removed', async () => {
+  await withMutants(SP, [["  if (well.breach) return skip('breached',", "  if (false) return skip('breached',"],
+                         ['      if (sealed) { out.refused = \'breached\'; out.stop = sealed; return out }', '      if (false) { out.refused = \'breached\'; out.stop = sealed; return out }'],
+                         ['      if (unsealed) { acc.stop = `breached: ${unsealed}`; break }\n', '']], async m => {
     const town = fakeTown({ wellAt: CAP, items: [S('egg', 16), ...filler(34)], blocks: { [`${CAP.x + 1},${CAP.y - 1},${CAP.z}`]: 'air' } })
     await within(m.SKILLS.dispose_well.run({ bot: town.bot }, {}, { aborted: false }), 15000, 'mutant')
     assert.ok(town.state.clicks.length > 0, 'mutant inert')
+  })
+})
+await t('wellsite-01 DEFENCE IN DEPTH: with the entry check removed, the stand re-check alone still throws nothing into a breached well', async () => {
+  await withMutant(SP, "  if (well.breach) return skip('breached',", "  if (false) return skip('breached',", async m => {
+    const town = fakeTown({ wellAt: CAP, items: [S('egg', 16), ...filler(34)], blocks: { [`${CAP.x + 1},${CAP.y - 1},${CAP.z}`]: 'air' } })
+    const r = await within(m.SKILLS.dispose_well.run({ bot: town.bot }, {}, { aborted: false }), 15000, 'mutant')
+    assert.equal(town.state.clicks.length, 0, 'thrown into a breached well'); assert.equal(town.state.activations.length, 0, 'the cap was opened')
+    assert.equal(r.status, 'no_effect'); assert.match(r.detail, /read unsealed at the stand \(wall is air\)/)
+  })
+})
+
+// ---- wellsite-01 (10-13): a supported sand wall, the stand re-check, the exhausted search, one retirement row ----------
+const steadyTown = (extra = {}, o = {}) => fakeTown({ wellAt: CAP, items: [S('egg', 16), ...filler(34)], blocks: { [`${CAP.x + 1},${CAP.y},${CAP.z + 1}`]: 'sand', ...extra }, ...o })
+await t('wellsite-01 A SUPPORTED SAND WALL IS A WELL (placebo-b 10-12): sand on dirt beside the cap -- not breached, disposed into; positive control: the same sand over air is a breach', async () => {
+  const { townWellState } = await import('../src/skills.mjs')
+  const town = steadyTown()
+  assert.equal(townWellState(town.bot).breached, false)
+  const r = await run('dispose_well', town.bot)
+  assert.equal(r.status, 'success', r.detail); assert.equal(town.count('egg'), 0)
+  const loose = steadyTown({ [`${CAP.x + 1},${CAP.y - 1},${CAP.z + 1}`]: 'air' })
+  assert.equal(townWellState(loose.bot).breached, true, 'positive control: sand that can fall is no wall')
+})
+await t('wellsite-01 THE STAND RE-CHECK (Codex r1 P1): the sand wall\'s support dug away during the visit (after the entry check, before the throw) -- nothing thrown, cap never opened, a named skip', async () => {
+  const town = steadyTown()
+  let dug = false
+  town.state.onResync = () => { if (!dug) { dug = true; town.world.set(`${CAP.x + 1},${CAP.y - 1},${CAP.z + 1}`, { name: 'air' }) } }
+  const r = await run('dispose_well', town.bot)
+  assert.ok(dug, 'positive control: the support was dug inside the visit')
+  assert.equal(r.status, 'no_effect', r.detail); assert.match(r.detail, /read unsealed at the stand \(wall is sand\)/)
+  assert.equal(town.state.clicks.length, 0); assert.equal(town.state.activations.length, 0)
+  assert.equal(town.count('egg'), 16)
+  const row = (await rows('_well_refused')).pop()
+  assert.match(row.skill.detail, /^order=dispose reason=breached at=/)
+})
+await t('wellsite-01 THE CLICK RE-CHECK (Codex r2 P1): the support dug during the AIM (after the cap opened) -- no stack clicked, the cap closed, a named no_effect', async () => {
+  const town = steadyTown()
+  let dug = false
+  town.state.onLook = () => { if (!dug) { dug = true; town.world.set(`${CAP.x + 1},${CAP.y - 1},${CAP.z + 1}`, { name: 'air' }) } }
+  const r = await run('dispose_well', town.bot)
+  assert.ok(dug, 'positive control: dug inside the aim'); assert.ok(town.state.activations.length > 0, 'positive control: the cap had opened (the stand check passed)')
+  assert.equal(town.state.clicks.length, 0, 'thrown into an unsealed shaft'); assert.equal(town.count('egg'), 16)
+  assert.equal(r.status, 'no_effect', r.detail); assert.match(r.detail, /unsealed at the click \(wall is sand\)/)
+  assert.equal(town.world.get(town.key(CAP)).props.open, false, 'the cap was left open')
+})
+await t('wellsite-01 THE DIG-CLICK GAP WAITED TO THE END (Codex r3 P1): a dig renewed during the wait -- the click comes a whole gap after the LATEST dig', async () => {
+  const town = steadyTown()
+  let gapAtClick = null, renewed = false
+  town.state.onLook = () => { if (town.bot.lastDigTime == null) { town.bot.lastDigTime = Date.now(); setTimeout(() => { renewed = true; town.bot.lastDigTime = Date.now() }, 300) } }
+  town.state.onClick = async () => { if (gapAtClick == null) gapAtClick = Date.now() - town.bot.lastDigTime }
+  const r = await run('dispose_well', town.bot)
+  assert.equal(r.status, 'success', r.detail); assert.ok(renewed, 'positive control: the dig was renewed inside the wait')
+  assert.ok(gapAtClick >= 540, `clicked ${gapAtClick} ms after the latest dig`)
+})
+await t('MUTANT (skills): a one-shot dig-gap wait clicks inside a renewed gap', async () => {
+  await withMutant(SP, '        if (++digWaits > DIG_CLICK_MAX_WAITS) break\n        await sleep(DIG_CLICK_GAP_MS - sinceDig, signal)\n', '        if (++digWaits > DIG_CLICK_MAX_WAITS) break\n        await sleep(DIG_CLICK_GAP_MS - sinceDig, signal)\n        break\n', async m => {
+    const town = steadyTown()
+    let gapAtClick = null
+    town.state.onLook = () => { if (town.bot.lastDigTime == null) { town.bot.lastDigTime = Date.now(); setTimeout(() => { town.bot.lastDigTime = Date.now() }, 300) } }
+    town.state.onClick = async () => { if (gapAtClick == null) gapAtClick = Date.now() - town.bot.lastDigTime }
+    await within(m.SKILLS.dispose_well.run({ bot: town.bot }, {}, { aborted: false }), 15000, 'mutant')
+    assert.ok(gapAtClick != null && gapAtClick < 540, `mutant inert (${gapAtClick})`)
+  })
+})
+await t('MUTANT (skills): without the click re-check a support dug during the aim is thrown past', async () => {
+  await withMutant(SP, '      if (unsealed) { acc.stop = `breached: ${unsealed}`; break }\n', '', async m => {
+    const town = steadyTown()
+    let dug = false
+    town.state.onLook = () => { if (!dug) { dug = true; town.world.set(`${CAP.x + 1},${CAP.y - 1},${CAP.z + 1}`, { name: 'air' }) } }
+    await within(m.SKILLS.dispose_well.run({ bot: town.bot }, {}, { aborted: false }), 15000, 'mutant')
+    assert.ok(town.state.clicks.length > 0, 'mutant inert')
+  })
+})
+await t('MUTANT (skills): without the stand re-check the cap OPENS over a shaft whose support went during the resync (the click re-check still throws nothing)', async () => {
+  await withMutant(SP, '      if (sealed) { out.refused = \'breached\'; out.stop = sealed; return out }', '', async m => {
+    const town = steadyTown()
+    let dug = false
+    town.state.onResync = () => { if (!dug) { dug = true; town.world.set(`${CAP.x + 1},${CAP.y - 1},${CAP.z + 1}`, { name: 'air' }) } }
+    await within(m.SKILLS.dispose_well.run({ bot: town.bot }, {}, { aborted: false }), 15000, 'mutant')
+    assert.ok(town.state.activations.length > 0, 'mutant inert')
+    assert.equal(town.state.clicks.length, 0, 'the click re-check, unmutated, still holds')
+  })
+})
+// THE EXHAUSTED SEARCH: every column of rings 7..14 has air two below its ground (the floor), so no cell passes
+const noFloor = () => { const b = {}; for (let dx = -14; dx <= 14; dx++) for (let dz = -14; dz <= 14; dz++) if (Math.max(Math.abs(dx), Math.abs(dz)) >= 7) b[`${HOME.x + dx},${G0 - 2},${HOME.z + dz}`] = 'air'; return b }
+await t('wellsite-01 AN EXHAUSTED SEARCH: no_effect with failClass well_no_site, one _well_refused reason=no_site row with tally= first (inside 300); every column counted', async () => {
+  const town = fakeTown({ items: [S('oak_trapdoor', 2), S('dirt', 1)], blocks: noFloor() })
+  const r = await run('build_well', town.bot)
+  assert.equal(r.status, 'no_effect', r.detail); assert.equal(r.failClass, 'well_no_site')
+  const row = (await rows('_well_refused')).pop()
+  assert.match(row.skill.detail, /^order=build reason=no_site tally=cols:672,\S* rec=ok w=/, row.skill.detail)
+  assert.ok(row.skill.detail.length <= 300)
+  const tally = Object.fromEntries(field(row.skill.detail, 'tally').split(',').map(kv => kv.split(':')).map(([k, v]) => [k, Number(v)]))
+  assert.equal(Object.entries(tally).filter(([k]) => k !== 'cols').reduce((a, [, v]) => a + v, 0), tally.cols, 'every column has one class')
+  assert.ok(tally.floor > 0, 'the floor rule refused them')
+  // the scheduler holds the build order for WELL_NO_SITE_BACKOFF_MS
+  assert.equal(W.wellOrderOutcome('build_well', r.status, NOW, {}, r.failClass).buildBackoffUntil, NOW + W.WELL_NO_SITE_BACKOFF_MS)
+})
+await t('wellsite-01 THE TOWN REMEMBERS (reconnect-proof): A searches in vain -> a record; B of the same pool is held without a search (few cells read); the record aged out, or from another world, B searches', async () => {
+  const store = mkdtempSync(path.join(tmpdir(), 'well-store-'))
+  const a = fakeTown({ storeDir: store, items: [S('oak_trapdoor', 2), S('dirt', 1)], blocks: noFloor() })
+  assert.equal((await run('build_well', a.bot)).failClass, 'well_no_site')
+  const { readWellNoSite } = await import('../src/skills.mjs')
+  const rec = readWellNoSite()
+  assert.ok(rec && Number.isFinite(rec.at), 'no record written'); assert.match(rec.tally, /^cols:672,/)
+  const counted = town => { let n = 0; const f = town.bot.blockAt; town.bot.blockAt = p => { n++; return f(p) }; return () => n }
+  const b = fakeTown({ storeDir: store, items: [S('oak_trapdoor', 2), S('dirt', 1)], blocks: noFloor() })
+  // THE SCHEDULER issues no build order while the town holds (townWellBuildPlan null), on a fresh CognitiveLoop too
+  const { townWellBuildPlan } = await import('../src/skills.mjs')
+  assert.equal(townWellBuildPlan(b.bot), null, 'the held town still offered a build plan')
+  const bOrder = W.wellOrder({ now: Date.now(), distHome: 3, slots: 10, freeSlots: 26, well: null, buildPlan: () => townWellBuildPlan(b.bot), myName: 'b', peers: [], state: {} })
+  assert.equal(bOrder.order, null, 'a held town was ordered to build')
+  // an order that got through anyway (the instant before the record landed): a FREE skip, no search
+  const nb = counted(b)
+  const rb = await run('build_well', b.bot)
+  assert.equal(rb.status, 'no_effect'); assert.equal(rb.failClass, undefined, 'a held skip must not push the bot past the record'); assert.match(rb.detail, /no search for \d+ min more/)
+  assert.ok(nb() < 2000, `the held build read ${nb()} cells: it searched`)
+  assert.match((await rows('_well_refused')).pop().skill.detail, /^order=build reason=no_site_held /)
+  // aged out: the next order searches (and records again)
+  writeFileSync(path.join(store, readdirSync(store).find(f => f.startsWith('junkwell-nosite-'))), JSON.stringify({ ...rec, at: Date.now() - W.WELL_NO_SITE_BACKOFF_MS - 1 }))
+  const c = fakeTown({ storeDir: store, items: [S('oak_trapdoor', 2), S('dirt', 1)], blocks: noFloor() })
+  assert.equal(townWellBuildPlan(c.bot)?.carried, true, 'positive control: aged out, the plan is offered again')
+  const nc = counted(c)
+  assert.equal((await run('build_well', c.bot)).failClass, 'well_no_site')
+  assert.ok(nc() > 10000, `positive control: an aged record lets the search run (${nc()} cells)`)
+  assert.match((await rows('_well_refused')).pop().skill.detail, /^order=build reason=no_site tally=/)
+  // another world (a reseed keeps the pool and home): not held
+  writeFileSync(path.join(store, readdirSync(store).find(f => f.startsWith('junkwell-nosite-'))), JSON.stringify({ ...rec, at: Date.now(), world: 'old-world' }))
+  const d = fakeTown({ storeDir: store, items: [S('oak_trapdoor', 2), S('dirt', 1)], blocks: noFloor() })
+  d.bot.worldId = 'new-world'
+  const nd = counted(d)
+  await run('build_well', d.bot)
+  assert.ok(nd() > 10000, 'a record from another world held the build')
+})
+await t('MUTANT (skills): the scheduler\'s plan ignores the town record -- a held town is ordered to build again', async () => {
+  await withMutant(SP, '  if (noSiteHold({ record: readWellNoSite(), now: Date.now(), world: bot.worldId ?? null }).held) return null\n', '', async m => {
+    const store = mkdtempSync(path.join(tmpdir(), 'well-store-'))
+    const a = fakeTown({ storeDir: store, items: [S('oak_trapdoor', 2), S('dirt', 1)], blocks: noFloor() })
+    await within(m.SKILLS.build_well.run({ bot: a.bot }, {}, { aborted: false }), 15000, 'mutant')
+    const b = fakeTown({ storeDir: store, items: [S('oak_trapdoor', 2), S('dirt', 1)], blocks: noFloor() })
+    assert.ok(m.townWellBuildPlan(b.bot), 'mutant inert')
+  })
+})
+await t('MUTANT (skills): the town record not consulted inside the build -- a raced order searches again', async () => {
+  await withMutant(SP, '  if (hold.held) {\n    return skip(\'no_site_held\',', '  if (false) {\n    return skip(\'no_site_held\',', async m => {
+    const store = mkdtempSync(path.join(tmpdir(), 'well-store-'))
+    const a = fakeTown({ storeDir: store, items: [S('oak_trapdoor', 2), S('dirt', 1)], blocks: noFloor() })
+    await within(m.SKILLS.build_well.run({ bot: a.bot }, {}, { aborted: false }), 15000, 'mutant')
+    const b = fakeTown({ storeDir: store, items: [S('oak_trapdoor', 2), S('dirt', 1)], blocks: noFloor() })
+    await within(m.SKILLS.build_well.run({ bot: b.bot }, {}, { aborted: false }), 15000, 'mutant')
+    assert.match((await rows('_well_refused')).pop().skill.detail, /reason=no_site tally=/, 'mutant inert')
+  })
+})
+await t('wellsite-01 A DEFERRAL IS NOT EXHAUSTED: one unloaded cell in the first ring -- reason=site_deferred, no failClass, no backoff', async () => {
+  const town = fakeTown({ items: [S('oak_trapdoor', 2), S('dirt', 1)], blocks: noFloor(), unloaded: [`${HOME.x - 7},${G0},${HOME.z - 7}`, `${HOME.x + 7},${G0},${HOME.z - 7}`, `${HOME.x - 7},${G0},${HOME.z + 7}`, `${HOME.x + 7},${G0},${HOME.z + 7}`] })
+  const r = await run('build_well', town.bot)
+  assert.equal(r.status, 'no_effect', r.detail); assert.equal(r.failClass, undefined)
+  assert.match((await rows('_well_refused')).pop().skill.detail, /^order=build reason=site_deferred .*unknown cell/)
+  assert.equal(W.wellOrderOutcome('build_well', r.status, NOW, {}, r.failClass ?? null).buildBackoffUntil ?? 0, 0)
+})
+await t('MUTANT (skills): every missing site called exhausted backs a deferral off for two hours', async () => {
+  await withMutant(SP, '  if (!site && exhausted) {', '  if (!site) {', async m => {
+    const town = fakeTown({ items: [S('oak_trapdoor', 2), S('dirt', 1)], blocks: noFloor(), unloaded: [`${HOME.x - 7},${G0},${HOME.z - 7}`, `${HOME.x + 7},${G0},${HOME.z - 7}`, `${HOME.x - 7},${G0},${HOME.z + 7}`, `${HOME.x + 7},${G0},${HOME.z + 7}`] })
+    const r = await within(m.SKILLS.build_well.run({ bot: town.bot }, {}, { aborted: false }), 15000, 'mutant')
+    assert.equal(r.failClass, 'well_no_site', 'mutant inert')
+  })
+})
+await t('wellsite-01 ONE RETIREMENT ROW per well and reason per bot: two builds past a breached well write one row; a fresh bot one more; the well read sealed again and re-breached, one more', async () => {
+  const breached = { [`${CAP.x + 1},${CAP.y - 1},${CAP.z}`]: 'air' }
+  const town = fakeTown({ wellAt: CAP, items: [S('dirt', 1)], blocks: breached })
+  const n0 = (await rows('_well_retired')).length
+  const b1 = await run('build_well', town.bot); await run('build_well', town.bot)
+  assert.match(b1.detail, /wood|planks|log/i, 'positive control: the build got past the retirement loop (to the wood check)')
+  assert.equal((await rows('_well_retired')).length, n0 + 1, 'two builds, one row')
+  const other = fakeTown({ wellAt: CAP, items: [S('dirt', 1)], blocks: breached })
+  await run('build_well', other.bot)
+  assert.equal((await rows('_well_retired')).length, n0 + 2, 'another bot says it once too')
+  town.world.set(`${CAP.x + 1},${CAP.y - 1},${CAP.z}`, { name: 'dirt' })
+  assert.match((await run('build_well', town.bot)).detail, /already has a junk well/, 'positive control: sealed again')
+  town.world.set(`${CAP.x + 1},${CAP.y - 1},${CAP.z}`, { name: 'air' })
+  await run('build_well', town.bot)
+  assert.equal((await rows('_well_retired')).length, n0 + 3, 'breached again after reading sealed: said again')
+})
+await t('MUTANT (skills): without the once-per-well log every build re-says the retirement', async () => {
+  await withMutant(SP, '    if (!retiredSaid(bot).say(w.cap, why)) continue\n', '', async m => {
+    const town = fakeTown({ wellAt: CAP, items: [S('dirt', 1)], blocks: { [`${CAP.x + 1},${CAP.y - 1},${CAP.z}`]: 'air' } })
+    const n0 = (await rows('_well_retired')).length
+    for (let i = 0; i < 2; i++) await within(m.SKILLS.build_well.run({ bot: town.bot }, {}, { aborted: false }), 15000, 'mutant')
+    assert.ok((await rows('_well_retired')).length > n0 + 1, 'mutant inert')
   })
 })
 
@@ -2329,6 +2521,17 @@ await t('MUTANT (cognitive): the outcome line removed is detected', () => {
 })
 
 // ---- mutants on the decisions (withMutant as in climb-escape.test.mjs: anchor present AND unique) ----------------------
+async function withMutants (file, pairs, fn) {
+  let src = readFileSync(file, 'utf8')
+  for (const [old, neu] of pairs) {
+    assert.ok(src.includes(old), `MUTATION DID NOT APPLY: ${JSON.stringify(old.slice(0, 60))} is not in ${file.pathname}`)
+    assert.equal(src.split(old).length, 2, 'the mutation target is not unique; the mutant is ambiguous')
+    src = src.replace(old, neu)
+  }
+  const out = new URL(`./_mutant-${process.pid}-${Math.random().toString(36).slice(2)}.mjs`, import.meta.url)
+  writeFileSync(out, src.replace(/from '\.\//g, "from '../src/"))
+  try { return await fn(await import(out.href)) } finally { try { unlinkSync(out) } catch {} }
+}
 async function withMutant (file, old, neu, fn) {
   const src = readFileSync(file, 'utf8')
   assert.ok(src.includes(old), `MUTATION DID NOT APPLY: ${JSON.stringify(old.slice(0, 60))} is not in ${file.pathname}`)
