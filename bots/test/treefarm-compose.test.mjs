@@ -79,6 +79,52 @@ await t('FARM -> WELL: the well site search (townWellSite, the plinth plans thro
   assert.match(TF.farmWellAvoid(fit.record).find(a => flat(a, bare.site) < a.r)?.what ?? '', /tree-farm plot/)
 })
 
+await t('PRECEDENCE (Codex r1 P2): a well site recorded in a race with the farm stays valid; the FARM yields -- its record is refused and it re-founds away', async () => {
+  // the race's outcome on disk: a farm record AND a well site within FARM_WELL_DISTANCE of one of its plots
+  const dir = pool('race')
+  const farm0 = TF.canonicalFarm({ home: HOME, read: world().read }).record
+  writeFarm(dir, farm0)
+  const p0 = plotsOf(farm0)[4]
+  const cap = { x: p0.x + 2, y: 63, z: p0.z }
+  writeWellSite(dir, cap)
+  const { bot } = fakeTown({ items: [S('birch_sapling', 9)], storeDir: dir })
+  // THE WELL: its recorded site is judged without the farm -- it is kept, generation 1, not moved
+  const w = SK.townWellSite(bot)
+  assert.deepEqual(w.site, cap, `the recorded well stays (${w.why})`); assert.equal(w.gen, 1)
+  // THE FARM: the cheap order view schedules a re-founding, and the skill's resolution writes generation 2 away from the well
+  const plan = SK.townFarmPlan(bot)
+  assert.equal(plan?.actions?.[0]?.role, 'refound', JSON.stringify(plan?.actions))
+  const farm = SK.townFarm(bot)
+  assert.ok(farm.record, farm.why); assert.equal(farm.gen, 2)
+  assert.deepEqual(plotsOf(farm.record).filter(p => flat(p, cap) < TF.FARM_WELL_DISTANCE), [])
+  assert.equal(TF.farmYields(farm.record, [{ x: cap.x, z: cap.z, r: TF.FARM_WELL_DISTANCE, what: 'junk_well' }]), null, 'stable: the new farm does not yield again')
+  // and the well still stands where it was
+  assert.deepEqual(SK.townWellSite(bot).site, cap)
+})
+
+await t('CHEST CLAIM IN FLIGHT (Codex r1 P2): a farm founded while a new chest is claimed but not yet placed keeps its distance; a claim that lands after the farm makes the farm yield', async () => {
+  const dir = pool('claim')
+  const free = TF.canonicalFarm({ home: HOME, read: world().read }).record
+  const p0 = plotsOf(free)[0]
+  const CFm = await import('../src/chestfull.mjs')
+  const key = CFm.townKey(HOME)
+  const site = { x: p0.x + 1, y: 64, z: p0.z }
+  const c = CFm.claimNewChest({ dir, key, site, world: 'w1' })
+  assert.ok(c.ok, c.why)
+  const { bot } = fakeTown({ items: [S('birch_sapling', 9)], storeDir: dir })
+  const farm = SK.townFarm(bot)
+  assert.ok(farm.record, farm.why)
+  assert.deepEqual(farm.record.cells.filter(q => flat(q, site) <= TF.FARM_CONTAINER_DISTANCE), [], 'no farm cell within 3 of the claimed chest')
+  // the reverse order: the farm first, then a claim beside a plot (the chest re-check lost the race) -> the farm yields
+  const dir2 = pool('claim2')
+  writeFarm(dir2, free)
+  assert.ok(CFm.claimNewChest({ dir: dir2, key, site, world: 'w1' }).ok)
+  const b2 = fakeTown({ items: [S('birch_sapling', 9)], storeDir: dir2 })
+  assert.equal(SK.townFarmPlan(b2.bot)?.actions?.[0]?.role, 'refound')
+  const moved = SK.townFarm(b2.bot)
+  assert.equal(moved.gen, 2); assert.deepEqual(moved.record.cells.filter(q => flat(q, site) <= TF.FARM_CONTAINER_DISTANCE), [])
+})
+
 await t('PLINTH -> FARM: a raised-well plan on disk (plinth-01) keeps the farm off its cap and every planned cell and stand', async () => {
   const dir = pool('plinth')
   const free = TF.canonicalFarm({ home: HOME, read: world().read }).record
@@ -288,12 +334,36 @@ await t('LOOP CHAIN (the town orders first): at 34+ slots with a farm to found, 
 // ================================================================ wiring with mutants ========================================
 
 const strip = src => src.replace(/\/\*[\s\S]*?\*\//g, '').split('\n').map(l => l.replace(/(^|[^:'"`])\/\/.*$/, '$1')).join('\n')
-await t('WIRED: chest-full passes the farm to BOTH chest-site checks, and the well\'s avoid list carries the farm (source, comments stripped)', () => {
-  const s = strip(readFileSync(new URL('../src/skills.mjs', import.meta.url), 'utf8'))
-  assert.equal((s.match(/pickChestSite\(\{[^}]*\bfarm\b[^}]*\}\)/g) ?? []).length, 2, 'both pickChestSite calls')
-  assert.ok(/chestSiteRefusal\(read, pick\.site, \{[^}]*farm: chestFarmIndex\(bot\)[^}]*\}\)/.test(s), 'the re-check on arrival')
-  assert.ok(/out\.push\(\.\.\.farmWellAvoid\(knownFarmRecord\(bot\)\)\)/.test(s), 'wellAvoid')
-  assert.ok(/canonicalFarm\(\{ home, read, avoid: farmAvoid\(bot\), reserved: c => pastBorder\(c\) \|\| inFloorBand\(home, c\) \}\)/.test(s), 'the farm search')
+const wired = src => {
+  const s = strip(src)
+  assert.equal((s.match(/pickChestSite\(\{[^}]*\bfarm\b[^}]*\}\)/g) ?? []).length, 2, 'both pickChestSite calls pass the farm')
+  assert.ok(/chestSiteRefusal\(read, pick\.site, \{[^}]*farm: chestFarmIndex\(bot\)[^}]*\}\)/.test(s), 'the re-check on arrival passes the farm')
+  assert.ok(/compute: \(\) => canonicalWellSite\(\{ home, read, avoid: wellSearchAvoid\(bot\) \}\)/.test(s), 'a NEW well site keeps off the farm')
+}
+const SKSRC = readFileSync(new URL('../src/skills.mjs', import.meta.url), 'utf8')
+await t('WIRED: chest-full passes the farm to both chest-site picks and the arrival re-check; the well\'s NEW-site search carries the farm (source, comments stripped)', () => wired(SKSRC))
+await t('MUTANTS KILLED: each wiring removed fails the wiring check (anchor present and unique)', () => {
+  const muts = [
+    ['    const first = pickChestSite({ read, anchor, home, composterSites, bodies, wells, farm, skip })', '    const first = pickChestSite({ read, anchor, home, composterSites, bodies, wells, skip })'],
+    ['wells: chestWellKeepouts(bot), farm: chestFarmIndex(bot) })) { site = pick.site; break }', 'wells: chestWellKeepouts(bot) })) { site = pick.site; break }'],
+    ['    compute: () => canonicalWellSite({ home, read, avoid: wellSearchAvoid(bot) }),', '    compute: () => canonicalWellSite({ home, read, avoid }),'],
+  ]
+  for (const [old, neu] of muts) {
+    assert.equal(SKSRC.split(old).length, 2, `anchor present and unique: ${old.slice(0, 50)}`)
+    assert.throws(() => wired(SKSRC.replace(old, neu)), `the mutant is caught: ${old.slice(0, 50)}`)
+  }
+})
+
+await t('FLOOR, through townFarm (the skill\'s own search): a town dug into a pit inside the square gets a farm outside the band', () => {
+  const over = {}
+  for (let x = -16; x <= 16; x++) for (let z = -16; z <= 16; z++) { for (let y = 60; y <= 63; y++) over[K(x, y, z)] = 'air'; over[K(x, 59, z)] = 'grass_block' }
+  const { bot } = fakeTown({ items: [S('birch_sapling', 9)], over, storeDir: pool('pit') })
+  const farm = SK.townFarm(bot)
+  assert.ok(farm.record, farm.why)
+  assert.deepEqual(farm.record.cells.filter(c => TF.inFloorBand(HOME, c)), [])
+  // positive control: the same search without the band guard puts plots in the pit
+  const raw = TF.canonicalFarm({ home: HOME, read: (x, y, z) => { const b = bot.blockAt(new Vec3(x, y, z)); return b ? { name: b.name, boundingBox: b.boundingBox } : null } }).record
+  assert.ok(raw && raw.cells.some(c => TF.inFloorBand(HOME, c)), 'without the guard the pit is used')
 })
 
 console.log(`\n${pass} passed, ${fail} failed`)

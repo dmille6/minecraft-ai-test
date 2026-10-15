@@ -72,7 +72,7 @@ import { resolveRecord, readRecord, takeLease, holdsLease, releaseLease, standsF
          reachOf as bpReachOf, REACH as BP_REACH, DIG_REACH as BP_DIG_REACH, REPLACEABLE as BP_REPLACEABLE, bodyInCell as bpBodyInCell } from './blueprint.mjs'
 import { canonicalFarm, farmRecordRefusal, plotsOf, torchesOf, plotState, torchState, tendPlan, farmIndex, emptyFarmIndex, inPlotColumn,
          isPlotCell, farmNoDig, inFarmBox, farmPlaceRefusal, farmTendDetail, bonemealEnabled, farmEnabled, FARM_SPECIES, MIN_PLOTS,
-         farmWellAvoid, inFloorBand, FARM_WELL_DISTANCE, FARM_TORCH_WELL_DISTANCE } from './treefarm.mjs'
+         farmWellAvoid, inFloorBand, farmYields, FARM_WELL_DISTANCE, FARM_TORCH_WELL_DISTANCE, FARM_CONTAINER_DISTANCE } from './treefarm.mjs'
 import path from 'node:path'
 import { IRON_KINDS, MIN_TRIP_USES, CANDIDATE_RADIUS, breakHazard, nearHome, pickBudget, rankCandidates, clusterOf, tunnelMovements, planTunnel, ONE_PICK_USES, tripDecision } from './oretunnel.mjs'
 import pkg from 'mineflayer-pathfinder'
@@ -7355,7 +7355,10 @@ export const reservationAwareRead = (read, idx) => (x, y, z) =>
  *     invalidate the other;
  *   - THE RAISED WELL (plinth-01, when its record exists): the planned cap at FARM_WELL_DISTANCE and every planned cell
  *     and stand at FARM_TORCH_WELL_DISTANCE (a plinth's shell and stair are cobble the farm must not grow into).
+ *   - A NEW CHEST in flight (chest-full's live claims), FARM_CONTAINER_DISTANCE.
  * The town floor's band is refused through `reserved` (treefarm.mjs inFloorBand), not here.
+ * THE FARM YIELDS to the well, the raised well and a chest claim (FARM_YIELDS_TO): a recorded farm within their keep-out is
+ * refused and re-founded (farmYields), so a race between their foundings resolves the same way every time.
  */
 function farmAvoid (bot = null) {
   const out = []
@@ -7365,6 +7368,9 @@ function farmAvoid (bot = null) {
   } catch { /* no record: the CONTAINER scan still keeps a placed composter away */ }
   const well = (x, z, r, what) => { if (Number.isFinite(x) && Number.isFinite(z)) out.push({ x, z, r, what }) }
   try { for (const w of (bot ? findTownWells(bot) : [])) well(w.cap?.x, w.cap?.z, FARM_WELL_DISTANCE, 'junk_well') } catch { /* none found */ }
+  // A NEW CHEST IN FLIGHT (Codex r1 P2): chest-full's claim is written before its equip/submit awaits, while the cell still
+  // reads as air; a claim keeps the farm's own container distance (plotRefusal's FARM_CONTAINER_DISTANCE, <= 3)
+  try { for (const c of (bot ? liveChestClaims(bot) : [])) well(c.x, c.z, FARM_CONTAINER_DISTANCE + 0.5, 'chest_claim') } catch { /* no ledger */ }
   try { const r = bot ? recordedWellSite(bot) : null; if (r) well(r.x, r.z, FARM_WELL_DISTANCE, 'junk_well') } catch { /* no record */ }
   try {
     const rec = readPlinthRecordForFarm(bot)
@@ -7393,14 +7399,15 @@ export function townFarm (bot) {
   const home = homeVec()
   const memo = new Map()
   const read = farmRead(bot, { memo })
+  const avoid = farmAvoid(bot)
   return resolveRecord({
     dir: farmDir(), key: farmKey(), world: bot.worldId ?? null,
     // NEVER OUTSIDE THE WORLD BORDER the other skills keep to (gather and goto refuse past it: Paper sandbox run 1) -- for a
     // new farm AND for a recorded one (a border can shrink: Codex r4)
     // ...nor in the town floor's band (a dug-out pit inside the town square: the floor job's cells to fill), nor near a
     // junk well or a raised well's plan (farmAvoid)
-    compute: () => canonicalFarm({ home, read, avoid: farmAvoid(bot), reserved: c => pastBorder(c) || inFloorBand(home, c) }),
-    refuse: rec => farmRecordRefusal(read, rec, { reserved: pastBorder }),
+    compute: () => canonicalFarm({ home, read, avoid, reserved: c => pastBorder(c) || inFloorBand(home, c) }),
+    refuse: rec => farmRecordRefusal(read, rec, { reserved: pastBorder }) ?? farmYields(rec, avoid),
   })
 }
 
@@ -7420,7 +7427,8 @@ export function townFarmPlan (bot) {
   const read = readCell(bot)
   // A RECORDED FARM THAT IS NO LONGER A FARM (Codex review) must still be able to schedule its own replacement: the site
   // search runs inside the skill, under the lease; here only the cheap verdict and the founding prerequisite.
-  const why = farmRecordRefusal(read, rec, { reserved: pastBorder })
+  // ...and one that must YIELD to a well, a raised well's plan or a chest claim within its keep-out (Codex r1 P2)
+  const why = farmRecordRefusal(read, rec, { reserved: pastBorder }) ?? farmYields(rec, farmAvoid(bot))
   if (why && why !== 'unknown') {
     const saplings = FARM_SPECIES.reduce((a, s) => a + (held[s] ?? 0), 0)
     return saplings >= MIN_PLOTS ? { actions: [{ kind: 'found', role: 'refound' }], counts: {}, materials: null } : null
@@ -7731,6 +7739,16 @@ function wellAvoid (bot) {
   // flight (unresolved, younger than RECONCILE_AFTER_MS; the placement and read-back take <= CLAIM_BUDGET_MS). An
   // unreadable cell never establishes absence; a claim read back as gone or not placed counts for nothing; and an
   // abandoned claim over loaded air cannot keep the well out forever.
+  for (const c of liveChestClaims(bot)) out.push({ x: c.x, z: c.z, r, what: 'a new chest (claimed)' })
+  return out
+}
+/**
+ * THE CHEST CLAIMS THAT COUNT AS A CHEST (chest-full's ledger), for any site search that must keep its distance: a claim
+ * counts unless its cell is READ here and holds no chest -- then only while it is still in flight (unresolved, younger
+ * than RECONCILE_AFTER_MS). Never throws.
+ */
+function liveChestClaims (bot) {
+  const out = []
   try {
     const now = Date.now()
     for (const c of readClaims(townDir(), homeTownKey())) {
@@ -7739,12 +7757,22 @@ function wellAvoid (bot) {
       try { const b = bot.blockAt(new Vec3(c.x, c.y, c.z)); name = b ? blockNameOf(bot, b) : null } catch { name = null }
       const absent = name != null && !/^(chest|trapped_chest)$/.test(name)
       if (absent && !(c.state === 'unresolved' && now - c.at < RECONCILE_AFTER_MS)) continue
-      out.push({ x: c.x, z: c.z, r, what: 'a new chest (claimed)' })
+      out.push(c)
     }
   } catch { /* no ledger */ }
-  // THE TOWN TREE FARM (treefarm-01): no well cap within FARM_WELL_DISTANCE of a plot (a canopy over the throw column, a
-  // stand on a plot) or FARM_TORCH_WELL_DISTANCE of a torch -- the distance the farm's own search keeps from a well, so
-  // neither can invalidate the other. The raised well (plinth-01) plans through this same list.
+  return out
+}
+/**
+ * THE WELL'S SEARCH FOR A NEW SITE (canonicalWellSite, and plinth-01's planner): wellAvoid plus THE TOWN TREE FARM
+ * (treefarm-01) -- no new cap within FARM_WELL_DISTANCE of a plot (a canopy over the throw column, a stand on a plot) or
+ * FARM_TORCH_WELL_DISTANCE of a torch.
+ * PRECEDENCE (Codex r1 P2: a farm and a well founded at once could each pass the other's check): the farm is NEVER part of
+ * the refusal of an already recorded well site -- `wellAvoid` alone judges that -- so a farm can never move a well. The
+ * farm yields instead: its own record is refused when a well, a raised well's plan or a live chest claim sits within its
+ * keep-out (townFarm, farmYields), and it re-founds away from them.
+ */
+function wellSearchAvoid (bot) {
+  const out = wellAvoid(bot)
   try { out.push(...farmWellAvoid(knownFarmRecord(bot))) } catch { /* no farm */ }
   return out
 }
@@ -7771,7 +7799,8 @@ export function townWellSite (bot) {
     dir: poolStateDir(config.memory.pool),
     key: wellSiteKey(),
     world: bot.worldId ?? null,
-    compute: () => canonicalWellSite({ home, read, avoid }),
+    // a NEW site keeps off the tree farm; the recorded one is judged without it (wellSearchAvoid: the farm yields)
+    compute: () => canonicalWellSite({ home, read, avoid: wellSearchAvoid(bot) }),
     refuse: site => wellSiteRefusal(read, site, home, { avoid }),
   })
 }

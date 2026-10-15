@@ -445,6 +445,26 @@ export function farmWellAvoid (record) {
   return out
 }
 
+/** The town structures a recorded farm YIELDS to (skills.mjs farmAvoid `what` tags): the junk well, a raised well's plan
+ *  and a chest in flight. The composter is avoided at founding only (its site search already keeps off the farm's cells). */
+export const FARM_YIELDS_TO = new Set(['junk_well', 'plinth', 'chest_claim'])
+
+/**
+ * MUST THIS RECORDED FARM MAKE WAY? -> reason | null. Pure. A farm cell within the keep-out of a structure it yields to
+ * (FARM_YIELDS_TO) refuses the record, and the town re-founds away from it -- the same avoid list the founding search
+ * used, so the new farm is stable. This is how a race between a farm's founding and a well's (or a chest's) resolves:
+ * always the same way, the farm moves (Codex r1 P2).
+ */
+export function farmYields (record, avoid = []) {
+  for (const a of (Array.isArray(avoid) ? avoid : [])) {
+    if (!a || !FARM_YIELDS_TO.has(a.what) || !Number.isFinite(a.x) || !Number.isFinite(a.z)) continue
+    const r = Number.isFinite(a.r) ? a.r : FARM_CONTAINER_DISTANCE
+    const c = (record?.cells ?? []).find(q => Math.hypot(q.x - a.x, q.z - a.z) < r)
+    if (c) return `a ${a.what.replace('_', ' ')} at ${a.x},${a.z} is within ${r} of the farm's ${c.role} at ${c.x},${c.y},${c.z}`
+  }
+  return null
+}
+
 /**
  * THE FARM AS A BUILDER'S CELL KEEP-OUT -> [{ x, y, z, r: 0 }]. Pure. Every cell no other structure may plan into: each
  * plot's soil and its whole column (the cell and CLEAR_ABOVE above), each torch cell and its floor. For a planner that
