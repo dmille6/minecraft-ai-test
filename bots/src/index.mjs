@@ -559,7 +559,8 @@ function connect() {
     bot.refreshFarm = refreshFarm
     // A NEW array for the base's break exclusions (the well's, then the farm's), shared by reference with every clone below (Object.assign), and spread
     // into the tunnel profile's own array.
-    moves.exclusionAreasBreak = [(block) => wellBreakCost(wellCols, block, selfWell), (block) => farmBreakCost(farmCells, block)]
+    moves.exclusionAreasBreak = [(block) => wellBreakCost(wellCols, block, selfWell)]
+    moves.exclusionAreasBreak.push((block) => farmBreakCost(farmCells, block))
     moves.exclusionAreasPlace = [(block) => farmPlaceCost(farmCells, block)]
     // ORDER IS LOad-BEARING: gatherMoves, ascendMoves and descendMoves are all
     // built below with Object.assign(clone, moves), so they copy this array's
