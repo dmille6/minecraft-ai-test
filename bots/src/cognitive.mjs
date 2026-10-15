@@ -687,7 +687,7 @@ export class CognitiveLoop {
       const home = { x: config.world.homeX, y: config.world.homeY, z: config.world.homeZ }
       const keep = [...roomKeep(bot.currentWants ?? []), 'iron_ingot']
       const r = toolkitOrder({
-        now: Date.now(), atTown: inTown(home, bot.entity?.position), items, credit: this.kitCredit ?? 0,
+        now: Date.now(), atTown: inTown(home, bot.entity?.position), items, credit: bot.kitCredit ?? 0,
         container: () => townContainers(bot).length > 0,
         townMiss: () => townKitIronMiss(bot),
         // the bag can take the draw: the same room plan and keep as at the chest (withdrawpick roomPlan)
@@ -1116,8 +1116,8 @@ export class CognitiveLoop {
       if (admitted.skill === 'town_deposit') this.townDepositState = townDepositOutcome(r.status, r.failClass ?? null, Date.now(), this.townDepositState ?? {})
       if (WELL_ORDERS.has(admitted.skill)) this.wellState = wellOrderOutcome(admitted.skill, r.status, Date.now(), this.wellState ?? {}, r.failClass ?? null)
       if (admitted.skill === 'prune_town') this.pruneState = pruneOutcome(r.status, Date.now(), this.pruneState ?? {})
-      // THE TOOLKIT: a failure backs off, a decline is refunded; what a run drew and did not use is carried (kitCredit)
-      if (admitted.skill === 'toolkit') { this.toolkitState = toolkitOutcome(r.status, Date.now(), this.toolkitState ?? {}, r.failClass ?? null); if (Number.isFinite(r.kitCredit)) this.kitCredit = r.kitCredit }
+      // THE TOOLKIT: a failure backs off, a decline is refunded (what a run drew and did not use is on the bot: bot.kitCredit)
+      if (admitted.skill === 'toolkit') this.toolkitState = toolkitOutcome(r.status, Date.now(), this.toolkitState ?? {}, r.failClass ?? null)
       if (admitted.skill === 'count_town') this.recountState = recountOutcome(r.status, r.delta?.counted ?? 0, Date.now(), this.recountState ?? {}, r.failClass ?? null)
       // THE REFLEX TOOK THE BODY -- SAY SO ON THE NEXT DECISION.
       if (r.interruptedBy) this.#raiseTrigger(r.interruptedBy, r.detail)
