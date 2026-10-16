@@ -15,7 +15,10 @@
 #
 # THE CHANGE (rows only this build writes):
 #   _townsearch_mode   once per spawn: the licence (proves the build is live, not the effect)
-#   _withdraw_pick     the ORDER's row (verb=withdraw_pick) now carries `town=<containers> cand=<pick>,<ing>` before tried=
+#   _withdraw_pick     the ORDER's row (verb=withdraw_pick) now carries, right after verification=,
+#                      `town=<containers> cand=<pick>,<ing> visits=<n> maxrep=<most visits to one container> vfail=<visits that
+#                      could not look inside>` -- counted over the WHOLE tried list before the row is cut at 300 characters
+#                      (Codex r1: tried= alone is cut, so a defect read from it is blind past ~11 visits)
 #
 #   METRICS (order rows only: verb=withdraw_pick; the model's `withdraw` verb is unchanged and not judged)
 #     took        outcome took_pick | took_ingredients          per BOT-HOUR, DiD
@@ -25,10 +28,10 @@
 #   LIVENESS   search_rows_canary: canary order rows carrying town= (the new search ran) >= 1
 #   ARMS       control rows with town= or _townsearch_mode (must be 0)
 #   DEFECTS (each REVERTS; each has a failing fixture in --selftest)
-#     D1 loop_same_chest: one canary order's tried= list names the same container 3+ times (a container may appear twice:
-#        once in the pickaxe pass, once in the ingredient pass)
-#     D2 visits_over_budget: one canary order with more than VISIT_BUDGET (16 + 8) containers in tried=
-#   REPORTED   chest_unreachable / container_blocked / aborted / error outcomes per order, DiD (the search walks further);
+#     D1 loop_same_chest: one canary order with maxrep >= 3 (a container may be visited twice: once per pass)
+#     D2 visits_over_budget: one canary order with visits > VISIT_BUDGET (16 + 8)
+#   REPORTED   VISIT failures per order (vfail; for a base row counted from its visible tried= list), DiD (the search
+#              walks further); orders that ENDED on a walk failure/abort/error, DiD;
 #              canary cand= (pickaxe candidates when the order began: 0 = the town is a known miss) and tried= sizes
 #   INSTRUMENT control order rows (>= 1) and control notfound rows (>= 1: the population is visible in control)
 #   EXPOSURE   canary order rows carrying town= in the window >= EXPOSURE_ORDERS (the search ran often enough to read)
@@ -67,6 +70,31 @@ def outcome(r):
 
 def searched(r):
     return is_order(r) and ' town=' in ' %s' % r['detail']
+
+
+def tried_items(d):
+    m = re.search(r'tried=\[(.*)', d or '')
+    if not m:
+        return []
+    body = m.group(1)
+    body = body[:-1] if body.endswith(']') else body
+    out = []
+    for e in body.split(';'):
+        k, _, o = e.rpartition(':')
+        if k and re.match(r'^-?\d+,-?\d+,-?\d+$', k):
+            out.append((k, o))
+    return out
+
+
+def counters(r):
+    """(visits, maxrep, vfail) from the row's own counters; for a base row (none), from its visible tried= list."""
+    f = kv(r['detail'])
+    try:
+        return int(f['visits']), int(f['maxrep']), int(f['vfail'])
+    except (KeyError, TypeError, ValueError):
+        it = tried_items(r['detail'])
+        c = Counter(k for k, _ in it)
+        return len(it), max(c.values()) if c else 0, sum(1 for _, o in it if o in ('chest_unreachable', 'container_blocked'))
 
 
 def tried_keys(d):
@@ -137,6 +165,7 @@ def judge(rows):
             out['took_pick_%s_%s' % (per, arm)] = oc.get('took_pick', 0)
             out['notfound_%s_%s' % (per, arm)] = sum(oc.get(o, 0) for o in NOTFOUND)
             out['walkfail_%s_%s' % (per, arm)] = sum(oc.get(o, 0) for o in WALKS)
+            out['vfail_%s_%s' % (per, arm)] = sum(counters(r)[2] for r in sel)
             out['outcomes_%s_%s' % (per, arm)] = dict(oc)
     post_c = [r for r in rows if r['per'] == 'post' and r['arm'] == 'canary']
     s = [r for r in post_c if searched(r)]
@@ -145,16 +174,15 @@ def judge(rows):
     out['search_rows_control'] = sum(1 for r in rows if r['arm'] == 'control' and (searched(r) or r['name'] == '_townsearch_mode'))
     loops, over = [], []
     for r in s:
-        ks = tried_keys(r['detail'])
-        c = Counter(ks)
-        top = c.most_common(1)
-        if top and top[0][1] >= LOOP_MIN:
-            loops.append((r['bot'], top[0][0], top[0][1], str(r['t'])))
-        if len(ks) > VISIT_BUDGET:
-            over.append((r['bot'], len(ks), str(r['t'])))
+        visits, maxrep, _ = counters(r)
+        if maxrep >= LOOP_MIN:
+            top = Counter(tried_keys(r['detail'])).most_common(1)
+            loops.append((r['bot'], top[0][0] if top else '?', maxrep, str(r['t'])))
+        if visits > VISIT_BUDGET:
+            over.append((r['bot'], visits, str(r['t'])))
     out['loop_same_chest'] = len(loops)
     out['visits_over_budget'] = len(over)
-    out['tried_sizes_canary'] = dict(Counter(len(tried_keys(r['detail'])) for r in s))
+    out['tried_sizes_canary'] = dict(Counter(counters(r)[0] for r in s))
     out['pick_cand_canary'] = dict(Counter((kv(r['detail']).get('cand') or '-').split(',')[0] for r in s))
     out['instrument_control'] = int(out['orders_post_control'] >= 1 and out['notfound_post_control'] >= 1)
     out['exposure_ready'] = int(out['search_rows_canary'] >= EXPOSURE_ORDERS)
@@ -167,8 +195,11 @@ def selftest():
     R = lambda name, detail, mins=0, bot='hive-d-Alpha', arm='canary', per='post', status='success': {
         't': T0 + dt.timedelta(minutes=mins), 'per': per, 'arm': arm, 'name': name, 'status': status, 'fail_class': None, 'detail': detail, 'bot': bot}
     def W(oc, tried=('1,2,3:none',), search=True, verb='withdraw_pick', **k):
-        return R('_withdraw_pick', 'outcome=%s need=stick:2 uses=- verification=server cursor=- err=- chest_room=- plan=- srv=- bag=1->1 deposited=- took=- verb=%s %stried=[%s]'
-                 % (oc, verb, 'town=12 cand=3,1 ' if search else '', ';'.join(tried)), **k)
+        ks = Counter(e.rpartition(':')[0] for e in tried)
+        ctr = 'town=12 cand=3,1 visits=%d maxrep=%d vfail=%d ' % (len(tried), max(ks.values()) if ks else 0,
+                                                                 sum(1 for e in tried if e.rpartition(':')[2] in ('chest_unreachable', 'container_blocked')))
+        return R('_withdraw_pick', 'outcome=%s need=stick:2 uses=- verification=server %scursor=- err=- chest_room=- plan=- srv=- bag=1->1 deposited=- took=- verb=%s tried=[%s]'
+                 % (oc, ctr if search else '', verb, ';'.join(tried)), **k)
     ctl = [W('short', arm='control', bot='board-a-Alpha', search=False)]
     ok = judge([W('took_pick'), W('short'), R('_townsearch_mode', 'phase=mode')] + ctl)
     assert ok['search_rows_canary'] == 2 and ok['licence_canary'] == 1 and ok['took_pick_post_canary'] == 1 and ok['notfound_post_canary'] == 1, ok
@@ -188,6 +219,18 @@ def selftest():
     h = judge([W('has_ingredients'), W('short'), W('took_ingredients'), W('chest_unreachable')] + ctl)
     assert h['notfound_post_canary'] == 2 and h['took_post_canary'] == 1 and h['walkfail_post_canary'] == 1, h
     assert pool_of('self-isolated-b-Comet') == 'isolated-b' and pool_of('hive-d-Alpha') == 'hive-d'
+    # REAL ROWS (withdrawpick.mjs withdrawRow + searchTally, node, 10-16): the long one is cut at 300 characters
+    LONG = 'outcome=short need=cobblestone:3,stick:2,planks:4 uses=- verification=server town=32 cand=20,6 visits=25 maxrep=3 vfail=1 cursor=- err=- chest_room=26 plan=- srv=- bag=0->132 deposited=- took=- verb=withdraw_pick tried=[-1312,120,1315:none;-1312,120,1315:none;-1312,120,1315:none;1303,120,1315:none;1'
+    OK = 'outcome=took_pick need=pickaxe uses=111 verification=server town=12 cand=12,- visits=2 maxrep=1 vfail=0 cursor=empty err=- chest_room=25 plan=- srv=stone_pickaxe:+1 bag=0->133 deposited=- took=stone_pickaxe:1 verb=withdraw_pick tried=[1,2,3:none;4,5,6:success]'
+    assert len(LONG) == 300
+    real = judge([R('_withdraw_pick', LONG, status='failed'), R('_withdraw_pick', OK)] + ctl)
+    assert real['visits_over_budget'] == 1 and real['loop_same_chest'] == 1 and real['vfail_post_canary'] == 1, real
+    assert real['search_rows_canary'] == 2 and real['took_pick_post_canary'] == 1 and real['notfound_post_canary'] == 1, real
+    assert len(tried_keys(LONG)) == 4, 'the cut tried= list alone sees only 4 of the 25 visits: why the counters exist'
+    okr = judge([R('_withdraw_pick', OK)] + ctl)
+    assert okr['visits_over_budget'] == 0 and okr['loop_same_chest'] == 0 and okr['vfail_post_canary'] == 0, okr
+    base = judge([W('short', search=False, tried=['1,2,3:none', '4,5,6:chest_unreachable'])] + ctl)
+    assert base['vfail_post_canary'] == 1, 'a base row: visit failures from its tried= list'
     assert tried_keys('tried=[1,2,3:none;4,5') == ['1,2,3'], 'a cut-off last entry is not counted'
     assert tried_keys('tried=[1,2,3:none;4,5,6:no') == ['1,2,3', '4,5,6'], 'a cut-off outcome still names its container'
     print('SELFTEST ok: every gate fails on its fixture and passes its control')
@@ -218,7 +261,8 @@ if __name__ == '__main__':
     did_rate = lambda k: (rate(res[k + '_post_canary'], 'post', 'canary') - rate(res[k + '_pre_canary'], 'pre', 'canary')) \
         - (rate(res[k + '_post_control'], 'post', 'control') - rate(res[k + '_pre_control'], 'pre', 'control'))
     did_prop = lambda k: (prop(k, 'post', 'canary') - prop(k, 'pre', 'canary')) - (prop(k, 'post', 'control') - prop(k, 'pre', 'control'))
-    dids = {'took': did_rate('took'), 'took_pick': did_rate('took_pick'), 'notfound_per_order': did_prop('notfound'), 'walkfail_per_order': did_prop('walkfail')}
+    dids = {'took': did_rate('took'), 'took_pick': did_rate('took_pick'), 'notfound_per_order': did_prop('notfound'), 'walkfail_per_order': did_prop('walkfail'),
+            'vfail_per_order': did_prop('vfail')}
     print('DENOMINATORS rows walked %d (unparsable %d) | bots pre canary %d control %d | post canary %d control %d | window %d min | bot-h post canary %.1f control %.1f'
           % (walked, bad, len(bots[('pre', 'canary')]), len(bots[('pre', 'control')]), len(bots[('post', 'canary')]), len(bots[('post', 'control')]), W,
              hrs('post', 'canary'), hrs('post', 'control')))
@@ -237,7 +281,10 @@ if __name__ == '__main__':
           % (res['search_rows_canary'], res['licence_canary'], res['search_rows_control']))
     print('DEFECTS      D1 same container %d+ times in one order %d %s | D2 more than %d containers in one order %d %s'
           % (LOOP_MIN, res['loop_same_chest'], res['_lists']['loops'], VISIT_BUDGET, res['visits_over_budget'], res['_lists']['over']))
-    print('REPORTED     walk failures (unreachable/blocked/aborted/error) per order DiD %+.3f | canary tried= sizes %s | canary pickaxe candidates at start %s | outcomes post canary %s control %s'
+    print('REPORTED     visits that could not look inside, per order: canary %d/%d -> %d/%d control %d/%d -> %d/%d DiD %+.3f'
+          % (res['vfail_pre_canary'], res['orders_pre_canary'], res['vfail_post_canary'], res['orders_post_canary'],
+             res['vfail_pre_control'], res['orders_pre_control'], res['vfail_post_control'], res['orders_post_control'], dids['vfail_per_order']))
+    print('             orders that ENDED on unreachable/blocked/aborted/error per order DiD %+.3f | canary visits per order %s | canary pickaxe candidates at start %s | outcomes post canary %s control %s'
           % (dids['walkfail_per_order'], res['tried_sizes_canary'], res['pick_cand_canary'], res['outcomes_post_canary'], res['outcomes_post_control']))
     print('EXPOSURE     -> %s (canary order rows with the search %d, need %d) | INSTRUMENT control orders %d, control notfound %d -> %s'
           % ('READY' if res['exposure_ready'] else 'NOT YET', res['search_rows_canary'], EXPOSURE_ORDERS, res['orders_post_control'], res['notfound_post_control'],

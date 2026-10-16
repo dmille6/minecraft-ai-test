@@ -136,11 +136,16 @@ export const SEARCH_FAIL_SKIP_MS = 30 * 60 * 1000
 /** The failures that say nothing about what the container holds -- the search moves on to the next one. */
 export const SEARCH_FAIL_SKIP = new Set(['chest_unreachable', 'container_blocked'])
 
-/** The stock journal's groups that count each need (stocktarget.mjs STOCK_GROUPS; a tool group counts only usable copies).
- *  An iron/golden/diamond pickaxe is not a stock group: the journal cannot see one, so a container is never ranked first
- *  for it -- a container with NO count stays in the search (unknown). */
+/** The stock journal's groups that count each need (stocktarget.mjs STOCK_GROUPS; a tool group counts only usable copies). */
 const PLANK_GROUPS = STOCK_GROUP_NAMES.filter(g => /_planks$/.test(g))
 export const NEED_GROUPS = Object.freeze({ pick: ['stone_pickaxe', 'wooden_pickaxe'], cobblestone: ['cobble'], stick: ['stick'], planks: PLANK_GROUPS })
+/**
+ * IS A JOURNAL COUNT OF 0 A LOOK FOR THIS NEED? Only when its groups count EVERY item the withdraw takes for it (Codex r1 P1).
+ * The pickaxe: no -- an iron/golden/diamond pickaxe is no stock group (a count of 0 stone/wooden says nothing about one).
+ * Cobblestone: no -- the recipe takes blackstone, the `cobble` group does not count it. Planks: no -- crimson/warped planks
+ * are no stock group. Sticks: yes. For the others only an opened container's own miss rules it out.
+ */
+export const NEED_COUNT_COMPLETE = Object.freeze({ pick: false, cobblestone: false, stick: true, planks: false })
 /** One journal observation's count of a need -> number | null (null: that observation did not count it). Pure. */
 export function needCount (o, need) {
   const gs = NEED_GROUPS[need]
@@ -160,8 +165,9 @@ export function needCount (o, need) {
  *   skip        keys out of this search (already opened this order, a recent failed visit, a container the town shut)
  * Per need, a container is
  *   HAS      a count of n > 0 younger than countTtl (the journal's own 6 h), and newer than any live miss
- *   OUT      a live miss (younger than missTtl, no deposit since), or a count of 0 younger than missTtl with no deposit since
- *            -- a count is a look by whichever bot opened it last
+ *   OUT      a live miss (younger than missTtl, no deposit since), or -- for a need the journal counts completely
+ *            (NEED_COUNT_COMPLETE: sticks) -- a count of 0 younger than missTtl with no deposit since: a look by whichever bot
+ *            opened it last
  *   UNKNOWN  otherwise
  * Dropped when OUT for every need. Tier 0 = HAS for some need, tier 1 = the rest. Within a tier: most of the wanted
  * amount covered (cover, from the counts), then nearest, then key. Never the same container twice: one entry per key.
@@ -189,7 +195,7 @@ export function townSearchOrder (containers = [], needs = [], { counts = {}, mis
         cover += Math.min(n, Math.max(1, Number(want?.[need]) || 1))
         continue
       }
-      const zeroLive = cAt != null && n === 0 && now - cAt < missTtl && !(took > cAt)
+      const zeroLive = NEED_COUNT_COMPLETE[need] === true && cAt != null && n === 0 && now - cAt < missTtl && !(took > cAt)
       if (missLive || zeroLive) continue
       allOut = false
     }
@@ -198,6 +204,29 @@ export function townSearchOrder (containers = [], needs = [], { counts = {}, mis
   }
   res.sort((a, b) => a.tier - b.tier || b.cover - a.cover || a.d - b.d || (a.k < b.k ? -1 : a.k > b.k ? 1 : 0))
   return res
+}
+
+/**
+ * THE PICKAXE PASS'S CLOCK -> { deadline, msLeft(cap) }. Pure. The order's clock less the ingredient pass's reserve, so no
+ * pickaxe visit -- its walk, recount, lid and open -- can spend the time the ingredients were promised (Codex r1 P2).
+ */
+export function passClock (deadline, reserveMs = 0, now = () => Date.now()) {
+  const end = deadline - Math.max(0, reserveMs)
+  return { deadline: end, msLeft: cap => Math.max(0, Math.min(cap, end - now())) }
+}
+
+/** THE SEARCH'S OWN COUNT of an order's visits (tried entries `x,y,z:result`) -> { visits, maxrep, vfail }. Pure.
+ *  maxrep: the most visits to one container (2 is legitimate: once per pass); vfail: visits that could not look inside. */
+export function searchTally (tried = []) {
+  const c = new Map()
+  let vfail = 0
+  for (const e of (Array.isArray(tried) ? tried : [])) {
+    const i = String(e).lastIndexOf(':')
+    const k = i < 0 ? String(e) : String(e).slice(0, i)
+    c.set(k, (c.get(k) ?? 0) + 1)
+    if (i >= 0 && SEARCH_FAIL_SKIP.has(String(e).slice(i + 1))) vfail++
+  }
+  return { visits: (Array.isArray(tried) ? tried : []).length, maxrep: Math.max(0, ...c.values()), vfail }
 }
 
 /** The `_townsearch_mode` licence row (once per spawn): a kind the baseline cannot write. */
@@ -356,16 +385,18 @@ export const WITHDRAW_NO_BACKOFF = new Set(['recount_unanswered', 'chest_no_room
 export const HOLD_MS = 10 * 60 * 1000
 
 /** The withdraw row (`_withdraw_pick`, from the order AND the model's verb): key=value, outcome first, the containers
- *  last (logEvent cuts at 300 characters). The order's row also says how many town containers its search saw (town=) and
- *  how many were candidates for the pickaxe and for the ingredients when each pass began (cand=pick,ing; townsearch-01). srv= is the server-recounted change of the bag; plan= the names planned to
+ *  last (logEvent cuts at 300 characters). The order's row also says, right after verification= (townsearch-01): how many town
+ *  containers its search saw (town=), the candidates for the pickaxe and for the ingredients when each pass began
+ *  (cand=pick,ing), and searchTally's visits= maxrep= vfail= over the WHOLE tried list. srv= is the server-recounted change of the bag; plan= the names planned to
  *  LEAVE it (room-making deposits and trades) -- a read can flag a server-counted fall of any name not in plan=. */
 export function withdrawRow ({ outcome, need, uses = null, verification = 'none', cursor = '-', err = null, chestRoom = null, srv = '-', plan = '-',
                                bagBefore = 0, bagAfter = 0, deposited = [], took = {}, verb = 'withdraw_pick', tried = [], search = null } = {}) {
   const dep = deposited.map(d => `${d.name}:${d.count}`).join(',') || '-'
   const tk = Object.entries(took).map(([k, v]) => `${k}:${v}`).join(',') || '-'
   const clean = v => String(v ?? '-').replace(/\s+/g, '_').slice(0, 40)
-  return (`outcome=${outcome} need=${need} uses=${uses ?? '-'} verification=${verification} cursor=${clean(cursor)} err=${clean(err)} ` +
+  // the search's counters EARLY in the row (Codex r1 P2): tried= is cut at 300 characters, these never are
+  const sr = search ? `town=${search.town ?? '-'} cand=${search.pick ?? '-'},${search.ing ?? '-'} visits=${search.visits ?? '-'} maxrep=${search.maxrep ?? '-'} vfail=${search.vfail ?? '-'} ` : ''
+  return (`outcome=${outcome} need=${need} uses=${uses ?? '-'} verification=${verification} ${sr}cursor=${clean(cursor)} err=${clean(err)} ` +
           `chest_room=${chestRoom ?? '-'} plan=${plan || '-'} srv=${srv} bag=${bagBefore}->${bagAfter} deposited=${dep} took=${tk} verb=${verb} ` +
-          (search ? `town=${search.town ?? '-'} cand=${search.pick ?? '-'},${search.ing ?? '-'} ` : '') +
           `tried=[${tried.join(';')}]`).slice(0, 300)
 }
