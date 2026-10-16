@@ -985,6 +985,54 @@ test('RECOUNT CHAIN CONTROL (the dead end): the same fenced town with the recoun
     assert.equal(sumOf(chest.items, 'oak_log'), 20)
   } finally { untap(); done() }
 })
+// THE PLINTH x RECOUNT CHAIN (plinth-01 on wellsite-02/stocktarget-02, 8cd0bc62): the same fenced town, but its well search
+// found no cell (wellsite's junkwell-nosite record) and the bag is funded for the raised junk well. Order of the town
+// orders: build_plinth > town_deposit > count_town. Expected: the plinth's visit first, and the recount on a LATER decision
+// (neither starves the other: the plinth goes on its own cooldown after a visit). MUTANT: a recount guard that only
+// yields to the town deposit takes the plinth's turn.
+const plinthFencedTown = async (Loop = CognitiveLoop) => {
+  const items = bag([['oak_log', 64], ['oak_log', 64], ['crafting_table', 1], ['wooden_pickaxe', 1, 50], ['dirt', 16], ['stick', 4], ['torch', 8],
+    ['cobblestone', 64], ['cobblestone', 64]])
+  const chest = chestAt(2, 70, 0, { items: Array.from({ length: 27 }, (_, i) => (i === 0 ? item('oak_log', 20) : null)) })
+  const now = Date.now()
+  const { bot, done } = await stockChain({ items, chest, seed: { t: 'cnt', k: '2,70,0', n: 0, cap: now - 5_000, v: 2, m: { oak_log: 20 }, ids: [], scan: { keys: ['2,70,0'], at: now - 5_000 } } })
+  const CC = await import('../src/cobblecap.mjs')
+  CC.appendJournal(process.env.POOL_STATE_DIR, CF.townKey(new Vec3(0, 70, 0)), bot.worldId ?? null, { t: 'reset', at: now - 1_000 })
+  fs.writeFileSync(path.join(process.env.POOL_STATE_DIR, 'junkwell-nosite-0_70_0.json'), JSON.stringify({ at: now - 60_000, world: bot.worldId ?? null, by: 'peer', tally: 'cols:0' }))
+  bot.findBlock = ({ maxDistance = 64 } = {}) => { const ps = bot.findBlocks({ maxDistance }); return ps.length ? bot.blockAt(ps[0]) : null }
+  const ran = []
+  const runner = { isBusy: () => false, run: async (skill, args) => {
+    ran.push(skill)
+    if (skill === 'count_town') { const r = await SKILLS[skill].run({ bot }, args ?? {}, null); return { ...r, delta: { counted: Number(r.counted ?? 0) } } }
+    return { status: 'success', detail: 'ok', delta: {}, contractEvidence: [`${skill}: probe 1`] }   // the plinth's visit: its own suite
+  } }
+  const loop = new Loop(bot, runner, freshLessons(), null)
+  loop.llm = { decide: async () => ({ schemaValid: true, latencyMs: 1, proposal: { skill: 'status', args: {}, reason: 'probe' } }) }
+  loop.milestones.cycle = 540
+  loop.start()
+  for (let i = 0; i < 200 && ran.length < 4; i++) await new Promise(r => setTimeout(r, 30))
+  loop.stop()
+  done()
+  return ran
+}
+test('PLINTH x RECOUNT CHAIN (plinth-01 on 8cd0bc62): a no-site town, a funded bag, a not-yet-counted name -> build_plinth first, count_town on a later decision', async () => {
+  const ran = await plinthFencedTown()
+  assert.equal(ran[0], 'build_plinth', JSON.stringify(ran))
+  assert.ok(ran.slice(1).includes('count_town'), `the recount is not starved: ${JSON.stringify(ran)}`)
+  assert.equal(ran.filter(x => x === 'build_plinth').length, 1, `the plinth waits out its cooldown: ${JSON.stringify(ran)}`)
+})
+test('PLINTH x RECOUNT CHAIN, MUTANT: the recount guard yields only to the town deposit -> count_town takes the plinth\'s turn (the test sees the order)', async () => {
+  const src = fs.readFileSync(new URL('../src/cognitive.mjs', import.meta.url), 'utf8')
+  const old = "if (!order || (order.skill !== 'town_deposit' && order.skill !== 'build_plinth')) order = this.#recountOrder() ?? order"
+  assert.equal(src.split(old).length, 2, 'ANCHOR missing or not unique')
+  const out = new URL(`./_mutant-cog-${process.pid}.mjs`, import.meta.url)
+  fs.writeFileSync(out, src.replace(old, "if (!order || order.skill !== 'town_deposit') order = this.#recountOrder() ?? order").replace(/from '\.\//g, "from '../src/"))
+  try {
+    const { CognitiveLoop: M } = await import(out.href)
+    const ran = await plinthFencedTown(M)
+    assert.equal(ran[0], 'count_town', JSON.stringify(ran))
+  } finally { fs.rmSync(out, { force: true }) }
+})
 test('STOCK CHAIN (c): NO USABLE WELL -> no stop: at-target logs bank as today (a nowell claim), so the well build is never starved', async () => {
   const items = bag([['oak_log', 64], ['oak_log', 64], ['oak_log', 64], ['crafting_table', 1], ['wooden_pickaxe', 1, 50], ...filler(31)])
   const chest = chestAt(2)

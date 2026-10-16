@@ -12,6 +12,9 @@
 import { HARD_STOP } from './toolfor.mjs'
 import { SKILLS, roomRemedy, farFromBank, classifyOutcome, SKILL_CONTRACTS, plantableSpotNear, findTownComposter, townBuildPlan, townPickMiss, townIngredientMiss, foodSkipNow, townContainers, townWellState, townWellBuildPlan, insideTownWell, wellSwordsNow, cobbleWellCap, townPitState, stockWellOpts, valveProof, stockCountKeys, pruneTarget, unknownRefusals, stockRecountKeys } from './skills.mjs'
 import { disposePlan, wellOrder, wellOrderOutcome, WELL_ORDERS, pitCoverItem } from './well.mjs'
+// plinth-01, the raised junk well (its own statements)
+import { plinthOrder, plinthOrderOutcome, plinthBudget, plinthShortfall, PLINTH_STEPS_PER_VISIT, PLINTH_MIN_FUND } from './plinth.mjs'
+import { townPlinthState } from './skills.mjs'
 import { smeltInputsFor } from './smelting.mjs'
 import { makeClient, skillSchema } from './llm.mjs'
 import { buildSystemPrompt, buildUserPrompt, makeSentinel, WorkingMemory } from './prompt.mjs'
@@ -707,6 +710,26 @@ export class CognitiveLoop {
     } catch { return null }
   }
 
+  /** THE RAISED JUNK WELL ORDER, or null (plinth.mjs plinthOrder decides; every read is lazy and guarded). */
+  #plinthOrder() {
+    try {
+      const bot = this.bot
+      const items = bot.inventory?.items?.() ?? []
+      const p = bot.entity?.position
+      let st = null
+      const town = () => (st ??= townPlinthState(bot))
+      const r = plinthOrder({
+        now: Date.now(), distHome: p ? Math.hypot(config.world.homeX - p.x, config.world.homeZ - p.z) : Infinity,
+        inside: () => insideTownWell(bot), want: () => town().want, lease: () => town().lease,
+        budget: () => plinthBudget(items, PLINTH_STEPS_PER_VISIT), freeSlots: 36 - items.length,
+        chests: () => townContainers(bot).length > 0, chestSlots: () => Math.max(1, Math.ceil(plinthShortfall(items, PLINTH_MIN_FUND) / 64)),
+        state: this.plinthState ?? {},
+      })
+      this.plinthState = r.state
+      return r.order
+    } catch { return null }
+  }
+
   #wantedItems(milestone) {
     // A GOAL THAT ACCEPTS ANY LOG MUST NOT CALL BIRCH OFF-TARGET.
     //
@@ -856,12 +879,15 @@ export class CognitiveLoop {
     // banks its surplus before other work. AHEAD of the milestone order on purpose: a craft-ready rung re-issues its
     // craft every decision, craftroom refuses it at 36/36, and an order placed after it would never get a turn
     // (test/towndeposit.test.mjs CHAIN drives this through the real loop).
-    order = this.#townDepositOrder(milestone) ?? order
+    // THE RAISED JUNK WELL GOES BEFORE THE DEPOSIT (plinth.mjs plinthOrder; design 3.4): at town, a funded bot's surplus
+    // stone builds the town's well before any of it is banked; one builder per town (the lease), on its own cooldown.
+    order = this.#plinthOrder() ?? this.#townDepositOrder(milestone) ?? order
     // THE TOWN RECOUNT (stocktarget-02, recount.mjs): at town, holding what a plan refuses as NOT YET COUNTED, the town's
     // reachable unknown containers are counted now -- whatever the bag's size (the 34-slot town deposit left hive-a and
     // placebo-a uncounted for hours after the clear). Ahead of the milestone order like the town deposit: a craft-ready
-    // rung re-issues every decision and would starve it.
-    if (!order || order.skill !== 'town_deposit') order = this.#recountOrder() ?? order
+    // rung re-issues every decision and would starve it. The town deposit and the plinth build keep their turn (both are
+    // bounded and on their own cooldowns; the recount comes on the next decision).
+    if (!order || (order.skill !== 'town_deposit' && order.skill !== 'build_plinth')) order = this.#recountOrder() ?? order
     // HYGIENE BEFORE PLANTING, and before the model: a bot at 34+ of 36 slots breaks blocks and leaves the drop
     // on the ground (hygiene.mjs has the measurement). Spent tools are worn out -- destroyed by use, never
     // dropped. Rate-limited by a cooldown charged when the order is ISSUED, like planting.
@@ -1092,6 +1118,7 @@ export class CognitiveLoop {
       if (WELL_ORDERS.has(admitted.skill)) this.wellState = wellOrderOutcome(admitted.skill, r.status, Date.now(), this.wellState ?? {}, r.failClass ?? null)
       if (admitted.skill === 'prune_town') this.pruneState = pruneOutcome(r.status, Date.now(), this.pruneState ?? {})
       if (admitted.skill === 'count_town') this.recountState = recountOutcome(r.status, r.delta?.counted ?? 0, Date.now(), this.recountState ?? {}, r.failClass ?? null)
+      if (admitted.skill === 'build_plinth') this.plinthState = plinthOrderOutcome(r.status, Date.now(), this.plinthState ?? {}, r.failClass ?? null)
       // THE REFLEX TOOK THE BODY -- SAY SO ON THE NEXT DECISION.
       if (r.interruptedBy) this.#raiseTrigger(r.interruptedBy, r.detail)
       // A PREREQUISITE THE GOAL LAYER CANNOT SEE IS NOT A PREREQUISITE.

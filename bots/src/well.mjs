@@ -280,6 +280,10 @@ const isTrap = (b, half = null) => !!b && WOODEN_TRAPDOOR.test(b.name ?? '') && 
 export const fullCube = b => solid(b) && Array.isArray(b.shapes) && b.shapes.length === 1 &&
   b.shapes[0].length === 6 && b.shapes[0].every((v, i) => Math.abs(v - (i < 3 ? 0 : 1)) < 1e-9)
 const ground = b => fullCube(b) && !NOT_GROUND.test(b.name ?? '') && !LIQUID.test(b.name ?? '')
+/** The well's own ground test, for the raised well's planner (plinth.mjs): a placed cobblestone is ground like any other. */
+export const wellGround = ground
+/** ...and its open-cell test (no liquid). */
+export const wellPassable = passable
 const diggable = b => ground(b) && Number.isFinite(b.hardness) && b.hardness >= 0 && b.hardness <= MAX_DIG_HARDNESS
 /**
  * A FALLING BLOCK THAT CANNOT FALL IS A WALL (wellsite-01, placebo-b 10-12): vanilla moves sand or gravel only when the
@@ -604,7 +608,7 @@ export const WELL_HOME_CLEARANCE = ADMISSION_RADIUS_FOR_SITE + 2
 /** Rings searched for the well: WELL_HOME_CLEARANCE out to here (townDistance <= ADOPT_RADIUS still applies). */
 export const WELL_SEARCH_RADIUS = 14
 /** The fixed ring order composter.mjs uses, starting further out. */
-function wellSpiral (home) {
+export function wellSpiral (home) {
   const out = []
   for (let r = WELL_HOME_CLEARANCE; r <= WELL_SEARCH_RADIUS; r++) {
     const ring = []
@@ -1115,7 +1119,8 @@ export function wellStepCost (cols, block, skip = null) {
   return 0
 }
 
-/** exclusionAreasBreak entry: the cap, shaft, floor, walls and the underground ring are never a path's (or gather's) dig. */
+/** exclusionAreasBreak entry: the cap, shaft, floor, walls and the underground ring are never a path's (or gather's) dig.
+ *  A raised well's column (plinth-01) also carries its STAIR (`c.stair`: [[x,y,z]], outside the 5x5 box): never dug either. */
 export function wellBreakCost (cols, block, skip = null) {
   const p = block?.position
   if (!p || !cols || !cols.length) return 0
@@ -1123,6 +1128,8 @@ export function wellBreakCost (cols, block, skip = null) {
     const c = cols[i]
     if (c === skip) continue   // THE BOT'S OWN WELL (Claude review P2-1): a body inside digs out through a wall (the well is breached and rebuilt)
     if (Math.abs(p.x - c.x) <= UNDERGROUND_RING && Math.abs(p.z - c.z) <= UNDERGROUND_RING && p.y >= c.y - 3 && p.y <= c.y) return 100
+    const st = c.stair
+    if (st) for (let j = 0; j < st.length; j++) if (p.x === st[j][0] && p.y === st[j][1] && p.z === st[j][2]) return 100
   }
   return 0
 }
