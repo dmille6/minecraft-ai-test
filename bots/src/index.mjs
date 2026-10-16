@@ -281,7 +281,7 @@ function connect() {
     // cobblecap-1000: the licence row, once per spawn -- the build's own `_cobblecap_mode` kind (cobblecap.mjs cobbleCapModeDetail)
     try { logEvent({ kind: 'cobblecap_mode', status: 'success', snapshot: snapshot(bot), detail: cobbleCapModeDetail() }) } catch {}
     // plinth-02: the licence row, once per spawn -- the build's own `_plinth_mode` kind (plinth.mjs plinthModeDetail)
-    try { logEvent({ kind: 'plinth_mode', status: 'success', snapshot: snapshot(bot), detail: plinthModeDetail() }) } catch {}
+    try { logEvent({ kind: 'plinth_mode', status: 'success', snapshot: snapshot(bot), detail: plinthModeDetail(bot.worldId) }) } catch {}
     try {
       installCraftSync(bot, { log: row => logEvent({ ...row, snapshot: snapshot(bot) }) })
     } catch (e) {

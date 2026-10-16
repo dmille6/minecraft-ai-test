@@ -200,7 +200,9 @@ def recorded_caps(pools, state_dir=STATE_DIR, worlds=None):
        - the record is version PLINTH_VERSION and state 'complete' (a plan or a void is not a finished plinth);
        - the pool's LATEST well-site generation for the same home names the same cap and the same world (the hand-off wrote
          both; a site moved since, or a record from another world, does not count);
-       - `worlds` {pool: world prefix seen in this window's rows (w=)}: a record of a different world does not count."""
+       - `worlds` {pool: the CURRENT world, from this window's rows (w=: the canary's _plinth_mode licence rows, the no_site
+         rows)}: AFFIRMATIVE identity is required (Codex r4 P2) -- a pool with no world seen counts no record, and a record of
+         another world does not count."""
     import glob, json
     out = {}
     for pool in sorted(pools):
@@ -224,7 +226,7 @@ def recorded_caps(pools, state_dir=STATE_DIR, worlds=None):
             if str(site.get('world') or '') != world:
                 continue
             seen = (worlds or {}).get(pool)
-            if seen and world and not world.startswith(seen):
+            if not seen or not world or not world.startswith(seen):
                 continue
             out[(int(cap['x']), int(cap['y']), int(cap['z']))] = pool
     return out
@@ -254,19 +256,22 @@ def _selftest_records():
     # an earlier world's record and site (Codex r3 P2-1), and a wrong version
     put('isolated-a', 'junkwell-plinth-1_1_1.json', {'v': 1, 'state': 'complete', 'world': 'old', 'plan': {'cap': {'x': 9, 'y': 9, 'z': 9}}})
     put('isolated-a', 'junkwell-site-1_1_1.g1.json', {'x': 9, 'y': 9, 'z': 9, 'world': 'old'})
-    assert recorded_caps({'board-c', 'hive-a', 'hive-d'}, d) == {(365, 73, 137): 'board-c'}, 'complete + same-cap latest site only'
-    assert recorded_caps({'isolated-a'}, d) == {(9, 9, 9): 'isolated-a'}, 'POSITIVE CONTROL: no world seen -> the consistent record counts'
+    ALL = {'board-c': W1[:40], 'hive-a': 'w', 'hive-d': 'w2', 'isolated-a': 'old'}
+    assert recorded_caps({'board-c', 'hive-a', 'hive-d'}, d, worlds=ALL) == {(365, 73, 137): 'board-c'}, 'complete + same-cap latest site only'
+    assert recorded_caps({'isolated-a'}, d, worlds=ALL) == {(9, 9, 9): 'isolated-a'}, 'POSITIVE CONTROL: the world seen -> the consistent record counts'
+    assert recorded_caps({'isolated-a'}, d) == {}, 'no world seen in the window -> no record counts (affirmative identity, Codex r4 P2)'
     assert recorded_caps({'isolated-a'}, d, worlds={'isolated-a': 'new'}) == {}, 'a row of the window names another world'
     assert recorded_caps({'board-c'}, d, worlds={'board-c': W1[:40]}) == {(365, 73, 137): 'board-c'}, 'the same world (w= is cut at 40)'
     put('isolated-a', 'junkwell-plinth-1_1_1.json', {'v': 2, 'state': 'complete', 'world': 'old', 'plan': {'cap': {'x': 9, 'y': 9, 'z': 9}}})
-    assert recorded_caps({'isolated-a'}, d) == {}, 'another version'
+    assert recorded_caps({'isolated-a'}, d, worlds=ALL) == {}, 'another version'
     put('board-c', 'junkwell-site-355_73_147.g1.json', {'x': 365, 'y': 73, 'z': 137, 'world': 'other'})
-    assert recorded_caps({'board-c'}, d) == {}, 'the site names another world'
-    assert recorded_caps({'board-c'}, d + '/nowhere') == {}, 'no dir, no caps'
+    assert recorded_caps({'board-c'}, d, worlds=ALL) == {}, 'the site names another world'
+    assert recorded_caps({'board-c'}, d + '/nowhere', worlds=ALL) == {}, 'no dir, no caps'
     assert TABLE_REFUSAL.match("order=build reason=well_site nowhere within 2 of the junk well's standing cell to put a crafting table")
     assert TABLE_REFUSAL.match("order=build reason=well_site nowhere within reach of the junk well's standing cell to put a crafting table; carry 2")
     assert not TABLE_REFUSAL.match('order=build reason=well_site the junk well site 1,2,3 is no longer valid (walls)')
     assert WORLD_OF.search('order=build reason=no_site tally=cols:672 rec=ok w=-1683219219:11596751 the town').group(1) == '-1683219219:11596751'
+    assert WORLD_OF.search('phase=mode v=2 table=below_stand w=-1909043226:-504800724').group(1) == '-1909043226:-504800724', 'the licence row'
 
 
 WORLD_OF = re.compile(r'(?:^| )w=(\S+)')
@@ -335,7 +340,7 @@ if __name__ == '__main__':
             n[(period, arm, 'no_site')] += 1
             if period == 'pre':
                 no_well_pre[pool_of(b)] += 1
-        if k == 'well_refused':
+        if k in ('well_refused', 'plinth_mode'):
             mw = WORLD_OF.search(d)
             if mw and mw.group(1) not in ('-', ''):
                 world_seen[pool_of(b)] = mw.group(1)

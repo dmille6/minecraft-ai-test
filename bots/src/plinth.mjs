@@ -39,9 +39,10 @@ export const PLINTH_VERSION = 1
 /**
  * THE LICENCE ROW (plinth-02): written once per spawn by index.mjs as the build's own `_plinth_mode` kind. A town whose plinth
  * was finished under plinth-01 (board-c, hive-d) writes no `_plinth` row at all -- the build order wants nothing -- so a licence
- * on `_plinth` alone could not see this build live there; neither the base nor plinth-01 writes this kind.
+ * on `_plinth` alone could not see this build live there; neither the base nor plinth-01 writes this kind. It carries the
+ * world (`w=`, as the no_site rows do, cut at 40): the read takes a plinth RECORD as this world's only on that evidence.
  */
-export const plinthModeDetail = () => 'phase=mode v=2 table=below_stand'
+export const plinthModeDetail = (worldId = null) => `phase=mode v=2 table=below_stand w=${String(worldId || '-').slice(0, 40)}`
 /** The highest raise: g-3 = t+1 at k = 4, so no shell cell is ever below the surface. */
 export const PLINTH_MAX_RAISE = 4
 /** Eye to the clicked face's centre (vanilla's block_interaction_range; the server allows a margin beyond it). */
