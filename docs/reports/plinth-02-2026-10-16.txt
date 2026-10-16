@@ -1,0 +1,145 @@
+plinth-02 (the raised junk well, FINISHED) -- build, reviews, Paper, registration: 2026-10-16
+Branch plinth02-on-623e92b. CANARY SHA 028f7f2d (028f7f2da1f54f61f93db016801f15b0c57c2158), on fleet 623e92b9 = f8daab3a (plinth-01) + r1..r7.
+Commits after the canary sha are docs and sandbox only.
+
+WHY (plinth-01, f8daab3a, board-c + hive-d, 10-16 13:40-17:10Z, closed INCONCLUSIVE early)
+- Both plinths were built complete: board-c 60/60 at cap 365,73,137 (k=4), hive-d 66/66 at cap 56,64,69 (k=3), both with stair=[].
+- build_well never finished either well. Of 30 attempts: 23 failed "nowhere within 2 of the junk well's standing cell to put
+  a crafting table", 5 failed "could not reach the junk well site's standing cell", and _well_built stayed 0.
+  Fleet rows, 13:40-17:10Z: board-c 12 + 3, hive-d 13 + 2.
+- Cause: composter.mjs tableCellFor only offers cells at the STAND's level, within 2 of it, Chebyshev >= 2 from the site, on a
+  solid floor. On a plinth the stand is on the 3x3 walls at g, and every such cell is over air, because the plinth's 5x5 is
+  one level down at g-1.
+- Base bots in those two towns still hit the same refusal after the teardown, because the base has the same build_well.
+
+REACHABILITY: no stair is missing, and nothing was changed for it.
+- A test fixture was extracted from read-only region copies of both towns (r.0.0.mca from 10.0.0.30 /srv/block2/<pool>,
+  16:50Z; bots/test/fixtures/plinth-fleet-2026-10-16.json). On it, walkReach from home reaches both stands with stair=[].
+- 25 of the 30 visits stood on the stand.
+- The 5 "could not reach" visits all began 12-26 blocks BELOW the stand, in mines: bot.pos y 48-55 against stands at y 65/74,
+  e.g. 327,48,155 vs 365,74,136. The well order's distHome is horizontal only (cognitive.mjs ~949). That is pre-existing and
+  applies to every well, so it is left out of a single-variable canary. Both engines agree.
+
+THE CHANGE (f8daab3a..028f7f2d)
+1. THE TABLE FIX: plinth.mjs wellTableCell, a pure function that skills.mjs build_well uses.
+   - It tries the old cell first, unchanged, so a flat well gets exactly the cell it got before.
+   - Otherwise it looks for a cell 1-4 BELOW the stand:
+     - the cell's centre within 4.0 of the stand's feet (STATION_REACH is 4.5) and the floor's top face within 4.5 of the eye;
+     - cells off the plinth's 5x5 are preferred, then the plinth's own ring top at g;
+     - never the 3x3, the column, a body, or a container/furniture floor.
+   - It keeps a candidate only if the stand stays walkReach-able from the town with the table in place. Without that proof
+     (no start, or the stand is not walkable today) it offers nothing: Codex r1 P2.
+   - A null names its reason: no_cell, no_proof or route. build_well's refusal carries `table=<why>` and the remedy: carry the
+     trapdoors, crafted at any town table.
+   - The walk probe forbids every plinth column (plinthForbid).
+   - composter.mjs: PLACEABLE_INTO is now exported (one word).
+2. FOLDED IN from lidclear-on-f8daab3 @ 51972f9a (191ccc6d + 51e56968), plinth parts only:
+   - furnitureNear and the stair-lid guard in stairOptions;
+   - build_plinth's clickGuard returns 'furniture', and 'furniture' counts as a stall (void + replan);
+   - wellCellAt, the shared well/plinth cell test: wellBreakCost over knownWellCells. wellBreakCost is newly imported into
+     skills.mjs, and wellCellAt is defined beside knownWellCells, because lidclear's lid code is not in this base;
+   - wear_out refuses a well/plinth cell ('well') and fails closed ('wells_unknown').
+   Both reviewers checked it line for line against 51972f9a.
+3. LICENCE ROW: `_plinth_mode phase=mode v=2 table=below_stand w=<worldId>`, once per spawn (index.mjs, plinth.mjs
+   plinthModeDetail).
+   - A town whose plinth was finished under plinth-01 writes no _plinth row, so a licence on _plinth could not see the build
+     there.
+   - The w= field gives the read affirmative world identity.
+4. READ: scripts/host/plinth2read.py, installed as ~/mcai-analysis/plinth2read.py (md5 67e29775).
+   - It is plinthread.py with every gate's logic unchanged.
+   - Gate caps: P3, P4 and P5 also cover every cap that this world's plinth records name: the plan cap in any state, plus `prev`.
+   - Exposure caps: a COMPLETE record whose pool's latest well-site generation names the same cap in the same world.
+   - The world is affirmed from _plinth_mode or no_site rows (w=). Codex r3-r5 drove this.
+   - Exposure is judged per cap. Its definition is unchanged: a _well_built at a COMPLETE plinth cap in a window of at least
+     180 min.
+   - MECHANISM line (report only): table refusals per bot-hour.
+   - Dry run on plinth-01's own window (board-c,hive-d, 13:40Z, +180, 368,929 rows):
+     - caps from records: (56,64,69) and (365,73,137), both complete;
+     - MECHANISM canary 0.000 -> 0.767 vs control 0 -> 0 (the defect, seen by the instrument);
+     - every gate 0.
+
+TESTS (npm test 255/255 at 028f7f2d: the author's run, and the Claude reviewer's own export)
+- plinth02.test.mjs (new, 16):
+  - THE FLEET REPLAY of both towns from the fixture. Positive control: the old rule returns null there. The new cell is within
+    reach, and the stand stays walkable with the table placed.
+  - flat-well identity; the only-way-up guard with its positive control and mutant; no proof -> no table, with its mutant;
+    a chest floor; nothing in reach ('no_cell'); the build_well wiring; the licence wiring with a removed-row mutant;
+    the lidclear stair, click and wear_out tests with their mutants.
+- well.test.mjs (+2): the REAL build_well on a k=3 plinth (with the stair its planner gives it), carrying logs and dirt only.
+  The table goes below the stand, the trapdoors are crafted, the well is built, and _well_built is written at the cap.
+  MUTANT: the old rule -> no table cell, nothing built.
+- plinth-skill.test (+2): the furniture-stall test and its mutant. The "index.mjs untouched" assertion now allows exactly the
+  licence row.
+- eslint no-undef: only the pre-existing reflex.mjs:2384 withinBody.
+- Plinth mutants: 30 killed, 0 survived (plinth 10, plinth-skill 14, plinth02 4, towndeposit 1, well 1). Each asserts its
+  anchor is present and unique.
+
+PAPER (sandbox2 = 10.0.0.30:25600, Paper 1.21.8; the global sandbox lock on .31 was held 17:53:22-18:24:33Z, released and
+verified free, server empty)
+- Driver: sandbox/well/plinth02-e2e.mjs (committed with this record), run 1016T180058. The bot is the worktree at 028f7f2d, and
+  each spawn wrote `_plinth_mode ... w=-1909043226:-504800724`.
+- Every count below is an RCON read of the world: the cap trapdoor (top, closed) and the floor trapdoor (bottom), a crafting
+  table scan around the cap, and the item census in and out of the shaft at +1.5 s and +30 s.
+- NO TRAPDOORS WERE CARRIED in any well scene.
+
+  scene                                    table put down at                      well (server)   dispose in/out (+30 s)  walker
+  board-c REAL TOWN (pasted, plinth k=4)   2410,120,2388 = real 365,73,135        built, north    576/0 (576/0)           0 pickups (egg control 1/1)
+  hive-d REAL TOWN (pasted, k=3; table carried)  2391,119,2401 = real 59,64,69   built, north    576/0 (576/0)           0 pickups (egg control 1/1)
+  slab4 k=4: plinth 84/84, 0 outside, two SIGKILLs (15, 83 walled in); then logs only   2393,123,2397 (ring top)   built   576/0 (576/0)   0 pickups
+  slab2 k=2: plinth 32/32, 0 outside; then logs + a table   2393,120,2396 (ground beside)   built   528/0 (528/0)   0 pickups
+
+- Both real-town tables landed exactly on the cells the offline replay predicted.
+- One harness fix: the first attempt at board-c found the table cell but place() refused "exceeds border 1950" (the arena is at
+  x/z ~2400). The driver now sets WORLD_BORDER_RADIUS=4000 for the sandbox bot. No code changed.
+- The slab4 kill rep: the killed builder had handed off just before the second kill and had not yet covered the pit. The scene
+  read the cap open 4 s after completion. By the next visit, the bot found it covered ("_well_pit_dug from=covered") and built
+  the well.
+  - This is plinth-01's approved hazard window (a visitor or the next builder covers it).
+  - The read's P3 gate judges it at 10 min.
+- "nonListedLost" andesite/diorite/granite/calcite: the well junk at STONE_GUARD, as in plinth-01's runs.
+  oak_sapling -1: a planting. Neither was thrown outside the shaft (out = 0).
+
+REVIEWS
+- Codex (codex exec -s read-only; prompts in the agent's scratch p2/review-p2-r*.txt):
+  - r1 CHANGE: P2 the table fails open without the walk proof; P3 a chest can be the table's floor.
+  - r2 APPROVE.
+  - r3 CHANGE: the read's record caps lacked identity, and exposure counted a plan-only cap.
+  - r4 CHANGE: affirmative world identity is needed.
+  - r5 CHANGE: the gates lost a plinth whose site moved.
+  - r6 APPROVE.
+  - r7 APPROVE, at 028f7f2d.
+  - Codex could not run tests itself: its sandbox refused /tmp exports. The tests were run here and by the Claude reviewer.
+- CLAUDE (a fresh subagent, read only, own exports):
+  - APPROVE at e96755e8, with P3s: NOTHING IN REACH no longer reached its case; one refusal text for two causes; the read
+    header was stale; the walk probe forbade only its own column. All were applied in r7.
+  - APPROVE at 028f7f2d: full runner 255/255, eslint clean.
+  - Residual P3s:
+    - no test reaches report.why 'route';
+    - the carry-trapdoors remedy is advice only; it cannot fire on either fleet town.
+- Both engines confirm the reachability conclusion and that leaving the mine-start case alone is right.
+
+REGISTRATION ~/mcai-analysis/plinth-02.028f7f2d.json (sha256 c2b858c5...; copy docs/reports/plinth-02.028f7f2d.json)
+- plinth-01's gates, extension and death rules are unchanged, with reads plinth2read, wellread and immobiledid.
+- licence: kind _plinth_mode.
+- change_rows: plinth, plinth_step, plinth_mode.
+- draw_exposure: 3 h, `_well_refused` 'order=build reason=' >= 2. This covers no-site towns and finished-plinth towns whose
+  well fails.
+- NO draw_require_pools.
+- Checks at 18:25Z:
+  - drawrequire.parse -> ([], None);
+  - licencecheck --hours 6 PASS (_plinth_mode: 0 baseline rows in 371,062 / 80 bots);
+  - changerowcheck PASS (all three silent on 623e92b; plinth-01's f8daab3 rows reported, not counted);
+  - drawexposure PASS (board-b, board-c, hive-d eligible).
+- Pinned read md5s: plinth2read 67e29775, wellread b0cd8a4b (== /tmp), immobiledid 53af289d (== /tmp). plinth2read is absent
+  from /tmp; the scheduler stages it (H4).
+
+QUEUE ENTRY ~/mcai-analysis/plinth-02.queue-entry.json (copy docs/reports/plinth-02.queue-entry.json)
+- A NEW run, `queue add`, NOT applied.
+- after=[lidclear-01], carrying a coordinator HOLD.
+- One variant: fleet 623e92b9 -> canary 028f7f2d.
+- If lidclear-01 (or anything else) is KEPT and promoted first, plinth-02 needs a variant on that tip.
+
+NOT CHANGED, NAMED
+- The well order's horizontal distHome (bots in mines get build/dispose orders).
+- The carry-trapdoors remedy is advice.
+- A crafting table build_well puts on or beside a plinth stays as inert town furniture.

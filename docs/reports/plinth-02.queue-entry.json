@@ -1,0 +1,21 @@
+{
+ "run": "plinth-02",
+ "class": "",
+ "after": ["lidclear-01"],
+ "hold": "COORDINATOR: placed by the coordinator, not by the build agent. One variant only: fleet 623e92b9 (cobblecap-1000). If lidclear-01 (or anything) is KEPT and promoted first, plinth-02 needs a variant on that tip -- ask. Release: canary-sched.py queue release plinth-02",
+ "note": "plinth-02 = plinth-01 + THE TABLE FIX (build_well on a raised well: a table cell below the stand, walk-proven; plinth-01 was closed INCONCLUSIVE 10-16 17:10Z: both plinths complete, 23/30 build_well visits refused 'nowhere within 2 ... crafting table', _well_built 0) + lidclear-01's plinth hardening (stair-lid guard, click-time furniture stall, wear_out never digs a well/plinth) + the licence row _plinth_mode. Read ~/mcai-analysis/plinth2read.py (staged to /tmp by H4) + wellread + immobiledid. Exposure unchanged (a _well_built at a COMPLETE plinth cap); caps also come from the canary pools' records, so board-c's and hive-d's finished plinths expose it at once if drawn. draw_exposure: _well_refused 'order=build reason=' >= 2 / 3 h (no-site towns and finished-plinth towns); no draw_require_pools. Branch plinth02-on-623e92b (fetch origin in /opt/minecraft-ai first). Record: docs/reports/plinth-02-2026-10-16.txt.",
+ "variants": {
+  "623e92b967c3d1ba708b84eb17c7efa6cb33cf91": {
+   "registration": "/home/mike/mcai-analysis/plinth-02.028f7f2d.json",
+   "approved": "plinth-02 agent 2026-10-16: plinth02-on-623e92b @ 028f7f2d. Codex r1 CHANGE -> r2 APPROVE -> r3/r4/r5 CHANGE (the read's record identity) -> r6 APPROVE -> r7 APPROVE; independent Claude subagent APPROVE at e96755e8 and 028f7f2d (P3s only, applied in r7). npm test 255/255; eslint no-undef only the pre-existing reflex.mjs:2384 withinBody; plinth mutants 30 killed, 0 survived (plinth 10, plinth-skill 14, plinth02 4, towndeposit 1, well 1; each anchored present and unique). PAPER sandbox2 1016T180058 (server reads, no trapdoors carried): board-c and hive-d real towns (region copies) -> wells built with the table at 365,73,135 / 59,64,69 (as replayed offline), dispose 576/576 in the shaft, walker 0 pickups; slab4 k=4 plinth (two SIGKILLs) and slab2 k=2 built then their wells built from logs. drawrequire.parse ([], None) -- NO draw_require_pools; licencecheck PASS (_plinth_mode 0 baseline rows / 6 h, 80 bots); changerowcheck PASS (plinth, plinth_step, plinth_mode baseline-silent); drawexposure PASS (board-b, board-c, hive-d eligible at 18:25Z). ORDINARY canary.",
+   "registration_sha256": "c2b858c58e7c00e2a0516e51e0b79a4bc884a4bd86fe509fa77ab6eaf29ab9f5",
+   "canary_sha": "028f7f2da1f54f61f93db016801f15b0c57c2158",
+   "reads_src": "/home/mike/mcai-analysis",
+   "reads": {
+    "plinth2read": "67e297750033be4e00ca4096cba479ff",
+    "wellread": "b0cd8a4b6da00eb3cd44bf413569e417",
+    "immobiledid": "53af289df12208901931dbeeb1ae325a"
+   }
+  }
+ }
+}
