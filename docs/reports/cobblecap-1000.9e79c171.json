@@ -1,0 +1,111 @@
+{
+ "run_id": "cobblecap-1000",
+ "sha": "9e79c171dc7c1dabc6aca9057d123484c3f8f4f4",
+ "registered_at": "2026-10-16T01:36:48Z",
+ "ladder_change": false,
+ "promotion": "fleet-wide",
+ "notes": "[cobblecap-1000 on 8cd0bc62 (wellsite-04, the fleet since 10-15 19:33Z): branch cc1000-on-8cd0bc6 @ 9e79c171] THE TOWN COBBLE CAP 256 -> 1000 (OWNER 10-14: \"can we up the chest limit for cobblestones to 1000\"). TOWN_COBBLE_CAP is now written once, in bots/src/stocktarget.mjs (the `cobble` group's target); cobblecap.mjs re-exports it; everything keyed off it moves with it: the deposit's and the town deposit's whole-stack admission, the journal fold's claims, the well's cobble switch (the town HOLDS its cap), the cobble prune (a stack spare only past the cap), the at-cap refusal sentence (\"past its 1000 cobble (town cobble cap)\"), the `_cobble_bank cap=` field. The bag's own 64 reserve is UNCHANGED. The reads take the cap from the same module (scripts/host/towncap.py; stocktargetread/stonecapread had literal 256s). WHY A CANARY: the base refuses at admission whenever a town holds 256 -- 807 `_stock_refused ... at_cobble=1` rows in 12 h on 13 of 16 pools (10-14 15:10Z - 10-15 03:10Z), and every counted town journal sits at exactly 256 (the clear's cap) or below; the base wrote ZERO _cobble_bank rows in 3 h. Expected: canary towns take cobble up to 1000 (_cobble_bank rows with town_after > 256), the at-cap refusals and the well's cobble clicks fall. Cost: 1000 cobble is 16 chest slots per town; towns hold 13-30 containers. OWNER DECISION NAMED, NOT DESIGNED HERE (Claude cc1000-r1 P2, composition): a town BELOW 1000 whose containers are all full leaves the bag's surplus cobble with no exit (no room to bank; cobble never opens a chest; the well takes cobble only once the town holds 1000; no prune). At 256 the well relieved it. Instrumented as the BANK CLOSED tripwire (deposits 'cobble never opens a new chest' DiD, no_room share); the owner may accept it or ask for the well to take cobble when the bank is closed below the cap. D1 deliberately judges EVERY canary _cobble_bank row, old-build and versionless included (a 256-build row cannot exceed 1000, so it cannot false-trip); liveness and exposure count only rows carrying cap=1000. Composition: townfloor-01 (queued) fills town ground from bag cobble above the 64 reserve; this canary moves more of that surplus into chests -- both draw on the same surplus (47,559 collected/day fleet-wide vs 13,465 held above the reserve). EVIDENCE (10-16 rebuild, r7 tips): npm test 251/251 (8cd0bc62 tip) and 252/252 (75cfb447 tip); 25 anchored mutants killed, 0 survived on each; Paper sandbox3 runs 13 and 14 (00:17Z, 01:02Z): a town of 800 counted cobble banked a whole 30-stack (server chest 800 -> 830), a town of exactly 1000 refused at admission (at_cobble=1, chest unchanged), the base 75cfb447 refused the 800 town; each bot process wrote exactly one _cobblecap_mode phase=mode cap=1000 (the licence). Reviews r1-r5 on 5e663860; r6 (rebuild) and r7 (licence row): Codex APPROVE, Claude APPROVE (docs/reports/cobblecap-1000-reviews-2026-10-15.txt). READ DEPENDENCIES: cobblecapread imports towncap.py from its own directory (/tmp/towncap.py = ~/mcai-analysis/towncap.py, md5 ad5bde2f) and folds with ~/mcai-analysis/cobblecap1000/{cobblecap,stocktarget,toolfor}.mjs (= this build's bots/src: f019a4f2 / 2799501d / 6ba33ae4) through ~/mcai-analysis/stockjournal.mjs (4d7655be).",
+ "lint": "eslint no-undef on this tip (10-16): exactly one hit, bots/src/reflex.mjs:2384 'withinBody' -- the same guarded line on the untouched base; reflex.mjs is untouched by this diff; `typeof withinBody === 'function' ? ... : fallback` cannot throw a ReferenceError.",
+ "licence": {
+  "class": "kind",
+  "kind": "_cobblecap_mode",
+  "min_rows": 1,
+  "note": "r7: only this build writes _cobblecap_mode (phase=mode cap=1000, once per spawn, index.mjs right after installCobbleCap; Paper run 14: exactly one per bot process). WHY NOT the earlier text licence (_cobble_bank 'cap=1000'): the base wrote ONE _cobble_bank row in 24 h fleet-wide (10-16 00:22Z; a town at its 256 is refused at admission first), and canary-loop.sh runs licencecheck --hours 6, which REFUSED it ('the baseline never emits _cobble_bank'). Liveness is unchanged: banks above 256 carrying cap=1000 (cobblecapread). THE LICENCE PROVES THE BUILD IS LIVE, NOT THE EFFECT (Claude cc1000-r7 P3): it is written on every spawn whatever the deposits do, so no verdict rests on its count -- the effect evidence is cobblecapread's bank_above_base_cap; change_rows stays [] (no death linkage)."
+ },
+ "reads": [
+  "cobblecapread",
+  "immobiledid"
+ ],
+ "read_minutes": [
+  180,
+  360
+ ],
+ "deadline_min": 1680,
+ "change_rows": [],
+ "linkage_extra": [],
+ "draw_exposure": {
+  "hours": 12,
+  "require": [
+   {
+    "name": "refusals at a counted cobble cap (a town at its 256)",
+    "kind": "stock_refused",
+    "detail_contains": " at_cobble=1 ",
+    "min": 5
+   }
+  ],
+  "note": "RE-MEASURED 10-16 00:21Z (drawexposure --hours 12, fleet 8cd0bc62, positive control 690,421 rows / 80 bots / 170 kinds): ELIGIBLE hive-b 115, hive-a 105, hive-d 64, board-c 63, board-d 58, placebo-d 57, placebo-a 41, hive-c 38; NOT board-b 1, board-a 0, placebo-b 0 (isolated-*/placebo-c never drawn). The count matches only at_cobble=1 rows (a lower bound: two-name refusals write at_cobble=2; the read counts both). EARLIER, 12 h to 10-15 03:10Z per pool (`_stock_refused` with at_cobble=1): hive-c 195, hive-b 162, board-d 127, hive-a 82, hive-d 50, placebo-d 42, isolated-a 39, board-c 30, isolated-d 22, placebo-a 19, isolated-b 16, board-b 13, isolated-c 10; board-a, placebo-b, placebo-c none (towns at 0-64). CLAUDE.md: a canary pool must contain the population the fix targets."
+ },
+ "exposure": {
+  "read": "cobblecapread",
+  "field": "exposure_ready",
+  "min": 1,
+  "note": "Dry run 10-16 00:20Z (board-d,hive-d as the pretend canary on 8cd0bc62, 180 min): instrument 330, canary rows 0 -> NOT YET (as expected on the base). Ready = >= 3 canary _cobble_bank rows with town_before >= the base cap (rows the old cap would have refused), and the instrument (control refusals at a counted cobble cap >= 1). Dry run 10-15 (board-d,placebo-d as the pretend canary on the base, 180 min): instrument 197."
+ },
+ "own_lines": [
+  {
+   "read": "cobblecapread",
+   "field": "breach_bank_past_cap",
+   "op": "<=",
+   "value": 0,
+   "on_fail": "REVERT",
+   "evidence": "defect",
+   "note": "D1: a canary-build _cobble_bank row that moved cobble and left town_after above the canary cap (1000, from the canary's own stocktarget.mjs), complete or not."
+  },
+  {
+   "read": "cobblecapread",
+   "field": "breach_c5_journal",
+   "op": "<=",
+   "value": 0,
+   "on_fail": "REVERT",
+   "evidence": "defect",
+   "note": "D2: an admitted cobble bank claim released into a town total above the canary cap (stockjournal.mjs folding with the canary's cobblecap.mjs, ~/mcai-analysis/cobblecap1000/)."
+  },
+  {
+   "read": "cobblecapread",
+   "field": "rows_control_canary_cap",
+   "op": "<=",
+   "value": 0,
+   "on_fail": "REVERT",
+   "note": "Arms: a control row carrying cap=1000. BLOCKS KEEP."
+  },
+  {
+   "read": "cobblecapread",
+   "field": "bank_above_base_cap",
+   "op": ">=",
+   "value": 1,
+   "on_fail": "REVERT",
+   "note": "LIVENESS (owner's ask: at least one bank above 256): canary-build _cobble_bank rows that MOVED cobble with town_after above the base cap. BLOCKS KEEP (INCONCLUSIVE)."
+  },
+  {
+   "read": "cobblecapread",
+   "field": "instrument_control",
+   "op": ">=",
+   "value": 1,
+   "on_fail": "REVERT",
+   "note": "POSITIVE CONTROL: control refusals at a counted cobble cap visible. BLOCKS KEEP."
+  }
+ ],
+ "primary": {
+  "read": "cobblecapread",
+  "field": "moved_did",
+  "note": "REPORTED: cobble banked per bot-h DiD (should RISE); refusals at a counted cobble cap DiD (should FALL); the well's cobble clicks DiD (should FALL: the well takes cobble only once a town holds 1000); max town_after per arm."
+ },
+ "harm": {
+  "note": "Unchanged: the two-death floor (OWNER 2026-09-11) and gather_ratio < 0.43 of control, from immobiledid. TRIPWIRES (reported, never a verdict): new town chests per bot-h DiD and chest-full deposit failures DiD -- a town filling with cobble sooner."
+ },
+ "teardown": {
+  "note": "THREE STEPS: drop-ins, clear canary_pool, restart the pool's bots 12 s apart; then confirm the live versions. The cobble the canary banked stays in the town chests (up to 1000 per town); after a REVERT the base reads those towns as at its 256 and refuses -- the surplus stays in place, nothing is thrown or moved."
+ },
+ "amendments": [],
+ "extension": {
+  "until_exposure": true,
+  "extra_reads": [
+   540,
+   720,
+   1080,
+   1560
+  ],
+  "final_on_zero_exposure": "INCONCLUSIVE",
+  "note": "SHORT CANARY for a fix (owner 2026-09-29)."
+ }
+}

@@ -1,6 +1,10 @@
 #!/usr/bin/env python3
 # stonecapread.py [window_min] -- the read for canary `stonecap-01` (THE COBBLE RULE; branches sc-on-c6e91a8 / sc-on-92bc84f).
 # CANARY_DRYRUN=pool[,pool]:sha:iso for dry runs (never emits).
+# THE CAP IT JUDGES WITH (cobblecap-1000, Claude cc1000-r6 P3): CAP comes from towncap.py's module search (STOCK_ST, the
+#   stocktarget.mjs beside STOCK_CC, else ~/mcai-analysis/stocktarget/ = the fleet's). C5's row gate uses each row's own cap=,
+#   but the journal gate and C9 use CAP: to read a canary whose cap differs from the fleet's, set STOCK_ST to THAT build's
+#   stocktarget.mjs. cobblecap-1000 itself is read by cobblecapread.py (CANARY_ST), not by this script.
 #
 # THE CHANGE (bots/src/bankable.mjs cobbleBankStacks; docs/reports/cobble-rule-design-2026-10-07.md): cobblestone and
 # cobbled_deepslate are banked ONLY as whole stacks (each empties a bag slot), smallest first, and only while the bag keeps
@@ -61,7 +65,9 @@ from collections import Counter, defaultdict
 sys.path.insert(0, '/srv/mcb-analysis-lib')
 sys.path.insert(0, '/opt/minecraft-ai/scripts')
 sys.path.insert(0, '/home/mike/mcai-analysis')
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from lib.telemetry import Events
+from towncap import town_cobble_cap, row_cap   # cobblecap-1000: the cap is read from the one place it is written
 
 man = json.load(open('/srv/mcbots/trial-manifest.json'))
 ovr = os.environ.get('CANARY_DRYRUN')
@@ -166,15 +172,17 @@ def balance_gaps(rows_):
     return out
 
 
-CAP = 256
+# cobblecap-1000: the cap of the fold this read audits -- the stocktarget.mjs beside STOCK_CC, else
+# ~/mcai-analysis/stocktarget (towncap.py). It was a literal 256; a row is judged by the cap= it carries.
+CAP = town_cobble_cap()
 
 
 def c5_row_breach(f):
     """C5 (row): moved cobble on a COMPLETE count that left the town above the cap."""
-    return num(f, 'moved') > 0 and f.get('complete') == '1' and f.get('town_after', '').isdigit() and int(f['town_after']) > CAP
+    return num(f, 'moved') > 0 and f.get('complete') == '1' and f.get('town_after', '').isdigit() and int(f['town_after']) > row_cap(f, CAP)
 
 
-def journal_overshoots(recs, since_ms, now_ms=None):
+def journal_overshoots(recs, since_ms, now_ms=None, cap=None):
     """C5 (journal) -> (breaches [(claim id, bot, total)], max_total, admitted, released, stale_live {bot: n}). Folds the
     journal as cobblecap.mjs does: per container the latest capture (tie: larger); a count that releases a live claim on its
     own container, or resolves a void of it, replaces the standing count whatever the clocks; a claim's decision from the
@@ -183,6 +191,7 @@ def journal_overshoots(recs, since_ms, now_ms=None):
     claims at or after since_ms are judged. stale_live: admitted claims still live after 1 h, by bot (a removed bot's claims
     stay reserved for good: fail closed, made visible here)."""
     OBS_TTL = 6 * 3600 * 1000
+    cap = CAP if cap is None else cap   # cobblecap-1000: the module's cap; the fixtures pass their own
     obs, claims, out = {}, {}, []
     mx = 0; adm = rel = 0
     for r in recs:
@@ -205,7 +214,7 @@ def journal_overshoots(recs, since_ms, now_ms=None):
                     rel += 1
                     total = sum(obs[k][0] for k in set(c['keys']) if k in obs)
                     mx = max(mx, total)
-                    if total > CAP:
+                    if total > cap:
                         out.append((i, c['bot'], total))
                 del claims[i]
         elif t == 'claim' and r.get('id') and isinstance(r.get('at'), (int, float)):
@@ -217,7 +226,7 @@ def journal_overshoots(recs, since_ms, now_ms=None):
             complete = bool(r.get('coverage')) and bool(allk) and all(fresh(k) for k in allk)
             res = sum(c['n'] for c in claims.values() if c['state'] == 'live')
             n = int(r.get('n') or 0)
-            if lb + res < CAP and complete and lb + res + n <= CAP:
+            if lb + res < cap and complete and lb + res + n <= cap:
                 claims[r['id']] = {'n': n, 'k': r.get('k'), 'at': at, 'state': 'live', 'keys': keys, 'bot': r.get('bot'), 'void_at': None}
                 if at >= since_ms:
                     adm += 1
@@ -303,20 +312,24 @@ assert town_total_series([{'t': 'obs', 'k': 'a', 'n': 100, 'cap': 1}, {'t': 'cnt
 assert c5_row_breach(kv('name=cobblestone planned=30 tried=30 moved=30 before=94 kept=64 src=server reserve=64 no_room=0 town_before=240 town_after=270 complete=1 cap=256 at_cap=0 unknown=0'))
 assert not c5_row_breach(kv('name=cobblestone planned=30 tried=30 moved=30 before=94 kept=64 src=server reserve=64 no_room=0 town_before=100 town_after=130 complete=1 cap=256 at_cap=0 unknown=0'))
 assert not c5_row_breach(kv('name=cobblestone planned=30 tried=- moved=0 before=94 kept=94 src=server reserve=64 no_room=0 town_before=250 town_after=250 complete=1 cap=256 at_cap=1 unknown=0'))
+# cobblecap-1000: a row is judged by the cap it carries -- 270 under a 1000 cap is clean, 1001 is not
+assert not c5_row_breach(kv('name=cobblestone planned=30 tried=30 moved=30 before=94 kept=64 src=server reserve=64 no_room=0 town_before=240 town_after=270 complete=1 cap=1000 at_cap=0 unknown=0'))
+assert c5_row_breach(kv('name=cobblestone planned=30 tried=30 moved=30 before=94 kept=64 src=server reserve=64 no_room=0 town_before=971 town_after=1001 complete=1 cap=1000 at_cap=0 unknown=0'))
 # the journal gate: an admitted claim released into a total of 270 fires (a fold the code would not make, written by hand);
 # the code's own sequence (150 counted, two claims of 64: one admitted, one refused) does not
 _J = [{'t': 'obs', 'k': 'a', 'n': 150, 'cap': 10}, {'t': 'claim', 'id': 'x', 'n': 64, 'k': 'a', 'at': 20, 'keys': ['a'], 'coverage': True, 'bot': 'p'},
       {'t': 'claim', 'id': 'y', 'n': 64, 'k': 'a', 'at': 21, 'keys': ['a'], 'coverage': True}, {'t': 'rel', 'ids': ['y']},
       {'t': 'cnt', 'k': 'a', 'n': 214, 'cap': 30, 'ids': ['x']}]
-assert journal_overshoots(_J, 0)[0] == [] and journal_overshoots(_J, 0)[2] == 1 and journal_overshoots(_J, 0)[1] == 214
+assert journal_overshoots(_J, 0, cap=256)[0] == [] and journal_overshoots(_J, 0, cap=256)[2] == 1 and journal_overshoots(_J, 0, cap=256)[1] == 214
 _J2 = _J[:4] + [{'t': 'cnt', 'k': 'a', 'n': 270, 'cap': 30, 'ids': ['x']}]
-assert journal_overshoots(_J2, 0)[0] == [('x', 'p', 270)], 'positive control: a release into 270 is a breach'
-assert journal_overshoots(_J[:2], 0, now_ms=20 + 3700 * 1000)[4] == {'p': 1}, 'an admitted claim live after 1 h is reported by bot'
+assert journal_overshoots(_J2, 0, cap=256)[0] == [('x', 'p', 270)], 'positive control: a release into 270 is a breach'
+assert journal_overshoots(_J2, 0, cap=1000)[0] == [], 'cobblecap-1000: the same release under a 1000 cap is clean'
+assert journal_overshoots(_J[:2], 0, now_ms=20 + 3700 * 1000, cap=256)[4] == {'p': 1}, 'an admitted claim live after 1 h is reported by bot'
 # the read's fold agrees with cobblecap.mjs on the round-4 cases: a void makes the container unknown; its recount is the count
 _V = [{'t': 'obs', 'k': 'a', 'n': 150, 'cap': 1000}, {'t': 'claim', 'id': 'A', 'n': 64, 'k': 'a', 'at': 900, 'keys': ['a'], 'coverage': True},
       {'t': 'void', 'ids': ['A'], 'at': 902}, {'t': 'claim', 'id': 'B', 'n': 10, 'k': 'a', 'at': 903, 'keys': ['a'], 'coverage': True},
       {'t': 'cnt', 'k': 'a', 'n': 214, 'cap': 904, 'ids': []}, {'t': 'claim', 'id': 'C', 'n': 64, 'k': 'a', 'at': 905, 'keys': ['a'], 'coverage': True}]
-assert journal_overshoots(_V, 0)[2] == 1, 'A admitted on 150; B refused (unknown after the void); C refused (214 + 64)'
+assert journal_overshoots(_V, 0, cap=256)[2] == 1, 'A admitted on 150; B refused (unknown after the void); C refused (214 + 64)'
 
 rows = sorted(load_window(PRE, END), key=lambda r: r['t'])
 print('rows walked %d  |  canary %s  sha %s  cutoff %s  window +%d min' % (len(rows), CAN, CV, CUT.strftime('%H:%MZ'), W))

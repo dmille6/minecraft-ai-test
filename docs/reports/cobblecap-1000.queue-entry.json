@@ -1,0 +1,35 @@
+{
+ "run": "cobblecap-1000",
+ "after": [
+  "townzone-01"
+ ],
+ "class": "",
+ "hold": "COORDINATOR: placed by the coordinator, not by the build agent. Codex-agreed order: right AFTER townzone-01 and BEFORE toolkit-01 -- adding this entry does not move toolkit-01, whose after= is townzone-01; set toolkit-01 after cobblecap-1000 (and toolkit/bamboo-02/treefarm-02 then need variants on cobblecap's tip). Launch >= 180 min after the latest prior decision restart. Variants: fleet 8cd0bc62 (townzone-01 reverted/inconclusive) and townzone-01 75cfb447 (townzone KEPT and promoted) only; any other fleet tip: ask for a new variant. Release: canary-sched.py queue release cobblecap-1000",
+ "note": "OWNER 10-14 \"can we up the chest limit for cobblestones to 1000\": the town cobble cap (cobblestone + cobbled_deepslate) 256 -> 1000, written once (bots/src/stocktarget.mjs TOWN_COBBLE_CAP); the bag's 64 reserve unchanged. Read ~/mcai-analysis/cobblecapread.py (+ immobiledid); it imports towncap.py from its own directory (/tmp/towncap.py must equal ~/mcai-analysis/towncap.py, md5 ad5bde2fff4ec7db8de05f62a5fc6d10) and folds with ~/mcai-analysis/cobblecap1000/. Liveness: >= 1 canary bank with town_after above 256; defect gates D1/D2: any bank or released claim past 1000. No draw_require_pools. Branches cc1000-on-8cd0bc6, cc1000-on-75cfb44 (fetch origin in the scheduler's git first). Records: docs/reports/cobblecap-1000-{reviews,paper}-2026-10-15.txt.",
+ "variants": {
+  "8cd0bc62e5606b021832d808b150007f38ab2d6e": {
+   "registration": "/home/mike/mcai-analysis/cobblecap-1000.9e79c171.json",
+   "approved": "cobblecap-1000 restart agent 2026-10-16: rounds 1-5 on 5e663860 (both APPROVE on 16b83acc); r6 (rebuild) and r7 (licence row) Codex APPROVE, Claude APPROVE (docs/reports/cobblecap-1000-reviews-2026-10-15.txt); npm test 251/251; 25/25 mutants killed; Paper PASS on this variant (docs/reports/cobblecap-1000-paper-2026-10-15.txt runs 13-14)",
+   "canary_sha": "9e79c171dc7c1dabc6aca9057d123484c3f8f4f4",
+   "branch": "cc1000-on-8cd0bc6",
+   "reads_src": "/home/mike/mcai-analysis",
+   "reads": {
+    "cobblecapread": "4eb87862ed7abbe944ceb4c1c55c8739",
+    "immobiledid": "53af289df12208901931dbeeb1ae325a"
+   },
+   "registration_sha256": "47a8a467b248be39ffd998cd5d7a6dd20bf2f950f3ff6a1f42e2e319f19aa41a"
+  },
+  "75cfb447fd2d5a882e60a3b3338c904788103ac1": {
+   "registration": "/home/mike/mcai-analysis/cobblecap-1000.623e92b9.json",
+   "approved": "cobblecap-1000 restart agent 2026-10-16: rounds 1-5 on 5e663860 (both APPROVE on 16b83acc); r6 (rebuild) and r7 (licence row) Codex APPROVE, Claude APPROVE (docs/reports/cobblecap-1000-reviews-2026-10-15.txt); npm test 252/252; 25/25 mutants killed; Paper PASS on this variant (docs/reports/cobblecap-1000-paper-2026-10-15.txt runs 13-14)",
+   "canary_sha": "623e92b967c3d1ba708b84eb17c7efa6cb33cf91",
+   "branch": "cc1000-on-75cfb44",
+   "reads_src": "/home/mike/mcai-analysis",
+   "reads": {
+    "cobblecapread": "4eb87862ed7abbe944ceb4c1c55c8739",
+    "immobiledid": "53af289df12208901931dbeeb1ae325a"
+   },
+   "registration_sha256": "27970e62e88c87928ffe4f1433eb7f2b1d06a205003dca8f5df188dd41825ef1"
+  }
+ }
+}

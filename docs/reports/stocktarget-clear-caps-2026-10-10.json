@@ -72,5 +72,6 @@
  "OWNER_CONFIRMED_2026_10_12": {
   "bamboo": "cap 0 -- owner confirmed 10-12: \"bamboo 0 and bucket 2 are fine\"",
   "bucket": "cap 2 -- owner confirmed 10-12: \"bamboo 0 and bucket 2 are fine\""
- }
+ },
+ "LIVE_COBBLE_CAP_NOTE_2026_10_15": "KEEP_GROUPS.cobble.cap = 256 is the ONE-TIME clear's value and is kept as the record of that clear. It is NOT the live town cobble cap: OWNER 10-14 \"can we up the chest limit for cobblestones to 1000\" -> cobblecap-1000 makes the live cap TOWN_COBBLE_CAP = 1000, written once in bots/src/stocktarget.mjs (the reads take it through scripts/host/towncap.py). Until cobblecap-1000 is KEPT and promoted the fleet still runs 256. Any FUTURE clear must take the cap from the build it runs beside (towncap.py), never from this file, or it would remove cobble the bots are allowed to bank."
 }

@@ -12,6 +12,47 @@ Studio reservation both closed 10-12); clear caps bamboo 0 / bucket 2._
 
 ---
 
+## 10-16 01:42Z — COBBLECAP-1000 READY on 8cd0bc62 / 75cfb447 (town cobble cap 256 -> 1000); both engines APPROVE; NOTHING queued or deployed (the cobblecap restart agent)
+OWNER 10-14 "can we up the chest limit for cobblestones to 1000". The first agent stopped in its final round (r1-r5 both APPROVE on
+16b83acc, old base 5e663860); restarted 10-15 ~23:00Z (owner "yes") and REBUILT on the live bases.
+- **Branches (pushed):** `cc1000-on-8cd0bc6` @ **9e79c171** (fleet 8cd0bc62) and `cc1000-on-75cfb44` @ **623e92b9** (townzone-01
+  75cfb447; use only if townzone is KEPT and promoted). The seven reviewed commits cherry-picked patch-identical (range-diff all '=') +
+  r7. TOWN_COBBLE_CAP = 1000 written ONCE (bots/src/stocktarget.mjs); cobblecap.mjs re-exports it; admission, the cobble group target,
+  the well's cobble switch, the prune, the refusal sentence and `_cobble_bank cap=` derive from it. Bag reserve 64 UNCHANGED.
+- **r7, a LAUNCH BLOCKER fixed:** the old text licence (`_cobble_bank` 'cap=1000') passed only at --hours 24 -- the base wrote ONE
+  _cobble_bank row in 24 h fleet-wide and canary-loop.sh runs licencecheck --hours 6, which REFUSED it. Now each bot writes
+  `_cobblecap_mode phase=mode cap=1000` once per spawn; licence {class: kind, kind: _cobblecap_mode}. It proves the build is live,
+  not the effect; liveness stays cobblecapread's bank_above_base_cap.
+- **Evidence:** npm test 251/251 and 252/252; 25 anchored mutants killed / 0 on each; eslint no-undef only reflex.mjs:2384. PAPER (sandbox3,
+  lock 00:17-00:19Z and 01:02-01:04Z, released): a town of 800 counted cobble banked a whole 30-stack (server chest 800 -> 830, bag
+  158 -> 128, row town_after=830 cap=1000); a town at exactly 1000 refused at admission ("nothing worth banking (town cobble cap)",
+  `_stock_refused at_cobble=1 cobblestone:158:cobble_cap`, chest unchanged); the base 75cfb447 refused the 800 town; one licence row per
+  process. The deposit's own sentence "past its 1000 cobble (town cobble cap)" is proven at 970/971/999/1000/1001 in cobble-rule.test.
+  Records: docs/reports/cobblecap-1000-{reviews,paper}-2026-10-15.txt.
+- **Reviews:** r6 (rebuild + main-side reads) Codex APPROVE, Claude APPROVE (2 P3 handled); r7 (licence row) Codex APPROVE, Claude APPROVE
+  (P2 stale host registrations -> reissued; P3s recorded).
+- **Registrations** `~/mcai-analysis/cobblecap-1000.{9e79c171,623e92b9}.json` (copies in docs/reports): liveness bank_above_base_cap >= 1
+  (a canary bank above 256 carrying cap=1000); DEFECT gates D1 a bank past 1000, D2 a released journal claim past 1000; arms (control
+  rows carrying cap=1000) and the instrument block KEEP. No draw_require_pools (drawrequire.parse ([], None)); licencecheck PASS at 6 h
+  and 24 h (baseline silent on _cobblecap_mode); changerowcheck PASS (none declared). draw_exposure 12 h `_stock_refused` ' at_cobble=1 '
+  >= 5: re-measured 00:21Z, 8 eligible pools (hive-b 115, hive-a 105, hive-d 64, board-c 63, board-d 58, placebo-d 57, placebo-a 41,
+  hive-c 38). The r6 registrations (0ef97f5c, 6853ed05) moved to ~/mcai-analysis/old-cc1000/.
+- **Reads installed (~/mcai-analysis = /tmp):** cobblecapread 4eb87862, towncap ad5bde2f (imported from the read's own directory -- the
+  scheduler does not pin it), stocktargetread 7b4f0d42 (NEW: the cobble target from the fold's module; the old literal 256 FAILS its
+  own selftest against a 1000 fold), stonecapread 7fae15d7 (C5 from towncap + each row's cap=). Backups *.bak-cc1000-20261016T005251Z.
+  Fold copy ~/mcai-analysis/cobblecap1000/cobblecap.mjs updated to r7 (f019a4f2). **Re-pin: none** -- only stonecap-01 and
+  stocktarget-01 (both done) name stocktargetread/stonecapread. docs/reports/stocktarget-clear-caps-2026-10-10.json: a note that
+  its 256 is the one-time clear's record, not the live cap.
+- **Entry (NOT added):** `python3 ~/canary-sched.py queue add ~/mcai-analysis/cobblecap-1000.queue-entry.json` (copy
+  docs/reports/cobblecap-1000.queue-entry.json), after=[townzone-01], carries a coordinator HOLD. canary-sched validate_entry dry run:
+  the only refusal is "registration sha does not resolve" -- **`git -C /opt/minecraft-ai fetch origin` first.**
+- **QUEUE PLACEMENT (Codex-agreed):** right after townzone-01, BEFORE toolkit-01. Adding the entry does not move toolkit-01 (its
+  after= is townzone-01): set toolkit-01 after cobblecap-1000. If cobblecap is KEPT + promoted, toolkit-01 (cb801c52/2bce1306),
+  bamboo-02, treefarm-02 and smeltjob-01 (all built on 8cd0bc62/75cfb447) need variants on cobblecap's tip.
+- **OWNER DECISION still open (named, not designed):** a town BELOW 1000 whose containers are all full leaves surplus cobble with no exit
+  (no room, cobble never opens a chest, the well takes cobble only at 1000). At 256 the well relieved it. Instrumented as the BANK CLOSED
+  tripwire in cobblecapread.
+
 ## 10-15 23:45Z — shaft-01 (ziggurat stage 5, shared mineshaft) READY on a dev base, queued HELD after monument-01
 Branch shaft-on-1f066b0 @ 41dc9d66 (dev base: mw-on-8cd0bc6 1f066b05 + treefarm-02 + monument-01) -> REBASE onto the real
 tip when monument-01 is decided. Codex r4 APPROVE, Claude r2/r3 APPROVE. Offline: 12/12 snapshot shafts complete to y=16

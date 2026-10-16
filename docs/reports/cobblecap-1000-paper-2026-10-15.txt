@@ -1,0 +1,68 @@
+cobblecap-1000 -- PAPER SANDBOX PROOF (sandbox3; sandbox lock /tmp/mcai-sandbox.lock on 10.0.0.31 taken by mkdir and released each run)
+Harness: sandbox/well/stock-e2e.cjs scene `cobblecap` (added to main with this record). Bot: an unmodified git-archive export of
+the build; the model's verb (`deposit`) is queued through the embedded brain; the WORLD (the server's chest and bag, by RCON) is
+read before and after. Two towns (two pools, two journals), each a single town chest set by RCON and never counted before the bot
+joins; the bag holds cobble 64+64+30 (158), a stone pickaxe, a crafting table, a furnace and torches.
+
+RUN 14 (2026-10-16 01:02-01:04Z, lock taken 01:02:47Z, released, verified free after) -- THE r7 TIPS (+ the licence row)
+  cand11  623e92b9  cc1000-on-75cfb44 (townzone-01 75cfb447)  PASS
+  cand12  9e79c171  cc1000-on-8cd0bc6 (fleet 8cd0bc62)          PASS
+  The same A/B as run 13 on both: A chest 800 -> 830 (server), bag 158 -> 128, _cobble_bank town_before=800 town_after=830
+  cap=1000; B chest 1000 -> 1000, refused at admission (_stock_refused at_cobble=1 cobblestone:158:cobble_cap).
+  THE LICENCE ROW: each of the four bot processes (2 tips x A/B) wrote exactly ONE _cobblecap_mode "phase=mode cap=1000" row
+  in its skill log (12-13 rows per log in all).
+
+RUN 13 (2026-10-16 00:17-00:19Z, lock taken 00:17:05Z, released 00:19Z, verified free after) -- THE REBUILT VARIANTS + A CONTROL
+  cand9   0ef97f5c  cc1000-on-75cfb44 (townzone-01 75cfb447)  PASS
+  cand10  6853ed05  cc1000-on-8cd0bc6 (fleet 8cd0bc62)          PASS
+  ctrl75  75cfb447  the base (cap 256)                           A refused, as expected (passA false; PASS false by design)
+  Both candidates, identically:
+  A  chest 800: count_town counted it (_stock_recount counted=1), then `deposit -> success deposited 30 items`. SERVER: chest
+     800 -> 830, bag 158 -> 128 (exactly the 30 the chest gained; one whole stack, the smallest that frees a slot). Row:
+     _cobble_bank name=cobblestone planned=30 tried=30 moved=30 before=158 kept=128 src=server reserve=64 no_room=0
+     town_before=800 town_after=830 complete=1 cap=1000 at_cap=0.
+  B  chest exactly 1000: counted, then refused at admission: "decision rejected why=deposit_nothing_to_bank (nothing worth
+     banking (town cobble cap): the surplus cobble stays -- nothing to deposit)", row `_stock_refused via=admission n=1 cobble=1
+     stock=0 at_cobble=1 at_stock=0 cobblestone:158:cobble_cap`. SERVER: chest 1000 -> 1000, bag 158 -> 158; no _cobble_bank row.
+  CONTROL 75cfb447 (cap 256): A chest 800 -> 800, bag 158 -> 158, refused at admission with the same at_cobble=1 row -- the
+     scene can see a refusal, and the 800-town bank on the candidates is the change, not the scene.
+  THE RIGHT TEXT: with stocktarget-02's count_town the town is counted BEFORE the deposit, so the at-cap refusal comes from
+  admission and names the rule "(town cobble cap)" without a number, as the base's does. The deposit's own sentence, "a whole
+  stack would carry the town past its 1000 cobble (town cobble cap)", is written only when the deposit itself does the counting;
+  it is proven in bots/test/cobble-rule.test.mjs (the real deposit skill at 970/971/999/1000/1001) and mutant-checked.
+  Raw RESULT lines: scratchpad paper/run13.log (copied below).
+
+[46.4] RESULT {"scene":"cobblecap","A":{"chestBefore":800,"chestAfter":830,"bagBefore":158,"bagAfter":128,"deposit":"[2026-10-16T00:17:25.816Z] INFO  skill deposit -> success detail=deposited 30 items","bankRows":["name=cobblestone planned=30 tried=30 moved=30 before=158 kept=128 src=server reserve=64 no_room=0 town_before=800 town_after=830 complete=1 cap=1000 at_cap=0 unknown=0 outside=0 unknown_keys=0"],"rows":["_cobble_reconcile success counted=1 of 1 tried (max 3)","_stock_recount success trigger=order refused=1 keys=1 counted=1 tried=1 unknown_after=0 fails=- names=cobblestone:cobble_unknown","_cobble_bank success name=cobblestone planned=30 tried=30 moved=30 before=158 kept=128 src=server reserve=64 no_room=0 town_before=800 town_after=830 complete=1 cap=1000 at_cap=0 unknown=0 outside=0 unknown_keys=0"]},"B":{"chestBefore":1000,"chestAfter":1000,"bagBefore":158,"bagAfter":158,"deposit":"[2026-10-16T00:17:47.654Z] WARN  decision rejected why=deposit_nothing_to_bank (nothing worth banking (town cobble cap): the surplus cobble stays — nothing to deposit) raw={\"skill\":\"deposit\",\"args\":{},\"reason\":\"sandbox: idle\",\"saw_end\":\"END-9N7RQV\"}","bankRows":[],"rows":["_cobble_reconcile success counted=1 of 1 tried (max 3)","_stock_recount success trigger=order refused=1 keys=1 counted=1 tried=1 unknown_after=0 fails=- names=cobblestone:cobble_unknown","_stock_refused success via=admission n=1 cobble=1 stock=0 at_cobble=1 at_stock=0 cobblestone:158:cobble_cap"]},"passA":true,"passB":true,"PASS":true}
+[46.6] RESULT {"scene":"cobblecap","A":{"chestBefore":800,"chestAfter":830,"bagBefore":158,"bagAfter":128,"deposit":"[2026-10-16T00:18:12.042Z] INFO  skill deposit -> success detail=deposited 30 items","bankRows":["name=cobblestone planned=30 tried=30 moved=30 before=158 kept=128 src=server reserve=64 no_room=0 town_before=800 town_after=830 complete=1 cap=1000 at_cap=0 unknown=0 outside=0 unknown_keys=0"],"rows":["_cobble_reconcile success counted=1 of 1 tried (max 3)","_stock_recount success trigger=order refused=1 keys=1 counted=1 tried=1 unknown_after=0 fails=- names=cobblestone:cobble_unknown","_cobble_bank success name=cobblestone planned=30 tried=30 moved=30 before=158 kept=128 src=server reserve=64 no_room=0 town_before=800 town_after=830 complete=1 cap=1000 at_cap=0 unknown=0 outside=0 unknown_keys=0"]},"B":{"chestBefore":1000,"chestAfter":1000,"bagBefore":158,"bagAfter":158,"deposit":"[2026-10-16T00:18:34.861Z] WARN  decision rejected why=deposit_nothing_to_bank (nothing worth banking (town cobble cap): the surplus cobble stays — nothing to deposit) raw={\"skill\":\"deposit\",\"args\":{},\"reason\":\"sandbox: idle\",\"saw_end\":\"END-JGBQSC\"}","bankRows":[],"rows":["_cobble_reconcile success counted=1 of 1 tried (max 3)","_stock_recount success trigger=order refused=1 keys=1 counted=1 tried=1 unknown_after=0 fails=- names=cobblestone:cobble_unknown","_stock_refused success via=admission n=1 cobble=1 stock=0 at_cobble=1 at_stock=0 cobblestone:158:cobble_cap"]},"passA":true,"passB":true,"PASS":true}
+[45.3] RESULT {"scene":"cobblecap","A":{"chestBefore":800,"chestAfter":800,"bagBefore":158,"bagAfter":158,"deposit":"[2026-10-16T00:18:58.475Z] WARN  decision rejected why=deposit_nothing_to_bank (nothing worth banking (town cobble cap): the surplus cobble stays — nothing to deposit) raw={\"skill\":\"deposit\",\"args\":{},\"reason\":\"sandbox: idle\",\"saw_end\":\"END-NUZK70\"}","bankRows":[],"rows":["_cobble_reconcile success counted=1 of 1 tried (max 3)","_stock_recount success trigger=order refused=1 keys=1 counted=1 tried=1 unknown_after=0 fails=- names=cobblestone:cobble_unknown","_stock_refused success via=admission n=1 cobble=1 stock=0 at_cobble=1 at_stock=0 cobblestone:158:cobble_cap"]},"B":{"chestBefore":1000,"chestAfter":1000,"bagBefore":158,"bagAfter":158,"deposit":"[2026-10-16T00:19:20.336Z] WARN  decision rejected why=deposit_nothing_to_bank (nothing worth banking (town cobble cap): the surplus cobble stays — nothing to deposit) raw={\"skill\":\"deposit\",\"args\":{},\"reason\":\"sandbox: idle\",\"saw_end\":\"END-6HU70W\"}","bankRows":[],"rows":["_cobble_reconcile success counted=1 of 1 tried (max 3)","_stock_recount success trigger=order refused=1 keys=1 counted=1 tried=1 unknown_after=0 fails=- names=cobblestone:cobble_unknown","_stock_refused success via=admission n=1 cobble=1 stock=0 at_cobble=1 at_stock=0 cobblestone:158:cobble_cap"]},"passA":false,"passB":true,"PASS":false}
+
+RUN 12 (2026-10-15 04:40Z) on the old base 5e663860, bot 16b83acc: the same A/B behaviour; record follows.
+
+RUN 12 (2026-10-15 04:40Z, bot 16b83acc = the final cc1000-on-5e66386; bots/ identical in this change to edfd02a8) -- PASS
+  A  chest 800 (the base's 256 cap would refuse every stack): count_town (stocktarget-02) counted it at once (_stock_recount
+     counted=1, _cobble_reconcile 1 of 1), then `deposit -> success deposited 30 items`. SERVER: chest 800 -> 830, bag
+     158 -> 128 (exactly the 30 the chest gained). Row: _cobble_bank name=cobblestone planned=30 tried=30 moved=30 before=158
+     kept=128 ... town_before=800 town_after=830 complete=1 cap=1000 at_cap=0. One whole stack per deposit (the smallest that
+     frees a slot): that rule is unchanged.
+  B  chest exactly 1000: counted at once (count_town counted=1), then the deposit is refused at admission:
+     "decision rejected why=deposit_nothing_to_bank (nothing worth banking (town cobble cap): the surplus cobble stays --
+     nothing to deposit)" with the row `_stock_refused via=admission ... at_cobble=1 ... cobblestone:158:cobble_cap`. SERVER:
+     chest 1000 -> 1000, bag 158 -> 158; no _cobble_bank row moved anything.
+  NOTE ON "THE RIGHT TEXT": with stocktarget-02's count_town the town is counted BEFORE the deposit, so the refusal comes from
+  admission. Its sentence names the rule "(town cobble cap)" without a number, as the base's does. The sentence that names the
+  number -- "a whole stack would carry the town past its 1000 cobble (town cobble cap)" -- is the deposit's own, written only
+  when the deposit itself does the counting. It is proven in bots/test/cobble-rule.test.mjs (the real deposit skill at
+  970/971/999/1000/1001) and mutant-checked ("the refusal sentence names 256" is killed).
+
+EARLIER RUNS (harness problems, not the build)
+  run 9  (f32487a9): another agent's scenes had cleared the arena, and the bot fell 47 blocks at spawn. The scene now builds its
+         arena.
+  run 10 (f32487a9): the bag arrived 10 s after spawn, so the bot's first order was withdraw_pick, which took 3 cobble and
+         counted the chest. The tech ladder's furnace rung (8 cobble) also WANTED cobblestone, so admission kept all of it
+         ("nothing worth banking"). The scene now gives the bag at once and adds a crafting table and a furnace.
+  run 11 (f32487a9; bots/src identical to 16b83acc): the same behaviour as run 12. The scene's PASS expected two stacks (894)
+         and the deposit-level sentence; both expectations were wrong (one stack per deposit; count_town counts first). The PASS
+         criteria were corrected to the behaviour above and the run repeated on the final sha (run 12).
+
+RAW RESULT (run 12): sandbox/log/stock-e2e/results.jsonl in the scratch Paper repo; the RESULT line follows.
+[44.3] RESULT {"scene":"cobblecap","A":{"chestBefore":800,"chestAfter":830,"bagBefore":158,"bagAfter":128,"deposit":"[2026-10-15T04:40:20.091Z] INFO  skill deposit -> success detail=deposited 30 items","bankRows":["name=cobblestone planned=30 tried=30 moved=30 before=158 kept=128 src=skipped reserve=64 no_room=0 town_before=800 town_after=830 complete=1 cap=1000 at_cap=0 unknown=0 outside=0 unknown_keys=0"],"rows":["_cobble_reconcile success counted=1 of 1 tried (max 3)","_stock_recount success trigger=order refused=1 keys=1 counted=1 tried=1 unknown_after=0 fails=- names=cobblestone:cobble_unknown","_cobble_bank success name=cobblestone planned=30 tried=30 moved=30 before=158 kept=128 src=skipped reserve=64 no_room=0 town_before=800 town_after=830 complete=1 cap=1000 at_cap=0 unknown=0 outside=0 unknown_keys=0"]},"B":{"chestBefore":1000,"chestAfter":1000,"bagBefore":158,"bagAfter":158,"deposit":"[2026-10-15T04:40:41.596Z] WARN  decision rejected why=deposit_nothing_to_bank (nothing worth banking (town cobble cap): the surplus cobble stays — nothing to deposit) raw={\"skill\":\"deposit\",\"args\":{},\"reason\":\"sandbox: idle\",\"saw_end\":\"END-0CTNNA\"}","bankRows":[],"rows":["_cobble_reconcile success counted=1 of 1 tried (max 3)","_stock_recount success trigger=order refused=1 keys=1 counted=1 tried=1 unknown_after=0 fails=- names=cobblestone:cobble_unknown","_stock_refused success via=admission n=1 cobble=1 stock=0 at_cobble=1 at_stock=0 cobblestone:158:cobble_cap"]},"passA":true,"passB":true,"PASS":true}

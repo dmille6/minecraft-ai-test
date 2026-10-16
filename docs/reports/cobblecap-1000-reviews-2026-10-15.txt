@@ -1,0 +1,95 @@
+cobblecap-1000 -- REVIEW RECORD (both engines), 2026-10-14 to 10-16
+OWNER 10-14: "can we up the chest limit for cobblestones to 1000"
+Branches: cc1000-on-5e66386 (fleet 5e663860) @ 16b83acc; cc1000-on-1957811 (airpocket-03 tip 1957811e) @ edfd02a8 (same five
+commits cherry-picked, no conflict). Codex = `codex exec` (stdin closed); Claude = a separate reviewer agent, executed probes on
+git-archive exports.
+
+COMMITS (cc1000-on-5e66386)
+  50623f9e  the cap: TOWN_COBBLE_CAP = 1000 written once (stocktarget.mjs), re-exported by cobblecap.mjs; refusal sentence names it;
+            256-era fixtures shifted by CAP-256; 999/1000/1001 + whole-stack tests (pure and the real deposit skill)
+  f32487a9  reads: towncap.py (the cap from the module, never a literal); stocktargetread/stonecapread use it; cobblecapread.py;
+            mutants-cobblecap1000.py
+  d3c0e793  read: instrument = control `_stock_refused ... at_cobble` (the base wrote 0 _cobble_bank rows in 3 h)
+  849ecd8c  r2 (Codex r1, five P2s)
+  13d5c907  r3 (Claude r1): bank-closed tripwire, stream build-filter fixture
+  605096de  r4 (Claude r2 P2 + P3s, Codex r2 P2 + P3)
+  16b83acc  r5 (Codex r3 P2 / Claude r3 P3): rotated journal recognised
+
+ROUND 1 (f32487a9)
+  Codex   CHANGE. P2 x5: (1) arms alarm disabled when control rows set base_cap = canary cap; (2) versionless restart-lag rows
+          counted as liveness; (3) two mutants survive (admitStacks charge; stocktargetread self-consistent fixture);
+          (4) towncap falls back when an EXPLICIT module path is missing; (5) partial journal audit invisible in the record.
+          Confirmed: no executable 256 left in bots/src or the reads; the bag's 64 reserve unchanged; no admission off-by-one;
+          354 bot tests passed; 13 killed / 2 survived.
+  Claude  CHANGE. P2: the two surviving mutants (same as Codex 3); P2 composition: a town BELOW 1000 with every container
+          full -- the surplus cobble has no exit (no room, cobble never opens a chest, the well takes cobble only at 1000,
+          no prune); P3: clear-caps json still says 256; stonecapread module search; mutants for the stream filter.
+          Probe: with the literal `CAP === 1000` assertion deleted, all six "put 256 back" mutants are still killed by behaviour.
+ROUND 2 (13d5c907)
+  Codex   CHANGE. P2: journal_audit_complete true with a declared pool missing; P3: the missing-module mutant tested the
+          wrong failure. r1 findings closed. 19 killed / 1 survived (20 defined).
+  Claude  CHANGE. P2: "equal caps still ready" mutant survives (fixture could not see the term). P3: at_cobble=2 not counted;
+          bank_closed DiD biased by exposure; note D1's attribution in the registration. r1 findings closed.
+ROUND 3 (605096de)
+  Claude  APPROVE. 22 killed / 0 survived on a fresh export. P3 note: journal coverage matched generation 0 only.
+  Codex   CHANGE. P2: the same -- after two rotations a pool is called no_journal and dropped from D2 (reproduced with real
+          rotation: direct audit finds a 1001 breach, the filtered one finds none). 22 killed / 0 survived.
+ROUND 4 (16b83acc, the only change: JOURNAL_FILE = \.cobble\.(g\d+\.)?jsonl$ + fixture + mutant)
+  Codex   APPROVE. 23 killed / 0 survived on an archive of 16b83acc.
+  Claude  APPROVE (r3 carries). Journal-related mutants 3/3 killed on an archive of 16b83acc.
+
+DECLINED / NAMED, NOT CHANGED
+  - The bank closed below the cap: instrumented (tripwire), named for the OWNER as a decision (accept, or let the well take
+    cobble when every town container refused a whole stack). Both engines accept not designing it in this canary.
+  - The pruned-cobble row's target= has no mutant (report-only; the reads judge against the module).
+  - stonecapread keeps its implicit module search (not this canary's read).
+  - Cross-version during a staggered restart: 256-build and 1000-build readers can decide a cobble claim differently for
+    minutes; harmless (the 256 build only refuses more) -- Claude r1 note.
+
+==== RESTART (owner-approved 10-15 ~23:00Z): the first agent stopped in its final round; rounds 1-5 above were complete
+(both APPROVE on 16b83acc, base 5e663860). The fleet had moved, so the build was rebuilt on the two live bases.
+
+REBUILD
+  cc1000-on-8cd0bc6 (fleet 8cd0bc62, wellsite-04)        6853ed05 (r6) -> 9e79c171 (r7)
+  cc1000-on-75cfb44 (townzone-01 75cfb447)                0ef97f5c (r6) -> 623e92b9 (r7)
+  The seven reviewed commits cherry-picked, no conflict; git range-diff 5e663860..16b83acc <base>..<r6 tip> shows all seven '='.
+  The base diff 5e663860..75cfb447 adds no line naming cobble or 256 (COBBLE_SCAN_CAP / TOWN_KEYS_CAP = 256 are container-scan
+  limits).
+
+ROUND 6 (the rebuild + the main-side reads: stonecapread C5 from towncap and each row's cap=; stocktargetread/cobblecapread/
+towncap = the branch's; clear-caps note; the Paper scene)
+  Codex   APPROVE, no findings. Range-diffs patch-identical; no missed cap dependency in wellsite/townzone; one constant at
+          stocktarget.mjs:42; bag reserve 64; stonecapread C5 fixtures pass with module caps 256 and 1000; plan3.py unaffected.
+  Claude  APPROVE. Re-ran on its own exports: npm test 251/251 and 252/252, mutants 23/0 on each, eslint only reflex.mjs:2384;
+          admission probe from the modules (64-stack banked at 256/500/936, refused at 937; 30 at 970 banked, at 1000 refused;
+          the base refuses everything from 256); plan3.py on a fixture identical with the old and new caps file (keeps 256).
+          P3-1 stonecapread's journal gate and C9 use the module-search CAP (the fleet's 256 by default): it under-reports a
+               1000-cap canary's journal breaches, never false-trips; cobblecapread is this canary's read. FIXED (header note:
+               set STOCK_ST to the canary's stocktarget.mjs to read such a canary with stonecapread).
+          P3-2 re-running the one-time clear would cut towns back to 256: the clear-caps note is the guard; the owner's
+               "never again" covers it. RECORDED.
+  The bank-closed composition (a town below 1000 with every container full) is unchanged by wellsite/townzone in either
+  direction: still the owner-named tripwire.
+
+LAUNCH BLOCKER FOUND WHILE REGISTERING (after r6): the registration's licence was class=text on `_cobble_bank` 'cap=1000'.
+  licencecheck --hours 24 passed (baseline rows 1, hits 0), but canary-loop.sh runs it with --hours 6, which REFUSED: "the
+  baseline never emits _cobble_bank at all". Measured over ~25 h of fleet logs: the base's only row carrying its cap is
+  _cobble_bank (1 row); _stock_prune 4 rows (none cobble); no "past its 256 cobble"; no target=256.
+ROUND 7 (one commit per tip: cobblecap.mjs cobbleCapModeDetail; index.mjs logs `_cobblecap_mode phase=mode cap=1000` once per
+spawn, right after installCobbleCap; cobble-rule test of the detail and the comment-stripped wiring, shown to fail on a removed
+row and a literal detail; two more anchored mutants -> 25). Registration licence -> {class: kind, kind: _cobblecap_mode}.
+  Codex   APPROVE, no findings. Both patches identical (4 files, +35); the wiring assertion rejects both mutations; kind fits.
+  Claude  APPROVE. Tests 61/61 (cobble-rule) on both, 251/251 full on 9e79c171; mutants 25/0 on 623e92b9 and the two r7 ones
+          on 9e79c171; `_cobblecap_mode` 0 times in 73,853 live fleet rows while `_tool_hygiene` (same pattern) shows 17
+          (positive control); each Paper skill log has exactly one row.
+          P2 the host still held the r6 registrations (text licence, r6 shas). CLOSED: reissued as cobblecap-1000.9e79c171.json
+             and .623e92b9.json (kind licence), the r6 ones moved to ~/mcai-analysis/old-cc1000/.
+          P3 the licence proves the build is live, not the effect. RECORDED in the registration: no verdict rests on its count;
+             the effect is cobblecapread's bank_above_base_cap; change_rows [].
+          P3 the Paper logs carry sandbox+<hash> versions, not git shas. The run log's header line ties each run to its
+             export's .sha (root=.../cand11 sha=623e92b9, cand12 sha=9e79c171).
+
+EVIDENCE ON THE FINAL TIPS: npm test 251/251 (9e79c171), 252/252 (623e92b9); mutants-cobblecap1000.py 25 killed / 0 survived
+on each; eslint no-undef only reflex.mjs:2384 (pre-existing, typeof-guarded); Paper runs 13-14 PASS
+(docs/reports/cobblecap-1000-paper-2026-10-15.txt); licencecheck --hours 6 and --hours 24 PASS (kind, baseline silent),
+changerowcheck PASS (none declared), drawrequire.parse ([], None).

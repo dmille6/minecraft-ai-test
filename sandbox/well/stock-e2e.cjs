@@ -4,7 +4,7 @@
 // runs its own deterministic town orders; a queue in the loopback brain can hand it a model verb (`deposit`).
 //
 //   node sandbox/well/stock-e2e.cjs <botRoot> <scene,scene,...> [server]
-//   scenes: build (the well; every later scene uses it)  stockdispose  stockbank  stockprune  stockprunekeep  stocknochest  stockrace  stockrefuse  stockrecount
+//   scenes: build (the well; every later scene uses it)  stockdispose  stockbank  stockprune  stockprunekeep  stocknochest  stockrace  stockrefuse  stockrecount  cobblecap
 //
 // RCON only through `ssh mike@10.0.0.30 python3 /tmp/sbx-rcon.py <sandboxN> -`. Sandbox servers and sandbox-* names
 // only. Refuses to run unless the sandbox lock (/tmp/mcai-sandbox.lock on 10.0.0.31) names `stocktarget`.
@@ -127,7 +127,7 @@ async function stopBot () {
 }
 const RUN = new Date().toISOString().replace(/[-:]/g, '').slice(4, 15)
 const procs = {}
-async function startBot (scene, slotsSpec, { pool = `sbxstock-${RUN}`, name = NAME } = {}) {
+async function startBot (scene, slotsSpec, { pool = `sbxstock-${RUN}`, name = NAME, early = false } = {}) {
   const tag = `${RUN}-${scene}-${name}`
   const logRel = `./sandbox/log/stock-e2e/${tag}`
   const skillLog = `${R}/sandbox/log/stock-e2e/${tag}/skill-${name}.jsonl`
@@ -147,6 +147,9 @@ async function startBot (scene, slotsSpec, { pool = `sbxstock-${RUN}`, name = NA
   if (!await waitFor(() => lines(botOut).some(l => /spawned pos=/.test(l)), 90000, 300)) { await stopBot(); throw new Error('no spawn') }
   // THE CHUNKS FIRST: an order read before the arena's chunks reach the client sees 'unknown' and (correctly) skips.
   rcon(`gamemode survival ${name}`, `clear ${name}`, `tp ${name} ${HOME.x + 0.5} ${HOME.y} ${HOME.z + 0.5}`)
+  // early: the bag at once, before the first decision (cobblecap run 10: with an empty bag for 10 s the bot's first order was
+  // withdraw_pick, which opened and counted the town chest before the scene's deposit could)
+  if (early) { let s0 = 0; rcon(...slotsSpec.map(([id, n]) => `item replace entity ${name} container.${s0++} with minecraft:${id} ${n}`)) }
   await sleep(10000)
   const c = [`tp ${name} ${HOME.x + 0.5} ${HOME.y} ${HOME.z + 0.5}`]
   let s = 0
@@ -620,6 +623,49 @@ scenes.stockrecount = async () => {
     world: { chest: [c0.totals, c1.totals], bag: [b0.totals, b1.totals] }, unknownRefusalsAfterCount: unknownAfter, rows,
     PASS: !!(life1 && /reset/i.test(fence) && slotsAtCount < 34 && life2 && dep && /-> success/.test(dep) && (c1.totals.oak_log ?? 0) > (c0.totals.oak_log ?? 0)
       && (c1.totals.oak_log ?? 0) <= 64 && unknownAfter === 0) })
+}
+
+// THE COBBLE CAP AT 1000 (cobblecap-1000, OWNER 10-14). No well needed. Two towns (two pools, two journals), each a single
+// town chest set by RCON and never counted before the bot joins; the bag is cobble 64+64+30, a stone pickaxe and torches
+// (well under 34 slots); the model verb is `deposit`. Read from the WORLD (the server's chest and bag), not the bot's row:
+//   A  the chest holds 800 (12x64 + 32; the base's 256 cap would refuse every stack): the town is counted (count_town,
+//      stocktarget-02, or the deposit's own reconciliation), then the deposit banks a WHOLE surplus stack (one per run: the
+//      smallest that frees a slot) -- the server's chest gains exactly what the bag lost, the _cobble_bank row says cap=1000
+//      town_before=800 and its town_after is the server's chest
+//   B  the chest holds exactly 1000 (15x64 + 40): once counted, the cobble is refused -- at admission ("nothing worth banking
+//      (town cobble cap)", a _stock_refused at_cobble row; run 11) or by the deposit ("past its 1000 cobble (town cobble
+//      cap)", when the deposit does the counting) -- the chest stays 1000, no _cobble_bank row moves anything
+scenes.cobblecap = async () => {
+  buildArena()   // run 9: without the arena (another agent's scenes cleared it) the bot fell 47 blocks at spawn
+  rcon(`kill ${ARENA_SEL}`); CHEST = CHEST ?? pickChest()
+  const stacksOf = n => { const a = []; for (let left = n; left > 0; left -= 64) a.push(['cobblestone', Math.min(64, left)]); return a }
+  const cob = t => (t.cobblestone ?? 0) + (t.cobbled_deepslate ?? 0)
+  // a crafting table and a furnace in the bag: without them the tech ladder's furnace rung (means: 8 cobble) is current and
+  // WANTS cobblestone, so admission keeps every cobble ('nothing worth banking' -- run 10); both are kept by the deposit
+  const spec = [['cobblestone', 64], ['cobblestone', 64], ['cobblestone', 30], ['stone_pickaxe', 1], ['crafting_table', 1], ['furnace', 1], ...TORCH(4)]
+  const trials = {}
+  for (const [tag, n] of [['A', 800], ['B', 1000]]) {
+    setChest(stacksOf(n))
+    const files = await startBot(`cobblecap${tag}`, spec, { pool: `sbxstock-${RUN}-cc${tag}`, early: true })
+    const c0 = chestTotals(), b0 = bag(NAME)
+    brainQueue.push('deposit')
+    const dep = await waitFor(() => lines(files.botOut).find(l => /skill deposit ->|why=deposit_nothing_to_bank/.test(l)), 240000, 500)
+    await sleep(2500)
+    const c1 = chestTotals(), b1 = bag(NAME)
+    const bankRows = rowsOf(files.skillLog).filter(r => r.name === '_cobble_bank').map(r => r.detail)
+    const rows = stockRows(files)
+    await stopBot()
+    brainQueue.length = 0
+    trials[tag] = { chestBefore: cob(c0.totals), chestAfter: cob(c1.totals), bagBefore: cob(b0.totals), bagAfter: cob(b1.totals), deposit: dep ?? null, bankRows, rows }
+  }
+  const A = trials.A, B = trials.B
+  const gained = A.chestAfter - A.chestBefore
+  const passA = !!(A.deposit && /-> success/.test(A.deposit) && A.chestBefore === 800 && gained > 0 && gained === A.bagBefore - A.bagAfter && A.bagAfter >= 64
+    && A.bankRows.some(d => /town_before=800 /.test(d) && / cap=1000 /.test(d) && new RegExp(`town_after=${A.chestAfter} `).test(d)))
+  const passB = !!(B.deposit && (/why=deposit_nothing_to_bank \(nothing worth banking \(town cobble cap\)/.test(B.deposit) || /past its 1000 cobble \(town cobble cap\)/.test(B.deposit))
+    && B.chestBefore === 1000 && B.chestAfter === 1000 && !B.bankRows.some(d => !/ moved=0 /.test(d))
+    && (B.rows.some(r => /^_stock_refused .* at_cobble=[1-9]\d* .*cobblestone:\d+:cobble_cap/.test(r)) || B.bankRows.some(d => / cap=1000 at_cap=1 /.test(d))))
+  result({ scene: 'cobblecap', A, B, passA, passB, PASS: passA && passB })
 }
 
 // RACE: two bots, one town at target + ONE stack (128 oak, target 64), both with room and a fresh count: both get prune
