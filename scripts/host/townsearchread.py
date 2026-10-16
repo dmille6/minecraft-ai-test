@@ -227,6 +227,10 @@ def selftest():
     assert real['visits_over_budget'] == 1 and real['loop_same_chest'] == 1 and real['vfail_post_canary'] == 1, real
     assert real['search_rows_canary'] == 2 and real['took_pick_post_canary'] == 1 and real['notfound_post_canary'] == 1, real
     assert len(tried_keys(LONG)) == 4, 'the cut tried= list alone sees only 4 of the 25 visits: why the counters exist'
+    # Codex r2: three ingredients + two room-making deposits (real withdrawRow at 6fa9b346 cut it at `verb=withdr`); verb= now early
+    ING = 'outcome=took_ingredients need=cobblestone:3,stick:2,planks:4 uses=- verification=server verb=withdraw_pick town=32 cand=20,6 visits=24 maxrep=1 vfail=1 cursor=empty err=- chest_room=20 plan=bamboo,bamboo srv=cobbled_deepslate:+3,stick:+2,oak_planks:+4,bamboo:-128 bag=1500->1381 deposited=bamboo:64,bamboo:64 took=cobbled_deepslate:3,stick:2,oak_planks:4 '[:300]
+    ir = judge([R('_withdraw_pick', ING)] + ctl)
+    assert ir['orders_post_canary'] == 1 and ir['took_post_canary'] == 1 and ir['search_rows_canary'] == 1 and ir['vfail_post_canary'] == 1, ir
     okr = judge([R('_withdraw_pick', OK)] + ctl)
     assert okr['visits_over_budget'] == 0 and okr['loop_same_chest'] == 0 and okr['vfail_post_canary'] == 0, okr
     base = judge([W('short', search=False, tried=['1,2,3:none', '4,5,6:chest_unreachable'])] + ctl)

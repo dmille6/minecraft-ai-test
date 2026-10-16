@@ -395,8 +395,10 @@ export function withdrawRow ({ outcome, need, uses = null, verification = 'none'
   const tk = Object.entries(took).map(([k, v]) => `${k}:${v}`).join(',') || '-'
   const clean = v => String(v ?? '-').replace(/\s+/g, '_').slice(0, 40)
   // the search's counters EARLY in the row (Codex r1 P2): tried= is cut at 300 characters, these never are
-  const sr = search ? `town=${search.town ?? '-'} cand=${search.pick ?? '-'},${search.ing ?? '-'} visits=${search.visits ?? '-'} maxrep=${search.maxrep ?? '-'} vfail=${search.vfail ?? '-'} ` : ''
+  // ...and the order's verb= with them (Codex r2: three ingredients and a deposit pushed a late verb= past the cut, and a
+  // read keyed on it lost the order). A row without the search (the model's verb) keeps the old layout.
+  const sr = search ? `verb=${verb} town=${search.town ?? '-'} cand=${search.pick ?? '-'},${search.ing ?? '-'} visits=${search.visits ?? '-'} maxrep=${search.maxrep ?? '-'} vfail=${search.vfail ?? '-'} ` : ''
   return (`outcome=${outcome} need=${need} uses=${uses ?? '-'} verification=${verification} ${sr}cursor=${clean(cursor)} err=${clean(err)} ` +
-          `chest_room=${chestRoom ?? '-'} plan=${plan || '-'} srv=${srv} bag=${bagBefore}->${bagAfter} deposited=${dep} took=${tk} verb=${verb} ` +
+          `chest_room=${chestRoom ?? '-'} plan=${plan || '-'} srv=${srv} bag=${bagBefore}->${bagAfter} deposited=${dep} took=${tk} ${search ? '' : `verb=${verb} `}` +
           `tried=[${tried.join(';')}]`).slice(0, 300)
 }
