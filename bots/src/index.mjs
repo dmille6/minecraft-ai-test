@@ -44,6 +44,7 @@ import { installDigCollisionWatch } from './digcollision.mjs'
 import { installShoreEgress } from './watermoves.mjs'
 import { installCraftSync } from './craftsync.mjs'
 import { installCobbleCap } from './skills.mjs'
+import { cobbleCapModeDetail } from './cobblecap.mjs'
 import { CognitiveLoop } from './cognitive.mjs'
 import { openLessons } from './lessons.mjs'
 import { openWorldFacts } from './worldfacts.mjs'
@@ -276,6 +277,8 @@ function connect() {
     // earlier is overwritten without a word -- which is what happened in the sandbox experiment.
     // THE TOWN COBBLE CAP (cobblecap.mjs): the deposit plan reads the town's reconciled cobble through this bot's view
     try { installCobbleCap(bot) } catch (e) { log('warn', 'cobble cap not installed', { error: e.message }) }
+    // cobblecap-1000: the licence row, once per spawn -- the build's own `_cobblecap_mode` kind (cobblecap.mjs cobbleCapModeDetail)
+    try { logEvent({ kind: 'cobblecap_mode', status: 'success', snapshot: snapshot(bot), detail: cobbleCapModeDetail() }) } catch {}
     try {
       installCraftSync(bot, { log: row => logEvent({ ...row, snapshot: snapshot(bot) }) })
     } catch (e) {
