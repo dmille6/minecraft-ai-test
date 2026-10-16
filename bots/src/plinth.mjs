@@ -71,6 +71,15 @@ const LIQUID = /^(water|lava|flowing_water|flowing_lava|bubble_column)$/
 /** Town furniture no planned cell may touch (Chebyshev 1, 3D): a lid must open, a door must swing, a bed must be slept in. */
 const FURNITURE = /(_door$|_bed$|^lectern$|^bell$|^crafting_table$|^composter$|^cartography_table$|^smithing_table$|^loom$|^grindstone$|^stonecutter$|^anvil$)/
 const isFurniture = name => CLEARANCE_CONTAINER.test(name ?? '') || FURNITURE.test(name ?? '')
+/** Town furniture within Chebyshev 1 (3D) of a cell -> its block name, or null. Pure over read(). An unknown cell is no evidence of
+ *  furniture here (the planner refuses unknown cells on its own). */
+export function furnitureNear (read, x, y, z) {
+  for (let dx = -1; dx <= 1; dx++) for (let dy = -1; dy <= 1; dy++) for (let dz = -1; dz <= 1; dz++) {
+    const b = read(x + dx, y + dy, z + dz)
+    if (b && isFurniture(b.name)) return b.name
+  }
+  return null
+}
 
 /** The block a plan places, as read() would return it (a full collision cube, hardness 2). */
 export const PLACED = Object.freeze({ name: 'cobblestone', boundingBox: 'block', shapes: [[0, 0, 0, 1, 1, 1]], hardness: 2, props: null })
@@ -536,6 +545,10 @@ export function stairOptions (read, cap, { keepOut = [] } = {}) {
       }
       if (!ok || !cells.length) continue
       if (cells.some(c => keepOut.some(o => Math.max(Math.abs(c.x - o.x), Math.abs(c.y - o.y), Math.abs(c.z - o.z)) <= (o.r ?? 1)))) continue
+      // THE SHELL'S FURNITURE CLEARANCE, for the stair too (lidclear-01 rebase review, Claude + Codex 10-16): a chest counts
+      // as solid ground above, so without this a stair could be filled on a town chest's LID -- which no bot may then dig
+      // (it is a well cell) and the town's count would stay unknown for good
+      if (cells.some(c => furnitureNear(read, c.x, c.y, c.z))) continue
       out.push(cells)
     }
   }

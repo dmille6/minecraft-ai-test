@@ -75,7 +75,8 @@ import { containmentRefusal, tallyText, WELL_SEARCH_RADIUS, WELL_NO_SITE_BACKOFF
 import { planPlinthSteps, plinthProgress, plinthHazard, plinthWant, leaseState, plinthBlockFor, plinthBudget, plinthShortfall, plinthRecordState,
          plinthDetail, overlay as plinthOverlay, memoRead, walkReach, standFor, supportsFor, faceCentre, cellKey, inColumn, PLACED as PLINTH_PLACED,
          AIR as PLINTH_AIR, standOk, refUsable, coverableAfter, carryPrev, stuckNext, planBox, startNear, isPitCover, PLINTH_STUCK_VISITS, PLINTH_PREV_MAX,
-         PLINTH_REPLACEABLE, PLINTH_STEPS_PER_VISIT, PLINTH_LEASE_MS, PLINTH_VERSION, PLINTH_MIN_FUND, PLINTH_NONE_BACKOFF_MS, PLINTH_REACH, EYE_HEIGHT } from './plinth.mjs'
+         PLINTH_REPLACEABLE, PLINTH_STEPS_PER_VISIT, PLINTH_LEASE_MS, PLINTH_VERSION, PLINTH_MIN_FUND, PLINTH_NONE_BACKOFF_MS, PLINTH_REACH, EYE_HEIGHT,
+         furnitureNear } from './plinth.mjs'
 import { STONE_GUARD, wellGround } from './well.mjs'
 import { createSiteGen as createWellSiteGen, bodyInCell } from './composter.mjs'
 import { IRON_KINDS, MIN_TRIP_USES, CANDIDATE_RADIUS, breakHazard, nearHome, pickBudget, rankCandidates, clusterOf, tunnelMovements, planTunnel, ONE_PICK_USES, tripDecision } from './oretunnel.mjs'
@@ -5549,12 +5550,20 @@ const lidCell = (bot, b) => {
 }
 const lidCells = (bot, c) => ({ chest: bot.blockAt(c), lid: bot.blockAt(c.offset(0, 1, 0)), above: bot.blockAt(c.offset(0, 2, 0)),
   sides: [[1, 0], [-1, 0], [0, 1], [0, -1]].map(([dx, dz]) => bot.blockAt(c.offset(dx, 1, dz))) })
+/**
+ * IS THIS CELL PART OF A KNOWN JUNK WELL OR RAISED WELL? -> true | false | null (the well cells could not be read: callers fail
+ * closed). The cap, shaft, floor, walls and ring box (g-3..g, which is a plinth's whole shell) and a plinth's STAIR cells --
+ * well.mjs wellBreakCost over knownWellCells, which carries every recorded plinth column from the moment it is planned.
+ * Shared by the lid clear and wear_out (lidclear-01 on plinth-01: wear_out's andesite/diorite/granite are a plinth's walls).
+ */
+export function wellCellAt (bot, p) {
+  try { return wellBreakCost(bot.wellCellsNow?.() ?? knownWellCells(bot), { position: p }) > 0 } catch { return null }
+}
 /** ONE HALF'S LID, judged on a fresh read -> { blocked, refusal, s }. The rule is lidrule.mjs's; the well cells are the bot's. */
 function lidJudge (bot, c) {
   const s = lidCells(bot, c)
   if (!LID_CHESTS.has(blockNameOf(bot, s.chest) ?? '') || !s.lid || !chestLidBlocked(s.lid)) return { blocked: false, refusal: null, s }
-  let well
-  try { well = wellBreakCost(bot.wellCellsNow?.() ?? knownWellCells(bot), { position: c.offset(0, 1, 0) }) > 0 } catch { well = null }
+  const well = wellCellAt(bot, c.offset(0, 1, 0))
   // the WELLS UNREADABLE is the bot's own failure, not evidence about the lid: refused, but with no memory (`unknown`)
   if (well === null) return { blocked: true, refusal: 'the town\'s well cells could not be read', unknown: true, s }
   const lid = lidCell(bot, s.lid)
@@ -6566,6 +6575,10 @@ async function wearOutOne(ctx, tool, signal, { cellOk = null, sidesOnly = false 
   const refusal = c => {
     const bl = bot.blockAt(c)
     if (!wearTarget(bl)) return 'not_natural'
+    // A JUNK WELL OR A PLINTH IS NEVER WORN OUT ON (plinth-01's walls are andesite, diorite and granite, which wearTarget
+    // accepts): the shared well-cell test; unreadable well cells refuse (fail closed)
+    const inWell = wellCellAt(bot, c)
+    if (inWell !== false) return inWell === null ? 'wells_unknown' : 'well'
     if (!groundOk(c)) return underfoot(c) ? 'footprint' : !/^(air|cave_air)$/.test(bot.blockAt(c.offset(0, 1, 0))?.name ?? '') ? 'above_not_air' : 'no_support'
     if (!sideOk(c)) return 'side_unsupported'
     const room = roomVeto(bot, c)
@@ -9092,6 +9105,9 @@ async function buildPlinth (ctx, _args, signal) {
         if (wellGround(now)) return 'done'
         if (!PLINTH_REPLACEABLE.has(now.name)) return 'blocked'
         if (ref && !refUsable(read(ref.x, ref.y, ref.z))) return 'support'
+        // THE PLAN'S FURNITURE CLEARANCE, at click time (lidclear-01 rebase review, Codex): a chest placed beside a planned
+        // cell since the plan -- its lid must never be filled
+        if (furnitureNear(read, target.x, target.y, target.z)) return 'furniture'
       }
       return null
     }

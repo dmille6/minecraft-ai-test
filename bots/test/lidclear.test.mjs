@@ -409,6 +409,75 @@ await t('PLINTH FUNDING: the plinth\'s chest draw is the `withdraw` skill -- at 
   assert.match(rowsSince(n0, '_lid_clear')[0] ?? '', /^outcome=dug by=withdraw .*tool=stone_pickaxe/)
   assert.ok(w.spy.opened.includes('5,64,0'), 'opened')
 })
+// THE STAIR-LID GUARD (both rebase reviews: a plinth stair could be filled on a town chest's lid). The reviewers' pure
+// reproduction: cap g=66 at 0,0; the ground's top at y=61; a chest at 3,62,0 -- the stair along +x counted the chest as
+// ground and filled 3,63..64,0, the chest's lid.
+const PL_PATH = new URL('../src/plinth.mjs', import.meta.url)
+const PL = await import('../src/plinth.mjs')
+const stairWorld = (chest = true) => (x, y, z) => {
+  if (chest && x === 3 && y === 62 && z === 0) return { name: 'chest', boundingBox: 'block', shapes: [[0.0625, 0, 0.0625, 0.9375, 0.875, 0.9375]], hardness: 2.5, props: null }
+  return y <= 61 ? { name: 'stone', boundingBox: 'block', shapes: [[0, 0, 0, 1, 1, 1]], hardness: 1.5, props: null } : { name: 'air', boundingBox: 'empty', shapes: [], hardness: 0, props: null }
+}
+const nearChest = c => Math.max(Math.abs(c.x - 3), Math.abs(c.y - 62), Math.abs(c.z)) <= 1
+await t('PLINTH STAIR GUARD: no stair option has a cell on or beside a chest (the reviewers\' fixture); positive control: without the chest the +x stair fills 3,63,0; other stairs are still offered', () => {
+  const cap = { x: 0, y: 66, z: 0 }
+  const without = PL.stairOptions(stairWorld(false), cap)
+  assert.ok(without.some(o => o.some(c => c.x === 3 && c.y === 63 && c.z === 0)), 'positive control: the fixture builds a stair through that cell')
+  const opts = PL.stairOptions(stairWorld(true), cap)
+  assert.ok(!opts.some(o => o.some(nearChest)), `a stair beside the chest: ${JSON.stringify(opts.filter(o => o.some(nearChest)))}`)
+  assert.ok(opts.filter(o => o.length).length >= 1, 'the other directions still offer a stair')
+  assert.equal(PL.furnitureNear(stairWorld(true), 3, 63, 0), 'chest'); assert.equal(PL.furnitureNear(stairWorld(true), 5, 63, 0), null)
+})
+await t('MUTANT KILLED: without the stair\'s furniture check, the plinth stair fills the chest\'s lid', async () => {
+  await withMutant(PL_PATH, '      if (cells.some(c => furnitureNear(read, c.x, c.y, c.z))) continue\n', '\n', async M => {
+    const opts = M.stairOptions(stairWorld(true), { x: 0, y: 66, z: 0 })
+    assert.ok(opts.some(o => o.some(c => c.x === 3 && c.y === 63 && c.z === 0)), 'the mutant offers the lid')
+  })
+})
+await t('PLINTH CLICK GUARD (structural, comments stripped): a placement is refused at click time when town furniture is beside the cell -- the plan\'s clearance re-asked on the world NOW', () => {
+  const strip = s => s.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '')
+  const c = strip(readFileSync(SKILLS_PATH, 'utf8'))
+  const i = c.indexOf('const clickGuard = ({ op, target, post, ref = null }) => {')
+  assert.ok(i > 0, 'ANCHOR MISSING')
+  const body = c.slice(i, c.indexOf('\n    }\n', i))
+  const place = body.slice(body.indexOf('} else {'))
+  const RE = /if \(furnitureNear\(read, target\.x, target\.y, target\.z\)\) return 'furniture'/
+  assert.match(place, RE, 'the place branch asks furnitureNear')
+  // MUTANT: the guard line removed -> the assertion fails (anchor present and unique)
+  const line = "if (furnitureNear(read, target.x, target.y, target.z)) return 'furniture'"
+  assert.equal(place.split(line).length, 2, 'ANCHOR MISSING or not unique')
+  assert.doesNotMatch(place.replace(line, 'void 0'), RE, 'the mutant is caught')
+})
+// WEAR_OUT never digs a well or a plinth: plinth walls are andesite/diorite/granite, which wearTarget accepts
+const wearBot = ({ wells = [] } = {}) => {
+  const V = (x, y, z) => ({ x, y, z, offset: (a, b, c) => V(x + a, y + b, z + c), floored: () => V(x, y, z) })
+  const inv = [tool('stone_axe', 130), ...Array.from({ length: 35 }, () => stack('dirt', 64))]   // a full bag and one spent axe: wear_out's trigger
+  const dug = []
+  const bot = {
+    heldItem: null, entity: { position: V(0, 64, 0) }, entities: {}, inventory: { items: () => inv },
+    blockAt: p => (!(p.x === 0 && p.z === 0) ? { name: 'andesite', hardness: 1.5, boundingBox: 'block', position: p } : { name: 'air', hardness: 0, boundingBox: 'empty', position: p }),
+    canDigBlock: () => true, equip: async x => { bot.heldItem = x },
+    dig: async b => { dug.push(b.position); inv.splice(inv.indexOf(bot.heldItem), 1); bot.heldItem = null },
+    waitForTicks: async () => {}, pathfinder: { setGoal () {}, stop () {} }, wellCellsNow: () => wells,
+  }
+  return { bot, dug }
+}
+await t('WEAR_OUT: no cell of a plinth (its 5x5 box g-3..g) is ever worn out on -- the shared well-cell test; positive control: the same andesite with no well is dug; unreadable wells refuse', async () => {
+  { const { bot, dug } = wearBot({ wells: [{ x: 1, y: 65, z: 0 }] }); const r = await SKILLS.wear_out.run({ bot }, {}, new AbortController().signal)
+    assert.equal(r.status, 'failed', r.detail); assert.equal(dug.length, 0); assert.match(r.detail, /well/) }
+  { const { bot, dug } = wearBot(); const r = await SKILLS.wear_out.run({ bot }, {}, new AbortController().signal)
+    assert.equal(r.status, 'success', r.detail); assert.equal(dug.length, 1) }
+  { const { bot, dug } = wearBot(); bot.wellCellsNow = () => { throw new Error('boom') }; await SKILLS.wear_out.run({ bot }, {}, new AbortController().signal); assert.equal(dug.length, 0, 'fail closed') }
+  assert.equal(SK.wellCellAt({ wellCellsNow: () => [{ x: 20, y: 70, z: 20, stair: [[3, 63, 0]] }] }, { x: 3, y: 63, z: 0 }), true, 'a stair cell')
+  assert.equal(SK.wellCellAt({ wellCellsNow: () => [] }, { x: 3, y: 63, z: 0 }), false)
+})
+await t('MUTANT KILLED: without the well test, wear_out digs a plinth wall', async () => {
+  await withMutant(SKILLS_PATH, "    if (inWell !== false) return inWell === null ? 'wells_unknown' : 'well'\n", '\n', async M => {
+    const { bot, dug } = wearBot({ wells: [{ x: 1, y: 65, z: 0 }] })
+    await M.SKILLS.wear_out.run({ bot }, {}, new AbortController().signal)
+    assert.equal(dug.length, 1, 'the mutant digs the plinth')
+  })
+})
 await t('PLINTH ORDER CHAIN (structural, comments stripped): build_plinth > town_deposit > count_town is unchanged by this diff -- the recount still yields to both, and its lid clear runs on the next decision', () => {
   const strip = s => s.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '')
   const c = strip(readFileSync(new URL('../src/cognitive.mjs', import.meta.url), 'utf8'))
@@ -500,8 +569,8 @@ await t('MUTANT KILLED: without the per-bot skip, the next deposit walks back to
     })
 })
 await t('MUTANT KILLED: without the well veto, a plinth\'s stair cell on a lid is dug', async () => {
-  await withMutant(SKILLS_PATH, '  try { well = wellBreakCost(bot.wellCellsNow?.() ?? knownWellCells(bot), { position: c.offset(0, 1, 0) }) > 0 } catch { well = null }',
-    '  try { well = false } catch { well = null }', async M => {
+  await withMutant(SKILLS_PATH, '  const well = wellCellAt(bot, c.offset(0, 1, 0))\n',
+    '  const well = false\n', async M => {
       const w = lidWorld([tool('stone_pickaxe', 10)])
       w.bot.wellCellsNow = () => [{ x: 20, y: 70, z: 20, stair: [[5, 65, 0]] }]
       const r = await M.clearChestLid(w.bot, w.bot.blockAt({ x: 5, y: 64, z: 0 }).position, { msLeft: cap => cap, by: 'mutant' })
