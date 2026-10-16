@@ -9932,7 +9932,8 @@ async function withdrawVisit (ctx, chestBlock, decide, signal, msLeft, deadline)
 
 /** The containers to look in: nearest first, a double chest's other half never counted twice, none the town's memory
  *  knows is unusable or has a blocked lid (chestfull.mjs containerStatus), and -- for a pickaxe -- none that showed no
- *  usable copy in the last 15 min and has taken nothing since (per container: both reviews). */
+ *  usable copy within PICK_MISS_TTL_MS and has taken nothing since (per container: both reviews). Since townsearch-01 only
+ *  the model's `withdraw` verb uses this sweep; the town order searches with townSearchOrder. */
 function withdrawSweep (bot, { pick = false, town = false } = {}) {
   const isContainer = b => ['chest', 'barrel', 'trapped_chest'].includes(bot.registry.blocks[b.type]?.name)
   const tried = new Set()
@@ -10010,13 +10011,13 @@ function withdrawRowOut (bot, r, fields) {
 }
 /** THE ROW OF A THROWN VISIT (both reviews, round 2): an abort or error still reports what THIS transfer did -- the
  *  cursor, what moved and what was planned to leave -- from the state transferIn attached, never an earlier visit's. */
-function withdrawThrowRow (bot, e, { verb, need, uses = null, bagBefore = 0, tried = [] }) {
+function withdrawThrowRow (bot, e, { verb, need, uses = null, bagBefore = 0, tried = [], search = null }) {
   const ws = e?.withdrawState ?? {}, wd = e?.withdrawDiag ?? {}
   withdrawRowOut(bot, { status: 'failed' }, {
     outcome: e?.aborted ? 'aborted' : 'error', need, uses, verification: wd.verification ?? '-', cursor: ws.cursor ?? wd.cursor ?? '-',
     err: String(e?.message ?? e), chestRoom: wd.chestRoom ?? null, plan: wd.plan ?? '-', srv: '-', bagBefore, bagAfter: bagTotal(bot.inventory?.items?.() ?? []),
     deposited: Object.entries(ws.gave ?? {}).map(([name, count]) => ({ name, count })),
-    took: { ...(ws.took ?? {}), ...(ws.tool ? { [ws.tool.name]: 1 } : {}) }, verb, tried })
+    took: { ...(ws.took ?? {}), ...(ws.tool ? { [ws.tool.name]: 1 } : {}) }, verb, tried, search })
 }
 
 /**
@@ -10214,7 +10215,9 @@ async function withdrawPick (ctx, _args, signal) {
   try {
     return await withdrawPickRun(ctx, signal, tried, st, finish)
   } catch (e) {
-    if (!st.written) withdrawThrowRow(bot, e, { verb: 'withdraw_pick', need: st.need, uses: st.uses, bagBefore, tried })
+    // an aborted or errored ORDER carries the search's counters too (Claude r2 P3: the watchdog's aborts are the long ones)
+    if (!st.written) withdrawThrowRow(bot, e, { verb: 'withdraw_pick', need: st.need, uses: st.uses, bagBefore, tried,
+                                               search: st.search ? { ...st.search, ...searchTally(tried) } : null })
     throw e
   }
 }
@@ -10282,8 +10285,9 @@ function halvesOf (bot, pos, double) {
   const p = double ? chestPartner(bot, pos) : null
   return p ? [posKey(pos), posKey(p)] : [posKey(pos)]
 }
-/** Results that end the order: about the bag or the window, not about where the pickaxe is. */
-const VISIT_STOPS = ['transfer_unsettled', 'inventory_full', 'container_open', 'recount_unanswered']
+/** Results that end the order: about the bag or the window, not about where the pickaxe is -- and `no_room` (Claude r2 P3:
+ *  the town's stock target refused the claim that would make room in the bag; every other pickaxe would be refused the same). */
+const VISIT_STOPS = ['transfer_unsettled', 'inventory_full', 'container_open', 'recount_unanswered', 'no_room']
 
 async function withdrawPickRun (ctx, signal, tried, st, finish) {
   const { bot } = ctx
