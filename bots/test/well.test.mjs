@@ -1221,7 +1221,7 @@ await t('BUILD RESUMES a pit left open by an interrupted visit (stage dug): floo
 
 // THE RAISED WELL (plinth-02; fleet 10-16: two finished plinths, 23 of 30 build_well visits failed "nowhere within 2 of the
 // junk well's standing cell to put a crafting table", no well built). A k=3 plinth (P.plinthShell) on the flat town, its cap
-// covered with dirt as the plinth leaves it, the site recorded as the hand-off records it; the bag holds LOGS and dirt only --
+// covered with dirt as the plinth leaves it, with the stair its planner gives it, the site recorded as the hand-off records it; the bag holds LOGS and dirt only --
 // no trapdoor, no table. Expected: the table goes down within the craft's reach BELOW the stand, the trapdoors are crafted
 // at it, the cover is dug, and the well reads built. MUTANT: the old table rule -> the fleet's failure, nothing built.
 const raisedTown = async () => {
@@ -1229,6 +1229,11 @@ const raisedTown = async () => {
   const RC = { x: CAP.x, y: G0 + 3, z: CAP.z }
   const blocks = Object.fromEntries(PL.plinthShell(RC).map(c => [`${c.x},${c.y},${c.z}`, 'cobblestone']))
   blocks[`${RC.x},${RC.y},${RC.z}`] = 'dirt'
+  // THE PLANNER'S STAIR (k=3 over flat ground: the ring top is 2 above the ground, so the plan carries a stair to the top)
+  const shellRead = (x, y, z) => { const n = blocks[`${x},${y},${z}`] ?? (y > G0 ? 'air' : y === G0 ? 'grass_block' : 'dirt'); return n === 'air' ? { name: 'air', boundingBox: 'empty', shapes: [] } : { name: n, boundingBox: 'block', shapes: [[0, 0, 0, 1, 1, 1]] } }
+  const stair = PL.stairOptions(shellRead, RC).find(o => o.length)
+  assert.ok(stair, 'the planner offers a stair here')
+  for (const c of stair) blocks[`${c.x},${c.y},${c.z}`] = 'cobblestone'
   const dir = mkdtempSync(path.join(tmpdir(), 'well-store-'))
   const Cm = await import('../src/composter.mjs')
   assert.ok(Cm.createSiteGen(dir, `junkwell-site-${HOME.x}_${HOME.y}_${HOME.z}`, 1, RC, null), 'the plinth hand-off recorded the site')

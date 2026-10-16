@@ -439,8 +439,11 @@ export const WELL_TABLE_CLICK = 4.5
  *   2. otherwise any cell BELOW the stand's level (1..4 down) with its centre within WELL_TABLE_REACH of the stand's feet and
  *      its floor's top face within WELL_TABLE_CLICK of the eye: off the plinth's 5x5 first (horizontal Chebyshev >= 3 from the
  *      cap), then the plinth's own outer ring at g (Chebyshev 2); never the well column, never a body;
- *   3. with `start` (the town's start cell), when the stand is walkable from the town today (walkReach), a candidate is kept
- *      only if it still is with the table in place: a table must never take the only way up.
+ *   3. a candidate is kept only if the stand is still walkable from the town (`start`) with the table in place (walkReach):
+ *      a table must never take the only way up. NO PROOF, NO TABLE (Codex r1 P2): without `start`, or when walkReach cannot
+ *      reach the stand today, nothing is offered (null) -- standing on the stand proves this bot arrived, not that the next
+ *      one can. A plinth is walkReach-reachable by construction (its planner proves every stand with the same probe).
+ *   The floor must be a plain support: never a container (its lid) or town furniture (Codex r1 P3; place() refuses a lid).
  */
 export function wellTableCell ({ site, stand, read, bodies = [], start = null, box = null, forbid = () => false, eye = EYE_HEIGHT } = {}) {
   if (!site || !stand || typeof read !== 'function') return null
@@ -456,7 +459,7 @@ export function wellTableCell ({ site, stand, read, bodies = [], start = null, b
         if (ring < 2) continue                                                 // the well's 3x3: walls, cap, shaft
         if (inColumn(site, x, y, z) || forbid(x, y, z)) continue
         const cell = read(x, y, z), head = read(x, y + 1, z), floor = read(x, y - 1, z)
-        if (!cell || !PLACEABLE_INTO.has(cell.name) || !solid(floor) || !head) continue
+        if (!cell || !PLACEABLE_INTO.has(cell.name) || !solid(floor) || isFurniture(floor.name) || !head) continue
         const reach = Math.hypot(x + 0.5 - fx, y + 0.5 - fy, z + 0.5 - fz)
         if (reach > WELL_TABLE_REACH) continue
         if (Math.hypot(x + 0.5 - fx, y - (fy + eye), z + 0.5 - fz) > WELL_TABLE_CLICK) continue
@@ -468,13 +471,10 @@ export function wellTableCell ({ site, stand, read, bodies = [], start = null, b
   out.sort((a, b) => a.off - b.off || b.y - a.y || a.reach - b.reach || a.x - b.x || a.z - b.z)
   const until = cellKey(stand.x, stand.y, stand.z)
   const walkForbid = (x, y, z) => inColumn(site, x, y, z) || forbid(x, y, z)
-  // the probe is conservative: only a stand it can reach today is held to it (the bot itself is on the stand when it asks)
-  const judge = !!start && walkReach(read, start, { box, forbid: walkForbid, until }).has(until)
+  if (!start || !walkReach(read, start, { box, forbid: walkForbid, until }).has(until)) return null
   for (const c of out.slice(0, 8)) {
-    if (judge) {
-      const withTable = overlay(read, new Map([[cellKey(c.x, c.y, c.z), PLACED]]))
-      if (!walkReach(withTable, start, { box, forbid: walkForbid, until }).has(until)) continue
-    }
+    const withTable = overlay(read, new Map([[cellKey(c.x, c.y, c.z), PLACED]]))
+    if (!walkReach(withTable, start, { box, forbid: walkForbid, until }).has(until)) continue
     return { x: c.x, y: c.y, z: c.z }
   }
   return null

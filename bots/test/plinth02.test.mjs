@@ -120,17 +120,34 @@ await t('THE TABLE NEVER TAKES THE ONLY WAY UP: the step\'s feet cell sorts firs
   assert.equal(W.wellStand(read, CAP3)?.stand.z, -1, 'the north stand')
   assert.ok(P.walkReach(read, START3, { box: BOX3, forbid, until }).has(until), 'with the step: reachable')
   assert.ok(!P.walkReach(stepWorld(false), START3, { box: BOX3, forbid, until }).has(until), 'POSITIVE CONTROL: without the step, not reachable')
-  const blind = P.wellTableCell({ site: CAP3, stand: ST3, read })
-  assert.deepEqual(blind, { x: 0, y: G + 2, z: -3 }, 'without `start` the first candidate is the step\'s feet cell (the case the guard exists for)')
   const c = P.wellTableCell({ site: CAP3, stand: ST3, read, start: START3, box: BOX3 })
   assert.ok(c && !(c.x === 0 && c.y === G + 2 && c.z === -3), JSON.stringify(c))
   const withTable = stepWorld(true, new Map([[`${c.x},${c.y},${c.z}`, { name: 'crafting_table', boundingBox: 'block', shapes: SHAPES.block }]]))
   assert.ok(P.walkReach(withTable, START3, { box: BOX3, forbid, until }).has(until), 'still reachable with the chosen table')
 })
 await t('MUTANT KILLED: without the walk check, the table goes on the only way up', async () => {
-  await withMutant(PL_PATH, '      if (!walkReach(withTable, start, { box, forbid: walkForbid, until }).has(until)) continue\n', '\n', async M => {
+  await withMutant(PL_PATH, '    if (!walkReach(withTable, start, { box, forbid: walkForbid, until }).has(until)) continue\n', '\n', async M => {
     assert.deepEqual(M.wellTableCell({ site: CAP3, stand: ST3, read: stepWorld(true), start: START3, box: BOX3 }), { x: 0, y: G + 2, z: -3 })
   })
+})
+await t('NO PROOF, NO TABLE (Codex r1 P2): without a start cell, or when the stand is not walkable from it today (no step), nothing is offered -- the first candidate would be the step\'s feet cell', () => {
+  assert.equal(P.wellTableCell({ site: CAP3, stand: ST3, read: stepWorld(true) }), null, 'no start')
+  assert.equal(P.wellTableCell({ site: CAP3, stand: ST3, read: stepWorld(false), start: START3, box: BOX3 }), null, 'the stand not walkable today')
+  assert.ok(P.wellTableCell({ site: CAP3, stand: ST3, read: stepWorld(true), start: START3, box: BOX3 }), 'POSITIVE CONTROL: with the step and a start, a cell')
+})
+await t('MUTANT KILLED: the walk proof skipped when it fails (the r1 fail-open) -> a table with no proof, on the only way up', async () => {
+  await withMutant(PL_PATH, '  if (!start || !walkReach(read, start, { box, forbid: walkForbid, until }).has(until)) return null\n', '  if (!start) return out[0] ? { x: out[0].x, y: out[0].y, z: out[0].z } : null\n', async M => {
+    assert.deepEqual(M.wellTableCell({ site: CAP3, stand: ST3, read: stepWorld(true) }), { x: 0, y: G + 2, z: -3 })
+  })
+})
+await t('A CHEST IS NOT A TABLE\'S FLOOR (Codex r1 P3): the step block made a chest -> its lid is never offered; the cell chosen is elsewhere', () => {
+  const chest = { name: 'chest', boundingBox: 'block', shapes: [[0.0625, 0, 0.0625, 0.9375, 0.875, 0.9375]], hardness: 2.5, props: null }
+  // a second way up (a step on the east), so the stand stays walkable with the chest standing where the north step was
+  const extra = new Map([[`0,${G + 1},-3`, chest], [`3,${G + 1},0`, { name: 'cobblestone', boundingBox: 'block', shapes: SHAPES.block }]])
+  const read = stepWorld(false, extra)
+  const c = P.wellTableCell({ site: CAP3, stand: ST3, read, start: START3, box: BOX3 })
+  assert.ok(c, 'a cell'); assert.ok(!(c.x === 0 && c.y === G + 2 && c.z === -3), `not on the chest's lid: ${JSON.stringify(c)}`)
+  assert.notEqual(read(c.x, c.y - 1, c.z).name, 'chest')
 })
 await t('NOTHING IN REACH: a plinth hanging over a void with its ring top taken (water) -> null (build_well then names the carried-trapdoor remedy)', () => {
   const read = (x, y, z) => {
