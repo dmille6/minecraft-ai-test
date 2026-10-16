@@ -3475,6 +3475,10 @@ export function stockQualifies (bot, item = null, stage = 'entry', { reserveAt =
     const items = bot.inventory?.items?.() ?? []
     const plan = depositPlan(items, item, { wants: bot.currentWants ?? [], noSwords: foodSkipNow(bot).active })
     for (const { name, count } of plan) {
+      // THE KIT NEVER OPENS A NEW CHEST (kitshrink-01; Claude code r3/r6 P2, Codex r6 P2): torches and ladders have no stock
+      // group, so they read as untargeted and qualified a chest on their own beside a remainder that does not (admitted
+      // cobble, a targeted name not proven under target). Like cobble, they never qualify -- at entry, craft and placement.
+      if (KIT_BANK.includes(name)) continue
       const g = groupOf(name)
       if (!g) { untargeted++; out.any = true; continue }
       if (g === 'cobble') continue

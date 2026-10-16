@@ -24,6 +24,7 @@ const M = [
   ['a kit-only deposit walks home', 'src/skills.mjs', 'if (kitOnly) return { status:', 'if (false) return { status:', 'towndeposit'],
   ['the kit holds the deposit rung', 'src/milestones.mjs', 'return Math.max(0, r.count - (r.kit ?? 0)) }', 'return r.count }', 'kitshrink'],
   ['the prompt urges a deposit for the kit', 'src/prompt.mjs', 'const surplus = Math.max(0, bank.count - (bank.kit ?? 0))', 'const surplus = bank.count', 'kitshrink'],
+  ['the kit qualifies a new chest beside cobble', 'src/skills.mjs', '      if (KIT_BANK.includes(name)) continue\n      const g = groupOf(name)', '      const g = groupOf(name)', 'chest-full'],
   ['the kit opens a new chest (the stop before any walk, seen from a full chest)', 'src/skills.mjs', "    if (kitOnly) return { status: 'no_effect', failClass: null, detail:", "    if (false) return { status: 'no_effect', failClass: null, detail:", 'chest-full'],
   ['the near room order names the kit', 'src/skills.mjs', 'roomDepositTarget(bot, items, kitKeep(bot, keep))', 'roomDepositTarget(bot, items, keep)', 'kitshrink'],
   ['a kit-only deposit walks to a chest in reach', 'src/skills.mjs', "    if (kitOnly) return { status: 'no_effect', failClass: null, detail:", "    if (kitOnly && !chestBlock) return { status: 'no_effect', failClass: null, detail:", 'towndeposit'],
