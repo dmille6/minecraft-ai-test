@@ -3591,7 +3591,8 @@ export async function reconcileCobble (bot, signal, msLeft, keys = null, { remem
       if (!CONTAINER_RE.test(blockNameOf(bot, b) ?? '')) { fail(k, 'not a container'); continue }
       // THE LID (lidclear-01): a lid the clear would refuse is not walked to (`lid blocked`, as before, now with a
       // `_lid_clear outcome=refused` row); a clearable one is walked to and cleared after the arrival check
-      if (lidRefusedBeforeWalk(bot, c, 'count_town')) { fail(k, 'lid blocked'); continue }
+      const pre = lidRefusedBeforeWalk(bot, c, 'count_town')
+      if (pre) { fail(k, pre.outcome === 'refused' ? 'lid blocked' : 'lid not now'); continue }   // `unknown` is not lid evidence (Codex code r3 P3)
       try {
         await chestWalk(bot, new goals.GoalNear(c.x, c.y, c.z, 2), msLeft(RECONCILE_WALK_MS))
         // THE RECOUNT ARRIVES BEFORE IT OPENS (Claude st2-r1): a resolved walk is not an arrival (Paper 10-05, the deposit's
@@ -5652,7 +5653,7 @@ async function clearOneLid (bot, c, { signal, msLeft, by }) {
   j = lidJudge(bot, c)
   if (!j.blocked) return { outcome: 'not_blocked', detail: 'the lid is clear', at: posKey(c) }
   if (blockNameOf(bot, j.s.lid) !== lidName) return row('refused', `the lid block changed to ${blockNameOf(bot, j.s.lid)}`)
-  if (j.refusal) return row('refused', j.refusal)
+  if (j.refusal) return row(j.unknown ? 'unknown' : 'refused', j.refusal)   // wells unreadable now: still no memory (Codex code r3 P2)
   if (o.tool !== 'hand' ? bot.heldItem?.name !== o.tool : DIG_TOOL_RE.test(bot.heldItem?.name ?? '')) return row('hand', 'the hand changed before the dig')
   if (bot.canDigBlock && !bot.canDigBlock(j.s.lid)) return row('reach', 'out of reach from here')
   // the caller's clock, re-read synchronously: the whole budget must still fit (no await from here to the dig packet)

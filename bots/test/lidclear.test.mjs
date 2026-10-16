@@ -223,8 +223,9 @@ await t('ACTUATOR: the server puts the block back -> unconfirmed; a dig that thr
     const t0 = Date.now(); const r = await clear(w)
     assert.equal(r.outcome, 'failed', 'a dig that ran its whole budget'); assert.ok(Date.now() - t0 >= 3000, 'it waited the 3,250 ms budget')
   }
-  // the wells unreadable: refused, but as `unknown` (no memory)
+  // the wells unreadable: refused, but as `unknown` (no memory) -- before the hand, and at the final check after the look
   { const w = lidWorld([]); w.bot.wellCellsNow = () => { throw new Error('boom') }; const r = await clear(w); assert.equal(r.outcome, 'unknown'); assert.equal(w.digs.length, 0) }
+  { const w = lidWorld([]); w.bot.lookAt = async () => { w.bot.wellCellsNow = () => { throw new Error('boom') } }; const r = await clear(w); assert.equal(r.outcome, 'unknown'); assert.equal(w.digs.length, 0) }
   {
     const w = lidWorld([]); const ac = new AbortController()
     w.bot.dig = async () => { ac.abort(); throw Object.assign(new Error('aborted'), { aborted: true }) }
@@ -398,8 +399,8 @@ await t('WIRING (structural, comments stripped): the deposit, the withdraw and t
 
 // ------------------------------------------------------------------------------------------- anchored mutants
 await t('MUTANT KILLED: the base recount (fail any blocked lid before walking) leaves the town uncounted', async () => {
-  await withMutant(SKILLS_PATH, "      if (lidRefusedBeforeWalk(bot, c, 'count_town')) { fail(k, 'lid blocked'); continue }",
-    "      if (/chest/.test(blockNameOf(bot, b) ?? '') && chestLidBlocked(bot.blockAt(c.offset(0, 1, 0)))) { fail(k, 'lid blocked'); continue }", async M => {
+  await withMutant(SKILLS_PATH, "      const pre = lidRefusedBeforeWalk(bot, c, 'count_town')\n",
+    "      const pre = /chest/.test(blockNameOf(bot, b) ?? '') && chestLidBlocked(bot.blockAt(c.offset(0, 1, 0))) ? { outcome: 'refused' } : null\n", async M => {
       const { w } = await fencedLid([stack('oak_log', 64), stack('oak_log', 64), tool('stone_pickaxe', 10)])
       try {
         M.resetCobbleReconcile(); M.installCobbleCap(w.bot)
