@@ -48,8 +48,14 @@ CODE r5 (c56cd860 / bb4f4629)
 MUTANTS after r5's fix: three SURVIVED, and each said something true. (1) "a kit-only deposit walks to a chest in reach": the
                   test's fake bot had no findBlock, so the chest was never in the scan -> the test now gives the scan the
                   chest (positive control asserted) and the mutant is killed. (2)(3) the r3 full-chest exemptions
-                  (noNewChestFor in viaRecovery, the town-memory branch, the final exit): UNREACHABLE once deposit() stops a
-                  kit-only plan before any walk (a plan with nothing moved still holds a non-kit name; anything moved returns
+                  (noNewChestFor in viaRecovery, the town-memory branch, the final exit): unreachable FOR A KIT-ONLY PLAN once
+                  deposit() stops one before any walk (a plan with nothing moved still holds a non-kit name; anything moved returns
                   success first) -> removed rather than kept as untested code; the chest-full KITSHRINK test now guards the
                   stop that makes them unreachable (its mutant is killed).
-CODE r6: see below.
+CODE r6 (2732a31b / 426370a4)
+  Codex  CHANGES  P2 kit + a non-qualifying remainder (admitted cobble) passed the kit-only stop and reached the recovery,
+  Claude CHANGES  where stockQualifies counted the untargeted torches as qualifying a new chest (same finding, both engines)
+                  -> stockQualifies skips the kit like cobble: ONE line that gates entry, craft and placement. chest-full test
+                  (torches + surplus cobble at a full chest: nothing placed or crafted; control with logs: placed) + mutant.
+                  P3 records corrected ("unreachable for a kit-only plan"; the stockQualifies line carries the rule).
+CODE r7: see below.

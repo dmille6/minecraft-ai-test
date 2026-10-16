@@ -1087,5 +1087,21 @@ await t('KITSHRINK CONTROL: the same full chest with a log surplus beside the to
   assert.equal(w.spy.placed.length, 1, 'the logs open the new chest, as before kitshrink')
 })
 
+
+await t('KITSHRINK MIXED (Claude/Codex code r6 P2): torches + surplus cobble at a FULL chest -> no new chest (cobble never grows the bank, the kit never opens one); + a log surplus -> the chest is placed (control)', async () => {
+  const w = town([stack('torch', 20), stack('cobblestone', 64), stack('cobblestone', 64), stack('cobblestone', 64), stack('chest', 1)])
+  const n0 = rows('deposit_new_chest').filter(r => /decision=(place_carried|craft)/.test(r.skill?.detail ?? '') && r.skill?.status === 'success').length
+  const r = await run(w.bot)
+  assert.notEqual(r.status, 'success', r.detail)
+  assert.equal(w.spy.placed.length, 0, `the carried chest stays in the bag: ${r.detail}`)
+  assert.equal(w.spy.recipesFor + w.spy.craft, 0, 'no chest crafted')
+  assert.equal(w.bag.find(i => i.name === 'chest')?.count ?? 0, 1)
+  assert.equal(rows('deposit_new_chest').filter(r => /decision=(place_carried|craft)/.test(r.skill?.detail ?? '') && r.skill?.status === 'success').length, n0)
+  const c = town([stack('torch', 20), stack('cobblestone', 64), stack('cobblestone', 64), stack('cobblestone', 64), stack('oak_log', 64), stack('oak_log', 30), stack('chest', 1)])
+  const rc = await run(c.bot)
+  assert.equal(rc.status, 'success', rc.detail)
+  assert.equal(c.spy.placed.length, 1, 'POSITIVE CONTROL: the logs open the new chest')
+})
+
 console.log(`\n${pass} passed, ${fail} failed`)
 process.exit(fail ? 1 : 0)
