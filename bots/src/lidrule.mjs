@@ -23,8 +23,9 @@
 //
 // THE BOT'S RULE stays chestLidBlocked (a single full-height box): it over-reads glass and leaves as blocking and
 // under-reads soul sand and mud. The census found none of those; the clear never breaks them (LID_BREAKABLE below), so
-// a chest under leaves or glass is refused as before. serverLidBlocks is a hand-kept APPROXIMATION of the server's rule
-// for the census and the tests -- the bot does not use it.
+// a chest under leaves or glass is refused as before. serverLidBlocks is a hand-kept APPROXIMATION of the server's rule:
+// the census uses it, and the bot uses it only as one more condition before a break (skills.mjs lidJudge: a block the
+// server would not block on is never broken) -- never to decide that a lid is clear.
 
 /** The bot's lid test (was skills.mjs chestLidBlocked; re-exported there). A solid block with one full-height box. */
 export function chestLidBlocked (above) {
@@ -100,10 +101,11 @@ export function lidDigBudgetMs (digMs) {
  * WHAT A FAILED CLEAR SAYS ABOUT THE CONTAINER -> 'unavailable' | null. Pure. Only evidence about the LID marks the
  * container unavailable for the town (30 min, chestfull.mjs): a rule refusal (the block, a hazard, the well) or a dig that
  * ran its full budget and did not break it. The CALLER'S limits are not evidence (Codex design r1 P1): our own clock
- * (`no_time`), a bot off the ground or in water (`slow`), out of reach (`reach`), a hand it could not free (`hand`) or an
- * abort -- those leave the town's memory alone and the next order retries from a better stance.
+ * (`no_time`), a bot off the ground or in water (`slow`), out of reach (`reach`), a hand it could not free (`hand`), a dig
+ * mineflayer cancelled (`interrupted`: another dig, a reflex, a death -- code reviews r2), the town's well cells unreadable
+ * (`unknown`) or an abort -- those leave the town's memory alone and the next order retries from a better stance.
  */
-export const LID_OUTCOMES = Object.freeze(['dug', 'not_blocked', 'refused', 'failed', 'unconfirmed', 'slow', 'no_time', 'reach', 'hand', 'aborted'])
+export const LID_OUTCOMES = Object.freeze(['dug', 'not_blocked', 'refused', 'failed', 'unconfirmed', 'slow', 'no_time', 'reach', 'hand', 'interrupted', 'unknown', 'aborted'])
 export function lidFailMemory (outcome) {
   return outcome === 'refused' || outcome === 'failed' || outcome === 'unconfirmed' ? 'unavailable' : null
 }

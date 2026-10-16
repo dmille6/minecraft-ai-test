@@ -65,8 +65,8 @@ t('THE CLIMB OPTS OUT: it wants the hole, not the cobble', () => {
   const optedOut = digs.filter(d => /needsDrop:\s*false/.test(d))
   // wear_out opts out too: it digs to BREAK THE TOOL, and the drop is irrelevant (hygiene.mjs)
   assert.equal(optedOut.length, 6,
-    'the two escape digs, the staircase re-dig, place()\'s make-room dig, goto\'s float dig and deposit\'s chest-lid dig ' +
-    'float dig may opt out — all five want the HOLE, not the drop. The staircase one ' +
+    'the two escape digs, the staircase re-dig, place()\'s make-room dig, goto\'s float dig and wear_out\'s dig ' +
+    'may opt out (the chest-lid dig opts out too, asserted above) — they want the HOLE, not the drop. The staircase one ' +
     'recovers a dig the server did not accept; make-room opens one cell for a station ' +
     'in a tunnel; the float dig breaks what the pathfinder planned to break but will ' +
     'not dig while the bot is off the ground; with the watchdog on any of them would ' +
