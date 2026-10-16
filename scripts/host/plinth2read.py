@@ -176,22 +176,57 @@ assert [(b, t) for b, t, _p in stuck_episodes(_ep)] == [('b1', _m(0)), ('b2', _m
 STATE_DIR = '/var/lib/mcai'
 
 
-def recorded_caps(pools, state_dir=STATE_DIR):
-    """{cap (x,y,z): (pool, state)} from each pool's plinth records; state plan|complete only (void/none are not plinths)."""
+PLINTH_VERSION = 1                                                                   # plinth.mjs PLINTH_VERSION
+
+
+def _latest_site(state_dir, pool, home):
+    """The pool's current well-site record for a home key (the highest generation), or None."""
+    import glob, json
+    best = None
+    for f in glob.glob('%s/_pool-%s/junkwell-site-%s.g*.json' % (state_dir, pool, home)):
+        m = re.search(r'\.g(\d+)\.json$', f)
+        if m and (best is None or int(m.group(1)) > best[0]):
+            best = (int(m.group(1)), f)
+    if not best:
+        return None
+    try:
+        return json.load(open(best[1]))
+    except Exception:
+        return None
+
+
+def recorded_caps(pools, state_dir=STATE_DIR, worlds=None):
+    """{cap (x,y,z): pool} for every COMPLETE plinth of THIS world in the given pools' records (Codex r3 P2 x2):
+       - the record is version PLINTH_VERSION and state 'complete' (a plan or a void is not a finished plinth);
+       - the pool's LATEST well-site generation for the same home names the same cap and the same world (the hand-off wrote
+         both; a site moved since, or a record from another world, does not count);
+       - `worlds` {pool: world prefix seen in this window's rows (w=)}: a record of a different world does not count."""
     import glob, json
     out = {}
     for pool in sorted(pools):
         for f in sorted(glob.glob('%s/_pool-%s/junkwell-plinth-*.json' % (state_dir, pool))):
             if '.lease.' in f:
                 continue
+            m = re.search(r'junkwell-plinth-(.+)\.json$', f)
             try:
                 rec = json.load(open(f))
             except Exception:
                 continue
-            cap = ((rec or {}).get('plan') or {}).get('cap') or {}
-            st = (rec or {}).get('state')
-            if st in ('plan', 'complete') and all(k in cap for k in 'xyz'):
-                out[(int(cap['x']), int(cap['y']), int(cap['z']))] = (pool, st)
+            if not isinstance(rec, dict) or rec.get('v') != PLINTH_VERSION or rec.get('state') != 'complete':
+                continue
+            cap = (rec.get('plan') or {}).get('cap') or {}
+            if not all(k in cap for k in 'xyz'):
+                continue
+            site = _latest_site(state_dir, pool, m.group(1)) if m else None
+            if not site or (site.get('x'), site.get('y'), site.get('z')) != (cap['x'], cap['y'], cap['z']):
+                continue
+            world = str(rec.get('world') or '')
+            if str(site.get('world') or '') != world:
+                continue
+            seen = (worlds or {}).get(pool)
+            if seen and world and not world.startswith(seen):
+                continue
+            out[(int(cap['x']), int(cap['y']), int(cap['z']))] = pool
     return out
 
 
@@ -201,17 +236,40 @@ TABLE_REFUSAL = re.compile(r'^order=build reason=well_site .*crafting table')
 def _selftest_records():
     import tempfile, json
     d = tempfile.mkdtemp()
-    os.makedirs(d + '/_pool-board-c'); os.makedirs(d + '/_pool-hive-a')
-    json.dump({'state': 'complete', 'plan': {'cap': {'x': 365, 'y': 73, 'z': 137}}}, open(d + '/_pool-board-c/junkwell-plinth-355_73_147.json', 'w'))
-    json.dump({'by': 'x', 'until': 1}, open(d + '/_pool-board-c/junkwell-plinth-355_73_147.lease.g8.json', 'w'))
-    json.dump({'state': 'void', 'plan': {'cap': {'x': 1, 'y': 2, 'z': 3}}}, open(d + '/_pool-hive-a/junkwell-plinth-0_0_0.json', 'w'))
-    r = recorded_caps({'board-c', 'hive-a'}, d)
-    assert r == {(365, 73, 137): ('board-c', 'complete')}, r
-    assert recorded_caps({'hive-a'}, d) == {}, 'a void record is not a plinth'
+    for pool in ('board-c', 'hive-a', 'hive-d', 'isolated-a'):
+        os.makedirs('%s/_pool-%s' % (d, pool))
+    W1 = '-1909043226:-504800724'
+    def put(pool, name, obj):
+        json.dump(obj, open('%s/_pool-%s/%s' % (d, pool, name), 'w'))
+    put('board-c', 'junkwell-plinth-355_73_147.json', {'v': 1, 'state': 'complete', 'world': W1, 'plan': {'cap': {'x': 365, 'y': 73, 'z': 137}}})
+    put('board-c', 'junkwell-plinth-355_73_147.lease.g8.json', {'by': 'x', 'until': 1})
+    put('board-c', 'junkwell-site-355_73_147.g1.json', {'x': 365, 'y': 73, 'z': 137, 'world': W1})
+    # a plan, not a finished plinth (Codex r3 P2-2)
+    put('hive-a', 'junkwell-plinth-0_0_0.json', {'v': 1, 'state': 'plan', 'world': 'w', 'plan': {'cap': {'x': 1, 'y': 2, 'z': 3}}})
+    put('hive-a', 'junkwell-site-0_0_0.g1.json', {'x': 1, 'y': 2, 'z': 3, 'world': 'w'})
+    # a record whose site has MOVED since (g2 names another cap)
+    put('hive-d', 'junkwell-plinth-68_65_68.json', {'v': 1, 'state': 'complete', 'world': 'w2', 'plan': {'cap': {'x': 56, 'y': 64, 'z': 69}}})
+    put('hive-d', 'junkwell-site-68_65_68.g1.json', {'x': 56, 'y': 64, 'z': 69, 'world': 'w2'})
+    put('hive-d', 'junkwell-site-68_65_68.g2.json', {'x': 79, 'y': 57, 'z': 76, 'world': 'w2'})
+    # an earlier world's record and site (Codex r3 P2-1), and a wrong version
+    put('isolated-a', 'junkwell-plinth-1_1_1.json', {'v': 1, 'state': 'complete', 'world': 'old', 'plan': {'cap': {'x': 9, 'y': 9, 'z': 9}}})
+    put('isolated-a', 'junkwell-site-1_1_1.g1.json', {'x': 9, 'y': 9, 'z': 9, 'world': 'old'})
+    assert recorded_caps({'board-c', 'hive-a', 'hive-d'}, d) == {(365, 73, 137): 'board-c'}, 'complete + same-cap latest site only'
+    assert recorded_caps({'isolated-a'}, d) == {(9, 9, 9): 'isolated-a'}, 'POSITIVE CONTROL: no world seen -> the consistent record counts'
+    assert recorded_caps({'isolated-a'}, d, worlds={'isolated-a': 'new'}) == {}, 'a row of the window names another world'
+    assert recorded_caps({'board-c'}, d, worlds={'board-c': W1[:40]}) == {(365, 73, 137): 'board-c'}, 'the same world (w= is cut at 40)'
+    put('isolated-a', 'junkwell-plinth-1_1_1.json', {'v': 2, 'state': 'complete', 'world': 'old', 'plan': {'cap': {'x': 9, 'y': 9, 'z': 9}}})
+    assert recorded_caps({'isolated-a'}, d) == {}, 'another version'
+    put('board-c', 'junkwell-site-355_73_147.g1.json', {'x': 365, 'y': 73, 'z': 137, 'world': 'other'})
+    assert recorded_caps({'board-c'}, d) == {}, 'the site names another world'
     assert recorded_caps({'board-c'}, d + '/nowhere') == {}, 'no dir, no caps'
     assert TABLE_REFUSAL.match("order=build reason=well_site nowhere within 2 of the junk well's standing cell to put a crafting table")
     assert TABLE_REFUSAL.match("order=build reason=well_site nowhere within reach of the junk well's standing cell to put a crafting table; carry 2")
     assert not TABLE_REFUSAL.match('order=build reason=well_site the junk well site 1,2,3 is no longer valid (walls)')
+    assert WORLD_OF.search('order=build reason=no_site tally=cols:672 rec=ok w=-1683219219:11596751 the town').group(1) == '-1683219219:11596751'
+
+
+WORLD_OF = re.compile(r'(?:^| )w=(\S+)')
 
 
 _selftest_records()
@@ -259,7 +317,7 @@ if __name__ == '__main__':
     id_cap = {}                                     # plan id -> its cap (the _plinth rows carry both)
     steps = []; reserve_breach = []; pit_events = []; retired = []; stuck = []; leak = 0
     no_well_pre = defaultdict(int); well_pre = defaultdict(int); disposed = Counter()
-    plinth_rows = defaultdict(list); step_ts = defaultdict(list); built_at = set()
+    plinth_rows = defaultdict(list); step_ts = defaultdict(list); built_at = set(); world_seen = {}
     for r in ev_rows:
         t = r.get('t'); b = (r.get('bot') or {}).get('name')
         if t is None or not b:
@@ -277,6 +335,10 @@ if __name__ == '__main__':
             n[(period, arm, 'no_site')] += 1
             if period == 'pre':
                 no_well_pre[pool_of(b)] += 1
+        if k == 'well_refused':
+            mw = WORLD_OF.search(d)
+            if mw and mw.group(1) not in ('-', ''):
+                world_seen[pool_of(b)] = mw.group(1)
         if k == 'well_refused' and TABLE_REFUSAL.match(d):
             n[(period, arm, 'table_refused')] += 1
         if k == 'plinth_mode' and period == 'post':
@@ -328,10 +390,9 @@ if __name__ == '__main__':
                 stuck.append((b, t, k, (p['x'], p['y'], p['z'])))
             n[('post', arm, 'stuck_any')] += 1
 
-    rec_caps = recorded_caps(CANS)
-    for c, (pool, st) in rec_caps.items():
+    rec_caps = recorded_caps(CANS, worlds=world_seen)
+    for c, pool in rec_caps.items():
         caps.setdefault(c, pool)
-    rec_complete = {pool for c, (pool, st) in rec_caps.items() if st == 'complete'}
     outside = [(b, t.strftime('%H:%M:%S'), at) for b, t, at in outside_steps(steps, id_cap)]
     plinth_caps = set(caps)
     pit_events = [e for e in pit_events if e[1] in plinth_caps]
@@ -339,8 +400,10 @@ if __name__ == '__main__':
     retired_p = [x for x in retired if x[2] in plinth_caps]
     near = lambda p, cap: max(abs(p[0] - cap[0] - 0.5), abs(p[2] - cap[2] - 0.5)) <= 3.5 and abs(p[1] - cap[1]) <= 5
     stuck_p = [(b, t.strftime('%H:%M'), p) for b, t, p in stuck_episodes([x for x in stuck if any(near(x[3], c) for c in plinth_caps)])]
-    complete = {caps[c] for c in caps if any(st == 'complete' for _t, st, _f in plinth_rows[caps[c]])} | rec_complete
-    built_plinths = [c for c in plinth_caps if c in built_at]
+    # COMPLETE PER CAP (Codex r3 P2-2): a cap is complete when its own complete row names it, or its record is complete
+    complete_caps = {c for c in caps if c in rec_caps or any(st == 'complete' and xyz(f.get('at')) == c for _t, st, f in plinth_rows[caps[c]])}
+    complete = {caps[c] for c in complete_caps}
+    built_plinths = [c for c in complete_caps if c in built_at]   # exposure: a COMPLETE plinth's own cap
 
     hours = W / 60.0
     nowell_ctl = {p for p in no_well_pre if p not in CANS and well_pre.get(p, 0) == 0}
