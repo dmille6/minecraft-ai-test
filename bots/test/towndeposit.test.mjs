@@ -1077,3 +1077,20 @@ test('KITSHRINK SKILL: a bag with no kit writes no bank row (the row is the kit\
   assert.equal(rows.filter(x => x.skill.name === '_town_deposit').length, 1, 'positive control: the deposit row was seen')
   assert.equal(rows.filter(x => x.skill.name === '_kitshrink').length, 0)
 })
+
+test('KITSHRINK DEPOSIT VERB (Codex code r2 P2): a kit-only plan with no chest the run would use never walks home -- named or plain', async () => {
+  for (const args of [{ item: 'torch' }, {}]) {
+    const items = bag([['torch', 20], ['ladder', 3], ['crafting_table', 1], ...filler(20)])
+    const w = world({ items, containers: [], botAt: new Vec3(60, 70, 0) }); w.bot.findBlock ??= () => null
+    const r = await SKILLS.deposit.run({ bot: w.bot }, args, null)
+    assert.equal(r.status, 'no_effect', JSON.stringify(r))
+    assert.match(r.detail, /never walked to/); assert.doesNotMatch(r.detail, /\d/)
+    assert.equal(w.st.walks.length, 0, `no walk: ${JSON.stringify(w.st.walks)}`)
+    assert.equal(sumOf(w.bot.inventory.items(), 'torch'), 20)
+  }
+  // POSITIVE CONTROL: the same empty town with a log surplus walks home (the walk is for the logs, as today)
+  const items = bag([['torch', 20], ['oak_log', 64], ['oak_log', 64], ['oak_log', 64], ['crafting_table', 1], ...filler(20)])
+  const w = world({ items, containers: [], botAt: new Vec3(60, 70, 0) }); w.bot.findBlock ??= () => null
+  await SKILLS.deposit.run({ bot: w.bot }, {}, null).catch(() => {})
+  assert.ok(w.st.walks.length >= 1, 'a plan with other surplus still walks home')
+})

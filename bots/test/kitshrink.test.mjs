@@ -129,7 +129,7 @@ test('ROOM ORDER, FAR: a full bag whose only bankable stacks are kit gets NO hom
 // 80 blocks out (inside DEPOSIT_NEAR_HOME 96, so depositDue walks home for the logs), no chest within 48; the craft needs
 // the logs (`keep`), so the only stack a room deposit could empty is the torches.
 const nearBot = (items, chest = false) => ({ ...farBot(items), entity: { position: new Vec3(80, 70, 0) },
-  findBlock: ({ matching } = {}) => (chest && matching?.({ type: mcData.blocksByName.chest.id }) ? { position: new Vec3(2, 70, 0), type: mcData.blocksByName.chest.id } : null) })
+  findBlock: ({ matching } = {}) => { const b = { position: new Vec3(2, 70, 0), type: mcData.blocksByName.chest.id }; return chest && matching?.(b) ? b : null } })
 const mixedBag = () => bag([['torch', 20], ['oak_log', 64], ['oak_log', 64], ['stone_pickaxe', 1, 100], ...filler(32)])
 
 test('ROOM ORDER, NEAR, MIXED: no chest in reach -> the room remedy never names the torches (the walk would be for them); a chest in reach -> it may', () => {
@@ -156,6 +156,11 @@ test('ADMISSION, MIXED: `deposit torch` 80 blocks out with no chest in reach is 
   const atChest = { ...nearBot(items, true), inventory: { items: () => items }, health: 20, food: 20 }
   const c = A.check({ skill: 'deposit', args: { item: 'torch' } }, atChest, null)
   assert.notEqual(c.reason, 'deposit_not_worth_it', `a chest within 48: no walk, admitted: ${JSON.stringify(c)}`)
+  // ...but a chest the deposit would SKIP (this bot's container backoff) is no chest (Codex code r2 P2)
+  const backedOff = { ...atChest, skipContainers: new Map([['2,70,0', Date.now() + 60_000]]) }
+  const b = A.check({ skill: 'deposit', args: { item: 'torch' } }, backedOff, null)
+  assert.equal(b.reason, 'deposit_not_worth_it', `a backed-off chest does not count: ${JSON.stringify(b)}`)
+  assert.equal(SK.usableChestNear(atChest), true); assert.equal(SK.usableChestNear(backedOff), false)
 })
 
 // ---- THE ESCAPE CHAIN: a bot that banked its ladders at town is no worse off underground -------------------------------
