@@ -22,6 +22,8 @@ const M = [
   ['a named kit deposit walks', 'src/admission.mjs', 'if (!reconcile && arg.item && KIT_BANK.includes(arg.item) && !usableChestNear(bot)) {', 'if (false) {', 'kitshrink'],
   ['a backed-off chest counts as usable', 'src/skills.mjs', '&& !((bot.skipContainers?.get?.(`${b.position.x},${b.position.y},${b.position.z}`) ?? 0) > now)', '', 'kitshrink'],
   ['a kit-only deposit walks home', 'src/skills.mjs', 'if (kitOnly) return { status:', 'if (false) return { status:', 'towndeposit'],
+  ['the kit holds the deposit rung', 'src/milestones.mjs', 'return Math.max(0, r.count - (r.kit ?? 0)) }', 'return r.count }', 'kitshrink'],
+  ['the prompt urges a deposit for the kit', 'src/prompt.mjs', 'const surplus = Math.max(0, bank.count - (bank.kit ?? 0))', 'const surplus = bank.count', 'kitshrink'],
   ['the kit opens a new chest', 'src/skills.mjs', 'if (rest.length && rest.every(noNewChestFor) && rest.some(e => KIT_BANK.includes(e.name))) {', 'if (false) {', 'chest-full'],
   ['the kit is not exempt from the recovery', 'src/skills.mjs', 'export const noNewChestFor = e => isCobble(e?.name) || KIT_BANK.includes(e?.name)', 'export const noNewChestFor = e => isCobble(e?.name)', 'chest-full'],
   ['the near room order names the kit', 'src/skills.mjs', 'roomDepositTarget(bot, items, kitKeep(bot, keep))', 'roomDepositTarget(bot, items, keep)', 'kitshrink'],

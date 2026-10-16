@@ -163,6 +163,24 @@ test('ADMISSION, MIXED: `deposit torch` 80 blocks out with no chest in reach is 
   assert.equal(SK.usableChestNear(atChest), true); assert.equal(SK.usableChestNear(backedOff), false)
 })
 
+// ---- THE DEPOSIT RUNG (Claude code r4 P2): the kit never holds deposit_surplus -- at a full chest it would loop ----------
+test('CHAIN: deposit_surplus is DONE for a kit-only bag beside a (full) town chest; a log surplus holds it (control); the prompt says nothing for the kit', async () => {
+  const rung = MS.SUSTAINING.find(r => r.id === 'deposit_surplus')
+  assert.ok(rung, 'the rung exists')
+  const atTown = items => ({ inventory: { items: () => items }, registry: mcData, entity: { position: new Vec3(3, 70, 0) },
+    findBlock: ({ matching } = {}) => { const b = { position: new Vec3(2, 70, 0), type: mcData.blocksByName.chest.id }; return matching?.(b) ? b : null } })
+  const kitOnly = bag([['torch', 20], ['ladder', 3], ['crafting_table', 1], ...filler(30)])
+  assert.equal(BANK.bankableInventory(kitOnly, { noSwords: false }).count, 23, 'positive control: the kit IS bankable (the town deposit takes it)')
+  assert.equal(rung.done(atTown(kitOnly)), true, 'the kit alone never holds the rung')
+  assert.equal(rung.fulfilled(atTown(kitOnly)), true)
+  const withLogs = bag([['torch', 20], ['oak_log', 64], ['oak_log', 30], ...filler(30)])
+  assert.equal(rung.done(atTown(withLogs)), false, 'POSITIVE CONTROL: other surplus at a chest holds it, as before')
+  const { depositSituation } = await import('../src/prompt.mjs')
+  const pbot = items => ({ ...atTown(items), inventory: { items: () => items } })
+  assert.equal(depositSituation(pbot(kitOnly), {}), '', 'no CARRYING line for the kit alone')
+  assert.match(depositSituation(pbot(withLogs), {}), /^CARRYING: \d+ items worth banking/, 'POSITIVE CONTROL: the line for real surplus')
+})
+
 // ---- THE ESCAPE CHAIN: a bot that banked its ladders at town is no worse off underground -------------------------------
 // A 1x1 shaft of stone, 40 high: the ideal ladder wall. The reflex's ladderReady is ladderPlan(LADDER_CLIMB_NEED, have,
 // bestLadderWall(...).reach); the routine is the real climbLadder; the plan is the real escape lattice.
@@ -266,14 +284,15 @@ const depositDueCalls = sources => {
 test('WIRING: every depositDue call in bots/src passes kitBankable (admission, prompt, the room advice)', () => {
   const calls = depositDueCalls(SITES.srcFiles(new URL('../src/', import.meta.url)))
   assert.deepEqual(calls.map(c => c.file).sort(), ['admission.mjs', 'prompt.mjs', 'skills.mjs'], 'positive control: the three callers are seen')
-  for (const c of calls) assert.match(c.args, /kitBankable:\s*bank\.kit\b/, `${c.file}: ${c.args.slice(0, 120)}`)
+  // either the kit's share is passed (dropped without storage in reach), or the caller drops it outright (the prompt)
+  for (const c of calls) assert.match(c.args, /kitBankable:\s*bank\.kit\b|bankable:\s*surplus,\s*kitBankable:\s*0/, `${c.file}: ${c.args.slice(0, 120)}`)
 })
 test('WIRING MUTANT: a caller that drops kitBankable is caught', () => {
   const files = SITES.srcFiles(new URL('../src/', import.meta.url))
-  const old = 'kitBankable: bank.kit, distHome, storageWithin48'
+  const old = 'bankable: surplus, kitBankable: 0, distHome, storageWithin48'
   assert.ok(files['prompt.mjs'].split(old).length === 2, 'ANCHOR MISSING or not unique')
   const calls = depositDueCalls({ ...files, 'prompt.mjs': files['prompt.mjs'].replace(old, 'distHome, storageWithin48') })
-  assert.equal(calls.filter(c => !/kitBankable:\s*bank\.kit\b/.test(c.args)).map(c => c.file).join(), 'prompt.mjs')
+  assert.equal(calls.filter(c => !/kitBankable:\s*bank\.kit\b|bankable:\s*surplus,\s*kitBankable:\s*0/.test(c.args)).map(c => c.file).join(), 'prompt.mjs')
 })
 
 const SRC_DIR = new URL('../src/', import.meta.url)

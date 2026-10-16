@@ -5209,13 +5209,13 @@ export function adviseDeposit (bot, items, keep = []) {
  * deposit admission would refuse (Codex, chestfull-02 round 1: craft -> deposit -> refusal, with the deep chest now
  * not storage). The deposit milestone's own allowance is not known here, so this is never looser than admission.
  */
+/** A plan entry that never starts the full-chest recovery: cobble (the 10-04 SYNTHESIS) and the smaller kit (kitshrink-01). */
+export const noNewChestFor = e => isCobble(e?.name) || KIT_BANK.includes(e?.name)
 /**
  * THE KIT NEVER MAKES A WALK (kitshrink-01; Codex code r1 P2-1): a deposit the room advice or order names walks to the chest
  * when none is within 48, so the kit (kitshrink.mjs KIT_NO_TRIP) joins `keep` unless a usable chest is in reach. Never
  * throws: a world that cannot be asked keeps the kit.
  */
-/** A plan entry that never starts the full-chest recovery: cobble (the 10-04 SYNTHESIS) and the smaller kit (kitshrink-01). */
-export const noNewChestFor = e => isCobble(e?.name) || KIT_BANK.includes(e?.name)
 export function kitKeep (bot, keep = []) {
   return usableChestNear(bot) ? keep : [...(keep ?? []), ...KIT_NO_TRIP]
 }
