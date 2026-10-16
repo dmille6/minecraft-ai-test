@@ -1,7 +1,10 @@
 # townsearch-01 — withdraw_pick looks in every town container (2026-10-16)
 
 Owner, 10-16 ~16:30Z: *"can we get the bots to check all the chests in town? seems like the simplest fix"* — approved as a
-normal canary. Built on lidclear-01 (both touch withdraw).
+normal canary. Built on lidclear-01 (both touch withdraw): branch `townsearch-on-623e92b` on lidclear-on-623e92b 0152baeb
+(the coordinator, 10-16 ~17:10Z: plinth-01 closed INCONCLUSIVE, the fleet stays 623e92b9, lidclear-01 launches on 0152baeb;
+if it is KEPT the fleet is exactly this base). The first build sat on the f8daab3a lidclear variant (51972f9a); the net diff
+was cherry-picked unchanged.
 
 ## 1. The regression, with its denominators
 
@@ -67,9 +70,12 @@ containers were in the 10-14 census).
   (review r1). A deposit still ends a miss at once.
 - Unchanged: the visit itself (`withdrawVisit`: the stock journal's draw claims before any click, the count after, server
   verification), lidclear-01's `clearChestLid` inside it, the model's `withdraw` verb (which the plinth's funding uses).
-- The order's row gains, right after `verification=`, `town=<containers> cand=<pickaxe>,<ingredient candidates> visits=
-  maxrep= vfail=` (searchTally over the WHOLE tried list -- tried= is cut at 300 characters); `_townsearch_mode` licence row
-  once per spawn.
+- The order's row gains, right after `verification=`, `verb=withdraw_pick town=<containers> cand=<pickaxe>,<ingredient
+  candidates> visits= maxrep= vfail=` (searchTally over the WHOLE tried list -- the row is cut at 300 characters; review r2: a
+  late verb= could be cut and the read lose the order); an aborted order's row carries them too; `_townsearch_mode` licence
+  row once per spawn.
+- `no_room` (the town's stock target refused the claim that makes room in the bag) ends the pickaxe pass; a `container_open`
+  failure ends the order and skips that container for the next one. A positive count no newer than a miss is stale.
 
 ## 4. Evidence the change works
 
@@ -81,6 +87,11 @@ containers were in the 10-14 census).
   cobblestone lid dug, then opened); 8 anchored mutants (journal ignored, misses ignored, no fail skip, own opens not excluded,
   the ingredient pass leaves a pickaxe; a count of none not a look, farthest first, a deposit not ending a miss) — each killed
   by an AssertionError, never a crash, each with its positive control on the real code.
+- Reviews: r1 Codex + Claude APPROVE WITH CHANGES (F1 journal zero hid uncountable pickaxes; F2 gates vs search; F3 the
+  reserve; F4 truncated counters -- all fixed and re-verified by behaviour); r2 Codex APPROVE WITH CHANGES (verb= cut), Claude
+  APPROVE WITH CHANGES (same + P3s); r3 Codex APPROVE; final round on 04af48da: see the commit/STATE entry.
+- Paper on the final base too (0152baeb vs 04af48da): base `short` after 6, far chest untouched; candidate `took_pick ...
+  verb=withdraw_pick town=12 cand=12,- visits=12 maxrep=1 vfail=0`, RCON read-back identical to below.
 - Paper sandbox3 (scene `townsearch`, stock-e2e.cjs; 12 single chests, 11 near home with 5 dirt, ONE 13.9 from home with a
   stone pickaxe (damage 20) and 20 sticks; the real bot, its own town order): **base 51972f9a** opened 6 near chests, `short`,
   far chest still holds the pickaxe (RCON), licence 0. **Candidate** opened 12 in 12.7 s, `took_pick ... town=12 cand=12,-`,

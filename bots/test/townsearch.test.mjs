@@ -341,6 +341,30 @@ await t('THE ROW (Codex r2): the order\'s verb= and the search\'s counters come 
   assert.match(plain, / took=- verb=withdraw tried=\[1,2,3:success\]$/, 'the model verb\'s row keeps its layout')
 })
 
+await t('NO ROOM FOR THE PICKAXE ENDS ONLY ITS PASS (Codex final P2): the town is at its stone target, so nothing the bag holds can make room for a pickaxe -- and the one stick still needed fits a partial stack: the ingredient pass takes it', async () => {
+  const { installCobbleCap } = await import('../src/skills.mjs')
+  // a full bag: the table, 64 cobblestone, ONE stick (a partial stack), 20 stone (the only room-making stack) and junk
+  const bag = [stack('crafting_table', 1), stack('cobblestone', 64), stack('stick', 1), stack('stone', 20), ...Array.from({ length: 32 }, () => stack('bamboo', 64))]
+  const w = farTown({ bag, far: [stack('stick', 9)] })
+  const B = await import('../src/bankable.mjs')
+  installCobbleCap(w.bot); B.setStockWellProbe(() => true)                         // the stock target binds (a usable well)
+  try {
+  const pk = CHESTS[0]
+  w.stock(...pk, [tool('stone_pickaxe', 20), ...Array.from({ length: 10 }, () => stack('stone', 64))])
+  journalCount(kOf(pk), { stone_pickaxe: 1, stone: 640 })                       // the town's stone is far above its 64 target
+  for (const c of CHESTS.slice(1)) journalCount(kOf(c), {})
+  journalCount(kOf(FAR), { stick: 9 })
+  const n0 = RECS.length
+  const r = await pick(w)
+  const row = rows(n0).at(-1) ?? ''
+  assert.match(row, /tried=\[5,64,3:inventory_full;/, `positive control: no room for the pickaxe there (${row})`)
+  assert.equal(r.status, 'success', `${r.failClass}: ${r.detail}`)
+  assert.equal(count(w.bag, 'stick'), 2, 'the stick merged into the partial stack')
+  assert.equal(count(w.bag, 'stone_pickaxe'), 0)
+  assert.match(row, /^outcome=took_ingredients /)
+  } finally { B.setStockReaders({}) }                                              // the rest of the file runs reader-less
+})
+
 // ------------------------------------------------------------------------------------- the pickaxe pass's clock
 await t('THE INGREDIENTS\' RESERVE (Codex r1 P2): the pickaxe pass\'s clock ends WITHDRAW_INGREDIENT_RESERVE_MS before the order\'s, for every part of a visit', () => {
   const now = 1_000_000
@@ -422,6 +446,19 @@ await t('MUTANTS (skills.mjs): each removes one part of the search and a behavio
     await S.SKILLS.withdraw_pick.run({ bot: w.bot }, {}, sig())
     assert.deepEqual(w.spy.opened.slice(n).filter(k => first.has(k)), [], 'order 2 re-opened none of order 1\'s containers')
   }
+  const noRoomPass = async S => {
+    const bag = [stack('crafting_table', 1), stack('cobblestone', 64), stack('stick', 1), stack('stone', 20), ...Array.from({ length: 32 }, () => stack('bamboo', 64))]
+    const w = farTown({ bag, far: [stack('stick', 9)] })
+    const B = await import('../src/bankable.mjs')
+    S.installCobbleCap(w.bot); B.setStockWellProbe(() => true)
+    try {
+      w.stock(...CHESTS[0], [tool('stone_pickaxe', 20), ...Array.from({ length: 10 }, () => stack('stone', 64))])
+      journalCount(kOf(CHESTS[0]), { stone_pickaxe: 1, stone: 640 }); journalCount(kOf(FAR), { stick: 9 })
+      for (const c of CHESTS.slice(1)) journalCount(kOf(c), {})
+      const r = await S.SKILLS.withdraw_pick.run({ bot: w.bot }, {}, sig())
+      assert.equal(r.status, 'success'); assert.equal(count(w.bag, 'stick'), 2)
+    } finally { B.setStockReaders({}) }
+  }
   const gateSeesCount = async S => {
     const w = farTown({ far: [stack('dirt', 1)], bag: [stack('crafting_table', 1), stack('cobblestone', 3), stack('stick', 2)] })
     for (const c of [...CHESTS, FAR]) CF.updateTownMemory(memDir(), CF.townKey(HOME), null, e => CF.notePickMisses(e, [kOf(c)]))
@@ -438,7 +475,7 @@ await t('MUTANTS (skills.mjs): each removes one part of the search and a behavio
     assert.equal(S.townPickMiss(w.bot), false, 'an unloaded town column: coverage cannot be claimed')
   }
   for (const [name, fn] of [['journalFirst', journalFirst], ['resumes', resumes], ['failSkip', failSkip], ['fullOnce', fullOnce], ['pickInIngredients', pickInIngredients],
-                            ['gateSeesCount', gateSeesCount], ['gateCoverage', gateCoverage], ['ingPassMiss', ingPassMiss]]) {
+                            ['gateSeesCount', gateSeesCount], ['gateCoverage', gateCoverage], ['ingPassMiss', ingPassMiss], ['noRoomPass', noRoomPass]]) {
     const S = await import('../src/skills.mjs')
     await fn(S).catch(e => { throw new Error(`positive control ${name} fails on the real code: ${e.message}`) })
   }
@@ -451,6 +488,7 @@ await t('MUTANTS (skills.mjs): each removes one part of the search and a behavio
     ['the order\'s own opens not excluded', 'if (halves.some(h => tried.has(h)) ||', 'if (', fullOnce],
     ['the ingredient pass leaves a pickaxe', '    if (p?.tool) return p   // no room', '    if (false) return p   // no room', pickInIngredients],
     ['the ingredient pass writes no pickaxe miss', '{ if (!pickSeen) notePickMisses(e, keys); noteIngredientMisses', '{ noteIngredientMisses', ingPassMiss],
+    ['no room for a pickaxe ends the order', '      if (pickPassEnds(v)) { pickNoRoom = v.result; break }', '      if (false) { pickNoRoom = v.result; break }', noRoomPass],
     ['the pickaxe visit on the order\'s whole clock', 'withdrawVisit(ctx, cb, pickDecision, signal, pc.msLeft, pc.deadline - 2_000)', 'withdrawVisit(ctx, cb, pickDecision, signal, msLeft, deadline - 2_000)', wiring],
   ]
   for (const [name, old, neu, fn] of M) {

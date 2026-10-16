@@ -10285,9 +10285,13 @@ function halvesOf (bot, pos, double) {
   const p = double ? chestPartner(bot, pos) : null
   return p ? [posKey(pos), posKey(p)] : [posKey(pos)]
 }
-/** Results that end the order: about the bag or the window, not about where the pickaxe is -- and `no_room` (Claude r2 P3:
- *  the town's stock target refused the claim that would make room in the bag; every other pickaxe would be refused the same). */
-const VISIT_STOPS = ['transfer_unsettled', 'inventory_full', 'container_open', 'recount_unanswered', 'no_room']
+/** Results that end the order: about the bag or the window, not about where the pickaxe is. */
+const VISIT_STOPS = ['transfer_unsettled', 'inventory_full', 'container_open', 'recount_unanswered']
+/** Results that end only the PICKAXE pass -> true. The bag cannot take a pickaxe here and would not at any other container:
+ *  `no_room` (the town's stock target refused the claim that would make room; Claude r2 P3) or the PLAN's inventory_full (no
+ *  stack deposit would bank can make room -- nothing was moved: `!v.moved`). The ingredients may still fit without making
+ *  room (a partial stack), so their pass still runs (Codex final P2). A transfer's own inventory_full still ends the order. */
+const pickPassEnds = v => v.result?.failClass === 'no_room' || (v.result?.failClass === 'inventory_full' && !v.moved)
 
 async function withdrawPickRun (ctx, signal, tried, st, finish) {
   const { bot } = ctx
@@ -10310,6 +10314,9 @@ async function withdrawPickRun (ctx, signal, tried, st, finish) {
   }
   const pickTried = new Set()
   const pc = passClock(deadline, WITHDRAW_INGREDIENT_RESERVE_MS)   // no pickaxe visit spends the ingredients' reserve
+  // a pickaxe the bag had no room for: if the ingredients do not come either, THAT is the order's answer (its remedy), not
+  // "no usable pickaxe"
+  let pickNoRoom = null
   let next = townSearchNext(bot, ['pick'], pickTried)
   st.search = { town: next.view.containers.length, pick: next.order.length, ing: '-' }
   for (let n = 0; n < WITHDRAW_PICK_VISITS && next.block && pc.msLeft(Infinity) >= WITHDRAW_VISIT_MIN_MS; n++) {
@@ -10322,6 +10329,7 @@ async function withdrawPickRun (ctx, signal, tried, st, finish) {
     if (v.result) {
       if (v.result.status === 'success') return finish(v.result, 'took_pick')
       searchFailSkip(bot, cb, v.result.failClass)
+      if (pickPassEnds(v)) { pickNoRoom = v.result; break }
       if (VISIT_STOPS.includes(v.result.failClass)) return finish(v.result, v.result.failClass)
     } else if (!v.skip) {
       // NO USABLE PICKAXE HERE: remembered for this container (both halves of a double chest), not for the town -- and so
@@ -10333,6 +10341,7 @@ async function withdrawPickRun (ctx, signal, tried, st, finish) {
   const tableNear = !!bot.findBlock?.({ matching: b => blockNameOf(bot, b) === 'crafting_table', maxDistance: Math.ceil(STATION_REACH) + 1 })
   const deficits = stonePickDeficits(bot.inventory.items(), { tableNear })
   st.need = deficits.length ? deficits.map(d => `${d.need}:${d.count}`).join(',') : 'none'
+  if (!deficits.length && pickNoRoom) return finish(pickNoRoom, pickNoRoom.failClass)
   if (!deficits.length) return finish({ status: 'no_effect', detail: 'no usable pickaxe in the town chests looked at, and the bag already holds what one stone pickaxe takes' }, 'has_ingredients')
   // 2. THE INGREDIENTS, the same way: the containers whose last count covers most of the deficits first (the pickaxe pass's
   //    own opens are counted too), then the unknown, nearest first; at most WITHDRAW_INGREDIENT_VISITS this order.
@@ -10378,6 +10387,7 @@ async function withdrawPickRun (ctx, signal, tried, st, finish) {
     // nothing for us here: what it held none of is remembered -- the pickaxe too, when it showed none
     else updateTownMemory(townDir(), homeTownKey(), bot.worldId ?? null, e => { if (!pickSeen) notePickMisses(e, keys); noteIngredientMisses(e, keys, ingredientNeedsAbsent(v.saw)) })
   }
+  if (pickNoRoom) return finish(pickNoRoom, pickNoRoom.failClass)
   if (fullChests) return finish({ status: 'failed', failClass: 'chest_no_room', detail: `no usable pickaxe in town, and the chest(s) holding ${st.need} are full while the bag needs room made first` }, 'chest_no_room')
   // the DISTINCT containers (Claude r1 P3: one seen by both passes is one container)
   const looked = new Set(tried.map(e => String(e).slice(0, String(e).lastIndexOf(':')))).size
