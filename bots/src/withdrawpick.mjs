@@ -190,7 +190,8 @@ export function townSearchOrder (containers = [], needs = [], { counts = {}, mis
       const ct = counts?.[need]?.[k]
       const cAt = Number.isFinite(ct?.at) ? ct.at : null
       const n = Number(ct?.n)
-      if (cAt != null && now - cAt < countTtl && n > 0 && !(missLive && m >= cAt)) {
+      // a count no newer than a miss is STALE, live miss or not (Claude r2 P3: a deposit ends the miss, not the stale count)
+      if (cAt != null && now - cAt < countTtl && n > 0 && !(Number.isFinite(m) && m >= cAt)) {
         has = true; allOut = false
         cover += Math.min(n, Math.max(1, Number(want?.[need]) || 1))
         continue

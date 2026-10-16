@@ -106,6 +106,8 @@ await t('ORDER: a miss ends at the TTL or at a deposit since; a count of none en
   assert.deepEqual(ord({ counts: { stick: { x: { n: 1, at: now - 1_000 } } }, misses: { stick: { x: now - 60_000 } } }), ['x0'], 'counted holding one AFTER the miss: first')
   assert.deepEqual(ord({ counts: { stick: { x: { n: 1, at: now - 60_000 } } }, misses: { stick: { x: now - 1_000 } } }), [], 'a miss after the count: out')
   assert.deepEqual(ord({ counts: { stick: { x: { n: 1, at: now - CC.OBS_TTL_MS } } } }), ['x1'], 'a positive count past the journal\'s TTL: only unknown')
+  assert.deepEqual(ord({ counts: { stick: { x: { n: 1, at: now - 60_000 } } }, misses: { stick: { x: now - 30_000 } }, tookAt: { x: now - 1_000 } }), ['x1'],
+    'a deposit ends the miss, but the count from before the miss stays stale: unknown, not first')
 })
 await t('ORDER (Codex r1 P1): the journal cannot count every pickaxe (iron, golden, diamond), every cobblestone the recipe takes (blackstone) or every plank -- a count of 0 is NOT a look for those; only a miss rules them out', () => {
   const now = 1e12, C = [{ k: 'x', d: 1 }]

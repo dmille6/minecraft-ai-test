@@ -61,7 +61,10 @@ def pool_of(bot):
 
 
 def is_order(r):
-    return r['name'] == '_withdraw_pick' and ' verb=withdraw_pick ' in ' %s ' % r['detail']
+    # the order's own row: verb=withdraw_pick, or the search's fields (only the order writes town=; a row cut before a late
+    # verb= is still the order's -- Claude r2 P2)
+    d = ' %s ' % r['detail']
+    return r['name'] == '_withdraw_pick' and (' verb=withdraw_pick ' in d or ' town=' in d)
 
 
 def outcome(r):
@@ -166,6 +169,8 @@ def judge(rows):
             out['notfound_%s_%s' % (per, arm)] = sum(oc.get(o, 0) for o in NOTFOUND)
             out['walkfail_%s_%s' % (per, arm)] = sum(oc.get(o, 0) for o in WALKS)
             out['vfail_%s_%s' % (per, arm)] = sum(counters(r)[2] for r in sel)
+            # orders that looked in nothing (e.g. scan coverage incomplete, every container ruled out): a tripwire, reported
+            out['zero_visit_%s_%s' % (per, arm)] = sum(1 for r in sel if counters(r)[0] == 0)
             out['outcomes_%s_%s' % (per, arm)] = dict(oc)
     post_c = [r for r in rows if r['per'] == 'post' and r['arm'] == 'canary']
     s = [r for r in post_c if searched(r)]
@@ -210,7 +215,7 @@ def selftest():
     assert judge([W('short', tried=['%d,64,0:none' % i for i in range(VISIT_BUDGET + 1)])] + ctl)['visits_over_budget'] == 1, 'D2'
     assert judge([W('short', tried=['%d,64,0:none' % i for i in range(VISIT_BUDGET)])] + ctl)['visits_over_budget'] == 0, 'D2 control: the budget itself'
     assert judge([W('short', search=False)] + ctl)['search_rows_canary'] == 0, 'a base-shaped row is not the search'
-    assert judge([W('took', verb='withdraw')] + ctl)['orders_post_canary'] == 0, 'the model verb is not an order'
+    assert judge([W('took', verb='withdraw', search=False)] + ctl)['orders_post_canary'] == 0, 'the model verb (which never writes town=) is not an order'
     c = judge([W('short', arm='control', bot='board-a-Alpha'), R('_townsearch_mode', 'phase=mode', arm='control', bot='board-a-Alpha')])
     assert c['search_rows_control'] == 2, c
     assert judge([W('short', search=False, arm='control', bot='board-a-Alpha', status='failed')])['instrument_control'] == 1
@@ -229,6 +234,9 @@ def selftest():
     assert len(tried_keys(LONG)) == 4, 'the cut tried= list alone sees only 4 of the 25 visits: why the counters exist'
     # Codex r2: three ingredients + two room-making deposits (real withdrawRow at 6fa9b346 cut it at `verb=withdr`); verb= now early
     ING = 'outcome=took_ingredients need=cobblestone:3,stick:2,planks:4 uses=- verification=server verb=withdraw_pick town=32 cand=20,6 visits=24 maxrep=1 vfail=1 cursor=empty err=- chest_room=20 plan=bamboo,bamboo srv=cobbled_deepslate:+3,stick:+2,oak_planks:+4,bamboo:-128 bag=1500->1381 deposited=bamboo:64,bamboo:64 took=cobbled_deepslate:3,stick:2,oak_planks:4 '[:300]
+    CUT = ('outcome=transfer_unsettled need=cobblestone:3,stick:2,planks:4 uses=- verification=server town=32 cand=20,6 visits=3 maxrep=1 vfail=0 cursor=held:x err=x'
+           + ' x' * 200)[:300]   # a row cut before any verb=: still the order's (town=)
+    assert judge([R('_withdraw_pick', CUT, status='failed')] + ctl)['orders_post_canary'] == 1
     ir = judge([R('_withdraw_pick', ING)] + ctl)
     assert ir['orders_post_canary'] == 1 and ir['took_post_canary'] == 1 and ir['search_rows_canary'] == 1 and ir['vfail_post_canary'] == 1, ir
     okr = judge([R('_withdraw_pick', OK)] + ctl)
@@ -288,6 +296,8 @@ if __name__ == '__main__':
     print('REPORTED     visits that could not look inside, per order: canary %d/%d -> %d/%d control %d/%d -> %d/%d DiD %+.3f'
           % (res['vfail_pre_canary'], res['orders_pre_canary'], res['vfail_post_canary'], res['orders_post_canary'],
              res['vfail_pre_control'], res['orders_pre_control'], res['vfail_post_control'], res['orders_post_control'], dids['vfail_per_order']))
+    print('             orders that looked in NO container: canary %d -> %d control %d -> %d (tripwire; they count as not-found)'
+          % (res['zero_visit_pre_canary'], res['zero_visit_post_canary'], res['zero_visit_pre_control'], res['zero_visit_post_control']))
     print('             orders that ENDED on unreachable/blocked/aborted/error per order DiD %+.3f | canary visits per order %s | canary pickaxe candidates at start %s | outcomes post canary %s control %s'
           % (dids['walkfail_per_order'], res['tried_sizes_canary'], res['pick_cand_canary'], res['outcomes_post_canary'], res['outcomes_post_control']))
     print('EXPOSURE     -> %s (canary order rows with the search %d, need %d) | INSTRUMENT control orders %d, control notfound %d -> %s'
