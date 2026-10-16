@@ -627,7 +627,7 @@ export function depositSituation (bot, memory) {
         depositTargetOk({ x: config.world.homeX, y: config.world.homeY, z: config.world.homeZ }, b.position),   // a DEEP container is not storage (chestfull-02)
       maxDistance: 48,
     })
-    if (!depositDue({ bankable: bank.count, distHome, storageWithin48: !!storage,
+    if (!depositDue({ bankable: bank.count, kitBankable: bank.kit, distHome, storageWithin48: !!storage,
                       occupiedSlots: items.length })) return ''
     const where = storage
       ? `storage is ${Math.round(p.distanceTo(storage.position))} blocks away`

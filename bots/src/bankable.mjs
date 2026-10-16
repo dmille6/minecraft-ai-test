@@ -7,6 +7,8 @@ import { admitStacks } from './cobblecap.mjs'
 // STOCK TARGETS (stocktarget-01; design docs/reports/stocktargets-design-2026-10-08.md): every other bulk group and the
 // capped tools, judged against the town's count of the group through the same journal as the cobble cap.
 import { groupOf, targetOf, isToolGroup, roomUnder } from './stocktarget.mjs'
+// THE SMALLER KIT (kitshrink-01): which kit items may leave the bag (torches; ladders below the ladder escape's minimum).
+import { kitBankDecision } from './kitshrink.mjs'
 // WHAT IS ACTUALLY WORTH BANKING.
 //
 // "deposited items per bot-hour" is a CO-PRIMARY endpoint of this experiment and
@@ -231,6 +233,7 @@ export const EXCLUSION_PHRASE = Object.freeze({
   last_of_tool_family: 'last of its tool family',
   the_only_station: 'the only station',
   peaceful_sword: 'swords are not banked in a peaceful world',
+  escape_ladders: 'kept for the ladder escape',
 })
 
 const TOOL_RE = /_(pickaxe|axe|shovel|sword|hoe)$/
@@ -299,7 +302,7 @@ export function bankableInventory (items = [], { wants = [], creditCap = 64,
   // decision. Only the subtraction that actually zeroed the item is named: the reserve when it
   // alone suffices, otherwise the keep-one that applies.
   const excluded = {}
-  let bankable = 0, junk = 0
+  let bankable = 0, junk = 0, kitCount = 0
   for (const [name, n] of Object.entries(counts)) {
     if (NEVER_BANKABLE.has(name)) { junk += n; excluded[name] = 'ballast'; continue }
     // COBBLE: whole stacks above the reserve, or nothing (a withdraw hold on the name holds every stack of it: a partial
@@ -350,7 +353,11 @@ export function bankableInventory (items = [], { wants = [], creditCap = 64,
     // (that list is materials), and without this a second pickaxe -- which costs
     // wood, sticks and a crafting table to make -- was scored as ballast.
     const isTool = !!m
-    if (!isTool && !want.has(name)) { junk += avail; excluded[name] = 'not_wanted'; continue }
+    // THE SMALLER KIT (kitshrink.mjs, kitshrink-01): torches, and ladders below the ladder escape's minimum, bank like a
+    // wanted item; a bag holding the escape's minimum keeps every ladder. Nothing else about the item's judgement changes.
+    const kit = !isTool ? kitBankDecision(name, n) : null
+    if (kit === 'escape_ladders') { excluded[name] = 'escape_ladders'; continue }
+    if (!isTool && kit !== 'bank' && !want.has(name)) { junk += avail; excluded[name] = 'not_wanted'; continue }
     // A TARGETED BULK NAME (stocktarget classes A/B): the bag keeps what every path keeps (townKeeps), and the town takes
     // only its room under the group's target -- shared by the group's names; 0 at target, unknown when it cannot judge.
     // Only while a usable well stands (the at-target surplus has an exit); otherwise today's rule ("nowell").
@@ -369,8 +376,10 @@ export function bankableInventory (items = [], { wants = [], creditCap = 64,
     const credited = Math.min(avail, creditCap)
     detail[name] = credited
     bankable += credited
+    if (kit === 'bank') kitCount += credited
   }
-  return { count: bankable, junk, detail, excluded }
+  // `kit`: how much of `count` is the smaller kit's (kitshrink-01) -- depositDue never walks a bot to a chest for it alone
+  return { count: bankable, junk, detail, excluded, kit: kitCount }
 }
 
 /**
@@ -401,7 +410,10 @@ export function clearWithdrawHolds () { HOLDS = {} }
  */
 export function depositDue ({ bankable, distHome, storageWithin48 = false,
                               onDepositMilestone = false, occupiedSlots = 0,
-                              minBankable = 12, nearHome = 96 }) {
+                              minBankable = 12, nearHome = 96, kitBankable = 0 }) {
+  // THE KIT NEVER MAKES A WALK (kitshrink-01; Codex design r2 P2): without storage in reach the smaller kit's share
+  // (bankableInventory's `kit`) does not count -- a bot 80 blocks out holding only ladders is not sent to the chest for them.
+  if (!storageWithin48) bankable = Math.max(0, (Number(bankable) || 0) - Math.max(0, Number(kitBankable) || 0))
   // NOTHING BANKABLE IS NEVER DUE (nojunk SYNTHESIS: reject an empty plan before walking; both reviews of the cobble rule,
   // which makes it common -- a full bag whose cobble is all reserve): at 30+ slots this said "deposit" with 0 bankable.
   if (!(bankable > 0)) return false
@@ -562,7 +574,10 @@ export function depositNoopReason (items = [], item = null, { wants = [], ...opt
   // THE RULE GOES FIRST. `Counter(detail[:95])` is how this project's refusal reads bucket, and
   // a long item name would push a trailing reason past the cut -- every rule would merge back
   // into the one bucket this change exists to split.
-  const phrase = EXCLUSION_PHRASE[bankableExclusion(items, item, { wants: w, ...opts })]
+  const why = bankableExclusion(items, item, { wants: w, ...opts })
+  // THE LADDER ESCAPE'S STOCK (kitshrink-01): nothing to do about it -- the move is to keep working (Codex design r1 P2)
+  if (why === 'escape_ladders') return `not a banking target (${EXCLUSION_PHRASE.escape_ladders}): you are carrying ${item} — nothing to deposit, keep working`
+  const phrase = EXCLUSION_PHRASE[why]
   if (!phrase) return `you are carrying ${item}, but ${item} is not a banking target right now — nothing to deposit`
   // THE COBBLE CAP'S UNKNOWN names its remedy (Codex r2 P3): count at town, or the container that could not be counted.
   const note = (phrase === EXCLUSION_PHRASE.town_cobble_unknown || phrase === EXCLUSION_PHRASE.town_stock_unknown) ? cobbleReconcileProbe().note : null

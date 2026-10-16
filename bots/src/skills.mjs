@@ -96,6 +96,7 @@ import { scaffoldCount } from './exit-contract.mjs'
 /** Is this a pillar/scaffold block (well.mjs pillarCount's names)? */
 const isPillarItem = name => scaffoldCount([{ name, count: 1 }]) > 0 || /^(sandstone|red_sandstone|calcite|dripstone_block|blackstone)$/.test(name)
 import { bankableInventory, depositDue, DEPOSIT_ALWAYS, stockRefusals, stockRefusedDetail } from './bankable.mjs'
+import { KIT_NO_TRIP, kitBankDetail, kitBankRowDue } from './kitshrink.mjs'
 import { RECOUNT_SKIP, RECOUNT_MISS_REASONS, recordRecountMiss, recountMissStatus } from './recount.mjs'   // chestfull-02: advice agrees with admission
 import fs from 'node:fs'
 import { doVisit, openBoard, withinBoard } from './board-visit.mjs'
@@ -5196,7 +5197,8 @@ export function depositWorthIt (bot, items = []) {
     const home = homeVec()
     const wants = [...(bot.currentWants ?? []), ...DEPOSIT_ALWAYS]
     const storage = bot.findBlock?.({ maxDistance: 48, matching: b => ['chest', 'barrel', 'trapped_chest'].includes(bot.registry?.blocks?.[b.type]?.name) && depositTargetOk(home, b.position) })
-    return depositDue({ bankable: bankableInventory(items, { wants, noSwords: foodSkipNow(bot).active }).count, distHome: horizontalDistanceFromSpawn(bot.entity.position),
+    const bank = bankableInventory(items, { wants, noSwords: foodSkipNow(bot).active })
+    return depositDue({ bankable: bank.count, kitBankable: bank.kit, distHome: horizontalDistanceFromSpawn(bot.entity.position),   // kitshrink-01: no walk for the kit alone
                         storageWithin48: !!storage, occupiedSlots: items.length })
   } catch { return true }   // a world that cannot be asked: the advice as it was
 }
@@ -5216,7 +5218,8 @@ export function slotRemedy(bot, items, keep = []) {
   // chestfull-02 round 2: without this the refusal said nothing could be freed).
   if (!closed && advice.kind === 'none') {
     let far = null
-    try { far = depositTarget(items, depositPlan(items, null, { wants: bot.currentWants ?? [] }), keep) } catch { far = null }
+    // the kit never makes a trip (kitshrink.mjs KIT_NO_TRIP): a far bot is not sent home to bank a torch or a ladder
+    try { far = depositTarget(items, depositPlan(items, null, { wants: bot.currentWants ?? [] }), [...keep, ...KIT_NO_TRIP]) } catch { far = null }
     if (far) advice = { kind: 'home', text: `home -- then deposit ${far}: banking is refused out here (no usable chest in reach) and the town chest frees slots` }
   }
   return { fill, remedy: advice.text, kind: advice.kind }
@@ -5362,7 +5365,8 @@ export function roomRemedy (bot, items, keep = [], { exclude = new Set() } = {})
   const closed = bankClosed(bot)
   if (closed) return { kind: 'closed', item: null, text: closedRoomText(closed) }
   if (!exclude.has('home') && farFromBank(bot)) {
-    const far = exclude.has('home_deposit') ? null : roomDepositTarget(bot, items, keep)
+    // the kit never makes a trip (kitshrink.mjs KIT_NO_TRIP): a far bot is not sent home to bank a torch or a ladder
+    const far = exclude.has('home_deposit') ? null : roomDepositTarget(bot, items, [...keep, ...KIT_NO_TRIP])
     if (far) return { kind: 'home', item: far, text: `home -- then deposit ${far}: banking is refused out here (no usable chest in reach) and the town chest frees slots` }
     // ...OR THE TOWN'S WELL (Claude st-r1 1a): at target the bank takes no bulk, and the town's exit for that surplus is the
     // junk well, whose order runs at town before this one. `item` stays null: the room order names no deposit.
@@ -7109,8 +7113,12 @@ async function townDeposit (ctx, _args, signal) {
   // THE BAG'S LOSS over the banked names, from the SERVER's copy of the bag on the last re-open (the client bag after a
   // close is mineflayer's own prediction); the client bag only when nothing was re-opened.
   const bagDelta = () => { const after = serverBag ?? held(items()); return Object.keys(banked).reduce((t, n) => t + Math.max(0, (heldBefore[n] ?? 0) - (after[n] ?? 0)), 0) }
-  const row = (status, extra = {}) => logEvent({ kind: 'town_deposit', status, snapshot: snapshot(bot),
-    detail: townDepositDetail({ slotsBefore, slotsAfter: items().length, banked, stacks, tried, stop: stop ?? 'done', unsettled, bagDelta: bagDelta(), planned, tools, clicked, unverified, capRefused, stock, ...extra }) })
+  const row = (status, extra = {}) => {
+    logEvent({ kind: 'town_deposit', status, snapshot: snapshot(bot),
+      detail: townDepositDetail({ slotsBefore, slotsAfter: items().length, banked, stacks, tried, stop: stop ?? 'done', unsettled, bagDelta: bagDelta(), planned, tools, clicked, unverified, capRefused, stock, ...extra }) })
+    // THE SMALLER KIT (kitshrink-01): its own bounded row -- start counts and server-verified banked -- whenever the bag held kit
+    try { if (kitBankRowDue(heldBefore, banked)) logEvent({ kind: 'kitshrink', status, snapshot: snapshot(bot), detail: kitBankDetail({ via: 'town_deposit', heldBefore, banked, slotsBefore, slotsAfter: items().length }) }) } catch { /* a row never breaks the deposit */ }
+  }
   if (!planned) {
     stop = counted != null ? 'counted the town; nothing to bank above the keeps' : 'nothing to bank above the keeps'; row('no_effect')
     return { status: 'no_effect', detail: counted ? `counted ${counted} town container(s); nothing to bank (the town holds its stock of what is carried, or it is kept)` : 'nothing to bank: everything carried is kept (stockpile, scaffold, tools, iron, the goal) or not bankable' }
