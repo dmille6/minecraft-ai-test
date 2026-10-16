@@ -1,0 +1,181 @@
+{
+ "run_id": "plinth-02",
+ "sha": "534aeec0",
+ "registered_at": "2026-10-16T20:18:53Z",
+ "ladder_change": false,
+ "promotion": "fleet-wide",
+ "notes": "[plinth-02 variant for fleet 27908be4 (townsearch-01 on lidclear-01, both KEPT and promoted): branch plinth02-on-27908be @ 534aeec0 = plinth02-on-0152bae's net diff onto 27908be4, one conflict union (index.mjs: the licence rows); its sorted +/- lines are identical to the 0152baeb variant's. townsearch x plinth: the plinth funds through the withdraw verb (withdrawSweep, pick=false), which townsearch leaves unchanged; its 60-min misses and journal ranking are withdraw_pick's only. PAPER sandbox2 at 534aeec0: board-c's real town pasted, no trapdoors carried -> table 365,73,135, well built, 576/576 in the shaft, walker 0 pickups. Rebase reviews: Codex APPROVE, Claude (see the rebase record).] [The 623e92b9 variant 028f7f2d notes follow.] [plinth-02 for fleet 623e92b9 (cobblecap-1000 on townzone-01): branch plinth02-on-623e92b @ 028f7f2d = plinth-01 (f8daab3a) + THE TABLE FIX + lidclear-01's plinth hardening + a licence row. WHY: plinth-01 (f8daab3a on board-c, hive-d, 10-16 13:40-17:10Z) built both plinths complete (board-c 60/60 k=4, hive-d 66/66 k=3, stair=[]) but 23 of 30 build_well visits failed 'nowhere within 2 of the junk well's standing cell to put a crafting table' -> _well_built 0, closed INCONCLUSIVE. FIX: plinth.mjs wellTableCell -- the old cell first (flat wells unchanged), else a cell 1..4 below the stand within the craft's reach (feet <= 4.0, click <= 4.5), off the 5x5 first, never a container/furniture floor, kept only if the stand stays walkReach-able from town with the table (no proof -> none, and build_well names the carried-trapdoor remedy). REACHABILITY: no stair missing -- walkReach reaches both fleet stands with stair=[] (fixture from read-only region copies); the 5 'could not reach' visits all started 12-26 blocks below the stand in mines (the well order's distHome is horizontal; pre-existing, not changed). FOLDED IN from lidclear-on-f8daab3 @ 51972f9a: furnitureNear stair-lid guard, click-time furniture check counted as a stall, wear_out refuses well/plinth cells (wellCellAt). LICENCE `_plinth_mode` once per spawn (a town whose plinth is already finished writes no _plinth row). READ plinth2read.py = plinthread.py + plinth caps from the canary pools' records + licence from _plinth_mode + a MECHANISM line (table refusals per bot-h). PAPER sandbox2 run 1016T180058 at 028f7f2d (lock 17:53-18:24Z, server reads), NO trapdoors carried in any well scene: board-c's REAL town (16:50Z region copy pasted, its plinth complete and covered) -> table 365,73,135 (ring top, as replayed offline), well built (cap+floor read), 576/576 junk in the shaft, walker 0 pickups; hive-d's real town -> table 59,64,69 (as replayed), built, 576/576, 0 pickups; slab4 k=4 plinth built 84/84 with two SIGKILLs then its well built from logs (table on the ring top), 576/576; slab2 k=2 built 32/32 then its well (table on the ground beside), 528/528. Reviews: Codex r1-r7 (APPROVE at r2, r6, r7), Claude APPROVE at e96755e8 and 028f7f2d; npm test 255/255; plinth mutants killed.] [plinth-01's registration notes follow.] [plinth-01 variant for fleet 623e92b9 (cobblecap-1000 on 75cfb447; use ONLY if cobblecap-1000 is KEPT and promoted): branch plinth-on-623e92b @ f8daab3a = dfa99cd8 (plinth-on-75cfb44's net diff over 75cfb447 merged onto 623e92b9 with NO conflict; sorted +/- lines identical to variant 413febb7's) + f8daab3a (test-only: PLINTH x COBBLECAP-1000 CHAIN through the real CognitiveLoop and the real town_deposit -- a funded no-site town counted at 800: build_plinth first, then town_deposit banks one 30-stack 800 -> 830 keeping the bag's reserve; control at 1000 banks nothing; the same test FAILS on the cap-256 variant). npm test 254/254; eslint no-undef only reflex.mjs:2384; plinth mutants 24/24 killed. PAPER sandbox2 run 1016T114727 on f8daab3a (server reads): 3 builds 84/84 placed, 0 outside the plan (one SIGKILLed at 21 and at 84 walled-in, resumed, covered); a CHEST-FUNDED build (bag = reserve 64 + dirt; chest 384 -> 300 server, bag 64 -> 64) 84/84; build_well on the plinth ok; 576/576 junk in the shaft, 0 outside; walker isolation 0 pickups. Reviews: Codex APPROVE, Claude APPROVE (P3s only). Rebase review: docs/reports/plinth-01.rebase-review-75cfb447-623e92b9-2026-10-16.txt.] [Previous variant: 8cd0bc62 / b4174a09, notes follow.] [plinth-01 variant for fleet 8cd0bc62 (wellsite-02 on 5e663860 = stocktarget-02 on digtown-01 eb543899 on orderroom-01 2ec19385 on stocktarget-01 on 82aef34): branch plinth-on-8cd0bc6 @ b4174a09 = the approved plinth net diff (4774bec1 over baa94879), one commit (2fd7197b); the only bots/src differences are two conflict unions: the decide chain build_plinth > town_deposit > count_town (stocktarget-02's recount guard yields to the plinth as to the deposit; tested through the real CognitiveLoop with a mutant) and HOUSEKEEPING. digtown-01: plinth leaf clears are class free (summary only), its cover dig one ground row, purpose other (tested through the real wrapper). Rebase review: Codex APPROVE, Claude APPROVE (P3s) -- docs/reports/plinth-01.rebase-review-8cd0bc62-2026-10-14.txt. Launch ONLY on a fleet running 8cd0bc62 (wellsite-02 KEPT and PROMOTED).] [Original registration: plinth-01 on wellsite-01 (branch plinth-on-baa9487).] THE DEFECT (townground 10-13): the bots dug out the ground near every home; the well's walls or ring fail on 80-100% of candidate cells in all 16 towns; 13 of 16 cannot site a well. THE CHANGE: a town whose last site search found no cell PLANS a raised well once (bots/src/plinth.mjs: the unchanged oracle wellSiteRefusal on the world with the plan applied; every step's support face (below/side only), stand (reachable at that step, line of sight, reach, never walled in by its own click), the walling-in step and a cover for every hazardous state), records it (junkwell-plinth-<home>.json, beside an exclusively created lease generation), and BUILDS it in bounded visits (40 steps), placements only (leaves in planned cells cleared), from the bag's surplus stone above STONE_GUARD and a pit cover, else the town's chests (the withdraw verb). The order (build_plinth) goes BEFORE the town deposit. The finished plinth's cap becomes the well site (a generation), the no-site hold is lifted, and build_well floors and caps it. OFFLINE: 16/16 real towns (10-13 region copies) get a plan, each replayed step by step and routed by mineflayer-pathfinder's A* (column never a node); planning blocks <= 58 ms at a time. PAPER (sandbox, docs/reports/plinth-01-sandbox-2026-10-13.md, runs 1013T165120 @3d9448f6, 1013T174115 @0e288720, 1013T183526 @4774bec1): 17/17 builds complete with 1,170/1,170 planned placements read back by RCON and 0 new cobble outside the plan, incl. 5 builds SIGKILLed twice and resumed; the well built on the plinth 5/5 (k=2, k=4); 2,880/2,880 junk items in the shaft, 0 outside, also at +30 s; 0 items collected by a walker on 60 passes + the 4 ledge cells (egg control collected 5/5); 800/800 pathfinder trips ok with 0 path nodes in the column; S4 plinth cells lost to an entombed / pit bot 0. REVIEWS: docs/reports/plinth-01-review-2026-10-13.txt.",
+ "licence": {
+  "class": "kind",
+  "kind": "_plinth_mode",
+  "min_rows": 1,
+  "note": "Written once per spawn by this build only (plinth.mjs plinthModeDetail via index.mjs). The base 623e92b9 and plinth-01 never write the kind. It proves the build is live, not the effect; exposure is plinth2read's exposure_ready."
+ },
+ "reads": [
+  "plinth2read",
+  "wellread",
+  "immobiledid"
+ ],
+ "read_minutes": [
+  180,
+  360
+ ],
+ "deadline_min": 1680,
+ "change_rows": [
+  "plinth",
+  "plinth_step",
+  "plinth_mode"
+ ],
+ "linkage_extra": [],
+ "draw_exposure": {
+  "hours": 3,
+  "require": [
+   {
+    "name": "a town whose bots try to BUILD a junk well (no site found, or a finished plinth whose well is not yet built)",
+    "kind": "_well_refused",
+    "detail_contains": "order=build reason=",
+    "min": 2
+   }
+  ],
+  "note": "Every build_well refusal row (order=build) -- reason=no_site / no_site_held (a no-well town: the plinth plans) and reason=well_site 'nowhere ... crafting table' (a finished plinth whose well fails on the base: board-c, hive-d) both match; towns with a working well issue no build order. Measured 10-16 14:10-17:10Z: board-c 16, hive-d 14, isolated-c 5, isolated-a/-d 3, board-a/-d, isolated-b 2."
+ },
+ "exposure": {
+  "read": "plinth2read",
+  "field": "exposure_ready",
+  "min": 1,
+  "note": "Ready = a canary plinth complete AND a _well_built at its cap in a window >= 180 min (unchanged definition). Caps come from the canary's _plinth rows AND the canary pools' plinth records, so the plinths finished under plinth-01 (board-c 365,73,137; hive-d 56,64,69) count when a canary bot builds their well."
+ },
+ "own_lines": [
+  {
+   "read": "plinth2read",
+   "field": "breach_outside_shell",
+   "op": "<=",
+   "value": 0,
+   "on_fail": "REVERT",
+   "evidence": "defect",
+   "note": "P1: a canary _plinth_step placement outside the 81-cell shell of its cap or a stair line. Self-tests in the read on the bot's row strings."
+  },
+  {
+   "read": "plinth2read",
+   "field": "breach_reserve",
+   "op": "<=",
+   "value": 0,
+   "on_fail": "REVERT",
+   "evidence": "defect",
+   "note": "P2: a build visit that placed and left the bag under 64 reserve stone (the exit contract's reserve)."
+  },
+  {
+   "read": "plinth2read",
+   "field": "breach_pit_open_10m",
+   "op": "<=",
+   "value": 0,
+   "on_fail": "REVERT",
+   "evidence": "defect",
+   "note": "P3: a plinth column walled in and uncovered > 10 min (the last pit event at the cap dug/open). wellread C9 judges the same rows per pool."
+  },
+  {
+   "read": "plinth2read",
+   "field": "breach_retired_plinth",
+   "op": "<=",
+   "value": 0,
+   "on_fail": "REVERT",
+   "evidence": "defect",
+   "note": "P4: a raised well retired (breached) -- the plinth did not hold."
+  },
+  {
+   "read": "plinth2read",
+   "field": "breach_stuck_plinth",
+   "op": "<=",
+   "value": 1,
+   "on_fail": "REVERT",
+   "evidence": "defect",
+   "note": "P5: two or more canary entombment / stranded / livelock rows within 3 of a plinth cap. One is named, not a verdict."
+  },
+  {
+   "read": "plinth2read",
+   "field": "control_plinth_rows",
+   "op": "<=",
+   "value": 0,
+   "on_fail": "REVERT",
+   "note": "Leak: a CONTROL _plinth row means the control is not running the base. Blocks KEEP (no evidence key)."
+  },
+  {
+   "read": "wellread",
+   "field": "breach_recollected",
+   "op": "<=",
+   "value": 0,
+   "on_fail": "REVERT",
+   "evidence": "defect",
+   "note": "junkwell-02 C1, at a raised well."
+  },
+  {
+   "read": "wellread",
+   "field": "breach_inside",
+   "op": "<=",
+   "value": 0,
+   "on_fail": "REVERT",
+   "evidence": "defect",
+   "note": "junkwell-02 C4."
+  },
+  {
+   "read": "wellread",
+   "field": "breach_misses_left",
+   "op": "<=",
+   "value": 0,
+   "on_fail": "REVERT",
+   "evidence": "defect",
+   "note": "junkwell-02 C5: throws from the raised stand."
+  },
+  {
+   "read": "wellread",
+   "field": "breach_multi_well",
+   "op": "<=",
+   "value": 0,
+   "on_fail": "REVERT",
+   "evidence": "defect",
+   "note": "junkwell-02 C6."
+  },
+  {
+   "read": "wellread",
+   "field": "breach_left_open",
+   "op": "<=",
+   "value": 0,
+   "on_fail": "REVERT",
+   "evidence": "defect",
+   "note": "junkwell-02 C2."
+  },
+  {
+   "read": "wellread",
+   "field": "breach_pit_left_open",
+   "op": "<=",
+   "value": 0,
+   "on_fail": "REVERT",
+   "evidence": "defect",
+   "note": "junkwell-02 C9: the plinth's pit rows (_well_pit_dug from=plinth*, _well_pit_covered stage=plinth) are the well's own kinds, judged per pool and site."
+  }
+ ],
+ "primary": {
+  "read": "plinth2read",
+  "field": "dispose_rate_did",
+  "note": "REPORTED, NOT GATED: dispose_well successes per bot-h, canary vs control towns WITHOUT a well, pre vs post (DiD); planned/complete towns, blocks placed, alt stands, step pace. WATCH (Claude rebase P3-1): orderroom room remedies via=well toward a plinth site recorded but not yet capped (a walk home that finds no usable well; bounded 1 per bot per 30 min). MECHANISM (report only): build refusals for want of a table cell per bot-h, canary vs control, pre vs post (plinth-01's window: canary 0.000 -> 0.767, control 0 -> 0)."
+ },
+ "harm": {
+  "note": "Unchanged: the two-death floor (OWNER 2026-09-11) and gather_ratio < 0.43 of control, from immobiledid. A death within 3 of a plinth is named, never a verdict."
+ },
+ "teardown": {
+  "note": "THREE STEPS: drop-ins, clear canary_pool, restart the pool's bots 12 s apart; then confirm the live versions. A plinth stays in the world after a REVERT: a block of cobble whose open column (if any) its builder covered; the base never reads the plinth record; a covered or capped column is inert. A crafting table build_well put down beside or on a plinth stays (inert town furniture)."
+ },
+ "amendments": [],
+ "extension": {
+  "until_exposure": true,
+  "extra_reads": [
+   540,
+   720,
+   1080,
+   1560
+  ],
+  "final_on_zero_exposure": "INCONCLUSIVE",
+  "note": "SHORT CANARY for a fix (owner 2026-09-29). Exposure waits on a plinth being funded, built and capped in a drawn town."
+ },
+ "lint": "eslint no-undef on bots/src at 534aeec0: exactly ONE hit, reflex.mjs:2384:67 'withinBody' -- the SAME pre-existing typeof-guarded hit on the base 27908be4; this diff changes reflex.mjs by 0 lines."
+}

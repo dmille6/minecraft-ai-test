@@ -1,0 +1,47 @@
+{
+ "run": "plinth-02",
+ "class": "",
+ "after": [
+  "lidclear-01"
+ ],
+ "hold": "COORDINATOR: placed by the coordinator, not by the build agent. One variant only: fleet 623e92b9 (cobblecap-1000). If lidclear-01 (or anything) is KEPT and promoted first, plinth-02 needs a variant on that tip -- ask. Release: canary-sched.py queue release plinth-02",
+ "note": "plinth-02 = plinth-01 + THE TABLE FIX (build_well on a raised well: a table cell below the stand, walk-proven; plinth-01 was closed INCONCLUSIVE 10-16 17:10Z: both plinths complete, 23/30 build_well visits refused 'nowhere within 2 ... crafting table', _well_built 0) + lidclear-01's plinth hardening (stair-lid guard, click-time furniture stall, wear_out never digs a well/plinth) + the licence row _plinth_mode. Read ~/mcai-analysis/plinth2read.py (staged to /tmp by H4) + wellread + immobiledid. Exposure unchanged (a _well_built at a COMPLETE plinth cap); caps also come from the canary pools' records, so board-c's and hive-d's finished plinths expose it at once if drawn. draw_exposure: _well_refused 'order=build reason=' >= 2 / 3 h (no-site towns and finished-plinth towns); no draw_require_pools. Branch plinth02-on-623e92b (fetch origin in /opt/minecraft-ai first). Record: docs/reports/plinth-02-2026-10-16.txt. REPLACE-VARIANT (`canary-sched.py queue replace-variant plinth-02 <this file>`): three variants keyed by FULL fleet sha -- 623e92b9 (028f7f2d, kept verbatim), 0152baeb (lidclear-01 kept: 0fe92258), 27908be4 (townsearch-01 on lidclear-01: 534aeec0). replace-variant replaces variants+class only; the hold/after wording is the coordinator's.",
+ "variants": {
+  "623e92b967c3d1ba708b84eb17c7efa6cb33cf91": {
+   "registration": "/home/mike/mcai-analysis/plinth-02.028f7f2d.json",
+   "approved": "plinth-02 agent 2026-10-16: plinth02-on-623e92b @ 028f7f2d. Codex r1 CHANGE -> r2 APPROVE -> r3/r4/r5 CHANGE (the read's record identity) -> r6 APPROVE -> r7 APPROVE; independent Claude subagent APPROVE at e96755e8 and 028f7f2d (P3s only, applied in r7). npm test 255/255; eslint no-undef only the pre-existing reflex.mjs:2384 withinBody; plinth mutants 30 killed, 0 survived (plinth 10, plinth-skill 14, plinth02 4, towndeposit 1, well 1; each anchored present and unique). PAPER sandbox2 1016T180058 (server reads, no trapdoors carried): board-c and hive-d real towns (region copies) -> wells built with the table at 365,73,135 / 59,64,69 (as replayed offline), dispose 576/576 in the shaft, walker 0 pickups; slab4 k=4 plinth (two SIGKILLs) and slab2 k=2 built then their wells built from logs. drawrequire.parse ([], None) -- NO draw_require_pools; licencecheck PASS (_plinth_mode 0 baseline rows / 6 h, 80 bots); changerowcheck PASS (plinth, plinth_step, plinth_mode baseline-silent); drawexposure PASS (board-b, board-c, hive-d eligible at 18:25Z). ORDINARY canary.",
+   "registration_sha256": "c2b858c58e7c00e2a0516e51e0b79a4bc884a4bd86fe509fa77ab6eaf29ab9f5",
+   "canary_sha": "028f7f2da1f54f61f93db016801f15b0c57c2158",
+   "reads_src": "/home/mike/mcai-analysis",
+   "reads": {
+    "plinth2read": "67e297750033be4e00ca4096cba479ff",
+    "wellread": "b0cd8a4b6da00eb3cd44bf413569e417",
+    "immobiledid": "53af289df12208901931dbeeb1ae325a"
+   }
+  },
+  "0152baeb868c2841363b15b8e69a97e8abc7eaf2": {
+   "registration": "/home/mike/mcai-analysis/plinth-02.0fe92258.json",
+   "approved": "plinth-02 agent 2026-10-16: plinth02-on-0152bae @ 0fe92258 (fleet 0152baeb = lidclear-01 KEPT, townsearch-01 not) = plinth-02's net diff 623e92b9..028f7f2d, two conflict unions (index.mjs licence rows; skills.mjs duplicate wellBreakCost import dropped) + lidclear.test's lidclear x plinth composition tests (5092391d); sorted +/- lines vs the approved diff differ only by those. npm test 256/256; eslint no-undef only reflex.mjs:2384. drawrequire.parse ([], None) -- NO draw_require_pools; licencecheck PASS (_plinth_mode 0 baseline rows / 6 h); changerowcheck PASS against the fleet baseline 623e92b9 (against the live lidclear build 0152baeb it REFUSED as an instrument failure: 20 bots, too few to prove silence). Codex rebase APPROVE (F and P); independent Claude subagent rebase APPROVE (F and P; P3s only: the duplicated well veto in lidJudge vs wellCellAt, a lidclear test title, a dead withdrawSweep option). Record docs/reports/plinth-02.rebase-0152baeb-27908be4-2026-10-16.txt. ORDINARY canary.",
+   "registration_sha256": "22b64aed0a3fb05a018e1ee4b7c29db91a713cd693f52ea058fc93a60c71c339",
+   "canary_sha": "0fe922580fd988b88852007f87910e6c582a96ca",
+   "reads_src": "/home/mike/mcai-analysis",
+   "reads": {
+    "plinth2read": "67e297750033be4e00ca4096cba479ff",
+    "wellread": "b0cd8a4b6da00eb3cd44bf413569e417",
+    "immobiledid": "53af289df12208901931dbeeb1ae325a"
+   }
+  },
+  "27908be4e5a12a3c7a4e801d1a5d7d92e1b40128": {
+   "registration": "/home/mike/mcai-analysis/plinth-02.534aeec0.json",
+   "approved": "plinth-02 agent 2026-10-16: plinth02-on-27908be @ 534aeec0 (fleet 27908be4 = townsearch-01 on lidclear-01, both KEPT) = the 0152baeb variant's net diff, one conflict union (index.mjs licence rows); sorted +/- lines identical to it. townsearch x plinth funding: the withdraw verb (withdrawSweep pick=false) is unchanged; its 60-min misses and journal ranking are withdraw_pick's only. npm test 257/257; eslint no-undef only reflex.mjs:2384; plinth mutants 31 killed / 0 survived. PAPER sandbox2 at 534aeec0 (lock 20:13-20:18Z): board-c's real town pasted, no trapdoors carried -> table 365,73,135, well built (cap+floor read), 576/576 in the shaft, walker 0 pickups. drawrequire.parse ([], None) -- NO draw_require_pools; licencecheck PASS (_plinth_mode 0 baseline rows / 6 h); changerowcheck PASS against the fleet baseline 623e92b9 (against the live lidclear build 0152baeb it REFUSED as an instrument failure: 20 bots, too few to prove silence). Codex rebase APPROVE (F and P); independent Claude subagent rebase APPROVE (F and P; P3s only: the duplicated well veto in lidJudge vs wellCellAt, a lidclear test title, a dead withdrawSweep option). Record docs/reports/plinth-02.rebase-0152baeb-27908be4-2026-10-16.txt. ORDINARY canary.",
+   "registration_sha256": "5072ce7eedc7a3a1d5391e0714633a5cc2a233c2f7ba5ead155594ff61147dd6",
+   "canary_sha": "534aeec0875cb33754113af8446c9dbb18853fcb",
+   "reads_src": "/home/mike/mcai-analysis",
+   "reads": {
+    "plinth2read": "67e297750033be4e00ca4096cba479ff",
+    "wellread": "b0cd8a4b6da00eb3cd44bf413569e417",
+    "immobiledid": "53af289df12208901931dbeeb1ae325a"
+   }
+  }
+ }
+}

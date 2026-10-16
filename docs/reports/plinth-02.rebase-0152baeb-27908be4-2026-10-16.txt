@@ -1,0 +1,92 @@
+plinth-02 REBASE VARIANTS onto 0152baeb (lidclear-01) and 27908be4 (townsearch-01 on lidclear-01) -- record, 2026-10-16
+
+WHY: plinth-02 is queued behind lidclear-01, which is live on 623e92b9, and townsearch-01. The coordinator asked for variants
+on both possible fleet tips so the slot never idles. The approved plinth-02 is 623e92b9..028f7f2d; its record is
+docs/reports/plinth-02-2026-10-16.txt on plinth02-on-623e92b.
+
+VARIANTS
+  F (fallback; fleet 0152baeb: lidclear-01 KEPT, townsearch-01 not): plinth02-on-0152bae @ 0fe92258
+    - It is plinth-02's net diff, applied with `git apply --3way`. There were two conflicts, both resolved by keeping both
+      sides:
+      - index.mjs: lidclear's `_lidclear_mode` licence row and import, plus plinth-02's `_plinth_mode` row and import.
+      - skills.mjs imports: lidclear's well.mjs import already carries wellBreakCost, so the plinth's well.mjs statement
+        drops its copy. A duplicate binding would be a SyntaxError.
+    - Added: lidclear.test gains 5092391d's lidclear x plinth composition tests, from the reviewed lidclear-on-f8daab3
+      branch.
+  P (primary; fleet 27908be4: both KEPT): plinth02-on-27908be @ 534aeec0
+    - It is F's net diff applied onto 27908be4. One conflict, resolved by keeping both sides: the index.mjs licence rows. The
+      four rows run in turn at spawn: cobblecap, lidclear, townsearch, plinth.
+  Line check (sorted +/- lines over bots/ and scripts/):
+    - approved vs F: only the composition tests and the one import line.
+    - F vs P: identical.
+    - The Claude reviewer also checked the reverse: 028f7f2d..534aeec0 vs 623e92b9..27908be4 differ only by the same lines,
+      so lidclear and townsearch are unaltered.
+    - The reviewer found these function bodies byte-identical between 028f7f2d and 534aeec0: withdrawVerb, withdraw,
+      withdrawSweep, withdrawVisit, buildPlinth, knownWellCells, wellCellAt, buildWell and wearOutOne. openForWithdraw
+      differs only by lidclear's own actuator.
+
+COMPOSITION
+- lidclear x plinth: the plinth's funding withdraw now clears a cobble lid through lidclear's clearChestLid, which carries
+  the well veto. That is safer than plinth-02 alone, whose lid dig had no well check.
+- lidclear cannot dig a plinth cell or the build_well table:
+  - it digs only cobblestone and cobbled_deepslate;
+  - plinth cells keep Chebyshev distance 1 from containers, at plan time and again at click time;
+  - the veto covers the shell box and the stair.
+- The table cannot land on a lid, because wellTableCell refuses a container or furniture floor.
+- lidJudge's inline veto and wellCellAt are the same expression. They are left separate, so lidclear's live code and its
+  mutant anchor are untouched (P3 for later).
+- townsearch x plinth: build_plinth funds through the `withdraw` verb. That path is withdrawVerb -> withdrawSweep(bot) with
+  pick=false, and townsearch left it byte-identical.
+  - The 60-min miss memory is read only with pick=true and by townSearchView. Journal ranking belongs only to withdraw_pick.
+    So the plinth's cobble draw is neither starved nor misrouted.
+  - The verb writes no misses, no `took`, and no search skip. Its journal counts (cobbleObserve) are accurate and only
+    inform townSearchOrder.
+  - cognitive.mjs is unchanged, so the chain is still build_plinth > town_deposit > count_town, then wear_out, then
+    townOrder (withdraw_pick).
+
+CHECKS
+- npm test: P 257/257, F 256/256. The F run was in a git archive export, and the reviewer reran the full runner on P.
+- eslint no-undef: only the pre-existing reflex.mjs:2384 withinBody, on both.
+- Plinth mutants on P: 31 killed, 0 survived (plinth 10, plinth-skill 14, plinth02 4, towndeposit 1, well 1, lidclear 1:
+  the plinth stair's well veto).
+- Single-file runs by the reviewer on P: townsearch 25/25, lidclear 37/37, withdraw-pick 62/62, withdraw-hold 26/26,
+  plinth02 16/16, plinth-skill 56/56, towndeposit 63/63, plinth 51/51, well 204/204.
+- PAPER on P (534aeec0, sandbox2, the global lock held 20:13-20:18:38Z, released, server empty):
+  - board-c's REAL town, pasted from the 16:50Z region copy, with its plinth complete and covered. The bag held logs, dirt
+    and cobble; NO trapdoors.
+  - The table went down at 365,73,135, the same cell as on 028f7f2d and in the offline replay.
+  - Well built, facing north, cap and floor read on the server.
+  - Dispose: 576 in the shaft and 0 outside, at +1.5 s and at +30 s.
+  - Walker isolation: 0 pickups; the egg control was collected.
+  - The bot's `_plinth_mode` and the other licence rows were written.
+
+REVIEWS
+- Codex (codex exec -s read-only; prompt p2/review-rebase.txt): VERDICT F: APPROVE, VERDICT P: APPROVE. No P1 or P2.
+  - P3: the duplicated veto; the old flat table rule can name a lid cell that place() then refuses (inherited, unchanged).
+- Claude (a fresh subagent, read only, own exports): VERDICT F: APPROVE, VERDICT P: APPROVE. No P1 or P2. P3s:
+  - the duplicated veto, to fold later on main;
+  - a lidclear test title overclaims the knownWellCells hop. That hop is covered by plinth-skill: a mutant emptying the plinth
+    loop fails 6 tests there;
+  - withdrawSweep's pick/town branches are now dead after townsearch;
+  - pre-existing lint and checker failures outside these diffs.
+  None of these was changed.
+
+REGISTRATIONS (~/mcai-analysis on 10.0.0.31)
+- plinth-02.0fe92258.json (sha256 22b64aed...) and plinth-02.534aeec0.json (sha256 5072ce7e...): the 028f7f2d registration
+  with sha, notes and lint updated. NO draw_require_pools.
+- drawrequire.parse -> ([], None) on both.
+- licencecheck --hours 6 PASS on both: _plinth_mode had 0 baseline rows; the baseline was 623e92b9 at 20:2xZ.
+- changerowcheck PASS on both against the fleet baseline 623e92b9.
+- Against the live lidclear build 0152baeb, changerowcheck REFUSED, "too little to prove anything": 20 bots. That is an
+  instrument refusal, not a row.
+- 27908be4 runs nowhere yet.
+- Reads pinned: plinth2read 67e29775, wellread b0cd8a4b, immobiledid 53af289d.
+
+ENTRY ~/mcai-analysis/plinth-02.entry-623e92b-0152bae-27908be.json (copy in docs/reports)
+- ONE replace-variant entry keyed by FULL fleet sha:
+  - 623e92b9 -> 028f7f2d (kept verbatim);
+  - 0152baeb -> 0fe92258;
+  - 27908be4 -> 534aeec0.
+- NOT applied. `sudo git -C /opt/minecraft-ai fetch origin` was run, and all canary shas resolve.
+- Dry canary-sched.validate_entry: [] (no refusal).
+- Apply with: `python3 ~/canary-sched.py queue replace-variant plinth-02 ~/mcai-analysis/plinth-02.entry-623e92b-0152bae-27908be.json`
