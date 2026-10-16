@@ -33,4 +33,23 @@ CODE r3 (f2676f5d / 70f8b5c7)
   Claude CHANGES  P2 a kit-only plan at a FULL town chest still started the full-chest recovery (placed the carried chest
                   or crafted one for torches) -> noNewChestFor: the kit, like cobble, never opens a new chest (viaRecovery,
                   the town-memory branch, the final exit); chest-full.test.mjs KITSHRINK + control; two mutants.
-CODE r4: see below.
+CODE r4 (d7e06750 / 56b49399)
+  Codex  APPROVE  P3 Paper wording ("consistent with setup timing") -> softened.
+  Claude CHANGES  P2 the kit-only full-chest exit closes nothing, and deposit_surplus counted the kit -> the bot was sent back
+                  to the full chest every lap -> milestones.mjs surplusCount (the rung and the prompt's CARRYING line count
+                  the surplus without the kit); CHAIN test + control; two mutants. P3 noNewChestFor above kitKeep's doc.
+CODE r5 (c56cd860 / bb4f4629)
+  Claude APPROVE  P3 report kit-only deposit no_effect rows per bot-h (a model loop would show) -> added to the read
+                  (kit_noop); P3 a room order at a full chest backs off through roomOutcome (bounded).
+  Codex  CHANGES  P2 a kit-only deposit still walked to a chest IN REACH (up to 48 blocks) -> the kit is never the reason for a
+                  deposit: depositDue drops its share always; deposit() stops a kit-only plan before any walk; admission
+                  refuses a named kit deposit and a plain deposit of the kit alone; kitKeep always keeps it (usableChestNear
+                  removed). Tests re-written (a chest 40 out); mutants re-anchored.
+MUTANTS after r5's fix: three SURVIVED, and each said something true. (1) "a kit-only deposit walks to a chest in reach": the
+                  test's fake bot had no findBlock, so the chest was never in the scan -> the test now gives the scan the
+                  chest (positive control asserted) and the mutant is killed. (2)(3) the r3 full-chest exemptions
+                  (noNewChestFor in viaRecovery, the town-memory branch, the final exit): UNREACHABLE once deposit() stops a
+                  kit-only plan before any walk (a plan with nothing moved still holds a non-kit name; anything moved returns
+                  success first) -> removed rather than kept as untested code; the chest-full KITSHRINK test now guards the
+                  stop that makes them unreachable (its mutant is killed).
+CODE r6: see below.

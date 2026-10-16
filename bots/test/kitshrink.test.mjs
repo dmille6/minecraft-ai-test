@@ -96,12 +96,12 @@ test('the named refusal names a move: `deposit ladder` at 26 -> "kept for the la
 })
 
 // ---- the walk rule: the kit alone never walks a bot ----------------------------------------------------------------
-test('depositDue: a kit-only bag 80 blocks out with no storage in reach is NOT due; with storage in reach it is; other surplus still walks', () => {
+test('depositDue: a kit-only bag is NEVER due -- storage in reach or not (every deposit walks); other surplus still is', () => {
   const kitOnly = BANK.bankableInventory(bag([['torch', 64], ['ladder', 3], ...filler(31)]), { noSwords: false })
   assert.equal(kitOnly.count, 67); assert.equal(kitOnly.kit, 67)
   const due = (b, storage) => BANK.depositDue({ bankable: b.count, kitBankable: b.kit, distHome: 80, storageWithin48: storage, occupiedSlots: 34 })
   assert.equal(due(kitOnly, false), false, 'no walk for the kit alone')
-  assert.equal(due(kitOnly, true), true, 'POSITIVE CONTROL: at the chest it banks')
+  assert.equal(due(kitOnly, true), false, 'not at a chest in reach either (Codex code r5 P2): the town deposit takes the kit')
   const mixed = BANK.bankableInventory(bag([['torch', 64], ['oak_log', 64], ['oak_log', 64], ['oak_log', 30], ...filler(30)]), { noSwords: false })
   assert.ok(mixed.count > mixed.kit && mixed.kit === 64)
   assert.equal(due(mixed, false), true, 'POSITIVE CONTROL: other surplus walks as before')
@@ -132,17 +132,19 @@ const nearBot = (items, chest = false) => ({ ...farBot(items), entity: { positio
   findBlock: ({ matching } = {}) => { const b = { position: new Vec3(2, 70, 0), type: mcData.blocksByName.chest.id }; return chest && matching?.(b) ? b : null } })
 const mixedBag = () => bag([['torch', 20], ['oak_log', 64], ['oak_log', 64], ['stone_pickaxe', 1, 100], ...filler(32)])
 
-test('ROOM ORDER, NEAR, MIXED: no chest in reach -> the room remedy never names the torches (the walk would be for them); a chest in reach -> it may', () => {
+test('ROOM ORDER, NEAR, MIXED: the room remedy never names the torches -- no chest in reach or a chest 40 out (both walk); a log stack it may (control)', () => {
   const items = mixedBag(); const keep = [{ name: 'oak_log', count: 1 }]
-  const r = SK.roomRemedy(nearBot(items), items, keep)
-  assert.ok(!(r.kind === 'deposit' && r.item === 'torch'), `no walk for the torches: ${JSON.stringify(r)}`)
-  assert.ok(!/deposit torch/.test(SK.slotRemedy(nearBot(items), items, keep).remedy ?? ''), 'the advice path too')
-  const c = SK.roomRemedy(nearBot(items, true), items, keep)
-  assert.equal(c.kind, 'deposit', `POSITIVE CONTROL (a chest within 48: no walk): ${JSON.stringify(c)}`)
-  assert.equal(c.item, 'torch')
+  for (const chest of [false, true]) {
+    const r = SK.roomRemedy(nearBot(items, chest), items, keep)
+    assert.ok(!(r.kind === 'deposit' && r.item === 'torch'), `chest=${chest}: no walk for the torches: ${JSON.stringify(r)}`)
+    assert.ok(!/deposit torch/.test(SK.slotRemedy(nearBot(items, chest), items, keep).remedy ?? ''), `chest=${chest}: the advice path too`)
+  }
+  const c = SK.roomRemedy(nearBot(items, true), items, [])
+  assert.equal(c.kind, 'deposit', `POSITIVE CONTROL (the logs are not the craft's): ${JSON.stringify(c)}`)
+  assert.equal(c.item, 'oak_log')
 })
 
-test('ADMISSION, MIXED: `deposit torch` 80 blocks out with no chest in reach is refused before the walk (the move: keep working); at a chest it is admitted', async () => {
+test('ADMISSION: `deposit torch` is refused before any walk, chest in reach or not, and so is a plain deposit of the kit alone (the move: keep working); the logs are still admitted', async () => {
   const { AdmissionControl } = await import('../src/admission.mjs')
   const { Lessons } = await import('../src/lessons.mjs')
   const A = new AdmissionControl(new Lessons(`${process.env.POOL_STATE_DIR}/lessons-adm.json`))
@@ -155,12 +157,14 @@ test('ADMISSION, MIXED: `deposit torch` 80 blocks out with no chest in reach is 
   assert.notEqual(plain.reason, 'deposit_not_worth_it', `POSITIVE CONTROL: the logs alone still make a plain deposit due: ${JSON.stringify(plain)}`)
   const atChest = { ...nearBot(items, true), inventory: { items: () => items }, health: 20, food: 20 }
   const c = A.check({ skill: 'deposit', args: { item: 'torch' } }, atChest, null)
-  assert.notEqual(c.reason, 'deposit_not_worth_it', `a chest within 48: no walk, admitted: ${JSON.stringify(c)}`)
-  // ...but a chest the deposit would SKIP (this bot's container backoff) is no chest (Codex code r2 P2)
-  const backedOff = { ...atChest, skipContainers: new Map([['2,70,0', Date.now() + 60_000]]) }
-  const b = A.check({ skill: 'deposit', args: { item: 'torch' } }, backedOff, null)
-  assert.equal(b.reason, 'deposit_not_worth_it', `a backed-off chest does not count: ${JSON.stringify(b)}`)
-  assert.equal(SK.usableChestNear(atChest), true); assert.equal(SK.usableChestNear(backedOff), false)
+  assert.equal(c.reason, 'deposit_not_worth_it', `a chest 40 out is still a walk (Codex code r5 P2): ${JSON.stringify(c)}`)
+  const kitOnly = bag([['torch', 64], ['ladder', 20], ...filler(32)])
+  const k = { ...nearBot(kitOnly, true), inventory: { items: () => kitOnly }, health: 20, food: 20 }
+  const p = A.check({ skill: 'deposit', args: {} }, k, null)
+  assert.equal(p.reason, 'deposit_not_worth_it', `a plain deposit of the kit alone: ${JSON.stringify(p)}`)
+  assert.match(p.detail, /town deposit takes them/); assert.doesNotMatch(p.detail, /\d/)
+  const logs = A.check({ skill: 'deposit', args: {} }, atChest, null)
+  assert.notEqual(logs.reason, 'deposit_not_worth_it', `POSITIVE CONTROL: the logs at a chest: ${JSON.stringify(logs)}`)
 })
 
 // ---- THE DEPOSIT RUNG (Claude code r4 P2): the kit never holds deposit_surplus -- at a full chest it would loop ----------
@@ -340,7 +344,7 @@ test('MUTANT KILLED: without the escape exclusion, 26 ladders would bank (a usab
   })
 })
 test('MUTANT KILLED: depositDue that ignores kitBankable walks a kit-only bag', async () => {
-  await withMutant(BANK_PATH, 'if (!storageWithin48) bankable = Math.max(0, (Number(bankable) || 0) - Math.max(0, Number(kitBankable) || 0))', '', mod => {
+  await withMutant(BANK_PATH, '  bankable = Math.max(0, (Number(bankable) || 0) - Math.max(0, Number(kitBankable) || 0))', '', mod => {
     assert.equal(mod.depositDue({ bankable: 67, kitBankable: 67, distHome: 80, storageWithin48: false, occupiedSlots: 34 }), true)
   })
 })
