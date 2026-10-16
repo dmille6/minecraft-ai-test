@@ -302,7 +302,6 @@ await t('THE WITHDRAW\'S OPEN writes no room (Claude r2 P2-2); its end does -- a
     assert.ok(last.r && last.z === 27, `${item}: the end's count carries the room and its size: ${JSON.stringify(last)}`)
     assert.equal(last.r.cobblestone >= 64, took, `${item}: room ${took ? 'made by the take' : 'unchanged (none)'}: ${JSON.stringify(last.r)}`)
     // ...and the FOLD keeps it (Claude r3 P2-1: an open and an end count in one millisecond merged to no reading)
-    assert.ok(cnts.every((x, i) => i === 0 || x.cap > cnts[i - 1].cap), `${item}: this process's captures are strictly ordered: ${cnts.map(x => x.cap).join(',')}`)
     assert.deepEqual(CC.readTown(process.env.POOL_STATE_DIR, KEY()).obs['5,64,0']?.r, last.r, `${item}: the folded state keeps the end's room`)
     assert.equal(SK.cobbleTownRoomFor(w.bot, Date.now(), { fresh: true }).known, true, `${item}: the town's room is known after the visit`)
   }
@@ -326,8 +325,24 @@ await t('WHERE THE ROOM IS JUDGED (Claude r2 P2-1, Codex r2 P3): at a well stand
   assert.deepEqual(SK.cobbleTownRoomFor(w.bot).unknown, ['away'])
 })
 
-await t('nextCapture: strictly after this process\'s last capture of the container, never before now', () => {
-  assert.equal(SK.nextCapture(undefined, 100), 100); assert.equal(SK.nextCapture(100, 100), 101); assert.equal(SK.nextCapture(105, 100), 106); assert.equal(SK.nextCapture(50, 100), 100)
+await t('THE FOLD, one process\'s equal captures (Claude r3 P2-1 / Codex r4 P1): the later append\'s ROOM stands; the count, lo, another process\'s tie and the reset fence are untouched', () => {
+  const c = (o) => ({ t: 'cnt', k: 'a', v: 2, m: {}, ...o })
+  // the withdraw: open (no room) then end (room), one process, one millisecond
+  const w = CC.foldJournal([c({ n: 0, cap: 100, inst: 'P' }), c({ n: 0, cap: 100, inst: 'P', r: R(64), z: 27 })]).state.obs.a
+  assert.deepEqual(w.r, R(64), 'the end count\'s room stands'); assert.equal(w.z, 27)
+  // ...the other order (end then a later no-room open, one ms): the later append is the state -> unknown
+  assert.equal(CC.foldJournal([c({ n: 0, cap: 100, inst: 'P', r: R(0), z: 27 }), c({ n: 0, cap: 100, inst: 'P' })]).state.obs.a.r, undefined)
+  // one process, full then room (a take between): the later room, not the max of nothing
+  assert.deepEqual(CC.foldJournal([c({ n: 0, cap: 100, inst: 'P', r: R(0), z: 27 }), c({ n: 0, cap: 100, inst: 'P', r: R(64), z: 27 })]).state.obs.a.r, R(64))
+  // TWO processes in one millisecond keep the conservative rule (no room on one side -> none; both -> the larger)
+  assert.equal(CC.foldJournal([c({ n: 0, cap: 100, inst: 'P' }), c({ n: 0, cap: 100, inst: 'Q', r: R(0), z: 27 })]).state.obs.a.r, undefined, 'another process: unknown')
+  assert.deepEqual(CC.foldJournal([c({ n: 0, cap: 100, inst: 'P', r: R(64), z: 27 }), c({ n: 0, cap: 100, inst: 'Q', r: R(0), z: 27 })]).state.obs.a.r, R(64), 'another process: the larger room')
+  // the COUNT and its floor (lo) never take the room rule's shortcut (Codex r4 P1: synthetic times raised the floor)
+  const f = CC.foldJournal([c({ n: 1000, cap: 100, inst: 'P', m: { cobble: 1000 } }), c({ n: 936, cap: 100, inst: 'P', m: { cobble: 936 }, r: R(64), z: 27 })]).state.obs.a
+  assert.equal(f.n, 1000, 'the ceiling: the larger count'); assert.equal(f.lo.n, 936, 'the floor: the smaller')
+  // the reset fence still drops a count captured at it
+  const rs = CC.foldJournal([c({ n: 0, cap: 100, inst: 'P', r: R(0), z: 27 }), { t: 'reset', at: 100 }]).state.obs.a
+  assert.equal(rs, undefined, 'a count at the fence is gone')
 })
 
 await t('AN OLDER BUILD\'S COUNT (no room reading) is unknown room: nothing goes until this build reads the chest', async () => {

@@ -501,7 +501,8 @@ export function foldJournal (records = [], { upto = null, state: from = null, se
       const m = Number(r.v) >= 2 ? cleanCounts(r.m) : null
       // cobbleoverflow-01: the room the same window showed for each cobble name (absent = the container's room is unknown)
       const room = cleanRoom(r.r)
-      const next = { ...(m ? { n, at: r.cap, seq, v: 2, m } : { n, at: r.cap, seq }), ...(room ? { r: room, ...(Number.isInteger(r.z) ? { z: r.z } : {}) } : {}) }
+      // `i`: the writing process (cobbleoverflow r5): an equal capture by the SAME process is ordered by the append (below)
+      const next = { ...(m ? { n, at: r.cap, seq, v: 2, m } : { n, at: r.cap, seq }), ...(room ? { r: room, ...(Number.isInteger(r.z) ? { z: r.z } : {}) } : {}), ...(r.inst != null ? { i: r.inst } : {}) }
       // A RELEASING COUNT OLDER THAN THE STANDING ONE (Codex r4 1, stocktarget): stonecap let it replace whatever the clocks
       // said, so a release was never lost to a clock step -- but an older capture can then undo a later draw's count. Now
       // its claim is released (below) and the container is UNKNOWN until a recount: neither count is trusted.
@@ -530,8 +531,14 @@ export function foldJournal (records = [], { upto = null, state: from = null, se
         // rule out, so a tie never makes the town look fuller); one side without a reading leaves it unknown
         const ro = cleanRoom(o.r), rn = cleanRoom(next.r)
         // (two readings of DIFFERENT sizes are no reading: the shape changed between them)
-        const roomHi = ro && rn && o.z === next.z ? Object.fromEntries(ROOM_NAMES.map(x => [x, Math.max(ro[x], rn[x])])) : null
-        state.obs[r.k] = { ...hiOf(o, next), at: r.cap, seq, lo: lowOf(prevLo, next), ...(roomHi ? { r: roomHi, ...(Number.isInteger(next.z) ? { z: next.z } : {}) } : {}) }
+        // ONE PROCESS'S TWO CAPTURES IN ONE MILLISECOND (Claude r3 P2-1; Codex r4 P1 refused moving the capture time itself): its
+        // appends are sequential, so for the ROOM ONLY the later record is the container's state -- a withdraw's open count
+        // (no room) and its end count (the room) no longer merge to nothing. The count, `lo`, every fence and every tie
+        // between two processes keep the fold's rules untouched.
+        const sameProc = o.i != null && o.i === next.i
+        const roomHi = sameProc ? (rn ? { ...rn } : null)
+          : (ro && rn && o.z === next.z ? Object.fromEntries(ROOM_NAMES.map(x => [x, Math.max(ro[x], rn[x])])) : null)
+        state.obs[r.k] = { ...hiOf(o, next), at: r.cap, seq, lo: lowOf(prevLo, next), ...(roomHi ? { r: roomHi, ...(Number.isInteger(next.z) ? { z: next.z } : {}) } : {}), ...(sameProc ? { i: next.i } : {}) }
       }
       if (resolving) for (const [id, c] of Object.entries(state.claims)) if (c.state === 'void' && c.k === r.k && r.cap >= c.voidAt) delete state.claims[id]
     }
