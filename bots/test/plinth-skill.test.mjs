@@ -962,7 +962,12 @@ await t('THE STAIR IS NEVER A PATH\'S DIG, through the well columns index.mjs al
   assert.ok(col && col.stair.length === plan.stair.length, 'the column carries its stair')
   const s0 = plan.stair[0]
   assert.equal(W.wellBreakCost(cols, { position: { x: s0[0], y: s0[1], z: s0[2] } }), 100)
-  assert.equal(readFileSync(new URL('../src/index.mjs', import.meta.url), 'utf8').includes('plinth'), false, 'index.mjs is untouched by plinth-01')
+  // index.mjs carries no plinth movement exclusion: its only plinth lines are plinth-02's licence row (the import and the one
+  // logEvent), comments stripped -- anything else naming plinth fails here
+  const idxSrc = readFileSync(new URL('../src/index.mjs', import.meta.url), 'utf8').replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/.*$/gm, '')
+  const rest = idxSrc.split('\n').filter(l => !/^import \{ plinthModeDetail \} from '\.\/plinth\.mjs'/.test(l.trim()) &&
+    !/^try \{ logEvent\(\{ kind: 'plinth_mode', status: 'success', snapshot: snapshot\(bot\), detail: plinthModeDetail\(bot\.worldId\) \}\) \} catch \{\}$/.test(l.trim()))
+  assert.equal(rest.join('\n').includes('plinth'), false, 'index.mjs is untouched by the plinth except the licence row')
 })
 await t('THE STAIR SURVIVES THE HAND-OFF (Claude r7): once the well-site record names the plinth cap, that column still carries the stair', async () => {
   reset(); noSite()

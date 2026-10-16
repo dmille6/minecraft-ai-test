@@ -232,6 +232,37 @@ def recorded_caps(pools, state_dir=STATE_DIR, worlds=None):
     return out
 
 
+def gate_caps(pools, state_dir=STATE_DIR, worlds=None):
+    """{cap (x,y,z): pool} for the GATES (Codex r5 P2): every plinth cap this world's records name -- the record's own plan cap
+       (plan, complete, void or none alike) and every column the town ever started (`prev`) -- so a plinth finished before the
+       window that is breached, entombs a bot or is left open is judged even after its site moved. Identity: version
+       PLINTH_VERSION and the record's world = the pool's CURRENT world seen in this window's rows (affirmative, as for
+       recorded_caps). The site record is NOT consulted here: a moved site is exactly when a breach matters."""
+    import glob, json
+    out = {}
+    for pool in sorted(pools):
+        seen = (worlds or {}).get(pool)
+        if not seen:
+            continue
+        for f in sorted(glob.glob('%s/_pool-%s/junkwell-plinth-*.json' % (state_dir, pool))):
+            if '.lease.' in f:
+                continue
+            try:
+                rec = json.load(open(f))
+            except Exception:
+                continue
+            if not isinstance(rec, dict) or rec.get('v') != PLINTH_VERSION:
+                continue
+            world = str(rec.get('world') or '')
+            if not world or not world.startswith(seen):
+                continue
+            cells = [(rec.get('plan') or {}).get('cap') or {}] + [c for c in (rec.get('prev') or []) if isinstance(c, dict)]
+            for c in cells:
+                if all(k in c for k in 'xyz'):
+                    out[(int(c['x']), int(c['y']), int(c['z']))] = pool
+    return out
+
+
 TABLE_REFUSAL = re.compile(r'^order=build reason=well_site .*crafting table')
 
 
@@ -267,6 +298,15 @@ def _selftest_records():
     put('board-c', 'junkwell-site-355_73_147.g1.json', {'x': 365, 'y': 73, 'z': 137, 'world': 'other'})
     assert recorded_caps({'board-c'}, d, worlds=ALL) == {}, 'the site names another world'
     assert recorded_caps({'board-c'}, d + '/nowhere', worlds=ALL) == {}, 'no dir, no caps'
+    # THE GATES' CAPS (Codex r5 P2): hive-d's plinth whose site MOVED (g2) is not exposure, but its cap and its prev columns are
+    # still judged; a plan is judged too; another world, or no world seen, is not
+    put('hive-d', 'junkwell-plinth-68_65_68.json', {'v': 1, 'state': 'complete', 'world': 'w2', 'plan': {'cap': {'x': 56, 'y': 64, 'z': 69}},
+                                                   'prev': [{'x': 40, 'y': 60, 'z': 40, 'stair': []}]})
+    assert recorded_caps({'hive-d'}, d, worlds=ALL) == {}, 'not exposure: the site moved'
+    assert gate_caps({'hive-d'}, d, worlds=ALL) == {(56, 64, 69): 'hive-d', (40, 60, 40): 'hive-d'}, 'judged: the cap and its prev'
+    assert gate_caps({'hive-a'}, d, worlds=ALL) == {(1, 2, 3): 'hive-a'}, 'a plan is judged'
+    assert gate_caps({'hive-d'}, d, worlds={'hive-d': 'w9'}) == {}, 'another world'
+    assert gate_caps({'hive-d'}, d) == {}, 'no world seen'
     assert TABLE_REFUSAL.match("order=build reason=well_site nowhere within 2 of the junk well's standing cell to put a crafting table")
     assert TABLE_REFUSAL.match("order=build reason=well_site nowhere within reach of the junk well's standing cell to put a crafting table; carry 2")
     assert not TABLE_REFUSAL.match('order=build reason=well_site the junk well site 1,2,3 is no longer valid (walls)')
@@ -395,8 +435,8 @@ if __name__ == '__main__':
                 stuck.append((b, t, k, (p['x'], p['y'], p['z'])))
             n[('post', arm, 'stuck_any')] += 1
 
-    rec_caps = recorded_caps(CANS, worlds=world_seen)
-    for c, pool in rec_caps.items():
+    rec_caps = recorded_caps(CANS, worlds=world_seen)            # EXPOSURE: complete, the latest site naming it
+    for c, pool in list(rec_caps.items()) + list(gate_caps(CANS, worlds=world_seen).items()):   # GATES: every recorded cap
         caps.setdefault(c, pool)
     outside = [(b, t.strftime('%H:%M:%S'), at) for b, t, at in outside_steps(steps, id_cap)]
     plinth_caps = set(caps)
