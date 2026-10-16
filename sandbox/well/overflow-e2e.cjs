@@ -321,7 +321,7 @@ scenes.ovfull = async () => {
   const disp = r.rows.filter(x => x.startsWith('_well_dispose'))
   const pass = r.bag.before === 158 && r.bag.after === 64 && r.shaft.after - r.shaft.before === 94 && cobOf(r.chest.after) === 0 && r.chest.usedAfter === 27
     && !!r.room && r.room.cobblestone === 0 && disp.some(d => / cobble=94 /.test(d) && / cap=below /.test(d) && / overflow=94/.test(d)) && r.licence.length === 1
-    && r.clicks.length === 2 && r.clicks.every(d => / cap=below mode=overflow known=1 /.test(d) && / max=0\/0$/.test(d))
+    && r.clicks.length === 2 && r.clicks.every(d => / cap=below mode=overflow known=1 /.test(d) && / max=0\/0( |$)/.test(d))
   result({ ...r, PASS: pass })
 }
 

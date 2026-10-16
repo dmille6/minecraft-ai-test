@@ -235,7 +235,10 @@ def audit(cc, clicks, dirs):
     bad = [c['id'] for c in clicks if same(by.get(c['id']), c) and roomy(by.get(c['id']), c)]
     differs = sum(1 for c in clicks if by.get(c['id']) and not same(by.get(c['id']), c))
     unk = sum(1 for c in clicks if not (by.get(c['id']) or {}).get('known'))
+    # Claude r3 P3-1: D3 judges only clicks over the same container list; with none such it is BLIND, and says so
+    same_n = sum(1 for c in clicks if same(by.get(c['id']), c))
     return {'breach_room_journal': len(bad), '_bad': bad[:5], 'audit_unknown_room': unk, 'audited': len(clicks), 'audit_membership_differs': differs,
+            'audited_same': same_n, 'd3_blind': int(len(clicks) > 0 and same_n == 0),
             'unreadable': j.get('unreadable', []), 'towns': j.get('towns', 0), 'dirs': len(dirs)}
 
 
@@ -340,7 +343,7 @@ def selftest():
     unread = audit(cc, th(), town(None))
     assert unread['breach_room_journal'] == 0 and unread['audit_unknown_room'] == 1, ('a container without a reading: unknown, never a breach', unread)
     other = audit(cc, th(keys='0badc0de'), town({'cobblestone': 64, 'cobbled_deepslate': 0}))
-    assert other['breach_room_journal'] == 0 and other['audit_membership_differs'] == 1, ('the click judged ANOTHER container list (Codex r2 P2): uncertainty, not a breach', other)
+    assert other['breach_room_journal'] == 0 and other['audit_membership_differs'] == 1 and other['d3_blind'] == 1 and full['d3_blind'] == 0, ('the click judged ANOTHER container list (Codex r2 P2): uncertainty, not a breach', other)
     after = audit(cc, th(), town({'cobblestone': 0, 'cobbled_deepslate': 0}, later={'cobblestone': 64, 'cobbled_deepslate': 64}))
     assert after['breach_room_journal'] == 0, ('room that appeared AFTER the click is not the click\'s', after)
     print('SELFTEST ok: every gate fails on its fixture and passes its control (journal audit with %s)' % cc)
@@ -368,7 +371,7 @@ if __name__ == '__main__':
     CANARY_CC = os.environ.get('CANARY_CC') or os.path.expanduser('~/mcai-analysis/cobbleoverflow01/cobblecap.mjs')
     try:
         JDIRS, JMISSING = journal_coverage(CANS)
-        jr = audit(CANARY_CC, res['_clicks'], JDIRS) if res['_clicks'] else {'breach_room_journal': 0, '_bad': [], 'audit_unknown_room': 0, 'audited': 0, 'audit_membership_differs': 0, 'unreadable': [], 'towns': 0, 'dirs': len(JDIRS)}
+        jr = audit(CANARY_CC, res['_clicks'], JDIRS) if res['_clicks'] else {'breach_room_journal': 0, '_bad': [], 'audit_unknown_room': 0, 'audited': 0, 'audit_membership_differs': 0, 'audited_same': 0, 'd3_blind': 0, 'unreadable': [], 'towns': 0, 'dirs': len(JDIRS)}
         jr['missing'] = JMISSING
     except Exception as e:
         print('journal audit failed:', e); jr = None
@@ -385,7 +388,7 @@ if __name__ == '__main__':
     print('BASE         control _cobblecap_mode licence rows %d (>= 1: the control runs cobblecap-1000)' % res['base_licence_control'])
     print('LIVENESS     canary overflow visits %d, clicks %d (%d cobble, %.2f per canary bot-h) | licence rows _cobbleoverflow_mode %d | control rows of this build %d (must be 0)'
           % (res['overflow_throws_canary'], res['overflow_clicks_canary'], res['overflow_cobble_canary'], rate(res['overflow_cobble_canary'], 'post', 'canary'), res['mode_rows_canary'], res['arms_control_rows']))
-    d3 = ('%d %s (clicks audited %d, another container list %d, unknown room at the click %d, towns %d, unreadable %s, pools not covered %s)' % (jr['breach_room_journal'], jr['_bad'], jr['audited'], jr['audit_membership_differs'], jr['audit_unknown_room'], jr['towns'], jr['unreadable'] or '-', jr['missing'] or '-')
+    d3 = ('%d %s%s (clicks audited %d, another container list %d, unknown room at the click %d, towns %d, unreadable %s, pools not covered %s)' % (jr['breach_room_journal'], jr['_bad'], ' D3 BLIND (no click over the same container list)' if jr['d3_blind'] else '', jr['audited'], jr['audit_membership_differs'], jr['audit_unknown_room'], jr['towns'], jr['unreadable'] or '-', jr['missing'] or '-')
           if jr is not None else 'UNREADABLE (blind this read)')
     print('CORRECTNESS  D1 throws under the 64 %d %s | D2 clicks outside their own rule %d %s | D3 journal-contradicted clicks %s (trips at >= %d)'
           % (res['breach_reserve'], res['_lists']['d1'], res['breach_switch'], res['_lists']['d2'], d3, D3_TRIP))
@@ -408,6 +411,7 @@ if __name__ == '__main__':
                        'breach_room_journal_trip': int(jr is not None and jr['breach_room_journal'] >= D3_TRIP),
                        'audit_unknown_room': jr['audit_unknown_room'] if jr is not None else None,
                        'audit_membership_differs': jr['audit_membership_differs'] if jr is not None else None,
+                       'audited_same': jr['audited_same'] if jr is not None else None, 'd3_blind': jr['d3_blind'] if jr is not None else None,
                        'journal_unreadable': len(jr['unreadable']) if jr is not None else None, 'journal_dirs': jr['dirs'] if jr is not None else 0,
                        'journal_pools_missing': len(jr['missing']) if jr is not None else None,
                        'journal_audit_complete': int(jr is not None and not jr['unreadable'] and not jr['missing'] and jr['dirs'] > 0)})

@@ -3308,6 +3308,11 @@ export function cobbleTownRoomFor (bot, now = Date.now(), { state = undefined, f
  * too. A covered scan is appended at most every 5 min, for the plan's view from away. -> true when written.
  */
 let lastScanRec = { at: 0, key: null }
+// THIS PROCESS'S COUNTS OF ONE CONTAINER ARE STRICTLY ORDERED IN CAPTURE TIME (Claude cobbleoverflow r3 P2-1): a withdraw's
+// open count (no room) and its end count (the room) often land in one millisecond, and the fold's equal-capture rule then
+// keeps NO room (one side has none). Two bots' ties keep the fold's rule; only this process's own captures are spaced.
+const lastCapByKey = new Map()
+export const nextCapture = (prev, now) => Math.max(now, Number.isFinite(prev) ? prev + 1 : now)
 export function cobbleObserve (bot, pos, win, { release = null, releaseAll = [], dirtyIfLost = false, lost = false, room = true } = {}) {
   try {
     const cap = Date.now()
@@ -3340,7 +3345,7 @@ export function cobbleObserve (bot, pos, win, { release = null, releaseAll = [],
     }
     capEpoch++
     return recordCount(townDir(), homeTownKey(), bot.worldId ?? null,
-      { obs: inside ? { k: containerKey(bot, pos), n, m, cap, ...(r ? { r, z: win.inventoryStart } : {}) } : null, release: ids, scan, bot: bot.username ?? null, inst: capInst(bot) })
+      { obs: inside ? (() => { const k = containerKey(bot, pos); const c = nextCapture(lastCapByKey.get(k), cap); lastCapByKey.set(k, c); return { k, n, m, cap: c, ...(r ? { r, z: win.inventoryStart } : {}) } })() : null, release: ids, scan, bot: bot.username ?? null, inst: capInst(bot) })
   } catch { return false }
 }
 /**

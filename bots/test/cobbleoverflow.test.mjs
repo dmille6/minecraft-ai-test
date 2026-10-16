@@ -301,6 +301,10 @@ await t('THE WITHDRAW\'S OPEN writes no room (Claude r2 P2-2); its end does -- a
     const last = cnts[cnts.length - 1]
     assert.ok(last.r && last.z === 27, `${item}: the end's count carries the room and its size: ${JSON.stringify(last)}`)
     assert.equal(last.r.cobblestone >= 64, took, `${item}: room ${took ? 'made by the take' : 'unchanged (none)'}: ${JSON.stringify(last.r)}`)
+    // ...and the FOLD keeps it (Claude r3 P2-1: an open and an end count in one millisecond merged to no reading)
+    assert.ok(cnts.every((x, i) => i === 0 || x.cap > cnts[i - 1].cap), `${item}: this process's captures are strictly ordered: ${cnts.map(x => x.cap).join(',')}`)
+    assert.deepEqual(CC.readTown(process.env.POOL_STATE_DIR, KEY()).obs['5,64,0']?.r, last.r, `${item}: the folded state keeps the end's room`)
+    assert.equal(SK.cobbleTownRoomFor(w.bot, Date.now(), { fresh: true }).known, true, `${item}: the town's room is known after the visit`)
   }
 })
 
@@ -320,6 +324,10 @@ await t('WHERE THE ROOM IS JUDGED (Claude r2 P2-1, Codex r2 P3): at a well stand
   w.bot.entity.position = new Vec3(60.5, 64, 0.5)
   assert.equal(SK.cobbleTownRoomFor(w.bot).known, false, 'beyond the town radius: unknown')
   assert.deepEqual(SK.cobbleTownRoomFor(w.bot).unknown, ['away'])
+})
+
+await t('nextCapture: strictly after this process\'s last capture of the container, never before now', () => {
+  assert.equal(SK.nextCapture(undefined, 100), 100); assert.equal(SK.nextCapture(100, 100), 101); assert.equal(SK.nextCapture(105, 100), 106); assert.equal(SK.nextCapture(50, 100), 100)
 })
 
 await t('AN OLDER BUILD\'S COUNT (no room reading) is unknown room: nothing goes until this build reads the chest', async () => {
