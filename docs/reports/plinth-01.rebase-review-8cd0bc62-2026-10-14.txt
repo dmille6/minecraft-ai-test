@@ -1,0 +1,45 @@
+plinth-01 REBASE onto 8cd0bc62 (wellsite-02 on 5e663860) -- review record, 2026-10-14
+
+WHAT
+- The fleet sha would be 8cd0bc62 if wellsite-02 is KEPT and promoted. wellsite-02 is the same wellsite diff on 5e663860,
+  which is stocktarget-02 on digtown-01 on orderroom-01 on stocktarget-01 on 82aef34.
+- plinth-on-8cd0bc6 is the approved plinth-01 net diff (4774bec1 over baa94879) applied as one commit, 2fd7197b.
+- The only differences in bots/src are the two conflict resolutions:
+  - cognitive.mjs: the order chain is build_plinth > town_deposit > count_town. The recount guard yields to build_plinth
+    as it yields to the deposit.
+  - hygiene.mjs: HOUSEKEEPING is the union.
+- The sorted +/- lines of plinth.mjs, skills.mjs and well.mjs are identical to the approved diff.
+- Two composition tests were added:
+  - towndeposit.test 'PLINTH x RECOUNT CHAIN', through the real CognitiveLoop, plus its mutant;
+  - plinth-skill.test 'DIGTOWN', through the real attachDigTown wrapper.
+
+VERDICTS
+Codex (codex exec, independent, prompt in the build agent's scratch plo/rebase8-prompt.txt): APPROVE.
+  "No rebase defects found in the five requested areas. Townzone merges cleanly. Focused plinth, recount-chain/mutant,
+   digtown, and stocktarget tests pass."
+
+CLAUDE REVIEW (a separate subagent, read only): APPROVE, with no P1 or P2. It verified:
+  - the chain: the plinth's 5-min cooldown is charged at issue, so count_town loses at most one decision per 5 min, and
+    count_town's own cooldown is not charged on it;
+  - the withdraw: claimStack admits a draw from an UNKNOWN container, and cobbleObserve then writes a full count (it helps
+    the recount). Nothing is written to the recount-miss file or the town memory;
+  - digtown: leaves are class free, the dirt/grass cover is ground, the purpose is other. Plinth walks use
+    townWalkMovements, canDig=false;
+  - the townzone merge-tree is clean.
+  Three P3 notes:
+  P3-1 The plinth hand-off records the well site before a bot holds the trapdoor materials. So orderroom's "home -- the
+       town's junk well takes X" walk can lead a bot to a recorded but uncapped site until a supplied bot arrives.
+       - It is bounded at once per bot per 30 min (ROOM_WELL_WALK_BACKOFF_MS) and is not a dead end.
+       - The same window existed for wellsite-01's recorded site, though shorter.
+       - NOTED for the read: `room via=well` followed by no dispose. Not changed.
+  P3-2 The DIGTOWN test title overclaimed "by=build_plinth" and "never transit". The runner's context is supplied, and no
+       pathfinder dig is exercised. -> The title was reworded to what the test proves (test-only commit).
+  P3-3 blackstone, basalt and netherrack covers are outside the TERRAIN list, so a dig of one is class free and writes
+       no _dig_town row. This is a telemetry gap only (rare in an overworld bag). Not changed.
+
+CHECKS ON THE VARIANT
+- npm test 253/253 at 2fd7197b. After the title commit, plinth-skill.test is 52/52.
+- eslint no-undef: one hit, reflex.mjs:2384 'withinBody'. It is the pre-existing, typeof-guarded hit, and this diff
+  changes reflex.mjs by 0 lines.
+- townzone-01 composition: plinth-x-tz-8cd (tz-on-5e66386 3b1ae8bb + this branch) is a clean merge. Its suite is
+  recorded in the queue entry.
