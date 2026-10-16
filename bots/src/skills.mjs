@@ -8437,8 +8437,9 @@ async function buildWell (ctx, _args, signal) {
         // because the old rule wants a cell at the stand's own level and a plinth's walls stand over air): the old cell when
         // there is one, else a cell below the stand within the craft's reach, kept only if the stand stays walkable from town
         const tableRead = memoRead(readCell(bot))
-        const cell = wellTableCell({ site, stand, read: tableRead, bodies: bodiesAround(bot), start: startNear(tableRead, home), box: planBox(home, site) })
-        if (!cell) return fail('well_site', `nowhere within reach of the junk well's standing cell to put a crafting table; carry ${need} wooden trapdoor(s), crafted at any table in town, and the next visit builds the well without one`)
+        const tableWhy = {}
+        const cell = wellTableCell({ site, stand, read: tableRead, bodies: bodiesAround(bot), start: startNear(tableRead, home), box: planBox(home, site), forbid: plinthForbid(bot, site), report: tableWhy })
+        if (!cell) return fail('well_site', `nowhere within reach of the junk well's standing cell to put a crafting table (table=${tableWhy.why ?? '-'}); carry ${need} wooden trapdoor(s), crafted at any table in town, and the next visit builds the well without one`)
         const ac = new AbortController()
         let put
         try { put = await g.bound(place(ctx, { item: 'crafting_table', x: cell.x, y: cell.y, z: cell.z }, ac.signal), HK_CRAFT_MS, 'place', { controller: ac }) } catch (e) { if (e?.aborted || signal?.aborted) throw e; put = { detail: String(e?.message ?? e) } }

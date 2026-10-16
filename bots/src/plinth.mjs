@@ -452,12 +452,16 @@ export const WELL_TABLE_CLICK = 4.5
  *      one can. A plinth is walkReach-reachable by construction (its planner proves every stand with the same probe).
  *   The floor must be a plain support: never a container (its lid) or town furniture (Codex r1 P3; place() refuses a lid).
  */
-export function wellTableCell ({ site, stand, read, bodies = [], start = null, box = null, forbid = () => false, eye = EYE_HEIGHT } = {}) {
-  if (!site || !stand || typeof read !== 'function') return null
+export function wellTableCell ({ site, stand, read, bodies = [], start = null, box = null, forbid = () => false, eye = EYE_HEIGHT, report = null } = {}) {
+  // `report` (an object, optional) receives `why` when the answer is null: 'no_cell' (nothing placeable in reach), 'no_proof'
+  // (no start, or the stand is not walkReach-able from it today), 'route' (every candidate would take the way up) -- Claude P3
+  const none = why => { if (report) report.why = why; return null }
+  if (!site || !stand || typeof read !== 'function') return none('no_cell')
   const flat = tableCellFor({ site: { x: site.x, y: stand.y, z: site.z }, stand, read, bodies })
   if (flat) return flat
   const out = []
   const fx = stand.x + 0.5, fy = stand.y, fz = stand.z + 0.5
+  // dy -3/-4 can never pass the click bound from a stand's eye (Claude P3): kept for a looser bound, harmless
   for (let dy = -1; dy >= -4; dy--) {
     for (let dx = -4; dx <= 4; dx++) {
       for (let dz = -4; dz <= 4; dz++) {
@@ -476,15 +480,16 @@ export function wellTableCell ({ site, stand, read, bodies = [], start = null, b
     }
   }
   out.sort((a, b) => a.off - b.off || b.y - a.y || a.reach - b.reach || a.x - b.x || a.z - b.z)
+  if (!out.length) return none('no_cell')
   const until = cellKey(stand.x, stand.y, stand.z)
   const walkForbid = (x, y, z) => inColumn(site, x, y, z) || forbid(x, y, z)
-  if (!start || !walkReach(read, start, { box, forbid: walkForbid, until }).has(until)) return null
+  if (!start || !walkReach(read, start, { box, forbid: walkForbid, until }).has(until)) return none('no_proof')
   for (const c of out.slice(0, 8)) {
     const withTable = overlay(read, new Map([[cellKey(c.x, c.y, c.z), PLACED]]))
     if (!walkReach(withTable, start, { box, forbid: walkForbid, until }).has(until)) continue
     return { x: c.x, y: c.y, z: c.z }
   }
-  return null
+  return none('route')
 }
 
 /**

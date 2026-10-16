@@ -1,10 +1,16 @@
 #!/usr/bin/env python3
 # plinth2read.py [window_min] -- the read for canary `plinth-02` (branch plinth02-on-623e92b). Run under `nice`.
-# plinthread.py (plinth-01's read) with three additions, every plinth-01 gate unchanged:
-#   CAPS FROM RECORDS  a canary pool's plinth record (/var/lib/mcai/_pool-<pool>/junkwell-plinth-*.json, state plan|complete)
-#                      names its cap: a plinth finished under plinth-01 (board-c, hive-d) writes no _plinth row now, yet
-#                      a _well_built at its cap is exactly the exposure (the definition is unchanged).
-#   LICENCE            canary `_plinth_mode` rows (once per spawn) or `_plinth` rows -- neither is written by the base.
+# plinthread.py (plinth-01's read): every plinth-01 gate's LOGIC is unchanged; the caps they judge, the licence and exposure grew:
+#   GATE CAPS          P3 (open pit), P4 (retired), P5 (stuck near) judge every cap from the canary's _plinth rows AND every
+#                      cap this world's plinth records name (gate_caps: the record's plan cap in any state and its `prev`
+#                      columns; version 1; the record's world = the pool's current world seen in the window). So a plinth
+#                      finished under plinth-01 (board-c, hive-d) is judged though it writes no _plinth row now; P5 can also
+#                      count a stuck episode near a column plinth-01 left (a raised well is a raised well, whoever built it).
+#   EXPOSURE CAPS      stricter (recorded_caps): a record that is COMPLETE, whose pool's latest well-site generation names the
+#                      same cap in the same world, that world affirmed by the window's rows. Exposure = a _well_built at a
+#                      COMPLETE cap (per cap). The definition is unchanged.
+#   LICENCE            canary `_plinth_mode` rows (once per spawn; they carry the world, w=) or `_plinth` rows -- the base
+#                      writes neither; a control row of either is a leak.
 #   MECHANISM          `_well_refused order=build reason=well_site` naming a crafting table (the fleet defect plinth-02
 #                      fixes), per bot-hour, canary and control, pre and post (report only).
 # CANARY_DRYRUN=pool[,pool]:sha:iso for dry runs (never emits).

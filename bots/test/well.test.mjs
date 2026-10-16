@@ -1258,7 +1258,7 @@ await t('RAISED WELL, NO TRAPDOORS CARRIED (plinth-02): the table goes below the
   assert.ok((await rows('_well_built')).some(x => field(x.skill.detail, 'at') === `${RC.x},${RC.y},${RC.z}`), 'the _well_built row at the plinth cap (the canary\'s exposure)')
 })
 await t('MUTANT (skills): the old table rule on a raised well -> no table cell (the fleet\'s failure), nothing built', async () => {
-  const old = "        const cell = wellTableCell({ site, stand, read: tableRead, bodies: bodiesAround(bot), start: startNear(tableRead, home), box: planBox(home, site) })\n"
+  const old = "        const cell = wellTableCell({ site, stand, read: tableRead, bodies: bodiesAround(bot), start: startNear(tableRead, home), box: planBox(home, site), forbid: plinthForbid(bot, site), report: tableWhy })\n"
   const neu = "        const cell = tableCellFor({ site: { x: site.x, y: stand.y, z: site.z }, stand, read: readCell(bot), bodies: bodiesAround(bot) })\n"
   await withMutant(SP, old, neu, async m => {
     const { town, RC } = await raisedTown()

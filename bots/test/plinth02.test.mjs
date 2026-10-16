@@ -131,12 +131,13 @@ await t('MUTANT KILLED: without the walk check, the table goes on the only way u
   })
 })
 await t('NO PROOF, NO TABLE (Codex r1 P2): without a start cell, or when the stand is not walkable from it today (no step), nothing is offered -- the first candidate would be the step\'s feet cell', () => {
-  assert.equal(P.wellTableCell({ site: CAP3, stand: ST3, read: stepWorld(true) }), null, 'no start')
-  assert.equal(P.wellTableCell({ site: CAP3, stand: ST3, read: stepWorld(false), start: START3, box: BOX3 }), null, 'the stand not walkable today')
+  const r1 = {}, r2 = {}
+  assert.equal(P.wellTableCell({ site: CAP3, stand: ST3, read: stepWorld(true), report: r1 }), null, 'no start'); assert.equal(r1.why, 'no_proof')
+  assert.equal(P.wellTableCell({ site: CAP3, stand: ST3, read: stepWorld(false), start: START3, box: BOX3, report: r2 }), null, 'the stand not walkable today'); assert.equal(r2.why, 'no_proof')
   assert.ok(P.wellTableCell({ site: CAP3, stand: ST3, read: stepWorld(true), start: START3, box: BOX3 }), 'POSITIVE CONTROL: with the step and a start, a cell')
 })
 await t('MUTANT KILLED: the walk proof skipped when it fails (the r1 fail-open) -> a table with no proof, on the only way up', async () => {
-  await withMutant(PL_PATH, '  if (!start || !walkReach(read, start, { box, forbid: walkForbid, until }).has(until)) return null\n', '  if (!start) return out[0] ? { x: out[0].x, y: out[0].y, z: out[0].z } : null\n', async M => {
+  await withMutant(PL_PATH, "  if (!start || !walkReach(read, start, { box, forbid: walkForbid, until }).has(until)) return none('no_proof')\n", '  if (!start) return out[0] ? { x: out[0].x, y: out[0].y, z: out[0].z } : null\n', async M => {
     assert.deepEqual(M.wellTableCell({ site: CAP3, stand: ST3, read: stepWorld(true) }), { x: 0, y: G + 2, z: -3 })
   })
 })
@@ -156,12 +157,15 @@ await t('NOTHING IN REACH: a plinth hanging over a void with its ring top taken 
     if (Math.max(Math.abs(x), Math.abs(z)) === 2 && y === G + 3) return { name: 'water', boundingBox: 'empty', shapes: [] }   // the ring top taken (not placeable into, no floor above)
     return { name: 'air', boundingBox: 'empty', shapes: [] }
   }
-  assert.equal(P.wellTableCell({ site: CAP3, stand: ST3, read }), null)
+  // the start and box are given, so the null is the empty candidate list, not the missing proof (Claude P3-1)
+  const why = {}
+  assert.equal(P.wellTableCell({ site: CAP3, stand: ST3, read, start: START3, box: BOX3, report: why }), null)
+  assert.equal(why.why, 'no_cell')
 })
 await t('BUILD_WELL WIRING (structural, comments stripped): the table cell comes from wellTableCell with the town start and box, and the refusal names the carried-trapdoor remedy', () => {
   const strip = s => s.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '')
   const c = strip(readFileSync(SKILLS_PATH, 'utf8'))
-  const line = 'const cell = wellTableCell({ site, stand, read: tableRead, bodies: bodiesAround(bot), start: startNear(tableRead, home), box: planBox(home, site) })'
+  const line = 'const cell = wellTableCell({ site, stand, read: tableRead, bodies: bodiesAround(bot), start: startNear(tableRead, home), box: planBox(home, site), forbid: plinthForbid(bot, site), report: tableWhy })'
   assert.equal(c.split(line).length, 2, 'ANCHOR MISSING or not unique')
   assert.ok(!/tableCellFor\(\{ site: \{ x: site\.x, y: stand\.y, z: site\.z \}/.test(c), 'the old call is gone')
   assert.match(c, /carry \$\{need\} wooden trapdoor\(s\), crafted at any table in town/)
