@@ -9453,6 +9453,17 @@ export function townIngredientMiss (bot) {
   } catch { return false }
 }
 
+/** THE TOWN'S CONTAINERS, for coverage -> their keys, or null when the scan may be TRUNCATED. The boundary is inside the
+ *  matcher (a scan capped before an inTown filter let 63 deep barrels crowd out a town chest -- Codex on e897d44).
+ *  toolkit-01's own since townsearch-01 replaced withdraw_pick's use of it with townSearchView (restored verbatim: without it
+ *  townKitIronMiss threw a ReferenceError inside its try and answered false for ever -- the kit's town-iron guard dead). */
+const TOWN_KEYS_CAP = 256
+function townContainerKeys (bot, home, isContainer) {
+  const found = bot.findBlocks?.({ point: home, maxDistance: TOWN_SCAN_RADIUS, count: TOWN_KEYS_CAP,
+    matching: b => isContainer(b) && (!b.position || inTown(home, b.position)) }) ?? []
+  return found.length >= TOWN_KEYS_CAP ? null : found.map(posKey)
+}
+
 /** Has every town container recently held too little iron for a kit draw (toolkit.mjs; complete coverage)? For the order. */
 export function townKitIronMiss (bot) {
   try {
@@ -9826,7 +9837,9 @@ async function toolkit (ctx, args, signal) {
         if (v.result?.status === 'success') { got = v.moved; break }
         // A CONTAINER THIS BOT CANNOT REACH, or a stock claim the journal could not confirm, moved nothing: the next container
         // (withdraw_pick's own rule; Claude r1 P3-1 -- one walled-in nearest chest ended every run)
-        if (v.result && ['chest_unreachable', 'stock_unconfirmed'].includes(v.result.failClass)) continue
+        // ...and since lidclear-01 / townsearch-01 a lid the visit could not clear (container_blocked: withdrawpick.mjs
+        // SEARCH_FAIL_SKIP, the town search's own move-on rule) -- it moved nothing either
+        if (v.result && ['chest_unreachable', 'stock_unconfirmed', 'container_blocked'].includes(v.result.failClass)) continue
         if (v.result) {
           st.drew = v.moved?.took?.iron_ingot ?? 0; st.sticks = v.moved?.took?.stick ?? 0; st.stop = v.result.failClass ?? 'failed'
           return out('failed', v.result.failClass === 'inventory_full' ? 'room' : 'draw_failed', v.result.detail, v.result.failClass ?? 'kit_draw')

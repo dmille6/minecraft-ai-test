@@ -297,6 +297,22 @@ await t('SKILL: the first chest unreachable -> the next container gives the kit 
   assert.equal(count(w.containers.get('5,64,0').slots.filter(Boolean), 'iron_ingot'), 26); assert.equal(count(w.containers.get('1,64,0').slots.filter(Boolean), 'iron_ingot'), 30)
   assert.match(kitRows().at(-1).skill.detail, /tried=\[1,64,0:chest_unreachable;5,64,0:success\]/)
 })
+// lidclear-01 / townsearch-01 COMPOSITION: withdraw's visit now clears a lid it may (cobblestone) and returns
+// container_blocked for one it may not; the town search moves on (withdrawpick.mjs SEARCH_FAIL_SKIP), and so does the kit.
+await t('SKILL: the first chest\'s lid cannot be cleared (oak_planks: container_blocked) -> the next container gives the kit; CONTROL: no lid -> the first gives it', async () => {
+  const w = withServer(town([T('iron_pickaxe', 200), stack('stick', 9)], [stack('iron_ingot', 30)]))
+  w.set(1, 64, 0, 'chest'); w.stock(1, 64, 0, [stack('iron_ingot', 30)]); w.set(1, 65, 0, 'oak_planks')   // nearest HOME first: 1,64,0
+  const r = await run(w, {}, { kitCraft: fakeCraft(w) })
+  assert.equal(r.status, 'success', r.detail)
+  assert.equal(count(w.containers.get('1,64,0').slots.filter(Boolean), 'iron_ingot'), 30, 'the blocked chest gave nothing')
+  assert.equal(count(w.containers.get('5,64,0').slots.filter(Boolean), 'iron_ingot'), 26)
+  assert.match(kitRows().at(-1).skill.detail, /tried=\[1,64,0:container_blocked;5,64,0:success\]/)
+  const w2 = withServer(town([T('iron_pickaxe', 200), stack('stick', 9)], [stack('iron_ingot', 30)]))
+  w2.set(1, 64, 0, 'chest'); w2.stock(1, 64, 0, [stack('iron_ingot', 30)])
+  const r2 = await run(w2, {}, { kitCraft: fakeCraft(w2) })
+  assert.equal(r2.status, 'success', r2.detail)
+  assert.equal(count(w2.containers.get('1,64,0').slots.filter(Boolean), 'iron_ingot'), 26, 'the scene sees the lid: unlidded, the nearest gives it')
+})
 await t('SKILL: holds the kit -> no_effect, no chest opened; a usable iron axe held -> only the shovel is drawn for and made', async () => {
   const w = withServer(town([T('iron_axe', 200), T('iron_shovel', 200)], [stack('iron_ingot', 30)]))
   const r = await run(w, {}, { kitCraft: fakeCraft(w) })
