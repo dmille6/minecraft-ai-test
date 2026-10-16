@@ -1,0 +1,88 @@
+toolkit-01 REBASE onto 534aeec0 (plinth-02 on townsearch-01 on lidclear-01) and 27908be4 (townsearch-01) -- review record, 2026-10-16
+(toolkit rebase agent, worktree agent-a456fcdd). Built IN ADVANCE for the queue lidclear-01 -> townsearch-01 -> plinth-02 -> toolkit-01:
+the 534aeec0 variant is for all three KEPT; the 27908be4 variant if plinth-02 is not kept. (plinth-01 closed INCONCLUSIVE, so the
+f8daab3a variant tk-on-f8daab3 @ 7be67d6e will not be used; tk-on-623e92b @ b1722a6f stays for a fleet that never moves.)
+
+APPROVED CHANGE: toolkit-01 (owner-approved 10-15; iron axe + iron shovel, at most 1 spare stone pickaxe). Net diff 75cfb447..2bce1306;
+reviews docs/reports/toolkit-01-reviews-2026-10-15.txt; first rebase docs/reports/toolkit-01.rebase-review-f8daab3a-623e92b9-2026-10-16.txt.
+
+THE VARIANTS (canary sha of each = the docs-only commit adding THIS record):
+  tk-on-27908be on 27908be4: ad95f8ac, 1dc9da6e, 7092f9fa (the 3 approved commits) + aa16fa3d (composition fixes F1/F2 + test).
+      Conflict: ONE, the skills.mjs import list from withdrawpick.mjs (townsearch dropped townIngredientMissComplete /
+      containerIngredientMiss and added townSearchOrder & co.) -> UNION.
+  tk-on-534aeec on 534aeec0: 7848c925, 2f90ef9d, 26c3d1d3 (approved) + 66c8620f (= aa16fa3d) + 8f39f206 (test-only: the TOOLKIT x
+      PLINTH CHAIN from tk-on-f8daab3 74079951; its title still says "f8daab3a"). Conflicts: hygiene.mjs HOUSEKEEPING (plinth's
+      'build_plinth' + 'toolkit') -> UNION; the import union as above.
+  Every other +/- line identical to the approved diff (both reviewers compared mechanically).
+
+TWO SEMANTIC COMPOSITION FIXES (aa16fa3d / 66c8620f; both engines reviewed them specifically):
+  F1  townsearch-01 deleted skills.mjs townContainerKeys (+ TOWN_KEYS_CAP). toolkit's townKitIronMiss still called it: on a plain
+      cherry-pick it threw a ReferenceError inside its try and returned false for ever, i.e. the order's "every town container
+      recently held too little iron" guard was DEAD (eslint no-undef flagged it: 2 hits instead of 1). Restored verbatim beside
+      townKitIronMiss as toolkit's own helper. Both engines: correct; townSearchView would be wrong here (townCobbleScan skips deep
+      containers the kit's own draw opens, and the stock journal counts no iron).
+  F2  lidclear-01: openForWithdraw clears a lid it may and returns container_blocked for every other lid outcome; townsearch's
+      withdraw_pick moves on (SEARCH_FAIL_SKIP). The kit's draw ENDED the run on container_blocked (30-min backoff); now it moves on
+      (it moved nothing; before the miss write, so a blocked lid is never recorded as "too little iron"). New test: a chest under
+      oak_planks first -> the next container gives the kit; control without the lid.
+
+COMPOSITION (both engines, with file:line in their notes):
+  - plinth-02 decide chain: build_plinth > town_deposit > count_town > wear_out > town/well/room orders > toolkit LAST. Unchanged.
+  - wear_out (PART 1 widens its list) now refuses well/plinth cells (plinth-02 wellCellAt; unreadable -> refused): the first
+    rebase's P3-1 is fixed in the base.
+  - The kit's draw goes through the shared lid actuator (clearChestLid by=withdraw: material, hazard, well and time checks); a
+    dug cobblestone lid's drop cannot upset the transfer verdict (it checks only took/gave names; cobble is roomKeep).
+  - kit_iron misses now live 60 min (INGREDIENT_MISS_TTL_MS = SEARCH_MISS_TTL_MS); a deposit into the container still ends one;
+    noteIngredientMisses keeps the kit's and withdraw_pick's entries apart. Acceptable for this lowest-priority order.
+  - withdrawVisit / decideTakes / withdrawClock / transferIn / craft / classifyOutcome / runner.mjs: no contract change.
+
+TEST EVIDENCE
+  npm test (`node scripts/run-tests.mjs`): tk-on-534aeec @ 8f39f206 258/258; tk-on-27908be @ aa16fa3d 255/255.
+  toolkit.test.mjs 36/36 (534) and 34/34 (27908be). eslint no-undef: exactly one hit each, reflex.mjs:2384 withinBody.
+  MUTANTS (anchor present + unique, restored byte-identical): 534 variant 16/16 killed -- funded, credit-on-bot, abort-delta,
+    fallthrough, lid-fallthrough (F2 reverted -> the lid test fails), kit-miss-helper-gone (F1 broken -> 'a container short of
+    iron ... town order is then' fails), rethrow-before-reconcile, spare-rule-off, town-keep, credit-ignored-in-draw, no-backoff,
+    townmiss-ignored, kit-effect-any, not-housekeeping, toolkit-before-plinth (-> TOOLKIT x PLINTH CHAIN fails), order-unwired;
+    27908be variant 15/15 (the same, no plinth one). The Claude reviewer re-ran F1/F2 mutants itself.
+  PAPER (sandbox 10.0.0.30:25599 cand, sandbox2 :25600 ctrl; lock /tmp/mcai-sandbox.lock on .31 taken 20:48:52Z, released
+    20:52:27Z, both servers empty). Driver sandbox/craft/toolkit-ab.cjs (origin/main), kitgather scene, server reads:
+    cand tk-on-534aeec @ 8f39f206: chest iron_ingot -4, stick -6; bag +iron_axe +iron_shovel; after 3 logs + 3 dirt the SERVER shows
+      iron_axe damage 3, iron_shovel damage 3. ORDER withdraw_pick, ORDER toolkit success, gathers; _toolkit outcome=crafted drew=4
+      used=4 credit=0->0; _craft_room verified both (source=server).
+    ctrl 534aeec0: chest stick -2 only (withdraw_pick's scene artifact), no iron, no kit.
+    Not on Paper: a lidded chest (F2) -- the scene has no lid; F2 rests on the unit test + lidclear-01's own Paper read-back.
+
+REVIEWS (brief: scratch tkrb2/brief.md)
+==================================================================== Claude (independent subagent): APPROVE ========================
+Conflict resolutions are unions; every other +/- line matches the approved diff; aa16fa3d == 66c8620f; 8f39f206 test-only. Lint one
+pre-existing hit each; toolkit.test 36/36, 34/34; F1 and F2 mutants re-run (killed; m-534 byte-identical after). F1 right (same set
+as the kit's draw: withdrawSweep town scan incl. deep containers; townSearchView/townCobbleScan is narrower and journal has no iron
+group -- a redesign, not a rebase). F2 right (before the miss write; bounded by WITHDRAW_CONTAINERS 3). a-f: acceptable / nothing
+kit-specific / placement unchanged / wellCellAt confirmed / place() exclusion is a pre-existing shared follow-up / no contract change.
+P3-1 a blocked or unreachable double chest costs two of the three tries (the partner half is marked only after an open); the
+     kit_no_iron message is then misleading. Same pattern as the approved chest_unreachable handling.
+P3-2 two definitions of "the town's containers" now coexist (townContainerKeys vs townCobbleScan); move the kit to the town search later.
+P3-3 place()'s table placement / make-room dig has no well/plinth exclusion (shared by every craft at town; its own change).
+VERDICT: APPROVE
+
+==================================================================== Codex (codex exec -s read-only, stdin brief): APPROVE ==========
+No P1/P2 findings in aa16fa3d or 8f39f206.
+- F1: Correct. The restored helper is byte-identical to the original and conservatively declines complete coverage at the
+  256-container cap. Adopting townSearchView is unnecessary; its search exclusions must not be mistaken for evidence of
+  insufficient iron.
+- F2: Correct. container_blocked returns before transfer, so continuing cannot discard transferred iron or credit.
+- a: The 60-minute miss TTL is acceptable for this optional order. A recorded deposit invalidates the container's miss; retained
+  credit can bypass the iron-miss guard.
+- b: Toolkit correctly inherits the shared lid-clearing actuator and its material, hazard, well-protection, and time checks.
+- c-d: Toolkit remains the last deterministic order. Plinth precedence and both HOUSEKEEPING entries survive. wear_out now rejects
+  well/plinth cells and unreadable well coverage.
+- e - P3: Generic placeSites and station make-room digging still need well/plinth exclusions. wellTableCell protects only
+  build_well's placement. A pre-existing shared craft/place follow-up, not a toolkit rebase blocker.
+- f: No incompatible changes found in the withdrawal, accounting, crafting, classification, or runner contracts.
+Validation: syntax and git diff --check pass on both variants; no-undef reproduces exactly reflex.mjs:2384 withinBody on each.
+(Full suites, mutants and Paper not reproduced in its read-only sandbox.)
+VERDICT: APPROVE
+
+ACCEPTED P3s (not fixed here): the double-chest two-tries cost and message; the two town-container definitions; place()'s missing
+well/plinth exclusion (a shared craft/place follow-up, as P3-1 of the first rebase was for wear_out and plinth-02 then fixed it).
+HOST (10.0.0.31): the registrations' notes and the entry file carry licencecheck / changerowcheck / validate_entry.
