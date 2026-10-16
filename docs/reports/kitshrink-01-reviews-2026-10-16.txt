@@ -1,0 +1,36 @@
+kitshrink-01 REVIEWS (10-16). Engines: Codex (`codex exec --sandbox read-only - < prompt`, kill watchdog) and an independent
+Claude subagent (fresh, read-only). Prompts and full outputs in the agent's scratch; verdicts and findings below.
+
+DESIGN r1 (round-1 design: torch, chest, ladder<26 bankable)
+  Codex  CHANGES  P1 chest: banking the carried chest into a town's last empty slot leaves the full-town recovery to CRAFT a
+                  chest from a full bag (chestfull fullChestNext 'craft'; inventory_full -> bank shut) -> CHESTS DROPPED.
+                  P2 ladderPlan rejects a non-finite reach (use reach = need, bounded search); P2 attribute exposure/defects
+                  to verified transfers; P2 define the work-start metric and KEEP/INCONCLUSIVE; P2 the new refusal must name a
+                  move; P3 narrow "no consumer", add ladders to the property test.
+  Claude CHANGES  no P1. P2 finite reach; P2 banked kit is a permanent town-storage sink (guard the town side); P2 the far
+                  craft room order would send bots home for torches; P2 queued torch consumers (treefarm-02 places only
+                  carried torches); P2 measure the cost side. P3s (withdraw ranks kit last, slot-order fit, valve, D2 label,
+                  re-craft split, hold-before-kit test).
+DESIGN r2 (chests out; KIT_NO_TRIP; town-side guards; tripwire)
+  Codex  CHANGES  P2 depositDue walks a bot <= 96 blocks with no chest in reach for the kit alone -> depositDue kitBankable;
+                  P2 after+banked is not the start bag -> the bank row uses heldBefore; P2 the town_deposit detail is cut at
+                  300 -> a bounded `_kitshrink phase=bank` row; P3 claims (station stacks, proxy bias) narrowed.
+  Claude CHANGES  P2 the same truncation; P2 the tripwire must name shaft-01 and classify per site. P3 withdraw rank,
+                  ~96-block walk, climb_ladder dead by construction (stated in the record).
+CODE r1 (b536385b / lidclear twin 4b1bab17)
+  Codex  CHANGES  P2 a NAMED kit deposit could still walk when other surplus made depositDue true -> admission refuses it
+                  without storage in reach; near room advice/order keep the kit (kitKeep); P2 td_all_full coverage;
+                  P2 another build's row must break a departure.
+  Claude CHANGES  P2 a mutant anchor was not unique. P3 tripwire limits / "reclassify" / ladder_min cross-check / 129-torch
+                  cap note / run the sandbox.
+CODE r2 (eb644a75 / b895e0f0)
+  Codex  CHANGES  P2 admission's and kitKeep's chest scans ignored bot.skipContainers: a backed-off chest passed admission,
+                  then deposit() skipped it and walked home -> deposit() stops a kit-only plan before the walk home;
+                  usableChestNear judges a chest as the run does.
+  Claude APPROVE  P3 second chest scan; ladder_min mismatch only reported.
+CODE r3 (f2676f5d / 70f8b5c7)
+  Codex  APPROVE  no findings.
+  Claude CHANGES  P2 a kit-only plan at a FULL town chest still started the full-chest recovery (placed the carried chest
+                  or crafted one for torches) -> noNewChestFor: the kit, like cobble, never opens a new chest (viaRecovery,
+                  the town-memory branch, the final exit); chest-full.test.mjs KITSHRINK + control; two mutants.
+CODE r4: see below.

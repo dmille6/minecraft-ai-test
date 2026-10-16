@@ -1,0 +1,25 @@
+kitshrink-01 PAPER RECORD (10-16, sandbox 25599; lock /tmp/mcai-sandbox.lock on 10.0.0.31 held 18:25:31Z-18:45:00Z, released;
+the server's slots/chest/ground and block reads are the oracle). cand = kitshrink-on-623e92b @ f2676f5d (a later commit only
+adds the deposit verb's full-chest exemption, not on these paths), ctrl = 623e92b9 (the fleet). Drivers (on the branch):
+sandbox/craft/kitshrink-ab.cjs (scene `bank`), sandbox/craft/kitshrink-escape-ab.cjs (climbflood scene F, kit as a parameter).
+
+## bank (town 700 120 700, an EMPTY chest 2 east, no table in town; bag 36/36: torch 4, ladder 3, chest 7, crafting_table 1,
+## furnace 1, bucket 1, cobblestone 64, stick 4, stone_pickaxe, wool). Stage 1: no queue. Stage 2: `craft stone_pickaxe`.
+cand  bag 36 -> 34 (mid) -> 35   chest +torch 4 +ladder 3   ground {}
+      kit before torch:4 ladder:3 chest:7 crafting_table:1 furnace:1 bucket:1 | after torch:0 ladder:0 chest:7 crafting_table:1 furnace:1 bucket:1
+      ORDER town_deposit success: `_town_deposit slots 36->34 stacks 2/2 ... banked torch:4,ladder:3 containers 702,120,700=took`
+      `_kitshrink phase=bank via=town_deposit torch=4:4 ladder=3:3 crafting_table=1:0 furnace=1:0 bucket=1:0 slots=36->34`
+      model craft success: `crafted 1x stone_pickaxe (placed a crafting_table) (took the table back)` -- the BAG's table (none in
+      town), verified by the server (+1 stone_pickaxe, crafting_table still 1).
+ctrl  bag 36 -> 36 -> 36   chest unchanged   ground {}
+      no town deposit (nothing bankable); the craft FAILED for room: `refused stone_pickaxe: needs 1 more slot(s) at 36/36`.
+=> the kit leaves the bag at a town visit (2 slots), stations/bucket/chest stay, and the freed slot is what let the craft run.
+
+## escape (climbflood scene F: an entombed 1x1 stone cell at y 40, an air room above the ceiling; the entombed reflex alone)
+post      (stone_pickaxe, cobblestone 64, bucket, crafting_table, furnace, chest 7 -- the bag AFTER the bank)   3/3 out: y 40->42, alive
+pre       (+ ladder 3, torch 4 -- the bag BEFORE it)                                                        2/2 out: y 40->42, alive
+postfill  (post + two wool stacks in slots 6,7: the same RCON command count as `pre`)                         2/2 out: y 40->44 / 40->42, alive
+Same rung every run: `_entombed walled in at y=40` -> pillarOut, the ceiling (700,42,700) then (700,43,700) dug, cobble placed under.
+Timing note: the three `post` runs dug the first ceiling block in 37.5 s (client dig time x5: still in its water-surface
+state when the dig began) vs 7.5 s in `pre`; `postfill` -- no ladders or torches, but the same number of setup commands as `pre` --
+took 7.5 s in 2/2. The delay follows the scene's command timing, not the kit. No run died, flooded or stayed entombed.

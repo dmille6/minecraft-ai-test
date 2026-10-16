@@ -1065,5 +1065,27 @@ await t('C2 THE REFUSAL CHAIN: far out with a full bag and only a DEEP chest, cr
   assert.equal(slotRemedy(c.bot, c.bot.inventory.items(), []).kind, 'deposit')
 })
 
+
+// THE SMALLER KIT NEVER OPENS A NEW CHEST (kitshrink-01; Claude code r3 P2): a deposit of nothing but torches and ladders at a
+// full town chest places no carried chest and crafts none; the same full chest with a log surplus still runs the recovery.
+await t('KITSHRINK: torches and ladders alone at a FULL chest -> no recovery: nothing placed, nothing crafted, no new-chest row; the bag keeps them', async () => {
+  const w = town([stack('torch', 20), stack('ladder', 3), stack('chest', 1)])
+  const n0 = rows('deposit_new_chest').length
+  const r = await run(w.bot)
+  assert.notEqual(r.status, 'success', r.detail)
+  assert.match(r.detail ?? '', /never open a new chest|keep working/, r.detail)
+  assert.equal(w.spy.placed.length, 0, 'the carried chest stays in the bag')
+  assert.equal(w.spy.recipesFor + w.spy.craft, 0, 'no chest crafted')
+  assert.equal(rows('deposit_new_chest').length, n0, 'no recovery row')
+  assert.equal(w.bag.find(i => i.name === 'chest')?.count ?? 0, 1)
+  assert.equal(w.bag.find(i => i.name === 'torch')?.count ?? 0, 20)
+})
+await t('KITSHRINK CONTROL: the same full chest with a log surplus beside the torches -> the recovery runs (the carried chest is placed)', async () => {
+  const w = town([stack('oak_log', 64), stack('oak_log', 30), stack('torch', 20), stack('chest', 1)])
+  const r = await run(w.bot)
+  assert.equal(r.status, 'success', r.detail)
+  assert.equal(w.spy.placed.length, 1, 'the logs open the new chest, as before kitshrink')
+})
+
 console.log(`\n${pass} passed, ${fail} failed`)
 process.exit(fail ? 1 : 0)
