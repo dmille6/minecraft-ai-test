@@ -476,6 +476,36 @@ await t('CHAIN CONTROL (real loop): the same bot out of town never gets the tool
   const { ran } = await decisions(w, 2)
   assert.ok(!ran.some(x => x.skill === 'toolkit'), JSON.stringify(ran))
 })
+// THE TOOLKIT x PLINTH CHAIN (toolkit-01 on plinth-01's f8daab3a = plinth on cobblecap-1000 623e92b9). A no-site town
+// (wellsite's junkwell-nosite record) and a bag funded for the raised junk well (84 cobble + a dirt cover: the plinth spends
+// what is above STONE_GUARD 64), and no kit. Order of the town orders: build_plinth > town_deposit > count_town > ... >
+// toolkit. Expected: the plinth's visit FIRST (stubbed: its own suite), then the toolkit order on a later decision, which
+// makes the kit; neither starves the other (the plinth waits out its cooldown). CONTROL: the same town with no no-site
+// record: no plinth order, the toolkit still makes the kit (the scene sees the plinth only when it is due).
+const plinthDue = w => fs.writeFileSync(path.join(process.env.POOL_STATE_DIR, 'junkwell-nosite-0_64_0.json'),
+  JSON.stringify({ at: Date.now() - 60_000, world: w.bot.worldId ?? null, by: 'peer', tally: 'cols:0' }))
+await t('TOOLKIT x PLINTH CHAIN (real loop, f8daab3a): a funded no-site town and no kit -> build_plinth first, the toolkit after it makes the kit', async () => {
+  const w = chainWorld()
+  plinthDue(w)
+  const P = await import('../src/plinth.mjs')
+  assert.ok(P.plinthBudget(w.bot.inventory.items(), P.PLINTH_STEPS_PER_VISIT) >= P.PLINTH_MIN_FUND, 'the bag funds the plinth above STONE_GUARD')
+  const { ran } = await decisions(w, 5, { crafter: fakeCraft(w) })
+  const ip = ran.findIndex(x => x.skill === 'build_plinth'), { i, head } = beforeKit(ran)
+  assert.equal(ip, 0, `the plinth goes first: ${JSON.stringify(ran)}`)
+  assert.ok(i > ip, `the toolkit is not starved, and comes after the plinth: ${JSON.stringify(ran)}`)
+  assert.ok(head.every(sk => HOUSEKEEPING.has(sk)), `only housekeeping before it: ${head}`)
+  assert.equal(ran[i].status, 'success', kitRows().at(-1)?.skill?.detail)
+  assert.equal(count(w.bag, 'iron_axe'), 1); assert.equal(count(w.bag, 'iron_shovel'), 1)
+  assert.equal(ran.filter(x => x.skill === 'build_plinth').length, 1, `the plinth waits out its cooldown: ${JSON.stringify(ran)}`)
+  assert.ok(count(w.bag, 'cobblestone') >= 64, 'the kit draw never touches the stone reserve')
+})
+await t('TOOLKIT x PLINTH CHAIN, CONTROL: the same town with no no-site record -> no plinth order; the toolkit makes the kit', async () => {
+  const w = chainWorld()
+  const { ran } = await decisions(w, 4, { crafter: fakeCraft(w) })
+  assert.ok(!ran.some(x => x.skill === 'build_plinth'), JSON.stringify(ran))
+  const { i } = beforeKit(ran)
+  assert.ok(i >= 0 && ran[i].status === 'success', JSON.stringify(ran))
+})
 await t('WIRED (structural, comments stripped): the toolkit order is the LAST deterministic order, after the room order and before planting', () => {
   const src = fs.readFileSync(new URL('../src/cognitive.mjs', import.meta.url), 'utf8').replace(/\/\*[\s\S]*?\*\//g, '').split('\n').filter(l => !l.trim().startsWith('//')).join('\n')
   const at = src.indexOf('if (!order) order = this.#toolkitOrder()')
