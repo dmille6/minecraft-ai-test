@@ -385,6 +385,29 @@ await t('NO_ROOM (the plan admitted, the journal\'s claim refused) ends the pick
   } finally { B.setStockReaders({}) }
 })
 
+await t('NO_ROOM AND A MIXED CHEST (Claude r5 P2): the only sticks sit in a chest that also holds a pickaxe -- after the refused claim the ingredient pass takes the stick, not the same refused trade', async () => {
+  const B = await import('../src/bankable.mjs')
+  const w = await noRoomMixed(B)
+  try {
+    const n0 = RECS.length
+    const r = await pick(w)
+    const row = rows(n0).at(-1) ?? ''
+    assert.match(row, /:no_room;/, `positive control: the claim was refused (${row})`)
+    assert.equal(r.status, 'success', `${r.failClass}: ${r.detail}`)
+    assert.equal(count(w.bag, 'stick'), 2); assert.equal(count(w.bag, 'stone_pickaxe'), 0)
+  } finally { B.setStockReaders({}) }
+})
+async function noRoomMixed (B, S = null) {
+  const { installCobbleCap } = S ?? await import('../src/skills.mjs')
+  const bag = [stack('crafting_table', 1), stack('cobblestone', 64), stack('stick', 1), stack('stone', 20), ...Array.from({ length: 32 }, () => stack('bamboo', 64))]
+  const w = farTown({ bag, far: [tool('stone_pickaxe', 20), stack('stick', 9), ...Array.from({ length: 10 }, () => stack('stone', 64))] })
+  installCobbleCap(w.bot)
+  B.setStockReaders({ town: () => ({ lb: 0, complete: true, reserved: 0, floor: 0, avail: 0 }), well: () => true })
+  for (const c of CHESTS) { w.stock(...c, [tool('stone_pickaxe', 20), ...Array.from({ length: 10 }, () => stack('stone', 64))]); journalCount(kOf(c), { stone_pickaxe: 1, stone: 640 }) }
+  journalCount(kOf(FAR), { stone_pickaxe: 1, stick: 9, stone: 640 })
+  return w
+}
+
 // ------------------------------------------------------------------------------------- the pickaxe pass's clock
 await t('THE INGREDIENTS\' RESERVE (Codex r1 P2): the pickaxe pass\'s clock ends WITHDRAW_INGREDIENT_RESERVE_MS before the order\'s, for every part of a visit', () => {
   const now = 1_000_000
@@ -466,6 +489,14 @@ await t('MUTANTS (skills.mjs): each removes one part of the search and a behavio
     await S.SKILLS.withdraw_pick.run({ bot: w.bot }, {}, sig())
     assert.deepEqual(w.spy.opened.slice(n).filter(k => first.has(k)), [], 'order 2 re-opened none of order 1\'s containers')
   }
+  const mixedChest = async S => {
+    const B = await import('../src/bankable.mjs')
+    const w = await noRoomMixed(B, S)
+    try {
+      const r = await S.SKILLS.withdraw_pick.run({ bot: w.bot }, {}, sig())
+      assert.equal(r.status, 'success'); assert.equal(count(w.bag, 'stick'), 2)
+    } finally { B.setStockReaders({}) }
+  }
   const noRoomClaim = async S => {
     const B = await import('../src/bankable.mjs')
     const bag = [stack('crafting_table', 1), stack('cobblestone', 64), stack('stick', 1), stack('stone', 20), ...Array.from({ length: 32 }, () => stack('bamboo', 64))]
@@ -508,7 +539,7 @@ await t('MUTANTS (skills.mjs): each removes one part of the search and a behavio
     assert.equal(S.townPickMiss(w.bot), false, 'an unloaded town column: coverage cannot be claimed')
   }
   for (const [name, fn] of [['journalFirst', journalFirst], ['resumes', resumes], ['failSkip', failSkip], ['fullOnce', fullOnce], ['pickInIngredients', pickInIngredients],
-                            ['gateSeesCount', gateSeesCount], ['gateCoverage', gateCoverage], ['ingPassMiss', ingPassMiss], ['noRoomPass', noRoomPass], ['noRoomClaim', noRoomClaim]]) {
+                            ['gateSeesCount', gateSeesCount], ['gateCoverage', gateCoverage], ['ingPassMiss', ingPassMiss], ['noRoomPass', noRoomPass], ['noRoomClaim', noRoomClaim], ['mixedChest', mixedChest]]) {
     const S = await import('../src/skills.mjs')
     await fn(S).catch(e => { throw new Error(`positive control ${name} fails on the real code: ${e.message}`) })
   }
@@ -519,8 +550,9 @@ await t('MUTANTS (skills.mjs): each removes one part of the search and a behavio
     ['the gate ignores coverage', '  if (!view.coverage || !view.containers.length) return false', '  if (!view.containers.length) return false', gateCoverage],
     ['no skip after a visit that could not look inside', '  bot.withdrawSearchSkip.set(containerKey(bot, cb.position), now + SEARCH_FAIL_SKIP_MS)', '  void 0', failSkip],
     ['the order\'s own opens not excluded', 'if (halves.some(h => tried.has(h)) ||', 'if (', fullOnce],
-    ['the ingredient pass leaves a pickaxe', '    if (p?.tool) return p   // no room', '    if (false) return p   // no room', pickInIngredients],
+    ['the ingredient pass leaves a pickaxe', '    if (p?.tool && !refusedRoom) return p', '    if (false) return p', pickInIngredients],
     ['the ingredient pass writes no pickaxe miss', '{ if (!pickSeen) notePickMisses(e, keys); noteIngredientMisses', '{ noteIngredientMisses', ingPassMiss],
+    ['the ingredient pass re-sends the refused pickaxe trade', '    if (p?.tool && !refusedRoom) return p', '    if (p?.tool) return p', mixedChest],
     ['a refused claim does not end the pickaxe pass', "const pickPassEnds = v => v.result?.failClass === 'no_room' ||", "const pickPassEnds = v => false ||", noRoomClaim],
     ['no room for a pickaxe ends the order', '      if (pickPassEnds(v)) { pickNoRoom = v.result; break }', '      if (false) { pickNoRoom = v.result; break }', noRoomPass],
     ['the pickaxe visit on the order\'s whole clock', 'withdrawVisit(ctx, cb, pickDecision, signal, pc.msLeft, pc.deadline - 2_000)', 'withdrawVisit(ctx, cb, pickDecision, signal, msLeft, deadline - 2_000)', wiring],

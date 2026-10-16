@@ -10354,7 +10354,11 @@ async function withdrawPickRun (ctx, signal, tried, st, finish) {
     // A USABLE PICKAXE SEEN IS A PICKAXE TAKEN (10-14..16: 6 ingredient visits opened a container holding one and left it)
     const p = pickDecision(inChest, bag, { chestEmpty })
     pickSeen = !!p
-    if (p?.tool) return p   // no room for it here: the ingredients may still fit (a partial stack)
+    // no room for it here (a plan noRoom): the ingredients may still fit (a partial stack). And after the town's stock target
+    // REFUSED the room-making claim (pickNoRoom no_room), a pickaxe that needs room made is not tried again (Claude r5 P2):
+    // the same claim would be refused; the ingredients go through decideTakes, whose own room is judged honestly
+    const refusedRoom = pickNoRoom?.failClass === 'no_room' && (p?.deposit?.length || p?.swap)
+    if (p?.tool && !refusedRoom) return p
     const takes = []
     for (const d of deficits) {
       const name = pickName(d, inChest)
