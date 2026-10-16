@@ -15,12 +15,8 @@ import { createRequire } from 'node:module'
 import { loadRegion, reader } from './wellsite-replay.mjs'
 import { inTown, depositTargetOk, TOWN_SCAN_RADIUS, chestPartnerOffset, isChestPartner } from '../src/chestfull.mjs'
 import { readTown, OBS_TTL_MS } from '../src/cobblecap.mjs'
-// the rule lives in bots/src/lidrule.mjs (lidclear-01's code); on a tree without it this script says so and stops
-const L = await import('../src/lidrule.mjs').catch(() => {
-  console.error('lidcensus.mjs needs bots/src/lidrule.mjs (lidclear-01). Until that code lands here, run it from branch lidclear-on-623e92b.')
-  process.exit(2)
-})
-const { chestLidBlocked, serverLidBlocks, lidClearRefusal } = L
+import { chestLidBlocked } from '../src/lidrule.mjs'
+import { serverLidBlocks, lidClearRefusal } from '../src/lidrule.mjs'
 const require = createRequire(import.meta.url)
 const nbt = require('prismarine-nbt')
 
