@@ -51,9 +51,10 @@ import { inTown, depositTargetOk, walkFailure, backsOffTarget, travelTimeoutActi
 import { STORAGE_NEAR, startableJunk } from './composter.mjs'
 // Withdraw (withdrawpick.mjs): the town order and the model's verb share one transfer, verified by the server's bag.
 import { bestToolCopy, roomPlan, roomKeep, roomCandidates, allocate, pickTakes, hasUsablePick, stonePickDeficits, NEEDS, PICK_RE, transferVerdict, bagDelta, withdrawRow, HOLD_MS,
-  ingredientNeedsAbsent, noteIngredientMisses, townIngredientMissComplete } from './withdrawpick.mjs'
+  ingredientNeedsAbsent, noteIngredientMisses, townIngredientMissComplete,
+  townSearchOrder, needCount, INGREDIENT_MISS_KEY, WITHDRAW_PICK_VISITS, WITHDRAW_INGREDIENT_VISITS, WITHDRAW_VISIT_MIN_MS, WITHDRAW_INGREDIENT_RESERVE_MS, SEARCH_FAIL_SKIP_MS, SEARCH_FAIL_SKIP } from './withdrawpick.mjs'
 import { setWithdrawHold, withdrawHolds } from './bankable.mjs'
-import { containerPickMiss, notePickMisses, townPickMissComplete } from './chestfull.mjs'
+import { containerPickMiss, notePickMisses, townPickMissComplete, PICK_MISS_KEY } from './chestfull.mjs'
 import { serverRecount, lockstepClicks, confirmCursor, clicksInFlight, invalidateClicks } from './craftsync.mjs'
 import { inflightTracker } from './inflight.mjs'
 import { FLOOR } from './toolfor.mjs'
@@ -10127,11 +10128,14 @@ export function townIngredientMiss (bot) {
 
 /**
  * withdraw_pick -- the town order (composter.mjs townOrder; chatOnly, housekeeping). The bag holds no usable pickaxe:
- *   1. containers in sight that have not shown "no usable pickaxe" in the last 15 min are looked in, up to three, for
- *      ONE pickaxe -- the best usable copy -- taken where found (room made first: banked into the chest when it has room,
- *      else traded into the pickaxe's own slot); each container that has none is remembered, per container;
- *   2. only if none was found -- or no unvisited container was left -- the deficits for ONE stone pickaxe are taken from
- *      the container that holds most of them (a full chest is skipped, no backoff); the rung's own order crafts it.
+ *   1. EVERY town container may be looked in (townsearch-01; withdrawpick.mjs townSearchOrder): those the stock journal last
+ *      counted holding a usable stone/wooden pickaxe first, then the uncounted, nearest the bot first, up to
+ *      WITHDRAW_PICK_VISITS, for ONE pickaxe -- the best usable copy -- taken where found (room made first: banked into the
+ *      chest when it has room, else traded into the pickaxe's own slot); each container that has none is remembered, per
+ *      container, for SEARCH_MISS_TTL_MS, so the next order continues with the rest;
+ *   2. only if none was found -- or no candidate was left -- the deficits for ONE stone pickaxe are taken the same way (the
+ *      container whose last count covers most of them first; up to WITHDRAW_INGREDIENT_VISITS; a full chest is skipped, no
+ *      backoff); the rung's own order crafts it.
  * Never a trip. One `_withdraw_pick` row per order, ALWAYS (an exception writes outcome=error).
  */
 // ---- CHEST PRUNING (stocktarget-01, prune.mjs; design 3.5) -------------------------------------------------------------
@@ -10211,7 +10215,7 @@ async function withdrawPick (ctx, _args, signal) {
     st.written = true
     return withdrawRowOut(bot, r, { outcome, need: st.need, uses: st.uses, ...st.diag, bagBefore, bagAfter: bagTotal(bot.inventory.items()),
       deposited: Object.entries(st.moved?.gave ?? {}).map(([name, count]) => ({ name, count })),
-      took: { ...(st.moved?.took ?? {}), ...(st.moved?.tool ? { [st.moved.tool.name]: 1 } : {}) }, verb: 'withdraw_pick', tried })
+      took: { ...(st.moved?.took ?? {}), ...(st.moved?.tool ? { [st.moved.tool.name]: 1 } : {}) }, verb: 'withdraw_pick', tried, search: st.search })
   }
   try {
     return await withdrawPickRun(ctx, signal, tried, st, finish)
@@ -10220,53 +10224,127 @@ async function withdrawPick (ctx, _args, signal) {
     throw e
   }
 }
+/**
+ * THE TOWN SEARCH'S INPUTS (townsearch-01; withdrawpick.mjs townSearchOrder decides) -> { containers, counts, misses,
+ * tookAt, skip, byKey }. Every container the town scan names (townCobbleScan: in town, never deep, one key per double
+ * chest, loaded), the stock journal's latest count of each need there, this town's "looked, none" misses for each need,
+ * the last deposit into it, and what is out of this search: opened already in this order (`tried`), a recent visit that
+ * could not look inside (this bot's withdrawSearchSkip), or a container the town's memory has shut (unusable/unavailable).
+ */
+function townSearchView (bot, needs, tried = new Set()) {
+  const now = Date.now()
+  const me = bot.entity?.position
+  let mem = {}
+  try { mem = readTownMemory(townDir(), homeTownKey(), bot.worldId ?? null) ?? {} } catch { mem = {} }
+  let st = null
+  try { st = capTown(bot) } catch { st = null }
+  const sc = townCobbleScan(bot, now, st ? { state: st } : {})
+  const containers = [], skip = [], tookAt = {}, byKey = new Map()
+  const counts = Object.fromEntries(needs.map(n => [n, {}])), misses = Object.fromEntries(needs.map(n => [n, {}]))
+  const missAt = (h, need) => need === 'pick' ? mem?.[PICK_MISS_KEY]?.[h] : mem?.[INGREDIENT_MISS_KEY]?.[h]?.[need]
+  const latest = vals => vals.reduce((a, v) => (Number.isFinite(v) && v > a ? v : a), -Infinity)
+  for (const k of sc.keys ?? []) {
+    const p = keyVec(k)
+    const b = bot.blockAt?.(p)
+    if (!b || !CONTAINER_RE.test(blockNameOf(bot, b) ?? '')) continue
+    const partner = chestPartner(bot, p)
+    const halves = partner ? [k, posKey(partner)] : [k]
+    byKey.set(k, b)
+    containers.push({ k, d: me ? me.distanceTo(p) : Infinity })
+    const failUntil = bot.withdrawSearchSkip?.get?.(k)
+    if (halves.some(h => tried.has(h)) || (Number.isFinite(failUntil) && failUntil > now) ||
+        halves.some(h => ['unusable', 'unavailable'].includes(containerStatus(mem?.[h])))) skip.push(k)
+    const took = latest(halves.map(h => (mem?.[h]?.o === 'took' ? mem[h].at : null)))
+    if (Number.isFinite(took)) tookAt[k] = took
+    const o = st?.obs?.[k]
+    for (const need of needs) {
+      const n = Number.isFinite(o?.at) ? needCount(o, need) : null
+      if (n != null) counts[need][k] = { n, at: o.at }
+      const m = latest(halves.map(h => missAt(h, need)))
+      if (Number.isFinite(m)) misses[need][k] = m
+    }
+  }
+  return { containers, counts, misses, tookAt, skip, byKey, now }
+}
+/** The next container to look in for `needs` -> { block, order, view } (block null: none left). Re-ranked from where the
+ *  bot stands now, after every visit. */
+function townSearchNext (bot, needs, tried, want = {}) {
+  const view = townSearchView(bot, needs, tried)
+  const order = townSearchOrder(view.containers, needs, { counts: view.counts, misses: view.misses, tookAt: view.tookAt, skip: view.skip, want, now: view.now })
+  return { block: order.length ? view.byKey.get(order[0].k) : null, order, view }
+}
+/** A visit that could not look inside: this container leaves THIS bot's search for SEARCH_FAIL_SKIP_MS. */
+function searchFailSkip (bot, cb, failClass) {
+  if (!SEARCH_FAIL_SKIP.has(failClass)) return
+  bot.withdrawSearchSkip ??= new Map()
+  const now = Date.now()
+  for (const [k, until] of bot.withdrawSearchSkip) if (!(until > now)) bot.withdrawSearchSkip.delete(k)
+  bot.withdrawSearchSkip.set(containerKey(bot, cb.position), now + SEARCH_FAIL_SKIP_MS)
+}
+/** Both halves' keys of an opened container (a double chest's other half is the same 54 slots). */
+function halvesOf (bot, pos, double) {
+  const p = double ? chestPartner(bot, pos) : null
+  return p ? [posKey(pos), posKey(p)] : [posKey(pos)]
+}
+/** Results that end the order: about the bag or the window, not about where the pickaxe is. */
+const VISIT_STOPS = ['transfer_unsettled', 'inventory_full', 'container_open', 'recount_unanswered']
+
 async function withdrawPickRun (ctx, signal, tried, st, finish) {
   const { bot } = ctx
   const { deadline, msLeft } = withdrawClock(ctx)
   const keep = roomKeep(bot.currentWants ?? [])
   if (hasUsablePick(bot.inventory.items())) return finish({ status: 'no_effect', detail: 'already carrying a usable pickaxe' }, 'has_pick')
-  const sweep = withdrawSweep(bot, { pick: true, town: true })
   const record = (v, cb) => {
     tried.push(`${posKey(cb.position)}:${v.result?.failClass ?? v.result?.status ?? v.skip ?? (v.moved ? 'acted' : 'none')}`)
     if (v.diag) st.diag = v.diag
     if (v.moved) st.moved = v.moved
   }
+  const timeForAVisit = (reserve = 0) => msLeft(Infinity) >= WITHDRAW_VISIT_MIN_MS + reserve
+  // 1. THE PICKAXE: every town container in townSearchOrder's order (the journal's holders first, then the unknown, nearest
+  //    the bot), at most WITHDRAW_PICK_VISITS this order; each that has none is remembered (both halves), so the next order
+  //    continues with the rest.
   const pickDecision = (inChest, bag, { chestEmpty }) => {
     const p = decideTool(inChest.filter(it => PICK_RE.test(it?.name ?? '')), inChest, bag, chestEmpty, keep)
     if (p?.tool) st.uses = Number.isFinite(remaining(p.tool)) ? remaining(p.tool) : 'full'
     return p
   }
-  const seen = []
-  let chestBlock = sweep.next(STORAGE_NEAR)
-  for (let n = 0; chestBlock && n < WITHDRAW_CONTAINERS; n++) {
+  const pickTried = new Set()
+  let next = townSearchNext(bot, ['pick'], pickTried)
+  st.search = { town: next.view.containers.length, pick: next.order.length, ing: '-' }
+  for (let n = 0; n < WITHDRAW_PICK_VISITS && next.block && timeForAVisit(WITHDRAW_INGREDIENT_RESERVE_MS); n++) {
     check(signal)
-    const v = await withdrawVisit(ctx, chestBlock, pickDecision, signal, msLeft, deadline - 2_000)
-    sweep.mark(chestBlock.position, v.double)
-    record(v, chestBlock)
+    const cb = next.block
+    const v = await withdrawVisit(ctx, cb, pickDecision, signal, msLeft, deadline - 2_000)
+    const keys = halvesOf(bot, cb.position, v.double)
+    for (const k of keys) pickTried.add(k)
+    record(v, cb)
     if (v.result) {
       if (v.result.status === 'success') return finish(v.result, 'took_pick')
-      if (['transfer_unsettled', 'inventory_full', 'container_open', 'recount_unanswered'].includes(v.result.failClass)) return finish(v.result, v.result.failClass)
+      if (VISIT_STOPS.includes(v.result.failClass)) return finish(v.result, v.result.failClass)
+      searchFailSkip(bot, cb, v.result.failClass)
     } else if (!v.skip) {
-      // NO USABLE PICKAXE HERE: remembered for this container (both halves of a double chest), not for the town -- and
-      // so is every ingredient it held none of (the ingredient branch's own evidence).
-      const keys = sweep.halves(chestBlock.position, v.double)
+      // NO USABLE PICKAXE HERE: remembered for this container (both halves of a double chest), not for the town -- and so
+      // is every ingredient it held none of (the ingredient branch's own evidence).
       updateTownMemory(townDir(), homeTownKey(), bot.worldId ?? null, e => { notePickMisses(e, keys); noteIngredientMisses(e, keys, ingredientNeedsAbsent(v.saw)) })
-      seen.push({ block: chestBlock, saw: v.saw })
     }
-    chestBlock = sweep.next(STORAGE_NEAR)
+    next = townSearchNext(bot, ['pick'], pickTried)
   }
   const tableNear = !!bot.findBlock?.({ matching: b => blockNameOf(bot, b) === 'crafting_table', maxDistance: Math.ceil(STATION_REACH) + 1 })
   const deficits = stonePickDeficits(bot.inventory.items(), { tableNear })
   st.need = deficits.length ? deficits.map(d => `${d.need}:${d.count}`).join(',') : 'none'
   if (!deficits.length) return finish({ status: 'no_effect', detail: 'no usable pickaxe in the town chests looked at, and the bag already holds what one stone pickaxe takes' }, 'has_ingredients')
-  // THE INGREDIENTS: the container that covers most of them first (from what the sweep saw), then any other in reach --
-  // also when every container was a recent miss and none was opened for the pickaxe.
+  // 2. THE INGREDIENTS, the same way: the containers whose last count covers most of the deficits first (the pickaxe pass's
+  //    own opens are counted too), then the unknown, nearest first; at most WITHDRAW_INGREDIENT_VISITS this order.
   const pickName = (d, inChest) => {
     const names = NEEDS[d.need].prefer.length ? NEEDS[d.need].prefer : [...new Set(inChest.filter(it => NEEDS[d.need].match(it.name)).map(it => it.name))]
     return names.filter(nm => haveIn(inChest, nm)).sort((a, b) => haveIn(inChest, b) - haveIn(inChest, a))[0] ?? null
   }
-  const coverage = saw => deficits.reduce((k, d) => k + Math.min(d.count, saw.filter(it => NEEDS[d.need].match(it.name)).reduce((a, it) => a + it.count, 0)), 0)
+  let pickSeen = false   // what the last ingredient visit saw of a usable pickaxe (reset before each visit)
   const ingredientDecision = (inChest, bag, { chestEmpty }) => {
+    // A USABLE PICKAXE SEEN IS A PICKAXE TAKEN (10-14..16: 6 ingredient visits opened a container holding one and left it)
+    const p = pickDecision(inChest, bag, { chestEmpty })
+    pickSeen = !!p
+    if (p?.tool) return p   // no room for it here: the ingredients may still fit (a partial stack)
     const takes = []
     for (const d of deficits) {
       const name = pickName(d, inChest)
@@ -10274,21 +10352,29 @@ async function withdrawPickRun (ctx, signal, tried, st, finish) {
     }
     return decideTakes(takes, inChest, bag, chestEmpty, keep)
   }
-  const order = seen.filter(s => coverage(s.saw) > 0).sort((a, b) => coverage(b.saw) - coverage(a.saw)).map(s => s.block)
-  const ingSweep = withdrawSweep(bot, { town: true })
-  for (const b of seen) if (!order.includes(b.block)) ingSweep.mark(b.block.position, false)
+  const needs = deficits.map(d => d.need)
+  const want = Object.fromEntries(deficits.map(d => [d.need, d.count]))
+  const ingTried = new Set()
   let fullChests = 0
-  for (let n = 0; n < WITHDRAW_CONTAINERS; n++) {
+  for (let n = 0; n < WITHDRAW_INGREDIENT_VISITS && timeForAVisit(); n++) {
     check(signal)
-    const cb = order.shift() ?? ingSweep.any(STORAGE_NEAR)
+    pickSeen = false
+    const nx = townSearchNext(bot, needs, ingTried, want)
+    if (n === 0) st.search.ing = nx.order.length
+    const cb = nx.block
     if (!cb) break
-    ingSweep.mark(cb.position, false)
     const v = await withdrawVisit(ctx, cb, ingredientDecision, signal, msLeft, deadline - 2_000)
-    if (v.double) ingSweep.mark(cb.position, true)
+    const keys = halvesOf(bot, cb.position, v.double)
+    for (const k of keys) ingTried.add(k)
     record(v, cb)
-    if (v.result) return finish(v.result, v.result.status === 'success' ? 'took_ingredients' : v.result.failClass ?? v.result.status)
+    if (v.result) {
+      // a visit that could not look inside moves on to the next container; anything else that happened there is the answer
+      if (v.result.status !== 'success' && SEARCH_FAIL_SKIP.has(v.result.failClass)) { searchFailSkip(bot, cb, v.result.failClass); continue }
+      return finish(v.result, v.result.status === 'success' ? (v.moved?.tool ? 'took_pick' : 'took_ingredients') : v.result.failClass ?? v.result.status)
+    }
     if (v.skip) fullChests++
-    else updateTownMemory(townDir(), homeTownKey(), bot.worldId ?? null, e => noteIngredientMisses(e, ingSweep.halves(cb.position, v.double), ingredientNeedsAbsent(v.saw)))
+    // nothing for us here: what it held none of is remembered -- the pickaxe too, when it showed none
+    else updateTownMemory(townDir(), homeTownKey(), bot.worldId ?? null, e => { if (!pickSeen) notePickMisses(e, keys); noteIngredientMisses(e, keys, ingredientNeedsAbsent(v.saw)) })
   }
   if (fullChests) return finish({ status: 'failed', failClass: 'chest_no_room', detail: `no usable pickaxe in town, and the chest(s) holding ${st.need} are full while the bag needs room made first` }, 'chest_no_room')
   return finish({ status: 'failed', failClass: 'container_short', detail: `no usable pickaxe and none of ${st.need} in the ${tried.length} container(s) tried here` }, 'short')

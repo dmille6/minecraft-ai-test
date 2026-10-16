@@ -6,6 +6,7 @@
 //   node sandbox/well/stock-e2e.cjs <botRoot> <scene,scene,...> [server]
 //   scenes: build (the well; every later scene uses it)  stockdispose  stockbank  stockprune  stockprunekeep  stocknochest  stockrace  stockrefuse  stockrecount
 //           lidrecount lidrecountpick (lidclear-01: no well needed; LOCK_OWNER=lidclear)
+//           townsearch townsearch2 (townsearch-01: the far chest; no well needed; LOCK_OWNER=townsearch)
 //
 // RCON only through `ssh mike@10.0.0.30 python3 /tmp/sbx-rcon.py <sandboxN> -`. Sandbox servers and sandbox-* names
 // only. Refuses to run unless the sandbox lock (/tmp/mcai-sandbox.lock on 10.0.0.31) names `stocktarget`.
@@ -681,6 +682,51 @@ async function lidScene (scene, spec) {
 scenes.lidrecount = () => lidScene('lidrecount', [['oak_log', 64], ['oak_log', 64], ...TORCH(4)])
 // cobble above the bag's 64 reserve: the COBBLE CAP (no well needed) refuses it `cobble_unknown` until the town is counted
 scenes.lidrecountpick = () => lidScene('lidrecountpick', [['cobblestone', 64], ['cobblestone', 64], ['cobblestone', 64], ['stone_pickaxe', 1], ...TORCH(4)])
+
+// ---------------------------------------------------------------- TOWNSEARCH-01 (withdraw_pick looks in every town container)
+// THE FAR CHEST: 12 single chests in town (on the slab, y 120), 11 of them within 8 of home holding 5 dirt each, and ONE
+// 13.9 from home (dx -13, dz +5) holding a stone pickaxe (damage 20) and 20 sticks. The bot spawns at home with no pickaxe:
+// a crafting table and 3 cobblestone (so its one deficit is 2 sticks). Its own town order runs withdraw_pick; the scene reads
+// every `_withdraw_pick` row until one TAKES something or `orders` rows have been written, then reads back the WORLD: the
+// server's bag, the far chest and every near chest's contents (RCON `data get`), which chests the server was asked to open
+// (the trace), and the licence row. BASE SHAPE: no pickaxe, the far chest untouched, the near chests nearest home opened.
+// CANDIDATE: the server's bag holds the stone pickaxe, the far chest lost exactly it, every near chest still 5 dirt.
+const TS_NEAR = [[3, 0], [0, 3], [-3, 0], [0, -3], [5, 5], [-5, 5], [5, -5], [-5, -5], [8, 0], [0, 8], [0, -8]]
+const TS_FAR = [-13, 5]
+async function townSearchScene (scene, { orders = 1, wait = 300000 } = {}) {
+  buildArena()
+  BRAIN_WANDER = true   // two short walks in town, not 'status' for ever (the livelock relocation off the arena)
+  rcon(`kill ${ARENA_SEL}`)
+  const at = ([dx, dz]) => ({ x: HOME.x + dx, y: HOME.y, z: HOME.z + dz })
+  for (const c of TS_NEAR) setChest([['dirt', 5]], at(c))
+  const far = at(TS_FAR)
+  setChest([['stick', 20]], far)
+  const put = rcon(`item replace block ${far.x} ${far.y} ${far.z} container.1 with minecraft:stone_pickaxe[minecraft:damage=20] 1`)
+  if (/Unknown|Incorrect|Cannot|not loaded/i.test(put[0]?.reply ?? '')) throw new Error('far pickaxe: ' + put[0].reply)
+  const before = { far: chestTotals(far).totals, near: TS_NEAR.map(c => chestTotals(at(c)).totals) }
+  const pool = `sbxts-${RUN}-${scene}`
+  const files = await startBot(scene, [['crafting_table', 1], ['cobblestone', 3], ...TORCH(2)], { pool })
+  const t0 = Date.now()
+  const wpRows = () => rowsOf(files.skillLog).filter(r => r.name === '_withdraw_pick' && / verb=withdraw_pick /.test(r.detail))
+  await waitFor(() => { const w = wpRows(); return w.length >= orders || w.some(r => / took=(?!-)/.test(r.detail)) }, wait, 1000)
+  await sleep(3000)
+  const rows = wpRows()
+  const after = { far: chestTotals(far).totals, near: TS_NEAR.map(c => chestTotals(at(c)).totals) }
+  const b = bag(NAME)
+  const opened = (() => { try { return lines(files.trace).map(l => { try { return JSON.parse(l) } catch { return null } }).filter(e => e && /open|window_open|block_place/.test(e.pkt ?? '')).length } catch { return null } })()
+  const licence = rowsOf(files.skillLog).filter(r => r.name === '_townsearch_mode').length
+  const visitsPerRow = rows.map(r => ((r.detail.match(/tried=\[(.*)\]?/) || [])[1] || '').split(';').filter(Boolean).length)
+  const skillEnd = lines(files.botOut).filter(l => /skill withdraw_pick ->/.test(l)).map(l => l.slice(0, 200))
+  await stopBot(); BRAIN_WANDER = false
+  const nearUnchanged = after.near.every(t => JSON.stringify(t) === JSON.stringify({ dirt: 5 }))
+  result({ scene, root: BOT_ROOT, ms: Date.now() - t0, rows: rows.map(r => `${new Date(r.ts).toISOString().slice(11, 19)} ${r.status} ${r.detail}`), visitsPerRow, skillEnd,
+    world: { bag: b.totals, farBefore: before.far, farAfter: after.far, nearUnchanged, nearAfter: after.near }, licence, openPkts: opened,
+    CANDIDATE_PASS: !!((b.totals.stone_pickaxe ?? 0) === 1 && !after.far.stone_pickaxe && (after.far.stick ?? 0) === 20 && nearUnchanged && licence >= 1 &&
+      rows.some(r => /^outcome=took_pick /.test(r.detail))),
+    BASE_SHAPE: !!(!(b.totals.stone_pickaxe ?? 0) && (after.far.stone_pickaxe ?? 0) === 1 && licence === 0 && rows.length >= 1 && rows.every(r => !/^outcome=took_pick /.test(r.detail))) })
+}
+scenes.townsearch = () => townSearchScene('townsearch')
+scenes.townsearch2 = () => townSearchScene('townsearch2', { orders: 2, wait: 1700000 })   // two orders (the second ~20 min later)
 
 // RACE: two bots, one town at target + ONE stack (128 oak, target 64), both with room and a fresh count: both get prune
 // orders; at most one stack may leave (the take claims, decided in the journal's order).
