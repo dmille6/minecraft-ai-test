@@ -12,6 +12,23 @@ Studio reservation both closed 10-12); clear caps bamboo 0 / bucket 2._
 
 ---
 
+## 10-16 06:30Z — COBBLEOVERFLOW-01 READY (owner 10-16 "junk can take the extra"); both engines APPROVE; PARKED, not queued: zero exposure
+- **Branch** `cobbleoverflow-on-cc1000` @ 5fae06fe (reviewed code 46a951a7; the tip adds docs/read only), on cc1000-on-8cd0bc6 9e79c171.
+  The live cobblecap-1000 variant is 623e92b9 (on 75cfb447): a REBASE VARIANT onto that (or onto cobblecap's promoted tip) is needed.
+- **Rule:** below the cap the well takes a whole surplus cobble/deepslate stack (bot keeps 64) only when the town's ROOM IS KNOWN (every
+  container counted within 6 h, each count carrying per-name room + container size, size unchanged, no void/dirty/withdraw in progress,
+  cobble count complete and < 1000; re-checked at plan, precheck and every click; > 48 blocks from home = unknown) AND no single container
+  takes that stack whole. Unknown room sends nothing. 6 h TTL accepted by both engines (1 h never fires: 0/289 samples fully fresh).
+- **Evidence:** npm 252/252; mutants 55/55 killed; Paper sandbox3 on 46a951a7: full town < 1000 -> bag 158->64, shaft +94, chest
+  unchanged; room -> 94 banked, well +0; unknown room (lid-blocked chest) -> nothing in 157 s. Records docs/reports/cobbleoverflow-01-*.
+- **Read** scripts/host/cobbleoverflowread.py 938b71e5 (+ cobbleroomaudit.mjs a184fc76 beside it); licence kind `_cobbleoverflow_mode`;
+  draft registration docs/reports/cobbleoverflow-01.registration-draft.json (stuck_did; draw gate >= 3 "town chests in reach are full"
+  rows / 12 h; no draw_require_pools).
+- **WHY PARKED:** 48 h, 1.41 M rows: 0 full-town refusals, 0 cobble-only no-room deposits, 0 chest-budget refusals (positive control:
+  318 town-deposit rows, 30 far-chest failures). Queued now it would sit at its draw gate and, as the head, block the queue. TRIGGER to
+  queue: cobblecapread's BANK CLOSED tripwire, or >= 3 full-town refusal rows / 12 h on any pool -> build the variant on the live tip,
+  install the read, queue it next.
+
 ## 10-16 05:15Z — TOWNZONE-01 KEPT (+360, 04:52Z) and PROMOTED: FLEET 75cfb447 (05:02Z); merged to main; cobblecap-1000 drawing
 - **Verdict** KEEP +360 04:52:57Z: deaths 1 (0.011/bh over 90.0 bot-h) vs control 3 (0.011/bh over 270.0); +180 was NOT_YET with
   0 vs 3; exposure townzoneread.exposure_ready = 1. Promoted by the loop, VERIFIED 05:02:38Z (fleet on 75cfb447). Merged to main.

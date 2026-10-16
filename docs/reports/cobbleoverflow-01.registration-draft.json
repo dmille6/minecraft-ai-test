@@ -1,0 +1,33 @@
+{
+ "_DRAFT": "SUGGESTED by the build agent, NOT installed: the coordinator writes the real ~/mcai-analysis/cobbleoverflow-01.<sha>.json and its queue entry. canary_sha = this branch's tip (cobbleoverflow-on-cc1000); its bots/ tree is identical to the reviewed 46a951a7 (later commits are docs only). Launchable only on a fleet running cobblecap-1000 9e79c171 (KEPT and promoted); on any other fleet tip (e.g. cobblecap's townzone variant 623e92b9) a rebase variant is needed.",
+ "run_id": "cobbleoverflow-01",
+ "sha": "<branch tip>",
+ "ladder_change": false,
+ "promotion": "fleet-wide",
+ "notes": "OWNER 10-16 'yes, junk can take the extra'. Below the town cobble cap (1000) the junk well also takes whole surplus cobble / cobbled_deepslate stacks that NO town container can take whole, only when the town's room is KNOWN (every container of a covered scan has a count <= 6 h old carrying its room and size, none mid-withdraw, no unresolved void/dirty mark), judged over a FRESH scan at the well's plan, precheck and every click; the bot keeps its 64; unknown room sends nothing; never a toss, never a chest. Records: docs/reports/cobbleoverflow-01-{reviews,paper}-2026-10-16.txt. Built on cobblecap-1000 9e79c171.",
+ "licence": {"class": "kind", "kind": "_cobbleoverflow_mode", "min_rows": 1,
+   "note": "written once per spawn (index.mjs, `phase=mode rule=no_room ttl_min=360`); the base cannot write the kind. Proves the build is live, not the effect (liveness = overflow_throws_canary)."},
+ "reads": ["cobbleoverflowread", "immobiledid"],
+ "read_deps": "cobbleoverflowread.py runs scripts/host/cobbleroomaudit.mjs from its own directory and folds with CANARY_CC (default ~/mcai-analysis/cobbleoverflow01/cobblecap.mjs = this build's bots/src/cobblecap.mjs, with its stocktarget.mjs and toolfor.mjs beside it).",
+ "read_minutes": [180, 360],
+ "change_rows": [],
+ "draw_exposure": {
+  "hours": 12,
+  "require": [{"name": "town deposits refused: every town chest in reach full", "kind": "town_deposit", "detail_contains": "the town chests in reach are full", "min": 3}],
+  "note": "MEASURED 10-16 ~02:30Z over 48 h fleet-wide (1.41 M rows): ZERO such rows (positive controls: 318 town_deposit rows, 30 chest-full deposit failures at far chests, 29 _deposit_new_chest rows), zero cobble-only no-room deposits, zero refuse_cap. Towns are not full today: this gate keeps the canary from launching unexposed (owner early-close rule)."
+ },
+ "exposure": {"read": "cobbleoverflowread", "field": "exposure_ready", "min": 1,
+   "note": ">= 3 canary rows where a bank refused for room with a whole surplus stack in the bag (town_storage_full with bag cobble >= 128, or the cobble-only 'cobble never opens a new chest'), from >= 2 canary bots. Reported beside it: the canary's own exposure rows with the room KNOWN (exposure_known)."},
+ "own_lines": [
+  {"read": "cobbleoverflowread", "field": "breach_reserve", "op": "<=", "value": 0, "on_fail": "REVERT", "evidence": "defect", "note": "D1: an overflow click (or visit) that left the bag under its 64."},
+  {"read": "cobbleoverflowread", "field": "breach_switch", "op": "<=", "value": 0, "on_fail": "REVERT", "evidence": "defect", "note": "D2: an overflow click outside its own rule (not cap=below mode=overflow known=1, or its own reading had ONE container with room for that stack, per name)."},
+  {"read": "cobbleoverflowread", "field": "breach_room_journal_trip", "op": "<=", "value": 0, "on_fail": "REVERT", "evidence": "defect", "note": "D3: >= 2 overflow clicks the journal contradicts (folded with the canary's cobblecap.mjs to the click's time, over the same container list): a container could take that stack whole. One is reported and named. d3_blind = 1 means no click could be judged."},
+  {"read": "cobbleoverflowread", "field": "arms_control_rows", "op": "<=", "value": 0, "on_fail": "REVERT", "note": "Arms: a control row of this build's kinds or a control overflow throw. BLOCKS KEEP."},
+  {"read": "cobbleoverflowread", "field": "base_licence_control", "op": ">=", "value": 1, "on_fail": "REVERT", "note": "BASE: the control runs cobblecap-1000 (its _cobblecap_mode rows). BLOCKS KEEP."},
+  {"read": "cobbleoverflowread", "field": "overflow_throws_canary", "op": ">=", "value": 1, "on_fail": "REVERT", "note": "LIVENESS: canary _well_dispose rows with overflow > 0. BLOCKS KEEP (INCONCLUSIVE)."}
+ ],
+ "primary": {"read": "cobbleoverflowread", "field": "stuck_did", "note": "stuck rows (the exposure rows) per bot-h, DiD canary vs control: should FALL. Reported: overflow cobble per canary bot-h; the well's cobble DiD (should rise)."},
+ "harm": {"note": "Unchanged: the two-death floor and gather_ratio, from immobiledid. TRIPWIRES (reported): new town chests DiD, chest-full deposit failures DiD."},
+ "teardown": {"note": "THREE STEPS: drop-ins, clear canary_pool, restart the pool's bots 12 s apart; confirm the live versions. Journal records written by the canary carry extra fields (r, z, i) that the base ignores; nothing to undo."},
+ "extension": {"until_exposure": true, "extra_reads": [540, 720, 1080, 1560], "final_on_zero_exposure": "INCONCLUSIVE"}
+}
