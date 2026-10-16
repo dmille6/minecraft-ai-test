@@ -1,0 +1,414 @@
+// LIDCLEAR-01: lid-blocked town chests (docs/reports/lidclear-2026-10-16.md). Behaviour first: the pure rule
+// (lidrule.mjs), the actuator (skills.mjs clearChestLid) in the fake world, and the REFUSAL CHAIN through the real
+// count_town -> reconcileCobble -> clearChestLid -> open -> journal count -> the town judged; then the deposit's memory
+// rule, and anchored mutants (withMutant: the anchor present and unique, or the mutant does not count as killed).
+import assert from 'node:assert'
+import fs from 'node:fs'
+import os from 'node:os'
+import path from 'node:path'
+import { readFileSync, writeFileSync, unlinkSync } from 'node:fs'
+
+process.env.LOG_DIR = fs.mkdtempSync(path.join(os.tmpdir(), 'mcbot-lid-logs-'))
+process.env.BOT_NAME = 'LidBot'
+process.env.OLLAMA_MODEL ??= 'qwen2.5:7b-instruct'
+process.env.HOME_X = '0'; process.env.HOME_Y = '64'; process.env.HOME_Z = '0'
+process.env.SKILL_TIMEOUT_MS = '180000'
+process.env.POOL_STATE_DIR = fs.mkdtempSync(path.join(os.tmpdir(), 'mcbot-lid-pool-'))
+
+const L = await import('../src/lidrule.mjs')
+const B = await import('../src/bankable.mjs')
+const CC = await import('../src/cobblecap.mjs')
+const CF = await import('../src/chestfull.mjs')
+const SK = await import('../src/skills.mjs')
+const { currentDigScope } = await import('../src/digtown.mjs')
+const { tapRecords } = await import('../src/logger.mjs')
+const { fakeWorld, stack, tool } = await import('./fakeworld.mjs')
+const { SKILLS, installCobbleCap, cobbleObserve } = SK
+
+let pass = 0, fail = 0
+const t = async (name, fn) => {
+  try { await fn(); pass++; console.log(`  PASS  ${name}`) } catch (e) { fail++; console.log(`  FAIL  ${name}\n        ${e.stack?.split('\n').slice(0, 4).join('\n        ')}`) }
+}
+const RECS = []
+tapRecords(r => RECS.push(r))
+const rowsSince = (n0, kind) => RECS.slice(n0).filter(x => x.skill?.name === kind).map(x => x.skill.detail)
+const SKILLS_PATH = new URL('../src/skills.mjs', import.meta.url)
+const LID_PATH = new URL('../src/lidrule.mjs', import.meta.url)
+async function withMutant (p, old, neu, fn) {
+  const src = readFileSync(p, 'utf8')
+  assert.ok(src.includes(old), `MUTATION DID NOT APPLY: ${JSON.stringify(old.slice(0, 70))} is not in ${p.pathname}. A mutant that was never written reads as killed.`)
+  assert.ok(src.split(old).length === 2, 'the mutation target is not unique; the mutant is ambiguous')
+  const out = new URL(`./_mutant-${process.pid}-${Math.random().toString(36).slice(2)}.mjs`, import.meta.url)
+  writeFileSync(out, src.replace(old, neu).replace(/from '\.\//g, "from '../src/"))
+  try { return await fn(await import(out.href)) } finally { try { unlinkSync(out) } catch {} }
+}
+
+// ----------------------------------------------------------------------------------------------------- the pure rule
+const cube = name => ({ name, boundingBox: 'block', shapes: [[0, 0, 0, 1, 1, 1]] })
+const AIR = { name: 'air', boundingBox: 'empty', shapes: [] }
+const sides4 = (b = AIR) => [b, b, b, b]
+await t('RULE: what the bot may break off a lid -- cobblestone and cobbled deepslate only; never a structure, storage, glass or leaves; never by the well; never beside water or lava (a liquid OR a waterlogged block); never under a falling block; never on an unknown cell', () => {
+  const ok = (lid, extra = {}) => L.lidClearRefusal({ lid: { name: lid }, above: AIR, sides: sides4(), ...extra })
+  assert.equal(ok('cobblestone'), null, 'the census blocker: clearable')
+  assert.equal(ok('cobbled_deepslate'), null)
+  for (const n of ['dirt', 'stone_bricks', 'oak_planks', 'oak_log', 'chest', 'barrel', 'crafting_table', 'glass', 'oak_leaves', 'composter']) {
+    assert.match(ok(n) ?? '', /is not a block a bot may break/, `${n} is refused`)
+  }
+  assert.match(ok('cobblestone', { well: true }), /junk well/)
+  assert.match(L.lidClearRefusal({ lid: { name: 'cobblestone' }, above: { name: 'water' }, sides: sides4() }), /water or lava/)
+  assert.match(L.lidClearRefusal({ lid: { name: 'cobblestone' }, above: AIR, sides: [AIR, { name: 'lava' }, AIR, AIR] }), /water or lava/)
+  assert.match(L.lidClearRefusal({ lid: { name: 'cobblestone' }, above: AIR, sides: [AIR, AIR, { name: 'oak_stairs', props: { waterlogged: true } }, AIR] }), /water or lava/, 'a waterlogged neighbour')
+  assert.match(L.lidClearRefusal({ lid: { name: 'cobblestone' }, above: AIR, sides: [AIR, AIR, { name: 'oak_stairs', props: { waterlogged: 'true' } }, AIR] }), /water or lava/, 'a region read says "true"')
+  assert.equal(L.lidClearRefusal({ lid: { name: 'cobblestone' }, above: AIR, sides: [AIR, AIR, { name: 'oak_stairs', props: { waterlogged: false } }, AIR] }), null, 'positive control: a dry stair')
+  assert.match(L.lidClearRefusal({ lid: { name: 'cobblestone' }, above: { name: 'gravel' }, sides: sides4() }), /would fall/)
+  assert.match(L.lidClearRefusal({ lid: { name: 'cobblestone' }, above: { name: 'red_concrete_powder' }, sides: sides4() }), /would fall/)
+  assert.match(L.lidClearRefusal({ lid: { name: 'cobblestone' }, above: null, sides: sides4() }), /unknown/)
+  assert.match(L.lidClearRefusal({ lid: { name: 'cobblestone' }, above: AIR, sides: [AIR, null, AIR, AIR] }), /unknown/)
+  assert.match(L.lidClearRefusal({ lid: { name: 'cobblestone' }, above: AIR, sides: [AIR, AIR] }), /unknown/, 'fewer than four sides')
+  assert.match(L.lidClearRefusal({}), /lid unknown/)
+})
+await t('RULE: the dig budget is the dig plus 2.5 s, refused past 15 s -- a bare hand on cobblestone (10,000 ms) gets 12,500 ms, never the old 10,000 ms race; off the ground (x5) it is not started', () => {
+  assert.equal(L.lidDigBudgetMs(750), 3250)
+  assert.equal(L.lidDigBudgetMs(1500), 4000)
+  assert.equal(L.lidDigBudgetMs(10000), 12500)
+  assert.ok(L.lidDigBudgetMs(10000) > 10000, 'THE DEFECT: a bare hand needs 10,000 ms, so the budget must exceed it')
+  assert.equal(L.lidDigBudgetMs(12500), 15000, 'the bound is inclusive')
+  assert.equal(L.lidDigBudgetMs(12501), null)
+  assert.equal(L.lidDigBudgetMs(50000), null)
+  for (const x of [NaN, -1, undefined, null, 'x']) assert.equal(L.lidDigBudgetMs(x), x === null ? 2500 : null, String(x))
+})
+await t('RULE: only evidence about the LID closes the container for the town; the caller\'s limits never do', () => {
+  for (const o of ['refused', 'failed', 'unconfirmed']) assert.equal(L.lidFailMemory(o), 'unavailable', o)
+  for (const o of ['dug', 'not_blocked', 'slow', 'no_time', 'reach', 'hand', 'aborted']) assert.equal(L.lidFailMemory(o), null, o)
+  assert.deepEqual([...L.LID_OUTCOMES].sort(), ['aborted', 'dug', 'failed', 'hand', 'no_time', 'not_blocked', 'reach', 'refused', 'slow', 'unconfirmed'])
+})
+await t('RULE: the bot\'s lid test (unchanged) and the server\'s rule (an approximation, census and tests only): a chest on a chest, glass and leaves do not block the server; soul sand and a sitting cat do', () => {
+  assert.equal(L.chestLidBlocked(cube('stone')), true)
+  assert.equal(L.chestLidBlocked({ name: 'dirt', boundingBox: 'block' }), true, 'a solid without shapes is assumed full')
+  assert.equal(L.chestLidBlocked(AIR), false)
+  assert.equal(L.chestLidBlocked({ name: 'stone_slab', boundingBox: 'block', shapes: [[0, 0, 0, 1, 0.5, 1]] }), false)
+  assert.equal(L.chestLidBlocked({ name: 'oak_stairs', boundingBox: 'block', shapes: [[0, 0, 0, 1, 0.5, 1], [0, 0.5, 0.5, 1, 1, 1]] }), false)
+  assert.equal(L.chestLidBlocked(null), false)
+  assert.equal(SK.chestLidBlocked, L.chestLidBlocked, 'skills.mjs re-exports the one rule')
+  assert.equal(L.serverLidBlocks(cube('cobblestone')), true)
+  assert.equal(L.serverLidBlocks({ name: 'chest', boundingBox: 'block', shapes: [[0.0625, 0, 0.0625, 0.9375, 0.875, 0.9375]] }), false, 'a chest on a chest opens')
+  assert.equal(L.serverLidBlocks(cube('glass')), false); assert.equal(L.serverLidBlocks(cube('oak_leaves')), false)
+  assert.equal(L.serverLidBlocks({ name: 'soul_sand', boundingBox: 'block', shapes: [[0, 0, 0, 1, 0.875, 1]] }), true)
+  assert.equal(L.serverLidBlocks(AIR, { cat: true }), true)
+  assert.equal(L.serverLidBlocks(AIR), false)
+})
+await t('LICENCE: the mode detail names the rule; index.mjs writes `_lidclear_mode` once per spawn on the executable path (comments stripped)', () => {
+  assert.equal(L.lidClearModeDetail(), `phase=mode recount=clear dig=equip breakable=cobble budget_max=${L.LID_DIG_MAX_MS}`)
+  const strip = s => s.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '')
+  const wired = src => {
+    const c = strip(src)
+    assert.match(c, /^import \{ lidClearModeDetail \} from '\.\/lidrule\.mjs'$/m, 'imported')
+    const i = c.indexOf('installCobbleCap(bot)')
+    assert.ok(i > 0, 'anchor')
+    assert.match(c.slice(i, i + 4000), /\n\s*try \{ logEvent\(\{ kind: 'lidclear_mode', status: 'success', snapshot: snapshot\(bot\), detail: lidClearModeDetail\(\) \}\) \} catch \{\}/, 'written on spawn')
+  }
+  const idx = readFileSync(new URL('../src/index.mjs', import.meta.url), 'utf8')
+  wired(idx)
+  const row = "    try { logEvent({ kind: 'lidclear_mode'"
+  assert.equal(idx.split(row).length, 2, 'ANCHOR MISSING or not unique')
+  assert.throws(() => wired(idx.replace(row, "    try { void ({ kind: 'lidclear_mode'")), 'a removed row is caught')
+  assert.throws(() => wired(idx.replace("detail: lidClearModeDetail() }) } catch {}", "detail: 'phase=mode' }) } catch {}")), 'a literal detail is caught')
+})
+
+// ------------------------------------------------------------------------------------------- the actuator, faked
+// A town chest at 5,64,0 (home 0,64,0). The fake world gets what the actuator needs: digTime by the HELD item (a stone
+// pickaxe 750 ms, any pickaxe 1,500, the hand 10,000 -- prismarine-block 1.21.8 for cobblestone), a dig that records the
+// hand and the dig scope and turns the cell to air, canDigBlock, and an open that the SERVER refuses under a full block.
+const lidWorld = (bag = [], { lid = 'cobblestone' } = {}) => {
+  process.env.POOL_STATE_DIR = fs.mkdtempSync(path.join(os.tmpdir(), 'mcbot-lid-pool-'))
+  const w = fakeWorld({ bag })
+  w.set(5, 64, 0, 'chest')
+  if (lid) w.set(5, 65, 0, lid)
+  w.digs = []
+  // what the fake's blocks lack and toolFor reads: cobblestone's harvest tools (prismarine-block canHarvest), and a
+  // chest's real shape (not a full cube: a chest on a chest is not a blocked lid)
+  const PICKS = ['wooden_pickaxe', 'stone_pickaxe', 'iron_pickaxe', 'golden_pickaxe'].map(n => w.bot.registry.itemsByName[n].id)
+  const blockAt0 = w.bot.blockAt
+  w.bot.blockAt = p => {
+    const b = blockAt0(p)
+    if (b?.name === 'cobblestone') b.canHarvest = id => PICKS.includes(id)
+    if (b?.name === 'chest') b.shapes = [[0.0625, 0, 0.0625, 0.9375, 0.875, 0.9375]]
+    return b
+  }
+  w.bot.digTime = b => (w.bot.heldItem?.name === 'stone_pickaxe' ? 750 : /_pickaxe$/.test(w.bot.heldItem?.name ?? '') ? 1500 : 10_000) * (w.bot.entity.onGround === false ? 5 : 1)
+  w.bot.canDigBlock = () => true
+  w.bot.dig = async (b, force) => { w.digs.push({ at: w.key(b.position.x, b.position.y, b.position.z), held: w.bot.heldItem?.name ?? null, force, scope: currentDigScope() }); w.set(b.position.x, b.position.y, b.position.z, 'air') }
+  const open0 = w.bot.openContainer.bind(w.bot)
+  w.bot.openContainer = async b => {
+    const lidB = w.bot.blockAt(b.position.offset(0, 1, 0))
+    if (L.serverLidBlocks(lidB)) throw new Error('Event windowOpen did not fire within timeout of 20000ms')   // the server's rule
+    return open0(b)
+  }
+  return w
+}
+const at = (x, y, z) => ({ x, y, z, offset (dx, dy, dz) { return at(x + dx, y + dy, z + dz) } })
+const C = () => w0.bot.blockAt({ x: 5, y: 64, z: 0 }).position
+let w0 = null
+const clear = (w, opts = {}) => { w0 = w; return SK.clearChestLid(w.bot, C(), { signal: new AbortController().signal, msLeft: cap => cap, by: 'test', ...opts }) }
+
+await t('ACTUATOR: a stone pickaxe in the bag is EQUIPPED before digTime -> a 3,250 ms budget, the dig in the lid scope, `dig(..., ignore)`, the lid air, one `_lid_clear outcome=dug` row', async () => {
+  const w = lidWorld([tool('stone_pickaxe', 10), stack('dirt', 5)])
+  const n0 = RECS.length
+  const r = await clear(w)
+  assert.equal(r.outcome, 'dug', r.detail)
+  assert.equal(w.nameAt(5, 65, 0), 'air')
+  assert.deepEqual(w.digs.map(d => [d.at, d.held, d.force, d.scope?.purpose, d.scope?.by]), [['5,65,0', 'stone_pickaxe', 'ignore', 'lid', 'test']])
+  const rows = rowsSince(n0, '_lid_clear')
+  assert.equal(rows.length, 1)
+  assert.match(rows[0], /^outcome=dug by=test at=5,64,0 key=5,64,0 lid=cobblestone above=air tool=stone_pickaxe dig_ms=750 budget=3250$/)
+})
+await t('ACTUATOR: no pickaxe -> the bare hand (10,000 ms), budgeted 12,500 ms -- the case the old 10,000 ms race always lost', async () => {
+  const w = lidWorld([stack('dirt', 5)])
+  const n0 = RECS.length
+  const r = await clear(w)
+  assert.equal(r.outcome, 'dug')
+  assert.match(rowsSince(n0, '_lid_clear')[0], / tool=hand dig_ms=10000 budget=12500$/)
+})
+await t('ACTUATOR: nothing to do -- a clear lid, a chest on a chest, a barrel under cobblestone: no dig, no row', async () => {
+  for (const [lid, cont] of [[null, 'chest'], ['chest', 'chest'], ['cobblestone', 'barrel']]) {
+    const w = lidWorld([], { lid })
+    if (cont !== 'chest') w.set(5, 64, 0, cont)
+    const n0 = RECS.length
+    const r = await clear(w)
+    assert.equal(r.outcome, 'not_blocked', `${lid} on ${cont}`)
+    assert.equal(w.digs.length, 0); assert.equal(rowsSince(n0, '_lid_clear').length, 0)
+  }
+})
+await t('ACTUATOR REFUSES (evidence about the lid): planks on the lid; water beside it; gravel above it -- no dig, a `_lid_clear outcome=refused` row naming why', async () => {
+  const cases = [['oak_planks', w => {}, /oak_planks is not a block/], ['cobblestone', w => w.set(6, 65, 0, 'water'), /water or lava/], ['cobblestone', w => w.set(5, 66, 0, 'gravel'), /fall/]]
+  for (const [lid, setup, why] of cases) {
+    const w = lidWorld([tool('stone_pickaxe', 10)], { lid })
+    if (lid === 'oak_planks') w.set(5, 65, 0, 'oak_planks')
+    setup(w)
+    const n0 = RECS.length
+    const r = await clear(w)
+    assert.equal(r.outcome, 'refused', lid)
+    assert.equal(w.digs.length, 0, 'no dig')
+    assert.match(rowsSince(n0, '_lid_clear')[0], /^outcome=refused /)
+    assert.match(r.detail, why)
+  }
+})
+await t('ACTUATOR, THE CALLER\'S LIMITS: our clock (no_time), off the ground for a second (slow), a hand it could not take (hand), out of reach (reach) -- no dig in any', async () => {
+  { const w = lidWorld([]); const r = await clear(w, { msLeft: cap => Math.min(cap, 5000) }); assert.equal(r.outcome, 'no_time'); assert.equal(w.digs.length, 0) }
+  { const w = lidWorld([]); w.bot.entity.onGround = false; const t0 = Date.now(); const r = await clear(w); assert.equal(r.outcome, 'slow'); assert.ok(Date.now() - t0 >= 900, 'it waited to land first'); assert.equal(w.digs.length, 0) }
+  { const w = lidWorld([tool('stone_pickaxe', 10)]); w.bot.equip = async () => {}; const r = await clear(w); assert.equal(r.outcome, 'hand'); assert.equal(w.digs.length, 0) }
+  { const w = lidWorld([]); w.bot.canDigBlock = () => false; const r = await clear(w); assert.equal(r.outcome, 'reach'); assert.equal(w.digs.length, 0) }
+})
+await t('ACTUATOR, THE FINAL CHECK: the lid turns to planks during the look -> refused, no dig (the check is on a fresh read after the last await)', async () => {
+  const w = lidWorld([tool('stone_pickaxe', 10)])
+  w.bot.lookAt = async () => { w.set(5, 65, 0, 'oak_planks') }
+  const r = await clear(w)
+  assert.equal(r.outcome, 'refused'); assert.equal(w.digs.length, 0)
+})
+await t('ACTUATOR: the server puts the block back -> unconfirmed; a dig that throws -> failed; an abort mid-dig -> a row, and the abort propagates', async () => {
+  { const w = lidWorld([]); w.bot.dig = async () => {}; const r = await clear(w); assert.equal(r.outcome, 'unconfirmed') }
+  { const w = lidWorld([]); w.bot.dig = async () => { throw new Error('Digging aborted') }; const r = await clear(w); assert.equal(r.outcome, 'failed') }
+  {
+    const w = lidWorld([]); const ac = new AbortController()
+    w.bot.dig = async () => { ac.abort(); throw Object.assign(new Error('aborted'), { aborted: true }) }
+    const n0 = RECS.length
+    let threw = false
+    try { await clear(w, { signal: ac.signal }) } catch { threw = true }
+    assert.ok(threw); assert.match(rowsSince(n0, '_lid_clear')[0], /^outcome=aborted /)
+  }
+})
+await t('ACTUATOR, A DOUBLE CHEST: only the PARTNER half is blocked -> its lid is dug (vanilla: either half blocks both)', async () => {
+  const w = lidWorld([tool('stone_pickaxe', 10)], { lid: null })
+  const off = CF.chestPartnerOffset({ facing: 'north', type: 'left' })
+  w.set(5, 64, 0, 'chest', { facing: 'north', type: 'left' })
+  w.set(5 + off.x, 64, 0 + off.z, 'chest', { facing: 'north', type: 'right' })
+  w.set(5 + off.x, 65, 0 + off.z, 'cobblestone')
+  const r = await clear(w)
+  assert.equal(r.outcome, 'dug', r.detail)
+  assert.deepEqual(w.digs.map(d => d.at), [`${5 + off.x},65,${0 + off.z}`])
+})
+
+// ------------------------------------------------------------------------------- THE REFUSAL CHAIN, through real code
+// count_town on a fenced town whose only chest has cobblestone on its lid. The base failed `lid_blocked` before walking
+// and the town stayed unknown for good; now: walk -> clear -> open (the SERVER's rule in the fake) -> a journal count ->
+// the next plan is judged.
+const fencedLid = async (bag, lid = 'cobblestone') => {
+  const w = lidWorld(bag, { lid: null })
+  w.stock(5, 64, 0, [stack('oak_log', 20)])
+  installCobbleCap(w.bot); B.setStockWellProbe(() => true)
+  await cobbleObserve(w.bot, { x: 5, y: 64, z: 0 }, await w.bot.openContainer(w.bot.blockAt({ x: 5, y: 64, z: 0 })))
+  const dir = process.env.POOL_STATE_DIR
+  const key = fs.readdirSync(dir).find(f => f.endsWith('.cobble.jsonl')).replace('.cobble.jsonl', '')
+  await new Promise(r => setTimeout(r, 5))
+  CC.appendJournal(dir, key, w.bot.worldId ?? null, { t: 'reset', at: Date.now() - 1 })
+  if (lid) w.set(5, 65, 0, lid)
+  return { w, dir, key }
+}
+const missesOf = dir => { try { return JSON.parse(fs.readFileSync(path.join(dir, fs.readdirSync(dir).find(f => f.endsWith('.recount.json'))), 'utf8')).m } catch { return {} } }
+const runCount = (w, signal = new AbortController().signal) => SKILLS.count_town.run({ bot: w.bot }, {}, signal)
+
+await t('CHAIN: count_town on a town whose chest has cobblestone on its lid -> walks, digs the lid, OPENS, counts (unknown_after=0) -> the next plan is judged on the count (room 44 under 64)', async () => {
+  const { w } = await fencedLid([stack('oak_log', 64), stack('oak_log', 64), tool('stone_pickaxe', 10)])
+  try {
+    SK.resetCobbleReconcile()
+    assert.deepEqual(SK.unknownRefusals(w.bot).map(r => `${r.name}:${r.why}`), ['oak_log:town_stock_unknown'], 'the town cannot judge')
+    assert.equal(B.bankableExclusion(w.bot.inventory.items(), 'oak_log'), 'town_stock_unknown')
+    const n0 = RECS.length, o0 = w.spy.opened.length
+    const r = await runCount(w)
+    assert.equal(r.status, 'success', r.detail); assert.equal(r.counted, 1)
+    assert.equal(w.nameAt(5, 65, 0), 'air', 'the lid was dug')
+    assert.equal(w.spy.opened.length - o0, 1, 'the server opened it')
+    assert.match(rowsSince(n0, '_stock_recount')[0], /counted=1 tried=1 unknown_after=0 fails=- /)
+    assert.match(rowsSince(n0, '_lid_clear')[0], /^outcome=dug by=count_town at=5,64,0 /)
+    assert.deepEqual(SK.unknownRefusals(w.bot), [], 'nothing held is refused as not yet counted')
+    assert.equal(B.bankableInventory(w.bot.inventory.items(), { wants: ['oak_log'] }).detail.oak_log, 44, 'judged on the count')
+  } finally { B.setStockReaders({ town: null, well: null }) }
+})
+await t('CHAIN, POSITIVE CONTROL OF THE INSTRUMENT: the fake server refuses the open under cobblestone -- a lid the bot does NOT dig is never counted', async () => {
+  const { w } = await fencedLid([stack('oak_log', 64), stack('oak_log', 64)])
+  try {
+    SK.resetCobbleReconcile()
+    w.bot.dig = async () => {}                                  // the swing lands nothing
+    const n0 = RECS.length
+    const r = await runCount(w)
+    assert.equal(r.counted, 0)
+    assert.match(rowsSince(n0, '_stock_recount')[0], /counted=0 tried=1 unknown_after=1 .*fails=lid_not_cleared:1 /)
+    assert.equal(B.bankableExclusion(w.bot.inventory.items(), 'oak_log'), 'town_stock_unknown', 'still unknown: the cap stays closed')
+  } finally { B.setStockReaders({ town: null, well: null }) }
+})
+await t('CHAIN, A REFUSED LID: planks on it -> NO WALK, `lid_blocked` as before plus a refused row; no recount miss, the container memory untouched', async () => {
+  const { w, dir, key } = await fencedLid([stack('oak_log', 64), stack('oak_log', 64)], 'oak_planks')
+  try {
+    SK.resetCobbleReconcile()
+    const g0 = w.spy.gotos.length, n0 = RECS.length
+    const r = await runCount(w)
+    assert.equal(r.counted, 0)
+    assert.equal(w.spy.gotos.length - g0, 0, 'never walked')
+    assert.match(rowsSince(n0, '_stock_recount')[0], /fails=lid_blocked:1 /)
+    assert.match(rowsSince(n0, '_lid_clear')[0], /^outcome=refused by=count_town .*lid=oak_planks/)
+    assert.equal((missesOf(dir)['5,64,0'] ?? []).length, 0, 'no recount miss')
+    assert.equal(CF.readTownMemory(dir, key, w.bot.worldId ?? null)['5,64,0'], undefined, 'the container memory untouched')
+  } finally { B.setStockReaders({ town: null, well: null }) }
+})
+await t('CHAIN, A FAILED CLEAR AND A CALLER LIMIT: neither writes a recount miss nor the container memory; the bot backs off itself only', async () => {
+  for (const [name, setup, fails] of [['failed', w => { w.bot.dig = async () => { throw new Error('nope') } }, 'lid_not_cleared:1'],
+    ['slow', w => { w.bot.digTime = () => 60_000 }, 'lid_not_now:1']]) {
+    const { w, dir, key } = await fencedLid([stack('oak_log', 64), stack('oak_log', 64)])
+    try {
+      SK.resetCobbleReconcile(); setup(w)
+      const n0 = RECS.length
+      await runCount(w)
+      assert.match(rowsSince(n0, '_stock_recount')[0], new RegExp(`fails=${fails} `), name)
+      assert.equal((missesOf(dir)['5,64,0'] ?? []).length, 0, `${name}: no recount miss`)
+      assert.equal(CF.readTownMemory(dir, key, w.bot.worldId ?? null)['5,64,0'], undefined, `${name}: memory untouched`)
+      assert.deepEqual(SK.stockRecountKeys(w.bot), [], `${name}: this bot backs off it (its own reconcile backoff)`)
+      SK.resetCobbleReconcile()
+      assert.deepEqual(SK.stockRecountKeys(w.bot), ['5,64,0'], `${name}: still a key for the town (another bot, a better stance)`)
+    } finally { B.setStockReaders({ town: null, well: null }) }
+  }
+})
+
+// ------------------------------------------------------------------------------------------------- the deposit
+const depositRun = w => SKILLS.deposit.run({ bot: w.bot }, {}, new AbortController().signal)
+await t('DEPOSIT: cobblestone on the first chest\'s lid and no pickaxe -> the bare hand digs it on its 12.5 s budget and the deposit lands', async () => {
+  const w = lidWorld([stack('oak_log', 64), stack('dirt', 64), ...Array.from({ length: 33 }, () => stack('torch', 64))])
+  const r = await depositRun(w)
+  assert.equal(w.nameAt(5, 65, 0), 'air', JSON.stringify(r))
+  assert.ok(w.spy.opened.includes('5,64,0'), 'opened')
+  assert.equal(w.digs[0]?.held ?? null, null, 'the hand')
+})
+await t('DEPOSIT MEMORY: a refused lid (planks) marks the container unavailable for the town; a caller limit (off the ground) marks NOTHING and says lid_not_now', async () => {
+  {
+    const w = lidWorld([stack('oak_log', 64), ...Array.from({ length: 34 }, () => stack('torch', 64))], { lid: 'oak_planks' })
+    await depositRun(w)
+    const mem = CF.readTownMemory(process.env.POOL_STATE_DIR, CF.townKey({ x: 0, y: 64, z: 0 }), w.bot.worldId ?? null)
+    assert.equal(mem['5,64,0']?.o, 'unavailable', JSON.stringify(mem))
+  }
+  {
+    const w = lidWorld([stack('oak_log', 64), ...Array.from({ length: 34 }, () => stack('torch', 64))])
+    w.bot.digTime = () => 60_000
+    const r = await depositRun(w)
+    assert.equal(r.failClass, 'lid_not_now', JSON.stringify(r))
+    const mem = CF.readTownMemory(process.env.POOL_STATE_DIR, CF.townKey({ x: 0, y: 64, z: 0 }), w.bot.worldId ?? null)
+    assert.equal(mem['5,64,0'], undefined, 'nothing remembered')
+  }
+})
+await t('WIRING (structural, comments stripped): the deposit, the withdraw and the recount each call the one actuator', () => {
+  const strip = s => s.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '')
+  const c = strip(readFileSync(SKILLS_PATH, 'utf8'))
+  const fn = name => { const s = c.indexOf(name); assert.ok(s > 0, name); return c.slice(s, c.indexOf('\n}\n', s)) }
+  assert.match(fn('async function deposit('), /await clearChestLid\(bot, chestBlock\.position, \{ signal, msLeft, by: 'deposit' \}\)/)
+  assert.match(fn('async function openForWithdraw ('), /await clearChestLid\(bot, cp, \{ signal, msLeft, by: 'withdraw' \}\)/)
+  assert.match(fn('export async function reconcileCobble ('), /await clearChestLid\(bot, c, \{ signal, msLeft: cap => Math\.max\(0, msLeft\(cap \+ 2_000\) - 2_000\), by: 'count_town' \}\)/)
+  assert.doesNotMatch(c, /bot\.dig\(lid\)/, 'no unequipped lid dig is left')
+})
+
+// ------------------------------------------------------------------------------------------- anchored mutants
+await t('MUTANT KILLED: the base recount (fail any blocked lid before walking) leaves the town uncounted', async () => {
+  await withMutant(SKILLS_PATH, "      if (lidRefusedBeforeWalk(bot, c, 'count_town')) { fail(k, 'lid blocked'); continue }",
+    "      if (/chest/.test(blockNameOf(bot, b) ?? '') && chestLidBlocked(bot.blockAt(c.offset(0, 1, 0)))) { fail(k, 'lid blocked'); continue }", async M => {
+      const { w } = await fencedLid([stack('oak_log', 64), stack('oak_log', 64), tool('stone_pickaxe', 10)])
+      try {
+        M.resetCobbleReconcile(); M.installCobbleCap(w.bot)
+        const r = await M.SKILLS.count_town.run({ bot: w.bot }, {}, new AbortController().signal)
+        assert.equal(r.counted, 0, 'the mutant reproduces the defect')
+        assert.equal(w.nameAt(5, 65, 0), 'cobblestone')
+      } finally { B.setStockReaders({ town: null, well: null }) }
+    })
+})
+await t('MUTANT KILLED: no equip (the base\'s unequipped dig) -> the bare hand\'s 12,500 ms budget even with a stone pickaxe in the bag', async () => {
+  await withMutant(SKILLS_PATH, '  const d = toolFor(j.s.lid, bot.inventory?.items?.() ?? [])', '  const d = { item: null }', async M => {
+    const w = lidWorld([tool('stone_pickaxe', 10)])
+    const n0 = RECS.length
+    await M.clearChestLid(w.bot, w.bot.blockAt({ x: 5, y: 64, z: 0 }).position, { msLeft: cap => cap, by: 'mutant' })
+    assert.match(rowsSince(n0, '_lid_clear')[0], / tool=hand dig_ms=10000 budget=12500$/, 'the mutant digs bare-handed')
+  })
+})
+await t('MUTANT KILLED: without the final check after the look, a lid that turned to planks is dug', async () => {
+  await withMutant(SKILLS_PATH, '  // THE FINAL CHECK, on a fresh read, with no await between it and the dig packet (Codex design r1 P1)\n  j = lidJudge(bot, c)\n',
+    '  // (mutant: no fresh read)\n', async M => {
+      const w = lidWorld([tool('stone_pickaxe', 10)])
+      w.bot.lookAt = async () => { w.set(5, 65, 0, 'oak_planks') }
+      await M.clearChestLid(w.bot, w.bot.blockAt({ x: 5, y: 64, z: 0 }).position, { msLeft: cap => cap, by: 'mutant' })
+      assert.equal(w.digs.length, 1, 'the mutant dug the planks')
+    })
+})
+await t('MUTANT KILLED: one half only -> a double chest blocked on its partner stays shut', async () => {
+  await withMutant(SKILLS_PATH, '  try { const q = chestPartner(bot, chestPos); if (q) halves.push(q) } catch { /* a single chest */ }\n',
+    '\n', async M => {
+      const w = lidWorld([tool('stone_pickaxe', 10)], { lid: null })
+      const off = CF.chestPartnerOffset({ facing: 'north', type: 'left' })
+      w.set(5, 64, 0, 'chest', { facing: 'north', type: 'left' }); w.set(5 + off.x, 64, off.z, 'chest', { facing: 'north', type: 'right' }); w.set(5 + off.x, 65, off.z, 'cobblestone')
+      const r = await M.clearChestLid(w.bot, w.bot.blockAt({ x: 5, y: 64, z: 0 }).position, { msLeft: cap => cap, by: 'mutant' })
+      assert.equal(r.outcome, 'not_blocked', 'the mutant never looks at the partner')
+    })
+})
+await t('MUTANT KILLED: the deposit marking every failed clear unavailable puts a caller limit into the town\'s memory', async () => {
+  await withMutant(SKILLS_PATH, "    if (lidFailMemory(lc.outcome) === 'unavailable') return viaRecovery(",
+    "    if (lc.outcome !== 'dug' && lc.outcome !== 'not_blocked') return viaRecovery(", async M => {
+      const w = lidWorld([stack('oak_log', 64), ...Array.from({ length: 34 }, () => stack('torch', 64))])
+      w.bot.digTime = () => 60_000
+      await M.SKILLS.deposit.run({ bot: w.bot }, {}, new AbortController().signal)
+      const mem = CF.readTownMemory(process.env.POOL_STATE_DIR, CF.townKey({ x: 0, y: 64, z: 0 }), w.bot.worldId ?? null)
+      assert.equal(mem['5,64,0']?.o, 'unavailable', 'the mutant remembers a caller limit')
+    })
+})
+await t('MUTANT KILLED: the old 10 s cap on the budget (the race a bare hand always lost)', async () => {
+  await withMutant(LID_PATH, '  return Math.ceil(d + LID_DIG_MARGIN_MS)', '  return Math.min(10_000, Math.ceil(d + LID_DIG_MARGIN_MS))', async M => {
+    assert.ok(!(M.lidDigBudgetMs(10000) > 10000), 'the mutant budgets a bare hand at 10 s')
+  })
+})
+await t('MUTANT KILLED: widening the breakable set to planks would let the clear break a town build', async () => {
+  await withMutant(LID_PATH, 'export const LID_BREAKABLE = /^(cobblestone|cobbled_deepslate)$/', 'export const LID_BREAKABLE = /^(cobblestone|cobbled_deepslate|oak_planks)$/', async M => {
+    assert.equal(M.lidClearRefusal({ lid: { name: 'oak_planks' }, above: AIR, sides: sides4() }), null, 'the mutant would dig planks')
+  })
+})
+await t('MUTANT KILLED: dropping the waterlogged check digs beside a waterlogged stair', async () => {
+  await withMutant(LID_PATH, "const wet = b => LIQUID.test(b?.name ?? '') || b?.props?.waterlogged === true || b?.props?.waterlogged === 'true'",
+    "const wet = b => LIQUID.test(b?.name ?? '')", async M => {
+      assert.equal(M.lidClearRefusal({ lid: { name: 'cobblestone' }, above: AIR, sides: [AIR, AIR, { name: 'oak_stairs', props: { waterlogged: true } }, AIR] }), null)
+    })
+})
+
+console.log(`\n${pass} passed, ${fail} failed`)
+process.exit(fail ? 1 : 0)
