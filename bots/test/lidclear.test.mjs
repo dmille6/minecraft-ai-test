@@ -384,6 +384,37 @@ await t('WITHDRAW: a pickaxe-less bot at a chest with cobblestone on its lid dig
   assert.match(rowsSince(n0, '_lid_clear')[0] ?? '', /^outcome=dug by=withdraw .*tool=hand dig_ms=10000 budget=12500/)
   assert.ok(w.spy.opened.includes('5,64,0'), 'the server opened it')
 })
+// ------------------------------------------------------------------- composition with plinth-01 (the raised well)
+await t('PLINTH: a raised well\'s shell (the 5x5 box g-3..g) and its STAIR cells are never dug off a lid -- through the real wellBreakCost and the column knownWellCells hands it; positive control: the same lid with no well is dug', async () => {
+  for (const [name, cols] of [['the shell box', [{ x: 6, y: 67, z: 1 }]], ['a stair cell', [{ x: 20, y: 70, z: 20, stair: [[5, 65, 0]] }]]]) {
+    const w = lidWorld([tool('stone_pickaxe', 10)])
+    w.bot.wellCellsNow = () => cols
+    const n0 = RECS.length
+    const r = await clear(w)
+    assert.equal(r.outcome, 'refused', name); assert.equal(w.digs.length, 0, `${name}: no dig`)
+    assert.match(rowsSince(n0, '_lid_clear')[0], /why=the lid cell is part of the junk well/, name)
+  }
+  const w = lidWorld([tool('stone_pickaxe', 10)])
+  w.bot.wellCellsNow = () => [{ x: 20, y: 70, z: 20, stair: [[20, 66, 21]] }]
+  assert.equal((await clear(w)).outcome, 'dug', 'a well elsewhere does not refuse this lid')
+})
+await t('PLINTH FUNDING: the plinth\'s chest draw is the `withdraw` skill -- at a chest with cobblestone on its lid it clears the lid (by=withdraw) and opens it', async () => {
+  const w = lidWorld([tool('stone_pickaxe', 10), stack('dirt', 5)])
+  w.stock(5, 64, 0, [stack('cobblestone', 64)])
+  w.bot.craftSync = { lockstep: fn => fn(), recount: async () => ({ source: 'server', items: w.bot.inventory.items() }), inflight: () => 0,
+    confirmCursor: async win => ({ answered: true, cursorEmpty: !win.selectedItem, carried: win.selectedItem ? { itemCount: win.selectedItem.count } : null }) }
+  const n0 = RECS.length
+  await SKILLS.withdraw.run({ bot: w.bot }, { item: 'cobblestone', count: 32 }, new AbortController().signal)
+  assert.equal(w.nameAt(5, 65, 0), 'air')
+  assert.match(rowsSince(n0, '_lid_clear')[0] ?? '', /^outcome=dug by=withdraw .*tool=stone_pickaxe/)
+  assert.ok(w.spy.opened.includes('5,64,0'), 'opened')
+})
+await t('PLINTH ORDER CHAIN (structural, comments stripped): build_plinth > town_deposit > count_town is unchanged by this diff -- the recount still yields to both, and its lid clear runs on the next decision', () => {
+  const strip = s => s.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '')
+  const c = strip(readFileSync(new URL('../src/cognitive.mjs', import.meta.url), 'utf8'))
+  assert.match(c, /order = this\.#plinthOrder\(\) \?\? this\.#townDepositOrder\(milestone\) \?\? order/)
+  assert.match(c, /if \(!order \|\| \(order\.skill !== 'town_deposit' && order\.skill !== 'build_plinth'\)\) order = this\.#recountOrder\(\) \?\? order/)
+})
 await t('WIRING (structural, comments stripped): the deposit, the withdraw and the recount each call the one actuator', () => {
   const strip = s => s.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '')
   const c = strip(readFileSync(SKILLS_PATH, 'utf8'))
@@ -466,6 +497,15 @@ await t('MUTANT KILLED: without the per-bot skip, the next deposit walks back to
       const r = await M.SKILLS.deposit.run({ bot: w.bot }, {}, new AbortController().signal)
       assert.equal(r.failClass, 'lid_not_now', 'the mutant goes back to the blocked chest')
       assert.deepEqual(w.spy.opened.slice(n0), [], 'and opens nothing')
+    })
+})
+await t('MUTANT KILLED: without the well veto, a plinth\'s stair cell on a lid is dug', async () => {
+  await withMutant(SKILLS_PATH, '  try { well = wellBreakCost(bot.wellCellsNow?.() ?? knownWellCells(bot), { position: c.offset(0, 1, 0) }) > 0 } catch { well = null }',
+    '  try { well = false } catch { well = null }', async M => {
+      const w = lidWorld([tool('stone_pickaxe', 10)])
+      w.bot.wellCellsNow = () => [{ x: 20, y: 70, z: 20, stair: [[5, 65, 0]] }]
+      const r = await M.clearChestLid(w.bot, w.bot.blockAt({ x: 5, y: 64, z: 0 }).position, { msLeft: cap => cap, by: 'mutant' })
+      assert.equal(r.outcome, 'dug', 'the mutant digs the plinth stair')
     })
 })
 await t('MUTANT KILLED: the old 10 s cap on the budget (the race a bare hand always lost)', async () => {
