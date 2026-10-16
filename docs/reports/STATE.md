@@ -12,6 +12,18 @@ Studio reservation both closed 10-12); clear caps bamboo 0 / bucket 2._
 
 ---
 
+## 10-16 05:15Z — TOWNZONE-01 KEPT (+360, 04:52Z) and PROMOTED: FLEET 75cfb447 (05:02Z); merged to main; cobblecap-1000 drawing
+- **Verdict** KEEP +360 04:52:57Z: deaths 1 (0.011/bh over 90.0 bot-h) vs control 3 (0.011/bh over 270.0); +180 was NOT_YET with
+  0 vs 3; exposure townzoneread.exposure_ready = 1. Promoted by the loop, VERIFIED 05:02:38Z (fleet on 75cfb447). Merged to main.
+- **cobblecap-1000** launched by the scheduler on its 75cfb447 variant **623e92b9** (cc1000-on-75cfb44): preflight, licence
+  (`_cobblecap_mode`, baseline silent) and gate digest OK 05:08Z; drawing ("waiting for two pools" -- the post-promotion steady rule).
+- **Variants on the new tip 75cfb447 already exist** for toolkit-01, bamboo-02, treefarm-02, smeltjob-01. If cobblecap-1000 is KEPT
+  and promoted, all four need variants on 623e92b9. plinth-01 and minewell-02 have NO 75cfb447 variant yet; townfloor-01 (held, its
+  only variant 3b1ae8bb is on the 5e663860 lineage) needs townfloor merged onto the live tip before it can launch.
+- **OWNER 10-16 ~02:00Z "yes, junk can take the extra":** the well takes whole surplus cobble stacks (bot keeps 64) when the town has
+  NO ROOM, even below 1000. Being built as its own follow-up canary on cc1000-on-8cd0bc6 (the cobble-overflow agent; it hit the weekly
+  API limit once and was resumed); queue it after cobblecap-1000; it will need a variant on whatever tip cobblecap leaves.
+
 ## 10-16 01:42Z — COBBLECAP-1000 READY on 8cd0bc62 / 75cfb447 (town cobble cap 256 -> 1000); both engines APPROVE; NOTHING queued or deployed (the cobblecap restart agent)
 OWNER 10-14 "can we up the chest limit for cobblestones to 1000". The first agent stopped in its final round (r1-r5 both APPROVE on
 16b83acc, old base 5e663860); restarted 10-15 ~23:00Z (owner "yes") and REBUILT on the live bases.
