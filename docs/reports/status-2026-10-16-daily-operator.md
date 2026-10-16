@@ -30,3 +30,13 @@ Iron funnel, 24 h over 1,438 bot-h: raw iron 202 (0.14 per bot-hour, down from 3
 **Housekeeping.** The local checkout was 377 commits behind origin/main and is fast-forwarded to 743cb4f5. RULE.md on the host matches the repo. The local analyst is still stale (newest verdict 10-06).
 
 **Waiting on the owner:** ziggurat decisions Z1-Z8; the llm.brain Elasticsearch mapping and the post-veto loop fix before brain-01; recovery after an unattended Studio reboot; whether a town below the cap with every chest full should send surplus cobble to the well (cobbleoverflow-01 is built for it).
+
+## 14:50Z update (the 14:40Z wake-up)
+
+**cobblecap-1000 was kept by the owner at 11:44Z**, seven minutes after the +360 read, under a new rule: a setting-only change gets a fast path (light review, the test suite, the default death and error gate, one +180 read) because reverting it is putting one number back. It was promoted at 11:54Z and merged to main by the coordinator. The fleet is on 623e92b9. The decision rule I had written for +540 never applied.
+
+**plinth-01 is the live canary** (the raised, self-building junk well, f8daab3a) on board-c and hive-d since 13:40Z. Its first read is at 16:40Z; exposure needs a canary plinth built and capped, so the extension may run to a 10-17 17:40Z deadline. The host loop reads and decides on its own.
+
+**The lid-blocked chests are being worked.** The coordinator's census found 18 of 277 town containers lid-blocked, all under cobblestone, and 7 of 16 pools failing town counts in 24 hours. The owner approved a fix if both engines agree (lidclear-01, design on main, code not queued). The owner also decided that every new well becomes a plinth once plinth-01 is kept, and that cobbleoverflow-01 is a normal fix, parked until towns fill.
+
+Every queued canary now needs a variant on 623e92b9 before the scheduler can launch it.
