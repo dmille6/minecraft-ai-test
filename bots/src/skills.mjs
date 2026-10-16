@@ -2789,7 +2789,13 @@ async function deposit(ctx, { item = null }, signal, { noRecovery = false, prefe
     if (lc.outcome === 'no_time') return outOfTime('clearing the lid of')
     // only evidence about the LID closes the container for the town (lidrule.mjs lidFailMemory); the bot's own limits do not
     if (lidFailMemory(lc.outcome) === 'unavailable') return viaRecovery({ status: 'failed', failClass: 'container_blocked', detail: `${lc.detail} — use another chest or place a new one` }, 'unavailable')
-    if (lc.outcome !== 'dug' && lc.outcome !== 'not_blocked') return { status: 'failed', failClass: 'lid_not_now', detail: `${lc.detail} — deposit again from the ground beside it` }
+    if (lc.outcome !== 'dug' && lc.outcome !== 'not_blocked') {
+      // this bot skips the chest for a while (the deposit's own per-bot skip, skipFar), so the next deposit takes
+      // another container instead of the same nearest one (Claude code r2 P2-2); the town's memory is untouched
+      bot.skipContainers ??= new Map()
+      bot.skipContainers.set(posKey(chestBlock.position), Date.now() + TARGET_BACKOFF_MS)
+      return { status: 'failed', failClass: 'lid_not_now', detail: `${lc.detail} — deposit again: the next deposit tries another chest` }
+    }
   }
   try { bot.setControlState('sneak', false) } catch {}
   try { await bot.lookAt?.(chestBlock.position.offset(0.5, 0.5, 0.5), true) } catch {}   // face the chest; optional on test doubles
@@ -3316,6 +3322,8 @@ const RECONCILE_MAX = 3
 const RECONCILE_WALK_MS = 15_000
 /** A container that could not be counted (walk, lid, open) is not tried again for this long (Claude/Codex r2 P2). */
 export const RECONCILE_BACKOFF_MS = 10 * 60_000
+/** lidclear-01: what the recount keeps back from a lid dig -- the open's 8 s and the dig's 300 ms read-back. */
+export const LID_OPEN_RESERVE_MS = 8_300
 const reconcileFailed = new Map()   // `${townDir}|${townKey}|${k}` -> { until, why }
 const failKey = k => `${townDir()}|${homeTownKey()}|${k}`
 /** The town's uncounted containers a reconciliation can still try now -> [k] (nearest-first is the caller's). */
@@ -3602,12 +3610,13 @@ export async function reconcileCobble (bot, signal, msLeft, keys = null, { remem
       // ...and cleared here, on the recount's clock with the open's 2 s kept back. Never a recount miss and never the
       // container memory (lidrule.mjs lidFailMemory is the deposit's): this bot backs off the container, the next order
       // retries. Our clock ends the recount, as a walk timeout would.
-      const lc = await clearChestLid(bot, c, { signal, msLeft: cap => Math.max(0, msLeft(cap + 2_000) - 2_000), by: 'count_town' })
+      const lc = await clearChestLid(bot, c, { signal, msLeft: cap => Math.max(0, msLeft(cap + LID_OPEN_RESERVE_MS) - LID_OPEN_RESERVE_MS), by: 'count_town' })
       check(signal)
-      if (lc.outcome === 'no_time') { fail(k, 'lid no time'); break }
+      if (lc.outcome === 'no_time') { fails['lid no time'] = (fails['lid no time'] ?? 0) + 1; break }   // our clock: named, no backoff
       if (lc.outcome !== 'dug' && lc.outcome !== 'not_blocked') { fail(k, lidFailMemory(lc.outcome) ? 'lid not cleared' : 'lid not now'); continue }
       const lidDug = lc.outcome === 'dug'
       if (msLeft(8_000) < 1_000) break
+      const openFull = msLeft(8_000) >= 8_000   // a ghost clear is named only after a FULL-length open (Claude code r2 P3-1)
       let win = null, late = false
       const p = bot.openContainer(b)
       // THIS open's window, if it comes late, is closed; until it settles the bot's deposits wait (Codex r4 P2)
@@ -3620,7 +3629,7 @@ export async function reconcileCobble (bot, signal, msLeft, keys = null, { remem
         late = true
         if (e?.aborted || signal?.aborted) throw e
         // a lid the bot DUG whose open still times out: the server kept the block (a ghost clear) -- named apart (Claude design r1 P2-5)
-        fail(k, wasTimeout ? (lidDug ? 'lid dug open timed out' : 'open timed out') : 'unopenable')
+        fail(k, wasTimeout ? (lidDug && openFull ? 'lid dug open timed out' : 'open timed out') : 'unopenable')
         if (wasTimeout) { timedOut = true; break }     // nothing else opens while it is in flight (cobbleOpenPending)
         continue
       }
@@ -5536,8 +5545,10 @@ const lidCells = (bot, c) => ({ chest: bot.blockAt(c), lid: bot.blockAt(c.offset
 function lidJudge (bot, c) {
   const s = lidCells(bot, c)
   if (!LID_CHESTS.has(blockNameOf(bot, s.chest) ?? '') || !s.lid || !chestLidBlocked(s.lid)) return { blocked: false, refusal: null, s }
-  let well = true
-  try { well = wellBreakCost(bot.wellCellsNow?.() ?? knownWellCells(bot), { position: c.offset(0, 1, 0) }) > 0 } catch { well = true }   // wells unknown: refuse
+  let well
+  try { well = wellBreakCost(bot.wellCellsNow?.() ?? knownWellCells(bot), { position: c.offset(0, 1, 0) }) > 0 } catch { well = null }
+  // the WELLS UNREADABLE is the bot's own failure, not evidence about the lid: refused, but with no memory (`unknown`)
+  if (well === null) return { blocked: true, refusal: 'the town\'s well cells could not be read', unknown: true, s }
   const lid = lidCell(bot, s.lid)
   const refusal = lidClearRefusal({ lid, above: lidCell(bot, s.above), sides: s.sides.map(b => lidCell(bot, b)), well }) ??
     (serverLidBlocks(lid) ? null : `${lid.name} does not block a lid on the server`)
@@ -5566,7 +5577,7 @@ function lidClearRow (bot, c, s, by, outcome, { tool = '-', digMs = null, budget
 export function lidRefusedBeforeWalk (bot, chestPos, by = 'count_town') {
   for (const h of chestHalves(bot, chestPos)) {
     const j = lidJudge(bot, h)
-    if (j.blocked && j.refusal) return lidClearRow(bot, h, j.s, by, 'refused', { why: j.refusal })
+    if (j.blocked && j.refusal) return lidClearRow(bot, h, j.s, by, j.unknown ? 'unknown' : 'refused', { why: j.refusal })
   }
   return null
 }
@@ -5609,28 +5620,33 @@ async function clearOneLid (bot, c, { signal, msLeft, by }) {
   if (!j.blocked) return { outcome: 'not_blocked', detail: 'the lid is clear', at: posKey(c) }
   const o = { tool: '-', digMs: null, budget: null }
   const row = (outcome, why = '') => lidClearRow(bot, c, j.s, by, outcome, { ...o, why })
-  if (j.refusal) return row('refused', j.refusal)
+  if (j.refusal) return row(j.unknown ? 'unknown' : 'refused', j.refusal)
+  // EVERY AWAIT IS BOUNDED BY THE CALLER'S CLOCK (Codex code r2 P2): the equip, the hand swap, the landing and the look
+  const PREP_MS = 3_000
+  const bounded = (p, what) => withTimeout(Promise.resolve(p), Math.max(1, msLeft(PREP_MS)), bot, { what, onTimeout: () => {}, needsDrop: false })
+  if (msLeft(PREP_MS) < 500) return row('no_time', 'no time to take the tool')
   // THE HAND: the cheapest tool that harvests it, equipped and awaited; else no tool at all in the hand
   const lidName = blockNameOf(bot, j.s.lid)
   const d = toolFor(j.s.lid, bot.inventory?.items?.() ?? [])
   if (d.item) {
-    try { await bot.equip(d.item, 'hand') } catch { /* read back below */ }
+    try { await bounded(bot.equip(d.item, 'hand'), 'equip') } catch (e) { if (e?.aborted || signal?.aborted) throw e /* else read back below */ }
     check(signal)
     if (bot.heldItem?.name !== d.item.name) return row('hand', `could not hold the ${d.item.name}`)
     o.tool = d.item.name
   } else {
-    const how = await emptyHand(bot)
+    let how = 'timed_out'
+    try { how = await bounded(emptyHand(bot), 'empty the hand') } catch (e) { if (e?.aborted || signal?.aborted) throw e }
     check(signal)
     if (DIG_TOOL_RE.test(bot.heldItem?.name ?? '')) return row('hand', `could not free the hand of the ${bot.heldItem.name} (${how})`)
     o.tool = 'hand'
   }
   // ON THE GROUND (a dig timed mid-jump or mid-fall is x5): up to a second for the bot to land
-  for (let i = 0; i < 20 && bot.entity && bot.entity.onGround === false; i++) await sleep(50, signal)
+  for (let i = 0; i < 20 && bot.entity && bot.entity.onGround === false && msLeft(1_000) >= 1_000; i++) await sleep(50, signal)
   try { o.digMs = Number(bot.digTime?.(j.s.lid)) } catch { o.digMs = null }
   o.budget = lidDigBudgetMs(o.digMs)
   if (o.budget === null) return row('slow', `digging it from here would take ${Number.isFinite(o.digMs) ? o.digMs : '?'} ms`)
   if (msLeft(o.budget) < o.budget) return row('no_time', `${o.budget} ms needed`)
-  try { await bot.lookAt?.(j.s.lid.position.offset(0.5, 0.5, 0.5), true) } catch { /* the dig still faces it */ }
+  try { await bounded(bot.lookAt?.(j.s.lid.position.offset(0.5, 0.5, 0.5), true), 'look') } catch (e) { if (e?.aborted || signal?.aborted) throw e /* the dig still faces it */ }
   check(signal)
   // THE FINAL CHECK, on a fresh read, with no await between it and the dig packet (Codex design r1 P1)
   j = lidJudge(bot, c)
@@ -5639,11 +5655,16 @@ async function clearOneLid (bot, c, { signal, msLeft, by }) {
   if (j.refusal) return row('refused', j.refusal)
   if (o.tool !== 'hand' ? bot.heldItem?.name !== o.tool : DIG_TOOL_RE.test(bot.heldItem?.name ?? '')) return row('hand', 'the hand changed before the dig')
   if (bot.canDigBlock && !bot.canDigBlock(j.s.lid)) return row('reach', 'out of reach from here')
+  // the caller's clock, re-read synchronously: the whole budget must still fit (no await from here to the dig packet)
+  if (msLeft(o.budget) < o.budget) return row('no_time', `${o.budget} ms needed after the look`)
   try {
     await withTimeout(withDigScope(bot, { purpose: 'lid', by }, () => bot.dig(j.s.lid, 'ignore')), o.budget, bot,
       { what: 'dig', onTimeout: () => { try { bot.stopDigging?.() } catch { /* not digging */ } }, needsDrop: false })
   } catch (e) {
     if (e?.aborted || signal?.aborted) { try { bot.stopDigging?.() } catch { /* not digging */ } row('aborted', 'aborted'); throw e }
+    // ONLY A DIG THAT RAN ITS WHOLE BUDGET is evidence about the lid (`failed`). mineflayer's own `Digging aborted` --
+    // another bot.dig, a reflex's stopDigging, a death -- is an interruption: no memory (both code reviews r2 P2)
+    if (!e?.budgetExceeded && /abort/i.test(String(e?.message ?? e))) return row('interrupted', String(e?.message ?? e).replace(/\s+/g, ' ').slice(0, 80))
     return row('failed', String(e?.message ?? e).replace(/\s+/g, ' ').slice(0, 80))
   }
   // THE SERVER PUTS A REFUSED BREAK BACK (when it says anything): a few ticks, then the bot's own read

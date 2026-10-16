@@ -79,8 +79,8 @@ await t('RULE: the dig budget is the dig plus 2.5 s, refused past 15 s -- a bare
 })
 await t('RULE: only evidence about the LID closes the container for the town; the caller\'s limits never do', () => {
   for (const o of ['refused', 'failed', 'unconfirmed']) assert.equal(L.lidFailMemory(o), 'unavailable', o)
-  for (const o of ['dug', 'not_blocked', 'slow', 'no_time', 'reach', 'hand', 'aborted']) assert.equal(L.lidFailMemory(o), null, o)
-  assert.deepEqual([...L.LID_OUTCOMES].sort(), ['aborted', 'dug', 'failed', 'hand', 'no_time', 'not_blocked', 'reach', 'refused', 'slow', 'unconfirmed'])
+  for (const o of ['dug', 'not_blocked', 'slow', 'no_time', 'reach', 'hand', 'interrupted', 'unknown', 'aborted']) assert.equal(L.lidFailMemory(o), null, o)
+  assert.deepEqual([...L.LID_OUTCOMES].sort(), ['aborted', 'dug', 'failed', 'hand', 'interrupted', 'no_time', 'not_blocked', 'reach', 'refused', 'slow', 'unconfirmed', 'unknown'])
 })
 await t('RULE: the bot\'s lid test (unchanged) and the server\'s rule (an approximation, census and tests only): a chest on a chest, glass and leaves do not block the server; soul sand and a sitting cat do', () => {
   assert.equal(L.chestLidBlocked(cube('stone')), true)
@@ -195,6 +195,13 @@ await t('ACTUATOR REFUSES (evidence about the lid): planks on the lid; water bes
 })
 await t('ACTUATOR, THE CALLER\'S LIMITS: our clock (no_time), off the ground for a second (slow), a hand it could not take (hand), out of reach (reach) -- no dig in any', async () => {
   { const w = lidWorld([]); const r = await clear(w, { msLeft: cap => Math.min(cap, 5000) }); assert.equal(r.outcome, 'no_time'); assert.equal(w.digs.length, 0) }
+  {
+    // A REAL DEADLINE that the look eats into: the budget fitted before the look and not after it -> no dig (Codex code r2 P2)
+    const w = lidWorld([tool('stone_pickaxe', 10)]); const end = Date.now() + 3_600
+    w.bot.lookAt = async () => { await new Promise(r => setTimeout(r, 600)) }
+    const r = await clear(w, { msLeft: cap => Math.max(0, Math.min(cap, end - Date.now())) })
+    assert.equal(r.outcome, 'no_time', r.detail); assert.equal(w.digs.length, 0, 'no dig started past the caller\'s deadline')
+  }
   { const w = lidWorld([]); w.bot.entity.onGround = false; const t0 = Date.now(); const r = await clear(w); assert.equal(r.outcome, 'slow'); assert.ok(Date.now() - t0 >= 900, 'it waited to land first'); assert.equal(w.digs.length, 0) }
   { const w = lidWorld([tool('stone_pickaxe', 10)]); w.bot.equip = async () => {}; const r = await clear(w); assert.equal(r.outcome, 'hand'); assert.equal(w.digs.length, 0) }
   { const w = lidWorld([]); w.bot.canDigBlock = () => false; const r = await clear(w); assert.equal(r.outcome, 'reach'); assert.equal(w.digs.length, 0) }
@@ -207,7 +214,17 @@ await t('ACTUATOR, THE FINAL CHECK: the lid turns to planks during the look -> r
 })
 await t('ACTUATOR: the server puts the block back -> unconfirmed; a dig that throws -> failed; an abort mid-dig -> a row, and the abort propagates', async () => {
   { const w = lidWorld([]); w.bot.dig = async () => {}; const r = await clear(w); assert.equal(r.outcome, 'unconfirmed') }
-  { const w = lidWorld([]); w.bot.dig = async () => { throw new Error('Digging aborted') }; const r = await clear(w); assert.equal(r.outcome, 'failed') }
+  // mineflayer's own cancellation (another dig, a reflex's stopDigging) is an interruption, not evidence about the lid
+  { const w = lidWorld([]); w.bot.dig = async () => { throw new Error('Digging aborted') }; const r = await clear(w); assert.equal(r.outcome, 'interrupted') }
+  { const w = lidWorld([]); w.bot.dig = async () => { throw new Error('dig refused') }; const r = await clear(w); assert.equal(r.outcome, 'failed') }
+  {
+    const w = lidWorld([]); w.bot.dig = () => new Promise(() => {})   // never ends: the budget runs out (12.5 s for the hand -> use a pickaxe)
+    w.bag.push(tool('stone_pickaxe', 10))
+    const t0 = Date.now(); const r = await clear(w)
+    assert.equal(r.outcome, 'failed', 'a dig that ran its whole budget'); assert.ok(Date.now() - t0 >= 3000, 'it waited the 3,250 ms budget')
+  }
+  // the wells unreadable: refused, but as `unknown` (no memory)
+  { const w = lidWorld([]); w.bot.wellCellsNow = () => { throw new Error('boom') }; const r = await clear(w); assert.equal(r.outcome, 'unknown'); assert.equal(w.digs.length, 0) }
   {
     const w = lidWorld([]); const ac = new AbortController()
     w.bot.dig = async () => { ac.abort(); throw Object.assign(new Error('aborted'), { aborted: true }) }
@@ -333,13 +350,49 @@ await t('DEPOSIT MEMORY: a refused lid (planks) marks the container unavailable 
     assert.equal(mem['5,64,0'], undefined, 'nothing remembered')
   }
 })
+await t('DEPOSIT, A CALLER LIMIT LOOPS NOWHERE: lid_not_now puts THIS chest in the bot\'s own skip list (skipContainers), so the next deposit takes another chest; the town memory stays clean', async () => {
+  const w = lidWorld([stack('oak_log', 64), ...Array.from({ length: 34 }, () => stack('torch', 64))])
+  w.bot.digTime = () => 60_000
+  const r = await depositRun(w)
+  assert.equal(r.failClass, 'lid_not_now')
+  assert.ok((w.bot.skipContainers?.get('5,64,0') ?? 0) > Date.now(), 'this bot skips it for a while')
+  w.set(5, 64, 4, 'chest')                                     // a second town chest, lid clear
+  const n0 = w.spy.opened.length
+  await depositRun(w)
+  assert.deepEqual(w.spy.opened.slice(n0), ['5,64,4'], 'the next deposit went to the other chest')
+})
+await t('THE RECOVERY SWEEP: a full first chest, then a second whose lid the bot cannot clear from here -> `unknown:lid` for this sweep, no strike, nothing remembered', async () => {
+  const w = lidWorld([stack('oak_log', 64), ...Array.from({ length: 34 }, () => stack('torch', 64))], { lid: null })
+  w.fill(5, 64, 0, 'stone', 64)                                 // the first chest is full
+  w.set(5, 64, 3, 'chest'); w.set(5, 65, 3, 'cobblestone')     // the second has cobblestone on its lid
+  w.bot.digTime = () => 60_000                                 // ...and from here the dig would be too slow
+  const n0 = RECS.length
+  await depositRun(w)
+  const mem = CF.readTownMemory(process.env.POOL_STATE_DIR, CF.townKey({ x: 0, y: 64, z: 0 }), w.bot.worldId ?? null)
+  assert.equal(mem['5,64,3'], undefined, `no strike, nothing remembered: ${JSON.stringify(mem['5,64,3'])}`)
+  assert.ok(rowsSince(n0, '_deposit_new_chest').some(d => /5,64,3:unknown:lid/.test(d)), rowsSince(n0, '_deposit_new_chest').join(' | '))
+})
+await t('WITHDRAW: a pickaxe-less bot at a chest with cobblestone on its lid digs it bare-handed and opens it (the fleet\'s `would not break` rows)', async () => {
+  const w = lidWorld([stack('dirt', 5)])
+  w.stock(5, 64, 0, [tool('stone_pickaxe', 0)])
+  w.bot.craftSync = { lockstep: fn => fn(), recount: async () => ({ source: 'server', items: w.bot.inventory.items() }), inflight: () => 0,
+    confirmCursor: async win => ({ answered: true, cursorEmpty: !win.selectedItem, carried: win.selectedItem ? { itemCount: win.selectedItem.count } : null }) }
+  const n0 = RECS.length
+  await SKILLS.withdraw_pick.run({ bot: w.bot }, {}, new AbortController().signal)
+  assert.equal(w.nameAt(5, 65, 0), 'air')
+  assert.match(rowsSince(n0, '_lid_clear')[0] ?? '', /^outcome=dug by=withdraw .*tool=hand dig_ms=10000 budget=12500/)
+  assert.ok(w.spy.opened.includes('5,64,0'), 'the server opened it')
+})
 await t('WIRING (structural, comments stripped): the deposit, the withdraw and the recount each call the one actuator', () => {
   const strip = s => s.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '')
   const c = strip(readFileSync(SKILLS_PATH, 'utf8'))
   const fn = name => { const s = c.indexOf(name); assert.ok(s > 0, name); return c.slice(s, c.indexOf('\n}\n', s)) }
-  assert.match(fn('async function deposit('), /await clearChestLid\(bot, chestBlock\.position, \{ signal, msLeft, by: 'deposit' \}\)/)
+  const dep = fn('async function deposit(')
+  assert.match(dep, /await clearChestLid\(bot, chestBlock\.position, \{ signal, msLeft, by: 'deposit' \}\)/)
+  assert.match(dep, /if \(lc\.outcome === 'no_time'\) return outOfTime\('clearing the lid of'\)/, 'our clock is outOfTime, never the town memory')
   assert.match(fn('async function openForWithdraw ('), /await clearChestLid\(bot, cp, \{ signal, msLeft, by: 'withdraw' \}\)/)
-  assert.match(fn('export async function reconcileCobble ('), /await clearChestLid\(bot, c, \{ signal, msLeft: cap => Math\.max\(0, msLeft\(cap \+ 2_000\) - 2_000\), by: 'count_town' \}\)/)
+  assert.match(fn('export async function reconcileCobble ('), /await clearChestLid\(bot, c, \{ signal, msLeft: cap => Math\.max\(0, msLeft\(cap \+ LID_OPEN_RESERVE_MS\) - LID_OPEN_RESERVE_MS\), by: 'count_town' \}\)/)
+  assert.equal(SK.LID_OPEN_RESERVE_MS >= 8_000, true, 'the open keeps its whole 8 s')
   assert.doesNotMatch(c, /bot\.dig\(lid\)/, 'no unequipped lid dig is left')
 })
 
@@ -391,6 +444,27 @@ await t('MUTANT KILLED: the deposit marking every failed clear unavailable puts 
       await M.SKILLS.deposit.run({ bot: w.bot }, {}, new AbortController().signal)
       const mem = CF.readTownMemory(process.env.POOL_STATE_DIR, CF.townKey({ x: 0, y: 64, z: 0 }), w.bot.worldId ?? null)
       assert.equal(mem['5,64,0']?.o, 'unavailable', 'the mutant remembers a caller limit')
+    })
+})
+await t('MUTANT KILLED: without the interruption branch, mineflayer\'s own `Digging aborted` is lid evidence (`failed` -> town-wide unavailable)', async () => {
+  await withMutant(SKILLS_PATH, "    if (!e?.budgetExceeded && /abort/i.test(String(e?.message ?? e))) return row('interrupted',",
+    "    if (false) return row('interrupted',", async M => {
+      const w = lidWorld([]); w.bot.dig = async () => { throw new Error('Digging aborted') }
+      const r = await M.clearChestLid(w.bot, w.bot.blockAt({ x: 5, y: 64, z: 0 }).position, { msLeft: cap => cap, by: 'mutant' })
+      assert.equal(r.outcome, 'failed', 'the mutant calls an interruption a failed lid')
+    })
+})
+await t('MUTANT KILLED: without the per-bot skip, the next deposit walks back to the same chest', async () => {
+  await withMutant(SKILLS_PATH, '      bot.skipContainers.set(posKey(chestBlock.position), Date.now() + TARGET_BACKOFF_MS)\n',
+    '\n', async M => {
+      const w = lidWorld([stack('oak_log', 64), ...Array.from({ length: 34 }, () => stack('torch', 64))])
+      w.bot.digTime = () => 60_000
+      await M.SKILLS.deposit.run({ bot: w.bot }, {}, new AbortController().signal)
+      w.set(5, 64, 4, 'chest')
+      const n0 = w.spy.opened.length
+      const r = await M.SKILLS.deposit.run({ bot: w.bot }, {}, new AbortController().signal)
+      assert.equal(r.failClass, 'lid_not_now', 'the mutant goes back to the blocked chest')
+      assert.deepEqual(w.spy.opened.slice(n0), [], 'and opens nothing')
     })
 })
 await t('MUTANT KILLED: the old 10 s cap on the budget (the race a bare hand always lost)', async () => {
