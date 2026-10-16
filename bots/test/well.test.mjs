@@ -2700,6 +2700,10 @@ await t('OVERFLOW, the skill: below the cap with every town container read FULL 
   const row = (await rows('_well_dispose')).pop()
   assert.equal(field(row.skill.detail, 'cobble'), '94', row.skill.detail); assert.equal(field(row.skill.detail, 'cobble_left'), '64')
   assert.equal(field(row.skill.detail, 'cap'), 'below'); assert.equal(field(row.skill.detail, 'overflow'), '94'); assert.equal(field(row.skill.detail, 'offlist'), '0')
+  // EVERY CLICK writes its own evidence (Codex r1 P2): its stack, what it leaves, and the reading that authorised it
+  const clicks = (await rows('_cobble_overflow')).slice(-2).map(x => x.skill.detail)
+  assert.deepEqual(clicks.map(d => `${field(d, 'phase')} ${field(d, 'name')}:${field(d, 'count')} left=${field(d, 'left')} ${field(d, 'cap')} ${field(d, 'mode')} known=${field(d, 'known')} max=${field(d, 'max')}`),
+    ['throw cobblestone:64 left=94 below overflow known=1 max=0/0', 'throw cobblestone:30 left=64 below overflow known=1 max=0/0'], clicks.join(' | '))
 })
 await t('OVERFLOW: a stack some container can take WHOLE stays for the deposit -- room for 40 keeps the 30; room for a stack keeps all', async () => {
   const t40 = fakeTown({ wellAt: CAP, items: ofBag() })
@@ -2713,7 +2717,7 @@ await t('OVERFLOW: a stack some container can take WHOLE stays for the deposit -
   assert.equal(t64.count('cobblestone'), 158, 'every surplus stack fits somewhere: none went')
   assert.equal(t64.count('egg'), 0, 'positive control: the egg did')
 })
-await t('OVERFLOW: UNKNOWN ROOM SENDS NOTHING -- an older build\'s count (no reading) or a reading an hour old; positive control: the same town read fresh', async () => {
+await t('OVERFLOW: UNKNOWN ROOM SENDS NOTHING -- an older build\'s count (no reading) or a stale reading; positive control: the same town read fresh', async () => {
   const none = fakeTown({ wellAt: CAP, items: ofBag() })
   roomTown(none, 300, null)
   await run('dispose_well', none.bot)
@@ -2741,6 +2745,28 @@ await t('OVERFLOW (the click): the ROOM is re-read at every cobble click -- room
   assert.equal(r.left, 128, 'the 30 went with no room anywhere; the 64 stayed once a container had room for it')
   await withMutant(SP, "        if (!cobbleStackGoes(it, co)) continue\n", "        if (co.mode == null) continue\n", async m => {
     assert.equal((await scene(m)).left, 64, 'mutant inert (the click ignores the room)')
+  })
+})
+await t('OVERFLOW (Codex r1 P1): a container that APPEARS after the plan -- a new chest, counted with room -- keeps every stack it can take; the cached container list never authorises', async () => {
+  const scene = async mod => {
+    const town = fakeTown({ wellAt: CAP, items: [S('cobblestone', 30), S('cobblestone', 64), S('cobblestone', 64), ...Array.from({ length: 33 }, () => S('oak_log', 64))] })
+    roomTown(town, 300, RM(0))
+    const NEWK = `${HOME.x - 6},${HOME.y},${HOME.z + 6}`
+    let looks = 0
+    town.state.onLook = () => {
+      if (++looks !== 2) return
+      // after the first throw: another bot places a chest and counts it -- room for every surplus stack
+      town.world.set(NEWK, { name: 'chest' })
+      CCAP.appendJournal(process.env.POOL_STATE_DIR, CF_townKey(HOME), town.bot.worldId ?? null, { t: 'cnt', k: NEWK, n: 0, cap: ++roomAt, v: 2, m: {}, r: RM(27 * 64) })
+    }
+    await within(mod.SKILLS.dispose_well.run({ bot: town.bot }, {}, { aborted: false }), 15000, 'scene')
+    return { left: town.count('cobblestone'), looks }
+  }
+  const r = await scene({ SKILLS: (await import('../src/skills.mjs')).SKILLS })
+  assert.ok(r.looks >= 2, `positive control: two throws were looked at (${r.looks})`)
+  assert.equal(r.left, 128, 'the 30 went while no container had room; the 64 stayed once the new chest was counted')
+  await withMutant(SP, "  if (!v.known || !atTown) return v\n", "  return v\n", async m => {
+    assert.equal((await scene(m)).left, 64, 'mutant inert (the cached container list authorised the 64)')
   })
 })
 await t('OVERFLOW, the ORDER: wellOrderPlan (what cognitive.mjs feeds wellOrder) counts the overflow stacks at town only; a bag whose only junk is that cobble gets dispose_well', async () => {

@@ -98,11 +98,16 @@ await t('townRoom: KNOWN only with a covered scan and a fresh reading for EVERY 
   assert.equal(CC.townRoom(s, ['a', 'b', 'c'], NOW).known, false, 'a container never counted')
   assert.deepEqual(CC.townRoom(s, ['a', 'b', 'c'], NOW).unknown, ['c'])
   assert.equal(CC.townRoom({ obs: { a: fresh(R(0)), b: fresh(null) }, claims: {} }, ['a', 'b'], NOW).known, false, 'a count with no room reading (older build)')
-  assert.equal(CC.townRoom({ obs: { a: fresh(R(0)), b: fresh(R(0), CC.ROOM_TTL_MS) }, claims: {} }, ['a', 'b'], NOW).known, false, 'a reading an hour old')
-  assert.equal(CC.townRoom({ obs: { a: fresh(R(0)), b: fresh(R(0), CC.ROOM_TTL_MS - 1) }, claims: {} }, ['a', 'b'], NOW).known, true, 'positive control: just inside the hour')
-  assert.equal(CC.ROOM_TTL_MS, 60 * 60 * 1000)
+  assert.equal(CC.townRoom({ obs: { a: fresh(R(0)), b: fresh(R(0), CC.ROOM_TTL_MS) }, claims: {} }, ['a', 'b'], NOW).known, false, 'a reading as old as the count\'s trust (6 h)')
+  assert.equal(CC.townRoom({ obs: { a: fresh(R(0)), b: fresh(R(0), CC.ROOM_TTL_MS - 1) }, claims: {} }, ['a', 'b'], NOW).known, true, 'positive control: just inside it')
+  assert.equal(CC.ROOM_TTL_MS, CC.OBS_TTL_MS, 'the count\'s own trust'); assert.equal(CC.ROOM_TTL_MS, 6 * 60 * 60 * 1000)
   assert.equal(CC.townRoom(s, ['a', 'b'], NOW, { gone: ['b'] }).known, true, 'a gone container no longer counts')
   assert.deepEqual(CC.townRoom(s, ['a', 'b'], NOW, { gone: ['b'] }).max, R(0))
+  // two containers with 32 each: 64 in all, but no ONE of them takes a 64 -- the max, never the sum
+  const two = CC.townRoom({ obs: { a: fresh(R(32)), b: fresh(R(32)) }, claims: {} }, ['a', 'b'], NOW)
+  assert.deepEqual(two.max, R(32), 'the most ONE container takes')
+  assert.equal(W.stackFits(two, { name: 'cobblestone', count: 64 }), false, 'so a whole 64 fits nowhere')
+  assert.equal(W.stackFits(two, { name: 'cobblestone', count: 32 }), true, 'positive control: a 32 fits')
 })
 await t('townRoom: a container mid-WITHDRAW (live take/draw) or with an unresolved void is UNKNOWN; an incoming bank claim is not', () => {
   const base = () => ({ obs: { a: fresh(R(0), 0, 5), b: fresh(R(0), 0, 5) }, claims: {} })
@@ -235,6 +240,30 @@ await t('UNKNOWN ROOM SENDS NOTHING: two town chests, one seen full and one neve
   assert.equal(both.co.mode, 'overflow'); assert.equal(counts(both.plan.stacks), 'cobblestone:64')
 })
 
+await t('AN ABORTED WITHDRAW (Claude r1 P1): a take of an untargeted name cut off after its first click still writes the container\'s count -- the room it made is seen, and the well takes nothing', async () => {
+  const { clearWithdrawHolds } = await import('../src/bankable.mjs')
+  const scene = async (abort, mod = SK) => {
+    clearWithdrawHolds()
+    const w = town([stack('cobblestone', 64), stack('cobblestone', 64), stack('cobblestone', 64)])
+    w.stock(5, 64, 0, [stack('apple', 10), stack('apple', 10), ...Array.from({ length: 25 }, () => stack('stone', 64))])
+    w.bot.craftSync = { lockstep: fn => fn(), recount: async () => ({ source: 'server', items: w.bot.inventory.items() }), inflight: () => 0,
+      confirmCursor: async win => ({ answered: true, cursorEmpty: !win.selectedItem, carried: null }) }
+    const ac = new AbortController()
+    const click = w.bot.clickWindow.bind(w.bot); let n = 0
+    w.bot.clickWindow = async (slot, b, m) => { n++; await click(slot, b, m); if (n === 1 && abort) ac.abort() }
+    try { await mod.SKILLS.withdraw.run({ bot: w.bot }, { item: 'apple', count: 20 }, ac.signal) } catch { /* the abort */ }
+    const empty = w.containers.get('5,64,0').slots.slice(0, 27).filter(x => !x).length
+    const co = mod.cobbleWellOpts(w.bot)
+    return { empty, clicks: n, room: CC.readTown(process.env.POOL_STATE_DIR, KEY()).obs['5,64,0']?.r ?? null, goes: W.cobbleOverflowStacks(w.bot.inventory.items(), co.cobbleRoom).length }
+  }
+  const ok = await scene(false)
+  assert.ok(ok.empty >= 1 && ok.room?.cobblestone >= 64 && ok.goes === 0, `positive control, no abort: ${JSON.stringify(ok)}`)
+  const cut = await scene(true)
+  assert.ok(cut.clicks >= 1 && cut.empty >= 1, `the abort came after a take that emptied a slot: ${JSON.stringify(cut)}`)
+  assert.ok(cut.room == null || cut.room.cobblestone >= 64, `the open's "full" reading must not stand: ${JSON.stringify(cut)}`)
+  assert.equal(cut.goes, 0, 'the well takes nothing')
+})
+
 await t('AN OLDER BUILD\'S COUNT (no room reading) is unknown room: nothing goes until this build reads the chest', async () => {
   const w = town([stack('cobblestone', 64), stack('cobblestone', 64)])
   w.fill(5, 64, 0, 'stone', 64)
@@ -263,9 +292,14 @@ await t('THE EXPOSURE ROW is written only with surplus cobble, and says when the
   assert.equal(RECS.slice(n1).filter(x => x.skill?.name === '_cobble_overflow').length, 0, 'the reserve alone: no row')
 })
 
+await t('THE NO-ROOM REFUSAL names the well\'s exit only where a usable well stands (Codex r1 P3: a refusal names a remedy)', () => {
+  assert.equal(SK.cobbleNoRoomDetail(false), 'the cobble stays: no container here has room for a whole stack, and cobble never opens a new chest (cobble reserve)', 'no well: as before')
+  assert.match(SK.cobbleNoRoomDetail(true), /\(cobble reserve\); once every town container is seen without room for it, the junk well takes the surplus whole stacks at a full bag$/)
+})
+
 // ======================================================================================== THE LICENCE ROW
 await t('THE LICENCE ROW: the mode detail names the rule and the evidence age, and index.mjs writes it once per spawn as `_cobbleoverflow_mode`', () => {
-  assert.equal(W.cobbleOverflowModeDetail(), 'phase=mode rule=no_room ttl_min=60')
+  assert.equal(W.cobbleOverflowModeDetail(), 'phase=mode rule=no_room ttl_min=360')
   assert.equal(W.cobbleOverflowModeDetail(30 * 60 * 1000), 'phase=mode rule=no_room ttl_min=30', 'positive control: it follows the ttl it is given')
   const strip = s => s.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '')
   const wired = src => {
@@ -280,7 +314,7 @@ await t('THE LICENCE ROW: the mode detail names the rule and the evidence age, a
   const row = "    try { logEvent({ kind: 'cobbleoverflow_mode'"
   assert.equal(idx.split(row).length, 2, 'anchor present and unique')
   assert.throws(() => wired(idx.replace(row, "    try { void ({ kind: 'cobbleoverflow_mode'")), 'a removed row is caught')
-  assert.throws(() => wired(idx.replace("detail: cobbleOverflowModeDetail() }) } catch {}", "detail: 'phase=mode rule=no_room ttl_min=60' }) } catch {}")), 'a literal detail is caught')
+  assert.throws(() => wired(idx.replace("detail: cobbleOverflowModeDetail() }) } catch {}", "detail: 'phase=mode rule=no_room ttl_min=360' }) } catch {}")), 'a literal detail is caught')
 })
 
 await t('THE ORDER\'S WIRING: cognitive.mjs feeds wellOrder the junk count of skills.mjs wellOrderPlan (its behaviour: well.test.mjs "OVERFLOW, the ORDER")', () => {

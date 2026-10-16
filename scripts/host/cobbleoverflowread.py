@@ -14,19 +14,27 @@
 #                bag held a whole surplus stack -- the town deposit's "the town chests in reach are full" (town_storage_full)
 #                with bot.inventory cobble >= 128 (>= 128 guarantees a stack above the 64 that may go; 65-127 may not), and the
 #                deposit's "cobble never opens a new chest" (it is written only when every stack it could not place was
-#                surplus cobble). Both arms write both. READY at >= EXPOSURE_MIN canary rows.
+#                surplus cobble). Both arms write both. READY at >= EXPOSURE_MIN canary rows from >= EXPOSURE_BOTS bots.
+#                Reported beside it: the canary's own exposure rows (_cobble_overflow at those refusals) whose room was KNOWN --
+#                exposure the rule could act on (unknown room fails closed: no throw, by design)
 #   LIVENESS     overflow throws: canary _well_dispose rows with overflow= > 0 (the cobble the well took BELOW the cap)
+#   THE CLICKS   every overflow stack writes its own `_cobble_overflow phase=throw name= count= left= cap= mode= known=
+#                containers= unknown= max=<cobblestone>/<cobbled_deepslate>` row AT THE CLICK, with the reading that authorised it
+#                (Codex r1 P2: the visit's _well_dispose row carries only its LAST reading, and has no start time)
 #   PRIMARY      stuck rows (the exposure rows) per bot-h, DiD canary vs control: should FALL (the well empties the surplus
 #                the bank cannot take). Reported with the overflow cobble per canary bot-h and the well's cobble DiD.
 #   CORRECTNESS  (each REVERTS; each has a failing fixture in --selftest)
-#     D1  breach_reserve: an overflow throw that left the bag under the 64 (cobble_left < 64)
-#     D2  breach_switch: an overflow throw whose cap= is not 'below' (the switch fired outside its rule)
-#     D3  breach_room_journal: overflow throws the JOURNAL contradicts -- folded with the canary's own cobblecap.mjs
-#         (cobbleroomaudit.mjs), the town's room was KNOWN with a container able to take a whole 64 of cobblestone both at the
-#         skill's start and at its row. One is reported and named (a deposit filling the room between the fold and the click
-#         can explain one); the gate trips at >= 2.
+#     D1  breach_reserve: an overflow click that left the bag under the 64 (left < 64), or a dispose row with overflow and
+#         cobble_left < 64
+#     D2  breach_switch: an overflow click outside its own rule -- not cap=below mode=overflow known=1, or its own reading
+#         had a container able to take the stack whole (max of its name >= its count)
+#     D3  breach_room_journal: overflow clicks the JOURNAL contradicts -- folded with the canary's own cobblecap.mjs
+#         (cobbleroomaudit.mjs) up to the click row's time, the town's room was KNOWN with a container able to take that
+#         stack (its own name, its own count) whole. One is reported and named (a record appended between the bot's read and
+#         its row can explain one); the gate trips at >= 2.
 #   ARMS         control rows of this build's kinds (_cobbleoverflow_mode, _cobble_overflow) or control overflow throws
-#                (must be 0: a contaminated control)
+#                (must be 0: a contaminated control); BASE: the control must run cobblecap-1000 (its _cobblecap_mode licence
+#                rows >= 1, Claude r1 P3) or the DiD mixes two changes
 #   REPORTED     the canary's _cobble_overflow rows by mode (overflow / at_cap / none) and room known/unknown (the fail-closed
 #                cases: a bank refused for room while the well could not judge the room); the journal audit's unknown-room
 #                throws (the audit could not see a reading the bot saw: reported, never a verdict); new chests and chest-full
@@ -36,10 +44,11 @@ import datetime as dt
 from collections import Counter, defaultdict
 
 HERE = os.path.dirname(os.path.abspath(__file__))
-KEEP = ('_cobble_overflow', '_cobbleoverflow_mode', '_well_dispose', 'town_deposit', 'deposit', '_deposit_new_chest', '_cobble_bank')
+KEEP = ('_cobble_overflow', '_cobbleoverflow_mode', '_cobblecap_mode', '_well_dispose', 'town_deposit', 'deposit', '_deposit_new_chest', '_cobble_bank')
 KV = re.compile(r'(?:^| )([a-z_]+)=(\S+)')
 JOURNAL_FILE = re.compile(r'\.cobble\.(g\d+\.)?jsonl$')
 EXPOSURE_MIN = 3
+EXPOSURE_BOTS = 2   # Claude r1 P3: one bot alone never readies the read
 RESERVE = 64
 SURPLUS_MIN = 2 * RESERVE        # bag cobble at which a whole stack above the 64 is certain to exist
 TOWN_FULL = 'the town chests in reach are full'
@@ -128,6 +137,23 @@ def stuck(r):
     return r['name'] == 'deposit' and COBBLE_NO_CHEST in r['detail']
 
 
+def max_of(f, name):
+    """The click row's own reading: the most ONE container could take of `name` (max=<cobblestone>/<cobbled_deepslate>)."""
+    m = (f.get('max') or '').split('/')
+    i = {'cobblestone': 0, 'cobbled_deepslate': 1}.get(name)
+    try:
+        return int(m[i]) if i is not None and len(m) == 2 else None
+    except ValueError:
+        return None
+
+
+def click_ok(f):
+    """An overflow click inside its own rule: below the cap, mode overflow, the room known, and no ONE container able to take
+    the stack whole by the click's own reading."""
+    mx = max_of(f, f.get('name'))
+    return f.get('cap') == 'below' and f.get('mode') == 'overflow' and f.get('known') == '1' and mx is not None and mx < num(f, 'count')
+
+
 def overflow_of(r):
     return num(kv(r['detail']), 'overflow') if r['name'] == '_well_dispose' else 0
 
@@ -139,18 +165,23 @@ def judge(rows):
     throws = [(r, kv(r['detail'])) for r in post_c if overflow_of(r) > 0]
     out['overflow_throws_canary'] = len(throws)
     out['overflow_cobble_canary'] = sum(num(f, 'overflow') for r, f in throws)
-    d1 = [(r['bot'], num(f, 'cobble_left', None), str(r['t'])) for r, f in throws if num(f, 'cobble_left', -1) < RESERVE]
+    clicks = [(r, kv(r['detail'])) for r in post_c if r['name'] == '_cobble_overflow' and kv(r['detail']).get('phase') == 'throw']
+    out['overflow_clicks_canary'] = len(clicks)
+    d1 = [(r['bot'], num(f, 'cobble_left', None), str(r['t'])) for r, f in throws if num(f, 'cobble_left', -1) < RESERVE] \
+        + [(r['bot'], num(f, 'left', None), str(r['t'])) for r, f in clicks if num(f, 'left', -1) < RESERVE]
     out['breach_reserve'] = len(d1)
-    d2 = [(r['bot'], f.get('cap'), str(r['t'])) for r, f in throws if f.get('cap') != 'below']
+    d2 = [(r['bot'], f.get('name'), f.get('count'), f.get('cap'), f.get('max'), str(r['t'])) for r, f in clicks if not click_ok(f)]
     out['breach_switch'] = len(d2)
     # ARMS: the control must not carry this build's kinds or its throws
     out['arms_control_rows'] = sum(1 for r in post_k if r['name'] in ('_cobbleoverflow_mode', '_cobble_overflow') or overflow_of(r) > 0)
     out['mode_rows_canary'] = sum(1 for r in post_c if r['name'] == '_cobbleoverflow_mode')
-    notes = [kv(r['detail']) for r in post_c if r['name'] == '_cobble_overflow']
+    notes = [kv(r['detail']) for r in post_c if r['name'] == '_cobble_overflow' and kv(r['detail']).get('phase') != 'throw']
     out['notes_canary'] = len(notes)
     out['notes_by_mode'] = dict(Counter(f.get('mode', '?') for f in notes))
     out['notes_room_unknown'] = sum(1 for f in notes if f.get('mode') == '-' and f.get('known') == '0' and f.get('cap') in ('below', 'unknown'))
     out['notes_goes'] = sum(1 for f in notes if num(f, 'goes') > 0)
+    out['exposure_known'] = sum(1 for f in notes if f.get('known') == '1')
+    out['base_licence_control'] = sum(1 for r in post_k if r['name'] == '_cobblecap_mode')
     exp = [r for r in post_c if stuck(r)]
     out['exposure_rows'] = len(exp)
     out['exposed_bots'] = len({r['bot'] for r in exp})
@@ -161,10 +192,10 @@ def judge(rows):
             out['well_cobble_%s_%s' % (per, arm)] = sum(num(kv(r['detail']), 'cobble') for r in rs if r['name'] == '_well_dispose')
             out['new_chests_%s_%s' % (per, arm)] = sum(1 for r in rs if r['name'] == '_deposit_new_chest' and r['status'] == 'success' and 'placed=1' in r['detail'])
             out['fullfail_%s_%s' % (per, arm)] = sum(1 for r in rs if r['name'] in ('deposit', 'town_deposit') and r['status'] == 'failed' and 'full' in r['detail'])
-    out['exposure_ready'] = int(out['exposure_rows'] >= EXPOSURE_MIN)
+    out['exposure_ready'] = int(out['exposure_rows'] >= EXPOSURE_MIN and out['exposed_bots'] >= EXPOSURE_BOTS)
     out['_lists'] = {'d1': d1[:5], 'd2': d2[:5]}
-    out['_throws'] = [{'id': '%s@%s' % (r['bot'], r['t'].isoformat()), 'pool': pool_of(r['bot']), 'end': int(r['t'].timestamp() * 1000),
-                       'start': int(r['t'].timestamp() * 1000) - r['ms']} for r, f in throws]
+    out['_clicks'] = [{'id': '%s@%s#%d' % (r['bot'], r['t'].isoformat(), i), 'pool': pool_of(r['bot']), 'at': int(r['t'].timestamp() * 1000),
+                       'name': f.get('name'), 'count': num(f, 'count')} for i, (r, f) in enumerate(clicks)]
     return out
 
 
@@ -183,13 +214,10 @@ def journal_coverage(pools, root='/var/lib/mcai'):
     return dirs, missing
 
 
-def audit(cc, throws, dirs):
-    """D3: each overflow throw judged by the journal at its skill's START and at its ROW (cobbleroomaudit.mjs, the canary's
-    cobblecap.mjs). A contradiction = KNOWN room with a container able to take a whole 64 of cobblestone at BOTH times."""
-    events = []
-    for th in throws:
-        events.append({'id': th['id'] + '#start', 'pool': th['pool'], 'at': th['start']})
-        events.append({'id': th['id'] + '#end', 'pool': th['pool'], 'at': th['end']})
+def audit(cc, clicks, dirs):
+    """D3: each overflow CLICK judged by the journal folded up to the click row's time (cobbleroomaudit.mjs, the canary's
+    cobblecap.mjs). A contradiction = KNOWN room with a container able to take THAT stack (its name, its count) whole."""
+    events = [{'id': c['id'], 'pool': c['pool'], 'at': c['at']} for c in clicks]
     with tempfile.NamedTemporaryFile('w', suffix='.json', delete=False) as fh:
         json.dump(events, fh); ev = fh.name
     try:
@@ -200,10 +228,10 @@ def audit(cc, throws, dirs):
         raise RuntimeError(r.stderr[-300:])
     j = json.loads(r.stdout)
     by = {e['id']: e for e in j.get('events', [])}
-    roomy = lambda e: bool(e) and e.get('known') is True and int((e.get('max') or {}).get('cobblestone') or 0) >= RESERVE
-    bad = [th['id'] for th in throws if roomy(by.get(th['id'] + '#start')) and roomy(by.get(th['id'] + '#end'))]
-    unk = sum(1 for th in throws if not (by.get(th['id'] + '#start') or {}).get('known'))
-    return {'breach_room_journal': len(bad), '_bad': bad[:5], 'audit_unknown_room': unk, 'audited': len(throws),
+    roomy = lambda e, c: bool(e) and e.get('known') is True and int((e.get('max') or {}).get(c['name']) or 0) >= c['count']
+    bad = [c['id'] for c in clicks if roomy(by.get(c['id']), c)]
+    unk = sum(1 for c in clicks if not (by.get(c['id']) or {}).get('known'))
+    return {'breach_room_journal': len(bad), '_bad': bad[:5], 'audit_unknown_room': unk, 'audited': len(clicks),
             'unreadable': j.get('unreadable', []), 'towns': j.get('towns', 0), 'dirs': len(dirs)}
 
 
@@ -216,12 +244,31 @@ def selftest():
     TF = lambda cobble, **k: R('town_deposit', TOWN_FULL + '; deposit (no item) tries other chests and can build a new one', status='failed', cobble=cobble, **k)
     NC = lambda **k: R('deposit', 'the cobble stays: no container here has room for a whole stack, and ' + COBBLE_NO_CHEST + ' (cobble reserve)', status='no_effect', **k)
     CTL = dict(arm='control', bot='board-a-Alpha')
-    ok = judge([WD(94), TF(300), NC(mins=1), TF(300, mins=2), R('_cobbleoverflow_mode', 'phase=mode rule=no_room ttl_min=60')])
-    assert ok['overflow_throws_canary'] == 1 and ok['overflow_cobble_canary'] == 94 and ok['breach_reserve'] == 0 and ok['breach_switch'] == 0, ok
-    assert ok['exposure_rows'] == 3 and ok['exposure_ready'] == 1 and ok['arms_control_rows'] == 0 and ok['mode_rows_canary'] == 1, ok
+    # a click row exactly as skills.mjs cobbleOverflowNote writes it (phase=throw)
+    CK = lambda name='cobblestone', count=64, left=94, cap='below', mode='overflow', known=1, mx='0/0', **k: R('_cobble_overflow',
+        'phase=throw name=%s count=%d left=%d cap=%s mode=%s known=%d containers=1 unknown=0 max=%s' % (name, count, left, cap, mode, known, mx), **k)
+    ok = judge([CK(count=30, left=128), CK(count=64, left=64), WD(94), TF(300), NC(mins=1), TF(300, mins=2), R('_cobbleoverflow_mode', 'phase=mode rule=no_room ttl_min=60')])
+    assert ok['overflow_throws_canary'] == 1 and ok['overflow_cobble_canary'] == 94 and ok['overflow_clicks_canary'] == 2 and ok['breach_reserve'] == 0 and ok['breach_switch'] == 0, ok
+    assert ok['exposure_rows'] == 3 and ok['exposure_ready'] == 0 and ok['exposed_bots'] == 1 and ok['arms_control_rows'] == 0 and ok['mode_rows_canary'] == 1 and ok['notes_canary'] == 0, ok
+    two = judge([TF(300), NC(mins=1), TF(300, mins=2, bot='hive-a-Bravo')])
+    assert two['exposure_ready'] == 1 and two['exposed_bots'] == 2, ('three rows from two bots: ready', two)
+    assert judge([R('_cobblecap_mode', 'phase=mode cap=1000', **CTL)])['base_licence_control'] == 1 and judge([R('_cobblecap_mode', 'phase=mode cap=1000')])['base_licence_control'] == 0, 'the base licence is counted on the control only'
+    ek = judge([R('_cobble_overflow', 'phase=town_storage_full surplus=94 stacks=2 cap=below mode=overflow known=1 containers=3 unknown=0 max=0/0 goes=2'), R('_cobble_overflow', 'phase=town_storage_full surplus=94 stacks=2 cap=below mode=- known=0 containers=3 unknown=1 max=0/0 goes=0'), CK()])
+    assert ek['exposure_known'] == 1 and ek['notes_canary'] == 2, ('known-room exposure, the click rows apart', ek)
     # D1 / D2 fail on their fixtures
-    assert judge([WD(94, left=63)])['breach_reserve'] == 1, 'positive control: a throw under the 64'
-    assert judge([WD(94, cap='unknown')])['breach_switch'] == 1, 'positive control: an overflow throw outside the switch'
+    assert judge([WD(94, left=63)])['breach_reserve'] == 1, 'positive control: a visit under the 64'
+    assert judge([CK(left=63)])['breach_reserve'] == 1, 'positive control: a click under the 64'
+    assert judge([CK(cap='unknown')])['breach_switch'] == 1, 'a click outside the switch'
+    assert judge([CK(mode='at_cap')])['breach_switch'] == 1
+    assert judge([CK(known=0)])['breach_switch'] == 1, 'a click on unknown room'
+    assert judge([CK(mx='64/0')])['breach_switch'] == 1, 'its own reading had a container for the whole 64'
+    assert judge([CK(mx='63/0')])['breach_switch'] == 0, 'positive control: 63 is not 64'
+    # per NAME (Codex r1 P2): cobblestone room does not license or forbid a deepslate click
+    assert judge([CK(name='cobbled_deepslate', count=30, mx='64/0')])['breach_switch'] == 0, 'room for cobblestone only: the deepslate may go'
+    assert judge([CK(name='cobbled_deepslate', count=30, mx='0/30')])['breach_switch'] == 1, 'deepslate room for the whole 30: it may not'
+    assert judge([CK(mx='-/-')])['breach_switch'] == 1, 'no reading at all'
+    # Codex r1 P2: the VISIT's last reading is not a verdict -- a visit that stopped correctly when the count became unknown
+    assert judge([CK(), WD(64, cap='unknown')])['breach_switch'] == 0, 'the visit row says cap=unknown after a valid click: no breach'
     assert judge([WD(0, cap='at_cap', cobble=94)])['breach_switch'] == 0, 'an AT-CAP throw is not an overflow throw'
     assert judge([WD(0, cap='at_cap', cobble=94)])['overflow_throws_canary'] == 0, 'and no liveness'
     # ARMS: the control writing this build's kinds, or throwing overflow cobble
@@ -274,15 +321,20 @@ def selftest():
         with open(os.path.join(d, 'town.cobble.jsonl'), 'w') as fh:
             fh.write(''.join(json.dumps(x) + '\n' for x in recs))
         return [d]
-    th = [{'id': 'hive-a-Alpha@x', 'pool': 'hive-a', 'start': T + 10000, 'end': T + 20000}]
-    full = audit(cc, th, town({'cobblestone': 0, 'cobbled_deepslate': 0}))
-    assert full['breach_room_journal'] == 0 and full['audit_unknown_room'] == 0 and full['audited'] == 1, ('a full town: the throw is right', full)
-    roomy = audit(cc, th, town({'cobblestone': 64, 'cobbled_deepslate': 0}))
-    assert roomy['breach_room_journal'] == 1, ('positive control: a container with room for a stack at start and end', roomy)
-    unread = audit(cc, th, town(None))
+    th = lambda name='cobblestone', count=64: [{'id': 'hive-a-Alpha@x#0', 'pool': 'hive-a', 'at': T + 20000, 'name': name, 'count': count}]
+    full = audit(cc, th(), town({'cobblestone': 0, 'cobbled_deepslate': 0}))
+    assert full['breach_room_journal'] == 0 and full['audit_unknown_room'] == 0 and full['audited'] == 1, ('a full town: the click is right', full)
+    roomy = audit(cc, th(), town({'cobblestone': 64, 'cobbled_deepslate': 0}))
+    assert roomy['breach_room_journal'] == 1, ('positive control: a container with room for the whole stack', roomy)
+    assert audit(cc, th(count=30), town({'cobblestone': 29, 'cobbled_deepslate': 0}))['breach_room_journal'] == 0, '29 room: a 30 fits nowhere'
+    assert audit(cc, th(count=30), town({'cobblestone': 30, 'cobbled_deepslate': 0}))['breach_room_journal'] == 1, '30 room: the 30 fitted'
+    # per NAME (Codex r1 P2)
+    assert audit(cc, th('cobbled_deepslate', 64), town({'cobblestone': 64, 'cobbled_deepslate': 0}))['breach_room_journal'] == 0, 'cobblestone room is not deepslate room'
+    assert audit(cc, th('cobbled_deepslate', 64), town({'cobblestone': 0, 'cobbled_deepslate': 64}))['breach_room_journal'] == 1, 'deepslate room: the deepslate fitted'
+    unread = audit(cc, th(), town(None))
     assert unread['breach_room_journal'] == 0 and unread['audit_unknown_room'] == 1, ('a container without a reading: unknown, never a breach', unread)
-    after = audit(cc, th, town({'cobblestone': 0, 'cobbled_deepslate': 0}, later={'cobblestone': 64, 'cobbled_deepslate': 64}))
-    assert after['breach_room_journal'] == 0, ('room that appeared AFTER the row is not the throw\'s', after)
+    after = audit(cc, th(), town({'cobblestone': 0, 'cobbled_deepslate': 0}, later={'cobblestone': 64, 'cobbled_deepslate': 64}))
+    assert after['breach_room_journal'] == 0, ('room that appeared AFTER the click is not the click\'s', after)
     print('SELFTEST ok: every gate fails on its fixture and passes its control (journal audit with %s)' % cc)
 
 
@@ -308,7 +360,7 @@ if __name__ == '__main__':
     CANARY_CC = os.environ.get('CANARY_CC') or os.path.expanduser('~/mcai-analysis/cobbleoverflow01/cobblecap.mjs')
     try:
         JDIRS, JMISSING = journal_coverage(CANS)
-        jr = audit(CANARY_CC, res['_throws'], JDIRS) if res['_throws'] else {'breach_room_journal': 0, '_bad': [], 'audit_unknown_room': 0, 'audited': 0, 'unreadable': [], 'towns': 0, 'dirs': len(JDIRS)}
+        jr = audit(CANARY_CC, res['_clicks'], JDIRS) if res['_clicks'] else {'breach_room_journal': 0, '_bad': [], 'audit_unknown_room': 0, 'audited': 0, 'unreadable': [], 'towns': 0, 'dirs': len(JDIRS)}
         jr['missing'] = JMISSING
     except Exception as e:
         print('journal audit failed:', e); jr = None
@@ -320,13 +372,14 @@ if __name__ == '__main__':
     print('DENOMINATORS rows walked %d (unparsable %d) | bots pre canary %d control %d | post canary %d control %d | bot-h post canary %.1f control %.1f | window %d min | other-build canary rows %d | versionless canary rows %s'
           % (walked, bad, len(bots[('pre', 'canary')]), len(bots[('pre', 'control')]), len(bots[('post', 'canary')]), len(bots[('post', 'control')]),
              hrs('post', 'canary'), hrs('post', 'control'), W, offbuild, noversion or '-'))
-    print('EXPOSURE     canary stuck rows (a bank refused for room, bag cobble >= %d or a cobble-only no-room deposit) %d from %d bot(s) (>= %d) -> %s | control %d'
-          % (SURPLUS_MIN, res['exposure_rows'], res['exposed_bots'], EXPOSURE_MIN, 'READY' if res['exposure_ready'] else 'NOT YET', res['stuck_post_control']))
-    print('LIVENESS     canary overflow throws %d (%d cobble, %.2f per canary bot-h) | licence rows _cobbleoverflow_mode %d | control rows of this build %d (must be 0)'
-          % (res['overflow_throws_canary'], res['overflow_cobble_canary'], rate(res['overflow_cobble_canary'], 'post', 'canary'), res['mode_rows_canary'], res['arms_control_rows']))
-    d3 = ('%d %s (throws audited %d, unknown room at start %d, towns %d, unreadable %s, pools not covered %s)' % (jr['breach_room_journal'], jr['_bad'], jr['audited'], jr['audit_unknown_room'], jr['towns'], jr['unreadable'] or '-', jr['missing'] or '-')
+    print('EXPOSURE     canary stuck rows (a bank refused for room, bag cobble >= %d or a cobble-only no-room deposit) %d from %d bot(s) (>= %d from >= %d) -> %s | of the canary\'s own exposure rows, room KNOWN %d of %d | control %d'
+          % (SURPLUS_MIN, res['exposure_rows'], res['exposed_bots'], EXPOSURE_MIN, EXPOSURE_BOTS, 'READY' if res['exposure_ready'] else 'NOT YET', res['exposure_known'], res['notes_canary'], res['stuck_post_control']))
+    print('BASE         control _cobblecap_mode licence rows %d (>= 1: the control runs cobblecap-1000)' % res['base_licence_control'])
+    print('LIVENESS     canary overflow visits %d, clicks %d (%d cobble, %.2f per canary bot-h) | licence rows _cobbleoverflow_mode %d | control rows of this build %d (must be 0)'
+          % (res['overflow_throws_canary'], res['overflow_clicks_canary'], res['overflow_cobble_canary'], rate(res['overflow_cobble_canary'], 'post', 'canary'), res['mode_rows_canary'], res['arms_control_rows']))
+    d3 = ('%d %s (clicks audited %d, unknown room at the click %d, towns %d, unreadable %s, pools not covered %s)' % (jr['breach_room_journal'], jr['_bad'], jr['audited'], jr['audit_unknown_room'], jr['towns'], jr['unreadable'] or '-', jr['missing'] or '-')
           if jr is not None else 'UNREADABLE (blind this read)')
-    print('CORRECTNESS  D1 throws under the 64 %d %s | D2 overflow outside the switch %d %s | D3 journal-contradicted throws %s (trips at >= %d)'
+    print('CORRECTNESS  D1 throws under the 64 %d %s | D2 clicks outside their own rule %d %s | D3 journal-contradicted clicks %s (trips at >= %d)'
           % (res['breach_reserve'], res['_lists']['d1'], res['breach_switch'], res['_lists']['d2'], d3, D3_TRIP))
     print('PRIMARY      stuck rows canary %d -> %d control %d -> %d DiD %+.4f/bot-h (should FALL)'
           % (res['stuck_pre_canary'], res['stuck_post_canary'], res['stuck_pre_control'], res['stuck_post_control'], dids['stuck']))

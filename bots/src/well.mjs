@@ -165,7 +165,7 @@ export function cobbleWellStacks (items = []) {
  * COBBLE THE TOWN HAS NO ROOM FOR (cobbleoverflow-01; OWNER 10-16 "yes, junk can take the extra"). At 1000 a town can fill
  * every container before it holds its cap, and cobble never opens a chest -- so the bag's surplus had no exit. Below the
  * cap the well now takes a surplus whole stack ONLY when the town's room is KNOWN (cobblecap.mjs townRoom: every town
- * container read within the hour, none of them mid-withdraw) and NO ONE container can take that stack whole -- exactly
+ * container read within ROOM_TTL_MS (6 h, the count's own trust), none of them mid-withdraw) and NO ONE container can take that stack whole -- exactly
  * the stacks a deposit cannot bank (deposit moves a stack only into a container with room for all of it). A stack that
  * fits somewhere stays for the deposit; unknown room sends nothing; the bot keeps its 64 (cobbleWellStacks).
  *   room  { known, max: { cobblestone, cobbled_deepslate } } -- max is the most any one container can take

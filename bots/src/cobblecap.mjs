@@ -174,8 +174,14 @@ export const FLOOR_TTL_MS = 60 * 60 * 1000
 
 /** The names whose room a count records: the cobble rule's two (cobblecap COBBLE). */
 export const ROOM_NAMES = Object.freeze(['cobblestone', 'cobbled_deepslate'])
-/** A room reading older than this is no longer evidence (the well's at-cap switch reads its floor at the same age). */
-export const ROOM_TTL_MS = FLOOR_TTL_MS
+/**
+ * A room reading older than this is no longer evidence: THE COUNT'S OWN TRUST (OBS_TTL_MS, 6 h), since the reading rides on
+ * the count and goes stale the same way -- only through a removal nobody recorded (every bot take writes its post-transfer
+ * count, an aborted one included; a lost window writes a dirty mark). r2 (both reviews asked for liveness): at 1 h (the
+ * floor's age) no fleet town was ever fully read -- measured 10-16 over 24 h on the 12 drawn pools, 0 of 289 five-minute
+ * samples per town had every container counted within the hour (mean share 8-33%), while 6 h was complete up to 83%.
+ */
+export const ROOM_TTL_MS = OBS_TTL_MS
 /**
  * HOW MUCH OF EACH COBBLE NAME AN OPEN CONTAINER COULD STILL TAKE -> { cobblestone, cobbled_deepslate } or null. Pure.
  * `contents` are the window's container items (each with its window `slot`), `size` the container's slot count (the

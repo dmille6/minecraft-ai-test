@@ -1482,6 +1482,13 @@ export function cobbleWellOpts (bot, items = bot?.inventory?.items?.() ?? []) {
 }
 
 /**
+ * THE NO-ROOM REFUSAL (the cobble-only deposit that found no container with room for a whole stack) -> its detail. Pure.
+ * With a usable well it names the deterministic exit (cobbleoverflow-01, Codex r1 P3: a refusal names a remedy): once every
+ * town container is seen without room, the well's own order takes the surplus at a full bag.
+ */
+export const cobbleNoRoomDetail = (wellOk = false) => `the cobble stays: no container here has room for a whole stack, and cobble never opens a new chest (cobble reserve)${wellOk ? '; once every town container is seen without room for it, the junk well takes the surplus whole stacks at a full bag' : ''}`
+
+/**
  * THE WELL ORDER'S PLAN (cognitive.mjs feeds its junkStacks to well.mjs wellOrder): the bag as the well would take it now --
  * a peaceful world's swords, the cobble switch (cobbleWellOpts: at the cap, or below it what no town container has room
  * for) and the stock targets' at-target groups. The town's counts are read only AT TOWN (`atTown`; Claude coupling review
@@ -1498,8 +1505,15 @@ export function wellOrderPlan (bot, items = bot?.inventory?.items?.() ?? [], atT
  * says what the well's switch made of it: `_cobble_overflow phase= surplus= stacks= cap= mode= known= containers=
  * unknown= max=<cobblestone>/<cobbled_deepslate> goes=`. Never breaks the refusal it annotates.
  */
-export function cobbleOverflowNote (bot, phase, items = bot?.inventory?.items?.() ?? []) {
+export function cobbleOverflowNote (bot, phase, items = bot?.inventory?.items?.() ?? [], { stack = null, left = null, co: given = null } = {}) {
   try {
+    if (stack) {
+      // phase=throw: the stack the click authorised and the reading it used (known, containers, max of ONE container)
+      const r = given?.room
+      const detail = `phase=${phase} name=${stack.name} count=${stack.count} left=${left} cap=${given?.cap ?? '-'} mode=${given?.mode ?? '-'} known=${r?.known ? 1 : 0} containers=${r?.containers ?? '-'} unknown=${r?.unknown?.length ?? '-'} max=${r?.max?.cobblestone ?? '-'}/${r?.max?.cobbled_deepslate ?? '-'}`
+      logEvent({ kind: 'cobble_overflow', status: 'success', snapshot: snapshot(bot), detail })
+      return detail
+    }
     const sur = cobbleWellStacks(items)
     if (!sur.length) return null
     const co = cobbleWellOpts(bot, items)
@@ -3058,7 +3072,7 @@ async function deposit(ctx, { item = null }, signal, { noRecovery = false, prefe
   if (!cursorLost && moved === 0 && eligible > 0 && cobbleEligible === eligible) {
     cobbleOverflowNote(bot, 'deposit_no_room')   // cobbleoverflow-01: the exposure row (what the well's switch makes of it)
     return { status: 'no_effect', failClass: null,
-             detail: `the cobble stays: no container here has room for a whole stack, and cobble never opens a new chest (cobble reserve)` }
+             detail: cobbleNoRoomDetail(wellUsable(bot)) }
   }
   // AN UNSETTLED TRANSFER IS NOT A FULL CHEST (Codex): a stack may still be on the cursor, so nothing else is attempted
   // -- no other container, no new chest -- until a later deposit starts from a settled bag.
@@ -3271,9 +3285,17 @@ export function stockTownViewFor (bot, group = 'cobble', now = Date.now(), { fre
 export function cobbleTownRoomFor (bot, now = Date.now(), { state = undefined } = {}) {
   const st = state === undefined ? capTown(bot) : state
   if (!st) return { known: false, unknown: ['journal'], max: { cobblestone: 0, cobbled_deepslate: 0 }, containers: 0 }
-  let sc = townCobbleScan(bot, now, { state: st })
-  if (!sc.coverage && st.scan && now - st.scan.at < OBS_TTL_MS && !inTown(homeVec(), bot.entity?.position)) sc = { keys: st.scan.keys, coverage: true, gone: sc.gone }
-  return townRoom(st, sc.keys, now, { coverage: sc.coverage, gone: sc.gone })
+  // NO AWAY-FROM-TOWN FALLBACK (Claude cobbleoverflow r1 P2): the count's stand-in, the journal's last covered scan, may be
+  // hours old; the well itself acts only in town, so away from it the room is simply unknown (a walk is never planned on it)
+  const atTown = inTown(homeVec(), bot.entity?.position)
+  const sc = townCobbleScan(bot, now, { state: st })
+  const v = townRoom(st, sc.keys, now, { coverage: sc.coverage, gone: sc.gone })
+  // A "NO ROOM" IS NEVER JUDGED ON A CACHED CONTAINER LIST (Codex cobbleoverflow r1 P1): the scan is cached 20 s, and a
+  // container placed or first counted since (a new chest with room) would be missing from it. At town, a known room is
+  // judged again over a FRESH scan before it can authorise anything (only then: the hot path keeps the cache).
+  if (!v.known || !atTown) return v
+  const fresh = townCobbleScan(bot, now, { state: st, fresh: true })
+  return townRoom(st, fresh.keys, now, { coverage: fresh.coverage, gone: fresh.gone })
 }
 /**
  * THE COUNT: what an OPEN town container's window holds, captured now and appended at once with its capture time, in the
@@ -7844,7 +7866,12 @@ async function throwStacks (bot, { cap, facing, stacks, bound, waitTick, signal,
         const co = cobbleWellOpts(bot)
         acc.capLast = co.cap
         if (!cobbleStackGoes(it, co)) continue
-        if (co.mode === 'overflow') acc.overflow = (acc.overflow ?? 0) + it.count
+        if (co.mode === 'overflow') {
+          acc.overflow = (acc.overflow ?? 0) + it.count
+          // THE CLICK'S OWN EVIDENCE (Codex cobbleoverflow r1 P2): one row per overflow stack, with the reading that authorised
+          // it -- the read judges each click by its own name, count and room, never the visit's last reading
+          cobbleOverflowNote(bot, 'throw', bot.inventory?.items?.() ?? [], { stack: it, left: leftC, co })
+        }
         acc.cobble += it.count; acc.cobbleLeft = Math.min(acc.cobbleLeft ?? Infinity, leftC)
         // A PRUNED COBBLE STACK writes its _stock_prune row like every other group (Claude code r2 P3: prune clicks were
         // under-counted), with stonecap's own numbers: the available floor, the cap, the bot's 64
@@ -9073,7 +9100,7 @@ async function withdrawVisit (ctx, chestBlock, decide, signal, msLeft, deadline)
   if (opened.fail) return { result: opened.fail, diag }
   const win = opened.chest
   const double = (win.inventoryStart ?? 27) >= 54
-  let saw = [], plan = null, moved = null, unresolved = null
+  let saw = [], plan = null, moved = null, unresolved = null, entered = false
   // OWNED FROM THE OPEN TO THE CLOSE OR THE HOLD (I): nothing else touches the inventory while this visit has the window.
   const own = ownInventory(bot, win)
   const stockIds = []
@@ -9115,7 +9142,7 @@ async function withdrawVisit (ctx, chestBlock, decide, signal, msLeft, deadline)
         stockIds.push(adm.id)
       }
     }
-    if (plan) { moved = await transferIn(bot, win, plan, { deadline, signal }); unresolved = moved.unresolved }
+    if (plan) { entered = true; moved = await transferIn(bot, win, plan, { deadline, signal }); unresolved = moved.unresolved }
   } catch (e) {
     if (e?.withdrawState) {
       unresolved = e.withdrawState.unresolved
@@ -9125,7 +9152,9 @@ async function withdrawVisit (ctx, chestBlock, decide, signal, msLeft, deadline)
   } finally {
     // THE TOWN CONTAINER'S COUNT AFTER THIS VISIT (stocktarget design 3.5), releasing its draw/bank claims, while the window
     // is still ours; a held or lost window releases them with the container marked UNKNOWN (a dirty mark)
-    if (moved || stockIds.length) { try { await cobbleObserve(bot, cp, win, { releaseAll: stockIds, dirtyIfLost: true, lost: !!unresolved }) } catch { /* the claims stay live: conservative */ } }
+    // ...and after ANY transfer that began (cobbleoverflow-01, Claude r1 P1): an aborted take of an untargeted name moved
+    // items out with no claim and no `moved`, and the open's count -- room as it was BEFORE the take -- would stand
+    if (moved || stockIds.length || entered) { try { await cobbleObserve(bot, cp, win, { releaseAll: stockIds, dirtyIfLost: true, lost: !!unresolved }) } catch { /* the claims stay live: conservative */ } }
     // NEVER A LOADED CLOSE: an unresolved cursor keeps the window open until it settles (holdUnsettled, which takes the
     // ownership over). Otherwise the close, then the ownership once every click has settled (bounded).
     if (unresolved) holdUnsettled(bot, win, unresolved, own)

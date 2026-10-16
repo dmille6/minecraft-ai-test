@@ -288,9 +288,13 @@ const cobOf = t => (t?.cobblestone ?? 0) + (t?.cobbled_deepslate ?? 0)
 const keyOf = c => `${c.x},${c.y},${c.z}`
 const roomRec = (files, at) => journalOf(files).filter(r => r.t === 'cnt' && r.k === keyOf(at) && r.r).map(r => r.r).pop() ?? null
 const modeRows = files => rowsOf(files.skillLog).filter(r => r.name === '_cobbleoverflow_mode').map(r => r.detail)
+const throwRows = files => rowsOf(files.skillLog).filter(r => r.name === '_cobble_overflow' && /^phase=throw /.test(r.detail)).map(r => r.detail)
 const dumpRows = files => rowsOf(files.skillLog).filter(r => /town_deposit|_cobble|well_dispose|_well_refused|deposit_new_chest|_stock_refused/.test(r.name)).map(r => `${r.name} ${r.status} ${r.detail.slice(0, 220)}`)
 const SECOND = () => { for (const [dx, dz] of [[-4, 4], [4, 4], [-6, 0], [0, 6]]) { const c = { x: HOME.x + dx, y: HOME.y, z: HOME.z + dz }; if (keyOf(c) !== keyOf(CHEST) && Math.hypot(c.x - CAP.x, c.z - CAP.z) >= 5) return c } throw new Error('no second chest cell') }
-async function ovScene (scene, setup, { waitMs = 300000, until = null, post = 6000 } = {}) {
+async function ovScene (scene, setup, { waitMs = 300000, until = null, post = 6000, wander = false } = {}) {
+  // wander: two short walks near home instead of an idle 'status' (run 1: an idle bot's livelock breaker relocated it 29
+  // blocks off the town square, spending 10 cobble on its bridge -- not the change, but it left town mid-scene)
+  BRAIN_WANDER = wander
   if (!CAP) throw new Error('no well (run build first)')
   rcon(`kill ${ARENA_SEL}`); CHEST = CHEST ?? pickChest()
   const extra = setup()
@@ -301,10 +305,10 @@ async function ovScene (scene, setup, { waitMs = 300000, until = null, post = 60
   const hit = await waitFor(() => (until ? until(files) : null), waitMs, 1000)
   await sleep(post)
   const b1 = bag(NAME), c1 = chestTotals(), s1 = census(CAP)
-  brainQueue.length = 0
+  brainQueue.length = 0; BRAIN_WANDER = false
   const out = { scene, hit: !!hit, secs: Math.round((Date.now() - t0) / 1000), bag: { before: cobOf(b0.totals), after: cobOf(b1.totals), slotsBefore: b0.used, slotsAfter: b1.used },
     chest: { before: c0.totals, after: c1.totals, usedBefore: c0.used, usedAfter: c1.used }, shaft: { before: s0.inItems, after: s1.inItems }, arenaItemsAfter: s1.allItems,
-    room: roomRec(files, CHEST), licence: modeRows(files), rows: dumpRows(files), extra: extra?.read ? extra.read(files) : null }
+    room: roomRec(files, CHEST), licence: modeRows(files), clicks: throwRows(files), rows: dumpRows(files), extra: extra?.read ? extra.read(files) : null }
   await stopBot()
   return out
 }
@@ -317,6 +321,7 @@ scenes.ovfull = async () => {
   const disp = r.rows.filter(x => x.startsWith('_well_dispose'))
   const pass = r.bag.before === 158 && r.bag.after === 64 && r.shaft.after - r.shaft.before === 94 && cobOf(r.chest.after) === 0 && r.chest.usedAfter === 27
     && !!r.room && r.room.cobblestone === 0 && disp.some(d => / cobble=94 /.test(d) && / cap=below /.test(d) && / overflow=94/.test(d)) && r.licence.length === 1
+    && r.clicks.length === 2 && r.clicks.every(d => / cap=below mode=overflow known=1 /.test(d) && / max=0\/0$/.test(d))
   result({ ...r, PASS: pass })
 }
 
@@ -328,7 +333,7 @@ scenes.ovroom = async () => {
   const r = await ovScene('ovroom', () => { setChest(Array.from({ length: 17 }, () => ['dirt', 64])); brainQueue.push('deposit', 'deposit') },
     { waitMs: 240000, post: 90000, until: files => rowsOf(files.skillLog).find(x => x.name === '_cobble_bank' && / moved=[1-9]/.test(x.detail)) })
   const pass = r.bag.after >= 64 && r.bag.after < r.bag.before && cobOf(r.chest.after) === r.bag.before - r.bag.after && r.shaft.after === r.shaft.before
-    && !!r.room && r.room.cobblestone >= 64 && !r.rows.some(x => /^_well_dispose .* overflow=/.test(x)) && r.licence.length === 1
+    && !!r.room && r.room.cobblestone >= 64 && !r.rows.some(x => /^_well_dispose .* overflow=/.test(x)) && r.clicks.length === 0 && r.licence.length === 1
   result({ ...r, PASS: pass })
 }
 
@@ -343,9 +348,9 @@ scenes.ovunknown = async () => {
     const bad = rcon(`setblock ${B.x} ${B.y + 1} ${B.z} minecraft:bedrock`).filter(x => /Unknown|Incorrect|Cannot|not loaded/i.test(x.reply))
     if (bad.length) throw new Error('lid: ' + bad.map(x => x.reply).join('; '))
     return { read: files => ({ second: keyOf(B), secondCounted: journalOf(files).some(x => x.t === 'cnt' && x.k === keyOf(B)) }) }
-  }, { waitMs: 240000, until: () => null })
+  }, { waitMs: 240000, until: () => null, wander: true })
   const pass = r.bag.before === 158 && r.bag.after === 158 && r.shaft.after === r.shaft.before && !r.rows.some(x => /^_well_dispose .* overflow=/.test(x))
-    && r.extra && r.extra.secondCounted === false && r.licence.length === 1
+    && r.clicks.length === 0 && r.extra && r.extra.secondCounted === false && r.licence.length === 1
   result({ ...r, PASS: pass })
 }
 
