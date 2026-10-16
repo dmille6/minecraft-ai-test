@@ -1,0 +1,112 @@
+// THE CHEST LID (lidclear-01). Pure: no bot, no world reads -- skills.mjs clearChestLid reads the cells and digs.
+//
+// WHY (measured 10-16, docs/reports/lidclear-2026-10-16.md): 7 of 16 pools' `count_town` rows failed `lid_blocked`
+// (placebo-b 357 of 360 in 24 h, hive-a 91/105, board-a 76/92, board-b 53/57, placebo-c 33/67, hive-c 18/24, board-c
+// 6/21). A town container that is never opened keeps the town's stock UNKNOWN, and cobblecap.mjs admits nothing until
+// every container has a fresh count -- so ONE blocked lid closes the whole town's cobble bank at any cap. The offline
+// census (region files, 13 worlds, 277 town containers, a double chest counted once) found 18 lid-blocked containers in 7
+// worlds, and the block on EVERY one of the 18 is cobblestone: bot-placed (the chests are bot-placed, and nothing
+// generates cobblestone on top of one). Two independent defects kept them blocked:
+//   1. THE RECOUNT never tried: reconcileCobble failed a lid-blocked chest before walking to it (`lid blocked`).
+//   2. THE DEPOSIT'S AND THE WITHDRAW'S CLEAR normally timed out without a pickaxe in hand: bot.dig does not equip, a bare
+//      hand breaks dry, grounded cobblestone in 10,000 ms (hardness 2 x 5, prismarine-block digTime; wooden pickaxe 1,500,
+//      stone 750), and both sites raced the dig -- whose timer starts only after mineflayer's own look -- against a
+//      10,000 ms timeout: "has cobblestone on its lid and it would not break" (5 deposit lid digs in 8 days fleet-wide:
+//      4 aborted, 1 confirmed).
+//
+// THE SERVER'S RULE (vanilla ChestBlock.isChestBlockedAt): a chest or trapped chest does not open when the block above is a
+// redstone conductor -- by default any block whose collision shape is a full cube, except the blocks that opt out (glass,
+// leaves, the redstone block, observer, piston, ...) and plus the two that opt in without a full cube (soul sand, mud) --
+// or when a cat sits on it (Paper can switch the cat check off). A double chest is blocked when EITHER half is. A chest on a
+// chest does NOT block it (not a full cube): measured, placebo-b 280,63,-378 and placebo-c 355,71,149 each carry a chest
+// and were counted. Barrels open under anything. mineflayer adds nothing: openContainer clicks and waits for a window.
+//
+// THE BOT'S RULE stays chestLidBlocked (a single full-height box): it over-reads glass and leaves as blocking and
+// under-reads soul sand and mud. The census found none of those; the clear never breaks them (LID_BREAKABLE below), so
+// a chest under leaves or glass is refused as before. serverLidBlocks is a hand-kept APPROXIMATION of the server's rule
+// for the census and the tests -- the bot does not use it.
+
+/** The bot's lid test (was skills.mjs chestLidBlocked; re-exported there). A solid block with one full-height box. */
+export function chestLidBlocked (above) {
+  if (!above || above.boundingBox !== 'block') return false
+  const shapes = Array.isArray(above.shapes) ? above.shapes : null
+  if (!shapes || !shapes.length) return true                                  // a solid we cannot inspect: assume a full cube
+  return shapes.length === 1 && shapes[0][1] <= 0 && shapes[0][4] >= 1         // exactly one full-height box
+}
+
+const FULL_CUBE = b => Array.isArray(b?.shapes) && b.shapes.length === 1 &&
+  b.shapes[0][0] <= 0 && b.shapes[0][1] <= 0 && b.shapes[0][2] <= 0 && b.shapes[0][3] >= 1 && b.shapes[0][4] >= 1 && b.shapes[0][5] >= 1
+/** Full-cube blocks vanilla marks `isRedstoneConductor(never)` -- only the ones this file is SURE of. Anything else with a
+ *  full cube reads as blocking: the census over-counts rather than under-counts. */
+const NOT_CONDUCTOR = /(^|_)glass$|_leaves$|^(redstone_block|observer|piston|sticky_piston|[a-z_]*copper_grate)$/
+/** ...and the two that conduct without one. */
+const CONDUCTOR_ALWAYS = /^(soul_sand|mud)$/
+/** THE SERVER'S RULE, APPROXIMATED: does this block (or a sitting cat) stop a chest below it opening? Pure. */
+export function serverLidBlocks (above, { cat = false } = {}) {
+  if (cat) return true
+  if (!above || typeof above.name !== 'string') return false
+  if (CONDUCTOR_ALWAYS.test(above.name)) return true
+  if (NOT_CONDUCTOR.test(above.name)) return false
+  return above.boundingBox === 'block' && FULL_CUBE(above)
+}
+
+/**
+ * WHAT A BOT MAY BREAK OFF A LID: cobblestone and cobbled deepslate -- the census's 18 of 18 -- and nothing else (Codex
+ * design r1 P1: material is not permission). A town structure in another material keeps its lid shut and the container is
+ * refused as before; the `_lid_clear` row names the block, so a new blocker shows up in the read before anyone widens this.
+ */
+export const LID_BREAKABLE = /^(cobblestone|cobbled_deepslate)$/
+const LIQUID = /^(water|lava|flowing_water|flowing_lava|bubble_column|seagrass|tall_seagrass|kelp|kelp_plant)$/
+const FALLING = /^(sand|red_sand|gravel|suspicious_sand|suspicious_gravel|anvil|chipped_anvil|damaged_anvil|pointed_dripstone|dragon_egg|scaffolding)$|_concrete_powder$/
+/** A cell that holds water: a liquid, or a waterlogged block (the props say so, as prismarine-block or a region read gives them). */
+const wet = b => LIQUID.test(b?.name ?? '') || b?.props?.waterlogged === true || b?.props?.waterlogged === 'true'
+
+/**
+ * MAY THE BOT BREAK THE BLOCK ON THIS LID? -> null (yes) or the reason it may not. Pure.
+ *   lid    the block on the lid ({ name, props })
+ *   above  the block above the lid
+ *   sides  the lid's four horizontal neighbours
+ *   well   true when the lid cell is part of a known junk well (well.mjs wellBreakCost > 0): never broken
+ * Every unknown cell refuses (never on a guess); water or lava above or beside -- a liquid, or a waterlogged block --
+ * refuses (the break would let it flow into the lid cell and onto the bot); a falling block above refuses (it would drop
+ * straight back onto the lid).
+ */
+export function lidClearRefusal ({ lid = null, above = null, sides = [], well = false } = {}) {
+  if (!lid || typeof lid.name !== 'string') return 'lid unknown'
+  if (!LID_BREAKABLE.test(lid.name)) return `${lid.name} is not a block a bot may break off a lid`
+  if (well) return 'the lid cell is part of the junk well'
+  if (!above || typeof above.name !== 'string') return 'the cell above the lid is unknown'
+  if (!Array.isArray(sides) || sides.length !== 4 || sides.some(b => !b || typeof b.name !== 'string')) return 'a cell beside the lid is unknown'
+  if ([above, ...sides].some(wet)) return 'water or lava beside the lid'
+  if (FALLING.test(above.name)) return `${above.name} above the lid would fall onto it`
+  return null
+}
+
+/**
+ * THE LID DIG'S BUDGET -> ms, or null when the dig is too slow to start. Pure. `digMs` is bot.digTime(lid) AFTER the equip
+ * (the held tool, water, standing on ground). The budget is the dig plus a margin for the server's tick and the look;
+ * past LID_DIG_MAX_MS (a bare hand in water or off the ground: x5) the bot does not start a dig it cannot finish.
+ */
+export const LID_DIG_MAX_MS = 15_000
+export const LID_DIG_MARGIN_MS = 2_500
+export function lidDigBudgetMs (digMs) {
+  const d = Number(digMs)
+  if (!Number.isFinite(d) || d < 0) return null
+  if (d + LID_DIG_MARGIN_MS > LID_DIG_MAX_MS) return null
+  return Math.ceil(d + LID_DIG_MARGIN_MS)
+}
+
+/**
+ * WHAT A FAILED CLEAR SAYS ABOUT THE CONTAINER -> 'unavailable' | null. Pure. Only evidence about the LID marks the
+ * container unavailable for the town (30 min, chestfull.mjs): a rule refusal (the block, a hazard, the well) or a dig that
+ * ran its full budget and did not break it. The CALLER'S limits are not evidence (Codex design r1 P1): our own clock
+ * (`no_time`), a bot off the ground or in water (`slow`), out of reach (`reach`), a hand it could not free (`hand`) or an
+ * abort -- those leave the town's memory alone and the next order retries from a better stance.
+ */
+export const LID_OUTCOMES = Object.freeze(['dug', 'not_blocked', 'refused', 'failed', 'unconfirmed', 'slow', 'no_time', 'reach', 'hand', 'aborted'])
+export function lidFailMemory (outcome) {
+  return outcome === 'refused' || outcome === 'failed' || outcome === 'unconfirmed' ? 'unavailable' : null
+}
+
+/** The `_lidclear_mode` licence row (once per spawn): a kind the baseline cannot write. */
+export const lidClearModeDetail = () => `phase=mode recount=clear dig=equip breakable=cobble budget_max=${LID_DIG_MAX_MS}`

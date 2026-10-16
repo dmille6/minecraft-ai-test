@@ -28,7 +28,7 @@
 import { haltPath } from './pathhalt.mjs'
 import { stepLineSafe } from './lavaguard.mjs'
 import { nearDeathSite, lineHitsDeathSite, DEATH_SITE_TARGET_RADIUS } from './deathsites.mjs'
-import { applyToolPolicy, remaining, spentEquipOutcome, handHarvests, emptyHand, TOOL_RE as DIG_TOOL_RE, HARD_STOP } from './toolfor.mjs'
+import { applyToolPolicy, toolFor, remaining, spentEquipOutcome, handHarvests, emptyHand, TOOL_RE as DIG_TOOL_RE, HARD_STOP } from './toolfor.mjs'
 import { wearOutPlan, wearTarget, wearRank, wearRefusals, slotObservation, neverPickUp } from './hygiene.mjs'
 import { noteSought } from './pickuplog.mjs'
 import { foodSkipMode, foodSkipActive, skipFoodDrop, foodSkipDetail, difficultyOf, setPeacefulFood, peacefulFoodActive } from './foodskip.mjs'
@@ -70,7 +70,7 @@ import { WOODEN_TRAPDOOR, isWellJunk, disposePlan, wellIdentity, wellStage, well
 import { resyncPacket, GUARDED_INVENTORY_ACTIONS } from './craftsync.mjs'
 import path from 'node:path'
 // wellsite-01 (its own statement, away from the import stocktarget-01 rewrites)
-import { containmentRefusal, tallyText, WELL_SEARCH_RADIUS, WELL_NO_SITE_BACKOFF_MS, NO_VALID_CELL, retireLog, noSiteHold } from './well.mjs'
+import { containmentRefusal, tallyText, WELL_SEARCH_RADIUS, WELL_NO_SITE_BACKOFF_MS, NO_VALID_CELL, retireLog, noSiteHold, wellBreakCost } from './well.mjs'
 // plinth-01, the raised junk well (its own statements)
 import { planPlinthSteps, plinthProgress, plinthHazard, plinthWant, leaseState, plinthBlockFor, plinthBudget, plinthShortfall, plinthRecordState,
          plinthDetail, overlay as plinthOverlay, memoRead, walkReach, standFor, supportsFor, faceCentre, cellKey, inColumn, PLACED as PLINTH_PLACED,
@@ -111,6 +111,7 @@ import { openLessons } from './lessons.mjs'
 import { dropsOf, heldFromBlock, sourcesOf } from './drops.mjs'
 import { smeltPlan, smeltRecipeFor, chooseFuel, fuelTicks, SMELT_TICKS } from './smelting.mjs'
 import { withDigScope } from './digtown.mjs'
+import { chestLidBlocked, lidClearRefusal, serverLidBlocks, lidDigBudgetMs, lidFailMemory } from './lidrule.mjs'
 /** The town's home for the zone (townground.mjs): null unless HOME_X/Y/Z are set (then the zone is off). */
 const townHome = () => configuredHome(config.world)
 
@@ -2781,26 +2782,21 @@ async function deposit(ctx, { item = null }, signal, { noRecovery = false, prefe
 
   // A CHEST UNDER A SOLID BLOCK DOES NOT OPEN, and mineflayer only says
   // "Event windowOpen did not fire within timeout of 20000ms" twenty seconds
-  // later -- 138 times a day on this fleet. Look at the lid first: a solid
-  // full block above the chest is cleared when it is safe to dig (no liquid
-  // beside it), otherwise the deposit names the problem and stops here; sneak
-  // is released (a sneaking bot does not open containers); the open itself
-  // gets 8 s, not 20, with a class the model and the digest can read.
+  // later -- 138 times a day on this fleet. Look at the lid first (both halves
+  // of a double chest): a block the clear may break is dug with the cheapest
+  // harvesting tool on a digTime budget (clearChestLid, lidclear-01: the old
+  // unequipped dig raced a bare hand's 10 s against a 10 s timeout); sneak is
+  // released (a sneaking bot does not open containers); the open itself gets
+  // 8 s, not 20, with a class the model and the digest can read.
   const lid = bot.blockAt(chestBlock.position.offset(0, 1, 0))
   const isChest = ['chest', 'trapped_chest'].includes(bot.registry.blocks[chestBlock.type]?.name)   // barrels open under anything
-  if (isChest && lid && chestLidBlocked(lid)) {
-    if (lidSafeToBreak(bot, lid.position)) {
-      const db = bounded(10_000)
-      try { await withTimeout(bot.dig(lid), db.ms, bot, { what: 'dig', onTimeout: () => { try { bot.stopDigging?.() } catch {} }, needsDrop: false }) }
-      catch (e) {
-        if (e?.aborted || signal?.aborted) throw e
-        if (e?.budgetExceeded && db.clamped) return outOfTime('opening')
-        return viaRecovery({ status: 'failed', failClass: 'container_blocked', detail: `the chest at ${chestBlock.position.x},${chestBlock.position.y},${chestBlock.position.z} has ${lid.name} on its lid and it would not break: ${String(e?.message ?? e).slice(0, 60)}` }, 'unavailable')
-      }
-      check(signal)
-    } else {
-      return viaRecovery({ status: 'failed', failClass: 'container_blocked', detail: `the chest at ${chestBlock.position.x},${chestBlock.position.y},${chestBlock.position.z} has ${lid.name} on its lid and it is not safe to break — use another chest or place a new one` }, 'unavailable')
-    }
+  if (isChest) {
+    const lc = await clearChestLid(bot, chestBlock.position, { signal, msLeft, by: 'deposit' })
+    check(signal)
+    if (lc.outcome === 'no_time') return outOfTime('clearing the lid of')
+    // only evidence about the LID closes the container for the town (lidrule.mjs lidFailMemory); the bot's own limits do not
+    if (lidFailMemory(lc.outcome) === 'unavailable') return viaRecovery({ status: 'failed', failClass: 'container_blocked', detail: `${lc.detail} — use another chest or place a new one` }, 'unavailable')
+    if (lc.outcome !== 'dug' && lc.outcome !== 'not_blocked') return { status: 'failed', failClass: 'lid_not_now', detail: `${lc.detail} — deposit again from the ground beside it` }
   }
   try { bot.setControlState('sneak', false) } catch {}
   try { await bot.lookAt?.(chestBlock.position.offset(0.5, 0.5, 0.5), true) } catch {}   // face the chest; optional on test doubles
@@ -3592,8 +3588,9 @@ export async function reconcileCobble (bot, signal, msLeft, keys = null, { remem
       // an UNLOADED cell is no evidence about the container: this bot's backoff only, never a recount miss (Claude st2-r2 P3-a)
       if (!b) { fail(k, 'not loaded'); continue }
       if (!CONTAINER_RE.test(blockNameOf(bot, b) ?? '')) { fail(k, 'not a container'); continue }
-      const lid = bot.blockAt(c.offset(0, 1, 0))
-      if (/chest/.test(blockNameOf(bot, b) ?? '') && lid && chestLidBlocked(lid)) { fail(k, 'lid blocked'); continue }
+      // THE LID (lidclear-01): a lid the clear would refuse is not walked to (`lid blocked`, as before, now with a
+      // `_lid_clear outcome=refused` row); a clearable one is walked to and cleared after the arrival check
+      if (lidRefusedBeforeWalk(bot, c, 'count_town')) { fail(k, 'lid blocked'); continue }
       try {
         await chestWalk(bot, new goals.GoalNear(c.x, c.y, c.z, 2), msLeft(RECONCILE_WALK_MS))
         // THE RECOUNT ARRIVES BEFORE IT OPENS (Claude st2-r1): a resolved walk is not an arrival (Paper 10-05, the deposit's
@@ -3609,6 +3606,14 @@ export async function reconcileCobble (bot, signal, msLeft, keys = null, { remem
         fail(k, kind === 'no_path' ? 'unreachable' : `walk ${kind}`); continue
       }
       check(signal)
+      // ...and cleared here, on the recount's clock with the open's 2 s kept back. Never a recount miss and never the
+      // container memory (lidrule.mjs lidFailMemory is the deposit's): this bot backs off the container, the next order
+      // retries. Our clock ends the recount, as a walk timeout would.
+      const lc = await clearChestLid(bot, c, { signal, msLeft: cap => Math.max(0, msLeft(cap + 2_000) - 2_000), by: 'count_town' })
+      check(signal)
+      if (lc.outcome === 'no_time') { fail(k, 'lid no time'); break }
+      if (lc.outcome !== 'dug' && lc.outcome !== 'not_blocked') { fail(k, lidFailMemory(lc.outcome) ? 'lid not cleared' : 'lid not now'); continue }
+      const lidDug = lc.outcome === 'dug'
       if (msLeft(8_000) < 1_000) break
       let win = null, late = false
       const p = bot.openContainer(b)
@@ -3621,7 +3626,8 @@ export async function reconcileCobble (bot, signal, msLeft, keys = null, { remem
         const wasTimeout = late                        // onTimeout ran: THIS open may still answer
         late = true
         if (e?.aborted || signal?.aborted) throw e
-        fail(k, wasTimeout ? 'open timed out' : 'unopenable')
+        // a lid the bot DUG whose open still times out: the server kept the block (a ghost clear) -- named apart (Claude design r1 P2-5)
+        fail(k, wasTimeout ? (lidDug ? 'lid dug open timed out' : 'open timed out') : 'unopenable')
         if (wasTimeout) { timedOut = true; break }     // nothing else opens while it is in flight (cobbleOpenPending)
         continue
       }
@@ -3757,6 +3763,9 @@ async function fullChestRecovery (ctx, { item, signal, first, firstMeta = {}, fi
     if (again.failClass === 'path_budget' && again.status === 'unknown') { mark(at, 'unknown:time'); return again }
     if (again.failClass === 'storage_full') { markWith(opened, m, 'full'); remember(opened, 'full'); return null }
     if (again.failClass === 'container_blocked') { mark(at, 'unavailable'); remember(at, 'unavailable'); return null }
+    // lidclear-01: the bot's own limit at the lid (off the ground, out of reach, a hand it could not free) says nothing
+    // about the container -- unknown for this sweep, no strike, nothing remembered
+    if (again.failClass === 'lid_not_now') { mark(at, 'unknown:lid'); unknown++; return null }
     mark(at, `unknown:${again.failClass ?? again.status}`); strike(at)
     return null
   }
@@ -5518,32 +5527,137 @@ async function retakeWatched(ctx, watched, signal) {
 }
 
 // --------------------------------------------------------------- place -----
-/**
- * Does this block on a chest's lid stop it opening? Minecraft refuses a chest
- * whose top face is covered by a solid full block; slabs, stairs, water, air,
- * torches and other non-full shapes leave it usable. Pure, exported for tests.
- */
-/**
- * FAIL CLOSED: may this lid block be dug? Every neighbour (four sides and above) must be KNOWN, none liquid, and
- * the block above must not be a falling block. isSafeToBreak fails open when its checker is missing; a chest lid
- * is dug only on positive evidence (Codex, deposit pass 2).
- */
-export function lidSafeToBreak (bot, p) {
+// THE CHEST LID (lidclear-01): the bot's lid test lives in lidrule.mjs with the clear's rule; re-exported for its callers.
+export { chestLidBlocked }
+
+const LID_CHESTS = new Set(['chest', 'trapped_chest'])
+const lidCell = (bot, b) => {
+  if (!b) return null
+  let props = null
+  try { props = b.getProperties?.() ?? null } catch { props = null }
+  return { name: blockNameOf(bot, b), boundingBox: b.boundingBox, shapes: b.shapes, props }
+}
+const lidCells = (bot, c) => ({ chest: bot.blockAt(c), lid: bot.blockAt(c.offset(0, 1, 0)), above: bot.blockAt(c.offset(0, 2, 0)),
+  sides: [[1, 0], [-1, 0], [0, 1], [0, -1]].map(([dx, dz]) => bot.blockAt(c.offset(dx, 1, dz))) })
+/** ONE HALF'S LID, judged on a fresh read -> { blocked, refusal, s }. The rule is lidrule.mjs's; the well cells are the bot's. */
+function lidJudge (bot, c) {
+  const s = lidCells(bot, c)
+  if (!LID_CHESTS.has(blockNameOf(bot, s.chest) ?? '') || !s.lid || !chestLidBlocked(s.lid)) return { blocked: false, refusal: null, s }
+  let well = true
+  try { well = wellBreakCost(bot.wellCellsNow?.() ?? knownWellCells(bot), { position: c.offset(0, 1, 0) }) > 0 } catch { well = true }   // wells unknown: refuse
+  const lid = lidCell(bot, s.lid)
+  const refusal = lidClearRefusal({ lid, above: lidCell(bot, s.above), sides: s.sides.map(b => lidCell(bot, b)), well }) ??
+    (serverLidBlocks(lid) ? null : `${lid.name} does not block a lid on the server`)
+  return { blocked: true, refusal, s }
+}
+const chestHalves = (bot, chestPos) => {
+  const halves = [chestPos]
+  try { const q = chestPartner(bot, chestPos); if (q) halves.push(q) } catch { /* a single chest */ }
+  return halves.sort((a, b) => a.x - b.x || a.z - b.z)
+}
+/** One `_lid_clear` row: what was judged or dug, by whom, and why. */
+function lidClearRow (bot, c, s, by, outcome, { tool = '-', digMs = null, budget = null, why = '' } = {}) {
+  const at = posKey(c)
   try {
-    const at = (dx, dy, dz) => bot.blockAt?.(p.offset(dx, dy, dz))
-    const around = [at(1, 0, 0), at(-1, 0, 0), at(0, 0, 1), at(0, 0, -1)]; const above = at(0, 1, 0)
-    if (!above || around.some(b => !b)) return false
-    if ([...around, above].some(b => ['water', 'lava', 'flowing_water', 'flowing_lava'].includes(b.name))) return false
-    if (['sand', 'red_sand', 'gravel', 'suspicious_sand', 'suspicious_gravel'].includes(above.name)) return false
-    return true
-  } catch { return false }
+    const key = (() => { try { return containerKey(bot, c) } catch { return at } })()
+    logEvent({ kind: 'lid_clear', status: outcome === 'dug' ? 'success' : outcome === 'refused' ? 'no_effect' : 'failed', snapshot: snapshot(bot),
+               detail: `outcome=${outcome} by=${by} at=${at} key=${key} lid=${blockNameOf(bot, s?.lid) ?? '?'} above=${blockNameOf(bot, s?.above) ?? '?'} tool=${tool} dig_ms=${Number.isFinite(digMs) ? digMs : '-'} budget=${budget ?? '-'}${why ? ` why=${why}` : ''}`.slice(0, 300) })
+  } catch { /* a row never breaks the clear */ }
+  return { outcome, detail: `the chest at ${at} has ${blockNameOf(bot, s?.lid) ?? 'a block'} on its lid${why ? `: ${why}` : ''}`, at }
+}
+/**
+ * BEFORE A WALK (the recount): would the clear refuse this chest's lid? -> null when neither half is blocked or every
+ * blocked half is clearable; else the refusal, with ONE `_lid_clear outcome=refused` row (both design reviews r1: a
+ * refusal the read cannot see is a town frozen in silence).
+ */
+export function lidRefusedBeforeWalk (bot, chestPos, by = 'count_town') {
+  for (const h of chestHalves(bot, chestPos)) {
+    const j = lidJudge(bot, h)
+    if (j.blocked && j.refusal) return lidClearRow(bot, h, j.s, by, 'refused', { why: j.refusal })
+  }
+  return null
 }
 
-export function chestLidBlocked (above) {
-  if (!above || above.boundingBox !== 'block') return false
-  const shapes = Array.isArray(above.shapes) ? above.shapes : null
-  if (!shapes || !shapes.length) return true                                  // a solid we cannot inspect: assume a full cube
-  return shapes.length === 1 && shapes[0][1] <= 0 && shapes[0][4] >= 1         // exactly one full-height box
+/**
+ * CLEAR A TOWN CHEST'S LID (lidclear-01; the decisions are lidrule.mjs's, this reads the cells, equips and digs)
+ * -> { outcome, detail, at }. outcome (lidrule.mjs LID_OUTCOMES):
+ *   not_blocked  neither half's lid is blocked (a barrel never is): open it
+ *   dug          every blocked half's block was dug and the bot's own world model no longer shows it. NOT the server's
+ *                word (mineflayer predicts air; Paper says nothing for a refused dig): the OPEN that follows is the proof
+ *   refused      lidClearRefusal (the block, a hazard, the well) -- evidence about the lid
+ *   failed       a dig that ran its full budget, or threw -- evidence about the lid
+ *   unconfirmed  the dig resolved and the server put the block back -- evidence about the lid
+ *   slow         the dig would take longer than LID_DIG_MAX_MS from here (off the ground, in water) -- the caller's limit
+ *   no_time      the caller's clock cannot hold the dig -- the caller's limit
+ *   reach        out of dig reach from where the bot stands -- the caller's limit
+ *   hand         the cheapest harvesting tool (or the empty hand) could not be held -- the caller's limit
+ * A DOUBLE CHEST is blocked when either half is (vanilla): both halves' lids are judged and cleared, the lower key first.
+ * One `_lid_clear` row per blocked half judged (by = who asked: count_town, deposit, withdraw). Aborts propagate.
+ *
+ * WHY EACH STEP (both design reviews r1): the hand is the cheapest tool that HARVESTS the block (toolfor.mjs toolFor --
+ * the iron-retention policy) equipped and AWAITED, else the hand emptied of any tool (a spent pickaxe in hand is never
+ * swung); digTime is read AFTER the equip and on the ground (mid-jump it is x5); then the look, then the FINAL check on a
+ * fresh read with no await before the dig packet (`dig(block, 'ignore')`, the gather path's pattern); the dig runs inside
+ * withDigScope({ purpose: 'lid' }) so the `_dig_town` instrument names it.
+ */
+export async function clearChestLid (bot, chestPos, { signal = null, msLeft = cap => cap, by = 'deposit' } = {}) {
+  let dug = 0
+  let last = null
+  for (const h of chestHalves(bot, chestPos)) {
+    const r = await clearOneLid(bot, h, { signal, msLeft, by })
+    if (r.outcome === 'not_blocked') continue
+    if (r.outcome !== 'dug') return r
+    dug++; last = r
+  }
+  return dug ? { ...last, at: posKey(chestPos) } : { outcome: 'not_blocked', detail: 'the lid is clear', at: posKey(chestPos) }
+}
+async function clearOneLid (bot, c, { signal, msLeft, by }) {
+  let j = lidJudge(bot, c)
+  if (!j.blocked) return { outcome: 'not_blocked', detail: 'the lid is clear', at: posKey(c) }
+  const o = { tool: '-', digMs: null, budget: null }
+  const row = (outcome, why = '') => lidClearRow(bot, c, j.s, by, outcome, { ...o, why })
+  if (j.refusal) return row('refused', j.refusal)
+  // THE HAND: the cheapest tool that harvests it, equipped and awaited; else no tool at all in the hand
+  const lidName = blockNameOf(bot, j.s.lid)
+  const d = toolFor(j.s.lid, bot.inventory?.items?.() ?? [])
+  if (d.item) {
+    try { await bot.equip(d.item, 'hand') } catch { /* read back below */ }
+    check(signal)
+    if (bot.heldItem?.name !== d.item.name) return row('hand', `could not hold the ${d.item.name}`)
+    o.tool = d.item.name
+  } else {
+    const how = await emptyHand(bot)
+    check(signal)
+    if (DIG_TOOL_RE.test(bot.heldItem?.name ?? '')) return row('hand', `could not free the hand of the ${bot.heldItem.name} (${how})`)
+    o.tool = 'hand'
+  }
+  // ON THE GROUND (a dig timed mid-jump or mid-fall is x5): up to a second for the bot to land
+  for (let i = 0; i < 20 && bot.entity && bot.entity.onGround === false; i++) await sleep(50, signal)
+  try { o.digMs = Number(bot.digTime?.(j.s.lid)) } catch { o.digMs = null }
+  o.budget = lidDigBudgetMs(o.digMs)
+  if (o.budget === null) return row('slow', `digging it from here would take ${Number.isFinite(o.digMs) ? o.digMs : '?'} ms`)
+  if (msLeft(o.budget) < o.budget) return row('no_time', `${o.budget} ms needed`)
+  try { await bot.lookAt?.(j.s.lid.position.offset(0.5, 0.5, 0.5), true) } catch { /* the dig still faces it */ }
+  check(signal)
+  // THE FINAL CHECK, on a fresh read, with no await between it and the dig packet (Codex design r1 P1)
+  j = lidJudge(bot, c)
+  if (!j.blocked) return { outcome: 'not_blocked', detail: 'the lid is clear', at: posKey(c) }
+  if (blockNameOf(bot, j.s.lid) !== lidName) return row('refused', `the lid block changed to ${blockNameOf(bot, j.s.lid)}`)
+  if (j.refusal) return row('refused', j.refusal)
+  if (o.tool !== 'hand' ? bot.heldItem?.name !== o.tool : DIG_TOOL_RE.test(bot.heldItem?.name ?? '')) return row('hand', 'the hand changed before the dig')
+  if (bot.canDigBlock && !bot.canDigBlock(j.s.lid)) return row('reach', 'out of reach from here')
+  try {
+    await withTimeout(withDigScope(bot, { purpose: 'lid', by }, () => bot.dig(j.s.lid, 'ignore')), o.budget, bot,
+      { what: 'dig', onTimeout: () => { try { bot.stopDigging?.() } catch { /* not digging */ } }, needsDrop: false })
+  } catch (e) {
+    if (e?.aborted || signal?.aborted) { try { bot.stopDigging?.() } catch { /* not digging */ } row('aborted', 'aborted'); throw e }
+    return row('failed', String(e?.message ?? e).replace(/\s+/g, ' ').slice(0, 80))
+  }
+  // THE SERVER PUTS A REFUSED BREAK BACK (when it says anything): a few ticks, then the bot's own read
+  await sleep(300, signal)
+  const after = lidCells(bot, c)
+  if (after.lid && chestLidBlocked(after.lid)) return row('unconfirmed', `${blockNameOf(bot, after.lid)} is still there after the dig`)
+  return row('dug')
 }
 
 /** Blocks that are put down to be USED, not stood on: they need a cell, not headroom. */
@@ -9149,18 +9263,13 @@ const TOOLISH = /_(pickaxe|axe|shovel|hoe|sword)$/
 /** One container opened to take from: the lid looked at, the open bounded, a window that arrives late closed. */
 async function openForWithdraw (bot, chestBlock, signal, msLeft) {
   const cp = chestBlock.position
-  const lid = bot.blockAt(cp.offset(0, 1, 0))
   const isChest = ['chest', 'trapped_chest'].includes(blockNameOf(bot, chestBlock))   // barrels open under anything
-  if (isChest && lid && chestLidBlocked(lid)) {
-    if (!lidSafeToBreak(bot, lid.position)) {
-      return { fail: { status: 'failed', failClass: 'container_blocked', detail: `the chest at ${cp.x},${cp.y},${cp.z} has ${lid.name} on its lid and it is not safe to break` } }
-    }
-    try { await withTimeout(bot.dig(lid), Math.max(1, msLeft(10_000)), bot, { what: 'dig', onTimeout: () => { try { bot.stopDigging?.() } catch {} }, needsDrop: false }) }
-    catch (e) {
-      if (e?.aborted || signal?.aborted) throw e
-      return { fail: { status: 'failed', failClass: 'container_blocked', detail: `the chest at ${cp.x},${cp.y},${cp.z} has ${lid.name} on its lid and it would not break` } }
-    }
+  // lidclear-01: both halves' lids, the cheapest harvesting tool, a digTime budget (clearChestLid); withdraw strikes nothing
+  // in the town's memory either way, so every outcome but a clear lid is this visit's container_blocked
+  if (isChest) {
+    const lc = await clearChestLid(bot, cp, { signal, msLeft, by: 'withdraw' })
     check(signal)
+    if (lc.outcome !== 'dug' && lc.outcome !== 'not_blocked') return { fail: { status: 'failed', failClass: 'container_blocked', detail: lc.detail } }
   }
   try { bot.setControlState('sneak', false) } catch {}
   try { await bot.lookAt?.(cp.offset(0.5, 0.5, 0.5), true) } catch {}

@@ -5,6 +5,7 @@
 //
 //   node sandbox/well/stock-e2e.cjs <botRoot> <scene,scene,...> [server]
 //   scenes: build (the well; every later scene uses it)  stockdispose  stockbank  stockprune  stockprunekeep  stocknochest  stockrace  stockrefuse  stockrecount
+//           lidrecount lidrecountpick (lidclear-01: no well needed; LOCK_OWNER=lidclear)
 //
 // RCON only through `ssh mike@10.0.0.30 python3 /tmp/sbx-rcon.py <sandboxN> -`. Sandbox servers and sandbox-* names
 // only. Refuses to run unless the sandbox lock (/tmp/mcai-sandbox.lock on 10.0.0.31) names `stocktarget`.
@@ -94,7 +95,7 @@ function wellBlocks (cap, facing) {
 const lines = f => { try { return fs.readFileSync(f, 'utf8').split('\n').filter(Boolean) } catch { return [] } }
 const rowsOf = file => lines(file).map(l => { try { return JSON.parse(l) } catch { return null } }).filter(r => r && r.skill)
   .map(r => ({ ts: Date.parse(r['@timestamp']), name: r.skill.name, status: r.skill.status, detail: String(r.skill.detail || '') }))
-async function waitFor (pred, ms, step = 250) { for (const t0 = Date.now(); Date.now() - t0 < ms;) { const v = pred(); if (v) return v; await sleep(step) } return null }
+async function waitFor (pred, ms, step = 250, stop = null) { for (const t0 = Date.now(); Date.now() - t0 < ms;) { const v = pred(); if (v) return v; if (stop && stop()) return null; await sleep(step) } return null }
 
 let BRAIN_WANDER = false, brainN = 0
 const brainQueue = []
@@ -622,6 +623,65 @@ scenes.stockrecount = async () => {
       && (c1.totals.oak_log ?? 0) <= 64 && unknownAfter === 0) })
 }
 
+// LIDCLEAR-01 (docs/reports/lidclear-2026-10-16.md): the town's only chest (20 oak) has COBBLESTONE on its lid -- the
+// fleet's 18 of 18. A fresh pool: the town is uncounted, the bot holds 2x64 oak (a targeted group the plan cannot judge),
+// so count_town fires at once. The base fails `lid_blocked` before walking and the town stays unknown; the candidate
+// walks, digs the lid (bare-handed in `lidrecount`: the 10 s dig the old 10 s race always lost; a stone pickaxe in
+// `lidrecountpick`), the SERVER opens the chest and the journal gets a count. Read back from the world: the lid cell, the
+// chest's contents unchanged, the journal's `cnt` for the chest.
+async function lidScene (scene, spec) {
+  buildArena()   // the floating dirt slab the town stands on (the `build` scene's first step; no well is needed here)
+  BRAIN_WANDER = true   // two short walks in town, not 'status' for ever (that trips the livelock relocation off the arena: run 3 10-16)
+  rcon(`kill ${ARENA_SEL}`); CHEST = CHEST ?? pickChest()
+  setChest([['oak_log', 20]])
+  const lidCell = `${CHEST.x} ${CHEST.y + 1} ${CHEST.z}`
+  const put = rcon(`setblock ${lidCell} minecraft:cobblestone`, `execute if block ${lidCell} minecraft:cobblestone`)
+  if (!passed(put[1]?.reply)) throw new Error('lid not set: ' + JSON.stringify(put))
+  const pool = `sbxlid-${RUN}-${scene}`
+  const files = await startBot(scene, spec, { pool })
+  const key = `${CHEST.x},${CHEST.y},${CHEST.z}`
+  // phase 1 ends at the first count of the chest from ANY path (a withdraw's visit counts it too), or a recount row
+  const recount = await waitFor(() => rowsOf(files.skillLog).find(r => r.name === '_stock_recount'), 150000, 500,
+    () => journalOf(files).some(r => r.t === 'cnt' && r.k === key))
+  await sleep(3000)
+  const lidAir = passed(r1(`execute if block ${lidCell} minecraft:air`))
+  const lidCobble = passed(r1(`execute if block ${lidCell} minecraft:cobblestone`))
+  const chest = chestTotals()
+  const cnt = journalOf(files).filter(r => r.t === 'cnt' && r.k === key)
+  const lidRows = rowsOf(files.skillLog).filter(r => r.name === '_lid_clear').map(r => `${r.status} ${r.detail}`)
+  const digRows = rowsOf(files.skillLog).filter(r => r.name === '_dig_town').map(r => r.detail)
+  const licence = rowsOf(files.skillLog).filter(r => r.name === '_lidclear_mode').length
+  const recounts = rowsOf(files.skillLog).filter(r => r.name === '_stock_recount').map(r => `${r.status} ${r.detail.slice(0, 200)}`)
+  // PHASE 2 (the RECOUNT's own path, `lidrecountpick` only): a bot with no pickaxe at spawn walks to WITHDRAW one first, and
+  // that visit opens (and so counts) the chest before any count_town (Paper 10-16, both builds). So, once the server's bag
+  // holds the stone pickaxe: cobblestone back on the lid, the town's counts fenced (stockreset.mjs, a journal append), and
+  // the next count_town order must clear the lid itself -- with the pickaxe -- and count.
+  let phase2 = null
+  if (/pick/.test(scene)) {
+    const hasPick = await waitFor(() => (bag(NAME).totals.stone_pickaxe ?? 0) >= 1, 60000, 2000)
+    const put2 = rcon(`setblock ${lidCell} minecraft:cobblestone`, `execute if block ${lidCell} minecraft:cobblestone`)
+    const fence = execFileSync('node', [path.join(BOT_ROOT, 'bots/scripts/stockreset.mjs'), files.poolDir], { encoding: 'utf8' }).trim()
+    const t2 = Date.now()
+    const rc2 = await waitFor(() => rowsOf(files.skillLog).find(r => r.name === '_stock_recount' && r.ts >= t2 - 1000), 180000, 500)
+    await sleep(3000)
+    const cnt2 = journalOf(files).filter(r => r.t === 'cnt' && r.k === key && (r.cap ?? r.at) >= t2)
+    phase2 = { hasPick: !!hasPick, lidSet: passed(put2[1]?.reply), fence: fence.slice(0, 120), recount: rc2?.detail ?? null,
+      lidRows: rowsOf(files.skillLog).filter(r => r.name === '_lid_clear' && r.ts >= t2 - 1000).map(r => `${r.status} ${r.detail}`),
+      lidAir: passed(r1(`execute if block ${lidCell} minecraft:air`)), lidCobble: passed(r1(`execute if block ${lidCell} minecraft:cobblestone`)),
+      chest: chestTotals().totals, journalCountsAfterFence: cnt2.map(r => ({ n: r.n, m: r.m, cap: r.cap })) }
+    phase2.CANDIDATE_PASS = !!(phase2.lidAir && cnt2.length >= 1 && rc2 && /counted=[1-9]/.test(rc2.detail) && phase2.lidRows.some(l => /outcome=dug by=count_town .*tool=stone_pickaxe/.test(l)))
+    phase2.BASE_SHAPE = !!(phase2.lidCobble && cnt2.length === 0 && rc2 && /fails=lid_blocked:1/.test(rc2.detail))
+  }
+  await stopBot(); BRAIN_WANDER = false
+  result({ scene, root: BOT_ROOT, recount: recount?.detail ?? null, recounts, lidRows, digRows, licence, phase2,
+    world: { lidAir, lidCobble, chest: chest.totals }, journalCounts: cnt.map(r => ({ n: r.n, m: r.m, cap: r.cap })),
+    CANDIDATE_PASS: !!(lidAir && !lidCobble && cnt.length >= 1 && (chest.totals.oak_log ?? 0) === 20 && licence >= 1 && lidRows.some(l => /outcome=dug /.test(l))),
+    BASE_SHAPE: !!(lidCobble && cnt.length === 0 && recount && /fails=lid_blocked:1/.test(recount.detail) && licence === 0) })
+}
+scenes.lidrecount = () => lidScene('lidrecount', [['oak_log', 64], ['oak_log', 64], ...TORCH(4)])
+// cobble above the bag's 64 reserve: the COBBLE CAP (no well needed) refuses it `cobble_unknown` until the town is counted
+scenes.lidrecountpick = () => lidScene('lidrecountpick', [['cobblestone', 64], ['cobblestone', 64], ['cobblestone', 64], ['stone_pickaxe', 1], ...TORCH(4)])
+
 // RACE: two bots, one town at target + ONE stack (128 oak, target 64), both with room and a fresh count: both get prune
 // orders; at most one stack may leave (the take claims, decided in the journal's order).
 scenes.stockrace = async () => {
@@ -650,7 +710,8 @@ scenes.stockrace = async () => {
 
 async function main () {
   const lock = execFileSync('ssh', ['mike@10.0.0.31', 'cat /tmp/mcai-sandbox.lock/owner 2>/dev/null || echo NOLOCK'], { encoding: 'utf8' })
-  if (!/stocktarget/.test(lock)) throw new Error('the sandbox lock is not held for stocktarget: ' + lock.trim().slice(0, 160))
+  const owner = process.env.LOCK_OWNER || 'stocktarget'
+  if (!new RegExp(owner).test(lock)) throw new Error(`the sandbox lock is not held for ${owner}: ` + lock.trim().slice(0, 160))
   W = await import(path.join(BOT_ROOT, 'bots/src/well.mjs'))
   const pl = r1('list'); if (!/There are 0 of/.test(pl)) throw new Error('sandbox not empty: ' + pl)
   await new Promise((resolve, reject) => { brain.once('error', reject); brain.listen(11499, '127.0.0.1', resolve) })

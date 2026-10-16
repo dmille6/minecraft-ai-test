@@ -1,7 +1,10 @@
 // A CHEST UNDER A SOLID BLOCK DOES NOT OPEN -- look at the lid before the twenty-second timeout does.
+// (lidclear-01, 10-16: the lid's rule moved to lidrule.mjs and its clear to skills.mjs clearChestLid, shared by the
+// deposit, the withdraw and the recount; their behaviour is tested in lidclear.test.mjs. This file keeps the deposit's
+// order -- the lid, then sneak released, then an open bounded at 8 s with named classes.)
 import assert from 'node:assert'
 import { readFileSync } from 'node:fs'
-import { chestLidBlocked, lidSafeToBreak } from '../src/skills.mjs'
+import { chestLidBlocked } from '../src/skills.mjs'
 let pass = 0, fail = 0
 const t = (name, fn) => { try { fn(); pass++; console.log(`  PASS  ${name}`) } catch (e) { fail++; console.log(`  FAIL  ${name}\n        ${e.message}`) } }
 const strip = s => s.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '')
@@ -14,34 +17,26 @@ t('a full cube on the lid blocks it; air, water, a slab, a torch and a stair do 
   assert.equal(chestLidBlocked({ name: 'oak_stairs', boundingBox: 'block', shapes: [[0, 0, 0, 1, 0.5, 1], [0, 0.5, 0.5, 1, 1, 1]] }), false)
   assert.equal(chestLidBlocked(null), false)
 })
-t('the deposit looks at the lid, releases sneak, and opens the chest under an 8-second budget with a named class', () => {
+const depositFn = () => {
   const c = strip(readFileSync(new URL('../src/skills.mjs', import.meta.url), 'utf8'))
-  // (2026-10-03, chest-full) the open is clamped to the watchdog's remaining time (`bounded`), with 8 s still the
-  // ceiling; the window is the whole function.
-  const s = c.indexOf('async function deposit('); const f = c.slice(s, c.indexOf('\n}\n', s))
-  const lid = f.indexOf('if (isChest && lid && chestLidBlocked(lid)) {'), open = f.indexOf('chest = await withTimeout(bot.openContainer(chestBlock), ob.ms')
-  assert.ok(lid > 0 && open > lid, 'the lid is checked before the open')
+  const s = c.indexOf('async function deposit(')
+  assert.ok(s > 0, 'ANCHOR MISSING: async function deposit(')
+  return c.slice(s, c.indexOf('\n}\n', s))
+}
+const LID = "const lc = await clearChestLid(bot, chestBlock.position, { signal, msLeft, by: 'deposit' })"
+const OPEN = 'chest = await withTimeout(bot.openContainer(chestBlock), ob.ms'
+const order = f => {
+  const lid = f.indexOf(LID), open = f.indexOf(OPEN)
+  assert.ok(lid > 0 && open > lid, 'the lid is cleared before the open')
   assert.match(f.slice(lid, open), /const ob = bounded\(8_000\)/, 'the open\'s ceiling is 8 s')
   assert.match(f.slice(lid, open), /setControlState\('sneak', false\)/, 'sneak is released before opening')
   assert.match(f.slice(open, open + 900), /failClass: 'container_open'/, 'a failed open is classified')
   assert.match(f.slice(lid, open), /failClass: 'container_blocked'/, 'a blocked lid is classified')
-})
-t('the lid is dug only on positive evidence: unknown neighbours, liquid beside it, or a falling block above refuse', () => {
-  const V = (x, y, z) => ({ x, y, z, offset: (dx, dy, dz) => V(x + dx, y + dy, z + dz) })
-  const world = (over = {}) => ({ blockAt: p => { const k = `${p.x},${p.y},${p.z}`; return k in over ? over[k] : { name: 'stone' } } })
-  const p = V(10, 65, 10)
-  assert.equal(lidSafeToBreak(world(), p), true, 'stone all round')
-  assert.equal(lidSafeToBreak(world({ '11,65,10': { name: 'water' } }), p), false, 'water beside it')
-  assert.equal(lidSafeToBreak(world({ '10,66,10': { name: 'gravel' } }), p), false, 'gravel above')
-  assert.equal(lidSafeToBreak(world({ '9,65,10': null }), p), false, 'an unknown neighbour fails closed')
-  assert.equal(lidSafeToBreak({}, p), false, 'no blockAt at all fails closed')
-})
-t('MUTANT: opening without the lid check is caught', () => {
-  // (2026-10-04) withdraw looks at the lid the same way, so the anchor is taken inside deposit, to its closing brace.
-  const all = strip(readFileSync(new URL('../src/skills.mjs', import.meta.url), 'utf8')); const s = all.indexOf('async function deposit(')
-  const c = all.slice(s, all.indexOf('\n}\n', s)); const anchor = 'if (isChest && lid && chestLidBlocked(lid)) {'
-  assert.equal(c.split(anchor).length - 1, 1, 'ANCHOR MISSING or not unique')
-  const bad = c.replace(anchor, 'if (false) {')
-  assert.ok(!bad.includes(anchor))
+}
+t('the deposit clears the lid, releases sneak, and opens the chest under an 8-second budget with a named class', () => order(depositFn()))
+t('MUTANT: opening without the lid clear is caught (the anchor present and unique)', () => {
+  const f = depositFn()
+  assert.equal(f.split(LID).length - 1, 1, 'ANCHOR MISSING or not unique')
+  assert.throws(() => order(f.replace(LID, 'const lc = { outcome: \'not_blocked\' }')), /cleared before the open/)
 })
 console.log(`\n${pass} passed, ${fail} failed`); if (fail) process.exit(1)
