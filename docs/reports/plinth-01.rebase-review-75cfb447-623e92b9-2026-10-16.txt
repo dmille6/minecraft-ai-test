@@ -1,0 +1,139 @@
+plinth-01 REBASE onto 75cfb447 (townzone-01) and 623e92b9 (cobblecap-1000) -- review record, 2026-10-16
+
+WHY
+- The owner moved plinth-01 up the queue (10-16 ~11:25Z). Its only registered variant was on 8cd0bc62 (plinth-on-8cd0bc6,
+  canary b4174a09). The fleet moved to 75cfb447 (townzone-01, promoted 05:02Z) and then to 623e92b9 (cobblecap-1000,
+  promoted fleet-wide by the owner ~12:00Z). Variant B is the one that launches; A is kept for the case the promotion failed.
+
+VARIANTS
+  A  plinth-on-75cfb44 @ 413febb7 (base 75cfb447)
+     73d0d666  `git apply --3way` of 8cd0bc62..b4174a09 onto 75cfb447: NO conflict. Its tree 23b62b91 is byte-identical to
+               plinth-x-tz-8cd @ 43cc6373 (the townzone x plinth composition check of 10-14).
+     413febb7  test-only: plinth-skill.test 'TOWNZONE (composition, 75cfb447)' + its MUTANT.
+  B  plinth-on-623e92b @ f8daab3a (base 623e92b9)   <-- CANARY SHA for fleet 623e92b9
+     dfa99cd8  the net diff 75cfb447..413febb7 merged onto 623e92b9 (git merge-tree, base 75cfb447): NO conflict, one commit.
+               The ordered +/- lines of bots/src equal the approved 8cd0bc62..b4174a09 (1,635 lines, both reviewers checked).
+               cobblecap and plinth share skills.mjs, well.mjs and towndeposit.test.mjs only in disjoint hunks; cobblecap's
+               source hunks there are comments and one template string (TOWN_COBBLE_CAP is written once, stocktarget.mjs).
+     f8daab3a  test-only: towndeposit.test 'PLINTH x COBBLECAP-1000 CHAIN' + its CONTROL.
+  CONFLICTS: none in either variant. No conflict union was needed (the two of the 8cd0bc62 rebase -- the decide chain
+  build_plinth > town_deposit > count_town and HOUSEKEEPING -- carry over unchanged in the applied diff).
+
+COMPOSITION TESTS (new)
+- TOWNZONE x PLINTH (both variants; plinth-skill.test, the REAL build_plinth on the fake town, HOME set so the zone is ON):
+  positive control -- configuredHome = HOME and townTargetPermit REFUSES the plinth's own dirt cover as a discretionary dig;
+  the real build_plinth digs that cover and completes; every placed/stair cell of that plinth is town ground the zone keeps
+  from gather / mine / the tunnel. MUTANT: the zone applied to the cover dig -> the cover is never dug, the plan never
+  completes (it stalls and voids). Anchor asserted present and unique (withMutant).
+  The zone gates only gather (enumeration + collectManually), mine's stair (bearing, steps, walk-out) and the ore tunnel's
+  break cost; build_plinth digs and places through bot.dig / _placeBlockWithOptions and walks on canDig=false movements, so
+  the zone cannot refuse a plinth step. Remedy chain: PLINTH_FUND_REMEDY ("mine stone with a pickaxe, or leave surplus
+  cobble in the town chests") stays executable under the zone -- mine walks out deterministically (four exits, roof climb),
+  gather skips town cells at enumeration and searches 32 blocks; the chest route is now better stocked (cap 1000).
+- PLINTH x COBBLECAP-1000 CHAIN (B only; towndeposit.test, the real CognitiveLoop + the real town_deposit): a funded
+  no-site town (bag 64+64+30 cobble + dirt) counted complete at 800 -> build_plinth first, then town_deposit banks one
+  whole 30-stack (chest 800 -> 830, bag 158 -> 128), the plinth on its cooldown (one visit). CONTROL at exactly 1000: plinth
+  first, nothing banked. POSITIVE CONTROL for the test: copied onto variant A (cap 256) the 800 case FAILS (no deposit is
+  ordered: a town of 800 is over 256).
+- Funding vs the cap (read, both engines): plinthBlockFor spends andesite/diorite/granite, then deepslate, then cobble,
+  keeping reserveStone >= STONE_GUARD 64 and a pit cover; the deposit keeps COBBLE_RESERVE 64 -- two distinct reserves, both
+  unchanged. The chest route uses the generic withdraw (a draw claim always admitted, released by cobbleObserve; nothing in it
+  reads the cap) and a 10-min withdraw hold keeps the taken cobble from the next deposit. Effect of 1000: bags drain to 64 at
+  each deposit, so funding shifts from the bag to the chests (now proven on Paper, below); towns hold more cobble.
+
+CHECKS ON THE VARIANTS
+- npm test: B 254/254 files (`npm test` in the worktree at f8daab3a, 12:06Z). A: the full run was stopped when the owner
+  promoted cobblecap (A became moot); A's touched files pass standalone -- plinth 51/51, plinth-skill 54/54, towndeposit
+  61/61 (and townground 26/26 by the Claude reviewer). A's tree minus the test commit is 43cc6373's, which passed 254/254.
+- eslint no-undef on bots/src: exactly one hit on both, reflex.mjs:2384:67 'withinBody' -- the pre-existing typeof-guarded
+  hit; neither diff touches reflex.mjs. The new test files lint clean.
+- Plinth mutants (the in-file mutant tests, each asserting its anchor present and unique): killed 24 / survived 0 on EACH
+  variant -- plinth.test 10/10, plinth-skill.test 13/13 (incl. the new TOWNZONE mutant), towndeposit.test 1/1 (PLINTH x
+  RECOUNT CHAIN). B adds the cobblecap control (a positive control, not a mutant).
+
+PAPER (sandbox2 = 10.0.0.30:25600, Paper 1.21.8; sandbox lock /tmp/mcai-sandbox.lock on .31 taken 11:38:47Z, released
+12:06:31Z, verified free, server empty). Driver sandbox/well/plinth-e2e.mjs from the variant (harness = origin/main's
+sandbox/), the REAL bot from the worktree at each sha, the loopback brain answering 'status'. HOME is set, so the zone is ON
+in the bot. Every count below is an RCON read of the world (execute if block per plan cell; a 15x15x6 cobble census around
+the cap; the bag and the chest by data get), not a bot row. Fixture slab4 (dirt under sand: k=4, 84 placements, 3 stair).
+  B f8daab3a (run 1016T114727; the bot wrote `_cobblecap_mode phase=mode cap=1000`: the 623e92b9 build)
+    build rep1          84/84 placed on the server, 0 new cobble outside the plan, complete 96 s, 3 visits, plan == offline
+    build rep2 + KILL   SIGKILLed at 21 placed (no hazard) and at 84 placed (walled in) and restarted: 84/84, 0 outside,
+                        complete 346 s, pit dug from=plinth then covered by=build item=dirt, cap not open at the end
+    build rep3          84/84, 0 outside, complete 95 s
+    fund (NEW scene)    bag = the reserve only (64 cobble + 4 dirt, plinthBudget 0) + a town chest of 384 cobble beside
+                        home: the plinth funded itself through the withdraw verb (40 + 40 + 4, server-verified) and
+                        completed in 114 s; 84/84 placed, 0 outside; SERVER chest 384 -> 300 (84 taken), bag cobble 64 -> 64
+                        (reserve kept), dirt 4 -> 3 (the cover). (The first fund run read the chest with one whole-list
+                        `data get`, which the server truncates ("..."); it was rerun with per-slot reads -- the numbers
+                        here. Its own build was identical: 84/84, took 84, bag 64.)
+    well on the plinth  build_well: cap + floor trapdoors read on the server (facing north)
+    dispose             576 junk items in the shaft at +1.5 s and +30 s, 0 outside
+    isolation           60 walker passes + 4 ledge cells x 10 s: walker picked up nothing; egg control collected 1/1
+  A 413febb7 (run 1016T113856; stopped during the well scene when A became moot)
+    build rep1          84/84, 0 outside, complete 95 s, plan == offline
+    build rep2 + KILL   killed at 17 and at 84 (walled in): 84/84, 0 outside, complete 342 s, pit covered, cap not open
+  The fund scene is a driver addition used for this run only (not committed; a copy outside the repo):
+  sceneFund + a per-slot chest read. Raw RESULT lines: below.
+
+REVIEWS
+Codex (codex exec -s read-only, independent; the prompt names the five checks: rebase fidelity, cobblecap composition,
+townzone composition + remedy chain, the new tests, fleet safety):
+  VERDICT A: APPROVE / VERDICT B: APPROVE. No P1/P2. It verified per-file ordered +/- lines across 8cd0bc62..b4174a09,
+  75cfb447..413febb7 and 623e92b9..f8daab3a (1,635 each), both trees, both merges conflict-free. P3s:
+  - the cobblecap test stubs build_plinth: it proves order, cooldown and the cap, not the build or the withdraw ("Neither
+    order starves the other" is broader than it proves);
+  - the higher cap changes exposure, not the plinth's funding rules (more banking, less well disposal between 256 and 999;
+    funding shifts to chest withdrawals) -- read the canary against its own base;
+  - abort cleanup keeps the approved visitor-recovery dependency (an aborted visit can leave a pit open for close_well).
+  It could not run tests (its sandbox refused a /tmp export); the tests were run here and by the Claude reviewer.
+CLAUDE (a fresh subagent, read only, ran the suites in exports):
+  VERDICT A: APPROVE / VERDICT B: APPROVE. No P1/P2. It verified the tree identity, the ordered 1,635-line equality on both,
+  that townzone (274 lines) and cobblecap (46 lines) commute with the plinth, and ran B's full suite (254/254) and A's touched
+  files. P3s:
+  - P3-1 the cobblecap test checks order and the cap, not the two sharing stone; its failure text on cap 256 ("the deposit is
+    not starved") is misleading -- the deposit is simply not wanted at 256;
+  - P3-2 the TOWNZONE test's "every placed cell and the stair are kept by the zone" holds in that town, not in general: a
+    stair can reach 20 from home (cap up to 14 + 2 + j) and cells below home.y - 12 are outside the zone; those stay protected
+    from path digs by wellBreakCost (the approved, pre-zone level);
+  - P3-3 the plinth's own cover dig is logged as a town-ground dig by build_plinth in _dig_town (a few rows per town; a zone
+    read should filter by skill);
+  - P3-4 blackstone/basalt/netherrack covers are not terrain, so the zone does not keep them (unchanged);
+  - P3-5 the withdraw hold keeps taken cobble unbankable for 10 min (approved base behaviour);
+  - P3-6 A and B are alternatives: A if cobblecap is reverted, B if kept and promoted;
+  - P3-7 a leftover _mutant file in a scratch export (not in the repo).
+NOT CHANGED: every P3 above. P3-1/P3-2 are wording in test titles/comments; changing them would move the canary sha after
+both approvals and the Paper run. Recorded here instead.
+
+REGISTRATIONS (~/mcai-analysis on 10.0.0.31; copies in docs/reports)
+  plinth-01.f8daab3a.json (B) and plinth-01.413febb7.json (A): the 8cd0bc62 registration's gates, reads, licence (kind
+  _plinth), exposure, draw_exposure and extension unchanged; sha, notes and lint updated; NO draw_require_pools key
+  (drawrequire.parse -> ([], None) on both).
+  licencecheck --hours 6: PASS on both -- _plinth baseline rows 0 (A: 364,487 rows / 80 bots, baseline 75cfb447; B rerun
+  after the manifest declared 623e92b9: 365,465 rows / 80 bots).
+  changerowcheck: PASS on both -- plinth 0, plinth_step 0 on the baseline. B against 623e92b9 (live manifest): positive
+  control 49,418 baseline-build rows on 44 bots. (A first try against a hand-made 623e manifest before the promotion was
+  REFUSED "too little to prove anything": 10 bots -- an instrument refusal, superseded by the live run.)
+  Reads pinned at the installed md5s: plinthread 30f2778a (== scripts/host/plinthread.py in both variants), wellread
+  b0cd8a4b (updated 10-15 00:37Z since the 8cd0bc62 entry pinned a1a3deee; the six wellread gate fields the registration
+  names are all present), immobiledid 53af289d. plinthread dry run (CANARY_DRYRUN, 365,676 rows): runs; INSTRUMENT
+  positive control 28 control no_site rows post, 10 no-well towns.
+ENTRY  ~/mcai-analysis/plinth-01.entry-75cfb44-623e92b.json: ONE replace-variant entry, keyed by FULL fleet sha --
+  8cd0bc62 (kept verbatim), 75cfb447 (canary 413febb7), 623e92b9 (canary f8daab3a). NOT applied; the coordinator runs
+  `python3 ~/canary-sched.py queue replace-variant plinth-01 ~/mcai-analysis/plinth-01.entry-75cfb44-623e92b.json`.
+  `git -C /opt/minecraft-ai fetch origin` was run so both canary shas resolve.
+
+RAW RESULT LINES (each cut at 900 chars)
+-- B f8daab3a run 1016T114727
+[112.0] RESULT {"scene":"build","fx":"slab4","rep":1,"kill":false,"ok":true,"cap":{"x":2393,"y":123,"z":2399},"k":4,"steps":84,"places":84,"clears":0,"stair":3,"hazardStep":82,"samePlanAsOffline":true,"completeMs":95870,"serverPlaced":84,"serverCleared":0,"outsidePlan":[],"outsideN":0,"blockPlacePackets":85,"retries":0,"alt":0,"visits":3,"kills":[],"hazardSeenMs":93284,"pitRows":["_well_pit_dug at=2393,123,2399 from=plinth step=82","_well_pit_covered at=2393,123,2399 stage=plinth by=build item=dirt"],"capOpenAtEnd":false,"placeGapMs":{"p50":0,"p90":2667,"max":21223},"plinthRows":["stage=planned at=2393,123,2399 k=4 placed=0 cleared=0 alt=0 retries=0 done=0/84 left=84 took=0 id=sandbox-Plinth-mvawl3c7-hmew tally=tried:4","stage=build at=2393,123,2399 k=4 placed=40 cleared=0 alt=0 retries=0 done=40/84 left=44 budget=153 took=0 hazard=0 id=sandbox-Plinth-mvawl3c7-hmew","stage=build at=2393,
+[475.3] RESULT {"scene":"build","fx":"slab4","rep":2,"kill":true,"ok":true,"cap":{"x":2393,"y":123,"z":2399},"k":4,"steps":84,"places":84,"clears":0,"stair":3,"hazardStep":82,"samePlanAsOffline":true,"completeMs":345871,"serverPlaced":84,"serverCleared":0,"outsidePlan":[],"outsideN":0,"blockPlacePackets":85,"retries":0,"alt":0,"visits":2,"kills":[{"at":21,"ms":34745,"hazard":false},{"at":84,"ms":340259,"hazard":true}],"hazardSeenMs":null,"pitRows":["_well_pit_dug at=2393,123,2399 from=plinth step=82","_well_pit_covered at=2393,123,2399 stage=plinth by=build item=dirt"],"capOpenAtEnd":false,"placeGapMs":{"p50":0,"p90":2650,"max":260051},"plinthRows":["stage=planned at=2393,123,2399 k=4 placed=0 cleared=0 alt=0 retries=0 done=0/84 left=84 took=0 id=sandbox-Plinth-mvawnilh-mmw9 tally=tried:4","stage=build at=2393,123,2399 k=4 placed=40 cleared=0 alt=0 retries=0 done=62/84 left=22 budget=131
+[606.4] RESULT {"scene":"fund","fx":"slab4","ok":true,"cap":{"x":2393,"y":123,"z":2399},"places":84,"serverPlaced":84,"outsideN":0,"completeMs":114086,"state":"complete","chestBefore":64,"chestAfter":24,"chestTaken":40,"bagBefore":{"cobblestone":64,"dirt":4},"bagAfter":{"cobblestone":64,"dirt":3},"took":84,"plinthRows":["success stage=planned at=2393,123,2399 k=4 placed=0 cleared=0 alt=0 retries=0 done=0/84 left=84 took=0 id=sandbox-Plinth-mvawvafn-7p43 tally=tried:4","success stage=build at=2393,123,2399 k=4 placed=40 cleared=0 alt=0 retries=0 done=40/84 left=44 budget=1 took=40 hazard=0 id=sandbox-Plinth-mvawvafn-7p43","success stage=build at=2393,123,2399 k=4 placed=40 cleared=0 alt=0 retries=0 done=80/84 left=4 budget=1 took=40 hazard=0 id=sandbox-Plinth-mvawvafn-7p43","success stage=complete at=2393,123,2399 k=4 placed=4 cleared=0 alt=0 retries=0 done=84/84 took=4 id=sandbox-Plinth-
+[719.0] RESULT {"scene":"build","fx":"slab4","rep":3,"kill":false,"ok":true,"cap":{"x":2393,"y":123,"z":2399},"k":4,"steps":84,"places":84,"clears":0,"stair":3,"hazardStep":82,"samePlanAsOffline":true,"completeMs":95416,"serverPlaced":84,"serverCleared":0,"outsidePlan":[],"outsideN":0,"blockPlacePackets":85,"retries":0,"alt":0,"visits":3,"kills":[],"hazardSeenMs":null,"pitRows":["_well_pit_dug at=2393,123,2399 from=plinth step=82","_well_pit_covered at=2393,123,2399 stage=plinth by=build item=dirt"],"capOpenAtEnd":false,"placeGapMs":{"p50":0,"p90":2648,"max":21195},"plinthRows":["stage=planned at=2393,123,2399 k=4 placed=0 cleared=0 alt=0 retries=0 done=0/84 left=84 took=0 id=sandbox-Plinth-mvawy447-0cnu tally=tried:4","stage=build at=2393,123,2399 k=4 placed=40 cleared=0 alt=0 retries=0 done=40/84 left=44 budget=153 took=0 hazard=0 id=sandbox-Plinth-mvawy447-0cnu","stage=build at=2393,1
+[762.1] RESULT {"scene":"well-build","fx":"slab4","cap":{"x":2393,"y":123,"z":2399},"built":true,"facing":"north","wellOk":true,"row":"at=2393,123,2399 facing=north floor=1 wood=carried pit_first=0 pit_tossed=0 pit_items=0 free=33","refused":[]}
+[842.0] RESULT {"scene":"dispose","fx":"slab4","k":4,"row":"slots=36->27 offlist=0 gclicked=384 stone=640 swords=0 sword_lost=0 sword_kept=0 cobble=0 cap=none stock=64 offlist_items=- unnamed=0 freed=9 tossed=9 n=576 misses=0 aim_off=0 aim_read=9 retaken=0 recollected=0 nonlisted=0 other_loss=0 server=resync closed_ope","census":{"inItems":576,"allItems":576,"outItems":0},"censusAt30s":{"inItems":576,"allItems":576,"outItems":0},"delta":{"pointed_dripstone":-64,"rail":-64,"andesite":-128,"diorite":-128,"granite":-128,"calcite":-64},"nonListedLost":[["andesite",-128],["diorite",-128],["granite",-128],["calcite",-64]]}
+[971.9] RESULT {"scene":"isolation","fx":"slab4","k":4,"control":{"egg":1},"wellBefore":{"inItems":576,"allItems":576,"outItems":0},"afterPasses":{"inItems":576,"allItems":576,"outItems":0},"walkerAfterPasses":{},"afterLedge":{"inItems":576,"allItems":576,"outItems":0},"walkerBag":{},"ledge":[{"at":[2,0],"feetY":123,"bag":{}},{"at":[-2,0],"feetY":123,"bag":{}},{"at":[0,2],"feetY":123,"bag":{}},{"at":[0,-2],"feetY":123,"bag":{}}],"passes":60,"minY":124}
+-- B f8daab3a fund rerun (per-slot chest read)
+[130.3] RESULT {"scene":"fund","fx":"slab4","ok":true,"cap":{"x":2393,"y":123,"z":2399},"places":84,"serverPlaced":84,"outsideN":0,"completeMs":114085,"state":"complete","chestBefore":384,"chestAfter":300,"chestTaken":84,"bagBefore":{"cobblestone":64,"dirt":4},"bagAfter":{"cobblestone":64,"dirt":3},"took":84,"plinthRows":["success stage=planned at=2393,123,2399 k=4 placed=0 cleared=0 alt=0 retries=0 done=0/84 left=84 took=0 id=sandbox-Plinth-mvax6pue-9n0z tally=tried:4","success stage=build at=2393,123,2399 k=4 placed=40 cleared=0 alt=0 retries=0 done=40/84 left=44 budget=1 took=40 hazard=0 id=sandbox-Plinth-mvax6pue-9n0z","success stage=build at=2393,123,2399 k=4 placed=40 cleared=0 alt=0 retries=0 done=80/84 left=4 budget=1 took=40 hazard=0 id=sandbox-Plinth-mvax6pue-9n0z","success stage=complete at=2393,123,2399 k=4 placed=4 cleared=0 alt=0 retries=0 done=84/84 took=4 id=sandbox-Plint
+-- A 413febb7 run 1016T113856
+[113.8] RESULT {"scene":"build","fx":"slab4","rep":1,"kill":false,"ok":true,"cap":{"x":2393,"y":123,"z":2399},"k":4,"steps":84,"places":84,"clears":0,"stair":3,"hazardStep":82,"samePlanAsOffline":true,"completeMs":95374,"serverPlaced":84,"serverCleared":0,"outsidePlan":[],"outsideN":0,"blockPlacePackets":85,"retries":0,"alt":0,"visits":3,"kills":[],"hazardSeenMs":null,"pitRows":["_well_pit_dug at=2393,123,2399 from=plinth step=82","_well_pit_covered at=2393,123,2399 stage=plinth by=build item=dirt"],"capOpenAtEnd":false,"placeGapMs":{"p50":0,"p90":2636,"max":21139},"plinthRows":["stage=planned at=2393,123,2399 k=4 placed=0 cleared=0 alt=0 retries=0 done=0/84 left=84 took=0 id=sandbox-Plinth-mvawa6vp-rt71 tally=tried:4","stage=build at=2393,123,2399 k=4 placed=40 cleared=0 alt=0 retries=0 done=40/84 left=44 budget=153 took=0 hazard=0 id=sandbox-Plinth-mvawa6vp-rt71","stage=build at=2393,1
+[473.3] RESULT {"scene":"build","fx":"slab4","rep":2,"kill":true,"ok":true,"cap":{"x":2393,"y":123,"z":2399},"k":4,"steps":84,"places":84,"clears":0,"stair":3,"hazardStep":82,"samePlanAsOffline":true,"completeMs":342044,"serverPlaced":84,"serverCleared":0,"outsidePlan":[],"outsideN":0,"blockPlacePackets":85,"retries":0,"alt":0,"visits":2,"kills":[{"at":17,"ms":37144,"hazard":false},{"at":84,"ms":336430,"hazard":true}],"hazardSeenMs":null,"pitRows":["_well_pit_dug at=2393,123,2399 from=plinth step=82","_well_pit_covered at=2393,123,2399 stage=plinth by=build item=dirt"],"capOpenAtEnd":false,"placeGapMs":{"p50":0,"p90":2641,"max":259549},"plinthRows":["stage=planned at=2393,123,2399 k=4 placed=0 cleared=0 alt=0 retries=0 done=0/84 left=84 took=0 id=sandbox-Plinth-mvawcm1s-wfze tally=tried:4","stage=build at=2393,123,2399 k=4 placed=40 cleared=0 alt=0 retries=0 done=57/84 left=27 budget=136

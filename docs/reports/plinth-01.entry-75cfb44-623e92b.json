@@ -1,0 +1,47 @@
+{
+ "run": "plinth-01",
+ "class": "",
+ "after": [
+  "wellsite-02"
+ ],
+ "hold": "wellsite-02 KEPT and PROMOTED",
+ "variants": {
+  "8cd0bc62e5606b021832d808b150007f38ab2d6e": {
+   "registration": "/home/mike/mcai-analysis/plinth-01.8cd0bc6.json",
+   "approved": "plinth agent 2026-10-14: plinth-on-8cd0bc6 @ b4174a09 = the approved plinth-01 net diff (4774bec1 over baa94879; Codex r1-r8 + Claude r1-r7 APPROVE, docs/reports/plinth-01-review-2026-10-13.txt) on wellsite-02's 8cd0bc62, one commit 2fd7197b; bots/src differs from the approved diff only by two conflict unions (decide chain build_plinth > town_deposit > count_town; HOUSEKEEPING). Rebase review Codex APPROVE + Claude subagent APPROVE (3 P3, none blocking) -- docs/reports/plinth-01.rebase-review-8cd0bc62-2026-10-14.txt. npm test 253/253 (2fd7197b; b4174a09 is a test title + the record, plinth-skill 52/52); composition tests: PLINTH x RECOUNT CHAIN through the real CognitiveLoop + mutant, DIGTOWN through the real _dig_town wrapper. eslint no-undef only the pre-existing reflex.mjs withinBody. drawrequire.parse ([], None) -- NO draw_require_pools key; licencecheck PASS (kind _plinth, 0 baseline rows in 356,942 / 6 h); changerowcheck PASS (plinth, plinth_step: baseline 5e66386 silent, positive control 192,752 baseline rows on 80 bots) 10-14 21:27Z. Paper evidence (same plinth code): docs/reports/plinth-01-sandbox-2026-10-13.md. ORDINARY canary.",
+   "registration_sha256": "c9e1038327d2c4ce44fb5e0d6adbf61597034623193f7eef1ed9368b394ecf6e",
+   "canary_sha": "b4174a09e6a68a653d42c8ffad1ccfd148b44e48",
+   "reads_src": "/home/mike/mcai-analysis",
+   "reads": {
+    "plinthread": "30f2778a0ae959ddb792fa3a2d1eda3d",
+    "wellread": "a1a3deee547f8ec4ebcba84a487c8ba8",
+    "immobiledid": "53af289df12208901931dbeeb1ae325a"
+   }
+  },
+  "75cfb447fd2d5a882e60a3b3338c904788103ac1": {
+   "registration": "/home/mike/mcai-analysis/plinth-01.413febb7.json",
+   "approved": "plinth-variants agent 2026-10-16: plinth-on-75cfb44 @ 413febb7 = 73d0d666 (the approved plinth-01 net diff 8cd0bc62..b4174a09 applied onto townzone-01's 75cfb447 with NO conflict; tree identical to plinth-x-tz-8cd @ 43cc6373, npm 254/254 on 10-14) + a test-only TOWNZONE x PLINTH composition test with its mutant. Touched suites pass (plinth 51/51, plinth-skill 54/54, towndeposit 61/61); plinth mutants 24/24 killed; eslint no-undef only reflex.mjs:2384 withinBody. PAPER sandbox2 1016T113856: 2 builds 84/84 server-read, 0 outside (one SIGKILLed twice, resumed). USE ONLY if the fleet is 75cfb447 (cobblecap-1000's promotion failed or was rolled back). Rebase review Codex APPROVE + Claude subagent APPROVE (P3s only, none blocking) -- docs/reports/plinth-01.rebase-review-75cfb447-623e92b9-2026-10-16.txt. drawrequire.parse ([], None) -- NO draw_require_pools key; licencecheck PASS (kind _plinth, 0 baseline rows / 6 h, 80 bots); changerowcheck PASS (plinth, plinth_step baseline silent). ORDINARY canary.",
+   "registration_sha256": "60cf88bc3a44d50ddfe635abc93f4f0136ad1a2f0cc8a8d4549c576ce8e6ae78",
+   "canary_sha": "413febb72bbea02eef4e6f40a603e9841c9232c2",
+   "reads_src": "/home/mike/mcai-analysis",
+   "reads": {
+    "plinthread": "30f2778a0ae959ddb792fa3a2d1eda3d",
+    "wellread": "b0cd8a4b6da00eb3cd44bf413569e417",
+    "immobiledid": "53af289df12208901931dbeeb1ae325a"
+   }
+  },
+  "623e92b967c3d1ba708b84eb17c7efa6cb33cf91": {
+   "registration": "/home/mike/mcai-analysis/plinth-01.f8daab3a.json",
+   "approved": "plinth-variants agent 2026-10-16: plinth-on-623e92b @ f8daab3a = dfa99cd8 (the same plinth diff merged onto cobblecap-1000's 623e92b9 with NO conflict; bots/src +/- lines identical in order to the approved diff) + a test-only PLINTH x COBBLECAP-1000 CHAIN (real CognitiveLoop + real town_deposit; control at 1000; fails on cap 256). npm test 254/254; plinth mutants 24/24 killed; eslint no-undef only reflex.mjs:2384. PAPER sandbox2 1016T114727 (server reads): 3 builds 84/84, 0 outside (one SIGKILLed at 21 and walled-in at 84, resumed, covered); a CHEST-FUNDED build (bag = the 64 reserve + dirt; chest 384 -> 300, bag 64 -> 64) 84/84; build_well on the plinth; 576/576 junk in the shaft, 0 outside; walker 0 pickups. Rebase review Codex APPROVE + Claude subagent APPROVE (P3s only, none blocking) -- docs/reports/plinth-01.rebase-review-75cfb447-623e92b9-2026-10-16.txt. drawrequire.parse ([], None) -- NO draw_require_pools key; licencecheck PASS (kind _plinth, 0 baseline rows / 6 h, 80 bots); changerowcheck PASS (plinth, plinth_step baseline silent). ORDINARY canary.",
+   "registration_sha256": "b0ba90c499eeb538b663c8225b08fdc0ea0078701f8c5c90e0e221407528b6ff",
+   "canary_sha": "f8daab3ac192fb9fd941d80a5c2b4de8ebb46efd",
+   "reads_src": "/home/mike/mcai-analysis",
+   "reads": {
+    "plinthread": "30f2778a0ae959ddb792fa3a2d1eda3d",
+    "wellread": "b0cd8a4b6da00eb3cd44bf413569e417",
+    "immobiledid": "53af289df12208901931dbeeb1ae325a"
+   }
+  }
+ },
+ "note": "REPLACE-VARIANT entry (`canary-sched.py queue replace-variant plinth-01 <this file>`): three variants, keyed by FULL fleet sha -- 8cd0bc62 (kept verbatim from plinth-01.entry-8cd0bc6.json; its reads pin the md5s of 10-14), 75cfb447 (townzone-01, the fleet since 10-16 05:02Z: canary 413febb7) and 623e92b9 (cobblecap-1000, ONLY if it is KEPT and promoted: canary f8daab3a). replace-variant replaces variants+class only; the hold/after wording is the coordinator's. Fetch origin in /opt/minecraft-ai first so the canary shas resolve. Draw: draw_exposure _well_refused reason=no_site >= 2 / 3 h; no required pool (no draw_require_pools key)."
+}
