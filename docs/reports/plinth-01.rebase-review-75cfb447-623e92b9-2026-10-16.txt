@@ -119,9 +119,12 @@ REGISTRATIONS (~/mcai-analysis on 10.0.0.31; copies in docs/reports)
   names are all present), immobiledid 53af289d. plinthread dry run (CANARY_DRYRUN, 365,676 rows): runs; INSTRUMENT
   positive control 28 control no_site rows post, 10 no-well towns.
 ENTRY  ~/mcai-analysis/plinth-01.entry-75cfb44-623e92b.json: ONE replace-variant entry, keyed by FULL fleet sha --
-  8cd0bc62 (kept verbatim), 75cfb447 (canary 413febb7), 623e92b9 (canary f8daab3a). NOT applied; the coordinator runs
-  `python3 ~/canary-sched.py queue replace-variant plinth-01 ~/mcai-analysis/plinth-01.entry-75cfb44-623e92b.json`.
-  `git -C /opt/minecraft-ai fetch origin` was run so both canary shas resolve.
+  8cd0bc62 (kept, ONE change: its wellread pin a1a3deee -> b0cd8a4b, the installed copy; the scheduler's own
+  validate_entry refused the stale pin), 75cfb447 (canary 413febb7), 623e92b9 (canary f8daab3a). NOT applied; the
+  coordinator runs `python3 ~/canary-sched.py queue replace-variant plinth-01 ~/mcai-analysis/plinth-01.entry-75cfb44-623e92b.json`.
+  `sudo git -C /opt/minecraft-ai fetch origin` was run (the repo is root-owned; as mike FETCH_HEAD is not writable): both
+  canary shas resolve there. Dry run of canary-sched.validate_entry on the installed entry (imported, nothing written):
+  [] -- no refusal; registration sha256s and read md5s all match.
 
 RAW RESULT LINES (each cut at 900 chars)
 -- B f8daab3a run 1016T114727

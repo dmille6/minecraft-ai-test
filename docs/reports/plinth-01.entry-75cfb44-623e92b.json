@@ -14,7 +14,7 @@
    "reads_src": "/home/mike/mcai-analysis",
    "reads": {
     "plinthread": "30f2778a0ae959ddb792fa3a2d1eda3d",
-    "wellread": "a1a3deee547f8ec4ebcba84a487c8ba8",
+    "wellread": "b0cd8a4b6da00eb3cd44bf413569e417",
     "immobiledid": "53af289df12208901931dbeeb1ae325a"
    }
   },
@@ -43,5 +43,5 @@
    }
   }
  },
- "note": "REPLACE-VARIANT entry (`canary-sched.py queue replace-variant plinth-01 <this file>`): three variants, keyed by FULL fleet sha -- 8cd0bc62 (kept verbatim from plinth-01.entry-8cd0bc6.json; its reads pin the md5s of 10-14), 75cfb447 (townzone-01, the fleet since 10-16 05:02Z: canary 413febb7) and 623e92b9 (cobblecap-1000, ONLY if it is KEPT and promoted: canary f8daab3a). replace-variant replaces variants+class only; the hold/after wording is the coordinator's. Fetch origin in /opt/minecraft-ai first so the canary shas resolve. Draw: draw_exposure _well_refused reason=no_site >= 2 / 3 h; no required pool (no draw_require_pools key)."
+ "note": "REPLACE-VARIANT entry (`canary-sched.py queue replace-variant plinth-01 <this file>`): three variants, keyed by FULL fleet sha -- 8cd0bc62 (kept from plinth-01.entry-8cd0bc6.json, ONE change: its wellread pin moved a1a3deee -> b0cd8a4b, the copy installed 10-15 00:37Z; the scheduler refused the stale pin in a dry validate_entry; the registration and its six wellread fields are unchanged), 75cfb447 (townzone-01, the fleet since 10-16 05:02Z: canary 413febb7) and 623e92b9 (cobblecap-1000, ONLY if it is KEPT and promoted: canary f8daab3a). replace-variant replaces variants+class only; the hold/after wording is the coordinator's. Fetch origin in /opt/minecraft-ai first so the canary shas resolve. Draw: draw_exposure _well_refused reason=no_site >= 2 / 3 h; no required pool (no draw_require_pools key)."
 }
