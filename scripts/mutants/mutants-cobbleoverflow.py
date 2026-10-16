@@ -94,8 +94,8 @@ MUTANTS = [
      "          cobbleOverflowNote(bot, 'throw', bot.inventory?.items?.() ?? [], { stack: it, left: leftC, co })\n", '', WE),
     ('the no-room refusal never names the well', 'bots/src/skills.mjs',
      "${wellOk ? '; once every town container is seen without room for it, the junk well takes the surplus whole stacks at a full bag' : ''}", '', CO),
-    ('an aborted withdraw writes no count (Claude r1 P1)', 'bots/src/skills.mjs',
-     '    if (moved || stockIds.length || entered) { try { await cobbleObserve(bot, cp, win,', '    if (moved || stockIds.length) { try { await cobbleObserve(bot, cp, win,', CO),
+    # (r5 run: 'an aborted withdraw writes no count' is EQUIVALENT since r3 -- the withdraw's open count carries no room and
+    #  the else-branch writes the end count; `entered` now only adds a dirty mark for a lost window. Dropped, not hidden.)
     ('the room trusts a reading for only an hour again (the canary goes inert)', 'bots/src/cobblecap.mjs',
      'export const ROOM_TTL_MS = OBS_TTL_MS', 'export const ROOM_TTL_MS = FLOOR_TTL_MS', CO),
     ('the click ignores the room (any overflow-mode stack goes)', 'bots/src/skills.mjs',

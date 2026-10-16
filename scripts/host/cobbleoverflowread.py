@@ -341,6 +341,10 @@ def selftest():
     assert audit(cc, th('cobbled_deepslate', 64), town({'cobblestone': 64, 'cobbled_deepslate': 0}))['breach_room_journal'] == 0, 'cobblestone room is not deepslate room'
     assert audit(cc, th('cobbled_deepslate', 64), town({'cobblestone': 0, 'cobbled_deepslate': 64}))['breach_room_journal'] == 1, 'deepslate room: the deepslate fitted'
     unread = audit(cc, th(), town(None))
+    # r5 mutant run: an UNKNOWN town with room for the stack in another container is still no breach (the bot could not
+    # have authorised on it, and the audit cannot either)
+    half = audit(cc, th(), town(None, room_b={'cobblestone': 64, 'cobbled_deepslate': 64}))
+    assert half['breach_room_journal'] == 0 and half['audit_unknown_room'] == 1, ('unknown room with room elsewhere: never a breach', half)
     assert unread['breach_room_journal'] == 0 and unread['audit_unknown_room'] == 1, ('a container without a reading: unknown, never a breach', unread)
     other = audit(cc, th(keys='0badc0de'), town({'cobblestone': 64, 'cobbled_deepslate': 0}))
     assert other['breach_room_journal'] == 0 and other['audit_membership_differs'] == 1 and other['d3_blind'] == 1 and full['d3_blind'] == 0, ('the click judged ANOTHER container list (Codex r2 P2): uncertainty, not a breach', other)

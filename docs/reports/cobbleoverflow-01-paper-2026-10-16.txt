@@ -1,0 +1,36 @@
+cobbleoverflow-01 -- PAPER SANDBOX PROOF (sandbox3 = 10.0.0.30:25601; RCON only; sandbox lock /tmp/mcai-sandbox.lock on 10.0.0.31
+taken by mkdir for each session and released after)
+Harness: sandbox/well/overflow-e2e.cjs (this branch; derived from main's stock-e2e.cjs). Bot: an unmodified git-archive export of
+the build; its own deterministic town orders run (the model idles or wanders); the WORLD is read back by RCON -- the server's bag,
+the server's chests, and a census of the items lying in the well's shaft -- plus the journal's count record of the chest (what
+the build wrote: its room `r`). Every scene: the well built by `build`; the town's containers set by RCON and never counted
+before the bot joins; a FULL bag (36/36): cobble 64 + 64 + 30 (158), a stone pickaxe, a crafting table, a furnace, 30 torch
+stacks; the town holds no cobble (far below its 1000).
+  ovfull     the only town chest holds 27 dirt stacks (no room)        -> the well takes the 30 and one 64, the bot keeps 64
+  ovroom     the town chest holds 17 dirt stacks (10 free slots)        -> the bank takes the surplus, the well takes nothing
+  ovunknown  one chest full + a second town chest under a bedrock lid   -> room unknown (never counted): nothing goes
+
+FINAL RUN ON 46a951a7 (r5, the reviewed tip; 2026-10-16 05:21-05:28Z) -- ALL PASS
+  ovfull     PASS  server bag cobble 158 -> 64; shaft items 0 -> 94; chest unchanged (27 x 64 dirt); journal room 0/0; two
+                   `_cobble_overflow phase=throw` rows (64 then 30; cap=below mode=overflow known=1 containers=1 unknown=0
+                   max=0/0 keys=54541c4c); `_well_dispose ... cobble=94 cobble_left=64 cap=below overflow=94`; licence
+                   `_cobbleoverflow_mode phase=mode rule=no_room ttl_min=360` once
+  ovroom     PASS  server bag cobble 158 -> 64; chest cobble 0 -> 94 (two `_cobble_bank`: 30 then 64, town_before 0 -> 30 -> 94,
+                   cap=1000); journal room 546/512; shaft 0 -> 0; no click rows
+  ovunknown  PASS  server bag cobble 158 -> 158 over 157 s at town; shaft 0 -> 0; no click rows; the lid-blocked chest never
+                   counted (`_cobble_reconcile counted=1 of 2`, `_stock_recount ... fails=lid_blocked:1`)
+
+EARLIER RUNS (same scenes)
+  run 1  211f76a5 (r1): ovfull PASS (158 -> 64, shaft +94), ovroom PASS; ovunknown: shaft +0 and no overflow, but the idle bot's
+         livelock breaker relocated it 29 blocks off the square at 2:45 and spent 10 cobble on a bridge (harness artifact)
+  run 2  31d665a2 (r2): ovfull PASS, ovroom PASS; ovunknown: shaft +0, no clicks for 3.5 min at town, then the breaker again (1 cobble)
+         -> the harness waits 150 s (the well acts within ~15 s when it may)
+  run 3  42c75276 (r3): build_well failed (a dug dirt refilled the bag before the planks craft: the base's own build path) -> rerun
+  run 4  42c75276 (r3): ovroom PASS, ovunknown PASS; ovfull world read-back as run 6 but its row regex missed the new `keys=`
+         suffix (harness fixed in r4)
+  run 5  a8746f41 (r4): all PASS (superseded: r4's capture-time change was withdrawn in r5)
+
+RAW RESULT LINES (run 6, 46a951a7)
+  [112.9] RESULT {"scene":"ovfull","hit":true,"secs":16,"bag":{"before":158,"after":64,"slotsBefore":36,"slotsAfter":34},"chest":{"before":{"dirt":1728},"after":{"dirt":1728},"usedBefore":27,"usedAfter":27},"shaft":{"before":0,"after":94},"arenaItemsAfter":94,"room":{"cobblestone":0,"cobbled_deepslate":0},"licence":["phase=mode rule=no_room ttl_min=360"],"clicks":["phase=throw name=cobblestone count=64 left=94 cap=below mode=overflow known=1 containers=1 unknown=0 max=0/0 keys=54541c4c","phase=throw name=cobblestone count=30 left=64 cap=below mode=overflow known=1 containers=1 unknown=0 max=0/0 keys=54541c4c"],"rows":["_cobblecap_mode success phase=mode cap=1000","_cobbleoverflow_mode success phase=mode rule=no_room ttl_min=360","_cobble_reconcile success counted=1 of 1 tried (max 3)","_cobble_overflow success phase=throw name=cobblestone count=64 left=94 cap=below mode=overflow known=1 containers=1 unknown=0 max=0/0 keys=54541c4c","_cobble_overflow success phase=throw name=cobblestone count=30 left=64 cap=below mode=overflow known=1 containers=1 unknown=0 max=0/0 keys=54541c4c","_well_dispose success slots=36->34 offlist=0 gclicked=0 stone=158 swords=0 sword_lost=0 sword_kept=0 cobble=94 cobble_left=64 cap=below overflow=94 offlist_items=- unnamed=0 freed=2 tossed=2 n=94 misses=0 aim_off=0 aim_read=2 retaken=0 recoll"],"extra":null,"PASS":true}
+  [223.8] RESULT {"scene":"ovroom","hit":true,"secs":96,"bag":{"before":158,"after":64,"slotsBefore":36,"slotsAfter":34},"chest":{"before":{"dirt":1088},"after":{"dirt":1088,"cobblestone":94},"usedBefore":17,"usedAfter":19},"shaft":{"before":0,"after":0},"arenaItemsAfter":0,"room":{"cobblestone":546,"cobbled_deepslate":512},"licence":["phase=mode rule=no_room ttl_min=360"],"clicks":[],"rows":["_cobblecap_mode success phase=mode cap=1000","_cobbleoverflow_mode success phase=mode rule=no_room ttl_min=360","_cobble_reconcile success counted=1 of 1 tried (max 3)","_cobble_bank success name=cobblestone planned=30 tried=30 moved=30 before=158 kept=128 src=server reserve=64 no_room=0 town_before=0 town_after=30 complete=1 cap=1000 at_cap=0 unknown=0 outside=0 unknown_keys=0","_cobble_bank success name=cobblestone planned=64 tried=64 moved=64 before=128 kept=64 src=skipped reserve=64 no_room=0 town_before=30 town_after=94 complete=1 cap=1000 at_cap=0 unknown=0 outside=0 unknown_keys=0"],"extra":null,"PASS":true}
+  [397.6] RESULT {"scene":"ovunknown","hit":false,"secs":157,"bag":{"before":158,"after":158,"slotsBefore":36,"slotsAfter":36},"chest":{"before":{"dirt":1728},"after":{"dirt":1728},"usedBefore":27,"usedAfter":27},"shaft":{"before":0,"after":0},"arenaItemsAfter":0,"room":{"cobblestone":0,"cobbled_deepslate":0},"licence":["phase=mode rule=no_room ttl_min=360"],"clicks":[],"rows":["_cobblecap_mode success phase=mode cap=1000","_cobbleoverflow_mode success phase=mode rule=no_room ttl_min=360","_cobble_reconcile success counted=1 of 2 tried (max 3)"],"extra":{"second":"1311,120,1319","secondCounted":false},"PASS":true}

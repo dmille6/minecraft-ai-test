@@ -1,0 +1,69 @@
+cobbleoverflow-01 -- REVIEW RECORD (both engines), 2026-10-16
+OWNER 10-16 ~02:00Z: "yes, junk can take the extra" -- below the town cobble cap (1000, cobblecap-1000), the junk well also takes
+whole surplus cobble / cobbled_deepslate stacks the town has NO ROOM for; the bot keeps its 64; never while the town has room;
+unknown room never means full.
+Branch cobbleoverflow-on-cc1000, built ON cc1000-on-8cd0bc6 @ 9e79c171 (cobblecap-1000 r7, fleet base 8cd0bc62).
+Codex = `codex exec - < prompt` (stdin, kill watchdog), read-only sandbox; Claude = one separate reviewer agent kept across
+rounds, executed probes on git-archive exports. Prompts: review-r1..r5 (scratchpad; r1 holds the full brief and checklist).
+
+COMMITS
+  211f76a5  r1  the rule: room readings on counts (cobblecap.mjs roomOf/townRoom), the switch (well.mjs cobbleWellSwitch,
+                stackFits, cobbleOverflowStacks, cobbleStackGoes), cobbleWellOpts at every well call site, the click re-read,
+                wellOrderPlan, exposure row _cobble_overflow, licence row _cobbleoverflow_mode, read + audit, mutants, Paper harness
+  31d665a2  r2  fresh scan before a known room authorises; aborted-withdraw end count; per-click evidence rows; refusal
+                names the well; ROOM_TTL_MS 1 h -> 6 h (measured: at 1 h no fleet town was ever fully read)
+  42c75276  r3  container size with the room (single -> double chest); click keys= hash for the audit; away = unknown;
+                withdraw open count carries no room; fresh scan only where the room authorises
+  a8746f41  r4  per-process +1 ms capture (REVERTED in r5); D3 blind flag
+  46a951a7  r5  same-process equal captures: the later append's ROOM only (fold), real capture times again
+
+ROUND 1 (211f76a5)
+  Codex   CHANGE. P1 the 20 s scan cache: a chest placed and counted with room since was invisible, the click authorised
+          overflow (reproduced). P2 D3 audited cobblestone 64 only; P2 D3 start = end (dispose rows carry no duration);
+          P2 D2 judged the visit's LAST reading (a correctly stopped visit could trip it); P3 refusal chains / remedy text.
+  Claude  CHANGE. P1 an aborted withdraw of an untargeted name left the open's pre-take "full" reading standing (probe:
+          the well would take [64,64] beside a chest with a free slot). P2 the scan cache (same as Codex P1) + drop the
+          away-from-town fallback; P2 D2 false trip (probe); P2 the canary may be inert (room known only if every container
+          was read within the hour); P3 dead ends, D3 narrow, control base check, one-bot readiness, test gaps.
+  Mutants r1: 36 killed / 1 survived ("townRoom max is the SUM": the fixture had one container at 0).
+ROUND 2 (31d665a2)
+  ROOM_TTL_MS put to both explicitly with the measurement (24 h, 12 drawable pools, 5-min samples: 0 of 289 per town had
+  every container counted within 1 h; within 6 h up to 83%).
+  Codex   CHANGE. P1 a single chest read full and joined into a double that keeps its key: the 27-slot reading authorised
+          (reproduced: known, max 0, chest had 1,728 room). P2 D3 replayed the journal's scan, not the bot's container
+          list. P3 away-from-town cached known; P3 stale mutant anchor. TTL: "Six hours is acceptable ... after fixing
+          container-shape invalidation."
+  Claude  CHANGE. TTL: "I accept 6 h ... the condition is P2-2". P2-1 the fresh re-scan skipped at a well stand just off
+          the 16-block square (probe at 17.2 blocks). P2-2 the withdraw's open count should carry no room (a process
+          killed mid-take would leave a pre-take "full" for 6 h). P2-3 the mutant runner aborts on a stale anchor.
+          P3 fresh scan on every decision; P3 the remedy text can be false advice; P3 dead ends remain.
+  Mutants r2: the runner aborted on "the read: D2 never fires" (anchor removed in r2) -- as both reviews found.
+ROUND 3 (42c75276)
+  Codex   APPROVE. "No remaining P1/P2/P3 findings ... The accepted 6-hour TTL remains acceptable." 53 anchors checked.
+  Claude  CHANGE (liveness, not safety). P2-1 a withdraw's open (no room) and end (room) counts in ONE millisecond merged
+          in the fold to no room (3 of 3 probe runs). P3 D3 can go blind silently; P3 equal-ms different sizes.
+  Mutants r3: 1 survivor ("the scan records no sizes": equivalent -- a counted chest is sized by the second fill); re-targeted.
+ROUND 4 (a8746f41)
+  Claude  APPROVE (fold probes A/B/C; P3 reset-fence edge with +1 ms).
+  Codex   CHANGE. P1 the synthetic +1 ms capture moved the wall-clock evidence every cross-process rule uses: another bot's
+          equal-time count ignored, the equal-capture floor `lo` bypassed (pure fold: floor 1000 kept where real time gave
+          936), a reset at T left a T+1 count standing. Not picked between the engines: the approach was withdrawn.
+ROUND 5 (46a951a7)
+  r5 removed nextCapture (real capture times again) and solved Claude r3 P2-1 in the fold for the ROOM FIELD ONLY (obs `i` =
+  the writing process; two equal captures by the same process take the later append's room; the count, `lo`, every fence
+  and any tie between two processes keep the fold's rules).
+  Codex   APPROVE. "P1/P2/P3: No findings in the r5 increment." 6,568 mixed-process / legacy-entry / checkpoint probe cases.
+  Claude  APPROVE. No P1/P2. Interleaving table (a cross-process tie clears `i`; nothing makes the town look fuller);
+          older checkpoints without `i` merge conservatively; reset fence with real times correct. P3: a TARGETED withdraw
+          whose open and releasing end count share a millisecond still hits the base's own stale-releasing dirty mark
+          (room unknown with the count, fail closed, rare in production) -- left as is.
+
+FINAL STATE ON 46a951a7
+  npm test 252/252 (251 base files + cobbleoverflow.test.mjs); eslint no-undef: only bots/src/reflex.mjs:2384 (base).
+  Mutants (scripts/mutants/mutants-cobbleoverflow.py, every anchor present and unique): r5 run on 46a951a7 -- 54 killed /
+  2 survived of 56: "an aborted withdraw writes no count" is EQUIVALENT since r3 (the withdraw's open count has no room and its
+  else-branch writes the end count; dropped from the list with a note); "the read: D3 trips on unknown room" had no fixture with
+  an unread container beside a roomy one (selftest fixture added; re-run KILLED, and the 16 read/audit mutants re-run 16/16).
+  Final list: 55 mutants, 55 killed.
+  Paper (sandbox3): docs/reports/cobbleoverflow-01-paper-2026-10-16.txt.
+  The read: scripts/host/cobbleoverflowread.py --selftest ok (journal audit through the real cobbleroomaudit.mjs).
