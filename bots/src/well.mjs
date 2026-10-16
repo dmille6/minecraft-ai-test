@@ -42,6 +42,7 @@ import { chainPeak } from './craftroom.mjs'
 import { foodSkipActive } from './foodskip.mjs'
 import { groupOf, isProtected, isToolGroup } from './stocktarget.mjs'
 import { scaffoldCount } from './exit-contract.mjs'
+import { ROOM_TTL_MS } from './cobblecap.mjs'
 
 /** The admission radius, needed by the site search above its definition (see ADMISSION_RADIUS). */
 const ADMISSION_RADIUS_FOR_SITE = 5
@@ -161,6 +162,47 @@ export function cobbleWellStacks (items = []) {
 }
 
 /**
+ * COBBLE THE TOWN HAS NO ROOM FOR (cobbleoverflow-01; OWNER 10-16 "yes, junk can take the extra"). At 1000 a town can fill
+ * every container before it holds its cap, and cobble never opens a chest -- so the bag's surplus had no exit. Below the
+ * cap the well now takes a surplus whole stack ONLY when the town's room is KNOWN (cobblecap.mjs townRoom: every town
+ * container read within the hour, none of them mid-withdraw) and NO ONE container can take that stack whole -- exactly
+ * the stacks a deposit cannot bank (deposit moves a stack only into a container with room for all of it). A stack that
+ * fits somewhere stays for the deposit; unknown room sends nothing; the bot keeps its 64 (cobbleWellStacks).
+ *   room  { known, max: { cobblestone, cobbled_deepslate } } -- max is the most any one container can take
+ */
+export const COBBLE_OVERFLOW_RULE = 'no_room'
+/** Does this whole stack fit in some town container? Unknown room, or a name the reading lacks, FITS (fail closed). */
+export function stackFits (room, stack) {
+  if (!room?.known || !stack) return true
+  const m = Number(room.max?.[stack.name])
+  return !Number.isFinite(m) || m >= (Number(stack.count) || 0)
+}
+/** The surplus stacks the town has no room for -> [{ slot, name, count }], smallest first, the bot's 64 kept. Pure. */
+export function cobbleOverflowStacks (items = [], room = null) {
+  return cobbleWellStacks(items).filter(s => !stackFits(room, s))   // unknown room: every stack "fits" (stackFits fails closed)
+}
+/**
+ * THE WELL'S COBBLE SWITCH -> 'at_cap' | 'overflow' | null. Pure.
+ *   cap   skills.mjs cobbleWellCap: 'at_cap' | 'below' | 'unknown' | 'none'
+ *   room  townRoom's view, or null
+ * at_cap is the stonecap rule (every surplus stack). overflow only BELOW a complete count with the room KNOWN; then each
+ * stack is judged by stackFits. 'unknown' / 'none' / unknown room -> null: the cobble stays in the bag, as before.
+ */
+export function cobbleWellSwitch ({ cap = 'unknown', room = null } = {}) {
+  if (cap === 'at_cap') return 'at_cap'
+  if (cap === 'below' && room?.known === true) return 'overflow'
+  return null
+}
+/** May this planned cobble stack go NOW (judged again at the click)? at_cap: yes; overflow: only if it fits nowhere. */
+export function cobbleStackGoes (stack, { mode = null, room = null } = {}) {
+  if (mode === 'at_cap') return true
+  if (mode === 'overflow') return !stackFits(room, stack)
+  return false
+}
+/** The licence row's detail (index.mjs, once per spawn): the rule and the age of evidence it accepts. */
+export const cobbleOverflowModeDetail = (ttlMs = ROOM_TTL_MS) => `phase=mode rule=${COBBLE_OVERFLOW_RULE} ttl_min=${Math.round(ttlMs / 60000)}`
+
+/**
  * AT-TARGET SURPLUS (stocktarget-01 x junkwell-02; design 3.4, owner-approved deletion). For each targeted group whose town
  * is PROVEN at or above its target on the AVAILABLE floor (the caller decides the `groups`; target 0 always is), whole
  * stacks go down the well, smallest first per name, while the bag keeps:
@@ -236,10 +278,11 @@ export const MAX_STACKS_PER_VISIT = 9
  * a scaffold-capable decoration only while the bag keeps STONE_GUARD RESERVE_STONE after it (`stone`: the reserve held).
  * `junkStacks` counts every listed stack in the bag (what the trigger reads).
  */
-export function disposePlan (items = [], { maxStacks = MAX_STACKS_PER_VISIT, swords = false, cobbleAtCap = false, stock = null } = {}) {
+export function disposePlan (items = [], { maxStacks = MAX_STACKS_PER_VISIT, swords = false, cobbleAtCap = false, cobbleRoom = null, stock = null } = {}) {
   const list = (Array.isArray(items) ? items : []).filter(it => it?.name && (it.count ?? 0) > 0)
   // COBBLE AT THE CAP: chosen first and charged to the reserve in full, so a guarded stone judged later never counts on it
-  const cobble = cobbleAtCap ? cobbleWellStacks(list) : []
+  // ...or, below it, the surplus stacks no town container has room for (cobbleoverflow-01: `cobbleRoom`, townRoom's view)
+  const cobble = cobbleAtCap ? cobbleWellStacks(list) : cobbleOverflowStacks(list, cobbleRoom)
   // AT-TARGET SURPLUS of every other targeted group (stocktarget), chosen with it (none of them is reserve stone)
   for (const st of (stock ? stockWellStacks(list, stock) : [])) cobble.push(st)
   const cobbleSlots = new Set(cobble.map(c => c.slot))
@@ -1166,13 +1209,13 @@ const list = items => Object.entries(items ?? {}).filter(([, c]) => c > 0).map((
  */
 export function wellDisposeDetail ({ slotsBefore, slotsAfter, items = {}, tossed = 0, misses = 0, retaken = 0, recollected = 0, nonlisted = 0, otherLoss = 0,
                                      source = 'local', closedOpen = false, stop = 'done', at = null, offlist = 0, offlistItems = {}, unnamed = 0, capEnd = null,
-                                     stone = null, gclicked = 0, swords = 0, peaceful = null, swordLost = 0, swordsKept = 0, cobble = 0, cobbleLeft = null, cap = null, aimOff = 0, aimRead = 0, stock = 0 } = {}) {
+                                     stone = null, gclicked = 0, swords = 0, peaceful = null, swordLost = 0, swordsKept = 0, cobble = 0, cobbleLeft = null, cap = null, overflow = 0, aimOff = 0, aimRead = 0, stock = 0 } = {}) {
   const n = Object.values(items).reduce((a, b) => a + b, 0)
   // offlist= FIRST after slots (the read's C3 gate): thrown entities whose item, AS THE SERVER NAMES IT, is off the list
   // gclicked= / stone= right after offlist (the read's C7 gate): scaffold-capable decorations CLICKED (from the clicks, so an
   // unanswered final resync cannot hide them) and the least RESERVE_STONE any of those clicks left (STONE_GUARD+ or a breach)
   // swords= (swords CLICKED) and peaceful= (the switch as read at the last sword click) next: the read's sword gate
-  return (`slots=${slotsBefore}->${slotsAfter} offlist=${offlist} gclicked=${gclicked}${stone != null ? ` stone=${stone}` : ''} swords=${swords}${peaceful != null ? ` peaceful=${peaceful ? 1 : 0}` : ''} sword_lost=${swordLost} sword_kept=${swordsKept} cobble=${cobble}${cobbleLeft != null ? ` cobble_left=${cobbleLeft}` : ''}${cap ? ` cap=${cap}` : ''}${stock ? ` stock=${stock}` : ''} offlist_items=${list(offlistItems)} unnamed=${unnamed} ` +
+  return (`slots=${slotsBefore}->${slotsAfter} offlist=${offlist} gclicked=${gclicked}${stone != null ? ` stone=${stone}` : ''} swords=${swords}${peaceful != null ? ` peaceful=${peaceful ? 1 : 0}` : ''} sword_lost=${swordLost} sword_kept=${swordsKept} cobble=${cobble}${cobbleLeft != null ? ` cobble_left=${cobbleLeft}` : ''}${cap ? ` cap=${cap}` : ''}${overflow ? ` overflow=${overflow}` : ''}${stock ? ` stock=${stock}` : ''} offlist_items=${list(offlistItems)} unnamed=${unnamed} ` +
           `freed=${(slotsBefore ?? 0) - (slotsAfter ?? 0)} tossed=${tossed} n=${n} misses=${misses} aim_off=${aimOff} aim_read=${aimRead} ` +
           `retaken=${retaken} recollected=${recollected} nonlisted=${nonlisted} other_loss=${otherLoss} server=${source} closed_open=${closedOpen ? 1 : 0}` +
           `${capEnd ? ` cap_end=${capEnd}` : ''}` +

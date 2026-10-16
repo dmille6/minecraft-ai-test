@@ -66,7 +66,7 @@ import { WOODEN_TRAPDOOR, isWellJunk, disposePlan, wellIdentity, wellStage, well
          trapdoorsNeeded, MAX_STACKS_PER_VISIT, wellBreach, usableStands, thrownNames, WELL_HOME_CLEARANCE,
          disposableIn, guardLeft, reserveStone, SCAFFOLD_DECORATIONS, isSword, swordSwitch, cobbleWellStacks, isWellCobble, COBBLE_WELL_RESERVE,
          aimApplied, packetVelocity, isOpenPit, isCoveredPit, pitCoverItem, PIT_COVER_REMEDY, coverRef, bodyInPit,
-         stockWellStacks, pillarCount, STOCK_SCAFFOLD_MIN } from './well.mjs'
+         stockWellStacks, pillarCount, STOCK_SCAFFOLD_MIN, cobbleWellSwitch, cobbleStackGoes, cobbleOverflowStacks } from './well.mjs'
 import { resyncPacket, GUARDED_INVENTORY_ACTIONS } from './craftsync.mjs'
 import path from 'node:path'
 // wellsite-01 (its own statement, away from the import stocktarget-01 rewrites)
@@ -88,7 +88,7 @@ import { planDigApproach, observeApproachDig, APPROACH_WALK_MS, planDigRetry, fl
 import { scoopLiquid, pourLiquid, scoopRefusal, emptyRefusal } from './bucket.mjs'
 import { countItem, horizontalDistanceFromSpawn, snapshot } from './state.mjs'
 import { depositPlan, depositNoopReason, cobbleBankStacks, isCobble, COBBLE_RESERVE, setCobbleTownReader, setCobbleReconcileProbe, setStockReaders, stockCapBinds, stockReaderInstalled } from './bankable.mjs'
-import { townCobble, townStock, cobbleAdmit, cobbleIn, readTown, claimStack, recordCount, voidOwnClaims, TOWN_COBBLE_CAP, OBS_TTL_MS, FLOOR_TTL_MS, INSTANCE, countOf } from './cobblecap.mjs'
+import { townCobble, townStock, cobbleAdmit, cobbleIn, readTown, claimStack, recordCount, voidOwnClaims, TOWN_COBBLE_CAP, OBS_TTL_MS, FLOOR_TTL_MS, INSTANCE, countOf, roomOf, townRoom } from './cobblecap.mjs'
 import { groupOf, targetOf, isToolGroup, stockCounts, roomUnder, STOCK_GROUP_NAMES, isProtected, namesOf } from './stocktarget.mjs'
 import { prunePick, pruneTakes, pruneAccepted, PRUNE_MAX_STACKS, PRUNE_FREE_AFTER } from './prune.mjs'
 import { scaffoldCount } from './exit-contract.mjs'
@@ -1454,14 +1454,61 @@ export function foodSkipNow (bot) {
  * a refused deposit is not proof -- cobble on its way, or a stack that would merely pass the cap, never authorises destroying
  * cobble). 'below' needs a complete count; anything else is 'unknown'.
  */
-export function cobbleWellCap (bot, items = bot?.inventory?.items?.() ?? []) {
+export function cobbleWellCap (bot, items = bot?.inventory?.items?.() ?? [], { state = undefined } = {}) {
   try {
     if (!cobbleWellStacks(items).length) return 'none'
-    const v = cobbleTownViewFor(bot)
+    const v = state === undefined ? cobbleTownViewFor(bot) : stockTownViewFor(bot, 'cobble', Date.now(), { state })
     // STOCKTARGET (design 3.4, Claude r1 P3-1: one rule for every group): the AVAILABLE floor -- counts younger than an hour,
     // the smaller of equal captures, less every live take and draw -- not the 6 h lower bound
     return (Number(v?.avail) || 0) >= TOWN_COBBLE_CAP ? 'at_cap' : v?.complete ? 'below' : 'unknown'
   } catch { return 'unknown' }
+}
+
+/**
+ * THE WELL'S COBBLE OPTIONS (stonecap's cap + cobbleoverflow-01's room) -> { cobbleAtCap, cobbleRoom, mode, cap, room }, for
+ * disposePlan and the click. well.mjs cobbleWellSwitch decides: at the cap every surplus stack; BELOW a complete count with
+ * the town's room KNOWN, the stacks no container can take whole; anything else nothing. The room is read only below the cap.
+ */
+export function cobbleWellOpts (bot, items = bot?.inventory?.items?.() ?? []) {
+  try {
+    // ONE fold of the town's journal for both readings (the cap's count and the room)
+    if (!cobbleWellStacks(items).length) return { cobbleAtCap: false, cobbleRoom: null, mode: null, cap: 'none', room: null }
+    const st = capTown(bot)
+    const cap = cobbleWellCap(bot, items, { state: st })
+    const room = cap === 'below' ? cobbleTownRoomFor(bot, Date.now(), { state: st }) : null
+    const mode = cobbleWellSwitch({ cap, room })
+    return { cobbleAtCap: mode === 'at_cap', cobbleRoom: mode === 'overflow' ? room : null, mode, cap, room }
+  } catch { return { cobbleAtCap: false, cobbleRoom: null, mode: null, cap: 'unknown', room: null } }
+}
+
+/**
+ * THE WELL ORDER'S PLAN (cognitive.mjs feeds its junkStacks to well.mjs wellOrder): the bag as the well would take it now --
+ * a peaceful world's swords, the cobble switch (cobbleWellOpts: at the cap, or below it what no town container has room
+ * for) and the stock targets' at-target groups. The town's counts are read only AT TOWN (`atTown`; Claude coupling review
+ * P3: not on every decision anywhere in the world).
+ */
+export function wellOrderPlan (bot, items = bot?.inventory?.items?.() ?? [], atTown = false) {
+  const co = atTown ? cobbleWellOpts(bot, items) : null
+  return disposePlan(items, { swords: wellSwordsNow(bot), cobbleAtCap: !!co?.cobbleAtCap, cobbleRoom: co?.cobbleRoom ?? null, stock: atTown ? stockWellOpts(bot, items) : null })
+}
+
+/**
+ * THE EXPOSURE ROW (cobbleoverflow-01): written where a bank refuses for want of room -- the town deposit's
+ * town_storage_full and the cobble-only deposit's "no container here has room" -- when the bag holds surplus cobble. It
+ * says what the well's switch made of it: `_cobble_overflow phase= surplus= stacks= cap= mode= known= containers=
+ * unknown= max=<cobblestone>/<cobbled_deepslate> goes=`. Never breaks the refusal it annotates.
+ */
+export function cobbleOverflowNote (bot, phase, items = bot?.inventory?.items?.() ?? []) {
+  try {
+    const sur = cobbleWellStacks(items)
+    if (!sur.length) return null
+    const co = cobbleWellOpts(bot, items)
+    const room = co.room ?? (co.cap === 'at_cap' ? null : cobbleTownRoomFor(bot))
+    const goes = co.mode === 'at_cap' ? sur.length : co.mode === 'overflow' ? cobbleOverflowStacks(items, co.room).length : 0
+    const detail = `phase=${phase} surplus=${sur.reduce((t, x) => t + x.count, 0)} stacks=${sur.length} cap=${co.cap} mode=${co.mode ?? '-'} known=${room?.known ? 1 : 0} containers=${room?.containers ?? '-'} unknown=${room?.unknown?.length ?? '-'} max=${room?.max?.cobblestone ?? '-'}/${room?.max?.cobbled_deepslate ?? '-'} goes=${goes}`
+    logEvent({ kind: 'cobble_overflow', status: goes > 0 ? 'success' : 'no_effect', snapshot: snapshot(bot), detail })
+    return detail
+  } catch { return null }
 }
 
 /**
@@ -1509,7 +1556,8 @@ export function valveProof (bot, items = bot?.inventory?.items?.() ?? []) {
     if (items.length < TD_TRIGGER_SLOTS) return false
     const peaceful = foodSkipNow(bot).active
     if (startableJunk(items, { apples: peaceful, plants: peaceful, level: 0 }) > 0) return false
-    const plan = disposePlan(items, { swords: wellSwordsNow(bot), cobbleAtCap: cobbleWellCap(bot, items) === 'at_cap', stock: stockWellOpts(bot, items) })
+    const co = cobbleWellOpts(bot, items)
+    const plan = disposePlan(items, { swords: wellSwordsNow(bot), cobbleAtCap: co.cobbleAtCap, cobbleRoom: co.cobbleRoom, stock: stockWellOpts(bot, items) })
     return plan.junkStacks === 0
   } catch { return false }
 }
@@ -3008,6 +3056,7 @@ async function deposit(ctx, { item = null }, signal, { noRecovery = false, prefe
                : `nothing banked: the town holds its stock target of what you carry (town stock target)${wellUsable(bot) ? '; the junk well takes the surplus at a full bag' : '; the surplus stays in the bag'}` }
   }
   if (!cursorLost && moved === 0 && eligible > 0 && cobbleEligible === eligible) {
+    cobbleOverflowNote(bot, 'deposit_no_room')   // cobbleoverflow-01: the exposure row (what the well's switch makes of it)
     return { status: 'no_effect', failClass: null,
              detail: `the cobble stays: no container here has room for a whole stack, and cobble never opens a new chest (cobble reserve)` }
   }
@@ -3215,6 +3264,18 @@ export function stockTownViewFor (bot, group = 'cobble', now = Date.now(), { fre
   return townStock(st, sc.keys, now, { me: bot.username ?? null, coverage: sc.coverage, gone: sc.gone, group })
 }
 /**
+ * THE TOWN'S ROOM FOR COBBLE (cobbleoverflow-01; cobblecap.mjs townRoom) -> { known, unknown, max, containers }: over the
+ * same keys and coverage as the count (the journal's last covered scan away from town, as stockTownViewFor). Not
+ * replayable -> unknown.
+ */
+export function cobbleTownRoomFor (bot, now = Date.now(), { state = undefined } = {}) {
+  const st = state === undefined ? capTown(bot) : state
+  if (!st) return { known: false, unknown: ['journal'], max: { cobblestone: 0, cobbled_deepslate: 0 }, containers: 0 }
+  let sc = townCobbleScan(bot, now, { state: st })
+  if (!sc.coverage && st.scan && now - st.scan.at < OBS_TTL_MS && !inTown(homeVec(), bot.entity?.position)) sc = { keys: st.scan.keys, coverage: true, gone: sc.gone }
+  return townRoom(st, sc.keys, now, { coverage: sc.coverage, gone: sc.gone })
+}
+/**
  * THE COUNT: what an OPEN town container's window holds, captured now and appended at once with its capture time, in the
  * same write as any releases (count first: cobblecap.mjs recordCount). `release` / `releaseAll` are appended outside town
  * too. A covered scan is appended at most every 5 min, for the plan's view from away. -> true when written.
@@ -3240,6 +3301,8 @@ export function cobbleObserve (bot, pos, win, { release = null, releaseAll = [],
     // ...and the well's junk list as one pseudo-group (target 0) for the prune's pick (design 3.5)
     const junk = contents.reduce((t, x) => t + (x?.name && isWellJunk(x.name) ? (x.count ?? 0) : 0), 0)
     if (junk > 0) m.junk = junk
+    // cobbleoverflow-01: how much cobble this container could still take, from the same window (null: the window cannot say)
+    const r = roomOf(contents, win?.inventoryStart)
     let scan = null
     if (inside) {
       const sc = townCobbleScan(bot, cap)
@@ -3248,7 +3311,7 @@ export function cobbleObserve (bot, pos, win, { release = null, releaseAll = [],
     }
     capEpoch++
     return recordCount(townDir(), homeTownKey(), bot.worldId ?? null,
-      { obs: inside ? { k: containerKey(bot, pos), n, m, cap } : null, release: ids, scan, bot: bot.username ?? null, inst: capInst(bot) })
+      { obs: inside ? { k: containerKey(bot, pos), n, m, cap, ...(r ? { r } : {}) } : null, release: ids, scan, bot: bot.username ?? null, inst: capInst(bot) })
   } catch { return false }
 }
 /**
@@ -5351,7 +5414,8 @@ export function townWellTakes (bot, items, keep = [], { wellSite = recordedWellS
     // trip); with one recorded, the stock targets' at-target groups count as the well would count them (assumeCap).
     if (!wellSite(bot)) return null
     const used = new Set((keep ?? []).map(k => k?.name ?? k))
-    const plan = disposePlan(items, { swords: wellSwordsNow(bot), cobbleAtCap: cobbleWellCap(bot, items) === 'at_cap', stock: stockWellOpts(bot, items, { assumeCap: true }) })
+    const co = cobbleWellOpts(bot, items)
+    const plan = disposePlan(items, { swords: wellSwordsNow(bot), cobbleAtCap: co.cobbleAtCap, cobbleRoom: co.cobbleRoom, stock: stockWellOpts(bot, items, { assumeCap: true }) })
     return (plan.stacks ?? []).find(st => !used.has(st.name))?.name ?? null
   } catch { return null }
 }
@@ -7049,6 +7113,7 @@ async function townDeposit (ctx, _args, signal) {
   if (tried.length && tried.every(t => t.result === 'full')) {
     stop = stop ?? 'full'
     row('failed')
+    cobbleOverflowNote(bot, 'town_storage_full')   // cobbleoverflow-01: the exposure row
     return { status: 'failed', failClass: 'town_storage_full',
              detail: 'the town chests in reach are full; deposit (no item) tries other chests and can build a new one' }
   }
@@ -7774,9 +7839,12 @@ async function throwStacks (bot, { cap, facing, stacks, bound, waitTick, signal,
         const leftC = bagCobble - (it.count ?? 0)
         if (it.count !== st.count || leftC < COBBLE_WELL_RESERVE) continue
         // THE CAP RE-READ AT EVERY COBBLE CLICK (Codex r1 P1: another bot may take cobble out between two stacks); the last
-        // reading is what the row reports
-        acc.capLast = cobbleWellCap(bot)
-        if (acc.capLast !== 'at_cap') continue
+        // reading is what the row reports. Below the cap, THE ROOM TOO (cobbleoverflow-01): a container that gained room
+        // since the plan -- a withdraw, a new chest -- keeps every stack it could take
+        const co = cobbleWellOpts(bot)
+        acc.capLast = co.cap
+        if (!cobbleStackGoes(it, co)) continue
+        if (co.mode === 'overflow') acc.overflow = (acc.overflow ?? 0) + it.count
         acc.cobble += it.count; acc.cobbleLeft = Math.min(acc.cobbleLeft ?? Infinity, leftC)
         // A PRUNED COBBLE STACK writes its _stock_prune row like every other group (Claude code r2 P3: prune clicks were
         // under-counted), with stonecap's own numbers: the available floor, the cap, the bot's 64
@@ -7924,12 +7992,14 @@ async function throwPhase (bot, { cap, facing, pit = false, maxStacks = MAX_STAC
       out.slotsBefore = before.used
       if (before.source !== 'resync') { out.refused = 'server_unanswered'; return out }
       out.swordsAllowed = !pit && wellSwordsNow(bot)   // a peaceful world's swords go too (never in the pit-first build)
-      out.cap = pit ? null : cobbleWellCap(bot)       // and, at the town's cobble cap, surplus whole cobble stacks
+      // and, at the town's cobble cap, surplus whole cobble stacks -- or below it, those no town container has room for
+      const co = pit ? null : cobbleWellOpts(bot)
+      out.cap = co ? co.cap : null
       out.stock = pit ? null : pruneStockOpts(bot, pruned)   // and every other group at its target (stocktarget design 3.4), and what a prune took
-      const plan = disposePlan(bot.inventory?.items?.() ?? [], { maxStacks, swords: out.swordsAllowed, cobbleAtCap: out.cap === 'at_cap', stock: out.stock })   // the bag AS THE SERVER HOLDS IT
+      const plan = disposePlan(bot.inventory?.items?.() ?? [], { maxStacks, swords: out.swordsAllowed, cobbleAtCap: !!co?.cobbleAtCap, cobbleRoom: co?.cobbleRoom ?? null, stock: out.stock })   // the bag AS THE SERVER HOLDS IT
       out.stone = plan.stone   // the guard stone the plan saw (STONE_GUARD): on the row, so the read can judge the guard
       out.acc.swordsAllowed = out.swordsAllowed
-      out.acc.cobbleAllowed = out.cap === 'at_cap'
+      out.acc.cobbleAllowed = !!co && co.mode != null
       out.acc.stockAllowed = !!out.stock
       if (!plan.stacks.length) { out.refused = 'nothing_listed'; return out }
       // THE SHAFT IS READ SEALED AGAIN IMMEDIATELY BEFORE THE FIRST THROW (wellsite-01, Codex r1 P1): the well was judged
@@ -8018,7 +8088,7 @@ const phaseDetail = (ph, cap, stop, capEnd = null) => wellDisposeDetail({ capEnd
   source: ph.source, closedOpen: ph.closedOpen, stop, at: cap, offlist: ph.thrown?.offlist ?? 0, offlistItems: ph.thrown?.offlistItems ?? {}, unnamed: ph.thrown?.unnamed ?? 0,
   gclicked: ph.acc?.gclicked ?? 0, stone: ph.acc?.stoneMin ?? ph.stone ?? null, swords: ph.acc?.swords ?? 0, peaceful: ph.acc?.swords ? ph.acc.peaceful : null,
   swordLost: ph.account?.swordLost ?? 0, swordsKept: ph.acc?.swordsKept ?? 0, aimOff: ph.acc?.aimOff ?? 0, aimRead: ph.acc?.aimRead ?? 0,
-  cobble: ph.acc?.cobble ?? 0, cobbleLeft: ph.acc?.cobble ? ph.acc.cobbleLeft : null, cap: ph.acc?.capLast ?? ph.cap ?? null, stock: ph.acc?.stockThrown ?? 0 })
+  cobble: ph.acc?.cobble ?? 0, cobbleLeft: ph.acc?.cobble ? ph.acc.cobbleLeft : null, cap: ph.acc?.capLast ?? ph.cap ?? null, overflow: ph.acc?.overflow ?? 0, stock: ph.acc?.stockThrown ?? 0 })
 
 const FACING_OK = f => ['north', 'south', 'west', 'east'].includes(f)
 async function disposeWell (ctx, _args, signal) {
@@ -8047,7 +8117,8 @@ async function disposeWell (ctx, _args, signal) {
   if (bot.controlState?.sneak) return skip('sneaking', 'sneaking (held by another subsystem); the well waits for another visit')
   const near = wellAdmission({ players: playersSeen(bot), cap, me: bot.username })
   if (near) return skip('player_near', `wait for ${near.who} to move off the town junk well (${near.dist.toFixed(1)} blocks): it opens only with nobody within 5, and the next town visit disposes`)
-  if (!disposePlan(items(), { swords: wellSwordsNow(bot), cobbleAtCap: cobbleWellCap(bot) === 'at_cap', stock: pruneStockOpts(bot, pruned) }).stacks.length && !well.open) return skip('nothing_listed', `nothing on the junk list in the bag at ${slotsBefore} of 36 slots`)
+  const co0 = cobbleWellOpts(bot)
+  if (!disposePlan(items(), { swords: wellSwordsNow(bot), cobbleAtCap: co0.cobbleAtCap, cobbleRoom: co0.cobbleRoom, stock: pruneStockOpts(bot, pruned) }).stacks.length && !well.open) return skip('nothing_listed', `nothing on the junk list in the bag at ${slotsBefore} of 36 slots`)
   const was = handOf(bot.heldItem)
   const g = hkGuards(bot, signal)
   const tick = () => g.bound(bot.waitForTicks?.(1), 50 + HK_AWAIT_MS, 'tick wait')
@@ -9320,7 +9391,9 @@ export function pruneTarget (bot, items = bot?.inventory?.items?.() ?? []) {
     return prunePick({ obs: st.obs ?? {}, keys: sc.keys, avail, free: 36 - items.length, now, accept: cands => pruneAccepted(items, cands, pruneWellRule(bot)) })
   } catch { return null }
 }
-/** The well's own rule as a function of a bag (well.mjs disposePlan, every stack): what pruneAccepted asks. */
+/** The well's own rule as a function of a bag (well.mjs disposePlan, every stack): what pruneAccepted asks. AT THE CAP
+ *  ONLY for cobble (cobbleoverflow-01): a prune takes stacks OUT of a town container, which is room, so the overflow rule
+ *  (no container has room) can never license a prune's take. */
 function pruneWellRule (bot) {
   return items => disposePlan(items, { maxStacks: Infinity, swords: wellSwordsNow(bot), cobbleAtCap: cobbleWellCap(bot, items) === 'at_cap', stock: stockWellOpts(bot, items) }).stacks
 }

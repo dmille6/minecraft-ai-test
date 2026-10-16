@@ -476,6 +476,22 @@ test('SKILL: a full chest takes nothing -- no click, no cursor, no drop; the sec
   assert.deepEqual(two.st.opened, ['2,70,0', '-4,70,0', '-4,70,0'])
 })
 
+test('cobbleoverflow-01: town_storage_full with surplus cobble in the bag writes ONE exposure row (_cobble_overflow phase=town_storage_full); a success writes none', async () => {
+  const seen = []
+  const untap = tapRecords(r => { if (r?.skill?.name === '_cobble_overflow') seen.push(r.skill.detail) })
+  try {
+    const { bot } = world({ items: fullBag(), containers: [filledChest(2)] })
+    const r = await run(bot)
+    assert.equal(r.failClass, 'town_storage_full', JSON.stringify(r))
+    assert.equal(seen.length, 1, seen.join(' | '))
+    // the bag's cobble 64 + 64 + 20: the 20 and one 64 are surplus above the 64 (well.mjs cobbleWellStacks)
+    assert.match(seen[0], /^phase=town_storage_full surplus=84 stacks=2 cap=\S+ mode=\S+ known=[01] containers=\S+ unknown=\S+ max=\S+ goes=\d+$/)
+    const ok = world({ items: fullBag(), containers: [chestAt(2)] })
+    assert.equal((await run(ok.bot)).status, 'success')
+    assert.equal(seen.length, 1, 'positive control: a town with room writes no exposure row')
+  } finally { untap() }
+})
+
 test('SKILL: two containers share ONE visit allowance: the first takes 2 stacks, the second the rest, the cap holds', async () => {
   const items = bag([['oak_log', 64], ['oak_log', 64], ['oak_log', 64], ['oak_log', 10], ['raw_copper', 7], ['raw_copper', 7], ['raw_gold', 3], ...filler(29)])
   const a = filledChest(2, 2), b = chestAt(-4)

@@ -1,0 +1,354 @@
+#!/usr/bin/env python3
+# cobbleoverflowread.py [window_min] -- the read for canary `cobbleoverflow-01` (OWNER 10-16 "yes, junk can take the extra").
+# CANARY_DRYRUN=pool[,pool]:sha:iso for dry runs (never emits). --selftest runs every gate against its fixture.
+#
+# THE CHANGE (built on cobblecap-1000, town cobble cap 1000): below the cap the junk well also takes whole surplus cobble /
+# cobbled_deepslate stacks that NO town container can take whole -- only when the town's room is KNOWN (every town container
+# read within the hour by a count that carries its room, none mid-withdraw) -- and the bot keeps its 64. Unknown room sends
+# nothing. A stack some container can take stays for the deposit. Never a toss, never a chest.
+#
+# THE CANARY ARM IS JUDGED; the control is the DiD baseline and the arms check. Every rate is per BOT-HOUR of the arm and
+# period (bots seen x window); the denominators are printed first.
+#
+#   EXPOSURE     a canary bot in a full-chest town with surplus cobble: rows where a bank refused for want of room while the
+#                bag held a whole surplus stack -- the town deposit's "the town chests in reach are full" (town_storage_full)
+#                with bot.inventory cobble >= 128 (>= 128 guarantees a stack above the 64 that may go; 65-127 may not), and the
+#                deposit's "cobble never opens a new chest" (it is written only when every stack it could not place was
+#                surplus cobble). Both arms write both. READY at >= EXPOSURE_MIN canary rows.
+#   LIVENESS     overflow throws: canary _well_dispose rows with overflow= > 0 (the cobble the well took BELOW the cap)
+#   PRIMARY      stuck rows (the exposure rows) per bot-h, DiD canary vs control: should FALL (the well empties the surplus
+#                the bank cannot take). Reported with the overflow cobble per canary bot-h and the well's cobble DiD.
+#   CORRECTNESS  (each REVERTS; each has a failing fixture in --selftest)
+#     D1  breach_reserve: an overflow throw that left the bag under the 64 (cobble_left < 64)
+#     D2  breach_switch: an overflow throw whose cap= is not 'below' (the switch fired outside its rule)
+#     D3  breach_room_journal: overflow throws the JOURNAL contradicts -- folded with the canary's own cobblecap.mjs
+#         (cobbleroomaudit.mjs), the town's room was KNOWN with a container able to take a whole 64 of cobblestone both at the
+#         skill's start and at its row. One is reported and named (a deposit filling the room between the fold and the click
+#         can explain one); the gate trips at >= 2.
+#   ARMS         control rows of this build's kinds (_cobbleoverflow_mode, _cobble_overflow) or control overflow throws
+#                (must be 0: a contaminated control)
+#   REPORTED     the canary's _cobble_overflow rows by mode (overflow / at_cap / none) and room known/unknown (the fail-closed
+#                cases: a bank refused for room while the well could not judge the room); the journal audit's unknown-room
+#                throws (the audit could not see a reading the bot saw: reported, never a verdict); new chests and chest-full
+#                deposit failures DiD (tripwires)
+import sys, os, json, re, glob, gzip, subprocess, tempfile
+import datetime as dt
+from collections import Counter, defaultdict
+
+HERE = os.path.dirname(os.path.abspath(__file__))
+KEEP = ('_cobble_overflow', '_cobbleoverflow_mode', '_well_dispose', 'town_deposit', 'deposit', '_deposit_new_chest', '_cobble_bank')
+KV = re.compile(r'(?:^| )([a-z_]+)=(\S+)')
+JOURNAL_FILE = re.compile(r'\.cobble\.(g\d+\.)?jsonl$')
+EXPOSURE_MIN = 3
+RESERVE = 64
+SURPLUS_MIN = 2 * RESERVE        # bag cobble at which a whole stack above the 64 is certain to exist
+TOWN_FULL = 'the town chests in reach are full'
+COBBLE_NO_CHEST = 'cobble never opens a new chest'
+D3_TRIP = 2
+
+
+def kv(d):
+    return {m.group(1): m.group(2) for m in KV.finditer(d or '')}
+
+
+def num(f, k, default=0):
+    try:
+        return int(f.get(k))
+    except (TypeError, ValueError):
+        return default
+
+
+def pool_of(bot):
+    return '-'.join((bot or '').split('-')[:2])
+
+
+def bag_cobble(inv):
+    if not isinstance(inv, dict):
+        return None
+    return sum(int(inv.get(n) or 0) for n in ('cobblestone', 'cobbled_deepslate'))
+
+
+def stream(since, until, cut, cans, cv, logroot='/var/log/mcai'):
+    """Every skill row in [since, until): live files and the rotated .gz of each day touched (logs rotate ~23:59Z)."""
+    files = sorted(glob.glob(logroot + '/*/skill-*.jsonl'))
+    for k in range(0, (until.date() - since.date()).days + 2):
+        tag = (since.date() + dt.timedelta(days=k)).strftime('%Y%m%d')
+        files += sorted(glob.glob(logroot + '/*/skill-*.jsonl-%s.gz' % tag))
+    seen, kept, walked, bad, offbuild = set(), [], 0, 0, 0
+    noversion = Counter()
+    bots = defaultdict(set)
+    s_iso, u_iso = since.strftime('%Y-%m-%dT%H:%M:%S'), until.strftime('%Y-%m-%dT%H:%M:%S')
+    for f in files:
+        try:
+            fh = gzip.open(f, 'rt', errors='replace') if f.endswith('.gz') else open(f, errors='replace')
+        except OSError:
+            continue
+        with fh:
+            for line in fh:
+                ts = line[15:34] if line.startswith('{"@timestamp":"') else None
+                if ts is None or ts < s_iso or ts >= u_iso:
+                    continue
+                try:
+                    d = json.loads(line)
+                except Exception:
+                    bad += 1
+                    continue
+                sk = d.get('skill') or {}
+                n = sk.get('name')
+                bd = d.get('bot') or {}
+                b = bd.get('name')
+                key = (d.get('@timestamp'), b, n, sk.get('detail'))
+                if key in seen:
+                    continue
+                seen.add(key)
+                walked += 1
+                t = dt.datetime.fromisoformat(d['@timestamp'].replace('Z', '+00:00'))
+                arm = 'canary' if pool_of(b) in cans else 'control'
+                per = 'post' if t >= cut else 'pre'
+                if b:
+                    bots[(per, arm)].add(b)
+                if n in KEEP:
+                    ver = ((d.get('code') or {}).get('version') or '')
+                    # a canary POST row from another build (restart lag) is not the canary's (memory: restart-lag rows)
+                    if arm == 'canary' and per == 'post' and cv and ver and not ver.startswith(cv):
+                        offbuild += 1
+                        continue
+                    if arm == 'canary' and per == 'post' and not ver:
+                        noversion[n] += 1
+                    kept.append({'t': t, 'per': per, 'arm': arm, 'name': n, 'status': sk.get('status'), 'detail': sk.get('detail') or '', 'bot': b,
+                                 'cobble': bag_cobble(bd.get('inventory')), 'ms': int(sk.get('duration_ms') or 0)})
+    kept.sort(key=lambda r: r['t'])
+    return kept, walked, bots, bad, offbuild, dict(noversion)
+
+
+def stuck(r):
+    """An EXPOSURE row: a bank refused for want of room while the bag held a whole surplus stack."""
+    if r['name'] == 'town_deposit' and r['status'] == 'failed' and r['detail'].startswith(TOWN_FULL):
+        return r['cobble'] is not None and r['cobble'] >= SURPLUS_MIN
+    return r['name'] == 'deposit' and COBBLE_NO_CHEST in r['detail']
+
+
+def overflow_of(r):
+    return num(kv(r['detail']), 'overflow') if r['name'] == '_well_dispose' else 0
+
+
+def judge(rows):
+    out = {}
+    post_c = [r for r in rows if r['per'] == 'post' and r['arm'] == 'canary']
+    post_k = [r for r in rows if r['per'] == 'post' and r['arm'] == 'control']
+    throws = [(r, kv(r['detail'])) for r in post_c if overflow_of(r) > 0]
+    out['overflow_throws_canary'] = len(throws)
+    out['overflow_cobble_canary'] = sum(num(f, 'overflow') for r, f in throws)
+    d1 = [(r['bot'], num(f, 'cobble_left', None), str(r['t'])) for r, f in throws if num(f, 'cobble_left', -1) < RESERVE]
+    out['breach_reserve'] = len(d1)
+    d2 = [(r['bot'], f.get('cap'), str(r['t'])) for r, f in throws if f.get('cap') != 'below']
+    out['breach_switch'] = len(d2)
+    # ARMS: the control must not carry this build's kinds or its throws
+    out['arms_control_rows'] = sum(1 for r in post_k if r['name'] in ('_cobbleoverflow_mode', '_cobble_overflow') or overflow_of(r) > 0)
+    out['mode_rows_canary'] = sum(1 for r in post_c if r['name'] == '_cobbleoverflow_mode')
+    notes = [kv(r['detail']) for r in post_c if r['name'] == '_cobble_overflow']
+    out['notes_canary'] = len(notes)
+    out['notes_by_mode'] = dict(Counter(f.get('mode', '?') for f in notes))
+    out['notes_room_unknown'] = sum(1 for f in notes if f.get('mode') == '-' and f.get('known') == '0' and f.get('cap') in ('below', 'unknown'))
+    out['notes_goes'] = sum(1 for f in notes if num(f, 'goes') > 0)
+    exp = [r for r in post_c if stuck(r)]
+    out['exposure_rows'] = len(exp)
+    out['exposed_bots'] = len({r['bot'] for r in exp})
+    for per in ('pre', 'post'):
+        for arm in ('canary', 'control'):
+            rs = [r for r in rows if r['per'] == per and r['arm'] == arm]
+            out['stuck_%s_%s' % (per, arm)] = sum(1 for r in rs if stuck(r))
+            out['well_cobble_%s_%s' % (per, arm)] = sum(num(kv(r['detail']), 'cobble') for r in rs if r['name'] == '_well_dispose')
+            out['new_chests_%s_%s' % (per, arm)] = sum(1 for r in rs if r['name'] == '_deposit_new_chest' and r['status'] == 'success' and 'placed=1' in r['detail'])
+            out['fullfail_%s_%s' % (per, arm)] = sum(1 for r in rs if r['name'] in ('deposit', 'town_deposit') and r['status'] == 'failed' and 'full' in r['detail'])
+    out['exposure_ready'] = int(out['exposure_rows'] >= EXPOSURE_MIN)
+    out['_lists'] = {'d1': d1[:5], 'd2': d2[:5]}
+    out['_throws'] = [{'id': '%s@%s' % (r['bot'], r['t'].isoformat()), 'pool': pool_of(r['bot']), 'end': int(r['t'].timestamp() * 1000),
+                       'start': int(r['t'].timestamp() * 1000) - r['ms']} for r, f in throws]
+    return out
+
+
+def journal_coverage(pools, root='/var/lib/mcai'):
+    """Every DECLARED canary pool must be audited -> (dirs, [pools not covered, with why]) (cobblecapread's rule)."""
+    dirs, missing = [], []
+    for p in sorted(pools):
+        d = os.path.join(root, '_pool-%s' % p)
+        try:
+            names = os.listdir(d)
+        except OSError as e:
+            missing.append('%s:%s' % (p, type(e).__name__)); continue
+        if not any(JOURNAL_FILE.search(n) for n in names):
+            missing.append('%s:no_journal' % p); continue
+        dirs.append(d)
+    return dirs, missing
+
+
+def audit(cc, throws, dirs):
+    """D3: each overflow throw judged by the journal at its skill's START and at its ROW (cobbleroomaudit.mjs, the canary's
+    cobblecap.mjs). A contradiction = KNOWN room with a container able to take a whole 64 of cobblestone at BOTH times."""
+    events = []
+    for th in throws:
+        events.append({'id': th['id'] + '#start', 'pool': th['pool'], 'at': th['start']})
+        events.append({'id': th['id'] + '#end', 'pool': th['pool'], 'at': th['end']})
+    with tempfile.NamedTemporaryFile('w', suffix='.json', delete=False) as fh:
+        json.dump(events, fh); ev = fh.name
+    try:
+        r = subprocess.run(['node', os.path.join(HERE, 'cobbleroomaudit.mjs'), cc, ev, *dirs], capture_output=True, text=True, timeout=600)
+    finally:
+        os.unlink(ev)
+    if r.returncode != 0 or not r.stdout.strip():
+        raise RuntimeError(r.stderr[-300:])
+    j = json.loads(r.stdout)
+    by = {e['id']: e for e in j.get('events', [])}
+    roomy = lambda e: bool(e) and e.get('known') is True and int((e.get('max') or {}).get('cobblestone') or 0) >= RESERVE
+    bad = [th['id'] for th in throws if roomy(by.get(th['id'] + '#start')) and roomy(by.get(th['id'] + '#end'))]
+    unk = sum(1 for th in throws if not (by.get(th['id'] + '#start') or {}).get('known'))
+    return {'breach_room_journal': len(bad), '_bad': bad[:5], 'audit_unknown_room': unk, 'audited': len(throws),
+            'unreadable': j.get('unreadable', []), 'towns': j.get('towns', 0), 'dirs': len(dirs)}
+
+
+def selftest():
+    T0 = dt.datetime(2026, 10, 16, 12, 0, tzinfo=dt.timezone.utc)
+    R = lambda name, detail, mins=0, bot='hive-a-Alpha', arm='canary', per='post', status='success', cobble=None, ms=0: {
+        't': T0 + dt.timedelta(minutes=mins), 'per': per, 'arm': arm, 'name': name, 'status': status, 'detail': detail, 'bot': bot, 'cobble': cobble, 'ms': ms}
+    WD = lambda overflow, left=64, cap='below', cobble=None, **k: R('_well_dispose', 'slots=36->34 offlist=0 gclicked=0 swords=0 sword_lost=0 sword_kept=0 cobble=%d cobble_left=%d cap=%s%s offlist_items=- unnamed=0'
+                                                                    % (overflow if cobble is None else cobble, left, cap, (' overflow=%d' % overflow) if overflow else ''), **k)
+    TF = lambda cobble, **k: R('town_deposit', TOWN_FULL + '; deposit (no item) tries other chests and can build a new one', status='failed', cobble=cobble, **k)
+    NC = lambda **k: R('deposit', 'the cobble stays: no container here has room for a whole stack, and ' + COBBLE_NO_CHEST + ' (cobble reserve)', status='no_effect', **k)
+    CTL = dict(arm='control', bot='board-a-Alpha')
+    ok = judge([WD(94), TF(300), NC(mins=1), TF(300, mins=2), R('_cobbleoverflow_mode', 'phase=mode rule=no_room ttl_min=60')])
+    assert ok['overflow_throws_canary'] == 1 and ok['overflow_cobble_canary'] == 94 and ok['breach_reserve'] == 0 and ok['breach_switch'] == 0, ok
+    assert ok['exposure_rows'] == 3 and ok['exposure_ready'] == 1 and ok['arms_control_rows'] == 0 and ok['mode_rows_canary'] == 1, ok
+    # D1 / D2 fail on their fixtures
+    assert judge([WD(94, left=63)])['breach_reserve'] == 1, 'positive control: a throw under the 64'
+    assert judge([WD(94, cap='unknown')])['breach_switch'] == 1, 'positive control: an overflow throw outside the switch'
+    assert judge([WD(0, cap='at_cap', cobble=94)])['breach_switch'] == 0, 'an AT-CAP throw is not an overflow throw'
+    assert judge([WD(0, cap='at_cap', cobble=94)])['overflow_throws_canary'] == 0, 'and no liveness'
+    # ARMS: the control writing this build's kinds, or throwing overflow cobble
+    assert judge([WD(94, **CTL)])['arms_control_rows'] == 1
+    assert judge([R('_cobbleoverflow_mode', 'phase=mode rule=no_room ttl_min=60', **CTL)])['arms_control_rows'] == 1
+    assert judge([R('_cobble_overflow', 'phase=town_storage_full surplus=94 stacks=2 cap=below mode=overflow known=1 containers=3 unknown=0 max=0/0 goes=2', **CTL)])['arms_control_rows'] == 1
+    assert judge([R('_well_dispose', 'cobble=94 cobble_left=64 cap=at_cap', **CTL)])['arms_control_rows'] == 0, 'positive control: an at-cap throw is the base\'s'
+    # EXPOSURE: a full town with a whole surplus stack in the bag; under 128 bag cobble it is not certain, and other failures are not
+    assert judge([TF(127)])['exposure_rows'] == 0 and judge([TF(128)])['exposure_rows'] == 1, 'the 128 floor'
+    assert judge([TF(None)])['exposure_rows'] == 0, 'no inventory: not counted'
+    assert judge([R('town_deposit', 'banked nothing at the town chests (none tried)', status='failed', cobble=500)])['exposure_rows'] == 0
+    assert judge([NC(), NC(mins=1)])['exposure_rows'] == 2 and judge([NC(), NC(mins=1)])['exposure_ready'] == 0, 'two rows: not yet'
+    assert judge([TF(300, **CTL), NC(**CTL), TF(300, **CTL)])['exposure_rows'] == 0, 'control rows never ready the canary'
+    st = judge([TF(300, per='pre', mins=-5), TF(300), NC(mins=1), TF(300, **CTL), TF(300, per='pre', mins=-5, **CTL)])
+    assert st['stuck_pre_canary'] == 1 and st['stuck_post_canary'] == 2 and st['stuck_post_control'] == 1 and st['stuck_pre_control'] == 1, st
+    nt = judge([R('_cobble_overflow', 'phase=deposit_no_room surplus=94 stacks=2 cap=below mode=- known=0 containers=3 unknown=1 max=0/0 goes=0'),
+                R('_cobble_overflow', 'phase=town_storage_full surplus=94 stacks=2 cap=below mode=overflow known=1 containers=3 unknown=0 max=0/0 goes=2')])
+    assert nt['notes_room_unknown'] == 1 and nt['notes_goes'] == 1 and nt['notes_by_mode'] == {'-': 1, 'overflow': 1}, nt
+    # THE STREAM: another build's canary post row is dropped and counted; bot.inventory's cobble is read
+    lr = tempfile.mkdtemp(prefix='overflow-logs-')
+    os.makedirs(os.path.join(lr, 'hive-a-Alpha')); os.makedirs(os.path.join(lr, 'board-a-Alpha'))
+    line = lambda ts, bot, ver, name, det, inv=None: json.dumps({'@timestamp': ts, 'code': {'version': ver} if ver else {}, 'bot': {'name': bot, 'inventory': inv or {}},
+                                                                 'skill': {'name': name, 'status': 'failed', 'detail': det}}, separators=(',', ':')) + '\n'
+    with open(os.path.join(lr, 'hive-a-Alpha', 'skill-hive-a-Alpha.jsonl'), 'w') as fh:
+        fh.write(line('2026-10-16T12:01:00.000Z', 'hive-a-Alpha', 'abc1234+x', 'town_deposit', TOWN_FULL, {'cobblestone': 200, 'cobbled_deepslate': 10})
+                 + line('2026-10-16T12:02:00.000Z', 'hive-a-Alpha', '9e79c17+y', 'town_deposit', TOWN_FULL, {'cobblestone': 200}))
+    with open(os.path.join(lr, 'board-a-Alpha', 'skill-board-a-Alpha.jsonl'), 'w') as fh:
+        fh.write(line('2026-10-16T12:01:00.000Z', 'board-a-Alpha', '9e79c17+y', 'town_deposit', TOWN_FULL, {'cobblestone': 64}))
+    kept, walked, bots, bad, off, nov = stream(T0 - dt.timedelta(hours=1), T0 + dt.timedelta(hours=1), T0, {'hive-a'}, 'abc1234', logroot=lr)
+    assert walked == 3 and off == 1 and len(kept) == 2 and [r['cobble'] for r in kept if r['arm'] == 'canary'] == [210], (walked, off, len(kept), kept)
+    jroot = tempfile.mkdtemp(prefix='overflow-pools-')
+    os.makedirs(os.path.join(jroot, '_pool-hive-a')); open(os.path.join(jroot, '_pool-hive-a', 'town-x.cobble.jsonl'), 'w').close()
+    os.makedirs(os.path.join(jroot, '_pool-hive-b'))
+    jd, jm = journal_coverage({'hive-a', 'hive-b', 'hive-c'}, root=jroot)
+    assert jd == [os.path.join(jroot, '_pool-hive-a')] and jm == ['hive-b:no_journal', 'hive-c:FileNotFoundError'], (jd, jm)
+    # D3 through the REAL cobbleroomaudit.mjs and a cobblecap.mjs that has townRoom (the repo's, or STOCK_CC's)
+    cands = [os.environ.get('STOCK_CC'), os.path.join(HERE, '..', '..', 'bots', 'src', 'cobblecap.mjs')]
+    cc = next((c for c in cands if c and os.path.exists(c)), None)
+    if not cc:
+        print('JOURNAL SELFTEST SKIPPED: no cobblecap.mjs'); return
+    T = int(dt.datetime.now(dt.timezone.utc).timestamp() * 1000) - 600000
+
+    def town(room_a, room_b=None, later=None):
+        root = tempfile.mkdtemp(prefix='overflow-fx-')
+        d = os.path.join(root, '_pool-hive-a'); os.makedirs(d)
+        cnt = lambda k, r, at: {'t': 'cnt', 'k': k, 'n': 0, 'cap': at, 'at': at, 'v': 2, 'm': {}, 'ids': [], 'bot': 'x', 'inst': 'i', 'w': None, **({'r': r} if r is not None else {})}
+        recs = [dict(cnt('a', room_a, T), scan={'keys': ['a', 'b'], 'at': T}), cnt('b', room_b if room_b is not None else {'cobblestone': 0, 'cobbled_deepslate': 0}, T + 1)]
+        if later:
+            recs.append(cnt('a', later, T + 30000))
+        with open(os.path.join(d, 'town.cobble.jsonl'), 'w') as fh:
+            fh.write(''.join(json.dumps(x) + '\n' for x in recs))
+        return [d]
+    th = [{'id': 'hive-a-Alpha@x', 'pool': 'hive-a', 'start': T + 10000, 'end': T + 20000}]
+    full = audit(cc, th, town({'cobblestone': 0, 'cobbled_deepslate': 0}))
+    assert full['breach_room_journal'] == 0 and full['audit_unknown_room'] == 0 and full['audited'] == 1, ('a full town: the throw is right', full)
+    roomy = audit(cc, th, town({'cobblestone': 64, 'cobbled_deepslate': 0}))
+    assert roomy['breach_room_journal'] == 1, ('positive control: a container with room for a stack at start and end', roomy)
+    unread = audit(cc, th, town(None))
+    assert unread['breach_room_journal'] == 0 and unread['audit_unknown_room'] == 1, ('a container without a reading: unknown, never a breach', unread)
+    after = audit(cc, th, town({'cobblestone': 0, 'cobbled_deepslate': 0}, later={'cobblestone': 64, 'cobbled_deepslate': 64}))
+    assert after['breach_room_journal'] == 0, ('room that appeared AFTER the row is not the throw\'s', after)
+    print('SELFTEST ok: every gate fails on its fixture and passes its control (journal audit with %s)' % cc)
+
+
+if __name__ == '__main__':
+    if '--selftest' in sys.argv:
+        selftest(); sys.exit(0)
+    ovr = os.environ.get('CANARY_DRYRUN')
+    if ovr:
+        CAN, CV, ISO = ovr.split(':', 2)
+        CUT = dt.datetime.fromisoformat(ISO.replace('Z', '+00:00'))
+    else:
+        man = json.load(open('/srv/mcbots/trial-manifest.json'))
+        CUT = dt.datetime.fromisoformat(man['declared_at'].replace('Z', '+00:00'))
+        CAN = man['canary_pool']; CV = man.get('canary_code_version') or ''
+    CANS = {x.strip() for x in str(CAN).split(',') if x.strip()}
+    now = dt.datetime.now(dt.timezone.utc)
+    elapsed = (now - CUT).total_seconds() / 60
+    assert elapsed > 0 and CAN, 'no canary declared'
+    W = min(elapsed, float(sys.argv[1]) if len(sys.argv) > 1 and not sys.argv[1].startswith('-') else 180)
+    END, PRE = CUT + dt.timedelta(minutes=W), CUT - dt.timedelta(minutes=W)
+    rows, walked, bots, bad, offbuild, noversion = stream(PRE, END, CUT, CANS, CV)
+    res = judge(rows)
+    CANARY_CC = os.environ.get('CANARY_CC') or os.path.expanduser('~/mcai-analysis/cobbleoverflow01/cobblecap.mjs')
+    try:
+        JDIRS, JMISSING = journal_coverage(CANS)
+        jr = audit(CANARY_CC, res['_throws'], JDIRS) if res['_throws'] else {'breach_room_journal': 0, '_bad': [], 'audit_unknown_room': 0, 'audited': 0, 'unreadable': [], 'towns': 0, 'dirs': len(JDIRS)}
+        jr['missing'] = JMISSING
+    except Exception as e:
+        print('journal audit failed:', e); jr = None
+    hrs = lambda per, arm: len(bots[(per, arm)]) * W / 60
+    rate = lambda n, per, arm: n / hrs(per, arm) if hrs(per, arm) else float('nan')
+    didof = lambda k: (rate(res[k + '_post_canary'], 'post', 'canary') - rate(res[k + '_pre_canary'], 'pre', 'canary')) \
+        - (rate(res[k + '_post_control'], 'post', 'control') - rate(res[k + '_pre_control'], 'pre', 'control'))
+    dids = {k: didof(k) for k in ('stuck', 'well_cobble', 'new_chests', 'fullfail')}
+    print('DENOMINATORS rows walked %d (unparsable %d) | bots pre canary %d control %d | post canary %d control %d | bot-h post canary %.1f control %.1f | window %d min | other-build canary rows %d | versionless canary rows %s'
+          % (walked, bad, len(bots[('pre', 'canary')]), len(bots[('pre', 'control')]), len(bots[('post', 'canary')]), len(bots[('post', 'control')]),
+             hrs('post', 'canary'), hrs('post', 'control'), W, offbuild, noversion or '-'))
+    print('EXPOSURE     canary stuck rows (a bank refused for room, bag cobble >= %d or a cobble-only no-room deposit) %d from %d bot(s) (>= %d) -> %s | control %d'
+          % (SURPLUS_MIN, res['exposure_rows'], res['exposed_bots'], EXPOSURE_MIN, 'READY' if res['exposure_ready'] else 'NOT YET', res['stuck_post_control']))
+    print('LIVENESS     canary overflow throws %d (%d cobble, %.2f per canary bot-h) | licence rows _cobbleoverflow_mode %d | control rows of this build %d (must be 0)'
+          % (res['overflow_throws_canary'], res['overflow_cobble_canary'], rate(res['overflow_cobble_canary'], 'post', 'canary'), res['mode_rows_canary'], res['arms_control_rows']))
+    d3 = ('%d %s (throws audited %d, unknown room at start %d, towns %d, unreadable %s, pools not covered %s)' % (jr['breach_room_journal'], jr['_bad'], jr['audited'], jr['audit_unknown_room'], jr['towns'], jr['unreadable'] or '-', jr['missing'] or '-')
+          if jr is not None else 'UNREADABLE (blind this read)')
+    print('CORRECTNESS  D1 throws under the 64 %d %s | D2 overflow outside the switch %d %s | D3 journal-contradicted throws %s (trips at >= %d)'
+          % (res['breach_reserve'], res['_lists']['d1'], res['breach_switch'], res['_lists']['d2'], d3, D3_TRIP))
+    print('PRIMARY      stuck rows canary %d -> %d control %d -> %d DiD %+.4f/bot-h (should FALL)'
+          % (res['stuck_pre_canary'], res['stuck_post_canary'], res['stuck_pre_control'], res['stuck_post_control'], dids['stuck']))
+    print('REPORTED     the well\'s cobble DiD %+.2f/bot-h (should RISE) | _cobble_overflow rows %d by mode %s, room unknown (fail closed) %d, goes %d'
+          % (dids['well_cobble'], res['notes_canary'], res['notes_by_mode'], res['notes_room_unknown'], res['notes_goes']))
+    print('TRIPWIRE     new town chests DiD %+.4f/bot-h | chest-full deposit failures DiD %+.4f/bot-h' % (dids['new_chests'], dids['fullfail']))
+    try:
+        if ovr:
+            raise RuntimeError('CANARY_DRYRUN set -- not emitting')
+        sys.path.insert(0, os.path.expanduser('~')); sys.path.insert(0, '/tmp')
+        from readjson import emit
+        clean = lambda v: None if v != v else round(v, 4)
+        fields = {k: v for k, v in res.items() if not k.startswith('_') and not isinstance(v, dict)}
+        fields.update({'stuck_did': clean(dids['stuck']), 'well_cobble_did': clean(dids['well_cobble']), 'new_chest_did': clean(dids['new_chests']),
+                       'fullfail_did': clean(dids['fullfail']), 'other_build_rows': offbuild, 'versionless_canary_rows': sum(noversion.values()),
+                       'overflow_per_bot_h': clean(rate(res['overflow_cobble_canary'], 'post', 'canary')),
+                       'journal_audit_ran': int(jr is not None), 'breach_room_journal': jr['breach_room_journal'] if jr is not None else 0,
+                       'breach_room_journal_trip': int(jr is not None and jr['breach_room_journal'] >= D3_TRIP),
+                       'audit_unknown_room': jr['audit_unknown_room'] if jr is not None else None,
+                       'journal_unreadable': len(jr['unreadable']) if jr is not None else None, 'journal_dirs': jr['dirs'] if jr is not None else 0,
+                       'journal_pools_missing': len(jr['missing']) if jr is not None else None,
+                       'journal_audit_complete': int(jr is not None and not jr['unreadable'] and not jr['missing'] and jr['dirs'] > 0)})
+        emit('cobbleoverflowread', W, fields)
+    except Exception as e:
+        print('emit failed:', e)

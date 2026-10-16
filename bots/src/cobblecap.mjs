@@ -163,6 +163,73 @@ const ADMITTED = new Set(['bank', 'take', 'draw', 'valve', 'nowell'])
 /** The floor counts only captures younger than this (stale-high counts cannot authorise a disposal or a prune). */
 export const FLOOR_TTL_MS = 60 * 60 * 1000
 
+// ---- THE TOWN'S ROOM FOR COBBLE (cobbleoverflow-01; OWNER 10-16 "yes, junk can take the extra") ---------------------
+//
+// At 1000 a town can fill every container before it holds its cap, and cobble never opens a chest: the bag's surplus then
+// has no exit. The well takes it only on POSITIVE evidence that no town container can take it, read from the same
+// journal as the count: every count written by this build also records, from the same open window, how much of each cobble
+// name the container could still take (`r`; cobbleRoom's arithmetic: an empty slot holds a stack, a partial stack of the
+// same name its remainder). A container whose latest count has no `r` (an older build's, or a window that could not say)
+// has UNKNOWN room. Unknown is never full.
+
+/** The names whose room a count records: the cobble rule's two (cobblecap COBBLE). */
+export const ROOM_NAMES = Object.freeze(['cobblestone', 'cobbled_deepslate'])
+/** A room reading older than this is no longer evidence (the well's at-cap switch reads its floor at the same age). */
+export const ROOM_TTL_MS = FLOOR_TTL_MS
+/**
+ * HOW MUCH OF EACH COBBLE NAME AN OPEN CONTAINER COULD STILL TAKE -> { cobblestone, cobbled_deepslate } or null. Pure.
+ * `contents` are the window's container items (each with its window `slot`), `size` the container's slot count (the
+ * window's inventoryStart). null when the window cannot say (no size, or an item outside it): never a guess.
+ */
+export function roomOf (contents = [], size = null) {
+  if (!Number.isInteger(size) || size <= 0 || !Array.isArray(contents)) return null
+  const used = new Set()
+  const room = Object.fromEntries(ROOM_NAMES.map(n => [n, 0]))
+  for (const it of contents) {
+    if (!it || !Number.isInteger(it.slot) || it.slot < 0 || it.slot >= size) return null
+    used.add(it.slot)
+    if (it.name in room) room[it.name] += Math.max(0, (Number(it.stackSize) || 64) - (Number(it.count) || 0))
+  }
+  for (const n of ROOM_NAMES) room[n] += (size - used.size) * 64
+  return room
+}
+/** A room map from a record -> { name: n >= 0 } for EVERY room name, or null when any is missing or not a number. */
+export function cleanRoom (r) {
+  if (!r || typeof r !== 'object') return null
+  const out = {}
+  for (const n of ROOM_NAMES) { const v = Number(r[n]); if (!Number.isFinite(v) || v < 0) return null; out[n] = Math.floor(v) }
+  return out
+}
+/**
+ * THE TOWN'S ROOM FOR COBBLE, AS FAR AS ANYONE KNOWS -> { known, unknown, max, containers }. Pure, over a folded state.
+ *   known       the scan covered the whole town (`coverage`), it has at least one container, and EVERY container in `keys`
+ *               has a room reading younger than `ttl`, with no unresolved void or dirty mark and no live TAKE or DRAW
+ *               claim on it (an outgoing transfer is making room the reading cannot show)
+ *   unknown     the keys without that
+ *   max         per name, the MOST any ONE container can take (a deposit moves a whole stack into one container)
+ * A live BANK claim (incoming) only shrinks the room the reading shows: the reading stays an upper bound, so it is kept.
+ */
+export function townRoom (state = {}, keys = [], now = Date.now(), { coverage = true, gone = [], ttl = ROOM_TTL_MS } = {}) {
+  const obs = state?.obs ?? {}
+  const claims = state?.claims ?? {}
+  const goneSet = new Set(Array.isArray(gone) ? gone : [])
+  const bad = new Set()
+  for (const c of Object.values(claims)) {
+    if (!c?.k || !ADMITTED.has(c.decision)) continue
+    if (c.state === 'live' && (c.decision === 'take' || c.decision === 'draw')) bad.add(c.k)
+    else if (c.state === 'void' && !(obs[c.k] && obs[c.k].seq > c.voidSeq && obs[c.k].at >= c.voidAt)) bad.add(c.k)
+  }
+  const all = [...new Set([...(Array.isArray(keys) ? keys : []), ...bad])].filter(k => !goneSet.has(k))
+  const max = Object.fromEntries(ROOM_NAMES.map(n => [n, 0]))
+  const unknown = []
+  for (const k of all) {
+    const o = obs[k], r = cleanRoom(o?.r)
+    if (bad.has(k) || !o || !r || !Number.isFinite(o.at) || !(now - o.at < ttl)) { unknown.push(k); continue }
+    for (const n of ROOM_NAMES) max[n] = Math.max(max[n], r[n])
+  }
+  return { known: !!coverage && all.length > 0 && unknown.length === 0, unknown, max, containers: all.length }
+}
+
 /**
  * MAY THIS AMOUNT BE TAKEN OUT OF THE TOWN (pruning) -> 'take' | 'at_floor'. Pure. Only while the floor -- fresh counts,
  * the smaller of equal captures, less every live take -- keeps the group at or above its target after it.
@@ -412,7 +479,9 @@ export function foldJournal (records = [], { upto = null, state: from = null, se
       const resolving = Object.values(state.claims).some(c => c.state === 'void' && c.k === r.k && r.cap >= c.voidAt)
       // a v2 count names every group (stocktarget): its map is kept with it; a legacy count is cobble only
       const m = Number(r.v) >= 2 ? cleanCounts(r.m) : null
-      const next = m ? { n, at: r.cap, seq, v: 2, m } : { n, at: r.cap, seq }
+      // cobbleoverflow-01: the room the same window showed for each cobble name (absent = the container's room is unknown)
+      const room = cleanRoom(r.r)
+      const next = { ...(m ? { n, at: r.cap, seq, v: 2, m } : { n, at: r.cap, seq }), ...(room ? { r: room } : {}) }
       // A RELEASING COUNT OLDER THAN THE STANDING ONE (Codex r4 1, stocktarget): stonecap let it replace whatever the clocks
       // said, so a release was never lost to a clock step -- but an older capture can then undo a later draw's count. Now
       // its claim is released (below) and the container is UNKNOWN until a recount: neither count is trusted.
@@ -437,7 +506,11 @@ export function foldJournal (records = [], { upto = null, state: from = null, se
           return { n: Math.min(a.n, b.n) }                  // a legacy side counted cobble only: the floor of other groups is unknown
         }
         const prevLo = o.lo ? { ...o.lo } : o
-        state.obs[r.k] = { ...hiOf(o, next), at: r.cap, seq, lo: lowOf(prevLo, next) }
+        // the ROOM of two equal captures: the LARGER per name (cobbleoverflow-01: room is what the well's "no room" must
+        // rule out, so a tie never makes the town look fuller); one side without a reading leaves it unknown
+        const ro = cleanRoom(o.r), rn = cleanRoom(next.r)
+        const roomHi = ro && rn ? Object.fromEntries(ROOM_NAMES.map(x => [x, Math.max(ro[x], rn[x])])) : null
+        state.obs[r.k] = { ...hiOf(o, next), at: r.cap, seq, lo: lowOf(prevLo, next), ...(roomHi ? { r: roomHi } : {}) }
       }
       if (resolving) for (const [id, c] of Object.entries(state.claims)) if (c.state === 'void' && c.k === r.k && r.cap >= c.voidAt) delete state.claims[id]
     }
@@ -581,6 +654,8 @@ export function recordCount (dir, key, world, { obs = null, release = [], scan =
   if (obs) {
     Object.assign(rec, { k: obs.k, n: obs.n, cap: obs.cap })
     if (obs.m && typeof obs.m === 'object') Object.assign(rec, { v: 2, m: cleanCounts(obs.m) })
+    const room = cleanRoom(obs.r)
+    if (room) rec.r = room   // cobbleoverflow-01: the cobble room the same window showed
   }
   if (scan) rec.scan = { keys: scan.keys, at: scan.at }
   return appendJournal(dir, key, world, rec)

@@ -2643,7 +2643,8 @@ await t('COBBLE (Codex r1 P1): the cap is re-read at EVERY cobble click -- the t
   const r = await scene({ SKILLS: (await import('../src/skills.mjs')).SKILLS })
   assert.ok(r.looks >= 2, `positive control: two throws were looked at (${r.looks})`)
   assert.equal(r.left, 128, 'the 30 went at the cap; the 64 stayed once the town read 100')
-  await withMutant(SP, "        if (acc.capLast !== 'at_cap') continue\n", '', async m => {
+  // cobbleoverflow-01: the click's gate is now cobbleStackGoes over cobbleWellOpts (the cap, or below it the known room)
+  await withMutant(SP, "        if (!cobbleStackGoes(it, co)) continue\n", '', async m => {
     assert.equal((await scene(m)).left, 64, 'mutant inert')
   })
 })
@@ -2677,6 +2678,90 @@ await t('COBBLE (Codex r1 P2): the server account lists cobble only up to what w
   assert.equal(a.lost.cobblestone, 30); assert.equal(a.otherLoss, 64)
   const b = SK.throwAccount({ before: { counts: { cobblestone: 158 }, slots: [] }, after: { counts: { cobblestone: 128 } }, clicked: [], cobble: 30 })
   assert.equal(b.lost.cobblestone, 30); assert.equal(b.otherLoss, 0, 'positive control: exactly the clicked amount')
+})
+
+// ---- COBBLE THE TOWN HAS NO ROOM FOR (cobbleoverflow-01): below the cap, every town container read without room for a
+// whole stack -> those surplus stacks go, the bot keeps 64. The reading is a count WITH its room (`r`), from the same window.
+const ROOMK = `${HOME.x + 6},${HOME.y},${HOME.z - 6}`   // a barrel IN town: the scan finds it, so the count can be complete
+let roomAt = Date.now()
+const RM = (c, d = c) => ({ cobblestone: c, cobbled_deepslate: d })
+const roomTown = (town, n, r, at = ++roomAt) => {
+  town.world.set(ROOMK, { name: 'barrel' })
+  return CCAP.appendJournal(process.env.POOL_STATE_DIR, CF_townKey(HOME), town.bot.worldId ?? null, { t: 'cnt', k: ROOMK, n, cap: at, v: 2, m: { cobble: n }, ...(r ? { r } : {}) })
+}
+const ofBag = () => [S('cobblestone', 64), S('cobblestone', 30), S('cobblestone', 64), S('egg', 16), ...Array.from({ length: 32 }, () => S('oak_log', 64))]
+await t('OVERFLOW, the skill: below the cap with every town container read FULL -> the surplus goes, 64 stay; the row says cobble=94 cap=below overflow=94', async () => {
+  const town = fakeTown({ wellAt: CAP, items: ofBag() })
+  roomTown(town, 300, RM(0))
+  const r = await run('dispose_well', town.bot)
+  assert.equal(r.status, 'success', r.detail)
+  assert.equal(town.count('cobblestone'), 64, 'the bot keeps exactly its reserve')
+  assert.equal(town.count('egg'), 0, 'and the junk went with it')
+  const row = (await rows('_well_dispose')).pop()
+  assert.equal(field(row.skill.detail, 'cobble'), '94', row.skill.detail); assert.equal(field(row.skill.detail, 'cobble_left'), '64')
+  assert.equal(field(row.skill.detail, 'cap'), 'below'); assert.equal(field(row.skill.detail, 'overflow'), '94'); assert.equal(field(row.skill.detail, 'offlist'), '0')
+})
+await t('OVERFLOW: a stack some container can take WHOLE stays for the deposit -- room for 40 keeps the 30; room for a stack keeps all', async () => {
+  const t40 = fakeTown({ wellAt: CAP, items: ofBag() })
+  roomTown(t40, 300, RM(40))
+  assert.equal((await run('dispose_well', t40.bot)).status, 'success')
+  assert.equal(t40.count('cobblestone'), 94, 'the 30 fits in 40 and stayed; one 64 went')
+  assert.equal(field((await rows('_well_dispose')).pop().skill.detail, 'overflow'), '64')
+  const t64 = fakeTown({ wellAt: CAP, items: ofBag() })
+  roomTown(t64, 300, RM(64))
+  assert.equal((await run('dispose_well', t64.bot)).status, 'success')
+  assert.equal(t64.count('cobblestone'), 158, 'every surplus stack fits somewhere: none went')
+  assert.equal(t64.count('egg'), 0, 'positive control: the egg did')
+})
+await t('OVERFLOW: UNKNOWN ROOM SENDS NOTHING -- an older build\'s count (no reading) or a reading an hour old; positive control: the same town read fresh', async () => {
+  const none = fakeTown({ wellAt: CAP, items: ofBag() })
+  roomTown(none, 300, null)
+  await run('dispose_well', none.bot)
+  assert.equal(none.count('cobblestone'), 158, 'no reading: nothing'); assert.equal(none.count('egg'), 0, 'positive control: the skill ran')
+  const old = fakeTown({ wellAt: CAP, items: ofBag() })
+  roomTown(old, 300, RM(0), Date.now() - CCAP.ROOM_TTL_MS - 60_000)
+  await run('dispose_well', old.bot)
+  assert.equal(old.count('cobblestone'), 158, 'a stale reading: nothing')
+  const ok = fakeTown({ wellAt: CAP, items: ofBag() })
+  roomTown(ok, 300, RM(0))
+  await run('dispose_well', ok.bot)
+  assert.equal(ok.count('cobblestone'), 64, 'positive control')
+})
+await t('OVERFLOW (the click): the ROOM is re-read at every cobble click -- room seen after the first stack keeps the next one', async () => {
+  const scene = async mod => {
+    const town = fakeTown({ wellAt: CAP, items: [S('cobblestone', 30), S('cobblestone', 64), S('cobblestone', 64), ...Array.from({ length: 33 }, () => S('oak_log', 64))] })
+    roomTown(town, 300, RM(0))
+    let looks = 0
+    town.state.onLook = () => { if (++looks === 2) roomTown(town, 300, RM(64)) }
+    await within(mod.SKILLS.dispose_well.run({ bot: town.bot }, {}, { aborted: false }), 15000, 'scene')
+    return { left: town.count('cobblestone'), looks }
+  }
+  const r = await scene({ SKILLS: (await import('../src/skills.mjs')).SKILLS })
+  assert.ok(r.looks >= 2, `positive control: two throws were looked at (${r.looks})`)
+  assert.equal(r.left, 128, 'the 30 went with no room anywhere; the 64 stayed once a container had room for it')
+  await withMutant(SP, "        if (!cobbleStackGoes(it, co)) continue\n", "        if (co.mode == null) continue\n", async m => {
+    assert.equal((await scene(m)).left, 64, 'mutant inert (the click ignores the room)')
+  })
+})
+await t('OVERFLOW, the ORDER: wellOrderPlan (what cognitive.mjs feeds wellOrder) counts the overflow stacks at town only; a bag whose only junk is that cobble gets dispose_well', async () => {
+  const SK = await import('../src/skills.mjs')
+  const town = fakeTown({ wellAt: CAP, items: [S('cobblestone', 64), S('cobblestone', 30), S('cobblestone', 64), ...Array.from({ length: 33 }, () => S('oak_log', 64))] })
+  const items = town.bot.inventory.items()
+  town.world.set(ROOMK, { name: 'barrel' })   // the town's one container, not yet counted (the scan caches its keys for 20 s)
+  const order = plan => W.wellOrder({ now: 1e12, slots: plan.slots, freeSlots: 36 - plan.slots, junkStacks: plan.junkStacks, distHome: 3, well: () => ({ open: false, attended: false, breached: false }) }).order?.skill ?? null
+  assert.equal(SK.wellOrderPlan(town.bot, items, true).junkStacks, 0, 'before any reading: unknown room, no junk')
+  assert.equal(order(SK.wellOrderPlan(town.bot, items, true)), null)
+  roomTown(town, 300, RM(0))
+  assert.equal(SK.wellOrderPlan(town.bot, items, true).junkStacks, 2, 'every town container read full: the two surplus stacks')
+  assert.equal(order(SK.wellOrderPlan(town.bot, items, true)), 'dispose_well', 'a full bag with only overflow cobble gets the order')
+  assert.equal(SK.wellOrderPlan(town.bot, items, false).junkStacks, 0, 'away from town the counts are not read')
+  roomTown(town, 300, RM(64))
+  assert.equal(SK.wellOrderPlan(town.bot, items, true).junkStacks, 0, 'room for a stack: no order (the deposit banks it)')
+})
+await t('MUTANT (overflow): the well switch takes cobble on UNKNOWN room', async () => {
+  await withMutant(WP, "  if (cap === 'below' && room?.known === true) return 'overflow'\n", "  if (cap === 'below') return 'overflow'\n", async m => {
+    assert.equal(m.cobbleWellSwitch({ cap: 'below', room: { known: false, max: RM(0) } }), 'overflow', 'mutant inert')
+  })
 })
 await t('COBBLE (Codex r1 P2): the pit-first BUILD never counts cobble as room -- no build order it cannot carry out', () => {
   const o = x => W.wellOrder({ now: 1e9, distHome: 5, well: () => null, slots: 36, freeSlots: 0, junkStacks: 2, buildPlan: () => ({ slotsNeeded: 2, wood: 8 }), myName: 'a', peers: [], state: {}, ...x }).order?.skill ?? null

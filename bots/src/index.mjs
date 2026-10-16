@@ -10,7 +10,7 @@ import { townWalkMovements } from './towndeposit.mjs'
 import { Vec3 } from 'vec3'
 import { corridorSafe } from './lavaguard.mjs'
 import { deathSiteStepCost, pathCrossesDeathSite } from './deathsites.mjs'
-import { wellStepCost, wellBreakCost, protectWellBlocks, bodyInWell } from './well.mjs'
+import { wellStepCost, wellBreakCost, protectWellBlocks, bodyInWell, cobbleOverflowModeDetail } from './well.mjs'
 import { knownWellCells, installWellWatch } from './skills.mjs'
 import { pathDropProfile, composeFallRow, markPathEnded } from './fallpath.mjs'
 import net from 'node:net'
@@ -279,6 +279,8 @@ function connect() {
     try { installCobbleCap(bot) } catch (e) { log('warn', 'cobble cap not installed', { error: e.message }) }
     // cobblecap-1000: the licence row, once per spawn -- the build's own `_cobblecap_mode` kind (cobblecap.mjs cobbleCapModeDetail)
     try { logEvent({ kind: 'cobblecap_mode', status: 'success', snapshot: snapshot(bot), detail: cobbleCapModeDetail() }) } catch {}
+    // cobbleoverflow-01: the licence row, once per spawn -- the build's own `_cobbleoverflow_mode` kind (well.mjs cobbleOverflowModeDetail)
+    try { logEvent({ kind: 'cobbleoverflow_mode', status: 'success', snapshot: snapshot(bot), detail: cobbleOverflowModeDetail() }) } catch {}
     try {
       installCraftSync(bot, { log: row => logEvent({ ...row, snapshot: snapshot(bot) }) })
     } catch (e) {
