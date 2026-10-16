@@ -326,6 +326,19 @@ await t('LIDCLEAR: the pickaxe in a far chest with cobblestone on its lid -- the
   assert.deepEqual(w.spy.opened, [kOf(FAR)])
 })
 
+await t('THE ROW (Codex r2): the order\'s verb= and the search\'s counters come before anything the 300-character cut can reach -- a long ingredient take with room-making deposits', () => {
+  const tried = Array.from({ length: 24 }, (_, i) => `${-1300 - i},120,${-1300 - i}:${i === 3 ? 'chest_unreachable' : 'none'}`)
+  const row = W.withdrawRow({ outcome: 'took_ingredients', need: 'cobblestone:3,stick:2,planks:4', verification: 'server', cursor: 'empty', chestRoom: 20,
+    plan: 'bamboo,bamboo', srv: 'cobbled_deepslate:+3,stick:+2,oak_planks:+4,bamboo:-128', bagBefore: 1500, bagAfter: 1381,
+    deposited: [{ name: 'bamboo', count: 64 }, { name: 'bamboo', count: 64 }], took: { cobbled_deepslate: 3, stick: 2, oak_planks: 4 },
+    tried, search: { town: 32, pick: 20, ing: 6, ...W.searchTally(tried) } })
+  assert.equal(row.length, 300, 'cut')
+  assert.match(row, /^outcome=took_ingredients need=\S+ uses=- verification=server verb=withdraw_pick town=32 cand=20,6 visits=24 maxrep=1 vfail=1 cursor=/)
+  assert.equal(row.split('verb=').length, 2, 'verb= once')
+  const plain = W.withdrawRow({ outcome: 'took', need: 'stick:2', verification: 'server', tried: ['1,2,3:success'], verb: 'withdraw' })
+  assert.match(plain, / took=- verb=withdraw tried=\[1,2,3:success\]$/, 'the model verb\'s row keeps its layout')
+})
+
 // ------------------------------------------------------------------------------------- the pickaxe pass's clock
 await t('THE INGREDIENTS\' RESERVE (Codex r1 P2): the pickaxe pass\'s clock ends WITHDRAW_INGREDIENT_RESERVE_MS before the order\'s, for every part of a visit', () => {
   const now = 1_000_000
