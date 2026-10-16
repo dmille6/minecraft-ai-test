@@ -125,6 +125,39 @@ test('ROOM ORDER, FAR: a full bag whose only bankable stacks are kit gets NO hom
   assert.notEqual(adv.kind, 'home', `the advice path too: ${JSON.stringify(adv)}`)
 })
 
+// ---- MIXED BAGS (Codex code r1 P2-1): other surplus makes a deposit due, but a NAMED kit deposit never walks ------------
+// 80 blocks out (inside DEPOSIT_NEAR_HOME 96, so depositDue walks home for the logs), no chest within 48; the craft needs
+// the logs (`keep`), so the only stack a room deposit could empty is the torches.
+const nearBot = (items, chest = false) => ({ ...farBot(items), entity: { position: new Vec3(80, 70, 0) },
+  findBlock: ({ matching } = {}) => (chest && matching?.({ type: mcData.blocksByName.chest.id }) ? { position: new Vec3(2, 70, 0), type: mcData.blocksByName.chest.id } : null) })
+const mixedBag = () => bag([['torch', 20], ['oak_log', 64], ['oak_log', 64], ['stone_pickaxe', 1, 100], ...filler(32)])
+
+test('ROOM ORDER, NEAR, MIXED: no chest in reach -> the room remedy never names the torches (the walk would be for them); a chest in reach -> it may', () => {
+  const items = mixedBag(); const keep = [{ name: 'oak_log', count: 1 }]
+  const r = SK.roomRemedy(nearBot(items), items, keep)
+  assert.ok(!(r.kind === 'deposit' && r.item === 'torch'), `no walk for the torches: ${JSON.stringify(r)}`)
+  assert.ok(!/deposit torch/.test(SK.slotRemedy(nearBot(items), items, keep).remedy ?? ''), 'the advice path too')
+  const c = SK.roomRemedy(nearBot(items, true), items, keep)
+  assert.equal(c.kind, 'deposit', `POSITIVE CONTROL (a chest within 48: no walk): ${JSON.stringify(c)}`)
+  assert.equal(c.item, 'torch')
+})
+
+test('ADMISSION, MIXED: `deposit torch` 80 blocks out with no chest in reach is refused before the walk (the move: keep working); at a chest it is admitted', async () => {
+  const { AdmissionControl } = await import('../src/admission.mjs')
+  const { Lessons } = await import('../src/lessons.mjs')
+  const A = new AdmissionControl(new Lessons(`${process.env.POOL_STATE_DIR}/lessons-adm.json`))
+  const items = mixedBag()
+  const bot = { ...nearBot(items), inventory: { items: () => items }, health: 20, food: 20 }
+  const r = A.check({ skill: 'deposit', args: { item: 'torch' } }, bot, null)
+  assert.equal(r.ok, false, JSON.stringify(r)); assert.equal(r.reason, 'deposit_not_worth_it')
+  assert.match(r.detail, /keep working/); assert.doesNotMatch(r.detail, /\d/)
+  const plain = A.check({ skill: 'deposit', args: {} }, bot, null)
+  assert.notEqual(plain.reason, 'deposit_not_worth_it', `POSITIVE CONTROL: the logs alone still make a plain deposit due: ${JSON.stringify(plain)}`)
+  const atChest = { ...nearBot(items, true), inventory: { items: () => items }, health: 20, food: 20 }
+  const c = A.check({ skill: 'deposit', args: { item: 'torch' } }, atChest, null)
+  assert.notEqual(c.reason, 'deposit_not_worth_it', `a chest within 48: no walk, admitted: ${JSON.stringify(c)}`)
+})
+
 // ---- THE ESCAPE CHAIN: a bot that banked its ladders at town is no worse off underground -------------------------------
 // A 1x1 shaft of stone, 40 high: the ideal ladder wall. The reflex's ladderReady is ladderPlan(LADDER_CLIMB_NEED, have,
 // bestLadderWall(...).reach); the routine is the real climbLadder; the plan is the real escape lattice.
@@ -246,7 +279,7 @@ test('TRIPWIRE: every executable torch/ladder site in bots/src is on the classif
   assert.ok(found.length >= 8, `positive control: the scan sees the known sites (${found.length})`)
   const extra = found.filter(k => !allowed.includes(k)), stale = allowed.filter(k => !found.includes(k))
   assert.deepEqual(extra, [], 'NEW torch/ladder site(s): kitshrink banks these items at town -- give the consumer a withdraw path or keep the item (kitshrink.mjs), then classify the site in kitshrink-sites.mjs')
-  assert.deepEqual(stale, [], 'an allowlisted site is gone: re-classify')
+  assert.deepEqual(stale, [], 'an allowlisted line is gone or was reformatted: RECLASSIFY it in kitshrink-sites.mjs (no new consumer is implied)')
 })
 
 test('TRIPWIRE MUTANT: treefarm-02\'s shape (place a carried torch) and shaft-01\'s (craft ladders) are caught; a comment is not', () => {

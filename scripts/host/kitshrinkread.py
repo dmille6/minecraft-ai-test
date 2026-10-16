@@ -109,11 +109,17 @@ def in_town(pos, home):
     return 'Y' not in home or pos.get('y') is None or abs(pos['y'] - home['Y']) <= TOWN_V
 
 
+BREAK = object()
+
+
 def leaves(seq, home):
     """One bot's [(t, pos, inv)] sorted -> [(t, free slots)] at the first row OUTSIDE town after an in-town row with a bag.
     Rows without a position or a bag are skipped (never a departure). Pure."""
     out, was_in = [], False
     for t, pos, inv in seq:
+        if pos is BREAK:              # another build's row: no departure spans it (Codex code r1 P2-3)
+            was_in = False
+            continue
         z = in_town(pos, home)
         if z is None or inv is None:
             continue
@@ -172,6 +178,21 @@ def pickups(detail):
     return [(m.group(1), int(m.group(2))) for m in re.finditer(r'(?:^|; )([a-z_]+) (\d+) [^\s;]+ [^\s;]+', head)]
 
 
+TD_MIN_COMPLETE = 10
+TD_MIN_SHARE = 0.8
+
+
+def td_coverage_ok(cov):
+    """td_all_full_did is emitted only when every arm x period cell has >= TD_MIN_COMPLETE town_deposit rows whose container list
+    is complete and they are >= TD_MIN_SHARE of the cell (a cut list is unknown, never "not full"). Pure."""
+    for a in ('canary', 'control'):
+        for p in ('pre', 'post'):
+            c, u = cov.get((a, p, 'complete'), 0), cov.get((a, p, 'unknown'), 0)
+            if c < TD_MIN_COMPLETE or c < TD_MIN_SHARE * (c + u):
+                return False
+    return True
+
+
 def room_home_kit(detail):
     """A `_room_order` row sending the bot home to bank a kit item (kind=home item=<kit>)? Pure (cognitive.mjs room_order)."""
     f = kv(detail)
@@ -209,6 +230,12 @@ assert td_all_full(('x' * 280) + ' containers 1,64,2=full') is None, 'a row at t
 assert td_all_full('banked - stop nothing to bank above the keeps containers -') is False
 assert pickups('dirt 5 home passive; ladder 1 reflex:escape passive | 6 items in 6 pickups in 60s') == [('dirt', 5), ('ladder', 1)]
 assert pickups('torch 2 mine:y64 passive | 2 items in 2 pickups in 60s; +1 groups (3 items) not shown') == [('torch', 2)]
+_cov = {(a, p, 'complete'): 12 for a in ('canary', 'control') for p in ('pre', 'post')}
+assert td_coverage_ok(_cov) and not td_coverage_ok({**_cov, ('canary', 'post', 'unknown'): 4}) and not td_coverage_ok({**_cov, ('control', 'pre', 'complete'): 9})
+assert not td_coverage_ok({(a, p, 'unknown'): 50 for a in ('canary', 'control') for p in ('pre', 'post')}), 'an all-truncated population is not a zero'
+_h2 = {'X': 0, 'Y': 70, 'Z': 0}
+assert leaves([(_T(0), {'x': 2, 'y': 70, 'z': 0}, {'dirt': 1}), (_T(1), BREAK, None), (_T(2), {'x': 40, 'y': 70, 'z': 0}, {'dirt': 1})], _h2) == [], 'no departure across another build'
+assert leaves([(_T(0), {'x': 2, 'y': 70, 'z': 0}, {'dirt': 1}), (_T(2), {'x': 40, 'y': 70, 'z': 0}, {'dirt': 1})], _h2) == [(_T(2), 35)], 'the same departure, uninterrupted'
 assert room_home_kit('kind=home item=torch craft=stone_pickaxe') and not room_home_kit('kind=home item=oak_log craft=x') \
     and not room_home_kit('kind=deposit item=torch craft=x') and not room_home_kit('kind=home item=- craft=x')
 
@@ -284,7 +311,7 @@ rows = sorted(load_window(PRE, END), key=lambda r: r['t'])
 per_bot = defaultdict(list); pos_seq = defaultdict(list)
 mode_rows = Counter(); ctrl_rows = 0; offbuild = 0; botsets = defaultdict(set)
 banks = []; defects = Counter(); dex = []; banked_tot = Counter(); bank_bots = set(); bank_slots = []
-guard = Counter(); ctl = Counter(); td_cov = Counter(); other_moves = Counter(); last_bag = {}
+guard = Counter(); ctl = Counter(); td_cov = Counter(); ladder_min_seen = set(); other_moves = Counter(); last_bag = {}
 for r in rows:
     t = r['t']; b = (r.get('bot') or {}).get('name')
     if not b:
@@ -297,7 +324,7 @@ for r in rows:
     ver = ((raw.get('code') or {}).get('version') or '')
     if arm == 'canary' and period == 'post' and CV and ver and not ver.startswith(CV):
         offbuild += 1
-        per_bot[b].append((t, None, False)); continue
+        per_bot[b].append((t, None, False)); pos_seq[b].append((t, BREAK, None)); continue
     botsets[(arm, period)].add(b)
     inv = (raw.get('bot') or {}).get('inventory')
     inv = inv if isinstance(inv, dict) else None
@@ -315,6 +342,9 @@ for r in rows:
         if br is None:
             m = re.search(r'on=(\d)', det)
             mode_rows[m.group(1) if m else '?'] += 1
+            lm = re.search(r'ladder_min=(\d+)', det)
+            if lm:
+                ladder_min_seen.add(int(lm.group(1)))
             continue
         kit, d = bank_check(br[0])
         if kit:
@@ -389,6 +419,7 @@ def gline(key):
 
 
 exposure = int(len(banks) >= 3 and len(bank_bots) >= 2)
+td_ok = td_coverage_ok(td_cov)
 nchest = sorted({k[2] for k in guard if k[2].startswith('new_chest:')})
 
 print('rows walked %d  |  canary %s  sha %s  cutoff %s  window +%d min  |  homes %d (bots without one %d)' % (
@@ -408,10 +439,12 @@ print('LIVENESS     canary bank rows with kit banked %d from %d bots (exposure >
     len(banks), len(bank_bots), exposure, dict(banked_tot), dict(mode_rows)))
 print('             exact slots on those rows: %s' % (bank_slots[:12] or '-'))
 print('ARMS         control _kitshrink rows %d (must be 0) | other-build canary rows %d' % (ctrl_rows, offbuild))
-print('DEFECTS      %s (all must be 0)' % (dict(defects) or 0))
+print('DEFECTS      %s (all must be 0) | ladder_min on the bots %s (this read assumes %d%s)' % (
+    dict(defects) or 0, sorted(ladder_min_seen) or '-', LADDER_ESCAPE_MIN, '' if ladder_min_seen <= {LADDER_ESCAPE_MIN} else ' -- MISMATCH: D1 is blind'))
 print('INSTRUMENT   control bots holding a kit item at their last row: %d (>= 1)' % inst)
 print('GUARDS       ' + gline('room_home'))
-print('             ' + gline('td_all_full') + ' | town_deposit rows complete/unknown %s' % {'%s/%s/%s' % k: v for k, v in sorted(td_cov.items())})
+print('             ' + gline('td_all_full') + ' | town_deposit rows complete/unknown %s%s' % ({'%s/%s/%s' % k: v for k, v in sorted(td_cov.items())},
+    '' if td_ok else ' (COVERAGE TOO LOW: not emitted)'))
 for key in nchest:
     print('             ' + gline(key))
 print('             positive controls: all craft successes %s | all items picked up %s' % (
@@ -435,7 +468,9 @@ try:
         'd3_far_trip_for_kit': defects['D3_far_trip_for_kit'],
         'rows_control': ctrl_rows, 'offbuild_canary': offbuild, 'instrument_control': inst,
         'mode_rows_canary': sum(mode_rows.values()),
-        'room_home_did': nan(gdid('room_home')), 'td_all_full_did': nan(gdid('td_all_full')),
+        'room_home_did': nan(gdid('room_home')), 'td_all_full_did': nan(gdid('td_all_full')) if td_ok else None,
+        'td_rows_complete': sum(v for k, v in td_cov.items() if k[2] == 'complete'), 'td_rows_unknown': sum(v for k, v in td_cov.items() if k[2] == 'unknown'),
+        'ladder_min_mismatch': int(bool(ladder_min_seen - {LADDER_ESCAPE_MIN})),
         'reacq_craft_did': nan(gdid('reacq_craft')), 'reacq_pickup_did': nan(gdid('reacq_pickup')),
         'canary_bot_h_post': round(tw[('post', 'canary')][0] / 3600, 2), 'control_bot_h_post': round(tw[('post', 'control')][0] / 3600, 2),
         'rows': len(rows),

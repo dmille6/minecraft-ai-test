@@ -16,6 +16,7 @@ import { config } from './config.mjs'
 import { horizontalDistanceFromSpawn } from './state.mjs'
 import { shoreRoute } from './shore.mjs'
 import { bankableInventory, depositDue, depositPlan, depositNoopReason, bankableExclusion, cobbleReconcileProbe, DEPOSIT_ALWAYS } from './bankable.mjs'
+import { KIT_BANK } from './kitshrink.mjs'
 import { bankClosed, bankClosedDetail, depositTargetOk } from './chestfull.mjs'
 import { resolveBlockName } from './drops.mjs'
 import { mineTargetOk, mineTargetCeiling } from './mining.mjs'
@@ -395,15 +396,22 @@ export class AdmissionControl {
         return { ok: false, reason: 'deposit_nothing_to_bank', detail: depositNoopReason(items, args?.item ?? null, { wants, noSwords }) }
       }
       const onDepositMilestone = this.activeMilestoneId === 'deposit_surplus'
+      // A DEEP container is not storage (chestfull-02, depositTargetOk): the deposit will not use it.
+      const storageWithin48 = !!bot.findBlock?.({
+        matching: b => ['chest','barrel','trapped_chest']
+          .includes(bot.registry?.blocks?.[b.type]?.name) &&
+          depositTargetOk({ x: config.world.homeX, y: config.world.homeY, z: config.world.homeZ }, b.position), maxDistance: 48 })
+      // THE KIT NEVER MAKES A WALK (kitshrink-01; Codex code r1 P2-1): a NAMED torch/ladder deposit with no storage in reach is
+      // refused here, before the walk, whatever else the bag holds -- the move is to keep working; the town deposit takes it.
+      if (!reconcile && !storageWithin48 && arg.item && KIT_BANK.includes(arg.item)) {
+        return { ok: false, reason: 'deposit_not_worth_it',
+                 detail: `${arg.item} is banked at the chest, never walked to: keep working -- the town deposit takes it when you are next at town` }
+      }
       const due = reconcile || depositDue({
         bankable: bank.count,
         kitBankable: bank.kit,   // kitshrink-01: the kit alone never walks a bot to the chest
         distHome: horizontalDistanceFromSpawn(bot.entity.position),
-        // A DEEP container is not storage (chestfull-02, depositTargetOk): the deposit will not use it.
-        storageWithin48: !!bot.findBlock?.({
-          matching: b => ['chest','barrel','trapped_chest']
-            .includes(bot.registry?.blocks?.[b.type]?.name) &&
-            depositTargetOk({ x: config.world.homeX, y: config.world.homeY, z: config.world.homeZ }, b.position), maxDistance: 48 }),
+        storageWithin48,
         onDepositMilestone,
         occupiedSlots: items.length,
       })

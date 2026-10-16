@@ -4,6 +4,9 @@
 // carried"; shaft-01's builder places ladders at the collar -- would be starved silently. The test compares the sites
 // against an allowlist of (file, line) pairs, each with its reason, so a new site fails until someone decides: give the
 // consumer a withdraw path, or keep the item in kitshrink.mjs. Shared by kitshrink.test.mjs (the scan and its mutant).
+// LIMITS (Claude code review r1): it sees QUOTED names only -- a regex literal (/^(torch|...)$/) or a bare property read
+// (counts.torch) is not a site. treefarm-02 and shaft-01 are caught through their quoted sites. And it matches exact line
+// text, so a reformat of an allowlisted line fails it too: then RECLASSIFY the line, no consumer is implied.
 import { readFileSync, readdirSync } from 'node:fs'
 
 /** Comments out, strings kept: block comments, then `//` outside a quoted string. Pure. */

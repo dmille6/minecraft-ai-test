@@ -18,7 +18,10 @@ const M = [
   ['bank row counts after+banked', 'src/skills.mjs', "kitBankDetail({ via: 'town_deposit', heldBefore, banked,", "kitBankDetail({ via: 'town_deposit', heldBefore: held(items()), banked,", 'towndeposit'],
   ['escape minimum restated as 25', 'src/kitshrink.mjs', 'export const LADDER_ESCAPE_MIN = ladderEscapeMin(LADDER_CLIMB_NEED)', 'export const LADDER_ESCAPE_MIN = 25', 'kitshrink'],
   ['chests join the kit', 'src/kitshrink.mjs', "export const KIT_BANK = Object.freeze(['torch', 'ladder'])", "export const KIT_BANK = Object.freeze(['torch', 'ladder', 'chest'])", 'towndeposit'],
-  ['the refusal names no move', 'src/bankable.mjs', 'nothing to deposit, keep working`', 'nothing to deposit`', 'kitshrink'],
+  ['the refusal names no move', 'src/bankable.mjs', '(${EXCLUSION_PHRASE.escape_ladders}): you are carrying ${item} — nothing to deposit, keep working`', '(${EXCLUSION_PHRASE.escape_ladders}): you are carrying ${item} — nothing to deposit`', 'kitshrink'],
+  ['a named kit deposit walks', 'src/admission.mjs', 'if (!reconcile && !storageWithin48 && arg.item && KIT_BANK.includes(arg.item)) {', 'if (false) {', 'kitshrink'],
+  ['the near room order names the kit', 'src/skills.mjs', 'roomDepositTarget(bot, items, kitKeep(bot, keep))', 'roomDepositTarget(bot, items, keep)', 'kitshrink'],
+  ['the near room advice names the kit', 'src/skills.mjs', 'depositPlan(items, null, { wants: bot.currentWants ?? [] }), kitKeep(bot, keep)) } catch { return null }', 'depositPlan(items, null, { wants: bot.currentWants ?? [] }), keep) } catch { return null }', 'kitshrink'],
   ['reflex ladderReady keeps its own number', 'src/reflex.mjs', 'const need = LADDER_CLIMB_NEED   //', 'const need = 24 + 1   //', 'kitshrink'],
   ['ladder climb need drifts', 'src/ladder.mjs', 'export const LADDER_CLIMB_NEED = 25', 'export const LADDER_CLIMB_NEED = 20', 'kitshrink'],
 ]
