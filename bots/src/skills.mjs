@@ -5184,7 +5184,7 @@ async function makeCraftRoom(ctx, item, plan, signal) {
  */
 export function adviseDeposit (bot, items, keep = []) {
   if (bankClosed(bot) || !depositWorthIt(bot, items)) return null
-  try { return depositTarget(items, depositPlan(items, null, { wants: bot.currentWants ?? [] }), keep) } catch { return null }   // noSwords: the switch (default), refreshed by depositWorthIt
+  try { return depositTarget(items, depositPlan(items, null, { wants: bot.currentWants ?? [] }), kitKeep(bot, keep)) } catch { return null }   // noSwords: the switch (default), refreshed by depositWorthIt
 }
 /**
  * WOULD ADMISSION LET A DEPOSIT THROUGH FROM HERE? Its deposit_not_worth_it test (admission.mjs): depositDue over the
@@ -5192,6 +5192,16 @@ export function adviseDeposit (bot, items, keep = []) {
  * deposit admission would refuse (Codex, chestfull-02 round 1: craft -> deposit -> refusal, with the deep chest now
  * not storage). The deposit milestone's own allowance is not known here, so this is never looser than admission.
  */
+/**
+ * THE KIT NEVER MAKES A WALK (kitshrink-01; Codex code r1 P2-1): a deposit the room advice or order names walks to the chest
+ * when none is within 48, so the kit (kitshrink.mjs KIT_NO_TRIP) joins `keep` unless a usable chest is in reach. Never
+ * throws: a world that cannot be asked keeps the kit.
+ */
+export function kitKeep (bot, keep = []) {
+  let near = false
+  try { const home = homeVec(); near = !!bot.findBlock?.({ maxDistance: 48, matching: b => ['chest', 'barrel', 'trapped_chest'].includes(bot.registry?.blocks?.[b.type]?.name) && depositTargetOk(home, b.position) }) } catch { near = false }
+  return near ? keep : [...(keep ?? []), ...KIT_NO_TRIP]
+}
 export function depositWorthIt (bot, items = []) {
   try {
     const home = homeVec()
@@ -5357,7 +5367,7 @@ export function craftRoomCheck (bot, item, count = 1, { wearFailedRecently = fal
 export const DEPOSIT_NEAR_HOME = 96   // bankable.mjs depositDue's nearHome default: inside it a deposit is worth it
 export function roomRemedy (bot, items, keep = [], { exclude = new Set() } = {}) {
   const isPlaceable = n => placeableBlock(bot.registry, n)
-  const depositItem = exclude.has('deposit') || bankClosed(bot) || !depositWorthIt(bot, items) ? null : roomDepositTarget(bot, items, keep)
+  const depositItem = exclude.has('deposit') || bankClosed(bot) || !depositWorthIt(bot, items) ? null : roomDepositTarget(bot, items, kitKeep(bot, keep))
   const hunger = exclude.has('eat') ? 20 : (bot.food ?? 20)
   const advice = roomAdvice({ items, consumes: keep, isPlaceable, placeSite: false, foodOrder: FOOD_PRIORITY, hunger, depositItem })
   if (advice.kind === 'eat') return { kind: 'eat', item: null, text: advice.text }
