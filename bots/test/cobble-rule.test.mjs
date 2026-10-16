@@ -172,6 +172,27 @@ await t('CAP, pure: a lower bound at the cap needs no completeness; below it, an
   assert.equal(CC.cobbleAdmit(v(CAP - 106, true, 64), 64), 'at_cap', 'cobble on its way counts, this bot\'s own earlier stacks too')
   assert.deepEqual(CC.admitStacks(v(CAP - 56, true), [20, 30, 64]), { bank: [20, 30], refused: { at_cap: 1, unknown: 0 } }, 'each admitted stack is charged before the next (CAP-36, CAP-6; CAP+58 refused)')
 })
+await t('THE LICENCE ROW (cobblecap-1000 r7): the mode detail carries the one cap, and index.mjs writes it once per spawn as `_cobblecap_mode`', () => {
+  assert.equal(CC.cobbleCapModeDetail(), 'phase=mode cap=1000', 'the canary build says cap=1000')
+  assert.equal(CC.cobbleCapModeDetail(), `phase=mode cap=${CC.TOWN_COBBLE_CAP}`, 'from the one constant')
+  assert.equal(CC.cobbleCapModeDetail(256), 'phase=mode cap=256', 'positive control: the detail follows the cap it is given')
+  const strip = s => s.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '')
+  const wired = src => {
+    const c = strip(src)
+    assert.match(c, /^import \{ cobbleCapModeDetail \} from '\.\/cobblecap\.mjs'$/m, 'imported')
+    const i = c.indexOf("bot.once('spawn', () => {")
+    assert.ok(i > 0, 'the spawn handler exists')
+    assert.match(c.slice(i, i + 4000), /\n\s*try \{ logEvent\(\{ kind: 'cobblecap_mode', status: 'success', snapshot: snapshot\(bot\), detail: cobbleCapModeDetail\(\) \}\) \} catch \{\}/, 'written on spawn, on the executable path')
+  }
+  const idx = fs.readFileSync(new URL('../src/index.mjs', import.meta.url), 'utf8')
+  wired(idx)
+  // the check can fail: the row removed (the comment that quotes it is stripped, so it cannot satisfy the match)
+  const row = "    try { logEvent({ kind: 'cobblecap_mode'"
+  assert.equal(idx.split(row).length, 2, 'anchor present and unique')
+  assert.throws(() => wired(idx.replace(row, "    try { void ({ kind: 'cobblecap_mode'")), 'a removed row is caught')
+  assert.throws(() => wired(idx.replace("detail: cobbleCapModeDetail() }) } catch {}", "detail: 'phase=mode cap=1000' }) } catch {}")), 'a literal detail is caught')
+})
+
 await t('CAP 1000 (cobblecap-1000, OWNER 10-14), pure: 999 / 1000 / 1001 -- a whole stack that would pass 1000 is refused WHOLE, never split; the old 256 no longer refuses', () => {
   assert.equal(CAP, 1000, 'the owner\'s number, written once in stocktarget.mjs')
   const v = (lb, complete = true, reserved = 0) => ({ lb, complete, reserved })

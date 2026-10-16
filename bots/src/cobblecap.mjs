@@ -59,6 +59,13 @@ import { targetOf, TOWN_COBBLE_CAP } from './stocktarget.mjs'
 
 // THE CAP is written once, in stocktarget.mjs (cobblecap-1000: 1000 since OWNER 10-14; it was 256)
 export { TOWN_COBBLE_CAP }
+/**
+ * THE LICENCE ROW (cobblecap-1000 r7): written once per spawn by index.mjs as the build's own `_cobblecap_mode` kind. The
+ * base's only row that carries its cap is `_cobble_bank ... cap=256`, and measured 10-16 00:22Z it wrote ONE in 24 h
+ * fleet-wide (a town at its 256 is refused at admission, before the deposit that writes it) -- so the launch preflight
+ * (licencecheck --hours 6) refused a text licence on it as untestable. A row kind the base cannot write is testable.
+ */
+export const cobbleCapModeDetail = (cap = TOWN_COBBLE_CAP) => `phase=mode cap=${cap}`
 /** A reader rotates the current generation once its journal passes this. */
 export const ROTATE_BYTES = Number(process.env.STOCK_ROTATE_BYTES) > 0 ? Number(process.env.STOCK_ROTATE_BYTES) : 4 * 1024 * 1024
 /** An observation older than this is no longer a count: the container is unknown again. */
