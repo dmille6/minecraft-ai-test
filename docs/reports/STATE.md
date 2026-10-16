@@ -75,6 +75,18 @@ tools ~/estel on 10.0.0.31.
 
 ---
 
+## 10-16 ~17:15Z — PLINTH-01 CLOSED INCONCLUSIVE early (unexposable); torn down (10 bots on 623e92b, 0 drop-ins); lidclear-01 launching
+- Both plinths built complete (board-c 60/60, hive-d 66/66, stair=[]), but build_well cannot finish the well on top: 23/30
+  attempts "nowhere within 2 of the junk well's standing cell to put a crafting table" (trapdoor craft, skills.mjs ~8423), 5 "could
+  not reach the standing cell". _well_built 0 -> exposure_ready 0. +180 deaths 0/30 bh vs control 1/150. Paper never hit this path
+  (the scene bot carried trapdoors / had table room). Closed under the owner early-close rule; ledger INCONCLUSIVE (f8daab3).
+- **plinth-02** being built on 623e92b9: trapdoor/table fix (works on the real board-c/hive-d plans), stand reachability (stair or
+  refuse), + the stair-lid guard and wear_out refusal (from lidclear-on-f8daab3). Queue it after it is approved.
+- Fleet stays **623e92b9**. lidclear-01 launches on its 623e92b9 variant 0152baeb (no plinth guards needed: no plinth on the fleet).
+- New work (owner 10-16 ~16:30Z): withdraw searches ALL town chests (census: every town holds 4-16 usable stone pickaxes and 56-310
+  sticks, yet withdraw_pick successes fell 119/day -> 17; agent building on lidclear-on-623e92b); shrink the carried kit (~470 slots of
+  one-of-each items fleet-wide; agent designing with both engines).
+
 ## 10-16 ~16:30Z — plinth-01 LIVE (board-c, hive-d, 13:40Z); lidclear-01 + plinth hardening queued NEXT; toolkit-01 variants ready
 - **plinth-01** canary f8daab3a (plinth-on-623e92b) deployed 13:40Z on board-c, hive-d (both no-site towns). Both plinths complete
   within ~30 min (board-c 60 cells, hive-d 66), stair=[] in both, no plan cell on any of the towns' 30/13 journal containers.
