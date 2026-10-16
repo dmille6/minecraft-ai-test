@@ -22,4 +22,4 @@ postfill  (post + two wool stacks in slots 6,7: the same RCON command count as `
 Same rung every run: `_entombed walled in at y=40` -> pillarOut, the ceiling (700,42,700) then (700,43,700) dug, cobble placed under.
 Timing note: the three `post` runs dug the first ceiling block in 37.5 s (client dig time x5: still in its water-surface
 state when the dig began) vs 7.5 s in `pre`; `postfill` -- no ladders or torches, but the same number of setup commands as `pre` --
-took 7.5 s in 2/2. The delay follows the scene's command timing, not the kit. No run died, flooded or stayed entombed.
+took 7.5 s in 2/2. The delay is consistent with the scene's setup timing, not the kit (few trials: not a measurement). No run died, flooded or stayed entombed.
