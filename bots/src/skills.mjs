@@ -8933,7 +8933,9 @@ async function buildPlinth (ctx, _args, signal) {
   /** THE STALL COUNTER (Claude r1 P2-1, r2 P2-A/P3-4): a visit that made no progress for a cause the plan cannot outgrow
    *  (a stand, a support, a click that never lands, an uncoverable step, a foreign block, a cover that cannot be dug) counts;
    *  time, a body, the lease or funds hold it; progress clears it. PLINTH_STUCK_VISITS in a row void the plan. -> voided */
-  const STALL = ['unreachable', 'support', 'place', 'uncoverable', 'blocked', 'dig']
+  // 'furniture' (lidclear-01 on plinth-01, both combined reviews P2): town furniture placed beside a planned cell after the plan
+  // is a cause the plan cannot outgrow -- it must count, so the plan voids and the replan (which checks furniture) routes round it
+  const STALL = ['unreachable', 'support', 'place', 'uncoverable', 'blocked', 'dig', 'furniture']
   const noteStall = (why, next) => {
     if (!recId) return false
     const progressed = stats.placed + stats.cleared > 0

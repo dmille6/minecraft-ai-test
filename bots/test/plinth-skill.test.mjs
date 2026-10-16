@@ -306,6 +306,48 @@ await t('STUCK (Claude r1 P2-1): a step whose stand can never be reached voids t
   assert.match(recNow().why, /^stuck at step 0 \(unreachable\)/)
   assert.equal(S.townPlinthState(town.bot).want.want, 'plan')
 })
+// lidclear-01 on plinth-01 (both combined reviews P2): a chest or a crafting table placed beside a planned cell AFTER the plan
+// stops each visit at the click ('furniture'); that stop must COUNT, so the plan voids and the town plans round it.
+const furnish = town => {
+  const rec = recNow(), step = rec.plan.steps[rec.next ?? rec.progress?.next ?? 0] ?? rec.plan.steps[0]
+  const planned = new Set(rec.plan.steps.map(x => x.c.join(',')))
+  const [cx, cy, cz] = step.c
+  for (let dx = -1; dx <= 1; dx++) for (let dy = -1; dy <= 1; dy++) for (let dz = -1; dz <= 1; dz++) {
+    const k = KEY(cx + dx, cy + dy, cz + dz)
+    if ((dx || dy || dz) && !planned.has(`${cx + dx},${cy + dy},${cz + dz}`) && town.read(cx + dx, cy + dy, cz + dz)?.name === 'air') { town.world.set(k, 'crafting_table'); return k }
+  }
+  return null
+}
+const furnitureVoids = async (run) => {
+  reset(); noSite()
+  const town = fakeTown({ items: [['cobblestone', 200], ['dirt', 4]] })
+  await run(town)                                                     // the plan
+  assert.equal(recNow().state, 'plan')
+  const k = furnish(town)
+  assert.ok(k, 'a free cell beside the next planned cell')
+  const rs = []
+  for (let n = 0; n < P.PLINTH_STUCK_VISITS + 1 && recNow().state === 'plan'; n++) rs.push(await run(town))
+  return { rs, places: town.st.places.length }
+}
+await t('FURNITURE PLACED BESIDE A PLANNED CELL (lidclear-01 on plinth-01): every visit stops at the click (\'furniture\'), the stop COUNTS, and the plan voids within PLINTH_STUCK_VISITS visits', async () => {
+  const { rs } = await furnitureVoids(town => visit(town))
+  assert.ok(rs.length >= 1 && rs.every(r => /\(furniture\)/.test(r.detail)), rs.map(r => r.detail).join(' | '))
+  assert.equal(recNow().state, 'void', rs.map(r => r.detail).join(' | '))
+  assert.match(recNow().why, /\(furniture\)/)
+})
+await t('MUTANT KILLED: \'furniture\' left out of the stall causes -> the plan never voids (the frozen raised well)', async () => {
+  const SKILLS_PATH = new URL('../src/skills.mjs', import.meta.url)
+  const src = readFileSync(SKILLS_PATH, 'utf8')
+  const old = "  const STALL = ['unreachable', 'support', 'place', 'uncoverable', 'blocked', 'dig', 'furniture']\n"
+  assert.equal(src.split(old).length, 2, 'ANCHOR MISSING or not unique')
+  const out = new URL(`./_mutant-${process.pid}-${Math.random().toString(36).slice(2)}.mjs`, import.meta.url)
+  writeFileSync(out, src.replace(old, "  const STALL = ['unreachable', 'support', 'place', 'uncoverable', 'blocked', 'dig']\n").replace(/from '\.\//g, "from '../src/"))
+  try {
+    const M = await import(out.href)
+    await furnitureVoids(town => { ageRecord(); return M.SKILLS.build_plinth.run({ bot: town.bot }, {}, { aborted: false }) })
+    assert.equal(recNow().state, 'plan', 'the mutant never voids the plan')
+  } finally { rmSync(out, { force: true }) }
+})
 await t('THE HAND-OFF IS RETRIED (Codex r1 P2-6): a well-site write that fails leaves the record a plan and the hold in place; the next visit hands off', async () => {
   reset(); noSite()
   const town = fakeTown({ items: [['cobblestone', 64], ['cobblestone', 64], ['cobblestone', 64], ['dirt', 4]] })
