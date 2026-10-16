@@ -397,6 +397,7 @@ export class AdmissionControl {
       const onDepositMilestone = this.activeMilestoneId === 'deposit_surplus'
       const due = reconcile || depositDue({
         bankable: bank.count,
+        kitBankable: bank.kit,   // kitshrink-01: the kit alone never walks a bot to the chest
         distHome: horizontalDistanceFromSpawn(bot.entity.position),
         // A DEEP container is not storage (chestfull-02, depositTargetOk): the deposit will not use it.
         storageWithin48: !!bot.findBlock?.({
