@@ -32,6 +32,8 @@ const MS = await import('../src/milestones.mjs')
 const { SKILLS, SKILL_CONTRACTS } = await import('../src/skills.mjs')
 const { HOUSEKEEPING } = await import('../src/hygiene.mjs')
 const { tapRecords } = await import('../src/logger.mjs')
+// cobblecap-1000: the town cobble cap from the one place it is written; O shifts the 256-era fixtures, every relation unchanged
+const CAP = (await import('../src/cobblecap.mjs')).TOWN_COBBLE_CAP, O = CAP - 256
 
 // ---- fixtures ---------------------------------------------------------------------------------------------------
 const TOOL = /_(pickaxe|axe|shovel|sword|hoe)$/
@@ -804,18 +806,18 @@ test('COBBLE CAP: at 250 the town deposit banks no cobble (the rest of the plan 
   const cobbleChest = (x, n) => chestAt(x, 70, 0, { items: Array.from({ length: 27 }, (_, i) => (i * 64 < n ? item('cobblestone', Math.min(64, n - i * 64)) : null)) })
   try {
     process.env.POOL_STATE_DIR = fs.mkdtempSync(path.join(os.tmpdir(), 'td-cap-'))
-    const c = cobbleChest(2, 250)
+    const c = cobbleChest(2, 250 + O)
     const w = world({ items: fullBag(), containers: [c] })
     const r = await run(w.bot)
     assert.equal(r.status, 'success', r.detail)
-    assert.equal(sumOf(c.items, 'cobblestone'), 250, 'no cobble went in: 250 + 20 would pass 256')
+    assert.equal(sumOf(c.items, 'cobblestone'), 250 + O, 'no cobble went in: (250 + O) + 20 would pass CAP')
     assert.ok(sumOf(c.items, 'oak_log') > 0, 'positive control: the logs were banked in the same run')
     process.env.POOL_STATE_DIR = fs.mkdtempSync(path.join(os.tmpdir(), 'td-cap-'))
-    const c2 = cobbleChest(2, 100)
+    const c2 = cobbleChest(2, 100 + O)
     const w2 = world({ items: fullBag(), containers: [c2] })
     const r2 = await run(w2.bot)
     assert.equal(r2.status, 'success', r2.detail)
-    assert.equal(sumOf(c2.items, 'cobblestone'), 120, 'counted and complete: 100 + 20 <= 256')
+    assert.equal(sumOf(c2.items, 'cobblestone'), 120 + O, 'counted and complete: (100 + O) + 20 <= CAP')
   } finally { process.env.POOL_STATE_DIR = saved }
 })
 
@@ -825,14 +827,14 @@ test('COBBLE CAP: two surplus stacks into a chest at 220 -> only one goes (this 
   const saved = process.env.POOL_STATE_DIR
   try {
     process.env.POOL_STATE_DIR = fs.mkdtempSync(path.join(os.tmpdir(), 'td-cap-'))
-    const c = chestAt(2, 70, 0, { items: Array.from({ length: 27 }, (_, i) => (i * 64 < 220 ? item('cobblestone', Math.min(64, 220 - i * 64)) : null)) })
+    const c = chestAt(2, 70, 0, { items: Array.from({ length: 27 }, (_, i) => (i * 64 < 220 + O ? item('cobblestone', Math.min(64, 220 + O - i * 64)) : null)) })
     const items = bag([['cobblestone', 64], ['cobblestone', 20], ['cobbled_deepslate', 30], ['oak_log', 64], ['oak_log', 64], ...filler(31)])
     const w = world({ items, containers: [c] })
     const { out, rows } = await rowsOf(() => run(w.bot))
     assert.equal(out.status, 'success', out.detail)
     const town = sumOf(c.items, 'cobblestone') + sumOf(c.items, 'cobbled_deepslate')
-    assert.ok(town <= 256, `the town passed the cap: ${town}`)
-    assert.ok(town === 240 || town === 250, `exactly one surplus stack went (positive control: one fits): ${town}`)
+    assert.ok(town <= CAP, `the town passed the cap: ${town}`)
+    assert.ok(town === 240 + O || town === 250 + O, `exactly one surplus stack went (positive control: one fits): ${town}`)
     assert.ok(sumOf(c.items, 'oak_log') > 0, 'positive control: the logs went in the same run')
     assert.match(rows.at(-1)?.skill?.detail ?? '', / cobble_cap 1\/0\/0 /)
   } finally { process.env.POOL_STATE_DIR = saved }

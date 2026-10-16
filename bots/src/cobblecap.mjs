@@ -1,12 +1,12 @@
 // THE TOWN COBBLE CAP (stonecap-01; OWNER 10-04 "keep 256 per town, bank only when it frees a slot"; the owner delegated the
-// cap's design 10-07 to the operator and Codex). Codex's rule, built here:
+// cap's design 10-07 to the operator and Codex; cobblecap-1000, OWNER 10-14: the cap is TOWN_COBBLE_CAP = 1000). Codex's rule, built here:
 //   - count cobble across the town's designated storage from RECONCILED chest observations (a bot that opens a town
 //     container records what the server's window holds, and records it again after its own transfer), with RESERVATIONS
 //     for concurrent deposits -- never a mayor's estimate;
-//   - admit only WHOLE stacks that keep the town at or below 256, while the bot keeps its own 64 cobble + deepslate
+//   - admit only WHOLE stacks that keep the town at or below the cap (TOWN_COBBLE_CAP), while the bot keeps its own 64 cobble + deepslate
 //     (bankable.mjs COBBLE_RESERVE);
 //   - UNKNOWN stock (a town container with no fresh observation) is reconciled before depositing: nothing is admitted
-//     until every container in town has one -- "currently below 256" on a partial count permits overshoot;
+//     until every container in town has one -- "currently below the cap" on a partial count permits overshoot;
 //   - at the ceiling banking cannot relieve bag pressure: the surplus stays in the bag, or (only where the junk well is
 //     part of the build) goes down the well. Never a new chest, never a toss.
 //
@@ -41,7 +41,7 @@
 // `n` (cobble, as before -- stonecap's read folds it) and, from this build, `v: 2` with `m` = { group: count } for every
 // group the open window held ("every group was counted; an absent one is 0"). A record without `v` (stonecap's) is a count
 // of cobble ONLY: for any other group its container is UNKNOWN until recounted (fail closed across a mixed restart). A
-// claim carries its group `g` (absent = cobble) and is decided against that group's target (targetOf; 256 for cobble;
+// claim carries its group `g` (absent = cobble) and is decided against that group's target (targetOf; TOWN_COBBLE_CAP = 1000 for cobble;
 // an unknown group 0 = never admitted).
 //
 // ROTATION (the stonecap pre-promotion gap): GENERATIONS, no lock on the hot path. Generation 0 is <townKey>.cobble.jsonl;
@@ -55,9 +55,17 @@
 
 import fs from 'node:fs'
 import path from 'node:path'
-import { targetOf } from './stocktarget.mjs'
+import { targetOf, TOWN_COBBLE_CAP } from './stocktarget.mjs'
 
-export const TOWN_COBBLE_CAP = 256
+// THE CAP is written once, in stocktarget.mjs (cobblecap-1000: 1000 since OWNER 10-14; it was 256)
+export { TOWN_COBBLE_CAP }
+/**
+ * THE LICENCE ROW (cobblecap-1000 r7): written once per spawn by index.mjs as the build's own `_cobblecap_mode` kind. The
+ * base's only row that carries its cap is `_cobble_bank ... cap=256`, and measured 10-16 00:22Z it wrote ONE in 24 h
+ * fleet-wide (a town at its 256 is refused at admission, before the deposit that writes it) -- so the launch preflight
+ * (licencecheck --hours 6) refused a text licence on it as untestable. A row kind the base cannot write is testable.
+ */
+export const cobbleCapModeDetail = (cap = TOWN_COBBLE_CAP) => `phase=mode cap=${cap}`
 /** A reader rotates the current generation once its journal passes this. */
 export const ROTATE_BYTES = Number(process.env.STOCK_ROTATE_BYTES) > 0 ? Number(process.env.STOCK_ROTATE_BYTES) : 4 * 1024 * 1024
 /** An observation older than this is no longer a count: the container is unknown again. */

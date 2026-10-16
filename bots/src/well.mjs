@@ -139,7 +139,7 @@ export const swordGoes = (name, peaceful) => unwantedSword({ name }, peaceful)
 
 /**
  * COBBLE AT THE TOWN CAP (stonecap-01 x junkwell-02; the operator's at-ceiling remedy, owner-approved disposal). When the
- * town already holds its 256 cobble (cobblecap.mjs, PROVEN: cobbleAdmit says at_cap for the smallest surplus stack),
+ * town already holds its TOWN_COBBLE_CAP cobble (1000; cobblecap.mjs, PROVEN: cobbleAdmit says at_cap for the smallest surplus stack),
  * banking cannot relieve the bag, so WHOLE cobble / cobbled-deepslate stacks above the bot's own 64 go down the well,
  * smallest first. Never when the town's count is unknown or below the cap (the deposit banks then), never below 64.
  * Without the well in the build (stonecap's other variants) the same surplus simply stays in the bag.

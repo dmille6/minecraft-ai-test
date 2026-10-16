@@ -1459,9 +1459,9 @@ export function foodSkipNow (bot) {
 }
 
 /**
- * THE WELL'S COBBLE SWITCH (stonecap-01 x junkwell-02): does the town HOLD its 256 -> 'at_cap' | 'below' | 'unknown' |
+ * THE WELL'S COBBLE SWITCH (stonecap-01 x junkwell-02): does the town HOLD its TOWN_COBBLE_CAP (1000) -> 'at_cap' | 'below' | 'unknown' |
  * 'none' (no surplus). Only 'at_cap' sends cobble down the well, and only on the COUNTED lower bound itself (Codex r1 P1:
- * a refused deposit is not proof -- cobble on its way, or a stack that would merely pass 256, never authorises destroying
+ * a refused deposit is not proof -- cobble on its way, or a stack that would merely pass the cap, never authorises destroying
  * cobble). 'below' needs a complete count; anything else is 'unknown'.
  */
 export function cobbleWellCap (bot, items = bot?.inventory?.items?.() ?? []) {
@@ -3019,7 +3019,7 @@ async function deposit(ctx, { item = null }, signal, { noRecovery = false, prefe
     const capped = cobbleRows.some(r => r.atCap), outside = cobbleRows.some(r => r.outside) && !cobbleRows.some(r => r.atCap || r.unknown)
     const stuck = cobbleStuckNote(cobbleTownViewFor(bot))
     return { status: 'no_effect', failClass: null,
-             detail: capped ? `the cobble stays: a whole stack would carry the town past its ${TOWN_COBBLE_CAP} cobble (town cobble cap)${wellUsable(bot) ? '; once the town holds its 256, the junk well takes surplus whole stacks at a full bag' : '; the surplus stays in the bag'}`
+             detail: capped ? `the cobble stays: a whole stack would carry the town past its ${TOWN_COBBLE_CAP} cobble (town cobble cap)${wellUsable(bot) ? `; once the town holds its ${TOWN_COBBLE_CAP}, the junk well takes surplus whole stacks at a full bag` : '; the surplus stays in the bag'}`
                : outside ? 'the cobble stays: cobble is banked only in a town container, and this one is outside town (town cobble cap) -- a deposit at town takes it'
                : `the cobble stays: a town container has not been counted yet (town cobble not yet counted)${stuck ? ` -- ${stuck} could not be counted` : ''}` }
   }
