@@ -96,7 +96,7 @@ import { scaffoldCount } from './exit-contract.mjs'
 /** Is this a pillar/scaffold block (well.mjs pillarCount's names)? */
 const isPillarItem = name => scaffoldCount([{ name, count: 1 }]) > 0 || /^(sandstone|red_sandstone|calcite|dripstone_block|blackstone)$/.test(name)
 import { bankableInventory, depositDue, DEPOSIT_ALWAYS, stockRefusals, stockRefusedDetail } from './bankable.mjs'
-import { KIT_NO_TRIP, kitBankDetail, kitBankRowDue } from './kitshrink.mjs'
+import { KIT_NO_TRIP, KIT_BANK, kitBankDetail, kitBankRowDue } from './kitshrink.mjs'
 import { RECOUNT_SKIP, RECOUNT_MISS_REASONS, recordRecountMiss, recountMissStatus } from './recount.mjs'   // chestfull-02: advice agrees with admission
 import fs from 'node:fs'
 import { doVisit, openBoard, withinBoard } from './board-visit.mjs'
@@ -2678,6 +2678,13 @@ async function deposit(ctx, { item = null }, signal, { noRecovery = false, prefe
     if (b && isContainer(b) && depositTargetOk(hv, b.position) && (!cobbleOnly || inTown(hv, b.position))) chestBlock = b
   }
   chestBlock = chestBlock || findChest()
+  // THE KIT NEVER MAKES A WALK, AT EXECUTION TOO (kitshrink-01; Codex code r2 P2): admission's scan may have counted a chest
+  // this run skips (a backoff, a full far chest), so a plan of nothing but torches and ladders stops here, before the walk home.
+  if (!chestBlock) {
+    let kitOnly = false
+    try { const p = depositPlan(bot.inventory.items(), item, { wants: bot.currentWants ?? [] }); kitOnly = p.length > 0 && p.every(e => KIT_BANK.includes(e.name)) } catch { kitOnly = false }
+    if (kitOnly) return { status: 'no_effect', failClass: null, detail: 'only torches and ladders to bank and no chest in reach: they are banked at the chest, never walked to -- keep working' }
+  }
   if (!chestBlock) {
     // The town chest lives at home, and a 48-block scan cannot see it from a
     // mine. Walking home first is the difference between "deposit works near
@@ -5198,9 +5205,18 @@ export function adviseDeposit (bot, items, keep = []) {
  * throws: a world that cannot be asked keeps the kit.
  */
 export function kitKeep (bot, keep = []) {
-  let near = false
-  try { const home = homeVec(); near = !!bot.findBlock?.({ maxDistance: 48, matching: b => ['chest', 'barrel', 'trapped_chest'].includes(bot.registry?.blocks?.[b.type]?.name) && depositTargetOk(home, b.position) }) } catch { near = false }
-  return near ? keep : [...(keep ?? []), ...KIT_NO_TRIP]
+  return usableChestNear(bot) ? keep : [...(keep ?? []), ...KIT_NO_TRIP]
+}
+/**
+ * A CHEST THE DEPOSIT WOULD USE FROM HERE, judged as deposit()'s own scan judges it (Codex code r2 P2): a container within 48,
+ * a town target (depositTargetOk), and not in this bot's container backoff (bot.skipContainers). Never throws: false.
+ */
+export function usableChestNear (bot) {
+  try {
+    const home = homeVec(), now = Date.now()
+    return !!bot.findBlock?.({ maxDistance: 48, matching: b => ['chest', 'barrel', 'trapped_chest'].includes(bot.registry?.blocks?.[b.type]?.name) &&
+      (!b.position || (depositTargetOk(home, b.position) && !((bot.skipContainers?.get?.(`${b.position.x},${b.position.y},${b.position.z}`) ?? 0) > now))) })
+  } catch { return false }
 }
 export function depositWorthIt (bot, items = []) {
   try {

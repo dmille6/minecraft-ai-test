@@ -9,7 +9,7 @@
 // "the model is unreliable" into a distribution over specific, fixable causes
 // you can query in Kibana.
 
-import { SKILLS, actionKey, foodSkipNow, stockRefusedRow } from './skills.mjs'
+import { SKILLS, actionKey, foodSkipNow, stockRefusedRow, usableChestNear } from './skills.mjs'
 import { swordCraftRefusal, unwantedSword } from './peacefulkit.mjs'
 import { smeltRecipeFor } from './smelting.mjs'
 import { config } from './config.mjs'
@@ -403,7 +403,7 @@ export class AdmissionControl {
           depositTargetOk({ x: config.world.homeX, y: config.world.homeY, z: config.world.homeZ }, b.position), maxDistance: 48 })
       // THE KIT NEVER MAKES A WALK (kitshrink-01; Codex code r1 P2-1): a NAMED torch/ladder deposit with no storage in reach is
       // refused here, before the walk, whatever else the bag holds -- the move is to keep working; the town deposit takes it.
-      if (!reconcile && !storageWithin48 && arg.item && KIT_BANK.includes(arg.item)) {
+      if (!reconcile && arg.item && KIT_BANK.includes(arg.item) && !usableChestNear(bot)) {
         return { ok: false, reason: 'deposit_not_worth_it',
                  detail: `${arg.item} is banked at the chest, never walked to: keep working -- the town deposit takes it when you are next at town` }
       }
