@@ -114,6 +114,22 @@ tools: ~/estel on 10.0.0.31; /opt/minecraft-ai is the deploy checkout (at 623e92
 
 ---
 
+## 10-16 12:00Z — COBBLECAP-1000 OWNER KEEP and PROMOTED: FLEET 623e92b9 (11:54Z); merged to main; plinth-01 next (variant building)
+- **Owner, 10-16 ~11:50Z: "promote, and future setting changes get a fast path ... if a change has poor effects we simply change the
+  setting back to original number".** +360 was NOT_YET on exposure only (1 canary bank above 256 of the 3 the registration asked
+  for: placebo-a 256->268 cap=1000; hive-a cannot bank -- a lid-blocked town container keeps its count unknown). Deaths 0/60 bh vs
+  control 8/300 bh; D1/D2 breaches 0. Loop stopped by pid, KEEP recorded (owner note in the ledger), fleet-deploy VERIFIED 11:54Z.
+- **REVERT IS ONE NUMBER:** TOWN_COBBLE_CAP 1000 -> 256 in bots/src/stocktarget.mjs (cobblecap.mjs re-exports it).
+- **FAST PATH (new owner rule):** a constant-only change gets a light review, npm test, the default death/error gate and a +180 read;
+  no custom read/licence/exposure rule. Behaviour changes keep the full process.
+- **Queue:** plinth-01 (moved up by the owner 11:25Z) is the head and BLOCKS on H2 "no variant for 623e92b"; the plinth agent is
+  building plinth-on-623e92b first. Every other entry (toolkit, bamboo, treefarm, smeltjob, ...) also needs a 623e92b9 variant.
+- **OWNER 10-16 ~12:05Z ("1. yes 2. yes 3. normal"):** (1) after plinth-01 is KEPT, a follow-up makes EVERY new well a plinth
+  (natural wells stay until they break); (2) lid-blocked chests: investigate, design, build if both engines agree (agent started);
+  (3) cobbleoverflow-01 is a NORMAL fix (no `class: bag-fix`), still parked until towns fill.
+- **Found 10-16:** 7 of 16 pools had count_town lid_blocked fails in 24 h (placebo-b 336/341 rows). A lid-blocked container keeps the
+  town's cobble count unknown, so that town banks NO cobble at any cap. Fix proposed to the owner (find what is on the lids first).
+
 ## 10-16 11:50Z — (daily operator session) fleet 75cfb447 (wellsite-04 and townzone-01 KEPT+promoted overnight); cobblecap-1000 +360 NOT_YET, extending; hive-a is blind to it (lid-blocked town count); local checkout fast-forwarded
 - **Overnight, by the host loop, the scheduler and the coordinator:** wellsite-04 @ 8cd0bc62 deployed 10-15 13:14Z on placebo-b,
   board-c,board-b,board-d, KEEP +360 19:23Z, promoted 19:33Z; townzone-01 @ 75cfb447 launched 22:41Z on board-a,hive-b,hive-c (after the
