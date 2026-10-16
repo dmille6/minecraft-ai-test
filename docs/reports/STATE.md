@@ -75,6 +75,22 @@ tools ~/estel on 10.0.0.31.
 
 ---
 
+## 10-16 ~16:30Z — plinth-01 LIVE (board-c, hive-d, 13:40Z); lidclear-01 + plinth hardening queued NEXT; toolkit-01 variants ready
+- **plinth-01** canary f8daab3a (plinth-on-623e92b) deployed 13:40Z on board-c, hive-d (both no-site towns). Both plinths complete
+  within ~30 min (board-c 60 cells, hive-d 66), stair=[] in both, no plan cell on any of the towns' 30/13 journal containers.
+- **Two plinth defects found by reviewers** (latent; neither occurred in the canary): (1) stairOptions can put a stair on a town
+  chest lid (lidclear then refuses it as a well cell -> a permanently shut chest); (2) wear_out can dig plinth wall blocks
+  (andesite/diorite/granite). BOTH FIXED inside lidclear-01's f8daab3a variant **51972f9a** (lidclear-on-f8daab3): furnitureNear
+  stair guard + click-time furniture re-check (a furniture stop counts as a stall -> void + replan), wear_out refuses well/plinth
+  cells (wellCellAt). npm 255/255, lidclear 42/42, Paper lid + plinth scenes pass, Codex + Claude APPROVE. Records: d8374405 (main).
+- **lidclear-01** (18 of 277 town containers lid-blocked in 7 worlds, cobblestone 18/18, bot-placed): recount clears a cobble lid;
+  deposit/withdraw lid digs equip a tool and budget the dig. Variants 623e92b9 (lidclear-on-623e92b 0152baeb) and f8daab3a
+  (51972f9a). MOVED to right after plinth-01 (it protects the plinths that promotion spreads), then toolkit-01.
+- **toolkit-01** variants: f8daab3a -> 7be67d6e (tk-on-f8daab3), 623e92b9 -> b1722a6f (tk-on-623e92b); both engines APPROVE.
+- **Queue:** plinth-01 (live) -> lidclear-01 -> toolkit-01 -> bamboo-02 -> treefarm-02 -> smeltjob-01 -> townfloor-01 -> minewell-02
+  -> monument-01 -> stonewithdraw-01 -> shaft-01. bamboo-02 and later need variants on whichever tip plinth leaves.
+- **Lesson:** never wrap canary-sched.py in `flock ~/sched.lock` (it takes it itself): a replace-variant deadlocked ~70 min.
+
 ## 10-16 14:50Z — (daily operator session, wake-up) cobblecap-1000 was KEPT by the owner at 11:44Z and promoted (FLEET 623e92b9); plinth-01 LIVE on board-c,hive-d since 13:40Z; the +540 rule is moot
 - The 14:40Z wake-up found the owner's decision in the journal (`owner-decision` 11:44:23Z, `recorded KEEP`, `promoted` 11:54:04Z) and the
   coordinator's 12:00Z entry; fleet verified on 623e92b9 (70) + f8daab3a (10) at 14:40Z. No teardown, no merge, no page by this session.
