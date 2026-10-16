@@ -990,6 +990,47 @@ await t('DIGTOWN (composition, 8cd0bc62): the plinth\'s own digs (no dig scope; 
   }
 })
 
+// THE TOWN'S NO-DIG ZONE x PLINTH (composition, plinth-01 on 75cfb447 = townzone-01 on 8cd0bc62). The zone refuses
+// DISCRETIONARY target digs of town ground (gather, mine's stair, the ore tunnel) within TOWN_GROUND_HALF of home. The
+// plinth stands inside that box and digs town ground itself (the dirt pit cover in its cap cell). Expected: the zone is ON
+// in this suite (positive control: it refuses that very cover as a discretionary dig), yet the real build_plinth digs it
+// and completes -- the plinth's own clears are not a target dig. And the finished plinth (every placed cell and its stair)
+// is town ground the zone keeps from gather / mine / the tunnel. MUTANT: the zone applied to the plinth's cover dig ->
+// the cover is never dug and the plinth never completes.
+const zoneOf = async () => {
+  const TG = await import('../src/townground.mjs')
+  const { config } = await import('../src/config.mjs')
+  return { TG, home: TG.configuredHome(config.world) }
+}
+await t('TOWNZONE (composition, 75cfb447): the zone is ON here and refuses the plinth\'s dirt cover as a discretionary dig (positive control), yet the real build_plinth digs that cover and completes; every placed cell and the stair end up town ground the zone keeps', async () => {
+  const { TG, home } = await zoneOf()
+  assert.deepEqual(home, HOME, 'the zone is on in this suite (HOME_X/Y/Z set)')
+  const { town, cap } = await coveredPitTown()
+  const capKey = KEY(cap.x, cap.y, cap.z)
+  assert.equal(town.world.get(capKey), 'dirt', 'the cap cell holds the dirt cover')
+  assert.equal(TG.inTownBox(cap, home), true, 'the plinth stands inside the town box')
+  assert.equal(TG.townTargetPermit(cap, 'dirt', home).ok, false, 'positive control: the zone refuses a discretionary dig of this very cover')
+  await buildTo(town, () => recNow().state !== 'plan')
+  assert.ok(town.st.digs.includes(capKey), `the plinth dug its own cover: ${JSON.stringify(town.st.digs)}`)
+  assert.equal(recNow().state, 'complete', 'and completed')
+  const plan = recNow().plan
+  const cells = [...plan.steps.filter(s => s.op === 'place').map(s => s.c), ...(plan.stair ?? [])]
+  assert.ok(cells.length > 10, `cells: ${cells.length}`)
+  const kept = cells.filter(c => { const n = town.read(c[0], c[1], c[2])?.name; return TG.townTargetPermit({ x: c[0], y: c[1], z: c[2] }, n, home).ok === false })
+  assert.equal(kept.length, cells.length, `every placed cell is town ground the zone keeps: ${cells.length - kept.length} are not`)
+})
+await t('MUTANT (townzone x plinth): the zone applied to the plinth\'s cover dig -> the cover is never dug and the plinth never completes (the composition test above sees it)', async () => {
+  const old = "            else if (!gw) try { await g.bound(bot.dig(bot.blockAt(new Vec3(c.x, c.y, c.z)), true), HK_CRAFT_MS, 'dig') }"
+  const neu = "            else if (!gw && townTargetPermit(c, read(c.x, c.y, c.z)?.name, townHome()).ok) try { await g.bound(bot.dig(bot.blockAt(new Vec3(c.x, c.y, c.z)), true), HK_CRAFT_MS, 'dig') }"
+  await withMutant(SP, old, neu, async m => {
+    const { town, cap } = await coveredPitTown()
+    const capKey = KEY(cap.x, cap.y, cap.z)
+    for (let n = 0; n < 6 && recNow().state === 'plan'; n++) { ageRecord(); await m.SKILLS.build_plinth.run({ bot: town.bot }, {}, { aborted: false }) }
+    assert.ok(!town.st.digs.includes(capKey), 'the mutant never digs the cover')
+    assert.notEqual(recNow().state, 'complete', 'and never completes (its stall voids the plan)')
+  })
+})
+
 console.log(`\n${pass} passed, ${fail} failed`)
 if (fail) console.log('FAILED:\n  ' + failed.join('\n  '))
 try { rmSync(STORE, { recursive: true, force: true }) } catch {}
