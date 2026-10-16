@@ -344,7 +344,8 @@ await t('MUTANT KILLED: \'furniture\' left out of the stall causes -> the plan n
   writeFileSync(out, src.replace(old, "  const STALL = ['unreachable', 'support', 'place', 'uncoverable', 'blocked', 'dig']\n").replace(/from '\.\//g, "from '../src/"))
   try {
     const M = await import(out.href)
-    await furnitureVoids(town => { ageRecord(); return M.SKILLS.build_plinth.run({ bot: town.bot }, {}, { aborted: false }) })
+    const { rs } = await furnitureVoids(town => { ageRecord(); return M.SKILLS.build_plinth.run({ bot: town.bot }, {}, { aborted: false }) })
+    assert.ok(rs.length >= 1 && rs.every(r => /\(furniture\)/.test(r.detail)), `stalled on furniture, nothing else: ${rs.map(r => r.detail).join(' | ')}`)
     assert.equal(recNow().state, 'plan', 'the mutant never voids the plan')
   } finally { rmSync(out, { force: true }) }
 })
