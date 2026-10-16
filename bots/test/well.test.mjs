@@ -1219,6 +1219,50 @@ await t('BUILD RESUMES a pit left open by an interrupted visit (stage dug): floo
   assert.equal(r.status, 'success', r.detail); assert.equal(town.state.digs.length, 0); assert.ok(wellOk(town, CAP).floor)
 })
 
+// THE RAISED WELL (plinth-02; fleet 10-16: two finished plinths, 23 of 30 build_well visits failed "nowhere within 2 of the
+// junk well's standing cell to put a crafting table", no well built). A k=3 plinth (P.plinthShell) on the flat town, its cap
+// covered with dirt as the plinth leaves it, the site recorded as the hand-off records it; the bag holds LOGS and dirt only --
+// no trapdoor, no table. Expected: the table goes down within the craft's reach BELOW the stand, the trapdoors are crafted
+// at it, the cover is dug, and the well reads built. MUTANT: the old table rule -> the fleet's failure, nothing built.
+const raisedTown = async () => {
+  const PL = await import('../src/plinth.mjs')
+  const RC = { x: CAP.x, y: G0 + 3, z: CAP.z }
+  const blocks = Object.fromEntries(PL.plinthShell(RC).map(c => [`${c.x},${c.y},${c.z}`, 'cobblestone']))
+  blocks[`${RC.x},${RC.y},${RC.z}`] = 'dirt'
+  const dir = mkdtempSync(path.join(tmpdir(), 'well-store-'))
+  const Cm = await import('../src/composter.mjs')
+  assert.ok(Cm.createSiteGen(dir, `junkwell-site-${HOME.x}_${HOME.y}_${HOME.z}`, 1, RC, null), 'the plinth hand-off recorded the site')
+  const town = fakeTown({ items: [S('oak_log', 3), S('dirt', 4)], blocks, storeDir: dir })
+  return { town, RC }
+}
+await t('RAISED WELL, NO TRAPDOORS CARRIED (plinth-02): the table goes below the stand within reach, the trapdoors are crafted, the cover dug, the well built', async () => {
+  const { town, RC } = await raisedTown()
+  assert.equal(W.wellSiteRefusal(homeRead(town), RC, HOME, { avoid: [] }), null, 'the plinth passes the oracle')
+  const st = W.wellStand(homeRead(town), RC)
+  const C2 = await import('../src/composter.mjs')
+  assert.equal(C2.tableCellFor({ site: { x: RC.x, y: st.stand.y, z: RC.z }, stand: st.stand, read: homeRead(town) }), null, 'POSITIVE CONTROL: the old rule finds no cell here')
+  const r = await run('build_well', town.bot)
+  assert.equal(r.status, 'success', r.detail)
+  const id = wellOk(town, RC)
+  assert.ok(id.ok && !id.open && id.floor, JSON.stringify(id))
+  const table = [...town.world].find(([, v]) => v.name === 'crafting_table')
+  assert.ok(table, 'a table was put down'); const [tx, ty, tz] = table[0].split(',').map(Number)
+  assert.ok(ty < st.stand.y, `below the stand: ${table[0]}`)
+  assert.ok(Math.max(Math.abs(tx - RC.x), Math.abs(tz - RC.z)) >= 2, 'never the well\'s 3x3')
+  assert.ok(town.state.events.includes('craft:oak_trapdoor'))
+  assert.ok((await rows('_well_built')).some(x => field(x.skill.detail, 'at') === `${RC.x},${RC.y},${RC.z}`), 'the _well_built row at the plinth cap (the canary\'s exposure)')
+})
+await t('MUTANT (skills): the old table rule on a raised well -> no table cell (the fleet\'s failure), nothing built', async () => {
+  const old = "        const cell = wellTableCell({ site, stand, read: tableRead, bodies: bodiesAround(bot), start: startNear(tableRead, home), box: planBox(home, site) })\n"
+  const neu = "        const cell = tableCellFor({ site: { x: site.x, y: stand.y, z: site.z }, stand, read: readCell(bot), bodies: bodiesAround(bot) })\n"
+  await withMutant(SP, old, neu, async m => {
+    const { town, RC } = await raisedTown()
+    const r = await within(m.SKILLS.build_well.run({ bot: town.bot }, {}, { aborted: false }), 15000, 'build')
+    assert.equal(r.status, 'failed'); assert.match(r.detail, /nowhere within reach of the junk well's standing cell to put a crafting table/)
+    assert.equal(wellOk(town, RC).ok, false)
+  })
+})
+
 await t('BUILD never digs with someone at the site', async () => {
   const town = fakeTown({ items: [S('oak_trapdoor', 2), S('dirt', 1)], players: { 'b-Bravo': { x: CAP.x + 0.5, y: CAP.y + 1, z: CAP.z + 2.5 } } })
   const r = await run('build_well', town.bot)

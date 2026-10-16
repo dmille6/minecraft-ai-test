@@ -75,8 +75,9 @@ import { containmentRefusal, tallyText, WELL_SEARCH_RADIUS, WELL_NO_SITE_BACKOFF
 import { planPlinthSteps, plinthProgress, plinthHazard, plinthWant, leaseState, plinthBlockFor, plinthBudget, plinthShortfall, plinthRecordState,
          plinthDetail, overlay as plinthOverlay, memoRead, walkReach, standFor, supportsFor, faceCentre, cellKey, inColumn, PLACED as PLINTH_PLACED,
          AIR as PLINTH_AIR, standOk, refUsable, coverableAfter, carryPrev, stuckNext, planBox, startNear, isPitCover, PLINTH_STUCK_VISITS, PLINTH_PREV_MAX,
-         PLINTH_REPLACEABLE, PLINTH_STEPS_PER_VISIT, PLINTH_LEASE_MS, PLINTH_VERSION, PLINTH_MIN_FUND, PLINTH_NONE_BACKOFF_MS, PLINTH_REACH, EYE_HEIGHT } from './plinth.mjs'
-import { STONE_GUARD, wellGround } from './well.mjs'
+         PLINTH_REPLACEABLE, PLINTH_STEPS_PER_VISIT, PLINTH_LEASE_MS, PLINTH_VERSION, PLINTH_MIN_FUND, PLINTH_NONE_BACKOFF_MS, PLINTH_REACH, EYE_HEIGHT,
+         wellTableCell, furnitureNear } from './plinth.mjs'
+import { STONE_GUARD, wellGround, wellBreakCost } from './well.mjs'
 import { createSiteGen as createWellSiteGen, bodyInCell } from './composter.mjs'
 import { IRON_KINDS, MIN_TRIP_USES, CANDIDATE_RADIUS, breakHazard, nearHome, pickBudget, rankCandidates, clusterOf, tunnelMovements, planTunnel, ONE_PICK_USES, tripDecision } from './oretunnel.mjs'
 import { townDigClass, townTargetPermit, stairTownClear, walkOutPoints, noteTownGround, configuredHome, inTownBox, TOWN_GROUND_HALF } from './townground.mjs'
@@ -6430,6 +6431,10 @@ async function wearOutOne(ctx, tool, signal, { cellOk = null, sidesOnly = false 
   const refusal = c => {
     const bl = bot.blockAt(c)
     if (!wearTarget(bl)) return 'not_natural'
+    // A JUNK WELL OR A PLINTH IS NEVER WORN OUT ON (plinth-01's walls are andesite, diorite and granite, which wearTarget
+    // accepts): the shared well-cell test; unreadable well cells refuse (fail closed)
+    const inWell = wellCellAt(bot, c)
+    if (inWell !== false) return inWell === null ? 'wells_unknown' : 'well'
     if (!groundOk(c)) return underfoot(c) ? 'footprint' : !/^(air|cave_air)$/.test(bot.blockAt(c.offset(0, 1, 0))?.name ?? '') ? 'above_not_air' : 'no_support'
     if (!sideOk(c)) return 'side_unsupported'
     const room = roomVeto(bot, c)
@@ -7456,6 +7461,15 @@ export function knownWellCells (bot) {
   return cols
 }
 /**
+ * IS THIS CELL PART OF A KNOWN JUNK WELL OR RAISED WELL? -> true | false | null (the well cells could not be read: callers fail
+ * closed). The cap, shaft, floor, walls and ring box (g-3..g, which is a plinth's whole shell) and a plinth's STAIR cells --
+ * well.mjs wellBreakCost over knownWellCells, which carries every recorded plinth column from the moment it is planned.
+ * (lidclear-01 on plinth-01, folded into plinth-02: wear_out's andesite/diorite/granite are a plinth's walls.)
+ */
+export function wellCellAt (bot, p) {
+  try { return wellBreakCost(bot.wellCellsNow?.() ?? knownWellCells(bot), { position: p }) > 0 } catch { return null }
+}
+/**
  * What this bot could build the well from, right now (a table counts only if CARRIED), FOR THE SCHEDULER (cognitive.mjs
  * buildPlan). wellsite-01: null while the town's last site search found no cell (well.mjs noSiteHold), so no bot issues a
  * build order until the record ages out -- whoever asks, across reconnects, and with nothing written meanwhile (Codex r2:
@@ -8419,8 +8433,12 @@ async function buildWell (ctx, _args, signal) {
         if (countItem(bot, 'crafting_table') < 1) await craftTimes('crafting_table', 1, null)
         if (!(await toStand())) return fail('well_unreachable', `could not get back to the junk well's standing cell at ${stand.x},${stand.y},${stand.z} to put the crafting table down`)
         const tablesHeld = countItem(bot, 'crafting_table')
-        const cell = tableCellFor({ site: { x: site.x, y: stand.y, z: site.z }, stand, read: readCell(bot), bodies: bodiesAround(bot) })
-        if (!cell) return fail('well_site', `nowhere within 2 of the junk well's standing cell to put a crafting table`)
+        // THE TABLE ON A RAISED WELL (plinth-02; fleet 10-16: 23 of 30 build_well visits to two finished plinths failed here,
+        // because the old rule wants a cell at the stand's own level and a plinth's walls stand over air): the old cell when
+        // there is one, else a cell below the stand within the craft's reach, kept only if the stand stays walkable from town
+        const tableRead = memoRead(readCell(bot))
+        const cell = wellTableCell({ site, stand, read: tableRead, bodies: bodiesAround(bot), start: startNear(tableRead, home), box: planBox(home, site) })
+        if (!cell) return fail('well_site', `nowhere within reach of the junk well's standing cell to put a crafting table; carry ${need} wooden trapdoor(s), crafted at any table in town, and the next visit builds the well without one`)
         const ac = new AbortController()
         let put
         try { put = await g.bound(place(ctx, { item: 'crafting_table', x: cell.x, y: cell.y, z: cell.z }, ac.signal), HK_CRAFT_MS, 'place', { controller: ac }) } catch (e) { if (e?.aborted || signal?.aborted) throw e; put = { detail: String(e?.message ?? e) } }
@@ -8784,7 +8802,9 @@ async function buildPlinth (ctx, _args, signal) {
   /** THE STALL COUNTER (Claude r1 P2-1, r2 P2-A/P3-4): a visit that made no progress for a cause the plan cannot outgrow
    *  (a stand, a support, a click that never lands, an uncoverable step, a foreign block, a cover that cannot be dug) counts;
    *  time, a body, the lease or funds hold it; progress clears it. PLINTH_STUCK_VISITS in a row void the plan. -> voided */
-  const STALL = ['unreachable', 'support', 'place', 'uncoverable', 'blocked', 'dig']
+  // 'furniture' (lidclear-01 on plinth-01, both combined reviews P2): town furniture placed beside a planned cell after the plan
+  // is a cause the plan cannot outgrow -- it must count, so the plan voids and the replan (which checks furniture) routes round it
+  const STALL = ['unreachable', 'support', 'place', 'uncoverable', 'blocked', 'dig', 'furniture']
   const noteStall = (why, next) => {
     if (!recId) return false
     const progressed = stats.placed + stats.cleared > 0
@@ -8956,6 +8976,9 @@ async function buildPlinth (ctx, _args, signal) {
         if (wellGround(now)) return 'done'
         if (!PLINTH_REPLACEABLE.has(now.name)) return 'blocked'
         if (ref && !refUsable(read(ref.x, ref.y, ref.z))) return 'support'
+        // THE PLAN'S FURNITURE CLEARANCE, at click time (lidclear-01 rebase review, Codex): a chest placed beside a planned
+        // cell since the plan -- its lid must never be filled
+        if (furnitureNear(read, target.x, target.y, target.z)) return 'furniture'
       }
       return null
     }

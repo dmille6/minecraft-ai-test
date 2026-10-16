@@ -33,7 +33,7 @@
 
 import { fullCube, wellGround, wellPassable, wellSiteRefusal, wellStand, coverRef, wellSpiral, pitCoverItem, reserveStone, PIT_COVER_BLOCKS,
          STONE_GUARD, RESERVE_STONE, WELL_HOME_CLEARANCE, WELL_NO_SITE_BACKOFF_MS, WELL_BUILD_BACKOFF_MS, WELL_SCAN_MS } from './well.mjs'
-import { townDistance, ADOPT_RADIUS, TOWN_RADIUS, CLEARANCE_CONTAINER, sameWorld } from './composter.mjs'
+import { townDistance, ADOPT_RADIUS, TOWN_RADIUS, CLEARANCE_CONTAINER, sameWorld, tableCellFor, bodyInCell, PLACEABLE_INTO } from './composter.mjs'
 
 export const PLINTH_VERSION = 1
 /** The highest raise: g-3 = t+1 at k = 4, so no shell cell is ever below the surface. */
@@ -71,6 +71,15 @@ const LIQUID = /^(water|lava|flowing_water|flowing_lava|bubble_column)$/
 /** Town furniture no planned cell may touch (Chebyshev 1, 3D): a lid must open, a door must swing, a bed must be slept in. */
 const FURNITURE = /(_door$|_bed$|^lectern$|^bell$|^crafting_table$|^composter$|^cartography_table$|^smithing_table$|^loom$|^grindstone$|^stonecutter$|^anvil$)/
 const isFurniture = name => CLEARANCE_CONTAINER.test(name ?? '') || FURNITURE.test(name ?? '')
+/** Town furniture within Chebyshev 1 (3D) of a cell -> its block name, or null. Pure over read(). An unknown cell is no evidence of
+ *  furniture here (the planner refuses unknown cells on its own). */
+export function furnitureNear (read, x, y, z) {
+  for (let dx = -1; dx <= 1; dx++) for (let dy = -1; dy <= 1; dy++) for (let dz = -1; dz <= 1; dz++) {
+    const b = read(x + dx, y + dy, z + dz)
+    if (b && isFurniture(b.name)) return b.name
+  }
+  return null
+}
 
 /** The block a plan places, as read() would return it (a full collision cube, hardness 2). */
 export const PLACED = Object.freeze({ name: 'cobblestone', boundingBox: 'block', shapes: [[0, 0, 0, 1, 1, 1]], hardness: 2, props: null })
@@ -413,6 +422,64 @@ export const planBox = (home, cap, pad = 6) => ({
   y0: Math.min(Math.floor(home.y), cap.y) - 10, y1: Math.max(Math.floor(home.y), cap.y) + 8,
 })
 
+// ---- the well's crafting table on a raised well (plinth-02) ------------------------------------------------------------
+
+/** How far the trapdoor craft may be from its table: skills.mjs STATION_REACH (feet to the table's centre), with a margin. */
+export const WELL_TABLE_REACH = 4.0
+/** ...and the click that puts it down (eye to the floor's top face; the server allows more). */
+export const WELL_TABLE_CLICK = 4.5
+
+/**
+ * WHERE build_well PUTS ITS CRAFTING TABLE -> {x,y,z} | null. Pure. (plinth-02. FLEET 10-16, plinth-01 on board-c and hive-d:
+ * both plinths complete, then 23 of 30 build_well visits failed "nowhere within 2 of the junk well's standing cell to put a
+ * crafting table" and no well was ever built. The old rule (composter.mjs tableCellFor) wants a cell AT THE STAND'S LEVEL
+ * within 2 of it, Chebyshev >= 2 from the site, on a solid floor. On a raised well the stand is on the 3x3 walls at g, and
+ * every such cell is over air -- the plinth's 5x5 is one lower, at g-1.)
+ *   1. the old rule, unchanged: a flat well gets exactly the cell it got before;
+ *   2. otherwise any cell BELOW the stand's level (1..4 down) with its centre within WELL_TABLE_REACH of the stand's feet and
+ *      its floor's top face within WELL_TABLE_CLICK of the eye: off the plinth's 5x5 first (horizontal Chebyshev >= 3 from the
+ *      cap), then the plinth's own outer ring at g (Chebyshev 2); never the well column, never a body;
+ *   3. with `start` (the town's start cell), when the stand is walkable from the town today (walkReach), a candidate is kept
+ *      only if it still is with the table in place: a table must never take the only way up.
+ */
+export function wellTableCell ({ site, stand, read, bodies = [], start = null, box = null, forbid = () => false, eye = EYE_HEIGHT } = {}) {
+  if (!site || !stand || typeof read !== 'function') return null
+  const flat = tableCellFor({ site: { x: site.x, y: stand.y, z: site.z }, stand, read, bodies })
+  if (flat) return flat
+  const out = []
+  const fx = stand.x + 0.5, fy = stand.y, fz = stand.z + 0.5
+  for (let dy = -1; dy >= -4; dy--) {
+    for (let dx = -4; dx <= 4; dx++) {
+      for (let dz = -4; dz <= 4; dz++) {
+        const x = stand.x + dx, y = stand.y + dy, z = stand.z + dz
+        const ring = Math.max(Math.abs(x - site.x), Math.abs(z - site.z))
+        if (ring < 2) continue                                                 // the well's 3x3: walls, cap, shaft
+        if (inColumn(site, x, y, z) || forbid(x, y, z)) continue
+        const cell = read(x, y, z), head = read(x, y + 1, z), floor = read(x, y - 1, z)
+        if (!cell || !PLACEABLE_INTO.has(cell.name) || !solid(floor) || !head) continue
+        const reach = Math.hypot(x + 0.5 - fx, y + 0.5 - fy, z + 0.5 - fz)
+        if (reach > WELL_TABLE_REACH) continue
+        if (Math.hypot(x + 0.5 - fx, y - (fy + eye), z + 0.5 - fz) > WELL_TABLE_CLICK) continue
+        if ((bodies ?? []).some(b => bodyInCell(b, { x, y, z }))) continue
+        out.push({ x, y, z, off: ring >= 3 ? 0 : 1, reach })
+      }
+    }
+  }
+  out.sort((a, b) => a.off - b.off || b.y - a.y || a.reach - b.reach || a.x - b.x || a.z - b.z)
+  const until = cellKey(stand.x, stand.y, stand.z)
+  const walkForbid = (x, y, z) => inColumn(site, x, y, z) || forbid(x, y, z)
+  // the probe is conservative: only a stand it can reach today is held to it (the bot itself is on the stand when it asks)
+  const judge = !!start && walkReach(read, start, { box, forbid: walkForbid, until }).has(until)
+  for (const c of out.slice(0, 8)) {
+    if (judge) {
+      const withTable = overlay(read, new Map([[cellKey(c.x, c.y, c.z), PLACED]]))
+      if (!walkReach(withTable, start, { box, forbid: walkForbid, until }).has(until)) continue
+    }
+    return { x: c.x, y: c.y, z: c.z }
+  }
+  return null
+}
+
 /**
  * ONE CANDIDATE, CHEAPLY -> { cap, t, k, fills, leaves, opens, cost } | { why }. Pure. The cell classes, the keep-outs and
  * the ORACLE on the world with the fills and leaf clears applied (no sequencing yet).
@@ -536,6 +603,10 @@ export function stairOptions (read, cap, { keepOut = [] } = {}) {
       }
       if (!ok || !cells.length) continue
       if (cells.some(c => keepOut.some(o => Math.max(Math.abs(c.x - o.x), Math.abs(c.y - o.y), Math.abs(c.z - o.z)) <= (o.r ?? 1)))) continue
+      // THE SHELL'S FURNITURE CLEARANCE, for the stair too (lidclear-01 rebase review, Claude + Codex 10-16): a chest counts
+      // as solid ground above, so without this a stair could be filled on a town chest's LID -- which no bot may then dig
+      // (it is a well cell) and the town's count would stay unknown for good
+      if (cells.some(c => furnitureNear(read, c.x, c.y, c.z))) continue
       out.push(cells)
     }
   }
