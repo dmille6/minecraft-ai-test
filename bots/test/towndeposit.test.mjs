@@ -1035,6 +1035,56 @@ test('PLINTH x RECOUNT CHAIN, MUTANT: the recount guard yields only to the town 
     assert.equal(ran[0], 'count_town', JSON.stringify(ran))
   } finally { fs.rmSync(out, { force: true }) }
 })
+// THE PLINTH x COBBLECAP-1000 CHAIN (plinth-01 on 623e92b9 = cobblecap-1000 on townzone-01). The town cap is now 1000, so a
+// town counted at 800 BANKS a surplus whole stack (at 256 it refused). Order of the town orders: build_plinth > town_deposit.
+// A full bag of 158 cobble (64 + 64 + 30) and a dirt cover at a no-site town counted complete at 800 cobble. Expected: the
+// plinth's visit first (it is funded from the bag above STONE_GUARD 64, before anything is banked), then the town deposit
+// on a later decision, which banks the smallest whole stack (30) and keeps the bag's 64 reserve (the chest 800 -> 830).
+// CONTROL: the same town at exactly 1000 -> the plinth still goes first and nothing is banked (the scene sees the cap).
+// Neither order starves the other.
+const plinthCobbleTown = async (townCobble) => {
+  const items = bag([['cobblestone', 64], ['cobblestone', 64], ['cobblestone', 30], ['dirt', 16], ...filler(32)])
+  const stacks = []
+  for (let n = townCobble; n > 0; n -= 64) stacks.push(item('cobblestone', Math.min(64, n)))
+  const chest = chestAt(2, 70, 0, { items: Array.from({ length: 27 }, (_, i) => stacks[i] ?? null) })
+  const now = Date.now()
+  const { bot, done } = await stockChain({ items, chest, well: false, seed: { t: 'cnt', k: '2,70,0', n: townCobble, cap: now - 5_000, v: 2, m: { cobble: townCobble }, ids: [], scan: { keys: ['2,70,0'], at: now - 5_000 } } })
+  fs.writeFileSync(path.join(process.env.POOL_STATE_DIR, 'junkwell-nosite-0_70_0.json'), JSON.stringify({ at: now - 60_000, world: bot.worldId ?? null, by: 'peer', tally: 'cols:0' }))
+  const P = await import('../src/plinth.mjs')
+  const budget0 = P.plinthBudget(bot.inventory.items(), P.PLINTH_STEPS_PER_VISIT)
+  const ran = []
+  const runner = { isBusy: () => false, run: async (skill, args) => {
+    if (skill === 'town_deposit') { const r = await SKILLS[skill].run({ bot }, args ?? {}, null); ran.push({ skill, status: r.status, detail: r.detail }); return { ...r, delta: {} } }
+    ran.push({ skill, status: 'success' })
+    return { status: 'success', detail: 'ok', delta: {}, contractEvidence: [`${skill}: probe 1`] }   // the plinth's visit: its own suite
+  } }
+  const loop = new CognitiveLoop(bot, runner, freshLessons(), null)
+  loop.llm = { decide: async () => ({ schemaValid: true, latencyMs: 1, proposal: { skill: 'status', args: {}, reason: 'probe' } }) }
+  loop.milestones.cycle = 540
+  loop.start()
+  for (let i = 0; i < 200 && !ran.some(r => r.skill === 'town_deposit') && ran.length < 6; i++) await new Promise(r => setTimeout(r, 30))
+  loop.stop()
+  const bagCobble = sumOf(bot.inventory.items(), 'cobblestone')
+  done()
+  return { ran, chestCobble: sumOf(chest.items, 'cobblestone'), bagCobble, budget0 }
+}
+test('PLINTH x COBBLECAP-1000 CHAIN (623e92b9): a funded no-site town counted at 800 -> build_plinth first, then town_deposit banks one whole 30-stack (800 -> 830); the bag keeps its 64 reserve', async () => {
+  const { ran, chestCobble, bagCobble, budget0 } = await plinthCobbleTown(800)
+  assert.ok(budget0 >= 8, `the bag funds the plinth above STONE_GUARD: budget ${budget0}`)
+  assert.equal(ran[0]?.skill, 'build_plinth', JSON.stringify(ran))
+  const dep = ran.find(r => r.skill === 'town_deposit')
+  assert.ok(dep, `the deposit is not starved: ${JSON.stringify(ran)}`)
+  assert.equal(dep.status, 'success', dep.detail)
+  assert.equal(chestCobble, 830, 'the town banks the smallest whole stack under its 1000 cap')
+  assert.equal(bagCobble, 128, 'the bag keeps 128 (>= its 64 reserve)')
+  assert.equal(ran.filter(r => r.skill === 'build_plinth').length, 1, `the plinth waits out its cooldown: ${JSON.stringify(ran)}`)
+})
+test('PLINTH x COBBLECAP-1000 CHAIN, CONTROL: the same town at exactly 1000 -> build_plinth first; nothing banked (the scene sees the cap)', async () => {
+  const { ran, chestCobble, bagCobble } = await plinthCobbleTown(1000)
+  assert.equal(ran[0]?.skill, 'build_plinth', JSON.stringify(ran))
+  assert.equal(chestCobble, 1000)
+  assert.equal(bagCobble, 158, `nothing left the bag: ${JSON.stringify(ran)}`)
+})
 test('STOCK CHAIN (c): NO USABLE WELL -> no stop: at-target logs bank as today (a nowell claim), so the well build is never starved', async () => {
   const items = bag([['oak_log', 64], ['oak_log', 64], ['oak_log', 64], ['crafting_table', 1], ['wooden_pickaxe', 1, 50], ...filler(31)])
   const chest = chestAt(2)
