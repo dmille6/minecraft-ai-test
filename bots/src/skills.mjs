@@ -48,7 +48,7 @@ import { fullChestNext, carriedChest, chestBudget, readClaims, claimNewChest, wr
 // chestfull-02: one town boundary, no deep targets, a walk that never watches digs, closure only when truly closed.
 import { inTown, depositTargetOk, walkFailure, backsOffTarget, travelTimeoutAction, closesBank, TARGET_BACKOFF_MS,
          TOWN_SCAN_RADIUS } from './chestfull.mjs'
-import { STORAGE_NEAR, startableJunk } from './composter.mjs'
+import { STORAGE_NEAR, startableJunk, TOWN_RADIUS } from './composter.mjs'
 // Withdraw (withdrawpick.mjs): the town order and the model's verb share one transfer, verified by the server's bag.
 import { bestToolCopy, roomPlan, roomKeep, roomCandidates, allocate, pickTakes, hasUsablePick, stonePickDeficits, NEEDS, PICK_RE, transferVerdict, bagDelta, withdrawRow, HOLD_MS,
   ingredientNeedsAbsent, noteIngredientMisses, townIngredientMissComplete } from './withdrawpick.mjs'
@@ -1469,13 +1469,13 @@ export function cobbleWellCap (bot, items = bot?.inventory?.items?.() ?? [], { s
  * disposePlan and the click. well.mjs cobbleWellSwitch decides: at the cap every surplus stack; BELOW a complete count with
  * the town's room KNOWN, the stacks no container can take whole; anything else nothing. The room is read only below the cap.
  */
-export function cobbleWellOpts (bot, items = bot?.inventory?.items?.() ?? []) {
+export function cobbleWellOpts (bot, items = bot?.inventory?.items?.() ?? [], { fresh = false } = {}) {
   try {
     // ONE fold of the town's journal for both readings (the cap's count and the room)
     if (!cobbleWellStacks(items).length) return { cobbleAtCap: false, cobbleRoom: null, mode: null, cap: 'none', room: null }
     const st = capTown(bot)
     const cap = cobbleWellCap(bot, items, { state: st })
-    const room = cap === 'below' ? cobbleTownRoomFor(bot, Date.now(), { state: st }) : null
+    const room = cap === 'below' ? cobbleTownRoomFor(bot, Date.now(), { state: st, fresh }) : null
     const mode = cobbleWellSwitch({ cap, room })
     return { cobbleAtCap: mode === 'at_cap', cobbleRoom: mode === 'overflow' ? room : null, mode, cap, room }
   } catch { return { cobbleAtCap: false, cobbleRoom: null, mode: null, cap: 'unknown', room: null } }
@@ -1510,7 +1510,7 @@ export function cobbleOverflowNote (bot, phase, items = bot?.inventory?.items?.(
     if (stack) {
       // phase=throw: the stack the click authorised and the reading it used (known, containers, max of ONE container)
       const r = given?.room
-      const detail = `phase=${phase} name=${stack.name} count=${stack.count} left=${left} cap=${given?.cap ?? '-'} mode=${given?.mode ?? '-'} known=${r?.known ? 1 : 0} containers=${r?.containers ?? '-'} unknown=${r?.unknown?.length ?? '-'} max=${r?.max?.cobblestone ?? '-'}/${r?.max?.cobbled_deepslate ?? '-'}`
+      const detail = `phase=${phase} name=${stack.name} count=${stack.count} left=${left} cap=${given?.cap ?? '-'} mode=${given?.mode ?? '-'} known=${r?.known ? 1 : 0} containers=${r?.containers ?? '-'} unknown=${r?.unknown?.length ?? '-'} max=${r?.max?.cobblestone ?? '-'}/${r?.max?.cobbled_deepslate ?? '-'} keys=${r?.hash ?? '-'}`
       logEvent({ kind: 'cobble_overflow', status: 'success', snapshot: snapshot(bot), detail })
       return detail
     }
@@ -3231,7 +3231,9 @@ let capEpoch = 0   // bumped by every fresh scan, count or claim this process ma
 export function townCobbleScan (bot, now = Date.now(), { fresh = false, state = null } = {}) {
   const cacheKey = `${townDir()}|${homeTownKey()}`
   if (!fresh && capScan.v && capScan.key === cacheKey && now - capScan.at < 20_000) return capScan.v
-  const keys = new Set(), gone = []
+  const keys = new Set(), gone = [], sizes = {}
+  // each container's size as the world shows it now (a double chest 54, else 27): a room reading of another size is not one
+  const sizeAt = p => { try { return chestPartner(bot, p) ? 54 : 27 } catch { return null } }
   let coverage = true
   try {
     const home = homeVec()
@@ -3245,7 +3247,7 @@ export function townCobbleScan (bot, now = Date.now(), { fresh = false, state = 
     const ps = bot.findBlocks?.({ point: home, maxDistance: TOWN_SCAN_RADIUS, count: COBBLE_SCAN_CAP,
       matching: b => CONTAINER_RE.test(blockNameOf(bot, b) ?? '') && (!b.position || (inTown(home, b.position) && depositTargetOk(home, b.position))) }) ?? []
     if (ps.length >= COBBLE_SCAN_CAP) coverage = false
-    for (const p of ps) if (inTown(home, p) && depositTargetOk(home, p)) keys.add(containerKey(bot, p))
+    for (const p of ps) if (inTown(home, p) && depositTargetOk(home, p)) { const k = containerKey(bot, p); keys.add(k); sizes[k] = sizeAt(p) }
     for (const k0 of Object.keys((state ?? capTown(bot))?.obs ?? {})) {
       const c = keyVec(k0)
       const b = bot.blockAt?.(c)
@@ -3254,10 +3256,10 @@ export function townCobbleScan (bot, now = Date.now(), { fresh = false, state = 
       if (!inTown(home, c)) continue
       const k = containerKey(bot, c)
       if (k !== k0) gone.push(k0)                                                 // now half of a double: the double's key
-      keys.add(k)                                                                 // the scan missed a counted container
+      keys.add(k); sizes[k] ??= sizeAt(c)                                         // the scan missed a counted container
     }
   } catch { coverage = false }
-  capScan = { at: now, v: { keys: [...keys], coverage, gone }, key: cacheKey }
+  capScan = { at: now, v: { keys: [...keys], coverage, gone, sizes }, key: cacheKey }
   if (fresh) capEpoch++
   return capScan.v
 }
@@ -3282,20 +3284,23 @@ export function stockTownViewFor (bot, group = 'cobble', now = Date.now(), { fre
  * same keys and coverage as the count (the journal's last covered scan away from town, as stockTownViewFor). Not
  * replayable -> unknown.
  */
-export function cobbleTownRoomFor (bot, now = Date.now(), { state = undefined } = {}) {
+export function cobbleTownRoomFor (bot, now = Date.now(), { state = undefined, fresh = false } = {}) {
+  const none = why => ({ known: false, unknown: [why], max: { cobblestone: 0, cobbled_deepslate: 0 }, containers: 0, hash: null })
+  // AWAY FROM TOWN THE ROOM IS UNKNOWN (Codex r2 P3; Claude r1 P2: no fallback to the journal's hours-old scan): beyond the
+  // radius the well's own orders use (TOWN_RADIUS), never on a cached list. Within it -- a well's stand can lie just outside
+  // the 16-block town square (Claude r2 P2-1) -- the town's own scan is judged.
+  const p = bot.entity?.position, h = homeVec()
+  if (!p || !(Math.hypot(p.x - h.x, p.z - h.z) <= TOWN_RADIUS)) return none('away')
   const st = state === undefined ? capTown(bot) : state
-  if (!st) return { known: false, unknown: ['journal'], max: { cobblestone: 0, cobbled_deepslate: 0 }, containers: 0 }
-  // NO AWAY-FROM-TOWN FALLBACK (Claude cobbleoverflow r1 P2): the count's stand-in, the journal's last covered scan, may be
-  // hours old; the well itself acts only in town, so away from it the room is simply unknown (a walk is never planned on it)
-  const atTown = inTown(homeVec(), bot.entity?.position)
-  const sc = townCobbleScan(bot, now, { state: st })
-  const v = townRoom(st, sc.keys, now, { coverage: sc.coverage, gone: sc.gone })
-  // A "NO ROOM" IS NEVER JUDGED ON A CACHED CONTAINER LIST (Codex cobbleoverflow r1 P1): the scan is cached 20 s, and a
-  // container placed or first counted since (a new chest with room) would be missing from it. At town, a known room is
-  // judged again over a FRESH scan before it can authorise anything (only then: the hot path keeps the cache).
-  if (!v.known || !atTown) return v
-  const fresh = townCobbleScan(bot, now, { state: st, fresh: true })
-  return townRoom(st, fresh.keys, now, { coverage: fresh.coverage, gone: fresh.gone })
+  if (!st) return none('journal')
+  const view = sc => townRoom(st, sc.keys, now, { coverage: sc.coverage, gone: sc.gone, sizes: sc.sizes ?? {} })
+  const v = view(townCobbleScan(bot, now, { state: st }))
+  // A "NO ROOM" THAT AUTHORISES IS NEVER JUDGED ON A CACHED CONTAINER LIST (Codex r1 P1): the scan is cached 20 s, and a
+  // container placed or first counted since (a new chest with room) would be missing from it. `fresh` (the well's own
+  // plan, its precheck and every click) judges a known room again over a FRESH scan; the order's plan and the valve keep the
+  // cache (they authorise nothing; Claude r2 P3: a fresh scan on every decision would also defeat the town view's cache).
+  if (!v.known || !fresh) return v
+  return view(townCobbleScan(bot, now, { state: st, fresh: true }))
 }
 /**
  * THE COUNT: what an OPEN town container's window holds, captured now and appended at once with its capture time, in the
@@ -3303,7 +3308,7 @@ export function cobbleTownRoomFor (bot, now = Date.now(), { state = undefined } 
  * too. A covered scan is appended at most every 5 min, for the plan's view from away. -> true when written.
  */
 let lastScanRec = { at: 0, key: null }
-export function cobbleObserve (bot, pos, win, { release = null, releaseAll = [], dirtyIfLost = false, lost = false } = {}) {
+export function cobbleObserve (bot, pos, win, { release = null, releaseAll = [], dirtyIfLost = false, lost = false, room = true } = {}) {
   try {
     const cap = Date.now()
     const inside = !!pos && inTown(homeVec(), pos)
@@ -3324,7 +3329,9 @@ export function cobbleObserve (bot, pos, win, { release = null, releaseAll = [],
     const junk = contents.reduce((t, x) => t + (x?.name && isWellJunk(x.name) ? (x.count ?? 0) : 0), 0)
     if (junk > 0) m.junk = junk
     // cobbleoverflow-01: how much cobble this container could still take, from the same window (null: the window cannot say)
-    const r = roomOf(contents, win?.inventoryStart)
+    // ...never at a withdraw's OPEN (Claude r2 P2-2: `room: false`): a take may follow, and a process killed between the take
+    // and its post-transfer count would leave a pre-take "full" standing; the post-transfer count carries the room
+    const r = room ? roomOf(contents, win?.inventoryStart) : null
     let scan = null
     if (inside) {
       const sc = townCobbleScan(bot, cap)
@@ -3333,7 +3340,7 @@ export function cobbleObserve (bot, pos, win, { release = null, releaseAll = [],
     }
     capEpoch++
     return recordCount(townDir(), homeTownKey(), bot.worldId ?? null,
-      { obs: inside ? { k: containerKey(bot, pos), n, m, cap, ...(r ? { r } : {}) } : null, release: ids, scan, bot: bot.username ?? null, inst: capInst(bot) })
+      { obs: inside ? { k: containerKey(bot, pos), n, m, cap, ...(r ? { r, z: win.inventoryStart } : {}) } : null, release: ids, scan, bot: bot.username ?? null, inst: capInst(bot) })
   } catch { return false }
 }
 /**
@@ -7863,7 +7870,7 @@ async function throwStacks (bot, { cap, facing, stacks, bound, waitTick, signal,
         // THE CAP RE-READ AT EVERY COBBLE CLICK (Codex r1 P1: another bot may take cobble out between two stacks); the last
         // reading is what the row reports. Below the cap, THE ROOM TOO (cobbleoverflow-01): a container that gained room
         // since the plan -- a withdraw, a new chest -- keeps every stack it could take
-        const co = cobbleWellOpts(bot)
+        const co = cobbleWellOpts(bot, undefined, { fresh: true })
         acc.capLast = co.cap
         if (!cobbleStackGoes(it, co)) continue
         if (co.mode === 'overflow') {
@@ -8020,7 +8027,7 @@ async function throwPhase (bot, { cap, facing, pit = false, maxStacks = MAX_STAC
       if (before.source !== 'resync') { out.refused = 'server_unanswered'; return out }
       out.swordsAllowed = !pit && wellSwordsNow(bot)   // a peaceful world's swords go too (never in the pit-first build)
       // and, at the town's cobble cap, surplus whole cobble stacks -- or below it, those no town container has room for
-      const co = pit ? null : cobbleWellOpts(bot)
+      const co = pit ? null : cobbleWellOpts(bot, undefined, { fresh: true })
       out.cap = co ? co.cap : null
       out.stock = pit ? null : pruneStockOpts(bot, pruned)   // and every other group at its target (stocktarget design 3.4), and what a prune took
       const plan = disposePlan(bot.inventory?.items?.() ?? [], { maxStacks, swords: out.swordsAllowed, cobbleAtCap: !!co?.cobbleAtCap, cobbleRoom: co?.cobbleRoom ?? null, stock: out.stock })   // the bag AS THE SERVER HOLDS IT
@@ -8144,7 +8151,7 @@ async function disposeWell (ctx, _args, signal) {
   if (bot.controlState?.sneak) return skip('sneaking', 'sneaking (held by another subsystem); the well waits for another visit')
   const near = wellAdmission({ players: playersSeen(bot), cap, me: bot.username })
   if (near) return skip('player_near', `wait for ${near.who} to move off the town junk well (${near.dist.toFixed(1)} blocks): it opens only with nobody within 5, and the next town visit disposes`)
-  const co0 = cobbleWellOpts(bot)
+  const co0 = cobbleWellOpts(bot, undefined, { fresh: true })
   if (!disposePlan(items(), { swords: wellSwordsNow(bot), cobbleAtCap: co0.cobbleAtCap, cobbleRoom: co0.cobbleRoom, stock: pruneStockOpts(bot, pruned) }).stacks.length && !well.open) return skip('nothing_listed', `nothing on the junk list in the bag at ${slotsBefore} of 36 slots`)
   const was = handOf(bot.heldItem)
   const g = hkGuards(bot, signal)
@@ -8603,7 +8610,7 @@ async function openForWithdraw (bot, chestBlock, signal, msLeft) {
     try { chest.close() } catch {}
     return { fail: { status: 'failed', failClass: 'container_open', detail: `the window that opened is not the chest at ${cp.x},${cp.y},${cp.z}` } }
   }
-  await cobbleObserve(bot, cp, chest)   // the town cap's observation (cobblecap.mjs)
+  await cobbleObserve(bot, cp, chest, { room: false })   // the town cap's observation (cobblecap.mjs); the room at the visit's end
   return { chest }
 }
 
@@ -9155,6 +9162,8 @@ async function withdrawVisit (ctx, chestBlock, decide, signal, msLeft, deadline)
     // ...and after ANY transfer that began (cobbleoverflow-01, Claude r1 P1): an aborted take of an untargeted name moved
     // items out with no claim and no `moved`, and the open's count -- room as it was BEFORE the take -- would stand
     if (moved || stockIds.length || entered) { try { await cobbleObserve(bot, cp, win, { releaseAll: stockIds, dirtyIfLost: true, lost: !!unresolved }) } catch { /* the claims stay live: conservative */ } }
+    // ...and a visit that took nothing writes the room its open did not (a window no longer ours writes nothing)
+    else { try { await cobbleObserve(bot, cp, win) } catch { /* unknown room: fail closed */ } }
     // NEVER A LOADED CLOSE: an unresolved cursor keeps the window open until it settles (holdUnsettled, which takes the
     // ownership over). Otherwise the close, then the ownership once every click has settled (bounded).
     if (unresolved) holdUnsettled(bot, win, unresolved, own)

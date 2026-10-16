@@ -2687,7 +2687,7 @@ let roomAt = Date.now()
 const RM = (c, d = c) => ({ cobblestone: c, cobbled_deepslate: d })
 const roomTown = (town, n, r, at = ++roomAt) => {
   town.world.set(ROOMK, { name: 'barrel' })
-  return CCAP.appendJournal(process.env.POOL_STATE_DIR, CF_townKey(HOME), town.bot.worldId ?? null, { t: 'cnt', k: ROOMK, n, cap: at, v: 2, m: { cobble: n }, ...(r ? { r } : {}) })
+  return CCAP.appendJournal(process.env.POOL_STATE_DIR, CF_townKey(HOME), town.bot.worldId ?? null, { t: 'cnt', k: ROOMK, n, cap: at, v: 2, m: { cobble: n }, ...(r ? { r, z: 27 } : {}) })
 }
 const ofBag = () => [S('cobblestone', 64), S('cobblestone', 30), S('cobblestone', 64), S('egg', 16), ...Array.from({ length: 32 }, () => S('oak_log', 64))]
 await t('OVERFLOW, the skill: below the cap with every town container read FULL -> the surplus goes, 64 stay; the row says cobble=94 cap=below overflow=94', async () => {
@@ -2757,7 +2757,7 @@ await t('OVERFLOW (Codex r1 P1): a container that APPEARS after the plan -- a ne
       if (++looks !== 2) return
       // after the first throw: another bot places a chest and counts it -- room for every surplus stack
       town.world.set(NEWK, { name: 'chest' })
-      CCAP.appendJournal(process.env.POOL_STATE_DIR, CF_townKey(HOME), town.bot.worldId ?? null, { t: 'cnt', k: NEWK, n: 0, cap: ++roomAt, v: 2, m: {}, r: RM(27 * 64) })
+      CCAP.appendJournal(process.env.POOL_STATE_DIR, CF_townKey(HOME), town.bot.worldId ?? null, { t: 'cnt', k: NEWK, n: 0, cap: ++roomAt, v: 2, m: {}, r: RM(27 * 64), z: 27 })
     }
     await within(mod.SKILLS.dispose_well.run({ bot: town.bot }, {}, { aborted: false }), 15000, 'scene')
     return { left: town.count('cobblestone'), looks }
@@ -2765,7 +2765,7 @@ await t('OVERFLOW (Codex r1 P1): a container that APPEARS after the plan -- a ne
   const r = await scene({ SKILLS: (await import('../src/skills.mjs')).SKILLS })
   assert.ok(r.looks >= 2, `positive control: two throws were looked at (${r.looks})`)
   assert.equal(r.left, 128, 'the 30 went while no container had room; the 64 stayed once the new chest was counted')
-  await withMutant(SP, "  if (!v.known || !atTown) return v\n", "  return v\n", async m => {
+  await withMutant(SP, "  if (!v.known || !fresh) return v\n", "  return v\n", async m => {
     assert.equal((await scene(m)).left, 64, 'mutant inert (the cached container list authorised the 64)')
   })
 })

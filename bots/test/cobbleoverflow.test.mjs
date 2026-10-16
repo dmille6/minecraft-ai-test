@@ -109,6 +109,18 @@ await t('townRoom: KNOWN only with a covered scan and a fresh reading for EVERY 
   assert.equal(W.stackFits(two, { name: 'cobblestone', count: 64 }), false, 'so a whole 64 fits nowhere')
   assert.equal(W.stackFits(two, { name: 'cobblestone', count: 32 }), true, 'positive control: a 32 fits')
 })
+await t('townRoom (Codex r2 P1): a reading of ANOTHER SIZE than the container now has -- a single chest joined into a double -- is UNKNOWN; the fold keeps the size', () => {
+  const at = (r, z) => ({ n: 0, at: NOW, seq: 1, r, ...(z != null ? { z } : {}) })
+  assert.equal(CC.townRoom({ obs: { a: at(R(0), 27) }, claims: {} }, ['a'], NOW, { sizes: { a: 27 } }).known, true, 'positive control: the same size')
+  assert.equal(CC.townRoom({ obs: { a: at(R(0), 27) }, claims: {} }, ['a'], NOW, { sizes: { a: 54 } }).known, false, 'read as 27 slots, now 54')
+  assert.equal(CC.townRoom({ obs: { a: at(R(0)) }, claims: {} }, ['a'], NOW, { sizes: { a: 27 } }).known, false, 'no recorded size')
+  const f = CC.foldJournal([{ t: 'cnt', k: 'a', n: 0, cap: 100, v: 2, m: {}, r: R(0), z: 27 }]).state
+  assert.equal(f.obs.a.z, 27, 'the fold keeps the size with the room')
+  const tie = CC.foldJournal([{ t: 'cnt', k: 'a', n: 0, cap: 100, v: 2, m: {}, r: R(0), z: 27 }, { t: 'cnt', k: 'a', n: 0, cap: 100, v: 2, m: {}, r: R(0), z: 54 }]).state
+  assert.equal(tie.obs.a.r, undefined, 'two equal captures of different sizes: no reading')
+  assert.equal(CC.keysHash(['b', 'a']), CC.keysHash(['a', 'b']), 'the list hash is order-free'); assert.notEqual(CC.keysHash(['a']), CC.keysHash(['a', 'b']))
+  assert.equal(CC.townRoom({ obs: { a: at(R(0), 27) }, claims: {} }, ['a'], NOW).hash, CC.keysHash(['a']), 'the view carries its list hash')
+})
 await t('townRoom: a container mid-WITHDRAW (live take/draw) or with an unresolved void is UNKNOWN; an incoming bank claim is not', () => {
   const base = () => ({ obs: { a: fresh(R(0), 0, 5), b: fresh(R(0), 0, 5) }, claims: {} })
   for (const decision of ['draw', 'take']) {
@@ -262,6 +274,52 @@ await t('AN ABORTED WITHDRAW (Claude r1 P1): a take of an untargeted name cut of
   assert.ok(cut.clicks >= 1 && cut.empty >= 1, `the abort came after a take that emptied a slot: ${JSON.stringify(cut)}`)
   assert.ok(cut.room == null || cut.room.cobblestone >= 64, `the open's "full" reading must not stand: ${JSON.stringify(cut)}`)
   assert.equal(cut.goes, 0, 'the well takes nothing')
+})
+
+await t('A CHEST JOINED INTO A DOUBLE (Codex r2 P1): read full as a single chest, then an empty half is attached keeping its key -- the well takes nothing until it is read again', async () => {
+  const w = town([stack('cobblestone', 64), stack('cobblestone', 64)])
+  w.fill(5, 64, 0, 'stone', 64)
+  const b = w.bot.blockAt({ x: 5, y: 64, z: 0 }); const win = await w.bot.openContainer(b); await SK.cobbleObserve(w.bot, b.position, win); win.close()
+  assert.equal(SK.cobbleWellOpts(w.bot, undefined, { fresh: true }).mode, 'overflow', 'positive control: a full single chest, read')
+  w.set(5, 64, 0, 'chest', { facing: 'north', type: 'left' }); w.set(6, 64, 0, 'chest', { facing: 'north', type: 'right' })
+  const co = SK.cobbleWellOpts(w.bot, undefined, { fresh: true })
+  assert.equal(co.room?.known ?? false, false, JSON.stringify(co)); assert.equal(W.cobbleOverflowStacks(w.bot.inventory.items(), co.cobbleRoom).length, 0)
+})
+
+await t('THE WITHDRAW\'S OPEN writes no room (Claude r2 P2-2); its end does -- after a take and after a visit that took nothing', async () => {
+  const { clearWithdrawHolds } = await import('../src/bankable.mjs')
+  for (const [item, took] of [['apple', true], ['iron_ingot', false]]) {
+    clearWithdrawHolds()
+    const w = town([stack('cobblestone', 64)])
+    w.stock(5, 64, 0, [stack('apple', 10), stack('apple', 10), ...Array.from({ length: 25 }, () => stack('stone', 64))])
+    w.bot.craftSync = { lockstep: fn => fn(), recount: async () => ({ source: 'server', items: w.bot.inventory.items() }), inflight: () => 0,
+      confirmCursor: async win => ({ answered: true, cursorEmpty: !win.selectedItem, carried: null }) }
+    try { await SKILLS.withdraw.run({ bot: w.bot }, { item, count: 20 }, new AbortController().signal) } catch { /* reported below */ }
+    const cnts = CC.readJournal(process.env.POOL_STATE_DIR, KEY()).filter(x => x.t === 'cnt' && x.k === '5,64,0')
+    assert.ok(cnts.length >= 2, `${item}: an open count and an end count (${cnts.length})`)
+    assert.equal('r' in cnts[0], false, `${item}: the open's count carries no room`)
+    const last = cnts[cnts.length - 1]
+    assert.ok(last.r && last.z === 27, `${item}: the end's count carries the room and its size: ${JSON.stringify(last)}`)
+    assert.equal(last.r.cobblestone >= 64, took, `${item}: room ${took ? 'made by the take' : 'unchanged (none)'}: ${JSON.stringify(last.r)}`)
+  }
+})
+
+await t('WHERE THE ROOM IS JUDGED (Claude r2 P2-1, Codex r2 P3): at a well stand just off the 16-block square a new chest is seen (fresh scan); beyond the town radius the room is unknown', async () => {
+  const w = town([stack('cobblestone', 64), stack('cobblestone', 64)], [[5, 64, 0], [-5, 64, 0]])
+  w.fill(5, 64, 0, 'stone', 64)
+  const look = async (x, y, z) => { const b = w.bot.blockAt({ x, y, z }); const win = await w.bot.openContainer(b); await SK.cobbleObserve(w.bot, b.position, win); win.close() }
+  w.fill(-5, 64, 0, 'stone', 64)
+  await look(5, 64, 0); await look(-5, 64, 0)
+  const { Vec3 } = await import('vec3')
+  w.bot.entity.position = new Vec3(15.5, 64, 7.5)   // 17.2 from home: a well's stand on the outer ring
+  assert.equal(SK.cobbleWellOpts(w.bot, undefined, { fresh: true }).mode, 'overflow', 'positive control: both read full')
+  // a NEW chest, counted with room, inside the 20 s scan cache
+  w.set(0, 64, 5, 'chest'); await look(0, 64, 5)
+  const co = SK.cobbleWellOpts(w.bot, undefined, { fresh: true })
+  assert.ok(co.room?.known && co.room.max.cobblestone >= 64, JSON.stringify(co.room)); assert.equal(W.cobbleOverflowStacks(w.bot.inventory.items(), co.cobbleRoom).length, 0, 'the well takes nothing')
+  w.bot.entity.position = new Vec3(60.5, 64, 0.5)
+  assert.equal(SK.cobbleTownRoomFor(w.bot).known, false, 'beyond the town radius: unknown')
+  assert.deepEqual(SK.cobbleTownRoomFor(w.bot).unknown, ['away'])
 })
 
 await t('AN OLDER BUILD\'S COUNT (no room reading) is unknown room: nothing goes until this build reads the chest', async () => {

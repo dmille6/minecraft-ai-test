@@ -29,8 +29,10 @@
 #     D2  breach_switch: an overflow click outside its own rule -- not cap=below mode=overflow known=1, or its own reading
 #         had a container able to take the stack whole (max of its name >= its count)
 #     D3  breach_room_journal: overflow clicks the JOURNAL contradicts -- folded with the canary's own cobblecap.mjs
-#         (cobbleroomaudit.mjs) up to the click row's time, the town's room was KNOWN with a container able to take that
-#         stack (its own name, its own count) whole. One is reported and named (a record appended between the bot's read and
+#         (cobbleroomaudit.mjs) up to the click row's time, OVER THE SAME CONTAINER LIST the click judged (its keys= hash; Codex
+#         r2 P2: a container broken since the journal's last scan is not the bot's -- a different list is reported as
+#         audit_membership_differs, never a breach), the town's room was KNOWN with a container able to take that stack (its
+#         own name, its own count) whole. One is reported and named (a record appended between the bot's read and
 #         its row can explain one); the gate trips at >= 2.
 #   ARMS         control rows of this build's kinds (_cobbleoverflow_mode, _cobble_overflow) or control overflow throws
 #                (must be 0: a contaminated control); BASE: the control must run cobblecap-1000 (its _cobblecap_mode licence
@@ -195,7 +197,7 @@ def judge(rows):
     out['exposure_ready'] = int(out['exposure_rows'] >= EXPOSURE_MIN and out['exposed_bots'] >= EXPOSURE_BOTS)
     out['_lists'] = {'d1': d1[:5], 'd2': d2[:5]}
     out['_clicks'] = [{'id': '%s@%s#%d' % (r['bot'], r['t'].isoformat(), i), 'pool': pool_of(r['bot']), 'at': int(r['t'].timestamp() * 1000),
-                       'name': f.get('name'), 'count': num(f, 'count')} for i, (r, f) in enumerate(clicks)]
+                       'name': f.get('name'), 'count': num(f, 'count'), 'keys': f.get('keys')} for i, (r, f) in enumerate(clicks)]
     return out
 
 
@@ -228,10 +230,12 @@ def audit(cc, clicks, dirs):
         raise RuntimeError(r.stderr[-300:])
     j = json.loads(r.stdout)
     by = {e['id']: e for e in j.get('events', [])}
+    same = lambda e, c: bool(e) and bool(c.get('keys')) and e.get('hash') == c['keys']
     roomy = lambda e, c: bool(e) and e.get('known') is True and int((e.get('max') or {}).get(c['name']) or 0) >= c['count']
-    bad = [c['id'] for c in clicks if roomy(by.get(c['id']), c)]
+    bad = [c['id'] for c in clicks if same(by.get(c['id']), c) and roomy(by.get(c['id']), c)]
+    differs = sum(1 for c in clicks if by.get(c['id']) and not same(by.get(c['id']), c))
     unk = sum(1 for c in clicks if not (by.get(c['id']) or {}).get('known'))
-    return {'breach_room_journal': len(bad), '_bad': bad[:5], 'audit_unknown_room': unk, 'audited': len(clicks),
+    return {'breach_room_journal': len(bad), '_bad': bad[:5], 'audit_unknown_room': unk, 'audited': len(clicks), 'audit_membership_differs': differs,
             'unreadable': j.get('unreadable', []), 'towns': j.get('towns', 0), 'dirs': len(dirs)}
 
 
@@ -321,7 +325,9 @@ def selftest():
         with open(os.path.join(d, 'town.cobble.jsonl'), 'w') as fh:
             fh.write(''.join(json.dumps(x) + '\n' for x in recs))
         return [d]
-    th = lambda name='cobblestone', count=64: [{'id': 'hive-a-Alpha@x#0', 'pool': 'hive-a', 'at': T + 20000, 'name': name, 'count': count}]
+    hab = subprocess.run(['node', '-e', "import(process.argv[1]).then(m => console.log(m.keysHash(['a', 'b'])))", cc], capture_output=True, text=True).stdout.strip()
+    assert len(hab) == 8, ('keysHash from the module', hab)
+    th = lambda name='cobblestone', count=64, keys=None: [{'id': 'hive-a-Alpha@x#0', 'pool': 'hive-a', 'at': T + 20000, 'name': name, 'count': count, 'keys': keys or hab}]
     full = audit(cc, th(), town({'cobblestone': 0, 'cobbled_deepslate': 0}))
     assert full['breach_room_journal'] == 0 and full['audit_unknown_room'] == 0 and full['audited'] == 1, ('a full town: the click is right', full)
     roomy = audit(cc, th(), town({'cobblestone': 64, 'cobbled_deepslate': 0}))
@@ -333,6 +339,8 @@ def selftest():
     assert audit(cc, th('cobbled_deepslate', 64), town({'cobblestone': 0, 'cobbled_deepslate': 64}))['breach_room_journal'] == 1, 'deepslate room: the deepslate fitted'
     unread = audit(cc, th(), town(None))
     assert unread['breach_room_journal'] == 0 and unread['audit_unknown_room'] == 1, ('a container without a reading: unknown, never a breach', unread)
+    other = audit(cc, th(keys='0badc0de'), town({'cobblestone': 64, 'cobbled_deepslate': 0}))
+    assert other['breach_room_journal'] == 0 and other['audit_membership_differs'] == 1, ('the click judged ANOTHER container list (Codex r2 P2): uncertainty, not a breach', other)
     after = audit(cc, th(), town({'cobblestone': 0, 'cobbled_deepslate': 0}, later={'cobblestone': 64, 'cobbled_deepslate': 64}))
     assert after['breach_room_journal'] == 0, ('room that appeared AFTER the click is not the click\'s', after)
     print('SELFTEST ok: every gate fails on its fixture and passes its control (journal audit with %s)' % cc)
@@ -360,7 +368,7 @@ if __name__ == '__main__':
     CANARY_CC = os.environ.get('CANARY_CC') or os.path.expanduser('~/mcai-analysis/cobbleoverflow01/cobblecap.mjs')
     try:
         JDIRS, JMISSING = journal_coverage(CANS)
-        jr = audit(CANARY_CC, res['_clicks'], JDIRS) if res['_clicks'] else {'breach_room_journal': 0, '_bad': [], 'audit_unknown_room': 0, 'audited': 0, 'unreadable': [], 'towns': 0, 'dirs': len(JDIRS)}
+        jr = audit(CANARY_CC, res['_clicks'], JDIRS) if res['_clicks'] else {'breach_room_journal': 0, '_bad': [], 'audit_unknown_room': 0, 'audited': 0, 'audit_membership_differs': 0, 'unreadable': [], 'towns': 0, 'dirs': len(JDIRS)}
         jr['missing'] = JMISSING
     except Exception as e:
         print('journal audit failed:', e); jr = None
@@ -377,7 +385,7 @@ if __name__ == '__main__':
     print('BASE         control _cobblecap_mode licence rows %d (>= 1: the control runs cobblecap-1000)' % res['base_licence_control'])
     print('LIVENESS     canary overflow visits %d, clicks %d (%d cobble, %.2f per canary bot-h) | licence rows _cobbleoverflow_mode %d | control rows of this build %d (must be 0)'
           % (res['overflow_throws_canary'], res['overflow_clicks_canary'], res['overflow_cobble_canary'], rate(res['overflow_cobble_canary'], 'post', 'canary'), res['mode_rows_canary'], res['arms_control_rows']))
-    d3 = ('%d %s (clicks audited %d, unknown room at the click %d, towns %d, unreadable %s, pools not covered %s)' % (jr['breach_room_journal'], jr['_bad'], jr['audited'], jr['audit_unknown_room'], jr['towns'], jr['unreadable'] or '-', jr['missing'] or '-')
+    d3 = ('%d %s (clicks audited %d, another container list %d, unknown room at the click %d, towns %d, unreadable %s, pools not covered %s)' % (jr['breach_room_journal'], jr['_bad'], jr['audited'], jr['audit_membership_differs'], jr['audit_unknown_room'], jr['towns'], jr['unreadable'] or '-', jr['missing'] or '-')
           if jr is not None else 'UNREADABLE (blind this read)')
     print('CORRECTNESS  D1 throws under the 64 %d %s | D2 clicks outside their own rule %d %s | D3 journal-contradicted clicks %s (trips at >= %d)'
           % (res['breach_reserve'], res['_lists']['d1'], res['breach_switch'], res['_lists']['d2'], d3, D3_TRIP))
@@ -399,6 +407,7 @@ if __name__ == '__main__':
                        'journal_audit_ran': int(jr is not None), 'breach_room_journal': jr['breach_room_journal'] if jr is not None else 0,
                        'breach_room_journal_trip': int(jr is not None and jr['breach_room_journal'] >= D3_TRIP),
                        'audit_unknown_room': jr['audit_unknown_room'] if jr is not None else None,
+                       'audit_membership_differs': jr['audit_membership_differs'] if jr is not None else None,
                        'journal_unreadable': len(jr['unreadable']) if jr is not None else None, 'journal_dirs': jr['dirs'] if jr is not None else 0,
                        'journal_pools_missing': len(jr['missing']) if jr is not None else None,
                        'journal_audit_complete': int(jr is not None and not jr['unreadable'] and not jr['missing'] and jr['dirs'] > 0)})

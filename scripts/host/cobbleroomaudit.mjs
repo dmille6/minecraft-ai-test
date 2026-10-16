@@ -4,7 +4,7 @@
 // folds that pool's town journals -- generation by generation, base + records, as the bots fold them -- with the SAME
 // cobblecap.mjs the canary runs, up to the last record APPENDED at or before `at`, and reports the town's room for cobble
 // as the fold then knew it (cobblecap.mjs townRoom over the journal's last covered scan, at `at`):
-//   { id, pool, at, known, max, unknown, containers, town } per event, or { id, pool, at, unreadable } / { ..., no_town }
+//   { id, pool, at, known, max, unknown, containers, hash, town } per event (hash: cobblecap.mjs keysHash of the container list), or { id, pool, at, unreadable } / { ..., no_town }
 // A journal that cannot be replayed is listed under `unreadable` (the gate is then blind there). Prints one JSON object.
 import fs from 'node:fs'
 import path from 'node:path'
@@ -69,7 +69,7 @@ for (const dir of dirs) {
     const best = cands[0]
     if (!best || !best.a.view) { out.events.push({ ...e, no_town: true }); continue }
     const v = best.a.view
-    out.events.push({ ...e, town: best.v.town, known: v.known, max: v.max, unknown: v.unknown.length, containers: v.containers })
+    out.events.push({ ...e, town: best.v.town, known: v.known, max: v.max, unknown: v.unknown.length, containers: v.containers, hash: v.hash ?? null })
   }
 }
 console.log(JSON.stringify(out))

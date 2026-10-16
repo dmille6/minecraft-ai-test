@@ -348,7 +348,7 @@ scenes.ovunknown = async () => {
     const bad = rcon(`setblock ${B.x} ${B.y + 1} ${B.z} minecraft:bedrock`).filter(x => /Unknown|Incorrect|Cannot|not loaded/i.test(x.reply))
     if (bad.length) throw new Error('lid: ' + bad.map(x => x.reply).join('; '))
     return { read: files => ({ second: keyOf(B), secondCounted: journalOf(files).some(x => x.t === 'cnt' && x.k === keyOf(B)) }) }
-  }, { waitMs: 240000, until: () => null, wander: true })
+  }, { waitMs: 150000, until: () => null, wander: true })   // r2: the idle-breaker relocated it at ~4 min; the well acts within ~15 s when it may
   const pass = r.bag.before === 158 && r.bag.after === 158 && r.shaft.after === r.shaft.before && !r.rows.some(x => /^_well_dispose .* overflow=/.test(x))
     && r.clicks.length === 0 && r.extra && r.extra.secondCounted === false && r.licence.length === 1
   result({ ...r, PASS: pass })

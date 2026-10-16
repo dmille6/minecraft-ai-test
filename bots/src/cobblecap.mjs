@@ -199,6 +199,16 @@ export function roomOf (contents = [], size = null) {
   for (const n of ROOM_NAMES) room[n] += (size - used.size) * 64
   return room
 }
+/**
+ * THE TOWN'S CONTAINER LIST AS A SHORT HASH (FNV-1a 32, hex) of the sorted keys: the click row carries it, so the read's
+ * journal audit judges a click only over the SAME container list the bot judged it on (Codex r2 P2: a container broken
+ * since the journal's last scan is not the bot's). Pure.
+ */
+export function keysHash (keys = []) {
+  let h = 0x811c9dc5
+  for (const ch of [...new Set(Array.isArray(keys) ? keys : [])].sort().join(';')) { h ^= ch.charCodeAt(0); h = Math.imul(h, 0x01000193) >>> 0 }
+  return h.toString(16).padStart(8, '0')
+}
 /** A room map from a record -> { name: n >= 0 } for EVERY room name, or null when any is missing or not a number. */
 export function cleanRoom (r) {
   if (!r || typeof r !== 'object') return null
@@ -215,7 +225,7 @@ export function cleanRoom (r) {
  *   max         per name, the MOST any ONE container can take (a deposit moves a whole stack into one container)
  * A live BANK claim (incoming) only shrinks the room the reading shows: the reading stays an upper bound, so it is kept.
  */
-export function townRoom (state = {}, keys = [], now = Date.now(), { coverage = true, gone = [], ttl = ROOM_TTL_MS } = {}) {
+export function townRoom (state = {}, keys = [], now = Date.now(), { coverage = true, gone = [], ttl = ROOM_TTL_MS, sizes = null } = {}) {
   const obs = state?.obs ?? {}
   const claims = state?.claims ?? {}
   const goneSet = new Set(Array.isArray(gone) ? gone : [])
@@ -231,9 +241,13 @@ export function townRoom (state = {}, keys = [], now = Date.now(), { coverage = 
   for (const k of all) {
     const o = obs[k], r = cleanRoom(o?.r)
     if (bad.has(k) || !o || !r || !Number.isFinite(o.at) || !(now - o.at < ttl)) { unknown.push(k); continue }
+    // THE SHAPE THE READING WAS TAKEN OF (Codex r2 P1): a single chest read full and since joined into a double keeps its key
+    // -- the reading is of 27 slots, the container now has 54. With the scan's sizes given, a reading of another size (or
+    // of no recorded size) is UNKNOWN until recounted.
+    if (sizes && sizes[k] != null && o.z !== sizes[k]) { unknown.push(k); continue }
     for (const n of ROOM_NAMES) max[n] = Math.max(max[n], r[n])
   }
-  return { known: !!coverage && all.length > 0 && unknown.length === 0, unknown, max, containers: all.length }
+  return { known: !!coverage && all.length > 0 && unknown.length === 0, unknown, max, containers: all.length, hash: keysHash(all) }
 }
 
 /**
@@ -487,7 +501,7 @@ export function foldJournal (records = [], { upto = null, state: from = null, se
       const m = Number(r.v) >= 2 ? cleanCounts(r.m) : null
       // cobbleoverflow-01: the room the same window showed for each cobble name (absent = the container's room is unknown)
       const room = cleanRoom(r.r)
-      const next = { ...(m ? { n, at: r.cap, seq, v: 2, m } : { n, at: r.cap, seq }), ...(room ? { r: room } : {}) }
+      const next = { ...(m ? { n, at: r.cap, seq, v: 2, m } : { n, at: r.cap, seq }), ...(room ? { r: room, ...(Number.isInteger(r.z) ? { z: r.z } : {}) } : {}) }
       // A RELEASING COUNT OLDER THAN THE STANDING ONE (Codex r4 1, stocktarget): stonecap let it replace whatever the clocks
       // said, so a release was never lost to a clock step -- but an older capture can then undo a later draw's count. Now
       // its claim is released (below) and the container is UNKNOWN until a recount: neither count is trusted.
@@ -515,8 +529,9 @@ export function foldJournal (records = [], { upto = null, state: from = null, se
         // the ROOM of two equal captures: the LARGER per name (cobbleoverflow-01: room is what the well's "no room" must
         // rule out, so a tie never makes the town look fuller); one side without a reading leaves it unknown
         const ro = cleanRoom(o.r), rn = cleanRoom(next.r)
-        const roomHi = ro && rn ? Object.fromEntries(ROOM_NAMES.map(x => [x, Math.max(ro[x], rn[x])])) : null
-        state.obs[r.k] = { ...hiOf(o, next), at: r.cap, seq, lo: lowOf(prevLo, next), ...(roomHi ? { r: roomHi } : {}) }
+        // (two readings of DIFFERENT sizes are no reading: the shape changed between them)
+        const roomHi = ro && rn && o.z === next.z ? Object.fromEntries(ROOM_NAMES.map(x => [x, Math.max(ro[x], rn[x])])) : null
+        state.obs[r.k] = { ...hiOf(o, next), at: r.cap, seq, lo: lowOf(prevLo, next), ...(roomHi ? { r: roomHi, ...(Number.isInteger(next.z) ? { z: next.z } : {}) } : {}) }
       }
       if (resolving) for (const [id, c] of Object.entries(state.claims)) if (c.state === 'void' && c.k === r.k && r.cap >= c.voidAt) delete state.claims[id]
     }
@@ -662,6 +677,7 @@ export function recordCount (dir, key, world, { obs = null, release = [], scan =
     if (obs.m && typeof obs.m === 'object') Object.assign(rec, { v: 2, m: cleanCounts(obs.m) })
     const room = cleanRoom(obs.r)
     if (room) rec.r = room   // cobbleoverflow-01: the cobble room the same window showed
+    if (room && Number.isInteger(obs.z)) rec.z = obs.z   // ...and the container's size it was read of (r3)
   }
   if (scan) rec.scan = { keys: scan.keys, at: scan.at }
   return appendJournal(dir, key, world, rec)
