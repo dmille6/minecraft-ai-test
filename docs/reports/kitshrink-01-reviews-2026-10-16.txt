@@ -58,4 +58,11 @@ CODE r6 (2732a31b / 426370a4)
                   -> stockQualifies skips the kit like cobble: ONE line that gates entry, craft and placement. chest-full test
                   (torches + surplus cobble at a full chest: nothing placed or crafted; control with logs: placed) + mutant.
                   P3 records corrected ("unreachable for a kit-only plan"; the stockQualifies line carries the rule).
-CODE r7: see below.
+CODE r7 (359a9213 / 51033241)
+  Codex  APPROVE  no findings: the guard closes the mixed-remainder chest path; the kit alone drives no deposit, walk, trip,
+                  new chest, deposit rung or prompt nudge; usable escape ladders protected; the town deposit still banks it.
+  Claude APPROVE  no findings; stockQualifies has exactly three callers, all in fullChestRecovery (entry, craft, place).
+FINAL: both APPROVE on 359a9213 (fleet 623e92b9) and its lidclear twin 51033241 (0152baeb).
+  npm test: 253/253 on 359a9213, 254/254 on 51033241. Source mutants (bots/scripts/kitshrink-mutants.mjs): 24/24 killed on
+  both. eslint no-undef: only bots/src/reflex.mjs:2384 withinBody (pre-existing). licencecheck PASS (_kitshrink baseline
+  silent, 6 h, 80 bots, 359,490 rows); changerowcheck PASS; drawrequire.parse ([], None).

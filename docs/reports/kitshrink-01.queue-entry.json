@@ -1,0 +1,37 @@
+{
+ "run": "kitshrink-01",
+ "after": [
+  "lidclear-01"
+ ],
+ "class": "",
+ "hold": "COORDINATOR: placed by the coordinator, not by the build agent (the owner said \"yes shrink\" 10-16 ~16:30Z; an ORDINARY canary, no class bag-fix). Pick the variant for the fleet tip at launch: 623e92b9 (lidclear-01 not kept) or 0152baeb (lidclear-01 KEPT and promoted); any other tip: ask for a new variant. A tip carrying treefarm-02 or shaft-01 needs a rebase that resolves the kitshrink tripwire (bots/test/kitshrink-sites.mjs: both consume torches/ladders).",
+ "note": "OWNER 10-16 \"yes shrink\": torches, and ladders while the bag holds < 26 (the climb_ladder rung's minimum), become bankable, so the town deposit takes them (~1.7 slots per kit-holding bot; 136-140 of 2,675 used slots fleet-wide). The kit is never the REASON for a deposit, a walk, a trip, a new chest or the deposit rung. Stations, bucket, chest unchanged. Odd items: already the junk well's. Read ~/mcai-analysis/kitshrinkread.py (new; md5 in the variants) + bagread + immobiledid. Branches kitshrink-on-623e92b, kitshrink-on-0152bae (fetch origin in the scheduler's git first). Records: docs/reports/kitshrink-01-2026-10-16.md, -reviews-, -paper-.",
+ "variants": {
+  "623e92b967c3d1ba708b84eb17c7efa6cb33cf91": {
+   "registration": "/home/mike/mcai-analysis/kitshrink-01.359a9213.json",
+   "approved": "kitshrink agent 2026-10-16: design r1/r2 + code r1-r6 with Codex and an independent Claude subagent (docs/reports/kitshrink-01-reviews-2026-10-16.txt; final: both APPROVE); npm test 253/253 (623e92b9) and 254/254 (0152baeb); source mutants all killed (bots/scripts/kitshrink-mutants.mjs); eslint no-undef only reflex.mjs:2384 (pre-existing); Paper PASS (docs/reports/kitshrink-01-paper-2026-10-16.txt: bank 36->34 server-read, the craft the control could not make, entombed escape 7/7 with and without the kit); licencecheck PASS (_kitshrink baseline silent, 6 h, 80 bots); changerowcheck PASS; drawrequire.parse ([], None) -- NO draw_require_pools key.",
+   "canary_sha": "359a92134377d8f10eb9ced5a0705ee78c304f40",
+   "branch": "kitshrink-on-623e92b",
+   "reads_src": "/home/mike/mcai-analysis",
+   "reads": {
+    "kitshrinkread": "15a2fecbbc2198e5ed772e08e05d6425",
+    "bagread": "b391c93262d881acca34fff1b41610f9",
+    "immobiledid": "53af289df12208901931dbeeb1ae325a"
+   },
+   "registration_sha256": "9d22a1c28b584c6e45774eb502271508ecd50ec24f59ef99849e7aa6e67ee3c7"
+  },
+  "0152baeb868c2841363b15b8e69a97e8abc7eaf2": {
+   "registration": "/home/mike/mcai-analysis/kitshrink-01.51033241.json",
+   "approved": "kitshrink agent 2026-10-16: design r1/r2 + code r1-r6 with Codex and an independent Claude subagent (docs/reports/kitshrink-01-reviews-2026-10-16.txt; final: both APPROVE); npm test 253/253 (623e92b9) and 254/254 (0152baeb); source mutants all killed (bots/scripts/kitshrink-mutants.mjs); eslint no-undef only reflex.mjs:2384 (pre-existing); Paper PASS (docs/reports/kitshrink-01-paper-2026-10-16.txt: bank 36->34 server-read, the craft the control could not make, entombed escape 7/7 with and without the kit); licencecheck PASS (_kitshrink baseline silent, 6 h, 80 bots); changerowcheck PASS; drawrequire.parse ([], None) -- NO draw_require_pools key.",
+   "canary_sha": "510332418ff930b2165bed83d94d1d98d0679f58",
+   "branch": "kitshrink-on-0152bae",
+   "reads_src": "/home/mike/mcai-analysis",
+   "reads": {
+    "kitshrinkread": "15a2fecbbc2198e5ed772e08e05d6425",
+    "bagread": "b391c93262d881acca34fff1b41610f9",
+    "immobiledid": "53af289df12208901931dbeeb1ae325a"
+   },
+   "registration_sha256": "6708071ab6db1dfa4daa92ae1af418c3c02d396e627fef98b282113b0a612c44"
+  }
+ }
+}
