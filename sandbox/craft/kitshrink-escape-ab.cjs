@@ -43,7 +43,7 @@ const R = process.env.CRAFT_REPO || path.resolve(__dirname, '../..')
 const D = __dirname
 const NAME = process.env.CRAFT_BOT_NAME || 'sandbox-Kite'
 const KIT = process.env.KS_KIT || 'post'
-if (!['post', 'pre'].includes(KIT)) throw new Error('KS_KIT must be post or pre')
+if (!['post', 'pre', 'postfill'].includes(KIT)) throw new Error('KS_KIT must be post, pre or postfill')
 const OUTDIR = `${R}/sandbox/log/kitshrink-escape-ab`
 const RES = `${OUTDIR}/results-${ARM}-${KIT}.jsonl`
 const BRAIN_PORT = Number(process.env.KS_BRAIN_PORT || 11496)
@@ -95,6 +95,8 @@ function kitCmds () {
     `item replace entity ${NAME} container.4 with minecraft:furnace 1`,
     `item replace entity ${NAME} container.5 with minecraft:chest 7`,
     ...(KIT === 'pre' ? [`item replace entity ${NAME} container.6 with minecraft:ladder 3`, `item replace entity ${NAME} container.7 with minecraft:torch 4`] : []),
+    // postfill: the post bag plus two inert stacks in the SAME slots -- the same number of RCON commands as 'pre' (a timing control)
+    ...(KIT === 'postfill' ? [`item replace entity ${NAME} container.6 with minecraft:white_wool 3`, `item replace entity ${NAME} container.7 with minecraft:white_wool 4`] : []),
     `effect clear ${NAME}`, `effect give ${NAME} minecraft:saturation 1 20 true`]
 }
 

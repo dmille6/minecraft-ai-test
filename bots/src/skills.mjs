@@ -2724,7 +2724,7 @@ async function deposit(ctx, { item = null }, signal, { noRecovery = false, prefe
   const viaRecovery = (res, outcome, firstStatus = null) => {
     if (noRecovery) return res
     const plan = depositPlan(bot.inventory.items(), item, { wants: bot.currentWants ?? [] })
-    if (!plan.length || plan.every(e => isCobble(e.name))) return res   // cobble never grows the bank
+    if (!plan.length || plan.every(noNewChestFor)) return res   // cobble never grows the bank -- nor does the kit (kitshrink-01)
     return fullChestRecovery(ctx, { item, signal, first: chestBlock, firstOutcome: outcome, firstStatus, firstFail: res, exclude,
                                     eligible: plan.reduce((n, e) => n + e.count, 0), bagBefore, startedAt })
   }
@@ -2732,7 +2732,7 @@ async function deposit(ctx, { item = null }, signal, { noRecovery = false, prefe
     const st = townStatus(bot, chestBlock.position)
     const plan0 = depositPlan(bot.inventory.items(), item, { wants: bot.currentWants ?? [] })
     // a cobble-only plan never starts the recovery (cobble never grows the bank): it tries this chest as it is
-    if (st && st !== 'visit' && plan0.length && !plan0.every(e => isCobble(e.name))) {
+    if (st && st !== 'visit' && plan0.length && !plan0.every(noNewChestFor)) {
       const p = chestBlock.position
       return viaRecovery({ status: 'failed', failClass: 'storage_full', detail: `the town remembers the chest at ${p.x},${p.y},${p.z} as ${st}` }, 'memory', st)
     }
@@ -3104,6 +3104,16 @@ async function deposit(ctx, { item = null }, signal, { noRecovery = false, prefe
   // lack of it. This is also the only version of the fix that respects the
   // owner's standing rule: adding chests by RCON would be changing the world to
   // fix a bot; teaching bots to build storage is a capability.
+  // THE KIT NEVER OPENS A NEW CHEST (kitshrink-01; Claude code r3 P2): when all that is left to bank is torches and ladders
+  // (and cobble, which never grows the bank either), the full chest is the answer -- no carried chest placed, none crafted.
+  if (!noRecovery) {
+    let rest = []
+    try { rest = depositPlan(bot.inventory.items(), item, { wants: bot.currentWants ?? [] }) } catch { rest = [] }
+    if (rest.length && rest.every(noNewChestFor) && rest.some(e => KIT_BANK.includes(e.name))) {
+      return { status: 'no_effect', failClass: null,
+               detail: 'the chest is full and only torches and ladders are left to bank: they never open a new chest -- keep working' }
+    }
+  }
   if (!noRecovery) return fullChestRecovery(ctx, { item, signal, first: chestBlock, firstMeta: meta, exclude, eligible, bagBefore, startedAt })
   return { status: 'failed', failClass: 'storage_full',
            detail: `had ${eligible} item(s) to hand over and the chest took none — it is full` }
@@ -5204,6 +5214,8 @@ export function adviseDeposit (bot, items, keep = []) {
  * when none is within 48, so the kit (kitshrink.mjs KIT_NO_TRIP) joins `keep` unless a usable chest is in reach. Never
  * throws: a world that cannot be asked keeps the kit.
  */
+/** A plan entry that never starts the full-chest recovery: cobble (the 10-04 SYNTHESIS) and the smaller kit (kitshrink-01). */
+export const noNewChestFor = e => isCobble(e?.name) || KIT_BANK.includes(e?.name)
 export function kitKeep (bot, keep = []) {
   return usableChestNear(bot) ? keep : [...(keep ?? []), ...KIT_NO_TRIP]
 }

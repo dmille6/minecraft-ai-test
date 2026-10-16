@@ -22,6 +22,8 @@ const M = [
   ['a named kit deposit walks', 'src/admission.mjs', 'if (!reconcile && arg.item && KIT_BANK.includes(arg.item) && !usableChestNear(bot)) {', 'if (false) {', 'kitshrink'],
   ['a backed-off chest counts as usable', 'src/skills.mjs', '&& !((bot.skipContainers?.get?.(`${b.position.x},${b.position.y},${b.position.z}`) ?? 0) > now)', '', 'kitshrink'],
   ['a kit-only deposit walks home', 'src/skills.mjs', 'if (kitOnly) return { status:', 'if (false) return { status:', 'towndeposit'],
+  ['the kit opens a new chest', 'src/skills.mjs', 'if (rest.length && rest.every(noNewChestFor) && rest.some(e => KIT_BANK.includes(e.name))) {', 'if (false) {', 'chest-full'],
+  ['the kit is not exempt from the recovery', 'src/skills.mjs', 'export const noNewChestFor = e => isCobble(e?.name) || KIT_BANK.includes(e?.name)', 'export const noNewChestFor = e => isCobble(e?.name)', 'chest-full'],
   ['the near room order names the kit', 'src/skills.mjs', 'roomDepositTarget(bot, items, kitKeep(bot, keep))', 'roomDepositTarget(bot, items, keep)', 'kitshrink'],
   ['the near room advice names the kit', 'src/skills.mjs', 'depositPlan(items, null, { wants: bot.currentWants ?? [] }), kitKeep(bot, keep)) } catch { return null }', 'depositPlan(items, null, { wants: bot.currentWants ?? [] }), keep) } catch { return null }', 'kitshrink'],
   ['reflex ladderReady keeps its own number', 'src/reflex.mjs', 'const need = LADDER_CLIMB_NEED   //', 'const need = 24 + 1   //', 'kitshrink'],
