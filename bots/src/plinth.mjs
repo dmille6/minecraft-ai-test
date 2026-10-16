@@ -36,6 +36,12 @@ import { fullCube, wellGround, wellPassable, wellSiteRefusal, wellStand, coverRe
 import { townDistance, ADOPT_RADIUS, TOWN_RADIUS, CLEARANCE_CONTAINER, sameWorld, tableCellFor, bodyInCell, PLACEABLE_INTO } from './composter.mjs'
 
 export const PLINTH_VERSION = 1
+/**
+ * THE LICENCE ROW (plinth-02): written once per spawn by index.mjs as the build's own `_plinth_mode` kind. A town whose plinth
+ * was finished under plinth-01 (board-c, hive-d) writes no `_plinth` row at all -- the build order wants nothing -- so a licence
+ * on `_plinth` alone could not see this build live there; neither the base nor plinth-01 writes this kind.
+ */
+export const plinthModeDetail = () => 'phase=mode v=2 table=below_stand'
 /** The highest raise: g-3 = t+1 at k = 4, so no shell cell is ever below the surface. */
 export const PLINTH_MAX_RAISE = 4
 /** Eye to the clicked face's centre (vanilla's block_interaction_range; the server allows a margin beyond it). */

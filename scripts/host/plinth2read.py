@@ -1,0 +1,396 @@
+#!/usr/bin/env python3
+# plinth2read.py [window_min] -- the read for canary `plinth-02` (branch plinth02-on-623e92b). Run under `nice`.
+# plinthread.py (plinth-01's read) with three additions, every plinth-01 gate unchanged:
+#   CAPS FROM RECORDS  a canary pool's plinth record (/var/lib/mcai/_pool-<pool>/junkwell-plinth-*.json, state plan|complete)
+#                      names its cap: a plinth finished under plinth-01 (board-c, hive-d) writes no _plinth row now, yet
+#                      a _well_built at its cap is exactly the exposure (the definition is unchanged).
+#   LICENCE            canary `_plinth_mode` rows (once per spawn) or `_plinth` rows -- neither is written by the base.
+#   MECHANISM          `_well_refused order=build reason=well_site` naming a crafting table (the fleet defect plinth-02
+#                      fixes), per bot-hour, canary and control, pre and post (report only).
+# CANARY_DRYRUN=pool[,pool]:sha:iso for dry runs (never emits).
+#
+# THE CHANGE (bots/src/plinth.mjs, skills.mjs build_plinth; design docs/reports/townground-2026-10-13.md section 3):
+#   A town whose last junk-well site search found no cell (wellsite-01's junkwell-nosite record) PLANS a raised well once
+#   (the unchanged oracle on the world with the plan applied; every step's support, stand and route proven offline), records
+#   it (junkwell-plinth-<home>.json), and BUILDS it in bounded visits -- placements only (leaves in planned cells cleared),
+#   one builder per town (a lease), from the bag's surplus stone above STONE_GUARD and a pit cover, else a town chest's.
+#   The finished plinth's cap becomes the town's well site; build_well floors and caps it as at any site.
+#   Rows: _plinth (stage=planned|none|build|complete|<failClass>), _plinth_step (one per step: op, at, step, id, alt),
+#   _well_pit_dug from=plinth|plinth_resume|plinth_cover, _well_pit_covered stage=plinth, _well_pit_open stage=plinth.
+#
+#   LICENCE      canary _plinth_mode or _plinth rows (the base never writes either kind).
+#   POPULATION   a canary town with NO junk well (draw_exposure: no_site rows); control towns without a well are the DiD's
+#                comparison (towns with a well are an instrument control only).
+#   GATES (defect)
+#     P1 breach_outside_shell   a canary _plinth_step op=place whose cell is neither in the 81-cell shell of ITS OWN plan's
+#                               cap (the step's id=, mapped by the _plinth rows) nor on its stair lines (a cardinal from
+#                               the cap, 3..6 out, lateral -1..1, below g-1).
+#     P2 breach_reserve         a canary _plinth build/complete row with placed>0 whose bag (the row's inventory) holds
+#                               fewer than 64 RESERVE_STONE (cobblestone, cobbled_deepslate, andesite, diorite, granite).
+#     P3 breach_pit_open_10m    a canary plinth pit (the last pit event at a plinth cap is dug/open, not covered/built)
+#                               older than 10 min at the read's end -- an uncovered walled-in column nobody covered.
+#     P4 breach_retired_plinth  a _well_retired at a canary plinth's cap (a raised well that did not hold).
+#     P5 breach_stuck_plinth    > 1 canary stuck EPISODE (entombed / stranded_escape_try / livelock_escape, one per bot per
+#                               10 min; _result rows never) with the body within 3 (horizontal Chebyshev, |dy| <= 5) of a
+#                               plinth cap.
+#     P6 control_plinth_rows    a CONTROL _plinth row (the control is not running the base). Blocks KEEP.
+#   INSTRUMENT   the same row selectors on fixture rows (self-tests below, run every read); control no_site rows post >= 1.
+#   PRIMARY      canary towns: planned / complete, blocks placed, alt stands, retries, step pace; _well_built at a plinth
+#                cap; dispose_well successes per bot-hour DiD against control towns WITHOUT a well (report only).
+#   EXPOSURE     a canary plinth complete AND a _well_built at its cap, in a window >= 180 min (caps from rows AND records).
+import sys, os, re
+import datetime as dt
+from collections import Counter, defaultdict
+sys.path.insert(0, '/srv/mcb-analysis-lib')
+sys.path.insert(0, '/opt/minecraft-ai/scripts')
+sys.path.insert(0, '/home/mike/mcai-analysis')
+
+RESERVE = ('cobblestone', 'cobbled_deepslate', 'andesite', 'diorite', 'granite')   # well.mjs RESERVE_STONE
+STONE_GUARD = 64
+PIT_OPEN_MAX = dt.timedelta(minutes=10)
+MAX_RAISE = 4                                                                        # plinth.mjs PLINTH_MAX_RAISE
+
+
+def kv(d):
+    out = {}
+    for m in re.finditer(r'(?:^| )([a-z_]+)=(\S+)', d or ''):
+        out.setdefault(m.group(1), m.group(2))
+    return out
+
+
+def xyz(s):
+    try:
+        a = [int(v) for v in (s or '').split(',')]
+        return tuple(a) if len(a) == 3 else None
+    except ValueError:
+        return None
+
+
+def in_shell(cap, c):
+    """PURE. plinth.mjs plinthShell: g 3x3 minus the cap; g-1 5x5 minus the shaft; g-2 5x5 (floor included); g-3 5x5 minus
+    the centre."""
+    dx, dy, dz = c[0] - cap[0], c[1] - cap[1], c[2] - cap[2]
+    r = max(abs(dx), abs(dz))
+    if dy == 0:
+        return r == 1
+    if dy == -1 or dy == -3:
+        return 1 <= r <= 2
+    if dy == -2:
+        return r <= 2
+    return False
+
+
+def on_stair_line(cap, c):
+    """PURE. plinth.mjs stairOptions: from the ledge outward along a cardinal, 3..2+MAX_RAISE out, lateral -1..1, every
+    cell below g-1 (a step's top is g-1-j)."""
+    dx, dy, dz = c[0] - cap[0], c[1] - cap[1], c[2] - cap[2]
+    if dy > -2:
+        return False
+    along, lat = (abs(dx), dz) if abs(dx) >= 3 else (abs(dz), dx)
+    return 3 <= along <= 2 + MAX_RAISE and abs(lat) <= 1
+
+
+def reserve_of(inv):
+    return sum(int(inv.get(n, 0) or 0) for n in RESERVE)
+
+
+def pit_open(events, end):
+    """PURE. events: [(t, cap, kind)] kind in dug|open|covered|built. -> [cap] whose LAST event is dug/open and older than
+    PIT_OPEN_MAX at `end` (a resume's dug restarts the clock, a cover or a built well ends it)."""
+    last = {}
+    for t, cap, kind in sorted(events, key=lambda e: e[0]):
+        last[cap] = (t, kind)
+    return [cap for cap, (t, kind) in last.items() if kind in ('dug', 'open') and end - t > PIT_OPEN_MAX]
+
+
+def pool_of(bot):
+    return '-'.join((bot or '').split('-')[:2])
+
+
+def outside_steps(steps, id_cap):
+    """PURE. steps: [(bot, t, fields)] _plinth_step rows; id_cap: {plan id: cap} from the _plinth rows (planned/build/
+    complete carry both id= and at=). -> [(bot, t, at)] placements outside THEIR OWN plan's shell and stair lines (Claude r3
+    P2-1: a replan to a nearby cap must not judge the old plan's cells against the new cap). A step whose id names no
+    known cap is judged against nothing and counted: the instrument must see its own plan."""
+    out = []
+    for b, t, f in steps:
+        if f.get('op') != 'place':
+            continue
+        c = xyz(f.get('at')); cap = id_cap.get(f.get('id'))
+        if not c or not cap or not (in_shell(cap, c) or on_stair_line(cap, c)):
+            out.append((b, t, f.get('at')))
+    return out
+
+
+EPISODE = dt.timedelta(minutes=10)
+
+
+def stuck_episodes(rows):
+    """PURE. rows: [(bot, t, kind, pos)] stuck-family rows. -> [(bot, t, pos)], one per (bot, 10-min episode) (Claude r3
+    P2-2: reflex.mjs writes _stranded_escape_try AND _result per attempt, and an entombment repeats its row; one episode is
+    one event, so the gate's 'more than one' means two episodes). _stranded_escape_result is never counted."""
+    out, last = [], {}
+    for b, t, k, pos in sorted(rows, key=lambda r: r[1]):
+        if k == 'stranded_escape_result':
+            continue
+        if b in last and t - last[b] < EPISODE:
+            continue
+        last[b] = t
+        out.append((b, t, pos))
+    return out
+
+
+# ---- self-tests on the bot's own row strings (skills.mjs plinthDetail / the step row / the pit rows) ----
+_CAP = (100, 70, 100)
+assert in_shell(_CAP, (101, 70, 100)) and in_shell(_CAP, (102, 69, 100)) and in_shell(_CAP, (100, 68, 100)) and in_shell(_CAP, (98, 67, 98))
+assert not in_shell(_CAP, (100, 70, 100)) and not in_shell(_CAP, (100, 69, 100)) and not in_shell(_CAP, (102, 70, 100)) and not in_shell(_CAP, (100, 67, 100))
+assert not in_shell(_CAP, (103, 69, 100)) and not in_shell(_CAP, (100, 71, 100))
+assert on_stair_line(_CAP, (103, 68, 100)) and on_stair_line(_CAP, (100, 67, 104)) and on_stair_line(_CAP, (104, 66, 101))
+assert not on_stair_line(_CAP, (103, 69, 100)), 'a step top is at most g-2'
+assert not on_stair_line(_CAP, (110, 66, 100)) and not on_stair_line(_CAP, (104, 66, 104)), 'off the line'
+_STEP = 'op=place at=101,70,100 step=12 id=board-a-Alpha-x1-ab12 stand=103,71,100 alt=0 block=cobblestone'
+assert xyz(kv(_STEP)['at']) == (101, 70, 100) and kv(_STEP)['op'] == 'place' and kv(_STEP)['alt'] == '0'
+_ROW = 'stage=build at=100,70,100 k=3 placed=12 cleared=0 alt=1 retries=0 done=40/60 left=20 budget=50 took=0 hazard=0 id=x'
+assert kv(_ROW)['stage'] == 'build' and kv(_ROW)['placed'] == '12' and xyz(kv(_ROW)['at']) == _CAP
+assert reserve_of({'cobblestone': 60, 'andesite': 4, 'dirt': 9}) == 64
+_T = dt.datetime(2026, 10, 13, tzinfo=dt.timezone.utc)
+_m = lambda n: _T + dt.timedelta(minutes=n)
+assert pit_open([(_m(0), _CAP, 'dug')], _m(11)) == [_CAP], 'an uncovered pit older than 10 min'
+assert pit_open([(_m(0), _CAP, 'dug')], _m(9)) == [], 'not yet'
+assert pit_open([(_m(0), _CAP, 'dug'), (_m(1), _CAP, 'covered')], _m(30)) == [], 'covered'
+assert pit_open([(_m(0), _CAP, 'dug'), (_m(1), _CAP, 'covered'), (_m(5), _CAP, 'dug')], _m(30)) == [_CAP], 'a resume re-opens it'
+assert pit_open([(_m(0), _CAP, 'dug'), (_m(2), _CAP, 'built')], _m(30)) == [], 'a built well closes it'
+assert pit_open([(_m(0), _CAP, 'dug'), (_m(0), _CAP, 'covered')], _m(30)) == [], 'owned but never opened: the by=closed row closes it (Claude r2 P2-B)'
+_OLD, _NEW = (100, 70, 100), (103, 70, 100)
+_ids = {'a': _OLD, 'b': _NEW}
+assert outside_steps([('x', _T, kv('op=place at=101,69,100 id=a'))], _ids) == [], 'judged against its own plan'
+assert outside_steps([('x', _T, kv('op=place at=98,69,100 id=a'))], _ids) == [], 'a g-1 ring cell of the old plan'
+assert outside_steps([('x', _T, kv('op=place at=98,69,100 id=b'))], _ids) == [('x', _T, '98,69,100')], 'the same cell is outside the NEW plan (the false trip r3 found)'
+assert outside_steps([('x', _T, kv('op=place at=110,69,100 id=a'))], _ids) == [('x', _T, '110,69,100')], 'positive control: a real outside placement'
+assert outside_steps([('x', _T, kv('op=place at=101,69,100 id=zz'))], _ids) == [('x', _T, '101,69,100')], 'an unknown plan id is counted, never trusted'
+assert outside_steps([('x', _T, kv('op=clear at=110,69,100 id=a'))], _ids) == [], 'clears are not placements'
+_ep = [('b1', _m(0), 'stranded_escape_try', (1, 2, 3)), ('b1', _m(0), 'stranded_escape_result', (1, 2, 3)), ('b1', _m(3), 'entombed', (1, 2, 3)),
+       ('b1', _m(12), 'entombed', (1, 2, 3)), ('b2', _m(1), 'livelock_escape', (1, 2, 3))]
+assert [(b, t) for b, t, _p in stuck_episodes(_ep)] == [('b1', _m(0)), ('b2', _m(1)), ('b1', _m(12))], 'one per bot and 10 min; results never'
+
+STATE_DIR = '/var/lib/mcai'
+
+
+def recorded_caps(pools, state_dir=STATE_DIR):
+    """{cap (x,y,z): (pool, state)} from each pool's plinth records; state plan|complete only (void/none are not plinths)."""
+    import glob, json
+    out = {}
+    for pool in sorted(pools):
+        for f in sorted(glob.glob('%s/_pool-%s/junkwell-plinth-*.json' % (state_dir, pool))):
+            if '.lease.' in f:
+                continue
+            try:
+                rec = json.load(open(f))
+            except Exception:
+                continue
+            cap = ((rec or {}).get('plan') or {}).get('cap') or {}
+            st = (rec or {}).get('state')
+            if st in ('plan', 'complete') and all(k in cap for k in 'xyz'):
+                out[(int(cap['x']), int(cap['y']), int(cap['z']))] = (pool, st)
+    return out
+
+
+TABLE_REFUSAL = re.compile(r'^order=build reason=well_site .*crafting table')
+
+
+def _selftest_records():
+    import tempfile, json
+    d = tempfile.mkdtemp()
+    os.makedirs(d + '/_pool-board-c'); os.makedirs(d + '/_pool-hive-a')
+    json.dump({'state': 'complete', 'plan': {'cap': {'x': 365, 'y': 73, 'z': 137}}}, open(d + '/_pool-board-c/junkwell-plinth-355_73_147.json', 'w'))
+    json.dump({'by': 'x', 'until': 1}, open(d + '/_pool-board-c/junkwell-plinth-355_73_147.lease.g8.json', 'w'))
+    json.dump({'state': 'void', 'plan': {'cap': {'x': 1, 'y': 2, 'z': 3}}}, open(d + '/_pool-hive-a/junkwell-plinth-0_0_0.json', 'w'))
+    r = recorded_caps({'board-c', 'hive-a'}, d)
+    assert r == {(365, 73, 137): ('board-c', 'complete')}, r
+    assert recorded_caps({'hive-a'}, d) == {}, 'a void record is not a plinth'
+    assert recorded_caps({'board-c'}, d + '/nowhere') == {}, 'no dir, no caps'
+    assert TABLE_REFUSAL.match("order=build reason=well_site nowhere within 2 of the junk well's standing cell to put a crafting table")
+    assert TABLE_REFUSAL.match("order=build reason=well_site nowhere within reach of the junk well's standing cell to put a crafting table; carry 2")
+    assert not TABLE_REFUSAL.match('order=build reason=well_site the junk well site 1,2,3 is no longer valid (walls)')
+
+
+_selftest_records()
+
+if __name__ == '__main__':
+    import json
+    from lib.telemetry import Events
+    man = json.load(open('/srv/mcbots/trial-manifest.json'))
+    ovr = os.environ.get('CANARY_DRYRUN')
+    if ovr:
+        CAN, CV, ISO = ovr.split(':', 2)
+        CUT = dt.datetime.fromisoformat(ISO.replace('Z', '+00:00'))
+    else:
+        CUT = dt.datetime.fromisoformat(man['declared_at'].replace('Z', '+00:00'))
+        CAN = man['canary_pool']; CV = man.get('canary_code_version') or ''
+    CANS = {x.strip() for x in str(CAN).split(',') if x.strip()}
+    now = dt.datetime.now(dt.timezone.utc)
+    elapsed = (now - CUT).total_seconds() / 60
+    assert elapsed > 0 and CAN, 'no canary declared'
+    W = min(elapsed, float(sys.argv[1]) if len(sys.argv) > 1 else 180)
+    END = CUT + dt.timedelta(minutes=W)
+    PRE = CUT - dt.timedelta(minutes=W)
+
+    def load_window(since, until):
+        """Rotation-aware (wellread's pattern): day D's rows live in skill-*.jsonl-<D+1>.gz after the ~23:59Z rotation."""
+        ev = Events.load(paths='/var/log/mcai/*/skill-*.jsonl', since=since, until=until)
+        key = lambda r: (str(r.get('t')), ((r.get('bot') or {}).get('name')), r.get('name'), r.get('detail'))
+        out, seen = [], set()
+        for r in ev.rows:
+            if key(r) not in seen:
+                out.append(r); seen.add(key(r))
+        import glob as _glob
+        for k in range(0, (until.date() - since.date()).days + 1):
+            tag = (since.date() + dt.timedelta(days=k + 1)).strftime('%Y%m%d')
+            for g in _glob.glob('/var/log/mcai/*/skill-*.jsonl-%s.gz' % tag):
+                e2 = Events.load(paths=g, since=since, until=until)
+                for r in e2.rows:
+                    if key(r) not in seen:
+                        out.append(r); seen.add(key(r))
+        return out
+
+    ev_rows = sorted(load_window(PRE, END), key=lambda r: r['t'])
+    bots = defaultdict(set); rows = Counter(); offbuild = 0; n = Counter()
+    caps = {}                                       # canary plinth cap -> pool
+    id_cap = {}                                     # plan id -> its cap (the _plinth rows carry both)
+    steps = []; reserve_breach = []; pit_events = []; retired = []; stuck = []; leak = 0
+    no_well_pre = defaultdict(int); well_pre = defaultdict(int); disposed = Counter()
+    plinth_rows = defaultdict(list); step_ts = defaultdict(list); built_at = set()
+    for r in ev_rows:
+        t = r.get('t'); b = (r.get('bot') or {}).get('name')
+        if t is None or not b:
+            continue
+        arm = 'canary' if pool_of(b) in CANS else 'control'
+        period = 'post' if t >= CUT else 'pre'
+        raw = r.get('raw') or {}
+        ver = ((raw.get('code') or {}).get('version') or '')
+        if arm == 'canary' and period == 'post' and CV and ver and not ver.startswith(CV):
+            offbuild += 1
+            continue
+        bots[(period, arm)].add(b); rows[(period, arm)] += 1
+        k = (r.get('name') or '').lstrip('_'); d = r.get('detail') or ''; f = kv(d)
+        if k == 'well_refused' and d.startswith('order=build ') and (f.get('reason') or '').startswith('no_site'):
+            n[(period, arm, 'no_site')] += 1
+            if period == 'pre':
+                no_well_pre[pool_of(b)] += 1
+        if k == 'well_refused' and TABLE_REFUSAL.match(d):
+            n[(period, arm, 'table_refused')] += 1
+        if k == 'plinth_mode' and period == 'post':
+            if arm == 'control':
+                leak += 1
+            else:
+                n[('post', 'canary', 'licence_mode')] += 1
+        if k == 'dispose_well' and ((raw.get('skill') or {}).get('status') == 'success'):
+            n[(period, arm, 'dispose_success')] += 1
+            if period == 'pre':
+                well_pre[pool_of(b)] += 1
+            if period == 'post' and arm == 'canary':
+                disposed[pool_of(b)] += 1
+        if period != 'post':
+            continue
+        if k == 'plinth':
+            if arm == 'control':
+                leak += 1
+                continue
+            n[('post', 'canary', 'licence')] += 1
+            st = f.get('stage'); cap = xyz(f.get('at'))
+            if cap:
+                caps[cap] = pool_of(b)
+                if f.get('id'):
+                    id_cap[f.get('id')] = cap
+            plinth_rows[pool_of(b)].append((t, st, f))
+            n[('post', 'canary', 'stage_' + str(st))] += 1
+            if st in ('build', 'complete') and int(f.get('placed', '0') or 0) > 0:
+                inv = ((raw.get('bot') or {}).get('inventory') or {})
+                if reserve_of(inv) < STONE_GUARD:
+                    reserve_breach.append((b, t.strftime('%H:%M:%S'), reserve_of(inv)))
+        elif k == 'plinth_step' and arm == 'canary':
+            steps.append((b, t, f))
+            step_ts[f.get('id')].append(t)
+        elif k in ('well_pit_dug', 'well_pit_open', 'well_pit_covered', 'well_built') and arm == 'canary':
+            at = xyz(f.get('at'))
+            kind = {'well_pit_dug': 'dug', 'well_pit_open': 'open', 'well_pit_covered': 'covered', 'well_built': 'built'}[k]
+            if at:
+                pit_events.append((t, at, kind))
+                if k == 'well_built':
+                    built_at.add(at)
+        elif k == 'well_retired':
+            at = xyz(f.get('at'))
+            if at:
+                retired.append((b, t, at))
+        elif k in ('entombed', 'livelock_escape', 'stranded_escape_try', 'stranded_escape_result'):
+            p = ((raw.get('bot') or {}).get('pos') or {})
+            if arm == 'canary' and 'x' in p:
+                stuck.append((b, t, k, (p['x'], p['y'], p['z'])))
+            n[('post', arm, 'stuck_any')] += 1
+
+    rec_caps = recorded_caps(CANS)
+    for c, (pool, st) in rec_caps.items():
+        caps.setdefault(c, pool)
+    rec_complete = {pool for c, (pool, st) in rec_caps.items() if st == 'complete'}
+    outside = [(b, t.strftime('%H:%M:%S'), at) for b, t, at in outside_steps(steps, id_cap)]
+    plinth_caps = set(caps)
+    pit_events = [e for e in pit_events if e[1] in plinth_caps]
+    open_pits = pit_open(pit_events, END)
+    retired_p = [x for x in retired if x[2] in plinth_caps]
+    near = lambda p, cap: max(abs(p[0] - cap[0] - 0.5), abs(p[2] - cap[2] - 0.5)) <= 3.5 and abs(p[1] - cap[1]) <= 5
+    stuck_p = [(b, t.strftime('%H:%M'), p) for b, t, p in stuck_episodes([x for x in stuck if any(near(x[3], c) for c in plinth_caps)])]
+    complete = {caps[c] for c in caps if any(st == 'complete' for _t, st, _f in plinth_rows[caps[c]])} | rec_complete
+    built_plinths = [c for c in plinth_caps if c in built_at]
+
+    hours = W / 60.0
+    nowell_ctl = {p for p in no_well_pre if p not in CANS and well_pre.get(p, 0) == 0}
+    def rate(period, arm, what, pools=None):
+        bs = [x for x in bots[(period, arm)] if pools is None or pool_of(x) in pools]
+        return (n[(period, arm, what)] / (len(bs) * hours)) if bs and hours else float('nan')
+    alt = sum(1 for _b, _t, f in steps if f.get('alt') == '1')
+    paces = []
+    for _id, ts in step_ts.items():
+        ts.sort(); paces += [(b - a).total_seconds() for a, b in zip(ts, ts[1:]) if (b - a).total_seconds() < 120]
+    paces.sort()
+    print('rows walked %d  |  canary %s  sha %s  cutoff %s  window +%d min  |  bots post canary %d control %d  |  offbuild canary rows %d'
+          % (len(ev_rows), CAN, CV, CUT.strftime('%H:%MZ'), W, len(bots[('post', 'canary')]), len(bots[('post', 'control')]), offbuild))
+    print('LIVENESS     licence (canary _plinth_mode rows %d, _plinth rows %d) | stages %s | steps %d (alt stands %d) | plinth caps %s (from records %s)'
+          % (n[('post', 'canary', 'licence_mode')], n[('post', 'canary', 'licence')], {k[2][6:]: v for k, v in n.items() if k[2].startswith('stage_')}, len(steps), alt, sorted(caps), sorted(rec_caps)))
+    print('MECHANISM    build refusals for want of a table cell per bot-h: canary %.3f -> %.3f | control %.3f -> %.3f (report only)'
+          % (rate('pre', 'canary', 'table_refused'), rate('post', 'canary', 'table_refused'), rate('pre', 'control', 'table_refused'), rate('post', 'control', 'table_refused')))
+    print('P1 (gate)    placements outside the shell / a stair line: %d %s' % (len(outside), outside[:3]))
+    print('P2 (gate)    build rows that left the bag under %d reserve stone: %d %s' % (STONE_GUARD, len(reserve_breach), reserve_breach[:3]))
+    print('P3 (gate)    plinth pits uncovered > 10 min at the read end: %d %s | pit events %d' % (len(open_pits), open_pits[:3], len(pit_events)))
+    print('P4 (gate)    _well_retired at a plinth cap: %d' % len(retired_p))
+    print('P5 (gate>1)  stuck/entombed rows within 3 of a plinth: %d %s | INSTRUMENT the same rows anywhere: canary %d control %d'
+          % (len(stuck_p), stuck_p[:3], n[('post', 'canary', 'stuck_any')], n[('post', 'control', 'stuck_any')]))
+    print('P6 (leak)    control _plinth/_plinth_mode rows: %d' % leak)
+    print('INSTRUMENT   control no_site rows post %d (>= 1: no-well towns exist and the query sees them) | control towns without a well (pre) %s'
+          % (n[('post', 'control', 'no_site')], sorted(nowell_ctl)))
+    print('PRIMARY      canary towns complete %s | plinth caps with a built well %s | step pace s p50 %s p90 %s'
+          % (sorted(complete), built_plinths, paces[len(paces) // 2] if paces else '-', paces[int(len(paces) * 0.9)] if paces else '-'))
+    print('             dispose_well successes per bot-h: canary %.3f -> %.3f | control no-well towns %.3f -> %.3f | by canary town %s'
+          % (rate('pre', 'canary', 'dispose_success'), rate('post', 'canary', 'dispose_success'),
+             rate('pre', 'control', 'dispose_success', nowell_ctl), rate('post', 'control', 'dispose_success', nowell_ctl), dict(disposed)))
+    try:
+        if ovr:
+            raise RuntimeError('CANARY_DRYRUN set -- not emitting')
+        sys.path.insert(0, os.path.expanduser('~')); sys.path.insert(0, '/tmp')
+        from readjson import emit
+        nanless = lambda v: None if v != v else round(v, 4)
+        d_can = rate('post', 'canary', 'dispose_success') - rate('pre', 'canary', 'dispose_success')
+        d_ctl = rate('post', 'control', 'dispose_success', nowell_ctl) - rate('pre', 'control', 'dispose_success', nowell_ctl)
+        emit('plinth2read', W, {
+            'rows_canary': rows[('post', 'canary')], 'rows_control': rows[('post', 'control')], 'offbuild_canary': offbuild,
+            'licence_rows': n[('post', 'canary', 'licence')] + n[('post', 'canary', 'licence_mode')], 'licence_mode_rows': n[('post', 'canary', 'licence_mode')],
+            'recorded_plinths': len(rec_caps), 'table_refused_canary_post': n[('post', 'canary', 'table_refused')],
+            'steps_canary': len(steps), 'alt_steps': alt,
+            'planned_canary': n[('post', 'canary', 'stage_planned')], 'complete_towns': len(complete), 'built_plinths': len(built_plinths),
+            'breach_outside_shell': len(outside), 'breach_reserve': len(reserve_breach), 'breach_pit_open_10m': len(open_pits),
+            'breach_retired_plinth': len(retired_p), 'breach_stuck_plinth': len(stuck_p), 'control_plinth_rows': leak,
+            'instrument_control': n[('post', 'control', 'no_site')],
+            'dispose_rate_did': nanless(d_can - d_ctl), 'dispose_success_canary': sum(disposed.values()),
+            'exposure_ready': int(len(built_plinths) >= 1 and W >= 180),
+        })
+    except Exception as e:
+        print('emit failed:', e)
