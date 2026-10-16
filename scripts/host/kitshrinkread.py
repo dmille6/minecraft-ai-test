@@ -34,7 +34,8 @@
 #   GUARDS (reported)   the TOWN-SIDE COST (the change moves kit into town containers): `_deposit_new_chest` rows per bot-h
 #                       by decision, and town deposits whose every tried container answered full per bot-h (only rows whose
 #                       container list is complete -- coverage reported, a cut row is unknown, never "not full"), DiD;
-#                       room orders kind=home per bot-h DiD (expected unchanged); kit re-acquisition per bot-h, crafts and
+#                       room orders kind=home per bot-h DiD (expected unchanged); deposit runs stopped as kit-only per bot-h
+#                       (a model-driven loop); kit re-acquisition per bot-h, crafts and
 #                       pickups separately, DiD; the deposit verb's and withdraw's NET kit moves (inventory_delta), reported.
 import sys, os, json, re, glob
 import datetime as dt
@@ -362,6 +363,8 @@ for r in rows:
             defects['D3_far_trip_for_kit'] += 1
             if len(dex) < 5:
                 dex.append((b, str(t)[:19], 'D3_far_trip_for_kit', det[:160]))
+    if k == 'deposit' and 'town deposit takes them' in det:   # the kit-only refusal at execution (a model-driven loop would show)
+        guard[(arm, period, 'kit_noop')] += 1
     if k == '_deposit_new_chest':
         dm = re.search(r'decision=(\w+)', det)
         guard[(arm, period, 'new_chest:%s:%s' % (dm.group(1) if dm else '?', st))] += 1
@@ -449,6 +452,7 @@ for key in nchest:
     print('             ' + gline(key))
 print('             positive controls: all craft successes %s | all items picked up %s' % (
     {'%s/%s' % k[:2]: v for k, v in sorted(ctl.items()) if k[2] == 'craft'}, {'%s/%s' % k[:2]: v for k, v in sorted(ctl.items()) if k[2] == 'pickup'}))
+print('             ' + gline('kit_noop') + '  (deposit runs stopped as kit-only: a model loop would show here)')
 print('             ' + gline('reacq_craft'))
 print('             ' + gline('reacq_pickup'))
 print('             net kit moves by the deposit verb / withdraw (post, reported): %s' % ({'%s/%s/%s' % k: v for k, v in sorted(other_moves.items())} or '-'))
@@ -471,7 +475,7 @@ try:
         'room_home_did': nan(gdid('room_home')), 'td_all_full_did': nan(gdid('td_all_full')) if td_ok else None,
         'td_rows_complete': sum(v for k, v in td_cov.items() if k[2] == 'complete'), 'td_rows_unknown': sum(v for k, v in td_cov.items() if k[2] == 'unknown'),
         'ladder_min_mismatch': int(bool(ladder_min_seen - {LADDER_ESCAPE_MIN})),
-        'reacq_craft_did': nan(gdid('reacq_craft')), 'reacq_pickup_did': nan(gdid('reacq_pickup')),
+        'reacq_craft_did': nan(gdid('reacq_craft')), 'kit_noop_did': nan(gdid('kit_noop')), 'reacq_pickup_did': nan(gdid('reacq_pickup')),
         'canary_bot_h_post': round(tw[('post', 'canary')][0] / 3600, 2), 'control_bot_h_post': round(tw[('post', 'control')][0] / 3600, 2),
         'rows': len(rows),
     })

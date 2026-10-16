@@ -411,9 +411,10 @@ export function clearWithdrawHolds () { HOLDS = {} }
 export function depositDue ({ bankable, distHome, storageWithin48 = false,
                               onDepositMilestone = false, occupiedSlots = 0,
                               minBankable = 12, nearHome = 96, kitBankable = 0 }) {
-  // THE KIT NEVER MAKES A WALK (kitshrink-01; Codex design r2 P2): without storage in reach the smaller kit's share
-  // (bankableInventory's `kit`) does not count -- a bot 80 blocks out holding only ladders is not sent to the chest for them.
-  if (!storageWithin48) bankable = Math.max(0, (Number(bankable) || 0) - Math.max(0, Number(kitBankable) || 0))
+  // THE KIT IS NEVER THE REASON FOR A DEPOSIT (kitshrink-01; Codex design r2 P2, code r5 P2): the smaller kit's share
+  // (bankableInventory's `kit`) never counts here, storage in reach or not -- every deposit walks (to the chest, or home),
+  // and the kit leaves the bag only at the town deposit or alongside other surplus.
+  bankable = Math.max(0, (Number(bankable) || 0) - Math.max(0, Number(kitBankable) || 0))
   // NOTHING BANKABLE IS NEVER DUE (nojunk SYNTHESIS: reject an empty plan before walking; both reviews of the cobble rule,
   // which makes it common -- a full bag whose cobble is all reserve): at 30+ slots this said "deposit" with 0 bankable.
   if (!(bankable > 0)) return false

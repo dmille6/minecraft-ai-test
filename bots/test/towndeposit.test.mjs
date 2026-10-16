@@ -1084,9 +1084,20 @@ test('KITSHRINK DEPOSIT VERB (Codex code r2 P2): a kit-only plan with no chest t
     const w = world({ items, containers: [], botAt: new Vec3(60, 70, 0) }); w.bot.findBlock ??= () => null
     const r = await SKILLS.deposit.run({ bot: w.bot }, args, null)
     assert.equal(r.status, 'no_effect', JSON.stringify(r))
-    assert.match(r.detail, /never walked to/); assert.doesNotMatch(r.detail, /\d/)
+    assert.match(r.detail, /town deposit takes them/); assert.doesNotMatch(r.detail, /\d/)
     assert.equal(w.st.walks.length, 0, `no walk: ${JSON.stringify(w.st.walks)}`)
     assert.equal(sumOf(w.bot.inventory.items(), 'torch'), 20)
+  }
+  // ...and with a chest in reach (Codex code r5 P2): no walk to it either, the chest is untouched
+  {
+    const items = bag([['torch', 20], ['ladder', 3], ['crafting_table', 1], ...filler(20)])
+    const c = chestAt(48)   // a town container (depositTargetOk: within 16 of home is not needed for the scan) 12 blocks from the bot
+    const w = world({ items, containers: [c], botAt: new Vec3(60, 70, 0) })
+    w.bot.findBlock = ({ matching, maxDistance = 48 } = {}) => { const b = w.bot.blockAt(c.pos); return b && w.bot.entity.position.distanceTo(c.pos) <= maxDistance && matching(b) ? b : null }
+    assert.ok(w.bot.findBlock({ matching: () => true }), 'positive control: the chest is in reach of the scan')
+    const r = await SKILLS.deposit.run({ bot: w.bot }, {}, null)
+    assert.equal(r.status, 'no_effect', JSON.stringify(r)); assert.equal(w.st.walks.length, 0, 'no walk to the chest')
+    assert.equal(sumOf(c.items, 'torch'), 0)
   }
   // POSITIVE CONTROL: the same empty town with a log surplus walks home (the walk is for the logs, as today)
   const items = bag([['torch', 20], ['oak_log', 64], ['oak_log', 64], ['oak_log', 64], ['crafting_table', 1], ...filler(20)])

@@ -2678,12 +2678,13 @@ async function deposit(ctx, { item = null }, signal, { noRecovery = false, prefe
     if (b && isContainer(b) && depositTargetOk(hv, b.position) && (!cobbleOnly || inTown(hv, b.position))) chestBlock = b
   }
   chestBlock = chestBlock || findChest()
-  // THE KIT NEVER MAKES A WALK, AT EXECUTION TOO (kitshrink-01; Codex code r2 P2): admission's scan may have counted a chest
-  // this run skips (a backoff, a full far chest), so a plan of nothing but torches and ladders stops here, before the walk home.
-  if (!chestBlock) {
+  // THE KIT IS NEVER THE REASON FOR A DEPOSIT, AT EXECUTION TOO (kitshrink-01; Codex code r2/r5 P2): a plan of nothing but
+  // torches and ladders stops here, before any walk -- to a chest in reach or home -- and so before any full-chest recovery
+  // (Claude code r3 P2: the kit never opens a new chest). The town deposit takes them.
+  {
     let kitOnly = false
     try { const p = depositPlan(bot.inventory.items(), item, { wants: bot.currentWants ?? [] }); kitOnly = p.length > 0 && p.every(e => KIT_BANK.includes(e.name)) } catch { kitOnly = false }
-    if (kitOnly) return { status: 'no_effect', failClass: null, detail: 'only torches and ladders to bank and no chest in reach: they are banked at the chest, never walked to -- keep working' }
+    if (kitOnly) return { status: 'no_effect', failClass: null, detail: 'only torches and ladders to bank: the town deposit takes them, a deposit never runs for them -- keep working' }
   }
   if (!chestBlock) {
     // The town chest lives at home, and a 48-block scan cannot see it from a
@@ -2724,7 +2725,7 @@ async function deposit(ctx, { item = null }, signal, { noRecovery = false, prefe
   const viaRecovery = (res, outcome, firstStatus = null) => {
     if (noRecovery) return res
     const plan = depositPlan(bot.inventory.items(), item, { wants: bot.currentWants ?? [] })
-    if (!plan.length || plan.every(noNewChestFor)) return res   // cobble never grows the bank -- nor does the kit (kitshrink-01)
+    if (!plan.length || plan.every(e => isCobble(e.name))) return res   // cobble never grows the bank
     return fullChestRecovery(ctx, { item, signal, first: chestBlock, firstOutcome: outcome, firstStatus, firstFail: res, exclude,
                                     eligible: plan.reduce((n, e) => n + e.count, 0), bagBefore, startedAt })
   }
@@ -2732,7 +2733,7 @@ async function deposit(ctx, { item = null }, signal, { noRecovery = false, prefe
     const st = townStatus(bot, chestBlock.position)
     const plan0 = depositPlan(bot.inventory.items(), item, { wants: bot.currentWants ?? [] })
     // a cobble-only plan never starts the recovery (cobble never grows the bank): it tries this chest as it is
-    if (st && st !== 'visit' && plan0.length && !plan0.every(noNewChestFor)) {
+    if (st && st !== 'visit' && plan0.length && !plan0.every(e => isCobble(e.name))) {
       const p = chestBlock.position
       return viaRecovery({ status: 'failed', failClass: 'storage_full', detail: `the town remembers the chest at ${p.x},${p.y},${p.z} as ${st}` }, 'memory', st)
     }
@@ -3104,16 +3105,6 @@ async function deposit(ctx, { item = null }, signal, { noRecovery = false, prefe
   // lack of it. This is also the only version of the fix that respects the
   // owner's standing rule: adding chests by RCON would be changing the world to
   // fix a bot; teaching bots to build storage is a capability.
-  // THE KIT NEVER OPENS A NEW CHEST (kitshrink-01; Claude code r3 P2): when all that is left to bank is torches and ladders
-  // (and cobble, which never grows the bank either), the full chest is the answer -- no carried chest placed, none crafted.
-  if (!noRecovery) {
-    let rest = []
-    try { rest = depositPlan(bot.inventory.items(), item, { wants: bot.currentWants ?? [] }) } catch { rest = [] }
-    if (rest.length && rest.every(noNewChestFor) && rest.some(e => KIT_BANK.includes(e.name))) {
-      return { status: 'no_effect', failClass: null,
-               detail: 'the chest is full and only torches and ladders are left to bank: they never open a new chest -- keep working' }
-    }
-  }
   if (!noRecovery) return fullChestRecovery(ctx, { item, signal, first: chestBlock, firstMeta: meta, exclude, eligible, bagBefore, startedAt })
   return { status: 'failed', failClass: 'storage_full',
            detail: `had ${eligible} item(s) to hand over and the chest took none — it is full` }
@@ -5209,26 +5200,12 @@ export function adviseDeposit (bot, items, keep = []) {
  * deposit admission would refuse (Codex, chestfull-02 round 1: craft -> deposit -> refusal, with the deep chest now
  * not storage). The deposit milestone's own allowance is not known here, so this is never looser than admission.
  */
-/** A plan entry that never starts the full-chest recovery: cobble (the 10-04 SYNTHESIS) and the smaller kit (kitshrink-01). */
-export const noNewChestFor = e => isCobble(e?.name) || KIT_BANK.includes(e?.name)
 /**
- * THE KIT NEVER MAKES A WALK (kitshrink-01; Codex code r1 P2-1): a deposit the room advice or order names walks to the chest
- * when none is within 48, so the kit (kitshrink.mjs KIT_NO_TRIP) joins `keep` unless a usable chest is in reach. Never
- * throws: a world that cannot be asked keeps the kit.
+ * THE KIT IS NEVER A ROOM REMEDY (kitshrink-01; Codex code r1/r5 P2): every deposit the room advice or order names walks (to
+ * the chest, or home), so the kit (kitshrink.mjs KIT_NO_TRIP) always joins `keep`. The town deposit takes it.
  */
-export function kitKeep (bot, keep = []) {
-  return usableChestNear(bot) ? keep : [...(keep ?? []), ...KIT_NO_TRIP]
-}
-/**
- * A CHEST THE DEPOSIT WOULD USE FROM HERE, judged as deposit()'s own scan judges it (Codex code r2 P2): a container within 48,
- * a town target (depositTargetOk), and not in this bot's container backoff (bot.skipContainers). Never throws: false.
- */
-export function usableChestNear (bot) {
-  try {
-    const home = homeVec(), now = Date.now()
-    return !!bot.findBlock?.({ maxDistance: 48, matching: b => ['chest', 'barrel', 'trapped_chest'].includes(bot.registry?.blocks?.[b.type]?.name) &&
-      (!b.position || (depositTargetOk(home, b.position) && !((bot.skipContainers?.get?.(`${b.position.x},${b.position.y},${b.position.z}`) ?? 0) > now))) })
-  } catch { return false }
+export function kitKeep (_bot, keep = []) {
+  return [...(keep ?? []), ...KIT_NO_TRIP]
 }
 export function depositWorthIt (bot, items = []) {
   try {
