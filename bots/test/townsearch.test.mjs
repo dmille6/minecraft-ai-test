@@ -46,7 +46,7 @@ async function withMutant (p, old, neu, fn) {
   assert.ok(src.split(old).length === 2, 'the mutation target is not unique; the mutant is ambiguous')
   const out = new URL(`./_mutant-${process.pid}-${Math.random().toString(36).slice(2)}.mjs`, import.meta.url)
   writeFileSync(out, src.replace(old, neu).replace(/from '\.\//g, "from '../src/"))
-  try { return await fn(await import(out.href)) } finally { try { unlinkSync(out) } catch {} }
+  try { return await fn({ ...(await import(out.href)), __mutantPath: out.href }) } finally { try { unlinkSync(out) } catch {} }   // + its own path
 }
 /** Did the mutant change the behaviour the test pins? -> true when the test FAILS under the mutant (killed). */
 const killedBy = async fn => { try { await fn(); return false } catch (e) { if (e instanceof assert.AssertionError) return true; throw e } }   // a crash is not a kill
@@ -83,12 +83,12 @@ function farTown ({ bag = [stack('crafting_table', 1)], far = [tool('stone_picka
 const pick = w => SKILLS.withdraw_pick.run({ bot: w.bot }, {}, sig())
 
 // ------------------------------------------------------------------------------------------------- the pure order
-await t('ORDER: the journal\'s holders first (most covered, then nearest), then the unknown nearest first; a miss or a count of none is out', () => {
+await t('ORDER: the journal\'s holders first (most covered, then nearest), then the unknown nearest first; a miss -- or, for sticks, a count of none -- is out', () => {
   const now = 1e12
   const C = [{ k: 'a', d: 3 }, { k: 'b', d: 9 }, { k: 'c', d: 1 }, { k: 'd', d: 5 }, { k: 'e', d: 2 }, { k: 'f', d: 4 }]
-  const counts = { pick: { b: { n: 1, at: now - 60_000 }, d: { n: 2, at: now - 60_000 }, e: { n: 0, at: now - 60_000 } } }
-  const misses = { pick: { c: now - 60_000 } }
-  const o = townSearchOrder(C, ['pick'], { counts, misses, now })
+  const counts = { stick: { b: { n: 1, at: now - 60_000 }, d: { n: 2, at: now - 60_000 }, e: { n: 0, at: now - 60_000 } } }
+  const misses = { stick: { c: now - 60_000 } }
+  const o = townSearchOrder(C, ['stick'], { counts, misses, now })
   assert.deepEqual(o.map(x => x.k), ['d', 'b', 'a', 'f'], JSON.stringify(o))
   assert.deepEqual(o.map(x => x.tier), [0, 0, 1, 1])
   // d (cover 1, d=5) before b (cover 1, d=9): with want 1 both cover 1 -> nearest first
@@ -96,27 +96,38 @@ await t('ORDER: the journal\'s holders first (most covered, then nearest), then 
 })
 await t('ORDER: a miss ends at the TTL or at a deposit since; a count of none ends at the TTL or a deposit since; a positive count NEWER than a miss wins', () => {
   const now = 1e12, C = [{ k: 'x', d: 1 }]
-  const ord = o => townSearchOrder(C, ['pick'], { now, ...o }).map(r => `${r.k}${r.tier}`)
-  assert.deepEqual(ord({ misses: { pick: { x: now - 60_000 } } }), [], 'a live miss: out')
-  assert.deepEqual(ord({ misses: { pick: { x: now - SEARCH_MISS_TTL_MS } } }), ['x1'], 'an expired miss: unknown again')
-  assert.deepEqual(ord({ misses: { pick: { x: now - 60_000 } }, tookAt: { x: now - 1_000 } }), ['x1'], 'a deposit since the miss: unknown again')
-  assert.deepEqual(ord({ counts: { pick: { x: { n: 0, at: now - 60_000 } } } }), [], 'a recent count of none: out')
-  assert.deepEqual(ord({ counts: { pick: { x: { n: 0, at: now - SEARCH_MISS_TTL_MS } } } }), ['x1'], 'an old count of none: unknown')
-  assert.deepEqual(ord({ counts: { pick: { x: { n: 0, at: now - 60_000 } } }, tookAt: { x: now - 1_000 } }), ['x1'], 'a deposit since the count of none')
-  assert.deepEqual(ord({ counts: { pick: { x: { n: 1, at: now - 1_000 } } }, misses: { pick: { x: now - 60_000 } } }), ['x0'], 'counted holding one AFTER the miss: first')
-  assert.deepEqual(ord({ counts: { pick: { x: { n: 1, at: now - 60_000 } } }, misses: { pick: { x: now - 1_000 } } }), [], 'a miss after the count: out')
-  assert.deepEqual(ord({ counts: { pick: { x: { n: 1, at: now - CC.OBS_TTL_MS } } } }), ['x1'], 'a positive count past the journal\'s TTL: only unknown')
+  const ord = o => townSearchOrder(C, ['stick'], { now, ...o }).map(r => `${r.k}${r.tier}`)
+  assert.deepEqual(ord({ misses: { stick: { x: now - 60_000 } } }), [], 'a live miss: out')
+  assert.deepEqual(ord({ misses: { stick: { x: now - SEARCH_MISS_TTL_MS } } }), ['x1'], 'an expired miss: unknown again')
+  assert.deepEqual(ord({ misses: { stick: { x: now - 60_000 } }, tookAt: { x: now - 1_000 } }), ['x1'], 'a deposit since the miss: unknown again')
+  assert.deepEqual(ord({ counts: { stick: { x: { n: 0, at: now - 60_000 } } } }), [], 'a recent count of none: out')
+  assert.deepEqual(ord({ counts: { stick: { x: { n: 0, at: now - SEARCH_MISS_TTL_MS } } } }), ['x1'], 'an old count of none: unknown')
+  assert.deepEqual(ord({ counts: { stick: { x: { n: 0, at: now - 60_000 } } }, tookAt: { x: now - 1_000 } }), ['x1'], 'a deposit since the count of none')
+  assert.deepEqual(ord({ counts: { stick: { x: { n: 1, at: now - 1_000 } } }, misses: { stick: { x: now - 60_000 } } }), ['x0'], 'counted holding one AFTER the miss: first')
+  assert.deepEqual(ord({ counts: { stick: { x: { n: 1, at: now - 60_000 } } }, misses: { stick: { x: now - 1_000 } } }), [], 'a miss after the count: out')
+  assert.deepEqual(ord({ counts: { stick: { x: { n: 1, at: now - CC.OBS_TTL_MS } } } }), ['x1'], 'a positive count past the journal\'s TTL: only unknown')
+})
+await t('ORDER (Codex r1 P1): the journal cannot count every pickaxe (iron, golden, diamond), every cobblestone the recipe takes (blackstone) or every plank -- a count of 0 is NOT a look for those; only a miss rules them out', () => {
+  const now = 1e12, C = [{ k: 'x', d: 1 }]
+  for (const need of ['pick', 'cobblestone', 'planks']) {
+    assert.equal(W.NEED_COUNT_COMPLETE[need], false, need)
+    assert.deepEqual(townSearchOrder(C, [need], { now, counts: { [need]: { x: { n: 0, at: now - 60_000 } } } }).map(r => `${r.k}${r.tier}`), ['x1'], `${need}: a count of 0 stays unknown`)
+    assert.deepEqual(townSearchOrder(C, [need], { now, misses: { [need]: { x: now - 60_000 } } }).map(r => r.k), [], `${need}: a miss is out`)
+    assert.deepEqual(townSearchOrder(C, [need], { now, counts: { [need]: { x: { n: 1, at: now - 60_000 } } } }).map(r => `${r.k}${r.tier}`), ['x0'], `${need}: a positive count ranks first`)
+  }
+  assert.equal(W.NEED_COUNT_COMPLETE.stick, true, 'positive control: sticks are counted completely')
+  assert.equal(needCount({ v: 2, n: 0, m: { cobble: 0 } }, 'pick'), 0, 'an iron pickaxe shows as 0 stone/wooden: why a 0 cannot rule it out')
 })
 await t('ORDER: several needs -- out only when out for EVERY need; ranked by how much of the deficit the counts cover', () => {
   const now = 1e12
   const C = [{ k: 'a', d: 1 }, { k: 'b', d: 2 }, { k: 'c', d: 3 }, { k: 'd', d: 4 }]
   const at = now - 60_000
   const counts = { stick: { a: { n: 0, at }, b: { n: 64, at }, c: { n: 1, at }, d: { n: 0, at } }, cobblestone: { a: { n: 0, at }, b: { n: 0, at }, c: { n: 64, at }, d: { n: 0, at } } }
-  const misses = { stick: {}, cobblestone: {} }
+  const misses = { stick: {}, cobblestone: { a: at, d: at } }
   const o = townSearchOrder(C, ['stick', 'cobblestone'], { counts, misses, now, want: { stick: 2, cobblestone: 3 } })
-  assert.deepEqual(o.map(r => [r.k, r.cover]), [['c', 4], ['b', 2]], 'c covers 1 stick + 3 cobble; b 2 sticks; a and d hold none of either')
-  const half = townSearchOrder(C, ['stick', 'cobblestone'], { counts: { stick: counts.stick, cobblestone: {} }, misses, now })
-  assert.deepEqual(half.map(r => r.k), ['b', 'c', 'a', 'd'], 'cobble never counted anywhere: every container stays (unknown for cobble)')
+  assert.deepEqual(o.map(r => [r.k, r.cover]), [['c', 4], ['b', 2]], 'c covers 1 stick + 3 cobble; b 2 sticks; a and d: a count of no sticks and a cobble miss')
+  const half = townSearchOrder(C, ['stick', 'cobblestone'], { counts, misses: { stick: {}, cobblestone: { a: at } }, now, want: { stick: 2, cobblestone: 3 } })
+  assert.deepEqual(half.map(r => r.k), ['c', 'b', 'd'], 'd counted 0 cobble but never missed: unknown for cobble (blackstone), so it stays')
 })
 await t('ORDER: never the same container twice, nothing skipped comes back, no needs -> nothing', () => {
   const C = [{ k: 'a', d: 1 }, { k: 'a', d: 1 }, { k: 'b', d: 2 }, { k: 'c', d: 0 }]
@@ -250,7 +261,7 @@ await t('A FULL CHEST HOLDING THE STICKS is looked in once per order, not once p
   w.stock(...c, [...Array.from({ length: 26 }, () => stack('cobblestone', 64)), stack('stick', 30)])
   journalCount(kOf(c), { stick: 30, cobble: 1664 })
   const r = await pick(w)
-  assert.equal(w.spy.opened.filter(k => k === kOf(c)).length, 1, `${w.spy.opened}`)
+  assert.equal(w.spy.opened.filter(k => k === kOf(c)).length, 2, `once per pass (the journal cannot rule out an iron pickaxe): ${w.spy.opened}`)
   assert.equal(r.failClass, 'chest_no_room', r.detail)
 })
 
@@ -289,7 +300,7 @@ await t('THE CHAIN: townOrder issues, the order fails short only after the WHOLE
   const n0 = w.spy.opened.length
   const r = await pick(w)
   assert.equal(r.status, 'success', r.detail)
-  assert.deepEqual(w.spy.opened.slice(n0), [kOf(FAR)], 'straight to the chest the journal counted')
+  assert.deepEqual(w.spy.opened.slice(n0), [kOf(FAR), kOf(FAR)], 'only the chest that took items: once for a pickaxe (a deposit may bring one), once for the sticks')
   assert.equal(count(w.bag, 'stick'), 2)
 })
 
@@ -313,6 +324,26 @@ await t('LIDCLEAR: the pickaxe in a far chest with cobblestone on its lid -- the
   assert.equal(r.status, 'success', r.detail)
   assert.equal(w.nameAt(FAR[0], 65, FAR[2]), 'air', 'the lid was dug')
   assert.deepEqual(w.spy.opened, [kOf(FAR)])
+})
+
+// ------------------------------------------------------------------------------------- the pickaxe pass's clock
+await t('THE INGREDIENTS\' RESERVE (Codex r1 P2): the pickaxe pass\'s clock ends WITHDRAW_INGREDIENT_RESERVE_MS before the order\'s, for every part of a visit', () => {
+  const now = 1_000_000
+  const pc = W.passClock(now + 55_000, W.WITHDRAW_INGREDIENT_RESERVE_MS, () => now)
+  assert.equal(pc.deadline, now + 15_000)
+  assert.equal(pc.msLeft(30_000), 15_000, 'a 30 s walk gets 15 s: the reserve is never spent')
+  assert.equal(pc.msLeft(8_000), 8_000)
+  assert.equal(W.passClock(now + 30_000, W.WITHDRAW_INGREDIENT_RESERVE_MS, () => now).msLeft(Infinity), 0, 'inside the reserve: nothing')
+  assert.equal(W.passClock(now + 30_000, 0, () => now).msLeft(Infinity), 30_000, 'no reserve: the whole clock')
+})
+await t('THE RESERVE IS WIRED (structural: a walk\'s real timeout cannot be driven here): the pickaxe pass gates and runs its visits on passClock, the ingredient pass on the order\'s clock', () => {
+  const src = readFileSync(SKILLS_PATH, 'utf8').replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '')
+  const run = src.slice(src.indexOf('async function withdrawPickRun'), src.indexOf('async function withdrawPickRun') + 9000)
+  assert.ok(src.indexOf('async function withdrawPickRun') > 0, 'anchor')
+  assert.match(run, /const pc = passClock\(deadline, WITHDRAW_INGREDIENT_RESERVE_MS\)/)
+  assert.match(run, /n < WITHDRAW_PICK_VISITS && next\.block && pc\.msLeft\(Infinity\) >= WITHDRAW_VISIT_MIN_MS/)
+  assert.match(run, /withdrawVisit\(ctx, cb, pickDecision, signal, pc\.msLeft, pc\.deadline - 2_000\)/)
+  assert.match(run, /withdrawVisit\(ctx, cb, ingredientDecision, signal, msLeft, deadline - 2_000\)/)
 })
 
 // ------------------------------------------------------------------------------------------- anchored mutants
@@ -348,7 +379,7 @@ await t('MUTANTS (skills.mjs): each removes one part of the search and a behavio
     w.stock(...c, [...Array.from({ length: 26 }, () => stack('cobblestone', 64)), stack('stick', 30)])
     journalCount(kOf(c), { stick: 30, cobble: 1664 })
     await S.SKILLS.withdraw_pick.run({ bot: w.bot }, {}, sig())
-    assert.equal(w.spy.opened.filter(k => k === kOf(c)).length, 1)
+    assert.equal(w.spy.opened.filter(k => k === kOf(c)).length, 2)
   }
   const pickInIngredients = async S => {
     const w = farTown({ bag: [stack('crafting_table', 1), stack('cobblestone', 3)], far: [stack('dirt', 1)] })
@@ -360,16 +391,52 @@ await t('MUTANTS (skills.mjs): each removes one part of the search and a behavio
     const r = await S.SKILLS.withdraw_pick.run({ bot: w.bot }, {}, sig())
     assert.equal(r.status, 'success'); assert.equal(count(w.bag, 'iron_pickaxe'), 1)
   }
-  for (const [name, fn] of [['journalFirst', journalFirst], ['resumes', resumes], ['failSkip', failSkip], ['fullOnce', fullOnce], ['pickInIngredients', pickInIngredients]]) {
+  const wiring = async S => {   // the structural test above, run against the mutant's source
+    const src = readFileSync(new URL(S.__mutantPath ?? SKILLS_PATH), 'utf8')
+    assert.match(src, /withdrawVisit\(ctx, cb, pickDecision, signal, pc\.msLeft, pc\.deadline - 2_000\)/)
+  }
+  const ingPassMiss = async S => {   // a big town: the ingredient pass's opens are pickaxe misses too, so order 2 opens none of order 1's
+    freshPool(); clearWithdrawHolds()
+    const w = withServer(fakeWorld({ bag: [stack('crafting_table', 1), stack('cobblestone', 3)] }))
+    for (let x = -12; x <= 12; x += 3) for (let z = -12; z <= 12; z += 3) if (Math.hypot(x, z) <= 13 && !(x === 6 && z === 0)) { w.set(x, 64, z, 'chest'); w.stock(x, 64, z, [stack('dirt', 5)]) }
+    await S.SKILLS.withdraw_pick.run({ bot: w.bot }, {}, sig())
+    const first = new Set(w.spy.opened)
+    assert.equal(first.size, WITHDRAW_PICK_VISITS + WITHDRAW_INGREDIENT_VISITS)
+    later(WITHDRAW_COOLDOWN_MS + WITHDRAW_BACKOFF_MS)
+    const n = w.spy.opened.length
+    await S.SKILLS.withdraw_pick.run({ bot: w.bot }, {}, sig())
+    assert.deepEqual(w.spy.opened.slice(n).filter(k => first.has(k)), [], 'order 2 re-opened none of order 1\'s containers')
+  }
+  const gateSeesCount = async S => {
+    const w = farTown({ far: [stack('dirt', 1)], bag: [stack('crafting_table', 1), stack('cobblestone', 3), stack('stick', 2)] })
+    for (const c of [...CHESTS, FAR]) CF.updateTownMemory(memDir(), CF.townKey(HOME), null, e => CF.notePickMisses(e, [kOf(c)]))
+    assert.equal(S.townPickMiss(w.bot), true, 'every container a live miss')
+    later(1_000); journalCount(kOf(FAR), { stone_pickaxe: 1 })
+    assert.equal(S.townPickMiss(w.bot), false, 'a newer count of a pickaxe re-opens the gate')
+  }
+  const gateCoverage = async S => {
+    const w = farTown({ far: [stack('dirt', 1)] })
+    for (const c of [...CHESTS, FAR]) CF.updateTownMemory(memDir(), CF.townKey(HOME), null, e => CF.notePickMisses(e, [kOf(c)]))
+    assert.equal(S.townPickMiss(w.bot), true, 'positive control: all loaded, all missed')
+    w.bot.world = { getColumnAt: () => null }                      // a column under the town square not loaded
+    later(25_000)                                                   // past the scan's 20 s cache
+    assert.equal(S.townPickMiss(w.bot), false, 'an unloaded town column: coverage cannot be claimed')
+  }
+  for (const [name, fn] of [['journalFirst', journalFirst], ['resumes', resumes], ['failSkip', failSkip], ['fullOnce', fullOnce], ['pickInIngredients', pickInIngredients],
+                            ['gateSeesCount', gateSeesCount], ['gateCoverage', gateCoverage], ['ingPassMiss', ingPassMiss]]) {
     const S = await import('../src/skills.mjs')
     await fn(S).catch(e => { throw new Error(`positive control ${name} fails on the real code: ${e.message}`) })
   }
   const M = [
-    ['the journal\'s counts ignored', 'counts: view.counts, misses', 'counts: {}, misses', journalFirst],
-    ['the misses ignored', 'misses: view.misses, tookAt', 'misses: {}, tookAt', resumes],
+    ['the journal\'s counts ignored', '{ counts: view.counts, misses: view.misses, tookAt: view.tookAt, skip: view.skip, want, now: view.now }', '{ counts: {}, misses: view.misses, tookAt: view.tookAt, skip: view.skip, want, now: view.now }', journalFirst],
+    ['the misses ignored', '{ counts: view.counts, misses: view.misses, tookAt: view.tookAt, skip: view.skip, want, now: view.now }', '{ counts: view.counts, misses: {}, tookAt: view.tookAt, skip: view.skip, want, now: view.now }', resumes],
+    ['the gate ignores the journal', '{ counts: view.counts, misses: view.misses, tookAt: view.tookAt, skip: view.skip, now: view.now }).length === 0', '{ counts: {}, misses: view.misses, tookAt: view.tookAt, skip: view.skip, now: view.now }).length === 0', gateSeesCount],
+    ['the gate ignores coverage', '  if (!view.coverage || !view.containers.length) return false', '  if (!view.containers.length) return false', gateCoverage],
     ['no skip after a visit that could not look inside', '  bot.withdrawSearchSkip.set(containerKey(bot, cb.position), now + SEARCH_FAIL_SKIP_MS)', '  void 0', failSkip],
     ['the order\'s own opens not excluded', 'if (halves.some(h => tried.has(h)) ||', 'if (', fullOnce],
     ['the ingredient pass leaves a pickaxe', '    if (p?.tool) return p   // no room', '    if (false) return p   // no room', pickInIngredients],
+    ['the ingredient pass writes no pickaxe miss', '{ if (!pickSeen) notePickMisses(e, keys); noteIngredientMisses', '{ noteIngredientMisses', ingPassMiss],
+    ['the pickaxe visit on the order\'s whole clock', 'withdrawVisit(ctx, cb, pickDecision, signal, pc.msLeft, pc.deadline - 2_000)', 'withdrawVisit(ctx, cb, pickDecision, signal, msLeft, deadline - 2_000)', wiring],
   ]
   for (const [name, old, neu, fn] of M) {
     const killed = await withMutant(SKILLS_PATH, old, neu, S => killedBy(() => fn(S)))
@@ -380,9 +447,9 @@ await t('MUTANTS (withdrawpick.mjs): the pure order\'s rules', async () => {
   const now = 1e12
   const C = [{ k: 'a', d: 3 }, { k: 'b', d: 9 }, { k: 'c', d: 1 }]
   const probe = Wm => {
-    const o = Wm.townSearchOrder(C, ['pick'], { now, counts: { pick: { b: { n: 1, at: now - 1_000 }, a: { n: 0, at: now - 1_000 } } }, misses: { pick: { c: now - 1_000 } } })
+    const o = Wm.townSearchOrder(C, ['stick'], { now, counts: { stick: { b: { n: 1, at: now - 1_000 }, a: { n: 0, at: now - 1_000 } } }, misses: { stick: { c: now - 1_000 } } })
     assert.deepEqual(o.map(r => r.k), ['b'])
-    const p = Wm.townSearchOrder(C, ['pick'], { now, misses: { pick: { c: now - 1_000 } }, tookAt: { c: now - 10 } })
+    const p = Wm.townSearchOrder(C, ['stick'], { now, misses: { stick: { c: now - 1_000 } }, tookAt: { c: now - 10 } })
     assert.deepEqual(p.map(r => r.k), ['c', 'a', 'b'])
   }
   probe(W)
