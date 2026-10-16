@@ -75,6 +75,20 @@ tools ~/estel on 10.0.0.31.
 
 ---
 
+## 10-16 23:30Z — LIDCLEAR-01 KEPT (+360, 23:05Z) and PROMOTED: FLEET 0152baeb (23:14Z); merged to main; townsearch-01 next
+- KEEP +360: deaths 1 (0.008/bh over 120 bot-h) vs control 6 (0.025/bh over 240); exposure_ready 1. +180: 14 cobble lids dug,
+  count_town lid_blocked 1 of 25 in the 4 canary towns (board-a, board-b, hive-c, placebo-b; was most rows). One dirt lid refused
+  (cobblestone-only by design; widen if dirt lids recur). Merge conflict: lidcensus.mjs (branch static import) and
+  sandbox/well/stock-e2e.cjs (union: cobblecap + lidrecount scenes).
+- **Queue (variants ready for each likely tip):** townsearch-01 (27908be4 on 0152baeb) -> plinth-02 (623e92b9 / 0152baeb 0fe92258 /
+  27908be4 534aeec0) -> toolkit-01 (... / 27908be4 7f99ba8e / 534aeec0 da978c18) -> kitshrink-01 (623e92b9 359a9213 / 0152baeb
+  51033241; needs a variant on toolkit's tip) -> bamboo-02 -> treefarm-02 -> smeltjob-01 -> townfloor-01 -> minewell-02 -> monument-01
+  -> stonewithdraw-01 -> shaft-01.
+- kitshrink-01: banks torches + ladders (< 26) at the town deposit only; ~140 slots fleet-wide. Stations/bucket/chest kept (tech-ladder
+  rungs count only while held; full-town recovery places the carried chest). Junk items linger only in towns without a working well.
+- Follow-ups noted: place() has no well/plinth exclusion for crafting tables (every town craft); the well order reaches bots deep in
+  mines (horizontal distance only); dirt lids.
+
 ## 10-16 ~17:15Z — PLINTH-01 CLOSED INCONCLUSIVE early (unexposable); torn down (10 bots on 623e92b, 0 drop-ins); lidclear-01 launching
 - Both plinths built complete (board-c 60/60, hive-d 66/66, stair=[]), but build_well cannot finish the well on top: 23/30
   attempts "nowhere within 2 of the junk well's standing cell to put a crafting table" (trapdoor craft, skills.mjs ~8423), 5 "could
