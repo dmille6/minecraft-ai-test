@@ -13,6 +13,8 @@
 import { FLOOR, remaining, tier } from './toolfor.mjs'
 import { depositPlan, DEPOSIT_VALUE } from './bankable.mjs'
 import { depositFreesSlot } from './craftroom.mjs'
+import { countOf, OBS_TTL_MS } from './cobblecap.mjs'
+import { STOCK_GROUP_NAMES } from './stocktarget.mjs'
 
 /** Uses left at which a trip is worth it -- oretunnel.mjs MIN_TRIP_USES, restated because importing oretunnel here is
  *  an import cycle (oretunnel -> ... -> composter -> this); withdraw-pick.test.mjs asserts the two are equal. */
@@ -74,7 +76,14 @@ export function stonePickDeficits (items = [], { tableNear = false } = {}) {
  * under a key no container can have: { 'x,y,z': { need: at } }.
  */
 export const INGREDIENT_MISS_KEY = '_ingredient_miss'
-export const INGREDIENT_MISS_TTL_MS = 15 * 60 * 1000
+/**
+ * HOW LONG "LOOKED, NONE" HOLDS (townsearch-01): 60 min, for the pickaxe (chestfull.mjs PICK_MISS_TTL_MS, asserted equal)
+ * and for each ingredient. It was 15 min, and the same bot's next withdraw_pick comes a median 16.2 min later (10-14..16,
+ * 193 gaps, 66% >= 15 min) -- the miss had expired by then, so every order re-opened the same containers nearest home.
+ * A deposit into the container since (town memory o='took') still ends a miss at once.
+ */
+export const SEARCH_MISS_TTL_MS = 60 * 60 * 1000
+export const INGREDIENT_MISS_TTL_MS = SEARCH_MISS_TTL_MS
 /** The needs a container's contents (`saw`, [{ name, count }]) held NONE of. */
 export const ingredientNeedsAbsent = (saw = []) => Object.keys(NEEDS).filter(n => held(saw, NEEDS[n].match) === 0)
 export function containerIngredientMiss (entries = {}, k, need, now = Date.now()) {
@@ -100,6 +109,100 @@ export function noteIngredientMisses (entries, keys = [], needs = [], now = Date
  */
 export const townIngredientMissComplete = (entries = {}, keys = [], needs = [], now = Date.now()) =>
   needs.length === 0 || (keys.length > 0 && keys.every(k => needs.every(n => containerIngredientMiss(entries, k, n, now))))
+
+// ---- THE TOWN SEARCH (townsearch-01) -----------------------------------------------------------------------------------
+// MEASURED 10-16: every town held usable pickaxes (4-16 stone with damage <= 65, in 5-12 containers) and sticks, yet
+// withdraw_pick failed "none in the 6 container(s) tried here" 134 times in 10-14..16. The order looked in the 3 containers
+// nearest HOME for the pickaxe and the next 3 for the ingredients, every time (the 15-min miss expired before the bot's next
+// order). Until the 10-14 02:21Z chest clear that was harmless -- sticks sat in 4-6 of the nearest 6 containers of all 16
+// towns; the clear left one stick stack per town, in one container, and the nearest 6 held sticks in 5 towns of 16. Over
+// 426 orders in 2.5 days each town's orders opened 5-14 distinct containers of 11-32, and 0-3 of the 5-13 holding a pickaxe.
+// Now the order may look in EVERY town container: those the town's stock journal last counted holding the need first, the
+// unknown ones next, nearest the bot first; a container that showed none (a miss, or a count of none, within
+// SEARCH_MISS_TTL_MS and with no deposit since) is not looked in again, so successive orders continue where the last stopped.
+
+/** Visits per order: the pickaxe first, then the ingredients (each pass its own budget, so the fallback always runs).
+ *  Paper 10-16 (sandbox3, a 12-chest town): 10 visits took 10.4 s, ~1 s each -- a town's walks are short; the skill's clock
+ *  (180 s) is the real bound, and the journal's order makes the first visit the hit in most towns. */
+export const WITHDRAW_PICK_VISITS = 16
+export const WITHDRAW_INGREDIENT_VISITS = 8
+/** No visit starts with less than this left on the skill's clock (a walk is bounded at 30 s, an open at 8 s). */
+export const WITHDRAW_VISIT_MIN_MS = 15_000
+/** The pickaxe pass leaves the ingredient pass at least this much of the clock (it starts no visit inside it). */
+export const WITHDRAW_INGREDIENT_RESERVE_MS = 40_000
+/** A visit that could not look inside (unreachable, a lid it could not clear) keeps that container out of THIS bot's
+ *  search this long, so the next order does not walk there first again. */
+export const SEARCH_FAIL_SKIP_MS = 30 * 60 * 1000
+/** The failures that say nothing about what the container holds -- the search moves on to the next one. */
+export const SEARCH_FAIL_SKIP = new Set(['chest_unreachable', 'container_blocked'])
+
+/** The stock journal's groups that count each need (stocktarget.mjs STOCK_GROUPS; a tool group counts only usable copies).
+ *  An iron/golden/diamond pickaxe is not a stock group: the journal cannot see one, so a container is never ranked first
+ *  for it -- a container with NO count stays in the search (unknown). */
+const PLANK_GROUPS = STOCK_GROUP_NAMES.filter(g => /_planks$/.test(g))
+export const NEED_GROUPS = Object.freeze({ pick: ['stone_pickaxe', 'wooden_pickaxe'], cobblestone: ['cobble'], stick: ['stick'], planks: PLANK_GROUPS })
+/** One journal observation's count of a need -> number | null (null: that observation did not count it). Pure. */
+export function needCount (o, need) {
+  const gs = NEED_GROUPS[need]
+  if (!o || !gs) return null
+  let n = 0
+  for (const g of gs) { const c = countOf(o, g); if (c == null) return null; n += c }
+  return n
+}
+
+/**
+ * THE ORDER TO LOOK IN THE TOWN'S CONTAINERS FOR `needs` -> [{ k, tier, cover, d }]. Pure.
+ *   containers  [{ k, d }]: every town container (one key per double chest), d = distance from the bot
+ *   needs       ['pick'] or the ingredient deficits (['cobblestone', 'stick', 'planks']); want[need] = how many (default 1)
+ *   counts      { need: { k: { n, at } } }: the stock journal's latest count of the need in k (needCount), when it was taken
+ *   misses      { need: { k: at } }: k was opened and held none of the need at `at`
+ *   tookAt      { k: at }: the last deposit INTO k (the town's memory, o='took')
+ *   skip        keys out of this search (already opened this order, a recent failed visit, a container the town shut)
+ * Per need, a container is
+ *   HAS      a count of n > 0 younger than countTtl (the journal's own 6 h), and newer than any live miss
+ *   OUT      a live miss (younger than missTtl, no deposit since), or a count of 0 younger than missTtl with no deposit since
+ *            -- a count is a look by whichever bot opened it last
+ *   UNKNOWN  otherwise
+ * Dropped when OUT for every need. Tier 0 = HAS for some need, tier 1 = the rest. Within a tier: most of the wanted
+ * amount covered (cover, from the counts), then nearest, then key. Never the same container twice: one entry per key.
+ */
+export function townSearchOrder (containers = [], needs = [], { counts = {}, misses = {}, tookAt = {}, skip = [], want = {},
+                                                               now = Date.now(), missTtl = SEARCH_MISS_TTL_MS, countTtl = OBS_TTL_MS } = {}) {
+  const out = new Set(Array.isArray(skip) ? skip : [...(skip ?? [])])
+  const seen = new Set()
+  const res = []
+  if (!Array.isArray(needs) || !needs.length) return res
+  for (const c of (Array.isArray(containers) ? containers : [])) {
+    const k = c?.k
+    if (k == null || out.has(k) || seen.has(k)) continue
+    seen.add(k)
+    const took = Number.isFinite(tookAt?.[k]) ? tookAt[k] : -Infinity
+    let has = false, cover = 0, allOut = true
+    for (const need of needs) {
+      const m = misses?.[need]?.[k]
+      const missLive = Number.isFinite(m) && now - m < missTtl && !(took > m)
+      const ct = counts?.[need]?.[k]
+      const cAt = Number.isFinite(ct?.at) ? ct.at : null
+      const n = Number(ct?.n)
+      if (cAt != null && now - cAt < countTtl && n > 0 && !(missLive && m >= cAt)) {
+        has = true; allOut = false
+        cover += Math.min(n, Math.max(1, Number(want?.[need]) || 1))
+        continue
+      }
+      const zeroLive = cAt != null && n === 0 && now - cAt < missTtl && !(took > cAt)
+      if (missLive || zeroLive) continue
+      allOut = false
+    }
+    if (allOut) continue
+    res.push({ k, tier: has ? 0 : 1, cover, d: Number.isFinite(c.d) ? c.d : Infinity })
+  }
+  res.sort((a, b) => a.tier - b.tier || b.cover - a.cover || a.d - b.d || (a.k < b.k ? -1 : a.k > b.k ? 1 : 0))
+  return res
+}
+
+/** The `_townsearch_mode` licence row (once per spawn): a kind the baseline cannot write. */
+export const townSearchModeDetail = () =>
+  `phase=mode search=town order=journal,unknown,nearest visits=${WITHDRAW_PICK_VISITS}+${WITHDRAW_INGREDIENT_VISITS} miss_ttl_min=${SEARCH_MISS_TTL_MS / 60000} fail_skip_min=${SEARCH_FAIL_SKIP_MS / 60000}`
 
 /** Everything one stone pickaxe is made from -- kept by every room-making deposit on both paths (both reviews). */
 export const INGREDIENT_KEEP = Object.freeze([NEEDS.cobblestone.match, NEEDS.stick.match, NEEDS.planks.match,
@@ -253,14 +356,16 @@ export const WITHDRAW_NO_BACKOFF = new Set(['recount_unanswered', 'chest_no_room
 export const HOLD_MS = 10 * 60 * 1000
 
 /** The withdraw row (`_withdraw_pick`, from the order AND the model's verb): key=value, outcome first, the containers
- *  last (logEvent cuts at 300 characters). srv= is the server-recounted change of the bag; plan= the names planned to
+ *  last (logEvent cuts at 300 characters). The order's row also says how many town containers its search saw (town=) and
+ *  how many were candidates for the pickaxe and for the ingredients when each pass began (cand=pick,ing; townsearch-01). srv= is the server-recounted change of the bag; plan= the names planned to
  *  LEAVE it (room-making deposits and trades) -- a read can flag a server-counted fall of any name not in plan=. */
 export function withdrawRow ({ outcome, need, uses = null, verification = 'none', cursor = '-', err = null, chestRoom = null, srv = '-', plan = '-',
-                               bagBefore = 0, bagAfter = 0, deposited = [], took = {}, verb = 'withdraw_pick', tried = [] } = {}) {
+                               bagBefore = 0, bagAfter = 0, deposited = [], took = {}, verb = 'withdraw_pick', tried = [], search = null } = {}) {
   const dep = deposited.map(d => `${d.name}:${d.count}`).join(',') || '-'
   const tk = Object.entries(took).map(([k, v]) => `${k}:${v}`).join(',') || '-'
   const clean = v => String(v ?? '-').replace(/\s+/g, '_').slice(0, 40)
   return (`outcome=${outcome} need=${need} uses=${uses ?? '-'} verification=${verification} cursor=${clean(cursor)} err=${clean(err)} ` +
           `chest_room=${chestRoom ?? '-'} plan=${plan || '-'} srv=${srv} bag=${bagBefore}->${bagAfter} deposited=${dep} took=${tk} verb=${verb} ` +
+          (search ? `town=${search.town ?? '-'} cand=${search.pick ?? '-'},${search.ing ?? '-'} ` : '') +
           `tried=[${tried.join(';')}]`).slice(0, 300)
 }

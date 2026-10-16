@@ -318,7 +318,9 @@ export function updateTownMemory (dir, key, world, mutate) {
  * town's memory file under a key no container can have: { 'x,y,z': at }.
  */
 export const PICK_MISS_KEY = '_pick_miss'
-export const PICK_MISS_TTL_MS = 15 * 60 * 1000
+/** 60 min since townsearch-01 (withdrawpick.mjs SEARCH_MISS_TTL_MS, asserted equal): the 15 min it was expired before the
+ *  same bot's next order (median gap 16.2 min), so every order re-opened the same containers nearest home. */
+export const PICK_MISS_TTL_MS = 60 * 60 * 1000
 export function containerPickMiss (entries = {}, k, now = Date.now()) {
   const at = entries?.[PICK_MISS_KEY]?.[k]
   if (!Number.isFinite(at) || now - at >= PICK_MISS_TTL_MS) return false
