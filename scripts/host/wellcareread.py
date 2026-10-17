@@ -107,7 +107,10 @@ def active(since, pool, cap, t):
     _well_built / _well_pit_dug row (built in the window) or planned by a record at `at` is judged only from then (Codex r1
     P2: never future geometry retroactively); any other column existed before the window. t None = not timed."""
     a = (since or {}).get(pool, {}).get(cap)
-    return a is None or t is None or t >= a
+    if a is None or t is None:
+        return True
+    start, end = a if isinstance(a, tuple) else (a, None)   # end: the column's retirement (Codex r4 P2), else None
+    return t >= start and (end is None or t < end)
 
 
 def first_seen(rows_):
@@ -129,13 +132,14 @@ def column_since(row_since, psince):
     return out
 
 
-def shell_digs(digs, cols, since=None):
-    """PURE. digs [(pool, bot, detail[, t])] _dig_town rows; cols {pool: {cap: stair-tuple}} -> [(bot, cell, cap, by)] by mine."""
+def shell_digs(digs, cols, since=None, by_prefix='mine'):
+    """PURE. digs [(pool, bot, detail[, t])] _dig_town rows; cols {pool: {cap: stair-tuple}} -> [(bot, cell, cap, by)] by
+    `by_prefix` (mine: the gate; surface: reported -- its shaft dig is the base's and reads no well cells, Claude r2/r4)."""
     out = []
     for row in digs:
         pool, bot, d = row[:3]; t = row[3] if len(row) > 3 else None
         m = POS.search(d or ''); by = BY.search(d or '')
-        if not m or not by or not by.group(1).startswith('mine'):
+        if not m or not by or not by.group(1).startswith(by_prefix):
             continue
         cell = tuple(int(v) for v in m.groups())
         for cap, stair in cols.get(pool, {}).items():
@@ -284,6 +288,11 @@ _fs = first_seen([(_t0 + dt.timedelta(minutes=5), 'hive-d', '_well_built', (79, 
 assert _fs['hive-d'][(79, 57, 76)] == _t0 + dt.timedelta(minutes=5) and _fs['hive-c'][(1, 2, 3)].year == 1
 assert shell_digs([('hive-d', 'e', _HD[0][2], _t0 + dt.timedelta(minutes=4))], _COLS, column_since(_fs, {})) == []
 assert column_since(_fs, {'hive-d': {(79, 57, 76): _t0}})['hive-d'][(79, 57, 76)] == _t0, 'the plinth record\'s plan time wins'
+# retirement at the action's time (Codex r4 P2): a dig BEFORE the well retired is a breach, one after is not
+_ret = {'hive-d': {(79, 57, 76): (dt.datetime.min.replace(tzinfo=dt.timezone.utc), _t0 + dt.timedelta(minutes=10))}}
+assert len(shell_digs([('hive-d', 'e', _HD[0][2], _t0 + dt.timedelta(minutes=9))], _COLS, _ret)) == 1
+assert shell_digs([('hive-d', 'e', _HD[0][2], _t0 + dt.timedelta(minutes=11))], _COLS, _ret) == []
+assert shell_digs([('hive-d', 'e', _HD[0][2].replace('by=mine:y55', 'by=surface'), _t0)], _COLS, None, by_prefix='surface') != [], 'the surface tripwire'
 assert [c for _, c, _, _ in shell_digs(_HD, _COLS)] == [(79, 57, 77), (-247, 70, 138)], 'the wall by mine and the plinth stair tread; not the builder; not past the tread'
 assert keep_out((365, 73, 135), (365, 73, 137)) == 'well' and keep_out((365, 73, 135), (365, 73, 137), own=True) is None, 'board-c table: the builder\'s only'
 assert keep_out((365, 74, 136), (365, 73, 137)) == 'stand' and keep_out((365, 74, 137), (365, 73, 137)) == 'shaft' and keep_out((366, 74, 136), (365, 73, 137)) is None
@@ -348,7 +357,7 @@ if __name__ == '__main__':
         return out
 
     rows = sorted(load_window(PRE, END), key=lambda r: r['t'])
-    caps = defaultdict(dict); cap_rows = []; worlds = {}; offbuild = 0; gate_caps = defaultdict(set); retired = defaultdict(set)
+    caps = defaultdict(dict); cap_rows = []; worlds = {}; offbuild = 0; gate_caps = defaultdict(set); retired = defaultdict(set); retired_at = defaultdict(dict)
     bots = defaultdict(set); kinds = Counter(); per_bot = defaultdict(list)
     licence = 0; leak = Counter(); guard = Counter(); digs = {'canary': [], 'control': []}; placed = []; ctl_place = []
     outcome = Counter()
@@ -374,6 +383,7 @@ if __name__ == '__main__':
                     gate_caps[p].add(c)
                 if k == '_well_retired':
                     retired[p].add(c)
+                    retired_at[p].setdefault(c, t)
                 # a well BUILT in the window is a well from then; one named by any other row existed before it
                 cap_rows.append((t, p, k, c))   # first_seen: the FIRST observation decides (Codex r2 P1)
         pos = (raw.get('bot') or {}).get('pos') or {}
@@ -409,8 +419,11 @@ if __name__ == '__main__':
         cols[p].update(caps.get(p, {}))
         cols[p].update(pcols.get(p, {}))   # a record's stair wins over a row's bare cap
         for c, st in cols[p].items():
-            if (c in pcols.get(p, {}) or c in gate_caps.get(p, set())) and c not in retired.get(p, set()):
+            if c in pcols.get(p, {}) or c in gate_caps.get(p, set()):
                 gcols[p][c] = st
+                # a RETIRED well is judged up to its retirement only (Codex r4 P2); a plinth record keeps protecting its cap
+                if c in retired_at.get(p, {}) and c not in pcols.get(p, {}):
+                    since[p][c] = (since.get(p, {}).get(c, dt.datetime.min.replace(tzinfo=dt.timezone.utc)), retired_at[p][c])
     # orders from deep, per arm (post): deep_orders joins each order's own evidence rows within its duration
     deep = {'canary': [], 'control': [], 'canary_build': [], 'control_build': []}
     for b, seq in per_bot.items():
@@ -421,6 +434,7 @@ if __name__ == '__main__':
     w1 = shell_digs(digs['canary'], gcols, since); w1c = shell_digs(digs['control'], gcols, since)
     w2 = station_breaches(placed, gcols, since); w2c = place_row_breaches(ctl_place, gcols)
     w1u = [x for x in shell_digs(digs['canary'], cols, since) if x not in w1]; w2u = [x for x in station_breaches(placed, cols, since) if x not in w2]
+    w1s = shell_digs(digs['canary'], gcols, since, by_prefix='surface'); w1sc = shell_digs(digs['control'], gcols, since, by_prefix='surface')
     hours = W / 60
     bh = lambda per, arm: len(bots[(per, arm)]) * hours
     rate = lambda per, arm, key: (outcome[(per, arm, key)] / bh(per, arm)) if bh(per, arm) else float('nan')
@@ -434,7 +448,8 @@ if __name__ == '__main__':
           % ({p: len(c) for p, c in sorted(cols.items())}, {p: len(c) for p, c in sorted(pcols.items())}, sorted(unverified)))
     print('LICENCE      canary _wellcare_mode rows %d | LEAK control own-kind rows %d %s' % (licence, sum(leak.values()), dict(leak)))
     print('LIVENESS     guard rows: _well_deep %d | _mine_well_guard %s | _station_well %d' % (guard['well_deep'], {k2[5:]: v for k2, v in guard.items() if k2.startswith('mine_')}, acted_station))
-    print('W1 (gate)    canary mine digs in a known shell / plinth stair: %d %s | ungated (retired / refusal-only caps) %d %s' % (len(w1), w1[:3], len(w1u), w1u[:2]))
+    print('W1 (gate)    canary mine digs in a known shell / plinth stair: %d %s | ungated (refusal-only caps) %d %s' % (len(w1), w1[:3], len(w1u), w1u[:2]))
+    print('TRIPWIRE     surface digs in a known shell (reported, the base skill): canary %d %s control %d' % (len(w1s), w1s[:2], len(w1sc)))
     print('W2 (gate)    canary stations on a well cell: %d %s | _station_placed rows %d | ungated %d %s' % (len(w2), w2[:3], len(placed), len(w2u), w2u[:2]))
     print('             gate columns per pool %s | retired %s' % ({p: len(c) for p, c in sorted(gcols.items())}, {p: len(c) for p, c in sorted(retired.items()) if c}))
     print('W3 (gate)    canary dispose/close orders started > %d below a stand they name: %d %s | build_well (reported) canary %d control %d'
@@ -461,7 +476,7 @@ if __name__ == '__main__':
             'guard_well_deep': guard['well_deep'], 'guard_mine_acted': acted_mine, 'guard_mine_refuse': guard['mine_refuse'], 'guard_station': acted_station,
             'guard_rows_seen': guard['well_deep'] + acted_mine + acted_station,
             'breach_shell_dug_by_mine': len(w1), 'breach_station_on_well': len(w2), 'breach_deep_order': len(deep['canary']),
-            'ungated_shell_digs': len(w1u), 'ungated_station_on_well': len(w2u),
+            'ungated_shell_digs': len(w1u), 'ungated_station_on_well': len(w2u), 'surface_shell_digs_canary': len(w1s), 'surface_shell_digs_control': len(w1sc),
             'deep_build_orders_canary': len(deep['canary_build']), 'deep_build_orders_control': len(deep['control_build']),
             'control_shell_dug_by_mine': len(w1c), 'control_deep_orders': len(deep['control']), 'control_station_on_well': len(w2c),
             'unreach_rate_did': nan(did('unreach')), 'dispose_rate_did': nan(did('dispose_ok')),
