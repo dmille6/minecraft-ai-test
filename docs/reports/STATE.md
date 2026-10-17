@@ -75,6 +75,17 @@ tools ~/estel on 10.0.0.31.
 
 ---
 
+## 10-17 12:45Z — PLINTH-02 ROLLED OUT FLEET-WIDE DIRECTLY (OWNER option 2, no canary): FLEET 0fe92258 (VERIFIED ~12:33Z)
+- Owner: "can we just build the wells? instead of waiting for some oportune time?" -> option 2: kitshrink-01 (live 12:10Z on
+  board-a, board-b, hive-d, hive-c) closed INCONCLUSIVE 12:19Z and torn down (20 on 0152bae, 0 drop-ins); install-hold; fleet-deploy
+  0fe92258 run_id plinth-02-direct; plinth-02 queue entry CANCELLED (owner-authorised). Merged to main.
+- **Rollback = redeploy 0152baeb.** Tripwire: a fleet-wide plinth2read mode (all pools treated) is being built by the plinth agent;
+  run it every 30-60 min; any P1-P5 / C1-C9 breach -> roll back.
+- Side note: board-c and hive-d already have wells on the plinth-01 plinths (built by base bots 10-16 19:07Z / 10-17 06:53Z).
+- **Queue head toolkit-01** BLOCKS on H2 (no 0fe92258 variant; being built). Variants being built on 0fe92258: toolkit-01,
+  townsearch-02 (re-registered for exposure), treefarm-02, bamboo-02, smeltjob-01; kitshrink-02 to re-queue. plinth-first design
+  (owner-approved) on dev base 0fe92258.
+
 ## 10-17 12:05Z — TOWNSEARCH-01 CLOSED INCONCLUSIVE early (unexposed); kitshrink-01 swapped ahead of plinth-02 (R10 wait)
 - townsearch-01 (27908be4) live 04:58Z on placebo-d, board-c. +360: exposure needs >= 6 canary withdraw_pick order rows; ONE in 6 h
   (licence _townsearch_mode 20 rows: build live). Deaths 4/60 bh vs 4/300 (gate held, lower bound 1.20x): drowned gathering, lava
