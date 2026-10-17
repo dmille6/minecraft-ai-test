@@ -313,6 +313,24 @@ await t('SKILL: the first chest\'s lid cannot be cleared (oak_planks: container_
   assert.equal(r2.status, 'success', r2.detail)
   assert.equal(count(w2.containers.get('1,64,0').slots.filter(Boolean), 'iron_ingot'), 26, 'the scene sees the lid: unlidded, the nearest gives it')
 })
+// kitshrink-01 COMPOSITION (51033241): torches and sub-escape ladders are bankable, so withdraw's room-making may bank them --
+// ONLY into the chest the kit's iron comes from, on the visit the bot is already making at town (the order is never a trip).
+// A full bag whose only bankable stacks are the kit: the draw makes its one slot by banking the torches THERE.
+// CONTROL: the same bag with bamboo (never bankable) in their place -> no room, no draw, the chest's iron untouched.
+await t('SKILL x KITSHRINK: a full bag makes the draw\'s room by banking torches into the SAME chest it draws the iron from; CONTROL: no bankable stack -> no draw', async () => {
+  const bag = extra => fullOf([T('iron_pickaxe', 200), stack('stick', 9), ...extra])
+  const w = withServer(town(bag([stack('torch', 4)]), [stack('iron_ingot', 30)]))
+  const r = await run(w, {}, { kitCraft: fakeCraft(w) })
+  assert.equal(r.status, 'success', r.detail)
+  const chest = w.containers.get('5,64,0').slots.filter(Boolean)
+  assert.equal(count(chest, 'torch'), 4, 'the torches went into the kit\'s own chest'); assert.equal(count(w.bag, 'torch'), 0)
+  assert.equal(count(chest, 'iron_ingot'), 26); assert.equal(count(w.bag, 'iron_axe'), 1); assert.equal(count(w.bag, 'iron_shovel'), 1)
+  assert.equal(w.spy.opened.length, 1, 'one chest opened: no other site')
+  const w2 = withServer(town(bag([stack('bamboo', 64)]), [stack('iron_ingot', 30)]))
+  const r2 = await run(w2, {}, { kitCraft: fakeCraft(w2) })
+  assert.notEqual(r2.status, 'success', r2.detail)
+  assert.equal(count(w2.containers.get('5,64,0').slots.filter(Boolean), 'iron_ingot'), 30, 'no room: no iron drawn')
+})
 await t('SKILL: holds the kit -> no_effect, no chest opened; a usable iron axe held -> only the shovel is drawn for and made', async () => {
   const w = withServer(town([T('iron_axe', 200), T('iron_shovel', 200)], [stack('iron_ingot', 30)]))
   const r = await run(w, {}, { kitCraft: fakeCraft(w) })
