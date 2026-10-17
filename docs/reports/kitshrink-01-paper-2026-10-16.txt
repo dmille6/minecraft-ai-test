@@ -23,3 +23,12 @@ Same rung every run: `_entombed walled in at y=40` -> pillarOut, the ceiling (70
 Timing note: the three `post` runs dug the first ceiling block in 37.5 s (client dig time x5: still in its water-surface
 state when the dig began) vs 7.5 s in `pre`; `postfill` -- no ladders or torches, but the same number of setup commands as `pre` --
 took 7.5 s in 2/2. The delay is consistent with the scene's setup timing, not the kit (few trials: not a measurement). No run died, flooded or stayed entombed.
+
+## REBASE 10-17: bank scene on fleet da978c18 (sandbox 25599; lock 05:07:27Z-05:10:34Z, released). cand 905aa1cb vs ctrl da978c18.
+cand  bag 36 -> 34 (mid) -> 35   chest +torch 4 +ladder 3   stations, bucket, chest stay
+      `_town_deposit ... banked torch:4,ladder:3 ... containers 702,120,700=took`
+      `_kitshrink phase=bank via=town_deposit torch=4:4 ladder=3:3 crafting_table=1:0 furnace=1:0 bucket=1:0 slots=36->34`
+      toolkit-01's order fired and refused as designed (`outcome=no_sticks`: the empty chest holds no iron or sticks; drew 0);
+      `craft stone_pickaxe` success with the bag's own table (placed and taken back).
+ctrl  bag 36 -> 36 -> 36; no deposit; the craft refused for room at 36/36 (same as the 623e92b9 control).
+The 534aeec0 variant was not run on Paper (same kitshrink code; the scene's path does not involve toolkit beyond its refusal).
