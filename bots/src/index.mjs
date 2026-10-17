@@ -47,6 +47,7 @@ import { installCobbleCap } from './skills.mjs'
 import { cobbleCapModeDetail } from './cobblecap.mjs'
 import { lidClearModeDetail } from './lidrule.mjs'
 import { plinthModeDetail } from './plinth.mjs'   // plinth-02's licence row (its own statement)
+import { plinthFirstModeDetail, plinthFirstPolicy, townRecordsShared } from './plinth.mjs'   // plinthfirst-01's licence row (its own statement)
 import { CognitiveLoop } from './cognitive.mjs'
 import { openLessons } from './lessons.mjs'
 import { openWorldFacts } from './worldfacts.mjs'
@@ -285,6 +286,11 @@ function connect() {
     try { logEvent({ kind: 'lidclear_mode', status: 'success', snapshot: snapshot(bot), detail: lidClearModeDetail() }) } catch {}
     // plinth-02: the licence row, once per spawn -- the build's own `_plinth_mode` kind (plinth.mjs plinthModeDetail)
     try { logEvent({ kind: 'plinth_mode', status: 'success', snapshot: snapshot(bot), detail: plinthModeDetail(bot.worldId) }) } catch {}
+    // plinthfirst-01: the licence row, once per spawn -- `_plinthfirst_mode` (plinth.mjs plinthFirstModeDetail)
+    try {
+      const who = { scope: config.memory.scope, pool: config.memory.pool, name: bot.username ?? '' }
+      logEvent({ kind: 'plinthfirst_mode', status: 'success', snapshot: snapshot(bot), detail: plinthFirstModeDetail({ on: plinthFirstPolicy({ ...who, env: process.env }), shared: townRecordsShared(who), worldId: bot.worldId }) })
+    } catch {}
     try {
       installCraftSync(bot, { log: row => logEvent({ ...row, snapshot: snapshot(bot) }) })
     } catch (e) {

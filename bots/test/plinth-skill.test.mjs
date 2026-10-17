@@ -19,6 +19,9 @@ process.env.HOME_X = '0'; process.env.HOME_Y = '64'; process.env.HOME_Z = '0'
 process.env.MEMORY_POOL = 'plinthtest'
 const STORE = mkdtempSync(path.join(tmpdir(), 'plinth-store-'))
 process.env.POOL_STATE_DIR = STORE
+// plinthfirst-01: this suite is plinth-02's / the natural well's own, so plinth-first is off here (plinthfirst.test.mjs and
+// well.test.mjs "PLINTH-FIRST" drive the same skills with it on)
+process.env.PLINTH_FIRST = '0'
 const { Vec3 } = await import('vec3')
 const P = await import('../src/plinth.mjs')
 const W = await import('../src/well.mjs')
@@ -966,8 +969,11 @@ await t('THE STAIR IS NEVER A PATH\'S DIG, through the well columns index.mjs al
   // logEvent), comments stripped -- anything else naming plinth fails here
   const idxSrc = readFileSync(new URL('../src/index.mjs', import.meta.url), 'utf8').replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/.*$/gm, '')
   const rest = idxSrc.split('\n').filter(l => !/^import \{ plinthModeDetail \} from '\.\/plinth\.mjs'/.test(l.trim()) &&
-    !/^try \{ logEvent\(\{ kind: 'plinth_mode', status: 'success', snapshot: snapshot\(bot\), detail: plinthModeDetail\(bot\.worldId\) \}\) \} catch \{\}$/.test(l.trim()))
-  assert.equal(rest.join('\n').includes('plinth'), false, 'index.mjs is untouched by the plinth except the licence row')
+    !/^try \{ logEvent\(\{ kind: 'plinth_mode', status: 'success', snapshot: snapshot\(bot\), detail: plinthModeDetail\(bot\.worldId\) \}\) \} catch \{\}$/.test(l.trim()) &&
+    // plinthfirst-01's licence row (its import and its one logEvent), exactly
+    !/^import \{ plinthFirstModeDetail, plinthFirstPolicy, townRecordsShared \} from '\.\/plinth\.mjs'$/.test(l.trim()) &&
+    !/^logEvent\(\{ kind: 'plinthfirst_mode', status: 'success', snapshot: snapshot\(bot\), detail: plinthFirstModeDetail\(\{ on: plinthFirstPolicy\(\{ \.\.\.who, env: process\.env \}\), shared: townRecordsShared\(who\), worldId: bot\.worldId \}\) \}\)$/.test(l.trim()))
+  assert.equal(rest.join('\n').includes('plinth'), false, 'index.mjs is untouched by the plinth except the licence rows')
 })
 await t('THE STAIR SURVIVES THE HAND-OFF (Claude r7): once the well-site record names the plinth cap, that column still carries the stair', async () => {
   reset(); noSite()

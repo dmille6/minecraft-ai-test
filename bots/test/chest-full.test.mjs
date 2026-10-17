@@ -16,6 +16,9 @@ process.env.HOME_X = '0'; process.env.HOME_Y = '64'; process.env.HOME_Z = '0'
 // THE PRODUCTION WATCHDOG, set here on purpose: the recovery's clock IS config.skills.defaultTimeoutMs, and the test
 // runner sets it to 300 ms for every file. These tests are about that clock, so they state it.
 process.env.SKILL_TIMEOUT_MS = '180000'
+// plinthfirst-01: this suite is plinth-02's / the natural well's own, so plinth-first is off here (plinthfirst.test.mjs and
+// well.test.mjs "PLINTH-FIRST" drive the same skills with it on)
+process.env.PLINTH_FIRST = '0'
 const freshPool = () => { const d = fs.mkdtempSync(path.join(os.tmpdir(), 'mcbot-chestfull-pool-')); process.env.POOL_STATE_DIR = d; return d }
 freshPool()
 

@@ -1078,6 +1078,12 @@ export function wellOrderOutcome (skill, status, now = 0, state = {}, failClass 
   // build orders in 24 h across 12 towns (55 bots) each re-ran the whole search and refused, every town visit, because a
   // skip cost nothing. Only an EXHAUSTED search says it (buildWell's failClass well_no_site): an unloaded cell, a record
   // race or an unreadable record stays a free skip. The bot cannot make a site, so the order waits for the ground to change.
+  // A FINISHED RAISED WELL HELD FOR A TRANSIENT REFUSAL (plinthfirst-01, plinth.mjs capRefusalNext): this bot looks again in
+  // WELL_BUILD_BACKOFF_MS -- a no_effect (no failure statistics), but never the free skip that would re-ask every cooldown
+  if (skill === 'build_well' && status === 'no_effect' && failClass === 'well_site_held') {
+    s.buildBackoffUntil = Math.max(s.buildBackoffUntil ?? 0, now + WELL_BUILD_BACKOFF_MS)
+    return s
+  }
   if (skill === 'build_well' && status === 'no_effect' && failClass === 'well_no_site') {
     s.buildBackoffUntil = Math.max(s.buildBackoffUntil ?? 0, now + WELL_NO_SITE_BACKOFF_MS)
     return s

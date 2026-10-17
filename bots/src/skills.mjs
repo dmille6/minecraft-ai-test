@@ -77,6 +77,9 @@ import { planPlinthSteps, plinthProgress, plinthHazard, plinthWant, leaseState, 
          AIR as PLINTH_AIR, standOk, refUsable, coverableAfter, carryPrev, stuckNext, planBox, startNear, isPitCover, PLINTH_STUCK_VISITS, PLINTH_PREV_MAX,
          PLINTH_REPLACEABLE, PLINTH_STEPS_PER_VISIT, PLINTH_LEASE_MS, PLINTH_VERSION, PLINTH_MIN_FUND, PLINTH_NONE_BACKOFF_MS, PLINTH_REACH, EYE_HEIGHT,
          wellTableCell, furnitureNear } from './plinth.mjs'
+// plinthfirst-01: every new junk well is a raised one (its own statement)
+import { PLINTH_LOST_PATIENCE_MS, PLINTH_STRUCT_CONFIRM_MS, plinthFirstMinK, plinthFirstPolicy, areaLoaded, plinthFirstOn, plinthFirstSearch, plinthFirstRefusal, plinthPlanCap, plinthCapLoss, capRefusalNext, townRecordsShared, naturalPitPending,
+         PLINTH_FIRST_WHY } from './plinth.mjs'
 import { STONE_GUARD, wellGround } from './well.mjs'   // wellBreakCost: imported above (lidclear-01's statement)
 import { createSiteGen as createWellSiteGen, bodyInCell } from './composter.mjs'
 import { IRON_KINDS, MIN_TRIP_USES, CANDIDATE_RADIUS, breakHazard, nearHome, pickBudget, rankCandidates, clusterOf, tunnelMovements, planTunnel, ONE_PICK_USES, tripDecision } from './oretunnel.mjs'
@@ -7453,11 +7456,12 @@ export function readWellNoSite () {
   try { const r = JSON.parse(fs.readFileSync(wellNoSiteFile(), 'utf8')); return r && typeof r === 'object' ? r : null } catch { return null }
 }
 /** -> true when the record is on disk (the no_site row says rec=ok|fail: the read judges only a stored hold). */
-function writeWellNoSite (bot, tally) {
+function writeWellNoSite (bot, tally, lost = null) {
   const file = wellNoSiteFile(), tmp = `${file}.${process.pid}.${Math.random().toString(36).slice(2)}.tmp`
   try {
     fs.mkdirSync(path.dirname(file), { recursive: true })
-    fs.writeFileSync(tmp, JSON.stringify({ at: Date.now(), world: bot.worldId ?? null, by: bot.username ?? null, tally: tallyText(tally) }))
+    // `lost` (plinthfirst-01, plinth.mjs completeLost): what build_well saw at the town's finished raised well, if it refused it
+    fs.writeFileSync(tmp, JSON.stringify({ at: Date.now(), world: bot.worldId ?? null, by: bot.username ?? null, tally: tallyText(tally), ...(lost ? { lost } : {}) }))
     fs.renameSync(tmp, file)   // atomic: a reader never sees half a record
     return true
   } catch { try { fs.unlinkSync(tmp) } catch { /* never written */ } return false }
@@ -7557,15 +7561,56 @@ export function chestWellKeepouts (bot) {
  */
 export function townWellSite (bot) {
   const home = homeVec(), read = readWellCell(bot), avoid = wellAvoid(bot)
-  let searched = null
+  const world = bot.worldId ?? null
+  const rec = readPlinth(), recState = plinthRecordState(rec, world)
+  // PLINTH-FIRST (plinthfirst-01, plinth.mjs): no natural search, a recorded natural site nothing was dug at is refused, and so
+  // is a raised cap the town replanned away from -- the exhausted answer then writes the town's no-site record
+  const first = plinthFirstOn({ scope: config.memory.scope, pool: config.memory.pool, name: bot.username ?? '', env: process.env, recState, recAt: rec?.at, now: Date.now() })
+  const planCap = plinthPlanCap(rec, world), doneCap = recState === 'complete' ? planCap : null
+  const at = (a, b) => !!a && !!b && a.x === b.x && a.y === b.y && a.z === b.z
+  const oldCaps = knownPlinthCaps(bot).filter(c => !at(c, planCap))
+  let searched = null, lost = null, held = null, refused = null
   const res = resolveTownSite({
     dir: poolStateDir(config.memory.pool),
     key: wellSiteKey(),
-    world: bot.worldId ?? null,
-    compute: () => (searched = canonicalWellSite({ home, read, avoid })),
-    refuse: site => wellSiteRefusal(read, site, home, { avoid }),
+    world,
+    // the natural search still runs under plinth-first, READ ONLY, as the row's shadow= (what the policy declined)
+    compute: () => (searched = first ? plinthFirstSearch(canonicalWellSite({ home, read, avoid })) : canonicalWellSite({ home, read, avoid })),
+    refuse: site => {
+      const why = wellSiteRefusal(read, site, home, { avoid })
+      if (why && why !== 'unknown') refused = { site, why }
+      // THE TOWN'S FINISHED RAISED WELL REFUSED (plinth.mjs plinthCapLoss / capRefusalNext; Codex r1 P2-3, Claude r1 P1-1): a
+      // transient refusal is HELD -- a deferral (no search, no no-site record, no replan), noted beside the record -- and only a
+      // structural one, or a transient one seen for PLINTH_LOST_PATIENCE_MS, is evidence the raised well is lost
+      if (!why && at(site, doneCap)) clearCapRefused(doneCap, world)   // AFFIRMATIVE recovery ends the refusal episode (Codex r2 P2-2)
+      if (why && why !== 'unknown' && at(site, doneCap)) {
+        const v = capRefusalNext({ prev: readCapRefused(doneCap, world), cls: plinthCapLoss(read, doneCap), why, now: Date.now() })
+        writeCapRefused(doneCap, world, v.note)
+        if (v.verdict === 'hold') { held = { cap: doneCap, why, since: v.note[v.cls]?.since ?? Date.now(), cls: v.cls }; return 'unknown' }
+        lost = { cap: doneCap, cls: v.cls, why: String(why).slice(0, 80) }
+      }
+      const pf = why ? null : plinthFirstRefusal({ on: first, site, planCap, oldCaps, stage: wellStage(read, site) })
+      if (pf) refused = { site, why: pf }
+      return why ?? pf
+    },
   })
-  return siteAnswer(res, searched)
+  return { ...siteAnswer(res, searched), lost, held, refused, shadow: searched?.shadow ?? null, first }
+}
+/** The finished cap's refusal note (plinth.mjs capRefusalNext), beside the plinth record: never the record itself, which a
+ *  replan by the lease holder may be rewriting (no read-modify-write race on the plan). Never throws. */
+const capRefusedFile = () => path.join(plinthDir(), `${plinthKey()}.caprefused.json`)
+function readCapRefused (cap, world) {
+  try {
+    const r = JSON.parse(fs.readFileSync(capRefusedFile(), 'utf8'))
+    return r && r.cap && r.cap.x === cap.x && r.cap.y === cap.y && r.cap.z === cap.z && sameWorld(r.world ?? null, world) ? r.note ?? null : null
+  } catch { return null }
+}
+function writeCapRefused (cap, world, note) {
+  try { writeRecordAtomic(capRefusedFile(), { cap: { x: cap.x, y: cap.y, z: cap.z }, world: world ?? null, note }) } catch { /* the note is best effort */ }
+}
+/** The refusal episode of THIS cap ends (it passed the site rule, or its well reads sealed); another cap's note is left alone. */
+function clearCapRefused (cap, world) {
+  try { if (readCapRefused(cap, world)) fs.unlinkSync(capRefusedFile()) } catch { /* gone already */ }
 }
 /** Pure: a resolver answer joined with the search this call ran (or null) -> { ...res, exhausted, tally }. */
 export function siteAnswer (res, searched) {
@@ -8374,7 +8419,12 @@ async function buildWell (ctx, _args, signal) {
   const wells = findTownWells(bot)
   for (const w of wells) if (!w.breach && !w.unsure) retiredSaid(bot).clear(w.cap)   // a well read sealed again may be retired again
   const existing = wells.find(w => !w.breach) ?? wells[0] ?? null
-  if (existing && !existing.breach) return skip('exists', 'the town already has a junk well')
+  if (existing && !existing.breach) {
+    // a sealed well at the town's finished raised cap is an affirmative recovery of any refusal noted there (Codex r2 P2-2)
+    // ...only when it READ sealed: an unsure well (a cell not loaded) is no evidence of recovery (Codex r3 P2-1)
+    try { const cap = plinthPlanCap(readPlinth(), bot.worldId ?? null); if (!existing.unsure && cap && cap.x === existing.cap.x && cap.y === existing.cap.y && cap.z === existing.cap.z) clearCapRefused(cap, bot.worldId ?? null) } catch { /* best effort */ }
+    return skip('exists', 'the town already has a junk well')
+  }
   // A BREACHED WELL IS RETIRED, SAID SO (Codex round 5): the read counts active wells, not wells ever built. ONCE per
   // well and reason per bot connection (wellsite-01: 741 rows in 24 h were two wells, re-said by every build order).
   for (const w of wells.filter(w => w.breach)) {
@@ -8387,8 +8437,9 @@ async function buildWell (ctx, _args, signal) {
   // the instant before another bot's record landed) is a FREE skip under its own reason -- no search ran, and the
   // scheduler's reading keeps it from coming back until the record ages out.
   const rec = readWellNoSite(), hold = noSiteHold({ record: rec, now: Date.now(), world: bot.worldId ?? null })
+  const pfRec = /plinth_first/.test(String(rec?.tally ?? ''))   // plinthfirst-01: a policy hold, not exhausted ground (Codex r2 P3)
   if (hold.held) {
-    return skip('no_site_held', `the town's last junk well site search (${rec.by ?? 'a bot'}, ${Math.round((Date.now() - rec.at) / 60000)} min ago) found no cell within ${WELL_SEARCH_RADIUS} of home; no search for ${Math.ceil(hold.leftMs / 60000)} min more`)
+    return skip('no_site_held', `the town's last junk well site search (${rec.by ?? 'a bot'}, ${Math.round((Date.now() - rec.at) / 60000)} min ago) ${pfRec ? 'declined every natural site (plinth-first: the raised well is the town\'s next)' : `found no cell within ${WELL_SEARCH_RADIUS} of home`}; no search for ${Math.ceil(hold.leftMs / 60000)} min more`)
   }
   const pre = wellBuildPlanOf(bot)
   if (!pre) return skip('no_wood', WELL_WOOD_REMEDY)
@@ -8407,15 +8458,23 @@ async function buildWell (ctx, _args, signal) {
   if (bot.craftSync?.busy?.()) return skip('craft_busy', 'a craft is in flight; the well build waits for the next town visit')
   if (bot.currentWindow) return skip('window_open', 'a container window is open; the well build waits for the next town visit')
   const home = homeVec(), read = readWellCell(bot)
-  const { site, gen, why, exhausted, tally } = townWellSite(bot)
+  const { site, gen, why, exhausted, tally, lost, held, refused, shadow, first: pfOn } = townWellSite(bot)
   // AN EXHAUSTED SEARCH (every column read and refused) is the town's ground, said with its tally FIRST (the row is cut at
   // 300) and backed off for WELL_NO_SITE_BACKOFF_MS by wellOrderOutcome. Anything else (an unloaded cell, a record race,
   // an unreadable record) is a free skip under its own reason: a deferral is not a verdict on the ground.
   if (!site && exhausted) {
-    const rec = writeWellNoSite(bot, tally) ? 'ok' : 'fail'
-    wellRefused(bot, 'build', 'no_site', `tally=${tallyText(tally)} rec=${rec} w=${String(bot.worldId ?? '-').slice(0, 40)} the town's junk well site cannot be settled: no cell within ${WELL_SEARCH_RADIUS} of home passes the site rules; no bot of the town searches again for ${Math.round(WELL_NO_SITE_BACKOFF_MS / 60000)} min`)
-    return { status: 'no_effect', failClass: 'well_no_site', detail: `the town's junk well site cannot be settled: ${NO_VALID_CELL} (${tallyText(tally)})` }
+    const rec = writeWellNoSite(bot, tally, lost) ? 'ok' : 'fail'
+    // WHAT WAS REFUSED, AND WHAT PLINTH-FIRST DECLINED (plinthfirst-01; Claude r1 P1-1: nothing said why board-c's cap was refused):
+    // cur= the recorded site and its refusal; lost= the evidence about a finished raised well; shadow= the natural search's answer
+    const cur = refused ? ` cur=${refused.site.x},${refused.site.y},${refused.site.z}:${String(refused.why).replace(/\s+/g, '_').slice(0, 40)}` : ''
+    const pf = why === PLINTH_FIRST_WHY
+    const said = pf ? PLINTH_FIRST_WHY : `no cell within ${WELL_SEARCH_RADIUS} of home passes the site rules`
+    wellRefused(bot, 'build', 'no_site', `tally=${tallyText(tally)} rec=${rec} w=${String(bot.worldId ?? '-').slice(0, 40)}${pf ? ` shadow=${shadow ?? '-'}` : ''}${lost ? ` lost=${lost.cls}` : ''}${cur} the town's junk well site cannot be settled: ${said}; no bot of the town tries again for ${Math.round(WELL_NO_SITE_BACKOFF_MS / 60000)} min`)
+    return { status: 'no_effect', failClass: 'well_no_site', detail: `the town's junk well site cannot be settled: ${why === PLINTH_FIRST_WHY ? PLINTH_FIRST_WHY : NO_VALID_CELL} (${tallyText(tally)})` }
   }
+  // A FINISHED RAISED WELL REFUSED FOR A TRANSIENT REASON (plinth.mjs capRefusalNext): held -- this bot backs off (a failure's
+  // 30 min), the town keeps its plinth, and the next visit tries again; the remedy is the refusal itself clearing
+  if (!site && held) { wellRefused(bot, 'build', 'well_site_held', `the town's raised junk well at ${held.cap.x},${held.cap.y},${held.cap.z} is refused for now (${String(held.why).slice(0, 80)})`); return { status: 'no_effect', failClass: 'well_site_held', detail: `the town's raised junk well at ${held.cap.x},${held.cap.y},${held.cap.z} is refused for now (${held.cls}: ${String(held.why).slice(0, 80)}); held since ${Math.round((Date.now() - held.since) / 60000)} min, the town replans it only if this ${held.cls === 'structural' ? `is seen again ${Math.round(PLINTH_STRUCT_CONFIRM_MS / 60000)} min on` : `lasts ${Math.round(PLINTH_LOST_PATIENCE_MS / 3600000)} h`}` } }
   if (!site) return skip('site_deferred', `the town's junk well site cannot be settled from here: ${String(why).replace(/composter/g, 'well')}`)
   try { bot.refreshWells?.() } catch { /* the cache refreshes on its own timer too */ }   // the site is excluded from this bot's paths now
   const st = wellStand(read, site)
@@ -8475,7 +8534,7 @@ async function buildWell (ctx, _args, signal) {
     // killed during the dig writes no other). A dig that never opens it is closed by the finally's own row.
     if (!pitDugLogged && (stage() === 'fresh' || isCoveredPit(stage()))) {
       pitDugLogged = true
-      logEvent({ kind: 'well_pit_dug', status: 'success', snapshot: snapshot(bot), detail: `at=${site.x},${site.y},${site.z} from=${stage()}` })
+      logEvent({ kind: 'well_pit_dug', status: 'success', snapshot: snapshot(bot), detail: `at=${site.x},${site.y},${site.z} from=${stage()} pf=${pfOn ? 1 : 0}` })
     }
     if (isCoveredPit(stage())) await digCell(site)   // an earlier build's cover comes out first
     if (stage() === 'fresh') await digCell(site)
@@ -8754,8 +8813,29 @@ const wellUsableNow = bot => { try { const w = findTownWell(bot); return !!w && 
 /** For the scheduler (cognitive.mjs plinthOrder): what the town wants, and who holds the build. A few small reads. */
 export function townPlinthState (bot) {
   const now = Date.now()
-  const want = plinthWant({ wellUsable: wellUsableNow(bot), rec: readPlinth(), noSite: readWellNoSite(), world: bot.worldId ?? null, now })
+  const want = plinthWantNow(bot, { wellUsable: wellUsableNow(bot), rec: readPlinth(), now })
   return { want, lease: leaseState(leaseCurrent().lease, now, null) }
+}
+/**
+ * plinthWant WITH THIS BOT'S READINGS -- the one call the scheduler and build_plinth both make (Codex r1 P1-1: the guard at
+ * both). `shared` (townRecordsShared), plinth-first (plinthFirstOn), and `naturalPit`: the recorded site is a natural pit
+ * build_well is finishing (plinth.mjs naturalPitPending), read lazily, only when plinth-first would plan.
+ */
+function plinthWantNow (bot, { wellUsable, rec, now }) {
+  const world = bot.worldId ?? null
+  const shared = townRecordsShared({ scope: config.memory.scope, pool: config.memory.pool, name: bot.username ?? '' })
+  const first = plinthFirstOn({ scope: config.memory.scope, pool: config.memory.pool, name: bot.username ?? '', env: process.env, recState: plinthRecordState(rec, world), recAt: rec?.at, now })
+  const naturalPit = () => {
+    try {
+      const site = recordedWellSite(bot)
+      if (!site) return false
+      const read = readWellCell(bot), planCap = plinthPlanCap(rec, world)
+      const oldCaps = knownPlinthCaps(bot).filter(c => !(planCap && c.x === planCap.x && c.y === planCap.y && c.z === planCap.z))
+      return naturalPitPending({ on: first, site, planCap, oldCaps, stage: wellStage(read, site), refusal: wellSiteRefusal(read, site, homeVec(), { avoid: wellAvoid(bot) }) })
+    } catch { return true }   // unreadable: never plan beside a pit that may be finishing (the next scan asks again)
+  }
+  const loaded = () => { try { return areaLoaded(readWellCell(bot), homeVec()) } catch { return false } }
+  return plinthWant({ wellUsable, rec, noSite: readWellNoSite(), world, now, shared, first, naturalPit, loaded })
 }
 /** The keep-outs a plan never touches: every well cap the town has (a breached one included) and the recorded site. */
 function plinthKeepOut (bot) {
@@ -8926,7 +9006,7 @@ async function buildPlinth (ctx, _args, signal) {
   if (insideTownWell(bot)) return skip('inside', 'this bot is inside a junk well; it climbs out before any well order')
   if (wellUsableNow(bot)) return skip('well_exists', 'the town already has a junk well')
   let rec = readPlinth()
-  const want = plinthWant({ wellUsable: false, rec, noSite: readWellNoSite(), world, now: Date.now() })
+  const want = plinthWantNow(bot, { wellUsable: false, rec, now: Date.now() })
   if (!want.want) return skip('not_wanted', `no raised junk well is wanted here (${want.why})`)
   if (bot.currentWindow) return skip('window_open', 'a container window is open; the raised well waits for the next town visit')
   const token = `${bot.username ?? 'bot'}-${process.pid}-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 7)}`
@@ -8970,7 +9050,12 @@ async function buildPlinth (ctx, _args, signal) {
     if (want.want === 'plan') {
       const read0 = readWellCell(bot)
       const others = knownPlinthCaps(bot)
-      const it = planPlinthSteps({ read: memoRead(read0), home, avoid: wellAvoid(bot), keepOut: plinthKeepOut(bot), otherColumns: others })
+      // PLINTH-FIRST plans a raised well: the 8 walls placed (plinth.mjs PLINTH_FIRST_MIN_RAISE); plinth-02's own plans keep k >= 0
+      // the POLICY decides the raise, not the 'none' window (Codex r3 P2-2: a replan out of 'none' is still a raised well)
+      // ...and a floor that found nothing drops once the natural search has exhausted too (plinth.mjs plinthFirstMinK; Claude r4 P2-1)
+      const policy = plinthFirstPolicy({ scope: config.memory.scope, pool: config.memory.pool, name: bot.username ?? '', env: process.env })
+      const { minK, bare } = plinthFirstMinK({ policy, recState: plinthRecordState(rec, world), rec, noSite: readWellNoSite() })
+      const it = planPlinthSteps({ read: memoRead(read0), home, avoid: wellAvoid(bot), keepOut: plinthKeepOut(bot), otherColumns: others, minK, bare })
       let res
       for (;;) {
         const r = it.next()
@@ -8984,26 +9069,30 @@ async function buildPlinth (ctx, _args, signal) {
       // trap a body even with its cap cell open
       const hazardOf = c => plinthHazard(plinthOverlay(read0, new Map([[cellKey(c.x, c.y, c.z), PLINTH_AIR]])), c)
       const mine = plinthRecordState(rec, world) ? rec : null          // never another world's columns (Claude r2 P3-6)
-      const carried = carryPrev(mine, hazardOf, res.plan?.cap ?? null)
+      // THE RECORDED WELL SITE IS CARRIED TOO (plinthfirst-01; Codex r1 P1-2, Claude r1 Q2): the hand-off will replace its site
+      // generation, and a pit dug there would then drop out of every path's exclusions and the pit-cover order. carryPrev
+      // keeps it only while it could trap a body (a fresh, undug site is let go)
+      const displaced = (() => { try { const r = recordedWellSite(bot); return r ? [{ x: r.x, y: r.y, z: r.z }] : [] } catch { return [] } })()
+      const carried = carryPrev(mine, hazardOf, res.plan?.cap ?? null, displaced)
       if (res.plan && carried.length >= PLINTH_PREV_MAX) { res.why = 'too_many_unresolved'; res.plan = null }   // never evict one to start another
       if (!res.plan) {
         // A FAILED SEARCH KEEPS WATCHING EVERY COLUMN THE TOWN STARTED (carryPrev): the record changes, the obligations do not
         // A VOID'S OBLIGATION OUTLIVES A FAILED SEARCH (Codex r3 N2): the no-site hold may be gone (a partial hand-off), so a
         // none written after a void keeps that trigger, and the town plans again when it ages out
         const trigger = want.why === 'void' || mine?.trigger === 'void' ? 'void' : null
-        if (holdPlinthLease(token, lease.n)) writeRecordAtomic(plinthFile(), { v: PLINTH_VERSION, state: 'none', world, at: Date.now(), by: bot.username ?? null, why: res.why, tally: tallyText(res.tally), prev: carryPrev(mine, hazardOf), trigger })
+        if (holdPlinthLease(token, lease.n)) writeRecordAtomic(plinthFile(), { v: PLINTH_VERSION, state: 'none', world, at: Date.now(), by: bot.username ?? null, why: res.why, tally: tallyText(res.tally), prev: carryPrev(mine, hazardOf, null, displaced), trigger, minK })
         try { bot.refreshWells?.() } catch { /* timer */ }
         plinthRow(bot, 'refused', { stage: 'none', why: res.why, tally: tallyText(res.tally) })
         return { status: 'no_effect', failClass: 'plinth_none', detail: `no raised junk well fits within ${WELL_SEARCH_RADIUS} of home (${res.why}); the town plans again in ${Math.round(PLINTH_NONE_BACKOFF_MS / 60000)} min` }
       }
       const id = `${bot.username ?? 'bot'}-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`
-      const next = { v: PLINTH_VERSION, state: 'plan', id, world, at: Date.now(), by: bot.username ?? null, plan: res.plan, prev: carried, left: res.plan.cost, stuck: null }
+      const next = { v: PLINTH_VERSION, state: 'plan', id, world, at: Date.now(), by: bot.username ?? null, plan: res.plan, prev: carried, left: res.plan.cost, stuck: null, plannedFor: want.why, ...(want.evidence ? { plannedEvidence: want.evidence } : {}), minK }
       if (!holdPlinthLease(token, lease.n) || !writeRecordAtomic(plinthFile(), next) || readPlinth()?.id !== id) {
         plinthRow(bot, 'failed', { stage: 'plinth_record', why: 'the plan could not be stored' })
         return { status: 'failed', failClass: 'plinth_record', detail: 'the raised junk well plan could not be stored; nothing was built' }
       }
       try { bot.refreshWells?.() } catch { /* timer */ }
-      plinthRow(bot, 'success', { stage: 'planned', at: res.plan.cap, k: res.plan.k, done: 0, total: res.plan.steps.length, left: res.plan.cost, id, tally: `tried:${res.tried}` })
+      plinthRow(bot, 'success', { stage: 'planned', at: res.plan.cap, k: res.plan.k, done: 0, total: res.plan.steps.length, left: res.plan.cost, id, tally: `tried:${res.tried}`, why: `trigger_${want.why}${want.evidence ? `_${want.evidence}` : ''}` })
       // NOT a success: a plan changes nothing in the world (the runner would downgrade it to unknown and throttle the order)
       return { status: 'no_effect', placed: 0, detail: `planned the town's raised junk well at ${res.plan.cap.x},${res.plan.cap.y},${res.plan.cap.z}: ${res.plan.cost} block(s) and ${res.plan.clears} leaf clear(s), built over the next visits` }
     }
