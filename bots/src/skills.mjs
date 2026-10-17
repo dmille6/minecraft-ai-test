@@ -7560,7 +7560,7 @@ function farmAvoid (bot = null) {
     if (rec && (rec.state === 'plan' || rec.state === 'complete') && rec.plan?.cap && Array.isArray(rec.plan.steps)) {
       // planned cells and stands: kept 2 away at founding; a recorded farm yields to one only if it lands ON a farm cell
       // (plinth_cell: the planner's own exact keep-out, plinthKeepOut + farmKeepOut on the merge -- Claude r2 P3)
-      for (const st of rec.plan.steps) for (const q of [st?.c, st?.s]) if (Array.isArray(q) && q.every(Number.isFinite)) out.push({ x: q[0], y: q[1], z: q[2], r: FARM_TORCH_WELL_DISTANCE, what: 'plinth_cell' })
+      for (const st of rec.plan.steps) for (const q of [st?.c, st?.s]) if (Array.isArray(q) && q.every(Number.isFinite)) out.push({ x: q[0], y: q[1], z: q[2], r: FARM_TORCH_WELL_DISTANCE, what: 'plinth_cell', place: q === st.c && st.op === 'place' })
     }
   } catch { /* no plinth record */ }
   return out

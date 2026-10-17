@@ -238,6 +238,10 @@ await t('PLINTH CELL (Claude r2 P3): a recorded farm yields to a raised-well pla
   const rec = TF.canonicalFarm({ home: HOME, read: world().read }).record
   const p = plotsOf(rec)[0]
   assert.equal(TF.farmYields(rec, [{ x: p.x + 1, y: p.y, z: p.z, r: 2, what: 'plinth_cell' }]), null, 'beside a plot: legal for the planner, no yield')
+  // Codex r17 P2: a PLACEMENT in the trunk clearance moves the farm; a stand there does not; beside the sapling itself is fine
+  assert.match(TF.farmYields(rec, [{ x: p.x + 1, y: p.y + 1, z: p.z + 1, r: 2, what: 'plinth_cell', place: true }]) ?? '', /trunk clearance/)
+  assert.equal(TF.farmYields(rec, [{ x: p.x + 1, y: p.y + 1, z: p.z + 1, r: 2, what: 'plinth_cell', place: false }]), null, 'a stand in the ring: no yield')
+  assert.equal(TF.farmYields(rec, [{ x: p.x + 1, y: p.y, z: p.z + 1, r: 2, what: 'plinth_cell', place: true }]), null, 'a block beside the sapling (below the ring): no yield')
   assert.match(TF.farmYields(rec, [{ x: p.x, y: p.y + 2, z: p.z, r: 2, what: 'plinth_cell' }]) ?? '', /tree-farm cell/, 'in a plot column: yield')
   assert.match(TF.farmYields(rec, [{ x: p.x, y: p.y - 2, z: p.z, r: 2, what: 'plinth_cell' }]) ?? '', /tree-farm cell/, 'a stand whose head is the soil cell: yield')
 })
@@ -335,6 +339,26 @@ await t('THE RAISED WELL BEFORE THE FARM (Codex r14 P2-1, planPlinthFarmAware): 
   const p = plotsOf(rec)[0]
   assert.match(TF.farmYields(rec, [{ x: p.x, z: p.z, r: TF.FARM_WELL_DISTANCE, what: 'plinth' }]) ?? '', /plinth/, 'a cap over the farm: the farm yields')
   assert.equal(TF.farmYields(rec, [{ x: p.x + 40, z: p.z + 40, r: TF.FARM_WELL_DISTANCE, what: 'plinth' }]), null, 'control: a cap far off')
+})
+
+await t('A FALLBACK PLAN THAT PLACES IN A TRUNK RING (Codex r17 P2), through farmAvoid and townFarm: the recorded farm yields and re-founds; the same cell as a stand only, or a clear, keeps the farm (controls)', async () => {
+  const a = fakeTown({ items: [S('birch_sapling', 9)], storeDir: pool('ring-found') })
+  const free = TF.canonicalFarm({ home: HOME, read: world().read }).record
+  const p = plotsOf(free)[4]
+  const ringCell = [p.x + 1, p.y + 2, p.z + 1]
+  const far = { x: 900, y: 66, z: 900 }
+  const farStand = [far.x + 1, 64, far.z]
+  const run = steps => {
+    const dir = pool('ring')
+    writeFarm(dir, free)
+    writeFileSync(path.join(dir, `junkwell-plinth-${homeKey}.json`), JSON.stringify({ v: 1, state: 'plan', id: 'r', world: 'w1', plan: { cap: far, steps }, prev: [] }))
+    const f = SK.townFarm(fakeTown({ items: [S('birch_sapling', 9)], storeDir: dir }).bot)
+    return f.record ? JSON.stringify(f.record.cells) !== JSON.stringify(free.cells) : true
+  }
+  assert.ok(a.bot)
+  assert.equal(run([{ op: 'place', c: ringCell, s: farStand }]), true, 'a block in the ring: the farm moves')
+  assert.equal(run([{ op: 'place', c: [far.x, 64, far.z], s: ringCell }]), false, 'the ring cell as a stand only: the farm stays')
+  assert.equal(run([{ op: 'clear', c: ringCell, s: farStand }]), false, 'a leaf clear there: the farm stays')
 })
 
 await t('FARM -> PLINTH (plinthKeepOut, what the planner is given): a recorded farm adds every farm cell exactly; no farm adds none (positive control)', async () => {

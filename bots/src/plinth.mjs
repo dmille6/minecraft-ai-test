@@ -692,8 +692,9 @@ function * orderSteps (read0, cand, stair, { st, box, forbid, noStand = null }) 
   let reach = walkReach(world, st, { box, forbid })
   let prev = st, hazardStep = null
   // NO BUILDER'S STAND ON ANOTHER STRUCTURE'S CELL (treefarm-02, Claude r14 P3-1): `noStand(x, y, z)` -> true for a cell no
-  // stand's feet or head may be in (a tree farm's soil, plot column and torch cells); never a route rule
-  const avoidStand = (x, y, z) => forbid(x, y, z) || (typeof noStand === 'function' && (noStand(x, y, z) || noStand(x, y + 1, z)))
+  // stand's feet or head may be in (a tree farm's soil, plot column and torch cells); never a route rule. standFor asks
+  // avoid at the feet AND the head, so the cell itself is all this asks (Codex r17 P3)
+  const avoidStand = (x, y, z) => forbid(x, y, z) || (typeof noStand === 'function' && noStand(x, y, z))
   while (todo.length) {
     yield steps.length
     let done = false

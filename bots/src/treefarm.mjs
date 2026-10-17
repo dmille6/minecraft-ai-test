@@ -456,7 +456,7 @@ export const FARM_YIELDS_TO = new Set(['junk_well', 'plinth', 'plinth_cell', 'ch
  * always the same way, the farm moves (Codex r1 P2).
  */
 export function farmYields (record, avoid = []) {
-  let idx = null, keep = null
+  let idx = null, keep = null, ring = null
   for (const a of (Array.isArray(avoid) ? avoid : [])) {
     if (!a || !FARM_YIELDS_TO.has(a.what) || !Number.isFinite(a.x) || !Number.isFinite(a.z)) continue
     // A CHEST: exactly chest-full's own rule (farmChestRefusal), so a chest chest-full was allowed to place never makes the
@@ -472,6 +472,12 @@ export function farmYields (record, avoid = []) {
     if (a.what === 'plinth_cell' && Number.isFinite(a.y)) {
       const ko = (keep ??= new Set(farmKeepOut(record).map(q => `${q.x},${q.y},${q.z}`)))
       if (ko.has(`${a.x},${a.y},${a.z}`) || ko.has(`${a.x},${a.y + 1},${a.z}`)) return `a raised-well plan cell at ${a.x},${a.y},${a.z} is a tree-farm cell`
+      // A BLOCK PLACED IN A PLOT'S TRUNK CLEARANCE (Codex r17 P2: a plan made over the farm by the fallback): the plot could
+      // never grow, so the farm moves -- a placement only; a stand there is harmless
+      if (a.place === true) {
+        ring ??= new Set(farmPlannerKeepOut(record).map(q => `${q.x},${q.y},${q.z}`))
+        if (ring.has(`${a.x},${a.y},${a.z}`)) return `a raised-well plan places a block at ${a.x},${a.y},${a.z} in a tree-farm plot's trunk clearance`
+      }
       continue
     }
     const r = Number.isFinite(a.r) ? a.r : FARM_CONTAINER_DISTANCE
@@ -486,7 +492,8 @@ export function farmYields (record, avoid = []) {
 /**
  * THE FARM AS A PLANNER'S KEEP-OUT -> farmKeepOut plus each plot's TRUNK CLEARANCE (Claude r14 P2-1): the ring of eight
  * cells around the plot column from one above the sapling to CLEAR_ABOVE + 1 above it. Vanilla oak and birch grow only
- * with that 3x3 free above the base (TwoLayersFeatureSize(1, 0, 1)), so a block placed there kills the plot for good.
+ * with that 3x3 free above the base up to the rolled height + 1 (TwoLayersFeatureSize(1, 0, 1); heights to 6 / 7), so a
+ * block placed low in it stops the plot and one higher up excludes the taller rolls (fancy oak clips, Codex r17).
  * For a planner that builds NEW blocks near the farm (plinth's `keepOut`); farmYields keeps the exact set (a recorded
  * plan only moves the farm when it is ON a farm cell). Pure.
  */
