@@ -315,7 +315,7 @@ const COLUMN_UP = 8, COLUMN_DOWN = 8
 export const townDistance = (home, p) => Math.hypot(p.x - home.x, p.y - Math.floor(home.y ?? p.y), p.z - home.z)
 /** Every block that is a container or feeds/pulls one. Matched by NAME over the whole clearance volume, uncapped. */
 export const CLEARANCE_CONTAINER = /^(chest|trapped_chest|ender_chest|barrel|hopper|dropper|dispenser|furnace|blast_furnace|smoker|brewing_stand|(\w+_)?shulker_box)$/
-const PLACEABLE_INTO = new Set(['air', 'cave_air', 'short_grass', 'fern', 'dead_bush'])
+export const PLACEABLE_INTO = new Set(['air', 'cave_air', 'short_grass', 'fern', 'dead_bush'])
 const LIQUID = /^(water|lava|flowing_water|flowing_lava|bubble_column)$/
 const FLOOR_NO = /(^chest$|^trapped_chest$|^barrel$|^composter$|^crafting_table$|furnace$|^smoker$|_leaves$|^dirt_path$|^farmland$|_slab$|_stairs$|_door$|_trapdoor$|^scaffolding$|^ice$|shulker_box$|^hopper$)/
 

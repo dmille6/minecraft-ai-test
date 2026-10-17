@@ -47,6 +47,7 @@ import { installCraftSync } from './craftsync.mjs'
 import { installCobbleCap } from './skills.mjs'
 import { cobbleCapModeDetail } from './cobblecap.mjs'
 import { lidClearModeDetail } from './lidrule.mjs'
+import { plinthModeDetail } from './plinth.mjs'   // plinth-02's licence row (its own statement)
 import { CognitiveLoop } from './cognitive.mjs'
 import { openLessons } from './lessons.mjs'
 import { openWorldFacts } from './worldfacts.mjs'
@@ -285,6 +286,8 @@ function connect() {
     try { logEvent({ kind: 'lidclear_mode', status: 'success', snapshot: snapshot(bot), detail: lidClearModeDetail() }) } catch {}
     // kitshrink-01: the licence row, once per spawn -- the build's own `_kitshrink` kind (kitshrink.mjs kitShrinkModeDetail)
     try { logEvent({ kind: 'kitshrink', status: 'success', snapshot: snapshot(bot), detail: kitShrinkModeDetail() }) } catch {}
+    // plinth-02: the licence row, once per spawn -- the build's own `_plinth_mode` kind (plinth.mjs plinthModeDetail)
+    try { logEvent({ kind: 'plinth_mode', status: 'success', snapshot: snapshot(bot), detail: plinthModeDetail(bot.worldId) }) } catch {}
     try {
       installCraftSync(bot, { log: row => logEvent({ ...row, snapshot: snapshot(bot) }) })
     } catch (e) {
