@@ -12,6 +12,10 @@
 import { HARD_STOP } from './toolfor.mjs'
 import { SKILLS, roomRemedy, farFromBank, classifyOutcome, SKILL_CONTRACTS, plantableSpotNear, findTownComposter, townBuildPlan, townPickMiss, townIngredientMiss, townKitIronMiss, foodSkipNow, townContainers, townWellState, townWellBuildPlan, insideTownWell, wellSwordsNow, cobbleWellCap, townPitState, stockWellOpts, valveProof, stockCountKeys, pruneTarget, unknownRefusals, stockRecountKeys } from './skills.mjs'
 import { disposePlan, wellOrder, wellOrderOutcome, WELL_ORDERS, pitCoverItem } from './well.mjs'
+// wellcare-01 fix 2 (its own statement): the well order's vertical reach and its held-order row
+import { wellOutOfReach, wellDeepDetail } from './wellcare.mjs'
+import { townWellStandY } from './skills.mjs'
+const WELL_DEEP_ROW_MS = 5 * 60 * 1000
 // plinth-01, the raised junk well (its own statements)
 import { plinthOrder, plinthOrderOutcome, plinthBudget, plinthShortfall, PLINTH_STEPS_PER_VISIT, PLINTH_MIN_FUND } from './plinth.mjs'
 import { townPlinthState } from './skills.mjs'
@@ -985,10 +989,17 @@ export class CognitiveLoop {
           myName: bot.username ?? '',
           peers: () => Object.values(bot.players ?? {}).filter(q => q?.username && q.username !== bot.username && q.entity?.position &&
             Math.hypot(q.entity.position.x - home.x, q.entity.position.z - home.z) <= TOWN_RADIUS).map(q => q.username),
+          // wellcare-01 fix 2: not from deep under the stand (wellcare.mjs wellOutOfReach); home's y when the town knows no stand
+          depth: () => wellOutOfReach({ feetY: p?.y, standY: townWellStandY(bot) ?? config.world.homeY }),
           state: this.wellState ?? {},
         })
         this.wellState = r.state
         if (r.order) order = r.order
+        // THE HELD ORDER IS SAID (the read's guard row; one per bot per order kind per 5 min), with the bot's own remedy
+        if (r.held && Date.now() - (this.wellDeepLoggedAt?.[r.held.skill] ?? -Infinity) >= WELL_DEEP_ROW_MS) {
+          this.wellDeepLoggedAt = { ...(this.wellDeepLoggedAt ?? {}), [r.held.skill]: Date.now() }
+          logEvent({ kind: 'well_deep', status: 'refused', snapshot: snapshot(bot), detail: wellDeepDetail(r.held) })
+        }
       } catch { /* an inventory or world read must never break the decision loop */ }
     }
     // CHEST PRUNING (stocktarget-01, prune.mjs): after the well's orders, at town with room in the bag and a usable well,
