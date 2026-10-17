@@ -15,4 +15,8 @@ assert.deepEqual(got64, [64, 64, 64, 64, 64, 64, 1000], 'the suite pin reproduce
 const envBad = { ...process.env, STOCK_WOOD_TARGET: 'lots' }
 const gotBad = JSON.parse(execFileSync(process.execPath, ['--input-type=module', '-e', probe], { env: envBad, cwd: new URL('..', import.meta.url) }).toString().trim())
 assert.equal(gotBad[0], 4000, 'malformed env -> the production default')
+for (const v of [' ', '0', '-5', '2.5']) {
+  const g = JSON.parse(execFileSync(process.execPath, ['--input-type=module', '-e', probe], { env: { ...process.env, STOCK_WOOD_TARGET: v }, cwd: new URL('..', import.meta.url) }).toString().trim())
+  assert.equal(g[0], 4000, `STOCK_WOOD_TARGET=${JSON.stringify(v)} -> the production default, never 0`)
+}
 console.log('  PASS  logcap: production wood target 4000; suite pin 64; malformed env -> 4000')

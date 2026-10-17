@@ -26,7 +26,7 @@ const tool = (name, target) => Object.freeze({ names: Object.freeze([name]), tar
  * THE TARGETS (per town; design r2 section 2 -- PROVISIONAL, re-derived from a blueprint's measured draw once it draws).
  * Each is at once the BANK CAP, the PRUNE FLOOR and the one-time clear's CAP. Measured 48 h to 10-10 12:00Z: the town
  * draw of every bulk material is ZERO; the only draws are pickaxes (~5/town/day stone, ~2 wooden), coal and a few sticks.
- *   A  cobble TOWN_COBBLE_CAP = 1000 (OWNER 10-14; was 256, OWNER 10-04/10-07); each log type 64, each planks type 64 (by type, as the owner asked; the workshop
+ *   A  cobble TOWN_COBBLE_CAP = 1000 (OWNER 10-14; was 256, OWNER 10-04/10-07); each log type and each planks type TOWN_WOOD_TARGET (4000 since logcap-01, OWNER 10-17; was 64) (by type, as the owner asked; the workshop
  *      needs ~7 logs + 28 planks, the mineshaft's ladders ~14 logs); stick 64 (withdraw2's iron pickaxe: 2); stone 64
  *   B  0: nothing draws them from a town (the bots' own scaffold/pillar/pit cover use them from the BAG, kept by the keeps)
  *   C  usable tools (> FLOOR uses): stone_pickaxe 16 (~3 days of the measured draw), wooden_pickaxe 4, stone axe/shovel 4,
@@ -47,8 +47,9 @@ export const TOWN_COBBLE_CAP = 1000
  */
 // The suite's arithmetic was written against 64; scripts/run-tests.mjs sets STOCK_WOOD_TARGET=64 so it still exercises the
 // rules, and logcap.test.mjs proves the production default (no env) is 4000. No bot env file sets it.
-const WOOD_ENV = process.env.STOCK_WOOD_TARGET
-export const TOWN_WOOD_TARGET = WOOD_ENV !== undefined && WOOD_ENV !== '' && Number.isInteger(Number(WOOD_ENV)) && Number(WOOD_ENV) >= 0 ? Number(WOOD_ENV) : 4000
+const WOOD_ENV = String(process.env.STOCK_WOOD_TARGET ?? '').trim()
+// >= 1: a 0 (or a blank that Number() reads as 0) would prune every log
+export const TOWN_WOOD_TARGET = /^[0-9]+$/.test(WOOD_ENV) && Number(WOOD_ENV) >= 1 ? Number(WOOD_ENV) : 4000
 export const STOCK_GROUPS = Object.freeze({
   cobble: bulk(['cobblestone', 'cobbled_deepslate'], TOWN_COBBLE_CAP),
   ...Object.fromEntries(WOODS.map(w => [`${w}_log`, bulk([`${w}_log`], TOWN_WOOD_TARGET)])),
