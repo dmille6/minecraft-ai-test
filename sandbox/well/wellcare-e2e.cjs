@@ -6,8 +6,8 @@
 //   mine   a raised well (a plinth-01/02 shell: k=4, cap g=123 on the slab top 119, its record in the pool's store) and a
 //          bot on its south stand ordered `mine`. Read back: every one of the 81 shell cells still cobblestone, the cap
 //          and floor trapdoors still there; the mine result and the bot's _mine_well_guard rows.
-//   deep   a town with a dug junk well (cap 1300,119,1315, 15 from home) and a bot with a full bag of junk in a closed room
-//          20 below the stand, under home. 75 s of the loop's own decisions (the brain proposes `status`). Read back: the
+//   deep   a low town (dirt 60..66 over stone) with a dug junk well (cap 1300,66,1315, 15 from home) and a bot with a full bag
+//          of junk in a closed room 22 below the stand (y 45, under sea level), under home. WCARE_CLIMB=1: then `surface`. 75 s of the loop's own decisions (the brain proposes `status`). Read back: the
 //          well orders the bot was given (dispose_well / build_well / close_well rows) and its _well_deep rows.
 //   table  the plinth again, two blocks on its south corners (town furniture), the bot on the south stand with a table,
 //          planks and sticks, ordered `craft wooden_pickaxe` (no table within 32: the craft puts its own down). Read back:
@@ -46,7 +46,7 @@ const bad = r => r.filter(x => /not loaded|Cannot|Unknown|Incorrect|Expected/i.t
 // ---- the arena: a dirt slab y 113..119 (well-e2e's), x/z 1297..1333 ----------------------------------------------------
 const A = { x0: 1297, x1: 1333, z0: 1297, z1: 1333 }
 const G = 119
-const ARENA_SEL = `@e[type=item,x=${A.x0},y=90,z=${A.z0},dx=${A.x1 - A.x0},dy=50,dz=${A.z1 - A.z0}]`
+const ARENA_SEL = `@e[type=item,x=${A.x0},y=40,z=${A.z0},dx=${A.x1 - A.x0},dy=100,dz=${A.z1 - A.z0}]`
 // the plinth: cap g = 123 (k = 4 over the surface t = 119), the 81 shell cells of plinth.mjs (g: 3x3 minus the cap; g-1: 5x5
 // minus the shaft; g-2: 5x5; g-3: 5x5 minus the centre); the floor trapdoor in the shaft at g-1, the cap trapdoor at g
 const PC = { x: 1305, y: 123, z: 1305 }
@@ -58,21 +58,29 @@ for (let dx = -2; dx <= 2; dx++) for (let dz = -2; dz <= 2; dz++) {
   SHELL.push({ x, y: PC.y - 2, z })
   if (r >= 1) SHELL.push({ x, y: PC.y - 3, z })
 }
-// the dug well of the deep scene, as minewell-e2e's: cap 1300,119,1315 facing east; its home 15 east
-const DC = { x: 1300, y: G, z: 1315 }
-const DEEP_HOME = { x: 1315, y: 120, z: 1315 }
+// THE DEEP SCENE'S TOWN IS BELOW-SEA-LEVEL-REALISTIC: a low slab (stone 41..59, dirt 60..66), the dug well's cap at
+// 1300,66,1315 facing east (stand y 67, 15 from home), the room 22 below the stand at y 45 -- under sea level 63, as all 417
+// fleet orders from deep were (72 h to 10-17 12:55Z), so the held row's remedy is `surface`
+const DG = 66
+const DC = { x: 1300, y: DG, z: 1315 }
+const DEEP_HOME = { x: 1315, y: DG + 1, z: 1315 }
 // the plinth scenes' home: 21 from the plinth, its y above the town ground band (y >= home.y - 12) so the zone keeps out
 // nothing in this arena -- the plinth's own shell is the only keep-out (townzone x minewell has its own Paper scene)
 const PLINTH_HOME = { x: 1320, y: 150, z: 1320 }
 function buildArena () {
-  const c = [`kill @e[type=!player,x=${A.x0},y=90,z=${A.z0},dx=${A.x1 - A.x0},dy=50,dz=${A.z1 - A.z0}]`,
+  const c = [`kill @e[type=!player,x=${A.x0},y=40,z=${A.z0},dx=${A.x1 - A.x0},dy=100,dz=${A.z1 - A.z0}]`,
     `fill ${A.x0} 95 ${A.z0} ${A.x1} 111 ${A.z1} minecraft:air`, `fill ${A.x0} 112 ${A.z0} ${A.x1} 123 ${A.z1} minecraft:air`, `fill ${A.x0} 124 ${A.z0} ${A.x1} 135 ${A.z1} minecraft:air`,
     `fill ${A.x0} 113 ${A.z0} ${A.x1} ${G} ${A.z1} minecraft:dirt`,
-    // the dug well (deep scene)
+    // the deep scene's low town: stone 41..59, dirt 60..66, its dug well, and a 5x5x3 room at 45..47 under home
+    `fill ${A.x0} 41 ${A.z0} ${A.x1} 59 ${A.z1} minecraft:stone`, `fill ${A.x0} 60 ${A.z0} ${A.x1} ${DG} ${A.z1} minecraft:dirt`, `fill ${A.x0} ${DG + 1} ${A.z0} ${A.x1} 80 ${A.z1} minecraft:air`, `fill ${A.x0} 81 ${A.z0} ${A.x1} 94 ${A.z1} minecraft:air`,
     `setblock ${DC.x} ${DC.y - 1} ${DC.z} minecraft:oak_trapdoor[half=bottom,facing=east,open=false]`,
     `setblock ${DC.x} ${DC.y} ${DC.z} minecraft:oak_trapdoor[half=top,facing=east,open=false]`,
-    // the deep room: a stone block 1310..1320 x 96..104 with a 5x5x3 room at 100..102 under home (20 below the stand at 120)
-    `fill 1310 96 1310 1320 104 1320 minecraft:stone`, `fill 1313 100 1313 1317 102 1317 minecraft:air`, `setblock 1315 102 1313 minecraft:torch`,
+    `fill 1313 45 1313 1317 47 1317 minecraft:air`, `setblock 1315 47 1313 minecraft:torch`,
+    // ...and the mine's own stair up to the town (a bot's mine leaves one): west along z=1317 from the room (feet 46..60),
+    // then south along x=1297..1299 to the surface (feet 61..67) -- clear of the well's box (+-2 of 1300,1315 at y 63..66)
+    // three wide and four high (a one-wide tunnel reads as entombed to the reflexes and fights the climb: Paper 10-17)
+    ...Array.from({ length: 15 }, (_, i) => `fill ${1312 - i} ${46 + i} 1315 ${1312 - i} ${49 + i} 1317 minecraft:air`),
+    ...Array.from({ length: 7 }, (_, j) => `fill 1297 ${61 + j} ${1318 + j} 1299 ${64 + j} ${1318 + j} minecraft:air`),
     // the plinth
     `fill ${PC.x - 2} ${PC.y - 3} ${PC.z - 2} ${PC.x + 2} ${PC.y - 1} ${PC.z + 2} minecraft:cobblestone`,
     `fill ${PC.x - 1} ${PC.y} ${PC.z - 1} ${PC.x + 1} ${PC.y} ${PC.z + 1} minecraft:cobblestone`,
@@ -186,7 +194,7 @@ async function sceneDeep () {
   const stacks = []
   for (let i = 0; i < 36; i++) stacks.push(i === 0 ? ['stone_pickaxe', 1] : i === 1 ? ['bread', 16] : i === 2 ? ['dirt', 16] : i < 10 ? junk[i % junk.length] : ['cobblestone', 64])
   give(...stacks)
-  rcon(`tp ${NAME} ${DEEP_HOME.x + 0.5} 100 ${DEEP_HOME.z + 0.5}`)
+  rcon(`tp ${NAME} ${DEEP_HOME.x + 0.5} 45 ${DEEP_HOME.z + 0.5}`)
   await sleep(3000)
   const t0 = new Date().toISOString()
   const startPos = posOf()
@@ -194,8 +202,19 @@ async function sceneDeep () {
   const rows = rowsOf(files.skillLog).filter(r => r.t >= t0)
   const orders = rows.filter(r => ['dispose_well', 'build_well', 'close_well'].includes(r.name)).map(r => `${r.name} ${r.status} ${r.detail.slice(0, 90)}`)
   const dec = lines(files.botOut).filter(l => /LLM -> /.test(l)).slice(-12).map(l => l.replace(/^.*LLM -> /, '').slice(0, 80))
+  // THE REMEDY THE ROW NAMES, PERFORMED BY THE REAL SKILL (Codex r1 P2): `surface`, then the loop's own next well order
+  let climb = null, after = []
+  if (process.env.WCARE_CLIMB === '1') {
+    const t1 = new Date().toISOString()
+    ORDER = { skill: 'surface', args: {} }
+    await waitFor(() => lines(files.botOut).find(l => /skill surface ->/.test(l)), 200000, 500)
+    const hr = rowsOf(files.skillLog).filter(r => r.name === 'surface').pop() || {}
+    climb = { pos: posOf(), row: hr.status ?? null, detail: (hr.detail || '').slice(0, 120) }
+    await waitFor(() => rowsOf(files.skillLog).some(r => r.t >= t1 && ['dispose_well', 'build_well', 'close_well'].includes(r.name)), 90000, 1000)
+    after = rowsOf(files.skillLog).filter(r => r.t >= t1 && ['dispose_well', 'build_well', 'close_well', '_well_deep'].includes(r.name)).map(r => `${r.name} ${r.status} y=${r.y} ${r.detail.slice(0, 80)}`)
+  }
   const res = { scene: 'deep', startPos, standY: DC.y + 1, orders, deepRows: rows.filter(r => r.name === '_well_deep').map(r => r.detail), decisions: dec, endPos: posOf(),
-    wellFound: rows.some(r => r.name === '_well_refused' || r.name === '_well_dispose'), licence: rowsOf(files.skillLog).filter(r => r.name === '_wellcare_mode').length }
+    wellFound: rows.some(r => r.name === '_well_refused' || r.name === '_well_dispose'), licence: rowsOf(files.skillLog).filter(r => r.name === '_wellcare_mode').length, climb, afterClimb: after }
   await stopBot()
   record(res)
 }
@@ -248,7 +267,7 @@ async function cleanup () {
   try { brain.close() } catch {}
   try { fs.unlinkSync(`${R}/sandbox/.env.wellcare-e2e`) } catch {}
   try {
-    P('cleanup', rcon(`kill ${ARENA_SEL}`,
+    P('cleanup', rcon(`kill ${ARENA_SEL}`, `fill ${A.x0} 41 ${A.z0} ${A.x1} 59 ${A.z1} minecraft:air`, `fill ${A.x0} 60 ${A.z0} ${A.x1} 80 ${A.z1} minecraft:air`, `fill ${A.x0} 81 ${A.z0} ${A.x1} 94 ${A.z1} minecraft:air`,
       `fill ${A.x0} 95 ${A.z0} ${A.x1} 111 ${A.z1} minecraft:air`, `fill ${A.x0} 112 ${A.z0} ${A.x1} 123 ${A.z1} minecraft:air`, `fill ${A.x0} 124 ${A.z0} ${A.x1} 135 ${A.z1} minecraft:air`,
       `forceload remove ${A.x0} ${A.z0} ${A.x1} ${A.z1}`, 'list').map(x => `${x.cmd.slice(0, 40)} => ${x.reply.slice(0, 80)}`))
   } catch (e) { P('cleanup failed', e.message) }

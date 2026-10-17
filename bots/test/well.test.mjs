@@ -2803,9 +2803,11 @@ await t('MUTANT (skills): without the per-stack re-read a changed slot is thrown
   const freshLessons = () => { const L = new Lessons(path.join(ldir, `l${lseq++}.json`)); L.data.avoid = {}; L.data.worked = {}; return L }
   const CP = new URL('../src/cognitive.mjs', import.meta.url)
   const STAND_Y = CAP.y + 1
-  /** A real loop on the fake town; every dispatched skill is recorded with the bot's height and succeeds. `climbAt`: after
-   *  that many decisions the bot is moved up to the stand's level (the remedy: surface) and 30 s of scan gate pass. */
-  async function loopOrders (town, { n = 3, climbAt = null, Loop = CognitiveLoop } = {}) {
+  /** A real loop on the fake town; every dispatched skill is recorded with the bot's height and succeeds. `climbAt`: the
+   *  model proposes `surface` (the remedy the held row names) from that decision on, and the runner performs it as a climb
+   *  to the stand's level (the real skill climbing on Paper: sandbox/well/wellcare-e2e.cjs `deep`). Nothing in the loop's
+   *  state is rewritten: the well's 30-s scan gate is waited out in real time (Codex r1 P2). `until` stops the loop early. */
+  async function loopOrders (town, { n = 3, climbAt = null, Loop = CognitiveLoop, until = null, maxMs = 9000 } = {}) {
     Object.assign(town.bot, { oxygenLevel: 300, time: { day: 1, age: 1, timeOfDay: 1000 }, game: { dimension: 'overworld' }, experience: { level: 0 }, isInWater: false })
     // the prompt's block census asks by block id (mineflayer accepts ids); this fake answers predicates only
     const fb = town.bot.findBlocks
@@ -2813,19 +2815,19 @@ await t('MUTANT (skills): without the per-stack re-read a changed slot is thrown
     const ran = []
     let loop = null
     const runner = { isBusy: () => false, run: async (skill) => {
-      ran.push({ skill, y: Math.floor(town.bot.entity.position.y) })
-      if (climbAt != null && ran.length === climbAt) { town.bot.entity.position = new Vec3(HOME.x + 0.5, STAND_Y, HOME.z + 0.5); loop.wellState = { ...(loop.wellState ?? {}), lastScanAt: 0 } }
+      ran.push({ skill, y: Math.floor(town.bot.entity.position.y), at: Date.now() })
+      if (skill === 'surface') town.bot.entity.position = new Vec3(HOME.x + 0.5, STAND_Y, HOME.z + 0.5)
       return { status: 'success', detail: 'ok', delta: {}, contractEvidence: [`${skill}: probe 1`] }
     } }
     loop = new Loop(town.bot, runner, freshLessons(), null)
-    loop.llm = { decide: async () => ({ schemaValid: true, latencyMs: 1, proposal: { skill: 'status', args: {}, reason: 'probe' } }) }
+    loop.llm = { decide: async () => ({ schemaValid: true, latencyMs: 1, proposal: { skill: climbAt != null && ran.length >= climbAt ? 'surface' : 'status', args: {}, reason: 'probe' } }) }
     loop.milestones.cycle = 540
     // the loop paces model decisions at LLM_DECISION_COOLDOWN_MS (production 20 s; this file's config is loaded without it)
     const pace = config.llm.decisionCooldownMs
     config.llm.decisionCooldownMs = 50
     try {
       loop.start()
-      for (let i = 0; i < 300 && ran.length < n; i++) await new Promise(r => setTimeout(r, 30))
+      for (const t0 = Date.now(); Date.now() - t0 < maxMs && ran.length < n && !(until && until(ran)); ) await new Promise(r => setTimeout(r, 30))
       loop.stop()
     } finally { config.llm.decisionCooldownMs = pace }
     return { ran, loop }
@@ -2838,16 +2840,18 @@ await t('MUTANT (skills): without the per-stack re-read a changed slot is thrown
   })
   await t('wellcare-01 CHAIN (real loop): 20 below the stand, under the town -> no well order, the bot carries on, a _well_deep row names the climb; after the climb the order comes at once', async () => {
     const town = fakeTown({ wellAt: CAP, items: fullOfJunk(), botAt: new Vec3(HOME.x + 0.5, STAND_Y - 20, HOME.z + 0.5) })
-    const { ran, loop } = await loopOrders(town, { n: 4, climbAt: 2 })
-    const deep = ran.slice(0, 2)
+    const { ran, loop } = await loopOrders(town, { n: 999, climbAt: 2, maxMs: 45_000, until: r => r.some(x => x.skill === 'dispose_well') })
+    const deep = ran.slice(0, ran.findIndex(x => x.skill === 'surface'))
+    assert.ok(deep.length >= 2, `the loop went on deciding: ${JSON.stringify(ran)}`)
     assert.ok(deep.every(x => !['dispose_well', 'build_well', 'close_well'].includes(x.skill)), `a well order 20 below: ${JSON.stringify(ran)}`)
-    assert.ok(deep.length === 2, 'the loop went on deciding')
     const row = (await rows('_well_deep')).pop()
     assert.ok(row, 'no _well_deep row')
-    assert.match(row.skill.detail, new RegExp(`^order=dispose below=20 stand_y=${STAND_Y} feet_y=${STAND_Y - 20} limit=12 remedy=surface$`), row.skill.detail)
-    const after = ran.slice(2)
-    assert.equal(after[0]?.skill, 'dispose_well', `the first decision in reach after the climb: ${JSON.stringify(ran)}`)
-    assert.equal(after[0].y, STAND_Y)
+    assert.match(row.skill.detail, new RegExp(`^order=dispose below=20 stand_y=${STAND_Y} feet_y=${STAND_Y - 20} limit=12 remedy=${STAND_Y - 20 < 63 ? 'surface' : 'walk_up'}$`), row.skill.detail)
+    const i = ran.findIndex(x => x.skill === 'dispose_well')
+    assert.ok(i > 0, `no dispose_well after the climb: ${JSON.stringify(ran.map(x => x.skill))}`)
+    assert.equal(ran[i].y, STAND_Y, 'given only in reach')
+    assert.equal(ran[i - 1].skill, 'surface', 'the order is the first one after the climb')
+    assert.ok(ran[i].at - ran[0].at <= 40_000, 'within the scan gate of the first held decision')
     assert.ok(loop.wellState.lastDisposeAt > 0, 'positive control: the order given after the climb is charged')
   })
   await t('wellcare-01 CHAIN, 12 below (the limit): still in reach -- the order is given', async () => {

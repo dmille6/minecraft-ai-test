@@ -7,7 +7,7 @@
 #      cap.y-3 to the cap, and a plinth's stair treads); it walks off to a clear start first. Rows _mine_well_guard.
 #   2. NO WELL ORDER FROM DEEP: dispose_well / build_well / close_well are HELD while the bot is more than 12 below the
 #      well's stand (wellcare.mjs WELL_REACH_BELOW; measured 10-17: 238 of 262 dispose orders started > 12 below failed
-#      well_unreachable, build_well 25 of 25). Rows _well_deep order= below= stand_y= feet_y= limit=12 remedy=surface.
+#      well_unreachable, build_well 25 of 25). Rows _well_deep order= below= stand_y= feet_y= limit=12 remedy=surface|walk_up.
 #   3. NO STATION ON A WELL: place() never puts a block in a well's shell, shaft (cap.y-2..+3), stands (the four cardinals
 #      at cap.y+1/+2) or a plinth stair's headroom; build_well's own table keeps its plinth-ring cell. Rows _station_well
 #      action=skip|refuse|room, and _station_placed (every station placed within 6 of a well: item= at= cap= keep= own= by=).
@@ -97,25 +97,36 @@ def keep_out(cell, cap, stair=(), own=False):
     return None
 
 
-def shell_digs(digs, cols):
-    """PURE. digs [(pool, bot, detail)] _dig_town rows; cols {pool: {cap: stair-tuple}} -> [(bot, cell, cap, by)] by mine."""
+def active(since, pool, cap, t):
+    """Was this column a well (or a planned plinth) at time t? `since` {pool: {cap: datetime}}: a column first seen in a
+    _well_built / _well_pit_dug row (built in the window) or planned by a record at `at` is judged only from then (Codex r1
+    P2: never future geometry retroactively); any other column existed before the window. t None = not timed."""
+    a = (since or {}).get(pool, {}).get(cap)
+    return a is None or t is None or t >= a
+
+
+def shell_digs(digs, cols, since=None):
+    """PURE. digs [(pool, bot, detail[, t])] _dig_town rows; cols {pool: {cap: stair-tuple}} -> [(bot, cell, cap, by)] by mine."""
     out = []
-    for pool, bot, d in digs:
+    for row in digs:
+        pool, bot, d = row[:3]; t = row[3] if len(row) > 3 else None
         m = POS.search(d or ''); by = BY.search(d or '')
         if not m or not by or not by.group(1).startswith('mine'):
             continue
         cell = tuple(int(v) for v in m.groups())
         for cap, stair in cols.get(pool, {}).items():
-            if in_shell(cell, cap) or cell in stair:
+            if (in_shell(cell, cap) or cell in stair) and active(since, pool, cap, t):
                 out.append((bot, cell, cap, by.group(1))); break
     return out
 
 
-def station_breaches(placed, cols):
-    """PURE. placed [(pool, bot, detail)] _station_placed rows -> [(bot, item, cell, cap, kind)] whose cell is a well's
-    (own=0), judged against every known column of the pool (the row's own cap= included) -- or keep!=none with own=0."""
+def station_breaches(placed, cols, since=None):
+    """PURE. placed [(pool, bot, detail[, t])] _station_placed rows -> [(bot, item, cell, cap, kind)] whose cell is a well's
+    (own=0), judged against every column of the pool known at that time (the row's own cap= included: the bot knew it)
+    -- or keep!=none with own=0."""
     out = []
-    for pool, bot, d in placed:
+    for row in placed:
+        pool, bot, d = row[:3]; t = row[3] if len(row) > 3 else None
         at = cap_of(d); cap = cap_of(d, CAPF)
         own = ' own=1' in (d or '')
         item = (re.search(r'(?:^| )item=(\S+)', d or '') or [None, '?'])[1]
@@ -127,6 +138,8 @@ def station_breaches(placed, cols):
             known[cap] = ()
         kind = None
         for c, stair in known.items():
+            if c != cap and not active(since, pool, c, t):
+                continue
             kind = keep_out(at, c, stair, own=own and c == cap)
             if kind:
                 break
@@ -150,31 +163,50 @@ def place_row_breaches(rows_, cols):
     return out
 
 
+EVIDENCE_KINDS = ('_well_dispose', '_well_refused', '_well_built')
+
+
 def deep_orders(seq, limit=REACH_BELOW + SLACK):
-    """PURE. seq: one bot's rows in time order [(t, kind, detail, pos_y, later_details)] where later_details are the details
-    of rows the order itself wrote (its _well_dispose / _well_refused, within its duration). -> [(t, kind, start_y, stand_y)]
-    for orders whose START (the previous row's pos y) was more than `limit` below a stand the order names."""
+    """PURE. seq: ONE bot's rows [(t, kind, detail, pos_y, dur_ms)] -- t is the row's @timestamp (a skill row's START; a
+    reflex row's moment), pos_y its bot.pos (a skill row's END position), dur_ms the skill's duration (0 for a reflex row).
+    -> [(t, kind, start_y, stand_y)] for the orders whose START was more than `limit` below a stand the order names.
+      START = the position of the row that ENDED last at or before the order's start (Codex r1 P1: ordering by @timestamp
+              puts a long skill's end position before the reflex rows written during it -- a climb's mid-way row read as
+              the start of the order that followed it).
+      STAND = the order's own detail (well_unreachable's standing cell; build's "built ... at"), else the cap of an
+              evidence row the order itself wrote: _well_dispose / _well_refused / _well_built with @timestamp inside
+              [start, start + duration + 2 s] (Codex r1 P1: bounded by the order's duration, never the next visit's)."""
+    rows = [(t, k, d, y, (t + dt.timedelta(milliseconds=max(0, dur or 0)))) for t, k, d, y, dur in seq]
+    by_end = sorted((e, y) for t, k, d, y, e in rows if y is not None)
+    ends = [e for e, _ in by_end]
+    import bisect
     out = []
-    prev_y = None
-    for t, kind, d, y, later in seq:
-        if kind in ORDERS:
-            stand = None
-            m = STAND.search(d or '')
+    for t, k, d, y, e in rows:
+        if k not in ORDERS:
+            continue
+        stand = None
+        m = STAND.search(d or '')
+        if m:
+            stand = int(m.group(2))
+        else:
+            m = BUILT.search(d or '')
             if m:
-                stand = int(m.group(2))
+                stand = int(m.group(2)) + 1
             else:
-                m = BUILT.search(d or '')
-                if m:
-                    stand = int(m.group(2)) + 1
-                else:
-                    for ld in later:
-                        c = cap_of(ld)
+                hi = e + dt.timedelta(seconds=2)
+                for t2, k2, d2, _y2, _e2 in rows:
+                    if k2 in EVIDENCE_KINDS and t <= t2 <= hi:
+                        c = cap_of(d2)
                         if c:
                             stand = c[1] + 1; break
-            if stand is not None and prev_y is not None and stand - prev_y > limit:
-                out.append((t, kind, prev_y, stand))
-        if y is not None:
-            prev_y = y
+        if stand is None:
+            continue
+        i = bisect.bisect_left(ends, t) - 1   # rows that ENDED strictly before the order started (never the order itself)
+        if i < 0:
+            continue
+        start_y = by_end[i][1]
+        if stand - start_y > limit:
+            out.append((t, k, start_y, stand))
     return out
 
 
@@ -182,7 +214,7 @@ def plinth_columns(pools, worlds, state_dir=STATE_DIR):
     """{pool: {cap: stair-tuple}} from the pools' plinth records (plan cap + every carried `prev` column, with stairs).
     World identity when this window saw the pool's world (w= on _plinth_mode / no_site rows); a pool with no world seen
     keeps its records (a missed breach is worse than a phantom cap; reported as unverified)."""
-    out = defaultdict(dict); unverified = set()
+    out = defaultdict(dict); unverified = set(); since = defaultdict(dict)
     for pool in sorted(pools):
         for f in sorted(glob.glob('%s/_pool-%s/junkwell-plinth-*.json' % (state_dir, pool))):
             if '.lease.' in f:
@@ -200,10 +232,13 @@ def plinth_columns(pools, worlds, state_dir=STATE_DIR):
                 unverified.add(pool)
             plan = rec.get('plan') or {}
             cols = [(plan.get('cap') or {}, plan.get('stair') or [])] + [(c, c.get('stair') or []) for c in (rec.get('prev') or []) if isinstance(c, dict)]
-            for c, st in cols:
+            for j, (c, st) in enumerate(cols):
                 if all(k in c for k in 'xyz'):
-                    out[pool][(int(c['x']), int(c['y']), int(c['z']))] = tuple(tuple(int(v) for v in s) for s in st if isinstance(s, (list, tuple)) and len(s) == 3)
-    return out, unverified
+                    key = (int(c['x']), int(c['y']), int(c['z']))
+                    out[pool][key] = tuple(tuple(int(v) for v in s) for s in st if isinstance(s, (list, tuple)) and len(s) == 3)
+                    if j == 0 and isinstance(rec.get('at'), (int, float)):   # the plan's cap: planned at rec.at (prev: older)
+                        since[pool][key] = dt.datetime.fromtimestamp(rec['at'] / 1000, dt.timezone.utc)
+    return out, unverified, since
 
 
 # ---- self-tests on the bots' own row strings ------------------------------------------------------------------------------
@@ -212,6 +247,9 @@ _HD = [('hive-d', 'hive-d-Echo', 'pos=79,57,77 block=sandstone class=ground purp
        ('board-b', 'board-b-Echo', 'pos=-247,70,138 block=cobblestone class=ground purpose=target by=mine:y40 outcome=confirmed dt=19'),
        ('board-b', 'board-b-Echo', 'pos=-247,70,139 block=stone class=ground purpose=target by=mine:y40 outcome=confirmed dt=19')]
 _COLS = {'hive-d': {(79, 57, 76): ()}, 'board-b': {(-247, 72, 135): ((-247, 70, 138),)}}
+_t0 = dt.datetime(2026, 10, 17, 4, 0, tzinfo=dt.timezone.utc)
+assert shell_digs([('hive-d', 'e', _HD[0][2], _t0)], _COLS, {'hive-d': {(79, 57, 76): _t0 + dt.timedelta(minutes=5)}}) == [], 'a well built after the dig (Codex r1 P2)'
+assert len(shell_digs([('hive-d', 'e', _HD[0][2], _t0 + dt.timedelta(minutes=6))], _COLS, {'hive-d': {(79, 57, 76): _t0 + dt.timedelta(minutes=5)}})) == 1
 assert [c for _, c, _, _ in shell_digs(_HD, _COLS)] == [(79, 57, 77), (-247, 70, 138)], 'the wall by mine and the plinth stair tread; not the builder; not past the tread'
 assert keep_out((365, 73, 135), (365, 73, 137)) == 'well' and keep_out((365, 73, 135), (365, 73, 137), own=True) is None, 'board-c table: the builder\'s only'
 assert keep_out((365, 74, 136), (365, 73, 137)) == 'stand' and keep_out((365, 74, 137), (365, 73, 137)) == 'shaft' and keep_out((366, 74, 136), (365, 73, 137)) is None
@@ -222,15 +260,21 @@ _SP = [('board-c', 'b1', 'item=crafting_table at=365,74,136 cap=365,73,137 keep=
        ('board-c', 'b4', 'item=furnace at=368,74,141 cap=365,73,137 keep=stand own=0 by=-')]
 assert [(b, k) for b, _, _, _, k in station_breaches(_SP, {})] == [('b1', 'stand'), ('b4', 'stand')], station_breaches(_SP, {})
 assert [k for *_, k in place_row_breaches([('board-c', 'x', 'placed crafting_table at (365, 74, 137)'), ('board-c', 'y', 'placed dirt at (365, 74, 137)')], {'board-c': {(365, 73, 137): ()}})] == ['shaft']
-_T = lambda m: dt.datetime(2026, 10, 17, 4, m, tzinfo=dt.timezone.utc)
-_SEQ = [(_T(0), 'mine', 'ok', 33.0, []), (_T(1), 'dispose_well', "could not reach the junk well site's standing cell at 365,74,136 (the bot is at 377.50,33.00,136.50)", 33.0, []),
-        (_T(2), 'surface', 'ok', 70.0, []), (_T(3), 'dispose_well', 'threw 118 junk item(s) down the town well (36 -> 27 slots)', 74.0, ['slots=36->27 at=365,73,137 x=1']),
-        (_T(4), 'mine', 'ok', 60.0, []), (_T(5), 'dispose_well', 'threw 2', 74.0, ['at=365,73,137'])]
+_T = lambda m, s=0: dt.datetime(2026, 10, 17, 4, m, s, tzinfo=dt.timezone.utc)
+_SEQ = [(_T(0), 'mine', 'ok', 33.0, 30000), (_T(1), 'dispose_well', "could not reach the junk well site's standing cell at 365,74,136 (the bot is at 377.50,33.00,136.50)", 33.0, 25000),
+        (_T(2), 'surface', 'ok', 70.0, 20000), (_T(3), 'dispose_well', 'threw 118 junk item(s) down the town well (36 -> 27 slots)', 74.0, 9000), (_T(3, 8), '_well_dispose', 'slots=36->27 at=365,73,137 x=1', 74.0, 0),
+        (_T(4), 'mine', 'ok', 60.0, 10000), (_T(5), 'dispose_well', 'threw 2', 74.0, 5000), (_T(5, 4), '_well_dispose', 'at=365,73,137', 74.0, 0)]
 assert [(k, a, b) for _, k, a, b in deep_orders(_SEQ)] == [('dispose_well', 33.0, 74), ('dispose_well', 60.0, 74)], 'board-c-Alpha 10-17 04:11Z from 41 below, and 14 below; not 4 below after the climb'
 assert [(a, b) for _, _, a, b in deep_orders(_SEQ, limit=14)] == [(33.0, 74)], 'the limit is the threshold'
-assert [round(b - a) for _, _, a, b in deep_orders([(_T(0), 'x', '', 60.0, []), (_T(1), 'dispose_well', 'threw', 70, ['at=365,73,137'])])] == [14], '14 below: a breach'
-assert deep_orders([(_T(0), 'x', '', 61.0, []), (_T(1), 'dispose_well', 'threw', 70, ['at=365,73,137'])]) == [], '13 below is the one block of slack'
-assert deep_orders([(_T(0), 'x', '', 20.0, []), (_T(1), 'dispose_well', 'nothing on the junk list', 20, [])]) == [], 'an order that names no stand is not judged'
+assert [round(b - a) for _, _, a, b in deep_orders([(_T(0), 'x', '', 60.0, 0), (_T(1), 'dispose_well', 'threw', 70, 4000), (_T(1, 3), '_well_dispose', 'at=365,73,137', 70, 0)])] == [14], '14 below: a breach'
+assert deep_orders([(_T(0), 'x', '', 61.0, 0), (_T(1), 'dispose_well', 'threw', 70, 4000), (_T(1, 3), '_well_dispose', 'at=365,73,137', 70, 0)]) == [], '13 below is the one block of slack'
+assert deep_orders([(_T(0), 'x', '', 20.0, 0), (_T(1), 'dispose_well', 'nothing on the junk list', 20, 0)]) == [], 'an order that names no stand is not judged'
+# Codex r1 P1 (the interleaved climb): surface STARTS at 0:00 and ends at 0:20 at y 74; a reflex row at 0:10 says y 50; the
+# order at 0:30 started at 74 -- not 24 below
+assert deep_orders([(_T(0), 'surface', 'ok', 74.0, 20000), (_T(0, 10), '_reflex', 'climbing', 50.0, 0), (_T(0, 30), 'dispose_well', 'threw', 74, 4000),
+                    (_T(0, 33), '_well_dispose', 'at=365,73,137', 74, 0)]) == [], 'a reflex row inside the climb read as the start'
+# Codex r1 P1 (the join): the next visit's evidence (after this order's duration) never names this order's stand
+assert deep_orders([(_T(0), 'x', '', 40.0, 0), (_T(1), 'dispose_well', 'skipped', 40, 1000), (_T(3), '_well_dispose', 'at=365,73,137', 74, 0)]) == [], 'another visit\'s cap joined'
 
 
 if __name__ == '__main__':
@@ -267,7 +311,7 @@ if __name__ == '__main__':
         return out
 
     rows = sorted(load_window(PRE, END), key=lambda r: r['t'])
-    caps = defaultdict(dict); worlds = {}; offbuild = 0
+    caps = defaultdict(dict); row_since = defaultdict(dict); worlds = {}; offbuild = 0
     bots = defaultdict(set); kinds = Counter(); per_bot = defaultdict(list)
     licence = 0; leak = Counter(); guard = Counter(); digs = {'canary': [], 'control': []}; placed = []; ctl_place = []
     outcome = Counter()
@@ -289,9 +333,13 @@ if __name__ == '__main__':
             c = cap_of(d, CAPF) if k == '_station_placed' else cap_of(d)
             if c:
                 caps[p].setdefault(c, ())
+                # a well BUILT in the window is a well from then; one named by any other row existed before it
+                first = t if k in ('_well_built', '_well_pit_dug') else dt.datetime.min.replace(tzinfo=dt.timezone.utc)
+                if c not in row_since[p] or first < row_since[p][c]:
+                    row_since[p][c] = first
         pos = (raw.get('bot') or {}).get('pos') or {}
-        per_bot[b].append((t, k, d, pos.get('y') if isinstance(pos, dict) else None, period, arm))
         sk = raw.get('skill') or {}
+        per_bot[b].append((t, k, d, pos.get('y') if isinstance(pos, dict) else None, sk.get('duration_ms') or 0))
         if k in ORDERS:
             outcome[(period, arm, 'unreach')] += sk.get('fail_class') == 'well_unreachable'
             outcome[(period, arm, 'dispose_ok')] += k == 'dispose_well' and sk.get('status') == 'success'
@@ -309,30 +357,30 @@ if __name__ == '__main__':
         elif k == '_station_well':
             a = re.search(r'action=(\w+)', d); guard['station_' + (a.group(1) if a else '?')] += 1
         elif k == '_station_placed':
-            placed.append((p, b, d))
+            placed.append((p, b, d, t))
         elif k == '_dig_town':
-            digs[arm].append((p, b, d))
+            digs[arm].append((p, b, d, t))
         elif k == 'place' and arm == 'control':
             ctl_place.append((p, b, d))
 
-    pcols, unverified = plinth_columns(set(caps) | CANS, worlds)
+    pcols, unverified, psince = plinth_columns(set(caps) | CANS, worlds)
+    since = defaultdict(dict)
+    for p in set(row_since) | set(psince):
+        for c, a in list(row_since.get(p, {}).items()) + list(psince.get(p, {}).items()):
+            since[p][c] = min(a, since[p].get(c, a))
     cols = defaultdict(dict)
     for p in set(caps) | set(pcols):
         cols[p].update(caps.get(p, {}))
         cols[p].update(pcols.get(p, {}))   # a record's stair wins over a row's bare cap
-    # orders from deep, per arm (post): each order's own later rows (within 3 min, the visit's _well_dispose / _well_refused)
+    # orders from deep, per arm (post): deep_orders joins each order's own evidence rows within its duration
     deep = {'canary': [], 'control': [], 'canary_build': [], 'control_build': []}
     for b, seq in per_bot.items():
         arm = 'canary' if pool_of(b) in CANS else 'control'
-        s2 = []
-        for i, (t, k, d, y, period, a) in enumerate(seq):
-            later = [x[2] for x in seq[i + 1:i + 12] if x[1] in ('_well_dispose', '_well_refused', '_well_built') and (x[0] - t).total_seconds() <= 180] if k in ORDERS else []
-            s2.append((t, k, d, y, later, period))
-        for (t, k, ps, st) in deep_orders([x[:5] for x in s2]):
+        for (t, k, ps, st) in deep_orders(seq):
             if t >= CUT:
                 deep[arm if k != 'build_well' else arm + '_build'].append((b, t.strftime('%H:%MZ'), k, ps, st))
-    w1 = shell_digs(digs['canary'], cols); w1c = shell_digs(digs['control'], cols)
-    w2 = station_breaches(placed, cols); w2c = place_row_breaches(ctl_place, cols)
+    w1 = shell_digs(digs['canary'], cols, since); w1c = shell_digs(digs['control'], cols, since)
+    w2 = station_breaches(placed, cols, since); w2c = place_row_breaches(ctl_place, cols)
     hours = W / 60
     bh = lambda per, arm: len(bots[(per, arm)]) * hours
     rate = lambda per, arm, key: (outcome[(per, arm, key)] / bh(per, arm)) if bh(per, arm) else float('nan')

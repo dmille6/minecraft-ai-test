@@ -33,13 +33,21 @@ export function wellOutOfReach ({ feetY = null, standY = null, limit = WELL_REAC
   return { below: Math.round(below * 10) / 10, standY, feetY: Math.round(feetY * 10) / 10, limit }
 }
 
-/** What a held order tells the model and the read: the bot's own move from where it is (surface, or walk up) -- executable
- *  underground with any block or pickaxe, and the order is offered again on the first decision within reach. */
-export const WELL_DEEP_REMEDY = `climb to within ${WELL_REACH_BELOW} blocks below the junk well's stand (surface, or walk back up the stair); the town's well order is given there`
+/**
+ * THE REMEDY A HELD ORDER NAMES: `surface` -- it climbs (digs, pillars) to sea level (63) from anywhere below it. MEASURED
+ * (the same 72 h): all 417 orders that started more than 12 below their stand started BELOW 63, under stands at y 58-75, so
+ * sea level is within 12 of every one of those stands -- after `surface` the order is given (the first decision in reach).
+ * Above sea level (never seen: 0 of 417) `surface` refuses ("nothing to climb") and `goto`/`home` are horizontal (a bot
+ * under home is "home": Paper 10-17), so the row says `walk_up` -- the mine's own stair -- and the order simply waits.
+ * Either way nothing is held against the bot: it keeps its turn, and the order costs no cooldown while held.
+ */
+export const SEA_LEVEL_Y = 63
+export const wellDeepRemedy = feetY => (Number.isFinite(feetY) && feetY < SEA_LEVEL_Y ? 'surface' : 'walk_up')
+export const WELL_DEEP_REMEDY = `surface (below sea level), or walk back up the mine's stair, to within ${WELL_REACH_BELOW} blocks below the junk well's stand; the town's well order is given there`
 
 /** The `_well_deep` row (key=value; the read parses fields). */
 export const wellDeepDetail = ({ skill, below, standY, feetY, limit }) =>
-  `order=${String(skill ?? '-').replace(/_well$/, '')} below=${below} stand_y=${standY} feet_y=${feetY} limit=${limit} remedy=surface`
+  `order=${String(skill ?? '-').replace(/_well$/, '')} below=${below} stand_y=${standY} feet_y=${feetY} limit=${limit} remedy=${wellDeepRemedy(feetY)}`
 
 /** The licence row, written once per spawn by index.mjs (`_wellcare_mode`, a kind no other build writes). */
 export const wellcareModeDetail = () => `phase=mode v=1 reach_below=${WELL_REACH_BELOW} station_keepout=1 mine_shell=wellCellAt`
