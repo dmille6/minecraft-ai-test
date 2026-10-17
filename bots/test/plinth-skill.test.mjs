@@ -966,7 +966,10 @@ await t('THE STAIR IS NEVER A PATH\'S DIG, through the well columns index.mjs al
   // logEvent), comments stripped -- anything else naming plinth fails here
   const idxSrc = readFileSync(new URL('../src/index.mjs', import.meta.url), 'utf8').replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/.*$/gm, '')
   const rest = idxSrc.split('\n').filter(l => !/^import \{ plinthModeDetail \} from '\.\/plinth\.mjs'/.test(l.trim()) &&
-    !/^try \{ logEvent\(\{ kind: 'plinth_mode', status: 'success', snapshot: snapshot\(bot\), detail: plinthModeDetail\(bot\.worldId\) \}\) \} catch \{\}$/.test(l.trim()))
+    !/^try \{ logEvent\(\{ kind: 'plinth_mode', status: 'success', snapshot: snapshot\(bot\), detail: plinthModeDetail\(bot\.worldId\) \}\) \} catch \{\}$/.test(l.trim()) &&
+    // plinth-02.1's licence row (its import and its one logEvent), exactly
+    !/^import \{ plinth021ModeDetail, townRecordsShared \} from '\.\/plinth\.mjs'$/.test(l.trim()) &&
+    !/^try \{ logEvent\(\{ kind: 'plinth021_mode', status: 'success', snapshot: snapshot\(bot\), detail: plinth021ModeDetail\(\{ shared: townRecordsShared\(\{ scope: config\.memory\.scope, pool: config\.memory\.pool, name: bot\.username \?\? '' \}\), worldId: bot\.worldId \}\) \}\) \} catch \{\}$/.test(l.trim()))
   assert.equal(rest.join('\n').includes('plinth'), false, 'index.mjs is untouched by the plinth except the licence row')
 })
 await t('THE STAIR SURVIVES THE HAND-OFF (Claude r7): once the well-site record names the plinth cap, that column still carries the stair', async () => {

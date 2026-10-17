@@ -720,6 +720,7 @@ export class CognitiveLoop {
       const town = () => (st ??= townPlinthState(bot))
       const r = plinthOrder({
         now: Date.now(), distHome: p ? Math.hypot(config.world.homeX - p.x, config.world.homeZ - p.z) : Infinity,
+        dy: p ? p.y - config.world.homeY : Infinity,   // plinth-02.1: never from a mine below the town
         inside: () => insideTownWell(bot), want: () => town().want, lease: () => town().lease,
         budget: () => plinthBudget(items, PLINTH_STEPS_PER_VISIT), freeSlots: 36 - items.length,
         chests: () => townContainers(bot).length > 0, chestSlots: () => Math.max(1, Math.ceil(plinthShortfall(items, PLINTH_MIN_FUND) / 64)),

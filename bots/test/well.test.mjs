@@ -2034,7 +2034,10 @@ await t('COVER, ORDER: an open pit nobody is at is covered by a visitor holding 
   assert.equal(o({ buildPlan: plan }).order?.skill, 'build_well', 'a build resumes the pit')
   assert.equal(o({ buildPlan: plan, myName: 'b', peers: ['a'] }).order?.skill, 'close_well', 'the deferring builder covers instead')
   assert.equal(o({ state: { lastCloseAt: NOW - 1000 } }).order, null, 'the close cooldown')
-  assert.equal(o({ well: () => ({ open: false, attended: false, breached: false }) }).order, null, 'a sealed well: the site is the well')
+  // plinth-02.1 (Codex hotfix P1): townPitState never names the sealed well itself (a built site is no open pit), so a pit read
+  // beside a sealed well is ANOTHER column -- an abandoned plinth's -- and it is covered too
+  assert.equal(o({ well: () => ({ open: false, attended: false, breached: false }) }).order?.skill, 'close_well', 'a pit beside a sealed well is covered')
+  assert.equal(o({ well: () => ({ open: false, attended: false, breached: false }), pit: () => null }).order, null, 'a sealed well and no pit: nothing')
 })
 await t('COVER: a pit-first build that gives up (every toss missed) covers the CAP cell only -- no _well_pit_open, a _well_pit_covered row', async () => {
   const town = giveUpScene([S('dirt', 1)])
@@ -2785,6 +2788,184 @@ await t('MUTANT (skills): without the per-stack re-read a changed slot is thrown
     town.state.onLook = () => { if (town.state.clicks.length === 2 && town.slots[railSlot]?.name === 'rail') town.slots[railSlot] = { name: 'iron_ingot', type: REG.itemsByName.iron_ingot.id, count: 5, slot: railSlot } }
     await within(m.SKILLS.dispose_well.run({ bot: town.bot }, {}, { aborted: false }), 15000, 'mutant')
     assert.ok(town.state.clicks.some(c => c.name === 'iron_ingot'), 'mutant inert')
+  })
+})
+
+// ---- PLINTH-02.1 (10-17, the hotfix after the direct rollout): the same build_well / build_plinth, through the fake town ------
+const PF = await import('../src/plinth.mjs')
+const PCm = await import('../src/composter.mjs')
+const SITE_KEY = `junkwell-site-${HOME.x}_${HOME.y}_${HOME.z}`
+const PLINTH_FILE = dir => path.join(dir, `junkwell-plinth-${HOME.x}_${HOME.y}_${HOME.z}.json`)
+const NOSITE_FILE = dir => path.join(dir, `junkwell-nosite-${HOME.x}_${HOME.y}_${HOME.z}.json`)
+const CAPREF_FILE = dir => path.join(dir, `junkwell-plinth-${HOME.x}_${HOME.y}_${HOME.z}.caprefused.json`)
+const siteGens = dir => readdirSync(dir).filter(f => f.startsWith(`${SITE_KEY}.g`) && f.endsWith('.json'))
+const readJ = f => { try { return JSON.parse(readFileSync(f, 'utf8')) } catch { return null } }
+const completeRecord = (dir, RC) => writeFileSync(PLINTH_FILE(dir), JSON.stringify({ v: PF.PLINTH_VERSION, state: 'complete', id: 'hf-r1', world: null, at: Date.now() - 9e6, doneAt: Date.now() - 8e6, plan: { cap: RC, steps: [], stair: [] }, prev: [] }))
+const { townPlinthState, townWellSite } = await import('../src/skills.mjs')
+const finishedTown = async extraBlocks => {
+  const { town, RC } = await raisedTown()
+  for (const [k, v] of Object.entries(extraBlocks(RC, town))) town.world.set(k, { name: v })
+  completeRecord(process.env.POOL_STATE_DIR, RC)
+  return { town, RC, dir: process.env.POOL_STATE_DIR }
+}
+const chestCell = (RC, town) => [[2, 0], [-2, 0], [0, 2], [0, -2]].map(([dx, dz]) => `${RC.x + dx},${RC.y},${RC.z + dz}`).find(k => !town.world.has(k))
+const lastNoSiteRow = async () => (await rows('_well_refused')).filter(x => /reason=no_site /.test(x.skill.detail)).pop()?.skill.detail ?? ''
+
+await t('PLINTH-02.1 A FINISHED PLINTH REFUSED FOR A TRANSIENT REASON IS HELD, NOT REPLANNED (board-c 10-16): a chest beside it -> no_effect well_site_held, the 30 min backoff, no search, no no-site record, no new site; 6 h and 3 sightings of it -> lost=persisted and the town replans; positive control: no chest -> the well is built', async () => {
+  const ok = await finishedTown(() => ({}))
+  assert.equal((await run('build_well', ok.town.bot)).status, 'success', 'positive control')
+  const { town, RC, dir } = await finishedTown((rc, tw) => ({ [chestCell(rc, tw)]: 'chest' }))
+  assert.match(W.wellSiteRefusal(homeRead(town), RC, HOME, { avoid: [] }) ?? '', /chest within 3/)
+  const r = await run('build_well', town.bot)
+  assert.equal(r.status, 'no_effect', r.detail); assert.equal(r.failClass, 'well_site_held')
+  assert.equal(town.state.digs.length, 0)
+  assert.equal(readJ(NOSITE_FILE(dir)), null, 'plinth-02 searched here (and on the flat town built a natural well, or replanned)')
+  assert.deepEqual(siteGens(dir), [`${SITE_KEY}.g1.json`])
+  assert.deepEqual(townPlinthState(town.bot).want, { want: null, why: 'complete' })
+  assert.equal(W.wellOrderOutcome('build_well', r.status, NOW, {}, r.failClass).buildBackoffUntil, NOW + W.WELL_BUILD_BACKOFF_MS)
+  assert.equal(W.wellOrderOutcome('build_well', 'no_effect', NOW, {}, null).buildBackoffUntil, undefined, 'a plain skip stays free')
+  const note = readJ(CAPREF_FILE(dir)); assert.equal(note?.note?.transient?.n, 1)
+  writeFileSync(CAPREF_FILE(dir), JSON.stringify({ ...note, note: { ...note.note, transient: { since: Date.now() - PF.PLINTH_LOST_PATIENCE_MS - 60e3, at: Date.now() - 20 * 60e3, n: 2 } } }))
+  // ...lost: the town's site rule runs again as plinth-02's -- the flat test town still has a natural cell, so the base search
+  // re-sites there (on the fleet's dug-out towns it exhausts and writes no-site lost=persisted -> complete_lost: plinth021.test)
+  const a = townWellSite(town.bot)
+  assert.equal(a.lost?.cls, 'persisted', 'the evidence build_well writes into the no-site record when the search exhausts')
+  assert.ok(a.site && !(a.site.x === RC.x && a.site.z === RC.z), 'the base search re-sited')
+  assert.equal(readJ(CAPREF_FILE(dir))?.note?.transient?.n, 3)
+  const r2 = await run('build_well', town.bot)
+  assert.equal(r2.status, 'success', r2.detail); assert.equal(wellOk(town, RC).ok, false, 'the refused plinth is replaced, not built')
+})
+await t('PLINTH-02.1 AN AFFIRMATIVE RECOVERY ENDS THE EPISODE: 5.5 h noted, the cap passes -> cleared; the chest back -> a new episode n=1', async () => {
+  const { town, RC, dir } = await finishedTown(() => ({}))
+  writeFileSync(CAPREF_FILE(dir), JSON.stringify({ cap: RC, world: null, note: { transient: { since: Date.now() - 5.5 * 3600e3, at: Date.now() - 30 * 60e3, n: 11 }, why: 'chest within 3' } }))
+  const a = townWellSite(town.bot)
+  assert.ok(a.site && a.site.x === RC.x); assert.equal(readJ(CAPREF_FILE(dir)), null)
+  town.world.set(chestCell(RC, town), { name: 'chest' })
+  assert.equal((await run('build_well', town.bot)).failClass, 'well_site_held')
+  assert.equal(readJ(CAPREF_FILE(dir))?.note?.transient?.n, 1)
+})
+await t('PLINTH-02.1 A WALL GONE: held on the first sighting (a ghost cell?), lost=structural once seen again 10 min on', async () => {
+  const { town, dir } = await finishedTown(rc => ({ [`${rc.x + 1},${rc.y},${rc.z}`]: 'air' }))
+  const r0 = await run('build_well', town.bot)
+  assert.equal(r0.failClass, 'well_site_held', r0.detail); assert.match(r0.detail, /structural/)
+  const note = readJ(CAPREF_FILE(dir))
+  writeFileSync(CAPREF_FILE(dir), JSON.stringify({ ...note, note: { ...note.note, structural: { since: Date.now() - PF.PLINTH_STRUCT_CONFIRM_MS - 1000, at: Date.now() - PF.PLINTH_STRUCT_CONFIRM_MS - 1000, n: 1 } } }))
+  const r = await run('build_well', town.bot)
+  assert.equal(r.status, 'success', `confirmed: the site rule re-sites (${r.detail})`)
+  assert.equal(readJ(CAPREF_FILE(dir))?.note?.structural?.n, 2)
+})
+await t('PLINTH-02.1 AN UNSURE WELL IS NO RECOVERY: the note survives a reading with a wall cell not loaded; a well READ sealed clears it', async () => {
+  const mk = async unloaded => {
+    const RC = { x: CAP.x, y: G0 + 3, z: CAP.z }
+    const blocks = Object.fromEntries(PF.plinthShell(RC).map(c => [`${c.x},${c.y},${c.z}`, 'cobblestone']))
+    blocks[`${RC.x},${RC.y},${RC.z}`] = { name: 'oak_trapdoor', props: { half: 'top', facing: 'north', open: false } }
+    blocks[`${RC.x},${RC.y - 1},${RC.z}`] = { name: 'oak_trapdoor', props: { half: 'bottom', facing: 'north', open: false } }
+    const dir = mkdtempSync(path.join(tmpdir(), 'well-store-'))
+    assert.ok(PCm.createSiteGen(dir, SITE_KEY, 1, RC, null))
+    const town = fakeTown({ items: [S('dirt', 4)], blocks, storeDir: dir, unloaded })
+    completeRecord(dir, RC)
+    writeFileSync(CAPREF_FILE(dir), JSON.stringify({ cap: RC, world: null, note: { transient: { since: Date.now() - 3 * 3600e3, at: Date.now() - 20 * 60e3, n: 5 }, why: 'chest within 3' } }))
+    return { town, dir }
+  }
+  const { findTownWells } = await import('../src/skills.mjs')
+  const u = await mk([`${CAP.x + 1},${G0 + 2},${CAP.z}`])
+  assert.equal(findTownWells(u.town.bot)[0]?.unsure, true, 'the fixture reads unsure')
+  await run('build_well', u.town.bot)
+  assert.ok(readJ(CAPREF_FILE(u.dir)), 'kept')
+  const ok = await mk([])
+  assert.equal(findTownWells(ok.town.bot)[0]?.unsure, false)
+  await run('build_well', ok.town.bot)
+  assert.equal(readJ(CAPREF_FILE(ok.dir)), null, 'cleared')
+})
+await t('MUTANT (skills): the transient hold removed -> the chest beside a good plinth at once re-sites the town\'s well elsewhere (a second well beside a finished plinth)', async () => {
+  await withMutant(SP, "        if (v.verdict === 'hold') { held = { cap: doneCap, why, since: v.note[v.cls]?.since ?? Date.now(), cls: v.cls }; return 'unknown' }\n", '', async m => {
+    const { town, dir } = await finishedTown((rc, tw) => ({ [chestCell(rc, tw)]: 'chest' }))
+    const r = await within(m.SKILLS.build_well.run({ bot: town.bot }, {}, { aborted: false }), 15000, 'mutant')
+    assert.equal(r.status, 'success', 'mutant inert: the plinth was held'); void dir
+  })
+})
+await t('PLINTH-02.1 AN ISOLATED BOT (its pool is its own) PLANS NO PLINTH: unshared at the scheduler AND inside build_plinth; positive control: the same town in board scope plans', async () => {
+  const mk = () => { const town = fakeTown({ items: [S('oak_trapdoor', 2), S('dirt', 1), S('cobblestone', 64), S('cobblestone', 64)] }); writeFileSync(NOSITE_FILE(process.env.POOL_STATE_DIR), JSON.stringify({ at: Date.now() - 60e3, world: null, by: 'x', tally: 'cols:672' })); return town }
+  const was = config.memory.scope
+  config.memory.scope = 'isolated'
+  try {
+    const town = mk()
+    assert.deepEqual(townPlinthState(town.bot).want, { want: null, why: 'unshared' })
+    const p = await run('build_plinth', town.bot)
+    assert.equal(p.status, 'no_effect'); assert.match(p.detail, /no raised junk well is wanted here \(unshared\)/)
+    assert.equal(readJ(PLINTH_FILE(process.env.POOL_STATE_DIR)), null, 'no record written')
+  } finally { config.memory.scope = was }
+  const town = mk()
+  assert.equal(townPlinthState(town.bot).want.want, 'plan', 'positive control')
+  assert.match((await run('build_plinth', town.bot)).detail, /planned/)
+})
+await t('MUTANT (skills): the guard missing inside build_plinth -> an isolated bot that is handed the order plans anyway', async () => {
+  await withMutant(SP, "  const want = plinthWant({ wellUsable: false, rec, noSite: readWellNoSite(), world, now: Date.now(), shared: townShared(bot) })\n",
+    "  const want = plinthWant({ wellUsable: false, rec, noSite: readWellNoSite(), world, now: Date.now() })\n", async m => {
+      const was = config.memory.scope
+      config.memory.scope = 'isolated'
+      try {
+        const town = fakeTown({ items: [S('oak_trapdoor', 2), S('dirt', 1)] })
+        writeFileSync(NOSITE_FILE(process.env.POOL_STATE_DIR), JSON.stringify({ at: Date.now() - 60e3, world: null, by: 'x', tally: 'cols:672' }))
+        const p = await within(m.SKILLS.build_plinth.run({ bot: town.bot }, {}, { aborted: false }), 15000, 'mutant')
+        assert.match(p.detail, /planned/, 'mutant inert')
+      } finally { config.memory.scope = was }
+    })
+})
+await t('PLINTH-02.1 THE REPLACED SITE\'S PIT IS WATCHED: a recorded natural pit refused (a chest beside it) is carried in the new plan\'s prev', async () => {
+  const dir = mkdtempSync(path.join(tmpdir(), 'well-store-'))
+  assert.ok(PCm.createSiteGen(dir, SITE_KEY, 1, CAP, null))
+  const town = fakeTown({ items: [S('oak_trapdoor', 2), S('dirt', 1)], storeDir: dir, blocks: { [`${CAP.x},${CAP.y},${CAP.z}`]: 'air', [`${CAP.x},${CAP.y - 1},${CAP.z}`]: 'air', [`${CAP.x + 2},${CAP.y + 1},${CAP.z}`]: 'chest' } })
+  writeFileSync(NOSITE_FILE(dir), JSON.stringify({ at: Date.now() - 60e3, world: null, by: 'x', tally: 'cols:672' }))
+  assert.match(W.wellSiteRefusal(homeRead(town), CAP, HOME, { avoid: [] }) ?? '', /chest within 3/)
+  assert.equal(PF.plinthHazard(homeRead(town), CAP), true)
+  assert.match((await run('build_plinth', town.bot)).detail, /planned/)
+  const rec = readJ(PLINTH_FILE(dir))
+  assert.ok((rec?.prev ?? []).some(c => c.x === CAP.x && c.y === CAP.y && c.z === CAP.z), JSON.stringify(rec?.prev))
+})
+await t('MUTANT (skills): the displaced site not carried -> the refused pit is not in prev', async () => {
+  await withMutant(SP, '      const carried = carryPrev(mine, hazardOf, res.plan?.cap ?? null, displaced)\n', '      const carried = carryPrev(mine, hazardOf, res.plan?.cap ?? null)\n', async m => {
+    const dir = mkdtempSync(path.join(tmpdir(), 'well-store-'))
+    assert.ok(PCm.createSiteGen(dir, SITE_KEY, 1, CAP, null))
+    const town = fakeTown({ items: [S('oak_trapdoor', 2), S('dirt', 1)], storeDir: dir, blocks: { [`${CAP.x},${CAP.y},${CAP.z}`]: 'air', [`${CAP.x},${CAP.y - 1},${CAP.z}`]: 'air', [`${CAP.x + 2},${CAP.y + 1},${CAP.z}`]: 'chest' } })
+    writeFileSync(NOSITE_FILE(dir), JSON.stringify({ at: Date.now() - 60e3, world: null, by: 'x', tally: 'cols:672' }))
+    await within(m.SKILLS.build_plinth.run({ bot: town.bot }, {}, { aborted: false }), 15000, 'mutant')
+    const rec = readJ(PLINTH_FILE(dir))
+    assert.ok(rec?.plan, 'the mutant still plans')
+    assert.ok(!(rec.prev ?? []).some(c => c.x === CAP.x && c.z === CAP.z), 'mutant inert')
+  })
+})
+await t('PLINTH-02.1 AN ABANDONED PLINTH PIT IS COVERED EVEN BESIDE A SEALED WELL (Codex hotfix P1): an isolated bot\'s own plan, walled in and uncovered, its lease expired, and a sealed natural well elsewhere -> wellOrder gives close_well, and close_well covers the plinth pit; positive control: plinth-02\'s wellOrder gave nothing', async () => {
+  // the plinth-02 raised town (shell + stair, so a visitor can walk up), its cap OPEN (walled in, uncovered), no site record
+  const { town, RC } = await raisedTown()
+  const dir = process.env.POOL_STATE_DIR
+  for (const f of siteGens(dir)) unlinkSync(path.join(dir, f))
+  town.world.set(`${RC.x},${RC.y},${RC.z}`, { name: 'air' })
+  const NAT = { x: 2 * HOME.x - CAP.x, y: G0, z: 2 * HOME.z - CAP.z }
+  town.world.set(`${NAT.x},${NAT.y},${NAT.z}`, { name: 'oak_trapdoor', props: { half: 'top', facing: 'north', open: false } })
+  town.world.set(`${NAT.x},${NAT.y - 1},${NAT.z}`, { name: 'oak_trapdoor', props: { half: 'bottom', facing: 'north', open: false } })
+  writeFileSync(PLINTH_FILE(dir), JSON.stringify({ v: PF.PLINTH_VERSION, state: 'plan', id: 'iso-r1', world: null, at: Date.now() - 3600e3, plan: { cap: RC, steps: [], stair: [] }, prev: [] }))
+  const { townWellState, townPitState } = await import('../src/skills.mjs')
+  const was = config.memory.scope
+  config.memory.scope = 'isolated'
+  try {
+    assert.equal(PF.plinthHazard(homeRead(town), RC), true, 'the column is walled in and open')
+    const ws = townWellState(town.bot); assert.equal(ws?.breached, false, 'a sealed natural well'); assert.equal(ws.open, false)
+    const pit = townPitState(town.bot); assert.ok(pit?.plinth && !pit.attended && pit.coverable, JSON.stringify(pit))
+    assert.deepEqual(townPlinthState(town.bot).want, { want: null, why: 'unshared' }, 'the owner no longer builds (nor resumes) it')
+    const args = { now: NOW, distHome: 3, slots: 5, freeSlots: 31, junkStacks: 0, well: ws, pit, state: {} }
+    assert.equal(W.wellOrder(args).order?.skill, 'close_well')
+    assert.equal(W.wellOrder({ ...args, pit: null }).order, null, 'positive control: no pit, no order')
+    const r = await run('close_well', town.bot)
+    assert.equal(r.status, 'success', r.detail)
+    assert.equal(PF.plinthHazard(homeRead(town), RC), false, 'covered')
+    assert.ok((await rows('_well_pit_covered')).some(x => field(x.skill.detail, 'at') === `${RC.x},${RC.y},${RC.z}`))
+  } finally { config.memory.scope = was }
+})
+await t('MUTANT (well): the pit cover beside a sealed well removed -> no order for the abandoned pit (plinth-02\'s gap)', async () => {
+  await withMutant(WP, "    if (closeReady && !w.open) {\n      const p = lazy(pit)\n", "    if (false) {\n      const p = lazy(pit)\n", async m => {
+    const pit = { stage: 'plinth', plinth: true, attended: false, coverable: true }
+    assert.equal(m.wellOrder({ now: NOW, distHome: 3, slots: 5, freeSlots: 31, junkStacks: 0, well: { open: false, attended: false, breached: false }, pit, state: {} }).order, null, 'mutant inert')
   })
 })
 
