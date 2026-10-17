@@ -12,7 +12,7 @@
 import { exitDecision, townYieldOn, noteKeepout, siteKey, exitOutcome } from './keepout.mjs'
 import { configuredHome } from './townground.mjs'
 import { HARD_STOP } from './toolfor.mjs'
-import { SKILLS, pickNeedOf, roomRemedy, farFromBank, classifyOutcome, SKILL_CONTRACTS, plantableSpotNear, findTownComposter, townBuildPlan, townPickMiss, townIngredientMiss, townKitIronMiss, foodSkipNow, townContainers, townWellState, townWellBuildPlan, insideTownWell, wellSwordsNow, cobbleWellCap, townPitState, stockWellOpts, valveProof, stockCountKeys, pruneTarget, unknownRefusals, stockRecountKeys, townCopperMiss, townFurnaces, furnaceLeasedNow } from './skills.mjs'
+import { SKILLS, pickNeedOf, roomRemedy, farFromBank, classifyOutcome, SKILL_CONTRACTS, plantableSpotNear, findTownComposter, townBuildPlan, townPickMiss, townIngredientMiss, townKitIronMiss, foodSkipNow, townContainers, townWellState, townWellBuildPlan, insideTownWell, wellSwordsNow, cobbleWellCap, townPitState, stockWellOpts, valveProof, stockCountKeys, pruneTarget, unknownRefusals, stockRecountKeys, townCopperMiss, townFurnaces, furnaceLeasedNow, townFarmPlan } from './skills.mjs'
 import { disposePlan, wellOrder, wellOrderOutcome, WELL_ORDERS, pitCoverItem } from './well.mjs'
 // wellcare-01 fix 2 (its own statement): the well order's vertical reach and its held-order row
 import { wellOutOfReach, wellDeepDetail } from './wellcare.mjs'
@@ -21,6 +21,7 @@ const WELL_DEEP_ROW_MS = 5 * 60 * 1000
 // plinth-01, the raised junk well (its own statements)
 import { plinthOrder, plinthOrderOutcome, plinthBudget, plinthShortfall, PLINTH_STEPS_PER_VISIT, PLINTH_MIN_FUND } from './plinth.mjs'
 import { townPlinthState } from './skills.mjs'
+import { farmOrder, farmOrderOutcome, farmEnabled, FARM_ORDERS } from './treefarm.mjs'
 import { smeltInputsFor } from './smelting.mjs'
 import { makeClient, skillSchema } from './llm.mjs'
 import { buildSystemPrompt, buildUserPrompt, makeSentinel, WorkingMemory } from './prompt.mjs'
@@ -28,7 +29,7 @@ import { AdmissionControl } from './admission.mjs'
 import { MilestoneController, servesRung, NO_PROGRESS_MS, RUNNER_REFUSALS } from './milestones.mjs'
 import { orderFor, readyFor, plantingOrder, plantingEnabled, PLANT_COOLDOWN_MS, roomOrder, roomOutcome, roomBackedOff, roomExclusions, lostLine, ROOM_WEAR_TRUST_MS } from './workorder.mjs'
 import { wearOutPlan, isHousekeeping } from './hygiene.mjs'
-import { compostPlan, townOrder, townOrderOutcome, boneMealRoom, composterLevel, TOWN_ORDERS, STORAGE_NEAR, TOWN_RADIUS, startableJunk } from './composter.mjs'
+import { compostPlan, townOrder, townOrderOutcome, boneMealRoom, composterLevel, TOWN_ORDERS, STORAGE_NEAR, TOWN_RADIUS, startableJunk, RUNNER_DECLINED } from './composter.mjs'
 import { roomPlan, pickTakes, roomKeep } from './withdrawpick.mjs'
 import { toolkitOrder, toolkitOutcome, kitRoomTakes, withdrawDefersToKit } from './toolkit.mjs'
 import { townDepositOrder, townDepositOutcome, townDepositPlan } from './towndeposit.mjs'
@@ -1097,8 +1098,24 @@ export class CognitiveLoop {
         }
       } catch { /* a world read must never break the decision loop */ }
     }
+    // THE TOWN TREE FARM (treefarm.mjs farmOrder decides; this supplies readings and keeps the state): tend the farm --
+    // replant, restore soil, clear leftover logs, torches -- when at town and the farm has work this bot can do. After the
+    // composter, the junk well, chest pruning and the room order (a craft's own remedy keeps its turn), before the planting
+    // obligation. The plan's world reads are lazy and at most every FARM_SCAN_MS.
+    if (!order) {
+      try {
+        const bot = this.bot
+        const p = bot.entity?.position
+        const home = { x: config.world.homeX, z: config.world.homeZ }
+        const r = farmOrder({ now: Date.now(), distHome: p ? Math.hypot(home.x - p.x, home.z - p.z) : Infinity, dy: p ? p.y - config.world.homeY : Infinity,
+                              plan: () => townFarmPlan(bot), state: this.farmState ?? {}, enabled: farmEnabled(process.env) })
+        this.farmState = r.state
+        if (r.order) order = r.order
+      } catch { /* a world read must never break the decision loop */ }
+    }
     // THE TOOLKIT (toolkit-01, toolkit.mjs): at town with no usable iron axe / iron shovel, the town's iron makes them.
-    // LAST of the town orders: every one above -- the milestone's work order and its room order included -- goes first, so a
+    // LAST of the town orders (after the tree farm's tend_farm, treefarm-02): every one above -- the milestone's work order and
+    // its room order included -- goes first, so a
     // ready milestone step is never displaced. AHEAD of the town smelt job and the furnace drain (smeltjob-01), which run only
     // with nothing chosen above (their tally counts a toolkit decision as `taken`): the kit is a bounded once-per-bot need
     // (no order once both tools are held), the smelt job a repeating one. Only planting and the model come after them.
@@ -1297,6 +1314,7 @@ export class CognitiveLoop {
         const o = exitOutcome({ tries: this.keepoutExitTries ?? 0, backoffUntil: this.keepoutExitBackoffUntil ?? 0 }, r.status)
         this.keepoutExitTries = o.tries; this.keepoutExitBackoffUntil = o.backoffUntil
       }
+      if (FARM_ORDERS.has(admitted.skill)) this.farmState = farmOrderOutcome(admitted.skill, r.status, Date.now(), this.farmState ?? {}, r.failClass ?? null, RUNNER_DECLINED)
       // THE REFLEX TOOK THE BODY -- SAY SO ON THE NEXT DECISION.
       if (r.interruptedBy) this.#raiseTrigger(r.interruptedBy, r.detail)
       // A PREREQUISITE THE GOAL LAYER CANNOT SEE IS NOT A PREREQUISITE.
