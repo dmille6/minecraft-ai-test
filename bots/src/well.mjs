@@ -1034,6 +1034,16 @@ export function wellOrder ({ now = 0, slots = 0, freeSlots = 0, junkStacks = 0, 
       s.lastCloseAt = now
       return { order: { skill: 'close_well', args: {}, why: 'the town junk well is open and nobody is at it: close it' }, state: s }
     }
+    // AN OPEN PIT NOBODY IS AT, EVEN BESIDE A SEALED WELL (plinth-02.1; Codex hotfix review P1): a plinth column a killed or
+    // stopped builder left walled in and uncovered -- an isolated bot that no longer builds never resumes its own -- is
+    // covered by any visitor holding a cover block (close_well -> coverOpenPit), before a disposal
+    if (closeReady && !w.open) {
+      const p = lazy(pit)
+      if (p && !p.attended && p.coverable) {
+        s.lastCloseAt = now
+        return { order: { skill: 'close_well', args: {}, why: 'a junk well pit in town is open and nobody is at it: cover it' }, state: s }
+      }
+    }
     if (disposeReady) {
       s.lastDisposeAt = now
       return { order: { skill: 'dispose_well', args: {}, why: `at town with ${slots} of 36 slots used; ${junkStacks} stack(s) of junk with no use` }, state: s }
@@ -1087,6 +1097,12 @@ export function wellOrderOutcome (skill, status, now = 0, state = {}, failClass 
   // build orders in 24 h across 12 towns (55 bots) each re-ran the whole search and refused, every town visit, because a
   // skip cost nothing. Only an EXHAUSTED search says it (buildWell's failClass well_no_site): an unloaded cell, a record
   // race or an unreadable record stays a free skip. The bot cannot make a site, so the order waits for the ground to change.
+  // A FINISHED RAISED WELL HELD FOR A TRANSIENT REFUSAL (plinth-02.1, plinth.mjs capRefusalNext): this bot looks again in
+  // WELL_BUILD_BACKOFF_MS -- a no_effect (no failure statistics), but never the free skip that would re-ask every cooldown
+  if (skill === 'build_well' && status === 'no_effect' && failClass === 'well_site_held') {
+    s.buildBackoffUntil = Math.max(s.buildBackoffUntil ?? 0, now + WELL_BUILD_BACKOFF_MS)
+    return s
+  }
   if (skill === 'build_well' && status === 'no_effect' && failClass === 'well_no_site') {
     s.buildBackoffUntil = Math.max(s.buildBackoffUntil ?? 0, now + WELL_NO_SITE_BACKOFF_MS)
     return s

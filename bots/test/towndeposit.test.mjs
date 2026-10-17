@@ -992,7 +992,17 @@ test('RECOUNT CHAIN CONTROL (the dead end): the same fenced town with the recoun
 // orders: build_plinth > town_deposit > count_town. Expected: the plinth's visit first, and the recount on a LATER decision
 // (neither starves the other: the plinth goes on its own cooldown after a visit). MUTANT: a recount guard that only
 // yields to the town deposit takes the plinth's turn.
-const plinthFencedTown = async (Loop = CognitiveLoop) => {
+// A PLINTH NEEDS ONE TOWN'S RECORDS (plinth-02.1, plinth.mjs townRecordsShared): this file's bots default to the isolated
+// memory scope, where each bot's town records are its own and no plinth is planned at all -- so the plinth chains run as a
+// shared-town bot (board scope), as every fleet town with a plinth is.
+const { config: TDCONFIG } = await import('../src/config.mjs')
+async function asSharedTown (fn) {
+  const was = TDCONFIG.memory.scope
+  TDCONFIG.memory.scope = 'board'
+  try { return await fn() } finally { TDCONFIG.memory.scope = was }
+}
+const plinthFencedTown = (Loop = CognitiveLoop) => asSharedTown(() => plinthFencedTown0(Loop))
+const plinthFencedTown0 = async (Loop = CognitiveLoop) => {
   const items = bag([['oak_log', 64], ['oak_log', 64], ['crafting_table', 1], ['wooden_pickaxe', 1, 50], ['dirt', 16], ['stick', 4], ['torch', 8],
     ['cobblestone', 64], ['cobblestone', 64]])
   const chest = chestAt(2, 70, 0, { items: Array.from({ length: 27 }, (_, i) => (i === 0 ? item('oak_log', 20) : null)) })
@@ -1042,7 +1052,8 @@ test('PLINTH x RECOUNT CHAIN, MUTANT: the recount guard yields only to the town 
 // on a later decision, which banks the smallest whole stack (30) and keeps the bag's 64 reserve (the chest 800 -> 830).
 // CONTROL: the same town at exactly 1000 -> the plinth still goes first and nothing is banked (the scene sees the cap).
 // Neither order starves the other.
-const plinthCobbleTown = async (townCobble) => {
+const plinthCobbleTown = townCobble => asSharedTown(() => plinthCobbleTown0(townCobble))
+const plinthCobbleTown0 = async (townCobble) => {
   const items = bag([['cobblestone', 64], ['cobblestone', 64], ['cobblestone', 30], ['dirt', 16], ...filler(32)])
   const stacks = []
   for (let n = townCobble; n > 0; n -= 64) stacks.push(item('cobblestone', Math.min(64, n)))

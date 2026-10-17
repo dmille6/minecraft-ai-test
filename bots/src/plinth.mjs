@@ -34,6 +34,8 @@
 import { fullCube, wellGround, wellPassable, wellSiteRefusal, wellStand, coverRef, wellSpiral, pitCoverItem, reserveStone, PIT_COVER_BLOCKS,
          STONE_GUARD, RESERVE_STONE, WELL_HOME_CLEARANCE, WELL_NO_SITE_BACKOFF_MS, WELL_BUILD_BACKOFF_MS, WELL_SCAN_MS } from './well.mjs'
 import { townDistance, ADOPT_RADIUS, TOWN_RADIUS, CLEARANCE_CONTAINER, sameWorld, tableCellFor, bodyInCell, PLACEABLE_INTO } from './composter.mjs'
+// plinth-02.1: the evidence that a finished raised well is lost (its own statement)
+import { wellStage as hfWellStage, containmentRefusal as hfContainment } from './well.mjs'
 
 export const PLINTH_VERSION = 1
 /**
@@ -500,6 +502,10 @@ export function wellTableCell ({ site, stand, read, bodies = [], start = null, b
 export function plinthCandidate (read, { home, avoid = [], keepOut = [], x, z, t, k, clearLeaves = true }) {
   const g = t + k, cap = { x, y: g, z }
   if (townDistance(home, { x, y: g + 1, z }) > ADOPT_RADIUS) return { why: 'envelope' }
+  // THE CAP ITSELF within the town's well scan (plinth-02.1): findTownWells finds the cap trapdoor with mineflayer findBlocks
+  // (block corner to home, Euclidean, <= ADOPT_RADIUS). isolated-c's 342,70,138 had its rim at 15.94 and its cap at 16.09: its
+  // well was built 10-17 14:04Z and no bot can see it -- no disposal there, and the town keeps planning plinths.
+  if (townDistance(home, cap) > ADOPT_RADIUS) return { why: 'envelope' }
   if (Math.hypot(x - home.x, z - home.z) < WELL_HOME_CLEARANCE) return { why: 'home' }
   const fills = [], leaves = [], opens = []
   for (const c of plinthShell(cap)) {
@@ -895,7 +901,9 @@ export function leaseState (lease, now = 0, me = null) {
  * A plan record wants building until complete. A 'none' or 'void' record is replanned once it ages out / at once.
  * A complete plinth whose well is gone (a later no-site record) is planned again.
  */
-export function plinthWant ({ wellUsable = false, rec = null, noSite = null, world = null, now = 0 } = {}) {
+export function plinthWant ({ wellUsable = false, rec = null, noSite = null, world = null, now = 0, shared = true } = {}) {
+  // ONE BUILDER NEEDS ONE RECORD (plinth-02.1, townRecordsShared): a bot whose town records are its own plans nothing
+  if (!shared) return { want: null, why: 'unshared' }
   if (wellUsable) return { want: null, why: 'well' }
   const state = plinthRecordState(rec, world)
   const noSiteHere = !!noSite && Number.isFinite(Number(noSite.at)) && sameWorld(noSite.world ?? null, world)
@@ -904,10 +912,16 @@ export function plinthWant ({ wellUsable = false, rec = null, noSite = null, wor
   if (state === 'none') {
     const age = now - Number(rec.at)
     if (Number.isFinite(age) && age >= 0 && age < PLINTH_NONE_BACKOFF_MS) return { want: null, why: 'none_held' }
-    return noSiteHere || rec.trigger === 'void' ? { want: 'plan', why: 'none_aged' } : { want: null, why: 'no_trigger' }
+    // plinth-02.1: only a no-site record NEWER than the none (the one that started the failed plan is not a new trigger)
+    const fresh = noSiteHere && Number(noSite.at) > Number(rec.at)
+    return fresh || rec.trigger === 'void' ? { want: 'plan', why: 'none_aged' } : { want: null, why: 'no_trigger' }
   }
   if (state === 'complete') {
-    if (noSiteHere && Number(noSite.at) > Number(rec.doneAt ?? rec.at)) return { want: 'plan', why: 'complete_lost' }
+    if (noSiteHere && Number(noSite.at) > Number(rec.doneAt ?? rec.at)) {
+      // plinth-02.1: only with evidence about THIS cap (completeLost)
+      const lost = completeLost({ noSite, rec })
+      return lost.lost ? { want: 'plan', why: 'complete_lost', evidence: lost.why } : { want: null, why: lost.why }
+    }
     return { want: null, why: 'complete' }
   }
   // A VOIDED STRUCTURE IS ITS OWN TRIGGER (Codex r2 P2-6: a partial hand-off may already have lifted the no-site hold)
@@ -915,6 +929,8 @@ export function plinthWant ({ wellUsable = false, rec = null, noSite = null, wor
   return noSiteHere ? { want: 'plan', why: 'no_site' } : { want: null, why: 'no_trigger' }
 }
 
+/** The plinth order's vertical bound around home (towndeposit.mjs TOWN_V; a test asserts they agree). */
+export const PLINTH_ORDER_DY = 12
 /**
  * THE PLINTH ORDER -> { order, state }. Pure; cognitive.mjs supplies the readings and keeps `state`. Ahead of the town
  * deposit (design 3.4: at a full bag the plinth takes a funded bot's surplus before any banking), on its own cooldown.
@@ -924,11 +940,14 @@ export function plinthWant ({ wellUsable = false, rec = null, noSite = null, wor
  *   budget  blocks this bag can spend (plinthBudget); chests  a town container is in sight; freeSlots
  * Funded: budget >= PLINTH_MIN_FUND, or a free slot and a town chest to withdraw from. A planning visit needs no funds.
  */
-export function plinthOrder ({ now = 0, distHome = Infinity, inside = false, want = null, lease = null, budget = 0, freeSlots = 0,
+export function plinthOrder ({ now = 0, distHome = Infinity, dy = 0, inside = false, want = null, lease = null, budget = 0, freeSlots = 0,
                                chests = false, chestSlots = 1, state = {} } = {}) {
   const s = { ...state }
   const none = () => ({ order: null, state: s })
   if (!(distHome <= TOWN_RADIUS)) return none()
+  // NOT FROM A MINE BELOW THE TOWN (plinth-02.1): the build walks on foot, so a bot 12+ below home cannot reach a stand, and
+  // three such 'unreachable' visits void a good plan. The town deposit's own vertical bound (towndeposit.mjs TOWN_V).
+  if (!(Math.abs(Number(dy)) <= PLINTH_ORDER_DY)) return none()
   if (now - (s.lastAt ?? -Infinity) < PLINTH_COOLDOWN_MS || now < (s.backoffUntil ?? 0)) return none()
   if (now - (s.lastScanAt ?? -Infinity) < WELL_SCAN_MS) return none()
   s.lastScanAt = now
@@ -966,10 +985,12 @@ export const PLINTH_PREV_MAX = 32
  * plinth whose column could trap no body is a block of cobble and is let go; one that may trap a body is never forgotten
  * by a replan or a failed search (Codex r1 P1-3). The new plan's own cap is not one of them.
  */
-export function carryPrev (rec, hazardOf, newCap = null) {
+export function carryPrev (rec, hazardOf, newCap = null, extra = []) {
   const caps = []
   if (rec?.plan?.cap) caps.push({ ...rec.plan.cap, stair: Array.isArray(rec.plan.stair) ? rec.plan.stair : [] })
   for (const c of (Array.isArray(rec?.prev) ? rec.prev : [])) caps.push(c)
+  // plinth-02.1: columns the record never planned but must not forget (the replaced well site's pit), judged the same way
+  for (const c of (Array.isArray(extra) ? extra : [])) caps.push(c)
   const out = []
   for (const c of caps) {
     if (!c || !Number.isFinite(c.x) || !Number.isFinite(c.y) || !Number.isFinite(c.z)) continue
@@ -999,6 +1020,89 @@ export function plinthDetail ({ stage, at = null, k = null, placed = 0, cleared 
           ` took=${took}${hazard != null ? ` hazard=${hazard ? 1 : 0}` : ''}${id ? ` id=${id}` : ''}${tally ? ` tally=${tally}` : ''}` +
           `${why ? ` why=${String(why).replace(/\s+/g, '_').slice(0, 120)}` : ''}`).slice(0, 300)
 }
+
+// ---- plinth-02.1 (10-17): the safety fixes found after the direct rollout --------------------------------------------------
+/**
+ * ARE THIS TOWN'S RECORDS ONE TOWN'S? -> true | false. Pure. The lease, the plan and every path's plinth exclusions live in
+ * poolStateDir(MEMORY_POOL). In an ISOLATED memory scope -- and wherever the pool is named for this one bot -- that dir is the
+ * bot's own while its peers share the world and the home (isolated-a..d: five bots per server, MEMORY_POOL=self-isolated-
+ * <pool>-<Bot>). Measured 10-17 13:50Z after the rollout: 13 of 20 isolated bots held their own plinth record and lease, the
+ * same cap built under three leases at once, and isolated-c's Alpha planned a SECOND cap (351,72,134) beside the others'.
+ */
+export function townRecordsShared ({ scope = null, pool = '', name = '' } = {}) {
+  if (scope === 'isolated') return false
+  const p = String(pool ?? ''), n = String(name ?? '')
+  return !(n && p.includes(n))
+}
+/** The cap of this world's plinth record when it is a plan or complete, or null. Pure. */
+export function plinthPlanCap (rec, world = null) {
+  const st = plinthRecordState(rec, world)
+  return st === 'plan' || st === 'complete' ? { x: rec.plan.cap.x, y: rec.plan.cap.y, z: rec.plan.cap.z } : null
+}
+/**
+ * IS A FINISHED RAISED WELL LOST? -> { lost, why }. Pure. plinth-02 replanned on ANY no-site record newer than the hand-off,
+ * and that record also follows a TRANSIENT refusal of the cap (board-c's finished cap was refused by build_well 10-16 16:58Z
+ * and 21:19Z; its well was built on it 10-17 06:53Z): a second plinth beside a good one. build_well now writes the no-site
+ * record over a finished cap only with EVIDENCE about that cap (`lost`: { cap, cls, why }): 'structural' or 'persisted'
+ * (capRefusalNext). A record that names no cap -- another build wrote it -- keeps plinth-02's rule (lost).
+ */
+export const PLINTH_LOST_PATIENCE_MS = 6 * 60 * 60 * 1000
+/** ...and seen at least this many times (by any bot) in that span: one refusal long ago is not a persisting one. */
+export const PLINTH_LOST_MIN_SEEN = 3
+/** A structural verdict is believed only when seen again this long after the first (one bot's view can hold a ghost cell). */
+export const PLINTH_STRUCT_CONFIRM_MS = 10 * 60 * 1000
+export function completeLost ({ noSite = null, rec = null } = {}) {
+  const L = noSite?.lost, cap = rec?.plan?.cap
+  if (!L || !cap || !L.cap || L.cap.x !== cap.x || L.cap.y !== cap.y || L.cap.z !== cap.z) return { lost: true, why: 'no_evidence' }
+  if (L.cls === 'structural' || L.cls === 'persisted') return { lost: true, why: L.cls }
+  return { lost: false, why: 'complete_held' }
+}
+/**
+ * WHAT IS WRONG WITH A FINISHED PLINTH'S CAP? -> 'structural' | 'transient'. Pure; asked of a cap build_well's site rule just
+ * refused (not 'unknown'). Structural: the column is not a column any more, the shaft is no longer sealed (containmentRefusal;
+ * for a BUILT well too -- wellSiteRefusal says 'already a well' before it checks anything), or its floor is gone. Anything
+ * else -- a blocked stand, a chest or door nearby, something above the cap, an unreadable cell -- is transient.
+ */
+export function plinthCapLoss (read, cap) {
+  if (typeof read !== 'function' || !cap) return 'transient'
+  const stage = hfWellStage(read, cap)
+  if (stage === 'invalid') {
+    const c = read(cap.x, cap.y, cap.z), s = read(cap.x, cap.y - 1, cap.z)
+    return c && s ? 'structural' : 'transient'
+  }
+  const c = hfContainment(read, cap)
+  if (c && c !== 'unknown') return 'structural'
+  if (stage === 'built') return 'transient'
+  const f = read(cap.x, cap.y - 2, cap.z)
+  return f && !wellGround(f) ? 'structural' : 'transient'
+}
+/**
+ * A FINISHED CAP WAS REFUSED -> { verdict: 'lost' | 'hold', cls, note }. Pure. `prev` is the town's note for this cap
+ * ({ transient: { since, at, n }, structural: { since, at, n }, why }), which only an AFFIRMATIVE recovery clears (the cap
+ * passing the site rule, or its well read sealed -- never an unsure reading). One episode per class.
+ *   structural  lost once seen twice, PLINTH_STRUCT_CONFIRM_MS apart; held until then
+ *   transient   HELD (this bot backs off; no town hold, no replan); lost ('persisted') once first seen PLINTH_LOST_PATIENCE_MS
+ *               ago and seen PLINTH_LOST_MIN_SEEN times with no recovery between, however sparse the visits -- so a cap a
+ *               chest or a blocked stand keeps refused for good is replaced, never a dead end.
+ */
+export function capRefusalNext ({ prev = null, cls = 'transient', why = '', now = 0 } = {}) {
+  const w = String(why ?? '').slice(0, 80)
+  const sub = c => {
+    const p = prev?.[c], ps = Number(p?.since), pa = Number(p?.at)
+    return Number.isFinite(ps) && Number.isFinite(pa) && ps <= now && pa <= now && ps <= pa ? { since: ps, at: pa, n: Math.max(1, Number(p?.n) || 1) } : null
+  }
+  const keep = { transient: sub('transient'), structural: sub('structural') }
+  const was = keep[cls]
+  const cur = { since: was ? was.since : now, at: now, n: (was ? was.n : 0) + 1 }
+  const note = { ...keep, [cls]: cur, why: w }
+  if (!note.transient) delete note.transient
+  if (!note.structural) delete note.structural
+  if (cls === 'structural') return cur.n >= 2 && now - cur.since >= PLINTH_STRUCT_CONFIRM_MS ? { verdict: 'lost', cls: 'structural', note } : { verdict: 'hold', cls: 'structural', note }
+  return now - cur.since >= PLINTH_LOST_PATIENCE_MS && cur.n >= PLINTH_LOST_MIN_SEEN ? { verdict: 'lost', cls: 'persisted', note } : { verdict: 'hold', cls: 'transient', note }
+}
+/** The licence row (plinth-02.1): `_plinth021_mode`, once per spawn; shared=0 names a bot that plans no plinth at all. */
+export const plinth021ModeDetail = ({ shared = true, worldId = null } = {}) =>
+  `phase=mode v=1 shared=${shared ? 1 : 0} lost=evidence dy=${PLINTH_ORDER_DY} env=cap w=${String(worldId || '-').slice(0, 40)}`
 
 export const isPlinthBlock = name => PLINTH_SET.has(name)
 /** A block a pit is covered with (well.mjs PIT_COVER_BLOCKS: what coverPit / coverPlinthPit place): the only block the
