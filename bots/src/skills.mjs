@@ -9209,6 +9209,14 @@ async function buildWell (ctx, _args, signal) {
 // back. Never a spent tool, either way.
 const WITHDRAW_CONTAINERS = 3
 const WITHDRAW_ALT_RADIUS = 24
+// THE FARM'S TOWN-SCOPED FETCH (Codex r13 P2-2): `town: true` -- an internal arg the model's verb cannot pass (usage
+// parses item and count only) -- searches the TOWN's containers around HOME (withdrawSweep's town scope, never the ones
+// nearest wherever the bot stands), visits up to WITHDRAW_TOWN_CONTAINERS, and remembers per container (both halves)
+// that it held none of the item for WITHDRAW_ITEM_MISS_TTL_MS, so the next fetch opens other ones. Only when EVERY town
+// container is such a recent miss (a complete, untruncated key list) is the answer nothing_found -- the farm's long
+// backoff; until then container_short, a sample (treefarm.mjs TORCH_FETCH_SAMPLE).
+const WITHDRAW_TOWN_CONTAINERS = 6
+export const WITHDRAW_ITEM_MISS_TTL_MS = 30 * 60_000
 const WITHDRAW_WALK_MS = 30_000
 const RECOUNT_MS = 3_000
 const TOOLISH = /_(pickaxe|axe|shovel|hoe|sword)$/
@@ -9839,14 +9847,14 @@ async function withdrawVisit (ctx, chestBlock, decide, signal, msLeft, deadline)
 /** The containers to look in: nearest first, a double chest's other half never counted twice, none the town's memory
  *  knows is unusable or has a blocked lid (chestfull.mjs containerStatus), and -- for a pickaxe -- none that showed no
  *  usable copy in the last 15 min and has taken nothing since (per container: both reviews). */
-function withdrawSweep (bot, { pick = false, town = false } = {}) {
+function withdrawSweep (bot, { pick = false, town = false, itemMiss = null } = {}) {
   const isContainer = b => ['chest', 'barrel', 'trapped_chest'].includes(bot.registry.blocks[b.type]?.name)
   const tried = new Set()
   let mem = {}
   try { mem = readTownMemory(townDir(), homeTownKey(), bot.worldId ?? null) } catch { mem = {} }
   const home = homeVec()
   const shut = q => { const st = containerStatus(mem[posKey(q)]); return st === 'unusable' || st === 'unavailable' }
-  const skip = q => shut(q) || (pick && containerPickMiss(mem, posKey(q)))
+  const skip = q => shut(q) || (pick && containerPickMiss(mem, posKey(q))) || (!!itemMiss && itemMiss(posKey(q)))
   // WHERE (chestfull-02's boundary): the town order looks only at TOWN containers -- inTown, searched around HOME with
   // the deposit's TOWN_SCAN_RADIUS, the same set its misses are judged over; the model's verb at any container in reach
   // that is not DEEP (depositTargetOk). Never a container WITHDRAW backed off after a failed walk outside town -- its own
@@ -9940,7 +9948,7 @@ async function withdraw (ctx, args, signal) {
     throw e
   }
 }
-async function withdrawVerb (ctx, { item = null, count = 16 }, signal, rs) {
+async function withdrawVerb (ctx, { item = null, count = 16, town = false }, signal, rs) {
   if (item == null || ['', 'none', 'null', 'any', 'anything', 'all', 'everything', 'items', 'undefined'].includes(String(item).trim().toLowerCase())) {
     return { status: 'failed', failClass: 'bad_args', detail: 'withdraw needs the item you need, e.g. withdraw stone_pickaxe or withdraw stick 2' }
   }
@@ -9963,8 +9971,23 @@ async function withdrawVerb (ctx, { item = null, count = 16 }, signal, rs) {
     if (!have) return null
     return decideTakes([{ name: item, count: Math.min(have, Math.max(1, Math.min(64, Math.floor(Number(count) || 16)))) }], inChest, bag, chestEmpty, keep)
   }
-  const sweep = withdrawSweep(bot)
+  const scoped = town === true
+  const missKey = k => `${item}@${k}`
+  const misses = scoped ? (bot.withdrawItemMisses ??= new Map()) : null
+  const itemMiss = scoped ? (k => { const at = misses.get(missKey(k)); return at != null && Date.now() - at < WITHDRAW_ITEM_MISS_TTL_MS }) : null
+  const sweep = withdrawSweep(bot, scoped ? { town: true, itemMiss } : {})
+  // every town container held none of it recently (or there is none): judged over the WHOLE town, never a sample. null
+  // when coverage is not complete (a container not yet looked in, or a truncated scan)
+  const townNone = () => {
+    const keys = townContainerKeys(bot, homeVec(), b => ['chest', 'barrel', 'trapped_chest'].includes(bot.registry.blocks[b.type]?.name))
+    if (!keys) return null
+    if (!keys.length) return { status: 'failed', failClass: 'nothing_found', detail: 'the town has no chest or barrel' }
+    return keys.every(itemMiss) ? { status: 'failed', failClass: 'nothing_found', detail: `none of the town's ${keys.length} container(s) held ${item} when last looked in` } : null
+  }
   let chestBlock = sweep.next(48)
+  if (!chestBlock && scoped) {
+    return out(townNone() ?? { status: 'failed', failClass: 'container_short', detail: `no town container left to look in for ${item} this time (one not openable, or the scan was truncated)` })
+  }
   if (!chestBlock) {
     // deposit's shape: walk home through the rescue path, then RESCAN before judging the walk.
     const walked = await home(ctx, {}, signal)
@@ -9975,10 +9998,12 @@ async function withdrawVerb (ctx, { item = null, count = 16 }, signal, rs) {
   if (!chestBlock) return out({ status: 'failed', failClass: 'nothing_found', detail: 'no chest or barrel within 48 blocks, even at home' })
   const held = []
   let lastFailure = null, noRoom = 0
-  for (let n = 0; chestBlock && n < WITHDRAW_CONTAINERS; n++) {
+  for (let n = 0; chestBlock && n < (scoped ? WITHDRAW_TOWN_CONTAINERS : WITHDRAW_CONTAINERS); n++) {
     check(signal)
     const v = await withdrawVisit(ctx, chestBlock, decide, signal, msLeft, deadline - 2_000)
     sweep.mark(chestBlock.position, v.double)
+    // a container OPENED and seen to hold none of it (not a skip, not a failure): remembered for the town-scoped fetch
+    if (scoped && !v.result && !v.skip && !haveIn(v.saw ?? [], item)) for (const k of sweep.halves(chestBlock.position, v.double)) misses.set(missKey(k), Date.now())
     tried.push(`${posKey(chestBlock.position)}:${v.result?.failClass ?? v.result?.status ?? v.skip ?? (v.moved ? 'acted' : 'none')}`)
     diag = v.diag ?? diag
     if (v.moved) moved = v.moved
@@ -9987,9 +10012,10 @@ async function withdrawVerb (ctx, { item = null, count = 16 }, signal, rs) {
     if (v.skip) noRoom++
     else if (v.result) lastFailure = v.result
     else held.push(`${chestBlock.position.x},${chestBlock.position.z}: ${v.saw.slice().sort((a, b) => b.count - a.count).slice(0, 3).map(i => `${i.count}x ${i.name}`).join(', ') || 'nothing'}`)
-    chestBlock = sweep.next(WITHDRAW_ALT_RADIUS)
+    chestBlock = sweep.next(scoped ? 48 : WITHDRAW_ALT_RADIUS)
   }
   if (noRoom && !held.length) return out({ status: 'failed', failClass: 'chest_no_room', detail: `the chest(s) holding ${item} are full, and the bag needs room made first` })
+  if (scoped && held.length) { const none = townNone(); if (none) return out(none) }
   if (held.length) {
     // Deliberately no "no ... within" in this sentence: state.mjs's prose classifier reads that pair as nothing_found.
     return out({ status: 'failed', failClass: 'container_short',

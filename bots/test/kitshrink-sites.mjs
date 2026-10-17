@@ -66,6 +66,6 @@ export const ALLOWED = Object.freeze([
   { file: 'treefarm.mjs', line: "else if (c.role === 'torch') out.push({ x: c.x, z: c.z, r: FARM_TORCH_WELL_DISTANCE, what: 'a tree-farm torch' })", why: "treefarm-02: a ROLE read (the well's keep-out)" },
   { file: 'treefarm.mjs', line: "const rOf = q => (q.role === 'torch' ? Math.min(r, FARM_TORCH_WELL_DISTANCE) : r)", why: "treefarm-02: a ROLE read (farmYields)" },
   { file: 'treefarm.mjs', line: "else if (c.role === 'torch') out.push({ x: c.x, y: c.y, z: c.z, r: 0 }, { x: c.x, y: c.y - 1, z: c.z, r: 0 })", why: "treefarm-02: a ROLE read (farmKeepOut)" },
-  { file: 'treefarm.mjs', line: "const args = { item: 'torch', count: short }", why: "treefarm-02: THE WITHDRAW PATH for the consumer above (the farm's torch fetch at town)" },
+  { file: 'treefarm.mjs', line: "const args = { item: 'torch', count: short, town: true }", why: "treefarm-02: THE WITHDRAW PATH for the consumer above (the farm's torch fetch at town)" },
   { file: 'cognitive.mjs', line: "room: () => items.length < 36 || items.some(it => it?.name === 'torch' && (it.count ?? 0) < 64),", why: "treefarm-02: the torch fetch's room check (a bag that can take a torch) -- the withdraw path itself" },
 ])

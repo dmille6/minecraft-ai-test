@@ -494,7 +494,7 @@ await t('TORCH FETCH (pure): at town and its level only, the exact shortfall, a 
   const need = () => { calls++; return 4 }
   const base = { now: 1e7, distHome: 5, dy: 0, need, held: 0 }
   const r = TF.farmTorchOrder(base)
-  assert.deepEqual(r.order.args, { item: 'torch', count: 4 }); assert.equal(r.order.skill, 'withdraw'); assert.equal(calls, 1)
+  assert.deepEqual(r.order.args, { item: 'torch', count: 4, town: true }); assert.equal(r.order.skill, 'withdraw'); assert.equal(calls, 1)
   assert.equal(TF.farmTorchOrder({ ...base, held: 1, state: {} }).order.args.count, 3, 'only the shortfall')
   assert.equal(TF.farmTorchOrder({ ...base, held: 4, state: {} }).order, null, 'nothing short')
   assert.equal(TF.farmTorchOrder({ ...base, distHome: 60 }).order, null, 'never a trip from outside town')
@@ -517,7 +517,7 @@ await t('TORCH FETCH (pure): at town and its level only, the exact shortfall, a 
   assert.equal(TF.farmTorchOrder({ ...base, room: () => false }).order, null)
   let asked = null
   assert.equal(TF.farmTorchOrder({ ...base, refused: a => { asked = a; return 'cooldown' } }).order, null)
-  assert.deepEqual(asked, { item: 'torch', count: 4 }, 'the gate memory is asked with the args the order would carry')
+  assert.deepEqual(asked, { item: 'torch', count: 4, town: true }, 'the gate memory is asked with the args the order would carry')
   assert.deepEqual(TF.farmTorchOutcome('failed', 'runner_busy', 2e7, r.state, new Set(['runner_busy'])), r.state, 'a runner refusal costs nothing')
 })
 
@@ -537,7 +537,7 @@ await t('LOOP CHAIN (kitshrink x farm): a farm planted without torches (the foun
     return { status: 'success', detail: `took ${args.count} torch` }
   }
   const { ran } = await decisions(b.bot, 2, { handlers: { withdraw }, max: 400, state: { farmState: { lastTendAt: -Infinity } } })
-  assert.equal(ran[0]?.skill, 'withdraw', JSON.stringify(ran)); assert.deepEqual(ran[0].args, { item: 'torch', count: torches.length })
+  assert.equal(ran[0]?.skill, 'withdraw', JSON.stringify(ran)); assert.deepEqual(ran[0].args, { item: 'torch', count: torches.length, town: true })
   // THROUGH THE LOOP (Claude r13 P3-5): the fetch lets the farm order scan again at once, so the next decision is the visit
   assert.equal(ran[1]?.skill, 'tend_farm', `the next decision is the visit that places them: ${ran.map(x => x.skill)}`)
   assert.equal(ran[1].status, 'success', ran[1].detail)

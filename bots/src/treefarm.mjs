@@ -616,7 +616,8 @@ export function farmTorchOrder ({ now = 0, distHome = Infinity, dy = 0, need = 0
   const short = n - Math.max(0, Number(held) || 0)
   if (!(short > 0)) return none()
   // a bag that cannot take a torch, or a withdraw the gate's memory would refuse, is not worth the walk (Claude r13 P3)
-  const args = { item: 'torch', count: short }
+  // TOWN-SCOPED (Codex r13 P2-2): the town's containers around home, wherever in town the bot stands (skills.mjs withdrawVerb)
+  const args = { item: 'torch', count: short, town: true }
   if (!lazy(room) || (typeof refused === 'function' ? refused(args) : refused)) return none()
   s.lastFetchAt = now
   return { order: { skill: 'withdraw', args,
