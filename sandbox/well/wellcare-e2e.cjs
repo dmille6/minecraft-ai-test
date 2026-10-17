@@ -158,10 +158,22 @@ async function sceneMine () {
   ORDER = { skill: 'mine', args: { y: 114 } }
   const ended = await waitFor(() => lines(files.botOut).find(l => /skill mine ->/.test(l)), 180000, 500)
   await sleep(3000)
+  // KEEP MINING: the model's next `mine` from wherever the first left the bot (a k=4 plinth's ledge is over a 3-block drop)
+  const first = rowsOf(files.skillLog).filter(r => r.name === 'mine').pop()
+  const pos1 = posOf()
+  let second = null
+  if (first && first.status !== 'success') {
+    const n1 = lines(files.botOut).filter(l => /skill mine ->/.test(l)).length
+    ORDER = { skill: 'mine', args: { y: 114 } }
+    await waitFor(() => lines(files.botOut).filter(l => /skill mine ->/.test(l)).length > n1, 180000, 500)
+    await sleep(3000)
+    second = rowsOf(files.skillLog).filter(r => r.name === 'mine').pop()
+  }
   const rows = rowsOf(files.skillLog)
   const after = shellIntact()
-  const mineRow = rows.filter(r => r.name === 'mine').pop()
+  const mineRow = first
   const res = { scene: 'mine', mine: mineRow ? `${mineRow.status} ${mineRow.detail.slice(0, 160)}` : (ended ? ended.slice(0, 160) : 'no mine row'),
+    afterFirst: pos1, mine2: second ? `${second.status} ${second.detail.slice(0, 120)}` : null,
     shell: { before, after, of: SHELL.length }, cap: isBlock(PC, 'oak_trapdoor'), floor: isBlock({ x: PC.x, y: PC.y - 1, z: PC.z }, 'oak_trapdoor'),
     guardRows: rows.filter(r => r.name === '_mine_well_guard').map(r => r.detail.slice(0, 120)), endPos: posOf(), licence: rows.filter(r => r.name === '_wellcare_mode').length }
   await stopBot()
