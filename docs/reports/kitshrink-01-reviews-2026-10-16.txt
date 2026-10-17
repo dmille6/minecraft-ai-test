@@ -66,3 +66,20 @@ FINAL: both APPROVE on 359a9213 (fleet 623e92b9) and its lidclear twin 51033241 
   npm test: 253/253 on 359a9213, 254/254 on 51033241. Source mutants (bots/scripts/kitshrink-mutants.mjs): 24/24 killed on
   both. eslint no-undef: only bots/src/reflex.mjs:2384 withinBody (pre-existing). licencecheck PASS (_kitshrink baseline
   silent, 6 h, 80 bots, 359,490 rows); changerowcheck PASS; drawrequire.parse ([], None).
+
+REBASE 10-17 (coordinator: variants for fleets da978c18 and 534aeec0; plinth-01 INCONCLUSIVE, lidclear-01 -> townsearch-01 ->
+plinth-02 -> toolkit-01 queued ahead). The approved net diff (0152baeb..74d2fecd) squash-merged; one union conflict each
+(index.mjs: the TOOLKIT import + licence rows townsearch_mode, plinth_mode, kitshrink). Sorted +/- lines of bots/src identical
+to the approved variant on both. The kitshrink-sites tripwire passes on both tips (townsearch, plinth-02, toolkit add no torch
+or ladder site).
+  da978c18 (toolkit on plinth-02 on townsearch on lidclear): kitshrink-on-da978c1 @ 905aa1cb
+    Codex  APPROVE  no findings: toolkit's iron credit stays separate; townsearch stays driven by missing picks/ingredients
+                    (kit banking can invalidate a miss, no self-sustaining loop); plinth priority and the stone reserve compatible;
+                    the deposit and new-chest guards intact, no bypassing caller or torch/ladder consumer added.
+    Claude APPROVE  P3 only: build_plinth runs before town_deposit, so exposure may take longer (a fleet-wide level shift, not a
+                    DiD bias) -> said in the registration notes. No KIT_* name or row-kind collision with toolkit.
+    npm test 259/259; 24/24 source mutants killed; eslint no-undef only reflex.mjs:2384 (pre-existing).
+  534aeec0 (plinth-02 on townsearch on lidclear; toolkit not kept): kitshrink-on-534aeec @ cc149425
+    Codex  APPROVE  no findings (216 sorted +/- lines identical).
+    Claude APPROVE  no findings; one fewer room-making exit (no toolkit iron draw).
+    npm test 258/258; 24/24 source mutants killed; eslint no-undef only reflex.mjs:2384 (pre-existing).
