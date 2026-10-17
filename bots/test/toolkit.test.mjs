@@ -602,6 +602,23 @@ await t('F1 x SMELTJOB: townCopperMiss sees complete coverage over the town scan
     e => CF.noteItemMisses(e, SJ.COPPER_MISS_KEY, SJ.COPPER_MISS_TTL_MS, ['5,64,0']))
   assert.equal(townCopperMiss(w.bot), true, 'every town container a live copper miss')
 })
+// THE TOOLKIT x TREEFARM CHAIN (treefarm-02 on the 830dc36b chain). The farm order (a town order after the room order), the
+// toolkit (the last town order) and the smelt job all sit before planting; resolved tend_farm -> toolkit -> smelt. A bot at town
+// with saplings (the farm is founded from the bag) and no kit: tend_farm first, the toolkit on a later decision -- not starved.
+// CONTROL: the same bot with no saplings -> no tend_farm order; the toolkit makes the kit.
+await t('TOOLKIT x TREEFARM CHAIN (real loop): saplings at town and no kit -> tend_farm first, the toolkit later makes the kit; CONTROL: no saplings -> no tend_farm', async () => {
+  const w = chainWorld()
+  w.bag.push({ ...stack('birch_sapling', 6), slot: 43 }, { ...stack('oak_sapling', 4), slot: 44 })
+  const { ran } = await decisions(w, 6, { crafter: fakeCraft(w) })
+  const ifarm = ran.findIndex(x => x.skill === 'tend_farm'), itk = ran.findIndex(x => x.skill === 'toolkit')
+  assert.ok(ifarm >= 0, `the farm order is due in this scene: ${JSON.stringify(ran)}`)
+  assert.ok(itk > ifarm, `the toolkit comes after the farm and is not starved: ${JSON.stringify(ran)}`)
+  assert.equal(ran[itk].status, 'success')
+  const w2 = chainWorld()
+  const c = await decisions(w2, 4, { crafter: fakeCraft(w2) })
+  assert.ok(!c.ran.some(x => x.skill === 'tend_farm'), JSON.stringify(c.ran))
+  assert.ok(c.ran.some(x => x.skill === 'toolkit' && x.status === 'success'), JSON.stringify(c.ran))
+})
 await t('WIRED (structural, comments stripped): the toolkit order is the LAST deterministic order, after the room order and before planting', () => {
   const src = fs.readFileSync(new URL('../src/cognitive.mjs', import.meta.url), 'utf8').replace(/\/\*[\s\S]*?\*\//g, '').split('\n').filter(l => !l.trim().startsWith('//')).join('\n')
   const at = src.indexOf('if (!order) order = this.#toolkitOrder()')
