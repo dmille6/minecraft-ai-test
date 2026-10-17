@@ -52,6 +52,8 @@ function run (file) {
       env: { ...process.env,
              SKILL_TIMEOUT_MS: process.env.SKILL_TIMEOUT_MS || '300',
              SKILL_HARD_STOP_GRACE_MS: process.env.SKILL_HARD_STOP_GRACE_MS || '300',
+             // logcap-01: the stock suite's arithmetic is written against the old 64 wood target (stocktarget.mjs)
+             STOCK_WOOD_TARGET: process.env.STOCK_WOOD_TARGET ?? '64',
              // `config.mjs` requires OLLAMA_MODEL with NO fallback on purpose --
              // the old default named a 14b that was not installed anywhere, so a
              // bot that lost its env file asked for a model nobody had pulled.
