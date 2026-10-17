@@ -1,0 +1,88 @@
+toolkit-01 REBASE onto 51033241 (kitshrink-01 on lidclear-01) and 0152baeb (lidclear-01, the fleet) -- review record, 2026-10-17
+(toolkit rebase agent, worktree agent-a456fcdd). townsearch-01 and plinth-01 were closed INCONCLUSIVE, so this stack has neither; the
+earlier 534aeec0 / 27908be4 variants (tk-on-534aeec, tk-on-27908be) assumed both and will not be used. Queue: kitshrink-01 (live,
+canary 51033241) -> plinth-02 -> toolkit-01. 51033241 variant: kitshrink KEPT, plinth-02 not yet run or not kept. 0152baeb variant:
+kitshrink not kept.
+
+APPROVED CHANGE: toolkit-01 (owner-approved 10-15; iron axe + iron shovel, at most 1 spare stone pickaxe). Net diff 75cfb447..2bce1306;
+reviews docs/reports/toolkit-01-reviews-2026-10-15.txt; earlier rebases docs/reports/toolkit-01.rebase-review-f8daab3a-623e92b9-2026-10-16.txt
+and docs/reports/toolkit-01.rebase-review-534aeec0-27908be4-2026-10-16.txt (on those branches).
+
+THE VARIANTS (canary sha of each = the docs-only commit adding THIS record):
+  tk-on-0152bae on 0152baeb: eb215cf2, a9e6a373, 1b1686c8 (the 3 approved commits, NO conflict) + a74e3eaf (F2 + its test).
+  tk-on-5103324 on 51033241: aa1ea614, 68ab9f81, 6ace2c60 (approved; ONE conflict, bots/src/index.mjs imports: kitshrink's
+      kitShrinkModeDetail + toolkit's TOOLKIT -> UNION; both licence rows present) + 7f406ec9 (= a74e3eaf) + 7eb0bece (test-only
+      SKILL x KITSHRINK).
+  Every other +/- line identical to the approved diff (both engines compared mechanically).
+
+F2 (the one semantic change; approved by both engines on 534aeec0 and again here): lidclear-01's openForWithdraw returns
+  container_blocked for every lid outcome but dug/not_blocked. toolkit's draw moved on only for chest_unreachable/stock_unconfirmed
+  and ENDED the run (failed, 30-min backoff) on container_blocked; now it moves on (the lid failure returns before any transfer;
+  before the miss write, so a blocked lid is never recorded as too little iron). Test: a chest under oak_planks first -> the next
+  container gives the kit; control without the lid. F1 NOT applied: townContainerKeys exists on these bases (townsearch absent).
+
+KITSHRINK COMPOSITION (51033241):
+  - torches and sub-escape ladders are now room candidates (bankable.mjs bankableInventory -> depositPlan -> withdrawpick
+    roomCandidates). The kit's draw makes room with roomPlan inside withdrawVisit, through the window ITS visit opened
+    (transferIn; rearrangeFor likewise): never the deposit skill, never a new chest (no stockQualifies, no placement), never a walk
+    beyond the draw's own walk to a town chest (the order is in town only; the sweep is town containers within STORAGE_NEAR).
+    This is the "withdraw's room-making at the chest" site kitshrink's design allows; withdraw_pick does the same with the same keep.
+  - Toolkit should NOT keep the kit (both engines): kitKeep / KIT_NO_TRIP guard advice that walks a bot; here it would turn a full
+    bag whose only spare stacks are the kit into inventory_full at the chest the bot is standing at (and kitKeep's objects are not
+    roomPlan keep matchers anyway -- Codex).
+  - TEST 'SKILL x KITSHRINK': a full bag (iron pickaxe, 9 sticks, 4 torches, bamboo) -> the draw banks the 4 torches into the SAME
+    chest its 4 ingots come from (one chest opened), the kit is made; CONTROL: bamboo in the torches' place -> no room, no draw.
+    Mutant kitshrink-off (kitBankDecision always null) kills it: the test sees kitshrink.
+  - kitshrink-sites tripwire: toolkit adds no executable quoted 'torch'/'ladder' site in bots/src (10 sites = the 10 allowlisted,
+    both engines ran the scan); kitshrink.test passes in npm.
+
+TEST EVIDENCE
+  npm test: tk-on-5103324 @ 7eb0bece 255/255; tk-on-0152bae @ a74e3eaf 254/254.
+  toolkit.test.mjs 35/35 (5103324), 34/34 (0152bae). eslint no-undef: exactly one hit each, reflex.mjs:2384 withinBody.
+  MUTANTS (anchor present + unique, restored byte-identical): 5103324 15/15 killed (funded, credit-on-bot, abort-delta, fallthrough,
+    lid-fallthrough, rethrow-before-reconcile, spare-rule-off, town-keep, credit-ignored-in-draw, no-backoff, townmiss-ignored,
+    kit-effect-any, not-housekeeping, order-unwired, kitshrink-off); 0152bae 14/14 (the same minus kitshrink-off).
+  PAPER (sandbox 10.0.0.30:25599 cand, sandbox2 :25600 ctrl; lock /tmp/mcai-sandbox.lock on .31 taken 12:14:14Z after plinth-02's
+    agent released it, released 12:19:33Z, both servers empty). Driver sandbox/craft/toolkit-ab.cjs (origin/main), kitgather, server reads:
+    cand tk-on-5103324 @ 7eb0bece: chest iron_ingot -4, stick -6; bag +iron_axe +iron_shovel; server damage 3/3 after 3 logs + 3 dirt;
+      the bag's 8 torches stayed (a light bag: no room-making). _toolkit outcome=crafted drew=4 used=4 credit=0->0.
+    cand tk-on-0152bae @ a74e3eaf: the same (iron -4, axe + shovel, damage 3/3).
+    ctrl 51033241: chest stick -2 only (withdraw_pick's scene artifact), no iron, no kit.
+    Not on Paper: a lidded chest (F2) or a full bag banking torches (kitshrink) -- both rest on the unit tests above.
+
+REVIEWS (brief: scratch tkrb3/brief.md)
+==================================================================== Claude (independent subagent): APPROVE ========================
+a. +/- lines identical to the approved diff on both; the index.mjs union keeps both licence rows; F2 byte-identical on both (and
+   matches withdraw_pick's own move-on rule); 7eb0bece test-only. toolkit.test 35/35, 34/34; kitshrink.test 24/24.
+b. The kit leaves the bag only into the window the kit's visit opened (transferIn / rearrangeFor); order atTown; sweep town,
+   STORAGE_NEAR; withdraw never calls deposit, stockQualifies or a placement. Same as withdraw_pick. kitKeep would deviate from
+   kitshrink's design and create an inventory_full at the chest. The test is adequate.
+c. No new quoted torch/ladder site in bots/src (10 = 10 allowlisted). d. kitshrinkread's OTHER_BANKERS is a descriptive tally, not a
+   gate; irrelevant once kitshrink is fleet code. e. lidclear changes only openForWithdraw (F2 handles it); kitshrink touches none of
+   withdrawVisit, decideTakes, withdrawSweep, withdrawClock, craft, classifyOutcome, runner, cognitive.
+P3 the kitshrink test's control asserts not-success and iron untouched, not failClass inventory_full; sub-escape ladders and the
+   order-level room() not tested inside toolkit (same depositPlan/roomPlan, covered elsewhere).
+P3 the _toolkit row does not record what room-making banked (add toolkit to kitshrinkread OTHER_BANKERS if that read is reused).
+P3 (lidclear's own) recountBag's baseline precedes the lid dig: a picked-up cobble lid drop that is also a room-making stack could read
+   transfer_unsettled; withdraw_pick equally exposed, rare.
+VERDICT: APPROVE
+
+==================================================================== Codex (codex exec -s read-only, stdin brief): APPROVE ==========
+No P1/P2 findings. Both rebases preserve the approved behavior.
+a. Comparing every added/removed line against 75cfb447..2bce1306 leaves only F2, its regression/control, and the KITSHRINK test. Both
+   imports survive at index.mjs:39-40. F2 correct: lid failures return before transfer, so trying another container is safe.
+b. Correct chest-local composition. Admission and execution use matching keeps; roomCandidates delegates to depositPlan, admitting
+   torches and sub-escape ladders; decideTakes requires capacity in that container; withdrawVisit transfers through its open window;
+   it invokes neither the deposit skill nor new-chest recovery. The existing walk to the toolkit's town chest stays; no additional walk
+   is caused by banking kit. Matches the permitted "withdraw's room-making at the chest" site. The test/control adequately exercises
+   the integration. Adding kit retention would unnecessarily narrow the approved composition (and kitKeep returns objects, which
+   withdraw's keep matcher does not accept).
+c. Tripwire passes: exactly the ten allowlisted sites (scanned from git objects at 7eb0bece).
+d. P3 attribution only: kitshrinkread excludes toolkit from its net banking breakdown; not a blocker for a toolkit canary with
+   kitshrink fleet-wide and its read retired; extend attribution if that read is reused.
+e. No further contract incompatibility; funding/craft reconciliation, kitCrafted propagation, kit_effect and placement after the room
+   order retained.
+VERDICT: APPROVE
+
+ACCEPTED P3s (not fixed): the control's failClass not pinned; the _toolkit row does not name kit banked by room-making; lidclear's
+recount-baseline ordering. HOST (10.0.0.31): the registrations' notes and the entry carry licencecheck / changerowcheck / validate_entry.
