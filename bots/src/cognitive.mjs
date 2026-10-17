@@ -1000,7 +1000,7 @@ export class CognitiveLoop {
         // THE HELD ORDER IS SAID (the read's guard row; one per bot per order kind per 5 min), with the bot's own remedy.
         // HELD, NOT REPLACED (r5, after Claude r2 P2-1/P2-2 and Codex r3 P2 on the scheduler climb): a scheduler `surface`
         // overshoots stands below 63, cannot reach stands above 75, and its shaft dig does not read the well's cells -- a new
-        // movement on the scheduler's behalf for a gain the base data does not show (wellcare.mjs WELL_DEEP_REMEDY).
+        // movement on the scheduler's behalf for a gain the base data does not show (wellcare.mjs wellDeepRemedy).
         if (r.held && Date.now() - (this.wellDeepLoggedAt?.[r.held.skill] ?? -Infinity) >= WELL_DEEP_ROW_MS) {
           this.wellDeepLoggedAt = { ...(this.wellDeepLoggedAt ?? {}), [r.held.skill]: Date.now() }
           logEvent({ kind: 'well_deep', status: 'refused', snapshot: snapshot(bot), detail: wellDeepDetail(r.held) })

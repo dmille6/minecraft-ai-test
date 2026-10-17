@@ -7,9 +7,10 @@
 //          bot on its south stand ordered `mine`. Read back: every one of the 81 shell cells still cobblestone, the cap
 //          and floor trapdoors still there; the mine result and the bot's _mine_well_guard rows.
 //   deep   a low town (dirt 60..66 over stone) with a dug junk well (cap 1300,66,1315, 15 from home) and a bot with a full bag
-//          of junk in a room 22 below the stand (y 45, under sea level) with a mine stair, under home. Up to 200 s of the loop's
-//          own decisions: the candidate climbs (its scheduler's surface) then disposes in reach; the base disposes from below. 75 s of the loop's own decisions (the brain proposes `status`). Read back: the
-//          well orders the bot was given (dispose_well / build_well / close_well rows) and its _well_deep rows.
+//          of junk in a room 22 below the stand (y 45, under sea level) with a mine stair, under home. 60 s of the loop's own
+//          decisions (the brain proposes `status`): the base gives dispose_well from down there, the candidate holds it
+//          (_well_deep action=hold remedy=surface). Then the brain proposes `surface` (the real skill) and up to 200 s more for
+//          dispose_well. Read back: the order sequence with the bot's height at each.
 //   table  the plinth again, two blocks on its south corners (town furniture), the bot on the south stand with a table,
 //          planks and sticks, ordered `craft wooden_pickaxe` (no table within 32: the craft puts its own down). Read back:
 //          where the table went (_table_retaken / _station_placed rows) against the well's cells, and the cap column.
