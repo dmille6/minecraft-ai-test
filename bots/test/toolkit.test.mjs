@@ -313,6 +313,69 @@ await t('SKILL: the first chest\'s lid cannot be cleared (oak_planks: container_
   assert.equal(r2.status, 'success', r2.detail)
   assert.equal(count(w2.containers.get('1,64,0').slots.filter(Boolean), 'iron_ingot'), 26, 'the scene sees the lid: unlidded, the nearest gives it')
 })
+// plinth-02 x lidclear-01 COMPOSITION (0fe92258): a chest whose lid cell is a raised well's STAIR (or shell) is never cleared --
+// lidrule refuses well cells -- so the kit's draw never digs a plinth step off a lid: container_blocked, the next container.
+// CONTROL: the same cobblestone lid with the well elsewhere is dug and the first chest gives the kit (the scene sees the lid).
+const lidReady = w => {
+  const PICKS = ['wooden_pickaxe', 'stone_pickaxe', 'iron_pickaxe', 'golden_pickaxe'].map(n => w.bot.registry.itemsByName[n].id)
+  const blockAt0 = w.bot.blockAt
+  w.bot.blockAt = p => { const b = blockAt0(p); if (b?.name === 'cobblestone') b.canHarvest = id => PICKS.includes(id); if (b?.name === 'chest') b.shapes = [[0.0625, 0, 0.0625, 0.9375, 0.875, 0.9375]]; return b }
+  w.bot.digTime = () => 750
+  w.bot.canDigBlock = () => true
+  w.digs = []
+  w.bot.dig = async b => { w.digs.push(w.key(b.position.x, b.position.y, b.position.z)); w.set(b.position.x, b.position.y, b.position.z, 'air') }
+  return w
+}
+await t('SKILL x PLINTH STAIR LID: a chest under a plinth STAIR cell is never cleared (container_blocked) -> the next container gives the kit; CONTROL: the well elsewhere -> the lid is dug, the first chest gives it', async () => {
+  const mk = stairAt => {
+    const w = lidReady(withServer(town([T('iron_pickaxe', 200), T('stone_pickaxe', 90), stack('stick', 9)], [stack('iron_ingot', 30)])))
+    w.set(1, 64, 0, 'chest'); w.stock(1, 64, 0, [stack('iron_ingot', 30)]); w.set(1, 65, 0, 'cobblestone')   // nearest HOME first: 1,64,0
+    w.bot.wellCellsNow = () => [{ x: 20, y: 70, z: 20, stair: [stairAt] }]
+    return w
+  }
+  const w = mk([1, 65, 0])
+  const r = await run(w, {}, { kitCraft: fakeCraft(w) })
+  assert.equal(r.status, 'success', r.detail)
+  assert.equal(w.nameAt(1, 65, 0), 'cobblestone', 'the plinth step stays'); assert.deepEqual(w.digs, [])
+  assert.equal(count(w.containers.get('1,64,0').slots.filter(Boolean), 'iron_ingot'), 30)
+  assert.equal(count(w.containers.get('5,64,0').slots.filter(Boolean), 'iron_ingot'), 26)
+  assert.match(kitRows().at(-1).skill.detail, /tried=\[1,64,0:container_blocked;5,64,0:success\]/)
+  const w2 = mk([20, 66, 21])
+  const r2 = await run(w2, {}, { kitCraft: fakeCraft(w2) })
+  assert.equal(r2.status, 'success', r2.detail)
+  assert.deepEqual(w2.digs, ['1,65,0'], 'the lid is dug when it is no well cell')
+  assert.equal(count(w2.containers.get('1,64,0').slots.filter(Boolean), 'iron_ingot'), 26)
+})
+// plinth-02's WEAR_OUT GUARD x toolkit PART 1: the copies PART 1 adds to wear_out's list are never worn out on a plinth cell.
+// A full bag holding iron + a usable stone spare + three 1-use stone copies, every block around it a raised well's shell
+// (andesite, which wearTarget accepts): nothing is dug, the toolkit's wear row says so. CONTROL: no well -> the copies are worn out.
+const wearBag = () => [T('iron_pickaxe', 200), T('stone_pickaxe', 90), T('stone_pickaxe', 1), T('stone_pickaxe', 1), T('stone_pickaxe', 1),
+  ...Array.from({ length: 31 }, () => stack('dirt', 64))]
+const wearBot = ({ wells = [] } = {}) => {
+  const V = (x, y, z) => ({ x, y, z, offset: (a, b, c) => V(x + a, y + b, z + c), floored: () => V(x, y, z) })
+  const inv = wearBag()
+  const dug = []
+  const bot = {
+    heldItem: null, entity: { position: V(0, 64, 0) }, entities: {}, inventory: { items: () => inv },
+    blockAt: p => (!(p.x === 0 && p.z === 0) ? { name: 'andesite', hardness: 1.5, boundingBox: 'block', position: p } : { name: 'air', hardness: 0, boundingBox: 'empty', position: p }),
+    canDigBlock: () => true, equip: async x => { bot.heldItem = x },
+    dig: async b => { dug.push(b.position); inv.splice(inv.indexOf(bot.heldItem), 1); bot.heldItem = null },
+    waitForTicks: async () => {}, pathfinder: { setGoal () {}, stop () {} }, wellCellsNow: () => wells,
+  }
+  return { bot, dug, inv }
+}
+await t('WEAR x PLINTH-02: PART 1\'s spent stone copies are never worn out on a plinth cell (nothing dug, the _toolkit wear row outcome=none); CONTROL: no well -> all three worn out, iron + spare kept', async () => {
+  assert.equal(wearOutPlan(wearBag()).toolkit, 3, 'the scene is PART 1\'s: three copies listed only because of the toolkit rule')
+  const n0 = RECS.length
+  const a = wearBot({ wells: [{ x: 1, y: 65, z: 0 }] })
+  const r = await SKILLS.wear_out.run({ bot: a.bot }, {}, new AbortController().signal)
+  assert.equal(r.status, 'failed', r.detail); assert.equal(a.dug.length, 0); assert.match(r.detail, /well/)
+  assert.match(RECS.slice(n0).filter(x => x.skill?.name === '_toolkit').at(-1)?.skill?.detail ?? '', /^phase=wear outcome=none listed=3 worn=0/)
+  const b = wearBot()
+  const r2 = await SKILLS.wear_out.run({ bot: b.bot }, {}, new AbortController().signal)
+  assert.equal(r2.status, 'success', r2.detail); assert.equal(b.dug.length, 3)
+  assert.equal(b.inv.filter(it => it.name === 'iron_pickaxe').length, 1); assert.equal(b.inv.filter(it => it.name === 'stone_pickaxe').length, 1)
+})
 await t('SKILL: holds the kit -> no_effect, no chest opened; a usable iron axe held -> only the shovel is drawn for and made', async () => {
   const w = withServer(town([T('iron_axe', 200), T('iron_shovel', 200)], [stack('iron_ingot', 30)]))
   const r = await run(w, {}, { kitCraft: fakeCraft(w) })
@@ -484,7 +547,7 @@ await t('CHAIN CONTROL (real loop): the same bot out of town never gets the tool
 // record: no plinth order, the toolkit still makes the kit (the scene sees the plinth only when it is due).
 const plinthDue = w => fs.writeFileSync(path.join(process.env.POOL_STATE_DIR, 'junkwell-nosite-0_64_0.json'),
   JSON.stringify({ at: Date.now() - 60_000, world: w.bot.worldId ?? null, by: 'peer', tally: 'cols:0' }))
-await t('TOOLKIT x PLINTH CHAIN (real loop, f8daab3a): a funded no-site town and no kit -> build_plinth first, the toolkit after it makes the kit', async () => {
+await t('TOOLKIT x PLINTH CHAIN (real loop, plinth-02): a funded no-site town and no kit -> build_plinth first, the toolkit after it makes the kit', async () => {
   const w = chainWorld()
   plinthDue(w)
   const P = await import('../src/plinth.mjs')
