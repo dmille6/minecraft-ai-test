@@ -25,7 +25,7 @@ import { buildSystemPrompt, buildUserPrompt, makeSentinel, WorkingMemory } from 
 import { AdmissionControl } from './admission.mjs'
 import { MilestoneController, servesRung, NO_PROGRESS_MS, RUNNER_REFUSALS } from './milestones.mjs'
 import { orderFor, readyFor, plantingOrder, plantingEnabled, PLANT_COOLDOWN_MS, roomOrder, roomOutcome, roomBackedOff, roomExclusions, lostLine, ROOM_WEAR_TRUST_MS } from './workorder.mjs'
-import { wearOutPlan, isHousekeeping } from './hygiene.mjs'
+import { wearOutPlan, isHousekeeping, TRIGGER_SLOTS } from './hygiene.mjs'
 import { compostPlan, townOrder, townOrderOutcome, boneMealRoom, composterLevel, TOWN_ORDERS, STORAGE_NEAR, TOWN_RADIUS, startableJunk } from './composter.mjs'
 import { hasUsablePick, roomPlan, pickTakes, roomKeep } from './withdrawpick.mjs'
 import { toolkitOrder, toolkitOutcome } from './toolkit.mjs'
@@ -998,8 +998,10 @@ export class CognitiveLoop {
         this.wellState = r.state
         if (r.order) order = r.order
         // A HELD DISPOSE BECOMES THE CLIMB (wellcare.mjs heldClimb: the remedy performed, once per 5 min, below sea level)
-        const climb = r.held ? heldClimb({ held: r.held, now: Date.now(), lastAt: this.wellDeepClimbAt ?? -Infinity }) : null
-        if (climb) { this.wellDeepClimbAt = Date.now(); order = climb }
+        const climb = r.held ? heldClimb({ held: r.held, now: Date.now(), lastAt: this.wellDeepClimbAt ?? -Infinity, bagWantsWell: plan.slots >= TRIGGER_SLOTS && plan.junkStacks > 0 }) : null
+        // THE CLIMB SPENDS THE SCAN (Codex r2 P2): the decision after it reads the well again at once, so the order it was
+        // for comes before the model's next pick (a `mine` straight back down would otherwise win the 30-s gate)
+        if (climb) { this.wellDeepClimbAt = Date.now(); order = climb; this.wellState = { ...this.wellState, lastScanAt: -Infinity } }
         // THE HELD ORDER IS SAID (the read's guard row; one per bot per order kind per 5 min, and every climb)
         if (r.held && (climb || Date.now() - (this.wellDeepLoggedAt?.[r.held.skill] ?? -Infinity) >= WELL_DEEP_ROW_MS)) {
           this.wellDeepLoggedAt = { ...(this.wellDeepLoggedAt ?? {}), [r.held.skill]: Date.now() }
