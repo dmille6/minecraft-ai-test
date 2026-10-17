@@ -17,7 +17,8 @@
 #   LEAK      any CONTROL row of the build's own kinds (_wellcare_mode, _well_deep, _station_well, _station_placed,
 #             _mine_well_guard) -- blocks KEEP.
 #   GATES (canary arm, post):
-#     W1 breach_shell_dug_by_mine  a _dig_town row by mine inside a known shell or on a plinth stair tread.
+#     W1 breach_shell_dug_by_mine  a _dig_town row by mine inside a known shell or on a plinth stair tread. KNOWN = what the
+#                                  bot knows (GATE_CAP_KINDS + plinth records, not retired), from when it became a well.
 #     W2 breach_station_on_well    a _station_placed row with own=0 whose cell is a well's shell/shaft/stand/stair (judged
 #                                  HERE from the cap and the records, not from the row's own keep=), or keep!=none own=0.
 #     W3 breach_deep_order         a dispose_well / close_well row that STARTED more than 13 below a stand the order itself
@@ -49,6 +50,10 @@ STAND = re.compile(r"standing cell at (-?\d+),(-?\d+),(-?\d+)")
 BUILT = re.compile(r"built the town junk well at (-?\d+),(-?\d+),(-?\d+)")
 PLACED = re.compile(r"^placed (\w+) at \((-?\d+), (-?\d+), (-?\d+)\)")
 CAP_KINDS = ('_well_built', '_well_dispose', '_well_retired', '_well_refused', '_well_recollected', '_mine_well_guard', '_well_pit_dug', '_station_placed')
+# THE GATES judge only wells the bot itself knows (Claude r1 P2): a cap named by a working well's own rows (built, a dispose,
+# a dug pit), the canary's own guard rows and station rows, and the plinth records. A cap named only by _well_refused /
+# _well_recollected, or RETIRED (_well_retired: its trapdoor may be gone, so the bot no longer knows it), is REPORTED.
+GATE_CAP_KINDS = ('_well_built', '_well_dispose', '_well_pit_dug', '_mine_well_guard', '_station_placed')
 OWN_KINDS = ('_wellcare_mode', '_well_deep', '_station_well', '_station_placed', '_mine_well_guard')
 ORDERS = ('dispose_well', 'build_well', 'close_well')
 STATIONS = ('crafting_table', 'furnace', 'blast_furnace', 'smoker', 'chest', 'barrel')
@@ -311,7 +316,7 @@ if __name__ == '__main__':
         return out
 
     rows = sorted(load_window(PRE, END), key=lambda r: r['t'])
-    caps = defaultdict(dict); row_since = defaultdict(dict); worlds = {}; offbuild = 0
+    caps = defaultdict(dict); row_since = defaultdict(dict); worlds = {}; offbuild = 0; gate_caps = defaultdict(set); retired = defaultdict(set)
     bots = defaultdict(set); kinds = Counter(); per_bot = defaultdict(list)
     licence = 0; leak = Counter(); guard = Counter(); digs = {'canary': [], 'control': []}; placed = []; ctl_place = []
     outcome = Counter()
@@ -333,6 +338,10 @@ if __name__ == '__main__':
             c = cap_of(d, CAPF) if k == '_station_placed' else cap_of(d)
             if c:
                 caps[p].setdefault(c, ())
+                if k in GATE_CAP_KINDS:
+                    gate_caps[p].add(c)
+                if k == '_well_retired':
+                    retired[p].add(c)
                 # a well BUILT in the window is a well from then; one named by any other row existed before it
                 first = t if k in ('_well_built', '_well_pit_dug') else dt.datetime.min.replace(tzinfo=dt.timezone.utc)
                 if c not in row_since[p] or first < row_since[p][c]:
@@ -368,10 +377,13 @@ if __name__ == '__main__':
     for p in set(row_since) | set(psince):
         for c, a in list(row_since.get(p, {}).items()) + list(psince.get(p, {}).items()):
             since[p][c] = min(a, since[p].get(c, a))
-    cols = defaultdict(dict)
+    cols = defaultdict(dict); gcols = defaultdict(dict)
     for p in set(caps) | set(pcols):
         cols[p].update(caps.get(p, {}))
         cols[p].update(pcols.get(p, {}))   # a record's stair wins over a row's bare cap
+        for c, st in cols[p].items():
+            if (c in pcols.get(p, {}) or c in gate_caps.get(p, set())) and c not in retired.get(p, set()):
+                gcols[p][c] = st
     # orders from deep, per arm (post): deep_orders joins each order's own evidence rows within its duration
     deep = {'canary': [], 'control': [], 'canary_build': [], 'control_build': []}
     for b, seq in per_bot.items():
@@ -379,8 +391,9 @@ if __name__ == '__main__':
         for (t, k, ps, st) in deep_orders(seq):
             if t >= CUT:
                 deep[arm if k != 'build_well' else arm + '_build'].append((b, t.strftime('%H:%MZ'), k, ps, st))
-    w1 = shell_digs(digs['canary'], cols, since); w1c = shell_digs(digs['control'], cols, since)
-    w2 = station_breaches(placed, cols, since); w2c = place_row_breaches(ctl_place, cols)
+    w1 = shell_digs(digs['canary'], gcols, since); w1c = shell_digs(digs['control'], gcols, since)
+    w2 = station_breaches(placed, gcols, since); w2c = place_row_breaches(ctl_place, gcols)
+    w1u = [x for x in shell_digs(digs['canary'], cols, since) if x not in w1]; w2u = [x for x in station_breaches(placed, cols, since) if x not in w2]
     hours = W / 60
     bh = lambda per, arm: len(bots[(per, arm)]) * hours
     rate = lambda per, arm, key: (outcome[(per, arm, key)] / bh(per, arm)) if bh(per, arm) else float('nan')
@@ -394,8 +407,9 @@ if __name__ == '__main__':
           % ({p: len(c) for p, c in sorted(cols.items())}, {p: len(c) for p, c in sorted(pcols.items())}, sorted(unverified)))
     print('LICENCE      canary _wellcare_mode rows %d | LEAK control own-kind rows %d %s' % (licence, sum(leak.values()), dict(leak)))
     print('LIVENESS     guard rows: _well_deep %d | _mine_well_guard %s | _station_well %d' % (guard['well_deep'], {k2[5:]: v for k2, v in guard.items() if k2.startswith('mine_')}, acted_station))
-    print('W1 (gate)    canary mine digs in a known shell / plinth stair: %d %s' % (len(w1), w1[:3]))
-    print('W2 (gate)    canary stations on a well cell: %d %s | _station_placed rows %d' % (len(w2), w2[:3], len(placed)))
+    print('W1 (gate)    canary mine digs in a known shell / plinth stair: %d %s | ungated (retired / refusal-only caps) %d %s' % (len(w1), w1[:3], len(w1u), w1u[:2]))
+    print('W2 (gate)    canary stations on a well cell: %d %s | _station_placed rows %d | ungated %d %s' % (len(w2), w2[:3], len(placed), len(w2u), w2u[:2]))
+    print('             gate columns per pool %s | retired %s' % ({p: len(c) for p, c in sorted(gcols.items())}, {p: len(c) for p, c in sorted(retired.items()) if c}))
     print('W3 (gate)    canary dispose/close orders started > %d below a stand they name: %d %s | build_well (reported) canary %d control %d'
           % (REACH_BELOW + SLACK, len(deep['canary']), deep['canary'][:3], len(deep['canary_build']), len(deep['control_build'])))
     print('INSTRUMENT   control: mine shell digs %d %s | orders from deep %d %s | control place rows on a well cell %d %s'
@@ -420,6 +434,7 @@ if __name__ == '__main__':
             'guard_well_deep': guard['well_deep'], 'guard_mine_acted': acted_mine, 'guard_mine_refuse': guard['mine_refuse'], 'guard_station': acted_station,
             'guard_rows_seen': guard['well_deep'] + acted_mine + acted_station,
             'breach_shell_dug_by_mine': len(w1), 'breach_station_on_well': len(w2), 'breach_deep_order': len(deep['canary']),
+            'ungated_shell_digs': len(w1u), 'ungated_station_on_well': len(w2u),
             'deep_build_orders_canary': len(deep['canary_build']), 'deep_build_orders_control': len(deep['control_build']),
             'control_shell_dug_by_mine': len(w1c), 'control_deep_orders': len(deep['control']), 'control_station_on_well': len(w2c),
             'unreach_rate_did': nan(did('unreach')), 'dispose_rate_did': nan(did('dispose_ok')),

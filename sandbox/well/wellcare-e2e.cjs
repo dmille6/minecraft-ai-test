@@ -7,7 +7,8 @@
 //          bot on its south stand ordered `mine`. Read back: every one of the 81 shell cells still cobblestone, the cap
 //          and floor trapdoors still there; the mine result and the bot's _mine_well_guard rows.
 //   deep   a low town (dirt 60..66 over stone) with a dug junk well (cap 1300,66,1315, 15 from home) and a bot with a full bag
-//          of junk in a closed room 22 below the stand (y 45, under sea level), under home. WCARE_CLIMB=1: then `surface`. 75 s of the loop's own decisions (the brain proposes `status`). Read back: the
+//          of junk in a room 22 below the stand (y 45, under sea level) with a mine stair, under home. Up to 200 s of the loop's
+//          own decisions: the candidate climbs (its scheduler's surface) then disposes in reach; the base disposes from below. 75 s of the loop's own decisions (the brain proposes `status`). Read back: the
 //          well orders the bot was given (dispose_well / build_well / close_well rows) and its _well_deep rows.
 //   table  the plinth again, two blocks on its south corners (town furniture), the bot on the south stand with a table,
 //          planks and sticks, ordered `craft wooden_pickaxe` (no table within 32: the craft puts its own down). Read back:
@@ -76,11 +77,12 @@ function buildArena () {
     `setblock ${DC.x} ${DC.y - 1} ${DC.z} minecraft:oak_trapdoor[half=bottom,facing=east,open=false]`,
     `setblock ${DC.x} ${DC.y} ${DC.z} minecraft:oak_trapdoor[half=top,facing=east,open=false]`,
     `fill 1313 45 1313 1317 47 1317 minecraft:air`, `setblock 1315 47 1313 minecraft:torch`,
-    // ...and the mine's own stair up to the town (a bot's mine leaves one): west along z=1317 from the room (feet 46..60),
-    // then south along x=1297..1299 to the surface (feet 61..67) -- clear of the well's box (+-2 of 1300,1315 at y 63..66)
-    // three wide and four high (a one-wide tunnel reads as entombed to the reflexes and fights the climb: Paper 10-17)
-    ...Array.from({ length: 15 }, (_, i) => `fill ${1312 - i} ${46 + i} 1315 ${1312 - i} ${49 + i} 1317 minecraft:air`),
-    ...Array.from({ length: 7 }, (_, j) => `fill 1297 ${61 + j} ${1318 + j} 1299 ${64 + j} ${1318 + j} minecraft:air`),
+    // ...and the mine's own stair up to the town (a bot's mine leaves one): west along z=1315..1317 from the room (feet
+    // 46..55, x 1312..1303), then south along x=1303..1305 to the surface (feet 56..67, z 1318..1329) -- three wide and four
+    // high (a one-wide tunnel reads as entombed to the reflexes and fights the climb), and never within 2 of the well's
+    // column (1300,1315): an earlier layout cut its underground ring (no well found) or left no headroom at the turn
+    ...Array.from({ length: 10 }, (_, i) => `fill ${1312 - i} ${46 + i} 1315 ${1312 - i} ${49 + i} 1317 minecraft:air`),
+    ...Array.from({ length: 12 }, (_, j) => `fill 1303 ${56 + j} ${1318 + j} 1305 ${59 + j} ${1318 + j} minecraft:air`),
     // the plinth
     `fill ${PC.x - 2} ${PC.y - 3} ${PC.z - 2} ${PC.x + 2} ${PC.y - 1} ${PC.z + 2} minecraft:cobblestone`,
     `fill ${PC.x - 1} ${PC.y} ${PC.z - 1} ${PC.x + 1} ${PC.y} ${PC.z + 1} minecraft:cobblestone`,
@@ -198,23 +200,19 @@ async function sceneDeep () {
   await sleep(3000)
   const t0 = new Date().toISOString()
   const startPos = posOf()
-  await sleep(75000)
+  // THE LOOP'S OWN DECISIONS (the brain proposes `status`): the candidate's scheduler turns the held dispose into `surface`
+  // (wellcare.mjs heldClimb), then gives dispose_well on the first scan in reach; the base gives dispose_well from down here.
+  // Up to 200 s, or until a dispose_well row has been written.
+  await waitFor(() => rowsOf(files.skillLog).some(r => r.t >= t0 && r.name === 'dispose_well'), 200000, 1000)
+  await sleep(2000)
   const rows = rowsOf(files.skillLog).filter(r => r.t >= t0)
-  const orders = rows.filter(r => ['dispose_well', 'build_well', 'close_well'].includes(r.name)).map(r => `${r.name} ${r.status} ${r.detail.slice(0, 90)}`)
+  const seq = rows.filter(r => ['dispose_well', 'build_well', 'close_well', 'surface', '_well_deep'].includes(r.name)).map(r => `${r.t.slice(11, 19)} ${r.name} ${r.status} y=${r.y == null ? '?' : Math.round(r.y)} ${r.detail.slice(0, 90)}`)
+  const orders = rows.filter(r => ['dispose_well', 'build_well', 'close_well'].includes(r.name)).map(r => `${r.name} ${r.status} y=${r.y == null ? '?' : Math.round(r.y)} ${r.detail.slice(0, 90)}`)
   const dec = lines(files.botOut).filter(l => /LLM -> /.test(l)).slice(-12).map(l => l.replace(/^.*LLM -> /, '').slice(0, 80))
-  // THE REMEDY THE ROW NAMES, PERFORMED BY THE REAL SKILL (Codex r1 P2): `surface`, then the loop's own next well order
-  let climb = null, after = []
-  if (process.env.WCARE_CLIMB === '1') {
-    const t1 = new Date().toISOString()
-    ORDER = { skill: 'surface', args: {} }
-    await waitFor(() => lines(files.botOut).find(l => /skill surface ->/.test(l)), 200000, 500)
-    const hr = rowsOf(files.skillLog).filter(r => r.name === 'surface').pop() || {}
-    climb = { pos: posOf(), row: hr.status ?? null, detail: (hr.detail || '').slice(0, 120) }
-    await waitFor(() => rowsOf(files.skillLog).some(r => r.t >= t1 && ['dispose_well', 'build_well', 'close_well'].includes(r.name)), 90000, 1000)
-    after = rowsOf(files.skillLog).filter(r => r.t >= t1 && ['dispose_well', 'build_well', 'close_well', '_well_deep'].includes(r.name)).map(r => `${r.name} ${r.status} y=${r.y} ${r.detail.slice(0, 80)}`)
-  }
-  const res = { scene: 'deep', startPos, standY: DC.y + 1, orders, deepRows: rows.filter(r => r.name === '_well_deep').map(r => r.detail), decisions: dec, endPos: posOf(),
-    wellFound: rows.some(r => r.name === '_well_refused' || r.name === '_well_dispose'), licence: rowsOf(files.skillLog).filter(r => r.name === '_wellcare_mode').length, climb, afterClimb: after }
+  const deepRows = rows.filter(r => r.name === '_well_deep').map(r => r.detail)
+  const standSeen = (/stand_y=(\d+)/.exec(deepRows[0] || '') || [])[1]
+  const res = { scene: 'deep', startPos, standY: standSeen ? Number(standSeen) : `${DC.y + 1} (the dug well's; the bot's row names its own)`, sequence: seq, orders, deepRows, decisions: dec, endPos: posOf(),
+    disposeRowSeen: rows.some(r => r.name === '_well_dispose'), licence: rowsOf(files.skillLog).filter(r => r.name === '_wellcare_mode').length }
   await stopBot()
   record(res)
 }
