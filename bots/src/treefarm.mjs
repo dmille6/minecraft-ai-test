@@ -484,6 +484,27 @@ export function farmYields (record, avoid = []) {
 }
 
 /**
+ * THE FARM AS A PLANNER'S KEEP-OUT -> farmKeepOut plus each plot's TRUNK CLEARANCE (Claude r14 P2-1): the ring of eight
+ * cells around the plot column from one above the sapling to CLEAR_ABOVE + 1 above it. Vanilla oak and birch grow only
+ * with that 3x3 free above the base (TwoLayersFeatureSize(1, 0, 1)), so a block placed there kills the plot for good.
+ * For a planner that builds NEW blocks near the farm (plinth's `keepOut`); farmYields keeps the exact set (a recorded
+ * plan only moves the farm when it is ON a farm cell). Pure.
+ */
+export function farmPlannerKeepOut (record) {
+  const out = farmKeepOut(record)
+  for (const c of record?.cells ?? []) {
+    if (c.role !== 'plot') continue
+    for (let y = c.y + 1; y <= c.y + CLEAR_ABOVE + 1; y++) for (let dx = -1; dx <= 1; dx++) for (let dz = -1; dz <= 1; dz++) if (dx || dz) out.push({ x: c.x + dx, y, z: c.z + dz, r: 0 })
+  }
+  return out
+}
+/** A cell of the farm's exact keep-out (farmKeepOut) -> a predicate (x, y, z) -> bool. Pure. */
+export function farmCellTest (record) {
+  const keys = new Set(farmKeepOut(record).map(q => `${q.x},${q.y},${q.z}`))
+  return (x, y, z) => keys.has(`${x},${y},${z}`)
+}
+
+/**
  * THE FARM AS A BUILDER'S CELL KEEP-OUT -> [{ x, y, z, r: 0 }]. Pure. Every cell no other structure may plan into: each
  * plot's soil and its whole column (the cell and CLEAR_ABOVE above), each torch cell and its floor. For a planner that
  * takes exact keep-out cells (plinth-01's `keepOut`, Chebyshev r = 0; the town floor's protected set).

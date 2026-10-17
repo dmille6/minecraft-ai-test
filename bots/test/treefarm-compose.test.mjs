@@ -349,6 +349,8 @@ await t('FARM -> PLINTH (plinthKeepOut, what the planner is given): a recorded f
   assert.ok(want.length > 0)
   const keys = new Set(ko.map(q => `${q.x},${q.y},${q.z}`))
   for (const q of want) assert.ok(keys.has(`${q.x},${q.y},${q.z}`), `farm cell ${q.x},${q.y},${q.z} kept out of the plinth plan`)
+  const p0 = plotsOf(rec)[0]
+  assert.ok(keys.has(`${p0.x + 1},${p0.y + 1},${p0.z + 1}`) && keys.has(`${p0.x - 1},${p0.y + TF.CLEAR_ABOVE + 1},${p0.z}`), 'and its trunk clearance (Claude r14 P2-1)')
 })
 
 await t('farmKeepOut: every soil, column and torch cell, exactly (the keep-out a plinth or floor planner takes)', () => {
@@ -589,7 +591,7 @@ const wired = src => {
   assert.ok(/compute: \(\) => \(?(?:searched = )?canonicalWellSite\(\{ home, read, avoid: wellSearchAvoid\(bot\) \}\)\)?,/.test(s), 'a NEW well site keeps off the farm')
   assert.ok(/if \(first\.site \|\| !widensChestSearch\(first\.refused\)\) return first/.test(s), 'the pick widens on the farm\'s refusals')
   // plinth-02: the raised-well planner plans through the farm's avoid and keep-out (plinthKeepOut's content is tested above)
-  assert.ok(/planPlinthFarmAware\(o => planPlinthSteps\(\{ read: memoRead\(read0\), home, otherColumns: others, \.\.\.o \}\),\s*\{ avoid: wellSearchAvoid\(bot\), keepOut: plinthKeepOut\(bot\) \},\s*farmed \? \{ avoid: wellAvoid\(bot\), keepOut: plinthKeepOut\(bot, \{ farm: false \}\) \} : null,/.test(s), 'the plinth planner keeps off the farm first, and plans over it only as the fallback')
+  assert.ok(/planPlinthFarmAware\(o => planPlinthSteps\(\{ read: memoRead\(read0\), home, otherColumns: others, \.\.\.o \}\),\s*\{ avoid: wellSearchAvoid\(bot\), keepOut: plinthKeepOut\(bot\), noStand: farmed \? farmCellTest\(knownFarmRecord\(bot\)\) : null \},\s*farmed \? \{ avoid: wellAvoid\(bot\), keepOut: plinthKeepOut\(bot, \{ farm: false \}\) \} : null,/.test(s), 'the plinth planner keeps off the farm first, and plans over it only as the fallback')
 }
 const SKSRC = readFileSync(new URL('../src/skills.mjs', import.meta.url), 'utf8')
 await t('WIRED: chest-full passes the farm to both chest-site picks and the arrival re-check; the well\'s NEW-site search and the plinth planner carry the farm (source, comments stripped)', () => wired(SKSRC))
@@ -600,8 +602,9 @@ await t('MUTANTS KILLED: each wiring removed fails the wiring check (anchor pres
     (() => { const line = (/\n( {4}compute: \(\) => \(?(?:searched = )?canonicalWellSite\(\{ home, read, avoid: wellSearchAvoid\(bot\) \}\)\)?,)/.exec(SKSRC) ?? [])[1] ?? 'WELL SEARCH LINE NOT FOUND'
       return [line, line.replace('avoid: wellSearchAvoid(bot)', 'avoid')] })(),
     ['    if (first.site || !widensChestSearch(first.refused)) return first', "    if (first.site || !Object.keys(first.refused ?? {}).some(k => /junk well/.test(k))) return first"],
-    ['        { avoid: wellSearchAvoid(bot), keepOut: plinthKeepOut(bot) },', '        { avoid: wellAvoid(bot), keepOut: plinthKeepOut(bot) },'],
-    ['        { avoid: wellSearchAvoid(bot), keepOut: plinthKeepOut(bot) },', '        { avoid: wellSearchAvoid(bot), keepOut: plinthKeepOut(bot, { farm: false }) },'],
+    ['        { avoid: wellSearchAvoid(bot), keepOut: plinthKeepOut(bot), noStand: farmed ? farmCellTest(knownFarmRecord(bot)) : null },', '        { avoid: wellAvoid(bot), keepOut: plinthKeepOut(bot), noStand: farmed ? farmCellTest(knownFarmRecord(bot)) : null },'],
+    ['        { avoid: wellSearchAvoid(bot), keepOut: plinthKeepOut(bot), noStand: farmed ? farmCellTest(knownFarmRecord(bot)) : null },', '        { avoid: wellSearchAvoid(bot), keepOut: plinthKeepOut(bot, { farm: false }), noStand: farmed ? farmCellTest(knownFarmRecord(bot)) : null },'],
+    ['        { avoid: wellSearchAvoid(bot), keepOut: plinthKeepOut(bot), noStand: farmed ? farmCellTest(knownFarmRecord(bot)) : null },', '        { avoid: wellSearchAvoid(bot), keepOut: plinthKeepOut(bot) },'],
   ]
   for (const [old, neu] of muts) {
     assert.equal(SKSRC.split(old).length, 2, `anchor present and unique: ${old.slice(0, 50)}`)

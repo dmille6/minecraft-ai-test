@@ -74,7 +74,7 @@ import { resolveRecord, readRecord, takeLease, holdsLease, releaseLease, standsF
          decodeMultiRecord } from './blueprint.mjs'
 import { canonicalFarm, farmRecordRefusal, plotsOf, torchesOf, plotState, torchState, tendPlan, farmIndex, emptyFarmIndex, inPlotColumn,
          isPlotCell, farmNoDig, inFarmBox, farmPlaceRefusal, farmTendDetail, bonemealEnabled, farmEnabled, FARM_SPECIES, MIN_PLOTS,
-         farmWellAvoid, inFloorBand, farmYields, farmKeepOut, FARM_WELL_DISTANCE, FARM_TORCH_WELL_DISTANCE, FARM_CONTAINER_DISTANCE } from './treefarm.mjs'
+         farmWellAvoid, inFloorBand, farmYields, farmKeepOut, farmPlannerKeepOut, farmCellTest, FARM_WELL_DISTANCE, FARM_TORCH_WELL_DISTANCE, FARM_CONTAINER_DISTANCE } from './treefarm.mjs'
 import path from 'node:path'
 // wellsite-01 (its own statement, away from the import stocktarget-01 rewrites)
 import { containmentRefusal, tallyText, WELL_SEARCH_RADIUS, WELL_NO_SITE_BACKOFF_MS, NO_VALID_CELL, retireLog, noSiteHold, wellBreakCost } from './well.mjs'
@@ -9296,9 +9296,9 @@ export function plinthKeepOut (bot, { farm = true } = {}) {
   const out = []
   try { for (const w of findTownWells(bot)) out.push({ x: w.cap.x, y: w.cap.y, z: w.cap.z, r: 2 }) } catch { /* none */ }
   try { const r = recordedWellSite(bot); if (r) out.push({ x: r.x, y: r.y, z: r.z, r: 2 }) } catch { /* none */ }
-  // THE TOWN TREE FARM (treefarm-02): no planned cell in a plot's soil or column or a torch cell (the cap keeps
-  // FARM_WELL_DISTANCE from the farm through wellSearchAvoid)
-  if (farm) try { out.push(...farmKeepOut(knownFarmRecord(bot))) } catch { /* no farm */ }
+  // THE TOWN TREE FARM (treefarm-02): no planned cell in a plot's soil or column, its trunk clearance, or a torch cell
+  // (the cap keeps FARM_WELL_DISTANCE from the farm through wellSearchAvoid)
+  if (farm) try { out.push(...farmPlannerKeepOut(knownFarmRecord(bot))) } catch { /* no farm */ }
   return out
 }
 /**
@@ -9535,7 +9535,7 @@ async function buildPlinth (ctx, _args, signal) {
       const farmed = (() => { try { return !!knownFarmRecord(bot) } catch { return false } })()
       const offFarmNone = Number(bot.plinthOffFarmNoneAt)
       const it = planPlinthFarmAware(o => planPlinthSteps({ read: memoRead(read0), home, otherColumns: others, ...o }),
-        { avoid: wellSearchAvoid(bot), keepOut: plinthKeepOut(bot) },
+        { avoid: wellSearchAvoid(bot), keepOut: plinthKeepOut(bot), noStand: farmed ? farmCellTest(knownFarmRecord(bot)) : null },
         farmed ? { avoid: wellAvoid(bot), keepOut: plinthKeepOut(bot, { farm: false }) } : null,
         { skipFirst: Number.isFinite(offFarmNone) && Date.now() - offFarmNone < PLINTH_OFF_FARM_MEMO_MS, onFirstNone: () => { bot.plinthOffFarmNoneAt = Date.now() } })
       let res
