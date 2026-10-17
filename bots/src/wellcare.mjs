@@ -49,7 +49,6 @@ export function wellOutOfReach ({ feetY = null, standY = null, limit = WELL_REAC
  */
 export const SEA_LEVEL_Y = 63
 export const wellDeepRemedy = feetY => (Number.isFinite(feetY) && feetY < SEA_LEVEL_Y ? 'surface' : 'walk_up')
-export const WELL_DEEP_REMEDY = `surface (below sea level), or walk back up the mine's stair, to within ${WELL_REACH_BELOW} blocks below the junk well's stand; the town's well order is given there`
 
 /** The `_well_deep` row (key=value; the read parses fields). */
 export const wellDeepDetail = ({ skill, below, standY, feetY, limit }) =>
