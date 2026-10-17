@@ -79,3 +79,15 @@ PAPER (sandbox3; lock /tmp/mcai-sandbox.lock held 14:07-14:20, 14:22-14:24, 14:2
          no well cell), `_station_well skip kind=shaft n=6`; base table on the east STAND (1306,124,1305).
 READ scripts/host/wellcareread.py (dry runs on the base, hive-c,board-c as canary, 180 min: W3 positive control 2-5 base
   deep orders on those pools; control orders from deep 8-10; W1/W2 0; licence 0 -- the base cannot write it).
+
+VARIANT ON TOOLKIT'S CANARY a76289ea (toolkit-02 = toolkit-01's approved commits on 0fe92258, origin/tk-on-0fe9225; use ONLY
+if toolkit-02 is KEPT and promoted): branch wellcare-on-a76289e = the same 11 commits cherry-picked onto a76289ea with NO
+conflict; sorted +/- lines of `git diff 0fe92258 e1d2a66c` and `git diff a76289ea <tip>` identical (3,347 lines).
+npm test 261/261; eslint no-undef only reflex.mjs:2384 withinBody. Rebase review (composition only):
+  Codex APPROVE WITH CHANGES (P3 only), Claude APPROVE. Both: toolkit's crafts place their table through the ordinary craft
+  -> place() path (no coordinates, no builder exemption), so the keep-out, the late re-check and the no-room-dig apply; the
+  licence rows are separate; imports fine. P3 (both, accepted, recorded): a HELD well order leaves `order` null, so toolkit
+  (LAST in the chain) may run for a bot that is > 12 below a raised stand but within 12 of home's y (toolkit's own inTown
+  gate is home-relative); benign -- toolkit's room() refuses a draw into the full bag that made the dispose due, and prune /
+  recount / the room order were already exposed the same way on 0fe92258. P3: craft passes no `by`, so a toolkit table
+  near a well is logged by=-; no test drives toolkit's real craft beside a well.
