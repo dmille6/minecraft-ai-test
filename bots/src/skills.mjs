@@ -6140,6 +6140,10 @@ async function place(ctx, { item, x, y, z }, signal, { wellOwn = null, by = null
                                              0.5 + face.y * 0.5,
                                              0.5 + face.z * 0.5), true)
       } catch { /* not fatal */ }
+      // THE WELL'S CELLS READ AGAIN, LAST, with nothing awaited before the placement packet (Codex r4 P2): a well learned
+      // during the equip, the look or an earlier candidate's attempt is honoured by this one
+      { const tgt = ref.position.offset(face.x, face.y, face.z), wk = stationRefusalAt(bot, tgt, { own: wellOwn })
+        if (wk) { wellRow('late', wk, 1, tgt); failures.push(`${tgt} is the town junk well's ${wk}`); continue } }
       // BOUNDED, because bot.placeBlock waits on a server `blockUpdate` that may
       // never arrive. Unbounded, one silent spot consumed the whole skill budget
       // and the remaining candidates were never reached -- the same open-loop
