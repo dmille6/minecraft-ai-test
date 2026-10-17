@@ -117,6 +117,23 @@ export function ladderPlan ({ need = 0, have = 0, reach = 0 } = {}) {
   return { ok: true, rungs: n }
 }
 
+/**
+ * THE STRANDED-ESCAPE CLIMB (reflex.mjs `ladderReady` and `ESCAPE_ROUTINES.climb_ladder` both ask for it): the 24-block
+ * pillar ceiling plus one. ONE number for the reflex and for the bank rule that decides which ladders may leave the bag
+ * (kitshrink.mjs); kitshrink.test.mjs asserts it equals reflex.mjs PILLAR_MAX_BLOCKS + 1.
+ */
+export const LADDER_CLIMB_NEED = 25
+
+/**
+ * THE FEWEST LADDERS THE ESCAPE CAN USE for a `need`-block climb -> n, or null if none up to `cap`. Pure: asks ladderPlan
+ * itself (on a wall that reaches the climb -- a FINITE reach, which ladderPlan requires), so the bank rule can never
+ * disagree with the rung about what a usable stock of ladders is. Fewer than this and climb_ladder is never chosen.
+ */
+export function ladderEscapeMin (need = LADDER_CLIMB_NEED, cap = 4 * MAX_RUNGS) {
+  for (let have = 0; have <= cap; have++) if (ladderPlan({ need, have, reach: need }).ok) return have
+  return null
+}
+
 /** How far a bot can reach to place. Minecraft survival reach is 4.5 blocks. */
 export const PLACE_REACH_RUNGS = 3
 /** Never build a skyscraper. The measured climb demanded has a median of 24. */

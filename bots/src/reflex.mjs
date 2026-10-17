@@ -24,7 +24,7 @@ import { harvestSafe, stairUpStep, chooseStairUpBearing, headroomBreach,
 import { FLOOD_RISK, climbOutcomeRoute, floodChainStep, submergedAt, logFloodGuard, watchClimbDig } from './climbflood.mjs'
 import { planDig, predictedDigMs, digHand, digEnv, planDigSplit, escapeDigPlan } from './digbudget.mjs'
 import { mayHarvestUnderfoot, settleForFall, FALL_SETTLE_MS, FALL_POLL_MS } from './mining.mjs'
-import { climbLadder, bestLadderWall, ladderPlan } from './ladder.mjs'
+import { climbLadder, bestLadderWall, ladderPlan, LADDER_CLIMB_NEED } from './ladder.mjs'
 import { escapePlan, ESCAPES } from './escape.mjs'
 import { scoopLeavesAir, isWaterSource } from './bucket.mjs'
 // `rideFloorDown` has lived in skills.mjs the whole time and reflex.mjs had no
@@ -3720,7 +3720,7 @@ function observeEscapeState (bot, { trapped = true, maxProbe = 48 } = {}) {
     // spent ladders on the canopy and left a column with holes in it.
     ladderReady: (() => {
       try {
-        const need = PILLAR_MAX_BLOCKS + 1
+        const need = LADDER_CLIMB_NEED   // = PILLAR_MAX_BLOCKS + 1 (ladder.mjs; kitshrink.test.mjs asserts it)
         const wall = bestLadderWall((dx, dy, dz) => at(dx, dy, dz), need)
         const have = bot.inventory.items().filter(it => it.name === 'ladder')
           .reduce((n, it) => n + it.count, 0)
@@ -3793,7 +3793,7 @@ const ESCAPE_ROUTINES = {
   // bot can come back down the way it went up. `climbNeed` is the same figure
   // the pillar rung prices its climb with, so the two rungs are comparable.
   climb_ladder: async bot => {
-    const r = await climbLadder(bot, { need: PILLAR_MAX_BLOCKS + 1, goals: pkgGoals })
+    const r = await climbLadder(bot, { need: LADDER_CLIMB_NEED, goals: pkgGoals })
     return { ok: r.ok, placed: r.placed, fell: -r.rose, why: r.why }
   },
   ride_floor_down: async bot => {
@@ -4911,7 +4911,7 @@ export function refusalStreak (streak = 0, prevPos = null, nowPos = null, tol = 
   return (streak > 0 ? streak : 0) + 1
 }
 
-const PILLAR_MAX_BLOCKS = 24
+export const PILLAR_MAX_BLOCKS = 24
 
 /**
  * WHAT A DECLINED CLIMB IS ACTUALLY SHORT OF.
