@@ -411,8 +411,8 @@ async function noRoomMixed (B, S = null) {
 // ------------------------------------------------------------------------------------- composition with plinth-02
 await t('PLINTH FUNDING is the model\'s withdraw verb, untouched: nearest chest first (not the journal\'s holder), the old row layout (no town=), and a pickaxe miss does not hide a chest from it', async () => {
   const w = farTown({ bag: [stack('crafting_table', 1)], far: [stack('cobblestone', 64), stack('cobblestone', 64), stack('cobblestone', 64)], rest: [stack('dirt', 5)] })
-  w.stock(...CHESTS[0], [stack('cobblestone', 64)])                          // the nearest chest holds cobble too, the far one more
-  journalCount(kOf(FAR), { cobble: 192 }); journalCount(kOf(CHESTS[0]), { cobble: 64 })   // a journal ranking would pick FAR
+  w.stock(...CHESTS[0], [stack('cobblestone', 64)])                          // the nearest chest holds cobble too, UNCOUNTED
+  journalCount(kOf(FAR), { cobble: 192 })   // FAR is the only journal holder: townSearchOrder (any want) would open it first
   CF.updateTownMemory(memDir(), CF.townKey(HOME), null, e => CF.notePickMisses(e, [kOf(CHESTS[0])]))   // a live pickaxe miss there
   const n0 = RECS.length
   const r = await SKILLS.withdraw.run({ bot: w.bot }, { item: 'cobblestone', count: 32 }, sig())
