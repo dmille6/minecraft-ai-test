@@ -1,0 +1,81 @@
+plinth-02.1 -- HOTFIX DEPLOY NOTE (registration-free; for the coordinator's direct fleet-wide rollout, as plinth-02-direct) 10-17
+
+DEPLOY THE SHA THAT MATCHES THE FLEET
+  fleet 0fe92258 (plinth-02)                  -> branch plinth021-on-0fe9225, CODE sha 3bbf1b1524895320efdf81c966dff3061fe54acb
+  fleet 857c853c (smeltjob-01 if KEPT+promoted) -> branch plinth021-on-857c853, CODE sha 830dc36b8a12eddb98d49e9db481f48b910e8170
+    830dc36b is a clean cherry-pick of 3bbf1b15: same diff, no conflicts. The commit message was amended to name its base.
+  This note lives on branch plinth021-records (a docs-only commit on 3bbf1b15). The hotfix branches end at their code shas.
+ROLLBACK = redeploy the base: 0fe92258, or 857c853c on the smeltjob line.
+  The hotfix leaves only inert files behind:
+  - junkwell-plinth-<home>.caprefused.json notes;
+  - `lost` fields in no-site records;
+  - plan records' prev entries.
+  The base ignores all of them.
+
+WHAT IT CHANGES (plinth-02 safety only; none of plinth-first's policy -- no shadow search, no k>=2 floor, no "no usable well" trigger)
+ 1. ISOLATED GUARD (townRecordsShared, at BOTH plinthWant calls):
+    - a bot whose pool state dir is its own (MEMORY_SCOPE=isolated, or MEMORY_POOL containing its name) plans and builds no plinth;
+    - covering an existing pit and finishing a well on a complete plinth's recorded site still run.
+    LIVE at 13:50Z: 13 of 20 isolated bots hold their own record and lease. isolated-c's Alpha planned a 2nd cap at 351,72,134
+    (planned, 0 placed, its hazard step 75 of 77 not reached).
+ 2. REPLAN ONLY ON EVIDENCE. A finished cap that build_well refuses:
+    - transient: held. No search, no no-site record, a 30 min per-bot backoff (no_effect `well_site_held`). It is lost after 6 h
+      and 3 sightings with no recovery between.
+    - structural: lost when confirmed twice >= 10 min apart.
+    Only the cap passing, or its well being read sealed (never unsure), ends an episode.
+ 3. No build_plinth order from more than 12 below home.
+ 4. A 'none' plinth record is replanned only on a no-site record newer than it.
+ 5. The replaced well site's pit is carried in the new plan's prev.
+ 6. The plinth CAP itself must lie within ADOPT_RADIUS of home. The planner only checked the rim; findTownWells measures the cap
+    trapdoor. isolated-c's well at 342,70,138 (cap 16.09 from home) is invisible to every bot: 0 disposals there. All 8 other
+    plinth caps on the fleet are within 16.
+ 7. An open pit nobody is at is covered even beside a sealed, closed well (Codex review P1: an isolated bot that no longer builds
+    never resumes or covers its own walled-in column; wellOrder used to return before the pit check whenever a sealed well
+    stood).
+
+WHAT TO WATCH AFTER THE ROLLOUT
+- `_plinth021_mode` (once per spawn):
+  - shared=0 on exactly the 20 isolated bots and shared=1 on the other 60.
+  - A shared=0 row from any other bot is a pool-name false positive. That fails safe: the town plans no plinth.
+- No new `_plinth stage=planned` row from an isolated bot.
+- `_well_refused reason=well_site_held` rows are the evidence rule working. A row with lost=persisted|structural, or a planned
+  why=trigger_complete_lost_<evidence> row, is a replacement made on evidence.
+- Pits: isolated pit timelines since 12:25Z, from the skill logs, 204,101 rows walked at 14:12Z:
+  - every `_well_pit_dug` is followed by a `_well_pit_covered` or a `_well_built` at the same cap;
+  - isolated-b's, -c's and -d's wells are built on their caps;
+  - isolated-a 361,73,133 is still a plan; no pit row at that cap;
+  - NO OPEN PIT on the rows.
+  The coordinator's "dug vs covered" counts (d 3/2, c 2/1) differ because a dig from=covered/fresh by build_well ends in
+  _well_built, not _well_pit_covered.
+  plinth2trip.py's record reads already include `_pool-self-<pool>-*` (records(), line 57). At 14:10Z it printed TRIPWIRE OK and
+  named isolated-c's two caps.
+- Known and accepted:
+  - Disposal can stay held up to 6 h when a finished cap is refused transiently, e.g. a chest put within 3 of it.
+  - Stale no-site records: only board-c holds a complete plinth with a no-site record newer than doneAt, and it has a usable well,
+    so it does not replan.
+  - smeltjob-01: its furnace lease is per-pool-dir too, and it is already off in isolated pools (furnacelease.mjs SCOPE note).
+    Its diff touches no plinth/well-order code (one HOUSEKEEPING set union), so it does not interact with the guard.
+
+EVIDENCE
+- npm test, each sha run separately and clean: 3bbf1b15 257/257; 830dc36b 259/259 (smeltjob adds two files).
+- eslint no-undef: only the pre-existing reflex.mjs:2384.
+- Tests:
+  - plinth021.test.mjs: 13 behaviour tests incl. 3 mutants;
+  - well.test.mjs "PLINTH-02.1": 11 chain tests through the real build_well / build_plinth / close_well, 4 mutants;
+  - every mutant asserts its anchor is present and unique, and all are killed.
+- Reviews:
+  - Codex r1 CHANGE (the pit P1) -> r2 APPROVE.
+  - Claude (fresh subagent) r1 APPROVE (P3s: the same pit gap, the pool-name false positive, rollout notes) -> r2 APPROVE.
+- PAPER (sandbox2, Paper 1.21.8; lock held 14:46-14:56Z, released). Driver sandbox/well/plinth021-iso-e2e.mjs. Two real bots,
+  MEMORY_SCOPE=isolated, separate pool dirs, one home, over a dug-out 2-thick slab, each pool holding the town's no-site record.
+  Each run lasted 240 s; the cobblestone count is an RCON read of the world.
+  - hotfix (3bbf1b15 tree):
+    - no plinth record in either dir; 0 planned rows; 0 build_plinth orders; 0 leases;
+    - cobblestone 0 -> 0;
+    - both licences read `shared=0`.
+  - CONTROL, the same driver on 0fe92258:
+    - BOTH bots planned the same cap 2393,121,2399 (k=2) under separate leases (2 and 3 lease files);
+    - IsoB placed 20 blocks and then stopped on "body" (the other bot);
+    - IsoA's next visit made no progress (unreachable);
+    - cobblestone 0 -> 20.
+  That is the fleet's hazard reproduced, and the hotfix removes it.
