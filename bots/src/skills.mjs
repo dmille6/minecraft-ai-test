@@ -122,6 +122,8 @@ import { withDigScope } from './digtown.mjs'
 import { chestLidBlocked, lidClearRefusal, serverLidBlocks, lidDigBudgetMs, lidFailMemory } from './lidrule.mjs'
 // minewell-01 (its own statement); townzone-01 composes the town into its keep-out (composeKeepOut, keepOutLabel)
 import { planMineStart, shellOf, RELOCATE_RADIUS, FAR_RADIUS, composeKeepOut, keepOutLabel } from './minewell.mjs'
+// wellcare-01 fix 3 (its own statement): a station never on a junk well's cells
+import { stationKeepOut, stationWellDetail, nearWell } from './wellcare.mjs'
 /** The town's home for the zone (townground.mjs): null unless HOME_X/Y/Z are set (then the zone is off). */
 const townHome = () => configuredHome(config.world)
 
@@ -5888,6 +5890,10 @@ function placeSites(bot) {
   const replaceable = b => placeableInto(b)
   const UP = new Vec3(0, 1, 0)
   const candidates = []
+  // NEVER A JUNK WELL'S CELL (wellcare-01 fix 3, stationRefusalAt): its shell, shaft, stands and a plinth's stair headroom.
+  // Skipped here, so place() and craft's room advice agree; the count rides on the array for place()'s `_station_well` row.
+  const wellSkip = { n: 0, kind: null }
+  const wellRefused = p => { const k = stationRefusalAt(bot, p); if (k) { wellSkip.n++; wellSkip.kind ??= k } return !!k }
   // Diagonals and one step up or down as well, nearest first. A bot on uneven
   // ground has a valid spot behind it far more often than beside it.
   const around = [[1, 0], [-1, 0], [0, 1], [0, -1], [1, 1], [1, -1], [-1, 1], [-1, -1]]
@@ -5901,6 +5907,7 @@ function placeSites(bot) {
       const at    = bot.blockAt(bot.entity.position.offset(dx, dy + 1, dz))
       if (!solid(under) || !replaceable(at)) continue
       if (onContainerLid(bot, at.position ?? bot.entity.position.offset(dx, dy + 1, dz))) continue   // never on a lid (below)
+      if (wellRefused(at.position ?? bot.entity.position.offset(dx, dy + 1, dz))) continue
       ;(at.name === 'water' ? wet : candidates).push({ ref: under, face: UP })
     }
   }
@@ -5929,15 +5936,19 @@ function placeSites(bot) {
       for (const face of [new Vec3(1, 0, 0), new Vec3(-1, 0, 0),
                           new Vec3(0, 0, 1), new Vec3(0, 0, -1)]) {
         const target = bot.blockAt(underfoot.position.offset(face.x, face.y, face.z))
-        if (replaceable(target) && !onContainerLid(bot, underfoot.position.offset(face.x, face.y, face.z))) candidates.push({ ref: underfoot, face })
+        if (replaceable(target) && !onContainerLid(bot, underfoot.position.offset(face.x, face.y, face.z)) &&
+            !wellRefused(underfoot.position.offset(face.x, face.y, face.z))) candidates.push({ ref: underfoot, face })
       }
     }
   }
+  candidates.wellSkip = wellSkip
   return candidates
 }
 
-async function place(ctx, { item, x, y, z }, signal) {
+async function place(ctx, { item, x, y, z }, signal, { wellOwn = null, by = null } = {}) {
   const { bot } = ctx
+  // wellcare-01 fix 3: the `_station_well` guard row (a cell refused for the well) -- the read's liveness for this fix
+  const wellRow = (action, kind, n = 1, at = null) => { try { logEvent({ kind: 'station_well', status: 'refused', snapshot: snapshot(bot), detail: stationWellDetail({ action, item, kind, at, n, by: by ?? '-' }) }) } catch { /* a row never breaks a place */ } }
   const held = placeStackOf(bot.inventory.items(), item)   // the same stack craft's room advice reasons about
   if (!held) return { status: 'failed', failClass: 'inventory', detail: `no ${item} in inventory` }
 
@@ -5989,9 +6000,16 @@ async function place(ctx, { item, x, y, z }, signal) {
     if (onContainerLid(bot, { x: Number(x), y: Number(y), z: Number(z) })) {
       return { status: 'failed', failClass: 'no_space', detail: `${x},${y},${z} is on top of a container, which would stop it opening -- place it beside the container` }
     }
+    // NEVER INTO A JUNK WELL'S CELLS (wellcare-01): the shell, the shaft, a stand, a plinth stair -- the builder's own table aside
+    const wk = stationRefusalAt(bot, { x: Number(x), y: Number(y), z: Number(z) }, { own: wellOwn })
+    if (wk) {
+      wellRow('refuse', wk, 1, { x: Number(x), y: Number(y), z: Number(z) })
+      return { status: 'failed', failClass: 'no_space', detail: `${x},${y},${z} is ${wk === 'unknown' ? 'beside a junk well whose cells could not be read' : `the town junk well's ${wk}`} -- place ${item} at least 3 blocks from the well's column (or give no coordinates: place picks a cell off the well)` }
+    }
     candidates = [{ ref: bot.blockAt(new Vec3(Number(x), Number(y) - 1, Number(z))), face: UP }]
   } else {
     candidates = placeSites(bot)
+    if (candidates.wellSkip?.n) wellRow('skip', candidates.wellSkip.kind, candidates.wellSkip.n)
   }
   // A SAPLING CANNOT GO ON STONE. The scan above accepts any SOLID top face, which
   // is right for a crafting table and wrong for anything that needs soil: the
@@ -6030,6 +6048,8 @@ async function place(ctx, { item, x, y, z }, signal) {
       // Never the town composter either (composter.mjs): it is not a station this bot carries, but it is one the town uses.
       if (cell.name === 'water' || cell.name === 'lava' || STATION_ITEMS.has(cell.name) || cell.name === 'composter' || /_ore$/.test(cell.name)) continue
       if (roomVeto(bot, cellPos)) continue
+      // never a junk well's wall, floor or plinth (wellcare-01: a bot on the stand would otherwise dig the shell for its table)
+      { const wk = stationRefusalAt(bot, cellPos); if (wk) { wellRow('room', wk, 1, cellPos); continue } }
       check(signal)
       // ONE EXCAVATION PER CALL, whatever happens to it. A dig that outlives
       // its budget is cancelled here -- withTimeout's default only stops the
@@ -6098,10 +6118,12 @@ async function place(ctx, { item, x, y, z }, signal) {
                 `direction at three heights (${why}); wait to land, there is nothing to fix here`,
       }
     }
+    // EVERY FREE CELL WAS THE WELL'S (wellcare-01): say so, with the move that works from here
+    const wellOnly = candidates.wellSkip?.n ? ` (${candidates.wellSkip.n} free cell(s) here are the town junk well's ${candidates.wellSkip.kind}: step 3+ blocks away from the well and place again)` : ''
     return {
       status: 'failed',
       failClass: 'no_space',
-      detail: `nowhere to place ${item}: no solid block with a free space above it within reach — ${why}`,
+      detail: `nowhere to place ${item}: no solid block with a free space above it within reach — ${why}${wellOnly}`,
     }
   }
 
@@ -6157,6 +6179,16 @@ async function place(ctx, { item, x, y, z }, signal) {
       // full-chest recovery needs to reopen the chest it just built, and
       // parsing a coordinate back out of an English sentence is how a caller
       // ends up depending on the wording of a log line.
+      // A STATION NEAR A WELL IS RECORDED (wellcare-01): where it went, the well, and this rule's own verdict -- the read
+      // judges the cell against the well's cells itself (a table on a shell is its breach line)
+      if (STATION_ITEMS.has(item)) {
+        try {
+          const cols = bot.wellCellsNow?.() ?? knownWellCells(bot)
+          const near = wellOwn ?? nearWell(cols, at)   // the builder's own column is the one its row names (the read's exemption)
+          if (near) logEvent({ kind: 'station_placed', status: 'success', snapshot: snapshot(bot),
+            detail: `item=${item} at=${at.x},${at.y},${at.z} cap=${near.x},${near.y},${near.z} keep=${stationRefusalAt(bot, at, { own: wellOwn }) ?? 'none'} own=${wellOwn ? 1 : 0} by=${by ?? '-'}` })
+        } catch { /* a row never breaks a place */ }
+      }
       return { status: 'success', placed: 1, at,
                detail: `placed ${item} at ${at}${madeRoom ? ` (made room by digging ${madeRoom})` : ''}` }
     } catch (e) {
@@ -7399,9 +7431,10 @@ async function buildComposter (ctx, _args, signal) {
         }
         if (!(await approach())) return fail('composter_unreachable', `could not get back to the composter site at ${site.x},${site.y},${site.z} to put the crafting table down`)
         // NEVER INTO A BODY: the bot's own and every other's (items aside) are kept out of the table's cell.
-        const cell = tableCellFor({ site, stand: { x: stand.x, y: stand.y, z: stand.z }, read, bodies: bodiesAround(bot) })
+        const wellFree = c => !!stationRefusalAt(bot, c)   // wellcare-01: never on a junk well's cells
+        const cell = tableCellFor({ site, stand: { x: stand.x, y: stand.y, z: stand.z }, read, bodies: bodiesAround(bot), forbid: wellFree })
         if (!cell) {
-          if (tableCellFor({ site, stand: { x: stand.x, y: stand.y, z: stand.z }, read })) {
+          if (tableCellFor({ site, stand: { x: stand.x, y: stand.y, z: stand.z }, read, forbid: wellFree })) {
             return fail('composter_unreachable', `wait for the cells beside the composter's standing cell at ${stand.x},${stand.y},${stand.z} to clear: ` +
                         `every cell where the crafting table could go has someone standing in it`)
           }
@@ -7664,6 +7697,23 @@ export function wellCellAt (bot, p) {
   try { return wellBreakCost(bot.wellCellsNow?.() ?? knownWellCells(bot), { position: p }) > 0 } catch { return null }
 }
 /**
+ * MAY A BLOCK GO INTO THIS CELL, AS FAR AS THE TOWN'S WELLS GO? -> null | 'well' | 'shaft' | 'stand' | 'stair' | 'unknown'
+ * (wellcare-01 fix 3; the rule is wellcare.mjs stationKeepOut). The shell is wellCellAt's answer; `own` (build_well's own
+ * table, plinth.mjs wellTableCell) is that well's builder: its own column's box is passed over by wellBreakCost's `skip`.
+ */
+export function stationRefusalAt (bot, cell, { own = null } = {}) {
+  let cols
+  try { cols = bot.wellCellsNow?.() ?? knownWellCells(bot) } catch { return 'unknown' }
+  if (!Array.isArray(cols) || !cols.length) return null
+  const c = { x: Math.floor(cell.x), y: Math.floor(cell.y), z: Math.floor(cell.z) }
+  let shell
+  if (own) {
+    const skip = cols.find(w => w && w.x === own.x && w.y === own.y && w.z === own.z) ?? null
+    try { shell = wellBreakCost(cols, { position: c }, skip) > 0 } catch { shell = null }
+  } else shell = wellCellAt(bot, c)
+  return stationKeepOut(cols, c, { shell, own })
+}
+/**
  * What this bot could build the well from, right now (a table counts only if CARRIED), FOR THE SCHEDULER (cognitive.mjs
  * buildPlan). wellsite-01: null while the town's last site search found no cell (well.mjs noSiteHold), so no bot issues a
  * build order until the record ages out -- whoever asks, across reconnects, and with nothing written meanwhile (Codex r2:
@@ -7683,6 +7733,17 @@ function wellBuildPlanOf (bot) {
 /** The other players this bot can see, as feet positions (well.mjs wellAdmission). */
 const playersSeen = bot => Object.values(bot.players ?? {}).filter(p => p?.username && p.username !== bot.username && p.entity?.position)
   .map(p => ({ username: p.username, x: p.entity.position.x, y: p.entity.position.y, z: p.entity.position.z }))
+/**
+ * THE HEIGHT A WELL ORDER WALKS TO -> the stand's feet y | null (wellcare-01 fix 2, cognitive.mjs wellOrder's `depth`): the
+ * town well's cap + 1 (dispose_well, close_well), else the recorded site's (an unfinished build), else a recorded plinth's
+ * cap (build_well floors and caps a finished plinth). Null when the town knows none (the caller falls back to home's y).
+ */
+export function townWellStandY (bot) {
+  try { const w = findTownWell(bot); if (w?.cap && Number.isFinite(w.cap.y)) return w.cap.y + 1 } catch { /* no well read */ }
+  try { const r = recordedWellSite(bot); if (r && Number.isFinite(r.y)) return r.y + 1 } catch { /* no record */ }
+  try { const p = knownPlinthCaps(bot)[0]; if (p && Number.isFinite(p.y)) return p.y + 1 } catch { /* no plinth */ }
+  return null
+}
 /** Is this bot's body inside a well column below the rim? (the cached columns when index.mjs keeps them) */
 export function insideTownWell (bot) {
   try { return !!bodyInWell(bot.wellCellsNow?.() ?? knownWellCells(bot), bot.entity?.position) } catch { return false }
@@ -8645,11 +8706,13 @@ async function buildWell (ctx, _args, signal) {
         // there is one, else a cell below the stand within the craft's reach, kept only if the stand stays walkable from town
         const tableRead = memoRead(readCell(bot))
         const tableWhy = {}
-        const cell = wellTableCell({ site, stand, read: tableRead, bodies: bodiesAround(bot), start: startNear(tableRead, home), box: planBox(home, site), forbid: plinthForbid(bot, site), report: tableWhy })
+        // wellcare-01: the table never takes another well's cell, a stand, the shaft or a plinth stair (its own ring is the builder's)
+        const tableForbid = c => !!stationRefusalAt(bot, c, { own: site })
+        const cell = wellTableCell({ site, stand, read: tableRead, bodies: bodiesAround(bot), start: startNear(tableRead, home), box: planBox(home, site), forbid: plinthForbid(bot, site), report: tableWhy, tableForbid })
         if (!cell) return fail('well_site', `nowhere within reach of the junk well's standing cell to put a crafting table (table=${tableWhy.why ?? '-'}); carry ${need} wooden trapdoor(s), crafted at any table in town, and the next visit builds the well without one`)
         const ac = new AbortController()
         let put
-        try { put = await g.bound(place(ctx, { item: 'crafting_table', x: cell.x, y: cell.y, z: cell.z }, ac.signal), HK_CRAFT_MS, 'place', { controller: ac }) } catch (e) { if (e?.aborted || signal?.aborted) throw e; put = { detail: String(e?.message ?? e) } }
+        try { put = await g.bound(place(ctx, { item: 'crafting_table', x: cell.x, y: cell.y, z: cell.z }, ac.signal, { wellOwn: site, by: 'build_well' }), HK_CRAFT_MS, 'place', { controller: ac }) } catch (e) { if (e?.aborted || signal?.aborted) throw e; put = { detail: String(e?.message ?? e) } }
         if (put?.status !== 'success') return fail('well_place', `could not put the crafting table down at ${cell.x},${cell.y},${cell.z}: ${String(put?.detail).slice(0, 100)}`)
         table = bot.blockAt(new Vec3(cell.x, cell.y, cell.z))
         // THE BAG CATCHES UP BEFORE THE NEXT CRAFT (sandbox 10-05): place() returns on the BLOCK update, and the server's
@@ -11958,8 +12021,12 @@ async function mine(ctx, { y: targetY = 12 }, signal) {
     const fallingAbove = FALLING.has(bot.blockAt(cellAbove.offset(0, 1, 0))?.name)   // read BEFORE digging
     // EVERY DIG OF THE STAIR IS CHECKED AGAINST THE SHELL, whatever the plan said (minewell-01): the step, the re-open and the re-dig
     // READ AFRESH AT EVERY DIG (Codex r1 P2): a well found while a dig awaited is honoured by the next one
+    // THE ONE WELL/PLINTH CELL TEST (wellcare-01: wellCellAt, as lidclear's lid and wear_out ask it -- every known well and
+    // plinth column with its stair, from the same cache the planner reads): true, or null (the cells could not be read: the
+    // stair stops, fail closed). shellOf only NAMES the cap for the row and the remedy.
     const shellStop = pos => {
-      const cap = shellOf(wellCols(), pos)
+      const inShell = wellCellAt(bot, pos)
+      const cap = inShell === false ? null : (shellOf(wellCols(), pos) ?? { x: '-', y: '-', z: '-', unread: inShell === null })
       if (!cap) {
         // ...and a tree-farm cell, read afresh (treefarm-02): the stair stops; the next plan walks off the farm
         const fm = farmNow()
