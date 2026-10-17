@@ -75,6 +75,17 @@ tools ~/estel on 10.0.0.31.
 
 ---
 
+## 10-17 12:05Z — TOWNSEARCH-01 CLOSED INCONCLUSIVE early (unexposed); kitshrink-01 swapped ahead of plinth-02 (R10 wait)
+- townsearch-01 (27908be4) live 04:58Z on placebo-d, board-c. +360: exposure needs >= 6 canary withdraw_pick order rows; ONE in 6 h
+  (licence _townsearch_mode 20 rows: build live). Deaths 4/60 bh vs 4/300 (gate held, lower bound 1.20x): drowned gathering, lava
+  swim idle, drowned idle, suffocated idle -- none in a withdraw. Closed under the owner early-close rule, torn down (10 on 0152bae,
+  0 drop-ins). TO DO: re-queue as townsearch-02 with a registration that can reach exposure (more pools / longer reads), on the tip then.
+- plinth-02 BLOCKED at R10 ("fewer than two pools can expose it now", eligible board-a only; draw exposure = >= 2 _well_refused
+  order=build in 3 h). Swapped kitshrink-01 ahead (owner rule: swap when the slot would idle); it launches on 0152baeb (51033241).
+  plinth-02 variant for 51033241 being built; its draw window is under review (3 h may miss towns in the 2 h no-site backoff).
+- kitshrink-01 variants now: 623e92b9 359a9213, 0152baeb 51033241, 534aeec0 cc149425, da978c18 905aa1cb.
+- toolkit-01 has NO 0152baeb / 51033241 variant yet.
+
 ## 10-16 23:30Z — LIDCLEAR-01 KEPT (+360, 23:05Z) and PROMOTED: FLEET 0152baeb (23:14Z); merged to main; townsearch-01 next
 - KEEP +360: deaths 1 (0.008/bh over 120 bot-h) vs control 6 (0.025/bh over 240); exposure_ready 1. +180: 14 cobble lids dug,
   count_town lid_blocked 1 of 25 in the 4 canary towns (board-a, board-b, hive-c, placebo-b; was most rows). One dirt lid refused
