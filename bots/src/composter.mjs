@@ -546,7 +546,7 @@ export function bodyInCell (b, c) {
   const hw = (Number(b?.w) || 0.6) / 2, h = Number(b?.h) || 1.8
   return b?.x + hw > c.x && b.x - hw < c.x + 1 && b.z + hw > c.z && b.z - hw < c.z + 1 && b.y + h > c.y && b.y < c.y + 1
 }
-export function tableCellFor ({ site, stand, read, bodies = [] } = {}) {
+export function tableCellFor ({ site, stand, read, bodies = [], forbid = null } = {}) {
   if (!site || !stand || typeof read !== 'function') return null
   const out = []
   for (let dx = -2; dx <= 2; dx++) {
@@ -557,6 +557,7 @@ export function tableCellFor ({ site, stand, read, bodies = [] } = {}) {
       const cell = read(x, y, z), head = read(x, y + 1, z), floor = read(x, y - 1, z)
       if (!cell || !PLACEABLE_INTO.has(cell.name) || !solidAt(floor) || !head) continue
       if ((bodies ?? []).some(b => bodyInCell(b, { x, y, z }))) continue
+      if (typeof forbid === 'function' && forbid({ x, y, z })) continue   // wellcare-01: never a junk well's cell (wellcare.mjs stationKeepOut)
       out.push({ x, y, z, d: Math.abs(dx) + Math.abs(dz) })
     }
   }
