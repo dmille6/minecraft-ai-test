@@ -200,10 +200,15 @@ async function sceneDeep () {
   await sleep(3000)
   const t0 = new Date().toISOString()
   const startPos = posOf()
-  // THE LOOP'S OWN DECISIONS (the brain proposes `status`): the candidate's scheduler turns the held dispose into `surface`
-  // (wellcare.mjs heldClimb), then gives dispose_well on the first scan in reach; the base gives dispose_well from down here.
-  // Up to 200 s, or until a dispose_well row has been written.
-  await waitFor(() => rowsOf(files.skillLog).some(r => r.t >= t0 && r.name === 'dispose_well'), 200000, 1000)
+  // THE LOOP'S OWN DECISIONS (the brain proposes `status`) for 60 s: the base gives dispose_well from down here, the candidate
+  // holds it (_well_deep action=hold remedy=surface). Then the brain proposes the named remedy, `surface` (the real skill),
+  // and the candidate's dispose_well comes on the first scan in reach. Up to 200 s more, or until a dispose_well row.
+  const hasDispose = () => rowsOf(files.skillLog).some(r => r.t >= t0 && r.name === 'dispose_well')
+  await waitFor(hasDispose, 60000, 1000)
+  if (!hasDispose()) {
+    ORDER = { skill: 'surface', args: {} }
+    await waitFor(hasDispose, 200000, 1000)
+  }
   await sleep(2000)
   const rows = rowsOf(files.skillLog).filter(r => r.t >= t0)
   const seq = rows.filter(r => ['dispose_well', 'build_well', 'close_well', 'surface', '_well_deep'].includes(r.name)).map(r => `${r.t.slice(11, 19)} ${r.name} ${r.status} y=${r.y == null ? '?' : Math.round(r.y)} ${r.detail.slice(0, 90)}`)

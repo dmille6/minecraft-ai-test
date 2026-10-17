@@ -220,16 +220,6 @@ await t('wellOutOfReach: more than 12 below the stand is out of reach; 12 is in;
   for (const bad of [{ feetY: null, standY: 74 }, { feetY: 40, standY: null }, { feetY: NaN, standY: 74 }, {}]) assert.equal(WC.wellOutOfReach(bad), null, JSON.stringify(bad))
   assert.match(WC.wellDeepDetail({ skill: 'dispose_well', below: 19, standY: 74, feetY: 55, limit: 12 }), /^order=dispose below=19 stand_y=74 feet_y=55 limit=12 remedy=surface action=hold$/)
   assert.match(WC.wellDeepDetail({ skill: 'build_well', below: 20, standY: 90, feetY: 70, limit: 12 }), /^order=build .* remedy=walk_up action=hold$/, 'above sea level surface refuses')
-  // THE CLIMB (heldClimb): a held DISPOSE below sea level becomes `surface`, once per 5 min; never a build/close, never above 63
-  const held = { skill: 'dispose_well', below: 22, standY: 67, feetY: 45, limit: 12 }
-  assert.equal(WC.heldClimb({ held, now: 1e9 })?.skill, 'surface')
-  assert.equal(WC.heldClimb({ held, now: 1e9, lastAt: 1e9 - 60_000 }), null, 'once per 5 min')
-  assert.equal(WC.heldClimb({ held, now: 1e9, lastAt: 1e9 - WC.WELL_DEEP_CLIMB_MS })?.skill, 'surface')
-  assert.equal(WC.heldClimb({ held: { ...held, skill: 'build_well' }, now: 1e9 }), null)
-  assert.equal(WC.heldClimb({ held: { ...held, skill: 'close_well' }, now: 1e9 }), null, 'a close alone does not climb')
-  assert.equal(WC.heldClimb({ held: { ...held, skill: 'close_well' }, now: 1e9, bagWantsWell: true })?.skill, 'surface', 'an open well ahead of a wanted dispose')
-  assert.equal(WC.heldClimb({ held: { ...held, feetY: 64, standY: 90, below: 26 }, now: 1e9 }), null, 'surface refuses above sea level')
-  assert.equal(WC.heldClimb({ held: null, now: 1e9 }), null)
 })
 const AT_TOWN = { now: 1e9, slots: 36, freeSlots: 0, junkStacks: 3, distHome: 5, well: () => ({ open: false, attended: false, breached: false }) }
 await t('wellOrder HOLDS a deep bot\'s order at no cost: no order, `held` names it, no cooldown charged -> the first decision in reach gets it', () => {

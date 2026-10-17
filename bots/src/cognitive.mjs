@@ -13,7 +13,7 @@ import { HARD_STOP } from './toolfor.mjs'
 import { SKILLS, roomRemedy, farFromBank, classifyOutcome, SKILL_CONTRACTS, plantableSpotNear, findTownComposter, townBuildPlan, townPickMiss, townIngredientMiss, townKitIronMiss, foodSkipNow, townContainers, townWellState, townWellBuildPlan, insideTownWell, wellSwordsNow, cobbleWellCap, townPitState, stockWellOpts, valveProof, stockCountKeys, pruneTarget, unknownRefusals, stockRecountKeys, townCopperMiss, townFurnaces, furnaceLeasedNow } from './skills.mjs'
 import { disposePlan, wellOrder, wellOrderOutcome, WELL_ORDERS, pitCoverItem } from './well.mjs'
 // wellcare-01 fix 2 (its own statement): the well order's vertical reach and its held-order row
-import { wellOutOfReach, wellDeepDetail, heldClimb } from './wellcare.mjs'
+import { wellOutOfReach, wellDeepDetail } from './wellcare.mjs'
 import { townWellStandY } from './skills.mjs'
 const WELL_DEEP_ROW_MS = 5 * 60 * 1000
 // plinth-01, the raised junk well (its own statements)
@@ -25,7 +25,7 @@ import { buildSystemPrompt, buildUserPrompt, makeSentinel, WorkingMemory } from 
 import { AdmissionControl } from './admission.mjs'
 import { MilestoneController, servesRung, NO_PROGRESS_MS, RUNNER_REFUSALS } from './milestones.mjs'
 import { orderFor, readyFor, plantingOrder, plantingEnabled, PLANT_COOLDOWN_MS, roomOrder, roomOutcome, roomBackedOff, roomExclusions, lostLine, ROOM_WEAR_TRUST_MS } from './workorder.mjs'
-import { wearOutPlan, isHousekeeping, TRIGGER_SLOTS } from './hygiene.mjs'
+import { wearOutPlan, isHousekeeping } from './hygiene.mjs'
 import { compostPlan, townOrder, townOrderOutcome, boneMealRoom, composterLevel, TOWN_ORDERS, STORAGE_NEAR, TOWN_RADIUS, startableJunk } from './composter.mjs'
 import { hasUsablePick, roomPlan, pickTakes, roomKeep } from './withdrawpick.mjs'
 import { toolkitOrder, toolkitOutcome } from './toolkit.mjs'
@@ -997,15 +997,13 @@ export class CognitiveLoop {
         })
         this.wellState = r.state
         if (r.order) order = r.order
-        // A HELD DISPOSE BECOMES THE CLIMB (wellcare.mjs heldClimb: the remedy performed, once per 5 min, below sea level)
-        const climb = r.held ? heldClimb({ held: r.held, now: Date.now(), lastAt: this.wellDeepClimbAt ?? -Infinity, bagWantsWell: plan.slots >= TRIGGER_SLOTS && plan.junkStacks > 0 }) : null
-        // THE CLIMB SPENDS THE SCAN (Codex r2 P2): the decision after it reads the well again at once, so the order it was
-        // for comes before the model's next pick (a `mine` straight back down would otherwise win the 30-s gate)
-        if (climb) { this.wellDeepClimbAt = Date.now(); order = climb; this.wellState = { ...this.wellState, lastScanAt: -Infinity } }
-        // THE HELD ORDER IS SAID (the read's guard row; one per bot per order kind per 5 min, and every climb)
-        if (r.held && (climb || Date.now() - (this.wellDeepLoggedAt?.[r.held.skill] ?? -Infinity) >= WELL_DEEP_ROW_MS)) {
+        // THE HELD ORDER IS SAID (the read's guard row; one per bot per order kind per 5 min), with the bot's own remedy.
+        // HELD, NOT REPLACED (r5, after Claude r2 P2-1/P2-2 and Codex r3 P2 on the scheduler climb): a scheduler `surface`
+        // overshoots stands below 63, cannot reach stands above 75, and its shaft dig does not read the well's cells -- a new
+        // movement on the scheduler's behalf for a gain the base data does not show (wellcare.mjs WELL_DEEP_REMEDY).
+        if (r.held && Date.now() - (this.wellDeepLoggedAt?.[r.held.skill] ?? -Infinity) >= WELL_DEEP_ROW_MS) {
           this.wellDeepLoggedAt = { ...(this.wellDeepLoggedAt ?? {}), [r.held.skill]: Date.now() }
-          logEvent({ kind: 'well_deep', status: 'refused', snapshot: snapshot(bot), detail: wellDeepDetail({ ...r.held, action: climb ? 'climb' : 'hold' }) })
+          logEvent({ kind: 'well_deep', status: 'refused', snapshot: snapshot(bot), detail: wellDeepDetail(r.held) })
         }
       } catch { /* an inventory or world read must never break the decision loop */ }
     }
