@@ -80,7 +80,7 @@ import { planPlinthSteps, plinthProgress, plinthHazard, plinthWant, leaseState, 
          wellTableCell, furnitureNear } from './plinth.mjs'
 import { STONE_GUARD, wellGround } from './well.mjs'   // wellBreakCost: imported above (lidclear-01's statement)
 import { createSiteGen as createWellSiteGen, bodyInCell } from './composter.mjs'
-import { IRON_KINDS, MIN_TRIP_USES, CANDIDATE_RADIUS, breakHazard, nearHome, pickBudget, rankCandidates, clusterOf, tunnelMovements, planTunnel, ONE_PICK_USES, tripDecision } from './oretunnel.mjs'
+import { IRON_KINDS, MIN_TRIP_USES, hasTripPickaxe, CANDIDATE_RADIUS, breakHazard, nearHome, pickBudget, rankCandidates, clusterOf, tunnelMovements, planTunnel, ONE_PICK_USES, tripDecision } from './oretunnel.mjs'
 import { townDigClass, townTargetPermit, stairTownClear, walkOutPoints, noteTownGround, configuredHome, inTownBox, TOWN_GROUND_HALF } from './townground.mjs'
 import pkg from 'mineflayer-pathfinder'
 const { goals, Movements } = pkg
@@ -10107,8 +10107,29 @@ function townSearchEmpty (bot, needs) {
 
 /** Has every container of the town been ruled out for a usable pickaxe (townSearchEmpty)? For townOrder. */
 export function townPickMiss (bot) {
-  try { return townSearchEmpty(bot, ['pick']) } catch { return false }
+  try {
+    const need = pickNeedOf(bot.inventory?.items?.() ?? [])
+    return need == null || townSearchEmpty(bot, [need])
+  } catch { return false }
 }
+
+/**
+ * WHAT PICKAXE DOES THIS BAG NEED FROM TOWN? -> 'pick' | 'trippick' | null. Pure (townsearch-02, OWNER 10-17 ~13:45Z "yes,
+ * make the change"). The line is oretunnel.mjs hasTripPickaxe -- the SAME test the stone and iron rungs and the ore trip
+ * use (a stone-or-better pickaxe with MIN_TRIP_USES uses), never restated:
+ *   null        the bag holds a trip pickaxe: never an order
+ *   'pick'      no usable pickaxe at all (toolfor FLOOR): any usable copy helps, the best first (bestToolCopy)
+ *   'trippick'  a usable one, but not a trip one (e.g. 11-39 uses, or wooden): only a copy that IS a trip pickaxe is worth
+ *               taking -- a worn copy would leave the rung exactly where it was
+ * Measured 10-15..17 (48 h, sampled bot-h): at town with no usable pickaxe 23.5 bot-h; with one at 11-39 uses 124.
+ */
+export function pickNeedOf (items = []) {
+  if (hasTripPickaxe(items)) return null
+  return hasUsablePick(items) ? 'trippick' : 'pick'
+}
+/** The chest copies a need may take -> the filter for decideTool's candidates. Pure. */
+export const pickCopiesFor = (need, copies = []) => (Array.isArray(copies) ? copies : [])
+  .filter(it => PICK_RE.test(it?.name ?? '') && (need !== 'trippick' || hasTripPickaxe([it])))
 
 /** Is the ingredient branch futile here? Nothing this bag needs for one stone pickaxe, or every town container ruled out
  *  for every need it has (townSearchEmpty). For townOrder. */
@@ -10280,6 +10301,15 @@ function searchFailSkip (bot, cb, failClass) {
   for (const [k, until] of bot.withdrawSearchSkip) if (!(until > now)) bot.withdrawSearchSkip.delete(k)
   bot.withdrawSearchSkip.set(containerKey(bot, cb.position), now + SEARCH_FAIL_SKIP_MS)
 }
+/**
+ * WHAT AN OPENED CONTAINER SAID ABOUT PICKAXES, by what it HELD (`saw`), never by who asked (townsearch-02): no usable copy ->
+ * a 'pick' miss (chestfull PICK_MISS_KEY) AND a 'trippick' miss; usable copies but no trip one -> a 'trippick' miss only, so a
+ * bot with no usable pickaxe still finds the worn copy a trip-line bot passed over.
+ */
+function notePickSearchMisses (e, keys, saw) {
+  if (!hasUsablePick(saw)) notePickMisses(e, keys)
+  if (!hasTripPickaxe(saw)) noteIngredientMisses(e, keys, ['trippick'])
+}
 /** Both halves' keys of an opened container (a double chest's other half is the same 54 slots). */
 function halvesOf (bot, pos, double) {
   const p = double ? chestPartner(bot, pos) : null
@@ -10297,7 +10327,9 @@ async function withdrawPickRun (ctx, signal, tried, st, finish) {
   const { bot } = ctx
   const { deadline, msLeft } = withdrawClock(ctx)
   const keep = roomKeep(bot.currentWants ?? [])
-  if (hasUsablePick(bot.inventory.items())) return finish({ status: 'no_effect', detail: 'already carrying a usable pickaxe' }, 'has_pick')
+  const need = pickNeedOf(bot.inventory.items())
+  if (need == null) return finish({ status: 'no_effect', detail: 'already carrying a pickaxe that can pay an ore trip' }, 'has_pick')
+  if (need === 'trippick') st.need = 'trip_pickaxe'
   const record = (v, cb) => {
     tried.push(`${posKey(cb.position)}:${v.result?.failClass ?? v.result?.status ?? v.skip ?? (v.moved ? 'acted' : 'none')}`)
     if (v.diag) st.diag = v.diag
@@ -10308,7 +10340,7 @@ async function withdrawPickRun (ctx, signal, tried, st, finish) {
   //    the bot), at most WITHDRAW_PICK_VISITS this order; each that has none is remembered (both halves), so the next order
   //    continues with the rest.
   const pickDecision = (inChest, bag, { chestEmpty }) => {
-    const p = decideTool(inChest.filter(it => PICK_RE.test(it?.name ?? '')), inChest, bag, chestEmpty, keep)
+    const p = decideTool(pickCopiesFor(need, inChest), inChest, bag, chestEmpty, keep)
     if (p?.tool) st.uses = Number.isFinite(remaining(p.tool)) ? remaining(p.tool) : 'full'
     return p
   }
@@ -10317,7 +10349,7 @@ async function withdrawPickRun (ctx, signal, tried, st, finish) {
   // a pickaxe the bag had no room for: if the ingredients do not come either, THAT is the order's answer (its remedy), not
   // "no usable pickaxe"
   let pickNoRoom = null
-  let next = townSearchNext(bot, ['pick'], pickTried)
+  let next = townSearchNext(bot, [need], pickTried)
   st.search = { town: next.view.containers.length, pick: next.order.length, ing: '-' }
   for (let n = 0; n < WITHDRAW_PICK_VISITS && next.block && pc.msLeft(Infinity) >= WITHDRAW_VISIT_MIN_MS; n++) {
     check(signal)
@@ -10334,9 +10366,9 @@ async function withdrawPickRun (ctx, signal, tried, st, finish) {
     } else if (!v.skip) {
       // NO USABLE PICKAXE HERE: remembered for this container (both halves of a double chest), not for the town -- and so
       // is every ingredient it held none of (the ingredient branch's own evidence).
-      updateTownMemory(townDir(), homeTownKey(), bot.worldId ?? null, e => { notePickMisses(e, keys); noteIngredientMisses(e, keys, ingredientNeedsAbsent(v.saw)) })
+      updateTownMemory(townDir(), homeTownKey(), bot.worldId ?? null, e => { notePickSearchMisses(e, keys, v.saw); noteIngredientMisses(e, keys, ingredientNeedsAbsent(v.saw)) })
     }
-    next = townSearchNext(bot, ['pick'], pickTried)
+    next = townSearchNext(bot, [need], pickTried)
   }
   const tableNear = !!bot.findBlock?.({ matching: b => blockNameOf(bot, b) === 'crafting_table', maxDistance: Math.ceil(STATION_REACH) + 1 })
   const deficits = stonePickDeficits(bot.inventory.items(), { tableNear })
@@ -10349,11 +10381,9 @@ async function withdrawPickRun (ctx, signal, tried, st, finish) {
     const names = NEEDS[d.need].prefer.length ? NEEDS[d.need].prefer : [...new Set(inChest.filter(it => NEEDS[d.need].match(it.name)).map(it => it.name))]
     return names.filter(nm => haveIn(inChest, nm)).sort((a, b) => haveIn(inChest, b) - haveIn(inChest, a))[0] ?? null
   }
-  let pickSeen = false   // what the last ingredient visit saw of a usable pickaxe (reset before each visit)
   const ingredientDecision = (inChest, bag, { chestEmpty }) => {
     // A USABLE PICKAXE SEEN IS A PICKAXE TAKEN (10-14..16: 6 ingredient visits opened a container holding one and left it)
     const p = pickDecision(inChest, bag, { chestEmpty })
-    pickSeen = !!p
     // no room for it here (a plan noRoom): the ingredients may still fit (a partial stack). And after the town's stock target
     // REFUSED the room-making claim (pickNoRoom no_room), a pickaxe that needs room made is not tried again (Claude r5 P2):
     // the same claim would be refused; the ingredients go through decideTakes, whose own room is judged honestly
@@ -10372,7 +10402,6 @@ async function withdrawPickRun (ctx, signal, tried, st, finish) {
   let fullChests = 0
   for (let n = 0; n < WITHDRAW_INGREDIENT_VISITS && timeForAVisit(); n++) {
     check(signal)
-    pickSeen = false
     const nx = townSearchNext(bot, needs, ingTried, want)
     if (n === 0) st.search.ing = nx.order.length
     const cb = nx.block
@@ -10389,7 +10418,7 @@ async function withdrawPickRun (ctx, signal, tried, st, finish) {
     }
     if (v.skip) fullChests++
     // nothing for us here: what it held none of is remembered -- the pickaxe too, when it showed none
-    else updateTownMemory(townDir(), homeTownKey(), bot.worldId ?? null, e => { if (!pickSeen) notePickMisses(e, keys); noteIngredientMisses(e, keys, ingredientNeedsAbsent(v.saw)) })
+    else updateTownMemory(townDir(), homeTownKey(), bot.worldId ?? null, e => { notePickSearchMisses(e, keys, v.saw); noteIngredientMisses(e, keys, ingredientNeedsAbsent(v.saw)) })
   }
   if (pickNoRoom) return finish(pickNoRoom, pickNoRoom.failClass)
   if (fullChests) return finish({ status: 'failed', failClass: 'chest_no_room', detail: `no usable pickaxe in town, and the chest(s) holding ${st.need} are full while the bag needs room made first` }, 'chest_no_room')

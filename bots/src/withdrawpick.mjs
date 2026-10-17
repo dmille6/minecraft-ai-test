@@ -138,14 +138,14 @@ export const SEARCH_FAIL_SKIP = new Set(['chest_unreachable', 'container_blocked
 
 /** The stock journal's groups that count each need (stocktarget.mjs STOCK_GROUPS; a tool group counts only usable copies). */
 const PLANK_GROUPS = STOCK_GROUP_NAMES.filter(g => /_planks$/.test(g))
-export const NEED_GROUPS = Object.freeze({ pick: ['stone_pickaxe', 'wooden_pickaxe'], cobblestone: ['cobble'], stick: ['stick'], planks: PLANK_GROUPS })
+export const NEED_GROUPS = Object.freeze({ pick: ['stone_pickaxe', 'wooden_pickaxe'], trippick: ['stone_pickaxe'], cobblestone: ['cobble'], stick: ['stick'], planks: PLANK_GROUPS })
 /**
  * IS A JOURNAL COUNT OF 0 A LOOK FOR THIS NEED? Only when its groups count EVERY item the withdraw takes for it (Codex r1 P1).
  * The pickaxe: no -- an iron/golden/diamond pickaxe is no stock group (a count of 0 stone/wooden says nothing about one).
  * Cobblestone: no -- the recipe takes blackstone, the `cobble` group does not count it. Planks: no -- crimson/warped planks
  * are no stock group. Sticks: yes. For the others only an opened container's own miss rules it out.
  */
-export const NEED_COUNT_COMPLETE = Object.freeze({ pick: false, cobblestone: false, stick: true, planks: false })
+export const NEED_COUNT_COMPLETE = Object.freeze({ pick: false, trippick: false, cobblestone: false, stick: true, planks: false })
 /** One journal observation's count of a need -> number | null (null: that observation did not count it). Pure. */
 export function needCount (o, need) {
   const gs = NEED_GROUPS[need]
@@ -232,7 +232,7 @@ export function searchTally (tried = []) {
 
 /** The `_townsearch_mode` licence row (once per spawn): a kind the baseline cannot write. */
 export const townSearchModeDetail = () =>
-  `phase=mode search=town order=journal,unknown,nearest visits=${WITHDRAW_PICK_VISITS}+${WITHDRAW_INGREDIENT_VISITS} miss_ttl_min=${SEARCH_MISS_TTL_MS / 60000} fail_skip_min=${SEARCH_FAIL_SKIP_MS / 60000}`
+  `phase=mode search=town trigger=trip_line order=journal,unknown,nearest visits=${WITHDRAW_PICK_VISITS}+${WITHDRAW_INGREDIENT_VISITS} miss_ttl_min=${SEARCH_MISS_TTL_MS / 60000} fail_skip_min=${SEARCH_FAIL_SKIP_MS / 60000}`
 
 /** Everything one stone pickaxe is made from -- kept by every room-making deposit on both paths (both reviews). */
 export const INGREDIENT_KEEP = Object.freeze([NEEDS.cobblestone.match, NEEDS.stick.match, NEEDS.planks.match,
