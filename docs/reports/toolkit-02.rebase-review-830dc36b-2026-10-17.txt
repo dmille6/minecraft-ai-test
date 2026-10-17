@@ -1,0 +1,51 @@
+toolkit-02 REBASE onto FLEET 830dc36b (smeltjob-01 857c853c KEPT + promoted 19:53Z; plinth-02.1 hotfix 830dc36b fleet-wide 20:04Z) --
+review record, 2026-10-17 (toolkit rebase agent, worktree agent-a456fcdd). Step 1 of the STACKED CHAIN on 830dc36b (toolkit-02 ->
+wellcare-01 -> townsearch-02 -> bamboo-02 -> treefarm-02): the next change is built on THIS branch's canary sha.
+
+APPROVED CHANGE: toolkit-01's (owner-approved 10-15), run renamed toolkit-02. Net diff 75cfb447..2bce1306 (reviews
+docs/reports/toolkit-01-reviews-2026-10-15.txt) + F2 (a container_blocked lid moves the kit's draw on) + test-only plinth compositions,
+as tk-on-0fe9225 @ a76289ea (both engines APPROVE; docs/reports/toolkit-01.rebase-review-0fe92258-2026-10-17.txt on that branch).
+
+THE VARIANT tk-on-830dc36 on 830dc36b (canary sha = the docs-only commit adding THIS record):
+  fd759395, e0ac4785, a70c40da   the 3 approved commits; 5897309a F2; 3ef63363 + ae1fcce8 the test-only plinth compositions;
+  cec756cc                       test-only TOOLKIT x SMELTJOB CHAIN.
+  bots/src = tk-on-0fe9225's bots/src apart from the conflict unions below (both engines compared per file: skills.mjs, toolkit.mjs,
+  runner.mjs, index.mjs, toolkitread.py identical; cognitive.mjs differs only in the conflict regions).
+
+CONFLICTS (unions; both engines verified each):
+  - cognitive.mjs imports: smeltjob's names + townKitIronMiss.  - outcome lines: smelt_town, furnace_drain + toolkit's.
+  - hygiene.mjs HOUSEKEEPING: [..., 'build_plinth', 'smelt_town', 'furnace_drain', 'toolkit'].  - runner.mjs: `smelted` + `kitCrafted`.
+  - skills.mjs: the withdrawpick import + containerIngredientMiss and the toolkit import (base's wider bankable/chestfull imports);
+    classifyOutcome smelt_effect + kit_effect; SKILLS smelt_town, furnace_drain + toolkit.
+  - test/fakeworld.mjs NAMES: smeltjob's raw_copper, copper_ingot, coal, charcoal, then toolkit's iron_ingot, iron_axe, iron_shovel, sand,
+    furnace (the duplicate raw_copper dropped; no index moved).
+  - DECIDE CHAIN (the one SEMANTIC choice): smeltjob's smelt/drain block ("only with NOTHING chosen above") and toolkit's order both
+    claimed the last slot before planting. Resolved: the toolkit order FIRST, then the smelt block -- the kit is a bounded once-per-bot
+    need (silent once both tools are held; 10-min cooldown, 30-min backoff, quiet when every container is short of iron), the smelt job a
+    repeating one; smeltjob's tally counts the kit's decision as `taken` (its meaning: an order above won it); milestone and room orders
+    stay ahead of both. Both engines: appropriate (Codex: smelt-first would contradict smeltjob's own placement after the other town
+    orders). TEST TOOLKIT x SMELTJOB CHAIN (real CognitiveLoop): kit missing + smelt job due -> toolkit first, smelt_town later; control:
+    kit held -> smelt_town. Mutant toolkit-after-smelt kills it (Claude re-ran it: only that test fails, 38/39).
+  No collision with smeltjob's furnace lease / drain, its `_copper_miss` memory (the kit's miss is `_ingredient_miss[k].kit_iron`), its
+  per-name deposits or holds. plinth-02.1 keeps the wear_out and stair-lid guards the kit's tests rely on (plinth021.test 13/13).
+
+TEST EVIDENCE
+  npm test: 260/260 files passed. toolkit.test 39/39. eslint no-undef: exactly one hit, reflex.mjs:2384 withinBody.
+  MUTANTS 18/18 killed: funded, credit-on-bot, abort-delta, fallthrough, lid-fallthrough, rethrow-before-reconcile, spare-rule-off,
+    town-keep, credit-ignored-in-draw, no-backoff, townmiss-ignored, kit-effect-any, not-housekeeping, order-unwired, stair-lid-veto-off,
+    wear-well-guard-off, toolkit-before-plinth (the plinth chain test fails too), toolkit-after-smelt.
+  PAPER (the chain conflict touched logic; sandbox 10.0.0.30:25599, lock /tmp/mcai-sandbox.lock on .31 taken 20:09:34Z, released
+    20:11:30Z, server empty), sandbox/craft/toolkit-ab.cjs kitgather, server reads: chest iron_ingot -4, stick -6; bag +iron_axe
+    +iron_shovel, server damage 3/3 after 3 logs + 3 dirt. Decisions: ORDER withdraw_pick | ORDER toolkit success | ORDER smelt_town
+    no_effect | gathers | ORDER build_well no_effect | ORDER build_plinth no_effect -- the kit first, the smelt job on the NEXT decision
+    (the live chain order on the real server).
+
+REVIEWS (brief: scratch tkrb5/brief.md)
+  Claude (independent subagent): APPROVE. Unions correct; equivalence per file; ordering acceptable (smeltjob promises only that IT
+    stands down; its free-share denominator moves a little, printed not gated; neither starves the other). P3s: the kit does not stand
+    down on ready.noRoom where the smelt block does (inherited, bounded; follow-up: pass milestoneHolds into toolkitOrder); the kit's
+    slots can push the bag under SMELT_JOB_MIN_FREE (either order); the WIRED structural test does not pin the order (the chain test does).
+  Codex (codex exec -s read-only): APPROVE. "Toolkit-first is appropriate. Milestone and room orders remain ahead of both. Smelt counts
+    toolkit decisions as `taken`, preserving its denominator. Smelt-first would ... contradict smeltjob's placement after other
+    deterministic town orders." No furnace-lease interaction; separate miss keys; plinth-02.1 retains the guards; F2 intact.
+ACCEPTED P3s: as listed (not fixed here).
