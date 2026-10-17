@@ -588,8 +588,8 @@ const lazy = v => (typeof v === 'function' ? v() : v)
  * Compost: at town, >= TRIGGER_SLOTS, junk, a composter around home. Build: at town, NO composter around home, a plan
  * from wood held, and freeSlots >= plan.slotsNeeded -- independent of the compost threshold. Cooldowns are charged
  * when an order is ISSUED (and a deferral counts as a visit).
- * WITHDRAW_PICK (withdrawpick.mjs, 10-04): at town, the bag holds NO usable pickaxe (`pickNeeded`), the town has not
- * found none in the last 15 min (`pickMiss`, the shared memory), and room for one can be made here without banking
+ * WITHDRAW_PICK (withdrawpick.mjs, 10-04): at town, the bag holds NO usable pickaxe (`pickNeeded`), the town search still
+ * has a candidate (`pickMiss`: skills.mjs townSearchEmpty, misses live 60 min since townsearch-01), and room for one can be made here without banking
  * anything deposit would not (`pickRoom`, roomPlan). After compost -- which frees slots -- and before a build.
  */
 export function townOrder ({ now = 0, slots = 0, freeSlots = 0, junk = 0, distHome = Infinity, storageNear = false,
