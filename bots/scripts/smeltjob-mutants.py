@@ -83,7 +83,7 @@ MUTANTS = [
     ('the fuel hold is not restored', 'src/bankable.mjs', '  return () => { if (prev) HOLDS[name] = prev; else delete HOLDS[name] }\n', '  return () => { delete HOLDS[name] }\n', RET),
     ('the job burns charcoal too', 'src/smeltjob.mjs', "export const JOB_FUELS = Object.freeze(['coal'])", "export const JOB_FUELS = Object.freeze(['coal', 'charcoal'])", SJ),
     ('the fuel return ignores what was taken', 'src/smeltjob.mjs', 'Math.max(0, Math.min(fuelTaken, (Number(fuelNow) || 0) - (Number(fuelBag0) || 0)))', 'Math.max(0, (Number(fuelNow) || 0) - (Number(fuelBag0) || 0))', RET),
-    ('the job is not housekeeping', 'src/hygiene.mjs', "'count_town', 'smelt_town', 'furnace_drain'])", "'count_town', 'furnace_drain'])", SJ),
+    ('the job is not housekeeping', 'src/hygiene.mjs', "'build_plinth', 'smelt_town', 'furnace_drain'])", "'build_plinth', 'furnace_drain'])", SJ),
 ]
 
 
