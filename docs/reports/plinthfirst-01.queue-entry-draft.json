@@ -1,0 +1,16 @@
+{
+ "run": "plinthfirst-01",
+ "class": "",
+ "after": [],
+ "hold": "DRAFT, NOT APPLIED. COORDINATOR: (1) the isolated-pool plinth guard in this branch addresses a hazard LIVE on fleet 0fe92258 (13/20 isolated bots hold per-bot plinth records); isolated pools are never drawn, so decide fast path vs this canary first; (2) plinthfirstread.py must exist; (3) Paper scenes not yet run. Release: canary-sched.py queue release plinthfirst-01",
+ "note": "plinth-first (OWNER 10-16 ~12:05Z: every new junk well is a raised one) + plinth-02's own fixes (isolated guard, evidence-gated complete_lost, no plinth order from a mine, none_aged freshness, the replaced pit carried). Branch plinthfirst-on-0fe9225. Record: docs/reports/plinthfirst-01-2026-10-17.txt; registration draft docs/reports/plinthfirst-01.registration-draft.json.",
+ "variants": {
+  "0fe922580fd988b88852007f87910e6c582a96ca": {
+   "registration": "/home/mike/mcai-analysis/plinthfirst-01.<sha8>.json (to be written from the draft)",
+   "approved": "",
+   "canary_sha": "4015f93e (full sha: git rev-parse 4015f93e)",
+   "reads_src": "/home/mike/mcai-analysis",
+   "reads": {}
+  }
+ }
+}

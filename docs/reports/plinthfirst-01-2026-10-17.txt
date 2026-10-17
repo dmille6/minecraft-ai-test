@@ -1,0 +1,178 @@
+plinthfirst-01 -- every NEW junk well is a raised one (OWNER 10-16 ~12:05Z) + plinth-02's own fixes: 2026-10-17
+Branch plinthfirst-on-0fe9225, CODE SHA 4015f93e, on 0fe92258 (plinth-02 = the FLEET since the 10-17 ~12:33Z direct rollout).
+Records only here; nothing queued or deployed. Registration and queue entry are DRAFTS beside this file.
+
+URGENT, LIVE ON THE FLEET SINCE THE PLINTH-02 ROLLOUT (found in design, confirmed 10-17 ~13:50Z, read-only)
+- The 4 isolated pools run 5 bots per server with one home (355,73,147), but each bot has its OWN pool state dir
+  (MEMORY_SCOPE=isolated, MEMORY_POOL=self-isolated-<p>-<Bot>). The plinth's plan record, its one-builder lease, the columns every
+  path keeps out of, and pit ownership all live in that dir. So each bot runs its own plinth with its own lease.
+- /var/lib/mcai/_pool-self-isolated-*/ at 13:50Z: 13 of 20 isolated bots hold a plinth record. The planner is deterministic, so
+  every record of a world names ONE cap: isolated-a 361,73,133 (3 plans), -b 357,74,160 (3 complete), -c 342,70,138 (4 complete,
+  1 plan), -d 369,72,151 (1 complete, 3 plan). But the plans for one cap differ (isolated-b: k=1, 4 and 0 for the same cap; -d: k=4
+  and 0). Several bots build concurrently under separate leases. No bot's paths or digs exclude another bot's columns until its
+  well is built.
+- Not yet seen: two caps in one world. The hazard is concurrent builders without a single pit owner.
+- plinth2read globs _pool-isolated-a, which does not exist, so its record-based gates (P3/P4) cannot see these plinths.
+- THE FIX is in this branch: townRecordsShared, with plinthWant -> 'unshared' at both call sites.
+  - Isolated bots then plan and build no plinth.
+  - The pit-cover order (close_well -> coverPlinthVisitor) and build_well on a complete plinth's recorded site are NOT gated,
+    so started pits still get covered and finished plinths still get their wells.
+- Canary draws never take isolated-* (drawrequire.py), so this fix cannot be canaried in an isolated pool. That is a decision
+  for the coordinator and owner: a fast path, or the safety fix shipped with the canary as a whole.
+
+FLEET CENSUS (10-17 ~12:30Z, before the rollout; ES 72 h + /var/lib/mcai/_pool-*/junkwell-* read-only)
+  town        well now                             natural site record              plinth-02 (now)          plinth-first (this)
+  hive-a      natural, usable (dispose 31/72 h)    g1 353,64,137                    keeps it                 keeps it
+  hive-b      natural, usable (28)                 g1 345,65,145                    keeps it                 keeps it
+  hive-c      natural, usable (32)                 g1 -76,59,-75                    keeps it                 keeps it
+  placebo-a   natural, usable (24)                 g2 240,69,-151                   keeps it                 keeps it
+  placebo-b   natural, usable (93); "retired" wall_is_sand 10-15 12:03-13:16Z, then read sealed again   keeps it   keeps it
+  placebo-d   natural, usable (7)                  g2 172,73,81                     keeps it                 keeps it
+  board-c     PLINTH well 365,73,137 (built 10-17 06:53Z, dispose 5)  site = plinth cap   keeps it        keeps it
+  hive-d      PLINTH well 56,64,69 (built 10-16 19:07Z, dispose 16)   site = plinth cap   keeps it        keeps it
+  board-a     none; no site record; search exhausted every ~2 h (nosite)      plinth                   plinth (same)
+  board-d     none; no site record; exhausted                                  plinth                   plinth (same)
+  placebo-c   none; no site record; exhausted                                  plinth                   plinth (same)
+  board-b     none usable; g3 -235,62,142 recorded (its 10-14 well unusable); g1 -260,64,146 retired wall_is_air;
+              exhausted                                                        plinth                   plinth (same)
+  isolated x20  none; each bot exhausted                                       plinth per bot (LIVE)    NO plinth (unshared);
+                                                                                                        natural search as before
+- TODAY NO SHARED TOWN WITHOUT A USABLE WELL HAS A NATURAL SITE THE SEARCH FINDS. So plinth-first changes no shared town today.
+  Its effect comes when a natural well breaks in a town whose ground still seals one.
+  - Natural re-sites, 12 days: board-b g1->g2 10-13, ->g3 10-14; placebo-a 10-13; placebo-d 10-11.
+- Every retirement in 10 days (ES, 2,329 _well_retired rows over 229 h, the positive control): 4 distinct wells, all for a WALL.
+  - wall_is_air: board-b -260,64,146; placebo-d 185,66,65; hive-d 79,57,76 (26 min after it was built).
+  - wall_is_sand: placebo-b.
+- Bag stone above the 64 reserve, latest: board-a 289, board-b 1182, board-d 89, placebo-c 376. A plinth places 60-66 on the
+  fleet (plinth-01).
+
+THE DESIGN (as built; rounds r1-r6 below)
+1. WHERE: build_well's site resolution, skills.mjs townWellSite (Option A), when plinth-first is in force:
+   - compute: the natural search runs READ-ONLY as the row's shadow=. The answer is "exhausted" (tally cols:0,plinth_first:1),
+     and an unread cell is still a deferral, never a no-site record.
+   - refuse: after wellSiteRefusal, plinthFirstRefusal decides:
+     - the plan cap is buildable;
+     - a cap the town replanned away from is refused;
+     - a natural STARTED pit (half_dug..covered_floored) is finished, never orphaned;
+     - any other natural site is refused.
+   - plinthWant: under plinth-first, "no usable well and no record" is itself the trigger. It is not gated on a well kit. It is
+     withheld while a natural pit is being finished, and while any chunk around home is unsent (areaLoaded).
+2. EXISTING WELLS: build_well's `exists` and plinthWant's wellUsable come first, so a sealed natural well is used and nothing is
+   torn down. A retired one -> plinth. The replaced site's pit goes into the new record's prev via carryPrev `extra` while it
+   could trap a body (path exclusions, visitor cover).
+3. RAISED: PLINTH_FIRST_MIN_RAISE = 2.
+   - FINDING: plinth-02's planner takes the cheapest candidate. On ground that still seals a well that is k=0 with NOTHING placed:
+     the very cell canonicalWellSite takes. That is asserted in a test.
+   - From k>=2 all 8 sealing walls (g, g-1) are placed blocks, and every recorded retirement was one of them.
+   - Ladder (plinthFirstMinK): a 'none' at k>=2, followed by the natural search's own exhaustion, drops the floor to 0. Under the
+     policy a candidate that places nothing is never admitted (fills > 0; Codex r5).
+   - 'none' younger than 24 h: the natural search has the town back, then plinth-first tries again.
+4. PLINTH-02 FIXES (they apply with plinth-first off too):
+   - isolated guard (above);
+   - complete_lost only on EVIDENCE about the cap:
+     - plinthCapLoss classifies the refusal: structural or transient. A built well's blocked stand is transient.
+     - capRefusalNext keeps one episode per class in junkwell-plinth-<home>.caprefused.json. Structural counts once seen twice
+       >= 10 min apart. Transient counts after >= 6 h and >= 3 sightings. Only an affirmative recovery resets an episode: the cap
+       passes, or its well is read sealed (never unsure).
+     - While a refusal is held: no_effect well_site_held, a 30 min per-bot backoff, no no-site record, no replan.
+     - Measured cause: board-c's finished cap was refused 10-16 16:58Z and 21:19Z; its well was built there 10-17 06:53Z. Under
+       plinth-02 those no-site records would have replanned a second plinth.
+   - plinthOrder: no order from more than 12 below home (TOWN_V). The 5 "could not reach" visits started in mines, and three
+     'unreachable' stalls void a plan.
+   - none_aged needs a no-site record NEWER than the none.
+   - Rows:
+     - no_site rows carry shadow=, lost=, cur=<x,y,z>:<reason>;
+     - _well_pit_dug carries pf=<0|1>;
+     - _plinth planned carries why=trigger_<why>[_<evidence>];
+     - the record carries plannedFor, plannedEvidence, minK.
+   - Licence `_plinthfirst_mode phase=mode v=1 policy= shared= minraise=2 lost=evidence dy=12 w=`, once per spawn.
+     This is CONFIGURATION; the effective state is pf= on each dig.
+   - Revert = PLINTH_FIRST false (or env PLINTH_FIRST=0). That reverts the policy, not the fixes.
+5. COST: 32+ blocks per new well on intact ground; dug-out towns already plan k=3-4 (60-81). Cobble only leaves the bag above
+   STONE_GUARD 64 or a chest, so it never pushes a town past the 1000 cap. plinth-01 build times: 8 and 33 min.
+6. COMPOSITION:
+   - lidclear and wear_out read wellCellAt (knownWellCells carries the plinth columns, shell and stair from plan time);
+     plinth-first adds no new column kind.
+   - the stair-lid guard and furniture stall are unchanged.
+   - kitshrink: #plinthOrder still runs before #townDepositOrder.
+   - townzone and minewell-02 protect more plinth shells over time.
+   - The dispose/close/build_well depth gate is NOT included; both engines agreed to keep it out.
+7. UNDERGROUND (Q6): measured 20 h, 8 well pools, dispose_well by start y relative to home:
+   - dy -6..+6: 62/66 succeed; -12..-6: 6/12; -20..-12: 13/40; < -20: 12/124;
+   - 164 of 284 orders start more than 12 below home.
+   Only the PLINTH order got the gate here. A separate "wellorder-depth-01" (|dy| <= TOWN_V on the dispose/close/build orders) is
+   recommended; it must check that close_well suppression leaves no open well (Codex).
+
+REVIEWS (prompts in the session scratchpad: design-r1.txt, pf-design-r2..r6.txt)
+- Codex:
+  - r1 CHANGE: isolated P1; started pits lose protection P1; complete_lost P2; kit dependence P2; exposure P2; wording P3.
+  - r2 CHANGE: sparse-visit timer; recovery reset; exposure alternative; the 'none' fallback vs the dig gate; wording.
+  - r3 CHANGE: an unsure well cleared the note; a 'none' replan used minK 0; planned-event evidence.
+  - r4 APPROVE.
+  - r5 APPROVE WITH CHANGES: a leaf-only plan passed `cost > 0`.
+  - r6 APPROVE.
+- Claude (fresh subagent, read-only, ran single files):
+  - r1 APPROVE WITH CHANGES: transient second plinth; the 'none' dead end; mine-start voids; guard at both calls.
+  - r2 APPROVE WITH CHANGES: structural ghost/stand; gap rule; tests for the folded fixes; lazy reads; held-as-failed.
+  - r3 APPROVE: P2 a 'none' took a town off plinth-first for good; P3 per-class episodes; P3 read thresholds.
+  - r4 APPROVE WITH CHANGES: a k=1-only town got no well.
+  - r5 APPROVE.
+  - r6 APPROVE.
+  - Both engines: minimum raise 2, not 4.
+
+TESTS
+- npm test 257/257: node scripts/run-tests.mjs from bots/, the last run before the commit. Earlier runs during the work were
+  mixed-state and are not counted.
+- plinthfirst.test.mjs: new, 26 pure tests.
+- well.test.mjs: new "PLINTH-FIRST" section, 22 tests through the real build_well / build_plinth on the fake town (226 in the
+  file). The scenes:
+  - a viable natural site declined (shadow = the cell);
+  - a recorded fresh natural site refused;
+  - a started pit finished;
+  - a working well kept;
+  - a retired well replaced;
+  - a finished plinth used;
+  - a transient refusal held, then persisted after 6 h;
+  - recovery ends the episode;
+  - an unsure well is no recovery;
+  - structural confirmation;
+  - the fixes with plinth-first OFF;
+  - 'none' -> the natural build;
+  - 'none' -> none_aged -> a raised plan;
+  - the raise ladder;
+  - unloaded ground;
+  - an isolated bot;
+  - the refusal chain: build_well declines -> the plinth order is given where the bot stands -> a k>=2 plan; none from 13 below;
+  - the replaced pit carried.
+- Existing suites:
+  - well.test, plinth-skill and chest-full set PLINTH_FIRST=0; they are the natural / plinth-02 build's own.
+  - towndeposit's plinth chains run as a board-scope bot; that file defaults to isolated.
+  - plinth.test's 'none' assertion needs a newer no-site record.
+  - plinth-skill's index.mjs source assertion admits exactly the new licence row's two lines.
+- MUTANTS: 12 new, all killed, each asserting its anchor present and unique.
+  - plinthfirst.test: unshared guard; vertical bound; loaded guard; unknown deferral; minimum raise; bare guard; cost-vs-fills.
+  - well.test: transient hold (killed: a no-site record is written; completeLost still holds the replan, the second layer);
+    natural search back in compute; plinth-first's site rule dropped; displaced pit not carried; floor pinned at 2 in the ladder.
+- eslint no-undef on bots/src: only the pre-existing reflex.mjs:2384 withinBody.
+
+PAPER: NOT RUN.
+- The driver is written: sandbox/well/plinthfirst-e2e.mjs, scenes pfnew / pfkeep / pfretire on an intact-ground arena whose
+  natural site is computed offline. Every verdict is an RCON read.
+- Run it with WELL_REPO = a copy holding sandbox/run-bot.sh + sandbox-bot-scripted.env, under the sandbox lock with an owner
+  naming `plinthfirst`.
+- Not taken: this session's sandbox priority is LAST, and the isolated finding went out first.
+
+EXPOSURE (honest): plinth-first's own policy delta is expected to be UNEXPOSED in a canary window. It needs shadow=<cell> rows,
+  which appear only when a natural well breaks in a town whose ground still seals one.
+- The fixes are exposed: held refusals, the dy gate and evidence-gated replans, in every canary town building or holding a plinth.
+- KEEP should rest on plinth2read/wellread lines and the fixes' tripwires. The policy is recorded INCONCLUSIVE until the first
+  natural-well break after promotion.
+- Re-derive plinth-02's construction thresholds for k>=2. plinth-01's plans were k=4 and k=3, so the change should be small.
+
+UNRESOLVED
+- The isolated hazard is live now. Coordinator/owner: ship the guard now (fast path, or a rollback of isolated bots' plinth
+  builds), or wait for this canary.
+- No plinthfirst read script exists. The draft registration names the selectors.
+- Incident: at ~12:40Z this session ran `pkill -f scripts/run-tests.mjs`. It may have killed another session's test run
+  (the coordinator's npm-main-p2b). Later stops were by pid.
+- A copy of this session's codex output overwrote an older scratch file named codex-r1.out in the shared scratchpad.

@@ -1,0 +1,73 @@
+{
+ "run_id": "plinthfirst-01",
+ "sha": "4015f93e",
+ "registered_at": "DRAFT-NOT-REGISTERED",
+ "ladder_change": false,
+ "promotion": "fleet-wide",
+ "notes": "[DRAFT by the plinth-first agent 10-17; NOT applied. Branch plinthfirst-on-0fe9225 on FLEET 0fe92258 (plinth-02 direct rollout). code sha 4015f93e.] OWNER 10-16 ~12:05Z: every NEW junk well is a raised one; natural wells stay until they break. THE POLICY: build_well declines natural sites (a read-only shadow search names the declined cell: no_site row shadow=<x,y,z>), finishes natural pits already dug, and a town with no usable well plans a plinth directly (loaded ground, no natural pit pending); new plans start at k>=2 (all 8 sealing walls placed; every retirement in 10 days was a wall: wall_is_air x3, wall_is_sand x1), ladder to k>=0 (never a plan that places nothing) after a failed k>=2 plan and the natural search's own exhaustion; a planner 'none' gives the town 24 h of natural search. PLINTH-02 FIXES FOLDED IN: isolated/per-bot-pool towns never plan a plinth (LIVE hazard on 0fe92258: 13 of 20 isolated bots hold plinth records, per-bot leases on shared caps); complete_lost only on evidence about the cap (structural confirmed twice >= 10 min apart, transient after 6 h and >= 3 sightings, reset only by an affirmative recovery; held refusals are no_effect well_site_held + 30 min per-bot backoff); no plinth order from > 12 below home; none_aged needs a newer no-site record; the replaced site's pit carried in prev. Reviews: Codex r1-r6 (APPROVE r4, r6), Claude r1-r6 (APPROVE r3, r5, r6). npm 257/257; 12 mutants killed; Paper NOT run (driver sandbox/well/plinthfirst-e2e.mjs).",
+ "licence": {
+  "class": "kind",
+  "kind": "_plinthfirst_mode",
+  "min_rows": 1,
+  "note": "Once per spawn (index.mjs). Configuration only (policy=, shared=, minraise=); the base 0fe92258 never writes the kind. Every canary bot must read policy=1 shared=1 (isolated pools are never drawn). The effective state is pf= on each _well_pit_dug."
+ },
+ "reads": ["plinth2read", "wellread", "immobiledid", "plinthfirstread"],
+ "read_minutes": [180, 360],
+ "deadline_min": 1680,
+ "change_rows": ["plinthfirst_mode"],
+ "linkage_extra": [],
+ "draw_exposure": {
+  "hours": 3,
+  "require": [
+   {
+    "name": "a town building or holding a raised junk well (plan, complete-awaiting-well, or no well)",
+    "kind": "_well_refused",
+    "detail_contains": "order=build reason=",
+    "min": 1
+   }
+  ],
+  "note": "TODO coordinator: after the 0fe92258 rollout most no-well towns are mid-plinth; re-measure eligibility at queue time. Isolated pools are never drawn (drawrequire.py); exclude them from the CONTROL too (Claude r2/r3: strata must match)."
+ },
+ "exposure": {
+  "read": "plinthfirstread",
+  "field": "fixes_exposed",
+  "min": 1,
+  "note": "fixes_exposed = canary rows of any of: _well_refused reason=well_site_held, _plinth stage=planned why=trigger_*, _well_refused reason=no_site tally=cols:0,plinth_first:1 rec=ok. POLICY exposure is reported separately as policy_exposed = canary no_site rows with shadow=<x,y,z> (a natural cell declined); expected 0 -> the policy delta is labelled UNEXPOSED and recorded INCONCLUSIVE for the policy, read again on the first natural-well break after promotion. KEEP rests on the plinth2read/wellread lines and the tripwires below, never on the policy."
+ },
+ "own_lines": [
+  {"read": "plinthfirstread", "field": "fresh_natural_dig_pf1", "op": "<=", "value": 0, "on_fail": "REVERT", "evidence": "defect",
+   "note": "A canary _well_pit_dug from=fresh pf=1 at a cap that is not a plinth cap (rows + records): a NEW natural well under the policy. pf=0 fallback starts (the 24 h none window) are reported separately, never counted."},
+  {"read": "plinthfirstread", "field": "complete_lost_no_evidence", "op": "<=", "value": 0, "on_fail": "REVERT", "evidence": "defect",
+   "note": "A canary _plinth stage=planned why=trigger_complete_lost_no_evidence: every no-site record over a finished cap now carries evidence; one without means a missed path. Skip known other-build rows (restart lag)."},
+  {"read": "plinthfirstread", "field": "unshared_or_policy0", "op": "<=", "value": 0, "on_fail": "REVERT",
+   "note": "A canary _plinthfirst_mode row with shared=0 or policy=0 (a mis-drawn or mis-configured canary bot). Blocks KEEP."},
+  {"read": "plinthfirstread", "field": "control_mode_rows", "op": "<=", "value": 0, "on_fail": "REVERT",
+   "note": "Leak: a CONTROL _plinthfirst_mode row."},
+  {"read": "plinth2read", "field": "breach_outside_shell", "op": "<=", "value": 0, "on_fail": "REVERT", "evidence": "defect", "note": "plinth-02's P1, unchanged (stair lines unchanged)."},
+  {"read": "plinth2read", "field": "breach_reserve", "op": "<=", "value": 0, "on_fail": "REVERT", "evidence": "defect", "note": "plinth-02's P2."},
+  {"read": "plinth2read", "field": "breach_pit_open_10m", "op": "<=", "value": 0, "on_fail": "REVERT", "evidence": "defect", "note": "plinth-02's P3."},
+  {"read": "plinth2read", "field": "breach_retired_plinth", "op": "<=", "value": 0, "on_fail": "REVERT", "evidence": "defect", "note": "plinth-02's P4."},
+  {"read": "plinth2read", "field": "breach_stuck_plinth", "op": "<=", "value": 1, "on_fail": "REVERT", "evidence": "defect", "note": "plinth-02's P5."},
+  {"read": "wellread", "field": "breach_recollected", "op": "<=", "value": 0, "on_fail": "REVERT", "evidence": "defect", "note": "C1."},
+  {"read": "wellread", "field": "breach_inside", "op": "<=", "value": 0, "on_fail": "REVERT", "evidence": "defect", "note": "C4."},
+  {"read": "wellread", "field": "breach_multi_well", "op": "<=", "value": 0, "on_fail": "REVERT", "evidence": "defect", "note": "C6: two wells in one town (the plinth-first trigger beside a natural pit would show here)."},
+  {"read": "wellread", "field": "breach_pit_left_open", "op": "<=", "value": 0, "on_fail": "REVERT", "evidence": "defect", "note": "C9."}
+ ],
+ "primary": {
+  "read": "plinthfirstread",
+  "field": "held_vs_replanned",
+  "note": "REPORTED, NOT GATED: canary vs control, pre vs post -- well_site_held rows, complete_lost replans by evidence class (structural / persisted / no_evidence), plinth orders suppressed by dy, plans by k (expect k>=2), policy_exposed. Tripwires are counted over EVERY canary town, not only the drawn population (Claude r3)."
+ },
+ "harm": {"note": "Unchanged: the two-death floor and gather_ratio < 0.43 of control (immobiledid)."},
+ "teardown": {"note": "THREE STEPS (drop-ins, canary_pool, restart 12 s apart; confirm two versions). Records the canary wrote (caprefused notes, plannedFor/minK fields, a no-site record's lost=) are ignored by the base."},
+ "amendments": [],
+ "extension": {"until_exposure": true, "extra_reads": [540, 720, 1080, 1560], "final_on_zero_exposure": "INCONCLUSIVE",
+  "note": "fixes_exposed is reachable in any town holding a plinth; policy_exposed is not expected (see exposure)."},
+ "lint": "eslint no-undef on bots/src: only the pre-existing reflex.mjs:2384 withinBody.",
+ "TODO_BEFORE_REGISTERING": [
+  "write scripts/host/plinthfirstread.py (fields above; selectors: _plinthfirst_mode policy=/shared=; _well_refused reason=well_site_held; _well_refused reason=no_site ... shadow=<x,y,z>|none|unknown rec=ok lost=<cls> cur=<x,y,z>:<why>; _well_pit_dug from=<stage> pf=<0|1>; _plinth stage=planned why=trigger_<why>[_<evidence>]); pool dirs: shared pools only",
+  "re-derive plinth2read construction thresholds for k>=2",
+  "set sha to the code commit and run licencecheck / changerowcheck / drawexposure",
+  "Paper scenes pfnew / pfkeep / pfretire (sandbox/well/plinthfirst-e2e.mjs)"
+ ]
+}
