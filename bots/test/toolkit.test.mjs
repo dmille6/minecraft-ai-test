@@ -585,6 +585,19 @@ await t('TOOLKIT x SMELTJOB CHAIN (real loop, 830dc36b): kit missing and the sme
   assert.ok(!c.ran.some(x => x.skill === 'toolkit'), JSON.stringify(c.ran))
   assert.ok(c.ran.some(x => x.skill === 'smelt_town'), `the smelt job is due in this scene: ${JSON.stringify(c.ran)}`)
 })
+// F1 ON TOWNSEARCH-02 (its diff deletes townContainerKeys): BOTH complete-coverage guards that still use it are alive --
+// toolkit's townKitIronMiss (tested above) and smeltjob's townCopperMiss (no smeltjob test drives it through the town scan).
+// A town whose only container shows a live copper miss -> true; CONTROL: the same town with no miss -> false.
+await t('F1 x SMELTJOB: townCopperMiss sees complete coverage over the town scan (a live copper miss in the only container -> true); CONTROL: no miss -> false', async () => {
+  const { townCopperMiss } = await import('../src/skills.mjs')
+  const SJ = await import('../src/smeltjob.mjs')
+  const CF = await import('../src/chestfull.mjs')
+  const w = town([T('iron_pickaxe', 200)], [stack('stick', 4)])
+  assert.equal(townCopperMiss(w.bot), false, 'no miss yet')
+  CF.updateTownMemory(process.env.POOL_STATE_DIR, CF.townKey({ x: 0, y: 64, z: 0 }), w.bot.worldId ?? null,
+    e => CF.noteItemMisses(e, SJ.COPPER_MISS_KEY, SJ.COPPER_MISS_TTL_MS, ['5,64,0']))
+  assert.equal(townCopperMiss(w.bot), true, 'every town container a live copper miss')
+})
 await t('WIRED (structural, comments stripped): the toolkit order is the LAST deterministic order, after the room order and before planting', () => {
   const src = fs.readFileSync(new URL('../src/cognitive.mjs', import.meta.url), 'utf8').replace(/\/\*[\s\S]*?\*\//g, '').split('\n').filter(l => !l.trim().startsWith('//')).join('\n')
   const at = src.indexOf('if (!order) order = this.#toolkitOrder()')
