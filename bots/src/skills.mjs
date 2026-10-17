@@ -7554,8 +7554,10 @@ function farmAvoid (bot = null) {
     // EVERY COLUMN THE TOWN EVER STARTED (plinth-02's record `prev`, carried through a void or no-site record too): it stays
     // excluded and watched until it reads safe, so the farm keeps a well's distance from each one
     for (const c of (Array.isArray(rec?.prev) ? rec.prev : [])) well(c?.x, c?.z, FARM_WELL_DISTANCE, 'plinth')
+    // A VOIDED PLAN'S COLUMN (Codex r14 P2-2): void keeps plan.cap and reaches prev only at the next search -- kept as
+    // knownPlinthCaps keeps it, in any state; its other cells only while the plan stands
+    if (rec?.plan?.cap) well(rec.plan.cap.x, rec.plan.cap.z, FARM_WELL_DISTANCE, 'plinth')
     if (rec && (rec.state === 'plan' || rec.state === 'complete') && rec.plan?.cap && Array.isArray(rec.plan.steps)) {
-      well(rec.plan.cap.x, rec.plan.cap.z, FARM_WELL_DISTANCE, 'plinth')
       // planned cells and stands: kept 2 away at founding; a recorded farm yields to one only if it lands ON a farm cell
       // (plinth_cell: the planner's own exact keep-out, plinthKeepOut + farmKeepOut on the merge -- Claude r2 P3)
       for (const st of rec.plan.steps) for (const q of [st?.c, st?.s]) if (Array.isArray(q) && q.every(Number.isFinite)) out.push({ x: q[0], y: q[1], z: q[2], r: FARM_TORCH_WELL_DISTANCE, what: 'plinth_cell' })
@@ -9290,14 +9292,27 @@ export function townPlinthState (bot) {
   return { want, lease: leaseState(leaseCurrent().lease, now, null) }
 }
 /** The keep-outs a plan never touches: every well cap the town has (a breached one included) and the recorded site. */
-export function plinthKeepOut (bot) {
+export function plinthKeepOut (bot, { farm = true } = {}) {
   const out = []
   try { for (const w of findTownWells(bot)) out.push({ x: w.cap.x, y: w.cap.y, z: w.cap.z, r: 2 }) } catch { /* none */ }
   try { const r = recordedWellSite(bot); if (r) out.push({ x: r.x, y: r.y, z: r.z, r: 2 }) } catch { /* none */ }
   // THE TOWN TREE FARM (treefarm-02): no planned cell in a plot's soil or column or a torch cell (the cap keeps
   // FARM_WELL_DISTANCE from the farm through wellSearchAvoid)
-  try { out.push(...farmKeepOut(knownFarmRecord(bot))) } catch { /* no farm */ }
+  if (farm) try { out.push(...farmKeepOut(knownFarmRecord(bot))) } catch { /* no farm */ }
   return out
+}
+/**
+ * THE RAISED WELL BEFORE THE FARM (Codex r14 P2-1) -> the planner's answer. `plan(opts)` is planPlinthSteps over the
+ * town with those avoid/keep-out lists. Planned WITH the farm's lists first; only when that finds no plan (never for an
+ * unloaded cell: that is retried as it is) and the town has a farm, planned again WITHOUT them -> that plan, marked
+ * overFarm; the farm yields to a recorded plan's cap and cells (treefarm.mjs farmYields) and re-founds away from it. So a
+ * farm never costs the town its well; it only moves. A generator: it yields wherever the planner yields.
+ */
+export function * planPlinthFarmAware (plan, withFarm, withoutFarm = null) {
+  const first = yield * plan(withFarm)
+  if (first?.plan || first?.why === 'unknown' || !withoutFarm) return first
+  const second = yield * plan(withoutFarm)
+  return second?.plan ? { ...second, overFarm: true } : first
 }
 const plinthRow = (bot, status, fields) => logEvent({ kind: 'plinth', status, snapshot: snapshot(bot), detail: plinthDetail(fields) })
 /** THE REMEDY for a build with nothing to build from (an executable move: stone is mined anywhere with a pickaxe). */
@@ -9505,7 +9520,12 @@ async function buildPlinth (ctx, _args, signal) {
     if (want.want === 'plan') {
       const read0 = readWellCell(bot)
       const others = knownPlinthCaps(bot)
-      const it = planPlinthSteps({ read: memoRead(read0), home, avoid: wellSearchAvoid(bot), keepOut: plinthKeepOut(bot), otherColumns: others })
+      // THE FARM YIELDS TO THE RAISED WELL (Codex r14 P2-1): planned off the farm first; a town whose only site is under
+      // its farm still gets its plan, and the farm yields to it (farmYields) and re-founds
+      const farmed = (() => { try { return !!knownFarmRecord(bot) } catch { return false } })()
+      const it = planPlinthFarmAware(o => planPlinthSteps({ read: memoRead(read0), home, otherColumns: others, ...o }),
+        { avoid: wellSearchAvoid(bot), keepOut: plinthKeepOut(bot) },
+        farmed ? { avoid: wellAvoid(bot), keepOut: plinthKeepOut(bot, { farm: false }) } : null)
       let res
       for (;;) {
         const r = it.next()
@@ -9538,7 +9558,7 @@ async function buildPlinth (ctx, _args, signal) {
         return { status: 'failed', failClass: 'plinth_record', detail: 'the raised junk well plan could not be stored; nothing was built' }
       }
       try { bot.refreshWells?.() } catch { /* timer */ }
-      plinthRow(bot, 'success', { stage: 'planned', at: res.plan.cap, k: res.plan.k, done: 0, total: res.plan.steps.length, left: res.plan.cost, id, tally: `tried:${res.tried}` })
+      plinthRow(bot, 'success', { stage: 'planned', at: res.plan.cap, k: res.plan.k, done: 0, total: res.plan.steps.length, left: res.plan.cost, id, tally: `tried:${res.tried}${res.overFarm ? ',over_farm:1' : ''}` })
       // NOT a success: a plan changes nothing in the world (the runner would downgrade it to unknown and throttle the order)
       return { status: 'no_effect', placed: 0, detail: `planned the town's raised junk well at ${res.plan.cap.x},${res.plan.cap.y},${res.plan.cap.z}: ${res.plan.cost} block(s) and ${res.plan.clears} leaf clear(s), built over the next visits` }
     }

@@ -278,6 +278,49 @@ await t('PLINTH-02 PREV -> FARM: every column the town ever started (the record\
   }
 })
 
+await t('A VOIDED PLAN\'S COLUMN (Codex r14 P2-2): build_plinth\'s void record ({ ...plan record, state: void }: plan.cap kept, not yet in prev) keeps the farm FARM_WELL_DISTANCE off the cap; its planned cells only while the plan stands', async () => {
+  const free = TF.canonicalFarm({ home: HOME, read: world().read }).record
+  const target = plotsOf(free)[1]
+  const cap = { x: target.x, y: 66, z: target.z }
+  const far = plotsOf(free).reduce((m, q) => (flat(q, cap) > flat(m, cap) ? q : m))
+  const steps = [{ op: 'place', c: [far.x, 64, far.z], s: [far.x + 1, 64, far.z] }]
+  const planRec = { v: 1, state: 'plan', id: 'p1', world: 'w1', plan: { cap, steps }, prev: [], left: 1, stuck: null }
+  const dir = pool('plinth-void')
+  writeFileSync(path.join(dir, `junkwell-plinth-${homeKey}.json`), JSON.stringify({ ...planRec, state: 'void', voidAt: Date.now(), why: 'stuck at step 0' }))
+  const farm = SK.townFarm(fakeTown({ items: [S('birch_sapling', 9)], storeDir: dir }).bot)
+  assert.ok(farm.record, farm.why)
+  assert.deepEqual(farm.record.cells.filter(c => flat(c, cap) < TF.FARM_WELL_DISTANCE), [], 'the voided column is still kept out')
+  // positive control: the same record with no cap keeps nothing out
+  const ctl = pool('plinth-void-ctl')
+  writeFileSync(path.join(ctl, `junkwell-plinth-${homeKey}.json`), JSON.stringify({ ...planRec, plan: null, state: 'void' }))
+  assert.deepEqual(SK.townFarm(fakeTown({ items: [], storeDir: ctl }).bot).record.cells, free.cells)
+  // the void's planned cells (not its cap) no longer keep the farm off: the plan is gone
+  const dir2 = pool('plinth-void-cells')
+  writeFileSync(path.join(dir2, `junkwell-plinth-${homeKey}.json`), JSON.stringify({ ...planRec, plan: { cap: { x: 900, y: 66, z: 900 }, steps }, state: 'void' }))
+  assert.deepEqual(SK.townFarm(fakeTown({ items: [], storeDir: dir2 }).bot).record.cells, free.cells, 'a void\'s cells are not kept')
+  const dir3 = pool('plinth-plan-cells')
+  writeFileSync(path.join(dir3, `junkwell-plinth-${homeKey}.json`), JSON.stringify({ ...planRec, plan: { cap: { x: 900, y: 66, z: 900 }, steps } }))
+  assert.notDeepEqual(SK.townFarm(fakeTown({ items: [], storeDir: dir3 }).bot).record.cells, free.cells, 'control: the same cells in a standing plan are kept')
+})
+
+await t('THE RAISED WELL BEFORE THE FARM (Codex r14 P2-1, planPlinthFarmAware): planned off the farm first; no plan there -> planned over it (overFarm) and the farm yields to that plan; an unloaded cell or a town with no farm never takes the fallback', () => {
+  const calls = []
+  const gen = answers => function * (o) { calls.push(o.tag); yield 1; return answers[o.tag] }
+  const run = (answers, withoutFarm = { tag: 'over' }) => { calls.length = 0; const it = SK.planPlinthFarmAware(gen(answers), { tag: 'off' }, withoutFarm); let r; let n = 0; for (;;) { r = it.next(); if (r.done) return { res: r.value, calls: [...calls], yields: n }; n++ } }
+  const P1 = { plan: { cap: { x: 1, y: 66, z: 1 }, steps: [] }, tried: 1 }, P2 = { plan: { cap: { x: 2, y: 66, z: 2 }, steps: [] }, tried: 2 }
+  assert.deepEqual(run({ off: P1, over: P2 }), { res: P1, calls: ['off'], yields: 1 }, 'a plan off the farm: taken, no second search')
+  assert.deepEqual(run({ off: { plan: null, why: 'unknown' }, over: P2 }).calls, ['off'], 'an unloaded cell is retried as it is')
+  const fb = run({ off: { plan: null, why: 'no_site' }, over: P2 })
+  assert.deepEqual(fb.calls, ['off', 'over']); assert.equal(fb.res.overFarm, true); assert.deepEqual(fb.res.plan, P2.plan); assert.equal(fb.yields, 2, 'it yields wherever the planner yields')
+  assert.deepEqual(run({ off: { plan: null, why: 'no_site' }, over: { plan: null, why: 'no_site' } }).res, { plan: null, why: 'no_site' }, 'none either way: the first answer')
+  assert.deepEqual(run({ off: { plan: null, why: 'no_site' }, over: P2 }, null).calls, ['off'], 'no farm: never the fallback')
+  // THE CHAIN: the farm yields to a plan recorded over it -- its cap within FARM_WELL_DISTANCE of a plot, or a cell ON a farm cell
+  const rec = TF.canonicalFarm({ home: HOME, read: world().read }).record
+  const p = plotsOf(rec)[0]
+  assert.match(TF.farmYields(rec, [{ x: p.x, z: p.z, r: TF.FARM_WELL_DISTANCE, what: 'plinth' }]) ?? '', /plinth/, 'a cap over the farm: the farm yields')
+  assert.equal(TF.farmYields(rec, [{ x: p.x + 40, z: p.z + 40, r: TF.FARM_WELL_DISTANCE, what: 'plinth' }]), null, 'control: a cap far off')
+})
+
 await t('FARM -> PLINTH (plinthKeepOut, what the planner is given): a recorded farm adds every farm cell exactly; no farm adds none (positive control)', async () => {
   const none = pool('ko-none')
   assert.deepEqual(SK.plinthKeepOut(fakeTown({ items: [], storeDir: none }).bot), [], 'no farm, no well: nothing kept out')
@@ -530,7 +573,7 @@ const wired = src => {
   assert.ok(/compute: \(\) => \(?(?:searched = )?canonicalWellSite\(\{ home, read, avoid: wellSearchAvoid\(bot\) \}\)\)?,/.test(s), 'a NEW well site keeps off the farm')
   assert.ok(/if \(first\.site \|\| !widensChestSearch\(first\.refused\)\) return first/.test(s), 'the pick widens on the farm\'s refusals')
   // plinth-02: the raised-well planner plans through the farm's avoid and keep-out (plinthKeepOut's content is tested above)
-  assert.ok(/planPlinthSteps\(\{ read: memoRead\(read0\), home, avoid: wellSearchAvoid\(bot\), keepOut: plinthKeepOut\(bot\), otherColumns: others \}\)/.test(s), 'the plinth planner keeps off the farm')
+  assert.ok(/planPlinthFarmAware\(o => planPlinthSteps\(\{ read: memoRead\(read0\), home, otherColumns: others, \.\.\.o \}\),\s*\{ avoid: wellSearchAvoid\(bot\), keepOut: plinthKeepOut\(bot\) \},\s*farmed \? \{ avoid: wellAvoid\(bot\), keepOut: plinthKeepOut\(bot, \{ farm: false \}\) \} : null\)/.test(s), 'the plinth planner keeps off the farm first, and plans over it only as the fallback')
 }
 const SKSRC = readFileSync(new URL('../src/skills.mjs', import.meta.url), 'utf8')
 await t('WIRED: chest-full passes the farm to both chest-site picks and the arrival re-check; the well\'s NEW-site search and the plinth planner carry the farm (source, comments stripped)', () => wired(SKSRC))
@@ -541,7 +584,8 @@ await t('MUTANTS KILLED: each wiring removed fails the wiring check (anchor pres
     (() => { const line = (/\n( {4}compute: \(\) => \(?(?:searched = )?canonicalWellSite\(\{ home, read, avoid: wellSearchAvoid\(bot\) \}\)\)?,)/.exec(SKSRC) ?? [])[1] ?? 'WELL SEARCH LINE NOT FOUND'
       return [line, line.replace('avoid: wellSearchAvoid(bot)', 'avoid')] })(),
     ['    if (first.site || !widensChestSearch(first.refused)) return first', "    if (first.site || !Object.keys(first.refused ?? {}).some(k => /junk well/.test(k))) return first"],
-    ['planPlinthSteps({ read: memoRead(read0), home, avoid: wellSearchAvoid(bot), keepOut: plinthKeepOut(bot), otherColumns: others })', 'planPlinthSteps({ read: memoRead(read0), home, avoid: wellAvoid(bot), keepOut: plinthKeepOut(bot), otherColumns: others })'],
+    ['        { avoid: wellSearchAvoid(bot), keepOut: plinthKeepOut(bot) },', '        { avoid: wellAvoid(bot), keepOut: plinthKeepOut(bot) },'],
+    ['        { avoid: wellSearchAvoid(bot), keepOut: plinthKeepOut(bot) },', '        { avoid: wellSearchAvoid(bot), keepOut: plinthKeepOut(bot, { farm: false }) },'],
   ]
   for (const [old, neu] of muts) {
     assert.equal(SKSRC.split(old).length, 2, `anchor present and unique: ${old.slice(0, 50)}`)
