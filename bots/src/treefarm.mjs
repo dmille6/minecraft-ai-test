@@ -577,6 +577,51 @@ export function farmOrderOutcome (skill, status, now = 0, state = {}, failClass 
   return s
 }
 
+// ---- the farm's torches, now that the town deposit banks them (kitshrink-01) -----------------------------------------------
+//
+// kitshrink-01 BANKS TORCHES at the town deposit (they had no exit), and the farm places only torches the bag carries: a
+// fleet that ran kitshrink first founds farms with no torches, and at night nothing grows without light (Paper 10-05:
+// 0/18). So when this town's farm has OPEN torch cells and the bag holds fewer torches than that, the farm takes them back:
+// a deterministic `withdraw torch <n>` at town -- the town chests are where kitshrink put them, within reach of a bot at
+// town -- and withdraw holds what it took back from the next deposit for HOLD_MS (withdrawpick.mjs), long enough for the
+// farm's own visit to place them. Never a trip from outside town; a town whose chests hold no torch backs off for hours.
+export const TORCH_FETCH_COOLDOWN_MS = 10 * 60 * 1000
+export const TORCH_FETCH_BACKOFF_MS = 2 * 60 * 60 * 1000
+/** What the withdraw verb says when the town simply has none (or none it can give): the long backoff, not a fault loop. */
+export const TORCH_FETCH_NONE = new Set(['container_short', 'nothing_found', 'chest_no_room', 'no_path'])
+
+/**
+ * THE FARM'S TORCH FETCH -> { order, state }. Pure; cognitive.mjs supplies readings and keeps `state`.
+ *   need   () -> open torch cells of this town's farm (in border, loaded; unknown cells are not counted) -- lazy
+ *   held   torches in the bag now
+ * Only at town and at town's level, only when the farm order itself had nothing to do this tick, a cooldown charged when
+ * the order is ISSUED, a long backoff after the town showed it has none. Takes exactly the shortfall.
+ */
+export function farmTorchOrder ({ now = 0, distHome = Infinity, dy = 0, need = 0, held = 0, state = {}, enabled = true } = {}) {
+  const s = { ...state }
+  const none = () => ({ order: null, state: s })
+  if (!enabled) return none()
+  if (!(distHome <= TOWN_RADIUS) || !(Math.abs(dy) <= FARM_ORDER_DY)) return none()
+  if (now - (s.lastFetchAt ?? -Infinity) < TORCH_FETCH_COOLDOWN_MS || now < (s.backoffUntil ?? 0)) return none()
+  // the world read (the record's torch cells) at most every FARM_SCAN_MS, like the farm order's own scan
+  if (now - (s.lastScanAt ?? -Infinity) < FARM_SCAN_MS) return none()
+  s.lastScanAt = now
+  const n = Math.max(0, Math.floor(Number(lazy(need)) || 0))
+  const short = n - Math.max(0, Number(held) || 0)
+  if (!(short > 0)) return none()
+  s.lastFetchAt = now
+  return { order: { skill: 'withdraw', args: { item: 'torch', count: short }, farmTorch: true,
+                    why: `at town; the town tree farm has ${n} unlit torch cell(s) and this bag holds ${Math.max(0, Number(held) || 0)} torch(es): take ${short} from the town chests (the town deposit banks torches)` }, state: s }
+}
+/** After the fetch ran -> the new state. Nothing in town to take: the long backoff; a runner refusal or an abort: nothing. */
+export function farmTorchOutcome (status, failClass = null, now = 0, state = {}, declined = new Set()) {
+  const s = { ...state }
+  if (status === 'success') { s.backoffUntil = 0; return s }
+  if (status === 'aborted' || status === 'no_effect' || declined.has(failClass)) return s
+  if (status === 'failed') s.backoffUntil = now + (TORCH_FETCH_NONE.has(failClass) ? TORCH_FETCH_BACKOFF_MS : TORCH_FETCH_COOLDOWN_MS)
+  return s
+}
+
 // ---- the row the read counts --------------------------------------------------------------------------------------------
 
 /**

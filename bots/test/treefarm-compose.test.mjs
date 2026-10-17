@@ -8,6 +8,7 @@ import { mkdtempSync, writeFileSync, mkdirSync, readFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { Vec3 } from 'vec3'
+import { createRequire } from 'node:module'
 
 const LOG_DIR = `/tmp/mcbot-test-logs-treefarm-compose-${process.pid}`
 process.env.LOG_DIR = LOG_DIR; process.env.BOT_NAME = 'TestBot'
@@ -35,6 +36,7 @@ const homeKey = `${HOME.x}_${HOME.y}_${HOME.z}`
 const writeFarm = (dir, rec, gen = 1, worldId = 'w1') => { mkdirSync(dir, { recursive: true }); writeFileSync(path.join(dir, `treefarm-${homeKey}.g${gen}.json`), JSON.stringify({ ...rec, world: worldId, at: new Date().toISOString() })) }
 const writeWellSite = (dir, cap, worldId = 'w1') => { mkdirSync(dir, { recursive: true }); writeFileSync(path.join(dir, `junkwell-site-${homeKey}.g1.json`), JSON.stringify({ ...cap, world: worldId, at: new Date().toISOString() })) }
 const pool = tag => mkdtempSync(path.join(tmpdir(), `tfc-${tag}-`))
+const REG_ID = name => (createRequire(import.meta.url))('minecraft-data')('1.21.8').itemsByName[name].id
 
 // ================================================================ the junk well <-> the farm =================================
 
@@ -353,9 +355,14 @@ const loopReady = bot => Object.assign(bot, {
 })
 /** n dispatches through the REAL loop. tend_farm RUNS (the real skill against the fake town); everything else is recorded
  *  and succeeds with no change (so the farm order must win on its own merits, not because the others failed). */
-async function decisions (bot, n, { propose = 'status', state = null, max = 200 } = {}) {
+async function decisions (bot, n, { propose = 'status', state = null, max = 200, handlers = {} } = {}) {
   const ran = []
   const runner = { isBusy: () => false, run: async (skill, args) => {
+    if (handlers[skill]) {
+      const r = await handlers[skill](args ?? {})
+      ran.push({ skill, args, status: r.status, detail: r.detail })
+      return { delta: {}, contractEvidence: r.status === 'success' ? [`${skill}: probe 1`] : [], ...r }
+    }
     if (skill === 'tend_farm') {
       const r = await SK.SKILLS.tend_farm.run({ bot }, args ?? {}, new AbortController().signal)
       ran.push({ skill, status: r.status, detail: r.detail })
@@ -477,6 +484,104 @@ await t('LOOP CHAIN (the town orders first): at 34+ slots with a farm to found, 
 })
 
 // ================================================================ wiring with mutants ========================================
+
+// ================================================================ the farm's torches vs kitshrink-01 ==========================
+// kitshrink-01 banks torches at the town deposit; the farm places only torches the bag carries. So the farm FETCHES them back:
+// a deterministic `withdraw torch <shortfall>` at town when its torch cells are unlit (treefarm.mjs farmTorchOrder).
+
+await t('TORCH FETCH (pure): at town and its level only, the exact shortfall, a cooldown charged when issued, the scan throttled; the town having none backs off for hours', () => {
+  let calls = 0
+  const need = () => { calls++; return 4 }
+  const base = { now: 1e7, distHome: 5, dy: 0, need, held: 0 }
+  const r = TF.farmTorchOrder(base)
+  assert.deepEqual(r.order.args, { item: 'torch', count: 4 }); assert.equal(r.order.skill, 'withdraw'); assert.equal(calls, 1)
+  assert.equal(TF.farmTorchOrder({ ...base, held: 1, state: {} }).order.args.count, 3, 'only the shortfall')
+  assert.equal(TF.farmTorchOrder({ ...base, held: 4, state: {} }).order, null, 'nothing short')
+  assert.equal(TF.farmTorchOrder({ ...base, distHome: 60 }).order, null, 'never a trip from outside town')
+  assert.equal(TF.farmTorchOrder({ ...base, dy: -30 }).order, null, 'never from a cave under town')
+  assert.equal(TF.farmTorchOrder({ ...base, enabled: false }).order, null)
+  calls = 0
+  assert.equal(TF.farmTorchOrder({ ...base, state: r.state, now: 1e7 + 60_000 }).order, null, 'the cooldown, charged when issued')
+  assert.equal(calls, 0, 'no world read inside the cooldown')
+  const scanned = TF.farmTorchOrder({ ...base, need: () => 0 })
+  assert.equal(TF.farmTorchOrder({ ...base, state: scanned.state, now: 1e7 + 1000 }).order, null, 'the scan is throttled (FARM_SCAN_MS)')
+  const none = TF.farmTorchOutcome('failed', 'container_short', 2e7, r.state)
+  assert.equal(none.backoffUntil, 2e7 + TF.TORCH_FETCH_BACKOFF_MS, 'the town has none: the long backoff')
+  assert.equal(TF.farmTorchOrder({ ...base, now: 2e7 + TF.TORCH_FETCH_COOLDOWN_MS + 1, state: none }).order, null)
+  assert.deepEqual(TF.farmTorchOutcome('failed', 'runner_busy', 2e7, r.state, new Set(['runner_busy'])), r.state, 'a runner refusal costs nothing')
+})
+
+await t('LOOP CHAIN (kitshrink x farm): a farm planted without torches (the founder held none) -> the real loop fetches the shortfall from the town chests, then the next visit lights every torch cell', async () => {
+  const storeDir = pool('torch-fetch')
+  const a = fakeTown({ items: [S('birch_sapling', 9)], storeDir })
+  await SK.SKILLS.tend_farm.run({ bot: a.bot }, {}, new AbortController().signal)
+  const rec = SK.knownFarmRecord(a.bot), torches = TF.torchesOf(rec)
+  assert.equal(torches.filter(c => a.w.nameAt(c.x, c.y, c.z) === 'torch').length, 0, 'positive control: the farm is unlit')
+  assert.equal(SK.farmTorchNeed(a.bot), torches.length)
+  const b = fakeTown({ items: [S('stick', 2)], storeDir, shared: a.w, name: 'b-Torch' })
+  loopReady(b.bot)
+  // the WITHDRAW, as the server would give it: the torches land in the bag (withdrawVisit holds them back from the deposit)
+  const withdraw = async args => {
+    const slot = b.slots.findIndex((x, i) => i >= 9 && i < 45 && i !== 36 && !x)
+    b.slots[slot] = { name: 'torch', count: args.count, type: REG_ID('torch'), slot }
+    return { status: 'success', detail: `took ${args.count} torch` }
+  }
+  const { ran } = await decisions(b.bot, 2, { handlers: { withdraw }, max: 400, state: { farmState: { lastTendAt: -Infinity } } })
+  assert.equal(ran[0]?.skill, 'withdraw', JSON.stringify(ran)); assert.deepEqual(ran[0].args, { item: 'torch', count: torches.length })
+  // the farm's next visit (its own cooldown is the 5-min tend cooldown; the hold outlasts it) lights them
+  const r = await SK.SKILLS.tend_farm.run({ bot: b.bot }, {}, new AbortController().signal)
+  assert.equal(r.status, 'success', r.detail)
+  assert.equal(torches.filter(c => a.w.nameAt(c.x, c.y, c.z) === 'torch').length, torches.length, 'every torch cell lit')
+  assert.equal(SK.farmTorchNeed(b.bot), 0, 'and no more fetches are needed')
+})
+
+await t('LOOP CHAIN: a lit farm, or a bag already holding the torches -> no fetch (positive and negative controls through the real loop)', async () => {
+  const storeDir = pool('torch-lit')
+  const a = fakeTown({ items: [S('birch_sapling', 9), S('torch', 4)], storeDir })
+  await SK.SKILLS.tend_farm.run({ bot: a.bot }, {}, new AbortController().signal)
+  assert.equal(SK.farmTorchNeed(a.bot), 0, 'lit by the founder')
+  const b = fakeTown({ items: [S('stick', 2)], storeDir, shared: a.w, name: 'b-Lit' })
+  loopReady(b.bot)
+  const { ran } = await decisions(b.bot, 3, { handlers: { withdraw: async () => ({ status: 'success', detail: 'x' }) } })
+  assert.equal(ran.filter(x => x.skill === 'withdraw').length, 0, ran.map(x => x.skill).join(','))
+})
+
+await t('LOOP CHAIN: the town has no torches -> ONE fetch fails, then the long backoff: no fetch loop', async () => {
+  const storeDir = pool('torch-none')
+  const a = fakeTown({ items: [S('birch_sapling', 9)], storeDir })
+  await SK.SKILLS.tend_farm.run({ bot: a.bot }, {}, new AbortController().signal)
+  const b = fakeTown({ items: [S('stick', 2)], storeDir, shared: a.w, name: 'b-None' })
+  loopReady(b.bot)
+  const { ran, loop } = await decisions(b.bot, 5, { handlers: { withdraw: async () => ({ status: 'failed', failClass: 'container_short', detail: 'torch is not in the 1 container(s) tried here' }) },
+    state: { farmState: { lastTendAt: Date.now() } } })
+  assert.equal(ran.filter(x => x.skill === 'withdraw').length, 1, ran.map(x => x.skill).join(','))
+  assert.ok(loop.farmTorchState.backoffUntil > Date.now() + 60 * 60 * 1000, 'the long backoff is set')
+})
+
+await t('KITSHRINK COMPOSITION: torches the fetch took are held back from the next town deposit (the withdraw hold); without the hold the kit rule banks them (positive control)', async () => {
+  const BK = await import('../src/bankable.mjs')
+  const items = [{ name: 'torch', count: 4 }, { name: 'cobblestone', count: 64 }]
+  BK.clearWithdrawHolds()
+  assert.equal(BK.bankableInventory(items).detail.torch, 4, 'positive control: the kit rule banks loose torches')
+  BK.setWithdrawHold('torch', 4, Date.now() + 60_000)
+  try {
+    const inv = BK.bankableInventory(items)
+    assert.equal(inv.detail.torch ?? 0, 0); assert.equal(inv.excluded.torch, 'withdraw_hold')
+  } finally { BK.clearWithdrawHolds() }
+})
+
+await t('LIDCLEAR COMPOSITION: no farm cell can be a chest\'s lid -- a chest under any plot column, soil or torch cell is refused by the farm\'s rule (so lidclear never digs a farm cell); a chest 4 off a plot is fine (positive control)', () => {
+  const rec = TF.canonicalFarm({ home: HOME, read: world().read }).record
+  const idx = TF.farmIndex(rec)
+  const cells = []
+  for (const c of rec.cells) {
+    if (c.role === 'plot') for (let y = c.y - 1; y <= c.y + TF.CLEAR_ABOVE; y++) cells.push({ x: c.x, y, z: c.z })
+    else cells.push({ x: c.x, y: c.y, z: c.z }, { x: c.x, y: c.y - 1, z: c.z })
+  }
+  for (const lid of cells) assert.ok(TF.farmChestRefusal(idx, { x: lid.x, y: lid.y - 1, z: lid.z }), `a chest under ${lid.x},${lid.y},${lid.z} would have a farm cell as its lid`)
+  const p = plotsOf(rec).reduce((m, q) => (q.x + q.z < m.x + m.z ? q : m))
+  assert.equal(TF.farmChestRefusal(idx, { x: p.x - 4, y: p.y, z: p.z }), null)
+})
 
 const strip = src => src.replace(/\/\*[\s\S]*?\*\//g, '').split('\n').map(l => l.replace(/(^|[^:'"`])\/\/.*$/, '$1')).join('\n')
 const wired = src => {

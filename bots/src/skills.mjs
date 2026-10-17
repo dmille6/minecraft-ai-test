@@ -7693,6 +7693,20 @@ export function installScaffoldCounter (bot, names) {
     },
   }
 }
+/**
+ * THE FARM'S UNLIT TORCH CELLS AS THIS BOT SEES THEM -> n. Impure (reads ~8 cells). This town's farm record, in border,
+ * each torch cell read: only an OPEN cell (replaceable over a solid floor) counts; an unloaded or blocked one does not
+ * (a fetch for a cell nobody can light would loop). No record -> 0: a farm is founded first (the founder plants
+ * without torches if it holds none; the next tick fetches them).
+ */
+export function farmTorchNeed (bot) {
+  try {
+    const rec = knownFarmRecord(bot)
+    if (!rec) return 0
+    const read = readCell(bot)
+    return torchesOf(rec).filter(c => !pastBorder(c) && torchState(read, c) === 'open').length
+  } catch { return 0 }
+}
 /** Items a farm visit may consume or gain without it being a loss: what it plants, places, digs and what trees drop. */
 const FARM_FLOW = /(_sapling$|_log$|^dirt$|^torch$|^bone_meal$|^stick$|^apple$|_leaves$)/
 

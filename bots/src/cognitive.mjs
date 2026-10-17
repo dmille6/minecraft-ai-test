@@ -10,9 +10,9 @@
 // keeps a bad generation from becoming a bad action.
 
 import { HARD_STOP } from './toolfor.mjs'
-import { SKILLS, roomRemedy, farFromBank, classifyOutcome, SKILL_CONTRACTS, plantableSpotNear, findTownComposter, townBuildPlan, townPickMiss, townIngredientMiss, foodSkipNow, townContainers, townWellState, townWellBuildPlan, insideTownWell, wellSwordsNow, cobbleWellCap, townPitState, stockWellOpts, valveProof, stockCountKeys, pruneTarget, unknownRefusals, stockRecountKeys, townFarmPlan } from './skills.mjs'
+import { SKILLS, roomRemedy, farFromBank, classifyOutcome, SKILL_CONTRACTS, plantableSpotNear, findTownComposter, townBuildPlan, townPickMiss, townIngredientMiss, foodSkipNow, townContainers, townWellState, townWellBuildPlan, insideTownWell, wellSwordsNow, cobbleWellCap, townPitState, stockWellOpts, valveProof, stockCountKeys, pruneTarget, unknownRefusals, stockRecountKeys, townFarmPlan, farmTorchNeed } from './skills.mjs'
 import { disposePlan, wellOrder, wellOrderOutcome, WELL_ORDERS, pitCoverItem } from './well.mjs'
-import { farmOrder, farmOrderOutcome, farmEnabled, FARM_ORDERS } from './treefarm.mjs'
+import { farmOrder, farmOrderOutcome, farmEnabled, FARM_ORDERS, farmTorchOrder, farmTorchOutcome } from './treefarm.mjs'
 import { smeltInputsFor } from './smelting.mjs'
 import { makeClient, skillSchema } from './llm.mjs'
 import { buildSystemPrompt, buildUserPrompt, makeSentinel, WorkingMemory } from './prompt.mjs'
@@ -997,6 +997,15 @@ export class CognitiveLoop {
                               plan: () => townFarmPlan(bot), state: this.farmState ?? {}, enabled: farmEnabled(process.env) })
         this.farmState = r.state
         if (r.order) order = r.order
+        // THE FARM'S TORCHES (kitshrink-01 banks them at the town deposit): the farm had nothing to do this tick and its
+        // torch cells are unlit while the bag is short -> take the shortfall from the town chests (treefarm.mjs farmTorchOrder)
+        if (!order) {
+          const held = (bot.inventory?.items?.() ?? []).reduce((n, it) => n + (it?.name === 'torch' ? (it.count ?? 0) : 0), 0)
+          const t = farmTorchOrder({ now: Date.now(), distHome: p ? Math.hypot(home.x - p.x, home.z - p.z) : Infinity, dy: p ? p.y - config.world.homeY : Infinity,
+                                     need: () => farmTorchNeed(bot), held, state: this.farmTorchState ?? {}, enabled: farmEnabled(process.env) })
+          this.farmTorchState = t.state
+          if (t.order) order = t.order
+        }
       } catch { /* a world read must never break the decision loop */ }
     }
     if (!order) {
@@ -1109,6 +1118,10 @@ export class CognitiveLoop {
       if (admitted.skill === 'prune_town') this.pruneState = pruneOutcome(r.status, Date.now(), this.pruneState ?? {})
       if (admitted.skill === 'count_town') this.recountState = recountOutcome(r.status, r.delta?.counted ?? 0, Date.now(), this.recountState ?? {}, r.failClass ?? null)
       if (FARM_ORDERS.has(admitted.skill)) this.farmState = farmOrderOutcome(admitted.skill, r.status, Date.now(), this.farmState ?? {}, r.failClass ?? null, RUNNER_DECLINED)
+      // the farm's torch fetch (a `withdraw torch` this loop issued within the last five minutes): its outcome sets the backoff
+      if (admitted.skill === 'withdraw' && admitted.args?.item === 'torch' && Date.now() - (this.farmTorchState?.lastFetchAt ?? -Infinity) < 5 * 60 * 1000) {
+        this.farmTorchState = farmTorchOutcome(r.status, r.failClass ?? null, Date.now(), this.farmTorchState ?? {}, RUNNER_DECLINED)
+      }
       // THE REFLEX TOOK THE BODY -- SAY SO ON THE NEXT DECISION.
       if (r.interruptedBy) this.#raiseTrigger(r.interruptedBy, r.detail)
       // A PREREQUISITE THE GOAL LAYER CANNOT SEE IS NOT A PREREQUISITE.
