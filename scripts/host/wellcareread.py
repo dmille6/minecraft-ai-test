@@ -136,8 +136,12 @@ def column_spans(cap_rows, psince=None, pcols=None):
                 lst.append([t if kind in ('_well_built', '_well_pit_dug') else MIN_T, MAX_T]); state[key] = 'open'
             elif state[key] == 'closed':
                 lst.append([t, MAX_T]); state[key] = 'open'
-        elif kind == '_well_retired' and state.get(key) == 'open':
-            lst[-1][1] = t; state[key] = 'closed'
+        elif kind == '_well_retired':
+            if state.get(key) == 'open':
+                lst[-1][1] = t
+            # a retirement BEFORE any live row (Codex r6 P2): the well was not one the bot knew up to here; renewed live
+            # evidence opens at its own time, never from before the window
+            state[key] = 'closed'
     for pool, cs in (pcols or {}).items():
         for cap in cs:
             out[pool].setdefault(cap, []).append([(psince or {}).get(pool, {}).get(cap, MIN_T), MAX_T])
@@ -307,6 +311,11 @@ assert 'hive-c' not in _sp, 'a refusal-only cap is not a known well'
 _dig = lambda n: [('hive-d', 'e', _HD[0][2], _m(n))]
 assert [len(shell_digs(_dig(n), _COLS, _sp)) for n in (4, 7, 11, 13)] == [0, 1, 0, 1], 'before the build, in use, retired, in use again'
 assert active(_sp, 'board-b', (-247, 72, 135), _m(30)), 'a retired plinth column stays protected'
+# Codex r6 P2: a retirement BEFORE any live row -> the later dispose opens at its own time (a dig at 11 is not a breach)
+_sp2 = column_spans([(_m(10), 'hive-d', '_well_retired', _W), (_m(12), 'hive-d', '_well_dispose', _W)])
+assert _sp2['hive-d'][_W] == [(_m(12), MAX_T)], _sp2
+assert [len(shell_digs(_dig(n), _COLS, _sp2)) for n in (11, 13)] == [0, 1]
+assert column_spans([(_m(10), 'hive-d', '_well_retired', _W)]) == {}, 'a retired-only cap is not a known well'
 assert shell_digs([('hive-d', 'e', _HD[0][2].replace('by=mine:y55', 'by=surface'), _t0)], _COLS, None, by_prefix='surface') != [], 'the surface tripwire'
 assert [c for _, c, _, _ in shell_digs(_HD, _COLS)] == [(79, 57, 77), (-247, 70, 138)], 'the wall by mine and the plinth stair tread; not the builder; not past the tread'
 assert keep_out((365, 73, 135), (365, 73, 137)) == 'well' and keep_out((365, 73, 135), (365, 73, 137), own=True) is None, 'board-c table: the builder\'s only'
