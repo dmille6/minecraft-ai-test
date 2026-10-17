@@ -40,11 +40,20 @@ const tool = (name, target) => Object.freeze({ names: Object.freeze([name]), tar
  * this module -- never a literal. The bag's own reserve (64 cobble + deepslate, bankable.mjs COBBLE_RESERVE) is unchanged.
  */
 export const TOWN_COBBLE_CAP = 1000
+/**
+ * THE TOWN WOOD TARGET -- logs, planks and sticks, per type (logcap-01, OWNER 10-17 "Yup raise log limit": was 64). At 64 the
+ * new plinth-02 wells turned the target into a log incinerator: prune_town sent 14,585 oak logs down the wells in 12 h. The
+ * owner wants logs used (town projects, tree farm), not limited. Revert = set this back to 64.
+ */
+// The suite's arithmetic was written against 64; scripts/run-tests.mjs sets STOCK_WOOD_TARGET=64 so it still exercises the
+// rules, and logcap.test.mjs proves the production default (no env) is 4000. No bot env file sets it.
+const WOOD_ENV = process.env.STOCK_WOOD_TARGET
+export const TOWN_WOOD_TARGET = WOOD_ENV !== undefined && WOOD_ENV !== '' && Number.isInteger(Number(WOOD_ENV)) && Number(WOOD_ENV) >= 0 ? Number(WOOD_ENV) : 4000
 export const STOCK_GROUPS = Object.freeze({
   cobble: bulk(['cobblestone', 'cobbled_deepslate'], TOWN_COBBLE_CAP),
-  ...Object.fromEntries(WOODS.map(w => [`${w}_log`, bulk([`${w}_log`], 64)])),
-  ...Object.fromEntries([...WOODS, 'bamboo'].map(w => [`${w}_planks`, bulk([`${w}_planks`], 64)])),
-  stick: bulk(['stick'], 64),
+  ...Object.fromEntries(WOODS.map(w => [`${w}_log`, bulk([`${w}_log`], TOWN_WOOD_TARGET)])),
+  ...Object.fromEntries([...WOODS, 'bamboo'].map(w => [`${w}_planks`, bulk([`${w}_planks`], TOWN_WOOD_TARGET)])),
+  stick: bulk(['stick'], TOWN_WOOD_TARGET),
   stone: bulk(['stone'], 64),
   dirt: bulk(['dirt'], 0),
   sand: bulk(['sand', 'red_sand'], 0),
