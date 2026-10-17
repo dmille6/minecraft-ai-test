@@ -328,7 +328,7 @@ const pathToFileURL = p => new URL(`file://${p}?v=${Math.random()}`)
 // consulted before it is chosen.
 await t('MUTANT: a bearing read from the yaw refuses the pond the real code descends', async () => {
   const dead = await withMutant('yaw-only', [[
-    '  const choice = chooseStairBearing(bot, bot.entity.position.floored(), undefined, townAllow)',
+    '  const choice = chooseStairBearing(bot, bot.entity.position.floored(), undefined, wellPlan.bearings)',   // minewell-01 passes the clear bearings (townzone-01 composes into them)
     '  const choice = { bear: stairBearing(bot), runway: 1 }',
   ]], async mod => {
     const bot = shoreWorld({ wet: pond })
