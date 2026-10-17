@@ -10,7 +10,7 @@
 // keeps a bad generation from becoming a bad action.
 
 import { HARD_STOP } from './toolfor.mjs'
-import { SKILLS, roomRemedy, farFromBank, classifyOutcome, SKILL_CONTRACTS, plantableSpotNear, findTownComposter, townBuildPlan, townPickMiss, townIngredientMiss, foodSkipNow, townContainers, townWellState, townWellBuildPlan, insideTownWell, wellSwordsNow, cobbleWellCap, townPitState, stockWellOpts, valveProof, stockCountKeys, pruneTarget, unknownRefusals, stockRecountKeys } from './skills.mjs'
+import { SKILLS, roomRemedy, farFromBank, classifyOutcome, SKILL_CONTRACTS, plantableSpotNear, findTownComposter, townBuildPlan, townPickMiss, townIngredientMiss, foodSkipNow, townContainers, townWellState, townWellBuildPlan, insideTownWell, wellSwordsNow, cobbleWellCap, townPitState, stockWellOpts, valveProof, stockCountKeys, pruneTarget, unknownRefusals, stockRecountKeys, townCopperMiss, townFurnaces, furnaceLeasedNow } from './skills.mjs'
 import { disposePlan, wellOrder, wellOrderOutcome, WELL_ORDERS, pitCoverItem } from './well.mjs'
 // plinth-01, the raised junk well (its own statements)
 import { plinthOrder, plinthOrderOutcome, plinthBudget, plinthShortfall, PLINTH_STEPS_PER_VISIT, PLINTH_MIN_FUND } from './plinth.mjs'
@@ -26,6 +26,7 @@ import { compostPlan, townOrder, townOrderOutcome, boneMealRoom, composterLevel,
 import { hasUsablePick, roomPlan, pickTakes, roomKeep } from './withdrawpick.mjs'
 import { townDepositOrder, townDepositOutcome, townDepositPlan } from './towndeposit.mjs'
 import { pruneOrder, pruneOutcome } from './prune.mjs'
+import { smeltJobEnabled, smeltTownOrder, smeltTownOutcome, drainOrder, drainOutcome, drainPick, noteFurnacesLit, milestoneHolds } from './smeltjob.mjs'
 import { recountOrder, recountOutcome } from './recount.mjs'
 import { bankClosed, inTown } from './chestfull.mjs'
 import { redundantRow, admitRow, HYGIENE_ITEMS } from './toolhygiene.mjs'
@@ -720,6 +721,7 @@ export class CognitiveLoop {
       const town = () => (st ??= townPlinthState(bot))
       const r = plinthOrder({
         now: Date.now(), distHome: p ? Math.hypot(config.world.homeX - p.x, config.world.homeZ - p.z) : Infinity,
+        dy: p ? p.y - config.world.homeY : Infinity,   // plinth-02.1: never from a mine below the town
         inside: () => insideTownWell(bot), want: () => town().want, lease: () => town().lease,
         budget: () => plinthBudget(items, PLINTH_STEPS_PER_VISIT), freeSlots: 36 - items.length,
         chests: () => townContainers(bot).length > 0, chestSlots: () => Math.max(1, Math.ceil(plinthShortfall(items, PLINTH_MIN_FUND) / 64)),
@@ -1009,6 +1011,67 @@ export class CognitiveLoop {
         }
       } catch { /* a world read must never break the decision loop */ }
     }
+    // THE TOWN SMELT JOB AND THE FURNACE DRAIN (smeltjob-01; smeltjob.mjs decides, this supplies readings and keeps the
+    // state). After every deterministic order but sapling planting, and only with NOTHING chosen above -- the milestone's
+    // own work order, the town deposit, every town order -- AND no rung waiting on room (ready.noRoom): a ready milestone
+    // step always wins (owner 10-15). Planting (below) is no milestone step: a job decision only moves it to the next free
+    // decision, its cooldown untouched (Codex rebase review P3). Never a trip: at town only (TOWN_RADIUS). Off in isolated pools (owner D2) and by SMELT_JOB=0.
+    {
+      const bot = this.bot
+      const p = bot.entity?.position
+      const home = { x: config.world.homeX, z: config.world.homeZ }
+      const atTown = !!p && Math.hypot(home.x - p.x, home.z - p.z) <= TOWN_RADIUS
+      const sw = smeltJobEnabled(process.env, config.memory.scope)
+      // THE DENOMINATOR (Codex code r1 P2-8): every at-town decision of a bot whose job is on is tallied by what happened
+      // to the job's slot -- `taken` (an order above won it), or the job's own issue / skip reason -- BEFORE any cooldown
+      // or throttle, and flushed as one `_smelt_job_tally` row per 10 min: the free-decision share and the decisions
+      // "eligible but for room" are read from it.
+      const tally = what => {
+        if (!atTown || !sw.on) return
+        const now = Date.now()
+        this.smeltTally ??= { t0: now, c: {} }
+        this.smeltTally.c[what] = (this.smeltTally.c[what] ?? 0) + 1
+        if (now - this.smeltTally.t0 >= 10 * 60 * 1000) {
+          const c = this.smeltTally.c
+          try { logEvent({ kind: 'smelt_job_tally', status: 'success', detail: `secs=${Math.round((now - this.smeltTally.t0) / 1000)} ` + Object.entries(c).sort().map(([k, v]) => `${k}=${v}`).join(' '), snapshot: snap }) } catch { /* telemetry only */ }
+          this.smeltTally = { t0: now, c: {} }
+        }
+      }
+      if (order) tally('taken')
+      else {
+        try {
+          const items = bot.inventory?.items?.() ?? []
+          const holds = milestoneHolds({ order, ready })
+          const held = {}
+          for (const it of items) held[it.name] = (held[it.name] ?? 0) + (it.count ?? 0)
+          const free = 36 - items.length
+          const r = smeltTownOrder({ now: Date.now(), on: sw.on, atTown, holds, held, freeSlots: free,
+            townMiss: () => townCopperMiss(bot), state: this.smeltJobState ?? {} })
+          this.smeltJobState = r.state
+          tally(r.order ? 'issued' : r.skip)
+          if (r.order) order = r.order
+          else {
+            const d = drainOrder({ now: Date.now(), on: sw.on, atTown, holds, freeSlots: free,
+              pick: () => {
+                const fs = townFurnaces(bot)
+                bot.furnaceSeen = noteFurnacesLit(bot.furnaceSeen ?? {}, fs)
+                return drainPick({ furnaces: fs, leased: k => furnaceLeasedNow(k), seen: bot.furnaceSeen, now: Date.now() })
+              },
+              state: this.drainState ?? {} })
+            this.drainState = d.state
+            if (d.order) { order = d.order; tally('+drain_issued') }   // '+': an extra counter, not a decision bucket (Codex code r2)
+            // why the job did not run, at most once per 10 min per reason, only for the reasons that say something about
+            // the town (room, no copper, nothing to drain) -- never the every-decision ones
+            const why = r.skip === 'room' || r.skip === 'town_has_none' ? r.skip : (d.skip === 'nothing_to_drain' ? 'nothing_to_drain' : null)
+            this.smeltSkipAt ??= {}
+            if (atTown && sw.on && why && Date.now() - (this.smeltSkipAt[why] ?? -Infinity) >= 10 * 60 * 1000) {
+              this.smeltSkipAt[why] = Date.now()
+              logEvent({ kind: 'smelt_job_skip', status: 'no_effect', detail: `why=${why} free=${free} copper=${held.raw_copper ?? 0} fuel=${held.coal ?? 0}`, snapshot: snap })
+            }
+          }
+        } catch { /* an inventory or world read must never break the decision loop */ }
+      }
+    }
     if (!order) {
       const sap = {}
       try {
@@ -1117,6 +1180,8 @@ export class CognitiveLoop {
       if (admitted.skill === 'town_deposit') this.townDepositState = townDepositOutcome(r.status, r.failClass ?? null, Date.now(), this.townDepositState ?? {})
       if (WELL_ORDERS.has(admitted.skill)) this.wellState = wellOrderOutcome(admitted.skill, r.status, Date.now(), this.wellState ?? {}, r.failClass ?? null)
       if (admitted.skill === 'prune_town') this.pruneState = pruneOutcome(r.status, Date.now(), this.pruneState ?? {})
+      if (admitted.skill === 'smelt_town') this.smeltJobState = smeltTownOutcome(r.status, r.stop ?? r.failClass ?? null, Date.now(), this.smeltJobState ?? {})
+      if (admitted.skill === 'furnace_drain') this.drainState = drainOutcome(r.status, r.stop ?? r.failClass ?? null, Date.now(), this.drainState ?? {})
       if (admitted.skill === 'count_town') this.recountState = recountOutcome(r.status, r.delta?.counted ?? 0, Date.now(), this.recountState ?? {}, r.failClass ?? null)
       if (admitted.skill === 'build_plinth') this.plinthState = plinthOrderOutcome(r.status, Date.now(), this.plinthState ?? {}, r.failClass ?? null)
       // THE REFLEX TOOK THE BODY -- SAY SO ON THE NEXT DECISION.

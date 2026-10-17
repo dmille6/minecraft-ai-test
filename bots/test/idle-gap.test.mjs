@@ -161,7 +161,11 @@ t('WIRED: a runner refusal (paused/busy/body held/unknown/superseded) is NOT exe
   assert.match(cog, /const executed = !!admitted && outcome\.status !== 'aborted' && !RUNNER_REFUSALS\.has\(runFailClass\)/)
   assert.match(cog, /runFailClass = r\.failClass \?\? null/)
   const run = readFileSync(new URL('../src/runner.mjs', import.meta.url), 'utf8')
-  for (const c of RUNNER_REFUSALS) assert.ok(run.includes(`failClass: '${c}'`), `runner.mjs still emits ${c}`)
+  // furnace_busy (smeltjob-01) is the one SKILL-level "never started" (every furnace in reach is in another bot's leased
+  // session): skills.mjs emits it, so it is checked there -- every other refusal still comes from the runner itself
+  const sk = readFileSync(new URL('../src/skills.mjs', import.meta.url), 'utf8')
+  const SKILL_LEVEL = new Set(['furnace_busy'])
+  for (const c of RUNNER_REFUSALS) assert.ok(SKILL_LEVEL.has(c) ? sk.includes(`failClass: '${c}'`) : run.includes(`failClass: '${c}'`), `${SKILL_LEVEL.has(c) ? 'skills' : 'runner'}.mjs still emits ${c}`)
 })
 t('WIRED: cognitive passes the verdict object, and only an attempts give-up is reported to peers', () => {
   assert.match(cog, /this\.milestones\.noteAttempt\(\{ failed: outcome\.status !== 'success', executed, serving, overlay, taskId: milestone\?\.id \?\? null \}\)/)

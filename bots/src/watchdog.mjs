@@ -31,6 +31,22 @@ const STRANDED_HIGH_Y = 125
 /** Bedrock. `mine` cannot be asked to descend past it. */
 const WORLD_FLOOR = -59
 
+/** A furnace session's declared stationary window is open now (skills.mjs smelt). */
+export const furnaceWindow = bot => Number(bot?.furnaceWindowUntil) > Date.now()
+/**
+ * The busy time in [from, to] -> ms, excluding every interval that touches a FURNACE sample. Pure. Samples in time order.
+ * Without furnace samples this is exactly to - from (the base's busy span).
+ */
+export function activeSpanMs (samples = [], from = 0, to = 0) {
+  let ms = to - from
+  for (let i = 1; i < samples.length; i++) {
+    const a = samples[i - 1], b = samples[i]
+    if (b.t <= from || a.t >= to) continue
+    if (a.furnace || b.furnace) ms -= Math.min(b.t, to) - Math.max(a.t, from)
+  }
+  return Math.max(0, ms)
+}
+
 export class StagnationWatchdog {
   /**
    * @param bot      mineflayer bot
@@ -255,7 +271,12 @@ export class StagnationWatchdog {
     // 97 goto and 52 home failures blamed on the wrong cause.
     //
     // Being motionless is only evidence of being stuck if the bot was TRYING.
-    const s = { t: Date.now(), x: p.x, y: p.y, z: p.z, items, busy: !!this.runner?.isBusy?.() }
+    // ...and a FURNACE SESSION is not trying to move either (smeltjob-01): eight items are 80 s at the furnace, and a smelt
+    // converts 1:1, so it never gains items. Scoped to the furnace's declared window (bot.furnaceWindowUntil, its own
+    // deadline, bounded by the session's; Codex code r1 P1-2, Claude code r2 P3) -- the compost and town-deposit windows are judged as on
+    // the base. Such a sample is `furnace` and not busy.
+    const furnace = furnaceWindow(this.bot)
+    const s = { t: Date.now(), x: p.x, y: p.y, z: p.z, items, busy: !!this.runner?.isBusy?.() && !furnace, furnace }
     this.samples.push(s)
     const cutoff = Date.now() - config.watchdog.windowMs
     while (this.samples.length && this.samples[0].t < cutoff) this.samples.shift()
@@ -285,6 +306,9 @@ export class StagnationWatchdog {
     //   - nothing has been attempted recently (idle, awaiting a command)
     if (this.cognitive && !this.cognitive.running) return
     if (this.cognitive?.milestones?.allDone) return
+    // A FURNACE SESSION IS RUNNING NOW: never judged mid-session (Codex code r1 P1-2: the busy samples taken BEFORE the
+    // declaration would otherwise cancel the smelt that followed them)
+    if (furnaceWindow(this.bot)) return
 
     // CHRONIC STRANDING, judged before stagnation and on its own clock.
     //
@@ -301,7 +325,9 @@ export class StagnationWatchdog {
     // JUDGE ONLY THE TIME THE BOT WAS TRYING. Samples taken while no skill was
     // running are idle-by-design and say nothing about being stuck.
     const busy = this.samples.filter(s => s.busy)
-    const busyMs = busy.length > 1 ? busy[busy.length - 1].t - busy[0].t : 0
+    // ...and the furnace's declared time between the first and last busy sample is not busy time either (Codex code r1
+    // P1-2: a withdraw before and a deposit after a furnace session must not add up across it)
+    const busyMs = busy.length > 1 ? activeSpanMs(this.samples, busy[0].t, busy[busy.length - 1].t) : 0
 
     // A bot must have been actively working for a meaningful stretch before it
     // can be called stagnant. One skill's worth is the right unit: below this

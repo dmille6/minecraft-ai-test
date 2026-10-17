@@ -389,6 +389,25 @@ export function withdrawHolds (now = Date.now()) {
   return out
 }
 export function clearWithdrawHolds () { HOLDS = {} }
+/**
+ * HOLD EXACTLY `count` of `name` for one call, then put the name's hold back exactly as it was (count AND clock) -> the
+ * restore function. smeltjob-01's fuel return keeps the bag's OWN coal out of a deposit of the job's unburnt town coal;
+ * adding to a live hold would protect too much and restart its clock (Codex + Claude rebase review r2 P3).
+ */
+export function swapWithdrawHold (name, count, until) {
+  const prev = HOLDS[name] ? { ...HOLDS[name] } : null
+  if (count > 0) HOLDS[name] = { count, until }
+  else delete HOLDS[name]
+  return () => { if (prev) HOLDS[name] = prev; else delete HOLDS[name] }
+}
+/** Give back part of a hold (smeltjob-01: the town smelt job deposits the input it did not smelt, inside its own skill). */
+export function releaseWithdrawHold (name, count) {
+  const h = HOLDS[name]
+  if (!h || !(count > 0)) return
+  const left = h.count - count
+  if (left > 0) HOLDS[name] = { ...h, count: left }
+  else delete HOLDS[name]
+}
 
 /**
  * Should this bot deposit NOW?

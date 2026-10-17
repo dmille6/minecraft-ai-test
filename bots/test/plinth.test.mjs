@@ -403,7 +403,9 @@ await t('plinthWant: the no-site record starts a plan; a plan wants building; no
   assert.equal(P.plinthWant({ rec: plan, world: 'w1', now: NOW, wellUsable: true }).want, null)
   const none = { v: P.PLINTH_VERSION, state: 'none', world: 'w1', at: NOW - 1000 }
   assert.equal(P.plinthWant({ rec: none, noSite: ns, world: 'w1', now: NOW }).want, null)
-  assert.equal(P.plinthWant({ rec: none, noSite: ns, world: 'w1', now: NOW + P.PLINTH_NONE_BACKOFF_MS }).want, 'plan')
+  // plinth-02.1: only a no-site record NEWER than the none replans -- the one that started the failed plan does not
+  assert.equal(P.plinthWant({ rec: none, noSite: ns, world: 'w1', now: NOW + P.PLINTH_NONE_BACKOFF_MS }).want, null)
+  assert.equal(P.plinthWant({ rec: none, noSite: { ...ns, at: none.at + 1 }, world: 'w1', now: NOW + P.PLINTH_NONE_BACKOFF_MS }).want, 'plan')
   const done = { ...plan, state: 'complete', doneAt: NOW - 5000 }
   assert.equal(P.plinthWant({ rec: done, noSite: { at: NOW - 9000, world: 'w1' }, world: 'w1', now: NOW }).want, null)
   assert.equal(P.plinthWant({ rec: done, noSite: { at: NOW - 10, world: 'w1' }, world: 'w1', now: NOW }).want, 'plan', 'the raised well was lost: plan again')
