@@ -48,6 +48,21 @@ async function withMutantsAll (url, pairs, fn) {
   writeFileSync(out, src.replace(/from '\.\//g, "from '../src/"))
   try { return await fn(await import(out.href)) } finally { try { unlinkSync(out) } catch {} }
 }
+// A PLANNER MUTANT THROUGH THE REAL SKILL (townzone-01 on minewell-01): the mutated minewell.mjs is imported by a copy of
+// skills.mjs, so the skill's own decision runs on it (a mutant of the planner alone could not show the chain)
+const MINEWELL_URL = new URL('../src/minewell.mjs', import.meta.url)
+async function withPlannerMutant (old, neu, fn) {
+  const src = readFileSync(MINEWELL_URL, 'utf8')
+  assert.ok(src.includes(old), `MUTATION DID NOT APPLY: ${JSON.stringify(old.slice(0, 60))}`)
+  assert.ok(src.split(old).length === 2, 'the mutation target is not unique; the mutant is ambiguous')
+  const tag = `${process.pid}-${Math.random().toString(36).slice(2)}`
+  const mw = new URL(`./_mutant-mw-${tag}.mjs`, import.meta.url), sk = new URL(`./_mutant-sk-${tag}.mjs`, import.meta.url)
+  writeFileSync(mw, src.replace(old, neu).replace(/from '\.\//g, "from '../src/"))
+  const skSrc = readFileSync(SKILLS_URL, 'utf8')
+  assert.equal(skSrc.split("from './minewell.mjs'").length, 2, 'skills.mjs imports minewell.mjs once')
+  writeFileSync(sk, skSrc.replace("from './minewell.mjs'", `from './_mutant-mw-${tag}.mjs'`).replace(/from '\.\/(?!_mutant-mw-)/g, "from '../src/"))
+  try { return await fn(await import(sk.href)) } finally { for (const u of [mw, sk]) { try { unlinkSync(u) } catch {} } }
+}
 const ENUM = ["      .findBlocks({ matching: notTown(type.id), maxDistance, count: 32 })\n", "      .findBlocks({ matching: type.id, maxDistance, count: 32 })\n"]
 const SAFE = ["    const safeTarget = p => townTargetPermit(p, bot.blockAt(p)?.name, townHome()).ok &&\n", "    const safeTarget = p => true &&\n"]
 const SWING = ["  if (!townOk.ok) {\n    noteTownGround(bot, 'gather_refused')", "  if (false) {\n    noteTownGround(bot, 'gather_refused')"]
@@ -286,13 +301,14 @@ test('CHAIN mine: the water case -- the outward bearings are wet, the dry one ru
 })
 
 test('MUTANT KILLED: without the water branch the bot is left with the water refusal (no stair)', async () => {
-  await withMutant(SKILLS_URL, "    return ok.every(bear => stairRunway(bot, from, bear) === 0) && all.some(bear => !townAllow(bear) && stairRunway(bot, from, bear) > 0)\n",
-    '    return false\n', async mod => {
+  // the water branch is now the PLANNER's (minewell.mjs planMineStart: a keep-out must not leave only wet ways when it took a dry one)
+  await withPlannerMutant("  if (here.length && (here.some(b => isDry(p0, b)) || !left.some(b => isDry(p0, b)))) return { action: 'go', bearings: here, kinds: kindsOf(left) }\n",
+    "  if (here.length) return { action: 'go', bearings: here, kinds: kindsOf(left) }\n", async mod => {
       const bot = stairWorld({ at: [214, 65, 200], wet: (x, y, z) => x >= 215 && y <= 64 && y >= 40 })
       const r = await runMine(mod, bot)
       assert.equal(bot._digs.length, 0, `the mutant cut nothing (${r.status} ${r.failClass})`)
       assert.equal(r.failClass, 'hazard_interrupt')
-      assert.match(r.detail, /except the one under the town's ground/, 'and the refusal does not claim water everywhere')
+      assert.match(r.detail, /the other directions would dig the town's ground; goto somewhere drier away from home first/, 'and the refusal does not claim water everywhere')
     })
 })
 
@@ -306,24 +322,41 @@ test('CHAIN mine: from OUTSIDE the box there is no walk-out; a stair running tow
   assert.ok(bot._digs.length > 0, `the stair under the town was cut (${r.status} ${String(r.detail).slice(0, 100)})`)
 })
 
-test('CHAIN mine: the nearest exit is obstructed (goto fails) -> the next exit is taken and the stair starts there', async () => {
+test('CHAIN mine: the nearest walk-off is obstructed (goto fails) -> a start away from it is taken and the stair starts there', async () => {
+  // ONE PLANNER (townzone-01 on minewell-01): the nearest start is the square's edge (216: its outward stair cuts no town
+  // ground). Level walks east near z = 200 fail; the stair's own steps (descending) are not walks-off and pass.
   const bot = stairWorld({ at: [214, 65, 200] })
-  const goto0 = bot.pathfinder.goto
-  bot.pathfinder.goto = async goal => { if (Math.round(goal.x) >= 217 && Math.abs(Math.round(goal.z) - 200) <= 2) return; return goto0(goal) }   // nothing east is reachable
+  const goto0 = bot.pathfinder.goto, tries = []
+  bot.pathfinder.goto = async goal => {
+    if (goal.y >= 65) tries.push({ x: goal.x, y: goal.y, z: goal.z })
+    if (goal.y >= 65 && Math.round(goal.x) >= 215 && Math.abs(Math.round(goal.z) - 200) <= 2) return
+    return goto0(goal)
+  }
   const r = await runMine(SK, bot)
   assert.equal(bot._digs.filter(p => townDigClass(p, 'stone', HOME) === 'ground').length, 0)
-  assert.ok(bot._walks.some(w => w.z >= 217), `the second exit (+z) was walked: ${JSON.stringify(bot._walks.slice(0, 6))}`)
-  assert.ok(bot._digs.length > 0, `a stair was cut from the second exit (${r.status} ${String(r.detail).slice(0, 100)})`)
+  assert.ok(tries.length >= 2, `a second start was tried: ${JSON.stringify(tries)}`)
+  assert.ok(Math.max(Math.abs(tries[1].x - tries[0].x), Math.abs(tries[1].z - tries[0].z)) > 2, `never beside the failed one: ${JSON.stringify(tries)}`)
+  assert.equal(r.status, 'success', `a stair was cut from the second start (${r.status} ${String(r.detail).slice(0, 140)})`)
+  assert.ok(bot._digs.length > 0)
 })
 
-test('CHAIN mine: EVERY exit obstructed (open sky) -> a refusal of the zone that names a reachable move (never a dig in town)', async () => {
+test('CHAIN mine: EVERY walk-off obstructed (open sky) -> a refusal of the zone that names a reachable move (never a dig in town) -- and the move works', async () => {
   const bot = stairWorld({ at: [214, 65, 200] })
   const goto0 = bot.pathfinder.goto
-  bot.pathfinder.goto = async goal => { const x = Math.round(goal.x), z = Math.round(goal.z); if (x >= 217 || x <= 183 || z >= 217 || z <= 183) return; return goto0(goal) }
+  bot.pathfinder.goto = async goal => { if (goal.y >= 65) { bot._walks.push(V(goal.x, goal.y, goal.z)); return } return goto0(goal) }   // no level walk reaches anything
   const r = await runMine(SK, bot)
-  assert.equal(bot._digs.filter(p => townDigClass(p, 'stone', HOME) === 'ground').length, 0)
+  assert.equal(bot._digs.length, 0, 'nothing dug')
   assert.equal(r.failClass, 'town_ground', `${r.status} ${r.detail}`)
-  assert.match(r.detail, /goto a dry spot \d+\+ blocks from home/)
+  assert.match(r.detail, /^reason=town_ground /)
+  const m = r.detail.match(/goto a dry spot (\d+)\+ blocks from home/)
+  assert.ok(m, r.detail)
+  // THE REMEDY, PERFORMED: walk to a dry spot that far from home, then mine -- it descends, and never in town ground
+  bot.pathfinder.goto = goto0
+  const walked = await SKILLS.goto.run({ bot }, { x: HOME.x + Number(m[1]) + 1, y: 65, z: 200 }, new AbortController().signal)   // the PRODUCTION goto skill
+  assert.equal(walked.status, 'success', `${walked.status} ${walked.detail}`)
+  const again = await runMine(SK, bot)
+  assert.equal(again.status, 'success', `${again.status} ${String(again.detail).slice(0, 140)}`)
+  assert.equal(bot._digs.filter(p => townDigClass(p, 'stone', HOME) === 'ground').length, 0)
 })
 
 test('CHAIN mine: UNDER a roof in town (8 below home, solid above) -> climb FIRST (to the column top: surface stops at 63), never four horizontal tunnels at depth; climb digs are scoped, never mine\'s target (Claude code r2 P1/P2, Codex code r4 P2)', async () => {
@@ -391,19 +424,33 @@ test('MUTANT KILLED: surface without the named top refuses at once above sea lev
   })
 })
 
-test('MUTANT KILLED: without the bearing filter the stair from inside the square cuts town ground', async () => {
-  await withMutant(SKILLS_URL, '  const choice = chooseStairBearing(bot, bot.entity.position.floored(), undefined, townAllow)\n',
-    '  const choice = chooseStairBearing(bot, bot.entity.position.floored())\n', async mod => {
-      // the walk-out still happens in the mutant (it is separate), so start where SOME bearing is clear: x = 216, facing in
-      const bot = stairWorld({ at: [216, 65, 200], yaw: Math.PI / 2 })
-      await runMine(mod, bot)
-      // the per-step check still stops it at the first ground tread -- so the mutant digs nothing in town either way;
-      // what the mutant loses is the choice: it refuses where the real code descends outward.
-      const real = stairWorld({ at: [216, 65, 200], yaw: Math.PI / 2 })
-      await runMine(SK, real)
-      assert.ok(real._digs.some(p => p.x > 216), `the real code descends outward (${JSON.stringify(real._digs.slice(0, 3))})`)
-      assert.ok(!bot._digs.some(p => p.x > 216), `the mutant does not: it takes the facing (inward) bearing and the per-step check stops it (${JSON.stringify(bot._digs.slice(0, 3))})`)
-    })
+test('MUTANT KILLED: the town left out of the ONE keep-out -- the plan and the per-dig stop both lose it, and the stair cuts town ground', async () => {
+  await withMutant(SKILLS_URL, '    return composeKeepOut(farm, townKeepOut(townHome(), nameAt))\n', '    return composeKeepOut(farm)\n', async mod => {
+    const bot = stairWorld({ at: [214, 65, 200], yaw: Math.PI / 2 })
+    await runMine(mod, bot)
+    const real = stairWorld({ at: [214, 65, 200], yaw: Math.PI / 2 })
+    await runMine(SK, real)
+    assert.equal(real._digs.filter(p => townDigClass(p, 'stone', HOME) === 'ground').length, 0, 'the real code cuts none')
+    assert.ok(bot._digs.some(p => townDigClass(p, 'stone', HOME) === 'ground'), `the mutant cuts town ground (${JSON.stringify(bot._digs.slice(0, 3))})`)
+  })
+})
+test('MUTANT KILLED: no far starts -- a moat fills every ring start within 16 and the town blocks every stair from here: the real code walks beyond the square, the mutant refuses', async () => {
+  // bot 13 east of home; the surface (y 64) within 16 of it is water, so no ring start is standable; the far starts just
+  // beyond the square (townExitColumns, 19 from home) on the WEST are dry -- only they can start a stair
+  const moat = (x, y, z) => y === 64 && Math.max(Math.abs(x - 213), Math.abs(z - 200)) <= 16 && !(x === 213 && z === 200)
+  const make = () => stairWorld({ at: [213, 65, 200], wet: moat })
+  const real = make()
+  const r = await runMine(SK, real)
+  assert.equal(r.status, 'success', `the real code walks to a far start and descends: ${r.status} ${String(r.detail).slice(0, 160)}`)
+  assert.equal(real._digs.filter(p => townDigClass(p, 'stone', HOME) === 'ground').length, 0, 'no town ground')
+  assert.ok(real._walks.some(w => Math.max(Math.abs(w.x - HOME.x), Math.abs(w.z - HOME.z)) === TOWN_GROUND_HALF + 3), `a far start (19 from home) was walked to: ${JSON.stringify(real._walks.slice(0, 4))}`)
+  await withMutant(SKILLS_URL, 'radius, goalY, exclude: failedTargets, dry: dryStart, far: farStarts,', 'radius, goalY, exclude: failedTargets, dry: dryStart,', async mod => {
+    const bot = make()
+    const m = await runMine(mod, bot)
+    assert.equal(m.status, 'failed', `the mutant cannot start: ${m.status} ${String(m.detail).slice(0, 140)}`)
+    assert.equal(m.failClass, 'town_ground')
+    assert.equal(bot._digs.length, 0)
+  })
 })
 
 // A STALE BEARING: from x=218 (outside the square) the only dry bearing is an open stair running INTO town (air cells:
@@ -422,9 +469,9 @@ test('CHAIN mine: a stair cleared on a stale world stops at the first town-groun
   assert.equal(r.failClass, 'town_ground', `${r.status} ${r.detail}`)
   assert.match(r.detail, /reason=town_ground_step .*mine again/)
 })
-test('MUTANT KILLED: without the per-step check the stale stair cuts town ground', async () => {
-  await withMutant(SKILLS_URL, "      if (b && b.name !== 'air' && b.name !== 'cave_air' && townDigClass(pos, b.name, townHome()) === 'ground') {",
-    '      if (false) {', async mod => {
+test('MUTANT KILLED: the per-dig stop blind to the town -- the stale stair cuts town ground', async () => {
+  await withMutant(SKILLS_URL, "        const kind = fm.forbid && fm.forbid(pos)\n",
+    "        const kind = fm.forbid && fm.forbid(pos) !== 'town' && fm.forbid(pos)\n", async mod => {
       const bot = staleWorld()
       await runMine(mod, bot)
       assert.ok(bot._digs.some(p => townDigClass(p, 'stone', HOME) === 'ground'), `the mutant dug town ground (digs ${JSON.stringify(bot._digs.slice(0, 4))})`)
@@ -432,7 +479,7 @@ test('MUTANT KILLED: without the per-step check the stale stair cuts town ground
 })
 
 // ---- wiring --------------------------------------------------------------------------------------------------------
-test('WIRED: no town entry on the transit arrays; the tunnel adds 100; the liveness row; chooseStairBearing honours allow', () => {
+test('WIRED: no town entry on the transit arrays; the tunnel adds 100; the liveness row; chooseStairBearing honours its allowed bearings', () => {
   const idx = strip(readFileSync(INDEX_URL, 'utf8'))
   assert.doesNotMatch(idx, /makeTownStepCost|makeTownBreakCost\(townHome/, 'transit profiles carry no town entry')
   assert.match(idx, /tunnelMovements\(bot, gatherMoves, \{ home: configuredHome\(config\.world\) \?\? \{ x: config\.world\.homeX, z: config\.world\.homeZ \} \}\)/)
@@ -441,8 +488,12 @@ test('WIRED: no town entry on the transit arrays; the tunnel adds 100; the liven
   assert.match(tun, /m\.exclusionAreasBreak = \[\.\.\.\(base\?\.exclusionAreasBreak \?\? \[\]\), b => \(nearHome\(b\?\.position, home\) \? 100 : breakHazard\(at, b\)\), makeTownBreakCost\(home, 100\)\]/,
     'nearHome stays and the town entry is added')
   const fake = { entity: { yaw: 0 }, blockAt: () => ({ name: 'stone', boundingBox: 'block' }) }
-  const none = chooseStairBearing(fake, V(0, 70, 0), 4, () => false)
-  assert.equal(none, null, 'no allowed bearing -> null (mine walks out before calling it that way)')
+  assert.equal(chooseStairBearing(fake, V(0, 70, 0), 4, []), null, 'no allowed bearing -> null (mine guards it and names a move)')
+  assert.deepEqual(chooseStairBearing(fake, V(0, 70, 0), 4, [{ x: 0, z: -1 }])?.bear, { x: 0, z: -1 }, 'only an allowed bearing is chosen')
+  // ONE keep-out: the town is composed into minewell's plan (and so into its per-dig stop), and the far starts are offered
+  const sk = strip(readFileSync(SKILLS_URL, 'utf8'))
+  assert.match(sk, /return composeKeepOut\(farm, townKeepOut\(townHome\(\), nameAt\)\)/)
+  assert.doesNotMatch(sk, /townAllow|stairTownClear\(/, 'no second bearing filter in mine')
 })
 
 test('MUTANT KILLED: the tunnel without its town entry digs town ground (the profile test above catches it)', async () => {
