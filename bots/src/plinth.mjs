@@ -650,7 +650,7 @@ export function sequencePlinth (read, cand, opts = {}) {
 }
 /** sequencePlinth as a generator: it yields after every step it orders (the planner's long part), so the bot's event loop
  *  runs between them; the return value is sequencePlinth's. Pure. */
-export function * sequencePlinthSteps (read, cand, { home, start = null, clearLeaves = true, keepOut = [], otherColumns = [] } = {}) {
+export function * sequencePlinthSteps (read, cand, { home, start = null, clearLeaves = true, keepOut = [], otherColumns = [], noStand = null } = {}) {
   const { cap } = cand
   const st = start ?? startNear(read, home)
   if (!st) return { why: 'no_start' }
@@ -671,7 +671,7 @@ export function * sequencePlinthSteps (read, cand, { home, start = null, clearLe
     const stands = finalStands(finRead, cap).filter(s => finReach.has(K(s.x, s.y, s.z)))
     if (!stands.length) { lastWhy = 'no_route'; continue }
     if (!wellStand(finRead, cap)) { lastWhy = 'no_stand'; continue }
-    const r = yield * orderSteps(read, cand, stair, { st, box, forbid })
+    const r = yield * orderSteps(read, cand, stair, { st, box, forbid, noStand })
     if (r.why) { lastWhy = r.why; lastStuck = r.stuck; lastSteps = r.steps; continue }
     const ws = wellStand(finRead, cap)
     const steps = r.steps
@@ -685,7 +685,7 @@ export function * sequencePlinthSteps (read, cand, { home, start = null, clearLe
   return { why: lastWhy, stuck: lastStuck, steps: lastSteps }
 }
 
-function * orderSteps (read0, cand, stair, { st, box, forbid }) {
+function * orderSteps (read0, cand, stair, { st, box, forbid, noStand = null }) {
   const { cap } = cand
   const cells = new Map()
   const world = overlay(read0, cells)
@@ -700,7 +700,10 @@ function * orderSteps (read0, cand, stair, { st, box, forbid }) {
   const steps = []
   let reach = walkReach(world, st, { box, forbid })
   let prev = st, hazardStep = null
-  const avoidStand = (x, y, z) => forbid(x, y, z)
+  // NO BUILDER'S STAND ON ANOTHER STRUCTURE'S CELL (treefarm-02, Claude r14 P3-1): `noStand(x, y, z)` -> true for a cell no
+  // stand's feet or head may be in (a tree farm's soil, plot column and torch cells); never a route rule. standFor asks
+  // avoid at the feet AND the head, so the cell itself is all this asks (Codex r17 P3)
+  const avoidStand = (x, y, z) => forbid(x, y, z) || (typeof noStand === 'function' && noStand(x, y, z))
   while (todo.length) {
     yield steps.length
     let done = false
@@ -764,7 +767,7 @@ export function planPlinth (opts = {}) {
 }
 /** planPlinth as a generator: it yields after each candidate it sequences, so a bot can let its event loop run between
  *  them (skills.mjs buildPlinth); the return value is planPlinth's. Pure. */
-export function * planPlinthSteps ({ read, home, avoid = [], keepOut = [], clearLeaves = true, start = null, maxTries = PLINTH_MAX_TRIES, otherColumns = [] } = {}) {
+export function * planPlinthSteps ({ read, home, avoid = [], keepOut = [], clearLeaves = true, start = null, maxTries = PLINTH_MAX_TRIES, otherColumns = [], noStand = null } = {}) {
   if (typeof read !== 'function' || !home) return { plan: null, why: 'no_home', tally: null, tried: 0 }
   const r = memoRead(read, home)
   const { cands, tally } = plinthCandidates({ read: r, home, avoid, keepOut, clearLeaves })
@@ -775,7 +778,7 @@ export function * planPlinthSteps ({ read, home, avoid = [], keepOut = [], clear
     // a candidate's cheap cost is a lower bound of its total (the stair only adds): none further can beat the best
     if (best && c.cost >= plinthTotal(best)) break
     tried++
-    const s = yield * sequencePlinthSteps(r, c, { home, start, clearLeaves, keepOut, otherColumns })
+    const s = yield * sequencePlinthSteps(r, c, { home, start, clearLeaves, keepOut, otherColumns, noStand })
     yield tried
     if (s.plan) { found++; if (!best || plinthTotal(s.plan) < plinthTotal(best)) best = s.plan; continue }
     tally[`seq_${s.why}`] = (tally[`seq_${s.why}`] ?? 0) + 1
