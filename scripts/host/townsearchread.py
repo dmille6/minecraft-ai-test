@@ -157,8 +157,19 @@ def stream(since, until, cut, cans, logroot='/var/log/mcai'):
     return kept, walked, bots, bad
 
 
+def earlier_build(r):
+    """A PRE-window row only a townsearch build writes (the search's town=, or its licence): an EARLIER canary of this
+    change (townsearch-01 ran on placebo-d, board-c until 11:58Z 10-17), never the baseline. Claude ts02 review P1: the read's
+    pre window grows with each read, so these rows sat in control's pre period and blocked KEEP at every read after +360."""
+    return r['per'] == 'pre' and (searched(r) or r['name'] == '_townsearch_mode')
+
+
 def judge(rows):
     out = {}
+    # an earlier canary's rows in the PRE window are reported, never counted (not baseline behaviour, not this canary)
+    out['pre_earlier_build_canary'] = sum(1 for r in rows if r['arm'] == 'canary' and earlier_build(r))
+    out['pre_earlier_build_control'] = sum(1 for r in rows if r['arm'] == 'control' and earlier_build(r))
+    rows = [r for r in rows if not earlier_build(r)]
     for per in ('pre', 'post'):
         for arm in ('canary', 'control'):
             sel = [r for r in rows if r['per'] == per and r['arm'] == arm and is_order(r)]
@@ -182,7 +193,8 @@ def judge(rows):
     s = [r for r in post_c if searched(r)]
     out['search_rows_canary'] = len(s)
     out['licence_canary'] = sum(1 for r in post_c if r['name'] == '_townsearch_mode')
-    out['search_rows_control'] = sum(1 for r in rows if r['arm'] == 'control' and (searched(r) or r['name'] == '_townsearch_mode'))
+    # ARMS: this canary's build in CONTROL after the deploy (the pre window's earlier-build rows are reported above)
+    out['search_rows_control'] = sum(1 for r in rows if r['per'] == 'post' and r['arm'] == 'control' and (searched(r) or r['name'] == '_townsearch_mode'))
     loops, over = [], []
     for r in s:
         visits, maxrep, _ = counters(r)
@@ -257,6 +269,13 @@ def selftest():
     assert base['vfail_post_canary'] == 1, 'a base row: visit failures from its tried= list'
     assert tried_keys('tried=[1,2,3:none;4,5') == ['1,2,3'], 'a cut-off last entry is not counted'
     assert tried_keys('tried=[1,2,3:none;4,5,6:no') == ['1,2,3', '4,5,6'], 'a cut-off outcome still names its container'
+    # Claude ts02 P1: townsearch-01's own rows in control's PRE window are an earlier build -- reported, not an arms breach,
+    # and not counted in the DiD; the same rows AFTER the deploy are a breach (positive control)
+    prev = [W('took_pick', arm='control', bot='placebo-d-Alpha', per='pre'), R('_townsearch_mode', 'phase=mode', arm='control', bot='board-c-Alpha', per='pre')]
+    pv = judge(prev + ctl)
+    assert pv['search_rows_control'] == 0 and pv['pre_earlier_build_control'] == 2 and pv['orders_pre_control'] == 0, pv
+    assert judge([W('took_pick', arm='control', bot='placebo-d-Alpha')] + ctl)['search_rows_control'] == 1, 'post-deploy: a breach'
+    assert judge([W('short', search=False, arm='control', bot='board-a-Alpha', per='pre')] + ctl)['orders_pre_control'] == 1, 'a base-shaped pre row still counts'
     print('SELFTEST ok: every gate fails on its fixture and passes its control')
 
 
@@ -301,8 +320,10 @@ if __name__ == '__main__':
     print('NOT FOUND    (short | has_ingredients) per order: canary %d/%d -> %d/%d control %d/%d -> %d/%d | DiD %+.3f (should FALL)'
           % (res['notfound_pre_canary'], res['orders_pre_canary'], res['notfound_post_canary'], res['orders_post_canary'],
              res['notfound_pre_control'], res['orders_pre_control'], res['notfound_post_control'], res['orders_post_control'], dids['notfound_per_order']))
-    print('LIVENESS     canary order rows with the search (town=) %d | licence rows %d | control rows with town= or the licence %d (must be 0)'
+    print('LIVENESS     canary order rows with the search (town=) %d | licence rows %d | control rows with town= or the licence after the deploy %d (must be 0)'
           % (res['search_rows_canary'], res['licence_canary'], res['search_rows_control']))
+    print('             pre-window rows of an EARLIER townsearch build (not counted): canary %d control %d'
+          % (res['pre_earlier_build_canary'], res['pre_earlier_build_control']))
     print('DEFECTS      D1 same container %d+ times in one order %d %s | D2 more than %d containers in one order %d %s'
           % (LOOP_MIN, res['loop_same_chest'], res['_lists']['loops'], VISIT_BUDGET, res['visits_over_budget'], res['_lists']['over']))
     print('REPORTED     visits that could not look inside, per order: canary %d/%d -> %d/%d control %d/%d -> %d/%d DiD %+.3f'

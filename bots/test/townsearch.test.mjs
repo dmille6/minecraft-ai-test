@@ -408,6 +408,21 @@ async function noRoomMixed (B, S = null) {
   return w
 }
 
+// ------------------------------------------------------------------------------------- composition with plinth-02
+await t('PLINTH FUNDING is the model\'s withdraw verb, untouched: nearest chest first (not the journal\'s holder), the old row layout (no town=), and a pickaxe miss does not hide a chest from it', async () => {
+  const w = farTown({ bag: [stack('crafting_table', 1)], far: [stack('cobblestone', 64)], rest: [stack('dirt', 5)] })
+  w.stock(...CHESTS[0], [stack('cobblestone', 64)])                          // the nearest chest holds cobble too
+  journalCount(kOf(FAR), { cobble: 64 }); journalCount(kOf(CHESTS[0]), { cobble: 64 })
+  CF.updateTownMemory(memDir(), CF.townKey(HOME), null, e => CF.notePickMisses(e, [kOf(CHESTS[0])]))   // a live pickaxe miss there
+  const n0 = RECS.length
+  const r = await SKILLS.withdraw.run({ bot: w.bot }, { item: 'cobblestone', count: 32 }, sig())
+  assert.equal(r.status, 'success', r.detail)
+  assert.deepEqual(w.spy.opened, [kOf(CHESTS[0])], 'nearest first, as before')
+  assert.equal(count(w.bag, 'cobblestone'), 32)
+  const row = rows(n0).at(-1) ?? ''
+  assert.match(row, / verb=withdraw tried=\[/); assert.doesNotMatch(row, / town=/)
+})
+
 // ------------------------------------------------------------------------------------- the pickaxe pass's clock
 await t('THE INGREDIENTS\' RESERVE (Codex r1 P2): the pickaxe pass\'s clock ends WITHDRAW_INGREDIENT_RESERVE_MS before the order\'s, for every part of a visit', () => {
   const now = 1_000_000
