@@ -10463,7 +10463,9 @@ async function toolkit (ctx, args, signal) {
         if (v.result?.status === 'success') { got = v.moved; break }
         // A CONTAINER THIS BOT CANNOT REACH, or a stock claim the journal could not confirm, moved nothing: the next container
         // (withdraw_pick's own rule; Claude r1 P3-1 -- one walled-in nearest chest ended every run)
-        if (v.result && ['chest_unreachable', 'stock_unconfirmed'].includes(v.result.failClass)) continue
+        // ...and since lidclear-01 a lid the visit could not clear (container_blocked: openForWithdraw clears the lids it may and
+        // refuses the rest) -- it moved nothing either
+        if (v.result && ['chest_unreachable', 'stock_unconfirmed', 'container_blocked'].includes(v.result.failClass)) continue
         if (v.result) {
           st.drew = v.moved?.took?.iron_ingot ?? 0; st.sticks = v.moved?.took?.stick ?? 0; st.stop = v.result.failClass ?? 'failed'
           return out('failed', v.result.failClass === 'inventory_full' ? 'room' : 'draw_failed', v.result.detail, v.result.failClass ?? 'kit_draw')
