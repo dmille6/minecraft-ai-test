@@ -627,12 +627,14 @@ export function depositSituation (bot, memory) {
         depositTargetOk({ x: config.world.homeX, y: config.world.homeY, z: config.world.homeZ }, b.position),   // a DEEP container is not storage (chestfull-02)
       maxDistance: 48,
     })
-    if (!depositDue({ bankable: bank.count, distHome, storageWithin48: !!storage,
+    // the kit is never the reason for a deposit (kitshrink-01): its share is dropped here even with storage in reach
+    const surplus = Math.max(0, bank.count - (bank.kit ?? 0))
+    if (!depositDue({ bankable: surplus, kitBankable: 0, distHome, storageWithin48: !!storage,
                       occupiedSlots: items.length })) return ''
     const where = storage
       ? `storage is ${Math.round(p.distanceTo(storage.position))} blocks away`
       : `the town chest is ${Math.round(distHome)} blocks away`
-    return `CARRYING: ${bank.count} items worth banking and ${where}. ` +
+    return `CARRYING: ${surplus} items worth banking and ${where}. ` +
            `Use deposit — banked items survive your death, carried ones do not. ` +
            `Your tools and climb-out blocks are kept automatically.`
   } catch { return '' }

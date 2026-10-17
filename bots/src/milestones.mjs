@@ -16,6 +16,13 @@
 
 import { equivalentTools } from './skills.mjs'
 import { bankableInventory } from './bankable.mjs'
+/**
+ * THE SURPLUS THE DEPOSIT RUNG ASKS FOR: the bankable count WITHOUT the smaller kit's share (kitshrink-01; Claude code r4
+ * P2). Torches and ladders leave the bag at the town deposit or alongside other surplus; they never hold this rung, which
+ * at a full town chest would send the bot back to the chest every lap (their full-chest exit opens no new chest and closes
+ * nothing).
+ */
+export const surplusCount = b => { const r = bankableInventory(b?.inventory?.items?.() ?? []); return Math.max(0, r.count - (r.kit ?? 0)) }
 import { bankClosed, depositTargetOk } from './chestfull.mjs'
 import { countItem } from './state.mjs'
 import { MIN_TRIP_USES, hasTripPickaxe } from './oretunnel.mjs'
@@ -789,7 +796,7 @@ export const SUSTAINING = [
     id: 'deposit_surplus',
     wants: null,
     // Genuine only when the surplus is gone; "no chest within 48" steps over it without resetting its history (Codex).
-    fulfilled: b => bankableInventory(b.inventory?.items?.() ?? []).count < 4,
+    fulfilled: b => surplusCount(b) < 4,
     describe: () => 'Put your surplus in the town chest before heading out again.',
     // SATISFIABLE EVEN WHEN IT CANNOT BE DONE, which is the whole lesson of the
     // note under M.travel below -- and which the first version of THIS rung got
@@ -803,7 +810,7 @@ export const SUSTAINING = [
     // and the bot moves on. That also survives the town chest being destroyed,
     // which a strict version would not.
     done: b => {
-      if (bankableInventory(b.inventory?.items?.() ?? []).count < 4) return true
+      if (surplusCount(b) < 4) return true
       if (bankClosed(b)) return true   // the bank is closed for this bot (chestfull.mjs): nothing to do here, as with no chest
       const chest = b.findBlock?.({   // a DEEP container is not storage in reach (chestfull-02): done, as with no chest
         matching: blk => ['chest', 'barrel', 'trapped_chest']
@@ -813,7 +820,7 @@ export const SUSTAINING = [
       })
       return !chest
     },
-    progress: b => `${bankableInventory(b.inventory?.items?.() ?? []).count} bankable items carried`,
+    progress: b => `${surplusCount(b)} bankable items carried`,
     hint: 'deposit — you are at the chest already; keep your tools and enough blocks to climb out.',
   },
   {

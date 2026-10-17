@@ -1,0 +1,68 @@
+kitshrink-01 REVIEWS (10-16). Engines: Codex (`codex exec --sandbox read-only - < prompt`, kill watchdog) and an independent
+Claude subagent (fresh, read-only). Prompts and full outputs in the agent's scratch; verdicts and findings below.
+
+DESIGN r1 (round-1 design: torch, chest, ladder<26 bankable)
+  Codex  CHANGES  P1 chest: banking the carried chest into a town's last empty slot leaves the full-town recovery to CRAFT a
+                  chest from a full bag (chestfull fullChestNext 'craft'; inventory_full -> bank shut) -> CHESTS DROPPED.
+                  P2 ladderPlan rejects a non-finite reach (use reach = need, bounded search); P2 attribute exposure/defects
+                  to verified transfers; P2 define the work-start metric and KEEP/INCONCLUSIVE; P2 the new refusal must name a
+                  move; P3 narrow "no consumer", add ladders to the property test.
+  Claude CHANGES  no P1. P2 finite reach; P2 banked kit is a permanent town-storage sink (guard the town side); P2 the far
+                  craft room order would send bots home for torches; P2 queued torch consumers (treefarm-02 places only
+                  carried torches); P2 measure the cost side. P3s (withdraw ranks kit last, slot-order fit, valve, D2 label,
+                  re-craft split, hold-before-kit test).
+DESIGN r2 (chests out; KIT_NO_TRIP; town-side guards; tripwire)
+  Codex  CHANGES  P2 depositDue walks a bot <= 96 blocks with no chest in reach for the kit alone -> depositDue kitBankable;
+                  P2 after+banked is not the start bag -> the bank row uses heldBefore; P2 the town_deposit detail is cut at
+                  300 -> a bounded `_kitshrink phase=bank` row; P3 claims (station stacks, proxy bias) narrowed.
+  Claude CHANGES  P2 the same truncation; P2 the tripwire must name shaft-01 and classify per site. P3 withdraw rank,
+                  ~96-block walk, climb_ladder dead by construction (stated in the record).
+CODE r1 (b536385b / lidclear twin 4b1bab17)
+  Codex  CHANGES  P2 a NAMED kit deposit could still walk when other surplus made depositDue true -> admission refuses it
+                  without storage in reach; near room advice/order keep the kit (kitKeep); P2 td_all_full coverage;
+                  P2 another build's row must break a departure.
+  Claude CHANGES  P2 a mutant anchor was not unique. P3 tripwire limits / "reclassify" / ladder_min cross-check / 129-torch
+                  cap note / run the sandbox.
+CODE r2 (eb644a75 / b895e0f0)
+  Codex  CHANGES  P2 admission's and kitKeep's chest scans ignored bot.skipContainers: a backed-off chest passed admission,
+                  then deposit() skipped it and walked home -> deposit() stops a kit-only plan before the walk home;
+                  usableChestNear judges a chest as the run does.
+  Claude APPROVE  P3 second chest scan; ladder_min mismatch only reported.
+CODE r3 (f2676f5d / 70f8b5c7)
+  Codex  APPROVE  no findings.
+  Claude CHANGES  P2 a kit-only plan at a FULL town chest still started the full-chest recovery (placed the carried chest
+                  or crafted one for torches) -> noNewChestFor: the kit, like cobble, never opens a new chest (viaRecovery,
+                  the town-memory branch, the final exit); chest-full.test.mjs KITSHRINK + control; two mutants.
+CODE r4 (d7e06750 / 56b49399)
+  Codex  APPROVE  P3 Paper wording ("consistent with setup timing") -> softened.
+  Claude CHANGES  P2 the kit-only full-chest exit closes nothing, and deposit_surplus counted the kit -> the bot was sent back
+                  to the full chest every lap -> milestones.mjs surplusCount (the rung and the prompt's CARRYING line count
+                  the surplus without the kit); CHAIN test + control; two mutants. P3 noNewChestFor above kitKeep's doc.
+CODE r5 (c56cd860 / bb4f4629)
+  Claude APPROVE  P3 report kit-only deposit no_effect rows per bot-h (a model loop would show) -> added to the read
+                  (kit_noop); P3 a room order at a full chest backs off through roomOutcome (bounded).
+  Codex  CHANGES  P2 a kit-only deposit still walked to a chest IN REACH (up to 48 blocks) -> the kit is never the reason for a
+                  deposit: depositDue drops its share always; deposit() stops a kit-only plan before any walk; admission
+                  refuses a named kit deposit and a plain deposit of the kit alone; kitKeep always keeps it (usableChestNear
+                  removed). Tests re-written (a chest 40 out); mutants re-anchored.
+MUTANTS after r5's fix: three SURVIVED, and each said something true. (1) "a kit-only deposit walks to a chest in reach": the
+                  test's fake bot had no findBlock, so the chest was never in the scan -> the test now gives the scan the
+                  chest (positive control asserted) and the mutant is killed. (2)(3) the r3 full-chest exemptions
+                  (noNewChestFor in viaRecovery, the town-memory branch, the final exit): unreachable FOR A KIT-ONLY PLAN once
+                  deposit() stops one before any walk (a plan with nothing moved still holds a non-kit name; anything moved returns
+                  success first) -> removed rather than kept as untested code; the chest-full KITSHRINK test now guards the
+                  stop that makes them unreachable (its mutant is killed).
+CODE r6 (2732a31b / 426370a4)
+  Codex  CHANGES  P2 kit + a non-qualifying remainder (admitted cobble) passed the kit-only stop and reached the recovery,
+  Claude CHANGES  where stockQualifies counted the untargeted torches as qualifying a new chest (same finding, both engines)
+                  -> stockQualifies skips the kit like cobble: ONE line that gates entry, craft and placement. chest-full test
+                  (torches + surplus cobble at a full chest: nothing placed or crafted; control with logs: placed) + mutant.
+                  P3 records corrected ("unreachable for a kit-only plan"; the stockQualifies line carries the rule).
+CODE r7 (359a9213 / 51033241)
+  Codex  APPROVE  no findings: the guard closes the mixed-remainder chest path; the kit alone drives no deposit, walk, trip,
+                  new chest, deposit rung or prompt nudge; usable escape ladders protected; the town deposit still banks it.
+  Claude APPROVE  no findings; stockQualifies has exactly three callers, all in fullChestRecovery (entry, craft, place).
+FINAL: both APPROVE on 359a9213 (fleet 623e92b9) and its lidclear twin 51033241 (0152baeb).
+  npm test: 253/253 on 359a9213, 254/254 on 51033241. Source mutants (bots/scripts/kitshrink-mutants.mjs): 24/24 killed on
+  both. eslint no-undef: only bots/src/reflex.mjs:2384 withinBody (pre-existing). licencecheck PASS (_kitshrink baseline
+  silent, 6 h, 80 bots, 359,490 rows); changerowcheck PASS; drawrequire.parse ([], None).

@@ -96,7 +96,7 @@ test('tools: a spent copy never moves, the best usable copy always stays', () =>
   assert.deepEqual(toolSlotsToBank([c(9, 100), c(10, 90), c(11, 80)], 1), [10], 'the allowance caps it')
 })
 
-test('the plan: whole stacks, smallest first; junk, food, stations, chests, dirt, sand and iron never; freed = stacks', () => {
+test('the plan: whole stacks, smallest first; junk, food, stations, chests, dirt, sand and iron never; freed = stacks (kitshrink: torches DO move)', () => {
   const items = bag([
     ['stone_pickaxe', 1, 1], ['stone_pickaxe', 1, 120], ['stone_pickaxe', 1, 60], ['wooden_pickaxe', 1, 40],
     ['cobblestone', 64], ['cobblestone', 64], ['cobblestone', 20], ['oak_log', 64], ['oak_log', 64], ['oak_log', 10],
@@ -106,8 +106,10 @@ test('the plan: whole stacks, smallest first; junk, food, stations, chests, dirt
   assert.equal(items.length, 36)
   const p = townDepositPlan(items)
   const names = p.steps.map(s => s.name)
-  for (const n of ['apple', 'egg', 'dirt', 'sand', 'bone_meal', 'crafting_table', 'chest', 'raw_iron', 'iron_ingot', 'coal', 'leaf_litter', 'torch', 'white_wool', 'wooden_pickaxe'])
+  for (const n of ['apple', 'egg', 'dirt', 'sand', 'bone_meal', 'crafting_table', 'chest', 'raw_iron', 'iron_ingot', 'coal', 'leaf_litter', 'white_wool', 'wooden_pickaxe'])
     assert.ok(!names.includes(n), `${n} must stay`)
+  // THE SMALLER KIT (kitshrink-01): torches leave the bag whole
+  assert.deepEqual(p.steps.filter(s => s.name === 'torch').map(s => s.count), [20])
   const picks = p.steps.filter(s => s.name === 'stone_pickaxe')
   assert.equal(picks.length, 1, 'one spare usable pickaxe banks')
   const moved = items.find(i => i.slot === picks[0].slot)
@@ -116,7 +118,7 @@ test('the plan: whole stacks, smallest first; junk, food, stations, chests, dirt
   assert.deepEqual(p.steps.filter(s => s.name === 'oak_log').map(s => s.count), [10], '138 logs, keep 64 units, creditCap 64: the 10 stack only (the next 64 would pass the cap)')
   assert.ok(p.steps.every(s => items.find(i => i.slot === s.slot).count === s.count), 'every step is a whole stack')
   assert.equal(p.freed, p.steps.length)
-  assert.equal(p.freed, 3, 'pickaxe + cobble 20 + logs 10')
+  assert.equal(p.freed, 4, 'pickaxe + cobble 20 + logs 10 + torch 20 (kitshrink)')
 })
 
 test('a bag holding only what the keeps protect plans nothing', () => {
@@ -128,7 +130,7 @@ test('a bag holding only what the keeps protect plans nothing', () => {
 function rng (seed) { let s = seed >>> 0; return () => { s = (s * 1664525 + 1013904223) >>> 0; return s / 2 ** 32 } }
 const POOL = ['oak_log', 'birch_log', 'spruce_log', 'oak_planks', 'birch_planks', 'stick', 'cobblestone', 'cobbled_deepslate', 'stone', 'andesite', 'diorite',
               'dirt', 'sand', 'gravel', 'coal', 'raw_iron', 'iron_ingot', 'iron_ore', 'crafting_table', 'furnace', 'apple', 'egg', 'bone_meal', 'oak_sapling',
-              'torch', 'chest', 'raw_copper', 'diamond', 'leaf_litter', 'bucket', 'white_wool']
+              'torch', 'chest', 'raw_copper', 'diamond', 'leaf_litter', 'bucket', 'white_wool', 'ladder']
 const TOOLS = ['wooden_pickaxe', 'stone_pickaxe', 'iron_pickaxe', 'stone_axe', 'stone_shovel']
 function randomBag (r) {
   const out = []
@@ -873,8 +875,8 @@ test('STOCK CHAIN (a): a full bag of at-target logs whose town has never been co
   } finally { untap(); done() }
 })
 test('STOCK CHAIN (b): a full bag at a town at its tool target, nothing else to free -> the VALVE banks ONE spare copy (two copies are enough)', async () => {
-  // filler: torches (never bankable, never junk, never compost) -- wool would be the well's junk, and the valve rightly waits for the well
-  const items = bag([['stone_pickaxe', 1, 131], ['stone_pickaxe', 1, 100], ['crafting_table', 1], ...Array.from({ length: 33 }, (_, i) => ['torch', 1 + (i % 3)])])
+  // filler: chests (never bankable, never junk, never compost; torches bank since kitshrink-01) -- wool would be the well's junk, and the valve rightly waits for the well
+  const items = bag([['stone_pickaxe', 1, 131], ['stone_pickaxe', 1, 100], ['crafting_table', 1], ...Array.from({ length: 33 }, (_, i) => ['chest', 1 + (i % 3)])])
   // the town really holds its 16 usable stone pickaxes (the bot's own count at the open must agree with the seed)
   const chest = chestAt(2, 70, 0, { items: Array.from({ length: 27 }, (_, i) => (i < 16 ? item('stone_pickaxe', 1) : null)) })
   const now = Date.now()
@@ -931,7 +933,7 @@ test('STOCK CHAIN (d) (Codex code r2 P2-6): at-target logs whose only count is 2
 // next deposit is judged on the count -- under target it BANKS. CONTROL (the dead end, today's 34-slot rule): with the
 // recount held off, the same deposit is refused at admission as not yet counted, and the chest is unchanged.
 const fencedTown = async () => {
-  const items = bag([['oak_log', 64], ['oak_log', 64], ['crafting_table', 1], ['wooden_pickaxe', 1, 50], ['dirt', 16], ['stick', 4], ['torch', 8]])
+  const items = bag([['oak_log', 64], ['oak_log', 64], ['crafting_table', 1], ['wooden_pickaxe', 1, 50], ['dirt', 16], ['stick', 4], ['chest', 8]])
   const chest = chestAt(2, 70, 0, { items: Array.from({ length: 27 }, (_, i) => (i === 0 ? item('oak_log', 20) : null)) })
   const now = Date.now()
   const { bot, done } = await stockChain({ items, chest, seed: { t: 'cnt', k: '2,70,0', n: 0, cap: now - 5_000, v: 2, m: { oak_log: 20 }, ids: [], scan: { keys: ['2,70,0'], at: now - 5_000 } } })
@@ -964,7 +966,7 @@ test('RECOUNT CHAIN (stocktarget-02): a fenced town, a bag of 7 slots, the model
   } finally { done() }
 })
 test('RECOUNT CHAIN CONTROL (the dead end): the same fenced town with the recount held off -> every deposit is refused at admission as not yet counted; the chest is unchanged', async () => {
-  const items = bag([['oak_log', 64], ['oak_log', 64], ['crafting_table', 1], ['wooden_pickaxe', 1, 50], ['dirt', 16], ['stick', 4], ['torch', 8]])
+  const items = bag([['oak_log', 64], ['oak_log', 64], ['crafting_table', 1], ['wooden_pickaxe', 1, 50], ['dirt', 16], ['stick', 4], ['chest', 8]])
   const chest = chestAt(2, 70, 0, { items: Array.from({ length: 27 }, (_, i) => (i === 0 ? item('oak_log', 20) : null)) })
   const now = Date.now()
   const { bot, done } = await stockChain({ items, chest, seed: { t: 'cnt', k: '2,70,0', n: 0, cap: now - 5_000, v: 2, m: { oak_log: 20 }, ids: [], scan: { keys: ['2,70,0'], at: now - 5_000 } } })
@@ -1097,4 +1099,107 @@ test('STOCK CHAIN (c): NO USABLE WELL -> no stop: at-target logs bank as today (
     const CC = await import('../src/cobblecap.mjs')
     assert.ok((CC.readJournal(process.env.POOL_STATE_DIR, CF.townKey(new Vec3(0, 70, 0)), bot.worldId ?? null) ?? []).some(r => r.t === 'claim' && r.kind === 'nowell'), 'under a nowell claim')
   } finally { done() }
+})
+
+// ---- THE SMALLER KIT (kitshrink.mjs, kitshrink-01; owner 10-16 "yes shrink") ---------------------------------------------
+// Torches, and ladders below the ladder escape's minimum, leave the bag at the town deposit; chests, stations and the bucket
+// stay; a bag at the escape's minimum keeps every ladder. The run writes its own bounded `_kitshrink phase=bank` row.
+const KS = await import('../src/kitshrink.mjs')
+const kitRowsOf = async fn => {
+  const rows = []
+  const untap = tapRecords(r => { if (r?.skill?.name === '_kitshrink' || r?.skill?.name === '_town_deposit') rows.push(r) })
+  try { return { out: await fn(), rows } } finally { untap() }
+}
+const kitBag = ladders => bag([['torch', 4], ['ladder', ladders], ['chest', 7], ['crafting_table', 1], ['furnace', 1], ['bucket', 1],
+  ['cobblestone', 64], ['oak_log', 20], ['stone_pickaxe', 1, 100], ...filler(27)])
+
+test('KITSHRINK plan: torches and ladders below 26 bank whole; the chest, the stations and the bucket stay', () => {
+  const items = kitBag(3); assert.equal(items.length, 36)
+  const names = townDepositPlan(items).steps.map(s => s.name).sort()
+  assert.deepEqual(names, ['ladder', 'torch'])
+  const at26 = townDepositPlan(kitBag(KS.LADDER_ESCAPE_MIN)).steps.map(s => s.name)
+  assert.deepEqual(at26, ['torch'], 'a bag at the escape minimum keeps every ladder')
+  assert.deepEqual(townDepositPlan(kitBag(KS.LADDER_ESCAPE_MIN - 1)).steps.map(s => s.name).sort(), ['ladder', 'torch'], 'one below it banks them')
+})
+
+test('KITSHRINK plan: adding kit to a bag changes NO other step (per-name rules; the scaffold reserve and keeps are untouched)', () => {
+  const base = bag([['cobblestone', 64], ['cobblestone', 64], ['cobblestone', 20], ['oak_log', 64], ['oak_log', 64], ['oak_log', 10],
+    ['stone_pickaxe', 1, 120], ['stone_pickaxe', 1, 60], ['dirt', 40], ['stick', 30], ...filler(24)])
+  const withKit = [...base.slice(0, 34), item('torch', 9, 43), item('ladder', 5, 44)]
+  const without = base.slice(0, 34)
+  const strip = p => p.steps.filter(s => !KS.KIT_BANK.includes(s.name)).map(s => `${s.slot}:${s.name}:${s.count}`)
+  assert.deepEqual(strip(townDepositPlan(withKit)), strip(townDepositPlan(without)))
+  assert.deepEqual(townDepositPlan(withKit).steps.filter(s => KS.KIT_BANK.includes(s.name)).map(s => s.name).sort(), ['ladder', 'torch'])
+})
+
+test('KITSHRINK plan: a withdraw hold on a kit name still wins (the hold is judged before the kit rule)', () => {
+  BANK.clearWithdrawHolds()
+  BANK.setWithdrawHold('torch', 4, Date.now() + 60_000)
+  try {
+    assert.deepEqual(townDepositPlan(kitBag(3)).steps.map(s => s.name), ['ladder'])
+  } finally { BANK.clearWithdrawHolds() }
+})
+
+test('KITSHRINK SKILL: the real town_deposit banks the torches and ladders whole and writes ONE bounded bank row with START counts', async () => {
+  const items = kitBag(3)
+  const c = chestAt(2)
+  const w = world({ items, containers: [c] })
+  const { out: r, rows } = await kitRowsOf(() => run(w.bot))
+  assert.equal(r.status, 'success', r.detail)
+  for (const now of [w.bot.inventory.items(), serverBag(w)]) {
+    assert.equal(sumOf(now, 'torch'), 0); assert.equal(sumOf(now, 'ladder'), 0)
+    for (const n of ['chest', 'crafting_table', 'furnace', 'bucket']) assert.equal(sumOf(now, n), n === 'chest' ? 7 : 1, `${n} stays`)
+    assert.equal(now.length, 34, 'two slots freed')
+  }
+  assert.equal(sumOf(c.items, 'torch'), 4); assert.equal(sumOf(c.items, 'ladder'), 3)
+  const kit = rows.filter(x => x.skill.name === '_kitshrink')
+  assert.equal(kit.length, 1)
+  assert.equal(kit[0].skill.detail, 'phase=bank via=town_deposit torch=4:4 ladder=3:3 crafting_table=1:0 furnace=1:0 bucket=1:0 slots=36->34')
+})
+
+test('KITSHRINK SKILL CONTROL: 26 ladders and no torch -> nothing kit-related banks; the bank row still reports the held ladders', async () => {
+  const items = bag([['ladder', KS.LADDER_ESCAPE_MIN], ['oak_log', 64], ['oak_log', 64], ['oak_log', 10], ['crafting_table', 1], ...filler(31)])
+  const c = chestAt(2)
+  const w = world({ items, containers: [c] })
+  const { rows } = await kitRowsOf(() => run(w.bot))
+  assert.equal(sumOf(w.bot.inventory.items(), 'ladder'), KS.LADDER_ESCAPE_MIN, 'every ladder stays')
+  assert.equal(sumOf(c.items, 'ladder'), 0)
+  const kit = rows.filter(x => x.skill.name === '_kitshrink')
+  assert.equal(kit.length, 1)
+  assert.match(kit[0].skill.detail, /^phase=bank via=town_deposit torch=0:0 ladder=26:0 /)
+})
+
+test('KITSHRINK SKILL: a bag with no kit writes no bank row (the row is the kit\'s, never every deposit\'s)', async () => {
+  const w = world({ items: fullBag(), containers: [chestAt(2)] })
+  const { rows } = await kitRowsOf(() => run(w.bot))
+  assert.equal(rows.filter(x => x.skill.name === '_town_deposit').length, 1, 'positive control: the deposit row was seen')
+  assert.equal(rows.filter(x => x.skill.name === '_kitshrink').length, 0)
+})
+
+test('KITSHRINK DEPOSIT VERB (Codex code r2 P2): a kit-only plan with no chest the run would use never walks home -- named or plain', async () => {
+  for (const args of [{ item: 'torch' }, {}]) {
+    const items = bag([['torch', 20], ['ladder', 3], ['crafting_table', 1], ...filler(20)])
+    const w = world({ items, containers: [], botAt: new Vec3(60, 70, 0) }); w.bot.findBlock ??= () => null
+    const r = await SKILLS.deposit.run({ bot: w.bot }, args, null)
+    assert.equal(r.status, 'no_effect', JSON.stringify(r))
+    assert.match(r.detail, /town deposit takes them/); assert.doesNotMatch(r.detail, /\d/)
+    assert.equal(w.st.walks.length, 0, `no walk: ${JSON.stringify(w.st.walks)}`)
+    assert.equal(sumOf(w.bot.inventory.items(), 'torch'), 20)
+  }
+  // ...and with a chest in reach (Codex code r5 P2): no walk to it either, the chest is untouched
+  {
+    const items = bag([['torch', 20], ['ladder', 3], ['crafting_table', 1], ...filler(20)])
+    const c = chestAt(48)   // a town container (depositTargetOk: within 16 of home is not needed for the scan) 12 blocks from the bot
+    const w = world({ items, containers: [c], botAt: new Vec3(60, 70, 0) })
+    w.bot.findBlock = ({ matching, maxDistance = 48 } = {}) => { const b = w.bot.blockAt(c.pos); return b && w.bot.entity.position.distanceTo(c.pos) <= maxDistance && matching(b) ? b : null }
+    assert.ok(w.bot.findBlock({ matching: () => true }), 'positive control: the chest is in reach of the scan')
+    const r = await SKILLS.deposit.run({ bot: w.bot }, {}, null)
+    assert.equal(r.status, 'no_effect', JSON.stringify(r)); assert.equal(w.st.walks.length, 0, 'no walk to the chest')
+    assert.equal(sumOf(c.items, 'torch'), 0)
+  }
+  // POSITIVE CONTROL: the same empty town with a log surplus walks home (the walk is for the logs, as today)
+  const items = bag([['torch', 20], ['oak_log', 64], ['oak_log', 64], ['oak_log', 64], ['crafting_table', 1], ...filler(20)])
+  const w = world({ items, containers: [], botAt: new Vec3(60, 70, 0) }); w.bot.findBlock ??= () => null
+  await SKILLS.deposit.run({ bot: w.bot }, {}, null).catch(() => {})
+  assert.ok(w.st.walks.length >= 1, 'a plan with other surplus still walks home')
 })

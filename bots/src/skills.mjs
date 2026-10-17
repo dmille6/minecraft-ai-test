@@ -105,6 +105,7 @@ import { scaffoldCount } from './exit-contract.mjs'
 /** Is this a pillar/scaffold block (well.mjs pillarCount's names)? */
 const isPillarItem = name => scaffoldCount([{ name, count: 1 }]) > 0 || /^(sandstone|red_sandstone|calcite|dripstone_block|blackstone)$/.test(name)
 import { bankableInventory, depositDue, DEPOSIT_ALWAYS, stockRefusals, stockRefusedDetail } from './bankable.mjs'
+import { KIT_NO_TRIP, KIT_BANK, kitBankDetail, kitBankRowDue } from './kitshrink.mjs'
 import { RECOUNT_SKIP, RECOUNT_MISS_REASONS, recordRecountMiss, recountMissStatus } from './recount.mjs'   // chestfull-02: advice agrees with admission
 import fs from 'node:fs'
 import { doVisit, openBoard, withinBoard } from './board-visit.mjs'
@@ -2686,6 +2687,14 @@ async function deposit(ctx, { item = null }, signal, { noRecovery = false, prefe
     if (b && isContainer(b) && depositTargetOk(hv, b.position) && (!cobbleOnly || inTown(hv, b.position))) chestBlock = b
   }
   chestBlock = chestBlock || findChest()
+  // THE KIT IS NEVER THE REASON FOR A DEPOSIT, AT EXECUTION TOO (kitshrink-01; Codex code r2/r5 P2): a plan of nothing but
+  // torches and ladders stops here, before any walk -- to a chest in reach or home -- and so before any full-chest recovery
+  // (Claude code r3 P2: the kit never opens a new chest). The town deposit takes them.
+  {
+    let kitOnly = false
+    try { const p = depositPlan(bot.inventory.items(), item, { wants: bot.currentWants ?? [] }); kitOnly = p.length > 0 && p.every(e => KIT_BANK.includes(e.name)) } catch { kitOnly = false }
+    if (kitOnly) return { status: 'no_effect', failClass: null, detail: 'only torches and ladders to bank: the town deposit takes them, a deposit never runs for them -- keep working' }
+  }
   if (!chestBlock) {
     // The town chest lives at home, and a 48-block scan cannot see it from a
     // mine. Walking home first is the difference between "deposit works near
@@ -3479,6 +3488,10 @@ export function stockQualifies (bot, item = null, stage = 'entry', { reserveAt =
     const items = bot.inventory?.items?.() ?? []
     const plan = depositPlan(items, item, { wants: bot.currentWants ?? [], noSwords: foodSkipNow(bot).active })
     for (const { name, count } of plan) {
+      // THE KIT NEVER OPENS A NEW CHEST (kitshrink-01; Claude code r3/r6 P2, Codex r6 P2): torches and ladders have no stock
+      // group, so they read as untargeted and qualified a chest on their own beside a remainder that does not (admitted
+      // cobble, a targeted name not proven under target). Like cobble, they never qualify -- at entry, craft and placement.
+      if (KIT_BANK.includes(name)) continue
       const g = groupOf(name)
       if (!g) { untargeted++; out.any = true; continue }
       if (g === 'cobble') continue
@@ -5192,7 +5205,7 @@ async function makeCraftRoom(ctx, item, plan, signal) {
  */
 export function adviseDeposit (bot, items, keep = []) {
   if (bankClosed(bot) || !depositWorthIt(bot, items)) return null
-  try { return depositTarget(items, depositPlan(items, null, { wants: bot.currentWants ?? [] }), keep) } catch { return null }   // noSwords: the switch (default), refreshed by depositWorthIt
+  try { return depositTarget(items, depositPlan(items, null, { wants: bot.currentWants ?? [] }), kitKeep(bot, keep)) } catch { return null }   // noSwords: the switch (default), refreshed by depositWorthIt
 }
 /**
  * WOULD ADMISSION LET A DEPOSIT THROUGH FROM HERE? Its deposit_not_worth_it test (admission.mjs): depositDue over the
@@ -5200,12 +5213,20 @@ export function adviseDeposit (bot, items, keep = []) {
  * deposit admission would refuse (Codex, chestfull-02 round 1: craft -> deposit -> refusal, with the deep chest now
  * not storage). The deposit milestone's own allowance is not known here, so this is never looser than admission.
  */
+/**
+ * THE KIT IS NEVER A ROOM REMEDY (kitshrink-01; Codex code r1/r5 P2): every deposit the room advice or order names walks (to
+ * the chest, or home), so the kit (kitshrink.mjs KIT_NO_TRIP) always joins `keep`. The town deposit takes it.
+ */
+export function kitKeep (_bot, keep = []) {
+  return [...(keep ?? []), ...KIT_NO_TRIP]
+}
 export function depositWorthIt (bot, items = []) {
   try {
     const home = homeVec()
     const wants = [...(bot.currentWants ?? []), ...DEPOSIT_ALWAYS]
     const storage = bot.findBlock?.({ maxDistance: 48, matching: b => ['chest', 'barrel', 'trapped_chest'].includes(bot.registry?.blocks?.[b.type]?.name) && depositTargetOk(home, b.position) })
-    return depositDue({ bankable: bankableInventory(items, { wants, noSwords: foodSkipNow(bot).active }).count, distHome: horizontalDistanceFromSpawn(bot.entity.position),
+    const bank = bankableInventory(items, { wants, noSwords: foodSkipNow(bot).active })
+    return depositDue({ bankable: bank.count, kitBankable: bank.kit, distHome: horizontalDistanceFromSpawn(bot.entity.position),   // kitshrink-01: no walk for the kit alone
                         storageWithin48: !!storage, occupiedSlots: items.length })
   } catch { return true }   // a world that cannot be asked: the advice as it was
 }
@@ -5225,7 +5246,8 @@ export function slotRemedy(bot, items, keep = []) {
   // chestfull-02 round 2: without this the refusal said nothing could be freed).
   if (!closed && advice.kind === 'none') {
     let far = null
-    try { far = depositTarget(items, depositPlan(items, null, { wants: bot.currentWants ?? [] }), keep) } catch { far = null }
+    // the kit never makes a trip (kitshrink.mjs KIT_NO_TRIP): a far bot is not sent home to bank a torch or a ladder
+    try { far = depositTarget(items, depositPlan(items, null, { wants: bot.currentWants ?? [] }), [...keep, ...KIT_NO_TRIP]) } catch { far = null }
     if (far) advice = { kind: 'home', text: `home -- then deposit ${far}: banking is refused out here (no usable chest in reach) and the town chest frees slots` }
   }
   return { fill, remedy: advice.text, kind: advice.kind }
@@ -5363,7 +5385,7 @@ export function craftRoomCheck (bot, item, count = 1, { wearFailedRecently = fal
 export const DEPOSIT_NEAR_HOME = 96   // bankable.mjs depositDue's nearHome default: inside it a deposit is worth it
 export function roomRemedy (bot, items, keep = [], { exclude = new Set() } = {}) {
   const isPlaceable = n => placeableBlock(bot.registry, n)
-  const depositItem = exclude.has('deposit') || bankClosed(bot) || !depositWorthIt(bot, items) ? null : roomDepositTarget(bot, items, keep)
+  const depositItem = exclude.has('deposit') || bankClosed(bot) || !depositWorthIt(bot, items) ? null : roomDepositTarget(bot, items, kitKeep(bot, keep))
   const hunger = exclude.has('eat') ? 20 : (bot.food ?? 20)
   const advice = roomAdvice({ items, consumes: keep, isPlaceable, placeSite: false, foodOrder: FOOD_PRIORITY, hunger, depositItem })
   if (advice.kind === 'eat') return { kind: 'eat', item: null, text: advice.text }
@@ -5371,7 +5393,8 @@ export function roomRemedy (bot, items, keep = [], { exclude = new Set() } = {})
   const closed = bankClosed(bot)
   if (closed) return { kind: 'closed', item: null, text: closedRoomText(closed) }
   if (!exclude.has('home') && farFromBank(bot)) {
-    const far = exclude.has('home_deposit') ? null : roomDepositTarget(bot, items, keep)
+    // the kit never makes a trip (kitshrink.mjs KIT_NO_TRIP): a far bot is not sent home to bank a torch or a ladder
+    const far = exclude.has('home_deposit') ? null : roomDepositTarget(bot, items, [...keep, ...KIT_NO_TRIP])
     if (far) return { kind: 'home', item: far, text: `home -- then deposit ${far}: banking is refused out here (no usable chest in reach) and the town chest frees slots` }
     // ...OR THE TOWN'S WELL (Claude st-r1 1a): at target the bank takes no bulk, and the town's exit for that surplus is the
     // junk well, whose order runs at town before this one. `item` stays null: the room order names no deposit.
@@ -7122,8 +7145,12 @@ async function townDeposit (ctx, _args, signal) {
   // THE BAG'S LOSS over the banked names, from the SERVER's copy of the bag on the last re-open (the client bag after a
   // close is mineflayer's own prediction); the client bag only when nothing was re-opened.
   const bagDelta = () => { const after = serverBag ?? held(items()); return Object.keys(banked).reduce((t, n) => t + Math.max(0, (heldBefore[n] ?? 0) - (after[n] ?? 0)), 0) }
-  const row = (status, extra = {}) => logEvent({ kind: 'town_deposit', status, snapshot: snapshot(bot),
-    detail: townDepositDetail({ slotsBefore, slotsAfter: items().length, banked, stacks, tried, stop: stop ?? 'done', unsettled, bagDelta: bagDelta(), planned, tools, clicked, unverified, capRefused, stock, ...extra }) })
+  const row = (status, extra = {}) => {
+    logEvent({ kind: 'town_deposit', status, snapshot: snapshot(bot),
+      detail: townDepositDetail({ slotsBefore, slotsAfter: items().length, banked, stacks, tried, stop: stop ?? 'done', unsettled, bagDelta: bagDelta(), planned, tools, clicked, unverified, capRefused, stock, ...extra }) })
+    // THE SMALLER KIT (kitshrink-01): its own bounded row -- start counts and server-verified banked -- whenever the bag held kit
+    try { if (kitBankRowDue(heldBefore, banked)) logEvent({ kind: 'kitshrink', status, snapshot: snapshot(bot), detail: kitBankDetail({ via: 'town_deposit', heldBefore, banked, slotsBefore, slotsAfter: items().length }) }) } catch { /* a row never breaks the deposit */ }
+  }
   if (!planned) {
     stop = counted != null ? 'counted the town; nothing to bank above the keeps' : 'nothing to bank above the keeps'; row('no_effect')
     return { status: 'no_effect', detail: counted ? `counted ${counted} town container(s); nothing to bank (the town holds its stock of what is carried, or it is kept)` : 'nothing to bank: everything carried is kept (stockpile, scaffold, tools, iron, the goal) or not bankable' }

@@ -36,6 +36,7 @@ import { startChunkEvictor } from './evictor.mjs'
 import { attachCommands } from './commands.mjs'
 import { snapshot, inventorySummary } from './state.mjs'
 import { travelTool, TOOL_HYGIENE, takeWornFirst, WORN_FIRST_ROW_MS } from './toolfor.mjs'
+import { kitShrinkModeDetail } from './kitshrink.mjs'
 import { diffTools, spentTools } from './toolwatch.mjs'
 import { installPathBackoff } from './pathbackoff.mjs'
 import { attachPacketWitness } from './packet-witness.mjs'
@@ -288,6 +289,8 @@ function connect() {
     try { logEvent({ kind: 'townsearch_mode', status: 'success', snapshot: snapshot(bot), detail: townSearchModeDetail() }) } catch {}
     // plinth-02: the licence row, once per spawn -- the build's own `_plinth_mode` kind (plinth.mjs plinthModeDetail)
     try { logEvent({ kind: 'plinth_mode', status: 'success', snapshot: snapshot(bot), detail: plinthModeDetail(bot.worldId) }) } catch {}
+    // kitshrink-01: the licence row, once per spawn -- the build's own `_kitshrink` kind (kitshrink.mjs kitShrinkModeDetail)
+    try { logEvent({ kind: 'kitshrink', status: 'success', snapshot: snapshot(bot), detail: kitShrinkModeDetail() }) } catch {}
     try {
       installCraftSync(bot, { log: row => logEvent({ ...row, snapshot: snapshot(bot) }) })
     } catch (e) {
