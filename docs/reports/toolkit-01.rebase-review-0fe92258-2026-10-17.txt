@@ -1,0 +1,93 @@
+toolkit-01 REBASE onto 0fe92258 (plinth-02 on lidclear-01 0152baeb; rolled out DIRECTLY fleet-wide by the owner 10-17 12:25Z,
+option 2, no canary) -- review record, 2026-10-17 (toolkit rebase agent, worktree agent-a456fcdd). Built from the 0152baeb variant
+(tk-on-0152bae a03ac057, both engines APPROVE today) plus the plinth chain test. The fleet is 0fe92258; rollback = 0152baeb (that
+variant already covers it).
+
+APPROVED CHANGE: toolkit-01 (owner-approved 10-15; iron axe + iron shovel, at most 1 spare stone pickaxe). Net diff 75cfb447..2bce1306;
+reviews docs/reports/toolkit-01-reviews-2026-10-15.txt; F2 approved in docs/reports/toolkit-01.rebase-review-534aeec0-27908be4-2026-10-16.txt
+and ...-51033241-0152baeb-2026-10-17.txt (on those branches).
+
+THE VARIANT: tk-on-0fe9225 on 0fe92258 (canary sha = the docs-only commit adding THIS record):
+  ed68e301, 05be4d3c, 5d3b840b  the 3 approved commits. ONE conflict: hygiene.mjs HOUSEKEEPING (plinth's 'build_plinth' + 'toolkit')
+                                -> UNION (the resolution both engines approved on f8daab3a and 534aeec0).
+  9b908fb0                      F2: a container_blocked lid moves the kit's draw on (= tk-on-0152bae a74e3eaf).
+  78ed82d2                      test-only TOOLKIT x PLINTH CHAIN (real CognitiveLoop; control).
+  bef4d0c0                      test-only SKILL x PLINTH STAIR LID and WEAR x PLINTH-02 (below).
+  bots/src: every +/- line identical to the approved diff apart from the HOUSEKEEPING union and F2 (both engines, mechanically).
+
+PLINTH-02 COMPOSITION (both engines, file:line in their notes):
+  - DECIDE CHAIN: build_plinth > town_deposit > count_town (yields to both) > wear_out > town / well / prune / room orders > toolkit LAST,
+    then planting and the model. TEST: TOOLKIT x PLINTH CHAIN (a funded no-site town, no kit -> build_plinth first, the toolkit later
+    makes the kit; one plinth order; control without the no-site record). Mutant toolkit-before-plinth kills it.
+  - WEAR_OUT GUARD: every copy PART 1 adds goes through wearOutOne's wellCellAt refusal (unreadable wells refuse) -- both wear_out and
+    craftroom's make-room path. TEST: WEAR x PLINTH-02 (PART 1's three 1-use stone copies in a full bag with iron + a usable spare,
+    every neighbour a plinth shell cell -> nothing dug, the _toolkit wear row outcome=none listed=3 worn=0; control no well -> all three
+    worn out, iron + spare kept). Mutant wear-well-guard-off (plinth-02's guard removed) kills it.
+  - STAIR-LID GUARD: the kit's draw opens through openForWithdraw -> clearChestLid(by=withdraw); lidJudge refuses a lid cell that is a
+    well/plinth cell (incl. a plinth STAIR), judged again on a fresh read before the dig; refusal = container_blocked before any
+    transfer; F2 then takes the next container. TEST: SKILL x PLINTH STAIR LID (a chest whose cobblestone lid is a plinth stair cell ->
+    the step stays, no dig, tried=[1,64,0:container_blocked;5,64,0:success]; control: the well elsewhere -> the lid is dug and the
+    first chest gives the kit). Mutant stair-lid-veto-off (plinth-02's lid well veto off) kills it (the Claude reviewer re-ran it).
+  - TABLE PLACEMENT: wellTableCell is build_well's own. A kit craft uses `craft`'s chain: a table within 32 is walked to first (the
+    order needs a table option); place() (placeSites, the station make-room dig) has no well/plinth exclusion -- a PRE-EXISTING shared
+    gap of every craft at town. Unlikely on the kit's path (the bot stands within 2 of a town chest; the plinth planner keeps every
+    planned cell >= 1 from a chest or table and sites 12-14 out; a table in a planned cell is retaken, else the plinth stalls
+    'blocked' -- recoverable, no dig; the make-room dig needs all ~28 sites unusable). Both engines: P3, its own change (add
+    wellCellAt to placeSites and the make-room loop, fail closed). NOT fixed here.
+  - Funding / reserves: plinth funds from bag stone above STONE_GUARD 64 and chests via `withdraw`; the kit draws only iron + sticks;
+    room-making keeps all cobble (INGREDIENT_KEEP). No contract toolkit uses (withdrawVisit, decideTakes, withdrawSweep, withdrawClock,
+    craft, classifyOutcome, runner deltas) changed.
+
+TEST EVIDENCE
+  npm test (`node scripts/run-tests.mjs`): tk-on-0fe9225 @ bef4d0c0 257/257 files passed (two earlier runs were killed by SIGTERM, exit 143,
+    while other processes on the Mac ended -- no test result; re-run alone).
+  toolkit.test.mjs 38/38. eslint no-undef: exactly one hit, reflex.mjs:2384 withinBody.
+  MUTANTS (anchor present + unique, restored byte-identical) 17/17 killed: funded, credit-on-bot, abort-delta, fallthrough,
+    lid-fallthrough, rethrow-before-reconcile, spare-rule-off, town-keep, credit-ignored-in-draw, no-backoff, townmiss-ignored,
+    kit-effect-any, not-housekeeping, toolkit-before-plinth (TOOLKIT x PLINTH CHAIN fails as well), order-unwired, stair-lid-veto-off,
+    wear-well-guard-off.
+  PAPER (sandbox 10.0.0.30:25599 cand, sandbox2 :25600 ctrl; lock /tmp/mcai-sandbox.lock on .31 taken 12:39:39Z, released 12:43:21Z,
+    both servers empty). Driver sandbox/craft/toolkit-ab.cjs (origin/main), server reads:
+    cand tk-on-0fe9225 @ bef4d0c0 spare: bag 36->34, the three 1-use stone copies destroyed by use on stone (no well in the scene: the
+      plinth-02 guard does not refuse ordinary stone), iron_pickaxe@50 + stone spare@41 kept; 2 cobble drops on the ground at window close
+      (wear_out pickup timing, as on 10-16). kitgather: chest iron_ingot -4, stick -6; bag +iron_axe +iron_shovel; server damage 3/3 after
+      3 logs + 3 dirt; _toolkit outcome=crafted drew=4 used=4 credit=0->0.
+    ctrl 0fe92258 kitgather: chest stick -2 only (withdraw_pick's scene artifact), no iron, no kit.
+    Not on Paper: a plinth in the scene (the stair lid / wear guard rest on the unit tests and plinth-02's own Paper).
+
+REVIEWS (brief: scratch tkrb4/brief.md)
+==================================================================== Claude (independent subagent): APPROVE ========================
+a. bots/src differs from the approved diff only by the HOUSEKEEPING union (hygiene.mjs:112) and F2 (skills.mjs:10397-10399); identical
+   to a03ac057 apart from the union; cognitive/index/runner/toolkit/fakeworld/toolkitread line for line. b. decide chain correct
+   (cognitive.mjs 905, 911, 917, 935, 975, ~1000, 1023, toolkit 1036). c. both users of wearOutPlan (wear_out 6516, craftroom 273 ->
+   wearOutOne sidesOnly 5172) pass wearOutOne's wellCellAt refusal (6583); the test is adequate. d. withdrawVisit -> openForWithdraw ->
+   clearChestLid -> lidJudge (5556-5566, wellBreakCost incl. stair, well.mjs:1131-1132), re-judged before the dig; refused ->
+   container_blocked before transfer; F2 moves on. Re-ran stair-lid-veto-off: fails this test only (37/38); restored. e. P3 (as above,
+   with the path analysis). f. no contract change.
+P3 placeSites / place()'s station make-room dig lack a well/plinth exclusion (pre-existing, shared; own change).
+P3 room-making during the draw can bank andesite/diorite/granite, which the plinth also builds from (not INGREDIENT_KEEP); small:
+   build_plinth runs first, the draw needs <= 2 slots, and banked stone goes to a town chest the plinth's withdraw can draw from.
+P3 the wear test drives wear_out, not craftroom's make-room path (same guard).
+VERDICT: APPROVE
+
+==================================================================== Codex (codex exec -s read-only, stdin brief): APPROVE ==========
+No P1/P2 findings. The rebase is faithful; the shared table-placement issue remains P3.
+- a. All production changes match except the correct HOUSEKEEPING union (hygiene.mjs:112) and F2 (skills.mjs:10405); git range-diff
+  confirms F2 matches a74e3eaf. The final two commits change only toolkit.test.mjs.
+- b. build_plinth over town_deposit (cognitive.mjs:905); recount yields to both (:911); wear only without an order (:916); toolkit last
+  before planting (:1036). The real-loop test adequately checks plinth-first and subsequent toolkit progress.
+- c. Every added copy uses wearOutOne (skills.mjs:6516); its filter rejects well/plinth cells and unreadable well state (:6583) via
+  wellCellAt (:7616). The test adequately verifies the composition.
+- d. openForWithdraw -> lid clearing by=withdraw (:9327); lidJudge checks well geometry incl. stairs (:5560, well.mjs:1132) and repeats
+  the judgment before digging (:5663). Refusal returns container_blocked before transfer; F2 safely continues before writing an iron
+  miss. The test adequately exercises this path. Protection depends on complete well metadata.
+- e. P3 follow-up: wellTableCell belongs to build_well; toolkit invokes ordinary craft, which walks to a table within 32 first;
+  general placement (:5874) and station make-room digging (:6015) lack a well/plinth exclusion. Plausible but conditional; with the
+  town table reachable neither fallback is needed. Not a toolkit blocker; add protection to both as the shared follow-up.
+- f. No additional incompatibility; kitCrafted evidence retained; plinth funds through ordinary cobblestone withdrawal; toolkit draws
+  iron/sticks and retains cobble through roomKeep/INGREDIENT_KEEP.
+VERDICT: APPROVE
+
+ACCEPTED P3s (not fixed here): place()'s missing well/plinth exclusion (shared follow-up); andesite/diorite/granite bankable by the
+draw's room-making; craftroom's make-room path not separately tested under a plinth.
+HOST (10.0.0.31): the registration's notes and the entry carry licencecheck / changerowcheck / validate_entry.
