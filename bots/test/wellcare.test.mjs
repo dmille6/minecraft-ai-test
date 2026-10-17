@@ -219,6 +219,7 @@ await t('wellOutOfReach: more than 12 below the stand is out of reach; 12 is in;
   assert.equal(WC.wellOutOfReach({ feetY: 90, standY: 74 }), null, 'above the stand')
   for (const bad of [{ feetY: null, standY: 74 }, { feetY: 40, standY: null }, { feetY: NaN, standY: 74 }, {}]) assert.equal(WC.wellOutOfReach(bad), null, JSON.stringify(bad))
   assert.match(WC.wellDeepDetail({ skill: 'dispose_well', below: 19, standY: 74, feetY: 55, limit: 12 }), /^order=dispose below=19 stand_y=74 feet_y=55 limit=12 remedy=surface$/)
+  assert.match(WC.wellDeepDetail({ skill: 'build_well', below: 20, standY: 90, feetY: 70, limit: 12 }), /^order=build .* remedy=walk_up$/, 'above sea level surface refuses')
 })
 const AT_TOWN = { now: 1e9, slots: 36, freeSlots: 0, junkStacks: 3, distHome: 5, well: () => ({ open: false, attended: false, breached: false }) }
 await t('wellOrder HOLDS a deep bot\'s order at no cost: no order, `held` names it, no cooldown charged -> the first decision in reach gets it', () => {
