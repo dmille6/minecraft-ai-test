@@ -9308,12 +9308,22 @@ export function plinthKeepOut (bot, { farm = true } = {}) {
  * overFarm; the farm yields to a recorded plan's cap and cells (treefarm.mjs farmYields) and re-founds away from it. So a
  * farm never costs the town its well; it only moves. A generator: it yields wherever the planner yields.
  */
-export function * planPlinthFarmAware (plan, withFarm, withoutFarm = null) {
-  const first = yield * plan(withFarm)
-  if (first?.plan || first?.why === 'unknown' || !withoutFarm) return first
+export function * planPlinthFarmAware (plan, withFarm, withoutFarm = null, { skipFirst = false, onFirstNone = null } = {}) {
+  let first = null
+  // THE BUDGET (Codex r15): a visit's PLINTH_VISIT_MS holds both searches only if the first is quick; a town whose search
+  // off the farm found nothing recently goes straight to the fallback (skipFirst), so the two never have to fit in one visit
+  if (!(skipFirst && withoutFarm)) {
+    first = yield * plan(withFarm)
+    if (first?.plan || first?.why === 'unknown' || !withoutFarm) return first
+    try { onFirstNone?.() } catch { /* a memo must never break the plan */ }
+  }
   const second = yield * plan(withoutFarm)
-  return second?.plan ? { ...second, overFarm: true } : first
+  if (second?.plan) return { ...second, overFarm: true }
+  // AN UNLOADED CELL IN THE FALLBACK is retried as it is (Codex r15 P2: never a 2 h none record for a chunk that unloaded)
+  return second?.why === 'unknown' || !first ? second : first
 }
+/** How long a search off the farm that found nothing sends the next plan straight to the fallback. */
+export const PLINTH_OFF_FARM_MEMO_MS = 30 * 60_000
 const plinthRow = (bot, status, fields) => logEvent({ kind: 'plinth', status, snapshot: snapshot(bot), detail: plinthDetail(fields) })
 /** THE REMEDY for a build with nothing to build from (an executable move: stone is mined anywhere with a pickaxe). */
 export const PLINTH_FUND_REMEDY = `carry more than ${STONE_GUARD} cobblestone, cobbled deepslate, andesite, diorite or granite plus one pit cover block ` +
@@ -9523,9 +9533,11 @@ async function buildPlinth (ctx, _args, signal) {
       // THE FARM YIELDS TO THE RAISED WELL (Codex r14 P2-1): planned off the farm first; a town whose only site is under
       // its farm still gets its plan, and the farm yields to it (farmYields) and re-founds
       const farmed = (() => { try { return !!knownFarmRecord(bot) } catch { return false } })()
+      const offFarmNone = Number(bot.plinthOffFarmNoneAt)
       const it = planPlinthFarmAware(o => planPlinthSteps({ read: memoRead(read0), home, otherColumns: others, ...o }),
         { avoid: wellSearchAvoid(bot), keepOut: plinthKeepOut(bot) },
-        farmed ? { avoid: wellAvoid(bot), keepOut: plinthKeepOut(bot, { farm: false }) } : null)
+        farmed ? { avoid: wellAvoid(bot), keepOut: plinthKeepOut(bot, { farm: false }) } : null,
+        { skipFirst: Number.isFinite(offFarmNone) && Date.now() - offFarmNone < PLINTH_OFF_FARM_MEMO_MS, onFirstNone: () => { bot.plinthOffFarmNoneAt = Date.now() } })
       let res
       for (;;) {
         const r = it.next()

@@ -314,6 +314,22 @@ await t('THE RAISED WELL BEFORE THE FARM (Codex r14 P2-1, planPlinthFarmAware): 
   assert.deepEqual(fb.calls, ['off', 'over']); assert.equal(fb.res.overFarm, true); assert.deepEqual(fb.res.plan, P2.plan); assert.equal(fb.yields, 2, 'it yields wherever the planner yields')
   assert.deepEqual(run({ off: { plan: null, why: 'no_site' }, over: { plan: null, why: 'no_site' } }).res, { plan: null, why: 'no_site' }, 'none either way: the first answer')
   assert.deepEqual(run({ off: { plan: null, why: 'no_site' }, over: P2 }, null).calls, ['off'], 'no farm: never the fallback')
+  // Codex r15: an unloaded cell in the FALLBACK is retried as it is (never a none record)
+  assert.deepEqual(run({ off: { plan: null, why: 'no_site' }, over: { plan: null, why: 'unknown' } }).res, { plan: null, why: 'unknown' })
+  // the budget: a recent "none off the farm" goes straight to the fallback; the memo is set only by a first-pass none
+  let memo = 0
+  calls.length = 0
+  const it2 = SK.planPlinthFarmAware(gen({ off: P1, over: P2 }), { tag: 'off' }, { tag: 'over' }, { skipFirst: true, onFirstNone: () => memo++ })
+  let r2; do { r2 = it2.next() } while (!r2.done)
+  assert.deepEqual(calls, ['over']); assert.equal(r2.value.overFarm, true); assert.equal(memo, 0)
+  calls.length = 0
+  const it3 = SK.planPlinthFarmAware(gen({ off: { plan: null, why: 'no_site' }, over: { plan: null, why: 'no_site' } }), { tag: 'off' }, { tag: 'over' }, { onFirstNone: () => memo++ })
+  do { r2 = it3.next() } while (!r2.done)
+  assert.equal(memo, 1, 'a first-pass none sets the memo')
+  calls.length = 0
+  const it4 = SK.planPlinthFarmAware(gen({ off: P1, over: P2 }), { tag: 'off' }, null, { skipFirst: true })
+  do { r2 = it4.next() } while (!r2.done)
+  assert.deepEqual(calls, ['off'], 'no farm: skipFirst never skips the only search')
   // THE CHAIN: the farm yields to a plan recorded over it -- its cap within FARM_WELL_DISTANCE of a plot, or a cell ON a farm cell
   const rec = TF.canonicalFarm({ home: HOME, read: world().read }).record
   const p = plotsOf(rec)[0]
@@ -573,7 +589,7 @@ const wired = src => {
   assert.ok(/compute: \(\) => \(?(?:searched = )?canonicalWellSite\(\{ home, read, avoid: wellSearchAvoid\(bot\) \}\)\)?,/.test(s), 'a NEW well site keeps off the farm')
   assert.ok(/if \(first\.site \|\| !widensChestSearch\(first\.refused\)\) return first/.test(s), 'the pick widens on the farm\'s refusals')
   // plinth-02: the raised-well planner plans through the farm's avoid and keep-out (plinthKeepOut's content is tested above)
-  assert.ok(/planPlinthFarmAware\(o => planPlinthSteps\(\{ read: memoRead\(read0\), home, otherColumns: others, \.\.\.o \}\),\s*\{ avoid: wellSearchAvoid\(bot\), keepOut: plinthKeepOut\(bot\) \},\s*farmed \? \{ avoid: wellAvoid\(bot\), keepOut: plinthKeepOut\(bot, \{ farm: false \}\) \} : null\)/.test(s), 'the plinth planner keeps off the farm first, and plans over it only as the fallback')
+  assert.ok(/planPlinthFarmAware\(o => planPlinthSteps\(\{ read: memoRead\(read0\), home, otherColumns: others, \.\.\.o \}\),\s*\{ avoid: wellSearchAvoid\(bot\), keepOut: plinthKeepOut\(bot\) \},\s*farmed \? \{ avoid: wellAvoid\(bot\), keepOut: plinthKeepOut\(bot, \{ farm: false \}\) \} : null,/.test(s), 'the plinth planner keeps off the farm first, and plans over it only as the fallback')
 }
 const SKSRC = readFileSync(new URL('../src/skills.mjs', import.meta.url), 'utf8')
 await t('WIRED: chest-full passes the farm to both chest-site picks and the arrival re-check; the well\'s NEW-site search and the plinth planner carry the farm (source, comments stripped)', () => wired(SKSRC))
