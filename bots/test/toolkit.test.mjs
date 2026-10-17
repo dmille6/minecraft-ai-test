@@ -569,6 +569,22 @@ await t('TOOLKIT x PLINTH CHAIN, CONTROL: the same town with no no-site record -
   const { i } = beforeKit(ran)
   assert.ok(i >= 0 && ran[i].status === 'success', JSON.stringify(ran))
 })
+// THE TOOLKIT x SMELTJOB CHAIN (830dc36b: smeltjob-01 + plinth-02.1). Both orders sit at the end of the chain; the town smelt job
+// runs only with nothing chosen above (its tally counts the kit's decision as `taken`). The chain world's bag carries 5 raw_copper
+// and the room the job needs, so BOTH are due: the kit first (a bounded once-per-bot need), smelt_town on a later decision -- not
+// starved. CONTROL: the same bot already holding the kit -> no toolkit order, smelt_town is issued (the scene sees the smelt job).
+await t('TOOLKIT x SMELTJOB CHAIN (real loop, 830dc36b): kit missing and the smelt job due -> toolkit first, smelt_town on a later decision; CONTROL: kit held -> smelt_town', async () => {
+  const w = chainWorld()
+  const { ran } = await decisions(w, 5, { crafter: fakeCraft(w) })
+  const it = ran.findIndex(x => x.skill === 'toolkit'), is = ran.findIndex(x => x.skill === 'smelt_town')
+  assert.ok(it >= 0 && ran[it].status === 'success', JSON.stringify(ran))
+  assert.ok(is > it, `the smelt job comes after the kit and is not starved: ${JSON.stringify(ran)}`)
+  const w2 = chainWorld()
+  w2.bag.push({ ...T('iron_axe', 200), slot: 41 }, { ...T('iron_shovel', 200), slot: 42 })
+  const c = await decisions(w2, 3)
+  assert.ok(!c.ran.some(x => x.skill === 'toolkit'), JSON.stringify(c.ran))
+  assert.ok(c.ran.some(x => x.skill === 'smelt_town'), `the smelt job is due in this scene: ${JSON.stringify(c.ran)}`)
+})
 await t('WIRED (structural, comments stripped): the toolkit order is the LAST deterministic order, after the room order and before planting', () => {
   const src = fs.readFileSync(new URL('../src/cognitive.mjs', import.meta.url), 'utf8').replace(/\/\*[\s\S]*?\*\//g, '').split('\n').filter(l => !l.trim().startsWith('//')).join('\n')
   const at = src.indexOf('if (!order) order = this.#toolkitOrder()')
