@@ -75,6 +75,16 @@ tools ~/estel on 10.0.0.31.
 
 ---
 
+## 10-18 00:30Z — PLINTH-02 (direct rollout, + 02.1 hotfix) READ: KEEP recorded (operator; owner-direct, no canary) -- SHIPPED
+12 h before vs 12 h after the 12:25Z rollout (80 bots both; a fleet before/after, so world drift is not separated -- no DiD exists):
+- towns with a well in use 8 -> 16 (of 16 worlds); well disposes 80 -> 204; no_site refusals 81 -> 9; bags 90% -> 87% full.
+- deaths 20 -> 26; causes drowned 7, lava 6, falls 5, stalagmite 2, suffocation 1 -- 0 of 26 within 12 blocks of any of the 22
+  plinth caps; tripwire P1-P5 / C1-C9 all 0 through 23:53Z except C6 isolated-c (the 16.09 invisible-cap second well, fixed by
+  plinth-02.1 830dc36b). Not judged as harm; named.
+- Side effect found and fixed: the 64 wood stock target pruned 14,585 oak logs down the new wells -> logcap-01 (469cba5a).
+- Decision: KEEP (owner chose the direct path; the read is the tripwire + the before/after above). Follow-ups: plinth-first
+  (rebuilt, Paper pending), wellcare-01 (queued), stocktargetread.py literal 64 wood targets.
+
 ## 10-17 22:50Z — FLEET 469cba5a: smeltjob-01 KEPT; plinth-02.1 hotfix; LOGCAP-01 (wood target 64 -> 4000) direct rollout
 - smeltjob-01 (857c853c) KEEP +360 19:43Z (deaths 0/120 bh vs 2/240; +180 1,009 copper smelted, 1,646 in 12 h fleet-wide after),
   promoted 19:53Z. plinth-02.1 hotfix 830dc36b fleet-wide 20:04Z (isolated per-bot plinths, the 16.09 invisible cap that built
