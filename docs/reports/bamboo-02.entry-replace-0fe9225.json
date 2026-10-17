@@ -1,0 +1,45 @@
+{
+ "run": "bamboo-02",
+ "after": [
+  "toolkit-01"
+ ],
+ "class": "",
+ "hold": null,
+ "note": "bamboo-01 re-queued 10-12 21:50Z (abandoned in an empty draw: draw_exposure board-a/board-d inside gridfix-01's 12 h exclusion). Same code and registrations, run_id changed. Moved to the END (after orderroom-01) so every earlier entry keeps variants that already exist; NEEDS a variant on the fleet tip at its turn. Claude+Codex agree. Lineage: ordinary canary: bamboo -> sticks; variants on gridfix e29c1e7 and the contingency 79ab946.",
+ "variants": {
+  "8cd0bc62e5606b021832d808b150007f38ab2d6e": {
+   "registration": "/home/mike/mcai-analysis/bamboo-02.6b731312.json",
+   "approved": "toolkit/bamboo agent 2026-10-15: the reviewed or-on-31e6437 bamboo diff as one commit on 8cd0bc62 (+ a test-only commit); Codex r1 APPROVE, Claude r1 APPROVE (docs/reports/bamboo-02.rebase-review-2026-10-15.txt); npm test 253/253",
+   "canary_sha": "6b731312bd86d77ccd25c48bbd527d29ba2979ec",
+   "reads_src": "/home/mike/mcai-analysis",
+   "reads": {
+    "bambooread": "1aeb644a3eba8308e55f979ee8b63162",
+    "immobiledid": "53af289df12208901931dbeeb1ae325a"
+   },
+   "registration_sha256": "863ba6f4ea427d29ff86c4f2557e48087d838ed0174d4558743714b5c539fc10"
+  },
+  "75cfb447fd2d5a882e60a3b3338c904788103ac1": {
+   "registration": "/home/mike/mcai-analysis/bamboo-02.6ac667c0.json",
+   "approved": "toolkit/bamboo agent 2026-10-15: the same delta on townzone-01 75cfb447 (line-identical); Codex r1 APPROVE, Claude r1 APPROVE (docs/reports/bamboo-02.rebase-review-2026-10-15.txt); npm test 254/254",
+   "canary_sha": "6ac667c0e42a429bc9e35e31e50a0d26907cf324",
+   "reads_src": "/home/mike/mcai-analysis",
+   "reads": {
+    "bambooread": "1aeb644a3eba8308e55f979ee8b63162",
+    "immobiledid": "53af289df12208901931dbeeb1ae325a"
+   },
+   "registration_sha256": "5bd2be46227a58daedcb0cd22fec4d81a472be772a5666603abfcf9731a71b79"
+  },
+  "0fe922580fd988b88852007f87910e6c582a96ca": {
+   "registration": "/home/mike/mcai-analysis/bamboo-02.5b929260.json",
+   "canary_sha": "5b929260e793a42a699ec1ddfbb9b01d71509b5f",
+   "branch": "bb-on-0fe9225",
+   "reads_src": "/home/mike/mcai-analysis",
+   "reads": {
+    "bambooread": "1aeb644a3eba8308e55f979ee8b63162",
+    "immobiledid": "53af289df12208901931dbeeb1ae325a"
+   },
+   "approved": "bamboo/smeltjob variants agent 2026-10-17: bb-on-0fe9225 @ 5b929260 = the approved bamboo-02 delta (75cfb447..6ac667c0) cherry-picked onto fleet 0fe92258 (plinth-02), ONE union (hygiene HOUSEKEEPING + build_plinth); sorted +/- lines identical except that pair. Codex r1 APPROVE + Claude r1 APPROVE, no P1/P2 (docs/reports/bamboo-02.rebase-review-2026-10-17.txt on branch records-bbsj-0fe9225; copy in ~/mcai-analysis). npm test 258/258; eslint no-undef only reflex.mjs:2384 withinBody; 11/11 anchored mutants; Paper A20 fold + K20 abort PASS (server-read). licencecheck PASS (_bamboo_sticks baseline silent, 6 h, 80 bots); changerowcheck PASS; drawrequire.parse ([], None) -- NO draw_require_pools key. ORDINARY canary.",
+   "registration_sha256": "a9fc11a6cdda3106a719dd7754552184a9a7060d4ec1c4967323e10e48083b2c"
+  }
+ }
+}

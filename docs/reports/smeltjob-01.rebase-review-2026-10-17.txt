@@ -1,0 +1,96 @@
+smeltjob-01 REBASE REVIEW RECORD (10-17) -- smeltjob-on-0fe9225 @ 857c853c (0005b987 + 857c853c) on FLEET 0fe92258 (plinth-02 on 0152baeb)
+The approved 8fe41ad7 (on 75cfb447) cherry-picked onto 0fe92258. ONE union conflict: hygiene.mjs HOUSEKEEPING (+ build_plinth beside
+smelt_town, furnace_drain). Sorted +/- lines identical (2734) except that pair. 857c853c: test tooling only (the housekeeping mutant's
+anchor follows the union). npm test 258/258; eslint no-undef only reflex.mjs:2384 withinBody; bots/scripts/smeltjob-mutants.py 40/40.
+PAPER sandbox (25599) 10-17 12:57-13:02Z, real bot from the tree, RCON oracle (sandbox/craft/smeltjob-e2e.cjs):
+  copper     PASS d(bag){} d(chest){raw_copper-8 coal-1 copper_ingot+8} d(furnace){} ground{}
+  nofurnace  PASS d(bag){} d(chest){} d(furnace){} ground{}
+  drain      PASS d(bag){copper_ingot+5 raw_iron+3} d(furnace){raw_iron-3 copper_ingot-5} ground{}
+  milestone  PASS the stone_pickaxe rung craft first, then smelt_town (positive control true)
+
+==================================================================== Codex r1 on 0fe92258 (codex exec, read-only) ====================
+Reviewed `857c853c03542beccaec35ce62034e64a603139f`. **No new P1/P2 rebase findings.** Two P3 follow-ups remain.
+
+1. **Faithfulness verified.** Both patch comparisons contain exactly **2,734 added/removed lines**, identical except the HOUSEKEEPING removal/addition pair. The union correctly retains `build_plinth`, `smelt_town`, and `furnace_drain` (`bots/src/hygiene.mjs:102`). `857c853c` changes only the corresponding mutant anchor (`bots/scripts/smeltjob-mutants.py:86`).
+
+   Both changes touch the cognitive decision/outcome functions, but preserve their ordering (`bots/src/cognitive.mjs:885`, `:1039`, `:1182`). In `skills.mjs`, smeltjob’s executable hunks do not modify the functions changed by plinth-02. In `well.mjs`, D8 changes material classification; the new geometry exports remain independent.
+
+2. **Resources and reserves compose correctly.** `build_plinth` precedes deposit; recount preserves either order; the job is considered only without an order and respects `ready.noRoom` (`bots/src/cognitive.mjs:885`, `:891`, `:1043`; `bots/src/smeltjob.mjs:76`). The busy guard prevents another decision from interleaving with the composite job (`bots/src/cognitive.mjs:802`).
+
+   Plinth funding withdraws cobblestone (`bots/src/skills.mjs:9077`); the job withdraws copper and coal (`:11033`). Their material holds therefore do not compete. Crafting a missing furnace can consume eight carried cobble during a plinth cooldown, reducing later funding, but this is bounded consumption—not a withdrawal/deposit fight.
+
+   `PLINTH_BLOCKS`, `RESERVE_STONE`, and `STONE_GUARD` are unchanged explicit lists/constants (`bots/src/plinth.mjs:70`, `:829`; `bots/src/well.mjs:117`). Neither protected building stone previously counted toward that reserve. D8 therefore neither inflates the reserve nor removes spendable plinth material.
+
+3. **P3 — Generic station placement still ignores structure reservations.** `placeSites` checks support, replaceability, and container lids, but not well/plinth cells (`bots/src/skills.mjs:5880`). The job reaches it through the same carried-furnace path as ordinary/rung smelting (`:10621`).
+
+   Consequently, placement candidates can occupy an unfilled planned cell, sit above a STAIR or well cap, or consume a prospective table location. Existing solid blocks are not overwritten; successful placement still depends on the click and readback.
+
+   Recovery differs by case:
+
+   - A furnace in an unfinished shell/STAIR cell is rejected as ground and causes immediate plan voiding (`bots/src/well.mjs:276`; `bots/src/plinth.mjs:806`; `bots/src/skills.mjs:9040`).
+   - Obstructed supports, stands, or nearby furniture count toward the three-visit void/replan mechanism (`bots/src/skills.mjs:8952`). Replanning recognizes furnaces as furniture (`bots/src/composter.mjs:317`; `bots/src/plinth.mjs:83`).
+   - `wellTableCell` searches alternatives; exhaustion names carrying already-crafted trapdoors as the remedy (`bots/src/plinth.mjs:455`; `bots/src/skills.mjs:8586`). That remedy addresses missing table space, not every possible access obstruction.
+
+   I would **not claim universal automatic recovery**, particularly for obstruction after plinth completion. However, this placement exposure already exists on this base through ordinary smelting and crafting. The job increases exposure rather than introducing the placement rule. Structure-aware station placement and obstruction-chain tests are a P3 follow-up; I found no demonstrated new P2 dead end.
+
+4. **Wear-out, lids, windows, and leases do not introduce a new overlap.** Wear-out excludes recorded well/plinth cells (`bots/src/skills.mjs:6580`). Lid clearing permits only cobble variants, checks structural exclusions, and rechecks immediately before digging (`bots/src/lidrule.mjs:59`; `bots/src/skills.mjs:5566`, `:5669`); it cannot dig a leased furnace.
+
+   Withdrawal precedes the furnace session; banking follows its cleanup. Furnace-specific stationary protection is set and cleared around that session (`bots/src/skills.mjs:10825`, `:10933`), and the watchdog keys on its separate deadline (`bots/src/watchdog.mjs:311`). Plinth/deposit windows do not acquire that exemption.
+
+5. **P3 — D8’s scaffold wording is inaccurate.** Contrary to the premise and `bots/src/well.mjs:99`, both stones remain pathfinder scaffold (`bots/src/scaffold.mjs:106`). Disposal protection is implemented; universal scaffold protection is not. This is inherited from the approved variant, not a rebase regression.
+
+No additional death, stranding, item-loss, or unbounded-loop regression was identified by static review. Previously accepted interruption/carry-return and ordinary-smelt fail-open residuals remain.
+
+Validation: diff equivalence, whitespace check, and syntax checks for `skills`, `cognitive`, `well`, and `hygiene` passed. No behavioral tests or Paper runs; no files or git state changed.
+
+VERDICT: APPROVE
+
+==================================================================== Claude r1 on 0fe92258 (independent subagent) ==================
+VERDICT smeltjob: APPROVE. No P1/P2. Faithfulness: 21 files / 2734 lines identical except the HOUSEKEEPING union
+(hygiene.mjs:102 'build_plinth', 'smelt_town', 'furnace_drain') and 857c853c's mutant anchor (matches once). Job block at
+cognitive.mjs:1013-1072. Decide chain: a build_plinth order counts `taken` in the tally (:1039) -- at most one free decision per
+5 min per funded bot, both arms alike (DiD unaffected); plinth funding withdraws cobblestone only (skills.mjs:9074-9079), the job
+copper + one coal, deposits by name (:11090-11110); separate lease files; failures back off then pause after 6. D8 vs plinth:
+stone_bricks/smooth_stone are in none of PLINTH_BLOCKS (plinth.mjs:70), RESERVE_STONE, PIT_COVER_BLOCKS; probe: plinthBudget 64
+and reserveStone 128 with and without 74 building stones; disposePlan throws only andesite. Furnace placement: place() has no
+well/plinth exclusion; probe on plinthProgress: a furnace in a plan cell / stair / open cap reads `blocked`, the build fails
+plinth_blocked, the plan voids and replans (plinth-skill "A FOREIGN BLOCK IN A PLAN CELL ... voids the plan"), furnitureNear
+counts a furnace; wellTableCell re-reads the world. Not new in kind (tables, the rung's carried furnace) but the rate rises with
+lease contention: a carried-furnace placement (:10621-10628) runs before the furnace_busy return (:10632).
+P3: report furnace placements and plinth_blocked voids per bot-h in the read; later, station placement at town should refuse
+wellCellAt cells and the plinth furniture clearance. P3 (base): place()'s make-room dig does not consult wellBreakCost.
+P3: pathfinder can still scaffold with stone_bricks/smooth_stone (scaffold.mjs:106). P3 (inherited): jobWithdraw's keep does not
+protect copper_ingot; anyFurnace (:11150) ignores the job's depositTargetOk filter (a mine furnace below town -> needs_station
+until the pause). Tests in a copy: smeltjob 39, smeltjob-return 7, smelt-skill 17, hygiene 19, plinth 51, plinth02 16,
+plinth-skill 56, well 204, lidclear 37.
+
+==================================================================== the 51033241 rounds (kitshrink-01 base, now moot) ==================
+smeltjob-on-5103324 @ 9f38a739 (local only): + bots/test/smeltjob-kit.test.mjs (the job burns/withdraws/banks no kit item; real
+smelt_town keeps the bag's torches and ladders; tripwire live over the composed sources) and two mutants. Codex r1 APPROVE (P3:
+extend coverage to kit room-making and blocked-lid returns); Claude r1 APPROVE (P3-a: the unnamed-sweep mutant was first killed
+by the coal assert, not the torch one; P3-b: jobWithdraw keep should hold copper_ingot; P3-c stale docs: the header says
+'+1 coal if the bag holds none', the registration says bot.stationaryUntil where the code uses bot.furnaceWindowUntil).
+npm NOT completed (stopped at the retarget; the composed test 5/5 standalone), mutants 42/42, Paper copper, nofurnace,
+drain, carry, milestone PASS. The kit test is not on the 0fe92258 variant (kitshrink is not on that base).
+
+==================================================================== Codex r1 on 51033241 (moot base) ====================
+No P1 or P2 rebase regressions found. Reviewed `smeltjob-on-5103324` at `9f38a7392a6cab05b3a5e84bf45b1c7f2e01b5f2`; citations below refer to that commit.
+
+- **Faithfulness:** Verified the author’s claim: both deltas contain exactly **2,734 identical added/deleted lines**, in identical order. Hunk function contexts also match. No hunk landed in a different function. The added hold helpers coexist with kit banking in `bankable.mjs:406`; the withdrawal change exposes verified transfer results at `skills.mjs:9286`. Deposit and `openForWithdraw` retain the new base’s behavior. D8 remains intact at `well.mjs:108–130`; the underlying well change was commentary about the cobble cap.
+
+- **Kit interaction:** Chest withdrawal requests only raw copper and coal (`skills.mjs:10380–10386`); smelting filters fuel to coal (`smeltjob.mjs:41`, `skills.mjs:9901–9905`). Named return deposits cannot sweep torches or ladders (`bankable.mjs:506–510`, `skills.mjs:10444`, `:10459`). Withdrawal room-making **can bank eligible kit**, through `decideTakes` → `roomPlan` (`skills.mjs:9344`, `withdrawpick.mjs:173–181`). This happens at the chest and is explicitly permitted by kitshrink. Banking kit does not affect the copper balance or `jobReturns`, which count copper and coal separately. The generic furnace drain can recover whatever already occupies furnace slots, including foreign kit items; that is recovery into the bag, not a kit consumer (`skills.mjs:10608–10619`).
+
+- **Lids and budgets:** Withdrawal and deposit share the runner’s original deadline (`skills.mjs:9321–9324`, `:2623–2625`). Lid preparation and digging check that remaining budget (`:5656–5694`); they do not grant a fresh skill budget. A blocked withdrawal advances through a bounded container sweep (`:10376–10401`). A blocked return deposit **can leave copper or unburnt coal in the bag**: `noRecovery` suppresses recovery, and `bankCopper` measures actual movement without retrying the failed deposit (`:2733–2734`, `:10440–10461`). Copper remains eligible for subsequent jobs/ordinary banking; coal has no guaranteed later return once this attempt ends. This is an existing approved fallback, not a new rebase defect. Cooldown and pause prevent a tight job loop (`smeltjob.mjs:94`, `:116–125`); neither refusal blocks other work.
+
+- **Stock targets and furnace crafting:** The cap is 1,000, with the carried cobble reserve unchanged (`stocktarget.mjs:37–44`). The no-furnace branch still attempts the existing eight-cobble craft (`skills.mjs:10495–10512`). Copper, ingots and coal remain outside capped stock groups. Named job returns therefore gain no new cap restriction. Ordinary town deposits retain kitshrink’s additional kit banking; D8 protects both building stones from disposal.
+
+- **Lease and stationary window:** Lid clearing equips/digs but sets neither stationary declaration (`skills.mjs:5650–5706`). Furnace declarations remain scoped to the smelt session and are cleared on exit (`:10174–10178`, `:10282–10283`). The watchdog suppresses intervention during that window and excludes its elapsed time (`watchdog.mjs:311`, `:330`). No new lease overlap or stationary-state interaction found.
+
+**P3 — Extend composition coverage.** `bots/test/smeltjob-kit.test.mjs:65` executes the real no-furnace return path, but its roomy bag and clear chest do not exercise kit room-making or blocked-lid returns. Add those scenarios, checking conservation and eventual copper recovery.
+
+The new test is executable behavioral coverage, not merely source matching. The unnamed-deposit mutant targets its bag-retention assertions; the ladder-fuel mutant targets both fuel exclusion and the tripwire (`bots/scripts/smeltjob-mutants.py:89–92`). I verified parsing and executed the tripwire against committed sources in memory: **10 allowed sites, no extras**, and the ladder-fuel mutation produced the expected extra site. The regex mention of torch in `well.mjs:126` is an existing protection, not a hidden consumer.
+
+I could not execute the full skill test or mutant harness under the read-only filesystem: both create temporary files. Consequently, their runtime mutant kills remain unverified in this review. No files or Git state were changed.
+
+VERDICT: APPROVE
+

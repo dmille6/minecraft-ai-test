@@ -1,0 +1,45 @@
+bamboo-02 REBASE REVIEW RECORD (10-17) -- bb-on-0fe9225 @ 5b929260 (b59dfa19 + 5b929260) on FLEET 0fe92258 (plinth-02 on 0152baeb)
+The approved bamboo diff (75cfb447..6ac667c0: d6612927 + 6ac667c0) cherry-picked onto 0fe92258. ONE union conflict: hygiene.mjs
+HOUSEKEEPING (+ build_plinth beside bamboo_sticks). Sorted +/- lines identical (964) except that pair (verified by both reviewers).
+npm test 258/258; eslint no-undef only reflex.mjs:2384 withinBody; 11/11 anchored mutants killed, unmutated control green.
+PAPER sandbox (25599) 10-17 12:55Z, real bot from the tree, RCON oracle:
+  A20  success  bamboo 64->0 sticks 32->64 planks 10->10 slots 36->35 crafts 32/32 freed 1
+  K20  aborted:low_health  crafts 9 = sticks +9, 46 bamboo back in the bag, ground empty online / +6 s / after logout
+
+==================================================================== Codex r1 on 0fe92258 (codex exec, read-only) ====================
+No P1/P2 rebase regressions found. Reviewed `bb-on-0fe9225` at `5b929260e793a42a699ec1ddfbb9b01d71509b5f`.
+
+1. **Faithfulness and union:** Verified **964 +/- lines in each patch**, identical in order except the HOUSEKEEPING removed/added pair. `bots/src/hygiene.mjs:102` correctly retains both `build_plinth` and `bamboo_sticks`. Both housekeeping consumers still use the shared predicate (`bots/src/cognitive.mjs:1240`, `:1374`).
+
+2. **Plinth precedence and starvation:** Plinth precedes deposit; recount preserves either order; `firstOrder` then short-circuits before wear-out/bamboo (`bots/src/cognitive.mjs:907`, `:913`, `:920`; `bots/src/bamboo.mjs:170`). Thus a selected plinth order never charges bamboo’s cooldown. Plinth has a default five-minute cooldown, funding checks and failure backoff (`bots/src/plinth.mjs:65`, `:932`, `:943`, `:950`). A full, unfunded builder can yield so folding frees withdrawal space. Folding does not consume construction stone. I found no mutual starvation or dependency loop. Bamboo remains subordinate to other earlier orders; this is not a guarantee of immediate execution.
+
+3. **Wear-out guard:** The extraction preserves the order’s inventory and timing checks (`bots/src/cognitive.mjs:402`). The skill still rejects well/plinth cells, including unreadable protection data (`bots/src/skills.mjs:6687`, `:7720`). If every candidate is refused, wear-out returns failed (`:6547`), triggering its 30-minute backoff (`bots/src/cognitive.mjs:1131`). On a subsequent eligible decision, wear-out returns null and bamboo gets its turn. No mismatch with plinth-02’s guard.
+
+4. **Placement, digging and overlap:** Bamboo requests the bamboo-only inventory recipe and passes no table. Its executor state disables both make-room digging and pickup walking (`bots/src/skills.mjs:6595`, `:6600`, `:6604`; executor checks at `:4803`, `:4819`). It cannot reach generic placement or well-table placement. Ordinary same-bot builds cannot overlap the fold: cognition waits for the busy runner, and the runner rejects concurrent work (`bots/src/cognitive.mjs:566`; `bots/src/runner.mjs:183`). The stationary window bounds the craft deadline and clears in `finally` (`bots/src/skills.mjs:6605`, `:6627`). Other bots can build concurrently; this is not fleet-wide exclusion.
+
+5. **Safety:** No new route to digging out a plinth, stranding through movement, or spending planks. The fold checks simulated slot gain and overflow, then rechecks the remaining batch and room after server resync (`bots/src/bamboo.mjs:107`, `:140`; `bots/src/skills.mjs:4858`). Stationary exemption affects stuck detection, not the danger-rescue branches (`bots/src/reflex.mjs:3137`, `:3197`). These support approval, not a claim of measured zero deaths or losses.
+
+**P3 — inherited:** Runner refusals still produce bamboo’s 30-minute failure backoff even when crafting never started (`bots/src/cognitive.mjs:1132`; `bots/src/bamboo.mjs:215`). This delays relief but is unchanged from the approved variant.
+
+Tests were not rerun: the chain fixtures create temporary files (`bots/test/bamboo-chain.test.mjs:11`, `:18`), incompatible with this read-only review.
+
+VERDICT: APPROVE
+
+==================================================================== Claude r1 on 0fe92258 (independent subagent) ==================
+VERDICT bamboo: APPROVE. No P1/P2. Faithfulness: 10 files / 964 lines identical except the HOUSEKEEPING pair at hygiene.mjs:102
+('count_town', 'build_plinth', 'bamboo_sticks'] -- a correct union); firstOrder at cognitive.mjs:920 after plinth (:907).
+Decide chain: when build_plinth wins, firstOrder never calls the bamboo step (bamboo.mjs:170-177), so its cooldown is not
+charged; plinth's 5-min cooldown + scan throttle return nothing next decision and bamboo gets its turn; no loop, no starvation;
+no resource overlap with plinth funding (cobblestone). wear_out: the plinth-02 guard is in the skill (skills.mjs:6687-6688,
+refusal 'well'), not the extracted wearOutOrderStep; next to a plinth wear_out fails and backs off 30 min (cognitive.mjs:1131)
+and bamboo gets the decision; stationary window compare-and-clear (skills.mjs:6627). Tests in a copy: bamboo 36/36,
+bamboo-chain 4/4, hygiene 19, plinth 51, plinth02 16, plinth-skill 56, well 204, lidclear 37.
+P3 (inherited): a runner decline backs bamboo off 30 min; bamboo-chain drives the loop only away from town, so plinth-then-bamboo
+at town is covered by reasoning, not a test.
+
+==================================================================== the 51033241 rounds (kitshrink-01 base, now moot) ==================
+bb-on-5103324 @ a1a8d119 (local only, not pushed): Codex r1 APPROVE (no findings; tripwire executed in memory: 10 sites, none
+extra); Claude r1 APPROVE (P3-1 the inherited runner-decline backoff; P3-2 at town the deposit can bank the partial stick
+stack first, so fewer folds at town -- name it in the read). npm 256/256, mutants 11/11, Paper A20 + KIT20 (the kit in the bag
+untouched) PASS.
+

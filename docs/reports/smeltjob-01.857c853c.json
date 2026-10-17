@@ -1,0 +1,133 @@
+{
+ "run_id": "smeltjob-01",
+ "sha": "857c853c03542beccaec35ce62034e64a603139f",
+ "registered_at": "2026-10-17T13:25:29Z",
+ "ladder_change": false,
+ "promotion": "fleet-wide",
+ "notes": "[smeltjob-01 VARIANT for fleet 0fe92258 (plinth-02 on 0152baeb lidclear-01 on 623e92b9 cobblecap-1000; the owner's direct rollout 10-17 ~12:33Z). Branch smeltjob-on-0fe9225 @ 857c853c (variants agent 2026-10-17): 0005b987 = the approved 8fe41ad7 cherry-picked, ONE union conflict (hygiene.mjs HOUSEKEEPING + build_plinth beside smelt_town, furnace_drain); sorted +/- lines identical to 75cfb447..8fe41ad7 (2734) except that pair; 857c853c test tooling only (the housekeeping mutant's anchor follows the union). npm test 258/258; eslint no-undef only reflex.mjs:2384 withinBody (pre-existing); bots/scripts/smeltjob-mutants.py 40/40 killed (anchors asserted present+unique, node --check). PAPER sandbox (25599) 10-17 12:55-13:02Z, the real bot from this tree, RCON-read: copper (chest raw_copper-8 coal-1 copper_ingot+8, bag/ground unchanged), nofurnace (net zero, copper + town coal back), drain (5 ingots + 3 raw_iron out of an idle furnace), milestone (the stone_pickaxe rung first, then the job) -- 4/4 PASS. REVIEWS (both engines, round 1 on this base, docs/reports/smeltjob-01.rebase-review-2026-10-17.txt on branch records-bbsj-0fe9225, copy in ~/mcai-analysis): Codex APPROVE, Claude APPROVE, no P1/P2. Compositions checked: plinth-02's decide chain (build_plinth first; the job only with no order, a plinth order counts `taken` in the tally -- symmetric across arms), plinth funding withdraws cobblestone only vs the job's copper/coal holds, OWNER D8 vs plinth (stone_bricks/smooth_stone never in PLINTH_BLOCKS / RESERVE_STONE: plinthBudget and reserveStone unchanged by a probe), lid digs and wear_out guard vs the furnace windows (no overlap). P3s named: place() has no well/plinth-cell exclusion, so the no-furnace remedy's furnace (and, with leases, carried-furnace placements during contention) can land in a plinth plan cell/stair -- plinthProgress reads it `blocked`, the plan voids and replans (furnitureNear avoids furnaces); report furnace placements and plinth_blocked voids per bot-h in the read; jobWithdraw's keep does not protect copper_ingot (a room-making bank of carried ingots would read as a C1 `loss`, gated >= 2 rows and > 5%); D8's scaffold wording (pathfinder can still scaffold with both stones). Earlier the same day the delta was also rebased onto 51033241 (kitshrink-01, closed INCONCLUSIVE -- that variant is moot) and approved by both engines.] STAGE 1 OF THE TOWN PROJECTS (owner 10-14 'find real useful uses for [logs and copper] ... put the bots to real work using real resources' -> 'yes do it'; decisions 10-15 'go with your recommendations'; design docs/reports/townprojects-design-2026-10-14.md). MEASURED 10-14: town chests hold 10,504 raw copper and the fleet smelted 5 of it in 24 h (smelt 318 successes, 308 raw_iron). THE CHANGE: (1) smelt_town, a deterministic HOUSEKEEPING town order (never the model's; never a trip; off in isolated pools, owner D2): at town with >= 2 free slots, ONE skill takes up to 8 raw copper (the bag's own first) + 1 COAL from a town container (coal only), smelts with the EXISTING smelt in a leased furnace, and banks the ingots and any unsmelted input -- so no other order comes between the withdraw and the deposit (raw_copper/copper_ingot are DEPOSIT_ALWAYS; the job releases its own withdraw hold before banking). It is consulted only when the chain chose NO order and no rung waits on room (smeltjob.mjs milestoneHolds): a ready milestone step always wins. A town container that showed no copper is remembered 2 h (the withdraw_pick miss pattern); six non-successes for one reason pause the job 6 h; a no-furnace town gets one crafted (the remedy performed, not printed). (2) furnace_drain: an UNLIT, UNLEASED furnace within 48 of home not known empty is opened and emptied (what a stopped smelt leaves). (3) THE FURNACE LEASE (furnacelease.mjs, generation files, 240 s TTL, fail-open): every smelt session -- the milestone's too -- holds it; a furnace in another session is skipped, all busy -> furnace_busy (no_effect and a RUNNER_REFUSAL: no lesson, not a rung attempt, never a reason to craft one). (4) THE FURNACE SESSION DECLARES ITS STATIONARY WINDOW (bot.stationaryUntil, bounded by its deadline) and the stagnation watchdog honours declared windows as the stuck reflex already did: fleet 24 h to 10-15 00:30Z, 115 of 650 smelt rows aborted, 9 stuck + 35 stagnation -- and Paper 10-15 run 1 lost the job to `stuck` at the furnace. (5) OWNER D8: stone_bricks and smooth_stone OFF the junk-well list (and in NEVER_DISPOSE): measured 10-15, 18 + 1 in all 80 bags, 2 stone_bricks pickups / 24 h (positive control 9,474 cobblestone) -- ~2 items/day; wellread.py's Python copy becomes a superset by 2 (cannot false-trip C3). [Variant for 75cfb447 (townzone-01 on 8cd0bc62); branch smeltjob-on-75cfb44: 371c08ed's diff (approved on 5e663860) applied with no conflict, plus THE EXIT FIX found by the rebase reviews: the job's own withdraw hold covered its unsmelted copper, so it could not bank it (raw_copper is DEPOSIT_ALWAYS -- the job fought its own hold); now the WHOLE withdrawal is released at the exit (smeltjob.mjs jobReturns), unburnt town coal goes back while the bag's own stays (bankable.mjs swapWithdrawHold), and the job burns COAL ONLY (towns hold 1 charcoal in 354 containers; owner D4). Row field fb= added at the end of _smelt_town (the read ignores it).] REVIEWS (docs/reports/smeltjob-01-reviews-2026-10-15.txt): the original Claude r1-r3 / Codex r1-r4 to APPROVE; the REBASE: Codex r1 APPROVE (composition: wellsite-04, townzone-01, the deposit interaction, milestone priority) -> r2 CHANGE (charcoal preference; additive hold) -> r3 APPROVE; Claude r1 CHANGE (the hold P2) -> r2 APPROVE -> r3 APPROVE. TESTS: npm test 254/254; smeltjob.test.mjs 39, smeltjob-return.test.mjs 7 (the REAL smelt_town over the fake world). MUTANTS 40/40 killed (bots/scripts/smeltjob-mutants.py, anchors present+unique, node --check). PAPER (sandbox2, Paper 1.21.8, the real bot from this branch's tree, RCON as the oracle, 10-15 ~21:30-21:50Z): Paper 5/5 (copper, drain, milestone, nofurnace, recovery), all PASS from the server: nofurnace = chest raw_copper 0 / coal 0 net, the bag keeps its own 2 coal, row withdrawn=8 coal=1 dep_r=8 verdict=ok fb=1; milestone = the stone_pickaxe rung craft first, the job after it (positive control). Residuals named: an interrupted / error / unsettled exit skips the return (bounded: holds lapse in 10 min; the next job takes the bag's copper first). Sandbox-only env: SMELT_JOB_COOLDOWN_MS / DRAIN_COOLDOWN_MS (the fleet sets neither).",
+ "lint": "eslint (bots/eslint.config.mjs, no-undef gate) 10-17: exactly one hit, bots/src/reflex.mjs:2384:67 withinBody no-undef -- pre-existing on the base 0fe92258; reflex.mjs is untouched by this diff.",
+ "licence": {
+  "class": "kind",
+  "kind": "_smelt_town",
+  "min_rows": 1,
+  "note": "Written only by this build: one row per smelt_town order. The fleet has no smelt_town skill and no _smelt_town row."
+ },
+ "reads": [
+  "smeltjobread",
+  "immobiledid"
+ ],
+ "read_minutes": [
+  180,
+  360
+ ],
+ "deadline_min": 1680,
+ "change_rows": [
+  "smelt_town",
+  "furnace_drain",
+  "furnace_session",
+  "smelt_job_skip",
+  "smelt_job_tally"
+ ],
+ "linkage_extra": [],
+ "draw_exposure": {
+  "hours": 12,
+  "require": [
+   {
+    "name": "furnace work at town (the iron rung's smelt rows: furnaces and bots at town)",
+    "kind": "smelt",
+    "min": 5
+   }
+  ],
+  "note": "12 h to 10-15 01:30Z per pool: every shared pool 13-27 smelt rows. drawrec never draws isolated pools (where the job is off) or placebo-c. CLAUDE.md: a canary pool must contain the population the fix targets -- here every shared town (all hold raw copper: census 10-14)."
+ },
+ "exposure": {
+  "read": "smeltjobread",
+  "field": "exposure_ready",
+  "min": 1,
+  "note": "Ready = >= 5 CHAIN-DELIVERED canary jobs (success, verdict=ok, smelted >= 1 and deposited >= 1: raw copper out of a town chest, ingots back in) AND the instrument (control smelt rows >= 1 and control _pickups rows >= 1)."
+ },
+ "own_lines": [
+  {
+   "read": "smeltjobread",
+   "field": "breach_copper",
+   "op": "<=",
+   "value": 0,
+   "on_fail": "REVERT",
+   "evidence": "defect",
+   "note": "C1: the copper balance broken (verdict loss, or a gain not explained by the bot's own copper pickups inside the job) on >= 2 rows AND > 5% of the reconciled rows."
+  },
+  {
+   "read": "smeltjobread",
+   "field": "breach_overlap",
+   "op": "<=",
+   "value": 0,
+   "on_fail": "REVERT",
+   "evidence": "defect",
+   "note": "C2: two different canary bots' leased furnace sessions overlapping on one furnace (the lease broken)."
+  },
+  {
+   "read": "smeltjobread",
+   "field": "breach_loop",
+   "op": "<=",
+   "value": 0,
+   "on_fail": "REVERT",
+   "evidence": "defect",
+   "note": "C3: a canary bot with more than 7 smelt_town or 7 furnace_drain rows in any 60 min (the 10 min cooldown broken)."
+  },
+  {
+   "read": "smeltjobread",
+   "field": "unleased_sessions",
+   "op": "<=",
+   "value": 0,
+   "on_fail": "REVERT",
+   "note": "A canary furnace session that ran WITHOUT a recorded lease (the fail-open path: the pool dir unusable). The job and the drain fail closed, but the rung's ordinary smelt keeps the base behaviour, so exclusion was not established -- BLOCKS KEEP (Codex code r2 P2-5)."
+  },
+  {
+   "read": "smeltjobread",
+   "field": "control_job_rows",
+   "op": "<=",
+   "value": 0,
+   "on_fail": "REVERT",
+   "note": "Arms: control smelt_town/furnace_drain rows. BLOCKS KEEP."
+  },
+  {
+   "read": "smeltjobread",
+   "field": "smelt_live",
+   "op": ">=",
+   "value": 1,
+   "on_fail": "REVERT",
+   "note": "LIVENESS: canary _smelt_town rows. BLOCKS KEEP (INCONCLUSIVE)."
+  },
+  {
+   "read": "smeltjobread",
+   "field": "instrument_control",
+   "op": ">=",
+   "value": 1,
+   "on_fail": "REVERT",
+   "note": "POSITIVE CONTROL: control smelt rows and control _pickups rows visible. BLOCKS KEEP."
+  }
+ ],
+ "primary": {
+  "read": "smeltjobread",
+  "field": "chain_delivered",
+  "note": "REPORTED: chain-delivered jobs; ingots smelted per canary bot-h; copper banked; skips by reason (room, town_has_none, nothing_to_drain); drains and items taken; furnace_busy smelt rows; smelt_town body seconds per bot-h. HARM (reported, DiD vs the same-length PRE): the iron rung's smelt successes per bot-h (the lease and the stationary window touch every smelt -- the named control row), craft successes, gather successes."
+ },
+ "harm": {
+  "note": "Unchanged: the two-death floor (OWNER 2026-09-11) and gather_ratio < 0.43 of control, from immobiledid. The job walks inside town only (one chest, one furnace, 180 s budget, 1 per 10 min per bot)."
+ },
+ "teardown": {
+  "note": "THREE STEPS: drop-ins, clear canary_pool, restart the pool's bots 12 s apart; then confirm the live versions. Furnace leases are files under the pool dir (furnace-leases/); they expire by TTL (240 s) and the base never reads them. Anything a job left in a furnace is taken by the base's own smelt (it empties every furnace it opens)."
+ },
+ "amendments": [],
+ "extension": {
+  "until_exposure": true,
+  "extra_reads": [
+   540,
+   720,
+   1080,
+   1560
+  ],
+  "final_on_zero_exposure": "INCONCLUSIVE",
+  "note": "SHORT CANARY for a fix-class change (owner 2026-09-29): KEEP from +360 with exposure."
+ }
+}
