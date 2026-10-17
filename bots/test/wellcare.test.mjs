@@ -347,12 +347,33 @@ await t('THE CHAIN (real place, a town craft on the stand): the table goes on th
   const near = (await rows('_station_placed')).pop()
   assert.match(near.skill.detail, /^item=crafting_table at=101,64,102 cap=100,63,100 keep=none own=0 by=-$/)
 })
-await t('POSITIVE CONTROL / MUTANT (skills): no well test in the scan -> the base puts the table on the well (its cap column or a stand)', async () => {
-  await withMutant(SKP, "  const wellRefused = p => { const k = stationRefusalAt(bot, p); if (k) { wellSkip.n++; wellSkip.kind ??= k } return !!k }", "  const wellRefused = p => false", async m => {
+await t('POSITIVE CONTROL / MUTANT (skills): no well test in the scan nor at the placement -> the base puts the table on the well (its cap column or a stand)', async () => {
+  await withMutants(SKP, [["  const wellRefused = p => { const k = stationRefusalAt(bot, p); if (k) { wellSkip.n++; wellSkip.kind ??= k } return !!k }", "  const wellRefused = p => false"],
+                          ["        if (wk) { wellRow('late', wk, 1, tgt); failures.push(`${tgt} is the town junk well's ${wk}`); continue } }", "      }"]], async m => {
     const bot = flatTown()
     const r = await place(m, bot)
     assert.equal(r.status, 'success')
     assert.ok(wellSpots(bot).length === 1, `mutant inert: placed at ${[...bot._placed.keys()]}`)
+  })
+})
+await t('A WELL LEARNED DURING THE EQUIP (Codex r4 P2): the cells are read again right before the placement -- the table never lands on the now-known well', async () => {
+  let known = []
+  const bot = flatTown()
+  bot.wellCellsNow = () => known
+  bot.equip = async () => { known = [FCAP] }
+  const r = await place({ SKILLS }, bot)
+  assert.equal(r.status, 'success', r.detail)
+  assert.deepEqual(wellSpots(bot), [], `placed on the well: ${[...bot._placed.keys()]}`)
+  assert.match((await rows('_station_well')).pop().skill.detail, /^action=late item=crafting_table kind=(shaft|stand) n=1 at=/)
+})
+await t('MUTANT (skills): without the last read the table lands on the well learned during the equip', async () => {
+  await withMutant(SKP, "        if (wk) { wellRow('late', wk, 1, tgt); failures.push(`${tgt} is the town junk well's ${wk}`); continue } }", "      }", async m => {
+    let known = []
+    const bot = flatTown()
+    bot.wellCellsNow = () => known
+    bot.equip = async () => { known = [FCAP] }
+    await place(m, bot)
+    assert.equal(wellSpots(bot).length, 1, `mutant inert: ${[...bot._placed.keys()]}`)
   })
 })
 await t('EVERY FREE CELL IS THE WELL\'S: the scan refuses them all, the made-room dig never opens a wall, and the refusal names the step away', async () => {
