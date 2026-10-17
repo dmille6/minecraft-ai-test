@@ -75,6 +75,20 @@ tools ~/estel on 10.0.0.31.
 
 ---
 
+## 10-17 22:50Z — FLEET 469cba5a: smeltjob-01 KEPT; plinth-02.1 hotfix; LOGCAP-01 (wood target 64 -> 4000) direct rollout
+- smeltjob-01 (857c853c) KEEP +360 19:43Z (deaths 0/120 bh vs 2/240; +180 1,009 copper smelted, 1,646 in 12 h fleet-wide after),
+  promoted 19:53Z. plinth-02.1 hotfix 830dc36b fleet-wide 20:04Z (isolated per-bot plinths, the 16.09 invisible cap that built
+  isolated-c a SECOND well -- tripwire C6 17:18Z, not rolled back: explained, fixed, rollback not clean -- deep orders, replan on
+  evidence, abandoned-pit cover). Merged to main (b4bf3f62).
+- **LOGCAP-01:** with wells in 15 of 16 worlds, the 64-per-type wood stock target made prune_town throw 14,585 oak logs down wells
+  in 12 h. OWNER "Yup raise log limit" -> TOWN_WOOD_TARGET 4000 (logs/planks/sticks), fast path: Claude APPROVE, Codex CHANGE (env
+  parse, fixed; stocktargetread.py literal 64s -- follow-up, no queued canary uses it). Deployed directly 469cba5a ~22:50Z. Rollback
+  = 830dc36b. WATCH: wood now banks instead of pruning -> chest fill / new-chest budget (4/day, 12 standing).
+- **Queue:** toolkit-02 (H2: needs a 469cba5a variant; the chain agent is re-stacking toolkit -> wellcare -> townsearch-02 -> bamboo
+  -> treefarm on 469cba5a) -> wellcare-01 -> townsearch-02 -> bamboo-02 -> treefarm-02 -> townfloor-01 -> monument-01 -> ...
+  minewell-02 cancelled (superseded by wellcare-01). plinth-first rebuilt on 830dc36b+ pending Paper. kitshrink-02 to re-queue.
+- Tripwire loop: plinth2trip.py with TRIP_SINCE (a canary deploy rewrites declared_at); INSTRUMENT "blind" no longer exits.
+
 ## 10-17 12:45Z — PLINTH-02 ROLLED OUT FLEET-WIDE DIRECTLY (OWNER option 2, no canary): FLEET 0fe92258 (VERIFIED ~12:33Z)
 - Owner: "can we just build the wells? instead of waiting for some oportune time?" -> option 2: kitshrink-01 (live 12:10Z on
   board-a, board-b, hive-d, hive-c) closed INCONCLUSIVE 12:19Z and torn down (20 on 0152bae, 0 drop-ins); install-hold; fleet-deploy
