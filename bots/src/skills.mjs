@@ -6053,7 +6053,10 @@ async function place(ctx, { item, x, y, z }, signal, { wellOwn = null, by = null
     const why = c => { const t = target(c); return t ? farmPlaceRefusal(fidx, t.x, t.y, t.z, item) : null }
     if (fidx && candidates.length) {
       const first = why(candidates[0])
+      // the well cells placeSites skipped ride on the array (wellcare-01: they gate the make-room dig and name the well): kept
+      const wellSkipped = candidates.wellSkip
       candidates = candidates.filter(c => !why(c))
+      if (wellSkipped) candidates.wellSkip = wellSkipped
       if (!candidates.length && [x, y, z].every(v => Number.isFinite(Number(v)))) {
         return { status: 'failed', failClass: 'reserved_cell',
                  detail: `${x},${y},${z} is ${first}: only the farm's own block goes there. \`place ${item}\` without coordinates picks another cell` }
@@ -7556,6 +7559,18 @@ export function knownFarmRecord (bot) {
   } catch { return null }
 }
 /** The farm's reserved cells as a lookup (treefarm.mjs farmIndex), from the record. */
+/**
+ * THE TREE FARM'S CELLS AS A MINE STAIR'S KEEP-OUT (treefarm-02 on minewell-01) -> { forbid(cell), bottom } | nulls. Pure.
+ * Every plot's soil and whole column (cell .. CLEAR_ABOVE), every torch cell and its floor; `bottom` the LOWEST of them
+ * (plots follow terrain +-2, so the farm spans several levels and the stair simulation must reach the lowest soil).
+ * (Ported verbatim from 835ef3f0: the approved farm-on-0fe9225 was built on a base without minewell, so its mine hook was open.)
+ */
+export function farmStairForbid (idx) {
+  if (!idx?.soil?.size) return { forbid: null, bottom: null }
+  let bottom = Infinity
+  for (const k of idx.soil) bottom = Math.min(bottom, Number(k.split(',')[1]))
+  return { forbid: c => idx.soil.has(`${c.x},${c.y},${c.z}`) || idx.torch.has(`${c.x},${c.y},${c.z}`) || inPlotColumn(idx, c.x, c.y, c.z), bottom }
+}
 export function knownFarmIndex (bot) {
   const r = knownFarmRecord(bot)
   return r ? farmIndex(r) : emptyFarmIndex()
@@ -12497,7 +12512,10 @@ async function mine(ctx, { y: targetY = 12 }, signal) {
   // (a well walk-off promises only > 12 from home; the town's square is 16). The zone off (no HOME_X/Y/Z): no town part.
   const nameAt = (x, y, z) => bot.blockAt(new Vec3(x, y, z))?.name ?? null
   const farmNow = () => {
-    const farm = { forbid: null, bottom: null }   // no tree farm on this base (treefarm-02 composes its cells here)
+    // THE TREE FARM'S CELLS (treefarm-02 on minewell-01, ported from 835ef3f0 in the 830dc36b chain): read afresh from the SHARED
+    // record (knownFarmIndex), never this bot's 20 s cache -- a plot founded since would be dug until then
+    let farm
+    try { farm = farmStairForbid(knownFarmIndex(bot)) } catch { farm = { forbid: null, bottom: null } }
     return composeKeepOut(farm, townKeepOut(townHome(), nameAt))
   }
   // A START MUST HAVE A DRY FIRST TREAD (the zone's water case, now the planner's): a keep-out that took the dry way walks off
