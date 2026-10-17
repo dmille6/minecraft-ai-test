@@ -1082,6 +1082,41 @@ await t('MUTANT (townzone x plinth): the zone applied to the plinth\'s cover dig
   })
 })
 
+// ---- treefarm-02 on plinth-02 (Codex r14 P2-1 / r15): THE RAISED WELL BEFORE THE FARM, through the real skill ----
+await t('PLINTH OVER THE FARM (treefarm-02): a farm whose keep-out covers every site -> the plan visit plans OVER it (over_farm:1), the recorded farm then yields to the plan, and the plinth builds to complete; without the plan the farm stands (positive control)', async () => {
+  reset(); noSite()
+  const farmFile = path.join(STORE, 'treefarm-0_64_0.g1.json')
+  // a farm whose plots lie every 5 blocks over the search (WELL_SEARCH_RADIUS 14 around home, and beyond): no cap is
+  // FARM_WELL_DISTANCE (4) from all of them. Kept to 81 plots: the planner's keep-out check is linear, and with 361 plots
+  // the first search alone outran the test's 2 s visit budget on a loaded host (a "kill" by plan_slow, not by the mutant)
+  const cells = []
+  for (let x = -20; x <= 20; x += 5) for (let z = -20; z <= 20; z += 5) cells.push({ role: 'plot', x, y: SLAB_Y + 1, z })
+  const TF = await import('../src/treefarm.mjs')
+  writeFileSync(farmFile, JSON.stringify({ blueprint: TF.FARM_BLUEPRINT, version: TF.FARM_VERSION, anchor: { x: -45, y: SLAB_Y + 1, z: -45 }, cells, world: 'w1', at: new Date().toISOString() }))
+  try {
+    const town = fakeTown({ items: [['cobblestone', 64], ['cobblestone', 64], ['cobblestone', 64], ['andesite', 20], ['dirt', 4]] })
+    assert.equal(S.knownFarmRecord(town.bot)?.cells.length, cells.length, 'the farm is the town\'s record')
+    const yieldsNow = () => { const f = S.townFarm(town.bot); return !f.record || JSON.stringify(f.record.cells) !== JSON.stringify(cells) }
+    assert.equal(yieldsNow(), false, 'positive control: before any plan the farm stands')
+    // the search off the farm finds nothing here (the reason the fallback exists)
+    const off = P.planPlinth({ read: town.read, home: HOME, avoid: TF.farmWellAvoid({ cells }), keepOut: TF.farmKeepOut({ cells }) })
+    assert.equal(off.plan, null, 'no plan keeps off this farm')
+    // THE BUDGET (Codex r15): two searches in one visit may outrun it; a first search that found none is remembered, so
+    // the next visit goes straight to the fallback -- planned within three visits on any host
+    let r1 = null
+    for (let i = 0; i < 3 && !/^planned the town's raised junk well/.test(r1?.detail ?? ''); i++) r1 = await visit(town)
+    assert.match(r1.detail, /^planned the town's raised junk well/, r1.detail)
+    const row = (await rowsOf('_plinth')).filter(r => field(r.skill.detail, 'stage') === 'planned').at(-1)
+    assert.match(row?.skill?.detail ?? '', /over_farm:1/, 'the row says the plan is over the farm')
+    assert.ok(town.bot.plinthOffFarmNoneAt > 0, 'the memo: the next search goes straight to the fallback')
+    assert.equal(yieldsNow(), true, 'the recorded farm yields to the plan (and re-founds when a bot can)')
+    let n = 0
+    for (; n < 8 && recNow().state === 'plan'; n++) { const r = await visit(town); assert.equal(r.status, 'success', r.detail) }
+    assert.equal(recNow().state, 'complete', 'the town gets its raised well')
+    assert.deepEqual(town.st.refused, [], 'the server never refused a placement')
+  } finally { rmSync(farmFile, { force: true }); for (const f of require('node:fs').readdirSync(STORE)) if (/^treefarm-/.test(f)) rmSync(path.join(STORE, f), { force: true }) }
+})
+
 console.log(`\n${pass} passed, ${fail} failed`)
 if (fail) console.log('FAILED:\n  ' + failed.join('\n  '))
 try { rmSync(STORE, { recursive: true, force: true }) } catch {}
