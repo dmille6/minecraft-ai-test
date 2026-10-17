@@ -13,7 +13,7 @@ import { HARD_STOP } from './toolfor.mjs'
 import { SKILLS, roomRemedy, farFromBank, classifyOutcome, SKILL_CONTRACTS, plantableSpotNear, findTownComposter, townBuildPlan, townPickMiss, townIngredientMiss, foodSkipNow, townContainers, townWellState, townWellBuildPlan, insideTownWell, wellSwordsNow, cobbleWellCap, townPitState, stockWellOpts, valveProof, stockCountKeys, pruneTarget, unknownRefusals, stockRecountKeys } from './skills.mjs'
 import { disposePlan, wellOrder, wellOrderOutcome, WELL_ORDERS, pitCoverItem } from './well.mjs'
 // wellcare-01 fix 2 (its own statement): the well order's vertical reach and its held-order row
-import { wellOutOfReach, wellDeepDetail } from './wellcare.mjs'
+import { wellOutOfReach, wellDeepDetail, heldClimb } from './wellcare.mjs'
 import { townWellStandY } from './skills.mjs'
 const WELL_DEEP_ROW_MS = 5 * 60 * 1000
 // plinth-01, the raised junk well (its own statements)
@@ -969,15 +969,18 @@ export class CognitiveLoop {
           peers: () => Object.values(bot.players ?? {}).filter(q => q?.username && q.username !== bot.username && q.entity?.position &&
             Math.hypot(q.entity.position.x - home.x, q.entity.position.z - home.z) <= TOWN_RADIUS).map(q => q.username),
           // wellcare-01 fix 2: not from deep under the stand (wellcare.mjs wellOutOfReach); home's y when the town knows no stand
-          depth: () => wellOutOfReach({ feetY: p?.y, standY: townWellStandY(bot) ?? config.world.homeY }),
+          depth: skill => wellOutOfReach({ feetY: p?.y, standY: townWellStandY(bot, skill) ?? config.world.homeY }),
           state: this.wellState ?? {},
         })
         this.wellState = r.state
         if (r.order) order = r.order
-        // THE HELD ORDER IS SAID (the read's guard row; one per bot per order kind per 5 min), with the bot's own remedy
-        if (r.held && Date.now() - (this.wellDeepLoggedAt?.[r.held.skill] ?? -Infinity) >= WELL_DEEP_ROW_MS) {
+        // A HELD DISPOSE BECOMES THE CLIMB (wellcare.mjs heldClimb: the remedy performed, once per 5 min, below sea level)
+        const climb = r.held ? heldClimb({ held: r.held, now: Date.now(), lastAt: this.wellDeepClimbAt ?? -Infinity }) : null
+        if (climb) { this.wellDeepClimbAt = Date.now(); order = climb }
+        // THE HELD ORDER IS SAID (the read's guard row; one per bot per order kind per 5 min, and every climb)
+        if (r.held && (climb || Date.now() - (this.wellDeepLoggedAt?.[r.held.skill] ?? -Infinity) >= WELL_DEEP_ROW_MS)) {
           this.wellDeepLoggedAt = { ...(this.wellDeepLoggedAt ?? {}), [r.held.skill]: Date.now() }
-          logEvent({ kind: 'well_deep', status: 'refused', snapshot: snapshot(bot), detail: wellDeepDetail(r.held) })
+          logEvent({ kind: 'well_deep', status: 'refused', snapshot: snapshot(bot), detail: wellDeepDetail({ ...r.held, action: climb ? 'climb' : 'hold' }) })
         }
       } catch { /* an inventory or world read must never break the decision loop */ }
     }

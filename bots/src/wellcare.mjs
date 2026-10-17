@@ -45,9 +45,25 @@ export const SEA_LEVEL_Y = 63
 export const wellDeepRemedy = feetY => (Number.isFinite(feetY) && feetY < SEA_LEVEL_Y ? 'surface' : 'walk_up')
 export const WELL_DEEP_REMEDY = `surface (below sea level), or walk back up the mine's stair, to within ${WELL_REACH_BELOW} blocks below the junk well's stand; the town's well order is given there`
 
-/** The `_well_deep` row (key=value; the read parses fields). */
-export const wellDeepDetail = ({ skill, below, standY, feetY, limit }) =>
-  `order=${String(skill ?? '-').replace(/_well$/, '')} below=${below} stand_y=${standY} feet_y=${feetY} limit=${limit} remedy=${wellDeepRemedy(feetY)}`
+/** The `_well_deep` row (key=value; the read parses fields). action=climb: the scheduler gave `surface` in its place. */
+export const wellDeepDetail = ({ skill, below, standY, feetY, limit, action = 'hold' }) =>
+  `order=${String(skill ?? '-').replace(/_well$/, '')} below=${below} stand_y=${standY} feet_y=${feetY} limit=${limit} remedy=${wellDeepRemedy(feetY)} action=${action}`
+
+/**
+ * THE REMEDY IS PERFORMED, NOT ADVISED (Claude r1 P2; CLAUDE.md "advice printed is not advice taken"): a held DISPOSE -- a
+ * full bag of junk at town, the well out of reach above -- becomes the scheduler's own `surface` order, at most once per
+ * WELL_DEEP_CLIMB_MS per bot, and only below sea level (where surface climbs). Before this change the failing dispose walk
+ * at least pulled the bot up (32-60% reached the stand from 11-16 below); the climb does that job with the skill built for
+ * it, and the dispose is given on the first decision within reach. build_well and close_well are only held: neither is
+ * the bag's exit, and a visitor in reach does them.
+ * -> { skill: 'surface', args: {}, why } | null. Pure.
+ */
+export const WELL_DEEP_CLIMB_MS = 5 * 60 * 1000
+export function heldClimb ({ held = null, now = 0, lastAt = -Infinity } = {}) {
+  if (!held || held.skill !== 'dispose_well' || wellDeepRemedy(held.feetY) !== 'surface') return null
+  if (now - lastAt < WELL_DEEP_CLIMB_MS) return null
+  return { skill: 'surface', args: {}, why: `a full bag of junk at town and the junk well's stand ${held.below} blocks above (more than ${held.limit}): climb to sea level; dispose_well is given within ${held.limit} of the stand` }
+}
 
 /** The licence row, written once per spawn by index.mjs (`_wellcare_mode`, a kind no other build writes). */
 export const wellcareModeDetail = () => `phase=mode v=1 reach_below=${WELL_REACH_BELOW} station_keepout=1 mine_shell=wellCellAt`

@@ -6024,7 +6024,9 @@ async function place(ctx, { item, x, y, z }, signal, { wellOwn = null, by = null
   // falling block, then place into it. Only for stations, only when no
   // coordinates were given, only one cell per call.
   let madeRoom = null
-  if (!candidates.length && STATION_ITEMS.has(item) && ![x, y, z].every(v => Number.isFinite(Number(v)))) {
+  // BESIDE A WELL, NO DIG FOR ROOM (Claude r1 P3): when the only free cells were the well's, the move is the step away, not a
+  // town block dug beside the stand -- the refusal below says so
+  if (!candidates.length && STATION_ITEMS.has(item) && !candidates.wellSkip?.n && ![x, y, z].every(v => Number.isFinite(Number(v)))) {
     const base = bot.entity.position
     for (const [dx, dz] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
       // A real Vec3 from plain numbers: test fakes give positions without
@@ -7678,14 +7680,21 @@ function wellBuildPlanOf (bot) {
 const playersSeen = bot => Object.values(bot.players ?? {}).filter(p => p?.username && p.username !== bot.username && p.entity?.position)
   .map(p => ({ username: p.username, x: p.entity.position.x, y: p.entity.position.y, z: p.entity.position.z }))
 /**
- * THE HEIGHT A WELL ORDER WALKS TO -> the stand's feet y | null (wellcare-01 fix 2, cognitive.mjs wellOrder's `depth`): the
- * town well's cap + 1 (dispose_well, close_well), else the recorded site's (an unfinished build), else a recorded plinth's
- * cap (build_well floors and caps a finished plinth). Null when the town knows none (the caller falls back to home's y).
+ * THE HEIGHT A WELL ORDER WALKS TO -> the stand's feet y | null (wellcare-01 fix 2, cognitive.mjs wellOrder's `depth`), BY
+ * ORDER (Claude r1 P2): dispose_well -> the town's usable well; build_well -> the recorded site, else a recorded plinth's
+ * cap (build_well floors and caps a finished plinth), else the well; close_well -> an open well, else the site (an open pit
+ * is covered), else a plinth. Each is cap + 1. Null when the town knows none (the caller falls back to home's y).
  */
-export function townWellStandY (bot) {
-  try { const w = findTownWell(bot); if (w?.cap && Number.isFinite(w.cap.y)) return w.cap.y + 1 } catch { /* no well read */ }
-  try { const r = recordedWellSite(bot); if (r && Number.isFinite(r.y)) return r.y + 1 } catch { /* no record */ }
-  try { const p = knownPlinthCaps(bot)[0]; if (p && Number.isFinite(p.y)) return p.y + 1 } catch { /* no plinth */ }
+export function townWellStandY (bot, skill = 'dispose_well') {
+  const up = c => (c && Number.isFinite(c.y) ? c.y + 1 : null)
+  let ws = []
+  try { ws = findTownWells(bot) } catch { ws = [] }
+  const well = () => up(ws.find(w => !w.breach)?.cap)
+  const open = () => up(ws.find(w => w.open)?.cap)
+  const site = () => { try { return up(recordedWellSite(bot)) } catch { return null } }
+  const plinth = () => { try { return up(knownPlinthCaps(bot)[0]) } catch { return null } }
+  const order = skill === 'build_well' ? [site, plinth, well] : skill === 'close_well' ? [open, site, plinth] : [well, site, plinth]
+  for (const f of order) { const y = f(); if (y != null) return y }
   return null
 }
 /** Is this bot's body inside a well column below the rim? (the cached columns when index.mjs keeps them) */
@@ -11361,7 +11370,11 @@ async function mine(ctx, { y: targetY = 12 }, signal) {
         return { status: 'failed', failClass: 'forbidden',
                  detail: `stopped at y=${Math.round(bot.entity.position.y)}: the next stair cell ${pos.x},${pos.y},${pos.z} is the town tree farm's; walk away from the farm and mine again` }
       }
-      logEvent({ kind: 'mine_well_guard', status: 'refused', snapshot: snapshot(bot), detail: `action=stop at=${cap.x},${cap.y},${cap.z} cell=${pos.x},${pos.y},${pos.z}` })
+      logEvent({ kind: 'mine_well_guard', status: 'refused', snapshot: snapshot(bot), detail: `action=stop at=${cap.x},${cap.y},${cap.z} cell=${pos.x},${pos.y},${pos.z}${cap.unread ? ' unread=1' : ''}` })
+      if (cap.unread) {
+        return { status: 'failed', failClass: 'forbidden',
+                 detail: `stopped at y=${Math.round(bot.entity.position.y)}: the town's junk well cells could not be read for the next stair cell ${pos.x},${pos.y},${pos.z}; mine again (the cells are read afresh)` }
+      }
       return { status: 'failed', failClass: 'forbidden',
                detail: `stopped at y=${Math.round(bot.entity.position.y)}: the next stair cell ${pos.x},${pos.y},${pos.z} is the junk well's shell (${cap.x},${cap.y},${cap.z}); walk away from the well and mine again` }
     }

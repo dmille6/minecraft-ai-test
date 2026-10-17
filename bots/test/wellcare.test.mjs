@@ -218,8 +218,17 @@ await t('wellOutOfReach: more than 12 below the stand is out of reach; 12 is in;
   assert.equal(WC.wellOutOfReach({ feetY: 33, standY: 74 }).below, 41, 'board-c-Alpha 10-17 04:11Z (y 33 under the 365,74,136 stand)')
   assert.equal(WC.wellOutOfReach({ feetY: 90, standY: 74 }), null, 'above the stand')
   for (const bad of [{ feetY: null, standY: 74 }, { feetY: 40, standY: null }, { feetY: NaN, standY: 74 }, {}]) assert.equal(WC.wellOutOfReach(bad), null, JSON.stringify(bad))
-  assert.match(WC.wellDeepDetail({ skill: 'dispose_well', below: 19, standY: 74, feetY: 55, limit: 12 }), /^order=dispose below=19 stand_y=74 feet_y=55 limit=12 remedy=surface$/)
-  assert.match(WC.wellDeepDetail({ skill: 'build_well', below: 20, standY: 90, feetY: 70, limit: 12 }), /^order=build .* remedy=walk_up$/, 'above sea level surface refuses')
+  assert.match(WC.wellDeepDetail({ skill: 'dispose_well', below: 19, standY: 74, feetY: 55, limit: 12 }), /^order=dispose below=19 stand_y=74 feet_y=55 limit=12 remedy=surface action=hold$/)
+  assert.match(WC.wellDeepDetail({ skill: 'build_well', below: 20, standY: 90, feetY: 70, limit: 12 }), /^order=build .* remedy=walk_up action=hold$/, 'above sea level surface refuses')
+  // THE CLIMB (heldClimb): a held DISPOSE below sea level becomes `surface`, once per 5 min; never a build/close, never above 63
+  const held = { skill: 'dispose_well', below: 22, standY: 67, feetY: 45, limit: 12 }
+  assert.equal(WC.heldClimb({ held, now: 1e9 })?.skill, 'surface')
+  assert.equal(WC.heldClimb({ held, now: 1e9, lastAt: 1e9 - 60_000 }), null, 'once per 5 min')
+  assert.equal(WC.heldClimb({ held, now: 1e9, lastAt: 1e9 - WC.WELL_DEEP_CLIMB_MS })?.skill, 'surface')
+  assert.equal(WC.heldClimb({ held: { ...held, skill: 'build_well' }, now: 1e9 }), null)
+  assert.equal(WC.heldClimb({ held: { ...held, skill: 'close_well' }, now: 1e9 }), null)
+  assert.equal(WC.heldClimb({ held: { ...held, feetY: 64, standY: 90, below: 26 }, now: 1e9 }), null, 'surface refuses above sea level')
+  assert.equal(WC.heldClimb({ held: null, now: 1e9 }), null)
 })
 const AT_TOWN = { now: 1e9, slots: 36, freeSlots: 0, junkStacks: 3, distHome: 5, well: () => ({ open: false, attended: false, breached: false }) }
 await t('wellOrder HOLDS a deep bot\'s order at no cost: no order, `held` names it, no cooldown charged -> the first decision in reach gets it', () => {
@@ -247,9 +256,9 @@ await t('the depth reader is asked only when an order would be given (the cheap 
   W.wellOrder({ ...AT_TOWN, depth: () => { asked++; return null } })
   assert.equal(asked, 1, 'positive control')
 })
-await t('townWellStandY: the recorded plinth\'s cap + 1 when the town has no built well; null with nothing known', () => {
+await t('townWellStandY BY ORDER: the recorded plinth\'s cap + 1 when the town has no built well (each order kind); null with nothing known', () => {
   writePlinth()
-  assert.equal(S.townWellStandY(plinthWorld()), PCAP.y + 1)
+  for (const k of ['dispose_well', 'build_well', 'close_well']) assert.equal(S.townWellStandY(plinthWorld(), k), PCAP.y + 1, k)
   dropPlinth()
   assert.equal(S.townWellStandY(plinthWorld()), null)
 })
@@ -393,7 +402,7 @@ await t('BUILD_WELL\'S OWN TABLE (plinth-02 wellTableCell): its plinth-ring cell
   assert.equal(stand.status, 'failed'); assert.match(stand.detail, /stand/)
   dropPlinth()
 })
-await t('THE TABLE CELL CHOOSERS skip the well: composter tableCellFor and plinth wellTableCell take another cell (no walk-proof change)', async () => {
+await t('THE TABLE CELL CHOOSER skips a forbidden cell: composter tableCellFor takes another (plinth wellTableCell passes the same forbid to it)', async () => {
   const { tableCellFor } = await import('../src/composter.mjs')
   const flat = (x, y, z) => (y < 64 ? { name: 'stone', boundingBox: 'block' } : { name: 'air', boundingBox: 'empty' })
   const first = tableCellFor({ site: { x: 0, y: 64, z: 0 }, stand: { x: 0, y: 64, z: 1 }, read: flat })
