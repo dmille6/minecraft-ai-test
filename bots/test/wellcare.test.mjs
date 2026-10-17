@@ -349,7 +349,7 @@ await t('THE CHAIN (real place, a town craft on the stand): the table goes on th
 })
 await t('POSITIVE CONTROL / MUTANT (skills): no well test in the scan nor at the placement -> the base puts the table on the well (its cap column or a stand)', async () => {
   await withMutants(SKP, [["  const wellRefused = p => { const k = stationRefusalAt(bot, p); if (k) { wellSkip.n++; wellSkip.kind ??= k } return !!k }", "  const wellRefused = p => false"],
-                          ["        if (wk) { wellRow('late', wk, 1, tgt); failures.push(`${tgt} is the town junk well's ${wk}`); continue } }", "      }"]], async m => {
+                          ["        if (wk) { wellRow('late', wk, 1, tgt); failures.push(`${tgt} is the town junk well's ${wk}: step 3+ blocks away from the well and place again`); continue } }", "      }"]], async m => {
     const bot = flatTown()
     const r = await place(m, bot)
     assert.equal(r.status, 'success')
@@ -367,7 +367,7 @@ await t('A WELL LEARNED DURING THE EQUIP (Codex r4 P2): the cells are read again
   assert.match((await rows('_station_well')).pop().skill.detail, /^action=late item=crafting_table kind=(shaft|stand) n=1 at=/)
 })
 await t('MUTANT (skills): without the last read the table lands on the well learned during the equip', async () => {
-  await withMutant(SKP, "        if (wk) { wellRow('late', wk, 1, tgt); failures.push(`${tgt} is the town junk well's ${wk}`); continue } }", "      }", async m => {
+  await withMutant(SKP, "        if (wk) { wellRow('late', wk, 1, tgt); failures.push(`${tgt} is the town junk well's ${wk}: step 3+ blocks away from the well and place again`); continue } }", "      }", async m => {
     let known = []
     const bot = flatTown()
     bot.wellCellsNow = () => known

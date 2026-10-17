@@ -10,7 +10,7 @@
 #      well_unreachable, build_well 25 of 25). Rows _well_deep order= below= stand_y= feet_y= limit=12 remedy=surface|walk_up.
 #   3. NO STATION ON A WELL: place() never puts a block in a well's shell, shaft (cap.y-2..+3), stands (the four cardinals
 #      at cap.y+1/+2) or a plinth stair's headroom; build_well's own table keeps its plinth-ring cell. Rows _station_well
-#      action=skip|refuse|room, and _station_placed (every station placed within 6 of a well: item= at= cap= keep= own= by=).
+#      action=skip|refuse|room|late, and _station_placed (every station placed within 6 of a well: item= at= cap= keep= own= by=).
 #
 #   DENOMINATORS FIRST: rows walked, bots and bot-hours per arm and period, the caps known per pool.
 #   LICENCE   _wellcare_mode (once per spawn; only this build writes it).
@@ -18,7 +18,8 @@
 #             _mine_well_guard) -- blocks KEEP.
 #   GATES (canary arm, post):
 #     W1 breach_shell_dug_by_mine  a _dig_town row by mine inside a known shell or on a plinth stair tread. KNOWN = what the
-#                                  bot knows (GATE_CAP_KINDS + plinth records, not retired), from when it became a well.
+#                                  bot knows (GATE_CAP_KINDS + plinth records) inside its spans: from when it became a
+#                                  well, until a retirement, again from renewed use (column_spans); plinth records always.
 #     W2 breach_station_on_well    a _station_placed row with own=0 whose cell is a well's shell/shaft/stand/stair (judged
 #                                  HERE from the cap and the records, not from the row's own keep=), or keep!=none own=0.
 #     W3 breach_deep_order         a dispose_well / close_well row that STARTED more than 13 below a stand the order itself
@@ -102,34 +103,45 @@ def keep_out(cell, cap, stair=(), own=False):
     return None
 
 
-def active(since, pool, cap, t):
-    """Was this column a well (or a planned plinth) at time t? `since` {pool: {cap: datetime}}: a column first seen in a
-    _well_built / _well_pit_dug row (built in the window) or planned by a record at `at` is judged only from then (Codex r1
-    P2: never future geometry retroactively); any other column existed before the window. t None = not timed."""
-    a = (since or {}).get(pool, {}).get(cap)
-    if a is None or t is None:
+MIN_T = dt.datetime.min.replace(tzinfo=dt.timezone.utc)
+MAX_T = dt.datetime.max.replace(tzinfo=dt.timezone.utc)
+
+
+def active(spans, pool, cap, t):
+    """Was this column a well the bot knows at time t? `spans` {pool: {cap: [(start, end)]}} (column_spans); a column with
+    no spans entry, or an untimed action, is not time-gated."""
+    lst = (spans or {}).get(pool, {}).get(cap)
+    if lst is None or t is None:
         return True
-    start, end = a if isinstance(a, tuple) else (a, None)   # end: the column's retirement (Codex r4 P2), else None
-    return t >= start and (end is None or t < end)
+    return any(s0 <= t < e0 for s0, e0 in lst)
 
 
-def first_seen(rows_):
-    """PURE. rows_ [(t, pool, kind, cap)] in time order -> {pool: {cap: activation}}: the FIRST row naming a cap decides --
-    a _well_built / _well_pit_dug row means a well from then, any other row a well from before the window (Codex r2 P1)."""
+def column_spans(cap_rows, psince=None, pcols=None):
+    """PURE. When was each column a well THE BOT KNOWS? -> {pool: {cap: [(start, end)]}}. cap_rows [(t, pool, kind, cap)]
+    in time order.
+      - live evidence (GATE_CAP_KINDS) opens a span: a first _well_built / _well_pit_dug at its time (built in the window,
+        Codex r2 P1), any other first live row from before the window; a live row after a retirement REOPENS at its time
+        (Codex r5 P2: a well rebuilt or still in use is protected again);
+      - _well_retired closes the open span at its time (Codex r4 P2: judged up to the retirement, never erased);
+      - refusal-only rows (_well_refused, _well_recollected) open nothing (Claude r1 P2: the bot may not know that well);
+      - a plinth record's column is a well from its plan time (`psince`, else always) to the end, whatever its rows say
+        (knownPlinthColumns keeps protecting it)."""
     out = defaultdict(dict)
-    for t, pool, kind, cap in rows_:
-        if cap not in out[pool]:
-            out[pool][cap] = t if kind in ('_well_built', '_well_pit_dug') else dt.datetime.min.replace(tzinfo=dt.timezone.utc)
-    return out
-
-
-def column_since(row_since, psince):
-    """PURE. A plinth record's plan time is authoritative for its own cap; otherwise the rows' first observation."""
-    out = defaultdict(dict)
-    for p in set(row_since) | set(psince):
-        out[p].update(row_since.get(p, {}))
-        out[p].update(psince.get(p, {}))
-    return out
+    state = {}
+    for t, pool, kind, cap in cap_rows:
+        key = (pool, cap)
+        lst = out[pool].setdefault(cap, []) if (kind in GATE_CAP_KINDS or key in state) else None
+        if kind in GATE_CAP_KINDS:
+            if key not in state:
+                lst.append([t if kind in ('_well_built', '_well_pit_dug') else MIN_T, MAX_T]); state[key] = 'open'
+            elif state[key] == 'closed':
+                lst.append([t, MAX_T]); state[key] = 'open'
+        elif kind == '_well_retired' and state.get(key) == 'open':
+            lst[-1][1] = t; state[key] = 'closed'
+    for pool, cs in (pcols or {}).items():
+        for cap in cs:
+            out[pool].setdefault(cap, []).append([(psince or {}).get(pool, {}).get(cap, MIN_T), MAX_T])
+    return {p: {c: [tuple(x) for x in lst] for c, lst in cs.items() if lst} for p, cs in out.items()}
 
 
 def shell_digs(digs, cols, since=None, by_prefix='mine'):
@@ -280,18 +292,21 @@ _HD = [('hive-d', 'hive-d-Echo', 'pos=79,57,77 block=sandstone class=ground purp
        ('board-b', 'board-b-Echo', 'pos=-247,70,139 block=stone class=ground purpose=target by=mine:y40 outcome=confirmed dt=19')]
 _COLS = {'hive-d': {(79, 57, 76): ()}, 'board-b': {(-247, 72, 135): ((-247, 70, 138),)}}
 _t0 = dt.datetime(2026, 10, 17, 4, 0, tzinfo=dt.timezone.utc)
-assert shell_digs([('hive-d', 'e', _HD[0][2], _t0)], _COLS, {'hive-d': {(79, 57, 76): _t0 + dt.timedelta(minutes=5)}}) == [], 'a well built after the dig (Codex r1 P2)'
-assert len(shell_digs([('hive-d', 'e', _HD[0][2], _t0 + dt.timedelta(minutes=6))], _COLS, {'hive-d': {(79, 57, 76): _t0 + dt.timedelta(minutes=5)}})) == 1
-# the aggregation (Codex r2 P1): built at +5, a dispose at +6 -> still a well from +5 only; a dig at +4 is not a breach
-_fs = first_seen([(_t0 + dt.timedelta(minutes=5), 'hive-d', '_well_built', (79, 57, 76)), (_t0 + dt.timedelta(minutes=6), 'hive-d', '_well_dispose', (79, 57, 76)),
-                  (_t0, 'hive-c', '_well_dispose', (1, 2, 3)), (_t0 + dt.timedelta(minutes=9), 'hive-c', '_well_built', (1, 2, 3))])
-assert _fs['hive-d'][(79, 57, 76)] == _t0 + dt.timedelta(minutes=5) and _fs['hive-c'][(1, 2, 3)].year == 1
-assert shell_digs([('hive-d', 'e', _HD[0][2], _t0 + dt.timedelta(minutes=4))], _COLS, column_since(_fs, {})) == []
-assert column_since(_fs, {'hive-d': {(79, 57, 76): _t0}})['hive-d'][(79, 57, 76)] == _t0, 'the plinth record\'s plan time wins'
-# retirement at the action's time (Codex r4 P2): a dig BEFORE the well retired is a breach, one after is not
-_ret = {'hive-d': {(79, 57, 76): (dt.datetime.min.replace(tzinfo=dt.timezone.utc), _t0 + dt.timedelta(minutes=10))}}
-assert len(shell_digs([('hive-d', 'e', _HD[0][2], _t0 + dt.timedelta(minutes=9))], _COLS, _ret)) == 1
-assert shell_digs([('hive-d', 'e', _HD[0][2], _t0 + dt.timedelta(minutes=11))], _COLS, _ret) == []
+assert shell_digs([('hive-d', 'e', _HD[0][2], _t0)], _COLS, {'hive-d': {(79, 57, 76): [(_t0 + dt.timedelta(minutes=5), MAX_T)]}}) == [], 'a well built after the dig (Codex r1 P2)'
+assert len(shell_digs([('hive-d', 'e', _HD[0][2], _t0 + dt.timedelta(minutes=6))], _COLS, {'hive-d': {(79, 57, 76): [(_t0 + dt.timedelta(minutes=5), MAX_T)]}})) == 1
+# THE SPANS (Codex r2 P1, r4 P2, r5 P2; Claude r5 P3): built at +5, used at +6 -> a well from +5; retired at +10, used again
+# at +12 -> protected again from +12; a refusal-only cap opens nothing; a retired PLINTH stays protected
+_m = lambda n: _t0 + dt.timedelta(minutes=n)
+_W = (79, 57, 76)
+_sp = column_spans([(_m(5), 'hive-d', '_well_built', _W), (_m(6), 'hive-d', '_well_dispose', _W), (_m(10), 'hive-d', '_well_retired', _W),
+                    (_m(12), 'hive-d', '_well_dispose', _W), (_m(0), 'hive-c', '_well_refused', (1, 2, 3)),
+                    (_m(1), 'board-b', '_well_dispose', (-247, 72, 135)), (_m(2), 'board-b', '_well_retired', (-247, 72, 135))],
+                   psince={}, pcols={'board-b': {(-247, 72, 135): ()}})
+assert _sp['hive-d'][_W] == [(_m(5), _m(10)), (_m(12), MAX_T)], _sp['hive-d']
+assert 'hive-c' not in _sp, 'a refusal-only cap is not a known well'
+_dig = lambda n: [('hive-d', 'e', _HD[0][2], _m(n))]
+assert [len(shell_digs(_dig(n), _COLS, _sp)) for n in (4, 7, 11, 13)] == [0, 1, 0, 1], 'before the build, in use, retired, in use again'
+assert active(_sp, 'board-b', (-247, 72, 135), _m(30)), 'a retired plinth column stays protected'
 assert shell_digs([('hive-d', 'e', _HD[0][2].replace('by=mine:y55', 'by=surface'), _t0)], _COLS, None, by_prefix='surface') != [], 'the surface tripwire'
 assert [c for _, c, _, _ in shell_digs(_HD, _COLS)] == [(79, 57, 77), (-247, 70, 138)], 'the wall by mine and the plinth stair tread; not the builder; not past the tread'
 assert keep_out((365, 73, 135), (365, 73, 137)) == 'well' and keep_out((365, 73, 135), (365, 73, 137), own=True) is None, 'board-c table: the builder\'s only'
@@ -357,7 +372,7 @@ if __name__ == '__main__':
         return out
 
     rows = sorted(load_window(PRE, END), key=lambda r: r['t'])
-    caps = defaultdict(dict); cap_rows = []; worlds = {}; offbuild = 0; gate_caps = defaultdict(set); retired = defaultdict(set); retired_at = defaultdict(dict)
+    caps = defaultdict(dict); cap_rows = []; worlds = {}; offbuild = 0; gate_caps = defaultdict(set); retired = defaultdict(set)
     bots = defaultdict(set); kinds = Counter(); per_bot = defaultdict(list)
     licence = 0; leak = Counter(); guard = Counter(); digs = {'canary': [], 'control': []}; placed = []; ctl_place = []
     outcome = Counter()
@@ -383,9 +398,7 @@ if __name__ == '__main__':
                     gate_caps[p].add(c)
                 if k == '_well_retired':
                     retired[p].add(c)
-                    retired_at[p].setdefault(c, t)
-                # a well BUILT in the window is a well from then; one named by any other row existed before it
-                cap_rows.append((t, p, k, c))   # first_seen: the FIRST observation decides (Codex r2 P1)
+                cap_rows.append((t, p, k, c))   # column_spans: when each column was a well the bot knows
         pos = (raw.get('bot') or {}).get('pos') or {}
         sk = raw.get('skill') or {}
         per_bot[b].append((t, k, d, pos.get('y') if isinstance(pos, dict) else None, sk.get('duration_ms') or 0))
@@ -413,17 +426,14 @@ if __name__ == '__main__':
             ctl_place.append((p, b, d))
 
     pcols, unverified, psince = plinth_columns(set(caps) | CANS, worlds)
-    since = column_since(first_seen(cap_rows), psince)
+    since = column_spans(cap_rows, psince, pcols)
     cols = defaultdict(dict); gcols = defaultdict(dict)
     for p in set(caps) | set(pcols):
         cols[p].update(caps.get(p, {}))
         cols[p].update(pcols.get(p, {}))   # a record's stair wins over a row's bare cap
         for c, st in cols[p].items():
-            if c in pcols.get(p, {}) or c in gate_caps.get(p, set()):
+            if c in since.get(p, {}):   # a well the bot knows, judged inside its spans only (column_spans)
                 gcols[p][c] = st
-                # a RETIRED well is judged up to its retirement only (Codex r4 P2); a plinth record keeps protecting its cap
-                if c in retired_at.get(p, {}) and c not in pcols.get(p, {}):
-                    since[p][c] = (since.get(p, {}).get(c, dt.datetime.min.replace(tzinfo=dt.timezone.utc)), retired_at[p][c])
     # orders from deep, per arm (post): deep_orders joins each order's own evidence rows within its duration
     deep = {'canary': [], 'control': [], 'canary_build': [], 'control_build': []}
     for b, seq in per_bot.items():
@@ -433,7 +443,7 @@ if __name__ == '__main__':
                 deep[arm if k != 'build_well' else arm + '_build'].append((b, t.strftime('%H:%MZ'), k, ps, st))
     w1 = shell_digs(digs['canary'], gcols, since); w1c = shell_digs(digs['control'], gcols, since)
     w2 = station_breaches(placed, gcols, since); w2c = place_row_breaches(ctl_place, gcols)
-    w1u = [x for x in shell_digs(digs['canary'], cols, since) if x not in w1]; w2u = [x for x in station_breaches(placed, cols, since) if x not in w2]
+    w1u = [x for x in shell_digs(digs['canary'], cols) if x not in w1]; w2u = [x for x in station_breaches(placed, cols) if x not in w2]
     w1s = shell_digs(digs['canary'], gcols, since, by_prefix='surface'); w1sc = shell_digs(digs['control'], gcols, since, by_prefix='surface')
     hours = W / 60
     bh = lambda per, arm: len(bots[(per, arm)]) * hours
@@ -448,7 +458,7 @@ if __name__ == '__main__':
           % ({p: len(c) for p, c in sorted(cols.items())}, {p: len(c) for p, c in sorted(pcols.items())}, sorted(unverified)))
     print('LICENCE      canary _wellcare_mode rows %d | LEAK control own-kind rows %d %s' % (licence, sum(leak.values()), dict(leak)))
     print('LIVENESS     guard rows: _well_deep %d | _mine_well_guard %s | _station_well %d' % (guard['well_deep'], {k2[5:]: v for k2, v in guard.items() if k2.startswith('mine_')}, acted_station))
-    print('W1 (gate)    canary mine digs in a known shell / plinth stair: %d %s | ungated (refusal-only caps) %d %s' % (len(w1), w1[:3], len(w1u), w1u[:2]))
+    print('W1 (gate)    canary mine digs in a known shell / plinth stair: %d %s | ungated (refusal-only caps, retired spans) %d %s' % (len(w1), w1[:3], len(w1u), w1u[:2]))
     print('TRIPWIRE     surface digs in a known shell (reported, the base skill): canary %d %s control %d' % (len(w1s), w1s[:2], len(w1sc)))
     print('W2 (gate)    canary stations on a well cell: %d %s | _station_placed rows %d | ungated %d %s' % (len(w2), w2[:3], len(placed), len(w2u), w2u[:2]))
     print('             gate columns per pool %s | retired %s' % ({p: len(c) for p, c in sorted(gcols.items())}, {p: len(c) for p, c in sorted(retired.items()) if c}))
