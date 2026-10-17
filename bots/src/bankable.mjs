@@ -107,6 +107,15 @@ export function cobbleBankStacks (items = [], { creditCap = 64, reserve = COBBLE
  */
 let COBBLE_TOWN = null
 export function setCobbleTownReader (fn) { COBBLE_TOWN = typeof fn === 'function' ? fn : null }
+/**
+ * THE KIT'S KEEP FOR A TOWN STRUCTURE (treefarm-02 on kitshrink-01): () -> { name: count } of kit items a town structure
+ * still needs from this bag (the tree farm's unlit torch cells). Read through a reader skills.mjs installs per bot (cached);
+ * no reader -> {}. A kit item the keep covers stays in the bag ('farm_torches'), so the town deposit never banks the torches
+ * the farm's next visit would place. A reader that throws keeps nothing (the base kit rule).
+ */
+let KIT_KEEP = null
+export function setKitKeepReader (fn) { KIT_KEEP = typeof fn === 'function' ? fn : null }
+export function kitKeepView () { if (!KIT_KEEP) return {}; try { return KIT_KEEP() ?? {} } catch { return {} } }
 /** The town view now, or null. A reader that throws is an UNKNOWN town (nothing admitted), never an open one. */
 export function cobbleTownView () {
   if (!COBBLE_TOWN) return null
@@ -234,6 +243,7 @@ export const EXCLUSION_PHRASE = Object.freeze({
   the_only_station: 'the only station',
   peaceful_sword: 'swords are not banked in a peaceful world',
   escape_ladders: 'kept for the ladder escape',
+  farm_torches: 'kept for the town tree farm\'s unlit torch cells',
 })
 
 const TOOL_RE = /_(pickaxe|axe|shovel|sword|hoe)$/
@@ -357,6 +367,11 @@ export function bankableInventory (items = [], { wants = [], creditCap = 64,
     // wanted item; a bag holding the escape's minimum keeps every ladder. Nothing else about the item's judgement changes.
     const kit = !isTool ? kitBankDecision(name, n) : null
     if (kit === 'escape_ladders') { excluded[name] = 'escape_ladders'; continue }
+    // A TOWN STRUCTURE STILL NEEDS SOME (treefarm-02): the farm's unlit torch cells -- kept like a reserve
+    if (kit === 'bank') {
+      const keep = Math.max(0, Math.floor(Number(kitKeepView()[name]) || 0))
+      if (keep > 0) { avail -= Math.min(avail, keep); if (avail <= 0) { excluded[name] = 'farm_torches'; continue } }
+    }
     if (!isTool && kit !== 'bank' && !want.has(name)) { junk += avail; excluded[name] = 'not_wanted'; continue }
     // A TARGETED BULK NAME (stocktarget classes A/B): the bag keeps what every path keeps (townKeeps), and the town takes
     // only its room under the group's target -- shared by the group's names; 0 at target, unknown when it cannot judge.

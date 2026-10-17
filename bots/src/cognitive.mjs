@@ -984,6 +984,7 @@ export class CognitiveLoop {
         }
       } catch { /* a world read must never break the decision loop */ }
     }
+    this.farmTorchIssued = false
     // THE TOWN TREE FARM (treefarm.mjs farmOrder decides; this supplies readings and keeps the state): tend the farm --
     // replant, restore soil, clear leftover logs, torches -- when at town and the farm has work this bot can do. After the
     // composter, the junk well, chest pruning and the room order (a craft's own remedy keeps its turn), before the planting
@@ -1000,11 +1001,16 @@ export class CognitiveLoop {
         // THE FARM'S TORCHES (kitshrink-01 banks them at the town deposit): the farm had nothing to do this tick and its
         // torch cells are unlit while the bag is short -> take the shortfall from the town chests (treefarm.mjs farmTorchOrder)
         if (!order) {
-          const held = (bot.inventory?.items?.() ?? []).reduce((n, it) => n + (it?.name === 'torch' ? (it.count ?? 0) : 0), 0)
+          const items = bot.inventory?.items?.() ?? []
+          const held = items.reduce((n, it) => n + (it?.name === 'torch' ? (it.count ?? 0) : 0), 0)
           const t = farmTorchOrder({ now: Date.now(), distHome: p ? Math.hypot(home.x - p.x, home.z - p.z) : Infinity, dy: p ? p.y - config.world.homeY : Infinity,
-                                     need: () => farmTorchNeed(bot), held, state: this.farmTorchState ?? {}, enabled: farmEnabled(process.env) })
+                                     need: () => farmTorchNeed(bot), held, state: this.farmTorchState ?? {}, enabled: farmEnabled(process.env),
+                                     farmBackoffUntil: this.farmState?.backoffUntil ?? 0,
+                                     // room for a torch: a free slot, or a torch stack with room
+                                     room: () => items.length < 36 || items.some(it => it?.name === 'torch' && (it.count ?? 0) < 64),
+                                     refused: args => this.admission.memoryRefuses('withdraw', args) })
           this.farmTorchState = t.state
-          if (t.order) order = t.order
+          if (t.order) { order = t.order; this.farmTorchIssued = true }
         }
       } catch { /* a world read must never break the decision loop */ }
     }
@@ -1118,10 +1124,13 @@ export class CognitiveLoop {
       if (admitted.skill === 'prune_town') this.pruneState = pruneOutcome(r.status, Date.now(), this.pruneState ?? {})
       if (admitted.skill === 'count_town') this.recountState = recountOutcome(r.status, r.delta?.counted ?? 0, Date.now(), this.recountState ?? {}, r.failClass ?? null)
       if (FARM_ORDERS.has(admitted.skill)) this.farmState = farmOrderOutcome(admitted.skill, r.status, Date.now(), this.farmState ?? {}, r.failClass ?? null, RUNNER_DECLINED)
-      // the farm's torch fetch (a `withdraw torch` this loop issued within the last five minutes): its outcome sets the backoff
-      if (admitted.skill === 'withdraw' && admitted.args?.item === 'torch' && Date.now() - (this.farmTorchState?.lastFetchAt ?? -Infinity) < 5 * 60 * 1000) {
+      // THE FARM'S TORCH FETCH, this tick's own order (never a withdraw the model chose: Claude r13 P3-6): its outcome sets
+      // the backoff; a fetched bag lets the farm order scan again at once, so the visit that places them comes inside the hold
+      if (this.farmTorchIssued && admitted.skill === 'withdraw' && admitted.args?.item === 'torch') {
         this.farmTorchState = farmTorchOutcome(r.status, r.failClass ?? null, Date.now(), this.farmTorchState ?? {}, RUNNER_DECLINED)
+        if (r.status === 'success') this.farmState = { ...(this.farmState ?? {}), lastScanAt: -Infinity }
       }
+      this.farmTorchIssued = false
       // THE REFLEX TOOK THE BODY -- SAY SO ON THE NEXT DECISION.
       if (r.interruptedBy) this.#raiseTrigger(r.interruptedBy, r.detail)
       // A PREREQUISITE THE GOAL LAYER CANNOT SEE IS NOT A PREREQUISITE.

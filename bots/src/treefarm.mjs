@@ -587,8 +587,11 @@ export function farmOrderOutcome (skill, status, now = 0, state = {}, failClass 
 // farm's own visit to place them. Never a trip from outside town; a town whose chests hold no torch backs off for hours.
 export const TORCH_FETCH_COOLDOWN_MS = 10 * 60 * 1000
 export const TORCH_FETCH_BACKOFF_MS = 2 * 60 * 60 * 1000
-/** What the withdraw verb says when the town simply has none (or none it can give): the long backoff, not a fault loop. */
-export const TORCH_FETCH_NONE = new Set(['container_short', 'nothing_found', 'chest_no_room', 'no_path'])
+/** The withdraw verb looks in at most three containers: "none here" is a SAMPLE (Claude r13 P2-2), so it backs off
+ *  EXPONENTIALLY (10, 20, 40 ... min, capped at TORCH_FETCH_BACKOFF_MS), never 2 h on one look. */
+export const TORCH_FETCH_SAMPLE = new Set(['container_short', 'chest_no_room'])
+/** No chest at all, or none reachable: the long backoff at once. */
+export const TORCH_FETCH_NONE = new Set(['nothing_found', 'no_path'])
 
 /**
  * THE FARM'S TORCH FETCH -> { order, state }. Pure; cognitive.mjs supplies readings and keeps `state`.
@@ -597,28 +600,41 @@ export const TORCH_FETCH_NONE = new Set(['container_short', 'nothing_found', 'ch
  * Only at town and at town's level, only when the farm order itself had nothing to do this tick, a cooldown charged when
  * the order is ISSUED, a long backoff after the town showed it has none. Takes exactly the shortfall.
  */
-export function farmTorchOrder ({ now = 0, distHome = Infinity, dy = 0, need = 0, held = 0, state = {}, enabled = true } = {}) {
+export function farmTorchOrder ({ now = 0, distHome = Infinity, dy = 0, need = 0, held = 0, state = {}, enabled = true,
+                                  farmBackoffUntil = 0, room = true, refused = null } = {}) {
   const s = { ...state }
   const none = () => ({ order: null, state: s })
   if (!enabled) return none()
   if (!(distHome <= TOWN_RADIUS) || !(Math.abs(dy) <= FARM_ORDER_DY)) return none()
   if (now - (s.lastFetchAt ?? -Infinity) < TORCH_FETCH_COOLDOWN_MS || now < (s.backoffUntil ?? 0)) return none()
+  // THE FARM ITSELF IS BACKING OFF (Claude r13 P2-1): no visit could place them inside the hold -- no fetch
+  if (now < (Number(farmBackoffUntil) || 0)) return none()
   // the world read (the record's torch cells) at most every FARM_SCAN_MS, like the farm order's own scan
   if (now - (s.lastScanAt ?? -Infinity) < FARM_SCAN_MS) return none()
   s.lastScanAt = now
   const n = Math.max(0, Math.floor(Number(lazy(need)) || 0))
   const short = n - Math.max(0, Number(held) || 0)
   if (!(short > 0)) return none()
+  // a bag that cannot take a torch, or a withdraw the gate's memory would refuse, is not worth the walk (Claude r13 P3)
+  const args = { item: 'torch', count: short }
+  if (!lazy(room) || (typeof refused === 'function' ? refused(args) : refused)) return none()
   s.lastFetchAt = now
-  return { order: { skill: 'withdraw', args: { item: 'torch', count: short }, farmTorch: true,
+  return { order: { skill: 'withdraw', args,
                     why: `at town; the town tree farm has ${n} unlit torch cell(s) and this bag holds ${Math.max(0, Number(held) || 0)} torch(es): take ${short} from the town chests (the town deposit banks torches)` }, state: s }
 }
 /** After the fetch ran -> the new state. Nothing in town to take: the long backoff; a runner refusal or an abort: nothing. */
 export function farmTorchOutcome (status, failClass = null, now = 0, state = {}, declined = new Set()) {
   const s = { ...state }
-  if (status === 'success') { s.backoffUntil = 0; return s }
+  if (status === 'success') { s.backoffUntil = 0; s.misses = 0; return s }
   if (status === 'aborted' || status === 'no_effect' || declined.has(failClass)) return s
-  if (status === 'failed') s.backoffUntil = now + (TORCH_FETCH_NONE.has(failClass) ? TORCH_FETCH_BACKOFF_MS : TORCH_FETCH_COOLDOWN_MS)
+  if (status !== 'failed') return s
+  if (TORCH_FETCH_NONE.has(failClass)) { s.backoffUntil = now + TORCH_FETCH_BACKOFF_MS; return s }
+  if (TORCH_FETCH_SAMPLE.has(failClass)) {
+    s.misses = (s.misses ?? 0) + 1
+    s.backoffUntil = now + Math.min(TORCH_FETCH_BACKOFF_MS, TORCH_FETCH_COOLDOWN_MS * 2 ** (s.misses - 1))
+    return s
+  }
+  s.backoffUntil = now + TORCH_FETCH_COOLDOWN_MS
   return s
 }
 

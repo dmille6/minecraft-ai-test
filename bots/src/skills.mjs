@@ -53,7 +53,7 @@ import { STORAGE_NEAR, startableJunk } from './composter.mjs'
 // Withdraw (withdrawpick.mjs): the town order and the model's verb share one transfer, verified by the server's bag.
 import { bestToolCopy, roomPlan, roomKeep, roomCandidates, allocate, pickTakes, hasUsablePick, stonePickDeficits, NEEDS, PICK_RE, transferVerdict, bagDelta, withdrawRow, HOLD_MS,
   ingredientNeedsAbsent, noteIngredientMisses, townIngredientMissComplete } from './withdrawpick.mjs'
-import { setWithdrawHold, withdrawHolds } from './bankable.mjs'
+import { setWithdrawHold, withdrawHolds, setKitKeepReader } from './bankable.mjs'
 import { containerPickMiss, notePickMisses, townPickMissComplete } from './chestfull.mjs'
 import { serverRecount, lockstepClicks, confirmCursor, clicksInFlight, invalidateClicks } from './craftsync.mjs'
 import { inflightTracker } from './inflight.mjs'
@@ -7704,8 +7704,25 @@ export function farmTorchNeed (bot) {
     const rec = knownFarmRecord(bot)
     if (!rec) return 0
     const read = readCell(bot)
+    // ONLY A FARM A VISIT WILL TEND (Claude r13 P2-1): the same inputs townFarmPlan judges -- a record that is refused or
+    // must yield, or a plot not loaded, gets no visit, so torches fetched for it would only go back to the next deposit
+    if (farmRecordRefusal(read, rec, { reserved: pastBorder }) ?? farmYields(rec, farmAvoid(bot))) return 0
+    if (plotsOf(rec).filter(p => !pastBorder(p)).some(p => plotState(read, p).state === 'unknown')) return 0
     return torchesOf(rec).filter(c => !pastBorder(c) && torchState(read, c) === 'open').length
   } catch { return 0 }
+}
+/**
+ * THE KIT'S KEEP FOR THE FARM (bankable.mjs setKitKeepReader; treefarm-02 on kitshrink-01): the town deposit keeps
+ * min(held, unlit torch cells) torches, so a bot that arrives carrying them places them instead of banking them and
+ * fetching them back. Cached 30 s per bot (a deposit asks bankableInventory many times).
+ */
+export function installFarmKitKeep (bot) {
+  let cache = { at: -Infinity, v: {} }
+  setKitKeepReader(() => {
+    const now = Date.now()
+    if (now - cache.at > 30_000) cache = { at: now, v: { torch: farmTorchNeed(bot) } }
+    return cache.v
+  })
 }
 /** Items a farm visit may consume or gain without it being a loss: what it plants, places, digs and what trees drop. */
 const FARM_FLOW = /(_sapling$|_log$|^dirt$|^torch$|^bone_meal$|^stick$|^apple$|_leaves$)/

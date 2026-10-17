@@ -45,7 +45,7 @@ import { installOxygenGuard } from './oxygen.mjs'
 import { installDigCollisionWatch } from './digcollision.mjs'
 import { installShoreEgress } from './watermoves.mjs'
 import { installCraftSync } from './craftsync.mjs'
-import { installCobbleCap } from './skills.mjs'
+import { installCobbleCap, installFarmKitKeep } from './skills.mjs'
 import { cobbleCapModeDetail } from './cobblecap.mjs'
 import { lidClearModeDetail } from './lidrule.mjs'
 import { CognitiveLoop } from './cognitive.mjs'
@@ -280,6 +280,8 @@ function connect() {
     // earlier is overwritten without a word -- which is what happened in the sandbox experiment.
     // THE TOWN COBBLE CAP (cobblecap.mjs): the deposit plan reads the town's reconciled cobble through this bot's view
     try { installCobbleCap(bot) } catch (e) { log('warn', 'cobble cap not installed', { error: e.message }) }
+    // THE TREE FARM'S TORCH KEEP (treefarm-02 on kitshrink-01): the town deposit keeps the torches the farm's unlit cells need
+    try { installFarmKitKeep(bot) } catch (e) { log('warn', 'farm kit keep not installed', { error: e.message }) }
     // cobblecap-1000: the licence row, once per spawn -- the build's own `_cobblecap_mode` kind (cobblecap.mjs cobbleCapModeDetail)
     try { logEvent({ kind: 'cobblecap_mode', status: 'success', snapshot: snapshot(bot), detail: cobbleCapModeDetail() }) } catch {}
     // lidclear-01: the licence row, once per spawn -- `_lidclear_mode`, a kind the base cannot write (lidrule.mjs lidClearModeDetail)
