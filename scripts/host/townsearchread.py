@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# townsearchread.py [window_min] -- the read for canary `townsearch-01` (withdraw_pick looks in EVERY town container: the
+# townsearchread.py [window_min] -- the read for canary `townsearch-02` (and townsearch-01) (withdraw_pick looks in EVERY town container: the
 # stock journal's holders first, then the unknown, nearest the bot; a miss lasts 60 min so the next order continues where the
 # last stopped). CANARY_DRYRUN=pool[,pool]:sha:iso for dry runs (never emits). Judges the CANARY ARM; difference-in-differences
 # against control for the effect; DENOMINATORS FIRST.
@@ -159,7 +159,7 @@ def stream(since, until, cut, cans, logroot='/var/log/mcai'):
 
 def earlier_build(r):
     """A PRE-window row only a townsearch build writes (the search's town=, or its licence): an EARLIER canary of this
-    change (townsearch-01 ran on placebo-d, board-c until 11:58Z 10-17), never the baseline. Claude ts02 review P1: the read's
+    change (townsearch-01 on placebo-d, board-c 10-17: licence rows 04:57:59Z..11:23:44Z, its last order 11:11:53Z), never the baseline. Claude ts02 review P1: the read's
     pre window grows with each read, so these rows sat in control's pre period and blocked KEEP at every read after +360."""
     return r['per'] == 'pre' and (searched(r) or r['name'] == '_townsearch_mode')
 
