@@ -110,6 +110,25 @@ def active(since, pool, cap, t):
     return a is None or t is None or t >= a
 
 
+def first_seen(rows_):
+    """PURE. rows_ [(t, pool, kind, cap)] in time order -> {pool: {cap: activation}}: the FIRST row naming a cap decides --
+    a _well_built / _well_pit_dug row means a well from then, any other row a well from before the window (Codex r2 P1)."""
+    out = defaultdict(dict)
+    for t, pool, kind, cap in rows_:
+        if cap not in out[pool]:
+            out[pool][cap] = t if kind in ('_well_built', '_well_pit_dug') else dt.datetime.min.replace(tzinfo=dt.timezone.utc)
+    return out
+
+
+def column_since(row_since, psince):
+    """PURE. A plinth record's plan time is authoritative for its own cap; otherwise the rows' first observation."""
+    out = defaultdict(dict)
+    for p in set(row_since) | set(psince):
+        out[p].update(row_since.get(p, {}))
+        out[p].update(psince.get(p, {}))
+    return out
+
+
 def shell_digs(digs, cols, since=None):
     """PURE. digs [(pool, bot, detail[, t])] _dig_town rows; cols {pool: {cap: stair-tuple}} -> [(bot, cell, cap, by)] by mine."""
     out = []
@@ -182,11 +201,11 @@ def deep_orders(seq, limit=REACH_BELOW + SLACK):
               evidence row the order itself wrote: _well_dispose / _well_refused / _well_built with @timestamp inside
               [start, start + duration + 2 s] (Codex r1 P1: bounded by the order's duration, never the next visit's)."""
     rows = [(t, k, d, y, (t + dt.timedelta(milliseconds=max(0, dur or 0)))) for t, k, d, y, dur in seq]
-    by_end = sorted((e, y) for t, k, d, y, e in rows if y is not None)
-    ends = [e for e, _ in by_end]
+    by_end = sorted((e, y, j) for j, (t, k, d, y, e) in enumerate(rows) if y is not None)
+    ends = [x[0] for x in by_end]
     import bisect
     out = []
-    for t, k, d, y, e in rows:
+    for j0, (t, k, d, y, e) in enumerate(rows):
         if k not in ORDERS:
             continue
         stand = None
@@ -206,7 +225,11 @@ def deep_orders(seq, limit=REACH_BELOW + SLACK):
                             stand = c[1] + 1; break
         if stand is None:
             continue
-        i = bisect.bisect_left(ends, t) - 1   # rows that ENDED strictly before the order started (never the order itself)
+        # rows that ENDED at or before the order started -- a climb ending in the order's own millisecond included (Codex
+        # r2 P2) -- never the order itself
+        i = bisect.bisect_right(ends, t) - 1
+        while i >= 0 and by_end[i][2] == j0:
+            i -= 1
         if i < 0:
             continue
         start_y = by_end[i][1]
@@ -255,6 +278,12 @@ _COLS = {'hive-d': {(79, 57, 76): ()}, 'board-b': {(-247, 72, 135): ((-247, 70, 
 _t0 = dt.datetime(2026, 10, 17, 4, 0, tzinfo=dt.timezone.utc)
 assert shell_digs([('hive-d', 'e', _HD[0][2], _t0)], _COLS, {'hive-d': {(79, 57, 76): _t0 + dt.timedelta(minutes=5)}}) == [], 'a well built after the dig (Codex r1 P2)'
 assert len(shell_digs([('hive-d', 'e', _HD[0][2], _t0 + dt.timedelta(minutes=6))], _COLS, {'hive-d': {(79, 57, 76): _t0 + dt.timedelta(minutes=5)}})) == 1
+# the aggregation (Codex r2 P1): built at +5, a dispose at +6 -> still a well from +5 only; a dig at +4 is not a breach
+_fs = first_seen([(_t0 + dt.timedelta(minutes=5), 'hive-d', '_well_built', (79, 57, 76)), (_t0 + dt.timedelta(minutes=6), 'hive-d', '_well_dispose', (79, 57, 76)),
+                  (_t0, 'hive-c', '_well_dispose', (1, 2, 3)), (_t0 + dt.timedelta(minutes=9), 'hive-c', '_well_built', (1, 2, 3))])
+assert _fs['hive-d'][(79, 57, 76)] == _t0 + dt.timedelta(minutes=5) and _fs['hive-c'][(1, 2, 3)].year == 1
+assert shell_digs([('hive-d', 'e', _HD[0][2], _t0 + dt.timedelta(minutes=4))], _COLS, column_since(_fs, {})) == []
+assert column_since(_fs, {'hive-d': {(79, 57, 76): _t0}})['hive-d'][(79, 57, 76)] == _t0, 'the plinth record\'s plan time wins'
 assert [c for _, c, _, _ in shell_digs(_HD, _COLS)] == [(79, 57, 77), (-247, 70, 138)], 'the wall by mine and the plinth stair tread; not the builder; not past the tread'
 assert keep_out((365, 73, 135), (365, 73, 137)) == 'well' and keep_out((365, 73, 135), (365, 73, 137), own=True) is None, 'board-c table: the builder\'s only'
 assert keep_out((365, 74, 136), (365, 73, 137)) == 'stand' and keep_out((365, 74, 137), (365, 73, 137)) == 'shaft' and keep_out((366, 74, 136), (365, 73, 137)) is None
@@ -278,6 +307,9 @@ assert deep_orders([(_T(0), 'x', '', 20.0, 0), (_T(1), 'dispose_well', 'nothing 
 # order at 0:30 started at 74 -- not 24 below
 assert deep_orders([(_T(0), 'surface', 'ok', 74.0, 20000), (_T(0, 10), '_reflex', 'climbing', 50.0, 0), (_T(0, 30), 'dispose_well', 'threw', 74, 4000),
                     (_T(0, 33), '_well_dispose', 'at=365,73,137', 74, 0)]) == [], 'a reflex row inside the climb read as the start'
+# Codex r2 P2 (the boundary): a climb that ENDS in the order's own millisecond is its start, not an older reflex row
+assert deep_orders([(_T(0), '_reflex', 'x', 40.0, 0), (_T(0, 1), 'surface', 'ok', 63.0, 9000), (_T(0, 10), 'dispose_well', 'threw', 67, 3000),
+                    (_T(0, 12), '_well_dispose', 'at=1300,66,1315', 67, 0)]) == [], 'the equal-time climb end was skipped'
 # Codex r1 P1 (the join): the next visit's evidence (after this order's duration) never names this order's stand
 assert deep_orders([(_T(0), 'x', '', 40.0, 0), (_T(1), 'dispose_well', 'skipped', 40, 1000), (_T(3), '_well_dispose', 'at=365,73,137', 74, 0)]) == [], 'another visit\'s cap joined'
 
@@ -316,7 +348,7 @@ if __name__ == '__main__':
         return out
 
     rows = sorted(load_window(PRE, END), key=lambda r: r['t'])
-    caps = defaultdict(dict); row_since = defaultdict(dict); worlds = {}; offbuild = 0; gate_caps = defaultdict(set); retired = defaultdict(set)
+    caps = defaultdict(dict); cap_rows = []; worlds = {}; offbuild = 0; gate_caps = defaultdict(set); retired = defaultdict(set)
     bots = defaultdict(set); kinds = Counter(); per_bot = defaultdict(list)
     licence = 0; leak = Counter(); guard = Counter(); digs = {'canary': [], 'control': []}; placed = []; ctl_place = []
     outcome = Counter()
@@ -343,9 +375,7 @@ if __name__ == '__main__':
                 if k == '_well_retired':
                     retired[p].add(c)
                 # a well BUILT in the window is a well from then; one named by any other row existed before it
-                first = t if k in ('_well_built', '_well_pit_dug') else dt.datetime.min.replace(tzinfo=dt.timezone.utc)
-                if c not in row_since[p] or first < row_since[p][c]:
-                    row_since[p][c] = first
+                cap_rows.append((t, p, k, c))   # first_seen: the FIRST observation decides (Codex r2 P1)
         pos = (raw.get('bot') or {}).get('pos') or {}
         sk = raw.get('skill') or {}
         per_bot[b].append((t, k, d, pos.get('y') if isinstance(pos, dict) else None, sk.get('duration_ms') or 0))
@@ -373,10 +403,7 @@ if __name__ == '__main__':
             ctl_place.append((p, b, d))
 
     pcols, unverified, psince = plinth_columns(set(caps) | CANS, worlds)
-    since = defaultdict(dict)
-    for p in set(row_since) | set(psince):
-        for c, a in list(row_since.get(p, {}).items()) + list(psince.get(p, {}).items()):
-            since[p][c] = min(a, since[p].get(c, a))
+    since = column_since(first_seen(cap_rows), psince)
     cols = defaultdict(dict); gcols = defaultdict(dict)
     for p in set(caps) | set(pcols):
         cols[p].update(caps.get(p, {}))

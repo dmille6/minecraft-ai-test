@@ -2807,7 +2807,7 @@ await t('MUTANT (skills): without the per-stack re-read a changed slot is thrown
    *  proposes `status`. A `surface` the runner is handed is performed as the climb to the stand's level (the real skill on
    *  Paper: sandbox/well/wellcare-e2e.cjs `deep` with WCARE_CLIMB=1). Nothing in the loop's state is rewritten: the well's
    *  30-s scan gate is waited out in real time (Codex r1 P2). `until` stops the loop early. */
-  async function loopOrders (town, { n = 3, Loop = CognitiveLoop, until = null, maxMs = 9000 } = {}) {
+  async function loopOrders (town, { n = 3, Loop = CognitiveLoop, until = null, maxMs = 9000, propose = 'status' } = {}) {
     Object.assign(town.bot, { oxygenLevel: 300, time: { day: 1, age: 1, timeOfDay: 1000 }, game: { dimension: 'overworld' }, experience: { level: 0 }, isInWater: false })
     // the prompt's block census asks by block id (mineflayer accepts ids); this fake answers predicates only
     const fb = town.bot.findBlocks
@@ -2817,10 +2817,11 @@ await t('MUTANT (skills): without the per-stack re-read a changed slot is thrown
     const runner = { isBusy: () => false, run: async (skill) => {
       ran.push({ skill, y: Math.floor(town.bot.entity.position.y), at: Date.now() })
       if (skill === 'surface') town.bot.entity.position = new Vec3(HOME.x + 0.5, STAND_Y, HOME.z + 0.5)
+      if (skill === 'mine') town.bot.entity.position = new Vec3(HOME.x + 0.5, STAND_Y - 20, HOME.z + 0.5)   // straight back down
       return { status: 'success', detail: 'ok', delta: {}, contractEvidence: [`${skill}: probe 1`] }
     } }
     loop = new Loop(town.bot, runner, freshLessons(), null)
-    loop.llm = { decide: async () => ({ schemaValid: true, latencyMs: 1, proposal: { skill: 'status', args: {}, reason: 'probe' } }) }
+    loop.llm = { decide: async () => ({ schemaValid: true, latencyMs: 1, proposal: { skill: propose, args: propose === 'mine' ? { y: 20 } : {}, reason: 'probe' } }) }
     loop.milestones.cycle = 540
     // the loop paces model decisions at LLM_DECISION_COOLDOWN_MS (production 20 s; this file's config is loaded without it)
     const pace = config.llm.decisionCooldownMs
@@ -2855,6 +2856,31 @@ await t('MUTANT (skills): without the per-stack re-read a changed slot is thrown
     assert.ok(ran[i].at - ran[0].at <= 40_000, 'within the scan gate of the first held decision')
     assert.ok(loop.wellState.lastDisposeAt > 0, 'positive control: the order given after the climb is charged')
   })
+  await t('wellcare-01 CHAIN, A MINING MODEL (Codex r2 P2): the model proposes `mine` every turn -> climb, then dispose_well BEFORE the model goes back down (the climb spends the scan)', async () => {
+    const town = fakeTown({ wellAt: CAP, items: fullOfJunk(), botAt: new Vec3(HOME.x + 0.5, STAND_Y - 20, HOME.z + 0.5) })
+    const { ran } = await loopOrders(town, { n: 3, propose: 'mine', maxMs: 15_000 })
+    assert.deepEqual(ran.slice(0, 2).map(x => x.skill), ['surface', 'dispose_well'], JSON.stringify(ran))
+    assert.equal(ran[1].y, STAND_Y)
+  })
+  await t('wellcare-01 MUTANT (cognitive): the climb does not spend the scan -> no dispose_well inside the 30-s gate after the climb', async () => {
+    const src = readFileSync(CP, 'utf8')
+    const old = "order = climb; this.wellState = { ...this.wellState, lastScanAt: -Infinity } }"
+    assert.equal(src.split(old).length, 2, 'ANCHOR missing or not unique')
+    const out = new URL(`./_mutant-cog-wc3-${process.pid}.mjs`, import.meta.url)
+    writeFileSync(out, src.replace(old, 'order = climb }').replace(/from '\.\//g, "from '../src/"))
+    try {
+      const { CognitiveLoop: M } = await import(out.href)
+      const town = fakeTown({ wellAt: CAP, items: fullOfJunk(), botAt: new Vec3(HOME.x + 0.5, STAND_Y - 20, HOME.z + 0.5) })
+      const { ran } = await loopOrders(town, { n: 2, propose: 'mine', Loop: M })
+      // within the 30-s gate the order cannot come: whatever the model gets (here its mine is refused by admission), no dispose
+      assert.equal(ran[0]?.skill, 'surface'); assert.ok(!ran.slice(1).some(x => x.skill === 'dispose_well'), `mutant inert: ${JSON.stringify(ran)}`)
+    } finally { try { unlinkSync(out) } catch {} }
+  })
+  await t('wellcare-01 CHAIN, AN OPEN WELL (Codex r2 P2): close_well is the held order; a bag that wants the well still climbs, then the close comes in reach', async () => {
+    const town = fakeTown({ wellAt: CAP, wellOpen: true, items: fullOfJunk(), botAt: new Vec3(HOME.x + 0.5, STAND_Y - 20, HOME.z + 0.5) })
+    const { ran } = await loopOrders(town, { n: 2, maxMs: 15_000 })
+    assert.deepEqual(ran.slice(0, 2).map(x => x.skill), ['surface', 'close_well'], JSON.stringify(ran))
+  })
   await t('wellcare-01 CHAIN, 12 below (the limit): still in reach -- the order is given', async () => {
     const town = fakeTown({ wellAt: CAP, items: fullOfJunk(), botAt: new Vec3(HOME.x + 0.5, STAND_Y - 12, HOME.z + 0.5) })
     const { ran } = await loopOrders(town, { n: 1 })
@@ -2862,7 +2888,7 @@ await t('MUTANT (skills): without the per-stack re-read a changed slot is thrown
   })
   await t('wellcare-01 MUTANT (cognitive): the held dispose not turned into the climb -> the deep bot gets no order at all (advice only)', async () => {
     const src = readFileSync(CP, 'utf8')
-    const old = "        if (climb) { this.wellDeepClimbAt = Date.now(); order = climb }\n"
+    const old = "        if (climb) { this.wellDeepClimbAt = Date.now(); order = climb; this.wellState = { ...this.wellState, lastScanAt: -Infinity } }\n"
     assert.equal(src.split(old).length, 2, 'ANCHOR missing or not unique')
     const out = new URL(`./_mutant-cog-wc2-${process.pid}.mjs`, import.meta.url)
     writeFileSync(out, src.replace(old, '').replace(/from '\.\//g, "from '../src/"))

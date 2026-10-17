@@ -59,8 +59,11 @@ export const wellDeepDetail = ({ skill, below, standY, feetY, limit, action = 'h
  * -> { skill: 'surface', args: {}, why } | null. Pure.
  */
 export const WELL_DEEP_CLIMB_MS = 5 * 60 * 1000
-export function heldClimb ({ held = null, now = 0, lastAt = -Infinity } = {}) {
-  if (!held || held.skill !== 'dispose_well' || wellDeepRemedy(held.feetY) !== 'surface') return null
+// ...and a held CLOSE when the bag wants the well too (Codex r2 P2: an open, unattended well puts close_well ahead of the
+// dispose, so a held close would otherwise never climb). `bagWantsWell` = the dispose trigger: TRIGGER_SLOTS+ with junk.
+export function heldClimb ({ held = null, now = 0, lastAt = -Infinity, bagWantsWell = false } = {}) {
+  if (!held || wellDeepRemedy(held.feetY) !== 'surface') return null
+  if (!(held.skill === 'dispose_well' || (held.skill === 'close_well' && bagWantsWell))) return null
   if (now - lastAt < WELL_DEEP_CLIMB_MS) return null
   return { skill: 'surface', args: {}, why: `a full bag of junk at town and the junk well's stand ${held.below} blocks above (more than ${held.limit}): climb to sea level; dispose_well is given within ${held.limit} of the stand` }
 }
