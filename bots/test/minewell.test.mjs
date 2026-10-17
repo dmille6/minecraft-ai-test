@@ -322,7 +322,8 @@ await t('MUTANT (skills): the per-dig checks removed -- a well appearing mid-des
   })
 })
 await t('MUTANT (skills): the per-dig check on a snapshot taken before the step -- the head dig lands in the shell', async () => {
-  await withMutant(SKP, "    const shellStop = pos => {\n      const cap = shellOf(wellCols(), pos)", "    const snap = wellCols()\n    const shellStop = pos => {\n      const cap = shellOf(snap, pos)", async m => {
+  // wellcare-01: the per-dig read is wellCellAt (fresh from bot.wellCellsNow at every call); the mutant freezes it
+  await withMutant(SKP, "    const shellStop = pos => {\n      const inShell = wellCellAt(bot, pos)", "    const snap = wellCols()\n    const shellStop = pos => {\n      const inShell = wellBreakCost(snap, { position: pos }) > 0", async m => {
     let known = []
     const bot = wellWorld({ at: new V(200.5, 64, 196.5), yaw: 0, cols: () => known, solidAbove: new Set([key(200, 64, 198)]) })
     const dig0 = bot.dig
