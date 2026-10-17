@@ -10259,7 +10259,10 @@ function townSearchView (bot, needs, tried = new Set()) {
   const sc = townCobbleScan(bot, now, st ? { state: st } : {})
   const containers = [], skip = [], tookAt = {}, byKey = new Map()
   const counts = Object.fromEntries(needs.map(n => [n, {}])), misses = Object.fromEntries(needs.map(n => [n, {}]))
-  const missAt = (h, need) => need === 'pick' ? mem?.[PICK_MISS_KEY]?.[h] : mem?.[INGREDIENT_MISS_KEY]?.[h]?.[need]
+  // a pickaxe miss (no usable copy at all) is a trip miss too: the later of the two rules a container out for 'trippick'
+  // (Claude trip review P3: otherwise trip-line bots reopen containers already known to hold no pickaxe)
+  const missOf = (h, need) => need === 'pick' ? mem?.[PICK_MISS_KEY]?.[h] : mem?.[INGREDIENT_MISS_KEY]?.[h]?.[need]
+  const missAt = (h, need) => need === 'trippick' ? Math.max(missOf(h, 'pick') ?? -Infinity, missOf(h, 'trippick') ?? -Infinity) : missOf(h, need)
   const latest = vals => vals.reduce((a, v) => (Number.isFinite(v) && v > a ? v : a), -Infinity)
   for (const k of sc.keys ?? []) {
     const p = keyVec(k)
@@ -10350,7 +10353,9 @@ async function withdrawPickRun (ctx, signal, tried, st, finish) {
   // "no usable pickaxe"
   let pickNoRoom = null
   let next = townSearchNext(bot, [need], pickTried)
-  st.search = { town: next.view.containers.length, pick: next.order.length, ing: '-' }
+  // `line`: which trigger fired (trip = a usable but non-trip pickaxe in the bag; any = none usable) -- its own field, so it
+  // survives the ingredient pass rewriting need= (Claude trip review P2)
+  st.search = { town: next.view.containers.length, pick: next.order.length, ing: '-', line: need === 'trippick' ? 'trip' : 'any' }
   for (let n = 0; n < WITHDRAW_PICK_VISITS && next.block && pc.msLeft(Infinity) >= WITHDRAW_VISIT_MIN_MS; n++) {
     check(signal)
     const cb = next.block

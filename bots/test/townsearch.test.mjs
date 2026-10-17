@@ -335,7 +335,7 @@ await t('THE ROW (Codex r2): the order\'s verb= and the search\'s counters come 
     deposited: [{ name: 'bamboo', count: 64 }, { name: 'bamboo', count: 64 }], took: { cobbled_deepslate: 3, stick: 2, oak_planks: 4 },
     tried, search: { town: 32, pick: 20, ing: 6, ...W.searchTally(tried) } })
   assert.equal(row.length, 300, 'cut')
-  assert.match(row, /^outcome=took_ingredients need=\S+ uses=- verification=server verb=withdraw_pick town=32 cand=20,6 visits=24 maxrep=1 vfail=1 cursor=/)
+  assert.match(row, /^outcome=took_ingredients need=\S+ uses=- verification=server verb=withdraw_pick line=- town=32 cand=20,6 visits=24 maxrep=1 vfail=1 cursor=/)
   assert.equal(row.split('verb=').length, 2, 'verb= once')
   const plain = W.withdrawRow({ outcome: 'took', need: 'stick:2', verification: 'server', tried: ['1,2,3:success'], verb: 'withdraw' })
   assert.match(plain, / took=- verb=withdraw tried=\[1,2,3:success\]$/, 'the model verb\'s row keeps its layout')
@@ -453,7 +453,7 @@ await t('TRIP LINE: a bot holding a 20-use stone pickaxe passes the nearest ches
   assert.equal(r.status, 'success', r.detail)
   assert.deepEqual(trips(w), [100])
   assert.equal(w.containers.get(kOf(CHESTS[0])).slots.filter(Boolean).filter(x => x.name === 'stone_pickaxe').length, 1, 'the worn copy stays in its chest')
-  assert.match(rows(n0).at(-1), /^outcome=took_pick need=trip_pickaxe /)
+  assert.match(rows(n0).at(-1), /^outcome=took_pick need=trip_pickaxe .* verb=withdraw_pick line=trip town=/)
 })
 await t('TRIP LINE: a bot already holding a trip pickaxe never orders -- townOrder\'s pickNeeded is false, the gate says ruled out, a forced run opens nothing', async () => {
   const w = tripTown(null, { bag: [tool('stone_pickaxe', 131 - MIN_TRIP_USES), stack('crafting_table', 1)] })
@@ -473,17 +473,29 @@ await t('TRIP LINE WIRING (structural: the decision loop cannot be driven here):
 })
 await t('TRIP LINE AND THE MISSES: a container a trip-line bot passed over (a worn copy only) is a trip miss, not a pickaxe miss -- a bot with NO usable pickaxe still takes the worn copy there; the gates agree per need', async () => {
   const w = tripTown(null, { far: [stack('dirt', 1)] })                   // the only pickaxe in town: the 25-use one
+  const n1 = RECS.length
   const r1 = await pick(w)
   assert.notEqual(r1.status, 'success')
+  assert.match(rows(n1).at(-1), / line=trip /, `the trip line is on the row even after the ingredient pass: ${rows(n1).at(-1)}`)
   assert.ok(w.spy.opened.includes(kOf(CHESTS[0])), 'it looked there')
   assert.equal(townPickMiss(w.bot), true, 'for the trip-line bot the town is ruled out')
   const w2 = withServer(fakeWorld({ bag: [stack('crafting_table', 1), stack('cobblestone', 3), stack('stick', 2)] }))
   for (const c of [...CHESTS, FAR]) { w2.set(...c, 'chest'); w2.stock(...c, w.containers.get(kOf(c)).slots.filter(Boolean).map(x => ({ ...x }))) }
   assert.equal(townPickMiss(w2.bot), false, 'for a bot with no usable pickaxe it is not: the worn copy is still a candidate')
+  const n2 = RECS.length
   const r2 = await pick(w2)
   assert.equal(r2.status, 'success', r2.detail)
+  assert.match(rows(n2).at(-1), / line=any /)
   assert.deepEqual(w2.spy.opened, [kOf(CHESTS[0])], 'straight there')
   assert.equal(count(w2.bag, 'stone_pickaxe'), 1)
+})
+
+await t('TRIP LINE: a pickaxe miss (no usable copy) rules a container out for the trip line too -- a trip-line bot does not reopen it', async () => {
+  const w = tripTown(null, { far: [stack('dirt', 1)] })
+  for (const c of [...CHESTS, FAR]) CF.updateTownMemory(memDir(), CF.townKey(HOME), null, e => CF.notePickMisses(e, [kOf(c)]))
+  const n0 = RECS.length
+  await pick(w)
+  assert.match(rows(n0).at(-1), / cand=0,/, rows(n0).at(-1))
 })
 
 // ------------------------------------------------------------------------------------- the pickaxe pass's clock
@@ -601,6 +613,13 @@ await t('MUTANTS (skills.mjs): each removes one part of the search and a behavio
       assert.equal(r.status, 'success'); assert.equal(count(w.bag, 'stick'), 2)
     } finally { B.setStockReaders({}) }
   }
+  const pickMissIsTrip = async S => {
+    const w = tripTown(S, { far: [stack('dirt', 1)] })
+    for (const c of [...CHESTS, FAR]) CF.updateTownMemory(memDir(), CF.townKey(HOME), null, e => CF.notePickMisses(e, [kOf(c)]))
+    const n0 = RECS.length
+    await S.SKILLS.withdraw_pick.run({ bot: w.bot }, {}, sig())
+    assert.match(rows(n0).at(-1), / cand=0,/)
+  }
   const tripTakesTrip = async S => {
     const w = tripTown(S)
     const r = await S.SKILLS.withdraw_pick.run({ bot: w.bot }, {}, sig())
@@ -637,7 +656,7 @@ await t('MUTANTS (skills.mjs): each removes one part of the search and a behavio
   }
   for (const [name, fn] of [['journalFirst', journalFirst], ['resumes', resumes], ['failSkip', failSkip], ['fullOnce', fullOnce], ['pickInIngredients', pickInIngredients],
                             ['gateSeesCount', gateSeesCount], ['gateCoverage', gateCoverage], ['ingPassMiss', ingPassMiss], ['noRoomPass', noRoomPass], ['noRoomClaim', noRoomClaim], ['mixedChest', mixedChest],
-                            ['tripTakesTrip', tripTakesTrip], ['tripHolderNever', tripHolderNever], ['wornStaysForPickless', wornStaysForPickless]]) {
+                            ['tripTakesTrip', tripTakesTrip], ['tripHolderNever', tripHolderNever], ['wornStaysForPickless', wornStaysForPickless], ['pickMissIsTrip', pickMissIsTrip]]) {
     const S = await import('../src/skills.mjs')
     await fn(S).catch(e => { throw new Error(`positive control ${name} fails on the real code: ${e.message}`) })
   }
@@ -652,6 +671,7 @@ await t('MUTANTS (skills.mjs): each removes one part of the search and a behavio
     ['the ingredient pass writes no pickaxe miss', '    else updateTownMemory(townDir(), homeTownKey(), bot.worldId ?? null, e => { notePickSearchMisses(e, keys, v.saw);', '    else updateTownMemory(townDir(), homeTownKey(), bot.worldId ?? null, e => {', ingPassMiss],
     ['the trip-line bot takes a worn copy', "(need !== 'trippick' || hasTripPickaxe([it]))", '(true)', tripTakesTrip],
     ['a bot with a trip pickaxe still orders', '  if (hasTripPickaxe(items)) return null\n', '', tripHolderNever],
+    ['a pickaxe miss is not a trip miss', "need === 'trippick' ? Math.max(missOf(h, 'pick') ?? -Infinity, missOf(h, 'trippick') ?? -Infinity) : missOf(h, need)", 'missOf(h, need)', pickMissIsTrip],
     ['a worn-copy visit hides the copy from a pickless bot', '  if (!hasUsablePick(saw)) notePickMisses(e, keys)', '  notePickMisses(e, keys)', wornStaysForPickless],
     ['the ingredient pass re-sends the refused pickaxe trade', '    if (p?.tool && !refusedRoom) return p', '    if (p?.tool) return p', mixedChest],
     ['a refused claim does not end the pickaxe pass', "const pickPassEnds = v => v.result?.failClass === 'no_room' ||", "const pickPassEnds = v => false ||", noRoomClaim],

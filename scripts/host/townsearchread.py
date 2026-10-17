@@ -207,6 +207,9 @@ def judge(rows):
     out['visits_over_budget'] = len(over)
     out['tried_sizes_canary'] = dict(Counter(counters(r)[0] for r in s))
     out['pick_cand_canary'] = dict(Counter((kv(r['detail']).get('cand') or '-').split(',')[0] for r in s))
+    # townsearch-02: which trigger fired (line=trip: a usable but non-trip pickaxe in the bag; line=any: none usable)
+    out['line_canary'] = dict(Counter(kv(r['detail']).get('line') or '-' for r in s))
+    out['took_pick_by_line_canary'] = dict(Counter(kv(r['detail']).get('line') or '-' for r in s if outcome(r) == 'took_pick'))
     out['instrument_control'] = int(out['orders_post_control'] >= 1 and out['notfound_post_control'] >= 1)
     out['exposure_ready'] = int(out['search_rows_canary'] >= EXPOSURE_ORDERS)
     out['_lists'] = {'loops': loops[:5], 'over': over[:5]}
@@ -273,6 +276,8 @@ def selftest():
     # and not counted in the DiD; the same rows AFTER the deploy are a breach (positive control)
     prev = [W('took_pick', arm='control', bot='placebo-d-Alpha', per='pre'), R('_townsearch_mode', 'phase=mode', arm='control', bot='board-c-Alpha', per='pre')]
     pv = judge(prev + ctl)
+    ln = judge([R('_withdraw_pick', OK.replace(' town=', ' line=trip town='))] + ctl)
+    assert ln['line_canary'] == {'trip': 1} and ln['took_pick_by_line_canary'] == {'trip': 1}, ln
     assert pv['search_rows_control'] == 0 and pv['pre_earlier_build_control'] == 2 and pv['orders_pre_control'] == 0, pv
     assert judge([W('took_pick', arm='control', bot='placebo-d-Alpha')] + ctl)['search_rows_control'] == 1, 'post-deploy: a breach'
     assert judge([W('short', search=False, arm='control', bot='board-a-Alpha', per='pre')] + ctl)['orders_pre_control'] == 1, 'a base-shaped pre row still counts'
@@ -335,6 +340,7 @@ if __name__ == '__main__':
           % (res['cut_rows_pre_canary'], res['cut_rows_post_canary'], res['cut_rows_pre_control'], res['cut_rows_post_control']))
     print('             orders that ENDED on unreachable/blocked/aborted/error per order DiD %+.3f | canary visits per order %s | canary pickaxe candidates at start %s | outcomes post canary %s control %s'
           % (dids['walkfail_per_order'], res['tried_sizes_canary'], res['pick_cand_canary'], res['outcomes_post_canary'], res['outcomes_post_control']))
+    print('             canary orders by trigger line %s | took_pick by line %s' % (res['line_canary'], res['took_pick_by_line_canary']))
     print('EXPOSURE     -> %s (canary order rows with the search %d, need %d) | INSTRUMENT control orders %d, control notfound %d -> %s'
           % ('READY' if res['exposure_ready'] else 'NOT YET', res['search_rows_canary'], EXPOSURE_ORDERS, res['orders_post_control'], res['notfound_post_control'],
              'ok' if res['instrument_control'] else 'BLIND'))

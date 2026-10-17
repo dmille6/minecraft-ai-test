@@ -138,6 +138,8 @@ export const SEARCH_FAIL_SKIP = new Set(['chest_unreachable', 'container_blocked
 
 /** The stock journal's groups that count each need (stocktarget.mjs STOCK_GROUPS; a tool group counts only usable copies). */
 const PLANK_GROUPS = STOCK_GROUP_NAMES.filter(g => /_planks$/.test(g))
+// trippick: a usable stone copy is counted, not a trip one (the journal has no wear) -- a ranking HINT only; a worn-only
+// container costs one visit, then its trip miss outranks the older count (accepted: Claude trip review P3)
 export const NEED_GROUPS = Object.freeze({ pick: ['stone_pickaxe', 'wooden_pickaxe'], trippick: ['stone_pickaxe'], cobblestone: ['cobble'], stick: ['stick'], planks: PLANK_GROUPS })
 /**
  * IS A JOURNAL COUNT OF 0 A LOOK FOR THIS NEED? Only when its groups count EVERY item the withdraw takes for it (Codex r1 P1).
@@ -398,7 +400,7 @@ export function withdrawRow ({ outcome, need, uses = null, verification = 'none'
   // the search's counters EARLY in the row (Codex r1 P2): tried= is cut at 300 characters, these never are
   // ...and the order's verb= with them (Codex r2: three ingredients and a deposit pushed a late verb= past the cut, and a
   // read keyed on it lost the order). A row without the search (the model's verb) keeps the old layout.
-  const sr = search ? `verb=${verb} town=${search.town ?? '-'} cand=${search.pick ?? '-'},${search.ing ?? '-'} visits=${search.visits ?? '-'} maxrep=${search.maxrep ?? '-'} vfail=${search.vfail ?? '-'} ` : ''
+  const sr = search ? `verb=${verb} line=${search.line ?? '-'} town=${search.town ?? '-'} cand=${search.pick ?? '-'},${search.ing ?? '-'} visits=${search.visits ?? '-'} maxrep=${search.maxrep ?? '-'} vfail=${search.vfail ?? '-'} ` : ''
   return (`outcome=${outcome} need=${need} uses=${uses ?? '-'} verification=${verification} ${sr}cursor=${clean(cursor)} err=${clean(err)} ` +
           `chest_room=${chestRoom ?? '-'} plan=${plan || '-'} srv=${srv} bag=${bagBefore}->${bagAfter} deposited=${dep} took=${tk} ${search ? '' : `verb=${verb} `}` +
           `tried=[${tried.join(';')}]`).slice(0, 300)
