@@ -8564,7 +8564,10 @@ async function buildWell (ctx, _args, signal) {
     // plinth-02.1: lost= the evidence about a finished raised well; cur= the recorded site and why it was refused
     const cur = refused ? ` cur=${refused.site.x},${refused.site.y},${refused.site.z}:${String(refused.why).replace(/\s+/g, '_').slice(0, 40)}` : ''
     wellRefused(bot, 'build', 'no_site', `tally=${tallyText(tally)} rec=${rec} w=${String(bot.worldId ?? '-').slice(0, 40)}${why === PLINTH_FIRST_WHY ? ` shadow=${shadow ?? '-'}` : ''}${lost ? ` lost=${lost.cls}` : ''}${cur} the town's junk well site cannot be settled: ${why === PLINTH_FIRST_WHY ? PLINTH_FIRST_WHY : `no cell within ${WELL_SEARCH_RADIUS} of home passes the site rules`}; no bot of the town searches again for ${Math.round(WELL_NO_SITE_BACKOFF_MS / 60000)} min`)
-    return { status: 'no_effect', failClass: 'well_no_site', detail: `the town's junk well site cannot be settled: ${why === PLINTH_FIRST_WHY ? PLINTH_FIRST_WHY : NO_VALID_CELL} (${tallyText(tally)})` }
+    // PLINTH-FIRST's decline is no verdict on the ground (Paper pfnew 10-18): the 2 h self-backoff an exhausted search earns
+    // (wellOrderOutcome well_no_site) would keep THIS bot from capping the plinth the hand-off finishes minutes later. The
+    // town's no-site record (townWellBuildPlan's hold, lifted by the hand-off) is what stops the order meanwhile.
+    return { status: 'no_effect', failClass: why === PLINTH_FIRST_WHY ? 'well_no_site_policy' : 'well_no_site', detail: `the town's junk well site cannot be settled: ${why === PLINTH_FIRST_WHY ? PLINTH_FIRST_WHY : NO_VALID_CELL} (${tallyText(tally)})` }
   }
   // A FINISHED RAISED WELL REFUSED FOR NOW (plinth-02.1, plinth.mjs capRefusalNext): held -- this bot backs off (wellOrderOutcome),
   // the town keeps its plinth, and the next visit looks again; the remedy is the refusal itself clearing

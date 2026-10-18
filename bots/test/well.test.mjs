@@ -3100,7 +3100,7 @@ await t('PLINTH-FIRST A VIABLE NATURAL SITE IS DECLINED: no dig, no site generat
   await withFirst(async () => {
     const town = kitTown(), dir = process.env.POOL_STATE_DIR
     const r = await run('build_well', town.bot)
-    assert.equal(r.status, 'no_effect', r.detail); assert.equal(r.failClass, 'well_no_site')
+    assert.equal(r.status, 'no_effect', r.detail); assert.equal(r.failClass, 'well_no_site_policy')
     assert.equal(town.state.digs.length, 0, 'nothing dug'); assert.equal(wellOk(town, CAP).ok, false)
     assert.deepEqual(siteGens(dir), [], 'no natural site recorded')
     assert.equal(readJ(NOSITE_FILE(dir))?.tally, 'cols:0,plinth_first:1')
@@ -3112,13 +3112,25 @@ await t('PLINTH-FIRST A VIABLE NATURAL SITE IS DECLINED: no dig, no site generat
     assert.equal(w.want, 'plan', JSON.stringify(w))
   })
 })
+await t('PLINTH-FIRST THE DECLINE IS NO BACKOFF (Paper pfnew 10-18): build_well declining the natural site returns well_no_site_policy, which costs the bot nothing (the town\'s no-site record holds the order until the hand-off); positive control: an exhausted ground search backs the bot off 2 h', async () => {
+    await withFirst(async () => {
+      const town = kitTown(), dir = process.env.POOL_STATE_DIR
+      const r = await run('build_well', town.bot)
+      assert.equal(r.failClass, 'well_no_site_policy', r.detail)
+      assert.equal(W.wellOrderOutcome('build_well', r.status, NOW, {}, r.failClass).buildBackoffUntil, undefined, 'no self-backoff')
+      assert.ok(readJ(NOSITE_FILE(dir)), 'the town hold is written')
+      const { townWellBuildPlan } = await import('../src/skills.mjs')
+      assert.equal(townWellBuildPlan(town.bot), null, 'the hold stops the next order')
+      assert.equal(W.wellOrderOutcome('build_well', 'no_effect', NOW, {}, 'well_no_site').buildBackoffUntil, NOW + W.WELL_NO_SITE_BACKOFF_MS, 'positive control')
+    })
+  })
 await t('PLINTH-FIRST A RECORDED FRESH NATURAL SITE is refused (cur= names it), no new generation; positive control: off, it is built', async () => {
   const mk = () => { const dir = mkdtempSync(path.join(tmpdir(), 'well-store-')); assert.ok(PCm.createSiteGen(dir, SITE_KEY, 1, CAP, null)); return kitTown({ storeDir: dir }) }
   const off = mk(); assert.equal((await run('build_well', off.bot)).status, 'success', 'positive control')
   await withFirst(async () => {
     const town = mk(), dir = process.env.POOL_STATE_DIR
     const r = await run('build_well', town.bot)
-    assert.equal(r.failClass, 'well_no_site', r.detail); assert.equal(town.state.digs.length, 0)
+    assert.equal(r.failClass, 'well_no_site_policy', r.detail); assert.equal(town.state.digs.length, 0)
     assert.deepEqual(siteGens(dir), [`${SITE_KEY}.g1.json`], 'the record is not replaced by the refusal')
     assert.equal(field(await lastNoSiteRow(), 'cur'), `${CAP.x},${CAP.y},${CAP.z}:a_natural_site:_every_new_junk_well_is_a`)
   })
@@ -3153,7 +3165,7 @@ await t('PLINTH-FIRST A RETIRED NATURAL WELL IS REPLACED BY A PLINTH: well_retir
     const town = kitTown({ wellAt: CAP, blocks: breach }), dir = process.env.POOL_STATE_DIR
     assert.equal(townPlinthState(town.bot).want.want, 'plan', 'no usable well: the plinth is wanted at once (plinth-first needs no no-site record)')
     const r = await run('build_well', town.bot)
-    assert.equal(r.failClass, 'well_no_site', r.detail); assert.equal(town.state.digs.length, 0)
+    assert.equal(r.failClass, 'well_no_site_policy', r.detail); assert.equal(town.state.digs.length, 0)
     assert.deepEqual(siteGens(dir), [])
     assert.ok((await rows('_well_retired')).some(x => field(x.skill.detail, 'at') === `${CAP.x},${CAP.y},${CAP.z}`))
     assert.equal(townPlinthState(town.bot).want.want, 'plan')
@@ -3167,7 +3179,7 @@ await t('PLINTH-FIRST NO WELL SEEN OVER UNSENT GROUND IS NO EVIDENCE: a chunk ne
     assert.equal(townPlinthState(ok.bot).want.want, 'plan', 'positive control: the same town fully loaded')
     const near = kitTown({ unloaded: [`${CAP.x},${CAP.y + 1},${CAP.z}`] }), dir2 = process.env.POOL_STATE_DIR
     const r = await run('build_well', near.bot)
-    assert.equal(r.status, 'no_effect'); assert.notEqual(r.failClass, 'well_no_site', r.detail)
+    assert.equal(r.status, 'no_effect'); assert.ok(!/^well_no_site/.test(r.failClass ?? ''), r.detail)
     assert.equal(readJ(NOSITE_FILE(dir2)), null, 'no no-site record over an unread cell')
   })
 })
@@ -3257,7 +3269,7 @@ await t('MUTANT (skills): plinth-first\'s site rule dropped -> the recorded fres
 await t('THE REFUSAL CHAIN (plinth-first): build_well declines the natural site -> the town\'s plinth order is given to the same bot where it stands -> build_plinth plans the raised well; from 13 below home, no order', async () => {
   await withFirst(async () => {
     const town = kitTown()
-    assert.equal((await run('build_well', town.bot)).failClass, 'well_no_site')
+    assert.equal((await run('build_well', town.bot)).failClass, 'well_no_site_policy')
     const st = townPlinthState(town.bot)
     const order = dy => PF.plinthOrder({ now: Date.now(), distHome: 0, dy, inside: false, want: st.want, lease: st.lease, budget: 0 }).order
     assert.equal(order(0)?.skill, 'build_plinth', 'a planning visit needs no funds')
