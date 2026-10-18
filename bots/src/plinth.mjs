@@ -570,7 +570,7 @@ export function plinthCandidate (read, { home, avoid = [], keepOut = [], x, z, t
  * WELL_SEARCH_RADIUS around home), each column at k = 0..PLINTH_MAX_RAISE; the cheapest k of a column first, ties in spiral
  * order. `tally` counts the first refusal of each column's cheapest-to-refuse k (for the no-plan row).
  */
-export function plinthCandidates ({ read, home, avoid = [], keepOut = [], clearLeaves = true } = {}) {
+export function plinthCandidates ({ read, home, avoid = [], keepOut = [], clearLeaves = true, minK = 0, bare = true } = {}) {
   const hy = Math.floor(home.y ?? 64)
   const cands = [], tally = { cols: 0 }
   let i = 0
@@ -580,9 +580,11 @@ export function plinthCandidates ({ read, home, avoid = [], keepOut = [], clearL
     if (t === null) { tally.unknown = (tally.unknown ?? 0) + 1; continue }
     if (t === undefined) { tally.nocap = (tally.nocap ?? 0) + 1; continue }
     let any = false, first = null
-    for (let k = 0; k <= PLINTH_MAX_RAISE; k++) {
+    for (let k = Math.max(0, Math.min(PLINTH_MAX_RAISE, Number(minK) || 0)); k <= PLINTH_MAX_RAISE; k++) {
       const c = plinthCandidate(read, { home, avoid, keepOut, x, z, t, k, clearLeaves })
-      if (c.cap) { cands.push({ ...c, order: i }); any = true } else if (!first) first = c.why
+      // `bare` false (plinth-first): never a candidate with nothing PLACED -- the natural cell, or the natural cell with only a
+      // leaf cleared (Claude r4 P2-1; Codex r5 P2: a leaf clear costs 0.5, so `cost > 0` admitted it)
+      if (c.cap && (bare || c.fills.length > 0)) { cands.push({ ...c, order: i }); any = true } else if (!first) first = c.cap ? 'bare' : c.why
     }
     if (!any) { const w = String(first).replace(/:.*/, ''); tally[w] = (tally[w] ?? 0) + 1 }
     i++
@@ -764,10 +766,10 @@ export function planPlinth (opts = {}) {
 }
 /** planPlinth as a generator: it yields after each candidate it sequences, so a bot can let its event loop run between
  *  them (skills.mjs buildPlinth); the return value is planPlinth's. Pure. */
-export function * planPlinthSteps ({ read, home, avoid = [], keepOut = [], clearLeaves = true, start = null, maxTries = PLINTH_MAX_TRIES, otherColumns = [] } = {}) {
+export function * planPlinthSteps ({ read, home, avoid = [], keepOut = [], clearLeaves = true, start = null, maxTries = PLINTH_MAX_TRIES, otherColumns = [], minK = 0, bare = true } = {}) {
   if (typeof read !== 'function' || !home) return { plan: null, why: 'no_home', tally: null, tried: 0 }
   const r = memoRead(read, home)
-  const { cands, tally } = plinthCandidates({ read: r, home, avoid, keepOut, clearLeaves })
+  const { cands, tally } = plinthCandidates({ read: r, home, avoid, keepOut, clearLeaves, minK, bare })
   if (tally.unknown) return { plan: null, why: 'unknown', tally, tried: 0 }
   let tried = 0, why = cands.length ? null : 'no_candidate', best = null, found = 0
   for (const c of cands) {
@@ -904,12 +906,18 @@ export function leaseState (lease, now = 0, me = null) {
  * A plan record wants building until complete. A 'none' or 'void' record is replanned once it ages out / at once.
  * A complete plinth whose well is gone (a later no-site record) is planned again.
  */
-export function plinthWant ({ wellUsable = false, rec = null, noSite = null, world = null, now = 0, shared = true } = {}) {
+export function plinthWant ({ wellUsable = false, rec = null, noSite = null, world = null, now = 0, shared = true, first = false, naturalPit = false, loaded = true } = {}) {
   // ONE BUILDER NEEDS ONE RECORD (plinth-02.1, townRecordsShared): a bot whose town records are its own plans nothing
   if (!shared) return { want: null, why: 'unshared' }
   if (wellUsable) return { want: null, why: 'well' }
   const state = plinthRecordState(rec, world)
   const noSiteHere = !!noSite && Number.isFinite(Number(noSite.at)) && sameWorld(noSite.world ?? null, world)
+  // PLINTH-FIRST (plinthfirst-01): no usable well is itself the trigger (the natural search is declined, so nothing else would
+  // say so) -- unless a natural pit build_well is finishing stands recorded (never two wells at once), and only when every chunk
+  // around home is loaded (areaLoaded: a well in an unsent chunk is invisible). Both read lazily, once, only where needed.
+  let pit
+  const pitNow = () => (pit ??= !!lz(naturalPit))
+  const firstHere = () => first && !pitNow() && lz(loaded) === true
   // `left`: the places the last visit left (0: only the hand-off is owed, which needs no blocks)
   if (state === 'plan') return { want: 'build', why: 'plan', left: Number.isFinite(Number(rec.left)) ? Number(rec.left) : null }
   if (state === 'none') {
@@ -917,7 +925,8 @@ export function plinthWant ({ wellUsable = false, rec = null, noSite = null, wor
     if (Number.isFinite(age) && age >= 0 && age < PLINTH_NONE_BACKOFF_MS) return { want: null, why: 'none_held' }
     // plinth-02.1: only a no-site record NEWER than the none (the one that started the failed plan is not a new trigger)
     const fresh = noSiteHere && Number(noSite.at) > Number(rec.at)
-    return fresh || rec.trigger === 'void' ? { want: 'plan', why: 'none_aged' } : { want: null, why: 'no_trigger' }
+    // ...or, once plinth-first is in force again (PLINTH_FIRST_NONE_WINDOW_MS after the none), its own trigger
+    return fresh || rec.trigger === 'void' || firstHere() ? { want: 'plan', why: 'none_aged' } : { want: null, why: 'no_trigger' }
   }
   if (state === 'complete') {
     if (noSiteHere && Number(noSite.at) > Number(rec.doneAt ?? rec.at)) {
@@ -929,8 +938,11 @@ export function plinthWant ({ wellUsable = false, rec = null, noSite = null, wor
   }
   // A VOIDED STRUCTURE IS ITS OWN TRIGGER (Codex r2 P2-6: a partial hand-off may already have lifted the no-site hold)
   if (state === 'void') return { want: 'plan', why: 'void' }
-  return noSiteHere ? { want: 'plan', why: 'no_site' } : { want: null, why: 'no_trigger' }
+  if (noSiteHere && !(first && pitNow())) return { want: 'plan', why: 'no_site' }
+  if (firstHere()) return { want: 'plan', why: 'plinth_first' }
+  return { want: null, why: !first ? 'no_trigger' : pitNow() ? 'natural_pit' : 'unloaded' }
 }
+const lz = v => (typeof v === 'function' ? v() : v)
 
 /** The plinth order's vertical bound around home (towndeposit.mjs TOWN_V; a test asserts they agree). */
 export const PLINTH_ORDER_DY = 12
@@ -1106,6 +1118,122 @@ export function capRefusalNext ({ prev = null, cls = 'transient', why = '', now 
 /** The licence row (plinth-02.1): `_plinth021_mode`, once per spawn; shared=0 names a bot that plans no plinth at all. */
 export const plinth021ModeDetail = ({ shared = true, worldId = null } = {}) =>
   `phase=mode v=1 shared=${shared ? 1 : 0} lost=evidence dy=${PLINTH_ORDER_DY} env=cap w=${String(worldId || '-').slice(0, 40)}`
+
+// ---- PLINTH-FIRST (plinthfirst-01; OWNER 10-16 ~12:05Z "every new junk well self-built? -> yes") ---------------------------
+//
+// Every NEW junk well is a raised one and the natural-site search is skipped. A sealed natural well keeps being used until it
+// breaks (build_well's `exists` and plinthWant's wellUsable come first: nothing is torn down, nobody digs in town). The one
+// place the natural search ran is build_well's site resolution (skills.mjs townWellSite): under plinth-first its search
+// answers "exhausted" at once (plinthFirstSearch) and a recorded natural site nothing has been dug at is refused
+// (plinthFirstRefusal), so build_well writes the town's existing no-site record and plinth-02's own trigger (plinthWant
+// 'no_site') plans the plinth. Everything after that -- the 2 h hold, the hand-off, build_well finishing the well on the cap,
+// complete_lost and void -- is plinth-02's, unchanged. Measured 10-17: no town without a usable well had a natural site the
+// search could find (all 4 shared no-well towns and all 20 isolated bots exhausted), so on that fleet this changes no town;
+// it decides what replaces the next natural well that breaks (~4 natural re-sites in 12 days).
+/** THE SWITCH. Revert = false (or PLINTH_FIRST=0 in a bot's environment, which the natural-search tests use). */
+export const PLINTH_FIRST = true
+/**
+ * IS PLINTH-FIRST IN FORCE FOR THIS BOT? Pure. Never where the town's records are not one town's (townRecordsShared: a plinth
+ * there has no single builder, so plinthWant refuses it and the bot keeps the natural search).
+ */
+export function plinthFirstPolicy ({ scope = null, pool = '', name = '', env = null } = {}) {
+  if (!PLINTH_FIRST || !townRecordsShared({ scope, pool, name })) return false
+  return String(env?.PLINTH_FIRST ?? '') !== '0'
+}
+/** How long a planner's 'none' hands the town back to the natural search before plinth-first is tried again (Claude r3 P2-1:
+ *  otherwise one failed plan -- furniture, a keep-out, too_many_unresolved, all of which change -- took a town off for good). */
+export const PLINTH_FIRST_NONE_WINDOW_MS = 24 * 60 * 60 * 1000
+/**
+ * IS PLINTH-FIRST IN FORCE NOW (the natural search declined; no usable well is the plinth trigger)? Pure. The policy
+ * (plinthFirstPolicy), except while a planner's 'none' (incl. too_many_unresolved) is younger than PLINTH_FIRST_NONE_WINDOW_MS:
+ * then the town has the natural search back (Claude r1 P2-1: the plinth candidate is stricter than the natural site -- hard
+ * ground, an enclosed void, a walkable stand -- so a town the planner cannot serve would otherwise get no well at all). The
+ * MINIMUM RAISE of any new plan follows the POLICY, not this (Codex r3 P2-2: a replan out of 'none' is still raised).
+ */
+export function plinthFirstOn ({ scope = null, pool = '', name = '', env = null, recState = null, recAt = null, now = 0 } = {}) {
+  if (!plinthFirstPolicy({ scope, pool, name, env })) return false
+  if (recState === 'none') {
+    const age = recAt == null ? NaN : now - Number(recAt)
+    if (!(Number.isFinite(age) && age >= PLINTH_FIRST_NONE_WINDOW_MS)) return false
+  }
+  return true
+}
+/** THE LICENCE ROW (plinthfirst-01): `_plinthfirst_mode`, once per spawn (index.mjs), a kind neither the base nor plinth-02
+ *  writes. CONFIGURATION, not the effective policy at a later build (Codex r2 P2-4): policy=1 where plinth-first is configured;
+ *  shared=0 names a bot whose town records are its own (no plinth there at all). The effective state is on each dig (pf=). */
+export const plinthFirstModeDetail = ({ on = false, shared = true, worldId = null } = {}) =>
+  `phase=mode v=1 policy=${on ? 1 : 0} shared=${shared ? 1 : 0} minraise=${PLINTH_FIRST_MIN_RAISE} lost=evidence dy=${PLINTH_ORDER_DY} w=${String(worldId || '-').slice(0, 40)}`
+/**
+ * THE RAISE A PLINTH-FIRST PLAN STARTS FROM (plinthfirst-01 r3). plinth-02's planner takes the cheapest candidate, and on
+ * ground that still seals a well that is k = 0 with NOTHING placed -- the natural cell itself, which is not "self-built" and
+ * fails as natural wells fail (10-15/16: board-b wall_is_air, placebo-b wall_is_sand). From k = 2 every one of the 8 walls
+ * the seal is judged on (g and g-1) is a PLACED cobblestone (+32 blocks on intact ground). A town where no candidate fits
+ * from k = 2 records 'none', and plinthFirstOn hands it back to the natural search.
+ */
+export const PLINTH_FIRST_MIN_RAISE = 2
+/**
+ * THE RAISE A NEW PLAN STARTS FROM -> { minK, bare }. Pure (Claude r4 P2-1: a town where only k = 1 fits must not be left with
+ * no well). Off the policy: plinth-02's own planner (k >= 0, the bare cell allowed). Under it: k >= PLINTH_FIRST_MIN_RAISE
+ * first; once a plan at that floor found nothing (a 'none' record that says minK >= 2) AND the natural search has since
+ * exhausted too (a no-site record newer than the none), the floor drops to 0 -- and a candidate that places nothing (the
+ * natural cell, leaf clears or not) is never a plan under the policy, so the drop adds a k = 1 raise or a k = 0 repair with
+ * blocks placed.
+ */
+export function plinthFirstMinK ({ policy = false, recState = null, rec = null, noSite = null } = {}) {
+  if (!policy) return { minK: 0, bare: true }
+  const ladder = recState === 'none' && Number(rec?.minK) >= PLINTH_FIRST_MIN_RAISE && Number(noSite?.at) > Number(rec?.at)
+  return { minK: ladder ? 0 : PLINTH_FIRST_MIN_RAISE, bare: false }
+}
+export const PLINTH_FIRST_WHY = 'natural junk well sites are declined: every new junk well is a raised one (plinth-first)'
+/**
+ * THE SEARCH UNDER PLINTH-FIRST -> canonicalWellSite's exhausted shape. Pure. `shadow` is the natural search's own answer,
+ * READ ONLY (Claude r1 Q5): never recorded, never built -- the row says what plinth-first declined (`shadow=x,y,z`), which is
+ * this change's exposure (a natural cell the base would have used), or `none` / `unknown`.
+ */
+export function plinthFirstSearch (shadow = null) {
+  // AN UNREAD CELL IS STILL A DEFERRAL (Codex r1 P2-5): the base's search told unknown ground from exhausted ground, and only
+  // the exhausted answer writes the town's no-site record -- so a shadow search that hit an unloaded cell defers here too
+  if (shadow && !shadow.site && !shadow.exhausted) return { site: null, why: shadow.why ?? 'unknown cell near home', exhausted: false, tally: shadow.tally ?? null, shadow: 'unknown' }
+  const sh = shadow?.site ? `${shadow.site.x},${shadow.site.y},${shadow.site.z}` : shadow?.exhausted ? 'none' : '-'
+  return { site: null, why: PLINTH_FIRST_WHY, exhausted: true, tally: { cols: 0, plinth_first: 1 }, shadow: sh }
+}
+/**
+ * IS EVERY CHUNK AROUND HOME LOADED? -> true | false. Pure: read(x, y, z) null = not sent. Sampled every 8 blocks across the
+ * square of side 2r (a chunk is 16 wide, so every chunk the square touches is sampled): the well is found by a block scan
+ * of loaded chunks only (skills.mjs findTownWells, ADOPT_RADIUS), so "no well" is evidence only over loaded ground.
+ */
+export function areaLoaded (read, home, r = ADOPT_RADIUS) {
+  if (typeof read !== 'function' || !home) return false
+  const y = Math.floor(home.y ?? 64)
+  for (let dx = -r; dx <= r; dx += 8) for (let dz = -r; dz <= r; dz += 8) if (!read(Math.floor(home.x) + dx, y, Math.floor(home.z) + dz)) return false
+  return true
+}
+export const PLINTH_FIRST_NATURAL = 'a natural site: every new junk well is a raised one (plinth-first)'
+export const PLINTH_FIRST_OLD = 'an earlier raised well the town replanned away from (plinth-first)'
+/** A natural pit something was already dug at (well.mjs wellStage): finished, never orphaned. Anything else is refused. */
+const STARTED_PIT = new Set(['half_dug', 'dug', 'floored', 'covered', 'covered_floored'])
+/**
+ * MAY build_well BUILD ON THIS RECORDED SITE UNDER PLINTH-FIRST? -> reason | null (it may). Pure; asked AFTER wellSiteRefusal
+ * passed it (an unknown cell is still that rule's deferral).
+ *   on        plinthFirstOn
+ *   planCap   plinthPlanCap of the town's record: the raised well's own cap is always buildable
+ *   oldCaps   every other plinth column the record carries (prev): a cap the town replanned away from is never finished
+ *             under the new plan's feet (Claude r1 P1-1: two half-wells)
+ *   stage     well.mjs wellStage of the site: a natural pit already dug (half_dug .. covered_floored) is FINISHED, never
+ *             orphaned. Only a natural site nothing was dug at ('fresh') is refused.
+ */
+export function plinthFirstRefusal ({ on = false, site = null, planCap = null, oldCaps = [], stage = null } = {}) {
+  if (!on || !site) return null
+  const at = c => !!c && c.x === site.x && c.y === site.y && c.z === site.z
+  if (at(planCap)) return null
+  if ((Array.isArray(oldCaps) ? oldCaps : []).some(at)) return PLINTH_FIRST_OLD
+  if (STARTED_PIT.has(stage)) return null
+  return PLINTH_FIRST_NATURAL
+}
+/** IS A RECORDED SITE A NATURAL PIT build_well IS FINISHING? Pure: plinthWant's `naturalPit` -- no plinth plan while one is. */
+export const naturalPitPending = ({ on = false, site = null, planCap = null, oldCaps = [], stage = null, refusal = 'x' } = {}) =>
+  !!on && !!site && refusal === null && STARTED_PIT.has(stage) && plinthFirstRefusal({ on, site, planCap, oldCaps, stage }) === null &&
+  !(planCap && planCap.x === site.x && planCap.y === site.y && planCap.z === site.z)
 
 export const isPlinthBlock = name => PLINTH_SET.has(name)
 /** A block a pit is covered with (well.mjs PIT_COVER_BLOCKS: what coverPit / coverPlinthPit place): the only block the
