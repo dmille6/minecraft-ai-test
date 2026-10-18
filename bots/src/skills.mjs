@@ -84,7 +84,7 @@ import { townRecordsShared, plinthPlanCap, plinthCapLoss, capRefusalNext, PLINTH
 import { STONE_GUARD, wellGround } from './well.mjs'   // wellBreakCost: imported above (lidclear-01's statement)
 import { createSiteGen as createWellSiteGen, bodyInCell } from './composter.mjs'
 import { IRON_KINDS, MIN_TRIP_USES, CANDIDATE_RADIUS, breakHazard, nearHome, pickBudget, rankCandidates, clusterOf, tunnelMovements, planTunnel, ONE_PICK_USES, tripDecision } from './oretunnel.mjs'
-import { townDigClass, townTargetPermit, stairTownClear, walkOutPoints, noteTownGround, configuredHome, inTownBox, TOWN_GROUND_HALF } from './townground.mjs'
+import { townDigClass, townTargetPermit, noteTownGround, configuredHome, inTownBox, TOWN_GROUND_HALF, townKeepOut, townExitColumns } from './townground.mjs'
 import pkg from 'mineflayer-pathfinder'
 const { goals, Movements } = pkg
 import { Vec3 } from 'vec3'
@@ -120,6 +120,10 @@ import { SMELT_JOB_INPUT, SMELT_JOB_OUTPUT, SMELT_JOB_BATCH, JOB_FUELS, COPPER_M
          copperBalance, smeltTownDetail, drainDetail, drainPick, noteFurnacesLit, jobReturns } from './smeltjob.mjs'
 import { withDigScope } from './digtown.mjs'
 import { chestLidBlocked, lidClearRefusal, serverLidBlocks, lidDigBudgetMs, lidFailMemory } from './lidrule.mjs'
+// minewell-01 (its own statement); townzone-01 composes the town into its keep-out (composeKeepOut, keepOutLabel)
+import { planMineStart, shellOf, RELOCATE_RADIUS, FAR_RADIUS, composeKeepOut, keepOutLabel } from './minewell.mjs'
+// wellcare-01 fix 3 (its own statement): a station never on a junk well's cells
+import { stationKeepOut, stationWellDetail, nearWell } from './wellcare.mjs'
 /** The town's home for the zone (townground.mjs): null unless HOME_X/Y/Z are set (then the zone is off). */
 const townHome = () => configuredHome(config.world)
 
@@ -5886,6 +5890,10 @@ function placeSites(bot) {
   const replaceable = b => placeableInto(b)
   const UP = new Vec3(0, 1, 0)
   const candidates = []
+  // NEVER A JUNK WELL'S CELL (wellcare-01 fix 3, stationRefusalAt): its shell, shaft, stands and a plinth's stair headroom.
+  // Skipped here, so place() and craft's room advice agree; the count rides on the array for place()'s `_station_well` row.
+  const wellSkip = { n: 0, kind: null }
+  const wellRefused = p => { const k = stationRefusalAt(bot, p); if (k) { wellSkip.n++; wellSkip.kind ??= k } return !!k }
   // Diagonals and one step up or down as well, nearest first. A bot on uneven
   // ground has a valid spot behind it far more often than beside it.
   const around = [[1, 0], [-1, 0], [0, 1], [0, -1], [1, 1], [1, -1], [-1, 1], [-1, -1]]
@@ -5899,6 +5907,7 @@ function placeSites(bot) {
       const at    = bot.blockAt(bot.entity.position.offset(dx, dy + 1, dz))
       if (!solid(under) || !replaceable(at)) continue
       if (onContainerLid(bot, at.position ?? bot.entity.position.offset(dx, dy + 1, dz))) continue   // never on a lid (below)
+      if (wellRefused(at.position ?? bot.entity.position.offset(dx, dy + 1, dz))) continue
       ;(at.name === 'water' ? wet : candidates).push({ ref: under, face: UP })
     }
   }
@@ -5927,15 +5936,19 @@ function placeSites(bot) {
       for (const face of [new Vec3(1, 0, 0), new Vec3(-1, 0, 0),
                           new Vec3(0, 0, 1), new Vec3(0, 0, -1)]) {
         const target = bot.blockAt(underfoot.position.offset(face.x, face.y, face.z))
-        if (replaceable(target) && !onContainerLid(bot, underfoot.position.offset(face.x, face.y, face.z))) candidates.push({ ref: underfoot, face })
+        if (replaceable(target) && !onContainerLid(bot, underfoot.position.offset(face.x, face.y, face.z)) &&
+            !wellRefused(underfoot.position.offset(face.x, face.y, face.z))) candidates.push({ ref: underfoot, face })
       }
     }
   }
+  candidates.wellSkip = wellSkip
   return candidates
 }
 
-async function place(ctx, { item, x, y, z }, signal) {
+async function place(ctx, { item, x, y, z }, signal, { wellOwn = null, by = null } = {}) {
   const { bot } = ctx
+  // wellcare-01 fix 3: the `_station_well` guard row (a cell refused for the well) -- the read's liveness for this fix
+  const wellRow = (action, kind, n = 1, at = null) => { try { logEvent({ kind: 'station_well', status: 'refused', snapshot: snapshot(bot), detail: stationWellDetail({ action, item, kind, at, n, by: by ?? '-' }) }) } catch { /* a row never breaks a place */ } }
   const held = placeStackOf(bot.inventory.items(), item)   // the same stack craft's room advice reasons about
   if (!held) return { status: 'failed', failClass: 'inventory', detail: `no ${item} in inventory` }
 
@@ -5987,9 +6000,16 @@ async function place(ctx, { item, x, y, z }, signal) {
     if (onContainerLid(bot, { x: Number(x), y: Number(y), z: Number(z) })) {
       return { status: 'failed', failClass: 'no_space', detail: `${x},${y},${z} is on top of a container, which would stop it opening -- place it beside the container` }
     }
+    // NEVER INTO A JUNK WELL'S CELLS (wellcare-01): the shell, the shaft, a stand, a plinth stair -- the builder's own table aside
+    const wk = stationRefusalAt(bot, { x: Number(x), y: Number(y), z: Number(z) }, { own: wellOwn })
+    if (wk) {
+      wellRow('refuse', wk, 1, { x: Number(x), y: Number(y), z: Number(z) })
+      return { status: 'failed', failClass: 'no_space', detail: `${x},${y},${z} is ${wk === 'unknown' ? 'beside a junk well whose cells could not be read' : `the town junk well's ${wk}`} -- place ${item} at least 3 blocks from the well's column (or give no coordinates: place picks a cell off the well)` }
+    }
     candidates = [{ ref: bot.blockAt(new Vec3(Number(x), Number(y) - 1, Number(z))), face: UP }]
   } else {
     candidates = placeSites(bot)
+    if (candidates.wellSkip?.n) wellRow('skip', candidates.wellSkip.kind, candidates.wellSkip.n)
   }
   // A SAPLING CANNOT GO ON STONE. The scan above accepts any SOLID top face, which
   // is right for a crafting table and wrong for anything that needs soil: the
@@ -6016,7 +6036,9 @@ async function place(ctx, { item, x, y, z }, signal) {
   // falling block, then place into it. Only for stations, only when no
   // coordinates were given, only one cell per call.
   let madeRoom = null
-  if (!candidates.length && STATION_ITEMS.has(item) && ![x, y, z].every(v => Number.isFinite(Number(v)))) {
+  // BESIDE A WELL, NO DIG FOR ROOM (Claude r1 P3): when the only free cells were the well's, the move is the step away, not a
+  // town block dug beside the stand -- the refusal below says so
+  if (!candidates.length && STATION_ITEMS.has(item) && !candidates.wellSkip?.n && ![x, y, z].every(v => Number.isFinite(Number(v)))) {
     const base = bot.entity.position
     for (const [dx, dz] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
       // A real Vec3 from plain numbers: test fakes give positions without
@@ -6028,6 +6050,8 @@ async function place(ctx, { item, x, y, z }, signal) {
       // Never the town composter either (composter.mjs): it is not a station this bot carries, but it is one the town uses.
       if (cell.name === 'water' || cell.name === 'lava' || STATION_ITEMS.has(cell.name) || cell.name === 'composter' || /_ore$/.test(cell.name)) continue
       if (roomVeto(bot, cellPos)) continue
+      // never a junk well's wall, floor or plinth (wellcare-01: a bot on the stand would otherwise dig the shell for its table)
+      { const wk = stationRefusalAt(bot, cellPos); if (wk) { wellRow('room', wk, 1, cellPos); continue } }
       check(signal)
       // ONE EXCAVATION PER CALL, whatever happens to it. A dig that outlives
       // its budget is cancelled here -- withTimeout's default only stops the
@@ -6096,10 +6120,12 @@ async function place(ctx, { item, x, y, z }, signal) {
                 `direction at three heights (${why}); wait to land, there is nothing to fix here`,
       }
     }
+    // EVERY FREE CELL WAS THE WELL'S (wellcare-01): say so, with the move that works from here
+    const wellOnly = candidates.wellSkip?.n ? ` (${candidates.wellSkip.n} free cell(s) here are the town junk well's ${candidates.wellSkip.kind}: step 3+ blocks away from the well and place again)` : ''
     return {
       status: 'failed',
       failClass: 'no_space',
-      detail: `nowhere to place ${item}: no solid block with a free space above it within reach — ${why}`,
+      detail: `nowhere to place ${item}: no solid block with a free space above it within reach — ${why}${wellOnly}`,
     }
   }
 
@@ -6126,6 +6152,10 @@ async function place(ctx, { item, x, y, z }, signal) {
                                              0.5 + face.y * 0.5,
                                              0.5 + face.z * 0.5), true)
       } catch { /* not fatal */ }
+      // THE WELL'S CELLS READ AGAIN, LAST, with nothing awaited before the placement packet (Codex r4 P2): a well learned
+      // during the equip, the look or an earlier candidate's attempt is honoured by this one
+      { const tgt = ref.position.offset(face.x, face.y, face.z), wk = stationRefusalAt(bot, tgt, { own: wellOwn })
+        if (wk) { wellRow('late', wk, 1, tgt); failures.push(`${tgt} is the town junk well's ${wk}: step 3+ blocks away from the well and place again`); continue } }
       // BOUNDED, because bot.placeBlock waits on a server `blockUpdate` that may
       // never arrive. Unbounded, one silent spot consumed the whole skill budget
       // and the remaining candidates were never reached -- the same open-loop
@@ -6155,6 +6185,16 @@ async function place(ctx, { item, x, y, z }, signal) {
       // full-chest recovery needs to reopen the chest it just built, and
       // parsing a coordinate back out of an English sentence is how a caller
       // ends up depending on the wording of a log line.
+      // A STATION NEAR A WELL IS RECORDED (wellcare-01): where it went, the well, and this rule's own verdict -- the read
+      // judges the cell against the well's cells itself (a table on a shell is its breach line)
+      if (STATION_ITEMS.has(item)) {
+        try {
+          const cols = bot.wellCellsNow?.() ?? knownWellCells(bot)
+          const near = wellOwn ?? nearWell(cols, at)   // the builder's own column is the one its row names (the read's exemption)
+          if (near) logEvent({ kind: 'station_placed', status: 'success', snapshot: snapshot(bot),
+            detail: `item=${item} at=${at.x},${at.y},${at.z} cap=${near.x},${near.y},${near.z} keep=${stationRefusalAt(bot, at, { own: wellOwn }) ?? 'none'} own=${wellOwn ? 1 : 0} by=${by ?? '-'}` })
+        } catch { /* a row never breaks a place */ }
+      }
       return { status: 'success', placed: 1, at,
                detail: `placed ${item} at ${at}${madeRoom ? ` (made room by digging ${madeRoom})` : ''}` }
     } catch (e) {
@@ -7397,9 +7437,10 @@ async function buildComposter (ctx, _args, signal) {
         }
         if (!(await approach())) return fail('composter_unreachable', `could not get back to the composter site at ${site.x},${site.y},${site.z} to put the crafting table down`)
         // NEVER INTO A BODY: the bot's own and every other's (items aside) are kept out of the table's cell.
-        const cell = tableCellFor({ site, stand: { x: stand.x, y: stand.y, z: stand.z }, read, bodies: bodiesAround(bot) })
+        const wellFree = c => !!stationRefusalAt(bot, c)   // wellcare-01: never on a junk well's cells
+        const cell = tableCellFor({ site, stand: { x: stand.x, y: stand.y, z: stand.z }, read, bodies: bodiesAround(bot), forbid: wellFree })
         if (!cell) {
-          if (tableCellFor({ site, stand: { x: stand.x, y: stand.y, z: stand.z }, read })) {
+          if (tableCellFor({ site, stand: { x: stand.x, y: stand.y, z: stand.z }, read, forbid: wellFree })) {
             return fail('composter_unreachable', `wait for the cells beside the composter's standing cell at ${stand.x},${stand.y},${stand.z} to clear: ` +
                         `every cell where the crafting table could go has someone standing in it`)
           }
@@ -7662,6 +7703,23 @@ export function wellCellAt (bot, p) {
   try { return wellBreakCost(bot.wellCellsNow?.() ?? knownWellCells(bot), { position: p }) > 0 } catch { return null }
 }
 /**
+ * MAY A BLOCK GO INTO THIS CELL, AS FAR AS THE TOWN'S WELLS GO? -> null | 'well' | 'shaft' | 'stand' | 'stair' | 'unknown'
+ * (wellcare-01 fix 3; the rule is wellcare.mjs stationKeepOut). The shell is wellCellAt's answer; `own` (build_well's own
+ * table, plinth.mjs wellTableCell) is that well's builder: its own column's box is passed over by wellBreakCost's `skip`.
+ */
+export function stationRefusalAt (bot, cell, { own = null } = {}) {
+  let cols
+  try { cols = bot.wellCellsNow?.() ?? knownWellCells(bot) } catch { return 'unknown' }
+  if (!Array.isArray(cols) || !cols.length) return null
+  const c = { x: Math.floor(cell.x), y: Math.floor(cell.y), z: Math.floor(cell.z) }
+  let shell
+  if (own) {
+    const skip = cols.find(w => w && w.x === own.x && w.y === own.y && w.z === own.z) ?? null
+    try { shell = wellBreakCost(cols, { position: c }, skip) > 0 } catch { shell = null }
+  } else shell = wellCellAt(bot, c)
+  return stationKeepOut(cols, c, { shell, own })
+}
+/**
  * What this bot could build the well from, right now (a table counts only if CARRIED), FOR THE SCHEDULER (cognitive.mjs
  * buildPlan). wellsite-01: null while the town's last site search found no cell (well.mjs noSiteHold), so no bot issues a
  * build order until the record ages out -- whoever asks, across reconnects, and with nothing written meanwhile (Codex r2:
@@ -7681,6 +7739,24 @@ function wellBuildPlanOf (bot) {
 /** The other players this bot can see, as feet positions (well.mjs wellAdmission). */
 const playersSeen = bot => Object.values(bot.players ?? {}).filter(p => p?.username && p.username !== bot.username && p.entity?.position)
   .map(p => ({ username: p.username, x: p.entity.position.x, y: p.entity.position.y, z: p.entity.position.z }))
+/**
+ * THE HEIGHT A WELL ORDER WALKS TO -> the stand's feet y | null (wellcare-01 fix 2, cognitive.mjs wellOrder's `depth`), BY
+ * ORDER (Claude r1 P2): dispose_well -> the town's usable well; build_well -> the recorded site, else a recorded plinth's
+ * cap (build_well floors and caps a finished plinth), else the well; close_well -> an open well, else the site (an open pit
+ * is covered), else a plinth. Each is cap + 1. Null when the town knows none (the caller falls back to home's y).
+ */
+export function townWellStandY (bot, skill = 'dispose_well') {
+  const up = c => (c && Number.isFinite(c.y) ? c.y + 1 : null)
+  let ws = []
+  try { ws = findTownWells(bot) } catch { ws = [] }
+  const well = () => up(ws.find(w => !w.breach)?.cap)
+  const open = () => up(ws.find(w => w.open)?.cap)
+  const site = () => { try { return up(recordedWellSite(bot)) } catch { return null } }
+  const plinth = () => { try { return up(knownPlinthCaps(bot)[0]) } catch { return null } }
+  const order = skill === 'build_well' ? [site, plinth, well] : skill === 'close_well' ? [open, site, plinth] : [well, site, plinth]
+  for (const f of order) { const y = f(); if (y != null) return y }
+  return null
+}
 /** Is this bot's body inside a well column below the rim? (the cached columns when index.mjs keeps them) */
 export function insideTownWell (bot) {
   try { return !!bodyInWell(bot.wellCellsNow?.() ?? knownWellCells(bot), bot.entity?.position) } catch { return false }
@@ -8643,11 +8719,13 @@ async function buildWell (ctx, _args, signal) {
         // there is one, else a cell below the stand within the craft's reach, kept only if the stand stays walkable from town
         const tableRead = memoRead(readCell(bot))
         const tableWhy = {}
-        const cell = wellTableCell({ site, stand, read: tableRead, bodies: bodiesAround(bot), start: startNear(tableRead, home), box: planBox(home, site), forbid: plinthForbid(bot, site), report: tableWhy })
+        // wellcare-01: the table never takes another well's cell, a stand, the shaft or a plinth stair (its own ring is the builder's)
+        const tableForbid = c => !!stationRefusalAt(bot, c, { own: site })
+        const cell = wellTableCell({ site, stand, read: tableRead, bodies: bodiesAround(bot), start: startNear(tableRead, home), box: planBox(home, site), forbid: plinthForbid(bot, site), report: tableWhy, tableForbid })
         if (!cell) return fail('well_site', `nowhere within reach of the junk well's standing cell to put a crafting table (table=${tableWhy.why ?? '-'}); carry ${need} wooden trapdoor(s), crafted at any table in town, and the next visit builds the well without one`)
         const ac = new AbortController()
         let put
-        try { put = await g.bound(place(ctx, { item: 'crafting_table', x: cell.x, y: cell.y, z: cell.z }, ac.signal), HK_CRAFT_MS, 'place', { controller: ac }) } catch (e) { if (e?.aborted || signal?.aborted) throw e; put = { detail: String(e?.message ?? e) } }
+        try { put = await g.bound(place(ctx, { item: 'crafting_table', x: cell.x, y: cell.y, z: cell.z }, ac.signal, { wellOwn: site, by: 'build_well' }), HK_CRAFT_MS, 'place', { controller: ac }) } catch (e) { if (e?.aborted || signal?.aborted) throw e; put = { detail: String(e?.message ?? e) } }
         if (put?.status !== 'success') return fail('well_place', `could not put the crafting table down at ${cell.x},${cell.y},${cell.z}: ${String(put?.detail).slice(0, 100)}`)
         table = bot.blockAt(new Vec3(cell.x, cell.y, cell.z))
         // THE BAG CATCHES UP BEFORE THE NEXT CRAFT (sandbox 10-05): place() returns on the BLOCK update, and the server's
@@ -11636,84 +11714,142 @@ async function mine(ctx, { y: targetY = 12 }, signal) {
   // demotes the candidate that failed instead of the task. A refusal that does
   // not retire the candidate that caused it hands the next decision the same
   // input and gets the same output -- which is the 1,418 above, exactly.
-  // THE TOWN'S GROUND (townground.mjs; townground-2026-10-13.md 2.5). The 12-block rule above stays (full depth). A stair
-  // whose cells would cut town ground (a 33-wide square around home, above home.y - 12) is not a bearing this skill may
-  // choose; with no clear bearing the skill WALKS OUT -- deterministic, not advice -- and chooses again. Survival digs
-  // (the reflexes) are not this skill's and are untouched.
-  const nameAt = (x, y, z) => bot.blockAt(new Vec3(x, y, z))?.name ?? null
-  const townAllow = bear => stairTownClear(bot.entity.position.floored(), bear, townHome(), nameAt).clear
-  // NO CLEAR BEARING, or the only clear ones are wet at the first tread while a dry one runs into town (the water case,
-  // Claude r2 P2-e): walk out first. A wet bearing with a dry town bearing beside it is not a choice this skill may leave
-  // the model with -- "water in every other direction" would be false.
-  // Only a bot INSIDE the town's box walks out (Claude code r1 P2: from outside, the nearest "exit" lies back toward town).
-  const inTown = () => inTownBox(bot.entity.position.floored(), townHome())
-  const dryClear = () => { const from = bot.entity.position.floored(); return stairBearings(bot).some(b => townAllow(b) && stairRunway(bot, from, b) > 0) }
-  const townBlocked = () => {
-    const all = stairBearings(bot), from = bot.entity.position.floored()
-    const ok = all.filter(townAllow)
-    if (!ok.length) return true
-    if (ok.length === all.length || !inTown()) return false
-    return ok.every(bear => stairRunway(bot, from, bear) === 0) && all.some(bear => !townAllow(bear) && stairRunway(bot, from, bear) > 0)
+  // THE JUNK WELL'S SHELL (minewell-01, minewell.mjs): hive-d 10-14 -- a `mine` started on the well's stand dug its
+  // wall and floor and the bot collected the shaft's items. Every bearing's whole stair is simulated against the known
+  // well columns BEFORE the first dig; a stair that would touch a shell is never started. With no clear bearing from
+  // here the bot WALKS to the nearest standable cell that has one (planned again on arrival); with none, a refusal that
+  // names the well and where to walk.
+  const wellCols = () => { try { return bot.wellCellsNow?.() ?? knownWellCells(bot) } catch { return [] } }
+  const canStand = c => {
+    const feetB = bot.blockAt(new Vec3(c.x, c.y, c.z)), headB = bot.blockAt(new Vec3(c.x, c.y + 1, c.z)), floorB = bot.blockAt(new Vec3(c.x, c.y - 1, c.z))
+    const open = b => !!b && b.boundingBox === 'empty' && !stairLiquid(b)
+    return open(feetB) && open(headB) && !!floorB && floorB.boundingBox === 'block' && !stairLiquid(floorB)
   }
-  // the dry way was the town's: said in the water refusal below, so "in every other direction" is never claimed falsely
-  let townExcludedDry = false
-  if (townBlocked()) {
-    noteTownGround(bot, 'mine_bearing_refused')
-    // EVERY EXIT, nearest first, until one is reached AND a clear stair with a dry first tread can start there (Codex code
-    // r1 P2: one obstructed exit must not end the chain; Claude code r1 P2: a pond at the nearest exit must not hand the
-    // bot back to the water refusal and from there to town). Bounded: four gotos at most.
-    let walked = null, out = null, found = false, surfaced = null
-    const tryExits = async () => {
-      for (const p of walkOutPoints(bot.entity.position, townHome())) {
-        out = p
-        noteTownGround(bot, 'mine_walkout')
-        walked = await goto(ctx, { x: p.x, y: Math.floor(bot.entity.position.y), z: p.z, range: 2 }, signal).catch(e => ({ status: 'failed', detail: String(e?.message ?? e) }))
-        check(signal)
-        if (!townBlocked() && dryClear()) return true
+  // NEVER A START THE HOME GUARD REFUSES (Claude r1 P2: town wells sit 7-16 from home, the guard is 12)
+  const standableAt = c => Math.hypot(c.x + 0.5 - config.world.homeX, c.z + 0.5 - config.world.homeZ) > 12 && canStand(c)
+  const failedTargets = []
+  // THE TOWN TREE FARM'S CELLS (treefarm-02 on minewell-01): mine digs with bot.dig directly, so the farm's pathfinder
+  // exclusions never applied to its stair. The same plan that keeps the stair out of a well's shell keeps it out of a plot's
+  // soil and column and a torch's cell and floor -- and never starts it from one -- read afresh at every plan and dig.
+  // THE SHARED RECORD ITSELF, never the 20 s movement cache (Codex r8 P2: a farm founded or moved since the last refresh
+  // would be dug until then) -- one small file read per plan and per dig
+  // ...AND THE TOWN'S GROUND (townzone-01 on minewell-01, operator option (b) 10-15), composed into the SAME keep-out: one
+  // plan, one walk-off target that satisfies every keep-out at once, one per-dig stop. Two planners -- this one and the
+  // zone's own bearing filter with its walk-outs -- left mine with NO bearing (choice null) and undid each other's walks
+  // (a well walk-off promises only > 12 from home; the town's square is 16). The zone off (no HOME_X/Y/Z): no town part.
+  const nameAt = (x, y, z) => bot.blockAt(new Vec3(x, y, z))?.name ?? null
+  const farmNow = () => {
+    const farm = { forbid: null, bottom: null }   // no tree farm on this base (treefarm-02 composes its cells here)
+    return composeKeepOut(farm, townKeepOut(townHome(), nameAt))
+  }
+  // A START MUST HAVE A DRY FIRST TREAD (the zone's water case, now the planner's): a keep-out that took the dry way walks off
+  const dryStart = (from, b) => stairRunway(bot, new Vec3(from.x, from.y, from.z), b) > 0
+  // THE FAR STARTS: just beyond the town's square (townground.mjs townExitColumns), at the standable height of each column
+  // nearest the bot's -- judged by the planner against EVERY keep-out like any other start. Asked only when the rings
+  // fail, and only when the town's ground is among what blocked.
+  const farStarts = (kinds = []) => {
+    if (!kinds.includes('town')) return []
+    const y0 = Math.floor(bot.entity.position.y), out = []
+    for (const c of townExitColumns(bot.entity.position, townHome())) {
+      for (let dy = 0; dy <= 8; dy++) {
+        const y = (dy === 0 ? [y0] : [y0 + dy, y0 - dy]).find(yy => canStand({ x: c.x, y: yy, z: c.z }))
+        if (y != null) { out.push({ x: c.x, y, z: c.z }); break }
       }
-      return false
     }
-    // UNDER A ROOF, CLIMB FIRST (Claude code r2 P2; Codex code r4 P2): exits at the bot's own depth would be up to four
-    // horizontal tunnels through town ground (transit: invisible to Z1). "Under" is a ROOF over the head, not a depth
-    // relative to home -- towns are dug out, so open ground below home.y is common -- and the climb is surface (which stops
-    // at sea level 63) and then, still roofed, a goto to the open top of this column (towns sit at 65-75).
-    const roofTop = () => {
-      const p = bot.entity.position.floored(); let top = null
-      for (let dy = 2; dy <= 40; dy++) { const b = bot.blockAt(p.offset(0, dy, 0)); if (b && b.boundingBox === 'block' && !/_leaves$/.test(b.name ?? '')) top = p.y + dy }
-      return top
-    }
-    const climbOut = async () => {
+    return out
+  }
+  const planHere = (radius = RELOCATE_RADIUS) => { const fm = farmNow(); return planMineStart({ cols: wellCols(), p0: bot.entity.position.floored(), feet: bot.entity.position,
+                                         bearings: stairBearings(bot), standable: standableAt, rimStandable: canStand, radius, goalY, exclude: failedTargets, dry: dryStart, far: farStarts,
+                                         forbid: fm.forbid, forbidBottom: fm.bottom }) }
+  let wellPlan = planHere()
+  // WHICH KEEP-OUT A PLAN MET (the farm's forbid answers true, the town's 'town'); `kinds` is every kind that blocked
+  const keepKind = p => p?.kind ?? p?.hit?.kind ?? 'farm'
+  const townIn = p => (p?.kinds ?? []).includes('town')
+  // UNDER A ROOF, CLIMB FIRST WHEN THE TOWN'S GROUND BLOCKS (the zone, Claude code r2 P2; Codex code r4/r5 P2): a walk-off
+  // at the bot's own depth would tunnel through town ground (transit: invisible to Z1). "Under" is a ROOF over the head,
+  // not a depth relative to home; the climb is surface (which stops at sea level 63), then surface aimed at the column's
+  // open top (towns sit at 65-75). Still roofed after it: no walk-off at depth -- the refusal below names the climb.
+  const roofTop = () => {
+    const p = bot.entity.position.floored(); let top = null
+    for (let dy = 2; dy <= 40; dy++) { const b = bot.blockAt(p.offset(0, dy, 0)); if (b && b.boundingBox === 'block' && !/_leaves$/.test(b.name ?? '')) top = p.y + dy }
+    return top
+  }
+  const roofed = () => roofTop() != null
+  let surfaced = null
+  if (wellPlan.action !== 'go' && !wellPlan.inside && townIn(wellPlan)) {
+    noteTownGround(bot, 'mine_bearing_refused')
+    if (roofed()) {
       if (bot.entity.position.y < SEA_LEVEL) {
         surfaced = await surface(ctx, {}, signal).catch(e => ({ status: 'failed', detail: String(e?.message ?? e) }))
         check(signal)
       }
-      // ...then up through the roof to the column's open top: surface's own ascent, aimed above sea level (goto cannot:
-      // it ends a leg at horizontal range, whatever the height -- Codex code r5 P2)
       const top = roofTop()
       if (top != null) {
         surfaced = await surface(ctx, { _toY: top + 1 }, signal).catch(e => ({ status: 'failed', detail: String(e?.message ?? e) }))
         check(signal)
       }
+      wellPlan = planHere()
     }
-    const below = () => roofTop() != null
-    if (below()) await climbOut()
-    if (!townBlocked() && dryClear()) found = true
-    else if (inTown() && !below()) found = await tryExits()   // still under a roof after the climb: no tunnels at depth
-    if (!found) {
-      noteTownGround(bot, 'mine_refused')
-      return {
-        status: 'failed', failClass: 'town_ground',
-        detail: `reason=town_ground walked_out=${walked?.status ?? '-'} surfaced=${surfaced ? `${surfaced.status}${surfaced.failClass ? '/' + surfaced.failClass : ''}` : '-'} last=${out ? `${out.x},${out.z}` : '-'}: no exit from the town's ground ` +
-                `gave a dry stair start (every stair from ` +
-                `${Math.round(bot.entity.position.x)},${Math.round(bot.entity.position.y)},${Math.round(bot.entity.position.z)} ` +
-                `cuts the town's ground or meets water) -- ${below() ? 'climb to open sky first (surface), then ' : ''}goto a dry spot ${TOWN_GROUND_HALF + 14}+ blocks from home, then mine`,
-      }
-    }
-  } else {
-    const from = bot.entity.position.floored()
-    townExcludedDry = stairBearings(bot).some(b => !townAllow(b) && stairRunway(bot, from, b) > 0)
   }
-  const choice = chooseStairBearing(bot, bot.entity.position.floored(), undefined, townAllow)
+  const roofedInTown = () => townIn(wellPlan) && roofed() && inTownBox(bot.entity.position.floored(), townHome())
+  // a plan blocked ONLY by the town's ground (or water) is the zone's to report (`_town_ground`), not minewell's guard row
+  const townOnly = p => (p?.kinds ?? []).length > 0 && p.kinds.every(k => k === 'town' || k === 'water')
+  const wellRow = (what, plan, extra = '') => townOnly(plan) ? null : logEvent({ kind: 'mine_well_guard', status: what === 'relocate' ? 'success' : 'refused', snapshot: snapshot(bot),
+    detail: `action=${what} at=${plan.cap ? `${plan.cap.x},${plan.cap.y},${plan.cap.z}` : plan.hit?.cap ? `${plan.hit.cap.x},${plan.hit.cap.y},${plan.hit.cap.z}` : '-'} from=${(() => { const f = bot.entity.position.floored(); return `${f.x},${f.y},${f.z}` })()}${plan.to ? ` to=${plan.to.x},${plan.to.y},${plan.to.z}` : ''}${plan.farm || plan.hit?.farm ? (keepKind(plan) === 'farm' ? ' farm=1' : ` keepout=${keepKind(plan)}`) : ''}${townIn(plan) ? ' town=1' : ''}${extra}` })
+  // THE WALK-OFF IS PERFORMED, NOT ADVISED (CLAUDE.md; Codex r1 P2): up to two walks -- the nearest clear start within
+  // RELOCATE_RADIUS, else the nearest within FAR_RADIUS -- each planned again on arrival. Only when neither is reachable
+  // does mine refuse, and then it names the cell a `goto` can reach (or the distance), never a walk nobody can make.
+  let lastTarget = null
+  for (let attempt = 0; wellPlan.action !== 'go' && !wellPlan.inside && !roofedInTown() && attempt < 2; attempt++) {
+    if (wellPlan.action === 'refuse') wellPlan = planHere(FAR_RADIUS)
+    if (wellPlan.action !== 'relocate') break
+    wellRow('relocate', wellPlan, ` try=${attempt + 1}`)
+    if (townIn(wellPlan)) noteTownGround(bot, 'mine_walkout')
+    const to = wellPlan.to
+    lastTarget = to
+    try {
+      await withTimeout(bot.pathfinder.goto(new goals.GoalBlock(to.x, to.y, to.z)), 20_000, bot, { what: 'walking off the junk well before mining' })
+    } catch (e) { if (e?.aborted) throw e }
+    check(signal)
+    await settleForFall(bot, bot.entity.position.y, { maxMs: STEP_SETTLE_MS })
+    { const f = bot.entity.position.floored(); if (f.x !== to.x || f.y !== to.y || f.z !== to.z) failedTargets.push(to) }   // never walked at twice
+    const dHome2 = Math.hypot(bot.entity.position.x - config.world.homeX, bot.entity.position.z - config.world.homeZ)
+    if (dHome2 <= 12) {
+      return { status: 'failed', failClass: townIn(wellPlan) ? 'town_ground' : 'forbidden',
+               detail: `${townIn(wellPlan) ? 'reason=town_ground ' : ''}walked off ${wellPlan.farm || wellPlan.hit?.farm ? keepOutLabel(keepKind(wellPlan)).replace(/^the town /, 'the ') : 'the junk well'} to ${Math.round(dHome2)} blocks from home, where the base floor is not dug; walk out at least ${townIn(wellPlan) ? TOWN_GROUND_HALF + 14 : 12} blocks from home and away from ${wellPlan.farm || wellPlan.hit?.farm ? keepOutLabel(keepKind(wellPlan)) : 'the well'}, then mine` }
+    }
+    wellPlan = planHere()
+  }
+  if (wellPlan.action !== 'go') {
+    wellRow('refuse', wellPlan, lastTarget ? ' after=relocate' : '')
+    // THE TOWN'S GROUND AMONG WHAT BLOCKS: the zone's own refusal (failClass town_ground, `reason=town_ground`: the read's Z2),
+    // naming EVERY keep-out that blocked and a remedy this bot can perform from here -- climb to open sky first when roofed,
+    // then goto a dry spot beyond the town's square, then mine
+    if (townIn(wellPlan) && !wellPlan.inside) {
+      noteTownGround(bot, 'mine_refused')
+      const others = (wellPlan.kinds ?? []).filter(k => k !== 'town').map(k => (k === 'well' ? 'the junk well' : k === 'water' ? 'water' : keepOutLabel(k)))
+      const f = bot.entity.position.floored()
+      return { status: 'failed', failClass: 'town_ground',
+               detail: `reason=town_ground walked=${lastTarget ? `${lastTarget.x},${lastTarget.y},${lastTarget.z}` : '-'} surfaced=${surfaced ? `${surfaced.status}${surfaced.failClass ? '/' + surfaced.failClass : ''}` : '-'}: ` +
+                       `no start near ${f.x},${f.y},${f.z} or just beyond the town's square has a dry stair clear of the town's ground${others.length ? ` and ${others.join(' and ')}` : ''} ` +
+                       `-- goto a dry spot ${TOWN_GROUND_HALF + 14}+ blocks from home${others.length ? ` away from ${others.join(' and ')}` : ''}, then mine` +
+                       // ROOFED: the climb above already ran and failed, and a model `surface` stops at sea level (Codex comp P2): the
+                       // walk is the remedy, and it is executable -- a path's digs through the roof are transit, which the zone allows
+                       `${roofed() ? ' (the walk may dig its way out: a path\'s digs are transit)' : ''}` }
+    }
+    const isFarm = !!(wellPlan.farm || wellPlan.hit?.farm), bothBlock = isFarm && !!(wellPlan.cap ?? wellPlan.hit?.cap)   // a relocate plan carries its well in hit (Codex r10 P3)
+    const what = bothBlock ? 'the well and the tree farm' : isFarm ? 'the tree farm' : 'the well'
+    const where = failedTargets.length ? `the walk-off to ${failedTargets.map(c => `${c.x},${c.y},${c.z}`).join(' and ')} could not be reached from here; explore away from ${what} (or goto any cell ${FAR_RADIUS}+ blocks from it), then mine there`
+                                       : `explore away from ${what} (or goto any cell ${FAR_RADIUS}+ blocks from it), then mine there`
+    return { status: 'failed', failClass: 'forbidden', detail: wellPlan.inside ? wellPlan.why : `${wellPlan.why ?? (isFarm ? 'every stair from here would dig the town tree farm' : 'every stair from here would dig the junk well\'s shell')}; ${where}` }
+  }
+  const choice = chooseStairBearing(bot, bot.entity.position.floored(), undefined, wellPlan.bearings)
+  // NEVER A NULL CHOICE (the trap this composition removes: two filters left no bearing and `choice.bear` threw). A 'go'
+  // plan carries at least one bearing, so this is a guard, and it still names a move the bot can make.
+  if (!choice) {
+    return { status: 'failed', failClass: townIn(wellPlan) ? 'town_ground' : 'forbidden',
+             detail: `${townIn(wellPlan) ? 'reason=town_ground ' : ''}no stair bearing is left from here (${(wellPlan.kinds ?? []).join(', ') || 'none clear'}); goto a dry spot ${TOWN_GROUND_HALF + 14}+ blocks from home, then mine` }
+  }
   const bear = choice.bear
   const facing = stairBearing(bot)
   // Compared BY VALUE. Both come from the same CARDINALS array today, so `!==`
@@ -11807,17 +11943,6 @@ async function mine(ctx, { y: targetY = 12 }, signal) {
     const treadFloor = cells.floor                   // what holds it up
     const below = bot.blockAt(cellFeet)
     if (!below) break
-    // EVERY STEP RE-CHECKS ITS THREE CELLS against the town's ground (the bearing was cleared on the world as it was).
-    // The remedy is executable from here: mine again (a clear bearing is chosen, or the skill walks out).
-    for (const [pos, what] of [[cellFeet, 'tread'], [cellHead, 'headroom'], [cellAbove, 'ceiling']]) {
-      const b = bot.blockAt(pos)
-      if (b && b.name !== 'air' && b.name !== 'cave_air' && townDigClass(pos, b.name, townHome()) === 'ground') {
-        noteTownGround(bot, 'mine_step_refused')
-        return { status: 'failed', failClass: 'town_ground',
-                 detail: `reason=town_ground_step stopped at y=${Math.round(bot.entity.position.y)}: the ${what} ahead (${b.name}) ` +
-                         `is the town's ground -- mine again (a clear bearing is chosen, or it walks out first)` }
-      }
-    }
     for (const [pos, what] of [[cellFeet, 'tread'], [cellHead, 'headroom'], [cellAbove, 'ceiling']]) {
       const b = bot.blockAt(pos)
       // ONE PREDICATE. stairLiquid is what chooseStairBearing scored the four
@@ -11839,12 +11964,12 @@ async function mine(ctx, { y: targetY = 12 }, signal) {
                          // cell cannot do anything -- which is precisely the
                          // loop the fleet was in. Say so, and name `goto`.
                          (choice.runway === 0
-                           ? (townExcludedDry
-                               ? ' — and in every direction from here except the one under the town\'s ground, so ' +
-                                 'mining again from this spot cannot help; goto somewhere drier away from home first'
-                               : ' — and in every other direction from here, so mining ' +
-                                 'again from this spot cannot help; goto somewhere ' +
-                                 'drier first, or gather on the surface')
+                           ? (wellPlan.bearings.length < stairBearings(bot).length
+                             ? ` — and the other directions would dig ${(wellPlan.kinds ?? []).map(k => (k === 'well' ? 'the junk well\'s shell' : keepOutLabel(k))).join(' or ') || 'the junk well\'s shell'}; ` +
+                               `${(wellPlan.kinds ?? []).includes('town') ? 'goto somewhere drier away from home first' : 'walk away from the well and mine there'}`
+                             : ' — and in every other direction from here, so mining ' +
+                               'again from this spot cannot help; goto somewhere ' +
+                               'drier first, or gather on the surface')
                            : '') }
       }
     }
@@ -11907,6 +12032,42 @@ async function mine(ctx, { y: targetY = 12 }, signal) {
       }
     }
     const fallingAbove = FALLING.has(bot.blockAt(cellAbove.offset(0, 1, 0))?.name)   // read BEFORE digging
+    // EVERY DIG OF THE STAIR IS CHECKED AGAINST THE SHELL, whatever the plan said (minewell-01): the step, the re-open and the re-dig
+    // READ AFRESH AT EVERY DIG (Codex r1 P2): a well found while a dig awaited is honoured by the next one
+    // THE ONE WELL/PLINTH CELL TEST (wellcare-01: wellCellAt, as lidclear's lid and wear_out ask it -- every known well and
+    // plinth column with its stair, from the same cache the planner reads): true, or null (the cells could not be read: the
+    // stair stops, fail closed). shellOf only NAMES the cap for the row and the remedy.
+    const shellStop = pos => {
+      const inShell = wellCellAt(bot, pos)
+      const cap = inShell === false ? null : (shellOf(wellCols(), pos) ?? { x: '-', y: '-', z: '-', unread: inShell === null })
+      if (!cap) {
+        // ...and a tree-farm cell, read afresh (treefarm-02): the stair stops; the next plan walks off the farm
+        const fm = farmNow()
+        const kind = fm.forbid && fm.forbid(pos)
+        if (!kind) return null
+        // THE TOWN'S GROUND (townzone-01): the zone's per-step refusal, now this one stop's -- same class, same words for the read
+        if (kind === 'town') {
+          noteTownGround(bot, 'mine_step_refused')
+          return { status: 'failed', failClass: 'town_ground',
+                   detail: `reason=town_ground_step stopped at y=${Math.round(bot.entity.position.y)}: the next stair cell ${pos.x},${pos.y},${pos.z} is the town's ground ` +
+                           `-- mine again (a clear start is planned, or it walks out first)` }
+        }
+        logEvent({ kind: 'mine_well_guard', status: 'refused', snapshot: snapshot(bot), detail: `action=stop at=- cell=${pos.x},${pos.y},${pos.z} farm=1` })
+        return { status: 'failed', failClass: 'forbidden',
+                 detail: `stopped at y=${Math.round(bot.entity.position.y)}: the next stair cell ${pos.x},${pos.y},${pos.z} is the town tree farm's; walk away from the farm and mine again` }
+      }
+      logEvent({ kind: 'mine_well_guard', status: 'refused', snapshot: snapshot(bot), detail: `action=stop at=${cap.x},${cap.y},${cap.z} cell=${pos.x},${pos.y},${pos.z}${cap.unread ? ' unread=1' : ''}` })
+      if (cap.unread) {
+        return { status: 'failed', failClass: 'forbidden',
+                 detail: `stopped at y=${Math.round(bot.entity.position.y)}: the town's junk well cells could not be read for the next stair cell ${pos.x},${pos.y},${pos.z}; mine again (the cells are read afresh)` }
+      }
+      return { status: 'failed', failClass: 'forbidden',
+               detail: `stopped at y=${Math.round(bot.entity.position.y)}: the next stair cell ${pos.x},${pos.y},${pos.z} is the junk well's shell (${cap.x},${cap.y},${cap.z}); walk away from the well and mine again` }
+    }
+    for (const cell of [cellAbove, cellHead, cellFeet]) {
+      const stop = shellStop(cell)
+      if (stop) return stop
+    }
     for (const pos of [cellAbove, cellHead, cellFeet]) {
       const b = bot.blockAt(pos)
       if (!b || b.name === 'air' || b.name === 'cave_air') continue
@@ -11920,6 +12081,9 @@ async function mine(ctx, { y: targetY = 12 }, signal) {
         return { status: 'failed', failClass: 'missing_tool',
                  detail: `need a better tool for ${b.name} at y=${Math.round(bot.entity.position.y)}` }
       }
+      // IMMEDIATELY BEFORE THE DIG, after the equip's await (Codex r2 P2): nothing awaits between this read and bot.dig
+      const stopNow = shellStop(pos)
+      if (stopNow) return stopNow
       try { await bot.dig(b) } catch (e) { if (e.aborted) throw e; break }
     }
 
@@ -11945,6 +12109,8 @@ async function mine(ctx, { y: targetY = 12 }, signal) {
         if (fallingNear) continue
         const stepCells = [cellAbove, cellHead, cellFeet]
         for (const pos of stepCells) {   // re-open top-down
+          const stopRe = shellStop(pos)
+          if (stopRe) return stopRe
           const b = bot.blockAt(pos)
           if (b && b.boundingBox === 'block') { try { await bot.dig(b) } catch (e) { if (e.aborted) throw e } }
         }
@@ -12030,6 +12196,8 @@ async function mine(ctx, { y: targetY = 12 }, signal) {
     if (!arrived && moved < 0.3) {
       const t0 = Date.now()
       const stillThere = bot.blockAt(cellFeet)
+      const stopRedig = stillThere && stillThere.boundingBox === 'block' ? shellStop(cellFeet) : null
+      if (stopRedig) return stopRedig
       if (stillThere && stillThere.boundingBox === 'block') {
         // needsDrop: false, like the two escape digs. This re-dig wants the HOLE,
         // not the cobble -- and with the default the harvest watchdog would wait
@@ -12244,7 +12412,8 @@ export function stairFlowRisk (bot, from, bear, depth = STAIR_LOOKAHEAD) {
 export function chooseStairBearing (bot, from, depth = STAIR_LOOKAHEAD, allow = null) {
   let best = null
   for (const bear of stairBearings(bot)) {
-    if (typeof allow === 'function' && !allow(bear)) continue   // the town's ground (mine): never a bearing that cuts it
+    // minewell-01: only bearings whose whole stair stays clear of every keep-out (the wells' shells, the farm, the town's ground)
+    if (Array.isArray(allow) && !allow.some(a => a.x === bear.x && a.z === bear.z)) continue
     const runway = stairRunway(bot, from, bear, depth)
     const flow = runway === 0 ? 0 : stairFlowRisk(bot, from, bear, depth)
     if (!best || runway > best.runway || (runway === best.runway && flow < best.flow)) {

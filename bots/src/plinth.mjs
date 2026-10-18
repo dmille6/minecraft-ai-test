@@ -454,12 +454,14 @@ export const WELL_TABLE_CLICK = 4.5
  *      one can. A plinth is walkReach-reachable by construction (its planner proves every stand with the same probe).
  *   The floor must be a plain support: never a container (its lid) or town furniture (Codex r1 P3; place() refuses a lid).
  */
-export function wellTableCell ({ site, stand, read, bodies = [], start = null, box = null, forbid = () => false, eye = EYE_HEIGHT, report = null } = {}) {
+export function wellTableCell ({ site, stand, read, bodies = [], start = null, box = null, forbid = () => false, eye = EYE_HEIGHT, report = null, tableForbid = null } = {}) {
+  // `tableForbid` ({x,y,z}) -> truthy (wellcare-01): a cell the table may not take (skills.mjs stationRefusalAt: another well's
+  // cells, a stand, the shaft, a plinth stair's headroom). Only CANDIDATES are filtered -- never the walk proof's own forbid.
   // `report` (an object, optional) receives `why` when the answer is null: 'no_cell' (nothing placeable in reach), 'no_proof'
   // (no start, or the stand is not walkReach-able from it today), 'route' (every candidate would take the way up) -- Claude P3
   const none = why => { if (report) report.why = why; return null }
   if (!site || !stand || typeof read !== 'function') return none('no_cell')
-  const flat = tableCellFor({ site: { x: site.x, y: stand.y, z: site.z }, stand, read, bodies })
+  const flat = tableCellFor({ site: { x: site.x, y: stand.y, z: site.z }, stand, read, bodies, forbid: tableForbid })
   if (flat) return flat
   const out = []
   const fx = stand.x + 0.5, fy = stand.y, fz = stand.z + 0.5
@@ -471,6 +473,7 @@ export function wellTableCell ({ site, stand, read, bodies = [], start = null, b
         const ring = Math.max(Math.abs(x - site.x), Math.abs(z - site.z))
         if (ring < 2) continue                                                 // the well's 3x3: walls, cap, shaft
         if (inColumn(site, x, y, z) || forbid(x, y, z)) continue
+        if (typeof tableForbid === 'function' && tableForbid({ x, y, z })) continue
         const cell = read(x, y, z), head = read(x, y + 1, z), floor = read(x, y - 1, z)
         if (!cell || !PLACEABLE_INTO.has(cell.name) || !solid(floor) || isFurniture(floor.name) || !head) continue
         const reach = Math.hypot(x + 0.5 - fx, y + 0.5 - fy, z + 0.5 - fz)

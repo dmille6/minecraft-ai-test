@@ -1264,7 +1264,7 @@ await t('RAISED WELL, NO TRAPDOORS CARRIED (plinth-02): the table goes below the
   assert.ok((await rows('_well_built')).some(x => field(x.skill.detail, 'at') === `${RC.x},${RC.y},${RC.z}`), 'the _well_built row at the plinth cap (the canary\'s exposure)')
 })
 await t('MUTANT (skills): the old table rule on a raised well -> no table cell (the fleet\'s failure), nothing built', async () => {
-  const old = "        const cell = wellTableCell({ site, stand, read: tableRead, bodies: bodiesAround(bot), start: startNear(tableRead, home), box: planBox(home, site), forbid: plinthForbid(bot, site), report: tableWhy })\n"
+  const old = "        const cell = wellTableCell({ site, stand, read: tableRead, bodies: bodiesAround(bot), start: startNear(tableRead, home), box: planBox(home, site), forbid: plinthForbid(bot, site), report: tableWhy, tableForbid })\n"
   const neu = "        const cell = tableCellFor({ site: { x: site.x, y: stand.y, z: site.z }, stand, read: readCell(bot), bodies: bodiesAround(bot) })\n"
   await withMutant(SP, old, neu, async m => {
     const { town, RC } = await raisedTown()
@@ -2974,6 +2974,97 @@ await t('MUTANT (well): the pit cover beside a sealed well removed -> no order f
     assert.equal(m.wellOrder({ now: NOW, distHome: 3, slots: 5, freeSlots: 31, junkStacks: 0, well: { open: false, attended: false, breached: false }, pit, state: {} }).order, null, 'mutant inert')
   })
 })
+// ===================================================================================================================
+// wellcare-01 fix 2: NO WELL ORDER FOR A BOT DEEP UNDER THE STAND -- the chain through the REAL CognitiveLoop
+// ===================================================================================================================
+// The fleet case (72 h to 10-17 12:55Z): dispose_well orders that started more than 12 below the stand failed
+// well_unreachable 238 times in 262 (build_well 25 of 25), each a walk into a timeout and a 15-min backoff. The loop must not
+// give the order down there, must let the bot carry on (the model's turn), and must give the order on the first decision
+// in reach once the bot has climbed (nothing charged while it was held).
+{
+  const { Lessons } = await import('../src/lessons.mjs')
+  const { CognitiveLoop } = await import('../src/cognitive.mjs')
+  const ldir = mkdtempSync(path.join(tmpdir(), 'mcai-wellcare-'))
+  let lseq = 0
+  const freshLessons = () => { const L = new Lessons(path.join(ldir, `l${lseq++}.json`)); L.data.avoid = {}; L.data.worked = {}; return L }
+  const CP = new URL('../src/cognitive.mjs', import.meta.url)
+  const STAND_Y = CAP.y + 1
+  /** A real loop on the fake town; every dispatched skill is recorded with the bot's height and succeeds. The model proposes
+   *  `status`, and from decision `climbAt` on `surface` -- the bot's own climb, the remedy the held row names (the real skill
+   *  climbs 17 blocks to y 63 on Paper: sandbox/well/wellcare-e2e.cjs `deep`); the runner performs it as the climb to the
+   *  stand's level. Nothing in the loop's state is rewritten: the well's 30-s scan gate is waited out in real time (Codex r1
+   *  P2). `until` stops the loop early. */
+  async function loopOrders (town, { n = 3, Loop = CognitiveLoop, until = null, maxMs = 9000, climbAt = null } = {}) {
+    Object.assign(town.bot, { oxygenLevel: 300, time: { day: 1, age: 1, timeOfDay: 1000 }, game: { dimension: 'overworld' }, experience: { level: 0 }, isInWater: false })
+    // the prompt's block census asks by block id (mineflayer accepts ids); this fake answers predicates only
+    const fb = town.bot.findBlocks
+    town.bot.findBlocks = o => (typeof o?.matching === 'function' ? fb(o) : [])
+    const ran = []
+    let loop = null
+    const runner = { isBusy: () => false, run: async (skill) => {
+      ran.push({ skill, y: Math.floor(town.bot.entity.position.y), at: Date.now() })
+      if (skill === 'surface') town.bot.entity.position = new Vec3(HOME.x + 0.5, STAND_Y, HOME.z + 0.5)
+      return { status: 'success', detail: 'ok', delta: {}, contractEvidence: [`${skill}: probe 1`] }
+    } }
+    loop = new Loop(town.bot, runner, freshLessons(), null)
+    loop.llm = { decide: async () => ({ schemaValid: true, latencyMs: 1, proposal: { skill: climbAt != null && ran.length >= climbAt ? 'surface' : 'status', args: {}, reason: 'probe' } }) }
+    loop.milestones.cycle = 540
+    // the loop paces model decisions at LLM_DECISION_COOLDOWN_MS (production 20 s; this file's config is loaded without it)
+    const pace = config.llm.decisionCooldownMs
+    config.llm.decisionCooldownMs = 50
+    try {
+      loop.start()
+      for (const t0 = Date.now(); Date.now() - t0 < maxMs && ran.length < n && !(until && until(ran)); ) await new Promise(r => setTimeout(r, 30))
+      loop.stop()
+    } finally { config.llm.decisionCooldownMs = pace }
+    return { ran, loop }
+  }
+  const fullOfJunk = () => [S('egg', 16), S('flint', 64), S('ink_sac', 10), ...filler(33)]
+  await t('wellcare-01 CHAIN (real loop): at the stand\'s level, a full bag of junk at town gets dispose_well (positive control)', async () => {
+    const town = fakeTown({ wellAt: CAP, items: fullOfJunk(), botAt: new Vec3(HOME.x + 0.5, STAND_Y, HOME.z + 0.5) })
+    const { ran } = await loopOrders(town, { n: 1 })
+    assert.equal(ran[0]?.skill, 'dispose_well', JSON.stringify(ran))
+  })
+  await t('wellcare-01 CHAIN (real loop): 20 below the stand, under the town -> no well order, the bot keeps its turn, a _well_deep action=hold row names surface; after the bot climbs dispose_well comes on the first scan in reach', async () => {
+    const town = fakeTown({ wellAt: CAP, items: fullOfJunk(), botAt: new Vec3(HOME.x + 0.5, STAND_Y - 20, HOME.z + 0.5) })
+    const { ran, loop } = await loopOrders(town, { n: 999, climbAt: 2, maxMs: 45_000, until: r => r.some(x => x.skill === 'dispose_well') })
+    const c = ran.findIndex(x => x.skill === 'surface')
+    assert.ok(c >= 2, `the loop went on deciding before the climb: ${JSON.stringify(ran.map(x => x.skill))}`)
+    assert.ok(ran.slice(0, c).every(x => !['dispose_well', 'build_well', 'close_well'].includes(x.skill)), `a well order 20 below: ${JSON.stringify(ran)}`)
+    const row = (await rows('_well_deep')).pop()
+    assert.ok(row, 'no _well_deep row')
+    assert.match(row.skill.detail, new RegExp(`^order=dispose below=20 stand_y=${STAND_Y} feet_y=${STAND_Y - 20} limit=12 remedy=surface action=hold$`), row.skill.detail)
+    const i = ran.findIndex(x => x.skill === 'dispose_well')
+    assert.ok(i > c, `no dispose_well after the climb: ${JSON.stringify(ran.map(x => x.skill))}`)
+    assert.equal(ran[i].y, STAND_Y, 'given only in reach')
+    assert.ok(ran[i].at - ran[0].at <= 40_000, 'within the scan gate of the first held decision (nothing charged while held)')
+    assert.ok(loop.wellState.lastDisposeAt > 0, 'positive control: the order given after the climb is charged')
+  })
+  await t('wellcare-01 CHAIN, AN OPEN WELL: close_well from 20 below is held too (order=close row), and nothing else is given', async () => {
+    const town = fakeTown({ wellAt: CAP, wellOpen: true, items: fullOfJunk(), botAt: new Vec3(HOME.x + 0.5, STAND_Y - 20, HOME.z + 0.5) })
+    const { ran } = await loopOrders(town, { n: 2 })
+    assert.ok(ran.length >= 2 && ran.every(x => !['dispose_well', 'build_well', 'close_well'].includes(x.skill)), JSON.stringify(ran))
+    assert.match((await rows('_well_deep')).pop()?.skill.detail ?? '', /^order=close below=20 .* action=hold$/)
+  })
+  await t('wellcare-01 CHAIN, 12 below (the limit): still in reach -- the order is given', async () => {
+    const town = fakeTown({ wellAt: CAP, items: fullOfJunk(), botAt: new Vec3(HOME.x + 0.5, STAND_Y - 12, HOME.z + 0.5) })
+    const { ran } = await loopOrders(town, { n: 1 })
+    assert.equal(ran[0]?.skill, 'dispose_well', JSON.stringify(ran))
+  })
+  await t('wellcare-01 MUTANT (cognitive): the depth reader removed -> the deep bot is ordered to dispose (the defect)', async () => {
+    const src = readFileSync(CP, 'utf8')
+    const old = "          depth: skill => wellOutOfReach({ feetY: p?.y, standY: townWellStandY(bot, skill) ?? config.world.homeY }),\n"
+    assert.equal(src.split(old).length, 2, 'ANCHOR missing or not unique')
+    const out = new URL(`./_mutant-cog-wc-${process.pid}.mjs`, import.meta.url)
+    writeFileSync(out, src.replace(old, '').replace(/from '\.\//g, "from '../src/"))
+    try {
+      const { CognitiveLoop: M } = await import(out.href)
+      const town = fakeTown({ wellAt: CAP, items: fullOfJunk(), botAt: new Vec3(HOME.x + 0.5, STAND_Y - 20, HOME.z + 0.5) })
+      const { ran } = await loopOrders(town, { n: 1, Loop: M })
+      assert.equal(ran[0]?.skill, 'dispose_well', `mutant inert: ${JSON.stringify(ran)}`)
+    } finally { try { unlinkSync(out) } catch {} }
+  })
+}
 
 console.log(`\n${pass} passed, ${fail} failed${failed.length ? `\n  ${failed.join('\n  ')}` : ''}`)
 process.exit(fail ? 1 : 0)

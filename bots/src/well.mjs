@@ -1008,12 +1008,25 @@ const lazy = v => (typeof v === 'function' ? v() : v)
  *   buildPlan () -> wellBuildPlan | null              what this bot could build from
  *   peers     () -> [names at town]                   one builder per town (composter.mjs builderDecision)
  *   pit       () -> { attended, coverable } | null    the recorded site when it is an OPEN PIT (an unfinished build)
+ *   depth     (skill) -> wellOutOfReach answer | null  wellcare-01: an order is HELD (`held`) when the bot is too far below
  * Order of precedence: close an open, unattended well (any visitor); dispose at TRIGGER_SLOTS+ holding listed junk;
  * build when the town has none (a build resumes a pit); else cover an open pit nobody is at (close_well, any visitor
  * holding a cover block: a build aborted or killed before it could cover its own). Cooldowns are charged when an
  * order is ISSUED.
  */
-export function wellOrder ({ now = 0, slots = 0, freeSlots = 0, junkStacks = 0, buildJunkStacks = junkStacks, distHome = Infinity, well = null,
+export function wellOrder (args = {}) {
+  const r = wellOrderAtTown(args)
+  // NOT FROM DEEP UNDER THE STAND (wellcare-01 fix 2; wellcare.mjs wellOutOfReach): distHome is horizontal, so a bot mining
+  // 20 below the town was "at town" and walked into a timeout and a 15-min backoff. An order that would be given beyond the
+  // walk's vertical reach is HELD, at no cost: no cooldown, no deferral is charged (only the scan stamp), so it is given on
+  // the first decision within reach. `depth` () -> wellOutOfReach's answer, read only when an order would be given.
+  if (!r.order || typeof args.depth !== 'function') return r
+  let deep = null
+  try { deep = args.depth(r.order.skill) } catch { deep = null }
+  if (!deep) return r
+  return { order: null, state: { ...(args.state ?? {}), lastScanAt: r.state.lastScanAt }, held: { skill: r.order.skill, ...deep } }
+}
+function wellOrderAtTown ({ now = 0, slots = 0, freeSlots = 0, junkStacks = 0, buildJunkStacks = junkStacks, distHome = Infinity, well = null,
                              buildPlan = null, myName = '', peers = [], state = {}, inside = false, pit = null } = {}) {
   const s = { ...state }
   const none = () => ({ order: null, state: s })

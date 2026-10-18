@@ -149,3 +149,45 @@ export function walkOutPoints (from, home) {
     { d: (hz + R) - z, x, z: hz + R, bear: { x: 0, z: 1 } }, { d: z - (hz - R), x, z: hz - R, bear: { x: 0, z: -1 } },
   ].filter(o => o.d >= 0 && !(outX && o.bear.x === -outX) && !(outZ && o.bear.z === -outZ)).sort((a, b) => a.d - b.d).map(({ x, z, bear }) => ({ x, z, bear }))   // never toward town (Claude code r1 P2)
 }
+
+// ---- THE TOWN AS ONE MORE KEEP-OUT (townzone-01 on minewell-01, operator option (b), 10-15) ----------------------------
+// minewell's planner (minewell.mjs planMineStart) already simulates every bearing's whole stair against the junk wells'
+// shells and a composed `forbid` (the tree farm's cells; structureguard-01's monument). Two planners -- that one and this
+// file's bearing filter with its own walk-outs -- left `mine` with NO bearing (choice null) and undid each other's walks (a
+// well walk-off promises only > 12 from home; the square is 16). So the town's ground joins the SAME keep-out: one plan,
+// one walk-off target that satisfies every keep-out at once, one per-dig stop.
+
+/**
+ * THE TOWN'S GROUND AS A KEEP-OUT PART -> { forbid(cell) -> 'town' | null, bottom } (minewell.mjs composeKeepOut's shape).
+ * Pure over `nameAt(x, y, z) -> block name | null`. A cell is forbidden when it is TERRAIN inside the town's box (the same
+ * test as townDigClass: air and a placed block are not; an unloaded cell is held as ground). The zone off -> no forbid.
+ */
+export function townKeepOut (home, nameAt) {
+  const h = homeOf(home)
+  if (!h || typeof nameAt !== 'function') return { forbid: null, bottom: null }
+  // an UNLOADED cell inside the box (nameAt null) is held as ground, as stairTownClear held it (Claude comp P3-b): a stair is
+  // never planned through what this bot cannot see
+  return { forbid: c => { if (!c || !inTownBox(c, h)) return null; const n = nameAt(c.x, c.y, c.z); return n == null || isTerrain(n) ? 'town' : null },
+           bottom: Math.floor(h.y) - TOWN_GROUND_DEPTH }
+}
+
+/**
+ * THE COLUMNS JUST BEYOND THE TOWN'S SQUARE a bot inside it may start a stair from -> [{ x, z }], nearest to `from` first.
+ * Pure. The four axis exits first (walkOutPoints: never toward town), then the ring at TOWN_GROUND_HALF + 3 every
+ * `step` blocks -- the planner judges each against EVERY keep-out (a well or the farm beside an exit is passed over).
+ * Empty when the bot is not within `margin` of the square (from outside, the planner's own rings suffice).
+ */
+export function townExitColumns (from, home, { step = 4, margin = 3 } = {}) {
+  const h = homeOf(home)
+  if (!h || !from || !inTownBox({ x: from.x, y: Math.floor(h.y), z: from.z }, h, { margin })) return []
+  const hx = Math.floor(h.x), hz = Math.floor(h.z), R = TOWN_GROUND_HALF + 3, fx = Math.floor(from.x), fz = Math.floor(from.z)
+  const axis = walkOutPoints(from, h).map(({ x, z }) => ({ x, z }))
+  const seen = new Set(axis.map(c => `${c.x},${c.z}`)), ring = []
+  for (let t = -R; t <= R; t += step) {
+    for (const c of [{ x: hx + R, z: hz + t }, { x: hx - R, z: hz + t }, { x: hx + t, z: hz + R }, { x: hx + t, z: hz - R }]) {
+      if (!seen.has(`${c.x},${c.z}`)) { seen.add(`${c.x},${c.z}`); ring.push(c) }
+    }
+  }
+  const d = c => Math.hypot(c.x - fx, c.z - fz)
+  return [...axis, ...ring.sort((a, b) => d(a) - d(b) || a.x - b.x || a.z - b.z)]
+}

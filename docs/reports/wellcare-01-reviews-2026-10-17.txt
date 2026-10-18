@@ -1,0 +1,93 @@
+wellcare-01 (THE WELL CLEAN-UP BUNDLE) -- build, evidence and review record, 2026-10-17 (wellcare agent)
+OWNER 10-17 ~12:50Z "yes, lets do your suggest": three well fixes as ONE canary, after toolkit (now toolkit-02).
+Branch wellcare-on-0fe9225 on the fleet sha 0fe92258 (plinth-02 on lidclear-01). Variant on toolkit's canary a76289ea: see
+the end of this file.
+
+THE THREE FIXES
+1. minewell-02: `mine` never digs a known junk well's or raised plinth's shell (wellBreakCost's box +-2, cap.y-3..cap, and a
+   plinth's stair treads) and walks off to a clear start first. Commit 167d22d2 = the APPROVED minewell-01 x townzone-01
+   composition (75cfb447..0a3e973a, tz-on-389b44f; Codex r4 + Claude APPROVE, Paper CORNER/ROOF 10-15) applied onto
+   0fe92258; one import-line union. Both engines verified the +/- lines identical; monument-01's composeKeepOut /
+   planMineStart interface intact. 27d4bc55: mine's per-dig stop asks skills.mjs wellCellAt (the one well/plinth cell test
+   lidclear and wear_out use; plinth-02's recorded columns and stairs come through knownWellCells). Tests: the real
+   knownWellCells reads a plinth record; a bot on a plinth's stand walks off and descends with the shell intact (with and
+   without the movement cache); positive control without the record digs it; mutants (no plinth columns; no wellCellAt and
+   no plan) dig the plinth.
+2. NO WELL ORDER FROM DEEP: wellOrder HOLDS dispose_well / build_well / close_well while the bot is more than 12 below the
+   order's stand (townWellStandY by order kind; home's y as fallback). Held = no order, nothing charged, the scan stamp kept;
+   `_well_deep order= below= stand_y= feet_y= limit=12 remedy=surface|walk_up action=hold` once per 5 min per kind.
+   THRESHOLD (fleet, 72 h to 10-17 12:55Z, Events.load per pool, 4.29 M rows, 80 bots, 16 pools; start = the bot's last
+   row before the order, stand = named or the pool's well rows; positive control: 236 dispose successes and 280
+   well_unreachable counted):
+     dispose_well success by start_y - stand_y: -1..+2 84% (38), -4..-1 80% (25), -7..-4 65% (17), -9..-7 60% (10),
+     -11..-9 50% (20), -13..-11 60% (20), -16..-13 32% (31), -20..-16 16% (44), -25..-20 11% (38), <=-25 2% (149);
+     build_well 0 of 25 below -12.
+   WHY A HOLD (r5): the base's deep orders (327, 25 succeeded) walked the bot up a median 2 blocks (p75 11) and backed the
+   dispose off 15 min; the same bots were next within 12 of the stand after a median 12.4 min (p75 38.8; 119/326 within 5
+   min). The well orders are scheduler-only (chatOnly), so the hold refuses nothing the bot asked for. The remedy named:
+   all 417 deep starts were below sea level under stands at 58-75, so `surface` (to 63) puts every one in reach.
+   A scheduler-issued climb was built (r3/r4) and WITHDRAWN (r5): it overshoots stands below 63, cannot reach stands above
+   75, and surface's shaft dig reads no well cells (Claude r2), and an open well's close consumed its rescan (Codex r3).
+3. NO STATION ON A WELL: place() (scan, explicit cells, the made-room dig, and again immediately before each placeBlock)
+   refuses wellcare.mjs stationKeepOut cells -- the shell (wellCellAt), the shaft column cap.y-2..+3, the four cardinal
+   stand cells at cap.y+1/+2, a plinth stair's headroom; falls back to another candidate; an explicit cell or "only well
+   cells here" names the step away; build_well's own table keeps its plinth-ring cell (`wellOwn`, a 4th argument the
+   model's `place` cannot pass); composter tableCellFor and plinth wellTableCell take a candidate forbid (not the walk
+   proof). Rows `_station_well action=skip|refuse|room|late` and `_station_placed` (stations within 6 of a well).
+   ACCEPTED, recorded: the rim diagonals at cap+1/+2 are not kept out (not a stand; the throw is unaffected).
+Licence `_wellcare_mode` once per spawn (index.mjs).
+
+REVIEWS (prompts and outputs in the agent's scratch: review-prompt*.md, codex-r*.txt)
+  r1 @4a4eca49  Codex CHANGES (P1 W3 start position mixed START-stamped skill rows with reflex rows; P1 W3 evidence join;
+                P2 W1/W2 future geometry; P2 the chain test teleported and reset lastScanAt).
+                Claude APPROVE WITH CHANGES (P2 remedy advice-only; P2 gates on wells the bot may not know; P2 stand by
+                order kind; P3 rim, made-room dig beside a well, unreadable message, test title, Paper labels, scope).
+  r2 a5fed0f6 / r3 630e00d9  read fixes (end-time ordering, bounded join, activation), remedy surface/walk_up, the real-gate
+                chain; then the scheduler climb, stand by kind, gate columns, room dig, message.
+  r2 @630e00d9  Codex CHANGES (P1 activation aggregation; P2 open well never climbs; P2 climb/mine alternation; P2 W3
+                equal-time). Claude APPROVE WITH CHANGES (P2 climb aim, P2 climb digs a well from below, P3s).
+  r4 b87ca37e   the four Codex fixes.   Codex r3 @b87ca37e CHANGES (P2 open-well continuation).
+  r5 f43a9241   the scheduler climb WITHDRAWN (hold only).
+  r4 @f43a9241  Claude APPROVE (P3s). Codex CHANGES (P2 stale well check before placeBlock; P2 retirement erased breaches).
+  r6 4859a897   late placement check (+test, mutant); retirement at the action's time; surface shell digs reported.
+  r5 @4859a897  Claude APPROVE (P3s). Codex CHANGES (P2 no reopening after retirement).
+  r7 ff0c2a37   column_spans (open / close / reopen; plinth always).
+  r6 @ff0c2a37  Codex CHANGES (P2 a retirement before any live row). Claude found the same and APPROVED at 7571a663.
+  r8 7571a663   the retired-first case.
+  r7 @7571a663  Codex APPROVE ("74,898 ordered-sequence cases passed"). Claude APPROVE (r6 review, at 7571a663).
+  UNRESOLVED P3s (reporting only, not gates): the ungated W1 report counts pre-build digs under a "refusal-only, retired"
+  label; w1u dedupes by the whole tuple (one dig at two overlapping caps can count twice); townWellStandY's by-order test
+  answers the same for every kind; close_well on an open pit can take the stand of another open (attended, breached) well;
+  build_plinth and town_deposit orders still measure distance from home horizontally (out of scope).
+
+TESTS: npm test (node scripts/run-tests.mjs) 260/260 at 630e00d9, f43a9241 and 7571a663 (the code of the canary sha);
+  bots/test/wellcare.test.mjs (26), bots/test/well.test.mjs +5 real-loop chain/mutant tests, minewell.test.mjs (anchor
+  updated), plinth02.test.mjs (anchor updated). eslint no-undef: only the pre-existing reflex.mjs:2384 withinBody.
+MUTANTS (anchored present and unique, withMutant): knownWellCells without plinth columns; mine without wellCellAt and plan;
+  the hold removed; the hold charging the cooldown; the limit inverted; the depth reader removed (real loop); the scan's
+  well filter and the late check removed (base behaviour); the late check removed; plus minewell's own.
+PAPER (sandbox3; lock /tmp/mcai-sandbox.lock held 14:07-14:20, 14:22-14:24, 14:25-14:27, 14:29-14:31, 14:36-14:41,
+  14:42-14:46, 15:02-15:10, 15:12-15:14, 15:15-15:17, 15:45-15:47Z; released each time; results
+  docs/reports/wellcare-01-paper-2026-10-17.jsonl, server read-back):
+  mine   k=4 plinth, bot on its stand: cand relocate row, 81/81 shell cells cobblestone after, cap+floor trapdoors kept,
+         the second mine reaches y 115; base 78/81 (3 shell cells dug). (The first mine in both builds stops stepping off
+         the plinth's 3-block ledge: base stair behaviour.)
+  deep   room 22 below the stand, under sea level, a mine stair: base dispose_well ordered from y 45 (well_unreachable /
+         aborted on the stair-less layouts); cand (r5) held 60 s with no well order (_well_deep action=hold
+         remedy=surface), the brain's real `surface` climbed 18 blocks to y 63, dispose_well success at y 67 (352 items).
+  table  plinth stand, furniture on the south corners, craft wooden_pickaxe: cand table on the furniture (1306,125,1306;
+         no well cell), `_station_well skip kind=shaft n=6`; base table on the east STAND (1306,124,1305).
+READ scripts/host/wellcareread.py (dry runs on the base, hive-c,board-c as canary, 180 min: W3 positive control 2-5 base
+  deep orders on those pools; control orders from deep 8-10; W1/W2 0; licence 0 -- the base cannot write it).
+
+VARIANT ON TOOLKIT'S CANARY a76289ea (toolkit-02 = toolkit-01's approved commits on 0fe92258, origin/tk-on-0fe9225; use ONLY
+if toolkit-02 is KEPT and promoted): branch wellcare-on-a76289e = the same 11 commits cherry-picked onto a76289ea with NO
+conflict; sorted +/- lines of `git diff 0fe92258 e1d2a66c` and `git diff a76289ea <tip>` identical (3,347 lines).
+npm test 261/261; eslint no-undef only reflex.mjs:2384 withinBody. Rebase review (composition only):
+  Codex APPROVE WITH CHANGES (P3 only), Claude APPROVE. Both: toolkit's crafts place their table through the ordinary craft
+  -> place() path (no coordinates, no builder exemption), so the keep-out, the late re-check and the no-room-dig apply; the
+  licence rows are separate; imports fine. P3 (both, accepted, recorded): a HELD well order leaves `order` null, so toolkit
+  (LAST in the chain) may run for a bot that is > 12 below a raised stand but within 12 of home's y (toolkit's own inTown
+  gate is home-relative); benign -- toolkit's room() refuses a draw into the full bag that made the dispose due, and prune /
+  recount / the room order were already exposed the same way on 0fe92258. P3: craft passes no `by`, so a toolkit table
+  near a well is logged by=-; no test drives toolkit's real craft beside a well.
