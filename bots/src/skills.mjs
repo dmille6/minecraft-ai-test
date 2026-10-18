@@ -51,7 +51,9 @@ import { inTown, depositTargetOk, walkFailure, backsOffTarget, travelTimeoutActi
 import { STORAGE_NEAR, startableJunk } from './composter.mjs'
 // Withdraw (withdrawpick.mjs): the town order and the model's verb share one transfer, verified by the server's bag.
 import { bestToolCopy, roomPlan, roomKeep, roomCandidates, allocate, pickTakes, hasUsablePick, stonePickDeficits, NEEDS, PICK_RE, transferVerdict, bagDelta, withdrawRow, HOLD_MS,
-  ingredientNeedsAbsent, noteIngredientMisses, townIngredientMissComplete } from './withdrawpick.mjs'
+  ingredientNeedsAbsent, noteIngredientMisses, townIngredientMissComplete, containerIngredientMiss } from './withdrawpick.mjs'
+// The toolkit (toolkit-01): the iron axe and shovel from town iron; the spent-stone keep is hygiene.mjs's
+import { TOOLKIT, KIT, KIT_IRON_NEED, TOWN_IRON_KEEP, kitDraw, kitTakes, kitNeeds, kitMeans, creditAfter, toolkitRow, toolkitArgs, toolsTag } from './toolkit.mjs'
 import { setWithdrawHold, withdrawHolds, releaseWithdrawHold, swapWithdrawHold } from './bankable.mjs'
 import { containerPickMiss, notePickMisses, townPickMissComplete, containerItemMiss, noteItemMisses, townItemMissComplete } from './chestfull.mjs'
 import { serverRecount, lockstepClicks, confirmCursor, clicksInFlight, invalidateClicks } from './craftsync.mjs'
@@ -6517,6 +6519,7 @@ async function wearOut(ctx, _args, signal) {
   const { bot } = ctx
   const plan = wearOutPlan(bot.inventory?.items?.() ?? [])
   if (!plan.tools.length) return { status: 'no_effect', detail: `no spent tool to wear out at ${plan.slots} of 36 slots` }
+  const tkBefore = toolsTag(bot.inventory?.items?.() ?? []), wearT0 = Date.now()
   const destroyed = []
   let stopped = null
   for (const tool of plan.tools) {
@@ -6526,6 +6529,14 @@ async function wearOut(ctx, _args, signal) {
   }
   await bot.waitForTicks?.(12)   // a block drop is collectable after 10 ticks: count the slots after it could land
   const after = bot.inventory?.items?.().length ?? plan.slots
+  // THE TOOLKIT'S OWN ROW (toolkit-01): when the plan listed spent stone copies only because of the toolkit rule, the bag's
+  // tools before and after, so the read re-derives K1/K2 (no usable pickaxe lost) from the bag itself, not this claim.
+  if (plan.toolkit > 0) {
+    const fields = { phase: 'wear', outcome: destroyed.length ? 'done' : 'none', listed: plan.toolkit, worn: destroyed.length,
+                     stop: stopped ?? '-', before: tkBefore, after: toolsTag(bot.inventory?.items?.() ?? []) }
+    logEvent({ kind: 'toolkit', status: destroyed.length ? 'success' : 'failed', snapshot: snapshot(bot), durationMs: Date.now() - wearT0,
+               detail: toolkitRow(fields), args: toolkitArgs(fields) })
+  }
   logEvent({ kind: 'wear_out', status: destroyed.length ? 'success' : 'failed', snapshot: snapshot(bot),
              detail: `${plan.slots} -> ${after} slots: ${destroyed.length} of ${plan.tools.length} spent tool(s) worn out` +
                      `${destroyed.length ? ` (${destroyed.join(', ')})` : ''}${stopped ? `; stopped: ${stopped}` : ''}`.slice(0, 300) })
@@ -10188,6 +10199,17 @@ export function townIngredientMiss (bot) {
   } catch { return false }
 }
 
+/** Has every town container recently held too little iron for a kit draw (toolkit.mjs; complete coverage)? For the order. */
+export function townKitIronMiss (bot) {
+  try {
+    const home = homeVec()
+    const isContainer = b => ['chest', 'barrel', 'trapped_chest'].includes(bot.registry.blocks[b.type]?.name)
+    const keys = townContainerKeys(bot, home, isContainer)
+    if (keys == null) return false   // more town containers than one scan returns: coverage cannot be complete
+    return townIngredientMissComplete(readTownMemory(townDir(), homeTownKey(), bot.worldId ?? null), keys, [KIT_IRON_NEED])
+  } catch { return false }
+}
+
 /**
  * withdraw_pick -- the town order (composter.mjs townOrder; chatOnly, housekeeping). The bag holds no usable pickaxe:
  *   1. containers in sight that have not shown "no usable pickaxe" in the last 15 min are looked in, up to three, for
@@ -10355,6 +10377,153 @@ async function withdrawPickRun (ctx, signal, tried, st, finish) {
   }
   if (fullChests) return finish({ status: 'failed', failClass: 'chest_no_room', detail: `no usable pickaxe in town, and the chest(s) holding ${st.need} are full while the bag needs room made first` }, 'chest_no_room')
   return finish({ status: 'failed', failClass: 'container_short', detail: `no usable pickaxe and none of ${st.need} in the ${tried.length} container(s) tried here` }, 'short')
+}
+
+// ------------------------------------------------------------- toolkit -----
+/**
+ * toolkit -- the town order (toolkit.mjs toolkitOrder; chatOnly, housekeeping). The bag has no usable iron axe and/or no
+ * usable iron shovel, the bot is in town:
+ *   1. THE DRAW: town containers in reach, nearest first, up to WITHDRAW_CONTAINERS opened (a container that recently held
+ *      too little iron is passed over: the town memory's `kit_iron` miss), ONE container giving all the ingots the kit
+ *      still needs (kitDraw: never the bag's own iron) while it keeps TOWN_IRON_KEEP (kitTakes), plus the sticks the bag
+ *      is short of when that container has them. withdraw's own visit does it: the room plan, the stock targets' draw
+ *      claim for sticks, the transfer verified against the SERVER's bag, the withdraw hold (deposit never banks it back).
+ *   2. THE CRAFTS, axe then shovel: the `craft` skill itself -- its remedy chain is the table's (walk to one in 32, place
+ *      a carried one, craft one from planks, planks from logs; retaken after) and the sticks' (crafted from planks).
+ *      A tool counts only as a NEW usable copy in the bag afterwards; the ingots it consumed are read from the bag.
+ *   3. ONE `_toolkit` row (phase=kit) per run, ALWAYS -- an abort or an exception writes outcome=aborted|error -- with the
+ *      bag's tools before and after (toolsTag) for the read's gates; bot.kitCredit keeps what was drawn and not used, on
+ *      every exit (an abort too), and the crafts spend only that credit plus this run's verified draw (never ladder iron)
+ *      (toolkit.mjs creditAfter), so a failed craft never draws twice.
+ * Never a trip; never the model's choice; never displaces a ready milestone step (the order is placed after them all).
+ */
+async function toolkit (ctx, args, signal) {
+  const { bot } = ctx
+  const items = () => bot.inventory?.items?.() ?? []
+  const ingots = () => items().reduce((n, it) => n + (it?.name === 'iron_ingot' ? (it.count ?? 0) : 0), 0)
+  const usableOf = name => items().filter(it => it?.name === name && remaining(it) > FLOOR).length
+  const t0 = Date.now()
+  const before = toolsTag(items())
+  // THE CREDIT LIVES ON THE BOT (Codex r1 P2-1): ingots a kit run drew and no verified craft consumed, written on EVERY exit --
+  // an abort included -- so a later order never draws them again (the loop's state could not see a thrown run).
+  const creditIn = Math.max(0, Math.min(Number(bot.kitCredit ?? args?.credit) || 0, ingots()))
+  const tried = []
+  const st = { needs: [], drew: 0, sticks: 0, used: 0, crafted: [], creditOut: creditIn, stop: '-', outcome: 'nothing' }
+  const keepCredit = () => { st.creditOut = creditAfter(creditIn, st.drew, st.used, ingots()); bot.kitCredit = st.creditOut }
+  // THE KIT'S OWN IRON (Codex r1 P2-2): what this run may spend is its credit plus what it verifiably drew, never the bag's
+  // other (ladder) ingots -- a draw that moved less than asked crafts only what it funded
+  const funded = () => creditIn + st.drew - st.used
+  const ingotsAtStart = ingots()
+  let written = false
+  const row = status => {
+    written = true
+    const fields = { phase: 'kit', ...st, creditIn, before, after: toolsTag(items()), tried }
+    logEvent({ kind: 'toolkit', status, snapshot: snapshot(bot), durationMs: Date.now() - t0, detail: toolkitRow(fields), args: toolkitArgs(fields) })
+  }
+  const out = (status, outcome, detail, failClass = null) => {
+    st.outcome = outcome
+    keepCredit()
+    row(status)
+    return { status, ...(failClass ? { failClass } : {}), detail, kitCrafted: st.crafted.length, kitCredit: st.creditOut }
+  }
+  try {
+    if (!TOOLKIT.on) return out('no_effect', 'off', 'the toolkit is switched off (TOOLKIT=off)')
+    const draw = kitDraw(items(), { credit: creditIn })
+    st.needs = draw.needs
+    if (!draw.needs.length) return out('no_effect', 'nothing', 'already carrying a usable iron axe and a usable iron shovel')
+    // ---- 1. the draw
+    if (draw.ingots > 0 || draw.sticks > 0) {
+      const { deadline, msLeft } = withdrawClock(ctx)
+      // the room plan keeps the goal's wants, the stone-pickaxe ingredients and the iron (withdrawpick roomKeep)
+      const keep = [...roomKeep(bot.currentWants ?? []), 'iron_ingot']
+      let mem = {}
+      try { mem = readTownMemory(townDir(), homeTownKey(), bot.worldId ?? null) } catch { mem = {} }
+      const tableNear = !!bot.findBlock?.({ matching: b => blockNameOf(bot, b) === 'crafting_table', maxDistance: 32 })
+      const decide = (inChest, bag, { chestEmpty }) => {
+        // the sticks this container cannot give must be makeable from the bag's wood (kitMeans): never iron for a dead end
+        const k = kitTakes(inChest, draw, { sticksMakeable: kitMeans(bag, { tableNear }).sticksMakeable })
+        // NO STICKS HERE AND NO WOOD TO MAKE THEM: not a miss of the town's iron -- a skip, said in the row
+        if (k.noSticks) return { skip: 'no_sticks' }
+        // IRON IS THE POINT: a container that cannot give the ingots gives nothing (sticks alone come with the iron)
+        if (!k.takes.length || (draw.ingots > 0 && !k.takes.some(t => t.name === 'iron_ingot'))) return null
+        return decideTakes(k.takes, inChest, bag, chestEmpty, keep)
+      }
+      const sweep = withdrawSweep(bot, { town: true })
+      let got = null
+      for (let looked = 0; looked < 64 && tried.length < WITHDRAW_CONTAINERS; looked++) {
+        check(signal)
+        const cb = sweep.any(STORAGE_NEAR)
+        if (!cb) break
+        sweep.mark(cb.position, false)
+        // a container that recently held too little iron (and has taken nothing since) is passed over
+        if (draw.ingots > 0 && containerIngredientMiss(mem, posKey(cb.position), KIT_IRON_NEED)) continue
+        const v = await withdrawVisit(ctx, cb, decide, signal, msLeft, deadline - 2_000)
+        if (v.double) sweep.mark(cb.position, true)
+        tried.push(`${posKey(cb.position)}:${v.result?.failClass ?? v.result?.status ?? v.skip ?? 'none'}`)
+        if (v.result?.status === 'success') { got = v.moved; break }
+        // A CONTAINER THIS BOT CANNOT REACH, or a stock claim the journal could not confirm, moved nothing: the next container
+        // (withdraw_pick's own rule; Claude r1 P3-1 -- one walled-in nearest chest ended every run)
+        // ...and since lidclear-01 a lid the visit could not clear (container_blocked: openForWithdraw clears the lids it may and
+        // refuses the rest) -- it moved nothing either
+        if (v.result && ['chest_unreachable', 'stock_unconfirmed', 'container_blocked'].includes(v.result.failClass)) continue
+        if (v.result) {
+          st.drew = v.moved?.took?.iron_ingot ?? 0; st.sticks = v.moved?.took?.stick ?? 0; st.stop = v.result.failClass ?? 'failed'
+          return out('failed', v.result.failClass === 'inventory_full' ? 'room' : 'draw_failed', v.result.detail, v.result.failClass ?? 'kit_draw')
+        }
+        if (!v.skip && draw.ingots > 0) {
+          updateTownMemory(townDir(), homeTownKey(), bot.worldId ?? null, e => noteIngredientMisses(e, sweep.halves(cb.position, v.double), [KIT_IRON_NEED]))
+        }
+      }
+      st.drew = got?.took?.iron_ingot ?? 0
+      st.sticks = got?.took?.stick ?? 0
+      keepCredit()
+      if (draw.ingots > 0 && !got && tried.some(x => x.endsWith(':no_sticks'))) {
+        st.stop = `${tried.length} container(s) tried`
+        return out('failed', 'no_sticks', `no iron drawn: the town container(s) holding it have no sticks and the bag has no wood to make ${draw.sticks}; carry 1 log (it makes 8 sticks) or ${draw.sticks} sticks to town`, 'kit_no_sticks')
+      }
+      if (draw.ingots > 0 && !got) {
+        st.stop = `${tried.length} container(s) tried`
+        return out('failed', 'no_iron', `no town container in reach holds ${draw.ingots} iron ingot(s) with ${TOWN_IRON_KEEP} to spare (${tried.length} tried); the town's iron is passed over for a while`, 'kit_no_iron')
+      }
+    }
+    // ---- 2. the crafts, in KIT order
+    for (const name of draw.needs) {
+      check(signal)
+      if (!kitNeeds(items()).includes(name)) continue
+      if (funded() < KIT[name].ingots || ingots() < KIT[name].ingots) { st.stop = `short_of_drawn_iron_for_${name}`; break }
+      const had = usableOf(name), ing0 = ingots()
+      let r, err = null
+      // ctx.kitCraft: a TEST SEAM only (the unit suite's fake world cannot craft); production always runs `craft` itself
+      try { r = await (ctx.kitCraft ?? craft)(ctx, { item: name, count: 1 }, signal) } catch (e) { err = e; r = { status: 'failed', detail: String(e?.message ?? e) } }
+      // RECONCILED BEFORE ANY RETHROW (Codex r2 P2): `craft` can throw AFTER the tool landed (its table retake); the bag says
+      // whether this craft made a new usable copy and what iron it consumed, so the credit never keeps iron already spent
+      const made = usableOf(name) > had
+      if (made) {
+        st.crafted.push(name)
+        st.used += Math.max(0, ing0 - ingots())
+        keepCredit()
+      }
+      if (err && (err.aborted || signal?.aborted)) throw err
+      if (!made) { st.stop = `${name}:${String(r?.failClass ?? r?.status ?? '?')}:${String(r?.detail ?? '').slice(0, 60)}`; break }
+    }
+    if (st.crafted.length === draw.needs.length) return out('success', 'crafted', `made ${st.crafted.join(' and ')} from the town's iron (${st.drew} ingot(s) drawn, ${st.used} used)`)
+    if (st.crafted.length) return out('success', 'partial', `made ${st.crafted.join(' and ')}; stopped: ${st.stop}`)
+    return out('failed', st.drew > 0 ? 'craft_failed' : 'short', `no kit tool made (${st.stop}); ${st.drew} ingot(s) drawn stay in the bag for the next try`, 'kit_craft')
+  } catch (e) {
+    if (!written) {
+      st.outcome = e?.aborted || signal?.aborted ? 'aborted' : 'error'
+      st.stop = String(e?.message ?? e)
+      // AN ABORT INSIDE THE TRANSFER carries what moved (transferIn's withdrawState): credited, clamped to the bag's ingots
+      // ...and an abort between a partial pickup's clicks can leave a cursor-load the settle put in the BAG with no `took`
+      // (fakeworld: 15 of 30 after one click): the bag's own iron delta since the start, whichever is larger
+      const took = e?.withdrawState?.took ?? {}
+      st.drew = Math.max(st.drew, took.iron_ingot ?? 0, ingots() + st.used - ingotsAtStart)
+      if (!st.sticks && took.stick) st.sticks = took.stick
+      keepCredit()
+      row(st.outcome === 'aborted' ? 'aborted' : 'failed')
+    }
+    throw e
+  }
 }
 
 // --------------------------------------------------------------- smelt -----
@@ -13235,6 +13404,7 @@ export const SKILL_CONTRACTS = {
   // THE FURNACE DRAIN: what an idle furnace held comes into the bag.
   furnace_drain: { expects: ['inventory_gain'], maxMs: 90_000 },
   count_town: { expects: ['count_effect'], maxMs: 90_000 },
+  toolkit: { expects: ['kit_effect'], maxMs: 240_000 },
   // THE JUNK WELL (well.mjs). A visit LOSES listed junk (well_effect: never any other loss) -- or, a visitor that only
   // closed an open well, changes one block (world_change). A build digs and places: the cap and floor read back.
   dispose_well: { expects: ['well_effect', 'world_change'], maxMs: 120_000 },
@@ -13368,6 +13538,9 @@ export function classifyOutcome(skillName, status, delta = {}, wanted = null) {
   if (expects.includes('count_effect') && (delta.counted ?? 0) > 0) because.push(`count_effect: ${delta.counted} town container(s) counted`)
   // THE TOWN SMELT JOB's own count of ingots the furnace made from the job's input (smeltTown; prior output excluded)
   if (expects.includes('smelt_effect') && (delta.smelted ?? 0) > 0) because.push(`smelt_effect: ${delta.smelted} raw copper smelted into ingots`)
+  // THE TOOLKIT MADE A TOOL: its own verified count (a new usable iron axe/shovel copy in the bag after the craft). An abort or
+  // a draw with no craft has none, so drawn ingots alone never read as "it worked".
+  if (expects.includes('kit_effect') && (delta.kitCrafted ?? 0) > 0) because.push(`kit_effect: ${delta.kitCrafted} kit tool(s) crafted`)
   if (expects.includes('position') && (delta.distance ?? 0) >= 2) {
     because.push(`position: moved ${Math.round(delta.distance)} blocks`)
   }
@@ -14333,6 +14506,7 @@ export const SKILLS = {
   count_town: { run: countTown, usage: 'count_town', args: [], chatOnly: true },
   smelt_town: { run: smeltTown, usage: 'smelt_town', args: [], chatOnly: true },
   furnace_drain: { run: furnaceDrain, usage: 'furnace_drain', args: [], chatOnly: true },
+  toolkit: { run: toolkit, usage: 'toolkit', args: [], chatOnly: true },
   // THE JUNK WELL'S THREE TOWN ORDERS (well.mjs wellOrder), never the model's choice.
   dispose_well: { run: disposeWell, usage: 'dispose_well', args: [], chatOnly: true },
   build_well:   { run: buildWell,   usage: 'build_well',   args: [], chatOnly: true },
