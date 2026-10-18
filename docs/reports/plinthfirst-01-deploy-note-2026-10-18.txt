@@ -1,0 +1,102 @@
+plinthfirst-01 -- DEPLOY NOTE (direct fleet rollout after townsearch-02 decides; no registration, no queue entry) 10-18
+
+DEPLOY THE SHA THAT MATCHES THE FLEET
+  townsearch-02 KEPT  -> fleet 6bea246c -> branch plinthfirst-on-6bea246, CODE sha adbec4f4 (full: git rev-parse adbec4f4)
+  townsearch-02 not   -> fleet a9cff42c -> branch plinthfirst-on-a9cff42, CODE sha 9b18cb7a
+  Same three commits on both bases: 723bea5c 6bda96c1 9b18cb7a, cherry-picked as 149a0b50 c6ad2cc1 adbec4f4. No conflicts.
+  The sorted +/- lines of the two diffs are byte-identical (1,226 lines).
+ROLLBACK
+- Redeploy the base sha.
+- Or keep the build and set PLINTH_FIRST=0 in the bots' env. That turns the policy off; plinth-02.1 is untouched either way.
+- Left behind and ignored by the base:
+  - plan records' plannedFor / plannedEvidence / minK fields;
+  - 'none' records' minK;
+  - no-site records' plinth_first tally.
+
+WHAT IT CHANGES -- the plinth-first POLICY only (OWNER 10-16 ~12:05Z: every NEW junk well is a raised one)
+Plinth-02.1's safety half is already in both bases and is not touched:
+- isolated guard;
+- evidence-gated replan;
+- build_plinth |dy| <= 12;
+- none freshness;
+- carried pit;
+- cap envelope;
+- pit cover beside a sealed well.
+
+1. build_well's site resolution:
+   - the natural search runs READ-ONLY; its answer is the no_site row's shadow=<x,y,z>|none|unknown;
+   - an unread cell still defers;
+   - a recorded natural site nothing was dug at is refused;
+   - a natural pit already dug is FINISHED, never orphaned;
+   - a cap the town replanned away from is refused.
+   The decline returns failClass well_no_site_policy: no self-backoff. The town's no-site record holds the order until the
+   hand-off lifts it.
+2. A shared town with NO usable well plans a plinth directly (plinthWant why=plinth_first). Withheld while:
+   - a started natural pit is recorded, or
+   - any chunk around home is unloaded.
+3. New plans are RAISED, k >= 2, so all 8 sealing walls are placed. Every well retired in the 10 days to 10-17 died at one of
+   those walls (wall_is_air x3, wall_is_sand x1).
+   - A plan that places nothing is never admitted.
+   - The floor drops to 0 only after a k >= 2 'none' and the natural search's own exhaustion.
+   - A planner 'none' gives the town 24 h of natural search, then plinth-first tries again.
+4. EXISTING WELLS STAY. A sealed natural or raised well is used and nothing is torn down. A retired one is replaced by a
+   raised one. Natural fallback starts are logged pf=0.
+
+DEPTH vs wellcare-01: no duplication, and plinth-first adds no depth logic.
+- wellcare-01 holds dispose_well / build_well / close_well when the bot is too far below the well's stand.
+- plinth-02.1 holds build_plinth beyond |dy| 12 of home.
+Those are different orders.
+
+EXPECTED ON THE FLEET (honest)
+- Every shared town already has a well since the plinth-02 rollout (board-a/b/d and placebo-c on plinths). So the policy acts
+  only when a well breaks: about 4 natural re-sites in the 12 days to 10-17.
+- Expected exposure in the first day: ~0.
+- The tripwire reports NO_SITE shadow cells (policy exposure) and PLANNED by trigger.
+
+TRIPWIRE (read only; run every 30-60 min with plinth2trip.py, which keeps judging P1-P5 / C1-C9)
+  scp the repo's scripts/host/plinthfirsttrip.py to ~/mcai-analysis/, then:
+  cd ~/mcai-analysis && nice -n 19 python3 plinthfirsttrip.py --since <rollout ISO, e.g. 2026-10-18T19:30:00Z> --version <9b18cb7a|adbec4f4>
+  cd ~/mcai-analysis && TRIP_SINCE=<rollout ISO> nice -n 19 python3 plinth2trip.py
+- Last line:
+  - TRIPWIRE OK;
+  - TRIPWIRE BLIND: no selected rows or no _plinthfirst_mode row of the version. Not a rollback, not OK.
+  - TRIPWIRE BREACH <line> <town> <detail>.
+- Breach lines (any one -> roll back):
+  - T1: a fresh natural dig with pf=1 at a non-plinth cap;
+  - T2: a complete_lost replan with no_evidence;
+  - T3: a plan by a shared=0 bot;
+  - T4: a second raised cap planned in a shared town without a replacing trigger.
+- Dry runs on the live host (10-17 15:00Z onward): selected rows were seen (the positive control), and the verdict was BLIND
+  (no licence rows yet), which is correct.
+
+EVIDENCE
+- npm test: a9cff42c+3 266/266, 6bea246c+3 267/267 (the final code, each run separately).
+- eslint no-undef: only the pre-existing reflex.mjs:2384.
+- plinthfirst.test: 26 tests, 7 of them mutants.
+- well.test: plinth-02.1's section plus the policy section, 14 chain tests incl. the no-backoff decline and mutants.
+- Every mutant asserts its anchor is present and unique.
+- PAPER (sandbox2, Paper 1.21.8, the real bot at 9b18cb7a; the lock taken only for each run and released after each; the second run took 827 s). Intact-ground arena; the
+  natural cell is computed offline. Every verdict is an RCON read.
+  - pfnew: no well, no record.
+    - The plan: why=trigger_plinth_first, k=2, 32/32 placed, all 16 wall cells cobblestone.
+    - build_well declined shadow=2393,119,2399. The natural cell is still grass/dirt; 0 fresh natural digs.
+    - The well was built on the plinth cap 2393,121,2399 (top and floor trapdoors read back).
+  - pfretire: a natural well at the natural cell with a wall dug.
+    - well_retired why=wall_is_air.
+    - A k=2 plinth at 2393,121,2394, 32/32 placed, its well built.
+    - The OLD well left standing (both trapdoors read back; no teardown); 0 fresh natural digs.
+  - pfkeep: a sealed natural well.
+    - A disposal of 576 items, items in the shaft.
+    - 0 plinth rows, no plinth record, 0 cobblestone near home.
+  - The first run, on 723bea5c, found the 2 h self-backoff bug: the plinth was finished but its well uncapped for 20 min.
+    Fixed in 9b18cb7a; all three scenes pass after the fix.
+- REVIEWS of the rebase (both engines):
+  - Codex: r1 CHANGE (tripwire T4 / BLIND / --version) -> r2 APPROVE -> r3 APPROVE (the Paper fix).
+  - Claude: r1 APPROVE (P3s: the ladder on the policy's own no-site record; T4) -> r2 APPROVE -> r3 APPROVE.
+  - Open P3 (not blocking): Claude suggests keeping well_no_site when the town hold could not be written (rec=fail). Codex
+    judged the current degraded mode acceptable. Unchanged.
+- Known, accepted:
+  - Under the policy, a planning visit (build_plinth) still precedes a ready rung in a no-well town, as plinth-02 always did
+    for a no-site town. It is bounded to once per bot per 5 min. The smeltjob/toolkit suites run with PLINTH_FIRST=0 for this.
+  - During the staggered restarts an old-build bot could still start a natural well where a new-build bot plans a plinth.
+    Exposure is ~0 (no no-well shared town), but finish the restart wave promptly.
