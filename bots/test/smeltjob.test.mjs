@@ -8,6 +8,10 @@ process.env.LOG_DIR = process.env.LOG_DIR || '/tmp/mcbot-test-logs-smeltjob'
 process.env.BOT_NAME = process.env.BOT_NAME || 'SmeltBot'
 process.env.MEMORY_SCOPE = 'shared'
 process.env.MEMORY_POOL = 'hive-test'
+// plinthfirst-01: plinth-first is OFF here. This suite's fake town has no junk well by construction, and under the policy a
+// shared town with no usable well plans a raised one at once (plinth.mjs plinthWant 'plinth_first'; build_plinth precedes the
+// rung, as it always has for a no-site town). The well's own suites drive that with it on.
+process.env.PLINTH_FIRST = '0'
 process.env.LOG_LEVEL = 'error'
 process.env.BOT_ROLE = 'gatherer'
 process.env.LLM_DECISION_COOLDOWN_MS = '50'

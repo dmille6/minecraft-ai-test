@@ -245,6 +245,7 @@ await t('plinthFirstMinK, THE RAISE LADDER (Claude r4 P2-1): the policy plans fr
   assert.deepEqual(P.plinthFirstMinK({ policy: false }), { minK: 0, bare: true })
   assert.deepEqual(P.plinthFirstMinK({ policy: true }), { minK: 2, bare: false })
   assert.deepEqual(P.plinthFirstMinK({ policy: true, recState: 'none', rec: none, noSite: { at: NOW } }), { minK: 0, bare: false })
+  assert.deepEqual(P.plinthFirstMinK({ policy: true, recState: 'none', rec: none, noSite: { at: NOW, tally: 'cols:0,plinth_first:1' } }), { minK: 2, bare: false }, 'the policy\'s own no-site record is no exhaustion of the natural search (Claude rebase P3-1)')
   assert.deepEqual(P.plinthFirstMinK({ policy: true, recState: 'none', rec: none, noSite: { at: none.at - 1 } }), { minK: 2, bare: false }, 'the no-site record that led to the failed plan is not the natural search exhausting since')
   assert.deepEqual(P.plinthFirstMinK({ policy: true, recState: 'none', rec: { ...none, minK: 0 }, noSite: { at: NOW } }), { minK: 2, bare: false }, 'a none from a floor-0 plan starts the ladder again at 2')
   assert.deepEqual(P.plinthFirstMinK({ policy: true, recState: 'complete', rec: none, noSite: { at: NOW } }), { minK: 2, bare: false })

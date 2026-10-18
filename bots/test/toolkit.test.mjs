@@ -15,6 +15,10 @@ process.env.HOME_X = '0'; process.env.HOME_Y = '64'; process.env.HOME_Z = '0'
 process.env.LLM_DECISION_COOLDOWN_MS = '50'
 process.env.LOG_LEVEL = 'error'
 process.env.BOT_ROLE = 'gatherer'
+// plinthfirst-01: plinth-first is OFF here. This suite's fake town has no junk well by construction, and under the policy a
+// shared town with no usable well plans a raised one at once (plinth.mjs plinthWant 'plinth_first'; build_plinth precedes the
+// rung, as it always has for a no-site town). The well's own suites drive that with it on.
+process.env.PLINTH_FIRST = '0'
 process.env.SKILL_TIMEOUT_MS = '180000'   // withdraw's clock is the skill timeout; the suite's 300 ms leaves no walk
 const freshPool = () => { const d = fs.mkdtempSync(path.join(os.tmpdir(), 'mcbot-toolkit-pool-')); process.env.POOL_STATE_DIR = d; return d }
 freshPool()
