@@ -1181,7 +1181,10 @@ export const PLINTH_FIRST_MIN_RAISE = 2
  */
 export function plinthFirstMinK ({ policy = false, recState = null, rec = null, noSite = null } = {}) {
   if (!policy) return { minK: 0, bare: true }
-  const ladder = recState === 'none' && Number(rec?.minK) >= PLINTH_FIRST_MIN_RAISE && Number(noSite?.at) > Number(rec?.at)
+  // ...the NATURAL search's own exhaustion: a no-site record plinth-first wrote (tally plinth_first) is the policy declining the
+  // search, not the ground refusing it (Claude rebase P3-1)
+  const ladder = recState === 'none' && Number(rec?.minK) >= PLINTH_FIRST_MIN_RAISE && Number(noSite?.at) > Number(rec?.at) &&
+                !/plinth_first/.test(String(noSite?.tally ?? ''))
   return { minK: ladder ? 0 : PLINTH_FIRST_MIN_RAISE, bare: false }
 }
 export const PLINTH_FIRST_WHY = 'natural junk well sites are declined: every new junk well is a raised one (plinth-first)'
