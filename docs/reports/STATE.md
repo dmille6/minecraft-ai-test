@@ -1,12 +1,14 @@
 # STATE — the operator's state file (a fresh session starts from THIS, not from the handoff history)
-_updated 2026-10-16 14:50Z by the daily operator session (10-16, the 14:40Z wake-up). **FLEET `623e92b9`** (cobblecap-1000, the town
-cobble cap 256 -> 1000: OWNER KEEP 11:44:23Z "promote now, setting-change fast path", promoted 11:54:04Z, merged to main c4d824b6 by the
-coordinator). **LIVE CANARY plinth-01 @ `f8daab3a`** (the raised, self-building junk well; branch plinth-on-623e92b) on board-c,hive-d,
-deployed 13:40:09Z; first read +180 at 16:40Z, +360 at 19:40Z; extension reads +540 22:40Z, +720 01:40Z, +1080 07:40Z, +1560 15:40Z
-(10-17), deadline 1680 = 10-17 17:40Z; final on zero exposure INCONCLUSIVE. NEW OWNER RULE 10-16: a constant-only change gets a FAST
-PATH (light review, npm test, default death/error gate, a +180 read; revert = put the number back). OWNER 10-16 ~12:05Z: every new well
-becomes a plinth after plinth-01 is kept; lid-blocked chests get a fix if both engines agree (lidclear-01 agent running, records on main
-d8374405); cobbleoverflow-01 is a NORMAL fix, parked until towns fill. Every queued entry needs a 623e92b9 variant._
+_updated 2026-10-18 13:25Z by the daily operator session (10-18). **FLEET `a9cff42c`** (wellcare-01: KEEP +360 12:38:56Z, promoted fleet-wide 12:48:37Z by the canary loop, merged to main 5ab7ad4e by the coordinator 13:13Z; = 932befcc toolkit-02 + wellcare-01). **LIVE CANARY townsearch-02 @ `6bea246c`** (withdraw searches ALL town chests: journal, unknown, nearest; branch ts-on-a9cff42) on board-a,board-d (10 bots), deployed 13:00:37Z; first read **+360 at 19:00Z**, +720 01:00Z 10-19; extension reads +1080 07:00Z, +1440 13:00Z (10-19), deadline 1680 = 10-19 17:00Z; final on zero exposure INCONCLUSIVE.
+
+Since the last daily rewrite (10-16 14:50Z) the host loop, the scheduler and the coordinator shipped: plinth-01 INCONCLUSIVE early
+(10-16 17:15Z, unexposable: build_well could not place its crafting table on the plinth), lidclear-01 KEEP+promoted (0152baeb, 10-16
+23:14Z), townsearch-01 INCONCLUSIVE early (10-17 12:05Z, 1 of 6 exposure rows), kitshrink-01 INCONCLUSIVE early (10-17 12:19Z, slot
+freed for the owner's direct rollout), **plinth-02 ROLLED OUT DIRECTLY by the owner, no canary** (0fe92258, 10-17 12:33Z; hotfix
+plinth-02.1 830dc36b 20:04Z; read 10-18 00:30Z KEEP: 16/16 worlds using a well, disposes 80 -> 204, 0 of 26 deaths near a cap),
+smeltjob-01 KEEP+promoted (857c853c, 10-17 19:53Z), **logcap-01 DIRECT** (469cba5a 22:46Z, owner "Yup": town wood target 64 -> 4000
+after the 64 target pruned 14,585 oak logs down the new wells), toolkit-02 KEEP+promoted (932befcc, 10-18 06:27Z). No daily session
+ran on 10-17 (no status report; the coordinator wrote the dated entries below)._
 
 > **THIS FILE ALSO EXISTS ON `main`.** `bots/test/nothing-important-is-orphaned.test.mjs` asserts it stays there.
 > If the two copies disagree, take the later `_updated` stamp. Long history: `git show 40a09da:docs/reports/STATE.md`
@@ -15,65 +17,112 @@ d8374405); cobbleoverflow-01 is a NORMAL fix, parked until towns fill. Every que
 > entries are the newest.** Read BOTH: `git show origin/main:docs/reports/STATE.md | grep -n '^## '`.
 
 
-## CURRENT (rewritten 10-16 14:50Z) — read this block, then the dated entries below it
+## CURRENT (rewritten 2026-10-18 13:25Z) — read this block, then the dated entries below it
 
-**FLEET** `623e92b9` (= 75cfb447 townzone-01 + cobblecap-1000). Live 14:40Z (scheduler S5): `623e92b9+381358` on 70 bots,
-`f8daab3a+eea3cd` on the 10 canary bots -- exactly the two expected builds. origin/main = d8374405 (lidclear-01 records) and contains
-623e92b9 (merge c4d824b6). The local checkout code-minecraft-ai is on main = origin/main. /opt/minecraft-ai is the deploy checkout.
+**FLEET** `a9cff42c` (= 932befcc toolkit-02 + wellcare-01). Live 13:20Z (scheduler S5): `a9cff42c+590f76` on 70 bots, `6bea246c+87d026` on the 10 canary bots -- exactly the two expected builds; 10 drop-ins (board-a, board-d). origin/main = 5ab7ad4e (the coordinator's wellcare-01 merge, 13:13Z) + bd6ddf5e-equivalent STATE (this session) and contains a9cff42c; no main-pre-20261018 on origin (the coordinator did not push one; a local branch of that name = 872f128e exists in code-minecraft-ai). The local checkout code-minecraft-ai is on main = origin/main
+(fast-forwarded 30 commits 11:20Z). /opt/minecraft-ai is the deploy checkout.
 
-**cobblecap-1000 is CLOSED: KEEP by the OWNER at +360** (11:44:23Z, journal `owner-decision` + `recorded KEEP`; promoted 11:54:04Z,
-fleet-deploy verified). The read record stands: +360 NOT_YET on exposure only (1 bank above 256 of the 3 registered; placebo-a 256 -> 268
-cap=1000), deaths 0/60 bh vs control 8/300, D1/D2 0, refusals at a counted cap canary 110 -> 0 vs control 716 -> 784. The scheduler
-flagged the loop "ended at phase recorded without closing" at 11:45Z; the coordinator cleared it and plinth-01 launched 13:35Z.
-REVERT IS ONE NUMBER: TOWN_COBBLE_CAP in bots/src/stocktarget.mjs. The daily session's +540 decision rule (11:50Z entry) is MOOT.
+**wellcare-01 is CLOSED: KEEP +360 (12:38:56Z) and PROMOTED (12:48:37Z, fleet-deploy VERIFIED "fleet is on a9cff42c").** The read:
+deaths 1/120 bh vs control 4/240 (0.008 vs 0.017/bh); own lines W1 (mine dig in a known shell/plinth stair) 0, W2 (station on a well
+cell) 0, W3 (dispose/close order started > 13 below its stand) 0; licence 32 `_wellcare_mode` rows, leak 0; `_well_deep` holds 49;
+exposure_ready 1 (control deep orders 90). PRIMARY (reported): well_unreachable /bot-h canary 0.292 -> 0.025 vs control 0.203 -> 0.239
+(DiD -0.303; counts 35 -> 3 vs 73 -> 86); dispose ok /bot-h DiD -0.069 (17 vs 22; control 43 vs 33). wellread C1-C9 all 0; immobiledid
+guards within (gather/bh -2%, blocks moved -3%); NAMED: recovery_exhausted 6 distinct canary bots still stuck 30 min after (v10 guard 6
+lists it; verdict.py did not breach on it). Merge conflict: sandbox/well/minewell-e2e.cjs add/add -- the coordinator's merge took the BRANCH copy, which
+drops main's trapdoor `column` check (a Paper scene check from minewell-01's read record, 67e12012; not fleet code) -- FOLLOW-UP:
+re-add it on main. This session's duplicate merge (ac7fb793, kept main's copy, npm 267/267) was discarded unpushed. REVERT = redeploy 932befcc.
 
-**LIVE CANARY plinth-01 @ `f8daab3a`** (registration ~/mcai-analysis/plinth-01.f8daab3a.json; reads plinthread + wellread + immobiledid;
-read_minutes [180, 360]; extension until_exposure, extra reads [540, 720, 1080, 1560], deadline 1680; licence kind `_plinth`
-(baseline silent, checked 13:37Z); change_rows plinth, plinth_step; draw_exposure 3 h `_well_refused reason=no_site` >= 2 -> drawn
-board-c,hive-d 13:40:08Z (halves 5080 / 3090); preflight 364,108 rows positive control; gate digest b7ce36d7 OK). Deployed
-13:40:09.96Z; loop pid 2428360, lock 2428361. EXPOSURE = a canary plinth handed off AND a `_well_built` at its cap in a window >= 180
-min (funding: a town without stone in its bags takes the chests' cobble). PRIMARY (reported, not gated): dispose_well successes per
-bot-h DiD vs control towns without a well. Death gate: two canary deaths and > 1.25x control. No read yet; the loop reads +180 at 16:40Z.
+**LIVE CANARY townsearch-02 @ `6bea246c`** (registration ~/mcai-analysis/townsearch-02.6bea246c.json; read townsearchread (+ the gate's
+immobiledid); read_minutes [360, 720]; extension until_exposure, extra reads [1080, 1440], deadline 1680, final on zero exposure
+INCONCLUSIVE; licence kind `_townsearch_mode` min 1 (baseline silent, 12:58Z); **change_rows [] -- the death linkage runs on the RATE
+alone, as it did for townsearch-01 ("LINKAGE UNAVAILABLE"); a townsearch-03 should declare its rows**; draw_exposure 24 h
+`withdraw_pick` "no usable pickaxe" >= 3 -> drawn board-a (half 5080), board-d (half 3090) 13:00:36Z; preflight 384,230 rows positive
+control; gate digest b7ce36d7 OK). Deployed 13:00:37.24Z; loop pid 3174757. EXPOSURE = >= 6 canary withdraw_pick ORDER rows carrying
+town= in the read window (townsearch-01 got 1 in 6 h on placebo-d,board-c -> closed early; this one reads first at +360 and extends to
++1440). Death gate two + 1.25x. No read yet; **the loop reads +360 at 19:00Z.** On KEEP it promotes itself; bamboo-02 (variants 0261deb,
+6bea246 = stacked on townsearch-02's tips) is next and launches on the scheduler.
 
-**QUEUE (host, 14:40Z):** plinth-01 (RUNNING) -> toolkit-01 -> bamboo-02 -> treefarm-02 -> smeltjob-01 -> townfloor-01 (hold satisfied,
-needs a tip merge) -> minewell-02 -> monument-01 (held) -> stonewithdraw-01 -> shaft-01 (held). EVERY entry needs a 623e92b9 variant
-(the plinth agent built plinth's; the others have 8cd0bc6/75cfb44 only) -- the scheduler blocks H2 "no variant for the fleet base"
-until one exists. PARKED: cobbleoverflow-01 (normal fix; trigger = BANK CLOSED tripwire or >= 3 full-town refusals / 12 h).
-IN DESIGN: lidclear-01 (lid-blocked town containers: 18 of 277 containers lid-blocked in the offline census, cobblestone on all 18;
-7 of 16 pools had count_town lid_blocked fails in 24 h, placebo-b 336/341 rows; records docs/reports/lidclear-2026-10-16.md,
-read scripts/host/lidclearread.py; code on lidclear-on-623e92b, NOT queued). Follow-up after plinth-01 KEEP: every new well a plinth.
+**toolkit-02 KEEP carried an operator-review flag (v14c):** placebo-b-Comet drowned 05:24:59Z with a `_livelock_escape` row inside 60 s
+("rung-linked death on a non-ladder change"). REVIEWED 10-18 11:30Z: the bot stuck at 351,60,-430 in water; the livelock relocation dug
+(dy -5.8) into a sealed water cell; `_air_pocket_refused` (water beside the roof cell) x2, `_drowning_ceiling_no_air` x2, died idle.
+toolkit-02 changes the carried kit (iron axe/shovel crafts, spent stone copies) and touches none of the stuck/drowning/relocation
+path; the toolkitread +360 showed 0 defects, 10 kit crafts. NOT linked; the KEEP stands. The sealed-water entombment chain is the
+fleet's standing drowning mechanism (owner 09-30: tripwires only, no new hunts).
 
-**LOOP STATE** 14:50Z: OPEN -- plinth-01 deployed 13:40Z, unread (first read 16:40Z). `check-open-loop.py` says so (S6). cobblecap-1000
-KEEP recorded 11:44Z and promoted; wellsite-04 and townzone-01 closed and merged. Nothing else open. While plinth-01 is unread, no new
-analysis starts.
+**QUEUE (host, 13:20Z):** wellcare-01 (CLOSED KEEP, promoted) -> townsearch-02 (RUNNING, +360 at 19:00Z) -> bamboo-02 (variants on townsearch-02's tips 0261deb, 6bea246) -> treefarm-02 -> townfloor-01 (held: needs a tip merge) ->
+monument-01 (held behind minewell, now cancelled: needs a re-hold decision) -> stonewithdraw-01 -> shaft-01 (held). CANCELLED:
+plinth-02 (rolled out directly), toolkit-01 (superseded by toolkit-02), minewell-02 (superseded by wellcare-01). The chain agent stacked
+bamboo-02 on townsearch-02's tips (0261deb, 6bea246); **if townsearch-02 is NOT kept, bamboo-02 has no a9cff42c variant and the
+scheduler blocks H2** -- a re-stack onto a9cff42c is the first job then (treefarm-02 and later have none either). PENDING from the coordinator (10-17/18): plinth-first (every new
+well a plinth; rebuilt on 830dc36b+, Paper pending), kitshrink-02 to re-queue (kitshrink-01 was closed unexposed for the direct rollout),
+stocktargetread.py literal 64 wood targets, wellcare's own follow-ups. PARKED: cobbleoverflow-01 (normal fix; needs a variant on the
+fleet tip; trigger = BANK CLOSED tripwire or >= 3 full-town refusals / 12 h). WATCH (logcap-01): wood now banks instead of pruning ->
+chest fill / new-chest budget (4/day, 12 standing).
 
-**RULES IN FORCE:** gate bundle b7ce36d7 (v35.1) matched at the 13:37Z launch; ~/digest/RULE.md md5 746c65e4 = repo (11:10Z). wellread
-judges the canary arm only (b0cd8a4b). Death gate two + 1.25x. Owner 10-15 early close for unexposable canaries. NEW 10-16: the
-setting-change fast path (constant-only changes). Owner 10-16: the well takes surplus cobble when the bank is closed (cobbleoverflow-01).
+**LOOP STATE** 2026-10-18 13:25Z: OPEN -- townsearch-02 deployed 13:00Z, unread (first read 19:00Z). `check-open-loop.py` says so. wellcare-01 KEEP recorded 12:38Z, promoted 12:48Z, merged 13:14Z -- closed. toolkit-02 closed (06:27Z). Nothing else open. While townsearch-02 is unread, no new analysis starts.
+
+**FLEET HEALTH (ES, 11:05Z):** 24 h 1,920 bot-h, deaths 48 (0.025/bh; fire 18, drowning 16, fall 8, other 5, suffocation 1; isolated-a 10,
+isolated-d 7, placebo-a 6, hive-d 5) -- UP from 32 (0.017/bh) on 10-16; fire 10 -> 18. 7 d 13,440 bot-h, deaths 259 (0.0193/bh). Gather
+6.58 ok/bot-h (24 h), craft 0.36, town_deposit 122 ok of 314. Bags: 24 of 80 bots at >= 34 slots, 8 at 36; placebo-b median 36 (5/5
+full), hive-a 35. Iron funnel 24 h (00:07Z): raw iron 321 (0.22/bot-h; 10-16 202), ingots 343, iron pickaxes crafted 36, gone 81,
+iron-pickaxe share 58.3%. The fire-death rise is NAMED, not analysed (loop open); it coincides with smeltjob-01 (furnaces) and
+plinth-02 (deeper well orders) -- the plinth-02 read found 0 of 26 deaths within 12 blocks of a cap.
+
+**RULES IN FORCE:** gate bundle b7ce36d7 (v35.1) matched at the 06:32Z launch; ~/digest/RULE.md md5 746c65e4 = repo scripts/host/RULE.md
+(11:15Z). Death gate two + 1.25x. Owner 10-15 early close for unexposable canaries. Owner 10-16 setting-change fast path (constant-only).
+Owner 10-17: direct fleet rollouts when the owner says so (plinth-02, logcap-01) -- recorded as `owner-direct` in the journal, read as a
+before/after plus tripwires, rollback = redeploy the previous sha. wellread judges the canary arm only.
 
 **RE-ARM ON A FRESH SESSION**
   1. `date -u`; read this block AND origin/main's entries; on 10.0.0.31: `cat /srv/mcbots/trial-manifest.json`;
      `tail ~/canary-journal.jsonl`; `tail ~/digest/page.jsonl`; `python3 ~/canary-sched.py status | tail -14`;
      `pgrep -af canary-loop`; `sudo python3 /opt/minecraft-ai/scripts/check-open-loop.py`.
-  2. `python3 ~/verdict.py plinth-01 0 --poll` (2-5 min). Read texts `~/digest/reads/plinth-01-<read>-<min>.txt`; loop stdout
-     `~/canary-loop-plinth-01.out`. Next loop reads: +180 16:40Z, +360 19:40Z, +540 22:40Z, +720 01:40Z 10-17.
+  2. `python3 ~/verdict.py <live run> 0 --poll` (2-5 min). Read texts `~/digest/reads/<run>-<read>-<min>.txt`; loop stdout
+     `~/canary-loop-<run>.out`. townsearch-02: +360 19:00Z, +720 01:00Z 10-19, then +1080 07:00Z, +1440 13:00Z, deadline 17:00Z 10-19. If it was decided overnight, check the merge (coordinator or the loop page says "operator: fast-forward main") and bamboo-02's launch.
   3. Live builds: the scheduler's S5 line; or `Events.load(paths="/var/log/mcai/<pool>-*/skill-*.jsonl*", since_minutes=N)` per pool
-     (normalised rows: keys t, name, detail, fail_class, status, bot, raw; on-disk timestamp key `@timestamp`).
+     (`paths` is ONE glob string, not a list; normalised rows: keys t, name, detail, fail_class, status, bot, raw; on-disk `@timestamp`).
   4. If a run was decided: confirm the ledger row + version count; PushNotification on promote/revert; merge the promoted sha into main
-     `--no-ff` (keep main-pre-<date>), full `node scripts/run-tests.mjs`, push; re-fetch first (the coordinator pushes all day).
+     `--no-ff` (keep main-pre-<date>), full `node scripts/run-tests.mjs`, push; re-fetch first (the coordinator merges within minutes
+     of a promotion -- toolkit-02 was merged 06:28Z, one minute after the 06:27Z promote -- so check origin/main before merging).
   5. A single-notification waiter beats a Monitor: background `ssh ... 'for i in $(seq 1 70); do tail -40 ~/canary-journal.jsonl |
-     grep -q "\"run\":\"<run>\",\"phase\":\"read-<min>\"" && exit 0; sleep 60; done'`.
+     grep -q "\"run\":\"<run>\",\"phase\":\"read-<min>\"" && exit 0; sleep 60; done'`. The Bash tool caps a foreground or background
+     command at 10 min; a longer wait needs re-arming or a Monitor.
   6. The local analyst is STALE (10-06). Wide analysis: `python3 ~/estel/scripts/host/fleetstatus.py`; iron: `tail ~/digest/ironfunnel.log`.
   7. Codex review: `codex exec --sandbox read-only - < promptfile` (prompt on stdin, NO `</dev/null`); macOS has no `timeout`.
   8. Mobile push does not reach the owner from the daily session (Remote Control inactive); the desktop notice is all it sends.
-  9. An owner decision can land between loop reads (today 11:44Z, seven minutes after +360): re-read the journal before acting on a
-     rule written earlier in the day.
+  9. An owner decision can land between loop reads: re-read the journal before acting on a rule written earlier in the day. Owner-direct
+     rollouts (phase `owner-direct`) skip the canary entirely; their read is a before/after + tripwires, not a DiD.
 
 **CHECKOUTS** origin/main canonical. Local checkout code-minecraft-ai on main = origin/main. mcai-rl02 (recovery-ladder-03) carries the
-daily copy and status reports, unpushed. Coordinator session cwd .claude/worktrees/heuristic-nightingale-49eee9. Host checkout for ES
-tools ~/estel on 10.0.0.31.
+daily copy and status reports, unpushed (ahead 7 + today). Host checkout for ES tools ~/estel on 10.0.0.31.
 
 ---
+
+## 10-18 13:25Z — (daily operator session) WELLCARE-01 KEPT (+360, 12:38Z) and PROMOTED: FLEET a9cff42c (12:48Z); merged to main 5ab7ad4e by the coordinator (13:13Z); townsearch-02 LIVE on board-a,board-d (13:00Z)
+- **KEEP +360 at 12:38:56Z** by the canary loop (details in CURRENT): deaths 1 vs 4, W1-W3 0, licence 32/leak 0, unreachable-well failures
+  35 -> 3 on the canary arm vs 73 -> 86 on control. Promoted 12:48:37Z (`deploy-wellcare-01-promote.log`: VERIFIED fleet on a9cff42c);
+  manifest declared a9cff42c, canary cleared, 0 drop-ins at 12:49Z; open-loop check clear. Desktop notice sent (mobile push inactive).
+- **Merge to main:** the coordinator merged first (5ab7ad4e, 13:13Z, 25 min after the promote) while this session built the same merge
+  (ac7fb793, npm 267/267); the push was refused and the duplicate discarded. The two resolved the one add/add conflict differently:
+  the coordinator took the wellcare copy of sandbox/well/minewell-e2e.cjs, which drops main's trapdoor `column` check (Paper scene only;
+  follow-up to re-add). LESSON for item 4 of the re-arm list: the coordinator merges a promotion within ~1-25 min; wait for it or
+  check origin/main immediately before `git merge`, and never assume a `--ff-only` success means the merge is yours to make.
+- **townsearch-02 launched by the scheduler 12:56Z** into the empty slot (canary 6bea246c on base a9cff42c): preflight 384,230 rows,
+  licence ok, gate digest ok, drawn board-a,board-d 13:00:36Z, deployed 13:00:37Z; 70 + 10 builds live. First read 19:00Z.
+- **Session ends here (owner: do not run past the day).** No waiter is armed for 19:00Z: the host loop reads and acts; tomorrow's session
+  closes the loop first.
+
+
+## 10-18 11:25Z — (daily operator session) fleet 932befcc (toolkit-02 KEPT+promoted 06:27Z); wellcare-01 live since 06:34Z, +180 NOT_YET with exposure met, +360 at 12:34Z decides; no daily session ran 10-17
+- **Found at start:** the STATE header was two days old (10-16 14:50Z) while origin/main carried dated entries through 10-18 00:30Z. The
+  loop, scheduler and coordinator closed plinth-01 (INCONCLUSIVE), lidclear-01 (KEEP), townsearch-01 and kitshrink-01 (INCONCLUSIVE early),
+  smeltjob-01 (KEEP), toolkit-02 (KEEP); the owner rolled plinth-02 (+02.1) and logcap-01 out directly. Fleet verified 932befcc (60) +
+  a9cff42c (20) at 11:10Z; open-loop check = wellcare-01, correctly. RULE.md md5 746c65e4 both sides. Nothing to close yet.
+- **wellcare-01 +180 (09:40Z):** NOT_YET on the schedule only; exposure_ready 1, W1-W3 0, licence 24 rows, unreachable DiD -0.406,
+  guards within, deaths 0 vs 4. One canary death since (hive-d-Alpha 10:13Z, drowned idle at the surface, no change row) named above.
+- **toolkit-02 operator review (v14c flag) DONE:** the rung-linked death is the sealed-water entombment chain, not the kit. KEEP stands.
+- **Housekeeping:** local main fast-forwarded 29 -> 872f128e (30 commits). Status report docs/reports/status-2026-10-18-daily-operator.md.
+- **Waiting:** the +360 read (Monitor on the journal, re-armed every 30 min). This block is rewritten after it.
 
 ## 10-18 00:30Z — PLINTH-02 (direct rollout, + 02.1 hotfix) READ: KEEP recorded (operator; owner-direct, no canary) -- SHIPPED
 12 h before vs 12 h after the 12:25Z rollout (80 bots both; a fleet before/after, so world drift is not separated -- no DiD exists):
