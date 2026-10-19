@@ -37,7 +37,7 @@
 #        every run new candidates for ever)
 #     D4 smelt_churn: one canary bot with >= CHURN_N (13) smelt jobs inside CHURN_MIN (360) minutes that took copper and smelted
 #        none (search_more | search_stalled | no_fuel with withdrawn > 0) and no smelting job between: the design's bound is
-#        12 (3 trips of the 3-more cap, then the 6 h pause; six no_fuel pause it sooner)
+#        12 (SMELT_DRY_MAX dry jobs of any mix of reasons, then the 6 h pause)
 #   SMELT (the same change, reported): ingots smelted per bot-h DiD; no_fuel per job DiD (should FALL) WITH its pairing
 #              fuel_unfound = no_fuel | search_more | search_stalled per job; town_has_none per job; search_more (canary)
 #   SEARCH TIME  _kit_search seconds per canary bot-h (what the walks cost)
@@ -59,8 +59,8 @@ REP_MAX = 1                # a container is opened at most once per run
 EXPOSURE_RUNS = 6
 MORE_LOOP_N = 5
 MORE_LOOP_MIN = 45
-# D4: smeltjob.mjs bounds a churning job at SMELT_MORE_TRIPS (3) x (SMELT_MORE_MAX 3 + 1) = 12 copper-taking, non-smelting
-# jobs before its 6 h pause (Claude r3 P1/P2: the 45-min window could never see the capped loop)
+# D4: smeltjob.mjs SMELT_DRY_MAX bounds a churning job at 12 dry jobs (search_more | search_stalled | no_fuel, any mix) since
+# its last success before its 6 h pause (Claude r3 P1/P2, Codex r4 P2)
 CHURN_N = 13
 CHURN_MIN = 360
 NOT_ATTEMPT = ('nothing', 'off')
@@ -192,6 +192,7 @@ def judge(rows):
             out['no_fuel_' + sfx] = so.get('no_fuel', 0)
             out['town_has_none_' + sfx] = so.get('town_has_none', 0)
             out['search_more_' + sfx] = so.get('search_more', 0)
+            out['smelt_late_' + sfx] = so.get('smelt_late', 0)
             # the pairing (Claude r2 P2): no_fuel can fall because search_more / search_stalled replace it -- read this one
             out['fuel_unfound_' + sfx] = so.get('no_fuel', 0) + so.get('search_more', 0) + so.get('search_stalled', 0)
     post_c = [r for r in rows if r['per'] == 'post' and r['arm'] == 'canary']
@@ -228,7 +229,7 @@ def judge(rows):
     for r in sorted((r for r in post_c if r['name'] == '_smelt_town'), key=lambda r: r['t']):
         if num(kv(r['detail']), 'smelted', 0) > 0:
             sby[r['bot']].append(None)                     # a smelting job ends the run
-        elif smelt_stop(r) in ('search_more', 'search_stalled', 'no_fuel') and num(kv(r['detail']), 'withdrawn', 0) > 0:
+        elif smelt_stop(r) in ('search_more', 'search_stalled', 'no_fuel', 'smelt_late') and num(kv(r['detail']), 'withdrawn', 0) > 0:
             sby[r['bot']].append(r['t'])
     for b, seq in sby.items():
         run = []
@@ -391,10 +392,10 @@ if __name__ == '__main__':
     print('DEFECTS      D1 a container opened %d+ times in one run %d %s | D2 more than %d visits in one run %d %s'
           % (REP_MAX + 1, res['rep_same_container'], res['_lists']['reps'], VISIT_BUDGET, res['visits_over_budget'], res['_lists']['over']))
     print('             D3 a bot with %d+ `more` runs inside %d min %d %s' % (MORE_LOOP_N, MORE_LOOP_MIN, res['more_loop'], res['_lists']['loops']))
-    print('SMELT        jobs canary %d -> %d control %d -> %d | ingots smelted canary %d -> %d control %d -> %d (DiD %+.3f /bot-h) | no_fuel per job DiD %+.3f (should FALL; read WITH no_fuel|search_more|search_stalled per job DiD %+.3f) | town_has_none per job DiD %+.3f | search_more canary %d | D4 smelt churn (>= 13 copper-taking non-smelting jobs of one bot in 6 h) %d %s'
+    print('SMELT        jobs canary %d -> %d control %d -> %d | ingots smelted canary %d -> %d control %d -> %d (DiD %+.3f /bot-h) | no_fuel per job DiD %+.3f (should FALL; read WITH no_fuel|search_more|search_stalled per job DiD %+.3f) | town_has_none per job DiD %+.3f | search_more canary %d smelt_late canary %d | D4 smelt churn (>= 13 copper-taking non-smelting jobs of one bot in 6 h) %d %s'
           % (res['smelt_jobs_pre_canary'], res['smelt_jobs_post_canary'], res['smelt_jobs_pre_control'], res['smelt_jobs_post_control'],
              res['smelted_pre_canary'], res['smelted_post_canary'], res['smelted_pre_control'], res['smelted_post_control'], dids['smelted'],
-             dids['no_fuel_per_job'], dids['fuel_unfound_per_job'], dids['town_has_none_per_job'], res['search_more_post_canary'], res['smelt_churn'], res['_lists']['churn']))
+             dids['no_fuel_per_job'], dids['fuel_unfound_per_job'], dids['town_has_none_per_job'], res['search_more_post_canary'], res['smelt_late_post_canary'], res['smelt_churn'], res['_lists']['churn']))
     print('SEARCH TIME  _kit_search seconds canary %.1f (%.1f s per canary bot-h)' % (res['search_s_canary'], res['search_s_canary'] / hrs('post', 'canary') if hrs('post', 'canary') else float('nan')))
     print('REPORTED     `more` runs canary %d of %d attempts | runs that began with NO candidate (gate/search disagreement, tripwire) %d %s'
           % (res['more_post_canary'], res['attempts_post_canary'], res['zero_cand_runs_canary'], res['_lists']['zero']))
