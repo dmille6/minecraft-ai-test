@@ -130,6 +130,65 @@ export function kitTakes (inChest = [], draw = {}, { keep = TOWN_IRON_KEEP, stic
   return { takes, why: takes.length ? null : 'holds nothing the kit draws' }
 }
 
+// ---- THE KIT'S TOWN SEARCH (toolkit-03; owner 10-19 ~12:15Z "yes do that") -------------------------------------------
+// MEASURED 10-19 (ES 24 h; read-only RCON census 12:05Z): 521 kit runs ended no_iron and 156 crafted, while the town chests
+// held 2,343 ingots -- 2,201 in town containers, and EVERY town has 2-11 containers holding a kit's 4 + TOWN_IRON_KEEP. The
+// draw looked in at most 3 containers nearest HOME (withdrawSweep; a walled-in or lidded double chest spent two of them), and
+// the nearest kit-sized holder is the 1st-11th nearest home (median 7th): towns where it is within the first 4 ended no_iron
+// 44 times over 7 towns, towns where it is 7th or later 475 times over 9. Now the draw searches the way withdraw_pick does
+// (townsearch-01/02, withdrawpick.mjs townSearchOrder over skills.mjs townSearchView): EVERY town container, never twice in
+// one run, nearest the bot first (the stock journal does not count iron: no group), a container that held too little iron
+// is a `kit_iron` miss for SEARCH_MISS_TTL_MS (no deposit since) so the next run continues with the rest, and a visit that
+// could not look inside leaves this bot's search for SEARCH_FAIL_SKIP_MS. The order's gate is the SAME rule (townSearchEmpty).
+
+/** Containers one run may open for the draw (each visit ~1 s on Paper inside a town; the clock is the real bound). */
+export const KIT_SEARCH_VISITS = 12
+/** The draw starts no visit inside this much of the skill's clock: the crafts (a table walk, two `craft` runs) keep it. */
+export const KIT_CRAFT_RESERVE_MS = 60_000
+/** A visit's result that moved nothing and says nothing about the town's iron -> the search moves on to the next container
+ *  (withdrawpick SEARCH_FAIL_SKIP plus the stock claim the journal could not confirm). */
+export const KIT_VISIT_NEXT = Object.freeze(new Set(['chest_unreachable', 'container_blocked', 'stock_unconfirmed']))
+/** Failures that are not "the town has none": no backoff beyond the cooldown (the next run continues the search). */
+export const KIT_NO_BACKOFF = Object.freeze(new Set(['kit_search_more']))
+
+/**
+ * WHAT ONE VISIT OF THE KIT'S SEARCH MEANS -> 'took' | 'next' | 'skip' | 'miss' | 'stop'. Pure over withdrawVisit's return.
+ *   took  the draw was taken (verified)
+ *   next  the visit could not look inside, or the journal refused the claim: nothing learned, the next container
+ *   skip  looked inside, the container has what is wanted but the draw cannot be made here (no sticks and no wood to make
+ *         them; no room in the chest for the room-making stacks): NOT a miss of the town's iron, the next container
+ *   miss  looked inside, too little of what is wanted: remembered (the town's memory), the next container
+ *   stop  anything else (the bag, the window, an unsettled transfer): the run ends on it, as it always did
+ */
+export function kitVisitStep (v = {}) {
+  const r = v?.result
+  if (r?.status === 'success') return 'took'
+  if (r) return KIT_VISIT_NEXT.has(r.failClass) ? 'next' : 'stop'
+  return v?.skip ? 'skip' : 'miss'
+}
+
+/**
+ * THE RUN'S ANSWER WHEN NO CONTAINER GAVE THE DRAW -> { outcome, failClass }. Pure.
+ *   left      candidates the town search still has (townSearchOrder, after this run's visits)
+ *   noSticks  a container held the iron but neither it nor the bag's wood had the sticks
+ * Candidates left (the visit budget or the clock ran out first) is never "no iron": it is `more`, with no backoff, and the
+ * next run continues where this one stopped. Only an exhausted search says no_iron (or no_sticks, which names a remedy).
+ */
+export function kitSearchEnd ({ left = 0, noSticks = false } = {}) {
+  if (Number(left) > 0) return { outcome: 'more', failClass: 'kit_search_more' }
+  if (noSticks) return { outcome: 'no_sticks', failClass: 'kit_no_sticks' }
+  return { outcome: 'no_iron', failClass: 'kit_no_iron' }
+}
+
+/** THE `_kit_search` ROW's detail (one per kit run whose draw searched; its duration spans the search's walks) -> <= 300.
+ *  outcome is the run's (crafted, no_iron, more, aborted, ...); the counters as in the `_toolkit` row; tried= last. Pure. */
+export const kitSearchRow = ({ outcome = '-', need = '-', town = '-', cand = '-', visits = 0, vfail = 0, maxrep = 0, left = '-', tried = [] } = {}) =>
+  `outcome=${outcome} need=${need} town=${town} cand=${cand} visits=${visits} vfail=${vfail} maxrep=${maxrep} left=${left} tried=[${(tried ?? []).join(';')}]`.slice(0, 300)
+
+/** The `_toolkit_search_mode` licence row (once per spawn): a kind the baseline cannot write. */
+export const kitSearchModeDetail = () =>
+  `phase=mode search=town need=${KIT_IRON_NEED} order=unknown,nearest visits=${KIT_SEARCH_VISITS} craft_reserve_s=${KIT_CRAFT_RESERVE_MS / 1000} no_backoff=${[...KIT_NO_BACKOFF].join('+')}`
+
 const lazy = v => (typeof v === 'function' ? v() : v)
 /** The runner declined to start it: nothing is charged (recount.mjs DECLINED). */
 const DECLINED = new Set(['runner_paused', 'runner_busy', 'body_held'])
@@ -170,7 +229,8 @@ export function toolkitOrder ({ now = 0, on = TOOLKIT.on, atTown = false, items 
 export function toolkitOutcome (status, now = 0, state = {}, failClass = null) {
   const s = { ...state }
   if (DECLINED.has(failClass)) { s.lastIssuedAt = -Infinity; return s }   // refunded: the runner never started it
-  if (status === 'failed') s.backoffUntil = now + TOOLKIT_BACKOFF_MS
+  // a search cut by its budget with candidates left (kitSearchEnd `more`) is no answer about the town: only the cooldown
+  if (status === 'failed' && !KIT_NO_BACKOFF.has(failClass)) s.backoffUntil = now + TOOLKIT_BACKOFF_MS
   else if (status === 'success') s.backoffUntil = 0
   return s
 }
@@ -189,17 +249,22 @@ export const toolsTag = (items = []) => list(items).filter(it => /_(pickaxe|axe|
  * fallback. Pure.
  */
 export function toolkitArgs ({ phase = 'kit', outcome = 'nothing', needs = [], drew = 0, sticks = 0, used = 0, crafted = [], creditIn = 0, creditOut = 0,
-                               stop = '-', before = '-', after = '-', listed = 0, worn = 0 } = {}) {
+                               stop = '-', before = '-', after = '-', listed = 0, worn = 0, search = null } = {}) {
   return phase === 'wear'
     ? { phase, outcome, listed, worn, stop: String(stop).slice(0, 120), before, after }
     : { phase, outcome, needs: needs.join('+') || '-', drew, sticks, used, crafted: crafted.join('+') || '-', credit_in: creditIn, credit_out: creditOut,
+        ...(search ? { search_need: search.need ?? '-', search_town: search.town ?? -1, search_cand: search.cand ?? -1, search_visits: search.visits ?? 0,
+                       search_vfail: search.vfail ?? 0, search_maxrep: search.maxrep ?? 0, search_left: search.left ?? -1 } : {}),
         stop: String(stop).slice(0, 120), before, after }
 }
 
 /**
  * THE `_toolkit` ROW's detail -> string <= 300. key=value, the outcome and the gate fields first (logEvent cuts at 300).
  *   phase     kit | wear
- *   outcome   crafted | partial | no_iron | short | room | craft_failed | nothing | error | aborted | (wear) done | none
+ *   outcome   crafted | partial | no_iron | no_sticks | more (search cut, candidates left) | short | room | craft_failed | draw_failed |
+ *             nothing | error | aborted | (wear) done | none
+ *   town cand visits vfail maxrep left: the kit search (toolkit-03) -- containers in the town view, candidates when the draw
+ *             began, visits made, visits that could not look inside, most visits to one container (must be 1), candidates left
  *   drew      server-verified ingots taken this run; sticks likewise
  *   used      ingots the verified crafts consumed (3 per axe, 1 per shovel)
  *   crafted   names made, verified as a NEW usable copy in the bag
@@ -207,10 +272,13 @@ export function toolkitArgs ({ phase = 'kit', outcome = 'nothing', needs = [], d
  *   before / after: toolsTag of the bag
  */
 export function toolkitRow ({ phase = 'kit', outcome = 'nothing', needs = [], drew = 0, sticks = 0, used = 0, crafted = [], creditIn = 0, creditOut = 0,
-                              stop = '-', before = '-', after = '-', listed = 0, worn = 0, tried = [] } = {}) {
+                              stop = '-', before = '-', after = '-', listed = 0, worn = 0, tried = [], search = null } = {}) {
   const clean = v => String(v ?? '-').replace(/\s+/g, '_').slice(0, 60)
+  // THE SEARCH'S COUNTERS (toolkit-03) right after the gate fields, before anything the 300-character cut can reach (the
+  // townsearch row's lesson: tried= alone is cut, so a read of it is blind past a few visits)
+  const sr = search ? ` town=${search.town ?? '-'} cand=${search.cand ?? '-'} visits=${search.visits ?? 0} vfail=${search.vfail ?? 0} maxrep=${search.maxrep ?? 0} left=${search.left ?? '-'}` : ''
   const head = phase === 'wear'
     ? `phase=wear outcome=${outcome} listed=${listed} worn=${worn}`
-    : `phase=kit outcome=${outcome} needs=${needs.join('+') || '-'} drew=${drew} sticks=${sticks} used=${used} crafted=${crafted.join('+') || '-'} credit=${creditIn}->${creditOut}`
+    : `phase=kit outcome=${outcome} needs=${needs.join('+') || '-'} drew=${drew} sticks=${sticks} used=${used} crafted=${crafted.join('+') || '-'} credit=${creditIn}->${creditOut}${sr}`
   return `${head} stop=${clean(stop)} before=${before} after=${after} tried=[${tried.join(';')}]`.slice(0, 300)
 }

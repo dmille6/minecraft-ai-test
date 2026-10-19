@@ -214,7 +214,9 @@ await t('toolFor (prismarine-block 1.21.8): the iron axe takes logs, the iron sh
 })
 
 // ------------------------------------------------------------------------------------------ the skill, end to end ---
-const town = (bag, stacks) => { freshPool(); clearWithdrawHolds(); const w = fakeWorld({ bag: slotted(bag) }); w.set(5, 64, 0, 'chest'); w.stock(5, 64, 0, stacks); return w }
+// `at`: where the bot stands (toolkit-03: the kit's draw is the town search, nearest the BOT first, as withdraw_pick's)
+const town = (bag, stacks, at = undefined) => { freshPool(); clearWithdrawHolds(); const w = fakeWorld({ bag: slotted(bag), ...(at ? { at } : {}) }); w.set(5, 64, 0, 'chest'); w.stock(5, 64, 0, stacks); return w }
+const BY_1 = [1.5, 64, 1.5]   // beside the chest at 1,64,0: nearer the bot than 5,64,0
 const withServer = w => {
   w.bot.craftSync = {
     lockstep: fn => fn(), recount: async () => ({ source: 'server', items: w.bot.inventory.items() }), inflight: () => 0,
@@ -292,8 +294,8 @@ await t('SKILL: no sticks in the container and no wood -> no iron drawn (kit_no_
   assert.notEqual(r2.failClass, 'kit_no_sticks', r2.detail); assert.equal(count(w2.containers.get('5,64,0').slots.filter(Boolean), 'iron_ingot'), 26)
 })
 await t('SKILL: the first chest unreachable -> the next container gives the kit (Claude r1 P3-1)', async () => {
-  const w = withServer(town([T('iron_pickaxe', 200), stack('stick', 9)], [stack('iron_ingot', 30)]))
-  w.set(1, 64, 0, 'chest'); w.stock(1, 64, 0, [stack('iron_ingot', 30)])   // the town sweep is nearest HOME first: 1,64,0
+  const w = withServer(town([T('iron_pickaxe', 200), stack('stick', 9)], [stack('iron_ingot', 30)], BY_1))
+  w.set(1, 64, 0, 'chest'); w.stock(1, 64, 0, [stack('iron_ingot', 30)])   // the town search is nearest the BOT first: 1,64,0
   const goto = w.bot.pathfinder.goto
   w.bot.pathfinder.goto = async g => { if (g.x === 1) throw new Error('No path to the goal!'); return goto(g) }
   const r = await run(w, {}, { kitCraft: fakeCraft(w) })
@@ -304,14 +306,14 @@ await t('SKILL: the first chest unreachable -> the next container gives the kit 
 // lidclear-01 COMPOSITION: withdraw's visit now clears a lid it may (cobblestone) and returns
 // container_blocked for one it may not; the kit's draw moves on to the next container.
 await t('SKILL: the first chest\'s lid cannot be cleared (oak_planks: container_blocked) -> the next container gives the kit; CONTROL: no lid -> the first gives it', async () => {
-  const w = withServer(town([T('iron_pickaxe', 200), stack('stick', 9)], [stack('iron_ingot', 30)]))
-  w.set(1, 64, 0, 'chest'); w.stock(1, 64, 0, [stack('iron_ingot', 30)]); w.set(1, 65, 0, 'oak_planks')   // nearest HOME first: 1,64,0
+  const w = withServer(town([T('iron_pickaxe', 200), stack('stick', 9)], [stack('iron_ingot', 30)], BY_1))
+  w.set(1, 64, 0, 'chest'); w.stock(1, 64, 0, [stack('iron_ingot', 30)]); w.set(1, 65, 0, 'oak_planks')   // nearest the BOT first: 1,64,0
   const r = await run(w, {}, { kitCraft: fakeCraft(w) })
   assert.equal(r.status, 'success', r.detail)
   assert.equal(count(w.containers.get('1,64,0').slots.filter(Boolean), 'iron_ingot'), 30, 'the blocked chest gave nothing')
   assert.equal(count(w.containers.get('5,64,0').slots.filter(Boolean), 'iron_ingot'), 26)
   assert.match(kitRows().at(-1).skill.detail, /tried=\[1,64,0:container_blocked;5,64,0:success\]/)
-  const w2 = withServer(town([T('iron_pickaxe', 200), stack('stick', 9)], [stack('iron_ingot', 30)]))
+  const w2 = withServer(town([T('iron_pickaxe', 200), stack('stick', 9)], [stack('iron_ingot', 30)], BY_1))
   w2.set(1, 64, 0, 'chest'); w2.stock(1, 64, 0, [stack('iron_ingot', 30)])
   const r2 = await run(w2, {}, { kitCraft: fakeCraft(w2) })
   assert.equal(r2.status, 'success', r2.detail)
@@ -332,8 +334,8 @@ const lidReady = w => {
 }
 await t('SKILL x PLINTH STAIR LID: a chest under a plinth STAIR cell is never cleared (container_blocked) -> the next container gives the kit; CONTROL: the well elsewhere -> the lid is dug, the first chest gives it', async () => {
   const mk = stairAt => {
-    const w = lidReady(withServer(town([T('iron_pickaxe', 200), T('stone_pickaxe', 90), stack('stick', 9)], [stack('iron_ingot', 30)])))
-    w.set(1, 64, 0, 'chest'); w.stock(1, 64, 0, [stack('iron_ingot', 30)]); w.set(1, 65, 0, 'cobblestone')   // nearest HOME first: 1,64,0
+    const w = lidReady(withServer(town([T('iron_pickaxe', 200), T('stone_pickaxe', 90), stack('stick', 9)], [stack('iron_ingot', 30)], BY_1)))
+    w.set(1, 64, 0, 'chest'); w.stock(1, 64, 0, [stack('iron_ingot', 30)]); w.set(1, 65, 0, 'cobblestone')   // nearest the BOT first: 1,64,0
     w.bot.wellCellsNow = () => [{ x: 20, y: 70, z: 20, stair: [stairAt] }]
     return w
   }
@@ -343,7 +345,8 @@ await t('SKILL x PLINTH STAIR LID: a chest under a plinth STAIR cell is never cl
   assert.equal(w.nameAt(1, 65, 0), 'cobblestone', 'the plinth step stays'); assert.deepEqual(w.digs, [])
   assert.equal(count(w.containers.get('1,64,0').slots.filter(Boolean), 'iron_ingot'), 30)
   assert.equal(count(w.containers.get('5,64,0').slots.filter(Boolean), 'iron_ingot'), 26)
-  assert.match(kitRows().at(-1).skill.detail, /tried=\[1,64,0:container_blocked;5,64,0:success\]/)
+  // the row is cut at 300 here (two tool tags); the search's own counters come before the cut (toolkit-03)
+  assert.match(kitRows().at(-1).skill.detail, / visits=2 vfail=1 maxrep=1 left=0 .*tried=\[1,64,0:conta/)
   const w2 = mk([20, 66, 21])
   const r2 = await run(w2, {}, { kitCraft: fakeCraft(w2) })
   assert.equal(r2.status, 'success', r2.detail)
@@ -439,7 +442,7 @@ await t('SKILL: a draw that moved LESS iron than asked crafts only what it funde
   const r = await run(w, {}, { kitCraft: fakeCraft(w) })
   assert.equal(count(w.bag, 'iron_axe') + count(w.bag, 'iron_shovel'), 0, `crafted from ladder iron: ${r.detail}`)
   assert.equal(count(w.bag, 'iron_ingot'), 4, 'the ladder\'s 4 ingots untouched')
-  assert.equal(r.status, 'failed'); assert.match(kitRows().at(-1).skill.detail, /drew=0 sticks=5 .*crafted=- credit=0->0 stop=short_of_drawn_iron_for_iron_axe/, 'a successful visit, no iron drawn, no craft')
+  assert.equal(r.status, 'failed'); assert.match(kitRows().at(-1).skill.detail, /drew=0 sticks=5 .*crafted=- credit=0->0 town=\S+ cand=\S+ visits=1 vfail=0 maxrep=1 left=0 stop=short_of_drawn_iron_for_iron_axe/, 'a successful visit, no iron drawn, no craft')
   // POSITIVE CONTROL: the same bag and chest with no theft draws 4 and crafts both, the 4 ladder ingots still there
   const w2 = withServer(town([T('iron_pickaxe', 200), stack('iron_ingot', 4), stack('stick', 1)], [stack('iron_ingot', 20), stack('stick', 64)]))
   const r2 = await run(w2, {}, { kitCraft: fakeCraft(w2) })

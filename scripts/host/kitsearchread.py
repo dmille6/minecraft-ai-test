@@ -1,0 +1,282 @@
+#!/usr/bin/env python3
+# kitsearchread.py [window_min] -- the read for canary `toolkit-03` (the kit's iron draw is the TOWN SEARCH: every town
+# container, nearest the bot, never twice in a run, a kit_iron miss lasting 60 min so the next run continues; the order's gate
+# is the same rule). CANARY_DRYRUN=pool[,pool]:sha:iso for dry runs (never emits). Judges the CANARY ARM; difference-in-
+# differences against control for the effect; DENOMINATORS FIRST.
+#
+# WHY (measured 10-19, ES 24 h + read-only RCON census 12:05Z): 521 kit runs ended no_iron and 156 crafted, while the town
+# chests held 2,343 ingots and every town had 2-11 containers holding a kit's 4 + 4 kept. The draw looked in at most the 3
+# containers nearest HOME (a walled-in or lidded double chest spent two of them); the nearest kit-sized holder was the 1st-11th
+# nearest home (median 7th). Towns where it was within the first 4: 44 no_iron over 7 towns; 7th or later: 475 over 9.
+#
+# MEMORY: STREAMED (townsearchread's pattern): only the kinds below are held.
+#
+# THE CHANGE (rows only this build writes):
+#   _toolkit_search_mode  once per spawn: the licence (proves the build is live, not the effect)
+#   _toolkit phase=kit    now carries, right after credit=, `town=<containers> cand=<candidates at start> visits=<n>
+#                         vfail=<visits that could not look inside> maxrep=<most visits to one container> left=<candidates left>`
+#                         (counted over the whole run before the 300-character cut); outcome `more` (the search was cut by its
+#                         budget with candidates left: no backoff, the next run continues) is new
+#
+#   ATTEMPTS   kit rows with an outcome that tried to make the kit (everything but nothing/off)
+#   METRICS
+#     crafted        outcome crafted | partial                    per BOT-HOUR, DiD  (PRIMARY, reported)
+#     no_iron        outcome no_iron                              per ATTEMPT, DiD of the proportions (should FALL)
+#     unfound        outcome no_iron | more                       per ATTEMPT, DiD (should FALL too: `more` must not merely
+#                                                                 relabel a no_iron)
+#   LIVENESS   search_rows_canary: canary kit rows carrying town= (the search ran) >= 1; licence rows reported
+#   ARMS       control kit rows with town=, or control licence rows, after the deploy (must be 0)
+#   DEFECTS (each REVERTS; each has a failing fixture in --selftest)
+#     D1 rep_same_container: one canary run with maxrep >= 2 (the kit search opens a container at most once per run)
+#     D2 visits_over_budget: one canary run with visits > VISIT_BUDGET (12)
+#   REPORTED   `more` runs per attempt (canary); runs that began with cand=0 (the gate and the search disagreed: a tripwire);
+#              visits / vfail per searched run; outcomes by arm; ingots drawn
+#   INSTRUMENT control attempts >= 1 and control no_iron >= 1 (the population is visible in control)
+#   EXPOSURE   canary kit rows carrying town= in the window >= EXPOSURE_RUNS
+import sys, os, json, re, glob, gzip
+import datetime as dt
+from collections import Counter, defaultdict
+
+KEEP = ('_toolkit', '_toolkit_search_mode')
+KV = re.compile(r'(?:^| )([a-z_]+)=(\S+)')
+VISIT_BUDGET = 12          # toolkit.mjs KIT_SEARCH_VISITS
+REP_MAX = 1                # a container is opened at most once per run
+EXPOSURE_RUNS = 6
+NOT_ATTEMPT = ('nothing', 'off')
+CRAFTED = ('crafted', 'partial')
+
+
+def kv(d):
+    return {m.group(1): m.group(2) for m in KV.finditer(d or '')}
+
+
+def pool_of(bot):
+    b = (bot or '')
+    if b.startswith('self-'):
+        b = b[len('self-'):]
+    return '-'.join(b.split('-')[:2])
+
+
+def is_kit(r):
+    return r['name'] == '_toolkit' and (r['detail'] or '').startswith('phase=kit ')
+
+
+def outcome(r):
+    return kv(r['detail']).get('outcome') or '?'
+
+
+def is_attempt(r):
+    return is_kit(r) and outcome(r) not in NOT_ATTEMPT
+
+
+def searched(r):
+    return is_kit(r) and ' town=' in ' %s' % r['detail']
+
+
+def num(f, k, default=None):
+    try:
+        return int(f.get(k))
+    except (TypeError, ValueError):
+        return default
+
+
+def stream(since, until, cut, cans, logroot='/var/log/mcai'):
+    files = sorted(glob.glob(logroot + '/*/skill-*.jsonl'))
+    for k in range(0, (until.date() - since.date()).days + 2):
+        tag = (since.date() + dt.timedelta(days=k)).strftime('%Y%m%d')
+        files += sorted(glob.glob(logroot + '/*/skill-*.jsonl-%s.gz' % tag))
+    seen, kept, walked, bad = set(), [], 0, 0
+    bots = defaultdict(set)
+    s_iso, u_iso = since.strftime('%Y-%m-%dT%H:%M:%S'), until.strftime('%Y-%m-%dT%H:%M:%S')
+    for f in files:
+        try:
+            fh = gzip.open(f, 'rt', errors='replace') if f.endswith('.gz') else open(f, errors='replace')
+        except OSError:
+            continue
+        with fh:
+            for line in fh:
+                ts = line[15:34] if line.startswith('{"@timestamp":"') else None
+                if ts is None or ts < s_iso or ts >= u_iso:
+                    continue
+                try:
+                    d = json.loads(line)
+                except Exception:
+                    bad += 1
+                    continue
+                sk = d.get('skill') or {}
+                n = sk.get('name')
+                b = (d.get('bot') or {}).get('name')
+                key = (d.get('@timestamp'), b, n, sk.get('detail'))
+                if key in seen:
+                    continue
+                seen.add(key)
+                walked += 1
+                t = dt.datetime.fromisoformat(d['@timestamp'].replace('Z', '+00:00'))
+                arm = 'canary' if pool_of(b) in cans else 'control'
+                per = 'post' if t >= cut else 'pre'
+                if b:
+                    bots[(per, arm)].add(b)
+                if n in KEEP:
+                    kept.append({'t': t, 'per': per, 'arm': arm, 'name': n, 'status': sk.get('status'), 'detail': sk.get('detail') or '', 'bot': b})
+    kept.sort(key=lambda r: r['t'])
+    return kept, walked, bots, bad
+
+
+def earlier_build(r):
+    """A PRE-window row only a kit-search build writes (town= on a kit row, or its licence): an EARLIER canary of this change,
+    never the baseline -- reported, not counted (townsearchread's Claude ts02 P1: the pre window grows with each read)."""
+    return r['per'] == 'pre' and (searched(r) or r['name'] == '_toolkit_search_mode')
+
+
+def judge(rows):
+    out = {}
+    out['pre_earlier_build_canary'] = sum(1 for r in rows if r['arm'] == 'canary' and earlier_build(r))
+    out['pre_earlier_build_control'] = sum(1 for r in rows if r['arm'] == 'control' and earlier_build(r))
+    rows = [r for r in rows if not earlier_build(r)]
+    for per in ('pre', 'post'):
+        for arm in ('canary', 'control'):
+            sel = [r for r in rows if r['per'] == per and r['arm'] == arm and is_attempt(r)]
+            oc = Counter(outcome(r) for r in sel)
+            sfx = '%s_%s' % (per, arm)
+            out['attempts_' + sfx] = len(sel)
+            out['crafted_' + sfx] = sum(oc.get(o, 0) for o in CRAFTED)
+            out['no_iron_' + sfx] = oc.get('no_iron', 0)
+            out['unfound_' + sfx] = oc.get('no_iron', 0) + oc.get('more', 0)
+            out['more_' + sfx] = oc.get('more', 0)
+            out['drew_' + sfx] = sum(num(kv(r['detail']), 'drew', 0) for r in sel)
+            out['outcomes_' + sfx] = dict(oc)
+    post_c = [r for r in rows if r['per'] == 'post' and r['arm'] == 'canary']
+    s = [r for r in post_c if searched(r)]
+    out['search_rows_canary'] = len(s)
+    out['licence_canary'] = sum(1 for r in post_c if r['name'] == '_toolkit_search_mode')
+    out['search_rows_control'] = sum(1 for r in rows if r['per'] == 'post' and r['arm'] == 'control' and (searched(r) or r['name'] == '_toolkit_search_mode'))
+    reps, over, zero = [], [], []
+    for r in s:
+        f = kv(r['detail'])
+        visits, maxrep, cand = num(f, 'visits', 0), num(f, 'maxrep', 0), num(f, 'cand')
+        if maxrep > REP_MAX:
+            reps.append((r['bot'], maxrep, str(r['t'])))
+        if visits > VISIT_BUDGET:
+            over.append((r['bot'], visits, str(r['t'])))
+        if cand == 0:
+            zero.append((r['bot'], outcome(r), str(r['t'])))
+    out['rep_same_container'] = len(reps)
+    out['visits_over_budget'] = len(over)
+    out['zero_cand_runs_canary'] = len(zero)
+    out['visits_canary'] = dict(Counter(num(kv(r['detail']), 'visits', -1) for r in s))
+    out['vfail_canary'] = sum(num(kv(r['detail']), 'vfail', 0) for r in s)
+    out['cand_canary'] = dict(Counter(num(kv(r['detail']), 'cand', -1) for r in s))
+    out['instrument_control'] = int(out['attempts_post_control'] >= 1 and out['no_iron_post_control'] >= 1)
+    out['exposure_ready'] = int(out['search_rows_canary'] >= EXPOSURE_RUNS)
+    out['_lists'] = {'reps': reps[:5], 'over': over[:5], 'zero': zero[:5]}
+    return out
+
+
+def selftest():
+    T0 = dt.datetime(2026, 10, 19, 12, 0, tzinfo=dt.timezone.utc)
+    R = lambda name, detail, mins=0, bot='isolated-b-Alpha', arm='canary', per='post', status='success': {
+        't': T0 + dt.timedelta(minutes=mins), 'per': per, 'arm': arm, 'name': name, 'status': status, 'detail': detail, 'bot': bot}
+    # REAL ROWS (toolkit.mjs toolkitRow, node, 10-19): a crafted run, a cut no_iron run, a cut `more` run, and the BASE layout
+    OK = 'phase=kit outcome=crafted needs=iron_axe+iron_shovel drew=4 sticks=3 used=4 crafted=iron_axe+iron_shovel credit=0->0 town=22 cand=22 visits=2 vfail=0 maxrep=1 left=0 stop=- before=iron_pickaxe@180 after=iron_axe@250,iron_pickaxe@180,iron_shovel@250 tried=[1,2,3:none;4,5,6:success]'
+    NOI = 'phase=kit outcome=no_iron needs=iron_axe+iron_shovel drew=0 sticks=0 used=0 crafted=- credit=0->0 town=31 cand=14 visits=12 vfail=1 maxrep=1 left=0 stop=12_of_14_candidate(s)_tried before=iron_pickaxe@180,stone_pickaxe@1,stone_pickaxe@1,stone_pickaxe@1,stone_pickaxe@105,stone_axe@102,wooden_pickaxe@'
+    MORE = 'phase=kit outcome=more needs=iron_axe+iron_shovel drew=0 sticks=0 used=0 crafted=- credit=0->0 town=31 cand=30 visits=12 vfail=0 maxrep=1 left=18 stop=- before=iron_pickaxe@180,stone_pickaxe@1,stone_pickaxe@1,stone_pickaxe@1,stone_pickaxe@105,stone_axe@102,wooden_pickaxe@42 after=iron_pickaxe@180,st'
+    BASE = 'phase=kit outcome=no_iron needs=iron_axe+iron_shovel drew=0 sticks=0 used=0 crafted=- credit=0->0 stop=3_container(s)_tried before=iron_pickaxe@180,stone_pickaxe@1,stone_pickaxe@1,stone_pickaxe@1,stone_pickaxe@105,stone_axe@102,wooden_pickaxe@42 after=iron_pickaxe@180,stone_pickaxe@1,stone_pickaxe@1'
+    assert len(NOI) == 300 and len(MORE) == 300 and len(BASE) == 300
+    MODE = 'phase=mode on=1 mode=on'
+    LIC = 'phase=mode search=town need=kit_iron order=unknown,nearest visits=12 craft_reserve_s=60 no_backoff=kit_search_more'
+    NOTHING = 'phase=kit outcome=nothing needs=- drew=0 sticks=0 used=0 crafted=- credit=0->0 stop=- before=- after=- tried=[]'
+    ctl = [R('_toolkit', BASE, arm='control', bot='board-a-Alpha', status='failed')]
+    ok = judge([R('_toolkit', OK), R('_toolkit', NOI, status='failed'), R('_toolkit', MORE, status='failed'), R('_toolkit_search_mode', LIC), R('_toolkit', MODE), R('_toolkit', NOTHING)] + ctl)
+    assert ok['search_rows_canary'] == 3 and ok['licence_canary'] == 1 and ok['attempts_post_canary'] == 3, ok
+    assert ok['crafted_post_canary'] == 1 and ok['no_iron_post_canary'] == 1 and ok['unfound_post_canary'] == 2 and ok['more_post_canary'] == 1, ok
+    assert ok['rep_same_container'] == 0 and ok['visits_over_budget'] == 0 and ok['search_rows_control'] == 0 and ok['instrument_control'] == 1, ok
+    assert ok['drew_post_canary'] == 4 and ok['zero_cand_runs_canary'] == 0, ok
+    assert judge([R('_toolkit', NOI.replace(' maxrep=1 ', ' maxrep=2 '))] + ctl)['rep_same_container'] == 1, 'D1: one container twice in a run'
+    assert judge([R('_toolkit', NOI.replace(' visits=12 ', ' visits=13 '))] + ctl)['visits_over_budget'] == 1, 'D2'
+    assert judge([R('_toolkit', NOI)] + ctl)['visits_over_budget'] == 0, 'D2 control: the budget itself'
+    assert judge([R('_toolkit', BASE)] + ctl)['search_rows_canary'] == 0, 'a base-shaped row is not the search'
+    assert judge([R('_toolkit', BASE)] + ctl)['attempts_post_canary'] == 1, '...but it is an attempt'
+    c = judge([R('_toolkit', OK, arm='control', bot='board-a-Alpha'), R('_toolkit_search_mode', LIC, arm='control', bot='board-a-Alpha')])
+    assert c['search_rows_control'] == 2, c
+    assert judge([R('_toolkit', OK, arm='control', bot='board-a-Alpha')])['instrument_control'] == 0, 'no control no_iron: blind'
+    assert judge([R('_toolkit', MODE, arm='control', bot='board-a-Alpha')])['instrument_control'] == 0, 'a mode row is no attempt'
+    assert judge([R('_toolkit', OK)] * EXPOSURE_RUNS + ctl)['exposure_ready'] == 1 and judge([R('_toolkit', OK)] * (EXPOSURE_RUNS - 1) + ctl)['exposure_ready'] == 0
+    z = judge([R('_toolkit', NOI.replace(' cand=14 ', ' cand=0 '))] + ctl)
+    assert z['zero_cand_runs_canary'] == 1, z
+    # an EARLIER toolkit-03 canary's rows in the PRE window are reported, never counted; after the deploy they are a breach
+    prev = [R('_toolkit', OK, arm='control', bot='placebo-d-Alpha', per='pre'), R('_toolkit_search_mode', LIC, arm='control', bot='hive-c-Alpha', per='pre')]
+    pv = judge(prev + ctl)
+    assert pv['search_rows_control'] == 0 and pv['pre_earlier_build_control'] == 2 and pv['attempts_pre_control'] == 0, pv
+    assert judge([R('_toolkit', OK, arm='control', bot='placebo-d-Alpha')] + ctl)['search_rows_control'] == 1, 'post-deploy: a breach'
+    assert judge([R('_toolkit', BASE, arm='control', bot='board-a-Alpha', per='pre')] + ctl)['attempts_pre_control'] == 1, 'a base-shaped pre row still counts'
+    assert pool_of('self-isolated-b-Comet') == 'isolated-b' and pool_of('hive-d-Alpha') == 'hive-d'
+    assert kv(NOI)['visits'] == '12' and kv(NOI)['left'] == '0' and kv(MORE)['left'] == '18', 'the counters survive the 300-character cut'
+    print('SELFTEST ok: every gate fails on its fixture and passes its control')
+
+
+if __name__ == '__main__':
+    if '--selftest' in sys.argv:
+        selftest(); sys.exit(0)
+    ovr = os.environ.get('CANARY_DRYRUN')
+    if ovr:
+        CAN, CV, ISO = ovr.split(':', 2)
+        CUT = dt.datetime.fromisoformat(ISO.replace('Z', '+00:00'))
+    else:
+        man = json.load(open('/srv/mcbots/trial-manifest.json'))
+        CUT = dt.datetime.fromisoformat(man['declared_at'].replace('Z', '+00:00'))
+        CAN = man['canary_pool']; CV = man.get('canary_code_version') or ''
+    CANS = {x.strip() for x in str(CAN).split(',') if x.strip()}
+    now = dt.datetime.now(dt.timezone.utc)
+    elapsed = (now - CUT).total_seconds() / 60
+    assert elapsed > 0 and CAN, 'no canary declared'
+    W = min(elapsed, float(sys.argv[1]) if len(sys.argv) > 1 and not sys.argv[1].startswith('-') else 180)
+    END, PRE = CUT + dt.timedelta(minutes=W), CUT - dt.timedelta(minutes=W)
+    rows, walked, bots, bad = stream(PRE, END, CUT, CANS)
+    res = judge(rows)
+    hrs = lambda per, arm: len(bots[(per, arm)]) * W / 60
+    rate = lambda n, per, arm: n / hrs(per, arm) if hrs(per, arm) else float('nan')
+    prop = lambda k, per, arm: res['%s_%s_%s' % (k, per, arm)] / res['attempts_%s_%s' % (per, arm)] if res['attempts_%s_%s' % (per, arm)] else float('nan')
+    did_rate = lambda k: (rate(res[k + '_post_canary'], 'post', 'canary') - rate(res[k + '_pre_canary'], 'pre', 'canary')) \
+        - (rate(res[k + '_post_control'], 'post', 'control') - rate(res[k + '_pre_control'], 'pre', 'control'))
+    did_prop = lambda k: (prop(k, 'post', 'canary') - prop(k, 'pre', 'canary')) - (prop(k, 'post', 'control') - prop(k, 'pre', 'control'))
+    dids = {'crafted': did_rate('crafted'), 'no_iron_per_attempt': did_prop('no_iron'), 'unfound_per_attempt': did_prop('unfound'), 'drew': did_rate('drew')}
+    print('DENOMINATORS rows walked %d (unparsable %d) | bots pre canary %d control %d | post canary %d control %d | window %d min | bot-h post canary %.1f control %.1f'
+          % (walked, bad, len(bots[('pre', 'canary')]), len(bots[('pre', 'control')]), len(bots[('post', 'canary')]), len(bots[('post', 'control')]), W,
+             hrs('post', 'canary'), hrs('post', 'control')))
+    print('ATTEMPTS     kit runs that tried (not nothing/off) canary %d -> %d control %d -> %d'
+          % (res['attempts_pre_canary'], res['attempts_post_canary'], res['attempts_pre_control'], res['attempts_post_control']))
+    print('PRIMARY      kits crafted (crafted|partial) canary %d -> %d control %d -> %d | per bot-h canary %.3f -> %.3f control %.3f -> %.3f | DiD %+.3f /bot-h'
+          % (res['crafted_pre_canary'], res['crafted_post_canary'], res['crafted_pre_control'], res['crafted_post_control'],
+             rate(res['crafted_pre_canary'], 'pre', 'canary'), rate(res['crafted_post_canary'], 'post', 'canary'),
+             rate(res['crafted_pre_control'], 'pre', 'control'), rate(res['crafted_post_control'], 'post', 'control'), dids['crafted']))
+    print('NO IRON      per attempt: canary %d/%d -> %d/%d control %d/%d -> %d/%d | DiD %+.3f (should FALL)'
+          % (res['no_iron_pre_canary'], res['attempts_pre_canary'], res['no_iron_post_canary'], res['attempts_post_canary'],
+             res['no_iron_pre_control'], res['attempts_pre_control'], res['no_iron_post_control'], res['attempts_post_control'], dids['no_iron_per_attempt']))
+    print('             no_iron | more per attempt: canary %d/%d -> %d/%d control %d/%d -> %d/%d | DiD %+.3f (`more` must not merely relabel)'
+          % (res['unfound_pre_canary'], res['attempts_pre_canary'], res['unfound_post_canary'], res['attempts_post_canary'],
+             res['unfound_pre_control'], res['attempts_pre_control'], res['unfound_post_control'], res['attempts_post_control'], dids['unfound_per_attempt']))
+    print('LIVENESS     canary kit rows with the search (town=) %d | licence rows %d | control rows with town= or the licence after the deploy %d (must be 0)'
+          % (res['search_rows_canary'], res['licence_canary'], res['search_rows_control']))
+    print('             pre-window rows of an EARLIER kit-search build (not counted): canary %d control %d'
+          % (res['pre_earlier_build_canary'], res['pre_earlier_build_control']))
+    print('DEFECTS      D1 a container opened %d+ times in one run %d %s | D2 more than %d visits in one run %d %s'
+          % (REP_MAX + 1, res['rep_same_container'], res['_lists']['reps'], VISIT_BUDGET, res['visits_over_budget'], res['_lists']['over']))
+    print('REPORTED     `more` runs canary %d of %d attempts | runs that began with NO candidate (gate/search disagreement, tripwire) %d %s'
+          % (res['more_post_canary'], res['attempts_post_canary'], res['zero_cand_runs_canary'], res['_lists']['zero']))
+    print('             visits per searched run %s | visits that could not look inside %d | candidates at start %s'
+          % (res['visits_canary'], res['vfail_canary'], res['cand_canary']))
+    print('             ingots drawn canary %d -> %d control %d -> %d (DiD %+.3f /bot-h) | outcomes post canary %s control %s'
+          % (res['drew_pre_canary'], res['drew_post_canary'], res['drew_pre_control'], res['drew_post_control'], dids['drew'],
+             res['outcomes_post_canary'], res['outcomes_post_control']))
+    print('EXPOSURE     -> %s (canary kit rows with the search %d, need %d) | INSTRUMENT control attempts %d, control no_iron %d -> %s'
+          % ('READY' if res['exposure_ready'] else 'NOT YET', res['search_rows_canary'], EXPOSURE_RUNS, res['attempts_post_control'], res['no_iron_post_control'],
+             'ok' if res['instrument_control'] else 'BLIND'))
+    try:
+        if ovr:
+            raise RuntimeError('CANARY_DRYRUN set -- not emitting')
+        sys.path.insert(0, os.path.expanduser('~')); sys.path.insert(0, '/tmp')
+        from readjson import emit
+        clean = lambda v: None if v != v else round(v, 4)
+        emit('kitsearchread', W, {k: v for k, v in res.items() if not k.startswith('_')} | {'%s_did' % k: clean(v) for k, v in dids.items()})
+    except Exception as e:
+        print('emit failed:', e)
