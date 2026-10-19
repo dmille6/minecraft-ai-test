@@ -371,6 +371,29 @@ except Exception as e:
     print('_arbiter_refused:', type(e).__name__, str(e)[:200])
 
 
+################ SCRIPT h13.py
+"""G1 sharpened (Claude r5): opportunities = non-interrupted home rows, moved >= 2, ending in the H1 band (2 < d <= 3, |dy| <= 6).
+Pre-fix defect rate p in that band, and per-3h opportunity rate at 20 and 10 bots (shared towns, fixed 7 d window)."""
+import json, math
+H = [h for h in json.load(open('/tmp/exp_home_rows.json')) if h['shared'] and h['t'] < '2026-10-19T15:00:00']
+def opp(h, lo, hi):
+    return (not (h['trigger'] or '').startswith('interrupt:') and (h['moved'] or 0) >= 2 and h['end_d'] is not None
+            and h['end_y'] is not None and lo < h['end_d'] <= hi and abs(h['end_y'] - h['home_y']) <= 6)
+for lo, hi, name in ((-1, 3, 'all <= 3'), (2, 3, 'band (2, 3]')):
+    O = [h for h in H if opp(h, lo, hi)]
+    bad = sum(h['status'] != 'success' for h in O)
+    p = bad / len(O) if O else 0
+    D = math.ceil(math.log(0.05) / math.log(1 - p)) if 0 < p < 1 else None
+    per3h20 = len(O) / 7 / 60 * 20 / 8
+    def pge(lam, k):
+        return 1 - sum(math.exp(-lam) * lam ** i / math.factorial(i) for i in range(k))
+    print(f'{name}: opportunities {len(O)}, defects {bad}, p {p:.3f}, D {D}; per 3 h at 20 bots {per3h20:.2f}, at 10 bots {per3h20/2:.2f}')
+    if D:
+        for bots in (20, 10):
+            lam3 = per3h20 * bots / 20
+            print(f'   {bots} bots: P(>= D by +180/+360/+540/+1080) = ' + ' / '.join(f'{pge(lam3*m, D):.2f}' for m in (1, 2, 3, 6)))
+
+
 ################ SCRIPT e1.py
 """Expansion baseline, read only (ES). Position samples hourly, gathers/deaths by distance band, travel speed."""
 import sys, json, math, collections, datetime as dt
@@ -693,6 +716,15 @@ pooled home+surface: 2844 / 4930 = 57.69%
 pooled all: 3660 / 91313 = 4.01%
 unwind > 20 s: 958 of 23234 (4.12%)
 _arbiter_refused: ZeroLooksWrong '_arbiter_refused' has 0 docs, but these exist: _well_refused (10097), _maroon_dig_refused (50), _air_pocket_refused (9899), _stock_refused (31208) -- almost certainly the name, not the fleet
+
+
+################ OUTPUT h13 (r2: the proposed predicate replayed; S0 window)
+all <= 3: opportunities 803, defects 224, p 0.279, D 10; per 3 h at 20 bots 4.78, at 10 bots 2.39
+   20 bots: P(>= D by +180/+360/+540/+1080) = 0.02 / 0.49 / 0.91 / 1.00
+   10 bots: P(>= D by +180/+360/+540/+1080) = 0.00 / 0.02 / 0.19 / 0.91
+band (2, 3]: opportunities 240, defects 224, p 0.933, D 2; per 3 h at 20 bots 1.43, at 10 bots 0.71
+   20 bots: P(>= D by +180/+360/+540/+1080) = 0.42 / 0.78 / 0.93 / 1.00
+   10 bots: P(>= D by +180/+360/+540/+1080) = 0.16 / 0.42 / 0.63 / 0.93
 
 
 ################ OUTPUT e5 (r2: the proposed predicate replayed; S0 window)

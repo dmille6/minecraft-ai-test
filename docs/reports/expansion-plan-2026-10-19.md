@@ -1,4 +1,4 @@
-# Expansion: expeditions, then outposts, then rails (2026-10-19, design only, r5)
+# Expansion: expeditions, then outposts, then rails (2026-10-19, design only, r6)
 
 OWNER 10-19 ~15:30Z: "yes, we need expansion." The goal is to "build cool structures, survive, and work together for long
 periods of time". The worlds are peaceful. The diamond tier is held until the mineshaft and underground safety are done.
@@ -21,7 +21,8 @@ It builds on, and does not repeat:
 
 ## 0. Answers first
 
-**1. The first step is `homefix-01`, a tier-2 correctness fix to `home` and the stagnation watchdog (§2, §5).**
+**1. The first step is `homefix-01`, a correctness fix to `home`, the stagnation watchdog and the runner, read as tier 3
+on deterministic gates (§2, §5).**
 - Going home is the return leg of every expedition and the overseer's RECALL. Today it fails for reasons that are ours, not
   the terrain's: an arrival graded as a failure (H1), watchdog rescues that never start or are cut at 15 s (H2a, H2b), and
   interruptions filed as skill bugs (H3). Each is a small change with a behaviour test and a deterministic KEEP gate.
@@ -34,7 +35,7 @@ first free slot, is an owner decision (X9), as TP's O2 was for shaftuse-01.
 | # | step | tier | needs |
 |---|---|---|---|
 | — | **E0 frontier census** (host, read-only, no slot) | — | nothing; build now |
-| first free slot (X9) | **homefix-01** (§5) | 2 (X1 asks whether a runner + watchdog change is tier 2) | built + both reviews + X1/X9; inserted by the queue owner (the coordinator); never holds the head, as shaftuse-01 (TP O2) |
+| first free slot (X9) | **homefix-01** (§5) | 3 (v36: long reads register tier 3; X1) | built + both reviews + X1/X9; inserted by the queue owner (the coordinator); never holds the head, as shaftuse-01 (TP O2) |
 | — | the owner's list as queued on origin/main **STATE 10-19 15:20Z** (TP §0.4 and STATE 12:45Z's owner list put shaft-01 before stonewithdraw-01; the 15:20Z queue has them the other way round, with shaft-01 HELD; no insertion here depends on which): treefarm-02 → brain-01 → cobblekeep-01 → toolkit-03 → bamboo-03 → townfloor-01 → monument-01 → stonewithdraw-01 → shaft-01. smeltfuel-01's fuel sweep is inside toolkit-03 ("kit iron + smelt coal through every-container search", same entry; the owner's brief says "smeltfuel (folded into toolkit-03)"); if the coordinator un-folds it, smeltfuel-01 keeps its TP place before pavilion-01 | | |
 | after the owner's list | **expedition-01** (§6) | 3 | homefix-01 KEPT; cobblekeep-01 KEPT (bags; §1.3); E0 live 48 h; K0 kit replay passed (§6.3) |
 | then | pavilion-01 → crown-01 (TP stages 3-4, unchanged) | 3 | — |
@@ -324,8 +325,10 @@ home): 202 of 877 (23%) against 151 of 369 (41%) at the surface.
      (smeltjob.mjs ~119, with a pause streak), `pruneOutcome` (prune.mjs ~135), the `wear_out` backoff (cognitive.mjs
      ~1219), and `admission.noteFailure` (~1249, ~1255) (Claude r4 P2-3). So, r5: homefix-01 exports ONE set
      (`runner_reserved` included; milestones' `RUNNER_REFUSALS` imports it and EXTENDS it with its own `unknown_skill`,
-     `superseded`, `furnace_busy`), and **the brain's outcome block exits early on it** (one check, ~1215, before every
-     handler above), so no handler, cooldown or lesson ever sees a declined run. `#escape` decides from displacement, not
+     `superseded`, `furnace_busy`), and **the brain's outcome HANDLER block skips on it** (one check after `runner.run` at
+     ~1214, wrapping the handlers at ~1216-1230 and the `noteFailure` calls at ~1249 / ~1255), while the decision row,
+     `lessons.save` and the milestone accounting (~1460) still run; `roomOutcome` (~1436, after that block) gets the
+     shared set too. So no handler, cooldown or lesson treats a declined run as a failure. `#escape` decides from displacement, not
      from the run result (~461-470), so it gets its own check: a declined rung is RETRIED next tick, never counted as "did
      not escape", and `livelockNext` never latches on it. Behaviour tests drive a declined answer through the real outcome
      block for each named handler and through `#escape` (no backoff, no cooldown, no latch); a source test only backs them up.
@@ -465,7 +468,7 @@ and the expedition's target rule (§6.4) needs it. It costs no slot and touches 
 
 ---
 
-## 5. E1 — homefix-01 (tier 2; the first step)
+## 5. E1 — homefix-01 (tier 3 under gate v36; the first step)
 
 **What changes (each an exported pure function or a single decision point with a behaviour test and a mutant):**
 1. **H1:** `arrivedAt(pos, target, range)`, goto's existing final test, used by `home`'s grading (not goto's loop break).
@@ -493,24 +496,29 @@ the pending rescue, and escalates on the rescue's own window if the bot then sta
 - P2: a bot boxed in so it moves ≈ 1 block per 15 s → no cancel before the rescue's own window; then escalation 3.
 - P3: an entombment reflex during `home` below sea level (through `surface`) → `interrupted`, not `skill_error`.
 
-**Read (tier 2: 20 bots, KEEP at +180, ≈ 3 h cool-off; whether a runner + watchdog change counts as "tier 2: small fixes"
-is the owner's call, X1).** KEEP rests on DETERMINISTIC per-mechanism checks in the arm (the owner's 09-29 rule: fixes get a
+**Read: TIER 3 (r6; Claude r5 P2-1).** Gate v36 (installed 16:27Z, STATE on origin/main; docs/reports/canary-tiers-2026-10-19.md)
+lets a tier-2 run KEEP only at +180 with exactly 4 pools, and says "runs needing long reads should register tier 3".
+homefix-01 needs a long read (below), so it registers tier 3 (no `"tier"` field). Tier-3 draws are not guaranteed 4 pools
+(recent ones drew 2), so the read is planned for both arm sizes. KEEP rests on DETERMINISTIC per-mechanism checks in the arm (the owner's 09-29 rule: fixes get a
 correctness gate). **Each gate is "0 defects in ≥ D opportunities"**, and D is set so that the chance of seeing 0 defects
 WITHOUT the fix is ≤ 5%, from the pre-fix defect rate p: D = ⌈ln 0.05 / ln(1 − p)⌉ (Claude r2 N-5, Claude r3 P2-C). The
 read extends (+360, +540) until every gate has its D, and is INCONCLUSIVE at +540 if one does not (the owner's 10-15
-early-close rule). **Realistic read length (Claude r4 P2-1): ≈ 9 h.** Expected arm opportunities per 3 h (20 bots): G1
-≈ 4.8 (803 × 60 / 10,080), so P(G1 has D = 10 by +360) ≈ 47% and by +540 ≈ 90%; G2 ≈ 16 (`surface` + `home`), decided
-at +180; G3 and G4 ≈ 180 attempts per 3 h. So the read is planned at +540, with P(INCONCLUSIVE on G1 alone) ≈ 10%.
+early-close rule; for tier 3 the deadline is the registration's). **Read length (h13).** G1 is the slowest gate. With
+G1 on the H1 band (below): 1.43 opportunities per 3 h at 20 bots, so P(D = 2 reached) = 0.42 / 0.78 / 0.93 by +180 / +360 /
++540; at 10 bots 0.16 / 0.42 / 0.63, and 0.93 by +1080. So the read is registered to +540 at 4 pools and +1080 at 2
+pools (≈ 9 h or ≈ 18 h). G2 ≈ 22 opportunities per 3 h at 20 bots; G3 and G4 ≈ 180 attempts per 3 h.
 
 | gate | opportunity (denominator) | defect | pre-fix p | D |
 |---|---|---|---:|---:|
-| G1 arrival | an arm `home` row, trigger NOT `interrupt:*`, that moved ≥ 2 blocks and ended within 3 h / 6 v of home | graded anything but success | 224 / 803 = 27.9% | 10 |
-| G2 classification | an arm `home` or `surface` row whose run was interrupted (`interrupt:*` trigger): the skills on the raw re-throw path | status `failed / skill_error` | pooled `home` ∪ `surface`, all pools, h12: 2,844 / 4,930 = 57.7% | 5 |
-| G3 rescue survives | a `_watchdog_rescue` attempt with phase `started`, joined to the runner's skill row (bot, start ±1 s), during which at least one watchdog tick landed (the `pending` tick writes `tick_seen` with the attempt id), OR that was cut by a stagnation cancel at any age | that skill row ended `interrupt:stagnation` < 165 s after its start, at ANY duration | proxy: 534 / 1,565 = 34% (on the old denominator; re-measured on the new one by the fixture-validated reader) | 8 |
+| G1 arrival | an arm `home` row, trigger NOT `interrupt:*`, that moved ≥ 2 blocks and ended in the H1 BAND: more than 2 and at most 3 horizontally, |dy| ≤ 6 (r6, Claude r5) | graded anything but success | h13: 224 / 240 = 93.3% | 2 |
+| G2 classification | an arm `home` or `surface` row whose run was interrupted (`interrupt:*` trigger): the skills on the raw re-throw path | status `failed / skill_error` | pooled `home` ∪ `surface`, all pools, h12: 2,844 / 4,930 = 57.7% (formula D = 4; 5 is an added floor, and the read recomputes P(0 \| no fix) from the arm's own `home` / `surface` mix: an all-`home` arm at 18.7% needs D = 15) | 5, or the mix's D if larger |
+| G3 rescue survives | a `_watchdog_rescue` attempt with phase `started`, joined to the runner's skill row (bot, start ±1 s), during which at least one watchdog tick landed (the `pending` tick writes `tick_seen` with the attempt id), OR that was cut by a stagnation cancel at any age | **by mechanism (r6, Claude r5 P3-5):** that skill row ended `interrupt:stagnation` from a verdict whose window held a sample from BEFORE the rescue started (the `_stagnation` row logs its window's first-sample time in `skill.args.window_from`); the old-code proxy uses < 150 s, not 165 s, because the earliest legitimate verdict on the rescue's own window lands ≈ 165 s after its start | proxy: 534 / 1,565 = 34% (on the old denominator; re-measured on the new one by the fixture-validated reader) | 8 |
 | G4 rescue reachable | a `_watchdog_rescue` attempt with phase `requested` | no TERMINAL phase (`completed:*`, `interrupted:*`, `reconnected`, `declined:*`); or `declined:reserve_expired` > 8% of attempts | unwinds > 20 s: 958 / 23,234 = 4.1% (h12); the bar is 2× that, an engineering threshold, not the D formula | 20 |
 
 - **G1 excludes interrupted runs**: a legitimate reflex interruption is not an arrival grading (Codex r3). h9 shows no
-  aborted row ending inside 3 h / 6 v (Claude r3), so the filter loses nothing.
+  aborted row ending inside 3 h / 6 v (Claude r3), so the filter loses nothing. **The band is the mechanism:** of 240
+  pre-fix opportunities in (2, 3], 224 were graded failed; rows ending within 2 are successes today and are not evidence
+  either way, so including them only slowed the gate (r5's D = 10 on 803 rows; h13).
 - **G3 counts rescues only.** A brain `home` or `goto` cut by a legitimate verdict has no attempt record and is not an
   opportunity (Claude r2 N-1). **Duration does not filter it (Codex r4):** a rescue that starts 10 s after a slow unwind
   and is cut 5 s later is a defect, so every stagnation cut of a started rescue counts; fixtures include a delayed handoff
@@ -649,10 +657,14 @@ the default policy reproduces today's plans on random bags).
 - **Departs only with ≥ 16 free slots.**
 - **The kit's yield is NOT yet measured (r4 withdrew r3's "98%"). Gate K0, before expedition-01 is queued (r5; Codex r4
   P2-2, Claude r4 P2-6):**
-  - **Layout.** ES holds per-item COUNTS (`inventorySummary` sums slots, state.mjs:8-13), not slots, so a replay cannot
-    be slot-exact. K0 uses the CONSERVATIVE layout: each name as ⌈count / stack size⌉ full stacks **plus one partial stack
-    for every name whose count is not a multiple of its stack size**, unstackables one each, capped at 36 slots. This can
-    only understate free slots and whole-stack transfers, so a pass is not bought by an invented consolidation.
+  - **Real slots, from the server (r6; Codex r5 P2, Claude r5 P3-3).** ES holds per-item COUNTS (`inventorySummary` sums
+    slots, state.mjs:8-13), and no layout rebuilt from counts is a bound (64 coal can be one stack or four of 16; r5's
+    "+1 partial per name" was neither a minimum nor a maximum). So K0 reads each bot's actual slots from the server with
+    the read-only RCON query `data get entity <bot> Inventory` (slot, id, count), the query `scripts/fleet-inventory.sh`
+    and `observe-fleet.py` already run (multi-packet RCON read handled there), sampled when the bot is inside the town
+    zone, ≥ 2 samples per bot over 24 h. A bot whose read fails or is truncated is UNKNOWN, never a pass. **Positive
+    control:** the read's slot count must match the `slots=a->b` the bot's own `town_deposit` / `room_order` rows logged
+    within 60 s of it (a reader that returned empty bags would fail this).
   - **The real planner, with the town's state installed:** the per-town stock readers (`STOCK_TOWN`, `STOCK_WELL`,
     `COBBLE_TOWN`; bankable.mjs ~105-154) loaded from that town's reconciled stock at the snapshot's time, or, where the
     stock is unknown, every target assumed AT its cap (the pessimistic side); destination capacity from the town census
@@ -660,11 +672,11 @@ the default policy reproduces today's plans on random bags).
   - **Two failure causes reported apart:** ROOM (the kit policy cannot reach 16 free) and KIT AVAILABILITY (no second
     pickaxe or axe in bag or town). e3 found a pickaxe at ≥ 40% in 68.6% of snapshots and an axe in 82.2%; a spare is
     rarer, and a well / compost / wear-out step cannot fix availability, so the two have different remedies.
-  - Pass: ≥ 50% of at-town bot-snapshots (circular 16 h / 12 v zone) reach 16 free slots under the conservative layout
-    AND ≥ 50% of town-hours have a complete kit available. If ROOM fails, the kit gains a well / compost / wear-out step
+  - Pass: ≥ 50% of the sampled at-town bags (circular 16 h / 12 v zone, real slots, UNKNOWN excluded from the numerator
+    and counted in the denominator) reach 16 free slots under the kit policy AND ≥ 50% of town-hours have a complete kit
+    available. If ROOM fails, the kit gains a well / compost / wear-out step
     inside it, re-replayed; if AVAILABILITY fails, the kit asks the toolkit job for a spare (stone pickaxes cost cobble and
-    sticks, which towns hold) before any canary. A slot-level telemetry field (the bag's real stacks on the town-deposit
-    row) is the later, exact version of K0.
+    sticks, which towns hold) before any canary.
 
 **`expedition_bank`** (phase `bank`; inside the town zone; ANY slot count):
 - The kit policy, minus the kit's own items: the haul's logs of every species, ores, raw metals and the scaffold above the
@@ -698,7 +710,8 @@ the default policy reproduces today's plans on random bags).
        fingerprints the movements (incl. `maxDropDown`, index.mjs ~849) and re-installs the fixed walking `moves` on any
        difference, and every movement wrapper restores the fixed `moves` in its `finally` (index.mjs ~639-795); only
        index.mjs may call `setMovements` (the dep-contract test). So index.mjs gains one accessor, `baseMovements()`,
-       which returns the trip profile while the bot's trip file is live and the fixed `moves` otherwise; `assertNav` and
+       which returns the trip profile while the bot's trip is in `out` through `contained` (never in `kit` or `bank`, so
+       walks to roofed town containers are not refused by the sky-light rule) and the fixed `moves` otherwise; `assertNav` and
        every wrapper's restore use it. The trip profile has its OWN exclusion arrays (the shaft design's T10 lesson:
        `exclusionAreasStep` is shared by reference otherwise).
     2. **The DESTINATION of every move is checked.** `getMoveDropDown` checks exclusions only on the cells beside the
@@ -706,13 +719,21 @@ the default policy reproduces today's plans on random bags).
        limit of y ≥ 9 still emitted a landing at y = 8). So the trip profile is a subclass whose `getNeighbors` drops any
        emitted move whose destination is more than 12 below the departure level or whose head cell has **sky light 0**
        (underground; sky light passes leaves, so forest floors stay open where the logs are), for every enabled move type.
-       `maxDropDown` = 3, and `infiniteLiquidDropdownDistance` (default true, movements.js ~108) = false, so a drop into
-       water is bounded like any drop.
+       `maxDropDown` = 3, and `infiniteLiquidDropdownDistance` (default true, movements.js ~108) = false. `getMoveDown`'s
+       liquid landings ignore that flag, so for water the bound is the destination filter's 12-below rule, not the drop
+       limit (Claude r5 P3-8). The wrappers that install their own profiles DURING a call (ascent, gather, water) get trip
+       variants carrying the same `getNeighbors` filter while a trip is live, and the `work` phase's gathers use a trip
+       copy of `gatherMoves` (canDig, but the same destination filter and `maxDropDown` 3) (Codex r5 P3-2, Claude r5 P3-7).
     3. **No descent outside the profile.** goto's float dig and the `rideFloorDown` last rung (skills.mjs ~600-720)
        descend without any Movements; both are OFF while a trip is live (their remedy on a trip is the return chain).
     4. **Pre-commit debt.** Every `path_update` the pathfinder emits (initial plan and each re-plan) is read before the bot
        moves on it: if the planned path's one-way descents (steps down of 2-3 blocks) plus the debt already taken would
-       exceed the budget, the trip stops the path (`setGoal(null)`) before the first such step and the leg is refused.
+       exceed the budget, the leg is refused before the first such step. **A `setGoal(null)` inside the listener does not
+       do it:** pathfinder index.js ~466-470 emits `path_update` and THEN assigns `path = results.path`, so the stop is
+       overwritten (Claude r5 probe: goal null, still moving, forward control on for 6 ticks). The veto is a deferred stop
+       (`queueMicrotask` → `haltPath`) plus a check before the first move, tested through the real pathfinder on initial
+       and partial-search updates. (The fleet's LAVA GUARD 1, index.mjs ~962, uses the same in-listener pattern; it is
+       flagged separately.)
   - **return debt** = the one-way descents taken; **budget** = the 64 scaffold carried − the **fixed emergency reserve** of
     32, so up to 32 blocks of one-way descent per trip; the pickaxes must keep uses ≥ 2 × debt + 20. Checked pre-commit (item
     4), at every leg end, and continuously during `work` (gathering spends scaffold and pickaxe uses): debt reaching the
@@ -760,7 +781,12 @@ the default policy reproduces today's plans on random bags).
 5. **Scaffold spent or pickaxe broken: the spare pickaxe and `surface` (r5; Codex r2 P1-1, Codex r3 P2-4, Claude r4
    P2-5).** A pickaxe digs stone, and dug stone drops cobble, which is scaffold; `surface` (home's existing repair) already
    climbs by digging a staircase up. So the escape needs only a working pickaxe, and the kit carries two. The trip order,
-   in `stranded`, equips the spare when the first is spent and re-arms step 3. It is an order, not advice, and it runs
+   in `stranded`, equips the spare when the first is spent and re-arms step 3. **`surface` aims at sea level and refuses
+   `already_surfaced` at y ≥ 63 (skills.mjs ~14565-14577), and surface trips strand mostly above 63**, so the trip calls
+   it with the existing internal `_toY` set to the LAST BREADCRUMB's level (as `mine` already does, skills.mjs ~11978).
+   Its no-route branch `shaftAscend` pillars with placed blocks and stops at "no scaffold blocks left" (~14300): the
+   scaffold stack, once partly spent, has room for the cobble the climb digs even in a 36/36 bag, and the 32-block
+   emergency reserve is that stack's floor. It is an order, not advice, and it runs
    through the trip's admission path (§6.2).
    - **When it cannot run:** both pickaxes spent (the uses line in §6.5 keeps them ≥ 2 × debt + 20, so this needs the
      line to fail), walls a stone pickaxe cannot break (obsidian, bedrock), or `surface` refusing from where the bot is →
@@ -789,8 +815,9 @@ the default policy reproduces today's plans on random bags).
   changes no phase.
 - X-P4: bag fills at the far end → `return` → a 36/36 return including a scaffold climb → `bank`.
 - X-P5: target region at the border margin → refused at selection, not on the way.
-- X-P6 (composed refusal chain): a bot below an irreversible 7-block drop, scaffold spent and the first pickaxe broken,
-  36/36 bag → it equips the spare, `surface` digs a staircase out, it returns. Variants: both pickaxes spent; walled in
+- X-P6 (composed refusal chain), **above y = 63**: a bot below an irreversible 7-block drop, scaffold down to its
+  reserve and the first pickaxe broken, 36/36 bag → it equips the spare, `surface` with `_toY` = the last breadcrumb's
+  level climbs out, it returns. Variants: both pickaxes spent; walled in
   obsidian → `contained`, the town sends no second bot, the overdue page fires; then a watchdog `home` that happens to
   succeed → `bank` (arrival from `contained`).
 - X-P6b: a mixed-material bag (mossy cobble, logs, dirt) whose cobble runs out mid-climb → the pickaxes are never placed or
@@ -941,9 +968,9 @@ walk); a bot stuck in a cart (dismount after 10 s without motion); rails picked 
 ## 9. Where it fits, and the overseer
 
 **In the owner's queue.** The owner's list this week stays as it is. After it:
-- homefix-01 takes the first free slot once built and approved (tier 2; a ≈ 9 h read, §5, + cool-off); it never holds the head. The
+- homefix-01 takes the first free slot once built and approved (tier 3; a ≈ 9 h read at 4 pools, ≈ 18 h at 2, §5); it never holds the head. The
   queue owner inserts it. **Tie-break with shaftuse-01** (also first-free-slot, TP O2): whichever is approved first; if
-  both are ready, homefix-01 first (tier 2, deterministic gates, and shaftuse-01's routing legs inherit its watchdog fix).
+  both are ready, homefix-01 first (deterministic gates, and shaftuse-01's routing legs inherit its watchdog fix).
 - expedition-01 goes **before pavilion-01**: the owner asked for expansion now, it is independent of the copper parts
   chain, and the town projects that follow need iron the expedition may bring. If the owner prefers the TP order intact,
   expedition-01 goes after crown-01 (X2).
@@ -964,7 +991,7 @@ walk); a bot stuck in a cart (dismount after 10 s without motion); rails picked 
 
 | # | decision | recommendation |
 |---|---|---|
-| **X1** | **Lift the owner's 09-30 rule ("no more stuck / drowning hunts; tripwires only") for homefix-01 only.** homefix-01 changes the stagnation watchdog and the runner fleet-wide: rescues are reserved and actually run (H2a turns on ≥ 7.6k level-1 random 45-70-block relocations a week that never started before), are not cut at 15 s (H2b), and interruptions stop counting as skill errors (H3, which also stops them feeding the auto-pause). Expected: longer rescues, rescues that actually run, reconnects kept for wedged skills; guarded by deaths after a rescue and strandings. Also: is a runner + watchdog change "tier 2: small fixes" (20 bots, KEEP at +180), or tier 3? | **yes**; tier 2 recommended because KEEP rests on deterministic gates G1-G4, not on an effect estimate; it is three measured defects in code that already runs ≈ 39k escalations a week, not a hunt |
+| **X1** | **Lift the owner's 09-30 rule ("no more stuck / drowning hunts; tripwires only") for homefix-01 only.** homefix-01 changes the stagnation watchdog and the runner fleet-wide (tier 3, §5): rescues are reserved and actually run (H2a turns on ≥ 7.6k level-1 random 45-70-block relocations a week that never started before), are not cut at 15 s (H2b), and interruptions stop counting as skill errors (H3, which also stops them feeding the auto-pause). Expected: longer rescues, rescues that actually run, reconnects kept for wedged skills; guarded by deaths after a rescue and strandings. It registers **tier 3**: gate v36 (installed 10-19 16:27Z) keeps tier 2 for +180 KEEPs on 4 pools, and homefix-01's slowest gate needs ≈ 9 h at 4 pools or ≈ 18 h at 2 (h13) | **yes, tier 3**; KEEP rests on deterministic gates G1-G4, not on an effect estimate; it is three measured defects in code that already runs ≈ 39k escalations a week, not a hunt |
 | **X9** | homefix-01 inserted into this week's list at the first free slot (never holding the head), as TP O2 did for shaftuse-01; tie-break with shaftuse-01: whichever is approved first, homefix-01 if both | **yes** |
 | **X10** | on a trip, the kit policy replaces the stockpile keeps in every planner layer (wood 64 → 0, cobble 64 and `COBBLE_RESERVE` → one 64-stack of scaffold, a spare pickaxe kept; all eight log species bankable), so the gather rungs will ask for wood and cobble back after a trip; the trip order outranks the milestone ladder and is exempt from admission while a trip is live | **yes**, subject to gate K0 (the kit's yield replayed with the real planner functions on a conservative layout; ≥ 50% of at-town bags reach 16 free slots and ≥ 50% of town-hours have a complete kit, reported apart) |
 | **X2** | expedition-01 before pavilion-01, or after crown-01 | **before pavilion-01** |
@@ -1158,4 +1185,35 @@ unwind tail past 20 s is 4.1%, which sets G4's `reserve_expired` bar at 8%.
 | X8 (Codex 7) | gathered-output primary is the stopping rule |
 | P3s | level-3 pathable branch and hard-stop stated; decline counter separate; 230 s |
 
-### Round 5 (r5): pending.
+### Round 5 (r5): Codex CHANGE (one P2), Claude CHANGE (two P2). **Both: ORDER AGREE, FIRST STEP AGREE** (third round running).
+
+**Codex r5:** RESOLVED: G3/G4 bars, the departure guard, the escape-log problem, admission, X8, and Claude's P2-2, P2-3,
+P2-5 to P2-7. **P2:** K0's "+1 partial stack per name" is not a bound (64 coal can be 1 stack or 4 of 16), so K0 could pass
+on the wrong bag. P3 for the build: a `setGoal(null)` in a `path_update` listener is overwritten (index.js ~446-470);
+wrapper profiles during a call; `surface` is not a guaranteed staircase (sea-level target, `shaftAscend` pillars);
+G2's formula D is 4, not 5; h11/h12 latency is a proxy.
+
+**Claude r5** (66 tool calls; probe `r5probe/pu.cjs` drives the real pathfinder 2.4.5): **P2-1:** gate v36 (installed
+16:27Z) keeps tier 2 for +180 KEEPs on exactly 4 pools and says long-read runs register tier 3; homefix-01 cannot KEEP at
++180 (P(G1) ≈ 2.4%), and tier-3 draws are often 2 pools (≈ 18 h); **P2-2:** `surface` refuses at y ≥ 63, so the escape
+cannot run where surface trips strand: call it with `_toY` = the last breadcrumb (as `mine` does). P3: the declined early
+exit would drop the decision row, `lessons.save` and milestone accounting; `roomOutcome` sits later; the pre-commit stop
+is overwritten (probe: still moving 6 ticks; LAVA GUARD 1 uses the same pattern); K0's layout is not a bound, and slot
+counts are already logged (`slots=a->b`); G2 from the arm's actual mix; G3's 165 s bound has no margin; the trip profile at
+town; `work` gathers use `gatherMoves`; liquid drops ignore the flag.
+
+**r6 takes in every r5 finding; none rejected.** New measurement `h13`: G1 on the H1 band (2, 3] has p = 224 / 240 =
+93.3%, so D = 2, decided by +540 at 4 pools with P 0.93 (by +1080 at 2 pools).
+
+| finding | r6 |
+|---|---|
+| tier under v36 (Claude P2-1) | §5, X1, §0.2, §9: homefix-01 registers TIER 3; reads planned to +540 at 4 pools and +1080 at 2 |
+| G1 power (Claude P2-1) | §5: G1 on the H1 band, D 2 (h13) |
+| escape above sea level (Claude P2-2, Codex P3) | §6.7: `surface` with `_toY` = the last breadcrumb; the partly spent scaffold stack takes dug cobble in a full bag; X-P6 above y = 63 |
+| K0 layout (Codex P2, Claude P3) | §6.3: real slots from the read-only RCON `data get entity <bot> Inventory` (as `fleet-inventory.sh` already does); a failed read is UNKNOWN; positive control against the logged `slots=a->b` |
+| pre-commit stop (Codex P3, Claude P3) | §6.5 item 4: a deferred stop + a pre-move check, tested on the real pathfinder; LAVA GUARD 1's same pattern flagged as its own task |
+| declined placement (Claude P3) | §2 item 2: skip only the handler block; the decision row, `lessons.save` and milestone accounting still run; `roomOutcome` gets the set |
+| G2 / G3 (Codex P3, Claude P3) | G2: formula D 4 + a floor of 5, recomputed from the arm's mix; G3: defect by mechanism (`window_from` before the rescue's start); proxy < 150 s |
+| profiles (Codex P3, Claude P3) | §6.5: the trip profile only in `out`..`contained`; wrapper and `work`-gather trip variants; liquid landings bounded by the 12-below filter only |
+
+### Round 6 (r6): pending.

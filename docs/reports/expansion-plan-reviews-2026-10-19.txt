@@ -1014,3 +1014,156 @@ VERDICT: CHANGE
 ORDER: AGREE
 FIRST STEP: AGREE
 
+
+======================== CODEX r5
+**CHANGE, for one remaining design issue: K0’s proposed inventory reconstruction is not conservative and can pass the expedition prerequisite incorrectly.** The order and first step remain sound. The other residuals belong in the mandatory build review.
+
+Read-only review completed; no files changed. Below, **D** refers to the [r5 plan](/Users/darrellmiller/Documents/code-minecraft-ai/.claude/worktrees/agent-a2c930ce357b5cb19/docs/reports/expansion-plan-2026-10-19.md), and **M** to its measurement companion. “Resolved” means resolved as a design, not implemented.
+
+**Each Codex round-4 finding**
+
+| Finding | Status | Evidence |
+|---|---|---|
+| 1. G3 excludes premature cancellations; G4 thresholds mischaracterized | **RESOLVED** | D:509–531 counts every stagnation cancellation of a started rescue regardless of duration, uses an actual pending tick for other exposure, and specifies delayed-handoff fixtures. G4 is explicitly an engineering threshold rather than the D formula. |
+| 2. K0 invents inventory layouts | **PARTIAL** | D:652–659 acknowledges count-only telemetry and adds stock/capacity inputs. However, “one extra partial stack” does not bound actual fragmentation. This remains P2 below. |
+| 3. Arrival reconciliation before departure | **RESOLVED** | D:579–584 adds persisted `departed`, suppresses arrival reconciliation until departure, and closes an outbound nondeparture after 15 minutes. Selection/restart-at-home tests are specified. |
+| 4. Aggregate scaffold reserve does not protect logs | **RESOLVED** | D:633–638 replaces protected escape logs with an unplaceable spare pickaxe. This removes the particular material-selection defect. The replacement recovery claim needs build-review correction below. |
+| 5. Landing exclusions and pre-commit debt | **PARTIAL** | D:704–719 specifies destination filtering, bounded liquid drops, and pre-commit debt. `getNeighbors` is a valid subclass hook, but the proposed `path_update` cancellation has a concrete execution-order problem. P3 below. |
+| 6. `rescue: true` does not bypass admission | **RESOLVED** | D:593–599 explicitly requires a **new** trip-id/live-file admission path covering cooldown, repeat rejection and failure bookkeeping. This matches the existing unconditional checks at `admission.mjs:575–583,754–756`. |
+| 7. X8 uses abandoned banked-output primary | **RESOLVED** | D:976 now uses gathered logs and ore per arm bot-hour, matching §6.10. |
+
+**Each Claude round-4 finding**
+
+| Finding | Status | Evidence |
+|---|---|---|
+| P2-1. Read duration and pooled G2 | **PARTIAL** | D:501–503 and §9 plan approximately nine hours and pool `home` with `surface`. X1 still says “KEEP at +180”; pooled D arithmetic also needs correction. Both are P3 below. |
+| P2-2. Legitimate `body_held` declines fail G4 | **RESOLVED** | D:510,518–523 excludes `body_held` and `runner_paused` from the rate bar, reports them separately, and reconciles terminal outcomes individually. The reservation-expiry threshold is explicitly engineering policy. |
+| P2-3. Declined outcomes reach additional handlers | **RESOLVED** | D:320–331 requires an early exit before all outcome handlers, a shared declined set extended by milestones, and separate handling inside `#escape`. The proposed location precedes wear-out at `cognitive.mjs:1219`, prune/smelt/plinth at `:1224–1230`, admission bookkeeping at `:1249,1255`, and room bookkeeping at `:1436`. `#escape` currently discards the result at `:461` and decides from displacement, validating its separate fix. |
+| P2-4. Trip profile overwritten; direct descents escape it | **PARTIAL** | D:697–712 correctly identifies `assertNav`, fixed wrapper restores, and direct descents. A new `baseMovements()` is a viable design seam; it does not exist today. Active wrapper profiles and the pre-commit cancellation need build verification below. |
+| P2-5. Reflexes consume escape logs | **RESOLVED** | The spare-pickaxe kit eliminates that resource-protection problem across pathfinder and reflex placement. The stronger assertion that existing `surface` supplies the required staircase is only partially supported. |
+| P2-6. K0 omits stock readers and mixes room with availability | **RESOLVED** | D:656–666 requires historical town readers or capped targets, destination capacity, and separate ROOM/KIT AVAILABILITY results and remedies. This resolves Claude’s specific finding; Codex’s layout objection remains. |
+| P2-7. Admission exemption nonexistent | **RESOLVED** | The exemption is now explicitly new code, with a real-controller repeated-return test. |
+| P3 bundle | **RESOLVED** | D:339–349 identifies the pathable-only reconnect branch, preserves the independent decline counter and states 230 seconds. D:720–723 requires cave-0/open-sky-15 controls. The never-unwinding test must exercise both pathability branches. |
+
+**P2 — K0 can still pass using fewer occupied slots than the actual bag.**
+
+D:653–655 reconstructs each name with packed stacks plus one extra partial stack and asserts that this “can only understate free slots.” That assertion is false.
+
+For example, **64 retained coal can occupy one stack of 64 or four stacks of 16**. Both produce the same telemetry. Because 64 is a multiple of the stack size, K0 reconstructs one stack and adds no partial stack. It overstates free space by three slots. With nineteen other occupied slots, the reconstructed bag has sixteen free slots and passes; the actual bag has thirteen and fails.
+
+This is supported by:
+
+- `state.mjs:8–13`: `inventorySummary()` merges all slots by item name.
+- `towndeposit.mjs:176–179`: transfer eligibility depends on individual whole-stack counts.
+- `towndeposit.mjs:202–212`: destination fitting consumes one empty container slot per transferred stack.
+
+**Required design correction:** make K0 use actual slot inventories, a proven worst-case bound over compatible layouts, or an explicitly implemented and replayed consolidation operation. Treat insufficient input as unknown rather than passing. E0/K0 remaining pre-expedition gates is appropriate; prescribing an unsound K0 predicate is the blocker.
+
+**P3 — Mandatory build-review items, not additional reasons to CHANGE**
+
+1. **`path_update` plus `setGoal(null)` is not sufficient cancellation.**  
+   In pathfinder `index.js:446–448` and `:467–470`, the event fires **before** `path = results.path`. A listener calling `setGoal(null)` clears the current path through `resetPath`, but the emitter then reinstalls the rejected result and reaches execution at `:479` without another goal check. The implementation must invalidate the pending result or provide an equivalent enforceable veto. Test initial and partial-search updates through the actual pathfinder.
+
+2. **Preserve trip constraints during wrappers, not only after them.**  
+   `baseMovements()` addresses restoration and `assertNav`’s fixed baseline (`index.mjs:848–866`). Ascent/gather/water wrappers also install their own profiles during execution. Build review must verify those active profiles retain the intended trip constraints. The subclass hook itself is sound: A* calls `this.movements.getNeighbors(node.data)` at `lib/astar.js:85`, and `Movements.getNeighbors()` collects all enabled movement generators at `:636–659`.
+
+3. **The spare pickaxe is useful, but existing `surface` is not a guaranteed staircase escape.**  
+   D:761–763 and X-P6 overstate current behavior. `surfaceClimb` defaults to sea level and refuses when already above it (`skills.mjs:14565–14576`). Its fallback is `shaftAscend`, which digs overhead and **pillars**, then refuses without scaffold (`:14299–14302`). A full bag may also prevent collecting a newly dug material. Specify the target height and executable climb in X-P6, including the full-bag case. The plan already explicitly accepts `surface` refusal as containment, so this is a build obligation rather than an additional owner-decision blocker.
+
+4. **Correct the gate arithmetic and retained timing text.**  
+   The h12 totals check out: `2,844 / 4,930 = 57.69%`, `3,660 / 91,313 = 4.01%`, and `958 / 23,234 = 4.12%`. However, the stated formula gives **G2 D = 4**, not 5: the probability of zero defects at four opportunities is 3.21%. Five is conservative but must be labeled an additional floor. G1 D=10 and G3’s historical-proxy D=8 are correct. Align X1’s “KEEP at +180” with the approximately nine-hour plan.
+
+5. **Keep h12’s unwind statistic labeled a proxy.**  
+   M:359–361 joins completion to the **nearest preceding** stagnation event, not necessarily the event that first interrupted the run. The arithmetic is valid; it does not establish a measured 4.12% reservation-expiry probability. An 8% engineering ceiling remains a permissible explicit choice.
+
+No P1 finding. Homefix-01 plus E0 remains the appropriate first step, subject to X1 and the required build reviews; expedition-01 should remain behind E0 and a corrected K0.
+
+VERDICT: CHANGE
+ORDER: AGREE
+FIRST STEP: AGREE
+tokens used
+76,448
+**CHANGE, for one remaining design issue: K0’s proposed inventory reconstruction is not conservative and can pass the expedition prerequisite incorrectly.** The order and first step remain sound. The other residuals belong in the mandatory build review.
+
+Read-only review completed; no files changed. Below, **D** refers to the [r5 plan](/Users/darrellmiller/Documents/code-minecraft-ai/.claude/worktrees/agent-a2c930ce357b5cb19/docs/reports/expansion-plan-2026-10-19.md), and **M** to its measurement companion. “Resolved” means resolved as a design, not implemented.
+
+**Each Codex round-4 finding**
+
+| Finding | Status | Evidence |
+|---|---|---|
+| 1. G3 excludes premature cancellations; G4 thresholds mischaracterized | **RESOLVED** | D:509–531 counts every stagnation cancellation of a started rescue regardless of duration, uses an actual pending tick for other exposure, and specifies delayed-handoff fixtures. G4 is explicitly an engineering threshold rather than the D formula. |
+| 2. K0 invents inventory layouts | **PARTIAL** | D:652–659 acknowledges count-only telemetry and adds stock/capacity inputs. However, “one extra partial stack” does not bound actual fragmentation. This remains P2 below. |
+| 3. Arrival reconciliation before departure | **RESOLVED** | D:579–584 adds persisted `departed`, suppresses arrival reconciliation until departure, and closes an outbound nondeparture after 15 minutes. Selection/restart-at-home tests are specified. |
+| 4. Aggregate scaffold reserve does not protect logs | **RESOLVED** | D:633–638 replaces protected escape logs with an unplaceable spare pickaxe. This removes the particular material-selection defect. The replacement recovery claim needs build-review correction below. |
+| 5. Landing exclusions and pre-commit debt | **PARTIAL** | D:704–719 specifies destination filtering, bounded liquid drops, and pre-commit debt. `getNeighbors` is a valid subclass hook, but the proposed `path_update` cancellation has a concrete execution-order problem. P3 below. |
+| 6. `rescue: true` does not bypass admission | **RESOLVED** | D:593–599 explicitly requires a **new** trip-id/live-file admission path covering cooldown, repeat rejection and failure bookkeeping. This matches the existing unconditional checks at `admission.mjs:575–583,754–756`. |
+| 7. X8 uses abandoned banked-output primary | **RESOLVED** | D:976 now uses gathered logs and ore per arm bot-hour, matching §6.10. |
+
+**Each Claude round-4 finding**
+
+| Finding | Status | Evidence |
+|---|---|---|
+| P2-1. Read duration and pooled G2 | **PARTIAL** | D:501–503 and §9 plan approximately nine hours and pool `home` with `surface`. X1 still says “KEEP at +180”; pooled D arithmetic also needs correction. Both are P3 below. |
+| P2-2. Legitimate `body_held` declines fail G4 | **RESOLVED** | D:510,518–523 excludes `body_held` and `runner_paused` from the rate bar, reports them separately, and reconciles terminal outcomes individually. The reservation-expiry threshold is explicitly engineering policy. |
+| P2-3. Declined outcomes reach additional handlers | **RESOLVED** | D:320–331 requires an early exit before all outcome handlers, a shared declined set extended by milestones, and separate handling inside `#escape`. The proposed location precedes wear-out at `cognitive.mjs:1219`, prune/smelt/plinth at `:1224–1230`, admission bookkeeping at `:1249,1255`, and room bookkeeping at `:1436`. `#escape` currently discards the result at `:461` and decides from displacement, validating its separate fix. |
+| P2-4. Trip profile overwritten; direct descents escape it | **PARTIAL** | D:697–712 correctly identifies `assertNav`, fixed wrapper restores, and direct descents. A new `baseMovements()` is a viable design seam; it does not exist today. Active wrapper profiles and the pre-commit cancellation need build verification below. |
+| P2-5. Reflexes consume escape logs | **RESOLVED** | The spare-pickaxe kit eliminates that resource-protection problem across pathfinder and reflex placement. The stronger assertion that existing `surface` supplies the required staircase is only partially supported. |
+| P2-6. K0 omits stock readers and mixes room with availability | **RESOLVED** | D:656–666 requires historical town readers or capped targets, destination capacity, and separate ROOM/KIT AVAILABILITY results and remedies. This resolves Claude’s specific finding; Codex’s layout objection remains. |
+| P2-7. Admission exemption nonexistent | **RESOLVED** | The exemption is now explicitly new code, with a real-controller repeated-return test. |
+| P3 bundle | **RESOLVED** | D:339–349 identifies the pathable-only reconnect branch, preserves the independent decline counter and states 230 seconds. D:720–723 requires cave-0/open-sky-15 controls. The never-unwinding test must exercise both pathability branches. |
+
+**P2 — K0 can still pass using fewer occupied slots than the actual bag.**
+
+D:653–655 reconstructs each name with packed stacks plus one extra partial stack and asserts that this “can only understate free slots.” That assertion is false.
+
+For example, **64 retained coal can occupy one stack of 64 or four stacks of 16**. Both produce the same telemetry. Because 64 is a multiple of the stack size, K0 reconstructs one stack and adds no partial stack. It overstates free space by three slots. With nineteen other occupied slots, the reconstructed bag has sixteen free slots and passes; the actual bag has thirteen and fails.
+
+This is supported by:
+
+- `state.mjs:8–13`: `inventorySummary()` merges all slots by item name.
+- `towndeposit.mjs:176–179`: transfer eligibility depends on individual whole-stack counts.
+- `towndeposit.mjs:202–212`: destination fitting consumes one empty container slot per transferred stack.
+
+**Required design correction:** make K0 use actual slot inventories, a proven worst-case bound over compatible layouts, or an explicitly implemented and replayed consolidation operation. Treat insufficient input as unknown rather than passing. E0/K0 remaining pre-expedition gates is appropriate; prescribing an unsound K0 predicate is the blocker.
+
+**P3 — Mandatory build-review items, not additional reasons to CHANGE**
+
+1. **`path_update` plus `setGoal(null)` is not sufficient cancellation.**  
+   In pathfinder `index.js:446–448` and `:467–470`, the event fires **before** `path = results.path`. A listener calling `setGoal(null)` clears the current path through `resetPath`, but the emitter then reinstalls the rejected result and reaches execution at `:479` without another goal check. The implementation must invalidate the pending result or provide an equivalent enforceable veto. Test initial and partial-search updates through the actual pathfinder.
+
+2. **Preserve trip constraints during wrappers, not only after them.**  
+   `baseMovements()` addresses restoration and `assertNav`’s fixed baseline (`index.mjs:848–866`). Ascent/gather/water wrappers also install their own profiles during execution. Build review must verify those active profiles retain the intended trip constraints. The subclass hook itself is sound: A* calls `this.movements.getNeighbors(node.data)` at `lib/astar.js:85`, and `Movements.getNeighbors()` collects all enabled movement generators at `:636–659`.
+
+3. **The spare pickaxe is useful, but existing `surface` is not a guaranteed staircase escape.**  
+   D:761–763 and X-P6 overstate current behavior. `surfaceClimb` defaults to sea level and refuses when already above it (`skills.mjs:14565–14576`). Its fallback is `shaftAscend`, which digs overhead and **pillars**, then refuses without scaffold (`:14299–14302`). A full bag may also prevent collecting a newly dug material. Specify the target height and executable climb in X-P6, including the full-bag case. The plan already explicitly accepts `surface` refusal as containment, so this is a build obligation rather than an additional owner-decision blocker.
+
+4. **Correct the gate arithmetic and retained timing text.**  
+   The h12 totals check out: `2,844 / 4,930 = 57.69%`, `3,660 / 91,313 = 4.01%`, and `958 / 23,234 = 4.12%`. However, the stated formula gives **G2 D = 4**, not 5: the probability of zero defects at four opportunities is 3.21%. Five is conservative but must be labeled an additional floor. G1 D=10 and G3’s historical-proxy D=8 are correct. Align X1’s “KEEP at +180” with the approximately nine-hour plan.
+
+5. **Keep h12’s unwind statistic labeled a proxy.**  
+   M:359–361 joins completion to the **nearest preceding** stagnation event, not necessarily the event that first interrupted the run. The arithmetic is valid; it does not establish a measured 4.12% reservation-expiry probability. An 8% engineering ceiling remains a permissible explicit choice.
+
+No P1 finding. Homefix-01 plus E0 remains the appropriate first step, subject to X1 and the required build reviews; expedition-01 should remain behind E0 and a corrected K0.
+
+VERDICT: CHANGE
+ORDER: AGREE
+FIRST STEP: AGREE
+
+======================== CLAUDE r5
+(Independent Claude subagent, round 5; read-only at 21d72b54; did not open codex-r5.out; one probe on a scratch copy: scratchpad/r5probe/pu.cjs drives the real mineflayer-pathfinder 2.4.5 with a stub bot.)
+
+Verdict CHANGE. One finding changes an owner decision: X1 recommends tier 2, but gate v36 installed at 16:27Z expects long-read runs like homefix-01 to register tier 3. ORDER and FIRST STEP unaffected.
+
+1. Round-4 findings. Codex r4: 1 G3/G4 RESOLVED (G4 8% = 2 x 958/23,234 = 4.12%); 2 K0 layout PARTIAL (readers, capacity, ROOM vs AVAILABILITY resolved; the "conservative" layout is not a bound, P3-3); 3 departure guard RESOLVED; 4 escape logs PARTIAL (the spare pickaxe removes the log problem but the remedy cannot run above sea level, P2-2); 5 landings/pre-commit PARTIAL (verified: getMoveDropDown/getMoveDown emit landings without the exclusion, movements.js:475-520; infiniteLiquidDropdownDistance default true :107; A* calls this.movements.getNeighbors, astar.js:85, so a subclass hook works; installShoreEgress patches only getBlock as an own property, so a subclass getNeighbors survives the Object.assign copies; the pre-commit stop does not stop the bot, P3-2); 6 admission RESOLVED as design (cooldown admission.mjs:575-583 and repeat_loop :754-756 unconditional; rescue: true only touches lessons, lessons.mjs:217, 503); 7 X8 RESOLVED.
+Claude r4: P2-1 read length PARTIAL (planned at +540 but assumes 20 bots and the 12:45Z tier-2 description, not v36 as installed, P2-1); P2-2 RESOLVED; P2-3 PARTIAL (single set and #escape check right; the "one check at ~1215" placement is wrong, P3-1; runner.run at cognitive.mjs:1214, handlers 1216-1230, noteFailure 1249/1255); P2-4 RESOLVED as design (assertNav index.mjs:854-866 compares against a startup fingerprint; wrappers restore moves 639-795; baseMovements() must feed both); P2-5 PARTIAL; P2-6 RESOLVED; P2-7 RESOLVED; P3s RESOLVED (block.skyLight set in prismarine-chunk ChunkColumn.js:118).
+Other claims checked correct: #escape decides from displacement (cognitive.mjs:461-470); isBusy at :826; RUNNER_REFUSALS milestones.mjs:51 with three extra classes; the arb.acquire gap (runner.mjs:190-203); goto arrival max(range,3), VERT 6 (~826); h12 arithmetic 2,844/4,930 = 57.69%, 3,660/91,313 = 4.01%, 406 a day; G1 D=10 (3.8%), G3 D=8 (3.6%); Poisson(9.6) >= 10 ~47%, Poisson(14.3) >= 10 ~90%; 45.9%, 22.7%, the death table, 82-87% iron, 230 s.
+
+2. New findings.
+P2-1 (drives the verdict): X1's tier-2 recommendation does not match v36 as installed (canary-tiers-2026-10-19.md at 63af7525; STATE 16:27Z): a tier-2 KEEP at +180 needs exactly 4 pools, exposure met, no WATCH/HOLD, canary death rate <= control, a clean baseline; a later tier-2 KEEP needs a clean baseline; "runs needing long reads should register tier 3". homefix-01 cannot KEEP at +180: P(Poisson(4.78) >= 10) ~2.4%. Draws take min(4, eligible) pools; recent tier-3 canaries drew 2; at 10 bots P(G1 decided by +540) ~19%, ~90% takes ~+1080. Fix: re-pose X1 (tier 3, or tier 2 accepting no +180 KEEP); state the arm size; restate ~9 h as ~9 h at 20 bots and ~18 h at 10 (in §0, §5, §9); optionally a sharper G1 opportunity: rows ending in the H1 band (> 2, <= 3).
+P2-2 (expedition-01 design): the spare-pickaxe escape through surface cannot run where expedition bots get stranded: surface aims only at sea level and refuses already_surfaced at y >= 63 (skills.mjs:14565-14577); home calls it only below sea level (~2600); surface trips strand mostly above 63, so §6.7 steps 3 and 5 and X-P6's 7-block drop dead-end at the refusal (CLAUDE.md "executable from here"). Its no-route branch shaftAscend pillars with placed blocks and stops at "no scaffold blocks left" (~14300). Fix: call surface with the internal _toY = the last breadcrumb's y (mine does, skills.mjs:11978); keep one slot or a partial scaffold stack free for the climb; put X-P6 above y=63.
+P3 (build reviews): 1 declined placement: roomOutcome runs at ~1436 after the outcome block and backs off on any failed; an early return at ~1215 would drop the decision row, lessons.save and milestone accounting (~1460): exit only the handler block and add the declined set to roomOutcome. 2 the pre-commit stop does not stop the bot: pathfinder index.js:466-468 emits path_update then runs path = results.path; a setGoal(null) inside the listener is overwritten (probe: goal null, isMoving true, forward control on for 6 ticks, same as control); use a deferred stop (queueMicrotask), test through the real pathfinder; LAVA GUARD 1 (index.mjs ~962) uses the same pattern, covered only by a regex test (lava-guards-wired.test.mjs), works today only because callers reset the goal straight away: worth its own fix. 3 K0's layout is not a bound (several partial stacks of one item possible); real slot counts are logged next to snapshots (town_deposit and room_order slots=a->b, composter): calibrate as K0's positive control. 4 G2: formula D=4 (5 stricter); compute P(0) from the arm's actual skill mix (an all-home arm at D=5 gives 35.7%); expected ~22 per 3 h, not 16. 5 G3's 165 s bound has almost no margin (window span >= 162 s at 15 s ticks): define by mechanism (a pre-start sample in the window) or < 150 s. 6 trip profile at town: sky-light 0 could refuse walks to roofed town containers in kit/bank: scope to out..contained or exempt the town zone. 7 work-phase gathers use gatherMoves (canDig, maxDropDown 6), not the trip profile. 8 getMoveDown's liquid landings ignore infiniteLiquidDropdownDistance; only the 12-below filter bounds them.
+
+VERDICT: CHANGE
+ORDER: AGREE
+FIRST STEP: AGREE
+
