@@ -74,6 +74,29 @@ Known edge (Claude r1 P3): a plant or door standing on a dirt/grass lid pops whe
 are AT TOWN (the deposit and the well run there already); a roaming trigger is a separate behaviour with its own
 travel/death risk and its own read.
 
+## 2b. PART 2 — coal and iron get banked in town (owner scope addition, 10-19 ~14:10Z)
+
+**The cause:** `townKeeps` kept every unit of `IRON_LADDER` (raw/ingot/nugget/ore, coal, charcoal) for good, so the town
+deposit never banked any (coordinator, 24 h: 484 town smelt jobs stopped "no coal in town", a townmate carrying coal at
+69%; 253 toolkit "no iron" refusals, a townmate carrying >= 3 ingots at 77%).
+**The bags (10-19, 80 latest snapshots):** coal 89 (23 bots), raw iron 26 (14 bots), ingots 124 — **1 to 3 per bot, 34 bots
+at exactly 3, never more**; 79 hold a bucket, 21 a usable iron pickaxe.
+**The rule (towndeposit.mjs `ironKeeps`, pure):** keep 3 iron units for EACH iron craft the bag has not made (bucket, iron
+pickaxe; counted as their rungs count them), never fewer than 3 (the gather rung's number) — r4, Claude r3 P1-1: a flat 3
+banked the raw iron of a bot lacking both, which then crafted the bucket and went back underground for the pickaxe's iron.
+Ingots first, then raw iron, then ore, each NAME whole (the town deposit moves whole stacks only). Coal/charcoal (the
+first name, whole) stay while the bot keeps something of its OWN to smelt: the raw iron/ore kept, or the active rung's
+wanted smelt (glass -> sand; never wood) — r4, Codex r3 P2: 8 sand for wanted glass had lost all its coal. The kept wood
+is not counted as the alternative fuel (it is the stockpile rungs'). Everything else banks. Away from town the room
+order still keeps 16 coal (a different exit); a raw-iron smelt with no coal may burn a few kept planks, as before.
+**What it moves (r4 rule, 10-19 ~14:40Z snapshot):** coal 93 held -> 89 bankable (22 bots); raw iron 25 -> 21 (11 bots);
+**no ingot** — every ingot in a bag today is that bot's next craft (79 of 80 hold a bucket, so their 1-3 ingots are the
+pickaxe's), so the towns' ingot shortage cannot be met from bags without starving a rung; banked raw iron reaches the
+toolkits through the town smelt jobs. (A bot holding both still keeps 3, or the gather rung re-opens and sends it mining:
+a ladder decision, not this one.) Nuggets and charcoal are not on the bank's list (bankable.mjs). Exposure: the canary
+pool must hold bots carrying coal or raw iron (22 and 11 of 80 bots, spread across pools) — reported, not drawn on.
+**Not a setting:** the keep is new logic (whole names, ordering, the smelt condition), not a number.
+
 ## 3. Evidence
 
 - `npm test` (runner) — see the commit; `cobblekeep.test.mjs` 17 (pure rules, count_town chains on dirt/grass/leaves/
@@ -95,6 +118,14 @@ travel/death risk and its own read.
     (30 + 34x64 + a pickaxe). BASE: counted 984, then 240 s idle at 36/36, no dispose, shaft 0. CANDIDATE: counted 984,
     `dispose_well -> success` 36 -> 27 slots, `_well_dispose cobble=576 cap=at_cap`, shaft census 576 in / 0 out, chest
     984 unchanged, bag 1,630 cobble left.
+- Coal/iron (add98da8): towndeposit.test.mjs pure keep table (+ the gather rung never un-done); the REAL town deposit,
+  positive (3 ingots / 5 raw / 7 coal -> raw and coal banked, ingots stay) and negative (1 / 2 / 4 -> none of it moves,
+  the logs do); an anchored mutant restoring the old keep; the PROPERTY test (400 random full bags) green. Paper
+  sandbox3 `ironbank` 14:00Z (add98da8): BASE no town deposit at all, nothing banked; CANDIDATE `banked coal:7,raw_iron:5`,
+  chest raw_iron 5 / coal 7 by RCON, bag keeps 3 ingots. r4: the scene's bag now holds a bucket (one craft left), re-run below.
+- r4 tests: the IRON SEQUENCE through the real town deposit (no bucket, no pickaxe: deposit, craft the bucket, deposit
+  -> the pickaxe's 5 raw iron and 7 coal still in the bag; gather/smelt/pickaxe means intact) + anchored mutant (flat 3);
+  the FUEL CHAIN (wanted glass keeps its coal for 8 sand; a rung that smelts nothing banks it).
 - Read `scripts/host/cobblekeepread.py` (`--selftest` passes; dry run 10-19 on the base fleet, placebo-b,hive-a as a
   pretend canary, 180 min, 370,476 rows: bag cobble DiD -7.5 on identical code, refusal DiDs +0.28 / +0.14 /bot-h,
   instrument ok, exposure READY 88, licence 0, control rows 0).

@@ -5,7 +5,7 @@
  "ladder_change": false,
  "promotion": "fleet-wide",
  "class": "bag-fix",
- "notes": "[cobblekeep-01 on adbec4f4 (the fleet after plinthfirst-01; use ONLY if the fleet is adbec4f4): branch cobblekeep-on-adbec4f] WHY BOTS KEEP THEIR COBBLE (OWNER 10-19 ~12:15Z 'yes do that'). Measured 10-19 (ES 24 h, docs/reports/cobblekeep-01-cause-2026-10-19.md): 609 of 613 town deposits refused the bag's cobble -- 446 cobble_unknown (a town container never counted: _lid_clear lid=dirt 3,774 / oak_leaves 422 of 4,200 refusals in 60 h; every UNKNOWN town's stale key is a refused lid) and 163 cobble_cap -- while the well threw cobble on 33 of 232 visits (9,738), only when the 1 h floor held the cap (floor/lb 0-98%; towns at 999/981 can take no whole stack). Bags 91% full, ~420 cobble per bot. THE CHANGE: (1) lidrule.mjs LID_BREAKABLE + dirt, grass_block; (2) chestLidBlocked: leaves and glass (LID_OPENS, both measured on Paper) are no lid -- the bot opens; other never-conductors stay lids; (3) cobblecap.mjs wellCobbleSwitch: the well also throws a stack the bank's own admission refuses at the cap on COUNTED stock (6 h counts, the smaller of equal captures, less takes, NO incoming reservation), AT TOWN ONLY (the room order's guess from afar stays floor-only: no new trip home); a withdraw hold on cobble keeps it. Reserves unchanged (64; the exit contract needs 59). Paper sandbox3 10-19: liddirt/lidleaves/cobbleband base vs candidate (report section 3). BEHAVIOUR change: canary. CLASS bag-fix (decided explicitly, Claude r2 P3-2): it empties full bags of cobble at town, which frees slots for more mining -- the exposure the owner's 10-07 rule names; mechanism-linked rows are _lid_clear and _well_dispose. The coordinator may set class '' for the ordinary gate (1 pool, two-death floor).",
+ "notes": "[cobblekeep-01 on adbec4f4 (the fleet after plinthfirst-01; use ONLY if the fleet is adbec4f4): branch cobblekeep-on-adbec4f] WHY BOTS KEEP THEIR COBBLE (OWNER 10-19 ~12:15Z 'yes do that'). Measured 10-19 (ES 24 h, docs/reports/cobblekeep-01-cause-2026-10-19.md): 609 of 613 town deposits refused the bag's cobble -- 446 cobble_unknown (a town container never counted: _lid_clear lid=dirt 3,774 / oak_leaves 422 of 4,200 refusals in 60 h; every UNKNOWN town's stale key is a refused lid) and 163 cobble_cap -- while the well threw cobble on 33 of 232 visits (9,738), only when the 1 h floor held the cap (floor/lb 0-98%; towns at 999/981 can take no whole stack). Bags 91% full, ~420 cobble per bot. THE CHANGE: (1) lidrule.mjs LID_BREAKABLE + dirt, grass_block; (2) chestLidBlocked: leaves and glass (LID_OPENS, both measured on Paper) are no lid -- the bot opens; other never-conductors stay lids; (3) cobblecap.mjs wellCobbleSwitch: the well also throws a stack the bank's own admission refuses at the cap on COUNTED stock (6 h counts, the smaller of equal captures, less takes, NO incoming reservation), AT TOWN ONLY (the room order's guess from afar stays floor-only: no new trip home); a withdraw hold on cobble keeps it. Reserves unchanged (64; the exit contract needs 59). Paper sandbox3 10-19: liddirt/lidleaves/cobbleband base vs candidate (report section 3). BEHAVIOUR change: canary. CLASS bag-fix (decided explicitly, Claude r2 P3-2): it empties full bags of cobble at town, which frees slots for more mining -- the exposure the owner's 10-07 rule names; mechanism-linked rows are _lid_clear and _well_dispose. The coordinator may set class '' for the ordinary gate (1 pool, two-death floor). PART 2, COAL AND IRON (owner scope addition 10-19 ~14:10Z, 'coal and iron must get banked in town'): towndeposit.mjs ironKeeps replaces the keep-everything IRON_LADDER floor: 3 iron units per iron craft not yet made (bucket, iron pickaxe; never fewer than 3), ingots first, then raw, then ore, each name whole; coal/charcoal whole while the bot keeps raw iron/ore or a wanted smelt input of its own. 10-19 bags: coal 89, raw iron 26, ingots 124 (max 3 per bot); the keep frees 85 coal (22 bots) and 21 raw iron (11 bots), no ingot. Paper ironbank: base banks nothing, candidate banks coal:7,raw_iron:5 and keeps 3 ingots.",
  "lint": "FILL: eslint no-undef on the tip -- expected exactly one hit, the pre-existing reflex.mjs:2384 withinBody.",
  "licence": {
   "class": "kind",
@@ -37,7 +37,7 @@
     "min": 5
    }
   ],
-  "note": "MEASURED 10-19 (ES 24 h): town-deposit cobble refusals in EVERY shared pool (board-a 62, hive-c 88, placebo-b 125, placebo-c 88 unknown; board-b 11, board-c 31, board-d 11, hive-a 26, hive-b 10, hive-d 14, placebo-a 10, placebo-d 14 at the cap). A pool with a dirt/leaves lid (board-a, hive-c, placebo-b, placebo-c, placebo-d) exercises rules 1-2; every pool exercises rule 3. CLAUDE.md: the canary pool must contain the population. NO draw_require_pools key."
+  "note": "MEASURED 10-19 (ES 24 h): town-deposit cobble refusals in EVERY shared pool (board-a 62, hive-c 88, placebo-b 125, placebo-c 88 unknown; board-b 11, board-c 31, board-d 11, hive-a 26, hive-b 10, hive-d 14, placebo-a 10, placebo-d 14 at the cap). A pool with a dirt/leaves lid (board-a, hive-c, placebo-b, placebo-c, placebo-d) exercises rules 1-2; every pool exercises rule 3. CLAUDE.md: the canary pool must contain the population. NO draw_require_pools key. COAL/IRON half: no draw requirement; 22 of 80 bots carry bankable coal and 11 raw iron (10-19), spread across pools -- the read reports banked coal/iron and the owner's targets as DiD."
  },
  "exposure": {
   "read": "cobblekeepread",
@@ -63,6 +63,15 @@
    "on_fail": "REVERT",
    "evidence": "defect",
    "note": "D2: a canary well cobble throw whose row says cobble_left < 64 (the escape reserve)."
+  },
+  {
+   "read": "cobblekeepread",
+   "field": "breach_ingot_banked",
+   "op": "<=",
+   "value": 0,
+   "on_fail": "REVERT",
+   "evidence": "defect",
+   "note": "D4: a canary _town_deposit that banked iron_ingot -- the keep holds every ingot (the next iron craft)."
   },
   {
    "read": "cobblekeepread",
@@ -92,7 +101,7 @@
  "primary": {
   "read": "cobblekeepread",
   "field": "bag_cobble_did",
-  "note": "REPORTED, NOT GATED: bag cobble per bot DiD (should FALL; null on identical code -7.5), share of bots >= 34 slots DiD (estimated slots), town-deposit cobble refusals per bot-h DiD (unknown, cap; null +0.28 / +0.14), well cobble thrown per bot-h DiD (should RISE), count_town lid_blocked DiD (should FALL), refused lid blocks by name. A REVERT never rests on these."
+  "note": "REPORTED, NOT GATED: bag cobble per bot DiD (should FALL; null on identical code -7.5), share of bots >= 34 slots DiD (estimated slots), town-deposit cobble refusals per bot-h DiD (unknown, cap; null +0.28 / +0.14), well cobble thrown per bot-h DiD (should RISE), count_town lid_blocked DiD (should FALL), refused lid blocks by name. A REVERT never rests on these. COAL/IRON (reported): coal and raw iron/ore banked by the town deposit per bot-h DiD (should RISE)."
  },
  "harm": {
   "note": "Unchanged: the two-death floor (OWNER 2026-09-11) and gather_ratio < 0.43 of control, from immobiledid. TRIPWIRE (reported): reserve stone < 64 within 10 min after a canary well cobble throw."
