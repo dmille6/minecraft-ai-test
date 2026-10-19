@@ -1,0 +1,41 @@
+{
+ "run": "toolkit-03",
+ "after": [
+  "treefarm-02"
+ ],
+ "class": "",
+ "hold": null,
+ "not_before": null,
+ "note": "NEW (OWNER 10-19 ~12:15Z 'yes do that': toolkit uses the search-every-chest code; normal canary, queued after treefarm-02; the coordinator added the smelt job's draw as the same search change). The kit's iron draw and the smelt job's copper/coal draw run withdraw_pick's town search (every town container, nearest the bot, resumable misses, budgeted, the order gates on the same rule); 521 no_iron/24 h with 2,343 ingots in town, 516 no_fuel/24 h. Read ~/mcai-analysis/kitsearchread.py (NEW; copy scripts/host/kitsearchread.py from the variant's branch; md5 below) + toolkitread + smeltjobread (their DEFECT lines only: both builds are fleet-wide, so their arms lines are not used) + immobiledid. Install the drawn variant's registration as ~/mcai-analysis/registrations/toolkit-03.json. Record: docs/reports/toolkit-03-record-2026-10-19.txt. Branches tk3-on-adbec4f, tk3-on-0b3a0d4 (fetch origin in the scheduler's git first). Both engines APPROVE (Claude r5 + final check on 28dc1158, Codex r6 on 6471f8e3; 28dc1158 adds comments only). NOT APPLIED -- a reviewer adds it with `queue add` after approval.",
+ "variants": {
+  "adbec4f4cbd0dd08e33671d37868e06259ac72f7": {
+   "registration": "/home/mike/mcai-analysis/toolkit-03.28dc1158.json",
+   "approved": "toolkit-03 agent 2026-10-19: tk3-on-adbec4f @ 28dc1158 on the fleet adbec4f4. Codex r6 APPROVE (6471f8e3) + Claude subagent r5 APPROVE (2c116834) and final APPROVE (28dc1158; the delta after 6471f8e3 is comments). npm test 269/269 on 2c116834 (later commits: the read + comments); kitsearch 25/25 (13 mutants), smeltsearch 14/14 (9 mutants); eslint no-undef only reflex.mjs:2384 withinBody. PAPER sandbox3 10-19 13:15-13:27Z, server read-back: kitsearch base no_iron after 3 / candidate crafted from the far chest (20 -> 16 ingots, axe + shovel in the bag, licence 1); smeltcoal base no_fuel / candidate done, 8 ingots banked, far coal 4 -> 3. licencecheck (_toolkit_search_mode) and changerowcheck (kit_search) PASS 10-19; drawexposure: board-a, hive-a, hive-b, placebo-a eligible. NO draw_require_pools key. USE if the fleet is adbec4f4 (treefarm-02 NOT kept). ORDINARY canary.",
+   "canary_sha": "28dc115841ef6d1a3e90c02a78f5dd887653c723",
+   "branch": "tk3-on-adbec4f",
+   "reads_src": "/home/mike/mcai-analysis",
+   "reads": {
+    "kitsearchread": "3affdb8ea1883914a91a1a9b92e32e47",
+    "toolkitread": "53b0925653bf2584c77ecc96e20c7a14",
+    "smeltjobread": "c2345e995be2341e3ad0c8a3317f49a7",
+    "immobiledid": "53af289df12208901931dbeeb1ae325a"
+   },
+   "registration_sha256": "5c1bded0743a28c8fa58ae54434a7007624c613a13973e54c2d938e4d8576dcf (docs/reports/toolkit-03.registration-adbec4f4.json as committed)"
+  },
+  "0b3a0d4c5ab9fad14c793cebba91b0b06b7a6a23": {
+   "registration": "/home/mike/mcai-analysis/toolkit-03.132694cb.json",
+   "approved": "toolkit-03 agent 2026-10-19: tk3-on-0b3a0d4 @ 132694cb = the adbec4f4 variant's 7 commits cherry-picked onto treefarm-02's canary sha 0b3a0d4c (origin/tf-on-adbec4f) with NO conflict; the change is byte-identical (diff of +/- lines compared). eslint no-undef only reflex.mjs:2384 withinBody; npm test 274/274 on 132694cb. The reviews and Paper of the adbec4f4 variant stand (no conflict, so no new review). USE ONLY if treefarm-02 is KEPT and promoted (the fleet is then 0b3a0d4c). ORDINARY canary.",
+   "canary_sha": "132694cb1bf954184c43a1644819ae1f7c083baf",
+   "branch": "tk3-on-0b3a0d4",
+   "reads_src": "/home/mike/mcai-analysis",
+   "reads": {
+    "kitsearchread": "3affdb8ea1883914a91a1a9b92e32e47",
+    "toolkitread": "53b0925653bf2584c77ecc96e20c7a14",
+    "smeltjobread": "c2345e995be2341e3ad0c8a3317f49a7",
+    "immobiledid": "53af289df12208901931dbeeb1ae325a"
+   },
+   "registration_sha256": "1baf6c4887dd7ffc067fb1957e95979f2be64bbc7beb189749e3b6ccf39ee8c8 (docs/reports/toolkit-03.registration-0b3a0d4c.json as committed)"
+  }
+ },
+ "kitsearchread_md5": "3affdb8ea1883914a91a1a9b92e32e47"
+}

@@ -1,0 +1,113 @@
+TOOLKIT-03 -- the kit's iron draw and the smelt job's draw on withdraw_pick's town search (record, 2026-10-19)
+=====================================================================================================================
+Owner 10-19 ~12:15Z "yes do that": toolkit uses the search-every-chest code; a normal canary, queued after treefarm-02.
+The coordinator (10-19) added the smelt job's copper/coal draw as the same search change.
+Branch tk3-on-adbec4f (base adbec4f4 = the fleet): 5b72977d r1, c458e9dd r2 (+ smelt scope), 2c6e87c2 r3, 2d8e8377 r4,
+2c116834 r5, 6471f8e3 r6 (read), 28dc1158 r7 (comments) = THE CANARY SHA on adbec4f4.
+
+1. CAUSE, WITH NUMBERS
+-----------------------
+Kit (ES on 10.0.0.31, scripts/lib/estelemetry.py, 24 h to 10-19 ~12:40Z, 80 bots; caveats: one rotation crossed):
+  _toolkit kit outcomes: no_iron 521, crafted 157, craft_failed 18, aborted 12, short 10, no_sticks 1 (denominator 719
+  attempts; 609 more _toolkit rows are phase=mode / wear). Every tried= list that survives the 300-char cut has <= 3
+  containers (the WITHDRAW_CONTAINERS cap), 238 adjacent-cell pairs among them (single chests side by side, or a double
+  chest's halves).
+Census (read-only RCON 10.0.0.30 ~/chestclear3/census-status-20261019T1205Z.json): 2,343 ingots in all containers,
+  2,201 in town containers (16 of home, 12 vertical). Per town: 11-32 containers, 2-11 of them hold >= 8 ingots (a kit's
+  4 + TOWN_IRON_KEEP 4). The nearest kit-sized holder by home distance (the base's sweep order) ranks 1st-11th, median 7th.
+  Towns where it is within the first 4 (board-b, board-d, hive-c, hive-d, placebo-a, placebo-b, placebo-d): 44 no_iron
+  in 24 h. Towns where it is 7th or later (board-a, board-c, hive-a, hive-b, isolated-a..d, placebo-c): 475.
+  (Per-pool no_iron, second query: board-a 64, isolated-b 83, placebo-c 70, isolated-a 66, isolated-d 55, isolated-c 53,
+  hive-b 46, placebo-a 39, hive-a 24, board-c 14, board-d 4, board-b 1, hive-c/hive-d/placebo-b/placebo-d 0.)
+Smelt (coordinator's analysis agent, 10-19): 516 jobs/24 h stopped no_fuel, 489 of them after taking 8 raw copper from
+  town; smelting 4,588 -> 681 ingots/day. Same 24 h (my query): _smelt_town stops town_has_none 943, no_fuel 514,
+  interrupted 179, done 96. Census: raw copper 7,798 in town containers; coal 3,881. The nearest copper holder ranks
+  1st-29th by home distance; in 6 towns it is beyond the 3-container cap; 3 towns hold none.
+  Two causes in jobWithdraw: the 3-container cap, and the coal looked for over the COPPER miss's container list.
+Base contrast in the fake world (adbec4f4's skills.mjs on the same scenes, not committed): far-chest kit no_iron after 3
+  opens; a walled double chest nearest home spends 2 of the 3 walks; coal in a copper-missed container -> no_fuel; coal 9th
+  of 9 -> no_fuel; a shut container keeps townCopperMiss false -> town_has_none opening nothing.
+
+2. DESIGN
+---------
+Kit (skills.mjs toolkit; toolkit.mjs pure):
+- The draw is townSearchNext/townSearchView/townSearchOrder (townsearch-01/02): every town container, nearest the bot (no
+  journal group counts iron), each once per run (one key per double chest), re-ranked after every visit, at most
+  KIT_SEARCH_VISITS 12, never inside KIT_CRAFT_RESERVE_MS 60 s of the clock; a visit that could not look inside leaves this
+  bot's search 30 min (searchFailSkip, shared with withdraw_pick).
+- kitTakes judges the iron before the sticks. A container short of iron is a miss PER DRAW SIZE (kit_iron for 4, kit_iron_<n>
+  below; seen holding h -> a miss for every n with n + 4 > h), 60 min, ended by any deposit. A holder that lacked only the
+  sticks the bag cannot make is held back from this bot's search 60 min (bot.kitNoSticks).
+- Outcomes (kitSearchEnd): candidates left + progress -> `more` (no backoff, at most KIT_MORE_MAX 3 in a row); left without
+  progress -> `stalled`; exhausted but the town not wholly in view -> `unseen`; else no_sticks (remedy named) / no_iron.
+- The order's gate townKitIronMiss = townSearchEmpty over THIS bot's draw size, with its no-stick hold-back: the same rule.
+- Rows: `_toolkit` kit rows carry town= cand= visits= vfail= maxrep= left= after credit=; NEW `_kit_search` (one per searched
+  run, written when the search ends, duration = its walks: the change row); NEW `_toolkit_search_mode` licence per spawn.
+Smelt (skills.mjs jobWithdraw/smeltTown; smeltjob.mjs pure):
+- A copper pass (its own 2 h miss, 12 visits, ends 125 s before the clock), then with copper in hand a COAL pass, coal its
+  own need with its own 2 h miss `_coal_miss` (never skipped for lacking copper; 16 visits; ends 115 s before the clock).
+  Both facts noted for every opened container. No coal anywhere in view -> no copper taken (no_fuel at once).
+- townCopperMiss = townSearchEmpty(raw_copper, 2 h).
+- search_more (a pass cut with candidates left, with progress) and smelt_late (the smelt would start with < 95 s): no strike,
+  at most 3 in a row; ONE dry-job bound across reasons -- SMELT_DRY_MAX 12 jobs ending search_more | search_stalled |
+  no_fuel | smelt_late since the last success pause the job 6 h. The 6-no_fuel pause stands. The job still never burns the
+  bag's own fuel.
+- smelt() takes opts.deadline (smelt_town passes the skill's deadline less a 20 s bank reserve); the iron rung's smelt
+  passes none and is unchanged.
+- townSearchOrder takes missTtl as { need: ms } (missTtlOf); townContainerKeys is deleted (no callers).
+NOT CHANGED: the model's withdraw verb (withdrawSweep), withdraw_pick's own search, deposits/reserves (another agent's area).
+
+3. VERDICTS
+-----------
+Claude subagent: r1 CHANGES (stickless more-loop P1; uncapped more; read gaps) -> r2 CHANGES (smelt churn uncapped; smelt
+  deadline; read relabelling) -> r3 CHANGES (capped churn never ends; D4 blind) -> r4 APPROVE WITH CHANGES (a stray committed
+  mutant file) -> r5 APPROVE (2c116834; churn and every mixed sequence pause within 12) -> final APPROVE on 28dc1158.
+Codex (codex exec -s read-only): r1 CHANGES (stickless loop, coverage, change-row time, read denominators, per-size misses)
+  -> r2 CHANGES (search_more endless, re-note race, smelt deadline, read unfound) -> r3 CHANGES (deadline not bounding the
+  furnace walk; success not resetting the streak) -> r4 CHANGES (mixed reasons bypass the trip pause) -> r5 CHANGES (D4
+  counted aborted jobs) -> r6 APPROVE (6471f8e3). 28dc1158 after it is comments only.
+
+4. TESTS, MUTANTS, PAPER
+------------------------
+npm test (node scripts/run-tests.mjs from bots/): 269/269 on 2c116834 (6471f8e3 and 28dc1158 after it change the read and comments only); the treefarm-02 variant 132694cb 274/274.
+New suites: test/kitsearch.test.mjs 25/25 -- 13 anchored mutants killed (budget3, noMissMemory, oldGate, oneSizeMiss,
+  noCoverage, noStreakCap, sticksFirst, noStickHoldBack, noReserve, noFailSkip, moreIsNoIron, pureMore, moreBacksOff);
+  test/smeltsearch.test.mjs 14/14 -- 9 killed (coalOnCopperList, coalCap3, noPrecheck, noStalled, noStreakCap, oldGate,
+  noSmeltGuard, noDryBound, moreStrikes). Refusal chains through toolkitOrder/toolkitOutcome AND the real CognitiveLoop:
+  iron only in the far chest -> one order, the kit made there; no iron anywhere -> one order, no_iron after all 10, backoff,
+  not re-issued while the town is a known miss, a deposit re-opens it. Existing suites adjusted: toolkit.test (3 scenes
+  stand the bot by the first chest: the search is nearest the bot; the no-sticks scene checks memory + hold-back),
+  townsearch.test (3 mutant anchors follow the missTtl argument).
+eslint no-undef: one hit, bots/src/reflex.mjs:2384 withinBody (pre-existing).
+Paper (sandbox3, sandbox/well/stock-e2e.cjs scenes kitsearch + smeltcoal, lock /tmp/mcai-sandbox.lock held 13:15-13:21Z and
+  13:23-13:27Z, server read-back over RCON):
+  kitsearch (10 chests, 20 iron only in the far one, 13.9 from home): BASE adbec4f4 no_iron after 3, far 20 kept, licence 0
+    (BASE_SHAPE true). CANDIDATE 2d8e8377: crafted, town=10 cand=10 visits=10 maxrep=1, far 20 -> 16, iron axe + shovel in
+    the server's bag, near chests 5 dirt each, licence 1 (CANDIDATE_PASS true). Also on 2c6e87c2: pass.
+  smeltcoal (8 raw copper in the chest uniquely nearest home, the only coal 13.9 away, a furnace): BASE stop=no_fuel
+    withdrawn=8 coal=0, copper back (BASE_SHAPE true). CANDIDATE 2d8e8377: stop=done smelted=8 dep_i=8 looked=10, the town
+    then holds 8 copper ingots and 0 raw, far coal 4 -> 3, 107 s for the job (CANDIDATE_PASS true). (2c6e87c2, with 8 coal
+    visits, ended search_more at the 9th container: the reason SMELT_COAL_VISITS is 16.) r5-r7 change only the outcome
+    accounting, a stop name, the read and comments.
+
+5. CANARY ARTIFACTS
+-------------------
+- scripts/host/kitsearchread.py (md5 in the queue entry; --selftest on real rows): canary arm, DiD, denominators first.
+  PRIMARY kits crafted per bot-h DiD; no_iron per attempt DiD WITH unfound (no_iron|more|stalled|unseen|no_sticks);
+  smelt: ingots smelted per bot-h DiD, no_fuel per job WITH fuel_unfound. Defects D1 maxrep>=2, D2 visits>12, D3 >=5 `more`
+  of one bot in 45 min, D4 >=13 copper-taking non-smelting smelt jobs of one bot in 6 h. Arms, liveness, instrument, exposure
+  (>= 6 searched rows + pre attempts on both arms). Dry run 10-19 (CANARY_DRYRUN isolated-b,placebo-c, 6 h): 752,081 rows,
+  attempts 36 -> 32 canary / 128 -> 90 control, no_iron visible on both arms, smelt jobs visible, 0 search rows (base).
+- Licence kind `_toolkit_search_mode` (licencecheck 10-19: baseline 0 rows / 6 h, 80 bots). Change row `kit_search`
+  (changerowcheck 10-19: baseline silent, 366,234 baseline rows).
+- Registration docs/reports/toolkit-03.registration-adbec4f4.json (no draw_require_pools key; draw exposure kind toolkit
+  'outcome=no_iron' >= 20 / 24 h -> drawexposure 10-19: board-a 60, hive-a 24, hive-b 45, placebo-a 36 eligible).
+- Queue entry docs/reports/toolkit-03.queue-entry.json: run toolkit-03, after ["treefarm-02"]. NOT applied.
+
+6. UNRESOLVED / NOTED
+---------------------
+- Sticks still ride only with the iron's container (no separate stick pass); a stickless bot is held back with the remedy.
+- The copper chest's own coal miss ends when the job banks the copper back into it (no re-note: it could hide another bot's
+  coal), so a coal-less town costs one take-and-return per job until the 6-no_fuel pause (as on the base).
+- The smelt state lives on the decision loop; a reconnect clears it (as the 6 h pause always did); D4 names that.
+- withdraw verb's sweep (the model's verb) still looks at 3 containers.
