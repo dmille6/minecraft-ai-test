@@ -52,16 +52,23 @@ hive-a (1b), hive-c, placebo-b, placebo-c (1a) — the same towns.
 
 1. `lidrule.mjs LID_BREAKABLE` adds `dirt` and `grass_block` (lit dirt turns to grass). Everything else about the clear is
    lidclear-01's: never the well, never beside water/lava/waterlogged, never under a falling block, unknown refuses.
-2. `lidrule.mjs chestLidBlocked`: a never-conductor full cube (NOT_CONDUCTOR: leaves, glass, ...) is not a lid; the bot
-   opens, the open is the proof (a chest that still does not open fails as any unopenable container).
+2. `lidrule.mjs chestLidBlocked`: leaves and glass (LID_OPENS, the two measured on Paper) are not a lid; the bot opens,
+   the open is the proof (a chest that still does not open fails as any unopenable container). The other vanilla
+   never-conductors (observer, piston, redstone_block, copper grate) stay lids to the bot (r2, Claude r1 P3).
 3. `cobblecap.mjs wellCobbleSwitch` (pure; `skills.mjs cobbleWellCap` calls it): `at_cap` when the floor holds the cap
    (unchanged) OR when **the bank's own admission refuses the smallest surplus stack at the cap on counted stock** —
-   cobbleAdmit over the 6 h counts less outgoing takes, with **no incoming reservation** (Codex r1 P1 stands). A
-   withdraw hold on cobble (plinth funds, a smeltjob) returns `held`: never thrown.
+   cobbleAdmit over the 6 h counts **taking the smaller of two equal captures** (`lbLo`; r2, Codex r1 P1: `lb` keeps the
+   larger for admission and must never authorise destroying anything) less outgoing takes, with **no incoming
+   reservation** (stonecap's Codex r1 P1 stands). A withdraw hold on cobble (plinth funds, a smeltjob) returns `held`:
+   never thrown (the bank's own rule: a hold holds every stack of the name, for its 10 min). **At town only:** the room
+   order's guess from afar (`townWellTakes`, which sends a bot home) keeps stonecap's floor-only rule (`floorOnly`; r2,
+   Claude r1 P1-1), so this change adds no trip home.
 
 **Not changed:** COBBLE_RESERVE / COBBLE_WELL_RESERVE / STONE_GUARD 64 (the exit contract's iron-depth descent needs 59);
 the 1000 cap; the bank's admission. Plinths still fund: plinth-02 withdraws from town chests (now openable), and a
 withdrawn cobble stack is held from the well. No new refusal is added; two dead ends are removed.
+
+Known edge (Claude r1 P3): a plant or door standing on a dirt/grass lid pops when the lid is dug; nothing structural.
 
 **Not in this change (would split):** a deterministic go-home-and-deposit for roaming full bags. The two dead ends here
 are AT TOWN (the deposit and the well run there already); a roaming trigger is a separate behaviour with its own
@@ -81,6 +88,9 @@ travel/death risk and its own read.
     chest unchanged (20 oak), `count_town counted=1 unknown_after=0`, a journal count.
   - `lidleaves` BASE: refused lid=oak_leaves, no count. CANDIDATE: no lid row, no dig, the SERVER opened the chest under
     oak_leaves[persistent=true] (leaves still there), counted=1 unknown_after=0.
+  - `lidglass` (r2) BASE: refused lid=glass, lid_blocked, no count. CANDIDATE 38ab9077: the chest under glass opened and
+    counted, no dig.
+  - r2 re-run of every scene on 38ab9077 (13:29-13:34Z): lidglass, liddirt, lidleaves, cobbleband all CANDIDATE_PASS.
   - `cobbleband` (after `build`, PLINTH_FIRST=0 for the natural well in both runs): chest 984 cobble, bag 36 slots
     (30 + 34x64 + a pickaxe). BASE: counted 984, then 240 s idle at 36/36, no dispose, shaft 0. CANDIDATE: counted 984,
     `dispose_well -> success` 36 -> 27 slots, `_well_dispose cobble=576 cap=at_cap`, shaft census 576 in / 0 out, chest

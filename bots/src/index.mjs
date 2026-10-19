@@ -46,7 +46,8 @@ import { installDigCollisionWatch } from './digcollision.mjs'
 import { installShoreEgress } from './watermoves.mjs'
 import { installCraftSync } from './craftsync.mjs'
 import { installCobbleCap } from './skills.mjs'
-import { cobbleCapModeDetail, cobbleKeepModeDetail } from './cobblecap.mjs'
+import { cobbleCapModeDetail } from './cobblecap.mjs'
+import { cobbleKeepModeDetail } from './cobblecap.mjs'   // cobblekeep-01's licence row (its own statement)
 import { lidClearModeDetail } from './lidrule.mjs'
 import { townSearchModeDetail } from './withdrawpick.mjs'
 import { plinthModeDetail } from './plinth.mjs'   // plinth-02's licence row (its own statement)
