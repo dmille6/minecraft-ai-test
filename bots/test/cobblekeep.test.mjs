@@ -131,7 +131,7 @@ await t('LICENCE: the mode detail names the rule; index.mjs writes `_cobblekeep_
   const strip = s => s.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '')
   const wired = src => {
     const c = strip(src)
-    assert.match(c, /^import \{ cobbleCapModeDetail, cobbleKeepModeDetail \} from '\.\/cobblecap\.mjs'$/m, 'imported')
+    assert.match(c, /^import \{ cobbleKeepModeDetail \} from '\.\/cobblecap\.mjs'/m, 'imported')
     const i = c.indexOf('installCobbleCap(bot)')
     assert.ok(i > 0, 'anchor')
     assert.match(c.slice(i, i + 6000), /\n\s*try \{ logEvent\(\{ kind: 'cobblekeep_mode', status: 'success', snapshot: snapshot\(bot\), detail: cobbleKeepModeDetail\(\) \}\) \} catch \{\}/, 'written on spawn')

@@ -1,0 +1,44 @@
+cobblekeep-01 reviews, 2026-10-19. Round 1 on adbec4f4..c55ee29a, round 2 on c55ee29a..38ab9077 (prompts: the questions Q1-Q8 on the well rule, the hold, the escape reserve, dirt lids, leaves, tests, the read, minimality).
+
+===== CODEX round 1 (codex exec, read-only) =====
+VERDICT: CHANGE
+
+- **P1 — `bots/src/cobblecap.mjs:217`: admission’s count is not always safe for destruction.** Equal-timestamp observations retain the **maximum** in `lb` and minimum in `lo` (`:451`). Reproduced through `foldJournal → townStock → wellCobbleSwitch`: counts 936 and 1000 at the same timestamp produce `lb=1000, avail=936, taking=0`, authorizing a 64-stack disposal. A delayed observation can reintroduce this ceiling after a withdrawal’s releasing count. **Fix:** expose a six-hour conservative count using `obs.lo ?? obs`, subtract takes, and use that for disposal; preserve the admission ceiling. Add a journal-level regression including a withdrawal release followed by a tied observation.
+
+- **P2 — `scripts/host/cobblekeepread.py:176`: D3 can falsely demand a revert.** `skills.mjs:8112` overwrites `acc.capLast` even when the next stack is refused; `:8355` reports that last reading alongside earlier successful throws. A valid sequence—throw 30 at cap, then retain 64 after a withdrawal—reports `cobble=30 cap=below`, triggering D3. **Fix:** record authorization at executed clicks separately from the final refusal, and gate on unauthorized clicks. Feed the existing per-click withdrawal scenario through the reader as a passing control.
+
+Answers to the questions:
+
+- **Q1:** Boundary arithmetic, completeness, outgoing takes, smallest-stack selection and per-click rereads otherwise look correct. Inventory rereads prevent banking and throwing the same stack. The count-ceiling issue above blocks approval.
+- **Q2:** Callers use `=== 'at_cap'`, so `held` composes safely. However, any positive hold blocks **all** surplus cobble, including newly gathered cobble after the withdrawn amount was consumed. A cobble-filled bag can therefore wait out the remaining ten-minute hold. This is conservative but does not guarantee progress.
+- **Q3:** No new below-reserve path found: whole-stack and live inventory checks preserve 64. The changed authorization does not weaken the escape reserve.
+- **Q4:** Well/plinth cells remain excluded; water, waterlogged neighbours and falling-block checks remain. `purpose=lid` is instrumentation, not a town-ground permission check. Dirt/grass belonging to terrain or a structure directly above a chest can be removed; there is no general farm/structure veto here. That is the scope of the new permission.
+- **Q5:** The listed vanilla blocks are nonconductors; narrowing to leaves/glass is unnecessary. The [chest implementation](https://github.com/mahtomedi/minecraft/blob/main/src/main/java/net/minecraft/world/level/block/ChestBlock.java) checks conductivity, and the [block definitions](https://github.com/mahtomedi/minecraft/blob/main/src/main/java/net/minecraft/world/level/block/Blocks.java) support the exceptions. A mistaken classification reaches the ordinary open-failure/retry path; it cannot fabricate a successful count.
+- **Q6:** The chains invoke real `count_town` and `town_deposit`; the deposit-to-well chain stops at the switch/plan. Mutants check present, unique anchors and demonstrate changed behaviour. Missing material coverage: tied-count disposal and mixed successful/refused clicks reaching D3.
+- **Q7:** Exposure uses a fixed pre-deploy window; DiD arithmetic is sound. Bot-hours assume every observed bot was active throughout the window, so uptime differences can bias rates. D3 has the false-positive defect above; the selftest passes but misses that sequence.
+- **Q8:** The scope addresses both measured dead ends and is reasonably minimal. These are behaviour changes, not constant-only settings.
+
+Read-only review completed. Ran the reader selftest and an in-memory count reproduction; did not run suites that write mutant files into the checkout.
+
+
+===== CODEX round 2 =====
+VERDICT: APPROVE
+
+No remaining P1/P2/P3 findings in `c55ee29a..38ab9077`.
+
+Checked `lbLo` and other `townStock` consumers, all `cobbleWellCap` callers, floor-only routing, smallest-stack selection, lid callers, D3 removal, and restart filtering. The fixes address the reported issues without an identified regression.
+
+The full-name withdrawal hold is reasonable; the plant-pop tradeoff is acceptable with the planned report disclosure.
+
+`cobblekeepread.py --selftest` passes. I inspected the JavaScript regressions without running their file-writing mutant tests. No edits or server contact.
+
+
+===== CLAUDE (independent subagent) round 1: VERDICT: CHANGE =====
+P1-1 the room order from afar (townWellTakes -> roomRemedy home via well) would use the new admission branch: an undeclared trip home.
+P2-1 the read's D3 judged the visit's LAST cap reading (a valid visit can end on below). P2-2 no test pins the smallest stack.
+P3: the hold blocks every cobble stack (both names); NOT_CONDUCTOR beyond leaves unmeasured on Paper; the read ignored the canary build (restart lag); plants on a dirt lid pop.
+All addressed in 38ab9077; the hold scope declined (the bank's own per-name rule, 10 min).
+
+===== CLAUDE round 2: VERDICT: APPROVE =====
+P1-1, Codex P1 (lbLo), P2-1, P2-2, P3 lid list, P3 restart lag RESOLVED; declined items accepted.
+Nits (fixed in the records): registration text said open=nonconductor; class to be decided explicitly (set bag-fix, the coordinator may override); the hold sums both cobble names (a note).
