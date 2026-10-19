@@ -35,8 +35,9 @@
 #     D3 more_loop: one canary bot with >= MORE_LOOP_N `more` runs inside MORE_LOOP_MIN minutes (toolkit.mjs KIT_MORE_MAX caps
 #        the no-backoff streak at 3 then backs off 30 min, so at most 4 fit; Claude r1 P2: a busy town could otherwise hand
 #        every run new candidates for ever)
-#     D4 smelt_churn: one canary bot with >= MORE_LOOP_N smelt jobs inside MORE_LOOP_MIN minutes that took copper and smelted
-#        none (search_more | search_stalled | no_fuel with withdrawn > 0): smeltjob.mjs SMELT_MORE_MAX caps it at 4 (r2 P1)
+#     D4 smelt_churn: one canary bot with >= CHURN_N (13) smelt jobs inside CHURN_MIN (360) minutes that took copper and smelted
+#        none (search_more | search_stalled | no_fuel with withdrawn > 0) and no smelting job between: the design's bound is
+#        12 (3 trips of the 3-more cap, then the 6 h pause; six no_fuel pause it sooner)
 #   SMELT (the same change, reported): ingots smelted per bot-h DiD; no_fuel per job DiD (should FALL) WITH its pairing
 #              fuel_unfound = no_fuel | search_more | search_stalled per job; town_has_none per job; search_more (canary)
 #   SEARCH TIME  _kit_search seconds per canary bot-h (what the walks cost)
@@ -58,6 +59,10 @@ REP_MAX = 1                # a container is opened at most once per run
 EXPOSURE_RUNS = 6
 MORE_LOOP_N = 5
 MORE_LOOP_MIN = 45
+# D4: smeltjob.mjs bounds a churning job at SMELT_MORE_TRIPS (3) x (SMELT_MORE_MAX 3 + 1) = 12 copper-taking, non-smelting
+# jobs before its 6 h pause (Claude r3 P1/P2: the 45-min window could never see the capped loop)
+CHURN_N = 13
+CHURN_MIN = 360
 NOT_ATTEMPT = ('nothing', 'off')
 CRAFTED = ('crafted', 'partial')
 # every kit run that ended without the iron for a SEARCH reason (Codex r2 P2: a reclassified no_iron must stay counted)
@@ -220,15 +225,24 @@ def judge(rows):
     # smelting (search_more / search_stalled / no_fuel with withdrawn > 0) -- the cap (SMELT_MORE_MAX) allows 4
     churn = []
     sby = defaultdict(list)
-    for r in post_c:
-        if r['name'] == '_smelt_town' and smelt_stop(r) in ('search_more', 'search_stalled', 'no_fuel') and num(kv(r['detail']), 'withdrawn', 0) > 0:
+    for r in sorted((r for r in post_c if r['name'] == '_smelt_town'), key=lambda r: r['t']):
+        if num(kv(r['detail']), 'smelted', 0) > 0:
+            sby[r['bot']].append(None)                     # a smelting job ends the run
+        elif smelt_stop(r) in ('search_more', 'search_stalled', 'no_fuel') and num(kv(r['detail']), 'withdrawn', 0) > 0:
             sby[r['bot']].append(r['t'])
-    for b, ts in sby.items():
-        ts.sort()
-        for i in range(len(ts)):
-            j = i + MORE_LOOP_N - 1
-            if j < len(ts) and (ts[j] - ts[i]).total_seconds() <= MORE_LOOP_MIN * 60:
-                churn.append((b, MORE_LOOP_N, str(ts[i]))); break
+    for b, seq in sby.items():
+        run = []
+        for t in seq + [None]:
+            if t is None:
+                for i in range(len(run)):
+                    j = i + CHURN_N - 1
+                    if j < len(run) and (run[j] - run[i]).total_seconds() <= CHURN_MIN * 60:
+                        churn.append((b, CHURN_N, str(run[i]))); break
+                if churn and churn[-1][0] == b:
+                    break
+                run = []
+            else:
+                run.append(t)
     out['smelt_churn'] = len(churn)
     out['search_s_canary'] = round(sum((r.get('dur') or 0) for r in post_c if r['name'] == '_kit_search') / 1000.0, 1)
     out['rep_same_container'] = len(reps)
@@ -308,9 +322,12 @@ def selftest():
         rl = judge([R('_toolkit', NOI.replace('outcome=no_iron', 'outcome=' + oc), status='failed')] + ctl)
         assert rl['unfound_post_canary'] == 1 and rl['no_iron_post_canary'] == 0, (oc, rl)
     SM_MOREC = SM_MORE.replace('withdrawn=0', 'withdrawn=8')
-    assert judge([R('_smelt_town', SM_MOREC, mins=m, status='no_effect') for m in (0, 10, 20, 30, 40)] + ctl)['smelt_churn'] == 1, 'D4'
-    assert judge([R('_smelt_town', SM_MOREC, mins=m, status='no_effect') for m in (0, 10, 20, 30)] + ctl)['smelt_churn'] == 0, 'D4 control: the cap allows 4'
-    assert judge([R('_smelt_town', SM_MORE, mins=m, status='no_effect') for m in (0, 10, 20, 30, 40)] + ctl)['smelt_churn'] == 0, 'D4 control: no copper taken'
+    capped = [m for c in range(4) for m in (c * 50, c * 50 + 10, c * 50 + 20, c * 50 + 30)]   # the cap's pattern, 4 cycles = 16 jobs
+    assert judge([R('_smelt_town', SM_MOREC, mins=m, status='no_effect') for m in capped] + ctl)['smelt_churn'] == 1, 'D4: the capped loop past its bound'
+    assert judge([R('_smelt_town', SM_MOREC, mins=m, status='no_effect') for m in capped[:12]] + ctl)['smelt_churn'] == 0, 'D4 control: the design bound (12)'
+    assert judge([R('_smelt_town', SM_MOREC, mins=m, status='no_effect') for m in capped[:8]] + [R('_smelt_town', SM_OK, mins=85)]
+                 + [R('_smelt_town', SM_MOREC, mins=m, status='no_effect') for m in capped[8:]] + ctl)['smelt_churn'] == 0, 'D4 control: a smelt between'
+    assert judge([R('_smelt_town', SM_MORE, mins=m, status='no_effect') for m in capped] + ctl)['smelt_churn'] == 0, 'D4 control: no copper taken'
     rf = judge([R('_smelt_town', SM_MOREC, status='no_effect'), R('_smelt_town', SM_NF, status='no_effect')] + ctl)
     assert rf['fuel_unfound_post_canary'] == 2 and rf['no_fuel_post_canary'] == 1, rf
     assert pool_of('self-isolated-b-Comet') == 'isolated-b' and pool_of('hive-d-Alpha') == 'hive-d'
@@ -374,7 +391,7 @@ if __name__ == '__main__':
     print('DEFECTS      D1 a container opened %d+ times in one run %d %s | D2 more than %d visits in one run %d %s'
           % (REP_MAX + 1, res['rep_same_container'], res['_lists']['reps'], VISIT_BUDGET, res['visits_over_budget'], res['_lists']['over']))
     print('             D3 a bot with %d+ `more` runs inside %d min %d %s' % (MORE_LOOP_N, MORE_LOOP_MIN, res['more_loop'], res['_lists']['loops']))
-    print('SMELT        jobs canary %d -> %d control %d -> %d | ingots smelted canary %d -> %d control %d -> %d (DiD %+.3f /bot-h) | no_fuel per job DiD %+.3f (should FALL; read WITH no_fuel|search_more|search_stalled per job DiD %+.3f) | town_has_none per job DiD %+.3f | search_more canary %d | D4 smelt churn %d %s'
+    print('SMELT        jobs canary %d -> %d control %d -> %d | ingots smelted canary %d -> %d control %d -> %d (DiD %+.3f /bot-h) | no_fuel per job DiD %+.3f (should FALL; read WITH no_fuel|search_more|search_stalled per job DiD %+.3f) | town_has_none per job DiD %+.3f | search_more canary %d | D4 smelt churn (>= 13 copper-taking non-smelting jobs of one bot in 6 h) %d %s'
           % (res['smelt_jobs_pre_canary'], res['smelt_jobs_post_canary'], res['smelt_jobs_pre_control'], res['smelt_jobs_post_control'],
              res['smelted_pre_canary'], res['smelted_post_canary'], res['smelted_pre_control'], res['smelted_post_control'], dids['smelted'],
              dids['no_fuel_per_job'], dids['fuel_unfound_per_job'], dids['town_has_none_per_job'], res['search_more_post_canary'], res['smelt_churn'], res['_lists']['churn']))
