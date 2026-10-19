@@ -104,7 +104,7 @@ import { planDigApproach, observeApproachDig, APPROACH_WALK_MS, planDigRetry, fl
 import { scoopLiquid, pourLiquid, scoopRefusal, emptyRefusal } from './bucket.mjs'
 import { countItem, horizontalDistanceFromSpawn, snapshot } from './state.mjs'
 import { depositPlan, depositNoopReason, cobbleBankStacks, isCobble, COBBLE_RESERVE, setCobbleTownReader, setCobbleReconcileProbe, setStockReaders, stockCapBinds, stockReaderInstalled } from './bankable.mjs'
-import { townCobble, townStock, cobbleAdmit, cobbleIn, readTown, claimStack, recordCount, voidOwnClaims, TOWN_COBBLE_CAP, OBS_TTL_MS, FLOOR_TTL_MS, INSTANCE, countOf } from './cobblecap.mjs'
+import { townCobble, townStock, cobbleAdmit, cobbleIn, readTown, claimStack, recordCount, voidOwnClaims, TOWN_COBBLE_CAP, OBS_TTL_MS, FLOOR_TTL_MS, INSTANCE, countOf, wellCobbleSwitch } from './cobblecap.mjs'
 import { groupOf, targetOf, isToolGroup, stockCounts, roomUnder, STOCK_GROUP_NAMES, isProtected, namesOf } from './stocktarget.mjs'
 import { prunePick, pruneTakes, pruneAccepted, PRUNE_MAX_STACKS, PRUNE_FREE_AFTER } from './prune.mjs'
 import { scaffoldCount } from './exit-contract.mjs'
@@ -1487,18 +1487,21 @@ export function foodSkipNow (bot) {
 }
 
 /**
- * THE WELL'S COBBLE SWITCH (stonecap-01 x junkwell-02): does the town HOLD its TOWN_COBBLE_CAP (1000) -> 'at_cap' | 'below' | 'unknown' |
- * 'none' (no surplus). Only 'at_cap' sends cobble down the well, and only on the COUNTED lower bound itself (Codex r1 P1:
- * a refused deposit is not proof -- cobble on its way, or a stack that would merely pass the cap, never authorises destroying
- * cobble). 'below' needs a complete count; anything else is 'unknown'.
+ * THE WELL'S COBBLE SWITCH (stonecap-01 x junkwell-02; cobblekeep-01): may surplus cobble go down the well -> 'at_cap' |
+ * 'below' | 'unknown' | 'held' | 'none' (no surplus). Only 'at_cap' sends cobble down the well, and only on COUNTED stock
+ * (Codex r1 P1 stands: cobble on its way in never authorises destroying cobble). cobblekeep-01 changed one thing: a stack
+ * the bank's own admission refuses at the cap on that counted stock now goes (stonecap required the 1 h floor alone to
+ * reach the cap, and measured 10-19 the deposit and the well then both refused in 163 + 196 visits a day). The rule is
+ * cobblecap.mjs wellCobbleSwitch.
  */
 export function cobbleWellCap (bot, items = bot?.inventory?.items?.() ?? []) {
   try {
-    if (!cobbleWellStacks(items).length) return 'none'
-    const v = cobbleTownViewFor(bot)
-    // STOCKTARGET (design 3.4, Claude r1 P3-1: one rule for every group): the AVAILABLE floor -- counts younger than an hour,
-    // the smaller of equal captures, less every live take and draw -- not the 6 h lower bound
-    return (Number(v?.avail) || 0) >= TOWN_COBBLE_CAP ? 'at_cap' : v?.complete ? 'below' : 'unknown'
+    const stacks = cobbleWellStacks(items)
+    if (!stacks.length) return 'none'
+    // cobblekeep-01 (cobblecap.mjs wellCobbleSwitch): the AVAILABLE floor as before, OR the bank's own at-cap refusal of
+    // this smallest stack on counted stock (no incoming reservation); cobble a withdraw holds is never thrown
+    const h = withdrawHolds()
+    return wellCobbleSwitch(cobbleTownViewFor(bot), stacks[0].count, { cap: TOWN_COBBLE_CAP, held: (h.cobblestone ?? 0) + (h.cobbled_deepslate ?? 0) })
   } catch { return 'unknown' }
 }
 

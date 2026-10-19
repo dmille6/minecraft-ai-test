@@ -6,6 +6,7 @@
 //   node sandbox/well/stock-e2e.cjs <botRoot> <scene,scene,...> [server]
 //   scenes: build (the well; every later scene uses it)  stockdispose  stockbank  stockprune  stockprunekeep  stocknochest  stockrace  stockrefuse  stockrecount
 //           lidrecount lidrecountpick (lidclear-01: no well needed; LOCK_OWNER=lidclear)
+//           liddirt lidleaves (cobblekeep-01: a DIRT lid is dug, a LEAVES lid is no lid; no well needed; LOCK_OWNER=cobblekeep)
 //           townsearch townsearch2 (townsearch-01: the far chest; no well needed; LOCK_OWNER=townsearch)
 //
 // RCON only through `ssh mike@10.0.0.30 python3 /tmp/sbx-rcon.py <sandboxN> -`. Sandbox servers and sandbox-* names
@@ -630,13 +631,17 @@ scenes.stockrecount = async () => {
 // walks, digs the lid (bare-handed in `lidrecount`: the 10 s dig the old 10 s race always lost; a stone pickaxe in
 // `lidrecountpick`), the SERVER opens the chest and the journal gets a count. Read back from the world: the lid cell, the
 // chest's contents unchanged, the journal's `cnt` for the chest.
-async function lidScene (scene, spec) {
+// COBBLEKEEP-01 (docs/reports/cobblekeep-01-cause-2026-10-19.md): the same scene with the fleet's two other lids -- DIRT
+// (3,774 of 4,200 refusals in 60 h: the candidate digs it) and OAK LEAVES (422: the server opens a chest under leaves, so
+// the candidate opens it WITHOUT a dig). `lid` is the block set on the lid, `dig` whether the candidate must dig it.
+async function lidScene (scene, spec, { lid = 'cobblestone', dig = true } = {}) {
   buildArena()   // the floating dirt slab the town stands on (the `build` scene's first step; no well is needed here)
   BRAIN_WANDER = true   // two short walks in town, not 'status' for ever (that trips the livelock relocation off the arena: run 3 10-16)
   rcon(`kill ${ARENA_SEL}`); CHEST = CHEST ?? pickChest()
   setChest([['oak_log', 20]])
   const lidCell = `${CHEST.x} ${CHEST.y + 1} ${CHEST.z}`
-  const put = rcon(`setblock ${lidCell} minecraft:cobblestone`, `execute if block ${lidCell} minecraft:cobblestone`)
+  const lidState = lid === 'oak_leaves' ? 'oak_leaves[persistent=true]' : lid   // persistent: no decay during the scene
+  const put = rcon(`setblock ${lidCell} minecraft:${lidState}`, `execute if block ${lidCell} minecraft:${lid}`)
   if (!passed(put[1]?.reply)) throw new Error('lid not set: ' + JSON.stringify(put))
   const pool = `sbxlid-${RUN}-${scene}`
   const files = await startBot(scene, spec, { pool })
@@ -646,12 +651,13 @@ async function lidScene (scene, spec) {
     () => journalOf(files).some(r => r.t === 'cnt' && r.k === key))
   await sleep(3000)
   const lidAir = passed(r1(`execute if block ${lidCell} minecraft:air`))
-  const lidCobble = passed(r1(`execute if block ${lidCell} minecraft:cobblestone`))
+  const lidCobble = passed(r1(`execute if block ${lidCell} minecraft:${lid}`))   // the lid block still there (named for the census's cobblestone)
   const chest = chestTotals()
   const cnt = journalOf(files).filter(r => r.t === 'cnt' && r.k === key)
   const lidRows = rowsOf(files.skillLog).filter(r => r.name === '_lid_clear').map(r => `${r.status} ${r.detail}`)
   const digRows = rowsOf(files.skillLog).filter(r => r.name === '_dig_town').map(r => r.detail)
   const licence = rowsOf(files.skillLog).filter(r => r.name === '_lidclear_mode').length
+  const keepLicence = rowsOf(files.skillLog).filter(r => r.name === '_cobblekeep_mode').length
   const recounts = rowsOf(files.skillLog).filter(r => r.name === '_stock_recount').map(r => `${r.status} ${r.detail.slice(0, 200)}`)
   // PHASE 2 (the RECOUNT's own path, `lidrecountpick` only): a bot with no pickaxe at spawn walks to WITHDRAW one first, and
   // that visit opens (and so counts) the chest before any count_town (Paper 10-16, both builds). So, once the server's bag
@@ -674,14 +680,20 @@ async function lidScene (scene, spec) {
     phase2.BASE_SHAPE = !!(phase2.lidCobble && cnt2.length === 0 && rc2 && /fails=lid_blocked:1/.test(rc2.detail))
   }
   await stopBot(); BRAIN_WANDER = false
-  result({ scene, root: BOT_ROOT, recount: recount?.detail ?? null, recounts, lidRows, digRows, licence, phase2,
-    world: { lidAir, lidCobble, chest: chest.totals }, journalCounts: cnt.map(r => ({ n: r.n, m: r.m, cap: r.cap })),
-    CANDIDATE_PASS: !!(lidAir && !lidCobble && cnt.length >= 1 && (chest.totals.oak_log ?? 0) === 20 && licence >= 1 && lidRows.some(l => /outcome=dug /.test(l))),
-    BASE_SHAPE: !!(lidCobble && cnt.length === 0 && recount && /fails=lid_blocked:1/.test(recount.detail) && licence === 0) })
+  const lidDigs = digRows.filter(d => /purpose=lid/.test(d)).length
+  result({ scene, root: BOT_ROOT, lid, recount: recount?.detail ?? null, recounts, lidRows, digRows, licence, keepLicence, phase2,
+    world: { lidAir, lidStill: lidCobble, chest: chest.totals }, journalCounts: cnt.map(r => ({ n: r.n, m: r.m, cap: r.cap })),
+    CANDIDATE_PASS: dig
+      ? !!(lidAir && !lidCobble && cnt.length >= 1 && (chest.totals.oak_log ?? 0) === 20 && licence >= 1 && lidRows.some(l => /outcome=dug /.test(l)) && (lid === 'cobblestone' || keepLicence >= 1))
+      : !!(lidCobble && cnt.length >= 1 && (chest.totals.oak_log ?? 0) === 20 && lidRows.length === 0 && lidDigs === 0 && keepLicence >= 1),
+    BASE_SHAPE: !!(lidCobble && cnt.length === 0 && recount && /fails=lid_blocked:1/.test(recount.detail) && keepLicence === 0) })
 }
 scenes.lidrecount = () => lidScene('lidrecount', [['oak_log', 64], ['oak_log', 64], ...TORCH(4)])
 // cobble above the bag's 64 reserve: the COBBLE CAP (no well needed) refuses it `cobble_unknown` until the town is counted
 scenes.lidrecountpick = () => lidScene('lidrecountpick', [['cobblestone', 64], ['cobblestone', 64], ['cobblestone', 64], ['stone_pickaxe', 1], ...TORCH(4)])
+// cobblekeep-01: the bag of the fleet's unknown towns (cobble above the 64 reserve, refused `cobble_unknown` until counted)
+scenes.liddirt = () => lidScene('liddirt', [['cobblestone', 64], ['cobblestone', 64], ['cobblestone', 64], ['stone_pickaxe', 1], ...TORCH(4)], { lid: 'dirt' })
+scenes.lidleaves = () => lidScene('lidleaves', [['cobblestone', 64], ['cobblestone', 64], ['cobblestone', 64], ['stone_pickaxe', 1], ...TORCH(4)], { lid: 'oak_leaves', dig: false })
 
 // ---------------------------------------------------------------- TOWNSEARCH-01 (withdraw_pick looks in every town container)
 // THE FAR CHEST: 12 single chests in town (on the slab, y 120), 11 of them within 8 of home holding 5 dirt each, and ONE

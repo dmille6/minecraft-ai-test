@@ -21,15 +21,21 @@
 // chest does NOT block it (not a full cube): measured, placebo-b 280,63,-378 and placebo-c 355,71,149 each carry a chest
 // and were counted. Barrels open under anything. mineflayer adds nothing: openContainer clicks and waits for a window.
 //
-// THE BOT'S RULE stays chestLidBlocked (a single full-height box): it over-reads glass and leaves as blocking and
-// under-reads soul sand and mud. The census found none of those; the clear never breaks them (LID_BREAKABLE below), so
-// a chest under leaves or glass is refused as before. serverLidBlocks is a hand-kept APPROXIMATION of the server's rule:
-// the census uses it, and the bot uses it only as one more condition before a break (skills.mjs lidJudge: a block the
-// server would not block on is never broken) -- never to decide that a lid is clear.
+// THE BOT'S RULE stays chestLidBlocked (a single full-height box): it under-reads soul sand and mud, and until
+// cobblekeep-01 it over-read glass and leaves as blocking -- the fleet then found oak_leaves on town chests (422 refusals
+// in 60 h), so a never-conductor name no longer blocks: the bot opens, and the open is the proof. The clear never breaks
+// them (LID_BREAKABLE below). serverLidBlocks is a hand-kept APPROXIMATION of the server's rule: the census uses it, and
+// the bot uses it only as one more condition before a break (skills.mjs lidJudge: a block the server would not block on
+// is never broken).
 
-/** The bot's lid test (was skills.mjs chestLidBlocked; re-exported there). A solid block with one full-height box. */
+/** The bot's lid test (was skills.mjs chestLidBlocked; re-exported there). A solid block with one full-height box --
+ *  except a block vanilla marks never-conductor (NOT_CONDUCTOR below: leaves, glass, ...), which never stops a chest
+ *  opening on the server (cobblekeep-01, measured 10-19: 422 of 4,200 `_lid_clear` refusals in 60 h were oak_leaves, and
+ *  placebo-b's 284,65,-389 under leaves had gone uncounted 30 h, so the town's cobble was UNKNOWN). The OPEN is the proof:
+ *  a chest that still does not open fails as any unopenable container does. */
 export function chestLidBlocked (above) {
   if (!above || above.boundingBox !== 'block') return false
+  if (typeof above.name === 'string' && NOT_CONDUCTOR.test(above.name)) return false
   const shapes = Array.isArray(above.shapes) ? above.shapes : null
   if (!shapes || !shapes.length) return true                                  // a solid we cannot inspect: assume a full cube
   return shapes.length === 1 && shapes[0][1] <= 0 && shapes[0][4] >= 1         // exactly one full-height box
@@ -52,11 +58,14 @@ export function serverLidBlocks (above, { cat = false } = {}) {
 }
 
 /**
- * WHAT A BOT MAY BREAK OFF A LID: cobblestone and cobbled deepslate -- the census's 18 of 18 -- and nothing else (Codex
- * design r1 P1: material is not permission). A town structure in another material keeps its lid shut and the container is
- * refused as before; the `_lid_clear` row names the block, so a new blocker shows up in the read before anyone widens this.
+ * WHAT A BOT MAY BREAK OFF A LID: cobblestone and cobbled deepslate -- the census's 18 of 18 -- and, since cobblekeep-01,
+ * DIRT and the GRASS BLOCK it turns into in the light (vanilla spreads grass onto lit dirt): the `_lid_clear` row named
+ * the next blocker, as designed -- 3,774 of 4,200 refusals in 60 h (10-17..19) were lid=dirt, on 10 containers in 7
+ * worlds, and every one of the six towns whose cobble the cap called UNKNOWN had one (board-a 353,72,146 uncounted 50 h,
+ * placebo-b 282,64,-388 68 h, placebo-c 355,72,149 60 h, ...). Nothing else (Codex design r1 P1: material is not
+ * permission): a town structure in another material keeps its lid shut and the container is refused as before.
  */
-export const LID_BREAKABLE = /^(cobblestone|cobbled_deepslate)$/
+export const LID_BREAKABLE = /^(cobblestone|cobbled_deepslate|dirt|grass_block)$/
 const LIQUID = /^(water|lava|flowing_water|flowing_lava|bubble_column|seagrass|tall_seagrass|kelp|kelp_plant)$/
 const FALLING = /^(sand|red_sand|gravel|suspicious_sand|suspicious_gravel|anvil|chipped_anvil|damaged_anvil|pointed_dripstone|dragon_egg|scaffolding)$|_concrete_powder$/
 /** A cell that holds water: a liquid, or a waterlogged block (the props say so, as prismarine-block or a region read gives them). */

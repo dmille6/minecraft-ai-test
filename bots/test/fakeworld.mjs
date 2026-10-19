@@ -21,8 +21,11 @@ export const NAMES = ['air', 'grass_block', 'stone', 'chest', 'trapped_chest', '
   // appended (smeltjob-01's exit test): indices above are unchanged
   'raw_copper', 'copper_ingot', 'coal', 'charcoal',
   // appended (toolkit-01's tests): indices above are unchanged
-  'iron_ingot', 'iron_axe', 'iron_shovel', 'sand', 'furnace']
-const SOLID = new Set(['grass_block', 'stone', 'chest', 'trapped_chest', 'barrel', 'composter', 'oak_log', 'cobblestone', 'dirt', 'oak_planks', 'crafting_table'])
+  'iron_ingot', 'iron_axe', 'iron_shovel', 'sand', 'furnace',
+  // appended (cobblekeep-01's lid tests): indices above are unchanged
+  'oak_leaves', 'glass']
+// oak_leaves and glass are full cubes to mineflayer (boundingBox 'block'), which is why the bot's old lid test read them as lids
+const SOLID = new Set(['grass_block', 'stone', 'chest', 'trapped_chest', 'barrel', 'composter', 'oak_log', 'cobblestone', 'dirt', 'oak_planks', 'crafting_table', 'oak_leaves', 'glass'])
 const CONTAINER = /^(chest|trapped_chest|barrel)$/
 const HARDNESS = { grass_block: 0.6, dirt: 0.5, stone: 1.5, cobblestone: 2, oak_log: 2, oak_planks: 2, chest: 2.5, trapped_chest: 2.5, barrel: 2.5, crafting_table: 2.5, composter: 0.6 }
 const key = (x, y, z) => `${Math.floor(x)},${Math.floor(y)},${Math.floor(z)}`
