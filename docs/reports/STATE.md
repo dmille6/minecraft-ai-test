@@ -98,6 +98,18 @@ daily copy and status reports, unpushed (ahead 7 + today). Host checkout for ES 
 
 ---
 
+## 10-19 01:45Z — FLEET adbec4f4: toolkit-02, wellcare-01, townsearch-02 KEPT; plinthfirst-01 direct rollout; bamboo-02 next
+- toolkit-02 932befcc KEEP +360 06:17Z 10-18 (deaths 2/60 vs 5/300; one rung-linked death reviewed: a sealed-water drowning at
+  y 60, idle, no toolkit row -- not mechanism-linked), promoted 06:27Z. wellcare-01 a9cff42c KEEP +360 12:38Z (1/120 vs 4/240),
+  promoted 12:48Z (supersedes minewell-02). townsearch-02 6bea246c KEEP +720 01:06Z 10-19 (0/120 vs 6/600; +360 had 5 of 6
+  orders, 3 of the 4 pickaxes taken had 130+ uses), promoted 01:16Z.
+- plinthfirst-01 adbec4f4 (every new well a plinth; working natural wells kept) deployed directly ~01:30Z after Paper pfnew /
+  pfretire / pfkeep and both engines. Rollback = 6bea246c or PLINTH_FIRST=0. Tripwire: plinthfirsttrip.py (8e5ccd93) +
+  plinth2trip.py every 30 min until 13:30Z. Expect almost no effect until a natural well breaks (~4 re-sites in 12 days).
+- WELL WORK DONE except stocktargetread.py's literal 64 wood targets. Dirt lids still refused by lidclear (cobblestone-only).
+- Queue: bamboo-02 (HELD; variant on adbec4f4 being cherry-picked) -> treefarm-02 -> townfloor-01 -> monument-01 -> shaft-01 ->
+  stonewithdraw-01. Parked: cobbleoverflow-01 (chests not full), kitshrink-02 (re-queue).
+
 ## 10-18 13:25Z — (daily operator session) WELLCARE-01 KEPT (+360, 12:38Z) and PROMOTED: FLEET a9cff42c (12:48Z); merged to main 5ab7ad4e by the coordinator (13:13Z); townsearch-02 LIVE on board-a,board-d (13:00Z)
 - **KEEP +360 at 12:38:56Z** by the canary loop (details in CURRENT): deaths 1 vs 4, W1-W3 0, licence 32/leak 0, unreachable-well failures
   35 -> 3 on the canary arm vs 73 -> 86 on control. Promoted 12:48:37Z (`deploy-wellcare-01-promote.log`: VERIFIED fleet on a9cff42c);
