@@ -1,0 +1,1931 @@
+{
+ "schema": "goalboard/1",
+ "day": "2026-10-12",
+ "window": "2026-10-12T00:00:00Z..2026-10-13T00:00:00Z",
+ "partial": false,
+ "generated_at": "2026-10-19T13:08:41Z",
+ "fleet": {
+  "docs": 1303632,
+  "bots_present": 80,
+  "active_bot_hours": 1920.0,
+  "worlds": [
+   "board-a",
+   "board-b",
+   "board-c",
+   "board-d",
+   "hive-a",
+   "hive-b",
+   "hive-c",
+   "hive-d",
+   "isolated-a",
+   "isolated-b",
+   "isolated-c",
+   "isolated-d",
+   "placebo-a",
+   "placebo-b",
+   "placebo-c",
+   "placebo-d"
+  ],
+  "builds_live": {
+   "0cdb1a8+": 835887,
+   "82aef34+": 410046,
+   "935c63e+": 42560,
+   "70cb0d41": 15139
+  },
+  "caveats": [
+   "window crosses 2 log rotation(s) (23:57-00:00Z): ES is missing ~40-60 skill rows per rotation (copytruncate race)."
+  ]
+ },
+ "build": {
+  "wells_in_use": {
+   "value": 5,
+   "unit": "wells",
+   "source": "ES _well_dispose status=success, at= (the well; a row whose at= the 300-char cap cut is placed by bot.pos at the nearest known well within 4 blocks); raised = a COMPLETE plinth cap within 2 blocks (plinth records /var/lib/mcai/_pool-*/junkwell-plinth-*.json + ES _plinth stage=complete), done before the row",
+   "window": "2026-10-12T00:00:00Z..2026-10-13T00:00:00Z",
+   "status": "live",
+   "denominator": {
+    "what": "worlds present",
+    "value": 16
+   },
+   "positive_control": {
+    "window_docs": 1303632,
+    "bots_present": 80,
+    "active_bot_hours": 1920.0,
+    "kinds": {
+     "_well_dispose": {
+      "docs_in_window": 33,
+      "first_in_es": "2026-10-05T10:09:44Z",
+      "last_in_es": "2026-10-19T12:59:06Z"
+     },
+     "dispose_well": {
+      "docs_in_window": 73,
+      "first_in_es": "2026-10-05T10:06:18Z",
+      "last_in_es": "2026-10-19T12:59:01Z"
+     },
+     "_plinth": {
+      "docs_in_window": 0,
+      "first_in_es": "2026-10-16T13:40:18Z",
+      "last_in_es": "2026-10-19T11:03:45Z"
+     }
+    }
+   },
+   "worlds_with_a_well_in_use": 5,
+   "dispose_rows_unlocated": 0
+  },
+  "raised_wells_in_use": {
+   "value": 0,
+   "unit": "wells",
+   "source": "ES _well_dispose status=success, at= (the well; a row whose at= the 300-char cap cut is placed by bot.pos at the nearest known well within 4 blocks); raised = a COMPLETE plinth cap within 2 blocks (plinth records /var/lib/mcai/_pool-*/junkwell-plinth-*.json + ES _plinth stage=complete), done before the row",
+   "window": "2026-10-12T00:00:00Z..2026-10-13T00:00:00Z",
+   "status": "not_live_yet",
+   "denominator": {
+    "what": "worlds present",
+    "value": 16
+   },
+   "positive_control": {
+    "window_docs": 1303632,
+    "bots_present": 80,
+    "active_bot_hours": 1920.0,
+    "kinds": {
+     "_well_dispose": {
+      "docs_in_window": 33,
+      "first_in_es": "2026-10-05T10:09:44Z",
+      "last_in_es": "2026-10-19T12:59:06Z"
+     },
+     "dispose_well": {
+      "docs_in_window": 73,
+      "first_in_es": "2026-10-05T10:06:18Z",
+      "last_in_es": "2026-10-19T12:59:01Z"
+     },
+     "_plinth": {
+      "docs_in_window": 0,
+      "first_in_es": "2026-10-16T13:40:18Z",
+      "last_in_es": "2026-10-19T11:03:45Z"
+     }
+    }
+   }
+  },
+  "natural_wells_in_use": {
+   "value": 5,
+   "unit": "wells",
+   "source": "ES _well_dispose status=success, at= (the well; a row whose at= the 300-char cap cut is placed by bot.pos at the nearest known well within 4 blocks); raised = a COMPLETE plinth cap within 2 blocks (plinth records /var/lib/mcai/_pool-*/junkwell-plinth-*.json + ES _plinth stage=complete), done before the row",
+   "window": "2026-10-12T00:00:00Z..2026-10-13T00:00:00Z",
+   "status": "live",
+   "denominator": {
+    "what": "worlds present",
+    "value": 16
+   },
+   "positive_control": {
+    "window_docs": 1303632,
+    "bots_present": 80,
+    "active_bot_hours": 1920.0,
+    "kinds": {
+     "_well_dispose": {
+      "docs_in_window": 33,
+      "first_in_es": "2026-10-05T10:09:44Z",
+      "last_in_es": "2026-10-19T12:59:06Z"
+     },
+     "dispose_well": {
+      "docs_in_window": 73,
+      "first_in_es": "2026-10-05T10:06:18Z",
+      "last_in_es": "2026-10-19T12:59:01Z"
+     },
+     "_plinth": {
+      "docs_in_window": 0,
+      "first_in_es": "2026-10-16T13:40:18Z",
+      "last_in_es": "2026-10-19T11:03:45Z"
+     }
+    }
+   }
+  },
+  "well_disposes": {
+   "value": 32,
+   "unit": "dispose runs",
+   "source": "ES _well_dispose status=success (one row per run; dispose_well skill rows are the same runs and are not added); items thrown from the dispose_well skill rows' inventory_delta (never truncated)",
+   "window": "2026-10-12T00:00:00Z..2026-10-13T00:00:00Z",
+   "status": "live",
+   "denominator": {
+    "what": "active bot-hours",
+    "value": 1920.0
+   },
+   "rate": 0.0167,
+   "positive_control": {
+    "window_docs": 1303632,
+    "bots_present": 80,
+    "active_bot_hours": 1920.0,
+    "kinds": {
+     "_well_dispose": {
+      "docs_in_window": 33,
+      "first_in_es": "2026-10-05T10:09:44Z",
+      "last_in_es": "2026-10-19T12:59:06Z"
+     },
+     "dispose_well": {
+      "docs_in_window": 73,
+      "first_in_es": "2026-10-05T10:06:18Z",
+      "last_in_es": "2026-10-19T12:59:01Z"
+     }
+    }
+   },
+   "items_thrown": 730
+  },
+  "wells_per_world": {
+   "board-a": {
+    "raised_in_use": 0,
+    "natural_in_use": 0,
+    "wells": []
+   },
+   "board-b": {
+    "raised_in_use": 0,
+    "natural_in_use": 0,
+    "wells": []
+   },
+   "board-c": {
+    "raised_in_use": 0,
+    "natural_in_use": 0,
+    "wells": []
+   },
+   "board-d": {
+    "raised_in_use": 0,
+    "natural_in_use": 0,
+    "wells": []
+   },
+   "hive-a": {
+    "raised_in_use": 0,
+    "natural_in_use": 1,
+    "wells": [
+     {
+      "at": [
+       353,
+       64,
+       137
+      ],
+      "disposes": 3,
+      "bots": [
+       "hive-a-Alpha",
+       "hive-a-Delta"
+      ],
+      "raised": false
+     }
+    ]
+   },
+   "hive-b": {
+    "raised_in_use": 0,
+    "natural_in_use": 1,
+    "wells": [
+     {
+      "at": [
+       345,
+       65,
+       145
+      ],
+      "disposes": 4,
+      "bots": [
+       "hive-b-Bravo",
+       "hive-b-Delta",
+       "hive-b-Echo"
+      ],
+      "raised": false
+     }
+    ]
+   },
+   "hive-c": {
+    "raised_in_use": 0,
+    "natural_in_use": 1,
+    "wells": [
+     {
+      "at": [
+       -76,
+       59,
+       -75
+      ],
+      "disposes": 8,
+      "bots": [
+       "hive-c-Alpha",
+       "hive-c-Bravo",
+       "hive-c-Delta",
+       "hive-c-Echo"
+      ],
+      "raised": false
+     }
+    ]
+   },
+   "hive-d": {
+    "raised_in_use": 0,
+    "natural_in_use": 0,
+    "wells": []
+   },
+   "isolated-a": {
+    "raised_in_use": 0,
+    "natural_in_use": 0,
+    "wells": []
+   },
+   "isolated-b": {
+    "raised_in_use": 0,
+    "natural_in_use": 0,
+    "wells": []
+   },
+   "isolated-c": {
+    "raised_in_use": 0,
+    "natural_in_use": 0,
+    "wells": []
+   },
+   "isolated-d": {
+    "raised_in_use": 0,
+    "natural_in_use": 0,
+    "wells": []
+   },
+   "placebo-a": {
+    "raised_in_use": 0,
+    "natural_in_use": 0,
+    "wells": []
+   },
+   "placebo-b": {
+    "raised_in_use": 0,
+    "natural_in_use": 1,
+    "wells": [
+     {
+      "at": [
+       280,
+       58,
+       -398
+      ],
+      "disposes": 8,
+      "bots": [
+       "placebo-b-Bravo",
+       "placebo-b-Comet",
+       "placebo-b-Delta"
+      ],
+      "raised": false
+     }
+    ]
+   },
+   "placebo-c": {
+    "raised_in_use": 0,
+    "natural_in_use": 0,
+    "wells": []
+   },
+   "placebo-d": {
+    "raised_in_use": 0,
+    "natural_in_use": 1,
+    "wells": [
+     {
+      "at": [
+       172,
+       73,
+       81
+      ],
+      "disposes": 9,
+      "bots": [
+       "placebo-d-Alpha",
+       "placebo-d-Comet",
+       "placebo-d-Delta"
+      ],
+      "raised": false
+     }
+    ]
+   }
+  },
+  "plinth_blocks_placed": {
+   "value": 0,
+   "unit": "blocks",
+   "source": "ES _plinth_step status=success op=place (one row = one block placed and verified)",
+   "window": "2026-10-12T00:00:00Z..2026-10-13T00:00:00Z",
+   "status": "not_live_yet",
+   "denominator": {
+    "what": "active bot-hours",
+    "value": 1920.0
+   },
+   "rate": 0.0,
+   "positive_control": {
+    "window_docs": 1303632,
+    "bots_present": 80,
+    "active_bot_hours": 1920.0,
+    "kinds": {
+     "_plinth_step": {
+      "docs_in_window": 0,
+      "first_in_es": "2026-10-16T13:40:54Z",
+      "last_in_es": "2026-10-19T11:03:45Z"
+     }
+    }
+   },
+   "by_block": {},
+   "by_world": {}
+  },
+  "plinths_completed": {
+   "value": 0,
+   "unit": "plinths",
+   "source": "ES _plinth status=success stage=complete",
+   "window": "2026-10-12T00:00:00Z..2026-10-13T00:00:00Z",
+   "status": "not_live_yet",
+   "denominator": {
+    "what": "worlds present",
+    "value": 16
+   },
+   "positive_control": {
+    "window_docs": 1303632,
+    "bots_present": 80,
+    "active_bot_hours": 1920.0,
+    "kinds": {
+     "_plinth": {
+      "docs_in_window": 0,
+      "first_in_es": "2026-10-16T13:40:18Z",
+      "last_in_es": "2026-10-19T11:03:45Z"
+     }
+    }
+   },
+   "at": []
+  },
+  "wells_built": {
+   "value": 0,
+   "unit": "wells",
+   "source": "ES _well_built status=success",
+   "window": "2026-10-12T00:00:00Z..2026-10-13T00:00:00Z",
+   "status": "zero_kind_absent",
+   "denominator": {
+    "what": "worlds present",
+    "value": 16
+   },
+   "positive_control": {
+    "window_docs": 1303632,
+    "bots_present": 80,
+    "active_bot_hours": 1920.0,
+    "kinds": {
+     "_well_built": {
+      "docs_in_window": 0,
+      "first_in_es": "2026-10-05T10:05:55Z",
+      "last_in_es": "2026-10-19T11:05:00Z"
+     }
+    }
+   }
+  },
+  "llm_build_blocks": {
+   "value": 0,
+   "unit": "blocks",
+   "source": "ES build (the model's build verb, plan=pillar): \"(N new\" in detail, all statuses",
+   "window": "2026-10-12T00:00:00Z..2026-10-13T00:00:00Z",
+   "status": "zero_kind_present",
+   "denominator": {
+    "what": "active bot-hours",
+    "value": 1920.0
+   },
+   "rate": 0.0,
+   "positive_control": {
+    "window_docs": 1303632,
+    "bots_present": 80,
+    "active_bot_hours": 1920.0,
+    "kinds": {
+     "build": {
+      "docs_in_window": 2,
+      "first_in_es": "2026-08-23T16:56:47Z",
+      "last_in_es": "2026-10-18T04:05:22Z"
+     }
+    }
+   },
+   "runs": 2
+  },
+  "town_project_blocks": {
+   "value": 0,
+   "unit": "blocks",
+   "source": "no ES row kind exists yet",
+   "window": "2026-10-12T00:00:00Z..2026-10-13T00:00:00Z",
+   "status": "not_live_yet",
+   "positive_control": {
+    "kinds_searched_in_all_es": 287,
+    "pattern": "project",
+    "matching_kinds": []
+   },
+   "note": "not live yet: no row kind for this exists in ES; the line turns live when one is logged (status check_matching_kinds = a matching kind appeared: add its parser here)"
+  },
+  "ziggurat_blocks": {
+   "value": 0,
+   "unit": "blocks",
+   "source": "no ES row kind exists yet",
+   "window": "2026-10-12T00:00:00Z..2026-10-13T00:00:00Z",
+   "status": "not_live_yet",
+   "positive_control": {
+    "kinds_searched_in_all_es": 287,
+    "pattern": "zigg|monument",
+    "matching_kinds": []
+   },
+   "note": "not live yet: no row kind for this exists in ES; the line turns live when one is logged (status check_matching_kinds = a matching kind appeared: add its parser here)"
+  },
+  "farm_blocks": {
+   "value": 0,
+   "unit": "blocks",
+   "source": "ES _farm_place status=success verdict=confirmed, role != bonemeal (_farm_tend visit totals are the same placements and are not added)",
+   "window": "2026-10-12T00:00:00Z..2026-10-13T00:00:00Z",
+   "status": "not_live_yet",
+   "denominator": {
+    "what": "active bot-hours",
+    "value": 1920.0
+   },
+   "rate": 0.0,
+   "positive_control": {
+    "window_docs": 1303632,
+    "bots_present": 80,
+    "active_bot_hours": 1920.0,
+    "kinds": {
+     "_farm_place": {
+      "docs_in_window": 0,
+      "first_in_es": "2026-10-19T12:51:59Z",
+      "last_in_es": "2026-10-19T12:53:10Z"
+     },
+     "_farm_site": {
+      "docs_in_window": 0,
+      "first_in_es": "2026-10-19T12:51:59Z",
+      "last_in_es": "2026-10-19T12:52:55Z"
+     },
+     "_farm_tend": {
+      "docs_in_window": 0,
+      "first_in_es": "2026-10-19T12:52:00Z",
+      "last_in_es": "2026-10-19T12:53:10Z"
+     }
+    }
+   },
+   "by_role": {},
+   "by_world": {},
+   "place_rows_all_statuses": 0
+  },
+  "copper_smelted": {
+   "value": 0,
+   "unit": "ingots",
+   "source": "ES _smelt_town smelted= (all statuses: a run can smelt and then fail; smelt_town skill rows are the same runs and are not added)",
+   "window": "2026-10-12T00:00:00Z..2026-10-13T00:00:00Z",
+   "status": "not_live_yet",
+   "denominator": {
+    "what": "active bot-hours",
+    "value": 1920.0
+   },
+   "rate": 0.0,
+   "positive_control": {
+    "window_docs": 1303632,
+    "bots_present": 80,
+    "active_bot_hours": 1920.0,
+    "kinds": {
+     "_smelt_town": {
+      "docs_in_window": 0,
+      "first_in_es": "2026-10-17T13:42:21Z",
+      "last_in_es": "2026-10-19T13:08:03Z"
+     }
+    }
+   },
+   "runs_that_smelted": 0
+  },
+  "wood_used_by_crafts": {
+   "value": 235.9,
+   "unit": "log-equivalents",
+   "source": "ES craft + toolkit + build_well status=success, inventory_delta: -(logs + planks/4 + sticks/8) per row, floored at 0",
+   "window": "2026-10-12T00:00:00Z..2026-10-13T00:00:00Z",
+   "status": "live",
+   "denominator": {
+    "what": "active bot-hours",
+    "value": 1920.0
+   },
+   "rate": 0.1229,
+   "positive_control": {
+    "window_docs": 1303632,
+    "bots_present": 80,
+    "active_bot_hours": 1920.0,
+    "kinds": {
+     "craft": {
+      "docs_in_window": 3110,
+      "first_in_es": "2026-08-05T22:42:54Z",
+      "last_in_es": "2026-10-19T13:05:31Z"
+     },
+     "toolkit": {
+      "docs_in_window": 0,
+      "first_in_es": "2026-10-18T00:08:26Z",
+      "last_in_es": "2026-10-19T13:04:37Z"
+     },
+     "build_well": {
+      "docs_in_window": 3112,
+      "first_in_es": "2026-10-05T10:05:28Z",
+      "last_in_es": "2026-10-19T11:04:51Z"
+     }
+    }
+   },
+   "logs_consumed": 134.0,
+   "planks_consumed": 186.0,
+   "rows": 752
+  },
+  "cobble_placed_in_builds": {
+   "value": 0,
+   "unit": "blocks",
+   "source": "ES _plinth_step place rows with block=cobblestone|cobbled_deepslate (the SAME rows as plinth_blocks_placed, by material -- not additive) + cobble the build verb spent",
+   "window": "2026-10-12T00:00:00Z..2026-10-13T00:00:00Z",
+   "status": "not_live_yet",
+   "denominator": {
+    "what": "active bot-hours",
+    "value": 1920.0
+   },
+   "rate": 0.0,
+   "positive_control": {
+    "window_docs": 1303632,
+    "bots_present": 80,
+    "active_bot_hours": 1920.0,
+    "kinds": {
+     "_plinth_step": {
+      "docs_in_window": 0,
+      "first_in_es": "2026-10-16T13:40:54Z",
+      "last_in_es": "2026-10-19T11:03:45Z"
+     },
+     "build": {
+      "docs_in_window": 2,
+      "first_in_es": "2026-08-23T16:56:47Z",
+      "last_in_es": "2026-10-18T04:05:22Z"
+     }
+    }
+   },
+   "plinth": 0,
+   "llm_build": 0
+  },
+  "iron_used_by_toolkit": {
+   "value": 0,
+   "unit": "ingots",
+   "source": "ES _toolkit phase=kit used= (ingots the verified crafts consumed; args, else detail)",
+   "window": "2026-10-12T00:00:00Z..2026-10-13T00:00:00Z",
+   "status": "not_live_yet",
+   "denominator": {
+    "what": "active bot-hours",
+    "value": 1920.0
+   },
+   "rate": 0.0,
+   "positive_control": {
+    "window_docs": 1303632,
+    "bots_present": 80,
+    "active_bot_hours": 1920.0,
+    "kinds": {
+     "_toolkit": {
+      "docs_in_window": 0,
+      "first_in_es": "2026-10-18T00:07:23Z",
+      "last_in_es": "2026-10-19T13:06:57Z"
+     }
+    }
+   },
+   "runs": 0
+  }
+ },
+ "survive": {
+  "deaths": {
+   "value": 36,
+   "unit": "deaths",
+   "source": "ES _death (all rows; fail_class = cause)",
+   "window": "2026-10-12T00:00:00Z..2026-10-13T00:00:00Z",
+   "status": "live",
+   "denominator": {
+    "what": "active bot-hours",
+    "value": 1920.0
+   },
+   "rate": 0.0187,
+   "positive_control": {
+    "window_docs": 1303632,
+    "bots_present": 80,
+    "active_bot_hours": 1920.0,
+    "kinds": {
+     "_death": {
+      "docs_in_window": 36,
+      "first_in_es": "2026-08-06T02:04:12Z",
+      "last_in_es": "2026-10-19T11:38:18Z"
+     }
+    }
+   },
+   "by_cause": {
+    "fire": 11,
+    "drowning": 11,
+    "fall": 7,
+    "suffocation": 5,
+    "other": 2
+   },
+   "by_cause_per_bot_hour": {
+    "fire": 0.0057,
+    "drowning": 0.0057,
+    "fall": 0.0036,
+    "suffocation": 0.0026,
+    "other": 0.001
+   },
+   "by_world": {
+    "board-d": 5,
+    "hive-d": 5,
+    "isolated-c": 4,
+    "isolated-b": 4,
+    "isolated-a": 4,
+    "isolated-d": 3,
+    "placebo-b": 2,
+    "hive-c": 2,
+    "hive-a": 2,
+    "placebo-d": 2,
+    "placebo-c": 1,
+    "board-b": 1,
+    "hive-b": 1
+   }
+  },
+  "underground_death_share": {
+   "value": 75.0,
+   "unit": "% of deaths",
+   "source": "ES _death bot.pos.y < 60 (wellread.py UNDERGROUND_Y)",
+   "window": "2026-10-12T00:00:00Z..2026-10-13T00:00:00Z",
+   "status": "live",
+   "denominator": {
+    "what": "deaths with a position",
+    "value": 36
+   },
+   "positive_control": {
+    "window_docs": 1303632,
+    "bots_present": 80,
+    "active_bot_hours": 1920.0,
+    "kinds": {
+     "_death": {
+      "docs_in_window": 36,
+      "first_in_es": "2026-08-06T02:04:12Z",
+      "last_in_es": "2026-10-19T11:38:18Z"
+     }
+    }
+   },
+   "underground": 27,
+   "no_position": 0,
+   "underground_by_cause": {
+    "fire": 8,
+    "drowning": 7,
+    "suffocation": 5,
+    "other": 2,
+    "fall": 5
+   }
+  },
+  "bot_hours_online": {
+   "value": 1920.0,
+   "unit": "bot-hours",
+   "source": "ES coverage(): (bot, hour) pairs with >= 1 document, edge hours pro-rated",
+   "window": "2026-10-12T00:00:00Z..2026-10-13T00:00:00Z",
+   "status": "live",
+   "denominator": {
+    "what": "bots x window hours",
+    "value": 1920.0
+   },
+   "positive_control": {
+    "window_docs": 1303632,
+    "bots_present": 80,
+    "empty_hours": [],
+    "empty_10min": []
+   },
+   "note": "equals the nominal bots x hours whenever every bot logs in every hour (it does: the bots log many rows a minute); it falls below that only when a bot is down"
+  },
+  "bot_hours_alive": {
+   "value": 1919.93,
+   "unit": "bot-hours",
+   "source": "online bot-hours less, per death, the gap to that bot's next ES document after death+1 s (capped 60 min)",
+   "window": "2026-10-12T00:00:00Z..2026-10-13T00:00:00Z",
+   "status": "live",
+   "denominator": {
+    "what": "active bot-hours",
+    "value": 1920.0
+   },
+   "positive_control": {
+    "window_docs": 1303632,
+    "bots_present": 80,
+    "active_bot_hours": 1920.0,
+    "kinds": {
+     "_death": {
+      "docs_in_window": 36,
+      "first_in_es": "2026-08-06T02:04:12Z",
+      "last_in_es": "2026-10-19T11:38:18Z"
+     }
+    }
+   },
+   "note": "bots respawn automatically, so alive ~ online; the gap is what the logs can show",
+   "dead_hours": 0.072,
+   "deaths_with_no_next_doc": 0
+  },
+  "survival_streaks": {
+   "value": 49.8,
+   "unit": "hours (median current streak)",
+   "source": "ES _death rows from 2026-10-08T00:00:00Z (deduplicated by bot+time); wall-clock, not online time",
+   "window": "2026-10-08T00:00:00Z..2026-10-13T00:00:00Z (5.0 days; deaths are read from 2026-10-08T00:00:00Z)",
+   "status": "live",
+   "denominator": {
+    "what": "bots present today",
+    "value": 80
+   },
+   "positive_control": {
+    "window_docs": 1303632,
+    "bots_present": 80,
+    "active_bot_hours": 1920.0,
+    "kinds": {
+     "_death": {
+      "docs_in_window": 36,
+      "first_in_es": "2026-08-06T02:04:12Z",
+      "last_in_es": "2026-10-19T11:38:18Z"
+     }
+    }
+   },
+   "note": "current streak is capped at the window start, so the median is comparable day to day only between full 7-day windows (10-14 onward)",
+   "longest": [
+    {
+     "bot": "placebo-d-Delta",
+     "hours": 120.0,
+     "censored": true
+    },
+    {
+     "bot": "placebo-c-Echo",
+     "hours": 120.0,
+     "censored": true
+    },
+    {
+     "bot": "placebo-c-Bravo",
+     "hours": 120.0,
+     "censored": true
+    },
+    {
+     "bot": "placebo-c-Alpha",
+     "hours": 120.0,
+     "censored": true
+    },
+    {
+     "bot": "placebo-a-Comet",
+     "hours": 120.0,
+     "censored": true
+    },
+    {
+     "bot": "placebo-a-Bravo",
+     "hours": 120.0,
+     "censored": true
+    },
+    {
+     "bot": "isolated-c-Alpha",
+     "hours": 120.0,
+     "censored": true
+    },
+    {
+     "bot": "hive-c-Echo",
+     "hours": 120.0,
+     "censored": true
+    },
+    {
+     "bot": "hive-b-Echo",
+     "hours": 120.0,
+     "censored": true
+    },
+    {
+     "bot": "hive-b-Delta",
+     "hours": 120.0,
+     "censored": true
+    }
+   ],
+   "shortest": [
+    {
+     "bot": "placebo-c-Comet",
+     "hours": 36.3,
+     "censored": true
+    },
+    {
+     "bot": "hive-d-Delta",
+     "hours": 34.8,
+     "censored": true
+    },
+    {
+     "bot": "isolated-d-Bravo",
+     "hours": 32.4,
+     "censored": false
+    },
+    {
+     "bot": "hive-d-Alpha",
+     "hours": 31.6,
+     "censored": true
+    },
+    {
+     "bot": "board-d-Alpha",
+     "hours": 30.4,
+     "censored": false
+    }
+   ],
+   "bots_with_no_death_in_window": 18,
+   "window_days": 5.0,
+   "per_bot": {
+    "board-a-Alpha": {
+     "longest_h": 120.0,
+     "longest_censored": true,
+     "current_h": 120.0,
+     "current_censored": true,
+     "deaths_in_window": 0
+    },
+    "board-a-Bravo": {
+     "longest_h": 81.6,
+     "longest_censored": true,
+     "current_h": 81.6,
+     "current_censored": false,
+     "deaths_in_window": 3
+    },
+    "board-a-Comet": {
+     "longest_h": 120.0,
+     "longest_censored": true,
+     "current_h": 120.0,
+     "current_censored": true,
+     "deaths_in_window": 0
+    },
+    "board-a-Delta": {
+     "longest_h": 87.4,
+     "longest_censored": false,
+     "current_h": 24.5,
+     "current_censored": false,
+     "deaths_in_window": 2
+    },
+    "board-a-Echo": {
+     "longest_h": 120.0,
+     "longest_censored": true,
+     "current_h": 120.0,
+     "current_censored": true,
+     "deaths_in_window": 0
+    },
+    "board-b-Alpha": {
+     "longest_h": 120.0,
+     "longest_censored": true,
+     "current_h": 120.0,
+     "current_censored": true,
+     "deaths_in_window": 0
+    },
+    "board-b-Bravo": {
+     "longest_h": 62.3,
+     "longest_censored": false,
+     "current_h": 19.3,
+     "current_censored": false,
+     "deaths_in_window": 3
+    },
+    "board-b-Comet": {
+     "longest_h": 120.0,
+     "longest_censored": true,
+     "current_h": 120.0,
+     "current_censored": true,
+     "deaths_in_window": 0
+    },
+    "board-b-Delta": {
+     "longest_h": 60.0,
+     "longest_censored": true,
+     "current_h": 60.0,
+     "current_censored": false,
+     "deaths_in_window": 2
+    },
+    "board-b-Echo": {
+     "longest_h": 66.2,
+     "longest_censored": true,
+     "current_h": 29.2,
+     "current_censored": false,
+     "deaths_in_window": 2
+    },
+    "board-c-Alpha": {
+     "longest_h": 120.0,
+     "longest_censored": true,
+     "current_h": 120.0,
+     "current_censored": true,
+     "deaths_in_window": 0
+    },
+    "board-c-Bravo": {
+     "longest_h": 120.0,
+     "longest_censored": true,
+     "current_h": 120.0,
+     "current_censored": true,
+     "deaths_in_window": 0
+    },
+    "board-c-Comet": {
+     "longest_h": 104.1,
+     "longest_censored": true,
+     "current_h": 104.1,
+     "current_censored": false,
+     "deaths_in_window": 1
+    },
+    "board-c-Delta": {
+     "longest_h": 120.0,
+     "longest_censored": true,
+     "current_h": 120.0,
+     "current_censored": true,
+     "deaths_in_window": 0
+    },
+    "board-c-Echo": {
+     "longest_h": 84.0,
+     "longest_censored": true,
+     "current_h": 84.0,
+     "current_censored": false,
+     "deaths_in_window": 2
+    },
+    "board-d-Alpha": {
+     "longest_h": 30.4,
+     "longest_censored": false,
+     "current_h": 0.7,
+     "current_censored": false,
+     "deaths_in_window": 9
+    },
+    "board-d-Bravo": {
+     "longest_h": 67.6,
+     "longest_censored": true,
+     "current_h": 36.2,
+     "current_censored": false,
+     "deaths_in_window": 2
+    },
+    "board-d-Comet": {
+     "longest_h": 44.5,
+     "longest_censored": true,
+     "current_h": 4.6,
+     "current_censored": false,
+     "deaths_in_window": 4
+    },
+    "board-d-Delta": {
+     "longest_h": 91.3,
+     "longest_censored": true,
+     "current_h": 91.3,
+     "current_censored": false,
+     "deaths_in_window": 2
+    },
+    "board-d-Echo": {
+     "longest_h": 54.9,
+     "longest_censored": false,
+     "current_h": 42.5,
+     "current_censored": false,
+     "deaths_in_window": 4
+    },
+    "hive-a-Alpha": {
+     "longest_h": 58.3,
+     "longest_censored": false,
+     "current_h": 12.0,
+     "current_censored": false,
+     "deaths_in_window": 4
+    },
+    "hive-a-Bravo": {
+     "longest_h": 84.9,
+     "longest_censored": false,
+     "current_h": 1.6,
+     "current_censored": false,
+     "deaths_in_window": 2
+    },
+    "hive-a-Comet": {
+     "longest_h": 100.9,
+     "longest_censored": true,
+     "current_h": 100.9,
+     "current_censored": false,
+     "deaths_in_window": 2
+    },
+    "hive-a-Delta": {
+     "longest_h": 78.3,
+     "longest_censored": true,
+     "current_h": 78.3,
+     "current_censored": false,
+     "deaths_in_window": 3
+    },
+    "hive-a-Echo": {
+     "longest_h": 45.9,
+     "longest_censored": true,
+     "current_h": 45.9,
+     "current_censored": false,
+     "deaths_in_window": 5
+    },
+    "hive-b-Alpha": {
+     "longest_h": 83.0,
+     "longest_censored": true,
+     "current_h": 37.0,
+     "current_censored": false,
+     "deaths_in_window": 1
+    },
+    "hive-b-Bravo": {
+     "longest_h": 99.2,
+     "longest_censored": true,
+     "current_h": 99.2,
+     "current_censored": false,
+     "deaths_in_window": 1
+    },
+    "hive-b-Comet": {
+     "longest_h": 90.2,
+     "longest_censored": false,
+     "current_h": 18.2,
+     "current_censored": false,
+     "deaths_in_window": 2
+    },
+    "hive-b-Delta": {
+     "longest_h": 120.0,
+     "longest_censored": true,
+     "current_h": 120.0,
+     "current_censored": true,
+     "deaths_in_window": 0
+    },
+    "hive-b-Echo": {
+     "longest_h": 120.0,
+     "longest_censored": true,
+     "current_h": 120.0,
+     "current_censored": true,
+     "deaths_in_window": 0
+    },
+    "hive-c-Alpha": {
+     "longest_h": 50.6,
+     "longest_censored": true,
+     "current_h": 50.6,
+     "current_censored": false,
+     "deaths_in_window": 2
+    },
+    "hive-c-Bravo": {
+     "longest_h": 75.2,
+     "longest_censored": false,
+     "current_h": 11.5,
+     "current_censored": false,
+     "deaths_in_window": 5
+    },
+    "hive-c-Comet": {
+     "longest_h": 93.8,
+     "longest_censored": true,
+     "current_h": 93.8,
+     "current_censored": false,
+     "deaths_in_window": 1
+    },
+    "hive-c-Delta": {
+     "longest_h": 100.2,
+     "longest_censored": true,
+     "current_h": 100.2,
+     "current_censored": false,
+     "deaths_in_window": 1
+    },
+    "hive-c-Echo": {
+     "longest_h": 120.0,
+     "longest_censored": true,
+     "current_h": 120.0,
+     "current_censored": true,
+     "deaths_in_window": 0
+    },
+    "hive-d-Alpha": {
+     "longest_h": 31.6,
+     "longest_censored": true,
+     "current_h": 31.6,
+     "current_censored": false,
+     "deaths_in_window": 6
+    },
+    "hive-d-Bravo": {
+     "longest_h": 50.8,
+     "longest_censored": false,
+     "current_h": 39.3,
+     "current_censored": false,
+     "deaths_in_window": 3
+    },
+    "hive-d-Comet": {
+     "longest_h": 72.9,
+     "longest_censored": false,
+     "current_h": 1.2,
+     "current_censored": false,
+     "deaths_in_window": 6
+    },
+    "hive-d-Delta": {
+     "longest_h": 34.8,
+     "longest_censored": true,
+     "current_h": 20.5,
+     "current_censored": false,
+     "deaths_in_window": 6
+    },
+    "hive-d-Echo": {
+     "longest_h": 98.0,
+     "longest_censored": false,
+     "current_h": 20.7,
+     "current_censored": false,
+     "deaths_in_window": 2
+    },
+    "isolated-a-Alpha": {
+     "longest_h": 64.4,
+     "longest_censored": true,
+     "current_h": 64.4,
+     "current_censored": false,
+     "deaths_in_window": 3
+    },
+    "isolated-a-Bravo": {
+     "longest_h": 43.7,
+     "longest_censored": true,
+     "current_h": 29.9,
+     "current_censored": false,
+     "deaths_in_window": 3
+    },
+    "isolated-a-Comet": {
+     "longest_h": 78.6,
+     "longest_censored": false,
+     "current_h": 2.8,
+     "current_censored": false,
+     "deaths_in_window": 4
+    },
+    "isolated-a-Delta": {
+     "longest_h": 48.0,
+     "longest_censored": true,
+     "current_h": 48.0,
+     "current_censored": false,
+     "deaths_in_window": 4
+    },
+    "isolated-a-Echo": {
+     "longest_h": 73.2,
+     "longest_censored": false,
+     "current_h": 15.4,
+     "current_censored": false,
+     "deaths_in_window": 5
+    },
+    "isolated-b-Alpha": {
+     "longest_h": 51.3,
+     "longest_censored": false,
+     "current_h": 48.6,
+     "current_censored": false,
+     "deaths_in_window": 2
+    },
+    "isolated-b-Bravo": {
+     "longest_h": 39.0,
+     "longest_censored": true,
+     "current_h": 5.9,
+     "current_censored": false,
+     "deaths_in_window": 5
+    },
+    "isolated-b-Comet": {
+     "longest_h": 43.3,
+     "longest_censored": false,
+     "current_h": 3.9,
+     "current_censored": false,
+     "deaths_in_window": 5
+    },
+    "isolated-b-Delta": {
+     "longest_h": 51.8,
+     "longest_censored": false,
+     "current_h": 3.1,
+     "current_censored": false,
+     "deaths_in_window": 4
+    },
+    "isolated-b-Echo": {
+     "longest_h": 85.6,
+     "longest_censored": true,
+     "current_h": 85.6,
+     "current_censored": false,
+     "deaths_in_window": 1
+    },
+    "isolated-c-Alpha": {
+     "longest_h": 120.0,
+     "longest_censored": true,
+     "current_h": 120.0,
+     "current_censored": true,
+     "deaths_in_window": 0
+    },
+    "isolated-c-Bravo": {
+     "longest_h": 60.4,
+     "longest_censored": true,
+     "current_h": 60.4,
+     "current_censored": false,
+     "deaths_in_window": 2
+    },
+    "isolated-c-Comet": {
+     "longest_h": 49.0,
+     "longest_censored": true,
+     "current_h": 49.0,
+     "current_censored": false,
+     "deaths_in_window": 3
+    },
+    "isolated-c-Delta": {
+     "longest_h": 48.4,
+     "longest_censored": false,
+     "current_h": 8.7,
+     "current_censored": false,
+     "deaths_in_window": 4
+    },
+    "isolated-c-Echo": {
+     "longest_h": 50.9,
+     "longest_censored": false,
+     "current_h": 2.0,
+     "current_censored": false,
+     "deaths_in_window": 5
+    },
+    "isolated-d-Alpha": {
+     "longest_h": 57.1,
+     "longest_censored": true,
+     "current_h": 57.1,
+     "current_censored": false,
+     "deaths_in_window": 5
+    },
+    "isolated-d-Bravo": {
+     "longest_h": 32.4,
+     "longest_censored": false,
+     "current_h": 9.4,
+     "current_censored": false,
+     "deaths_in_window": 7
+    },
+    "isolated-d-Comet": {
+     "longest_h": 68.6,
+     "longest_censored": false,
+     "current_h": 4.6,
+     "current_censored": false,
+     "deaths_in_window": 6
+    },
+    "isolated-d-Delta": {
+     "longest_h": 49.2,
+     "longest_censored": false,
+     "current_h": 0.8,
+     "current_censored": false,
+     "deaths_in_window": 7
+    },
+    "isolated-d-Echo": {
+     "longest_h": 43.1,
+     "longest_censored": false,
+     "current_h": 26.7,
+     "current_censored": false,
+     "deaths_in_window": 4
+    },
+    "placebo-a-Alpha": {
+     "longest_h": 65.5,
+     "longest_censored": false,
+     "current_h": 41.7,
+     "current_censored": false,
+     "deaths_in_window": 3
+    },
+    "placebo-a-Bravo": {
+     "longest_h": 120.0,
+     "longest_censored": true,
+     "current_h": 120.0,
+     "current_censored": true,
+     "deaths_in_window": 0
+    },
+    "placebo-a-Comet": {
+     "longest_h": 120.0,
+     "longest_censored": true,
+     "current_h": 120.0,
+     "current_censored": true,
+     "deaths_in_window": 0
+    },
+    "placebo-a-Delta": {
+     "longest_h": 98.4,
+     "longest_censored": true,
+     "current_h": 98.4,
+     "current_censored": false,
+     "deaths_in_window": 1
+    },
+    "placebo-a-Echo": {
+     "longest_h": 96.7,
+     "longest_censored": true,
+     "current_h": 96.7,
+     "current_censored": false,
+     "deaths_in_window": 1
+    },
+    "placebo-b-Alpha": {
+     "longest_h": 68.8,
+     "longest_censored": true,
+     "current_h": 51.2,
+     "current_censored": false,
+     "deaths_in_window": 1
+    },
+    "placebo-b-Bravo": {
+     "longest_h": 110.6,
+     "longest_censored": true,
+     "current_h": 110.6,
+     "current_censored": false,
+     "deaths_in_window": 1
+    },
+    "placebo-b-Comet": {
+     "longest_h": 96.2,
+     "longest_censored": true,
+     "current_h": 23.8,
+     "current_censored": false,
+     "deaths_in_window": 1
+    },
+    "placebo-b-Delta": {
+     "longest_h": 103.3,
+     "longest_censored": true,
+     "current_h": 16.7,
+     "current_censored": false,
+     "deaths_in_window": 1
+    },
+    "placebo-b-Echo": {
+     "longest_h": 51.2,
+     "longest_censored": true,
+     "current_h": 51.2,
+     "current_censored": false,
+     "deaths_in_window": 3
+    },
+    "placebo-c-Alpha": {
+     "longest_h": 120.0,
+     "longest_censored": true,
+     "current_h": 120.0,
+     "current_censored": true,
+     "deaths_in_window": 0
+    },
+    "placebo-c-Bravo": {
+     "longest_h": 120.0,
+     "longest_censored": true,
+     "current_h": 120.0,
+     "current_censored": true,
+     "deaths_in_window": 0
+    },
+    "placebo-c-Comet": {
+     "longest_h": 36.3,
+     "longest_censored": true,
+     "current_h": 36.3,
+     "current_censored": false,
+     "deaths_in_window": 5
+    },
+    "placebo-c-Delta": {
+     "longest_h": 55.2,
+     "longest_censored": false,
+     "current_h": 22.7,
+     "current_censored": false,
+     "deaths_in_window": 6
+    },
+    "placebo-c-Echo": {
+     "longest_h": 120.0,
+     "longest_censored": true,
+     "current_h": 120.0,
+     "current_censored": true,
+     "deaths_in_window": 0
+    },
+    "placebo-d-Alpha": {
+     "longest_h": 65.3,
+     "longest_censored": false,
+     "current_h": 2.9,
+     "current_censored": false,
+     "deaths_in_window": 3
+    },
+    "placebo-d-Bravo": {
+     "longest_h": 61.6,
+     "longest_censored": true,
+     "current_h": 8.6,
+     "current_censored": false,
+     "deaths_in_window": 2
+    },
+    "placebo-d-Comet": {
+     "longest_h": 61.5,
+     "longest_censored": true,
+     "current_h": 61.5,
+     "current_censored": false,
+     "deaths_in_window": 4
+    },
+    "placebo-d-Delta": {
+     "longest_h": 120.0,
+     "longest_censored": true,
+     "current_h": 120.0,
+     "current_censored": true,
+     "deaths_in_window": 0
+    },
+    "placebo-d-Echo": {
+     "longest_h": 75.9,
+     "longest_censored": true,
+     "current_h": 75.9,
+     "current_censored": false,
+     "deaths_in_window": 2
+    }
+   }
+  }
+ },
+ "together": {
+  "town_deposits_ok": {
+   "value": 128,
+   "unit": "deposits",
+   "source": "ES town_deposit status=success (the skill row; _town_deposit is the same run)",
+   "window": "2026-10-12T00:00:00Z..2026-10-13T00:00:00Z",
+   "status": "live",
+   "denominator": {
+    "what": "active bot-hours",
+    "value": 1920.0
+   },
+   "rate": 0.0667,
+   "positive_control": {
+    "window_docs": 1303632,
+    "bots_present": 80,
+    "active_bot_hours": 1920.0,
+    "kinds": {
+     "town_deposit": {
+      "docs_in_window": 828,
+      "first_in_es": "2026-10-07T13:09:13Z",
+      "last_in_es": "2026-10-19T13:08:12Z"
+     }
+    }
+   },
+   "attempts": 828
+  },
+  "town_withdrawals_ok": {
+   "value": 123,
+   "unit": "withdrawals",
+   "source": "ES withdraw_pick (a town verb) + withdraw (generic: only with bot.pos within 53 blocks (x,z) and 17 (y) of its world's home (homes from the census files: 16 worlds)), status=success",
+   "window": "2026-10-12T00:00:00Z..2026-10-13T00:00:00Z",
+   "status": "live",
+   "denominator": {
+    "what": "active bot-hours",
+    "value": 1920.0
+   },
+   "rate": 0.0641,
+   "positive_control": {
+    "window_docs": 1303632,
+    "bots_present": 80,
+    "active_bot_hours": 1920.0,
+    "kinds": {
+     "withdraw_pick": {
+      "docs_in_window": 157,
+      "first_in_es": "2026-10-06T08:17:02Z",
+      "last_in_es": "2026-10-19T13:02:12Z"
+     },
+     "withdraw": {
+      "docs_in_window": 14,
+      "first_in_es": "2026-08-10T23:15:16Z",
+      "last_in_es": "2026-10-19T13:05:49Z"
+     }
+    }
+   },
+   "withdraw_pick": 119,
+   "withdraw": 4,
+   "withdraw_outside_town_excluded": 2
+  },
+  "items_into_town_chests": {
+   "value": 22688,
+   "unit": "items",
+   "source": "ES inventory_delta / detail fields (see note)",
+   "window": "2026-10-12T00:00:00Z..2026-10-13T00:00:00Z",
+   "status": "live",
+   "denominator": {
+    "what": "active bot-hours",
+    "value": 1920.0
+   },
+   "rate": 11.8167,
+   "positive_control": {
+    "window_docs": 1303632,
+    "bots_present": 80,
+    "active_bot_hours": 1920.0,
+    "kinds": {
+     "town_deposit": {
+      "docs_in_window": 828,
+      "first_in_es": "2026-10-07T13:09:13Z",
+      "last_in_es": "2026-10-19T13:08:12Z"
+     },
+     "deposit": {
+      "docs_in_window": 1960,
+      "first_in_es": "2026-08-06T06:53:17Z",
+      "last_in_es": "2026-10-19T12:56:16Z"
+     },
+     "_smelt_town": {
+      "docs_in_window": 0,
+      "first_in_es": "2026-10-17T13:42:21Z",
+      "last_in_es": "2026-10-19T13:08:03Z"
+     },
+     "withdraw_pick": {
+      "docs_in_window": 157,
+      "first_in_es": "2026-10-06T08:17:02Z",
+      "last_in_es": "2026-10-19T13:02:12Z"
+     },
+     "withdraw": {
+      "docs_in_window": 14,
+      "first_in_es": "2026-08-10T23:15:16Z",
+      "last_in_es": "2026-10-19T13:05:49Z"
+     },
+     "_toolkit": {
+      "docs_in_window": 0,
+      "first_in_es": "2026-10-18T00:07:23Z",
+      "last_in_es": "2026-10-19T13:06:57Z"
+     }
+    }
+   },
+   "note": "generic deposit/withdraw rows count only with bot.pos within 53 blocks (x,z) and 17 (y) of its world's home (homes from the census files: 16 worlds) (53 deposit and 2 withdraw rows outside were excluded). in: items leaving bags on successful town_deposit/deposit rows (inventory_delta < 0) + smelt_town dep_i; out: items entering bags on successful withdraw_pick/withdraw (delta > 0) + toolkit drew/sticks + smelt_town raw copper withdrawn and NOT banked back (in counts only its ingots, dep_i; the raw round trip is reported as smelt_town_raw_round_trip_excluded). _stock_bank (deposit() sub-rows) is NOT added. A deposit row's delta can include a dirt/cobble loss in the same run, so \"in\" is an upper bound per row and a lower bound overall (reflex banking has no skill row)",
+   "by_source": {
+    "town_deposit": 4817,
+    "deposit (generic chest verb)": 17871,
+    "smelt_town ingots banked (dep_i)": 0
+   },
+   "smelt_town_raw_round_trip_excluded": 0
+  },
+  "items_out_of_town_chests": {
+   "value": 260,
+   "unit": "items",
+   "source": "ES inventory_delta / detail fields (see note)",
+   "window": "2026-10-12T00:00:00Z..2026-10-13T00:00:00Z",
+   "status": "live",
+   "denominator": {
+    "what": "active bot-hours",
+    "value": 1920.0
+   },
+   "rate": 0.1354,
+   "positive_control": {
+    "window_docs": 1303632,
+    "bots_present": 80,
+    "active_bot_hours": 1920.0,
+    "kinds": {
+     "town_deposit": {
+      "docs_in_window": 828,
+      "first_in_es": "2026-10-07T13:09:13Z",
+      "last_in_es": "2026-10-19T13:08:12Z"
+     },
+     "deposit": {
+      "docs_in_window": 1960,
+      "first_in_es": "2026-08-06T06:53:17Z",
+      "last_in_es": "2026-10-19T12:56:16Z"
+     },
+     "_smelt_town": {
+      "docs_in_window": 0,
+      "first_in_es": "2026-10-17T13:42:21Z",
+      "last_in_es": "2026-10-19T13:08:03Z"
+     },
+     "withdraw_pick": {
+      "docs_in_window": 157,
+      "first_in_es": "2026-10-06T08:17:02Z",
+      "last_in_es": "2026-10-19T13:02:12Z"
+     },
+     "withdraw": {
+      "docs_in_window": 14,
+      "first_in_es": "2026-08-10T23:15:16Z",
+      "last_in_es": "2026-10-19T13:05:49Z"
+     },
+     "_toolkit": {
+      "docs_in_window": 0,
+      "first_in_es": "2026-10-18T00:07:23Z",
+      "last_in_es": "2026-10-19T13:06:57Z"
+     }
+    }
+   },
+   "note": "generic deposit/withdraw rows count only with bot.pos within 53 blocks (x,z) and 17 (y) of its world's home (homes from the census files: 16 worlds) (53 deposit and 2 withdraw rows outside were excluded). in: items leaving bags on successful town_deposit/deposit rows (inventory_delta < 0) + smelt_town dep_i; out: items entering bags on successful withdraw_pick/withdraw (delta > 0) + toolkit drew/sticks + smelt_town raw copper withdrawn and NOT banked back (in counts only its ingots, dep_i; the raw round trip is reported as smelt_town_raw_round_trip_excluded). _stock_bank (deposit() sub-rows) is NOT added. A deposit row's delta can include a dirt/cobble loss in the same run, so \"in\" is an upper bound per row and a lower bound overall (reflex banking has no skill row)",
+   "by_source": {
+    "withdraw_pick": 237,
+    "withdraw": 23,
+    "toolkit drew (ingots+sticks)": 0,
+    "smelt_town raw kept (withdrawn - raw banked back)": 0
+   },
+   "smelt_town_raw_round_trip_excluded": 0
+  },
+  "pickaxes_fetched": {
+   "value": 60,
+   "unit": "pickaxes",
+   "source": "ES withdraw_pick status=success, *_pickaxe inventory_delta > 0 (the verb also fetches sticks: not counted here)",
+   "window": "2026-10-12T00:00:00Z..2026-10-13T00:00:00Z",
+   "status": "live",
+   "denominator": {
+    "what": "active bot-hours",
+    "value": 1920.0
+   },
+   "rate": 0.0312,
+   "positive_control": {
+    "window_docs": 1303632,
+    "bots_present": 80,
+    "active_bot_hours": 1920.0,
+    "kinds": {
+     "withdraw_pick": {
+      "docs_in_window": 157,
+      "first_in_es": "2026-10-06T08:17:02Z",
+      "last_in_es": "2026-10-19T13:02:12Z"
+     }
+    }
+   },
+   "by_tier": {
+    "stone_pickaxe": 51,
+    "wooden_pickaxe": 9
+   },
+   "withdraw_pick_attempts": 157
+  },
+  "kit_tools_from_town_iron": {
+   "value": 0,
+   "unit": "tools",
+   "source": "ES _toolkit phase=kit crafted= (verified new usable copies; the toolkit draws only TOWN iron, toolkit.mjs kitDraw)",
+   "window": "2026-10-12T00:00:00Z..2026-10-13T00:00:00Z",
+   "status": "not_live_yet",
+   "denominator": {
+    "what": "active bot-hours",
+    "value": 1920.0
+   },
+   "rate": 0.0,
+   "positive_control": {
+    "window_docs": 1303632,
+    "bots_present": 80,
+    "active_bot_hours": 1920.0,
+    "kinds": {
+     "_toolkit": {
+      "docs_in_window": 0,
+      "first_in_es": "2026-10-18T00:07:23Z",
+      "last_in_es": "2026-10-19T13:06:57Z"
+     }
+    }
+   },
+   "by_tool": {},
+   "kit_runs": 0,
+   "runs_by_outcome": {},
+   "ingots_drawn": 0
+  },
+  "kit_tools_from_bag_iron": {
+   "value": 0,
+   "unit": "tools",
+   "source": "ES craft status=success args.item=iron_axe|iron_shovel (the model's own craft, from the bag)",
+   "window": "2026-10-12T00:00:00Z..2026-10-13T00:00:00Z",
+   "status": "zero_kind_present",
+   "denominator": {
+    "what": "active bot-hours",
+    "value": 1920.0
+   },
+   "rate": 0.0,
+   "positive_control": {
+    "window_docs": 1303632,
+    "bots_present": 80,
+    "active_bot_hours": 1920.0,
+    "kinds": {
+     "craft": {
+      "docs_in_window": 3110,
+      "first_in_es": "2026-08-05T22:42:54Z",
+      "last_in_es": "2026-10-19T13:05:31Z"
+     }
+    }
+   },
+   "by_tool": {},
+   "iron_pickaxes_crafted_from_bag": 46
+  },
+  "shared_project_contributions": {
+   "value": 0,
+   "unit": "plinths with >= 2 distinct contributing bots",
+   "source": "ES _plinth_step status=success op=place, grouped by plan id= and bot.name",
+   "window": "2026-10-12T00:00:00Z..2026-10-13T00:00:00Z",
+   "status": "not_live_yet",
+   "denominator": {
+    "what": "plinths worked on today",
+    "value": 0
+   },
+   "positive_control": {
+    "window_docs": 1303632,
+    "bots_present": 80,
+    "active_bot_hours": 1920.0,
+    "kinds": {
+     "_plinth_step": {
+      "docs_in_window": 0,
+      "first_in_es": "2026-10-16T13:40:54Z",
+      "last_in_es": "2026-10-19T11:03:45Z"
+     }
+    }
+   },
+   "projects": [],
+   "distinct_contributors": 0
+  },
+  "wells_shared": {
+   "value": 5,
+   "unit": "wells used by >= 2 bots",
+   "source": "ES _well_dispose status=success, distinct bot.name per well (as wells_in_use locates them)",
+   "window": "2026-10-12T00:00:00Z..2026-10-13T00:00:00Z",
+   "status": "live",
+   "denominator": {
+    "what": "wells in use today",
+    "value": 5
+   },
+   "positive_control": {
+    "window_docs": 1303632,
+    "bots_present": 80,
+    "active_bot_hours": 1920.0,
+    "kinds": {
+     "_well_dispose": {
+      "docs_in_window": 33,
+      "first_in_es": "2026-10-05T10:09:44Z",
+      "last_in_es": "2026-10-19T12:59:06Z"
+     }
+    }
+   },
+   "bots_per_well_median": 3
+  }
+ },
+ "health": {
+  "bags_full": {
+   "value": 41,
+   "unit": "bots at >= 34 of 36 slots",
+   "source": "ES latest bot.inventory per bot (require bot.pos.x), stack sizes from ~/stack.json; a LOWER bound: one item split over partial stacks uses more slots",
+   "window": "2026-10-12T21:00:00Z..2026-10-13T00:00:00Z (latest snapshot per bot)",
+   "status": "live",
+   "denominator": {
+    "what": "bots with a snapshot",
+    "value": 80
+   },
+   "positive_control": {
+    "window_docs": 154722,
+    "bots_present": 80,
+    "bots_with_snapshot": 80,
+    "state_row_without_inventory": []
+   },
+   "pct_bots_full": 51.2,
+   "pct_slots_used": 90.8,
+   "median_slots": 34.0,
+   "top_slot_users": [
+    {
+     "item": "cobblestone",
+     "slots": 269,
+     "share_pct": 10.3
+    },
+    {
+     "item": "stone_pickaxe",
+     "slots": 168,
+     "share_pct": 6.4
+    },
+    {
+     "item": "bamboo",
+     "slots": 132,
+     "share_pct": 5.0
+    },
+    {
+     "item": "oak_log",
+     "slots": 99,
+     "share_pct": 3.8
+    },
+    {
+     "item": "oak_sapling",
+     "slots": 81,
+     "share_pct": 3.1
+    },
+    {
+     "item": "bone_meal",
+     "slots": 78,
+     "share_pct": 3.0
+    },
+    {
+     "item": "bucket",
+     "slots": 76,
+     "share_pct": 2.9
+    },
+    {
+     "item": "apple",
+     "slots": 76,
+     "share_pct": 2.9
+    },
+    {
+     "item": "brown_egg",
+     "slots": 74,
+     "share_pct": 2.8
+    },
+    {
+     "item": "crafting_table",
+     "slots": 72,
+     "share_pct": 2.8
+    }
+   ]
+  },
+  "tool_tiers": {
+   "value": 32,
+   "unit": "bots with a usable iron pickaxe",
+   "source": "ES latest bot.tools per bot; usable = more than 10 uses left",
+   "window": "2026-10-12T21:00:00Z..2026-10-13T00:00:00Z (latest snapshot per bot)",
+   "status": "live",
+   "denominator": {
+    "what": "bots with a snapshot",
+    "value": 80
+   },
+   "positive_control": {
+    "window_docs": 154722,
+    "bots_present": 80,
+    "bots_with_snapshot": 80,
+    "state_row_without_inventory": []
+   },
+   "counts": {
+    "best usable axe: none": 66,
+    "best usable axe: stone": 13,
+    "best usable axe: wooden": 1,
+    "best usable pickaxe: iron": 32,
+    "best usable pickaxe: none": 9,
+    "best usable pickaxe: stone": 35,
+    "best usable pickaxe: wooden": 4,
+    "best usable shovel: none": 77,
+    "best usable shovel: stone": 3,
+    "iron_pickaxe held": 49,
+    "iron_pickaxe usable": 32
+   }
+  },
+  "chests_pct_full": {
+   "value": null,
+   "unit": "",
+   "source": "town chest census",
+   "window": "2026-10-12T00:00:00Z..2026-10-13T00:00:00Z",
+   "status": "no_census",
+   "positive_control": {
+    "census_files_seen": 13,
+    "census_dir": "~/goalboard/census"
+   },
+   "note": "no census file started in 2026-10-12T00:00:00Z..2026-10-13T03:00:00Z: UNKNOWN, not zero (run chestclear3/goalcensus.py on 10.0.0.30 and carry the file here)"
+  },
+  "chests_full": {
+   "value": null,
+   "unit": "",
+   "source": "town chest census",
+   "window": "2026-10-12T00:00:00Z..2026-10-13T00:00:00Z",
+   "status": "no_census",
+   "positive_control": {
+    "census_files_seen": 13,
+    "census_dir": "~/goalboard/census"
+   },
+   "note": "no census file started in 2026-10-12T00:00:00Z..2026-10-13T03:00:00Z: UNKNOWN, not zero (run chestclear3/goalcensus.py on 10.0.0.30 and carry the file here)"
+  },
+  "gather_success": {
+   "value": 42.8,
+   "unit": "% of attempts succeeded",
+   "source": "ES gather skill.status",
+   "window": "2026-10-12T00:00:00Z..2026-10-13T00:00:00Z",
+   "status": "live",
+   "denominator": {
+    "what": "gather attempts",
+    "value": 31674
+   },
+   "positive_control": {
+    "window_docs": 1303632,
+    "bots_present": 80,
+    "active_bot_hours": 1920.0,
+    "kinds": {
+     "gather": {
+      "docs_in_window": 31674,
+      "first_in_es": "2026-08-05T21:49:54Z",
+      "last_in_es": "2026-10-19T13:08:27Z"
+     }
+    }
+   },
+   "successes": 13568,
+   "success_per_bot_hour": 7.067,
+   "by_status": {
+    "failed": 14745,
+    "success": 13568,
+    "aborted": 3230,
+    "unknown": 131
+   }
+  },
+  "craft_success": {
+   "value": 24.2,
+   "unit": "% of attempts succeeded",
+   "source": "ES craft skill.status",
+   "window": "2026-10-12T00:00:00Z..2026-10-13T00:00:00Z",
+   "status": "live",
+   "denominator": {
+    "what": "craft attempts",
+    "value": 3110
+   },
+   "positive_control": {
+    "window_docs": 1303632,
+    "bots_present": 80,
+    "active_bot_hours": 1920.0,
+    "kinds": {
+     "craft": {
+      "docs_in_window": 3110,
+      "first_in_es": "2026-08-05T22:42:54Z",
+      "last_in_es": "2026-10-19T13:05:31Z"
+     }
+    }
+   },
+   "successes": 752,
+   "success_per_bot_hour": 0.392,
+   "by_status": {
+    "failed": 2108,
+    "success": 752,
+    "aborted": 228,
+    "unknown": 22
+   }
+  },
+  "mine_success": {
+   "value": 71.7,
+   "unit": "% of attempts succeeded",
+   "source": "ES mine skill.status",
+   "window": "2026-10-12T00:00:00Z..2026-10-13T00:00:00Z",
+   "status": "live",
+   "denominator": {
+    "what": "mine attempts",
+    "value": 10937
+   },
+   "positive_control": {
+    "window_docs": 1303632,
+    "bots_present": 80,
+    "active_bot_hours": 1920.0,
+    "kinds": {
+     "mine": {
+      "docs_in_window": 10937,
+      "first_in_es": "2026-08-05T22:23:14Z",
+      "last_in_es": "2026-10-19T13:08:12Z"
+     }
+    }
+   },
+   "successes": 7843,
+   "success_per_bot_hour": 4.085,
+   "by_status": {
+    "success": 7843,
+    "unknown": 1754,
+    "failed": 1305,
+    "aborted": 35
+   }
+  }
+ }
+}
