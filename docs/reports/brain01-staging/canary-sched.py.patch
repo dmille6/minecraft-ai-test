@@ -1,5 +1,5 @@
---- host-orig/canary-sched.py	2026-10-12 07:06:37
-+++ patched/canary-sched.py	2026-10-12 08:11:09
+--- host-20261019/canary-sched.py
++++ patched/canary-sched.py
 @@ -1142,7 +1142,7 @@
          bad.append('run id %r is not a plain id' % run)
      if deployment(run_rows(journal, run))[0] is not None:

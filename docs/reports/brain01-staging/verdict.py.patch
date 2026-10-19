@@ -1,6 +1,6 @@
---- host-orig/verdict.py	2026-10-12 07:13:26
-+++ patched/verdict.py	2026-10-12 08:04:25
-@@ -485,6 +485,14 @@
+--- host-20261019/verdict.py
++++ patched/verdict.py
+@@ -492,6 +492,14 @@
      MEMBERS = members_of(man)
      ALLBOTS = sorted({os.path.basename(b.rstrip('/')) for b in glob.glob(f'{LOGROOT}/*-*/')})
      CANARY_BOTS = [b for b in ALLBOTS if in_canary_pool(b, MEMBERS)]
@@ -15,7 +15,7 @@
      def _scan(botlist):
          d = collections.defaultdict(list)
          for bot in botlist:
-@@ -557,7 +565,7 @@
+@@ -564,7 +572,7 @@
          # includes the treated bots' own world-mates -- that is the whole point of the design, and
          # excluding their worlds (as the old pool-level complement did) would throw away the
          # matched controls it exists to create.
@@ -24,7 +24,7 @@
          _by_ctrl = _scan(_ctrl_bots) or {'__empty__': []}
      return _by_ctrl
  
-@@ -713,7 +721,7 @@
+@@ -720,7 +728,7 @@
      import usafegate
      from deathgate import ratio_lower_bound as _rlb
      _cutdt = dt.datetime.fromisoformat(man['declared_at'].replace('Z', '+00:00'))

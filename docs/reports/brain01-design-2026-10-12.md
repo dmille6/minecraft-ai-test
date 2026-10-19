@@ -1,6 +1,6 @@
 # brain-01: gemma4 on the Studio as the per-bot brain for 10 live bots (design, 2026-10-12)
 
-Status: **STAGED, nothing installed or deployed. Both engines APPROVE the code, Studio/host pieces and operator patches (A/B/C, round 4, 10-12).** Branch `brain01-on-0cdb1a8`; **the fleet-base variant is `brain01-on-82aef34`** (fleet 82aef34 since 10-12 18:20Z; the 12 commits cherry-picked cleanly, and the patch is byte-identical to the approved one). Owner approved planning on 10-10.
+Status (10-19): **REVIVED on the fleet tip, see s.13; host patches NOT installed.** Was: **STAGED, nothing installed or deployed. Both engines APPROVE the code, Studio/host pieces and operator patches (A/B/C, round 4, 10-12).** Branch `brain01-on-0cdb1a8`; **the fleet-base variant is `brain01-on-82aef34`** (fleet 82aef34 since 10-12 18:20Z; the 12 commits cherry-picked cleanly, and the patch is byte-identical to the approved one). Owner approved planning on 10-10.
 The new key on the fleet host (s.3) waits for the owner. Both engines review every piece before anything is queued.
 
 ## 1. Why: what a smarter brain can move
@@ -423,3 +423,66 @@ decision repeats the identical vetoed action. The denominator is vetoes followed
 - On today's evidence its primaries would most likely show lower stuck time and flat refusals.
 - **Recommended order:** fix the post-veto loop first (one fleet change, tested on qwen and gemma), then run brain-01,
   so the canary tests the brain on a harness that can use it. This is the owner's call.
+
+## 13. Revival on the fleet tip (10-19, owner "test now")
+
+**Code.** `brain01-on-adbec4f` = origin/brain01-on-82aef34's 19 commits cherry-picked onto adbec4f4 (plinthfirst-01) with
+no conflict; the +/- lines are byte-identical to the 82aef34 patch (one context line differs, an import above ours).
+`brain01-on-0b3a0d4` = the same commits on treefarm-02's queued canary 0b3a0d4c (tf-on-adbec4f), again no conflict and
+again one context line. Both add a test-only Studio-reboot suite (`brain01-reboot.test.mjs`, real sockets: refused,
+accept-then-reset, accept-and-hang, HTTP 502, then recovery) and an operator tool (`scripts/brain01/queue-move-after.py`).
+npm test 269/269 (adbec4f4 variant) and 274/274 (0b3a0d4c variant); eslint 1 = the base's reflex.mjs withinBody;
+brain01-mutants 21/21 and brain01-reboot-mutants 5/5 killed by an assertion on both.
+
+**What a Studio reboot does to the canary.** The bots stay safe: every decision is served by the bot's own local model,
+labelled `local`, within the Studio's 15 s budget (a refused or reset connection does not even wait for it), and the bot
+returns to gemma by itself after its capped backoff (60 s doubling, 900 s max) once the Studio serves. But the Studio's
+proxy and keeper are per-user LaunchAgents with no auto-login (owner 10-14: "not yet"), so gemma stays down until a
+console login, and brainread's G1/G8 then REVERT the canary at its next read. Such a REVERT is an infrastructure
+outage, not a verdict on the brain: the operator records it as such (INCONCLUSIVE in substance) and re-queues.
+
+**Host prerequisites, NOT installed (found 10-19).** None of the s.9 staged patches is on the fleet host. The live
+canary-loop.sh never reads `canary_env`, so the canary would run INERT; canary-sched.py refuses class `model-env`
+(that refusal is what keeps an unpatched host from launching it); drawrec.sh draws up to FOUR pools (TARGET_K = 4)
+where the Studio serves ten bots. For a `promotion: none` run the required three are canary-loop.sh, drawrec.sh and
+canary-sched.py; verdict.py and immobiledid.py only matter for a kept subset. All five still apply cleanly to the
+current host files (dry run 10-19: loop 6f5f13b5, sched dee491d6, drawrec 792a7cfd, verdict 164e170d, immobiledid
+53af289d; mcai-canary-tree is the pinned 26da45da). They must be installed between canaries under install-hold, ON TOP
+of whatever the canary-tiers work installs, and re-reviewed as installed. RE-STAGED 10-19 against the current host files
+(`host-20261019.md5`), with two r1 changes: the loop refuses a model-env registration with no `canary_env` and a
+`canary_env` on any other class (the loop can be started by hand, where the scheduler's check does not run); drawrec's
+subset exclusion moved after the steady release (`excl -= _early`), so a 6 h release can never re-admit a subset pool.
+**Install ONLY canary-loop.sh, drawrec.sh and canary-sched.py now** (Claude r1 C.2): the verdict.py patch changes the
+gate bundle, so the v32 gate-digest preflight would refuse every launch until RULES-IN-FORCE.md is re-recorded, and
+the immobiledid.py patch changes a registered read whose md5 is pinned in every queued entry (H4). Both are inert
+without a subset; they ship with a keep-subset decision, as their own gate generation.
+
+**Operator checklist before `queue add`** (both engines, r1): the three patches installed under install-hold and
+`gatedigest.py` re-run; ES `llm.brain` mapped (below); the variant's `reads_src` holds this tip's brainread.py (md5
+06d444e6), and no other /tmp/brainread.py exists; ~/digest/NEXT-SLOT.json absent; on the Studio, no ~/brain01/PAUSE,
+KEEP_LOADED present, and `touch ~/brain01/LIVE` at deploy so the keeper holds GPU_RESERVED=brain01-live for the run
+(rm it at teardown); nothing else scheduled on the Studio for ~28 h (tell the andy-eval session).
+
+**Registration changes from the 10-12 draft:** tier 3; `change_rows: []` (Codex r1: verdict.py compares underscore-
+stripped kinds with the declared names, so `_brain_config`/`_brain_share` never matched anything, and a 10-minute
+heartbeat would only link deaths by proximity); everything else as approved. brainread dry runs on 10-19's logs
+(brainless pools, so G1/G4/G7/G8 fail by design, the negative control): +180 on hive-c,placebo-a 21 s, 2,681 canary
+model decisions / 29.9 bot-h; +1440 on hive-a,placebo-b (across the 23:59Z rotation) 134 s and 0.69 GB max RSS,
+19,941 canary rows / 239.9 bot-h, control 87,683 model decisions / 1,079 bot-h -- far inside the loop's 1800 s budget.
+
+**Studio, 10-19 12:3x-12:5xZ.** Up 6 d 17 h; LM Studio holds only `brain` (gemma-4-26b-a4b-it@8bit, parallel 12) idle;
+Ollama empty; GPU 1%; no GPU_RESERVED holder (`~/brain01/LIVE` absent: touch it at deploy); tunnel up 3 d, /healthz ok
+through 11611. Ten clients paced like the fleet (1.44 decisions/bot-min measured now): p50 2.3 s, p95 5.1 s, p99
+5.6 s, 0 over 15 s (70 requests). Back-to-back saturation: p95 18.8 s with one 502 -- about 3x the throughput ten bots
+need, and no headroom for more pools.
+
+**ES.** `llm.brain` is still unmapped in the live write index (.ds-mcai-llm-agents-2026.10.15-000011, dynamic strict):
+the 10-15 rollover did not pick it up, so the template was never applied either. Until an operator maps it, every
+canary bot's decision row is rejected by ES WHOLE (the jsonl files, which the reads use, are complete).
+
+**Post-veto loop fix: not in this canary** (Codex r1 D and Claude r1 D: both APPROVE keeping it separate; Claude: it
+must ship, designed, reviewed and canaried, BEFORE any keep-subset amendment, or a kept subset locks in the 76-85%
+re-proposal). It is not small: it changes
+admission and the livelock path for every bot the code reaches, has no design or Paper test, and would confound
+"gemma vs qwen" with a new veto behaviour the control does not run. brain-01 measures gemma on today's harness; the
+loop shows up in its refused-share primary.
