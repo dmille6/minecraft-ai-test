@@ -82,6 +82,13 @@ if _refused:
     except Exception as _pe:
         print('STEADY refusal could not be paged (%s)' % type(_pe).__name__)
 excl -= _early
+# brain-01 (staged): pools KEPT on a fixed remote brain are a different population; never drawn again. AFTER the steady release
+# above (Codex/Claude r1 10-19): a 6 h steady release must never re-admit a subset pool.
+try:
+    for _p in json.load(open('/srv/mcbots/brain-subset.json')).get('pools') or []:
+        excl.add(_p); print('brain subset (never drawn):', _p)
+except FileNotFoundError:
+    pass
 try:
     man = json.loads(txt.split('=== MANIFEST')[1]) if '=== MANIFEST' in txt else {}
     for p in str(man.get('canary_pool') or '').split(','):
@@ -206,6 +213,26 @@ print('half mix on offer:', {h: sum(1 for p in e if band[p][0] == h) for h in ('
 # and it SAYS WHICH -- so the read knows its own power instead of assuming it.
 TARGET_K = 4
 MIN_K = 2
+# brain-01 (staged 2026-10-12): a registration may CAP the draw with `draw_k` (pools). A model/env canary on the
+# Studio may take two pools (10 bots) and no more -- the Studio serves ~10-12 bots. Absent = 4, as above.
+if RUN:
+    # FAIL CLOSED (Codex r1): a registration that cannot be read, or a model-env one without a valid draw_k, draws
+    # NOTHING rather than the default four pools -- a Studio canary on 20 bots is exactly the failure this cap prevents.
+    _r, _x = None, None
+    for _rp in (os.path.expanduser('~/mcai-analysis/registrations/%s.json' % RUN), '/tmp/registrations/%s.json' % RUN):   # the same two places as above
+        try:
+            _r = json.load(open(_rp)); break
+        except Exception as _e:
+            _x = _e
+    if _r is None:
+        print('draw_k: REGISTRATION UNREADABLE for', RUN, '(%s) -- drawing nothing' % _x)
+    _dk = (_r or {}).get('draw_k')
+    if _r is None or (_r.get('class') == 'model-env' and not (isinstance(_dk, int) and 1 <= _dk <= 2)):
+        TARGET_K = 0; MIN_K = 1
+        print('draw_k: refusing to draw for', RUN, '(model-env needs draw_k 1..2)')
+    elif isinstance(_dk, int) and 1 <= _dk < TARGET_K:
+        TARGET_K = _dk; MIN_K = min(MIN_K, _dk)
+        print('draw_k: registration caps the draw at %d pool(s)' % _dk)
 rng = secrets.SystemRandom()
 npick = min(TARGET_K, len(e))
 if npick < MIN_K:

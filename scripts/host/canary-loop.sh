@@ -25,6 +25,26 @@ SHA=$(jf sha); [ -n "$SHA" ] || { page error "registration $RUN has no sha"; exi
 # below behaves as before.
 BAGFIX=$(python3 -c "import json; print('1' if json.load(open('$REG')).get('class') == 'bag-fix' else '')")
 BAGFIX_POOLS=4
+# brain-01 (staged 2026-10-12): a MODEL/ENV canary carries `canary_env`, a list of KEY=VALUE strings, written into the
+# canary pool's canary.env by mcai-canary-tree (via fleet-deploy's CANARY_ENV, which survives the sudo and is checked
+# in a live bot's /proc/<pid>/environ: FLAG MISSING exits 4). Unset or empty = every line below behaves as before.
+# Values may hold `|` and `:` (verified through mcai-canary-tree and a real systemd EnvironmentFile, 10-12) but no
+# whitespace and no glob characters: mcai-canary-tree word-splits CANARY_ENV UNQUOTED, so `*`, `?` or `[` would glob.
+CENV=$(python3 -c "import json,re,sys; e=json.load(open('$REG')).get('canary_env') or []; bad=[x for x in e if not re.fullmatch(r'[A-Z_][A-Z0-9_]*=[^\s*?\[\]]+', x)]; print('BAD:'+' '.join(bad) if bad else ' '.join(e))")
+case "$CENV" in BAD:*) page error "registration $RUN canary_env entries are not KEY=VALUE without spaces or glob characters: ${CENV#BAD:}"; exit 2;; esac
+CENV_KEYS=$(for kv in $CENV; do printf '%s ' "${kv%%=*}"; done)
+# CLASS AND ENV MUST AGREE (Claude r1 10-19): a model-env registration with no canary_env would deploy INERT code that
+# its own read then reverts as a "defect"; a canary_env on any other class would ship an env no reader expects. The
+# scheduler checks this at `queue add`; the loop checks it again, because the loop can be started by hand.
+case "$(jf class)" in
+  model-env) [ -n "$CENV" ] || { page error "registration $RUN is class model-env with no canary_env: it would deploy inert"; exit 2; };;
+  *) [ -z "$CENV" ] || { page error "registration $RUN sets canary_env but is class '$(jf class)', not model-env"; exit 2; };;
+esac
+# THE WRITER OF canary.env IS PINNED (Claude r1): an env canary deploys only through the mcai-canary-tree whose CANARY_ENV
+# handling was read and tested (snapshot: infra/brain/host-snapshot/mcai-canary-tree in the brain-01 branch).
+if [ -n "$CENV" ] && [ "$(md5sum /usr/local/sbin/mcai-canary-tree 2>/dev/null | cut -d' ' -f1)" != "26da45dabfa8830b361d09b6a7dd236e" ]; then
+  page error "registration $RUN sets canary_env, but /usr/local/sbin/mcai-canary-tree is not the pinned build (md5 26da45da...): re-verify its CANARY_ENV handling first"; exit 2
+fi
 PH=$(lastphase); echo "loop $RUN sha $SHA resumes from phase: $PH"
 _jhas() { grep -q "\"run\":\"$RUN\".*\"phase\":\"$1\"" $J 2>/dev/null; }
 _guards() { python3 -c "import json,sys; print(bool(json.load(open(sys.argv[1])).get('guards')))" $H/digest/reads/$RUN-verdict-$1.json 2>/dev/null; }
@@ -169,7 +189,7 @@ if [ "$(mf canary_code_version)" != "$SHA" ]; then
       *) journal refused-v34 "matched control not frozen: $FZ"; page error "underground-safety $RUN NOT DEPLOYED: the matched control could not be frozen: $FZ (an earlier record for other pools is never overwritten; a re-run needs a new run id)"; exit 2;;
     esac
   fi
-  $H/bin/fleet-deploy "$SHA" "$RUN" "$(jf notes) pools $P drawn at deploy by the canary loop" --pool "$P" > $H/digest/deploy-$RUN.log 2>&1 || { page error "deploy launch failed"; exit 2; }
+  CANARY_ENV="$CENV" $H/bin/fleet-deploy "$SHA" "$RUN" "$(jf notes) pools $P drawn at deploy by the canary loop" --pool "$P" > $H/digest/deploy-$RUN.log 2>&1 || { page error "deploy launch failed"; exit 2; }
   grep -q "VERIFIED" $H/digest/deploy-$RUN.log || { page error "deploy not verified: $(tail -2 $H/digest/deploy-$RUN.log | tr '\n' ' ')"; exit 2; }
   journal deployed "$P $(mf declared_at)"; page info "canary $RUN $SHA deployed to $P at $(mf declared_at)"
 fi
@@ -227,6 +247,28 @@ _teardown() {
   _restart_assigned
   sleep 90
   local LIVE=$(for pool in ${P//,/ }; do for d in /var/log/mcai/$pool-*; do f=$(ls -t $d/skill-*.jsonl 2>/dev/null | head -1); [ -n "$f" ] && tail -1 $f | python3 -c 'import sys,json; print(json.loads(sys.stdin.readline())["code"]["version"][:7])' 2>/dev/null; done; done | sort | uniq -c | tr '\n' ' ')
+  # AN ENV CANARY IS TORN DOWN ONLY WHEN EVERY BOT OF THE POOLS IS PROVEN FREE OF ITS ENV (Codex r1). The version labels
+  # cannot show it, so read each live process's environment AS ROOT (`sudo cat`: the open itself is privileged). A bot
+  # with no running process, or an environ that cannot be read, is NOT proof -- it is named, and the teardown is not
+  # journalled as done: the scheduler keeps the slot open and the operator restarts the named units.
+  if [ -n "$CENV_KEYS" ]; then
+    local BAD="" N=0
+    # THE ROSTER, not log dirs (Claude r3): 16 pools carry a stale `-Charlie` log dir from a rename, which has no unit
+    # and would read as "no-process" on every teardown.
+    for pool in ${P//,/ }; do for e in /srv/mcbots/harness/env/$pool-*.env; do [ -f "$e" ] || continue; b=$(basename "$e" .env); N=$((N+1))
+      pid=$(systemctl show -p MainPID --value "mcbot@$b.service" 2>/dev/null)
+      if [ -z "$pid" ] || [ "$pid" = 0 ]; then BAD="$BAD $b:no-process"; continue; fi
+      envtxt=$(sudo cat /proc/$pid/environ 2>/dev/null | tr '\0' '\n') || { BAD="$BAD $b:unreadable"; continue; }
+      [ -n "$envtxt" ] || { BAD="$BAD $b:unreadable"; continue; }
+      for k in $CENV_KEYS; do echo "$envtxt" | grep -q "^$k=" && BAD="$BAD $b:$k"; done
+    done; done
+    if [ -n "$BAD" ] || [ "$N" = 0 ]; then
+      journal teardown-incomplete "env not proven cleared on ${N} bot(s):${BAD:- no bots found}"
+      page error "TEARDOWN INCOMPLETE $RUN: canary env not proven cleared:${BAD:- no bots found} -- restart those units, then journal torn-down by hand"
+      return 1
+    fi
+    journal env-cleared "$CENV_KEYS proven absent on $N bot(s)"
+  fi
   journal torn-down "$LIVE"
   page verdict "$FINAL $RUN; torn down; pools live: $LIVE"
 }
@@ -541,6 +583,15 @@ case "$FINAL" in
     # promotion "none", because fleet-wide promotion is forbidden there, so every KEEP in that
     # window would have stranded its treatment. Record the KEEP, then tear down; the verdict is
     # preserved and the fleet is returned to baseline.
+    # brain-01: KEEP ON A FIXED SUBSET is NOT done by the loop (Codex r1: a promote-then-apply inside the loop could close
+    # the run before the subset was kept, and could not resume). The loop records the KEEP and tears the canary down
+    # exactly like any non-fleet-wide KEEP below; then it pages the operator with the one verified command that makes
+    # the env permanent on these pools (mcai-brain-subset: record first, exact-value verification, resumable). The code
+    # is inert without the env and rides the next fleet-wide promotion.
+    if [ "$(jf promotion)" = "keep-subset" ]; then
+      journal subset-pending "operator: sudo /usr/local/sbin/mcai-brain-subset apply --run $RUN --pools $P --env \"$CENV\""
+      page verdict "KEEP $RUN (keep-subset): after teardown, the operator applies the subset: sudo /usr/local/sbin/mcai-brain-subset apply --run $RUN --pools $P --env \"$CENV\""
+    fi
     if [ "$(jf promotion)" != "fleet-wide" ]; then
       page verdict "KEEP $RUN, promotion '$(jf promotion)' -- recording and tearing down rather than promoting"
       journal keep-unpromoted "promotion=$(jf promotion); recording KEEP then restoring baseline"
