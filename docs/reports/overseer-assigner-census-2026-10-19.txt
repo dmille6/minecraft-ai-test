@@ -155,3 +155,16 @@ dirt held at the end of a dirt gather: median 7 p90 16 n 16739
 mcai-mayor-shadow.service: failed since 2026-10-13 21:23:49Z, exit 6 (output cap 1024 MB); /var/lib/mcai-mayor files last written 21:18Z 10-13
 Studio: LM Studio 'brain' gemma-4-26b-a4b-it@8bit loaded IDLE 27.99 GB; ollama ps empty (gpt-oss not loaded); ~/brain01/proxy.jsonl last row 2026-10-13T06:17:42Z
 check-open-loop.py: no open canary; bamboo-02 recorded REVERT 05:11Z 10-19, torn down 05:15Z; scheduler next: treefarm-02
+== C1-C3 r2 (shared towns only; state-change invalidation) ==
+  C1 no raw copper (town key, 2 h): CANDIDATE redundant 606 of 952 (63.7%), body 1.60 bot-h
+  C2 same empty furnace (furnace key, 60 min): CANDIDATE redundant 316 of 764 (41.4%), body 0.76 bot-h
+  C3 lid_blocked count (town key, 60 min): CANDIDATE redundant 504 of 694 (72.6%), body 0.09 bot-h
+  count_town shared 814: lid_blocked 694, counted>0 188
+== C4/C7 r2: identical predicates, town-matched controls, bootstrap 95% ==
+  C7 toolkit no_iron (n=253), townmate iron_ingot >= 1: at events 235/253 = 92.9% (89.7, 96.0); town-matched control 1164/1264 = 92.1% (90.6, 93.7)
+  C7 toolkit no_iron (n=253), townmate iron_ingot >= 3: at events 195/253 = 77.1% (71.9, 82.2); town-matched control 987/1264 = 78.1% (75.7, 80.3)
+  C4 smelt no coal (n=484), townmate coal+charcoal >= 1: at events 336/484 = 69.4% (65.5, 73.6); town-matched control 1573/2418 = 65.1% (63.2, 67.1)
+  C4 smelt no coal (n=484), townmate coal+charcoal >= 8: at events 52/484 = 10.7% (8.1, 13.6); town-matched control 275/2418 = 11.4% (10.1, 12.7)
+== C10 code check (ls-tree of the deployed build) ==
+fleet adbec4f4: no file matching builder|buildbot|project|ziggurat|monument|yard|blueprint; the only 'shaft' match is bots/test/shaft-dig-budget.test.mjs; 371 .mjs files in the tree
+positive control, shaft-01 variant fbc3621: bots/src/buildbot.mjs builder.mjs monument.mjs monumentjob.mjs structures.mjs + builder/monument tests

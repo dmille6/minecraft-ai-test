@@ -1,0 +1,59 @@
+Reviews of docs/reports/overseer-assigner-design-2026-10-19.md
+(both engines, independent, read-only, the same prompt -- at the end of this file)
+
+=== ROUND 1 (doc r1, commit cd57e3f3) -- CODEX (codex exec --sandbox read-only - < prompt) ===
+VERDICT: CHANGE
+PROCEED-AS-ACTOR-NOW: no
+FIRST-STEP-AGREED: yes
+FINDINGS:
+
+1. P2 -- Design §1: Diagnosis is plausible, not established. model-selection-2026-10-05.md:869-889 confirms delivery, completed steps and changed behaviour; :920-925 explicitly leaves the collapse unexplained. Benchmark optimality cannot exclude live allocation failures. The mayor prediction-versus-effect distinction is faithful (shadow-mayor-plan-2026-10-03.md:67-72), but does not establish that every self-maintenance allocation has zero selection value (:84-87). Fix: distinguish observed limitations from causal hypotheses; distinguish C2's 70-minute metrics from 90-minute directive counts.
+
+2. P2 -- scripts/host/overseer_census/coord.py:68-106, C1-C3: These count repeated findings, not proven avoidable work. Copper and lids are grouped only by pool; lids may concern different containers or accompany useful counts. Intervening deposits, furnace activity and lid changes never invalidate prior misses. The 470 successful counts include isolated pools. Fix: key by container and state epoch, invalidate on changes, use shared-town denominators, and label three hours as candidate savings.
+
+3. P2 -- coord.py:202-218, C4/C7: The fuel predicates differ: shortage moments count coal plus charcoal, controls count coal alone. Controls sample telemetry events, not uniform time, without matching town, bot or coverage; shortages concentrate in particular towns. Also, eight coal is not the minimum useful fuel amount. Fix identical predicates, useful thresholds, matched controls and uncertainty. Similar prevalence does not disprove distribution headroom: iron is available during 200/258 refusals.
+
+4. P2 -- coloc.py:23-46, C8: The test pairs completed-row positions with reconstructed start times, excludes overlapping gathers and ignores vertical separation. Finding co-location does not validate sensitivity to contention; aggregate success can reflect resource/location differences. Fix: label this a descriptive association, obtain target/start/overlap evidence and validate against known competing gathers before claiming no detectable harm.
+
+5. P2 -- contend.py:24-28, C10; design :113: A skill-name census establishes no matching names, not absence of projects. Seeing wells validates ingestion, not project instrumentation; the script does not inspect the eleven generic builds' plans or placements. Fix: reconcile project records, deployed emitters and generic builds; require a known project positive control. Likewise, fleet-wide llm:idle body time includes isolated bots and productive work -- it is not 230 hours of demonstrated assignable labour.
+
+6. P1 -- Design §§4.3-4.6: RECALL is additional behaviour, not merely sorting existing jobs. Height, distance and absent flags do not establish an open route. FREE is not necessarily an executable refusal remedy. Invalid ticks writing nothing also leave earlier leases active, contradicting "control behaviour." Fix: specify deterministic recall admission, fresh bot-side checks, executable recovery, body-time limits, revocation and restart fencing; test composed chains. Preserve bot-only world mutation and verify material provenance.
+
+7. P1 -- Design §§4.7, 6: Four pools plus concurrent brain-01 cannot be justified merely by disjoint populations; CLAUDE.md:174-180 prohibits concurrent canary lanes. Fix: serialize experiments and resolve four-town deployment/tripper support before S3. Bound event-driven calls globally and skip on stale/missing Studio load telemetry.
+
+8. P1 -- Design §5: "Placeable-cell" active hours can exclude supply stalls and change under treatment. Excluding outages further selects exposure. Fix: primary intention-to-treat throughput over fixed town-time, including stalls/outages; preregister completion handling, eligible controls, clustered uncertainty, power and deadline. Budget acceptable gathering displacement explicitly. Retain the two-death floor.
+
+9. P1 -- Design §5 positive control: Disabling BUILD proves builders are necessary, not that allocation binds. Seeded stock may erase supply headroom; three concordant pairs establish neither adequate effect size nor power. Fix: matched randomized runs, identical material provenance, an oracle restricted to deployable levers, representative shortages, and a prespecified detectable improvement. S0 remains the appropriate first step; today's LLM shadow lacks a demonstrated assignment opportunity.
+
+=== ROUND 1 (doc r1, commit cd57e3f3) -- CLAUDE (independent general-purpose subagent, read-only) ===
+VERDICT: APPROVE-WITH-CHANGES
+PROCEED-AS-ACTOR-NOW: no
+FIRST-STEP-AGREED: yes -- S0, but only with the changes in 6-7 (a fixture positive control and a heartbeat), and with the cheap deterministic fixes queued alongside it.
+
+FINDINGS:
+1. P2 -- §0 l.21-23 / §1.1 l.73: the mayor diagnosis omits half the registered read. Memory shadow-mayor-stop-1006 records GET_WOOD 0.72/0.71 and GET_IRON 0.69/0.70 vs leased-random; the pre-registration predicted ~1.0 only for FREE_BAG/RESTORE_PICK (plan l.70-71). GET_WOOD had real selection content (nearest bot to a live log sighting) and the rule tied random there -- a negative, not "no benefit by construction". Fix: report all four ratios and say the selection-bearing duty went to random.
+2. P2 -- §1.2 l.26, 86-87: "orders displaced the bots' own work" is not what the C2 readout says. Directives held only 2.5-7.3% of bot time; the readout found "no clear descriptive dose-response" (the two highest-dose ov runs gave the best treatment outputs) and says the experiment "does not isolate the channel"; det block 2 had 8 dead-sighting directives and was det's best run (302), "not sufficient". Release shares are 36-57%, not 40-57% (esc 26/73). Fix: mark displacement unestablished; the reorder-only lease design stands on its own.
+3. P3 -- l.20, l.88, §4.5 l.216: "55 of 60" was gpt-oss at reasoning "low" (medium was 15/15); the 7/18 second-smoke loss was an operator's duplicate mbench_Mayor client, not the mineflayer chat path, so "failed twice on the chat path" overstates.
+4. P2 -- C7 l.126 / §0 l.36: the control does not control. A 78.2% random-moment baseline shows refusals are not correlated with townmates lacking iron, not that there is no headroom: ~200/258 daily no_iron refusals had a townmate with >=3 ingots, a real distribution opportunity (IRON_LADDER keeps iron and coal in bags, towndeposit.mjs:71). §2's verdict names "iron banking" but §6 and owner decision 6 drop it. Fix: reword C7 as headroom a deterministic rule can take and add it to decision 6.
+5. P3 -- census bugs: C4 tests coal+charcoal>=8 at refusals (coord.py:213) but coal-only in the control (:217). C3 "counted>0 470" is over all count_town rows incl. isolated (:105) and overlaps the 704 lid-blocked (704+470>822), so "704 of 822" is not 704 blind counts. The "69% *_unknown" includes the 1,437 isolated-pool rows and its link to lids is inferred. C1's 2 h window on ~80 rows/town/day makes a repeat near-certain; with copper arriving ~28/world/day these are an upper bound on removable cost. C8's contested/uncontested split is confounded by location quality, so "no harm detectable" is unsupported (end-of-skill x/z positions; 16,749 of 26,404 gathers are dirt). The 1,075 _dig_collision rows are not interpreted. None changes the small conclusions. C10 is sound (names() raises on truncation, estelemetry.py:384).
+6. P2 -- §6 S0 l.314: "reports 'nothing to assign' until a project goes live, which is itself the C10 positive control" inverts the repo rule -- a zero is a negative, not a control. Fix: S0 needs a fixture project record (or a replay of the sandbox yard run) shown to count assignable minutes before any live zero is read.
+7. P2 -- §4.1 l.157 / S0: the mayor died silently at its output cap and stayed down 5.6 days; a dead S0 reads exactly like "nothing to assign". Fix: a heartbeat the gate checks, plus log rotation; stale heartbeat = reading VOID, not zero.
+8. P2 -- §4.3 l.192 vs l.181; §4.4 l.204-208: "never creates a skill call" but RECALL invokes home; census l.13 shows home succeeded 77/378 (20%). The host cannot compute "crosses a death site" (the bot's pathfinder picks the path). Fix: have S0 measure home success under the validator's filter and gate RECALL on it (e.g. >=70%) or drop RECALL from v1; drop or redefine the death-site check.
+9. P2 -- §5 l.271-272: "active" requires a placeable cell; placeability depends on supply, which lever 2 changes -- the denominator is post-treatment and removes the stalls the foreman targets. Fix: project-open town-hours as the denominator; report stall-hours as a co-primary, or keep them in.
+10. P2 -- §5 l.295-302 / S1: the starved arm is near-tautological (no builder -> cells fall); it checks the instrument, not whether allocation binds. Only ideal-vs-rotation tests headroom, and 3/3 pairs is a sign test p=0.125 -- C2's flaw again. The ideal arm needs the bot-side lease reader, which §6 schedules for S3. Fix: label starved an instrument check, pre-register power for ideal from yard run-to-run variance, move the lease reader + chain tests (both engines) into S1.
+11. P3 -- S3/§5: unstated whether 12 shared towns minus brain-01 pools and towns without a live project can yield 4 canary + 8 control; the pre-period null for the primary cannot exist until a project is live everywhere; a 4-pool non-bag-fix draw needs canary-report.py support. Have S0 log cells per open town-hour so it supplies the null.
+12. P3 -- §4.7: the interference figure was measured with gpt-oss resident; at a 15-30 min cadence Ollama's default keep-alive will unload/reload a 120B each time -- pin keep_alive or measure the load spikes against brain-01.
+13. P3 -- §2.1 l.107: the 232 bot-h of llm:idle is the brain's normal work choice, not spare labour (it includes ~25 bot-h of iron mining/gathering); the 1,472 bot-h outside any skill is the larger, unexamined pool.
+
+Recommendation: right. An LLM shadow now would re-score self-maintenance duties and repeat the mayor. The owner's "yes" is best answered as "the foreman follows yard-01; meanwhile ship coal banking, iron banking and the shared miss memory", and S0 should be built next to yard-01's read rather than as a standing service printing zeros.
+
+=== The prompt given to both reviewers (round 1) ===
+Review the DESIGN document docs/reports/overseer-assigner-design-2026-10-19.md, its census output and scripts, against
+CLAUDE.md, model-selection-2026-10-05.md (C2 readout + pre-registration), shadow-mayor-plan-2026-10-03.md and
+townprojects-design-2026-10-14.md sections 5-7. Check: (1) the C2/mayor diagnosis is faithful; (2) the census scripts
+compute what is claimed (query bugs, denominators, blind instruments, controls that do not control); (3) the
+architecture is safe under the repo's rules (refusal remedies executable from where the bot is, no dead ends, no world
+edits, Studio contention, fallback); (4) the pre-registration can show a benefit and avoids C2's flaws; the
+dose-response control is sound; (5) is "not yet, S0 census first" right, or should the owner's "yes" be met differently.
+Reply: VERDICT APPROVE | APPROVE-WITH-CHANGES | CHANGE; PROCEED-AS-ACTOR-NOW yes|no; FIRST-STEP-AGREED yes|no;
+FINDINGS numbered with P1/P2/P3, location and fix.
