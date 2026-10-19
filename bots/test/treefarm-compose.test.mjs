@@ -14,6 +14,10 @@ process.env.LOG_DIR = LOG_DIR; process.env.BOT_NAME = 'TestBot'
 process.env.HOME_X = '0'; process.env.HOME_Y = '64'; process.env.HOME_Z = '0'
 process.env.LLM_DECISION_COOLDOWN_MS = '20'
 process.env.POOL_STATE_DIR = mkdtempSync(path.join(tmpdir(), 'treefarm-compose-'))
+// plinthfirst-01 (adbec4f4) declines every NATURAL junk-well site and orders build_plinth ahead of tend_farm; this suite tests the
+// farm's composition with the natural search and the loop's farm orders, so plinth-first is off here as in chest-full.test.mjs
+// and plinth-skill.test.mjs (the raised-well x farm composition is tested in treefarm-plinth.test.mjs and probed by the rebase review)
+process.env.PLINTH_FIRST = '0'
 const TF = await import('../src/treefarm.mjs')
 const SK = await import('../src/skills.mjs')
 const CF = await import('../src/chestfull.mjs')
@@ -612,10 +616,11 @@ const wired = src => {
   assert.equal((s.match(/pickChestSite\(\{[^}]*\bfarm\b[^}]*\}\)/g) ?? []).length, 2, 'both pickChestSite calls pass the farm')
   assert.ok(/chestSiteRefusal\(read, pick\.site, \{[^}]*farm: chestFarmIndex\(bot\)[^}]*\}\)/.test(s), 'the re-check on arrival passes the farm')
   // (wellsite-02/03 capture the search as `(searched = canonicalWellSite(...))`: either form)
-  assert.ok(/compute: \(\) => \(?(?:searched = )?canonicalWellSite\(\{ home, read, avoid: wellSearchAvoid\(bot\) \}\)\)?,/.test(s), 'a NEW well site keeps off the farm')
+  // plinthfirst-01 wraps the natural search in plinthFirstSearch when `first`: BOTH branches must search through the farm's avoid
+  assert.ok(/compute: \(\) => \(searched = first \? plinthFirstSearch\(canonicalWellSite\(\{ home, read, avoid: wellSearchAvoid\(bot\) \}\)\) : canonicalWellSite\(\{ home, read, avoid: wellSearchAvoid\(bot\) \}\)\),/.test(s), 'a NEW well site keeps off the farm (both plinth-first branches)')
   assert.ok(/if \(first\.site \|\| !widensChestSearch\(first\.refused\)\) return first/.test(s), 'the pick widens on the farm\'s refusals')
   // plinth-02: the raised-well planner plans through the farm's avoid and keep-out (plinthKeepOut's content is tested above)
-  assert.ok(/planPlinthFarmAware\(o => planPlinthSteps\(\{ read: memoRead\(read0\), home, otherColumns: others, \.\.\.o \}\),\s*\{ avoid: wellSearchAvoid\(bot\), keepOut: plinthKeepOut\(bot\), noStand: farmed \? farmCellTest\(knownFarmRecord\(bot\)\) : null \},\s*farmed \? \{ avoid: wellAvoid\(bot\), keepOut: plinthKeepOut\(bot, \{ farm: false \}\) \} : null,/.test(s), 'the plinth planner keeps off the farm first, and plans over it only as the fallback')
+  assert.ok(/planPlinthFarmAware\(o => planPlinthSteps\(\{ read: memoRead\(read0\), home, otherColumns: others, minK, bare, \.\.\.o \}\),\s*\{ avoid: wellSearchAvoid\(bot\), keepOut: plinthKeepOut\(bot\), noStand: farmed \? farmCellTest\(knownFarmRecord\(bot\)\) : null \},\s*farmed \? \{ avoid: wellAvoid\(bot\), keepOut: plinthKeepOut\(bot, \{ farm: false \}\) \} : null,/.test(s), 'the plinth planner keeps off the farm first, and plans over it only as the fallback')
 }
 const SKSRC = readFileSync(new URL('../src/skills.mjs', import.meta.url), 'utf8')
 await t('WIRED: chest-full passes the farm to both chest-site picks and the arrival re-check; the well\'s NEW-site search and the plinth planner carry the farm (source, comments stripped)', () => wired(SKSRC))
@@ -623,8 +628,12 @@ await t('MUTANTS KILLED: each wiring removed fails the wiring check (anchor pres
   const muts = [
     ['    const first = pickChestSite({ read, anchor, home, composterSites, bodies, wells, farm, skip })', '    const first = pickChestSite({ read, anchor, home, composterSites, bodies, wells, skip })'],
     ['wells: chestWellKeepouts(bot), farm: chestFarmIndex(bot) })) { site = pick.site; break }', 'wells: chestWellKeepouts(bot) })) { site = pick.site; break }'],
-    (() => { const line = (/\n( {4}compute: \(\) => \(?(?:searched = )?canonicalWellSite\(\{ home, read, avoid: wellSearchAvoid\(bot\) \}\)\)?,)/.exec(SKSRC) ?? [])[1] ?? 'WELL SEARCH LINE NOT FOUND'
-      return [line, line.replace('avoid: wellSearchAvoid(bot)', 'avoid')] })(),
+    (() => { const line = (/\n( {4}compute: \(\) => \(searched = first \? plinthFirstSearch\(canonicalWellSite\(\{ home, read, avoid: wellSearchAvoid\(bot\) \}\)\) : canonicalWellSite\(\{ home, read, avoid: wellSearchAvoid\(bot\) \}\)\),)/.exec(SKSRC) ?? [])[1] ?? 'WELL SEARCH LINE NOT FOUND'
+      return [line, line.replace('avoid: wellSearchAvoid(bot)', 'avoid')] })(),                       // the plinth-first branch loses the farm
+    (() => { const line = (/\n( {4}compute: \(\) => \(searched = first \? plinthFirstSearch\(canonicalWellSite\(\{ home, read, avoid: wellSearchAvoid\(bot\) \}\)\) : canonicalWellSite\(\{ home, read, avoid: wellSearchAvoid\(bot\) \}\)\),)/.exec(SKSRC) ?? [])[1] ?? 'WELL SEARCH LINE NOT FOUND'
+      const i = line.lastIndexOf('avoid: wellSearchAvoid(bot)'); return [line, line.slice(0, i) + 'avoid' + line.slice(i + 'avoid: wellSearchAvoid(bot)'.length)] })(),   // the natural branch loses the farm
+    // plinthfirst-01 x treefarm-02: the farm-aware planner must still carry the raised-well policy (minK, bare) into every pass
+    ['      const it = planPlinthFarmAware(o => planPlinthSteps({ read: memoRead(read0), home, otherColumns: others, minK, bare, ...o }),', '      const it = planPlinthFarmAware(o => planPlinthSteps({ read: memoRead(read0), home, otherColumns: others, ...o }),'],
     ['    if (first.site || !widensChestSearch(first.refused)) return first', "    if (first.site || !Object.keys(first.refused ?? {}).some(k => /junk well/.test(k))) return first"],
     ['        { avoid: wellSearchAvoid(bot), keepOut: plinthKeepOut(bot), noStand: farmed ? farmCellTest(knownFarmRecord(bot)) : null },', '        { avoid: wellAvoid(bot), keepOut: plinthKeepOut(bot), noStand: farmed ? farmCellTest(knownFarmRecord(bot)) : null },'],
     ['        { avoid: wellSearchAvoid(bot), keepOut: plinthKeepOut(bot), noStand: farmed ? farmCellTest(knownFarmRecord(bot)) : null },', '        { avoid: wellSearchAvoid(bot), keepOut: plinthKeepOut(bot, { farm: false }), noStand: farmed ? farmCellTest(knownFarmRecord(bot)) : null },'],
