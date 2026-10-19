@@ -1,0 +1,157 @@
+WINDOW 24 h; total skill docs 1,495,961; bots 80; span 24.00 h
+caveats: ['after 2026-10-14T18:46:00Z completeness is assumed, not reconciled: an unclean filebeat restart re-sends (as on 10-07) and an unmapped field (llm.brain) rejects whole docs -- check the filebeat dropped counter (scripts/host/escheck/fbjournal.py).', 'window crosses 1 log rotation(s) (23:57-00:00Z): ES is missing ~40-60 skill rows per rotation (copytruncate race).', 'window ends within 240 s of now: ingest lag (median ~6 s, max ~3 min observed) can leave the newest minutes short.']
+bot-hours (bots x span) ~ 1,920
+
+== A. body time by skill (duration_ms summed; rows with a duration) ==
+  gather          n= 26411 body_h=  190.2 ( 9.90% of bot-h)  no_effect+failed_h=  50.7  {'success': 10610, 'failed': 12777, 'aborted': 2887, 'unknown': 137}
+  explore         n= 20365 body_h=  123.6 ( 6.44% of bot-h)  no_effect+failed_h=  12.8  {'success': 10966, 'failed': 6236, 'aborted': 2195, 'no_effect': 968}
+  goto            n= 17635 body_h=   84.8 ( 4.42% of bot-h)  no_effect+failed_h=   8.3  {'success': 7616, 'failed': 5474, 'aborted': 2134, 'unknown': 2411}
+  mine            n=  9755 body_h=   15.2 ( 0.79% of bot-h)  no_effect+failed_h=   1.1  {'success': 6635, 'unknown': 1556, 'failed': 1543, 'aborted': 21}
+  surface         n=   885 body_h=    8.8 ( 0.46% of bot-h)  no_effect+failed_h=   5.1  {'success': 155, 'failed': 577, 'unknown': 126, 'aborted': 27}
+  smelt_town      n=  1746 body_h=    8.1 ( 0.42% of bot-h)  no_effect+failed_h=   5.4  {'no_effect': 1442, 'aborted': 14, 'failed': 164, 'success': 115, 'unknown': 11}
+  furnace_drain   n=  1331 body_h=    3.9 ( 0.20% of bot-h)  no_effect+failed_h=   3.3  {'no_effect': 773, 'failed': 449, 'aborted': 107, 'success': 2}
+  home            n=   378 body_h=    3.6 ( 0.19% of bot-h)  no_effect+failed_h=   1.1  {'success': 77, 'failed': 139, 'aborted': 144, 'unknown': 18}
+  craft           n=  1823 body_h=    2.9 ( 0.15% of bot-h)  no_effect+failed_h=   1.2  {'success': 548, 'failed': 1090, 'aborted': 170, 'unknown': 15}
+  smelt           n=   579 body_h=    1.9 ( 0.10% of bot-h)  no_effect+failed_h=   0.1  {'success': 329, 'failed': 161, 'aborted': 64, 'unknown': 7, 'no_effect': 18}
+  toolkit         n=   711 body_h=    1.1 ( 0.06% of bot-h)  no_effect+failed_h=   0.9  {'failed': 553, 'success': 157, 'unknown': 1}
+  deposit         n=   478 body_h=    1.0 ( 0.05% of bot-h)  no_effect+failed_h=   0.4  {'failed': 339, 'success': 127, 'aborted': 8, 'no_effect': 2, 'unknown': 2}
+  dispose_well    n=   300 body_h=    0.9 ( 0.05% of bot-h)  no_effect+failed_h=   0.2  {'success': 226, 'aborted': 6, 'failed': 65, 'no_effect': 3}
+  count_town      n=  1279 body_h=    0.5 ( 0.03% of bot-h)  no_effect+failed_h=   0.1  {'no_effect': 806, 'success': 470, 'aborted': 2, 'unknown': 1}
+  withdraw_pick   n=   208 body_h=    0.4 ( 0.02% of bot-h)  no_effect+failed_h=   0.2  {'failed': 30, 'success': 161, 'no_effect': 16, 'unknown': 1}
+  town_deposit    n=   618 body_h=    0.2 ( 0.01% of bot-h)  no_effect+failed_h=   0.2  {'no_effect': 486, 'success': 132}
+  compost         n=   105 body_h=    0.2 ( 0.01% of bot-h)  no_effect+failed_h=   0.1  {'failed': 17, 'success': 87, 'aborted': 1}
+  place           n=   447 body_h=    0.2 ( 0.01% of bot-h)  no_effect+failed_h=   0.1  {'success': 341, 'failed': 105, 'aborted': 1}
+  board           n=    27 body_h=    0.2 ( 0.01% of bot-h)  no_effect+failed_h=   0.1  {'success': 3, 'failed': 20, 'aborted': 3, 'unknown': 1}
+  wear_out        n=   183 body_h=    0.1 ( 0.01% of bot-h)  no_effect+failed_h=   0.1  {'failed': 75, 'success': 108}
+  withdraw        n=    13 body_h=    0.1 ( 0.01% of bot-h)  no_effect+failed_h=   0.0  {'failed': 10, 'aborted': 1, 'success': 2}
+  bamboo_sticks   n=    14 body_h=    0.1 ( 0.00% of bot-h)  no_effect+failed_h=   0.0  {'success': 10, 'aborted': 4}
+  build_plinth    n=     4 body_h=    0.0 ( 0.00% of bot-h)  no_effect+failed_h=   0.0  {'no_effect': 1, 'failed': 1, 'success': 2}
+  status          n=   130 body_h=    0.0 ( 0.00% of bot-h)  no_effect+failed_h=   0.0  {'no_effect': 130}
+  bucket          n=   117 body_h=    0.0 ( 0.00% of bot-h)  no_effect+failed_h=   0.0  {'failed': 117}
+  build_well      n=     3 body_h=    0.0 ( 0.00% of bot-h)  no_effect+failed_h=   0.0  {'no_effect': 2, 'success': 1}
+  eat             n=    32 body_h=    0.0 ( 0.00% of bot-h)  no_effect+failed_h=   0.0  {'no_effect': 32}
+  SUM over listed skills 448 bot-h of 1,920
+  TOWN JOBS body time 15.8 bot-h = 0.82% of bot-h
+
+== B. redundant discovery: a no-effect town job whose finding another bot of the same shared town made shortly before ==
+  smelt_town rows (shared towns) 1746; 'no raw copper' 951
+  smelt_town 'no raw copper' (2 h = the per-bot memory): 865 of 951 (91.0%) were preceded by ANOTHER bot's identical finding within 120 min; their body time 2.05 bot-h
+  furnace_drain rows (shared) 1331; 'is empty' 773
+  furnace_drain of the SAME empty furnace (60 min): 339 of 773 (43.9%) were preceded by ANOTHER bot's identical finding within 60 min; their body time 0.82 bot-h
+  count_town rows (shared) 822; with lid_blocked 704; counted>0 470
+  count_town lid_blocked in the same town (60 min): 628 of 704 (89.2%) were preceded by ANOTHER bot's identical finding within 60 min; their body time 0.11 bot-h
+
+== C. smelt_town: supply or labour? ==
+  _smelt_job_skip 2113 by why: {'room': 1267, 'town_has_none': 537, 'nothing_to_drain': 309}
+  smelt_town success 115 of 1746; detail classes:
+       951  no raw copper in the bag or in the town containers looked in (each is 
+       491  no coal in the town containers looked in; the job does not burn the ba
+       116  The goal was changed before it could be completed!
+       101  smelted # raw copper into ingots and banked # ingots (and # raw) in to
+        23  No path to the goal!
+        17  the town smelt job stopped: No path to the goal!
+        12  stagnation
+        11  pathfinding exceeded #ms
+         8  pathfinding exceeded #ms — but inventory_loss: dirt -# which is what s
+         4  the town smelt job stopped: No path to the goal! (the walk ended # blo
+  successes by hour: 12:10 13:3 14:3 15:2 16:7 17:5 18:5 19:10 20:2 21:1 22:3 23:6 00:3 01:5 02:10 03:6 04:3 05:3 06:2 07:4 08:7 09:6 10:1 11:4 12:4
+  per world success / no-copper: {'board-a': (5, 70), 'board-b': (8, 105), 'board-c': (17, 67), 'board-d': (3, 47), 'hive-a': (8, 31), 'hive-b': (32, 151), 'hive-c': (16, 32), 'hive-d': (8, 103), 'placebo-a': (1, 127), 'placebo-b': (3, 1), 'placebo-c': (4, 59), 'placebo-d': (10, 158)}
+
+== D. who does the town jobs (share of successes by the top bot of each shared town) ==
+  smelt_town     successes   115 in 12 towns; towns with >=5: 8; top-bot share median 0.60 (min 0.34 max 1.00); distinct bots median 4
+  furnace_drain  successes 2 (no town with >= 5)
+  town_deposit   successes   102 in 12 towns; towns with >=5: 10; top-bot share median 0.44 (min 0.31 max 0.78); distinct bots median 4
+  withdraw_pick  successes   130 in 12 towns; towns with >=5: 11; top-bot share median 0.38 (min 0.30 max 0.67); distinct bots median 4
+  toolkit        successes   142 in 11 towns; towns with >=5: 9; top-bot share median 0.31 (min 0.24 max 0.50); distinct bots median 5
+  dispose_well   successes   160 in 12 towns; towns with >=5: 12; top-bot share median 0.44 (min 0.31 max 0.92); distinct bots median 4
+  compost        successes    66 in 12 towns; towns with >=5: 8; top-bot share median 0.43 (min 0.33 max 0.60); distinct bots median 4
+
+== E. _stock_refused: items the town refused (bank side) ==
+  rows 6221; item-entries by reason {'cobble_unknown': 4406, 'stock_unknown': 4281, 'cobble_cap': 3858, 'stock_target': 128}
+  top items (count carried at refusal, by reason): [(('cobblestone', 'cobble_unknown'), 1339711), (('cobblestone', 'cobble_cap'), 1095588), (('oak_log', 'stock_unknown'), 187998), (('cobbled_deepslate', 'cobble_unknown'), 99398), (('cobbled_deepslate', 'cobble_cap'), 17408), (('stick', 'stock_unknown'), 6822), (('jungle_log', 'stock_unknown'), 1414), (('stone_pickaxe', 'stock_unknown'), 1218), (('oak_planks', 'stock_unknown'), 1079), (('stone_pickaxe', 'stock_target'), 366), (('birch_log', 'stock_unknown'), 329), (('stone', 'stock_unknown'), 57)]
+  rows from shared towns 4784, isolated 1437
+
+== F. sharing: a bot is refused for want of X while a townmate (same shared town) carries X ==
+  inventory snapshots (5 kinds, shared towns): 63,427 rows in 12 towns
+  toolkit outcome=no_iron (shared towns) 258; with >=1 townmate seen in the prior 15 min 258; of those, a townmate carried >=1 iron_ingot: 240
+Traceback (most recent call last):
+  File "<stdin>", line 191, in <module>
+  File "/usr/lib/python3.12/collections/__init__.py", line 607, in __init__
+    self.update(iterable, **kwds)
+  File "/usr/lib/python3.12/collections/__init__.py", line 699, in update
+    _count_elements(self, iterable)
+  File "<stdin>", line 191, in <genexpr>
+AttributeError: 'NoneType' object has no attribute 'group'
+== F. sharing: a bot is refused for want of X while a townmate (same shared town) carries X ==
+  inventory snapshots (5 kinds, shared towns): 63,425 rows in 12 towns
+  toolkit outcome=no_iron (shared towns) 258; with >=1 townmate seen in the prior 15 min 258; of those, a townmate carried >=1 iron_ingot: 240
+  _toolkit outcomes (positive control for the parse): {'phase=mode': 601, 'no_iron': 514, 'none': 46, 'crafted': 156, 'craft_failed': 18, 'done': 50, 'short': 10, 'aborted': 11, 'no_sticks': 1}
+    ... a townmate carried >= 3 iron_ingot: 200 of 258
+    ... a townmate carried >= 4 iron_ingot: 37 of 258
+  CONTROL: at 2,000 random snapshot moments a townmate carried >= 3 iron_ingot 1564 times (78.2%)
+  smelt_town 'no coal in the town containers' (shared) 490; a townmate carried >=1 coal 339, >=8 coal 53
+  CONTROL: at the same 2,000 random moments a townmate carried >= 8 coal 154 times (7.7%)
+  'no coal' by world: {'board-b': 160, 'placebo-c': 47, 'board-a': 64, 'board-c': 154, 'placebo-d': 1, 'hive-a': 48, 'hive-c': 12, 'hive-b': 2, 'board-d': 1, 'hive-d': 1}
+  sample no-coal details: ["no coal in the town containers looked in; the job does not burn the bag's own fuel, so the copper goes back and the job waits", "no coal in the town containers looked in; the job does not burn the bag's own fuel, so the copper goes back and the job waits"]
+  withdraw_pick 208: success 161; non-success classes:
+       18 no usable pickaxe and none of stick:# in the # container(s) tried here
+       16 no usable pickaxe in the town chests looked at# and the bag already holds what o
+        7 The goal was changed before it could be completed!
+        4 the chest at # has dirt on its lid: dirt is not a block a bot may break off a li
+        1 pathfinding exceeded #ms
+        1 could not reach the chest at #
+  _work_order by order (what the deterministic layer already assigns): [('furnace_drain', 2010), ('smelt_town', 1858), ('count_town', 1301), ('craft', 917), ('toolkit', 713), ('town_deposit', 625), ('smelt', 410), ('dispose_well', 320), ('place', 297), ('withdraw_pick', 208), ('wear_out', 195), ('compost', 105), ('home', 18), ('bamboo_sticks', 14), ('deposit', 8), ('build_plinth', 5), ('build_well', 3)]
+gather 26408; not-success 15791; top classes:
+   3411 no_path | dirt found but unreachable after # attempts [probe: success# slate # A* rea
+   2477 no_safe_target | sand found but all # candidates are beside water or under falling blocks — 
+   1564 interrupted | entombed
+    893 interrupted | stagnation
+    657 unreachable | iron_ore: all # candidate(s) in range refused — could not stand within reac
+    580 no_path | dirt found but unreachable after # attempts [collect said: arrived_out_of_r
+    410 no_safe_target | oak_log found but all # candidates are beside water or under falling blocks
+    364 no_path | dirt found but unreachable after # attempts [probe: noPath# slate # A* reac
+    363 unreachable | iron_ore found but every candidate is buried — use mine to dig down — you a
+    347 interrupted | stuck
+    339 unreachable | sand: all # candidate(s) in range refused — could not stand within reach of
+    338 no_path | oak_log found but unreachable after # attempts [probe: noPath# slate # A* r
+    328 no_safe_target | iron_ore found but all # candidates are beside water or under falling block
+    290 unreachable | sand found but every candidate is buried — use mine to dig down — you are a
+    278 unreachable | sand found but every candidate is buried — use mine to dig down
+    256 no_path | iron_ore found but unreachable after # attempts [probe: noPath# slate # A* 
+    224 no_path | iron_ore found but unreachable after # attempts [probe: success# slate # A*
+    202 unreachable | dirt found but every candidate is buried — use mine to dig down — you are a
+gather failures naming another bot / a claim: 0 of 15791
+_dig_collision 1075; sample:
+   board-c-Comet dig of stone@346,62,129 cancelled — stopDigging called from digging.js:187 <- skills.mjs:258
+   board-a-Comet dig of cobblestone@361,40,190 cancelled — stopDigging called from digging.js:187 <- skills.mjs:1427 <- skills.mjs:323
+   board-a-Comet dig of stone@358,40,189 cancelled — stopDigging called from digging.js:187 <- skills.mjs:1427 <- skills.mjs:323
+   placebo-a-Bravo dig of diorite@256,53,-113 cancelled — stopDigging called from digging.js:187 <- digging.js:127
+   placebo-a-Echo dig of stone@333,57,-183 cancelled — stopDigging called from digging.js:187 <- skills.mjs:261
+6-day kinds matching project/structure words: {'build_well': 6388, '_plinth_mode': 1345, '_plinth021_mode': 1019, '_plinth_step': 811, '_plinthfirst_mode': 345, '_plinth': 96, 'build_plinth': 96, '_well_built': 15, 'build': 11}
+6-day total docs 8643899
+gather rows 26404; shared-town rows with a position 20158
+R= 8 W= 60s: contested 295 (1.5%), success 55.9%; uncontested 19863, success 40.4%
+R=16 W=120s: contested 992 (4.9%), success 55.8%; uncontested 19166, success 39.8%
+R=32 W=300s: contested 3574 (17.7%), success 57.1%; uncontested 16584, success 37.1%
+gather by block: [('dirt', 16749), ('sand', 4109), ('iron_ore', 2962), ('oak_log', 1488), ('cobblestone', 358), ('stone', 322), ('oak_sapling', 165), ('birch_log', 67), ('spruce_log', 60), ('bamboo', 54), ('coal_ore', 47), ('deepslate_iron_ore', 8)]
+gather: n=26403 body 190.2 bot-h (9.9% of 1920)
+   by target (bot-h, n): [('dirt', 163.1, 16746), ('iron_ore', 11.6, 2962), ('oak_log', 7.0, 1489), ('sand', 4.5, 4110), ('cobblestone', 2.6, 358), ('stone', 0.9, 322), ('spruce_log', 0.2, 60), ('coal_ore', 0.1, 47)]
+   by trigger (bot-h): [('llm:idle', 77.4), ('interrupt:entombed', 38.7), ('interrupt:timeout', 22.3), ('llm:entombed', 14.2), ('interrupt:stagnation', 10.4), ('interrupt:stuck', 9.4)]
+explore: n=20368 body 123.7 bot-h (6.4% of 1920)
+   by trigger (bot-h): [('llm:idle', 94.4), ('interrupt:entombed', 8.9), ('llm:entombed', 7.8), ('llm:stagnation', 3.1), ('interrupt:stuck', 3.0), ('interrupt:stagnation', 2.2)]
+goto: n=17644 body 84.9 bot-h (4.4% of 1920)
+   by trigger (bot-h): [('llm:idle', 44.9), ('livelock_escape:', 11.1), ('watchdog_relocate:', 7.2), ('interrupt:entombed', 7.2), ('interrupt:stuck', 6.7), ('interrupt:stagnation', 2.2)]
+mine: n=9740 body 15.2 bot-h (0.8% of 1920)
+   by trigger (bot-h): [('llm:idle', 13.3), ('llm:entombed', 1.0), ('llm:stagnation', 0.4), ('interrupt:stagnation', 0.3), ('llm:liveness_restart', 0.1), ('llm:stuck', 0.1)]
+craft: n=1821 body 2.8 bot-h (0.1% of 1920)
+   by target (bot-h, n): [('stone_pickaxe', 1.3, 679), ('crafting_table', 0.6, 433), ('furnace', 0.4, 195), ('iron_pickaxe', 0.2, 129), ('wooden_pickaxe', 0.2, 155), ('stone_axe', 0.0, 29), ('stone_shovel', 0.0, 18), ('stick', 0.0, 137)]
+   by trigger (bot-h): [('llm:idle', 2.1), ('interrupt:stagnation', 0.2), ('llm:liveness_restart', 0.2), ('interrupt:entombed', 0.1), ('llm:entombed', 0.1), ('llm:stagnation', 0.1)]
+llm docs 24 h: 163941 bots 80
+llm by trigger: [('idle', 151102), ('entombed', 6682), ('stagnation', 2364), ('liveness_restart', 1713), ('stuck', 1138), ('startup', 576), ('timeout', 281), ('death', 27), ('low_health', 24), ('danger_block', 21)]
+== dirt.py (24 h) ==
+dirt gather by trigger (bot-h, n, success): [('llm:idle', 61.8, 8427, 4814), ('interrupt:entombed', 35.0, 3565, 2288), ('interrupt:timeout', 19.4, 371, 260), ('llm:entombed', 13.2, 1489, 918), ('interrupt:stagnation', 8.9, 1072, 330), ('interrupt:stuck', 8.1, 455, 179), ('llm:liveness_restart', 6.8, 462, 260), ('llm:stagnation', 5.9, 526, 273)]
+dirt held at the end of a dirt gather: median 7 p90 16 n 16739
+== host facts read 10-19 12:33-12:45Z ==
+mcai-mayor-shadow.service: failed since 2026-10-13 21:23:49Z, exit 6 (output cap 1024 MB); /var/lib/mcai-mayor files last written 21:18Z 10-13
+Studio: LM Studio 'brain' gemma-4-26b-a4b-it@8bit loaded IDLE 27.99 GB; ollama ps empty (gpt-oss not loaded); ~/brain01/proxy.jsonl last row 2026-10-13T06:17:42Z
+check-open-loop.py: no open canary; bamboo-02 recorded REVERT 05:11Z 10-19, torn down 05:15Z; scheduler next: treefarm-02
