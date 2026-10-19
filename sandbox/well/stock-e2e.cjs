@@ -831,8 +831,9 @@ scenes.kitsearch = async () => {
     BASE_SHAPE: !!(!(b.totals.iron_axe ?? 0) && !(b.totals.iron_shovel ?? 0) && (after.far.iron_ingot ?? 0) === 20 && licence === 0 && rows.length >= 1 &&
       rows.every(r => /^phase=kit outcome=no_iron /.test(r.detail))) })
 }
-// SMELTCOAL (toolkit-03, the smelt job's part): 10 single chests; the one nearest home holds 8 raw copper, 8 hold dirt, the
-// far one (13.9 from home) holds the town's ONLY coal; a furnace beside home. The bot holds the full kit (iron pickaxe, axe,
+// SMELTCOAL (toolkit-03, the smelt job's part): 10 single chests; the one nearest home (2.2 away, uniquely nearest: run 1 put
+// it among four chests 3 away and the base's tie-break never opened it) holds 8 raw copper, 8 hold dirt, the far one (13.9
+// from home) holds the town's ONLY coal; a furnace beside home. The bot holds the full kit (iron pickaxe, axe,
 // shovel: no toolkit or pickaxe order) and no fuel. BASE: copper taken, 3 containers looked in, no coal -> no_fuel, the copper
 // back. CANDIDATE: the coal pass reaches the far chest, the job smelts 8 and banks the ingots; the far chest loses 1 coal.
 scenes.smeltcoal = async () => {
@@ -840,7 +841,7 @@ scenes.smeltcoal = async () => {
   BRAIN_WANDER = true
   rcon(`kill ${ARENA_SEL}`)
   const at = ([dx, dz]) => ({ x: HOME.x + dx, y: HOME.y, z: HOME.z + dz })
-  const near = TS_NEAR.slice(0, 9)
+  const near = [[1, 2], ...TS_NEAR.slice(0, 8)]
   near.forEach((c, i) => setChest(i === 0 ? [['raw_copper', 8]] : [['dirt', 5]], at(c)))
   const far = at(TS_FAR)
   setChest([['coal', 4]], far)

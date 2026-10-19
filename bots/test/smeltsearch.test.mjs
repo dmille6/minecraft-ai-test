@@ -162,11 +162,53 @@ const stalled = async S => {
 await t('NO PROGRESS: a copper pass that could start no visit (the smelt\'s reserve) is search_stalled -- a strike -- never search_more', async () => {
   await stalled(S0)
 })
-await t('THE SMELT KEEPS INSIDE THE JOB\'S CLOCK (structural, comments stripped: a wall clock cannot be driven here): smelt_town hands smelt the skill\'s deadline less the bank reserve, and smeltInner takes the earlier of its own cap and that', () => {
+await t('THE SMELT KEEPS INSIDE THE JOB\'S CLOCK (WIRING, structural, comments stripped: the fake world has no working furnace, so the deadline cannot reach a real batch here -- the guard before it is behaviour-tested below and the Paper scene smelts): smelt_town hands smelt the skill\'s deadline less the bank reserve, and smeltInner takes the earlier of its own cap and that', () => {
   const src = readFileSync(SKILLS_PATH, 'utf8').replace(/\/\*[\s\S]*?\*\//g, '').replace(/(^|[^:'"`\\])\/\/.*$/gm, '$1')
-  assert.match(src, /by: 'smelt_town', deadline: withdrawClock\(ctx\)\.deadline - SMELT_BANK_RESERVE_MS \}\)/)
+  assert.match(src, /const smeltDeadline = withdrawClock\(ctx\)\.deadline - SMELT_BANK_RESERVE_MS\n/)
+  assert.match(src, /by: 'smelt_town', deadline: smeltDeadline \}\)/)
   assert.match(src, /const deadline = Math\.min\(Date\.now\(\) \+ SMELT_DEADLINE_MS, Number\.isFinite\(session\.opts\?\.deadline\) \? session\.opts\.deadline : Infinity\)/)
   assert.equal((src.match(/budgetMs: Math\.max\(0, deadline - Date\.now\(\)\)/g) ?? []).length, 2, 'both plans sized to what is left')
+})
+// THE SMELT'S CLOCK BACKSTOP (Codex r3 P2): the search found the coal but the clock moved 70 s during it -> the smelt is NOT
+// started with < SMELT_MIN_SMELT_MS; the copper and coal go back, stop=search_more. CONTROL: no jump -> past the guard.
+const lateSmelt = async (S, jump) => {
+  const coalAt = CHESTS[3]
+  const w = town({ coalAt })
+  w.set(1, 64, -1, 'furnace')                                               // a furnace in reach: past the furnace check
+  const goto = w.bot.pathfinder.goto
+  let jumped = false
+  w.bot.pathfinder.goto = async g => { if (jump && !jumped && g.x === coalAt[0] && g.z === coalAt[2]) { jumped = true; later(70_000) } return goto(g) }
+  const n0 = RECS.length
+  let r
+  // the RUNNER's clock (runner.current.startedAt): without it every withdrawClock call starts a fresh 180 s
+  try { r = await S.SKILLS.smelt_town.run({ bot: w.bot, runner: { current: { startedAt: Date.now() } } }, {}, sig()) } catch (e) { r = { stop: `threw:${e?.message}` } }
+  const row = RECS.slice(n0).filter(x => x?.skill?.name === '_smelt_town').at(-1)?.skill?.detail ?? ''
+  return { r, row, w, coalAt }
+}
+await t('THE SMELT\'S CLOCK BACKSTOP (Codex r3 P2): the search took the clock -> no smelt started, the copper and coal go back, search_more; CONTROL: on time -> the guard passes', async () => {
+  const { r, row, w, coalAt } = await lateSmelt(S0, true)
+  assert.equal(r.stop, SJ.SMELT_SEARCH_MORE, `${r.status} ${r.stop} ${r.detail}`)
+  assert.match(row, /withdrawn=8 coal=1 /, row)
+  assert.equal(count(chest(w, COPPER), 'raw_copper'), 8); assert.equal(CHESTS.reduce((n, c) => n + count(chest(w, c), 'coal'), 0), 4)
+  void coalAt
+  const ctl = await lateSmelt(S0, false)
+  assert.notEqual(ctl.r.stop, SJ.SMELT_SEARCH_MORE, `CONTROL: ${ctl.r.stop} ${ctl.row}`)
+})
+await t(`smeltTownOutcome: ${SJ.SMELT_MORE_TRIPS} trips of the \`more\` cap with no success between PAUSE the job (Claude r3 P1: other bots' deposits can undo its progress); a success resets them`, () => {
+  const run = (SJm, seq) => { let s = {}; for (const [st, why] of seq) s = SJm.smeltTownOutcome(st, why, 1e12, s); return s }
+  const trip = Array.from({ length: SJ.SMELT_MORE_MAX + 1 }, () => ['no_effect', SJ.SMELT_SEARCH_MORE])
+  const churn = run(SJ, Array.from({ length: SJ.SMELT_MORE_TRIPS }, () => trip).flat())
+  assert.equal(churn.pausedUntil, 1e12 + SJ.SMELT_JOB_PAUSE_MS, 'paused after the trips')
+  const ok = run(SJ, [...Array.from({ length: SJ.SMELT_MORE_TRIPS - 1 }, () => trip).flat(), ['success', 'done'], ...trip])
+  assert.equal(ok.pausedUntil ?? 0, 0, 'a success between resets the trips')
+  globalThis.__smeltTrips = SJm => assert.ok(run(SJm, Array.from({ length: SJ.SMELT_MORE_TRIPS }, () => trip).flat()).pausedUntil > 0)
+})
+await t('smeltTownOutcome: a success resets the `more` streak (the cap counts CONSECUTIVE search_more; Codex r3 P3)', () => {
+  let s = {}
+  for (let i = 0; i < SJ.SMELT_MORE_MAX; i++) s = SJ.smeltTownOutcome('no_effect', SJ.SMELT_SEARCH_MORE, 1e12, s)
+  s = SJ.smeltTownOutcome('success', 'done', 1e12, s)
+  s = SJ.smeltTownOutcome('no_effect', SJ.SMELT_SEARCH_MORE, 1e12, s)
+  assert.equal(s.backoffUntil ?? 0, 0)
 })
 await t('CARRIED COPPER: the bag\'s own copper skips the copper pass; the coal pass alone finds the coal (in a copper-missed container)', async () => {
   const coalAt = CHESTS[3]
@@ -246,6 +288,11 @@ await t('MUTANTS: each removes one part of the job\'s search and a behaviour tes
       matching: b => ['chest', 'barrel', 'trapped_chest'].includes(bot.registry.blocks[b.type]?.name) && (!b.position || inTown(home, b.position)) }) ?? []
     return townItemMissComplete(readTownMemory(townDir(), homeTownKey(), bot.worldId ?? null), COPPER_MISS_KEY, COPPER_MISS_TTL_MS, found.map(posKey))
   } catch { return false }`, S => killedBy(() => gateAgrees(S)))
+  kills.noSmeltGuard = await withMutant(SKILLS_PATH, 'if (smeltDeadline - Date.now() < SMELT_MIN_SMELT_MS) {', 'if (false) {', S => killedBy(async () => {
+    const { r } = await lateSmelt(S, true)
+    assert.equal(r.stop, SJ.SMELT_SEARCH_MORE)
+  }))
+  kills.noTripPause = await withMutant(SJ_PATH, '    if (s.moreTrips >= SMELT_MORE_TRIPS) {', '    if (false) {', SJm => killedBy(() => globalThis.__smeltTrips(SJm)))
   kills.moreStrikes = await withMutant(SJ_PATH, '  if (why === SMELT_SEARCH_MORE) {', '  if (false) {', SJm => killedBy(() => globalThis.__smeltStreak(SJm)))
   const alive = Object.entries(kills).filter(([, k]) => !k).map(([n]) => n)
   assert.deepEqual(alive, [], `mutants that survived: ${alive}`)
