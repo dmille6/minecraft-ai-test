@@ -12116,6 +12116,13 @@ export function townCopperMiss (bot) {
   try { return townSearchEmpty(bot, [SMELT_JOB_INPUT], { missTtl: { [SMELT_JOB_INPUT]: COPPER_MISS_TTL_MS } }) } catch { return false }
 }
 
+/** Would the job's COAL search find no candidate (townSearchEmpty over coal, its own 2 h miss)? The precheck before any
+ *  copper is taken (toolkit-03). A deposit of coal into a container -- cobblekeep-01's town deposit banks coal a bot has
+ *  nothing of its own to smelt with -- ends that container's miss ('took'), so banked coal re-opens the search. */
+export function townCoalMiss (bot) {
+  try { return townSearchEmpty(bot, [SMELT_JOB_FUEL], { missTtl: { [SMELT_JOB_FUEL]: COAL_MISS_TTL_MS } }) } catch { return false }
+}
+
 /** The furnaces within DRAIN_RADIUS of home -> [{ k, pos, dist, lit }] (lit from the block state: no window needed). */
 export function townFurnaces (bot) {
   try {
@@ -12213,7 +12220,7 @@ async function jobWithdraw (ctx, { copper = 0, coal = 0 }, signal) {
   }
   // 0. NO COAL ANYWHERE IN TOWN (the coal search has no candidate: every container a live coal miss, out of this bot's search,
   //    or shut, over a town wholly in view): no copper is taken only to be put back (489 of 516 no_fuel jobs did that, 10-19)
-  if (needCoal > 0 && townSearchEmpty(bot, [SMELT_JOB_FUEL], { missTtl: COAL_TTL })) { out.noCoal = true; return out }
+  if (needCoal > 0 && townCoalMiss(bot)) { out.noCoal = true; return out }
   // 1. THE COPPER (the bag's own first: copper 0 skips it)
   if (needCopper > 0) out.more = !!(await pass(SMELT_JOB_INPUT, SMELT_COPPER_VISITS, SMELT_COPPER_RESERVE_MS, () => needCopper > 0, COPPER_TTL))
   if (out.unsettled) return out
