@@ -1,0 +1,961 @@
+# expansion-plan-2026-10-19 measurement: scripts (run on 10.0.0.31 from ~/estel, nice -n 19) and raw outputs
+# Read only. h1 / e1 extract rows to /tmp on the host; the others analyse them. Heavy-query outputs (h1, h3, h7, h8,
+# e1, e3, e4) are pasted as run on 10-19 ~15:25-16:10Z; the cheap analyses were re-run and captured verbatim.
+
+################ SCRIPT h1.py
+"""home diagnosis, read only. 7 d of `home` skill rows from ES, each joined to the bot's PREVIOUS row (its start position)."""
+import sys, json, math, re, collections, datetime as dt
+sys.path.insert(0, '/home/mike/estel/scripts')
+from lib.estelemetry import EsEvents
+
+SINCE = '2026-10-12T15:00:00Z'
+HOMES = {'board-a': (355, 73, 147), 'board-b': (-249, 65, 144), 'board-c': (355, 73, 147), 'board-d': (355, 73, 147),
+         'hive-a': (355, 73, 147), 'hive-b': (355, 73, 147), 'hive-c': (-68, 68, -68), 'hive-d': (68, 65, 68),
+         'placebo-a': (249, 75, -144), 'placebo-b': (282, 65, -388), 'placebo-c': (355, 73, 147), 'placebo-d': (177, 75, 73)}
+ISO = (355, 73, 147)
+
+ev = EsEvents.load('skill', since=SINCE)
+print('window', ev.since, ev.until, 'docs', ev.total(), 'bots', len(ev.bots_present()))
+print('caveats', ev.caveats)
+rows = list(ev.rows('home', fields=['@timestamp', 'exp.pool', 'bot.name', 'bot.pos', 'bot.health', 'skill', 'trigger'], max_rows=20000))
+print('home rows', len(rows))
+
+def prev_row(bot, ts):
+    body = {'size': 1, '_source': ['@timestamp', 'bot.pos', 'skill.name', 'skill.status', 'trigger'],
+            'query': {'bool': {'filter': [{'term': {'bot.name': bot}},
+                                          {'range': {'@timestamp': {'lt': ts, 'gte': (dt.datetime.fromisoformat(ts.replace('Z', '+00:00')) - dt.timedelta(minutes=15)).isoformat()}}}]}},
+            'sort': [{'@timestamp': 'desc'}]}
+    h = ev._search(body)['hits']['hits']
+    return h[0]['_source'] if h else None
+
+out = []
+for i, r in enumerate(rows):
+    pool = r['exp']['pool']
+    home = HOMES.get(pool, ISO)
+    p = r.get('bot', {}).get('pos') or {}
+    sk = r.get('skill', {})
+    pr = prev_row(r['bot']['name'], r['@timestamp'])
+    sp = (pr or {}).get('bot', {}).get('pos')
+    def d(pp):
+        if not pp or pp.get('x') is None: return None
+        return math.hypot(pp['x'] - home[0], pp['z'] - home[2])
+    out.append({'t': r['@timestamp'], 'pool': pool, 'bot': r['bot']['name'], 'shared': pool in HOMES,
+                'status': sk.get('status'), 'fc': sk.get('fail_class'), 'detail': (sk.get('detail') or '')[:240],
+                'trigger': r.get('trigger'), 'dur': sk.get('duration_ms'), 'moved': sk.get('distance_moved'),
+                'end_d': d(p), 'end_y': p.get('y'), 'start_d': d(sp), 'start_y': (sp or {}).get('y'), 'home_y': home[1],
+                'prev': (pr or {}).get('skill', {}).get('name'), 'prev_status': (pr or {}).get('skill', {}).get('status'),
+                'prev_trig': (pr or {}).get('trigger'), 'health': r.get('bot', {}).get('health')})
+json.dump(out, open('/tmp/exp_home_rows.json', 'w'))
+print('written', len(out))
+
+
+################ SCRIPT h2.py
+import json, collections, re, statistics
+R = json.load(open('/tmp/exp_home_rows.json'))
+C = collections.Counter
+def show(title, c, n=None):
+    tot = sum(c.values())
+    print(f'\n== {title} (n={tot})')
+    for k, v in c.most_common(n):
+        print(f'  {v:5d} {100*v/tot:5.1f}%  {k}')
+
+print('rows', len(R), 'shared', sum(r['shared'] for r in R))
+for scope in ('shared', 'all'):
+    S = [r for r in R if r['shared']] if scope == 'shared' else R
+    print(f'\n######## {scope}: {len(S)} rows, success {sum(r["status"]=="success" for r in S)}')
+    show('status/fc', C((r['status'], r['fc']) for r in S))
+    show('trigger', C(re.sub(r'\d+', 'N', r['trigger'] or '?') for r in S), 25)
+    show('aborted detail', C((r['detail'] or '')[:40] for r in S if r['status'] == 'aborted'), 20)
+    show('failed detail head', C(re.sub(r'-?\d+', 'N', (r['detail'] or ''))[:70] for r in S if r['status'] == 'failed'), 25)
+    show('unknown detail head', C(re.sub(r'-?\d+', 'N', (r['detail'] or ''))[:70] for r in S if r['status'] == 'unknown'), 10)
+    # start distance bands
+    def band(d):
+        if d is None: return 'z?'
+        for b in (8, 16, 48, 100, 200, 400, 800):
+            if d <= b: return f'<= {b:4d}'
+        return '>  800'
+    print('\n== by START distance band: n, success, aborted, failed, unknown')
+    bb = collections.defaultdict(C)
+    for r in S: bb[band(r['start_d'])][r['status']] += 1
+    for k in sorted(bb): c = bb[k]; n = sum(c.values()); print(f'  {k}: n={n:4d} ok={c["success"]:4d} ({100*c["success"]/n:4.0f}%) ab={c["aborted"]:4d} fail={c["failed"]:4d} unk={c["unknown"]:4d}')
+    print('\n== by START depth (start_y vs home_y): n, success')
+    db = collections.defaultdict(C)
+    for r in S:
+        if r['start_y'] is None: k = 'z?'
+        else:
+            dy = r['start_y'] - r['home_y']
+            k = 'deep (< -8)' if dy < -8 else ('surface (-8..+8)' if dy <= 8 else 'high (> +8)')
+        db[k][r['status']] += 1
+    for k in sorted(db): c = db[k]; n = sum(c.values()); print(f'  {k}: n={n:4d} ok={c["success"]:4d} ({100*c["success"]/n:4.0f}%)')
+    print('\n== success rows: start_d quantiles', end=' ')
+    sd = sorted(r['start_d'] for r in S if r['status'] == 'success' and r['start_d'] is not None)
+    if sd: print([round(sd[int(q*(len(sd)-1))]) for q in (0, .25, .5, .75, .9, 1)])
+    sd = sorted(r['start_d'] for r in S if r['start_d'] is not None)
+    print('== all rows: start_d quantiles', [round(sd[int(q*(len(sd)-1))]) for q in (0, .25, .5, .75, .9, 1)])
+    print('== durations (s) by status:')
+    for st in ('success', 'aborted', 'failed', 'unknown'):
+        ds = sorted((r['dur'] or 0)/1000 for r in S if r['status'] == st)
+        if ds: print(f'   {st}: n={len(ds)} median {ds[len(ds)//2]:.0f} p90 {ds[int(.9*(len(ds)-1))]:.0f} max {ds[-1]:.0f}')
+    show('previous row skill (what preceded home)', C(f"{r['prev']}/{r['prev_status']}" for r in S), 20)
+    show('previous row trigger', C(re.sub(r'\d+', 'N', r['prev_trig'] or '?') for r in S), 15)
+    # bots
+    show('by bot (top)', C(r['bot'] for r in S), 12)
+    show('by pool', C(r['pool'] for r in S))
+    # ended close? how many aborted ended within 16?
+    print('\n== aborted/failed ending within 16 of home:', sum(1 for r in S if r['status'] != 'success' and r['end_d'] is not None and r['end_d'] <= 16))
+    print('== aborted/failed STARTING within 16 of home:', sum(1 for r in S if r['status'] != 'success' and r['start_d'] is not None and r['start_d'] <= 16))
+    print('== aborted with moved >= 16:', sum(1 for r in S if r['status'] == 'aborted' and (r['moved'] or 0) >= 16))
+    # interrupted reason x start band
+    print('\n== interrupt reason x start <=16 / 16-100 / >100')
+    ib = collections.defaultdict(C)
+    for r in S:
+        if r['status'] != 'aborted': continue
+        d = r['start_d']; b = '?' if d is None else ('<=16' if d <= 16 else ('16-100' if d <= 100 else '>100'))
+        ib[(r['detail'] or '')[:30]][b] += 1
+    for k, c in sorted(ib.items(), key=lambda kv: -sum(kv[1].values()))[:12]: print(f'  {sum(c.values()):4d} {k!r:34} {dict(c)}')
+
+
+################ SCRIPT h3.py
+import sys, json, re, collections, datetime as dt
+sys.path.insert(0, '/home/mike/estel/scripts')
+from lib.estelemetry import EsEvents
+ev = EsEvents.load('skill', since='2026-10-12T15:00:00Z')
+st = list(ev.rows('_stagnation', fields=['@timestamp', 'bot.name', 'skill.detail', 'exp.pool'], max_rows=100000))
+print('_stagnation rows', len(st))
+esc = collections.Counter()
+by = collections.defaultdict(list)
+for r in st:
+    m = re.search(r'escalation (\d+)', r['skill'].get('detail') or '')
+    e = int(m.group(1)) if m else None
+    esc[e] += 1
+    by[r['bot']['name']].append((dt.datetime.fromisoformat(r['@timestamp'].replace('Z', '+00:00')), e))
+print('escalation levels', sorted(esc.items(), key=lambda kv: (kv[0] is None, kv[0])))
+gaps = []
+for b, L in by.items():
+    L.sort()
+    for (t1, e1), (t2, e2) in zip(L, L[1:]):
+        if e1 == 2 and e2 == 3: gaps.append((t2 - t1).total_seconds())
+gaps.sort()
+print('gap esc2 -> esc3 (s): n', len(gaps), 'quantiles', [round(gaps[int(q*(len(gaps)-1))]) for q in (0, .1, .25, .5, .75, .9)] if gaps else None)
+print('share of esc2->esc3 gaps <= 20 s:', sum(g <= 20 for g in gaps), 'of', len(gaps))
+# home rows
+H = json.load(open('/tmp/exp_home_rows.json'))
+hs = [h for h in H if h['trigger'] == 'interrupt:stagnation']
+ds = sorted((h['dur'] or 0)/1000 for h in hs)
+print('home interrupt:stagnation durations: n', len(ds), [round(ds[int(q*(len(ds)-1))]) for q in (0, .1, .25, .5, .75, .9, 1)])
+print('  of which 10-20 s:', sum(10 <= d <= 20 for d in ds))
+# for each home row: was a watchdog esc-2 event within 5 s before its start? (the watchdog_home origin)
+idx = {b: sorted(L) for b, L in by.items()}
+def esc_before(bot, ts, lo, hi):
+    t = dt.datetime.fromisoformat(ts.replace('Z', '+00:00'))
+    return [e for (tt, e) in idx.get(bot, []) if lo <= (t - tt).total_seconds() <= hi]
+c = collections.Counter()
+for h in H:
+    if not h['shared']: continue
+    e = esc_before(h['bot'], h['t'], -1, 30)
+    c[(h['trigger'] if h['trigger'] in ('watchdog_home', 'interrupt:stagnation', 'llm:idle', 'interrupt:entombed', 'interrupt:stuck') else 'other', tuple(sorted(set(x for x in e if x is not None))))] += 1
+for k, v in c.most_common(25): print(f'  {v:5d} {k}')
+# success of watchdog_home vs llm:idle
+for trig in ('watchdog_home', 'llm:idle'):
+    S = [h for h in H if h['shared'] and h['trigger'] == trig]
+    print(trig, 'n', len(S), 'success', sum(h['status'] == 'success' for h in S), collections.Counter((h['status'], h['fc']) for h in S).most_common(8))
+
+
+################ SCRIPT h4.py
+import json, collections, math
+H = [h for h in json.load(open('/tmp/exp_home_rows.json')) if h['shared']]
+c = collections.Counter((h['trigger'], h['status'], h['fc']) for h in H)
+for k, v in c.most_common(30): print(f'{v:5d} {k}')
+# skill_error durations + prev
+se = [h for h in H if h['fc'] == 'skill_error']
+print('skill_error dur median', sorted(h['dur'] for h in se)[len(se)//2], 'moved median', sorted(h['moved'] or 0 for h in se)[len(se)//2])
+# clean population: llm:idle, start known
+for name, S in (('llm:idle', [h for h in H if h['trigger'] == 'llm:idle']),
+                ('watchdog_home uninterrupted', [h for h in H if h['trigger'] == 'watchdog_home'])):
+    print('\n', name)
+    bb = collections.defaultdict(collections.Counter)
+    for h in S:
+        d = h['start_d']; dy = None if h['start_y'] is None else h['start_y'] - h['home_y']
+        b = '?' if d is None else ('<=48' if d <= 48 else ('48-100' if d <= 100 else ('100-200' if d <= 200 else '>200')))
+        z = '?' if dy is None else ('deep' if dy < -8 else 'surf')
+        bb[(b, z)][h['status']] += 1
+    for k in sorted(bb): cc = bb[k]; n = sum(cc.values()); print(f'  {k}: n={n:4d} ok={cc["success"]:4d} ({100*cc["success"]/n:3.0f}%)')
+# travel_incomplete: how far did they get, how far left
+import re
+ti = [h for h in H if h['fc'] == 'travel_incomplete']
+cl = sorted(int(re.search(r'closed (\d+)', h['detail']).group(1)) for h in ti if re.search(r'closed (\d+)', h['detail']))
+lf = sorted(int(re.search(r'(\d+) still to go', h['detail']).group(1)) for h in ti if re.search(r'(\d+) still to go', h['detail']))
+print('travel_incomplete closed quantiles', [cl[int(q*(len(cl)-1))] for q in (.25, .5, .75, .9)], 'left', [lf[int(q*(len(lf)-1))] for q in (.25, .5, .75, .9)])
+print('travel_incomplete durations', sorted(h['dur'] for h in ti)[len(ti)//2])
+
+
+################ SCRIPT h5.py
+import json, collections, re
+H = [h for h in json.load(open('/tmp/exp_home_rows.json')) if h['shared']]
+def q(xs, qs=(0, .1, .25, .5, .75, .9, 1)):
+    xs = sorted(xs); return [round(xs[int(p*(len(xs)-1))], 1) for p in qs] if xs else None
+print('success end_d', q([h['end_d'] for h in H if h['status'] == 'success' and h['end_d'] is not None]))
+for fc in ('travel_incomplete', 'no_path', 'goal_changed', 'skill_error', 'stranded', 'path_budget', 'interrupted'):
+    S = [h for h in H if h['fc'] == fc and h['end_d'] is not None]
+    print(fc, len(S), 'end_d', q([h['end_d'] for h in S]), ' <=5:', sum(h['end_d'] <= 5 for h in S), ' <=16:', sum(h['end_d'] <= 16 for h in S))
+ti = [h for h in H if h['fc'] == 'travel_incomplete']
+print('travel_incomplete by "still to go" N:', collections.Counter(min(int(re.search(r'(\d+) still to go', h['detail']).group(1)), 20) for h in ti if 'still to go' in h['detail']).most_common(10))
+print('end_y - home_y of travel_incomplete with <=5 to go:', q([h['end_y'] - h['home_y'] for h in ti if h['end_d'] is not None and h['end_d'] <= 5]))
+print('pools of travel_incomplete <=5:', collections.Counter(h['pool'] for h in ti if h['end_d'] is not None and h['end_d'] <= 5))
+print('pools of success:', collections.Counter(h['pool'] for h in H if h['status'] == 'success'))
+nf = [h for h in H if h['status'] != 'success']
+print('non-success total', len(nf), 'ending <= 5 of home', sum(1 for h in nf if h['end_d'] is not None and h['end_d'] <= 5))
+
+
+################ SCRIPT h6.py
+import json, collections
+H = [h for h in json.load(open('/tmp/exp_home_rows.json')) if h['shared']]
+arr = lambda h: h['fc'] == 'travel_incomplete' and h['end_d'] is not None and h['end_d'] <= 5
+ni = [h for h in H if not (h['trigger'] or '').startswith('interrupt:')]
+ok = sum(h['status'] == 'success' for h in ni); a = sum(arr(h) for h in ni)
+print('non-interrupt-trigger rows', len(ni), 'success', ok, f'{100*ok/len(ni):.1f}%', '+arrived-but-graded-failed', a, f'-> {100*(ok+a)/len(ni):.1f}%')
+print('all shared', len(H), 'success', sum(h['status'] == 'success' for h in H), '+arrived', sum(arr(h) for h in H))
+print('success in interrupt-trigger rows', sum(h['status'] == 'success' for h in H if (h['trigger'] or '').startswith('interrupt:')))
+# by day
+d = collections.defaultdict(lambda: [0, 0, 0])
+for h in H:
+    k = h['t'][:10]; d[k][0] += 1; d[k][1] += h['status'] == 'success'; d[k][2] += arr(h)
+print({k: v for k, v in sorted(d.items())})
+# watchdog-origin share
+print('llm:idle share', sum(h['trigger'] == 'llm:idle' for h in H))
+
+
+################ SCRIPT h7.py
+import sys, re, collections, datetime as dt
+sys.path.insert(0, '/home/mike/estel/scripts')
+from lib.estelemetry import EsEvents
+ev = EsEvents.load('skill', since='2026-10-12T15:00:00Z', until='2026-10-19T15:00:00Z')
+st = list(ev.rows('_stagnation', fields=['@timestamp', 'bot.name', 'skill.detail'], max_rows=100000))
+by = collections.defaultdict(list)
+for r in st:
+    m = re.search(r'escalation (\d+)', r['skill'].get('detail') or '')
+    by[r['bot']['name']].append((dt.datetime.fromisoformat(r['@timestamp'].replace('Z', '+00:00')), int(m.group(1)) if m else None))
+g = collections.defaultdict(list)
+for L in by.values():
+    L.sort()
+    for (t1, e1), (t2, e2) in zip(L, L[1:]):
+        if e1 is not None and e2 == e1 + 1: g[e1].append((t2 - t1).total_seconds())
+for e, xs in sorted(g.items()):
+    xs.sort(); n = len(xs)
+    print(f'esc {e}->{e+1}: n={n}  <=20s {sum(x <= 20 for x in xs)} ({100*sum(x <= 20 for x in xs)/n:.0f}%)  160-200s {sum(160 <= x <= 200 for x in xs)}  median {xs[n//2]:.0f}')
+# relocation goto rows: goto with trigger watchdog_relocate vs interrupt:stagnation
+gt = ev.terms('trigger', kind='goto')
+print('goto triggers (top):', sorted(gt.items(), key=lambda kv: -kv[1])[:8])
+
+
+################ SCRIPT h8.py
+import sys
+sys.path.insert(0, '/home/mike/estel/scripts')
+from lib.estelemetry import EsEvents
+ev = EsEvents.load('skill', since='2026-10-12T15:00:00Z', until='2026-10-19T15:00:00Z')
+names = ev.names()
+for k in ('_stagnation', '_stagnation_reconnect', '_stranded', 'surface', 'home', 'goto', 'explore'):
+    print(k, names.get(k))
+print([k for k in names if 'stagn' in k or 'strand' in k or 'reconnect' in k])
+
+
+################ SCRIPT e1.py
+"""Expansion baseline, read only (ES). Position samples hourly, gathers/deaths by distance band, travel speed."""
+import sys, json, math, collections, datetime as dt
+sys.path.insert(0, '/home/mike/estel/scripts')
+from lib.estelemetry import EsEvents
+HOMES = {'board-a': (355, 73, 147), 'board-b': (-249, 65, 144), 'board-c': (355, 73, 147), 'board-d': (355, 73, 147),
+         'hive-a': (355, 73, 147), 'hive-b': (355, 73, 147), 'hive-c': (-68, 68, -68), 'hive-d': (68, 65, 68),
+         'placebo-a': (249, 75, -144), 'placebo-b': (282, 65, -388), 'placebo-c': (355, 73, 147), 'placebo-d': (177, 75, 73)}
+ISO = (355, 73, 147)
+def home(pool): return HOMES.get(pool, ISO)
+def hd(pool, p):
+    h = home(pool); return math.hypot(p['x'] - h[0], p['z'] - h[2])
+BANDS = (16, 48, 100, 200, 300, 800, 10**6)
+def band(d):
+    for b in BANDS:
+        if d <= b: return b
+T0 = dt.datetime(2026, 10, 12, 16, tzinfo=dt.timezone.utc)
+T1 = dt.datetime(2026, 10, 19, 15, tzinfo=dt.timezone.utc)
+out = {}
+# 1. hourly position samples
+samples = []
+t = T0
+while t <= T1:
+    ev = EsEvents.load('skill', since=t - dt.timedelta(minutes=10), until=t)
+    lat = ev.latest(require='bot.pos.x', fields=['bot.pos', 'exp.pool', 'bot.name'])
+    for b, r in lat.items():
+        pool = r['exp']['pool']; p = r['bot']['pos']
+        samples.append({'t': t.isoformat(), 'bot': b, 'pool': pool, 'x': p['x'], 'y': p['y'], 'z': p['z'], 'd': hd(pool, p),
+                        'dy': p['y'] - home(pool)[1]})
+    t += dt.timedelta(hours=1)
+json.dump(samples, open('/tmp/exp_samples.json', 'w'))
+print('position samples', len(samples), 'timepoints', len({s['t'] for s in samples}))
+# 2. gather + mine + deaths over the same 7 d
+ev = EsEvents.load('skill', since=T0, until=T1)
+print('window docs', ev.total(), 'caveats', len(ev.caveats))
+rows = {}
+for kind, st in (('gather', 'success'), ('mine', 'success'), ('_death', None)):
+    f = dict(status=st) if st else {}
+    rs = list(ev.rows(kind, fields=['@timestamp', 'exp.pool', 'bot.name', 'bot.pos', 'skill.inventory_delta', 'skill.detail', 'skill.fail_class', 'skill.args'], max_rows=400000, **f))
+    rows[kind] = [{'t': r['@timestamp'], 'pool': r['exp']['pool'], 'bot': r['bot']['name'], 'pos': r.get('bot', {}).get('pos'),
+                   'delta': r.get('skill', {}).get('inventory_delta'), 'fc': r.get('skill', {}).get('fail_class'),
+                   'detail': (r.get('skill', {}).get('detail') or '')[:160], 'args': r.get('skill', {}).get('args')} for r in rs]
+    print(kind, len(rows[kind]))
+json.dump(rows, open('/tmp/exp_rows.json', 'w'))
+# 3. goto success speed
+gs = list(ev.rows('goto', status='success', fields=['skill.distance_moved', 'skill.duration_ms', 'exp.pool'], max_rows=400000))
+sp = sorted((g['skill'].get('distance_moved') or 0) / max(1, (g['skill'].get('duration_ms') or 1) / 1000) for g in gs if (g['skill'].get('distance_moved') or 0) >= 60)
+print('goto successes', len(gs), 'with moved >= 60:', len(sp), 'speed b/s quantiles', [round(sp[int(q*(len(sp)-1))], 2) for q in (.1, .25, .5, .75, .9)] if sp else None)
+mv = sorted(g['skill'].get('distance_moved') or 0 for g in gs)
+print('goto success distance_moved quantiles', [round(mv[int(q*(len(mv)-1))]) for q in (.5, .75, .9, .99, 1)])
+
+
+################ SCRIPT e2.py
+import json, math, collections
+S = json.load(open('/tmp/exp_samples.json'))
+R = json.load(open('/tmp/exp_rows.json'))
+HOMES = {'board-a': (355, 73, 147), 'board-b': (-249, 65, 144), 'board-c': (355, 73, 147), 'board-d': (355, 73, 147),
+         'hive-a': (355, 73, 147), 'hive-b': (355, 73, 147), 'hive-c': (-68, 68, -68), 'hive-d': (68, 65, 68),
+         'placebo-a': (249, 75, -144), 'placebo-b': (282, 65, -388), 'placebo-c': (355, 73, 147), 'placebo-d': (177, 75, 73)}
+ISO = (355, 73, 147)
+def home(p): return HOMES.get(p, ISO)
+def hd(pool, p): h = home(pool); return math.hypot(p['x'] - h[0], p['z'] - h[2])
+def q(xs, qs=(.5, .75, .9, .99, 1)):
+    xs = sorted(xs); return [round(xs[int(p*(len(xs)-1))]) for p in qs] if xs else None
+BANDS = [(0, 48), (48, 100), (100, 200), (200, 300), (300, 10**6)]
+def bname(d):
+    for lo, hi in BANDS:
+        if lo <= d < hi: return f'{lo}-{hi if hi < 10**6 else "inf"}'
+print('samples', len(S), 'bots', len({s["bot"] for s in S}))
+for scope in ('shared', 'all'):
+    SS = [s for s in S if (s['pool'] in HOMES) or scope == 'all']
+    print(f'\n## {scope}: samples {len(SS)}; distance quantiles p50/p75/p90/p99/max', q([s['d'] for s in SS]))
+    bc = collections.Counter(bname(s['d']) for s in SS)
+    print('  time share by band:', {k: f'{100*v/len(SS):.1f}%' for k, v in sorted(bc.items())})
+    print('  deep share (dy < -8):', f"{100*sum(s['dy'] < -8 for s in SS)/len(SS):.1f}%")
+# per pool farthest + by day
+fp = collections.defaultdict(float); fd = collections.defaultdict(lambda: collections.defaultdict(list))
+for s in S:
+    fp[s['pool']] = max(fp[s['pool']], s['d']); fd[s['t'][:10]][s['pool'] in HOMES].append(s['d'])
+print('\nfarthest sample per pool (7 d):', {k: round(v) for k, v in sorted(fp.items())})
+print('median distance by day (shared):', {d: round(sorted(v[True])[len(v[True])//2]) for d, v in sorted(fd.items())})
+# 64-block regions visited per shared pool
+reg = collections.defaultdict(set); reg_far = collections.defaultdict(set)
+for s in S:
+    if s['pool'] not in HOMES: continue
+    c = (int(s['x'] // 64), int(s['z'] // 64)); reg[s['pool']].add(c)
+    if s['d'] > 200: reg_far[s['pool']].add(c)
+print('64x64 regions sampled per shared pool:', {k: len(v) for k, v in sorted(reg.items())}, ' beyond 200:', {k: len(v) for k, v in sorted(reg_far.items())})
+# bot-hours by band from hourly samples (1 sample = 1 bot-hour)
+bh = collections.Counter(); bhs = collections.Counter()
+for s in S:
+    bh[bname(s['d'])] += 1
+    if s['pool'] in HOMES: bhs[bname(s['d'])] += 1
+# gathers: items collected by band (end positions)
+def items(delta):
+    return sum(v for v in (delta or {}).values() if isinstance(v, (int, float)) and v > 0)
+for kind in ('gather', 'mine'):
+    ib = collections.Counter(); nb = collections.Counter(); ibs = collections.Counter(); logs = collections.Counter(); ores = collections.Counter()
+    for r in R[kind]:
+        if not r['pos'] or r['pos'].get('x') is None: continue
+        b = bname(hd(r['pool'], r['pos'])); n = items(r['delta'])
+        ib[b] += n; nb[b] += 1
+        if r['pool'] in HOMES: ibs[b] += n
+        for k, v in (r['delta'] or {}).items():
+            if isinstance(v, (int, float)) and v > 0:
+                if k.endswith('_log'): logs[b] += v
+                if k in ('raw_iron', 'raw_copper', 'coal', 'iron_ore', 'diamond', 'raw_gold', 'redstone', 'lapis_lazuli'): ores[b] += v
+    print(f'\n{kind} successes {sum(nb.values())}: by band rows / items / items per bot-h (all pools)')
+    for k in sorted(bh):
+        print(f'   {k:10s} bot-h {bh[k]:6d}  rows {nb[k]:6d}  items {ib[k]:7d}  per bot-h {ib[k]/max(1,bh[k]):6.2f}  logs/bot-h {logs[k]/max(1,bh[k]):5.2f}  ore/bot-h {ores[k]/max(1,bh[k]):5.2f}')
+# deaths by band
+db = collections.Counter(); dfc = collections.defaultdict(collections.Counter); nop = 0
+for r in R['_death']:
+    if not r['pos'] or r['pos'].get('x') is None: nop += 1; continue
+    b = bname(hd(r['pool'], r['pos'])); db[b] += 1; dfc[b][r['fc']] += 1
+print(f"\ndeaths {len(R['_death'])} (no position {nop}): per band, per 1k bot-h")
+for k in sorted(bh): print(f'   {k:10s} deaths {db[k]:4d}  per 1k bot-h {1000*db[k]/max(1,bh[k]):6.1f}  {dict(dfc[k].most_common(4))}')
+
+
+################ SCRIPT e3.py
+"""Who could go: bag slots (estimated), health, pickaxe, at town -- 24 snapshots over the last 24 h (ES latest per bot)."""
+import sys, math, collections, datetime as dt
+sys.path.insert(0, '/home/mike/estel/scripts')
+from lib.estelemetry import EsEvents
+HOMES = {'board-a': (355, 73, 147), 'board-b': (-249, 65, 144), 'board-c': (355, 73, 147), 'board-d': (355, 73, 147),
+         'hive-a': (355, 73, 147), 'hive-b': (355, 73, 147), 'hive-c': (-68, 68, -68), 'hive-d': (68, 65, 68),
+         'placebo-a': (249, 75, -144), 'placebo-b': (282, 65, -388), 'placebo-c': (355, 73, 147), 'placebo-d': (177, 75, 73)}
+UNSTACK = ('pickaxe', '_axe', 'shovel', 'sword', 'hoe', 'bucket', 'bed', 'helmet', 'chestplate', 'leggings', 'boots', 'shears', 'bow', 'flint_and_steel', 'fishing_rod', 'spyglass')
+S16 = ('egg', 'snowball', 'ender_pearl', 'sign', 'honey_bottle')
+def slots(inv, tools):
+    n = 0
+    for k, v in (inv or {}).items():
+        if not isinstance(v, (int, float)) or v <= 0: continue
+        if any(u in k for u in UNSTACK): n += v
+        else: n += math.ceil(v / (16 if any(s in k for s in S16) else 64))
+    return n
+now = dt.datetime(2026, 10, 19, 15, tzinfo=dt.timezone.utc)
+c = collections.Counter(); per_town = collections.defaultdict(list); n = 0
+for h in range(24):
+    t = now - dt.timedelta(hours=h)
+    ev = EsEvents.load('skill', since=t - dt.timedelta(minutes=10), until=t)
+    lat = ev.latest(require='bot.pos.x', fields=['bot.pos', 'bot.inventory', 'bot.tools', 'bot.health', 'exp.pool'])
+    elig_town = collections.Counter()
+    for b, r in lat.items():
+        pool = r['exp']['pool']
+        if pool not in HOMES: continue
+        n += 1
+        bot = r['bot']; p = bot['pos']; hm = HOMES[pool]
+        sl = slots(bot.get('inventory'), bot.get('tools'))
+        picks = [x for k, L in (bot.get('tools') or {}).items() if 'pickaxe' in k for x in L]
+        goodpick = any((x.get('max', 1) - x.get('used', 0)) / max(1, x.get('max', 1)) >= 0.4 for x in picks)
+        axe = any('_axe' in k for k in (bot.get('tools') or {}))
+        athome = math.hypot(p['x'] - hm[0], p['z'] - hm[2]) <= 48 and abs(p['y'] - hm[1]) <= 12
+        hp = (bot.get('health') or 0) >= 18
+        c['bag<=24'] += sl <= 24; c['bag<=30'] += sl <= 30; c['pick>=40%'] += goodpick; c['axe'] += axe; c['at_town'] += athome; c['hp>=18'] += hp
+        e = sl <= 24 and goodpick and hp and athome
+        c['ALL(bag<=24,pick,hp,at_town)'] += e
+        c['ALL but bag<=30'] += (sl <= 30 and goodpick and hp and athome)
+        elig_town[pool] += e
+    for pool in HOMES: per_town[pool].append(elig_town[pool])
+print('bot-snapshots (shared)', n)
+for k, v in c.items(): print(f'  {k:32s} {v:5d} {100*v/n:5.1f}%')
+print('town-hours with >= 1 eligible (bag<=24):', sum(1 for L in per_town.values() for x in L if x >= 1), 'of', sum(len(L) for L in per_town.values()))
+
+
+################ SCRIPT e4.py
+"""Log and ore gathering per BODY-hour of gather, by distance band (all statuses, 7 d, shared towns)."""
+import sys, math, collections
+sys.path.insert(0, '/home/mike/estel/scripts')
+from lib.estelemetry import EsEvents
+HOMES = {'board-a': (355, 73, 147), 'board-b': (-249, 65, 144), 'board-c': (355, 73, 147), 'board-d': (355, 73, 147),
+         'hive-a': (355, 73, 147), 'hive-b': (355, 73, 147), 'hive-c': (-68, 68, -68), 'hive-d': (68, 65, 68),
+         'placebo-a': (249, 75, -144), 'placebo-b': (282, 65, -388), 'placebo-c': (355, 73, 147), 'placebo-d': (177, 75, 73)}
+ev = EsEvents.load('skill', since='2026-10-12T16:00:00Z', until='2026-10-19T15:00:00Z', pools=list(HOMES))
+rows = ev.rows('gather', fields=['exp.pool', 'bot.pos', 'skill.args', 'skill.status', 'skill.duration_ms', 'skill.inventory_delta'], max_rows=400000)
+B = [(0, 48), (48, 100), (100, 200), (200, 300), (300, 10**6)]
+def band(d):
+    for lo, hi in B:
+        if lo <= d < hi: return f'{lo}-{hi if hi < 10**6 else "inf"}'
+agg = collections.defaultdict(lambda: collections.defaultdict(lambda: [0, 0.0, 0, 0]))  # target -> band -> [rows, body_s, got, ok]
+for r in rows:
+    a = (r.get('skill') or {}).get('args') or {}
+    blk = str(a.get('block') or a.get('name') or a.get('item') or '?')
+    tgt = 'log' if blk.endswith('_log') else ('ore' if blk.endswith('_ore') else None)
+    if not tgt: continue
+    p = (r.get('bot') or {}).get('pos')
+    if not p or p.get('x') is None: continue
+    h = HOMES[r['exp']['pool']]; b = band(math.hypot(p['x'] - h[0], p['z'] - h[2]))
+    d = (r['skill'].get('inventory_delta') or {})
+    got = sum(v for k, v in d.items() if isinstance(v, (int, float)) and v > 0 and (k.endswith('_log') if tgt == 'log' else (k.startswith('raw_') or k in ('coal', 'diamond', 'redstone', 'lapis_lazuli', 'emerald') or k.endswith('_ore'))))
+    x = agg[tgt][b]; x[0] += 1; x[1] += (r['skill'].get('duration_ms') or 0) / 1000; x[2] += got; x[3] += r['skill'].get('status') == 'success'
+for tgt, bb in agg.items():
+    print(f'\n{tgt} gathers (shared towns, 7 d): band rows ok% body-h got per-body-h')
+    for k in sorted(bb):
+        n, s, g, ok = bb[k]
+        print(f'  {k:9s} {n:6d} {100*ok/max(1,n):5.1f}% {s/3600:7.1f} {g:7d} {g/max(1e-9, s/3600):7.1f}')
+
+
+################ PASTED OUTPUTS (heavy queries)
+=== h1 (10-19 ~15:24Z)
+window 2026-10-12 15:00:00+00:00 2026-10-19 15:24:20Z docs 9952931 bots 80
+caveats: after 2026-10-14T18:46Z completeness assumed; window crosses 7 log rotation(s); window ends within 240 s of now
+home rows 2939  (written with the previous-row join)
+
+=== h3 (escalation gaps + home origin; window 10-12 15Z .. now)
+_stagnation rows 40824
+escalation levels [(1, 33459), (2, 5436), (3, 1822), (4, 68), (5, 20), (6, 9), (7, 5), (8, 3), (9, 1), (10, 1)]
+gap esc2 -> esc3 (s): n 1822 quantiles [5, 15, 15, 180, 180, 181]
+share of esc2->esc3 gaps <= 20 s: 636 of 1822
+home interrupt:stagnation durations: n 762 [0, 15, 15, 15, 30, 64, 150]
+  of which 10-20 s: 526
+    741 ('watchdog_home', (2,))
+    534 ('interrupt:stagnation', (2,))
+    391 ('llm:idle', ())
+    235 ('interrupt:entombed', (2,))
+    141 ('interrupt:entombed', ())
+     78 ('interrupt:stuck', ())
+     77 ('other', ())
+     75 ('interrupt:stagnation', ())
+     55 ('interrupt:stuck', (2,))
+      8 ('other', (2,))
+      (smaller buckets omitted: 12 rows)
+watchdog_home n 741 success 445 [success 445, travel_incomplete 177, no_path 55, goal_changed 34, path_budget 18, no_measurable_change 9, path_timeout 2, stranded 1]
+llm:idle n 393 success 112 [success 112, no_path 84, stranded 79, travel_incomplete 62, goal_changed 38, path_budget 16, no_measurable_change 2]
+
+=== h7 (window 10-12 15Z .. 10-19 15Z)
+esc 1->2: n=5419  <=20s 1579 (29%)  160-200s 3731  median 180
+esc 2->3: n=1815  <=20s 634 (35%)  160-200s 1082  median 180
+esc 3->4: n=68  <=20s 23 (34%)  160-200s 27  median 180
+goto triggers (top): llm:idle 62592, livelock_escape 19816, interrupt:entombed 9641, watchdog_relocate 8913, livelock_escape_dig 6969, interrupt:stagnation 3962, interrupt:stuck 3351, llm:entombed 2231
+
+=== h8 (kind counts, same window)
+_stagnation 40732  _stagnation_reconnect 1628  _stranded 294  surface 6133  home 2931  goto 120587  explore 131048
+
+=== e1 (10-12 16Z .. 10-19 15Z)
+position samples 13438 timepoints 168
+window docs 9877932
+gather 87492 (success rows)  mine 51585 (success rows)  _death 258
+goto successes 52580 with moved >= 60: 27675 speed b/s quantiles [p10 2.37, p25 2.84, p50 3.32, p75 3.69, p90 3.98]
+goto success distance_moved quantiles [p50 63, p75 79, p90 108, p99 167, max 668]
+
+=== e3 (24 hourly snapshots to 10-19 15Z, shared towns)
+bot-snapshots (shared) 1439
+  bag<=24                             16   1.1%
+  bag<=30                            377  26.2%
+  pick>=40%                          987  68.6%
+  axe                               1183  82.2%
+  at_town                            315  21.9%
+  hp>=18                            1438  99.9%
+  ALL(bag<=24,pick,hp,at_town)         6   0.4%
+  ALL but bag<=30                     81   5.6%
+town-hours with >= 1 eligible (bag<=24): 6 of 288
+
+=== e4 (gather, shared towns, 10-12 16Z .. 10-19 15Z, every status; band rows ok% body-h got per-body-h)
+ore:  0-48 6135 13.1% 23.9 729 30.5 | 48-100 6541 12.2% 22.9 717 31.3 | 100-200 3275 13.4% 11.1 478 43.1 | 200-300 875 10.9% 1.8 103 56.8 | 300-inf 109 11.9% 0.3 18 51.8
+log:  0-48 7629 30.0% 51.5 7995 155.1 | 48-100 7292 58.4% 94.9 15674 165.1 | 100-200 5115 50.3% 57.2 8704 152.0 | 200-300 3349 15.5% 11.6 1816 156.9 | 300-inf 302 51.7% 4.1 570 139.8
+
+=== resource sightings (world-facts-<pool>.json, 12 shared worlds, read 10-19 ~15:45Z)
+sightings 2400 dist q50/75/90/max [95, 133, 184, 334] beyond 200: 169 beyond 300: 17
+
+
+################ OUTPUTS (cheap re-runs, verbatim)
+=== OUTPUT h2 (2026-10-19T15:38:30Z)
+rows 2939 shared 2346
+
+######## shared: 2346 rows, success 582
+
+== status/fc (n=2346)
+    838  35.7%  ('aborted', 'interrupted')
+    582  24.8%  ('success', None)
+    253  10.8%  ('failed', 'travel_incomplete')
+    226   9.6%  ('failed', 'skill_error')
+    144   6.1%  ('failed', 'no_path')
+    123   5.2%  ('unknown', 'path_budget')
+     92   3.9%  ('failed', 'stranded')
+     74   3.2%  ('failed', 'goal_changed')
+     11   0.5%  ('unknown', 'no_measurable_change')
+      2   0.1%  ('unknown', 'path_timeout')
+      1   0.0%  ('failed', 'no_measurable_change')
+
+== trigger (n=2346)
+    741  31.6%  watchdog_home
+    613  26.1%  interrupt:stagnation
+    393  16.8%  llm:idle
+    377  16.1%  interrupt:entombed
+    134   5.7%  interrupt:stuck
+     23   1.0%  llm:stagnation
+     15   0.6%  llm:entombed
+     13   0.6%  llm:stuck
+     13   0.6%  interrupt:timeout
+     13   0.6%  llm:liveness_restart
+      4   0.2%  llm:startup
+      2   0.1%  interrupt:stranded
+      2   0.1%  llm:timeout
+      1   0.0%  interrupt:drowning
+      1   0.0%  llm:drowning
+      1   0.0%  interrupt:low_health
+
+== aborted detail (n=838)
+    538  64.2%  stagnation
+    169  20.2%  entombed
+    114  13.6%  stuck
+     13   1.6%  timeout
+      2   0.2%  stranded
+      1   0.1%  drowning
+      1   0.1%  low_health
+
+== failed detail head (n=790)
+    253  32.0%  closed N blocks toward home, N still to go — run home again to continu
+    225  28.5%  The goal was changed before it could be completed!
+    144  18.2%  no route exists toward N,N — after N leg(s), still N blocks short
+     78   9.9%  pathfinder returned an empty path from N,N,N — no route out of here ev
+     74   9.4%  a competing goal replaced the route to N,N — after N leg(s), still N b
+     14   1.8%  cannot go home yet: no route up from N,N,N toward y=N; both searches f
+      1   0.1%  Took to long to decide path to goal!
+      1   0.1%  cannot go home yet: no altitude gained from N,N,N in Ns of trying (Too
+
+== unknown detail head (n=136)
+     75  55.1%  pathfinding exceeded Nms
+     48  35.3%  ran out of the Ns travel budget toward N,N — after N leg(s), still N b
+      8   5.9%  home (Nb from the town centre) — but nothing changed that home exists 
+      3   2.2%  arrived at N,N,N — but nothing changed that home exists to change (exp
+      2   1.5%  planner gave up searching toward N,N — after N leg(s), still N blocks 
+
+== by START distance band: n, success, aborted, failed, unknown
+  <=    8: n=  20 ok=   6 (  30%) ab=   2 fail=   3 unk=   9
+  <=   16: n=  64 ok=  29 (  45%) ab=  24 fail=   7 unk=   4
+  <=   48: n= 495 ok= 162 (  33%) ab= 160 fail= 139 unk=  34
+  <=  100: n= 376 ok= 108 (  29%) ab= 143 fail= 110 unk=  15
+  <=  200: n= 202 ok=  46 (  23%) ab=  95 fail=  56 unk=   5
+  <=  400: n=  99 ok=   8 (   8%) ab=  45 fail=  43 unk=   3
+  z?: n=1090 ok= 223 (  20%) ab= 369 fail= 432 unk=  66
+
+== by START depth (start_y vs home_y): n, success
+  deep (< -8): n= 877 ok= 202 (  23%)
+  high (> +8): n=  10 ok=   6 (  60%)
+  surface (-8..+8): n= 369 ok= 151 (  41%)
+  z?: n=1090 ok= 223 (  20%)
+
+== success rows: start_d quantiles [1, 24, 43, 79, 125, 295]
+== all rows: start_d quantiles [0, 31, 53, 98, 171, 375]
+== durations (s) by status:
+   success: n=582 median 26 p90 62 max 139
+   aborted: n=838 median 15 p90 120 max 182
+   failed: n=790 median 14 p90 53 max 177
+   unknown: n=136 median 42 p90 76 max 152
+
+== previous row skill (what preceded home) (n=2346)
+    700  29.8%  _affordance_scan/success
+    409  17.4%  _stagnation/failed
+    126   5.4%  _craft_noroom/no_effect
+    125   5.3%  _path_reset/success
+     96   4.1%  _scaffold_pick/success
+     83   3.5%  _path_failure_shapes/failed
+     81   3.5%  _dig_town_sum/success
+     70   3.0%  _pickups/success
+     56   2.4%  _plant_spot/success
+     48   2.0%  _inventory_mutation/success
+     44   1.9%  _chunks_evicted/success
+     38   1.6%  _rule_contradicted/failed
+     36   1.5%  _dig_collision/failed
+     35   1.5%  _pickup_skipped/success
+     32   1.4%  _work_order/success
+     24   1.0%  _livelock_not_fixated/no_effect
+     23   1.0%  _reach_probe/success
+     20   0.9%  goto/unknown
+     18   0.8%  _path_noPath/success
+     15   0.6%  _path_timeout/success
+
+== previous row trigger (n=2346)
+   2291  97.7%  reflex
+     39   1.7%  llm:idle
+      9   0.4%  llm:liveness_restart
+      6   0.3%  llm:timeout
+      1   0.0%  llm:stuck
+
+== by bot (top) (n=2346)
+     95   4.0%  board-a-Comet
+     80   3.4%  placebo-d-Echo
+     68   2.9%  board-a-Delta
+     62   2.6%  board-d-Comet
+     57   2.4%  board-a-Echo
+     53   2.3%  board-b-Comet
+     53   2.3%  placebo-c-Delta
+     52   2.2%  hive-b-Echo
+     51   2.2%  hive-b-Alpha
+     50   2.1%  board-d-Bravo
+     49   2.1%  hive-b-Comet
+     48   2.0%  board-a-Alpha
+
+== by pool (n=2346)
+    302  12.9%  board-a
+    218   9.3%  hive-b
+    208   8.9%  placebo-d
+    205   8.7%  hive-a
+    204   8.7%  hive-c
+    201   8.6%  board-d
+    196   8.4%  board-b
+    182   7.8%  board-c
+    169   7.2%  placebo-c
+    163   6.9%  hive-d
+    151   6.4%  placebo-b
+    147   6.3%  placebo-a
+
+== aborted/failed ending within 16 of home: 335
+== aborted/failed STARTING within 16 of home: 49
+== aborted with moved >= 16: 116
+
+== interrupt reason x start <=16 / 16-100 / >100
+   538 'stagnation'                       {'16-100': 215, '?': 220, '<=16': 22, '>100': 81}
+   169 'entombed'                         {'>100': 22, '16-100': 59, '?': 85, '<=16': 3}
+   114 'stuck'                            {'>100': 30, '?': 59, '16-100': 24, '<=16': 1}
+    13 'timeout'                          {'16-100': 3, '>100': 6, '?': 4}
+     2 'stranded'                         {'>100': 1, '16-100': 1}
+     1 'drowning'                         {'?': 1}
+     1 'low_health'                       {'16-100': 1}
+
+######## all: 2939 rows, success 723
+
+== status/fc (n=2939)
+   1062  36.1%  ('aborted', 'interrupted')
+    723  24.6%  ('success', None)
+    371  12.6%  ('failed', 'travel_incomplete')
+    266   9.1%  ('failed', 'skill_error')
+    174   5.9%  ('failed', 'no_path')
+    148   5.0%  ('unknown', 'path_budget')
+     95   3.2%  ('failed', 'stranded')
+     86   2.9%  ('failed', 'goal_changed')
+     11   0.4%  ('unknown', 'no_measurable_change')
+      2   0.1%  ('unknown', 'path_timeout')
+      1   0.0%  ('failed', 'no_measurable_change')
+
+== trigger (n=2939)
+    957  32.6%  watchdog_home
+    762  25.9%  interrupt:stagnation
+    472  16.1%  llm:idle
+    464  15.8%  interrupt:entombed
+    182   6.2%  interrupt:stuck
+     26   0.9%  llm:stagnation
+     21   0.7%  llm:entombed
+     15   0.5%  llm:liveness_restart
+     14   0.5%  llm:stuck
+     13   0.4%  interrupt:timeout
+      4   0.1%  llm:startup
+      4   0.1%  llm:timeout
+      2   0.1%  interrupt:stranded
+      1   0.0%  interrupt:drowning
+      1   0.0%  llm:drowning
+      1   0.0%  interrupt:low_health
+
+== aborted detail (n=1062)
+    667  62.8%  stagnation
+    219  20.6%  entombed
+    159  15.0%  stuck
+     13   1.2%  timeout
+      2   0.2%  stranded
+      1   0.1%  drowning
+      1   0.1%  low_health
+
+== failed detail head (n=993)
+    371  37.4%  closed N blocks toward home, N still to go — run home again to continu
+    265  26.7%  The goal was changed before it could be completed!
+    174  17.5%  no route exists toward N,N — after N leg(s), still N blocks short
+     86   8.7%  a competing goal replaced the route to N,N — after N leg(s), still N b
+     81   8.2%  pathfinder returned an empty path from N,N,N — no route out of here ev
+     14   1.4%  cannot go home yet: no route up from N,N,N toward y=N; both searches f
+      1   0.1%  Took to long to decide path to goal!
+      1   0.1%  cannot go home yet: no altitude gained from N,N,N in Ns of trying (Too
+
+== unknown detail head (n=161)
+     94  58.4%  pathfinding exceeded Nms
+     54  33.5%  ran out of the Ns travel budget toward N,N — after N leg(s), still N b
+      8   5.0%  home (Nb from the town centre) — but nothing changed that home exists 
+      3   1.9%  arrived at N,N,N — but nothing changed that home exists to change (exp
+      2   1.2%  planner gave up searching toward N,N — after N leg(s), still N blocks 
+
+== by START distance band: n, success, aborted, failed, unknown
+  <=    8: n=  21 ok=   7 (  33%) ab=   2 fail=   3 unk=   9
+  <=   16: n=  70 ok=  34 (  49%) ab=  25 fail=   7 unk=   4
+  <=   48: n= 614 ok= 193 (  31%) ab= 197 fail= 185 unk=  39
+  <=  100: n= 515 ok= 139 (  27%) ab= 195 fail= 163 unk=  18
+  <=  200: n= 281 ok=  63 (  22%) ab= 139 fail=  74 unk=   5
+  <=  400: n= 131 ok=  12 (   9%) ab=  56 fail=  58 unk=   5
+  <=  800: n=   2 ok=   0 (   0%) ab=   1 fail=   1 unk=   0
+  z?: n=1305 ok= 275 (  21%) ab= 447 fail= 502 unk=  81
+
+== by START depth (start_y vs home_y): n, success
+  deep (< -8): n=1118 ok= 245 (  22%)
+  high (> +8): n=  14 ok=   7 (  50%)
+  surface (-8..+8): n= 502 ok= 196 (  39%)
+  z?: n=1305 ok= 275 (  21%)
+
+== success rows: start_d quantiles [1, 25, 44, 81, 132, 357]
+== all rows: start_d quantiles [0, 32, 57, 100, 179, 432]
+== durations (s) by status:
+   success: n=723 median 26 p90 59 max 139
+   aborted: n=1062 median 15 p90 113 max 182
+   failed: n=993 median 17 p90 57 max 177
+   unknown: n=161 median 42 p90 76 max 152
+
+== previous row skill (what preceded home) (n=2939)
+    817  27.8%  _affordance_scan/success
+    515  17.5%  _stagnation/failed
+    186   6.3%  _craft_noroom/no_effect
+    171   5.8%  _path_reset/success
+    124   4.2%  _scaffold_pick/success
+    109   3.7%  _path_failure_shapes/failed
+    109   3.7%  _dig_town_sum/success
+     92   3.1%  _pickups/success
+     63   2.1%  _plant_spot/success
+     59   2.0%  _inventory_mutation/success
+     57   1.9%  _chunks_evicted/success
+     52   1.8%  _work_order/success
+     44   1.5%  _pickup_skipped/success
+     41   1.4%  _rule_contradicted/failed
+     38   1.3%  _livelock_not_fixated/no_effect
+     36   1.2%  _dig_collision/failed
+     30   1.0%  _reach_probe/success
+     25   0.9%  goto/unknown
+     24   0.8%  _path_noPath/success
+     20   0.7%  _path_timeout/success
+
+== previous row trigger (n=2939)
+   2870  97.7%  reflex
+     49   1.7%  llm:idle
+     11   0.4%  llm:liveness_restart
+      7   0.2%  llm:timeout
+      2   0.1%  llm:stuck
+
+== by bot (top) (n=2939)
+     95   3.2%  board-a-Comet
+     80   2.7%  placebo-d-Echo
+     68   2.3%  board-a-Delta
+     62   2.1%  board-d-Comet
+     58   2.0%  isolated-a-Comet
+     57   1.9%  board-a-Echo
+     53   1.8%  board-b-Comet
+     53   1.8%  placebo-c-Delta
+     52   1.8%  hive-b-Echo
+     51   1.7%  hive-b-Alpha
+     50   1.7%  board-d-Bravo
+     49   1.7%  hive-b-Comet
+
+== by pool (n=2939)
+    302  10.3%  board-a
+    218   7.4%  hive-b
+    208   7.1%  placebo-d
+    205   7.0%  hive-a
+    204   6.9%  hive-c
+    201   6.8%  board-d
+    196   6.7%  board-b
+    182   6.2%  board-c
+    169   5.8%  placebo-c
+    163   5.5%  hive-d
+    151   5.1%  placebo-b
+    147   5.0%  placebo-a
+     58   2.0%  self-isolated-a-Comet
+     40   1.4%  self-isolated-a-Alpha
+     36   1.2%  self-isolated-b-Bravo
+     35   1.2%  self-isolated-c-Comet
+     34   1.2%  self-isolated-d-Alpha
+     34   1.2%  self-isolated-d-Bravo
+     33   1.1%  self-isolated-a-Delta
+     33   1.1%  self-isolated-d-Comet
+     31   1.1%  self-isolated-d-Delta
+     29   1.0%  self-isolated-d-Echo
+     28   1.0%  self-isolated-a-Bravo
+     28   1.0%  self-isolated-a-Echo
+     28   1.0%  self-isolated-b-Comet
+     27   0.9%  self-isolated-c-Bravo
+     27   0.9%  self-isolated-b-Delta
+     27   0.9%  self-isolated-c-Echo
+     27   0.9%  self-isolated-c-Delta
+     25   0.9%  self-isolated-b-Alpha
+     12   0.4%  self-isolated-b-Echo
+      1   0.0%  self-isolated-c-Alpha
+
+== aborted/failed ending within 16 of home: 461
+== aborted/failed STARTING within 16 of home: 50
+== aborted with moved >= 16: 158
+
+== interrupt reason x start <=16 / 16-100 / >100
+   667 'stagnation'                       {'16-100': 273, '?': 261, '<=16': 23, '>100': 110}
+   219 'entombed'                         {'16-100': 80, '>100': 32, '?': 104, '<=16': 3}
+   159 'stuck'                            {'16-100': 34, '>100': 47, '?': 77, '<=16': 1}
+    13 'timeout'                          {'16-100': 3, '>100': 6, '?': 4}
+     2 'stranded'                         {'>100': 1, '16-100': 1}
+     1 'drowning'                         {'?': 1}
+     1 'low_health'                       {'16-100': 1}
+=== OUTPUT h4 (2026-10-19T15:38:30Z)
+  538 ('interrupt:stagnation', 'aborted', 'interrupted')
+  445 ('watchdog_home', 'success', None)
+  206 ('interrupt:entombed', 'failed', 'skill_error')
+  177 ('watchdog_home', 'failed', 'travel_incomplete')
+  169 ('interrupt:entombed', 'aborted', 'interrupted')
+  114 ('interrupt:stuck', 'aborted', 'interrupted')
+  112 ('llm:idle', 'success', None)
+   84 ('llm:idle', 'failed', 'no_path')
+   79 ('llm:idle', 'failed', 'stranded')
+   75 ('interrupt:stagnation', 'unknown', 'path_budget')
+   62 ('llm:idle', 'failed', 'travel_incomplete')
+   55 ('watchdog_home', 'failed', 'no_path')
+   38 ('llm:idle', 'failed', 'goal_changed')
+   34 ('watchdog_home', 'failed', 'goal_changed')
+   20 ('interrupt:stuck', 'failed', 'skill_error')
+   18 ('watchdog_home', 'unknown', 'path_budget')
+   16 ('llm:idle', 'unknown', 'path_budget')
+   13 ('interrupt:timeout', 'aborted', 'interrupted')
+   11 ('llm:stuck', 'success', None)
+    9 ('watchdog_home', 'unknown', 'no_measurable_change')
+    9 ('llm:stagnation', 'failed', 'stranded')
+    7 ('llm:stagnation', 'unknown', 'path_budget')
+    6 ('llm:entombed', 'failed', 'travel_incomplete')
+    5 ('llm:liveness_restart', 'unknown', 'path_budget')
+    4 ('llm:stagnation', 'success', None)
+    4 ('llm:liveness_restart', 'success', None)
+    4 ('llm:entombed', 'failed', 'no_path')
+    3 ('llm:stagnation', 'failed', 'travel_incomplete')
+    3 ('llm:entombed', 'success', None)
+    2 ('interrupt:stranded', 'aborted', 'interrupted')
+skill_error dur median 9692 moved median 5
+
+ llm:idle
+  ('100-200', 'deep'): n=   8 ok=   1 ( 12%)
+  ('100-200', 'surf'): n=  26 ok=  12 ( 46%)
+  ('48-100', 'deep'): n=  19 ok=   5 ( 26%)
+  ('48-100', 'surf'): n=  28 ok=  15 ( 54%)
+  ('<=48', 'deep'): n=   9 ok=   2 ( 22%)
+  ('<=48', 'surf'): n=   3 ok=   2 ( 67%)
+  ('>200', 'deep'): n=  14 ok=   1 (  7%)
+  ('>200', 'surf'): n=   8 ok=   2 ( 25%)
+  ('?', '?'): n= 278 ok=  72 ( 26%)
+
+ watchdog_home uninterrupted
+  ('100-200', 'deep'): n=  28 ok=  13 ( 46%)
+  ('100-200', 'surf'): n=  27 ok=  16 ( 59%)
+  ('48-100', 'deep'): n=  60 ok=  30 ( 50%)
+  ('48-100', 'surf'): n=  81 ok=  54 ( 67%)
+  ('<=48', 'deep'): n= 211 ok= 144 ( 68%)
+  ('<=48', 'surf'): n=  80 ok=  49 ( 61%)
+  ('>200', 'deep'): n=  13 ok=   3 ( 23%)
+  ('>200', 'surf'): n=   5 ok=   2 ( 40%)
+  ('?', '?'): n= 236 ok= 134 ( 57%)
+travel_incomplete closed quantiles [32, 56, 94, 158] left [3, 3, 3, 15]
+travel_incomplete durations 32027
+=== OUTPUT h5 (2026-10-19T15:38:30Z)
+success end_d [0.6, 0.7, 1.6, 1.6, 1.7, 1.8, 2.7]
+travel_incomplete 253 end_d [2.1, 2.1, 2.5, 2.5, 2.7, 14.5, 384.0]  <=5: 224  <=16: 227
+no_path 144 end_d [14.7, 24.0, 31.9, 45.5, 78.2, 229.6, 245.3]  <=5: 0  <=16: 3
+goal_changed 74 end_d [27.6, 50.6, 59.6, 79.1, 90.2, 98.5, 324.6]  <=5: 0  <=16: 0
+skill_error 226 end_d [5.2, 19.8, 26.4, 40.9, 64.5, 136.5, 244.6]  <=5: 0  <=16: 13
+stranded 92 end_d [41.5, 41.5, 71.0, 71.3, 202.8, 213.5, 248.6]  <=5: 0  <=16: 0
+path_budget 123 end_d [5.1, 21.6, 33.4, 40.9, 68.4, 132.6, 266.6]  <=5: 0  <=16: 6
+interrupted 838 end_d [2.5, 17.0, 34.5, 56.4, 103.5, 180.4, 338.3]  <=5: 6  <=16: 75
+travel_incomplete by "still to go" N: [(3, 161), (2, 63), (20, 25), (6, 1), (15, 1), (12, 1), (17, 1)]
+end_y - home_y of travel_incomplete with <=5 to go: [-1, -0.1, -0.1, 0, 0, 0, 0]
+pools of travel_incomplete <=5: Counter({'hive-b': 39, 'board-c': 38, 'placebo-c': 27, 'hive-a': 23, 'hive-c': 19, 'board-a': 17, 'hive-d': 14, 'placebo-b': 13, 'placebo-d': 13, 'placebo-a': 12, 'board-d': 8, 'board-b': 1})
+pools of success: Counter({'board-b': 88, 'hive-a': 61, 'placebo-b': 57, 'hive-d': 56, 'hive-c': 54, 'hive-b': 52, 'board-a': 45, 'board-d': 43, 'board-c': 39, 'placebo-a': 30, 'placebo-d': 29, 'placebo-c': 28})
+non-success total 1764 ending <= 5 of home 241
+=== OUTPUT h6 (2026-10-19T15:38:30Z)
+non-interrupt-trigger rows 1205 success 582 48.3% +arrived-but-graded-failed 224 -> 66.9%
+all shared 2346 success 582 +arrived 224
+success in interrupt-trigger rows 0
+{'2026-10-12': [97, 33, 10], '2026-10-13': [276, 82, 24], '2026-10-14': [347, 113, 32], '2026-10-15': [337, 100, 35], '2026-10-16': [380, 81, 28], '2026-10-17': [378, 77, 38], '2026-10-18': [323, 54, 38], '2026-10-19': [208, 42, 19]}
+llm:idle share 393
+=== OUTPUT e2 (2026-10-19T15:38:30Z)
+samples 13438 bots 80
+
+## shared: samples 10078; distance quantiles p50/p75/p90/p99/max [54, 98, 163, 275, 931]
+  time share by band: {'0-48': '45.1%', '100-200': '17.5%', '200-300': '6.0%', '300-inf': '0.6%', '48-100': '30.9%'}
+  deep share (dy < -8): 56.9%
+
+## all: samples 13438; distance quantiles p50/p75/p90/p99/max [56, 99, 164, 291, 931]
+  time share by band: {'0-48': '43.9%', '100-200': '17.8%', '200-300': '5.7%', '300-inf': '0.9%', '48-100': '31.6%'}
+  deep share (dy < -8): 57.7%
+
+farthest sample per pool (7 d): {'board-a': 420, 'board-b': 305, 'board-c': 365, 'board-d': 418, 'hive-a': 389, 'hive-b': 931, 'hive-c': 311, 'hive-d': 332, 'placebo-a': 475, 'placebo-b': 373, 'placebo-c': 511, 'placebo-d': 319, 'self-isolated-a-Alpha': 199, 'self-isolated-a-Bravo': 358, 'self-isolated-a-Comet': 263, 'self-isolated-a-Delta': 307, 'self-isolated-a-Echo': 412, 'self-isolated-b-Alpha': 261, 'self-isolated-b-Bravo': 369, 'self-isolated-b-Comet': 439, 'self-isolated-b-Delta': 363, 'self-isolated-b-Echo': 419, 'self-isolated-c-Alpha': 30, 'self-isolated-c-Bravo': 293, 'self-isolated-c-Comet': 471, 'self-isolated-c-Delta': 340, 'self-isolated-c-Echo': 306, 'self-isolated-d-Alpha': 249, 'self-isolated-d-Bravo': 302, 'self-isolated-d-Comet': 258, 'self-isolated-d-Delta': 499, 'self-isolated-d-Echo': 448}
+median distance by day (shared): {'2026-10-12': 51, '2026-10-13': 54, '2026-10-14': 53, '2026-10-15': 55, '2026-10-16': 54, '2026-10-17': 63, '2026-10-18': 49, '2026-10-19': 55}
+64x64 regions sampled per shared pool: {'board-a': 39, 'board-b': 46, 'board-c': 46, 'board-d': 56, 'hive-a': 40, 'hive-b': 54, 'hive-c': 36, 'hive-d': 34, 'placebo-a': 41, 'placebo-b': 44, 'placebo-c': 48, 'placebo-d': 35}  beyond 200: {'board-a': 12, 'board-b': 19, 'board-c': 19, 'board-d': 27, 'hive-a': 14, 'hive-b': 26, 'hive-c': 5, 'hive-d': 9, 'placebo-a': 14, 'placebo-b': 13, 'placebo-c': 20, 'placebo-d': 10}
+
+gather successes 87492: by band rows / items / items per bot-h (all pools)
+   0-48       bot-h   5902  rows  46432  items  157127  per bot-h  26.62  logs/bot-h  1.88  ore/bot-h  0.15
+   100-200    bot-h   2395  rows  12120  items   49822  per bot-h  20.80  logs/bot-h  5.37  ore/bot-h  0.25
+   200-300    bot-h    771  rows   2696  items   11301  per bot-h  14.66  logs/bot-h  4.05  ore/bot-h  0.18
+   300-inf    bot-h    121  rows    843  items    2986  per bot-h  24.68  logs/bot-h  9.27  ore/bot-h  0.31
+   48-100     bot-h   4249  rows  25401  items   97945  per bot-h  23.05  logs/bot-h  5.20  ore/bot-h  0.22
+
+mine successes 51585: by band rows / items / items per bot-h (all pools)
+   0-48       bot-h   5902  rows  16260  items   67234  per bot-h  11.39  logs/bot-h  0.04  ore/bot-h  0.31
+   100-200    bot-h   2395  rows  12902  items   59466  per bot-h  24.83  logs/bot-h  0.02  ore/bot-h  0.46
+   200-300    bot-h    771  rows   2734  items   12805  per bot-h  16.61  logs/bot-h  0.01  ore/bot-h  0.24
+   300-inf    bot-h    121  rows    780  items    3675  per bot-h  30.37  logs/bot-h  0.07  ore/bot-h  0.78
+   48-100     bot-h   4249  rows  18909  items   83239  per bot-h  19.59  logs/bot-h  0.03  ore/bot-h  0.46
+
+deaths 258 (no position 0): per band, per 1k bot-h
+   0-48       deaths   65  per 1k bot-h   11.0  {'drowning': 27, 'fall': 13, 'fire': 10, 'suffocation': 9}
+   100-200    deaths   55  per 1k bot-h   23.0  {'drowning': 26, 'fire': 10, 'fall': 9, 'other': 8}
+   200-300    deaths   17  per 1k bot-h   22.0  {'fall': 11, 'fire': 3, 'drowning': 2, 'suffocation': 1}
+   300-inf    deaths    4  per 1k bot-h   33.1  {'fire': 2, 'fall': 2}
+   48-100     deaths  117  per 1k bot-h   27.5  {'fire': 53, 'drowning': 41, 'fall': 11, 'other': 10}
