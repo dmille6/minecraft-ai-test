@@ -926,7 +926,7 @@ test('COBBLEKEEP CHAIN CONTROL: town counted complete at CAP-64 -> the real town
 test('COBBLEKEEP CHAIN, MUTANT KILLED: stonecap\'s floor-only well switch leaves the dead end (the bank refuses, the well says below)', async () => {
   const SP = new URL('../src/skills.mjs', import.meta.url)
   const src = fs.readFileSync(SP, 'utf8')
-  const old = "    return wellCobbleSwitch(cobbleTownViewFor(bot), stacks[0].count, { cap: TOWN_COBBLE_CAP, held: (h.cobblestone ?? 0) + (h.cobbled_deepslate ?? 0) })"
+  const old = "    return wellCobbleSwitch(cobbleTownViewFor(bot), stacks[0].count, { cap: TOWN_COBBLE_CAP, held: (h.cobblestone ?? 0) + (h.cobbled_deepslate ?? 0), floorOnly })"
   assert.equal(src.split(old).length, 2, 'ANCHOR MISSING or not unique')
   const out = new URL(`./_mutant-ck-${process.pid}.mjs`, import.meta.url)
   fs.writeFileSync(out, src.replace(old, "    const v = cobbleTownViewFor(bot); void h; return (Number(v?.avail) || 0) >= TOWN_COBBLE_CAP ? 'at_cap' : v?.complete ? 'below' : 'unknown'").replace(/from '\.\//g, "from '../src/"))

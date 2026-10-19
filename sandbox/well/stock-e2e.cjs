@@ -6,7 +6,7 @@
 //   node sandbox/well/stock-e2e.cjs <botRoot> <scene,scene,...> [server]
 //   scenes: build (the well; every later scene uses it)  stockdispose  stockbank  stockprune  stockprunekeep  stocknochest  stockrace  stockrefuse  stockrecount
 //           lidrecount lidrecountpick (lidclear-01: no well needed; LOCK_OWNER=lidclear)
-//           liddirt lidleaves (cobblekeep-01: a DIRT lid is dug, a LEAVES lid is no lid; no well needed; LOCK_OWNER=cobblekeep)
+//           liddirt lidleaves lidglass (cobblekeep-01: a DIRT lid is dug, a LEAVES lid is no lid; no well needed; LOCK_OWNER=cobblekeep)
 //           cobbleband (cobblekeep-01: a town at 984 of the 1000 cap, a full bag of cobble -> the well takes it; after `build`)
 //           townsearch townsearch2 (townsearch-01: the far chest; no well needed; LOCK_OWNER=townsearch)
 //
@@ -726,6 +726,7 @@ scenes.lidrecount = () => lidScene('lidrecount', [['oak_log', 64], ['oak_log', 6
 scenes.lidrecountpick = () => lidScene('lidrecountpick', [['cobblestone', 64], ['cobblestone', 64], ['cobblestone', 64], ['stone_pickaxe', 1], ...TORCH(4)])
 // cobblekeep-01: the bag of the fleet's unknown towns (cobble above the 64 reserve, refused `cobble_unknown` until counted)
 scenes.liddirt = () => lidScene('liddirt', [['cobblestone', 64], ['cobblestone', 64], ['cobblestone', 64], ['stone_pickaxe', 1], ...TORCH(4)], { lid: 'dirt' })
+scenes.lidglass = () => lidScene('lidglass', [['cobblestone', 64], ['cobblestone', 64], ['cobblestone', 64], ['stone_pickaxe', 1], ...TORCH(4)], { lid: 'glass', dig: false })
 scenes.lidleaves = () => lidScene('lidleaves', [['cobblestone', 64], ['cobblestone', 64], ['cobblestone', 64], ['stone_pickaxe', 1], ...TORCH(4)], { lid: 'oak_leaves', dig: false })
 
 // ---------------------------------------------------------------- TOWNSEARCH-01 (withdraw_pick looks in every town container)

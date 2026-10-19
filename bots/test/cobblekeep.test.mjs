@@ -65,7 +65,7 @@ await t('LID RULE: dirt and grass_block may be broken off a lid now (the fleet\'
   assert.equal(L.lidClearRefusal({ lid: { name: 'dirt' }, above: cube('dirt'), sides: sides4() }), null, 'a dirt column above stays up (dirt does not fall)')
   assert.ok(L.serverLidBlocks(cube('dirt')) && L.serverLidBlocks(cube('grass_block')), 'positive control: both DO block a chest on the server, so clearing them is needed')
 })
-await t('LID TEST: a never-conductor full cube (oak_leaves, glass) is not a lid to the bot -- the server opens a chest under it; dirt, stone, cobblestone and a shape-less solid still are', () => {
+await t('LID TEST: leaves and glass are not a lid to the bot -- the server opens a chest under them; dirt, stone, cobblestone, a shape-less solid, and the never-conductors NOT measured on Paper (observer, piston, redstone_block) still are', () => {
   for (const n of ['oak_leaves', 'birch_leaves', 'glass', 'white_stained_glass']) {
     assert.equal(L.chestLidBlocked(cube(n)), false, `${n} does not block`)
     assert.equal(L.serverLidBlocks(cube(n)), false, `${n}: the server rule agrees`)
@@ -74,10 +74,14 @@ await t('LID TEST: a never-conductor full cube (oak_leaves, glass) is not a lid 
   assert.equal(L.chestLidBlocked({ name: 'dirt', boundingBox: 'block' }), true, 'a solid without shapes is assumed full')
   assert.equal(L.chestLidBlocked({ boundingBox: 'block' }), true, 'a nameless solid is assumed full (never on a guess)')
   assert.equal(L.chestLidBlocked(AIR), false)
+  for (const n of ['observer', 'piston', 'redstone_block']) {
+    assert.equal(L.chestLidBlocked(cube(n)), true, `${n}: unmeasured, still a lid to the bot`)
+    assert.equal(L.serverLidBlocks(cube(n)), false, `${n}: the census rule still says the server would open it`)
+  }
 })
 await t('WELL SWITCH, pure: the floor as before; the bank\'s own at-cap refusal of THIS stack on counted stock; incoming reservations never; outgoing takes come off; a withdraw hold keeps it', () => {
   const S = CC.wellCobbleSwitch
-  const v = (lb, extra = {}) => ({ lb, avail: 0, taking: 0, reserved: 0, complete: true, ...extra })
+  const v = (lb, extra = {}) => ({ lb, lbLo: lb, avail: 0, taking: 0, reserved: 0, complete: true, ...extra })
   assert.equal(S(v(984), 0), 'none', 'no surplus stack')
   assert.equal(S(v(0, { avail: CAP }), 64), 'at_cap', 'the fresh floor at the cap (stonecap, unchanged)')
   // THE BAND: the bank refuses a stack that would pass the cap, so before this nothing moved it
@@ -101,9 +105,29 @@ await t('WELL SWITCH, pure: the floor as before; the bank\'s own at-cap refusal 
   assert.equal(S(v(CAP, { avail: CAP }), 64, { held: 64 }), 'held')
   assert.equal(S(v(CAP, { avail: CAP }), 64, { held: 0 }), 'at_cap', 'positive control')
   assert.equal(S(null, 64), 'unknown', 'no view')
+  // THE CEILING NEVER AUTHORISES A DISPOSAL (Codex r1 P1): lb keeps the LARGER of two equal captures, lbLo the smaller
+  assert.equal(S(v(CAP, { lbLo: CAP - 64 }), 64), 'below', 'two equal captures 936 / 1000: the well rests on the 936')
+  assert.equal(S({ lb: CAP, avail: 0, complete: true }, 64), 'below', 'a view without lbLo counts 0 (fail closed)')
+})
+await t('WELL SWITCH, journal-level (Codex r1 P1): a withdrawal\'s releasing count 936 then a DELAYED equal-time count 1000 -> lb 1000 (the bank\'s ceiling) but the well reads 936 and keeps the 64', () => {
+  const T1 = Date.now() - 60_000, T2 = Date.now() - 30_000, k = '5,64,0'
+  const recs = [
+    { t: 'obs', k, n: CAP, cap: T1 },
+    { t: 'claim', id: 'draw1', n: 64, k, at: T1 + 1, kind: 'draw', g: 'cobble', bot: 'Other', keys: [k], coverage: true },
+    { t: 'cnt', k, n: CAP - 64, cap: T2, ids: ['draw1'] },
+    { t: 'obs', k, n: CAP, cap: T2 }   // another bot's window from before the withdrawal, appended late with the same capture time
+  ]
+  const { state } = CC.foldJournal(recs)
+  const view = CC.townStock(state, [k], Date.now(), { coverage: true })
+  assert.equal(view.lb, CAP, 'positive control: the ceiling took the larger')
+  assert.equal(view.lbLo, CAP - 64, 'the smaller is kept for a disposal')
+  assert.equal(view.taking, 0, 'the draw was released')
+  assert.equal(CC.cobbleAdmit(view, 64), 'at_cap', 'the bank refuses on the ceiling (unchanged, conservative)')
+  assert.equal(CC.wellCobbleSwitch(view, 64), 'below', 'the well does not destroy on it')
+  assert.equal(CC.wellCobbleSwitch(view, 65), 'at_cap', 'positive control: 936 + 65 would pass the cap even on the smaller count')
 })
 await t('LICENCE: the mode detail names the rule; index.mjs writes `_cobblekeep_mode` once per spawn on the executable path (comments stripped)', () => {
-  assert.equal(CC.cobbleKeepModeDetail(), `phase=mode well=admission lid=dirt,grass_block open=nonconductor cap=${CAP}`)
+  assert.equal(CC.cobbleKeepModeDetail(), `phase=mode well=admission lid=dirt,grass_block open=leaves,glass cap=${CAP}`)
   const strip = s => s.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '')
   const wired = src => {
     const c = strip(src)
@@ -227,6 +251,29 @@ await t('WELL SWITCH, the bot\'s own view: a town counted complete at 984 two ho
     assert.equal(SK.cobbleWellCap(w2.bot), 'below')
   } finally { B.setStockReaders({ town: null, well: null }) }
 })
+await t('WELL SWITCH, THE STACK CHOSEN (Claude r1 P2-2): town at CAP-50, bag [30, 64 x 34] -> below (the 30 fits the bank); the switch must judge the SMALLEST surplus stack', async () => {
+  try {
+    const w = await atCapTown(CAP - 50, fullCobbleBag())
+    assert.equal(CC.cobbleAdmit(SK.cobbleTownViewFor(w.bot), 30), 'bank', 'positive control: the bank admits the 30')
+    assert.equal(SK.cobbleWellCap(w.bot), 'below')
+    await withMutant(SKILLS_PATH, 'return wellCobbleSwitch(cobbleTownViewFor(bot), stacks[0].count,', 'return wellCobbleSwitch(cobbleTownViewFor(bot), stacks[stacks.length - 1].count,', async M => {
+      assert.equal(M.cobbleWellCap(w.bot), 'at_cap', 'the mutant judges a 64 and throws what the bank would take')
+    })
+  } finally { B.setStockReaders({ town: null, well: null }) }
+})
+await t('FROM AFAR (Claude r1 P1-1): the room order\'s guess (townWellTakes) keeps stonecap\'s floor-only rule -- a town in the band sends no bot home; at town the switch is at_cap', async () => {
+  try {
+    const w = await atCapTown(CAP - 16, fullCobbleBag())
+    assert.equal(SK.cobbleWellCap(w.bot), 'at_cap', 'positive control: at town, the band is at_cap')
+    assert.equal(SK.cobbleWellCap(w.bot, w.bot.inventory.items(), { floorOnly: true }), 'below', 'the floor-only guess (floor 0: the count is 2 h old)')
+    const site = () => ({ x: 9, y: 64, z: 9 })
+    assert.equal(SK.townWellTakes(w.bot, w.bot.inventory.items(), [], { wellSite: site }), null, 'no well stack from afar: no trip home for the band')
+    await withMutant(SKILLS_PATH, "cobbleAtCap: cobbleWellCap(bot, items, { floorOnly: true }) === 'at_cap', stock: stockWellOpts(bot, items, { assumeCap: true })",
+      "cobbleAtCap: cobbleWellCap(bot, items) === 'at_cap', stock: stockWellOpts(bot, items, { assumeCap: true })", async M => {
+        assert.equal(M.townWellTakes(w.bot, w.bot.inventory.items(), [], { wellSite: site }), 'cobblestone', 'the mutant sends the bot home for the band')
+      })
+  } finally { B.setStockReaders({ town: null, well: null }) }
+})
 await t('CHAIN (a withdraw hold): cobble a withdraw just took (plinth funds) is never thrown, even at the cap; the hold released, it is', async () => {
   try {
     const w = await atCapTown(CAP + 40, fullCobbleBag())
@@ -244,34 +291,44 @@ await t('MUTANT KILLED: the old breakable set (cobble only) leaves the dirt lid 
   })
 })
 await t('MUTANT KILLED: without the never-conductor exception, leaves read as a lid again', async () => {
-  await withMutant(LID_PATH, "  if (typeof above.name === 'string' && NOT_CONDUCTOR.test(above.name)) return false\n", '', async M => {
+  await withMutant(LID_PATH, "  if (typeof above.name === 'string' && LID_OPENS.test(above.name)) return false\n", '', async M => {
     assert.equal(M.chestLidBlocked(cube('oak_leaves')), true, 'the mutant calls leaves a lid')
+  })
+})
+await t('MUTANT KILLED: opening under every never-conductor (unmeasured on Paper) instead of leaves and glass', async () => {
+  await withMutant(LID_PATH, "  if (typeof above.name === 'string' && LID_OPENS.test(above.name)) return false\n", "  if (typeof above.name === 'string' && NOT_CONDUCTOR.test(above.name)) return false\n", async M => {
+    assert.equal(M.chestLidBlocked(cube('observer')), false, 'the mutant opens under an observer')
   })
 })
 await t('MUTANT KILLED: counting incoming reservations in the well switch would destroy cobble on its way in', async () => {
   await withMutant(CAP_PATH, '  if (cobbleAdmit({ lb: counted, reserved: 0, complete: !!view?.complete }, s, cap) === \'at_cap\') return \'at_cap\'',
     '  if (cobbleAdmit({ lb: counted, reserved: Number(view?.reserved) || 0, complete: !!view?.complete }, s, cap) === \'at_cap\') return \'at_cap\'', async M => {
-      assert.equal(M.wellCobbleSwitch({ lb: CAP - 64, reserved: 64, complete: true, avail: 0 }, 64), 'at_cap', 'the mutant throws on a reservation')
+      assert.equal(M.wellCobbleSwitch({ lb: CAP - 64, lbLo: CAP - 64, reserved: 64, complete: true, avail: 0 }, 64), 'at_cap', 'the mutant throws on a reservation')
     })
 })
 await t('MUTANT KILLED: dropping the outgoing take would throw cobble a withdraw is taking out', async () => {
-  await withMutant(CAP_PATH, '  const counted = Math.max(0, (Number(view?.lb) || 0) - (Number(view?.taking) || 0))', '  const counted = Math.max(0, Number(view?.lb) || 0)', async M => {
-    assert.equal(M.wellCobbleSwitch({ lb: CAP, taking: 64, complete: true, avail: 0 }, 64), 'at_cap')
+  await withMutant(CAP_PATH, '  const counted = Math.max(0, (Number(view?.lbLo) || 0) - (Number(view?.taking) || 0))', '  const counted = Math.max(0, Number(view?.lbLo) || 0)', async M => {
+    assert.equal(M.wellCobbleSwitch({ lb: CAP, lbLo: CAP, taking: 64, complete: true, avail: 0 }, 64), 'at_cap')
+  })
+})
+await t('MUTANT KILLED: reading the admission ceiling (lb) instead of the smaller equal capture would destroy on a stale-high tie', async () => {
+  await withMutant(CAP_PATH, '  const counted = Math.max(0, (Number(view?.lbLo) || 0) - (Number(view?.taking) || 0))', '  const counted = Math.max(0, (Number(view?.lb) || 0) - (Number(view?.taking) || 0))', async M => {
+    assert.equal(M.wellCobbleSwitch({ lb: CAP, lbLo: CAP - 64, taking: 0, complete: true, avail: 0 }, 64), 'at_cap', 'the mutant throws on the ceiling')
   })
 })
 await t('MUTANT KILLED: ignoring completeness would throw on a partial count inside the band', async () => {
   await withMutant(CAP_PATH, '  if (cobbleAdmit({ lb: counted, reserved: 0, complete: !!view?.complete }, s, cap) === \'at_cap\') return \'at_cap\'',
     '  if (cobbleAdmit({ lb: counted, reserved: 0, complete: true }, s, cap) === \'at_cap\') return \'at_cap\'', async M => {
-      assert.equal(M.wellCobbleSwitch({ lb: CAP - 16, complete: false, avail: 0 }, 30), 'at_cap')
+      assert.equal(M.wellCobbleSwitch({ lb: CAP - 16, lbLo: CAP - 16, complete: false, avail: 0 }, 30), 'at_cap')
     })
 })
 await t('MUTANT KILLED: ignoring the withdraw hold would throw plinth funds', async () => {
   await withMutant(CAP_PATH, "  if ((Number(held) || 0) > 0) return 'held'\n", '', async M => {
-    assert.equal(M.wellCobbleSwitch({ lb: CAP, avail: CAP, complete: true }, 64, { held: 64 }), 'at_cap')
+    assert.equal(M.wellCobbleSwitch({ lb: CAP, lbLo: CAP, avail: CAP, complete: true }, 64, { held: 64 }), 'at_cap')
   })
 })
 await t('MUTANT KILLED: the skills.mjs switch not passing the hold', async () => {
-  await withMutant(SKILLS_PATH, '{ cap: TOWN_COBBLE_CAP, held: (h.cobblestone ?? 0) + (h.cobbled_deepslate ?? 0) })', '{ cap: TOWN_COBBLE_CAP, held: 0 })', async M => {
+  await withMutant(SKILLS_PATH, '{ cap: TOWN_COBBLE_CAP, held: (h.cobblestone ?? 0) + (h.cobbled_deepslate ?? 0), floorOnly })', '{ cap: TOWN_COBBLE_CAP, held: 0, floorOnly })', async M => {
     const w = await atCapTown(CAP + 40, fullCobbleBag())
     try {
       B.setWithdrawHold('cobblestone', 64, Date.now() + 60_000)
