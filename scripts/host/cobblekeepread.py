@@ -23,7 +23,9 @@
 #        dirt, grass_block -- lidrule.mjs LID_BREAKABLE must have refused it
 #     D2 breach_reserve: a canary well throw of cobble whose row says cobble_left < 64 (the bag's escape reserve,
 #        well.mjs COBBLE_WELL_RESERVE = STONE_GUARD: the exit contract's iron-depth descent needs 59)
-#     D3 breach_not_at_cap: a canary well throw of cobble whose row's cap= is not at_cap
+#   (NOT a gate, Codex r1 P2: the row's cap= is the LAST reading of the visit -- a valid visit throws a 30 at the cap and
+#    then keeps a 64 after a withdrawal and says cap=below; every executed throw is re-judged at its click in skills.mjs)
+#     reported last_cap_not_at_cap: canary visits that threw cobble and ended on another reading
 #   REPORTED (DiD, never a verdict)
 #     PRIMARY  bag cobble per bot (mean over bots of each bot's mean held, from every row's bot.inventory) -- should FALL;
 #              refused cobble at a town deposit per bot-h (cobble_unknown, cobble_cap) -- should FALL;
@@ -92,12 +94,13 @@ def mine(r):
     return r['name'] == '_cobblekeep_mode' or (r['name'] == '_lid_clear' and f.get('outcome') == 'dug' and f.get('lid') in NEW_LIDS)
 
 
-def stream(since, until, cut, cans, logroot='/var/log/mcai'):
+def stream(since, until, cut, cans, logroot='/var/log/mcai', cv=''):
     files = sorted(glob.glob(logroot + '/*/skill-*.jsonl'))
     for k in range(0, (until.date() - since.date()).days + 2):
         tag = (since.date() + dt.timedelta(days=k)).strftime('%Y%m%d')
         files += sorted(glob.glob(logroot + '/*/skill-*.jsonl-%s.gz' % tag))
     seen, kept, walked, bad = set(), [], 0, 0
+    lag = [0]
     bots = defaultdict(set)
     bag = defaultdict(lambda: [0, 0])     # (per, arm, bot) -> [sum cobble, n snapshots]
     last = {}                             # (per, arm, bot) -> (t, slots)
@@ -130,6 +133,10 @@ def stream(since, until, cut, cans, logroot='/var/log/mcai'):
                 t = dt.datetime.fromisoformat(d['@timestamp'].replace('Z', '+00:00'))
                 arm = 'canary' if pool_of(b) in cans else 'control'
                 per = 'post' if t >= cut else 'pre'
+                # RESTART LAG (memory: restart-lag rows are not canary): a canary post row from another build is skipped
+                if cv and arm == 'canary' and per == 'post' and not str((d.get('code') or {}).get('version') or '').startswith(cv[:12]):
+                    lag[0] += 1
+                    continue
                 if b:
                     bots[(per, arm)].add(b)
                     inv = bo.get('inventory')
@@ -145,6 +152,7 @@ def stream(since, until, cut, cans, logroot='/var/log/mcai'):
                     kept.append({'t': t, 'per': per, 'arm': arm, 'name': n, 'status': sk.get('status'), 'fail_class': sk.get('fail_class'),
                                  'detail': sk.get('detail') or '', 'bot': b})
     kept.sort(key=lambda r: r['t'])
+    stream.lag = lag[0]
     return kept, walked, bots, bad, bag, last, snaps
 
 
@@ -177,7 +185,7 @@ def judge(rows, bag=None, last=None, snaps=None, exposure_pre=None):
             notcap.append((r['bot'], c, f.get('cap'), str(r['t'])))
     out['breach_lid_protected'] = len(prot)
     out['breach_reserve'] = len(low)
-    out['breach_not_at_cap'] = len(notcap)
+    out['last_cap_not_at_cap'] = len(notcap)
     esc = []
     for b, t in throws:
         for (st, stone) in snaps.get(b, []):
@@ -215,7 +223,7 @@ def selftest():
     ctl = [SR(arm='control', bot='hive-b-Alpha'), WD(0, cap='below', arm='control', bot='hive-b-Alpha')]
     PRE = [SR(per='pre')] * 3
     ok = judge([R('_cobblekeep_mode', 'phase=mode'), LC('dug'), WD(576, 1630)] + ctl + PRE)
-    assert ok['licence_canary'] == 1 and ok['lid_new_dug'] == 1 and ok['breach_lid_protected'] == 0 and ok['breach_reserve'] == 0 and ok['breach_not_at_cap'] == 0, ok
+    assert ok['licence_canary'] == 1 and ok['lid_new_dug'] == 1 and ok['breach_lid_protected'] == 0 and ok['breach_reserve'] == 0 and ok['last_cap_not_at_cap'] == 0, ok
     assert ok['exposure_ready'] == 1 and ok['instrument_control'] == 1 and ok['well_cobble_post_canary'] == 576 and ok['rows_control'] == 0, ok
     assert judge([LC('dug', lid='chest')] + ctl)['breach_lid_protected'] == 1, 'D1: a dug chest'
     assert judge([LC('failed', lid='oak_planks')] + ctl)['breach_lid_protected'] == 1, 'D1: a dig tried on planks'
@@ -224,9 +232,10 @@ def selftest():
     assert judge([WD(64, 40)] + ctl)['breach_reserve'] == 1, 'D2: the bag left under 64'
     assert judge([WD(64, 64)] + ctl)['breach_reserve'] == 0, 'D2 control: exactly the reserve'
     assert judge([WD(0, 10)] + ctl)['breach_reserve'] == 0, 'D2 control: no cobble thrown'
-    assert judge([WD(64, 100, cap='below')] + ctl)['breach_not_at_cap'] == 1, 'D3: cobble thrown below the cap'
-    assert judge([WD(64, 100, cap='held')] + ctl)['breach_not_at_cap'] == 1, 'D3: cobble thrown under a withdraw hold'
-    assert judge([WD(64, 100, cap='at_cap')] + ctl)['breach_not_at_cap'] == 0, 'D3 control'
+    # Codex r1 P2: a 30 thrown at the cap, then a 64 kept after a withdrawal -> cobble=30 cap=below. REPORTED, never a revert
+    mixed = judge([WD(30, 2176, cap='below')] + ctl)
+    assert mixed['last_cap_not_at_cap'] == 1 and mixed['breach_reserve'] == 0 and mixed['breach_lid_protected'] == 0, mixed
+    assert judge([WD(64, 100, cap='at_cap')] + ctl)['last_cap_not_at_cap'] == 0
     assert judge([SR(per='pre')] * 2 + ctl)['exposure_ready'] == 0, 'two are not exposure'
     assert judge([SR(why='cobble_unknown', per='pre')] * 3 + ctl)['exposure_ready'] == 1, 'unknown refusals are exposure too'
     assert judge([SR()] * 5 + ctl)['exposure_ready'] == 0, 'post-deploy refusals are not eligibility'
@@ -266,7 +275,8 @@ if __name__ == '__main__':
     assert elapsed > 0 and CAN, 'no canary declared'
     W = min(elapsed, float(sys.argv[1]) if len(sys.argv) > 1 and not sys.argv[1].startswith('-') else 180)
     END, PRE = CUT + dt.timedelta(minutes=W), CUT - dt.timedelta(minutes=W)
-    rows, walked, bots, bad, bag, last, snaps = stream(PRE, END, CUT, CANS)
+    rows, walked, bots, bad, bag, last, snaps = stream(PRE, END, CUT, CANS, cv=CV if CV and CV != 'x' else '')
+    lagged = stream.lag
     xrows, xwalked, _, _, _, _, _ = stream(CUT - dt.timedelta(hours=EXPOSURE_PRE_H), CUT, CUT, CANS)
     xpre = sum(1 for r in xrows if r['arm'] == 'canary' and cobble_refusal(r))
     res = judge(rows, bag, last, snaps, exposure_pre=xpre)
@@ -277,6 +287,7 @@ if __name__ == '__main__':
     dids = {k: didof(k) for k in ('refused_unknown', 'refused_cap', 'well_cobble', 'lid_blocked', 'town_deposit')}
     lvl = lambda k: (res[k + '_post_canary'] - res[k + '_pre_canary']) - (res[k + '_post_control'] - res[k + '_pre_control'])
     dids['bag_cobble'] = lvl('bag_cobble'); dids['full_share'] = lvl('full_share')
+    print('RESTART LAG  canary post rows from another build skipped: %d (canary build %s)' % (lagged, CV or '-'))
     print('DENOMINATORS rows walked %d (unparsable %d) | bots pre canary %d control %d | post canary %d control %d | window %d min | bot-h post canary %.1f control %.1f | bag snapshots: bots pre/post canary %d/%d control %d/%d'
           % (walked, bad, len(bots[('pre', 'canary')]), len(bots[('pre', 'control')]), len(bots[('post', 'canary')]), len(bots[('post', 'control')]), W,
              hrs('post', 'canary'), hrs('post', 'control'), res['bag_bots_pre_canary'], res['bag_bots_post_canary'], res['bag_bots_pre_control'], res['bag_bots_post_control']))
@@ -293,8 +304,8 @@ if __name__ == '__main__':
     print('LIVENESS     licence rows %d | dirt/grass lids dug %d | lid outcomes %s | refused blocks %s | control rows %d (must be 0) | count_town lid_blocked canary %d -> %d control %d -> %d DiD %+.3f'
           % (res['licence_canary'], res['lid_new_dug'], res['lid_outcomes'], res['lid_refused_blocks'], res['rows_control'],
              res['lid_blocked_pre_canary'], res['lid_blocked_post_canary'], res['lid_blocked_pre_control'], res['lid_blocked_post_control'], dids['lid_blocked']))
-    print('DEFECTS      D1 lid outside the breakable set dug %d %s | D2 well cobble below the %d reserve %d %s | D3 well cobble not at_cap %d %s'
-          % (res['breach_lid_protected'], res['_lists']['protected'], RESERVE, res['breach_reserve'], res['_lists']['reserve'], res['breach_not_at_cap'], res['_lists']['not_at_cap']))
+    print('DEFECTS      D1 lid outside the breakable set dug %d %s | D2 well cobble below the %d reserve %d %s | (reported) visits that threw cobble and ended on another cap reading %d %s'
+          % (res['breach_lid_protected'], res['_lists']['protected'], RESERVE, res['breach_reserve'], res['_lists']['reserve'], res['last_cap_not_at_cap'], res['_lists']['not_at_cap']))
     print('TRIPWIRES    reserve stone < %d within %d s after a canary well cobble throw %d %s'
           % (RESERVE, ESCAPE_WINDOW_S, res['escape_low_after_throw'], res['_lists']['escape']))
     print('EXPOSURE     -> %s (frozen: canary town-deposit cobble refusals in the %d h before declared_at %d of %d rows walked, need 3) | INSTRUMENT control refusals %d, control well rows %d -> %s'

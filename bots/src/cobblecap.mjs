@@ -145,17 +145,20 @@ export function townStock (state = {}, keys = [], now = Date.now(), { me = null,
   }
   const usable = k => !goneSet.has(k) && !dirty.has(k) && obs[k] && Number.isFinite(obs[k].at) && countOf(obs[k], group) != null
   const fresh = k => usable(k) && now - obs[k].at < OBS_TTL_MS
-  let lb = 0, floor = 0
+  let lb = 0, floor = 0, lbLo = 0
   for (const k of Object.keys(obs)) {
     if (!fresh(k)) continue
     lb += countOf(obs[k], group)
+    // THE 6 h COUNT A DISPOSAL MAY REST ON (cobblekeep-01, Codex r1 P1): the SMALLER of two equal captures, as the floor
+    // takes it -- lb keeps the larger (a ceiling for admission), which must never authorise destroying anything
+    lbLo += countOf(obs[k].lo ?? obs[k], group) ?? 0
     // THE FLOOR (stocktarget, design 3.5): only counts captured within FLOOR_TTL_MS, the SMALLER of two equal captures
     if (now - obs[k].at < FLOOR_TTL_MS) floor += countOf(obs[k].lo ?? obs[k], group) ?? 0
   }
   const all = [...new Set([...(Array.isArray(keys) ? keys : []), ...dirty])].filter(k => !goneSet.has(k))
   const unknown = all.filter(k => !fresh(k))
   // floor: fresh (FLOOR_TTL_MS) counts, the smaller of equal captures; `taking` is NOT subtracted here -- takeAdmit does it once
-  return { lb, complete: !!coverage && all.length > 0 && unknown.length === 0, unknown, reserved, mine, taking, floor, avail: Math.max(0, floor - taking), held: Number(state?.hold) || 0 }
+  return { lb, lbLo, complete: !!coverage && all.length > 0 && unknown.length === 0, unknown, reserved, mine, taking, floor, avail: Math.max(0, floor - taking), held: Number(state?.hold) || 0 }
 }
 
 /** Claim decisions that hold something: a BANK claim reserves room; a TAKE claim (pruning) holds stock it will remove. */
@@ -195,12 +198,14 @@ export function cobbleAdmit (view, stack, cap = TOWN_COBBLE_CAP) {
 
 /**
  * THE WELL'S COBBLE SWITCH (cobblekeep-01) -> 'at_cap' | 'below' | 'unknown' | 'held' | 'none'. Pure.
- *   view   townStock's view of the town's cobble (lb: the 6 h counts; avail: the 1 h floor less live takes; taking;
- *          complete)
+ *   view   townStock's view of the town's cobble (lbLo: the 6 h counts, the SMALLER of equal captures -- never lb, the
+ *          admission ceiling that keeps the larger (Codex r1 P1); avail: the 1 h floor less live takes; taking; complete).
+ *          A view without lbLo counts 0 (fail closed).
  *   stack  the smallest whole stack the well would take (well.mjs cobbleWellStacks()[0].count); none -> 'none'
  *   held   cobble a withdraw holds back (bankable.mjs withdrawHolds: plinth funds, a smeltjob's) -> 'held', never thrown
+ *   floorOnly  the guess from away (the room order's trip home): the floor alone, as before this change
  * 'at_cap' when the fresh floor holds the cap (stonecap's rule, unchanged), OR when the BANK'S OWN ADMISSION refuses this
- * very stack at the cap on COUNTED stock: cobbleAdmit over the 6 h counts less what is on its way OUT, with NO incoming
+ * very stack at the cap on COUNTED stock: cobbleAdmit over the 6 h counts (the smaller of equal captures) less what is on its way OUT, with NO incoming
  * reservation (Codex r1 P1 stands: cobble on its way in never proves the cap). So a stack the deposit must refuse as
  * `town_cobble_cap` is a stack the well may take -- the two rules no longer leave a band where neither moves it.
  * WHY (measured 10-19 12:15Z, docs/reports/cobblekeep-01-*.md): of 613 town deposits in 24 h, 163 refused cobble at the
@@ -209,17 +214,20 @@ export function cobbleAdmit (view, stack, cap = TOWN_COBBLE_CAP) {
  * 6 h count (placebo-b 0 of 969, board-c 386 of 1000, hive-a 733 of 999), and a town filled to within one stack of the
  * cap (hive-a 999, board-d 981) can be banked into by no whole stack and thrown from by none.
  */
-export function wellCobbleSwitch (view, stack, { cap = TOWN_COBBLE_CAP, held = 0 } = {}) {
+export function wellCobbleSwitch (view, stack, { cap = TOWN_COBBLE_CAP, held = 0, floorOnly = false } = {}) {
   const s = Number(stack) || 0
   if (!(s > 0)) return 'none'
   if ((Number(held) || 0) > 0) return 'held'
   if ((Number(view?.avail) || 0) >= cap) return 'at_cap'
-  const counted = Math.max(0, (Number(view?.lb) || 0) - (Number(view?.taking) || 0))
+  // FROM AFAR (skills.mjs townWellTakes, the room order's guess that sends a bot HOME): stonecap's floor-only rule, unchanged
+  // (Claude r1 P1-1: the admission branch would add an undeclared trip home; this change is the town's own two exits)
+  if (floorOnly) return view?.complete ? 'below' : 'unknown'
+  const counted = Math.max(0, (Number(view?.lbLo) || 0) - (Number(view?.taking) || 0))
   if (cobbleAdmit({ lb: counted, reserved: 0, complete: !!view?.complete }, s, cap) === 'at_cap') return 'at_cap'
   return view?.complete ? 'below' : 'unknown'
 }
 /** THE LICENCE ROW (cobblekeep-01): written once per spawn by index.mjs as `_cobblekeep_mode`, a kind the base cannot write. */
-export const cobbleKeepModeDetail = (cap = TOWN_COBBLE_CAP) => `phase=mode well=admission lid=dirt,grass_block open=nonconductor cap=${cap}`
+export const cobbleKeepModeDetail = (cap = TOWN_COBBLE_CAP) => `phase=mode well=admission lid=dirt,grass_block open=leaves,glass cap=${cap}`
 
 /**
  * THE STACKS THAT GO, IN ORDER -> { bank: [stacks], refused: { at_cap, unknown } }. Pure. `stacks` are counts (already

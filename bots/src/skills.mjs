@@ -1494,14 +1494,14 @@ export function foodSkipNow (bot) {
  * reach the cap, and measured 10-19 the deposit and the well then both refused in 163 + 196 visits a day). The rule is
  * cobblecap.mjs wellCobbleSwitch.
  */
-export function cobbleWellCap (bot, items = bot?.inventory?.items?.() ?? []) {
+export function cobbleWellCap (bot, items = bot?.inventory?.items?.() ?? [], { floorOnly = false } = {}) {
   try {
     const stacks = cobbleWellStacks(items)
     if (!stacks.length) return 'none'
     // cobblekeep-01 (cobblecap.mjs wellCobbleSwitch): the AVAILABLE floor as before, OR the bank's own at-cap refusal of
     // this smallest stack on counted stock (no incoming reservation); cobble a withdraw holds is never thrown
     const h = withdrawHolds()
-    return wellCobbleSwitch(cobbleTownViewFor(bot), stacks[0].count, { cap: TOWN_COBBLE_CAP, held: (h.cobblestone ?? 0) + (h.cobbled_deepslate ?? 0) })
+    return wellCobbleSwitch(cobbleTownViewFor(bot), stacks[0].count, { cap: TOWN_COBBLE_CAP, held: (h.cobblestone ?? 0) + (h.cobbled_deepslate ?? 0), floorOnly })
   } catch { return 'unknown' }
 }
 
@@ -5423,7 +5423,8 @@ export function townWellTakes (bot, items, keep = [], { wellSite = recordedWellS
     // trip); with one recorded, the stock targets' at-target groups count as the well would count them (assumeCap).
     if (!wellSite(bot)) return null
     const used = new Set((keep ?? []).map(k => k?.name ?? k))
-    const plan = disposePlan(items, { swords: wellSwordsNow(bot), cobbleAtCap: cobbleWellCap(bot, items) === 'at_cap', stock: stockWellOpts(bot, items, { assumeCap: true }) })
+    // cobblekeep-01: the cobble switch FROM AFAR stays stonecap's floor-only rule (no new trip home: Claude r1 P1-1)
+    const plan = disposePlan(items, { swords: wellSwordsNow(bot), cobbleAtCap: cobbleWellCap(bot, items, { floorOnly: true }) === 'at_cap', stock: stockWellOpts(bot, items, { assumeCap: true }) })
     return (plan.stacks ?? []).find(st => !used.has(st.name))?.name ?? null
   } catch { return null }
 }

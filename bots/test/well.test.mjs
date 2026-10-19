@@ -2729,7 +2729,7 @@ await t('COBBLE (Codex r1/r2 P1; cobblekeep-01): only COUNTED stock proves the c
   assert.equal(SK.cobbleWellCap(t2.bot), 'below', 'room for the 30 (the bank admits it): the well keeps it')
   inTownAt(t2, COBBLE_CAP)
   assert.equal(SK.cobbleWellCap(t2.bot), 'at_cap', 'positive control: the cap counted is')
-  await withMutant(SP, "    return wellCobbleSwitch(cobbleTownViewFor(bot), stacks[0].count, { cap: TOWN_COBBLE_CAP, held: (h.cobblestone ?? 0) + (h.cobbled_deepslate ?? 0) })",
+  await withMutant(SP, "    return wellCobbleSwitch(cobbleTownViewFor(bot), stacks[0].count, { cap: TOWN_COBBLE_CAP, held: (h.cobblestone ?? 0) + (h.cobbled_deepslate ?? 0), floorOnly })",
     "    const v = cobbleTownViewFor(bot); void h; return (Number(v?.avail) || 0) >= TOWN_COBBLE_CAP ? 'at_cap' : v?.complete ? 'below' : 'unknown'", async m => {
       const t3 = fakeTown({ wellAt: CAP, items: [S('cobblestone', 30), S('cobblestone', 64), ...Array.from({ length: 34 }, () => S('oak_log', 64))] })
       inTownAt(t3, 240 + CO)
