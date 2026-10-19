@@ -34,6 +34,30 @@ const WORLD_FLOOR = -59
 /** A furnace session's declared stationary window is open now (skills.mjs smelt). */
 export const furnaceWindow = bot => Number(bot?.furnaceWindowUntil) > Date.now()
 /**
+ * A BAMBOO FOLD'S DECLARED SESSION IS OPEN AND STILL PROGRESSING (foldwatch-01) -> boolean. Pure.
+ * bamboo-02 on the fleet (10-19): 3 of 14 folds were cut by this watchdog, 2 of them by the fold itself -- a fold stands
+ * still and LOSES an item per craft (2 bamboo -> 1 stick), and stagnation wants items gained > 0. Like smeltjob's
+ * furnace window, the fold's samples are not busy and the judge waits while it runs -- but ONLY while it progresses:
+ *   until       bot.foldWindowUntil, the fold's own declared window (crafts x 1.3 s + 5 s, cap 90 s, never past the
+ *               skill's deadline: bamboo.mjs foldWindow) -- bounded by its plan size and its clock
+ *   progressAt  bot.foldProgressAt, stamped when the fold starts and at every craft the server confirmed
+ * A fold with no confirmed craft for FOLD_STALL_MS (a craft takes ~1.1 s) is no longer exempt: it is judged as any skill.
+ */
+export const FOLD_STALL_MS = 15_000
+export function foldWindowOpen ({ until = 0, progressAt = 0, now = 0, stallMs = FOLD_STALL_MS } = {}) {
+  return Number(until) > now && now - Number(progressAt) <= stallMs
+}
+export const foldWindow = bot => foldWindowOpen({ until: bot?.foldWindowUntil, progressAt: bot?.foldProgressAt, now: Date.now() })
+/** A declared non-moving session the stagnation judge must not count as busy: a furnace session or a progressing fold. */
+export const declaredSession = bot => furnaceWindow(bot) || foldWindow(bot)
+/**
+ * The bag's item total as stagnation counts it -> number. Pure. A fold's net loss (one item per craft, its cumulative
+ * count in bot.foldItemsSpent) is added back, so busy samples on either side of a fold do not read the fold as a loss.
+ */
+export function stagnationItems (summary = {}, foldItemsSpent = 0) {
+  return Object.values(summary).reduce((a, b) => a + b, 0) + Math.max(0, Number(foldItemsSpent) || 0)
+}
+/**
  * The busy time in [from, to] -> ms, excluding every interval that touches a FURNACE sample. Pure. Samples in time order.
  * Without furnace samples this is exactly to - from (the base's busy span).
  */
@@ -258,7 +282,7 @@ export class StagnationWatchdog {
   #sample() {
     const p = this.bot.entity?.position
     if (!p) return null
-    const items = Object.values(inventorySummary(this.bot)).reduce((a, b) => a + b, 0)
+    const items = stagnationItems(inventorySummary(this.bot), this.bot.foldItemsSpent)
     // WAS A SKILL ACTUALLY RUNNING when we took this sample?
     //
     // Without this the watchdog measures the decision cadence, not stagnation.
@@ -275,7 +299,7 @@ export class StagnationWatchdog {
     // converts 1:1, so it never gains items. Scoped to the furnace's declared window (bot.furnaceWindowUntil, its own
     // deadline, bounded by the session's; Codex code r1 P1-2, Claude code r2 P3) -- the compost and town-deposit windows are judged as on
     // the base. Such a sample is `furnace` and not busy.
-    const furnace = furnaceWindow(this.bot)
+    const furnace = declaredSession(this.bot)   // a furnace session or a progressing fold (foldwatch-01)
     const s = { t: Date.now(), x: p.x, y: p.y, z: p.z, items, busy: !!this.runner?.isBusy?.() && !furnace, furnace }
     this.samples.push(s)
     const cutoff = Date.now() - config.watchdog.windowMs
@@ -308,7 +332,7 @@ export class StagnationWatchdog {
     if (this.cognitive?.milestones?.allDone) return
     // A FURNACE SESSION IS RUNNING NOW: never judged mid-session (Codex code r1 P1-2: the busy samples taken BEFORE the
     // declaration would otherwise cancel the smelt that followed them)
-    if (furnaceWindow(this.bot)) return
+    if (declaredSession(this.bot)) return
 
     // CHRONIC STRANDING, judged before stagnation and on its own clock.
     //
