@@ -27,6 +27,8 @@ M = [
  ('cooling endpoint never skipped', 'src/llm.mjs', 'const up = this.eps.filter(e => e.downUntil <= now)', 'const up = this.eps'),
  # the canary's primary is not first
  ('primary appended, not prepended', 'src/brain.mjs', "return [p, ...own.filter(e => e.split('|')[0] !== p.split('|')[0])]", "return [...own.filter(e => e.split('|')[0] !== p.split('|')[0]), p]"),
+ # the labelled endpoint is never asked (Claude r1: three per-state tests passed this before they checked the Studio's count)
+ ('labelled endpoint skipped', 'src/llm.mjs', 'for (const ep of eps) {', 'for (const ep of eps.filter(e => !e.brain)) {'),
  # the backoff is uncapped (a long outage would strand the bot on local for hours)
  ('backoff uncapped', 'src/llm.mjs', 'const wait = Math.min(this.cooldownMs * 2 ** (ep.fails - 1), this.maxCooldownMs)', 'const wait = this.cooldownMs * 2 ** (ep.fails - 1)'),
 ]

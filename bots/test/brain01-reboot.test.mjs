@@ -91,6 +91,9 @@ for (const state of ['refused', 'reset', 'hang', '502']) {
     const r = await call(c); const ms = Date.now() - t0
     assert.equal(r.schemaValid, true, state); assert.equal(r.brain, 'local', state); assert.equal(r.endpoint, LOCAL, state)
     assert.equal(localHits - h0, 1, `${state}: exactly one local answer`)
+    // the Studio was really ASKED in this state and failed once (Claude r1: without this a client that skipped the
+    // labelled endpoint altogether passed "refused", "reset" and "502")
+    assert.equal(c.pool.eps[0].fails, 1, `${state}: the Studio was asked once and failed`); assert.equal(c.pool.eps[0].calls, 0, state)
     assert.ok(ms < BUDGET + 1500, `${state}: bounded by the Studio's own budget (took ${ms} ms)`)
     if (state === 'hang') assert.ok(ms >= BUDGET - 50, `hang: the Studio's budget was actually paid (took ${ms} ms)`)
     else assert.ok(ms < BUDGET, `${state}: a fast transport failure does not wait for the budget (took ${ms} ms)`)
