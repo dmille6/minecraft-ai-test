@@ -108,9 +108,9 @@ const coalFar = async S => {
 await t('THE CAP: coal only in a far container -- the coal pass reaches it (more than the base\'s 3 containers)', async () => {
   await coalFar(S0)
 })
-// NO COAL ANYWHERE: job 1 takes the copper, looks everywhere for coal, says no_fuel and puts the copper back; job 2 knows the
-// town has no coal (every container a live coal miss -- the copper chest re-noted after the copper went back into it) and
-// takes NO copper at all; a coal deposit anywhere re-opens it
+// NO COAL ANYWHERE: job 1 takes the copper, looks everywhere for coal, says no_fuel and puts the copper back; job 2 looks only
+// where something changed -- the copper chest, whose coal miss the copper's own deposit ended (no re-note: it could hide a
+// coal another bot put there meanwhile, Codex r2 P2) -- and a coal deposit anywhere re-opens the search
 const noCoalAnywhere = async S => {
   const w = town()
   const r1 = await job(S, w)
@@ -121,8 +121,8 @@ const noCoalAnywhere = async S => {
   const n0 = w.spy.opened.length, row0 = RECS.length
   const r2 = await job(S, w)
   assert.equal(r2.stop, 'no_fuel', `${r2.status} ${r2.stop} ${r2.detail}`)
-  assert.equal(w.spy.opened.length, n0, 'the next job opens nothing: the town is a known coal miss')
-  assert.match(RECS.slice(row0).filter(x => x?.skill?.name === '_smelt_town').at(-1)?.skill?.detail ?? '', /stop=no_fuel .*withdrawn=0 /)
+  assert.ok(w.spy.opened.slice(n0).every(k => k === kOf(COPPER)), `the next job looks only in the chest that took items: ${w.spy.opened.slice(n0)}`)
+  assert.match(RECS.slice(row0).filter(x => x?.skill?.name === '_smelt_town').at(-1)?.skill?.detail ?? '', /stop=no_fuel /)
   // a deposit of coal into any container ends its miss: the job runs again and finds it
   w.stock(...CHESTS[5], [stack('coal', 3)])
   CF.updateTownMemory(memDir(), CF.townKey(HOME), null, e => { e[kOf(CHESTS[5])] = { o: 'took', at: Date.now() } })
@@ -130,8 +130,43 @@ const noCoalAnywhere = async S => {
   const r3 = await job(S, w)
   assert.equal(r3.stop, 'no_furnace', `${r3.status} ${r3.stop} ${r3.detail}`)
 }
-await t('NO COAL ANYWHERE: no_fuel and the copper back; the next job takes NO copper and opens nothing; a coal deposit re-opens the search', async () => {
+await t('NO COAL ANYWHERE: no_fuel and the copper back; the next job looks only in the chest the copper went back into; a coal deposit re-opens the search', async () => {
   await noCoalAnywhere(S0)
+})
+// THE PRECHECK: every town container is a live coal miss -> no_fuel at once: the town's copper is NOT taken only to be put back
+// (489 of 516 no_fuel jobs did that, 10-19), nothing is opened
+const precheck = async S => {
+  const w = town()
+  CF.updateTownMemory(memDir(), CF.townKey(HOME), null, e => CF.noteItemMisses(e, SJ.COAL_MISS_KEY, SJ.COAL_MISS_TTL_MS, CHESTS.map(kOf)))
+  const r = await job(S, w)
+  assert.equal(r.stop, 'no_fuel', `${r.status} ${r.stop} ${r.detail}`)
+  assert.match(lastRow(), /withdrawn=0 coal=0 .* looked=0 /, 'no copper taken, nothing looked in: ' + lastRow())
+  assert.equal(w.spy.opened.length, 0); assert.equal(count(chest(w, COPPER), 'raw_copper'), 8)
+  // CONTROL: one container not a coal miss -> it is looked in
+  const w2 = town({ bag: [stack('raw_copper', 5), stack('cobblestone', 3)], coalAt: CHESTS[7] })
+  CF.updateTownMemory(memDir(), CF.townKey(HOME), null, e => CF.noteItemMisses(e, SJ.COAL_MISS_KEY, SJ.COAL_MISS_TTL_MS, CHESTS.filter(c => c !== CHESTS[7]).map(kOf)))
+  const r2 = await job(S, w2)
+  assert.equal(r2.stop, 'no_furnace', `${r2.status} ${r2.stop} ${r2.detail}`)
+}
+await t('THE PRECHECK: every container a live COAL miss (its own 2 h key) -> no_fuel, no copper taken, nothing opened; CONTROL: one coal holder unmarked -> found', async () => {
+  await precheck(S0)
+})
+// A PASS THAT LEARNED NOTHING is search_stalled (a strike), not search_more: 130 s left on the clock -- the copper pass keeps
+// 120 s for the smelt, so no visit starts
+const stalled = async S => {
+  const w = town()
+  const r = await S.SKILLS.smelt_town.run({ bot: w.bot, runner: { current: { startedAt: Date.now() - 50_000 } } }, {}, sig())
+  assert.equal(r.stop, SJ.SMELT_SEARCH_STALLED, `${r.status} ${r.stop} ${r.detail}`)
+  assert.equal(w.spy.opened.length, 0)
+}
+await t('NO PROGRESS: a copper pass that could start no visit (the smelt\'s reserve) is search_stalled -- a strike -- never search_more', async () => {
+  await stalled(S0)
+})
+await t('THE SMELT KEEPS INSIDE THE JOB\'S CLOCK (structural, comments stripped: a wall clock cannot be driven here): smelt_town hands smelt the skill\'s deadline less the bank reserve, and smeltInner takes the earlier of its own cap and that', () => {
+  const src = readFileSync(SKILLS_PATH, 'utf8').replace(/\/\*[\s\S]*?\*\//g, '').replace(/(^|[^:'"`\\])\/\/.*$/gm, '$1')
+  assert.match(src, /by: 'smelt_town', deadline: withdrawClock\(ctx\)\.deadline - SMELT_BANK_RESERVE_MS \}\)/)
+  assert.match(src, /const deadline = Math\.min\(Date\.now\(\) \+ SMELT_DEADLINE_MS, Number\.isFinite\(session\.opts\?\.deadline\) \? session\.opts\.deadline : Infinity\)/)
+  assert.equal((src.match(/budgetMs: Math\.max\(0, deadline - Date\.now\(\)\)/g) ?? []).length, 2, 'both plans sized to what is left')
 })
 await t('CARRIED COPPER: the bag\'s own copper skips the copper pass; the coal pass alone finds the coal (in a copper-missed container)', async () => {
   const coalAt = CHESTS[3]
@@ -169,9 +204,15 @@ await t('A COPPER SEARCH CUT BY ITS BUDGET with candidates left: stop=search_mor
   assert.equal(r.stop, SJ.SMELT_SEARCH_MORE, `${r.status} ${r.stop} ${r.detail}`)
   assert.equal(w.spy.opened.length, SJ.SMELT_COPPER_VISITS)
   assert.match(lastRow(), / looked=12 more=cu$/, lastRow())
-  let s = {}
-  for (let i = 0; i < SJ.SMELT_JOB_PAUSE_AFTER + 2; i++) s = SJ.smeltTownOutcome('no_effect', SJ.SMELT_SEARCH_MORE, Date.now(), s)
-  assert.equal(s.pausedUntil ?? 0, 0, 'search_more never pauses the job')
+  const streak = SJm => {
+    let s = {}
+    for (let i = 0; i < SJm.SMELT_MORE_MAX; i++) { s = SJm.smeltTownOutcome('no_effect', SJm.SMELT_SEARCH_MORE, 1e12, s); assert.equal(s.backoffUntil ?? 0, 0, `more #${i + 1}`) }
+    s = SJm.smeltTownOutcome('no_effect', SJm.SMELT_SEARCH_MORE, 1e12, s)
+    assert.equal(s.backoffUntil, 1e12 + SJm.SMELT_JOB_BACKOFF_MS, `the ${SJm.SMELT_MORE_MAX + 1}th in a row backs off (Codex r2 P2)`)
+    assert.equal(s.pausedUntil ?? 0, 0, 'and never pauses the job')
+  }
+  streak(SJ)
+  globalThis.__smeltStreak = streak
   let s2 = {}
   for (let i = 0; i < SJ.SMELT_JOB_PAUSE_AFTER; i++) s2 = SJ.smeltTownOutcome('no_effect', 'town_has_none', Date.now(), s2)
   assert.ok(s2.pausedUntil > 0, 'CONTROL: six town_has_none in a row still pause it')
@@ -191,12 +232,13 @@ await t('missTtlOf: a number is every need\'s TTL; a map names a need\'s own, SE
 await t('MUTANTS: each removes one part of the job\'s search and a behaviour test above fails for it', async () => {
   const kills = {}
   // the coordinator's cause (2): the coal looked for over the copper's container list
-  kills.coalOnCopperList = await withMutant(SKILLS_PATH, 'out.coalMore = !!(await pass(JOB_FUELS[0], SMELT_COAL_VISITS, SMELT_COAL_RESERVE_MS, () => needCoal > 0, SEARCH_MISS_TTL_MS))',
+  kills.coalOnCopperList = await withMutant(SKILLS_PATH, 'out.coalMore = !!(await pass(SMELT_JOB_FUEL, SMELT_COAL_VISITS, SMELT_COAL_RESERVE_MS, () => needCoal > 0, COAL_TTL))',
     'out.coalMore = !!(await pass(SMELT_JOB_INPUT, SMELT_COAL_VISITS, SMELT_COAL_RESERVE_MS, () => needCoal > 0, COPPER_TTL))', S => killedBy(() => coalInCopperMiss(S)))
   // cause (1): three containers
-  kills.coalCap3 = await withMutant(SKILLS_PATH, 'pass(JOB_FUELS[0], SMELT_COAL_VISITS,', 'pass(JOB_FUELS[0], 2,', S => killedBy(() => coalFar(S)))
-  kills.noPrecheck = await withMutant(SKILLS_PATH, 'if (needCoal > 0 && townSearchEmpty(bot, JOB_FUELS)) { out.noCoal = true; return out }', '', S => killedBy(() => noCoalAnywhere(S)))
-  kills.noRenote = await withMutant(SKILLS_PATH, 'e => noteIngredientMisses(e, [...new Set(w.coalMissKeys)], JOB_FUELS))', 'e => e)', S => killedBy(() => noCoalAnywhere(S)))
+  kills.coalCap3 = await withMutant(SKILLS_PATH, 'pass(SMELT_JOB_FUEL, SMELT_COAL_VISITS,', 'pass(SMELT_JOB_FUEL, 2,', S => killedBy(() => coalFar(S)))
+  kills.noPrecheck = await withMutant(SKILLS_PATH, 'if (needCoal > 0 && townSearchEmpty(bot, [SMELT_JOB_FUEL], { missTtl: COAL_TTL })) { out.noCoal = true; return out }', '', S => killedBy(() => precheck(S)))
+  kills.noStalled = await withMutant(SKILLS_PATH, 'f.stop = w.progressed ? SMELT_SEARCH_MORE : SMELT_SEARCH_STALLED', 'f.stop = SMELT_SEARCH_MORE', S => killedBy(() => stalled(S)))
+  kills.noStreakCap = await withMutant(SJ_PATH, '    if (s.moreStreak <= SMELT_MORE_MAX) return s', '    return s', SJm => killedBy(() => globalThis.__smeltStreak(SJm)))
   kills.oldGate = await withMutant(SKILLS_PATH, 'try { return townSearchEmpty(bot, [SMELT_JOB_INPUT], { missTtl: { [SMELT_JOB_INPUT]: COPPER_MISS_TTL_MS } }) } catch { return false }',
     `try {
     const home = homeVec()
@@ -204,11 +246,7 @@ await t('MUTANTS: each removes one part of the job\'s search and a behaviour tes
       matching: b => ['chest', 'barrel', 'trapped_chest'].includes(bot.registry.blocks[b.type]?.name) && (!b.position || inTown(home, b.position)) }) ?? []
     return townItemMissComplete(readTownMemory(townDir(), homeTownKey(), bot.worldId ?? null), COPPER_MISS_KEY, COPPER_MISS_TTL_MS, found.map(posKey))
   } catch { return false }`, S => killedBy(() => gateAgrees(S)))
-  kills.moreStrikes = await withMutant(SJ_PATH, '  if (why === SMELT_SEARCH_MORE) return s ', '  if (false) return s ', SJm => killedBy(() => {
-    let s = {}
-    for (let i = 0; i < SJm.SMELT_JOB_PAUSE_AFTER + 2; i++) s = SJm.smeltTownOutcome('no_effect', SJm.SMELT_SEARCH_MORE, 1e12, s)
-    assert.equal(s.pausedUntil ?? 0, 0)
-  }))
+  kills.moreStrikes = await withMutant(SJ_PATH, '  if (why === SMELT_SEARCH_MORE) {', '  if (false) {', SJm => killedBy(() => globalThis.__smeltStreak(SJm)))
   const alive = Object.entries(kills).filter(([, k]) => !k).map(([n]) => n)
   assert.deepEqual(alive, [], `mutants that survived: ${alive}`)
   console.log(`        mutants killed: ${Object.keys(kills).join(', ')}`)
