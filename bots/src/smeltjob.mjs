@@ -76,13 +76,19 @@ export const SMELT_MIN_SMELT_MS = 95_000
 /** The job's stop reason when a pass was cut by its budget with candidates left: no strike toward the pause (the next job
  *  continues the search), never `town_has_none` / `no_fuel`. */
 export const SMELT_SEARCH_MORE = 'search_more'
+/** The job's stop when the search found copper and coal but left the smelt too little of the clock (SMELT_MIN_SMELT_MS):
+ *  accounted exactly as search_more (the cap, the dry-job bound), its own name so a read can tell a slow server or slow walks
+ *  from a large town (Claude r4 P3). */
+export const SMELT_LATE = 'smelt_late'
 /** ...at most this many in a row (Codex r2 P2: a town larger than the passes cover inside a miss's life could hand every
  *  job new candidates); the next one backs off like a failure. A pass that learned NOTHING is `search_stalled`, a strike. */
 export const SMELT_MORE_MAX = 3
-/** ...and the cap's trips are an end state (Claude r3 P1): other bots' deposits can end the misses a job just wrote, so its
- *  "progress" is local, not net -- this many trips without a success in between pause the job SMELT_JOB_PAUSE_MS, as six
- *  no_fuel in a row do. Bounded: at most SMELT_MORE_TRIPS x (SMELT_MORE_MAX + 1) copper-taking jobs before the pause. */
-export const SMELT_MORE_TRIPS = 3
+/** ...and DRY JOBS have an end state, whatever their mix of reasons (Claude r3 P1, Codex r4 P2): other bots' deposits can end
+ *  the misses a job just wrote, so its "progress" is local, not net, and alternating reasons (search_more x3, no_fuel, ...)
+ *  reset both the cap and the per-reason streak. Every job that ends search_more | search_stalled | no_fuel counts; this many
+ *  since the last success pause the job SMELT_JOB_PAUSE_MS. Bounded: at most SMELT_DRY_MAX copper-taking dry jobs. */
+export const SMELT_DRY_MAX = 12
+export const SMELT_DRY_REASONS = Object.freeze(new Set(['search_more', 'search_stalled', 'no_fuel', 'smelt_late']))
 export const SMELT_SEARCH_STALLED = 'search_stalled'
 /** The coal's own miss (toolkit-03): a town container that showed no coal, for as long as the copper's (2 h), so the coal
  *  pass covers a large town before its misses expire (Codex r2 P2); ended at once by a deposit into it. */
@@ -155,16 +161,19 @@ export function smeltTownOrder ({ now = 0, on = true, atTown = false, holds = fa
  */
 export function smeltTownOutcome (status, why = null, now = 0, state = {}) {
   const s = { ...state }
-  if (status === 'success') { s.streak = null; s.moreStreak = 0; s.moreTrips = 0; return s }   // the `more` cap counts CONSECUTIVE ones (Codex r3 P3)
+  if (status === 'success') { s.streak = null; s.moreStreak = 0; s.dry = 0; return s }   // the `more` cap counts CONSECUTIVE ones (Codex r3 P3)
   if (status === 'failed') s.backoffUntil = now + SMELT_JOB_BACKOFF_MS
   if (status === 'aborted' || why === 'interrupted') return s           // a reflex took the body: no strike
+  // THE DRY-JOB BOUND (toolkit-03): counted before any other rule, across reasons, reset only by a success
+  if (SMELT_DRY_REASONS.has(why)) {
+    s.dry = (s.dry ?? 0) + 1
+    if (s.dry >= SMELT_DRY_MAX) { s.pausedUntil = now + SMELT_JOB_PAUSE_MS; s.dry = 0; s.moreStreak = 0; s.streak = null; return s }
+  }
   // a search cut with candidates left that made progress: no strike (toolkit-03) -- SMELT_MORE_MAX in a row, then a backoff
-  if (why === SMELT_SEARCH_MORE) {
+  if (why === SMELT_SEARCH_MORE || why === SMELT_LATE) {
     s.moreStreak = (s.moreStreak ?? 0) + 1
     if (s.moreStreak <= SMELT_MORE_MAX) return s
     s.moreStreak = 0; s.backoffUntil = now + SMELT_JOB_BACKOFF_MS
-    s.moreTrips = (s.moreTrips ?? 0) + 1
-    if (s.moreTrips >= SMELT_MORE_TRIPS) { s.pausedUntil = now + SMELT_JOB_PAUSE_MS; s.moreTrips = 0 }
     return s
   }
   s.moreStreak = 0
