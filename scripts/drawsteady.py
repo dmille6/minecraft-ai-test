@@ -20,7 +20,16 @@ A pool's exclusion is 12 h after its last canary decision. It is SIX hours only 
      min..max of the same change. A pool drifting down through the band (36 -> 28 averaging 32) fails the last test
      (round 3, Codex). Controls are pools no decision touched in 12 h (not isolated-*, placebo-c or a live canary) that
      pass EXACTLY the same membership, version, row and corruption checks as the candidate; >= MIN_CONTROL_POOLS needed.
-Fail closed everywhere: an unreadable ledger, manifest, unit list or log, too few rows or controls -> 12 h."""
+Fail closed everywhere: an unreadable ledger, manifest, unit list or log, too few rows or controls -> 12 h.
+
+v36 TIERS (OWNER 2026-10-19; docs/reports/canary-tiers-2026-10-19.md). ONLY when the INCOMING run (DRAW_RUN, exported by
+drawrec.sh; its registration looked up exactly as drawrec does) is tier 2 (tierrule.tier_of), the release is decided by
+candidates_t2 instead of candidates: every in-window decision naming the pool must be CLOSED (its LAST journal teardown or
+fleet-wide promotion of its sha) and old enough COUNTED FROM THAT CLOSE -- 240 min for a predecessor whose LEDGER NOTE
+carries the tier-2 marker (tierrule.ledger_tier, anchored), 360 min for a tier-3 KEEP promoted fleet-wide, otherwise held --
+the journal parsed STRICTLY (one malformed line releases nothing early), and every bot of the pool must pass version_clean
+over the last 240 min (one build, rows in its first and last hour, the pool's rows in every 10-min bucket) on top of rules
+2 and 3. Any other incoming run: this file behaves exactly as before v36."""
 import datetime as dt, json, os, subprocess, sys
 
 LEDGER = os.environ.get('STEADY_LEDGER', '/var/log/mcai/_canary-decisions.jsonl')
@@ -145,6 +154,104 @@ def candidates(ledger_rows, journal_rows, now):
                 if prev is None or prev[2] < t:
                     ok[p] = (run, sha, t)
     return {p: v for p, v in ok.items() if p not in held}, held
+
+
+def candidates_t2(ledger_rows, journal_rows, now):
+    """PURE. v36: the release for a TIER-2 INCOMING draw. -> ({pool: (run, sha, decided_at, close_at, how)}, {pool: why}).
+    Every in-window decision naming a pool must be released by tierrule.hold_t2, counted from the decision's LAST close."""
+    import tierrule
+    cl = tierrule.closes(journal_rows)
+    ok, held = {}, {}
+    for row in ledger_rows:
+        t = _t(row.get('ts'))
+        if t is None:
+            for p in pools_in(row):
+                held[p] = 'a ledger row with an unreadable ts'
+            continue
+        age_s = (now - t).total_seconds()
+        if age_s < -600 or age_s >= EXCL_H * 3600:
+            continue         # not yet decided at `now` (a replay), or outside the 12-h window
+        run = tierrule.run_of(row)
+        sha = str(row.get('canary_sha') or '')[:7]
+        ct, how = tierrule.close_of(run, sha, t, cl, now)
+        mins = None if ct is None else (now - ct).total_seconds() / 60.0
+        pt = tierrule.ledger_tier(row)
+        why = tierrule.hold_t2(row.get('decision'), pt, how, mins)
+        for p in pools_in(row):
+            if why:
+                held[p] = '%s: %s' % (run, why)
+            elif p not in held:
+                prev = ok.get(p)
+                if prev is None or prev[3] < ct:
+                    ok[p] = (run, sha, t, ct, how)
+    for p in held:
+        ok.pop(p, None)      # a pool held by ANY decision is not released by another
+    return ok, held
+
+
+def version_clean(stats, units, fv, since, until):
+    """PURE. v36, a tier-2 draw only. stats: {bot: ([(t, version)], bad, corrupt) or None} over [since, until) for EVERY
+    enabled bot of the pool; units: {bot: active}. -> (ok, why). Every bot active, readable, rows in the first and the
+    last hour, ONLY the fleet build; the pool's rows in every 10-min bucket."""
+    import tierrule
+    if not fv:
+        return False, 'fleet version unreadable'
+    if not units:
+        return False, 'no mcbot units for this pool'
+    nb = tierrule.n_buckets(since, until)
+    first, last = since + dt.timedelta(minutes=60), until - dt.timedelta(minutes=60)
+    have = set()
+    for b in sorted(units):
+        if units.get(b) is not True:
+            return False, '%s: unit not active/running' % b
+        s = stats.get(b)
+        if s is None:
+            return False, '%s: no log rows in the last %d min' % (b, (until - since).total_seconds() // 60)
+        rows, bad, corrupt = s
+        if bad or corrupt:
+            return False, '%s: %d unreadable file(s), %d corrupt row(s)' % (b, bad, corrupt)
+        rs = [(x, v) for x, v in rows if since <= x < until]
+        vs = {str(v)[:7] for _x, v in rs}
+        if vs != {fv}:
+            return False, '%s: builds %s in the last %d min, not only %s' % (b, sorted(vs), (until - since).total_seconds() // 60, fv)
+        if not any(x < first for x, _v in rs) or not any(x >= last for x, _v in rs):
+            return False, '%s: no rows in the first or the last hour of the window' % b
+        have |= {tierrule.bucket_of(x, since) for x, _v in rs}
+    miss = [i for i in range(nb) if i not in have]
+    if miss:
+        return False, 'the pool has no rows in %d of %d 10-min buckets' % (len(miss), nb)
+    return True, 'one build (%s) on all %d bots for %d min, every bucket covered' % (fv, len(units), (until - since).total_seconds() // 60)
+
+
+def incoming_tier(run, regdir=None):
+    """v36: the INCOMING run's tier, its registration looked up exactly as drawrec.sh does
+    (~/mcai-analysis/registrations/<run>.json, then /tmp/registrations/<run>.json). Absent / unreadable -> 3."""
+    if not run or '/' in run:
+        return 3
+    try:
+        import tierrule      # absent tierrule.py = tier 3: the pre-v36 behaviour needs nothing new
+        p = os.path.join(regdir or os.path.expanduser('~/mcai-analysis/registrations'), '%s.json' % run)
+        if not os.path.exists(p):
+            p = '/tmp/registrations/%s.json' % run
+        return tierrule.tier_of(json.load(open(p)))
+    except Exception:
+        return 3
+
+
+def _journal_strict(path):
+    """v36: every non-blank line must be a JSON object with a readable, zone-aware `ts` and string `run` and `phase`
+    (a lost or unreadable later teardown row would make an earlier close look final; round 5, Codex). Raises."""
+    out = []
+    with open(path) as f:
+        for i, l in enumerate(f):
+            if not l.strip():
+                continue
+            r = json.loads(l)
+            if not isinstance(r, dict) or _t(r.get('ts')) is None or not isinstance(r.get('run'), str) \
+                    or not isinstance(r.get('phase'), str):
+                raise ValueError('journal line %d: not a record with a readable ts, run and phase' % (i + 1))
+            out.append(r)
+    return out
 
 
 def parse_roster(names):
@@ -277,12 +384,24 @@ def main():
         print('STEADY a fleet-wide deploy inside the %d-h window (%s at %s): every pool and every control just changed -- '
               '12 h for every pool' % (EXCL_H, fleet[-1].get('canary_sha'), fleet[-1].get('ts')))
         print('STEADY RELEASE []'); return 0
-    cand, held = candidates(ledger, journal, now)
+    sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+    T2 = incoming_tier(os.environ.get('DRAW_RUN', ''), os.environ.get('STEADY_REGDIR') or None) == 2
+    if T2:
+        print('STEADY tier-2 draw (%s): v36 release -- counted from each decision\'s last close; journal parsed strictly'
+              % os.environ.get('DRAW_RUN'))
+        try:
+            journal = _journal_strict(JOURNAL)
+        except Exception as e:
+            print('STEADY inputs unreadable or malformed (tier-2 journal, %s: %s): nothing released early'
+                  % (type(e).__name__, str(e)[:120]))
+            print('STEADY RELEASE []'); return 0
+        cand, held = candidates_t2(ledger, journal, now)
+    else:
+        cand, held = candidates(ledger, journal, now)
     for p, why in sorted(held.items()):
         print('STEADY 12h %s: %s' % (p, why))
     if not cand:
         print('STEADY no KEEP+promoted pool between %d and %d h' % (EARLY_H, EXCL_H)); print('STEADY RELEASE []'); return 0
-    sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
     try:
         import bagread
         units = membership(read_roster(), read_units())
@@ -309,8 +428,22 @@ def main():
         rel = []
         for p, c in sorted(cand.items()):
             s, qwhy = summary_of(p)
-            ok, why = steady(c, s, ctl, man.get('declared_code_version'), _t(man.get('declared_at')))
-            print('STEADY %s %s: %s' % ('6h' if ok else '12h', p, why if s else why + ': ' + qwhy))
+            if T2:
+                # a torn-down (not promoted) predecessor: the pool's build was restored at its close, so that is the
+                # version's start for steady()'s fleet test; sound only because version_clean reads every bot's rows
+                fd = c[3] if c[4] == 'torn-down' else _t(man.get('declared_at'))
+                ok, why = steady(c[:3], s, ctl, man.get('declared_code_version'), fd)
+                if ok:
+                    s240 = now - dt.timedelta(minutes=240)
+                    st = {}
+                    for b in by_pool.get(p, {}):
+                        rows, bad, corrupt, _d = bagread.bot_rows(b, s240, now, root=LOGROOT)
+                        st[b] = ([(x, v) for x, v, _bag in rows], bad, corrupt) if (rows or bad or corrupt) else None
+                    ok, vwhy = version_clean(st, by_pool.get(p, {}), fv, s240, now)
+                    why = why + ' | ' + vwhy
+            else:
+                ok, why = steady(c, s, ctl, man.get('declared_code_version'), _t(man.get('declared_at')))
+            print('STEADY %s %s: %s' % (('early' if T2 else '6h') if ok else '12h', p, why if s else why + ': ' + qwhy))
             if ok:
                 rel.append(p)
     except Exception as e:

@@ -101,6 +101,42 @@ mcai-rl02 (recovery-ladder-03) carries the daily copy and status reports, unpush
 
 ---
 
+## 10-19 16:27Z — GATE v36 (CANARY TIERS) INSTALLED + brain-01 host prerequisites, in ONE window after treefarm-02 (REVERT +180, torn down 15:57Z)
+- **Owner 10-19 ~12:30Z "yes": tiers.** A registration declares `"tier": 2` (the integer, no `class`); ABSENT = tier 3 =
+  unchanged. Tier 1 (a constant) = owner-direct rollout + tripwire (no tooling). Tier 2 = small fix with strong Paper
+  evidence: KEEP allowed at +180 only with EXACTLY 4 pools, >= 48 measured canary bot-h, a declared exposure met, NO
+  WATCH/HOLD, no blocked or undefined line, a licence that is not `rate`, a canary death rate <= control, and a CLEAN
+  BASELINE. CLEAN BASELINE = verdict.py reads every bot's logs over [declared_at - max(240, M), declared_at); every
+  canary row must be on the control-majority build. A later tier-2 KEEP needs the same, else INCONCLUSIVE at the final
+  read. A tier-2 DRAW gets pools whose tier-2 predecessor closed >= 240 min ago (360 after a tier-3 promotion; strict
+  journal; 240 min single build). A tier-2 verdict line starts `tier 2 (v36)`. Design + code reviewed to APPROVE by
+  Claude and Codex (design 4 rounds, code 2 + window 2): docs/reports/canary-tiers-2026-10-19.md, branch
+  canary-tiers-v36.
+- **Installed 15:57-16:27Z** by `install-gate-v36.sh --then install-brain01-host.sh` (fired by gate-v36/v36-wait.sh when
+  treefarm-02 tore down). Under one install-hold + /tmp/mcai-canary.lock it ran:
+  - suites: tiers 149/149 (41 mutants incl. verdict ones), keep180 46/46, bagfix 163/163, usafe 166/166, threepool
+    177/177, acceptance 83/83;
+  - a byte-identical replay of 60 past tier-3 reads: 48 SAME, 0 different, 12 = the known `--dryrun` ALLBOTS crash on
+    BOTH copies (pre-existing; follow-up chip);
+  - a drawsteady comparison: identical for DRAW_RUN '', bamboo-02 and treefarm-02;
+  - a LIVE loader check: 80/80 bots, bad 0, CLEAN, version_clean True.
+  **GATE DIGEST b7ce36d7 -> 199517353b444cfdeb706d3ad965e05b** (gatedigest OK; parts now include tierrule.py ec878a51).
+  Host: ~/verdict.py 43bdfb34, ~/mcai-analysis/tierrule.py ec878a51 (new), ~/mcai-analysis/drawsteady.py 7f34cbad,
+  ~/digest/RULES-IN-FORCE.md 384ef223 (= repo scripts/host/RULES-IN-FORCE.md). Backups *.bak-v36-20261019T155752Z.
+- **brain-01 host files (coordinator: same window).** Its approved patches went on unchanged, after v36:
+  canary-loop.sh 344b1074 (canary_env), canary-sched.py 0d9a87f3 (class model-env), drawrec.sh 986e18d2 (draw_k; a
+  model-env draw is capped at 2). Suites: threepool 177, bagfix_loop 21, drawrequire 35, holdtoken 19, canary_sched 93.
+  The bundle is unchanged. The brain verdict.py/immobiledid.py patches were NOT installed. Composition: a model-env
+  registration has a class, so it is tier 3 and keeps its 2-pool cap. Backups *.bak-brain01-20261019T162045Z. Both
+  lines are in ~/digest/gate-installs.log.
+- **No queued registration was tagged tier 2.** bamboo-03 and toolkit-03 look like candidates; their registrants should
+  add `"tier": 2` and use `queue replace-variant`, which updates the registration sha256. A tier-2 registration also
+  needs 180 in read_minutes before the last read, an exposure block, and a kind/text licence.
+- **Follow-ups:** fix verdict.py's --dryrun ALLBOTS crash (needs a gate generation); close a dirty-baseline tier-2 run
+  INCONCLUSIVE at once instead of reading on; at the FIRST tier-2 +180 read, record its baseline line and the
+  control heterogeneity figure (residual: the previous run's held pools sit in the control arm, KEEP-favouring after
+  a promotion; accepted, measured, not gated).
+
 ## 10-19 15:20Z — bamboo-03 queued (bamboo-02's G3 REVERT was a READ bug); cobblekeep-01, toolkit-03 queued; brain-01 pending host patches
 - bamboo-02 G3=3 were stagnation-cut folds one craft short (in-flight craft made by the server, not yet recorded); no bamboo lost.
   bambooread fixed (e329a14f installed); bamboo-03 = foldTally counts the in-flight craft. Branches bb3-on-adbec4f 736e89b0,

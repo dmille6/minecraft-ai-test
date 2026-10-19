@@ -656,7 +656,7 @@ if __name__ == '__main__':
     # this passes, so a failure caused by the runner (shared state, a missing module) can never score as a kill.
     _cd = tempfile.mkdtemp(dir=tmp)
     for f in ('usaferule.py', 'usafegate.py', 'deathgate.py', 'verdict.py', 'singledeath.py', 'bagfixrule.py',
-              'bagfixgate.py', 'changerowcheck.py', 'arms.py'):
+              'bagfixgate.py', 'changerowcheck.py', 'arms.py', 'tierrule.py'):
         if os.path.exists(os.path.join(HERE, f)):
             shutil.copy(os.path.join(HERE, f), _cd)
     _cres = run_all(os.path.join(_cd, 'usaferule.py'), os.path.join(_cd, 'usafegate.py'), V, tmp, quiet=True)
@@ -672,7 +672,7 @@ if __name__ == '__main__':
         assert src.count(old) == 1, 'ANCHOR NOT UNIQUE in %s (%d): %r' % (fname, src.count(old), old)
         md = tempfile.mkdtemp(dir=tmp)
         for f in ('usaferule.py', 'usafegate.py', 'deathgate.py', 'verdict.py', 'singledeath.py', 'bagfixrule.py',
-                  'bagfixgate.py', 'changerowcheck.py', 'arms.py'):
+                  'bagfixgate.py', 'changerowcheck.py', 'arms.py', 'tierrule.py'):
             if os.path.exists(os.path.join(HERE, f)):
                 shutil.copy(os.path.join(HERE, f), md)
         open(os.path.join(md, fname), 'w').write(src.replace(old, new, 1))

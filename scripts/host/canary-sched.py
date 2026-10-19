@@ -1142,7 +1142,7 @@ def validate_entry(P, e, journal):
         bad.append('run id %r is not a plain id' % run)
     if deployment(run_rows(journal, run))[0] is not None:
         bad.append('the journal shows %s already DEPLOYED: a run id is one deployment' % run)
-    if (e.get('class') or '') not in ('', 'bag-fix', 'underground-safety'):
+    if (e.get('class') or '') not in ('', 'bag-fix', 'underground-safety', 'model-env'):
         bad.append('class %r unknown' % e.get('class'))
     if not e.get('variants'):
         bad.append('no variants')
@@ -1164,6 +1164,16 @@ def validate_entry(P, e, journal):
         v['registration_sha256'] = h
         if (r.get('class') or '') != (e.get('class') or ''):
             bad.append('variant %s: registration class %r != queued class %r' % (k[:7], r.get('class') or '', e.get('class') or ''))
+        # brain-01: a MODEL/ENV canary must say what env it sets, how many pools it may take (the Studio serves ~10-12
+        # bots, not 20), and that a KEEP keeps it on that subset -- never a fleet-wide model swap.
+        if (r.get('class') or '') == 'model-env':
+            ce = r.get('canary_env') or []
+            if not ce or not all(isinstance(x, str) and re.fullmatch(r'[A-Z_][A-Z0-9_]*=[^\s*?\[\]]+', x) for x in ce):
+                bad.append('variant %s: model-env needs canary_env as KEY=VALUE strings without spaces or glob characters' % k[:7])
+            if not isinstance(r.get('draw_k'), int) or not 1 <= r['draw_k'] <= 2:
+                bad.append('variant %s: model-env needs draw_k 1..2 (pools; the Studio serves ~10-12 bots)' % k[:7])
+            if r.get('promotion') not in ('keep-subset', 'none'):
+                bad.append('variant %s: model-env promotion must be keep-subset or none, not %r' % (k[:7], r.get('promotion')))
         cs = full_sha(P, r.get('sha'))
         if not cs:
             bad.append('variant %s: registration sha %r does not resolve' % (k[:7], r.get('sha')))

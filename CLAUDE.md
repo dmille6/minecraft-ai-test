@@ -223,6 +223,16 @@ selected, or reachable, so all three need checking:
   unchanged. `bagfixrule.py` decides, `bagfixgate.py` measures; see
   docs/reports/bagfix-death-rule-2026-10-07.md. The rule is more lenient than this gate
   by construction; that was the owner's trade.
+- **Tiers (OWNER DECISION 2026-10-19, gate v36, installed 10-19 16:20Z; bundle 19951735).** Tier 1, a constant: light review, then an
+  owner-direct fleet rollout with a tripwire (journal `owner-direct`). This is not a canary.
+  Tier 2, a small fix with strong Paper evidence: the registration carries `"tier": 2` (the
+  integer 2, with no `class`). It may KEEP at +180 only with exactly 4 pools, >= 48 bot-h, a
+  declared exposure met, no WATCH or HOLD, a licence that is not `rate`, a death rate no
+  higher than control's, and a baseline where the logs show the canary pools on the
+  controls' build. Otherwise it reads on as usual, but a contaminated baseline never KEEPs.
+  A tier-2 run draws pools whose tier-2 predecessor closed >= 240 min ago. Tier 3, or no
+  `tier` at all, is exactly the old behaviour. `tierrule.py` decides; see
+  docs/reports/canary-tiers-2026-10-19.md.
 
 ## Commits
 

@@ -149,7 +149,7 @@ if __name__ == '__main__':
     # THE UNMUTATED CONTROL through the same copy path as every mutant (round 1, Codex)
     _cd = tempfile.mkdtemp(dir=tmp)
     for f in ('bagfixrule.py', 'verdict.py', 'usaferule.py', 'usafegate.py', 'deathgate.py', 'singledeath.py', 'arms.py',
-              'bagfixgate.py', 'changerowcheck.py'):
+              'bagfixgate.py', 'changerowcheck.py', 'tierrule.py'):
         if os.path.exists(os.path.join(HERE, f)):
             shutil.copy(os.path.join(HERE, f), _cd)
     _ctl = verdict_cases(os.path.join(_cd, 'verdict.py'), tmp) if VB else []
@@ -164,7 +164,7 @@ if __name__ == '__main__':
         assert src.count(old) == 1, 'ANCHOR %s: %s (%d)' % (fname, name, src.count(old))
         md = tempfile.mkdtemp(dir=tmp)
         for f in ('bagfixrule.py', 'verdict.py', 'usaferule.py', 'usafegate.py', 'deathgate.py', 'singledeath.py', 'arms.py',
-                  'bagfixgate.py', 'changerowcheck.py'):
+                  'bagfixgate.py', 'changerowcheck.py', 'tierrule.py'):
             if os.path.exists(os.path.join(HERE, f)):
                 shutil.copy(os.path.join(HERE, f), md)
         open(os.path.join(md, fname), 'w').write(src.replace(old, new, 1))
