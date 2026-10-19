@@ -57,3 +57,38 @@ edits, Studio contention, fallback); (4) the pre-registration can show a benefit
 dose-response control is sound; (5) is "not yet, S0 census first" right, or should the owner's "yes" be met differently.
 Reply: VERDICT APPROVE | APPROVE-WITH-CHANGES | CHANGE; PROCEED-AS-ACTOR-NOW yes|no; FIRST-STEP-AGREED yes|no;
 FINDINGS numbered with P1/P2/P3, location and fix.
+
+=== ROUND 2 (doc r2, commit 5b7c2837) -- CODEX ===
+VERDICT: CHANGE
+PROCEED-AS-ACTOR-NOW: no
+FIRST-STEP-AGREED: yes
+FINDINGS:
+1. P2 — Design §8: Every round-1 finding is represented, but several are only partially resolved, without an explicit reason for declining the remainder. Fix: mark the outstanding issues below as unresolved. S0 alongside the first project’s read, fixture self-test, heartbeat, and separately queued deterministic fixes remains appropriate.
+
+2. P2 — `coord_r2.py:26-41,74-79`; design C1–C3: Invalidation omits `_lid_clear outcome=dug`, including clears during counts or withdrawals. Success-only job resets also miss mutations preceding failure/abort. Furnace sessions expose `t0/t1`, but invalidation uses their completion-row timestamp. Fix: use mutation evidence and session intervals; retain explicit container-identity limitations. “No intervening change” is not established.
+
+3. P2 — `coord_r2.py:115-129`; design C4/C7: Controls remain telemetry-event-weighted rather than uniform-time samples. Despite the comment, they exclude sampled bot `bb`, not shortage bot `b`; coverage is only “any mate seen.” Fix: sample uniform times within matched town/bot strata, match observation coverage, and report stale/missing inventory explicitly.
+
+4. P2 — `coord_r2.py:106-112`; design C4/C7: IID Bernoulli bootstrapping ignores repeated bots, towns, overlapping inventory windows and reused control snapshots. The reported intervals therefore do not establish the claimed uncertainty or equivalence. Fix: resample town/time blocks jointly for event-control differences; qualify “as common.”
+
+5. P1 — Design §§4.1, 4.5, 5: Completion removes towns from the denominator, so exposure remains treatment-dependent despite being called fixed-time ITT. Foreman heartbeat failure also “voids the period,” conflicting with inclusion of outages. Fix: retain all randomized town-hours through a fixed horizon, or explicitly register a completion-time estimand; separate census validity from treatment downtime.
+
+6. P2 — Design §5: Power for “+25%” does not specify whether success means rejecting zero or clearing KEEP’s +15% lower bound. Those require different sample sizes. A scripted oracle’s nonsignificant result also cannot prove “no LLM can.” Fix: power the actual KEEP rule and describe oracle failure as insufficient demonstrated headroom.
+
+=== ROUND 2 (doc r2 5b7c2837 + the uncommitted r3 edits in the working tree) -- CLAUDE (independent subagent) ===
+VERDICT: APPROVE-WITH-CHANGES
+PROCEED-AS-ACTOR-NOW: no
+FIRST-STEP-AGREED: yes
+FINDINGS:
+1. P2 -- §2.2 C10 row, §0 item 2, §9 decision 2: treefarm-02 is omitted. It is "the town tree farm (blueprint builder)" (docs/reports/treefarm-02.queue-entry.json), re-stacked on adbec4f4 (0b3a0d4c) and the scheduler's next launch, so "the assigner's job does not exist yet" is about to be stale and decision 2 offers only monument-01/yard-01. Fix: state whether treefarm-02 is a multi-bot project (builder lease + supply); if yes, S0 is built with its read as the first live project; if no, say why (single builder lease = no allocation headroom).
+2. P2 -- §4.5 revocation / §0 item 3: the tick is 5 min but the model is called at most once per 15 min per town; "no valid model answer -> empty generation" reads as revoking leases two ticks in three. Fix: a tick with no model call re-validates the last valid leases against the fresh snapshot and re-issues them; only abstain/invalid/timeout/skip writes an empty generation.
+3. P3 -- §0 item 2 "no builder, blueprint or monument code" rests on a filename grep; adbec4f4 has `const BLUEPRINTS` at bots/src/skills.mjs:6239 (the brain's single-bot build). Fix: "no builder or monument module"; C10 already explains the 11 pillar-plan rows.
+4. P3 -- §4.5 chain tests: a reorder lease can starve the jobs it is placed ahead of while the leased job stays eligible (BUILD ahead of town_deposit/dispose_well on a full bag) -- the refusal chain does not cover it because nothing refuses. Fix: a composed test where the leased job stays eligible while the bag fills or a tool wears out, asserting the maintenance job still runs within the TTL.
+5. None: all 22 round-1 findings are addressed; numbers match the census output (606/952, 316/764, 504/694, 694/814, 188, 2.45 bot-h, 336/484 (65.5-73.6) vs 65.1%, 195/253 vs 78.1%, 8,687/12,673, home 77/378); the furnace-key format matches (skills.mjs:11754, 11778, by=drain emitted); IRON_LADDER confirmed (towndeposit.mjs:71, 118); rows() raises on truncation.
+6. The working-tree r3 edits correctly address invalidation incompleteness, event-weighted controls / sampled-bot exclusion, the IID bootstrap, power for the KEEP +15% bound, the oracle overclaim, the fixed-horizon ITT and census-vs-foreman heartbeat. Commit them as r3.
+
+=== Round-2 prompt (both) ===
+Check (1) every round-1 finding addressed or declined with a reason; (2) new errors (numbers vs census, coord_r2.py logic,
+architecture, measurement); (3) still agree: no actor now; first step S0 (deterministic staffing census with the first
+multi-bot project's read, fixture self-test + heartbeat), with coal/iron banking + shared miss memory + lid-blocked
+counts queued as separate deterministic fixes. Reply VERDICT / PROCEED-AS-ACTOR-NOW / FIRST-STEP-AGREED / FINDINGS.

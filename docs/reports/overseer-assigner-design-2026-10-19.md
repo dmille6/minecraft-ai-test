@@ -1,4 +1,4 @@
-# The overseer as the town-projects job assigner ("the foreman"): design r2, 2026-10-19
+# The overseer as the town-projects job assigner ("the foreman"): design r3, 2026-10-19
 
 Owner, 10-19 ~13:00Z: "yes". Bring the overseer back as the town-projects job and role assigner. Design it first, with
 both engines. This document is design only. No bot code was written, nothing was deployed, no queue was edited, and no
@@ -12,6 +12,10 @@ host service was touched.
   - 1,495,961 skill docs from 80 bots, 1,920 bot-h; one log rotation crossed.
   - The fleet was a9cff42c, then 6bea246c, then adbec4f4 from about 01:30Z. bamboo-02 ran on hive-a and hive-b from
     02:05Z to 05:15Z, and was REVERTED.
+  - `check-open-loop.py` was clear when the analysis started (12:33Z).
+  - The `coord_r2.py` re-runs (about 13:10-13:30Z) are 24 h windows ending at run time. They include up to about 35
+    minutes of treefarm-02's canary on 10 of the 80 bots, which is negligible for these counts. No treefarm-02 read
+    was made or attempted.
 - **"Shared towns"** means the 12 board, hive and placebo worlds. Isolated pools are excluded, as in townprojects D2,
   except where a line says otherwise.
 
@@ -33,22 +37,37 @@ host service was touched.
    - **Distribution headroom exists, but it is policy-shaped.**
      - At 69% of the 484 "no coal in town" smelt stops, a townmate carries fuel.
      - At 77% of the 253 toolkit `no_iron` refusals, a townmate carries 3 or more ingots.
-     - Both are as common at town-matched random moments, because `IRON_LADDER` keeps coal and iron in bags.
+     - Both are about as common at town-matched, event-weighted control moments, because `IRON_LADDER` keeps coal
+       and iron in bags. This is an approximate comparison; see the limits under 2.2.
      - A banking rule takes this headroom deterministically.
    - **Repeated discovery** ("no copper", "empty furnace", "lid-blocked") is at most about 2.4 bot-h/day of 1,920, as
      an upper bound on candidate savings.
    - **The town stock journal is largely blind:** 694 of 814 shared-town counts are lid-blocked.
-   - **The coordination problem an assigner exists for is not on the fleet.** The deployed build adbec4f4 contains no
-     builder, blueprint or monument code. The same `git ls-tree` grep finds `builder.mjs`, `buildbot.mjs`,
-     `monument.mjs` and `structures.mjs` on shaft-01's variant fbc3621. ES shows no multi-bot project rows in 6 days.
+   - **The coordination problem an assigner exists for is not on the fleet.**
+     - The deployed build adbec4f4 contains no builder or monument module. Its only blueprints are the brain's
+       single-bot `build` skill (`const BLUEPRINTS`, skills.mjs:6239).
+     - The same `git ls-tree` grep finds `builder.mjs`, `buildbot.mjs`, `monument.mjs` and `structures.mjs` on
+       shaft-01's variant fbc3621.
+     - ES shows no multi-bot project rows in 6 days.
+   - **treefarm-02 went LIVE at 12:53Z** (0b3a0d4c, canary on hive-c and board-a). It is the first fleet blueprint, but
+     it is **not an allocation problem**:
+     - one leaseholder builds at a time (`blueprint.mjs`, "ONE BUILDER AT A TIME", `LEASE_MS` 90 s);
+     - the saplings come from the builder's own bag (76 of 80 bots hold 6 or more);
+     - the harvest is ordinary wood gathering.
+     - So there is no bill of materials to haul and no part chain. The only choice is which bot takes the lease, which
+       is the mayor class.
+     - It is S0's first **instrument** check (section 6), not its headroom.
 3. **Architecture (section 4).**
    - A host-side foreman issues **role leases** in a fenced file.
    - A lease only **reorders** a bot's deterministic town-job list. It never names a coordinate and never calls a
      skill.
    - RECALL is **out of v1** unless S0 shows `home` succeeds at least 70% of the time under the validator's own filter
      (today: 77 of 378, 20%).
-   - **Fallback:** every 5-minute deterministic tick rewrites the file. A tick with no valid model answer writes an
-     explicit **empty generation**, which revokes all leases at once.
+   - **Fallback:** every 5-minute deterministic tick rewrites the file.
+     - A tick with no model call due re-validates the last valid leases against the fresh snapshot and re-issues
+       those that still pass.
+     - An abstain, an invalid answer, a timeout or a skip writes an explicit **empty generation**, which revokes all
+       leases at once.
    - **Studio:** brain-01 has priority, and the foreman skips the tick on stale load telemetry.
 4. **Measurement (section 5).**
    - **Primary:** intention-to-treat witnessed cells placed per **project-open** town-hour, stalls and outages included.
@@ -153,7 +172,26 @@ Every number gives its denominator. "Control" is the reading it was checked agai
 | C7 | **Iron in one bag, needed by another** | 253 toolkit `no_iron` refusals. At 195 (77.1%, 71.9-82.2) a townmate carried 3 or more ingots | town-matched random moments: 78.1% (75.7-80.3) | **real headroom, standing and policy-shaped** (iron is kept in bags). An **iron-banking rule** (a surplus above the bag's own pickaxe need) takes it |
 | C8 | **Target contention while gathering** | gather failure rows never name a competitor (0 of 15,791), so that instrument is **blind**. Spatial association: contested gathers succeed 55.9-57.1% against 37.1-40.4% | 3,574 contested cases were found | **descriptive only.** Confounded by location quality; uses end positions and x/z only. Neither harm nor its absence is shown. 1,075 `_dig_collision` rows are uninterpreted |
 | C9 | **Jobs pile up or starve** | top-bot share of town successes (towns with 5 or more): smelt_town median 0.60, town_deposit 0.44, withdraw_pick 0.38, toolkit 0.31, dispose_well 0.44, compost 0.43; median 4-5 of 5 bots | — | spread already |
-| C10 | **Duplicated builds; projects waiting on haulers** | **not possible on the fleet.** adbec4f4 has no builder, blueprint or monument module. ES shows 0 kinds matching project, ziggurat, monument, shaft, yard, storehouse or hall in 6 days (8.64M docs) | the same grep finds builder, buildbot, monument and structures on fbc3621 (shaft-01's variant). The same ES census sees `build_well` 6,388 and `_plinth_step` 811. The 11 `build` rows are single-bot brain "pillar" plans, with 0 blocks placed | **the assigner's job does not exist yet.** monument-01 and shaft-01 are queued and held; yard-01 is not built |
+| C10 | **Duplicated builds; projects waiting on haulers** | **not possible on the fleet** in the window (it ended before treefarm-02 deployed at 12:53Z; see section 0 for why treefarm-02 does not change this). adbec4f4 has no builder or monument module (only the brain's single-bot `BLUEPRINTS`). ES shows 0 kinds matching project, ziggurat, monument, shaft, yard, storehouse or hall in 6 days (8.64M docs) | the same grep finds builder, buildbot, monument and structures on fbc3621 (shaft-01's variant). The same ES census sees `build_well` 6,388 and `_plinth_step` 811. The 11 `build` rows are single-bot brain "pillar" plans, with 0 blocks placed | **the assigner's job does not exist yet.** monument-01 and shaft-01 are queued and held; yard-01 is not built |
+
+**Limits of C1-C4 and C7 (Codex r2 P2: stated, not fixed).** None of these changes a conclusion. The C1-C3 amounts
+are small upper bounds; the C4/C7 headroom is claimed as present, not as equal to random.
+- **The C1-C3 invalidation is incomplete.**
+  - It omits `_lid_clear outcome=dug`.
+  - It resets only on *successful* deposit, dispose and smelt rows, so a failed or aborted job's earlier mutations are
+    missed.
+  - It uses the furnace session's completion-row time, not its t0/t1 interval.
+  - The copper and lid rows do not name a container.
+  - So "no intervening change" is approximate, and C1-C3 are upper bounds, not proven avoidable work.
+- **The C4/C7 controls are approximate.**
+  - The control moments are drawn from telemetry rows, so they are event-weighted, not uniform in time.
+  - They exclude the sampled bot, not the shortage bot.
+  - Coverage means only "some townmate seen in 15 min".
+  - The bootstrap is IID and ignores repeated bots, towns and overlapping windows, so the intervals understate
+    uncertainty.
+  - "About as common as control" is therefore descriptive. It does not establish equivalence.
+- **S0 does these properly:** uniform-time samples within town and bot strata, block bootstrap, and mutation-interval
+  invalidation. It does so only if the deterministic fixes need a sharper baseline.
 
 **Verdict on question 2.**
 - C4 and C7 are real distribution headroom. But they are standing and policy-made, so a deterministic banking rule is
@@ -176,7 +214,8 @@ over a project's task graph, VillagerAgent-style, beat the fixed rotation. Secti
 ### 4.1 Placement and cadence
 - **Host-side** on 10.0.0.31, the `mcai-foreman` unit: Nice 10, MemoryMax 512M, CPUQuota 25%.
   - Output rotation, not a hard stop (the mayor's failure mode).
-  - A **heartbeat file** per tick, which every read checks. A stale heartbeat makes the period **void**.
+  - A **heartbeat file** per tick, which every read checks. A stale *census* heartbeat voids measurement, in both
+    arms. A stale *foreman* heartbeat is treatment downtime (section 5).
 - A **deterministic tick runs every 5 min per town**, always.
 - **The model call:** gpt-oss:120b at medium. At most one per town per 15 min, plus events (a project stalled for 10
   min or more, a state change, a released lease), debounced to 5 min.
@@ -236,9 +275,13 @@ over a project's task graph, VillagerAgent-style, beat the fixed rotation. Secti
   - After a bot restart, it re-reads the file and honours only unexpired leases.
   - After a host restart, `gen` continues from disk.
 - **Revocation:** **every** 5-minute deterministic tick writes a new generation.
-  - When there is no valid model answer (an abstain, an invalid answer, a timeout, or the Studio unreachable), that
+  - **No model call due** (the 15-min cadence): the tick re-runs the validator on the last valid leases against the
+    fresh snapshot. It re-issues those that pass and drops those that fail.
+  - **A call that fails** (an abstain, an invalid answer, a timeout, the Studio unreachable, or a priority skip): the
     generation is **empty**, and every lease is revoked within 5 min.
-  - If the foreman itself is dead, TTL (at most 30 min) bounds it, and the heartbeat voids the period.
+  - If the foreman itself is dead, the TTL (at most 30 min) bounds every lease. That is treatment downtime in the B
+    arm (section 5). The foreman's heartbeat lets the read separate it from a census outage. Only a census outage
+    voids hours, in both arms.
 - **Refusal chain:**
   - A refused, failed, skipped or ineligible role job releases the lease and writes `_role_released`.
   - It costs only that job's normal cooldown.
@@ -249,6 +292,13 @@ over a project's task graph, VillagerAgent-style, beat the fixed rotation. Secti
     remedy chain.
   - The chain test runs a lease into each job's refusal and asserts that the next decision is the baseline one. It is
     tested as a composition, not one guard at a time.
+  - **Starvation test (Claude r2).** Reordering can starve the jobs below the leased one without anything refusing.
+    For example, BUILD can stay eligible ahead of town_deposit or dispose_well while the bag fills, or ahead of
+    toolkit or withdraw_pick while the tool wears out.
+    - A composed test keeps the leased job eligible while the bag reaches 34 slots, or the pickaxe reaches its
+      spent threshold. It asserts the maintenance job runs within the lease TTL.
+    - Mechanism: the bag-full, spent-tool and no-usable-pickaxe orders rank **above** any leased job. A lease
+      reorders only the discretionary project jobs among themselves and ahead of FREE.
 - **World mutation stays bot-only:** bag deltas and server-witnessed placements, as in the townprojects accounting.
 
 ### 4.6 Cost, compute and Studio contention with brain-01
@@ -290,17 +340,26 @@ over a project's task graph, VillagerAgent-style, beat the fixed rotation. Secti
   - The draw is arbitrary over the eligible towns (CLAUDE.md), with brain-01 pools excluded.
 - **Eligibility at the draw:** a project is sited and open in the town. With 12 shared towns minus the brain-01 pools,
   S3 needs **at least 4 canary and 6 control eligible towns**. If fewer are eligible, S3 waits.
-- **Primary:**
+- **Primary (r3, Codex r2 P1):** an intention-to-treat rate over a **fixed horizon**.
   - The numerator is placed and server-witnessed project cells, RCON-verified at the end.
-  - The denominator is the town-hours the project is **open**. That is fixed town-time, and it includes supply stalls,
-    foreman skips and Studio outages. It is not "placeable" hours, which treatment changes.
-  - If a project completes, the town's next queued project continues the clock. If there is none, the town leaves the
-    denominator, in both arms.
+  - The denominator is **every randomized town-hour from deploy to the registered horizon**, for every drawn and
+    control town. Nothing leaves it: completion, supply stalls, foreman skips and Studio outages all stay in.
+  - A completed project with nothing queued after it contributes zero cells and keeps its hours. Before the draw, the
+    registration requires a project queue long enough to cover the horizon in every eligible town. If a town runs out
+    anyway, that is reported. It is not a reason to exclude the town.
+  - **Census validity is a different question from treatment downtime.** A stale S0 or read heartbeat voids
+    *measurement* for those hours in **both** arms: the read cannot see them, so the deadline extends by that span.
+    A foreman outage while the census is alive is **treatment downtime**. It stays in the B arm, because it is part
+    of what B is.
+  - A completion-time estimand (hours to finish project X) is reported descriptively, never as the decision.
 - **Decision:**
   - **KEEP:** the lower bound of the DiD above **+15%**, and the harm gates clean.
   - **REVERT:** the upper bound below 0, or any harm gate tripped.
-  - Otherwise **INCONCLUSIVE** at the deadline. The deadline is fixed in the registration from the power calculation:
-    at least 80% power for +25%. If the power calculation needs more than 7 days, S3 does not launch.
+  - Otherwise **INCONCLUSIVE** at the deadline.
+  - **Power is computed for the KEEP rule itself** (Codex r2 P2). It is the probability that the lower bound clears
+    +15% when the true effect is +30%. It is computed by simulation from S0's pre-period town-level null, with towns
+    as clusters.
+  - The horizon is the shortest that gives at least 80% of that. If it needs more than 7 days, S3 does not launch.
 - **Co-primary, reported:** stall-hours (a project open, a part short, no bot on it).
 - **Secondary:** shortage-to-delivery latency, lease executability (at least 80% honoured), validator-clean (at least
   98%), brain p95 delta (at most +2 s).
@@ -324,7 +383,9 @@ over a project's task graph, VillagerAgent-style, beat the fixed rotation. Secti
       with at least 6**.
     - **Pass:** the oracle beats rotation by at least S3's minimum detectable effect, at p < 0.05 by a paired
       permutation test.
-    - **If the oracle cannot beat rotation, no LLM can, and the line stops there, recorded as INCONCLUSIVE-by-design.**
+    - **If the oracle does not beat rotation, the headroom is not demonstrated.** That is not proof that no LLM could
+      do better. The LLM line stops there and is recorded as INCONCLUSIVE (insufficient demonstrated headroom), until
+      the oracle is improved or the project changes.
 - **Analysis code:** the read and its self-test (a failing fixture per gate) exist and pass **before** the pre-period.
   Thresholds are frozen in the registration.
 
@@ -332,7 +393,7 @@ over a project's task graph, VillagerAgent-style, beat the fixed rotation. Secti
 
 | step | what | gate to the next |
 |---|---|---|
-| **S0** (about 2 days, built *with* the first multi-bot project's read: yard-01 or monument-01) | **The staffing census.** Deterministic, read-only, host-side, **no LLM, no bot code, no canary slot**. Every 5 min per town it records: open projects, BOM shortfall, bots at town and their state, assignable minutes, cells per open town-hour (the pre-period null), stock with unknowns labelled, **and `home` success under the validator's filter**. Heartbeat plus rotation, with a stale heartbeat reading void. **Its fixture self-test passes before any live reading**: a live zero is a negative, not a control | the project is live and KEPT; S0 shows **at least 20 assignable town-hours/day** across eligible towns for 48 h |
+| **S0** (about 2 days; its **instrument** is first calibrated on treefarm-02, the one live blueprint: the census must see its builder lease, placements and sapling stock. Its **headroom** reading waits for the first multi-bot project's read: yard-01 or monument-01) | **The staffing census.** Deterministic, read-only, host-side, **no LLM, no bot code, no canary slot**. Every 5 min per town it records: open projects, BOM shortfall, bots at town and their state, assignable minutes, cells per open town-hour (the pre-period null), stock with unknowns labelled, **and `home` success under the validator's filter**. Heartbeat plus rotation, with a stale heartbeat reading void. **Its fixture self-test passes before any live reading**: a live zero is a negative, not a control | the project is live and KEPT; S0 shows **at least 20 assignable town-hours/day** across eligible towns for 48 h |
 | **S1** | Paper: the bot-side lease reader (one sort key) **and its chain tests, reviewed by both engines**; positive controls (a) and (b) | (a) passes; (b) passes |
 | **S2** | LLM foreman in **shadow** for 72 h: proposals on S0 snapshots, nothing delivered | at least 98% validator-clean; at least 80% executable at issue and re-checked at +5 min; brain p95 delta at most +2 s with reload spikes measured; stall-naming recall at least 0.6 against S0's stalls |
 | **S3** | the canary, at least 4 towns, in the one canary slot. A non-bag-fix 4-pool draw needs canary-report.py / tripper support **and owner approval** | section 5 |
@@ -380,16 +441,39 @@ What r2 changed, by finding:
 | Codex 9, Claude 10: the starved arm is a tautology; 3 pairs are underpowered | starved relabelled as an instrument check. The headroom test is an oracle on the deployable lever, with real-town stock, at least 6 powered pairs and a permutation test. The lease reader moved into S1 |
 | Claude 6-7: a zero as control; a silent death | S0 fixture self-test before any live reading; heartbeat voids, plus rotation |
 
-**Round 2** (on r2): recorded below.
+**Round 2 (on r2, 5b7c2837; the Claude reviewer also read the uncommitted r3 edits): both engines again agree: do NOT
+proceed as an actor now; S0 is the first step.**
 
-(pending)
+| | Codex | Claude |
+|---|---|---|
+| verdict | **CHANGE** (P1 x1, P2 x5) | **APPROVE-WITH-CHANGES** (P2 x2, P3 x2) |
+| proceed as actor now | **no** | **no** |
+| first step agreed | **yes** ("S0 alongside the first project's read, fixture self-test, heartbeat, and separately queued deterministic fixes remains appropriate") | **yes** |
+
+Changes made in r3:
+
+| finding | r3 |
+|---|---|
+| Codex r2-5 (P1): completion removes towns, so the estimand is treatment-dependent; heartbeat voiding contradicted ITT | a fixed-horizon ITT. Every randomized town-hour stays in. A census outage voids hours in both arms and extends the deadline; a foreman outage is B-arm downtime. Completion time is descriptive only |
+| Codex r2-6: power for which rule; the oracle overclaim | power simulated for the KEEP rule itself (the lower bound above +15% at a true +30%). Oracle failure means "headroom not demonstrated", not "no LLM can" |
+| Codex r2-2/3/4: census invalidation, event-weighted controls, IID bootstrap | stated as limits under 2.2. The conclusions are unchanged and labelled as upper bounds / descriptive. The script comment is corrected. S0 does them properly |
+| Codex r2-1: partially resolved items unmarked | the items above are marked as stated limits, not fixed |
+| Claude r2-1: treefarm-02 omitted | added. Live at 12:53Z; single leaseholder, self-supplied, so no allocation headroom; S0's instrument check |
+| Claude r2-2: revocation on non-call ticks | non-call ticks re-validate and re-issue. Only a failed call writes an empty generation |
+| Claude r2-3: "no blueprint code" | "no builder or monument module" (the brain's single-bot `BLUEPRINTS` noted) |
+| Claude r2-4: starvation by reordering | a composed starvation test. Bag-full, spent-tool and no-pickaxe orders rank above any leased job |
+
+The full texts of round 2 are in the reviews file. No round 3 was run: both engines' round-2 verdicts already agree
+on the two questions the owner asked (proceed? first step?). The r3 changes are the fixes both asked for.
 
 ## 9. Owner decisions needed
 1. **Accept "not yet as an actor":** S0 is built with the first multi-bot project's read, and the LLM foreman is gated
    on S0, S1 and S2. Alternatively, override for an immediate LLM shadow, which both reviews expect to repeat the
    mayor result.
-2. **Which project comes first:** monument-01 (ziggurat; held behind minewell, needs a re-hold decision) or yard-01
-   (townprojects stage 3; not built). The foreman's first possible job waits on this.
+2. **Which multi-bot project comes first:** monument-01 (ziggurat; held behind minewell, needs a re-hold decision) or
+   yard-01 (townprojects stage 3; not built). The foreman's first possible job waits on this.
+   - treefarm-02, live since 12:53Z, is single-builder and self-supplied, so it does not qualify.
+   - It does serve as S0's instrument check.
 3. **A 4-pool non-bag-fix draw for S3:** it needs canary-report and tripper support.
 4. **Studio priority:** brain-01 first; the foreman skips under load; gpt-oss keep_alive pinned (about 65 GB resident
    next to gemma).

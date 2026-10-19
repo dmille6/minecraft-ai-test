@@ -122,7 +122,7 @@ def compare(events, pred, label, reps=5):
             continue
         ev_hits.append(1 if h else 0)
         lst = snaps[p]
-        for _ in range(reps):          # town-matched random moments, excluding the event's own bot
+        for _ in range(reps):          # town-matched, EVENT-WEIGHTED moments; mates exclude the SAMPLED bot (Codex r2 P2)
             tt, bb, _inv = random.choice(lst)
             h2, s2 = mate(p, bb, tt, pred)
             if s2:
