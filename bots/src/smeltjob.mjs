@@ -85,8 +85,11 @@ export const SMELT_LATE = 'smelt_late'
 export const SMELT_MORE_MAX = 3
 /** ...and DRY JOBS have an end state, whatever their mix of reasons (Claude r3 P1, Codex r4 P2): other bots' deposits can end
  *  the misses a job just wrote, so its "progress" is local, not net, and alternating reasons (search_more x3, no_fuel, ...)
- *  reset both the cap and the per-reason streak. Every job that ends search_more | search_stalled | no_fuel counts; this many
- *  since the last success pause the job SMELT_JOB_PAUSE_MS. Bounded: at most SMELT_DRY_MAX copper-taking dry jobs. */
+ *  reset both the cap and the per-reason streak. Every job that ends search_more | search_stalled | no_fuel | smelt_late
+ *  counts; this many since the last success pause the job SMELT_JOB_PAUSE_MS. Bounded: at most SMELT_DRY_MAX copper-taking dry
+ *  jobs. Deliberately CONSERVATIVE: only a success resets the count -- a pause by the per-reason streak (6 no_fuel) leaves it,
+ *  so the next pause can come sooner than 12 (Claude r5 P3). Like every smelt-job state it lives on the decision loop, which
+ *  a reconnect rebuilds (as the 6 h pause always did). */
 export const SMELT_DRY_MAX = 12
 export const SMELT_DRY_REASONS = Object.freeze(new Set(['search_more', 'search_stalled', 'no_fuel', 'smelt_late']))
 export const SMELT_SEARCH_STALLED = 'search_stalled'
