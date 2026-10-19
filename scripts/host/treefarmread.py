@@ -22,9 +22,33 @@
 #                or any `_farm_tend` offplan > 0; C2 TWO BUILDERS: two `_farm_tend` visits by different bots of one pool
 #                whose spans [t0, t] overlap and both mutated; C3 LOST: any `_farm_tend` lost > 0 (non-farm items the bag
 #                lost during a visit; since 10-15 a block this bot's own walk placed and the server confirmed is scaffold=,
-#                not lost -- KNOWN EDGE (Claude r5 P3): a scaffold placement whose server word comes > ~6 s late (5 s
-#                mineflayer wait + 1 s settle) is not credited and reads lost=1; read a lone C3 row of exactly 1 scaffold-
-#                class block against the bot's lag before treating it as the defect); C4 DOUBLE FOUNDING: more than one `_farm_site` row per pool without replaced=;
+#                not lost). THE LATE SCAFFOLD WORD (treefarm-03, 10-19; treefarm-02 REVERTED at +180 on exactly this): the
+#                bot credits a scaffold placement only when the server's block update lands within ~6 s (5 s mineflayer
+#                wait + 1 s settle); one that lands later reads lost=. hive-c-Bravo 13:14:52Z: torches=1 scaffold=1 lost=1,
+#                the visit's bag delta torch -1 cobblestone -2, two entombment pillar_out placements (_scaffold_pick) and
+#                two pathfinder place_error rows inside the visit. So a C3 row is EXCUSED -- named, never silent -- only
+#                when ALL hold (judge_c3, pure, fixtures below): the visit's own bag delta is found (the runner's tend_farm
+#                row that started at t0); its non-farm losses are ONLY scaffold-class blocks (SCAFFOLD_CLASS: what the
+#                pathfinder or the entombment reflex may place; sand/gravel are the reflex's only and the bot never
+#                credits them, so they reach here as lost= whether or not the word was late); they total exactly
+#                scaffold= + lost= (a JOIN check: both sides are the same client bag read ms apart, so it proves the right
+#                run was found, not independent agreement); lost <= LATE_SCAFFOLD_MAX (2); and lost <= the visit's
+#                UNMATCHED placement attempts on record: `_scaffold_pick` rows (logged at the pick) inside [t0, t + 0.5 s]
+#                minus the scaffold= already credited (Codex: a pick the credited placement explains cannot also explain a
+#                loss), plus every `_path_reset place_error` (logged when placeBlock rejects -- mineflayer's 5 s wait, or
+#                sooner -- the late word's own signature; a placement confirmed in time leaves none) inside
+#                [t0, t + 5.5 s]; the read loads
+#                that 5.5 s evidence tail past its window end. Anything else -- any other item, more blocks than that,
+#                no delta, no unmatched attempt -- is the defect, as before. EXCUSED rows are EMITTED
+#                (c3_late_scaffold_excused) and named, never counted in c3_lost; a pattern of them is for a human.
+#                RESIDUALS (named, accepted): attempt rows carry no item or target, so they show an attempt, not which
+#                block it consumed -- a real loss of <= 2 scaffold-class blocks in a visit with as many unmatched attempts
+#                is excused (and named); a place_error at t0 + 1 s can describe an attempt just before t0; a credited
+#                placement whose word landed 5-6 s late (inside SCAFFOLD_SETTLE_MS) can ALSO have a place_error. Bot side: a
+#                placement in flight at the stop whose word lands within 5 s after it leaves no attempt row and still
+#                reads as the defect.
+#                (bamboo-02's lesson, a client tally that lags the server at a stop, is this same class: see BAMBOO below);
+#                C4 DOUBLE FOUNDING: more than one `_farm_site` row per pool without replaced=;
 #                C5 BONE MEAL WITH NO GROWTH: canary bone meal used >= BM_NOGROW_FLOOR (36), not one use followed by a
 #                server-named log (bm_grew), AND no canary visit ever saw a grown tree on its farm (census tree) --
 #                vanilla's 45%-per-stage model says a tree per ~4.4 uses (36 spread over 9 saplings: P(0) = 2.2e-4,
@@ -34,6 +58,20 @@
 #                grows at all;
 #                C6 RESERVE: a canary visit that used bone meal and left the bag under BONEMEAL_RESERVE (8) by the row's own
 #                inventory snapshot.
+#   BAMBOO       (10-19: bamboo-02 reverted on a client tally one craft short of the server at a stop). Here: planted,
+#                soil, cleared, torches and bonemeal count only SERVER-confirmed changes, so a stop can only UNDER-count them
+#                (C1/C2 never see a phantom; exposure can only come later). bm_spent is a bag loss and could over-count at a
+#                stop: with the arm off nothing clicks bone meal, but bonemeal_used = max(bonemeal, bm_spent), so a bag
+#                resync or a lost bone meal inside a visit would still trip `bonemeal_used <= 0` (kept: bone meal is
+#                FARM_FLOW, so this is the only line that sees it leave); such a row is NAMED (bm_spent > 0 with 0
+#                confirmed uses) for the human reading the verdict. C6 (arm on only; inert with the arm off) reads the
+#                row's own client inventory snapshot, which can be stale at a stop in either direction: an arm-on
+#                registration must not use it as stop-time proof. C6 has no arm check of its own: with the arm off a
+#                bag-only bone meal loss (bm_spent > 0, 0 uses) under the reserve fires it too; the arm-off registration
+#                gates it as well. The gather lines (INSTRUMENT, EXPOSURE's log half, PRIMARY) read the runner's client
+#                inventory_delta, so a late log update shifts them by its count too (reported/positive-control lines).
+#                lost= is the other client counter that over-counts at a
+#                stop -- the late scaffold word above.
 #   INSTRUMENT   control log gathers with a positive log delta (>= 20): the outcome this changes exists and is read.
 #   EXPOSURE     >= 1 canary farm founded or tended with >= 9 confirmed plantings, AND the instrument.
 #   PRIMARY      (REPORTED) logs gathered per bot-hour (gather rows' positive *_log inventory_delta), the same within 48 of
@@ -49,7 +87,110 @@ from collections import Counter, defaultdict
 sys.path.insert(0, '/srv/mcb-analysis-lib')
 sys.path.insert(0, '/opt/minecraft-ai/scripts')
 sys.path.insert(0, '/home/mike/mcai-analysis')
-from lib.telemetry import Events
+if not os.environ.get('TREEFARM_SELFTEST'):   # the selftest (fixtures only) runs anywhere
+    from lib.telemetry import Events
+
+# ---- C3: THE LATE SCAFFOLD WORD (treefarm-03) -- pure, judged before anything is loaded --------------------------------
+# What a farm visit may consume or gain without it being a loss (skills.mjs FARM_FLOW, verbatim).
+FARM_FLOW = re.compile(r'(_sapling$|_log$|^dirt$|^torch$|^bone_meal$|^stick$|^apple$|_leaves$)')
+# The blocks this fleet places as scaffold: the pathfinder's (skills.mjs farmScaffoldNames' default: dirt, cobblestone and
+# scaffold.mjs PATHFINDER_SCAFFOLD) and the entombment reflex's pillar blocks (reflex.mjs PLACEABLE).
+SCAFFOLD_CLASS = re.compile(r'^(dirt|cobblestone|stone|andesite|diorite|granite|deepslate|cobbled_deepslate|tuff|netherrack|sandstone|'
+                            r'red_sandstone|dripstone_block|coarse_dirt|rooted_dirt|sand|gravel|mossy_cobblestone|stone_bricks|'
+                            r'smooth_stone|blackstone|basalt|crimson_stem|warped_stem|stripped_crimson_stem|stripped_warped_stem)$'
+                            r'|(_log|_planks|_wood|_hyphae)$')
+LATE_SCAFFOLD_MAX = 2
+PLACE_ERROR_LAG = 5.5      # mineflayer place_block's 5 s blockUpdate wait + 0.5 s: a place_error row trails its attempt
+
+
+def judge_c3(lost, scaffold, delta, attempts):
+    """PURE. A `_farm_tend` row's C3 -> None (no breach, or EXCUSED: see `why`) and a reason string, as (breach, why).
+    lost/scaffold: the row's lost= and scaffold=; delta: the visit's bag delta {name: signed count} or None (not found);
+    attempts: the visit's scaffold placement attempts on record."""
+    if lost <= 0:
+        return None, None
+    if not isinstance(delta, dict):
+        return 'lost=%d (no bag delta for the visit)' % lost, None
+    gone = {n: -int(v) for n, v in delta.items() if isinstance(v, (int, float)) and v < 0 and not FARM_FLOW.search(str(n))}
+    other = sorted(n for n in gone if not SCAFFOLD_CLASS.search(n))
+    if other:
+        return 'lost=%d (the bag lost %s)' % (lost, ','.join('%s:%d' % (n, gone[n]) for n in other)), None
+    total = sum(gone.values())
+    if total != scaffold + lost:
+        return 'lost=%d (the bag lost %d scaffold-class block(s), the row says scaffold=%d lost=%d)' % (lost, total, scaffold, lost), None
+    if lost > LATE_SCAFFOLD_MAX:
+        return 'lost=%d (more than %d late scaffold words in one visit)' % (lost, LATE_SCAFFOLD_MAX), None
+    if lost > attempts:
+        return 'lost=%d (only %d unmatched scaffold placement attempt(s) on record in the visit)' % (lost, attempts), None
+    return None, 'lost=%d excused as late scaffold: bag %s, scaffold=%d, %d unmatched attempt(s) on record' % (
+        lost, ','.join('%s:-%d' % (n, gone[n]) for n in sorted(gone)), scaffold, attempts)
+
+
+def judge_c3_rows(cands, tend_runs, place_ev):
+    """PURE. cands [(bot, t_end, t0, lost, scaffold)] (epoch s); tend_runs {bot: [(t_start, delta)]}; place_ev {bot:
+    [(t, kind)]}, kind 'pick' (_scaffold_pick) or 'error' (_path_reset place_error) -> (breaches [(bot, why)], excused
+    [(bot, 'HH:MM:SSZ', why)]). A visit's delta is the ONE tend_farm run that started within 2 s of its t0 (none or two: no
+    delta, never excused). CANDIDATE attempts (evidence of an attempt, not proof of a placement): max(0, picks inside
+    [t0, t_end + 0.5] - scaffold=) + place errors inside [t0, t_end + PLACE_ERROR_LAG] (an error row trails its attempt by
+    mineflayer's 5 s wait)."""
+    breaches, excused = [], []
+    for b, tend_end, t0s, lost_n, scaf_n in cands:
+        runs = [dl for ts, dl in tend_runs.get(b, []) if abs(ts - t0s) <= 2.0]
+        delta = runs[0] if len(runs) == 1 else None
+        ev = [kind for ts, kind in place_ev.get(b, []) if t0s <= ts <= tend_end + (PLACE_ERROR_LAG if kind == 'error' else 0.5)]
+        # the credited scaffold= is matched against PICKS only: a placement the server confirmed in time leaves no place_error
+        # (Claude r3: a pathfinder block placed normally logs nothing), and a place_error IS the late word's own signature
+        breach, why = judge_c3(lost_n, scaf_n, delta, max(0, ev.count('pick') - scaf_n) + ev.count('error'))
+        if breach:
+            breaches.append((b, breach))
+        elif why:
+            excused.append((b, dt.datetime.fromtimestamp(tend_end, dt.timezone.utc).strftime('%H:%M:%SZ'), why))
+    return breaches, excused
+
+
+# FIXTURES. THE REVERTED ROW, verbatim (hive-c-Bravo 2026-10-19 13:14:52.477Z, run treefarm-02, 0b3a0d4c): the visit's
+# tend_farm delta {'torch': -1, 'cobblestone': -2}; inside [t0, t]: _path_reset place_error 13:14:43.427 and 13:14:48.521,
+# _scaffold_pick pillar_out 13:14:46.168 and 13:14:51.734 -> 4 attempts.
+_REVERTED = 'gen=1 planted=0 soil=0 cleared=0 torches=1 bonemeal=0 bm_grew=0 bm_spent=0 scaffold=1 failed=0 offplan=0 lost=1 t0=1792415678218 census=sapling:6 species=- lease=g5 stop=done'
+def _j(d, delta, attempts):
+    f = {k: v for k, v in re.findall(r'(?:^| )([a-z0-9_]+)=(\S*)', d)}
+    return judge_c3(int(f['lost']), int(f['scaffold']), delta, attempts)
+assert _j(_REVERTED, {'torch': -1, 'cobblestone': -2}, 4)[0] is None and 'excused' in _j(_REVERTED, {'torch': -1, 'cobblestone': -2}, 4)[1]
+# POSITIVE CONTROLS: a real loss is still the defect
+assert _j(_REVERTED, {'torch': -1, 'cobblestone': -1, 'stone_pickaxe': -1}, 4)[0], 'a non-farm, non-scaffold item lost'
+assert _j(_REVERTED, {'torch': -1, 'cobblestone': -2, 'iron_ingot': -1}, 4)[0], 'scaffold right, plus a real item'
+assert _j(_REVERTED, {'torch': -1, 'cobblestone': -3}, 4)[0], 'more blocks gone than scaffold= + lost='
+assert _j(_REVERTED, {'torch': -1, 'cobblestone': -1}, 4)[0], 'fewer blocks gone than the row says'
+assert _j(_REVERTED, None, 4)[0], 'no bag delta found: never excused'
+assert _j(_REVERTED, {'torch': -1, 'cobblestone': -2}, 0)[0], 'no placement attempt on record'
+assert _j(_REVERTED.replace('scaffold=1', 'scaffold=0').replace('lost=1', 'lost=3'), {'cobblestone': -3}, 9)[0], 'over LATE_SCAFFOLD_MAX'
+assert _j(_REVERTED.replace('lost=1', 'lost=2'), {'cobblestone': -3}, 1)[0], 'more late words than attempts'
+assert _j(_REVERTED.replace('lost=1', 'lost=2'), {'cobblestone': -2, 'andesite': -1}, 2)[0] is None, 'two scaffold names, two attempts'
+assert _j(_REVERTED.replace('lost=1', 'lost=0'), None, 0) == (None, None), 'lost=0: nothing to judge'
+assert FARM_FLOW.search('oak_log') and not SCAFFOLD_CLASS.search('stone_pickaxe') and SCAFFOLD_CLASS.search('cobbled_deepslate')
+# THE JOIN, on the reverted visit's own timings (epoch s): t0 13:14:38.218, row 13:14:52.477, tend_farm run stamped at t0
+_T0 = 1792415678.218; _TE = 1792415692.477
+_EV = {'hive-c-Bravo': [(_T0 + 5.209, 'error'), (_T0 + 7.950, 'pick'), (_T0 + 10.303, 'error'), (_T0 + 13.516, 'pick'), (_T0 + 20.799, 'pick')]}   # 4 inside, 1 pick after (13:14:59)
+_RUN = {'hive-c-Bravo': [(_T0, {'torch': -1, 'cobblestone': -2})]}
+_C = [('hive-c-Bravo', _TE, _T0, 1, 1)]
+_b, _x = judge_c3_rows(_C, _RUN, _EV)
+assert _b == [] and len(_x) == 1 and _x[0][1] == '13:14:52Z' and '3 unmatched attempt' in _x[0][2], (_b, _x)
+assert judge_c3_rows(_C, {'hive-c-Bravo': [(_T0 + 3.0, {'torch': -1, 'cobblestone': -2})]}, _EV)[0], 'a run 3 s off t0 is not this visit'
+assert judge_c3_rows(_C, {'hive-c-Bravo': _RUN['hive-c-Bravo'] * 2}, _EV)[0], 'two candidate runs: ambiguous, never excused'
+assert judge_c3_rows(_C, {'other-bot': _RUN['hive-c-Bravo']}, _EV)[0], 'another bot\'s run is not this visit'
+assert judge_c3_rows(_C, _RUN, {'hive-c-Bravo': [(_T0 - 5.0, 'pick'), (_TE + 7.0, 'error'), (_TE + 1.0, 'pick')]})[0], 'attempts outside the windows do not count'
+assert judge_c3_rows(_C, _RUN, {'hive-c-Bravo': [(_TE + 3.0, 'error')]})[0] == [], 'a place_error 3 s after the row (its attempt was inside the visit): the late word itself'
+assert judge_c3_rows(_C, _RUN, {'hive-c-Bravo': [(_T0 + 9.0, 'error')]})[0] == [], 'Claude r3: scaffold=1 placed normally (no row), one late word (one place_error): excused'
+assert judge_c3_rows(_C, _RUN, {'hive-c-Bravo': [(_T0 + 7.950, 'pick'), (_TE + 3.0, 'pick')]})[0], 'a pick after the row is not this visit\'s'
+# UNMATCHED (Codex): one attempt and scaffold=1 -- the attempt is the credited placement's; the second cobble is a defect
+assert judge_c3_rows(_C, _RUN, {'hive-c-Bravo': [(_T0 + 7.950, 'pick')]})[0], 'one attempt, already matched to scaffold=1'
+assert judge_c3_rows(_C, _RUN, {'hive-c-Bravo': [(_T0 + 7.950, 'pick'), (_T0 + 13.516, 'pick')]})[0] == [], 'two attempts: one unmatched'
+assert judge_c3_rows(_C, _RUN, {'hive-c-Bravo': [(_T0 - 0.3, 'pick'), (_T0 + 7.950, 'pick')]})[0], 'a pick before t0 is not this visit\'s'
+_C4 = [('b%d' % i, _TE, _T0, 1, 1) for i in range(4)]
+assert len(judge_c3_rows(_C4, {'b%d' % i: _RUN['hive-c-Bravo'] for i in range(4)}, {'b%d' % i: _EV['hive-c-Bravo'] for i in range(4)})[1]) == 4, 'excused rows are never turned into C3 by their count (Claude r2: no denominator); they are emitted and named'
+assert judge_c3_rows(_C, _RUN, {'other-bot': _EV['hive-c-Bravo']})[0], 'another bot\'s attempts do not count'
+if os.environ.get('TREEFARM_SELFTEST'):
+    print('treefarmread selftest OK'); sys.exit(0)
 
 man = json.load(open('/srv/mcbots/trial-manifest.json'))
 ovr = os.environ.get('CANARY_DRYRUN')
@@ -204,17 +345,26 @@ if os.environ.get('TREEFARM_SELFTEST_NULL'):
     print('C5 null: P(0 trees | 36 uses over 9 saplings) = %.5f' % _bm_null())
 LOG = re.compile(r'_log$|_stem$')
 
-rows_all = sorted(load_window(PRE, END), key=lambda r: r['t'])
+# C3's evidence tail (Codex r2): a place_error trails its attempt by up to PLACE_ERROR_LAG, so evidence rows are read
+# PLACE_ERROR_LAG past END; every other line stops at END (the loop below)
+EV_END = END + dt.timedelta(seconds=PLACE_ERROR_LAG)
+rows_all = sorted(load_window(PRE, EV_END), key=lambda r: r['t'])
 H = homes()
 print('rows walked %d  |  bots with a home %d  |  canary %s  sha %s  cutoff %s  window +%d min' % (len(rows_all), len(H), CAN, CV, CUT.strftime('%H:%MZ'), W))
 rows = Counter(); offbuild = 0
 tends = defaultdict(list); places = []; sites = defaultdict(list)
-scaffold_used = [0]; c1 = []; c3 = []; c6 = []; bm_grew = 0; inv_seen = 0; foreign = Counter(); bonemeal_used = 0; tend_status = Counter(); planted = 0; cleared = 0; torches = 0; soil = 0; grown_seen = []
+scaffold_used = [0]; c1 = []; c3 = []; c3_cand = []; c3_excused = []; bm_bagonly = []; tend_runs = defaultdict(list); place_ev = defaultdict(list); c6 = []; bm_grew = 0; inv_seen = 0; foreign = Counter(); bonemeal_used = 0; tend_status = Counter(); planted = 0; cleared = 0; torches = 0; soil = 0; grown_seen = []
 gat = {(p, a): {'logs': 0, 'near': 0, 'secs': 0.0, 'dist': [], 'n': 0, 'pos': 0} for p in ('pre', 'post') for a in ('canary', 'control')}
 seen_bots = defaultdict(set); near_rows = Counter(); all_rows = Counter()
 for r in rows_all:
     t = r.get('t'); b = (r.get('bot') or {}).get('name')
     if t is None or not b:
+        continue
+    if t > END:   # the evidence tail only: a canary place_error of the build, nothing else
+        if pool_of(b) in CANS and r.get('name') == '_path_reset' and (r.get('detail') or '').startswith('place_error'):
+            ver2 = (((r.get('raw') or {}).get('code') or {}).get('version') or '')
+            if not (CV and ver2 and not ver2.startswith(CV)):
+                place_ev[b].append((t.timestamp(), 'error'))
         continue
     arm = 'canary' if pool_of(b) in CANS else 'control'
     period = 'post' if t >= CUT else 'pre'
@@ -247,6 +397,15 @@ for r in rows_all:
                 g['dist'].append(dist)
                 g['near'] += logs if dist <= TOWN else 0
         continue
+    # C3's evidence (canary, post): the runner's tend_farm rows (stamped at the run's START, = the _farm_tend row's t0) with
+    # their bag delta, and the bot's scaffold placement attempts (reflex pillar picks, pathfinder place errors)
+    if period == 'post' and arm == 'canary':
+        if k == 'tend_farm':
+            tend_runs[b].append((t.timestamp(), sk.get('inventory_delta')))
+        elif k == '_scaffold_pick':
+            place_ev[b].append((t.timestamp(), 'pick'))
+        elif k == '_path_reset' and d.startswith('place_error'):
+            place_ev[b].append((t.timestamp(), 'error'))
     if k not in ('_farm_tend', '_farm_place', '_farm_site') or period != 'post':
         continue
     rows[arm] += 1
@@ -265,10 +424,12 @@ for r in rows_all:
         if num(f, 'offplan') > 0:
             c1.append((b, 'offplan=%s' % f.get('offplan')))
         if num(f, 'lost') > 0:
-            c3.append((b, 'lost=%s' % f.get('lost')))
+            c3_cand.append((b, t.timestamp(), num(f, 't0') / 1000.0, num(f, 'lost'), num(f, 'scaffold')))
         scaffold_used[0] += num(f, 'scaffold'); planted += num(f, 'planted'); cleared += num(f, 'cleared'); torches += num(f, 'torches'); soil += num(f, 'soil')
         # USED = the larger of the confirmed uses and the bag's own loss over the visit (a use whose bag update came late)
         bonemeal_used += max(num(f, 'bonemeal'), num(f, 'bm_spent')); bm_grew += num(f, 'bm_grew')
+        if num(f, 'bm_spent') > 0 and num(f, 'bonemeal') == 0:
+            bm_bagonly.append((b, t.strftime('%H:%M:%SZ'), 'bm_spent=%d with 0 confirmed uses' % num(f, 'bm_spent')))
         inv = inv_of(raw)
         if inv is not None:
             inv_seen += 1
@@ -280,6 +441,8 @@ for r in rows_all:
             for k2 in ('soil_foreign', 'cell_foreign', 'column_foreign'):
                 foreign[k2] += cz.get(k2, 0)
 
+# C3: each lost row against its own visit's bag delta and placement attempts (judge_c3_rows)
+c3, c3_excused = judge_c3_rows(c3_cand, tend_runs, place_ev)
 # C1: confirmed placements against the records on disk
 rec_cache = {}
 nrec = 0
@@ -339,8 +502,12 @@ bm_per_bh = bonemeal_used / can_bh if can_bh else float('nan')
 tick_share = (sum(near_rows.values()) / sum(all_rows.values())) if sum(all_rows.values()) else float('nan')
 print('-' * 78)
 print('LIVENESS     canary farm rows %d (>= 1) | control %d (must be 0) | other build %d' % (rows['canary'], rows['control'], offbuild))
-print('CORRECTNESS  C1 off-plan %d | C2 two builders %d | C3 items lost %d | C4 double founding %s | records on disk %d (unreadable pools %s)'
-      % (len(c1), len(c2), len(c3), c4 or 0, nrec, unreadable or '-'))
+print('CORRECTNESS  C1 off-plan %d | C2 two builders %d | C3 items lost %d (rows with lost > 0: %d; excused as late scaffold %d) | C4 double founding %s | records on disk %d (unreadable pools %s)'
+      % (len(c1), len(c2), len(c3), len(c3_cand), len(c3_excused), c4 or 0, nrec, unreadable or '-'))
+for x in c3_excused:
+    print('  C3 excused (named):', x)
+for x in bm_bagonly:
+    print('  BONE MEAL by the bag only (named; counts in bonemeal_used):', x)
 print('INSTRUMENT   control log gathers with logs > 0: %d (>= 20)' % inst)
 print('FARM         sites %d (replaced %s) | visits %s | planted %d cleared %d torches %d soil %d | trees seen at visit max %s | taken by another structure %s'
       % (founded, replaced or 0, dict(tend_status), planted, cleared, torches, soil, max(grown_seen) if grown_seen else '-', dict(foreign) or 0))
@@ -361,7 +528,7 @@ try:
     from readjson import emit
     emit('treefarmread', W, {
         'rows_canary': rows['canary'], 'rows_control': rows['control'], 'offbuild_canary': offbuild,
-        'c1_offplan': len(c1), 'c2_two_builders': len(c2), 'c3_lost': len(c3), 'c4_double_founding': len(c4),
+        'c1_offplan': len(c1), 'c2_two_builders': len(c2), 'c3_lost': len(c3), 'c3_late_scaffold_excused': len(c3_excused), 'c4_double_founding': len(c4),
         'instrument_control': inst, 'exposure_ready': exposure, 'sites_founded': founded, 'planted': planted, 'cleared': cleared,
         'torches': torches, 'bonemeal_used': bonemeal_used, 'bonemeal_grew': bm_grew, 'bonemeal_per_bh': nan(bm_per_bh),
         'c5_bonemeal_no_growth': c5, 'c6_bonemeal_reserve': len(c6), 'tend_rows_with_inventory': inv_seen, 'tick_share': nan(tick_share),
