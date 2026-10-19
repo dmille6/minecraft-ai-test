@@ -422,6 +422,101 @@ await t('2c THE TALLY IS THE SERVER\'S: an abort that lands after the server ans
   assert.equal(row?.args?.stop, 'aborted:stuck', 'the row names why it was aborted')
 })
 
+// ------------------------------------------------------------------ bamboo-02 REVERT (fleet 10-19): the in-flight craft at a stop
+await t('foldTally: the THREE fleet G3 rows (stagnation aborts, hive-b) each credit the one craft in flight -- bamboo gone = 2 x the tally', () => {
+  const rows = [  // [claimed, planned, b0, b1, s0, s1] exactly as the canary logged them (Bravo 04:12, Alpha 04:25, Comet 04:32)
+    [0, 32, 128, 126, 11, 12], [6, 32, 64, 50, 25, 32], [7, 36, 263, 247, 0, 8]]
+  for (const [claimed, planned, b0, b1, s0, s1] of rows) {
+    const t = B.foldTally({ claimed, planned, before: { bamboo: b0, sticks: s0 }, after: { bamboo: b1, sticks: s1 }, status: 'aborted' })
+    assert.deepEqual(t, { crafts: claimed + 1, inflight: 1 }, JSON.stringify({ claimed, b0, b1, s0, s1 }))
+    assert.equal(b0 - b1, 2 * t.crafts, 'the read\'s G3 identity holds on the corrected tally')
+    assert.ok(b0 - b1 > 2 * claimed, 'POSITIVE CONTROL: the uncorrected tally trips G3 on this row')
+  }
+})
+await t('foldTally never hides lost bamboo: a stranded grid (bamboo gone, no stick), a stick pickup alone, a success, the plan, at most ONE', () => {
+  const at = (claimed, b, s, status = 'aborted', planned = 32) =>
+    B.foldTally({ claimed, planned, before: { bamboo: b[0], sticks: s[0] }, after: { bamboo: b[1], sticks: s[1] }, status })
+  assert.deepEqual(at(6, [64, 48], [25, 31]), { crafts: 6, inflight: 0 }, 'grid stranded 4 bamboo: no stick to show, nothing credited')
+  assert.deepEqual(at(6, [64, 50], [25, 31]), { crafts: 6, inflight: 0 }, 'grid stranded 2 bamboo (the in-flight craft never made): nothing credited')
+  assert.deepEqual(at(6, [64, 52], [25, 40]), { crafts: 6, inflight: 0 }, 'sticks picked up, bamboo as claimed: nothing credited')
+  assert.deepEqual(at(3, [64, 54], [25, 30]), { crafts: 4, inflight: 1 }, 'the bag shows 5: still only ONE execution can be in flight')
+  assert.deepEqual(at(32, [64, 0], [32, 64], 'success'), { crafts: 32, inflight: 0 })
+  assert.deepEqual(at(4, [64, 54], [25, 30], 'success'), { crafts: 4, inflight: 0 }, 'a success verified every execution: nothing is added')
+  assert.deepEqual(at(32, [66, 0], [32, 65], 'aborted', 32), { crafts: 32, inflight: 0 }, 'never past the plan')
+  assert.deepEqual(at(32, [66, 0], [32, 65], 'aborted', 33), { crafts: 33, inflight: 1 }, 'POSITIVE CONTROL: the same bag one under the plan is credited')
+  assert.deepEqual(at(0, [undefined, undefined], [0, 0]), { crafts: 0, inflight: 0 }, 'an unreadable bag credits nothing')
+  for (const status of ['no_effect', 'failed']) assert.equal(at(2, [10, 4], [0, 3], status).crafts, 3, status)
+})
+
+await t('THE ABORT PATH (bamboo-02 fleet REVERT): a stop that lands while the 3rd craft is in flight -- after the server made it, before craftsync attributed it -- leaves the stick in the bag, nothing in the grid, cursor or on the ground, and the row counts it', async () => {
+  const { server, bot, rows } = await setup(bag({ 36: ['bamboo', 64], 37: ['stick', 32], 38: ['oak_planks', 10] }, 36))
+  const ac = new AbortController()
+  const recv = server.receive.bind(server)
+  let takes = 0, fired = false
+  server.receive = (name, params) => {
+    const out = recv(name, params)
+    // the 3rd RESULT-SLOT click: the server has consumed the grid and holds the 3rd stick on its cursor; mineflayer's
+    // put-away and craftsync's verification are still to come -- the stagnation abort's moment on the fleet
+    if (name === 'window_click' && params.windowId === 0 && params.slot === 0 && params.stateId !== -1 && ++takes === 3 && !fired) {
+      fired = true; ac.abort()
+    }
+    return out
+  }
+  await assert.rejects(SKILLS.bamboo_sticks.run({ bot, runner: { interruptedReason: 'stagnation' } }, {}, ac.signal), e => e?.aborted === true)
+  await server.settle(); server.stop()
+  await new Promise(r => setTimeout(r, 100))
+  assert.ok(fired, 'the abort never landed on the 3rd craft')
+  // THE WORLD (the fake Paper's own slots): the made stick is in the bag; bamboo spent exactly 2 per stick; nothing stranded
+  assert.equal(server.count('stick') - 32, 3, 'the server should hold exactly 3 new sticks')
+  assert.equal(server.count('bamboo'), 64 - 6, 'bamboo left the bag without becoming sticks')
+  assert.equal(server.cursor, null, 'the cursor still holds an item')
+  assert.deepEqual(server.gridOf(0).slice(1).filter(Boolean), [], 'the 2x2 grid still holds items')
+  assert.deepEqual(server.dropped, [], 'an item was thrown')
+  assert.equal(server.count('oak_planks'), 10)
+  // POSITIVE CONTROL: this is the fleet's shape -- craftsync could not attribute the 3rd craft (aborted, produced null)
+  const last = rows.at(-1)?.args
+  assert.equal(last?.outcome, 'aborted', JSON.stringify(last))
+  assert.equal(last?.produced ?? null, null, 'craftsync attributed the craft: this scene is not the fleet\'s')
+  // THE ROW: the tally is the server's, the in-flight craft credited and flagged; the read's G3 identity holds
+  const row = rowsOf('_bamboo_sticks').at(-1)?.skill
+  assert.equal(row?.args?.stop, 'aborted:stagnation')
+  assert.equal(row?.args?.crafts, 3, `row crafts=${row?.args?.crafts}, server +${server.count('stick') - 32}`)
+  assert.equal(row?.args?.inflight, 1)
+  assert.equal(row.args.b0 - row.args.b1, 2 * row.args.crafts, 'G3: bamboo gone > 2 x crafts')
+  assert.equal(row.args.s1 - row.args.s0, row.args.crafts, 'G2: sticks gained < crafts')
+})
+
+await t('THE ABORT PATH, BRAVO\'S SHAPE (Claude review): the stop lands as craftsync starts verifying the 3rd craft -- its after-resync is skipped, the count only local -- and the row still counts the made craft, nothing stranded', async () => {
+  const { server, bot, rows } = await setup(bag({ 36: ['bamboo', 64], 37: ['stick', 32], 38: ['oak_planks', 10] }, 36))
+  const ac = new AbortController()
+  const recv = server.receive.bind(server)
+  let closes = 0, fired = false, sticksAtStop = null
+  server.receive = (name, params) => {
+    const out = recv(name, params)
+    // each craft closes window 0 twice (the baseline, then the verification): the 6th close is the 3rd craft's
+    // verification -- the abort lands inside that write, so the resync that would follow it is skipped
+    if (name === 'close_window' && params.windowId === 0 && ++closes === 6 && !fired) {
+      fired = true; sticksAtStop = server.count('stick'); ac.abort()
+    }
+    return out
+  }
+  await assert.rejects(SKILLS.bamboo_sticks.run({ bot, runner: { interruptedReason: 'stagnation' } }, {}, ac.signal), e => e?.aborted === true)
+  await server.settle(); server.stop()
+  await new Promise(r => setTimeout(r, 100))
+  assert.ok(fired, 'the abort never landed')
+  assert.equal(sticksAtStop - 32, 3, 'POSITIVE CONTROL: the 3rd stick was made before the stop')
+  assert.equal(server.count('stick') - 32, 3); assert.equal(server.count('bamboo'), 64 - 6)
+  assert.equal(server.cursor, null); assert.deepEqual(server.gridOf(0).slice(1).filter(Boolean), []); assert.deepEqual(server.dropped, [])
+  const last = rows.at(-1)?.args
+  assert.equal(last?.outcome, 'aborted', JSON.stringify(last))
+  assert.match(String(last?.verify_source), /^local/, 'POSITIVE CONTROL: the fleet\'s Bravo shape -- the count is not the server\'s')
+  assert.match(String(last?.grid_clear), /^unverified/, 'the read\'s Bravo path is "clean", not "server": the grid clear was not verified')
+  const row = rowsOf('_bamboo_sticks').at(-1)?.skill
+  assert.equal(row?.args?.crafts, 3, `row crafts=${row?.args?.crafts}`)
+  assert.equal(row?.args?.inflight, 1)
+  assert.equal(row.args.b0 - row.args.b1, 2 * row.args.crafts)
+})
+
 await t('2d A FOLD IS JUDGED BY THE SLOT IT FREED: spent bamboo alone is not the contract\'s change', () => {
   const spentOnly = classifyOutcome('bamboo_sticks', 'success', { inventory: { bamboo: -30, stick: 15 }, slotsFreed: 0 })
   assert.equal(spentOnly.value, 'neutral', 'bamboo -30 with no slot freed is not the change a fold exists for')

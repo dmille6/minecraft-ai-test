@@ -148,6 +148,29 @@ export function bambooGate (items = [], remaining = 0, { stickCap = STICK_CAP } 
 }
 
 /**
+ * THE FOLD'S TALLY WHEN IT STOPPED SHORT -> { crafts, inflight }. Pure.
+ *   claimed  executions the executor verified, plus any count craftsync attributed to the stop (authoritative)
+ *   before / after  { bamboo, sticks } as the row reads the bag at the start and in the finally
+ * A STOP CAN LAND AFTER THE SERVER MADE THE EXECUTION IN FLIGHT BUT BEFORE CRAFTSYNC COULD ATTRIBUTE IT -- the abort
+ * reaches craftsync while mineflayer's craft is still settling (produced null) or while its verification resync is
+ * unanswered (produced local, not authoritative). bamboo-02 on the fleet (10-19): all 3 stagnation aborts were exactly
+ * one short (bamboo gone = 2 x sticks gained = 2 x (crafts + 1)), and the read's G3 counted the made craft as lost
+ * bamboo. The bag then shows the craft on BOTH sides -- two more bamboo gone AND one more stick than claimed -- so it
+ * is credited, but AT MOST ONE (only one execution is ever in flight) and never past `planned`. A success verified
+ * every execution: nothing is added. A stranded grid (bamboo gone, no stick) is never credited, so G3 still sees it.
+ */
+export function foldTally ({ claimed = 0, planned = 0, before = {}, after = {}, status = 'success' } = {}) {
+  const c = Math.max(0, Math.floor(Number(claimed) || 0))
+  if (status === 'success') return { crafts: c, inflight: 0 }
+  const spent = Number(before.bamboo) - Number(after.bamboo)
+  const gained = Number(after.sticks) - Number(before.sticks)
+  if (!Number.isFinite(spent) || !Number.isFinite(gained)) return { crafts: c, inflight: 0 }
+  const made = Math.min(Math.floor(spent / 2), gained)
+  const inflight = made > c && c < Number(planned) ? 1 : 0
+  return { crafts: c + inflight, inflight }
+}
+
+/**
  * THE BAMBOO RECIPE, never craft('stick')'s first pick (which may spend planks) -> the recipe | null. Pure.
  * Among `recipes` (mineflayer Recipe objects for a stick), the one whose ONLY ingredient is bamboo.
  */
