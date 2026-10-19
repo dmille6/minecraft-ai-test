@@ -101,6 +101,17 @@ mcai-rl02 (recovery-ladder-03) carries the daily copy and status reports, unpush
 
 ---
 
+## 10-19 14:00Z — PLINTHFIRST-01 read: KEEP recorded (direct rollout 01:30Z; tripwire window to 13:43Z) -- SHIPPED
+- plinthfirsttrip.py OK every run 01:28-13:43Z (no natural well dug under the policy, no replan without evidence, no isolated
+  plan, no second plinth beside a first in a shared town). plinth2trip one BREACH 08:39Z: P4 board-d raised well 363,73,134
+  retired (wall_is_air: a gather-entombed bot escaped through it) -> the town replanned (structural, twice) and built a new
+  plinth + well at 366,73,138 by itself; P5 two stuck episodes, misattributed (daily session read: one was the end of a 30-block
+  livelock relocation, one matched another world's cap horizontally -- P5 should match caps per world in 3-D). Reviewed, no
+  rollback. Clean 12:05-13:43Z. Follow-ups: escape should prefer a non-well exit; P5 per-world 3-D matching.
+- Single control session: the daily scheduled task `mcai-daily-session` is DISABLED (owner 10-19 "one session to control").
+- Added 10-19: nightly world backups (NAS, 03:15Z, verified), goalboard (daily 01:40Z on .31; census 00:15Z on .30, relayed
+  via the Mac launch agent com.mcai.goalcensus-relay), overseer design r3 (S0 census first; not an actor yet).
+
 ## 10-19 12:50Z — (daily operator session) bamboo-02 REVERT reviewed (G3 defect, death not linked), R11 released; treefarm-02 re-stacked on adbec4f4 (0b3a0d4c) and queued; plinth tripwires read (P5 named, no rollback); coordination handed to the live operator session
 - **Found at start (11:08Z):** no open canary; fleet adbec4f4 on 80/80 (townsearch-02 KEPT +720 01:06Z + promoted; plinthfirst-01 direct
   01:26Z; bamboo-02 launched 02:01Z, REVERTED +180 05:11Z, torn down 05:15Z); scheduler BLOCKED R11 since 05:20Z. Nothing to close.
