@@ -29,9 +29,11 @@ const { LlmClient } = await import('../src/llm.mjs')
 const { composePool } = await import('../src/brain.mjs')
 
 let pass = 0, fail = 0
+// The ceiling (60 s) sits ABOVE the global 45 s budget on purpose: a fallback that waited the global budget must fail
+// on this file's own elapsed-time ASSERTION, not on the ceiling (Codex r1: a ceiling throw is not an assertion).
 const t = async (name, fn) => {
   let timer
-  const ceiling = new Promise((_, rej) => { timer = setTimeout(() => rej(new Error('exceeded the 15 s test ceiling')), 15_000) })
+  const ceiling = new Promise((_, rej) => { timer = setTimeout(() => rej(new Error('exceeded the 60 s test ceiling')), 60_000) })
   try { await Promise.race([fn(), ceiling]); pass++; console.log(`  PASS  ${name}`) }
   catch (e) { fail++; console.log(`  FAIL  ${name}\n        ${e.stack?.split('\n').slice(0, 3).join(' | ')}`) }
   finally { clearTimeout(timer) }

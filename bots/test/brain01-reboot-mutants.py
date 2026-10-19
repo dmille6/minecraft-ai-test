@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 """brain-01 Studio-reboot mutants for test/brain01-reboot.test.mjs (real sockets). Run on a COPY of the tree:
 python3 brain01-reboot-mutants.py <copy-root> (the copy needs bots/node_modules). Same contract as brain01-mutants.py:
-each anchor present exactly once, KILLED only by an assertion (a FAIL line), source restored in `finally`, a baseline
+each anchor present exactly once, KILLED only by an ASSERTION: a FAIL line whose detail line names AssertionError
+(the harness prints FAIL for ANY throw, including its own 60 s ceiling, so a FAIL line alone is not enough; Codex r1), source restored in `finally`, a baseline
 run must pass first, any SURVIVED or NOT-AN-ASSERTION exits 1."""
 import subprocess, sys
 base = sys.argv[1]
@@ -10,9 +11,12 @@ def run():
         r = subprocess.run(['node', 'test/brain01-reboot.test.mjs'], cwd=base + '/bots', capture_output=True, text=True, timeout=180)
     except subprocess.TimeoutExpired as e:
         out = (e.stdout or b'').decode() if isinstance(e.stdout, bytes) else (e.stdout or '')
-        return 124, [], 'TIMEOUT after 180 s; last test line: ' + (out.strip().splitlines() or [''])[-1]
-    return r.returncode, [l.strip() for l in r.stdout.splitlines() if l.strip().startswith('FAIL')], r.stderr
-rc, fails, err = run()
+        return 124, [], [], 'TIMEOUT after 180 s; last test line: ' + (out.strip().splitlines() or [''])[-1]
+    L = [l.strip() for l in r.stdout.splitlines()]
+    fails = [L[i] for i in range(len(L)) if L[i].startswith('FAIL')]
+    asserted = [L[i] for i in range(len(L) - 1) if L[i].startswith('FAIL') and 'AssertionError' in L[i + 1]]
+    return r.returncode, fails, asserted, r.stderr
+rc, fails, asserted, err = run()
 assert rc == 0 and not fails, 'BASELINE NOT GREEN: %s %s' % (fails[:2], err[-300:])
 M = [
  # a hung tunnel would cost the global 45 s budget instead of the Studio's own
@@ -33,11 +37,11 @@ for name, f, old, new in M:
     assert src.count(old) == 1, 'ANCHOR %s (%d)' % (name, src.count(old))
     try:
         open(p, 'w').write(src.replace(old, new))
-        rc, fails, err = run()
+        rc, fails, asserted, err = run()
     finally:
         open(p, 'w').write(src)
-    verdict = 'KILLED' if (rc and fails) else ('NOT-AN-ASSERTION' if rc else 'SURVIVED')
+    verdict = 'KILLED' if (rc and asserted) else ('NOT-AN-ASSERTION' if rc else 'SURVIVED')
     bad += verdict != 'KILLED'
-    print(verdict, '|', name, '|', fails[0][:110] if fails else err.strip().splitlines()[-1][:110] if err.strip() else '')
+    print(verdict, '|', name, '|', (asserted or fails)[0][:110] if fails else err.strip().splitlines()[-1][:110] if err.strip() else '')
 print('%d of %d killed by an assertion' % (len(M) - bad, len(M)))
 sys.exit(1 if bad else 0)
