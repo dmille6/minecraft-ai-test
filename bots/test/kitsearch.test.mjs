@@ -28,7 +28,7 @@ freshPool()
 
 const K = await import('../src/toolkit.mjs')
 const { kitVisitStep, kitSearchEnd, toolkitOrder, toolkitOutcome, toolkitRow, kitSearchModeDetail, KIT, KIT_SEARCH_VISITS, KIT_CRAFT_RESERVE_MS,
-        TOOLKIT_COOLDOWN_MS, TOOLKIT_BACKOFF_MS, KIT_IRON_NEED } = K
+        TOOLKIT_COOLDOWN_MS, TOOLKIT_BACKOFF_MS, KIT_IRON_NEED, kitTakes, kitIronNeed, kitIronMissNeeds, KIT_MORE_MAX } = K
 const S0 = await import('../src/skills.mjs')
 const CF = await import('../src/chestfull.mjs')
 const CC = await import('../src/cobblecap.mjs')
@@ -125,6 +125,39 @@ await t('toolkitOutcome: kit_search_more costs only the cooldown; kit_no_iron ba
   assert.equal(toolkitOutcome('failed', now, {}, 'kit_no_iron').backoffUntil, now + TOOLKIT_BACKOFF_MS)
   assert.equal(toolkitOutcome('success', now, { backoffUntil: now + 5 }).backoffUntil, 0)
 })
+await t(`toolkitOutcome: at most ${KIT_MORE_MAX} \`more\` runs in a row go without backoff; the next backs off and the streak starts over; any other outcome resets it (Claude r1 P2)`, () => {
+  const now = 1e12
+  let s = {}
+  for (let i = 1; i <= KIT_MORE_MAX; i++) { s = toolkitOutcome('failed', now, s, 'kit_search_more'); assert.equal(s.backoffUntil ?? 0, 0, `more #${i}`) }
+  s = toolkitOutcome('failed', now, s, 'kit_search_more')
+  assert.equal(s.backoffUntil, now + TOOLKIT_BACKOFF_MS, `more #${KIT_MORE_MAX + 1} backs off`); assert.equal(s.moreStreak, 0)
+  s = toolkitOutcome('failed', now, { moreStreak: 2 }, 'kit_draw'); assert.equal(s.moreStreak, 0)
+  assert.equal(toolkitOutcome('failed', now, {}, 'kit_search_stalled').backoffUntil, now + TOOLKIT_BACKOFF_MS, 'stalled backs off')
+  assert.equal(toolkitOutcome('failed', now, {}, 'kit_search_unseen').backoffUntil, now + TOOLKIT_BACKOFF_MS, 'unseen backs off')
+})
+await t('kitSearchEnd: candidates left WITHOUT progress is `stalled` (backs off); an exhausted search of a town not wholly seen is `unseen`, never no_iron (Codex r1 P1/P2)', () => {
+  assert.deepEqual(kitSearchEnd({ left: 4, progressed: false }), { outcome: 'stalled', failClass: 'kit_search_stalled' })
+  assert.deepEqual(kitSearchEnd({ left: 0, coverage: false }), { outcome: 'unseen', failClass: 'kit_search_unseen' })
+  assert.deepEqual(kitSearchEnd({ left: 0, coverage: false, noSticks: true }), { outcome: 'no_sticks', failClass: 'kit_no_sticks' }, 'a known remedy first')
+  assert.deepEqual(kitSearchEnd({ left: 0, coverage: true }), { outcome: 'no_iron', failClass: 'kit_no_iron' })
+})
+const ironFirst = (KK = K) => {
+  const draw = { ingots: 4, sticks: 6 }
+  const empty = KK.kitTakes([stack('dirt', 5)], draw, { sticksMakeable: 0 })
+  assert.ok(!empty.noSticks, `an EMPTY chest is short of iron, not of sticks: ${empty.why}`)
+  assert.deepEqual(empty.takes, [])
+  assert.equal(KK.kitTakes([stack('iron_ingot', 20)], draw, { sticksMakeable: 0 }).noSticks, true, 'the iron there and no sticks: no_sticks')
+  assert.deepEqual(KK.kitTakes([stack('iron_ingot', 20), stack('stick', 9)], draw, { sticksMakeable: 0 }).takes, [{ name: 'iron_ingot', count: 4 }, { name: 'stick', count: 6 }])
+}
+await t('kitTakes: the IRON is judged before the sticks -- a chest short of iron is a miss whatever the sticks (Codex r1 P1)', () => {
+  ironFirst()
+})
+await t('THE MISS IS PER DRAW SIZE (Codex r1 P5): kit_iron for the whole kit\'s 4, kit_iron_<n> below; a container seen holding h is a miss for every n with n + 4 > h', () => {
+  assert.equal(kitIronNeed(4), KIT_IRON_NEED); assert.equal(kitIronNeed(3), 'kit_iron_3'); assert.equal(kitIronNeed(1), 'kit_iron_1')
+  assert.deepEqual(kitIronMissNeeds(0), ['kit_iron_1', 'kit_iron_2', 'kit_iron_3', 'kit_iron'])
+  assert.deepEqual(kitIronMissNeeds(6), ['kit_iron_3', 'kit_iron'], '6 gives 1 or 2 with 4 kept')
+  assert.deepEqual(kitIronMissNeeds(8), [], 'a whole kit\'s worth')
+})
 await t('THE ROW: the search\'s counters come right after the gate fields, before the 300-character cut can reach them (long tool tags)', () => {
   const tags = Array.from({ length: 12 }, (_, i) => `stone_pickaxe@${i + 1}`).join(',')
   const d = toolkitRow({ needs: ['iron_axe', 'iron_shovel'], outcome: 'more', before: tags, after: tags, tried: ['1,2,3:none'],
@@ -138,7 +171,9 @@ await t('THE ROW: the search\'s counters come right after the gate fields, befor
 // ------------------------------------------------------------------------------------------------- the skill, end to end
 const farChest = async S => {
   const w = farTown()
-  const r = await kit(S, w)
+  let ksAtCraft = null
+  const craft = fakeCraft(w)
+  const r = await S.SKILLS.toolkit.run({ bot: w.bot, kitCraft: async (c, a) => { ksAtCraft ??= RECS.filter(x => x.skill?.name === '_kit_search').length; return craft(c, a) } }, {}, new AbortController().signal)
   assert.equal(r.status, 'success', r.detail)
   assert.equal(count(w.bag, 'iron_axe'), 1); assert.equal(count(w.bag, 'iron_shovel'), 1)
   assert.equal(ironIn(w, FAR), 16, 'the far chest gave the 4'); assert.equal(count(w.bag, 'iron_ingot'), 0)
@@ -148,8 +183,9 @@ const farChest = async S => {
   assert.match(lastRow(), / town=10 cand=10 visits=10 vfail=0 maxrep=1 left=0 /, lastRow())
   // THE CHANGE ROW: one `_kit_search` per searched run, spanning the walks (the death linkage's own row)
   const ks = RECS.filter(r => r.skill?.name === '_kit_search').at(-1)?.skill
-  assert.match(ks?.detail ?? '', /^outcome=crafted need=kit_iron town=10 cand=10 visits=10 vfail=0 maxrep=1 left=0 tried=\[/, ks?.detail)
+  assert.match(ks?.detail ?? '', /^outcome=took need=kit_iron town=10 cand=10 visits=10 vfail=0 maxrep=1 left=0 tried=\[/, ks?.detail)
   assert.ok(Number.isFinite(ks.duration_ms) && ks.duration_ms >= 0)
+  assert.equal(ksAtCraft, RECS.filter(x => x.skill?.name === '_kit_search').length, 'written when the search ENDED, before the first craft (Codex r1 P3)')
   return w
 }
 await t('THE FAR CHEST (the owner\'s scene): 10 chests, iron only in the farthest -- the draw walks chest to chest (nearest the bot) and crafts the kit there; no chest opened twice', async () => {
@@ -233,6 +269,64 @@ const doubleWalled = async S => {
 await t('A WALLED-IN DOUBLE CHEST nearest the bot costs ONE visit (both halves are one container), then the search goes on and the far chest gives the kit', async () => {
   await doubleWalled(S0)
 })
+// THE STICKLESS BOT (Codex/Claude r1 P1): 20 dirt chests, iron AND sticks only in the farthest, a bag with no sticks and no
+// wood. Run 1 looks in 12 and says `more` (each a miss: the iron is judged first); run 2 continues and makes the kit there.
+const stickless = async (S, KK = K) => {
+  const w = farTown({ bag: [T('iron_pickaxe', 200), stack('crafting_table', 1)], near: GRID.filter(c => kOf(c) !== kOf(LAST)) })
+  w.set(...FAR, 'air'); w.containers.delete(kOf(FAR))
+  w.set(...LAST, 'chest'); w.stock(...LAST, [stack('iron_ingot', 20), stack('stick', 20)])
+  let state = {}
+  const runs = []
+  for (let i = 0; i < 4 && !count(w.bag, 'iron_axe'); i++) {
+    if (i) later(TOOLKIT_COOLDOWN_MS)
+    const o = KK.toolkitOrder({ now: Date.now(), atTown: true, items: w.bag, container: true, townMiss: () => S.townKitIronMiss(w.bot), tableNear: true, state })
+    state = o.state
+    if (!o.order) { runs.push('none'); continue }
+    const r = await kit(S, w); runs.push(r.failClass ?? r.status)
+    state = KK.toolkitOutcome(r.status, Date.now(), state, r.failClass)
+  }
+  assert.deepEqual(runs, ['kit_search_more', 'success'], `runs ${runs}`)
+  assert.equal(count(w.bag, 'iron_axe'), 1); assert.equal(ironIn(w, LAST), 16)
+  assert.equal(new Set(w.spy.opened).size, w.spy.opened.length, 'nothing opened twice')
+}
+await t('THE STICKLESS BOT (Codex/Claude r1 P1): 20 chests, iron and sticks only in the farthest, no sticks or wood in the bag -- run 1 `more` (12 misses), run 2 makes the kit there', async () => {
+  await stickless(S0)
+})
+// IRON WITHOUT STICKS EVERYWHERE, a stickless bag: no_sticks (the remedy named) and those holders leave THIS bot's search
+// while the bag cannot make sticks -- the next run opens nothing and says no_sticks again; a log in the bag re-opens them
+await t('NO STICKS: every holder has the iron but no sticks, the bag no wood -> no_sticks; the next run opens nothing (held back), and with a log in the bag the kit is made', async () => {
+  const w = farTown({ bag: [T('iron_pickaxe', 200), stack('crafting_table', 1)], rest: [stack('iron_ingot', 20)], far: [stack('iron_ingot', 20)] })
+  const r1 = await kit(S0, w)
+  assert.equal(r1.failClass, 'kit_no_sticks', r1.detail); assert.match(r1.detail, /carry 1 log/)
+  assert.equal(w.spy.opened.length, 10)
+  later(TOOLKIT_COOLDOWN_MS + TOOLKIT_BACKOFF_MS)
+  const r2 = await kit(S0, w)
+  assert.equal(r2.failClass, 'kit_no_sticks', r2.detail); assert.equal(w.spy.opened.length, 10, 'held back: nothing opened')
+  w.bag.push({ ...stack('oak_log', 1), slot: 30 })
+  const r3 = await kit(S0, w)
+  assert.equal(r3.status, 'success', r3.detail)
+})
+await t('PER-SIZE MISSES in the real search: a chest of 6 ingots is a miss for the whole kit (it keeps 4) but not for a shovel-only bot, which takes 1 from it; the gates agree per bot', async () => {
+  const w = farTown({ far: [stack('dirt', 5)], near: [NEAR[0]], rest: [stack('iron_ingot', 6)] })
+  const r = await kit(S0, w)
+  assert.equal(r.failClass, 'kit_no_iron', r.detail)
+  assert.equal(S0.townKitIronMiss(w.bot), true, 'the whole-kit bot: a known miss')
+  w.bag.push({ ...T('iron_axe', 200), slot: 31 })                        // now only the shovel is wanted
+  assert.equal(S0.townKitIronMiss(w.bot), false, 'the shovel-only bot: the 6 still give 1 with 4 kept')
+  const r2 = await kit(S0, w)
+  assert.equal(r2.status, 'success', r2.detail); assert.equal(ironIn(w, NEAR[0]), 5)
+})
+await t('UNSEEN (Codex r1 P2): every container in view a live miss but a town column not loaded -> the gate does not close, and the run says `unseen`, never no_iron', async () => {
+  const w = farTown({ far: [stack('dirt', 5)] })
+  CF.updateTownMemory(memDir(), CF.townKey(HOME), null, e => { for (const k of [...NEAR, FAR].map(kOf)) { e._ingredient_miss ??= {}; e._ingredient_miss[k] = { [KIT_IRON_NEED]: Date.now() } } })
+  w.bot.world = { getColumnAt: p => (p.x > 10 ? null : {}) }                // the east columns not loaded
+  assert.equal(S0.townKitIronMiss(w.bot), false)
+  const r = await kit(S0, w)
+  assert.equal(r.failClass, 'kit_search_unseen', r.detail); assert.equal(w.spy.opened.length, 0)
+  w.bot.world = { getColumnAt: () => ({}) }                                 // CONTROL: all loaded -> the gate closes
+  later(30_000)                                                              // past the scan's 20 s cache
+  assert.equal(S0.townKitIronMiss(w.bot), true)
+})
 // THE GATE IS THE SEARCH: every container a live kit_iron miss but ONE, which this bot could not reach lately -> the gate says
 // "nothing here" and a forced run opens nothing (no false no_iron while uncounted containers remain, and no order for nothing)
 const gateAgrees = async S => {
@@ -249,18 +343,19 @@ const gateAgrees = async S => {
 await t('THE GATE IS THE SEARCH: all but one container a live miss and that one out of this bot\'s search -> townKitIronMiss true and a run opens nothing; CONTROL: the one still in the search -> false', async () => {
   await gateAgrees(S0)
 })
-// THE CRAFTS' RESERVE: with 70 s left on the skill's clock no visit starts (60 s reserved + the 15 s a visit needs): `more`
+// THE CRAFTS' RESERVE: with 70 s left on the skill's clock no visit starts (60 s reserved + the 15 s a visit needs): the
+// run learned nothing, so `stalled` (backs off), never no_iron
 const reserve = async S => {
   const w = farTown()
   const ctx = { runner: { current: { startedAt: Date.now() - (180_000 - 70_000) } } }
   const r = await kit(S, w, ctx)
-  assert.equal(r.failClass, 'kit_search_more', r.detail)
+  assert.equal(r.failClass, 'kit_search_stalled', r.detail)
   assert.equal(w.spy.opened.length, 0, 'no visit inside the crafts\' reserve')
   const w2 = farTown()
   const r2 = await kit(S, w2, { runner: { current: { startedAt: Date.now() - (180_000 - 170_000) } } })
   assert.equal(r2.status, 'success', `CONTROL, 170 s left: ${r2.detail}`)
 }
-await t(`THE CRAFTS' RESERVE: ${KIT_CRAFT_RESERVE_MS / 1000} s of the clock stay the crafts' -- 70 s left opens nothing (more); CONTROL: 170 s left draws and crafts`, async () => {
+await t(`THE CRAFTS' RESERVE: ${KIT_CRAFT_RESERVE_MS / 1000} s of the clock stay the crafts' -- 70 s left opens nothing (stalled); CONTROL: 170 s left draws and crafts`, async () => {
   await reserve(S0)
 })
 await t('STICKS ONLY (the credit covers the iron): the search is for sticks, which the journal counts -- the counted holder first, the counted-empty never', async () => {
@@ -372,11 +467,38 @@ await t('WIRED (structural, comments stripped): the licence row is written once 
 await t('MUTANTS: each removes one part of the kit search and a behaviour test above fails for it', async () => {
   const kills = {}
   kills.budget3 = await withMutant(SKILLS_PATH, 'n < KIT_SEARCH_VISITS && next.block', 'n < 3 && next.block', S => killedBy(() => farChest(S)))
-  kills.noMissMemory = await withMutant(SKILLS_PATH, "e => noteIngredientMisses(e, halvesOf(bot, cb.position, v.double), [KIT_IRON_NEED]))", 'e => e)', S => killedBy(() => noIronChain(S)))
-  kills.oldGate = await withMutant(SKILLS_PATH, 'try { return townSearchEmpty(bot, [KIT_IRON_NEED]) } catch { return false }',
-    `try { const isContainer = b => ['chest', 'barrel', 'trapped_chest'].includes(bot.registry.blocks[b.type]?.name)
-    const keys = townContainerKeys(bot, homeVec(), isContainer); if (keys == null) return false
-    return townIngredientMissComplete(readTownMemory(townDir(), homeTownKey(), bot.worldId ?? null), keys, [KIT_IRON_NEED]) } catch { return false }`, S => killedBy(() => gateAgrees(S)))
+  kills.noMissMemory = await withMutant(SKILLS_PATH, 'e => noteIngredientMisses(e, halvesOf(bot, cb.position, v.double), kitIronMissNeeds(ironSeen)))', 'e => e)', S => killedBy(() => noIronChain(S)))
+  // the old gate: every findBlocks key of the town, complete misses over them all (townContainerKeys, inlined)
+  kills.oldGate = await withMutant(SKILLS_PATH, '    return townSearchEmpty(bot, [kitIronNeed(d.ingots)])',
+    `    const home = homeVec()
+    const found = bot.findBlocks?.({ point: home, maxDistance: TOWN_SCAN_RADIUS, count: 256,
+      matching: b => ['chest', 'barrel', 'trapped_chest'].includes(bot.registry.blocks[b.type]?.name) && (!b.position || inTown(home, b.position)) }) ?? []
+    return townIngredientMissComplete(readTownMemory(townDir(), homeTownKey(), bot.worldId ?? null), found.map(posKey), [kitIronNeed(d.ingots)])`, S => killedBy(() => gateAgrees(S)))
+  kills.oneSizeMiss = await withMutant(SKILLS_PATH, 'kitIronMissNeeds(ironSeen)))', '[KIT_IRON_NEED]))', S => killedBy(async () => {
+    const w = farTown({ far: [stack('dirt', 5)], near: [NEAR[0]], rest: [stack('iron_ingot', 3)] })
+    await kit(S, w)                                                          // 3 held: short for every size
+    w.bag.push({ ...T('iron_axe', 200), slot: 31 })
+    assert.equal(S.townKitIronMiss(w.bot), true, 'a shovel-only bot knows 3 cannot give 1 with 4 kept')
+  }))
+  kills.noCoverage = await withMutant(SKILLS_PATH, 'coverage: !!last.view.coverage', 'coverage: true', S => killedBy(async () => {
+    const w = farTown({ far: [stack('dirt', 5)] })
+    CF.updateTownMemory(memDir(), CF.townKey(HOME), null, e => { for (const k of [...NEAR, FAR].map(kOf)) { e._ingredient_miss ??= {}; e._ingredient_miss[k] = { [KIT_IRON_NEED]: Date.now() } } })
+    w.bot.world = { getColumnAt: p => (p.x > 10 ? null : {}) }
+    const r = await kit(S, w)
+    assert.equal(r.failClass, 'kit_search_unseen')
+  }))
+  kills.noStreakCap = await withMutant(TK_PATH, '(!more || s.moreStreak > KIT_MORE_MAX)', '(!more)', KK => killedBy(() => {
+    let s = {}
+    for (let i = 0; i <= KK.KIT_MORE_MAX; i++) s = KK.toolkitOutcome('failed', 1e12, s, 'kit_search_more')
+    assert.ok(s.backoffUntil > 0, 'the streak is capped')
+  }))
+  kills.sticksFirst = await withMutant(TK_PATH, "  if (ingots > 0 && have < ingots + keep) return { takes: [], why: `holds ${have} iron_ingot, a kit draw needs ${ingots} + ${keep} kept`, ironHeld: have }\n", '', KK => killedBy(() => ironFirst(KK)))
+  kills.noStickHoldBack = await withMutant(SKILLS_PATH, 'if (atRisk) for (const k of bot.kitNoSticks.keys()) { kitTried.add(k); heldBack++ }', '', S => killedBy(async () => {
+    const w = farTown({ bag: [T('iron_pickaxe', 200), stack('crafting_table', 1)], rest: [stack('iron_ingot', 20)], far: [stack('iron_ingot', 20)] })
+    await kit(S, w); later(TOOLKIT_COOLDOWN_MS + TOOLKIT_BACKOFF_MS)
+    await kit(S, w)
+    assert.equal(w.spy.opened.length, 10, 'the second run held the no-stick holders back')
+  }))
   kills.noReserve = await withMutant(SKILLS_PATH, 'const pc = passClock(deadline, KIT_CRAFT_RESERVE_MS)', 'const pc = passClock(deadline, 0)', S => killedBy(() => reserve(S)))
   kills.noFailSkip = await withMutant(SKILLS_PATH, "if (v.result && step !== 'took') searchFailSkip(bot, cb, v.result.failClass)", '', S => killedBy(async () => {
     // an unreachable chest nearest the bot: the next run must not walk there first again
@@ -391,9 +513,9 @@ await t('MUTANTS: each removes one part of the kit search and a behaviour test a
     assert.equal(tries.length, 1, 'the next run did not walk to the unreachable chest again')
   }))
   // the skill's use of it (the chain) and the pure rule (its truth table)
-  kills.moreIsNoIron = await withMutant(SKILLS_PATH, 'const end = kitSearchEnd({ left: st.search.left, noSticks })', 'const end = kitSearchEnd({ left: 0, noSticks })', S => killedBy(() => resumes(S)))
-  kills.pureMore = await withMutant(TK_PATH, "if (Number(left) > 0) return { outcome: 'more', failClass: 'kit_search_more' }", '', KK => killedBy(() => pureEnd(KK)))
-  kills.moreBacksOff = await withMutant(TK_PATH, "if (status === 'failed' && !KIT_NO_BACKOFF.has(failClass)) s.backoffUntil", "if (status === 'failed') s.backoffUntil", KK => killedBy(() => resumes(S0, KK)))
+  kills.moreIsNoIron = await withMutant(SKILLS_PATH, 'const end = kitSearchEnd({ left: st.search.left, noSticks, progressed,', 'const end = kitSearchEnd({ left: 0, noSticks, progressed,', S => killedBy(() => resumes(S)))
+  kills.pureMore = await withMutant(TK_PATH, "if (Number(left) > 0) return progressed ?", "if (false) return progressed ?", KK => killedBy(() => pureEnd(KK)))
+  kills.moreBacksOff = await withMutant(TK_PATH, "const more = status === 'failed' && KIT_NO_BACKOFF.has(failClass)", 'const more = false', KK => killedBy(() => resumes(S0, KK)))
   const alive = Object.entries(kills).filter(([, k]) => !k).map(([n]) => n)
   assert.deepEqual(alive, [], `mutants that survived: ${alive}`)
   console.log(`        mutants killed: ${Object.keys(kills).join(', ')}`)

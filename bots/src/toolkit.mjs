@@ -118,14 +118,14 @@ export function kitMeans (items = [], { tableNear = false } = {}) {
 export function kitTakes (inChest = [], draw = {}, { keep = TOWN_IRON_KEEP, sticksMakeable = Infinity } = {}) {
   const ingots = Math.max(0, Number(draw.ingots) || 0), sticks = Math.max(0, Number(draw.sticks) || 0)
   const st = Math.min(sticks, held(inChest, 'stick'))
+  const have = held(inChest, 'iron_ingot')
+  // THE IRON FIRST (toolkit-03, Codex r1 P1): a container short of iron is a miss whatever the sticks -- judged before the
+  // sticks, or an empty chest read as `no_sticks` and was never remembered, so a stickless bot revisited it every run
+  if (ingots > 0 && have < ingots + keep) return { takes: [], why: `holds ${have} iron_ingot, a kit draw needs ${ingots} + ${keep} kept`, ironHeld: have }
   // NO IRON FOR A CRAFT THAT CANNOT FINISH: the sticks this container cannot give must be makeable from the bag's wood
   if (ingots > 0 && sticks - st > sticksMakeable) return { takes: [], why: `${sticks - st} stick(s) short and the bag's wood makes ${sticksMakeable}`, noSticks: true }
   const takes = []
-  if (ingots > 0) {
-    const have = held(inChest, 'iron_ingot')
-    if (have < ingots + keep) return { takes: [], why: `holds ${have} iron_ingot, a kit draw needs ${ingots} + ${keep} kept` }
-    takes.push({ name: 'iron_ingot', count: ingots })
-  }
+  if (ingots > 0) takes.push({ name: 'iron_ingot', count: ingots })
   if (st > 0) takes.push({ name: 'stick', count: st })
   return { takes, why: takes.length ? null : 'holds nothing the kit draws' }
 }
@@ -141,6 +141,20 @@ export function kitTakes (inChest = [], draw = {}, { keep = TOWN_IRON_KEEP, stic
 // is a `kit_iron` miss for SEARCH_MISS_TTL_MS (no deposit since) so the next run continues with the rest, and a visit that
 // could not look inside leaves this bot's search for SEARCH_FAIL_SKIP_MS. The order's gate is the SAME rule (townSearchEmpty).
 
+/**
+ * THE MISS IS PER DRAW SIZE (Codex r1 P5): "held too little iron" depends on how much this bot draws -- 4 for the whole kit
+ * (8 held), 3 for the axe (7), 1 for the shovel (5), less with a credit. The need name for a draw of n ingots: `kit_iron` for
+ * the whole kit's 4 (the name the base wrote, so its misses keep their meaning), `kit_iron_<n>` below it. Pure.
+ */
+export const kitIronNeed = n => (Math.max(1, Math.min(4, Math.floor(Number(n) || 4))) >= 4 ? KIT_IRON_NEED : `${KIT_IRON_NEED}_${Math.max(1, Math.floor(Number(n)))}`)
+/** A container seen holding `have` ingots is a miss for every draw size it cannot give with the keep: n + keep > have. Pure. */
+export const kitIronMissNeeds = (have = 0, keep = TOWN_IRON_KEEP) => [1, 2, 3, 4].filter(n => n + keep > (Number(have) || 0)).map(kitIronNeed)
+/** Can a container's lack of sticks stop this draw? Only when the iron is drawn and the bag's wood cannot make the sticks. */
+export const kitSticksAtRisk = (draw = {}, sticksMakeable = Infinity) => (Number(draw.ingots) || 0) > 0 && (Number(draw.sticks) || 0) > sticksMakeable
+/** A container that had the iron but not the sticks (and the bag could not make them) leaves THIS bot's kit search this long
+ *  -- while the bag still cannot make them -- so a stickless bot does not spend every run on the same holders. */
+export const KIT_NO_STICKS_SKIP_MS = 60 * 60 * 1000   // a miss's own life (SEARCH_MISS_TTL_MS): longer than a failed run's cooldown + backoff
+
 /** Containers one run may open for the draw (each visit ~1 s on Paper inside a town; the clock is the real bound). */
 export const KIT_SEARCH_VISITS = 12
 /** The draw starts no visit inside this much of the skill's clock: the crafts (a table walk, two `craft` runs) keep it. */
@@ -148,8 +162,12 @@ export const KIT_CRAFT_RESERVE_MS = 60_000
 /** A visit's result that moved nothing and says nothing about the town's iron -> the search moves on to the next container
  *  (withdrawpick SEARCH_FAIL_SKIP plus the stock claim the journal could not confirm). */
 export const KIT_VISIT_NEXT = Object.freeze(new Set(['chest_unreachable', 'container_blocked', 'stock_unconfirmed']))
-/** Failures that are not "the town has none": no backoff beyond the cooldown (the next run continues the search). */
+/** Failures that are not "the town has none": no backoff beyond the cooldown (the next run continues the search -- only
+ *  when this run made progress: kitSearchEnd says `stalled`, which backs off, when it did not). */
 export const KIT_NO_BACKOFF = Object.freeze(new Set(['kit_search_more']))
+/** ...and at most this many `more` runs in a row (Claude r1 P2): deposits end misses and misses expire, so a large or busy
+ *  town could hand every run new candidates; the next `more` after these backs off like any failure. */
+export const KIT_MORE_MAX = 3
 
 /**
  * WHAT ONE VISIT OF THE KIT'S SEARCH MEANS -> 'took' | 'next' | 'skip' | 'miss' | 'stop'. Pure over withdrawVisit's return.
@@ -169,14 +187,20 @@ export function kitVisitStep (v = {}) {
 
 /**
  * THE RUN'S ANSWER WHEN NO CONTAINER GAVE THE DRAW -> { outcome, failClass }. Pure.
- *   left      candidates the town search still has (townSearchOrder, after this run's visits)
- *   noSticks  a container held the iron but neither it nor the bag's wood had the sticks
- * Candidates left (the visit budget or the clock ran out first) is never "no iron": it is `more`, with no backoff, and the
- * next run continues where this one stopped. Only an exhausted search says no_iron (or no_sticks, which names a remedy).
+ *   left        candidates the town search still has (townSearchOrder, after this run's visits)
+ *   noSticks    a container held the iron but neither it nor the bag's wood had the sticks (this run, or one this bot's
+ *               search still skips for it)
+ *   progressed  this run learned something the next one uses: a miss recorded, or a container left out (a visit that could
+ *               not look inside, or one that lacked only the sticks)
+ *   coverage    the town scan saw every town container (townCobbleScan: not cut at its cap, every column loaded)
+ * Candidates left is never "no iron": `more`, with no backoff, the next run continues -- only when this run progressed
+ * (Codex r1 P1), else `stalled`, which backs off. An exhausted search over a town not wholly seen is `unseen`, never no_iron
+ * (Codex r1 P2). Only an exhausted search of the whole town says no_iron (or no_sticks, which names a remedy).
  */
-export function kitSearchEnd ({ left = 0, noSticks = false } = {}) {
-  if (Number(left) > 0) return { outcome: 'more', failClass: 'kit_search_more' }
+export function kitSearchEnd ({ left = 0, noSticks = false, progressed = true, coverage = true } = {}) {
+  if (Number(left) > 0) return progressed ? { outcome: 'more', failClass: 'kit_search_more' } : { outcome: 'stalled', failClass: 'kit_search_stalled' }
   if (noSticks) return { outcome: 'no_sticks', failClass: 'kit_no_sticks' }
+  if (!coverage) return { outcome: 'unseen', failClass: 'kit_search_unseen' }
   return { outcome: 'no_iron', failClass: 'kit_no_iron' }
 }
 
@@ -229,8 +253,11 @@ export function toolkitOrder ({ now = 0, on = TOOLKIT.on, atTown = false, items 
 export function toolkitOutcome (status, now = 0, state = {}, failClass = null) {
   const s = { ...state }
   if (DECLINED.has(failClass)) { s.lastIssuedAt = -Infinity; return s }   // refunded: the runner never started it
-  // a search cut by its budget with candidates left (kitSearchEnd `more`) is no answer about the town: only the cooldown
-  if (status === 'failed' && !KIT_NO_BACKOFF.has(failClass)) s.backoffUntil = now + TOOLKIT_BACKOFF_MS
+  // a search cut by its budget with candidates left (kitSearchEnd `more`) is no answer about the town: only the cooldown --
+  // up to KIT_MORE_MAX in a row, then it backs off too (and the streak starts over)
+  const more = status === 'failed' && KIT_NO_BACKOFF.has(failClass)
+  s.moreStreak = more ? (s.moreStreak ?? 0) + 1 : 0
+  if (status === 'failed' && (!more || s.moreStreak > KIT_MORE_MAX)) { s.backoffUntil = now + TOOLKIT_BACKOFF_MS; if (more) s.moreStreak = 0 }
   else if (status === 'success') s.backoffUntil = 0
   return s
 }
