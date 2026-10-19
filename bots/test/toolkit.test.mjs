@@ -287,7 +287,14 @@ await t('SKILL: no sticks in the container and no wood -> no iron drawn (kit_no_
   const r = await run(w, {}, { kitCraft: fakeCraft(w) })
   assert.equal(r.status, 'failed'); assert.equal(r.failClass, 'kit_no_sticks', r.detail); assert.match(r.detail, /carry 1 log/)
   assert.equal(count(w.bag, 'iron_ingot'), 0)
-  assert.equal(townKitIronMiss(w.bot), false, 'the iron is there: no miss recorded')
+  // NOT A MISS OF THE IRON: no kit_iron miss is recorded for it (toolkit-03: the holder is held back from THIS bot's search
+  // while its bag cannot make sticks, so the gate agrees -- and a log in the bag makes it a candidate again)
+  const { readTownMemory, townKey } = await import('../src/chestfull.mjs')
+  const mem = readTownMemory(process.env.POOL_STATE_DIR, townKey({ x: 0, y: 64, z: 0 }), null)
+  assert.equal(mem?._ingredient_miss?.['5,64,0']?.kit_iron, undefined, 'the iron is there: no miss recorded')
+  assert.equal(townKitIronMiss(w.bot), true, 'held back while the bag cannot make sticks')
+  w.bag.push({ ...stack('oak_log', 1), slot: 30 })
+  assert.equal(townKitIronMiss(w.bot), false, 'a log in the bag: a candidate again')
   // POSITIVE CONTROL: the same bag with one log's worth of planks past the table draws and crafts
   const w2 = withServer(town([T('iron_pickaxe', 200), stack('crafting_table', 1), stack('oak_planks', 4)], [stack('iron_ingot', 30)]))
   const r2 = await run(w2, {}, { kitCraft: fakeCraft(w2) })
