@@ -77,6 +77,10 @@ const SPEC = {
   // KJ20 (bamboo-03): K20 with the abort at a random phase of the ~1.1 s craft cycle, 4 s in (the fleet's stagnation
   // aborts landed 1-9 s into a fold)
   KJ20: { ...bag(36, [['bamboo', 64], ['stick', 32], PL]), damageAfterMs: 4000, jitterMs: 1200, env: { STUCK_SECONDS: 20 } },
+  // W30 (foldwatch-01): scene A20 under a SHORT stagnation window (30 s, samples every 2.5 s; MIN_BUSY = 10 s), so a
+  // 32-craft fold (~36 s, motionless, one item lost per craft) is judged by the stagnation watchdog while it runs: the
+  // base cuts it (aborted:stagnation); a build that exempts a progressing fold finishes it and frees the slot
+  W30: { ...bag(36, [['bamboo', 64], ['stick', 32], PL]), env: { STUCK_SECONDS: 20, WATCHDOG_WINDOW_MS: 30000, WATCHDOG_SAMPLE_MS: 2500 } },
 }
 function arenaCmds (spec) {
   const c = ['kill @e[type=!player,x=700,y=120,z=700,distance=..30]',
