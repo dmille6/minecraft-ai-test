@@ -72,6 +72,14 @@ export const SMELT_COAL_RESERVE_MS = 105_000
 /** The job's stop reason when a pass was cut by its budget with candidates left: no strike toward the pause (the next job
  *  continues the search), never `town_has_none` / `no_fuel`. */
 export const SMELT_SEARCH_MORE = 'search_more'
+/** ...at most this many in a row (Codex r2 P2: a town larger than the passes cover inside a miss's life could hand every
+ *  job new candidates); the next one backs off like a failure. A pass that learned NOTHING is `search_stalled`, a strike. */
+export const SMELT_MORE_MAX = 3
+export const SMELT_SEARCH_STALLED = 'search_stalled'
+/** The coal's own miss (toolkit-03): a town container that showed no coal, for as long as the copper's (2 h), so the coal
+ *  pass covers a large town before its misses expire (Codex r2 P2); ended at once by a deposit into it. */
+export const COAL_MISS_KEY = '_coal_miss'
+export const COAL_MISS_TTL_MS = 2 * 60 * 60 * 1000
 
 /** A town container that showed no raw copper is not looked in again for this long -- unless it has TAKEN items since. */
 export const COPPER_MISS_KEY = '_copper_miss'
@@ -142,7 +150,14 @@ export function smeltTownOutcome (status, why = null, now = 0, state = {}) {
   if (status === 'success') { s.streak = null; return s }
   if (status === 'failed') s.backoffUntil = now + SMELT_JOB_BACKOFF_MS
   if (status === 'aborted' || why === 'interrupted') return s           // a reflex took the body: no strike
-  if (why === SMELT_SEARCH_MORE) return s                               // a search cut with candidates left: no strike (toolkit-03)
+  // a search cut with candidates left that made progress: no strike (toolkit-03) -- SMELT_MORE_MAX in a row, then a backoff
+  if (why === SMELT_SEARCH_MORE) {
+    s.moreStreak = (s.moreStreak ?? 0) + 1
+    if (s.moreStreak <= SMELT_MORE_MAX) return s
+    s.moreStreak = 0; s.backoffUntil = now + SMELT_JOB_BACKOFF_MS
+    return s
+  }
+  s.moreStreak = 0
   const key = why ?? status
   const n = s.streak?.why === key ? (s.streak.n ?? 0) + 1 : 1
   s.streak = { why: key, n }
