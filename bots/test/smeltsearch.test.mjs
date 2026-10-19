@@ -227,6 +227,34 @@ await t('smeltTownOutcome: a success resets the `more` streak (the cap counts CO
   s = SJ.smeltTownOutcome('no_effect', SJ.SMELT_SEARCH_MORE, 1e12, s)
   assert.equal(s.backoffUntil ?? 0, 0)
 })
+/** A world whose lid digs work (toolkit.test.mjs's lidReady): a pickaxe harvests stone-like lids, the hand digs dirt. */
+const lidReady = w => {
+  const PICKS = ['wooden_pickaxe', 'stone_pickaxe', 'iron_pickaxe', 'golden_pickaxe'].map(n => w.bot.registry.itemsByName[n]?.id).filter(x => x != null)
+  const blockAt0 = w.bot.blockAt
+  w.bot.blockAt = p => { const b = blockAt0(p); if (b?.name === 'cobblestone') b.canHarvest = id => PICKS.includes(id); if (b?.name === 'dirt' || b?.name === 'grass_block') b.canHarvest = () => true; if (b?.name === 'chest') b.shapes = [[0.0625, 0, 0.0625, 0.9375, 0.875, 0.9375]]; return b }
+  w.bot.digTime = () => 750
+  w.bot.canDigBlock = () => true
+  w.digs = []
+  w.bot.dig = async b => { w.digs.push(w.key(b.position.x, b.position.y, b.position.z)); w.set(b.position.x, b.position.y, b.position.z, 'air') }
+  return w
+}
+// TOOLKIT-03 x COBBLEKEEP-01 (lids): the COAL pass goes through the same lid code -- the only coal under a dirt lid is dug out
+// and found; under an oak_planks lid the container is blocked, the pass moves on, and with no other coal the job says no_fuel
+await t('LIDS x COBBLEKEEP: coal under a dirt lid -> dug, found (past the fuel check); under oak_planks -> blocked, the pass moves on, no_fuel; nothing dropped', async () => {
+  const coalAt = CHESTS[3]
+  const scene = async lid => {
+    const w = lidReady(town({ coalAt }))
+    w.set(coalAt[0], coalAt[1] + 1, coalAt[2], lid)
+    const r = await job(S0, w)
+    return { w, r }
+  }
+  const d = await scene('dirt')
+  assert.equal(d.r.stop, 'no_furnace', `${d.r.status} ${d.r.stop} ${d.r.detail}`); assert.deepEqual(d.w.digs, [kOf([coalAt[0], coalAt[1] + 1, coalAt[2]])])
+  const p = await scene('oak_planks')
+  assert.equal(p.r.stop, 'no_fuel', `${p.r.status} ${p.r.stop} ${p.r.detail}`); assert.deepEqual(p.w.digs, [])
+  assert.equal(count(chest(p.w, coalAt), 'coal'), 4, 'the blocked chest kept its coal'); assert.equal(count(chest(p.w, COPPER), 'raw_copper'), 8)
+  assert.equal(p.w.dropped.length, 0)
+})
 await t('CARRIED COPPER: the bag\'s own copper skips the copper pass; the coal pass alone finds the coal (in a copper-missed container)', async () => {
   const coalAt = CHESTS[3]
   const w = town({ coalAt, copperMissAt: CHESTS.map(c => c), bag: [stack('raw_copper', 5), stack('cobblestone', 3)] })
@@ -295,7 +323,7 @@ await t('MUTANTS: each removes one part of the job\'s search and a behaviour tes
     'out.coalMore = !!(await pass(SMELT_JOB_INPUT, SMELT_COAL_VISITS, SMELT_COAL_RESERVE_MS, () => needCoal > 0, COPPER_TTL))', S => killedBy(() => coalInCopperMiss(S)))
   // cause (1): three containers
   kills.coalCap3 = await withMutant(SKILLS_PATH, 'pass(SMELT_JOB_FUEL, SMELT_COAL_VISITS,', 'pass(SMELT_JOB_FUEL, 2,', S => killedBy(() => coalFar(S)))
-  kills.noPrecheck = await withMutant(SKILLS_PATH, 'if (needCoal > 0 && townSearchEmpty(bot, [SMELT_JOB_FUEL], { missTtl: COAL_TTL })) { out.noCoal = true; return out }', '', S => killedBy(() => precheck(S)))
+  kills.noPrecheck = await withMutant(SKILLS_PATH, 'if (needCoal > 0 && townCoalMiss(bot)) { out.noCoal = true; return out }', '', S => killedBy(() => precheck(S)))
   kills.noStalled = await withMutant(SKILLS_PATH, 'f.stop = w.progressed ? SMELT_SEARCH_MORE : SMELT_SEARCH_STALLED', 'f.stop = SMELT_SEARCH_MORE', S => killedBy(() => stalled(S)))
   kills.noStreakCap = await withMutant(SJ_PATH, '    if (s.moreStreak <= SMELT_MORE_MAX) return s', '    return s', SJm => killedBy(() => globalThis.__smeltStreak(SJm)))
   kills.oldGate = await withMutant(SKILLS_PATH, 'try { return townSearchEmpty(bot, [SMELT_JOB_INPUT], { missTtl: { [SMELT_JOB_INPUT]: COPPER_MISS_TTL_MS } }) } catch { return false }',

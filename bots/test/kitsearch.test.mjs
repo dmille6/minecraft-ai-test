@@ -329,6 +329,39 @@ await t('UNSEEN (Codex r1 P2): every container in view a live miss but a town co
   later(30_000)                                                              // past the scan's 20 s cache
   assert.equal(S0.townKitIronMiss(w.bot), true)
 })
+/** A world whose lid digs work (toolkit.test.mjs's lidReady): a pickaxe harvests stone-like lids, the hand digs dirt. */
+const lidReady = w => {
+  const PICKS = ['wooden_pickaxe', 'stone_pickaxe', 'iron_pickaxe', 'golden_pickaxe'].map(n => w.bot.registry.itemsByName[n]?.id).filter(x => x != null)
+  const blockAt0 = w.bot.blockAt
+  w.bot.blockAt = p => { const b = blockAt0(p); if (b?.name === 'cobblestone') b.canHarvest = id => PICKS.includes(id); if (b?.name === 'dirt' || b?.name === 'grass_block') b.canHarvest = () => true; if (b?.name === 'chest') b.shapes = [[0.0625, 0, 0.0625, 0.9375, 0.875, 0.9375]]; return b }
+  w.bot.digTime = () => 750
+  w.bot.canDigBlock = () => true
+  w.digs = []
+  w.bot.dig = async b => { w.digs.push(w.key(b.position.x, b.position.y, b.position.z)); w.set(b.position.x, b.position.y, b.position.z, 'air') }
+  return w
+}
+// TOOLKIT-03 x COBBLEKEEP-01 (lids): the kit's search goes through withdraw's lid code. cobblekeep digs a DIRT lid and opens
+// under LEAVES (no dig); a lid it may not break (oak_planks) is container_blocked and the search MOVES ON to the next container.
+// The iron sits under the lid in the chest nearest the bot; a second holder further away is the fallback.
+const lidScene = async (S, lid) => {
+  const w = lidReady(farTown({ far: [stack('iron_ingot', 20)], rest: [stack('dirt', 5)] }))
+  const L = NEAR[0]
+  w.stock(...L, [stack('iron_ingot', 20)]); w.set(L[0], L[1] + 1, L[2], lid)
+  const r = await kit(S, w)
+  return { w, r, L }
+}
+await t('LIDS x COBBLEKEEP: a dirt lid is dug and the chest under it gives the kit; under leaves it opens with no dig; an oak_planks lid is blocked and the search moves on to the far chest', async () => {
+  const dirt = await lidScene(S0, 'dirt')
+  assert.equal(dirt.r.status, 'success', dirt.r.detail); assert.deepEqual(dirt.w.digs, [kOf([dirt.L[0], dirt.L[1] + 1, dirt.L[2]])], 'the dirt lid dug')
+  assert.equal(ironIn(dirt.w, dirt.L), 16, 'the chest under the dug lid gave the 4')
+  const leaves = await lidScene(S0, 'oak_leaves')
+  assert.equal(leaves.r.status, 'success', leaves.r.detail); assert.deepEqual(leaves.w.digs, [], 'nothing dug under leaves')
+  assert.equal(ironIn(leaves.w, leaves.L), 16, 'opened under the leaves')
+  const planks = await lidScene(S0, 'oak_planks')
+  assert.equal(planks.r.status, 'success', planks.r.detail); assert.deepEqual(planks.w.digs, [], 'planks are never broken')
+  assert.equal(ironIn(planks.w, planks.L), 20, 'the blocked chest gave nothing'); assert.equal(ironIn(planks.w, FAR), 16, 'the far chest gave the kit')
+  assert.match(lastRow(), / vfail=1 /, lastRow())
+})
 // THE GATE IS THE SEARCH: every container a live kit_iron miss but ONE, which this bot could not reach lately -> the gate says
 // "nothing here" and a forced run opens nothing (no false no_iron while uncounted containers remain, and no order for nothing)
 const gateAgrees = async S => {
@@ -518,6 +551,11 @@ await t('MUTANTS: each removes one part of the kit search and a behaviour test a
   kills.moreIsNoIron = await withMutant(SKILLS_PATH, 'const end = kitSearchEnd({ left: st.search.left, noSticks, progressed,', 'const end = kitSearchEnd({ left: 0, noSticks, progressed,', S => killedBy(() => resumes(S)))
   kills.pureMore = await withMutant(TK_PATH, "if (Number(left) > 0) return progressed ?", "if (false) return progressed ?", KK => killedBy(() => pureEnd(KK)))
   kills.moreBacksOff = await withMutant(TK_PATH, "const more = status === 'failed' && KIT_NO_BACKOFF.has(failClass)", 'const more = false', KK => killedBy(() => resumes(S0, KK)))
+  // x cobblekeep's lids: a blocked lid must MOVE THE SEARCH ON, never end the run (toolkit.mjs KIT_VISIT_NEXT)
+  kills.blockedStops = await withMutant(TK_PATH, "new Set(['chest_unreachable', 'container_blocked', 'stock_unconfirmed'])", "new Set(['chest_unreachable', 'stock_unconfirmed'])", async KK => {
+    // the skill imports the real toolkit.mjs: drive the pure step the skill uses, on the planks visit's own result
+    return killedBy(() => assert.equal(KK.kitVisitStep({ result: { status: 'failed', failClass: 'container_blocked' } }), 'next'))
+  })
   const alive = Object.entries(kills).filter(([, k]) => !k).map(([n]) => n)
   assert.deepEqual(alive, [], `mutants that survived: ${alive}`)
   console.log(`        mutants killed: ${Object.keys(kills).join(', ')}`)
