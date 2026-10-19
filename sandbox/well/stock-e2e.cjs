@@ -7,6 +7,7 @@
 //   scenes: build (the well; every later scene uses it)  stockdispose  stockbank  stockprune  stockprunekeep  stocknochest  stockrace  stockrefuse  stockrecount
 //           lidrecount lidrecountpick (lidclear-01: no well needed; LOCK_OWNER=lidclear)
 //           townsearch townsearch2 (townsearch-01: the far chest; no well needed; LOCK_OWNER=townsearch)
+//           kitsearch (toolkit-03: the far chest of iron, the kit crafted; no well needed; LOCK_OWNER=kitsearch)
 //
 // RCON only through `ssh mike@10.0.0.30 python3 /tmp/sbx-rcon.py <sandboxN> -`. Sandbox servers and sandbox-* names
 // only. Refuses to run unless the sandbox lock (/tmp/mcai-sandbox.lock on 10.0.0.31) names `stocktarget`.
@@ -724,6 +725,41 @@ async function townSearchScene (scene, { orders = 1, wait = 300000 } = {}) {
     CANDIDATE_PASS: !!((b.totals.stone_pickaxe ?? 0) === 1 && !after.far.stone_pickaxe && (after.far.stick ?? 0) === 20 && nearUnchanged && licence >= 1 &&
       rows.some(r => /^outcome=took_pick /.test(r.detail))),
     BASE_SHAPE: !!(!(b.totals.stone_pickaxe ?? 0) && (after.far.stone_pickaxe ?? 0) === 1 && licence === 0 && rows.length >= 1 && rows.every(r => !/^outcome=took_pick /.test(r.detail))) })
+}
+// KITSEARCH (toolkit-03): 10 single chests, 9 near home with 5 dirt, ONE 13.9 from home with 20 iron ingots; the bot holds a
+// full iron pickaxe (no pickaxe order), 9 sticks and a crafting table (the craft's table), no axe and no shovel. Its own
+// toolkit town order runs. BASE: opens the 3 nearest home, `no_iron`, the far chest keeps its 20. CANDIDATE: the search reaches
+// the far chest, takes 4, crafts the iron axe and the iron shovel; every near chest still 5 dirt; licence _toolkit_search_mode.
+scenes.kitsearch = async () => {
+  buildArena()
+  BRAIN_WANDER = true
+  rcon(`kill ${ARENA_SEL}`)
+  const at = ([dx, dz]) => ({ x: HOME.x + dx, y: HOME.y, z: HOME.z + dz })
+  const near = TS_NEAR.slice(0, 9)
+  for (const c of near) setChest([['dirt', 5]], at(c))
+  const far = at(TS_FAR)
+  setChest([['iron_ingot', 20]], far)
+  const before = { far: chestTotals(far).totals, near: near.map(c => chestTotals(at(c)).totals) }
+  const pool = `sbxks-${RUN}`
+  const files = await startBot('kitsearch', [['iron_pickaxe', 1], ['stick', 9], ['crafting_table', 1], ...TORCH(2)], { pool })
+  const t0 = Date.now()
+  const kitRows = () => rowsOf(files.skillLog).filter(r => r.name === '_toolkit' && /^phase=kit /.test(r.detail))
+  await waitFor(() => kitRows().length >= 1, 300000, 1000)
+  await sleep(3000)
+  const rows = kitRows()
+  const after = { far: chestTotals(far).totals, near: near.map(c => chestTotals(at(c)).totals) }
+  const b = bag(NAME)
+  const licence = rowsOf(files.skillLog).filter(r => r.name === '_toolkit_search_mode').length
+  const skillEnd = lines(files.botOut).filter(l => /skill toolkit ->/.test(l)).map(l => l.slice(0, 220))
+  const tools = rcon(`execute if items entity ${NAME} container.* minecraft:iron_axe[minecraft:damage=0]`, `execute if items entity ${NAME} container.* minecraft:iron_shovel[minecraft:damage=0]`)
+  await stopBot(); BRAIN_WANDER = false
+  const nearUnchanged = after.near.every(t => JSON.stringify(t) === JSON.stringify({ dirt: 5 }))
+  result({ scene: 'kitsearch', root: BOT_ROOT, ms: Date.now() - t0, rows: rows.map(r => `${new Date(r.ts).toISOString().slice(11, 19)} ${r.status} ${r.detail}`), skillEnd,
+    world: { bag: b.totals, farBefore: before.far, farAfter: after.far, nearUnchanged, nearAfter: after.near, freshTools: tools.map(x => x.reply) }, licence,
+    CANDIDATE_PASS: !!((b.totals.iron_axe ?? 0) === 1 && (b.totals.iron_shovel ?? 0) === 1 && (after.far.iron_ingot ?? 0) === 16 && nearUnchanged && licence >= 1 &&
+      rows.some(r => /^phase=kit outcome=crafted /.test(r.detail))),
+    BASE_SHAPE: !!(!(b.totals.iron_axe ?? 0) && !(b.totals.iron_shovel ?? 0) && (after.far.iron_ingot ?? 0) === 20 && licence === 0 && rows.length >= 1 &&
+      rows.every(r => /^phase=kit outcome=no_iron /.test(r.detail))) })
 }
 scenes.townsearch = () => townSearchScene('townsearch')
 scenes.townsearch2 = () => townSearchScene('townsearch2', { orders: 2, wait: 1700000 })   // two orders (the second ~20 min later)
