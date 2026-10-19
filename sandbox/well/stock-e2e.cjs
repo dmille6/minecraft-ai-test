@@ -7,6 +7,7 @@
 //   scenes: build (the well; every later scene uses it)  stockdispose  stockbank  stockprune  stockprunekeep  stocknochest  stockrace  stockrefuse  stockrecount
 //           lidrecount lidrecountpick (lidclear-01: no well needed; LOCK_OWNER=lidclear)
 //           liddirt lidleaves (cobblekeep-01: a DIRT lid is dug, a LEAVES lid is no lid; no well needed; LOCK_OWNER=cobblekeep)
+//           cobbleband (cobblekeep-01: a town at 984 of the 1000 cap, a full bag of cobble -> the well takes it; after `build`)
 //           townsearch townsearch2 (townsearch-01: the far chest; no well needed; LOCK_OWNER=townsearch)
 //
 // RCON only through `ssh mike@10.0.0.30 python3 /tmp/sbx-rcon.py <sandboxN> -`. Sandbox servers and sandbox-* names
@@ -455,6 +456,38 @@ scenes.stockdispose = async () => {
   await stopBot()
   result({ scene: 'stockdispose', counted: counted?.detail ?? null, ended: w.ended?.slice(0, 200), bag: { before: before.totals, after: after.totals, delta: deltaOf(before.totals, after.totals) },
     chest: { before: chest0.totals, after: chest1.totals }, census: c1, censusAt20s: c20, rows: stockRows(files) })
+}
+
+// COBBLEKEEP-01, THE BAND: the town's only chest holds 984 cobblestone (15 x 64 + 24: 16 short of the 1000 cap); a 36-slot
+// bag of cobblestone, 30 + 35 x 64. No whole stack of the bag can be banked (984 + 30 > 1000), so the town deposit refuses
+// it at the cap. BASE: the well's switch reads the 1 h floor (984 < 1000) and says `below` -- no dispose order, the bag stays
+// full. CANDIDATE: the switch takes the stack the bank refused -> dispose_well throws whole cobble stacks (the 30 first), the
+// bag keeps >= 64, the chest is unchanged. Read back: the server's bag, the chest (RCON data get), the shaft census.
+scenes.cobbleband = async () => {
+  if (!CAP) throw new Error('no well (run build first)')
+  rcon(`kill ${ARENA_SEL}`); CHEST = pickChest()
+  // THE CHEST COMES AFTER THE BAG (runs 1-2: the bot spawns with an empty bag before the scene's items are set, and its
+  // withdraw_pick took 3 cobble from the chest -- a withdraw hold on cobble, which rightly keeps the well off it for 10 min)
+  rcon(`setblock ${CHEST.x} ${CHEST.y} ${CHEST.z} minecraft:air`)
+  const spec = [['cobblestone', 30], ...Array.from({ length: 34 }, () => ['cobblestone', 64]), ['stone_pickaxe', 1]]
+  const files = await startBot('cobbleband', spec, { pool: `sbxstock-${RUN}-band` })
+  setChest([...Array.from({ length: 15 }, () => ['cobblestone', 64]), ['cobblestone', 24]])
+  const before = bag(NAME), chest0 = chestTotals()
+  const w = await watchOrder(files, 'dispose_well', 240000)
+  await sleep(1500)
+  const c1 = census(CAP)
+  const after = bag(NAME), chest1 = chestTotals()
+  const refused = rowsOf(files.skillLog).filter(r => r.name === '_stock_refused').map(r => r.detail.slice(0, 160))
+  const disp = rowsOf(files.skillLog).filter(r => r.name === '_well_dispose').map(r => r.detail.slice(0, 260))
+  const keepLicence = rowsOf(files.skillLog).filter(r => r.name === '_cobblekeep_mode').length
+  await stopBot()
+  const lost = (before.totals.cobblestone ?? 0) - (after.totals.cobblestone ?? 0)
+  result({ scene: 'cobbleband', root: BOT_ROOT, ended: w.ended?.slice(0, 200) ?? null, bag: { before: before.totals, after: after.totals, used: [before.used, after.used] },
+    chest: { before: chest0.totals, after: chest1.totals }, census: c1, refused: refused.slice(0, 4), dispose: disp, keepLicence, rows: stockRows(files).slice(0, 30),
+    // the bag may also spend a few blocks as scaffold (run 1: a livelock relocation bridged off the slab), so the throw is read
+    // from the SHAFT (census) and the order, not from the bag's loss alone
+    CANDIDATE_PASS: !!(w.ended && /-> success/.test(w.ended) && (c1?.inItems ?? 0) >= 30 && lost >= 30 && (after.totals.cobblestone ?? 0) >= 64 && (chest1.totals.cobblestone ?? 0) === (chest0.totals.cobblestone ?? -1) && keepLicence >= 1),
+    BASE_SHAPE: !!(!w.ended && (c1?.inItems ?? 0) === 0 && after.used >= 34 && (chest1.totals.cobblestone ?? 0) === (chest0.totals.cobblestone ?? -1) && keepLicence === 0) })
 }
 
 // UNDER TARGET -> BANKED: a fresh town (journal empty) whose chest holds 20 oak; a 36-slot bag with oak 64+64+30 and torches.
