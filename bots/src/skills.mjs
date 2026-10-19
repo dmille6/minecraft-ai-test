@@ -131,7 +131,7 @@ import { acquireFurnaceLease, furnaceLeaseState } from './furnacelease.mjs'
 import { SMELT_JOB_INPUT, SMELT_JOB_OUTPUT, SMELT_JOB_BATCH, JOB_FUELS, COPPER_MISS_KEY, COPPER_MISS_TTL_MS, DRAIN_RADIUS,
          copperBalance, smeltTownDetail, drainDetail, drainPick, noteFurnacesLit, jobReturns,
          SMELT_COPPER_VISITS, SMELT_COAL_VISITS, SMELT_COPPER_RESERVE_MS, SMELT_COAL_RESERVE_MS, SMELT_SEARCH_MORE, SMELT_SEARCH_STALLED,
-         COAL_MISS_KEY, COAL_MISS_TTL_MS, SMELT_JOB_FUEL } from './smeltjob.mjs'
+         COAL_MISS_KEY, COAL_MISS_TTL_MS, SMELT_JOB_FUEL, SMELT_MIN_SMELT_MS } from './smeltjob.mjs'
 import { withDigScope } from './digtown.mjs'
 import { chestLidBlocked, lidClearRefusal, serverLidBlocks, lidDigBudgetMs, lidFailMemory } from './lidrule.mjs'
 // minewell-01 (its own statement); townzone-01 composes the town into its keep-out (composeKeepOut, keepOutLabel)
@@ -12348,9 +12348,16 @@ async function smeltTown (ctx, _args, signal) {
     // the job's smelt: town furnaces only (never one more than TOWN_DY above or below home: Claude code r1 P2-3), coal or
     // charcoal only, and a lease that could be recorded (fail closed)
     // THE SMELT ENDS INSIDE THE JOB'S CLOCK (Codex r2 P2): its own 150 s cap counts from its start, and the job's search now
-    // may spend up to 75 s first -- so the job hands it the skill's deadline less the bank's reserve
+    // may spend up to 65 s first -- so the job hands it the skill's deadline less the bank's reserve, and does not start it at
+    // all with less than SMELT_MIN_SMELT_MS of that left (Codex r3 P2: the furnace walk and open have their own caps)
+    const smeltDeadline = withdrawClock(ctx).deadline - SMELT_BANK_RESERVE_MS
+    if (smeltDeadline - Date.now() < SMELT_MIN_SMELT_MS) {
+      f.stop = SMELT_SEARCH_MORE
+      await bankCopper()
+      return (result = { status: 'no_effect', detail: `the town search used the job's clock (${Math.round((smeltDeadline - Date.now()) / 1000)} s left for the smelt); the copper and coal go back and the next job smelts` })
+    }
     const r = await smelt(ctx, { item: SMELT_JOB_INPUT, count: f.n }, signal,
-      { fuels: JOB_FUELS, requireLease: true, avoid: q => !depositTargetOk(home, q), by: 'smelt_town', deadline: withdrawClock(ctx).deadline - SMELT_BANK_RESERVE_MS })
+      { fuels: JOB_FUELS, requireLease: true, avoid: q => !depositTargetOk(home, q), by: 'smelt_town', deadline: smeltDeadline })
     f.furnace = r.furnace ?? '-'; f.lease = r.lease ?? '-'
     f.prior = (r.prior?.[SMELT_JOB_OUTPUT] ?? 0) + (r.prior?.[SMELT_JOB_INPUT] ?? 0)
     f.smelted = Math.max(0, ((heldMap(bot)[SMELT_JOB_OUTPUT] ?? 0) - ingots0) - (r.prior?.[SMELT_JOB_OUTPUT] ?? 0))

@@ -63,18 +63,26 @@ export const SMELT_JOB_PAUSE_MS = 6 * 60 * 60 * 1000
 
 /** Visits per job: the copper pass, then the coal pass (each container once per pass). */
 export const SMELT_COPPER_VISITS = 12
-export const SMELT_COAL_VISITS = 8
-/** The passes' clocks, as reserves at the END of the skill's (180 s): the copper pass starts no visit inside the last 120 s,
- *  the coal pass none inside the last 105 s -- the smelt (8 items: 80 s at the furnace, its own 150 s cap) and the bank keep
- *  the rest. (The base's three visits could already spend up to ~114 s: a 30 s walk + recount + 8 s open each.) */
-export const SMELT_COPPER_RESERVE_MS = 120_000
-export const SMELT_COAL_RESERVE_MS = 105_000
+export const SMELT_COAL_VISITS = 16   // Paper 10-19: 8 left the far coal of a 10-chest town to the next job
+/** The passes' clocks, as reserves at the END of the skill's (180 s): the copper pass starts no visit inside the last 125 s,
+ *  the coal pass none inside the last 115 s -- the smelt (8 items: 80 s at the furnace) and the bank keep the rest, so the
+ *  smelt starts with >= SMELT_MIN_SMELT_MS by construction. (The base's three visits could already spend ~114 s.) */
+export const SMELT_COPPER_RESERVE_MS = 125_000
+export const SMELT_COAL_RESERVE_MS = 115_000
+/** The smelt starts only with this much of the job's clock left after the bank's reserve (Codex r3 P2: smelt's furnace walk,
+ *  open and transfers are bounded by their own caps, not the caller's deadline) -- else the copper and coal go back and the
+ *  stop is search_more (the coal is found; the next job smelts). The backstop of the reserves above. */
+export const SMELT_MIN_SMELT_MS = 95_000
 /** The job's stop reason when a pass was cut by its budget with candidates left: no strike toward the pause (the next job
  *  continues the search), never `town_has_none` / `no_fuel`. */
 export const SMELT_SEARCH_MORE = 'search_more'
 /** ...at most this many in a row (Codex r2 P2: a town larger than the passes cover inside a miss's life could hand every
  *  job new candidates); the next one backs off like a failure. A pass that learned NOTHING is `search_stalled`, a strike. */
 export const SMELT_MORE_MAX = 3
+/** ...and the cap's trips are an end state (Claude r3 P1): other bots' deposits can end the misses a job just wrote, so its
+ *  "progress" is local, not net -- this many trips without a success in between pause the job SMELT_JOB_PAUSE_MS, as six
+ *  no_fuel in a row do. Bounded: at most SMELT_MORE_TRIPS x (SMELT_MORE_MAX + 1) copper-taking jobs before the pause. */
+export const SMELT_MORE_TRIPS = 3
 export const SMELT_SEARCH_STALLED = 'search_stalled'
 /** The coal's own miss (toolkit-03): a town container that showed no coal, for as long as the copper's (2 h), so the coal
  *  pass covers a large town before its misses expire (Codex r2 P2); ended at once by a deposit into it. */
@@ -147,7 +155,7 @@ export function smeltTownOrder ({ now = 0, on = true, atTown = false, holds = fa
  */
 export function smeltTownOutcome (status, why = null, now = 0, state = {}) {
   const s = { ...state }
-  if (status === 'success') { s.streak = null; return s }
+  if (status === 'success') { s.streak = null; s.moreStreak = 0; s.moreTrips = 0; return s }   // the `more` cap counts CONSECUTIVE ones (Codex r3 P3)
   if (status === 'failed') s.backoffUntil = now + SMELT_JOB_BACKOFF_MS
   if (status === 'aborted' || why === 'interrupted') return s           // a reflex took the body: no strike
   // a search cut with candidates left that made progress: no strike (toolkit-03) -- SMELT_MORE_MAX in a row, then a backoff
@@ -155,6 +163,8 @@ export function smeltTownOutcome (status, why = null, now = 0, state = {}) {
     s.moreStreak = (s.moreStreak ?? 0) + 1
     if (s.moreStreak <= SMELT_MORE_MAX) return s
     s.moreStreak = 0; s.backoffUntil = now + SMELT_JOB_BACKOFF_MS
+    s.moreTrips = (s.moreTrips ?? 0) + 1
+    if (s.moreTrips >= SMELT_MORE_TRIPS) { s.pausedUntil = now + SMELT_JOB_PAUSE_MS; s.moreTrips = 0 }
     return s
   }
   s.moreStreak = 0
