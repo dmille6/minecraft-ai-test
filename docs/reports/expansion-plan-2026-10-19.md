@@ -1,4 +1,4 @@
-# Expansion: expeditions, then outposts, then rails (2026-10-19, design only, r2)
+# Expansion: expeditions, then outposts, then rails (2026-10-19, design only, r3)
 
 OWNER 10-19 ~15:30Z: "yes, we need expansion." The goal is to "build cool structures, survive, and work together for long
 periods of time". The worlds are peaceful. The diamond tier is held until the mineshaft and underground safety are done.
@@ -28,13 +28,14 @@ It builds on, and does not repeat:
 - Alongside it, with no canary slot: **E0, the frontier census** (host-side, read-only; §4). It says where fresh land is
   and how far, before any expedition code is written.
 
-**2. ORDER (one canary lane).** The owner's list for this week runs first, unchanged.
+**2. ORDER (one canary lane).** The owner's list for this week keeps its order. The one insertion into it, homefix-01 at the
+first free slot, is an owner decision (X9), as TP's O2 was for shaftuse-01.
 
 | # | step | tier | needs |
 |---|---|---|---|
 | — | **E0 frontier census** (host, read-only, no slot) | — | nothing; build now |
-| first free slot | **homefix-01** (§5) | 2 | built + both reviews; inserted by the queue owner (the coordinator); never holds the head, exactly as shaftuse-01 (TP O2, unchanged) |
-| — | the owner's list, unchanged: treefarm-02 → brain-01 → cobblekeep-01 → toolkit-03 (smeltfuel folded in) → bamboo-03 → townfloor-01 → monument-01 → stonewithdraw-01 → shaft-01 | | |
+| first free slot (X9) | **homefix-01** (§5) | 2 | built + both reviews + X1/X9; inserted by the queue owner (the coordinator); never holds the head, as shaftuse-01 (TP O2) |
+| — | the owner's list as queued on origin/main **STATE 10-19 15:20Z** (which supersedes TP §0.4's shaft → stonewithdraw → smeltfuel): treefarm-02 → brain-01 → cobblekeep-01 → toolkit-03 → bamboo-03 → townfloor-01 → monument-01 → stonewithdraw-01 → shaft-01. smeltfuel-01's fuel sweep is inside toolkit-03 ("kit iron + smelt coal through every-container search", same entry; the owner's brief says "smeltfuel (folded into toolkit-03)"); if the coordinator un-folds it, smeltfuel-01 keeps its TP place before pavilion-01 | | |
 | after the owner's list | **expedition-01** (§6) | 3 | homefix-01 KEPT; cobblekeep-01 KEPT (bags; §1.3); E0 live 48 h |
 | then | pavilion-01 → crown-01 (TP stages 3-4, unchanged) | 3 | — |
 | then | **outpost-01** (§7) | 3 | expedition-01 KEPT; monument-01 KEPT (structureguard + builder.mjs) |
@@ -55,8 +56,9 @@ This is a recommendation for the owner (X2); it amends nothing in the queue by i
   `runner.run(<rescue>)` at once. `cancel()` only aborts the controller; `runner.current` is cleared later, when the skill
   unwinds, and `run()` refuses with `runner_busy` while it is set (runner.mjs:150-157, 182-185, 491). That refusal returns
   before any row is logged, and the watchdog ignores it. All pools, 7 d: 5,436 escalation-2 events against 2,939 `home`
-  rows of ANY trigger, so at least 46% of level-2 rescues never ran; 33,459 escalation-1 events against at most 12,875
-  goto rows that can be relocations, so at least 62% of level-1 rescues never ran. A probe of the real `Runner` (Claude r1,
+  rows of ANY trigger, so at least 45.9% of level-2 rescues never ran; 33,459 escalation-1 events against at most 25,867
+  goto rows that can be relocations (counting the reflex-interrupted ones), so at least 22.7% of level-1 rescues never ran.
+  Polling for idle would lose the race to the cognitive loop; the fix is a runner reservation (§2). A probe of the real `Runner` (Claude r1,
   on a scratch copy) returned `runner_busy`. The watchdog's tests use a fake `run` that can never be busy.
 - **H2b, the rescues that do start are cut at 15 s.** The watchdog's `check()` runs on a 15 s `setInterval` and is not
   guarded against re-entry. Escalation 2 *awaits* `home`; the next tick still holds the old stagnant window (it is reset
@@ -73,8 +75,11 @@ This is a recommendation for the owner (X2); it amends nothing in the queue by i
 - **H4, real route failures:** `no_path` 144, `stranded` 92, `goal_changed` 74, `path_budget` 123 (extraction); deep starts
   succeed 23% against 41% at the surface.
 - **What fixing H1 alone gives**, replaying the proposed predicate itself (goto's: horizontal ≤ 3, |dy| ≤ 6) over every
-  row, successes included: 2 current successes fail it (dy −10), 235 failures pass it, so 581 → **814 of 2,338 (34.8%)**.
-  On the rows whose trigger survived (no interrupt) 581 of 1,201 (48.4%) → 814 of 1,201 (67.8%). **That is not S0's
+  row, successes included: 2 current successes fail it (dy −10) and 235 failures pass it. 11 of the 235 are
+  `unknown / no_measurable_change`: the runner's evidence gate (`home` expects position, ≥ 2 blocks moved; skills.mjs:13720,
+  runner.mjs ~353-364) downgrades them whatever the geometry, so they stay. That is 581 → **803 of 2,338 (34.3%)**, and
+  on the rows whose trigger survived (no interrupt) 581 of 1,201 (48.4%) → 803 of 1,201 (66.9%). A static, geometric
+  estimate, not a projected log (Codex r2 P2-5, Claude r2 P3). **That is not S0's
   filter** (Claude r1 P2-2): S0 also drops rows with health unknown or ≤ 10 at the start and rows flagged trap, drowning
   or low health in the 5 min before (24 h: 21 of 54, 39%). On S0's own 24 h window, before its flag filter, H1 moves the
   non-interrupted rows from 64 of 172 (37%) to 101 of 172 (59%); `llm:idle` alone from 6 of 66 to 15. **H1 does not by
@@ -96,7 +101,8 @@ beyond 100). Deaths per 1,000 bot-hours are 11 within 48 and 22-33 beyond 100. S
 (the depletion front moves out; "fresh worlds buy one week") and on ore, not a measured gain in log yield. Their read is
 pre-registered to say INCONCLUSIVE if it is.
 
-**6. Open owner decisions** are in §10 (X1-X8). The biggest: X1 (homefix-01's watchdog change is fleet-wide), X3 (expedition
+**6. Open owner decisions** are in §10 (X1-X10). The biggest: X1 (homefix-01 needs the owner's 09-30 "no more stuck
+hunts" rule lifted for it, and its watchdog change is fleet-wide), X9 (its insertion into this week's list), X3 (expedition
 v1 is surface-and-shallow only: no `mine` staircase far from home while the diamond hold stands), X6 (rails cost ≈ 0.375
 iron a block, so a 400-block outpost line is ≈ 150 iron, 160 with two carts: 82-87% of a median town's observed iron; gold for powered
 rails is 0 in the census).
@@ -124,7 +130,8 @@ shared towns. Distance is horizontal from home.
   ≈ 57, p75 ≈ 95, p90 130-180) agrees.
 - **Median by day (shared):** 51, 54, 53, 55, 54, 63, 49, 55. Flat: the bots are not drifting outward on their own.
 - **64 × 64 regions touched per shared world in 7 d** (hourly samples, so a floor): 34-56; beyond 200 blocks 5-27.
-- **The border** is 1,950 from spawn (config `WORLD_BORDER_RADIUS`); the homes are 96-480 from spawn, so every town has
+- **The border** is 1,950 from the world ORIGIN (config `WORLD_BORDER_RADIUS`, measured by `horizontalDistanceFromSpawn`,
+  state.mjs:72, which is the origin; the world spawn itself is set at town, place-town.py:524); the homes are 96-480 from the origin, so every town has
   at least ≈ 1,470 blocks of room on its far side.
 
 ### 1.2 What the land yields, and what it costs, by distance band (7 d)
@@ -159,7 +166,7 @@ the row's END snapshot, so a band is where the gather ended):
 Away from home a bot dies about twice as often per hour present. At 100-200 the top cause is still drowning (26 of 55);
 beyond 200 it is falls (13 of 21) and lava. **These bands mix in underground time** (56.9% of all time is deep, §1.1), so
 they are not the hazard of a surface trip; E0 splits them by depth (deep / surface) before expedition-01's gates are set.
-Expedition safety is §6.4.
+Expedition safety is §6.5.
 
 ### 1.3 Who could go: 24 hourly snapshots of the last 24 h, shared towns (1,439 bot-snapshots)
 Bag slots are estimated from `bot.inventory` (64 per stack, 16 for eggs and the like, unstackables one each).
@@ -175,14 +182,17 @@ Bag slots are estimated from `bot.inventory` (64 per stack, 16 for eggs and the 
 | all of: bag ≤ 24, pickaxe, health, at town | **0.42%** of bot-snapshots (6 of 1,439); 6 of 288 town-hours (2.1%) had one |
 
 **Bags bind, not health.** STATE 11:07Z agrees (41 of 80 bots at ≥ 34 slots). An expedition that waits for a bot with
-room never leaves. So expedition-01 starts with its own bank-down at town (§6.2), and it is ordered after cobblekeep-01, the
+room never leaves. **But a kit step that replaces the stockpile keeps frees enough:** replayed on the 161 bot-snapshots
+inside the town zone (16 h / 12 v) in the same 24 h, 157 (98%) reach ≥ 16 free slots even when every unrecognised item is
+assumed to stay (median 20 free; `e5`). So expedition-01 starts with its own kit step at town (§6.3), and it is ordered after cobblekeep-01, the
 owner's bag fix already queued.
 
 ### 1.4 What the bots already know about far land: almost nothing
 - **Resource sightings** (`world-facts-<pool>.json`, capped at 200 per world, `MAX_RESOURCES`): 2,400 in the 12 shared
   worlds; distance from home median 95, p90 184, max 334; 169 beyond 200 and 17 beyond 300. They are where the bots have
   been. They cannot seed targets at 300-800.
-- **Explore** (`skills.mjs` explore): 20-120 blocks in 12-block legs, toward a known sighting or away from SPAWN.
+- **Explore** (`skills.mjs` explore): 20-120 blocks in 12-block legs, toward a known sighting or away from the world
+  origin (the code calls it "spawn").
   131,048 explore rows in 7 d. It is a local wander, not a trip.
 
 ### 1.5 Travel
@@ -250,51 +260,74 @@ home): 202 of 877 (23%) against 151 of 369 (41%) at the surface.
 - **Fix:** grade `home`'s arrival with goto's own final test (≤ max(range, 3) horizontally, |dy| ≤ VERT), as one exported
   pure function. goto's LOOP BREAK (skills.mjs ~464, `dist <= max(range, 2)`) is not routed through it, so no other goto
   caller's stopping distance changes. Replayed on the fixed window, the |dy| term flips 2 current successes (dy −10) to
-  failures and 235 failures to arrivals (§0.3). Behaviour test: a bot stopped on each node with isEnd true is an arrival.
+  failures and 224 failures to arrivals (§0.3; 11 more pass the geometry but stay evidence-gated). Paper adds a bot that
+  starts already inside the arrival radius (the evidence gate then says `no_measurable_change`, which is correct). Behaviour test: a bot stopped on each node with isEnd true is an arrival.
 
-### H2a — the watchdog's rescue usually never starts (≥ 46% of level 2, ≥ 62% of level 1)
+### H2a — the watchdog's rescue often never starts (≥ 45.9% of level 2, ≥ 22.7% of level 1)
 - `#escalate` (watchdog.mjs ~392-411): `this.runner.cancel('stagnation')`, `this.runner.resume()`, then
   `await this.runner.run('goto' | 'home', …)`. `cancel` → `interrupt` aborts the controller and returns (runner.mjs
-  150-157); `this.current` is cleared only in the run's `finally` after the skill unwinds (~491). `run()` returns
-  `{failed, runner_busy}` while `current` is set (~182-185), before any `logSkill`. The watchdog discards the result and
-  resets its window. Level 3 (`surface` / `mine` at ~503) and `judgeStranding`'s climb-out (~166-169) share the shape.
-- Evidence: 5,436 escalation-2 events vs 2,939 `home` rows of any trigger (all pools, 7 d); 33,459 escalation-1 events vs
-  ≤ 12,875 goto rows that could be relocations (8,913 `watchdog_relocate` + 3,962 `interrupt:stagnation`). Positive
-  control: the same stream finds 1,565 shared-town `home` rows that DID follow an escalation 2, so a started rescue is
-  visible when it exists.
+  150-157). `this.current = null` runs only at ~491, AFTER the skill unwinds and after the evidence processing and
+  `logSkill` (it is not in the `finally` at ~264-270; Codex r2). `run()` returns `{failed, runner_busy}` while `current`
+  is set (~182-185), before any `logSkill`. The watchdog discards the result and resets its window. Level 3 (`surface` /
+  `mine` at ~503) and `judgeStranding`'s climb-out (~166-169) share the shape.
+- Evidence (all pools, 7 d): 5,436 escalation-2 events vs 2,939 `home` rows of ANY trigger, so ≥ 2,497 (45.9%) level-2
+  rescues never ran. Level 1: 33,459 escalation-1 events vs at most 25,867 goto rows that could be relocations
+  (`watchdog_relocate` 8,913, and the interrupted ones, whose trigger is overwritten: `interrupt:stagnation` 3,962,
+  `interrupt:entombed` 9,641, `interrupt:stuck` 3,351), so ≥ 7,592 (22.7%) never ran (r3; r2 said ≥ 62% by leaving out
+  the reflex-interrupted relocations, Claude r2 N-2). Positive control: the same stream finds 1,565 shared-town `home` rows
+  that DID follow an escalation 2. Probes (Claude r1 and r2, scratch copies): the real `Runner` returns `runner_busy`
+  after `cancel`; and a level-1 relocation after a cancelled brain `home` got `runner_busy`.
 - Why the tests missed it: `test/watchdog-busy.test.mjs` fakes `run: async () => {}`, which can never be busy.
-- **Fix:** after `cancel`, wait (bounded: until `runner.current` is null, at most 10 s, polling) before `run`; if still
-  busy, log `_watchdog_rescue status=busy` and keep the escalation level so the next verdict retries it. Log EVERY
-  rescue's outcome as a `_watchdog_rescue` row (level, remedy, status). Same for level 3 and the stranding climb-out.
-  Behaviour test on the REAL `Runner` with a skill that takes 2 s to unwind after abort: the rescue starts.
+- **The handoff race (Claude r2 N-3).** Polling for idle loses to the cognitive loop: in `#escape` (cognitive.mjs ~461-484)
+  a cancelled rung 1 returns and rung 2 starts a new goto at once (`livelockNext` → `'dig'`), before any timer poll fires
+  (26,785 livelock-escape rows in 7 d). So the fix is a **runner reservation**, not a poll.
 
 ### H2b — the rescue that does start is cut at 15 s (404 of 610 cut at 10-20 s; also its relocations)
 - `StagnationWatchdog.start()` runs `check()` every 15 s with `setInterval` (watchdog.mjs ~79). `check()` is async and has no
   in-flight guard. At escalation 1 and 2 it `await`s `runner.run('goto' | 'home')`, and it resets `this.samples` only
-  after that await returns.
+  after that await returns (~383-384).
 - So 15 s into the rescue, the next tick judges a window that is still the old stagnant one, plus 15 s of the rescue. Unless
-  the rescue has already moved 8 blocks, it is "stagnant" again: `escalation++`, `runner.cancel('stagnation')` aborts the
-  rescue, and the next level runs.
+  the rescue has already moved 8 blocks, it is "stagnant" again: `escalation++` (~370), `runner.cancel('stagnation')`
+  aborts the rescue, and the next level runs.
 - Evidence (fixed window): shared towns, 404 of 610 `interrupt:stagnation` home runs lasted 10-20 s (median 15); all
   pools 524 of 759. Escalation gaps (all pools): 1→2 ≤ 20 s in 1,579 of 5,419 (29%), 2→3 in 634 of 1,815 (35%); the other
   mode is the designed 160-200 s (3,731 and 1,082). Level 3 reconnects when a route exists: 1,628 `_stagnation_reconnect`
-  in 7 d. Up to ≈ 630 of those a week follow a rescue cut at 15 s.
+  in 7 d. Up to ≈ 630 of those a week follow a rescue cut at 15 s. **Not every short `interrupt:stagnation` row is a cut
+  rescue:** a brain `home` or `goto` that began seconds before a legitimate verdict is cut the same way and looks the same
+  (Claude r2 probe), which is why G3 (§5) joins rows to the rescue's own attempt record.
 - Positive control: the same stream finds the designed ≈ 180 s gaps, so the instrument resolves both modes.
-- **Fix, with an explicit liveness contract (Codex r1 P2-3):**
-  - a `pending` flag set when an escalation starts a rescue and released in a `finally` (also when `runner.run` refuses:
-    `runner_busy`, `body_held`, `runner_paused`, and when `#escalate` itself throws, e.g. reading
-    `this.bot.entity.position` after a disconnect; otherwise one throw would switch the watchdog off for good);
-  - while `pending`, a tick still SAMPLES both histories, but issues no verdict and no cancel from EITHER judgement:
-    `judgeStranding` is gated too (ungated, its climb-out could still cancel the rescue). Stranding history is pushed
-    inside `#strandingVerdict` (~236), so that push is split out into its own sampler called every tick;
-  - the window is reset when the rescue STARTS, so the next verdict is on the rescue's own samples;
-  - the bound on `pending` is the runner's: the skill timeout (180 s) plus the hard-stop grace (30 s), after which the
-    runner releases the body and the `finally` clears the flag;
-  - one rescue at a time: a pending stagnation rescue also holds the stranding rescue, and the reverse.
-  - Controlled-clock tests: a rescue moving 1 block per 15 s is not cancelled before its own window; a skill that ignores
-    its abort reaches hard-stop and the flag clears; a refused escalation clears the flag; stranding history keeps
-    accumulating while pending.
-- This is the CLAUDE.md "local policy composition" class: the trigger's own next tick refuses the remedy it chose.
+
+### The H2 fix, as one contract (r3: Codex r1 P2-3, Codex r2 P2-3, Claude r1 P1-1, Claude r2 N-3/N-4)
+1. **Pending from the verdict.** On a stagnant verdict the watchdog sets `pending` (with an attempt id) BEFORE it cancels
+   anything. While `pending`, a tick samples both histories (the stranding push is split out of `#strandingVerdict`,
+   ~236) and issues no verdict and no cancel from EITHER judgement (`judgeStranding` is gated too). `pending` is released
+   in a `finally` that wraps the whole escalation, including a throw inside `#escalate` (e.g. reading
+   `this.bot.entity.position` after a disconnect).
+2. **Cancel and reserve in one step.** A new `runner.reserve(owner, ms)` aborts the current skill and marks the runner
+   reserved for `owner` for ≤ 15 s: any other `run()` returns a new declined class `runner_reserved` (added to
+   `TD_RUNNER_DECLINED` and the other `*Outcome` declined sets, so no caller counts it as a failure). Only the owner's
+   `run()` passes once `current` is null. The rescue therefore cannot lose the race to a reflex rung or the cognitive loop.
+   Reflexes that hold the body through the arbiter are unchanged: a `body_held` answer is a declined rescue (below).
+3. **`current` is always cleared.** The runner's post-run processing (evidence, logging) moves inside a `finally` that ends
+   with `this.current = null`, so an exception after the skill body cannot leave the runner busy for ever.
+4. **The level.** `escalation` is incremented at ~370 before `#escalate`. A rescue that did not START (reserved window
+   expired with `current` still set, `body_held`, `runner_paused`) does `escalation--`, resets the window, and backs off
+   one full window (180 s) before the next verdict, so a busy runner is not re-judged and re-cancelled every 15 s.
+5. **The window** is reset when the rescue STARTS (the post-await reset at ~384 is removed), so the next verdict is on the
+   rescue's own samples.
+6. **The bound on `pending`:** the reservation (≤ 15 s) + the rescue's skill timeout (180 s) + the hard-stop grace (30 s) =
+   225 s, after which the runner releases the body and the `finally` clears the flag.
+7. **One rescue at a time:** a pending stagnation rescue also holds the stranding rescue, and the reverse.
+8. **Every attempt is logged** as `_watchdog_rescue {attempt, level, remedy, phase}` with phase `requested` → `started` |
+   `declined:<class>` → `completed:<status>`; the level-3 reconnect writes its row BEFORE `bot.quit`. The `started` row is
+   written by the runner when the owner's skill begins, so the watchdog does not grade itself (Claude r2 N-5).
+9. **Tests**, all through the REAL `Runner` (not the `async () => {}` fake): a skill that unwinds in 2 s and one that takes
+   > 15 s; a livelock rung trying to start during the reservation (gets `runner_reserved`); repeated declines (level held,
+   backed off); an exception after the skill body (`current` cleared); a rescue moving 1 block per 15 s (not cancelled
+   before its own window); a skill that ignores its abort (hard-stop, flag clears); stranding history accumulating while
+   pending. Each with a mutant that removes the guard and is seen to fail.
+- This is the CLAUDE.md "Reachable" and "local policy composition" class: the trigger names a remedy and then either
+  never runs it or refuses it on its next tick.
 
 ### H3 — reflex interruptions filed as skill bugs (225 runs)
 - 225 `skill_error` rows carry the raw pathfinder message "The goal was changed before it could be completed!" (206 under
@@ -318,7 +351,7 @@ home): 202 of 877 (23%) against 151 of 369 (41%) at the surface.
 ### H4 — real failures (what is left)
 `no_path` 144 (end p50 45 from home), `stranded` 92 (all underground, `llm:idle` 79), `goal_changed` 74, `path_budget` 123
 (the 25 s per-leg wall). These are the terrain and the deep starts. `home` already calls `surface` once below sea level.
-homefix-01 does not touch them; the expedition's breadcrumb return (§6.5) is the remedy for the trip's own path.
+homefix-01 does not touch them; the expedition's breadcrumb return (§6.6) is the remedy for the trip's own path.
 - `HOME_BUDGET_MS` is 200 s but the skill timeout is 180 s (skills.mjs:379, config.mjs:182), so a long walk ends as
   `interrupt:timeout` (13 rows) rather than by its own budget. homefix-01 sets the budget under the timeout.
 - `home` grades itself inconsistently today: a trip that closed < 16 blocks returns goto's own result (`return last`,
@@ -326,8 +359,8 @@ homefix-01 does not touch them; the expedition's breadcrumb return (§6.5) is th
   rows read "arrived … but nothing changed".
 
 ### What homefix-01 is worth, and what it is not
-- H1 alone, replaying the proposed predicate on every row of the fixed window: 581 → 814 of 2,338 (24.9% → 34.8%); on the
-  non-interrupted rows 48.4% → 67.8%.
+- H1 alone, replaying the proposed predicate on every row of the fixed window and keeping the evidence gate: 581 → 803 of
+  2,338 (24.9% → 34.3%); on the non-interrupted rows 48.4% → 66.9%. Geometric, static.
 - H2 returns a rescue its 180 s. The 741 uninterrupted watchdog rescues succeed 60%; homefix-01's read measures what the
   cut ones do once they are not cut, rather than projecting it.
 - **Start positions are a proxy.** A row's `@timestamp` is its start and its snapshot its end (logger.mjs:59); the start
@@ -377,7 +410,7 @@ VOID, never zero). Per shared town:
      `unreached` and skipped for 7 days.
    - Ranked by distance and by bearing away from spawn (explore's existing preference).
 3. **Hazard overlay.** Death sites from `world-facts-<pool>.json` `sites` and the `_death` rows; a region within 32 of a
-   death in 7 d is marked. **Water is not visible from positions alone** (an ocean region and an unvisited forest look the
+   death in 7 d is marked. **Water is not visible from positions alone** (an ocean region and an unscanned forest look the
    same): a region is labelled by its `_region_scan` (water / land counts) once a trip has scanned it, and by the
    `perception.blocks.water` counts of rows that ended near it; until then it is "unknown", ranked after scanned land.
 4. **Baselines the expedition read needs:** log and ore per gather body-hour by band (§1.2, rolling), deaths per bot-hour
@@ -387,54 +420,72 @@ VOID, never zero). Per shared town:
 `link()` protocol), plus a daily text. Nothing reads it until expedition-01.
 
 **Why first.** It fixes the denominators before the design is coded (the 200-300 band's 15.5% log success, the ore hint),
-and the expedition's target rule (§6.3) needs it. It costs no slot and touches no bot.
+and the expedition's target rule (§6.4) needs it. It costs no slot and touches no bot.
 
-**Positive controls.** A fixture world with a known path and known visits; live, the census must reproduce §1.1's band
-shares within 2 points over the same window.
+**Positive controls.** A fixture world with a known path and known visits; live, the census's region and band reader,
+  run on hourly latest-per-bot samples (the §1.1 estimator itself, not the row-end fold), must reproduce §1.1's band shares
+  within 2 points over the same window; and the row-end fold must find every region the hourly samples found.
 
 ---
 
 ## 5. E1 — homefix-01 (tier 2; the first step)
 
-**What changes (each an exported pure function or a single decision point with a behaviour test):**
+**What changes (each an exported pure function or a single decision point with a behaviour test and a mutant):**
 1. **H1:** `arrivedAt(pos, target, range)`, goto's existing final test, used by `home`'s grading (not goto's loop break).
-2. **H2a:** every watchdog rescue (levels 1-3, the stranding climb-out) waits ≤ 10 s for the runner to go idle after the
-   cancel, logs `_watchdog_rescue` with its outcome, and keeps its level if it could not start.
-3. **H2b:** the watchdog's `pending` flag, released in `finally`, with sampling (both histories) but no verdict from
-   either judgement while it is set, and the window reset at rescue start (§2 H2b, the liveness contract).
-4. **H3:** the runner files any throw under its own aborted signal as `aborted / interrupted` (§2 H3).
-5. `HOME_BUDGET_MS` below the skill timeout (170 s), so `home` ends on its own budget with its honest partial credit.
+   The arrival point is `config.world` home, which is the point the ES replay used (the `town-chest-<home>` key).
+2. **H2:** the contract in §2 "The H2 fix": pending from the verdict, cancel-and-reserve, `current` always cleared, the
+   level held and backed off on a declined rescue, the window reset at rescue start, attempt rows.
+3. **H3:** the runner files any throw under its own aborted signal as `aborted / interrupted` (§2 H3).
+4. **The home budget:** `home` passes its remaining budget into each nested goto and `surface` call (an `until`, as
+   `deposit` already takes one), and `HOME_BUDGET_MS` sits under the skill timeout (170 s), so `home` ends on its own
+   budget with its honest partial credit (Codex r2 and Claude r2 P3: one goto can run ≈ 145 s, so the constant alone is
+   not enough).
 
-**Refusal chain (CLAUDE.md).** homefix-01 adds no refusal. H2 changes which remedy runs: a rescue that is genuinely stuck is
-still judged on its own window, at most 180 s + 30 s hard-stop grace later, and escalates as today. Composed test: watchdog
-+ `home` + an entombment reflex firing mid-walk → the reflex holds the body, home is interrupted and filed `interrupted`,
-the watchdog does not escalate during the pending rescue, and escalates on the rescue's own window if the bot then stays
-put.
+**Refusal chain (CLAUDE.md).** homefix-01 adds one declined class, `runner_reserved`, which is a "not now" to every caller
+except the reserving watchdog, lasts ≤ 15 s, and is in every declined set, so nothing counts it as a failure or a lesson.
+Its remedy is the caller's next decision. H2 changes which remedy runs: a rescue that is genuinely stuck is still judged on
+its own window (≤ 225 s later) and escalates as today. Composed test: watchdog + `home` + an entombment reflex firing
+mid-walk → the reflex holds the body, home is interrupted and filed `interrupted`, the watchdog does not escalate during
+the pending rescue, and escalates on the rescue's own window if the bot then stays put.
 
 **Paper scenes.**
-- P0: a skill that takes 2 s to unwind after abort, then a stagnation verdict → the rescue starts (not `runner_busy`) and
-  a `_watchdog_rescue` row is written.
+- P0: a skill that takes 2 s (and one that takes 20 s) to unwind after abort, a livelock rung trying to start in between,
+  then a stagnation verdict → the rescue starts (or is declined once and backed off), and `_watchdog_rescue` rows exist.
 - P1: a bot 3 blocks from an occupied home cell (chests at the home point) → `home` success.
 - P2: a bot boxed in so it moves ≈ 1 block per 15 s → no cancel before the rescue's own window; then escalation 3.
-- P3: an entombment reflex during `home` → `interrupted`, not `skill_error`.
+- P3: an entombment reflex during `home` below sea level (through `surface`) → `interrupted`, not `skill_error`.
 
-**Read (tier 2: 20 bots, KEEP at +180, ≈ 3 h cool-off). KEEP rests on DETERMINISTIC per-mechanism checks in the arm**
-(the owner's 09-29 rule: fixes get a correctness gate; Claude r1 P2-3), each 0 unless stated:
-- G1: `home` rows ending `travel_incomplete` within 3 horizontally and 6 vertically of home: 0;
-- G2: `skill_error` rows whose trigger is `interrupt:*`: 0 (any skill);
-- G3: `home` / relocation rows cut by `interrupt:stagnation` within 20 s of their start: 0;
-- G4: `_watchdog_rescue` rows: every escalation has one (rows = escalation events in the arm), and `busy` < 10% of them.
-Positive control for each: the same query must find its defect on the control arm over the same window, or on the arm's
-own 24 h pre-period (G1-G3 > 0, G4 rows absent); otherwise the gate is VOID, not passed. (G1 is ≈ 32 a day fleet-wide,
-so a 3 h control window may hold none; the pre-period is the usual control.) **DiD as guards only:** deaths (two-death floor), `_stranded` per
-bot-hour (a rescue that now lasts longer must not hide a stranding), stagnation level-1 events per bot-hour,
-`_stagnation_reconnect` per bot-hour (expected to fall), and `home` success (reported, all rows and S0's filter).
+**Read (tier 2: 20 bots, KEEP at +180, ≈ 3 h cool-off).** KEEP rests on DETERMINISTIC per-mechanism checks in the arm (the
+owner's 09-29 rule: fixes get a correctness gate). **Each gate is "0 defects in ≥ D opportunities"**, never a bare 0
+(Claude r2 N-5: without the fix the arm expects only ≈ 1.3 G1 defects and ≈ 2.4 G3 defects in 3 h, so P(0 | no fix) is
+≈ 26% and ≈ 9%: a bare zero is a cheap negative). Opportunities are counted per gate; the read extends (+360, +540) until
+every gate has its D, and is INCONCLUSIVE at +540 if one does not (the owner's 10-15 early-close rule).
 
-**Exposure (corrected, Codex r1 P2-7).** The shared towns make ≈ 334 `home` rows a day in 60 bots, so 20 bots make
-≈ 111 a day: ≈ 14 by +180, ≈ 28 by +360, ≈ 42 by +540. Exposure is **≥ 12 `home` rows AND ≥ 6 watchdog escalation-2
-rescues in the arm** (5,436 escalation-2 events / 7 d / 80 bots × 20 bots ≈ 194 a day, so ≈ 24 by +180). Unexposed at +180 → extend to +360
-and +540; still unexposed at +540 → INCONCLUSIVE (the owner's 10-15 early-close rule). The read never claims a `home` rate
-from fewer than 12 arm rows.
+| gate | opportunity (denominator) | defect | D |
+|---|---|---|---:|
+| G1 arrival | an arm `home` row that moved ≥ 2 blocks and ended within 3 h / 6 v of home | graded anything but success | 5 |
+| G2 classification | an arm row of any skill whose run was interrupted (`interrupt:*` trigger) | status `failed / skill_error` | 50 |
+| G3 rescue survives | a `_watchdog_rescue` attempt with phase `started`, joined to the runner's skill row (bot, start ±1 s) | that skill row ended `interrupt:stagnation` < 60 s after its start | 8 |
+| G4 rescue reachable | a `_watchdog_rescue` attempt with phase `requested` | no terminal phase (`started` or `declined:*`) recorded, OR `declined:*` > 10% of attempts | 20 |
+
+- **G3 counts rescues only.** A brain `home` or `goto` cut by a legitimate verdict is not an opportunity: it has no
+  attempt record. That keeps the gate from failing on correct code (Claude r2 N-1).
+- **G4 is not self-graded:** `started` is written by the runner, not the watchdog, and each attempt id is reconciled
+  individually (duplicates cannot mask omissions). Attempts requested < 225 s before the read boundary are excluded.
+- **Positive controls (each must hold, or the gate is VOID, not passed):** G1-G3 — the same reader finds the defect on the
+  arm's own 24 h pre-period (old code: G1 ≈ 32 shared-town defects a day, ≈ 48 all pools; G2 225 a week in `home`
+  alone); G3/G4 — the gate reader is run on two fixture logs, one known-good and one known-defective (an attempt with no
+  terminal row, a rescue cut at 15 s), and must pass the first and fail the second. "Rows absent on control" is not a
+  positive control: it shows only that the code is absent.
+- **Guards (DiD, not decisive):** deaths (two-death floor) and deaths within 120 s after a `_watchdog_rescue` start;
+  `_stranded` per bot-hour; stagnation level-1 events per bot-hour; `_stagnation_reconnect` per bot-hour (expected to
+  fall); relocation outcomes (H2a turns on ≥ 7.6k level-1 relocations a week that never started before: random 45-70
+  block walks, which must not raise deaths or strandings); `home` success, all rows and S0's filter (reported).
+
+**Owner rule (Claude r2 N-10).** The owner said on 09-30: no more stuck / drowning hunts; tripwires only; work the
+production chain. homefix-01 is a stuck-rescue change, so it needs the owner to lift that rule for this fix (X1). The case:
+it is not a hunt but three measured defects in code that already runs ≈ 39k escalations a week, and it is the shared
+prerequisite of expansion and the foreman's RECALL.
 
 **Dependencies.** None in flight. It also serves the overseer's RECALL gate (S0 measures `home` success).
 
@@ -443,144 +494,203 @@ from fewer than 12 arm rows.
 ## 6. E2 — expedition-01 (tier 3)
 
 ### 6.1 What it is
-A bounded errand by **one bot per shared town at a time**: bank down at town → walk out 300-800 blocks on the surface to a
-frontier region → scan and gather there → walk back along its own breadcrumbs → deposit at town (later, at an outpost).
-Deterministic: a town job with its own order and lease, not a brain choice and not advice.
+A bounded errand by **one bot per shared town at a time**: kit up at town → walk out 300-800 blocks on the surface to a
+frontier region → scan and gather there → walk back along its own breadcrumbs → **bank the haul at town** (later, at an
+outpost first). Deterministic: a town job with its own order, lease and persistent trip state; not a brain choice, not
+advice.
 
-### 6.2 Who goes, and how many
+### 6.2 Who goes, the state that carries the trip, and its phases
 - **One per town** (12 towns, ≤ 12 bots fleet-wide: 20% of the 60 shared-town bots, 15% of the fleet).
-- **Three separate pieces of state (r2, Codex r1 P1-2):**
+- **Three separate pieces of state (r2-r3; Codex r1 P1-2, Codex r2 P1-1/P1-2):**
   - **Ownership** — `expedition-<home>.lease.json`, the treefarm/plinth lease pattern: one holder, a 10-minute TTL renewed
-    only by PROGRESS (a breadcrumb gained outbound, one regained on the return, a gather success at the region). It
-    fences two bots from both going; it is never what keeps a bot's return alive.
-  - **The trip deadline** — absolute, written at departure: work ends at +45 min and the trip must be home by +90 min.
+    only by PROGRESS (a breadcrumb gained outbound, one regained on the return, a gather success at the region). It fences
+    two bots from both going. It is never what keeps a trip alive, and its expiry never changes a phase.
+  - **The trip deadline** — absolute, written at departure: work ends at +45 min, the bot should be home by +90 min.
     Renewal never moves it.
-  - **The return state** — `expedition-return-<bot>.json` in the pool state dir (survives a restart): the trail, the phase
-    (`out` / `work` / `return` / `stranded`), the deadline. It is the bot's, not the lease's. Revocation, lease expiry
-    and the deadline all switch the phase to `return`; nothing but ARRIVAL (home's predicate, or an outpost's), the bot's
-    death (respawn is at home), or an operator `closed` deletes it.
-  - **The return phase is a deterministic order** ranked above the brain's idle choice and below reflexes and the
-    bag-full / spent-tool / no-pickaxe orders (the overseer design's starvation rule), on every decision until the file is
-    gone.
-  - **A town with an unresolved return state sends no one.** One expedition per town means one bot outside on an
-    expedition, lease or not. A return state older than 6 h pages the operator (`_expedition_overdue`) and still blocks.
-- **Eligible bot** (pure `expeditionEligible(readings)`, re-checked fresh at departure): health ≥ 18; no trap, drowning or
-  low-health flag in 10 min; no other lease (builder, furnace, farm); a pickaxe ≥ 40% durability and an axe; at town;
-  not the town's last bot at town (≥ 1 other stays for town jobs).
-- **Bank-down first: new code, specified (Claude r1 P2-8).** `town_deposit` today fires only at ≥ 34 slots
-  (towndeposit.mjs:38, 262, `TD_TRIGGER_SLOTS` = hygiene's 34), only inside 16 h / 12 v of home (towndeposit.mjs:40-41, 84), and never moves the iron ladder. So the
-  expedition's bank-down is its own step, `expedition_kit`, a call of `town_deposit`'s plan function with a KEEP SET
-  passed in, run only inside the town zone (16 h / 12 v, not the 48-block "at town" of §1.3):
-  - the keep set: 1 pickaxe (the best), 1 axe, the scaffold reserve (32 cobble or dirt), 1 crafting table, 1 chest,
-    torches, and the IRON_LADDER items exactly as today (no new iron policy);
-  - everything else bankable goes to town containers; what the cobble cap refuses goes to the well (cobblekeep-01's
-    path), never a new chest;
-  - **departs only with ≥ 16 free slots.** Otherwise `_expedition_skip bag`: no refusal of anything else, the bot
-    continues its normal order, and the next eligible bot is tried at the next tick. That is not a dead end: nothing is
-    asked of the bot that it cannot do.
-  - Paper: a 36-slot bag with cobble, logs, ore and tools → the kit, the cap refusal into the well, ≥ 16 free or a skip.
-- **Selection among eligible bots:** the most free slots after a dry-run of the kit rule; ties by name rotation.
-- **Cadence.** Next departure ≥ 30 min after the last return. Peaceful: no day/night rule.
+  - **The trip state** — `expedition-trip-<bot>.json` in the pool state dir (survives a restart): the trail, the phase, the
+    deadline, the haul counted at departure and at work end. It is the bot's, not the lease's.
+- **Phases, and the only transitions (r3):**
 
-### 6.3 How a target is chosen
-- **From E0's frontier file:** the nearest unvisited region in the 300-800 ring, preferring the bearing away from spawn;
-  never a region within 32 of a death in 7 d; never within 64 of the border.
+  | phase | entered when | leaves to | on |
+  |---|---|---|---|
+  | `kit` | selected at town | `out` / closed `skip` | kit complete with ≥ 16 free (§6.3) / kit refused |
+  | `out` | kit done | `work` / `return` | arrival at the region / any turn-back rule, the deadline, revocation |
+  | `work` | arrival | `return` | any turn-back rule, the work deadline, revocation |
+  | `return` | from `out`, `work`, `stranded` | `bank` / `stranded` | arrival (home's predicate) / §6.7 step 4 |
+  | `stranded` | three failed return rounds | `return` | a return leg that makes PROGRESS (only that; not the lease, not the deadline) |
+  | `bank` | arrival at town | closed `done` | `expedition_bank` finished: banked, or a named refusal (below) |
+
+  The trip file is deleted only at `done`, `skip`, the bot's death (world spawn is set at town, place-town.py:524, so a
+  respawn is at home; the haul is lost and counted), or an operator `closed`. **A town with a trip file sends no one.**
+  A trip file older than 6 h pages the operator (`_expedition_overdue`) and still blocks.
+- **Where the trip's order ranks (Claude r2 N-6).** `orderFor(ready)` (the milestone ladder) is first in the decision
+  chain (cognitive.mjs ~900), and the plinth and town-deposit orders are placed ahead of it on purpose (the comment at
+  ~905-908). The trip order (`out`, `work`, `return`, `stranded`'s retry, `bank`) goes **ahead of all of them**, below
+  only the reflexes and the arbiter. While a trip file exists:
+  - a milestone `mine` order is withheld (X3: no staircase on a trip), and a craft-ready rung's craft is withheld unless
+    the trip itself needs it (the escape pickaxe, §6.7);
+  - a room order's remedies (`deposit`, `home`) are answered by the trip: the remedy named is "the trip's return", and it
+    runs;
+  - town jobs are skipped by an absent bot as today (they are town-gated).
+  - Tests: a craft-ready rung during `out`; a milestone `mine` order during `work`; a 36/36 bag during `return`.
+- **Eligible bot** (pure `expeditionEligible(readings)`, re-checked fresh at departure): health ≥ 18; no trap, drowning or
+  low-health flag in 10 min; no other lease (builder, furnace, farm); inside the town zone (16 h / 12 v); not the town's
+  last bot at town (≥ 1 other stays for town jobs). Selection among eligible bots: the most free slots after a dry run of
+  the kit (§6.3); ties by name rotation. Cadence: next departure ≥ 30 min after the last `done`. Peaceful: no day/night
+  rule.
+
+### 6.3 The kit and the bank: two new entry points with explicit contracts (Claude r1 P2-8, Codex r2 P2-6, Claude r2 N-8/N-9)
+`town_deposit` today fires only at ≥ 34 slots (towndeposit.mjs:38, 262; `TD_TRIGGER_SLOTS` = hygiene's 34), only inside
+16 h / 12 v of home (towndeposit.mjs:40-41, 84); its plan (`townDepositPlan`, ~150) takes no keep set; its keeps hold the
+stockpile rungs (wood and the cobble family to 64), the iron ladder's inputs and the best usable copy of each tool NAME
+(~100-137, 165-174). Neither entry point below changes `town_deposit`.
+
+**`expedition_kit`** (phase `kit`; inside the town zone):
+- **Minimum kit, present after the step or the trip does not go:** 1 pickaxe with ≥ 40% uses, 1 axe, 32 scaffold blocks
+  (cobble family or dirt), 1 crafting table, **3 logs** (the escape wood: with the table, a wooden pickaxe and sticks can
+  always be made, §6.7), torches if held. A missing item is withdrawn from town containers by the existing withdraw /
+  toolkit paths if it can be, else the trip closes `skip:kit:<item>` (no refusal of anything else; the bot continues its
+  normal order and the next eligible bot is tried next tick).
+- **What it banks:** a new parameter `keep` to `townDepositPlan` (default: today's keeps, so `town_deposit` is unchanged).
+  The kit's `keep` REPLACES the stockpile keeps (wood 64 → the 3 logs; cobble 64 → the 32 scaffold) and the per-name tool
+  rule (one best pickaxe and one axe ACROSS materials; other usable tools are banked; spent copies stay for wear-out). It
+  PRESERVES: the iron ladder's inputs (no new iron policy; if cobblekeep-01 is KEPT first, its coal and raw-iron rule
+  applies as it does to `town_deposit`), food, the withdraw hold, whole-stack moves and the credit cap.
+- What the cobble cap refuses goes to the well (cobblekeep-01's path), never a new chest.
+- **Departs only with ≥ 16 free slots.** Measured replay (Claude r2 N-9; `e5`, 161 bot-snapshots inside the town zone in
+  the last 24 h, shared towns): with this kit rule, free slots after the step are median 20 (p10 18) when only the
+  commonly banked families leave and every unknown item stays, and median 24 when everything outside the kit, the iron
+  ladder, food and tools leaves. **157 of 161 (98%) reach ≥ 16 in the pessimistic bound.** The difference from today
+  (`town_deposit` frees ≈ 2-4 slots per stay, towndeposit.mjs:9-10) is the stockpile keep the kit replaces, which is why
+  the kit needs the trip-order rank above the milestone (the gather rungs will ask for wood and cobble back).
+
+**`expedition_bank`** (phase `bank`; inside the town zone; ANY slot count):
+- `townDepositPlan` with today's keeps EXCEPT the stockpile keeps are the kit's (so the haul's logs above 3 and the
+  scaffold above 32 are bankable), the iron ladder preserved as in the kit.
+- Refusals and their remedies: town containers full → the existing full-town recovery (a chest in rings 1-4) as for
+  `town_deposit`; "nothing bankable" → `done`; a path failure to a container → retried twice, then `done` with
+  `_expedition_bank unbanked:<n>` (the haul stays in the bag, where `town_deposit` will take it at 34). No dead end: the
+  bot is at town, where every town job is available.
+- The trip's **haul** (bag delta, logs + ores, between departure and arrival) is logged on `done`, banked or not.
+
+### 6.4 How a target is chosen
+- **From E0's frontier file:** the nearest region in the 300-800 ring that is **not observed visited** (§4), preferring
+  the bearing away from the world origin (explore's preference); never a region within 32 of a death in 7 d; never
+  within 64 of the border; never one marked `unreached`.
 - **Scouting is part of the trip.** At the region the bot runs a bounded scan of loaded chunks (logs, iron/copper/coal ore
   visible within 12 below its feet, water and lava counts) and writes a `_region_scan` row. E0 folds the scans, so the next
-  trip from that town can prefer a region scanned rich over an unscanned one (score = scanned logs + ore, decayed by age).
-- **The first trip from a town** goes to 300; each completed trip may step the ring out by 100 to 800. A failed trip
-  (not home by the trip deadline, or a death) steps it back by 100.
+  trip can prefer a region scanned rich over an unscanned one (score = scanned logs + ore, decayed by age).
+- **The first trip from a town** goes to 300; each `done` trip may step the ring out by 100 to 800. A trip not home by its
+  deadline, or a death, steps it back by 100.
 
-### 6.4 Safety
-- **Never sent** while trapped, drowning, low on health or with a full bag (§6.2). Peaceful: no mobs; hunger regenerates.
-- **Bounded-risk surface travel, v1 (X3). Not a guarantee (Codex r1 P2-4).** `GoalNearXZ` does not constrain elevation,
-  and goto can retry a leg with digging or a larger drop, so "surface" is a set of limits, not a promise:
-  - outbound legs run with goto's **larger-drop retry OFF** and its dig retry ON (a dig can be climbed back through; a
-    7-block drop cannot be climbed without scaffold);
-  - every outbound leg records its net dy and whether it was a drop the walking profile cannot climb (> 1 block per
-    step: `oneWay`); the trip keeps a **scaffold reserve** of 32 + the sum of its one-way drops, and a leg that would
-    exceed what the bag holds turns the trip back;
-  - an outbound leg ending more than 12 below the departure level, or under a solid ceiling, is refused and the trip turns
-    to another bearing (the trip never goes underground on purpose);
+### 6.5 Safety: bounded-risk surface travel (X3), checked BEFORE each step (Codex r2 P2-7)
+- **Never sent** while trapped, drowning, low on health or without the kit (§6.2-6.3). Peaceful: no mobs; hunger
+  regenerates.
+- **Not a guarantee (Codex r1 P2-4).** `GoalNearXZ` does not constrain elevation, and goto can retry a leg with digging or
+  a larger drop. So "surface" is a set of limits:
+  - **pre-commit, per leg:** the leg's path is planned first (`getPathTo` on the walking profile, as the watchdog and
+    the shaft's T6 probe already do) and its nodes are read before any move. A leg is refused (and another bearing tried
+    from the current cell) when: any node is more than 12 below the departure level; any node's body cell has a solid
+    ceiling within 3 above (any non-air, non-liquid block, leaves included); or its one-way descent (the sum of steps down
+    of more than 1 block, which the walking profile cannot climb back) would raise the trip's **return debt** above
+    what the bag holds minus the **fixed emergency reserve**;
+  - **return debt** = the one-way descents already taken (from the trail) + this leg's; **emergency reserve** = 32 scaffold
+    blocks and the pickaxe uses to dig them out again (uses ≥ 2 × debt + 20). Both are re-checked continuously during
+    `work` (gathering spends scaffold and pickaxe uses): falling below debt + reserve is a turn-back rule;
+  - outbound legs run with goto's **larger-drop retry OFF** (a dig can be climbed back through; a 7-block drop cannot be
+    climbed without scaffold); the dig retry stays on;
+  - if a leg nevertheless ends below the 12-block limit or under a ceiling (a fall, a reflex), the bot goes back to its
+    last breadcrumb before trying a new bearing;
   - no `mine` staircase on the trip; ore only by `gather` within 12 below the arrival level;
   - today's lava corridor guard (`lavaguard`), death-site pricing (`deathsites.mjs`) and blind-step guards, unchanged.
-  This keeps the owner's diamond hold and the underground-safety order intact: the deaths are underground (TP §1.5) and at
-  48-100 they are lava (§1.2).
+  This keeps the owner's diamond hold and the underground-safety order intact.
 - **Water is terrain** (owner standing rule): swimming is travel; the only water reflex is air.
-- **Falls** are the outer bands' death (11 of 17 at 200-300). The return leg keeps goto's larger-drop retry (health ≥ 18,
-  skills.mjs ~700), because going down on the way home is the cheap direction.
-- **Hazard turn-back:** two hazard reflexes (drowning, lava, entombed, fall damage) on one trip → turn back.
+- **Falls** are the outer bands' main death beyond 200 (13 of 21, §1.2). The return keeps goto's larger-drop retry
+  (health ≥ 18, skills.mjs ~700): going down on the way home is the cheap direction.
+- **Hazard turn-back:** two hazard reflexes (drowning, lava, entombed, fall damage) on one trip → `return`.
 
-### 6.5 Breadcrumbs, the return, and turning back
+### 6.6 Breadcrumbs, the return, and turning back
 - **Breadcrumbs.** Every ≈ 32 blocks walked out, the bot records the standable cell it stands on (feet in air, solid below,
-  no liquid) and the leg's dy / `oneWay` mark. The trail lives in the return state (survives a restart).
+  no liquid), the leg's dy and its one-way descent. The trail lives in the trip state.
 - **Return** walks the trail backwards, one breadcrumb per leg (`GoalNear` range 2 on a cell it has stood on). Standing on
-  a cell proves it existed, not that the reverse leg is walkable; a `oneWay` leg is climbed with the reserved scaffold
-  (the existing ascent profile), and §6.6 is the chain when a leg still fails. The last leg is `home`. It is one
-  deterministic composite across as many skill calls as it needs, driven by the return state (§6.2).
-- **Turn back on the first of:** bag ≥ 30 slots; 15 min of work at the region; the trip deadline's work end (+45 min);
-  health < 14; two hazard reflexes; the pickaxe below a return reserve (the swing count of the scaffold reserve); the
-  scaffold reserve not held; three consecutive failed outbound legs; the border margin; the lease revoked (a host-side
-  `revoke` file, for the operator).
-- **Between 30 slots and the shed rule at 34 (Codex r1 P2-5).** At 30 the trip is in `return`, and the return IS the
-  executable remedy for a filling bag. If pickups during the return reach 34, the existing ballast shed applies (it sheds
-  junk only), and the return continues. No new refusal sits in the gap.
-- **The bag at the far end is never "advice".** Today's `deposit` admission is conditional (`farFromBank`, skills.mjs:5450,
-  measures from SPAWN and looks for a usable chest within 48), and the `deposit` skill itself walks `home` first
-  (skills.mjs ~2723). An expedition bot does not rely on either: its return phase is the remedy, and it runs.
+  a cell proves it existed, not that the reverse leg is walkable: a one-way leg is climbed with the reserved scaffold (the
+  existing ascent profile), and §6.7 is the chain when a leg still fails. The last leg is `home`; arrival is home's
+  predicate (H1), then phase `bank`.
+- **Turn back (→ `return`) on the first of:** bag ≥ 30 slots; 15 min of work at the region; the work deadline (+45 min);
+  health < 14; two hazard reflexes; scaffold or pickaxe uses below return debt + reserve; three consecutive refused or
+  failed outbound legs; the border margin; the operator's `revoke` file.
+- **A full bag is not a dead end (Codex r2, Claude r2 N-7).** There is no remote ballast shed: hygiene's step at 34 is
+  `wear_out` of spent tools (hygiene.mjs:9-17, 49-66), composting and the well are town orders. None is needed: walking
+  needs no free slot, pickups simply stop, and the return is the remedy. X-P4 tests a 36/36 return that includes a
+  scaffold climb (the scaffold is in the bag already).
+- **The bag at the far end is never "advice".** `deposit`'s admission is conditional (`farFromBank`, skills.mjs:5450,
+  measures from the world origin and looks for a usable chest within 48), and the `deposit` skill itself walks `home`
+  first (skills.mjs ~2723). Both are withheld while a trip file exists (§6.2): the return phase runs instead.
 
-### 6.6 What to do when lost
+### 6.7 What to do when lost, and when contained
 "Lost" here means no route, never unknown coordinates (the bot always knows x, z).
 1. A breadcrumb leg fails → try the next breadcrumb (skip one), then the one after.
 2. Then direct `GoalNearXZ` legs toward home at the bearing ±30°.
-3. Below sea level → `surface` once (home's existing repair).
-4. Still no progress after 3 rounds → phase `stranded` (`_expedition_stranded`). The return state stays; the bot works
-   locally between attempts (gather by hand: it can always gather or wait), and the return order re-fires every 10 min,
-   each attempt starting from step 1 with the trail re-read. It never teleports or edits the world.
-5. The lease's TTL lapses (no progress), but the return state does not: **the town sends no one else** while it exists
-   (§6.2). Past 6 h the operator is paged; a human `closed` or the bot's arrival or death ends it. The watchdog keeps
-   running throughout; with homefix-01 its rescue gets its full window.
+3. Below sea level, or under a ceiling → `surface` once (home's existing repair; it climbs with scaffold).
+4. Still no progress after 3 rounds → phase `stranded`. The bot works locally (gather) between attempts; the return order
+   re-fires every 10 min from step 1 with the trail re-read; only a return leg that makes progress leaves `stranded`.
+5. **Contained (scaffold spent, pickaxe broken): the escape wood is the executable remedy (Codex r2 P1-1).** The kit's 3
+   logs and table make planks, sticks and a wooden pickaxe (59 uses) wherever the bot stands; a wooden pickaxe digs stone,
+   which drops cobble, which is scaffold. So step 3 can always be re-armed: craft → dig → climb. If the kit's logs are
+   gone too (spent on the way, or the bot is in a pocket of blocks a wooden pickaxe cannot break), the state is
+   **contained**: it is counted (`_expedition_contained`), it keeps the town's fence and pages the operator at 6 h, and it
+   is an ACCEPTED outcome of v1 that the read gates on (§6.10), not a recovery this plan claims. The pre-step checks
+   (§6.5) exist to keep it rare.
+6. The lease's TTL lapses (no progress) but changes no phase; the trip file keeps the town's fence. The watchdog keeps
+   running throughout; with homefix-01 its rescue gets its full window, and its level-3 `surface` / `mine` branch
+   (watchdog.mjs ~496-503) is a rescue of a stuck bot after which the trip order re-plans from the nearest breadcrumb.
 
-Every step names a remedy executable from where the bot stands; the composed test runs the whole chain (§6.8).
-
-### 6.7 Interaction with the "go home" problem
+### 6.8 Interaction with the "go home" problem
 - The trip does not depend on `home` except for the final ≤ 32 blocks, which are inside the band where healthy-surface
   `home` succeeds (and homefix-01's H1 is exactly that leg).
 - **The watchdog and a trip (Claude r1 P3).** A walking bot is not stagnant (it moves ≥ 8 blocks per window), so the
   watchdog fires only when a trip is already stuck. Then, after homefix-01: level 1's random 45-70-block relocation may
-  take the bot off the trail, and the return state re-plans from the nearest breadcrumb; level 2's `home` is the return's
-  own destination; level 3's reconnect restarts the bot, which resumes from the return state. Before homefix-01 most of
-  those rescues never start (H2a) or are cut at 15 s (H2b), which is why homefix-01 comes first.
+  take the bot off the trail, and the trip re-plans from the nearest breadcrumb; level 2's `home` is the return's own
+  destination; level 3's reconnect restarts the bot, which resumes from the trip state. Before homefix-01 many of those
+  rescues never start (H2a) or are cut at 15 s (H2b), which is why homefix-01 comes first.
 - RECALL (the overseer) and expeditions share homefix-01; neither shares an instrument with the other.
 
-### 6.8 Paper tests
-- X-P1: a 400-block route across a river, a 6-block drop and a lava pool → out, scan, gather, back along the trail, deposit.
+### 6.9 Paper tests
+- X-P1: a 400-block route across a river, a 6-block drop and a lava pool → kit, out, scan, gather, back along the trail,
+  `expedition_bank` at 22 slots (below `town_deposit`'s 34), `done`.
 - X-P2: a breadcrumb blocked after departure (a placed block) → skip, then direct legs.
-- X-P3: kill / disconnect mid-trip → restart resumes from the return state; lease TTL lapse does not end the return.
-- X-P4: bag fills at the far end → turn back, return, deposit.
+- X-P3: kill / disconnect mid-trip, and again in phase `bank` → restart resumes from the trip state; lease TTL lapse
+  changes no phase.
+- X-P4: bag fills at the far end → `return` → a 36/36 return including a scaffold climb → `bank`.
 - X-P5: target region at the border margin → refused at selection, not on the way.
-- X-P6 (composed refusal chain): a bot at the far end below an irreversible 7-block drop, scaffold spent and pickaxe broken
-  → it still has a legal move (gather by hand, wait, retry the chain), the town sends no second bot, the overdue page fires.
-- X-P7: revocation mid-outbound → phase `return`, the return order runs; revocation never strands.
+- X-P6 (composed refusal chain): a bot below an irreversible 7-block drop, scaffold spent and pickaxe broken → it crafts
+  the wooden pickaxe from the kit logs, digs stone, climbs, and returns; the variant with no logs → `contained`, the town
+  sends no second bot, the overdue page fires.
+- X-P7: revocation mid-outbound → `return`; revocation never strands.
 - X-P8: two eligible bots at departure time → exactly one lease; the other continues its normal order.
-- X-P9: repeated failed return legs → the order re-fires each 10 min and the lease never renews without progress.
+- X-P9: repeated failed return legs → `stranded`, the order re-fires each 10 min, the lease never renews without
+  progress, and lease expiry does not reset `stranded` to `return`.
+- X-P10: a leg whose planned path dips 14 below the departure level → refused before the first move; another bearing.
+- X-P11: during `out`, a craft-ready rung and a milestone `mine` order → both withheld; the trip order runs.
 
-### 6.9 Read and metric (tier 3; unit = the town; 4 drawn shared towns = 20 bots, randomized; DiD)
-- **Primary:** ore (raw iron, raw copper, coal) + logs **banked into TOWN (or outpost-record) containers** per bot-hour
-  in the arm, DiD against control towns, pre-registered null from a pre-period. INCONCLUSIVE is a legitimate close.
-  Containers are matched by position: `deposit` will bank into any non-deep chest within 48 at home's level band
-  (skills.mjs ~2687-2693; `depositTargetOk` has no horizontal term), so a haul banked into a village chest out there is
-  NOT banked (Claude r1 P2-6).
-- **Exposure:** ≥ 8 completed expeditions (returned and deposited) in the arm, of which ≥ 2 reached beyond 400. The ring
-  starts at 300 and steps out by 100 per success, so a first read exercises mostly 300-400; 500-800 is a later read's
-  claim, not this one's.
-- **Secondary:** new 64-regions visited per town-day (E0); items gathered beyond 200 per bot-hour; median distance
-  reached; trip time split (out / work / back).
-- **Gates:** deaths beyond 200 (two-death floor, > 1.25× control; a death within 120 s of an expedition row is
-  mechanism-linked); `_expedition_stranded` lasting > 30 min; bots not back within the TTL; town job coverage
-  (`town_deposit`, `smelt_town` per town-hour must not fall beyond its null band).
+### 6.10 Read and metric (tier 3; unit = the town; 4 drawn shared towns = 20 bots, randomized; DiD)
+- **Primary:** ore (raw iron, raw copper, coal) + logs **banked into TOWN (or outpost-record) containers** per bot-hour in
+  the arm, DiD against control towns, pre-registered null from a pre-period. INCONCLUSIVE is a legitimate close.
+  Containers are matched by recorded position, because `deposit` will bank into any non-deep chest within 48 at home's
+  level band (skills.mjs ~2687-2693; `depositTargetOk` has no horizontal term; cobble-only and cap-bound targeted plans
+  are the exception, kept to town containers at ~2691-2692), so a haul banked into a village chest is NOT banked.
+- **Secondary:** the trips' haul (§6.3, banked or not); new 64-regions visited per town-day (E0); median distance reached;
+  trip time split (out / work / back).
+- **Exposure:** ≥ 8 `done` trips in the arm, of which ≥ 2 reached beyond 400. The ring starts at 300 and steps out by 100
+  per `done`, so a first read exercises mostly 300-400; 500-800 is a later read's claim, not this one's.
+- **Gates:** deaths of bots in a trip phase, per bot-hour IN a trip phase, against control bots' deaths per bot-hour beyond
+  200 (control bots spend ≈ 6.6% of their time there, §1.1, so the denominator is ≈ 0.066 × control bot-hours), on the
+  two-death floor and > 1.25×; a death within 120 s of a trip row is mechanism-linked; `contained` trips: ≤ 1 per 8
+  trips; trips not home by the deadline: ≤ 2 per 8; town job coverage (`town_deposit`, `smelt_town` per town-hour must
+  not fall beyond its null band).
 
-**Dependencies.** homefix-01 KEPT; cobblekeep-01 KEPT (bags); E0 live 48 h with its self-test passed.
+**Dependencies.** homefix-01 KEPT; cobblekeep-01 KEPT (bags, and the kit's cobble path into the well); E0 live 48 h with its
+self-test passed.
 
 ---
 
@@ -611,16 +721,25 @@ applies to every new well) and, later still, a sapling ring.
   - it runs only inside 16 h / 12 v of an outpost anchor from the outpost record, only on containers the record owns
     (by position), and only from the expedition's return phase or an arrival at the outpost;
   - its plan is `town_deposit`'s plan function with the anchor and the outpost item policy (below) passed in;
-  - its refusals name remedies executable there: "outpost chests full" → continue the return to town (the return phase
-    is already the next order); "nothing the outpost takes" → continue to town.
+  - its refusals name remedies executable there: "outpost chests full" → continue the return to town; "nothing the
+    outpost takes" → continue to town. Both are executable because the trip state carries the next phase (below).
   - Admission and `farFromBank` are not changed in v1: a non-expedition bot near an outpost banks at town as today.
+- **The trip's phases with an outpost (r3, Codex r2 P1-2).** Arrival at an outpost does NOT end the trip:
+  `return` → `outpost_bank` (inside 16 h / 12 v of the outpost anchor) → `return_town` → `bank` (at town) → `done`. The
+  trip file and the town's fence persist through all of them, so a bot banking at an outpost 400 blocks out never frees
+  the town to send a second bot. **Departures are from town only in v1**; a trip passes its town's outpost on the way back
+  when the outpost lies within 64 of the trail.
+- **The ownership test (r3).** `outpost_deposit` takes a container only if the outpost record names its position. Paper:
+  an outpost **more than 12 blocks below** home's level (outside today's TOWN_DY band, so only the anchor rule admits it),
+  an unrecorded chest 10 blocks from it (never used), full outpost chests, and arrival → full chests → a blocked town route
+  → a restart (the trip resumes in `return_town`).
 - **What an outpost chest takes:** only DEPOSIT_ALWAYS and project materials (logs, saplings, raw metals, ingots, coal) —
   never cobble, dirt or junk. So the town's cobble cap and stock targets are not bypassed and the outpost never becomes a
-  dump. Paper: an outpost 9 blocks below home's level, full outpost chests, and a blocked return from the outpost.
+  dump.
 - **Stock.** The outpost has its own journal (`outpost-chest-<id>.jsonl`); the town's stock targets do not count it in v1.
   A haul job (outpost → town; a later foreman `SUPPLY` candidate, or rails) brings it home.
-- **Expedition after an outpost:** turn back to the outpost when it is nearer than home; return home every Nth trip or
-  when a town job needs the bot.
+- **Later (v2, not v1):** trips that start from an outpost, so a bot can work several bag-fills out there before a haul
+  home. v1 keeps every departure at town, where the eligibility and the kit are defined.
 
 ### 7.4 Composition with the town rules (the dead-end table)
 
@@ -636,13 +755,14 @@ applies to every new well) and, later still, a sapling ring.
 | **full-town recovery** (new chests in rings around a town chest) | never at an outpost: a full outpost chest means "carry it home" |
 
 ### 7.5 Refusal chains, Paper tests, read
-- Refusal: "outpost chest refuses cobble" names a remedy executable there: carry it home, or (with a well) the well; with
-  neither, the bag's existing shed rule at 34+ slots. Composed test: an expedition bot at an outpost with a cobble-full bag.
+- Refusal: "outpost chest refuses cobble" names a remedy executable there: carry it home (`return_town` is already the next
+  phase), or, once an outpost has one, its well. A full bag does not block the walk (§6.6). Composed test: a trip bot at an
+  outpost with a cobble-full 36/36 bag → `outpost_bank` banks the logs and ores, refuses the cobble, `return_town`, `bank`.
 - Paper: OP-P1 found and build; OP-P2 deposit to the outpost from the expedition return; OP-P3 cobble refused, logs taken;
   OP-P4 a `mine` near the outpost turns its bearing (keep-out); OP-P5 the outpost destroyed by a bystander → record marks
   it lost, no rebuild loop.
 - Read: primary as expedition-01's (banked per bot-hour, outpost banking counted when hauled or as its own line); exposure
-  ≥ 1 outpost founded in the arm and ≥ 5 deposits into it; gates as §6.9 plus 0 outpost cells lost (world read, arm only).
+  ≥ 1 outpost founded in the arm and ≥ 5 deposits into it; gates as §6.10 plus 0 outpost cells lost (world read, arm only).
 
 **Dependencies.** expedition-01 KEPT; monument-01 KEPT (structureguard + builder.mjs on the fleet).
 
@@ -655,8 +775,8 @@ applies to every new well) and, later still, a sapling ring.
 - Town ↔ shaft collar (TP §4.7): 17-21 blocks surface, ≈ 8 iron; one landing per town ≈ 29 iron (TP's figure); a full
   shaft 175-205.
 - **Town ↔ outpost at 300 / 400 / 800 blocks: ≈ 113 / 150 / 300 iron** + 2 carts (10) per line. Observed iron per shared
-  town: median 184 (TP §1.1); net fleet inflow ≈ +50 a day (TP §1.3), i.e. ≈ 4 a town a day. **A 400-block line is 150
-  iron of rail, 160 with two carts: 82-87% of a median town's observed iron stock, about five to six weeks of its
+  town: median 184 (TP §1.1); net fleet inflow ≈ +50 a day (TP §1.3), i.e. ≈ 3-4 a pool a day (16 pools or 12 towns). **A 400-block line is
+  150 iron of rail, 160 with two carts: 82-87% of a median town's observed iron stock, about five to seven weeks of its
   inflow.**
 - **Powered rails need gold: 0 gold ingots in the census** (raw gold 15). So lines are unpowered; the rider's forward input
   (≈ 8 b/s per the wiki) is the only propulsion, which R0b must prove for a mineflayer client.
@@ -712,7 +832,9 @@ walk); a bot stuck in a cart (dismount after 10 s without motion); rails picked 
 
 | # | decision | recommendation |
 |---|---|---|
-| **X1** | homefix-01 changes the stagnation watchdog fleet-wide (no judging while a rescue is pending). It will reduce reconnects and lengthen rescues | **yes**, tier 2 |
+| **X1** | **Lift the owner's 09-30 rule ("no more stuck / drowning hunts; tripwires only") for homefix-01 only.** homefix-01 changes the stagnation watchdog and the runner fleet-wide: rescues are reserved and actually run (H2a turns on ≥ 7.6k level-1 random 45-70-block relocations a week that never started before), are not cut at 15 s (H2b), and interruptions stop counting as skill errors (H3, which also stops them feeding the auto-pause). Expected: fewer reconnects, longer rescues; guarded by deaths after a rescue and strandings | **yes**, tier 2; it is three measured defects in code that already runs ≈ 39k escalations a week, not a hunt |
+| **X9** | homefix-01 inserted into this week's list at the first free slot (never holding the head), as TP O2 did for shaftuse-01; tie-break with shaftuse-01: whichever is approved first, homefix-01 if both | **yes** |
+| **X10** | on a trip, the kit replaces the stockpile keeps (wood 64 → 3 logs, cobble 64 → 32 scaffold), so the gather rungs will ask for wood and cobble back after a trip; the trip order outranks the milestone ladder while a trip is live | **yes** (measured: 98% of at-town bags then reach 16 free slots) |
 | **X2** | expedition-01 before pavilion-01, or after crown-01 | **before pavilion-01** |
 | **X3** | expedition v1 surface-and-shallow only (no `mine` staircase on the trip, ore within 12 below arrival), while the diamond hold and underground safety stand | **yes** |
 | **X4** | one expedition per shared town at a time; isolated pools excluded in v1 | **yes** |
@@ -761,7 +883,7 @@ walk); a bot stuck in a cart (dismount after 10 s without motion); rails picked 
   `HOME_BUDGET_MS` 200 > 180; a shaftuse tie-break; the watchdog-trip interplay; trips of 300-400 only in a first read;
   R0 is an instrument; E0 cannot see oceans; the death bands mix underground time.
 
-**r2 takes in every finding; none rejected.**
+**r2 takes in every finding; none rejected.** (Section numbers in this table are r2's; r3 renumbered §6.)
 
 | finding | r2 |
 |---|---|
@@ -778,4 +900,51 @@ walk); a bot stuck in a cart (dismount after 10 s without motion); rails picked 
 | bank-down (Claude P2-8) | §6.2 `expedition_kit`: `town_deposit`'s plan with a keep set, in the town zone, iron ladder unchanged; skip is not a refusal |
 | P3s | all applied (§0, §1.2, §2, §6.7, §6.9, §8, §9) |
 
-### Round 2 (r2): pending.
+### Round 2 (r2): Codex CHANGE (ORDER DISAGREE, FIRST STEP AGREE); Claude CHANGE (ORDER AGREE, FIRST STEP AGREE).
+
+**Codex r2** (97k tokens): R1 findings RESOLVED: H3 path, E0 coverage; PARTIAL: lease/recovery, H2 liveness, surface
+return, outpost composition, labels, P3s. New: (1, P1) the stranded chain had no executable recovery when contained, and
+there is no remote ballast shed; (2, P1) arrival deleted the trip state before banking, at town and at an outpost; (3) the
+H2a wait and H2b `pending` did not compose (`current` is cleared at runner.mjs:491, not in the `finally`; pending must be
+acquired before the cancel; level increments; post-body exceptions); (4) G1-G4 could pass for the wrong reason, G4 had no
+positive control; (5) the 814 projection counted 11 evidence-gated rows: 803 / 34.3% / 66.9%; (6) the kit and outpost
+entry points needed planner contracts (`townDepositPlan` takes no keep set; tool copies per name; iron ladder); an
+outpost > 12 below home; (7) the reserve check came after the irreversible step: check pre-commit on the planned path;
+(8) **ORDER: the owner list was mis-cited** (TP §0.4 has shaft → stonewithdraw → smeltfuel).
+
+**Claude r2** (52 tool calls, one probe on a scratch copy): R1 findings RESOLVED: H3, lease/deadline, surface overclaim,
+E0, labels, 70% population, in-guard, H1 replay, container-matched primary, TTL deadlock; PARTIAL: runner_busy, gates,
+bank-down. New: (N-1, P1) G3 could never pass, because brain gotos cut by a legitimate verdict look like cut rescues (probe:
+a brain `home` cut at 5 s); (N-2) the level-1 bound left out reflex-interrupted relocations: ≥ 22.7%, not ≥ 62%;
+(N-3) a poll loses to the cognitive loop's next livelock rung: reserve the runner; (N-4) pending from the verdict,
+`escalation--`, back off on a decline, remove the post-await reset; (N-5) gates need opportunity floors (P(0 | no fix)
+≈ 26% for G1, 9% for G3) and G4 must not grade itself; the level-3 row before `quit`; (N-6) the trip order's rank vs
+`orderFor(ready)`; (N-7) no ballast shed exists; (N-8) the haul is never banked (town_deposit at ≥ 34): the primary
+could not move; (N-9) the kit's 16 free slots unmeasured; (N-10) the owner's 09-30 "no more stuck hunts" rule not cited.
+P3: TTL wording, home budget propagation, 803, G1 boundary, 32 vs 48 a day, iron per pool, the X9 insertion, E0's
+estimator, ceiling and pickaxe reserve definitions, back to the last breadcrumb, the death-gate denominator, "spawn".
+
+**Disagreement on ORDER, and how r3 settles it.** Codex read the owner list from TP §0.4; Claude from STATE 15:20Z.
+STATE 10-19 15:20Z on origin/main (the queue as the coordinator holds it) is later and has stonewithdraw-01 → shaft-01,
+and toolkit-03 carries the smelt-coal sweep ("smelt coal through every-container search"); the owner's brief for this task
+says "smeltfuel (folded into toolkit-03)". r3 cites that entry in §0.2, keeps smeltfuel's TP place if it is un-folded,
+and makes homefix-01's insertion an explicit owner decision (X9). r3 asks both engines to re-check the order against it.
+
+**r3 takes in every r2 finding; none rejected.**
+
+| finding | r3 |
+|---|---|
+| contained / no remote shed (Codex 1, Claude N-7) | §6.7 step 5: the kit's 3 escape logs + table → wooden pickaxe → dig → climb; `contained` is a counted, gated, accepted outcome; §6.6 "a full bag is not a dead end"; X-P4, X-P6 |
+| arrival before banking (Codex 2, Claude N-8) | §6.2 phase table with `bank` (`expedition_bank`, any slot count) before `done`; outpost phases `outpost_bank` → `return_town` → `bank` (§7.3); the fence holds to `done`; departures from town only |
+| H2 composition (Codex 3, Claude N-3/N-4) | §2 "The H2 fix": pending from the verdict, `runner.reserve` + `runner_reserved` declined class, `current` cleared in a `finally`, `escalation--` + a window back-off, the post-await reset removed, the 225 s bound, real-Runner tests |
+| gates (Codex 4, Claude N-1/N-5) | §5 table: opportunities with floors D; G3 joins rescues by attempt id; G4 `started` written by the runner, per-attempt reconciliation; fixture positive controls; level-3 row before `quit` |
+| 803 (Codex 5, Claude P3) | §0.3, §2: 803 of 2,338 (34.3%), 66.9% non-interrupted, labelled geometric |
+| kit / outpost contracts (Codex 6, Claude N-9) | §6.3: `townDepositPlan` gains a `keep` parameter; the kit minimum, what it replaces and preserves; the replay (157 of 161 reach 16 free); §7.3 an outpost > 12 below home and an unrecorded chest |
+| pre-commit reserve (Codex 7) | §6.5: the planned path is read before the first move; return debt vs a fixed emergency reserve; back to the last breadcrumb |
+| order (Codex 8) | above |
+| level-1 bound (Claude N-2) | ≥ 22.7% (§0.3, §2) |
+| trip order rank (Claude N-6) | §6.2: ahead of `orderFor(ready)`, plinth and town deposit; `mine` and crafts withheld; room remedies answered by the trip; X-P11 |
+| owner 09-30 rule (Claude N-10) | X1 asks to lift it for homefix-01 only, with the relocation count and guards |
+| P3s | applied: deadline wording, home budget `until`, G1 boundary, 32 / 48 a day, iron 3-4 a pool a day (5-7 weeks), X9, E0's estimator, ceiling and pickaxe reserve, last breadcrumb, the trip-hours death denominator, origin vs world spawn |
+
+### Round 3 (r3): pending.

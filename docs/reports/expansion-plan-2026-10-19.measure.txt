@@ -498,6 +498,75 @@ for tgt, bb in agg.items():
         print(f'  {k:9s} {n:6d} {100*ok/max(1,n):5.1f}% {s/3600:7.1f} {g:7d} {g/max(1e-9, s/3600):7.1f}')
 
 
+################ SCRIPT e5.py
+"""Kit replay (Claude r2 N-9): on the at-town snapshots of the last 24 h (shared towns), how many free slots would a bot
+have after an expedition kit bank-down? Two bounds, both estimates from bot.inventory (counts, not slots):
+  UPPER: everything outside the kit, the iron ladder, food and tools is assumed bankable or well-able (removed).
+  LOWER: only these leave: logs above 3, planks, cobble/dirt family above 32 scaffold (cap -> well), raw copper, copper
+         ingots, other ores/raw metals except the iron ladder, saplings, sand/gravel, and junk on the owner list
+         (flint, seeds, string, bone, rotten flesh, eggs ...); everything else unknown stays.
+Tools: keep the best pickaxe and one axe; every other usable tool goes (bank); spent copies stay (wear_out's)."""
+import sys, math, collections, datetime as dt
+sys.path.insert(0, '/home/mike/estel/scripts')
+from lib.estelemetry import EsEvents
+HOMES = {'board-a': (355, 73, 147), 'board-b': (-249, 65, 144), 'board-c': (355, 73, 147), 'board-d': (355, 73, 147),
+         'hive-a': (355, 73, 147), 'hive-b': (355, 73, 147), 'hive-c': (-68, 68, -68), 'hive-d': (68, 65, 68),
+         'placebo-a': (249, 75, -144), 'placebo-b': (282, 65, -388), 'placebo-c': (355, 73, 147), 'placebo-d': (177, 75, 73)}
+IRON = {'raw_iron', 'iron_ingot', 'iron_nugget', 'iron_ore', 'deepslate_iron_ore', 'coal', 'charcoal'}
+FOOD = ('apple', 'bread', 'cooked_', 'beef', 'porkchop', 'mutton', 'chicken', 'salmon', 'cod', 'carrot', 'potato', 'melon_slice', 'sweet_berries', 'cookie', 'pumpkin_pie', 'rabbit', 'beetroot')
+TOOLS = ('_pickaxe', '_axe', '_shovel', '_hoe', '_sword', 'shears', 'bucket', 'flint_and_steel', 'fishing_rod', 'bow')
+SCAF = ('cobblestone', 'cobbled_deepslate', 'dirt', 'netherrack', 'stone', 'deepslate', 'andesite', 'diorite', 'granite', 'tuff')
+LOWER_GO = ('_log', '_planks', 'raw_copper', 'copper_ingot', 'raw_gold', 'gold_ingot', 'redstone', 'lapis_lazuli', 'diamond', 'emerald', 'amethyst_shard',
+            '_sapling', 'sand', 'gravel', 'flint', 'wheat_seeds', 'string', 'bone', 'rotten_flesh', 'egg', 'feather', 'leather', 'gunpowder', 'stick', 'bamboo', 'sugar_cane', 'cactus', 'kelp', 'clay_ball')
+def stacks(n, size=64): return math.ceil(n / size)
+def replay(inv, tools, mode):
+    kept = 0; scaf = 0; logs = 0
+    for k, v in (inv or {}).items():
+        if not isinstance(v, (int, float)) or v <= 0: continue
+        if any(t in k for t in TOOLS): continue                         # tools handled below
+        if k in IRON: kept += stacks(v); continue
+        if any(f in k for f in FOOD): kept += stacks(v); continue
+        if k in SCAF: scaf += v; continue
+        if k.endswith('_log'): logs += v; continue
+        if k in ('crafting_table', 'chest', 'torch'): kept += 1; continue   # the kit keeps one stack each
+        if mode == 'upper' or any(g in k for g in LOWER_GO): continue
+        kept += stacks(v, 16 if k in ('egg', 'snowball', 'ender_pearl') else 64)
+    kept += 1 if scaf else 0                                            # 32 scaffold = one stack
+    kept += 1 if logs else 0                                            # 3 escape logs
+    # tools: best pickaxe + one axe kept; spent copies (<= 5 uses left) kept; other usable copies banked
+    for k, L in (tools or {}).items():
+        spent = [x for x in L if (x.get('max', 1) - x.get('used', 0)) <= 5]
+        usable = [x for x in L if (x.get('max', 1) - x.get('used', 0)) > 5]
+        kept += len(spent)
+        if k.endswith('_pickaxe') or k.endswith('_axe'):
+            pass
+        # unstackable non-tool-dict items (bucket, shears...) counted via inventory above are skipped; keep one each kind
+    picks = [x for k, L in (tools or {}).items() if k.endswith('_pickaxe') for x in L if (x.get('max', 1) - x.get('used', 0)) > 5]
+    axes = [x for k, L in (tools or {}).items() if k.endswith('_axe') and 'pickaxe' not in k for x in L if (x.get('max', 1) - x.get('used', 0)) > 5]
+    kept += (1 if picks else 0) + (1 if axes else 0)
+    kept += sum(1 for k in (inv or {}) if k in ('bucket', 'shears', 'flint_and_steel'))
+    return 36 - kept
+now = dt.datetime(2026, 10, 19, 15, tzinfo=dt.timezone.utc)
+res = collections.defaultdict(list)
+n = 0
+for h in range(24):
+    t = now - dt.timedelta(hours=h)
+    ev = EsEvents.load('skill', since=t - dt.timedelta(minutes=10), until=t)
+    lat = ev.latest(require='bot.pos.x', fields=['bot.pos', 'bot.inventory', 'bot.tools', 'exp.pool'])
+    for b, r in lat.items():
+        pool = r['exp']['pool']
+        if pool not in HOMES: continue
+        p = r['bot']['pos']; hm = HOMES[pool]
+        if not (abs(p['x'] - hm[0]) <= 16 and abs(p['z'] - hm[2]) <= 16 and abs(p['y'] - hm[1]) <= 12): continue   # the town zone (16/12)
+        n += 1
+        for mode in ('upper', 'lower'):
+            res[mode].append(replay(r['bot'].get('inventory'), r['bot'].get('tools'), mode))
+print('at-town-zone snapshots (16 h / 12 v), shared, 24 h:', n)
+for mode, L in res.items():
+    L.sort()
+    print(f'  {mode}: free slots after kit  p10 {L[int(.1*(len(L)-1))]}  median {L[len(L)//2]}  p90 {L[int(.9*(len(L)-1))]};  >= 16 free: {sum(x >= 16 for x in L)} of {len(L)} ({100*sum(x >= 16 for x in L)/len(L):.0f}%)')
+
+
 ################ OUTPUT h9 (r2: the proposed predicate replayed; S0 window)
 
 ## shared: rows 2338, success 581 (24.9%)
@@ -524,6 +593,12 @@ S0 window rows 324 success 64
   llm:entombed           n=   1 ok=   0 ->    0
 non-interrupt: 64/172 (37%) -> 101/172 (59%)
 llm:idle with health>10: 66 ok 6 -> with H1 15
+
+
+################ OUTPUT e5 (r2: the proposed predicate replayed; S0 window)
+at-town-zone snapshots (16 h / 12 v), shared, 24 h: 161
+  upper: free slots after kit  p10 22  median 24  p90 26;  >= 16 free: 161 of 161 (100%)
+  lower: free slots after kit  p10 18  median 20  p90 23;  >= 16 free: 157 of 161 (98%)
 
 
 ################ PASTED OUTPUTS (heavy queries)
