@@ -1,0 +1,41 @@
+S0 STAFFING CENSUS (scripts/host/staffcensus.py + check-staffcensus.py) -- REVIEW RECORD, 2026-10-19
+Engines: Codex (`codex exec --sandbox read-only -`, prompt on stdin, kill watchdog) and one independent Claude subagent.
+Light review, four rounds; rounds 3-4 were delta reviews.
+
+ROUND 1 (both read the first live-validated version)
+  Codex  VERDICT: CHANGE
+    P1 farm demand falsely "none" (census=- skip rows; cleared log BLOCKS vs logs_above PLOTS)
+    P1 gate could PASS on 1 valid slot of 576 (rate over valid time, 48 h over elapsed time)
+    P1 all-void ticks read healthy; an idle re-run refreshed "good"
+    P1 a town silent for the whole window disappeared (roster came from telemetry)
+    P1 bags applied backward in time (slot's newest bag used for all five minutes)
+    P1 rotation grace town-wide, but cooldowns are per bot (charged at order issue)
+    P2 cron did not record `home`;  P2 __pycache__ / cron logs outside --out-dir
+  Claude VERDICT: CHANGE
+    P2 --tick never carried positions in from before its window (validation came only from --window)
+    P2 census=- rows flip demand to none;  P2 home health from the END snapshot;  P2 gate from mostly-void hours / 48-h mean
+    P3 x6 (journal/records errors swallowed, holds_no dead branch, bone-meal need, docstring interval, window alignment,
+       home not per tick)
+
+ROUND 2 (all of the above fixed; 43 anchored mutants, 43 killed)
+  Claude VERDICT: APPROVE (P3: tick settle lag; retired pool dirs read VOID forever; per-town-day floor; assignable is a
+         lower bound)
+  Codex  VERDICT: CHANGE
+    P2 a project town void ALL window still left the gate's validity denominator
+    P2 unknown start health passed the home filter
+
+ROUND 3 (fixed: projects_open on void rows, health_unknown excluded, 10-min tick settle, per-town-day floor, docs)
+  Claude VERDICT: APPROVE (P3: install note for retired pools; print health_unknown share; block alignment)
+  Codex  VERDICT: CHANGE
+    P2 "every town >= 90% valid" was a fleet average: one never-written town of twelve (91.7%) allowed PASS
+
+ROUND 4 (fixed: min_town_valid_share = minimum over towns; Codex's exact 12-town case is a regression test; the town-day
+         floor test re-cut so the per-town rule cannot mask it; 47 anchored mutants, 47 killed)
+  Codex  VERDICT: APPROVE (no P1/P2/P3 in the delta; ran its own two gate-removal mutants, both killed)
+  Claude VERDICT: APPROVE (P3: do not tell the owner to move dirs in /var/lib/mcai to steer a read-only tool -- applied as
+         a doc-only change after the verdicts: the install note now says not to edit bot state and names a census-side
+         exclusion option as an unbuilt follow-up)
+
+THE FIRST LIVE RUN WAS CAUGHT BY ITS OWN POSITIVE CONTROLS (before any review): 0 of 21 placements inside a visit (skill
+rows are stamped at START, read as END) and 38.6% at-town agreement (a 5-min slot-end position missed transient town
+visits). Both fixed before round 1: [@timestamp, @timestamp + duration) intervals; a 1-minute track from instant event rows.

@@ -1,0 +1,884 @@
+Town projects stages 2-8 plan (docs/reports/townprojects-stages2-8-plan-2026-10-19.md): raw review texts, 2026-10-19.
+Codex: `codex exec --sandbox read-only - < prompt` in the plan branch worktree (prompt on stdin, no </dev/null, 25 min kill watchdog).
+Claude: an independent read-only general-purpose subagent, a fresh one every round.
+Each round reviewed the doc revision named; the plan records what each round changed (section 9).
+
+====================================================================================================
+ROUND 1 (doc r1)
+====================================================================================================
+
+--- Codex r1 ---
+VERDICT: CHANGE
+
+Findings below refer to `docs/reports/townprojects-stages2-8-plan-2026-10-19.md`.
+
+- **P2 — §§0.4, 3.2–3.3, 4.3: crown scheduling promises already-built cells.** On `origin/monument-on-835ef3f`, `zigCells` places each grand-stair step with its tier’s first layer. By layer 8, twelve stair cells are already built; the frontier never retreats and v1 never replaces solids. Crown therefore cannot promise all 24 copper steps. Its queue-jump deadline also cannot bypass pavilion’s `make_copper` dependency. **Fix:** retain the safety-first sequence, decorate only unopened layers, and calculate stair/trim costs from each monument’s frontier. Remove the unconditional layer-8 deadline.
+
+- **P2 — §§4, 4.1–4.2: `_lid_reserved` is a refusal without recovery.** Reporting a blocked chest and forbidding its lid dig does not restore access. Checking before builder placements also misses a chest subsequently placed beneath an existing block. `lidrule.mjs` explicitly documents how an inaccessible counted chest can prevent complete town counts. **Fix:** exclude reserved cells and their lid-clearance volumes from chest-placement paths starting in stage 2; define deterministic recovery for pre-existing conflicts. LIDRES must demonstrate restored access or safe conflict resolution, not merely zero digs.
+
+- **P2 — §4.2: complete the roof’s placement sequence.** The height reasoning is correct: pad eye `s+2.62` cannot click wall tops at `s+3`; ring feet `s+2` can. However, the two roof-edge cells above doorways have **no wall tops** beneath them. **Fix:** explicitly bridge those cells from adjacent roof side faces, and require the offline sequence to prove their sight lines, reach, and walk-back. The ordinary wall-top sequence alone is incomplete.
+
+- **P2 — §§0.1, 1.2–1.3, 3.3, 5–6: stock and flow denominators do not support the forecasts.** A fixed-container census cannot establish whole-town net iron growth; its 39.7-hour interval also straddles toolkit-02’s promotion. Fleet copper production divided by twelve is not measured production in each shared town. Smelting existing raw copper does not increase copper-equivalent admission stock. **Fix:** label these as observed-subset changes and illustrative averages; remove guaranteed town qualification dates and “copper will not be short.” The drain sum **39,384 / 670 ≈ 58.8 income-days** is correct, but finite BOMs establish neither sustained drainage nor when stock stops rising. Under the stated equal-share log assumption, the fullest town reaches 4,000 in approximately **37 days**, not two months; actual timing remains unknown.
+
+- **P2 — §§0.2, 1.5, 8/O1: yard deferral is reasonable, but its justification overclaims.** Low completed throughput supports postponement; it does not establish unconstrained demand, especially alongside 140 skill errors and unreported contention/latency. Furnace-placement locations do not measure the body time that load-and-leave automation could save. **Fix:** frame deferral as provisional prioritization and specify reopening thresholds for contention, latency, errors, and smelting body time. Reconcile **126 placements versus 127 summed band entries**, and distinguish the 99 positioned observations from missing positions.
+
+- **P2 — §§3.2, 8/O9: the lightning argument needs difficulty-specific evidence.** Zero lightning deaths measures neither structural ignition nor rod-induced risk. The [LightningBolt implementation](https://raw.githubusercontent.com/mahtomedi/minecraft/main/src/main/java/net/minecraft/world/entity/LightningBolt.java) distinguishes Normal/Hard surrounding-fire attempts from subsequent flashes and separately damages nearby entities. **Fix:** verify the actual Peaceful Paper 1.21.8 behavior, specify rod clearance from combustible blocks and occupied terrace cells, and remove the unsupported claim that attracting strikes provides a net safety benefit.
+
+- **P3 — §§1.1, 4.2–4.4: correct the arithmetic and inherited BOM assumptions.** Raw-copper median is **169**, not 290; coal median **181.5**, not 176. Pavilion structural cells total **160**, but two torches make **162 placements**. Admission counts—ten pavilion, four hall-M, six hall-S—are correct. Pavilion supplies no iron-bar/nugget spares, so hall’s “5 with pavilion’s spares” must become **12 standalone**, unless actual counted parts qualify. Tiers 4–6 contain **204** trim cells; including tier 7’s ring separately double-counts cells already in the apex.
+
+- **P3 — §§7–8: preserve evidence and owner-decision scope.** Missing quartz in the fixed census proves absence only in those containers; the count-journal incompatibility independently supports deferring sorting hoppers. Rails’ measured-saving gate and shaftuse prerequisite remain sound. No dedicated log project is reasonable with the stated monitoring triggers. However, “skip spyglass” contradicts the supplied owner direction: include bounded crafting, or explicitly mark its removal as awaiting a changed decision.
+
+ORDER: DISAGREE -- treefarm → townfloor → monument/structureguard → shaft → shaftuse → stonewithdraw → pavilion → crown on unopened layers → hall → conditional storehouse → conditional demand → gated rails; no crown queue-jump deadline.
+
+FIRST TWO STAGES: AGREE
+
+--- Claude r1 ---
+VERDICT: CHANGE
+
+**P2 (must fix)**
+
+1. **§0.4 order vs the owner's 10-19 queue.** The owner's queue on origin/main (STATE 10-19 12:45Z COORDINATION) is treefarm-02 → brain-01 → cobble-in-bags fix → toolkit-03 → bamboo-03 → townfloor-01 → monument-01 → shaft-01 → stonewithdraw-01. The plan's table leaves out four of those items. It also puts shaftuse-01, which is not built, ahead of stonewithdraw-01, which is built and is on the owner's list. The scheduler never skips the head, so the lane would sit idle while shaftuse-01 is built and goes through Paper. The "3-5 weeks to pavilion" estimate also ignores the four missing items. Fix: copy the owner's list exactly, then put stages 2-8 after it (ORDER below). shaftuse-01 should take the first free slot once it is built and approved, and nothing should be held waiting for it.
+
+2. **Crown deadline vs the make_copper dependency (§0.4 row 7, §4.3).** crown-01 is tier 2 "on stage 3's make_copper", but the plan also says it "jumps the queue" if a monument opens layer 8. It cannot jump ahead of pavilion-01 without its parts job. Fix: say a crown-01 that jumps carries make_copper and is then tier 3. Or drop the deadline: in a fast world the tier-4 ring is simply cobble, which is decoration lost, not a dead end. Also, tiers are 2 high, so tier 4's top course is layer 9, not layer 8.
+
+3. **Copper is counted twice across two lanes (§3.2 per-course rule vs design 3.2/3.3).** The ring decision counts the town's "allocatable copper" without subtracting what the active project (pavilion or hall) has already allocated. The project's allocation does not see copper rings that are decided but not yet placed. Both can claim the same ingots. The ring falls back to cobble, but the project then goes stalled → abandoned. Fix: one `allocate()` across both lanes. A decided ring's open cells reduce what projects can spend, and the reverse.
+
+4. **The crown's "parts run short" trigger is undefined (§3.2, §4.3).** make_copper runs just-in-time, and the cobble fallback triggers whenever a monument visitor arrives without cut copper. That will happen routinely, so rings come out mixed (crownread REVERT) or degrade without cause. Fix: define a shortfall as the ingot allocation falling short, not "no parts in the bag". Place the trim ring last within its layer (the layer already fills centre-outward). Allow a bounded wait (the rest of the layer done, plus one make_copper cycle) before falling back to cobble. Also, the monument visit needs a new source (withdrawing cut copper from town chests) in `monumentAdmit`. "Nothing new is needed" is not accurate.
+
+5. **The yard/workshop deferral evidence is incomplete (§1.2, O1).** The plan describes the 1,443 `smelt_town` no_effect rows as "nothing to smelt". But `furnace_busy` is itself returned as no_effect (skills.mjs:11126). In smelt_town it shows up only in the detail "the smelt did not finish (furnace_busy…)" (skills.mjs:11678), and so do "no furnace within 32" and "no coal". The trigger O1 names may already be in the rows the plan counted as zero. Fix: break the 1,443 no_effect and 140 skill_error rows down by detail (or `_smelt_town` stop=) and give a positive control. Also add the stronger reason: iron is no longer a surplus (+49 a day), so the owner's 10-15 iron-sink case for blast furnaces and H2 hoppers has gone as well. With that breakdown, the deferral is supported.
+
+6. **The monument cover rule vs the new "no cell above a container" rule (§4 composition table, row lidclear).** The table calls this "the standing rule every structure follows". On the monument, a chest on the open layer is a non-full cell, so it gets waived. The cover rule then must place the cell directly above it, which the new rule forbids. The cover can never be placed and the frontier stops for good. Fix: scope the rule to project blueprints. For the monument, place the cover, cap the chest (it is not a town container at ≥25), and report `_lid_reserved`. Add this case to LIDRES.
+
+**P3 (minor)**
+
+- **Pavilion BOM (§4.2):** 63+26+36+35 = 160 cells, plus 2 torches = **162 placements**. Say "160 cells, 162 placements".
+- **Falls (§4.2):** the drop from the ring is **2**, not 1. Ring feet are at s+2 and the ground outside is at feet s, because the pad is placed on top of the ground. It is still safe.
+- **§1.5:** the bands sum to 127 furnace placements, not 126. "26 of 31 carry a position" is a denominator, not a positive control.
+- **§4.3:** "tiers 4-7, up to 224 / 2,016" counts tier 7's ring twice, since the 36-cell apex already includes it. It should be 204 / 1,836, as §3.2 says.
+- **O5:** iron bars cost **6** iron. The 12 is bars plus lanterns.
+- **§4.4:** board-a, board-c and hive-a qualify for **L** (≥1,129). The hall picks the largest variant, so "4 allocate M" should read "3 L, 1 M".
+- **Iron "after toolkit-02":** the 39.7 h window starts 10-17 20:21Z, about 10 h before the 06:27Z promotion.
+- **Copper income:** 670 a day is smelting faster than raw copper is banked (≈465). The shared towns' raw stock (3,430) runs out in about 17 days, and income then falls to ≈470. The 20-30k forecast still roughly holds.
+- **The 24 stair cells:** only tiers not yet built when crown-01 ships can be copper, because the monument never digs. The drain table slightly overcounts. crown-01 also supersedes Z7.
+- **Logs (§5):** at the average ≈75 a day per town, board-b reaches the 2,000 trigger in about 10 days and 4,000 in about 5 weeks, not 2 months. And §1.3 calls the trend UNKNOWN, so the projection is an upper bound.
+- **Lightning (§3.2, O9):** on Peaceful the bolt's four extra ignitions are skipped. Only Normal and Hard spawn them (vanilla LightningBolt). The pavilion's roof is cut copper, not "the town's most flammable roof". Restate the rule as "no rod within 1 cell of a flammable block". That forbids only the plank variant.
+- **Stage 8:** `rail` is in OWNER_JUNK_1004 (well.mjs:58), so carried rails go down the well. An owner decision is needed before R1.
+- **Composition table:** townfloor-01 (order #1) is missing. Its placements stay within 16, which meets design 3.4's "declared inside 21" prerequisite. Say so.
+- **LIDRES at ≥22/25:** full-town recovery places chests in rings 1-4 around a town chest (≤20 from home), so it cannot reach these sites. The live case is the storehouse (inner domain). Say so.
+- **"4-part forbid":** it is well `cols` plus a 3-part composeKeepOut (farm, monument, town).
+- **make_copper conservation:** the equation leaves out lightning rods (3 ingots each).
+
+**Checked and correct**
+
+- Recipes: all match minecraft-data 1.21.8, including grate 3x3, cut copper 2x2, slab/stairs/rod needing a table, and lantern/torch/chest/bars not existing. Small slip: chiseled copper fits the 2x2 grid.
+- Pavilion geometry: ring stands with eye at s+3.62 reach the wall-top faces at s+3; inner roof cells from the pad work through the open target cell. Roof cells over the doorways need side faces, and the planner proof covers that.
+- Admission: 10 of 12 at 405. Drain table: 3,888 / 6,516 / 6,948 / 22,032, total 39.4k, ≈59 days. Tier rings 812 / 204, 12,528 / 14,688 = 85%.
+- `exitCell` is wired as the monument's walk-off (monument-on-d0cf6c5 skills.mjs:11068), so a guard refusal has an executable remedy.
+- Branch tips eb407fa0, a2d6972f, 0b3a0d4c and 41dc9d66 match the plan.
+
+**Item 4:** the rails and hoppers conclusions are supported. The logs conclusion is supported, with the trigger-timing caveat above.
+
+ORDER: DISAGREE -- treefarm-02 → brain-01 → cobble-in-bags fix → toolkit-03 → bamboo-03 → townfloor-01 → monument-01+structureguard → shaft-01 → stonewithdraw-01 → pavilion-01 → crown-01 → hall-01 → storehouse/projectdemand (conditional) → rails (gated). shaftuse-01 takes the first free slot once built and approved, and never blocks the head.
+
+FIRST TWO STAGES: AGREE
+
+====================================================================================================
+ROUND 2 (doc r2)
+====================================================================================================
+
+--- Codex r2 ---
+VERDICT: CHANGE
+
+Per-finding review of §9:
+
+- Codex P2 crown timing/stairs — RESOLVED: unopened layers only; crown follows make_copper.
+- Codex P2 lid recovery/late chests — PARTIAL: prevention and permanent yield address churn; structural safety remains unspecified.
+- Codex P2 doorway roof — RESOLVED: explicit side-face bridges with offline and Paper proofs.
+- Codex P2 denominators — RESOLVED: subset limits, income basis and log timing clarified.
+- Codex P2 yard deferral — RESOLVED: provisional, with measured reasons and reopening triggers.
+- Codex P2 lightning evidence — PARTIAL: difficulty distinction and Paper gate added; apex occupancy contradicts the rule.
+- Codex P3 arithmetic — PARTIAL: original corrections incorporated; §§3.3/4.4 retain errors below.
+- Codex P3 spyglass — RESOLVED: bounded owner-requested keepsake.
+- Codex order — RESOLVED: crown no longer jumps its prerequisite.
+
+- Claude P2 owner order — RESOLVED: matches origin/main’s 12:45Z/12:50Z entries; shaftuse never holds the head.
+- Claude P2 crown deadline — RESOLVED: removed.
+- Claude P2 cross-lane allocation — PARTIAL: unified claims specified, but apex reservation and simultaneous admission remain incomplete.
+- Claude P2 shortfall/source — PARTIAL: allocation-based trigger and withdrawal source supplied; timeout lifetime needs definition.
+- Claude P2 deferral evidence — RESOLVED: no_effect breakdown and changed iron rationale supplied.
+- Claude P2 monument cover/container — RESOLVED: explicit non-town capping exception preserves the barrier.
+- Claude P3 placements/drop/rings — RESOLVED: 162, two-block drop, 127 and 204 corrected.
+- Claude P3 hall iron/variants — PARTIAL: 6/12 iron and town classifications correct; admission thresholds omit grates.
+- Claude P3 toolkit window — RESOLVED: overlap acknowledged.
+- Claude P3 raw depletion — RESOLVED as an approximate scenario, dependent on income.
+- Claude P3 built stairs/log timing — RESOLVED.
+- Claude P3 Peaceful ignitions — PARTIAL: version-specific verification remains a prospective Paper gate.
+- Claude P3 rail disposal — RESOLVED: O11 explicitly gates R1.
+- Claude P3 townfloor/LIDRES/forbid/conservation — RESOLVED at design level: realistic conflict scenes, scoped authority and expanded conservation supplied.
+- Claude order — RESOLVED.
+
+Remaining/new findings:
+
+- **P2 — §3.2 allocation is incomplete.** Admission tests “ring plus unplaced apex,” but only the ring’s unplaced cells explicitly become a claim. A later hall can consume the apex allowance. Separate monument/project fences also do not establish atomic cross-lane admission. **Fix:** include apex, stairs, rod and recipe rounding in the shared claim model; serialize claim-changing decisions under one town fence, with deterministic allocation priority and a simultaneous-admission fixture.
+
+- **P2 — §3.2’s two-hour bound is per “visit.”** Visits end, bots change and processes restart; resetting that wait can indefinitely stop the frontier. Holding a visit for two hours also conflicts with short skill/lease lifetimes. **Fix:** persist one ring deadline across visits and restarts, release leases/body while waiting, then permanently switch remaining cells to cobble on expiry. Test interruptions and competing projects.
+
+- **P2 — §4’s YIELD lacks geometry validation.** Permanent `yielded` state prevents replacement churn, and authority (c) is correctly limited to the builder’s own clear list under its fence. But yielding a terrace, stair, stand or supporting face invalidates the frozen construction/walk-back proof; excluding it from completion does not establish safety. **Fix:** revalidate dependent placements, stands, escape routes and edge guards before digging; restrict yielding to proven-safe cells, with a defined recovery for others. Test completed buildings and restart during yield.
+
+- **P2 — §3.2’s apex exception violates its own rod rule.** The grand stair makes the apex reachable; repair visits explicitly remain possible. Rate-limiting visits does not mean nobody stands there. **Fix:** omit the rod unless permanent placement geometry satisfies the stated exclusion, including repair/retreat stands; test that geometry. Removing the hall rod is consistent with O9, pending owner acceptance.
+
+- **P3 — arithmetic/timing.** Spyglasses cost **24 fleet ingots**, not 288; §3.3’s listed upper-bound total becomes **39,804**. Hall copper totals are **360/612/936**, requiring **450/765/1,170** at 80%; current town classifications survive. Tier 2’s +180 plus approximately three-hour cool-off is approximately **six hours**, not nine. Correct the table and forecast.
+
+O10 is justified by `jobWithdraw`’s copper-miss-filtered sweep. Specify independent, bounded fuel discovery that revisits earlier coal containers after obtaining copper.
+
+ORDER: AGREE
+
+FIRST TWO STAGES: AGREE
+
+--- Claude r2 ---
+VERDICT: CHANGE
+
+**Round-1 findings**
+
+Codex r1
+- Crown stair cells and deadline vs make_copper: RESOLVED. The deadline is gone, only unopened layers are decorated, and crown is tier 2 after stage 3.
+- `_lid_reserved` had no recovery, and chests placed after siting were not covered: PARTIAL. Prevention (a) is added, but the yield cannot be reached as written (N1).
+- Doorway roof cells: RESOLVED. I checked the geometry: from the ring stand diagonal to the gap the reach is about 1.8, and the sight line passes through air.
+- Denominators: RESOLVED. One correction: the raw run-out is 17-34 days, because the net drain is 670 − (470-570) = 100-200 a day.
+- Yard deferral overclaimed: RESOLVED. It is now provisional, with reopening triggers.
+- Lightning evidence by difficulty: PARTIAL. The new rule fails at the one site it admits (N3).
+- P3 arithmetic: RESOLVED, except the spyglass (N5).
+- P3 spyglass vs the owner's direction: RESOLVED (O8).
+
+Claude r1
+- Order starts from the owner's list: RESOLVED. It matches origin/main STATE 12:45Z exactly.
+- Crown deadline: RESOLVED.
+- Copper double count across the two lanes: RESOLVED in design. How the claim set is written safely is not stated (N6).
+- Shortfall trigger and the monumentAdmit source: PARTIAL (N2).
+- Deferral evidence: RESOLVED.
+- Cover rule vs a container: RESOLVED by (d). The monument is ≥ 25 from home, outside the 16-block town cylinder.
+- P3 list: RESOLVED. I re-derived these:
+  - 162 placements; ring cells 92+68+44 = 204; tiers 0-3 = 12,528 of 14,688 cells;
+  - every median; 10 of 12 towns at 405; hall 3 L / 1 M / 6 S / 2 none;
+  - 3.3 totals 3,888 / 6,516 / 7,344 / 22,032;
+  - `rail` is in OWNER_JUNK_1004 (well.mjs:58), and copper_ingot is in DEPOSIT_ALWAYS (bankable.mjs:443).
+  - One slip: the hall L threshold should include the grates, 936/0.8 = 1,170. board-a has 1,172, so it still qualifies.
+
+**New findings**
+
+**N1 P2: the lid yield is unreachable, and authority (c) does not cover it.**
+- lidJudge (skills.mjs:5573-5583) checks LID_BREAKABLE (cobblestone only) first. A chest under a log, cut-copper or brick cell therefore returns a plain `refused` (30 min unavailable), never `_lid_reserved`.
+- structureguard on eb407fa0 guards only pathfinder digs (`guardTunnelDigs` needs forceLook===true and isMining). clearChestLid's `dig(…,'ignore')` is never guarded.
+- Fix: make the reserved-cell test the first test in lidJudge. As written, LIDRES-3 ("forced under a roof cell is yielded") fails.
+- Authority (c) is the pre-placement clear list. A yield digs a cell that is already placed and recorded, so it needs its own fenced `yield` list: only cells with a live `_lid_reserved` order whose container still stands.
+- The composition table's line "Builder digs are vegetation only" then contradicts the yield and needs rewording.
+- Cut copper and stone bricks drop nothing without a pickaxe. Either require one for a yield, or count the loss in the bag-delta and copper-conservation gates. Otherwise a correct yield reverts the canary.
+- A complete project has no "next visit". State that `_lid_reserved` makes a complete project eligible for one yield visit.
+
+**N2 P2: the ring wait.**
+- "The visit waits at most 2 h" reads as a bot idling at the site. That trips M3 (stuck near the site), which blocks KEEP. Make it a deadline in the record: the ring cells are held, like cells held by the cover rule, and visits end normally.
+- 2 h is not sized. Tier 4's ring is 92 cut copper, which is 23 make_copper runs at ≤ 36 ingots each, and make_copper's cadence is not stated. Decide and claim the ring when the layer below opens, and scale the deadline to the part count.
+- "The ring comes last on its own" is not true in the code:
+  - zigCells orders each layer centre-outward, but segmentChoice serves the four quadrants independently.
+  - So one quadrant reaches its ring cells while the others are unfinished.
+  - The hold must be explicit. Otherwise a builder with no parts either places cobble (a mixed ring without `ring_shortfall`, which is a REVERT) or loops.
+
+**N3 P2: the lightning rule fails at the apex.**
+- Tier 7 is 6x6 on tier 6's 12x12, so every centre cell is within Chebyshev 3 of tier 6's terrace and of the grand stair.
+- Feet on that terrace are at layer 14 and the rod is at 16. That is inside the −3 box the plan itself cites.
+- Bots use the terraces and the stair (repair visits, and pathing over the hill).
+- Fix: put the rod on a non-flammable pillar tall enough that rod_y − 3 is above every stand's head within 3 (about 3 blocks; prove it offline, and put a bystander on tier 6's terrace in the storm scene). Or drop the rod.
+
+**N4 P2: the project parts wait has no bound, and smeltfuel-01 is ordered too late.**
+- Admission counts raw copper, but raw only becomes ingots through smelt_town, and its coal search misses town coal. In jobWithdraw:
+  - it opens at most WITHDRAW_CONTAINERS = 3 containers;
+  - it skips containers remembered for 2 h as having no copper, which are exactly the coal-only chests;
+  - it takes coal only once copper is in hand.
+- Who this hits:
+  - placebo-b qualifies for the pavilion (557 copper-equivalent) but holds 81 ingots;
+  - hall L in board-a, board-c and hive-a needs 936 ingots against 328 / 599 / 675, with the rest raw in towns hit by the coal bug.
+- What follows: "parts not yet made → back off 10 min" repeats without limit. The result is walls without a roof, a 72 h stall, then abandon and re-site twice, leaving abandoned shells.
+- Fix:
+  - Number smeltfuel-01 before pavilion-01, and name those three causes as its fix.
+  - Bound the parts wait (for example 24 h, then plank for the unplaced roof cells, recorded like `ring_shortfall`), or admit at-build copper on ingots plus banked parts only.
+
+**N5 P3: spyglass arithmetic.** A spyglass takes 2 ingots, so it is 2 per town. The 3.2 row "24 per town" and the 3.3 "+288" should read 24 for the fleet.
+
+**N6 P3: smaller corrections.**
+- §0.1 says 15-25k; §3.3 says 15-23k.
+- "The farm already does this on adbec4f4" is false: skills.mjs:11932 says "no tree farm on this base". It is on tf-on-adbec4f (0b3a0d4c), so it holds only if treefarm-02 is KEPT.
+- Claim-set writes need one atomic writer (`link()` and a generation). Otherwise crownread's double-claim gate reverts on a race.
+- "Tiers 4-6 in practice" assumes the monument is still below layer 8 when crown ships, weeks after monument-01. At the fast end of zig's 1-10 weeks it will not be.
+
+ORDER: DISAGREE -- treefarm-02 → brain-01 → cobble-in-bags → toolkit-03 → bamboo-03 → townfloor-01 → monument-01+structureguard-01 → shaft-01 → stonewithdraw-01 → **smeltfuel-01 (tier 2)** → pavilion-01 → crown-01 → hall-01 → storehouse-01 (conditional) → projectdemand-01 (conditional) → rails (gated). shaftuse-01 takes the first free slot.
+
+FIRST TWO STAGES: AGREE. Stage 2 must also fix N1(i): the reserved test goes first in lidJudge. Stage 3 must also fix N1(ii-iv) and N4.
+
+====================================================================================================
+ROUND 3 (doc r3)
+====================================================================================================
+
+--- Codex r3 ---
+VERDICT: CHANGE
+
+Round-2 findings:
+
+- Codex — crown timing: RESOLVED; only unopened layers receive copper.
+- Codex — doorway placement: RESOLVED; explicit bridge sequence and proof.
+- Codex — denominators: RESOLVED; subset and per-town limitations retained.
+- Codex — yard/workshop deferral: RESOLVED; provisional, with reopening triggers.
+- Codex — spyglass: RESOLVED; bounded keepsake craft.
+- Codex — order: RESOLVED; smeltfuel now precedes pavilion.
+- Codex — owner list: RESOLVED; matches origin/main’s 12:45Z instructions.
+- Codex — lid recovery: PARTIAL; yield is specified, but retirement’s stock-accounting integration remains incomplete.
+- Codex — lightning: RESOLVED; no rods in v1.
+- Codex — arithmetic: RESOLVED; pavilion 7/12, hall S 6/12, and stated program total 39,768 check out.
+- Codex — shared claims, rounding, apex/stairs and fence: RESOLVED as an admission protocol; a separate transfer-accounting issue remains below.
+- Codex — resetting per-visit wait: RESOLVED; deadline persists across visits and restarts.
+- Codex — YIELD geometry: RESOLVED; explicit exclusions and world revalidation.
+- Codex — apex rod: RESOLVED; removed.
+- Codex — P3 spyglass cost: RESOLVED; 24 fleet-wide.
+- Codex — P3 hall costs: RESOLVED; 360/612/936 and corresponding admission thresholds.
+- Codex — P3 tier-2 duration: RESOLVED; approximately six hours.
+- Claude N1 — unreachable yield, authority, pickaxe, completed projects: RESOLVED; all four have explicit remedies.
+- Claude N2 — idle wait, sizing, quadrant order: RESOLVED; explicit holds, released visits and sized deadline.
+- Claude N3 — apex rod: RESOLVED.
+- Claude N4 — parts wait and fuel ordering: RESOLVED; raw excluded, 24-hour fallback, smeltfuel first.
+- Claude N5 — spyglass arithmetic: RESOLVED.
+- Claude N6 — forecast, farm composition, atomic writer, frontier timing: RESOLVED.
+
+New findings:
+
+- **P2 — Normal withdrawals can manufacture a ring shortfall (§3.2).** Coverage counts only ingots and **banked** parts, while claims persist until placement. A funded 92-block ring with 115 block-equivalents available loses apparent coverage when a builder withdraws 40: only 75 remain banked against 92 unplaced cells. Another decision can permanently switch the ring to cobble while its copper is safely travelling to the site. **Fix:** track claim-owned material in flight under the same fence; transfer backing from bank to visit without releasing or double-counting it. Test concurrent shortfall evaluation between withdrawal and placement, including interruption recovery.
+
+- **P2 — Excluding `capped` containers from completeness does not retire their stock (§4 composition).** `cobblecap.mjs::townStock` sums fresh observations independently of the supplied container keys; dirty keys from voided transfers also re-enter the completeness set. Merely excluding a chest from “every container counted” can retain inaccessible stock as spendable/disposable credit, or leave the bank blocked. `lidrule.mjs` also establishes that either blocked half prevents opening a double chest. **Fix:** define durable retirement across the canonical container identity/both halves, stock credit, reconciliation, transfer claims and selectors. Require fresh reconciliation before reactivation. Test fresh observations and voided claims, not only an uncounted single chest.
+
+- **P2 — Crown gates reject permitted behavior (§4.3).** The design permits a frontier pause until the deadline and a permanent copper-to-cobble fallback, but REVERT includes “a layer stalled on copper” and “a ring decision changed after it was recorded.” **Fix:** explicitly exempt a valid pre-deadline hold and the single recorded `ring_shortfall` transition; reject overdue holds, unrecorded changes and reversals.
+
+- **P3 — Stale text:** §3.1 still says v1 uses/crafts rods; §3.3 says nine preceding canaries although the numbered order has ten. Update both.
+
+ORDER: AGREE
+
+FIRST TWO STAGES: AGREE
+
+--- Claude r3 ---
+VERDICT: CHANGE
+
+**Round 2 findings**
+
+Codex r2:
+- Claim model and single fence: **PARTIAL**. The town claim set, recipe rounding and the race fixture are in. But the ring decision is "fenced in the monument record", which is a second fence, and the apex/stair claim is never admitted (P2-1, P2-2).
+- The 2 h wait resetting per visit: **RESOLVED**. The deadline is now persisted.
+- YIELD geometry: **RESOLVED**. Cells must be YIELDABLE and are re-checked against the world before the dig.
+- Apex vs the rod rule: **RESOLVED**. There are no rods in v1.
+- P3s (spyglass 24, hall 360/612/936, tier 2 ≈ 6 h): **RESOLVED**.
+
+Claude r2:
+- N1 (yield unreachable): **RESOLVED** in the design. The reserved test is first in `lidJudge`, and today a non-cobble lid is refused (verified in skills.mjs). The retirement is not yet wired into the stock count (P3-a).
+- N2 (ring wait reads as idling): **RESOLVED**. Held cells drop out of `segmentChoice`'s `free` set, so the visit ends `monument_nothing_open` (verified on origin/monument-on-d0cf6c5).
+- N3 (apex vs rod rule): **RESOLVED**.
+- N4 (parts wait unbounded; smeltfuel-01 first): **RESOLVED**. The three `jobWithdraw` causes match skills.mjs (3 containers, the 2 h miss memory, coal only after copper). The claim release that should go with the roof fallback is missing (P2-2).
+- N5 (spyglass): **RESOLVED**.
+- N6: **RESOLVED**, except the atomic writer, which is **PARTIAL** (P2-2).
+
+**New findings**
+
+**P2-1: the crown's first-record claim is never admitted and reaches weeks ahead.**
+- The plan claims the apex (324) and every unopened tier's stairs (≤ 216) when crown-01 first records a world. There is no 80% test, no cobble fallback, and "a recorded claim always holds".
+- In low-income towns the claim is larger than spendable copper on day one: placebo-a (339 ingots, ≈ 3 smelted a day), placebo-b (81, ≈ 24 a day), board-b (200). crownread's own REVERT, "claims exceeding spendable", then fires on how the design works, not on a defect.
+- The claim also holds 540 against the hall and every ring until layer 15 opens, which can be months away. The "6 towns allocate S" line is before both the pavilion and the crown claims. With 324 + 540 ahead of it, S needs ≥ 1,314 ingots, which 0 towns hold today.
+- Fix: decide the apex and each tier's stair cells with the per-ring rule. Decide when the layer below opens, apply the 80% test, fall back to cobble, and give it a persisted deadline. Never claim for a layer more than one ahead.
+
+**P2-2: claims can leak, and the double-claim gate reads stock that moves on its own.**
+- (i) `roof_shortfall` (pavilion and hall) is not on the "claims released" list. A roof that falls back to planks keeps its copper claimed forever, and that happens exactly in the copper-poor towns.
+- (ii) A ring decision writes two records, the monument record and `townclaims`, and nothing makes that write atomic. A crash or lost race between them leaves either an orphan claim or a copper ring with no claim.
+- (iii) "Claims exceeding spendable" is checked against counted stock. That count only includes fresh observations (cobblecap `townStock`: 6 h freshness limit, unknown containers, plus the new `capped` exclusions), so it falls without any claim changing, and the gate would REVERT on noise.
+- Fix: release on `roof_shortfall`. Make the claims record the only authority, with each claim carrying its own deadline and release condition, and have the monument record read it. Define the gate on the ledger: a claim admitted when its own generation did not cover it. Report live under-coverage separately.
+
+**P3s**
+- a. **Retirement wiring.** Excluding a `capped` container is semantically right: its stock cannot be used, so it should not count toward the cap or spendable copper. But the mark must be a record in the shared stock journal (like `gone`), honoured by `townStock` for every group and by `cobbleReconcilable`. Otherwise every covered scan adds the key back, and the town stays incomplete, which is the lidrule failure again. Test `complete` with a capped key, across a restart.
+- b. **`make_copper`'s withdraw.** If it reuses `withdrawSweep` (the nearest 3 containers), admission will count ingots the job cannot reach. Target the containers the count shows holding ingots.
+- c. **Missing Paper scenes.** None covers the 24 h `roof_shortfall` / plank fallback, or the 1 h `monument_nothing_open` cooldown against a ring deadline.
+- d. **The "layer stalled on copper" REVERT** must mean "past `ring_deadline`", and M1 must exclude held-ring time. Otherwise the designed pause trips both.
+- e. **crown-01 at tier 2.** It changes the frontier, and its exposure (a ring decided and completed) rarely fits in +180. Make it tier 3, or extend the read until it is exposed.
+- f. **hive-c** is not a no-coal town: it smelted 114 in 24 h and is absent from the no-coal list. smeltfuel-01 helps only board-a reach the pavilion.
+- g. 114 + 1,429 + 158 = 1,701, not 1,714. Name the 13 missing rows.
+- h. Say whether the 465 a day of raw banked is shared pools only.
+
+**Arithmetic re-derived, all correct:**
+- pavilion: 7 of 12 towns at ≥ 405 ingots (placebo-c qualifies at exactly 405);
+- hall: S in 6 towns, M in 0;
+- totals: 3,888 + 6,480 + 7,344 + 22,032 + 24 = 39,768, which is 85 / 70 days of income;
+- rings: 812 blocks in all, 204 for tiers 4-6, 92 for the tier 4 ring;
+- cells: 12,528 of 14,688;
+- pavilion: 160 cells and 162 placements;
+- copper stock: 2,240 raw in the three towns, medians 452 / 169.
+
+ORDER: AGREE
+
+FIRST TWO STAGES: AGREE
+
+====================================================================================================
+ROUND 4 (doc r4)
+====================================================================================================
+
+--- Codex r4 ---
+VERDICT: APPROVE
+
+Per round-3 finding (resolution at the design level):
+
+- Codex — inherited lid recovery: RESOLVED; inner-domain yield has authority, geometry checks, tooling and completed-project eligibility.
+- Codex — in-flight withdrawal manufactures shortfall: RESOLVED; backing transfers to the claim’s carried stock under the fence.
+- Codex — `capped` retirement leaves stock/count inconsistencies: RESOLVED; retirement is removed, preserving cobblecap’s completeness and observation semantics.
+- Codex — crown gates reject intended holds/transitions: RESOLVED; pre-deadline holds and the single recorded shortfall transition are allowed.
+- Codex — stale rod text: RESOLVED for crafting and conservation; v1 places no rods.
+- Codex — nine versus ten preceding canaries: RESOLVED.
+- Claude P2-1 — unadmitted, long-lived apex/stair reservation: RESOLVED; admission now occurs per layer, with bounded holds.
+- Claude P2-2 — release leaks: RESOLVED; roof/ring shortfalls release their unplaced remainder.
+- Claude P2-2 — two-record copper authority: RESOLVED; townclaims is the sole authority.
+- Claude P2-2 — gate against moving live stock: RESOLVED; admission is judged against its recorded generation.
+- Claude P3 — retirement wiring: RESOLVED by removing retirement.
+- Claude P3 — make_copper reaching counted containers: PARTIAL; targeting journal-listed containers fixes the nearest-three omission, but an observation does not prove current reachability. The fallback bounds the consequence.
+- Claude P3 — roof-shortfall and backoff scenes: RESOLVED; both are specified.
+- Claude P3 — copper stall definition/M1 held-time exclusion: RESOLVED.
+- Claude P3 — crown tier/exposure: RESOLVED; tier 3 with extension until exposed.
+- Claude P3 — hive-c incorrectly called a no-coal town: RESOLVED.
+- Claude P3 — unexplained 13 smelt rows: RESOLVED.
+- Claude P3 — fleet-wide scope of 465/day: RESOLVED.
+- Claude — arithmetic: RESOLVED; pavilion 7/12, hall S 6/12, and 39,768 ingots check out.
+
+New findings:
+
+- **P3 — Reachability overclaim (§3.1).** “Admission never counts ingots the job cannot reach” is stronger than journal-directed withdrawal establishes. Say it eliminates the nearest-three search omission; retain unreachable-container backoff and the 24-hour fallback.
+- **P3 — One-layer claim wording (§4.4).** When an odd ring layer opens, its outstanding claim can coexist with the next even layer’s three stair cells. Replace “at most one layer’s claim” with “claims extend at most one layer ahead”; include both outstanding claims in the illustrative hall calculation.
+- **P3 — Explicit persistence semantics (§3.2).** Specify that releasing funding preserves completed copper-cell decisions, while shortfall permanently labels only the unplaced remainder cobble. Add a restart fixture after a partially copper ring falls back, checking both material recognition and released backing.
+
+No remaining P1/P2 established. The persisted deadline, held-cell filtering, raw-copper exclusion, bounded roof fallback and removal of container retirement address the previous dead ends without requiring changes to cobblecap/lidrule stock semantics.
+
+ORDER: AGREE
+
+FIRST TWO STAGES: AGREE
+
+--- Claude r4 ---
+VERDICT: CHANGE
+
+**Round-3 findings**
+
+Codex r3:
+- **In-flight parts: PARTIAL.** Parts withdrawn for a claim now count as in flight. The ≤36 ingots make_copper carries do not: they are neither counted ingots nor parts. Rule 5's "can no longer be covered" input is also undefined (see N2).
+- **`capped` retirement: RESOLVED.** It is dropped. I checked the code: completeness keys are inTown-only (skills.mjs 3235-3237), and cobblecap is untouched.
+- **Crown gates rejecting designed behaviour: RESOLVED.**
+- **P3 stale rod text: RESOLVED.** One leftover: lightning_rod still joins PROTECTED / PROJECT_PARTS in 3.1.
+- **P3 "ten" canaries: RESOLVED.**
+
+Claude r3:
+- **P2-1 first-record claim: RESOLVED.** The per-layer rule replaces it, but its clock is wrong (N1).
+- **P2-2 leaks / two-record write / live-stock gate: PARTIAL.** Releases and the ledger gate are fixed. Two gaps remain: the trigger (`layer_open`) still lives in the monument record, so a crash between the two writes is open. And the shortfall transition may read live stock (N2, N5).
+- **P3 items: all RESOLVED.** Retirement wiring, make_copper's reach, the scenes, held time and M1, tier 3, hive-c, the row counts (114+1,429+158+13 = 1,714), and "fleet-wide".
+
+**New findings**
+
+**N1 P2: the ring deadline starts when layer k−1 opens, so most rings expire before their own layer opens.**
+- Rule 1 decides layer k when layer k−1 opens. Rule 4 sets `deadline = decided_at + max(6 h, 30 min × runs)`. Rule 5 turns every UNPLACED cell to cobble at expiry, even when all the parts are banked.
+- Tier 4's ring: deadline 23 runs × 30 min = 11.5 h. Before the ring's layer 9 opens, layer 8 (24×24 = 576 cells) must be built. Crown ships after shaft-01, when funding is 0.2-2k per world-day (zig 103), so that takes about 7-69 h.
+- Tier 5: layer 10 (324 cells) takes about 4-39 h, against an 8.5 h deadline.
+- Stair cells (6 h deadline) wait on whole ring layers. Tiers 0-3 are worse still.
+- Result: crown produces mostly cobble and orphaned cut copper. Its exposure ("a ring decided and complete") may never arrive, while tier 3 "extended until exposed" holds the only canary lane.
+- **Fix:**
+  - Anchor the deadline at the moment layer k OPENS: `opened_at(k)`, persisted in the claim under the same fence. Size it by the runs still needed then.
+  - Before that moment, a claim is released only by a ledger-defined cannot-cover, never by time.
+  - Add a Paper case: a slow layer k−1 that outlasts the old deadline still ends in a copper ring.
+  - Draw crown pools whose frontier is within one layer of a ring (or the apex).
+
+**N2 P3: the shortfall trigger can fire on noise.**
+- Rule 5's "can no longer be covered" must be computed like the ledger gate: fresh, complete counts, plus parts, plus in-flight items, where in-flight includes make_copper's carried ingots (in ingot units).
+- Otherwise a 6 h freshness lapse, or a make_copper run in progress, permanently switches a ring to cobble.
+
+**N3 P3: a reserved lid outside the storage cylinder.**
+- `clearChestLid` runs for every chest a deposit or withdraw targets. Targets come from `findBlock` within 48 of the bot, any non-deep container (skills.mjs 2692), not only town chests. So builders at the monument will hit chests the monument has capped.
+- Fix, part 1: the reserved test returns `refused`. That gives the existing 10-min per-bot skip, and a far chest triggers no new-chest build.
+- Fix, part 2: limit the stage-6 YIELD LIST to the storehouse's own record. Read literally, any `_lid_reserved` row is a yield order. A yield of a monument cover cell that is "never re-placed" leaves the cover unmet, and `layerClosable` would then stop the frontier permanently.
+
+**N4 P3: a chest under an unplaced pavilion or hall roof cell has no defined route.**
+- Rule (b) never places the cell, but the refusal chain says "reported, nothing else", so the project can never complete.
+- Fix: route it explicitly to blocked-cell → abandon. Or, at ≥ 22, cap the chest and report it, as the monument's rule (d) does, and narrow the REVERT gate to town containers.
+
+**N5 P3: the claim's terminal state.**
+- A `ring_shortfall` claim must keep naming its placed copper cells. If it does not, "copper only while a live or completed claim names it" reads those cells as wrong-block cobble.
+- Make the layer-k decision idempotent: if `layer_open ≥ k` and no claim exists, the layer is cobble.
+
+**N6 P3: arithmetic.**
+- The no-coal split sums to 469, not 479 ("6 elsewhere" should be 16).
+- Hall §4.4 says "≤ 92 blocks". That holds only for tiers 4+. Rings of tiers 0-3 are 116-188 blocks (1,044-1,692 ingots), and stair or apex claims can be live at the same time as a ring claim.
+- Re-derived and correct:
+  - pavilion: 7 of 12 towns at ≥ 405;
+  - hall: S needs ≥ 450, so 6 towns; 0 for M; none after a pavilion;
+  - total 39,768, which is 84.6 / 69.8 days of income;
+  - 17,712 for everything except the rings;
+  - rings 812 / 204 blocks (sides 48→6, step 3), and 12,528 of 14,688 cells in tiers 0-3;
+  - medians 452 / 169 / 184 / 181.5 / 385;
+  - pavilion 160 cells, 162 placements, 89 cobble;
+  - 2,240 raw copper unsmelted; 99 / 98 furnaces; 127 placements.
+
+**N7 P3: the pavilion's parts wait.**
+- The builder backs off 10 min, and that can repeat for up to 24 h.
+- Fix: check for parts at admission, with no walk, the way the monument hold does.
+
+ORDER: AGREE. It matches the owner's 10-19 queue in STATE 12:45Z exactly, and smeltfuel-01 comes before pavilion-01.
+
+FIRST TWO STAGES: AGREE. structureguard-01 inside the monument-01 rebuild, then pavilion-01.
+- I verified the inputs for stage 2: lidclear postdates both branches (`clearChestLid` appears 0 times on `origin/structureguard-on-835ef3f` and `origin/monument-on-d0cf6c5`). `lidJudge` returns a plain `refused` for a non-cobble lid. `jobWithdraw` matches the plan: 3 containers, the 2 h copper-miss memory, and coal only after copper.
+
+====================================================================================================
+ROUND 5 (doc r5)
+====================================================================================================
+
+--- Codex r5 ---
+VERDICT: APPROVE
+
+- Codex r4 — reachability wording: RESOLVED; targeting counted containers removes the nearest-three omission without claiming reachability.
+- Codex r4 — one-layer wording: RESOLVED; concurrent ring and next-tier stair claims are explicitly acknowledged.
+- Codex r4 — persistence: RESOLVED; released claims retain placed copper cells, with a restart fixture.
+- Claude r4 N1 — premature deadline: RESOLVED; the persisted deadline starts at `opened_at(k)`, with remaining production work determining its duration.
+- Claude r4 N2 — shortfall basis: RESOLVED; fresh, complete ledger counts include carried parts and crafting ingots; stale/incomplete counts mean UNKNOWN.
+- Claude r4 N3 — reserved lids: RESOLVED; refusal precedes material checks, and only storehouse records authorize yields.
+- Claude r4 N4 — chest beneath an unplaced roof: RESOLVED; outer-domain builds cap and report it, with count-independence and deposit-refusal coverage in LIDRES-3.
+- Claude r4 N5 — retained cells/idempotence: RESOLVED; placed copper survives release, and an opened layer without a claim stays cobble.
+- Claude r4 N6 — numerical corrections: RESOLVED; the remaining 16 no-coal rows and concurrent ring/stair allocation are stated.
+- Claude r4 N7 — admission-time parts checks: RESOLVED; missing roof parts suppress the build visit and select production or deadline fallback.
+
+No remaining P1/P2 established. The shared claim authority, in-flight accounting, bounded roof fallback, per-layer copper decisions, revised crown gates and tier-3 exposure requirement form a coherent plan. Dropping retirement avoids changing `townStock`’s fresh-observation and dirty-key semantics; `capped` is now reporting, not an exclusion from completeness. No rods are planned, and smeltfuel precedes pavilion.
+
+Arithmetic checks: pavilion admission is 324 / 0.8 = 405, qualifying seven towns; hall S is 360 / 0.8 = 450, qualifying six before pavilion consumption; the illustrated fleet program totals 39,768 ingots.
+
+New findings:
+
+- **P3 — Persist negative decisions explicitly (§3.2).** Idempotence is clearest after layer k opens, but a rejected allocation while k−1 remains open should also be immutable. Specify a zero-allocation COBBLE decision in the claims record, and test repeated decisions/restarts after stock increases.
+- **P3 — Make deadline initialization recovery explicit (§3.2).** Add a crash fixture between advancing `layer_open` and recording an existing claim’s opening timestamp. Recovery must preserve the original opening time rather than restart its clock.
+- **P3 — Reconcile the raw-stock forecast (§1.2).** The detailed paragraph still says approximately 17 days, while the overview says 17–34. Use the range consistently and preserve the qualification that raw-banking telemetry includes isolated worlds.
+
+ORDER: AGREE
+
+FIRST TWO STAGES: AGREE
+
+--- Claude r5 ---
+VERDICT: CHANGE
+
+**Round 4 findings**
+- Claude N1 (deadline clock): RESOLVED. The clock now starts at `opened_at(k)`, and the slow-layer case is in rule 7. The write path behind it is a new P2 (N-a).
+- Claude N2 ("cannot be covered" basis): RESOLVED. It uses the ledger basis, stale or incomplete counts are UNKNOWN, and make_copper's carried ingots count as in flight.
+- Claude N3 (reserved lid outside the cylinder): RESOLVED in outcome. I checked it: `refused` → `lidFailMemory` = `unavailable` → `fullChestRecovery` with `nearHome=false` takes the far branch, which never builds a chest (skills.mjs ~3803). The mechanism is misnamed (P3 N-d).
+- Claude N4 (chest under an unplaced roof): RESOLVED. At ≥ 22 the cell is placed and the chest capped. Chebyshev ≥ 22 cannot overlap `inTown` (horizontal ≤ 16), so no town count changes.
+- Claude N5 (persistence, idempotent decision): RESOLVED. A narrow race is left (P3 N-c).
+- Claude N6: RESOLVED. 155+155+63+48+42 = 463, so 16 elsewhere is right. Rings run 188→44, and a stair claim can be live at the same time.
+- Claude N7 (parts checked at admission): RESOLVED.
+- Codex P3 (make_copper reachability wording): RESOLVED.
+- Codex P3 ("one layer ahead" wording): RESOLVED.
+- Codex P3 (persistence fixture): RESOLVED.
+
+**Arithmetic, re-derived**
+- Pavilion: 324/0.8 = 405 → 7 of 12 towns (placebo-c is exactly 405).
+- Hall S: 450 → 6 towns. M (765) → 0 towns. After a pavilion the best town is 703−324 = 379 → 0 towns.
+- Totals: 3,888 + 6,480 + 7,344 + 22,032 + 24 = 39,768. That is 84.6 / 69.8 days at 470 / 570 a day.
+- 160 cells / 162 placements; ring 26; walls 36; median ingots 452; 2,240 raw copper; 8,977 copper-equivalent.
+- 812 ring blocks = 7,308 ingots; 204 blocks = 1,836.
+- jobWithdraw's three causes are confirmed in code: `WITHDRAW_CONTAINERS`, `COPPER_MISS_TTL_MS` = 2 h, and coal taken only once copper is in hand.
+- `segmentChoice`: if every free cell is held, `bodyOnly` is false, so the visit gets the 1 h nothing-open backoff, as claimed.
+- `layerCensus`: a held, unplaced cell keeps the layer from closing, so the frontier really does pause on a hold.
+
+**New findings**
+
+**N-a P2: a lost `opened_at` write leaves a hold with no deadline, and every gate misses it.**
+- `layer_open` advances in the monument's own `link()` record. `opened_at(k)` is written into the claims record "under the same fence". That is two records again, which is the shape r4 removed.
+- Rule 1's idempotency covers a missing *decision* (it becomes cobble). It does not cover a missing *deadline*.
+- If a bot crashes or loses a race between the advance and the `opened_at` write, the claim stays in the "no deadline before open" state while its layer is already open.
+- From then on only "cannot be covered" can release it. That stays UNKNOWN while counts are stale, which happens when the ingot container is unreachable and so never recounted.
+- So the held cells never close the layer and the frontier pauses forever. M1 and M3 exclude held time, and "a hold past its deadline" never fires, so nothing trips.
+- Fix (pick one):
+  - write `opened_at` beside `layer_open` in the same monument generation (a timestamp, not a copper decision) and compute the deadline from it; or
+  - have any reader that sees `layer_open ≥ k` and a claim with no `opened_at` write one (first writer wins).
+- Also add to crownread: "a held cell on an open layer with no deadline" is a defect. Add that crash to the rule 7 fixture.
+
+**N-b P3: claims made before their layer opens can hold copper indefinitely.**
+- If the monument stalls on layer k−1 (cobble funding, 4-69 h, or the monument abandoned), that town's copper stays reserved against the hall.
+- §4.4 says both "the hall waits on income" and "no town waits for a metal". It should say the hall builds its stone-brick roof variant when no copper variant allocates.
+- Fix: release a pre-open claim when layer k−1 shows no progress for 24 h, or when the monument leaves `building`.
+
+**N-c P3: a claim written after the layer opened gives a false REVERT, not a dead end.**
+- If the claim lands after `layer_open ≥ k`, cobble may already be in place. `layerCensus` counts that cell as foreign, so the layer still closes. But crownread then sees a "mixed ring" and calls REVERT.
+- Fix: the writer re-reads the monument record after publishing and voids its own claim if `layer_open ≥ k`.
+
+**N-d P3: wording.**
+- `refused` is not "the 10-min per-bot skip". It is town-memory `unavailable` plus the far branch, which skips the chest for 30 min (`FAR_SKIP_MS`). The conclusion stands; fix the text.
+- §1.2 gives "≈ 17 days" for the raw run-out; §0.1 gives 17-34. Make them match.
+
+**N-e P3: stair claims round up.**
+- Each 3-cell stair claim rounds to 4 cut copper = 36 ingots, so ≤ 288 per world rather than ≤ 216. The spare block can be credited to the next claim; say so.
+
+**N-f P3: crown's draw should also check copper.**
+- Draw only towns whose spendable copper is at least 1.25× the next ring's parts. Otherwise every drawn ring can decide cobble, and the owner's early-close rule closes the canary INCONCLUSIVE.
+
+**Checked, no finding**
+- Copper admission excluding raw.
+- The 24 h roof bound with the plank fallback.
+- The yield limited to the storehouse's own record.
+- No rods in v1.
+- smeltfuel-01 before pavilion-01.
+
+None of these reintroduces churn.
+
+ORDER: AGREE. It matches origin/main STATE 12:45Z: treefarm-02 → brain-01 → cobble-in-bags → toolkit-03 → bamboo-03 → townfloor-01 → monument-01 → shaft-01 → stonewithdraw-01, then smeltfuel-01 → pavilion-01 → crown-01 → hall-01 → the conditional stages → rails.
+
+FIRST TWO STAGES: AGREE. Stage 2 is structureguard-01 inside the monument-01 rebuild, with the lid test moved first in `lidJudge`. It must ship together with the monument, because without it lidclear would dig cobble monument covers. Stage 3 is pavilion-01.
+
+====================================================================================================
+ROUND 6 (doc r6)
+====================================================================================================
+
+--- Codex r6 ---
+VERDICT: CHANGE
+
+- Codex r5 — persist negative decisions: RESOLVED; immutable zero-allocation COBBLE entries and restart tests specified.
+- Codex r5 — opening/timestamp crash fixture: RESOLVED; `opened_at` and `layer_open` share one monument generation.
+- Codex r5 — raw run-out wording: RESOLVED; §1.2 consistently says 17–34 days.
+- Claude N-a — missing opening timestamp: RESOLVED; atomic publication plus the missing-deadline defect gate addresses it.
+- Claude N-b — pre-open reservation starvation: RESOLVED; inactivity/state release and the hall’s no-copper variant remove the dependency.
+- Claude N-c — late claim causing a mixed ring: PARTIAL; post-publication self-voiding introduces another race, below.
+- Claude N-d — refusal mechanism/run-out wording: RESOLVED; unavailable memory and the far-container skip match the code.
+- Claude N-e — stair recipe rounding: RESOLVED; four-block claims and spare credit are explicit.
+- Claude N-f — crown draw copper check: RESOLVED; spendable copper must cover 1.25 times the next ring’s parts.
+
+**P2 — Publishing before validating the layer still permits invalid, externally visible decisions (§3.2, Admission).** Two interleavings remain:
+1. A writer reads layer k−1; another process opens k and places cobble; the writer publishes COPPER, then crashes before its mandatory re-read. The late claim remains authoritative. Subsequent builders can produce an unrecorded mixed ring.
+2. A valid COPPER claim publishes before k opens; the monument opens k using that claim; the writer’s re-read now sees `layer_open ≥ k` and voids a valid decision, potentially after copper placement.
+
+The `link()` generation protocol arbitrates writers to the **same record**, not ordering between monument and townclaims records. Idempotence does not distinguish these histories once a claim exists.
+
+**Fix:** serialize layer opening and claim commitment under one recoverable protocol. For example, the opener freezes the applicable claims generation before enabling placements; pending claims cannot authorize crafting or placement, and recovery deterministically commits or rejects them. Keep copper decisions authoritative in townclaims. Test both interleavings, including a crash immediately after publication and a placement before the publisher resumes. Do not void a valid committed claim merely because its layer subsequently opened.
+
+**P3 — Fully specify the no-copper hall (§4.4).** The fallback replaces the roof, but the listed blueprint still includes four copper-grate windows. Explicitly give the zero-copper window treatment and fallback BOM, including additional stone-brick production, and add a zero-copper completion scene. This is a specification gap given the explicit “no-copper variant” requirement, rather than an established additional dead end.
+
+No other P1/P2 established. The earlier hold/deadline, UNKNOWN-count, in-flight backing, storehouse-only yield, outer-container capping, admission-time parts and fallback rules remain coherent. Container retirement stays dropped, preserving cobblecap completeness semantics. Pavilion qualification is 7/12, hall S is 6/12 before competing expenditure, and the illustrated program totals 39,768 ingots. No rods in v1 and smeltfuel before pavilion remain appropriate.
+
+ORDER: AGREE
+
+FIRST TWO STAGES: AGREE
+
+--- Claude r6 ---
+VERDICT: APPROVE
+
+**Round-5 findings**
+- Claude N-a P2 (`opened_at` and `layer_open` in different records): **RESOLVED.** On origin/monument-on-d0cf6c5, `mergeVisit` already writes `layer_open` in one generation (monumentjob.mjs:355-373). Adding `opened_at` beside it is one field in that same write. A pre-crown layer with no `opened_at` never carries a claim, because crown claims nothing on its first record. So the new "no computable deadline" gate cannot fire falsely.
+- Codex crash fixture: **RESOLVED.** The same-generation write removes that crash, and the claim-write crash is in rule 7.
+- Codex negative decisions: **RESOLVED.** There is now an immutable COBBLE entry, tested after stock rises.
+- Claude N-b (stalled monument; hall must not wait for a metal): **RESOLVED.** `last_confirmed_at` already exists to measure the 24 h no-progress test.
+- Claude N-c (claim written after its layer opened): **RESOLVED.** There is an ordering gap; see P3-1.
+- Claude N-d and Codex 17-34 days: **RESOLVED.** `FAR_SKIP_MS` is 30 min (skills.mjs:3162). The far branch skips only non-town chests and never builds one (skills.mjs:3815). §0.1 and §1.2 both say 17-34.
+- Claude N-e (stair rounding): **RESOLVED.** 8 × 36 = 288 claimed, 216 net.
+- Claude N-f (crown draw checks copper): **RESOLVED.** The thresholds are sharper than they look; see P3-3.
+
+**Carried items, re-checked**
+- The claims set as sole authority, in-flight parts, the per-layer rule, dropping retirement: sound. cobblecap's `complete` covers only the town scan's keys, so a chest capped at ≥ 22 does not touch it.
+- Raw copper is excluded from admission, the 24 h roof bound exists, there are no rods, and smeltfuel-01 (#10) runs before pavilion-01 (#11).
+- Code claims verified on origin:
+  - `WITHDRAW_CONTAINERS = 3` and `jobWithdraw` (skills.mjs:9495, 11509);
+  - `lidJudge` runs before any dig (5573, 5647);
+  - copper_ingot is in `DEPOSIT_ALWAYS`; `'rail'` is in `OWNER_JUNK_1004`;
+  - `segmentChoice` drops held cells, and all-held means "nothing open", the 1 h backoff;
+  - held cells are in `protect`, so they are never waived;
+  - branch tips eb407fa0, 41dc9d66, a2d6972f and 0b3a0d4c (a treefarm branch) match the plan.
+- Arithmetic re-derived:
+  - medians 452 / 169 / 862 / 184 / 181.5 / 385;
+  - the shared towns' ingot and raw sums, 5,547 and 3,430;
+  - pavilion: 7 of 12 towns at ≥ 405; 160 cells and 162 placements (ring 28 − 2 = 26, walls 40 − 4 = 36);
+  - hall S: 6 of 12 towns at ≥ 450, and none after a pavilion (703 − 324 = 379);
+  - tier widths 48 down to 6 give 14,688 cells; tiers 0-3 hold 12,528; the rings total 812, and tiers 4-6 hold 204;
+  - program total 39,768, which is 84.6 / 69.8 days. All correct.
+
+**New findings**
+
+P3-1. **The builder must read the claims after its advance.** A `build_monument` visit can advance up to three layers and then place on the new layer in the same visit (skills.mjs ~7540-7550 on the monument branch). Take a builder that read the claims before the writer published, then advanced after the writer's re-read. It places cobble on claimed ring cells. The trim family accepts that cobble as done, so crownread sees a mixed ring with no transition and REVERTs.
+- Fix: the visit computes held and copper cells from a claims read made after the step-3 advance.
+- Add a fixture where the advance and the decision fall in the same second.
+
+P3-2. **Small definitions to pin down:**
+- **Pre-open release:** state that it writes the immutable COBBLE entry for layer k, so the layer is never decided again.
+- **`layer_open`:** the record stores a world y (`plan.ys`), not an index k. Define the mapping.
+- **"Leaves `building`":** the only other state is `complete`, so in practice the 24 h test is the whole release.
+- **Hall no-copper roof:** its stone bricks need a furnace session. Either admit those bricks at siting with the rest of the hall's bricks, or name a fallback that needs no furnace, so the fallback cannot stall into the 72 h abandon.
+
+P3-3. **The crown draw thresholds, and what happens if nothing qualifies.**
+- "Within one layer of a copper layer" is always true, since every layer is a stair or a ring. The copper test is the real filter.
+- Spendable needed for the next ring (parts ÷ 0.8): tier 0 2,115; tier 1 1,845; tier 2 1,575; tier 3 1,305; tier 4 1,035; tier 5 765; tier 6 495.
+- At today's stock no town admits a ring below tier 6.
+- Fix: state these thresholds. Also say what happens if no world qualifies when crown-01 reaches the head. The scheduler never skips the head, so crown-01 should be parked (`cancel`, then re-queued) rather than block hall-01.
+
+P3-4. **The plan's copper income is fleet-wide.** The 470-570 a day includes the isolated pools, which hold 4,368 of the raw copper.
+- Shared towns' income is lower, perhaps about 75% of that if banking is even per pool (an assumption, not measured).
+- The shared raw stock then runs out in about 11-14 days, not 17-34.
+- §3.3's 70-85 days stretches toward about 95-115.
+- The conclusions still hold. Scale the figures by the shared share, or label §3.3 as a fleet-income bound.
+
+ORDER: AGREE. It copies the owner's 10-19 list (12:45Z entry) exactly, then puts smeltfuel-01 before pavilion-01, then crown-01 and hall-01, with shaftuse-01 taking the first free slot.
+
+FIRST TWO STAGES: AGREE. Stage 2 is structureguard-01 inside the monument-01 rebuild, with the compose, LIDRES-2 and CAPPED scenes. Stage 3 is pavilion-01, which proves terracing at no container risk. The P3s above belong to stage 4 and stage 5 design, not to either of these.
+
+====================================================================================================
+ROUND 7 (doc r7)
+====================================================================================================
+
+--- Codex r7 ---
+VERDICT: CHANGE
+
+- Codex r6 P2, cross-record races — PARTIAL: PENDING plus the monument commitment fixes both reported publication races, but commitment still races with pre-open release.
+- Codex r6 P3, zero-copper hall — PARTIAL: geometry, BOM and completion scene are specified; producing bricks before siting needs an executable eligibility path.
+- Claude r6 P3-1, advance then place — RESOLVED: builders explicitly read the commitment after their own advance.
+- Claude r6 P3-2, release/coordinates/furnace — PARTIAL: immutable COBBLE and world-y mapping are explicit; release serialization and pre-siting brick production remain incomplete.
+- Claude r6 P3-3, crown draw/parking — RESOLVED: thresholds and cancellation/re-queue behavior are explicit.
+- Claude r6 P3-4, fleet-income denominators — PARTIAL: the main table and run-out distinguish fleet income from assumed shared income, but the pavilion forecast still uses 500/day for shared stock.
+
+New findings:
+
+- **P2 — Pre-open cancellation has no shared commit point with opening (§3.2, rules 4 and commit steps 2–4).** An opener reads claims generation G containing PENDING C. Another writer releases C after 24 hours without progress, records immutable COBBLE in G+1, and makes its backing available to the hall. The opener can still commit `{C,G}` under the independent monument fence. The protocol now simultaneously promises immutable COBBLE, a historical COPPER commitment, and released backing. Following the pinned generation can authorize copper already reallocated; following the latest cancellation contradicts the commitment and decision gates. Fixtures a–e do not exercise cancellation. **Fix:** serialize cancellation and commitment through the same durable per-layer decision in the monument record; retain the reservation until that decision durably cancels it. Add release-versus-open interleavings, with immediate competing admission and crashes.
+
+- **P2 — The zero-copper hall’s furnace guarantee introduces a preparation dependency (§4.4).** Requiring completed bricks at siting prevents post-siting furnace stalls, but the inherited design’s `make_part` eligibility requires an active project allocating missing parts. No pre-siting preparation state or claim is specified. Starting with cobble and coal but no bricks therefore either cannot reach siting, or admits raw materials and loses the claimed guarantee. **Fix:** define a bounded preparation allocation that enables `make_part` before siting, with release on cancellation/timeout and a cobblestone fallback; alternatively admit the cobblestone variant directly. Test from zero banked bricks through the actual job selector, rather than preloading the completion scene.
+
+- **P3 — Shared-stock forecast retains fleet income (§0.1; §3.3).** The 15–23k pavilion forecast still adds approximately 500/day to shared stock despite the new denominator correction. **Fix:** label it explicitly as a fleet-income upper scenario; the stated shared-income assumption gives approximately 14–21k over 14–28 days.
+
+The pavilion 7/12 admission, hall S 6/12 admission, crown threshold table and 39,768-ingot illustrative total check out. No additional P1/P2 established in the lid/yield scope, removed retirement, roof fallback, raw-copper exclusion or no-rod decision.
+
+ORDER: AGREE
+
+FIRST TWO STAGES: AGREE
+
+--- Claude r7 ---
+VERDICT: CHANGE
+
+**Round-6 findings**
+- Codex P2 (the race across two records): **PARTIAL.** The r7 commit point closes the race between a claim being published and the layer opening; fixtures (a) and (b) are correct. But claims-side transitions still race the commit and the placements (N1 below).
+- Codex P3 (spell out the no-copper hall): **RESOLVED.** I re-derived the BOM: 108 + 63 + 4 = 175 bricks, 175 / 8 ≈ 22 coal, plus the 99-cobble pad = 274 cobble.
+- Claude P3-1 (read the commitment after your own advance): **RESOLVED.** In skills.mjs build_monument on origin/monument-on-d0cf6c5 (lines ~7541-7549), the advance loop sets `rec` from the bot's own write or from a re-read, so rule 5 can be implemented.
+- Claude P3-2 (the COBBLE entry, `plan.ys`, the 24 h test, the furnace): **RESOLVED.**
+- Claude P3-3 (draw table and parking): **RESOLVED.** The table is right. Rings are 188/164/140/116/92/68/44, each ×9 ÷ 0.8, giving 2,115 … 495. All seven ring sizes divide by 4. Only tier 6 (495 ≤ board-d's 703) qualifies today.
+- Claude P3-4 (fleet-wide income labels): **RESOLVED.** 39,768 / 430-350 = 92-114 days; 3,430 / (670 − 570 … 350) = 11-34 days.
+
+**Earlier rounds re-checked:**
+- The arithmetic all holds:
+  - pavilion: 7 of 12 towns at ≥ 405; placebo-c sits exactly on it (0.8 × 405 = 324);
+  - hall: S in 6 towns, M in 0;
+  - §3.3: 3,888 / 6,480 / 7,344 / 22,032 / 24, and days 8.3 / 13.8 / 15.6 / 46.9.
+- Code claims hold on origin:
+  - `mergeVisit` writes `layer_open` and `last_confirmed_at` in one generation;
+  - fence() re-reads the monument record before every click;
+  - `COPPER_MISS_TTL_MS` is 2 h; `FAR_SKIP_MS` is 30 min.
+
+**New findings**
+
+**N1 P2: the commit is not the only decision point.** Three transitions that change a monument layer's copper are still written to the claims record, a different record from the one the opener and the builders' fence read:
+- (a) the 24 h pre-open release;
+- (b) the pre-open "cannot be covered" release;
+- (c) the post-commit `ring_shortfall`.
+
+The race for (a) and (b):
+1. A releaser reads monument gen M (`layer_open = k−1`) and claims gen C (claim P is PENDING).
+2. It stalls; event-loop lag of seconds is measured on this fleet (`lagMax`).
+3. The opener reads C, commits `layer_copper[k] = {P, C}` in M+1, and places copper in the same visit (rule 5 allows that).
+4. The releaser publishes C+1: P released, plus an "immutable" COBBLE entry for layer k.
+
+The result is a committed layer that has an immutable COBBLE entry and a released claim. That breaks "never voided after commit". The ring is mixed with no `ring_shortfall`, which crownread REVERTs, on behaviour the design allows.
+
+For (c): builders' fence() checks only the monument's `layer_open`. A bot holding parts keeps placing copper for up to the 90 s visit after `ring_shortfall` lands, into cells the claims now call cobble.
+
+**Fix:** make every per-layer copper transition a write to the monument record, under its own `link()`:
+- Any reader may write `layer_copper[k] = COBBLE` early, while `layer_open < k`. That is the pre-open release.
+- The opener never overwrites an existing `layer_copper[k]`; the first write wins.
+- Record `ring_shortfall` as `layer_copper[k].shortfall_at` in the monument record, so the existing per-click fence stops copper placements.
+- The claims record only follows (VOID or release by any reader). The gap between the two writes then over-reserves copper for a moment, which is the safe direction.
+- Add fixture (f): a pre-open release racing the open, with a stalled releaser.
+
+**N2 P3: the deadline depends on an input nobody stores.** "make_copper runs still needed at `opened_at(k)`" changes after the fact. A restarted bot, or crownread, computes a different deadline, and that can cause a false "hold past deadline". Fix: write `deadline_at` in the commit generation.
+
+**N3 P3: a multi-layer advance skips the decision.** The visit-start loop can open k, then k+1, in one visit. Layer k+1 is then committed COBBLE before anyone could decide it (decisions happen when k opens). That loses decoration, not progress. Fix: the opener runs the k+1 decision, or the advance loop stops at the first layer it opens.
+
+**N4 P3: the pruning statement is wrong for the monument record.** The plan quotes blueprint.mjs's rule that a record generation is never pruned. That holds for the claims record, but the monument record that carries the commitment IS pruned (`KEEP_RECORD_GENS = 64`). A writer 64 or more generations stale can re-create a pruned number, and its `link()` succeeds, contrary to the comment in monumentjob.mjs. fence() stops its placements, but the plan's statement needs correcting.
+
+**N5 P3: the calendar mixes income bases.** §3.3's "15-23k" adds the FLEET-WIDE 500 a day to the SHARED stock. At the assumed shared share it is ≈ 14-21k.
+
+ORDER: AGREE
+
+FIRST TWO STAGES: AGREE
+
+====================================================================================================
+ROUND 8 (doc r8)
+====================================================================================================
+
+--- Codex r8 ---
+VERDICT: CHANGE
+
+- Codex R7 P2 — pre-open release versus commitment: RESOLVED. Both now contend on the monument’s durable per-layer decision; claims release follows.
+- Codex R7 P2 — hall bricks unavailable before siting: RESOLVED. Siting enables `make_part`; the completion scene starts with zero bricks through the real selector.
+- Codex R7 P3 — forecast income basis: RESOLVED. Shared-share and fleet-income scenarios are distinguished.
+- Claude R7 N1 — release races and shortfall fencing: PARTIAL. Record transitions are serialized, but an already-sent placement can cross the shortfall transition.
+- Claude R7 N2 — persist `deadline_at`: RESOLVED. Stored with opening, never recomputed.
+- Claude R7 N3 — multi-layer advance: RESOLVED. Crown-enabled advancement stops at the first newly opened layer.
+- Claude R7 N4 — pruning: RESOLVED. Full-state monument generations preserve decisions; claim generations remain addressable, and stale writers must re-read the live record.
+- Claude R7 N5 — forecast income basis: RESOLVED.
+
+**P2 — Shortfall must settle an outstanding click before releasing its backing (§3.2, rules 5 and protocol 5).** The existing monument executor explicitly supports a placement packet being outstanding until its server verdict is settled (`monumentjob.mjs` click-lock protocol; `builder.mjs` releases the lock after the click verdict). A builder can pass `fence()` and send copper, then another reader can publish `shortfall_at` and release the apparently unplaced remainder before that packet is confirmed. Re-reading before the *next* click cannot stop this packet. The plan consequently lacks a consistent answer for whether that cell remains copper and whether its backing was consumed or released.
+
+**Fix:** Make the shortfall writer acquire the existing placement lock and complete its pending-click settlement/world-sync protocol before publishing the transition. Persist the settled placed-cell accounting with the transition, then release only the genuinely unplaced remainder. Add a fixture that pauses a builder after packet send but before acknowledgement, runs shortfall plus a competing hall admission, and resumes it. Include disconnected-clicker recovery. Fixture (g)’s “next click” assertion alone does not cover this case.
+
+**P3 — Remove obsolete authority wording (§3.2).** “The ONLY authority for copper” and negative decisions described as claims-record entries conflict with the new division of responsibility. State consistently that townclaims owns allocation, while the monument owns layer decisions; COBBLE entries in townclaims merely mirror those decisions.
+
+**P3 — Round the zero-copper hall’s brick production (§4.4).** Its 175-brick requirement needs 176 bricks from four-brick crafts when starting from zero. Specify 176 smelts, 275 total cobble including the pad, 22 coal, and one spare brick.
+
+The remaining reviewed constraints support the proposed sequence: raw copper is excluded from admission, container retirement is dropped, yield is storehouse-only, rods remain excluded, and the pavilion/hall copper thresholds and 39,768-ingot program total reconcile.
+
+ORDER: AGREE
+
+FIRST TWO STAGES: AGREE
+
+--- Claude r8 ---
+VERDICT: CHANGE
+
+**Round 7 findings**
+- Codex P2 (pre-open release raced the commit): **RESOLVED.** There is now one decision per layer, in `layer_copper[k]`. Monument generations act as a compare-and-swap: `createMonumentGen` creates gen+1 with `link()`, and `mergeVisit` spreads the record forward, so a decision carries into every later generation. Every write site (skills.mjs ~7546, ~7577, ~7656) writes gen+1 of what it read, so first write wins is real. One residual gap is the new P2 below.
+- Codex P2 (hall bricks need a pre-siting path): **RESOLVED.** Bricks now come from `make_part` after siting, and design §5 (row "make_part (6)") makes it eligible from the active project's allocation. The scene starts from zero bricks through the real selector.
+- Codex P3 (forecast basis): **RESOLVED** in its labels. The arithmetic is slightly off (P3-1).
+- Claude N1 (release race; the shortfall fence): **RESOLVED.** `fence()` in skills.mjs ~7606-7613 already re-reads the monument record. builder.mjs calls it inside the click gate, last and synchronous with the packet, so adding a `layer_copper` check gives a per-click stop.
+- N2 (`deadline_at` stored): **RESOLVED.**
+- N3 (multi-layer advance skips a decision): **RESOLVED**, with P3-3.
+- N4 (pruning): **RESOLVED.** `KEEP_RECORD_GENS = 64` is confirmed, and `readStructureRecord` takes the highest generation number. A stale writer that re-creates a pruned generation is therefore invisible to readers, which is safer than the plan claims.
+- N5 (income basis): **RESOLVED.**
+
+**New findings**
+
+**P2-1: a follower's lag can permanently downgrade a hall or pavilion.**
+- Protocol 4 says an un-followed PENDING claim "over-reserves… the safe direction: the hall waits a moment".
+- The hall does not wait. Admission picks "the largest variant that allocates" once, at siting, and there is "never a retrofit". The pavilion's plank roof is decided at siting the same way.
+- A tier 0-4 ring claim reserves 828-1,692 ingots. Against a town's ≈ 450-700, that reservation turns S into the zero-copper hall.
+- The gap is open whenever COBBLE has been written but the VOID has not: a releaser that stalls between the two writes (fixture (f)'s own setup), or a stalled monument nobody has followed yet. The plan also never names who follows.
+- Fix: compute spendable as a pure function over BOTH records. A PENDING claim counts as zero when `layer_copper[k]` is COBBLE, or when the 24 h pre-open test holds; in that case the admitting reader writes the COBBLE itself first.
+- Fixture: a stalled releaser, then a hall siting. The siting must choose the variant the un-reserved stock allows.
+
+**P3s**
+1. §3.3's fleet-income upper scenario should be ≈ 16-25k. 9k + 570 × 28 = 25.0k, not 23k; the lower end is 9k + 470 × 14 = 15.6k.
+2. §3.2's "Negative decisions are recorded too… immutable COBBLE entry in the claims record" is left over from r5. It reads as a second authority. Restate it:
+   - the claims entry is a follower copy, and only `layer_copper[k]` decides;
+   - a claim writer refuses when `layer_copper[k]` is already set, or when any claims entry for k exists in any state.
+
+   Without that, claim → VOID → re-claim can churn.
+3. Stopping the advance loop after one layer has a cost in a backlog. The visit lands on an already-closed layer, takes the `!seg` path and returns `monument_nothing_open`, which sets a 1 h `NOTHING_BACKOFF_MS`. So each backlogged layer costs about one bot-hour. Fixture (h) should assert the backlog drains within N visits without tripping M1, or use a short backoff for "just opened, already closed".
+4. Name both advance sites as decision writers: the advance loop (~7546) and the visit-end close (~7656). Also require the pre-open COBBLE writer to spread the latest record exactly as `mergeVisit` does.
+5. The fence check and the packet are synchronous, but a `shortfall_at` landing while a click is in flight can still place at most one copper block per builder after it. The definition "placed before any `shortfall_at`" and crownread should tolerate that, meaning "a click fenced before `shortfall_at`".
+6. The claims record is "never pruned". The monument was given pruning for exactly this growth (stage-4 P2-4). A full-state claims record resolves `claim_id` in its newest generation, so prune it the same way, or bound its size in a test.
+7. "So no hall waits on a furnace" holds only for the roof. The walls' 108 bricks still need a furnace and fuel; they are bounded only by design 3.5's 72 h stall → abandon → re-site twice → skip. Say so, and confirm `make_part` uses smeltfuel-01's coal sweep.
+8. Crown "never blocks hall-01, because the scheduler never skips the head" is backwards. It blocks hall-01 until a human cancels it. Reword, and note that parking is likely: by the time it ships, about 1.1k per town against 1,035-2,115 needed.
+9. "Ten canaries ahead ≈ 2-4 weeks" looks pessimistic. Only four ahead are known to be tier 3. It is illustrative, so this is a label note only.
+
+**Arithmetic re-derived and correct**
+- Pavilion: 7 of 12 towns have ≥ 405 ingots. Cell count 63 + 26 + 36 + 35 = 160 cells, 162 placements.
+- Hall: S needs ≥ 450, so six towns qualify (placecebo-c at 405 does not); none qualify for M (765); none qualify after a pavilion (max 703 − 324 = 379).
+- Zero-copper hall: 175 bricks, 274 cobble, ≈ 22 coal.
+- Ring sizes 188 → 44 sum to 812 blocks (7,308 ingots); tiers 4-6 are 204 blocks (1,836).
+- Draw table 2,115 … 495.
+- Program total 39,768; 85 / 70 days at fleet income; 92-114 days at 350-430 a day. Shared raw run-out 11-14 days.
+
+ORDER: AGREE
+
+FIRST TWO STAGES: AGREE
+
+====================================================================================================
+ROUND 9 (doc r9)
+====================================================================================================
+
+--- Codex r9 ---
+VERDICT: APPROVE
+
+Round-8 findings:
+
+- Codex P2 — RESOLVED: shortfall takes the click lock, settles outstanding placement, records `placed_at_shortfall`, and releases only the remainder; fixture (i) includes disconnection.
+- Codex P3, authority wording/COBBLE entries — RESOLVED: allocation and decisions have distinct owners; COBBLE entries are follower copies.
+- Codex P3, hall brick rounding — PARTIAL: four-brick crafting is rounded, but stone-brick-wall recipe rounding remains incorrect.
+- Claude P2-1, follower lag downgrading admission — RESOLVED at plan level: spendable derives from both records, with cancellation committed before released backing becomes available.
+- Claude P3, fleet forecast — RESOLVED: 16–25k is explicitly the fleet-income scenario.
+- Claude P3, follower COBBLE/re-claims — RESOLVED: any existing layer entry prevents re-claiming, including terminal entries.
+- Claude P3, backlog backoff — RESOLVED: already-closed opened layers receive a two-minute backoff and a backlog fixture.
+- Claude P3, decision writers — RESOLVED: advance, visit-end close, and pre-open cancellation writers are named.
+- Claude P3, click after shortfall — RESOLVED by the same settlement barrier as Codex’s P2.
+- Claude P3, claims pruning — RESOLVED: full-state generations preserve terminal claims; pointers resolve by `claim_id`.
+- Claude P3, wall furnace dependency — RESOLVED: post-siting `make_part`, coal sweep, and bounded stall/abandonment are explicit.
+- Claude P3, crown parking — RESOLVED: cancellation/re-queue and the scheduler’s blocking behavior are explicit.
+- Claude P3, calendar label — RESOLVED: illustrative dates and income assumptions are identified.
+
+Remaining findings:
+
+- **P3 — Hall BOM still undercounts wall crafting (§4.4).** The original hall needs 27 parapet wall items; four window walls bring that to 31. Six-item wall recipes require 36 bricks, versus the original 30. Thus the zero-copper variant needs `78 + 36 + 63 = 177` bricks before four-brick rounding: **180 smelted cobble, 279 total cobble, 23 coal for smelting, three spare bricks and five spare wall items**, assuming no existing parts. Correct the BOM and verify recipe outputs in the hall build review. This does not change admission or create a dead end.
+
+- **P3 — Make the cancellation-loser branch explicit (§3.2).** The prose permits zero reservation when the 24-hour test holds, while fixture (f) correctly requires first-write-wins. Specify that the admitter must read the winning monument decision after attempting COBBLE: if COPPER won, its reservation still counts. Keep the spendable function pure; perform cancellation and reconciliation before evaluating it. This clarifies an already-required invariant.
+
+- **P3 — Qualify the exact deadline promise (§3.2 rule 5).** Safe pending-click settlement can finish after `deadline_at`; the existing lock deliberately refuses to discard an unresolved connected author’s click. Distinguish overdue parts holds from a reported settlement recovery, and require prompt transition after settlement. Do not weaken the placement barrier to meet the clock.
+
+No remaining P1/P2 established. The owner’s queue, smeltfuel prerequisite, container-domain rules, copper admission thresholds, seven qualifying pavilion towns, six qualifying S-hall towns, and 39,768-ingot program total are consistent.
+
+ORDER: AGREE
+
+FIRST TWO STAGES: AGREE
+
+--- Claude r9 ---
+VERDICT: APPROVE
+
+**Round-8 findings**
+
+Codex r8:
+- **P2, a click crossing the shortfall:** RESOLVED. I checked this in the code on origin/monument-on-d0cf6c5. In builder.mjs `runPlacements`, the gate takes `lock.acquire(c)` first and runs `fence()` last, while the lease is held. So once the shortfall writer holds the lease, no builder can pass its gate. In monumentjob.mjs `clickLock`, a pending record whose author is still present cannot be resolved by anyone else. The author clears it with `settleOwn`, which runs at visit end (skills.mjs ~7664) and in `settleMonumentClicks` once a minute. So the statement "the shortfall waits for the click lock" is true and bounded.
+- **P3, the "ONLY authority" wording:** RESOLVED.
+- **P3, COBBLE entries as a second authority:** RESOLVED. They are now follower copies, and a claim writer refuses when a decision or any entry for the layer exists.
+- **P3, zero-copper brick rounding:** PARTIAL (see N3).
+
+Claude r8:
+- **P2-1, follower lag at siting:** RESOLVED for PENDING claims. A small leftover exists for expired COPPER claims (see N1).
+- **Fleet scenario:** RESOLVED. 9k + 470×14 = 15.6k and 9k + 570×28 = 25.0k.
+- **COBBLE entries as follower copies, refused re-claims:** RESOLVED.
+- **Backlog backoff:** RESOLVED. The 2 min backoff is bounded by the number of layers, about 16 walks at most.
+- **Decision writers named:** RESOLVED. I checked skills.mjs 7545-7546 (the advance loop) and 7655-7656 (the visit-end close, which spreads `latest.record`). The blocked-vote write at 7576-7577 is not a decision writer; when it loses the compare-and-swap it only drops votes.
+- **In-flight click after `shortfall_at`:** RESOLVED.
+- **Claims pruning:** RESOLVED. A stale writer re-reads after publishing, so a re-created generation number is harmless.
+- **Wall bricks need a furnace:** RESOLVED. They are bounded by the 72 h stall rule.
+- **Crown parking wording:** RESOLVED.
+- **Calendar label:** RESOLVED.
+
+Arithmetic I re-derived:
+- Pavilion: 324/0.8 = 405.
+- Hall copper admission: 450 / 765 / 1,170.
+- Rings: 188 + 164 + 140 + 116 + 92 + 68 + 44 = 812 blocks. Tiers 4-6 = 204 blocks = 1,836 ingots.
+- Program total: 3,888 + 6,480 + 7,344 + 22,032 + 24 = 39,768. That is 85 / 70 days at fleet income and 92-114 at the shared share.
+- Cells: 12,528 / 14,688 = 85%.
+- Draw table: each tier's figure equals the ring's parts × 1.25.
+
+**New findings**
+
+None reaches P2. They are listed in order of importance.
+
+- **N1 P3** (the stage-4 build review must take it). There is a gap between `deadline_at` and the moment someone writes `shortfall_at`.
+  - Builders that see only held cells end with `monument_nothing_open` and back off for 1 h (`NOTHING_BACKOFF_MS`). So the shortfall is written up to about 1 h plus lock wait after the deadline.
+  - During that gap the plan's claim "the frontier pauses at most until the deadline" is false.
+  - A crownread coded literally as "REVERT on a hold past its deadline" would revert a correct canary.
+  - Spendable still deducts the expired remainder, which reopens P2-1's permanent-downgrade problem for a hall sited in that window.
+  - Fix: `fence()` refuses a copper click when now ≥ `deadline_at` (the value is stored and immutable, so every bot agrees). Spendable counts an expired claim's unplaced parts as zero. The shortfall write then only records the settled set. crownread gates on "a copper confirm after `deadline_at`", or on a hold past `deadline_at` + backoff + lock wait.
+- **N2 P3** (stage 3). The pavilion's `roof_shortfall` has no named writer, which leaves the r8 race in a project form: a copper click landing after the switch to planks reads as an off-plan placement and trips the REVERT gate.
+  - Fix: only the project's build-lease holder writes it, after settling its own click and under `fence()`. pavilionread treats cells confirmed before the transition as on-plan.
+- **N3 P3, brick arithmetic.** Design 4.3 uses "30 for 27 walls", so the stone-brick wall recipe gives 6 walls per craft. The 4 window wall cells take the hall from 27 to 31 walls, which needs 36 bricks, not 30 + 4.
+  - Correct total: 78 + 63 + 36 = 177 bricks, crafted as 180.
+  - That means 180 cobble smelted, 23 coal, and 279 cobble in all.
+- **N4 P3.** The shortfall writer needs a lock mode that writes no cell record, because `acquire(cell)` writes a pending record. It also needs a hand the barrier accepts, as `settleMonumentClicks` arranges. If the layer's chunks are not loaded, the settled set is UNKNOWN and the writer retries; it never writes a shortfall from an unloaded read.
+- **N5 P3.** Two gaps around the 24 h test and pre-open decisions:
+  - When the 24 h test applies, the admitting reader writes COBBLE first. If that write loses to the opener's COPPER, the reader must recompute spendable from the re-read. The plan should say so.
+  - A ring that is not admitted when layer k−1 opens leaves `layer_copper[k]` unset, so a later reader may claim it. That contradicts "a later rise never re-decides". Either write a pre-open COBBLE on non-admission, or state that retries before the layer opens are allowed.
+- **N6 P3.** A layer opened COPPER may already contain cobble in its copper cells, from reflex pillars or terrain. The monument never digs, so crownread would see a "mixed ring" with no recorded transition.
+  - Fix: record the open layer's census of pre-filled cells in the COPPER write, and exclude those cells from the mixed-ring gate.
+
+ORDER: AGREE. It matches the owner's 10-19 list in origin/main STATE.md (12:45Z), with smeltfuel-01 before pavilion-01.
+
+FIRST TWO STAGES: AGREE
+

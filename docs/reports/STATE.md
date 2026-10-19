@@ -1,14 +1,5 @@
 # STATE — the operator's state file (a fresh session starts from THIS, not from the handoff history)
-_updated 2026-10-18 13:25Z by the daily operator session (10-18). **FLEET `a9cff42c`** (wellcare-01: KEEP +360 12:38:56Z, promoted fleet-wide 12:48:37Z by the canary loop, merged to main 5ab7ad4e by the coordinator 13:13Z; = 932befcc toolkit-02 + wellcare-01). **LIVE CANARY townsearch-02 @ `6bea246c`** (withdraw searches ALL town chests: journal, unknown, nearest; branch ts-on-a9cff42) on board-a,board-d (10 bots), deployed 13:00:37Z; first read **+360 at 19:00Z**, +720 01:00Z 10-19; extension reads +1080 07:00Z, +1440 13:00Z (10-19), deadline 1680 = 10-19 17:00Z; final on zero exposure INCONCLUSIVE.
-
-Since the last daily rewrite (10-16 14:50Z) the host loop, the scheduler and the coordinator shipped: plinth-01 INCONCLUSIVE early
-(10-16 17:15Z, unexposable: build_well could not place its crafting table on the plinth), lidclear-01 KEEP+promoted (0152baeb, 10-16
-23:14Z), townsearch-01 INCONCLUSIVE early (10-17 12:05Z, 1 of 6 exposure rows), kitshrink-01 INCONCLUSIVE early (10-17 12:19Z, slot
-freed for the owner's direct rollout), **plinth-02 ROLLED OUT DIRECTLY by the owner, no canary** (0fe92258, 10-17 12:33Z; hotfix
-plinth-02.1 830dc36b 20:04Z; read 10-18 00:30Z KEEP: 16/16 worlds using a well, disposes 80 -> 204, 0 of 26 deaths near a cap),
-smeltjob-01 KEEP+promoted (857c853c, 10-17 19:53Z), **logcap-01 DIRECT** (469cba5a 22:46Z, owner "Yup": town wood target 64 -> 4000
-after the 64 target pruned 14,585 oak logs down the new wells), toolkit-02 KEEP+promoted (932befcc, 10-18 06:27Z). No daily session
-ran on 10-17 (no status report; the coordinator wrote the dated entries below)._
+_updated 2026-10-19 12:50Z by the daily operator session (10-19). **FLEET `adbec4f4`** (plinthfirst-01, OWNER-DIRECT rollout 01:26Z on top of townsearch-02 6bea246c KEPT +720 01:06Z / promoted 01:16Z; = a9cff42c + townsearch-02 + plinthfirst-01) on **80 of 80 bots, one build live**. **NO canary deployed** at 12:40Z: bamboo-02 `dffd97e4` REVERTED +180 (05:11Z) and torn down (05:15Z); the scheduler's decision is `launch treefarm-02` (variant `0b3a0d4c` on adbec4f4, queued 12:28Z, draw amended 12:35Z) -- **the live operator session (heuristic-nightingale) owns the queue this week; see its 10-19 12:45Z COORDINATION entry on origin/main.**
 
 > **THIS FILE ALSO EXISTS ON `main`.** `bots/test/nothing-important-is-orphaned.test.mjs` asserts it stays there.
 > If the two copies disagree, take the later `_updated` stamp. Long history: `git show 40a09da:docs/reports/STATE.md`
@@ -17,86 +8,146 @@ ran on 10-17 (no status report; the coordinator wrote the dated entries below)._
 > entries are the newest.** Read BOTH: `git show origin/main:docs/reports/STATE.md | grep -n '^## '`.
 
 
-## CURRENT (rewritten 2026-10-18 13:25Z) — read this block, then the dated entries below it
+## CURRENT (rewritten 2026-10-19 12:50Z) — read this block, then the dated entries below it
 
-**FLEET** `a9cff42c` (= 932befcc toolkit-02 + wellcare-01). Live 13:20Z (scheduler S5): `a9cff42c+590f76` on 70 bots, `6bea246c+87d026` on the 10 canary bots -- exactly the two expected builds; 10 drop-ins (board-a, board-d). origin/main = 5ab7ad4e (the coordinator's wellcare-01 merge, 13:13Z) + bd6ddf5e-equivalent STATE (this session) and contains a9cff42c; no main-pre-20261018 on origin (the coordinator did not push one; a local branch of that name = 872f128e exists in code-minecraft-ai). The local checkout code-minecraft-ai is on main = origin/main
-(fast-forwarded 30 commits 11:20Z). /opt/minecraft-ai is the deploy checkout.
+**COORDINATION (10-19 12:45Z, origin/main):** the live operator session has been taking the owner's instructions since 10-12 and drives the
+queue. A daily session does NOT apply queue entries, release holds, install gates or deploy without checking that session's newest
+entries and the journal first; analysis and reporting are welcome. Owner decisions 10-19 (recorded there): tiered canaries (tier 1
+settings = direct; tier 2 small fixes = 20 bots, KEEP at +180, ~3 h cool-off; tier 3 unchanged; gate change installed between canaries
+under install-hold); queue treefarm-02 -> brain-01 ("test now", rebuilt on the live tip) -> cobble-in-bags fix -> toolkit-03 (iron via
+townsearch) -> bamboo-03 (G3 fix) -> townfloor-01 -> monument-01 -> shaft-01 -> stonewithdraw-01; nightly world backups to the NAS;
+a daily goal scoreboard (goalboard.py); town projects 2-8 + overseer being designed.
 
-**wellcare-01 is CLOSED: KEEP +360 (12:38:56Z) and PROMOTED (12:48:37Z, fleet-deploy VERIFIED "fleet is on a9cff42c").** The read:
-deaths 1/120 bh vs control 4/240 (0.008 vs 0.017/bh); own lines W1 (mine dig in a known shell/plinth stair) 0, W2 (station on a well
-cell) 0, W3 (dispose/close order started > 13 below its stand) 0; licence 32 `_wellcare_mode` rows, leak 0; `_well_deep` holds 49;
-exposure_ready 1 (control deep orders 90). PRIMARY (reported): well_unreachable /bot-h canary 0.292 -> 0.025 vs control 0.203 -> 0.239
-(DiD -0.303; counts 35 -> 3 vs 73 -> 86); dispose ok /bot-h DiD -0.069 (17 vs 22; control 43 vs 33). wellread C1-C9 all 0; immobiledid
-guards within (gather/bh -2%, blocks moved -3%); NAMED: recovery_exhausted 6 distinct canary bots still stuck 30 min after (v10 guard 6
-lists it; verdict.py did not breach on it). Merge conflict: sandbox/well/minewell-e2e.cjs add/add -- the coordinator's merge took the BRANCH copy, which
-drops main's trapdoor `column` check (a Paper scene check from minewell-01's read record, 67e12012; not fleet code) -- FOLLOW-UP:
-re-add it on main. This session's duplicate merge (ac7fb793, kept main's copy, npm 267/267) was discarded unpushed. REVERT = redeploy 932befcc.
+**FLEET** `adbec4f4` = 6bea246c (townsearch-02) + plinthfirst-01 (every NEW well a plinth; working natural wells kept; rollback `6bea246c`
+or `PLINTH_FIRST=0`). Census 11:08Z: 80 of 80 bots' newest rows carry code.version adbec4f4; manifest declared adbec4f4 (02:05Z),
+canary_pool null. origin/main = 12d4a41c (coordinator: townsearch-02 + plinthfirst-01 merged ce44d552). Local checkout code-minecraft-ai
+main = 6b14e84b (behind; fast-forward before touching it). mcai-rl02 (recovery-ladder-03) carries this copy + status reports.
 
-**LIVE CANARY townsearch-02 @ `6bea246c`** (registration ~/mcai-analysis/townsearch-02.6bea246c.json; read townsearchread (+ the gate's
-immobiledid); read_minutes [360, 720]; extension until_exposure, extra reads [1080, 1440], deadline 1680, final on zero exposure
-INCONCLUSIVE; licence kind `_townsearch_mode` min 1 (baseline silent, 12:58Z); **change_rows [] -- the death linkage runs on the RATE
-alone, as it did for townsearch-01 ("LINKAGE UNAVAILABLE"); a townsearch-03 should declare its rows**; draw_exposure 24 h
-`withdraw_pick` "no usable pickaxe" >= 3 -> drawn board-a (half 5080), board-d (half 3090) 13:00:36Z; preflight 384,230 rows positive
-control; gate digest b7ce36d7 OK). Deployed 13:00:37.24Z; loop pid 3174757. EXPOSURE = >= 6 canary withdraw_pick ORDER rows carrying
-town= in the read window (townsearch-01 got 1 in 6 h on placebo-d,board-c -> closed early; this one reads first at +360 and extends to
-+1440). Death gate two + 1.25x. No read yet; **the loop reads +360 at 19:00Z.** On KEEP it promotes itself; bamboo-02 (variants 0261deb,
-6bea246 = stacked on townsearch-02's tips) is next and launches on the scheduler.
+**bamboo-02 `dffd97e4` CLOSED: REVERT +180 (05:11:30Z), torn down 05:15Z (10 bots back on adbec4f4, 0 drop-ins).** The deciding line was the
+registered correctness gate, not the death: bambooread G3_bamboo = 3 (must be 0, evidence=defect): of 12 fold runs on the 10 canary bots,
+9 freed a slot and 3 (hive-b-Bravo 04:12, hive-b-Alpha 04:25, hive-b-Comet 04:32) stopped `aborted:stagnation` with crafts 0/32, 6/32,
+7/36 and freed 0 -- runs planning 32-36 crafts outlive their fold window (46.6-51.8 s) and the stagnation watchdog aborts them; each bot's
+next run (2.5 min later) succeeded. **bamboo-03 (queued by the owner): size the fold window to the planned crafts or cap crafts/run.**
+Death reviewed (v14c flag): hive-b-Comet 04:16:56Z = mine stopped at y=38 "lava in the headroom", `_lava_corridor` refused the leg twice,
+`_marooned` climbed out into lava; no bamboo row within 12 min (its first fold ran 04:29Z after respawn). NOT linked. R11 (death-hold)
+released 11:50Z with that review as the `why`. Death gate reported 1 vs 1 (0.033 vs 0.007/bh), never a verdict (two-death floor).
 
-**toolkit-02 KEEP carried an operator-review flag (v14c):** placebo-b-Comet drowned 05:24:59Z with a `_livelock_escape` row inside 60 s
-("rung-linked death on a non-ladder change"). REVIEWED 10-18 11:30Z: the bot stuck at 351,60,-430 in water; the livelock relocation dug
-(dy -5.8) into a sealed water cell; `_air_pocket_refused` (water beside the roof cell) x2, `_drowning_ceiling_no_air` x2, died idle.
-toolkit-02 changes the carried kit (iron axe/shovel crafts, spent stone copies) and touches none of the stuck/drowning/relocation
-path; the toolkitread +360 showed 0 defects, 10 kit crafts. NOT linked; the KEEP stands. The sealed-water entombment chain is the
-fleet's standing drowning mechanism (owner 09-30: tripwires only, no new hunts).
+**treefarm-02 variant on adbec4f4: `0b3a0d4c` (branch tf-on-adbec4f, pushed; registration ~/mcai-analysis/treefarm-02.0b3a0d4c.json;
+queue entry ~/mcai-analysis/treefarm-02.entry-adbec4f.json, all older variants kept).** farm-on-9f8e30d 288a19fa's three commits
+cherry-picked onto adbec4f4; five hunks resolved by hand (no bamboo import / HOUSEKEEPING entry; townWellSite's NEW-site search through
+wellSearchAvoid in BOTH plinth-first branches; buildPlinth passes plinthfirst's minK, bare into the farm-aware planner) + plinth.mjs by
+rerere; one test-only commit (treefarm-compose runs with PLINTH_FIRST=0 as chest-full/plinth-skill do; wiring/mutant anchors re-anchored,
++1 mutant; well.test.mjs's plinth-first compute mutant re-anchored -- the full runner caught it). Codex read-only rebase review: production
+resolutions correct (3 informational), CHANGE only on the stale anchors. npm test 272/272; no-undef 1 = base 1. The coordinator checked
+it against an independent build (db5e37d3, same production code) and allowed the launch. **Draw amendment (prospective, 12:35Z):**
+draw_exposure kind `deposit` -> `town_deposit` (min 8 / 3 h unchanged; read-time gate exposure_ready >= 1 unchanged): bank-chest deposit
+rows are rare now (3 h: 64 fleet-wide, only hive-b >= 8) while town_deposit rows (98) qualify board-a, hive-a, hive-c, placebo-b,
+placebo-c; pre-amendment bytes in treefarm-02.0b3a0d4c.json.bak-draw. `tick --no-act` = LAUNCH; no journal row yet at 12:40Z (cron
+tick / install-hold: the coordinator's lane). Reads 180/360, extension 540/720/1080/1560, deadline 1680; exposure = >= 9 confirmed
+plantings on the canary and >= 20 control log gathers.
 
-**QUEUE (host, 13:20Z):** wellcare-01 (CLOSED KEEP, promoted) -> townsearch-02 (RUNNING, +360 at 19:00Z) -> bamboo-02 (variants on townsearch-02's tips 0261deb, 6bea246) -> treefarm-02 -> townfloor-01 (held: needs a tip merge) ->
-monument-01 (held behind minewell, now cancelled: needs a re-hold decision) -> stonewithdraw-01 -> shaft-01 (held). CANCELLED:
-plinth-02 (rolled out directly), toolkit-01 (superseded by toolkit-02), minewell-02 (superseded by wellcare-01). The chain agent stacked
-bamboo-02 on townsearch-02's tips (0261deb, 6bea246); **if townsearch-02 is NOT kept, bamboo-02 has no a9cff42c variant and the
-scheduler blocks H2** -- a re-stack onto a9cff42c is the first job then (treefarm-02 and later have none either). PENDING from the coordinator (10-17/18): plinth-first (every new
-well a plinth; rebuilt on 830dc36b+, Paper pending), kitshrink-02 to re-queue (kitshrink-01 was closed unexposed for the direct rollout),
-stocktargetread.py literal 64 wood targets, wellcare's own follow-ups. PARKED: cobbleoverflow-01 (normal fix; needs a variant on the
-fleet tip; trigger = BANK CLOSED tripwire or >= 3 full-town refusals / 12 h). WATCH (logcap-01): wood now banks instead of pruning ->
-chest fill / new-chest budget (4/day, 12 standing).
+**plinth tripwires (direct rollouts):** plinthfirsttrip (since 01:26Z, adbec4f4) TRIPWIRE OK. plinth2trip (since 02:05Z, 547 min, 1.13 M
+rows): C1-C9 at raised wells 0, P1-P4 0, **P5_stuck BREACH named, no rollback**: placebo-c-Alpha 06:32 is the END of a `_livelock_escape`
+relocation from 335,69,115 (30 blocks away); board-d-Delta 08:33 is a gather entombment at 363,69,130, 8 blocks from board-d's cap
+366,73,138, matched horizontally to another world's cap -- its escape dug through and `_well_retired 363,73,134 wall_is_air` (board-d's
+natural well; plinth-first will re-site it raised). FOLLOW-UP: P5 should match caps per world in 3-D.
 
-**LOOP STATE** 2026-10-18 13:25Z: OPEN -- townsearch-02 deployed 13:00Z, unread (first read 19:00Z). `check-open-loop.py` says so. wellcare-01 KEEP recorded 12:38Z, promoted 12:48Z, merged 13:14Z -- closed. toolkit-02 closed (06:27Z). Nothing else open. While townsearch-02 is unread, no new analysis starts.
+**FLEET HEALTH (ES, 11:07Z):** 24 h 1,920 bot-h, deaths 30 (0.0156/bh; drowning 12, fire 6, other 6, fall 4, suffocation 2) -- DOWN from
+48 (fire 18) on 10-18. 7 d 13,440 bot-h, 262 (0.0195/bh). Gather 5.66 ok/bot-h, craft 0.29, town_deposit 132 ok of 590. **Bags WORSE:
+41 of 80 bots at >= 34 slots, 23 at 36 (10-18: 24 / 8)**; hive-a, hive-c, isolated-d, placebo-b, placebo-c 5/5 at >= 34. 12 h town_deposit
+refusals 284 of 358: 186 "nothing to bank: everything carried is kept (stockpile, scaffold, tool...)", 0 chest-full; deposit 184 fails of
+251, 10 "full" (cobbleoverflow trigger not met on town_deposit). Iron 24 h: raw 293 (0.20/bot-h), ingots 280, iron pickaxes crafted 24,
+gone 66, share 64.7%. Units `mcbot@hive-a-Charlie` / `mcbot@hive-b-Charlie` are enabled with NO env file since August (empty logs; not
+fleet bots: 16 x 5 = 80 are up); every hive-a/b teardown logs restart-failed for them -- a human `systemctl disable --now` + reset-failed.
 
-**FLEET HEALTH (ES, 11:05Z):** 24 h 1,920 bot-h, deaths 48 (0.025/bh; fire 18, drowning 16, fall 8, other 5, suffocation 1; isolated-a 10,
-isolated-d 7, placebo-a 6, hive-d 5) -- UP from 32 (0.017/bh) on 10-16; fire 10 -> 18. 7 d 13,440 bot-h, deaths 259 (0.0193/bh). Gather
-6.58 ok/bot-h (24 h), craft 0.36, town_deposit 122 ok of 314. Bags: 24 of 80 bots at >= 34 slots, 8 at 36; placebo-b median 36 (5/5
-full), hive-a 35. Iron funnel 24 h (00:07Z): raw iron 321 (0.22/bot-h; 10-16 202), ingots 343, iron pickaxes crafted 36, gone 81,
-iron-pickaxe share 58.3%. The fire-death rise is NAMED, not analysed (loop open); it coincides with smeltjob-01 (furnaces) and
-plinth-02 (deeper well orders) -- the plinth-02 read found 0 of 26 deaths within 12 blocks of a cap.
+**QUEUE (host, 12:40Z; the coordinator's):** treefarm-02 (variant adbec4f4 -> 0b3a0d4c; scheduler decision LAUNCH) -> townfloor-01 (HELD) ->
+monument-01 (HELD) -> stonewithdraw-01 -> shaft-01 (HELD); the owner's 10-19 order inserts brain-01, the cobble-in-bags fix, toolkit-03
+and bamboo-03 after treefarm-02 (entries pending from the coordinator). None of treefarm-02's successors has an adbec4f4 variant.
 
-**RULES IN FORCE:** gate bundle b7ce36d7 (v35.1) matched at the 06:32Z launch; ~/digest/RULE.md md5 746c65e4 = repo scripts/host/RULE.md
-(11:15Z). Death gate two + 1.25x. Owner 10-15 early close for unexposable canaries. Owner 10-16 setting-change fast path (constant-only).
-Owner 10-17: direct fleet rollouts when the owner says so (plinth-02, logcap-01) -- recorded as `owner-direct` in the journal, read as a
-before/after plus tripwires, rollback = redeploy the previous sha. wellread judges the canary arm only.
+**LOOP STATE 12:40Z: CLOSED** -- bamboo-02 REVERT recorded 05:11Z, torn down 05:15Z, `check-open-loop.py` clear ("no open canary"). If
+treefarm-02 launches, its +180 read is 3 h after `deployed`; the host loop reads and acts; the next session closes it first.
+
+**RULES IN FORCE:** gate bundle b7ce36d7 (v35.1) matched at the 02:03Z launch; ~/digest/RULE.md md5 746c65e4 = repo scripts/host/RULE.md
+(12:30Z). Death gate two + 1.25x. Owner 10-15 early close; 10-16 setting fast path; 10-17 owner-direct rollouts (phase `owner-direct`,
+before/after + tripwires); 10-19 tiered canaries (gate change pending install by the coordinator). wellread judges the canary arm only.
 
 **RE-ARM ON A FRESH SESSION**
-  1. `date -u`; read this block AND origin/main's entries; on 10.0.0.31: `cat /srv/mcbots/trial-manifest.json`;
-     `tail ~/canary-journal.jsonl`; `tail ~/digest/page.jsonl`; `python3 ~/canary-sched.py status | tail -14`;
-     `pgrep -af canary-loop`; `sudo python3 /opt/minecraft-ai/scripts/check-open-loop.py`.
+  1. `date -u`; read this block, origin/main's newest entries (the coordinator's COORDINATION entry first) and the journal; on 10.0.0.31:
+     `cat /srv/mcbots/trial-manifest.json`; `tail ~/canary-journal.jsonl`; `tail ~/digest/page.jsonl`; `python3 ~/canary-sched.py status
+     | tail -14`; `pgrep -af canary-loop`; `sudo python3 /opt/minecraft-ai/scripts/check-open-loop.py`.
   2. `python3 ~/verdict.py <live run> 0 --poll` (2-5 min). Read texts `~/digest/reads/<run>-<read>-<min>.txt`; loop stdout
-     `~/canary-loop-<run>.out`. townsearch-02: +360 19:00Z, +720 01:00Z 10-19, then +1080 07:00Z, +1440 13:00Z, deadline 17:00Z 10-19. If it was decided overnight, check the merge (coordinator or the loop page says "operator: fast-forward main") and bamboo-02's launch.
-  3. Live builds: the scheduler's S5 line; or `Events.load(paths="/var/log/mcai/<pool>-*/skill-*.jsonl*", since_minutes=N)` per pool
-     (`paths` is ONE glob string, not a list; normalised rows: keys t, name, detail, fail_class, status, bot, raw; on-disk `@timestamp`).
-  4. If a run was decided: confirm the ledger row + version count; PushNotification on promote/revert; merge the promoted sha into main
-     `--no-ff` (keep main-pre-<date>), full `node scripts/run-tests.mjs`, push; re-fetch first (the coordinator merges within minutes
-     of a promotion -- toolkit-02 was merged 06:28Z, one minute after the 06:27Z promote -- so check origin/main before merging).
-  5. A single-notification waiter beats a Monitor: background `ssh ... 'for i in $(seq 1 70); do tail -40 ~/canary-journal.jsonl |
-     grep -q "\"run\":\"<run>\",\"phase\":\"read-<min>\"" && exit 0; sleep 60; done'`. The Bash tool caps a foreground or background
-     command at 10 min; a longer wait needs re-arming or a Monitor.
-  6. The local analyst is STALE (10-06). Wide analysis: `python3 ~/estel/scripts/host/fleetstatus.py`; iron: `tail ~/digest/ironfunnel.log`.
-  7. Codex review: `codex exec --sandbox read-only - < promptfile` (prompt on stdin, NO `</dev/null`); macOS has no `timeout`.
-  8. Mobile push does not reach the owner from the daily session (Remote Control inactive); the desktop notice is all it sends.
-  9. An owner decision can land between loop reads: re-read the journal before acting on a rule written earlier in the day. Owner-direct
-     rollouts (phase `owner-direct`) skip the canary entirely; their read is a before/after + tripwires, not a DiD.
+     `~/canary-loop-<run>.out`. A REVERT's deciding line is in the `read-<min>` journal note ("own line ... evidence=defect" = a
+     correctness gate, even when the note opens with the v14c death text); R11 then still holds the queue until `continue`.
+  3. Live builds: per-bot newest row `code.version` (`r["code"]["version"]`), or the scheduler's note line; `Events.load(paths="/var/log/
+     mcai/<pool>-*/skill-*.jsonl*", since_minutes=N)` per pool.
+  4. If a run was decided: confirm the ledger row + version count; PushNotification on promote/revert (desktop only: Remote Control is
+     inactive); the coordinator merges a promotion to main within 1-25 min -- re-fetch before any merge of your own.
+  5. A single-notification waiter beats a Monitor: background `ssh ... 'for i in $(seq 1 56); do grep -q "\"run\":\"<run>\",\"phase\":
+     \"read-<min>\"" ~/canary-journal.jsonl && exit 0; sleep 10; done'` (the Bash tool caps a command at 10 min).
+  6. The local analyst is STALE (10-06). Wide analysis: `cd ~/estel && python3 scripts/host/fleetstatus.py` (~3 min; ES); iron:
+     `tail ~/digest/ironfunnel.log`; plinth tripwires: `cd ~/mcai-analysis && nice -n 19 python3 plinthfirsttrip.py --since <rollout
+     ISO> --version adbec4f4` and `python3 plinth2trip.py` (each walks every log: run with nohup to ~/digest/*.out).
+  7. Codex review: `codex exec --sandbox read-only - < promptfile` from the worktree, with a `( sleep N; kill )` watchdog; macOS has no
+     `timeout`. A variant worktree needs `ln -s <repo>/bots/node_modules bots/node_modules`; never `git add -A bots` there. The FULL
+     runner (`npm test`, ~35 min here) is the only test command; it caught a stale mutant anchor the filtered run could not.
+  8. Re-stacking a variant: prefer `scripts/prepare-variant.sh` (aborts on conflict); a conflicted cherry-pick is a reviewed rebase
+     (Codex pass on the range-diff), its registration carries `variant_prep` + `approved` naming the review, and the host's deploy
+     checkout must `sudo git -C /opt/minecraft-ai fetch origin` before `queue replace-variant` can resolve the sha.
+  9. An owner decision can land between loop reads and in the OTHER session: re-read origin/main's STATE and the journal before acting.
 
-**CHECKOUTS** origin/main canonical. Local checkout code-minecraft-ai on main = origin/main. mcai-rl02 (recovery-ladder-03) carries the
-daily copy and status reports, unpushed (ahead 7 + today). Host checkout for ES tools ~/estel on 10.0.0.31.
+**CHECKOUTS** origin/main canonical (coordinator). Local checkout code-minecraft-ai on main (6b14e84b, behind; `git pull --ff-only`).
+mcai-rl02 (recovery-ladder-03) carries the daily copy and status reports, unpushed. Host checkout for ES tools ~/estel on 10.0.0.31
+(not a git repo); the deploy checkout /opt/minecraft-ai resolves shas for the scheduler.
 
 ---
+
+## 10-19 15:20Z — bamboo-03 queued (bamboo-02's G3 REVERT was a READ bug); cobblekeep-01, toolkit-03 queued; brain-01 pending host patches
+- bamboo-02 G3=3 were stagnation-cut folds one craft short (in-flight craft made by the server, not yet recorded); no bamboo lost.
+  bambooread fixed (e329a14f installed); bamboo-03 = foldTally counts the in-flight craft. Branches bb3-on-adbec4f 736e89b0,
+  bb3-on-0b3a0d4 0447ffed. Open: 2 of 3 stagnation aborts were self-inflicted by the fold (owner call: exempt like smeltjob).
+- cobblekeep-01 (bag-fix class): dirt/grass lids dug, leaves/glass lids open; the well takes what the cap refuses (same count);
+  coal + raw iron banked above own needs. Branches cobblekeep-on-adbec4f 9e7d9980 / -on-0b3a0d4 5d36b839.
+- toolkit-03: kit iron + smelt coal through every-container search. tk3-on-adbec4f 28dc1158 / tk3-on-0b3a0d4 132694cb (being
+  re-stacked on cobblekeep).
+- Queue: treefarm-02 (live) -> [brain-01 when its 3 host patches + the tier install land] -> cobblekeep-01 -> toolkit-03 ->
+  bamboo-03 -> townfloor-01 -> monument-01 -> stonewithdraw-01 -> shaft-01. ES: llm.brain mapped (template + data stream).
+
+## 10-19 14:00Z — PLINTHFIRST-01 read: KEEP recorded (direct rollout 01:30Z; tripwire window to 13:43Z) -- SHIPPED
+- plinthfirsttrip.py OK every run 01:28-13:43Z (no natural well dug under the policy, no replan without evidence, no isolated
+  plan, no second plinth beside a first in a shared town). plinth2trip one BREACH 08:39Z: P4 board-d raised well 363,73,134
+  retired (wall_is_air: a gather-entombed bot escaped through it) -> the town replanned (structural, twice) and built a new
+  plinth + well at 366,73,138 by itself; P5 two stuck episodes, misattributed (daily session read: one was the end of a 30-block
+  livelock relocation, one matched another world's cap horizontally -- P5 should match caps per world in 3-D). Reviewed, no
+  rollback. Clean 12:05-13:43Z. Follow-ups: escape should prefer a non-well exit; P5 per-world 3-D matching.
+- Single control session: the daily scheduled task `mcai-daily-session` is DISABLED (owner 10-19 "one session to control").
+- Added 10-19: nightly world backups (NAS, 03:15Z, verified), goalboard (daily 01:40Z on .31; census 00:15Z on .30, relayed
+  via the Mac launch agent com.mcai.goalcensus-relay), overseer design r3 (S0 census first; not an actor yet).
+
+## 10-19 12:50Z — (daily operator session) bamboo-02 REVERT reviewed (G3 defect, death not linked), R11 released; treefarm-02 re-stacked on adbec4f4 (0b3a0d4c) and queued; plinth tripwires read (P5 named, no rollback); coordination handed to the live operator session
+- **Found at start (11:08Z):** no open canary; fleet adbec4f4 on 80/80 (townsearch-02 KEPT +720 01:06Z + promoted; plinthfirst-01 direct
+  01:26Z; bamboo-02 launched 02:01Z, REVERTED +180 05:11Z, torn down 05:15Z); scheduler BLOCKED R11 since 05:20Z. Nothing to close.
+- **bamboo-02 review:** REVERT decided by G3_bamboo (3 stagnation-aborted folds of 12, freed 0) -- a real defect for bamboo-03; the
+  hive-b-Comet death is the mine-into-lava chain, not the fold. `continue bamboo-02` at 11:50Z with the review as the why.
+- **treefarm-02 on adbec4f4:** cherry-pick + 5 hand hunks + rerere; Codex rebase review; 272/272; queued 12:28Z (replace-variant); draw
+  kind amended deposit -> town_deposit 12:35Z (prospective; R10 had only hive-b eligible); scheduler decision LAUNCH. The live operator
+  session confirmed the variant against its own build (db5e37d3) and asked daily sessions to stop applying queue/fleet changes without
+  checking -- acknowledged by message (13:4xZ) listing every host change above.
+- **Tripwires:** plinthfirst OK; plinth2trip P5_stuck breach = two misattributed episodes (details in CURRENT); named, no rollback.
+- **Health:** deaths 24 h 30 (0.0156/bh, down from 48); bags 41/80 >= 34 (worse); 186/284 town_deposit refusals are "everything kept".
+- Status report docs/reports/status-2026-10-19-daily-operator.md. Memory: r11-death-hold-after-correctness-revert.
+
+## 10-19 12:45Z — COORDINATION: the live operator session (heuristic-nightingale) is driving the queue this week -- daily sessions please read
+The owner has been giving instructions in the operator session continuously since 10-12. To any DAILY / FRESH operator session:
+please do NOT apply queue entries, release holds, install gate changes or deploy without first checking this file's newest
+entries and the journal; prefer analysis/reporting. Your treefarm-02 adbec4f4 variant 0b3a0d4c (applied 12:28Z) was checked
+against an independent build (db5e37d3: same production code but one comment) and is allowed to launch. Owner decisions 10-19:
+- tiered canaries (tier 1 settings = direct; tier 2 small fixes = 20 bots, KEEP at +180, ~3 h cool-off; tier 3 unchanged) --
+  gate change being installed between canaries;
+- queue: treefarm-02 -> brain-01 ("test now") -> cobble-in-bags fix -> toolkit-03 (iron via townsearch) -> bamboo-03 (G3 fix)
+  -> townfloor-01 -> monument-01 -> shaft-01 -> stonewithdraw-01; copper into town builds; town projects 2-8 and the overseer
+  as job assigner being DESIGNED; diamond tier held until mineshaft safety; nightly world backups to the NAS; a daily goal
+  scoreboard (goalboard.py).
+- Rule reminders: never wrap canary-sched.py in `flock ~/sched.lock` (deadlock); one canary at a time; teardown is 3 steps.
 
 ## 10-19 01:45Z — FLEET adbec4f4: toolkit-02, wellcare-01, townsearch-02 KEPT; plinthfirst-01 direct rollout; bamboo-02 next
 - toolkit-02 932befcc KEEP +360 06:17Z 10-18 (deaths 2/60 vs 5/300; one rung-linked death reviewed: a sealed-water drowning at
