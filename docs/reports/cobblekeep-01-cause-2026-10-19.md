@@ -91,8 +91,9 @@ is not counted as the alternative fuel (it is the stockpile rungs'). Everything 
 order still keeps 16 coal (a different exit); a raw-iron smelt with no coal may burn a few kept planks, as before.
 **What it moves (r4 rule, 10-19 ~14:40Z snapshot):** coal 93 held -> 89 bankable (22 bots); raw iron 25 -> 21 (11 bots);
 **no ingot** — every ingot in a bag today is that bot's next craft (79 of 80 hold a bucket, so their 1-3 ingots are the
-pickaxe's), so the towns' ingot shortage cannot be met from bags without starving a rung; banked raw iron reaches the
-toolkits through the town smelt jobs. (A bot holding both still keeps 3, or the gather rung re-opens and sends it mining:
+pickaxe's), so the towns' ingot shortage cannot be met from bags without starving a rung. Banked raw iron becomes
+available IN TOWN, but this change supplies no automatic conversion to toolkit ingots (Codex r4 P3: the town smelt job,
+smeltjob.mjs, smelts raw COPPER only); the coal it banks is what those copper jobs stop for. (A bot holding both still keeps 3, or the gather rung re-opens and sends it mining:
 a ladder decision, not this one.) Nuggets and charcoal are not on the bank's list (bankable.mjs). Exposure: the canary
 pool must hold bots carrying coal or raw iron (22 and 11 of 80 bots, spread across pools) — reported, not drawn on.
 **Not a setting:** the keep is new logic (whole names, ordering, the smelt condition), not a number.
