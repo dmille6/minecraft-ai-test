@@ -1293,3 +1293,91 @@ VERDICT: CHANGE
 ORDER: AGREE
 FIRST STEP: AGREE
 
+
+======================== CODEX r7
+**APPROVE at design level.** R7 resolves the round-6 P2. Remaining gaps are P3 implementation and fixture details; none changes X1–X10, the order, or the first step. No files changed.
+
+Below, **D** refers to [the r7 plan](/Users/darrellmiller/Documents/code-minecraft-ai/.claude/worktrees/agent-a2c930ce357b5cb19/docs/reports/expansion-plan-2026-10-19.md). “Resolved” means resolved in the design, not demonstrated on Paper or the fleet.
+
+| Round-6 finding | Status | Evidence |
+|---|---|---|
+| Codex P3-1: new validated K0 reader | **RESOLVED** | D:680–685 requires a new reader, Slots 0–35, complete SNBT, all 16 pools, and UNKNOWN on failure. Existing scripts are correctly characterized as insufficient. |
+| Codex P3-2: slot-count positive control | **RESOLVED** | D:686–689 specifies both log formats, before/after endpoints, and UNKNOWN for unmatched or unstable comparisons. Both formats match source. |
+| Codex P3-3: prove pre-move enforcement | **RESOLVED** | D:754–764 replaces microtask-only cancellation with synchronous array truncation and explicitly requires actual-pathfinder tests showing no forbidden control, dig or placement. Execution details remain below. |
+| Codex P3-4: full-bag escape, proxy wording, deadlines | **PARTIAL** | D:650 and :813–819 strengthen the escape; :519 explicitly labels h12 a proxy; :505–512 fixes deadlines. X-P6 at :848 still names only the last breadcrumb, and the new higher-rim fixture is absent. P3 only. |
+| Claude P2: K0 omits durability | **RESOLVED** | D:673–679 requires per-slot damage and registry maximum durability, with UNKNOWN availability and spent-for-room handling when unreadable. This closes the spent-tools-as-usable false pass. |
+| Claude P3-1: breadcrumb below drop rim | **PARTIAL** | D:813–815 uses the higher breadcrumb/rim level. The requested fixture with a breadcrumb below the rim has not been added to X-P6. |
+| Claude P3-2: scaffold material and pickup capacity | **PARTIAL** | D:650 and :817–819 require cobblestone. X-P6b retains mixed materials, but does not explicitly test rejection of a dirt-only reserve or the pickup sequence after cobble exhaustion. |
+| Claude P3-3: roofed town arrival/departure | **RESOLVED** | D:736–738 exempts the town zone from the sky-light restriction and requires a roofed-home Paper scene. |
+| Claude P3-4: synchronous path veto | **RESOLVED** | D:758–763 adopts in-place truncation and retains deferred stopping as a backstop, with behavioral acceptance criteria. |
+| Claude P3-5: reader completeness and log formats | **RESOLVED** | D:680–689 addresses packet/parser completeness, slot preservation, pool coverage and comparison semantics. |
+| Claude P3-6: preregistered read schedule | **RESOLVED** | D:505–512 sets +540/+720/+1080 for four/three/two pools before the draw and excludes premature +360 closure for two pools. |
+| Claude P3-7: new `window_from` instrumentation | **RESOLVED** | D:523–525 explicitly identifies new instrumentation, the watchdog reset timestamp, and a full 20-second reservation fixture. |
+| Claude P3-8: home over-acceptance | **RESOLVED** | D:521–522 adds G1b, including the two historical dy −10 successes as its positive control. |
+
+The requested source checks support those conclusions:
+
+- **Durability:** `toolfor.mjs:96–99` returns Infinity without `maxDurability`; otherwise it subtracts `durabilityUsed`, defaulting that field to zero. `towndeposit.mjs:136` and `bankable.mjs:261` both require `remaining > FLOOR`. `state.mjs:22–30` records per-copy `{slot, used, max}`.
+- **Java inventory SNBT:** `components."minecraft:damage"` is the correct component and represents durability consumed. **An omitted component can mean default damage zero**, because default-valued components are not serialized. The reader must distinguish that valid default from unreadable data and explicit component removal. This is a P3 parser requirement, not a reason to reject the durability design. [Mojang’s component and serialization specification](https://www.minecraft.net/en-us/article/minecraft-java-edition-1-20-5)
+- **Pathfinder:** I inspected the installed dependency in the main checkout; this worktree has no local dependency directory. At `index.js:446–448` and `:467–470`, emission precedes assignment of the same array. Truncation therefore survives assignment, and the empty-path check at :475 prevents reaching the subsequent path-node dig/place code. **It does not itself clear controls already active from the previous path.** The build must synchronously neutralize those controls and test partial updates during physics catch-up; deferred stopping alone cannot establish the promised no-action property.
+- **Surface:** `skills.mjs:14565` computes `max(SEA_LEVEL, _toY)` and refuses when already at that height. The revised higher-rim target addresses the identified case. `shaftAscend` still requires scaffold at :14299; full-bag recovery remains a composed behavioral test.
+- **Logs:** `cognitive.mjs:1440` emits `slots=a->b`; `towndeposit.mjs:310` emits `slots a->b`. Both must be parsed.
+
+I found no new design-level gate error or owner-decision change. The build review must cover damage defaults, inventory-slot normalization, active-control cancellation and the missing escape variants. Approval does not establish that E0 or K0 has passed.
+
+The first step remains **homefix-01, subject to X1/X9, with E0 alongside it**; expeditions precede outposts and rails.
+
+VERDICT: APPROVE
+ORDER: AGREE
+FIRST STEP: AGREE
+tokens used
+58,952
+**APPROVE at design level.** R7 resolves the round-6 P2. Remaining gaps are P3 implementation and fixture details; none changes X1–X10, the order, or the first step. No files changed.
+
+Below, **D** refers to [the r7 plan](/Users/darrellmiller/Documents/code-minecraft-ai/.claude/worktrees/agent-a2c930ce357b5cb19/docs/reports/expansion-plan-2026-10-19.md). “Resolved” means resolved in the design, not demonstrated on Paper or the fleet.
+
+| Round-6 finding | Status | Evidence |
+|---|---|---|
+| Codex P3-1: new validated K0 reader | **RESOLVED** | D:680–685 requires a new reader, Slots 0–35, complete SNBT, all 16 pools, and UNKNOWN on failure. Existing scripts are correctly characterized as insufficient. |
+| Codex P3-2: slot-count positive control | **RESOLVED** | D:686–689 specifies both log formats, before/after endpoints, and UNKNOWN for unmatched or unstable comparisons. Both formats match source. |
+| Codex P3-3: prove pre-move enforcement | **RESOLVED** | D:754–764 replaces microtask-only cancellation with synchronous array truncation and explicitly requires actual-pathfinder tests showing no forbidden control, dig or placement. Execution details remain below. |
+| Codex P3-4: full-bag escape, proxy wording, deadlines | **PARTIAL** | D:650 and :813–819 strengthen the escape; :519 explicitly labels h12 a proxy; :505–512 fixes deadlines. X-P6 at :848 still names only the last breadcrumb, and the new higher-rim fixture is absent. P3 only. |
+| Claude P2: K0 omits durability | **RESOLVED** | D:673–679 requires per-slot damage and registry maximum durability, with UNKNOWN availability and spent-for-room handling when unreadable. This closes the spent-tools-as-usable false pass. |
+| Claude P3-1: breadcrumb below drop rim | **PARTIAL** | D:813–815 uses the higher breadcrumb/rim level. The requested fixture with a breadcrumb below the rim has not been added to X-P6. |
+| Claude P3-2: scaffold material and pickup capacity | **PARTIAL** | D:650 and :817–819 require cobblestone. X-P6b retains mixed materials, but does not explicitly test rejection of a dirt-only reserve or the pickup sequence after cobble exhaustion. |
+| Claude P3-3: roofed town arrival/departure | **RESOLVED** | D:736–738 exempts the town zone from the sky-light restriction and requires a roofed-home Paper scene. |
+| Claude P3-4: synchronous path veto | **RESOLVED** | D:758–763 adopts in-place truncation and retains deferred stopping as a backstop, with behavioral acceptance criteria. |
+| Claude P3-5: reader completeness and log formats | **RESOLVED** | D:680–689 addresses packet/parser completeness, slot preservation, pool coverage and comparison semantics. |
+| Claude P3-6: preregistered read schedule | **RESOLVED** | D:505–512 sets +540/+720/+1080 for four/three/two pools before the draw and excludes premature +360 closure for two pools. |
+| Claude P3-7: new `window_from` instrumentation | **RESOLVED** | D:523–525 explicitly identifies new instrumentation, the watchdog reset timestamp, and a full 20-second reservation fixture. |
+| Claude P3-8: home over-acceptance | **RESOLVED** | D:521–522 adds G1b, including the two historical dy −10 successes as its positive control. |
+
+The requested source checks support those conclusions:
+
+- **Durability:** `toolfor.mjs:96–99` returns Infinity without `maxDurability`; otherwise it subtracts `durabilityUsed`, defaulting that field to zero. `towndeposit.mjs:136` and `bankable.mjs:261` both require `remaining > FLOOR`. `state.mjs:22–30` records per-copy `{slot, used, max}`.
+- **Java inventory SNBT:** `components."minecraft:damage"` is the correct component and represents durability consumed. **An omitted component can mean default damage zero**, because default-valued components are not serialized. The reader must distinguish that valid default from unreadable data and explicit component removal. This is a P3 parser requirement, not a reason to reject the durability design. [Mojang’s component and serialization specification](https://www.minecraft.net/en-us/article/minecraft-java-edition-1-20-5)
+- **Pathfinder:** I inspected the installed dependency in the main checkout; this worktree has no local dependency directory. At `index.js:446–448` and `:467–470`, emission precedes assignment of the same array. Truncation therefore survives assignment, and the empty-path check at :475 prevents reaching the subsequent path-node dig/place code. **It does not itself clear controls already active from the previous path.** The build must synchronously neutralize those controls and test partial updates during physics catch-up; deferred stopping alone cannot establish the promised no-action property.
+- **Surface:** `skills.mjs:14565` computes `max(SEA_LEVEL, _toY)` and refuses when already at that height. The revised higher-rim target addresses the identified case. `shaftAscend` still requires scaffold at :14299; full-bag recovery remains a composed behavioral test.
+- **Logs:** `cognitive.mjs:1440` emits `slots=a->b`; `towndeposit.mjs:310` emits `slots a->b`. Both must be parsed.
+
+I found no new design-level gate error or owner-decision change. The build review must cover damage defaults, inventory-slot normalization, active-control cancellation and the missing escape variants. Approval does not establish that E0 or K0 has passed.
+
+The first step remains **homefix-01, subject to X1/X9, with E0 alongside it**; expeditions precede outposts and rails.
+
+VERDICT: APPROVE
+ORDER: AGREE
+FIRST STEP: AGREE
+
+======================== CLAUDE r7
+(Independent Claude subagent, round 7 confirmation; read-only.)
+
+Round-6 P2 resolved. Of the remaining round-6 items every one from both reviewers is RESOLVED at design level except one Claude P3 (the path veto), PARTIAL. r7 adds one implementation-level issue: the synchronous veto lets a refused walk look like an arrival (P3). None changes X1-X10, the order, the first step, or how any homefix-01 gate decides.
+
+1. Round-6 findings. Claude r6: P2 durability RESOLVED (toolfor.mjs:96-100 remaining() Infinity without maxDurability; towndeposit.mjs:136-137 toolSlotsToBank banks only usesOf(c) > FLOOR; bankable.mjs:261 same; state.mjs:22-33 toolWear {slot, used, max}; r7 reads components."minecraft:damage", registry max, UNKNOWN for availability and SPENT for room: both cautious). P3-1 _toY RESOLVED (skills.mjs:14565 TOP = max(SEA_LEVEL, _toY), :14570 refusal). P3-2 cobblestone RESOLVED (shaftAscend digs the head block first and places afterwards, :14299; a full 64-stack in a 36/36 bag loses only the first dug block; SCAFFOLD :14035 also matches dirt, sand, planks: harmless). P3-3 town zone RESOLVED (16 h / 12 v matches towndeposit.mjs:40-41, 84). P3-4 veto PARTIAL (index.js:444-446, :467-468 hand the same results.path array to path, so emptying it holds; new side effect P3-A). P3-5 RESOLVED. P3-6 RESOLVED (3-pool +720: lambda = 0.75 x 1.43 x 4 = 4.29, P(>=2) = 0.93). P3-7 RESOLVED (watchdog.mjs:370-384 has no window-start field; resets this.samples at :384). P3-8 RESOLVED (h9.out:3 shows (1.6, -10), (1.6, -10.1); ~2 in 2,338: a tripwire). Codex r6: P3-1..P3-4 RESOLVED (cognitive.mjs:1440 slots=${..}->${items.length}; towndeposit.mjs:310 slots ${a}->${b}; both items() counts, prismarine-windows Window.js:414 slots 9-44 = RCON Slots 0-35).
+
+2. New (P3, build review). A: a vetoed walk looks like an arrival: lib/goto.js treats results.path.length === 0 as finished and resolves; the fleet's path_update listener (index.mjs:955) is registered before goto's, so goto sees the emptied array and resolves; the deferred haltPath (pathhalt.mjs:16) runs after goto removed its listeners; today's LAVA GUARD setGoal(null) makes goto reject with GoalChanged, r7 reverses that; on a partial update monitorMovement returns on an empty path without clearing controls (forward up to 3 more ticks under lag, physics.js:18 PHYSICS_CATCHUP_TICKS = 4, loop :69-73). Fix: empty the array AND setGoal(null) synchronously in the same listener (resetPath index.js:123-139 clears controls and empties path; goto rejects); test that the caller sees a refusal. B: a missing damage tag means 0 (1.21 does not write default values; prismarine-item index.js:51); "unreadable" only when the slot's SNBT fails to parse. C: server hotbar Slots 0-8 are mineflayer 36-44 (Window.js:15-17); the bot.tools cross-check must translate; a mismatch invalidates the reader. D: X1 should name the 2-pool +360 early-close exception. E: with the sky-light rule off inside the zone, a trip can route through the tunnels under a hollowed-out town (owner 10-13); the descent budget and destination checks must still apply; Paper scene with a hollowed town.
+
+VERDICT: APPROVE
+ORDER: AGREE
+FIRST STEP: AGREE
+

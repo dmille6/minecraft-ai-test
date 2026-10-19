@@ -1,4 +1,4 @@
-# Expansion: expeditions, then outposts, then rails (2026-10-19, design only, r7)
+# Expansion: expeditions, then outposts, then rails (2026-10-19, design only, r7.1: r7 approved by both engines; P3 notes applied after)
 
 OWNER 10-19 ~15:30Z: "yes, we need expansion." The goal is to "build cool structures, survive, and work together for long
 periods of time". The worlds are peaceful. The diamond tier is held until the mineshaft and underground safety are done.
@@ -36,7 +36,7 @@ first free slot, is an owner decision (X9), as TP's O2 was for shaftuse-01.
 |---|---|---|---|
 | — | **E0 frontier census** (host, read-only, no slot) | — | nothing; build now |
 | first free slot (X9) | **homefix-01** (§5) | 3 (v36: long reads register tier 3; X1) | built + both reviews + X1/X9; inserted by the queue owner (the coordinator); never holds the head, as shaftuse-01 (TP O2) |
-| — | the owner's list as queued on origin/main **STATE 10-19 15:20Z** (TP §0.4 and STATE 12:45Z's owner list put shaft-01 before stonewithdraw-01; the 15:20Z queue has them the other way round, with shaft-01 HELD; no insertion here depends on which): treefarm-02 → brain-01 → cobblekeep-01 → toolkit-03 → bamboo-03 → townfloor-01 → monument-01 → stonewithdraw-01 → shaft-01. smeltfuel-01's fuel sweep is inside toolkit-03 ("kit iron + smelt coal through every-container search", same entry; the owner's brief says "smeltfuel (folded into toolkit-03)"); if the coordinator un-folds it, smeltfuel-01 keeps its TP place before pavilion-01 | | |
+| — | the owner's list as queued on origin/main **STATE 10-19 15:20Z** (TP §0.4 and STATE 12:45Z's owner list put shaft-01 before stonewithdraw-01; the 15:20Z queue has them the other way round, with shaft-01 HELD; no insertion here depends on which; treefarm-02 has since REVERTED at +180, torn down 15:57Z, STATE 16:27Z): treefarm-02 → brain-01 → cobblekeep-01 → toolkit-03 → bamboo-03 → townfloor-01 → monument-01 → stonewithdraw-01 → shaft-01. smeltfuel-01's fuel sweep is inside toolkit-03 ("kit iron + smelt coal through every-container search", same entry; the owner's brief says "smeltfuel (folded into toolkit-03)"); if the coordinator un-folds it, smeltfuel-01 keeps its TP place before pavilion-01 | | |
 | after the owner's list | **expedition-01** (§6) | 3 | homefix-01 KEPT; cobblekeep-01 KEPT (bags; §1.3); E0 live 48 h; K0 kit replay passed (§6.3) |
 | then | pavilion-01 → crown-01 (TP stages 3-4, unchanged) | 3 | — |
 | then | **outpost-01** (§7) | 3 | expedition-01 KEPT; monument-01 KEPT (structureguard + builder.mjs) |
@@ -675,9 +675,12 @@ the default policy reproduces today's plans on random bags).
       `remaining > FLOOR` (towndeposit.mjs ~136, bankable.mjs ~261). A durability-blind replay would bank every spent
       pickaxe as "usable" (inflating free slots) and count spent pickaxes as spares; 237 of 295 held pickaxes were at
       ≤ 10% on 09-30. So each slot's `components."minecraft:damage"` is read, with `maxDurability` from the registry; a
-      damageable item whose damage cannot be read counts as UNKNOWN for kit availability and as SPENT (it stays in the bag)
+      damageable item with NO damage component is undamaged (default-valued components are not serialized; Codex r7), "cannot be
+      read" means only that the slot's SNBT failed to parse (Claude r7 B); a damageable item whose damage cannot be read
+      counts as UNKNOWN for kit availability and as SPENT (it stays in the bag)
       for room. Cross-check: per-copy damage against the ES snapshot's `bot.tools` `{slot, used, max}` (state.mjs ~22-30)
-      within 60 s.
+      within 60 s, translating slots (server hotbar 0-8 = mineflayer 36-44, main 9-35 = 9-35; prismarine-windows
+      Window.js ~15-17); a mismatch makes the reader INVALID and K0 is not read (Claude r7 C).
     - **A NEW reader, not the existing scripts (Codex r6, Claude r6 P3-5).** `observe-fleet.py` reads one packet, returns
       `""` on failure (an empty bag) and merges by item; `fleet-inventory.sh` drops Slot and lists the old 8 pools. K0's
       reader keeps Slots 0-35 only, accepts a response only when its SNBT parses to the closing bracket (else UNKNOWN), and
@@ -735,7 +738,9 @@ the default policy reproduces today's plans on random bags).
        which returns the trip profile while the bot's trip is in `out` through `contained` (never in `kit` or `bank`), and the
        fixed `moves` otherwise. **The sky-light rule does not apply inside the town zone (16 h / 12 v)** (Claude r6 P3-3):
        otherwise a roofed home point or town structure would refuse the return's last leg, a watchdog `home` (which also
-       goes through `assertNav`), and an `out` leaving from under a roof. Paper: a roofed home point. `assertNav` and
+       goes through `assertNav`), and an `out` leaving from under a roof. Only the sky-light term is lifted there: the
+       12-below destination limit and the descent budget still apply, so a trip cannot route through the tunnels under
+       a hollowed-out town (owner 10-13) (Claude r7 E). Paper: a roofed home point, and a hollowed town. `assertNav` and
        every wrapper's restore use it. The trip profile has its OWN exclusion arrays (the shaft design's T10 lesson:
        `exclusionAreasStep` is shared by reference otherwise).
     2. **The DESTINATION of every move is checked.** `getMoveDropDown` checks exclusions only on the cells beside the
@@ -756,7 +761,10 @@ the default policy reproduces today's plans on random bags).
        do it:** pathfinder index.js ~466-470 emits `path_update` and THEN assigns `path = results.path`, so the stop is
        overwritten (Claude r5 probe: goal null, still moving, forward control on for 6 ticks). The veto is SYNCHRONOUS:
        the listener truncates `results.path` IN PLACE (`results.path.length = 0`), since the plugin then assigns that same
-       array to `path`; a deferred `haltPath` follows as a backstop. A microtask alone is too late: mineflayer's physics
+       array to `path`; in the SAME listener it also calls `setGoal(null)` synchronously, whose `resetPath` clears the control
+       states the previous path left on (Codex r7) and makes the caller's `goto` reject with GoalChanged. Truncation alone
+       would let `goto` resolve as if it had ARRIVED (`lib/goto.js` treats an empty path as done; Claude r7 A). The test
+       checks that the caller sees a refusal, not only that no move happened. A microtask alone is too late: mineflayer's physics
        catch-up loop (physics.js ~63-83) can run the controls first (Claude r6 P3-4). Tested through the real pathfinder on
        initial and partial-search updates: a rejected path causes NO forbidden action (no control, dig or place), not
        merely a goal that eventually becomes null. (The fleet's LAVA GUARD 1, index.mjs ~962, uses the same in-listener pattern; it is
@@ -847,7 +855,8 @@ the default policy reproduces today's plans on random bags).
 - X-P5: target region at the border margin → refused at selection, not on the way.
 - X-P6 (composed refusal chain), **above y = 63**: a bot below an irreversible 7-block drop, scaffold down to its
   reserve and the first pickaxe broken, 36/36 bag → it equips the spare, `surface` with `_toY` = the last breadcrumb's
-  level climbs out, it returns. Variants: both pickaxes spent; walled in
+  level climbs out, it returns. Variants: the last breadcrumb BELOW the drop's rim (the target is the rim); a
+  dirt-only reserve (refused at `kit`: the kit requires cobblestone); both pickaxes spent; walled in
   obsidian → `contained`, the town sends no second bot, the overdue page fires; then a watchdog `home` that happens to
   succeed → `bank` (arrival from `contained`).
 - X-P6b: a mixed-material bag (mossy cobble, logs, dirt) whose cobble runs out mid-climb → the pickaxes are never placed or
@@ -1021,7 +1030,7 @@ walk); a bot stuck in a cart (dismount after 10 s without motion); rails picked 
 
 | # | decision | recommendation |
 |---|---|---|
-| **X1** | **Lift the owner's 09-30 rule ("no more stuck / drowning hunts; tripwires only") for homefix-01 only.** homefix-01 changes the stagnation watchdog and the runner fleet-wide (tier 3, §5): rescues are reserved and actually run (H2a turns on ≥ 7.6k level-1 random 45-70-block relocations a week that never started before), are not cut at 15 s (H2b), and interruptions stop counting as skill errors (H3, which also stops them feeding the auto-pause). Expected: longer rescues, rescues that actually run, reconnects kept for wedged skills; guarded by deaths after a rescue and strandings. It registers **tier 3**: gate v36 (installed 10-19 16:27Z) keeps tier 2 for +180 KEEPs on 4 pools, and homefix-01's slowest gate needs ≈ 9 h at 4 pools or ≈ 18 h at 2 (h13) | **yes, tier 3**; KEEP rests on deterministic gates G1-G4, not on an effect estimate; it is three measured defects in code that already runs ≈ 39k escalations a week, not a hunt |
+| **X1** | **Lift the owner's 09-30 rule ("no more stuck / drowning hunts; tripwires only") for homefix-01 only.** homefix-01 changes the stagnation watchdog and the runner fleet-wide (tier 3, §5): rescues are reserved and actually run (H2a turns on ≥ 7.6k level-1 random 45-70-block relocations a week that never started before), are not cut at 15 s (H2b), and interruptions stop counting as skill errors (H3, which also stops them feeding the auto-pause). Expected: longer rescues, rescues that actually run, reconnects kept for wedged skills; guarded by deaths after a rescue and strandings. It registers **tier 3**: gate v36 (installed 10-19 16:27Z) keeps tier 2 for +180 KEEPs on 4 pools, and homefix-01's slowest gate needs ≈ 9 h at 4 pools or ≈ 18 h at 2 (h13). **And it suspends the owner's 10-15 early-close rule at +360 on a 2-pool arm** (P(G1 decided by then) = 0.42, so an early close would end a correct fix INCONCLUSIVE by design) | **yes, tier 3**; KEEP rests on deterministic gates G1-G4, not on an effect estimate; it is three measured defects in code that already runs ≈ 39k escalations a week, not a hunt |
 | **X9** | homefix-01 inserted into this week's list at the first free slot (never holding the head), as TP O2 did for shaftuse-01; tie-break with shaftuse-01: whichever is approved first, homefix-01 if both | **yes** |
 | **X10** | on a trip, the kit policy replaces the stockpile keeps in every planner layer (wood 64 → 0, cobble 64 and `COBBLE_RESERVE` → one 64-stack of scaffold, a spare pickaxe kept; all eight log species bankable), so the gather rungs will ask for wood and cobble back after a trip; the trip order outranks the milestone ladder and is exempt from admission while a trip is live | **yes**, subject to gate K0 (the kit's yield replayed with the real planner functions on a conservative layout; ≥ 50% of at-town bags reach 16 free slots and ≥ 50% of town-hours have a complete kit, reported apart) |
 | **X2** | expedition-01 before pavilion-01, or after crown-01 | **before pavilion-01** |
@@ -1274,4 +1283,22 @@ over-acceptance mirror to G1.
 | schedule (Claude P3-6, Codex P3) | §5: the 09-29 form in the registration, +720 at 3 pools, no 10-15 early close at +360 on 2 pools; the unconditional +540 sentence removed |
 | gates (Claude P3-7/8) | §5: `window_from` defined as new instrumentation; G1b over-acceptance mirror |
 
-### Round 7 (r7): pending.
+### Round 7 (r7, confirmation): **Codex APPROVE, Claude APPROVE. Both: ORDER AGREE, FIRST STEP AGREE.**
+
+**Codex r7: APPROVE** at design level. Round-6 P2 RESOLVED; its P3s RESOLVED except two fixtures (the breadcrumb below the
+rim; a dirt-only reserve) and two parser / execution details: an omitted `minecraft:damage` component means damage 0
+(default-valued components are not serialized), and in-place truncation does not clear a control already held.
+
+**Claude r7: APPROVE.** Its round-6 P2 RESOLVED (each cited line checked); P3s RESOLVED except the veto (PARTIAL). New
+P3s for the build review: (A) a truncated path lets `goto` resolve as an arrival (`lib/goto.js`), so the veto must also
+`setGoal(null)` synchronously; (B) a missing damage tag means 0; (C) server hotbar slots 0-8 are mineflayer 36-44; (D) X1
+should name the 2-pool early-close exception; (E) the town-zone exemption must keep the descent and destination limits
+(hollowed towns). Also checked: the 3-pool deadline +720 (λ = 4.29, P = 0.93); both `slots` formats count the same
+36-slot range as RCON Slots 0-35.
+
+**All r7 P3s were applied after the verdicts (r7.1), as wording and fixture additions in §6.3, §6.5, §6.9 and X1; none
+changes a decision, the order, the first step or a gate.** The remaining build obligations are listed in the reviews file
+and are the build reviews' to check.
+
+**Final state of the review: both engines APPROVE the design (r7) and AGREE on the ORDER and the FIRST STEP (homefix-01,
+with E0 alongside), as they have since round 3.**
