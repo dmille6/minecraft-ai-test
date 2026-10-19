@@ -31,6 +31,9 @@
 #              refused cobble at a town deposit per bot-h (cobble_unknown, cobble_cap) -- should FALL;
 #              well cobble thrown per bot-h -- should RISE; bots at >= 34 slots (share of bots' last snapshot, slots estimated from the name->count snapshot)
 #     count_town lid_blocked per bot-h (should FALL); _lid_clear refused blocks by name (a new blocker shows here first)
+#   COAL / IRON (the second half, OWNER 10-19 ~14:10Z "coal and iron must get banked in town"; towndeposit.mjs ironKeeps)
+#     D4 breach_ingot_banked: a canary `_town_deposit` that banked iron_ingot -- the keep holds every ingot (the next craft)
+#     REPORTED coal and raw iron/ore banked by the town deposit per bot-h DiD (should RISE)
 #   TRIPWIRES  (never a verdict) the escape: canary snapshots with < 64 RESERVE_STONE within 10 min after a canary well
 #              cobble throw by that bot (names them); deaths are the gate's linkage (change_rows: _well_dispose, _lid_clear)
 #   INSTRUMENT control _stock_refused via=town_deposit cobble rows >= 1 AND control _well_dispose rows >= 1
@@ -40,7 +43,9 @@ import sys, os, json, re, glob, gzip
 import datetime as dt
 from collections import Counter, defaultdict
 
-KEEP = ('count_town', '_stock_refused', '_lid_clear', '_cobblekeep_mode', '_well_dispose', 'town_deposit', 'dispose_well')
+KEEP = ('count_town', '_stock_refused', '_lid_clear', '_cobblekeep_mode', '_well_dispose', 'town_deposit', 'dispose_well', '_town_deposit')
+BANKED = re.compile(r' banked (\S+)')
+IRON_BANK = ('coal', 'raw_iron', 'iron_ore', 'deepslate_iron_ore')
 KV = re.compile(r'(?:^| )([a-z_]+)=(\S+)')
 BREAKABLE = re.compile(r'^(cobblestone|cobbled_deepslate|dirt|grass_block)$')
 NEW_LIDS = ('dirt', 'grass_block')
@@ -87,6 +92,19 @@ TOOL = re.compile(r'_(pickaxe|axe|shovel|sword|hoe)$|^(bucket|water_bucket|lava_
 def est_slots(inv):
     """bot.inventory is {name: count}: slots ESTIMATED as one per tool copy, else ceil(count / 64) (16-stackers read low)"""
     return sum(int(c or 0) if TOOL.search(n) else -(-int(c or 0) // 64) for n, c in inv.items())
+
+
+def banked(r):
+    """a `_town_deposit` row's banked names -> {name: n}"""
+    if r['name'] != '_town_deposit':
+        return {}
+    m = BANKED.search(r['detail'])
+    out = {}
+    for part in (m.group(1) if m else '-').split(','):
+        n, _, c = part.partition(':')
+        if c.isdigit():
+            out[n] = int(c)
+    return out
 
 
 def mine(r):
@@ -183,6 +201,8 @@ def judge(rows, bag=None, last=None, snaps=None, exposure_pre=None):
             low.append((r['bot'], c, f.get('cobble_left'), str(r['t'])))
         if f.get('cap') != 'at_cap':
             notcap.append((r['bot'], c, f.get('cap'), str(r['t'])))
+    ing = [(r['bot'], banked(r).get('iron_ingot'), str(r['t'])) for r in post_c if banked(r).get('iron_ingot')]
+    out['breach_ingot_banked'] = len(ing)
     out['breach_lid_protected'] = len(prot)
     out['breach_reserve'] = len(low)
     out['last_cap_not_at_cap'] = len(notcap)
@@ -198,6 +218,8 @@ def judge(rows, bag=None, last=None, snaps=None, exposure_pre=None):
             out['refused_unknown_%s_%s' % (per, arm)] = sum(1 for r in sel if cobble_refusal(r) == 'cobble_unknown')
             out['refused_cap_%s_%s' % (per, arm)] = sum(1 for r in sel if cobble_refusal(r) == 'cobble_cap')
             out['well_cobble_%s_%s' % (per, arm)] = sum(well_cobble(r) for r in sel)
+            out['banked_coal_%s_%s' % (per, arm)] = sum(banked(r).get('coal', 0) for r in sel)
+            out['banked_iron_%s_%s' % (per, arm)] = sum(sum(banked(r).get(n, 0) for n in IRON_BANK[1:]) for r in sel)
             out['well_rows_%s_%s' % (per, arm)] = sum(1 for r in sel if r['name'] == '_well_dispose')
             out['town_deposit_%s_%s' % (per, arm)] = sum(1 for r in sel if r['name'] == 'town_deposit')
             out['lid_blocked_%s_%s' % (per, arm)] = sum(1 for r in sel if r['name'] == 'count_town' and 'lid_blocked' in (kv(r['detail']).get('fails') or ''))
@@ -209,7 +231,7 @@ def judge(rows, bag=None, last=None, snaps=None, exposure_pre=None):
     out['instrument_control'] = int((out['refused_unknown_post_control'] + out['refused_cap_post_control']) >= 1 and out['well_rows_post_control'] >= 1)
     out['exposure_pre_rows'] = (out['refused_unknown_pre_canary'] + out['refused_cap_pre_canary']) if exposure_pre is None else exposure_pre
     out['exposure_ready'] = int(out['exposure_pre_rows'] >= 3)
-    out['_lists'] = {'protected': prot[:5], 'reserve': low[:5], 'not_at_cap': notcap[:5], 'escape': esc[:5]}
+    out['_lists'] = {'ingot': ing[:5], 'protected': prot[:5], 'reserve': low[:5], 'not_at_cap': notcap[:5], 'escape': esc[:5]}
     return out
 
 
@@ -255,6 +277,12 @@ def selftest():
     assert judge([WD(576, 64)] + ctl, snaps={'placebo-b-Alpha': [(T0 + dt.timedelta(minutes=3), 64)]})['escape_low_after_throw'] == 0, 'the reserve kept'
     assert est_slots({'cobblestone': 2206, 'stone_pickaxe': 2, 'dirt': 6}) == 35 + 2 + 1
     assert cobble_refusal(SR(why='cobble_unknown')) == 'cobble_unknown' and cobble_refusal(R('_stock_refused', 'via=town_deposit n=1 cobble=0 stock=1 oak_log:90:stock_unknown')) is None
+    TDR = lambda b, **k: R('_town_deposit', 'slots 36->34 stacks 2/2 clicked 2 bagdelta 12 tools - banked %s stop done containers 1,2,3=ok' % b, **k)
+    ci = judge([TDR('coal:7,raw_iron:5'), TDR('coal:3', per='pre')] + ctl)
+    assert ci['banked_coal_post_canary'] == 7 and ci['banked_iron_post_canary'] == 5 and ci['banked_coal_pre_canary'] == 3 and ci['breach_ingot_banked'] == 0, ci
+    assert judge([TDR('iron_ingot:3')] + ctl)['breach_ingot_banked'] == 1, 'D4: an ingot banked'
+    assert judge([TDR('iron_ingot:3', arm='control', bot='hive-b-A')] + ctl)['breach_ingot_banked'] == 0, 'D4 judges the canary arm'
+    assert judge([TDR('-')] + ctl)['banked_coal_post_canary'] == 0
     print('SELFTEST ok: every gate fails on its fixture and passes its control')
 
 
@@ -284,7 +312,7 @@ if __name__ == '__main__':
     rate = lambda n, per, arm: n / hrs(per, arm) if hrs(per, arm) else float('nan')
     didof = lambda k: (rate(res[k + '_post_canary'], 'post', 'canary') - rate(res[k + '_pre_canary'], 'pre', 'canary')) \
         - (rate(res[k + '_post_control'], 'post', 'control') - rate(res[k + '_pre_control'], 'pre', 'control'))
-    dids = {k: didof(k) for k in ('refused_unknown', 'refused_cap', 'well_cobble', 'lid_blocked', 'town_deposit')}
+    dids = {k: didof(k) for k in ('refused_unknown', 'refused_cap', 'well_cobble', 'lid_blocked', 'town_deposit', 'banked_coal', 'banked_iron')}
     lvl = lambda k: (res[k + '_post_canary'] - res[k + '_pre_canary']) - (res[k + '_post_control'] - res[k + '_pre_control'])
     dids['bag_cobble'] = lvl('bag_cobble'); dids['full_share'] = lvl('full_share')
     print('RESTART LAG  canary post rows from another build skipped: %d (canary build %s)' % (lagged, CV or '-'))
@@ -306,6 +334,10 @@ if __name__ == '__main__':
              res['lid_blocked_pre_canary'], res['lid_blocked_post_canary'], res['lid_blocked_pre_control'], res['lid_blocked_post_control'], dids['lid_blocked']))
     print('DEFECTS      D1 lid outside the breakable set dug %d %s | D2 well cobble below the %d reserve %d %s | (reported) visits that threw cobble and ended on another cap reading %d %s'
           % (res['breach_lid_protected'], res['_lists']['protected'], RESERVE, res['breach_reserve'], res['_lists']['reserve'], res['last_cap_not_at_cap'], res['_lists']['not_at_cap']))
+    print('COAL/IRON    town deposit banked coal canary %d -> %d control %d -> %d DiD %+.3f /bot-h | raw iron/ore canary %d -> %d control %d -> %d DiD %+.3f /bot-h | D4 ingots banked %d %s'
+          % (res['banked_coal_pre_canary'], res['banked_coal_post_canary'], res['banked_coal_pre_control'], res['banked_coal_post_control'], dids['banked_coal'],
+             res['banked_iron_pre_canary'], res['banked_iron_post_canary'], res['banked_iron_pre_control'], res['banked_iron_post_control'], dids['banked_iron'],
+             res['breach_ingot_banked'], res['_lists']['ingot']))
     print('TRIPWIRES    reserve stone < %d within %d s after a canary well cobble throw %d %s'
           % (RESERVE, ESCAPE_WINDOW_S, res['escape_low_after_throw'], res['_lists']['escape']))
     print('EXPOSURE     -> %s (frozen: canary town-deposit cobble refusals in the %d h before declared_at %d of %d rows walked, need 3) | INSTRUMENT control refusals %d, control well rows %d -> %s'

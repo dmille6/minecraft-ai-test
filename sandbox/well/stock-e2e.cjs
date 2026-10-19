@@ -7,6 +7,7 @@
 //   scenes: build (the well; every later scene uses it)  stockdispose  stockbank  stockprune  stockprunekeep  stocknochest  stockrace  stockrefuse  stockrecount
 //           lidrecount lidrecountpick (lidclear-01: no well needed; LOCK_OWNER=lidclear)
 //           liddirt lidleaves lidglass (cobblekeep-01: a DIRT lid is dug, a LEAVES lid is no lid; no well needed; LOCK_OWNER=cobblekeep)
+//           ironbank (cobblekeep-01: 3 ingots stay, raw iron and coal bank; no well needed)
 //           cobbleband (cobblekeep-01: a town at 984 of the 1000 cap, a full bag of cobble -> the well takes it; after `build`)
 //           townsearch townsearch2 (townsearch-01: the far chest; no well needed; LOCK_OWNER=townsearch)
 //
@@ -488,6 +489,28 @@ scenes.cobbleband = async () => {
     // from the SHAFT (census) and the order, not from the bag's loss alone
     CANDIDATE_PASS: !!(w.ended && /-> success/.test(w.ended) && (c1?.inItems ?? 0) >= 30 && lost >= 30 && (after.totals.cobblestone ?? 0) >= 64 && (chest1.totals.cobblestone ?? 0) === (chest0.totals.cobblestone ?? -1) && keepLicence >= 1),
     BASE_SHAPE: !!(!w.ended && (c1?.inItems ?? 0) === 0 && after.used >= 34 && (chest1.totals.cobblestone ?? 0) === (chest0.totals.cobblestone ?? -1) && keepLicence === 0) })
+}
+
+// COBBLEKEEP-01, COAL AND IRON (OWNER 10-19 ~14:10Z "coal and iron must get banked in town"; towndeposit.mjs ironKeeps): an
+// empty town chest, a 36-slot bag of 3 iron ingots, 5 raw iron, 7 coal, a stone pickaxe and white wool (never bankable,
+// never junk). The town deposit fires at 34+ slots. BASE: the iron ladder keeps every unit -- nothing of it banked.
+// CANDIDATE: the 3 ingots stay (the next craft), the raw iron and the coal are banked. Read back: the chest and the bag by RCON.
+scenes.ironbank = async () => {
+  buildArena(); BRAIN_WANDER = true
+  rcon(`kill ${ARENA_SEL}`); CHEST = CHEST ?? pickChest()
+  rcon(`setblock ${CHEST.x} ${CHEST.y} ${CHEST.z} minecraft:air`)
+  const spec = [['iron_ingot', 3], ['raw_iron', 5], ['coal', 7], ['stone_pickaxe', 1], ...Array.from({ length: 32 }, (_, i) => ['white_wool', 1 + (i % 3)])]
+  const files = await startBot('ironbank', spec, { pool: `sbxstock-${RUN}-iron` })
+  setChest([])
+  const b0 = bag(NAME)
+  const dep = await waitFor(() => rowsOf(files.skillLog).find(r => r.name === '_town_deposit'), 150000, 500)
+  await sleep(2000)
+  const b1 = bag(NAME), c1 = chestTotals()
+  const licence = rowsOf(files.skillLog).filter(r => r.name === '_cobblekeep_mode').length
+  await stopBot(); BRAIN_WANDER = false
+  result({ scene: 'ironbank', root: BOT_ROOT, deposit: dep ? `${dep.status} ${dep.detail.slice(0, 220)}` : null, bag: { before: b0.totals, after: b1.totals }, chest: c1.totals, licence,
+    CANDIDATE_PASS: !!(dep && (c1.totals.raw_iron ?? 0) === 5 && (c1.totals.coal ?? 0) === 7 && !c1.totals.iron_ingot && (b1.totals.iron_ingot ?? 0) === 3 && licence >= 1),
+    BASE_SHAPE: !!(!c1.totals.raw_iron && !c1.totals.coal && !c1.totals.iron_ingot && (b1.totals.raw_iron ?? 0) === 5 && licence === 0) })
 }
 
 // UNDER TARGET -> BANKED: a fresh town (journal empty) whose chest holds 20 oak; a 36-slot bag with oak 64+64+30 and torches.
