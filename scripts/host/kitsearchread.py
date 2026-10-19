@@ -229,6 +229,8 @@ def judge(rows):
     for r in sorted((r for r in post_c if r['name'] == '_smelt_town'), key=lambda r: r['t']):
         if num(kv(r['detail']), 'smelted', 0) > 0:
             sby[r['bot']].append(None)                     # a smelting job ends the run
+        elif r['status'] == 'aborted':
+            continue                                       # an interrupted job is no dry job (smeltTownOutcome skips it too; Codex r5 P2)
         elif smelt_stop(r) in ('search_more', 'search_stalled', 'no_fuel', 'smelt_late') and num(kv(r['detail']), 'withdrawn', 0) > 0:
             sby[r['bot']].append(r['t'])
     for b, seq in sby.items():
@@ -329,6 +331,9 @@ def selftest():
     assert judge([R('_smelt_town', SM_MOREC, mins=m, status='no_effect') for m in capped[:8]] + [R('_smelt_town', SM_OK, mins=85)]
                  + [R('_smelt_town', SM_MOREC, mins=m, status='no_effect') for m in capped[8:]] + ctl)['smelt_churn'] == 0, 'D4 control: a smelt between'
     assert judge([R('_smelt_town', SM_MORE, mins=m, status='no_effect') for m in capped] + ctl)['smelt_churn'] == 0, 'D4 control: no copper taken'
+    LATE = SM_MOREC.replace('stop=search_more', 'stop=smelt_late')
+    assert judge([R('_smelt_town', LATE, mins=m * 10, status='aborted') for m in range(13)] + ctl)['smelt_churn'] == 0, 'D4: aborted jobs are not dry (Codex r5 P2)'
+    assert judge([R('_smelt_town', LATE, mins=m * 10, status='no_effect') for m in range(13)] + ctl)['smelt_churn'] == 1, 'D4 control: 13 completed smelt_late jobs are'
     rf = judge([R('_smelt_town', SM_MOREC, status='no_effect'), R('_smelt_town', SM_NF, status='no_effect')] + ctl)
     assert rf['fuel_unfound_post_canary'] == 2 and rf['no_fuel_post_canary'] == 1, rf
     assert pool_of('self-isolated-b-Comet') == 'isolated-b' and pool_of('hive-d-Alpha') == 'hive-d'
