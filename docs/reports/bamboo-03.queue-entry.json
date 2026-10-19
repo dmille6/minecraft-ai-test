@@ -1,0 +1,33 @@
+{
+ "run": "bamboo-03",
+ "after": [
+  "treefarm-02"
+ ],
+ "class": "",
+ "hold": null,
+ "note": "bamboo-02 re-queued as bamboo-03 after its 10-19 05:11Z REVERT (a read bug: G3 counted three in-flight crafts the server had made as lost bamboo). Same fold behaviour; corrected bambooread (md5 e329a14f) and the row's in-flight credit. Variants: adbec4f4 (treefarm-02 not kept) -> 736e89b0 (bb3-on-adbec4f); 0b3a0d4c (treefarm-02 KEPT and promoted) -> 0447ffed (bb3-on-0b3a0d4). Any other fleet tip: ask for a new variant. Fetch origin in the scheduler's git first. ORDINARY canary.",
+ "variants": {
+  "adbec4f4cbd0dd08e33671d37868e06259ac72f7": {
+   "registration": "/home/mike/mcai-analysis/bamboo-03.736e89b0.json",
+   "approved": "bamboo-03 agent 2026-10-19: bamboo-02 REVERT diagnosed as a READ bug (G3 judged the tally; 14/14 rows bamboo gone == 2 x sticks gained; no bamboo lost). Read fixed (G3 in-flight credit only on the server's grid_clear yes; unverified excused and named; stranded counted) + the row's tally (foldTally, telemetry). Codex r4 APPROVE (r1-r3 CHANGE), Claude r4 APPROVE; npm test, eslint no-undef (only reflex.mjs:2384 withinBody), anchored mutants and Paper KJ20 (sandbox) -- docs/reports/bamboo-03-reviews-2026-10-19.txt, bamboo-03-paper-2026-10-19.txt. drawrequire.parse ([], None) -- NO draw_require_pools key; licencecheck and changerowcheck OK 13:16Z. USE ONLY if the fleet is adbec4f4.",
+   "canary_sha": "736e89b08702796cdc8499bf7d37684cca814d5f",
+   "reads_src": "/home/mike/mcai-analysis",
+   "reads": {
+    "bambooread": "e329a14f44547f4e34490b4d709a580f",
+    "immobiledid": "53af289df12208901931dbeeb1ae325a"
+   },
+   "registration_sha256": "fac6c192ed3aae10ac41e141308d161f9e53fe3fa1bfcb0e341d07183d518270"
+  },
+  "0b3a0d4c5ab9fad14c793cebba91b0b06b7a6a23": {
+   "registration": "/home/mike/mcai-analysis/bamboo-03.0447ffed.json",
+   "approved": "bamboo-03 agent 2026-10-19: bamboo-02 REVERT diagnosed as a READ bug (G3 judged the tally; 14/14 rows bamboo gone == 2 x sticks gained; no bamboo lost). Read fixed (G3 in-flight credit only on the server's grid_clear yes; unverified excused and named; stranded counted) + the row's tally (foldTally, telemetry). Codex r4 APPROVE (r1-r3 CHANGE), Claude r4 APPROVE; npm test, eslint no-undef (only reflex.mjs:2384 withinBody), anchored mutants and Paper KJ20 (sandbox) -- docs/reports/bamboo-03-reviews-2026-10-19.txt, bamboo-03-paper-2026-10-19.txt. drawrequire.parse ([], None) -- NO draw_require_pools key; licencecheck and changerowcheck OK 13:16Z. Variant on treefarm-02 0b3a0d4c: import lines + the HOUSEKEEPING set only (same composition as farm-on-9f8e30d 288a19fa). USE ONLY if the fleet is 0b3a0d4c.",
+   "canary_sha": "0447ffed38858a7ecc1ae5a901fb4f4c80102cbd",
+   "reads_src": "/home/mike/mcai-analysis",
+   "reads": {
+    "bambooread": "e329a14f44547f4e34490b4d709a580f",
+    "immobiledid": "53af289df12208901931dbeeb1ae325a"
+   },
+   "registration_sha256": "ebbc6936bf99b0aa5f185a50cc3f3465050ff547d2a4e0a6fa259e331736f30c"
+  }
+ }
+}

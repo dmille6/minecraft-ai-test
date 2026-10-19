@@ -1,0 +1,33 @@
+bamboo-03 Paper record (sandbox 10.0.0.30:25599 'sandbox' only; /tmp/mcai-sandbox.lock on .31 taken 13:07:46Z,
+released 13:14:56Z)
+
+Scene KJ20 (sandbox/craft/bamboo-abort-ab.cjs): bag 36/36 = bamboo 64, sticks 32, oak_planks 10 + rock stacks;
+STUCK_SECONDS 20; the fold starts by itself (bamboo_sticks, 32 crafts); `damage 14` at 4.0 s + 0..1.2 s after the
+order line, so the low_health reflex aborts the fold at a random phase of the ~1.1 s craft cycle. Alternating cand
+(bamboo-03: the tree exported at 22cf4278, whose bots/src is byte-identical to 736e89b0's) / ctrl (bamboo-02 dffd97e4), 6 reps each, one fresh bot per rep. Oracle = the SERVER:
+RCON slots before and 6 s after, item entities on the ground then and AFTER LOGOUT (what the server returns or drops
+from the 2x2 grid/cursor). Skill rows are the bot's own; this run wrote them under sandbox/log/bamboo-ab/<tag> (the
+driver's LOG_DIR has since been corrected to bamboo-abort-ab).
+
+== bamboo-abort-ab/results-cand.jsonl
+cand-KJ20-0-130746         aborted  stop=aborted:low_health   hurt@18635  server bamboo -8 sticks +4 | row crafts=4 inflight=0 | stopped craft aborted/none grid_clear=na_no_clicks | CONSERVED TALLY-OK ground=[] planks 10->10
+cand-KJ20-0-130934         aborted  stop=aborted:low_health   hurt@18550  server bamboo -8 sticks +4 | row crafts=4 inflight=0 | stopped craft aborted/none grid_clear=na_no_clicks | CONSERVED TALLY-OK ground=[] planks 10->10
+cand-KJ20-0-131009         aborted  stop=aborted:low_health   hurt@19432  server bamboo -8 sticks +4 | row crafts=4 inflight=0 | stopped craft aborted/none grid_clear=yes | CONSERVED TALLY-OK ground=[] planks 10->10
+cand-KJ20-0-131157         aborted  stop=aborted:low_health   hurt@18738  server bamboo -8 sticks +4 | row crafts=4 inflight=0 | stopped craft aborted/none grid_clear=na_no_clicks | CONSERVED TALLY-OK ground=[] planks 10->10
+cand-KJ20-0-131232         aborted  stop=aborted:low_health   hurt@19196  server bamboo -8 sticks +4 | row crafts=4 inflight=0 | stopped craft aborted/none grid_clear=yes | CONSERVED TALLY-OK ground=[] planks 10->10
+cand-KJ20-0-131420         aborted  stop=aborted:low_health   hurt@18407  server bamboo -8 sticks +4 | row crafts=4 inflight=1 | stopped craft aborted/none grid_clear=yes | CONSERVED TALLY-OK ground=[] planks 10->10
+   {'reps': 6, 'aborted': 6, 'conserved': 6, 'tally_ok': 6, 'inflight': 1, 'one_short': 0, 'ground': 0}
+== bamboo-abort-ab/results-ctrl.jsonl
+ctrl-KJ20-0-130822         aborted  stop=aborted:low_health   hurt@19086  server bamboo -8 sticks +4 | row crafts=4 inflight=None | stopped craft aborted/none grid_clear=yes | CONSERVED TALLY-OK ground=[] planks 10->10
+ctrl-KJ20-0-130858         aborted  stop=aborted:low_health   hurt@18256  server bamboo -6 sticks +3 | row crafts=3 inflight=None | stopped craft aborted/none grid_clear=yes | CONSERVED TALLY-OK ground=[] planks 10->10
+ctrl-KJ20-0-131045         aborted  stop=aborted:low_health   hurt@18642  server bamboo -8 sticks +4 | row crafts=3 inflight=None | stopped craft aborted/none grid_clear=yes | CONSERVED TALLY-OFF ground=[] planks 10->10
+ctrl-KJ20-0-131121         aborted  stop=aborted:low_health   hurt@18447  server bamboo -8 sticks +4 | row crafts=4 inflight=None | stopped craft aborted/none grid_clear=na_no_clicks | CONSERVED TALLY-OK ground=[] planks 10->10
+ctrl-KJ20-0-131308         aborted  stop=aborted:low_health   hurt@19067  server bamboo -8 sticks +4 | row crafts=4 inflight=None | stopped craft aborted/none grid_clear=na_no_clicks | CONSERVED TALLY-OK ground=[] planks 10->10
+ctrl-KJ20-0-131344         aborted  stop=aborted:low_health   hurt@19303  server bamboo -8 sticks +4 | row crafts=4 inflight=None | stopped craft aborted/none grid_clear=yes | CONSERVED TALLY-OK ground=[] planks 10->10
+   {'reps': 6, 'aborted': 6, 'conserved': 6, 'tally_ok': 5, 'inflight': 0, 'one_short': 1, 'ground': 0}
+
+READING: 12/12 aborted folds conserved on the server (bamboo spent = 2 x sticks made); 0 items on the ground before
+or after logout; planks 10 -> 10 in all 12. ctrl reproduced bamboo-02's defect once (ctrl-KJ20-0-131045: server +4
+sticks, row crafts 3, stopped craft aborted/none with grid_clear yes -- the fleet's Alpha/Comet shape). cand: 6/6
+tallies match the server; cand-KJ20-0-131420 hit the path (server +4, row crafts 4, inflight 1, grid_clear yes).
+The Bravo shape (after-resync skipped) was not hit here; the fake-Paper behaviour test covers it.

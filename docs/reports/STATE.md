@@ -101,6 +101,17 @@ mcai-rl02 (recovery-ladder-03) carries the daily copy and status reports, unpush
 
 ---
 
+## 10-19 15:20Z — bamboo-03 queued (bamboo-02's G3 REVERT was a READ bug); cobblekeep-01, toolkit-03 queued; brain-01 pending host patches
+- bamboo-02 G3=3 were stagnation-cut folds one craft short (in-flight craft made by the server, not yet recorded); no bamboo lost.
+  bambooread fixed (e329a14f installed); bamboo-03 = foldTally counts the in-flight craft. Branches bb3-on-adbec4f 736e89b0,
+  bb3-on-0b3a0d4 0447ffed. Open: 2 of 3 stagnation aborts were self-inflicted by the fold (owner call: exempt like smeltjob).
+- cobblekeep-01 (bag-fix class): dirt/grass lids dug, leaves/glass lids open; the well takes what the cap refuses (same count);
+  coal + raw iron banked above own needs. Branches cobblekeep-on-adbec4f 9e7d9980 / -on-0b3a0d4 5d36b839.
+- toolkit-03: kit iron + smelt coal through every-container search. tk3-on-adbec4f 28dc1158 / tk3-on-0b3a0d4 132694cb (being
+  re-stacked on cobblekeep).
+- Queue: treefarm-02 (live) -> [brain-01 when its 3 host patches + the tier install land] -> cobblekeep-01 -> toolkit-03 ->
+  bamboo-03 -> townfloor-01 -> monument-01 -> stonewithdraw-01 -> shaft-01. ES: llm.brain mapped (template + data stream).
+
 ## 10-19 14:00Z — PLINTHFIRST-01 read: KEEP recorded (direct rollout 01:30Z; tripwire window to 13:43Z) -- SHIPPED
 - plinthfirsttrip.py OK every run 01:28-13:43Z (no natural well dug under the policy, no replan without evidence, no isolated
   plan, no second plinth beside a first in a shared town). plinth2trip one BREACH 08:39Z: P4 board-d raised well 363,73,134
