@@ -494,14 +494,20 @@ def replay_cases(tmp):
     json.dump({'reads': ['immobiledid'], 'read_minutes': [180]}, open(os.path.join(home, 'mcai-analysis', 'registrations', 'r-01.json'), 'w'))
     open(os.path.join(home, 'digest', 'reads', 'r-01-immobiledid-180.json'), 'w').write('{}')
     stub = lambda name, body: (open(os.path.join(home, name), 'w').write(body), os.path.join(home, name))[1]
-    crash = stub('crash.py', 'import sys; sys.exit(1)\n')
+    crash = stub('crash.py', 'raise NameError("ALLBOTS")\n')
     good = stub('good.py', 'print("VERDICT KEEP (+180) :: x")\n')
     other = stub('other.py', 'print("VERDICT NOT_YET (+180) :: x")\n')
     rp = find('v36_replay.py', host=True)
-    run = lambda a, b: subprocess.run([sys.executable, rp, a, b, os.path.join(home, 'rules')], capture_output=True, text=True,
-                                      env=dict(os.environ, HOME=home), timeout=120)
+    run = lambda a, b: subprocess.run([sys.executable, rp, a, b, os.path.join(home, 'rules'), '60', '1'], capture_output=True,
+                                      text=True, env=dict(os.environ, HOME=home), timeout=120)
+    crash2 = stub('crash2.py', 'raise ValueError("other")\n')
     r = run(crash, crash)
-    c('replay: BOTH verdict processes crash -> FAILS (never "identical")', r.returncode != 0 and 'no verdict line' in r.stdout, r.stdout)
+    c('replay: BOTH crash with the SAME error -> unreplayable, and with 0 real lines compared it FAILS (never "identical")',
+      r.returncode != 0 and 'BOTH-CRASH' in r.stdout and 'REFUSED' in r.stdout, r.stdout)
+    r = run(good, crash)
+    c('replay: the staged copy crashes where the installed one answers -> FAILS', r.returncode != 0 and 'no verdict line' in r.stdout, r.stdout)
+    r = run(crash2, good)
+    c('replay: the installed copy crashes where the staged one answers -> FAILS', r.returncode != 0 and 'no verdict line' in r.stdout, r.stdout)
     r = run(good, good)
     c('replay: both print the same VERDICT line -> passes (positive control)', r.returncode == 0 and 'SAME' in r.stdout, r.stdout)
     r = run(good, other)

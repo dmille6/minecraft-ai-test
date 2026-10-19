@@ -84,9 +84,10 @@ fi
 say "2. the staged bundle passes its tests (staging dir, nothing live)"
 cd "$S" || die "cannot cd $S"
 export VERDICT_MODULE_DIR=$S
-for tt in test_tiers test_keep180 test_bagfix test_usafe test_threepool test_drawrequire test_changerowcheck test_holdtoken test_bagfix_loop test_heavyread; do
+# test_heavyread (~45 min) is not run: heavyread.sh is not changed by v36 and is asserted equal to the live copy above.
+for tt in test_tiers test_keep180 test_bagfix test_usafe test_threepool test_drawrequire test_changerowcheck test_holdtoken test_bagfix_loop; do
   python3 $tt.py > $tt.out 2>&1 || die "$tt.py failed: $(grep -E '^FAIL|pass' $tt.out | tail -5 | tr '\n' ' ')"
-  case $tt in test_tiers|test_keep180|test_bagfix|test_usafe|test_threepool|test_heavyread)
+  case $tt in test_tiers|test_keep180|test_bagfix|test_usafe|test_threepool)
     grep -qE '^SKIPPED[[:space:]]' $tt.out && die "$tt.py SKIPPED a section on the host: $(grep -E '^SKIPPED' $tt.out | head -3 | tr '\n' ' ')";; esac
   echo "  $tt: $(tail -1 $tt.out)"
 done
