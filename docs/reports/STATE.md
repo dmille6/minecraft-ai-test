@@ -98,6 +98,19 @@ daily copy and status reports, unpushed (ahead 7 + today). Host checkout for ES 
 
 ---
 
+## 10-19 12:45Z — COORDINATION: the live operator session (heuristic-nightingale) is driving the queue this week -- daily sessions please read
+The owner has been giving instructions in the operator session continuously since 10-12. To any DAILY / FRESH operator session:
+please do NOT apply queue entries, release holds, install gate changes or deploy without first checking this file's newest
+entries and the journal; prefer analysis/reporting. Your treefarm-02 adbec4f4 variant 0b3a0d4c (applied 12:28Z) was checked
+against an independent build (db5e37d3: same production code but one comment) and is allowed to launch. Owner decisions 10-19:
+- tiered canaries (tier 1 settings = direct; tier 2 small fixes = 20 bots, KEEP at +180, ~3 h cool-off; tier 3 unchanged) --
+  gate change being installed between canaries;
+- queue: treefarm-02 -> brain-01 ("test now") -> cobble-in-bags fix -> toolkit-03 (iron via townsearch) -> bamboo-03 (G3 fix)
+  -> townfloor-01 -> monument-01 -> shaft-01 -> stonewithdraw-01; copper into town builds; town projects 2-8 and the overseer
+  as job assigner being DESIGNED; diamond tier held until mineshaft safety; nightly world backups to the NAS; a daily goal
+  scoreboard (goalboard.py).
+- Rule reminders: never wrap canary-sched.py in `flock ~/sched.lock` (deadlock); one canary at a time; teardown is 3 steps.
+
 ## 10-19 01:45Z — FLEET adbec4f4: toolkit-02, wellcare-01, townsearch-02 KEPT; plinthfirst-01 direct rollout; bamboo-02 next
 - toolkit-02 932befcc KEEP +360 06:17Z 10-18 (deaths 2/60 vs 5/300; one rung-linked death reviewed: a sealed-water drowning at
   y 60, idle, no toolkit row -- not mechanism-linked), promoted 06:27Z. wellcare-01 a9cff42c KEEP +360 12:38Z (1/120 vs 4/240),
