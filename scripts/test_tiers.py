@@ -47,6 +47,8 @@ def pure_rule(TR):
     c('tier_of: exactly the int 2 on a class-less registration', TR.tier_of({'tier': 2}) == 2)
     c('tier_of: absent / 3 / "2" / True / 2.0 / 1 / None -> 3', all(TR.tier_of(r) == 3 for r in (
         {}, {'tier': 3}, {'tier': '2'}, {'tier': True}, {'tier': 2.0}, {'tier': 1}, {'tier': None}, None, [])))
+    c('tier_of: tier 2 on a brain-01 MODEL-ENV registration -> 3 (it keeps its draw_k <= 2 cap and its own rules)',
+      TR.tier_of({'tier': 2, 'class': 'model-env', 'draw_k': 2, 'canary_env': ['X=1']}) == 3)
     c('tier_of: tier 2 on a bag fix or an underground-safety fix -> 3 (own rules)',
       TR.tier_of({'tier': 2, 'class': 'bag-fix'}) == 3 and TR.tier_of({'tier': 2, 'class': 'underground-safety'}) == 3)
     c('tier_problem: silent when absent, 2 honoured or 3; named for "2", 1, 2-on-a-class',
@@ -270,6 +272,8 @@ def pure_steady(DS, TR):
     # incoming_tier
     d = tempfile.mkdtemp()
     json.dump({'tier': 2}, open(os.path.join(d, 'r2.json'), 'w')); json.dump({}, open(os.path.join(d, 'r3.json'), 'w'))
+    json.dump({'tier': 2, 'class': 'model-env', 'draw_k': 2}, open(os.path.join(d, 'me.json'), 'w'))
+    c('incoming_tier: a model-env draw is never a tier-2 draw (no early release; its 2-pool cap stands)', DS.incoming_tier('me', d) == 3)
     open(os.path.join(d, 'bad.json'), 'w').write('{')
     c('incoming_tier: tier 2 -> 2; absent tier, missing, malformed, a path -> 3',
       DS.incoming_tier('r2', d) == 2 and DS.incoming_tier('r3', d) == 3 and DS.incoming_tier('nope-zz', d) == 3

@@ -23,7 +23,13 @@
 # /tmp/mcai-canary.lock (flock -n) for the whole run, refuses on a declared canary, a running loop or chain, or any
 # canary drop-in, and releases its own hold on exit. NEVER wrap canary-sched.py in flock ~/sched.lock (it deadlocks).
 set -u
-DRY=""; [ "${1:-}" = "--dry-run" ] && DRY=1
+# [--then <script>] (coordinator 10-19: ONE install window with brain-01): after v36 is installed and verified, run
+# <script> while this installer STILL holds the install-hold and /tmp/mcai-canary.lock (HOLD_TOKEN exported, fd 8
+# inherited). Its failure leaves v36 installed (the two are independent) and is reported. With --dry-run, it is run
+# with --dry-run too.
+DRY=""; THEN=""
+while [ $# -gt 0 ]; do case "$1" in --dry-run) DRY=1;; --then) THEN=${2:?--then needs a script}; shift;; *) echo "unknown arg $1"; exit 2;; esac; shift; done
+[ -z "$THEN" ] || [ -f "$THEN" ] || { echo "REFUSED: --then script $THEN missing"; exit 2; }
 H=/home/mike; S=$(cd "$(dirname "$0")" && pwd); STAMP=$(date -u +%Y%m%dT%H%M%SZ)
 MAN=/srv/mcbots/trial-manifest.json; RULES=$H/digest/RULES-IN-FORCE.md
 say() { echo "== $*"; }; die() { echo "REFUSED: $*"; exit 2; }
@@ -141,6 +147,7 @@ if [ -n "$DRY" ]; then
   say "DRY RUN: nothing live was changed. Would install:"
   for f in "${!TGT[@]}"; do echo "    $S/$f ($(md5sum < $S/$f | cut -c1-8)) -> ${TGT[$f]} ($( [ -f "${TGT[$f]}" ] && md5sum < "${TGT[$f]}" | cut -c1-8 || echo NEW))"; done
   echo "    $NEWRULES -> $RULES; bundle $OLD_DIGEST -> $PD"
+  if [ -n "$THEN" ]; then say "DRY RUN of the second install in this window: $THEN"; bash "$THEN" --dry-run; fi
   exit 0
 fi
 
@@ -184,3 +191,10 @@ fi
 trap - INT TERM HUP
 echo "$(date -u +%FT%TZ) gate v36 installed (canary tiers): bundle $PD (was $OLD_DIGEST); verdict.py $(md5sum < $H/verdict.py | cut -c1-8), tierrule.py $(md5sum < $H/mcai-analysis/tierrule.py | cut -c1-8), drawsteady.py $(md5sum < $H/mcai-analysis/drawsteady.py | cut -c1-8); backups *.bak-v36-$STAMP" >> $H/digest/gate-installs.log || echo "WARNING: the gate-installs.log line could not be written -- add it by hand"
 echo "INSTALLED v36: bundle $PD registered; backups *.bak-v36-$STAMP"
+if [ -n "$THEN" ]; then
+  say "7. the second install in this window (hold and lock still held): $THEN"
+  [ "$(python3 $S/holdtoken.py owner 2>&1)" = "$TOKEN" ] || { echo "REFUSED: the install-hold is no longer ours; $THEN NOT run (v36 stays installed)"; exit 2; }
+  HOLD_TOKEN=$TOKEN bash "$THEN"; RT=$?
+  [ $RT -eq 0 ] || { echo "SECOND INSTALL FAILED (exit $RT): $THEN -- v36 stays installed"; exit 5; }
+  echo "WINDOW COMPLETE: v36 + $(basename "$THEN")"
+fi
