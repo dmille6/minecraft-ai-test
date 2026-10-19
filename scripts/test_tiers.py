@@ -494,7 +494,7 @@ def replay_cases(tmp):
     json.dump({'reads': ['immobiledid'], 'read_minutes': [180]}, open(os.path.join(home, 'mcai-analysis', 'registrations', 'r-01.json'), 'w'))
     open(os.path.join(home, 'digest', 'reads', 'r-01-immobiledid-180.json'), 'w').write('{}')
     stub = lambda name, body: (open(os.path.join(home, name), 'w').write(body), os.path.join(home, name))[1]
-    crash = stub('crash.py', 'raise NameError("ALLBOTS")\n')
+    crash = stub('crash.py', 'def _control_scan():\n    return ALLBOTS\n_control_scan()\n')
     good = stub('good.py', 'print("VERDICT KEEP (+180) :: x")\n')
     other = stub('other.py', 'print("VERDICT NOT_YET (+180) :: x")\n')
     rp = find('v36_replay.py', host=True)
@@ -512,6 +512,20 @@ def replay_cases(tmp):
     c('replay: both print the same VERDICT line -> passes (positive control)', r.returncode == 0 and 'SAME' in r.stdout, r.stdout)
     r = run(good, other)
     c('replay: different verdict lines -> FAILS', r.returncode != 0 and 'DIFF' in r.stdout, r.stdout)
+    # round 7 (Codex): 30 real matches + one UNRELATED identical double failure -> the run FAILS
+    for i in range(2, 32):
+        json.dump({'reads': ['immobiledid'], 'read_minutes': [180]}, open(os.path.join(home, 'mcai-analysis', 'registrations', 'r-%02d.json' % i), 'w'))
+        open(os.path.join(home, 'digest', 'reads', 'r-%02d-immobiledid-180.json' % i), 'w').write('{}')
+    mixed = stub('mixed.py', 'import sys\nif sys.argv[1] == "r-01": raise ValueError("unrelated")\nprint("VERDICT KEEP (+180) :: x")\n')
+    r = subprocess.run([sys.executable, rp, mixed, mixed, os.path.join(home, 'rules'), '60', '30'], capture_output=True, text=True,
+                       env=dict(os.environ, HOME=home), timeout=300)
+    c('replay: 30 real matches + an UNRELATED identical double failure -> FAILS (only the known ALLBOTS crash is unreplayable)',
+      r.returncode != 0 and 'SAME' in r.stdout and 'no verdict line' in r.stdout, r.stdout[-400:])
+    known = stub('known.py', 'import sys\ndef _control_scan():\n    return ALLBOTS\nif sys.argv[1] == "r-01": _control_scan()\nprint("VERDICT KEEP (+180) :: x")\n')
+    r = subprocess.run([sys.executable, rp, known, known, os.path.join(home, 'rules'), '60', '30'], capture_output=True, text=True,
+                       env=dict(os.environ, HOME=home), timeout=300)
+    c('replay: 30 real matches + the KNOWN ALLBOTS double crash -> passes, the crash counted unreplayable',
+      r.returncode == 0 and 'BOTH-CRASH' in r.stdout, r.stdout[-400:])
     return out
 
 

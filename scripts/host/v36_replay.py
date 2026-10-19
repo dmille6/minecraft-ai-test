@@ -11,14 +11,16 @@ something (a zero is a query bug). Exit 0 = identical on every case.
 
 KNOWN, PRE-EXISTING: the INSTALLED gate raises in --dryrun when a read has >= 2 canary deaths (the death gate's
 randomization reaches _control_scan, whose ALLBOTS/cut are only defined outside a dry run). Such a case cannot be
-replayed. It is counted as BOTH-CRASH only when the staged copy raises the SAME final error line; a crash on one side
-only, or different errors, is a FAIL. A crash is never a match (round 5, Codex): the run must also compare at least
+replayed. It is counted as BOTH-CRASH only when BOTH copies exit non-zero with EXACTLY that error -- final line
+`NameError: name 'ALLBOTS' is not defined`, raised under `_control_scan` (round 7, Codex: matching error text alone does
+not establish the known failure); any other missing verdict, on either side, is a FAIL. A crash is never a match (round 5, Codex): the run must also compare at least
 `min_same` (default 30) real verdict lines, all SAME."""
 import glob, json, os, shutil, subprocess, sys, tempfile
 
 inst, staged, staged_rules = sys.argv[1:4]
 cap = int(sys.argv[4]) if len(sys.argv) > 4 else 60
 min_same = int(sys.argv[5]) if len(sys.argv) > 5 else 30
+KNOWN_DRYRUN_ERROR = "NameError: name 'ALLBOTS' is not defined"
 H = os.path.expanduser('~')
 REGS = os.path.join(H, 'mcai-analysis', 'registrations')
 READS = os.path.join(H, 'digest', 'reads')
@@ -55,11 +57,13 @@ for run, M, reads in cases:
         # A CRASH IS NOT A MATCH (round 5, Codex): two empty outputs with the same exit code would compare equal
         outs.append(line if (p.returncode == 0 and line.startswith('VERDICT ')) else None)
         errs = (p.stderr or '')[-300:]
-        errl.append(((p.stderr or '').strip().splitlines() or [''])[-1] if outs[-1] is None else None)
+        known = (p.returncode != 0 and ((p.stderr or '').strip().splitlines() or [''])[-1] == KNOWN_DRYRUN_ERROR
+                 and 'in _control_scan' in (p.stderr or ''))
+        errl.append(known if outs[-1] is None else False)
         shutil.rmtree(d, ignore_errors=True)
-    if outs == [None, None] and errl[0] and errl[0] == errl[1]:
+    if outs == [None, None] and errl[0] and errl[1]:
         both += 1
-        print('BOTH-CRASH %s +%d  (pre-existing --dryrun limitation, identical error): %s' % (run, M, errl[0][:120]))
+        print('BOTH-CRASH %s +%d  (pre-existing --dryrun limitation: %s under _control_scan, both copies)' % (run, M, KNOWN_DRYRUN_ERROR))
         continue
     if None in outs:
         diff += 1
