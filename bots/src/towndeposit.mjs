@@ -140,8 +140,8 @@ export function townKeeps (counts = {}, { wanted = [] } = {}) {
  *         (34 bots at exactly 3: their next craft), so ingots stay; raw iron above three ingots and ore go (nuggets are
  *         not on the bank's list: bankable.mjs).
  *   FUEL: coal and charcoal (the first name held, WHOLE) stay while the bot keeps something of its OWN to smelt -- the raw
- *         iron or ore kept above, or the active rung's wanted smelt (an input it wants, or the inputs of an output it
- *         wants: glass -> sand; never wood, which is fuel and charcoal's input). Codex r3 P2: 8 sand for wanted glass banked
+ *         iron or ore kept above, or the active rung's wanted smelt (the inputs of an output it wants: glass -> sand;
+ *         never wood, which is fuel and charcoal's input; a wanted input alone is a gather or craft, not a smelt). Codex r3 P2: 8 sand for wanted glass banked
  *         all the coal and turned the smelt into no_fuel. The KEPT wood does not count as the alternative: it is the
  *         stockpile rungs' (burning it re-opens them), so with nothing of its own to smelt the coal goes, else it stays.
  *         (Away from town the room order still keeps ROOM_FUEL_RESERVE 16 coal, skills.mjs roomDepositTarget: a different
@@ -165,12 +165,13 @@ export function ironKeeps (counts = {}, { wanted = [] } = {}) {
     keep[n] = h; need -= h
     if (n !== 'iron_ingot') toSmelt += h
   }
-  // THE ACTIVE RUNG'S OWN SMELT: a wanted input, or the inputs of a wanted output (never wood: it is the fuel)
+  // THE ACTIVE RUNG'S OWN SMELT: the inputs of a wanted OUTPUT (glass -> sand; never wood: it is the fuel). A wanted item
+  // that is merely smeltable is not a smelt (Claude r4 P3-1: the cobble stockpile, furnace and stone pickaxe rungs all want
+  // cobblestone, and the gatherer's sand rung sand -- none of them burns coal)
   const isOre = n => IRON_KEEP_ORDER.includes(n)
   const smeltable = n => { const r = smeltRecipeFor(n); return !!r && r.output !== 'charcoal' && !isOre(n) }
   const inputs = new Set()
   for (const w of new Set([wanted ?? []].flat().filter(x => typeof x === 'string'))) {
-    if (smeltable(w)) inputs.add(w)
     for (const i of smeltInputsFor(w)) if (smeltable(i)) inputs.add(i)
   }
   for (const i of inputs) toSmelt += held(i)
