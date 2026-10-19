@@ -3247,8 +3247,9 @@ await t('THE RAISE LADDER IN THE REAL build_plinth (Claude r4 P2-1): a none writ
     })
 })
 await t('MUTANT (skills): the natural search back in plinth-first\'s compute -> the viable natural site is built', async () => {
-  await withMutant(SP, '    compute: () => (searched = first ? plinthFirstSearch(canonicalWellSite({ home, read, avoid })) : canonicalWellSite({ home, read, avoid })),\n',
-    '    compute: () => (searched = canonicalWellSite({ home, read, avoid })),\n', async m => {
+  // treefarm-02: the NEW-site search goes through wellSearchAvoid(bot) (the farm's avoid) in both plinth-first branches
+  await withMutant(SP, '    compute: () => (searched = first ? plinthFirstSearch(canonicalWellSite({ home, read, avoid: wellSearchAvoid(bot) })) : canonicalWellSite({ home, read, avoid: wellSearchAvoid(bot) })),\n',
+    '    compute: () => (searched = canonicalWellSite({ home, read, avoid: wellSearchAvoid(bot) })),\n', async m => {
       await withFirst(async () => {
         const town = kitTown()
         const r = await within(m.SKILLS.build_well.run({ bot: town.bot }, {}, { aborted: false }), 15000, 'mutant')
