@@ -302,7 +302,8 @@ await t('R1.1 THE PICKUP IS CHECKED: a cursor that does not hold the item stops 
 
 await t('R1.1 withdraw_pick ALWAYS writes its row: an exception is outcome=error', async () => {
   const w = withServer(town([], [tool('stone_pickaxe', 30)]))
-  w.bot.findBlock = () => { throw new Error('world gone') }
+  // townsearch-01: the order's search reads the town's containers by blockAt (the scan itself fails closed, by design)
+  w.bot.blockAt = () => { throw new Error('world gone') }
   await assert.rejects(pick(w.bot))
   assert.match(lastPickRow(), /^outcome=error .*err=world_gone/)
 })

@@ -1000,9 +1000,10 @@ test('RECOUNT CHAIN CONTROL (the dead end): the same fenced town with the recoun
 // shared-town bot (board scope), as every fleet town with a plinth is.
 const { config: TDCONFIG } = await import('../src/config.mjs')
 async function asSharedTown (fn) {
-  const was = TDCONFIG.memory.scope
-  TDCONFIG.memory.scope = 'board'
-  try { return await fn() } finally { TDCONFIG.memory.scope = was }
+  // ...and plinth-02's own no-site trigger: plinth-first (plinthfirst-01) is off for these chains
+  const was = TDCONFIG.memory.scope, wasPf = process.env.PLINTH_FIRST
+  TDCONFIG.memory.scope = 'board'; process.env.PLINTH_FIRST = '0'
+  try { return await fn() } finally { TDCONFIG.memory.scope = was; if (wasPf === undefined) delete process.env.PLINTH_FIRST; else process.env.PLINTH_FIRST = wasPf }
 }
 const plinthFencedTown = (Loop = CognitiveLoop) => asSharedTown(() => plinthFencedTown0(Loop))
 const plinthFencedTown0 = async (Loop = CognitiveLoop) => {
