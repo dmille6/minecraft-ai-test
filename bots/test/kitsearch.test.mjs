@@ -350,6 +350,13 @@ const lidScene = async (S, lid) => {
   const r = await kit(S, w)
   return { w, r, L }
 }
+// the blocked lid's own scene, reused by the mutant below (Claude ck P3-1: it must depend on the run treating the block as 'next')
+const planksMovesOn = async S => {
+  const planks = await lidScene(S, 'oak_planks')
+  assert.equal(planks.r.status, 'success', planks.r.detail); assert.deepEqual(planks.w.digs, [], 'planks are never broken')
+  assert.equal(ironIn(planks.w, planks.L), 20, 'the blocked chest gave nothing'); assert.equal(ironIn(planks.w, FAR), 16, 'the far chest gave the kit')
+  assert.match(lastRow(), / vfail=1 /, lastRow())
+}
 await t('LIDS x COBBLEKEEP: a dirt lid is dug and the chest under it gives the kit; under leaves it opens with no dig; an oak_planks lid is blocked and the search moves on to the far chest', async () => {
   const dirt = await lidScene(S0, 'dirt')
   assert.equal(dirt.r.status, 'success', dirt.r.detail); assert.deepEqual(dirt.w.digs, [kOf([dirt.L[0], dirt.L[1] + 1, dirt.L[2]])], 'the dirt lid dug')
@@ -357,10 +364,7 @@ await t('LIDS x COBBLEKEEP: a dirt lid is dug and the chest under it gives the k
   const leaves = await lidScene(S0, 'oak_leaves')
   assert.equal(leaves.r.status, 'success', leaves.r.detail); assert.deepEqual(leaves.w.digs, [], 'nothing dug under leaves')
   assert.equal(ironIn(leaves.w, leaves.L), 16, 'opened under the leaves')
-  const planks = await lidScene(S0, 'oak_planks')
-  assert.equal(planks.r.status, 'success', planks.r.detail); assert.deepEqual(planks.w.digs, [], 'planks are never broken')
-  assert.equal(ironIn(planks.w, planks.L), 20, 'the blocked chest gave nothing'); assert.equal(ironIn(planks.w, FAR), 16, 'the far chest gave the kit')
-  assert.match(lastRow(), / vfail=1 /, lastRow())
+  await planksMovesOn(S0)
 })
 // THE GATE IS THE SEARCH: every container a live kit_iron miss but ONE, which this bot could not reach lately -> the gate says
 // "nothing here" and a forced run opens nothing (no false no_iron while uncounted containers remain, and no order for nothing)
@@ -552,10 +556,11 @@ await t('MUTANTS: each removes one part of the kit search and a behaviour test a
   kills.pureMore = await withMutant(TK_PATH, "if (Number(left) > 0) return progressed ?", "if (false) return progressed ?", KK => killedBy(() => pureEnd(KK)))
   kills.moreBacksOff = await withMutant(TK_PATH, "const more = status === 'failed' && KIT_NO_BACKOFF.has(failClass)", 'const more = false', KK => killedBy(() => resumes(S0, KK)))
   // x cobblekeep's lids: a blocked lid must MOVE THE SEARCH ON, never end the run (toolkit.mjs KIT_VISIT_NEXT)
+  // the pure rule (its truth table) AND the run's use of it, through the real lid scene (Claude ck P3-1)
   kills.blockedStops = await withMutant(TK_PATH, "new Set(['chest_unreachable', 'container_blocked', 'stock_unconfirmed'])", "new Set(['chest_unreachable', 'stock_unconfirmed'])", async KK => {
-    // the skill imports the real toolkit.mjs: drive the pure step the skill uses, on the planks visit's own result
     return killedBy(() => assert.equal(KK.kitVisitStep({ result: { status: 'failed', failClass: 'container_blocked' } }), 'next'))
   })
+  kills.blockedStopsRun = await withMutant(SKILLS_PATH, 'const step = kitVisitStep(v)', "const step = v.result?.failClass === 'container_blocked' ? 'stop' : kitVisitStep(v)", S => killedBy(() => planksMovesOn(S)))
   const alive = Object.entries(kills).filter(([, k]) => !k).map(([n]) => n)
   assert.deepEqual(alive, [], `mutants that survived: ${alive}`)
   console.log(`        mutants killed: ${Object.keys(kills).join(', ')}`)
