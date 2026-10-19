@@ -1,4 +1,4 @@
-# Expansion: expeditions, then outposts, then rails (2026-10-19, design only, r6)
+# Expansion: expeditions, then outposts, then rails (2026-10-19, design only, r7)
 
 OWNER 10-19 ~15:30Z: "yes, we need expansion." The goal is to "build cool structures, survive, and work together for long
 periods of time". The worlds are peaceful. The diamond tier is held until the mineshaft and underground safety are done.
@@ -502,19 +502,27 @@ homefix-01 needs a long read (below), so it registers tier 3 (no `"tier"` field)
 (recent ones drew 2), so the read is planned for both arm sizes. KEEP rests on DETERMINISTIC per-mechanism checks in the arm (the owner's 09-29 rule: fixes get a
 correctness gate). **Each gate is "0 defects in ≥ D opportunities"**, and D is set so that the chance of seeing 0 defects
 WITHOUT the fix is ≤ 5%, from the pre-fix defect rate p: D = ⌈ln 0.05 / ln(1 − p)⌉ (Claude r2 N-5, Claude r3 P2-C). The
-read extends (+360, +540) until every gate has its D, and is INCONCLUSIVE at +540 if one does not (the owner's 10-15
+read extends until every gate has its D, and is INCONCLUSIVE at its registered last read (+540 at 4 pools, +1080 at 2;
+below) if one does not (the owner's 10-15
 early-close rule; for tier 3 the deadline is the registration's). **Read length (h13).** G1 is the slowest gate. With
 G1 on the H1 band (below): 1.43 opportunities per 3 h at 20 bots, so P(D = 2 reached) = 0.42 / 0.78 / 0.93 by +180 / +360 /
 +540; at 10 bots 0.16 / 0.42 / 0.63, and 0.93 by +1080. So the read is registered to +540 at 4 pools and +1080 at 2
-pools (≈ 9 h or ≈ 18 h). G2 ≈ 22 opportunities per 3 h at 20 bots; G3 and G4 ≈ 180 attempts per 3 h.
+pools (≈ 9 h or ≈ 18 h), written into the registration BEFORE the draw in the 09-29 form: reads at 180 / 360, extension
+until exposure to 540 / 720 / 1080; at 3 pools the deadline is +720. The owner's 10-15 early close does not apply at +360
+on a 2-pool arm (P(G1 by then) = 0.42): that would close a correct fix INCONCLUSIVE by design. G2 ≈ 22 opportunities per 3 h at 20 bots; G3 and G4 ≈ 180 attempts per 3 h.
 
 | gate | opportunity (denominator) | defect | pre-fix p | D |
 |---|---|---|---:|---:|
 | G1 arrival | an arm `home` row, trigger NOT `interrupt:*`, that moved ≥ 2 blocks and ended in the H1 BAND: more than 2 and at most 3 horizontally, |dy| ≤ 6 (r6, Claude r5) | graded anything but success | h13: 224 / 240 = 93.3% | 2 |
 | G2 classification | an arm `home` or `surface` row whose run was interrupted (`interrupt:*` trigger): the skills on the raw re-throw path | status `failed / skill_error` | pooled `home` ∪ `surface`, all pools, h12: 2,844 / 4,930 = 57.7% (formula D = 4; 5 is an added floor, and the read recomputes P(0 \| no fix) from the arm's own `home` / `surface` mix: an all-`home` arm at 18.7% needs D = 15) | 5, or the mix's D if larger |
 | G3 rescue survives | a `_watchdog_rescue` attempt with phase `started`, joined to the runner's skill row (bot, start ±1 s), during which at least one watchdog tick landed (the `pending` tick writes `tick_seen` with the attempt id), OR that was cut by a stagnation cancel at any age | **by mechanism (r6, Claude r5 P3-5):** that skill row ended `interrupt:stagnation` from a verdict whose window held a sample from BEFORE the rescue started (the `_stagnation` row logs its window's first-sample time in `skill.args.window_from`); the old-code proxy uses < 150 s, not 165 s, because the earliest legitimate verdict on the rescue's own window lands ≈ 165 s after its start | proxy: 534 / 1,565 = 34% (on the old denominator; re-measured on the new one by the fixture-validated reader) | 8 |
-| G4 rescue reachable | a `_watchdog_rescue` attempt with phase `requested` | no TERMINAL phase (`completed:*`, `interrupted:*`, `reconnected`, `declined:*`); or `declined:reserve_expired` > 8% of attempts | unwinds > 20 s: 958 / 23,234 = 4.1% (h12); the bar is 2× that, an engineering threshold, not the D formula | 20 |
+| G4 rescue reachable | a `_watchdog_rescue` attempt with phase `requested` | no TERMINAL phase (`completed:*`, `interrupted:*`, `reconnected`, `declined:*`); or `declined:reserve_expired` > 8% of attempts | unwind-latency PROXY > 20 s: 958 / 23,234 = 4.1% (h12 joins each row to the nearest preceding `_stagnation` event, not necessarily the one that cut it); the bar is 2× that, an engineering threshold, not the D formula | 20 |
 
+- **G1's mirror, G1b (Claude r6 P3-8):** no arm `home` SUCCESS may end more than 3 horizontally or with |dy| > 6 of home
+  (the fix must not over-accept). Positive control: the 2 pre-fix successes at dy −10 (h9).
+- **`window_from` is new instrumentation** (no such field at watchdog.mjs ~378 today): the `_stagnation` row records the
+  time of its window's first sample, and "before the rescue started" is judged against the watchdog's own window-reset
+  timestamp at rescue start; a fixture waits through a full 20 s reservation (Claude r6 P3-7).
 - **G1 excludes interrupted runs**: a legitimate reflex interruption is not an arrival grading (Codex r3). h9 shows no
   aborted row ending inside 3 h / 6 v (Claude r3), so the filter loses nothing. **The band is the mechanism:** of 240
   pre-fix opportunities in (2, 3], 224 were graded failed; rows ending within 2 are successes today and are not evidence
@@ -639,8 +647,8 @@ the default policy reproduces today's plans on random bags).
 
 **`expedition_kit`** (phase `kit`; inside the town zone):
 - **Minimum kit, present after the step or the trip does not go:** 1 pickaxe with ≥ 40% uses, **a spare pickaxe** (stone or
-  better, ≥ 50% uses; the escape remedy, §6.7), 1 axe, **64 scaffold blocks** (one stack, cobble family or dirt: 32 is the
-  fixed emergency reserve and 32 the descent budget, §6.5), torches if held. (r5 drops r4's 3 escape logs and table: the
+  better, ≥ 50% uses; the escape remedy, §6.7), 1 axe, **64 scaffold blocks** (one stack of COBBLESTONE, so dug cobble merges into it in a
+  full bag, §6.7: 32 is the fixed emergency reserve and 32 the descent budget, §6.5), torches if held. (r5 drops r4's 3 escape logs and table: the
   pathfinder's `getScaffoldingItem` places logs before mossy cobble, and the reflexes' `PLACEABLE` / `pickScaffold` and
   `rescueBlocks` list `_log` too, so the wood would be placed as scaffold before it was ever needed; Codex r4 probe, Claude
   r4 P2-5. A spare pickaxe is unplaceable, needs no table cell, no free slot and no craft chain.) A missing item is
@@ -660,11 +668,25 @@ the default policy reproduces today's plans on random bags).
   - **Real slots, from the server (r6; Codex r5 P2, Claude r5 P3-3).** ES holds per-item COUNTS (`inventorySummary` sums
     slots, state.mjs:8-13), and no layout rebuilt from counts is a bound (64 coal can be one stack or four of 16; r5's
     "+1 partial per name" was neither a minimum nor a maximum). So K0 reads each bot's actual slots from the server with
-    the read-only RCON query `data get entity <bot> Inventory` (slot, id, count), the query `scripts/fleet-inventory.sh`
-    and `observe-fleet.py` already run (multi-packet RCON read handled there), sampled when the bot is inside the town
-    zone, ≥ 2 samples per bot over 24 h. A bot whose read fails or is truncated is UNKNOWN, never a pass. **Positive
-    control:** the read's slot count must match the `slots=a->b` the bot's own `town_deposit` / `room_order` rows logged
-    within 60 s of it (a reader that returned empty bags would fail this).
+    the read-only RCON query `data get entity <bot> Inventory` (the query `scripts/fleet-inventory.sh` and
+    `observe-fleet.py` issue), sampled when the bot is inside the town zone, ≥ 2 samples per bot over 24 h.
+    - **Per slot: Slot, id, count AND damage (r7, Claude r6 P2).** The planner's tool rules depend on durability:
+      `remaining(it)` is Infinity when `maxDurability` is missing (toolfor.mjs ~96-99), and a copy is usable only when
+      `remaining > FLOOR` (towndeposit.mjs ~136, bankable.mjs ~261). A durability-blind replay would bank every spent
+      pickaxe as "usable" (inflating free slots) and count spent pickaxes as spares; 237 of 295 held pickaxes were at
+      ≤ 10% on 09-30. So each slot's `components."minecraft:damage"` is read, with `maxDurability` from the registry; a
+      damageable item whose damage cannot be read counts as UNKNOWN for kit availability and as SPENT (it stays in the bag)
+      for room. Cross-check: per-copy damage against the ES snapshot's `bot.tools` `{slot, used, max}` (state.mjs ~22-30)
+      within 60 s.
+    - **A NEW reader, not the existing scripts (Codex r6, Claude r6 P3-5).** `observe-fleet.py` reads one packet, returns
+      `""` on failure (an empty bag) and merges by item; `fleet-inventory.sh` drops Slot and lists the old 8 pools. K0's
+      reader keeps Slots 0-35 only, accepts a response only when its SNBT parses to the closing bracket (else UNKNOWN), and
+      covers all 16 pools.
+    - A bot whose read fails or is truncated is UNKNOWN, never a pass.
+    - **Positive control:** the read's occupied-slot count must match the bot's own logged count within 60 s:
+      `room_order` writes `slots=a->b` (cognitive.mjs ~1440), `town_deposit` writes `slots a->b` with a space
+      (towndeposit.mjs ~310); both are parsed, compared with `a` for a read taken before the row and `b` for one after, and
+      an unmatched or unstable comparison is UNKNOWN, never an empty bag and never a pass.
   - **The real planner, with the town's state installed:** the per-town stock readers (`STOCK_TOWN`, `STOCK_WELL`,
     `COBBLE_TOWN`; bankable.mjs ~105-154) loaded from that town's reconciled stock at the snapshot's time, or, where the
     stock is unknown, every target assumed AT its cap (the pessimistic side); destination capacity from the town census
@@ -710,8 +732,10 @@ the default policy reproduces today's plans on random bags).
        fingerprints the movements (incl. `maxDropDown`, index.mjs ~849) and re-installs the fixed walking `moves` on any
        difference, and every movement wrapper restores the fixed `moves` in its `finally` (index.mjs ~639-795); only
        index.mjs may call `setMovements` (the dep-contract test). So index.mjs gains one accessor, `baseMovements()`,
-       which returns the trip profile while the bot's trip is in `out` through `contained` (never in `kit` or `bank`, so
-       walks to roofed town containers are not refused by the sky-light rule) and the fixed `moves` otherwise; `assertNav` and
+       which returns the trip profile while the bot's trip is in `out` through `contained` (never in `kit` or `bank`), and the
+       fixed `moves` otherwise. **The sky-light rule does not apply inside the town zone (16 h / 12 v)** (Claude r6 P3-3):
+       otherwise a roofed home point or town structure would refuse the return's last leg, a watchdog `home` (which also
+       goes through `assertNav`), and an `out` leaving from under a roof. Paper: a roofed home point. `assertNav` and
        every wrapper's restore use it. The trip profile has its OWN exclusion arrays (the shaft design's T10 lesson:
        `exclusionAreasStep` is shared by reference otherwise).
     2. **The DESTINATION of every move is checked.** `getMoveDropDown` checks exclusions only on the cells beside the
@@ -730,9 +754,12 @@ the default policy reproduces today's plans on random bags).
        moves on it: if the planned path's one-way descents (steps down of 2-3 blocks) plus the debt already taken would
        exceed the budget, the leg is refused before the first such step. **A `setGoal(null)` inside the listener does not
        do it:** pathfinder index.js ~466-470 emits `path_update` and THEN assigns `path = results.path`, so the stop is
-       overwritten (Claude r5 probe: goal null, still moving, forward control on for 6 ticks). The veto is a deferred stop
-       (`queueMicrotask` → `haltPath`) plus a check before the first move, tested through the real pathfinder on initial
-       and partial-search updates. (The fleet's LAVA GUARD 1, index.mjs ~962, uses the same in-listener pattern; it is
+       overwritten (Claude r5 probe: goal null, still moving, forward control on for 6 ticks). The veto is SYNCHRONOUS:
+       the listener truncates `results.path` IN PLACE (`results.path.length = 0`), since the plugin then assigns that same
+       array to `path`; a deferred `haltPath` follows as a backstop. A microtask alone is too late: mineflayer's physics
+       catch-up loop (physics.js ~63-83) can run the controls first (Claude r6 P3-4). Tested through the real pathfinder on
+       initial and partial-search updates: a rejected path causes NO forbidden action (no control, dig or place), not
+       merely a goal that eventually becomes null. (The fleet's LAVA GUARD 1, index.mjs ~962, uses the same in-listener pattern; it is
        flagged separately.)
   - **return debt** = the one-way descents taken; **budget** = the 64 scaffold carried − the **fixed emergency reserve** of
     32, so up to 32 blocks of one-way descent per trip; the pickaxes must keep uses ≥ 2 × debt + 20. Checked pre-commit (item
@@ -783,10 +810,13 @@ the default policy reproduces today's plans on random bags).
    climbs by digging a staircase up. So the escape needs only a working pickaxe, and the kit carries two. The trip order,
    in `stranded`, equips the spare when the first is spent and re-arms step 3. **`surface` aims at sea level and refuses
    `already_surfaced` at y ≥ 63 (skills.mjs ~14565-14577), and surface trips strand mostly above 63**, so the trip calls
-   it with the existing internal `_toY` set to the LAST BREADCRUMB's level (as `mine` already does, skills.mjs ~11978).
+   it with the existing internal `_toY` set to the HIGHER of the last breadcrumb's level and the last standable level
+   before the one-way descent (as `mine` already passes `_toY`, skills.mjs ~11978; `surface` uses `max(63, _toY)` at
+   ~14565): a bot that climbed after its last breadcrumb and then fell must still have a target above it (Claude r6 P3-1).
    Its no-route branch `shaftAscend` pillars with placed blocks and stops at "no scaffold blocks left" (~14300): the
-   scaffold stack, once partly spent, has room for the cobble the climb digs even in a 36/36 bag, and the 32-block
-   emergency reserve is that stack's floor. It is an order, not advice, and it runs
+   scaffold stack, once partly spent, has room for the cobble the climb digs even in a 36/36 bag, **which is why the kit's
+   scaffold must be COBBLESTONE** (dirt, mossy cobble or deepslate do not merge with dug cobble; Claude r6 P3-2), and the
+   32-block emergency reserve is that stack's floor. It is an order, not advice, and it runs
    through the trip's admission path (§6.2).
    - **When it cannot run:** both pickaxes spent (the uses line in §6.5 keeps them ≥ 2 × debt + 20, so this needs the
      line to fail), walls a stone pickaxe cannot break (obsidian, bedrock), or `surface` refusing from where the bot is →
@@ -1216,4 +1246,32 @@ town; `work` gathers use `gatherMoves`; liquid drops ignore the flag.
 | G2 / G3 (Codex P3, Claude P3) | G2: formula D 4 + a floor of 5, recomputed from the arm's mix; G3: defect by mechanism (`window_from` before the rescue's start); proxy < 150 s |
 | profiles (Codex P3, Claude P3) | §6.5: the trip profile only in `out`..`contained`; wrapper and `work`-gather trip variants; liquid landings bounded by the 12-below filter only |
 
-### Round 6 (r6): pending.
+### Round 6 (r6): **Codex APPROVE**; Claude CHANGE (one P2). **Both: ORDER AGREE, FIRST STEP AGREE** (fourth round running).
+
+**Codex r6: APPROVE** "as an owner-decision design". All its r5 findings RESOLVED (h12-as-proxy wording PARTIAL, fixed in
+r7). P3 for the build: K0 needs a new validated slot reader (the cited scripts read one packet or drop Slot); parse
+`slots=a->b` and `slots a->b`; prove the pre-move veto stops every forbidden action, not just the goal; prove the
+full-bag escape; remove the leftover unconditional "INCONCLUSIVE at +540".
+
+**Claude r6: CHANGE, one P2.** All its r5 findings RESOLVED except the trip profile at town (PARTIAL). **P2:** the RCON
+read as written (slot, id, count) leaves out DURABILITY, so the real planner (`remaining` is Infinity without
+`maxDurability`, toolfor.mjs ~96-99) would bank spent pickaxes as usable and count them as spares: K0 could pass on the
+wrong bag. P3: `_toY` = the last breadcrumb can still dead-end after a later climb and fall; dug cobble merges only into a
+cobblestone stack; exempt the town zone from the sky-light rule (a roofed home point; `assertNav` feeds watchdog `home`);
+the working synchronous veto is truncating `results.path` in place; the K0 reader is new code; write the read schedule
+into the registration (3-pool case; no 10-15 early close at +360 on 2 pools); `window_from` is new instrumentation; add an
+over-acceptance mirror to G1.
+
+**r7 takes in every r6 finding; none rejected.**
+
+| finding | r7 |
+|---|---|
+| K0 durability (Claude P2) | §6.3: per-slot `components."minecraft:damage"` with the registry's max; unreadable damage = UNKNOWN for availability, SPENT for room; cross-check against `bot.tools` |
+| K0 reader and control (Codex P3, Claude P3-5) | §6.3: a new reader (Slots 0-35, complete SNBT or UNKNOWN, 16 pools); both `slots` formats, before / after comparison, unmatched = UNKNOWN |
+| veto (Codex P3, Claude P3-4) | §6.5 item 4: truncate `results.path` in place (synchronous), `haltPath` as backstop; tested for no forbidden action |
+| escape (Claude P3-1/2, Codex P3) | §6.7: `_toY` = the higher of the last breadcrumb and the last standable level before the descent; the kit's scaffold is COBBLESTONE |
+| town zone (Claude P3-3) | §6.5 item 1: the sky-light rule is off inside 16 h / 12 v; a roofed home point scene |
+| schedule (Claude P3-6, Codex P3) | §5: the 09-29 form in the registration, +720 at 3 pools, no 10-15 early close at +360 on 2 pools; the unconditional +540 sentence removed |
+| gates (Claude P3-7/8) | §5: `window_from` defined as new instrumentation; G1b over-acceptance mirror |
+
+### Round 7 (r7): pending.

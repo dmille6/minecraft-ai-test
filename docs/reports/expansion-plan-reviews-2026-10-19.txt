@@ -1167,3 +1167,129 @@ VERDICT: CHANGE
 ORDER: AGREE
 FIRST STEP: AGREE
 
+
+======================== CODEX r6
+**APPROVE as an owner-decision design.** No remaining P1 or P2 changes X1–X10, the order, or the first step. E0 and K0 remain prerequisites to expedition-01; approval does not establish that either gate has passed. No files changed.
+
+Below, **D** means [the r6 plan](/Users/darrellmiller/Documents/code-minecraft-ai/.claude/worktrees/agent-a2c930ce357b5cb19/docs/reports/expansion-plan-2026-10-19.md). “Resolved” means resolved at design level.
+
+Each Codex round-5 finding:
+
+| Finding | Status | Evidence |
+|---|---|---|
+| P2: K0’s reconstructed layout is not conservative | **RESOLVED** | D:658–679 replaces reconstruction with actual server slots, counts failed/truncated reads as UNKNOWN in the denominator, and retains planner, stock, capacity, ROOM and KIT AVAILABILITY checks. |
+| P3-1: synchronous `path_update` cancellation is overwritten | **RESOLVED** | D:729–736 explicitly acknowledges the overwrite and requires both deferred cancellation and a pre-move check, tested through the real pathfinder on initial and partial updates. |
+| P3-2: active wrappers must retain trip constraints | **RESOLVED** | D:710–726 specifies trip variants during ascent, water and gather calls, including work-phase gathers—not merely restoration afterward. |
+| P3-3: spare pickaxe does not guarantee a surface escape | **RESOLVED** | D:782–796 specifies `_toY`, scaffold/pickup capacity and explicit containment; X-P6 now starts above y=63 with a full bag. The implementation must prove the composed recovery. |
+| P3-4: G2 arithmetic and timing | **RESOLVED** | D:500–514 distinguishes formula D=4 from the additional floor of five, adjusts for the arm’s skill mix, and plans tier-3 reads by arm size. X1 agrees. |
+| P3-5: h12 unwind statistic is only a proxy | **PARTIAL** | D:1194 acknowledges this, but D:516 still labels it “unwinds >20 s.” The underlying measurement joins completion to the nearest preceding stagnation event. The 8% threshold remains explicitly an engineering choice, so this is P3 wording rather than a decision blocker. |
+
+Each Claude round-5 finding:
+
+| Finding | Status | Evidence |
+|---|---|---|
+| P2-1: v36 tier mismatch, arm size and read power | **RESOLVED** | D:500–509, §9 and X1 use tier 3, +540 for 20 bots and +1080 for 10. This matches the checkout’s STATE 16:27Z entry and canary-tier report. |
+| P2-2: escape refuses above sea level | **RESOLVED** | D:786–789 uses the existing internal `_toY`; X-P6 tests above sea level. |
+| P3-1: declined-result check placement | **RESOLVED** | D:328–334 skips the handler block, preserves decision logging/save/accounting, and separately covers `roomOutcome` and `#escape`. |
+| P3-2: path veto and analogous lava guard | **RESOLVED** | D:729–736 requires deferred stop plus pre-move enforcement and flags the existing lava-guard pattern separately. |
+| P3-3: K0 layout and slot-count positive control | **RESOLVED** | Actual slot inventories replace the invalid bound; D:665–667 requires comparison with independently logged occupied-slot counts. Reader details remain P3 below. |
+| P3-4: G2 floor, skill mix and opportunity rate | **RESOLVED** | D:509–514 states approximately 22 opportunities per three hours and recomputes the required exposure for the arm’s mix, including D=15 for all-home exposure. |
+| P3-5: G3’s 165-second boundary | **RESOLVED** | D:515 defines the defect by a pre-start sample in the verdict window; the historical proxy uses <150 seconds. |
+| P3-6: trip profile blocks roofed town containers | **RESOLVED** | D:713–716 activates the profile only in `out` through `contained`, excluding `kit` and `bank`. |
+| P3-7: work gathers use another movement profile | **RESOLVED** | D:724–726 explicitly requires a constrained trip copy of `gatherMoves`. |
+| P3-8: liquid landings bypass dropdown flag | **RESOLVED** | D:722–724 correctly assigns their bound to the destination filter, not `infiniteLiquidDropdownDistance`. |
+
+The requested claims check out with these qualifications:
+
+- **G1 arithmetic:** h13’s script implements the stated non-interrupted, moved-at-least-two, `(2,3]` horizontal / six-vertical band. Its recorded output is 224 defects in 240 opportunities. Independently recalculating gives D=2 and \(P(0\mid\text{no fix})=(16/240)^2=0.00444\). At 20 bots, the rate is 1.42857 opportunities per three hours; Poisson probabilities of reaching two are **0.418 / 0.778 / 0.927** at +180/+360/+540. At 10 bots they are **0.161 / 0.418 / 0.631**, reaching **0.927** at +1080. These are exposure-planning estimates, not guaranteed power across heterogeneous pools. I verified the supplied script/output and arithmetic, not a fresh ES extraction.
+- **`surface._toY`:** `skills.mjs:11978` already passes it internally. At `:14565`, `surfaceClimb` uses `max(SEA_LEVEL, _toY)`. This permits the proposed above-sea-level climb when the breadcrumb is higher. `shaftAscend` still requires placeable scaffold (`:14299`); the pickaxe alone is not a universal escape.
+- **Deferred veto:** pathfinder `index.js:446–448` and `:467–470` emit before assigning the new path, then proceed toward execution. Deferral fixes the overwrite, but the separately required pre-move check is essential.
+- **Declined placement:** the proposed handler boundaries match `cognitive.mjs:1214–1255`; `roomOutcome` is later at `:1436`, with saving/accounting at `:1455–1468`. Skipping only handlers is the correct design.
+
+**P3 — required build-review details**
+
+1. **K0 needs a new validated slot reader.** Both cited scripts issue the inventory query, but `observe-fleet.py:51–59` reads only one response packet and `inventory_of():127–139` aggregates by item name. `fleet-inventory.sh:18–28` attempts multi-packet collection using a timeout; neither is already a complete, validated K0 implementation. Preserve slot identity and relevant item components, reject incomplete responses, and normalize the same inventory-slot domain used by the planner.
+
+2. **Implement the positive control precisely.** `room_order` writes `slots=a->b` (`cognitive.mjs:1440`), whereas `town_deposit` writes **`slots a->b`** (`towndeposit.mjs:310`). Parse both. A nearby row can legitimately differ after inventory changes; use the appropriate endpoint and treat unmatched/unstable comparisons as unknown, never as an empty bag or a pass. These requirements implement K0’s existing fail-closed contract.
+
+3. **Prove pre-move enforcement through actual execution.** A microtask runs after the current synchronous pathfinder callback, which can already reach digging/placement/control logic. Test that rejected initial and partial paths cause no forbidden action—not merely that the goal eventually becomes null.
+
+4. **Prove the full-bag escape and preserve the proxy/deadline distinctions.** Run X-P6/X-P6b with the actual scaffold material and pickup behavior. Label h12 as a latency proxy in the gate table. Also remove §5’s leftover unconditional “INCONCLUSIVE at +540” sentence when implementing the explicitly specified +1080 two-pool registration.
+
+These are implementation and reader-validation obligations already covered by the mandatory build reviews. They do not justify changing the proposed sequence: homefix-01 first, subject to X1/X9, with E0 alongside it.
+
+VERDICT: APPROVE
+ORDER: AGREE
+FIRST STEP: AGREE
+tokens used
+61,384
+**APPROVE as an owner-decision design.** No remaining P1 or P2 changes X1–X10, the order, or the first step. E0 and K0 remain prerequisites to expedition-01; approval does not establish that either gate has passed. No files changed.
+
+Below, **D** means [the r6 plan](/Users/darrellmiller/Documents/code-minecraft-ai/.claude/worktrees/agent-a2c930ce357b5cb19/docs/reports/expansion-plan-2026-10-19.md). “Resolved” means resolved at design level.
+
+Each Codex round-5 finding:
+
+| Finding | Status | Evidence |
+|---|---|---|
+| P2: K0’s reconstructed layout is not conservative | **RESOLVED** | D:658–679 replaces reconstruction with actual server slots, counts failed/truncated reads as UNKNOWN in the denominator, and retains planner, stock, capacity, ROOM and KIT AVAILABILITY checks. |
+| P3-1: synchronous `path_update` cancellation is overwritten | **RESOLVED** | D:729–736 explicitly acknowledges the overwrite and requires both deferred cancellation and a pre-move check, tested through the real pathfinder on initial and partial updates. |
+| P3-2: active wrappers must retain trip constraints | **RESOLVED** | D:710–726 specifies trip variants during ascent, water and gather calls, including work-phase gathers—not merely restoration afterward. |
+| P3-3: spare pickaxe does not guarantee a surface escape | **RESOLVED** | D:782–796 specifies `_toY`, scaffold/pickup capacity and explicit containment; X-P6 now starts above y=63 with a full bag. The implementation must prove the composed recovery. |
+| P3-4: G2 arithmetic and timing | **RESOLVED** | D:500–514 distinguishes formula D=4 from the additional floor of five, adjusts for the arm’s skill mix, and plans tier-3 reads by arm size. X1 agrees. |
+| P3-5: h12 unwind statistic is only a proxy | **PARTIAL** | D:1194 acknowledges this, but D:516 still labels it “unwinds >20 s.” The underlying measurement joins completion to the nearest preceding stagnation event. The 8% threshold remains explicitly an engineering choice, so this is P3 wording rather than a decision blocker. |
+
+Each Claude round-5 finding:
+
+| Finding | Status | Evidence |
+|---|---|---|
+| P2-1: v36 tier mismatch, arm size and read power | **RESOLVED** | D:500–509, §9 and X1 use tier 3, +540 for 20 bots and +1080 for 10. This matches the checkout’s STATE 16:27Z entry and canary-tier report. |
+| P2-2: escape refuses above sea level | **RESOLVED** | D:786–789 uses the existing internal `_toY`; X-P6 tests above sea level. |
+| P3-1: declined-result check placement | **RESOLVED** | D:328–334 skips the handler block, preserves decision logging/save/accounting, and separately covers `roomOutcome` and `#escape`. |
+| P3-2: path veto and analogous lava guard | **RESOLVED** | D:729–736 requires deferred stop plus pre-move enforcement and flags the existing lava-guard pattern separately. |
+| P3-3: K0 layout and slot-count positive control | **RESOLVED** | Actual slot inventories replace the invalid bound; D:665–667 requires comparison with independently logged occupied-slot counts. Reader details remain P3 below. |
+| P3-4: G2 floor, skill mix and opportunity rate | **RESOLVED** | D:509–514 states approximately 22 opportunities per three hours and recomputes the required exposure for the arm’s mix, including D=15 for all-home exposure. |
+| P3-5: G3’s 165-second boundary | **RESOLVED** | D:515 defines the defect by a pre-start sample in the verdict window; the historical proxy uses <150 seconds. |
+| P3-6: trip profile blocks roofed town containers | **RESOLVED** | D:713–716 activates the profile only in `out` through `contained`, excluding `kit` and `bank`. |
+| P3-7: work gathers use another movement profile | **RESOLVED** | D:724–726 explicitly requires a constrained trip copy of `gatherMoves`. |
+| P3-8: liquid landings bypass dropdown flag | **RESOLVED** | D:722–724 correctly assigns their bound to the destination filter, not `infiniteLiquidDropdownDistance`. |
+
+The requested claims check out with these qualifications:
+
+- **G1 arithmetic:** h13’s script implements the stated non-interrupted, moved-at-least-two, `(2,3]` horizontal / six-vertical band. Its recorded output is 224 defects in 240 opportunities. Independently recalculating gives D=2 and \(P(0\mid\text{no fix})=(16/240)^2=0.00444\). At 20 bots, the rate is 1.42857 opportunities per three hours; Poisson probabilities of reaching two are **0.418 / 0.778 / 0.927** at +180/+360/+540. At 10 bots they are **0.161 / 0.418 / 0.631**, reaching **0.927** at +1080. These are exposure-planning estimates, not guaranteed power across heterogeneous pools. I verified the supplied script/output and arithmetic, not a fresh ES extraction.
+- **`surface._toY`:** `skills.mjs:11978` already passes it internally. At `:14565`, `surfaceClimb` uses `max(SEA_LEVEL, _toY)`. This permits the proposed above-sea-level climb when the breadcrumb is higher. `shaftAscend` still requires placeable scaffold (`:14299`); the pickaxe alone is not a universal escape.
+- **Deferred veto:** pathfinder `index.js:446–448` and `:467–470` emit before assigning the new path, then proceed toward execution. Deferral fixes the overwrite, but the separately required pre-move check is essential.
+- **Declined placement:** the proposed handler boundaries match `cognitive.mjs:1214–1255`; `roomOutcome` is later at `:1436`, with saving/accounting at `:1455–1468`. Skipping only handlers is the correct design.
+
+**P3 — required build-review details**
+
+1. **K0 needs a new validated slot reader.** Both cited scripts issue the inventory query, but `observe-fleet.py:51–59` reads only one response packet and `inventory_of():127–139` aggregates by item name. `fleet-inventory.sh:18–28` attempts multi-packet collection using a timeout; neither is already a complete, validated K0 implementation. Preserve slot identity and relevant item components, reject incomplete responses, and normalize the same inventory-slot domain used by the planner.
+
+2. **Implement the positive control precisely.** `room_order` writes `slots=a->b` (`cognitive.mjs:1440`), whereas `town_deposit` writes **`slots a->b`** (`towndeposit.mjs:310`). Parse both. A nearby row can legitimately differ after inventory changes; use the appropriate endpoint and treat unmatched/unstable comparisons as unknown, never as an empty bag or a pass. These requirements implement K0’s existing fail-closed contract.
+
+3. **Prove pre-move enforcement through actual execution.** A microtask runs after the current synchronous pathfinder callback, which can already reach digging/placement/control logic. Test that rejected initial and partial paths cause no forbidden action—not merely that the goal eventually becomes null.
+
+4. **Prove the full-bag escape and preserve the proxy/deadline distinctions.** Run X-P6/X-P6b with the actual scaffold material and pickup behavior. Label h12 as a latency proxy in the gate table. Also remove §5’s leftover unconditional “INCONCLUSIVE at +540” sentence when implementing the explicitly specified +1080 two-pool registration.
+
+These are implementation and reader-validation obligations already covered by the mandatory build reviews. They do not justify changing the proposed sequence: homefix-01 first, subject to X1/X9, with E0 alongside it.
+
+VERDICT: APPROVE
+ORDER: AGREE
+FIRST STEP: AGREE
+
+======================== CLAUDE r6
+(Independent Claude subagent, round 6; read-only; did not open codex output.)
+
+One issue should change the plan: gate K0, as r6 writes it, can pass for the wrong reason, because the inventory it reads leaves out tool durability. The order and the first step (homefix-01 + E0) are not affected.
+
+1. Round-5 findings. Codex r5: P2 K0 layout RESOLVED as layout (real slots via read-only RCON; a failed or truncated read is UNKNOWN, in the denominator, never in the numerator) but opens a new problem; P3-1 path_update + setGoal(null) RESOLVED (index.js event at :446/:467, then path = results.path at :447/:468); P3-2 wrapper profiles RESOLVED; P3-3 surface staircase PARTIAL (P3-1, P3-2 below); P3-4 RESOLVED ("+180" survives only at :500/:507 describing tier 2); P3-5 RESOLVED (H2 item 2 still says "Measured basis"; trivial).
+Claude r5: P2-1 tier under v36 RESOLVED (no "tier" field = tier 3; tier-2 KEEP only at +180 on exactly 4 pools; "runs needing long reads should register tier 3"; STATE.md:104 confirms the 16:27Z install); P2-2 RESOLVED as design (TOP = max(SEA_LEVEL, _toY) skills.mjs:14565, refusal :14570, mine uses it :11978); P3-1 RESOLVED (handlers cognitive.mjs:1216-1300, noteFailure :1249/:1255, roomOutcome :1436 receives failClass, lessons.save :1453, milestone accounting :1458 uses RUNNER_REFUSALS.has(runFailClass)); P3-2 RESOLVED (LAVA GUARD 1 index.mjs:962 same pattern, verified); P3-3/4/5 RESOLVED (G3 margin: span >= 162 s with 15 s ticks puts the first legitimate verdict at 165-180 s); P3-6 trip profile at town PARTIAL (return's last leg and out's start still use it; P3-3); P3-7/8 RESOLVED.
+r6 claims checked: tier 3 correct; G1 band p = 224/240 = 0.933, D = 2, P(0 in 2 | no fix) = 0.44%; 1.43 per 3 h at 20 bots; Poisson P(>=2) 0.42/0.78/0.93 by +180/+360/+540, 0.16/0.42/0.63 at 10 bots, 0.93 by +1080; filters match the runner (moved = distance_moved, Math.round(3D) runner.mjs:292; end_d horizontal); G2 ~22 per 3 h and the all-home D = 15 correct; handler placement and deferred veto correct as above.
+
+2. Findings.
+P2: K0's RCON read leaves out durability. §6.3 prescribes data get entity <bot> Inventory as (slot, id, count) fed to the real planner; the planner's tool rules depend on durability: remaining(it) returns Infinity when maxDurability is missing (toolfor.mjs:96-99); townDepositPlan and bankableInventory treat a copy as usable only when remaining > FLOOR (towndeposit.mjs:136, bankable.mjs:261). A durability-blind replay sees every spent pickaxe as usable and banks it, inflating free slots, and counts spent pickaxes as spares (237 of 295 held pickaxes at <= 10%). The slot-count control cannot catch it. The ES snapshot already carries per-copy {slot, used, max} (bot.tools, state.mjs:22-30). Fix: read components."minecraft:damage" per slot, or join bot.tools by slot within 60 s; a damageable item with unreadable damage counts as UNKNOWN for availability and as spent (stays in the bag) for room.
+P3 (build review): 1 _toY = last breadcrumb can still dead-end (TOP = max(63, _toY) refuses whenever y >= TOP; a bot that climbs after its last breadcrumb and falls into a pit still above that level gets already_surfaced): use the higher of the breadcrumb's y and the last standable y before the one-way descent; X-P6 variant with the breadcrumb below the drop's rim. 2 the partly spent stack takes dug cobble only if it is cobblestone (dirt, mossy cobble, deepslate do not merge): require cobblestone or keep one slot free; run X-P6 with a dirt reserve. 3 the sky-light-0 rule applies to the last return leg into town; baseMovements() also feeds assertNav, so a watchdog home would be refused too; a roofed home point strands the bot; exempt the town zone (16 h / 12 v); Paper scene with a roofed home point. 4 the microtask stop runs only after mineflayer's physics catch-up loop (physics.js:63-76; simulatePlayer before the physicsTick emit :82-83); the synchronous veto that works is truncating results.path in place inside the listener (index.js assigns that same array to path). 5 the K0 reader needs new code: observe-fleet.py reads a single packet, returns "" on failure (looks like an empty bag), merges counts with no Slot; fleet-inventory.sh detects extra packets with a 0.35 s timeout, drops Slot, lists only the old 8 pools; keep Slots 0-35, complete only if the SNBT parses to the closing bracket, define before/after comparison; town_deposit logs "slots a->b" with a space (towndeposit.mjs:310). 6 write the read schedule into the registration before the draw (09-29 form: 180/360, extension to 540/720/1080); state the 3-pool case; the 10-15 early close must not apply at +360 on a 2-pool arm (P(G1) = 0.42). 7 window_from is new instrumentation (no such field at watchdog.mjs:378); define "before the rescue started" against the watchdog's own reset timestamp; fixture waits through a 20 s reservation. 8 G1 only catches under-acceptance: add an over-acceptance check (no home success ending > 3 horizontally or |dy| > 6; the two pre-fix dy -10 rows are its positive control).
+
+VERDICT: CHANGE
+ORDER: AGREE
+FIRST STEP: AGREE
+
