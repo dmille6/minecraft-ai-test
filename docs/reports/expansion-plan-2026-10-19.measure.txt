@@ -259,6 +259,47 @@ for k in ('_stagnation', '_stagnation_reconnect', '_stranded', 'surface', 'home'
 print([k for k in names if 'stagn' in k or 'strand' in k or 'reconnect' in k])
 
 
+################ SCRIPT h9.py
+"""Replay the PROPOSED arrival predicate (goto's own: horizontal <= max(range,3) = 3, |dy| <= VERT = 6) on every home row."""
+import json, collections
+A = json.load(open('/tmp/exp_home_rows.json'))
+W = [h for h in A if h['t'] < '2026-10-19T15:00:00']   # the fixed window end
+for scope, H in (('shared', [h for h in W if h['shared']]), ('all', W)):
+    arrived = lambda h: h['end_d'] is not None and h['end_y'] is not None and h['end_d'] <= 3 and abs(h['end_y'] - h['home_y']) <= 6
+    ok = [h for h in H if h['status'] == 'success']
+    print(f'\n## {scope}: rows {len(H)}, success {len(ok)} ({100*len(ok)/len(H):.1f}%)')
+    print('  successes that FAIL the proposed predicate:', sum(not arrived(h) for h in ok), ' (end_d / dy of those):',
+          [(round(h['end_d'], 1), round(h['end_y'] - h['home_y'], 1)) for h in ok if not arrived(h)][:10])
+    new = [h for h in H if h['status'] != 'success' and arrived(h)]
+    print('  non-successes that PASS it:', len(new), collections.Counter((h['status'], h['fc']) for h in new).most_common(6))
+    tot = sum(arrived(h) for h in H) + sum(1 for h in ok if not arrived(h))
+    print(f'  replayed success = {len(ok)} - {sum(not arrived(h) for h in ok)} + {len(new)} = {len(ok) - sum(not arrived(h) for h in ok) + len(new)} ({100*(len(ok) - sum(not arrived(h) for h in ok) + len(new))/len(H):.1f}%)')
+    ni = [h for h in H if not (h['trigger'] or '').startswith('interrupt:')]
+    oki = sum(h['status'] == 'success' for h in ni); lost = sum(h['status'] == 'success' and not arrived(h) for h in ni); gain = sum(h['status'] != 'success' and arrived(h) for h in ni)
+    print(f'  non-interrupt rows {len(ni)}: {oki} -> {oki - lost + gain} ({100*oki/len(ni):.1f}% -> {100*(oki-lost+gain)/len(ni):.1f}%)')
+    st = [h for h in H if h['trigger'] == 'interrupt:stagnation']
+    print('  interrupt:stagnation rows', len(st), 'lasting 10-20 s:', sum(10000 <= (h['dur'] or 0) <= 20000 for h in st))
+
+
+################ SCRIPT h10.py
+"""S0's 24 h window (10-18 14:25Z .. 10-19 14:25Z): the H1 replay on the rows S0 would see before its flag filter, by trigger."""
+import json, collections
+A = [h for h in json.load(open('/tmp/exp_home_rows.json')) if h['shared'] and '2026-10-18T14:25' <= h['t'] < '2026-10-19T14:25']
+arr = lambda h: h['end_d'] is not None and h['end_y'] is not None and h['end_d'] <= 3 and abs(h['end_y'] - h['home_y']) <= 6
+print('S0 window rows', len(A), 'success', sum(h['status'] == 'success' for h in A))
+ni = [h for h in A if not (h['trigger'] or '').startswith('interrupt')]
+by = collections.defaultdict(lambda: [0, 0, 0, 0])
+for h in ni:
+    k = h['trigger']; ok = h['status'] == 'success'
+    by[k][0] += 1; by[k][1] += ok; by[k][2] += (ok and not arr(h)); by[k][3] += (not ok and arr(h))
+for k, (n, ok, lost, gain) in sorted(by.items(), key=lambda kv: -kv[1][0]):
+    print(f'  {k:22s} n={n:4d} ok={ok:4d} -> {ok - lost + gain:4d}')
+n = len(ni); ok = sum(v[1] for v in by.values()); new = ok - sum(v[2] for v in by.values()) + sum(v[3] for v in by.values())
+print(f'non-interrupt: {ok}/{n} ({100*ok/n:.0f}%) -> {new}/{n} ({100*new/n:.0f}%)')
+li = [h for h in ni if h['trigger'] == 'llm:idle' and (h['health'] or 0) > 10]
+print('llm:idle with health>10:', len(li), 'ok', sum(h['status'] == 'success' for h in li), '-> with H1', sum((h['status'] == 'success' and arr(h)) or (h['status'] != 'success' and arr(h)) or (h['status'] == 'success') for h in li))
+
+
 ################ SCRIPT e1.py
 """Expansion baseline, read only (ES). Position samples hourly, gathers/deaths by distance band, travel speed."""
 import sys, json, math, collections, datetime as dt
@@ -455,6 +496,34 @@ for tgt, bb in agg.items():
     for k in sorted(bb):
         n, s, g, ok = bb[k]
         print(f'  {k:9s} {n:6d} {100*ok/max(1,n):5.1f}% {s/3600:7.1f} {g:7d} {g/max(1e-9, s/3600):7.1f}')
+
+
+################ OUTPUT h9 (r2: the proposed predicate replayed; S0 window)
+
+## shared: rows 2338, success 581 (24.9%)
+  successes that FAIL the proposed predicate: 2  (end_d / dy of those): [(1.6, -10), (1.6, -10.1)]
+  non-successes that PASS it: 235 [(('failed', 'travel_incomplete'), 224), (('unknown', 'no_measurable_change'), 11)]
+  replayed success = 581 - 2 + 235 = 814 (34.8%)
+  non-interrupt rows 1201: 581 -> 814 (48.4% -> 67.8%)
+  interrupt:stagnation rows 610 lasting 10-20 s: 404
+
+## all: rows 2931, success 722 (24.6%)
+  successes that FAIL the proposed predicate: 6  (end_d / dy of those): [(1.6, -10), (1.6, -10.1), (1.6, -10), (1.6, -11), (1.6, -10), (0.4, -9)]
+  non-successes that PASS it: 345 [(('failed', 'travel_incomplete'), 334), (('unknown', 'no_measurable_change'), 11)]
+  replayed success = 722 - 6 + 345 = 1061 (36.2%)
+  non-interrupt rows 1510: 722 -> 1061 (47.8% -> 70.3%)
+  interrupt:stagnation rows 759 lasting 10-20 s: 524
+
+
+################ OUTPUT h10 (r2: the proposed predicate replayed; S0 window)
+S0 window rows 324 success 64
+  watchdog_home          n= 101 ok=  58 ->   86
+  llm:idle               n=  66 ok=   6 ->   15
+  llm:stagnation         n=   3 ok=   0 ->    0
+  llm:liveness_restart   n=   1 ok=   0 ->    0
+  llm:entombed           n=   1 ok=   0 ->    0
+non-interrupt: 64/172 (37%) -> 101/172 (59%)
+llm:idle with health>10: 66 ok 6 -> with H1 15
 
 
 ################ PASTED OUTPUTS (heavy queries)

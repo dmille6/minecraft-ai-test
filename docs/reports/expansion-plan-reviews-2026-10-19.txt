@@ -1,0 +1,159 @@
+# expansion-plan-2026-10-19 reviews: Codex (codex exec --sandbox read-only) and an independent Claude subagent
+# Each Codex section is the final message of its run; each Claude section is the subagent's returned report.
+
+======================== CODEX r1
+Read-only review completed; no files changed. **Changes are required**, principally because H3 targets the wrong code path and the expedition lease does not provide the promised bounded recovery.
+
+References below use `D` for `docs/reports/expansion-plan-2026-10-19.md` and `M` for its `.measure.txt` companion.
+
+1. **P1 — H3’s proposed fix cannot repair the claimed failure.**  
+   **Evidence:** D:245–249, D:318; `bots/src/skills.mjs:480`, `:650`, `:761–772`, `:2602`, `:14672–14684`; `bots/src/runner.mjs:256–263`.  
+   The dig-retry rethrow at line 650 is **inside goto’s outer try**. Its catch at 771 already converts an aborted signal plus raw `GoalChanged` into an error carrying `aborted: true`. It therefore reaches the runner as `interrupted`, not `skill_error`.  
+   There is another concrete path: **home → surface → surfaceClimb**, whose catch at 14683 rethrows the raw error when the signal is aborted. That can reach the runner as `skill_error`. Replace the diagnosis and planned change with this path, and reproduce it in the composed test. The historical rows support investigating it, but do not prove every row came from it. Also, M:571 and M:576 show **225 GoalChanged messages and one Timeout**, not 226 GoalChanged errors.
+
+2. **P1 — Lease renewal, expiry, and stranded recovery contradict one another.**  
+   **Evidence:** D:350–351, D:386–403, D:420–421; `CLAUDE.md:150–167`.  
+   The lease renews per leg, yet TTL expiry is the promised terminal escape from stranded mode. Repeated return attempts could keep renewing it indefinitely. Conversely, expiry removes deterministic return ownership and permits another departure while the first bot remains stranded. “One expedition per town” then limits lease holders, not bots lost outside town. Revocation similarly removes the lease that supposedly gives return legs priority.  
+   Specify separate **renewable ownership**, **an absolute trip deadline**, and **persistent return/recovery state**. Define whether unresolved stranding blocks another departure. Test revocation, expiry, restart, repeated failed legs, and two competing bots together. “Wait, then let normal orders take over” does not establish a selected recovery chain.
+
+3. **P2 — H2 is real, but its proposed guard needs an explicit liveness contract.**  
+   **Evidence:** D:237–239, D:316–333; `bots/src/watchdog.mjs:79–81`, `:291–320`, `:383–411`; `bots/src/runner.mjs:225–242`.  
+   Re-entry is real: the interval does not await `check()`, and the old samples remain while escalation awaits `runner.run()`. However:
+   - Stranding sampling currently happens inside `judgeStranding()` through `#strandingVerdict()`, **not** through `#sample()`. Merely leaving the latter running does not preserve stranding history.
+   - A hung skill body has an existing runner hard-stop: normally **180 seconds plus 30 seconds grace**, so “judged ≤180 seconds later” is not guaranteed.
+   - The pending flag needs unconditional release, including errors, and the document must define arbitration between stranding rescue and stagnation rescue.
+
+   Add controlled-clock tests for a nonsettling skill reaching hard-stop, a rejected escalation, and continued stranding-history accumulation. This is a fixable specification gap, not evidence that an in-flight guard inherently creates an endless hang.
+
+4. **P2 — The “surface-only” return guarantee is stronger than the design supports.**  
+   **Evidence:** D:374–387, D:397–405, D:415; `bots/src/skills.mjs:497–499`, `:552–555`, `:676–698`; `docs/reports/ziggurat-mineshaft-2026-10-15.md:783`.  
+   `GoalNearXZ` does not constrain elevation, and existing goto can retry with digging or larger drops. Standing on a breadcrumb proves a cell existed; it does not prove the reverse traversal is possible. The proposed six-block-drop scene directly exercises that asymmetry.  
+   Define enforceable outbound elevation/escape constraints and reserve accounting, or explicitly describe v1 as bounded-risk exploration rather than guaranteed surface travel. Test an irreversible drop with exhausted scaffolding and tools. The shaft design already distinguishes a verified return route from inventory possession.
+
+5. **P2 — Outpost deposit composition is incomplete; changing the height predicate is insufficient.**  
+   **Evidence:** D:392–393, D:452–480; `bots/src/chestfull.mjs:69–78`; `bots/src/skills.mjs:5450–5454`, `:7004–7010`; `bots/src/towndeposit.mjs:39–43`, `:84–86`; `bots/src/admission.mjs:397–412`.  
+   `depositTargetOk` really is a home-relative vertical filter. But `farFromBank`, admission’s storage probe, deposit target selection, and `town_deposit` do not all use interchangeable rules. `town_deposit` remains confined to **16 horizontal / 12 vertical blocks of configured home**. The measured “at town” population instead uses 48 horizontal blocks (M:414).  
+   Specify the deterministic outpost deposit entry point, anchor ownership, item policy, and matching admission/remedy predicates. Test a different-elevation outpost, full containers, and a blocked return. The shed fallback starts at 34 slots, while expeditions turn back at 30; the intervening refusal chain needs an explicit action. Also correct the blanket claim that `deposit` always refuses far away: admission is conditional, and the skill itself can call home (`skills.mjs:2723`).
+
+6. **P2 — E0 cannot immediately certify its proposed 14-day negative.**  
+   **Evidence:** D:290–308; `scripts/lib/estelemetry.py:79–93`.  
+   On October 19, a 14-day lookback includes October 7, which the telemetry library explicitly refuses because of duplicate documents. Excluding that day creates unknown coverage, not evidence of no visit. Five-minute position samples also miss intervening visits and do not establish surface reachability.  
+   Define coverage validity, backfill/reconciliation or a warm-up period, and distinguish **“not observed visited”** from **“unvisited/reachable.”** A healthy heartbeat alone cannot validate these negatives.
+
+7. **P2 — Measurement labels and projected outcomes need tightening.**  
+   **Evidence:** D:16, D:49–62, D:177–179, D:257, D:335–336; M:23–45, M:143–146, M:213–218, M:462, M:487–494; `bots/src/logger.mjs:59`.  
+   - The 526/762 interruption-duration statistic is **all pools**, whereas 538 aborted homes is **shared towns**. Label that scope explicitly.
+   - The home extraction ends at **15:24:20**, not 15:00; the fixed-window count is 2,931 versus the extraction’s 2,939.
+   - A previous row’s end snapshot is a **start-position proxy**, not an exact home-start snapshot. Skill timestamps record starts; a preceding skill’s snapshot can describe a later time.
+   - The 806-success counterfactual adds nearby failures selected with `distance <= 5`, while the proposed predicate is horizontal `<=3` plus a vertical check. Replay the actual predicate across **both failures and existing successes**, since adding vertical validation can remove current successes.
+   - Expected home exposure is approximately 14 rows at +180 and 28 at +360, below the stated minimum of 30. Specify the unexposed close/extension rule at +360.
+
+8. **P3 — Correct the arithmetic wording and preserve inherited queue details.**  
+   **Evidence:** D:153, D:350, D:497–499; `docs/reports/townprojects-stages2-8-plan-2026-10-19.md:79–89`.  
+   - Twelve expedition bots are **20% of 60 shared-town bots**, or 15% of the entire 80-bot fleet.
+   - Six eligible bot-snapshots / 1,439 = 0.42%; six eligible town-hours / 288 = **2.08%**. Keep those denominators separate.
+   - A 400-block rail line costs 150 iron for rails, **160 with two carts**: 81.5% / 87.0% of the stated 184 median stock, rather than the whole stock.
+   - Explicitly retain **smeltfuel before pavilion**, shaftuse’s first-free-slot treatment, and the conditional status of storehouse/projectdemand.
+
+**Checks that passed:** H1’s underlying explanation is sound. Integer `GoalNear.isEnd` uses squared distance ≤4 (`../../../bots/node_modules/mineflayer-pathfinder/lib/goals.js:67–71`); centering adds horizontal offsets, so a qualifying node can leave the bot roughly 2.5 blocks from the integer target. Home’s `after <=2` conflicts with goto’s `max(range,3)` check (`skills.mjs:2561`, `:830`). The dependency’s `goto.js:22–28` also confirms that an empty path resolves without proving arrival.
+
+The headline arithmetic checks out: **582/2346 = 24.8%, 806/2346 = 34.4%, 582/1205 = 48.3%, 806/1205 = 66.9%, and 6/16 = 0.375 iron/block**. The proposed DiD reads, single canary lane, and tier-2 20-bot/+180 framework align with the stated rules, subject to the exposure correction. The cited [pathfinder issue #229](https://github.com/PrismarineJS/mineflayer-pathfinder/issues/229) supports the distant-goal failure concern; it does not establish breadcrumb reversibility.
+
+I agree with the proposed priority order as a recommendation for X2, and with corrected homefix-01 first plus E0 alongside. That does not make the proposed queue amendment already owner-approved.
+
+VERDICT: CHANGE
+ORDER: AGREE
+FIRST STEP: AGREE
+tokens used
+115,645
+Read-only review completed; no files changed. **Changes are required**, principally because H3 targets the wrong code path and the expedition lease does not provide the promised bounded recovery.
+
+References below use `D` for `docs/reports/expansion-plan-2026-10-19.md` and `M` for its `.measure.txt` companion.
+
+1. **P1 — H3’s proposed fix cannot repair the claimed failure.**  
+   **Evidence:** D:245–249, D:318; `bots/src/skills.mjs:480`, `:650`, `:761–772`, `:2602`, `:14672–14684`; `bots/src/runner.mjs:256–263`.  
+   The dig-retry rethrow at line 650 is **inside goto’s outer try**. Its catch at 771 already converts an aborted signal plus raw `GoalChanged` into an error carrying `aborted: true`. It therefore reaches the runner as `interrupted`, not `skill_error`.  
+   There is another concrete path: **home → surface → surfaceClimb**, whose catch at 14683 rethrows the raw error when the signal is aborted. That can reach the runner as `skill_error`. Replace the diagnosis and planned change with this path, and reproduce it in the composed test. The historical rows support investigating it, but do not prove every row came from it. Also, M:571 and M:576 show **225 GoalChanged messages and one Timeout**, not 226 GoalChanged errors.
+
+2. **P1 — Lease renewal, expiry, and stranded recovery contradict one another.**  
+   **Evidence:** D:350–351, D:386–403, D:420–421; `CLAUDE.md:150–167`.  
+   The lease renews per leg, yet TTL expiry is the promised terminal escape from stranded mode. Repeated return attempts could keep renewing it indefinitely. Conversely, expiry removes deterministic return ownership and permits another departure while the first bot remains stranded. “One expedition per town” then limits lease holders, not bots lost outside town. Revocation similarly removes the lease that supposedly gives return legs priority.  
+   Specify separate **renewable ownership**, **an absolute trip deadline**, and **persistent return/recovery state**. Define whether unresolved stranding blocks another departure. Test revocation, expiry, restart, repeated failed legs, and two competing bots together. “Wait, then let normal orders take over” does not establish a selected recovery chain.
+
+3. **P2 — H2 is real, but its proposed guard needs an explicit liveness contract.**  
+   **Evidence:** D:237–239, D:316–333; `bots/src/watchdog.mjs:79–81`, `:291–320`, `:383–411`; `bots/src/runner.mjs:225–242`.  
+   Re-entry is real: the interval does not await `check()`, and the old samples remain while escalation awaits `runner.run()`. However:
+   - Stranding sampling currently happens inside `judgeStranding()` through `#strandingVerdict()`, **not** through `#sample()`. Merely leaving the latter running does not preserve stranding history.
+   - A hung skill body has an existing runner hard-stop: normally **180 seconds plus 30 seconds grace**, so “judged ≤180 seconds later” is not guaranteed.
+   - The pending flag needs unconditional release, including errors, and the document must define arbitration between stranding rescue and stagnation rescue.
+
+   Add controlled-clock tests for a nonsettling skill reaching hard-stop, a rejected escalation, and continued stranding-history accumulation. This is a fixable specification gap, not evidence that an in-flight guard inherently creates an endless hang.
+
+4. **P2 — The “surface-only” return guarantee is stronger than the design supports.**  
+   **Evidence:** D:374–387, D:397–405, D:415; `bots/src/skills.mjs:497–499`, `:552–555`, `:676–698`; `docs/reports/ziggurat-mineshaft-2026-10-15.md:783`.  
+   `GoalNearXZ` does not constrain elevation, and existing goto can retry with digging or larger drops. Standing on a breadcrumb proves a cell existed; it does not prove the reverse traversal is possible. The proposed six-block-drop scene directly exercises that asymmetry.  
+   Define enforceable outbound elevation/escape constraints and reserve accounting, or explicitly describe v1 as bounded-risk exploration rather than guaranteed surface travel. Test an irreversible drop with exhausted scaffolding and tools. The shaft design already distinguishes a verified return route from inventory possession.
+
+5. **P2 — Outpost deposit composition is incomplete; changing the height predicate is insufficient.**  
+   **Evidence:** D:392–393, D:452–480; `bots/src/chestfull.mjs:69–78`; `bots/src/skills.mjs:5450–5454`, `:7004–7010`; `bots/src/towndeposit.mjs:39–43`, `:84–86`; `bots/src/admission.mjs:397–412`.  
+   `depositTargetOk` really is a home-relative vertical filter. But `farFromBank`, admission’s storage probe, deposit target selection, and `town_deposit` do not all use interchangeable rules. `town_deposit` remains confined to **16 horizontal / 12 vertical blocks of configured home**. The measured “at town” population instead uses 48 horizontal blocks (M:414).  
+   Specify the deterministic outpost deposit entry point, anchor ownership, item policy, and matching admission/remedy predicates. Test a different-elevation outpost, full containers, and a blocked return. The shed fallback starts at 34 slots, while expeditions turn back at 30; the intervening refusal chain needs an explicit action. Also correct the blanket claim that `deposit` always refuses far away: admission is conditional, and the skill itself can call home (`skills.mjs:2723`).
+
+6. **P2 — E0 cannot immediately certify its proposed 14-day negative.**  
+   **Evidence:** D:290–308; `scripts/lib/estelemetry.py:79–93`.  
+   On October 19, a 14-day lookback includes October 7, which the telemetry library explicitly refuses because of duplicate documents. Excluding that day creates unknown coverage, not evidence of no visit. Five-minute position samples also miss intervening visits and do not establish surface reachability.  
+   Define coverage validity, backfill/reconciliation or a warm-up period, and distinguish **“not observed visited”** from **“unvisited/reachable.”** A healthy heartbeat alone cannot validate these negatives.
+
+7. **P2 — Measurement labels and projected outcomes need tightening.**  
+   **Evidence:** D:16, D:49–62, D:177–179, D:257, D:335–336; M:23–45, M:143–146, M:213–218, M:462, M:487–494; `bots/src/logger.mjs:59`.  
+   - The 526/762 interruption-duration statistic is **all pools**, whereas 538 aborted homes is **shared towns**. Label that scope explicitly.
+   - The home extraction ends at **15:24:20**, not 15:00; the fixed-window count is 2,931 versus the extraction’s 2,939.
+   - A previous row’s end snapshot is a **start-position proxy**, not an exact home-start snapshot. Skill timestamps record starts; a preceding skill’s snapshot can describe a later time.
+   - The 806-success counterfactual adds nearby failures selected with `distance <= 5`, while the proposed predicate is horizontal `<=3` plus a vertical check. Replay the actual predicate across **both failures and existing successes**, since adding vertical validation can remove current successes.
+   - Expected home exposure is approximately 14 rows at +180 and 28 at +360, below the stated minimum of 30. Specify the unexposed close/extension rule at +360.
+
+8. **P3 — Correct the arithmetic wording and preserve inherited queue details.**  
+   **Evidence:** D:153, D:350, D:497–499; `docs/reports/townprojects-stages2-8-plan-2026-10-19.md:79–89`.  
+   - Twelve expedition bots are **20% of 60 shared-town bots**, or 15% of the entire 80-bot fleet.
+   - Six eligible bot-snapshots / 1,439 = 0.42%; six eligible town-hours / 288 = **2.08%**. Keep those denominators separate.
+   - A 400-block rail line costs 150 iron for rails, **160 with two carts**: 81.5% / 87.0% of the stated 184 median stock, rather than the whole stock.
+   - Explicitly retain **smeltfuel before pavilion**, shaftuse’s first-free-slot treatment, and the conditional status of storehouse/projectdemand.
+
+**Checks that passed:** H1’s underlying explanation is sound. Integer `GoalNear.isEnd` uses squared distance ≤4 (`../../../bots/node_modules/mineflayer-pathfinder/lib/goals.js:67–71`); centering adds horizontal offsets, so a qualifying node can leave the bot roughly 2.5 blocks from the integer target. Home’s `after <=2` conflicts with goto’s `max(range,3)` check (`skills.mjs:2561`, `:830`). The dependency’s `goto.js:22–28` also confirms that an empty path resolves without proving arrival.
+
+The headline arithmetic checks out: **582/2346 = 24.8%, 806/2346 = 34.4%, 582/1205 = 48.3%, 806/1205 = 66.9%, and 6/16 = 0.375 iron/block**. The proposed DiD reads, single canary lane, and tier-2 20-bot/+180 framework align with the stated rules, subject to the exposure correction. The cited [pathfinder issue #229](https://github.com/PrismarineJS/mineflayer-pathfinder/issues/229) supports the distant-goal failure concern; it does not establish breadcrumb reversibility.
+
+I agree with the proposed priority order as a recommendation for X2, and with corrected homefix-01 first plus E0 alongside. That does not make the proposed queue amendment already owner-approved.
+
+VERDICT: CHANGE
+ORDER: AGREE
+FIRST STEP: AGREE
+
+======================== CLAUDE r1
+VERDICT: CHANGE. The plan's direction and order hold up, but homefix-01 can't be built as written. Its H2 diagnosis is incomplete and its H3 fix targets the wrong code. (Independent Claude subagent; checked every code claim against bots/src and pathfinder 2.4.5, recomputed arithmetic from the measure file; changed no worktree files; one probe ran on a copy of src in the scratchpad.)
+
+P1-1. Most watchdog rescues never start, so H2's fix reaches only the minority.
+- #escalate cancels the running skill (watchdog.mjs:394), then immediately runs the rescue (:403, :411). runner.run refuses while this.current is set (runner.mjs:182-185). cancel() only aborts the controller (runner.mjs:150-157), and current is cleared later, after the skill unwinds (runner.mjs:491). So whenever a skill is running at the verdict, the rescue gets runner_busy, which is never logged. The watchdog ignores the result and resets its window (:384).
+- Probe: real Runner with a slow skill, cancel('stagnation'), resume(), run() -> {"status":"failed","failClass":"runner_busy"}.
+- Tests miss it: the fake is run: async () => {} (test/watchdog-busy.test.mjs:62).
+- Fleet data: level 1 escalated 33,459 times, but at most 12,875 goto rows can be relocations (8,913 watchdog_relocate + 3,962 interrupt:stagnation). Level 2 escalated 5,436 times, but there are only 2,939 home rows in all pools, and only 1,565 shared-town rows follow an escalation-2 event. So at least 60% of level-1/2 remedies were named and never run (CLAUDE.md "Reachable"); explains part of the 1,628 reconnects.
+- Same defect elsewhere: level 3 (:503) and judgeStranding's climb-out (:166-169).
+- Needed: after cancel, wait (bounded) for the runner to go idle before starting the rescue, and log every escalation's rescue outcome as a row. Behaviour test with the real Runner and a busy skill.
+
+P2-1. H3's named mechanism is wrong. The throw at skills.mjs:650 is inside goto's try (opened :480); the main catch :761-763 converts it to interrupted: GoalChanged with aborted: true. Real path: surfaceClimb's catch at skills.mjs:14682-14683 re-throws the raw error when the signal is aborted; home reaches surface unguarded (~:2600). The same pattern appears at 20+ sites (:1224, :1613, :1760, :2788, :3629, ...). Fix once in runner.mjs (~:258): treat controller.signal.aborted as aborted. A goto-level test would pass on today's code. "Classification only" is false: skill_error feeds consecutiveFailures and the auto-pause (runner.mjs:424-426) and the lessons store.
+P2-2. The "next to RECALL's 70% bar" claim uses the wrong population: S0's filter (staffcensus.py:668-692) also drops rows with unknown or <=10 health at start and rows with a trap/drowning/low-health flag in the 5 min before; under it 77/378 (20%), not 48.3%. Recompute with home_success. H2 moves ~538 rows/week from interrupt:stagnation (excluded) into watchdog_home (included): report rows entering the filter separately.
+P2-3. Exposure doesn't close (~14 rows at +180, ~28 by +360, under 30; H1-relevant rows ~1.3 per 3 h). KEEP on deterministic per-mechanism checks (no <=3-block travel_incomplete, no skill_error under interrupt:*, no <=20 s cut rescues), DiD as guards only.
+P2-4. In-flight guard spec incomplete: release in finally (a throw in #escalate, e.g. this.bot.entity.position at :393 after a disconnect, would switch the watchdog off); say whether judgeStranding is gated (ungated it can cancel the rescue, :166); stranding history is pushed inside #strandingVerdict (:236), so "still samples" means splitting that push. No hang: bounded by the runner hard stop (180+30 s, runner.mjs:228-242) and the arbiter's bounded preempt (arbiter.mjs:104), provided release is in finally.
+P2-5. The H1 projection uses a different predicate from the fix (h6 end_d <= 5; fix <= 3; "3 still to go" allows up to 3.49; the fix adds |dy| <= 6 that home lacks today (:2561); count current successes that flip).
+P2-6. Deposit composition: depositTargetOk (chestfull.mjs:76-79) has no horizontal term; deposit's scan (skills.mjs:2692-2693) takes any non-deep container within 48; only cobble is kept out of chests outside town (:2687-2692). An expedition bot can bank into a village chest; restrict the primary to town/outpost containers. Outposts need a recorded-container test. farFromBank and depositDue measure from the world origin (skills.mjs:5452, :5226; state.mjs:72).
+P2-7. Lease TTL can deadlock the town's slot (90-min TTL renewed per leg + a stranded bot that keeps the lease). Add a hard cap from departure that retries cannot renew.
+P2-8. Bank-down won't fire as described: town_deposit triggers only at >=34 slots, only within 16 h / 12 v (towndeposit.mjs:40-41, :84), never moves the iron ladder. The kit rule is new deposit code: spec it and its refusal chain.
+
+P3: 12/60 is 20% (15% is of 80); at 100-200 the top death cause is drowning (26 of 55); the H2 bullet mixes all-pool 762 with shared 538; the skill_error medians cover all 226 rows; "only 393 llm:idle" is a lower bound (runner.mjs:444), which also makes "0 of 1,141 interrupt rows succeed" true by construction; home grades itself inconsistently (return last, skills.mjs:2620-2628) explaining successes to 2.7 and the "arrived ... nothing changed" rows; do not route goto's loop break (skills.mjs:464) through <=3; HOME_BUDGET_MS 200 s > skill timeout 180 s (skills.mjs:379, config.mjs:182); shaftuse-01 and homefix-01 both claim "first free slot": tie-break; §6.7 overstates the watchdog threat (a walking bot is never stagnant): spell out levels 1-3 vs an expedition; trips start at 300 and step by 100, so >=8 trips across 4 towns exercise 300-400 only; R0 is an instrument, not a tier-2 canary; E0 cannot tell ocean from land from ES positions alone; death-rate bands mix in underground deaths.
+
+Checked and correct: H1 geometry (goals.js:67-72; the bot stops within 0.35 of the node centre, index.js:579, max ~2.87 < 3; :2561 vs :829-830); H2 re-entrancy (setInterval :79-81, awaits :403/:411, samples reset after the await :383-384); citations (chestfull.mjs:76 / TOWN_DY 12, rail on the junk list well.mjs:58, moveVehicle entities.js:859); all 12 shared pools have rows ending within 5 of their listed home; arithmetic (582/2346, 806/2346, 48.3->66.9%, 1,565 (66.7%), 634/1815, 1579/5419, the gather and death tables, 0.375 iron/block and 113/150/300, the 590-block call reach, 0.04 bot-hours).
+
+VERDICT: CHANGE
+ORDER: AGREE
+FIRST STEP: AGREE
+
