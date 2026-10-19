@@ -329,6 +329,48 @@ print('unwind latency s: p50', q(.5), 'p90', q(.9), 'p99', q(.99), 'max', round(
 print('by skill (top):', kinds.most_common(8))
 
 
+################ SCRIPT h12.py
+"""(1) G2's pooled pre-fix rate: interrupted runs (trigger interrupt:*) by skill, and how many were filed failed/skill_error.
+(2) The unwind tail past 20 s (h11's join), for the reservation's pre-registered reserve_expired bar.
+(3) _arbiter_refused rows within 1 s after a _stagnation event (a body_held proxy). 7 d fixed window, all pools."""
+import sys, collections, datetime as dt, bisect
+sys.path.insert(0, '/home/mike/estel/scripts')
+from lib.estelemetry import EsEvents
+ev = EsEvents.load('skill', since='2026-10-12T15:00:00Z', until='2026-10-19T15:00:00Z')
+q = {'bool': {'filter': ev._filters() + [{'prefix': {'trigger': 'interrupt:'}}]}}
+r = ev._search({'size': 0, 'query': q, 'aggs': {'k': {'terms': {'field': 'skill.name', 'size': 50},
+        'aggs': {'f': {'terms': {'field': 'skill.fail_class', 'size': 20, 'missing': '<none>'}}}}}})
+tot = collections.Counter(); se = collections.Counter()
+for b in r['aggregations']['k']['buckets']:
+    tot[b['key']] = b['doc_count']
+    for f in b['f']['buckets']:
+        if f['key'] == 'skill_error': se[b['key']] = f['doc_count']
+print('interrupted runs by skill (top 12): skill  n  skill_error  rate')
+for k, n in tot.most_common(12): print(f'  {k:14s} {n:7d} {se[k]:6d} {100*se[k]/n:6.2f}%')
+for name, ks in (('home+surface', ['home', 'surface']), ('all', list(tot))):
+    n = sum(tot[k] for k in ks); s = sum(se[k] for k in ks)
+    print(f'pooled {name}: {s} / {n} = {100*s/max(1,n):.2f}%')
+P = lambda s: dt.datetime.fromisoformat(s.replace('Z', '+00:00')).timestamp()
+st = collections.defaultdict(list)
+for x in ev.rows('_stagnation', fields=['@timestamp', 'bot.name'], max_rows=100000): st[x['bot']['name']].append(P(x['@timestamp']))
+for b in st: st[b].sort()
+lat = []
+for x in ev.rows(None, fields=['@timestamp', 'bot.name', 'skill.duration_ms'], max_rows=200000, match={'trigger': 'interrupt:stagnation'}):
+    end = P(x['@timestamp']) + (x['skill'].get('duration_ms') or 0) / 1000
+    L = st.get(x['bot']['name'], []); i = bisect.bisect_right(L, end) - 1
+    if i >= 0 and end - L[i] <= 300: lat.append(end - L[i])
+print('unwind > 20 s:', sum(v > 20 for v in lat), 'of', len(lat), f'({100*sum(v > 20 for v in lat)/len(lat):.2f}%)')
+try:
+    ar = list(ev.rows('_arbiter_refused', fields=['@timestamp', 'bot.name'], max_rows=200000))
+    near = 0
+    for x in ar:
+        t = P(x['@timestamp']); L = st.get(x['bot']['name'], []); i = bisect.bisect_right(L, t) - 1
+        if i >= 0 and t - L[i] <= 1.0: near += 1
+    print('_arbiter_refused rows', len(ar), 'within 1 s after a _stagnation event:', near, 'of', sum(len(v) for v in st.values()), 'stagnation events')
+except Exception as e:
+    print('_arbiter_refused:', type(e).__name__, str(e)[:200])
+
+
 ################ SCRIPT e1.py
 """Expansion baseline, read only (ES). Position samples hourly, gathers/deaths by distance band, travel speed."""
 import sys, json, math, collections, datetime as dt
@@ -631,6 +673,26 @@ llm:idle with health>10: 66 ok 6 -> with H1 15
 interrupt:stagnation rows 23235 matched 23234 unmatched >300 s 1
 unwind latency s: p50 1.91 p90 10.06 p99 47.57 max 119.9  >15 s: 1358  >60 s: 108
 by skill (top): [('gather', 11799), ('goto', 3961), ('explore', 3301), ('mine', 1638), ('surface', 812), ('home', 759), ('craft', 425), ('smelt', 185)]
+
+
+################ OUTPUT h12 (r2: the proposed predicate replayed; S0 window)
+interrupted runs by skill (top 12): skill  n  skill_error  rate
+  gather           50363     18   0.04%
+  goto             17092      0   0.00%
+  explore          14118      0   0.00%
+  surface           3509   2579  73.50%
+  mine              1659      0   0.00%
+  home              1421    265  18.65%
+  craft             1099    183  16.65%
+  smelt              710      7   0.99%
+  smelt_town         388    291  75.00%
+  deposit            374    225  60.16%
+  furnace_drain      204      0   0.00%
+  dispose_well       174      0   0.00%
+pooled home+surface: 2844 / 4930 = 57.69%
+pooled all: 3660 / 91313 = 4.01%
+unwind > 20 s: 958 of 23234 (4.12%)
+_arbiter_refused: ZeroLooksWrong '_arbiter_refused' has 0 docs, but these exist: _well_refused (10097), _maroon_dig_refused (50), _air_pocket_refused (9899), _stock_refused (31208) -- almost certainly the name, not the fleet
 
 
 ################ OUTPUT e5 (r2: the proposed predicate replayed; S0 window)
