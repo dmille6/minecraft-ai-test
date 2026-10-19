@@ -42,3 +42,48 @@ All addressed in 38ab9077; the hold scope declined (the bank's own per-name rule
 ===== CLAUDE round 2: VERDICT: APPROVE =====
 P1-1, Codex P1 (lbLo), P2-1, P2-2, P3 lid list, P3 restart lag RESOLVED; declined items accepted.
 Nits (fixed in the records): registration text said open=nonconductor; class to be decided explicitly (set bag-fix, the coordinator may override); the hold sums both cobble names (a note).
+
+########## COAL / IRON part (owner scope addition 10-19 ~14:10Z) ##########
+
+===== CODEX round 3 (4e8792e0..add98da8) =====
+VERDICT: CHANGE
+
+- **P2 — [bots/src/towndeposit.mjs:155](bots/src/towndeposit.mjs#L155): Coal retention protects only iron smelting, not the bot’s other smelts.** Reproduced using the real `townDepositPlan` and `smeltPlan`: a 36-slot bag containing `iron_ingot:3, sand:8, furnace:1, coal:7` plus wool, with `wanted:['glass','sand']`, banks all seven coal. Smelting eight sand changes from executable to `no_fuel`. Keeping *up to* 64 wood units does not guarantee any wood exists. **Fix:** preserve sufficient fuel for retained inputs needed by the bot’s own smelting, accounting for alternative fuel actually held. Add a real town-deposit regression test for this bag and a positive control where sufficient alternative fuel permits coal banking.
+
+Other conclusions:
+
+- **C1:** Three units matches the next ladder step. Bucket-first consumption intentionally reopens gathering for the pickaxe. Holding both tools still leaves the existing gather/smelt stock requirements. Every ingot remains protected; toolkit crafts draw their own town iron.
+- **C2:** Active torch ingredients remain protected through `wanted`. Peaceful-kit sword fuel introduces no separate issue. The non-iron smelt above is the gap.
+- **C3–C4:** Withdrawal holds constrain the deposit allowance. Ordinary deposit and well protections remain unchanged. Banking coal followed by a town job withdrawing and consuming it is productive circulation; no new immediate loop found. Unseen toolkit-03 changes cannot be certified.
+- **C5:** Positive/negative real-deposit fixtures are meaningful. The anchored mutant demonstrates planner discrimination, but does not rerun the real transfer chain. The property checks milestone predicates, not general smelt feasibility.
+- **C6:** Small production change; behavioral, not setting-only.
+
+Read-only verification: reproduced the fuel failure in memory; reader self-test passed. Did not run the full suite because its fixtures write files. No server contact.
+
+
+===== CLAUDE round 3: VERDICT: CHANGE =====
+P1-1 a flat 3 iron units starves the second iron rung (a bot lacking bucket AND iron pickaxe banks the pickaxe's raw iron); fix 3 x crafts not yet made, floor 3, + a sequence test.
+P2 D4 unregistered. P3: room order 16-coal reserve vs town deposit; plank burn; report the owner's targets as DiD; exposure for coal/iron.
+
+===== CODEX round 4 (add98da8..7efd3743) =====
+VERDICT: CHANGE
+
+- **P3 — [cause report:94](/Users/darrellmiller/Documents/code-minecraft-ai/.claude/worktrees/agent-a2ae4b9c3ba902fc2/docs/reports/cobblekeep-01-cause-2026-10-19.md:94):** “banked raw iron reaches the toolkits through the town smelt jobs” is incorrect at this revision. `smeltjob.mjs:32–33` fixes those jobs to raw copper → copper ingots. Correct the report to state that raw iron becomes available in town, but this change supplies no automatic conversion path to toolkit ingots.
+
+No remaining P1/P2 found. The iron-budget and wanted-smelt fuel fixes look correct; I agree that reserved stockpile wood should not count as alternative fuel. No regression found in the other callers reviewed.
+
+Validation: single-file `towndeposit.test.mjs` passed via the repository runner; read self-test and diff checks passed.
+
+
+===== CLAUDE round 4: VERDICT: CHANGE =====
+RESOLVED P1-1, P2, P3s. Remaining: P2-1 the read's smelt-job coal line could never match (real stop=no_fuel); P2-2 the report's toolkit claim false (town smelt job is copper only);
+P3-1 a wanted INPUT alone (cobblestone, sand) kept all coal; P3-2 stale numbers in the registration.
+
+===== CODEX round 5 (7efd3743..8cc25193) =====
+VERDICT: APPROVE
+
+No remaining findings. Targeted `towndeposit.test.mjs` passes using the repository runner; read selftest passes. No edits or server contact.
+
+
+===== CLAUDE round 5: VERDICT: APPROVE =====
+r4 P2-1, P2-2, P3-1, P3-2 RESOLVED. Nit: the 89 coal snapshot is a lower bound under the narrower r5 fuel rule.
