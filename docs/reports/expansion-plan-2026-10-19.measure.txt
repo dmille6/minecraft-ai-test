@@ -300,6 +300,35 @@ li = [h for h in ni if h['trigger'] == 'llm:idle' and (h['health'] or 0) > 10]
 print('llm:idle with health>10:', len(li), 'ok', sum(h['status'] == 'success' for h in li), '-> with H1', sum((h['status'] == 'success' and arr(h)) or (h['status'] != 'success' and arr(h)) or (h['status'] == 'success') for h in li))
 
 
+################ SCRIPT h11.py
+"""Unwind latency after a stagnation cancel: for skill rows ended by interrupt:stagnation (any skill), end (= start +
+duration_ms) minus the nearest preceding _stagnation event of the same bot. 7 d fixed window, all pools."""
+import sys, collections, datetime as dt, bisect
+sys.path.insert(0, '/home/mike/estel/scripts')
+from lib.estelemetry import EsEvents
+ev = EsEvents.load('skill', since='2026-10-12T15:00:00Z', until='2026-10-19T15:00:00Z')
+P = lambda s: dt.datetime.fromisoformat(s.replace('Z', '+00:00')).timestamp()
+st = collections.defaultdict(list)
+for r in ev.rows('_stagnation', fields=['@timestamp', 'bot.name'], max_rows=100000):
+    st[r['bot']['name']].append(P(r['@timestamp']))
+for b in st: st[b].sort()
+lat = []; kinds = collections.Counter(); far = 0; n = 0
+for r in ev.rows(None, fields=['@timestamp', 'bot.name', 'skill.name', 'skill.duration_ms'], max_rows=200000, match={'trigger': 'interrupt:stagnation'}):
+    n += 1
+    end = P(r['@timestamp']) + (r['skill'].get('duration_ms') or 0) / 1000
+    L = st.get(r['bot']['name'], [])
+    i = bisect.bisect_right(L, end) - 1
+    if i < 0: continue
+    d = end - L[i]
+    if d > 300: far += 1; continue
+    lat.append(d); kinds[r['skill']['name']] += 1
+lat.sort()
+q = lambda p: round(lat[int(p * (len(lat) - 1))], 2)
+print('interrupt:stagnation rows', n, 'matched', len(lat), 'unmatched >300 s', far)
+print('unwind latency s: p50', q(.5), 'p90', q(.9), 'p99', q(.99), 'max', round(lat[-1], 1), ' >15 s:', sum(x > 15 for x in lat), ' >60 s:', sum(x > 60 for x in lat))
+print('by skill (top):', kinds.most_common(8))
+
+
 ################ SCRIPT e1.py
 """Expansion baseline, read only (ES). Position samples hourly, gathers/deaths by distance band, travel speed."""
 import sys, json, math, collections, datetime as dt
@@ -567,6 +596,9 @@ for mode, L in res.items():
     print(f'  {mode}: free slots after kit  p10 {L[int(.1*(len(L)-1))]}  median {L[len(L)//2]}  p90 {L[int(.9*(len(L)-1))]};  >= 16 free: {sum(x >= 16 for x in L)} of {len(L)} ({100*sum(x >= 16 for x in L)/len(L):.0f}%)')
 
 
+# NOTE (r4): e5 is kept for the record but WITHDRAWN as evidence: it counts stacks, not slots, and does not model the
+# planner transfer rules (bankableInventory). Gate K0 in the plan replaces it.
+
 ################ OUTPUT h9 (r2: the proposed predicate replayed; S0 window)
 
 ## shared: rows 2338, success 581 (24.9%)
@@ -593,6 +625,12 @@ S0 window rows 324 success 64
   llm:entombed           n=   1 ok=   0 ->    0
 non-interrupt: 64/172 (37%) -> 101/172 (59%)
 llm:idle with health>10: 66 ok 6 -> with H1 15
+
+
+################ OUTPUT h11 (r2: the proposed predicate replayed; S0 window)
+interrupt:stagnation rows 23235 matched 23234 unmatched >300 s 1
+unwind latency s: p50 1.91 p90 10.06 p99 47.57 max 119.9  >15 s: 1358  >60 s: 108
+by skill (top): [('gather', 11799), ('goto', 3961), ('explore', 3301), ('mine', 1638), ('surface', 812), ('home', 759), ('craft', 425), ('smelt', 185)]
 
 
 ################ OUTPUT e5 (r2: the proposed predicate replayed; S0 window)

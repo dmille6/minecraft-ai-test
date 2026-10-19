@@ -464,3 +464,284 @@ VERDICT: CHANGE
 ORDER: AGREE
 FIRST STEP: AGREE
 
+
+======================== CODEX r3
+Read-only review completed; no files changed. **R3 still needs changes.** The queue correction is supported, and homefix-01 remains the right first step. The main blockers are the gate contract, the kit replay, and incomplete recovery transitions.
+
+References: **D** = `docs/reports/expansion-plan-2026-10-19.md`; **M** = its `.measure.txt` companion. “RESOLVED” means resolved in the design, not implemented.
+
+**Round-2 findings — Codex**
+
+| Finding | Status | Evidence |
+|---|---|---|
+| 1. Stranded recovery and nonexistent remote shed | **PARTIAL** | D §6.6 correctly removes the shed claim; §6.7 explicitly accepts containment and preserves the town fence. However, possession of escape wood does not establish an executable craft/dig/climb chain: crafting has placement and inventory-room requirements (`skills.mjs:4680`, `:5005`; `craftroom.mjs:134`). See finding 4 below. |
+| 2. Arrival deletes state before banking | **RESOLVED** | D §6.2 retains state through `bank`; §6.3 introduces banking at any slot count; §7.3 retains `outpost_bank → return_town → bank`. This addresses the existing 34-slot trigger (`towndeposit.mjs:262`). Additional phase-completeness problems remain below. |
+| 3. H2 handoff, pending, cleanup and level composition | **PARTIAL** | D §2 now specifies pending before cancellation, reservation, rollback/backoff, 225 seconds and real-Runner tests. The diagnosis matches `runner.mjs:150`, `:183`, `:264`, `:491` and `watchdog.mjs:370`, `:384`. The proposed cleanup placement and reservation still need the details in finding 5. |
+| 4. G1–G4 exposure and controls | **PARTIAL** | D §5 adds floors, attempt reconciliation, runner-written starts and fixtures. But G3’s mandatory historical control cannot satisfy its new predicate, and the floors still admit unexposed populations. See finding 1. |
+| 5. 814 overstates H1 | **RESOLVED** | D §0.3 excludes the 11 evidence-gated rows and labels 803 a static estimate. This matches `runner.mjs:353–364` and M:572–576. |
+| 6. Kit and outpost planner contracts | **PARTIAL** | D §6.3 specifies provisioning, tool selection, holds and caps; §7.3 adds the genuinely different-elevation and unrecorded-chest scenes. But the new keep map does not override the upstream allowance rules, and outpost policy still does not explicitly settle its iron-ladder override (`towndeposit.mjs:118`, `:159`; `bankable.mjs:326`, `:359`). |
+| 7. Pre-commit return reserve | **PARTIAL** | D §6.5 moves inspection before movement and separates debt from reserve. It does not bind that inspected path to execution or revalidate subsequent plans. `goto` starts a new search and can retry under another movement profile (`skills.mjs:500`, `:626–635`). |
+| 8. Queue evidence | **RESOLVED** | D §0.2 now cites the supplied STATE 15:20Z entry. `STATE.md:104–113` supports stonewithdraw before shaft and toolkit’s smelt-coal search. |
+| P3 corrections | **RESOLVED** | D §§6.4, 6.7 and 6.10 correct “not observed,” deadline terminology and the targeted-item deposit exception (`skills.mjs:2691–2692`). |
+
+**Round-2 findings — Claude**
+
+| Finding | Status | Evidence |
+|---|---|---|
+| N-1. G3 confuses interrupted brain work with rescues | **RESOLVED** | D §5 restricts G3 to started rescue attempts joined to skill rows, addressing trigger replacement at `runner.mjs:444`. Its new historical-control contradiction is separate. |
+| N-2. Level-1 missing-rescue bound | **RESOLVED** | D §0.3 uses 25,867 candidate relocation rows, including reflex-interrupted rows. `(33,459−25,867)/33,459 = 22.69%`; M’s h7 output supplies the trigger counts. |
+| N-3. Poll loses to cognitive loop | **PARTIAL** | D §2 replaces polling alone with reservation and names declined-set updates. Those sets exist at `towndeposit.mjs:286` and `composter.mjs:646`. The asynchronous admission gap remains unspecified; see finding 5. |
+| N-4. Pending timing, level and reset | **RESOLVED** | D §2 explicitly sets pending before cancellation, decrements escalation on decline, backs off and removes the post-await reset. These address `watchdog.mjs:370`, `:383–384`, `:394`. |
+| N-5. Gate power, independent starts, reconnect logging | **PARTIAL** | Runner-written starts, fixtures and logging before `quit` are specified; the reconnect site is `watchdog.mjs:443–451`. Floors and controls remain defective; see finding 1. |
+| N-6. Trip-order rank | **PARTIAL** | D §6.2 specifies precedence over milestones, plinth and town deposit, matching `cognitive.mjs:900–911`. It omits the later recount override at `:917` and omits `kit` from its enumerated trip orders. |
+| N-7. Remote shed | **RESOLVED** | D §6.6 correctly says none exists and tests full-bag walking with carried scaffold. This matches `hygiene.mjs:49–66`. Full-bag escape crafting remains a separate problem. |
+| N-8. Arrival haul never banked | **RESOLVED** | D §6.3 introduces `expedition_bank` at any slot count and logs haul separately. That removes reliance on `towndeposit.mjs:262`. Planner restrictions still need resolution. |
+| N-9. Sixteen free slots unmeasured | **NOT RESOLVED** | E5 supplies numbers but does not replay the specified contract. Its purported pessimistic bound is optimistic in several concrete ways; see finding 2. |
+| N-10. Owner’s no-more-stuck-hunts rule | **RESOLVED** | D §5 and X1 explicitly request the exception and name newly enabled relocations and their guards. The affected actions are `watchdog.mjs:397–411`. |
+
+Claude’s P3 corrections are resolved for deadline wording, budget propagation, 803, configured-home boundary, daily-count populations, iron inflow, X9, E0’s estimator, last-breadcrumb routing and origin/spawn terminology. D §§5, 6.5 and 6.10 now define ceiling/reserve and death-exposure denominators, but **their operational adequacy remains PARTIAL**: reserve enforcement is discussed below, and the death comparison still needs matching exposure populations.
+
+The inherited round-1 resolutions—H3’s actual path, E0 coverage limitations, S0 population distinction and container-matched output—remain intact. I found no reason to reopen them.
+
+**Remaining and new decision-relevant findings**
+
+1. **P1 — The gate table still cannot serve as the specified acceptance contract.**
+
+   D §5 requires G1–G3’s **same reader** to find defects in the arm’s old-code pre-period. G3 now requires `_watchdog_rescue:started`, which old code does not emit: `watchdog.mjs:378–411` logs stagnation and directly invokes the runner. The mandatory positive control therefore makes G3 VOID even with a correct fix. Fixtures are also mandatory; they do not replace this contradictory requirement.
+
+   The opportunity floors also remain too broad:
+
+   - G1 counts interrupted arrivals and calls anything but success defective. A legitimate reflex interruption can fail this gate despite correct arrival grading (`runner.mjs:256–258`, `:444`).
+   - G2’s 50 arbitrary interruptions need not contain any raw exception—the path H3 changes. Aborted results already classified correctly can satisfy the floor.
+   - G3’s eight starts need not survive to a subsequent watchdog tick. Eight short rescues do not test protection against re-entry.
+   - G4 treats `started` as terminal, so a missing completion can pass. Reconnect also needs an explicit outcome outside runner-started skills (`watchdog.mjs:451`).
+
+   Define mechanism-specific opportunities, distinguish historical proxy controls from the new reader, and reconcile completed or explicitly interrupted/reconnected attempts.
+
+2. **P2 — E5 does not support “98% reach sixteen free slots,” and a local `keep` parameter is insufficient.**
+
+   D §6.3 preserves whole-stack transfers, holds and credit caps. E5 models none of those:
+
+   - M:534–535 collapses all scaffold species into one stack and all log species into one stack.
+   - M:532 removes listed families without checking transfer eligibility, town capacity, holds or per-visit caps.
+   - Missing kit items consume no slots and do not disqualify the snapshot.
+   - M:526 skips bows, fishing rods and bucket variants; M:547 restores only three exact names.
+   - M:560 selects a square, whereas `inTownZone` uses horizontal Euclidean distance (`towndeposit.mjs:84–86`).
+
+   I executed the replay function in memory on synthetic inventories. Three one-log stacks, two 16-block scaffold stacks and a table occupy six slots; e5 reports only three occupied. An inventory containing a bow, fishing rod and water bucket reports **36 free slots**.
+
+   There is also a planner-composition problem independent of telemetry quality. `townDepositPlan` first obtains allowances from `depositPlan` (`towndeposit.mjs:159`). That layer retains per-name tools (`bankable.mjs:326`), a 64-cobble reserve (`:75`, `:277`), and stock keeps through the globally registered `townKeeps` callback (`towndeposit.mjs:126`; `bankable.mjs:293–296`, `:359–361`). Lowering only the final keep map cannot restore an allowance already removed upstream.
+
+   Specify per-call policy propagation through both layers, including the well path. Replay slot-level inventories, provisioning and destination restrictions—or withdraw the 98% eligibility claim until those inputs exist.
+
+3. **P2 — The phase table leaves recovery and scheduling gaps.**
+
+   D §6.2 calls these the “only transitions,” but:
+
+   - `kit` is absent from the trip-order precedence list.
+   - `stranded` can exit only after a progressing return leg. A watchdog `home` can independently put the bot at home (`watchdog.mjs:411`); arrival without another progressing leg needs a direct transition to `bank`.
+   - `contained` is introduced as a state without a table entry or explicit relationship to `stranded`.
+   - Full-town recovery can refuse because no site or crafting opportunity exists (`skills.mjs:3908–3909`, `:3933–3946`). D §6.3 bounds container-path failures, but does not bound these recovery refusals.
+   - A trip order inserted before the named milestone/plinth/deposit chain can still be replaced by recount at `cognitive.mjs:917`.
+
+   Add arrival reconciliation from every recovery phase, bounded banking completion for every refusal class, and explicit precedence over recount. Include restart tests in `kit`, `contained` and failed bank recovery.
+
+4. **P2 — Escape wood is a resource reserve, not yet an executable escape remedy.**
+
+   D §6.7 says three logs and a table allow crafting “wherever the bot stands” and therefore always re-arm surface recovery. The existing craft path must place or reach a station and pass room checks (`skills.mjs:4680–4708`, `:5005`; `craftroom.mjs:134–142`).
+
+   A full bag can still walk, but that does not prove it can accommodate intermediate planks, sticks, a pickaxe, table recovery and newly dug scaffold. The absence of a remote shedding action makes this distinction consequential.
+
+   X-P6 should combine containment with **36/36 inventory**, missing intermediate stacks and constrained table placement. Reserve and enforce the required working space, or explicitly classify failed provisioning/crafting/harvesting as accepted containment too. The accepted-containment provision is a valid design choice; the universal escape claim is not established.
+
+5. **P2 — Runner reservation and cleanup need one more concurrency/exception contract.**
+
+   D §2 correctly identifies that today’s `finally` is at `runner.mjs:264–270`, while `current` clears at `:491`. However, putting evidence/logging **inside a finally that ends with clearing `current`** does not make clearing unconditional: an earlier statement in that finally can throw. Put processing in the protected body and cleanup in an outer finally, or use nested try/finally.
+
+   Reservation must also cover an already-admitted `run()` suspended at `await this.arb.acquire(...)` (`runner.mjs:194`). At that point `current` is not assigned until `:203`, and `interrupt()` returns false when `current` is absent (`:151`). A reservation checked only at entry can therefore miss this in-flight start.
+
+   Require a reservation/generation recheck after acquisition, release any rejected grant, and test that interleaving. The declared declined-set changes are appropriate; they do not themselves close this race.
+
+6. **P2 — Preflight inspection does not constrain the path actually traversed.**
+
+   D §6.5 inspects `getPathTo` output, then describes ordinary goto execution with digging retries retained. `skills.mjs:500` independently starts pathfinding; `:626–635` retries under ascent movements. The dependency also replans during execution (`../../../bots/node_modules/mineflayer-pathfinder/index.js:466`).
+
+   A safe initial walking path does not certify a later dig/replanned path. Enforce elevation, ceiling and reserve constraints on every executed/replanned segment, or revalidate a certificate before each irreversible move. The supplied shaft design’s T6 does this explicitly (`ziggurat-mineshaft-2026-10-15.md:783`).
+
+7. **P2 — The expedition death comparison still mixes exposure populations.**
+
+   D §6.10 divides treatment deaths by all trip-phase hours—including kit, banking and near-town travel—but compares control deaths only beyond 200 blocks. These denominators are named now, but are not comparable. Longer safe banking time can dilute the treatment rate.
+
+   Use the same distance/phase-compatible exposure definition in both arms for the DiD safety comparison. Keep all trip deaths and mechanism-linked deaths as separate tripwires.
+
+**Order and arithmetic**
+
+I now **agree with the order as a recommendation**. `STATE.md:104–113` supports the later queue used by r3, including stonewithdraw before shaft and toolkit’s smelt-coal search. X1/X9 properly retain owner decisions; expedition-before-pavilion remains X2, not an already-approved insertion.
+
+The revised arithmetic checks out:
+
+- `581 − 2 + 235 − 11 = 803`: **34.35%** overall and **66.86%** of 1,201 non-interrupted rows.
+- Missing level-1 lower bound: **7,592**, or **22.69%**.
+- `157/161 = 97.52%`; the problem is the replay model, not rounding.
+- Twelve expedition bots are **20% of shared-town bots**.
+- Rail-cost percentages and the approximate five-to-seven-week inflow comparison are consistent with the stated assumptions.
+
+Homefix-01 plus E0 remains the appropriate first step, after correcting its gate and runner contracts.
+
+VERDICT: CHANGE
+ORDER: AGREE
+FIRST STEP: AGREE
+tokens used
+96,130
+Read-only review completed; no files changed. **R3 still needs changes.** The queue correction is supported, and homefix-01 remains the right first step. The main blockers are the gate contract, the kit replay, and incomplete recovery transitions.
+
+References: **D** = `docs/reports/expansion-plan-2026-10-19.md`; **M** = its `.measure.txt` companion. “RESOLVED” means resolved in the design, not implemented.
+
+**Round-2 findings — Codex**
+
+| Finding | Status | Evidence |
+|---|---|---|
+| 1. Stranded recovery and nonexistent remote shed | **PARTIAL** | D §6.6 correctly removes the shed claim; §6.7 explicitly accepts containment and preserves the town fence. However, possession of escape wood does not establish an executable craft/dig/climb chain: crafting has placement and inventory-room requirements (`skills.mjs:4680`, `:5005`; `craftroom.mjs:134`). See finding 4 below. |
+| 2. Arrival deletes state before banking | **RESOLVED** | D §6.2 retains state through `bank`; §6.3 introduces banking at any slot count; §7.3 retains `outpost_bank → return_town → bank`. This addresses the existing 34-slot trigger (`towndeposit.mjs:262`). Additional phase-completeness problems remain below. |
+| 3. H2 handoff, pending, cleanup and level composition | **PARTIAL** | D §2 now specifies pending before cancellation, reservation, rollback/backoff, 225 seconds and real-Runner tests. The diagnosis matches `runner.mjs:150`, `:183`, `:264`, `:491` and `watchdog.mjs:370`, `:384`. The proposed cleanup placement and reservation still need the details in finding 5. |
+| 4. G1–G4 exposure and controls | **PARTIAL** | D §5 adds floors, attempt reconciliation, runner-written starts and fixtures. But G3’s mandatory historical control cannot satisfy its new predicate, and the floors still admit unexposed populations. See finding 1. |
+| 5. 814 overstates H1 | **RESOLVED** | D §0.3 excludes the 11 evidence-gated rows and labels 803 a static estimate. This matches `runner.mjs:353–364` and M:572–576. |
+| 6. Kit and outpost planner contracts | **PARTIAL** | D §6.3 specifies provisioning, tool selection, holds and caps; §7.3 adds the genuinely different-elevation and unrecorded-chest scenes. But the new keep map does not override the upstream allowance rules, and outpost policy still does not explicitly settle its iron-ladder override (`towndeposit.mjs:118`, `:159`; `bankable.mjs:326`, `:359`). |
+| 7. Pre-commit return reserve | **PARTIAL** | D §6.5 moves inspection before movement and separates debt from reserve. It does not bind that inspected path to execution or revalidate subsequent plans. `goto` starts a new search and can retry under another movement profile (`skills.mjs:500`, `:626–635`). |
+| 8. Queue evidence | **RESOLVED** | D §0.2 now cites the supplied STATE 15:20Z entry. `STATE.md:104–113` supports stonewithdraw before shaft and toolkit’s smelt-coal search. |
+| P3 corrections | **RESOLVED** | D §§6.4, 6.7 and 6.10 correct “not observed,” deadline terminology and the targeted-item deposit exception (`skills.mjs:2691–2692`). |
+
+**Round-2 findings — Claude**
+
+| Finding | Status | Evidence |
+|---|---|---|
+| N-1. G3 confuses interrupted brain work with rescues | **RESOLVED** | D §5 restricts G3 to started rescue attempts joined to skill rows, addressing trigger replacement at `runner.mjs:444`. Its new historical-control contradiction is separate. |
+| N-2. Level-1 missing-rescue bound | **RESOLVED** | D §0.3 uses 25,867 candidate relocation rows, including reflex-interrupted rows. `(33,459−25,867)/33,459 = 22.69%`; M’s h7 output supplies the trigger counts. |
+| N-3. Poll loses to cognitive loop | **PARTIAL** | D §2 replaces polling alone with reservation and names declined-set updates. Those sets exist at `towndeposit.mjs:286` and `composter.mjs:646`. The asynchronous admission gap remains unspecified; see finding 5. |
+| N-4. Pending timing, level and reset | **RESOLVED** | D §2 explicitly sets pending before cancellation, decrements escalation on decline, backs off and removes the post-await reset. These address `watchdog.mjs:370`, `:383–384`, `:394`. |
+| N-5. Gate power, independent starts, reconnect logging | **PARTIAL** | Runner-written starts, fixtures and logging before `quit` are specified; the reconnect site is `watchdog.mjs:443–451`. Floors and controls remain defective; see finding 1. |
+| N-6. Trip-order rank | **PARTIAL** | D §6.2 specifies precedence over milestones, plinth and town deposit, matching `cognitive.mjs:900–911`. It omits the later recount override at `:917` and omits `kit` from its enumerated trip orders. |
+| N-7. Remote shed | **RESOLVED** | D §6.6 correctly says none exists and tests full-bag walking with carried scaffold. This matches `hygiene.mjs:49–66`. Full-bag escape crafting remains a separate problem. |
+| N-8. Arrival haul never banked | **RESOLVED** | D §6.3 introduces `expedition_bank` at any slot count and logs haul separately. That removes reliance on `towndeposit.mjs:262`. Planner restrictions still need resolution. |
+| N-9. Sixteen free slots unmeasured | **NOT RESOLVED** | E5 supplies numbers but does not replay the specified contract. Its purported pessimistic bound is optimistic in several concrete ways; see finding 2. |
+| N-10. Owner’s no-more-stuck-hunts rule | **RESOLVED** | D §5 and X1 explicitly request the exception and name newly enabled relocations and their guards. The affected actions are `watchdog.mjs:397–411`. |
+
+Claude’s P3 corrections are resolved for deadline wording, budget propagation, 803, configured-home boundary, daily-count populations, iron inflow, X9, E0’s estimator, last-breadcrumb routing and origin/spawn terminology. D §§5, 6.5 and 6.10 now define ceiling/reserve and death-exposure denominators, but **their operational adequacy remains PARTIAL**: reserve enforcement is discussed below, and the death comparison still needs matching exposure populations.
+
+The inherited round-1 resolutions—H3’s actual path, E0 coverage limitations, S0 population distinction and container-matched output—remain intact. I found no reason to reopen them.
+
+**Remaining and new decision-relevant findings**
+
+1. **P1 — The gate table still cannot serve as the specified acceptance contract.**
+
+   D §5 requires G1–G3’s **same reader** to find defects in the arm’s old-code pre-period. G3 now requires `_watchdog_rescue:started`, which old code does not emit: `watchdog.mjs:378–411` logs stagnation and directly invokes the runner. The mandatory positive control therefore makes G3 VOID even with a correct fix. Fixtures are also mandatory; they do not replace this contradictory requirement.
+
+   The opportunity floors also remain too broad:
+
+   - G1 counts interrupted arrivals and calls anything but success defective. A legitimate reflex interruption can fail this gate despite correct arrival grading (`runner.mjs:256–258`, `:444`).
+   - G2’s 50 arbitrary interruptions need not contain any raw exception—the path H3 changes. Aborted results already classified correctly can satisfy the floor.
+   - G3’s eight starts need not survive to a subsequent watchdog tick. Eight short rescues do not test protection against re-entry.
+   - G4 treats `started` as terminal, so a missing completion can pass. Reconnect also needs an explicit outcome outside runner-started skills (`watchdog.mjs:451`).
+
+   Define mechanism-specific opportunities, distinguish historical proxy controls from the new reader, and reconcile completed or explicitly interrupted/reconnected attempts.
+
+2. **P2 — E5 does not support “98% reach sixteen free slots,” and a local `keep` parameter is insufficient.**
+
+   D §6.3 preserves whole-stack transfers, holds and credit caps. E5 models none of those:
+
+   - M:534–535 collapses all scaffold species into one stack and all log species into one stack.
+   - M:532 removes listed families without checking transfer eligibility, town capacity, holds or per-visit caps.
+   - Missing kit items consume no slots and do not disqualify the snapshot.
+   - M:526 skips bows, fishing rods and bucket variants; M:547 restores only three exact names.
+   - M:560 selects a square, whereas `inTownZone` uses horizontal Euclidean distance (`towndeposit.mjs:84–86`).
+
+   I executed the replay function in memory on synthetic inventories. Three one-log stacks, two 16-block scaffold stacks and a table occupy six slots; e5 reports only three occupied. An inventory containing a bow, fishing rod and water bucket reports **36 free slots**.
+
+   There is also a planner-composition problem independent of telemetry quality. `townDepositPlan` first obtains allowances from `depositPlan` (`towndeposit.mjs:159`). That layer retains per-name tools (`bankable.mjs:326`), a 64-cobble reserve (`:75`, `:277`), and stock keeps through the globally registered `townKeeps` callback (`towndeposit.mjs:126`; `bankable.mjs:293–296`, `:359–361`). Lowering only the final keep map cannot restore an allowance already removed upstream.
+
+   Specify per-call policy propagation through both layers, including the well path. Replay slot-level inventories, provisioning and destination restrictions—or withdraw the 98% eligibility claim until those inputs exist.
+
+3. **P2 — The phase table leaves recovery and scheduling gaps.**
+
+   D §6.2 calls these the “only transitions,” but:
+
+   - `kit` is absent from the trip-order precedence list.
+   - `stranded` can exit only after a progressing return leg. A watchdog `home` can independently put the bot at home (`watchdog.mjs:411`); arrival without another progressing leg needs a direct transition to `bank`.
+   - `contained` is introduced as a state without a table entry or explicit relationship to `stranded`.
+   - Full-town recovery can refuse because no site or crafting opportunity exists (`skills.mjs:3908–3909`, `:3933–3946`). D §6.3 bounds container-path failures, but does not bound these recovery refusals.
+   - A trip order inserted before the named milestone/plinth/deposit chain can still be replaced by recount at `cognitive.mjs:917`.
+
+   Add arrival reconciliation from every recovery phase, bounded banking completion for every refusal class, and explicit precedence over recount. Include restart tests in `kit`, `contained` and failed bank recovery.
+
+4. **P2 — Escape wood is a resource reserve, not yet an executable escape remedy.**
+
+   D §6.7 says three logs and a table allow crafting “wherever the bot stands” and therefore always re-arm surface recovery. The existing craft path must place or reach a station and pass room checks (`skills.mjs:4680–4708`, `:5005`; `craftroom.mjs:134–142`).
+
+   A full bag can still walk, but that does not prove it can accommodate intermediate planks, sticks, a pickaxe, table recovery and newly dug scaffold. The absence of a remote shedding action makes this distinction consequential.
+
+   X-P6 should combine containment with **36/36 inventory**, missing intermediate stacks and constrained table placement. Reserve and enforce the required working space, or explicitly classify failed provisioning/crafting/harvesting as accepted containment too. The accepted-containment provision is a valid design choice; the universal escape claim is not established.
+
+5. **P2 — Runner reservation and cleanup need one more concurrency/exception contract.**
+
+   D §2 correctly identifies that today’s `finally` is at `runner.mjs:264–270`, while `current` clears at `:491`. However, putting evidence/logging **inside a finally that ends with clearing `current`** does not make clearing unconditional: an earlier statement in that finally can throw. Put processing in the protected body and cleanup in an outer finally, or use nested try/finally.
+
+   Reservation must also cover an already-admitted `run()` suspended at `await this.arb.acquire(...)` (`runner.mjs:194`). At that point `current` is not assigned until `:203`, and `interrupt()` returns false when `current` is absent (`:151`). A reservation checked only at entry can therefore miss this in-flight start.
+
+   Require a reservation/generation recheck after acquisition, release any rejected grant, and test that interleaving. The declared declined-set changes are appropriate; they do not themselves close this race.
+
+6. **P2 — Preflight inspection does not constrain the path actually traversed.**
+
+   D §6.5 inspects `getPathTo` output, then describes ordinary goto execution with digging retries retained. `skills.mjs:500` independently starts pathfinding; `:626–635` retries under ascent movements. The dependency also replans during execution (`../../../bots/node_modules/mineflayer-pathfinder/index.js:466`).
+
+   A safe initial walking path does not certify a later dig/replanned path. Enforce elevation, ceiling and reserve constraints on every executed/replanned segment, or revalidate a certificate before each irreversible move. The supplied shaft design’s T6 does this explicitly (`ziggurat-mineshaft-2026-10-15.md:783`).
+
+7. **P2 — The expedition death comparison still mixes exposure populations.**
+
+   D §6.10 divides treatment deaths by all trip-phase hours—including kit, banking and near-town travel—but compares control deaths only beyond 200 blocks. These denominators are named now, but are not comparable. Longer safe banking time can dilute the treatment rate.
+
+   Use the same distance/phase-compatible exposure definition in both arms for the DiD safety comparison. Keep all trip deaths and mechanism-linked deaths as separate tripwires.
+
+**Order and arithmetic**
+
+I now **agree with the order as a recommendation**. `STATE.md:104–113` supports the later queue used by r3, including stonewithdraw before shaft and toolkit’s smelt-coal search. X1/X9 properly retain owner decisions; expedition-before-pavilion remains X2, not an already-approved insertion.
+
+The revised arithmetic checks out:
+
+- `581 − 2 + 235 − 11 = 803`: **34.35%** overall and **66.86%** of 1,201 non-interrupted rows.
+- Missing level-1 lower bound: **7,592**, or **22.69%**.
+- `157/161 = 97.52%`; the problem is the replay model, not rounding.
+- Twelve expedition bots are **20% of shared-town bots**.
+- Rail-cost percentages and the approximate five-to-seven-week inflow comparison are consistent with the stated assumptions.
+
+Homefix-01 plus E0 remains the appropriate first step, after correcting its gate and runner contracts.
+
+VERDICT: CHANGE
+ORDER: AGREE
+FIRST STEP: AGREE
+
+======================== CLAUDE r3
+(Independent Claude subagent, round 3; read-only; one probe on a scratch copy: scratchpad/r3probe/bots/probe.mjs runs the real townDepositPlan / depositPlan on a made-up bag; did not open codex-r3.out.)
+
+Two P1s, verdict CHANGE; agrees with the ORDER and with homefix-01 as the FIRST STEP once its decline rule is fixed.
+
+1. Round-2 findings
+Codex r2: 1 (P1) contained recovery PARTIAL: logs and planks are on the pathfinder's scaffold list (scaffold.mjs:100-104); mineflayer-pathfinder places the first listed scaffold item (movements.js:152-160), so the 3 logs are placed when dirt and cobble run out; nothing reserves them (#escape does, by overriding countScaffoldingItems, cognitive.mjs ~478-483); no component is named to issue craft -> dig -> climb, so as written it is advice. Lease vs stranded RESOLVED. 2 (P1) arrival before banking RESOLVED (small gap: bank has no exit if full-town recovery fails). 3 (P2) H2a/H2b PARTIAL (cancel only aborts 150-157; busy refusal before any row 182-185; finally 264-270; current = null at 491) -> new P1-A, P2-B. 4 (P2) gates PARTIAL -> P2-C. 5 RESOLVED (581-2+224 = 803; 34.3%; 66.9%; h9 shows no aborted rows ending inside 3/6, so G1's filter is sound). 6 kit NOT RESOLVED (P1-B); outpost RESOLVED. 7 PARTIAL (P2-D). 8 queue RESOLVED (STATE 12:45Z's owner decisions list shaft-01 -> stonewithdraw-01, the reverse of the 15:20Z queue, shaft HELD; say so instead of "supersedes"). Codex P3s RESOLVED; r1 carry-overs RESOLVED; RECALL full-filter counterfactual PARTIAL, acceptable because S0 re-measures.
+Claude r2: N-1 RESOLVED; N-2 RESOLVED (8,913+3,962+9,641+3,351 = 25,867; 22.7%); N-3 RESOLVED as design, PARTIAL in composition (P2-B; 15 s reservation and 10% bar unmeasured; unwind latency is readable); N-4 done, creates P1-A; N-5 PARTIAL; N-6 RESOLVED for chain place (cognitive.mjs:900, 912) but orders go through admission (P2-E); N-7 RESOLVED; N-8 PARTIAL (P2-F); N-9 NOT RESOLVED (P1-B); N-10 RESOLVED; P3s RESOLVED ("leaves included" creates P2-D).
+Arithmetic re-checked and correct: 45.9%, 22.7%, 0.42%, 2.08%, ~26% and ~9% bare-zero odds, 150/160 iron (82-87%), 0.04 bot-h rail saving, 12/60 = 20%, 6.6% beyond 200.
+
+2. ORDER matches STATE 15:20Z on origin/main; homefix-01 (X9), expedition-01 after cobblekeep-01, outpost-01 after monument-01 all work against it.
+
+3. New problems
+P1-A. Holding the level on every declined rescue removes the reconnect, the one remedy that does not need the runner: some skills do not unwind within 15 s (hard-stop.mjs exists; one gather ran 83 min; some bot.dig calls are not wired to the signal); a wedged client hangs every skill until hard-stop at 210 s; each verdict is declined, the level held, and the bot never reaches level 3's bot.quit (watchdog.mjs:443-452; 1,628 a week today). The test list encodes this as correct and the read lists reconnects as "expected to fall". Fix: escalate after K consecutive reserve_expired declines; let the reconnect bypass the reservation; composed test: never-unwinding skill + stagnation -> reconnect within N windows.
+P1-B. The kit replay does not model the mechanism: townDepositPlan's allowance comes from bankableInventory (bankable.mjs:252-375), which keeps 64 cobble (COBBLE_RESERVE :75, 84-95), re-applies stockpile keeps for targeted groups, keeps one usable copy per tool name (last_of_tool_family), caps each name at 64 per visit, never banks spruce/acacia/dark oak/cherry/mangrove logs, non-oak planks, andesite, diorite or dirt (not_wanted; only oak, birch, jungle logs are standing targets :40-43), never banks saplings (ballast) or swords in peaceful. Probe on a 21-slot bag: today's plan frees 3 slots; e5's "pessimistic" model frees ~15 (it counts all scaffold as one slot, removes every log, sapling, seed and sword, ignores the 64 cap). If 34+ bags get only 3-6 slots back, most kits close skip:kit and expedition-01 is INCONCLUSIVE by construction. Fix: thread the keep through bankableInventory (or name the well/compost step inside the kit) and replay with the real JS functions over real inventories.
+P2-B. runner_reserved is not "in every declined set": five sets (RUNNER_DECLINED composter.mjs:646 + well.mjs; RUNNER_REFUSALS milestones.mjs:51; private sets toolkit.mjs:135, recount.mjs:30; TD_RUNNER_DECLINED towndeposit.mjs:286). A brain decision that gets failed calls admission.noteFailure (cognitive.mjs ~1239-1241). A declined #escape rung returns latch (livelockNext :221-223); three latches an hour = recovery_exhausted. Fix: one exported set + a source test; livelock test asserts no latch; state whether isBusy() reports the reservation (cognitive tick :827, reflexes); the new finally's clear must be identity-guarded.
+P2-C. Gate floors and controls: G1 pre-fix ~28% defects (224/~805): D=5 gives P(0|no fix) ~19%; need D >= 10. G2 across all skills ~1%: D=50 gives ~60% pass with no fix: restrict to home/surface or derive D. G3 under a "pre-period" control is impossible (old code writes no attempt rows) -> VOID for ever (the bamboo-02 read-bug shape). G4: a reconnect has no runner skill, never writes started: ~7 reconnects in a 3 h arm would be defects on correct code; give reconnects a terminal phase.
+P2-D. The outbound pre-check does not hold: getPathTo runs once (index.js:63-68), returns partial for distant goals, and the walk re-plans anyway. Enforce in the walking Movements (exclusionAreasStep, maxDropDown; movements.js:103-107). Kit 32 scaffold and reserve 32 leave descent budget 0: keep 64 (same slot). "Leaves included" likely refuses forest legs; use sky light or measure it.
+P2-E. Trip orders go through the admission gate (cognitive.mjs ~878): a re-issued failed return leg gets a cooldown; three rejections trigger the livelock breaker's random 25-60-block relocation. Exempt trip skills, as home is.
+P2-F. What the primary sees: expedition_bank keeps the iron ladder (raw iron, coal stay unless cobblekeep-01 applies); non-oak/birch/jungle logs never bankable; the primary is mostly raw copper plus three log species. Widen the bankable set (towndeposit LOGS lists 8) or make the haul the primary.
+P3: e5's town zone is a square vs inTownZone circle; snapshots not independent; stacks are not slots. Six of 12 shared towns share a home equal to the fallback ISO: confirm per pool. Whether a runner + watchdog change is tier 2 is the owner's call: ask in X1. Put _watchdog_rescue fields in skill.args (mapped flattened, logger.mjs:131-133).
+
+VERDICT: CHANGE
+ORDER: AGREE
+FIRST STEP: AGREE
+
