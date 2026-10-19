@@ -1,0 +1,68 @@
+foldwatch-01 -- the stagnation watchdog exempts a PROGRESSING bamboo fold (owner approved 10-19 ~15:30Z, via the
+coordinator; the bamboo-03 agent built it)
+
+WHY. bamboo-02 on the fleet (10-19 02:05-05:11Z): 3 of 14 folds were cut by the stagnation watchdog (watchdog.mjs:
+busy samples, spread < 8 blocks and items gained <= 0 over 180 s -> cancel + a level-1 forced relocation). Two were
+self-inflicted: a fold stands still and LOSES one item per craft (2 bamboo -> 1 stick). hive-b-Comet read "items -6"
+with 7 fold crafts in the window (+1 without them); hive-b-Alpha read "items -1" with 6-7. Precedent: smeltjob-01's
+furnace window (bot.furnaceWindowUntil).
+
+THE CHANGE (bots/src only watchdog.mjs and skills.mjs bambooSticks):
+- watchdog.mjs: pure foldWindowOpen({until, progressAt, now}) = until > now && now - progressAt <= FOLD_STALL_MS
+  (15 s); foldWindow(bot) reads bot.foldWindowUntil / foldProgressAt; declaredSession(bot) = furnaceWindow || foldWindow
+  replaces furnaceWindow in the sample's not-busy flag and in the judge's early return (stranding pauses with it, as
+  for a furnace session, <= 90 s); pure stagnationItems(summary, foldItemsSpent) adds the fold's cumulative booked
+  loss back into the stagnation sample. The stranding judge's own item count is unchanged.
+- bambooSticks: bot.foldWindowUntil = its stationary window (crafts x 1.3 s + 5 s, cap 90 s, never past the skill
+  deadline); bot.foldProgressAt stamped at the start and at every verified craft; bot.foldItemsSpent += 1 per verified
+  craft and craftsync's AUTHORITATIVE at-stop count -- never foldTally's bag inference (Codex r1); window cleared in
+  the finally.
+
+TESTS
+- bots/test/foldwatch.test.mjs (the REAL StagnationWatchdog, scripted clock): pure edges; a progressing fold after a
+  gainless busy prelude is not cut (control: no fold -> cut); a STALLED fold is cut (positive control); the fleet's
+  Comet shape is not cut (control: loss not booked -> cut); fold time is not busy time (control -> cut); a fold that
+  ends then a stuck stretch is judged; WIRED (comments stripped).
+- bots/test/bamboo-abort.test.mjs (the abort and deadline scenes moved verbatim out of bamboo.test.mjs: it ran 112 s
+  of the runner's 120 s budget; now 89 s + 34 s): + the unmade-craft NEGATIVE CONTROL (an optimistic unconfirmed count
+  books nothing: foldItemsSpent 2, server +2); the in-flight abort books 2 (inferred craft not credited); the
+  authoritative abort books 3.
+- bots/test/bamboo.test.mjs: the real fold declares the window = the stationary window, stamps progress >= 5 times
+  over 32 crafts, books 32, clears it.
+- npm test (the mini, the only test command): 6e93b934 271/271, 671e02d4 276/276; the final shas add one test-only
+  commit (four scenes moved verbatim) -- bamboo-abort/bamboo/bamboo-chain 3/3 and foldwatch 1/1 on both 08f09e34 and
+  bf833656. eslint no-undef: exactly one hit on both, reflex.mjs:2384 withinBody (pre-existing).
+- Mutants (scripts/mutants/mutants-foldwatch01.py, anchors asserted unique, FAIL lines printed): 10 of 10 killed --
+  no stall check; stall bound 900 s; the judge ignores the fold; the sample counts fold time as busy (killed by the
+  busy-time behaviour test, not only WIRED); the booked loss not added back; no progress stamp; no booking; window
+  never cleared; the authoritative at-stop count books nothing; the inferred in-flight craft is credited.
+
+PAPER (sandbox 10.0.0.30:25599 only; /tmp/mcai-sandbox.lock on .31 taken 15:46:39Z, released 15:52:03Z). Scene W30 in
+sandbox/craft/bamboo-abort-ab.cjs = A20 with WATCHDOG_WINDOW_MS 30000 / WATCHDOG_SAMPLE_MS 2500, so the real
+stagnation watchdog judges a 32-craft fold while it runs; cand foldwatch (bots/src = 08f09e34's), ctrl bamboo-03
+736e89b0, alternating, 3 reps each, server read back by RCON:
+  ctrl 3/3 aborted:stagnation after 8 crafts, freed 0 ("no progress across 22s ... items -56": the window also held
+            the scene's own bag setup); server bamboo -16 sticks +8, conserved, nothing on the ground.
+  cand 3/3 success 32/32, slot freed 36 -> 35, 0 _stagnation rows; server bamboo -64 sticks +32, nothing on the ground
+            before or after logout, planks 10 -> 10.
+  Paper proves the exemption; the item add-back is proven by the replay tests (Claude r3).
+
+REVIEWS (light: one Codex + one Claude pass, extended to three rounds by the findings)
+  Codex r1 APPROVE-WITH-CHANGES: the watchdog credit must not take foldTally's inferred in-flight craft; wanted Paper.
+  Codex r2 APPROVE-WITH-CHANGES: a negative control for an UNMADE craft with an optimistic tally; Paper; mutant results.
+  Codex r3 APPROVE.  Claude r1, r2, r3 APPROVE (nits: the fold sample shares the `furnace` flag name; bamboo.test.mjs
+  near its budget -> moved four scenes).
+
+READ: scripts/host/foldwatchread.py (installed ~/mcai-analysis, md5 d34d6faf; NOT engine-reviewed -- report-only under
+the rate licence): fold runs stopped by stagnation per fold, canary vs control; completed folds; canary fold runs
+> 95 s (tripwire, named); _stagnation rows/bot-h DiD (a canary drop well below control = stuck bots hidden); control
+fold runs >= 1 (instrument); exposure >= 3 canary fold runs. Dry run on the bamboo-02 window (CANARY_DRYRUN hive-a,
+hive-b): canary 3 of 14 fold runs stopped by stagnation (positive control: the instrument sees the defect), 0 > 95 s.
+
+REGISTRATION ~/mcai-analysis/foldwatch-01.{08f09e34,bf833656}.json: tier 2; NO draw_require_pools key
+(drawrequire.parse ([], None)); licence RATE (no arm-exclusive row: report-only by construction, catastrophe gates
+only); reads [foldwatchread, immobiledid] at +180, extension 360/720 for exposure; draw_exposure = bamboo-03's.
+licencecheck exit 0; changerowcheck: none declared. Requires bamboo-03 KEPT and on the fleet.
+QUEUE ENTRY ~/mcai-analysis/foldwatch-01.entry.json (= docs/reports/foldwatch-01.queue-entry.json): run foldwatch-01,
+after ["bamboo-03"], variants 736e89b0 -> 08f09e34 and 0447ffed -> bf833656, registration_sha256 bare hex. NOT applied.
+No-act validate_entry: only "registration sha does not resolve" (the scheduler's git must fetch fw-on-* first).

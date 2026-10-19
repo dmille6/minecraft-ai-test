@@ -1,0 +1,33 @@
+{
+ "run": "foldwatch-01",
+ "after": [
+  "bamboo-03"
+ ],
+ "class": "",
+ "hold": null,
+ "note": "Stacked on bamboo-03 (needs it KEPT and promoted: both arms fold). Variants: 736e89b0 (bamboo-03 on adbec4f4) -> 08f09e34 (fw-on-736e89b); 0447ffed (bamboo-03 on treefarm-02) -> bf833656 (fw-on-0447ffe). The real base is whatever tip bamboo-03 lands on (queue treefarm-02 -> cobblekeep-01 -> toolkit-03 -> bamboo-03): ask for a re-stack. Fetch origin in the scheduler's git first. TIER 2 small fix.",
+ "variants": {
+  "736e89b08702796cdc8499bf7d37684cca814d5f": {
+   "registration": "/home/mike/mcai-analysis/foldwatch-01.08f09e34.json",
+   "approved": "foldwatch-01 (bamboo-03 agent, owner-approved 10-19 ~15:30Z): the stagnation watchdog exempts a PROGRESSING bamboo fold (declaredSession = furnace window OR an open, progressing fold window; the server-confirmed fold loss added back). Codex r3 APPROVE (r1/r2 APPROVE-WITH-CHANGES), Claude r3 APPROVE; npm test, eslint no-undef (only reflex.mjs:2384 withinBody), 10/10 anchored mutants, Paper W30 (ctrl 3/3 cut by stagnation, cand 3/3 complete) -- docs/reports/foldwatch-01-2026-10-19.txt. TIER 2. Licence RATE (report-only). drawrequire.parse ([], None) -- NO draw_require_pools key; licencecheck OK (rate); changerowcheck: none declared. USE ONLY if the fleet is 736e89b0.",
+   "canary_sha": "08f09e3443effdbb1f33f725aa3d32ece5aceda3",
+   "reads_src": "/home/mike/mcai-analysis",
+   "reads": {
+    "foldwatchread": "d34d6faf36393b9d41a449d08f5e33d6",
+    "immobiledid": "53af289df12208901931dbeeb1ae325a"
+   },
+   "registration_sha256": "7cb059f901cd658fd33482ae7520ab876457281a11fcb4d56d462c61462014f3"
+  },
+  "0447ffed38858a7ecc1ae5a901fb4f4c80102cbd": {
+   "registration": "/home/mike/mcai-analysis/foldwatch-01.bf833656.json",
+   "approved": "foldwatch-01 (bamboo-03 agent, owner-approved 10-19 ~15:30Z): the stagnation watchdog exempts a PROGRESSING bamboo fold (declaredSession = furnace window OR an open, progressing fold window; the server-confirmed fold loss added back). Codex r3 APPROVE (r1/r2 APPROVE-WITH-CHANGES), Claude r3 APPROVE; npm test, eslint no-undef (only reflex.mjs:2384 withinBody), 10/10 anchored mutants, Paper W30 (ctrl 3/3 cut by stagnation, cand 3/3 complete) -- docs/reports/foldwatch-01-2026-10-19.txt. TIER 2. Licence RATE (report-only). drawrequire.parse ([], None) -- NO draw_require_pools key; licencecheck OK (rate); changerowcheck: none declared. Cherry-picked onto 0447ffed with no conflict. USE ONLY if the fleet is 0447ffed.",
+   "canary_sha": "bf83365625839a9707d274e38d2539c039707d2d",
+   "reads_src": "/home/mike/mcai-analysis",
+   "reads": {
+    "foldwatchread": "d34d6faf36393b9d41a449d08f5e33d6",
+    "immobiledid": "53af289df12208901931dbeeb1ae325a"
+   },
+   "registration_sha256": "0de574797e3fd310b6921170a585dd15f0985ad274e1a3e7ed3a57714b0afea2"
+  }
+ }
+}

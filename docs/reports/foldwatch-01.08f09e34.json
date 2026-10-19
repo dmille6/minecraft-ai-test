@@ -1,0 +1,91 @@
+{
+ "run_id": "foldwatch-01",
+ "sha": "08f09e3443effdbb1f33f725aa3d32ece5aceda3",
+ "registered_at": "2026-10-19T16:23:46Z",
+ "tier": 2,
+ "ladder_change": false,
+ "promotion": "fleet-wide",
+ "notes": "[foldwatch-01 = bamboo-03 + the stagnation watchdog exempts a PROGRESSING bamboo fold (OWNER approved 10-19 ~15:30Z, as smeltjob's furnace window). Built on bamboo-03 736e89b0 (use ONLY if the fleet is 736e89b0): branch fw-on-736e89b @ 08f09e34 (6e93b934 + a test-only move). bamboo-02 on the fleet: 3 of 14 folds were cut by the stagnation watchdog, 2 self-inflicted (a fold stands still and loses one item per craft). watchdog.mjs declaredSession = furnace window OR a fold window open (the fold's own plan-sized window, <= 90 s, never past the skill deadline) AND progressing (a server-confirmed craft within 15 s); the fold's server-confirmed item loss is added back to the stagnation sample. A stalled fold is still judged. Tests: foldwatch.test.mjs (real StagnationWatchdog, positive controls), bamboo-abort.test.mjs, bamboo.test.mjs; 10/10 anchored mutants; Paper W30 (30 s window): ctrl 736e89b0 3/3 aborted:stagnation, cand 3/3 complete. Reviews: Codex r1 APPROVE-WITH-CHANGES, r2 APPROVE-WITH-CHANGES, r3 APPROVE; Claude r1-r3 APPROVE (docs/reports/foldwatch-01-2026-10-19.txt). TIER 2 small fix. Needs bamboo-03 KEPT and on the fleet: both arms fold.]",
+ "licence": {
+  "class": "rate",
+  "note": "No arm-exclusive row kind or text: the change writes nothing new; only the RATE of fold runs cut by stagnation moves. REPORT-ONLY BY CONSTRUCTION -- no instrument revert; the catastrophe gates (the two-death floor, gather ratio) still apply."
+ },
+ "reads": [
+  "foldwatchread",
+  "immobiledid"
+ ],
+ "read_minutes": [
+  180
+ ],
+ "deadline_min": 1080,
+ "change_rows": [],
+ "linkage_extra": [],
+ "draw_exposure": {
+  "hours": 6,
+  "require": [
+   {
+    "name": "full bags holding bamboo (craft_room refusals listing bamboo in the bag)",
+    "kind": "craft_room",
+    "detail_contains": "bamboo",
+    "min": 1
+   }
+  ],
+  "note": "10-15 rebase: hours 6, min 1 (orderroom-01 room orders cut full-bag craft_room refusals; census 10-15 20:40Z full holders of >= 2 bamboo: board-d 5, board-c 4, board-a 3, placebo-c 4 (never drawn)). Earlier: 10-04 21:00-24:00Z per pool: hive-b 88, hive-a 43, board-a 18, board-c 10 (isolated-* and placebo-c are never drawn). The detail lists the bag on a full-bag refusal ('bag: ... bamboo 1')."
+ },
+ "exposure": {
+  "read": "foldwatchread",
+  "field": "exposure_ready",
+  "min": 1,
+  "note": "Ready = >= 3 canary fold runs (crafted or cut by an abort). bamboo-02: 14 fold runs on 10 bots in 3 h; a 20-bot tier-2 draw from full-bamboo pools is expected to reach 3 by +180."
+ },
+ "own_lines": [
+  {
+   "read": "foldwatchread",
+   "field": "long_runs_canary",
+   "op": "<=",
+   "value": 0,
+   "on_fail": "REVERT",
+   "evidence": "defect",
+   "note": "A canary fold run longer than 95 s: the exemption cannot outlive a 90 s fold window (report-only under the rate licence; named)."
+  },
+  {
+   "read": "foldwatchread",
+   "field": "instrument_control",
+   "op": ">=",
+   "value": 1,
+   "on_fail": "REVERT",
+   "note": "POSITIVE CONTROL: control bots fold too (bamboo-03 on the fleet); the population is visible. BLOCKS KEEP."
+  },
+  {
+   "read": "foldwatchread",
+   "field": "fold_runs_canary",
+   "op": ">=",
+   "value": 1,
+   "on_fail": "REVERT",
+   "note": "LIVENESS. BLOCKS KEEP (INCONCLUSIVE)."
+  }
+ ],
+ "primary": {
+  "read": "foldwatchread",
+  "field": "stag_share_canary",
+  "note": "REPORTED, NOT GATED: fold runs stopped by stagnation per fold run, canary vs control (expected canary ~0, control ~0.2 as on bamboo-02); completed folds; _stagnation rows/bot-h DiD (a canary DROP well below control would mean stuck bots hidden -- read it by hand before a KEEP)."
+ },
+ "harm": {
+  "note": "Unchanged: the two-death floor (OWNER 2026-09-11) and gather_ratio < 0.43 of control, from immobiledid."
+ },
+ "teardown": {
+  "note": "THREE STEPS: drop-ins, clear canary_pool, restart the pool's bots 12 s apart; then confirm the live versions."
+ },
+ "amendments": [],
+ "extension": {
+  "until_exposure": true,
+  "extra_reads": [
+   360,
+   720
+  ],
+  "final_on_zero_exposure": "INCONCLUSIVE",
+  "note": "Tier 2: KEEP at +180 when exposed; extend only for exposure."
+ },
+ "requires": "bamboo-03 KEPT and promoted (the fleet must be this registration's base).",
+ "lint": "eslint no-undef: exactly ONE hit, bots/src/reflex.mjs:2384 withinBody -- pre-existing (foldwatch touches watchdog.mjs and skills.mjs only)."
+}
