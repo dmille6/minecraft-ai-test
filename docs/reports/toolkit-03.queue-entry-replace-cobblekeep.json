@@ -1,0 +1,68 @@
+{
+ "run": "toolkit-03",
+ "after": [
+  "cobblekeep-01"
+ ],
+ "class": "",
+ "hold": null,
+ "not_before": null,
+ "note": "REPLACE-VARIANT 10-19 (toolkit-03 agent): adds variants on cobblekeep-01's two canary shas (9e7d9980 on adbec4f4, 5d36b839 on treefarm-02 0b3a0d4c) so whichever is kept the next variant matches; KEEPS the adbec4f4 and 0b3a0d4c variants. Branches tk3-on-adbec4f, tk3-on-0b3a0d4, tk3-on-9e7d998, tk3-on-5d36b83 (fetch origin in the scheduler's git first). Read ~/mcai-analysis/kitsearchread.py (md5 3affdb8e, installed) + toolkitread + smeltjobread (defect lines) + immobiledid. Record docs/reports/toolkit-03-record-2026-10-19.txt. NOT APPLIED -- `canary-sched.py queue replace-variant toolkit-03 <this file>` after approval.",
+ "variants": {
+  "adbec4f4cbd0dd08e33671d37868e06259ac72f7": {
+   "registration": "/home/mike/mcai-analysis/toolkit-03.28dc1158.json",
+   "approved": "toolkit-03 agent 2026-10-19: tk3-on-adbec4f @ 28dc1158 on the fleet adbec4f4. Codex r6 APPROVE + Claude r5/final APPROVE. npm test 269/269; Paper sandbox3 kitsearch + smeltcoal base vs candidate, server read-back. USE if the fleet is adbec4f4. ORDINARY canary.",
+   "canary_sha": "28dc115841ef6d1a3e90c02a78f5dd887653c723",
+   "branch": "tk3-on-adbec4f",
+   "reads_src": "/home/mike/mcai-analysis",
+   "reads": {
+    "kitsearchread": "3affdb8ea1883914a91a1a9b92e32e47",
+    "toolkitread": "53b0925653bf2584c77ecc96e20c7a14",
+    "smeltjobread": "c2345e995be2341e3ad0c8a3317f49a7",
+    "immobiledid": "53af289df12208901931dbeeb1ae325a"
+   },
+   "registration_sha256": "5c1bded0743a28c8fa58ae54434a7007624c613a13973e54c2d938e4d8576dcf"
+  },
+  "0b3a0d4c5ab9fad14c793cebba91b0b06b7a6a23": {
+   "registration": "/home/mike/mcai-analysis/toolkit-03.132694cb.json",
+   "approved": "toolkit-03 agent 2026-10-19: tk3-on-0b3a0d4 @ 132694cb = the adbec4f4 variant cherry-picked onto treefarm-02 0b3a0d4c with NO conflict, byte-identical change; npm test 274/274. USE ONLY if the fleet is 0b3a0d4c. ORDINARY canary.",
+   "canary_sha": "132694cb1bf954184c43a1644819ae1f7c083baf",
+   "branch": "tk3-on-0b3a0d4",
+   "reads_src": "/home/mike/mcai-analysis",
+   "reads": {
+    "kitsearchread": "3affdb8ea1883914a91a1a9b92e32e47",
+    "toolkitread": "53b0925653bf2584c77ecc96e20c7a14",
+    "smeltjobread": "c2345e995be2341e3ad0c8a3317f49a7",
+    "immobiledid": "53af289df12208901931dbeeb1ae325a"
+   },
+   "registration_sha256": "1baf6c4887dd7ffc067fb1957e95979f2be64bbc7beb189749e3b6ccf39ee8c8"
+  },
+  "9e7d998003aeead7a2763958f1147f76e3b4a3f3": {
+   "registration": "/home/mike/mcai-analysis/toolkit-03.34d3e5e9.json",
+   "approved": "toolkit-03 agent 2026-10-19: tk3-on-9e7d998 @ 34d3e5e9 on cobblekeep-01 9e7d9980 (origin/cobblekeep-on-adbec4f). npm test 270/270. Codex ck APPROVE + Claude ck APPROVE (light review of the one composition commit; the 7 toolkit-03 commits cherry-picked with NO conflict and stand on their own reviews: Codex r6 + Claude r5/final APPROVE). Composition checked by behaviour: cobblekeep's REAL town deposit banks coal and its took re-opens the smelt job's coal search (towndeposit.test); dirt lid dug / leaves open / oak_planks blocked -> the kit and coal searches move on (kitsearch, smeltsearch; mutants blockedStops, blockedStopsRun). eslint no-undef only reflex.mjs:2384 withinBody. NO draw_require_pools key. ORDINARY canary. USE ONLY if the fleet is 9e7d9980.",
+   "canary_sha": "34d3e5e9629a45bcdb54c0e88870dacf09b8a22b",
+   "branch": "tk3-on-9e7d998",
+   "reads_src": "/home/mike/mcai-analysis",
+   "reads": {
+    "kitsearchread": "3affdb8ea1883914a91a1a9b92e32e47",
+    "toolkitread": "53b0925653bf2584c77ecc96e20c7a14",
+    "smeltjobread": "c2345e995be2341e3ad0c8a3317f49a7",
+    "immobiledid": "53af289df12208901931dbeeb1ae325a"
+   },
+   "registration_sha256": "7792ce6c3870f8bd575b9903c6a506df6df8967674e5ad518aed052f0f77210e"
+  },
+  "5d36b839afe268dd35ac3c77cbd66de76ad2b27e": {
+   "registration": "/home/mike/mcai-analysis/toolkit-03.1b842cd3.json",
+   "approved": "toolkit-03 agent 2026-10-19: tk3-on-5d36b83 @ 1b842cd3 on cobblekeep-01 5d36b839 (origin/cobblekeep-on-0b3a0d4, treefarm-02 lane); the same change as the 9e7d9980 variant (diff of +/- lines identical). npm test 275/275 at 70e89315 (the tip adds the test-only P3 commit; kitsearch 26/26, smeltsearch 15/15, towndeposit pass at the tip). Codex ck APPROVE + Claude ck APPROVE (light review of the one composition commit; the 7 toolkit-03 commits cherry-picked with NO conflict and stand on their own reviews: Codex r6 + Claude r5/final APPROVE). Composition checked by behaviour: cobblekeep's REAL town deposit banks coal and its took re-opens the smelt job's coal search (towndeposit.test); dirt lid dug / leaves open / oak_planks blocked -> the kit and coal searches move on (kitsearch, smeltsearch; mutants blockedStops, blockedStopsRun). eslint no-undef only reflex.mjs:2384 withinBody. NO draw_require_pools key. ORDINARY canary. USE ONLY if the fleet is 5d36b839.",
+   "canary_sha": "1b842cd3cf58abeb00c6c3bce24315bfce367b45",
+   "branch": "tk3-on-5d36b83",
+   "reads_src": "/home/mike/mcai-analysis",
+   "reads": {
+    "kitsearchread": "3affdb8ea1883914a91a1a9b92e32e47",
+    "toolkitread": "53b0925653bf2584c77ecc96e20c7a14",
+    "smeltjobread": "c2345e995be2341e3ad0c8a3317f49a7",
+    "immobiledid": "53af289df12208901931dbeeb1ae325a"
+   },
+   "registration_sha256": "04b9ac653bb335947738251b6ab4d0e4366f59c3cfc0cbe10fdc0280d6ac2e6a"
+  }
+ }
+}

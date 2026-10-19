@@ -1,0 +1,195 @@
+{
+ "run_id": "toolkit-03",
+ "sha": "34d3e5e9629a45bcdb54c0e88870dacf09b8a22b",
+ "registered_at": "2026-10-19T16:30:00Z",
+ "ladder_change": false,
+ "promotion": "fleet-wide",
+ "class": "",
+ "notes": "[toolkit-03 on cobblekeep-01 9e7d9980 (origin/cobblekeep-on-adbec4f; USE ONLY if cobblekeep-01 is KEPT and promoted on the adbec4f4 lane: the fleet is then 9e7d9980): branch tk3-on-9e7d998 @ 34d3e5e9. The approved adbec4f4 variant's 7 commits (28dc1158) cherry-picked with NO conflict, plus one composition commit (exported townCoalMiss = the job's precheck, same rule; towndeposit scene: cobblekeep's REAL deposit banks coal and re-opens the coal search; LIDS x COBBLEKEEP: dirt lid dug, leaves open, oak_planks blocked -> the kit/coal search moves on) and its test-only P3 commit. Light review Codex APPROVE + Claude APPROVE. OWNER 10-19 ~12:15Z 'yes do that': toolkit's iron draw uses withdraw_pick's town search (townsearch-01/02). The coordinator (10-19) added the smelt job's draw as the same search change: copper first, then coal as its OWN need. MEASURED 10-19: kit 521 no_iron vs 156 crafted / 24 h with 2,343 ingots in town chests (every town 2-11 kit-sized holders; nearest the 1st-11th nearest home, median 7th; draw capped at 3); smelt 516 no_fuel / 24 h, 489 after taking 8 copper. ORDINARY canary.]",
+ "lint": "eslint no-undef on this tip: exactly one hit, bots/src/reflex.mjs:2384 'withinBody' -- the pre-existing guarded line.",
+ "licence": {
+  "class": "kind",
+  "kind": "_toolkit_search_mode",
+  "min_rows": 1,
+  "note": "Only a toolkit-03 build writes _toolkit_search_mode (phase=mode search=town need=kit_iron order=unknown,nearest visits=12 craft_reserve_s=60 no_backoff=kit_search_more), once per spawn in index.mjs; Paper: 1 per bot process. Proves the build is live, not the effect."
+ },
+ "reads": [
+  "kitsearchread",
+  "toolkitread",
+  "smeltjobread",
+  "immobiledid"
+ ],
+ "read_minutes": [
+  360,
+  720
+ ],
+ "deadline_min": 1680,
+ "change_rows": [
+  "kit_search"
+ ],
+ "linkage_extra": [],
+ "draw_exposure": {
+  "hours": 24,
+  "require": [
+   {
+    "name": "kit runs that ended no_iron",
+    "kind": "toolkit",
+    "detail_contains": "outcome=no_iron",
+    "min": 20
+   }
+  ],
+  "note": "drawexposure.py 10-19 13:07Z (24 h, 1,489,015 rows, 80 bots, 196 kinds): board-a 60, hive-a 24, hive-b 45, placebo-a 36 eligible (placebo-c and isolated-* are excluded by the drawer itself; their 53-83 no_iron rows are the same population). The `_toolkit` kit row is the only row carrying outcome=no_iron (the runner's own `toolkit` row says 'no town container in reach holds...'). No draw_require_pools key."
+ },
+ "exposure": {
+  "read": "kitsearchread",
+  "field": "exposure_ready",
+  "min": 1,
+  "note": ">= 6 canary kit rows carrying the search's town= in the read window AND pre-window kit attempts on both arms >= 1. Dry run 10-19 (CANARY_DRYRUN isolated-b,placebo-c, 6 h): 32 canary-arm attempts / 6 h on the base, so 6 searched rows by +360 is expected."
+ },
+ "own_lines": [
+  {
+   "read": "kitsearchread",
+   "field": "rep_same_container",
+   "op": "<=",
+   "value": 0,
+   "on_fail": "REVERT",
+   "evidence": "defect",
+   "note": "D1: one canary kit run whose own maxrep counter says a container was opened 2+ times in that run."
+  },
+  {
+   "read": "kitsearchread",
+   "field": "visits_over_budget",
+   "op": "<=",
+   "value": 0,
+   "on_fail": "REVERT",
+   "evidence": "defect",
+   "note": "D2: one canary kit run with more than 12 visits (KIT_SEARCH_VISITS)."
+  },
+  {
+   "read": "kitsearchread",
+   "field": "more_loop",
+   "op": "<=",
+   "value": 0,
+   "on_fail": "REVERT",
+   "evidence": "defect",
+   "note": "D3: one canary bot with >= 5 `more` kit runs inside 45 min (KIT_MORE_MAX allows 4)."
+  },
+  {
+   "read": "kitsearchread",
+   "field": "smelt_churn",
+   "op": "<=",
+   "value": 0,
+   "on_fail": "REVERT",
+   "evidence": "defect",
+   "note": "D4: one canary bot with >= 13 copper-taking, non-smelting smelt jobs in 6 h with no smelt between (SMELT_MORE_TRIPS x 4 = 12 is the bound)."
+  },
+  {
+   "read": "kitsearchread",
+   "field": "search_rows_control",
+   "op": "<=",
+   "value": 0,
+   "on_fail": "REVERT",
+   "note": "Arms: a control kit row with town=, or a control _toolkit_search_mode row, after the deploy. BLOCKS KEEP."
+  },
+  {
+   "read": "kitsearchread",
+   "field": "search_rows_canary",
+   "op": ">=",
+   "value": 1,
+   "on_fail": "REVERT",
+   "note": "LIVENESS (mechanism): >= 1 canary kit row ran the search (town=). BLOCKS KEEP (INCONCLUSIVE)."
+  },
+  {
+   "read": "kitsearchread",
+   "field": "instrument_control",
+   "op": ">=",
+   "value": 1,
+   "on_fail": "REVERT",
+   "note": "POSITIVE CONTROL: control kit attempts and control no_iron rows visible. BLOCKS KEEP."
+  },
+  {
+   "read": "toolkitread",
+   "field": "k1_no_pick",
+   "op": "<=",
+   "value": 0,
+   "on_fail": "REVERT",
+   "evidence": "defect",
+   "note": "toolkit-02's K1 on the canary arm (a kit run that ended with no usable pickaxe). toolkitread's own rows_control line is NOT used: toolkit-02 is fleet-wide, so control writes _toolkit."
+  },
+  {
+   "read": "toolkitread",
+   "field": "k2_usable_lost",
+   "op": "<=",
+   "value": 0,
+   "on_fail": "REVERT",
+   "evidence": "defect",
+   "note": "toolkit-02's K2 on the canary arm."
+  },
+  {
+   "read": "toolkitread",
+   "field": "k3_drawn_no_tool",
+   "op": "<=",
+   "value": 0,
+   "on_fail": "REVERT",
+   "evidence": "defect",
+   "note": "toolkit-02's K3 on the canary arm (iron drawn, no tool made, no later verified craft)."
+  },
+  {
+   "read": "toolkitread",
+   "field": "k4_unverified_craft",
+   "op": "<=",
+   "value": 0,
+   "on_fail": "REVERT",
+   "evidence": "defect",
+   "note": "toolkit-02's K4 on the canary arm."
+  },
+  {
+   "read": "smeltjobread",
+   "field": "breach_copper",
+   "op": "<=",
+   "value": 0,
+   "on_fail": "REVERT",
+   "evidence": "defect",
+   "note": "smeltjob-01's C1 on the canary arm (copper balance broken). Its control_job_rows (LEAK) line is NOT used: smeltjob-01 is fleet-wide."
+  },
+  {
+   "read": "smeltjobread",
+   "field": "breach_overlap",
+   "op": "<=",
+   "value": 0,
+   "on_fail": "REVERT",
+   "evidence": "defect",
+   "note": "smeltjob-01's C2 (furnace lease broken)."
+  },
+  {
+   "read": "smeltjobread",
+   "field": "breach_loop",
+   "op": "<=",
+   "value": 0,
+   "on_fail": "REVERT",
+   "evidence": "defect",
+   "note": "smeltjob-01's C3 (> 7 smelt_town rows of one bot in 60 min)."
+  }
+ ],
+ "primary": {
+  "read": "kitsearchread",
+  "field": "crafted_did",
+  "note": "REPORTED: kits crafted (crafted|partial) per bot-h DiD (should RISE); no_iron per attempt DiD (should FALL) read WITH unfound (no_iron|more|stalled|unseen|no_sticks) per attempt; SMELT: ingots smelted per bot-h DiD, no_fuel per job DiD with fuel_unfound (no_fuel|search_more|search_stalled); _kit_search seconds per canary bot-h."
+ },
+ "harm": {
+  "note": "Unchanged: the two-death floor (OWNER 2026-09-11) and gather_ratio < 0.43 of control (immobiledid). The kit draw walks to up to 12 town containers per run (Paper: 10 in ~25 s), the smelt job up to 12 + 16; all inside town. Town iron: 4 ingots per kit, every container keeps 4. change_rows: `kit_search` (one per searched kit run, timestamp = the search's end, duration = its walks); the baseline cannot write it (changerowcheck)."
+ },
+ "teardown": {
+  "note": "THREE STEPS: drop-ins, clear canary_pool, restart the pool's bots 12 s apart; then confirm the live versions. The change itself edits nothing in the world (it takes what the base would, from other containers)."
+ },
+ "amendments": [],
+ "extension": {
+  "until_exposure": true,
+  "extra_reads": [
+   1080,
+   1440
+  ],
+  "final_on_zero_exposure": "INCONCLUSIVE",
+  "note": "SHORT CANARY for a fix (owner 2026-09-29): extend until exposure."
+ }
+}
