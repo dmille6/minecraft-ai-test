@@ -170,7 +170,7 @@ await t('THE SMELT KEEPS INSIDE THE JOB\'S CLOCK (WIRING, structural, comments s
   assert.equal((src.match(/budgetMs: Math\.max\(0, deadline - Date\.now\(\)\)/g) ?? []).length, 2, 'both plans sized to what is left')
 })
 // THE SMELT'S CLOCK BACKSTOP (Codex r3 P2): the search found the coal but the clock moved 70 s during it -> the smelt is NOT
-// started with < SMELT_MIN_SMELT_MS; the copper and coal go back, stop=search_more. CONTROL: no jump -> past the guard.
+// started with < SMELT_MIN_SMELT_MS; the copper and coal go back, stop=smelt_late (accounted as search_more). CONTROL: no jump -> past the guard.
 const lateSmelt = async (S, jump) => {
   const coalAt = CHESTS[3]
   const w = town({ coalAt })
@@ -185,23 +185,40 @@ const lateSmelt = async (S, jump) => {
   const row = RECS.slice(n0).filter(x => x?.skill?.name === '_smelt_town').at(-1)?.skill?.detail ?? ''
   return { r, row, w, coalAt }
 }
-await t('THE SMELT\'S CLOCK BACKSTOP (Codex r3 P2): the search took the clock -> no smelt started, the copper and coal go back, search_more; CONTROL: on time -> the guard passes', async () => {
+await t('THE SMELT\'S CLOCK BACKSTOP (Codex r3 P2): the search took the clock -> no smelt started, the copper and coal go back, smelt_late; CONTROL: on time -> the guard passes', async () => {
   const { r, row, w, coalAt } = await lateSmelt(S0, true)
-  assert.equal(r.stop, SJ.SMELT_SEARCH_MORE, `${r.status} ${r.stop} ${r.detail}`)
+  assert.equal(r.stop, SJ.SMELT_LATE, `${r.status} ${r.stop} ${r.detail}`)
   assert.match(row, /withdrawn=8 coal=1 /, row)
   assert.equal(count(chest(w, COPPER), 'raw_copper'), 8); assert.equal(CHESTS.reduce((n, c) => n + count(chest(w, c), 'coal'), 0), 4)
   void coalAt
   const ctl = await lateSmelt(S0, false)
-  assert.notEqual(ctl.r.stop, SJ.SMELT_SEARCH_MORE, `CONTROL: ${ctl.r.stop} ${ctl.row}`)
+  assert.notEqual(ctl.r.stop, SJ.SMELT_LATE, `CONTROL: ${ctl.r.stop} ${ctl.row}`)
+  assert.equal(SJ.smeltTownOutcome('no_effect', SJ.SMELT_LATE, 1e12, {}).streak ?? null, null, 'smelt_late strikes no streak (as search_more)')
 })
-await t(`smeltTownOutcome: ${SJ.SMELT_MORE_TRIPS} trips of the \`more\` cap with no success between PAUSE the job (Claude r3 P1: other bots' deposits can undo its progress); a success resets them`, () => {
-  const run = (SJm, seq) => { let s = {}; for (const [st, why] of seq) s = SJm.smeltTownOutcome(st, why, 1e12, s); return s }
-  const trip = Array.from({ length: SJ.SMELT_MORE_MAX + 1 }, () => ['no_effect', SJ.SMELT_SEARCH_MORE])
-  const churn = run(SJ, Array.from({ length: SJ.SMELT_MORE_TRIPS }, () => trip).flat())
-  assert.equal(churn.pausedUntil, 1e12 + SJ.SMELT_JOB_PAUSE_MS, 'paused after the trips')
-  const ok = run(SJ, [...Array.from({ length: SJ.SMELT_MORE_TRIPS - 1 }, () => trip).flat(), ['success', 'done'], ...trip])
-  assert.equal(ok.pausedUntil ?? 0, 0, 'a success between resets the trips')
-  globalThis.__smeltTrips = SJm => assert.ok(run(SJm, Array.from({ length: SJ.SMELT_MORE_TRIPS }, () => trip).flat()).pausedUntil > 0)
+// THE DRY-JOB BOUND through the REAL order and outcome (Codex r4 P2's sequence): jobs 10 min apart, the order deciding
+// admission, the outcome its state -- the capped churn AND the mixed one pause within SMELT_DRY_MAX admitted dry jobs
+const dryRun = (SJm, reasons, n = 40) => {
+  let s = {}, t = 1e12, admitted = 0, pausedAt = null
+  for (let i = 0; i < n && pausedAt == null; i++, t += 600_001) {
+    const o = SJm.smeltTownOrder({ now: t, atTown: true, freeSlots: 5, held: {}, townMiss: false, state: s })
+    s = o.state
+    if (!o.order) { if (o.skip === 'paused') pausedAt = admitted; continue }
+    admitted++
+    const why = reasons[(admitted - 1) % reasons.length]
+    s = SJm.smeltTownOutcome(why === 'done' ? 'success' : 'no_effect', why, t, s)
+  }
+  return { admitted, pausedAt }
+}
+const dryBound = SJm => {
+  const capped = dryRun(SJm, ['search_more'])
+  assert.ok(capped.pausedAt != null && capped.pausedAt <= SJm.SMELT_DRY_MAX, `capped churn: ${JSON.stringify(capped)}`)
+  const mixed = dryRun(SJm, ['search_more', 'search_more', 'search_more', 'no_fuel', 'search_more', 'search_more', 'search_more', 'search_stalled'])
+  assert.ok(mixed.pausedAt != null && mixed.pausedAt <= SJm.SMELT_DRY_MAX, `mixed reasons (Codex r4 P2): ${JSON.stringify(mixed)}`)
+}
+await t(`THE DRY-JOB BOUND: through the real smeltTownOrder/smeltTownOutcome, the capped search_more churn AND a mixed sequence (search_more x3, no_fuel, search_more x3, search_stalled) pause within ${SJ.SMELT_DRY_MAX} admitted jobs; a success resets the count`, () => {
+  dryBound(SJ)
+  const ok = dryRun(SJ, [...Array.from({ length: SJ.SMELT_DRY_MAX - 1 }, () => 'search_more'), 'done'], SJ.SMELT_DRY_MAX * 2)
+  assert.equal(ok.pausedAt, null, `a success every ${SJ.SMELT_DRY_MAX} jobs never pauses: ${JSON.stringify(ok)}`)
 })
 await t('smeltTownOutcome: a success resets the `more` streak (the cap counts CONSECUTIVE search_more; Codex r3 P3)', () => {
   let s = {}
@@ -290,10 +307,10 @@ await t('MUTANTS: each removes one part of the job\'s search and a behaviour tes
   } catch { return false }`, S => killedBy(() => gateAgrees(S)))
   kills.noSmeltGuard = await withMutant(SKILLS_PATH, 'if (smeltDeadline - Date.now() < SMELT_MIN_SMELT_MS) {', 'if (false) {', S => killedBy(async () => {
     const { r } = await lateSmelt(S, true)
-    assert.equal(r.stop, SJ.SMELT_SEARCH_MORE)
+    assert.equal(r.stop, SJ.SMELT_LATE)
   }))
-  kills.noTripPause = await withMutant(SJ_PATH, '    if (s.moreTrips >= SMELT_MORE_TRIPS) {', '    if (false) {', SJm => killedBy(() => globalThis.__smeltTrips(SJm)))
-  kills.moreStrikes = await withMutant(SJ_PATH, '  if (why === SMELT_SEARCH_MORE) {', '  if (false) {', SJm => killedBy(() => globalThis.__smeltStreak(SJm)))
+  kills.noDryBound = await withMutant(SJ_PATH, '    if (s.dry >= SMELT_DRY_MAX) {', '    if (false) {', SJm => killedBy(() => dryBound(SJm)))
+  kills.moreStrikes = await withMutant(SJ_PATH, '  if (why === SMELT_SEARCH_MORE || why === SMELT_LATE) {', '  if (false) {', SJm => killedBy(() => globalThis.__smeltStreak(SJm)))
   const alive = Object.entries(kills).filter(([, k]) => !k).map(([n]) => n)
   assert.deepEqual(alive, [], `mutants that survived: ${alive}`)
   console.log(`        mutants killed: ${Object.keys(kills).join(', ')}`)
