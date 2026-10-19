@@ -114,6 +114,10 @@ test('IRON KEEP, pure: the ladder\'s 3 units, ingots first, each name WHOLE; coa
   assert.deepEqual(K({ iron_ingot: 3, sand: 8, coal: 7, ...bk }, { wanted: ['glass', 'sand'] }), { iron_ingot: 3, coal: 7 }, 'wanted glass: the 8 sand need the coal')
   assert.deepEqual(K({ iron_ingot: 3, sand: 8, coal: 7, ...bk }, { wanted: ['glass'] }), { iron_ingot: 3, coal: 7 }, 'the output alone names its input')
   assert.deepEqual(K({ iron_ingot: 3, coal: 7, ...bk }, { wanted: ['glass'] }), { iron_ingot: 3 }, 'wanted glass but no sand held: nothing to smelt, the coal goes')
+  // Claude r4 P3-1: a wanted INPUT alone is a gather or a craft, not a smelt
+  assert.deepEqual(K({ iron_ingot: 2, cobblestone: 300, coal: 20, ...bk }, { wanted: ['cobblestone'] }), { iron_ingot: 2 }, 'the cobble rungs burn no coal')
+  assert.deepEqual(K({ iron_ingot: 3, sand: 8, coal: 7, ...bk }, { wanted: ['sand'] }), { iron_ingot: 3 }, 'the gatherer\'s sand rung burns no coal')
+  assert.deepEqual(K({ iron_ingot: 3, cobblestone: 64, coal: 5, ...bk }, { wanted: ['stone'] }), { iron_ingot: 3, coal: 5 }, 'positive control: wanted stone smelts the cobble')
   assert.deepEqual(K({ iron_ingot: 3, oak_log: 20, coal: 4, ...bk }, { wanted: ['oak_log', 'charcoal'] }), { iron_ingot: 3 }, 'wood is fuel, never a smelt that needs coal')
   assert.deepEqual(K({ iron_ingot: 3, sand: 8, coal: 7, ...bk }, { wanted: ['stick'] }), { iron_ingot: 3 }, 'a rung that smelts nothing keeps no coal')
   assert.deepEqual(K({}), {})

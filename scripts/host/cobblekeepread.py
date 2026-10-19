@@ -34,7 +34,9 @@
 #   COAL / IRON (the second half, OWNER 10-19 ~14:10Z "coal and iron must get banked in town"; towndeposit.mjs ironKeeps)
 #     D4 breach_ingot_banked: a canary `_town_deposit` that banked iron_ingot -- the keep holds every ingot (the next craft)
 #     REPORTED coal and raw iron/ore banked by the town deposit per bot-h DiD (should RISE: the mechanism); the OWNER'S
-#              targets (Claude r3 P3-3): toolkit `outcome=no_iron` and town smelt jobs stopped on coal, per bot-h DiD (FALL)
+#              targets (Claude r3 P3-3): town smelt jobs stopped `no_fuel` per bot-h DiD (should FALL: banked coal feeds the
+#              copper job), with the job's row count as the positive control; toolkit `outcome=no_iron` per bot-h DiD is
+#              NOT expected to move (Claude r4 P2-2: nothing turns banked raw iron into the toolkit's ingots -- a follow-up)
 #   TRIPWIRES  (never a verdict) the escape: canary snapshots with < 64 RESERVE_STONE within 10 min after a canary well
 #              cobble throw by that bot (names them); deaths are the gate's linkage (change_rows: _well_dispose, _lid_clear)
 #   INSTRUMENT control _stock_refused via=town_deposit cobble rows >= 1 AND control _well_dispose rows >= 1
@@ -222,7 +224,9 @@ def judge(rows, bag=None, last=None, snaps=None, exposure_pre=None):
             out['banked_coal_%s_%s' % (per, arm)] = sum(banked(r).get('coal', 0) for r in sel)
             out['banked_iron_%s_%s' % (per, arm)] = sum(sum(banked(r).get(n, 0) for n in IRON_BANK[1:]) for r in sel)
             out['kit_no_iron_%s_%s' % (per, arm)] = sum(1 for r in sel if r['name'] == '_toolkit' and kv(r['detail']).get('outcome') == 'no_iron')
-            out['smelt_no_coal_%s_%s' % (per, arm)] = sum(1 for r in sel if r['name'] == '_smelt_town' and 'coal' in (kv(r['detail']).get('stop') or ''))
+            # the town smelt job's coal shortage is stop=no_fuel (skills.mjs; Claude r4 P2-1: no stop value names 'coal')
+            out['smelt_no_coal_%s_%s' % (per, arm)] = sum(1 for r in sel if r['name'] == '_smelt_town' and kv(r['detail']).get('stop') == 'no_fuel')
+            out['smelt_rows_%s_%s' % (per, arm)] = sum(1 for r in sel if r['name'] == '_smelt_town')
             out['well_rows_%s_%s' % (per, arm)] = sum(1 for r in sel if r['name'] == '_well_dispose')
             out['town_deposit_%s_%s' % (per, arm)] = sum(1 for r in sel if r['name'] == 'town_deposit')
             out['lid_blocked_%s_%s' % (per, arm)] = sum(1 for r in sel if r['name'] == 'count_town' and 'lid_blocked' in (kv(r['detail']).get('fails') or ''))
@@ -287,8 +291,11 @@ def selftest():
     assert judge([TDR('iron_ingot:3', arm='control', bot='hive-b-A')] + ctl)['breach_ingot_banked'] == 0, 'D4 judges the canary arm'
     assert judge([TDR('-')] + ctl)['banked_coal_post_canary'] == 0
     ow = judge([R('_toolkit', 'phase=kit outcome=no_iron needs=iron_axe drew=0'), R('_toolkit', 'phase=kit outcome=crafted needs=iron_axe drew=3'),
-                R('_smelt_town', 'job=1 stop=no_coal_in_town n=0'), R('_smelt_town', 'job=2 stop=done n=8')] + ctl)
-    assert ow['kit_no_iron_post_canary'] == 1 and ow['smelt_no_coal_post_canary'] == 1, ow
+                # the REAL row format (smeltjob.mjs smeltTownDetail)
+                R('_smelt_town', 'stop=no_fuel n=0 bag0=- withdrawn=- coal=0 smelted=- prior=- deposited=- dep_i=- dep_r=- bag1=- left=- furnace=- lease=- verdict=- diff=- chest=- t0=- fb=-'),
+                R('_smelt_town', 'stop=done n=8 bag0=- withdrawn=- coal=1 smelted=8 prior=- deposited=- dep_i=- dep_r=- bag1=- left=- furnace=- lease=- verdict=- diff=- chest=- t0=- fb=-'),
+                R('_smelt_town', 'stop=town_has_none n=0 bag0=- withdrawn=- coal=0 smelted=- prior=- deposited=- dep_i=- dep_r=- bag1=- left=- furnace=- lease=- verdict=- diff=- chest=- t0=- fb=-')] + ctl)
+    assert ow['kit_no_iron_post_canary'] == 1 and ow['smelt_no_coal_post_canary'] == 1 and ow['smelt_rows_post_canary'] == 3, ow
     print('SELFTEST ok: every gate fails on its fixture and passes its control')
 
 
@@ -344,9 +351,10 @@ if __name__ == '__main__':
           % (res['banked_coal_pre_canary'], res['banked_coal_post_canary'], res['banked_coal_pre_control'], res['banked_coal_post_control'], dids['banked_coal'],
              res['banked_iron_pre_canary'], res['banked_iron_post_canary'], res['banked_iron_pre_control'], res['banked_iron_post_control'], dids['banked_iron'],
              res['breach_ingot_banked'], res['_lists']['ingot']))
-    print('OWNER TARGETS toolkit no_iron canary %d -> %d control %d -> %d DiD %+.3f /bot-h | town smelt jobs stopped on coal canary %d -> %d control %d -> %d DiD %+.3f /bot-h (both should FALL; reported)'
-          % (res['kit_no_iron_pre_canary'], res['kit_no_iron_post_canary'], res['kit_no_iron_pre_control'], res['kit_no_iron_post_control'], dids['kit_no_iron'],
-             res['smelt_no_coal_pre_canary'], res['smelt_no_coal_post_canary'], res['smelt_no_coal_pre_control'], res['smelt_no_coal_post_control'], dids['smelt_no_coal']))
+    print('OWNER TARGETS town smelt jobs stop=no_fuel canary %d -> %d control %d -> %d DiD %+.3f /bot-h (should FALL) of _smelt_town rows canary %d -> %d control %d -> %d (instrument) | toolkit no_iron canary %d -> %d control %d -> %d DiD %+.3f /bot-h (NOT expected to move: no raw-iron -> ingot path in town)'
+          % (res['smelt_no_coal_pre_canary'], res['smelt_no_coal_post_canary'], res['smelt_no_coal_pre_control'], res['smelt_no_coal_post_control'], dids['smelt_no_coal'],
+             res['smelt_rows_pre_canary'], res['smelt_rows_post_canary'], res['smelt_rows_pre_control'], res['smelt_rows_post_control'],
+             res['kit_no_iron_pre_canary'], res['kit_no_iron_post_canary'], res['kit_no_iron_pre_control'], res['kit_no_iron_post_control'], dids['kit_no_iron']))
     print('TRIPWIRES    reserve stone < %d within %d s after a canary well cobble throw %d %s'
           % (RESERVE, ESCAPE_WINDOW_S, res['escape_low_after_throw'], res['_lists']['escape']))
     print('EXPOSURE     -> %s (frozen: canary town-deposit cobble refusals in the %d h before declared_at %d of %d rows walked, need 3) | INSTRUMENT control refusals %d, control well rows %d -> %s'

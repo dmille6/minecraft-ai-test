@@ -86,14 +86,17 @@ pickaxe; counted as their rungs count them), never fewer than 3 (the gather rung
 banked the raw iron of a bot lacking both, which then crafted the bucket and went back underground for the pickaxe's iron.
 Ingots first, then raw iron, then ore, each NAME whole (the town deposit moves whole stacks only). Coal/charcoal (the
 first name, whole) stay while the bot keeps something of its OWN to smelt: the raw iron/ore kept, or the active rung's
-wanted smelt (glass -> sand; never wood) — r4, Codex r3 P2: 8 sand for wanted glass had lost all its coal. The kept wood
+wanted smelt (the inputs of a wanted OUTPUT: glass -> sand; never wood; a wanted input alone is a gather or craft, not a
+smelt — r5, Claude r4 P3-1) — r4, Codex r3 P2: 8 sand for wanted glass had lost all its coal. The kept wood
 is not counted as the alternative fuel (it is the stockpile rungs'). Everything else banks. Away from town the room
 order still keeps 16 coal (a different exit); a raw-iron smelt with no coal may burn a few kept planks, as before.
 **What it moves (r4 rule, 10-19 ~14:40Z snapshot):** coal 93 held -> 89 bankable (22 bots); raw iron 25 -> 21 (11 bots);
 **no ingot** — every ingot in a bag today is that bot's next craft (79 of 80 hold a bucket, so their 1-3 ingots are the
 pickaxe's), so the towns' ingot shortage cannot be met from bags without starving a rung. Banked raw iron becomes
 available IN TOWN, but this change supplies no automatic conversion to toolkit ingots (Codex r4 P3: the town smelt job,
-smeltjob.mjs, smelts raw COPPER only); the coal it banks is what those copper jobs stop for. (A bot holding both still keeps 3, or the gather rung re-opens and sends it mining:
+smeltjob.mjs, smelts raw COPPER only); the coal it banks is what those copper jobs stop for (`stop=no_fuel`). **The owner's
+iron target (toolkit "no iron") needs a separate follow-up** -- a town job that smelts raw iron, or a toolkit that can
+smelt -- as its own canary; this change is not expected to move it. (A bot holding both still keeps 3, or the gather rung re-opens and sends it mining:
 a ladder decision, not this one.) Nuggets and charcoal are not on the bank's list (bankable.mjs). Exposure: the canary
 pool must hold bots carrying coal or raw iron (22 and 11 of 80 bots, spread across pools) — reported, not drawn on.
 **Not a setting:** the keep is new logic (whole names, ordering, the smelt condition), not a number.
