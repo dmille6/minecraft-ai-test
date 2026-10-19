@@ -888,6 +888,54 @@ test('STOCK CHAIN (b): a full bag at a town at its tool target, nothing else to 
     assert.ok((CC.readJournal(process.env.POOL_STATE_DIR, CF.townKey(new Vec3(0, 70, 0)), bot.worldId ?? null) ?? []).some(r => r.t === 'claim' && r.kind === 'valve' && r.proof === 'nothing_else'), 'under a valve claim with its proof: ' + JSON.stringify(CC.readJournal(process.env.POOL_STATE_DIR, CF.townKey(new Vec3(0, 70, 0)), bot.worldId ?? null)))
   } finally { done() }
 })
+// COBBLEKEEP-01 (docs/reports/cobblekeep-01-cause-2026-10-19.md): THE DEPOSIT -> WELL CHAIN at the cap, through the REAL
+// town_deposit. A full bag of cobble at a town counted COMPLETE at CAP - 16, two hours ago (inside the cap's 6 h, outside
+// the floor's hour: how the fleet's towns look). The deposit refuses every stack at the cap and moves nothing; the well's
+// switch for that bag must then say at_cap, or the bot has no legal move (stonecap's switch, read from the floor, said
+// `below`: measured 10-19, 163 at-cap deposit refusals a day while the well threw cobble on 33 of 232 visits).
+const cobbleFullBag = () => bag([['cobblestone', 30], ...Array.from({ length: 35 }, () => ['cobblestone', 64])])
+const cobbleTown = async n => stockChain({ items: cobbleFullBag(), chest: chestAt(2), seed: { t: 'obs', k: '2,70,0', n, cap: Date.now() - 2 * 3600e3 } })
+test('COBBLEKEEP CHAIN: town counted complete at CAP-16 -> the real town deposit refuses the cobble at the cap (a cobble_cap row, nothing moved) -> the well switch is at_cap and its plan takes the surplus to the 64 reserve', async () => {
+  const { bot, done } = await cobbleTown(CAP - 16)
+  const SK = await import('../src/skills.mjs')
+  const W = await import('../src/well.mjs')
+  const refused = []
+  const untap = tapRecords(r => { if (r?.skill?.name === '_stock_refused') refused.push(r.skill.detail) })
+  try {
+    const v = SK.cobbleTownViewFor(bot)
+    assert.equal(v.complete, true, 'positive control: complete'); assert.equal(v.lb, CAP - 16); assert.equal(v.avail, 0, 'off the floor')
+    const r = await run(bot)
+    assert.equal(r.status, 'no_effect', r.detail)
+    assert.ok(refused.some(d => /^via=town_deposit .*cobblestone:2270:cobble_cap/.test(d)), `the refusal names the cap: ${refused.join(' | ')}`)
+    assert.equal(bot.inventory.items().length, 36, 'nothing moved')
+    assert.equal(SK.cobbleWellCap(bot), 'at_cap', 'the well takes what the bank refused')
+    const plan = W.disposePlan(bot.inventory.items(), { maxStacks: Infinity, cobbleAtCap: true })
+    assert.equal(plan.stacks.reduce((t, x) => t + x.count, 0), 2270 - 64, 'every whole stack above the 64 reserve')
+  } finally { untap(); done() }
+})
+test('COBBLEKEEP CHAIN CONTROL: town counted complete at CAP-64 -> the real town deposit BANKS the 30 (room for it); the well keeps the cobble', async () => {
+  const { bot, done } = await cobbleTown(CAP - 64)
+  const SK = await import('../src/skills.mjs')
+  try {
+    assert.equal(SK.cobbleWellCap(bot), 'below', 'room for the 30: the bank, not the well')
+    const r = await run(bot)
+    assert.equal(r.status, 'success', r.detail)
+    assert.equal(bot.inventory.items().length, 35, 'one slot freed by banking')
+  } finally { done() }
+})
+test('COBBLEKEEP CHAIN, MUTANT KILLED: stonecap\'s floor-only well switch leaves the dead end (the bank refuses, the well says below)', async () => {
+  const SP = new URL('../src/skills.mjs', import.meta.url)
+  const src = fs.readFileSync(SP, 'utf8')
+  const old = "    return wellCobbleSwitch(cobbleTownViewFor(bot), stacks[0].count, { cap: TOWN_COBBLE_CAP, held: (h.cobblestone ?? 0) + (h.cobbled_deepslate ?? 0) })"
+  assert.equal(src.split(old).length, 2, 'ANCHOR MISSING or not unique')
+  const out = new URL(`./_mutant-ck-${process.pid}.mjs`, import.meta.url)
+  fs.writeFileSync(out, src.replace(old, "    const v = cobbleTownViewFor(bot); void h; return (Number(v?.avail) || 0) >= TOWN_COBBLE_CAP ? 'at_cap' : v?.complete ? 'below' : 'unknown'").replace(/from '\.\//g, "from '../src/"))
+  const { bot, done } = await cobbleTown(CAP - 16)
+  try {
+    const M = await import(out.href)
+    assert.equal(M.cobbleWellCap(bot), 'below', 'mutant inert')
+  } finally { done(); try { fs.unlinkSync(out) } catch {} }
+})
 test('STOCK CHAIN (b) CONTROL: the same bag with a junk stack the well can take -> no valve (the well frees the slot)', async () => {
   const items = bag([['stone_pickaxe', 1, 131], ['stone_pickaxe', 1, 100], ['crafting_table', 1], ...filler(33)])
   const chest = chestAt(2)

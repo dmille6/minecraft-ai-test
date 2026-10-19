@@ -194,6 +194,34 @@ export function cobbleAdmit (view, stack, cap = TOWN_COBBLE_CAP) {
 }
 
 /**
+ * THE WELL'S COBBLE SWITCH (cobblekeep-01) -> 'at_cap' | 'below' | 'unknown' | 'held' | 'none'. Pure.
+ *   view   townStock's view of the town's cobble (lb: the 6 h counts; avail: the 1 h floor less live takes; taking;
+ *          complete)
+ *   stack  the smallest whole stack the well would take (well.mjs cobbleWellStacks()[0].count); none -> 'none'
+ *   held   cobble a withdraw holds back (bankable.mjs withdrawHolds: plinth funds, a smeltjob's) -> 'held', never thrown
+ * 'at_cap' when the fresh floor holds the cap (stonecap's rule, unchanged), OR when the BANK'S OWN ADMISSION refuses this
+ * very stack at the cap on COUNTED stock: cobbleAdmit over the 6 h counts less what is on its way OUT, with NO incoming
+ * reservation (Codex r1 P1 stands: cobble on its way in never proves the cap). So a stack the deposit must refuse as
+ * `town_cobble_cap` is a stack the well may take -- the two rules no longer leave a band where neither moves it.
+ * WHY (measured 10-19 12:15Z, docs/reports/cobblekeep-01-*.md): of 613 town deposits in 24 h, 163 refused cobble at the
+ * cap, and the well said 'below' or 'unknown' on 116 + 80 of 232 visits (0 cobble), throwing only on its 33 'at_cap' ones
+ * (9,738 cobble): the floor counts only containers opened in the last hour, so a 13-30 container town reads 0-98% of its
+ * 6 h count (placebo-b 0 of 969, board-c 386 of 1000, hive-a 733 of 999), and a town filled to within one stack of the
+ * cap (hive-a 999, board-d 981) can be banked into by no whole stack and thrown from by none.
+ */
+export function wellCobbleSwitch (view, stack, { cap = TOWN_COBBLE_CAP, held = 0 } = {}) {
+  const s = Number(stack) || 0
+  if (!(s > 0)) return 'none'
+  if ((Number(held) || 0) > 0) return 'held'
+  if ((Number(view?.avail) || 0) >= cap) return 'at_cap'
+  const counted = Math.max(0, (Number(view?.lb) || 0) - (Number(view?.taking) || 0))
+  if (cobbleAdmit({ lb: counted, reserved: 0, complete: !!view?.complete }, s, cap) === 'at_cap') return 'at_cap'
+  return view?.complete ? 'below' : 'unknown'
+}
+/** THE LICENCE ROW (cobblekeep-01): written once per spawn by index.mjs as `_cobblekeep_mode`, a kind the base cannot write. */
+export const cobbleKeepModeDetail = (cap = TOWN_COBBLE_CAP) => `phase=mode well=admission lid=dirt,grass_block open=nonconductor cap=${cap}`
+
+/**
  * THE STACKS THAT GO, IN ORDER -> { bank: [stacks], refused: { at_cap, unknown } }. Pure. `stacks` are counts (already
  * whole stacks above the bot's own reserve, smallest first); each admitted one is charged before the next is judged.
  */
