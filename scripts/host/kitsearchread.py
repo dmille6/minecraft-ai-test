@@ -25,8 +25,8 @@
 #   METRICS
 #     crafted        outcome crafted | partial                    per BOT-HOUR, DiD  (PRIMARY, reported)
 #     no_iron        outcome no_iron                              per ATTEMPT, DiD of the proportions (should FALL)
-#     unfound        outcome no_iron | more                       per ATTEMPT, DiD (should FALL too: `more` must not merely
-#                                                                 relabel a no_iron)
+#     unfound        outcome no_iron | more | stalled | unseen | no_sticks   per ATTEMPT, DiD (should FALL too: a new outcome
+#                                                                 must not merely relabel a no_iron)
 #   LIVENESS   search_rows_canary: canary kit rows carrying town= (the search ran) >= 1; licence rows reported
 #   ARMS       control kit rows with town=, or control licence rows, after the deploy (must be 0)
 #   DEFECTS (each REVERTS; each has a failing fixture in --selftest)
@@ -35,8 +35,10 @@
 #     D3 more_loop: one canary bot with >= MORE_LOOP_N `more` runs inside MORE_LOOP_MIN minutes (toolkit.mjs KIT_MORE_MAX caps
 #        the no-backoff streak at 3 then backs off 30 min, so at most 4 fit; Claude r1 P2: a busy town could otherwise hand
 #        every run new candidates for ever)
-#   SMELT (the same change, reported): ingots smelted per bot-h DiD; no_fuel per job DiD (should FALL); town_has_none per
-#              job; search_more per job (canary)
+#     D4 smelt_churn: one canary bot with >= MORE_LOOP_N smelt jobs inside MORE_LOOP_MIN minutes that took copper and smelted
+#        none (search_more | search_stalled | no_fuel with withdrawn > 0): smeltjob.mjs SMELT_MORE_MAX caps it at 4 (r2 P1)
+#   SMELT (the same change, reported): ingots smelted per bot-h DiD; no_fuel per job DiD (should FALL) WITH its pairing
+#              fuel_unfound = no_fuel | search_more | search_stalled per job; town_has_none per job; search_more (canary)
 #   SEARCH TIME  _kit_search seconds per canary bot-h (what the walks cost)
 #   REPORTED   `more` runs per attempt (canary); runs that began with cand=0 (the gate and the search disagreed: a tripwire);
 #              visits / vfail per searched run; outcomes by arm; ingots drawn
@@ -58,6 +60,8 @@ MORE_LOOP_N = 5
 MORE_LOOP_MIN = 45
 NOT_ATTEMPT = ('nothing', 'off')
 CRAFTED = ('crafted', 'partial')
+# every kit run that ended without the iron for a SEARCH reason (Codex r2 P2: a reclassified no_iron must stay counted)
+UNFOUND = ('no_iron', 'more', 'stalled', 'unseen', 'no_sticks')
 
 
 def kv(d):
@@ -172,7 +176,7 @@ def judge(rows):
             out['attempts_' + sfx] = len(sel)
             out['crafted_' + sfx] = sum(oc.get(o, 0) for o in CRAFTED)
             out['no_iron_' + sfx] = oc.get('no_iron', 0)
-            out['unfound_' + sfx] = oc.get('no_iron', 0) + oc.get('more', 0)
+            out['unfound_' + sfx] = sum(oc.get(o, 0) for o in UNFOUND)
             out['more_' + sfx] = oc.get('more', 0)
             out['drew_' + sfx] = sum(num(kv(r['detail']), 'drew', 0) for r in sel)
             out['outcomes_' + sfx] = dict(oc)
@@ -183,6 +187,8 @@ def judge(rows):
             out['no_fuel_' + sfx] = so.get('no_fuel', 0)
             out['town_has_none_' + sfx] = so.get('town_has_none', 0)
             out['search_more_' + sfx] = so.get('search_more', 0)
+            # the pairing (Claude r2 P2): no_fuel can fall because search_more / search_stalled replace it -- read this one
+            out['fuel_unfound_' + sfx] = so.get('no_fuel', 0) + so.get('search_more', 0) + so.get('search_stalled', 0)
     post_c = [r for r in rows if r['per'] == 'post' and r['arm'] == 'canary']
     s = [r for r in post_c if searched(r)]
     out['search_rows_canary'] = len(s)
@@ -210,6 +216,20 @@ def judge(rows):
             if j < len(ts) and (ts[j] - ts[i]).total_seconds() <= MORE_LOOP_MIN * 60:
                 loops.append((b, MORE_LOOP_N, str(ts[i]))); break
     out['more_loop'] = len(loops)
+    # D4 smelt_churn: one canary bot with >= MORE_LOOP_N smelt jobs inside MORE_LOOP_MIN that each took copper and ended without
+    # smelting (search_more / search_stalled / no_fuel with withdrawn > 0) -- the cap (SMELT_MORE_MAX) allows 4
+    churn = []
+    sby = defaultdict(list)
+    for r in post_c:
+        if r['name'] == '_smelt_town' and smelt_stop(r) in ('search_more', 'search_stalled', 'no_fuel') and num(kv(r['detail']), 'withdrawn', 0) > 0:
+            sby[r['bot']].append(r['t'])
+    for b, ts in sby.items():
+        ts.sort()
+        for i in range(len(ts)):
+            j = i + MORE_LOOP_N - 1
+            if j < len(ts) and (ts[j] - ts[i]).total_seconds() <= MORE_LOOP_MIN * 60:
+                churn.append((b, MORE_LOOP_N, str(ts[i]))); break
+    out['smelt_churn'] = len(churn)
     out['search_s_canary'] = round(sum((r.get('dur') or 0) for r in post_c if r['name'] == '_kit_search') / 1000.0, 1)
     out['rep_same_container'] = len(reps)
     out['visits_over_budget'] = len(over)
@@ -220,7 +240,7 @@ def judge(rows):
     out['instrument_control'] = int(out['attempts_post_control'] >= 1 and out['no_iron_post_control'] >= 1)
     out['pre_ok'] = int(out['attempts_pre_canary'] >= 1 and out['attempts_pre_control'] >= 1)
     out['exposure_ready'] = int(out['search_rows_canary'] >= EXPOSURE_RUNS and out['pre_ok'] == 1)
-    out['_lists'] = {'reps': reps[:5], 'over': over[:5], 'zero': zero[:5], 'loops': loops[:5]}
+    out['_lists'] = {'reps': reps[:5], 'over': over[:5], 'zero': zero[:5], 'loops': loops[:5], 'churn': churn[:5]}
     return out
 
 
@@ -283,6 +303,16 @@ def selftest():
     sj = judge([R('_smelt_town', SM_OK), R('_smelt_town', SM_MORE, status='no_effect'), R('_smelt_town', SM_NF, arm='control', bot='board-a-Alpha', status='no_effect')] + ctl)
     assert sj['smelt_jobs_post_canary'] == 2 and sj['smelted_post_canary'] == 8 and sj['search_more_post_canary'] == 1 and sj['no_fuel_post_control'] == 1, sj
     assert contaminated_bots([R('_smelt_town', SM_OK, per='pre', bot='a-b-C')]) == {'a-b-C'} and contaminated_bots([R('_smelt_town', SM_NF, per='pre')]) == set(), 'a base smelt row has no looked='
+    # RELABELLING CANNOT IMPROVE unfound (Codex r2 P2): the same failures as stalled / unseen / no_sticks count the same
+    for oc in ('stalled', 'unseen', 'no_sticks'):
+        rl = judge([R('_toolkit', NOI.replace('outcome=no_iron', 'outcome=' + oc), status='failed')] + ctl)
+        assert rl['unfound_post_canary'] == 1 and rl['no_iron_post_canary'] == 0, (oc, rl)
+    SM_MOREC = SM_MORE.replace('withdrawn=0', 'withdrawn=8')
+    assert judge([R('_smelt_town', SM_MOREC, mins=m, status='no_effect') for m in (0, 10, 20, 30, 40)] + ctl)['smelt_churn'] == 1, 'D4'
+    assert judge([R('_smelt_town', SM_MOREC, mins=m, status='no_effect') for m in (0, 10, 20, 30)] + ctl)['smelt_churn'] == 0, 'D4 control: the cap allows 4'
+    assert judge([R('_smelt_town', SM_MORE, mins=m, status='no_effect') for m in (0, 10, 20, 30, 40)] + ctl)['smelt_churn'] == 0, 'D4 control: no copper taken'
+    rf = judge([R('_smelt_town', SM_MOREC, status='no_effect'), R('_smelt_town', SM_NF, status='no_effect')] + ctl)
+    assert rf['fuel_unfound_post_canary'] == 2 and rf['no_fuel_post_canary'] == 1, rf
     assert pool_of('self-isolated-b-Comet') == 'isolated-b' and pool_of('hive-d-Alpha') == 'hive-d'
     assert kv(NOI)['visits'] == '12' and kv(NOI)['left'] == '0' and kv(MORE)['left'] == '18', 'the counters survive the 300-character cut'
     print('SELFTEST ok: every gate fails on its fixture and passes its control')
@@ -317,8 +347,10 @@ if __name__ == '__main__':
     did_prop = lambda k: (prop(k, 'post', 'canary') - prop(k, 'pre', 'canary')) - (prop(k, 'post', 'control') - prop(k, 'pre', 'control'))
     sprop = lambda k, per, arm: res['%s_%s_%s' % (k, per, arm)] / res['smelt_jobs_%s_%s' % (per, arm)] if res['smelt_jobs_%s_%s' % (per, arm)] else float('nan')
     did_sprop = lambda k: (sprop(k, 'post', 'canary') - sprop(k, 'pre', 'canary')) - (sprop(k, 'post', 'control') - sprop(k, 'pre', 'control'))
+    dids_f = did_sprop('fuel_unfound')
     dids = {'crafted': did_rate('crafted'), 'no_iron_per_attempt': did_prop('no_iron'), 'unfound_per_attempt': did_prop('unfound'), 'drew': did_rate('drew'),
-            'smelted': did_rate('smelted'), 'no_fuel_per_job': did_sprop('no_fuel'), 'town_has_none_per_job': did_sprop('town_has_none')}
+            'smelted': did_rate('smelted'), 'no_fuel_per_job': did_sprop('no_fuel'), 'town_has_none_per_job': did_sprop('town_has_none'),
+            'fuel_unfound_per_job': dids_f}
     print('DENOMINATORS rows walked %d (unparsable %d) | bots pre canary %d control %d | post canary %d control %d | window %d min | bot-h post canary %.1f control %.1f'
           % (walked, bad, len(bots[('pre', 'canary')]), len(bots[('pre', 'control')]), len(bots[('post', 'canary')]), len(bots[('post', 'control')]), W,
              hrs('post', 'canary'), hrs('post', 'control')))
@@ -332,7 +364,7 @@ if __name__ == '__main__':
     print('NO IRON      per attempt (read WITH the next line: no-backoff `more` runs add attempts): canary %d/%d -> %d/%d control %d/%d -> %d/%d | DiD %+.3f (should FALL)'
           % (res['no_iron_pre_canary'], res['attempts_pre_canary'], res['no_iron_post_canary'], res['attempts_post_canary'],
              res['no_iron_pre_control'], res['attempts_pre_control'], res['no_iron_post_control'], res['attempts_post_control'], dids['no_iron_per_attempt']))
-    print('             no_iron | more per attempt: canary %d/%d -> %d/%d control %d/%d -> %d/%d | DiD %+.3f (`more` must not merely relabel)'
+    print('             unfound (no_iron|more|stalled|unseen|no_sticks) per attempt: canary %d/%d -> %d/%d control %d/%d -> %d/%d | DiD %+.3f (`more` must not merely relabel)'
           % (res['unfound_pre_canary'], res['attempts_pre_canary'], res['unfound_post_canary'], res['attempts_post_canary'],
              res['unfound_pre_control'], res['attempts_pre_control'], res['unfound_post_control'], res['attempts_post_control'], dids['unfound_per_attempt']))
     print('LIVENESS     canary kit rows with the search (town=) %d | licence rows %d | control rows with town= or the licence after the deploy %d (must be 0)'
@@ -342,10 +374,10 @@ if __name__ == '__main__':
     print('DEFECTS      D1 a container opened %d+ times in one run %d %s | D2 more than %d visits in one run %d %s'
           % (REP_MAX + 1, res['rep_same_container'], res['_lists']['reps'], VISIT_BUDGET, res['visits_over_budget'], res['_lists']['over']))
     print('             D3 a bot with %d+ `more` runs inside %d min %d %s' % (MORE_LOOP_N, MORE_LOOP_MIN, res['more_loop'], res['_lists']['loops']))
-    print('SMELT        jobs canary %d -> %d control %d -> %d | ingots smelted canary %d -> %d control %d -> %d (DiD %+.3f /bot-h) | no_fuel per job DiD %+.3f (should FALL) | town_has_none per job DiD %+.3f | search_more canary %d'
+    print('SMELT        jobs canary %d -> %d control %d -> %d | ingots smelted canary %d -> %d control %d -> %d (DiD %+.3f /bot-h) | no_fuel per job DiD %+.3f (should FALL; read WITH no_fuel|search_more|search_stalled per job DiD %+.3f) | town_has_none per job DiD %+.3f | search_more canary %d | D4 smelt churn %d %s'
           % (res['smelt_jobs_pre_canary'], res['smelt_jobs_post_canary'], res['smelt_jobs_pre_control'], res['smelt_jobs_post_control'],
              res['smelted_pre_canary'], res['smelted_post_canary'], res['smelted_pre_control'], res['smelted_post_control'], dids['smelted'],
-             dids['no_fuel_per_job'], dids['town_has_none_per_job'], res['search_more_post_canary']))
+             dids['no_fuel_per_job'], dids['fuel_unfound_per_job'], dids['town_has_none_per_job'], res['search_more_post_canary'], res['smelt_churn'], res['_lists']['churn']))
     print('SEARCH TIME  _kit_search seconds canary %.1f (%.1f s per canary bot-h)' % (res['search_s_canary'], res['search_s_canary'] / hrs('post', 'canary') if hrs('post', 'canary') else float('nan')))
     print('REPORTED     `more` runs canary %d of %d attempts | runs that began with NO candidate (gate/search disagreement, tripwire) %d %s'
           % (res['more_post_canary'], res['attempts_post_canary'], res['zero_cand_runs_canary'], res['_lists']['zero']))
