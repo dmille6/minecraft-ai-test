@@ -101,6 +101,24 @@ mcai-rl02 (recovery-ladder-03) carries the daily copy and status reports, unpush
 
 ---
 
+## 10-19 13:30Z — BAMBOO-02's REVERT WAS A READ BUG; bamboo-03 READY (both engines APPROVE), entry staged NOT applied (the bamboo-03 agent)
+- G3 = 3 were three aborted:stagnation folds (hive-b Bravo 04:12, Alpha 04:25, Comet 04:32) exactly ONE craft short of
+  the server: bamboo gone = 2 x sticks gained in 14/14 canary rows; each aborted bag = the next fold's resync-verified
+  start; Alpha/Comet grid_clear yes. The stop landed after the server made the craft in flight, before craftsync
+  attributed it. NO bamboo lost. Comet's 04:16:56 death = lava during mine at y 38 (marooned rung), 13 min before its
+  first fold: not bamboo.
+- FIX: bambooread.py G3 credits one in-flight craft only on the stopped craft's grid_clear yes; 'no' counted;
+  otherwise excused AND named (<= 2 bamboo/row). Installed ~/mcai-analysis/bambooread.py md5 e329a14f (backup
+  .bak-bamboo02-20261019 = 1aeb644a). Bot row tally reconciled too (foldTally, telemetry only). Dry run on bamboo-02's
+  window: G3 0 (old 3), excused 1 named (Bravo). Paper KJ20 12/12 conserved, 0 on the ground; ctrl showed the one-short
+  tally once, cand credited it. Codex r1-r3 CHANGE -> r4 APPROVE; Claude r4 APPROVE.
+- BUILDS: bb3-on-adbec4f @ 736e89b0 (fleet adbec4f4), bb3-on-0b3a0d4 @ 0447ffed (treefarm-02 0b3a0d4c). Registrations
+  ~/mcai-analysis/bamboo-03.{736e89b0,0447ffed}.json (no draw_require_pools; licencecheck/changerowcheck OK); entry
+  ~/mcai-analysis/bamboo-03.entry.json, after ["treefarm-02"]: OPERATOR `queue add` it.
+- NAMED, NOT FIXED: 2 of the 3 stagnation aborts were self-inflicted -- a fold loses an item per craft and the
+  stagnation watchdog wants items gained > 0; each fired a forced relocation. Precedent: smeltjob's furnaceWindow.
+  Records: docs/reports/bamboo-03-reviews-2026-10-19.txt, bamboo-03-paper-2026-10-19.txt.
+
 ## 10-19 12:50Z — (daily operator session) bamboo-02 REVERT reviewed (G3 defect, death not linked), R11 released; treefarm-02 re-stacked on adbec4f4 (0b3a0d4c) and queued; plinth tripwires read (P5 named, no rollback); coordination handed to the live operator session
 - **Found at start (11:08Z):** no open canary; fleet adbec4f4 on 80/80 (townsearch-02 KEPT +720 01:06Z + promoted; plinthfirst-01 direct
   01:26Z; bamboo-02 launched 02:01Z, REVERTED +180 05:11Z, torn down 05:15Z); scheduler BLOCKED R11 since 05:20Z. Nothing to close.

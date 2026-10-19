@@ -1,0 +1,80 @@
+bamboo-03 -- diagnosis of bamboo-02's REVERT and the review record (2026-10-19, the bamboo-03 agent)
+
+THE REVERT. bamboo-02 (dffd97e4, bb-on-adbec4f, on fleet adbec4f4) live on hive-a,hive-b 02:05:45Z; +180 read
+05:11:29Z VERDICT REVERT on own line bambooread.g3_bamboo = 3 (evidence=defect); torn down 05:15Z.
+
+THE THREE G3 ROWS (all 14 canary _bamboo_sticks rows walked; /var/log/mcai/hive-[ab]-*/skill-*.jsonl on .31):
+  hive-b-Bravo 04:12:13  b 128->126  s 11->12  crafts 0/32  stop aborted:stagnation
+     craftsync row: outcome aborted, produced 1, verify_source "local (after unanswered)", resync 1/1 skipped 1,
+     grid clear unverified_skipped. The _stagnation row (04:12:13.789) already shows bam 126 stk 12.
+  hive-b-Alpha 04:25:01  b 64->50    s 25->32  crafts 6/32  stop aborted:stagnation
+     craftsync row (7th craft): aborted, produced null, verify_source none, resyncs 2/2, grid clear YES.
+     The _stagnation row (04:25:01.180) already shows bam 50 stk 32.
+  hive-b-Comet 04:32:10  b 263->247  s 0->8    crafts 7/36  stop aborted:stagnation
+     same shape as Alpha (produced null, grid clear YES).
+  In ALL 14 rows bamboo gone == 2 x sticks gained. Each aborted fold's after-bag is the NEXT fold's before-bag
+  (Bravo 04:14:52 b0 126 s0 12; Alpha 04:27:37 50/32; Comet 04:34:46 247/8) and those folds finished with every
+  execution resync-verified (exact identity).
+  CAUSE: the stop reached craftsync after the server made the craft in flight but before craftsync attributed it:
+  the `cancelled` branch throws an Aborted with no produced count (Alpha, Comet), or the after-resync is skipped and
+  the count is local, not authoritative (Bravo) -- so producedAtAbort is not set and the row's tally is one short.
+  NO BAMBOO WAS LOST, TOSSED OR STRANDED (the server said grid and cursor empty for Alpha and Comet). G3 compared
+  bamboo gone with the TALLY. => A READ (instrument) BUG; the bot's row tally is also one short (telemetry only).
+  POSITIVE CONTROL: the same read found 10 successful folds that freed a slot, 10/10 exact identity; the corrected
+  read on the same window: G3 0.
+
+THE DEATH. hive-b-Comet 04:16:56 "tried to swim in lava; idle" (death:fire at 337,38,154) during mine at y 38: the
+mine stopped on lava in the headroom, two _lava_corridor refusals, `_marooned` (climb out) 04:16:52 -- the rung that
+made it "rung-linked" -- then _reflex_danger_block lava x2, low health. Comet's first fold was 04:29:43, 13 min later;
+no bamboo row or order in the minute before. NOT bamboo. (Deaths 1 vs control 1: below the two-death floor.)
+
+SIDE FINDING (not fixed; for a decision): 3 of 14 folds were cut by the STAGNATION watchdog (watchdog.mjs), which
+judges `items gained <= 0` over busy samples. A fold LOSES one item per craft (2 bamboo -> 1 stick). Alpha's
+"items -1" and Comet's "items -6" include 6-7 fold crafts, so without the fold both windows would have gained items
+and not tripped: 2 of the 3 stagnation aborts were self-inflicted, each followed by a level-1 forced relocation
+(goto 45-70 blocks). The fold's declared stationary window exempts the stuck watchdog, not this one. Precedent:
+smeltjob-01's furnaceWindow (bot.furnaceWindowUntil) already marks a furnace session's samples not-busy for exactly
+this reason. A bamboo-04 (or an amendment) could declare the fold the same way.
+
+REVIEWS (Codex: codex exec -s read-only, stdin prompt; Claude: an independent subagent, read-only)
+  r1 Codex CHANGE: the read's stick-pickup veto read truncated _pickups summaries (formatPickups drops the smallest
+     groups past 300 chars) and loaded nothing after END. Diagnosis "well-supported".
+  r1 Claude APPROVE-WITH-CHANGES: a stick pickup alone must not trip G3 (excuse instead); treat truncated summaries
+     as a possible stick; add a Bravo-shape behaviour test. Diagnosis "right"; no behaviour change.
+  r2 Codex CHANGE: '?' (unresolved) pickup groups read as no stick; elapsed time is not pickup coverage.
+  r2 Claude APPROVE-WITH-CHANGES: a server grid_clear 'no' must be counted (stranded), never credited/excused.
+  r3 Codex CHANGE: the pickup log can lose a window silently (index.mjs emitSummary and logger.mjs swallow write
+     failures), so any pickup-based credit can be false; one mutant anchor no longer matched.
+  r3 Claude APPROVE.
+  r4 (final read): pickup evidence REMOVED. The in-flight credit is decided only by the stopped craft's own
+     _craft_sync row: grid_clear yes -> CREDIT; no -> COUNTED; anything else -> EXCUSED and NAMED (stdout and
+     emitted inflight_excused_rows), only when the credit alone separates the row from a pass (at most 2 bamboo).
+  r4 Codex APPROVE ("11/11 killed by assertions" in memory; anchors all unique).
+  r4 Claude APPROVE (all 17 mutant anchors unique; bots/ unchanged since r1; optional: emit the named rows -> done).
+  Accepted trade: an unverified one-craft discrepancy (exactly 2 bamboo) no longer reverts by itself; it is printed
+  by name. Still counted: the server saying not clear, any loss beyond one craft, bamboo gone with no stick, past the
+  plan, a success.
+
+DRY RUN of the final read on the bamboo-02 window (CANARY_DRYRUN hive-a,hive-b:dffd97e4:02:05:45Z, +180, 387,367
+rows incl. the 3-min evidence tail): breaches 0 (live read: G3 3); credited 2 (Alpha, Comet: server); excused 1,
+named: hive-b-Bravo 04:12:13Z inflight_unverified; liveness 10; instrument 22; exact identity 10.
+INSTALLED on .31: ~/mcai-analysis/bambooread.py md5 e329a14f (backup bambooread.py.bak-bamboo02-20261019 =
+1aeb644a, the read bamboo-02 ran). No other registration names bambooread.
+
+FINAL BUILDS (after the reviews; one test-only amend: the code mutant "credited past the plan" SURVIVED the first run
+because the plan-cap case had made == claimed; the case now has a bag one craft over the plan, plus its positive control)
+  bb3-on-adbec4f @ 736e89b0 (on dffd97e4 on adbec4f4)     bb3-on-0b3a0d4 @ 0447ffed (on treefarm-02 tf-on-adbec4f 0b3a0d4c)
+  bots/src is byte-identical between 22cf4278 (the Paper cand), 912d6cb2 and 736e89b0.
+
+VERIFICATION
+  npm test (the mini, from bots/): 736e89b0 269/269; 0447ffed 274/274.
+  npm test on 10.0.0.31 (shared node_modules /home/mike/mbench-cl/tree): 267/269 and 272/274 -- gather-reach.test.mjs and
+    well.test.mjs ("CODEX R5 THE EXEMPTION STOPS AT THE CAP"). Both fail the same way on .31 on the BASE dffd97e4 (well.test
+    2/2 reruns; gather-reach is intermittent there, a node-count/time budget), and pass on the mini on both builds. Not bamboo.
+  eslint no-undef: exactly one hit on both builds, bots/src/reflex.mjs:2384 withinBody (pre-existing).
+  Mutants (scripts/mutants/mutants-bamboo03.py, anchors asserted unique): code 6/6 killed, read 11/11 killed (736e89b0).
+  Registration checks (13:16Z): drawrequire.parse ([], None) -- no draw_require_pools; licencecheck: _bamboo_sticks baseline
+    rows 0 over 370,908 rows / 80 bots; changerowcheck: bamboo_sticks baseline 0 (positive control 371,207 rows).
+  Queue entry ~/mcai-analysis/bamboo-03.entry.json (= docs/reports/bamboo-03.queue-entry.json), run bamboo-03, after
+    ["treefarm-02"]: NOT applied. A no-act validate_entry() refused only "registration sha ... does not resolve" -- the
+    scheduler's git has not fetched the bb3-* branches yet (fetch first, as the bamboo-02 entries say).

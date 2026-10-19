@@ -1,0 +1,159 @@
+{
+ "run_id": "bamboo-03",
+ "sha": "736e89b08702796cdc8499bf7d37684cca814d5f",
+ "registered_at": "2026-10-19T13:45:54Z",
+ "ladder_change": false,
+ "promotion": "fleet-wide",
+ "notes": "[bamboo-03 = bamboo-02 + the in-flight craft at a stop. Built on plinthfirst-01 adbec4f4 (the fleet; use ONLY if the fleet is adbec4f4): branch bb3-on-adbec4f @ 736e89b0 = bb-on-adbec4f dffd97e4 + one commit. bamboo-02 (dffd97e4) REVERTED 10-19 05:11Z on bambooread.g3_bamboo = 3: all three were aborted:stagnation folds (hive-b Bravo 04:12, Alpha 04:25, Comet 04:32) exactly ONE craft short of the server -- bamboo gone = 2 x sticks gained in 14 of 14 canary rows; each aborted fold's after-bag = the next fold's before-bag, and those folds completed resync-verified. The abort reached craftsync after the server made the craft in flight but before craftsync attributed it (cancelled branch: produced null; or the after-resync skipped: produced local). NO BAMBOO WAS LOST: a READ BUG (G3 judged the tally, not the bag). FIX: (1) bambooread.py G3 credits ONE in-flight craft at a stop when the bag shows it on both sides AND the evidence allows -- server (the stopped craft's _craft_sync grid_clear yes) or clean (no overlapping pickup summary with a stick / unresolved / hidden group, no stick junk row, and a summary written after the run); doubt/pending EXCUSE (reported, not counted) only a row the credit alone would pass (at most 2 bamboo); evidence rows read to END + 3 min, never scored. Dry run on the bamboo-02 window: G3 0 (old read 3), liveness 10, exact identity 10. (2) the bot: bamboo.mjs foldTally credits the same craft in the row (args.inflight), telemetry only; the read takes it back out and re-judges. Reviews Codex + Claude: see docs/reports/bamboo-03-reviews-2026-10-19.txt. ORDINARY canary.]",
+ "licence": {
+  "class": "kind",
+  "kind": "_bamboo_sticks",
+  "min_rows": 1,
+  "note": "Written only by this build (one row per fold run, skips and aborts included). The fleet (and the grid-fix fleet underneath) has no bamboo module."
+ },
+ "reads": [
+  "bambooread",
+  "immobiledid"
+ ],
+ "read_minutes": [
+  180,
+  360
+ ],
+ "deadline_min": 1680,
+ "change_rows": [
+  "bamboo_sticks"
+ ],
+ "linkage_extra": [],
+ "draw_exposure": {
+  "hours": 6,
+  "require": [
+   {
+    "name": "full bags holding bamboo (craft_room refusals listing bamboo in the bag)",
+    "kind": "craft_room",
+    "detail_contains": "bamboo",
+    "min": 1
+   }
+  ],
+  "note": "10-15 rebase: hours 6, min 1 (orderroom-01 room orders cut full-bag craft_room refusals; census 10-15 20:40Z full holders of >= 2 bamboo: board-d 5, board-c 4, board-a 3, placebo-c 4 (never drawn)). Earlier: 10-04 21:00-24:00Z per pool: hive-b 88, hive-a 43, board-a 18, board-c 10 (isolated-* and placebo-c are never drawn). The detail lists the bag on a full-bag refusal ('bag: ... bamboo 1')."
+ },
+ "exposure": {
+  "read": "bambooread",
+  "field": "exposure_ready",
+  "min": 1,
+  "note": "Ready = >= 3 canary folds that freed a slot (success, crafts > 0, freed >= 1) AND >= 1 control bot at >= 34 est. slots holding >= 2 bamboo. MEASURED 10-07: the instrument finds 22 of 65 control bots (12:00-17:40Z dry run); bag census 17:00Z: bamboo 104 slots, 5,328 pieces in 45 bags; drawexposure (craft_room refusals listing bamboo >= 5 / 3 h): 5 of 11 pools eligible (board-a, board-c, board-d, hive-a, hive-b). A 10-bot draw from those pools holds ~3-5 eligible full holders; each fold frees >= 1 slot when a batch can (19 of 29 holders could on 10-04), so >= 3 folds by +360 is expected but not measured on the fleet (bamboo never ran); the extensions carry a slow start."
+ },
+ "own_lines": [
+  {
+   "read": "bambooread",
+   "field": "g1_planks",
+   "op": "<=",
+   "value": 0,
+   "on_fail": "REVERT",
+   "evidence": "defect",
+   "note": "G1: a fold run that ended with fewer planks than it started (the bamboo-only recipe never burns planks). A death inside the run is excused and reported."
+  },
+  {
+   "read": "bambooread",
+   "field": "g2_sticks",
+   "op": "<=",
+   "value": 0,
+   "on_fail": "REVERT",
+   "evidence": "defect",
+   "note": "G2: sticks gained < crafts claimed (the tally over-claims the server). A death inside the run is excused and reported."
+  },
+  {
+   "read": "bambooread",
+   "field": "g3_bamboo",
+   "op": "<=",
+   "value": 0,
+   "on_fail": "REVERT",
+   "evidence": "defect",
+   "note": "G3: bamboo gone > 2 x (crafts - the bot's own in-flight credit + the READ's in-flight credit) -- bamboo left the bag without becoming sticks (tossed, or stranded in the 2x2 grid/cursor). The read credits ONE craft in flight at a stop only on server or clean evidence; doubt/pending is EXCUSED (reported) only for a row the credit alone would pass. A death inside the run is excused and reported. bamboo-02 REVERTED on the uncorrected G3 (10-19), a read bug: no bamboo was lost."
+  },
+  {
+   "read": "bambooread",
+   "field": "g4_overcraft",
+   "op": "<=",
+   "value": 0,
+   "on_fail": "REVERT",
+   "evidence": "defect",
+   "note": "G4: crafts > planned."
+  },
+  {
+   "read": "bambooread",
+   "field": "g5_cap",
+   "op": "<=",
+   "value": 0,
+   "on_fail": "REVERT",
+   "evidence": "defect",
+   "note": "G5: a fold past the 64-stick cap (s0 + planned > 64) that ended with more occupied slots."
+  },
+  {
+   "read": "bambooread",
+   "field": "g6_unconfirmed",
+   "op": "<=",
+   "value": 0,
+   "on_fail": "REVERT",
+   "evidence": "defect",
+   "note": "G6: an unconfirmed stick _craft_sync inside a fold run whose resyncs the server did NOT answer (a denial with both resyncs answered is a known outcome, retried, not counted)."
+  },
+  {
+   "read": "bambooread",
+   "field": "g7_success_grew",
+   "op": "<=",
+   "value": 0,
+   "on_fail": "REVERT",
+   "evidence": "defect",
+   "note": "G7: a SUCCESS fold that ended with more occupied slots. Excused (reported) when a pickup row of the same bot falls inside the run, or a death."
+  },
+  {
+   "read": "bambooread",
+   "field": "rows_control",
+   "op": "<=",
+   "value": 0,
+   "on_fail": "REVERT",
+   "note": "Arms. BLOCKS KEEP."
+  },
+  {
+   "read": "bambooread",
+   "field": "folds_freed_canary",
+   "op": ">=",
+   "value": 1,
+   "on_fail": "REVERT",
+   "note": "LIVENESS. BLOCKS KEEP (INCONCLUSIVE)."
+  },
+  {
+   "read": "bambooread",
+   "field": "instrument_control",
+   "op": ">=",
+   "value": 1,
+   "on_fail": "REVERT",
+   "note": "POSITIVE CONTROL: the population (control bots at >= 34 slots holding >= 2 bamboo) is visible to this query. BLOCKS KEEP."
+  }
+ ],
+ "primary": {
+  "read": "bambooread",
+  "field": "cohort_occupancy_did",
+  "note": "REPORTED, NOT GATED: estimated occupancy DiD on a cohort of full bamboo holders fixed in the pre-window, slots freed per canary bot-hour, skips per bot-hour, stops by reason, duration p95, excused breaches by cause."
+ },
+ "harm": {
+  "note": "Unchanged: the two-death floor (OWNER 2026-09-11) and gather_ratio < 0.43 of control, from immobiledid. Watch _reflex_stuck during folds (the declared window exempts only the fold)."
+ },
+ "teardown": {
+  "note": "THREE STEPS: drop-ins, clear canary_pool, restart the pool's bots 12 s apart; then confirm the live versions."
+ },
+ "amendments": [],
+ "extension": {
+  "until_exposure": true,
+  "extra_reads": [
+   540,
+   720,
+   1080,
+   1560
+  ],
+  "final_on_zero_exposure": "INCONCLUSIVE",
+  "note": "SHORT CANARY for a fix (owner 2026-09-29)."
+ },
+ "requeued_from": "bamboo-02",
+ "lint": "eslint no-undef: exactly ONE hit, bots/src/reflex.mjs:2384 withinBody -- pre-existing on adbec4f4 (bamboo does not touch reflex.mjs)."
+}
