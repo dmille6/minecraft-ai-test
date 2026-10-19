@@ -167,13 +167,16 @@ export function needCount (o, need) {
  *   skip        keys out of this search (already opened this order, a recent failed visit, a container the town shut)
  * Per need, a container is
  *   HAS      a count of n > 0 younger than countTtl (the journal's own 6 h), and newer than any live miss
- *   OUT      a live miss (younger than missTtl, no deposit since), or -- for a need the journal counts completely
+ *   OUT      a live miss (younger than missTtl -- a number, or { need: ms } per need (smeltjob's copper miss lives 2 h;
+ *            toolkit-03), SEARCH_MISS_TTL_MS for a need it does not name -- no deposit since), or -- for a need the journal counts completely
  *            (NEED_COUNT_COMPLETE: sticks) -- a count of 0 younger than missTtl with no deposit since: a look by whichever bot
  *            opened it last
  *   UNKNOWN  otherwise
  * Dropped when OUT for every need. Tier 0 = HAS for some need, tier 1 = the rest. Within a tier: most of the wanted
  * amount covered (cover, from the counts), then nearest, then key. Never the same container twice: one entry per key.
  */
+/** The miss TTL of one need: missTtl itself (a number), or its entry in a { need: ms } map, else SEARCH_MISS_TTL_MS. Pure. */
+export const missTtlOf = (missTtl, need) => (missTtl && typeof missTtl === 'object' ? (Number.isFinite(missTtl[need]) ? missTtl[need] : SEARCH_MISS_TTL_MS) : missTtl)
 export function townSearchOrder (containers = [], needs = [], { counts = {}, misses = {}, tookAt = {}, skip = [], want = {},
                                                                now = Date.now(), missTtl = SEARCH_MISS_TTL_MS, countTtl = OBS_TTL_MS } = {}) {
   const out = new Set(Array.isArray(skip) ? skip : [...(skip ?? [])])
@@ -188,7 +191,8 @@ export function townSearchOrder (containers = [], needs = [], { counts = {}, mis
     let has = false, cover = 0, allOut = true
     for (const need of needs) {
       const m = misses?.[need]?.[k]
-      const missLive = Number.isFinite(m) && now - m < missTtl && !(took > m)
+      const ttl = missTtlOf(missTtl, need)
+      const missLive = Number.isFinite(m) && now - m < ttl && !(took > m)
       const ct = counts?.[need]?.[k]
       const cAt = Number.isFinite(ct?.at) ? ct.at : null
       const n = Number(ct?.n)
@@ -198,7 +202,7 @@ export function townSearchOrder (containers = [], needs = [], { counts = {}, mis
         cover += Math.min(n, Math.max(1, Number(want?.[need]) || 1))
         continue
       }
-      const zeroLive = NEED_COUNT_COMPLETE[need] === true && cAt != null && n === 0 && now - cAt < missTtl && !(took > cAt)
+      const zeroLive = NEED_COUNT_COMPLETE[need] === true && cAt != null && n === 0 && now - cAt < ttl && !(took > cAt)
       if (missLive || zeroLive) continue
       allOut = false
     }

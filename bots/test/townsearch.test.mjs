@@ -661,9 +661,9 @@ await t('MUTANTS (skills.mjs): each removes one part of the search and a behavio
     await fn(S).catch(e => { throw new Error(`positive control ${name} fails on the real code: ${e.message}`) })
   }
   const M = [
-    ['the journal\'s counts ignored', '{ counts: view.counts, misses: view.misses, tookAt: view.tookAt, skip: view.skip, want, now: view.now }', '{ counts: {}, misses: view.misses, tookAt: view.tookAt, skip: view.skip, want, now: view.now }', journalFirst],
-    ['the misses ignored', '{ counts: view.counts, misses: view.misses, tookAt: view.tookAt, skip: view.skip, want, now: view.now }', '{ counts: view.counts, misses: {}, tookAt: view.tookAt, skip: view.skip, want, now: view.now }', resumes],
-    ['the gate ignores the journal', '{ counts: view.counts, misses: view.misses, tookAt: view.tookAt, skip: view.skip, now: view.now }).length === 0', '{ counts: {}, misses: view.misses, tookAt: view.tookAt, skip: view.skip, now: view.now }).length === 0', gateSeesCount],
+    ['the journal\'s counts ignored', '{ counts: view.counts, misses: view.misses, tookAt: view.tookAt, skip: view.skip, want, now: view.now, missTtl }', '{ counts: {}, misses: view.misses, tookAt: view.tookAt, skip: view.skip, want, now: view.now, missTtl }', journalFirst],
+    ['the misses ignored', '{ counts: view.counts, misses: view.misses, tookAt: view.tookAt, skip: view.skip, want, now: view.now, missTtl }', '{ counts: view.counts, misses: {}, tookAt: view.tookAt, skip: view.skip, want, now: view.now, missTtl }', resumes],
+    ['the gate ignores the journal', '{ counts: view.counts, misses: view.misses, tookAt: view.tookAt, skip: view.skip, now: view.now, missTtl }).length === 0', '{ counts: {}, misses: view.misses, tookAt: view.tookAt, skip: view.skip, now: view.now, missTtl }).length === 0', gateSeesCount],
     ['the gate ignores coverage', '  if (!view.coverage || !view.containers.length) return false', '  if (!view.containers.length) return false', gateCoverage],
     ['no skip after a visit that could not look inside', '  bot.withdrawSearchSkip.set(containerKey(bot, cb.position), now + SEARCH_FAIL_SKIP_MS)', '  void 0', failSkip],
     ['the order\'s own opens not excluded', 'if (halves.some(h => tried.has(h)) ||', 'if (', fullOnce],
@@ -696,7 +696,7 @@ await t('MUTANTS (withdrawpick.mjs): the pure order\'s rules', async () => {
   const M = [
     ['a count of none is not a look', '      if (missLive || zeroLive) continue', '      if (missLive) continue'],
     ['farthest first', '|| a.d - b.d ||', '|| b.d - a.d ||'],
-    ['a deposit does not end a miss', 'const missLive = Number.isFinite(m) && now - m < missTtl && !(took > m)', 'const missLive = Number.isFinite(m) && now - m < missTtl'],
+    ['a deposit does not end a miss', 'const missLive = Number.isFinite(m) && now - m < ttl && !(took > m)', 'const missLive = Number.isFinite(m) && now - m < ttl'],
   ]
   for (const [name, old, neu] of M) {
     const killed = await withMutant(WP_PATH, old, neu, Wm => killedBy(() => probe(Wm)))
