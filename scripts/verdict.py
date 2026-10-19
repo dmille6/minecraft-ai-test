@@ -30,6 +30,7 @@ from arms import pool_of
 from singledeath import licence_reverts
 import bagfixrule   # v33 (owner 2026-10-07): the bag-fix death rule; imported here so the bundle digest covers it
 import usaferule    # v34 (2026-10-08): the underground-safety death gate (DiD); imported so the bundle covers it
+import tierrule     # v36 (owner 2026-10-19): canary tiers (tier-2 +180 KEEP, baseline interlock); in the bundle
 
 
 def license_change_rows(changerow, away, ctrl_at_death, ctrl_rate=None,
@@ -129,7 +130,7 @@ def _gate_bundle():
     cannot drift from what was executed.
     """
     parts = [('verdict.py', _os.path.abspath(__file__))]
-    for _n in ('deathgate', 'singledeath', 'arms', 'bagfixrule', 'usaferule'):
+    for _n in ('deathgate', 'singledeath', 'arms', 'bagfixrule', 'usaferule', 'tierrule'):
         parts.append((_n + '.py', getattr(sys.modules.get(_n), '__file__', None)))
     # v33: two decision modules the LOOP runs rather than this file imports -- the bag-fix rule's measuring half
     # (bagfixgate.py: extend-check / poll / final) and the v19 change-row preflight (changerowcheck.py, which counts
@@ -200,6 +201,17 @@ reg = json.load(open(REG)); man = json.load(open(os.environ.get('VERDICT_MANIFES
 _USAFE = usaferule.is_underground_safety(reg)
 _USAFE_BLIND = None
 why = []; verdict = None
+# v36 (OWNER DECISION 2026-10-19, "yes"; docs/reports/canary-tiers-2026-10-19.md): CANARY TIERS. Computed HERE, before
+# any other reason is appended, because a tier-2 run's verdict line must START with the marker: the loop records that
+# line in the ledger note, and drawsteady.py reads the predecessor's tier from it by an anchored prefix match. A
+# registration without `tier` (every one before v36) is tier 3 and gets no line here.
+_TIER = tierrule.tier_of(reg)
+if _TIER == 2:
+    why.append(tierrule.TIER_MARK)
+_TIER_PROBLEM = tierrule.tier_problem(reg)
+if _TIER_PROBLEM:
+    why.append('tier: ' + _TIER_PROBLEM)
+_UNDEF = []   # v36: own lines / friction rules skipped as undefined (nullable) -- a tier-2 early KEEP refuses on any
 # v31 (2026-09-25): THE LICENCE CLASS IS ENFORCED HERE, NOT MERELY DECLARED AT LAUNCH.
 #
 # licencecheck.py refuses a canary that names no discriminating instrument, and classifies the one
@@ -365,6 +377,8 @@ def out(v, extra=None):
         why.append('TEST/STAGING RUN: decision modules from VERDICT_MODULE_DIR=%s, not the installed gate' % _MODULE_DIR_NOTE)
     o = {'run_id': run_id, 'window_min': M, 'verdict': v, 'why': why, 'at': dt.datetime.now(dt.timezone.utc).isoformat(), 'extra': extra or {},
          'guards': _GUARDS}
+    if _TIER == 2:
+        o['tier'] = 2   # v36: every artifact of a tier-2 run, polls included
     os.makedirs(R, exist_ok=True); json.dump(o, open(os.path.join(R, f'{run_id}-verdict-{M}.json'), 'w'), indent=1, default=str)
     # ONE LINE, ALWAYS. canary-loop.sh takes `tail -1` of this output and then `awk '{print $2}'`,
     # so a newline anywhere in a reason splits the verdict off the end and the loop reads whatever
@@ -1105,7 +1119,7 @@ for ln in reg.get('own_lines', []):
     # pass on v23's acceptance suite, 2026-09-19, which caught that the suite's
     # own case used None and so tested missing data rather than the incident.
     if val is None or (isinstance(val, float) and val != val) or val in (float('inf'), float('-inf')):
-        if ln.get('nullable'): continue
+        if ln.get('nullable'): _UNDEF.append(f"{ln['read']}.{ln['field']}={val!r}"); continue
         why.append(f"own line {ln['read']}.{ln['field']} is {val!r} -- undefined, not a failure"); (out('UNREADABLE'))
     ok = {'<=': val <= ln['value'], '>=': val >= ln['value'], '==': val == ln['value']}[ln['op']]
     if not ok:
@@ -1135,7 +1149,7 @@ for fr in reg.get('friction', []):
     bad = [n for n, v in ((fr['field'], a), (fr['vs'], b))
            if v is None or (isinstance(v, float) and (v != v or v in (float('inf'), float('-inf'))))]
     if bad:
-        if fr.get('nullable'): continue
+        if fr.get('nullable'): _UNDEF.append(f"friction {fr['read']}.{'/'.join(bad)}"); continue
         why.append(f"friction {fr['read']}.{'/'.join(bad)} is undefined, not a failure"); (out('UNREADABLE'))
     d = a - b
     ok = {'pp>=': d >= fr['value'], '>=': d >= fr['value'], '<=': d <= fr['value']}[fr['op']]
@@ -1157,7 +1171,7 @@ for fr in reg.get('friction', []):
 # format's whole life looked exactly like `friction` passing. Naming them on every verdict
 # costs one line and makes that impossible.
 _EVALUATED = {'reads', 'read_minutes', 'exposure', 'own_lines', 'friction', 'change_rows',
-              'linkage_extra', 'ladder_change', 'sha', 'run_id', 'extension', 'class', 'underground_safety'}
+              'linkage_extra', 'ladder_change', 'sha', 'run_id', 'extension', 'class', 'underground_safety', 'tier'}
 _ADVISORY = {'primary', 'watch', 'mechanism_check', 'notes', 'note', 'registered_at',
              'promotion', 'deadline_min', 'teardown', 'known_residuals',
              'operator_note_loop_behaviour', 'timestamp_correction', 'notes_superseded',
@@ -1190,6 +1204,61 @@ if bagfixrule.is_bag_fix(reg) and M < max(reg['read_minutes']):
         reg, len({p.strip() for p in str(man.get('canary_pool') or '').split(',') if p.strip()}), M, reg['read_minutes'], BAGFIX_EXT,
         watch, blocked, exposed, _readable, _cd, _cbh, _kd, _kbh)
     why.append(('KEEP AT +%d (rule A\'): ' % M if _KEEP_EARLY else 'no KEEP at +%d (rule A\'): ' % M) + _kewhy)
+# v36 TIER 2 (OWNER 2026-10-19): a tier-2 registration may KEEP at +180 (tierrule.keep_early: exactly four pools, >= 48
+# measured canary bot-h, a declared exposure met, no WATCH/HOLD/block/undefined line, every read readable, a licence that
+# is not `rate`, canary death rate <= control, and a baseline whose canary rows ran the controls' majority build over the
+# read's lookback -- _t2_baseline, from the logs). Every REVERT path has already run above; this can only turn a NOT_YET
+# into a KEEP. Entered ONLY for tier 2, so tier 3 / no tier is exactly as before. ANY exception here is "no KEEP"
+# (NOT_YET, or INCONCLUSIVE at the final read below), never a crash: a crash would leave the canary deployed.
+_T2_RULE = None
+_T2_BASE = {}
+
+
+def _t2_baseline(minute):
+    """v36 -> (clean, why). Memoised per minute. Fail closed: any exception is NOT clean, with its reason."""
+    if minute in _T2_BASE:
+        return _T2_BASE[minute]
+    try:
+        if DRY:
+            raise RuntimeError('a dry run reads no logs')
+        until = dt.datetime.fromisoformat(man['declared_at'].replace('Z', '+00:00'))
+        since = until - dt.timedelta(minutes=tierrule.lookback_min(minute))
+        rd = os.environ.get('VERDICT_ROSTER_DIR') or '/etc/systemd/system/multi-user.target.wants'
+        enabled = sorted(n[len('mcbot@'):-len('.service')] for n in os.listdir(rd)
+                         if n.startswith('mcbot@') and n.endswith('.service') and n != 'mcbot@.service')
+        if not enabled:
+            raise RuntimeError('no enabled mcbot units in %s' % rd)
+        can_set = {b for b in enabled if in_canary_pool(b, MEMBERS)}
+        rows, bad = tierrule.load_buckets(LOGROOT, enabled, since, until)
+        ok, w, _het = tierrule.asymmetric_rows({b: rows.get(b, {}) for b in can_set},
+                                               {b: rows.get(b, {}) for b in enabled if b not in can_set},
+                                               sorted(can_set), since, until, bad)
+        res = (ok, w)
+    except Exception as e:
+        res = (False, 'baseline check failed (%s: %s) -- not clean' % (type(e).__name__, str(e)[:160]))
+    _T2_BASE[minute] = res
+    return res
+
+
+if _TIER == 2 and not _KEEP_EARLY and M < max(reg['read_minutes']):
+    _t2_cwhy = ''
+    try:
+        _t2_ex = reg.get('exposure') if isinstance(reg.get('exposure'), dict) else None
+        _t2_val = ev.get(_t2_ex['read'], {}).get(_t2_ex['field']) if _t2_ex and isinstance(_t2_ex.get('read'), str) else None
+        _t2_readable = all((o.get('readable') is not False) for o in ev.values() if isinstance(o, dict))
+        _t2_pools = len(set(filter(None, (q.strip() for q in str(man.get('canary_pool') or '').split(',')))))
+        _t2_clean, _t2_cwhy = (_t2_baseline(M) if M == tierrule.TIER2_KEEP_MIN
+                               else (False, 'not evaluated (not +%d)' % tierrule.TIER2_KEEP_MIN))
+        _KEEP_EARLY, _t2why = tierrule.keep_early(
+            reg, _t2_pools, bool(man.get('canary_split')), M, reg['read_minutes'], watch, blocked, _UNDEF, _t2_ex, _t2_val,
+            _t2_readable, _LIC_CLASS, _cd, _cbh, _kd, _kbh, _t2_clean, _t2_cwhy)
+    except Exception as _e:
+        _KEEP_EARLY, _t2why = False, 'tier-2 early KEEP check failed (%s: %s)' % (type(_e).__name__, str(_e)[:160])
+    if _KEEP_EARLY:
+        _T2_RULE = 'tier-2 +180'
+        why.append('KEEP AT +%d (tier 2): %s | baseline: %s' % (M, _t2why, _t2_cwhy))
+    else:
+        why.append('no KEEP at +%d (tier 2): %s' % (M, _t2why))
 if M < max(reg['read_minutes']) and not _KEEP_EARLY: (out('NOT_YET'))
 if not exposed:
     if reg.get('extension', {}).get('until_exposure') and M < final_M: why.append('zero exposure: the registered extension continues'); (out('NOT_YET'))
@@ -1202,4 +1271,14 @@ if bagfixrule.is_bag_fix(reg) and isinstance(ev.get('bagread'), dict):
     _b = ev['bagread']
     why.append('bag metric at the KEEP read (REPORTED, not gated): ' + ', '.join(
         '%s %s' % (k, _b.get(k)) for k in ('slots_did', 'full_share_did', 'pick_slots_did', 'sword_slots_did', 'cobble_slots_did')))
-(out('KEEP', {'keep_rule': 'A-prime +180'} if _KEEP_EARLY else None))
+# v36: a tier-2 KEEP at ANY later read (+360, extension reads) also needs a clean baseline over THAT read's lookback --
+# contaminated evidence never authorizes a tier-2 KEEP. Not clean: NOT_YET while registered reads remain, INCONCLUSIVE
+# at the final read. (The +180 early KEEP checked it above.) Tier 3 never enters.
+if _TIER == 2 and _T2_RULE is None:
+    _t2f_clean, _t2f_why = _t2_baseline(M)
+    if not _t2f_clean:
+        why.append('tier 2: no KEEP on this baseline: ' + _t2f_why)
+        if M < final_M: (out('NOT_YET'))
+        (out('INCONCLUSIVE'))
+    why.append('tier 2 baseline: ' + _t2f_why)
+(out('KEEP', ({'keep_rule': _T2_RULE} if _T2_RULE else {'keep_rule': 'A-prime +180'}) if _KEEP_EARLY else None))
