@@ -302,7 +302,9 @@ await t('NO STICKS: every holder has the iron but no sticks, the bag no wood -> 
   later(TOOLKIT_COOLDOWN_MS + TOOLKIT_BACKOFF_MS)
   const r2 = await kit(S0, w)
   assert.equal(r2.failClass, 'kit_no_sticks', r2.detail); assert.equal(w.spy.opened.length, 10, 'held back: nothing opened')
+  assert.equal(S0.townKitIronMiss(w.bot), true, 'the gate sees the hold-back: no order that opens nothing (Claude r2 P3-2)')
   w.bag.push({ ...stack('oak_log', 1), slot: 30 })
+  assert.equal(S0.townKitIronMiss(w.bot), false, 'with a log the bag makes the sticks: the holders are candidates again')
   const r3 = await kit(S0, w)
   assert.equal(r3.status, 'success', r3.detail)
 })
@@ -469,7 +471,7 @@ await t('MUTANTS: each removes one part of the kit search and a behaviour test a
   kills.budget3 = await withMutant(SKILLS_PATH, 'n < KIT_SEARCH_VISITS && next.block', 'n < 3 && next.block', S => killedBy(() => farChest(S)))
   kills.noMissMemory = await withMutant(SKILLS_PATH, 'e => noteIngredientMisses(e, halvesOf(bot, cb.position, v.double), kitIronMissNeeds(ironSeen)))', 'e => e)', S => killedBy(() => noIronChain(S)))
   // the old gate: every findBlocks key of the town, complete misses over them all (townContainerKeys, inlined)
-  kills.oldGate = await withMutant(SKILLS_PATH, '    return townSearchEmpty(bot, [kitIronNeed(d.ingots)])',
+  kills.oldGate = await withMutant(SKILLS_PATH, '    return townSearchEmpty(bot, [kitIronNeed(d.ingots)], { tried: held })',
     `    const home = homeVec()
     const found = bot.findBlocks?.({ point: home, maxDistance: TOWN_SCAN_RADIUS, count: 256,
       matching: b => ['chest', 'barrel', 'trapped_chest'].includes(bot.registry.blocks[b.type]?.name) && (!b.position || inTown(home, b.position)) }) ?? []
