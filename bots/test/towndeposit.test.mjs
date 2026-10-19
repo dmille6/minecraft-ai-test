@@ -575,7 +575,10 @@ test('TOOLKIT-03 x COBBLEKEEP: banked coal re-opens the smelt job\'s coal search
   assert.equal(townCoalMiss(a.w.bot), false, 'banked coal: the coal search has its candidate again')
   const b = await scene(false)
   assert.equal(sumOf(b.c.items, 'coal'), 0)
-  assert.equal(townCoalMiss(b.w.bot), false, 'any deposit ends the miss (took is item-blind) -- the search looks once more')
+  // A KNOWN COST, not a feature (Claude ck P3-3): 'took' is item-blind, so a deposit of dirt ends the coal miss too and the
+  // job looks once more -- the mechanism behind the churn smeltjob.mjs's dry-job bound (SMELT_DRY_MAX) limits. Pinned so a
+  // change to it is seen.
+  assert.equal(townCoalMiss(b.w.bot), false, 'KNOWN COST: any deposit ends the miss (took is item-blind)')
 })
 
 // ---- THE PEACEFUL KIT (peacefulkit.mjs, OWNER 10-07 ~19:50Z): while the switch is on no sword is ever banked ------------
