@@ -16,6 +16,8 @@
 #       scripts/host/{canary-loop.sh,drawrec.sh,bagread.py,holdtoken.py,heavyread.sh,canary-sched.py,test_bagfix_loop.py,\
 #       canarywatch.py,install-gate-v36.sh,v36-rules-paragraph.md,v36_replay.py,v36_livecheck.py,ugsafe2_value.py} \
 #       docs/reports/airpocket-01.{ee21207,dbb4d78}.json mike@10.0.0.31:gate-v36/
+# and, for the one-window install with brain-01 (--then gate-v36/install-brain01-host.sh), its STAGE list too:
+#   scripts/host/{install-brain01-host.sh,test_canary_sched.py} -> gate-v36/, the three patched files + patches -> gate-v36/brain01/
 # (test_verdict_acceptance_mutants.py refuses to score on this host by design -- ~/mcai-analysis shadows its copies --
 #  so, as for v35, it is run in the repo and not here.)
 # THEN:  bash ~/gate-v36/install-gate-v36.sh --dry-run    then    bash ~/gate-v36/install-gate-v36.sh
@@ -30,6 +32,9 @@ set -u
 DRY=""; THEN=""
 while [ $# -gt 0 ]; do case "$1" in --dry-run) DRY=1;; --then) THEN=${2:?--then needs a script}; shift;; *) echo "unknown arg $1"; exit 2;; esac; shift; done
 [ -z "$THEN" ] || [ -f "$THEN" ] || { echo "REFUSED: --then script $THEN missing"; exit 2; }
+# ABSOLUTE before any cd (Codex: a relative path is checked here and executed after `cd "$S"`)
+[ -z "$THEN" ] || THEN=$(cd "$(dirname "$THEN")" && pwd)/$(basename "$THEN")
+KEEP_HOLD=""   # set when a rollback could not be verified: the install-hold is then NOT released (fix by hand)
 H=/home/mike; S=$(cd "$(dirname "$0")" && pwd); STAMP=$(date -u +%Y%m%dT%H%M%SZ)
 MAN=/srv/mcbots/trial-manifest.json; RULES=$H/digest/RULES-IN-FORCE.md
 say() { echo "== $*"; }; die() { echo "REFUSED: $*"; exit 2; }
@@ -81,7 +86,7 @@ if [ -n "$DRY" ]; then
 else
   TOKEN="install-gate-v36:$$:$(date +%s%N)"
   CL=$(python3 $S/holdtoken.py claim "$TOKEN" 180 2>&1) || die "install-hold not claimed: $(echo "$CL" | tr '\n' ' ' | cut -c1-500)"
-  trap 'python3 $S/holdtoken.py release "$TOKEN" >/dev/null 2>&1' EXIT
+  trap '[ -n "$KEEP_HOLD" ] && echo "INSTALL-HOLD KEPT ($TOKEN): a rollback was not verified -- restore by hand, then python3 $S/holdtoken.py release $TOKEN" || python3 $S/holdtoken.py release "$TOKEN" >/dev/null 2>&1' EXIT
   echo "  $(echo "$CL" | tail -1 | cut -c1-200)"
   exec 8>/tmp/mcai-canary.lock; flock -n 8 || die "/tmp/mcai-canary.lock is held"
   _busy      # re-checked UNDER the hold and the lock
@@ -147,7 +152,7 @@ if [ -n "$DRY" ]; then
   say "DRY RUN: nothing live was changed. Would install:"
   for f in "${!TGT[@]}"; do echo "    $S/$f ($(md5sum < $S/$f | cut -c1-8)) -> ${TGT[$f]} ($( [ -f "${TGT[$f]}" ] && md5sum < "${TGT[$f]}" | cut -c1-8 || echo NEW))"; done
   echo "    $NEWRULES -> $RULES; bundle $OLD_DIGEST -> $PD"
-  if [ -n "$THEN" ]; then say "DRY RUN of the second install in this window: $THEN"; bash "$THEN" --dry-run; fi
+  if [ -n "$THEN" ]; then say "DRY RUN of the second install in this window: $THEN"; bash "$THEN" --dry-run || exit $?; fi
   exit 0
 fi
 
@@ -168,15 +173,23 @@ for f in "${!TGT[@]}"; do
 done
 cp -p "$RULES" "$RULES.bak-v36-$STAMP" && cmp -s "$RULES" "$RULES.bak-v36-$STAMP" || die "backup of $RULES failed; nothing installed"
 _rollback() {
+  # CHECKED (Codex, install window): every restore is verified against its backup (kept); a failure keeps the hold
   trap - INT TERM HUP
   echo "ROLLING BACK v36"
+  local bad=""
   for f in "${!TGT[@]}"; do
     t=${TGT[$f]}
-    if [ -n "${EXISTED[$f]:-}" ]; then mv -f "$t.bak-v36-$STAMP" "$t"; else rm -f "$t"; fi
+    if [ -n "${EXISTED[$f]:-}" ]; then
+      cp -p "$t.bak-v36-$STAMP" "$t.rb-v36" && mv -f "$t.rb-v36" "$t" && cmp -s "$t.bak-v36-$STAMP" "$t" || bad="$bad $t"
+    else
+      rm -f "$t"; [ ! -e "$t" ] || bad="$bad $t"
+    fi
     rm -f "$t.new-v36"
   done
-  mv -f "$RULES.bak-v36-$STAMP" "$RULES"
+  cp -p "$RULES.bak-v36-$STAMP" "$RULES.rb-v36" && mv -f "$RULES.rb-v36" "$RULES" && cmp -s "$RULES.bak-v36-$STAMP" "$RULES" || bad="$bad $RULES"
+  if [ -n "$bad" ]; then KEEP_HOLD=1; echo "ROLLBACK INCOMPLETE:$bad -- backups *.bak-v36-$STAMP kept"; return 1; fi
   python3 $H/mcai-analysis/gatedigest.py --verdict $H/verdict.py --rules $RULES
+  echo "ROLLED BACK v36 (verified against the backups)"
 }
 trap '_rollback; exit 4' INT TERM HUP
 for f in "${!TGT[@]}"; do mv -f "${TGT[$f]}.new-v36" "${TGT[$f]}" || { _rollback; exit 4; }; echo "  installed ${TGT[$f]}"; done
@@ -195,6 +208,7 @@ if [ -n "$THEN" ]; then
   say "7. the second install in this window (hold and lock still held): $THEN"
   [ "$(python3 $S/holdtoken.py owner 2>&1)" = "$TOKEN" ] || { echo "REFUSED: the install-hold is no longer ours; $THEN NOT run (v36 stays installed)"; exit 2; }
   HOLD_TOKEN=$TOKEN bash "$THEN"; RT=$?
+  [ $RT -eq 6 ] && { KEEP_HOLD=1; echo "SECOND INSTALL ROLLBACK INCOMPLETE: the install-hold is KEPT"; exit 6; }
   [ $RT -eq 0 ] || { echo "SECOND INSTALL FAILED (exit $RT): $THEN -- v36 stays installed"; exit 5; }
   echo "WINDOW COMPLETE: v36 + $(basename "$THEN")"
 fi

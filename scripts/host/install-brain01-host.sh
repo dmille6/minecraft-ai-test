@@ -25,7 +25,15 @@ declare -A TGT=([canary-loop.sh]=$H/canary-loop.sh [canary-sched.py]=$H/canary-s
 declare -A BASE=([canary-loop.sh]=6f5f13b5c0103eb47444044fdfebf752 [canary-sched.py]=dee491d6460abf3f024a5ae8eb6f8ed4 [drawrec.sh]=792a7cfdfac37825522d55d841f24eff)
 declare -A WANT=([canary-loop.sh]=344b10740b3de9bb8025a14bf4bbb1d3 [canary-sched.py]=0d9a87f3372fe88718a324117edfea6b [drawrec.sh]=986e18d2a36d168d2afdc91f75e59682)
 
+# STAGE (into the same dir as install-gate-v36.sh, after its own STAGE list):
+#   scp scripts/host/{install-brain01-host.sh,test_canary_sched.py} mike@10.0.0.31:gate-v36/
+#   scp <brain-01 patched canary-loop.sh,canary-sched.py,drawrec.sh> docs/reports/brain01-staging/{canary-loop.sh,canary-sched.py,drawrec.sh}.patch \
+#       mike@10.0.0.31:gate-v36/brain01/
+KEEP_HOLD=""
 say "1. staged = the approved patch applied to the live base; live = the base"
+for f in test_canary_sched.py test_threepool.py test_bagfix_loop.py test_drawrequire.py test_holdtoken.py canarywatch.py holdtoken.py bagread.py; do
+  [ -f "$S/$f" ] || die "staged $S/$f missing"
+done
 for f in "${!TGT[@]}"; do
   [ -f "$B/$f" ] || die "staged $B/$f missing"
   [ -f "$B/$f.patch" ] || die "the approved patch $B/$f.patch is missing"
@@ -65,13 +73,15 @@ elif [ -n "${HOLD_TOKEN:-}" ]; then
 else
   TOKEN="install-brain01-host:$$:$(date +%s%N)"
   CL=$(python3 $S/holdtoken.py claim "$TOKEN" 90 2>&1) || die "install-hold not claimed: $(echo "$CL" | tr '\n' ' ' | cut -c1-400)"
-  trap 'python3 $S/holdtoken.py release "$TOKEN" >/dev/null 2>&1' EXIT
+  trap '[ -n "$KEEP_HOLD" ] && echo "INSTALL-HOLD KEPT ($TOKEN): restore by hand" || python3 $S/holdtoken.py release "$TOKEN" >/dev/null 2>&1' EXIT
   exec 8>/tmp/mcai-canary.lock; flock -n 8 || die "/tmp/mcai-canary.lock is held"
   _busy
 fi
 
 say "2. the patched files pass the suites that exercise them (a staging copy, nothing live)"
-T=$(mktemp -d /tmp/brain01-stage-XXXXXX)
+# UNDER $S, never /tmp (found in the dry run 10-19): test_bagfix_loop resolves bagfixgate.py from its parent directory
+# first, and /tmp holds a stale v34 bagfixgate.py (no ext-min) that failed 15 of its 21 cases for a reason unrelated to brain-01
+T=$(mktemp -d "$S/brain01-stage-XXXXXX")
 cp -p $S/*.py $S/*.sh "$T"/ 2>/dev/null; cp -p "$S"/airpocket-01.*.json "$T"/ 2>/dev/null
 for f in "${!TGT[@]}"; do cp -p "$B/$f" "$T/$f"; done
 cd "$T" || die "cannot cd $T"
@@ -82,10 +92,9 @@ for tt in test_threepool test_bagfix_loop test_drawrequire test_holdtoken; do
   python3 $tt.py > $tt.out 2>&1 || die "$tt.py failed with the brain-01 files: $(grep -E '^FAIL|pass' $tt.out | tail -4 | tr '\n' ' ')"
   echo "  $tt: $(tail -1 $tt.out)"
 done
-if [ -f test_canary_sched.py ]; then
-  python3 test_canary_sched.py > test_canary_sched.out 2>&1 || die "test_canary_sched.py failed: $(tail -3 test_canary_sched.out | tr '\n' ' ')"
-  echo "  test_canary_sched: $(tail -1 test_canary_sched.out)"
-fi
+# MANDATORY (Claude, install window): the one suite for canary-sched.py's model-env change
+python3 test_canary_sched.py > test_canary_sched.out 2>&1 || die "test_canary_sched.py failed: $(tail -3 test_canary_sched.out | tr '\n' ' ')"
+echo "  test_canary_sched: $(tail -1 test_canary_sched.out)"
 python3 canarywatch.py --selftest > canarywatch.out 2>&1 || die "canarywatch selftest: $(tail -2 canarywatch.out)"
 cd "$S"; rm -rf "$T"
 
@@ -95,6 +104,10 @@ if [ -n "$DRY" ]; then
   exit 0
 fi
 
+# THE HOLD MUST STILL BE OURS right before anything is replaced (Claude, install window)
+[ -n "${HOLD_TOKEN:-}" ] && OWN=$HOLD_TOKEN || OWN=$TOKEN
+[ "$(python3 $S/holdtoken.py owner 2>&1)" = "$OWN" ] || die "the install-hold is no longer ours: nothing installed"
+_busy
 say "3. install: backups verified first, then each file replaced by rename"
 for f in "${!TGT[@]}"; do
   t=${TGT[$f]}
@@ -102,7 +115,17 @@ for f in "${!TGT[@]}"; do
   cp "$B/$f" "$t.new-brain01" && cmp -s "$B/$f" "$t.new-brain01" && chmod --reference="$t" "$t.new-brain01" \
     || { rm -f "$t.new-brain01"; die "staging $t.new-brain01 failed; nothing installed"; }
 done
-_rollback() { trap - INT TERM HUP; for f in "${!TGT[@]}"; do mv -f "${TGT[$f]}.bak-brain01-$STAMP" "${TGT[$f]}"; rm -f "${TGT[$f]}.new-brain01"; done; echo "ROLLED BACK brain-01 host files"; }
+_rollback() {
+  # CHECKED (Codex): each restore verified against its backup (kept); a failure exits 6 and the hold is KEPT
+  trap - INT TERM HUP; local bad=""
+  for f in "${!TGT[@]}"; do
+    t=${TGT[$f]}
+    cp -p "$t.bak-brain01-$STAMP" "$t.rb-brain01" && mv -f "$t.rb-brain01" "$t" && cmp -s "$t.bak-brain01-$STAMP" "$t" || bad="$bad $t"
+    rm -f "$t.new-brain01"
+  done
+  if [ -n "$bad" ]; then KEEP_HOLD=1; echo "ROLLBACK INCOMPLETE:$bad -- backups *.bak-brain01-$STAMP kept"; exit 6; fi
+  echo "ROLLED BACK brain-01 host files (verified against the backups)"
+}
 trap '_rollback; exit 4' INT TERM HUP
 for f in "${!TGT[@]}"; do mv -f "${TGT[$f]}.new-brain01" "${TGT[$f]}" || { _rollback; exit 4; }; echo "  installed ${TGT[$f]}"; done
 LIVE=$(python3 $H/verdict.py --gate-digest | head -1)
