@@ -71,7 +71,7 @@ import { WOODEN_TRAPDOOR, isWellJunk, disposePlan, wellIdentity, wellStage, well
          aimApplied, packetVelocity, isOpenPit, isCoveredPit, pitCoverItem, PIT_COVER_REMEDY, coverRef, bodyInPit,
          stockWellStacks, pillarCount, STOCK_SCAFFOLD_MIN } from './well.mjs'
 import { resyncPacket, GUARDED_INVENTORY_ACTIONS } from './craftsync.mjs'
-import { bambooPlan, bambooStickRecipe, bambooGate, foldWindow } from './bamboo.mjs'
+import { bambooPlan, bambooStickRecipe, bambooGate, foldWindow, foldTally } from './bamboo.mjs'
 import path from 'node:path'
 // wellsite-01 (its own statement, away from the import stocktarget-01 rewrites)
 import { containmentRefusal, tallyText, WELL_SEARCH_RADIUS, WELL_NO_SITE_BACKOFF_MS, NO_VALID_CELL, retireLog, noSiteHold, wellBreakCost } from './well.mjs'
@@ -6633,7 +6633,8 @@ async function wearOut(ctx, _args, signal) {
  *     bot.stationaryUntil for crafts x 1.3 s + 5 s (cap 90 s, and never past the skill's own deadline), used as the
  *     fold's deadline too, cleared in the finally. A batch that cannot finish inside it is refused (stop=too_long).
  *   - The tally is the server's: verified executions plus a craft the server confirmed as an abort landed
- *     (producedAtAbort). An abort is stop=aborted:<the runner's reason>. The contract is slots_freed (the runner's own
+ *     (producedAtAbort), plus -- on any stop short of success -- the ONE execution in flight when the bag shows it made
+ *     (bamboo.mjs foldTally; row arg inflight=1). An abort is stop=aborted:<the runner's reason>. The contract is slots_freed (the runner's own
  *     bag count), so an aborted fold that freed nothing stays aborted instead of "inventory_loss ... so it worked".
  */
 async function bambooSticks(ctx, _args, signal) {
@@ -6692,9 +6693,13 @@ async function bambooSticks(ctx, _args, signal) {
     // ONE ROW PER RUN, aborts included: before -> after, what was made of what was planned, why it stopped.
     try {
       const after = read()
+      // A STOP THAT LANDED WHILE THE EXECUTION IN FLIGHT WAS ALREADY MADE (bamboo.mjs foldTally, bamboo-02 10-19): the bag
+      // shows it on both sides, so the tally takes it -- at most one, never past the plan. `inflight` says it did.
+      const tally = foldTally({ claimed: crafts, planned: plan.crafts, before, after, status })
+      crafts = tally.crafts
       const args = { b0: before.bamboo, b1: after.bamboo, s0: before.sticks, s1: after.sticks, p0: before.planks, p1: after.planks,
                      o0: before.slots, o1: after.slots, crafts, planned: plan.crafts, freed: before.slots - after.slots, stop,
-                     window_ms: windowMs }
+                     window_ms: windowMs, inflight: tally.inflight }
       logEvent({ kind: 'bamboo_sticks', status, snapshot: snapshot(bot), durationMs: Date.now() - t0, args,
                  detail: `bamboo=${args.b0}->${args.b1} sticks=${args.s0}->${args.s1} planks=${args.p0}->${args.p1} ` +
                          `slots=${args.o0}->${args.o1} crafts=${crafts}/${plan.crafts} freed=${args.freed} stop=${stop}` +
