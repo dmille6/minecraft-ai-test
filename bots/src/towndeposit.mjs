@@ -14,8 +14,11 @@
 // spare tools; never ballast, never a station, never food), and of those only what NO OTHER RULE KEEPS:
 //   - the stockpile rungs (milestones.mjs): wood (logs + planks/4) and the COBBLE family are kept to min(held, 64),
 //     dirt 16 and sand 8 (the gatherer chain) -- a deposit below them re-opens a gather rung and the two rules fight;
-//   - the iron ladder's inputs (raw_iron, iron_ingot, iron_ore, coal...) stay with the bot: the bank is write-only
-//     today, and an ingot in a chest is not a bucket or a pickaxe;
+//   - the iron ladder's inputs: since cobblekeep-01 (OWNER 10-19 ~14:10Z "coal and iron must get banked in town") only
+//     what the bot's OWN next rungs need -- IRON_KEEP (3) iron units, ingots first, then raw iron, then ore, each name kept
+//     WHOLE (the deposit moves whole stacks only), and coal/charcoal only while the bot still holds raw iron or ore to
+//     smelt itself; the rest (raw iron above three ingots, ore, coal) is banked for the town's smelt jobs and
+//     toolkits. See ironKeeps below;
 //   - the active rung's wants and their ingredients, up to a stack each;
 //   - the scaffold reserve (8 cheapest + 2 sticks, bankable.mjs scaffoldKeep);
 //   - tools: never a copy at or below toolfor's FLOOR (a spent tool is the wear-out's, not the bank's), and the BEST
@@ -115,10 +118,42 @@ export function townKeeps (counts = {}, { wanted = [] } = {}) {
   let means = Math.min(PLANKS_MEANS, PLANKS.reduce((t, n) => t + (counts[n] ?? 0), 0))
   for (const n of [...PLANKS].sort(byHeldDesc(counts))) { const k = Math.min(means, counts[n] ?? 0); if (k > 0) { floor(n, k, 'ladder_means'); means -= k } }
   for (const [n, t] of Object.entries(HELD_TARGETS)) floor(n, t, 'gather_rung')
-  for (const n of IRON_LADDER) floor(n, Infinity, 'iron_ladder')
+  for (const [n, k] of Object.entries(ironKeeps(counts))) floor(n, k, 'iron_ladder')
   for (const n of new Set([wanted ?? []].flat().filter(x => typeof x === 'string'))) floor(n, WANTED_KEEP, 'wanted')
   for (const [n, k] of Object.entries(scaffoldKeep(counts))) floor(n, k, 'scaffold_reserve')
   return { keep, why }
+}
+
+/**
+ * THE IRON LADDER'S KEEP (cobblekeep-01; OWNER 10-19 ~14:10Z "coal and iron must get banked in town") -> { name: n }. Pure.
+ * Was every unit of IRON_LADDER, for good (`floor(n, Infinity)`), so towns ran dry while bags held it: 24 h to 10-19,
+ * 484 town smelt jobs stopped "no coal in town" with a townmate carrying coal at 69% of them, and 253 toolkit "no iron"
+ * refusals with a townmate carrying >= 3 ingots at 77%.
+ *   IRON: IRON_KEEP units, the ladder's own number (gather_iron_ore_3 counts raw + ingots >= 3; the smelt rung 3 ingots;
+ *         the bucket and the iron pickaxe 3 ingots each) -- so no iron rung changes state (the PROPERTY test). Names in
+ *         IRON_KEEP_ORDER, ingots first, each kept WHOLE until the units are covered: the town deposit moves whole stacks
+ *         only, so a name is either kept or banked entire, never split. Measured 10-19 (80 bags): ingots 1-3 per bot
+ *         (34 bots at exactly 3: their next craft), so ingots stay; raw iron above three ingots and ore go (nuggets are
+ *         not on the bank's list: bankable.mjs).
+ *   FUEL: coal and charcoal stay WHOLE only while the iron keep holds raw iron or ore -- the bot's own next smelt (the
+ *         smelt rung's means are any fuel, which the kept logs and planks already are; a coal stack is >= 1 batch of 8).
+ *         Otherwise they go. The active rung's wants still keep a stack (townKeeps `wanted`).
+ */
+export const IRON_KEEP = 3
+export const IRON_KEEP_ORDER = Object.freeze(['iron_ingot', 'raw_iron', 'iron_ore', 'deepslate_iron_ore'])
+export const FUEL_KEEP_ORDER = Object.freeze(['coal', 'charcoal'])
+export function ironKeeps (counts = {}) {
+  const keep = {}
+  let need = IRON_KEEP, smelt = false
+  for (const n of IRON_KEEP_ORDER) {
+    if (need <= 0) break
+    const h = Math.max(0, Number(counts[n]) || 0)
+    if (!h) continue
+    keep[n] = h; need -= h
+    if (n !== 'iron_ingot') smelt = true
+  }
+  if (smelt) for (const n of FUEL_KEEP_ORDER) { const h = Math.max(0, Number(counts[n]) || 0); if (h) { keep[n] = h; break } }
+  return keep
 }
 
 // THE STOCK TARGETS' KEEPS (stocktarget-01, design 3.2): the ordinary deposit, the town deposit and the well leave the SAME
