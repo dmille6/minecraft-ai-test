@@ -33,7 +33,8 @@
 #     count_town lid_blocked per bot-h (should FALL); _lid_clear refused blocks by name (a new blocker shows here first)
 #   COAL / IRON (the second half, OWNER 10-19 ~14:10Z "coal and iron must get banked in town"; towndeposit.mjs ironKeeps)
 #     D4 breach_ingot_banked: a canary `_town_deposit` that banked iron_ingot -- the keep holds every ingot (the next craft)
-#     REPORTED coal and raw iron/ore banked by the town deposit per bot-h DiD (should RISE)
+#     REPORTED coal and raw iron/ore banked by the town deposit per bot-h DiD (should RISE: the mechanism); the OWNER'S
+#              targets (Claude r3 P3-3): toolkit `outcome=no_iron` and town smelt jobs stopped on coal, per bot-h DiD (FALL)
 #   TRIPWIRES  (never a verdict) the escape: canary snapshots with < 64 RESERVE_STONE within 10 min after a canary well
 #              cobble throw by that bot (names them); deaths are the gate's linkage (change_rows: _well_dispose, _lid_clear)
 #   INSTRUMENT control _stock_refused via=town_deposit cobble rows >= 1 AND control _well_dispose rows >= 1
@@ -43,7 +44,7 @@ import sys, os, json, re, glob, gzip
 import datetime as dt
 from collections import Counter, defaultdict
 
-KEEP = ('count_town', '_stock_refused', '_lid_clear', '_cobblekeep_mode', '_well_dispose', 'town_deposit', 'dispose_well', '_town_deposit')
+KEEP = ('count_town', '_stock_refused', '_lid_clear', '_cobblekeep_mode', '_well_dispose', 'town_deposit', 'dispose_well', '_town_deposit', '_toolkit', '_smelt_town')
 BANKED = re.compile(r' banked (\S+)')
 IRON_BANK = ('coal', 'raw_iron', 'iron_ore', 'deepslate_iron_ore')
 KV = re.compile(r'(?:^| )([a-z_]+)=(\S+)')
@@ -220,6 +221,8 @@ def judge(rows, bag=None, last=None, snaps=None, exposure_pre=None):
             out['well_cobble_%s_%s' % (per, arm)] = sum(well_cobble(r) for r in sel)
             out['banked_coal_%s_%s' % (per, arm)] = sum(banked(r).get('coal', 0) for r in sel)
             out['banked_iron_%s_%s' % (per, arm)] = sum(sum(banked(r).get(n, 0) for n in IRON_BANK[1:]) for r in sel)
+            out['kit_no_iron_%s_%s' % (per, arm)] = sum(1 for r in sel if r['name'] == '_toolkit' and kv(r['detail']).get('outcome') == 'no_iron')
+            out['smelt_no_coal_%s_%s' % (per, arm)] = sum(1 for r in sel if r['name'] == '_smelt_town' and 'coal' in (kv(r['detail']).get('stop') or ''))
             out['well_rows_%s_%s' % (per, arm)] = sum(1 for r in sel if r['name'] == '_well_dispose')
             out['town_deposit_%s_%s' % (per, arm)] = sum(1 for r in sel if r['name'] == 'town_deposit')
             out['lid_blocked_%s_%s' % (per, arm)] = sum(1 for r in sel if r['name'] == 'count_town' and 'lid_blocked' in (kv(r['detail']).get('fails') or ''))
@@ -283,6 +286,9 @@ def selftest():
     assert judge([TDR('iron_ingot:3')] + ctl)['breach_ingot_banked'] == 1, 'D4: an ingot banked'
     assert judge([TDR('iron_ingot:3', arm='control', bot='hive-b-A')] + ctl)['breach_ingot_banked'] == 0, 'D4 judges the canary arm'
     assert judge([TDR('-')] + ctl)['banked_coal_post_canary'] == 0
+    ow = judge([R('_toolkit', 'phase=kit outcome=no_iron needs=iron_axe drew=0'), R('_toolkit', 'phase=kit outcome=crafted needs=iron_axe drew=3'),
+                R('_smelt_town', 'job=1 stop=no_coal_in_town n=0'), R('_smelt_town', 'job=2 stop=done n=8')] + ctl)
+    assert ow['kit_no_iron_post_canary'] == 1 and ow['smelt_no_coal_post_canary'] == 1, ow
     print('SELFTEST ok: every gate fails on its fixture and passes its control')
 
 
@@ -312,7 +318,7 @@ if __name__ == '__main__':
     rate = lambda n, per, arm: n / hrs(per, arm) if hrs(per, arm) else float('nan')
     didof = lambda k: (rate(res[k + '_post_canary'], 'post', 'canary') - rate(res[k + '_pre_canary'], 'pre', 'canary')) \
         - (rate(res[k + '_post_control'], 'post', 'control') - rate(res[k + '_pre_control'], 'pre', 'control'))
-    dids = {k: didof(k) for k in ('refused_unknown', 'refused_cap', 'well_cobble', 'lid_blocked', 'town_deposit', 'banked_coal', 'banked_iron')}
+    dids = {k: didof(k) for k in ('refused_unknown', 'refused_cap', 'well_cobble', 'lid_blocked', 'town_deposit', 'banked_coal', 'banked_iron', 'kit_no_iron', 'smelt_no_coal')}
     lvl = lambda k: (res[k + '_post_canary'] - res[k + '_pre_canary']) - (res[k + '_post_control'] - res[k + '_pre_control'])
     dids['bag_cobble'] = lvl('bag_cobble'); dids['full_share'] = lvl('full_share')
     print('RESTART LAG  canary post rows from another build skipped: %d (canary build %s)' % (lagged, CV or '-'))
@@ -338,6 +344,9 @@ if __name__ == '__main__':
           % (res['banked_coal_pre_canary'], res['banked_coal_post_canary'], res['banked_coal_pre_control'], res['banked_coal_post_control'], dids['banked_coal'],
              res['banked_iron_pre_canary'], res['banked_iron_post_canary'], res['banked_iron_pre_control'], res['banked_iron_post_control'], dids['banked_iron'],
              res['breach_ingot_banked'], res['_lists']['ingot']))
+    print('OWNER TARGETS toolkit no_iron canary %d -> %d control %d -> %d DiD %+.3f /bot-h | town smelt jobs stopped on coal canary %d -> %d control %d -> %d DiD %+.3f /bot-h (both should FALL; reported)'
+          % (res['kit_no_iron_pre_canary'], res['kit_no_iron_post_canary'], res['kit_no_iron_pre_control'], res['kit_no_iron_post_control'], dids['kit_no_iron'],
+             res['smelt_no_coal_pre_canary'], res['smelt_no_coal_post_canary'], res['smelt_no_coal_pre_control'], res['smelt_no_coal_post_control'], dids['smelt_no_coal']))
     print('TRIPWIRES    reserve stone < %d within %d s after a canary well cobble throw %d %s'
           % (RESERVE, ESCAPE_WINDOW_S, res['escape_low_after_throw'], res['_lists']['escape']))
     print('EXPOSURE     -> %s (frozen: canary town-deposit cobble refusals in the %d h before declared_at %d of %d rows walked, need 3) | INSTRUMENT control refusals %d, control well rows %d -> %s'

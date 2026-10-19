@@ -76,13 +76,13 @@ test('the families are milestones.mjs\'s own, and the held targets match the gat
 })
 
 test('keeps: wood to 64 units (logs first), the stone FAMILY to 64 (andesite counts), iron never, wanted to a stack', () => {
-  const { keep, why } = townKeeps({ oak_log: 50, birch_log: 30, oak_planks: 40, cobblestone: 100, andesite: 20, raw_iron: 9, iron_ingot: 4, coal: 30, stick: 40, dirt: 40 }, { wanted: ['stick'] })
+  const { keep, why } = townKeeps({ oak_log: 50, birch_log: 30, oak_planks: 40, cobblestone: 100, andesite: 20, raw_iron: 9, iron_ingot: 4, coal: 30, stick: 40, dirt: 40, bucket: 1 }, { wanted: ['stick'] })
   assert.equal(keep.oak_log, 50); assert.equal(keep.birch_log, 14)
   assert.equal(keep.oak_planks, 4, '64 units already in logs; 4 planks kept for the ladder\'s means'); assert.equal(why.oak_planks, 'ladder_means')
   assert.equal(keep.cobblestone, 64, 'cobblestone first: a pickaxe and a furnace are made of it')
   assert.equal(keep.andesite, 0 + (keep.andesite ?? 0), 'andesite never banks anyway')
-  // cobblekeep-01: the iron keep is the ladder's 3 units, ingots first, each name whole; raw_iron 9 + ingots 4 -> the ingots
-  // cover it, so raw iron and coal (no raw kept to smelt) are no longer kept
+  // cobblekeep-01: a bucket held -> one iron craft left, 3 units, ingots first, each name whole; raw_iron 9 + ingots 4 -> the
+  // ingots cover it, so raw iron and coal (no raw kept to smelt) are no longer kept
   assert.equal(why.iron_ingot, 'iron_ladder'); assert.equal(keep.iron_ingot, 4)
   assert.equal(keep.raw_iron, undefined, 'raw iron above three ingots is banked'); assert.equal(keep.coal, undefined, 'coal with nothing of its own to smelt is banked')
   assert.equal(keep.stick, 40, 'a wanted item is kept up to a stack')
@@ -95,24 +95,37 @@ test('keeps: wood to 64 units (logs first), the stone FAMILY to 64 (andesite cou
 test('IRON KEEP, pure: the ladder\'s 3 units, ingots first, each name WHOLE; coal only while raw iron or ore is kept to smelt', () => {
   const K = TD.ironKeeps
   assert.equal(TD.IRON_KEEP, 3)
-  assert.deepEqual(K({ iron_ingot: 3, raw_iron: 5, coal: 7 }), { iron_ingot: 3 }, 'three ingots: the next craft is covered; raw and coal go')
+  assert.deepEqual(K({ iron_ingot: 3, raw_iron: 5, coal: 7, bucket: 1 }), { iron_ingot: 3 }, 'a bucket held, three ingots: the pickaxe is covered; raw and coal go')
+  // Claude r3 P1-1: NEITHER a bucket nor an iron pickaxe -> 6 units, so the 5 raw iron stay (with the coal to smelt them)
+  assert.deepEqual(K({ iron_ingot: 3, raw_iron: 5, coal: 7 }), { iron_ingot: 3, raw_iron: 5, coal: 7 }, 'two crafts to go: 6 units')
+  assert.deepEqual(K({ iron_ingot: 3, raw_iron: 5, coal: 7, bucket: 1, iron_pickaxe: 1 }), { iron_ingot: 3 }, 'both held: the floor of 3')
+  assert.equal(TD.ironUnitsNeeded({}), 6); assert.equal(TD.ironUnitsNeeded({ bucket: 1 }), 3); assert.equal(TD.ironUnitsNeeded({ iron_pickaxe: 1 }), 3)
+  assert.equal(TD.ironUnitsNeeded({ bucket: 1, iron_pickaxe: 1 }), 3, 'never below the gather rung\'s 3')
+  assert.equal(TD.ironUnitsNeeded({ water_bucket: 1 }), 6, 'a water bucket is not the bucket rung (countItem bucket)')
   assert.deepEqual(K({ iron_ingot: 1, raw_iron: 2, coal: 4 }), { iron_ingot: 1, raw_iron: 2, coal: 4 }, 'short of three: everything, and the coal to smelt it')
   assert.deepEqual(K({ raw_iron: 3, coal: 16, charcoal: 2 }), { raw_iron: 3, coal: 16 }, 'coal first; one fuel name is a batch')
   assert.deepEqual(K({ raw_iron: 3, charcoal: 2 }), { raw_iron: 3, charcoal: 2 })
-  assert.deepEqual(K({ iron_ingot: 2, coal: 3 }), { iron_ingot: 2 }, 'nothing raw to smelt: the coal goes (logs and planks are the rung\'s fuel too)')
+  assert.deepEqual(K({ iron_ingot: 2, coal: 3 }), { iron_ingot: 2 }, 'nothing raw to smelt: the coal goes')
   assert.deepEqual(K({ iron_ingot: 1, raw_iron: 1, iron_ore: 4, coal: 2 }), { iron_ingot: 1, raw_iron: 1, iron_ore: 4, coal: 2 })
-  assert.deepEqual(K({ iron_ingot: 1, raw_iron: 5, iron_ore: 4 }), { iron_ingot: 1, raw_iron: 5 }, 'raw before ore: the ore goes')
+  assert.deepEqual(K({ iron_ingot: 1, raw_iron: 5, iron_ore: 4, bucket: 1 }), { iron_ingot: 1, raw_iron: 5 }, 'raw before ore: the ore goes')
   assert.deepEqual(K({ coal: 11 }), {}, 'no iron at all: the coal goes')
+  // FUEL IS FOR THE BOT'S OWN SMELT, WHATEVER IT IS (Codex r3 P2)
+  const bk = { bucket: 1 }
+  assert.deepEqual(K({ iron_ingot: 3, sand: 8, coal: 7, ...bk }, { wanted: ['glass', 'sand'] }), { iron_ingot: 3, coal: 7 }, 'wanted glass: the 8 sand need the coal')
+  assert.deepEqual(K({ iron_ingot: 3, sand: 8, coal: 7, ...bk }, { wanted: ['glass'] }), { iron_ingot: 3, coal: 7 }, 'the output alone names its input')
+  assert.deepEqual(K({ iron_ingot: 3, coal: 7, ...bk }, { wanted: ['glass'] }), { iron_ingot: 3 }, 'wanted glass but no sand held: nothing to smelt, the coal goes')
+  assert.deepEqual(K({ iron_ingot: 3, oak_log: 20, coal: 4, ...bk }, { wanted: ['oak_log', 'charcoal'] }), { iron_ingot: 3 }, 'wood is fuel, never a smelt that needs coal')
+  assert.deepEqual(K({ iron_ingot: 3, sand: 8, coal: 7, ...bk }, { wanted: ['stick'] }), { iron_ingot: 3 }, 'a rung that smelts nothing keeps no coal')
   assert.deepEqual(K({}), {})
   // the gather rung counts raw + ingots >= 3: never moved from done to not done by this keep
-  for (const c of [{ iron_ingot: 3, raw_iron: 2 }, { iron_ingot: 2, raw_iron: 2 }, { iron_ingot: 1, raw_iron: 1, iron_ore: 3 }, { raw_iron: 4 }, { iron_ingot: 5 }]) {
+  for (const c of [{ iron_ingot: 3, raw_iron: 2, bucket: 1 }, { iron_ingot: 3, raw_iron: 2 }, { iron_ingot: 2, raw_iron: 2 }, { iron_ingot: 1, raw_iron: 1, iron_ore: 3 }, { raw_iron: 4 }, { iron_ingot: 5 }]) {
     const k = K(c), before = (c.iron_ingot ?? 0) + (c.raw_iron ?? 0), after = (k.iron_ingot ?? 0) + (k.raw_iron ?? 0)
     assert.ok(before < 3 || after >= 3, `${JSON.stringify(c)}: the rung stays done`)
   }
 })
 const ironTown = rows => { const c = chestAt(2); return { c, w: world({ items: bag([...rows, ...filler(36 - rows.length)]), containers: [c] }) } }
-test('IRON CHAIN (positive), the REAL town deposit: a full bag with 3 ingots, 5 raw iron and 7 coal banks the raw iron and the coal; the ingots stay', async () => {
-  const { c, w } = ironTown([['iron_ingot', 3], ['raw_iron', 5], ['coal', 7]])
+test('IRON CHAIN (positive), the REAL town deposit: a full bag with a bucket, 3 ingots, 5 raw iron and 7 coal banks the raw iron and the coal; the ingots stay (the pickaxe\'s)', async () => {
+  const { c, w } = ironTown([['iron_ingot', 3], ['raw_iron', 5], ['coal', 7], ['bucket', 1]])
   const r = await run(w.bot)
   assert.equal(r.status, 'success', r.detail)
   for (const now of [w.bot.inventory.items(), serverBag(w)]) {
@@ -128,16 +141,72 @@ test('IRON CHAIN (negative), the REAL town deposit: 1 ingot, 2 raw iron and 4 co
   assert.equal(sumOf(c.items, 'iron_ingot') + sumOf(c.items, 'raw_iron') + sumOf(c.items, 'coal'), 0, 'no iron or coal banked')
   assert.equal(sumOf(w.bot.inventory.items(), 'raw_iron'), 2); assert.equal(sumOf(w.bot.inventory.items(), 'coal'), 4)
 })
+test('FUEL CHAIN (Codex r3 P2), the REAL town deposit: a bot whose rung wants glass keeps its coal for its own 8 sand; the same bag with a rung that smelts nothing banks the coal', async () => {
+  const runWith = async wanted => {
+    const { c, w } = ironTown([['iron_ingot', 3], ['sand', 8], ['furnace', 1], ['coal', 7], ['bucket', 1], ['oak_log', 64], ['oak_log', 64], ['oak_log', 64]])
+    w.bot.townDepositWanted = wanted
+    const r = await run(w.bot)
+    return { r, c, w }
+  }
+  const a = await runWith(['glass', 'sand'])
+  assert.equal(sumOf(a.c.items, 'coal'), 0, `the coal stays for its own glass: ${a.r.detail}`)
+  assert.equal(sumOf(a.w.bot.inventory.items(), 'coal'), 7)
+  assert.ok(sumOf(a.c.items, 'oak_log') > 0, 'positive control: the run banked (logs above the 64 units)')
+  const b = await runWith(['stick'])
+  assert.equal(b.r.status, 'success', b.r.detail)
+  assert.equal(sumOf(b.c.items, 'coal'), 7, 'nothing of its own to smelt: the coal banks')
+})
+// Claude r3 P1-1: THE SEQUENCE, through the real town deposit -- a bot with NEITHER a bucket nor an iron pickaxe deposits,
+// crafts the bucket (3 ingots), deposits again: it still holds the pickaxe's iron (raw to smelt, and the coal to smelt it)
+const ironRungs = items => {
+  const n = name => sumOf(items, name)
+  return { gather: n('raw_iron') + n('iron_ingot') >= 3, smeltMeans: n('raw_iron') >= 1 && n('coal') >= 1, pickMeans: n('iron_ingot') + n('raw_iron') >= 3 }
+}
+test('IRON SEQUENCE (Claude r3 P1-1), the REAL town deposit: no bucket, no iron pickaxe, 3 ingots + 5 raw + 7 coal -> deposit -> craft the bucket -> deposit: the pickaxe\'s iron and its coal are still in the bag', async () => {
+  const { c, w } = ironTown([['iron_ingot', 3], ['raw_iron', 5], ['coal', 7], ['oak_log', 64], ['oak_log', 64], ['oak_log', 64]])
+  const r1 = await run(w.bot)
+  assert.equal(r1.status, 'success', `positive control: the logs bank: ${r1.detail}`)
+  assert.equal(sumOf(c.items, 'raw_iron') + sumOf(c.items, 'coal') + sumOf(c.items, 'iron_ingot'), 0, 'two crafts to go: none of the iron or coal banked')
+  // the bucket: 3 ingots out, a bucket in -- in the client's bag and the fake server's alike
+  for (const arr of [w.bagSlots, w.server.bag]) {
+    const k = arr.findIndex(x => x?.name === 'iron_ingot')
+    arr[k] = arr[k].count > 3 ? { ...arr[k], count: arr[k].count - 3 } : null
+    const free = arr.findIndex((x, j) => j >= 9 && j < 45 && !x)
+    arr[free] = item('bucket', 1, free)
+  }
+  const after1 = w.bot.inventory.items()
+  assert.equal(sumOf(after1, 'bucket'), 1); assert.equal(sumOf(after1, 'iron_ingot'), 0)
+  await run(w.bot)
+  const now = w.bot.inventory.items()
+  const rungs = ironRungs(now)
+  assert.equal(sumOf(now, 'raw_iron'), 5, 'the pickaxe\'s raw iron stays'); assert.equal(sumOf(now, 'coal'), 7, 'and the coal to smelt it')
+  assert.ok(rungs.gather && rungs.smeltMeans && rungs.pickMeans, JSON.stringify(rungs))
+  assert.equal(sumOf(c.items, 'raw_iron') + sumOf(c.items, 'coal'), 0)
+})
+test('IRON SEQUENCE, MUTANT KILLED: a flat keep of 3 banks the pickaxe\'s raw iron before the bucket is even made', async () => {
+  const P = new URL('../src/towndeposit.mjs', import.meta.url)
+  const src = fs.readFileSync(P, 'utf8')
+  const old = "  let need = ironUnitsNeeded(counts), toSmelt = 0\n"
+  assert.equal(src.split(old).length, 2, 'ANCHOR MISSING or not unique')
+  const out = new URL(`./_mutant-iu-${process.pid}.mjs`, import.meta.url)
+  fs.writeFileSync(out, src.replace(old, "  let need = IRON_KEEP, toSmelt = 0\n").replace(/from '\.\//g, "from '../src/"))
+  try {
+    const M = await import(out.href)
+    const items = bag([['iron_ingot', 3], ['raw_iron', 5], ['coal', 7], ...filler(33)])
+    assert.ok(M.townDepositPlan(items, { noSwords: false }).steps.some(s => s.name === 'raw_iron'), 'the mutant banks the raw iron')
+    assert.ok(!TD.townDepositPlan(items, { noSwords: false }).steps.some(s => s.name === 'raw_iron'), 'positive control: the real keep does not')
+  } finally { try { fs.unlinkSync(out) } catch {} }
+})
 test('IRON CHAIN, MUTANT KILLED: the old keep (every unit, for good) banks no iron or coal from the positive bag', async () => {
   const P = new URL('../src/towndeposit.mjs', import.meta.url)
   const src = fs.readFileSync(P, 'utf8')
-  const old = "  for (const [n, k] of Object.entries(ironKeeps(counts))) floor(n, k, 'iron_ladder')\n"
+  const old = "  for (const [n, k] of Object.entries(ironKeeps(counts, { wanted }))) floor(n, k, 'iron_ladder')\n"
   assert.equal(src.split(old).length, 2, 'ANCHOR MISSING or not unique')
   const out = new URL(`./_mutant-ik-${process.pid}.mjs`, import.meta.url)
   fs.writeFileSync(out, src.replace(old, "  for (const n of IRON_LADDER) floor(n, Infinity, 'iron_ladder')\n").replace(/from '\.\//g, "from '../src/"))
   try {
     const M = await import(out.href)
-    const items = bag([['iron_ingot', 3], ['raw_iron', 5], ['coal', 7], ...filler(33)])
+    const items = bag([['iron_ingot', 3], ['raw_iron', 5], ['coal', 7], ['bucket', 1], ...filler(32)])
     const names = M.townDepositPlan(items, { noSwords: false }).steps.map(s => s.name)
     assert.ok(!names.includes('raw_iron') && !names.includes('coal'), `mutant inert: ${names}`)
     assert.ok(TD.townDepositPlan(items, { noSwords: false }).steps.some(s => s.name === 'coal'), 'positive control: the real keep banks the coal')
@@ -152,7 +221,7 @@ test('tools: a spent copy never moves, the best usable copy always stays', () =>
   assert.deepEqual(toolSlotsToBank([c(9, 100), c(10, 90), c(11, 80)], 1), [10], 'the allowance caps it')
 })
 
-test('the plan: whole stacks, smallest first; junk, food, stations, chests, dirt, sand and the next iron craft never; freed = stacks', () => {
+test('the plan: whole stacks, smallest first; junk, food, stations, chests, dirt, sand and the bot\'s own iron crafts never; freed = stacks', () => {
   const items = bag([
     ['stone_pickaxe', 1, 1], ['stone_pickaxe', 1, 120], ['stone_pickaxe', 1, 60], ['wooden_pickaxe', 1, 40],
     ['cobblestone', 64], ['cobblestone', 64], ['cobblestone', 20], ['oak_log', 64], ['oak_log', 64], ['oak_log', 10],
@@ -162,7 +231,7 @@ test('the plan: whole stacks, smallest first; junk, food, stations, chests, dirt
   assert.equal(items.length, 36)
   const p = townDepositPlan(items)
   const names = p.steps.map(s => s.name)
-  for (const n of ['apple', 'egg', 'dirt', 'sand', 'bone_meal', 'crafting_table', 'chest', 'iron_ingot', 'leaf_litter', 'torch', 'white_wool', 'wooden_pickaxe'])
+  for (const n of ['apple', 'egg', 'dirt', 'sand', 'bone_meal', 'crafting_table', 'chest', 'raw_iron', 'iron_ingot', 'coal', 'leaf_litter', 'torch', 'white_wool', 'wooden_pickaxe'])
     assert.ok(!names.includes(n), `${n} must stay`)
   const picks = p.steps.filter(s => s.name === 'stone_pickaxe')
   assert.equal(picks.length, 1, 'one spare usable pickaxe banks')
@@ -172,9 +241,9 @@ test('the plan: whole stacks, smallest first; junk, food, stations, chests, dirt
   assert.deepEqual(p.steps.filter(s => s.name === 'oak_log').map(s => s.count), [10], '138 logs, keep 64 units, creditCap 64: the 10 stack only (the next 64 would pass the cap)')
   assert.ok(p.steps.every(s => items.find(i => i.slot === s.slot).count === s.count), 'every step is a whole stack')
   assert.equal(p.freed, p.steps.length)
-  // cobblekeep-01: 3 ingots are the next iron craft; the raw iron above them and the coal (nothing kept to smelt) bank
-  assert.deepEqual(p.steps.filter(s => ['raw_iron', 'coal'].includes(s.name)).map(s => `${s.name}:${s.count}`).sort(), ['coal:20', 'raw_iron:5'])
-  assert.equal(p.freed, 5, 'pickaxe + cobble 20 + logs 10 + raw iron 5 + coal 20')
+  // cobblekeep-01: no bucket and no iron pickaxe -> 6 iron units are the bot's own (3 ingots + 5 raw), and the coal smelts them
+  assert.deepEqual(p.steps.filter(s => ['raw_iron', 'coal'].includes(s.name)), [], 'two iron crafts to go: nothing of it banks')
+  assert.equal(p.freed, 3, 'pickaxe + cobble 20 + logs 10')
 })
 
 test('a bag holding only what the keeps protect plans nothing', () => {

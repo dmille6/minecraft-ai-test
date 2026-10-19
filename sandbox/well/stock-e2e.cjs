@@ -492,14 +492,15 @@ scenes.cobbleband = async () => {
 }
 
 // COBBLEKEEP-01, COAL AND IRON (OWNER 10-19 ~14:10Z "coal and iron must get banked in town"; towndeposit.mjs ironKeeps): an
-// empty town chest, a 36-slot bag of 3 iron ingots, 5 raw iron, 7 coal, a stone pickaxe and white wool (never bankable,
+// empty town chest, a 36-slot bag of 3 iron ingots, 5 raw iron, 7 coal, a bucket, a stone pickaxe and white wool (never bankable,
 // never junk). The town deposit fires at 34+ slots. BASE: the iron ladder keeps every unit -- nothing of it banked.
 // CANDIDATE: the 3 ingots stay (the next craft), the raw iron and the coal are banked. Read back: the chest and the bag by RCON.
 scenes.ironbank = async () => {
   buildArena(); BRAIN_WANDER = true
   rcon(`kill ${ARENA_SEL}`); CHEST = CHEST ?? pickChest()
   rcon(`setblock ${CHEST.x} ${CHEST.y} ${CHEST.z} minecraft:air`)
-  const spec = [['iron_ingot', 3], ['raw_iron', 5], ['coal', 7], ['stone_pickaxe', 1], ...Array.from({ length: 32 }, (_, i) => ['white_wool', 1 + (i % 3)])]
+  // a BUCKET held (79 of 80 fleet bags, 10-19): one iron craft left, so 3 units are the bot's own (r4: 3 per missing craft)
+  const spec = [['iron_ingot', 3], ['raw_iron', 5], ['coal', 7], ['stone_pickaxe', 1], ['bucket', 1], ...Array.from({ length: 31 }, (_, i) => ['white_wool', 1 + (i % 3)])]
   const files = await startBot('ironbank', spec, { pool: `sbxstock-${RUN}-iron` })
   setChest([])
   const b0 = bag(NAME)

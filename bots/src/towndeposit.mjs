@@ -36,6 +36,8 @@ import { remaining, FLOOR } from './toolfor.mjs'
 import { TRIGGER_SLOTS } from './hygiene.mjs'
 // THE PEACEFUL KIT (peacefulkit.mjs, owner 10-07 ~19:50Z): while the food policy's switch is on no sword is ever banked.
 import { peacefulFoodActive } from './foodskip.mjs'
+// cobblekeep-01 (Codex r3 P2): the bot's OWN smelts, whatever they are, keep their fuel (smelting.mjs is pure, no imports)
+import { smeltRecipeFor, smeltInputsFor } from './smelting.mjs'
 
 /** The bag the order acts on: the bot's own slot count (bot.inventory.items().length), never an estimate. */
 export const TD_TRIGGER_SLOTS = TRIGGER_SLOTS
@@ -118,7 +120,7 @@ export function townKeeps (counts = {}, { wanted = [] } = {}) {
   let means = Math.min(PLANKS_MEANS, PLANKS.reduce((t, n) => t + (counts[n] ?? 0), 0))
   for (const n of [...PLANKS].sort(byHeldDesc(counts))) { const k = Math.min(means, counts[n] ?? 0); if (k > 0) { floor(n, k, 'ladder_means'); means -= k } }
   for (const [n, t] of Object.entries(HELD_TARGETS)) floor(n, t, 'gather_rung')
-  for (const [n, k] of Object.entries(ironKeeps(counts))) floor(n, k, 'iron_ladder')
+  for (const [n, k] of Object.entries(ironKeeps(counts, { wanted }))) floor(n, k, 'iron_ladder')
   for (const n of new Set([wanted ?? []].flat().filter(x => typeof x === 'string'))) floor(n, WANTED_KEEP, 'wanted')
   for (const [n, k] of Object.entries(scaffoldKeep(counts))) floor(n, k, 'scaffold_reserve')
   return { keep, why }
@@ -129,30 +131,50 @@ export function townKeeps (counts = {}, { wanted = [] } = {}) {
  * Was every unit of IRON_LADDER, for good (`floor(n, Infinity)`), so towns ran dry while bags held it: 24 h to 10-19,
  * 484 town smelt jobs stopped "no coal in town" with a townmate carrying coal at 69% of them, and 253 toolkit "no iron"
  * refusals with a townmate carrying >= 3 ingots at 77%.
- *   IRON: IRON_KEEP units, the ladder's own number (gather_iron_ore_3 counts raw + ingots >= 3; the smelt rung 3 ingots;
- *         the bucket and the iron pickaxe 3 ingots each) -- so no iron rung changes state (the PROPERTY test). Names in
+ *   IRON: IRON_KEEP (3) units for EACH iron craft the bag has not made yet -- the bucket and the iron pickaxe, 3 ingots
+ *         each, counted as their rungs count them (countItem 'bucket', 'iron_pickaxe') -- and never fewer than 3 (the
+ *         gather rung counts raw + ingots >= 3; the smelt rung 3 ingots). Claude r3 P1-1: a flat 3 banked the raw iron of a
+ *         bot that lacked BOTH, which crafted the bucket and went back underground for the pickaxe's iron. Names in
  *         IRON_KEEP_ORDER, ingots first, each kept WHOLE until the units are covered: the town deposit moves whole stacks
  *         only, so a name is either kept or banked entire, never split. Measured 10-19 (80 bags): ingots 1-3 per bot
  *         (34 bots at exactly 3: their next craft), so ingots stay; raw iron above three ingots and ore go (nuggets are
  *         not on the bank's list: bankable.mjs).
- *   FUEL: coal and charcoal stay WHOLE only while the iron keep holds raw iron or ore -- the bot's own next smelt (the
- *         smelt rung's means are any fuel, which the kept logs and planks already are; a coal stack is >= 1 batch of 8).
- *         Otherwise they go. The active rung's wants still keep a stack (townKeeps `wanted`).
+ *   FUEL: coal and charcoal (the first name held, WHOLE) stay while the bot keeps something of its OWN to smelt -- the raw
+ *         iron or ore kept above, or the active rung's wanted smelt (an input it wants, or the inputs of an output it
+ *         wants: glass -> sand; never wood, which is fuel and charcoal's input). Codex r3 P2: 8 sand for wanted glass banked
+ *         all the coal and turned the smelt into no_fuel. The KEPT wood does not count as the alternative: it is the
+ *         stockpile rungs' (burning it re-opens them), so with nothing of its own to smelt the coal goes, else it stays.
+ *         (Away from town the room order still keeps ROOM_FUEL_RESERVE 16 coal, skills.mjs roomDepositTarget: a different
+ *         exit, a different reserve; and a raw-iron smelt with no coal may burn a few of the kept planks, as before.)
  */
 export const IRON_KEEP = 3
 export const IRON_KEEP_ORDER = Object.freeze(['iron_ingot', 'raw_iron', 'iron_ore', 'deepslate_iron_ore'])
 export const FUEL_KEEP_ORDER = Object.freeze(['coal', 'charcoal'])
-export function ironKeeps (counts = {}) {
+export const IRON_CRAFTS = Object.freeze(['bucket', 'iron_pickaxe'])
+export function ironUnitsNeeded (counts = {}) {
+  return Math.max(IRON_KEEP, IRON_KEEP * IRON_CRAFTS.filter(n => !((Number(counts[n]) || 0) > 0)).length)
+}
+export function ironKeeps (counts = {}, { wanted = [] } = {}) {
   const keep = {}
-  let need = IRON_KEEP, smelt = false
+  const held = n => Math.max(0, Number(counts[n]) || 0)
+  let need = ironUnitsNeeded(counts), toSmelt = 0
   for (const n of IRON_KEEP_ORDER) {
     if (need <= 0) break
-    const h = Math.max(0, Number(counts[n]) || 0)
+    const h = held(n)
     if (!h) continue
     keep[n] = h; need -= h
-    if (n !== 'iron_ingot') smelt = true
+    if (n !== 'iron_ingot') toSmelt += h
   }
-  if (smelt) for (const n of FUEL_KEEP_ORDER) { const h = Math.max(0, Number(counts[n]) || 0); if (h) { keep[n] = h; break } }
+  // THE ACTIVE RUNG'S OWN SMELT: a wanted input, or the inputs of a wanted output (never wood: it is the fuel)
+  const isOre = n => IRON_KEEP_ORDER.includes(n)
+  const smeltable = n => { const r = smeltRecipeFor(n); return !!r && r.output !== 'charcoal' && !isOre(n) }
+  const inputs = new Set()
+  for (const w of new Set([wanted ?? []].flat().filter(x => typeof x === 'string'))) {
+    if (smeltable(w)) inputs.add(w)
+    for (const i of smeltInputsFor(w)) if (smeltable(i)) inputs.add(i)
+  }
+  for (const i of inputs) toSmelt += held(i)
+  if (toSmelt > 0) for (const n of FUEL_KEEP_ORDER) { const h = held(n); if (h) { keep[n] = h; break } }
   return keep
 }
 
