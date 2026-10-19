@@ -6684,7 +6684,7 @@ async function bambooSticks(ctx, _args, signal) {
   const read = () => ({ bamboo: countItem(bot, 'bamboo'), sticks: countItem(bot, 'stick'), planks: planks(), slots: items().length })
   const before = read()
   const plan = bambooPlan(items())
-  let crafts = 0, stop = 'done', status = 'success', stationary = 0, windowMs = 0
+  let crafts = 0, stop = 'done', status = 'success', stationary = 0, windowMs = 0, booked = 0
   try {
     if (!plan.crafts) { stop = 'no_plan'; status = 'no_effect'; return { status: 'no_effect', detail: plan.why } }
     // THE DECLARED STATIONARY WINDOW (bamboo.mjs foldWindow): the batch must finish inside it, or it does not start.
@@ -6705,9 +6705,13 @@ async function bambooSticks(ctx, _args, signal) {
     windowMs = win.ms
     stationary = Date.now() + win.ms
     bot.stationaryUntil = stationary   // self-expiring; cleared in the finally
+    // THE STAGNATION WATCHDOG'S EXEMPTION (watchdog.mjs foldWindow, foldwatch-01): the same window, held only while a
+    // confirmed craft keeps landing; every confirmed craft also books its net item loss (2 bamboo -> 1 stick)
+    bot.foldWindowUntil = stationary
+    bot.foldProgressAt = Date.now()
     const ran = await craftExecutions(ctx, { item: 'stick', recipe, crafts: plan.crafts, table: undefined, anchor: null, signal,
                                              gate: (bag, remaining) => bambooGate(bag, remaining), deadline: Math.min(skillDeadline, stationary), rs,
-                                             onVerified: () => { crafts++ } })
+                                             onVerified: () => { crafts++; booked++; bot.foldProgressAt = Date.now(); bot.foldItemsSpent = (Number(bot.foldItemsSpent) || 0) + 1 } })
     if (!ran.ok && Number(ran.out?.producedAtStop) > 0) crafts += Number(ran.out.producedAtStop)   // the server's count
     const tail = ` [folding bamboo into sticks: ${crafts} of ${plan.crafts} made]`
     if (ran.ok) return { status: 'success', detail: `folded ${2 * crafts} bamboo into ${crafts} sticks (${before.slots} -> ${items().length} slots)` }
@@ -6729,11 +6733,15 @@ async function bambooSticks(ctx, _args, signal) {
     throw e
   } finally {
     if (stationary && bot.stationaryUntil === stationary) bot.stationaryUntil = 0
+    if (stationary && bot.foldWindowUntil === stationary) bot.foldWindowUntil = 0
     // ONE ROW PER RUN, aborts included: before -> after, what was made of what was planned, why it stopped.
     try {
       const after = read()
       // A STOP THAT LANDED WHILE THE EXECUTION IN FLIGHT WAS ALREADY MADE (bamboo.mjs foldTally, bamboo-02 10-19): the bag
       // shows it on both sides, so the tally takes it -- at most one, never past the plan. `inflight` says it did.
+      // foldwatch-01: the stagnation credit takes only crafts the SERVER confirmed -- the verified ones (booked in
+      // onVerified) and craftsync's authoritative at-stop count -- never foldTally's bag inference below (Codex)
+      if (crafts > booked) { bot.foldItemsSpent = (Number(bot.foldItemsSpent) || 0) + (crafts - booked); booked = crafts }
       const tally = foldTally({ claimed: crafts, planned: plan.crafts, before, after, status })
       crafts = tally.crafts
       const args = { b0: before.bamboo, b1: after.bamboo, s0: before.sticks, s1: after.sticks, p0: before.planks, p1: after.planks,
