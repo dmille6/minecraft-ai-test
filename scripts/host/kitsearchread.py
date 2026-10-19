@@ -37,7 +37,10 @@
 #        every run new candidates for ever)
 #     D4 smelt_churn: one canary bot with >= CHURN_N (13) smelt jobs inside CHURN_MIN (360) minutes that took copper and smelted
 #        none (search_more | search_stalled | no_fuel with withdrawn > 0) and no smelting job between: the design's bound is
-#        12 (SMELT_DRY_MAX dry jobs of any mix of reasons, then the 6 h pause)
+#        12 (SMELT_DRY_MAX dry jobs of any mix of search_more | search_stalled | no_fuel | smelt_late, then the 6 h pause);
+#        aborted jobs are not counted (the bound skips them). KNOWN FALSE POSITIVE: the job's state lives on the decision loop,
+#        which a reconnect rebuilds (Claude r5 P3), so a bot that reconnected mid-sequence can be counted past 12 -- check its
+#        spawn rows before acting on a D4 trip
 #   SMELT (the same change, reported): ingots smelted per bot-h DiD; no_fuel per job DiD (should FALL) WITH its pairing
 #              fuel_unfound = no_fuel | search_more | search_stalled per job; town_has_none per job; search_more (canary)
 #   SEARCH TIME  _kit_search seconds per canary bot-h (what the walks cost)
