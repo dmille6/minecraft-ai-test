@@ -1,0 +1,29 @@
+STAFF CENSUS (S0) -- last 24 h, from ES
+  window 2026-10-18T14:25:00Z .. 2026-10-19T14:25:00Z: 1,499,426 skill docs from 80 bots, 1,933 active bot-h; empty 10-min buckets 0
+  project kinds in the window: _farm_place 31, _farm_site 2, _farm_tend 4, _monument 0, _monument_site 0, build_monument 0, tend_farm 4
+  roster 12 shared towns from the pool state dir; seen but not in it []; journal unreadable []; record errors 0
+  caveat: after 2026-10-14T18:46:00Z completeness is assumed, not reconciled: an unclean filebeat restart re-sends (as on 10-07) and an unmapped field (llm.brain) rejects
+  caveat: window crosses 1 log rotation(s) (23:57-00:00Z): ES is missing ~40-60 skill rows per rotation (copytruncate race).
+  towns 12 (shared pools; isolated pools excluded) over 24.0 h
+  town        valid_h void  at-town bot-h  free  town-job flagged project | project  open_h pending_h builder h/visits/body-s ASSIGNABLE_h placed cells/open-h  blocked-by (h)
+  board-a       24.0    0          24.1  12.9      0.4    10.8     0.0 | treefarm   1.55      0.02  0.02/1v/16s         0.00     11        7.097  cap_full 0.02
+  board-b       24.0    0          42.6  28.4      0.7    13.5     0.0 | (no open project)
+  board-c       24.0    0          24.6  14.0      0.6    10.0     0.0 | (no open project)
+  board-d       24.0    0           9.2   6.5      0.2     2.5     0.0 | (no open project)
+  hive-a        24.0    0          16.9  10.8      0.4     5.7     0.0 | (no open project)
+  hive-b        24.0    0          27.2  15.9      0.6    10.8     0.0 | (no open project)
+  hive-c        24.0    0          17.5   9.6      0.3     7.5     0.0 | treefarm   1.57      0.30  0.02/3v/40s         0.00     10        6.383  nobody_at_town 0.27, cap_full 0.02, one_at_town 0.02
+  hive-d        24.0    0          22.9  13.0      0.3     9.5     0.0 | (no open project)
+  placebo-a     24.0    0          18.0  11.6      0.3     6.1     0.0 | (no open project)
+  placebo-b     24.0    0          40.5  31.2      0.2     9.1     0.0 | (no open project)
+  placebo-c     24.0    0          25.7  15.1      0.9     9.7     0.0 | (no open project)
+  placebo-d     24.0    0          24.7  15.3      0.4     9.0     0.0 | (no open project)
+  ALL TOWNS: 288.0 valid town-h; at-town 293.93 bot-h = free 184.42 + town job 5.45 + project 0.02 + flagged 104.05 (death 0.43, drowning 0.82, low_health 0.03, trap 102.77)
+  PROJECT treefarm (cap 1): 2 town(s) open; open 3.117 town-h; 4 builder visits, 56 body-s; assignable 0.0 town-h = 0.0 town-h/day; placed 21; GATE: not applicable: single-builder project (cap 1) -- the gate is judged on a multi-bot project
+  home, shared towns (RECALL gate >= 70%): all 64 of 324 (20%); under the validator's filter 21 of 54 (39%); excluded {'interrupt_trigger': 152, 'flagged:trap': 116, 'flagged:drowning': 2}
+  home, all pools incl. isolated: all [79, 388], filtered [26, 61]
+  instrument: lease_files_matched: 5 of 5 lease files in the window match a tend_farm interval of their holder
+  instrument: placements_inside_a_visit: 21 of 21 confirmed _farm_place rows
+  instrument: at_town_predicate: 468 of 479 successful town-job rows (97.7%) had the bot at town in the minute track at the minute the job ended
+  instrument: at_town_predicate_ok: True
+  instrument: saplings_in_at_town_bags_last_minute: {'board-a': 1, 'placebo-a': 16, 'hive-d': 7, 'board-c': 25, 'placebo-b': 16, 'board-d': 16}
