@@ -551,6 +551,34 @@ test('SKILL: a full bag at town banks its surplus whole, keeps the stockpile, th
   assert.match(rows[0].skill.detail, /^slots 36->32 stacks 4\/4 clicked 4 bagdelta 38 tools stone_pickaxe@60 banked .*stone_pickaxe:1/)
 })
 
+// ---- TOOLKIT-03 x COBBLEKEEP-01: what the town deposit banks, the smelt job's coal search finds ----------------------------
+// cobblekeep banks coal a bot has nothing of its own to smelt with; toolkit-03's smelt job looks for coal as its own need,
+// skipping containers with a live coal miss. The REAL town deposit marks the chest it banked into 'took', which ends the miss:
+// the coal search (townCoalMiss, the job's precheck) re-opens. POSITIVE CONTROL: before the deposit the town is a known miss.
+// (A deposit of anything ends the miss -- 'took' is item-blind -- so the search looks once more: the second scene says so.)
+test('TOOLKIT-03 x COBBLEKEEP: banked coal re-opens the smelt job\'s coal search (the deposit\'s took ends the coal miss); CONTROL: a known miss before it', async () => {
+  const { townCoalMiss } = await import('../src/skills.mjs')
+  const CF = await import('../src/chestfull.mjs')
+  const SJ = await import('../src/smeltjob.mjs')
+  const scene = async withCoal => {
+    process.env.POOL_STATE_DIR = fs.mkdtempSync(path.join(os.tmpdir(), 'td-tk3-'))
+    const items = bag([['iron_ingot', 3], ...(withCoal ? [['coal', 9]] : []), ['dirt', 30], ['raw_copper', 7], ...filler(withCoal ? 32 : 33)])
+    const c = chestAt(2)
+    const w = world({ items, containers: [c] })
+    CF.updateTownMemory(process.env.POOL_STATE_DIR, CF.townKey({ x: 0, y: 70, z: 0 }), null, e => CF.noteItemMisses(e, SJ.COAL_MISS_KEY, SJ.COAL_MISS_TTL_MS, ['2,70,0'], Date.now() - 60_000))   // looked a minute ago (a deposit in the same ms is not 'since')
+    assert.equal(townCoalMiss(w.bot), true, 'before: the only container a live coal miss')
+    const r = await run(w.bot)
+    assert.equal(r.status, 'success', r.detail)
+    return { w, c }
+  }
+  const a = await scene(true)
+  assert.equal(sumOf(a.c.items, 'coal'), 9, 'cobblekeep banked the coal')
+  assert.equal(townCoalMiss(a.w.bot), false, 'banked coal: the coal search has its candidate again')
+  const b = await scene(false)
+  assert.equal(sumOf(b.c.items, 'coal'), 0)
+  assert.equal(townCoalMiss(b.w.bot), false, 'any deposit ends the miss (took is item-blind) -- the search looks once more')
+})
+
 // ---- THE PEACEFUL KIT (peacefulkit.mjs, OWNER 10-07 ~19:50Z): while the switch is on no sword is ever banked ------------
 const kitSwitch = async difficulty => {
   const { attachDifficulty } = await import('../src/foodskip.mjs')
