@@ -40,6 +40,8 @@ const onOff = (v, dflt = true) => (v == null || String(v).trim() === '' ? dflt :
 export const INDEXSEARCH = Object.freeze({ on: onOff(typeof process !== 'undefined' ? process.env.INDEXSEARCH : null) })
 export const KITSTICKS = Object.freeze({ on: onOff(typeof process !== 'undefined' ? process.env.KITSTICKS : null) })
 
+/** An index observation stamped later than this past the reader's clock is ignored (cross-host clock skew). */
+export const FUTURE_SLACK_MS = 60_000
 /** What the index counts for `need`, and how much is enough -> { match, min } | null (a need the index cannot judge). Pure. */
 export function indexNeed (need, { keep = TOWN_IRON_KEEP } = {}) {
   const n = String(need ?? '')
@@ -65,9 +67,9 @@ export function indexSearchCounts (entries = {}, keys = [], needs = [], now = Da
     if (!spec) continue
     for (const k of (Array.isArray(keys) ? keys : [])) {
       const h = indexHolding(entries?.[k], spec.match, now)
-      // an observation stamped in the FUTURE (another host's clock ahead) counts as of now, so it can never outrank a later
-      // look on this host's clock (Claude code r1 P3)
-      if (h && h.n >= spec.min) out[need][k] = { n: h.n, at: Math.min(h.at, now), src: 'ix' }
+      // an observation stamped in the FUTURE (another host's clock ahead by more than FUTURE_SLACK_MS) is no count at all: it
+      // could outrank every later look (Claude code r1 P3); clamping it to `now` re-advanced it at every read (Codex code r2 P3)
+      if (h && h.n >= spec.min && h.at <= now + FUTURE_SLACK_MS) out[need][k] = { n: h.n, at: h.at, src: 'ix' }
     }
   }
   return out
