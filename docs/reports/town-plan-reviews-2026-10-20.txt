@@ -471,3 +471,61 @@ Codex 4 (P3, populations): ACCEPTED. 7.5 and O6 use the fleet sample (708 of 1,2
   (1,357 rows) is labelled as separate.
 Claude 1-3 (P3s): ACCEPTED. The KEEP of an unresolved note lapses after 24 h; `expired` needs at > until + 60 s (NTP);
   reservations expire with the found lease's TTL and renew with it.
+
+======================================================================================================================
+ROUND 6 (r6 doc, commit 7437c71f, confirmation) -- Codex CHANGE (two P2), Claude APPROVE
+======================================================================================================================
+--- Codex, verbatim ---
+VERDICT: CHANGE
+
+Round-5 resolutions (`C` = Codex; `A` = Claude):
+
+- **C1 — NOT RESOLVED:** fsynced `return-intent` targets fix the missing fallback record, but §7.3’s reconciliation table still rejects a successful return to the original source slot. Same-name occupation of a target also remains unhandled. See finding 1.
+- **C2 — RESOLVED:** pending clicks and cursor settlement now precede every reconciliation open; an unresolved cursor holds the window and stops, matching `skills.mjs:7236–7248`.
+- **C3 — RESOLVED:** FOUND-NOFIT explicitly covers all 1–5-cell cases with empty bags and joint-access checks.
+- **C4 — RESOLVED:** §§7.5/O6 consistently use the fleet population: 1,339 runs, 1,250 named targets, 708 outside town. The separate 1,357-row shared-world sample is labelled.
+- **A1 — RESOLVED as to indefinite KEEP:** protection now lapses after 24 hours while the note remains listed. However, releasing that protection introduces the custody gap in finding 2.
+- **A2 — RESOLVED:** expiration requires the writing timestamp to exceed `until` by 60 seconds, with the NTP assumption stated; historical acceptance remains independent of the reader’s clock.
+- **A3 — RESOLVED:** §4.6 aligns reservation expiry and renewal with the four-minute found lease. The dead-end table retains an obsolete duration; see finding 3.
+
+Numbered NEW findings, including remaining defects in the replacement protocol:
+
+1. **P2 — §7.3 reconciliation table; §8 T6: recorded fallback targets are not fully reconcilable.**  
+   Consider a return intent targeting the original source slot. The return succeeds, then execution stops before `deposited` is persisted. On recovery, the source contains n, a recorded target contains n—because it is the same slot—and the bag contains zero. Neither “nothing moved” nor “deposited there” matches: the first requires no target holding it; the second requires an empty source. A successful return therefore becomes `unresolved` and pauses town tidy.
+
+   Additionally, if another bot occupies the destination with the **same item name**, while the tidier still carries exactly n, neither carried row applies because both require “none holds it.” The destination-taken remedy covers only occupation by something else.
+
+   **Fix:** reconcile physical slots by canonical container/slot identity and the active transfer leg. Explicitly recognize a verified return to the source slot, with bag debit and target credit. With intact protected custody and n still in the bag, distinguish target occupation—including the same name—from a completed transfer. Add Paper interruptions after the source-return click but before phase persistence, plus same-name target occupation.
+
+2. **P2 — §7.3, 24-hour KEEP expiry: automatic recovery must end when protection ends.**  
+   The new expiry applies to an open note, including the “nowhere to put it” state. After 24 hours, ordinary orders may consume or bank that carry. The bot can subsequently acquire n replacement items during the **same session without dying**. If the source and targets remain empty, the reconciliation table again identifies those replacement items as the carry and transfers them. Session/death checks no longer establish custody once the KEEP has lapsed.
+
+   **Fix:** before releasing the KEEP, durably transition the note to a terminal, non-recoverable state such as `expired-unresolved`. Automatic reconciliation and transfer must refuse that state permanently; retain it for reporting and the failed gate. Define the expiry timestamp explicitly. Test expiry, ordinary consumption, same-name/same-count replacement, and a subsequent `tidy_return`.
+
+3. **P3 — §8 F6: reservation recovery still says two minutes.**  
+   This contradicts §4.6’s four-minute renewable lease and §4.1’s additional 60-second expiry margin.
+
+   **Fix:** replace “expires (2 min)” with the renewed `until` plus the margin, followed by an accepted expiry transition and world observation. Align FOUND-KILL’s expected recovery timing.
+
+The recorded allocation totals and workshop-fit counts agree with the tables. Drain-scope deferral, empty-slot transfers, index observation IDs, search prerequisites, canary separation, and O9’s explicit waiver remain sound design choices.
+
+No files were edited.
+
+--- Claude round 6, condensed ---
+VERDICT: APPROVE (holds on r6). Round-5 P3s 1-3 RESOLVED. Changed material checked (cursor-first, return-intent,
+reconciliation rows, FOUND-NOFIT, drain populations): nothing wrong. New, optional:
+1 P3 4.6: renewals change `until` in the plan, so each renewal is a generation. Fix: renew only past half the TTL, or keep
+  renewal in the found lease file.
+
+--- Disposition (r7, commit a3a512d1) ---
+Codex 1 (P2, source-return + same-name occupation): ACCEPTED. Reconciliation is by LEGS (each leg: from, to = a canonical
+  container key + slot that was empty in a cited observation; fsync'd before its clicks; only the last leg can be in
+  flight). Within custody the BAG is authoritative for whether the last leg happened: bag n -> not happened (redo, or a
+  new return-intent if the slot was taken by anything, same name included); bag 0 and the `to` slot holds >= n -> done;
+  anything else -> unresolved. A return to the source slot is an ordinary leg. Paper: source-return interrupted before
+  `closed`; same-name occupation.
+Codex 2 (P2, lapsed KEEP): ACCEPTED. At intent.at + 24 h a note is first durably rewritten `expired-unresolved` and only
+  then does its KEEP lapse; tidy_return never acts on that state. Paper: expiry, ordinary use, same-name same-count
+  pickup, a tidy_return that must do nothing.
+Codex 3 (P3, F6 2 min): ACCEPTED. F6 and FOUND-KILL use the renewed `until` + 60 s and an accepted `expired` transition.
+Claude 1 (P3, renewal generations): ACCEPTED. The plan's `until` is renewed only after more than half the TTL has passed.
