@@ -104,6 +104,14 @@ const pureFold = (T = TI) => {
   assert.equal(st([D('a', 20, 'd1'), O('a', 20, 'o1')]), 'dirty', 'a tie: dirty wins, whatever the order')
   assert.equal(st([O('a', 10, 'o1')], 'a', 10 + T.INDEX_STALE_MS), 'stale')
   assert.equal(st([O('a', 10, 'o1')], 'a', 9 + T.INDEX_STALE_MS), 'known')
+  // AN OPEN MUTATION (Codex r1 P1): A's pre mark, B's open during A's clicks, A crashes before its post mark -> dirty
+  const P = (at, op, phase) => ({ t: 'dirty', k: 'a', at, id: `${op}-${phase}`, op, phase, w: null })
+  assert.equal(st([O('a', 10, 'o1'), P(20, 'opA', 'pre'), O('a', 30, 'o2')]), 'dirty', "B's open inside A's open mutation is not knowledge")
+  assert.equal(st([O('a', 10, 'o1'), P(20, 'opA', 'pre'), O('a', 20 + T.OP_TTL_MS, 'o3')], 'a', 30 + T.OP_TTL_MS), 'known', "an open after the crashed mutation's window is")
+  assert.equal(st([O('a', 10, 'o1'), P(20, 'opA', 'pre'), P(25, 'opA', 'post'), O('a', 30, 'o2')]), 'known', 'a closed mutation, then an open: known')
+  assert.equal(st([P(25, 'opA', 'post'), O('a', 30, 'o2'), P(20, 'opA', 'pre'), P(20, 'opA', 'pre')]), 'known', 'order-free and idempotent: a duplicate pre never reopens it')
+  assert.equal(st([O('a', 10, 'o1'), P(20, 'opA', 'pre'), P(22, 'opB', 'pre'), P(25, 'opA', 'post'), O('a', 30, 'o2')]), 'dirty', "another mutation (B's) still open")
+  assert.equal(st([O('a', 10, 'o1'), P(20, 'opA', 'pre'), { t: 'dirty', k: 'a', at: 25, id: 'h', op: 'opA', phase: 'held', w: null }, O('a', 30, 'o2')]), 'dirty', 'a HELD window keeps its operation open')
 }
 await t('the fold: last capture wins per container; a tie goes to dirty; an open captured before a mutation never clears it; stale past 6 h', () => pureFold())
 await t('the fold is ORDER-INDEPENDENT and IDEMPOTENT: every permutation of 5 records (with a duplicate) folds to the same entries', () => {
@@ -190,8 +198,22 @@ await t('ROTATION: past the size a writer starts generation N+1 with the fold of
   assert.equal(TI.indexRecords(d, HK).filter(r => r.t === 'ckpt').length >= 1, true)
   // a record written into the generation BELOW the newest (a writer that read the old one) is still folded: readers read N-1
   fs.appendFileSync(TI.indexFile(d, HK, gens[0]), '\n' + JSON.stringify(D('k0', 999, 'late')) + '\n')
+  assert.equal(TI.indexStateOf(TI.readIndex(d, HK, null).entries.k0, 1000), 'dirty', 'N-1 is followed by the CACHED reader too (Codex r1 P1), no reset')
   TI.resetIndexCache()
-  assert.equal(TI.indexStateOf(TI.readIndex(d, HK, null).entries.k0, 1000), 'dirty', 'N-1 is folded too')
+  assert.equal(TI.indexStateOf(TI.readIndex(d, HK, null).entries.k0, 1000), 'dirty', 'and a fresh fold agrees')
+})
+await t('ROTATION PUBLISHES WHOLE (Codex r1 P1): a generation another writer already created is never overwritten; the new one appears with its checkpoint as its first line', () => {
+  const d = fs.mkdtempSync(path.join(os.tmpdir(), 'ti-rot2-'))
+  TI.appendIndex(d, HK, null, O('a', 10, 'o1'))
+  fs.writeFileSync(TI.indexFile(d, HK, 2), '\n' + JSON.stringify(D('a', 20, 'theirs')) + '\n')   // another writer's generation 2
+  assert.equal(TI.rotateIndex(d, HK, 1), false, 'the rotation yields')
+  assert.match(fs.readFileSync(TI.indexFile(d, HK, 2), 'utf8'), /"theirs"/, 'their record is intact')
+  const d2 = fs.mkdtempSync(path.join(os.tmpdir(), 'ti-rot3-'))
+  TI.appendIndex(d2, HK, null, O('a', 10, 'o1'))
+  assert.equal(TI.rotateIndex(d2, HK, 1), true)
+  const first = fs.readFileSync(TI.indexFile(d2, HK, 2), 'utf8').split('\n').filter(Boolean)[0]
+  assert.equal(JSON.parse(first).t, 'ckpt', 'the checkpoint is the first line, written before the generation existed')
+  assert.deepEqual(fs.readdirSync(d2).filter(f => f.endsWith('.tmp')), [], 'no temp left')
 })
 await t('the reader\'s cache folds only what was appended since, and agrees with a fresh fold after 200 interleaved appends', () => {
   const d = fs.mkdtempSync(path.join(os.tmpdir(), 'ti-cache-'))
@@ -475,11 +497,41 @@ const countShape = async (S = S0) => {
   } finally { B.setStockReaders({ town: null, well: null }) }
 }
 await t('COUNT_TOWN: the stock key is counted first, then index-unknown containers fill the visit\'s 3; `_stock_recount` keeps the base\'s counts; `_townindex_count` names the extras', () => countShape())
-await t('reconcileCobble with no extras is the base\'s: the same opens, counted and tried', async () => {
+await t('reconcileCobble with the defaults is the base\'s: the same opens, counted and tried', async () => {
   const w = await countWorld()
   try {
     const rc = await S0.reconcileCobble(w.bot, new AbortController().signal, cap => cap, ['5,64,0'], { remember: true })
-    assert.deepEqual({ counted: rc.counted, tried: rc.tried, extraCounted: rc.extraCounted, extraTried: rc.extraTried, opened: w.spy.opened }, { counted: 1, tried: 1, extraCounted: 0, extraTried: 0, opened: ['5,64,0'] })
+    assert.deepEqual({ counted: rc.counted, tried: rc.tried, opened: w.spy.opened }, { counted: 1, tried: 1, opened: ['5,64,0'] })
+  } finally { B.setStockReaders({ town: null, well: null }) }
+})
+const abortExtra = async (S = S0) => {
+  const w = await countWorld()
+  S.resetIndexCount?.()
+  try {
+    const ac = new AbortController()
+    const open0 = w.bot.openContainer.bind(w.bot)
+    w.bot.openContainer = async b => { if (w.spy.opened.length >= 1) ac.abort(); return open0(b) }   // the abort lands during the FIRST extra
+    const n0 = RECS.length
+    let r
+    try { r = await S.SKILLS.count_town.run({ bot: w.bot }, {}, ac.signal) } catch (e) { assert.fail('count_town threw after its base count had ended: ' + e.message) }
+    assert.equal(r.status, 'success', "the base's count had ended: its outcome stands (Codex r1 P2)")
+    assert.equal(r.counted, 1)
+    assert.match(rowsOf('_stock_recount', n0)[0] ?? '', /keys=1 counted=1 tried=1 /)
+    assert.match(rowsOf('_townindex_count', n0)[0] ?? '', /^keys=1 extra=3 /)
+    assert.equal(RECS.slice(n0).find(x => x.skill?.name === '_townindex_count')?.skill?.status, 'aborted')
+  } finally { B.setStockReaders({ town: null, well: null }) }
+}
+await t("COUNT_TOWN: an abort during the extras never changes the base's outcome (success, counted=1, the base row); the change row says aborted", () => abortExtra())
+await t("COUNT_TOWN: an extra that cannot be counted backs off in ITS OWN map -- never the stock keys' reconcile backoff, never a recount miss", async () => {
+  const w = await countWorld()
+  S0.resetIndexCount()
+  try {
+    w.bot.openContainer = (open0 => async b => { if (b.position.x !== 5) throw new Error('windowOpen did not fire'); return open0(b) })(w.bot.openContainer.bind(w.bot))
+    const n0 = RECS.length
+    await S0.SKILLS.count_town.run({ bot: w.bot }, {}, new AbortController().signal)
+    assert.match(rowsOf('_townindex_count', n0)[0] ?? '', /^keys=1 extra=3 counted=0 tried=2 /, 'positive control: two extras were tried and failed')
+    assert.deepEqual(S0.cobbleReconcilable({ unknown: ['8,64,3', '-4,64,5', '2,64,-9'] }).sort(), ['-4,64,5', '2,64,-9', '8,64,3'], "the stock keys' backoff is untouched")
+    assert.ok(!fs.readdirSync(dir()).some(f => f.endsWith('.recount.json')), 'no recount miss written')
   } finally { B.setStockReaders({ town: null, well: null }) }
 })
 
@@ -489,8 +541,8 @@ await t('MUTANTS (anchored, unique): each pinned behaviour fails under its mutan
   kills.noOpenObs = await withMutant(SKILLS_PATH, "const ixPre = townIndexObserve(bot, c.position, win, 'town_deposit')", 'const ixPre = null', S => killedBy(() => townDepositShape(S)))
   kills.noVerifyObs = await withMutant(SKILLS_PATH, "const ix = townIndexObserve(bot, block.position, win, 'verify')", 'const ix = null', S => killedBy(() => townDepositShape(S)))
   kills.noPreMarkTd = await withMutant(SKILLS_PATH, "onMutate: () => { ixDirty = townIndexDirty(bot, c.position, 'town_deposit', 'pre', ixOp) }", 'onMutate: () => { ixDirty = true }', S => killedBy(() => townDepositShape(S)))
-  kills.noPreMarkWd = await withMutant(SKILLS_PATH, "ixDirty = townIndexDirty(bot, cp, 'withdraw', 'pre')", 'ixDirty = true', S => killedBy(() => kitShape(S)))
-  kills.noPostMarkWd = await withMutant(SKILLS_PATH, "if (ixDirty) townIndexDirty(bot, cp, 'withdraw', 'post')", 'if (false) townIndexDirty(bot, cp, \'withdraw\', \'post\')', S => killedBy(() => kitShape(S)))
+  kills.noPreMarkWd = await withMutant(SKILLS_PATH, "ixDirty = townIndexDirty(bot, cp, 'withdraw', 'pre', ixOp)", 'ixDirty = true', S => killedBy(() => kitShape(S)))
+  kills.noPostMarkWd = await withMutant(SKILLS_PATH, "if (ixDirty) townIndexDirty(bot, cp, 'withdraw', unresolved ? 'held' : 'post', ixOp)", 'if (false) townIndexDirty(bot, cp)', S => killedBy(() => kitShape(S)))
   kills.anyContainer = await withMutant(SKILLS_PATH, 'const townIndexed = pos => TOWNINDEX.on && !!pos && inTown(homeVec(), pos)', 'const townIndexed = pos => TOWNINDEX.on && !!pos', async S => killedBy(async () => {
     freshPool()
     const w = fakeWorld({ bag: [] }); w.set(30, 64, 0, 'chest'); w.stock(30, 64, 0, [stack('coal', 64)])
@@ -507,9 +559,12 @@ await t('MUTANTS (anchored, unique): each pinned behaviour fails under its mutan
       S.townIndexObserve(w.bot, new Vec3(3, 64, 0), win, 'test'); win.close()
       assert.deepEqual(snap(dir()), before)
     }))
-  kills.extraCounted = await withMutant(SKILLS_PATH, 'if (isExtra) extraCounted++; else counted++', 'if (isExtra) { extraCounted++; counted++ } else counted++', S => killedBy(() => countShape(S)))
-  kills.extraFirst = await withMutant(SKILLS_PATH, 'const cells = [...primary, ...extraCells]', 'const cells = [...extraCells, ...primary]', S => killedBy(() => countShape(S)))
-  kills.noExtra = await withMutant(SKILLS_PATH, '{ remember: true, progress, extra })', '{ remember: true, progress, extra: [] })', S => killedBy(() => countShape(S)))
+  kills.noExtra = await withMutant(SKILLS_PATH, '  const room = RECONCILE_MAX - (rc.tried ?? 0)\n', '  const room = 0\n', S => killedBy(() => countShape(S)))
+  kills.extrasPast3 = await withMutant(SKILLS_PATH, '{ max: room, backoff: indexCountFailed, row: false }', '{ max: RECONCILE_MAX, backoff: indexCountFailed, row: false }', S => killedBy(() => countShape(S)))
+  kills.extrasInBase = await withMutant(SKILLS_PATH, 'rc = await reconcileCobble(bot, signal, cap => Math.max(0, Math.min(cap, until - Date.now())), keys, { remember: true, progress })',
+    'rc = await reconcileCobble(bot, signal, cap => Math.max(0, Math.min(cap, until - Date.now())), [...keys, ...indexRecountKeys(bot, keys)], { remember: true, progress })', S => killedBy(() => countShape(S)))
+  kills.abortRethrown = await withMutant(SKILLS_PATH, "    status = e?.aborted || signal?.aborted ? 'aborted' : 'failed'\n", '    throw e\n', S => killedBy(() => abortExtra(S)))
+  kills.opsIgnored = await withMutant(TI_PATH, "  if (openAt(entry.ops, entry.obs.at)) return 'dirty'", "  if (false) return 'dirty'", T => killedBy(() => pureFold(T)))
   kills.tieToObs = await withMutant(TI_PATH, "const rank = r => (r.t === 'dirty' ? 1 : 0)", "const rank = r => (r.t === 'dirty' ? 0 : 1)", T => killedBy(() => pureFold(T)))
   kills.homeMax2 = await withMutant(TI_PATH, 'export const HOME_MAX = 3', 'export const HOME_MAX = 2', T => killedBy(() => parity(T)))
   kills.mostFirst = await withMutant(TI_PATH, "const k = [...free].sort((a, b) => ((m.get(b) ?? 0) - (m.get(a) ?? 0)) || byFill(a, b))[0]", 'const k = [...free].sort(byFill)[0]', T => killedBy(() => parity(T)))
