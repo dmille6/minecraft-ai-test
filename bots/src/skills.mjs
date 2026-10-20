@@ -126,7 +126,7 @@ import { SMELT_JOB_INPUT, SMELT_JOB_OUTPUT, SMELT_JOB_BATCH, JOB_FUELS, COPPER_M
          SMELT_COPPER_VISITS, SMELT_COAL_VISITS, SMELT_COPPER_RESERVE_MS, SMELT_COAL_RESERVE_MS, SMELT_SEARCH_MORE, SMELT_SEARCH_STALLED,
          COAL_MISS_KEY, COAL_MISS_TTL_MS, SMELT_JOB_FUEL, SMELT_MIN_SMELT_MS, SMELT_LATE } from './smeltjob.mjs'
 import { withDigScope } from './digtown.mjs'
-import { zoneKeepOut, zoneExitColumns, zoneAtPos, zoneRemedy, noteProtectZone } from './protectzone.mjs'   // protectzone-01
+import { zoneKeepOut, zoneExitColumns, zoneAtPos, zoneRemedy, zoneWithin, sideOf, standableY, exitPoint, noteProtectZone, EXIT_PAD } from './protectzone.mjs'   // protectzone-01
 import { chestLidBlocked, lidClearRefusal, serverLidBlocks, lidDigBudgetMs, lidFailMemory } from './lidrule.mjs'
 // minewell-01 (its own statement); townzone-01 composes the town into its keep-out (composeKeepOut, keepOutLabel)
 import { planMineStart, shellOf, RELOCATE_RADIUS, FAR_RADIUS, composeKeepOut, keepOutLabel } from './minewell.mjs'
@@ -5906,6 +5906,15 @@ function placeSites(bot) {
   // Skipped here, so place() and craft's room advice agree; the count rides on the array for place()'s `_station_well` row.
   const wellSkip = { n: 0, kind: null }
   const wellRefused = p => { const k = stationRefusalAt(bot, p); if (k) { wellSkip.n++; wellSkip.kind ??= k } return !!k }
+  // NEVER A PROTECTED ZONE'S CELL (protectzone-01): the chokepoint would refuse the placement; skipped here so place() tries
+  // the cells outside and a bot standing in a zone hears the walk, not six refusals
+  const zoneSkip = { n: 0, zone: null }
+  const zoneRefused = p => {
+    let z = null
+    try { const zs = bot.protectZones?.() ?? []; z = zoneAtPos(zs, p) ?? zoneAtPos(zs, { x: p.x, y: p.y + 1, z: p.z }) } catch { z = null }
+    if (z) { zoneSkip.n++; zoneSkip.zone ??= z }
+    return !!z
+  }
   // Diagonals and one step up or down as well, nearest first. A bot on uneven
   // ground has a valid spot behind it far more often than beside it.
   const around = [[1, 0], [-1, 0], [0, 1], [0, -1], [1, 1], [1, -1], [-1, 1], [-1, -1]]
@@ -5919,6 +5928,7 @@ function placeSites(bot) {
       const at    = bot.blockAt(bot.entity.position.offset(dx, dy + 1, dz))
       if (!solid(under) || !replaceable(at)) continue
       if (onContainerLid(bot, at.position ?? bot.entity.position.offset(dx, dy + 1, dz))) continue   // never on a lid (below)
+      if (zoneRefused(at.position ?? bot.entity.position.offset(dx, dy + 1, dz))) continue   // protectzone-01
       if (wellRefused(at.position ?? bot.entity.position.offset(dx, dy + 1, dz))) continue
       ;(at.name === 'water' ? wet : candidates).push({ ref: under, face: UP })
     }
@@ -5949,11 +5959,13 @@ function placeSites(bot) {
                           new Vec3(0, 0, 1), new Vec3(0, 0, -1)]) {
         const target = bot.blockAt(underfoot.position.offset(face.x, face.y, face.z))
         if (replaceable(target) && !onContainerLid(bot, underfoot.position.offset(face.x, face.y, face.z)) &&
+            !zoneRefused(underfoot.position) && !zoneRefused(underfoot.position.offset(face.x, face.y, face.z)) &&   // protectzone-01: the reference too
             !wellRefused(underfoot.position.offset(face.x, face.y, face.z))) candidates.push({ ref: underfoot, face })
       }
     }
   }
   candidates.wellSkip = wellSkip
+  candidates.zoneSkip = zoneSkip
   return candidates
 }
 
@@ -6064,6 +6076,7 @@ async function place(ctx, { item, x, y, z }, signal, { wellOwn = null, by = null
       if (roomVeto(bot, cellPos)) continue
       // never a junk well's wall, floor or plinth (wellcare-01: a bot on the stand would otherwise dig the shell for its table)
       { const wk = stationRefusalAt(bot, cellPos); if (wk) { wellRow('room', wk, 1, cellPos); continue } }
+      { let zz = null; try { zz = zoneAtPos(bot.protectZones?.() ?? [], cellPos) } catch { zz = null } if (zz) continue }   // protectzone-01
       check(signal)
       // ONE EXCAVATION PER CALL, whatever happens to it. A dig that outlives
       // its budget is cancelled here -- withTimeout's default only stops the
@@ -6134,6 +6147,17 @@ async function place(ctx, { item, x, y, z }, signal, { wellOwn = null, by = null
     }
     // EVERY FREE CELL WAS THE WELL'S (wellcare-01): say so, with the move that works from here
     const wellOnly = candidates.wellSkip?.n ? ` (${candidates.wellSkip.n} free cell(s) here are the town junk well's ${candidates.wellSkip.kind}: step 3+ blocks away from the well and place again)` : ''
+    // EVERY FREE CELL WAS A PROTECTED ZONE'S (protectzone-01): its own class, and the walk out of it
+    if (candidates.zoneSkip?.n) {
+      return { status: 'failed', failClass: 'protected_zone',
+               // THE MOVE FIRST (the row's detail is capped at 300 and craft prefixes its own words): the walk, then the why
+               detail: (() => {
+                 const zz = candidates.zoneSkip.zone, here = bot.entity.position, ex = exitPoint(zz, here)
+                 const ey = ex ? standableY(bot, ex.x, ex.z, here.y) : null
+                 const go = ex ? (ey != null ? `goto ${ex.x} ${ey} ${ex.z}` : `walk to column x ${ex.x}, z ${ex.z}`) : 'step away from it'
+                 return `reason=protected_zone ${go} (${EXIT_PAD} past ${zz.label}'s ${ex?.side ?? ''} side) and place ${item} there: the ${candidates.zoneSkip.n} free cell(s) here are protected scenery`
+               })() }
+    }
     return {
       status: 'failed',
       failClass: 'no_space',
@@ -12095,16 +12119,27 @@ async function mine(ctx, { y: targetY = 12 }, signal) {
   // (a well walk-off promises only > 12 from home; the town's square is 16). The zone off (no HOME_X/Y/Z): no town part.
   const nameAt = (x, y, z) => bot.blockAt(new Vec3(x, y, z))?.name ?? null
   const liveZones = () => { try { return bot.protectZones?.() ?? [] } catch { return [] } }
-  const farmNow = () => {
+  const townNow = () => {
     const farm = { forbid: null, bottom: null }   // no tree farm on this base (treefarm-02 composes its cells here)
-    // ...AND EVERY PROTECTED ZONE (protectzone-01: scenery, e.g. the showcase's village): no stair through one, none from one
-    return composeKeepOut(farm, townKeepOut(townHome(), nameAt), zoneKeepOut(liveZones()))
+    return composeKeepOut(farm, townKeepOut(townHome(), nameAt))
   }
+  // ...AND EVERY PROTECTED ZONE (protectzone-01: scenery, e.g. the showcase's village): no stair through one, none from one --
+  // composed into the SAME keep-out (one plan, one walk-off, one per-dig stop), the town's part unchanged
+  const farmNow = () => composeKeepOut(townNow(), zoneKeepOut(liveZones()))
   // A START MUST HAVE A DRY FIRST TREAD (the zone's water case, now the planner's): a keep-out that took the dry way walks off
   const dryStart = (from, b) => stairRunway(bot, new Vec3(from.x, from.y, from.z), b) > 0
   // THE FAR STARTS: just beyond the town's square (townground.mjs townExitColumns), at the standable height of each column
   // nearest the bot's -- judged by the planner against EVERY keep-out like any other start. Asked only when the rings
   // fail, and only when the town's ground is among what blocked.
+  // the standable height of a column nearest the bot's own (the far starts' search, shared with the zone's refusal)
+  const standYAt = c => {
+    const y0 = Math.floor(bot.entity.position.y)
+    for (let dy = 0; dy <= 8; dy++) {
+      const y = (dy === 0 ? [y0] : [y0 + dy, y0 - dy]).find(yy => canStand({ x: c.x, y: yy, z: c.z }))
+      if (y != null) return y
+    }
+    return null
+  }
   const farStarts = (kinds = []) => {
     if (!kinds.includes('town') && !kinds.includes('protected')) return []
     const y0 = Math.floor(bot.entity.position.y), out = []
@@ -12172,7 +12207,7 @@ async function mine(ctx, { y: targetY = 12 }, signal) {
     const to = wellPlan.to
     lastTarget = to
     try {
-      await withTimeout(bot.pathfinder.goto(new goals.GoalBlock(to.x, to.y, to.z)), 20_000, bot, { what: 'walking off the junk well before mining' })
+      await withTimeout(bot.pathfinder.goto(new goals.GoalBlock(to.x, to.y, to.z)), 20_000, bot, { what: zoneIn(wellPlan) ? 'walking out of the protected zone before mining' : 'walking off the junk well before mining' })
     } catch (e) { if (e?.aborted) throw e }
     check(signal)
     await settleForFall(bot, bot.entity.position.y, { maxMs: STEP_SETTLE_MS })
@@ -12206,12 +12241,19 @@ async function mine(ctx, { y: targetY = 12 }, signal) {
     if (zoneIn(wellPlan) && !wellPlan.inside) {
       noteProtectZone(bot, 'mine_refused')
       const f = bot.entity.position.floored()
-      const z = liveZones().find(q => f.x >= q.x0 - 3 && f.x <= q.x1 + 3 && f.z >= q.z0 - 3 && f.z <= q.z1 + 3) ?? liveZones()[0]
+      const z = zoneAtPos(liveZones(), wellPlan.hit?.cell) ?? liveZones().find(q => f.x >= q.x0 - 3 && f.x <= q.x1 + 3 && f.z >= q.z0 - 3 && f.z <= q.z1 + 3) ?? liveZones()[0]   // the zone the stair met first (Claude r1 P3)
       const others = (wellPlan.kinds ?? []).filter(k => k !== 'protected').map(k => (k === 'well' ? 'the junk well' : k === 'water' ? 'water' : keepOutLabel(k)))
+      // THE EXIT NAMED IS NOT ON A SIDE THAT FAILED (Codex r1 P1): the zone's exit columns, nearest first, none on a side of the
+      // zone a walk already failed to reach (a ravine or a wall along it), none beside a failed cell, at a standable height
+      const failedSides = new Set(failedTargets.map(t => sideOf(z, t)).filter(Boolean))
+      const exit = zoneExitColumns(liveZones(), bot.entity.position)
+        .filter(c => !failedSides.has(sideOf(z, c)) && !failedTargets.some(t => Math.hypot(t.x - c.x, t.z - c.z) <= 12))
+        .map(c => { const y = standYAt(c); return y == null ? null : { x: c.x, y, z: c.z } }).find(Boolean)
       return { status: 'failed', failClass: 'protected_zone',
-               detail: `reason=protected_zone walked=${lastTarget ? `${lastTarget.x},${lastTarget.y},${lastTarget.z}` : '-'}: no start near ${f.x},${f.y},${f.z} or just beyond ` +
+               detail: `reason=protected_zone walked=${failedTargets.map(t => `${t.x},${t.y},${t.z}`).join(';') || '-'}: no start near ${f.x},${f.y},${f.z} or just beyond ` +
                        `${z?.label ?? 'the protected zone'} has a dry stair clear of it${others.length ? ` and ${others.join(' and ')}` : ''} -- ` +
-                       (z ? zoneRemedy(z, 'dig', f, bot.entity.position) : 'walk away from it') + ', then mine' }
+                       (exit ? `goto ${exit.x} ${exit.y} ${exit.z} (${EXIT_PAD} past the zone, away from the walks that failed), then mine`
+                             : `no exit beside it is standable from here: explore away from ${z?.label ?? 'it'}, then mine`) }
     }
     const isFarm = !!(wellPlan.farm || wellPlan.hit?.farm), bothBlock = isFarm && !!(wellPlan.cap ?? wellPlan.hit?.cap)   // a relocate plan carries its well in hit (Codex r10 P3)
     const what = bothBlock ? 'the well and the tree farm' : isFarm ? 'the tree farm' : 'the well'
@@ -14980,6 +15022,8 @@ async function surfaceClimb(ctx, args, signal) {
  * Every refusal is returned verbatim, because the question that decides the
  * next change is which of these the bots actually run into.
  */
+/** A bucket's use reaches about 5 blocks from the eye; 6 is the margin (protectzone-01). */
+const BUCKET_ZONE_REACH = 6
 async function bucketSkill (ctx, args, signal) {
   const { bot } = ctx
   const action = String(args?.action ?? '').toLowerCase()
@@ -15002,6 +15046,17 @@ async function bucketSkill (ctx, args, signal) {
     }
   }
   const reasons = []
+  // protectzone-01: NO BUCKET USE WITHIN REACH OF A PROTECTED ZONE (Codex r1 P1): the server ray-traces the use from the bot's
+  // eye, so a scoop aimed at water outside can take a zone's water first and a pour can land in it. The bucket is the
+  // model's own breathing aid here (the reflexes never call this skill); the move that works is the step away.
+  {
+    let z = null
+    try { z = zoneWithin(bot.protectZones?.() ?? [], p, BUCKET_ZONE_REACH) } catch { z = null }
+    if (z) {
+      noteProtectZone(bot, action === 'fill' ? 'use' : 'place')
+      return { status: 'failed', failClass: 'protected_zone', detail: `reason=protected_zone no bucket use within ${BUCKET_ZONE_REACH} blocks of ${z.label}: ${zoneRemedy(z, action === 'fill' ? 'use' : 'place', p, p)} (${BUCKET_ZONE_REACH + 1}+ blocks from it)` }
+    }
+  }
   const bucketZone = q => { try { return zoneAtPos(bot.protectZones?.() ?? [], q) } catch { return null } }
   if (action === 'fill') {
     const hasEmpty = has('bucket')
