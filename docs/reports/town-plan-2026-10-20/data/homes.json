@@ -9,6 +9,16 @@
      354,
      72,
      149
+    ],
+    [
+     356,
+     72,
+     147
+    ],
+    [
+     354,
+     72,
+     147
     ]
    ],
    "fuel": [
@@ -30,6 +40,16 @@
      360,
      72,
      148
+    ],
+    [
+     357,
+     75,
+     138
+    ],
+    [
+     357,
+     74,
+     139
     ]
    ],
    "tools": [
@@ -55,9 +75,9 @@
    ],
    "build": [
     [
-     354,
+     357,
      72,
-     147
+     145
     ]
    ],
    "earth": [],
@@ -124,11 +144,6 @@
    ],
    [
     356,
-    72,
-    147
-   ],
-   [
-    356,
     73,
     140
    ],
@@ -144,23 +159,8 @@
    ],
    [
     357,
-    72,
-    145
-   ],
-   [
-    357,
-    74,
-    139
-   ],
-   [
-    357,
     74,
     140
-   ],
-   [
-    357,
-    75,
-    138
    ],
    [
     358,
@@ -179,27 +179,39 @@
    ]
   ],
   "home_share_now": {
-   "metal": 0.12,
+   "metal": 0.3,
    "fuel": 0.11,
    "stone": 0.21,
-   "wood": 0.16,
+   "wood": 0.3,
    "tools": 0.3,
    "farm": 0.26,
    "valuable": 0.39,
-   "build": 0.74,
+   "build": 0.03,
    "earth": null,
    "misc": 0.59
   },
-  "full_stack_slots": {
-   "wood": 21,
-   "fuel": 6,
-   "misc": 4,
-   "valuable": 2,
-   "tools": 9,
-   "metal": 25,
-   "stone": 17,
-   "farm": 7,
-   "build": 5
+  "group_slots_now": {
+   "wood": 67,
+   "fuel": 20,
+   "misc": 6,
+   "valuable": 6,
+   "tools": 10,
+   "metal": 89,
+   "stone": 24,
+   "farm": 15,
+   "build": 7
+  },
+  "home_capacity_slots": {
+   "metal": 108,
+   "fuel": 27,
+   "stone": 27,
+   "wood": 81,
+   "tools": 27,
+   "farm": 27,
+   "valuable": 27,
+   "build": 27,
+   "earth": 0,
+   "misc": 27
   }
  },
  "board-b": {
@@ -212,6 +224,11 @@
      -248,
      64,
      144
+    ],
+    [
+     -241,
+     64,
+     150
     ]
    ],
    "fuel": [
@@ -231,6 +248,11 @@
    "wood": [
     [
      -239,
+     64,
+     151
+    ],
+    [
+     -245,
      64,
      151
     ]
@@ -284,11 +306,6 @@
     150
    ],
    [
-    -245,
-    64,
-    151
-   ],
-   [
     -244,
     64,
     147
@@ -314,21 +331,16 @@
     148
    ],
    [
-    -241,
-    64,
-    150
-   ],
-   [
     -240,
     66,
     152
    ]
   ],
   "home_share_now": {
-   "metal": 0.27,
+   "metal": 0.38,
    "fuel": 0.35,
    "stone": 0.23,
-   "wood": 0.24,
+   "wood": 0.42,
    "tools": 0.5,
    "farm": null,
    "valuable": 0.21,
@@ -336,14 +348,26 @@
    "earth": null,
    "misc": null
   },
-  "full_stack_slots": {
+  "group_slots_now": {
    "build": 1,
-   "wood": 25,
-   "metal": 12,
-   "fuel": 3,
-   "stone": 17,
-   "valuable": 2,
+   "wood": 51,
+   "metal": 45,
+   "fuel": 7,
+   "stone": 25,
+   "valuable": 11,
    "tools": 4
+  },
+  "home_capacity_slots": {
+   "metal": 54,
+   "fuel": 27,
+   "stone": 27,
+   "wood": 54,
+   "tools": 27,
+   "farm": 0,
+   "valuable": 27,
+   "build": 27,
+   "earth": 0,
+   "misc": 0
   }
  },
  "board-c": {
@@ -356,6 +380,16 @@
      354,
      73,
      148
+    ],
+    [
+     354,
+     72,
+     145
+    ],
+    [
+     353,
+     72,
+     147
     ]
    ],
    "fuel": [
@@ -370,11 +404,26 @@
      351,
      72,
      148
+    ],
+    [
+     356,
+     72,
+     151
     ]
    ],
    "wood": [
     [
+     356,
+     72,
+     148
+    ],
+    [
      353,
+     72,
+     146
+    ],
+    [
+     352,
      72,
      147
     ]
@@ -432,27 +481,12 @@
    [
     352,
     72,
-    147
-   ],
-   [
-    352,
-    72,
     148
    ],
    [
     352,
     72,
     150
-   ],
-   [
-    353,
-    72,
-    146
-   ],
-   [
-    354,
-    72,
-    145
    ],
    [
     354,
@@ -468,16 +502,6 @@
     355,
     72,
     146
-   ],
-   [
-    356,
-    72,
-    148
-   ],
-   [
-    356,
-    72,
-    151
    ],
    [
     356,
@@ -521,10 +545,10 @@
    ]
   ],
   "home_share_now": {
-   "metal": 0.09,
+   "metal": 0.24,
    "fuel": 0.2,
-   "stone": 0.26,
-   "wood": 0.11,
+   "stone": 0.41,
+   "wood": 0.18,
    "tools": 0.22,
    "farm": 0.63,
    "valuable": 0.33,
@@ -532,16 +556,28 @@
    "earth": null,
    "misc": 0.62
   },
-  "full_stack_slots": {
-   "stone": 17,
-   "valuable": 2,
-   "wood": 23,
-   "metal": 24,
-   "tools": 17,
-   "fuel": 6,
-   "build": 4,
-   "farm": 5,
+  "group_slots_now": {
+   "stone": 29,
+   "valuable": 8,
+   "wood": 89,
+   "metal": 87,
+   "tools": 18,
+   "fuel": 18,
+   "build": 11,
+   "farm": 10,
    "misc": 3
+  },
+  "home_capacity_slots": {
+   "metal": 81,
+   "fuel": 27,
+   "stone": 54,
+   "wood": 81,
+   "tools": 27,
+   "farm": 27,
+   "valuable": 27,
+   "build": 27,
+   "earth": 0,
+   "misc": 27
   }
  },
  "board-d": {
@@ -568,6 +604,11 @@
      351,
      72,
      147
+    ],
+    [
+     354,
+     72,
+     149
     ]
    ],
    "wood": [
@@ -575,6 +616,11 @@
      352,
      72,
      147
+    ],
+    [
+     358,
+     72,
+     148
     ]
    ],
    "tools": [
@@ -653,11 +699,6 @@
     144
    ],
    [
-    354,
-    72,
-    149
-   ],
-   [
     355,
     72,
     145
@@ -691,11 +732,6 @@
     357,
     72,
     146
-   ],
-   [
-    358,
-    72,
-    148
    ],
    [
     358,
@@ -716,8 +752,8 @@
   "home_share_now": {
    "metal": 0.09,
    "fuel": 0.3,
-   "stone": 0.32,
-   "wood": 0.12,
+   "stone": 0.41,
+   "wood": 0.21,
    "tools": 0.19,
    "farm": 0.36,
    "valuable": 0.39,
@@ -725,16 +761,28 @@
    "earth": null,
    "misc": 0.67
   },
-  "full_stack_slots": {
+  "group_slots_now": {
    "misc": 2,
-   "stone": 17,
-   "wood": 15,
-   "metal": 18,
-   "tools": 20,
-   "fuel": 2,
-   "build": 5,
-   "valuable": 1,
-   "farm": 4
+   "stone": 30,
+   "wood": 74,
+   "metal": 53,
+   "tools": 21,
+   "fuel": 11,
+   "build": 10,
+   "valuable": 4,
+   "farm": 8
+  },
+  "home_capacity_slots": {
+   "metal": 54,
+   "fuel": 54,
+   "stone": 54,
+   "wood": 81,
+   "tools": 27,
+   "farm": 27,
+   "valuable": 27,
+   "build": 27,
+   "earth": 0,
+   "misc": 27
   }
  },
  "hive-a": {
@@ -752,6 +800,11 @@
      356,
      72,
      147
+    ],
+    [
+     357,
+     72,
+     152
     ]
    ],
    "fuel": [
@@ -766,6 +819,11 @@
      348,
      71,
      150
+    ],
+    [
+     356,
+     72,
+     146
     ]
    ],
    "wood": [
@@ -773,6 +831,11 @@
      355,
      72,
      149
+    ],
+    [
+     354,
+     72,
+     147
     ]
    ],
    "tools": [
@@ -786,7 +849,7 @@
     [
      354,
      72,
-     147
+     145
     ]
    ],
    "valuable": [
@@ -847,11 +910,6 @@
    [
     354,
     72,
-    145
-   ],
-   [
-    354,
-    72,
     148
    ],
    [
@@ -863,39 +921,41 @@
     355,
     72,
     144
-   ],
-   [
-    356,
-    72,
-    146
-   ],
-   [
-    357,
-    72,
-    152
    ]
   ],
   "home_share_now": {
-   "metal": 0.22,
+   "metal": 0.32,
    "fuel": 0.19,
-   "stone": 0.32,
-   "wood": 0.17,
+   "stone": 0.52,
+   "wood": 0.31,
    "tools": 0.12,
-   "farm": 0.6,
+   "farm": 0.05,
    "valuable": 0.46,
    "build": 0.05,
    "earth": null,
    "misc": null
   },
-  "full_stack_slots": {
-   "stone": 16,
-   "wood": 15,
-   "metal": 30,
-   "fuel": 6,
+  "group_slots_now": {
+   "stone": 30,
+   "wood": 43,
+   "metal": 79,
+   "fuel": 18,
    "tools": 15,
-   "build": 4,
-   "valuable": 2,
-   "farm": 5
+   "build": 5,
+   "valuable": 6,
+   "farm": 7
+  },
+  "home_capacity_slots": {
+   "metal": 81,
+   "fuel": 27,
+   "stone": 54,
+   "wood": 54,
+   "tools": 27,
+   "farm": 27,
+   "valuable": 27,
+   "build": 27,
+   "earth": 0,
+   "misc": 0
   }
  },
  "hive-b": {
@@ -908,6 +968,11 @@
      358,
      72,
      145
+    ],
+    [
+     351,
+     72,
+     149
     ]
    ],
    "fuel": [
@@ -919,7 +984,7 @@
    ],
    "stone": [
     [
-     351,
+     356,
      72,
      149
     ]
@@ -933,7 +998,7 @@
    ],
    "tools": [
     [
-     356,
+     355,
      72,
      149
     ]
@@ -968,36 +1033,42 @@
     ]
    ]
   },
-  "overflow": [
-   [
-    355,
-    72,
-    149
-   ]
-  ],
+  "overflow": [],
   "drain": [],
   "home_share_now": {
-   "metal": 0.32,
+   "metal": 0.51,
    "fuel": 0.38,
-   "stone": 0.45,
+   "stone": 0.28,
    "wood": 0.21,
-   "tools": 0.36,
+   "tools": 0.14,
    "farm": 0.01,
    "valuable": 0.25,
    "build": 0.06,
    "earth": null,
    "misc": 0.0
   },
-  "full_stack_slots": {
-   "metal": 15,
+  "group_slots_now": {
+   "metal": 30,
    "tools": 13,
-   "wood": 7,
-   "fuel": 2,
-   "stone": 17,
-   "valuable": 2,
-   "farm": 4,
+   "wood": 32,
+   "fuel": 6,
+   "stone": 22,
+   "valuable": 5,
+   "farm": 6,
    "build": 3,
    "misc": 1
+  },
+  "home_capacity_slots": {
+   "metal": 54,
+   "fuel": 27,
+   "stone": 27,
+   "wood": 54,
+   "tools": 27,
+   "farm": 27,
+   "valuable": 27,
+   "build": 27,
+   "earth": 0,
+   "misc": 27
   }
  },
  "hive-c": {
@@ -1008,6 +1079,16 @@
    "metal": [
     [
      -67,
+     67,
+     -68
+    ],
+    [
+     -69,
+     67,
+     -68
+    ],
+    [
+     -68,
      67,
      -68
     ]
@@ -1021,16 +1102,16 @@
    ],
    "stone": [
     [
-     -68,
-     67,
-     -68
+     -77,
+     69,
+     -62
     ]
    ],
    "wood": [
     [
-     -77,
-     69,
-     -62
+     -65,
+     62,
+     -75
     ]
    ],
    "tools": [
@@ -1050,9 +1131,9 @@
    ],
    "build": [
     [
-     -69,
-     67,
-     -68
+     -67,
+     70,
+     -60
     ]
    ],
    "earth": [],
@@ -1060,9 +1141,9 @@
   },
   "overflow": [
    [
-    -67,
-    70,
-    -60
+    -75,
+    69,
+    -62
    ]
   ],
   "drain": [
@@ -1084,11 +1165,6 @@
    [
     -75,
     68,
-    -62
-   ],
-   [
-    -75,
-    69,
     -62
    ],
    [
@@ -1139,11 +1215,6 @@
    [
     -65,
     62,
-    -75
-   ],
-   [
-    -65,
-    62,
     -73
    ],
    [
@@ -1168,25 +1239,37 @@
    ]
   ],
   "home_share_now": {
-   "metal": 0.18,
+   "metal": 0.42,
    "fuel": 0.13,
-   "stone": 0.31,
-   "wood": 0.65,
+   "stone": 0.27,
+   "wood": 0.17,
    "tools": 0.24,
    "farm": null,
    "valuable": 0.16,
-   "build": 1.0,
+   "build": 0.0,
    "earth": null,
    "misc": null
   },
-  "full_stack_slots": {
+  "group_slots_now": {
    "wood": 6,
-   "metal": 18,
-   "stone": 16,
-   "fuel": 3,
+   "metal": 69,
+   "stone": 25,
+   "fuel": 15,
    "tools": 17,
    "build": 1,
-   "valuable": 5
+   "valuable": 10
+  },
+  "home_capacity_slots": {
+   "metal": 81,
+   "fuel": 27,
+   "stone": 27,
+   "wood": 27,
+   "tools": 27,
+   "farm": 0,
+   "valuable": 27,
+   "build": 27,
+   "earth": 0,
+   "misc": 0
   }
  },
  "hive-d": {
@@ -1199,6 +1282,11 @@
      68,
      64,
      68
+    ],
+    [
+     65,
+     64,
+     67
     ]
    ],
    "fuel": [
@@ -1232,9 +1320,9 @@
    "farm": [],
    "valuable": [
     [
-     65,
+     72,
      64,
-     67
+     68
     ]
    ],
    "build": [],
@@ -1243,9 +1331,9 @@
   },
   "overflow": [
    [
-    72,
+    73,
     64,
-    68
+    67
    ]
   ],
   "drain": [
@@ -1268,32 +1356,39 @@
     73,
     64,
     65
-   ],
-   [
-    73,
-    64,
-    67
    ]
   ],
   "home_share_now": {
-   "metal": 0.2,
+   "metal": 0.34,
    "fuel": 0.46,
    "stone": 0.39,
    "wood": 0.63,
    "tools": 0.29,
    "farm": null,
-   "valuable": 0.42,
+   "valuable": 0.0,
    "build": null,
    "earth": null,
    "misc": null
   },
-  "full_stack_slots": {
-   "stone": 16,
-   "metal": 14,
-   "valuable": 1,
+  "group_slots_now": {
+   "stone": 23,
+   "metal": 33,
+   "valuable": 3,
    "tools": 7,
-   "fuel": 2,
-   "wood": 4
+   "fuel": 8,
+   "wood": 6
+  },
+  "home_capacity_slots": {
+   "metal": 54,
+   "fuel": 27,
+   "stone": 27,
+   "wood": 54,
+   "tools": 27,
+   "farm": 0,
+   "valuable": 27,
+   "build": 0,
+   "earth": 0,
+   "misc": 0
   }
  },
  "isolated-a": {
@@ -1306,6 +1401,16 @@
      353,
      72,
      147
+    ],
+    [
+     357,
+     74,
+     148
+    ],
+    [
+     355,
+     72,
+     149
     ]
    ],
    "fuel": [
@@ -1324,9 +1429,14 @@
    ],
    "wood": [
     [
-     357,
-     74,
-     148
+     362,
+     71,
+     146
+    ],
+    [
+     356,
+     72,
+     151
     ]
    ],
    "tools": [
@@ -1338,9 +1448,9 @@
    ],
    "farm": [
     [
-     355,
+     356,
      72,
-     149
+     148
     ]
    ],
    "valuable": [
@@ -1361,16 +1471,16 @@
    "misc": [
     [
      356,
-     72,
+     74,
      148
     ]
    ]
   },
   "overflow": [
    [
-    356,
-    74,
-    148
+    353,
+    72,
+    149
    ]
   ],
   "drain": [
@@ -1378,11 +1488,6 @@
     352,
     72,
     147
-   ],
-   [
-    353,
-    72,
-    149
    ],
    [
     354,
@@ -1400,11 +1505,6 @@
     147
    ],
    [
-    356,
-    72,
-    151
-   ],
-   [
     358,
     72,
     146
@@ -1418,35 +1518,42 @@
     360,
     72,
     146
-   ],
-   [
-    362,
-    71,
-    146
    ]
   ],
   "home_share_now": {
-   "metal": 0.14,
+   "metal": 0.35,
    "fuel": 0.18,
    "stone": 0.43,
-   "wood": 0.1,
+   "wood": 0.18,
    "tools": 0.19,
-   "farm": 0.08,
+   "farm": 0.01,
    "valuable": 0.13,
    "build": 0.82,
    "earth": null,
-   "misc": 0.57
+   "misc": 0.0
   },
-  "full_stack_slots": {
-   "stone": 12,
-   "metal": 23,
-   "wood": 20,
-   "valuable": 4,
-   "fuel": 7,
-   "tools": 26,
-   "farm": 5,
-   "build": 5,
+  "group_slots_now": {
+   "stone": 18,
+   "metal": 90,
+   "wood": 64,
+   "valuable": 15,
+   "fuel": 17,
+   "tools": 27,
+   "farm": 7,
+   "build": 6,
    "misc": 4
+  },
+  "home_capacity_slots": {
+   "metal": 81,
+   "fuel": 27,
+   "stone": 27,
+   "wood": 81,
+   "tools": 27,
+   "farm": 27,
+   "valuable": 27,
+   "build": 27,
+   "earth": 0,
+   "misc": 27
   }
  },
  "isolated-b": {
@@ -1459,6 +1566,11 @@
      360,
      72,
      149
+    ],
+    [
+     353,
+     72,
+     148
     ]
    ],
    "fuel": [
@@ -1473,13 +1585,28 @@
      352,
      73,
      147
+    ],
+    [
+     357,
+     72,
+     149
     ]
    ],
    "wood": [
     [
-     353,
+     355,
      72,
-     148
+     147
+    ],
+    [
+     354,
+     72,
+     150
+    ],
+    [
+     354,
+     72,
+     146
     ]
    ],
    "tools": [
@@ -1505,15 +1632,15 @@
    ],
    "build": [
     [
-     355,
+     354,
      72,
-     147
+     149
     ]
    ],
    "earth": [],
    "misc": [
     [
-     357,
+     353,
      72,
      149
     ]
@@ -1521,7 +1648,7 @@
   },
   "overflow": [
    [
-    354,
+    359,
     72,
     149
    ]
@@ -1531,21 +1658,6 @@
     353,
     72,
     147
-   ],
-   [
-    353,
-    72,
-    149
-   ],
-   [
-    354,
-    72,
-    146
-   ],
-   [
-    354,
-    72,
-    150
    ],
    [
     355,
@@ -1561,35 +1673,42 @@
     358,
     72,
     151
-   ],
-   [
-    359,
-    72,
-    149
    ]
   ],
   "home_share_now": {
-   "metal": 0.15,
+   "metal": 0.3,
    "fuel": 0.18,
-   "stone": 0.25,
+   "stone": 0.38,
    "wood": 0.24,
    "tools": 0.3,
    "farm": 0.34,
    "valuable": 0.2,
-   "build": 0.05,
+   "build": 0.0,
    "earth": null,
-   "misc": 0.71
+   "misc": 0.0
   },
-  "full_stack_slots": {
-   "tools": 9,
-   "stone": 18,
-   "wood": 16,
-   "fuel": 6,
-   "metal": 21,
-   "farm": 7,
+  "group_slots_now": {
+   "tools": 10,
+   "stone": 28,
+   "wood": 59,
+   "fuel": 15,
+   "metal": 76,
+   "farm": 9,
    "misc": 4,
-   "valuable": 3,
-   "build": 5
+   "valuable": 5,
+   "build": 6
+  },
+  "home_capacity_slots": {
+   "metal": 81,
+   "fuel": 54,
+   "stone": 54,
+   "wood": 81,
+   "tools": 27,
+   "farm": 27,
+   "valuable": 27,
+   "build": 27,
+   "earth": 0,
+   "misc": 27
   }
  },
  "isolated-c": {
@@ -1602,6 +1721,16 @@
      354,
      72,
      146
+    ],
+    [
+     356,
+     72,
+     150
+    ],
+    [
+     357,
+     72,
+     147
     ]
    ],
    "fuel": [
@@ -1613,7 +1742,7 @@
    ],
    "stone": [
     [
-     357,
+     353,
      72,
      147
     ]
@@ -1622,7 +1751,12 @@
     [
      353,
      72,
-     147
+     149
+    ],
+    [
+     364,
+     70,
+     141
     ]
    ],
    "tools": [
@@ -1634,16 +1768,16 @@
    ],
    "farm": [
     [
-     353,
+     355,
      72,
-     149
+     145
     ]
    ],
    "valuable": [
     [
      355,
      72,
-     145
+     146
     ]
    ],
    "build": [
@@ -1664,50 +1798,46 @@
   },
   "overflow": [
    [
-    364,
-    70,
-    141
-   ]
-  ],
-  "drain": [
-   [
-    355,
-    72,
-    146
-   ],
-   [
-    356,
-    72,
-    150
-   ],
-   [
     358,
     72,
     148
    ]
   ],
+  "drain": [],
   "home_share_now": {
-   "metal": 0.19,
+   "metal": 0.48,
    "fuel": 0.25,
-   "stone": 0.47,
-   "wood": 0.16,
+   "stone": 0.1,
+   "wood": 0.26,
    "tools": 0.2,
-   "farm": 0.64,
-   "valuable": 0.41,
+   "farm": 0.07,
+   "valuable": 0.12,
    "build": 0.06,
    "earth": null,
    "misc": 0.0
   },
-  "full_stack_slots": {
-   "metal": 23,
-   "wood": 20,
-   "fuel": 7,
-   "build": 5,
-   "stone": 11,
-   "misc": 2,
-   "farm": 6,
+  "group_slots_now": {
+   "metal": 74,
+   "wood": 50,
+   "fuel": 14,
+   "farm": 12,
+   "build": 8,
+   "stone": 20,
    "tools": 9,
-   "valuable": 3
+   "misc": 2,
+   "valuable": 6
+  },
+  "home_capacity_slots": {
+   "metal": 81,
+   "fuel": 27,
+   "stone": 54,
+   "wood": 54,
+   "tools": 27,
+   "farm": 54,
+   "valuable": 27,
+   "build": 27,
+   "earth": 0,
+   "misc": 54
   }
  },
  "isolated-d": {
@@ -1718,6 +1848,11 @@
    "metal": [
     [
      353,
+     72,
+     147
+    ],
+    [
+     354,
      72,
      147
     ]
@@ -1734,6 +1869,11 @@
      357,
      72,
      145
+    ],
+    [
+     354,
+     72,
+     149
     ]
    ],
    "wood": [
@@ -1741,18 +1881,28 @@
      354,
      72,
      151
-    ]
-   ],
-   "tools": [
+    ],
+    [
+     355,
+     72,
+     145
+    ],
     [
      356,
      72,
      150
     ]
    ],
+   "tools": [
+    [
+     355,
+     72,
+     146
+    ]
+   ],
    "farm": [
     [
-     354,
+     355,
      72,
      147
     ]
@@ -1766,61 +1916,50 @@
    ],
    "build": [
     [
-     355,
-     72,
-     147
-    ]
-   ],
-   "earth": [],
-   "misc": [
-    [
      358,
      72,
      145
     ]
-   ]
-  },
-  "overflow": [
-   [
-    355,
-    72,
-    146
-   ]
-  ],
-  "drain": [
-   [
-    354,
-    72,
-    149
    ],
-   [
-    355,
-    72,
-    145
-   ]
-  ],
+   "earth": [],
+   "misc": []
+  },
+  "overflow": [],
+  "drain": [],
   "home_share_now": {
-   "metal": 0.3,
+   "metal": 0.41,
    "fuel": 0.22,
-   "stone": 0.18,
-   "wood": 0.15,
-   "tools": 0.2,
-   "farm": 0.6,
+   "stone": 0.27,
+   "wood": 0.36,
+   "tools": 0.13,
+   "farm": 0.31,
    "valuable": 0.0,
-   "build": 0.09,
+   "build": 0.04,
    "earth": null,
    "misc": 0.0
   },
-  "full_stack_slots": {
-   "metal": 23,
-   "stone": 18,
+  "group_slots_now": {
+   "metal": 71,
+   "stone": 33,
    "tools": 14,
-   "wood": 19,
+   "wood": 61,
    "misc": 1,
-   "fuel": 6,
+   "fuel": 12,
    "valuable": 2,
-   "farm": 3,
-   "build": 5
+   "farm": 7,
+   "build": 6
+  },
+  "home_capacity_slots": {
+   "metal": 81,
+   "fuel": 27,
+   "stone": 54,
+   "wood": 81,
+   "tools": 27,
+   "farm": 27,
+   "valuable": 27,
+   "build": 27,
+   "earth": 0,
+   "misc": 0
   }
  },
  "placebo-a": {
@@ -1847,6 +1986,11 @@
      248,
      74,
      -142
+    ],
+    [
+     250,
+     74,
+     -141
     ]
    ],
    "wood": [
@@ -1858,9 +2002,9 @@
    ],
    "tools": [
     [
-     250,
+     252,
      74,
-     -141
+     -145
     ]
    ],
    "farm": [
@@ -1916,11 +2060,6 @@
     -148
    ],
    [
-    252,
-    74,
-    -145
-   ],
-   [
     253,
     74,
     -147
@@ -1934,24 +2073,36 @@
   "home_share_now": {
    "metal": 0.14,
    "fuel": 0.23,
-   "stone": 0.23,
+   "stone": 0.35,
    "wood": 0.18,
-   "tools": 0.17,
+   "tools": 0.08,
    "farm": 1.0,
    "valuable": 0.17,
    "build": 1.0,
    "earth": null,
    "misc": null
   },
-  "full_stack_slots": {
-   "wood": 9,
-   "stone": 17,
+  "group_slots_now": {
+   "wood": 21,
+   "stone": 35,
    "tools": 12,
-   "metal": 10,
-   "fuel": 3,
+   "metal": 37,
+   "fuel": 13,
    "build": 1,
-   "valuable": 4,
+   "valuable": 8,
    "farm": 1
+  },
+  "home_capacity_slots": {
+   "metal": 54,
+   "fuel": 27,
+   "stone": 54,
+   "wood": 27,
+   "tools": 27,
+   "farm": 27,
+   "valuable": 27,
+   "build": 27,
+   "earth": 0,
+   "misc": 0
   }
  },
  "placebo-b": {
@@ -1964,11 +2115,21 @@
      283,
      64,
      -388
+    ],
+    [
+     284,
+     64,
+     -390
+    ],
+    [
+     282,
+     64,
+     -388
     ]
    ],
    "fuel": [
     [
-     282,
+     281,
      64,
      -388
     ]
@@ -1985,6 +2146,11 @@
      295,
      64,
      -380
+    ],
+    [
+     278,
+     64,
+     -379
     ]
    ],
    "tools": [
@@ -2004,9 +2170,9 @@
    ],
    "build": [
     [
-     281,
+     292,
      64,
-     -388
+     -378
     ]
    ],
    "earth": [],
@@ -2014,7 +2180,7 @@
   },
   "overflow": [
    [
-    292,
+    280,
     64,
     -378
    ]
@@ -2023,11 +2189,6 @@
    [
     278,
     62,
-    -379
-   ],
-   [
-    278,
-    64,
     -379
    ],
    [
@@ -2046,19 +2207,9 @@
     -378
    ],
    [
-    280,
-    64,
-    -378
-   ],
-   [
     283,
     53,
     -378
-   ],
-   [
-    284,
-    64,
-    -390
    ],
    [
     284,
@@ -2092,25 +2243,37 @@
    ]
   ],
   "home_share_now": {
-   "metal": 0.24,
-   "fuel": 0.2,
+   "metal": 0.5,
+   "fuel": 0.12,
    "stone": 0.26,
-   "wood": 0.14,
+   "wood": 0.27,
    "tools": 0.26,
    "farm": null,
    "valuable": 0.35,
-   "build": 1.0,
+   "build": 0.0,
    "earth": null,
    "misc": null
   },
-  "full_stack_slots": {
-   "wood": 11,
-   "stone": 16,
-   "metal": 14,
+  "group_slots_now": {
+   "wood": 35,
+   "stone": 23,
+   "metal": 62,
    "tools": 23,
-   "fuel": 4,
-   "valuable": 2,
+   "fuel": 12,
+   "valuable": 7,
    "build": 1
+  },
+  "home_capacity_slots": {
+   "metal": 81,
+   "fuel": 27,
+   "stone": 27,
+   "wood": 54,
+   "tools": 27,
+   "farm": 0,
+   "valuable": 27,
+   "build": 27,
+   "earth": 0,
+   "misc": 0
   }
  },
  "placebo-c": {
@@ -2123,6 +2286,16 @@
      356,
      72,
      147
+    ],
+    [
+     355,
+     71,
+     146
+    ],
+    [
+     356,
+     72,
+     150
     ]
    ],
    "fuel": [
@@ -2134,9 +2307,9 @@
    ],
    "stone": [
     [
-     356,
-     72,
-     150
+     342,
+     70,
+     140
     ]
    ],
    "wood": [
@@ -2144,6 +2317,16 @@
      354,
      72,
      147
+    ],
+    [
+     355,
+     72,
+     149
+    ],
+    [
+     356,
+     72,
+     151
     ]
    ],
    "tools": [
@@ -2192,11 +2375,6 @@
   ],
   "drain": [
    [
-    342,
-    70,
-    140
-   ],
-   [
     352,
     72,
     149
@@ -2224,22 +2402,12 @@
    [
     355,
     71,
-    146
-   ],
-   [
-    355,
-    71,
     149
    ],
    [
     355,
     72,
     147
-   ],
-   [
-    355,
-    72,
-    149
    ],
    [
     356,
@@ -2250,11 +2418,6 @@
     356,
     72,
     148
-   ],
-   [
-    356,
-    72,
-    151
    ],
    [
     357,
@@ -2268,10 +2431,10 @@
    ]
   ],
   "home_share_now": {
-   "metal": 0.2,
+   "metal": 0.37,
    "fuel": 0.26,
-   "stone": 0.33,
-   "wood": 0.14,
+   "stone": 0.17,
+   "wood": 0.32,
    "tools": 0.24,
    "farm": 0.26,
    "valuable": 0.34,
@@ -2279,16 +2442,28 @@
    "earth": null,
    "misc": 0.16
   },
-  "full_stack_slots": {
-   "metal": 16,
-   "wood": 26,
+  "group_slots_now": {
+   "metal": 57,
+   "wood": 55,
    "tools": 16,
-   "stone": 12,
-   "fuel": 3,
-   "build": 5,
-   "misc": 7,
-   "farm": 4,
-   "valuable": 1
+   "stone": 20,
+   "fuel": 10,
+   "build": 8,
+   "misc": 10,
+   "farm": 6,
+   "valuable": 5
+  },
+  "home_capacity_slots": {
+   "metal": 81,
+   "fuel": 27,
+   "stone": 27,
+   "wood": 81,
+   "tools": 27,
+   "farm": 27,
+   "valuable": 27,
+   "build": 27,
+   "earth": 0,
+   "misc": 27
   }
  },
  "placebo-d": {
@@ -2301,6 +2476,11 @@
      186,
      75,
      78
+    ],
+    [
+     178,
+     74,
+     73
     ]
    ],
    "fuel": [
@@ -2360,11 +2540,6 @@
    [
     178,
     74,
-    73
-   ],
-   [
-    178,
-    74,
     75
    ],
    [
@@ -2384,7 +2559,7 @@
    ]
   ],
   "home_share_now": {
-   "metal": 0.16,
+   "metal": 0.3,
    "fuel": 0.47,
    "stone": 0.2,
    "wood": 0.18,
@@ -2395,14 +2570,26 @@
    "earth": null,
    "misc": null
   },
-  "full_stack_slots": {
+  "group_slots_now": {
    "build": 1,
-   "wood": 6,
-   "metal": 12,
-   "stone": 17,
+   "wood": 19,
+   "metal": 31,
+   "stone": 22,
    "tools": 3,
-   "valuable": 3,
-   "fuel": 4
+   "valuable": 9,
+   "fuel": 10
+  },
+  "home_capacity_slots": {
+   "metal": 54,
+   "fuel": 27,
+   "stone": 27,
+   "wood": 27,
+   "tools": 27,
+   "farm": 0,
+   "valuable": 27,
+   "build": 27,
+   "earth": 0,
+   "misc": 0
   }
  }
 }

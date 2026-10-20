@@ -50,8 +50,15 @@ for w, v in sorted(d['worlds'].items()):
                 if group_of(name) == g: names[name] += n
         gfull[g] = sum(math.ceil(n / max_stack(nm)) for nm, n in names.items())
     free = set(conts); homes = {}
+    gslots = collections.Counter()
+    for k in conts:
+        for c in town:
+            pass
+    for c in town:
+        for it in c['items']:
+            gslots[group_of(it['id'])] += 1          # v1 moves whole stacks into empty slots: capacity is counted in SLOTS AS THEY ARE
     for g in ORDER:
-        need_slots = gfull.get(g, 0)
+        need_slots = gslots.get(g, 0)
         picks = []
         if not gtot.get(g):
             homes[g] = []; continue      # no stock: no home until the group appears (it goes to the overflow)
@@ -61,7 +68,7 @@ for w, v in sorted(d['worlds'].items()):
             else:
                 cand = sorted(free, key=lambda k: (slots[k], math.hypot(k[0] - hx, k[2] - hz), k))
             k = cand[0]; picks.append(k); free.discard(k)
-            cap = 27 * halves[k] * len(picks)
+            cap = sum(27 * halves[p] for p in picks)
             if cap >= need_slots or len(picks) >= 3: break
         homes[g] = picks
     overflow = sorted(free, key=lambda k: (slots[k], math.hypot(k[0] - hx, k[2] - hz), k))[:1]
@@ -69,7 +76,7 @@ for w, v in sorted(d['worlds'].items()):
     share = {g: round(sum(gin[g][k] for k in homes[g]) / gtot[g], 2) if gtot[g] else None for g in ORDER}
     out[w] = {'town_containers': len(conts), 'town_halves': len(town), 'census_outside_town': outside,
               'homes': {g: [list(k) for k in homes[g]] for g in ORDER}, 'overflow': [list(k) for k in overflow], 'drain': [list(k) for k in sorted(free)],
-              'home_share_now': share, 'full_stack_slots': dict(gfull)}
+              'home_share_now': share, 'group_slots_now': dict(gslots), 'home_capacity_slots': {g: sum(27 * halves[k] for k in homes[g]) for g in ORDER}}
     print(w, 'containers', len(conts), '(halves', len(town), ', outside town', outside, ') homes', sum(len(x) for x in homes.values()), 'overflow', len(overflow),
           'drain', len(free), 'share now', {g: s for g, s in share.items() if s is not None})
 json.dump(out, open('homes.json', 'w'), indent=1)
