@@ -1,0 +1,59 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Towns Before the Plan</title>
+<style>
+  :root { --bg:#f6f5f1; --fg:#1d1d1b; --muted:#6b6a64; --card:#fff; --line:#e2e0d8; }
+  @media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) { --bg:#161614; --fg:#eceae4; --muted:#a3a19a; --card:#21211e; --line:#34332f; } }
+  :root[data-theme="dark"] { --bg:#161614; --fg:#eceae4; --muted:#a3a19a; --card:#21211e; --line:#34332f; }
+  body { margin:0; background:var(--bg); color:var(--fg); font:15px/1.5 -apple-system, system-ui, sans-serif; }
+  main { max-width:1100px; margin:0 auto; padding:24px 16px 48px; }
+  h1 { font-size:24px; margin:0 0 4px; }
+  p.sub { color:var(--muted); margin:0 0 20px; }
+  .legend { display:flex; flex-wrap:wrap; gap:8px 18px; margin:0 0 20px; font-size:13px; color:var(--muted); }
+  .legend span { display:inline-flex; align-items:center; gap:6px; }
+  .sw { width:12px; height:12px; border-radius:2px; display:inline-block; border:1px solid rgba(0,0,0,.35); }
+  .grid { display:grid; grid-template-columns:repeat(auto-fill, minmax(240px, 1fr)); gap:14px; }
+  figure { margin:0; background:var(--card); border:1px solid var(--line); border-radius:10px; overflow:hidden; }
+  figure img { display:block; width:100%; height:auto; image-rendering:pixelated; }
+  figcaption { padding:8px 10px; font-weight:600; font-size:14px; }
+</style>
+</head>
+<body>
+<main>
+  <h1>The 16 towns before the town plan</h1>
+  <p class="sub">Overhead view of each town, 96 × 96 blocks centred on home, drawn from the live world files on 2026-10-20 ~12:12Z.
+  Chests cluster on the home platform; crafting tables and furnaces are scattered across the whole area.</p>
+  <div class="legend">
+    <span><i class="sw" style="background:#e040e0"></i>home</span>
+    <span><i class="sw" style="background:#f2d21b"></i>chest / barrel</span>
+    <span><i class="sw" style="background:#f08a1c"></i>furnace</span>
+    <span><i class="sw" style="background:#8a5cf0"></i>crafting table</span>
+    <span><i class="sw" style="background:#a6e22e"></i>composter</span>
+    <span><i class="sw" style="background:#fff"></i>bed / other station</span>
+    <span><i class="sw" style="background:transparent;border:2px solid #2ad4e0"></i>well</span>
+    <span>dashed white = no-dig zone (16) · dashed yellow = project area (22 / 44)</span>
+  </div>
+  <div class="grid">
+    <figure><img src="board-a.png" alt="board-a"><figcaption>board-a</figcaption></figure>
+    <figure><img src="board-b.png" alt="board-b"><figcaption>board-b</figcaption></figure>
+    <figure><img src="board-c.png" alt="board-c"><figcaption>board-c</figcaption></figure>
+    <figure><img src="board-d.png" alt="board-d"><figcaption>board-d</figcaption></figure>
+    <figure><img src="hive-a.png" alt="hive-a"><figcaption>hive-a</figcaption></figure>
+    <figure><img src="hive-b.png" alt="hive-b"><figcaption>hive-b</figcaption></figure>
+    <figure><img src="hive-c.png" alt="hive-c"><figcaption>hive-c</figcaption></figure>
+    <figure><img src="hive-d.png" alt="hive-d"><figcaption>hive-d</figcaption></figure>
+    <figure><img src="isolated-a.png" alt="isolated-a"><figcaption>isolated-a</figcaption></figure>
+    <figure><img src="isolated-b.png" alt="isolated-b"><figcaption>isolated-b</figcaption></figure>
+    <figure><img src="isolated-c.png" alt="isolated-c"><figcaption>isolated-c</figcaption></figure>
+    <figure><img src="isolated-d.png" alt="isolated-d"><figcaption>isolated-d</figcaption></figure>
+    <figure><img src="placebo-a.png" alt="placebo-a"><figcaption>placebo-a</figcaption></figure>
+    <figure><img src="placebo-b.png" alt="placebo-b"><figcaption>placebo-b</figcaption></figure>
+    <figure><img src="placebo-c.png" alt="placebo-c"><figcaption>placebo-c</figcaption></figure>
+    <figure><img src="placebo-d.png" alt="placebo-d"><figcaption>placebo-d</figcaption></figure>
+  </div>
+</main>
+</body>
+</html>
