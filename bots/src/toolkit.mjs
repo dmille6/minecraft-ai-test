@@ -34,12 +34,45 @@ export function toolkitMode (env = {}) {
 }
 export const TOOLKIT = Object.freeze(toolkitMode(typeof process !== 'undefined' ? process.env : {}))
 
+// ---- THE IRON PICKAXE (ironpick-01; OWNER 2026-10-20 ~03:20Z "add pickaxe to toolkit") ---------------------------------
+// MEASURED 10-20: the town chests held 2,324 iron ingots (80-240 per town; RCON census 00:15Z, read-only; every town has 2-8
+// containers holding >= 7 + TOWN_IRON_KEEP) while 25 of 80 bots held a usable iron pickaxe (59 held one, mostly worn), and 39
+// iron_pickaxe crafts failed 10-19 "short 3x iron_ingot": the kit was the axe and the shovel only, withdraw_pick fetches stone
+// and wooden copies only, so an iron pickaxe came only from ingots a bot happened to carry. Now the kit also makes one from the
+// town's iron (3 ingots + 2 sticks) when the bag has no iron pickaxe above the trip line (withdrawpick PREFER_USES = 40) -- a
+// worn copy (<= 40 uses), or none -- and no usable diamond/netherite one. The worn copy is not moved: toolFor digs the
+// most-worn copy of a name first (tool hygiene), and a copy at or under FLOOR is spent by use (hasKeeper / last swing).
+
+/** TOOLKIT_IRONPICK=on|off, default on (the one-setting rollback); anything else reads as on, said in the mode row. */
+export function toolkitIronpickMode (env = {}) {
+  const raw = env?.TOOLKIT_IRONPICK
+  if (raw == null || String(raw).trim() === '') return { on: true, mode: 'on', note: 'TOOLKIT_IRONPICK unset' }
+  const v = String(raw).trim().toLowerCase()
+  if (v === 'on' || v === 'off') return { on: v === 'on', mode: v, note: null }
+  return { on: true, mode: 'on', note: `TOOLKIT_IRONPICK=${String(raw).slice(0, 20)} unreadable, using on` }
+}
+export const TOOLKIT_IRONPICK = Object.freeze(toolkitIronpickMode(typeof process !== 'undefined' ? process.env : {}))
+/** The trip line: withdrawpick.mjs PREFER_USES (= oretunnel MIN_TRIP_USES), restated -- importing withdrawpick here closes an
+ *  import cycle (withdrawpick -> craftroom -> hygiene -> this); ironpick.test.mjs asserts the two are equal. */
+export const IRONPICK_TRIP_USES = 40
+
 const usable = it => !!it?.name && remaining(it) > FLOOR
 const list = items => (Array.isArray(items) ? items : []).filter(it => it?.name)
 const IRON_TIER = tier('iron_pickaxe')
 
 /** A usable pickaxe of iron tier or better (iron, diamond, netherite) in the bag. */
 export const ironPickHeld = items => list(items).some(it => isPickaxe(it.name) && tier(it.name) >= IRON_TIER && usable(it))
+
+/**
+ * DOES THE KIT MAKE AN IRON PICKAXE FOR THIS BAG? -> bool. Pure. True when the switch is on and the bag holds NO pickaxe
+ * that covers it: an iron copy with MORE than IRONPICK_TRIP_USES uses left, or a usable (> FLOOR) diamond/netherite copy.
+ * So: no pickaxe, only stone/wooden/golden ones, or an iron copy at <= 40 uses -> true. Unknown durability counts as full
+ * (toolfor remaining), the direction toolfor chose.
+ */
+export function ironPickNeed (items = [], { on = TOOLKIT_IRONPICK.on } = {}) {
+  if (!on) return false
+  return !list(items).some(it => isPickaxe(it.name) && (tier(it.name) === IRON_TIER ? remaining(it) > IRONPICK_TRIP_USES : tier(it.name) > IRON_TIER && usable(it)))
+}
 
 /**
  * PART 1 -> { applies, spare, extra, spent }. Pure over mineflayer Items.
@@ -62,9 +95,13 @@ export const spentStoneKept = (items = [], base = 3, on = TOOLKIT.on) => (on && 
 
 // ---- PART 2: the iron axe and shovel -----------------------------------------------------------------------------------
 
-/** The kit, in craft order: ingots and sticks per tool (1.21 recipes: axe 3 ingots + 2 sticks, shovel 1 + 2). */
-export const KIT = Object.freeze({ iron_axe: Object.freeze({ ingots: 3, sticks: 2 }), iron_shovel: Object.freeze({ ingots: 1, sticks: 2 }) })
+/** The kit, in craft order: ingots and sticks per tool (1.21 recipes: pickaxe 3 ingots + 2 sticks, axe 3 + 2, shovel 1 + 2).
+ *  THE PICKAXE FIRST (ironpick-01): a draw or a credit that cannot fund every tool makes the one the bot digs its way out with. */
+export const KIT = Object.freeze({ iron_pickaxe: Object.freeze({ ingots: 3, sticks: 2 }), iron_axe: Object.freeze({ ingots: 3, sticks: 2 }),
+                                   iron_shovel: Object.freeze({ ingots: 1, sticks: 2 }) })
 export const KIT_NAMES = Object.freeze(Object.keys(KIT))
+/** The most ingots one kit run draws: the whole kit's (7), or the axe and shovel's (4) with TOOLKIT_IRONPICK off. Pure. */
+export const kitMaxIngots = (ironpick = TOOLKIT_IRONPICK.on) => KIT_NAMES.reduce((t, n) => t + (n === 'iron_pickaxe' && !ironpick ? 0 : KIT[n].ingots), 0)
 /** Sticks the bag keeps after the kit: the stone-pickaxe recipe's two (bankable.mjs RESERVE_RECIPE). */
 export const STICK_KEEP = 2
 /** Ingots a town container KEEPS after a kit draw: a container is drawn from only when it holds the draw + this. */
@@ -76,8 +113,10 @@ export const TOOLKIT_BACKOFF_MS = 30 * 60 * 1000
 
 const held = (items, name) => list(items).reduce((n, it) => n + (it.name === name ? (it.count ?? 0) : 0), 0)
 
-/** The kit tools this bag has no USABLE copy of (a spent copy is a consumable toolfor uses up first: not "held"). */
-export const kitNeeds = (items = []) => KIT_NAMES.filter(n => !list(items).some(it => it.name === n && usable(it)))
+/** The kit tools this bag has no USABLE copy of (a spent copy is a consumable toolfor uses up first: not "held"); the iron
+ *  pickaxe by ironPickNeed (the trip line, not FLOOR: a worn copy is replaced, never moved). */
+export const kitNeeds = (items = [], { ironpick = TOOLKIT_IRONPICK.on } = {}) =>
+  KIT_NAMES.filter(n => (n === 'iron_pickaxe' ? ironPickNeed(items, { on: ironpick }) : !list(items).some(it => it.name === n && usable(it))))
 
 /**
  * WHAT THE KIT MUST DRAW FROM TOWN -> { ingots, sticks, needs }. Pure.
@@ -85,12 +124,25 @@ export const kitNeeds = (items = []) => KIT_NAMES.filter(n => !list(items).some(
  *           iron -- that is the ladder's (bucket, the next iron pickaxe), and towndeposit keeps every ingot for it.
  *   sticks  enough that the bag still holds STICK_KEEP after the crafts.
  */
-export function kitDraw (items = [], { credit = 0 } = {}) {
-  const needs = kitNeeds(items)
+export function kitDraw (items = [], { credit = 0, ironpick = TOOLKIT_IRONPICK.on } = {}) {
+  const needs = kitNeeds(items, { ironpick })
   const want = needs.reduce((t, n) => t + KIT[n].ingots, 0)
   const c = Math.max(0, Math.min(Number(credit) || 0, held(items, 'iron_ingot'), want))
   const sticksNeed = needs.reduce((t, n) => t + KIT[n].sticks, 0)
   return { needs, ingots: want - c, sticks: needs.length ? Math.max(0, sticksNeed + STICK_KEEP - held(items, 'stick')) : 0 }
+}
+
+/**
+ * THE ROOM A KIT RUN NEEDS -> the takes a room plan (withdrawpick roomPlan) is judged on. Pure. The draw's ingots and sticks
+ * and, with TOOLKIT_IRONPICK on, ONE SLOT PER TOOL THE CRAFTS MAKE (ironpick-01): a crafted tool lands in a new slot while the
+ * ingot stack it came from is still there (7 drawn, 3 used), so a bag with room for the draw alone could not take the tools,
+ * and the craft's own make-room (craftroom) only wears out spent copies -- a draw into a bag that cannot take its output ended
+ * craft_failed with the iron carried. Conservative: no slot freed by a consumed stack is counted. Off: the draw's takes only
+ * (the base rule exactly).
+ */
+export function kitRoomTakes (d = {}, { ironpick = TOOLKIT_IRONPICK.on } = {}) {
+  const takes = [{ name: 'iron_ingot', count: Math.max(0, Number(d.ingots) || 0) }, { name: 'stick', count: Math.max(0, Number(d.sticks) || 0) }].filter(t => t.count > 0)
+  return ironpick ? [...takes, ...(d.needs ?? []).map(n => ({ tool: true, name: n }))] : takes
 }
 
 /**
@@ -146,9 +198,14 @@ export function kitTakes (inChest = [], draw = {}, { keep = TOWN_IRON_KEEP, stic
  * (8 held), 3 for the axe (7), 1 for the shovel (5), less with a credit. The need name for a draw of n ingots: `kit_iron` for
  * the whole kit's 4 (the name the base wrote, so its misses keep their meaning), `kit_iron_<n>` below it. Pure.
  */
-export const kitIronNeed = n => (Math.max(1, Math.min(4, Math.floor(Number(n) || 4))) >= 4 ? KIT_IRON_NEED : `${KIT_IRON_NEED}_${Math.max(1, Math.floor(Number(n)))}`)
+// ironpick-01: the sizes run to kitMaxIngots (7 with the pickaxe: 3 + 3 + 1); 4 keeps the base's name, every other size its own
+export const kitIronNeed = (n, max = kitMaxIngots()) => {
+  const k = Math.max(1, Math.min(max, Math.floor(Number(n) || 4)))
+  return k === 4 ? KIT_IRON_NEED : `${KIT_IRON_NEED}_${k}`
+}
 /** A container seen holding `have` ingots is a miss for every draw size it cannot give with the keep: n + keep > have. Pure. */
-export const kitIronMissNeeds = (have = 0, keep = TOWN_IRON_KEEP) => [1, 2, 3, 4].filter(n => n + keep > (Number(have) || 0)).map(kitIronNeed)
+export const kitIronMissNeeds = (have = 0, keep = TOWN_IRON_KEEP, max = kitMaxIngots()) =>
+  Array.from({ length: max }, (_, i) => i + 1).filter(n => n + keep > (Number(have) || 0)).map(n => kitIronNeed(n, max))
 /** Can a container's lack of sticks stop this draw? Only when the iron is drawn and the bag's wood cannot make the sticks. */
 export const kitSticksAtRisk = (draw = {}, sticksMakeable = Infinity) => (Number(draw.ingots) || 0) > 0 && (Number(draw.sticks) || 0) > sticksMakeable
 /** A container that had the iron but not the sticks (and the bag could not make them) leaves THIS bot's kit search this long
@@ -230,12 +287,12 @@ const DECLINED = new Set(['runner_paused', 'runner_busy', 'body_held'])
  *   tableNear  () -> bool      a crafting table within the craft skill's 32-block search (kitMeans)
  *   state      { lastIssuedAt, backoffUntil }
  */
-export function toolkitOrder ({ now = 0, on = TOOLKIT.on, atTown = false, items = [], credit = 0, container = false, townMiss = false,
+export function toolkitOrder ({ now = 0, on = TOOLKIT.on, ironpick = TOOLKIT_IRONPICK.on, atTown = false, items = [], credit = 0, container = false, townMiss = false,
                                 room = true, tableNear = false, state = {} } = {}) {
   const s = { ...state }
   const none = () => ({ order: null, state: s })
   if (!on || !atTown) return none()
-  const d = kitDraw(items, { credit })
+  const d = kitDraw(items, { credit, ironpick })
   if (!d.needs.length) return none()
   if (now - (s.lastIssuedAt ?? -Infinity) < TOOLKIT_COOLDOWN_MS || now < (s.backoffUntil ?? 0)) return none()
   if (!lazy(container)) return none()
@@ -245,9 +302,42 @@ export function toolkitOrder ({ now = 0, on = TOOLKIT.on, atTown = false, items 
   if (!kitMeans(items).tableOk && !lazy(tableNear)) return none()
   if ((d.ingots > 0 || d.sticks > 0) && typeof room === 'function' && !room(d)) return none()
   s.lastIssuedAt = now
+  const label = n => (n === 'iron_pickaxe' ? `iron_pickaxe above ${IRONPICK_TRIP_USES} uses` : n)
   return { order: { skill: 'toolkit', args: { credit: Math.max(0, Number(credit) || 0) },
-                    why: `at town with no usable ${d.needs.join(' or ')}: the town's iron makes ${d.needs.length > 1 ? 'them' : 'it'} (${d.ingots} ingot(s) drawn${d.sticks ? `, ${d.sticks} stick(s)` : ''})` }, state: s }
+                    why: `at town with no usable ${d.needs.map(label).join(' or ')}: the town's iron makes ${d.needs.length > 1 ? 'them' : 'it'} (${d.ingots} ingot(s) drawn${d.sticks ? `, ${d.sticks} stick(s)` : ''})` }, state: s }
 }
+
+/**
+ * DOES withdraw_pick STEP ASIDE FOR THE KIT'S IRON PICKAXE? -> bool. Pure (ironpick-01: no double trip). `pickNeed` is the
+ * withdraw order's own need (skills.mjs pickNeedOf: 'pick' = no usable pickaxe, 'trippick' = none at the trip line, null = no
+ * need); `items` the bag both orders read; `kitOrder` is toolkitOrder's answer NOW, as a dry run (its state not kept): every gate -- the switch, the town, the
+ * cooldown and backoff, the town's iron not ruled out, the table, the room for the draw AND the tools. When that order would
+ * be issued and makes an iron pickaxe, withdraw_pick does not also fetch a stone copy for the same need: the kit's order
+ * comes later in the same chain (after the well, prune and room orders), on this decision or the next. Whenever the kit could
+ * NOT issue it (on cooldown, backed off after no_iron, no room, no table, TOOLKIT=off or TOOLKIT_IRONPICK=off), withdraw_pick
+ * runs exactly as before -- the chain never has both orders refusing the same bag.
+ */
+export const withdrawDefersToKit = (pickNeed, kitOrder, items = [], { ironpick = TOOLKIT_IRONPICK.on } = {}) =>
+  pickNeed != null && kitOrder?.skill === 'toolkit' && kitNeeds(items, { ironpick }).includes('iron_pickaxe')
+
+/** The `_toolkit_ironpick_mode` licence row (once per spawn): a kind the base cannot write. */
+export const ironpickModeDetail = (m = TOOLKIT_IRONPICK) =>
+  `phase=mode on=${m.on ? 1 : 0} mode=${m.mode} trip_uses=${IRONPICK_TRIP_USES} kit=${KIT_NAMES.filter(n => m.on || n !== 'iron_pickaxe').join('+')} max_ingots=${kitMaxIngots(m.on)}${m.note ? ` note=${m.note.replace(/\s+/g, '_')}` : ''}`
+
+/** `name@uses` of the bag's best iron-or-better pickaxe (most uses), or '-'. Pure. */
+export const bestIronPickTag = (items = []) => {
+  const p = list(items).filter(it => isPickaxe(it.name) && tier(it.name) >= IRON_TIER).sort((a, b) => remaining(b) - remaining(a))[0]
+  return p ? `${p.name}@${Number.isFinite(remaining(p)) ? remaining(p) : 'full'}` : '-'
+}
+/**
+ * THE `kit_ironpick` CHANGE ROW's detail (one per kit run whose needs included the iron pickaxe; written at the run's end,
+ * duration = the run) -> <= 300. outcome as the `_toolkit` row's; made 1|0 (the run's verified crafts include the iron
+ * pickaxe); best= the best iron-or-better pickaxe before and after; drew= ingots this run drew; iron_seen= what the container
+ * it drew from held when opened, -1 when nothing was drawn (the read's town-keep gate: iron_seen - drew >= keep); keep=
+ * TOWN_IRON_KEEP; slots= the bag's used slots at the end. Pure.
+ */
+export const ironpickRow = ({ outcome = '-', made = 0, bestBefore = '-', bestAfter = '-', drew = 0, ironSeen = -1, keep = TOWN_IRON_KEEP, slots = -1 } = {}) =>
+  `outcome=${outcome} made=${made ? 1 : 0} best=${bestBefore}->${bestAfter} drew=${drew} iron_seen=${ironSeen} keep=${keep} slots=${slots}`.slice(0, 300)
 
 /** After the order ran -> the new state. A skip or an interruption costs nothing; a failure backs off. Pure. */
 export function toolkitOutcome (status, now = 0, state = {}, failClass = null) {
