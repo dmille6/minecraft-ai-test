@@ -332,3 +332,74 @@ Claude 5 (fresh bots): ACCEPTED. found_work places the bot's only table (or craf
   cobble above the stockpile keep. FOUND-BARE scene added.
 Claude 6-9 (P3s): ACCEPTED. Iron-carry denominator stated; 7 chests / 189 slots in v1; 60 s budget when a third container
   is planned, skipped under 15 s; READY at s+1 with a single s per orientation; farhome extends to +1080 (Codex: +780).
+
+======================================================================================================================
+ROUND 4 (r4 doc, commit e373af01) -- Codex CHANGE, Claude CHANGE
+======================================================================================================================
+--- Codex, verbatim ---
+VERDICT: CHANGE
+
+Round-3 resolutions (`C` = Codex findings; `A` = Claude findings):
+
+- **C1 / A1 — RESOLVED:** the ascending accepted-head walk rejects the stated stale-predecessor interleaving. Expiry introduces a separate problem below.
+- **C2 / A2 — NOT RESOLVED:** independent load obligations fix new-load tracking, but the legacy fallback still loses unfinished loads.
+- **C3 — NOT RESOLVED:** authoritative re-opens and cursor handling improve recovery; name/count observations still cannot establish carry identity after death.
+- **C4 — NOT RESOLVED:** town boundaries, adjacency and joint access are specified; partial-annex bootstrap and reservation expiry remain incomplete.
+- **C5 — RESOLVED:** per-name slot counts and the runtime/offline parity gate supply the missing allocation inputs.
+- **C6 — NOT RESOLVED:** durable verified transfers replace truncated rows, but their schema still lacks an explicit link to pre-transfer observations.
+- **C7 — RESOLVED:** indexsearch is now included in §9/O9.
+- **A3 — RESOLVED:** `townMove` explicitly bypasses `townDepositPlan`; re-opening replaces predicted-window confirmation.
+- **A4 — RESOLVED:** counts greater than n become unresolved instead of banking the bot’s additional stock.
+- **A5 — RESOLVED:** founding crafts containers/stations, uses the only table, and adds FOUND-BARE. Partial annexes remain a separate gap.
+- **A6 — RESOLVED:** 51/80 is stated and eligible visits become a reported denominator; projected exposure remains an assumption.
+- **A7 — RESOLVED:** v1 explicitly has seven chests/189 slots and no barrel crafting.
+- **A8 — RESOLVED:** the third-container budget and skip condition are explicit; guaranteed bag relief remains overstated.
+- **A9 — RESOLVED:** READY cells share s+1.
+
+Numbered NEW findings, including remaining defects in replacement mechanisms:
+
+1. **P1 — §4.1: acceptance must not change when reservations expire.** The acceptance walk preserves “live reserved” cells without specifying a fixed evaluation time. Suppose G2 reserves a cell; G3 drops it and is rejected; G4 builds on G2 and records placement. After expiry, replay can accept G3, then reject G4 because its predecessor is G2. An already accepted placement disappears from the head. **Fix:** make historical acceptance deterministic using immutable transition evidence; expiration must be an explicit accepted transition, not a reader-clock-dependent validity test. Test replay before/after expiry with the same files and require identical accepted history.
+
+2. **P1 — §7.3: replacement inventory can still be mistaken for the carry.** Withdraw n iron, die before returning, then collect n unrelated iron. With the source empty and destination empty, the reconciliation table calls this “carried” and deposits the bot’s replacement iron. Pre-state and server re-opens establish current contents, not uninterrupted ownership. **Fix:** persist lifecycle/connection identity and invalidate automatic recovery after death or untracked inventory discontinuity; retain such notes as unresolved. Require authoritative bag debit as well as destination credit, and test death followed by same-name, same-count pickups. The existing `verifyTown` checks destination name/count; it does not establish transaction identity.
+
+3. **P2 — §§7.5, 8 W2, 9/O6: legacy recovery still silently expires.** `furnacelease.mjs` retains only four generations and deliberately allows unleased milestone sessions when storage fails. Therefore “any pre-rollout non-drain lease” cannot enumerate all outstanding legacy loads. Subsequent sessions can also prune that evidence during the seven-day window; unresolved loads lose eligibility at day seven regardless. **Fix:** retain conservative legacy scanning until authoritative empty observations, or migrate a complete candidate census into durable obligations. Clear obligations under the furnace lease with generation checks; define write-failure behavior. Gate recovery coverage and retained output, not merely drain attempts and reduced bot-hours.
+
+4. **P2 — §§4.5, 5, 7.1: partial annexes can prevent their own bootstrap.** Taking up to four store cells before two work cells permits a 1–4-cell annex with no table site. Empty-bag founding then requires a workshop table to craft its first chest, but `found_work` cannot place that table. F3’s full-container remedy does not address this state. **Fix:** allocate bootstrap roles jointly—table before storage—or define an executable temporary-table/re-site fallback. FOUND-NOFIT must cover each 1–5-cell case with empty bags.
+
+5. **P2 — §§4.2, 9: the primary measurement remains ambiguous.** Transfer records name bot/time/container/slot/item/count but no pre-open observation ID or plan version. The verification re-open already includes the deposited item; joining against it makes “already-held” trivially true. Concurrent opens make nearest-timestamp joins unreliable. **Fix:** persist operation ID, pre-observation ID, verification ID and applicable plan generation; classify control homes from contemporaneous pre-transfer state. Require exposure for home, holder, overflow and fallback separately.
+
+6. **P3 — §§7.2, 8 S6/T6: remove unconditional success claims.** A third container may be skipped, and the source’s former slot may have filled. “The bag frees” and “always a target” contradict the bounded visit and protected-carry rules. **Fix:** state conditional relief and carry retention, and align the dead-end table with §7.3.
+
+No files were edited.
+
+--- Claude round 4, condensed, every finding kept ---
+VERDICT: CHANGE. Round-3: 1 RESOLVED; 2 PARTLY; 3-9 RESOLVED.
+1 P2 4.1: acceptance depends on the reader's clock (reservation liveness) -> heads can change after the fact. Fix: judge
+  liveness on the file's own `at`, or leave a reservation only by explicit expiry/release; test reject-expire-re-walk.
+2 P2 7.5: no session re-opens a furnace after drainFurnace (closing read is the client window, skills.mjs:10949-10953);
+  obligations would never clear; touching milestone smelt is tier 3. Fix: bounded re-open + tier 3 or own canary; Paper.
+3 P2 7.5: legacy fallback (any pre-rollout non-drain lease) matches most of 807 furnaces; the +180 read cannot move.
+  Fix: limit fallback to never-released leases, or start the read after the window.
+4 P3 9: milestone obligations far from town never get a drain attempt; scope the gate/store to 48.
+5 P3 7.1: chest planks not bounded by keeps (PLANKS_MEANS, wood stockpile).
+6 P3 4.1: walk cost from gen 1 with nothing pruned; add a sha-verified head checkpoint.
+
+--- Disposition (r5, commit b4b90795) ---
+Codex 1 / Claude 1 (clock-dependent acceptance): ACCEPTED. A reservation leaves the plan only by an explicit `released`
+  (same bot+visit) or `expired` transition, the latter allowed only when the writing file's own `at` > the reservation's
+  `until`. Acceptance reads file contents only; a unit test re-walks after expiry and must get the same head.
+Codex 2 (carry identity after death): ACCEPTED. Intent records session id and death count; automatic recovery only in the
+  same session with no death since intent, else `unresolved`; `deposited` requires debit (server bag 0) AND credit
+  (destination slot n). Paper: death after `withdrawn` then same-name same-count pickups must be unresolved.
+Codex 3 / Claude 2, 3, 4 (drain): ACCEPTED by DEFERRING the drain scope to its own design. Three rounds showed it needs a
+  re-open in milestone smelt (tier 3), a migrated legacy set until each furnace is read empty, and lease-independent
+  records; that is out of proportion for a town-layout plan. The measurement stays as a finding; furnace_drain keeps
+  today's scope; workshop-01 only adds preferred furnaces. (Follow-up suggested.)
+Codex 4 (partial annex bootstrap): ACCEPTED. Roles allocated table-first; an annex needs >= 2 READY cells; 1 cell gives a
+  table and `store: unplaced`; found_store can craft its chest at ANY table in reach, including the one craft places and
+  takes back today; FOUND-NOFIT with 1, 2, 3 and 5 cells and empty bags.
+Codex 5 (measurement ids): ACCEPTED. Transfer records carry operation id, pre-state observation id, verifying re-open id
+  and plan generation; already-held judged on the pre-state; joins by id; exposure per branch with >= 20 on the home
+  branch.
+Codex 6 (unconditional claims): ACCEPTED. S6 and T6 and 7.2 now state the conditions.
+Claude 5 (planks above keeps): ACCEPTED. Claude 6 (walk cost): ACCEPTED, `townplan-<home>.head.json` checkpoint.
