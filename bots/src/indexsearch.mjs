@@ -65,7 +65,9 @@ export function indexSearchCounts (entries = {}, keys = [], needs = [], now = Da
     if (!spec) continue
     for (const k of (Array.isArray(keys) ? keys : [])) {
       const h = indexHolding(entries?.[k], spec.match, now)
-      if (h && h.n >= spec.min) out[need][k] = { n: h.n, at: h.at, src: 'ix' }
+      // an observation stamped in the FUTURE (another host's clock ahead) counts as of now, so it can never outrank a later
+      // look on this host's clock (Claude code r1 P3)
+      if (h && h.n >= spec.min) out[need][k] = { n: h.n, at: Math.min(h.at, now), src: 'ix' }
     }
   }
   return out

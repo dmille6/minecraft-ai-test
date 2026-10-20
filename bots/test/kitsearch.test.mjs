@@ -287,7 +287,10 @@ const stickless = async (S, KK = K) => {
   }
   assert.deepEqual(runs, ['kit_search_more', 'success'], `runs ${runs}`)
   assert.equal(count(w.bag, 'iron_axe'), 1); assert.equal(ironIn(w, LAST), 16)
-  assert.equal(new Set(w.spy.opened).size, w.spy.opened.length, 'nothing opened twice')
+  // x indexsearch-01 KITSTICKS: the stickless bag's pre-draw takes its sticks from LAST, then the iron search takes the iron
+  // there -- LAST is opened twice in that run (once per need); every other container once
+  const twice = w.spy.opened.filter((k, i, a) => a.indexOf(k) !== i)
+  assert.ok(twice.every(k => k === kOf(LAST)), `only the sticks-and-iron chest twice: ${twice}`)
 }
 await t('THE STICKLESS BOT (Codex/Claude r1 P1): 20 chests, iron and sticks only in the farthest, no sticks or wood in the bag -- run 1 `more` (12 misses), run 2 makes the kit there', async () => {
   await stickless(S0)
@@ -298,10 +301,11 @@ await t('NO STICKS: every holder has the iron but no sticks, the bag no wood -> 
   const w = farTown({ bag: [T('iron_pickaxe', 200), stack('crafting_table', 1)], rest: [stack('iron_ingot', 20)], far: [stack('iron_ingot', 20)] })
   const r1 = await kit(S0, w)
   assert.equal(r1.failClass, 'kit_no_sticks', r1.detail); assert.match(r1.detail, /carry 1 log/)
-  assert.equal(w.spy.opened.length, 10)
+  // x indexsearch-01 KITSTICKS: the stickless, woodless bag first looks for sticks (4 containers), then the iron search's 10
+  assert.equal(w.spy.opened.length, 14)
   later(TOOLKIT_COOLDOWN_MS + TOOLKIT_BACKOFF_MS)
   const r2 = await kit(S0, w)
-  assert.equal(r2.failClass, 'kit_no_sticks', r2.detail); assert.equal(w.spy.opened.length, 10, 'held back: nothing opened')
+  assert.equal(r2.failClass, 'kit_no_sticks', r2.detail); assert.equal(w.spy.opened.length, 14, 'held back: nothing opened (every container now counted with no sticks: no stick candidate either)')
   assert.equal(S0.townKitIronMiss(w.bot), true, 'the gate sees the hold-back: no order that opens nothing (Claude r2 P3-2)')
   w.bag.push({ ...stack('oak_log', 1), slot: 30 })
   assert.equal(S0.townKitIronMiss(w.bot), false, 'with a log the bag makes the sticks: the holders are candidates again')
