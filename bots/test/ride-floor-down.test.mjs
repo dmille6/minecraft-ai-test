@@ -470,5 +470,44 @@ await ta('H4 MUTANT: without the dig-budget check the floor dig starts anyway', 
   })
 })
 
+/** A pillar the held pickaxe (type 100) can harvest, so the floor dig EQUIPS first; the equip spends `equipMs` of a
+ *  virtual clock (Codex code r3 P2: the budget check ran before the equip, whose own wait then spent the margin). */
+async function slowEquip (fn, equipMs) {
+  const realNow = Date.now
+  let offset = 0
+  Date.now = () => realNow() + offset
+  try {
+    const mineable = (x, y, z) => (Math.floor(x) === 0 && Math.floor(z) === 0 && y >= 60 && y <= 220
+      ? { name: 'stone', boundingBox: 'block', canHarvest: t => t === 100, digTime: () => 1_000 } : AIR)
+    const { bot, calls } = makeWorld({ pos: new V(0.5, 221, 0.5), blocks: mineable, inventory: ['stone_pickaxe', 'oak_log'] })
+    const realEquip = bot.equip
+    bot.equip = async it => { offset += equipMs; return realEquip(it) }
+    const r = await fn(bot, Date.now() + 60_000)
+    return { r, calls }
+  } finally { Date.now = realNow }
+}
+await ta('H4: a floor dig whose margin the EQUIP itself spent is not started (checked after the equip)', async () => {
+  const { r, calls } = await slowEquip((bot, until) => rideFloorDown(bot, { maxSteps: 1, until }), 59_000)
+  assert.ok(calls.equip.includes('stone_pickaxe'), `precondition: the dig equips first (${calls.equip})`)
+  assert.strictEqual(calls.dig.length, 0, 'the dig started after the equip had spent the budget')
+  assert.match(r.stopped ?? '', /budget cannot cover the floor dig/)
+})
+await ta('H4: control -- a quick equip leaves the margin and the dig runs', async () => {
+  const { calls } = await slowEquip((bot, until) => rideFloorDown(bot, { maxSteps: 1, until }), 0)
+  assert.strictEqual(calls.dig.length, 1)
+})
+await ta('H4 MUTANT: the r3 order (budget check, THEN the equip) lets the dig start on a spent margin', async () => {
+  const src = readFileSync(SKILLS_PATH, 'utf8')
+  const a = src.indexOf("    if (tool) await bot.equip(tool, 'hand').catch(() => {})\n    // ...nor a floor dig it cannot finish")
+  const b = src.indexOf("cannot cover the floor dig'; break }\n", a)
+  assert.ok(a > 0 && b > a, 'ANCHOR MISSING')
+  const block = src.slice(a, b + "cannot cover the floor dig'; break }\n".length)
+  const equipLine = "    if (tool) await bot.equip(tool, 'hand').catch(() => {})\n"
+  await withMutant(block, block.slice(equipLine.length) + equipLine, async mod => {
+    const { calls } = await slowEquip((bot, until) => mod.rideFloorDown(bot, { maxSteps: 1, until }), 59_000)
+    assert.strictEqual(calls.dig.length, 1, 'the mutant digs on the margin the equip spent')
+  })
+})
+
 console.log(`\n  ${pass} passed, ${fail} failed`)
 process.exit(fail ? 1 : 0)
