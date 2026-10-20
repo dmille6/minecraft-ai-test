@@ -1,0 +1,185 @@
+{
+ "run_id": "ironpick-01",
+ "sha": "f06f27a224b085cde6ed0d4c4af8e749011d8722",
+ "registered_at": "2026-10-20T06:00:00Z",
+ "tier": 2,
+ "ladder_change": false,
+ "promotion": "fleet-wide",
+ "notes": "[ironpick-01 on toolkit-03 straight on adbec4f4 (tk3-on-adbec4f @ 4dab47e5 = canary code 28dc1158 + records): branch ironpick-on-4dab47e, the 34d3e5e9 variant's five commits cherry-picked with NO conflict (change lines byte-identical). USE ONLY if toolkit-03's adbec4f4 variant was KEPT and promoted (the fleet is 28dc1158/4dab47e5; cobblekeep-01 NOT kept). OWNER 2026-10-20 ~03:20Z 'add pickaxe to toolkit'. MEASURED 10-20: 2,324 iron ingots in town chests (80-240 per town, read-only RCON census 00:15Z; every town 2-8 containers holding >= 11) while 25 of 80 bots held a usable iron pickaxe; the kit made the axe and shovel only, withdraw_pick fetches stone/wooden copies only. THE CHANGE: the toolkit also makes an iron pickaxe (3 ingots + 2 sticks, crafted first) when the bag has no iron pickaxe above 40 uses (withdrawpick PREFER_USES) and no usable diamond+; withdraw_pick steps aside while the kit's dry-run order would make it now; the room plan counts the crafted tools' slots, and a drawn-down town gives a prefix (the pickaxe alone) -- both only for draws that make the pickaxe (an axe-and-shovel draw is the base exactly). TOOLKIT_IRONPICK=off is the one-setting rollback. TIER 2 small fix. PAPER sandbox3 10-20 06:58-07:07Z (server read-back): ironpick CANDIDATE_PASS (fresh iron pickaxe damage 0 + the worn copy held, chest 20 -> 17, no withdraw_pick, nothing on the ground), ironpickkeep PASS (6 ingots: no craft, chest keeps 6), ironpickfull PASS (36/36 bag: town deposit banked 3 stacks, pickaxe + shovel made, chest 20 -> 16); BASE 34d3e5e9 BASE_SHAPE (no pickaxe in 300 s, chest 20, two withdraw_pick trips). Reviews: Codex r1-r3 CHANGES -> r4 APPROVE (93cb0e57); Claude r1 APPROVE WITH CHANGES -> r2-r4 APPROVE; r4.1 2d410985 is test-only (docs/reports/ironpick-01-review-2026-10-20.md). npm test 271/271 (34d3e5e9 variant), 270/270 (4dab47e5 variant).]",
+ "lint": "eslint no-undef on this tip: exactly one hit, bots/src/reflex.mjs:2384 'withinBody' -- the pre-existing guarded line.",
+ "licence": {
+  "class": "kind",
+  "kind": "_toolkit_ironpick_mode",
+  "min_rows": 1,
+  "note": "Only an ironpick-01 build writes _toolkit_ironpick_mode (phase=mode on=1 mode=on toolkit=1 trip_uses=40 kit=iron_pickaxe+iron_axe+iron_shovel max_ingots=7 ...), once per spawn in index.mjs. Proves the build is live, not the effect."
+ },
+ "reads": [
+  "ironpickread",
+  "toolkitread",
+  "immobiledid"
+ ],
+ "read_minutes": [
+  180,
+  360
+ ],
+ "deadline_min": 1080,
+ "change_rows": [
+  "kit_ironpick"
+ ],
+ "linkage_extra": [],
+ "draw_exposure": {
+  "hours": 24,
+  "require": [
+   {
+    "name": "pickaxe need at town (withdraw_pick rows)",
+    "kind": "withdraw_pick",
+    "detail_contains": "need=",
+    "min": 3
+   }
+  ],
+  "note": "drawexposure.py 10-20 05:05Z (24 h, 1,447,597 rows, 80 bots, 199 kinds): `_withdraw_pick` rows with need= per pool -- board-a 33, board-b 35, board-c 11, board-d 4, hive-a 33, hive-b 24, hive-c 31, hive-d 29, placebo-a 16, placebo-b 30, placebo-d 26: all 11 drawable pools eligible (isolated-* and placebo-c are excluded by the drawer). It is a proxy for the target population (bots at town without a trip pickaxe); the read's ARMED count (no iron pickaxe above 40) is wider: 13/20 and 53/60 in the 10-20 dry run. No draw_require_pools key."
+ },
+ "exposure": {
+  "read": "ironpickread",
+  "field": "exposure_ready",
+  "min": 1,
+  "note": ">= 3 canary iron pickaxes made by the kit (`_kit_ironpick` made=1) in the read window AND pre-window ARMED bots (no iron pickaxe above 40, no usable diamond+, from bot.tools) on both arms >= 1. Dry run 10-20 (CANARY_DRYRUN board-a,hive-a,hive-b,placebo-a, 6 h on the base): 13 of 20 canary-arm bots and 53 of 60 control bots armed; 0 kit rows (base). A 20-bot draw with ~14 armed bots visiting town is expected to make 3 by +180."
+ },
+ "own_lines": [
+  {
+   "read": "ironpickread",
+   "field": "p1_made_unseen",
+   "op": "<=",
+   "value": 0,
+   "on_fail": "REVERT",
+   "evidence": "defect",
+   "note": "P1: a made=1 kit_ironpick row whose best= after is not a covering pickaxe (the craft claimed, the bag does not show it)."
+  },
+  {
+   "read": "ironpickread",
+   "field": "p2_drawn_unserved",
+   "op": "<=",
+   "value": 0,
+   "on_fail": "REVERT",
+   "evidence": "defect",
+   "note": "P2: a run drew the pickaxe's iron (drew >= 3, made=0, not aborted, no death in the run), a LATER kit run of the bot ran (the credited retry), and no later row of the bot holds a covering pickaxe. Without a later kit run it is pending (reported)."
+  },
+  {
+   "read": "ironpickread",
+   "field": "p3_fresh_banked",
+   "op": "<=",
+   "value": 0,
+   "on_fail": "REVERT",
+   "evidence": "defect",
+   "note": "P3: a town_deposit/deposit row banking an iron pickaxe above 40 uses within 60 min of that bot's made=1 row (the kit's fresh copy banked straight back)."
+  },
+  {
+   "read": "ironpickread",
+   "field": "p4_pick_welled",
+   "op": "<=",
+   "value": 0,
+   "on_fail": "REVERT",
+   "evidence": "defect",
+   "note": "P4: a canary well_dispose row naming a thrown pickaxe (args.items first, then the detail)."
+  },
+  {
+   "read": "ironpickread",
+   "field": "p5_keep_breached",
+   "op": "<=",
+   "value": 0,
+   "on_fail": "REVERT",
+   "evidence": "defect",
+   "note": "P5: a kit_ironpick row that drew iron with iron_seen - drew < keep (the container drawn from kept less than TOWN_IRON_KEEP 4)."
+  },
+  {
+   "read": "ironpickread",
+   "field": "p6_needless_craft",
+   "op": "<=",
+   "value": 0,
+   "on_fail": "REVERT",
+   "evidence": "defect",
+   "note": "P6: a made=1 row whose best= BEFORE already covered (an iron pickaxe above 40 or a usable diamond+) -- a craft the rule forbids. Craft frequency is reported only."
+  },
+  {
+   "read": "ironpickread",
+   "field": "rows_control",
+   "op": "<=",
+   "value": 0,
+   "on_fail": "REVERT",
+   "note": "ARMS: a control _kit_ironpick or _toolkit_ironpick_mode row after the deploy. BLOCKS KEEP."
+  },
+  {
+   "read": "ironpickread",
+   "field": "kit_runs_canary",
+   "op": ">=",
+   "value": 1,
+   "on_fail": "REVERT",
+   "note": "LIVENESS (mechanism): >= 1 canary kit_ironpick row. BLOCKS KEEP (INCONCLUSIVE)."
+  },
+  {
+   "read": "ironpickread",
+   "field": "instrument_control",
+   "op": ">=",
+   "value": 1,
+   "on_fail": "REVERT",
+   "note": "POSITIVE CONTROL: control bots ARMED at their last row >= 1 and control rows carrying bot.tools >= 1 (dry run: 53 armed, 173,548 rows). BLOCKS KEEP."
+  },
+  {
+   "read": "toolkitread",
+   "field": "k1_no_pick",
+   "op": "<=",
+   "value": 0,
+   "on_fail": "REVERT",
+   "evidence": "defect",
+   "note": "toolkit-01's K1 on the canary arm (a kit run that ended with no usable pickaxe). toolkitread's rows_control line is NOT used: the toolkit is fleet-wide."
+  },
+  {
+   "read": "toolkitread",
+   "field": "k2_usable_lost",
+   "op": "<=",
+   "value": 0,
+   "on_fail": "REVERT",
+   "evidence": "defect",
+   "note": "K2 on the canary arm: a clearly usable tool missing after a kit run (the worn iron copy must stay)."
+  },
+  {
+   "read": "toolkitread",
+   "field": "k3_drawn_no_tool",
+   "op": "<=",
+   "value": 0,
+   "on_fail": "REVERT",
+   "evidence": "defect",
+   "note": "K3 on the canary arm."
+  },
+  {
+   "read": "toolkitread",
+   "field": "k4_unverified_craft",
+   "op": "<=",
+   "value": 0,
+   "on_fail": "REVERT",
+   "evidence": "defect",
+   "note": "K4 on the canary arm (a claimed iron_pickaxe craft the after= tags do not show)."
+  }
+ ],
+ "primary": {
+  "read": "ironpickread",
+  "field": "holder_share_did",
+  "note": "REPORTED: bots whose last row holds a covering pickaxe (iron > 40 or a usable diamond+) per bot seen, DiD (should RISE); kit pickaxes made per canary bot-h; double trips (a withdraw_pick order taking a pickaxe within 15 min of a made=1 row; legitimate when the kit was on cooldown); P2 pending; craft frequency."
+ },
+ "harm": {
+  "note": "Unchanged: the two-death floor (OWNER 2026-09-11) and gather_ratio < 0.43 of control (immobiledid). The kit run is the toolkit-03 town search (inside town, <= 12 container visits) drawing up to 7 ingots from ONE container that keeps 4. change_rows: `kit_ironpick` (one per kit run whose needs include the pickaxe; timestamp = the run's end, duration = the run); the baseline cannot write it."
+ },
+ "teardown": {
+  "note": "THREE STEPS: drop-ins, clear canary_pool, restart the pool's bots 12 s apart; then confirm the live versions. The change edits nothing in the world (it takes town iron the toolkit already draws from). Rollback without a canary: TOOLKIT_IRONPICK=off."
+ },
+ "amendments": [],
+ "extension": {
+  "until_exposure": true,
+  "extra_reads": [
+   720
+  ],
+  "final_on_zero_exposure": "INCONCLUSIVE",
+  "note": "Tier 2: KEEP at +180 when exposed (exactly 4 pools, >= 48 bot-h, no WATCH/HOLD, kind licence, death rate <= control, clean baseline); extend only for exposure."
+ },
+ "requires": "toolkit-03 KEPT and promoted on its adbec4f4 variant (the fleet must be 28dc1158 / 4dab47e5)."
+}
