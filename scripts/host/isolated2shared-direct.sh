@@ -23,12 +23,12 @@
 set -u
 H=/home/mike; J=$H/canary-journal.jsonl; RUN=isolated2shared-01
 D=${I2S_DIR:-$H/isolated2shared}; TOOL=$D/isolated2shared.mjs; HOLD="python3 $D/isolated2sharedhold.py"
-MODE=apply; QUIET=""; WHY=""; ACCEPT=""
+MODE=apply; QUIET=""; WHY=""; ACCEPT=""; ACCEPT_ROW=""
 while [ $# -gt 0 ]; do case "$1" in
   --rollback) MODE=rollback; shift;; --release) MODE=release; shift;;
   --accept-contamination) ACCEPT=${2:-}; shift 2;;
   --quiet) QUIET=${2:-}; shift 2;; --why) WHY=${2:-}; shift 2;; *) break;; esac; done
-[ $# -ge 1 ] || { echo "usage: $0 [--rollback|--release] [--quiet <min> --why <text>] <owner> [<pool>...]"; exit 2; }
+[ $# -ge 1 ] || { echo "usage: $0 [--rollback|--release] [--quiet <min> --why <text> [--accept-contamination <who decided>]] <owner> [<pool>...]"; exit 2; }
 OWNER=$1; shift; POOLS="$*"
 [ "$MODE" = release ] || [ -n "$POOLS" ] || { echo "name at least one pool"; exit 2; }
 for p in $POOLS; do case "$p" in isolated-a|isolated-b|isolated-c|isolated-d) ;; *) echo "not an isolated pool: $p"; exit 2;; esac; done
@@ -64,6 +64,8 @@ if [ $crc -eq 0 ]; then
   # tripwire + rollback window and the tier-2 +180 read's PRE)
   [ -z "$QUIET" ] || [ "$QUIET" -ge "$CQ" ] || [ -n "$ACCEPT" ] || { echo "REFUSED: --quiet $QUIET is below the computed $CQ (pass --accept-contamination \"<who decided, why>\" to take the shorter hold)"; exit 2; }
   [ -z "$ACCEPT" ] || WHY="$WHY; ACCEPTED CONTAMINATION below computed $CQ: $ACCEPT"
+  # a DEDICATED row (Claude r6 P3-2), so the reader of a later +360/+720 read finds the decision without remembering it
+  [ -z "$ACCEPT" ] || [ "$QUIET" -ge "$CQ" ] || ACCEPT_ROW="quiet $QUIET below computed $CQ, accepted by: $ACCEPT; reads beyond +$((QUIET - 60)) of the next canaries may hold the switch in their PRE"
   QUIET=${QUIET:-$CQ}
 elif [ -z "$QUIET" ] && [ "$MODE" = rollback ] && RQ=$(python3 -c "import json,sys; print(int(json.load(open(sys.argv[1]))['quiet_min']))" "$D/HOLD.json" 2>/dev/null); then
   QUIET=$RQ; WHY="computation failed ($CQ): the recorded quiet period"     # a rollback is never a dead end (Claude r3 P3-6); a release is (Codex r4 P2-1)
@@ -74,11 +76,12 @@ fi
 
 if [ "$MODE" = release ]; then
   out=$($HOLD release "$OWNER" "$QUIET" 2>&1); rc=$?; echo "$out"
-  [ $rc -eq 0 ] && journal hold-released "by $OWNER: $out"
+  [ $rc -eq 0 ] && journal hold-released "by $OWNER (quiet $QUIET; ${WHY:-computed}): $out"
   exit $rc
 fi
 
 recycle_clear || exit 2
+[ -z "$ACCEPT_ROW" ] || journal contamination-accepted "$ACCEPT_ROW; pools $POOLS; mode $MODE"
 # 1. THE HOLD FIRST (claimed, or reused and extended), then the loop lock
 out=$($HOLD claim "$OWNER" "$QUIET" 2>&1); rc=$?; echo "$out"
 [ $rc -eq 0 ] || { echo "REFUSED: no hold"; exit 2; }
@@ -103,7 +106,9 @@ for p in $POOLS; do
   if [ $rc -eq 2 ]; then
     if uniform "$p"; then
       echo "REFUSED: $MODE $p wrote nothing; the pool is uniform; restarting its units"; start_staggered "$p"
-      journal "$MODE-refused" "$p: $MODE refused (nothing written); units restarted" "$p"
+      # SAFE only once every unit is verified active (Codex r6 P2-1): a failed restart is UNSAFE
+      if all_active "$p"; then journal "$MODE-refused" "$p: $MODE refused (nothing written); units restarted" "$p"
+      else journal "$MODE-blocked" "$p: $MODE refused; the restart did not bring every unit up" "$p"; fi
     else
       echo "REFUSED: $MODE $p wrote nothing, but the pool is NOT uniform (an earlier interrupted run): units LEFT STOPPED"
       journal "$MODE-blocked" "$p: $MODE refused; pool not uniform or mid-rollback; units LEFT STOPPED" "$p"

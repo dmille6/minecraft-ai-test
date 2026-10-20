@@ -3,7 +3,7 @@
 _2026-10-20, written by an agent session for the coordinator. OWNER APPROVED about 12:45Z ("i agree do it all, get it working").
 Fleet at writing: `9e7d9980` (cobblekeep-01, promoted 11:23Z) on 70 bots. bagbudget-01 `31416ee5` has been live on board-d and
 hive-a since 11:35Z. Branch: `isolated2shared-on-9e7d998`, cut from the fleet sha. It changes **no bot code**: the changes are a
-host tool, a wrapper, a tripwire, one test file and this document. Revision r6 folds in the r1-r5 reviews and the coordinator's hold question (5.2a); section 10 lists each finding and how it was handled._
+host tool, a wrapper, a tripwire, one test file and this document. Revision r7 folds in the r1-r6 reviews and the coordinator's hold question (5.2a); section 10 lists each finding and how it was handled._
 
 ## 0. Summary
 
@@ -430,14 +430,34 @@ queued.
 3. **The later reads (+360/+720) of the same canary.** These matter only if +180 did not KEEP. With a 240-min hold, the step
    sits in the first third (+360) or two-thirds (+720) of their PRE.
 
-**Minimum design: 240 min after each phase, not zero.** This is pilot conversion in a canary gap, hold 240 (it covers 1 and 2),
-then the rest after the pilot's OK, hold 240. That is **about 7 h** of empty slot in total, instead of about 16 h (780-min
-rule while toolkit-03 is queued). The residual is a known, bounded contamination of reads after +180, and only for a canary
-that did not KEEP at +180.
+**Minimum design: 240 min after each phase, not zero.**
+
+1. Convert the pilot in a canary gap.
+2. Read its tripwire at +180.
+3. Convert the rest at pilot +180, inside the same hold.
+4. Hold 240 min after that last transition.
+
+That is **about 180 + 240 = 7 h** of empty slot, instead of about 16 h under the 780-min rule while toolkit-03 is queued (or
+8 h if the rest waits a full 240 after the pilot).
+
+The residual is contamination of the reads after +180 of a canary that did not KEEP at +180. It is known, but not bounded:
+the step size is unmeasured before the conversion. It is owner-accepted, and the wrapper journals a dedicated
+`contamination-accepted` row naming who decided.
+
+Reordering the queue does not make it cheaper. QUIET is the maximum over every ready entry, and a later +720 read would still
+straddle the switch.
+
+The 240 floor is the 180-min tripwire plus 60 min of transient. Each phase can BREACH on its own, so each needs it. Nothing
+below 240 is defensible, and zero is a dead end: apply and rollback refuse while a canary is declared, so a BREACH could not
+be undone.
 
 The wrapper supports this as an explicit, journalled choice:
-`--quiet 240 --why "<text>" --accept-contamination "<who decided>"`. Without that flag, `--quiet` can only raise the computed
-value. The 240-min floor cannot be lowered: it is the rollback window.
+`--quiet 240 --why "<text>" --accept-contamination "<who decided>"`.
+
+* Pass the SAME three options to **every** phase and to `--release`. A plain `--release` recomputes the quiet period (780 now)
+  and keeps the hold for that long.
+* Without the flag, `--quiet` can only raise the computed value.
+* The 240-min floor cannot be lowered: it is the rollback window.
 
 **Zero hold (exclusion only) is not available** without the gate change above. If it were taken anyway, a pilot BREACH
 could not be rolled back during the next canary, and that canary's +180 KEEP would read the conversion as part of its
@@ -691,6 +711,11 @@ pools may drop its unused hold). **r5, Codex CHANGE / CHANGE:**
 |---|---|
 | P2-1 an unsafe refusal clears reconciliation | a refusal that leaves units stopped is journalled `*-blocked`, which is UNSAFE |
 | P2-2 reconciliation ignores the pool | rows carry a `pool` field; every pool's last row must be safe |
+
+**r6, Claude APPROVE / APPROVE** (P3s applied: wording, a dedicated `contamination-accepted` row, the usage line).
+**r6, Codex DESIGN APPROVE / CODE CHANGE:** P2-1, a uniform refusal whose restart failed was journalled SAFE. It is now
+`*-blocked` unless every unit is verified active. Its P3s are applied: release journals its quiet period and WHY, and the
+timing and the release invocation are clarified in 5.2a.
 
 **Coordinator question (10-20):** exclusion vs hold, in 5.2a. The new `--accept-contamination` lowers the hold to the
 240-min floor, as a journalled decision.
