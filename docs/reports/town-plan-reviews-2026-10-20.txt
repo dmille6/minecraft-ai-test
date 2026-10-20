@@ -239,3 +239,96 @@ Claude N8 (bag left full): ACCEPTED. 3 containers per visit: 2 homes + the overf
 Claude N10 (O9): ACCEPTED. O9 now asks the owner to waive "kept builds only" for townplan-01, found-01, sortdeposit-01.
 Claude R1-1 (F1 "8 planks"): ACCEPTED, removed (carried chest/barrel only). Claude R1-8 caveats: added (END-position
   snapshot; success rows name no target).
+
+======================================================================================================================
+ROUND 3 (r3 doc, commit 196b554d) -- Codex CHANGE, Claude CHANGE
+======================================================================================================================
+--- Codex, verbatim ---
+VERDICT: CHANGE
+
+Per-finding resolution (`C` = Codex round-2 findings; `A` = Claude N1–N10):
+
+- **C1 — NOT RESOLVED:** tidy’s keep-swap error is removed, but reconciliation and cursor recovery remain incomplete.
+- **C2 — NOT RESOLVED:** READY cells remove the foundation dependency; annex allocation still lacks a complete, placeable fallback.
+- **C3 — NOT RESOLVED:** founding reservations exist, but active reservations are not protected against replanning.
+- **C4 — RESOLVED:** independent stick acquisition and the separate-home real-loop gate are explicit.
+- **C5 — NOT RESOLVED:** the replacement lease predicate still loses unfinished recovery obligations.
+- **C6 — NOT RESOLVED:** offline slot arithmetic is corrected; runtime index information and measurement attribution remain insufficient.
+- **C7 — RESOLVED:** single-tier storage separates labels from containers.
+- **A1 — NOT RESOLVED:** max+1 bypasses invalid files but admits stale branches.
+- **A2 — NOT RESOLVED:** bypassing keep rules is specified; safe interrupted transfer recovery is not.
+- **A3 — NOT RESOLVED:** drain leases can erase eligibility without emptying the furnace.
+- **A4 — RESOLVED:** exposure is acknowledged as slow; minor arithmetic correction: approximately 13 hours requires +780, beyond +720.
+- **A5 — RESOLVED:** separate section caps, alternate chest cells and F3 address the original cap issue; annex placement has a separate gap below.
+- **A6 — RESOLVED:** indexsearch supplies iron/coal ranking; toolkit-03 and independent sticks are prerequisites.
+- **A7 — NOT RESOLVED:** promotion, open-time capture and half-key mapping improve matters, but existing rows cannot reliably supply the proposed attribution.
+- **A8 — RESOLVED:** overflow/misplaced fallback addresses the artificial two-home limit. “The bag frees” remains conditional on available capacity and time.
+- **A9 — RESOLVED:** labels have distinct cells.
+- **A10 — RESOLVED:** O9 explicitly requests the waiver.
+
+Numbered NEW findings, including remaining defects in the replacements:
+
+1. **P1 — §4.1: max+1 is not compare-and-swap.** Writer A reads V; B publishes V+1; A observes the new maximum and publishes V+2 referencing V. V’s bytes have not changed, so `prevSha` matches. Both branches satisfy the stated validity rule; highest-valid selection discards B’s reservations, including placed cells absent from V. **Fix:** serialize publication or deterministically reject any generation whose predecessor is not the accepted head immediately before it. Test this exact interleaving, not merely two writers targeting one filename.
+
+2. **P1 — §§7.5, 8 W2, O6: recovery eligibility disappears before recovery succeeds.** `furnaceDrain` acquires a `what: drain` generation **before walking**, and releases it in `finally`, including unreachable, unopened and partially drained outcomes (`skills.mjs:11727–11775`). Therefore “released means opened and emptied” is false; even a killed drain’s newest generation excludes it. `drainscope.py` also applies present-day lease state to historical events, not state at each decision. **Fix:** persist load obligations independently until server-confirmed empty; retain fallback for missing records. Measure historical eligibility with contemporaneous evidence and test failed/restarted drains.
+
+3. **P1 — §7.3: observations do not uniquely identify the carry.** Intent records no destination baseline/slot, so “a new stack matching n” cannot be established. After death and later pickups, same-name bag contents need not be the carry. Two-click interruption also leaves a cursor state absent from reconciliation. The cited `verifyTown` explicitly warns that client window updates are predictions, contradicting withdrawal’s “server-confirmed window data.” **Fix:** persist source/destination pre-state, transfer identity and cursor state; use authoritative observations and existing settle/hold machinery. Reserve return capacity or retain the protected carry when all destinations fill; the source’s former space is not guaranteed.
+
+4. **P2 — §§4.5–4.6, 5: annex and reservation composition remain incomplete.** Chebyshev 7–15 includes cells outside the storage circle. First-four selection can choose adjacent chest cells or consume another placement’s standing route; handling 1–5 READY cells is undefined. Meanwhile, only `placed` cells are immutable, so another planner can move a live `reserved` cell while its found lease remains valid. **Fix:** jointly allocate compatible cells satisfying `inTown`, adjacency and post-placement access; define partial annexes. Preserve live reservations and fence placement against the current accepted plan.
+
+5. **P2 — §§4.2, 6.1, 9: runtime allocation cannot reproduce the preview.** Per-name item totals plus total used slots do not reveal slots occupied **per group**, which the corrected `homes.py` now requires. **Fix:** index per-name stack counts or server slot records and demonstrate runtime/offline allocation parity.
+
+6. **P2 — §§4.2, 7.2, 9: sorting attribution is still under-specified.** `townDepositDetail` serializes aggregate banked items and truncatable container results, not item-to-container transfers. Opens alone cannot attribute concurrent changes or recover stack counts from name totals. **Fix:** promote durable per-container verified transfer records, linked to pre-open observations, before measuring either arm’s designated-home share; expose home, holder and fallback branches separately.
+
+7. **P2 — §9/O9: showcase prerequisites omit indexsearch.** K1/K2 require indexsearch, yet O9 requires only toolkit-03 and townindex KEPT and waives three other pieces. **Fix:** require indexsearch KEPT/promoted, including `kitsticks` if needed, or explicitly include it in the requested waiver and its validation gate.
+
+--- Claude, condensed, every finding kept ---
+VERDICT: CHANGE
+Round-2 resolution: N1 RESOLVED for the freeze (new lost-update finding 1); N2 PARTLY (finding 3); N3 NOT RESOLVED
+(finding 2); N4 RESOLVED; N5 RESOLVED (P3 on barrels, finding 7); N6 RESOLVED; N7 RESOLVED; N8 RESOLVED (P3 on time budget,
+finding 8); N9 RESOLVED; N10 RESOLVED.
+1 P1 4.1: lost update: A links N+1 (prev N), B links max+1 = N+2 also prev N with a correct prevSha; N+2 is "valid" and
+  highest, dropping A's claim. Fix: K valid only if prev is the current plan computed over files below K; scene for it.
+2 P2 7.5: furnaceDrain takes its 'drain' lease before the walk (skills.mjs:11727) and releases it in finally on every exit
+  incl. unreachable; the died mark disappears on the first failed drain; "0 died outside" cannot see superseded ones.
+  Fix: separate died-smelt record cleared only on a drain's empty closing read; Paper: died smelt, unreachable drain,
+  still in scope.
+3 P2 7.3: (a) bankInto builds steps from townDepositPlan (keeps incl. IRON_LADDER), so it cannot move iron; (b) the open
+  window is a client prediction, not server confirmation. Fix: a new click primitive factored out of bankInto's loop;
+  confirm `withdrawn` with serverRecount / re-open.
+4 P2 7.3 tidy_return: a slot that grew from pickups moved whole banks the bot's own ladder iron. Fix: return only when the
+  count is <= n, else unresolved (or split under Paper).
+5 P2 5 F1/F3: fresh showcase bots carry no chests or spare stations (no starter kit; /give forbidden; craft retakes its
+  table). Fix: found_store crafts a chest; found_work places the bot's only table and keeps using it; FOUND-FLAT also
+  empty-bagged.
+6 P3 7.3: 51 of 80 bags hold iron ingots: state the denominator and the expected exposure for +720.
+7 P3 7.4/10: 0 barrels carried; the storehouse is 7 chests / 189 slots until something crafts barrels.
+8 P3 7.2: three containers can exceed TD_BUDGET_MS (10 s walk + 8 s open + 8 s re-open each). Say which bound gives.
+9 P3 4.5: READY cells at y = s + 1, else mixed heights storehouse-01 cannot enclose.
+
+--- Disposition (r4, commit e373af01) ---
+Codex 1 / Claude 1 (lost update): ACCEPTED. Ascending acceptance walk: file K becomes head only if its prev IS the head at
+  that point and prevSha matches; otherwise rejected (kept on disk). Writers re-compute the head after linking and rebase
+  if their file is not it. Unit tests + Paper scene for exactly the two-writers-from-one-head interleaving.
+Codex 2 / Claude 2 (drain lease): ACCEPTED. The lease predicate is dropped. drainscope-01 adds durable load obligations
+  (written before a load click; cleared only by a closing server re-open showing the furnace empty); scope = workshop +
+  town + open obligations within 48; 7-day legacy fallback for pre-rollout leased furnaces. The 24 h figure is relabelled
+  indicative (present-day lease state on past rows).
+Codex 3 / Claude 3, 4 (tidy identity, primitive, confirmation): ACCEPTED. townMove primitive factored from bankInto's click
+  loop (no plan); withdraw's settleCursor/holdUnsettled for the cursor; every phase confirmed by a server re-open; intent
+  records source slot+count, destination empty slot and bag count (0); tidy_return reconciliation table; never moves more
+  than n (more -> unresolved); all destinations full -> carry kept, note open, tidy paused.
+Codex 4 (annex, reservations): ACCEPTED. Annex cells inside inTown, no adjacent chests, joint post-placement access,
+  partial annexes used as they are; live reservations cannot be dropped (acceptance rule) and are re-checked in the head
+  immediately before the click.
+Codex 5 (runtime parity): ACCEPTED. The index records per-name slot counts; a parity test runs the runtime allocator on
+  census-derived fixtures against data/homes.json (ships in townindex-01).
+Codex 6 (attribution): ACCEPTED. Verified transfer records in the index journal (town_deposit, tidy) with branch tags;
+  deposit-verb records marked unverified and reported only; primary measure on verified transfers in both arms.
+Codex 7 (gate omits indexsearch): ACCEPTED. toolkit-03 (+ sticks), townindex-01 and indexsearch-01 KEPT before the
+  showcase; O9 updated.
+Claude 5 (fresh bots): ACCEPTED. found_work places the bot's only table (or crafts one from 4 planks) and craft uses it
+  without retaking it; found_store crafts a chest from 8 planks at the workshop table; found_work crafts a furnace from 8
+  cobble above the stockpile keep. FOUND-BARE scene added.
+Claude 6-9 (P3s): ACCEPTED. Iron-carry denominator stated; 7 chests / 189 slots in v1; 60 s budget when a third container
+  is planned, skipped under 15 s; READY at s+1 with a single s per orientation; farhome extends to +1080 (Codex: +780).
