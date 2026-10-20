@@ -32,7 +32,7 @@ t('MUTANT: clearing the window unconditionally again is caught', () => {
   const c = strip(RAW); const anchor = "if (next === 'done') {\n      this.admission.clearRepeatWindow()"
   assert.equal(c.split(anchor).length - 1, 1, 'ANCHOR MISSING or not unique')
   const bad = c.replace(anchor, "this.admission.clearRepeatWindow()\n    if (next === 'done') {")
-  const i = bad.indexOf('async #escape()'); const f = bad.slice(i, i + 3000)
+  const i = bad.indexOf('async #escape()'); const f = bad.slice(i, i + 6000)   // homefix-01 grew #escape (the declined retry)
   const clear = f.indexOf('this.admission.clearRepeatWindow()'); const done = f.indexOf("if (next === 'done') {")
   assert.ok(clear < done, 'the mutant clears before the branch, which the real test must catch')
 })
@@ -64,7 +64,9 @@ t('the escape declares recovery_exhausted exactly when the ladder is exhausted, 
   assert.match(f, /finally \{ clearInterval\(watch\) \}/, 'the watcher is always cleared')
   assert.match(f, /m\.countScaffoldingItems = \(\) => Math\.max\(0, orig\.call\(m\) - LIVELOCK_BLOCK_RESERVE\)/, 'the reserve is subtracted BEFORE planning: the pathfinder never plans a placement that spends it')
   assert.match(f, /finally \{ if \(m && typeof orig === 'function'\) m\.countScaffoldingItems = orig \}/, 'the override is restored')
-  assert.match(f, /next = livelockNext\(\{ rung, escaped: escapedFrom\(from, here\(\)\) \}\)/, 'done is the postcondition and nothing weaker')
+  // homefix-01: the rung also says whether the runner DECLINED it (a retry, never a latch) -- escaped is still the postcondition
+  assert.match(f, /next = livelockNext\(\{ rung, escaped: escapedFrom\(from, here\(\)\), declined: runnerDeclined\(walked\) \}\)/, 'done is the postcondition and nothing weaker')
+  assert.match(f, /next = livelockNext\(\{ rung, escaped: escapedFrom\(from, here\(\)\), declined: runnerDeclined\(dug\) \}\)/, 'the dig rung too')
   assert.ok(LIVELOCK_BLOCK_RESERVE >= 8, 'the reserve is at least the scaffold prerequisite')
   const r = strip(rf(new URL('../src/reflex.mjs', import.meta.url), 'utf8'))
   assert.match(r, /\(!escapedFrom\(climbFrom, \{[^}]*\}\) \|\| isEntombed\(bot\)\)\) escapeFailures\+\+/, 'the entombed arm needs BOTH displacement and not walled in to count a success')

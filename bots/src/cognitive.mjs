@@ -48,6 +48,7 @@ import { logLlm, logEvent, log } from './logger.mjs'
 import { snapshot, perception, biomeAt } from './state.mjs'
 import { config } from './config.mjs'
 import { escapedFrom } from './recovery.mjs'
+import { runnerDeclined } from './declined.mjs'
 import { openLessons, EVIDENCE_ONLY_IF_HERE } from './lessons.mjs'
 import { announceUnreachable } from './comms.mjs'
 
@@ -218,8 +219,11 @@ export const LIVELOCK_LATCH_MS = 600_000
  *                   may dig and bridge with the blocks in hand
  *   dig failed   -> 'latch': do NOT clear the window; rest LIVELOCK_LATCH_MS
  */
-export function livelockNext ({ rung, escaped }) {
+export function livelockNext ({ rung, escaped, declined = false }) {
   if (escaped) return 'done'                      // the shared postcondition, nothing weaker (Codex pass 3)
+  // A RUNG THE RUNNER DECLINED NEVER RAN (homefix-01, declined.mjs: e.g. `runner_reserved` while the watchdog's rescue
+  // takes the runner): it is not "did not escape". Retry on a later tick; never the dig rung, never a latch.
+  if (declined) return 'retry'
   return rung === 'walk' ? 'dig' : 'latch'
 }
 
@@ -426,6 +430,13 @@ export class CognitiveLoop {
     this.#tick(trigger)
   }
 
+  /** A livelock rung the runner declined (homefix-01): nothing is latched, cleared or counted; the next tick retries. */
+  #escapeDeclined (r) {
+    logEvent({ kind: 'livelock_escape', status: 'no_effect',
+               detail: `fixated on one action; the relocation was declined by the runner (${r?.failClass ?? '?'}) -- not an attempt, retried next tick`,
+               snapshot: snapshot(this.bot) })
+  }
+
   /**
    * Deterministic circuit-breaker. Relocates the bot so the next perception
    * snapshot genuinely differs, then clears the repeat window.
@@ -458,13 +469,15 @@ export class CognitiveLoop {
     // RUNG 1: walk. RUNG 2: the same relocation with the ascent profile (dig
     // and bridge allowed) -- hive-a-Comet stood on a disconnected ledge with
     // 460 cobblestone while the travel profile said noPath every time.
-    await this.runner.run('goto', { x, y: Math.round(p.y), z }, { trigger: 'livelock_escape' })
-    let rung = 'walk', moved = movedNow(), next = livelockNext({ rung, escaped: escapedFrom(from, here()) })
+    const walked = await this.runner.run('goto', { x, y: Math.round(p.y), z }, { trigger: 'livelock_escape' })
+    let rung = 'walk', moved = movedNow(), next = livelockNext({ rung, escaped: escapedFrom(from, here()), declined: runnerDeclined(walked) })
+    if (next === 'retry') return this.#escapeDeclined(walked)
     // THE RESERVE IS ENFORCED BEFORE THE RUNG, not reported after it: a bot
     // holding fewer blocks than the entombment climb needs does not get to
     // bridge with them (Codex pass 2).
     if (next === 'dig' && typeof this.bot.withAscentMovements === 'function' && blocksBefore >= LIVELOCK_BLOCK_RESERVE) {
       rung = 'dig'
+      let dug = null
       // THE RESERVE HOLDS THROUGHOUT (Codex pass 3): a watcher ends the walk
       // the moment placeable blocks fall to the reserve, so a bridge can start
       // with eight and never end with zero.
@@ -481,11 +494,12 @@ export class CognitiveLoop {
           const m = this.bot.pathfinder?.movements
           const orig = m?.countScaffoldingItems
           if (m && typeof orig === 'function') m.countScaffoldingItems = () => Math.max(0, orig.call(m) - LIVELOCK_BLOCK_RESERVE)
-          try { return await this.runner.run('goto', { x, y: Math.round(p.y), z }, { trigger: 'livelock_escape_dig' }) }
+          try { dug = await this.runner.run('goto', { x, y: Math.round(p.y), z }, { trigger: 'livelock_escape_dig' }); return dug }
           finally { if (m && typeof orig === 'function') m.countScaffoldingItems = orig }
         })
       } finally { clearInterval(watch) }
-      moved = movedNow(); next = livelockNext({ rung, escaped: escapedFrom(from, here()) })
+      moved = movedNow(); next = livelockNext({ rung, escaped: escapedFrom(from, here()), declined: runnerDeclined(dug) })
+      if (next === 'retry') return this.#escapeDeclined(dug)
     }
     const spent = blocksBefore - placeable()
     logEvent({ kind: 'livelock_escape',
@@ -1214,20 +1228,27 @@ export class CognitiveLoop {
       const r = await this.runner.run(admitted.skill, admitted.args, { trigger: `llm:${trigger}` })
       outcome = { status: r.status, detail: r.detail }
       runFailClass = r.failClass ?? null
+      // THE RUNNER DECLINED (homefix-01, declined.mjs -- one set, `runner_reserved` included): the skill never ran, so no
+      // handler below backs off, no cooldown is charged and no lesson is written. The decision row, lessons.save and the
+      // milestone accounting (RUNNER_REFUSALS extends the same set) still run.
+      const declined = runnerDeclined(r)
+      // THE HANDLERS THAT KNOW A DECLINE (they import the same set and refund or skip it: townOrderOutcome,
+      // townDepositOutcome, wellOrderOutcome, toolkitOutcome, recountOutcome) always run -- skipping them would lose
+      // their refund of the cooldown charged at issue. The ones that treat ANY `failed` as a backoff are skipped.
       // A FAILED WEAR-OUT BACKS OFF (both reviews): a bot with no safe block (deepslate, a pillar, water) would
       // otherwise take a decision every cooldown, forever.
-      if (admitted.skill === 'wear_out') this.wearOutBackoffUntil = r.status === 'failed' ? Date.now() + WEAR_OUT_BACKOFF_MS : 0
+      if (!declined && admitted.skill === 'wear_out') this.wearOutBackoffUntil = r.status === 'failed' ? Date.now() + WEAR_OUT_BACKOFF_MS : 0
       // A TOWN ORDER THAT FAILED BACKS OFF; a skip (no_effect) or an interruption costs nothing (townOrderOutcome).
       if (TOWN_ORDERS.has(admitted.skill)) this.townState = townOrderOutcome(admitted.skill, r.status, Date.now(), this.townState ?? {}, r.failClass ?? null)
       if (admitted.skill === 'town_deposit') this.townDepositState = townDepositOutcome(r.status, r.failClass ?? null, Date.now(), this.townDepositState ?? {})
       if (WELL_ORDERS.has(admitted.skill)) this.wellState = wellOrderOutcome(admitted.skill, r.status, Date.now(), this.wellState ?? {}, r.failClass ?? null)
-      if (admitted.skill === 'prune_town') this.pruneState = pruneOutcome(r.status, Date.now(), this.pruneState ?? {})
-      if (admitted.skill === 'smelt_town') this.smeltJobState = smeltTownOutcome(r.status, r.stop ?? r.failClass ?? null, Date.now(), this.smeltJobState ?? {})
-      if (admitted.skill === 'furnace_drain') this.drainState = drainOutcome(r.status, r.stop ?? r.failClass ?? null, Date.now(), this.drainState ?? {})
+      if (!declined && admitted.skill === 'prune_town') this.pruneState = pruneOutcome(r.status, Date.now(), this.pruneState ?? {})
+      if (!declined && admitted.skill === 'smelt_town') this.smeltJobState = smeltTownOutcome(r.status, r.stop ?? r.failClass ?? null, Date.now(), this.smeltJobState ?? {})
+      if (!declined && admitted.skill === 'furnace_drain') this.drainState = drainOutcome(r.status, r.stop ?? r.failClass ?? null, Date.now(), this.drainState ?? {})
       // THE TOOLKIT: a failure backs off, a decline is refunded (what a run drew and did not use is on the bot: bot.kitCredit)
       if (admitted.skill === 'toolkit') this.toolkitState = toolkitOutcome(r.status, Date.now(), this.toolkitState ?? {}, r.failClass ?? null)
       if (admitted.skill === 'count_town') this.recountState = recountOutcome(r.status, r.delta?.counted ?? 0, Date.now(), this.recountState ?? {}, r.failClass ?? null)
-      if (admitted.skill === 'build_plinth') this.plinthState = plinthOrderOutcome(r.status, Date.now(), this.plinthState ?? {}, r.failClass ?? null)
+      if (!declined && admitted.skill === 'build_plinth') this.plinthState = plinthOrderOutcome(r.status, Date.now(), this.plinthState ?? {}, r.failClass ?? null)
       // THE REFLEX TOOK THE BODY -- SAY SO ON THE NEXT DECISION.
       if (r.interruptedBy) this.#raiseTrigger(r.interruptedBy, r.detail)
       // A PREREQUISITE THE GOAL LAYER CANNOT SEE IS NOT A PREREQUISITE.
@@ -1245,7 +1266,9 @@ export class CognitiveLoop {
       // is nothing here to believe. This is the branch that would have kept
       // "pathfinding exceeded 25000ms" from becoming 393 permanent records of
       // "no route exists".
-      if (r.status === 'unknown') {
+      if (declined) {
+        log('info', 'the runner declined the skill: not an outcome', { skill: admitted.skill, failClass: r.failClass })
+      } else if (r.status === 'unknown') {
         this.admission.noteFailure(admitted.skill, admitted.args)
         log('info', 'outcome unknown: throttled, not learned', {
           skill: admitted.skill, failClass: r.failClass ?? 'other',
@@ -1435,7 +1458,7 @@ export class CognitiveLoop {
         const stillFar = roomIssued.kind === 'home' && admitted ? farFromBank(this.bot) : false
         const out = roomOutcome({ status: outcome.status, failClass: runFailClass, refused: !admitted, slotsAfter: items.length, stillFar, now: Date.now(), state: this.roomState ?? {} })
         this.roomState = out.state
-        const st = out.verdict === 'ok' ? 'success' : out.verdict === 'walking' ? 'no_effect' : 'failed'
+        const st = out.verdict === 'ok' ? 'success' : (out.verdict === 'walking' || out.verdict === 'declined') ? 'no_effect' : 'failed'
         logEvent({ kind: 'room_order', status: st,
                    detail: `kind=${roomIssued.kind} item=${roomIssued.item ?? '-'} craft=${roomIssued.craft} short=${roomIssued.short ?? '?'} slots=${roomIssued.slots}->${items.length} freed=${out.freed} verdict=${out.verdict} run=${admitted ? outcome.status : 'refused:' + (rejection?.reason ?? '?')} lost=${lost}`,
                    snapshot: snapshot(this.bot) })

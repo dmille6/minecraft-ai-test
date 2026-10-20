@@ -380,7 +380,27 @@ const MAX_LEG = 45
 // path: goto's own 16-leg ceiling is 720 blocks and bots are routinely further
 // out than that, so a single attempt cannot arrive and the value of the call is
 // the ground it closes. Kept under the skill contract's maxMs below it.
-const HOME_BUDGET_MS = 200_000
+// UNDER THE SKILL TIMEOUT (homefix-01 H4): it was 200 s against the runner's 180 s, so a long walk ended as
+// `interrupt:timeout` instead of on its own budget with its honest partial credit. 170 s leaves the runner 10 s, and
+// `home` now passes what is left of it into every nested goto and surface (`until`), because one goto alone can run
+// ~145 s and the constant by itself would not stop it.
+export const HOME_BUDGET_MS = 170_000
+
+/**
+ * GOTO'S OWN FINAL ARRIVAL TEST, as one exported pure function (homefix-01 H1): within max(range, 3) horizontally and
+ * max(range, 3) + 3 vertically. `home` grades its arrival with THIS, not with its old `after <= 2`: GoalNear (pathfinder
+ * 2.4.5 lib/goals.js) ends on an integer NODE with dx^2 + dy^2 + dz^2 <= range^2, so a node 2 out is an end and the bot
+ * stands at its centre ~2.5 from home -- 224 of 253 `travel_incomplete` home rows were bots standing there. goto's LOOP
+ * BREAK (`dist <= max(range, 2)`) is deliberately not routed through this, so no other caller's stopping distance moves.
+ */
+export function arrivedAt (pos, target, range = 1) {
+  if (!pos || !target) return false
+  const left = Math.hypot(Number(target.x) - pos.x, Number(target.z) - pos.z)
+  const ty = Number(target.y)
+  const dy = Number.isFinite(ty) ? Math.abs(ty - pos.y) : 0
+  const R = Math.max(range, 3)
+  return left <= R && dy <= R + 3
+}
 const MAX_HAZARD_RETRIES = 6
 
 // Per-block harvest budget, and how many fruitless attempts end the skill.
@@ -419,8 +439,10 @@ const BARREN_LIMIT = 3
 
 // THE `_dig_town` INSTRUMENT'S SCOPE (digtown.mjs, telemetry only): goto's own direct digs (float dig, ride-floor-down) are
 // transit, also when goto runs inside mine or gather. Nothing reads digScope but the instrument.
-async function goto (ctx, args, signal) { return withDigScope(ctx?.bot, { purpose: 'transit', by: 'goto' }, () => gotoLegs(ctx, args, signal)) }
-async function gotoLegs(ctx, { x, y, z, range = 1 }, signal) {
+// `until` (homefix-01): an internal caller's absolute deadline (home's remaining budget). No leg starts after it and every
+// leg's clock is clipped to it. Not a model argument; the runner calls skills with three arguments, so it is unset there.
+async function goto (ctx, args, signal, opts = {}) { return withDigScope(ctx?.bot, { purpose: 'transit', by: 'goto' }, () => gotoLegs(ctx, args, signal, opts)) }
+async function gotoLegs(ctx, { x, y, z, range = 1 }, signal, { until = null } = {}) {
   const { bot } = ctx
   assertInsideBorder(x, z)
   check(signal)
@@ -460,9 +482,11 @@ async function gotoLegs(ctx, { x, y, z, range = 1 }, signal) {
   await settle(bot, signal).catch(() => {})
   const startDist = Math.hypot(target.x - bot.entity.position.x, target.z - bot.entity.position.z)
   const maxLegs = Math.min(16, Math.max(8, Math.ceil(startDist / MAX_LEG) + 3))
+  const legMs = ms => (until == null ? ms : Math.max(1, Math.min(ms, until - Date.now())))
 
   while (legs < maxLegs) {
     check(signal)
+    if (until != null && Date.now() >= until) break   // the caller's budget is spent: grade what was closed
     const here = bot.entity.position
     const dist = Math.hypot(target.x - here.x, target.z - here.z)
     if (dist <= Math.max(range, 2)) break
@@ -506,7 +530,7 @@ async function gotoLegs(ctx, { x, y, z, range = 1 }, signal) {
       // finished leg's listener could halt a later walk).
       const onAbort = () => haltPath(bot)
       signal?.addEventListener('abort', onAbort, { once: true })
-      try { await withTimeout(p, 25000, bot) } finally { signal?.removeEventListener?.('abort', onAbort) }
+      try { await withTimeout(p, legMs(25000), bot) } finally { signal?.removeEventListener?.('abort', onAbort) }
 
       // A RESOLVED PROMISE IS NOT AN ARRIVAL.
       //
@@ -578,7 +602,7 @@ async function gotoLegs(ctx, { x, y, z, range = 1 }, signal) {
           const retryPlan = bot.entity.onGround
             ? { status: 'grounded', path: [], digMs: 0, budgetMs: 25000, notOnGround: false }
             : planDigRetry(bot, bot.ascentMovements, goal)
-          const retryBudget = retryPlan.budgetMs
+          const retryBudget = legMs(retryPlan.budgetMs)
           let retryErr = null
           // A FLOATING BOT NEVER DIGS THROUGH THE PATHFINDER: its executor
           // waits for onGround before it calls bot.dig, so the plan it found
@@ -687,7 +711,7 @@ async function gotoLegs(ctx, { x, y, z, range = 1 }, signal) {
               // The descent profile is canDig=false, so this flag is inert
               // here today; it is set for the day that profile learns to dig,
               // so the watchdog cannot silently reappear on it (Codex review).
-              await withTimeout(bot.pathfinder.goto(goal), 20000, bot, { needsDrop: false })
+              await withTimeout(bot.pathfinder.goto(goal), legMs(20000), bot, { needsDrop: false })
             })
             check(signal)
             // Same postcondition as the dig retry, and self-verifying: if it
@@ -830,8 +854,7 @@ async function gotoLegs(ctx, { x, y, z, range = 1 }, signal) {
   // destination is often genuinely unknown to the caller -- but it is bounded,
   // and exceeding it is reported as its own class rather than quietly passing.
   const dy = Number.isFinite(target.y) ? Math.abs(target.y - p.y) : 0
-  const VERT = Math.max(range, 3) + 3
-  if (left <= Math.max(range, 3) && dy <= VERT) {
+  if (arrivedAt(p, target, range)) {
     return { status: 'success', detail: `arrived at ${p.x.toFixed(0)},${p.y.toFixed(0)},${p.z.toFixed(0)}` }
   }
   if (left <= Math.max(range, 3)) {
@@ -2562,10 +2585,12 @@ async function home(ctx, _args, signal) {
   while (Date.now() < deadline) {
     check(signal)
     const before = distTo()
-    last = await goto(ctx, { x: homeX, y: homeY, z: homeZ, range: 2 }, signal)
+    last = await goto(ctx, { x: homeX, y: homeY, z: homeZ, range: 2 }, signal, { until: deadline })
     const after = distTo()
 
-    if (after <= 2) {
+    // ARRIVAL IS GOTO'S OWN FINAL TEST (homefix-01 H1), not `after <= 2`: a bot on GoalNear's end node 2.5 from home was
+    // re-sent to a goal it was standing on and graded travel_incomplete "3 still to go".
+    if (arrivedAt(bot.entity.position, { x: homeX, y: homeY, z: homeZ }, 2)) {
       // failClass is deliberately dropped, not spread through. The last leg
       // often reports something like `wrong_elevation` on its way to arriving,
       // and carrying that onto a success produces a record that is graded as a
@@ -2606,7 +2631,7 @@ async function home(ctx, _args, signal) {
     const stuck = last?.failClass === 'stranded' || last?.failClass === 'no_path'
     if (stuck && !repaired && bot.entity.position.y < SEA_LEVEL) {
       repaired = true
-      const up = await surface(ctx, {}, signal)
+      const up = await surface(ctx, {}, signal, { until: deadline })
       check(signal)
       // Carry a genuine scaffold prerequisite outward: applyPrereq turns it
       // into the task, which is the only mechanism measured to break this loop
@@ -14682,8 +14707,9 @@ export function climbAdvice(stopped) {
 
 // THE `_dig_town` INSTRUMENT'S SCOPE (telemetry only): surface's own digs (shaftAscend) are transit, also when surface runs
 // inside mine (the zone's walk-out fallback) -- never mine's target (Claude code r2 P1: a false Z1 trip).
-async function surface (ctx, args, signal) { return withDigScope(ctx?.bot, { purpose: 'transit', by: 'surface' }, () => surfaceClimb(ctx, args, signal)) }
-async function surfaceClimb(ctx, args, signal) {
+// `until` (homefix-01): an internal caller's absolute deadline (home's budget), clipping the climb's own 120 s.
+async function surface (ctx, args, signal, opts = {}) { return withDigScope(ctx?.bot, { purpose: 'transit', by: 'surface' }, () => surfaceClimb(ctx, args, signal, opts)) }
+async function surfaceClimb(ctx, args, signal, { until = null } = {}) {
   const { bot, runner } = ctx
   const startY = bot.entity.position.y
   // THE CLIMB'S TOP: sea level, unless an internal caller names a higher one (mine's town walk-out: the open top of the
@@ -14738,8 +14764,10 @@ async function surfaceClimb(ctx, args, signal) {
   // and only if the model re-chose `surface` every time against every other
   // skill competing for the slot. Deterministic progress does not belong in the
   // decision loop. One call now climbs as far as it can.
-  const DEADLINE = Date.now() + 120_000
+  const CLIMB_T0 = Date.now()
+  const DEADLINE = Math.min(CLIMB_T0 + 120_000, until ?? Infinity)
   const STAGE_MS = 40_000
+  const stageMs = () => Math.max(1, Math.min(STAGE_MS, DEADLINE - Date.now()))
   let usedDig = false
   let stalls = 0
   let lastErr = null
@@ -14797,12 +14825,12 @@ async function surfaceClimb(ctx, args, signal) {
 
     try {
       if (walk === 'success') {
-        await withTimeout(bot.pathfinder.goto(new goals.GoalY(stageY)), STAGE_MS, bot)
+        await withTimeout(bot.pathfinder.goto(new goals.GoalY(stageY)), stageMs(), bot)
       } else {
         usedDig = true
         await bot.withAscentMovements(async () => {
           // A climb wants the hole; see the goto retry above and digbudget.mjs.
-          await withTimeout(bot.pathfinder.goto(new goals.GoalY(stageY)), STAGE_MS, bot, { needsDrop: false })
+          await withTimeout(bot.pathfinder.goto(new goals.GoalY(stageY)), stageMs(), bot, { needsDrop: false })
         })
       }
     } catch (e) {
@@ -14870,7 +14898,7 @@ async function surfaceClimb(ctx, args, signal) {
   return {
     status: 'unknown', failClass: 'no_measurable_change', gap: `at_y${Math.round(endY)}`,
     detail: `no altitude gained from ${q.x.toFixed(0)},${q.y.toFixed(0)},${q.z.toFixed(0)} ` +
-            `in ${Math.round((Date.now() - (DEADLINE - 120_000)) / 1000)}s of trying` +
+            `in ${Math.round((Date.now() - CLIMB_T0) / 1000)}s of trying` +
             (lastErr ? ` (${String(lastErr.message).slice(0, 50)})` : '') +
             // THE RAW STOP, NOT ONLY THE ADVICE.
             //

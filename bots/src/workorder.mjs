@@ -27,6 +27,7 @@
 
 import { smeltInputsFor, smeltPlan } from './smelting.mjs'
 import { STATION_REACH, craftRoomCheck } from './skills.mjs'
+import { RUNNER_DECLINED } from './declined.mjs'
 
 /**
  * Rung ids are `craft_<item>_<n>` and `smelt_<output>_<n>` AS CONSTRUCTED --
@@ -297,6 +298,8 @@ export function roomOutcome ({ status = null, failClass = null, refused = false,
   const freed = Math.max(0, (p.slots ?? 0) - (slotsAfter ?? 0))
   let verdict
   if (refused) { s.backoff[p.kind] = now + ROOM_REFUSED_BACKOFF_MS; verdict = 'refused' }
+  // THE RUNNER DECLINED (homefix-01, the one shared set incl. runner_reserved): the remedy never ran, so it is not backed off.
+  else if (RUNNER_DECLINED.has(failClass)) verdict = 'declined'
   else if (freed > 0 || (p.kind === 'home' && status === 'success' && !stillFar)) {
     s.backoff[p.kind] = 0; verdict = 'ok'
     if (p.via === 'well') s.backoff.home_well = now + ROOM_WELL_WALK_BACKOFF_MS
