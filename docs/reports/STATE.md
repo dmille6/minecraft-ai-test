@@ -101,6 +101,28 @@ mcai-rl02 (recovery-ladder-03) carries the daily copy and status reports, unpush
 
 ---
 
+## 10-20 12:20Z — FLEET 9e7d9980 (cobblekeep-01 KEPT +360, promoted 11:23Z, merged de502055); bagbudget-01 LIVE (2 pools); OWNER: town plan + fleet reshape
+
+- **cobblekeep-01 KEEP +360 11:13Z** (2 v 5 deaths, rate 0.80x control; bag cobble DiD -155, bots >= 34 slots 55% -> 10% vs control
+  45% flat; lid_blocked 71 -> 0; D1/D2/D4 0). Promoted fleet-wide 11:23Z; merged to main de502055 (270/270). Watch: smelt_town
+  stop=no_fuel rose on the arm (toolkit-03's smeltfuel targets it); coal/iron banking barely exercised (2 coal).
+- **bagbudget-01 `31416ee5` LIVE 11:35:30Z on board-d, hive-a** -- only TWO pools in band (cobblekeep's 4 cooling, brain-01's 2
+  excluded 12 h, isolated + placebo-c never drawn), so no tier-2 KEEP at +180; reads on (+360 ~17:35Z). Stale pre-review
+  /tmp/bagbudgetread.py (03:44Z) moved aside to ~/mcai-analysis/bagbudgetread.py.stale-tmp-0344Z (scheduler H4 had blocked).
+- **Queue:** bagbudget-01 -> toolkit-03 -> ironpick-01 -> bamboo-03 -> foldwatch-01 -> treefarm-03 -> ...; JIT variants of
+  toolkit-03 + ironpick-01 on 31416ee5 being built (snippets will land in ~/mcai-analysis/jit-1020/). homefix-01 RESTARTED
+  (owner 12:00Z) from 3fe8cbbe (branch homefix-wip-3fe8cbbe) on 9e7d998; first free slot when ready.
+- **OWNER 12:30Z: whole-town plan** (as-is measurement + BlueMap before pictures + template/per-town siting file; sorted deposits,
+  tidy-up chore, storehouse-01 planned) -- design agent, branch town-plan-1020. No canary until built.
+- **OWNER 12:45Z: fleet reshape, "do it all"**: (1) isolated-a..d -> shared towns (design + pilot one pool; agent); (2) a SHOWCASE
+  world, new VM on pve1, ~10 bots on the Studio gemma4 brain, kept builds only, excluded from canary draws/reads (agent, branch
+  showcase-1020); (3) sandboxes 5-8 (RCON 25603-25606, units prepared DISABLED; agent, branch sandbox58-1020) + worlds VM 201
+  RAM 48 -> 80 GB (no memory hotplug: ONE VM restart, done by the coordinator between canaries: install-hold, stop bots,
+  qm shutdown 201, set memory (+ hotplug), start, staggered 12 s bot starts); (4) keep 16 bench worlds x 5 bots on qwen 7B.
+  **Done 12:15Z: idle VMs STOPPED (not deleted)** -- pve1 103 vm-minecraft-ai, 115 vm-minecraft-bots, 118 vm-minecraft-ai-v2
+  (an idle Paper testbed; onboot set 0), pve3 206 mc-playground. Nothing on .30/.31/.186 referenced .185/.187/.188.
+- NAS `es-backup` NFS share: owner creates it tonight (10-20 evening CT); then move the ES snapshot repo.
+
 ## 10-20 07:15Z — brain-01 CLOSED INCONCLUSIVE (+720); COBBLEKEEP-01 LIVE; ironpick-01 QUEUED after toolkit-03; bagbudget-01 Paper partial
 
 - **brain-01 `78fa19d9`**: +720 read 04:51Z NOT_YET -> ~/brclose.sh recorded INCONCLUSIVE 04:51:46Z (OWNER), torn down (10 bots on
