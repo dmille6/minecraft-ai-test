@@ -170,6 +170,8 @@ def cmd_follow(a):
     print(json.dumps(d))
     if not d['auto']:
         return 0
+    if not feed:
+        return 0      # no fresh feed this hour: never act on stale evidence (an empty journal would read as "not kept")
     if d['decision'] in ('DUE', 'ROLLBACK'):
         ok, missing = pieces_in(d['target'], (feed or {}).get('journal') or [])
         if not ok:
@@ -181,7 +183,12 @@ def cmd_follow(a):
             return 1
         rc = stage(d['target'], d['policy'], (feed or {}).get('deps_digest'), bootstrap=False, why=d['reason'])
         if rc[0]:
-            return activate(rc[1])
+            # On a ROLLBACK the release being left is INADMISSIBLE: a failed activation must stop the bots, never
+            # restore it.
+            return activate(rc[1], prev_admissible=d['decision'] != 'ROLLBACK')
+        if d['decision'] == 'ROLLBACK':
+            subprocess.run(['/srv/showcase/bin/stop-bots.sh', f'rollback target could not be staged: {rc[1][:150]}'],
+                           env=dict(os.environ, SHOWCASE_LOCK_HELD='1'))
         return 1
     if d['decision'] == 'STOP':
         subprocess.run(['/srv/showcase/bin/stop-bots.sh', f"follow STOP: {d['reason'][:200]}"],
@@ -312,7 +319,7 @@ def newest_row(bot):
         return None
 
 
-def activate(release_dir, verify_s=600):
+def activate(release_dir, verify_s=600, prev_admissible=True):
     rel = json.load(open(f'{release_dir}/RELEASE.json'))
     prev = os.path.realpath(HARNESS) if os.path.islink(HARNESS) else None
     tmp = HARNESS + '.new'
@@ -335,6 +342,14 @@ def activate(release_dir, verify_s=600):
     if not bad:
         print(f'ACTIVATED + VERIFIED {os.path.basename(release_dir)} on {len(bots)} bots')
         return 0
+    if not prev_admissible:
+        # the release being left was inadmissible (a follower ROLLBACK): stop, never go back to it
+        append(DEPLOY, {'t': FR.iso(now_utc()), 'event': 'STOP', 'release': os.path.basename(release_dir), 'bad': bad,
+                        'why': 'rollback target failed verification and the previous release is inadmissible'})
+        subprocess.run(['/srv/showcase/bin/stop-bots.sh', 'rollback target failed verification'],
+                       env=dict(os.environ, SHOWCASE_LOCK_HELD='1'))
+        print(f'STOPPED: rollback target failed verification {bad}')
+        return 1
     if prev:
         os.symlink(prev, tmp)
         os.replace(tmp, HARNESS)

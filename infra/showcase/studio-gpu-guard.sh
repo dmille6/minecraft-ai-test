@@ -13,6 +13,21 @@ SHOWCASE_PAUSE_DIR=${SHOWCASE_PAUSE_DIR:-$HOME/showcase/pause.d}
 SHOWCASE_QUIESCED=${SHOWCASE_QUIESCED:-$HOME/showcase/QUIESCED}
 SHOWCASE_PAUSE_FILE=""
 
+# No proxy is running: nothing of the showcase's is in flight. Before this consumer touches the GPU, unload the fallback
+# model a dead proxy may have left resident (keep_alive 0; the consumer has loaded nothing yet, it waits for this), then
+# persist the HANDOFF marker so a proxy that launchd restarts mid-run restores the handoff and never unloads the
+# consumer's models. A marker that cannot be written = refuse (the restart case would otherwise be unprotected).
+_showcase_handoff_without_proxy() {
+  curl -s -m 15 -o /dev/null http://127.0.0.1:11434/api/generate \
+    -d '{"model": "qwen2.5:7b-instruct", "keep_alive": 0}' 2>/dev/null || true
+  if ! { mkdir -p "$(dirname "$SHOWCASE_QUIESCED")" && date -u +%FT%TZ > "$SHOWCASE_QUIESCED.handoff"; }; then
+    echo "showcase guard: REFUSING -- no proxy running and the handoff marker $SHOWCASE_QUIESCED.handoff cannot be" \
+         "written. Remedy: check ~/showcase (permissions, disk) and rerun." >&2
+    return 1
+  fi
+  echo "showcase guard: no showcase proxy running -- nothing to quiesce (fallback unloaded, handoff marker written)"
+}
+
 showcase_gpu_acquire() {
   local label=${1:-gpu} waited=0 max=${SHOWCASE_QUIESCE_WAIT_S:-180}
   mkdir -p "$SHOWCASE_PAUSE_DIR"
@@ -22,8 +37,8 @@ showcase_gpu_acquire() {
     # No proxy running: nothing to quiesce NOW -- but launchd may restart it mid-run. Persist the HANDOFF marker so a
     # restarting proxy restores the handoff (never unloads this run's models); a stale marker with no pause is removed
     # by the proxy at startup.
-    mkdir -p "$(dirname "$SHOWCASE_QUIESCED")"; date -u +%FT%TZ > "$SHOWCASE_QUIESCED.handoff"
-    echo "showcase guard: no showcase proxy running -- nothing to quiesce (handoff marker written)"; return 0
+    _showcase_handoff_without_proxy || return 1
+    return 0
   fi
   while [ "$waited" -lt "$max" ]; do
     if [ -e "$SHOWCASE_QUIESCED" ] && grep -qxF "RESV $(basename "$SHOWCASE_PAUSE_FILE")" "$SHOWCASE_QUIESCED"; then
@@ -47,8 +62,8 @@ showcase_await_quiesced() {
     # No proxy running: nothing to quiesce NOW -- but launchd may restart it mid-run. Persist the HANDOFF marker so a
     # restarting proxy restores the handoff (never unloads this run's models); a stale marker with no pause is removed
     # by the proxy at startup.
-    mkdir -p "$(dirname "$SHOWCASE_QUIESCED")"; date -u +%FT%TZ > "$SHOWCASE_QUIESCED.handoff"
-    echo "showcase guard: no showcase proxy running -- nothing to quiesce (handoff marker written)"; return 0
+    _showcase_handoff_without_proxy || return 1
+    return 0
   fi
   while [ "$waited" -lt "$max" ]; do
     if [ -e "$SHOWCASE_QUIESCED" ] && grep -qxF "RESV $(head -n 1 "$resv" 2>/dev/null)" "$SHOWCASE_QUIESCED"; then

@@ -10,7 +10,7 @@ unchanged -- column(), surface_y(), matches() with the tri-state Probe (an unloa
   AREA      a 17 x 17 grid every 8 blocks over the 128 x 128 plot area centred on the candidate
   CORE      the central 64 x 64 (the core storehouse, workshop and first plots): no water, relief <= 4
   AREA      wet fraction <= 3 %, relief p90-p10 of solid ground <= 8, canopy <= 30 %
-  WOOD      ring 80..128 blocks out (outside the plots): >= 8 of 48 columns are logs/leaves
+  WOOD      ring 80..128 blocks out (outside the plots): >= 6 of 48 columns are logs/leaves (the bench's 12.5 %)
   WATER     a river or lake 96..256 blocks out (for the well at the edge / farm water): water columns on 3 rings
   SPAWN     distance from world spawn (the bots spawn at the town once it is stamped; this is only a tie-break)
 
@@ -33,7 +33,7 @@ CORE = 32          # the central 64 x 64
 GRID = 8
 WOOD_R = (80, 104, 128)
 WATER_R = (96, 160, 256)
-LIMITS = {'core_relief': 5, 'area_relief': 10, 'cave_probes': 8, 'area_wet': 0.03, 'area_canopy': 0.30, 'wood_hits': 8}
+LIMITS = {'core_relief': 5, 'area_relief': 10, 'cave_probes': 8, 'area_wet': 0.03, 'area_canopy': 0.30, 'wood_hits': 6}   # wood: the bench's ratio (place-town 3 of 24 = 6 of 48)
 
 
 def load_tiles(rcon, x0, z0, x1, z1, on=True):

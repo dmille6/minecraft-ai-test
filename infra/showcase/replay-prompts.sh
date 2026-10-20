@@ -6,22 +6,22 @@
 set -euo pipefail
 REL=$(readlink -f /srv/showcase/harness)
 [ -f "$REL/RELEASE.json" ] || { echo "no active release (stage + activate one first)"; exit 1; }
-SHA=$(python3 -c "import json; print(json.load(open('$REL/RELEASE.json'))['sha'])")
-TMP=$(mktemp -d); trap 'rm -rf "$TMP"' EXIT
 python3 /srv/showcase/bin/showcase_ops.py follow >/dev/null       # a fresh feed (the prompts ride in it)
-python3 - "$REL" "$SHA" "$TMP" <<'PY'
-import json, sys
+# The env is handed to node as a DICTIONARY (never sourced: values like `url|model` are not shell-safe).
+exec python3 - "$REL" <<'PY'
+import json, os, subprocess, sys, tempfile
 sys.path.insert(0, '/srv/showcase/bin')
 import make_env as ME
-rel, sha, tmp = sys.argv[1:4]
+rel = sys.argv[1]
+r = json.load(open(rel + '/RELEASE.json'))
 control = ME.parse_env(open(rel + '/control.env').read())
 site = {'home': [0, 70, 0], 'board': [3, 70, 0], 'border_radius': 5000}   # placement is irrelevant to the prompt
-rows = dict(ME.build_env(control, 0, site, sha))
-rows['BOT_NAME'] = 'showcase-Alpha'
-rows['LOG_DIR'], rows['STATE_DIR'] = tmp + '/log', tmp + '/state'
-open(tmp + '/replay.env', 'w').write('\n'.join(f'{k}={v}' for k, v in rows.items()) + '\n')
+env = dict(ME.build_env(control, 0, site, r['sha']))
+with tempfile.TemporaryDirectory() as tmp:
+    env.update(LOG_DIR=tmp + '/log', STATE_DIR=tmp + '/state')
+    os.makedirs(env['LOG_DIR']); os.makedirs(env['STATE_DIR'])
+    full = dict(os.environ, **env)
+    p = subprocess.run(['node', '/srv/showcase/bin/replay-prompts.mjs', '/srv/showcase/ops/feed-last.json',
+                        '/srv/showcase/ops/replay-last.json'], cwd=rel, env=full)
+sys.exit(p.returncode)
 PY
-mkdir -p "$TMP/log" "$TMP/state"
-cd "$REL"
-set -a; . "$TMP/replay.env"; set +a
-node /srv/showcase/bin/replay-prompts.mjs /srv/showcase/ops/feed-last.json /srv/showcase/ops/replay-last.json

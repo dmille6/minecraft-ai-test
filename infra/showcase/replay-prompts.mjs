@@ -41,9 +41,17 @@ for (const r of rows) {
 }
 lat.sort((a, b) => a - b)
 const n = rows.length
-const pass = n >= 50 && valid >= 48 && Object.keys(served).length === 1 && served['gemma4:26b'] === n
+// THE POSITIVE CONTROL. When the prompts came from bots running THIS release's code, every system hash must match
+// (the replay sends exactly what the bench sent). When they came from a newer fleet build (the showcase lags), the
+// system prompt may legitimately differ: the comparison is reported as not applicable, never silently passed.
+const promptsFrom = String((feed.control_env || {}).version || '').split('+')[0]
+const sameBuild = promptsFrom === (process.env.CODE_VERSION || '')
+const hashOk = sameBuild ? hashMatch === n : true
+const pass = n >= 50 && valid >= 48 && Object.keys(served).length === 1 && served['gemma4:26b'] === n && hashOk
 const out = { t: new Date().toISOString().replace(/\.\d+Z$/, 'Z'), release: (process.env.CODE_VERSION || '').slice(0, 40),
-  n, valid, served, system_hash: myHash, system_hash_matches: hashMatch, endpoint: config.llm.baseUrls,
+  n, valid, served, system_hash: myHash, system_hash_matches: hashMatch,
+  hash_control: sameBuild ? (hashOk ? 'all match' : 'MISMATCH') : `not applicable: prompts from ${promptsFrom.slice(0, 8)}`,
+  endpoint: config.llm.baseUrls,
   p50_ms: lat[Math.floor(n / 2)] ?? null, p95_ms: lat[Math.floor(n * 0.95)] ?? null, pass }
 fs.writeFileSync(outPath, JSON.stringify(out, null, 1) + '\n')
 console.log(JSON.stringify(out))
