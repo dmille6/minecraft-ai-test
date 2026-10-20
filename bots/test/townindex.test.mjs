@@ -558,6 +558,7 @@ const heldShape = async (S = S0) => {
   TI.appendIndex(dir(), HK, null, { t: 'obs', id: 'another', k: FAR.join(','), h: [FAR.join(',')], at: Date.now(), size: 27, used: 1, names: { iron_ingot: [20, 1] }, bot: 'Other' })
   assert.equal(TI.indexStateOf(entries()[FAR.join(',')]), 'dirty', "another bot's open past the first window, inside the renewed one: still dirty")
   await w.bot.inventoryUnsettled.release('test')
+  for (let i = 0; i < 40 && marks().length < 4; i++) await new Promise(r => setTimeout(r, 50))   // after the clicks drain
   assert.deepEqual(marks(), ['pre', 'held', 'held', 'post'], 'the hold\'s end closes the operation')
 }
 await t('A HELD WINDOW keeps its operation open (renewed while held, past the first OP_TTL window) and its end writes the post mark', () => heldShape())
@@ -567,10 +568,30 @@ const compactShape = (T = TI) => {
   const c = T.compactEntry(e)
   const replay = T.foldIndex([{ t: 'ckpt', worlds: { [JSON.stringify(null)]: { a: c } } }, P(10, 'opA', 'pre')]).worlds[JSON.stringify(null)].a
   assert.equal(T.indexStateOf(replay, 40), 'known', 'a duplicate pre replayed after the checkpoint never reopens a closed operation')
-  const old = T.compactEntry(T.foldIndex([P(10, 'opA', 'pre'), P(20, 'opA', 'post'), O('a', 10 + T.OP_TTL_MS, 'o2')]).worlds[JSON.stringify(null)].a)
-  assert.deepEqual(old.ops, {}, 'dropped once the observation is past its protection')
+  const old = T.compactEntry(T.foldIndex([P(10, 'opA', 'pre'), P(20, 'opA', 'post'), O('a', 20 + T.OP_TTL_MS, 'o2')]).worlds[JSON.stringify(null)].a)
+  assert.deepEqual(old.ops, {}, 'dropped once the observation is past its last mark + OP_TTL_MS')
+  // a POST-ONLY tombstone (its pre not on disk yet) survives compaction (Codex r3 P2)
+  const po = T.compactEntry(T.foldIndex([P(200, 'opB', 'post'), O('a', 300, 'o3')]).worlds[JSON.stringify(null)].a)
+  const rp = T.foldIndex([{ t: 'ckpt', worlds: { [JSON.stringify(null)]: { a: po } } }, P(100, 'opB', 'pre')]).worlds[JSON.stringify(null)].a
+  assert.equal(T.indexStateOf(rp, 400), 'known', 'a replayed pre after a compacted post-only tombstone stays closed')
+  // a HELD mark with no pre (the pre's write failed) still protects (Codex r3 P2)
+  const ho = T.foldIndex([P(100, 'opC', 'held'), O('a', 300, 'o4')]).worlds[JSON.stringify(null)].a
+  assert.equal(T.indexStateOf(ho, 400), 'dirty', 'held without a pre: still a live operation')
 }
 await t('CHECKPOINT COMPACTION keeps a closed operation as a tombstone until the observation is past its protection (Codex r2 P2)', () => compactShape())
+
+await t('AN UNREADABLE INDEX is never "every container unknown": no extras (the base\'s count only) (Codex r3 P2, Claude r2 P3)', async () => {
+  if (process.getuid?.() === 0) return   // root reads anything: the permission fixture would not bite
+  const w = await countWorld()
+  S0.resetIndexCount()
+  try {
+    TI.appendIndex(dir(), HK, null, { t: 'obs', id: 'x', k: '99,64,99', h: ['99,64,99'], at: Date.now(), size: 27, used: 0, names: {} })
+    assert.equal(S0.indexRecountKeys(w.bot, ['5,64,0']).length, 3, 'positive control: readable, three extras')
+    fs.chmodSync(dir(), 0o300); TI.resetIndexCache()   // listable no more (EACCES), still writable
+    assert.deepEqual(S0.indexRecountKeys(w.bot, ['5,64,0']), [], 'unreadable: none')
+    assert.equal(S0.townIndexEntries(w.bot), null)
+  } finally { fs.chmodSync(dir(), 0o700); B.setStockReaders({ town: null, well: null }) }
+})
 
 // ------------------------------------------------------------------------------------------------- the mutants
 await t('MUTANTS (anchored, unique): each pinned behaviour fails under its mutant', async () => {
@@ -582,8 +603,8 @@ await t('MUTANTS (anchored, unique): each pinned behaviour fails under its mutan
   kills.noPreMarkDep = await withMutant(SKILLS_PATH, "ixDirty = true; townIndexDirty(bot, chestBlock.position, 'deposit', 'pre', ixOp)", 'ixDirty = true', S => killedBy(() => depositShape(S)))
   kills.noPostMarkDep = await withMutant(SKILLS_PATH, "      townIndexDirty(bot, chestBlock.position, 'deposit', 'post', ixOp)\n", '\n', S => killedBy(() => depositShape(S)))
   kills.heldNotRenewed = await withMutant(SKILLS_PATH, "if (win.ixHeld && Date.now() - win.ixHeld.last >= HELD_RENEW_MS)", 'if (false)', S => killedBy(() => heldShape(S)))
-  kills.heldNotClosed = await withMutant(SKILLS_PATH, "    try { win.ixHeld?.close() } catch { /* townindex-01: the held operation ends (its post mark) */ }\n", '\n', S => killedBy(() => heldShape(S)))
-  kills.compactDropsTombstone = await withMutant(TI_PATH, '    if (e.obs && Number.isFinite(e.obs.at) && e.obs.at >= protectedUntil(o)) continue\n', '    if (o.post != null) continue\n', T => killedBy(() => compactShape(T)))
+  kills.heldNotClosed = await withMutant(SKILLS_PATH, "      try { ixHeldEnd?.close() } catch { /* advisory: a crash here leaves the operation to expire OP_TTL_MS past its last renewal */ }\n", '\n', S => killedBy(() => heldShape(S)))
+  kills.compactDropsTombstone = await withMutant(TI_PATH, '    if (e.obs && Number.isFinite(e.obs.at) && e.obs.at >= lastMark(o) + OP_TTL_MS) continue   // a post-only tombstone too (Codex code r3 P2)\n', '    if (o.post != null) continue\n', T => killedBy(() => compactShape(T)))
   kills.noPreMarkWd = await withMutant(SKILLS_PATH, "ixDirty = true; townIndexDirty(bot, cp, 'withdraw', 'pre', ixOp)", 'ixDirty = true', S => killedBy(() => kitShape(S)))
   kills.noPostMarkWd = await withMutant(SKILLS_PATH, "else townIndexDirty(bot, cp, 'withdraw', 'post', ixOp) }", '}', S => killedBy(() => kitShape(S)))
   kills.anyContainer = await withMutant(SKILLS_PATH, 'const townIndexed = pos => TOWNINDEX.on && !!pos && inTown(homeVec(), pos)', 'const townIndexed = pos => TOWNINDEX.on && !!pos', async S => killedBy(async () => {
@@ -607,6 +628,14 @@ await t('MUTANTS (anchored, unique): each pinned behaviour fails under its mutan
   kills.extrasInBase = await withMutant(SKILLS_PATH, 'rc = await reconcileCobble(bot, signal, cap => Math.max(0, Math.min(cap, until - Date.now())), keys, { remember: true, progress })',
     'rc = await reconcileCobble(bot, signal, cap => Math.max(0, Math.min(cap, until - Date.now())), [...keys, ...indexRecountKeys(bot, keys)], { remember: true, progress })', S => killedBy(() => countShape(S)))
   kills.abortRethrown = await withMutant(SKILLS_PATH, "    status = e?.aborted || signal?.aborted ? 'aborted' : 'failed'\n", '    throw e\n', S => killedBy(() => abortExtra(S)))
+  kills.unreadableIsEmpty = await withMutant(SKILLS_PATH, 'return r.ok ? r.entries : null } catch { return null }', 'return r.entries } catch { return {} }', async S => killedBy(async () => {
+    const w = await countWorld()
+    try {
+      fs.chmodSync(dir(), 0o300); TI.resetIndexCache()
+      assert.deepEqual(S.indexRecountKeys(w.bot, ['5,64,0']), [])
+    } finally { fs.chmodSync(dir(), 0o700); B.setStockReaders({ town: null, well: null }) }
+  }))
+  kills.heldNoPre = await withMutant(TI_PATH, "(Number.isFinite(o?.pre) || Number.isFinite(o?.held))", 'Number.isFinite(o?.pre)', T => killedBy(() => compactShape(T)))
   kills.opsIgnored = await withMutant(TI_PATH, "  if (openAt(entry.ops, entry.obs.at)) return 'dirty'", "  if (false) return 'dirty'", T => killedBy(() => pureFold(T)))
   kills.tieToObs = await withMutant(TI_PATH, "const rank = r => (r.t === 'dirty' ? 1 : 0)", "const rank = r => (r.t === 'dirty' ? 0 : 1)", T => killedBy(() => pureFold(T)))
   kills.homeMax2 = await withMutant(TI_PATH, 'export const HOME_MAX = 3', 'export const HOME_MAX = 2', T => killedBy(() => parity(T)))
