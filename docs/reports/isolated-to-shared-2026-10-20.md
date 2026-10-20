@@ -717,5 +717,9 @@ pools may drop its unused hold). **r5, Codex CHANGE / CHANGE:**
 `*-blocked` unless every unit is verified active. Its P3s are applied: release journals its quiet period and WHY, and the
 timing and the release invocation are clarified in 5.2a.
 
+**r7: Codex APPROVE / APPROVE, Claude APPROVE / APPROVE** at 0ff5686f, with no P1 or P2 open. Both r7 P3 nits were applied in
+the final commit: the `contamination-accepted` row is built after the 240 clamp, and it is journalled only after the hold is
+claimed.
+
 **Coordinator question (10-20):** exclusion vs hold, in 5.2a. The new `--accept-contamination` lowers the hold to the
 240-min floor, as a journalled decision.

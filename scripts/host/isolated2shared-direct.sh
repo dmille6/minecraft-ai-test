@@ -64,8 +64,6 @@ if [ $crc -eq 0 ]; then
   # tripwire + rollback window and the tier-2 +180 read's PRE)
   [ -z "$QUIET" ] || [ "$QUIET" -ge "$CQ" ] || [ -n "$ACCEPT" ] || { echo "REFUSED: --quiet $QUIET is below the computed $CQ (pass --accept-contamination \"<who decided, why>\" to take the shorter hold)"; exit 2; }
   [ -z "$ACCEPT" ] || WHY="$WHY; ACCEPTED CONTAMINATION below computed $CQ: $ACCEPT"
-  # a DEDICATED row (Claude r6 P3-2), so the reader of a later +360/+720 read finds the decision without remembering it
-  [ -z "$ACCEPT" ] || [ "$QUIET" -ge "$CQ" ] || ACCEPT_ROW="quiet $QUIET below computed $CQ, accepted by: $ACCEPT; reads beyond +$((QUIET - 60)) of the next canaries may hold the switch in their PRE"
   QUIET=${QUIET:-$CQ}
 elif [ -z "$QUIET" ] && [ "$MODE" = rollback ] && RQ=$(python3 -c "import json,sys; print(int(json.load(open(sys.argv[1]))['quiet_min']))" "$D/HOLD.json" 2>/dev/null); then
   QUIET=$RQ; WHY="computation failed ($CQ): the recorded quiet period"     # a rollback is never a dead end (Claude r3 P3-6); a release is (Codex r4 P2-1)
@@ -73,6 +71,11 @@ elif [ -z "$QUIET" ]; then
   echo "REFUSED: the quiet period cannot be computed ($CQ): pass --quiet <min> --why <text>"; exit 2
 fi
 [ "$QUIET" -ge 240 ] || QUIET=240
+# a DEDICATED row (Claude r6 P3-2), built AFTER the 240 clamp (Codex r7 P3) and journalled only after the hold is ours
+# (Claude r7 nit), so the reader of a later +360/+720 read finds the decision without remembering it
+if [ -n "$ACCEPT" ] && [ $crc -eq 0 ] && [ "$QUIET" -lt "$CQ" ]; then
+  ACCEPT_ROW="quiet $QUIET below computed $CQ, accepted by: $ACCEPT; reads beyond +$((QUIET - 60)) of the next canaries may hold the switch in their PRE"
+fi
 
 if [ "$MODE" = release ]; then
   out=$($HOLD release "$OWNER" "$QUIET" 2>&1); rc=$?; echo "$out"
@@ -81,10 +84,10 @@ if [ "$MODE" = release ]; then
 fi
 
 recycle_clear || exit 2
-[ -z "$ACCEPT_ROW" ] || journal contamination-accepted "$ACCEPT_ROW; pools $POOLS; mode $MODE"
 # 1. THE HOLD FIRST (claimed, or reused and extended), then the loop lock
 out=$($HOLD claim "$OWNER" "$QUIET" 2>&1); rc=$?; echo "$out"
 [ $rc -eq 0 ] || { echo "REFUSED: no hold"; exit 2; }
+[ -z "$ACCEPT_ROW" ] || journal contamination-accepted "$ACCEPT_ROW; pools $POOLS; mode $MODE"
 case "$out" in *CLAIMED*) CLAIMED=1;; *) CLAIMED="";; esac
 DONE=0
 drop_if_unused() { [ -n "$CLAIMED" ] && [ $DONE -eq 0 ] && $HOLD drop; }
