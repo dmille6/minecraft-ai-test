@@ -1,0 +1,31 @@
+"""es_chores.py: 24 h chore outcomes from Elasticsearch (read-only key; never printed). Window ends now."""
+import json, sys
+from lib.estelemetry import EsEvents
+ev = EsEvents.load('skill', since_minutes=1440)
+out = {'total': int(ev.total()), 'span_h': ev.span_hours(), 'caveats': list(getattr(ev, 'caveats', []) or [])}
+KINDS = ['town_deposit', 'deposit', 'withdraw_pick', 'toolkit', 'smelt_town', 'dispose_well', 'count_town', 'craft', 'smelt',
+         'furnace_drain', 'withdraw', 'compost', 'home']
+for k in KINDS:
+    st = ev.terms('skill.status', kind=k)
+    fc = ev.terms('skill.fail_class', kind=k, allow_zero=True)
+    pools = ev.by_pool(k)
+    out[k] = {'status': dict(st), 'fail_class': dict(fc), 'by_pool': dict(pools)}
+# the two named failures, counted by the detail text, with the kind's total as the denominator
+probes = {
+    'toolkit_no_iron': ('toolkit', 'no town container in reach holds'),
+    'toolkit_no_sticks': ('toolkit', 'have no sticks'),
+    'smelt_no_coal': ('smelt_town', 'no coal in the town containers looked in'),
+    'smelt_no_copper': ('smelt_town', 'no raw copper in the bag or in the town containers'),
+    'deposit_no_path': ('deposit', 'No path to the goal'),
+    'town_deposit_nothing': ('town_deposit', 'nothing to bank'),
+    'town_deposit_no_container': ('town_deposit', 'no town chest within reach'),
+    'withdraw_pick_none': ('withdraw_pick', 'no usable'),
+}
+for name, (k, txt) in probes.items():
+    try:
+        n = ev.count(k, detail_contains=txt, allow_zero=True)
+        bp = ev.by_pool(k, detail_contains=txt, allow_zero=True)
+    except Exception as e:
+        n, bp = 'ERR %s' % e, {}
+    out['probe:' + name] = {'kind': k, 'text': txt, 'n': int(n) if not isinstance(n, str) else n, 'by_pool': dict(bp)}
+json.dump(out, sys.stdout, indent=1, default=str)

@@ -1,0 +1,346 @@
+{
+ "board-a": {
+  "free_cells_in_cylinder": 172,
+  "cylinder_cells": 768,
+  "largest_rect": [
+   30,
+   [
+    -15,
+    -5,
+    -13,
+    4
+   ]
+  ],
+  "outside_pads": 0,
+  "outside_best": null,
+  "containers": 35,
+  "containers_on_platform": 21,
+  "container_centroid": [
+   -2.3,
+   0.1
+  ]
+ },
+ "board-b": {
+  "free_cells_in_cylinder": 145,
+  "cylinder_cells": 768,
+  "largest_rect": [
+   12,
+   [
+    -3,
+    9,
+    0,
+    11
+   ]
+  ],
+  "outside_pads": 0,
+  "outside_best": null,
+  "containers": 19,
+  "containers_on_platform": 12,
+  "container_centroid": [
+   4.9,
+   4.4
+  ]
+ },
+ "board-c": {
+  "free_cells_in_cylinder": 155,
+  "cylinder_cells": 768,
+  "largest_rect": [
+   16,
+   [
+    -15,
+    -4,
+    -12,
+    -1
+   ]
+  ],
+  "outside_pads": 0,
+  "outside_best": null,
+  "containers": 33,
+  "containers_on_platform": 30,
+  "container_centroid": [
+   1.6,
+   1.9
+  ]
+ },
+ "board-d": {
+  "free_cells_in_cylinder": 169,
+  "cylinder_cells": 768,
+  "largest_rect": [
+   21,
+   [
+    -7,
+    -14,
+    -5,
+    -8
+   ]
+  ],
+  "outside_pads": 0,
+  "outside_best": null,
+  "containers": 31,
+  "containers_on_platform": 31,
+  "container_centroid": [
+   0.3,
+   0.5
+  ]
+ },
+ "hive-a": {
+  "free_cells_in_cylinder": 227,
+  "cylinder_cells": 768,
+  "largest_rect": [
+   25,
+   [
+    8,
+    -10,
+    12,
+    -6
+   ]
+  ],
+  "outside_pads": 3,
+  "outside_best": [
+   222,
+   20,
+   -6
+  ],
+  "containers": 24,
+  "containers_on_platform": 23,
+  "container_centroid": [
+   -1.9,
+   1.1
+  ]
+ },
+ "hive-b": {
+  "free_cells_in_cylinder": 155,
+  "cylinder_cells": 768,
+  "largest_rect": [
+   28,
+   [
+    1,
+    7,
+    4,
+    13
+   ]
+  ],
+  "outside_pads": 2,
+  "outside_best": [
+   483,
+   17,
+   3
+  ],
+  "containers": 11,
+  "containers_on_platform": 11,
+  "container_centroid": [
+   -0.4,
+   0.7
+  ]
+ },
+ "hive-c": {
+  "free_cells_in_cylinder": 295,
+  "cylinder_cells": 768,
+  "largest_rect": [
+   27,
+   [
+    -2,
+    -13,
+    6,
+    -11
+   ]
+  ],
+  "outside_pads": 0,
+  "outside_best": null,
+  "containers": 30,
+  "containers_on_platform": 7,
+  "container_centroid": [
+   -0.5,
+   4.0
+  ]
+ },
+ "hive-d": {
+  "free_cells_in_cylinder": 283,
+  "cylinder_cells": 768,
+  "largest_rect": [
+   24,
+   [
+    -13,
+    -9,
+    -10,
+    -4
+   ]
+  ],
+  "outside_pads": 0,
+  "outside_best": null,
+  "containers": 13,
+  "containers_on_platform": 13,
+  "container_centroid": [
+   1.2,
+   -0.2
+  ]
+ },
+ "isolated-a": {
+  "free_cells_in_cylinder": 110,
+  "cylinder_cells": 768,
+  "largest_rect": [
+   9,
+   [
+    11,
+    -9,
+    13,
+    -7
+   ]
+  ],
+  "outside_pads": 0,
+  "outside_best": null,
+  "containers": 21,
+  "containers_on_platform": 19,
+  "container_centroid": [
+   1.0,
+   0.6
+  ]
+ },
+ "isolated-b": {
+  "free_cells_in_cylinder": 149,
+  "cylinder_cells": 768,
+  "largest_rect": [
+   20,
+   [
+    8,
+    7,
+    12,
+    10
+   ]
+  ],
+  "outside_pads": 0,
+  "outside_best": null,
+  "containers": 20,
+  "containers_on_platform": 20,
+  "container_centroid": [
+   0.3,
+   1.1
+  ]
+ },
+ "isolated-c": {
+  "free_cells_in_cylinder": 142,
+  "cylinder_cells": 768,
+  "largest_rect": [
+   20,
+   [
+    -3,
+    12,
+    1,
+    15
+   ]
+  ],
+  "outside_pads": 0,
+  "outside_best": null,
+  "containers": 17,
+  "containers_on_platform": 14,
+  "container_centroid": [
+   0.2,
+   0.7
+  ]
+ },
+ "isolated-d": {
+  "free_cells_in_cylinder": 161,
+  "cylinder_cells": 768,
+  "largest_rect": [
+   15,
+   [
+    0,
+    13,
+    4,
+    15
+   ]
+  ],
+  "outside_pads": 0,
+  "outside_best": null,
+  "containers": 13,
+  "containers_on_platform": 13,
+  "container_centroid": [
+   0.1,
+   0.5
+  ]
+ },
+ "placebo-a": {
+  "free_cells_in_cylinder": 147,
+  "cylinder_cells": 768,
+  "largest_rect": [
+   21,
+   [
+    -13,
+    -3,
+    -7,
+    -1
+   ]
+  ],
+  "outside_pads": 0,
+  "outside_best": null,
+  "containers": 17,
+  "containers_on_platform": 17,
+  "container_centroid": [
+   0.4,
+   -0.5
+  ]
+ },
+ "placebo-b": {
+  "free_cells_in_cylinder": 318,
+  "cylinder_cells": 768,
+  "largest_rect": [
+   32,
+   [
+    -10,
+    -2,
+    -7,
+    5
+   ]
+  ],
+  "outside_pads": 0,
+  "outside_best": null,
+  "containers": 22,
+  "containers_on_platform": 9,
+  "container_centroid": [
+   2.1,
+   6.2
+  ]
+ },
+ "placebo-c": {
+  "free_cells_in_cylinder": 91,
+  "cylinder_cells": 768,
+  "largest_rect": [
+   9,
+   [
+    -6,
+    -14,
+    -4,
+    -12
+   ]
+  ],
+  "outside_pads": 0,
+  "outside_best": null,
+  "containers": 28,
+  "containers_on_platform": 25,
+  "container_centroid": [
+   -2.2,
+   1.5
+  ]
+ },
+ "placebo-d": {
+  "free_cells_in_cylinder": 231,
+  "cylinder_cells": 768,
+  "largest_rect": [
+   25,
+   [
+    5,
+    -13,
+    9,
+    -9
+   ]
+  ],
+  "outside_pads": 0,
+  "outside_best": null,
+  "containers": 15,
+  "containers_on_platform": 7,
+  "container_centroid": [
+   -1.1,
+   3.9
+  ]
+ }
+}

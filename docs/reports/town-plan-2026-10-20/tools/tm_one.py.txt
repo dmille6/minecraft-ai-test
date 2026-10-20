@@ -1,0 +1,9 @@
+import json, sys, time
+sys.argv = [sys.argv[0]] + sys.argv[1:]
+import townmap
+w = json.load(open('worlds.json')); ov = json.load(open('tm-overlays.json'))
+name = sys.argv[1]
+t = time.time()
+r = townmap.run_world(name, w[name], '/srv/block2/%s/world' % name, '/var/tmp/townplan-1020', ov.get(name, {}), 'before')
+json.dump(r, open('/var/tmp/townplan-1020/%s.json' % name, 'w'))
+print(round(time.time() - t, 1), 's', r['chunks'], r['near_counts'], 'DEEP', r['deep_counts'], 'ENTS', r['entities'], r['surface_y'])

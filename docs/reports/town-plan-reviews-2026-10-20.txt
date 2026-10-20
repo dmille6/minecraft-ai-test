@@ -1,0 +1,28 @@
+TOWN PLAN 2026-10-20 -- REVIEW LOG (docs/reports/town-plan-2026-10-20.md)
+Reviewers: Codex (codex exec --sandbox read-only, from the worktree) and an independent Claude subagent (general-purpose,
+no context beyond the prompt and the repo). Each round: both read the doc + tools + data + the cited code, and answer
+APPROVE or CHANGE with findings P1 (wrong / unsafe), P2 (must fix before build), P3 (polish).
+
+======================================================================================================================
+ROUND 0 -- prior-art search (10-20 ~12:20Z, a web search by a Claude research subagent; summarised in the doc's section 2)
+======================================================================================================================
+Sources read (summaries via the reader; not every page was read in full):
+- GDMC criteria, Salge et al. 2018: https://arxiv.org/abs/1803.09853
+- GDMC judges' impressions 2021: https://arxiv.org/abs/2108.02955
+- GDMC 2022 winner, van der Staaij et al. (IEEE CoG 2023): https://arxiv.org/abs/2309.10871
+- GDMC 2022 entry (BFS plot allocation): https://github.com/HSTEHSTEHSTE/GDMC_2022/blob/main/README.md
+- Chronicle Challenge, Salge et al. 2019: https://arxiv.org/abs/1905.05888
+- Organic building generation, Green/Salge/Togelius 2019: https://arxiv.org/abs/1906.05094
+- Jigsaw structures / villages: https://minecraft.wiki/w/Jigsaw_structure , https://minecraft.wiki/w/Village
+- mineflayer-collectblock: https://github.com/PrismarineJS/mineflayer-collectblock
+- Voyager: https://voyager.minedojo.org/ ; mindcraft: https://github.com/kolbytn/mindcraft
+- Project Sid (Altera): https://arxiv.org/abs/2411.00114 ; MineLand: https://arxiv.org/abs/2403.19267
+- Baritone usage: https://github.com/cabaletta/baritone/blob/1.19.4/USAGE.md
+- Copper golem (1.21.9): https://minecraft.wiki/w/Copper_Golem
+- Player storage guide: https://minecraft.how/blog/post/minecraft-storage-sorting-organization
+- RimWorld stockpiles: https://rimworldwiki.com/wiki/Stockpile_zone ; DF stockpile design (rate-limited, not read)
+- Mechanics: https://minecraft.wiki/w/Chest , /Barrel , /Item_Frame , /Redstone_Comparator , /Peaceful , /Light , /Dirt_Path
+Findings used: zones by function + a core landmark + minimal terraforming (GDMC); plots grown outward at similar height
+(BFS entry); "deposit where it already lives" (copper golem, not available on Paper 1.21.8); idle haulers consolidating
+(RimWorld); no open-source mineflayer project sorts storage by category; frames need leather and consume the shown item;
+torches cannot stand on dirt_path; a chest is blocked only by a conductor directly above (signs/frames are not).

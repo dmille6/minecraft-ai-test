@@ -1,0 +1,16 @@
+import json
+a = json.load(open('asis.json')); c = json.load(open('census-summary.json'))['towns']; wk = json.load(open('walk-summary.json'))['towns']
+f2 = json.load(open('fit2.json')); f = json.load(open('fit-stations-4.json')); h = json.load(open('homes.json'))
+print('| town | containers (on the 13x13 platform) | slots used / capacity | kinds per container (median) | containers holding iron ingots / coal | most iron in one | sorted town needs | crafting tables near / deep | furnaces near (within 16) / deep | torches | town time % of bot-time |')
+print('|---|---|---|---|---|---|---|---|---|---|---|')
+for w in sorted(a):
+    A = a[w]; C = c[w]; K = C['key_items']
+    print(f"| {w} | {A['containers']} ({f2[w]['containers_on_platform']}) | {C['slots_used']} / {C['capacity']} ({C['fill_pct']}%) | {C['kinds_per_container_median']:g} | {K['iron_ingot']['containers']} / {K['coal']['containers']} | {K['iron_ingot']['max_one']} of {K['iron_ingot']['total']} | {h[w]['containers_needed_sorted']} | {A['tables_near']} / {A['tables_deep']} | {A['furnaces_near']} ({A['furnaces_in16']}) / {A['furnaces_deep']} | {A['torches_near']} | {wk[w][5]} |")
+print()
+print('| town | free cells in the 16 cylinder (of 768) | largest free rectangle | 9x9 storehouse pad inside 16 | ... at Chebyshev 17-30 | well (sector) | farm record | monument (Z0) | shaft (M0) | gate (proposed) |')
+print('|---|---|---|---|---|---|---|---|---|---|')
+for w in sorted(a):
+    F2 = f2[w]; F = f[w]; t = F['taken']; lr = F2['largest_rect']
+    rect = f"{lr[1][2]-lr[1][0]+1}x{lr[1][3]-lr[1][1]+1} at ({lr[1][0]},{lr[1][1]})" if lr[1] else '-'
+    ob = F2['outside_best']
+    print(f"| {w} | {F2['free_cells_in_cylinder']} | {rect} | 0 | {F2['outside_pads']}{(' (best fill %d cobble at %d,%d)' % tuple(ob)) if ob else ''} | {t.get('well','-')} | {'yes ('+t['farm']+')' if 'farm' in t else 'no'} | {t.get('monument','-')}{(' (Chebyshev %d)' % max(abs(F['monument_centre'][0]), abs(F['monument_centre'][1]))) if F['monument_centre'] else ''} | {t.get('shaft','-')} | {F['gate']} |")

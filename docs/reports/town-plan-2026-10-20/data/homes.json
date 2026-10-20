@@ -1,0 +1,1670 @@
+{
+ "board-a": {
+  "groups": {
+   "wood": {
+    "total": 2745,
+    "containers": 25,
+    "home": [
+     349,
+     67,
+     190
+    ],
+    "home_share": 0.31,
+    "slots": 97,
+    "ideal_slots": 46
+   },
+   "fuel": {
+    "total": 386,
+    "containers": 23,
+    "home": [
+     360,
+     72,
+     146
+    ],
+    "home_share": 0.1,
+    "slots": 23,
+    "ideal_slots": 7
+   },
+   "metal": {
+    "total": 1535,
+    "containers": 35,
+    "home": [
+     356,
+     72,
+     147
+    ],
+    "home_share": 0.1,
+    "slots": 96,
+    "ideal_slots": 26
+   },
+   "farm": {
+    "total": 249,
+    "containers": 10,
+    "home": [
+     355,
+     72,
+     149
+    ],
+    "home_share": 0.4,
+    "slots": 16,
+    "ideal_slots": 7
+   },
+   "stone": {
+    "total": 1251,
+    "containers": 16,
+    "home": [
+     355,
+     72,
+     148
+    ],
+    "home_share": 0.17,
+    "slots": 28,
+    "ideal_slots": 21
+   },
+   "tools": {
+    "total": 11,
+    "containers": 6,
+    "home": [
+     354,
+     72,
+     144
+    ],
+    "home_share": 0.27,
+    "slots": 11,
+    "ideal_slots": 10
+   },
+   "misc": {
+    "total": 17,
+    "containers": 6,
+    "home": [
+     344,
+     66,
+     144
+    ],
+    "home_share": 0.59,
+    "slots": 6,
+    "ideal_slots": 4
+   },
+   "valuable": {
+    "total": 72,
+    "containers": 6,
+    "home": [
+     356,
+     76,
+     137
+    ],
+    "home_share": 0.39,
+    "slots": 6,
+    "ideal_slots": 2
+   },
+   "build": {
+    "total": 87,
+    "containers": 7,
+    "home": [
+     354,
+     72,
+     147
+    ],
+    "home_share": 0.74,
+    "slots": 7,
+    "ideal_slots": 5
+   }
+  },
+  "containers_needed_sorted": 10,
+  "containers_now": 35
+ },
+ "board-b": {
+  "groups": {
+   "build": {
+    "total": 64,
+    "containers": 1,
+    "home": [
+     -250,
+     64,
+     144
+    ],
+    "home_share": 1.0,
+    "slots": 1,
+    "ideal_slots": 1
+   },
+   "wood": {
+    "total": 1499,
+    "containers": 14,
+    "home": [
+     -239,
+     64,
+     151
+    ],
+    "home_share": 0.24,
+    "slots": 51,
+    "ideal_slots": 25
+   },
+   "metal": {
+    "total": 591,
+    "containers": 19,
+    "home": [
+     -248,
+     64,
+     144
+    ],
+    "home_share": 0.27,
+    "slots": 45,
+    "ideal_slots": 12
+   },
+   "fuel": {
+    "total": 145,
+    "containers": 7,
+    "home": [
+     -249,
+     64,
+     144
+    ],
+    "home_share": 0.35,
+    "slots": 7,
+    "ideal_slots": 3
+   },
+   "stone": {
+    "total": 1000,
+    "containers": 8,
+    "home": [
+     -249,
+     64,
+     144
+    ],
+    "home_share": 0.48,
+    "slots": 25,
+    "ideal_slots": 17
+   },
+   "valuable": {
+    "total": 105,
+    "containers": 8,
+    "home": [
+     -246,
+     64,
+     147
+    ],
+    "home_share": 0.21,
+    "slots": 11,
+    "ideal_slots": 2
+   },
+   "tools": {
+    "total": 4,
+    "containers": 3,
+    "home": [
+     -240,
+     64,
+     148
+    ],
+    "home_share": 0.5,
+    "slots": 4,
+    "ideal_slots": 4
+   }
+  },
+  "containers_needed_sorted": 7,
+  "containers_now": 19
+ },
+ "board-c": {
+  "groups": {
+   "stone": {
+    "total": 1000,
+    "containers": 10,
+    "home": [
+     351,
+     72,
+     148
+    ],
+    "home_share": 0.26,
+    "slots": 29,
+    "ideal_slots": 17
+   },
+   "valuable": {
+    "total": 57,
+    "containers": 6,
+    "home": [
+     356,
+     72,
+     146
+    ],
+    "home_share": 0.33,
+    "slots": 8,
+    "ideal_slots": 2
+   },
+   "wood": {
+    "total": 1246,
+    "containers": 25,
+    "home": [
+     351,
+     72,
+     148
+    ],
+    "home_share": 0.17,
+    "slots": 89,
+    "ideal_slots": 23
+   },
+   "metal": {
+    "total": 1427,
+    "containers": 30,
+    "home": [
+     354,
+     73,
+     148
+    ],
+    "home_share": 0.09,
+    "slots": 87,
+    "ideal_slots": 24
+   },
+   "tools": {
+    "total": 18,
+    "containers": 14,
+    "home": [
+     354,
+     72,
+     151
+    ],
+    "home_share": 0.22,
+    "slots": 18,
+    "ideal_slots": 17
+   },
+   "fuel": {
+    "total": 264,
+    "containers": 17,
+    "home": [
+     351,
+     72,
+     148
+    ],
+    "home_share": 0.2,
+    "slots": 18,
+    "ideal_slots": 6
+   },
+   "build": {
+    "total": 103,
+    "containers": 10,
+    "home": [
+     354,
+     72,
+     147
+    ],
+    "home_share": 0.62,
+    "slots": 11,
+    "ideal_slots": 4
+   },
+   "farm": {
+    "total": 102,
+    "containers": 8,
+    "home": [
+     354,
+     72,
+     147
+    ],
+    "home_share": 0.63,
+    "slots": 10,
+    "ideal_slots": 5
+   },
+   "misc": {
+    "total": 8,
+    "containers": 3,
+    "home": [
+     353,
+     72,
+     149
+    ],
+    "home_share": 0.62,
+    "slots": 3,
+    "ideal_slots": 3
+   }
+  },
+  "containers_needed_sorted": 9,
+  "containers_now": 31
+ },
+ "board-d": {
+  "groups": {
+   "misc": {
+    "total": 3,
+    "containers": 2,
+    "home": [
+     355,
+     72,
+     146
+    ],
+    "home_share": 0.67,
+    "slots": 2,
+    "ideal_slots": 2
+   },
+   "stone": {
+    "total": 999,
+    "containers": 13,
+    "home": [
+     351,
+     72,
+     147
+    ],
+    "home_share": 0.32,
+    "slots": 30,
+    "ideal_slots": 17
+   },
+   "wood": {
+    "total": 782,
+    "containers": 23,
+    "home": [
+     351,
+     72,
+     147
+    ],
+    "home_share": 0.28,
+    "slots": 74,
+    "ideal_slots": 15
+   },
+   "metal": {
+    "total": 942,
+    "containers": 27,
+    "home": [
+     351,
+     72,
+     149
+    ],
+    "home_share": 0.08,
+    "slots": 53,
+    "ideal_slots": 18
+   },
+   "tools": {
+    "total": 21,
+    "containers": 15,
+    "home": [
+     355,
+     72,
+     144
+    ],
+    "home_share": 0.19,
+    "slots": 21,
+    "ideal_slots": 20
+   },
+   "fuel": {
+    "total": 123,
+    "containers": 11,
+    "home": [
+     360,
+     72,
+     146
+    ],
+    "home_share": 0.3,
+    "slots": 11,
+    "ideal_slots": 2
+   },
+   "build": {
+    "total": 88,
+    "containers": 9,
+    "home": [
+     354,
+     72,
+     147
+    ],
+    "home_share": 0.73,
+    "slots": 10,
+    "ideal_slots": 5
+   },
+   "valuable": {
+    "total": 46,
+    "containers": 4,
+    "home": [
+     353,
+     72,
+     148
+    ],
+    "home_share": 0.39,
+    "slots": 4,
+    "ideal_slots": 1
+   },
+   "farm": {
+    "total": 180,
+    "containers": 8,
+    "home": [
+     354,
+     72,
+     147
+    ],
+    "home_share": 0.36,
+    "slots": 8,
+    "ideal_slots": 4
+   }
+  },
+  "containers_needed_sorted": 9,
+  "containers_now": 31
+ },
+ "hive-a": {
+  "groups": {
+   "stone": {
+    "total": 1000,
+    "containers": 11,
+    "home": [
+     348,
+     71,
+     150
+    ],
+    "home_share": 0.32,
+    "slots": 30,
+    "ideal_slots": 16
+   },
+   "wood": {
+    "total": 607,
+    "containers": 19,
+    "home": [
+     355,
+     72,
+     149
+    ],
+    "home_share": 0.17,
+    "slots": 43,
+    "ideal_slots": 15
+   },
+   "metal": {
+    "total": 1797,
+    "containers": 22,
+    "home": [
+     356,
+     72,
+     144
+    ],
+    "home_share": 0.12,
+    "slots": 79,
+    "ideal_slots": 30
+   },
+   "fuel": {
+    "total": 345,
+    "containers": 17,
+    "home": [
+     356,
+     72,
+     151
+    ],
+    "home_share": 0.19,
+    "slots": 18,
+    "ideal_slots": 6
+   },
+   "tools": {
+    "total": 16,
+    "containers": 10,
+    "home": [
+     355,
+     72,
+     149
+    ],
+    "home_share": 0.19,
+    "slots": 15,
+    "ideal_slots": 15
+   },
+   "build": {
+    "total": 78,
+    "containers": 5,
+    "home": [
+     354,
+     72,
+     147
+    ],
+    "home_share": 0.82,
+    "slots": 5,
+    "ideal_slots": 4
+   },
+   "valuable": {
+    "total": 79,
+    "containers": 6,
+    "home": [
+     350,
+     72,
+     146
+    ],
+    "home_share": 0.46,
+    "slots": 6,
+    "ideal_slots": 2
+   },
+   "farm": {
+    "total": 107,
+    "containers": 6,
+    "home": [
+     354,
+     72,
+     147
+    ],
+    "home_share": 0.6,
+    "slots": 7,
+    "ideal_slots": 5
+   }
+  },
+  "containers_needed_sorted": 9,
+  "containers_now": 24
+ },
+ "hive-b": {
+  "groups": {
+   "metal": {
+    "total": 838,
+    "containers": 10,
+    "home": [
+     358,
+     72,
+     145
+    ],
+    "home_share": 0.32,
+    "slots": 30,
+    "ideal_slots": 15
+   },
+   "tools": {
+    "total": 14,
+    "containers": 7,
+    "home": [
+     356,
+     72,
+     149
+    ],
+    "home_share": 0.36,
+    "slots": 13,
+    "ideal_slots": 13
+   },
+   "wood": {
+    "total": 322,
+    "containers": 9,
+    "home": [
+     351,
+     72,
+     149
+    ],
+    "home_share": 0.34,
+    "slots": 32,
+    "ideal_slots": 7
+   },
+   "fuel": {
+    "total": 80,
+    "containers": 6,
+    "home": [
+     356,
+     72,
+     147
+    ],
+    "home_share": 0.38,
+    "slots": 6,
+    "ideal_slots": 2
+   },
+   "stone": {
+    "total": 1001,
+    "containers": 7,
+    "home": [
+     351,
+     72,
+     149
+    ],
+    "home_share": 0.45,
+    "slots": 22,
+    "ideal_slots": 17
+   },
+   "valuable": {
+    "total": 75,
+    "containers": 5,
+    "home": [
+     351,
+     72,
+     149
+    ],
+    "home_share": 0.27,
+    "slots": 5,
+    "ideal_slots": 2
+   },
+   "farm": {
+    "total": 69,
+    "containers": 5,
+    "home": [
+     354,
+     72,
+     147
+    ],
+    "home_share": 0.93,
+    "slots": 6,
+    "ideal_slots": 4
+   },
+   "build": {
+    "total": 69,
+    "containers": 3,
+    "home": [
+     354,
+     72,
+     147
+    ],
+    "home_share": 0.93,
+    "slots": 3,
+    "ideal_slots": 3
+   },
+   "misc": {
+    "total": 2,
+    "containers": 1,
+    "home": [
+     356,
+     72,
+     147
+    ],
+    "home_share": 1.0,
+    "slots": 1,
+    "ideal_slots": 1
+   }
+  },
+  "containers_needed_sorted": 9,
+  "containers_now": 11
+ },
+ "hive-c": {
+  "groups": {
+   "wood": {
+    "total": 367,
+    "containers": 3,
+    "home": [
+     -77,
+     69,
+     -62
+    ],
+    "home_share": 0.65,
+    "slots": 6,
+    "ideal_slots": 6
+   },
+   "metal": {
+    "total": 999,
+    "containers": 23,
+    "home": [
+     -67,
+     67,
+     -68
+    ],
+    "home_share": 0.18,
+    "slots": 69,
+    "ideal_slots": 18
+   },
+   "stone": {
+    "total": 961,
+    "containers": 9,
+    "home": [
+     -68,
+     67,
+     -68
+    ],
+    "home_share": 0.31,
+    "slots": 25,
+    "ideal_slots": 16
+   },
+   "fuel": {
+    "total": 131,
+    "containers": 15,
+    "home": [
+     -67,
+     67,
+     -68
+    ],
+    "home_share": 0.14,
+    "slots": 15,
+    "ideal_slots": 3
+   },
+   "tools": {
+    "total": 17,
+    "containers": 7,
+    "home": [
+     -66,
+     61,
+     -75
+    ],
+    "home_share": 0.24,
+    "slots": 17,
+    "ideal_slots": 17
+   },
+   "build": {
+    "total": 64,
+    "containers": 1,
+    "home": [
+     -69,
+     67,
+     -68
+    ],
+    "home_share": 1.0,
+    "slots": 1,
+    "ideal_slots": 1
+   },
+   "valuable": {
+    "total": 94,
+    "containers": 6,
+    "home": [
+     -67,
+     67,
+     -68
+    ],
+    "home_share": 0.47,
+    "slots": 10,
+    "ideal_slots": 5
+   }
+  },
+  "containers_needed_sorted": 7,
+  "containers_now": 30
+ },
+ "hive-d": {
+  "groups": {
+   "stone": {
+    "total": 1000,
+    "containers": 6,
+    "home": [
+     67,
+     64,
+     69
+    ],
+    "home_share": 0.39,
+    "slots": 23,
+    "ideal_slots": 16
+   },
+   "metal": {
+    "total": 774,
+    "containers": 13,
+    "home": [
+     68,
+     64,
+     68
+    ],
+    "home_share": 0.2,
+    "slots": 33,
+    "ideal_slots": 14
+   },
+   "valuable": {
+    "total": 24,
+    "containers": 2,
+    "home": [
+     69,
+     64,
+     68
+    ],
+    "home_share": 0.58,
+    "slots": 3,
+    "ideal_slots": 1
+   },
+   "tools": {
+    "total": 7,
+    "containers": 5,
+    "home": [
+     66,
+     64,
+     66
+    ],
+    "home_share": 0.29,
+    "slots": 7,
+    "ideal_slots": 7
+   },
+   "fuel": {
+    "total": 125,
+    "containers": 7,
+    "home": [
+     69,
+     64,
+     70
+    ],
+    "home_share": 0.46,
+    "slots": 8,
+    "ideal_slots": 2
+   },
+   "wood": {
+    "total": 110,
+    "containers": 5,
+    "home": [
+     69,
+     64,
+     68
+    ],
+    "home_share": 0.58,
+    "slots": 6,
+    "ideal_slots": 4
+   }
+  },
+  "containers_needed_sorted": 6,
+  "containers_now": 13
+ },
+ "isolated-a": {
+  "groups": {
+   "stone": {
+    "total": 600,
+    "containers": 9,
+    "home": [
+     351,
+     72,
+     148
+    ],
+    "home_share": 0.43,
+    "slots": 18,
+    "ideal_slots": 12
+   },
+   "metal": {
+    "total": 1369,
+    "containers": 20,
+    "home": [
+     353,
+     72,
+     147
+    ],
+    "home_share": 0.14,
+    "slots": 90,
+    "ideal_slots": 23
+   },
+   "wood": {
+    "total": 995,
+    "containers": 16,
+    "home": [
+     351,
+     72,
+     148
+    ],
+    "home_share": 0.12,
+    "slots": 64,
+    "ideal_slots": 20
+   },
+   "valuable": {
+    "total": 198,
+    "containers": 11,
+    "home": [
+     351,
+     72,
+     148
+    ],
+    "home_share": 0.13,
+    "slots": 15,
+    "ideal_slots": 4
+   },
+   "fuel": {
+    "total": 389,
+    "containers": 16,
+    "home": [
+     356,
+     72,
+     147
+    ],
+    "home_share": 0.18,
+    "slots": 17,
+    "ideal_slots": 7
+   },
+   "tools": {
+    "total": 27,
+    "containers": 13,
+    "home": [
+     353,
+     72,
+     148
+    ],
+    "home_share": 0.19,
+    "slots": 27,
+    "ideal_slots": 26
+   },
+   "farm": {
+    "total": 102,
+    "containers": 5,
+    "home": [
+     353,
+     72,
+     148
+    ],
+    "home_share": 0.89,
+    "slots": 7,
+    "ideal_slots": 5
+   },
+   "build": {
+    "total": 80,
+    "containers": 4,
+    "home": [
+     354,
+     72,
+     147
+    ],
+    "home_share": 0.82,
+    "slots": 6,
+    "ideal_slots": 5
+   },
+   "misc": {
+    "total": 7,
+    "containers": 2,
+    "home": [
+     356,
+     72,
+     148
+    ],
+    "home_share": 0.57,
+    "slots": 4,
+    "ideal_slots": 4
+   }
+  },
+  "containers_needed_sorted": 9,
+  "containers_now": 21
+ },
+ "isolated-b": {
+  "groups": {
+   "tools": {
+    "total": 10,
+    "containers": 8,
+    "home": [
+     355,
+     72,
+     152
+    ],
+    "home_share": 0.3,
+    "slots": 10,
+    "ideal_slots": 9
+   },
+   "stone": {
+    "total": 1032,
+    "containers": 15,
+    "home": [
+     352,
+     73,
+     147
+    ],
+    "home_share": 0.25,
+    "slots": 28,
+    "ideal_slots": 18
+   },
+   "wood": {
+    "total": 880,
+    "containers": 18,
+    "home": [
+     353,
+     72,
+     148
+    ],
+    "home_share": 0.16,
+    "slots": 59,
+    "ideal_slots": 16
+   },
+   "fuel": {
+    "total": 354,
+    "containers": 14,
+    "home": [
+     360,
+     72,
+     149
+    ],
+    "home_share": 0.23,
+    "slots": 15,
+    "ideal_slots": 6
+   },
+   "metal": {
+    "total": 1158,
+    "containers": 18,
+    "home": [
+     360,
+     72,
+     149
+    ],
+    "home_share": 0.15,
+    "slots": 76,
+    "ideal_slots": 21
+   },
+   "farm": {
+    "total": 180,
+    "containers": 6,
+    "home": [
+     353,
+     72,
+     148
+    ],
+    "home_share": 0.39,
+    "slots": 9,
+    "ideal_slots": 7
+   },
+   "misc": {
+    "total": 7,
+    "containers": 3,
+    "home": [
+     357,
+     72,
+     149
+    ],
+    "home_share": 0.71,
+    "slots": 4,
+    "ideal_slots": 4
+   },
+   "valuable": {
+    "total": 64,
+    "containers": 4,
+    "home": [
+     354,
+     72,
+     148
+    ],
+    "home_share": 0.64,
+    "slots": 5,
+    "ideal_slots": 3
+   },
+   "build": {
+    "total": 84,
+    "containers": 5,
+    "home": [
+     357,
+     72,
+     145
+    ],
+    "home_share": 0.86,
+    "slots": 6,
+    "ideal_slots": 5
+   }
+  },
+  "containers_needed_sorted": 9,
+  "containers_now": 20
+ },
+ "isolated-c": {
+  "groups": {
+   "wood": {
+    "total": 1387,
+    "containers": 16,
+    "home": [
+     342,
+     65,
+     180
+    ],
+    "home_share": 0.18,
+    "slots": 54,
+    "ideal_slots": 24
+   },
+   "metal": {
+    "total": 1263,
+    "containers": 16,
+    "home": [
+     354,
+     72,
+     146
+    ],
+    "home_share": 0.19,
+    "slots": 75,
+    "ideal_slots": 23
+   },
+   "fuel": {
+    "total": 394,
+    "containers": 12,
+    "home": [
+     355,
+     72,
+     147
+    ],
+    "home_share": 0.25,
+    "slots": 15,
+    "ideal_slots": 7
+   },
+   "stone": {
+    "total": 878,
+    "containers": 10,
+    "home": [
+     357,
+     72,
+     147
+    ],
+    "home_share": 0.33,
+    "slots": 24,
+    "ideal_slots": 15
+   },
+   "tools": {
+    "total": 12,
+    "containers": 5,
+    "home": [
+     357,
+     72,
+     147
+    ],
+    "home_share": 0.33,
+    "slots": 11,
+    "ideal_slots": 11
+   },
+   "farm": {
+    "total": 133,
+    "containers": 6,
+    "home": [
+     353,
+     72,
+     149
+    ],
+    "home_share": 0.64,
+    "slots": 12,
+    "ideal_slots": 6
+   },
+   "build": {
+    "total": 88,
+    "containers": 6,
+    "home": [
+     354,
+     72,
+     147
+    ],
+    "home_share": 0.73,
+    "slots": 8,
+    "ideal_slots": 5
+   },
+   "misc": {
+    "total": 5,
+    "containers": 2,
+    "home": [
+     354,
+     72,
+     147
+    ],
+    "home_share": 0.8,
+    "slots": 2,
+    "ideal_slots": 2
+   },
+   "valuable": {
+    "total": 59,
+    "containers": 6,
+    "home": [
+     356,
+     72,
+     150
+    ],
+    "home_share": 0.36,
+    "slots": 6,
+    "ideal_slots": 3
+   }
+  },
+  "containers_needed_sorted": 9,
+  "containers_now": 17
+ },
+ "isolated-d": {
+  "groups": {
+   "metal": {
+    "total": 1398,
+    "containers": 13,
+    "home": [
+     353,
+     72,
+     147
+    ],
+    "home_share": 0.27,
+    "slots": 71,
+    "ideal_slots": 23
+   },
+   "stone": {
+    "total": 1000,
+    "containers": 10,
+    "home": [
+     353,
+     72,
+     147
+    ],
+    "home_share": 0.38,
+    "slots": 33,
+    "ideal_slots": 18
+   },
+   "tools": {
+    "total": 15,
+    "containers": 9,
+    "home": [
+     356,
+     72,
+     150
+    ],
+    "home_share": 0.2,
+    "slots": 14,
+    "ideal_slots": 14
+   },
+   "wood": {
+    "total": 956,
+    "containers": 13,
+    "home": [
+     354,
+     72,
+     151
+    ],
+    "home_share": 0.15,
+    "slots": 61,
+    "ideal_slots": 19
+   },
+   "misc": {
+    "total": 2,
+    "containers": 1,
+    "home": [
+     353,
+     72,
+     147
+    ],
+    "home_share": 1.0,
+    "slots": 1,
+    "ideal_slots": 1
+   },
+   "fuel": {
+    "total": 326,
+    "containers": 11,
+    "home": [
+     359,
+     72,
+     148
+    ],
+    "home_share": 0.22,
+    "slots": 12,
+    "ideal_slots": 6
+   },
+   "valuable": {
+    "total": 22,
+    "containers": 2,
+    "home": [
+     354,
+     72,
+     151
+    ],
+    "home_share": 0.55,
+    "slots": 2,
+    "ideal_slots": 2
+   },
+   "farm": {
+    "total": 107,
+    "containers": 6,
+    "home": [
+     354,
+     72,
+     147
+    ],
+    "home_share": 0.6,
+    "slots": 7,
+    "ideal_slots": 3
+   },
+   "build": {
+    "total": 81,
+    "containers": 3,
+    "home": [
+     354,
+     72,
+     147
+    ],
+    "home_share": 0.88,
+    "slots": 6,
+    "ideal_slots": 5
+   }
+  },
+  "containers_needed_sorted": 9,
+  "containers_now": 13
+ },
+ "placebo-a": {
+  "groups": {
+   "wood": {
+    "total": 501,
+    "containers": 11,
+    "home": [
+     245,
+     74,
+     -143
+    ],
+    "home_share": 0.23,
+    "slots": 21,
+    "ideal_slots": 9
+   },
+   "stone": {
+    "total": 1000,
+    "containers": 12,
+    "home": [
+     245,
+     74,
+     -143
+    ],
+    "home_share": 0.36,
+    "slots": 35,
+    "ideal_slots": 17
+   },
+   "tools": {
+    "total": 12,
+    "containers": 7,
+    "home": [
+     245,
+     74,
+     -143
+    ],
+    "home_share": 0.25,
+    "slots": 12,
+    "ideal_slots": 12
+   },
+   "metal": {
+    "total": 487,
+    "containers": 16,
+    "home": [
+     245,
+     74,
+     -143
+    ],
+    "home_share": 0.14,
+    "slots": 37,
+    "ideal_slots": 10
+   },
+   "fuel": {
+    "total": 179,
+    "containers": 13,
+    "home": [
+     247,
+     74,
+     -142
+    ],
+    "home_share": 0.23,
+    "slots": 13,
+    "ideal_slots": 3
+   },
+   "build": {
+    "total": 64,
+    "containers": 1,
+    "home": [
+     248,
+     74,
+     -144
+    ],
+    "home_share": 1.0,
+    "slots": 1,
+    "ideal_slots": 1
+   },
+   "valuable": {
+    "total": 64,
+    "containers": 5,
+    "home": [
+     248,
+     74,
+     -142
+    ],
+    "home_share": 0.55,
+    "slots": 8,
+    "ideal_slots": 4
+   },
+   "farm": {
+    "total": 24,
+    "containers": 1,
+    "home": [
+     253,
+     74,
+     -148
+    ],
+    "home_share": 1.0,
+    "slots": 1,
+    "ideal_slots": 1
+   }
+  },
+  "containers_needed_sorted": 8,
+  "containers_now": 17
+ },
+ "placebo-b": {
+  "groups": {
+   "wood": {
+    "total": 900,
+    "containers": 13,
+    "home": [
+     293,
+     63,
+     -376
+    ],
+    "home_share": 0.37,
+    "slots": 42,
+    "ideal_slots": 17
+   },
+   "stone": {
+    "total": 969,
+    "containers": 6,
+    "home": [
+     283,
+     64,
+     -388
+    ],
+    "home_share": 0.27,
+    "slots": 23,
+    "ideal_slots": 16
+   },
+   "metal": {
+    "total": 767,
+    "containers": 21,
+    "home": [
+     283,
+     64,
+     -388
+    ],
+    "home_share": 0.24,
+    "slots": 65,
+    "ideal_slots": 14
+   },
+   "tools": {
+    "total": 23,
+    "containers": 10,
+    "home": [
+     285,
+     65,
+     -387
+    ],
+    "home_share": 0.26,
+    "slots": 23,
+    "ideal_slots": 23
+   },
+   "fuel": {
+    "total": 268,
+    "containers": 13,
+    "home": [
+     282,
+     64,
+     -388
+    ],
+    "home_share": 0.19,
+    "slots": 13,
+    "ideal_slots": 5
+   },
+   "valuable": {
+    "total": 78,
+    "containers": 7,
+    "home": [
+     291,
+     62,
+     -376
+    ],
+    "home_share": 0.32,
+    "slots": 8,
+    "ideal_slots": 3
+   },
+   "build": {
+    "total": 64,
+    "containers": 1,
+    "home": [
+     281,
+     64,
+     -388
+    ],
+    "home_share": 1.0,
+    "slots": 1,
+    "ideal_slots": 1
+   }
+  },
+  "containers_needed_sorted": 7,
+  "containers_now": 23
+ },
+ "placebo-c": {
+  "groups": {
+   "wood": {
+    "total": 1563,
+    "containers": 17,
+    "home": [
+     358,
+     72,
+     145
+    ],
+    "home_share": 0.21,
+    "slots": 58,
+    "ideal_slots": 28
+   },
+   "metal": {
+    "total": 855,
+    "containers": 23,
+    "home": [
+     356,
+     72,
+     147
+    ],
+    "home_share": 0.2,
+    "slots": 60,
+    "ideal_slots": 16
+   },
+   "stone": {
+    "total": 915,
+    "containers": 8,
+    "home": [
+     356,
+     72,
+     150
+    ],
+    "home_share": 0.26,
+    "slots": 23,
+    "ideal_slots": 15
+   },
+   "tools": {
+    "total": 17,
+    "containers": 12,
+    "home": [
+     353,
+     72,
+     144
+    ],
+    "home_share": 0.24,
+    "slots": 16,
+    "ideal_slots": 16
+   },
+   "fuel": {
+    "total": 189,
+    "containers": 10,
+    "home": [
+     358,
+     72,
+     145
+    ],
+    "home_share": 0.26,
+    "slots": 10,
+    "ideal_slots": 3
+   },
+   "build": {
+    "total": 90,
+    "containers": 6,
+    "home": [
+     354,
+     72,
+     147
+    ],
+    "home_share": 0.71,
+    "slots": 8,
+    "ideal_slots": 5
+   },
+   "misc": {
+    "total": 25,
+    "containers": 6,
+    "home": [
+     358,
+     72,
+     145
+    ],
+    "home_share": 0.52,
+    "slots": 10,
+    "ideal_slots": 7
+   },
+   "farm": {
+    "total": 102,
+    "containers": 6,
+    "home": [
+     354,
+     72,
+     147
+    ],
+    "home_share": 0.63,
+    "slots": 6,
+    "ideal_slots": 4
+   },
+   "valuable": {
+    "total": 58,
+    "containers": 5,
+    "home": [
+     355,
+     72,
+     144
+    ],
+    "home_share": 0.34,
+    "slots": 5,
+    "ideal_slots": 1
+   }
+  },
+  "containers_needed_sorted": 10,
+  "containers_now": 28
+ },
+ "placebo-d": {
+  "groups": {
+   "wood": {
+    "total": 472,
+    "containers": 11,
+    "home": [
+     136,
+     66,
+     77
+    ],
+    "home_share": 0.27,
+    "slots": 22,
+    "ideal_slots": 9
+   },
+   "metal": {
+    "total": 859,
+    "containers": 15,
+    "home": [
+     136,
+     68,
+     77
+    ],
+    "home_share": 0.13,
+    "slots": 38,
+    "ideal_slots": 15
+   },
+   "stone": {
+    "total": 1256,
+    "containers": 9,
+    "home": [
+     176,
+     74,
+     74
+    ],
+    "home_share": 0.32,
+    "slots": 26,
+    "ideal_slots": 21
+   },
+   "tools": {
+    "total": 10,
+    "containers": 5,
+    "home": [
+     136,
+     68,
+     77
+    ],
+    "home_share": 0.5,
+    "slots": 10,
+    "ideal_slots": 10
+   },
+   "valuable": {
+    "total": 187,
+    "containers": 8,
+    "home": [
+     177,
+     74,
+     73
+    ],
+    "home_share": 0.34,
+    "slots": 10,
+    "ideal_slots": 3
+   },
+   "fuel": {
+    "total": 321,
+    "containers": 10,
+    "home": [
+     176,
+     74,
+     74
+    ],
+    "home_share": 0.35,
+    "slots": 12,
+    "ideal_slots": 6
+   },
+   "build": {
+    "total": 64,
+    "containers": 1,
+    "home": [
+     176,
+     74,
+     73
+    ],
+    "home_share": 1.0,
+    "slots": 1,
+    "ideal_slots": 1
+   }
+  },
+  "containers_needed_sorted": 7,
+  "containers_now": 15
+ }
+}

@@ -1,0 +1,27 @@
+import json, glob, collections
+print("world rows pos bots placed_h town_h town% heat_in4 heat_in8 heat_in16 heat_box")
+agg = collections.defaultdict(list)
+out = {}
+for p in sorted(glob.glob('wk/walk-*.json')):
+    d = json.load(open(p)); w = d['world']
+    heat = {tuple(map(int, k.split(','))): v for k, v in d['heat'].items()}
+    def within(r): return sum(v for (cx, cz), v in heat.items() if max(abs(cx * 4 + 2 - 48), abs(cz * 4 + 2 - 48)) <= r)
+    ht = sum(heat.values())
+    row = [d['rows'], d['rows_with_pos'], d['bots'], d['placed_h'], d['town_h'], round(100 * d['town_h'] / d['placed_h'], 1),
+           round(within(4) / 3600, 1), round(within(8) / 3600, 1), round(within(16) / 3600, 1), round(ht / 3600, 1)]
+    out[w] = row
+    print(w, *row)
+    for k, v in d['chores'].items(): agg[k].append((w, v))
+print()
+summ = {}
+for k, lst in agg.items():
+    n = sum(v['n'] for w, v in lst); st = collections.Counter()
+    for w, v in lst: st.update(v['status'])
+    it = sum(v['in_town'] for w, v in lst)
+    wm = sorted(v['walk_med'] for w, v in lst if v['walk_med'] is not None)
+    dm = sorted(v['d_home_med'] for w, v in lst if v['d_home_med'] is not None)
+    msh = sum(v['ms_sum_h'] for w, v in lst); mss = sum(v['ms_sum_h_success'] for w, v in lst)
+    summ[k] = dict(n=n, status=dict(st), in_town=it, walk_med_of_towns=wm[len(wm) // 2] if wm else None, walk_range=(wm[0], wm[-1]) if wm else None,
+                   d_home_med=dm[len(dm) // 2] if dm else None, bot_h=round(msh, 1), success_bot_h=round(mss, 1))
+    print(k, summ[k])
+json.dump({'towns': out, 'chores': summ}, open('walk-summary.json', 'w'), indent=1)

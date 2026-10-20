@@ -1,0 +1,54 @@
+"""analyse.py: per-town as-is numbers from the region census (tm/*.json) + the goal census summary + the bots' records."""
+import json, glob, os, collections, math
+ov = json.load(open('overlays.json'))
+cs = json.load(open('census-summary.json'))
+rows = {}
+for p in sorted(glob.glob('tm/*.json')):
+    r = json.load(open(p)); w = r['world']; hx, hy, hz = r['home']
+    near = lambda q: abs(q['p'][1] - hy) <= 12
+    cheb = lambda q: max(abs(q['p'][0] - hx), abs(q['p'][2] - hz))
+    P = [q for q in r['pois'] if near(q)]
+    chests = [q for q in P if q['n'] in ('chest', 'trapped_chest', 'barrel')]
+    blocked = [q for q in chests if q.get('lid_blocked')]
+    doubles = sum(1 for q in chests if q.get('type') in ('left', 'right')) // 2
+    tables = [q for q in P if q['n'] == 'crafting_table']
+    furn = [q for q in P if q['n'] in ('furnace', 'blast_furnace', 'smoker')]
+    torches = [q for q in P if q['n'] in ('torch', 'wall_torch', 'lantern')]
+    sap = [q for q in r['pois'] if q['n'].endswith('_sapling') and near(q)]
+    beds = [q for q in P if q['n'].endswith('_bed')]
+    # container spread: bounding box and mean pairwise distance
+    cpos = [q['p'] for q in chests]
+    spread = max((max(abs(a[0] - b[0]), abs(a[2] - b[2])) for a in cpos for b in cpos), default=0)
+    tables16 = sum(1 for q in tables if cheb(q) <= 16)
+    furn16 = sum(1 for q in furn if cheb(q) <= 16)
+    # nearest table/furnace to home
+    nt = min((cheb(q) for q in tables), default=None); nf = min((cheb(q) for q in furn), default=None)
+    # surface: water/lava cells and the y spread inside 16 and in the 22-44 band
+    top, topy = r['top'], r['topy']; R = 48
+    inner = [(topy[z][x], top[z][x]) for z in range(97) for x in range(97) if max(abs(x - R), abs(z - R)) <= 16 and top[z][x]]
+    band = [(topy[z][x], top[z][x]) for z in range(97) for x in range(97) if 22 <= max(abs(x - R), abs(z - R)) and math.hypot(x - R, z - R) <= 44 and top[z][x]]
+    def frac(cells, pred): return round(100 * sum(1 for y, n in cells if pred(n, y)) / max(1, len(cells)), 1)
+    o = ov.get(w, {})
+    rows[w] = {
+        'containers': len(chests), 'census_containers': cs['towns'][w]['containers'], 'double_pairs': doubles,
+        'lid_blocked': len(blocked), 'lid_blockers': dict(collections.Counter(q.get('above') for q in blocked)),
+        'container_spread': spread, 'tables_near': len(tables), 'tables_in16': tables16, 'tables_deep': r['deep_counts'].get('crafting_table', 0),
+        'nearest_table': nt, 'furnaces_near': len(furn), 'furnaces_in16': furn16, 'furnaces_deep': sum(r['deep_counts'].get(k, 0) for k in ('furnace', 'blast_furnace', 'smoker')),
+        'nearest_furnace': nf, 'torches_near': len(torches), 'saplings_near': len(sap), 'beds': len(beds),
+        'dirt_path': r['near_counts'].get('dirt_path', 0), 'farmland': r['near_counts'].get('farmland', 0),
+        'frames': len(r['frames']), 'entities': sum(r['entities'].values()), 'cows': r['entities'].get('minecraft:cow', 0),
+        'inner_water_pct': frac(inner, lambda n, y: 'water' in n), 'inner_y_range': [min(y for y, n in inner), max(y for y, n in inner)],
+        'band_water_pct': frac(band, lambda n, y: 'water' in n or 'lava' in n), 'band_tree_pct': frac(band, lambda n, y: 'leaves' in n or '_log' in n or 'bamboo' in n),
+        'band_flat_pct': frac(band, lambda n, y: abs(y - hy) <= 3),
+        'inner_cobble_pct': frac(inner, lambda n, y: 'cobble' in n), 'inner_grey_pct': frac(inner, lambda n, y: n in ('stone', 'andesite', 'diorite', 'granite', 'cobblestone', 'gravel', 'tuff', 'cobbled_deepslate')),
+        'wells': len(o.get('well_caps', [])) , 'farm_cells': len(o.get('farm', [])),
+        'surface_y': r['surface_y'],
+    }
+json.dump(rows, open('asis.json', 'w'), indent=1)
+keys = ['containers', 'census_containers', 'double_pairs', 'lid_blocked', 'container_spread', 'tables_near', 'tables_in16', 'tables_deep', 'nearest_table',
+        'furnaces_near', 'furnaces_in16', 'furnaces_deep', 'torches_near', 'saplings_near', 'dirt_path', 'frames', 'entities', 'cows',
+        'inner_water_pct', 'band_water_pct', 'band_tree_pct', 'band_flat_pct', 'inner_grey_pct', 'wells', 'farm_cells']
+print('town', *keys)
+for w, v in rows.items(): print(w, *[v[k] for k in keys], v['lid_blockers'])
+tot = {k: sum(v[k] for v in rows.values()) for k in ('containers', 'lid_blocked', 'tables_near', 'tables_deep', 'furnaces_near', 'furnaces_deep', 'frames', 'entities', 'double_pairs', 'torches_near')}
+print('TOTAL', tot)

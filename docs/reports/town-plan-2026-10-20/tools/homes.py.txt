@@ -1,0 +1,31 @@
+"""homes.py <census-goal.json>: the 'home container per group' a v1 sorted deposit would pick today (the container holding the
+most of the group), the share of the group already in it, and the number of containers a fully sorted town would need."""
+import json, sys, math, collections
+sys.argv, cg = sys.argv[:1], sys.argv[1]
+exec(open('census_summary.py').read().split('def main')[0])
+d = json.load(open(cg))
+out = {}
+for w, v in sorted(d['worlds'].items()):
+    by_group = collections.defaultdict(collections.Counter)    # group -> container -> items
+    slots = collections.defaultdict(collections.Counter)
+    for c in v['containers']:
+        k = tuple(c['pos'])
+        for it in c['items']:
+            g = group_of(it['id']); by_group[g][k] += it['count']; slots[g][k] += 1
+    t = {}
+    need = 0
+    for g, cnt in by_group.items():
+        tot = sum(cnt.values()); top, n = cnt.most_common(1)[0]
+        used = sum(slots[g].values())
+        # containers a sorted town needs for this group: ideal slots / 27
+        ideal = 0
+        items = collections.Counter()
+        for c in v['containers']:
+            for it in c['items']:
+                if group_of(it['id']) == g: items[it['id']] += it['count']
+        ideal = sum(math.ceil(n_ / max_stack(i)) for i, n_ in items.items())
+        need += math.ceil(ideal / 27)
+        t[g] = {'total': tot, 'containers': len(cnt), 'home': list(top), 'home_share': round(n / tot, 2), 'slots': used, 'ideal_slots': ideal}
+    out[w] = {'groups': t, 'containers_needed_sorted': need, 'containers_now': len(v['containers'])}
+    print(w, 'now', len(v['containers']), 'sorted-need', need, {g: (x['containers'], x['home_share']) for g, x in sorted(t.items())})
+json.dump(out, open('homes.json', 'w'), indent=1)

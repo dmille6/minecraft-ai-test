@@ -1,0 +1,9 @@
+import json
+o = json.load(open('overlays.json')); c = json.load(open('census-summary.json'))
+worlds = {w: t['home'] for w, t in c['towns'].items()}
+ov = {}
+for w, x in o.items():
+    caps = [list(a) for a in {tuple(p) for p in x['well_caps'] + [n['at'] for n in x['natural_wells']]}]
+    ov[w] = {'well_caps': caps, 'well_cells': x['well_cells'], 'farm': x['farm']}
+json.dump(worlds, open('worlds.json', 'w')); json.dump(ov, open('tm-overlays.json', 'w'))
+print(worlds)

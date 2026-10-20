@@ -1,0 +1,98 @@
+#!/usr/bin/env python3
+"""census_summary.py <census-goal.json> -> JSON on stdout. READ-ONLY over the 00:15Z goal census (10.0.0.30).
+
+Per town: containers (chest halves and barrels as the census lists them), slots used / capacity, item kinds per
+container, item groups per container, how many containers hold each key item and the most any ONE holds, partial
+stacks and the slots a perfect consolidation would free. Groups are the town-plan's (docs/reports/town-plan-2026-10-20.md).
+"""
+import json, sys, math, collections, re
+
+GROUPS = [
+    ('stone',    re.compile(r'^(cobblestone|cobbled_deepslate|stone|andesite|diorite|granite|tuff|deepslate|blackstone|calcite|smooth_stone|stone_bricks|.*_bricks?|sandstone|red_sandstone)$')),
+    ('wood',     re.compile(r'^(.*_log|.*_wood|.*_planks|stick|.*_stem|bamboo_block|.*_slab|.*_stairs|.*_fence|.*_door|.*_trapdoor)$')),
+    ('metal',    re.compile(r'^(raw_iron|iron_ingot|iron_nugget|iron_ore|deepslate_iron_ore|raw_copper|copper_ingot|copper_block|cut_copper.*|.*copper.*|raw_gold|gold_ingot|gold_nugget|iron_block|iron_bars)$')),
+    ('fuel',     re.compile(r'^(coal|charcoal|coal_block|coal_ore|deepslate_coal_ore)$')),
+    ('valuable', re.compile(r'^(diamond|emerald|lapis_lazuli|redstone|amethyst_shard|quartz|diamond_ore|.*_ore)$')),
+    ('tools',    re.compile(r'^(.*_(pickaxe|axe|shovel|hoe|sword)|bucket|water_bucket|shears|flint_and_steel|fishing_rod|bow|crossbow|shield)$')),
+    ('farm',     re.compile(r'^(.*_sapling|.*_seeds|wheat|bone_meal|bone|apple|carrot|potato|beetroot|sugar_cane|bamboo|cactus|melon_slice|pumpkin|kelp|.*_mushroom|sweet_berries|glow_berries|cocoa_beans|.*propagule|azalea|flowering_azalea|moss_block|.*leaves)$')),
+    ('earth',    re.compile(r'^(dirt|coarse_dirt|rooted_dirt|gravel|sand|red_sand|clay_ball|clay|flint|mud|grass_block|podzol|snowball|ice|packed_ice)$')),
+    ('build',    re.compile(r'^(torch|ladder|crafting_table|furnace|chest|barrel|composter|glass.*|.*_wool|.*_carpet|lantern)$')),
+]
+def group_of(name):
+    for g, rx in GROUPS:
+        if rx.match(name): return g
+    return 'misc'
+
+UNSTACK = re.compile(r'_(pickaxe|axe|shovel|hoe|sword|helmet|chestplate|leggings|boots)$|^(bow|crossbow|shield|shears|flint_and_steel|fishing_rod|water_bucket|lava_bucket|milk_bucket)$')
+STACK16 = re.compile(r'^(egg|brown_egg|blue_egg|snowball|ender_pearl|bucket|.*_sign|armor_stand|honey_bottle)$')
+def max_stack(name):
+    if UNSTACK.search(name): return 1
+    if STACK16.match(name): return 16
+    return 64
+
+KEY = ['iron_ingot', 'raw_iron', 'coal', 'copper_ingot', 'raw_copper', 'cobblestone', 'oak_log', 'stick', 'oak_planks', 'torch',
+       'stone_pickaxe', 'iron_pickaxe', 'dirt', 'wheat_seeds', 'oak_sapling', 'bone_meal']
+
+def med(xs):
+    xs = sorted(xs)
+    if not xs: return None
+    n = len(xs); return xs[n // 2] if n % 2 else (xs[n // 2 - 1] + xs[n // 2]) / 2
+
+def main(path):
+    d = json.load(open(path))
+    out = {'source': path, 'started_utc': d.get('started_utc'), 'towns': {}}
+    fleet = collections.Counter()
+    for w, v in sorted(d['worlds'].items()):
+        home = v['home']
+        cs = v['containers']
+        per_kinds, per_groups, dist = [], [], []
+        used = 0
+        holders = collections.defaultdict(list)          # item -> [count in each container holding it]
+        slots_by_item = collections.Counter(); total_by_item = collections.Counter()
+        partial = 0
+        grp_slots = collections.Counter()
+        for c in cs:
+            items = c['items']
+            used += len(items)
+            ids = collections.Counter()
+            for it in items:
+                ids[it['id']] += it['count']
+                slots_by_item[it['id']] += 1; total_by_item[it['id']] += it['count']
+                if it['count'] < max_stack(it['id']): partial += 1
+                grp_slots[group_of(it['id'])] += 1
+                fleet[it['id']] += it['count']
+            per_kinds.append(len(ids))
+            per_groups.append(len({group_of(k) for k in ids}))
+            for k, n in ids.items(): holders[k].append(n)
+            x, y, z = c['pos']
+            dist.append(max(abs(x - home[0]), abs(z - home[2])))
+        cap = 27 * len(cs)
+        ideal = sum(math.ceil(total_by_item[k] / max_stack(k)) for k in total_by_item)
+        key = {}
+        for k in KEY:
+            h = holders.get(k, [])
+            key[k] = {'containers': len(h), 'total': sum(h), 'max_one': max(h) if h else 0,
+                      'median_held': med(h)}
+        out['towns'][w] = {
+            'home': home, 'containers': len(cs), 'kinds': v.get('kinds'), 'slots_used': used, 'capacity': cap,
+            'fill_pct': round(100 * used / cap, 1) if cap else None,
+            'kinds_per_container_median': med(per_kinds), 'kinds_per_container_max': max(per_kinds) if per_kinds else 0,
+            'groups_per_container_median': med(per_groups),
+            'containers_with_3plus_groups': sum(1 for g in per_groups if g >= 3),
+            'empty_containers': sum(1 for c in cs if not c['items']),
+            'distinct_items': len(total_by_item),
+            'partial_stacks': partial, 'ideal_slots': ideal, 'slots_freed_by_consolidation': used - ideal,
+            'cheb_from_home': {'min': min(dist) if dist else None, 'median': med(dist), 'max': max(dist) if dist else None,
+                               'within_8': sum(1 for x in dist if x <= 8), 'within_16': sum(1 for x in dist if x <= 16)},
+            'slots_by_group': dict(grp_slots.most_common()),
+            'key_items': key,
+        }
+    out['fleet_distinct_items'] = len(fleet)
+    out['fleet_items'] = sum(fleet.values())
+    out['fleet_top'] = fleet.most_common(40)
+    out['groups_seen'] = sorted({group_of(k) for k in fleet})
+    out['misc_items'] = sorted(k for k in fleet if group_of(k) == 'misc')
+    json.dump(out, sys.stdout, indent=1)
+
+if __name__ == '__main__':
+    main(sys.argv[1])

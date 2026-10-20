@@ -1,0 +1,60 @@
+{
+ "bots": 80,
+ "held": {
+  "crafting_table": 178,
+  "furnace": 87,
+  "chest": 638,
+  "barrel": 0,
+  "composter": 0,
+  "torch": 671,
+  "leather": 6,
+  "item_frame": 0,
+  "oak_sign": 0,
+  "stick": 306,
+  "oak_planks": 117,
+  "oak_log": 5191,
+  "cobblestone": 21366,
+  "iron_ingot": 137,
+  "coal": 51,
+  "copper_ingot": 32
+ },
+ "carriers": {
+  "furnace": 75,
+  "chest": 67,
+  "torch": 68,
+  "stick": 50,
+  "oak_log": 73,
+  "crafting_table": 75,
+  "oak_planks": 45,
+  "cobblestone": 77,
+  "iron_ingot": 51,
+  "coal": 18,
+  "copper_ingot": 2,
+  "leather": 3
+ },
+ "max_one_bot": {
+  "crafting_table": 24,
+  "furnace": 2,
+  "chest": 42,
+  "barrel": 0,
+  "composter": 0,
+  "torch": 129,
+  "leather": 3,
+  "item_frame": 0,
+  "oak_sign": 0,
+  "stick": 48,
+  "oak_planks": 14,
+  "oak_log": 262,
+  "cobblestone": 1054,
+  "iron_ingot": 4,
+  "coal": 7,
+  "copper_ingot": 24
+ },
+ "bags_ge_2_tables": 31,
+ "bags_ge_2_furnaces": 12,
+ "distinct_names_per_bag_median": 25,
+ "caveats": [
+  "after 2026-10-14T18:46:00Z completeness is assumed, not reconciled: an unclean filebeat restart re-sends (as on 10-07) and an unmapped field (llm.brain) rejects whole docs -- check the filebeat dropped counter (scripts/host/escheck/fbjournal.py).",
+  "window ends within 240 s of now: ingest lag (median ~6 s, max ~3 min observed) can leave the newest minutes short."
+ ]
+}
