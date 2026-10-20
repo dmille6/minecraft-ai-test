@@ -51,6 +51,44 @@ def load_tiles(rcon, x0, z0, x1, z1, on=True):
                 raise RuntimeError(f'forceload {verb} {bx0} {bz0} {bx1} {bz1} refused: {out!r}')
 
 
+def surface_top(rcon, x, z, hi=200, lo=-64, step=8):
+    """The FIRST non-air block scanning DOWN from the sky (coarse steps, then a binary search inside the last step).
+    place-town's surface_y() binary-searches the whole column, which assumes air above / solid below; in 1.21 terrain
+    with large caves it converges inside a cave a fifth to a third of the time (seed trial 10-20: 0,16 read y=-2 beside
+    y=78, 20-90 of 289 columns per candidate). Scanning from above cannot enter a cave before it meets the surface.
+    Unknown (unloaded) still RAISES through Probe.require."""
+    air = lambda y: pt.matches(rcon, x, y, z, 'minecraft:air').require(f'air at {x},{y},{z}')
+    if not air(hi):
+        return hi
+    y = hi
+    while y - step > lo and air(y - step):
+        y -= step
+    top_air, below = y, max(lo, y - step)          # air at top_air; the first non-air is in (below, top_air)
+    if air(below):
+        return lo
+    a, b = below, top_air                          # non-air at a, air at b
+    while b - a > 1:
+        m = (a + b) // 2
+        if air(m):
+            b = m
+        else:
+            a = m
+    return a
+
+
+def column_top(rcon, x, z):
+    """(y, kind) at the sky-facing surface: solid | water | canopy | void (place-town's kinds)."""
+    y = surface_top(rcon, x, z)
+    if y <= -63:
+        return y, 'void'
+    is_ = lambda spec: pt.matches(rcon, x, y, z, spec).require(f'{spec} at {x},{y},{z}')
+    if is_('minecraft:water') or is_('minecraft:ice'):
+        return y, 'water'
+    if is_('#minecraft:leaves') or is_('#minecraft:logs'):
+        return y, 'canopy'
+    return y, 'solid'
+
+
 def retry(fn, tries=360, wait=1.0):
     """Probe until the chunk answers (generation is asynchronous; `forceload add` returns when QUEUED)."""
     for i in range(tries):
@@ -74,7 +112,7 @@ def score(rcon, cx, cz):
         cols = []
         for dx in range(-HALF, HALF + 1, GRID):
             for dz in range(-HALF, HALF + 1, GRID):
-                y, kind = retry(lambda: pt.column(rcon, cx + dx, cz + dz))
+                y, kind = retry(lambda: column_top(rcon, cx + dx, cz + dz))
                 cols.append((dx, dz, y, kind))
         core = [c for c in cols if abs(c[0]) <= CORE and abs(c[1]) <= CORE]
         # place-town's surface_y is a binary search that assumes air above / solid below; a column over a CAVE can
@@ -95,7 +133,7 @@ def score(rcon, cx, cz):
         wood = 0
         for r in WOOD_R:
             for ox, oz in pt._ring(r, n=16):
-                y = retry(lambda: pt.surface_y(rcon, cx + ox, cz + oz))
+                y = retry(lambda: surface_top(rcon, cx + ox, cz + oz))
                 if any(retry(lambda: pt.matches(rcon, cx + ox, y, cz + oz, s).require('wood'))
                        for s in ('#minecraft:logs', '#minecraft:leaves')):
                     wood += 1
@@ -103,7 +141,7 @@ def score(rcon, cx, cz):
         water = []
         for r in WATER_R:
             for ox, oz in pt._ring(r, n=32):
-                y, kind = retry(lambda: pt.column(rcon, cx + ox, cz + oz))
+                y, kind = retry(lambda: column_top(rcon, cx + ox, cz + oz))
                 if kind == 'water':
                     water.append([cx + ox, cz + oz, r])
         st['water_hits'] = len(water)
@@ -112,7 +150,7 @@ def score(rcon, cx, cz):
         # controls: a known-no (sky) and a known-yes (re-read a counted solid column)
         sky = retry(lambda: pt.matches(rcon, cx, (st['base_y'] or 64) + 60, cz, 'minecraft:air').require('sky'))
         ref = next((c for c in cols if c[3] == 'solid'), None)
-        again = retry(lambda: pt.column(rcon, cx + ref[0], cz + ref[1])) if ref else None
+        again = retry(lambda: column_top(rcon, cx + ref[0], cz + ref[1])) if ref else None
         st['controls_ok'] = bool(sky) and (again is None or again[1] == 'solid')
         why = []
         if st['area_void']:
