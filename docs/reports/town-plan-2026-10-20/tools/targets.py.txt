@@ -1,0 +1,42 @@
+"""targets.py: for the 24 h deposit and furnace_drain rows, where the bot stood, where the TARGET was, and how far each is
+from home (files, lib/telemetry.Events, one world at a time). Positive control: the success rows of the same kinds are
+parsed by the same regexes where they name a target."""
+import json, math, re, sys, collections
+from lib.telemetry import Events
+worlds = json.load(open('worlds.json'))
+RX_CHEST = re.compile(r'chest at (-?\d+),(-?\d+),(-?\d+)')
+RX_FURN = re.compile(r'furnace at (-?\d+),(-?\d+),(-?\d+)')
+out = collections.defaultdict(list)
+for w, (hx, hy, hz) in worlds.items():
+    ev = Events.load(paths='/var/log/mcai/%s-*/skill-*.jsonl*' % w, since_minutes=1440)
+    for r in ev.rows:
+        if r['name'] not in ('deposit', 'furnace_drain'): continue
+        sk = r['raw'].get('skill') or {}
+        pos = (r['bot'] or {}).get('pos')
+        d = sk.get('detail') or ''
+        m = (RX_CHEST if r['name'] == 'deposit' else RX_FURN).search(d)
+        rec = {'w': w, 'status': sk.get('status'), 'fc': sk.get('fail_class'), 'nopath': 'No path' in d or 'could not be reached' in d,
+               'empty': ' is empty' in d}
+        if pos and 'x' in pos:
+            rec['bot_home'] = round(math.hypot(pos['x'] - hx, pos['z'] - hz), 1); rec['bot_dy'] = round(pos['y'] - hy, 1)
+        if m:
+            x, y, z = map(int, m.groups())
+            rec['tgt_home'] = round(math.hypot(x - hx, z - hz), 1); rec['tgt_dy'] = y - hy
+            rec['tgt_intown'] = rec['tgt_home'] <= 16 and abs(y - hy) <= 12
+            if pos and 'x' in pos: rec['bot_tgt'] = round(math.dist((pos['x'], pos['y'], pos['z']), (x + .5, y + .5, z + .5)), 1)
+        out[r['name']].append(rec)
+def q(xs):
+    xs = sorted(x for x in xs if x is not None)
+    return (xs[len(xs) // 4], xs[len(xs) // 2], xs[3 * len(xs) // 4]) if xs else None
+summ = {}
+for k, recs in out.items():
+    groups = {'all': recs, 'nopath': [r for r in recs if r['nopath']], 'success': [r for r in recs if r['status'] == 'success'],
+              'empty': [r for r in recs if r['empty']]}
+    summ[k] = {}
+    for g, rs in groups.items():
+        named = [r for r in rs if 'tgt_home' in r]
+        summ[k][g] = {'n': len(rs), 'target_named': len(named), 'target_in_town': sum(1 for r in named if r['tgt_intown']),
+                      'target_home_q': q([r['tgt_home'] for r in named]), 'target_dy_q': q([r['tgt_dy'] for r in named]),
+                      'bot_home_q': q([r.get('bot_home') for r in rs]), 'bot_target_q': q([r.get('bot_tgt') for r in named]),
+                      'bot_in_town': sum(1 for r in rs if r.get('bot_home') is not None and r['bot_home'] <= 16 and abs(r['bot_dy']) <= 12)}
+json.dump(summ, sys.stdout, indent=1)

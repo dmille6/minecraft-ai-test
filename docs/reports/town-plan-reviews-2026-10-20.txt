@@ -26,3 +26,97 @@ Findings used: zones by function + a core landmark + minimal terraforming (GDMC)
 (BFS entry); "deposit where it already lives" (copper golem, not available on Paper 1.21.8); idle haulers consolidating
 (RimWorld); no open-source mineflayer project sorts storage by category; frames need leather and consume the shown item;
 torches cannot stand on dirt_path; a chest is blocked only by a conductor directly above (signs/frames are not).
+
+======================================================================================================================
+ROUND 1 (r1 doc, commit 2faa7d79) -- Codex CHANGE, Claude CHANGE
+======================================================================================================================
+--- Codex (codex exec --sandbox read-only), verbatim ---
+VERDICT: CHANGE
+
+1. **P1 — §5 F0–F3; §9: founding does not follow from these redirects.** With no chest, `deposit` returns failure before recovery (`bots/src/skills.mjs:2734`); automatic deposit requires an existing container (`bots/src/towndeposit.mjs:278`). F1’s lighting order is absent from §7.1. Pads may require fill, but no early piece builds it. Add deterministic survey, foundation and first-container orders, with explicit materials, triggers and restart behavior; prove founding from zero infrastructure before starting showcase bots.
+
+2. **P1 — §§4.3, 6.1, 7.2: the required inventory index does not exist.** `cobbleObserve` records `stockCounts` (`skills.mjs:3291`), whose targeted groups exclude iron, copper and coal (`stocktarget.mjs:53`). It cannot select metal/fuel homes or find arbitrary item holders. Move the prior design’s §3.3a counting extension ahead of these readers; define per-item counts, freshness, components, canonical double-chest identity and unknown handling without adding disposal targets.
+
+3. **P1 — §7.2: top-up is not predictable from item name and count.** The existing implementation deliberately uses empty slots because differing components can cause swaps (`towndeposit.mjs:200`). Moreover, `verifyTown` requires destination count equal to the transferred stack (`skills.mjs:7148`), which fails after merging. Specify component-compatible merging, reserved remainder capacity, server-confirmed cursor recovery, partial-transfer accounting and revised verification. Paper must exercise incompatible components, concurrent changes, interruption and no remaining empty slot.
+
+4. **P1 — §§7.3, 8 T2–T3: tidy can strand or dispose of stock.** Town deposit keeps all iron/coal and stockpile reserves (`towndeposit.mjs:110`, `:118`), requires a near-full bag, and respects withdraw holds. Therefore “not kept by any keep rule” is false. Ordinary deposit also cannot reliably return relocated stock above a cap. Add persistent carry notes and a deterministic return order independent of bag fullness, with relocation-specific claims, destination reservation, allowance accounting and restart reconciliation. Test cap refusal and interruption together.
+
+5. **P1 — §§6.1, 7.2–7.3: destination priority preserves scatter.** Step 1 prefers any existing holder—including drain chests—over the designated home. Tidy then uses that same order and can return stock to its source or another drain. Prefer designated compatible homes; exclude the source and drain destinations during tidy. Define progress as increased stock in designated homes or verified slots freed, not merely depositing into an existing holder.
+
+6. **P1 — §§4.1, 4.5, 9: publication is not a complete reservation protocol.** Exclusive `link()` creation does not prevent a stale writer publishing N+2 without N+1’s claim. “Newest generation” and “lower generation wins” need explicit cumulative-history semantics. Specify world-keyed siting leases, predecessor validation/retry, fencing before mutation, immutable built reservations and abandonment. Reconcile `townplan` with the prior `townsites` protocol and require floor/plinth/placement adopters before inner-domain construction. Provide executable survey/re-site outcomes, not merely “next generation.”
+
+7. **P1 — §§3, 7.1, 7.4, 8 B1–B3: the chest-first building needs its own proof.** Recovery currently rejects adjacent chests (`chestfull.mjs:478`), conflicting with the proposed contiguous row. The earlier storehouse required roof-before-containers to preserve sight lines. Specify permitted pairing, canonical group ownership, construction stands and yield geometry with founding chests present. Never journal a newly placed container as EMPTY by assumption: open and observe its actual combined inventory, including adoption, races and crash recovery.
+
+8. **P2 — §1.2: correct the search descriptions.** Model `withdraw` uses `withdrawSweep` and at most three visits (`skills.mjs:10253`, `:10265`), not `townSearchOrder`. Toolkit’s town sweep searches around **home** (`:10144`). Copper-miss filtering applies only when copper was requested (`:11513`), not every coal-only draw. State these distinctions and identify exactly which queued change updates each caller; naming a metal home alone does not make toolkit open it first.
+
+9. **P2 — §§1.1, 4.3, 6.1–6.3: the preview is not the specified planner.** `tools/homes.py.txt:11` includes every census container, independently chooses each group’s maximum, and neither resolves conflicts nor deduplicates doubles. `data/homes.json` assigns board-a’s wood home 43 blocks south, outside `inTown` (`chestfull.mjs:64`). “Containers needed sorted” is then presented as assigned homes. Run the actual canonical allocation over eligible containers and publish coordinates; distinguish census-box totals from usable town storage.
+
+10. **P2 — §§1.5–1.6, 6.1: narrow the measurement claims.** `fit2.py.txt:48` excludes rectangles thinner than three cells, so it cannot establish absence of 5×2 workshops. Top-column reads do not prove supports, access or full construction feasibility. Run the actual predicates with positive fixtures and explicit candidate denominators. Label walk measurements as displacement estimates; they do not establish that travel is unimportant.
+
+11. **P2 — §§7.2, 7.5, 11 O5–O6: causal recommendations exceed evidence.** The 31-block figure is an aggregate endpoint-distance statistic, not the starting distance of the 201 failures. Likewise, 1,306 unsuccessful drains are not proven outside-town targets. Measure start/target positions, failures and retained output by proposed eligibility before recommending either scope change.
+
+12. **P2 — §9; O1: split and preregister the early canaries.** Planner/adoption, four placement paths, merge semantics, increased visit budget and far-deposit routing are not three small fixes. Stage counting, bootstrap placement and routing separately; isolate top-up and far routing. Require exposure per changed branch, baseline-compatible destination-content telemetry, and explicit tier-2 conditions from CLAUDE.md. Forty deposits cannot validate all branches, and destination coordinates alone cannot measure prior contents or conservation.
+
+--- Claude (independent general-purpose subagent), condensed, every finding kept ---
+VERDICT: CHANGE
+1. P1, §5 F2: no code places a town's first chest. Recovery runs only after a first chest failed and anchors on it (skills.mjs:3884; chestfull.mjs:563-566); with zero containers deposit returns nothing_found (skills.mjs:2734-2736) and town_deposit no_effect (skills.mjs:7192). Fix: a named founding action in plotplace-01; Paper empty-world scene.
+2. P1, §0.1/§6.3/§7.2: town_deposit never banks iron or coal (IRON_LADDER, towndeposit.mjs:71), so sortdeposit through town_deposit cannot fill metal/fuel homes. Only deposit (125/day) and smelt_town's copper bank feed them. Fix: say which path moves iron/coal; re-derive or drop the kit_no_iron / no-coal claim.
+3. P1, §6.1 rule 2.1 and §7.2 step 1: the stock journal counts only STOCK_GROUPS (cobblecap.mjs:40-44, stocktarget.mjs:53-75); iron, copper, coal are never targets (stocktarget.mjs:15). Metal/fuel containers are all "unknown". Fix: extend the count record as a counted-only change shipped first, or name homes from a counted open and gate on it.
+4. P1, §1.2/§9/O1: sorting makes smelt_town worse: jobWithdraw takes coal only from a copper container or with copper in hand (skills.mjs:11526-11528); a no-copper container is skipped 2 h (skills.mjs:10136). Toolkit takes sticks only from the iron's container or bag wood (toolkit.mjs:120-122): a metal-only home turns kit_no_iron into kit_no_sticks. Fix: toolkit-03 a hard prerequisite; add both chains to §8.
+5. P1, §7.3 T3, §8 T3/S4: tidy strands stock: town_deposit fires only at 34+ (hygiene.mjs:37), never banks iron/coal, cobblecap/stock targets refuse a re-deposit (dirt/sand/gravel targets 0) and send it to the well; a withdraw hold (skills.mjs:10109) blocks deposit 10 min. Fix: net-zero transfer claim, exempt from cap admission, no withdraw hold; v1 only groups with no cap/target; a tidy-owned return step.
+6. P1, §7.2 top-up: the code deliberately avoids merging (towndeposit.mjs:200-208) and bankInto throws on a loaded cursor (skills.mjs:7130). Fix: top up only with equal components and n <= max - have; otherwise empty slot; Paper mismatch case.
+7. P2, §7.5 W1/O6: furnace_drain is the only path back to a smelt that died between load and drain (smeltjob.mjs:14-18); "1,306 failed" is not evidence of out-of-town targets (822 were "empty"). Fix: measure drain target distance by outcome; keep the 48 drain for furnaces the bot loaded.
+8. P2, §0.2/§7.2/S5/O5: no data shows the 201 No-path deposits targeted chests outside town. Fix: parse "could not reach the chest at x,y,z" and report target distance; make S5 its own canary.
+9. P2, §9: townplan-01 and sortdeposit-01 are new subsystems, not tier-2 small fixes; plotplace-01 will not be exposed at +180 (recovery chests capped 4/day, rare at 31% fill; tables are taken back); 40 stacks needs arithmetic (20 bots ~8-10 deposit visits in 3 h); homed-share DiD needs destination prior contents in control rows. Fix: tier 3 for 1 and 3; ship the row field to control first; gate the showcase on Paper + bench no-harm, not a KEEP.
+10. P2, §4.1/§4.5: "readers take the newest" vs "lower generation wins". Fix: compare-and-swap, prev = N, rebase on failed link, full snapshots; say how plinth/treefarm/Z0 records are reconciled.
+11. P2, §5: groups.homes point at cells with no chest yet; recovery chests appear only when everything is full, so sections fill in order regardless of what is deposited. Fix: place a group's home chest when its first stack arrives, from a carried chest, under the recovery's daily cap.
+12. P2, §5 F0/F1/F3: home is config, not set by a bot; F1 torches are new behaviour; 8 torches need 2 coal + 2 sticks; F3's furnace comes from workshop-01. Fix the "which code" column.
+13. P3, §1.2 "that is how the platform filled up with chests": no count. Fix: count recovery placements.
+14. P3, §1.6: rejections tallied by first rule hit; "chests and beds alone close it" untested. Fix: a chests-and-beds-only mode.
+15. P3, §3/§4.2 example JSON: section cells sit in the wall ring; wall signs occupy the air above a wall-side chest, conflicting with rule (b). Fix: align coordinates; state signs are exempt.
+16. P3, §1.3/§2 wording: a framed item is recoverable, not used up; "54 kinds all map to a group" is true by construction; "no open-source project sorts" needs its search method.
+
+--- Disposition (r2) ---
+Codex 1 / Claude 1, 11, 12 (founding): ACCEPTED. found-01 adds found_store (first container with no town container;
+  a group's home placed when its first stack arrives, from a carried chest/barrel, under the recovery's daily budget)
+  and found_work; Paper FOUND scene from zero infrastructure is the showcase gate (O9). Home is config. Torch recipe
+  fixed (1 coal + 1 stick = 4). Stations come from found-01's found_work (workshop-01 is use + drain scope).
+Codex 2 / Claude 3 (no index of iron/coal): ACCEPTED. New first canary townindex-01 (doc 4.2): full per-name contents of
+  every town container open, canonical double-chest key, known/stale/dirty/unknown, never feeding cap/targets/prune;
+  homes never chosen from unknown entries.
+Codex 3 / Claude 6 (top-up): ACCEPTED by REMOVING top-up from v1. Sorting is by container; slots stay empty-only;
+  verifyTown unchanged. A merge piece later with component equality + exact remainder 0 + Paper mismatch scenes.
+Codex 4 / Claude 5 (tidy strands): ACCEPTED. v1 moves only uncapped/untargeted groups (metal, fuel, valuable, farm,
+  build, misc); carry note before withdraw; no withdraw hold; relocation claim; deposit in the same visit with the noted
+  counts swapped out of the keeps (swapWithdrawHold pattern); tidy_return first at the next town visit at any bag fill.
+Codex 5 (destination order preserves scatter): ACCEPTED. Designated home first; other holders only if not drain;
+  tidy never targets source or drain. Progress = home share per group.
+Codex 6 / Claude 10 (protocol): ACCEPTED. Full snapshots, prev + prevSha chain, link() CAS with rebase, highest valid
+  chain wins, built reservations immutable, project-lease fencing; one file replaces TP townsites; ref'd records stay
+  authoritative and are re-read each generation.
+Codex 7 (chest-first building): ACCEPTED. Containers are barrels (or non-adjacent single chests, recovery's rule);
+  construction with containers present is a stated Paper gate; every placed container is opened and indexed, never
+  assumed empty; signs/frames exempt from rule (b) (not conductors).
+Claude 2 (town_deposit never banks iron/coal): ACCEPTED. Doc 0.6 and 7.2 say which paths feed metal/fuel homes; the
+  kit/coal fix is toolkit-03 + tidy, not sortdeposit.
+Claude 4 (coal-only home copper-missed; metal home without sticks): ACCEPTED. toolkit-03 is a hard prerequisite;
+  dead-end rows K1, K2.
+Codex 8 (search descriptions): ACCEPTED, 1.2 table rewritten with line refs.
+Codex 9 (preview is not the planner): ACCEPTED. homes.py now runs the rule: town containers only (inTown), double
+  chests once (region block-state left/right), fixed group order, conflicts resolved, absent groups get no home,
+  overflow named, coordinates published (data/homes.json). Board-a's 43-block home is gone (3 census containers are
+  outside town).
+Codex 10 / Claude 14 (narrow claims): ACCEPTED. 5x3/5x2/4x2 workshop placements counted directly (13/14/16 towns;
+  data/workshop-fit.json); the 1.6 screen is labelled a screen; walk numbers are labelled displacement; the "chests and
+  beds alone" sentence replaced by what the stations-movable mode actually tested.
+Codex 11 / Claude 7, 8 (causal claims): ACCEPTED and MEASURED (tools/targets.py.txt, data/targets.json): deposit
+  No-path targets were town chests in 149 of 202 named; 0 of 203 bots in town (median 31 out) -> farhome-01, its own
+  tier-2 canary. furnace_drain: 708 of 1,250 named targets outside town; 3 successes in 1,339; drain scope keeps any
+  furnace with a lease record < 24 h within 48 (the died-smelt backstop).
+Codex 12 / Claude 9 (split, tiers, exposure): ACCEPTED. 9 canaries; townplan, found, sortdeposit, tidy, paths,
+  storehouse tier 3; townindex, farhome, workshop tier 2; sortdeposit exposure arithmetic (~7 qualifying visits in 3 h
+  on 20 bots -> >= 40 stacks needs 12-24 h); townindex adds destination + pre-move contents to rows fleet-wide so the
+  DiD has a control arm.
+Claude 13 (platform chests attribution): ACCEPTED and MEASURED: since 10-08 the recovery placed 9 chests (529 of 546
+  rows no_effect); claim withdrawn.
+Claude 15, 16 (example JSON, wording): ACCEPTED.
