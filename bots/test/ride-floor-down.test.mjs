@@ -65,16 +65,18 @@ t('THE WIRING: it hangs off goto, after the pathfinder proved no route', () => {
   // Not a new skill. The model already proposes `goto <the ground>` and is
   // right to; a new verb would add prompt, admission and telemetry surface for
   // a state affecting 3 bots in 80.
-  assert.ok(/rideFloorDown\(bot, \{ signal \}\)/.test(skills),
+  // homefix-01: the call also carries the caller's deadline (`until`)
+  assert.ok(/rideFloorDown\(bot, \{ signal, until \}\)/.test(skills),
     'rideFloorDown is defined and never called — dead code, again')
-  const call = skills.indexOf('rideFloorDown(bot, { signal })')
+  const call = skills.indexOf('rideFloorDown(bot, { signal, until })')
   const retry = skills.indexOf('withDescentMovements')
   assert.ok(retry > 0 && call > retry,
     'the rescue runs before the ordinary descent retry — it must be the LAST rung')
 })
 
 t('THE PRECONDITIONS: a normal bot on a cliff must never reach it', () => {
-  const guard = skills.slice(skills.indexOf('if (!rodeDown'), skills.indexOf('rideFloorDown(bot, { signal })'))
+  const guard = skills.slice(skills.indexOf('if (!rodeDown'), skills.indexOf('rideFloorDown(bot, { signal, until })'))
+  assert.ok(skills.indexOf('rideFloorDown(bot, { signal, until })') > skills.indexOf('if (!rodeDown'), 'the guard window is found')
   assert.ok(/SEA_LEVEL \+ 20/.test(guard), 'no altitude floor — a bot at y=64 could trigger it')
   assert.ok(/health \?\? 20\) >= 18/.test(guard), 'no health gate — 169 of 868 deaths are already falls')
   assert.ok(/!rodeDown/.test(guard), 'not latched — it could loop within one goto')
@@ -440,6 +442,32 @@ t('the telemetry names the free step, or a 16-block ride reads as the bug', () =
                             skills.indexOf("kind: 'ride_floor_down'") + 700)
   assert.ok(/r\.rode/.test(line),
     'the event reports only placed blocks; a free ride is invisible to the arm it happened in')
+})
+
+// --- homefix-01 H4 (Codex code r2 P2): no actuator starts that the caller's budget cannot cover --------------------------
+await ta('H4: a step with less of the caller\'s budget left than its floor dig needs digs nothing and says why', async () => {
+  const { bot, calls } = makeWorld({ pos: new V(0.5, 221, 0.5), blocks: pillar({ top: 220 }), inventory: ['oak_log'] })
+  const r = await rideFloorDown(bot, { maxSteps: 4, until: Date.now() + 100 })
+  assert.strictEqual(calls.dig.length, 0, 'a floor dig started past what the budget covers')
+  assert.match(r.stopped ?? '', /budget cannot cover the floor dig/)
+})
+await ta('H4: over a void, a placement the budget cannot cover is not started either', async () => {
+  const { bot, calls } = makeWorld({ pos: new V(0.5, 221, 0.5), blocks: platform({ top: 220 }), inventory: ['oak_log'] })
+  const r = await rideFloorDown(bot, { maxSteps: 3, until: Date.now() + 3000 })
+  assert.strictEqual(calls.place.length, 0)
+  assert.match(r.stopped ?? '', /budget cannot cover a placement/)
+})
+await ta('H4: with the budget to spare the ride is unchanged (control)', async () => {
+  const { bot } = makeWorld({ pos: new V(0.5, 221, 0.5), blocks: pillar({ top: 220 }), inventory: ['oak_log'] })
+  const r = await rideFloorDown(bot, { maxSteps: 4, until: Date.now() + 600_000 })
+  assert.strictEqual(r.descended, 4, `${r.stopped}`)
+})
+await ta('H4 MUTANT: without the dig-budget check the floor dig starts anyway', async () => {
+  await withMutant("    if (until != null && until - Date.now() < plan.budgetMs + 420) { stopped = 'the caller\\'s budget cannot cover the floor dig'; break }\n", '', async mod => {
+    const { bot, calls } = makeWorld({ pos: new V(0.5, 221, 0.5), blocks: pillar({ top: 220 }), inventory: ['oak_log'] })
+    await mod.rideFloorDown(bot, { maxSteps: 1, until: Date.now() + 100 })
+    assert.ok(calls.dig.length >= 1, 'the mutant digs')
+  })
 })
 
 console.log(`\n  ${pass} passed, ${fail} failed`)
