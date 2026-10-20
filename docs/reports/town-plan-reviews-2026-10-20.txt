@@ -403,3 +403,71 @@ Codex 5 (measurement ids): ACCEPTED. Transfer records carry operation id, pre-st
   branch.
 Codex 6 (unconditional claims): ACCEPTED. S6 and T6 and 7.2 now state the conditions.
 Claude 5 (planks above keeps): ACCEPTED. Claude 6 (walk cost): ACCEPTED, `townplan-<home>.head.json` checkpoint.
+
+======================================================================================================================
+ROUND 5 (r5 doc, commit b4b90795) -- Codex CHANGE (one P2), Claude APPROVE
+======================================================================================================================
+--- Codex, verbatim ---
+VERDICT: CHANGE
+
+Round-4 resolutions (`C` = Codex; `A` = Claude):
+
+- **C1 / A1 — RESOLVED:** explicit release/expiry transitions use immutable file contents, so replay no longer changes with the reader’s clock. The ascending predecessor check still rejects the stale-writer branch.
+- **C2 — RESOLVED:** session identity and death count prohibit automatic recovery after custody breaks; deposit confirmation now requires authoritative bag debit and destination credit. A separate recovery-state gap remains below.
+- **C3 — RESOLVED by deferral:** r5 retains today’s drain scope instead of shipping an incomplete legacy-obligation migration.
+- **C4 — RESOLVED:** table-first allocation removes the partial-annex bootstrap dependency. One-cell storage remains explicitly unplaced; chest crafting can use an available table.
+- **C5 — RESOLVED:** operation, pre-observation, verification and plan-generation IDs replace ambiguous timestamp joins. Branch exposure is reported separately, with an explicit home-branch minimum.
+- **C6 — RESOLVED:** §7.2 and S6/T6 now condition bag relief on capacity and time, and retain protected carries when destinations are full.
+- **A2 — RESOLVED by deferral:** workshop-01 no longer includes obligation clearing or milestone-smelt changes requiring a new re-open and tier-3 validation.
+- **A3 — RESOLVED by deferral:** the seven-day legacy fallback no longer contaminates a proposed scope-narrowing read.
+- **A4 — RESOLVED by deferral:** no new obligation store or recovery-coverage gate claims to cover distant milestone loads.
+- **A5 — RESOLVED:** chest crafting explicitly consumes planks above `PLANKS_MEANS` and wood-stockpile keeps.
+- **A6 — RESOLVED:** the hash-checked head checkpoint bounds routine replay, with full replay on verification failure.
+
+Numbered NEW findings:
+
+1. **P2 — §§7.3, 8 T6: fallback returns are not represented in the persistent recovery protocol.**  
+   After withdrawal, another bot can occupy the recorded destination slot. `tidy_return`’s “carried” row requires that slot to remain empty; an occupied slot instead reaches “any other combination,” permanently marks the note unresolved and pauses town tidy. That contradicts T6’s executable remedy of another home, source or overflow.
+
+   Furthermore, if a fallback transfer starts and is interrupted, the note still identifies the original destination. Returning successfully to another container cannot be reconciled from the recorded source/original-destination/bag triple.
+
+   **Fix:** distinguish an occupied destination from uncertain custody. With authoritative carried quantity and intact custody, choose a legal empty fallback slot and fsync a new return intent containing its container, slot and pre-observation **before clicking**. Reconcile and verify that actual target, including source returns and overflow. Test interruption before and after each fallback click and phase write. Keep genuinely ambiguous states unresolved.
+
+2. **P3 — §7.3: make cursor recovery precede all reconciliation opens.**  
+   The primitive correctly promises `settleCursor`/`holdUnsettled`, but the return paragraph says it “re-opens the source and the destination, settles any cursor.” Existing `townDeposit` explicitly stops without re-opening when settlement is unresolved (`skills.mjs:7236–7248`). Opening another container first would violate that ownership discipline.
+
+   **Fix:** explicitly order recovery as: drain pending clicks, settle the current owned window, hold and stop if unresolved, then perform authoritative reconciliation opens. Include a same-session interrupted return with a loaded cursor.
+
+3. **P3 — §5 FOUND-NOFIT: the partial-annex boundary coverage omits four cells.**  
+   The round-4 requested coverage was each 1–5-cell case; r5 lists 1, 2, 3 and 5. Four cells exercise the remaining table-plus-three-containers allocation.
+
+   **Fix:** add the four-cell empty-bag scene, checking joint access after every listed container is placed.
+
+4. **P3 — §7.5: the summary combines different measurement populations.**  
+   “3 successes in 1,339” comes from `targets.json`’s fleet sample. “718 of 1,265 named targets” comes from `drainscope.json`, whose script excludes isolated worlds and reports 1,357 rows. These are not one denominator.
+
+   **Fix:** use the fleet sample consistently—708 outside-town targets among 1,250 named—or label the separate shared-world snapshot and its window explicitly. Neither snapshot establishes historical died-smelt recovery coverage; r5 appropriately defers that decision.
+
+No files were edited.
+
+--- Claude round 5, condensed ---
+VERDICT: APPROVE. All six round-4 findings RESOLVED (2-4 by deferral). New, all P3:
+1 P3 7.3: after a routine restart (canary deploys restart bots) a carry becomes unresolved permanently; does its KEEP
+  lock the items forever? Fix: the keep lapses after a bounded time (24 h); the note stays listed and the gate trips.
+2 P3 4.1: `expired` trusts the writer's clock across hosts. Fix: at > until + margin (60 s); state the NTP assumption.
+3 P3 4.6: a 2-minute reservation vs a 4-minute found lease (walk, craft first). Fix: renew the reservation with the lease
+  or set its expiry to the lease TTL.
+
+--- Disposition (r6, commit 7437c71f) ---
+Codex 1 (P2, fallback returns): ACCEPTED. The note keeps a list of TARGETS: the original destination plus every
+  `return-intent` (container, empty slot, observation id) fsync'd BEFORE a click toward it; reconciliation looks at the
+  source and every recorded target; an occupied newest target with intact custody and exactly n in the bag leads to a
+  new return-intent (next home, source, overflow), not to `unresolved`; nowhere to put it -> carry kept, note open, tidy
+  paused. T6 aligned. Paper: before/after each phase write and each return-intent.
+Codex 2 (P3, cursor first): ACCEPTED. Order: drain pending clicks; settleCursor on the owned window; holdUnsettled and
+  STOP if unresolved; only then the reconciliation opens.
+Codex 3 (P3, 4 cells): ACCEPTED. FOUND-NOFIT covers 1-5 cells with empty bags and checks joint access after every cell.
+Codex 4 (P3, populations): ACCEPTED. 7.5 and O6 use the fleet sample (708 of 1,250 named); the shared-town lease sample
+  (1,357 rows) is labelled as separate.
+Claude 1-3 (P3s): ACCEPTED. The KEEP of an unresolved note lapses after 24 h; `expired` needs at > until + 60 s (NTP);
+  reservations expire with the found lease's TTL and renew with it.
