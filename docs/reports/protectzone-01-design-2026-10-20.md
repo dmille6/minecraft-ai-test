@@ -150,7 +150,22 @@ dirt path, a lamp). Verdicts are the SERVER's: `execute if blocks <zone> <pristi
 chest's NBT. Every scene ran twice -- without the file (the positive control must break the zone or use the village) and
 with it. The bot's licence row read `zones=1 why=ok ids=village-sbx world=-1909043226:-504800724` (the binding live).
 
-PAPER_TABLE
+Final run at **f8c83aeb** (10-20 ~17:3xZ; the same eight scenes also passed at 1ae8a550):
+
+| scene | file | outcome (the bot's own row) | zone vs pristine copy | village chest | verdict |
+|---|---|---|---|---|---|
+| gather dirt, standing in the zone | none (control) | success, 3 dirt | **changed** (dug in the zone) | 16 | control exposes |
+| gather dirt | zone | success, 3 dirt (taken outside) | identical, 24,986 cells | 16 | PASS |
+| mine to 106, standing in the zone | none | reached 107 | **changed** | 16 | control exposes |
+| mine | zone | reached 107 (walked out, stair outside) | identical | 16 | PASS |
+| withdraw oak_log (village chest 15 from home) | none | withdrew 8 from the village chest | (bot moved in) | **8** | control exposes |
+| withdraw | zone | "no chest or barrel within 48" -- the village chest never offered | identical | 16 | PASS |
+| craft wooden_pickaxe, only table = the village's | none | crafted, no table of its own placed (used the village's) | identical | 16 | control exposes |
+| craft | zone | refused: `reason=protected_zone goto 1991 120 -2400 (4 past ... west side) and place crafting_table there`; **remedy performed**: goto arrived 1994,120,-2400, craft succeeded with its own table | identical | 16 | PASS |
+
+`npm test` (scripts/run-tests.mjs): 269/269 at 1ae8a550; at f8c83aeb see the commit record. Lint `no-undef`: 1 hit, the
+pre-existing reflex.mjs:2384.
+
 
 
 ## 8. Review record
@@ -172,5 +187,34 @@ PAPER_TABLE
 | Claude P3 | wrong zone named (7 villages); walk-off label; `eat` counted as survival; every dimension; snowy boxes; tests (real findBlocks, R6, profiles) | the stair's hit cell names the zone; label; `eat` excluded; overworld only; hits only inside piece boxes; real-findBlocks test; R6 test + mutant. The per-profile behaviour test is covered by the wiring test (one shared array before every clone) -- not added |
 | (Paper) | craft standing in the zone tried six placements, each refused | `placeSites` skips zone cells; the refusal leads with the goto (craft prefixes its own words and rows cap at 300) |
 
-ROUND2_PLACEHOLDER
+### Round 2 (on 3becfe4e): Codex CHANGE, Claude CHANGE (no P1)
+
+| finding | disposition |
+|---|---|
+| Claude P2: the place price ignored a placement whose REFERENCE is in the zone (bridge loop at the edge) | the price covers the guard's cells (`placeBlocked`, round 3) |
+| Claude P2: the whole column made a cave pocket under a village a dead end | per-zone `floor_y` (lowest village block - 8); a bot already below it may dig/place below it (`blocked()`); nobody outside can tunnel in; the village stays closed |
+| Codex P2: a JSON-null file cleared protection | kept stale; an all-malformed file too |
+| Codex P2: the bucket remedy walked only 4 past while the bucket refuses within 6 | the bucket's remedy walks 9 past (6 + goto's range + 1), tested by retrying where goto lands |
+| Codex P2: Z2 ignored mine/place refusals | `place_refused`, `bucket_refused`; Z2 counts mine/place/bucket refusals (selftest) |
+| Codex P3: Paper table missing | section 7 |
+| Claude P3s: approximate y, empty side, corner sides, a test title | fixed |
+
+### Round 3 (on 1ae8a550): Codex CHANGE, Claude APPROVE (P3s)
+
+| finding | disposition |
+|---|---|
+| Codex P2: overlapping zones: one zone's deep exemption opened a cell another closes | `blocked()` checks every zone |
+| Codex P2 / Claude P3: the place price disagreed with the guard under a deep floor; blanket diagonal growth | `placeBlocked`: destination, above, below, the four sides (+ the four diagonal-below cells, round 4), same exemption, allocation-free |
+| Codex P2: place() ignored the deep exemption | placeSites and the room dig use the same predicate with the bot's feet |
+| Codex P2: a Paper scene without an outcome row could pass | never ok |
+| Claude P3: deep chain only unit-tested | `CHAIN mine DEEP` + a feet-less mutant |
+| Claude P3: mine's start candidates are judged with the bot's own feet | NOT changed: from a deep pocket a start outside the column can look clear for one of the two walk-offs; the replan corrects it and the refusal still names an exit |
+
+### Round 4 (on f8c83aeb): Codex APPROVE, Claude APPROVE
+
+| finding | disposition |
+|---|---|
+| Codex P3: the side-placement fallback judged the reference with the grown predicate (a perch at x 48 could not place west) | the reference uses `blocked()` (the guard's own test) |
+| Claude P3: the forward bridge's reference is diagonal-below the priced cell (only the zone's top surface differs) | `placeBlocked` also checks the four diagonal-below cells |
+
 
