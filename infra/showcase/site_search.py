@@ -18,7 +18,7 @@ It writes NOTHING to the world except what probing needs: forceloads (removed af
 generate chunks -- and no blocks. A positive control per candidate: the sky 40 blocks above the centre must read
 not-air=no, and a column the run counted as solid must read solid again.
 """
-import argparse, importlib.util, json, math, os, sys, time
+import argparse, importlib.util, json, math, os, re, sys, time
 from pathlib import Path
 
 REPO = Path(__file__).resolve().parents[2]
@@ -37,12 +37,18 @@ LIMITS = {'core_relief': 4, 'area_relief': 8, 'area_wet': 0.03, 'area_canopy': 0
 
 
 def load_tiles(rcon, x0, z0, x1, z1, on=True):
-    """forceload add/remove in tiles of <= 256 chunks (the command's cap)."""
+    """forceload add/remove in CHUNK-ALIGNED tiles of 16 x 16 = 256 chunks (the command's cap). An unaligned 256-block
+    tile spans 17 chunks per axis (289) and is REFUSED -- the 10-20 trial forceloaded only the edge strips that way,
+    and every probe in between read 'not loaded'. A refusal now raises instead of being ignored."""
     verb = 'add' if on else 'remove'
-    step = 16 * 16
-    for x in range(x0, x1 + 1, step):
-        for z in range(z0, z1 + 1, step):
-            rcon.run(f'forceload {verb} {x} {z} {min(x + step - 1, x1)} {min(z + step - 1, z1)}')
+    c0x, c1x, c0z, c1z = x0 // 16, x1 // 16, z0 // 16, z1 // 16
+    for cx in range(c0x, c1x + 1, 16):
+        for cz in range(c0z, c1z + 1, 16):
+            bx0, bz0 = cx * 16, cz * 16
+            bx1, bz1 = min(cx + 15, c1x) * 16 + 15, min(cz + 15, c1z) * 16 + 15
+            out = rcon.run(f'forceload {verb} {bx0} {bz0} {bx1} {bz1}')
+            if on and not re.search(r'Marked|already|force loaded', out or '', re.I):
+                raise RuntimeError(f'forceload {verb} {bx0} {bz0} {bx1} {bz1} refused: {out!r}')
 
 
 def retry(fn, tries=360, wait=1.0):

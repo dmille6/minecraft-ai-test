@@ -1,0 +1,475 @@
+#!/usr/bin/env python3
+"""Showcase operations ON THE VM: the follower, the deploy (stage / activate), the start gate's checks.
+Design: docs/reports/showcase-2026-10-20.md sections 3 and 9. Pure decisions live in followrule.py / make_env.py.
+
+    showcase_ops.py follow                    hourly (timer): observe the bench, decide, act only if AUTO_FOLLOW
+    showcase_ops.py stage <sha> [--bootstrap] build releases/<sha8>-<policy8>-<deps8>/ (never touches a bot)
+    showcase_ops.py activate <release-dir>    switch the harness symlink; restart+verify running bots 12 s apart
+    showcase_ops.py gate                      the start-bots gate: every check, each with its remedy; exit 1 if any fails
+    showcase_ops.py status                    the newest follow decision and the current release
+
+Everything that changes state runs under /srv/showcase/ops.lock.
+"""
+import argparse, datetime as dt, fcntl, glob, hashlib, json, os, re, shutil, subprocess, sys, tempfile, time
+
+HERE = os.path.dirname(os.path.abspath(__file__))
+sys.path.insert(0, HERE)
+import followrule as FR  # noqa: E402
+import make_env as ME    # noqa: E402
+
+ROOT = '/srv/showcase'
+REPO = f'{ROOT}/repo'
+OPS = f'{ROOT}/ops'
+LEDGER = f'{OPS}/follow-ledger.jsonl'
+FOLLOW = f'{OPS}/follow.jsonl'
+DEPLOY = f'{OPS}/deploy.jsonl'
+HARNESS = f'{ROOT}/harness'
+RELEASES = f'{ROOT}/releases'
+ARTIFACTS = f'{ROOT}/artifacts'
+SITE = f'{ROOT}/town-site.json'
+REQUIRED = f'{ROOT}/REQUIRED_KEPT'
+REVOKED = f'{ROOT}/REVOKED'
+AUTO = f'{ROOT}/AUTO_FOLLOW'
+FEED_KEY = '/home/mike/.ssh/id_ed25519_showcase_feed'
+MOD_KEY = '/home/mike/.ssh/id_ed25519_showcase_modules'
+BENCH = 'mike@10.0.0.31'
+# Runs as ROOT (it restarts units and owns /srv/showcase), with mike's restricted keys and known_hosts.
+SSH = ['ssh', '-o', 'BatchMode=yes', '-o', 'ConnectTimeout=20', '-o', 'StrictHostKeyChecking=yes',
+       '-o', 'UserKnownHostsFile=/home/mike/.ssh/known_hosts']
+NAMES = [ME.PREFIX + n for n in ME.NAMES]
+REVERT_NOTE = re.compile(r'revert|back out|roll ?back', re.I)
+
+
+def now_utc():
+    return dt.datetime.now(dt.timezone.utc)
+
+
+def append(path, row):
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    with open(path, 'a') as f:
+        f.write(json.dumps(row) + '\n')
+
+
+def git(*args, check=True):
+    return subprocess.run(['git', '-C', REPO] + list(args), capture_output=True, text=True, check=check).stdout.strip()
+
+
+def fetch():
+    subprocess.run(['git', '-C', REPO, 'fetch', '-q', 'origin', '+refs/heads/*:refs/remotes/origin/*'],
+                   capture_output=True, text=True)
+
+
+def resolve(h):
+    r = subprocess.run(['git', '-C', REPO, 'rev-parse', '--verify', '--quiet', f'{h}^{{commit}}'],
+                       capture_output=True, text=True)
+    if r.returncode:
+        return None
+    full = r.stdout.strip()
+    return full if full.startswith(h) else None
+
+
+def is_anc(a, b):
+    if a == b:
+        return True
+    return subprocess.run(['git', '-C', REPO, 'merge-base', '--is-ancestor', a, b], capture_output=True).returncode == 0
+
+
+def merge_base(a, b):
+    r = subprocess.run(['git', '-C', REPO, 'merge-base', a, b], capture_output=True, text=True)
+    return r.stdout.strip() or None
+
+
+def read_feed():
+    r = subprocess.run(SSH + ['-i', FEED_KEY, BENCH, 'feed'], capture_output=True, text=True, timeout=180)
+    if r.returncode:
+        return None, f'feed ssh rc={r.returncode}: {r.stderr.strip()[:200]}'
+    try:
+        return json.loads(r.stdout), None
+    except ValueError as e:
+        return None, f'feed not JSON: {e}'
+
+
+def control_policy(feed):
+    ce = (feed or {}).get('control_env') or {}
+    if not ce.get('text'):
+        return None, None
+    pol = ME.policy_of(ME.parse_env(ce['text']))
+    return pol, FR.digest(pol)
+
+
+def current_release():
+    try:
+        r = os.path.realpath(HARNESS)
+        return json.load(open(os.path.join(r, 'RELEASE.json'))) if os.path.isdir(r) else None
+    except (OSError, ValueError):
+        return None
+
+
+def src_digest(src):
+    """config.mjs srcDigest(): sha256 over the sorted top-level *.mjs (not dotfiles) names + bytes, 6 hex."""
+    h = hashlib.sha256()
+    for f in sorted(x for x in os.listdir(src) if x.endswith('.mjs') and not x.startswith('.')):
+        h.update(f.encode())
+        h.update(open(os.path.join(src, f), 'rb').read())
+    return h.hexdigest()[:6]
+
+
+def tree_digest(root):
+    spec = __import__('importlib.util').util.spec_from_file_location('feed', os.path.join(HERE, 'showcase-feed.py'))
+    m = __import__('importlib.util').util.module_from_spec(spec)
+    spec.loader.exec_module(m)
+    return m.tree_digest(root)
+
+
+def lock():
+    f = open(f'{ROOT}/ops.lock', 'a')
+    fcntl.flock(f, fcntl.LOCK_EX)
+    return f
+
+
+# ------------------------------------------------------------------------------------------------ follow
+def cmd_follow(a):
+    lk = lock()
+    t = now_utc()
+    fetch()
+    feed, err = read_feed()
+    pol, pdig = control_policy(feed) if feed else (None, None)
+    ledger = FR.load_jsonl(LEDGER)
+    prev_v = next((r['version'] for r in reversed(ledger) if r.get('verified')), None)
+    row = FR.observe(dict(feed or {}, errors=(feed or {}).get('errors') or ([err] if err else [])), t, pdig,
+                     (feed or {}).get('deps_digest'), prev_v)
+    append(LEDGER, row)
+    ledger.append(row)
+    if feed:
+        os.makedirs(OPS, exist_ok=True)
+        with open(f'{OPS}/feed-last.json', 'w') as f:
+            json.dump(feed, f)
+        if row['verified'] and pol:
+            # pin the control env of this (sha, policy) so a stage can use the env the fleet actually ran
+            p = f'{OPS}/policy-{pdig}.env'
+            if not os.path.exists(p):
+                with open(p, 'w') as f:
+                    f.write(feed['control_env']['text'])
+    journal = (feed or {}).get('journal') or []
+    promoted = FR.promotions(journal, resolve)
+    revoked = [l.split()[0] for l in open(REVOKED).read().splitlines() if l.strip()] if os.path.exists(REVOKED) else []
+    rel = current_release()
+    d = FR.decide(ledger, promoted, (rel or {}).get('sha'), t, is_anc, merge_base, revoked)
+    d['t'] = FR.iso(t)
+    warn = [r for r in journal if r.get('phase') in ('promoted', 'owner-direct') and REVERT_NOTE.search(str(r.get('note')))
+            and not any(x in str(r.get('note')) for x in revoked)]
+    if warn:
+        d['revert_notes_not_in_REVOKED'] = [f"{r.get('ts')} {r.get('run')}: {str(r.get('note'))[:100]}" for r in warn[-3:]]
+    d['auto'] = os.path.exists(AUTO)
+    append(FOLLOW, d)
+    print(json.dumps(d))
+    if not d['auto']:
+        return 0
+    if d['decision'] in ('DUE', 'ROLLBACK'):
+        rc = stage(d['target'], d['policy'], (feed or {}).get('deps_digest'), bootstrap=False, why=d['reason'])
+        if rc[0]:
+            return activate(rc[1])
+        return 1
+    if d['decision'] == 'STOP':
+        subprocess.run(['/srv/showcase/bin/stop-bots.sh', f"follow STOP: {d['reason'][:200]}"])
+    return 0
+
+
+# ------------------------------------------------------------------------------------------------ stage
+def capture_modules(want_digest):
+    """The immutable dependency artifact for `want_digest`: rsync .31's installed tree (read-only rrsync key), check
+    its content digest equals the observed one, keep it as a tar. -> path or raises."""
+    os.makedirs(ARTIFACTS, exist_ok=True)
+    art = f'{ARTIFACTS}/node_modules-{want_digest}.tar'
+    if os.path.exists(art):
+        return art
+    tmp = tempfile.mkdtemp(dir=ARTIFACTS)
+    try:
+        r = subprocess.run(['rsync', '-a', '--delete', '-e', ' '.join(SSH + ['-i', MOD_KEY]),
+                            f'{BENCH}:', f'{tmp}/node_modules/'], capture_output=True, text=True)
+        if r.returncode:
+            raise RuntimeError(f'modules rsync rc={r.returncode}: {r.stderr.strip()[:200]}')
+        got = tree_digest(f'{tmp}/node_modules')
+        if got != want_digest:
+            raise RuntimeError(f'copied node_modules digest {got} != observed {want_digest} (the bench changed its '
+                               f'tree during the copy?); retry at the next run')
+        subprocess.run(['tar', '-C', tmp, '-cf', art + '.part', 'node_modules'], check=True)
+        os.replace(art + '.part', art)
+        return art
+    finally:
+        shutil.rmtree(tmp, ignore_errors=True)
+
+
+def stage(sha, policy_dig, deps_dig, bootstrap=False, why=''):
+    if not (sha and re.fullmatch(r'[0-9a-f]{40}', sha)):
+        return False, f'sha must be 40 hex: {sha!r}'
+    if not policy_dig or not os.path.exists(f'{OPS}/policy-{policy_dig}.env'):
+        return False, f'no pinned control env for policy {policy_dig}; run `showcase_ops.py follow` first'
+    if not deps_dig:
+        return False, 'no dependency digest observed; run `showcase_ops.py follow` first'
+    name = f'{sha[:8]}-{policy_dig[:8]}-{deps_dig[:8]}'
+    dst = f'{RELEASES}/{name}'
+    if os.path.exists(f'{dst}/RELEASE.json'):
+        return True, dst
+    tmp = tempfile.mkdtemp(dir=RELEASES, prefix='.stage-')
+    try:
+        arch = subprocess.run(['git', '-C', REPO, 'archive', sha, 'bots/src', 'bots/package.json'],
+                              capture_output=True, check=True).stdout
+        subprocess.run(['tar', '-C', tmp, '-xf', '-', '--strip-components=1'], input=arch, check=True)
+        art = capture_modules(deps_dig)
+        subprocess.run(['tar', '-C', tmp, '-xf', art], check=True)
+        got = tree_digest(f'{tmp}/node_modules')
+        if got != deps_dig:
+            raise RuntimeError(f'unpacked node_modules digest {got} != {deps_dig}')
+        shutil.copy(f'{OPS}/policy-{policy_dig}.env', f'{tmp}/control.env')
+        os.makedirs(f'{tmp}/env', exist_ok=True)
+        rel = {'sha': sha, 'policy': policy_dig, 'deps': deps_dig, 'expected_version': f'{sha}+{src_digest(tmp + "/src")}',
+               'staged_at': FR.iso(now_utc()), 'bootstrap': bootstrap, 'why': why}
+        if os.path.exists(SITE):
+            write_envs(tmp, rel)
+        with open(f'{tmp}/RELEASE.json', 'w') as f:
+            json.dump(rel, f, indent=1)
+        subprocess.run(['chmod', '-R', 'a+rX', tmp], check=True)
+        os.rename(tmp, dst)
+        append(DEPLOY, {'t': FR.iso(now_utc()), 'event': 'staged', 'release': name, **rel})
+        return True, dst
+    except Exception as e:
+        shutil.rmtree(tmp, ignore_errors=True)
+        append(DEPLOY, {'t': FR.iso(now_utc()), 'event': 'stage-failed', 'sha': sha, 'error': str(e)[:300]})
+        return False, str(e)
+
+
+def write_envs(release_dir, rel):
+    control = ME.parse_env(open(f'{release_dir}/control.env').read())
+    site = json.load(open(SITE))
+    os.makedirs(f'{release_dir}/env', exist_ok=True)
+    for i, n in enumerate(ME.NAMES):
+        rows = ME.build_env(control, i, site, rel['sha'])
+        with open(f'{release_dir}/env/{ME.PREFIX}{n}.env', 'w') as f:
+            f.write('\n'.join(f'{k}={v}' for k, v in rows) + '\n')
+
+
+def cmd_stage(a):
+    lk = lock()
+    fetch()
+    feed = json.load(open(f'{OPS}/feed-last.json')) if os.path.exists(f'{OPS}/feed-last.json') else None
+    ledger = FR.load_jsonl(LEDGER)
+    last = ledger[-1] if ledger else {}
+    sha = resolve(a.sha) or a.sha
+    if a.bootstrap:
+        promoted = FR.promotions((feed or {}).get('journal') or [], resolve)
+        if not last.get('verified'):
+            print('REFUSED: the newest observation is not verified; run `showcase_ops.py follow`')
+            return 1
+        if not any(p[1] == sha for p in promoted) or not is_anc(sha, last['sha']):
+            print(f'REFUSED: --bootstrap takes only a PROMOTED sha inside the current verified fleet build '
+                  f'{last["sha"][:8]}; {sha[:8]} is not')
+            return 1
+    else:
+        d = (FR.load_jsonl(FOLLOW) or [{}])[-1]
+        if d.get('decision') not in ('DUE', 'ROLLBACK') or d.get('target') != sha:
+            print(f'REFUSED: the follow rule does not name {sha[:8]} (newest decision: {d.get("decision")} '
+                  f'{(d.get("target") or "")[:8]}); use --bootstrap for the first release')
+            return 1
+    ok, out = stage(sha, last.get('policy'), last.get('deps'), bootstrap=a.bootstrap, why='operator stage')
+    print(('STAGED ' if ok else 'FAILED ') + out)
+    return 0 if ok else 1
+
+
+# ------------------------------------------------------------------------------------------------ activate
+def running_bots():
+    out = subprocess.run(['systemctl', 'list-units', 'mcshow@*', '--state=active', '--no-legend', '--plain'],
+                         capture_output=True, text=True).stdout
+    return [l.split()[0][len('mcshow@'):-len('.service')] for l in out.splitlines() if l.strip()]
+
+
+def newest_row(bot):
+    p = f'/var/log/mcai/{bot}/skill-{bot}.jsonl'
+    try:
+        with open(p, 'rb') as f:
+            f.seek(0, 2)
+            f.seek(max(0, f.tell() - 65536))
+            for line in reversed(f.read().splitlines()):
+                try:
+                    return json.loads(line)
+                except ValueError:
+                    continue
+    except OSError:
+        return None
+
+
+def activate(release_dir, verify_s=600):
+    rel = json.load(open(f'{release_dir}/RELEASE.json'))
+    prev = os.path.realpath(HARNESS) if os.path.islink(HARNESS) else None
+    tmp = HARNESS + '.new'
+    if os.path.lexists(tmp):
+        os.remove(tmp)
+    os.symlink(release_dir, tmp)
+    os.replace(tmp, HARNESS)
+    bots = running_bots()
+    append(DEPLOY, {'t': FR.iso(now_utc()), 'event': 'activated', 'release': os.path.basename(release_dir),
+                    'previous': os.path.basename(prev) if prev else None, 'running_bots': len(bots)})
+    if not bots:
+        print(f'ACTIVATED {os.path.basename(release_dir)} (no bot running: start-bots.sh verifies the ten)')
+        return 0
+    t0 = time.time()
+    for b in bots:
+        subprocess.run(['systemctl', 'restart', f'mcshow@{b}'])
+        time.sleep(12)
+    bad = verify(bots, rel['expected_version'], t0, verify_s)
+    if not bad:
+        print(f'ACTIVATED + VERIFIED {os.path.basename(release_dir)} on {len(bots)} bots')
+        return 0
+    if prev:
+        os.symlink(prev, tmp)
+        os.replace(tmp, HARNESS)
+        for b in bots:
+            subprocess.run(['systemctl', 'restart', f'mcshow@{b}'])
+            time.sleep(12)
+    if os.path.exists(AUTO):
+        os.remove(AUTO)
+    append(DEPLOY, {'t': FR.iso(now_utc()), 'event': 'ROLLBACK', 'release': os.path.basename(release_dir),
+                    'back_to': os.path.basename(prev) if prev else None, 'bad': bad})
+    print(f'ROLLBACK: {bad}')
+    return 1
+
+
+def verify(bots, expected, since_epoch, wait_s):
+    deadline = time.time() + wait_s
+    while True:
+        bad = {}
+        for b in bots:
+            r = newest_row(b)
+            ts = FR.parse_ts((r or {}).get('@timestamp'))
+            v = ((r or {}).get('code') or {}).get('version')
+            if not r or not ts or ts.timestamp() < since_epoch or v != expected:
+                bad[b] = v if r else 'no row'
+        if not bad or time.time() > deadline:
+            return bad
+        time.sleep(15)
+
+
+def cmd_activate(a):
+    lk = lock()
+    return activate(os.path.abspath(a.release))
+
+
+# ------------------------------------------------------------------------------------------------ gate
+def gate_checks():
+    """-> list of (ok, check, detail-or-remedy). The start-bots gate (design section 9)."""
+    out = []
+    feed = json.load(open(f'{OPS}/feed-last.json')) if os.path.exists(f'{OPS}/feed-last.json') else {}
+    rel = current_release()
+    req = []
+    if os.path.exists(REQUIRED):
+        for l in open(REQUIRED).read().splitlines():
+            if l.strip() and not l.startswith('#'):
+                run, sha = l.split()[:2]
+                req.append((run, resolve(sha) or sha))
+    if not req:
+        out.append((False, 'town-plan pieces KEPT', f'{REQUIRED} lists no `<run> <sha>` lines; remedy: fill it from '
+                    f'the town plan (siting file, sorted deposits, station placement) once the bench keeps them'))
+    else:
+        kr = FR.kept_runs(feed.get('journal') or [], req)
+        for run, sha in req:
+            ok, why = kr[run]
+            inrel = bool(rel) and (is_anc(sha, rel['sha']) or cherry_equivalent(sha, rel['sha']))
+            out.append((ok and inrel, f'kept + in release: {run}',
+                        why if not ok else ('in the release' if inrel else f'{sha[:8]} is not in the release '
+                                            f'{(rel or {}).get("sha", "")[:8]}; remedy: wait for the follower')))
+    out.append((bool(rel), 'a followed release is active',
+                f"{(rel or {}).get('sha', '')[:8]} staged {(rel or {}).get('staged_at')}" if rel else
+                'remedy: sudo /srv/showcase/bin/showcase_ops.py stage <promoted sha> --bootstrap, then activate'))
+    site_ok, site_why = validate_site()
+    out.append((site_ok, 'town-site.json (the town plan siting file)', site_why))
+    out.append((os.path.exists(f'{ROOT}/server/TOWN-PLACED.json') or plan_builds_core(),
+                'the town is stamped (or the plan builds its own core)',
+                'remedy: stamp-town (after the siting file exists), or the plan declares "builds_core": true'))
+    out.append((os.path.exists(f'{ROOT}/timelapse/FRAME0.json'), 'frame 0 captured', 'remedy: tl_showcase.py capture --frame0'))
+    h = health()
+    out.append((h.get('ok') is True, 'brain proxy healthy through the tunnel',
+                str(h) if not h.get('ok') else 'gemma4 loaded, not paused'))
+    fb = subprocess.run(['systemctl', 'is-active', 'filebeat'], capture_output=True, text=True).stdout.strip()
+    out.append((fb == 'active', 'filebeat active', fb))
+    return out
+
+
+def cherry_equivalent(sha, release):
+    base = merge_base(sha, release)
+    if not base:
+        return False
+    out = subprocess.run(['git', '-C', REPO, 'cherry', release, sha, base], capture_output=True, text=True).stdout
+    lines = [l for l in out.splitlines() if l.strip()]
+    return bool(lines) and all(l.startswith('-') for l in lines)
+
+
+def validate_site():
+    if not os.path.exists(SITE):
+        return False, f'{SITE} missing; remedy: the town plan writes it (fields: docs/reports/showcase-site-2026-10-20.md)'
+    try:
+        s = json.load(open(SITE))
+        for k in ('home', 'board', 'border_radius'):
+            if k not in s:
+                return False, f'{SITE} lacks {k!r}'
+        if len(s['home']) != 3 or len(s['board']) != 3:
+            return False, 'home and board must be [x, y, z]'
+        return True, f"home {s['home']}"
+    except ValueError as e:
+        return False, f'{SITE} is not JSON: {e}'
+
+
+def plan_builds_core():
+    try:
+        return bool(json.load(open(SITE)).get('builds_core'))
+    except (OSError, ValueError):
+        return False
+
+
+def health():
+    import urllib.request, urllib.error
+    try:
+        return json.loads(urllib.request.urlopen('http://127.0.0.1:11612/healthz', timeout=8).read())
+    except urllib.error.HTTPError as e:
+        try:
+            return json.loads(e.read())
+        except ValueError:
+            return {'ok': False, 'error': f'http {e.code}'}
+    except Exception as e:
+        return {'ok': False, 'error': str(e)[:120]}
+
+
+def cmd_gate(a):
+    checks = gate_checks()
+    for ok, name, why in checks:
+        print(f"  {'PASS' if ok else 'FAIL'}  {name}: {why}")
+    n = sum(1 for c in checks if not c[0])
+    print(f'gate: {len(checks) - n} of {len(checks)} pass' + ('' if not n else ' -- the bots do NOT start'))
+    return 1 if n else 0
+
+
+def cmd_status(a):
+    d = (FR.load_jsonl(FOLLOW) or [{}])[-1]
+    rel = current_release()
+    print(json.dumps({'follow': d, 'release': rel, 'auto_follow': os.path.exists(AUTO), 'running': running_bots()},
+                     indent=1))
+    return 0
+
+
+def main():
+    ap = argparse.ArgumentParser()
+    sub = ap.add_subparsers(dest='cmd', required=True)
+    sub.add_parser('follow')
+    s = sub.add_parser('stage')
+    s.add_argument('sha')
+    s.add_argument('--bootstrap', action='store_true')
+    t = sub.add_parser('activate')
+    t.add_argument('release')
+    sub.add_parser('gate')
+    sub.add_parser('status')
+    a = ap.parse_args()
+    return {'follow': cmd_follow, 'stage': cmd_stage, 'activate': cmd_activate, 'gate': cmd_gate,
+            'status': cmd_status}[a.cmd](a)
+
+
+if __name__ == '__main__':
+    sys.exit(main())
