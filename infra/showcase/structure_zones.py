@@ -184,8 +184,10 @@ def main():
                 zid = f"{name.replace('_', '-')}-{s['chunk'][0]}_{s['chunk'][1]}"
                 row['zone'] = zid
                 row['special'] = [list(h) for h in hits if h[3] in ('bell', 'chest', 'barrel', 'crafting_table', 'furnace', 'smoker', 'blast_furnace') or h[3].endswith('_bed') or h[3].endswith('_table') or h[3] in ('grindstone', 'lectern', 'loom', 'stonecutter', 'composter', 'water_cauldron', 'cauldron', 'brewing_stand')]
+                # floor_y: the DEEP part of the column starts below the lowest village block minus the pad (a bot already in a
+                # cave pocket down there may dig its way out sideways; protectzone.mjs blocked())
                 zones.append({'id': zid, 'kind': 'village', 'label': f"the {name.split('_')[-1]} village at {(box[0] + box[3]) // 2},{(box[2] + box[5]) // 2}",
-                              'box': box, 'source': f"{s['structure']} start chunk {s['chunk'][0]},{s['chunk'][1]}: {len(hits)} village blocks, {len(houses)} houses, pad {a.pad}"})
+                              'box': box, 'floor_y': max(a.bottom, min(ys) - a.pad), 'source': f"{s['structure']} start chunk {s['chunk'][0]},{s['chunk'][1]}: {len(hits)} village blocks, {len(houses)} houses, pad {a.pad}"})
         report.append(row)
     if a.list: json.dump({'home': [hx, hz], 'radius': a.radius, 'chunks_walked': walked, 'structures': report}, open(a.list, 'w'), indent=1)
     if a.out:
