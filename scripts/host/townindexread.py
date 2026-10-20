@@ -36,8 +36,9 @@
 #                     post-pre): fails below -0.25 with z < -2
 #     deposit_ok      the deposit verb's success share of success|failed (runner rows `deposit`): fails below -0.20 with z < -2
 #     refusals_up         `_stock_refused` + `_cobble_refused` per bot-hour: canary post/pre over control post/pre > 2 with >= 20
-#                         canary rows (a WATCH line: the index never feeds the cap or the stock targets; a unit test with a mutant
-#                         proves it)
+#                         canary rows (a WATCH line, one-sided: the index's RECORDS never feed the cap or the stock targets -- a
+#                         unit test with a mutant proves it -- but count_town's extra COUNTS do, by design (4.2: count_town adds
+#                         index-unknown containers to its candidates), so refusals may legitimately FALL; they must not rise)
 #   EXPOSURE            every canary town >= EXPOSURE_OBS observations in the read window AND pre-window rows on both arms
 #   INSTRUMENT          control `_stock_recount` rows >= 1 and control deposit rows >= 1 (the no-harm lines can see)
 # REPORTED (primary, not gated): observations per canary bot-hour; containers indexed per canary town and their states at the
@@ -82,6 +83,12 @@ def in_town(home, k):
     except ValueError:
         return False
     return math.hypot(x - home[0], z - home[2]) <= TOWN_H and abs(y - home[1]) <= TOWN_V
+
+
+def rec_in_town(home, r):
+    """A record is the town's when ANY half of its container is (Claude code r1 P2: a double chest straddling the edge is keyed
+    by its lower half, which may be the outside one). PURE."""
+    return any(in_town(home, k) for k in (r.get('h') or [r.get('k')]))
 
 
 def malformed(r):
@@ -136,7 +143,7 @@ def read_index(root='/var/lib/mcai'):
 
 def judge_index(idx, cans, cut_ms, end_ms, pre_ms):
     """PURE over read_index()'s shape. -> the index's gates and reports."""
-    out = {'outside_town': 0, 'malformed_obs': 0, 'xfer_unjoined': 0, 'xfer_unjudged': 0, 'xfer_unseen': 0, 'index_control_post': 0, 'index_pre_canary': 0, 'index_pre_control': 0}
+    out = {'outside_town': 0, 'malformed_obs': 0, 'xfer_unjoined': 0, 'xfer_unjudged': 0, 'xfer_noid': 0, 'xfer_unseen': 0, 'index_control_post': 0, 'index_pre_canary': 0, 'index_pre_control': 0}
     lists = defaultdict(list)
     obs_by_pool = Counter(); xfer_v = Counter(); xfer_u = Counter(); dirty_by_pool = Counter()
     states = {}
@@ -152,10 +159,10 @@ def judge_index(idx, cans, cut_ms, end_ms, pre_ms):
             if r.get('t') == 'ckpt':
                 ckpts[it['dir']].append(int(r.get('at') or 0))
                 for wm in (r.get('worlds') or {}).values():
-                    for e in (wm or {}).values():
+                    for ck, e in (wm or {}).items():
                         o = (e or {}).get('obs')
                         if o and o.get('id'):
-                            by_id.setdefault((it['dir'], o['id']), {'t': 'obs', 'k': None, **o})
+                            by_id.setdefault((it['dir'], o['id']), {'t': 'obs', **o, 'k': ck})   # its container key kept (Codex code r2 P3)
         latest = {}
         for it in items:
             r = it['rec']; t = r.get('t'); at = r.get('at')
@@ -171,7 +178,7 @@ def judge_index(idx, cans, cut_ms, end_ms, pre_ms):
                 out['index_control_post'] += 1
                 lists['control'].append((pool, t, r.get('k'), r.get('bot')))
                 continue
-            if not in_town(it['home'], r.get('k')):
+            if not rec_in_town(it['home'], r):
                 out['outside_town'] += 1
                 lists['outside'].append((pool, t, r.get('k'), r.get('by')))
             if t == 'obs':
@@ -191,9 +198,12 @@ def judge_index(idx, cans, cut_ms, end_ms, pre_ms):
             elif t == 'xfer':
                 if r.get('ok') == 1:
                     xfer_v[pool] += 1
+                    if not r.get('pre') or not r.get('ver'):
+                        out['xfer_noid'] += 1               # an index write failed at the open or the re-open: reported, not a bad join
+                        continue
                     pre = by_id.get((it['dir'], r.get('pre'))); ver = by_id.get((it['dir'], r.get('ver')))
-                    same = lambda o: o is not None and (o.get('k') in (None, r.get('k')))
-                    wrong = lambda o: o is not None and o.get('k') not in (None, r.get('k'))
+                    same = lambda o: o is not None and o.get('k') == r.get('k')
+                    wrong = lambda o: o is not None and o.get('k') != r.get('k')
                     if same(pre) and same(ver):
                         held = ((ver.get('names') or {}).get(r.get('name')) or [0, 0])[0]
                         if held < (r.get('n') or 0):
@@ -354,6 +364,12 @@ def selftest():
     assert run(I('board-a', [ck, good(), good(i='o2', k='4,64,0'), x()]))['xfer_unjoined'] == 1, "D3: another container's re-open is a defect whatever the rotations"
     ck2 = {'t': 'ckpt', 'at': T0 + 4000, 'worlds': {'null': {'3,64,0': {'obs': {'id': 'o2', 'at': T0 + 3999, 'names': {'coal': [5, 1]}, 'size': 27, 'used': 1}}}}}
     assert run(I('board-a', [ck2, good(), x(at=T0 + 200_000)]))['xfer_unjoined'] == 0, 'D3: a checkpoint observation joins'
+    ck3 = {'t': 'ckpt', 'at': T0 + 4000, 'worlds': {'null': {'4,64,0': {'obs': {'id': 'o2', 'at': T0 + 3999, 'names': {'coal': [5, 1]}, 'size': 27, 'used': 1}}}}}
+    assert run(I('board-a', [ck3, good(), x(at=T0 + 200_000)]))['xfer_unjoined'] == 1, "D3: a checkpoint keeps its container's key (Codex r2 P3)"
+    nid = run(I('board-a', [good(), x(ver=None)]))
+    assert nid['xfer_unjoined'] == 0 and nid['xfer_noid'] == 1, 'D3: a failed index write is reported, not a bad join'
+    strad = run(I('board-a', [good(k='17,64,0') | {'h': ['17,64,0', '16,64,0']}]))
+    assert strad['outside_town'] == 0, 'D1: a double chest straddling the edge is town (its inner half)'
     # D4: the re-open shows less than moved
     assert run(I('board-a', [good(), good(i='o2', names={'coal': [3, 1]}) | {'used': 1}, x()]))['xfer_unseen'] == 1, 'D4'
     assert run(I('board-a', [good(), good(i='o2', names={'coal': [5, 1]}) | {'used': 1}, x()]))['xfer_unseen'] == 0, 'D4 control'
@@ -489,8 +505,8 @@ if __name__ == '__main__':
     print('ARMS         control index records after the deploy %d, control licence/change rows %d (must be 0) | before the deploy (an earlier build, not counted) canary %d control %d rows %d'
           % (res['index_control_post'], res['rows_control_post'], res['index_pre_canary'], res['index_pre_control'], res['rows_pre_earlier_build']))
     print('DEFECTS      D1 outside town %d %s | D2 malformed observations %d %s' % (res['outside_town'], res['_lists'].get('outside', []), res['malformed_obs'], res['_lists'].get('malformed', [])))
-    print('             D3 verified transfers not joined to their pre/ver observations %d %s (inconclusive after a rotation, reported: %d) | D4 a re-open showing less than moved %d %s'
-          % (res['xfer_unjoined'], res['_lists'].get('unjoined', []), res['xfer_unjudged'], res['xfer_unseen'], res['_lists'].get('unseen', [])))
+    print('             D3 verified transfers not joined to their pre/ver observations %d %s (inconclusive after a rotation, reported: %d; no id: %d) | D4 a re-open showing less than moved %d %s'
+          % (res['xfer_unjoined'], res['_lists'].get('unjoined', []), res['xfer_unjudged'], res['xfer_noid'], res['xfer_unseen'], res['_lists'].get('unseen', [])))
     print('NO HARM      count_town success share (runs with keys) canary %d/%d -> %d/%d control %d/%d -> %d/%d | DiD %s (WATCH below %.2f with z < -2)'
           % (res['ct_ok_pre_canary'], res['ct_runs_pre_canary'], res['ct_ok_post_canary'], res['ct_runs_post_canary'], res['ct_ok_pre_control'], res['ct_runs_pre_control'],
              res['ct_ok_post_control'], res['ct_runs_post_control'], 'null' if res['count_town_ok_did'] is None else '%+.3f (z %s) -> %s' % (res['count_town_ok_did'], 'null' if res['count_town_ok_z'] is None else '%+.2f' % res['count_town_ok_z'], 'ok' if res['count_town_ok'] else 'DOWN'), COUNT_TOL))
