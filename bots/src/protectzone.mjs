@@ -108,10 +108,30 @@ export const zoneAtPos = (zones, p) => (p ? zoneAt(zones, p.x, p.y, p.z) : null)
  * floor_y) is closed to everyone. `feet` null: no exemption.
  */
 export function blocked (zones, x, y, z, feet = null) {
-  const q = zoneAt(zones, x, y, z)
-  if (!q || q.floorY == null || !feet || Math.floor(y) >= q.floorY) return q
+  if (!zones || !zones.length) return null
+  const cx = Math.floor(x), cy = Math.floor(y), cz = Math.floor(z)
+  if (!Number.isFinite(cx) || !Number.isFinite(cy) || !Number.isFinite(cz)) return null
+  // EVERY ZONE HOLDING THE CELL (Codex r3 P2): one zone's deep exemption never opens a cell another zone closes
+  for (let i = 0; i < zones.length; i++) if (blockedIn(zones[i], cx, cy, cz, feet)) return zones[i]
+  return null
+}
+
+/** One zone's verdict on an integer cell (no allocation: the A* hot path). Pure. */
+export function blockedIn (q, cx, cy, cz, feet = null) {
+  if (!(cx >= q.x0 && cx <= q.x1 && cy >= q.y0 && cy <= q.y1 && cz >= q.z0 && cz <= q.z1)) return false
+  if (q.floorY == null || !feet || cy >= q.floorY) return true
   const fx = Math.floor(feet.x), fy = Math.floor(feet.y), fz = Math.floor(feet.z)
-  return fy < q.floorY && fx >= q.x0 && fx <= q.x1 && fz >= q.z0 && fz <= q.z1 ? null : q
+  return !(fy < q.floorY && fx >= q.x0 && fx <= q.x1 && fz >= q.z0 && fz <= q.z1)
+}
+
+/**
+ * MAY A BLOCK BE PLACED AT THIS CELL? -> zone | null. The guard's three cells, as far as a planner that knows only the
+ * destination can see them (Claude r2/r3, Codex r3): the destination, the cell above it, and every face neighbour (the
+ * reference is one of them). Conservative: a cell touching a closed zone cell is never a scaffold. Allocation-free.
+ */
+export function placeBlocked (zones, x, y, z, feet = null) {
+  return blocked(zones, x, y, z, feet) || blocked(zones, x, y + 1, z, feet) || blocked(zones, x, y - 1, z, feet) ||
+         blocked(zones, x + 1, y, z, feet) || blocked(zones, x - 1, y, z, feet) || blocked(zones, x, y, z + 1, feet) || blocked(zones, x, y, z - 1, feet)
 }
 
 /** Is the bot's column (any y) inside this zone's footprint, grown by `margin`? Pure. */
@@ -231,18 +251,8 @@ export function zoneCost (zones, { feet = () => null, grow = 0 } = {}) {
     if (!list || !list.length) return 0
     const p = block?.position
     if (!p) return 0
-    if (grow) {
-      // A PLACEMENT'S REFERENCE IS A NEIGHBOUR (Claude r2 P2): the pathfinder prices the placed cell, the guard also judges
-      // the block it is placed against -- so a cell within `grow` of a zone is no scaffold either (no plan the guard refuses)
-      for (let i = 0; i < list.length; i++) {
-        const q = list[i]
-        if (p.x >= q.x0 - grow && p.x <= q.x1 + grow && p.y >= q.y0 - grow && p.y <= q.y1 + grow && p.z >= q.z0 - grow && p.z <= q.z1 + grow) {
-          if (!blocked([q], Math.min(Math.max(p.x, q.x0), q.x1), Math.min(Math.max(p.y, q.y0), q.y1), Math.min(Math.max(p.z, q.z0), q.z1), feet())) continue
-          return ZONE_COST
-        }
-      }
-      return 0
-    }
+    // A PLACEMENT (grow): the guard's cells, with the same exemption (placeBlocked) -- no plan the guard then refuses
+    if (grow) return placeBlocked(list, p.x, p.y, p.z, feet()) ? ZONE_COST : 0
     return blocked(list, p.x, p.y, p.z, feet()) ? ZONE_COST : 0
   }
 }
