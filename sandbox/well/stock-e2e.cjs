@@ -12,6 +12,7 @@
 //           townsearch townsearch2 (townsearch-01: the far chest; no well needed; LOCK_OWNER=townsearch)
 //           kitsearch smeltcoal (toolkit-03: the far chest of iron / of coal; no well needed; LOCK_OWNER=kitsearch)
 //           ironpick ironpickkeep ironpickfull (ironpick-01: the kit's iron pickaxe; no well needed; LOCK_OWNER=ironpick)
+//           townindex (townindex-01: the index the bot's own orders write, read back against the server; no well; LOCK_OWNER=townindex)
 //
 // RCON only through `ssh mike@10.0.0.30 python3 /tmp/sbx-rcon.py <sandboxN> -`. Sandbox servers and sandbox-* names
 // only. Refuses to run unless the sandbox lock (/tmp/mcai-sandbox.lock on 10.0.0.31) names `stocktarget`.
@@ -928,6 +929,80 @@ scenes.ironpickfull = async () => {
   result({ ...r, BAG_FULL_AT_START: w.used[0] === 36,
     CANDIDATE_PASS: !!(w.used[0] === 36 && w.freshIronPick === 1 && w.wornIronPick === 1 && (w.bag.iron_shovel ?? 0) === 1 && (w.chestAfter.iron_ingot ?? 0) === 16 && w.groundItems === 0 &&
       r.rows.some(x => / outcome=crafted made=1 /.test(` ${x.split(' ').slice(2).join(' ')}`))) })
+}
+// TOWNINDEX (townindex-01): the bot's OWN town orders (the toolkit's search for the shovel's iron; the town deposit of a
+// 36-slot bag) open the town's containers; the scene then stops the bot and reads back the WORLD (RCON `data get` of every
+// container) against the index file the bot wrote in its pool directory. Containers (on the slab, y 120):
+//   N1 (+3, 0) dirt 5 | DBL (0..1, +3) a DOUBLE chest: sticks 20 + cobblestone 30 in its left half | N3 (-3, 0) coal 9 + planks 12
+//   FAR (-13, +5) 20 iron ingots (in town, 13.9 from home) | OUT (+17, 0) 64 coal: OUTSIDE town (17 > 16), never indexed
+// CANDIDATE: the licence row; every container the index holds as KNOWN reads exactly the server's contents (all halves); the
+// double chest, if opened, under its LOWER half with both halves; OUT never in the index; every verified transfer joined to its
+// pre-state and its re-open (same container) and the re-open showing the stack; a container drawn from or deposited into ends
+// dirty or known (re-opened). BASE: the same orders run, no index file, no licence row.
+const TI_N = { N1: [3, 0], N3: [-3, 0], FAR: [-13, 5], OUT: [17, 0] }
+scenes.townindex = async () => {
+  buildArena()
+  BRAIN_WANDER = true
+  rcon(`kill ${ARENA_SEL}`)
+  const at = ([dx, dz]) => ({ x: HOME.x + dx, y: HOME.y, z: HOME.z + dz })
+  setChest([['dirt', 5]], at(TI_N.N1))
+  setChest([['coal', 9], ['oak_planks', 12]], at(TI_N.N3))
+  setChest([['iron_ingot', 20]], at(TI_N.FAR))
+  setChest([['coal', 64]], at(TI_N.OUT))
+  const dl = at([0, 3]), dr = at([1, 3])
+  const put = rcon(`setblock ${dl.x} ${dl.y} ${dl.z} minecraft:air`, `setblock ${dr.x} ${dr.y} ${dr.z} minecraft:air`,
+    `setblock ${dl.x} ${dl.y} ${dl.z} minecraft:chest[facing=north,type=left]`, `setblock ${dr.x} ${dr.y} ${dr.z} minecraft:chest[facing=north,type=right]`,
+    `item replace block ${dl.x} ${dl.y} ${dl.z} container.0 with minecraft:stick 20`, `item replace block ${dl.x} ${dl.y} ${dl.z} container.1 with minecraft:cobblestone 30`)
+  if (put.some(x => /Unknown|Incorrect|Cannot|not loaded/i.test(x.reply))) throw new Error('double chest: ' + JSON.stringify(put))
+  const key = p => `${p.x},${p.y},${p.z}`
+  const conts = { N1: [at(TI_N.N1)], N3: [at(TI_N.N3)], FAR: [at(TI_N.FAR)], OUT: [at(TI_N.OUT)], DBL: [dl, dr] }
+  // the bag: BAG_MIX (bagbudget-01's measured full bag: the town deposit banks its allowance rows) with an iron axe and no
+  // shovel (the toolkit draws 1 ingot from a container keeping 4: FAR is the only one)
+  const spec = [...BAG_MIX]; while (spec.length < 36) spec.push(['white_wool', 1 + (spec.length % 3)])
+  const pool = `sbxti-${RUN}`
+  const files = await startBot('townindex', spec, { pool })
+  const t0 = Date.now()
+  const want = () => { const rs = rowsOf(files.skillLog); return rs.some(r => r.name === '_town_deposit') && rs.some(r => r.name === '_toolkit' && /^phase=kit /.test(r.detail)) }
+  await waitFor(want, 360000, 1000)
+  await sleep(4000)
+  const rows = rowsOf(files.skillLog).filter(r => /^(_town_deposit|_toolkit|_kit_search|_townindex_mode|_townindex_count|_stock_recount)$/.test(r.name))
+  await stopBot(); BRAIN_WANDER = false
+  // the server's truth, every container (a double chest's halves summed)
+  const truth = {}
+  for (const [n, ps] of Object.entries(conts)) {
+    const t = {}
+    for (const p of ps) for (const [id, c] of Object.entries(chestTotals(p).totals)) t[id] = (t[id] || 0) + c
+    truth[n] = t
+  }
+  // the index the bot wrote (its pool directory), folded with the build's own fold
+  const TI = await import(path.join(R, 'bots/src/townindex.mjs'))
+  const hk = TI.indexHomeKey(HOME)
+  let recs = []
+  try { recs = TI.indexRecords(files.poolDir, hk) } catch { recs = [] }
+  const fold = TI.foldIndex(recs).worlds
+  const ents = Object.values(fold)[0] ?? {}
+  const nameOf = k => Object.entries(conts).find(([, ps]) => ps.some(p => key(p) === k))?.[0] ?? k
+  const report = {}
+  let knownExact = 0, knownWrong = 0
+  for (const [k, e] of Object.entries(ents)) {
+    const n = nameOf(k), st = TI.indexStateOf(e)
+    const seen = Object.fromEntries(Object.entries(e.obs?.names ?? {}).map(([id, [c]]) => [id, c]))
+    const exact = JSON.stringify(Object.entries(seen).sort()) === JSON.stringify(Object.entries(truth[n] ?? {}).sort())
+    report[n] = { k, state: st, seen, halves: e.obs?.h ?? null }
+    if (st === 'known') { if (exact) knownExact++; else knownWrong++ }
+  }
+  const obs = recs.filter(r => r.t === 'obs'), xf = recs.filter(r => r.t === 'xfer'), dirty = recs.filter(r => r.t === 'dirty')
+  const byId = Object.fromEntries(obs.map(r => [r.id, r]))
+  const xfBad = xf.filter(r => r.ok === 1).filter(r => !(byId[r.pre]?.k === r.k && byId[r.ver]?.k === r.k && ((byId[r.ver].names?.[r.name]?.[0] ?? 0) >= r.n)))
+  const outIndexed = recs.some(r => r.k === key(conts.OUT[0]))
+  const dblOk = !report.DBL || (report.DBL.k === key(dl) && JSON.stringify(report.DBL.halves) === JSON.stringify([key(dl), key(dr)]))
+  const licence = rowsOf(files.skillLog).filter(r => r.name === '_townindex_mode').length
+  const kit = rows.filter(r => r.name === '_toolkit' && /^phase=kit /.test(r.detail)), td = rows.filter(r => r.name === '_town_deposit')
+  result({ scene: 'townindex', root: BOT_ROOT, ms: Date.now() - t0, rows: rows.map(r => `${new Date(r.ts).toISOString().slice(11, 19)} ${r.name} ${r.status} ${r.detail.slice(0, 160)}`),
+    world: { truth }, index: { records: recs.length, obs: obs.length, dirty: dirty.length, xfer: xf.length, xferVerified: xf.filter(r => r.ok === 1).length, report, knownExact, knownWrong, xfBad: xfBad.length, outIndexed, dblOk }, licence,
+    CANDIDATE_PASS: !!(licence >= 1 && kit.length >= 1 && td.length >= 1 && obs.length >= 2 && knownExact >= 1 && knownWrong === 0 && xfBad.length === 0 && !outIndexed && dblOk &&
+      Object.values(report).every(e => ['known', 'dirty'].includes(e.state))),
+    BASE_SHAPE: !!(licence === 0 && recs.length === 0 && kit.length >= 1 && td.length >= 1) })
 }
 scenes.townsearch = () => townSearchScene('townsearch')
 scenes.townsearch2 = () => townSearchScene('townsearch2', { orders: 2, wait: 1700000 })   // two orders (the second ~20 min later)
