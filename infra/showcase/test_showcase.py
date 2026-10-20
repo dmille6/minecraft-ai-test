@@ -370,8 +370,32 @@ class QuiesceTransitions(unittest.TestCase):
         n_probes = len(self.probes)
         SP.mark_quiesced(now=1032.0)
         self.assertEqual(self.unloads, [], 'eligibility closed at the handoff: the benchmark model is never unloaded')
-        self.assertIn('RESV pause-c2', self.ack(), 'the next reservation in the same pause is acknowledged at once')
+        self.assertIsNotNone(self.ack(), 'the next reservation in the same pause is acknowledged at once')
+        self.assertIn('RESV pause-c2', self.ack())
         self.assertEqual(len(self.probes), n_probes, 'no probe after the handoff (nothing on the GPU is ours)')
+
+    def test_resumed_admission_ends_the_handoff(self):
+        # Codex r7 repro: ack A -> pause removed -> a request is admitted and finishes -> reservation B appears BEFORE
+        # the next poll. B must get a fresh grace and fresh probes, not the post-handoff fast path.
+        SP.A.max_inflight = 4
+        self.write('run-a-1-100')
+        SP.mark_quiesced(now=1000.0)
+        SP.mark_quiesced(now=1031.0)
+        self.assertIn('RESV run-a-1-100', self.ack())
+        os.remove(self.resv)                                   # pause over (no poll in between)
+        p, _, _ = SP.admit()
+        self.assertIsNone(p)
+        self.assertIsNone(self.ack(), 'admission withdraws the old ack')
+        SP.finish()
+        SP.STATE['last_done'] = 1040.0
+        self.write('run-b-2-200')
+        n = len(self.probes)
+        SP.mark_quiesced(now=1041.0)
+        self.assertIsNone(self.ack(), 'B is inside its grace: no immediate ack')
+        SP.mark_quiesced(now=1072.0)
+        self.assertEqual(len(self.probes), n + 1, 'B was probed afresh')
+        self.assertIsNotNone(self.ack())
+        self.assertIn('RESV run-b-2-200', self.ack())
 
     def test_admitted_request_blocks_the_ack_and_paused_admission_refuses(self):
         SP.A.max_inflight = 4

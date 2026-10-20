@@ -15,6 +15,8 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.abspath(os.path.join(HERE, '..', '..'))
 
 MUTANTS = [
+    ('showcaseproxy.py', "            STATE['handed_off'], STATE['epoch_unloaded'], STATE['sig'] = False, False, None\n            withdraw_ack()\n",
+     "            pass\n", 'test_resumed_admission_ends_the_handoff'),
     ('showcaseproxy.py', "        STATE['handed_off'] = True\n", "        pass\n",
      'test_no_unload_after_a_handoff_that_needed_none'),
     ('showcaseproxy.py', "        if STATE['inflight'] or pause_signature(A.pause_file, A.pause_dir, STATE.get('bench_proc')) != sig:",
@@ -48,7 +50,8 @@ def main():
             open(p, 'w').write(src.replace(old, new, 1))
             r = subprocess.run([sys.executable, '-W', 'ignore', os.path.join(dst, 'test_showcase.py'), '-k', test],
                                capture_output=True, text=True, timeout=300)
-            killed = r.returncode != 0 and ('FAIL' in r.stderr or 'Error' in r.stderr)
+            # KILLED only by the INTENDED assertion: the named test must FAIL (not error out for an unrelated reason)
+            killed = r.returncode != 0 and f'FAIL: {test} ' in r.stderr
             print(f"  {'KILLED' if killed else 'SURVIVED'}  {fn}: {old.strip()[:70]}  (by {test})")
             failed += 0 if killed else 1
     print(f'{len(MUTANTS) - failed} of {len(MUTANTS)} mutants killed')

@@ -24,10 +24,11 @@ PAUSED MEANS PAUSED. While any pause source holds -- a --pause-file (GPU_RESERVE
 canary, every mbench run since run_model.sh/lms_factor.sh hold it; the operator's OFF), an entry in --pause-dir, or a
 benchmark worker process (run_bench/throughput/serving/cl_run/cl_series .py, started by hand) -- every request is
 answered 503 before any model is called; the fallback is NOT used either (same GPU). In-flight work finishes (bounded
-by --timeout + --fallback-timeout); after --quiesce-grace seconds idle the proxy tells Ollama to unload the fallback
-model it loaded (keep_alive 0), then writes --quiesced-file. A NEW pause source withdraws the old acknowledgement and
-the grace starts again, so a consumer waiting for "QUIESCED newer than my reservation" (studio-gpu-guard.sh) gets an
-acknowledgement of ITS reservation.
+by --timeout + --fallback-timeout); BEFORE THE HANDOFF, after --quiesce-grace seconds idle, it requires Ollama's
+/api/ps to show the fallback model gone (one keep_alive-0 unload per pause) and `lms ps` to show `brain` IDLE, then
+writes --quiesced-file naming each reservation (`RESV <token>`). That first ack is the HANDOFF: until admission
+resumes, a new reservation set is acknowledged at once (nothing on the GPU is the showcase's). Admission resuming
+ends the handoff under the admission lock. A consumer accepts only an ack newer than its reservation that names it.
 
 Response model names are honest: `--serve-as` only when LM Studio says it served --model; the fallback reports
 Ollama's own `model`; so the bot's model_mismatch marks every non-gemma decision.
@@ -332,6 +333,12 @@ def admit():
     with LOCK:
         p = is_paused()
         full = (not p) and STATE['inflight'] >= A.max_inflight
+        if not p and STATE.get('handed_off'):
+            # ADMISSION RESUMED: the pause is over even if the 2-s poll has not seen it yet. The handoff, the unload
+            # epoch and the old acknowledgement all end HERE, under the admission lock, so a reservation that appears
+            # before the next poll gets a fresh grace and fresh probes (Codex r7).
+            STATE['handed_off'], STATE['epoch_unloaded'], STATE['sig'] = False, False, None
+            withdraw_ack()
         if not p and not full:
             STATE['inflight'] += 1
         return p, full, STATE['inflight']
