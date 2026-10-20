@@ -3072,6 +3072,57 @@ await t('MUTANT (well): the pit cover beside a sealed well removed -> no order f
       assert.equal(ran[0]?.skill, 'dispose_well', `mutant inert: ${JSON.stringify(ran)}`)
     } finally { try { unlinkSync(out) } catch {} }
   })
+
+  // ---- BAGBUDGET-01 DELETION FIRST, through the REAL loop (Claude code r1 P2-1): a full bag at town holding junk the well
+  // takes AND allowance surplus (a torch stack) -> every town_deposit order carries rows=false (the chest rows wait) and the
+  // well's dispose_well is given; positive control: the same bag in a town with no well -> rows=true at once. The runner
+  // records the order's args and succeeds without moving anything (the plan, not the transfer, is under test here).
+  async function loopArgs (town, { n = 4, maxMs = 9000, Loop = CognitiveLoop } = {}) {
+    Object.assign(town.bot, { oxygenLevel: 300, time: { day: 1, age: 1, timeOfDay: 1000 }, game: { dimension: 'overworld' }, experience: { level: 0 }, isInWater: false })
+    const fb = town.bot.findBlocks
+    town.bot.findBlocks = o => (typeof o?.matching === 'function' ? fb(o) : [])
+    const ran = []
+    const runner = { isBusy: () => false, run: async (skill, args) => { ran.push({ skill, args: args ?? {} }); return { status: 'success', detail: 'ok', delta: {}, contractEvidence: [`${skill}: probe 1`] } } }
+    const loop = new Loop(town.bot, runner, freshLessons(), null)
+    loop.llm = { decide: async () => ({ schemaValid: true, latencyMs: 1, proposal: { skill: 'status', args: {}, reason: 'probe' } }) }
+    loop.milestones.cycle = 540
+    const pace = config.llm.decisionCooldownMs
+    config.llm.decisionCooldownMs = 50
+    try {
+      loop.start()
+      for (const t0 = Date.now(); Date.now() - t0 < maxMs && ran.length < n; ) await new Promise(r => setTimeout(r, 30))
+      loop.stop()
+    } finally { config.llm.decisionCooldownMs = pace }
+    return { ran, loop }
+  }
+  const CHEST_AT = `${HOME.x + 2},${STAND_Y},${HOME.z}`
+  const bagWithJunk = () => [S('egg', 16), S('flint', 64), S('torch', 20), S('bone_meal', 12), ...filler(32)]
+  const tdOrders = ran => ran.filter(x => x.skill === 'town_deposit')
+  await t('BAGBUDGET CHAIN (real loop): deletion first -- with a usable well and junk, the town deposit\'s chest rows wait (rows=false) and dispose_well is given', async () => {
+    const town = fakeTown({ wellAt: CAP, items: bagWithJunk(), blocks: { [CHEST_AT]: 'chest' }, botAt: new Vec3(HOME.x + 0.5, STAND_Y, HOME.z + 0.5) })
+    const { ran } = await loopArgs(town, { n: 4 })
+    assert.ok(ran.some(x => x.skill === 'dispose_well'), `the well is given its turn: ${JSON.stringify(ran)}`)
+    assert.ok(tdOrders(ran).length >= 1, `positive control: the town deposit fired (its base plan: whole cobble stacks): ${JSON.stringify(ran)}`)
+    assert.ok(tdOrders(ran).every(x => x.args.rows === false), `the chest rows wait for the well: ${JSON.stringify(ran)}`)
+  })
+  await t('BAGBUDGET CHAIN (real loop), CONTROL: the same bag in a town with NO well -> the chest rows go at once (rows=true)', async () => {
+    const town = fakeTown({ items: bagWithJunk(), blocks: { [CHEST_AT]: 'chest' }, botAt: new Vec3(HOME.x + 0.5, STAND_Y, HOME.z + 0.5) })
+    const { ran } = await loopArgs(town, { n: 2 })
+    assert.equal(tdOrders(ran)[0]?.args.rows, true, JSON.stringify(ran))
+  })
+  await t('BAGBUDGET MUTANT (cognitive): the deletion reader says never pending -> the chest rows go before the well (the defect)', async () => {
+    const src = readFileSync(CP, 'utf8')
+    const old = '          const pending = deletionPending(bot, items, { now, wellState: this.wellState, townState: this.townState })\n'
+    assert.equal(src.split(old).length, 2, 'ANCHOR missing or not unique')
+    const out = new URL(`./_mutant-cog-bb-${process.pid}.mjs`, import.meta.url)
+    writeFileSync(out, src.replace(old, '          const pending = false\n').replace(/from '\.\//g, "from '../src/"))
+    try {
+      const { CognitiveLoop: M } = await import(out.href)
+      const town = fakeTown({ wellAt: CAP, items: bagWithJunk(), blocks: { [CHEST_AT]: 'chest' }, botAt: new Vec3(HOME.x + 0.5, STAND_Y, HOME.z + 0.5) })
+      const { ran } = await loopArgs(town, { n: 2, Loop: M })
+      assert.equal(tdOrders(ran)[0]?.args.rows, true, `mutant inert: ${JSON.stringify(ran)}`)
+    } finally { try { unlinkSync(out) } catch {} }
+  })
 }
 
 // ---- PLINTH-FIRST (plinthfirst-01 on plinth-02.1): the policy alone; plinth-02.1's own fixes are tested in its section above

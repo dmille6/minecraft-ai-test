@@ -429,8 +429,10 @@ export function townDepositOrder ({ now = 0, slots = 0, pos = null, home = null,
   }
   s.outsideSince = null
   if (slots < TD_TRIGGER_SLOTS) { s.deletionWaited = 0; s.deletionAt = null; return none() }
-  // THE DELETION WAIT'S CLOCK runs on EVERY call made full at town, before any scan, cooldown or latch gate (Codex design r3
-  // P2-1: accumulated only on scans, 30 short visits of 10 s each never added up). A call outside town stops it (above).
+  // THE DELETION WAIT'S CLOCK: each call made full at town adds the time since the previous such call, before any scan,
+  // cooldown or latch gate (Codex design r3 P2-1: accumulated only on scans, 30 short visits of 10 s each never added up). A
+  // call outside town stops it (above). The gap between two calls is counted whole -- a skill that ran in between, or a
+  // decision the plinth order took, included (Claude code r1 P3-2): it can only release the chest rows sooner, never hold them.
   if (s.deletionAt != null) s.deletionWaited = (s.deletionWaited ?? 0) + Math.max(0, now - s.deletionAt)
   s.deletionAt = now
   if (s.latched && now - (s.lastIssuedAt ?? -Infinity) < TD_STAY_REARM_MS) return none()

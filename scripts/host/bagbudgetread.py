@@ -20,8 +20,12 @@
 #     D1 breach_junk_chest: a canary bank row banked a junk name (the owner's 10-04 rule; row J's lists; PEACEFUL_COMPOST
 #        and apple only on peaceful=1 rows). d1_incomplete: a run whose parts are not all present -- BLOCKS KEEP.
 #     D2 breach_below_allowance: a station left below 1 (start >= 1, start - banked < 1), or 26+ ladders banked at all
-#     D3 breach_full_noeffect_chest: a canary phase=none row with rows=1 and chest=1 (the planner said chest surplus and
-#        planned nothing)
+#     D3 breach_full_noeffect_chest: a canary phase=none row with rows=1 and chest=1 -- a CONSISTENCY tripwire (the row's
+#        class comes from the same plan, so it trips only if the two disagree: Claude code r1 P3-1)
+#     D6 breach_planner_omitted: >= 2 canary full-bag no_effect `_town_deposit` rows (stop nothing to bank above the keeps)
+#        whose OWN snapshot holds a torch, bone_meal or < 26 ladders while the phase=none row says rows=1 -- the read's
+#        independent check of the planner (a single one is reported, never a verdict: a model's `withdraw torch` hold is
+#        invisible to the read)
 #     D4 breach_ingot_banked: a canary _town_deposit that banked iron_ingot (cobblekeep-01's, carried)
 #     D5 harm_storage_full: canary town_storage_full >= 3 AND above 2x the control's rate per bot-h
 #   CROSS-CHECK (REPORTED): canary full-bag no_effect `_town_deposit` rows (stop nothing to bank above the keeps) whose snapshot
@@ -108,8 +112,10 @@ def bank_tokens(detail):
 
 
 def runs_of(rows):
-    """phase=bank parts -> runs [{bot, t, parts_seen, parts_n, peaceful, allow, other, head}] (a run = consecutive parts of one
-    bot whose part numbers count 1..n)"""
+    """phase=bank parts -> runs [{bot, t, seen, parts_n, peaceful, allow, other, ...}]. A run is the parts of ONE visit of one
+    bot: it opens at part 1 (or at any part with no open run -- an orphan, missing its earlier parts), takes each part number
+    once, and CLOSES when it holds 1..n (Codex code r1 P2-1: a later run's stray part must never complete an earlier one).
+    Complete iff seen == {1..n}."""
     out, cur = [], {}
     for r in rows:
         if r['name'] != '_bagbudget' or not r['detail'].startswith('phase=bank'):
@@ -118,11 +124,14 @@ def runs_of(rows):
         i, _, n = (f.get('part') or '1/1').partition('/')
         i, n = int(i or 1), int(n or 1)
         run = cur.get(r['bot'])
-        if i == 1 or run is None or run['parts_n'] != n:
-            run = {'bot': r['bot'], 't': r['t'], 'parts_seen': 0, 'parts_n': n, 'peaceful': f.get('peaceful') == '1', 'allow': {}, 'other': {},
+        if i == 1 or run is None or run['parts_n'] != n or i in run['seen']:
+            run = {'bot': r['bot'], 't': r['t'], 'seen': set(), 'parts_n': n, 'peaceful': f.get('peaceful') == '1', 'allow': {}, 'other': {},
                    'banked': int(f.get('banked') or 0) if (f.get('banked') or '').isdigit() else 0, 'arm': r['arm'], 'per': r['per'], 'trunc': False}
             out.append(run); cur[r['bot']] = run
-        run['parts_seen'] += 1
+        run['seen'].add(i)
+        run['parts_seen'] = len(run['seen'])
+        if run['seen'] == set(range(1, n + 1)):
+            cur.pop(r['bot'], None)
         run['trunc'] = run['trunc'] or 'trunc=1' in r['detail']
         a, o = bank_tokens(r['detail'])
         run['allow'].update(a); run['other'].update(o)
@@ -212,7 +221,7 @@ def judge(rows, last=None, hrs=None):
     runs = [x for x in runs_of(rows) if x['arm'] == 'canary' and x['per'] == 'post']
     junk, low, inc = [], [], []
     for x in runs:
-        if x['parts_seen'] < x['parts_n'] or x['trunc']:
+        if x['seen'] != set(range(1, x['parts_n'] + 1)) or x['trunc']:
             inc.append((x['bot'], '%d/%d' % (x['parts_seen'], x['parts_n']), str(x['t'])))
         names = {n: b for n, (s, b) in x['allow'].items() if b > 0} | {n: c for n, c in x['other'].items() if c > 0}
         for n in names:
@@ -229,7 +238,10 @@ def judge(rows, last=None, hrs=None):
     none = [r for r in post_c if r['name'] == '_bagbudget' and r['detail'].startswith('phase=none')]
     d3 = [(r['bot'], str(r['t'])) for r in none if kv(r['detail']).get('rows') == '1' and kv(r['detail']).get('chest') == '1']
     out['breach_full_noeffect_chest'] = len(d3)
+    # D4 reads the town deposit's own row AND the complete bank parts (Codex code r1 P2-2: the 300-char row sorts by count)
     ing = [(r['bot'], banked(r).get('iron_ingot'), str(r['t'])) for r in post_c if banked(r).get('iron_ingot')]
+    ing += [(x['bot'], x['other'].get('iron_ingot') or x['allow'].get('iron_ingot', (0, 0))[1], str(x['t'])) for x in runs
+            if x['other'].get('iron_ingot') or x['allow'].get('iron_ingot', (0, 0))[1]]
     out['breach_ingot_banked'] = len(ing)
     sf = lambda per, arm: sum(1 for r in rows if r['per'] == per and r['arm'] == arm and r['name'] == 'town_deposit' and r['fail_class'] == 'town_storage_full')
     out['storage_full_post_canary'], out['storage_full_post_control'] = sf('post', 'canary'), sf('post', 'control')
@@ -252,6 +264,7 @@ def judge(rows, last=None, hrs=None):
         if hit and any(kv(x['detail']).get('rows') == '1' for x in near):
             cross.append((r['bot'], hit, str(r['t'])))
     out['crosscheck_omitted'] = len(cross)
+    out['breach_planner_omitted'] = int(len(cross) >= 2)
     for per in ('pre', 'post'):
         for arm in ('canary', 'control'):
             sel = [r for r in rows if r['per'] == per and r['arm'] == arm]
@@ -311,6 +324,10 @@ def selftest():
     assert judge([BANK(part='1/2')] + ctl, lastc)['d1_incomplete'] == 1, 'incomplete parts'
     assert judge([BANK(part='1/2'), BANK(part='2/2', allow='', other='coal:7')] + ctl, lastc)['d1_incomplete'] == 0, 'both parts present'
     assert judge([BANK(part='1/2'), BANK(part='2/2', allow='', other='egg:4')] + ctl, lastc)['breach_junk_chest'] == 1, 'junk on the second part'
+    # Codex code r1 P2-1: a complete run, then a later run missing its part 1 -- the stray 2/2 must not complete anything
+    stray = judge([BANK(part='1/2'), BANK(part='2/2', allow='', other='coal:7'), BANK(part='2/2', allow='', other='coal:3', mins=5)] + ctl, lastc)
+    assert stray['d1_incomplete'] == 1, stray
+    assert judge([BANK(part='1/2'), BANK(part='1/2', mins=5), BANK(part='2/2', allow='', other='coal:3', mins=5)] + ctl, lastc)['d1_incomplete'] == 1, 'a run that never got its 2/2'
     # D2: a station below 1; 26+ ladders banked
     assert judge([BANK(allow='crafting_table=1:1')] + ctl, lastc)['breach_below_allowance'] == 1, 'D2: the only table'
     assert judge([BANK(allow='chest=12:0')] + ctl, lastc)['breach_below_allowance'] == 0, 'D2 control: stations kept'
@@ -325,6 +342,7 @@ def selftest():
     TD = lambda b, **k: R('_town_deposit', 'slots 36->34 stacks 2/2 clicked 2 bagdelta 12 tools - banked %s stop done containers 1,2,3=ok' % b, **k)
     assert judge([TD('iron_ingot:3')] + ctl, lastc)['breach_ingot_banked'] == 1, 'D4'
     assert judge([TD('iron_ingot:3', arm='control', bot='hive-b-A')] + ctl, lastc)['breach_ingot_banked'] == 0, 'D4 judges the canary'
+    assert judge([BANK(other='iron_ingot:3')] + ctl, lastc)['breach_ingot_banked'] == 1, 'D4 from the complete bank parts'
     # D5: >= 3 and > 2x control per bot-h
     SF = lambda **k: R('town_deposit', 'the town chests in reach are full', status='failed', fail='town_storage_full', **k)
     h = lambda per, arm: 10.0
@@ -334,6 +352,8 @@ def selftest():
     # cross-check
     NE = lambda inv, **k: R('_town_deposit', 'slots 36->36 stacks 0/0 clicked 0 bagdelta 0 tools - banked - stop nothing to bank above the keeps containers -', status='no_effect', inv=inv, **k)
     assert judge([NE({'torch': 5}), N(chest='0')] + ctl, lastc)['crosscheck_omitted'] == 1, 'the planner omitted a torch'
+    assert judge([NE({'torch': 5}), N(chest='0')] + ctl, lastc)['breach_planner_omitted'] == 0, 'D6: one is reported, not a verdict'
+    assert judge([NE({'torch': 5}), N(chest='0'), NE({'bone_meal': 9}, mins=20), N(chest='0', mins=20)] + ctl, lastc)['breach_planner_omitted'] == 1, 'D6: two'
     assert judge([NE({'torch': 5}), N(chest='0', rows='0')] + ctl, lastc)['crosscheck_omitted'] == 0, 'control: withheld for deletion'
     assert judge([NE({'ladder': 30}), N(chest='0')] + ctl, lastc)['crosscheck_omitted'] == 0, 'control: 26+ ladders stay'
     # exposure and instrument
@@ -421,7 +441,7 @@ if __name__ == '__main__':
     print('HARM         D5 town_storage_full canary %d control %d (per bot-h %.3f vs %.3f) -> %s'
           % (res['storage_full_post_canary'], res['storage_full_post_control'], rate(res['storage_full_post_canary'], 'post', 'canary'),
              rate(res['storage_full_post_control'], 'post', 'control'), 'TRIP' if res['harm_storage_full'] else 'ok'))
-    print('CROSS-CHECK  (reported) full no_effect with a torch / bone meal / < 26 ladders and rows=1: %d %s' % (res['crosscheck_omitted'], res['_lists']['cross']))
+    print('CROSS-CHECK  D6 full no_effect with a torch / bone meal / < 26 ladders and rows=1: %d %s -> %s (>= 2 REVERTS)' % (res['crosscheck_omitted'], res['_lists']['cross'], 'TRIP' if res['breach_planner_omitted'] else 'ok'))
     print('OWNER        unlisted names in canary full bags (stay; the owner\'s junk-list call): %s' % res['_lists']['unlisted'])
     print('EXPOSURE     -> %s (canary bank runs that banked %d, need 3; wear rows %d, need 1) | INSTRUMENT control town deposits %d, full bags %d, wear_out %d -> %s'
           % ('READY' if res['exposure_ready'] else 'NOT YET', res['bank_runs_canary'], res['wear_rows_canary'],

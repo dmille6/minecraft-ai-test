@@ -236,8 +236,10 @@ is at 34+.
   (the allowance's start counts and server-verified banked, and EVERY banked name) and `phase=none` (full-bag no_effect),
   the honest no_effect detail, the allowance-only failure texts; wearOut writes `_bagbudget phase=wear` when row P listed
   a copy.
-- `hygiene.mjs wearOutPlan`: row P. `cognitive.mjs`: passes `deletion` and the plan's `rows`. `index.mjs`: the licence row
-  `_bagbudget_mode`. The section-3 constants import the table.
+- `hygiene.mjs wearOutPlan`: row P -- and `craftroom.mjs craftRoomRemedy`, the craft's make-room step, reads the same hygiene
+  plan (so under row P the craft may wear any spent pickaxe the plan lists, the survivor rule unchanged). `cognitive.mjs`:
+  passes `deletion` and the plan's `rows`. `index.mjs`: the licence row `_bagbudget_mode`. The section-3 constants import
+  the table.
 
 ## 6. Read plan and registration
 
@@ -251,13 +253,14 @@ Read `scripts/host/bagbudgetread.py` (files; DiD canary vs control; denominators
      PEACEFUL_COMPOST and apple (Claude r2 P3-5: outside a peaceful world row F banks them legitimately).
   D2 `breach_below_allowance`: a `phase=bank` row whose `allow=name=start:banked` leaves a station below 1, or 26+
      ladders below 26 (the rows the read can judge from the row alone).
-  D3 `breach_full_noeffect_chest`: a canary `phase=none` row with `rows=1` and `chest=1` (the planner said chest surplus
-     and planned nothing).
+  D3 `breach_full_noeffect_chest`: a canary `phase=none` row with `rows=1` and `chest=1` -- a CONSISTENCY tripwire (the
+     class comes from the same plan, so it trips only if the two disagree: Claude code r1 P3-1).
+  D6 `breach_planner_omitted`: >= 2 canary full-bag no_effect rows whose own snapshot holds a torch, bone_meal or < 26
+     ladders while the `phase=none` row says `rows=1` -- the read's INDEPENDENT check of the planner (one is reported, never
+     a verdict: a model's `withdraw torch` hold is invisible to the read).
   D4 `breach_ingot_banked` (cobblekeep-01's, carried).
   D5 `harm_storage_full`: canary `town_storage_full` failures >= 3 AND above 2x the control's rate per bot-h.
-- CROSS-CHECK (REPORTED, Codex r1 P1-4): canary full-bag no_effect rows (`stop nothing to bank above the keeps`) whose
-  snapshot holds torch, bone_meal or < 26 ladders while the `phase=none` row says `rows=1` -- the planner omitting a name
-  the read can see. Reported with names, because the read cannot see withdraw holds.
+- (The cross-check of Codex design r1 P1-4 is D6 above.)
 - PRIMARY (DiD, reported): share of bots at >= 34 slots, slots per bot, full-bag town deposits that banked > 0 (share), craft
   "no slot can be freed" per bot-h, gather success; spent pickaxes per full bag. UNLISTED names in full bags (for the owner).
 - EXPOSURE (declared, tier 2): >= 3 canary `_bagbudget phase=bank` rows that banked an allowance stack AND >= 1 canary
@@ -343,3 +346,15 @@ so thirty 10-second visits (300 s full at town) never reached the cap (reproduce
 continuous 60 s stay issued -- the positive control). TAKEN in r4: the clock runs on every call full at town, before the
 scan/cooldown/latch gates; a scan only resets it when nothing is left to delete; Codex's repro is now a test (300,000 ms
 counted, the order issued).
+
+**Code r1 (2026-10-20 ~07Z, on 7e9fd2b3).** Codex CHANGE: P2 a later run's stray part could complete an earlier bank run in
+the read (D1 coverage); P2 D4 read only the 300-char town_deposit row; P2 `bagwell` could pass on a failed dispose; P3
+`bagfar` did not require the good pickaxe to survive. Claude APPROVE with P2-1 (no behaviour test of the deletion-first
+wiring through the real loop) and P3s (D3 cannot fire by construction -- promote the cross-check; the clock comment; bagmix
+assumes a peaceful world; RCON_LOCAL trusts the launcher's lock word; row F could keep the composter's apple). The full
+suite also caught craft-room.test.mjs: the craft's make-room remedy reads the same hygiene plan, so row P reaches it. ALL
+TAKEN: runs close at 1..n (a stray part opens an incomplete run); D4 also reads the bank parts; bagwell needs a successful
+dispose_well and the egg/flint gone; bagfar needs four spent copies before and the good one after; a real-loop chain test in
+well.test.mjs (deletion pending -> every town_deposit order rows=false and dispose_well given; no well -> rows=true;
+an anchored mutant of the cognitive reader); D6 (>= 2 independent omissions REVERT); the clock comment; bagmix reads the
+difficulty; bestFood skips names another exit owns; craftRoomRemedy takes the switch and its tests pin both rules.

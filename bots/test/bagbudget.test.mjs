@@ -138,6 +138,12 @@ test('THE MEASURED MIX: the chest rows plan torch, bone meal, ladders and the se
   assert.ok(!names(townDepositPlan(items, { noSwords: true })).includes('apple'), 'peaceful: apples are not banked')
 })
 
+test('row F in a peaceful world: the composter\'s apples are never the kept food (Claude code r1 P3-5)', () => {
+  const items = bag([['apple', 30], ['carrot', 6], ...filler(34)])
+  assert.ok(!names(townDepositPlan(items, { noSwords: true })).includes('carrot'), 'peaceful: the carrot is the kept food, the apples the composter\'s')
+  assert.ok(names(townDepositPlan(items, { noSwords: false })).includes('carrot'), 'positive control: outside peaceful the apple is the best food and the carrot goes')
+})
+
 test('the goal wins: a wanted name keeps a stack; a withdraw hold keeps the name; below 34 nothing; the latch', () => {
   const items = bag([['torch', 20], ['bone_meal', 9], ...filler(34)])
   assert.deepEqual(names(townDepositPlan(items)), ['bone_meal', 'torch'])

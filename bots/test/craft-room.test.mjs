@@ -101,11 +101,18 @@ await t('craftArrived: a tool counts only as a NEW full-durability copy; a stack
 
 await t('craftRoomRemedy: a spent axe first; a pickaxe craft may wear ONE spent pickaxe below the kept three; nothing else', () => {
   const PK = item('iron_pickaxe', 1, { left: 200 })
-  assert.equal(craftRoomRemedy(bagOf(36, [PK, spent('stone_axe'), spent('stone_pickaxe')]), 'stone_pickaxe').tool.name, 'stone_axe')
+  // the deployed last-swing rule (BAG_ALLOWANCE off): three spent pickaxes are kept; the bag allowance case is below
+  const off = { allowance: false }
+  assert.equal(craftRoomRemedy(bagOf(36, [PK, spent('stone_axe'), spent('stone_pickaxe')]), 'stone_pickaxe', off).tool.name, 'stone_axe')
   const three = bagOf(36, [PK, spent('stone_pickaxe'), spent('wooden_pickaxe'), spent('stone_pickaxe')])
-  const r = craftRoomRemedy(three, 'stone_pickaxe')
+  const r = craftRoomRemedy(three, 'stone_pickaxe', off)
   assert.equal(r.why, 'replaced'); assert.equal(r.tool.name, 'wooden_pickaxe', 'lowest tier first')
-  assert.equal(craftRoomRemedy(three, 'oak_planks'), null, 'planks replace no pickaxe: the three stay')
+  assert.equal(craftRoomRemedy(three, 'oak_planks', off), null, 'planks replace no pickaxe: the three stay')
+  // BAGBUDGET-01 ROW P: the bag holds the stone (cobblestone filler), so last-swing keeps none -- the hygiene plan's own pick,
+  // and the survivor rule still binds (the iron pickaxe survives it)
+  const on = craftRoomRemedy(three, 'oak_planks')
+  assert.equal(on.why, 'spent'); assert.match(on.tool.name, /_pickaxe$/)
+  assert.equal(craftRoomRemedy(bagOf(36, [spent('stone_pickaxe'), spent('stone_pickaxe')]), 'oak_planks'), null, 'no survivor: none worn even under the allowance')
   assert.equal(craftRoomRemedy(bagOf(36, [PK, item('stone_pickaxe', 1, { left: 0 })]), 'stone_pickaxe'), null, 'a 0-use phantom is not real')
   assert.equal(craftRoomRemedy(bagOf(36, [PK, item('stone_pickaxe', 1, { left: 2 })]), 'stone_pickaxe'), null, 'two uses is not spent')
 })
@@ -496,7 +503,8 @@ await t('make room: wears out the spent pickaxe the craft replaces (below the ke
     spent('stone_pickaxe'), spent('stone_pickaxe'), spent('stone_pickaxe')]), { tables: [NEAR] })
   const r = await run(bot, { item: 'stone_pickaxe', count: 1 })
   assert.equal(r.status, 'success', r.detail)
-  assert.match(r.detail, /made room by wearing out a spent stone_pickaxe on stone \(the copy this craft replaces\)/)
+  // bagbudget-01 row P: the bag holds the stone, so the hygiene plan itself lists the spent copy ('spent', not 'replaced')
+  assert.match(r.detail, /made room by wearing out a spent stone_pickaxe on stone/)
   assert.equal(digs.length, 1); assert.equal(digs[0].with, 'stone_pickaxe')
   const copies = slots.filter(s => s?.name === 'stone_pickaxe')
   assert.equal(copies.filter(s => s.durabilityUsed === s.maxDurability - 1).length, 2, 'exactly one spent copy gone')
