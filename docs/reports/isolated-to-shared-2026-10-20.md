@@ -3,7 +3,7 @@
 _2026-10-20, written by an agent session for the coordinator. OWNER APPROVED about 12:45Z ("i agree do it all, get it working").
 Fleet at writing: `9e7d9980` (cobblekeep-01, promoted 11:23Z) on 70 bots. bagbudget-01 `31416ee5` has been live on board-d and
 hive-a since 11:35Z. Branch: `isolated2shared-on-9e7d998`, cut from the fleet sha. It changes **no bot code**: the changes are a
-host tool, a wrapper, a tripwire, one test file and this document. Revision r4 folds in the r1-r3 reviews; section 10 lists each finding and how it was handled._
+host tool, a wrapper, a tripwire, one test file and this document. Revision r5 folds in the r1-r4 reviews; section 10 lists each finding and how it was handled._
 
 ## 0. Summary
 
@@ -176,7 +176,10 @@ P2-5). Nothing in the world is touched.
 | `junkwell-site-<H>.g1.json` | `{x,y,z,world,at}` = the chosen cap (format of composter.mjs createSiteGen) | the raised well every bot already uses |
 | `junkwell-nosite-<H>.json` | **never copied** | one newer than `doneAt` with no `lost` evidence makes plinthWant replan a finished plinth (`complete_lost/no_evidence`, plinth.mjs:932-935). That is real for isolated-a (Comet's) and harmless in isolated-b (older); never copying is simpler than judging. A test and a mutant show it. |
 | `composter-site-<H>.g1.json` | the newest record's site; refused if two records are more than 2 blocks apart (remedy `--composter-from`) | one candidate per pool today |
-| `town-chest-<H>.containers.json` | per container, chestfull.mjs recordOutcome **replayed** over what the snapshots still show: the LATEST visible opening (full or took, any bot), then every strike NEWER than it as an unknown, and any newer `unavailable`. Strikes older than that opening are dropped, and `unusableUntil` is **re-derived** from the kept strikes, never copied. The `_` maps are merged leaf-wise: per container, and per need inside `_ingredient_miss`; the newest time wins. | two bots' unknowns 10+ min apart make the container unusable, as one shared file would (Codex r2 P2-8); a strike from before another bot's later `took` cannot (Claude r2 P2-3). A randomized test checks the fold against recordOutcome over the merged history in every case where no snapshot hides an opening. The one case it cannot replay, an opening a bot later overwrote with its own unknown, can keep a strike for at most 6 h. A miss that a later `took` outdates is cleared by the readers' own rule. |
+| `town-chest-<H>.containers.json` | per container, chestfull.mjs recordOutcome **replayed** over what the snapshots still show: the LATEST visible opening (full or took, any bot), then every strike NEWER than it as an unknown, and any newer `unavailable`. Strikes older than that opening are dropped, and `unusableUntil` is **re-derived** from the kept strikes, never copied. The `_` maps are merged leaf-wise: per container, and per need inside `_ingredient_miss`; the newest time wins. | two bots' unknowns 10+ min apart make the container unusable, as one shared file would (Codex r2 P2-8); a strike from before another bot's later `took` cannot (Claude r2 P2-3). A randomized test checks the fold against recordOutcome over the merged history in every case where no snapshot hides an opening. Two cases cannot be replayed exactly. The first is an opening a bot later overwrote with its own unknown, which can keep a
+strike for at most 6 h. The second is a mark resting on strikes a bot has evicted (it keeps 8): such a mark is kept only
+when the latest visible opening is older than unusableUntil − 2·TTL, so no visible opening can have cleared it (Codex r3
+P2-4, r4 P2-4). That rule never resurrects a cleared mark; otherwise the mark is dropped and the container is retried. A miss that a later `took` outdates is cleared by the readers' own rule. |
 | `town-chest-<H>.cobble.jsonl` (+ ckpt, gens) | **not created** | the journal is an ordered fold of claims and counts by process instance, and five files have no faithful interleaving. A missing journal folds to an empty state (cobblecap.mjs:531-535): every container is UNKNOWN until a bot opens it, and the deterministic `count_town` order (recount.mjs:58, skills.mjs:3424) counts unknown containers. Withdraw `draw` claims are always admitted (cobblecap.mjs:493). The I6 tripwire watches that the recount really closes (Codex r1 P1-4, Claude r1 P2-4). |
 | `.recount.json`, `furnace-leases/`, `treefarm-*`, `.cN` chest claims | not copied | recreated lazily; the leases have expired; the others do not exist in isolated dirs |
 | `world-facts-<pool>.json` | each bot's file is decayed to `now` by the class's own rule (counts below 1 dropped), then the files are UNIONED: every site and resource stays its own entry on its own clock, with no summed count, so no old count inherits a fresh timestamp. Entries are ordered oldest `last` first, so the class's `slice(-N)` keeps the newest; the caps are 120 sites and 200 resources. Unreachable entries older than 24 h are dropped; an id reported by several bots gets `by` and `where` unioned, the newest `last`, and the first reporter's detail. | keeps every bot's death sites, which the pathfinder prices (the class reads them back: tested). A rejuvenating fold was rejected (Codex r1 P1-3). |
@@ -280,7 +283,8 @@ The wrapper does this, in order:
 3. Computes QUIET (5.2) with `isolated2sharedhold.py quiet`: the scheduler's own status table plus the queue's registrations,
    and 1440 for a ready underground-safety or bag-fix entry. It fails closed: if ANY ready registration is unreadable, it
    refuses (Codex r3 P2-6) unless `--quiet` and `--why` are given. `--quiet` can only raise a computed value. QUIET is at
-   least 240. A rollback or release whose computation fails falls back to the recorded quiet period (Claude r3 P3-6).
+   least 240. A ROLLBACK whose computation fails falls back to the recorded quiet period (Claude r3 P3-6). A release never does: it
+   refuses, or takes an explicit `--quiet` with `--why` (Codex r4 P2-1).
 4. **Claims the install-hold first** (`isolated2sharedhold.py claim`: the installers' own `holdtoken.py claim`, the
    scheduler's slot checks under its tick lock, refused if any other hold exists), and **then** takes
    `flock -n /tmp/mcai-canary.lock`. The scheduler counts a held loop lock as a busy slot, so the order matters (Codex r2
@@ -290,14 +294,18 @@ The wrapper does this, in order:
 6. Per pool: journal `owner-direct`; stop the 5 units; `apply` (or `rollback`). Then by exit code:
    * 0: restart the 5 units 12 s apart (`restart`, never `start`), verify all 5 are active, journal `apply-done` with the
      not-before time and the pool's own tripwire command.
-   * 2: the tool wrote nothing. Restart the units ONLY if `status` shows the pool uniformly isolated or converted; an
-     earlier interrupted run may have left it mixed, and then the units stay stopped (Codex r3 P1-2).
+   * 2: the tool wrote nothing. Restart the units ONLY if `status` shows the pool uniformly isolated or converted AND no
+     rollback under way. An earlier interrupted run may have left it mixed, or with a half rollback's stale journals, and
+     then the units stay stopped (Codex r3 P1-2, r4 P2-3).
    * anything else: the tool died part-way. **The units stay stopped** (a mixed pool is worse than five idle bots), it
      journals `apply-incomplete` with `status`, and it says to re-run (apply resumes) or roll back (Codex r2 P1-4, Claude r2
      P2-2).
 7. The hold is **not** released on exit. `--release` releases it only once QUIET minutes have passed since the LAST transition
-   row in the journal (`apply-done`, `rollback-done`, `*-incomplete`). QUIET is recomputed at release time as max(recorded,
-   now), so a long canary queued during the hold is covered (Claude r3 P2-2). It verifies the hold is gone before it journals
+   row in the journal. That row is `owner-direct` (written before the units stop), `*-done`, `*-refused` or `*-incomplete`.
+   Release also refuses while the newest transition has no outcome row (an interrupted run), or ended `*-incomplete`: those
+   are reconciled by a re-run or a rollback, never by time (Codex r4 P2-2). QUIET is recomputed at release time as max(recorded,
+   now), so a long canary queued during the hold is covered (Claude r3 P2-2); a raised QUIET also extends the hold's `until`
+   (Claude r4 P3-1). It verifies the hold is gone before it journals
    `hold-released` (Claude r3 P3-4).
 
 ### 4.3 `scripts/host/isolated2sharedtrip.py --since <stop ISO> --pools <p>[,...]` (read-only)
@@ -455,7 +463,7 @@ On 10.0.0.31, once: `mkdir -p ~/isolated2shared`, then copy the three files from
 
 ## 7. Evidence produced here
 
-**Tests.** `node scripts/run-tests.mjs` (bots/) runs `bots/test/isolated2shared.test.mjs`: 28 checks. The r4 additions:
+**Tests.** `node scripts/run-tests.mjs` (bots/) runs `bots/test/isolated2shared.test.mjs`: 30 checks. The r4 additions:
 
 * a half rollback with every env still converted is refused;
 * a truncated strike history keeps a bot's valid mark;
@@ -616,3 +624,15 @@ bash ~/isolated2shared/isolated2shared-direct.sh --rollback <owner> isolated-b
 | P2-4 truncated strikes lose a mark | own mark kept when all 8 are newer than the opening |
 | P2-5 I6 tail scaled | measured |
 | P2-6 unreadable registrations skipped | refuse |
+
+**r4, Claude DESIGN APPROVE / CODE APPROVE.** Its three P3s were applied: the hold is extended when release raises QUIET, the
+extend write uses a with-block and fsync, and the truncated carry is now sound (below).
+
+**r4, Codex CHANGE / CHANGE:**
+
+| finding | handled in |
+|---|---|
+| P2-1 release falls back on a failed recompute | rollback only |
+| P2-2 an interrupted transition is ignored | `owner-direct` counts; release refuses while unreconciled |
+| P2-3 uniform env with a half rollback | status names it; restart refused |
+| P2-4 truncated carry resurrects a mark | kept only when the opening predates u − 2·TTL; test with Codex's case |

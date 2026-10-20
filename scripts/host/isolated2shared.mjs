@@ -180,13 +180,14 @@ export function foldContainer (list) {
     const until = Math.max(cur?.unusableUntil ?? -Infinity, qualifies ? t + UNUSABLE_TTL_MS : -Infinity)
     cur = { o: 'unknown', at: t, strikes: [...prior, t].slice(-8), ...(Number.isFinite(until) ? { unusableUntil: until } : {}) }
   }
-  // A TRUNCATED HISTORY (Codex r3 P2-4): recordOutcome keeps the last 8 strikes, so a bot's mark can rest on a strike it has
-  // since evicted. Its own unusableUntil is kept when its 8 retained strikes are ALL newer than the latest visible opening:
-  // then the evicted ones are older than those, and the mark is that bot's own valid evidence (the replay cannot re-derive it).
+  // A TRUNCATED HISTORY (Codex r3 P2-4, r4 P2-4): recordOutcome keeps the last 8 strikes, so a bot's mark can rest on strikes
+  // it has since evicted. A mark u was last set by an unknown at u - TTL whose qualifying earlier strike lay within TTL before
+  // it, i.e. after u - 2 TTL. So the mark is the town's evidence exactly when the latest VISIBLE opening is older than
+  // u - 2 TTL (no opening any bot saw can have cleared either strike); otherwise it is dropped -- never resurrected.
   if (cur && cur.o !== 'full' && cur.o !== 'took') {
     for (const e of list) {
-      const st = Array.isArray(e.strikes) ? e.strikes.filter(Number.isFinite) : []
-      if (st.length >= 8 && Math.min(...st) > tOpen && Number.isFinite(Number(e.unusableUntil)) && !(cur.unusableUntil >= Number(e.unusableUntil))) cur.unusableUntil = Number(e.unusableUntil)
+      const u = Number(e.unusableUntil)
+      if (Number.isFinite(u) && u - 2 * UNUSABLE_TTL_MS > tOpen && Number(e.at) > tOpen && !(cur.unusableUntil >= u)) cur.unusableUntil = u
     }
   }
   return cur
@@ -529,7 +530,7 @@ export function status (pools, o, say = console.log) {
   for (const pool of pools) {
     const p = plan(pool, o)
     const m = readJson(path.join(target(pool, o), MARKER)).json
-    say(`${pool}: env ${p.state} (${p.src.bots.map(b => `${b.bot.split('-').pop()}:${b.kind}`).join(' ')}); town dir ${fs.existsSync(target(pool, o)) ? 'present' : 'absent'}; marker ${m?.stamp ?? '-'}${p.src.refusals.length ? `; problems: ${p.src.refusals.join(' | ')}` : ''}`)
+    say(`${pool}: env ${p.state} (${p.src.bots.map(b => `${b.bot.split('-').pop()}:${b.kind}`).join(' ')}); town dir ${fs.existsSync(target(pool, o)) ? 'present' : 'absent'}; marker ${m?.stamp ?? '-'}${m?.rollback_started ? `; ROLLBACK STARTED ${m.rollback_started}` : ''}${p.src.refusals.length ? `; problems: ${p.src.refusals.join(' | ')}` : ''}`)
   }
   return 0
 }

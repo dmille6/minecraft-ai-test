@@ -331,6 +331,23 @@ await ta('foldContainer keeps a bot\'s own mark when its 8 retained strikes are 
   assert.equal(containerStatus(M.foldContainer([e]), NOW), 'unusable', 'the single snapshot keeps its valid mark')
   assert.equal(containerStatus(M.foldContainer([e, { o: 'took', at: t0 + 30 * 60e3, strikes: [] }]), NOW), 'visit', 'a later opening still clears it')
 })
+await ta('foldContainer never RESURRECTS a mark an opening cleared (Codex r4 P2-4: unknowns 0/11 min, took 11.5, eight unknowns ~12)', async () => {
+  const { recordOutcome } = await import('../src/chestfull.mjs')
+  const t0 = NOW - 60 * 60e3
+  let a = recordOutcome(undefined, 'unknown', t0); a = recordOutcome(a, 'unknown', t0 + 11 * 60e3)
+  for (let i = 0; i < 8; i++) a = recordOutcome(a, 'unknown', t0 + 12 * 60e3 + i * 1000)
+  const b = recordOutcome(undefined, 'took', t0 + 11.5 * 60e3)
+  let truth; for (const [o, t] of [['unknown', t0], ['unknown', t0 + 11 * 60e3], ['took', t0 + 11.5 * 60e3], ...Array.from({ length: 8 }, (_, i) => ['unknown', t0 + 12 * 60e3 + i * 1000])]) truth = recordOutcome(truth, o, t)
+  assert.equal(containerStatus(truth, NOW), 'visit')
+  assert.equal(containerStatus(M.foldContainer([a, b]), NOW), 'visit', 'the mark rests on strikes B\'s took cleared')
+})
+await ta('status names a started rollback (the wrapper\'s uniform() reads it: Codex r4 P2-3)', () => {
+  const o = fixture(); run(o, 'apply', '--pool', POOL)
+  const mf = path.join(town(o), M.MARKER)
+  fs.writeFileSync(mf, JSON.stringify({ ...JSON.parse(fs.readFileSync(mf, 'utf8')), rollback_started: '2026-10-20T12:00:00Z' }))
+  quiet.length = 0; run(o, 'status', '--pool', POOL)
+  assert.match(quiet.join('\n'), /^isolated-b: env converted .*ROLLBACK STARTED 2026-10-20T12:00:00Z/m)
+})
 await ta('the hold helper\'s rules self-test, and the wrapper and the tripwire parse (bash -n, python import)', () => {
   execFileSync('python3', [path.join(here, '../../scripts/host/isolated2sharedhold.py'), 'selftest'], { encoding: 'utf8' })   // asserts run at import
   execFileSync('bash', ['-n', path.join(here, '../../scripts/host/isolated2shared-direct.sh')])

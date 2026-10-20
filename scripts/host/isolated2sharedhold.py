@@ -22,7 +22,8 @@ JOURNAL = os.path.join(H, 'canary-journal.jsonl')
 RUN = 'isolated2shared-01'
 HT = os.environ.get('HOLDTOKEN', os.path.join(H, 'gate-v36', 'holdtoken.py'))
 LONG_CLASSES = ('underground-safety', 'bag-fix')
-TRANSITIONS = ('apply-done', 'rollback-done', 'apply-incomplete', 'rollback-incomplete')
+TRANSITIONS = ('owner-direct', 'apply-done', 'rollback-done', 'apply-incomplete', 'rollback-incomplete', 'apply-refused', 'rollback-refused')
+OUTCOMES = ('apply-done', 'rollback-done', 'apply-refused', 'rollback-refused')    # a transition that ended in a known state
 FLOOR = 240
 
 
@@ -72,6 +73,28 @@ def last_transition(lines, run=RUN):
     return last
 
 
+def unreconciled(lines, run=RUN):
+    """PURE. -> the reason release must wait, or None. The newest `owner-direct` (written BEFORE the units stop) must be
+    followed by an OUTCOME row; a newest `*-incomplete` (units left stopped, the pool possibly mixed) is never reconciled by
+    time -- only by a re-run or a rollback that ends in an outcome (Codex r4 P2-2)."""
+    rows = []
+    for l in lines:
+        try:
+            r = json.loads(l)
+        except Exception:
+            continue
+        if r.get('run') == run and r.get('phase') in TRANSITIONS and r.get('ts'):
+            rows.append((r['ts'], r['phase']))
+    if not rows:
+        return None
+    ts, ph = max(rows)
+    if ph == 'owner-direct':
+        return 'a transition started %s has no outcome row (interrupted?): reconcile it first' % ts
+    if ph.endswith('-incomplete'):
+        return 'the last transition (%s %s) is incomplete: re-run or roll back first' % (ph, ts)
+    return None
+
+
 def release_ok(now, last, quiet):
     """PURE. -> (ok, not_before). No transition at all: not ok (drop is the path for an unused hold)."""
     if not last:
@@ -100,10 +123,15 @@ assert quiet_from({'a', 'c'}, _E, _R)[0] is None, 'an unreadable registration re
 assert quiet_from(set(), _E, _R)[0] is None
 assert quiet_from({'a'}, [{'run': 'a', 'variants': {'x': {'registration': 'r'}}}], lambda p: {'read_minutes': [60]}) == (FLOOR, None)
 _J = ['{"ts":"2026-10-20T10:00:00Z","run":"isolated2shared-01","phase":"apply-done"}', 'junk',
-      '{"ts":"2026-10-20T11:00:00Z","run":"isolated2shared-01","phase":"owner-direct"}', '{"ts":"2026-10-20T11:30:00Z","run":"other","phase":"apply-done"}']
+      '{"ts":"2026-10-20T11:00:00Z","run":"isolated2shared-01","phase":"hold-released"}', '{"ts":"2026-10-20T11:30:00Z","run":"other","phase":"apply-done"}']
 assert last_transition(_J) == '2026-10-20T10:00:00Z'
 assert release_ok(_N, '2026-10-20T10:00:00Z', 120) == (True, parse('2026-10-20T12:00:00Z'))
 assert release_ok(_N, '2026-10-20T10:00:00Z', 121)[0] is False and release_ok(_N, None, 1)[0] is False
+_J2 = _J + ['{"ts":"2026-10-20T11:40:00Z","run":"isolated2shared-01","phase":"owner-direct"}']
+assert last_transition(_J2) == '2026-10-20T11:40:00Z', 'an owner-direct row is a transition: the quiet period counts from it'
+assert unreconciled(_J2) and unreconciled(_J) is None
+assert unreconciled(_J + ['{"ts":"2026-10-20T11:50:00Z","run":"isolated2shared-01","phase":"apply-incomplete"}'])
+assert unreconciled(_J2 + ['{"ts":"2026-10-20T11:41:00Z","run":"isolated2shared-01","phase":"apply-done"}']) is None
 assert extended_until('2026-10-20T20:00:00Z', _N, 60) == parse('2026-10-20T20:00:00Z'), 'never shorter'
 assert extended_until('2026-10-20T12:30:00Z', _N, 60) == parse('2026-10-20T14:00:00Z')
 
@@ -141,21 +169,28 @@ def cmd_quiet():
     print(m); return 0
 
 
+def extend(ht, P, token, base, quiet):
+    """Under the scheduler's tick lock: if the live hold is `token`, set its until to max(until, base + quiet + 60)."""
+    def go():
+        if ht.owner_of(P['install_hold']) != token:
+            return None
+        r = json.load(open(P['install_hold']))
+        r['until'] = iso(extended_until(r.get('until'), base, quiet))
+        tmp = P['install_hold'] + '.i2s-tmp'
+        with open(tmp, 'w') as f:
+            json.dump(r, f); f.flush(); os.fsync(f.fileno())
+        os.replace(tmp, P['install_hold'])
+        return r['until']
+    return ht._locked(P, go)
+
+
 def cmd_claim(owner, quiet):
     quiet = int(quiet)
     ht = _ht(); sm = ht._sched(); P = sm.paths()
     h = read_hold()
     cur = ht.owner_of(P['install_hold'])
     if h and cur == h['token']:
-        def go():
-            if ht.owner_of(P['install_hold']) != h['token']:
-                return None
-            r = json.load(open(P['install_hold']))
-            r['until'] = iso(extended_until(r.get('until'), dt.datetime.now(dt.timezone.utc), max(quiet, int(h.get('quiet_min', 0)))))
-            tmp = P['install_hold'] + '.i2s-tmp'
-            json.dump(r, open(tmp, 'w')); os.replace(tmp, P['install_hold'])
-            return r['until']
-        until = ht._locked(P, go)
+        until = extend(ht, P, h['token'], dt.datetime.now(dt.timezone.utc), max(quiet, int(h.get('quiet_min', 0))))
         if not until:
             print('REFUSED: the hold changed owner while extending it'); return 2
         h['quiet_min'] = max(quiet, int(h.get('quiet_min', 0)))
@@ -184,9 +219,17 @@ def cmd_release(owner, quiet):
     ok, nb = release_ok(dt.datetime.now(dt.timezone.utc), last, q)
     if not last:
         print('REFUSED: no transition in the journal (an unused hold: use drop)'); return 2
-    if not ok:
-        print('REFUSED: the quiet period runs to %s (last transition %s + %d min)' % (iso(nb), last, q)); return 2
+    why = unreconciled(lines)
+    if why:
+        print('REFUSED: %s' % why); return 2
     ht = _ht(); P = ht._sched().paths()
+    if not ok:
+        # a QUIET raised at release (a long canary queued during the hold) must not leave the hold expiring first
+        # (Claude r4 P3-1): its until is extended to last + q + 60
+        if q > int(h.get('quiet_min', 0)):
+            extend(ht, P, h['token'], parse(last), q)
+            h['quiet_min'] = q; write_hold(h)
+        print('REFUSED: the quiet period runs to %s (last transition %s + %d min)' % (iso(nb), last, q)); return 2
     if ht.owner_of(P['install_hold']) != h['token']:
         print('REFUSED: the live hold is not ours (%r): nothing released' % ht.owner_of(P['install_hold'])); return 2
     ht.release(P, h['token'])

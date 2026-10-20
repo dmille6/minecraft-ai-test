@@ -37,7 +37,9 @@ units() { for b in Alpha Bravo Comet Delta Echo; do echo "mcbot@$1-$b"; done; }
 # restarted onto the new env too, never left running the old one
 start_staggered() { for u in $(units "$1"); do sudo systemctl restart "$u"; sleep 12; done; }
 all_active() { local bad=""; for u in $(units "$1"); do systemctl is-active --quiet "$u" || bad="$bad $u"; done; [ -z "$bad" ] || { echo "NOT ACTIVE:$bad"; return 1; }; }
-uniform() { sudo node "$TOOL" status --pool "$1" 2>&1 | grep -q -E "^$1: env (isolated|converted) "; }
+# UNIFORM = every env isolated or every env converted, AND no rollback under way (a half rollback with uniform env lines can
+# still hold stale journals: Codex r4 P2-3)
+uniform() { local s; s=$(sudo node "$TOOL" status --pool "$1" 2>&1); echo "$s" | grep -q -E "^$1: env (isolated|converted) " && ! echo "$s" | grep -q "ROLLBACK STARTED"; }
 # fleet-recycle.timer restarts EVERY unit (a stopped one too) every 6 h and takes no lock: never overlap it
 recycle_clear() {
   systemctl is-active --quiet fleet-recycle.service && { echo "REFUSED: fleet-recycle is running now"; return 1; }
@@ -57,8 +59,8 @@ CQ=$($HOLD quiet 2>&1); crc=$?
 if [ $crc -eq 0 ]; then
   [ -z "$QUIET" ] || [ "$QUIET" -ge "$CQ" ] || { echo "REFUSED: --quiet $QUIET is below the computed $CQ"; exit 2; }
   QUIET=${QUIET:-$CQ}
-elif [ -z "$QUIET" ] && [ "$MODE" != apply ] && RQ=$(python3 -c "import json,sys; print(int(json.load(open(sys.argv[1]))['quiet_min']))" "$D/HOLD.json" 2>/dev/null); then
-  QUIET=$RQ; WHY="computation failed ($CQ): the recorded quiet period"     # a rollback or release is never a dead end (Claude r3 P3-6)
+elif [ -z "$QUIET" ] && [ "$MODE" = rollback ] && RQ=$(python3 -c "import json,sys; print(int(json.load(open(sys.argv[1]))['quiet_min']))" "$D/HOLD.json" 2>/dev/null); then
+  QUIET=$RQ; WHY="computation failed ($CQ): the recorded quiet period"     # a rollback is never a dead end (Claude r3 P3-6); a release is (Codex r4 P2-1)
 elif [ -z "$QUIET" ]; then
   echo "REFUSED: the quiet period cannot be computed ($CQ): pass --quiet <min> --why <text>"; exit 2
 fi
