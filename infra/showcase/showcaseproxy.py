@@ -308,7 +308,28 @@ def mark_quiesced(now=None):
         with open(tmp, 'w') as f:
             f.write(ack_text(sig, time.time()))
         os.replace(tmp, A.quiesced_file)         # atomic: a consumer never reads half an acknowledgement
+        # The GPU is handed over: from now until this pause ends, nothing the proxy sees on Ollama is the showcase's,
+        # so unload eligibility CLOSES here even if no unload was needed (Codex r6).
+        STATE['epoch_unloaded'] = True
     logline(status='quiesced', paused_by=p)
+
+
+def admit():
+    """ADMISSION: the pause check and the in-flight increment happen under ONE lock, the same lock under which
+    mark_quiesced() validates and publishes an acknowledgement -- so a request can never start after an ack, and an
+    admitted request always blocks the ack until it finishes. -> (paused_by, full, inflight). Tested."""
+    with LOCK:
+        p = is_paused()
+        full = (not p) and STATE['inflight'] >= A.max_inflight
+        if not p and not full:
+            STATE['inflight'] += 1
+        return p, full, STATE['inflight']
+
+
+def finish():
+    with LOCK:
+        STATE['inflight'] -= 1
+        STATE['last_done'] = time.time()
 
 
 def quiesce_loop():
@@ -363,14 +384,7 @@ class H(BaseHTTPRequestHandler):
             return self._send(400, {'error': 'bad json'})
         if not self.path.startswith('/api/chat'):
             return self._send(404, {'error': 'only /api/chat is proxied'})
-        # ADMISSION: the pause check and the in-flight increment happen under ONE lock, the same lock under which
-        # mark_quiesced() validates and publishes an acknowledgement -- so a request can never start after an ack.
-        with LOCK:
-            p = is_paused()
-            full = (not p) and STATE['inflight'] >= A.max_inflight
-            if not p and not full:
-                STATE['inflight'] += 1
-            inflight = STATE['inflight']
+        p, full, inflight = admit()
         if p:
             logline(status=503, ms=0, inflight=inflight, error='paused by %s' % p)
             return self._send(503, {'error': 'showcase brain paused (%s present)' % p})

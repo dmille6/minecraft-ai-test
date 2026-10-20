@@ -358,6 +358,36 @@ class QuiesceTransitions(unittest.TestCase):
         SP.mark_quiesced(now=1231.0)
         self.assertEqual(len(self.unloads), 2)
 
+    def test_no_unload_after_a_handoff_that_needed_none(self):
+        # Codex r6 repro: qwen absent -> ack; the benchmark then loads qwen; the Stage C tag changes the signature.
+        self.probe_answer = (False, True)
+        self.write('pending-pause-c2-9-100')
+        SP.mark_quiesced(now=1000.0)
+        SP.mark_quiesced(now=1031.0)
+        self.assertIn('RESV pending-pause-c2-9-100', self.ack())
+        self.probe_answer = (True, True)                       # the BENCHMARK's qwen now
+        self.write('pause-c2')
+        SP.mark_quiesced(now=1032.0)
+        SP.mark_quiesced(now=1063.0)
+        self.assertEqual(self.unloads, [], 'eligibility closed at the handoff: the benchmark model is never unloaded')
+
+    def test_admitted_request_blocks_the_ack_and_paused_admission_refuses(self):
+        SP.A.max_inflight = 4
+        p, full, n = SP.admit()                                # a request admitted BEFORE the pause began
+        self.assertEqual((p, full, n), (None, False, 1))
+        self.write('run-x-1-100')
+        SP.mark_quiesced(now=1000.0)
+        SP.mark_quiesced(now=1031.0)
+        self.assertIsNone(self.ack(), 'an admitted request blocks the ack')
+        p2, _, n2 = SP.admit()                                 # admission during the pause refuses
+        self.assertTrue(p2)
+        self.assertEqual(n2, 1)
+        SP.finish()
+        SP.mark_quiesced(now=1062.0)                           # finished just now: the grace counts from last_done
+        SP.STATE['last_done'] = 1000.0
+        SP.mark_quiesced(now=1100.0)
+        self.assertIn('RESV run-x-1-100', self.ack())
+
     def test_inflight_blocks_the_ack(self):
         self.write('run-x-1-100')
         SP.mark_quiesced(now=1000.0)
