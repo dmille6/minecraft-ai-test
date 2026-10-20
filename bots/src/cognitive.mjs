@@ -209,6 +209,17 @@ export { escapedFrom }
 export const LIVELOCK_LATCH_MS = 600_000
 
 /**
+ * THE DECLINED ORDER'S REFUND -> the state fields to assign (pure; homefix-01, Codex code r1 P2). The four deterministic
+ * orders that charge their cooldown at issue and have no decline-aware outcome handler of their own.
+ */
+export function refundDeclined (skill, st = {}) {
+  const at = { prune_town: ['pruneState', 'lastIssuedAt'], smelt_town: ['smeltJobState', 'lastIssuedAt'],
+               furnace_drain: ['drainState', 'lastIssuedAt'], build_plinth: ['plinthState', 'lastAt'] }[skill]
+  if (!at || !st[at[0]]) return {}
+  return { [at[0]]: { ...st[at[0]], [at[1]]: -Infinity } }
+}
+
+/**
  * THE BREAKER'S NEXT MOVE, as a pure decision. The relocation ran on the
  * travel profile (no digging, no bridging) and cleared the repeat window
  * whether or not the bot moved -- 2,296 firings, 0% measured success, and a
@@ -1278,6 +1289,10 @@ export class CognitiveLoop {
       // "no route exists".
       if (declined) {
         log('info', 'the runner declined the skill: not an outcome', { skill: admitted.skill, failClass: r.failClass })
+        // THE ISSUE-TIME COOLDOWN IS REFUNDED TOO (Codex code r1 P2): pruneOrder / smeltTownOrder / drainOrder / plinthOrder
+        // charge it when they ISSUE, before the run; a run the runner declined never happened, so the order is eligible on
+        // the next decision -- toolkitOutcome's own refund, the same rule (isBusy() holds the decisions off while reserved).
+        Object.assign(this, refundDeclined(admitted.skill, this))
       } else if (r.status === 'unknown') {
         this.admission.noteFailure(admitted.skill, admitted.args)
         log('info', 'outcome unknown: throttled, not learned', {

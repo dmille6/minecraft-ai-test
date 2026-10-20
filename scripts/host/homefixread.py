@@ -50,13 +50,28 @@ S = dt.timedelta(seconds=1)
 
 # ------------------------------------------------------------------------------------------------------------------ constants
 BAND_LO, BAND_HI, VERT = 2.0, 3.0, 6.0          # skills.mjs arrivedAt at range 2: max(2, 3) = 3 horizontally, 3 + 3 = 6 in y
+# ROUNDING DEAD ZONE (Claude code r1 P2-1): bot.pos is rounded to 0.1 per coordinate (state.mjs round), so a horizontal
+# distance read from it is off by up to ~0.071 from the one the code graded. A row within EPS of an edge is not evidence
+# either way: G1 counts only (2 + EPS, 3 - EPS] with |dy| <= 6 - EPS, G1b only > 3 + EPS or |dy| > 6 + EPS.
+EPS = 0.08
 P_G1 = 224 / 240                                 # h13
 P_G2 = {'home': 265 / 1421, 'surface': 2579 / 3509}   # h12, all pools, 7 d
 G2_FLOOR = 5
 P_G3 = 0.34                                      # 534 / 1,565 (proxy, old denominator)
 D_G4 = 20
 RE_BAR = 0.08                                    # 2 x the 4.1% unwind-latency proxy (h12)
-PENDING_BOUND_S = 230                            # reservation 20 + skill timeout 180 + hard-stop grace 30
+
+
+def wilson_lower(k, n, z=1.645):
+    """One-sided 95% Wilson lower bound of k/n (None for n = 0). Pure."""
+    if not n:
+        return None
+    p = k / n
+    den = 1 + z * z / n
+    return (p + z * z / (2 * n) - z * math.sqrt(p * (1 - p) / n + z * z / (4 * n * n))) / den
+# reservation 20 + skill timeout 180 + hard-stop grace 30 = 230, plus margin (Claude code r1 P3-6: a hard-stopped rescue
+# writes its terminal ~20 + 0.5 + 210 s after `requested`); 260 is the watchdog's own pending backstop (bound + 30)
+PENDING_BOUND_S = 260
 PROXY_AFTER_S = 30
 PROXY_CUT_S = 150
 DEATH_AFTER_RESCUE_S = 120
@@ -89,14 +104,14 @@ def in_band(pos, home):
     if not pos or home is None:
         return False
     h = horiz(pos, home)
-    return BAND_LO < h <= BAND_HI and abs(float(pos['y']) - home[1]) <= VERT
+    return BAND_LO + EPS < h <= BAND_HI - EPS and abs(float(pos['y']) - home[1]) <= VERT - EPS
 
 
 def over_accepted(pos, home):
     """G1b: a success ending outside goto's own final test. Pure."""
     if not pos or home is None:
         return False
-    return horiz(pos, home) > BAND_HI or abs(float(pos['y']) - home[1]) > VERT
+    return horiz(pos, home) > BAND_HI + EPS or abs(float(pos['y']) - home[1]) > VERT + EPS
 
 
 def interrupted_trigger(r):
@@ -202,25 +217,35 @@ def join_row(att, skill_rows):
     return best
 
 
-def g3_eval(atts, skill_rows, verdicts, end=None):
+def g3_eval(atts, skill_rows, verdicts, end=None, spawns=()):
     """-> (opportunities, defects, unjoined, [examples]). verdicts: [(t, window_from dt|None)] of the same bot. Pure.
-    A started attempt still inside its bound at the read boundary with no row yet is not counted (pending)."""
+    The skill row decides; with NO row the runner's own TERMINAL phase stands in (interrupted:stagnation is the cut; Codex
+    r1 P1: a missing row must not hide a cut). A started attempt with neither row nor terminal is `unjoined` (a blocking
+    line) unless it is still inside its bound at the read boundary (pending) or the bot respawned inside the bound
+    (censored, as G4)."""
     o = d = un = 0; ex = []
     for a in atts.values():
         if a['started'] is None:
             continue
         row = join_row(a, skill_rows)
-        if row is None:
-            if end is None or (end - a['started']).total_seconds() >= PENDING_BOUND_S:
-                un += 1
+        if row is not None:
+            cut = row.get('trigger') == 'interrupt:stagnation'
+            row_end = row['t'] + dt.timedelta(milliseconds=row.get('dur') or 0)
+        elif a['terminal'] is not None:
+            cut = a['terminal'] == 'interrupted:stagnation'
+            row_end = a['terminal_t']
+        else:
+            bound = a['started'] + dt.timedelta(seconds=PENDING_BOUND_S)
+            pending = end is not None and end < bound
+            censored = any(a['started'] < sp <= bound for sp in spawns)
+            if not pending and not censored:
+                un += 1; ex.append(('G3-unjoined', a['attempt'], a['phases']))
             continue
-        cut = row.get('trigger') == 'interrupt:stagnation'
         if not (a['tick_seen'] or cut):
             continue
         o += 1
         if not cut:
             continue
-        row_end = row['t'] + dt.timedelta(milliseconds=row.get('dur') or 0)
         cands = [v for v in verdicts if a['started'] - 2 * S <= v[0] <= row_end + 2 * S]
         if not cands:
             d += 1; ex.append(('G3', a['attempt'], 'cut by stagnation, no verdict row found'))
@@ -252,7 +277,8 @@ def g3_proxy(skill_rows, verdict_ts):
 
 
 def g4_eval(atts, end, spawns=()):
-    """-> dict: opportunities, defects (no terminal), excused (a respawn inside the bound, no terminal), recent (excluded),
+    """-> dict: opportunities, defects (no terminal), excused (a respawn inside the bound, no terminal: CENSORED, so not an
+    opportunity either -- Codex r1 P2: it must not fill the D floor or the reserve_expired denominator), recent (excluded),
     declined classes. Pure."""
     out = {'opps': 0, 'defects': 0, 'excused': 0, 'recent': 0, 'declined': Counter(), 'orphan': 0, 'ex': []}
     for a in atts.values():
@@ -262,14 +288,16 @@ def g4_eval(atts, end, spawns=()):
         if (end - a['requested']).total_seconds() < PENDING_BOUND_S:
             out['recent'] += 1
             continue
-        out['opps'] += 1
         if a['terminal'] is None:
             bound = a['requested'] + dt.timedelta(seconds=PENDING_BOUND_S)
             if any(a['requested'] < s <= bound for s in spawns):
                 out['excused'] += 1
-            else:
-                out['defects'] += 1; out['ex'].append(('G4', a['attempt'], a['phases']))
-        elif a['terminal'].startswith('declined:'):
+                continue
+            out['opps'] += 1
+            out['defects'] += 1; out['ex'].append(('G4', a['attempt'], a['phases']))
+            continue
+        out['opps'] += 1
+        if a['terminal'].startswith('declined:'):
             out['declined'][a['terminal'].split(':', 1)[1]] += 1
     return out
 
@@ -301,7 +329,14 @@ def fixture_g3():
     # DEFECTIVE 3: cut before 10 s, no tick ever seen -- still an opportunity (cut at any age) and a defect
     d3_rows = [_rr(0, 'b3', 'requested'), _rr(1, 'b3', 'started', run_started=_m(1).isoformat()), _rr(8, 'b3', 'interrupted:stagnation')]
     d3 = (attempts_of(d3_rows), [_sk(1, 'home', 'interrupt:stagnation', 7)], [(_m(0), _m(-180)), (_m(8), _m(-170))], end)
-    return [good, good2], [d1, d2, d3]
+    # DEFECTIVE 4: the rescue starts only after a FULL 20 s reservation (a slow unwind) and is cut 5 s later on the old window
+    d4_rows = [_rr(0, 'b4', 'requested'), _rr(20, 'b4', 'started', run_started=_m(20).isoformat()), _rr(25, 'b4', 'interrupted:stagnation')]
+    d4 = (attempts_of(d4_rows), [_sk(20, 'home', 'interrupt:stagnation', 5)], [(_m(0), _m(-180)), (_m(25), _m(-155))], end)
+    # GOOD 3: the same 20 s handoff, and a verdict on the rescue's own window (window_from after its start) 170 s later
+    g3_rows = [_rr(0, 'a3', 'requested'), _rr(20, 'a3', 'started', run_started=_m(20).isoformat()), _rr(35, 'a3', 'tick_seen'),
+               _rr(190, 'a3', 'interrupted:stagnation')]
+    good3 = (attempts_of(g3_rows), [_sk(20, 'home', 'interrupt:stagnation', 170)], [(_m(0), _m(-180)), (_m(190), _m(22))], end)
+    return [good, good2, good3], [d1, d2, d3, d4]
 
 
 def fixture_g4():
@@ -356,7 +391,14 @@ def selftest():
             {'t': _m(5), 'name': 'home', 'trigger': 'llm:idle', 'status': 'failed', 'fc': 'travel_incomplete', 'moved': 30, 'pos': {'x': 358.5, 'y': 80, 'z': 147}},  # dy 7: out
             {'t': _m(6), 'name': 'goto', 'trigger': 'llm:idle', 'status': 'failed', 'moved': 30, 'pos': {'x': 357.5, 'y': 73, 'z': 147}}]
     assert g1_rows(rows, home)[:2] == (2, 1), g1_rows(rows, home)
-    assert in_band({'x': 358.0, 'y': 79, 'z': 147}, home) and not in_band({'x': 358.01, 'y': 73, 'z': 147}, home) and not in_band({'x': 357, 'y': 73, 'z': 147}, home)
+    assert in_band({'x': 357.9, 'y': 78.9, 'z': 147}, home) and not in_band({'x': 358.01, 'y': 73, 'z': 147}, home) and not in_band({'x': 357, 'y': 73, 'z': 147}, home)
+    # ROUNDING (Claude code r1 P2-1): rows within EPS of an edge are not evidence either way
+    assert not in_band({'x': 358.0, 'y': 73, 'z': 147}, home), 'a rounded 3.0 may be a true 3.04 failure'
+    assert not over_accepted({'x': 358.0, 'y': 73, 'z': 147.4}, home), 'a rounded 3.03 may be a true 2.99 success'
+    assert over_accepted({'x': 358.2, 'y': 73, 'z': 147}, home) and in_band({'x': 357.5, 'y': 73, 'z': 147}, home)
+    assert not in_band({'x': 357.5, 'y': 79, 'z': 147}, home) and not over_accepted({'x': 357.5, 'y': 79, 'z': 147}, home)
+    assert wilson_lower(0, 20) == 0 or wilson_lower(0, 20) < 1e-9
+    assert wilson_lower(3, 20) < RE_BAR < wilson_lower(4, 20), (wilson_lower(3, 20), wilson_lower(4, 20))
     # G1b
     assert g1b_fixtures_ok()
     assert g1b_rows(rows, home)[:2] == (2, 0)
@@ -372,11 +414,18 @@ def selftest():
     # G3: fixtures, both directions
     assert g3_fixtures_ok()
     good, bad = fixture_g3()
-    assert [g3_eval(*b)[1] for b in bad] == [1, 1, 1]
+    assert [g3_eval(*b)[1] for b in bad] == [1, 1, 1, 1]
     # an attempt that was never ticked nor cut is not an opportunity; a pending one near the boundary is not unjoined
     nt = attempts_of([_rr(0, 'n1', 'requested'), _rr(1, 'n1', 'started', run_started=_m(1).isoformat()), _rr(30, 'n1', 'completed:success')])
     assert g3_eval(nt, [_sk(1, 'home', 'watchdog_home', 29, 'success', None)], [], _m(5000))[:3] == (0, 0, 0)
-    assert g3_eval(nt, [], [], _m(100))[2] == 0 and g3_eval(nt, [], [], _m(5000))[2] == 1
+    # with no skill row the TERMINAL stands in: a completed rescue is no opportunity (no tick), not unjoined
+    assert g3_eval(nt, [], [], _m(5000))[:3] == (0, 0, 0)
+    # ...and a stagnation-cut terminal with no row is still the defect (Codex r1 P1)
+    cutnr = attempts_of([_rr(0, 'q1', 'requested'), _rr(1, 'q1', 'started', run_started=_m(1).isoformat()), _rr(16, 'q1', 'interrupted:stagnation')])
+    assert g3_eval(cutnr, [], [(_m(15), _m(-165))], _m(5000))[:3] == (1, 1, 0)
+    # neither row nor terminal: unjoined (blocking), unless pending at the boundary or censored by a respawn
+    lone = attempts_of([_rr(0, 'u1', 'requested'), _rr(1, 'u1', 'started', run_started=_m(1).isoformat())])
+    assert g3_eval(lone, [], [], _m(5000))[2] == 1 and g3_eval(lone, [], [], _m(100))[2] == 0 and g3_eval(lone, [], [], _m(5000), [_m(50)])[2] == 0
     # G3 proxy on old-code rows: a watchdog_home row 5 s after a verdict cut at 15 s is a defect; a brain row is not counted
     pr = [_sk(5, 'home', 'interrupt:stagnation', 15), _sk(200, 'home', 'watchdog_home', 100, 'success', None),
           _sk(400, 'home', 'llm:idle', 20, 'failed', 'no_path'), _sk(600, 'goto', 'interrupt:stagnation', 15)]
@@ -385,6 +434,10 @@ def selftest():
     assert g4_fixtures_ok()
     end, ntm, rc, de = fixture_g4()
     assert g4_eval(ntm, _m(100))['recent'] == 1 and g4_eval(ntm, end, spawns=[_m(60)])['excused'] == 1
+    assert g4_eval(ntm, end, spawns=[_m(60)])['opps'] == 0, 'a censored attempt is not an opportunity (Codex r1 P2)'
+    many = attempts_of([x for i in range(20) for x in ([_rr(i * 300, 'm%d' % i, 'requested')] + ([_rr(i * 300 + 10, 'm%d' % i, 'completed:success')] if i < 8 else []))])
+    g = g4_eval(many, _m(6500), [_m(i * 300 + 10) for i in range(8, 20)])
+    assert (g['opps'], g['defects'], g['excused']) == (8, 0, 12), g
     assert g4_eval(ntm, end, spawns=[_m(400)])['defects'] == 1, 'a respawn after the bound does not excuse'
     print('homefixread self-tests passed (G1 D=%d, G2 floor %d / home-only %d, G3 D=%d, G4 D=%d; fixtures G1b %s G3 %s G4 %s)'
           % (D_G1, G2_FLOOR, d_needed(P_G2['home']), D_G3, D_G4, g1b_fixtures_ok(), g3_fixtures_ok(), g4_fixtures_ok()))
@@ -472,6 +525,13 @@ for bot in bots:
         last_t = r['t'] if last_t is None or r['t'] > last_t else last_t
         if r['name'].startswith('_') and r['name'] not in KEEP_EVENTS and not r['name'].startswith('_drown'):
             continue
+        # MEMORY (Claude code r1 P3-9): of the skill rows only the rescue skills are read (G1 / G1b / G2 / G3 / the proxy /
+        # the guards); every other row is reduced to its health for the S0-like filter's "previous row" (kept as a stub)
+        if not r['name'].startswith('_') and r['name'] not in RESCUE_SKILLS:
+            h = ((r.get('raw') or {}).get('bot') or {}).get('health')
+            if h is not None:
+                (post if r['t'] >= CUT else pre).append({'t': r['t'], 'name': '.', 'health': h, 'ver': ''})
+            continue
         c = compact(r)
         if r['t'] >= CUT:
             # RESTART LAG: a canary row from another build is not the canary (memory: restart-lag-rows-are-not-canary)
@@ -492,6 +552,16 @@ print('rows walked %d (%s .. %s) | bots %d (canary %d, control %d) | canary %s (
 if blind:
     print('UNREADABLE bot logs: %s' % blind[:6])
 nohome = [b for b in can_bots if home_of(b) is None]
+# COVERAGE (Codex r1 P1): every ENABLED canary bot must be in the walk with post rows, or healthy bots elsewhere could
+# hide a missing one. The roster is the systemd enablement (verdict.py's own source for tier-2 baselines).
+ROSTER = os.environ.get('HOMEFIX_ROSTER_DIR', '/etc/systemd/system/multi-user.target.wants')
+try:
+    enabled = sorted(n[len('mcbot@'):-len('.service')] for n in os.listdir(ROSTER)
+                     if n.startswith('mcbot@') and n.endswith('.service') and n != 'mcbot@.service')
+except OSError:
+    enabled = []
+roster_can = [b for b in enabled if pool_of(b) in CANS]
+silent = [b for b in roster_can if not (per.get(b) or {}).get('post')]
 
 # ---- the gates on the arm (post) and their pre-period controls (the arm's own pools, old code)
 G = Counter(); mix = Counter(); mix_pre = Counter(); ex = []
@@ -507,12 +577,13 @@ for b in can_bots:
     o, d, e = g2_rows(post); mix.update(o); G['g2_defects'] += d; ex += e
     o, d, _ = g2_rows(pre); mix_pre.update(o); G['g2_pre_defects'] += d
     atts = attempts_of(post)
-    skill_post = [r for r in post if not r['name'].startswith('_')]
+    skill_post = [r for r in post if r['name'] in RESCUE_SKILLS]
     verdicts = [(r['t'], parse_t((r.get('args') or {}).get('window_from'))) for r in post if r['name'] == '_stagnation']
-    o, d, un, e = g3_eval(atts, skill_post, verdicts, END); G['g3_opps'] += o; G['g3_defects'] += d; G['g3_unjoined'] += un; ex += e
-    po, pd = g3_proxy([r for r in pre if not r['name'].startswith('_')], [r['t'] for r in pre if r['name'] == '_stagnation'])
+    spawns = [r['t'] for r in post if r['name'] == SPAWN_MARK]
+    o, d, un, e = g3_eval(atts, skill_post, verdicts, END, spawns); G['g3_opps'] += o; G['g3_defects'] += d; G['g3_unjoined'] += un; ex += e
+    po, pd = g3_proxy([r for r in pre if r['name'] in RESCUE_SKILLS], [r['t'] for r in pre if r['name'] == '_stagnation'])
     G['g3_proxy_pre_opps'] += po; G['g3_proxy_pre_defects'] += pd
-    x = g4_eval(atts, END, [r['t'] for r in post if r['name'] == SPAWN_MARK])
+    x = g4_eval(atts, END, spawns)
     for k in ('opps', 'defects', 'excused', 'recent', 'orphan'):
         g4[k] += x[k]
     g4['declined'].update(x['declined']); ex += x['ex']
@@ -531,6 +602,11 @@ g2_d = g2_need(mix)
 re_n = g4['declined']['reserve_expired']
 re_rate = re_n / g4['opps'] if g4['opps'] else None
 re_bar_fail = int(g4['opps'] >= D_G4 and re_rate is not None and re_rate > RE_BAR)
+# THE DEFECT PATH THE SPEC NAMES, without the small-n false trip (Claude code r1 P3-7): REVERT only when the one-sided 95%
+# LOWER bound of the reserve_expired rate is above the 8% bar (at n = 20 that needs >= 4 of 20, which a true 4.1% reaches
+# 0.8% of the time; at n = 180, >= 21). The point estimate above the bar alone BLOCKS KEEP (re_bar_fail).
+re_lcb = wilson_lower(re_n, g4['opps'])
+re_lcb_fail = int(g4['opps'] >= D_G4 and re_lcb is not None and re_lcb > RE_BAR)
 complete = {'G1': G['g1_opps'] >= D_G1, 'G2': g2_complete(mix), 'G3': G['g3_opps'] >= D_G3, 'G4': g4['opps'] >= D_G4}
 gates_complete = int(all(complete.values()))
 at_deadline = W >= DEADLINE - 1
@@ -604,8 +680,11 @@ hs = {(a, p, s): home_success(a, p, s) for a in ('canary', 'control') for p in (
 fmt = lambda kn: '%d/%d (%s)' % (kn[0], kn[1], ('%.0f%%' % (100 * kn[0] / kn[1])) if kn[1] else '-')
 
 print('-' * 100)
+readable = bool(walked and can_bots and ctl_bots and not blind and not nohome and roster_can and not silent)
 print('LIVENESS     canary _watchdog_rescue rows %d (>= 1) | ARMS control _watchdog_rescue rows %d (must be 0) | off-build canary rows %d%s'
       % (licence, rows_ctl, offbuild, (' | canary bots with no readable home: %s' % nohome) if nohome else ''))
+print('COVERAGE     enabled canary bots %d, silent in the post window %d %s, unreadable logs %d -> readable %s'
+      % (len(roster_can), len(silent), silent[:5], len(blind), readable))
 print('G1  arrival  opps %d / D %d  defects %d | CONTROL pre-period (old code) %d defects in %d opps -> %s'
       % (G['g1_opps'], D_G1, G['g1_defects'], G['g1_pre_defects'], G['g1_pre_opps'], 'OK' if g1_ok_ctl else 'VOID'))
 print('G1b mirror   home successes %d  over-accepted %d | CONTROL fixtures (h9 dy -10) %s; pre-period over-accepted %d (reported)'
@@ -620,7 +699,8 @@ print('G4  reachable opps %d / D %d  no-terminal defects %d  excused (respawn) %
       % (g4['opps'], D_G4, g4['defects'], g4['excused'], PENDING_BOUND_S, g4['recent'], g4['orphan'], dict(g4['declined'])))
 print('             reserve_expired %d = %s of attempts (bar %.0f%%, judged from %d attempts: %s) | CONTROL fixtures %s'
       % (re_n, ('%.1f%%' % (100 * re_rate)) if re_rate is not None else '-', 100 * RE_BAR, D_G4,
-         'FAIL' if re_bar_fail else 'ok', 'OK' if g4_fix else 'VOID'))
+         ('FAIL' if re_bar_fail else 'ok') + ('; 95%% lower bound %.1f%% -> %s' % (100 * re_lcb, 'DEFECT' if re_lcb_fail else 'ok') if re_lcb is not None else ''),
+         'OK' if g4_fix else 'VOID'))
 print('EXPOSURE     gates complete %s -> %d | arm-size deadline +%d (%d pools) %s -> exposure_ready %d'
       % (complete, gates_complete, DEADLINE, NPOOLS, 'REACHED' if at_deadline else 'not yet', exposure_ready))
 for k, (dv, v) in guards.items():
@@ -643,7 +723,7 @@ try:
     r3 = lambda v: None if v is None or v != v else round(v, 4)
     emit('homefixread', W, {
         'rows_walked': walked, 'canary_bots': len(can_bots), 'control_bots': len(ctl_bots), 'offbuild_canary': offbuild,
-        'readable': bool(walked and can_bots and ctl_bots and not blind and not nohome),
+        'readable': int(readable), 'canary_bots_enabled': len(roster_can), 'canary_bots_silent': len(silent),
         'licence_canary': licence, 'rows_control': rows_ctl,
         'g1_opps': G['g1_opps'], 'g1_defects': G['g1_defects'], 'g1_need': D_G1, 'g1_pre_defects': G['g1_pre_defects'], 'g1_control_ok': int(g1_ok_ctl),
         'g1b_opps': G['g1b_opps'], 'g1b_defects': G['g1b_defects'], 'g1b_control_ok': int(g1b_fix), 'g1b_pre_defects': G['g1b_pre_defects'],
@@ -654,6 +734,7 @@ try:
         'g3_control_ok': int(g3_ok_ctl),
         'g4_opps': g4['opps'], 'g4_defects': g4['defects'], 'g4_excused': g4['excused'], 'g4_recent': g4['recent'], 'g4_need': D_G4,
         'g4_reserve_expired': re_n, 'g4_reserve_expired_rate': r3(re_rate), 'g4_reserve_bar_fail': re_bar_fail,
+        'g4_reserve_lcb': r3(re_lcb), 'g4_reserve_lcb_fail': re_lcb_fail,
         'g4_body_held': g4['declined']['body_held'], 'g4_runner_paused': g4['declined']['runner_paused'], 'g4_control_ok': int(g4_fix),
         'defects': defects, 'gates_complete': gates_complete, 'deadline_min_for_pools': DEADLINE, 'pools': NPOOLS,
         'at_deadline': int(at_deadline), 'exposure_ready': exposure_ready,

@@ -481,6 +481,9 @@ async function gotoLegs(ctx, { x, y, z, range = 1 }, signal, { until = null } = 
   const startDist = Math.hypot(target.x - bot.entity.position.x, target.z - bot.entity.position.z)
   const maxLegs = Math.min(16, Math.max(8, Math.ceil(startDist / MAX_LEG) + 3))
   const legMs = ms => (until == null ? ms : Math.max(1, Math.min(ms, until - Date.now())))
+  // THE CALLER'S BUDGET IS SPENT: no recovery rung (dig retry, float dig, descent, ride-down) STARTS after it (Codex code r1
+  // P2: each clipped only its own walk, so the rungs could still carry `home` past the runner's 180 s).
+  const spent = () => until != null && Date.now() >= until
 
   while (legs < maxLegs) {
     check(signal)
@@ -575,7 +578,7 @@ async function gotoLegs(ctx, { x, y, z, range = 1 }, signal, { until = null } = 
         // case, and it gets the same treatment -- ONE retry, still budgeted,
         // config always given back. Digging stays a deliberate act with a
         // named reason; it does not become how the bot walks.
-        if (!diggingRetry && bot.withAscentMovements) {
+        if (!diggingRetry && bot.withAscentMovements && !spent()) {
           diggingRetry = true
           log('warn', 'no route on foot; retrying this leg with digging allowed',
               { from: `${Math.round(bot.entity.position.x)},${Math.round(bot.entity.position.y)},${Math.round(bot.entity.position.z)}` })
@@ -600,7 +603,7 @@ async function gotoLegs(ctx, { x, y, z, range = 1 }, signal, { until = null } = 
           const retryPlan = bot.entity.onGround
             ? { status: 'grounded', path: [], digMs: 0, budgetMs: 25000, notOnGround: false }
             : planDigRetry(bot, bot.ascentMovements, goal)
-          const retryBudget = legMs(retryPlan.budgetMs)
+          let retryBudget = legMs(retryPlan.budgetMs)
           let retryErr = null
           // A FLOATING BOT NEVER DIGS THROUGH THE PATHFINDER: its executor
           // waits for onGround before it calls bot.dig, so the plan it found
@@ -611,6 +614,7 @@ async function gotoLegs(ctx, { x, y, z, range = 1 }, signal, { until = null } = 
           let floatDug = 0
           for (const { block, digMs } of floatDigTargets(bot, retryPlan.path)) {
             check(signal)     // an abort must not start another dig
+            if (spent()) break   // nor a spent budget (homefix-01 H4)
             // Re-read the target the instant before digging: the world and the
             // bot have moved since the plan was priced (digapproach.floatDigOk).
             const gate = floatDigOk(bot, block)
@@ -625,7 +629,7 @@ async function gotoLegs(ctx, { x, y, z, range = 1 }, signal, { until = null } = 
             const onAbort = () => { try { bot.stopDigging() } catch {} }
             signal?.addEventListener?.('abort', onAbort, { once: true })
             try {
-              await withTimeout(bot.dig(block, true), Math.min(RETRY_CAP_MS, digMs + 5000), bot,
+              await withTimeout(bot.dig(block, true), legMs(Math.min(RETRY_CAP_MS, digMs + 5000)), bot,
                                 { what: 'float dig', needsDrop: false, onTimeout: onAbort })
             } catch (e) { ok = false; why = String(e?.message || e).slice(0, 80) }
             finally { signal?.removeEventListener?.('abort', onAbort) }
@@ -648,7 +652,9 @@ async function gotoLegs(ctx, { x, y, z, range = 1 }, signal, { until = null } = 
             floatDug++
           }
           check(signal)     // and an abort during the float dig must not start the walk
+          retryBudget = legMs(retryPlan.budgetMs)   // re-clipped NOW: the float digs spent some of the caller's budget
           try {
+            if (spent()) throw new Error('the caller\'s budget is spent')
             await bot.withAscentMovements(async () => {
               // THE HOLE, NOT THE DROP. This retry exists to dig through what
               // blocks the walk; with the watchdog on, a bare-handed stone dig
@@ -699,7 +705,7 @@ async function gotoLegs(ctx, { x, y, z, range = 1 }, signal, { until = null } = 
         // Gated on health because the whole repair is a bigger fall: 169 of 868
         // deaths are already falls, and rescuing a wounded bot by dropping it
         // eight blocks is not a rescue.
-        if (!descentRetry && bot.withDescentMovements &&
+        if (!descentRetry && bot.withDescentMovements && !spent() &&
             bot.entity.position.y >= SEA_LEVEL && (bot.health ?? 20) >= 18) {
           descentRetry = true
           log('warn', 'stranded above sea level; retrying this leg with a larger drop allowed',
@@ -756,11 +762,11 @@ async function gotoLegs(ctx, { x, y, z, range = 1 }, signal, { until = null } = 
         // The bridge branch still refuses cleanly on its own ("no placeable
         // blocks left"), so removing this costs nothing but a wasted call when
         // there is genuinely nothing underneath.
-        if (!rodeDown && bot.entity.position.y >= SEA_LEVEL + 20 &&
+        if (!rodeDown && !spent() && bot.entity.position.y >= SEA_LEVEL + 20 &&
             (bot.health ?? 20) >= 18 && Number(target.y) < bot.entity.position.y - 8) {
           rodeDown = true
           const before2 = bot.entity.position.clone()
-          const r = await rideFloorDown(bot, { signal })
+          const r = await rideFloorDown(bot, { signal, until })
           check(signal)
           logEvent({
             kind: 'ride_floor_down',
@@ -2652,11 +2658,17 @@ async function home(ctx, _args, signal) {
     // ROUTE REPAIR, ONCE. Below sea level with no route is exactly what
     // `surface` exists for, and it is the difference between "home is a walk"
     // and "home is a walk that first climbs out of the hole it is in".
-    const stuck = last?.failClass === 'stranded' || last?.failClass === 'no_path'
+    // `wrong_elevation` too (homefix-01, Claude code r1 P3-3): H1's |dy| bound now fails a bot standing in home's column
+    // but deep below it (the two pre-fix dy -10 "successes"), and that failure must name the remedy it can perform from
+    // there -- the same climb, gated on the same below-sea-level test.
+    const stuck = last?.failClass === 'stranded' || last?.failClass === 'no_path' || last?.failClass === 'wrong_elevation'
     if (stuck && !repaired && bot.entity.position.y < SEA_LEVEL) {
       repaired = true
       const up = await surface(ctx, {}, signal, { until: deadline })
       check(signal)
+      // A climb that LANDED home is an arrival, whatever else it reports (Claude code r1 P3-3).
+      const landed = arrivedAt(bot.entity.position, { x: homeX, y: homeY, z: homeZ }, 2)
+      if (landed) return { status: 'success', distanceMoved: startDist - distTo(), detail: `home (${Math.round(distTo())}b from the town centre) after a climb` }
       // Carry a genuine scaffold prerequisite outward: applyPrereq turns it
       // into the task, which is the only mechanism measured to break this loop
       // (0/13 from prose, 3/13 on 7b and 12/13 on 32b once promoted).
@@ -14458,11 +14470,12 @@ export async function shaftAscend(bot, targetY, signal,
  * Every step verifies the placement by reading the world back and verifies
  * that the bot actually descended; anything unexpected stops the whole thing.
  */
-export async function rideFloorDown (bot, { maxSteps = 16, signal } = {}) {
+export async function rideFloorDown (bot, { maxSteps = 16, signal, until = null } = {}) {
   const startY = bot.entity.position.y
   let placed = 0, rode = 0, stopped = null
   for (let step = 0; step < maxSteps; step++) {
     if (signal?.aborted) { stopped = 'aborted'; break }
+    if (until != null && Date.now() >= until) { stopped = 'the caller\'s budget is spent'; break }   // homefix-01 H4
     const yBefore = bot.entity.position.y
     const floor = bot.blockAt(bot.entity.position.offset(0, -1, 0))
     if (!floor || floor.boundingBox !== 'block') { stopped = 'nothing underfoot to stand on'; break }
