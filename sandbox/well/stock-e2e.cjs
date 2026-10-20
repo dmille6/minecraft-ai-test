@@ -111,7 +111,8 @@ async function waitFor (pred, ms, step = 250, stop = null) { for (const t0 = Dat
 
 let BRAIN_WANDER = false, brainN = 0
 const brainQueue = []
-const WANDER = [{ x: 1322, y: 120, z: 1322 }, { x: 1324, y: 120, z: 1322 }]
+const TOWN_WANDER = [{ x: 1322, y: 120, z: 1322 }, { x: 1324, y: 120, z: 1322 }]
+let WANDER = TOWN_WANDER   // bagfar walks on its own platform instead (Codex scene r1 P2-1)
 const brain = http.createServer((req, res) => {
   let body = ''; req.on('data', c => { body += c })
   req.on('end', () => {
@@ -908,14 +909,16 @@ scenes.bagwell = async () => {
     CANDIDATE_PASS: !!(disp && dep && disp.ts < dep.ts && after.used < 34 && ALLOW_IDS.every(n => (chest1.totals[n] ?? 0) > 0) && !JUNK_IDS.some(n => chest1.totals[n]) &&
       !(after.totals.egg ?? 0) && !(after.totals.flint ?? 0) && (before.totals.egg ?? 0) === 6 && (before.totals.flint ?? 0) === 4),
     // the deployed rule: the well takes the junk (36 -> 34), and the torches, ladders and bone meal stay in the full bag
-    BASE_SHAPE: !!(disp && !dep && !(after.totals.egg ?? 0) && ALLOW_IDS.every(n => !(chest1.totals[n] ?? 0)) && after.used >= 34) })
+    BASE_SHAPE: !!(disp && !dep && !(after.totals.egg ?? 0) && !(after.totals.flint ?? 0) && ALLOW_IDS.every(n => !(chest1.totals[n] ?? 0) && (after.totals[n] ?? 0) === (before.totals[n] ?? -1)) && after.used >= 34) })
 }
 // bagfar: a full bag on a stone platform 90 east of home (outside TOWN_RADIUS 48: no town order can fire) holding four spent
 // stone pickaxes, a good one and 64 cobble. Last-swing under the allowance keeps none (the bag holds the stone): wear_out
 // destroys all four (the deployed rule keeps three). No town_deposit row; the bot stays on its platform (no trip).
 const FAR = { x: HOME.x + 90, y: 120, z: HOME.z }
 scenes.bagfar = async () => {
-  BRAIN_WANDER = false
+  // two short walks ON THE FAR PLATFORM between status decisions: 'status' for ever trips the livelock relocation off it
+  // after ~150-180 s (Codex scene r1 P2-1), which would spoil the wait below
+  WANDER = [{ x: FAR.x + 3, y: 120, z: FAR.z }, { x: FAR.x - 3, y: 120, z: FAR.z }]; BRAIN_WANDER = true
   rcon(`forceload add ${FAR.x - 6} ${FAR.z - 6} ${FAR.x + 6} ${FAR.z + 6}`,
     // a FOUR-deep stone floor (Paper r2: one layer over air left the ground cells `no_support`, and the dug wall cells' drops
     // made their columns `occupied` -- 2 of 4 spent copies worn): the ground beside the feet east and west is wearable, and
@@ -928,15 +931,17 @@ scenes.bagfar = async () => {
   const before = bag(NAME)
   const spent = b => Object.values(b.slots).filter(it => it.id === 'stone_pickaxe' && (it.damage ?? 0) >= 130).length
   const wear = await waitFor(() => rowsOf(files.skillLog).find(r => r.name === 'wear_out'), 180000, 500)
-  // a second wear_out order may finish what the first could not (the order is re-issued on its cooldown): up to 4 min more
-  await waitFor(() => spent(bag(NAME)) === 0, 240000, 5000)
+  // a second wear_out order may finish what the first could not (the order is re-issued on its 2-min cooldown): wait for
+  // the ARM's own outcome -- all four gone (the candidate), or three kept with no bagbudget wear row (the deployed rule)
+  const bbWear = () => rowsOf(files.skillLog).some(r => r.name === '_bagbudget' && /^phase=wear/.test(r.detail))
+  await waitFor(() => { const sp = spent(bag(NAME)); return sp === 0 || (!bbWear() && sp <= 3) }, 240000, 5000)
   await sleep(4000)
   const after = bag(NAME)
   const posRep = r1(`data get entity ${NAME} Pos`)
   const pos = ((posRep.match(/\[([^\]]+)\]/) || [])[1] || '').replace(/d/g, '').split(',').map(Number)
   const td = rowsOf(files.skillLog).filter(r => r.name === 'town_deposit').length
   const bbw = rowsOf(files.skillLog).filter(r => r.name === '_bagbudget' && /^phase=wear/.test(r.detail)).map(r => r.detail)
-  await stopBot()
+  await stopBot(); BRAIN_WANDER = false; WANDER = TOWN_WANDER
   rcon(`fill ${FAR.x - 6} 112 ${FAR.z - 6} ${FAR.x + 6} 126 ${FAR.z + 6} minecraft:air`, `forceload remove ${FAR.x - 6} ${FAR.z - 6} ${FAR.x + 6} ${FAR.z + 6}`)
   const stay = pos.length === 3 && Math.hypot(pos[0] - FAR.x, pos[2] - FAR.z) <= 8
   result({ scene: 'bagfar', root: BOT_ROOT, wear: wear ? `${wear.status} ${wear.detail.slice(0, 220)}` : null, spent: [spent(before), spent(after)], used: [before.used, after.used],
