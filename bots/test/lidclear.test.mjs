@@ -47,11 +47,11 @@ async function withMutant (p, old, neu, fn) {
 const cube = name => ({ name, boundingBox: 'block', shapes: [[0, 0, 0, 1, 1, 1]] })
 const AIR = { name: 'air', boundingBox: 'empty', shapes: [] }
 const sides4 = (b = AIR) => [b, b, b, b]
-await t('RULE: what the bot may break off a lid -- cobblestone and cobbled deepslate only; never a structure, storage, glass or leaves; never by the well; never beside water or lava (a liquid OR a waterlogged block); never under a falling block; never on an unknown cell', () => {
+await t('RULE: what the bot may break off a lid -- cobblestone and cobbled deepslate (and since cobblekeep-01 dirt and grass_block: cobblekeep.test.mjs); never a structure, storage, glass or leaves; never by the well; never beside water or lava (a liquid OR a waterlogged block); never under a falling block; never on an unknown cell', () => {
   const ok = (lid, extra = {}) => L.lidClearRefusal({ lid: { name: lid }, above: AIR, sides: sides4(), ...extra })
   assert.equal(ok('cobblestone'), null, 'the census blocker: clearable')
   assert.equal(ok('cobbled_deepslate'), null)
-  for (const n of ['dirt', 'stone_bricks', 'oak_planks', 'oak_log', 'chest', 'barrel', 'crafting_table', 'glass', 'oak_leaves', 'composter']) {
+  for (const n of ['stone_bricks', 'oak_planks', 'oak_log', 'chest', 'barrel', 'crafting_table', 'glass', 'oak_leaves', 'composter']) {
     assert.match(ok(n) ?? '', /is not a block a bot may break/, `${n} is refused`)
   }
   assert.match(ok('cobblestone', { well: true }), /junk well/)
@@ -514,7 +514,7 @@ await t('MUTANT KILLED: the old 10 s cap on the budget (the race a bare hand alw
   })
 })
 await t('MUTANT KILLED: widening the breakable set to planks would let the clear break a town build', async () => {
-  await withMutant(LID_PATH, 'export const LID_BREAKABLE = /^(cobblestone|cobbled_deepslate)$/', 'export const LID_BREAKABLE = /^(cobblestone|cobbled_deepslate|oak_planks)$/', async M => {
+  await withMutant(LID_PATH, 'export const LID_BREAKABLE = /^(cobblestone|cobbled_deepslate|dirt|grass_block)$/', 'export const LID_BREAKABLE = /^(cobblestone|cobbled_deepslate|dirt|grass_block|oak_planks)$/', async M => {
     assert.equal(M.lidClearRefusal({ lid: { name: 'oak_planks' }, above: AIR, sides: sides4() }), null, 'the mutant would dig planks')
   })
 })

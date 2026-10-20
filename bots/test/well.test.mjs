@@ -2708,29 +2708,33 @@ await t('COBBLE (Codex r1 P1): the cap is re-read at EVERY cobble click -- the t
     assert.equal((await scene(m)).left, 64, 'mutant inert')
   })
 })
-await t('COBBLE (Codex r1/r2 P1): only the COUNTED total proves the cap -- 192 counted + 64 admitted on its way, or 240 counted with a stack that would pass 256, never send cobble down the well', async () => {
+await t('COBBLE (Codex r1/r2 P1; cobblekeep-01): only COUNTED stock proves the cap -- 192 counted + 64 admitted on its way never sends cobble down the well; 240 counted + CO with a 30 the bank must refuse at the cap now DOES (the band where neither moved it)', async () => {
   const SK = await import('../src/skills.mjs')
   const town = fakeTown({ wellAt: CAP, items: [S('cobblestone', 30), S('cobblestone', 64), ...Array.from({ length: 34 }, () => S('oak_log', 64))] })
   townAt(town, 192 + CO)
   const r = CCAP.claimStack(process.env.POOL_STATE_DIR, CF_townKey(HOME), town.bot.worldId ?? null, { id: 'onway', n: 64, k: '9,9,9', bot: 'Other', keys: ['9,9,9'], coverage: true, inst: 'x' })
   assert.equal(r.decision, 'bank', 'positive control: the claim is admitted ((192 + CO) + 64 = the cap)')
   assert.equal(SK.cobbleTownViewFor(town.bot).reserved, 64, 'and it is a live reservation')
-  assert.notEqual(SK.cobbleWellCap(town.bot), 'at_cap', '192 + CO held + 64 on its way is not the cap held')
-  // a COMPLETE count in town (a barrel beside home, the only container): the old predicate's own condition for at_cap
+  assert.notEqual(SK.cobbleWellCap(town.bot), 'at_cap', '192 + CO held + 64 on its way is not the cap held (Codex r1 P1 stands)')
+  // a COMPLETE count in town (a barrel beside home, the only container)
   // (stocktarget: two counts in ONE millisecond keep the smaller for the floor, so each count here is captured later than the last)
   let capAt = Date.now()
   const inTownAt = (tw, n) => { const k = `${HOME.x + 6},${HOME.y},${HOME.z - 6}`; tw.world.set(k, { name: 'barrel' }); CCAP.appendJournal(process.env.POOL_STATE_DIR, CF_townKey(HOME), tw.bot.worldId ?? null, { t: 'obs', k, n, cap: ++capAt }) }
   const t2 = fakeTown({ wellAt: CAP, items: [S('cobblestone', 30), S('cobblestone', 64), ...Array.from({ length: 34 }, () => S('oak_log', 64))] })
   inTownAt(t2, 240 + CO)
   assert.equal(SK.cobbleTownViewFor(t2.bot).complete, true, 'positive control: the count is complete')
-  assert.notEqual(SK.cobbleWellCap(t2.bot), 'at_cap', '240 + CO held: the 30 would pass the cap (a refused deposit), but the town does not hold it')
+  assert.equal(CCAP.cobbleAdmit(SK.cobbleTownViewFor(t2.bot), 30), 'at_cap', 'positive control: the BANK refuses this 30 at the cap')
+  assert.equal(SK.cobbleWellCap(t2.bot), 'at_cap', '240 + CO counted: no whole stack of this bag can be banked, so the well takes it')
+  inTownAt(t2, 240 + CO - 30)
+  assert.equal(SK.cobbleWellCap(t2.bot), 'below', 'room for the 30 (the bank admits it): the well keeps it')
   inTownAt(t2, COBBLE_CAP)
   assert.equal(SK.cobbleWellCap(t2.bot), 'at_cap', 'positive control: the cap counted is')
-  await withMutant(SP, "    return (Number(v?.avail) || 0) >= TOWN_COBBLE_CAP ? 'at_cap'", "    return cobbleAdmit(v, 30) === 'at_cap' ? 'at_cap'", async m => {
-    const t3 = fakeTown({ wellAt: CAP, items: [S('cobblestone', 30), S('cobblestone', 64), ...Array.from({ length: 34 }, () => S('oak_log', 64))] })
-    inTownAt(t3, 240 + CO)
-    assert.equal(m.cobbleWellCap(t3.bot), 'at_cap', 'mutant inert (the old predicate called a refused deposit the cap)')
-  })
+  await withMutant(SP, "    return wellCobbleSwitch(cobbleTownViewFor(bot), stacks[0].count, { cap: TOWN_COBBLE_CAP, held: (h.cobblestone ?? 0) + (h.cobbled_deepslate ?? 0), floorOnly })",
+    "    const v = cobbleTownViewFor(bot); void h; return (Number(v?.avail) || 0) >= TOWN_COBBLE_CAP ? 'at_cap' : v?.complete ? 'below' : 'unknown'", async m => {
+      const t3 = fakeTown({ wellAt: CAP, items: [S('cobblestone', 30), S('cobblestone', 64), ...Array.from({ length: 34 }, () => S('oak_log', 64))] })
+      inTownAt(t3, 240 + CO)
+      assert.equal(m.cobbleWellCap(t3.bot), 'below', 'mutant inert (stonecap\'s floor-only predicate leaves the band: neither the bank nor the well moves the stack)')
+    })
 })
 await t('COBBLE (Codex r1 P2): the server account lists cobble only up to what was CLICKED', async () => {
   const SK = await import('../src/skills.mjs')
