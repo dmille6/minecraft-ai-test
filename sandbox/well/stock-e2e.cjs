@@ -135,7 +135,7 @@ async function stopBot () {
 }
 const RUN = new Date().toISOString().replace(/[-:]/g, '').slice(4, 15)
 const procs = {}
-async function startBot (scene, slotsSpec, { pool = `sbxstock-${RUN}`, name = NAME } = {}) {
+async function startBot (scene, slotsSpec, { pool = `sbxstock-${RUN}`, name = NAME, at = HOME, onSpawn = null } = {}) {
   const tag = `${RUN}-${scene}-${name}`
   const logRel = `./sandbox/log/stock-e2e/${tag}`
   const skillLog = `${R}/sandbox/log/stock-e2e/${tag}/skill-${name}.jsonl`
@@ -156,7 +156,9 @@ async function startBot (scene, slotsSpec, { pool = `sbxstock-${RUN}`, name = NA
   // THE CHUNKS FIRST: an order read before the arena's chunks reach the client sees 'unknown' and (correctly) skips.
   rcon(`gamemode survival ${name}`, `clear ${name}`, `tp ${name} ${HOME.x + 0.5} ${HOME.y} ${HOME.z + 0.5}`)
   await sleep(10000)
-  const c = [`tp ${name} ${HOME.x + 0.5} ${HOME.y} ${HOME.z + 0.5}`]
+  // a scene's setup that needs the LIVE bot (its world identity) but must land before the bag is filled (indexsearch-01)
+  if (onSpawn) await onSpawn({ skillLog, poolDir: path.join(R, 'sandbox/state', `_pool-${pool}`) })
+  const c = [`tp ${name} ${at.x + 0.5} ${at.y} ${at.z + 0.5}`]
   let s = 0
   for (const [id, n] of slotsSpec) c.push(`item replace entity ${name} container.${s++} with minecraft:${id} ${n}`)
   rcon(...c)
@@ -959,7 +961,7 @@ scenes.townindex = async () => {
 //   ixsticks THE K1 CHAIN (design 8 K1): the iron ONLY in FAR, which holds no sticks; 20 sticks in a near chest (+10, +4); the bag
 //            has NO sticks and no wood (an iron pickaxe and a crafting table). BASE: kit_no_sticks (the iron is refused).
 //            CANDIDATE: `_kit_sticks` took 6 from the stick chest, then the iron from FAR: the kit crafted, FAR 16, sticks 14.
-async function seedIndex (poolDir, chests) {
+async function seedIndex (poolDir, chests, world) {
   const TI = await import(path.join(R, 'bots/src/townindex.mjs'))
   const hk = TI.indexHomeKey(HOME)
   for (const at of chests) {
@@ -968,7 +970,7 @@ async function seedIndex (poolDir, chests) {
     const cmds = []; for (let s = 0; s < 27; s++) cmds.push(`data get block ${at.x} ${at.y} ${at.z} Items[{Slot:${s}b}]`)
     const r = rcon(...cmds); let used = 0
     for (let s = 0; s < 27; s++) { const it = /has the following block data/.test(r[s]?.reply || '') ? parseItem(r[s].reply) : null; if (it) { used++; const e = (names[it.id] ??= [0, 0]); e[0] += it.count; e[1]++ } }
-    TI.appendIndex(poolDir, hk, null, { t: 'obs', id: `scene-${k}`, k, h: [k], at: Date.now() - 60_000, size: 27, used, names, bot: 'sandbox-scene', by: 'scene' })
+    TI.appendIndex(poolDir, hk, world, { t: 'obs', id: `scene-${k}`, k, h: [k], at: Date.now() - 60_000, size: 27, used, names, bot: 'sandbox-scene', by: 'scene' })
   }
   return TI.indexRecords(poolDir, hk).length
 }
@@ -983,13 +985,19 @@ async function ixScene (scene, { sticks = false } = {}) {
   const far = at(TS_FAR)
   setChest([['iron_ingot', 20]], far)
   const pool = `sbxix-${RUN}-${scene}`
-  const poolDir = path.join(R, 'sandbox/state', `_pool-${pool}`)
-  fs.mkdirSync(poolDir, { recursive: true })
-  // the index as a bot that opened FAR (and, for ixsticks, the stick chest) earlier would have left it
-  const seeded = await seedIndex(poolDir, sticks ? [far, at(IX_STICKS)] : [far])
   const before = { far: chestTotals(far).totals, near: near.map(c => chestTotals(at(c)).totals) }
   const bagSpec = sticks ? [['iron_pickaxe', 1], ['crafting_table', 1], ...TORCH(2)] : [['iron_pickaxe', 1], ['stick', 9], ['crafting_table', 1], ...TORCH(2)]
-  const files = await startBot(scene, bagSpec, { pool })
+  // the index as a bot that opened FAR (and, for ixsticks, the stick chest) earlier would have left it -- under the LIVE bot's
+  // world identity (Claude code r1 P2: the index is per world; a seed under `null` is another world's and was never read).
+  // The identity is the bot's own `_plinth_mode` licence row (w=<worldId>), written at spawn, before the bag is filled.
+  let seeded = 0, world = null
+  const files = await startBot(scene, bagSpec, { pool, onSpawn: async ({ skillLog, poolDir }) => {
+    const row = await waitFor(() => rowsOf(skillLog).find(r => r.name === '_plinth_mode'), 30000, 250)
+    world = ((row?.detail ?? '').match(/ w=(\S+)/) || [])[1] ?? null
+    if (!world || world === '-') throw new Error('no world identity in the bot\'s _plinth_mode row')
+    fs.mkdirSync(poolDir, { recursive: true })
+    seeded = await seedIndex(poolDir, sticks ? [far, at(IX_STICKS)] : [far], world)
+  } })
   const t0 = Date.now()
   const kitRows = () => rowsOf(files.skillLog).filter(r => r.name === '_toolkit' && /^phase=kit /.test(r.detail))
   await waitFor(() => kitRows().length >= 1, 300000, 1000)
@@ -1003,14 +1011,17 @@ async function ixScene (scene, { sticks = false } = {}) {
   const visits = Number((ks?.detail.match(/ visits=(\d+)/) || [])[1] ?? -1)
   const licence = rows.filter(r => r.name === '_indexsearch_mode').length
   const ix = rows.filter(r => r.name === '_index_search').map(r => r.detail)
+  // the seed and the bot's own records share one world (else the scene proves nothing)
+  let sameWorld = false
+  try { const TI = await import(path.join(R, 'bots/src/townindex.mjs')); const recs = TI.indexRecords(files.poolDir, TI.indexHomeKey(HOME)); sameWorld = recs.some(x => x.bot !== 'sandbox-scene' && x.w === world) && recs.filter(x => x.bot === 'sandbox-scene').every(x => x.w === world) } catch { sameWorld = false }
   const kst = rows.filter(r => r.name === '_kit_sticks').map(r => r.detail)
   const crafted = kit.some(r => /^phase=kit outcome=crafted /.test(r.detail)) && (b.totals.iron_axe ?? 0) === 1 && (b.totals.iron_shovel ?? 0) === 1
   const nearDirtSame = near.every((c, i) => (sticks && c === IX_STICKS) || JSON.stringify(after.near[i]) === JSON.stringify({ dirt: 5 }))
   const stickChest = sticks ? after.near[near.indexOf(IX_STICKS)] : null
-  result({ scene, root: BOT_ROOT, ms: Date.now() - t0, seeded, rows: rows.map(r => `${new Date(r.ts).toISOString().slice(11, 19)} ${r.name} ${r.status} ${r.detail.slice(0, 200)}`),
+  result({ scene, root: BOT_ROOT, ms: Date.now() - t0, seeded, world, sameWorld, rows: rows.map(r => `${new Date(r.ts).toISOString().slice(11, 19)} ${r.name} ${r.status} ${r.detail.slice(0, 200)}`),
     world: { bag: b.totals, farBefore: before.far, farAfter: after.far, nearDirtSame, stickChest }, visits, licence, ix, kitSticks: kst,
-    CANDIDATE_PASS: !!(licence >= 1 && crafted && (after.far.iron_ingot ?? 0) === 16 && nearDirtSame &&
-      (sticks ? ((stickChest?.stick ?? 0) === 14 && kst.some(d => /^want=6 took=6 /.test(d))) : (visits === 1 && ix.some(d => /^by=toolkit .* first=ix visits=1 took=1 hit=1 /.test(d))))),
+    CANDIDATE_PASS: !!(licence >= 1 && sameWorld && crafted && (after.far.iron_ingot ?? 0) === 16 && nearDirtSame && visits === 1 && ix.some(d => /^by=toolkit .* first=ix visits=1 took=1 hit=1 /.test(d)) &&
+      (!sticks || ((stickChest?.stick ?? 0) === 14 && kst.some(d => /^want=6 took=6 /.test(d)) && ix.some(d => /^by=kit_sticks .* first=ix visits=1 took=1 hit=1 /.test(d))))),
     BASE_SHAPE: !!(licence === 0 && ix.length === 0 && (sticks ? (kit.every(r => /outcome=no_sticks /.test(r.detail)) && (after.far.iron_ingot ?? 0) === 20) : (crafted && visits > 1))) })
 }
 scenes.ixkit = () => ixScene('ixkit')
