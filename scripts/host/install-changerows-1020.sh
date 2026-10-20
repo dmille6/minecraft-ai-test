@@ -13,7 +13,7 @@
 #       test_changerowcheck.py,test_verdict_acceptance.py,test_threepool.py,test_drawrequire.py,test_holdtoken.py,\
 #       test_changerows_underscore.py,test_license_change_rows.py} \
 #       scripts/host/{canary-loop.sh,drawrec.sh,bagread.py,holdtoken.py,heavyread.sh,canary-sched.py,test_bagfix_loop.py,\
-#       canarywatch.py,ugsafe2_value.py,changerows_replay.py,v36_replay.py,changerows-precheck.sh,changerows-suites.sh,\
+#       canarywatch.py,ugsafe2_value.py,changerows_replay.py,changerows-precheck.sh,changerows-suites.sh,\
 #       changerows-rules-paragraph.md,install-changerows-1020.sh} \
 #       docs/reports/airpocket-01.{ee21207,dbb4d78}.json mike@10.0.0.31:changerows-1020/stage/
 # THEN:  bash ~/changerows-1020/stage/changerows-precheck.sh      (read-only; any time)
@@ -110,9 +110,12 @@ VERDICT_MODULE_DIR=$S python3 $H/mcai-analysis/gatedigest.py --verdict $S/verdic
   || die "the staged bundle does not pass gatedigest against the rewritten rules"
 
 say "4. positive controls on LIVE data (read-only)"
-# 4a. dryrun replay of 60 past reads: the --dryrun path skips linkage, so this proves nothing else moved
-python3 $S/v36_replay.py $H/verdict.py $S/verdict.py $NEWRULES 60 > v36_replay.out 2>&1 || die "verdict dryrun replay differs: $(grep -E '^DIFF|^FAIL|REPLAY' v36_replay.out | head -6 | tr '\n' ' ')"
-echo "  dryrun replay: $(tail -1 v36_replay.out)"
+python3 $S/changerows_replay.py selftest > replay-selftest.out 2>&1 || die "changerows_replay.py selftest failed"
+# 4a. dryrun replay of 60 past reads (the --dryrun path skips linkage, so this proves nothing ELSE moved). The staged
+#     copy runs on its OWN modules against $NEWRULES (round 1, Codex P1: v36_replay.py strips VERDICT_MODULE_DIR, so
+#     the staged verdict.py would hash the LIVE changerowcheck and every line would carry a GATE-CODE note).
+python3 $S/changerows_replay.py dryrun $H/verdict.py $S/verdict.py $NEWRULES > dryrun_replay.out 2>&1 || die "verdict dryrun replay differs: $(grep -E '^DIFF|^FAIL|REPLAY' dryrun_replay.out | head -6 | tr '\n' ' ')"
+echo "  dryrun replay: $(tail -1 dryrun_replay.out)"
 # 4b. the non-dry replay of the underscore registrations' recorded reads (the linkage runs): no recorded word moves
 python3 $S/changerows_replay.py verdict $H/verdict.py $S/verdict.py $NEWRULES $S/work cobblekeep-01 180,360 > replay-cobblekeep.out 2>&1 \
   || die "cobblekeep-01 replay: $(grep -E '^DIFF|^FAIL|^NOT FAITHFUL|^REFUSED' replay-cobblekeep.out | head -4 | tr '\n' ' ')"
@@ -151,8 +154,14 @@ _rollback() {
   done
   cp -p "$RULES.bak-$TAG-$STAMP" "$RULES.rb-$TAG" && mv -f "$RULES.rb-$TAG" "$RULES" && cmp -s "$RULES.bak-$TAG-$STAMP" "$RULES" || bad="$bad $RULES"
   if [ -n "$bad" ]; then KEEP_HOLD=1; echo "ROLLBACK INCOMPLETE:$bad -- backups *.bak-$TAG-$STAMP kept"; return 1; fi
-  python3 $H/mcai-analysis/gatedigest.py --verdict $H/verdict.py --rules $RULES
-  echo "ROLLED BACK v36.1 (verified against the backups)"
+  # THE RESTORED GATE MUST PASS THE INTERLOCK (round 1, Codex P2): a failure keeps the hold and says so
+  if ! python3 $H/mcai-analysis/gatedigest.py --verdict $H/verdict.py --rules $RULES; then
+    KEEP_HOLD=1; echo "ROLLBACK UNVERIFIED: files restored from *.bak-$TAG-$STAMP but gatedigest.py does not pass -- the install-hold is KEPT"
+    return 1
+  fi
+  [ "$(python3 $H/verdict.py --gate-digest | head -1)" = "$OLD_DIGEST" ] \
+    || { KEEP_HOLD=1; echo "ROLLBACK UNVERIFIED: the restored bundle is not $OLD_DIGEST -- the install-hold is KEPT"; return 1; }
+  echo "ROLLED BACK v36.1 (verified against the backups; bundle $OLD_DIGEST, gatedigest passes)"
 }
 trap '_rollback; exit 4' INT TERM HUP
 for f in "${!TGT[@]}"; do mv -f "${TGT[$f]}.new-$TAG" "${TGT[$f]}" || { _rollback; exit 4; }; echo "  installed ${TGT[$f]}"; done

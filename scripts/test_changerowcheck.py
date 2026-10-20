@@ -121,6 +121,9 @@ def cases(mod, quiet=False):
     rc, txt = run(mod, prev_canary, change_rows=('_town_deposit',))
     out.append(("an '_x' registration CLEARS when only another build emits it -- and the note proves it was looked up",
                 rc == 0 and 'note: _town_deposit: 40 row(s) from build 92bc84f' in txt, txt))
+    rc, txt = run(mod, [('hive-a-Alpha', '_town_deposit', 'c6e91a8')], change_rows=('_',))
+    out.append(("a name that is empty once stripped ('_') is REFUSED as not a row name",
+                rc == 2 and 'is not a row name' in txt, txt))
     a = mod.assess(['_k', 'k', '__k', 'j'], {'k': 3}, {('k', '92bc84f'): 2}, {'j': 1})
     out.append(('assess(): every spelling of k finds the 3 baseline rows and the other-build note; j finds its unversioned row',
                 a == [('_k', 3, 0, [('92bc84f', 2)]), ('k', 3, 0, [('92bc84f', 2)]), ('__k', 3, 0, [('92bc84f', 2)]),
@@ -142,29 +145,39 @@ if __name__ == '__main__':
     mod = load(SRC)
     for name, ok, detail in cases(mod):
         t(name, ok, '' if ok else detail[-600:])
+    # (label, anchor, replacement, the case that mutant exists to break -- matched by prefix). A KILL needs THAT case to
+    # FAIL; a crash, or a different case failing, is not a kill (round 1, Codex P2: "any exception" scored as a kill).
     MUTANTS = [
-        ('count every build again (the 10-07 defect)', '        elif v == want:\n', '        elif True:\n'),
-        ('unversioned rows treated as another build', '        if not v:\n            unknown[k] += 1', '        if False:\n            unknown[k] += 1'),
+        ('count every build again (the 10-07 defect)', '        elif v == want:\n', '        elif True:\n',
+         'towndeposit-02 shape'),
+        ('unversioned rows treated as another build', '        if not v:\n            unknown[k] += 1',
+         '        if False:\n            unknown[k] += 1', 'a declared row seen only with NO version'),
         ('every bot vouches for the baseline', "        rows += 1\n",
-         "        rows += 1\n        base_bots.add((r.get('bot') or {}).get('name', ''))\n"),
-        ('positive control dropped', '    if base_rows == 0 or len(bots) < 40 or len(kinds) < 20:', '    if False:'),
-        ('the other-build note is dropped', "sorted(other.items()) if kk == k]", "sorted(other.items()) if False]"),
+         "        rows += 1\n        base_bots.add((r.get('bot') or {}).get('name', ''))\n", 'tally():'),
+        ('positive control dropped', '    if base_rows == 0 or len(bots) < 40 or len(kinds) < 20:', '    if False:',
+         'a baseline with no rows of its own'),
+        ('the other-build note is dropped', "sorted(other.items()) if kk == k]", "sorted(other.items()) if False]",
+         '  ...and the other-build rows are REPORTED'),
         # 2026-10-20: the declared name looked up AS WRITTEN again (the cobblekeep-01 / bagbudget-01 defect)
         ('declared name not stripped (the 10-20 defect)', "        k = row.lstrip('_') if isinstance(row, str) else row\n",
-         "        k = row\n"),
+         "        k = row\n", "an '_x' registration is REFUSED when the baseline emits x"),
+        ('a name empty once stripped is not refused', "    if malformed:\n", "    if False:\n",
+         "a name that is empty once stripped"),
         ('manifest baseline ignored (empty string)', "baseline = str(json.load(open(a.manifest)).get('declared_code_version') or '')",
-         "baseline = 'zzzzzzz'"),
+         "baseline = 'zzzzzzz'", 'no declared_code_version in the manifest'),
     ]
-    print('\nmutants (each must FAIL at least one case):')
-    for name, old, new in MUTANTS:
+    print('\nmutants (each must FAIL the case it targets):')
+    for name, old, new, target in MUTANTS:
         mp = mutate(old, new)
         m = load(mp, 'crc_mut')
         try:
             res = cases(m)
-            killed = not all(ok for _n, ok, _d in res)
         except Exception as e:
-            killed = True
-        t(f'mutant killed: {name}', killed)
+            t(f'mutant killed: {name}', False, f'HARNESS CRASH, not a kill: {type(e).__name__}: {e}')
+            continue
+        hit = [(n, ok) for n, ok, _d in res if n.startswith(target)]
+        t(f'mutant killed: {name}', len(hit) == 1 and not hit[0][1],
+          f'target case {target!r}: {hit or "ABSENT"}')
     n = len(T); bad = n - sum(T)
     print(f'\n{n - bad}/{n} pass')
     sys.exit(1 if bad else 0)

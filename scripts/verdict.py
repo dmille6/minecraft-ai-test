@@ -127,9 +127,10 @@ def registered_row_names(names):
     own rows, `away` stayed empty, and the control emission rate read 0 for rows control emits.
     The rate path of the death gate still ran; the LINKED path was silently dead.
 
-    A name without an underscore is returned unchanged, so those registrations read exactly as
-    before. A name that is empty once stripped ('_', '__') is DROPPED: kept, it would become ''
-    and match every row whose skill has no name. A non-string is passed through untouched, so a
+    A non-empty name without an underscore is returned unchanged, so those registrations read exactly
+    as before. A name that is empty once stripped ('', '_', '__') is DROPPED: kept, it would be ''
+    and match every row whose skill has no name ('' did exactly that before 10-20; '_' matched
+    nothing). A non-string is passed through untouched (None never equals a row kind, as before), so a
     dict still raises here exactly as it did (usafegate/install-bagfix-regs refuse it at launch), and so
     does a null list (`set(None)` raised; so does iterating None).
     """

@@ -168,6 +168,14 @@ def main():
     if not declared:
         print('no change/linkage rows declared — nothing to check')
         return 0
+    # A NAME THAT IS NOT A ROW (2026-10-20, round 1): '_' strips to '', which would count every nameless row here and
+    # which verdict.registered_row_names drops (it can never link). Refused for what it is, not passed or refused by
+    # whatever the baseline happens to hold.
+    malformed = [r for r in declared if not isinstance(r, str) or not r.lstrip('_')]
+    if malformed:
+        print('REFUSED: %r in change_rows/linkage_extra is not a row name (empty once the leading underscore is '
+              'stripped, or not a string). Name the row the change writes.' % (malformed,))
+        return 2
 
     bad = []
     print(f"\n{'declared row':44s}{'baseline':>10s}   verdict")

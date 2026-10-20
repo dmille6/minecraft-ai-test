@@ -134,6 +134,10 @@ def cases():
           f(['_a', 'b', '__c']) == {'a', 'b', 'c'}, f(['_a', 'b', '__c']))
     check("6b a name that is EMPTY once stripped is dropped (it would match every nameless row)",
           f(['_', '__', 'k']) == {'k'}, f(['_', '__', 'k']))
+    # round 1 (Codex): the exact boundary of "unchanged". '' is DROPPED (old: kept, and it matched every nameless row);
+    # a hashable non-string such as None passes through as set() kept it (it can never equal a row kind string)
+    check("6d '' is dropped, None passes through as set() kept it, a plain name is untouched",
+          f(['', None, 'x']) == {None, 'x'}, f(['', None, 'x']))
     try:
         f([{'x': 1}]); r = 'no error'
     except TypeError:

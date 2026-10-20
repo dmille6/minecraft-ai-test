@@ -17,7 +17,7 @@ SAME="bagfixrule.py:$H/mcai-analysis/bagfixrule.py usaferule.py:$H/mcai-analysis
 echo "== precheck 1. staged files present"
 for f in "${!TGT[@]}" test_changerows_underscore.py test_license_change_rows.py test_changerowcheck.py test_verdict_acceptance.py \
          test_tiers.py test_keep180.py test_bagfix.py test_usafe.py test_threepool.py test_drawrequire.py test_holdtoken.py \
-         test_bagfix_loop.py holdtoken.py ugsafe2_value.py changerows_replay.py v36_replay.py changerows-rules-paragraph.md changerows-suites.sh \
+         test_bagfix_loop.py holdtoken.py ugsafe2_value.py changerows_replay.py changerows-rules-paragraph.md changerows-suites.sh \
          airpocket-01.ee21207.json airpocket-01.dbb4d78.json; do
   [ -f "$S/$f" ] || bad "staged file missing: $S/$f"
 done
