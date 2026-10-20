@@ -1,0 +1,39 @@
+{
+ "run": "ironpick-01",
+ "after": [
+  "toolkit-03"
+ ],
+ "class": "",
+ "hold": null,
+ "not_before": null,
+ "note": "NEW (OWNER 2026-10-20 ~03:20Z 'add pickaxe to toolkit'). TIER 2 small fix (registration carries \"tier\": 2, no class). The toolkit also makes an iron pickaxe from town iron (3 ingots + 2 sticks, crafted first) when the bag has no iron pickaxe above 40 uses and no usable diamond+; withdraw_pick steps aside while the kit's dry-run order would make it now; the room plan counts the tools' slots and a drawn-down town gives the pickaxe alone -- only for draws that make the pickaxe. TOOLKIT_IRONPICK=off = one-setting rollback. 2,324 ingots in town chests vs 25 of 80 bots with a usable iron pickaxe. Read ~/mcai-analysis/ironpickread.py (NEW; copy scripts/host/ironpickread.py from the variant's branch; md5 below) + toolkitread (its K1-K4 DEFECT lines only: the toolkit is fleet-wide) + immobiledid. Install the drawn variant's registration as ~/mcai-analysis/registrations/ironpick-01.json. Record: docs/reports/ironpick-01-review-2026-10-20.md. Branches ironpick-on-34d3e5e (PRIMARY: toolkit-03 x cobblekeep-01), ironpick-on-4dab47e (toolkit-03 on adbec4f4). Both engines APPROVE (Codex r4 on 93cb0e57; Claude r4 on 93cb0e57; 2d410985 adds a test only). NOT APPLIED -- a reviewer adds it with `queue add` after approval.",
+ "variants": {
+  "34d3e5e9629a45bcdb54c0e88870dacf09b8a22b": {
+   "registration": "/home/mike/mcai-analysis/ironpick-01.2d410985.json",
+   "approved": "ironpick-01 agent 2026-10-20: ironpick-on-34d3e5e @ 2d410985 on toolkit-03 x cobblekeep-01 34d3e5e9. Codex r4 APPROVE + Claude subagent r4 APPROVE (93cb0e57; 2d410985 test-only). npm test 271/271; ironpick.test all pass with 10 anchored mutants; eslint no-undef only reflex.mjs:2384 withinBody. PAPER sandbox3 10-20 06:58-07:07Z, server read-back: ironpick / ironpickkeep / ironpickfull CANDIDATE_PASS, base 34d3e5e9 BASE_SHAPE. licencecheck (_toolkit_ironpick_mode) and changerowcheck (kit_ironpick) PASS 10-20 06:2xZ; drawexposure: 11 pools eligible. USE if the fleet is 34d3e5e9 (cobblekeep-01 then toolkit-03 kept). TIER 2.",
+   "canary_sha": "2d410985530f12238afa690b442c5224098445cf",
+   "branch": "ironpick-on-34d3e5e",
+   "reads_src": "/home/mike/mcai-analysis",
+   "reads": {
+    "ironpickread": "a4f9a37287b942781efd520976c58512",
+    "toolkitread": "53b0925653bf2584c77ecc96e20c7a14",
+    "immobiledid": "53af289df12208901931dbeeb1ae325a"
+   },
+   "registration_sha256": "44f863e558dbc10f4640f6fe30a8eeca50a1eae776a52ce6ed3e5e4d18248988 (docs/reports/ironpick-01.registration-34d3e5e9.json as committed)"
+  },
+  "28dc115841ef6d1a3e90c02a78f5dd887653c723": {
+   "registration": "/home/mike/mcai-analysis/ironpick-01.f06f27a2.json",
+   "approved": "ironpick-01 agent 2026-10-20: ironpick-on-4dab47e @ f06f27a2 = the 34d3e5e9 variant's five commits cherry-picked onto tk3-on-adbec4f 4dab47e5 (toolkit-03 code 28dc1158) with NO conflict; change lines byte-identical. npm test 270/270. The reviews and Paper of the primary variant stand. USE ONLY if toolkit-03's adbec4f4 variant was kept (fleet 28dc1158; the branch base 4dab47e5 is 28dc1158 + records, docs only). TIER 2.",
+   "canary_sha": "f06f27a224b085cde6ed0d4c4af8e749011d8722",
+   "branch": "ironpick-on-4dab47e",
+   "reads_src": "/home/mike/mcai-analysis",
+   "reads": {
+    "ironpickread": "a4f9a37287b942781efd520976c58512",
+    "toolkitread": "53b0925653bf2584c77ecc96e20c7a14",
+    "immobiledid": "53af289df12208901931dbeeb1ae325a"
+   },
+   "registration_sha256": "55f37c0b582ee02410dfe19754cd30485a77dbe8fe4e547b4fcc5615d6876912 (docs/reports/ironpick-01.registration-4dab47e5.json as committed)"
+  }
+ },
+ "ironpickread_md5": "a4f9a37287b942781efd520976c58512"
+}
