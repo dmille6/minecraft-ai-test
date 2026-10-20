@@ -128,3 +128,12 @@ Read selftest and actual JS→Python multipart round-trip passed. Registration J
 --- Claude ---
 VERDICT: APPROVE (on e4cd41c0). Codex r2 P2-1 resolved (v= per visit, computed once per visit; KV parses it; parts stay under 300; fixtures 2-incomplete / 1-complete); P2-2 resolved (D6 gone from judge and own_lines; selftest asserts absence); RCON_LOCAL accepted as documented. P3: the id took the last six characters of the name, so a fleet name like hive-c-Bravo gives '-Bravo...' while the test forbade a '-' lead -- assert 'not exactly -' or use the full name. (Taken in 31416ee5: the full name.)
 
+====================================================================================================
+PAPER SCENE FIXES (sandbox/well/stock-e2e.cjs only; no bot code)
+====================================================================================================
+2925235d: Codex CHANGE (P2 bagfar's 4-min wait could trip the livelock relocation in the base arm; P3 bagwell BASE_SHAPE
+underchecks: flint and retention); Claude APPROVE (all three diagnoses right; PLINTH_FIRST=0 confined to the build bot; the
+composter hides no dead end -- nothing in the bagwell bag is compostable; P3s: NATURAL_BUILD must be set by the launcher;
+bagwell leaves its composter; the lid scenes' torch filler now banks on this build).
+7137e06d: Codex APPROVE (both resolved: platform-local walks, an arm-specific wait; flint + exact retention); Claude APPROVE
+(both resolved; P3: WANDER restored only on bagfar's success path -- an exception ends main's loop anyway).

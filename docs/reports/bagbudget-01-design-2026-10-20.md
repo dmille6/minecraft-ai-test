@@ -380,8 +380,20 @@ driver and releases it after, and the driver still refuses a non-empty sandbox.
   board-a, placebo-c pretend canary, 180 min, 355,528 rows walked, 80 bots): licence 0 (no baseline rows), every defect 0,
   instrument ok (control town deposits 44, full bags 20, wear_out 18); null DiDs: full share +0.067, slots +0.31, full-bag
   banked share -0.066, no-slot -0.083 /bot-h, gather +0.120.
-- Paper (sandbox, base 9e7d9980 vs candidate): staged on 10.0.0.30 (/tmp/bbsbx: node 22, node_modules, the harness, both
-  trees; driver `sandbox/well/stock-e2e.cjs` scenes bagmix,build,bagwell,bagfar, RCON_LOCAL=1 on sandbox3). **NOT RUN at
-  the time of writing: the sandbox lock (/tmp/mcai-sandbox.lock on 10.0.0.31) has been held by `homefix homefix-01 Paper
-  P0-P3 (claude agent, 10-20)` since 02:35Z** (all four sandboxes empty at 04:41Z and 05:56Z; another agent is also
-  waiting). The registration names the Paper PASS of bagmix, bagwell and bagfar as a LAUNCH PRECONDITION.
+- Paper (sandbox3; base 9e7d9980 vs candidate 31416ee5 -- the registered code; driver sandbox/well/stock-e2e.cjs at 7137e06d on
+  branch bagbudget-on-9e7d998-paper; the driver and the bot run on the sandbox host 10.0.0.30 (node 22 staged), RCON local;
+  lock on 10.0.0.31 taken 07:07:44Z, released 07:24Z). Raw rows: docs/reports/bagbudget-01-paper-results-2026-10-20.jsonl.
+
+| scene | base (deployed rule) | candidate | verdict |
+|---|---|---|---|
+| bagmix (measured full bag, town with no well/composter, peaceful) | 36 -> 35; chest: cobblestone 50 only; torch/ladder/bone meal stay | 36 -> 32; chest: cobblestone 50, bone_meal 32, torch 11, ladder 4; no junk in the chest (egg, flint, wool, saplings, bamboo, apples stay); stations stay; nothing on the ground; licence 1 | CANDIDATE_PASS, BASE_SHAPE |
+| build (natural well, PLINTH_FIRST=0 for this bot only) | built 1308,119,1314 | built 1308,119,1314 | both built |
+| bagwell (full bag: torch, ladder, bone meal + egg, flint + slab filler; well + composter in town) | dispose_well threw 10 junk (36 -> 34); then nothing: torch/ladder/bone meal kept, bag stays 34 | dispose_well 07:23:22Z threw 10 junk (36 -> 34), THEN the bank 07:23:45Z `allow=bone_meal=32:32 ladder=4:4 torch=11:11` (34 -> 31); no junk in the chest; stations stay | CANDIDATE_PASS (well first), BASE_SHAPE |
+| bagfar (full bag 90 east of home: 4 spent + 1 good stone pickaxe, 64 cobble) | wore 1 (keeps 3 for last-swing); no town deposit; stayed | wore 4 (`phase=wear listed=3 worn=4`, 36 -> 33); good pickaxe kept; no town deposit, no trip; stayed | CANDIDATE_PASS, BASE_SHAPE |
+
+  Earlier runs (the coordinator's, 06:20Z and ~06:40Z) failed on SCENE defects, not code: `build` was refused by plinth-first
+  (fleet default); `bagwell` had no town composter, so build_composter ran first on BOTH arms (it planted the bag's crafting
+  table as the town table, crafted 7 mangrove slabs into the composter, 36 -> 33: under the trigger; the 14 cobble went as
+  scaffold when the livelock relocation walked off the floating arena); `bagfar`'s one-layer floor over air left ground cells
+  `no_support` and drops made wall columns `occupied` (2 of 4 worn). Fixed in 2925235d + 7137e06d (Codex scene r1 CHANGE ->
+  r2; Claude scene r1 APPROVE).

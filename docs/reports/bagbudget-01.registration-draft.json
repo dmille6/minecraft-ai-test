@@ -1,7 +1,7 @@
 {
   "run_id": "bagbudget-01",
   "sha": "31416ee5e1a89e8e1c745750d84ad0b90d863a68",
-  "registered_at": "2026-10-20T06:10:00Z",
+  "registered_at": "2026-10-20T07:35:00Z",
   "ladder_change": false,
   "promotion": "fleet-wide",
   "class": "",
@@ -149,5 +149,5 @@
     "base": "9e7d998003aeead7a2763958f1147f76e3b4a3f3",
     "npm_test": "npm test 269/269 at fcd68ac0 (code at 31416ee5); variant bagbudget-on-adbec4f 268/268 at 95a40f92"
   },
-  "approved": "bagbudget agent 2026-10-20: one allowance table (values unchanged in every layer); at the town deposit only, a bag >= 34 at the visit start banks the chest rows (torch 0, ladders < 26, bone_meal 0, an eaten food beyond the best, building stone above the scaffold reserve; stations keep 1; junk, compost inputs and saplings never; unlisted stays), deletion first bounded, base first, the latch, the count step kept, honest no_effect; row P (last-swing keeps no spent pickaxe while the bag holds a stone pickaxe's stone). REVIEWS: design Codex r1-r3 CHANGE -> r4 APPROVE, Claude r1-r2 CHANGE -> r3 APPROVE; code Codex r1 CHANGE -> r2 CHANGE -> r3 APPROVE, Claude r1-r3 APPROVE (docs/reports/bagbudget-01-reviews-2026-10-20.txt). eslint no-undef only reflex.mjs:2384 withinBody. npm test 269/269. Paper base vs candidate: SEE docs/reports/bagbudget-01-design-2026-10-20.md section 11 -- a LAUNCH PRECONDITION. Registration: NO draw_require_pools; licence 0 baseline rows in the dry run. TIER 2 decided explicitly (operator cobblekeep-01 precedent); the coordinator may choose tier 3 or the bag-fix class."
+  "approved": "bagbudget agent 2026-10-20: one allowance table (values unchanged in every layer); at the town deposit only, a bag >= 34 at the visit start banks the chest rows (torch 0, ladders < 26, bone_meal 0, an eaten food beyond the best, building stone above the scaffold reserve; stations keep 1; junk, compost inputs and saplings never; unlisted stays), deletion first bounded, base first, the latch, the count step kept, honest no_effect; row P (last-swing keeps no spent pickaxe while the bag holds a stone pickaxe's stone). REVIEWS: design Codex r1-r3 CHANGE -> r4 APPROVE, Claude r1-r2 CHANGE -> r3 APPROVE; code Codex r1 CHANGE -> r2 CHANGE -> r3 APPROVE, Claude r1-r3 APPROVE (docs/reports/bagbudget-01-reviews-2026-10-20.txt). eslint no-undef only reflex.mjs:2384 withinBody. npm test 269/269. Paper sandbox3 10-20 07:07-07:24Z, base 9e7d9980 vs candidate 31416ee5 (driver 7137e06d, branch bagbudget-on-9e7d998-paper): bagmix (36->32, torch/ladder/bone_meal banked, no junk, stations kept; base 36->35), bagwell (the well first 36->34, then the chest rows 34->31; base stops at 34), bagfar (4 spent worn far from town, no trip, good pickaxe kept; base wears 1) -- CANDIDATE_PASS and BASE_SHAPE on all three; build built on both (PLINTH_FIRST=0 for that bot only). Section 11 of the design doc. Registration: NO draw_require_pools; licence 0 baseline rows in the dry run. TIER 2 decided explicitly (operator cobblekeep-01 precedent); the coordinator may choose tier 3 or the bag-fix class."
 }
