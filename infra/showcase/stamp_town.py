@@ -9,6 +9,8 @@ import argparse, hashlib, importlib.util, json, os, re, subprocess, sys
 from pathlib import Path
 
 REPO = Path(__file__).resolve().parents[2]
+if not (REPO / "scripts" / "place-town.py").exists():      # an installed copy in /srv/showcase/bin
+    REPO = Path(os.environ.get("SHOWCASE_TOOLS", "/srv/showcase/tools"))
 sys.path.insert(0, str(REPO / 'scripts' / 'lib'))
 spec = importlib.util.spec_from_file_location('pt', REPO / 'scripts' / 'place-town.py')
 pt = importlib.util.module_from_spec(spec)
