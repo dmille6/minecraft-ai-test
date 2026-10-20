@@ -388,7 +388,20 @@ def cmd_activate(a):
         if not ok:
             print(f'REFUSED: the bots run, and {rel["sha"][:8]} lacks the required town-plan pieces {missing}')
             return 1
-    return activate(os.path.abspath(a.release))
+    cur = current_release()
+    return activate(os.path.abspath(a.release), prev_admissible=release_admissible((cur or {}).get('sha')))
+
+
+def release_admissible(sha):
+    """Is the CURRENT release still one the showcase may go back to? Inside the newest verified fleet build, not
+    containing a REVOKED sha. Unknown (no verified observation) counts as NOT admissible: fail closed -> stop."""
+    if not sha:
+        return False
+    ver = [r for r in FR.load_jsonl(LEDGER) if r.get('verified')]
+    if not ver or not is_anc(sha, ver[-1]['sha']):
+        return False
+    revoked = [l.split()[0] for l in open(REVOKED).read().splitlines() if l.strip()] if os.path.exists(REVOKED) else []
+    return not any(is_anc(x, sha) for x in revoked)
 
 
 # ------------------------------------------------------------------------------------------------ gate

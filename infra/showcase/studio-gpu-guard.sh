@@ -17,9 +17,28 @@ SHOWCASE_PAUSE_FILE=""
 # model a dead proxy may have left resident (keep_alive 0; the consumer has loaded nothing yet, it waits for this), then
 # persist the HANDOFF marker so a proxy that launchd restarts mid-run restores the handoff and never unloads the
 # consumer's models. A marker that cannot be written = refuse (the restart case would otherwise be unprotected).
+_showcase_fallback_resident() {   # 0 = resident, 1 = absent (or no Ollama server: nothing loaded), 2 = unknown
+  local ps rc
+  ps=$(curl -s --fail -m 10 http://127.0.0.1:11434/api/ps 2>/dev/null); rc=$?
+  [ $rc -eq 7 ] && return 1                       # connection refused: no Ollama server, nothing loaded
+  [ $rc -ne 0 ] && return 2
+  case "$ps" in *'"models"'*) ;; *) return 2;; esac
+  case "$ps" in *'"qwen2.5:7b-instruct"'*) return 0;; *) return 1;; esac
+}
+
 _showcase_handoff_without_proxy() {
-  curl -s -m 15 -o /dev/null http://127.0.0.1:11434/api/generate \
-    -d '{"model": "qwen2.5:7b-instruct", "keep_alive": 0}' 2>/dev/null || true
+  _showcase_fallback_resident; local r=$?
+  if [ $r -eq 0 ]; then
+    curl -s --fail -m 15 -o /dev/null http://127.0.0.1:11434/api/generate \
+      -d '{"model": "qwen2.5:7b-instruct", "keep_alive": 0}' 2>/dev/null
+    sleep 3; _showcase_fallback_resident; r=$?
+  fi
+  if [ $r -ne 1 ]; then
+    echo "showcase guard: REFUSING -- no proxy running and the showcase fallback model is still resident (or Ollama's" \
+         "/api/ps cannot be read). Remedy: '/Applications/Ollama.app/Contents/Resources/ollama stop qwen2.5:7b-instruct'" \
+         "(if this run does not need it loaded), then rerun." >&2
+    return 1
+  fi
   if ! { mkdir -p "$(dirname "$SHOWCASE_QUIESCED")" && date -u +%FT%TZ > "$SHOWCASE_QUIESCED.handoff"; }; then
     echo "showcase guard: REFUSING -- no proxy running and the handoff marker $SHOWCASE_QUIESCED.handoff cannot be" \
          "written. Remedy: check ~/showcase (permissions, disk) and rerun." >&2

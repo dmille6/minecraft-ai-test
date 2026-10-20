@@ -311,9 +311,18 @@ def cmd_capture(cfg, a):
                bytes=sum(os.path.getsize(p) for p in got))
     if a.frame0:
         if len(got) == len(VIEWS):
+            import hashlib, re as _re
+            seed = None
+            try:
+                props = open(os.path.join(os.path.dirname(cfg['world']), 'server.properties')).read()
+                seed = _re.search(r'^level-seed=(.*)$', props, _re.M).group(1).strip()
+            except (OSError, AttributeError):
+                pass
+            lvl = os.path.join(cfg['mirror'], 'level.dat')
             with open(os.path.join(cfg['root'], 'FRAME0.json'), 'w') as f:
-                json.dump({'stamp': stamp, 'frames': got, 'note': 'the empty world, before the town stamp and '
-                           'before any bot joined'}, f, indent=1)
+                json.dump({'stamp': stamp, 'frames': got, 'seed': seed,
+                           'level_dat_sha256': hashlib.sha256(open(lvl, 'rb').read()).hexdigest() if os.path.exists(lvl) else None,
+                           'note': 'the empty world, before the town stamp and before any bot joined'}, f, indent=1)
         else:
             heartbeat(cfg, dict(row, ok=False, step='frame0', why=msg))
             return 1
