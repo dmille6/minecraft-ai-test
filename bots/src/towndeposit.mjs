@@ -41,6 +41,7 @@ import { WELL_JUNK, pillarCount, STOCK_SCAFFOLD_MIN } from './well.mjs'
 import { isCompostJunk } from './composter.mjs'
 import { PEACEFUL_COMPOST } from './peacefulkit.mjs'
 import { groupOf } from './stocktarget.mjs'
+import { RUNNER_DECLINED } from './declined.mjs'
 // THE PEACEFUL KIT (peacefulkit.mjs, owner 10-07 ~19:50Z): while the food policy's switch is on no sword is ever banked.
 import { peacefulFoodActive } from './foodskip.mjs'
 // cobblekeep-01 (Codex r3 P2): the bot's OWN smelts, whatever they are, keep their fuel (smelting.mjs is pure, no imports)
@@ -477,7 +478,7 @@ export function townDepositOrder ({ now = 0, slots = 0, pos = null, home = null,
 }
 
 /** The runner declined to start it: the stay is not spent (the cooldown charged at issue still applies). */
-export const TD_RUNNER_DECLINED = new Set(['runner_paused', 'runner_busy', 'body_held'])
+export const TD_RUNNER_DECLINED = RUNNER_DECLINED   // the one shared set (declined.mjs, homefix-01)
 
 /** After the order ran -> the new state. failed backs off; success clears the backoff; a skip or an interruption is free. */
 export function townDepositOutcome (status, failClass = null, now = 0, state = {}) {

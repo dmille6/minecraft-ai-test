@@ -15,6 +15,7 @@
 // that look like bad model judgement -- the worst kind of confounder.
 
 import { equivalentTools } from './skills.mjs'
+import { RUNNER_DECLINED } from './declined.mjs'
 import { bankableInventory } from './bankable.mjs'
 import { bankClosed, depositTargetOk } from './chestfull.mjs'
 import { countItem } from './state.mjs'
@@ -48,7 +49,9 @@ export const RESTART_GRACE_MS = 10 * 60_000
 // furnace_busy (smeltjob-01, Claude code r1 P1): every furnace in reach is in ANOTHER bot's leased session, so the smelt never
 // started -- not an attempt at the rung. Counted as one, a town job holding the only furnace would drive the iron rung
 // to its 25-attempt give-up: two correct guards meeting with no legal move.
-export const RUNNER_REFUSALS = new Set(['runner_paused', 'runner_busy', 'body_held', 'unknown_skill', 'superseded', 'furnace_busy'])
+// homefix-01: the runner's declines are the ONE shared set (declined.mjs, incl. runner_reserved); this EXTENDS it with the
+// refusals that are not the runner declining but still never ran the skill.
+export const RUNNER_REFUSALS = new Set([...RUNNER_DECLINED, 'unknown_skill', 'superseded', 'furnace_busy'])
 /** Which block drops which item, for "does gathering X serve a rung that wants Y". Only the ones the ladder uses. */
 export const DROPS = { stone: 'cobblestone', deepslate: 'cobbled_deepslate', iron_ore: 'raw_iron', deepslate_iron_ore: 'raw_iron',
                        coal_ore: 'coal', deepslate_coal_ore: 'coal', grass_block: 'dirt', gravel: 'flint' }

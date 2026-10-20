@@ -22,12 +22,13 @@
  *     open are never a miss. A container the container memory itself holds unusable, in backoff or lid-blocked is never
  *     a key either (the deposit's own knowledge).
  */
+import { RUNNER_DECLINED } from './declined.mjs'
 export const RECOUNT_COOLDOWN_MS = 60_000
 export const RECOUNT_BACKOFF_MS = 10 * 60_000
 /** The town memory's statuses (chestfull.mjs containerStatus) a recount never walks to. */
 export const RECOUNT_SKIP = Object.freeze(new Set(['unusable', 'backoff', 'unavailable']))
 /** The runner declined to start it: nothing is charged. */
-const DECLINED = new Set(['runner_paused', 'runner_busy', 'body_held'])
+const DECLINED = RUNNER_DECLINED   // the one shared set (declined.mjs, homefix-01)
 /** A recount miss counts for this long; two misses at least RECOUNT_MISS_GAP_MS apart make the container unusable. */
 export const RECOUNT_MISS_TTL_MS = 6 * 60 * 60_000
 export const RECOUNT_MISS_GAP_MS = 10 * 60_000

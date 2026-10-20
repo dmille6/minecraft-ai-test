@@ -25,7 +25,10 @@ import assert from 'node:assert'
 process.env.LOG_DIR = '/tmp/mcbot-test-logs-homerescue'
 process.env.STATE_DIR = '/tmp/mcbot-test-state-homerescue'
 process.env.BOT_NAME = 'TestBot'
-process.env.HOME_X = '28'; process.env.HOME_Y = '79'; process.env.HOME_Z = '0'
+// HOME_Y at the walking bot's own level (70). homefix-01 grades home's arrival with goto's final test, which bounds |dy|
+// (<= 6 at range 2); this fixture had home 9 above a bot that walks at y=70 and was only "home" because the old test was
+// horizontal. The vertical bound itself is tested below.
+process.env.HOME_X = '28'; process.env.HOME_Y = '70'; process.env.HOME_Z = '0'
 const { SKILLS } = await import('../src/skills.mjs')
 
 let pass = 0, fail = 0
