@@ -45,7 +45,7 @@ def load_tiles(rcon, x0, z0, x1, z1, on=True):
             rcon.run(f'forceload {verb} {x} {z} {min(x + step - 1, x1)} {min(z + step - 1, z1)}')
 
 
-def retry(fn, tries=40, wait=0.5):
+def retry(fn, tries=360, wait=1.0):
     """Probe until the chunk answers (generation is asynchronous; `forceload add` returns when QUEUED)."""
     for i in range(tries):
         try:
