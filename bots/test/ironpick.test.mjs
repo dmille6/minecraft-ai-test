@@ -76,8 +76,9 @@ await t('the switch: TOOLKIT_IRONPICK=on|off, default on, an unreadable value re
   assert.equal(toolkitIronpickMode({ TOOLKIT_IRONPICK: 'off' }).on, false); assert.equal(toolkitIronpickMode({ TOOLKIT_IRONPICK: ' OFF ' }).on, false)
   assert.match(toolkitIronpickMode({ TOOLKIT_IRONPICK: 'nah' }).note, /unreadable, using on/)
   assert.equal(TOOLKIT_IRONPICK.on, true, 'this suite runs the shipped default')
-  assert.equal(ironpickModeDetail(), 'phase=mode on=1 mode=on trip_uses=40 kit=iron_pickaxe+iron_axe+iron_shovel max_ingots=7 note=TOOLKIT_IRONPICK_unset')
-  assert.equal(ironpickModeDetail({ on: false, mode: 'off', note: null }), 'phase=mode on=0 mode=off trip_uses=40 kit=iron_axe+iron_shovel max_ingots=4')
+  assert.equal(ironpickModeDetail(), 'phase=mode on=1 mode=on toolkit=1 trip_uses=40 kit=iron_pickaxe+iron_axe+iron_shovel max_ingots=7 note=TOOLKIT_IRONPICK_unset')
+  assert.equal(ironpickModeDetail({ on: false, mode: 'off', note: null }), 'phase=mode on=0 mode=off toolkit=1 trip_uses=40 kit=iron_axe+iron_shovel max_ingots=4')
+  assert.match(ironpickModeDetail({ on: true, mode: 'on', note: null }, { on: false }), /^phase=mode on=0 mode=on toolkit=0 /, 'TOOLKIT=off: the pickaxe is off too, and the row says so (Claude r1 P3)')
 })
 await t('kitNeeds / kitDraw: the pickaxe FIRST; 3 ingots + 2 sticks; never the bag\'s own iron; off -> the base kit exactly', () => {
   assert.deepEqual(KIT_NAMES, ['iron_pickaxe', 'iron_axe', 'iron_shovel']); assert.deepEqual({ ...KIT.iron_pickaxe }, { ingots: 3, sticks: 2 })
@@ -93,6 +94,7 @@ await t('kitRoomTakes: the draw AND one slot per tool the crafts make (on); the 
   const d = kitDraw([T('stone_pickaxe', 100), stack('stick', 9)])
   assert.deepEqual(kitRoomTakes(d), [{ name: 'iron_ingot', count: 7 }, { tool: true, name: 'iron_pickaxe' }, { tool: true, name: 'iron_axe' }, { tool: true, name: 'iron_shovel' }])
   assert.deepEqual(kitRoomTakes(d, { ironpick: false }), [{ name: 'iron_ingot', count: 7 }])
+  assert.deepEqual(kitRoomTakes(kitDraw([T('iron_pickaxe', 250), stack('stick', 9)])), [{ name: 'iron_ingot', count: 4 }], 'an axe-and-shovel draw: the base rule exactly (one variable)')
   // a bag with exactly the draw's one slot free: the draw alone fits, the draw and the tools do not
   const bag = slotted([T('iron_pickaxe', 30), ...KIT_HELD(), stack('stick', 9), ...Array.from({ length: 31 }, () => stack('white_wool', 1))])
   const dd = kitDraw(bag)
@@ -108,6 +110,38 @@ await t('toolkitOrder: a worn iron pickaxe at town -> the toolkit order (3 ingot
   assert.equal(toolkitOrder({ ...base, items: [T('iron_pickaxe', 41), ...KIT_HELD()] }).order, null)
   assert.equal(toolkitOrder({ ...base, room: () => false }).order, null)
   assert.equal(toolkitOrder({ ...base, townMiss: () => true }).order, null, 'every container known short of 3 + keep')
+})
+await t('THE PREFIX (Claude r1 P2): the town short of the whole kit\'s draw (7 + 4) but not of the pickaxe\'s (3 + 4) -> the order is for the pickaxe alone (n=1); off -> no order', () => {
+  const items = [T('stone_pickaxe', 100), stack('stick', 9)]
+  const miss = d => d.ingots > 3   // every container holds 7-10: short of 4+, not of 3
+  const o = { ...base, items, townMiss: miss, room: () => true }
+  const r = toolkitOrder(o)
+  assert.equal(r.order?.skill, 'toolkit'); assert.deepEqual(r.order.args, { credit: 0, n: 1 })
+  assert.match(r.order.why, /no usable iron_pickaxe above 40 uses: the town's iron makes it \(3 ingot\(s\) drawn\)/)
+  assert.deepEqual(K.kitDraw(items, { limit: 1 }), { needs: ['iron_pickaxe'], ingots: 3, sticks: 0 })
+  assert.deepEqual(toolkitOrder({ ...o, townMiss: () => false }).order.args, { credit: 0 }, 'CONTROL: the town has the whole kit -> no prefix')
+  assert.equal(toolkitOrder({ ...o, ironpick: false }).order, null, 'off: the base kit only (4 ingots, ruled out)')
+  // room for the whole kit missing, room for the pickaxe there -> the prefix too
+  const r2 = toolkitOrder({ ...o, townMiss: () => false, room: d => d.needs.length <= 1 })
+  assert.deepEqual(r2.order?.args, { credit: 0, n: 1 })
+  assert.deepEqual(K.kitPrefixes(['iron_pickaxe', 'iron_axe', 'iron_shovel']), [3, 2, 1]); assert.deepEqual(K.kitPrefixes(['iron_axe', 'iron_shovel'], { ironpick: false }), [2])
+  assert.deepEqual(K.kitPrefixes(['iron_axe', 'iron_shovel']), [2], 'an axe-and-shovel draw keeps the base whole-kit rule (on too)')
+})
+await t('THE CREDIT-ONLY RUN checks room for its tools too (Claude r1 P3): credited ingots, a bag with no slot -> no order; off -> the base (no check)', () => {
+  const bag = slotted([T('iron_pickaxe', 30), ...KIT_HELD(), stack('iron_ingot', 3), stack('stick', 9), ...Array.from({ length: 31 }, () => stack('white_wool', 1))])
+  const keep = [...roomKeep([]), 'iron_ingot']   // as cognitive.mjs: the kit's iron is never banked for room
+  const o = { ...base, items: bag, credit: 3, townMiss: () => true, room: d => roomPlan(o.items, kitRoomTakes(d), { keep }).ok }
+  assert.equal(K.kitDraw(bag, { credit: 3 }).ingots, 0, 'the credit covers the draw')
+  assert.equal(toolkitOrder(o).order, null, 'no slot for the pickaxe the credit makes')
+  const b35 = bag.slice(0, 35)
+  assert.equal(toolkitOrder({ ...o, items: b35, room: d => roomPlan(b35, kitRoomTakes(d), { keep }).ok }).order?.skill, 'toolkit', 'one slot free: issued')
+})
+await t('toolkitOutcome: a `narrow` run (KIT_NARROW) is no backoff, only the cooldown -- capped with `more` by KIT_MORE_MAX', () => {
+  let st = { lastIssuedAt: 1e9 }
+  st = K.toolkitOutcome('failed', 1e9, st, K.KIT_NARROW)
+  assert.equal(st.backoffUntil, undefined); assert.equal(st.moreStreak, 1)
+  for (let i = 0; i < K.KIT_MORE_MAX; i++) st = K.toolkitOutcome('failed', 1e9, st, K.KIT_NARROW)
+  assert.ok(st.backoffUntil > 1e9, 'the streak past KIT_MORE_MAX backs off')
 })
 await t('withdrawDefersToKit: only when withdraw has a pickaxe need AND the kit\'s order would be issued now AND it makes the iron pickaxe', () => {
   const kit = { skill: 'toolkit', args: { credit: 0 } }
@@ -225,6 +259,37 @@ await t('SKILL: the town\'s keep -- a container with 3 + TOWN_IRON_KEEP - 1 ingo
     }
   }
 })
+async function narrowScene (S = S0) {
+  const w = withServer(town([T('stone_pickaxe', 100), stack('stick', 9), stack('crafting_table', 1)], [stack('iron_ingot', 9)]))
+  const r = await S.SKILLS.toolkit.run({ bot: w.bot, kitCraft: fakeCraft(w) }, {}, new AbortController().signal)
+  assert.equal(r.status, 'failed'); assert.equal(r.failClass, K.KIT_NARROW, r.detail); assert.match(r.detail, /holds enough for iron_pickaxe/)
+  assert.equal(count(chestOf(w), 'iron_ingot'), 9)
+  assert.equal(S0.townKitIronMiss(w.bot), true, 'the whole kit\'s draw is now a town-wide miss')
+  assert.equal(S0.townKitIronMiss(w.bot, K.kitDraw(w.bag.filter(Boolean), { limit: 1 })), false, 'the pickaxe\'s is not')
+  const items = w.bag.filter(Boolean)
+  const o = toolkitOrder({ now: 1e9, atTown: true, items, container: true, townMiss: d => S0.townKitIronMiss(w.bot, d), tableNear: () => true, room: () => true, state: {} })
+  assert.deepEqual(o.order?.args, { credit: 0, n: 1 }, 'the order the gate gives now: the pickaxe alone')
+  const r2 = await run(w, o.order.args, { kitCraft: fakeCraft(w) })
+  assert.equal(r2.status, 'success', r2.detail); assert.equal(count(w.bag, 'iron_pickaxe'), 1); assert.equal(count(w.bag, 'iron_axe'), 0)
+  assert.equal(count(chestOf(w), 'iron_ingot'), 6, '9 - 3: the keep (4) stays')
+  // CONTROL: the same bag in a town that can give the whole kit -> crafted, no narrow
+  const w3 = withServer(town([T('stone_pickaxe', 100), stack('stick', 9), stack('crafting_table', 1)], [stack('iron_ingot', 11)]))
+  const r3 = await run(w3, {}, { kitCraft: fakeCraft(w3) })
+  assert.equal(r3.status, 'success', r3.detail); assert.equal(r3.kitCrafted, 3); assert.equal(count(chestOf(w3), 'iron_ingot'), 4)
+}
+await t('SKILL, A DRAWN-DOWN TOWN (Claude r1 P2): every container holds 9 -> the whole kit (7 + 4) ends `narrow` (no iron moved, no backoff); the next order\'s prefix (n=1) draws 3 and makes the pickaxe', () => narrowScene())
+async function sticksOnlyScene (S = S0) {
+  // the credit covers the pickaxe's iron (an earlier run drew it); the bag has no sticks, the chest holds sticks and 2 ingots
+  const w = withServer(town([T('iron_pickaxe', 30), ...KIT_HELD(), stack('iron_ingot', 3), stack('crafting_table', 1)], [stack('stick', 20), stack('iron_ingot', 2)]))
+  w.bot.kitCredit = 3
+  const n0 = RECS.length
+  const r = await S.SKILLS.toolkit.run({ bot: w.bot, kitCraft: fakeCraft(w) }, {}, new AbortController().signal)
+  assert.equal(r.status, 'success', r.detail); assert.deepEqual(usesOf(w.bag, 'iron_pickaxe'), [30, 250])
+  assert.equal(count(chestOf(w), 'iron_ingot'), 2, 'no iron drawn')
+  const cr = RECS.slice(n0).filter(x => x.skill?.name === '_kit_ironpick').at(-1)?.skill?.detail ?? ''
+  assert.match(cr, /^outcome=crafted made=1 .* drew=0 iron_seen=-1 keep=4 /, 'a sticks-only draw records no iron_seen (the read\'s keep gate never judges it)')
+}
+await t('SKILL, A STICKS-ONLY DRAW (Claude r1 P1): the credit covers the iron, the chest gives sticks -> made, iron_seen=-1 (not the chest\'s 2)', () => sticksOnlyScene())
 // THE FULL BAG: 36 slots; the kit is the pickaxe and the shovel (the axe held): 4 ingots in ONE slot, and two tools to land.
 // After the pickaxe's craft one ingot is still in its slot, so the pickaxe needs a slot of its own: room for the draw alone
 // (1 slot) is not room for the craft. `spare`: three whole stacks the deposit banks (coal, raw copper, copper ingots).
@@ -376,6 +441,15 @@ await t('MUTANTS: each removes one part of ironpick-01 and a behaviour test abov
     "(tier(it.name) === IRON_TIER ? remaining(it) > IRONPICK_TRIP_USES : tier(it.name) > IRON_TIER && usable(it))",
     "(tier(it.name) === IRON_TIER ? remaining(it) > FLOOR : tier(it.name) > IRON_TIER && usable(it))",
     M => killedBy(() => { assert.equal(M.ironPickNeed([T('iron_pickaxe', 30), T('stone_pickaxe', 120)]), true) }))
+  // the prefix gone (the whole kit only): a drawn-down town gives no pickaxe at all
+  kills.noPrefix = await withMutant(new URL('../src/toolkit.mjs', import.meta.url),
+    "(ironpick && needs[0] === 'iron_pickaxe' ? Array.from({ length: needs.length }, (_, i) => needs.length - i) : (needs.length ? [needs.length] : []))",
+    '(needs.length ? [needs.length] : [])',
+    M => killedBy(() => { assert.deepEqual(M.toolkitOrder({ ...base, items: [T('stone_pickaxe', 100), stack('stick', 9)], townMiss: d => d.ingots > 3, room: () => true }).order?.args, { credit: 0, n: 1 }) }))
+  // the narrow outcome gone: the whole-kit miss backs off 30 min although the pickaxe's draw is there
+  kills.noNarrow = await withMutant(SKILLS_PATH, "if (TOOLKIT_IRONPICK.on && draw.needs[0] === 'iron_pickaxe' && draw.needs.length > 1 && !townKitIronMiss(", 'if (false && !townKitIronMiss(', S => killedBy(() => narrowScene(S)))
+  // iron_seen on a sticks-only draw
+  kills.seenAlways = await withMutant(SKILLS_PATH, 'if ((got?.took?.iron_ingot ?? 0) > 0) st.ironSeen = ', 'st.ironSeen = ', S => killedBy(() => sticksOnlyScene(S)))
   const survived = Object.entries(kills).filter(([, k]) => !k).map(([n]) => n)
   console.log(`        mutants killed: ${Object.entries(kills).filter(([, k]) => k).map(([n]) => n).join(', ')}`)
   assert.deepEqual(survived, [], `mutants survived: ${survived.join(', ')}`)
