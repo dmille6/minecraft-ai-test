@@ -20,29 +20,12 @@ PW=$(python3 -c 'import json; print(json.load(open("/srv/showcase/secrets/rcon.j
 systemctl stop showcase-paper.service 2>/dev/null || true
 rm -rf $S/world $S/world_nether $S/world_the_end
 umask 027
-cat > $S/server.properties <<EOF
-level-seed=$SEED
-server-port=25565
-enable-rcon=true
-rcon.port=25575
-rcon.password=$PW
-online-mode=false
-white-list=true
-enforce-whitelist=true
-difficulty=peaceful
-gamemode=survival
-pvp=false
-spawn-protection=0
-view-distance=8
-simulation-distance=6
-max-players=20
-level-type=minecraft\:normal
-generate-structures=true
-allow-nether=false
-allow-flight=false
-spawn-monsters=false
-motd=showcase
-EOF
+# The bench's full server.properties (board-a, 10-15, minus its secrets/seed/ports/motd), then the showcase's own
+# keys. The full file matters: Paper's default pause-when-empty-seconds=60 STOPS TICKING with no player online, so a
+# world with no bot yet would never generate a forceloaded chunk (found in the seed trial, 10-20 13:40Z).
+{ cat /srv/showcase/tools/infra/showcase/files/server.properties.base
+  printf 'level-seed=%s\nserver-port=25565\nquery.port=25565\nrcon.port=25575\nrcon.password=%s\nmotd=showcase\n' "$SEED" "$PW"
+} > $S/server.properties
 unset PW
 # bots pre-whitelisted with their OFFLINE uuids (online-mode=false: uuid = v3 md5("OfflinePlayer:" + name))
 python3 - > $S/whitelist.json <<'PY'
