@@ -235,6 +235,45 @@ def t_unknown_name_refused():
     TE.raises(ZeroLooksWrong, lambda: run(docs), contains='town_deposit')
 
 
+def t_showcase_block_never_raises():
+    """docs/reports/showcase-2026-10-20.md s.4: the SHOWCASE block reads only its own streams and NEVER takes the
+    fleet report down: an ES that refuses everything yields one line per part, no exception."""
+    def dead(method, path, body=None, timeout=120):
+        raise RuntimeError(f'refused {path}')
+    until = dt.datetime(2026, 10, 14, 19, 55, tzinfo=dt.timezone.utc)
+    out = FS.showcase_report(until, client=dead)
+    text = '\n'.join(out['lines'])
+    assert 'SHOWCASE bots: stream unreadable' in text, text
+    assert 'SHOWCASE BRAIN: stream unreadable' in text, text
+    assert 'SHOWCASE TIMELAPSE: heartbeat unreadable' in text, text
+
+
+def t_showcase_block_without_its_helper_module():
+    import lib
+    saved = sys.modules.get('lib.showcasestatus')
+    attr = lib.__dict__.pop('showcasestatus', None)
+    sys.modules['lib.showcasestatus'] = None            # makes `from lib import showcasestatus` fail
+    try:
+        out = FS.showcase_report(dt.datetime(2026, 10, 14, 19, 55, tzinfo=dt.timezone.utc), client=None)
+    finally:
+        if saved is None:
+            sys.modules.pop('lib.showcasestatus', None)
+        else:
+            sys.modules['lib.showcasestatus'] = saved
+        if attr is not None:
+            lib.showcasestatus = attr
+    assert out['lines'][0].startswith('SHOWCASE: block unavailable'), out
+
+
+def t_showcase_streams_are_not_the_bench_streams():
+    """The bench stream names are pinned; the showcase keys point elsewhere and share only the family."""
+    S = FS._est.STREAMS
+    assert (S['skill']['index'], S['llm']['index']) == ('mcai-skill-agents', 'mcai-llm-agents'), S
+    assert (S['showcase-skill']['index'], S['showcase-llm']['index']) == ('mcai-skill-showcase', 'mcai-llm-showcase')
+    assert S['showcase-skill']['family'] == 'skill' and S['showcase-llm']['family'] == 'llm'
+    assert not ({S['skill']['index'], S['llm']['index']} & {S['showcase-skill']['index'], S['showcase-llm']['index']})
+
+
 TESTS = [(n, f) for n, f in sorted(globals().items()) if n.startswith('t_') and callable(f)]
 
 if __name__ == '__main__':

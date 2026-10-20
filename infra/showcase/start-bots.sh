@@ -30,15 +30,13 @@ for n in Alpha Bravo Comet Delta Echo Frost Gale Haven Iris Juno; do
   systemctl enable --now "mcshow@showcase-$n" >/dev/null 2>&1 && echo "   started showcase-$n"
   sleep 12
 done
-echo "== verify (10 min): a join, a skill row on $EXPECT, and an llm row from every bot"
-fail=1
+echo "== verify (10 min): from every bot a skill row on $EXPECT and an llm row, both NEWER than this start"
+fail=1; missing="(verifier never ran)"
 for i in $(seq 1 40); do
-  missing=$(python3 - "$EXPECT" "$T0" <<'PY'
-import json, os, sys
+  if missing=$(python3 - "$EXPECT" "$T0" <<'PY'
+import json, sys, datetime as dt
 exp, t0 = sys.argv[1], float(sys.argv[2])
 names = ['showcase-' + n for n in 'Alpha Bravo Comet Delta Echo Frost Gale Haven Iris Juno'.split()]
-log = open('/srv/showcase/server/logs/latest.log', errors='replace').read()
-bad = []
 def newest(p):
     try:
         with open(p, 'rb') as f:
@@ -47,29 +45,46 @@ def newest(p):
                 try: return json.loads(l)
                 except ValueError: pass
     except OSError: return None
+def fresh(r):
+    try: return dt.datetime.fromisoformat(r['@timestamp'].replace('Z', '+00:00')).timestamp() >= t0
+    except Exception: return False
+bad = []
 for n in names:
-    if f'{n} joined the game' not in log: bad.append(f'{n}:no-join'); continue
     s = newest(f'/var/log/mcai/{n}/skill-{n}.jsonl'); l = newest(f'/var/log/mcai/{n}/llm-{n}.jsonl')
-    if not s or (s.get('code') or {}).get('version') != exp: bad.append(f'{n}:skill'); continue
-    if not l: bad.append(f'{n}:llm')
-print(' '.join(bad))
+    if not s or not fresh(s) or (s.get('code') or {}).get('version') != exp: bad.append(f'{n}:skill'); continue
+    if not l or not fresh(l): bad.append(f'{n}:llm')
+print(' '.join(bad) if bad else 'ALL-OK')
 PY
-)
-  [ -z "$missing" ] && { fail=0; break; }
+); then
+    [ "$missing" = ALL-OK ] && { fail=0; break; }
+  else
+    missing="verifier crashed (exit $?)"
+  fi
   sleep 15
 done
 if [ $fail -ne 0 ]; then
   echo "VERIFY FAILED: $missing -- stopping the bots (stop-bots.sh)"
-  $B/stop-bots.sh "start verify failed: $missing"; exit 1
+  SHOWCASE_LOCK_HELD=1 $B/stop-bots.sh "start verify failed: $missing"; exit 1
+fi
+echo "== served-model share since this start (must be >= 90% gemma4 before AUTO_FOLLOW goes on)"
+if ! python3 - "$T0" <<'PY'
+import collections, datetime as dt, glob, json, sys
+t0 = float(sys.argv[1]); c = collections.Counter()
+for p in glob.glob('/var/log/mcai/showcase-[A-Z]*/llm-*.jsonl'):
+    if 'FIXTURE' in p: continue
+    for l in open(p, errors='replace'):
+        try:
+            r = json.loads(l)
+            if dt.datetime.fromisoformat(r['@timestamp'].replace('Z', '+00:00')).timestamp() < t0: continue
+            c[(r.get('llm') or {}).get('model') or 'unserved'] += 1
+        except (ValueError, KeyError): pass
+n = sum(c.values()); g = sum(v for k, v in c.items() if str(k).startswith('gemma4'))
+print(f'   {n} decisions since start: {dict(c)}')
+sys.exit(0 if n and g / n >= 0.9 else 1)
+PY
+then
+  echo "VERIFY FAILED: the brain is not serving gemma4 (see the share above) -- stopping the bots"
+  SHOWCASE_LOCK_HELD=1 $B/stop-bots.sh "start verify failed: gemma4 share < 90%"; exit 1
 fi
 touch /srv/showcase/AUTO_FOLLOW
-python3 - <<'PY'
-import collections, json, glob
-c = collections.Counter()
-for p in glob.glob('/var/log/mcai/showcase-*/llm-*.jsonl'):
-    for l in open(p, errors='replace'):
-        try: c[(json.loads(l).get('llm') or {}).get('model')] += 1
-        except ValueError: pass
-print('served models so far:', dict(c))
-PY
 echo "STARTED: 10 bots on $EXPECT; AUTO_FOLLOW on. The bench's fleetstatus SHOWCASE block reports them from ES."

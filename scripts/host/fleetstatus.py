@@ -123,9 +123,13 @@ def showcase_report(until, client=None, window_h=3):
     """The SHOWCASE block (docs/reports/showcase-2026-10-20.md section 4). It reads ONLY the showcase's own
     streams -- the fleet sections above never see a showcase row -- and never raises: an unreadable stream is a
     line saying so. Bots not started is a legitimate zero, stated with its denominator (the stream's own total)."""
-    from lib import showcasestatus as SS
     client = client or DISK_CLIENT or _est.http
     lines, out = [], {}
+    try:
+        from lib import showcasestatus as SS
+    except Exception as e:     # a tree installed without the helper must not blank the FLEET report
+        return {'lines': [f'SHOWCASE: block unavailable ({type(e).__name__}: {str(e)[:100]}) -- install '
+                          f'scripts/lib/showcasestatus.py beside estelemetry.py'], 'error': str(e)[:200]}
     since = until - dt.timedelta(hours=window_h)
     try:
         sk = EsEvents.load('showcase-skill', since=since, until=until, gaps='allow', client=client)

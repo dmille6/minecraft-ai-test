@@ -386,7 +386,9 @@ def admit():
             # before the next poll gets a fresh grace and fresh probes (Codex r7). The marker must REALLY be gone
             # first; if it cannot be removed, admission stays closed (fail closed, Codex r9).
             if not save_handoff(False):
+                STATE['fault'] = 'handoff marker could not be removed'
                 return 'handoff marker could not be removed', False, STATE['inflight']
+            STATE.pop('fault', None)
             STATE['handed_off'], STATE['epoch_unloaded'], STATE['sig'] = False, False, None
             withdraw_ack()
         if not p and not full:
@@ -430,6 +432,8 @@ class H(BaseHTTPRequestHandler):
             p = is_paused()
             with LOCK:
                 inflight = STATE['inflight']
+            if STATE.get('fault'):
+                return self._send(503, {'ok': False, 'fault': STATE['fault'], 'inflight': inflight})
             if p:
                 since = STATE.get('sig_t')
                 return self._send(503, {'ok': False, 'paused_by': p, 'inflight': inflight,

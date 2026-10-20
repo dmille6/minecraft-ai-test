@@ -3,6 +3,8 @@
 #   sudo /srv/showcase/bin/stop-bots.sh "<why>"
 set -uo pipefail
 WHY=${1:-operator}
+# Serialised with follow / stage / activate / start (one ops lock); a caller that already holds it says so.
+if [ "${SHOWCASE_LOCK_HELD:-0}" != 1 ]; then exec 9>>/srv/showcase/ops.lock; flock 9; fi
 rm -f /srv/showcase/AUTO_FOLLOW
 for n in Alpha Bravo Comet Delta Echo Frost Gale Haven Iris Juno; do
   if systemctl is-active --quiet "mcshow@showcase-$n" || systemctl is-enabled --quiet "mcshow@showcase-$n" 2>/dev/null; then

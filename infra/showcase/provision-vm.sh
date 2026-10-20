@@ -48,7 +48,11 @@ install -d -o root -g root -m 755 /srv/showcase/backup-stage
 install -d -o mcbot -g mcbot -m 755 /var/log/mcai /var/lib/mcai
 touch /srv/showcase/save.lock && chgrp showops /srv/showcase/save.lock && chmod 664 /srv/showcase/save.lock
 install -d -o root -g showops -m 775 /srv/showcase/ops
-ok "/srv/showcase/{server,bin,releases,artifacts,secrets,timelapse,bluemap,backup-stage}"
+# the timelapse runs as mike and must READ the world Paper writes (minecraft, 0750): an ACL, inherited by every file
+# Paper creates later (a default ACL), read-only
+setfacl -R -m u:mike:rX /srv/showcase/server
+setfacl -R -d -m u:mike:rX /srv/showcase/server
+ok "/srv/showcase/{server,bin,releases,artifacts,secrets,timelapse,bluemap,backup-stage}; mike reads the world (ACL)"
 
 say "Paper: the fleet's jar, checked"
 want=8de7c52c3b02403503d16fac58003f1efef7dd7a0256786843927fa92ee57f1e

@@ -9,8 +9,9 @@
 set -uo pipefail
 VM=showbak@10.0.0.40
 O="-o BatchMode=yes -o ConnectTimeout=20 -o StrictHostKeyChecking=yes"
-SRC=/srv/world-backup/showcase-src
-TLS=/srv/world-backup/showcase-timelapse
+# NOT under /srv/world-backup: the fleet backup keeps that 0700 root, and this script runs as mike.
+SRC=/srv/showcase-backup/src
+TLS=/srv/showcase-backup/timelapse
 NAS="mike@10.0.0.5"; NASKEY=$HOME/.ssh/id_esbackup
 log() { echo "$(date -u +%FT%TZ) $*"; }
 # Wait (do not race) for the fleet backup's lock to be free; world-backup.sh then takes it itself.
@@ -22,7 +23,7 @@ echo "$st" | grep -q '"ok": true' || { log "ALARM: stage not ok: $st"; exit 4; }
 log "stage $st"
 
 log "pull the static stage"
-sudo -n mkdir -p "$SRC/showcase" && sudo -n chown mike:mike "$SRC" "$SRC/showcase"
+sudo -n install -d -o mike -g mike /srv/showcase-backup "$SRC" "$SRC/showcase" "$TLS"
 rsync -a --delete -e "ssh $O -i $HOME/.ssh/id_showcase_backup" "$VM:showcase/" "$SRC/showcase/" \
   || { log "ALARM: pull failed rc=$?"; exit 5; }
 [ -f "$SRC/showcase/world/level.dat" ] || { log "ALARM: pulled copy has no level.dat"; exit 5; }
@@ -31,27 +32,36 @@ log "archive to the NAS (world-backup.sh logic, one world)"
 ROOT=$SRC STAGE=/srv/world-backup/showcase-staging EXPECT=1 PORT_LO=25565 PORT_HI=25565 UNIT_CHECK=0 \
   NAS_DIR=/volume1/homes/mike/world-backups-showcase "$HOME/bin/showcase-world-backup.sh" || { log "ALARM: archive failed rc=$?"; exit 6; }
 
-log "timelapse -> NAS (only the newest 3 UTC days are pulled; frames live in frames/<view>/<YYYYmmdd>/)"
-mkdir -p "$TLS/frames"
+log "timelapse -> NAS: reconcile every day dir the VM holds against the NAS (frames live in frames/<view>/<YYYYmmdd>/)"
 TLK="ssh $O -i $HOME/.ssh/id_showcase_tl"
-pulled=0
-for d in 0 1 2; do
-  day=$(date -u -d "-$d day" +%Y%m%d)
-  for v in angled topdown; do
-    mkdir -p "$TLS/frames/$v/$day"
-    rsync -a -e "$TLK" "$VM:frames/$v/$day/" "$TLS/frames/$v/$day/" 2>/dev/null && pulled=$((pulled+1))
-  done
+NB=/volume1/homes/mike/showcase-timelapse
+ssh -i "$NASKEY" -o BatchMode=yes "$NAS" "mkdir -p $NB/frames" || { log "ALARM: NAS unreachable"; exit 7; }
+# the VM's inventory: <view>/<day> <n files>
+rsync -r --list-only -e "$TLK" "$VM:frames/" 2>"$TLS/.list.err" | awk '$NF ~ /\.png$/ {split($NF, p, "/"); c[p[1] "/" p[2]]++} END {for (k in c) print k, c[k]}' | sort > "$TLS/.vm.inv" \
+  || { log "ALARM: cannot list the VM's frames: $(head -c 200 "$TLS/.list.err")"; exit 7; }
+ssh -i "$NASKEY" -o BatchMode=yes "$NAS" "cd $NB/frames 2>/dev/null && find . -name '*.png' | awk -F/ '{c[\$2 \"/\" \$3]++} END {for (k in c) print k, c[k]}'" | sort > "$TLS/.nas.inv"
+need=$(join -a1 -e 0 -o 1.1,1.2,2.2 "$TLS/.vm.inv" "$TLS/.nas.inv" | awk '$2 > $3 {print $1}')
+nd=0; bad=0
+for vd in $need; do
+  mkdir -p "$TLS/frames/$vd"
+  if rsync -a -e "$TLK" "$VM:frames/$vd/" "$TLS/frames/$vd/" && \
+     ssh -i "$NASKEY" -o BatchMode=yes "$NAS" "mkdir -p $NB/frames/$vd" && \
+     rsync -a -e "ssh -i $NASKEY -o BatchMode=yes" "$TLS/frames/$vd/" "$NAS:$NB/frames/$vd/"; then
+    nd=$((nd+1))
+  else
+    log "ALARM: day dir $vd failed to reach the NAS"; bad=$((bad+1))
+  fi
 done
-rsync -a --delete -e "$TLK" "$VM:video/" "$TLS/video/" 2>/dev/null || true
-rsync -a -e "$TLK" "$VM:FRAME0.json" "$TLS/" 2>/dev/null || true
-ssh -i "$NASKEY" -o BatchMode=yes "$NAS" "mkdir -p /volume1/homes/mike/showcase-timelapse" || { log "ALARM: NAS unreachable"; exit 7; }
-rsync -a -e "ssh -i $NASKEY -o BatchMode=yes" "$TLS/frames" "$TLS/video" "$NAS:/volume1/homes/mike/showcase-timelapse/" \
-  || { log "ALARM: timelapse push failed"; exit 7; }
-[ -f "$TLS/FRAME0.json" ] && rsync -a -e "ssh -i $NASKEY -o BatchMode=yes" "$TLS/FRAME0.json" "$NAS:/volume1/homes/mike/showcase-timelapse/"
-y=$(date -u -d "-1 day" +%Y%m%d)
-here=$(find "$TLS/frames" -path "*/$y/*.png" | wc -l)
-there=$(ssh -i "$NASKEY" -o BatchMode=yes "$NAS" "find /volume1/homes/mike/showcase-timelapse/frames -path '*/$y/*.png' | wc -l")
-[ "$here" -eq "$there" ] || { log "ALARM: yesterday ($y): NAS holds $there frames, staging $here"; exit 7; }
-# .30's staging is bounded: day dirs older than 3 days go (the VM and the NAS keep every frame)
+rsync -a --delete -e "$TLK" "$VM:video/" "$TLS/video/" 2>/dev/null && \
+  rsync -a -e "ssh -i $NASKEY -o BatchMode=yes" "$TLS/video" "$NAS:$NB/" || log "WARN: video sync incomplete"
+rsync -a -e "$TLK" "$VM:FRAME0.json" "$TLS/" 2>/dev/null && rsync -a -e "ssh -i $NASKEY -o BatchMode=yes" "$TLS/FRAME0.json" "$NAS:$NB/" || true
+# positive control + completeness: after the pushes the NAS must hold at least what the VM holds, per day dir
+ssh -i "$NASKEY" -o BatchMode=yes "$NAS" "cd $NB/frames && find . -name '*.png' | awk -F/ '{c[\$2 \"/\" \$3]++} END {for (k in c) print k, c[k]}'" | sort > "$TLS/.nas.inv"
+short=$(join -a1 -e 0 -o 1.1,1.2,2.2 "$TLS/.vm.inv" "$TLS/.nas.inv" | awk '$2 > $3' | wc -l)
+total=$(awk '{s += $2} END {print s + 0}' "$TLS/.vm.inv")
+[ "$total" -gt 0 ] || log "WARN: the VM lists 0 frames (before frame 0, or the listing is wrong)"
+[ "$short" -eq 0 ] && [ "$bad" -eq 0 ] || { log "ALARM: $short day dirs still short on the NAS ($bad failed pushes)"; exit 7; }
+# .30's staging stays bounded: day dirs older than 3 days go (the VM and the NAS keep every frame)
 find "$TLS/frames" -mindepth 2 -maxdepth 2 -type d -mtime +3 -exec rm -rf {} + 2>/dev/null || true
-log "OK: world archived; timelapse $pulled day-dirs pulled; yesterday ($y) $there frames on the NAS"
+log "OK: world archived; timelapse $total frames on the VM, all on the NAS ($nd day dirs pushed tonight)"
+

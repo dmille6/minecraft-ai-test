@@ -505,6 +505,54 @@ class QuiesceTransitions(unittest.TestCase):
         self.assertIsNone(self.ack())
 
 
+class FilebeatRoutes(unittest.TestCase):
+    """Mechanism 2 of the exclusion (design s.4): the VM's filebeat can only name SHOWCASE streams. A structural
+    test on purpose (a config file has no behaviour to call); comments stripped first, since they name bench streams."""
+    SHOWCASE = {'mcai-skill-showcase', 'mcai-llm-showcase', 'mcai-mc-showcase', 'mcai-sys-showcase',
+                'mcai-showcase-ops', 'mcai-misc-showcase'}
+    BENCH = ('mcai-skill-agents', 'mcai-llm-agents', 'mcai-mc-paper', 'mcai-sys-journal', 'mcai_ship')
+
+    def test_only_showcase_indices_and_the_scoped_credential(self):
+        import re
+        code = '\n'.join(l.split('#', 1)[0] for l in open(os.path.join(HERE, 'files', 'filebeat.yml')).read().splitlines())
+        names = set(re.findall(r'index:\s*"([^"]+)"', code))
+        self.assertTrue(names, 'the parse found no index at all (the test would pass vacuously)')
+        self.assertLessEqual(names, self.SHOWCASE, f'non-showcase index routed: {names - self.SHOWCASE}')
+        self.assertIn('mcai-misc-showcase', names, 'the catch-all must be the showcase misc stream')
+        for b in self.BENCH:
+            self.assertNotIn(b, code, f'{b} appears in an executable line')
+        self.assertIn('${ES_USER}', code)
+        self.assertIn('${ES_PASS}', code)
+
+
+class GuardScript(unittest.TestCase):
+    """studio-gpu-guard.sh under /bin/bash (3.2 on macOS, as on the Studio, whose -nt compares whole seconds)."""
+
+    def run_guard(self, resv_token, ack_lines, wait=4):
+        import subprocess
+        d = tempfile.mkdtemp()
+        os.makedirs(os.path.join(d, 'bin'))
+        with open(os.path.join(d, 'bin', 'pgrep'), 'w') as f:
+            f.write('#!/bin/sh\nexit 0\n')                  # "a proxy is running"
+        os.chmod(os.path.join(d, 'bin', 'pgrep'), 0o755)
+        resv = os.path.join(d, 'GPU_RESERVED')
+        open(resv, 'w').write(resv_token + '\n')
+        q = os.path.join(d, 'QUIESCED')
+        open(q, 'w').write('2026-10-20T00:00:00Z quiesced\n' + ''.join(l + '\n' for l in ack_lines))  # SAME second
+        env = dict(os.environ, PATH=os.path.join(d, 'bin') + ':' + os.environ['PATH'], HOME=d,
+                   SHOWCASE_QUIESCED=q, SHOWCASE_QUIESCE_WAIT_S=str(wait))
+        r = subprocess.run(['/bin/bash', '-c', f'. {os.path.join(HERE, "studio-gpu-guard.sh")}; '
+                                               f'showcase_await_quiesced {resv}'], env=env, capture_output=True,
+                           text=True, timeout=30)
+        return r.returncode
+
+    def test_ack_in_the_same_second_naming_the_token_is_accepted(self):
+        self.assertEqual(self.run_guard('run-x-1-100', ['RESV run-x-1-100']), 0)
+
+    def test_ack_for_another_reservation_is_refused(self):
+        self.assertEqual(self.run_guard('run-y-2-200', ['RESV run-x-1-100'], wait=2), 1)
+
+
 class SaveHoldLock(unittest.TestCase):
     def setUp(self):
         self.R = load('rcon', 'rcon.py')

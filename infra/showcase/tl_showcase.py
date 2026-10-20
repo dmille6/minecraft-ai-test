@@ -93,6 +93,10 @@ def snapshot(cfg):
     dst = os.path.join(cfg['mirror'], 'region')
     os.makedirs(dst, exist_ok=True)
     cx, cz = cfg['home'][0], cfg['home'][2]
+    try:
+        os.listdir(src)          # a permission problem must say so, not read as "no region file"
+    except OSError as e:
+        return False, f'cannot read the world: {type(e).__name__}: {e}', 0
     files = [r for r in regions_for(cx, cz, cfg['mask_half']) if os.path.isfile(os.path.join(src, r))]
     if not files:
         return False, f'no region file intersects the mask around {cx},{cz}', 0
@@ -144,7 +148,7 @@ def brain_health(cfg):
             d = {'error': f'http {e.code}'}
     except Exception as e:
         d = {'error': f'{type(e).__name__}: {str(e)[:120]}'}
-    return {'ok': bool(d.get('ok')), 'paused_by': d.get('paused_by'), 'paused_since': d.get('paused_since'),
+    return {'ok': bool(d.get('ok')), 'paused_by': d.get('paused_by'), 'paused_since': d.get('paused_since'), 'fault': d.get('fault'),
             'error': d.get('error')}
 
 

@@ -7,7 +7,7 @@ T=${1:-/srv/showcase/tools}
 S=$T/infra/showcase
 install -d /srv/showcase/bin
 for f in followrule.py make_env.py showcase_ops.py tl_showcase.py tl_video.py rcon.py backup_stage.py showcase-feed.py \
-         tl_setup.py site_search.py world-init.sh start-bots.sh stop-bots.sh; do
+         tl_setup.py site_search.py world-init.sh start-bots.sh stop-bots.sh replay-prompts.sh replay-prompts.mjs; do
   install -m 755 "$S/$f" /srv/showcase/bin/
 done
 install -m 644 "$T/scripts/lib/showcasestatus.py" /srv/showcase/bin/

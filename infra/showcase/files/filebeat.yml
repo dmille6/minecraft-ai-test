@@ -1,8 +1,8 @@
 # SHOWCASE VM (10.0.0.40) filebeat. docs/reports/showcase-2026-10-20.md sections 4-5.
 # EVERY output index is a showcase name. The credential (keystore keys ES_USER / ES_PASS) is mcai_showcase_ship, whose
 # role can write ONLY the showcase names: a misroute is a 403, never a row in a bench stream.
-# test_showcase_files.py asserts no bench stream name appears in the executable lines of this file (comments stripped)
-# and that a mutant adding one is caught.
+# test_showcase.py (FilebeatRoutes) asserts no bench stream name appears in the executable lines of this file (comments
+# stripped), and test_showcase_mutants.py proves it fails when one is routed.
 filebeat.inputs:
   - type: filestream
     id: showcase-skill-jsonl

@@ -15,9 +15,14 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.abspath(os.path.join(HERE, '..', '..'))
 
 MUTANTS = [
+    ('files/filebeat.yml', '    - index: "mcai-showcase-ops"\n', '    - index: "mcai-skill-agents"\n',
+     'test_only_showcase_indices_and_the_scoped_credential'),
+    ('studio-gpu-guard.sh', '    if [ -e "$SHOWCASE_QUIESCED" ] && grep -qxF "RESV $(head -n 1',
+     '    if [ -e "$SHOWCASE_QUIESCED" ] && [ "$SHOWCASE_QUIESCED" -nt "$resv" ] && grep -qxF "RESV $(head -n 1',
+     'test_ack_in_the_same_second_naming_the_token_is_accepted'),
     ('showcaseproxy.py', "        if not save_handoff(True):\n            logline(status='ack-withheld', reason='could not persist the handoff marker')\n            return\n",
      "        save_handoff(True)\n", 'test_marker_persistence_failure_means_no_ack'),
-    ('showcaseproxy.py', "            if not save_handoff(False):\n                return 'handoff marker could not be removed', False, STATE['inflight']\n",
+    ('showcaseproxy.py', "            if not save_handoff(False):\n                STATE['fault'] = 'handoff marker could not be removed'\n                return 'handoff marker could not be removed', False, STATE['inflight']\n",
      "            save_handoff(False)\n", 'test_marker_removal_failure_keeps_admission_closed'),
     ('showcaseproxy.py', "        STATE['handed_off'], STATE['epoch_unloaded'] = True, True\n        logline(status='handoff-restored'",
      "        pass\n        logline(status='handoff-restored'", 'test_restart_during_a_handed_off_pause_never_unloads'),

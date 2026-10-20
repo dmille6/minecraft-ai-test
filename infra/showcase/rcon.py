@@ -12,12 +12,17 @@ import json, socket, struct, sys
 SECRET = '/srv/showcase/secrets/rcon.json'
 
 
+class RconError(Exception):
+    """Every RCON failure (auth, a closed socket, a refused host). An Exception, NOT SystemExit, so a caller's
+    `except Exception` (the timelapse heartbeat, SaveHold's unwind) catches it; only the CLI main() exits."""
+
+
 class Rcon:
     def __init__(self, host, port, password, timeout=30):
         self.sock = socket.create_connection((host, port), timeout)
         self.rid = 0
         if self._cmd(3, password) is None:
-            raise SystemExit('rcon auth failed')
+            raise RconError('rcon auth failed')
 
     def _cmd(self, kind, body):
         self.rid += 1
@@ -33,7 +38,7 @@ class Rcon:
         while len(buf) < n:
             c = self.sock.recv(n - len(buf))
             if not c:
-                raise SystemExit('rcon connection closed mid-read')
+                raise RconError('rcon connection closed mid-read')
             buf += c
         return buf
 
@@ -44,7 +49,7 @@ class Rcon:
 def connect():
     s = json.load(open(SECRET))
     if s.get('host') not in ('127.0.0.1', 'localhost'):
-        raise SystemExit('refusing: the showcase RCON is loopback only')
+        raise RconError('refusing: the showcase RCON is loopback only')
     return Rcon(s['host'], int(s['port']), s['password'])
 
 

@@ -93,7 +93,12 @@ def control_policy(feed):
     ce = (feed or {}).get('control_env') or {}
     if not ce.get('text'):
         return None, None
-    pol = ME.policy_of(ME.parse_env(ce['text']))
+    try:
+        pol = ME.policy_of(ME.parse_env(ce['text']))
+    except ValueError:
+        # a control env missing a required key: no policy digest -> the observation is unverified (a HOLD row with
+        # the reason), never a crash before the ledger row is written
+        return None, None
     return pol, FR.digest(pol)
 
 
@@ -166,12 +171,21 @@ def cmd_follow(a):
     if not d['auto']:
         return 0
     if d['decision'] in ('DUE', 'ROLLBACK'):
+        ok, missing = pieces_in(d['target'], (feed or {}).get('journal') or [])
+        if not ok:
+            # The town plan's required pieces are re-checked on EVERY deploy: a release that would lose one is not
+            # run at all (design section 3) -- the bots stop instead.
+            append(FOLLOW, dict(d, decision='STOP', reason=f'target {d["target"][:8]} lacks required pieces {missing}'))
+            subprocess.run(['/srv/showcase/bin/stop-bots.sh', f'target lacks required pieces {missing}'],
+                           env=dict(os.environ, SHOWCASE_LOCK_HELD='1'))
+            return 1
         rc = stage(d['target'], d['policy'], (feed or {}).get('deps_digest'), bootstrap=False, why=d['reason'])
         if rc[0]:
             return activate(rc[1])
         return 1
     if d['decision'] == 'STOP':
-        subprocess.run(['/srv/showcase/bin/stop-bots.sh', f"follow STOP: {d['reason'][:200]}"])
+        subprocess.run(['/srv/showcase/bin/stop-bots.sh', f"follow STOP: {d['reason'][:200]}"],
+                       env=dict(os.environ, SHOWCASE_LOCK_HELD='1'))
     return 0
 
 
@@ -306,7 +320,8 @@ def activate(release_dir, verify_s=600):
         os.remove(tmp)
     os.symlink(release_dir, tmp)
     os.replace(tmp, HARNESS)
-    bots = running_bots()
+    # With AUTO_FOLLOW on, the WHOLE roster is expected: a failed bot must not drop out of the denominator.
+    bots = list(NAMES) if os.path.exists(AUTO) else running_bots()
     append(DEPLOY, {'t': FR.iso(now_utc()), 'event': 'activated', 'release': os.path.basename(release_dir),
                     'previous': os.path.basename(prev) if prev else None, 'running_bots': len(bots)})
     if not bots:
@@ -351,10 +366,58 @@ def verify(bots, expected, since_epoch, wait_s):
 
 def cmd_activate(a):
     lk = lock()
+    rel = json.load(open(os.path.join(os.path.abspath(a.release), 'RELEASE.json')))
+    if os.path.exists(AUTO):
+        feed = json.load(open(f'{OPS}/feed-last.json')) if os.path.exists(f'{OPS}/feed-last.json') else {}
+        ok, missing = pieces_in(rel['sha'], feed.get('journal') or [])
+        if not ok:
+            print(f'REFUSED: the bots run, and {rel["sha"][:8]} lacks the required town-plan pieces {missing}')
+            return 1
     return activate(os.path.abspath(a.release))
 
 
 # ------------------------------------------------------------------------------------------------ gate
+def required_pieces():
+    req = []
+    if os.path.exists(REQUIRED):
+        for l in open(REQUIRED).read().splitlines():
+            if l.strip() and not l.startswith('#'):
+                run, sha = l.split()[:2]
+                req.append((run, resolve(sha) or sha))
+    return req
+
+
+def pieces_in(release_sha, journal):
+    """-> (ok, missing): every REQUIRED_KEPT piece is kept on the bench AND inside release_sha (ancestry or patch-id
+    equivalence). An empty list is ok here (the start gate refuses an empty list separately)."""
+    req = required_pieces()
+    if not req:
+        return True, []
+    kr = FR.kept_runs(journal, req)
+    missing = [run for run, sha in req
+               if not kr[run][0] or not (is_anc(sha, release_sha) or cherry_equivalent(sha, release_sha))]
+    return not missing, missing
+
+
+def filebeat_shipping():
+    """filebeat's own 30-s metrics in the journal (last 15 min): -> (acked, dropped, failed)."""
+    out = subprocess.run(['journalctl', '-u', 'filebeat', '--since', '-15min', '--no-pager', '-o', 'cat'],
+                         capture_output=True, text=True).stdout
+    acked = dropped = failed = 0
+    for line in out.splitlines():
+        if 'Non-zero metrics' not in line:
+            continue
+        try:
+            d = json.loads(line)
+            ev = ((d.get('monitoring') or {}).get('metrics') or {}).get('libbeat', {}).get('output', {}).get('events', {})
+            acked += int(ev.get('acked') or 0)
+            dropped += int(ev.get('dropped') or 0)
+            failed += int(ev.get('failed') or 0)
+        except (ValueError, AttributeError, TypeError):
+            continue
+    return acked, dropped, failed
+
+
 def gate_checks():
     """-> list of (ok, check, detail-or-remedy). The start-bots gate (design section 9)."""
     out = []
@@ -390,7 +453,21 @@ def gate_checks():
     out.append((h.get('ok') is True, 'brain proxy healthy through the tunnel',
                 str(h) if not h.get('ok') else 'gemma4 loaded, not paused'))
     fb = subprocess.run(['systemctl', 'is-active', 'filebeat'], capture_output=True, text=True).stdout.strip()
-    out.append((fb == 'active', 'filebeat active', fb))
+    acked, dropped, failed = filebeat_shipping()
+    out.append((fb == 'active' and acked > 0 and dropped == 0,
+                'filebeat active and shipping (15 min: acked > 0, dropped 0)',
+                f'{fb}; acked {acked}, dropped {dropped}, failed {failed}'
+                + ('' if dropped == 0 else ' -- a dropped event is a mapping rejection: fix before starting')))
+    rp = f'{OPS}/replay-last.json'
+    rep_ok = False
+    rep_why = 'remedy: sudo /srv/showcase/bin/replay-prompts.sh (50 real bench prompts through the brain path)'
+    if os.path.exists(rp):
+        r = json.load(open(rp))
+        age_h = (now_utc() - FR.parse_ts(r['t'])).total_seconds() / 3600
+        rep_ok = r.get('pass') is True and age_h < 24 and r.get('release') == (rel or {}).get('sha')
+        rep_why = (f"{r.get('valid')}/{r.get('n')} schema-valid, served {r.get('served')}, {age_h:.1f} h old, release "
+                   f"{str(r.get('release'))[:8]}" + ('' if rep_ok else '; ' + rep_why))
+    out.append((rep_ok, 'brain replay passed on this release (< 24 h)', rep_why))
     return out
 
 

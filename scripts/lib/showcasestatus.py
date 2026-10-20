@@ -73,6 +73,9 @@ def pause_line(rows, now):
     if not rows:
         return None
     b = rows[-1]['brain']
+    if b.get('fault'):
+        return (f"SHOWCASE BRAIN FAULT: {b['fault']} -- admission is closed (every decision is refused); remedy: on the "
+                f"Studio remove ~/showcase/QUIESCED.handoff by hand (check its permissions / the disk) -- not a pause")
     if b.get('paused_by'):
         since = b.get('paused_since')
         hrs = (now - _t(since)).total_seconds() / 3600 if since else None
