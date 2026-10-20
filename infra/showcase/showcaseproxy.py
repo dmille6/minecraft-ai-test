@@ -266,7 +266,7 @@ def mark_quiesced(now=None):
     with LOCK:
         if not p:
             # The pause is OVER: the next pause is a new epoch, with its own (single) unload.
-            STATE['sig'], STATE['epoch_unloaded'] = None, False
+            STATE['sig'], STATE['epoch_unloaded'], STATE['handed_off'] = None, False, False
             withdraw_ack()
             return
         changed = sig != STATE.get('sig')
@@ -277,6 +277,12 @@ def mark_quiesced(now=None):
         idle_s = now - max(STATE.get('last_done', 0), STATE.get('sig_t', 0))
         if os.path.exists(A.quiesced_file) and not changed and not inflight:
             return    # acknowledged for THIS set of reservations; nothing of the showcase's has run since
+        if STATE.get('handed_off') and not inflight:
+            # The GPU was already handed over in THIS uninterrupted pause and admission has refused every request
+            # since, so nothing on the GPU is the showcase's: a new reservation set (the next queue line, the final
+            # Stage C tag, a new benchmark process) is acknowledged at once -- no grace, no probe, never an unload.
+            publish_ack(sig, p)
+            return
         if inflight or idle_s < A.quiesce_grace:
             return
     resident, idle = probe_upstreams()          # slow; outside the lock (requests are refused while paused anyway)
@@ -301,7 +307,11 @@ def mark_quiesced(now=None):
     # FINAL VALIDATION AND PUBLICATION UNDER THE ADMISSION LOCK: a request is admitted (inflight += 1) only under this
     # lock and only after it re-checks the pause, so nothing can start between this check and the rename; and the ack
     # names exactly the validated signature.
-    with LOCK:
+    publish_ack(sig, p)
+
+
+def publish_ack(sig, p):
+    with LOCK:                                   # RLock: safe when called with the lock already held
         if STATE['inflight'] or pause_signature(A.pause_file, A.pause_dir, STATE.get('bench_proc')) != sig:
             return
         tmp = A.quiesced_file + '.tmp'
@@ -311,6 +321,7 @@ def mark_quiesced(now=None):
         # The GPU is handed over: from now until this pause ends, nothing the proxy sees on Ollama is the showcase's,
         # so unload eligibility CLOSES here even if no unload was needed (Codex r6).
         STATE['epoch_unloaded'] = True
+        STATE['handed_off'] = True
     logline(status='quiesced', paused_by=p)
 
 

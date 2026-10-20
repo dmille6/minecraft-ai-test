@@ -349,8 +349,8 @@ class QuiesceTransitions(unittest.TestCase):
         self.write('pause-c1')                                 # the Stage C tag: same pause, new signature
         SP.mark_quiesced(now=1032.0)
         SP.mark_quiesced(now=1063.0)
-        self.assertEqual(len(self.unloads), 1, 'a tag change after the handoff must not re-authorise an unload')
-        self.assertIsNone(self.ack(), 'still resident -> fail closed')
+        self.assertEqual(len(self.unloads), 1, 'a tag change must not re-authorise an unload')
+        self.assertIsNone(self.ack(), 'still resident after the one unload, no handoff yet -> fail closed')
         os.remove(self.resv)                                   # the pause ends
         SP.mark_quiesced(now=1100.0)
         self.write('run-next-3-300')                           # a NEW pause: its own single unload
@@ -367,9 +367,11 @@ class QuiesceTransitions(unittest.TestCase):
         self.assertIn('RESV pending-pause-c2-9-100', self.ack())
         self.probe_answer = (True, True)                       # the BENCHMARK's qwen now
         self.write('pause-c2')
+        n_probes = len(self.probes)
         SP.mark_quiesced(now=1032.0)
-        SP.mark_quiesced(now=1063.0)
         self.assertEqual(self.unloads, [], 'eligibility closed at the handoff: the benchmark model is never unloaded')
+        self.assertIn('RESV pause-c2', self.ack(), 'the next reservation in the same pause is acknowledged at once')
+        self.assertEqual(len(self.probes), n_probes, 'no probe after the handoff (nothing on the GPU is ours)')
 
     def test_admitted_request_blocks_the_ack_and_paused_admission_refuses(self):
         SP.A.max_inflight = 4

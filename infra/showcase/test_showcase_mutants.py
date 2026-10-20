@@ -15,8 +15,7 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.abspath(os.path.join(HERE, '..', '..'))
 
 MUTANTS = [
-    ('showcaseproxy.py', "even if no unload was needed (Codex r6).\n        STATE['epoch_unloaded'] = True\n",
-     "even if no unload was needed (Codex r6).\n        pass\n",
+    ('showcaseproxy.py', "        STATE['handed_off'] = True\n", "        pass\n",
      'test_no_unload_after_a_handoff_that_needed_none'),
     ('showcaseproxy.py', "        if STATE['inflight'] or pause_signature(A.pause_file, A.pause_dir, STATE.get('bench_proc')) != sig:",
      "        if STATE['inflight']:", 'test_reservation_replaced_during_the_probes_gets_no_ack'),
