@@ -101,6 +101,28 @@ mcai-rl02 (recovery-ladder-03) carries the daily copy and status reports, unpush
 
 ---
 
+## 10-20 15:10Z — homefix-01 QUEUED (after bagbudget, HELD for the RAM gap); bagbudget +180 NOT_YET (unexposed); change_rows underscore gate bug; daily Codex ops audit live
+
+- **bagbudget-01 +180 14:38Z NOT_YET:** 2 pools (no tier-2 KEEP possible); exposure 0 -- the canary made 0 full-bag town
+  deposits in 3 h (cobblekeep-01 fleet-wide since 11:23Z emptied bags first); D1-D5 0; 4 spent picks worn; deaths 1 v 0 (floor).
+  +360 ~17:35Z, then extension.
+- **homefix-01 QUEUED** after bagbudget-01 (owner X9: first free slot). Tier 3, deadline_min 1140. Variants 9e7d9980 ->
+  a52d075e, 31416ee5 -> bff0a4ac (both engines APPROVE r4; 271/271; Paper P0-P3 candidate PASS, base shows each defect).
+  **HELD** with toolkit-03 for the worlds VM 201 RAM upgrade in the gap after bagbudget closes (operator ramup.sh in the
+  session scratchpad: install-hold, sandbox lock, stop 80 bots, qm shutdown/set 81920/start, 20 units up, staggered starts,
+  versions, release). Release order after the restart: verify the head vs the owner order (opsaudit flag 2), then release.
+- **GATE BUG (homefix agent, confirmed):** verdict.py `C_ROWS = set(reg['change_rows'])` keeps `_` but every match strips it,
+  so registrations with `_`-prefixed change_rows (cobblekeep-01, bagbudget-01 LIVE) never link a death to their own rows; the
+  rate path still runs. Fix + replay + install script being built (branch changerows-underscore-1020), installed in the
+  same gap. Until then: register change_rows WITHOUT the leading underscore (homefix, toolkit-03, ironpick already do).
+- **Daily Codex ops audit (OWNER "yes"):** ~/bin/opsaudit.sh (repo scripts/mac/opsaudit.sh), LaunchAgent com.mcai.opsaudit
+  17:00 CDT; publishes .31 ~/digest/opsaudit-latest.md; fleetstatus.py header line 3 (installed). First run 14:36Z: 3 flags
+  (0 high) -- (1) unread disk warnings [fixed: DiskLow header]; (2) cobblekeep reached preflight 10-19 16:32Z ahead of the
+  owner-ordered brain-01, stopped only by a registration refusal [answer: check the head before releasing any hold];
+  (3) idle VMs stopped 12:15Z DURING bagbudget's canary [accepted: infra changes go in gaps; no harm shown].
+- **Ready, awaiting owner decisions tonight:** isolated->shared (branch isolated2shared-on-9e7d998 c6bea93b; hold 240 min/phase
+  [rec] vs ~16 h; scope private [rec]); town plan decisions 1-9 (doc §; merged c727687b). townindex-01 + indexsearch-01 building.
+
 ## 10-20 12:20Z — FLEET 9e7d9980 (cobblekeep-01 KEPT +360, promoted 11:23Z, merged de502055); bagbudget-01 LIVE (2 pools); OWNER: town plan + fleet reshape
 
 - **cobblekeep-01 KEEP +360 11:13Z** (2 v 5 deaths, rate 0.80x control; bag cobble DiD -155, bots >= 34 slots 55% -> 10% vs control
