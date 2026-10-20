@@ -580,3 +580,50 @@ Codex 1 / Claude 1 (bag not authoritative): ACCEPTED. An in-memory custody WATCH
   leg also has its own verification record (leg 1 needs a SOURCE DEBIT). Paper: same-name same-count pickup before the
   withdraw and after the deposit (both unresolved, nothing moved); a coal carry burned by a milestone smelt (must not
   close).
+
+======================================================================================================================
+ROUND 8 (r8 doc, commit 7b501860, confirmation) -- Codex CHANGE (one P2), Claude APPROVE
+======================================================================================================================
+--- Codex, verbatim ---
+VERDICT: CHANGE
+
+Per-finding round-7 resolutions:
+
+- **Codex 1 — NOT RESOLVED.** R8 restores withdrawal’s source-debit check and adds the requested pickup scenes. However, the WATCH assigns changes occurring inside `townMove` clicks to tidy without establishing their origin. Passive pickups can occur during those clicks too. The replacement protocol therefore still lacks reliable custody evidence.
+- **Claude 1 — RESOLVED for the reported consumer sequence.** A milestone smelt burning the interrupted coal carry now invalidates custody, persists `unresolved`, and prevents automatic closure. Its Paper scene is explicit. This resolution depends on fixing the WATCH attribution problem below.
+
+Numbered NEW findings:
+
+1. **P2 — §7.3, custody WATCH and Paper scenes: click timing does not establish inventory-change provenance.**
+
+   “Changes made inside tidy’s own `townMove` clicks belong to tidy” is insufficient. `updateSlot` supplies slot/old-item/new-item data, without an operation identifier. Mineflayer uses slot updates for local click predictions, server refreshes, and inventory copying on close. Watching only `bot.inventory` also misses changes first represented in the open container’s inventory slots. See the [Mineflayer inventory implementation](https://raw.githubusercontent.com/PrismarineJS/mineflayer/4.37.1/lib/plugins/inventory.js) and [window event implementation](https://raw.githubusercontent.com/PrismarineJS/prismarine-windows/master/lib/Window.js). The repository’s `craftsync.mjs` and `verifyTown` already distinguish predictions from authoritative observations.
+
+   **Counterexample:** the server completes the deposit while its click/lockstep operation remains pending; the bot collects another n items before that operation finishes; execution interrupts before verification is persisted. A watcher exempting updates during `townMove` attributes the pickup to tidy. Recovery sees bag=n and destination=n and selects a fallback, transferring the replacement items—the round-7 failure again. Requiring verification records does not prevent this because the reconciliation table explicitly handles an unconfirmed leg.
+
+   **Concrete fix:** specify attribution independently of the asynchronous click interval. Observe server pickup events continuously, including during tidy clicks; `pickuplog.mjs` already demonstrates the raw `collect`/`playerCollect` mechanism. Any pickup of the carried name, unidentified pickup, or tracking gap must invalidate custody. Track expected click transitions separately from authoritative updates across window 0, container windows, cursor settlement and close; unexplained changes must fail closed. Establish the watch before the authoritative zero-bag observation and intent.
+
+   Extend Paper coverage with pickups **during each pending click**, during settlement/re-open, and immediately after server deposit but before client completion. Include a clean-transfer positive control proving ordinary prediction, refresh and close events do not falsely invalidate custody. Replacement items must never be transferred.
+
+The other requested checks revealed no additional P1/P2. Allocation totals match `homes.json`; workshop counts reproduce **13/14/16**. Drain populations remain separate and narrowing remains deferred. READY/annex coverage, reservation renewal, ascending CAS acceptance, single-tier labels, index/search prerequisites, conditional third-container relief, canary tiers/exposure, and O9’s explicit owner waiver remain consistent.
+
+No files were edited.
+
+--- Claude round 8, condensed ---
+VERDICT: APPROVE. Round-7 P2 RESOLVED. New, P3 (build-time checks):
+1 P3 7.3: the watch must also see changes while another window is open (furnace window fuel, copyInventory at close,
+  window_items re-syncs): subscribe to bot.inventory and every currentWindow's inventory range; unit test that a smelt
+  with the furnace window open trips it.
+2 P3 7.3 / 9 row 8: Paper corrections/state-id re-syncs for tidy's own clicks can arrive after townMove returns; attribute
+  to tidy until the leg's verifying re-open settles; add a negative control: N clean moves -> 0 non-tidy events, 0
+  unresolved (else a benign artifact reverts a working canary).
+
+--- Disposition (r9, commit 7145218a) ---
+Codex 1 (P2, provenance): ACCEPTED. The watch starts before the zero-bag observation; reads only server packets
+  (set_slot, window_items, collect), not mineflayer's predicted slots; collect events checked continuously, including
+  during pending clicks (a pickup of the carried name or an unidentified one invalidates); tidy registers expected
+  transitions per click in window 0 and the container window, held open until the leg's verifying re-open settles;
+  every server update to the carried name in window 0 or any open window's bag range, and every window_items re-sync,
+  must match an expectation, else fail closed. Paper: pickups before the withdraw, during each pending click, during
+  settlement and re-open, and right after the server completes the deposit; plus the clean-move negative control.
+Claude 1, 2 (P3s): ACCEPTED in the same text (all open windows' bag ranges; expectations held to the verifying re-open;
+  the negative control).
