@@ -164,10 +164,23 @@ def showcase_report(until, client=None, window_h=3):
         f0 = next((dt.datetime.fromisoformat(x['frame0_t'].replace('Z', '+00:00')) for x in rows if x.get('frame0_t')),
                   None)
         lines.append(SS.timelapse_line(rows, until, frame0=f0))
+        pl = SS.pause_line(rows, until)
+        if pl:
+            lines.append(pl)
         out['heartbeat_rows'] = len(rows)
     except Exception as e:
         lines.append(f'SHOWCASE TIMELAPSE: heartbeat unreadable ({type(e).__name__}: {str(e)[:120]}) -- not a healthy '
                      f'timelapse, an unread one')
+    try:
+        r = client('POST', 'mcai-misc-showcase/_count?ignore_unavailable=true&allow_no_indices=true',
+                   {'query': {'range': {'@timestamp': {'gte': _est._iso(until - dt.timedelta(hours=24))}}}})
+        n = int(r.get('count', 0))
+        out['misc_docs_24h'] = n
+        if n:
+            lines.append(f'  !! SHOWCASE UNROUTED: {n} docs in mcai-misc-showcase in 24 h -- filebeat on 10.0.0.40 met '
+                         f'an event with no route; fix its routing (nothing reached a bench stream: the writer cannot)')
+    except Exception as e:
+        lines.append(f'  !! SHOWCASE unrouted check unreadable ({type(e).__name__}: {str(e)[:100]})')
     out['lines'] = lines
     return out
 
@@ -337,6 +350,10 @@ def show(rep):
           f' >= {FULL_AT}: {b[f"full_ge_{FULL_AT}"]}; at {SLOTS}: {b[f"at_{SLOTS}"]}')
     for p, v in b['by_pool'].items():
         print(f'    {p:<12} bots {v["bots"]}  median {v["median"]}  >= {FULL_AT}: {v[f"ge_{FULL_AT}"]}')
+    if rep.get('showcase'):
+        print('\n=== SHOWCASE (10.0.0.40; its own streams -- never part of the fleet numbers above)')
+        for line in rep['showcase']['lines']:
+            print(f'  {line}')
 
 
 def main():
@@ -345,6 +362,7 @@ def main():
     ap.add_argument('--now', help='ISO end time (default: now); windows end 5 min before it')
     ap.add_argument('--stack', default='~/stack.json')
     ap.add_argument('--json')
+    ap.add_argument('--no-showcase', action='store_true', help='omit the SHOWCASE block (fleet sections unchanged)')
     a = ap.parse_args()
     now = (dt.datetime.fromisoformat(a.now.replace('Z', '+00:00')) if a.now
            else dt.datetime.now(dt.timezone.utc)).replace(second=0, microsecond=0)
@@ -360,6 +378,8 @@ def main():
     for w, d in wins:
         rep['windows'][w] = window_report(evs[w], hourly=d <= dt.timedelta(hours=48), fleet=fleet)
     rep['bags'] = bag_report(now, a.stack)
+    if not a.no_showcase:
+        rep['showcase'] = showcase_report(until)
     show(rep)
     if a.json:
         with open(a.json, 'w') as fh:

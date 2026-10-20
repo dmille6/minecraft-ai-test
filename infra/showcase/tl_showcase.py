@@ -57,7 +57,8 @@ def load_conf():
 def heartbeat(cfg, row):
     f0 = frame0_time(cfg)
     row = dict(row, t=now_utc().strftime('%Y-%m-%dT%H:%M:%SZ'), kind='showcase_timelapse',
-               capture_min=cfg['capture_min'], frame0_t=f0.strftime('%Y-%m-%dT%H:%M:%SZ') if f0 else None)
+               capture_min=cfg['capture_min'], frame0_t=f0.strftime('%Y-%m-%dT%H:%M:%SZ') if f0 else None,
+               brain=cfg.get('_brain'))
     os.makedirs(os.path.dirname(cfg['heartbeat']), exist_ok=True)
     with open(cfg['heartbeat'], 'a') as f:
         f.write(json.dumps(row) + '\n')
@@ -92,16 +93,54 @@ def snapshot(cfg):
     files = [r for r in regions_for(cx, cz, cfg['mask_half']) if os.path.isfile(os.path.join(src, r))]
     if not files:
         return False, f'no region file intersects the mask around {cx},{cz}', 0
-    for _ in range(2):
-        p = subprocess.run(NICE + ['rsync', '-a', '--files-from=-', src + '/', dst + '/'],
-                           input='\n'.join(files) + '\n', text=True, capture_output=True)
-        if p.returncode != 0:
-            return False, f'rsync rc={p.returncode} {p.stderr.strip()[:200]}', 0
-    p = subprocess.run(NICE + ['rsync', '-a', os.path.join(cfg['world'], 'level.dat'), cfg['mirror'] + '/'],
-                       capture_output=True, text=True)
-    if p.returncode != 0:
-        return False, f'level.dat rsync rc={p.returncode} {p.stderr.strip()[:200]}', 0
+    # SAVE HOLD: save-off + save-all flush, copy, save-on -- a consistent copy of what Paper has written. The world
+    # is the showcase's own; this pauses saving for seconds and edits nothing. save-on runs in `finally`, and every
+    # capture also starts with save-on (below), so a killed capture cannot leave saving off for more than one slot.
+    import rcon            # infra/showcase/rcon.py, installed beside this file
+    try:
+        # ONE save-pause owner at a time (rcon.SaveHold): if the nightly backup stage holds the pause, saving is
+        # already off and the copy is consistent -- copy without touching save-on.
+        with (rcon.SaveHold(wait_s=0) if cfg.get('save_hold', True) else _Null()):
+            p = subprocess.run(NICE + ['rsync', '-a', '--files-from=-', src + '/', dst + '/'],
+                               input='\n'.join(files) + '\n', text=True, capture_output=True)
+            if p.returncode != 0:
+                return False, f'rsync rc={p.returncode} {p.stderr.strip()[:200]}', 0
+            p = subprocess.run(NICE + ['rsync', '-a', os.path.join(cfg['world'], 'level.dat'), cfg['mirror'] + '/'],
+                               capture_output=True, text=True)
+            if p.returncode != 0:
+                return False, f'level.dat rsync rc={p.returncode} {p.stderr.strip()[:200]}', 0
+    except Exception as e:
+        return False, f'snapshot: {type(e).__name__}: {str(e)[:160]}', 0
     return True, None, len(files)
+
+
+class _Null:
+    held = False
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *a):
+        return False
+
+
+def brain_health(cfg):
+    """The showcase proxy's /healthz through the tunnel: {'ok', 'paused_by', 'error'} -- carried in every heartbeat
+    so a stale pause holder is visible in fleetstatus."""
+    import urllib.request, urllib.error
+    url = cfg.get('brain_healthz', 'http://127.0.0.1:11612/healthz')
+    try:
+        r = urllib.request.urlopen(url, timeout=8)
+        d = json.loads(r.read() or b'{}')
+    except urllib.error.HTTPError as e:
+        try:
+            d = json.loads(e.read() or b'{}')
+        except ValueError:
+            d = {'error': f'http {e.code}'}
+    except Exception as e:
+        d = {'error': f'{type(e).__name__}: {str(e)[:120]}'}
+    return {'ok': bool(d.get('ok')), 'paused_by': d.get('paused_by'), 'paused_since': d.get('paused_since'),
+            'error': d.get('error')}
 
 
 def render(cfg, full=False):
@@ -123,11 +162,35 @@ def render(cfg, full=False):
 MIN_PNG_BYTES = 20_000      # a blank/black 1920x1080 PNG is a few KB; a rendered town frame is hundreds of KB
 
 
+TERRAIN_FRAC = 0.30
+TERRAIN_LEVEL = 12
+
+
+def terrain_ok(gray, frac=TERRAIN_FRAC, level=TERRAIN_LEVEL):
+    """A rendered frame, not sky: >= frac of the (downscaled grayscale) pixels differ from the frame's most common
+    value by more than `level`. A sky-only, black, or barely loaded frame fails. Pure (tested)."""
+    if not gray:
+        return False
+    hist = [0] * 256
+    for b in gray:
+        hist[b] += 1
+    mode = max(range(256), key=lambda v: hist[v])
+    differ = sum(hist[v] for v in range(256) if abs(v - mode) > level)
+    return differ / len(gray) >= frac
+
+
+def small_gray(path):
+    p = subprocess.run(NICE + ['ffmpeg', '-loglevel', 'error', '-i', path, '-vf', 'scale=320:180,format=gray',
+                               '-f', 'rawvideo', '-'], capture_output=True)
+    return p.stdout if p.returncode == 0 else b''
+
+
 def publish_pair(staged, finals, min_bytes=MIN_PNG_BYTES, size=os.path.getsize, exists=os.path.isfile,
-                 replace=os.replace):
-    """Publish the views TOGETHER or not at all: every staged file must exist and be >= min_bytes, then each is
-    renamed into place. -> (published, why). Pure given the fs callables (tested)."""
-    bad = [s for s in staged if not exists(s) or size(s) < min_bytes]
+                 replace=os.replace, content_ok=lambda p: True):
+    """Publish the views TOGETHER or not at all: every staged file must exist, be >= min_bytes and pass content_ok
+    (terrain_ok on its grayscale reduction), then each is renamed into place. Readers additionally use only stamps
+    present in BOTH views. -> (published, why). Pure given the fs callables (tested)."""
+    bad = [s for s in staged if not exists(s) or size(s) < min_bytes or not content_ok(s)]
     if bad:
         return False, 'invalid frame(s): ' + ', '.join(f'{os.path.basename(b)}' for b in bad)
     for s, f in zip(staged, finals):
@@ -161,7 +224,8 @@ def capture(cfg, stamp):
         rc, msg = 'timeout', 'capture timed out'
     got = []
     if rc == 0:
-        ok, why = publish_pair([s['out'] for s in spec], finals)
+        ok, why = publish_pair([s['out'] for s in spec], finals,
+                               content_ok=lambda p: terrain_ok(small_gray(p)))
         if ok:
             got = finals
         else:
@@ -193,6 +257,13 @@ def cmd_capture(cfg, a):
         return 0
     t = now_utc()
     stamp = stamp_of(t) + (f'-event-{a.event}' if a.event else '')
+    if cfg.get('save_hold', True):
+        try:
+            import rcon
+            rcon.save_on_if_unowned()     # a holder killed mid-pause released the lock on death; repair, never steal
+        except Exception:
+            pass
+    cfg['_brain'] = brain_health(cfg)
     disk = round(free_gb(cfg['root']), 1)
     if disk < cfg.get('min_free_gb', 20):
         heartbeat(cfg, {'ok': False, 'step': 'disk', 'stamp': stamp, 'disk_free_gb': disk,

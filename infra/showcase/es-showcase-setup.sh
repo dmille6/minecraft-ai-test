@@ -53,11 +53,43 @@ q -XPUT "http://localhost:9200/_index_template/mcai-showcase-ops" -H 'Content-Ty
    "render_rc": {"type": "keyword"}, "capture_rc": {"type": "keyword"}}}}}' | grep -q '"acknowledged":true' \
   && ok "template mcai-showcase-ops" || { echo "   FAILED: ops template"; exit 1; }
 
+echo "== catch-all template (mcai-misc-showcase: anything filebeat could not route; kept, never mapped, alarmed on)"
+q -XPUT "http://localhost:9200/_index_template/mcai-misc-showcase" -H 'Content-Type: application/json' -d '{
+ "index_patterns": ["mcai-misc-showcase"], "data_stream": {}, "priority": 600,
+ "template": {"settings": {"number_of_replicas": 0, "index.lifecycle.name": "mcai-logs"},
+              "mappings": {"dynamic": false, "properties": {"@timestamp": {"type": "date"}}}}}' \
+  | grep -q '"acknowledged":true' && ok "template mcai-misc-showcase" || { echo "   FAILED: misc template"; exit 1; }
+
+echo "== mcai-sys-showcase: the bench journal's template, copied, if nothing else matches"
+q -XPOST "http://localhost:9200/_index_template/_simulate_index/mcai-sys-showcase" > /tmp/sys-sim.json
+q "http://localhost:9200/_data_stream/mcai-sys-journal" > /tmp/sys-ds.json || true
+python3 - "$EP" <<'PY'
+import json, subprocess, sys
+ep = sys.argv[1]
+sim = json.load(open('/tmp/sys-sim.json'))
+if sim.get('overlapping') is not None and 'error' not in sim and sim.get('template', {}).get('mappings'):
+    print('   mcai-sys-showcase already matches a template with mappings; left alone'); sys.exit(0)
+try:
+    ds = json.load(open('/tmp/sys-ds.json'))['data_streams'][0]
+    name = ds['template']
+except Exception:
+    print('   mcai-sys-journal is not a templated data stream: mcai-sys-showcase is created as a dynamic data stream '
+          'by the shipper (its documents are journald entries; nothing in the bench reads it)'); sys.exit(0)
+src = json.loads(subprocess.run(['curl', '-s', '-u', 'elastic:' + ep, f'http://localhost:9200/_index_template/{name}'],
+                                capture_output=True, text=True).stdout)['index_templates'][0]['index_template']
+body = {'index_patterns': ['mcai-sys-showcase'], 'data_stream': {}, 'priority': 600,
+        'template': src.get('template', {})}
+r = subprocess.run(['curl', '-s', '-u', 'elastic:' + ep, '-XPUT', 'http://localhost:9200/_index_template/mcai-sys-showcase',
+                    '-H', 'Content-Type: application/json', '-d', json.dumps(body)], capture_output=True, text=True).stdout
+print('   copied template', name, '->', 'mcai-sys-showcase', r[:80])
+PY
+rm -f /tmp/sys-sim.json /tmp/sys-ds.json
+
 echo "== writer role: the showcase names ONLY"
 q -XPUT "http://localhost:9200/_security/role/mcai_showcase_writer" -H 'Content-Type: application/json' -d '{
  "cluster": ["monitor", "read_ilm"],
  "indices": [{"names": ["mcai-skill-showcase", "mcai-llm-showcase", "mcai-sys-showcase", "mcai-mc-showcase",
-                        "mcai-showcase-*"],
+                        "mcai-misc-showcase", "mcai-showcase-*"],
               "privileges": ["create_doc", "create_index", "auto_configure", "view_index_metadata"]}]}' \
   | grep -q '"role"' && ok "role mcai_showcase_writer" || { echo "   FAILED: role"; exit 1; }
 
@@ -76,17 +108,26 @@ else
   ok "mcai_showcase_ship created (password in $F, mode 600)"
 fi
 
-echo "== the boundary, both ways (a bench write must be REFUSED, a showcase write accepted)"
+echo "== the boundary, proved WITHOUT writing to the bench (_has_privileges as mcai_showcase_ship)"
 SP=$(cat "$F")
-now=$(date -u +%FT%TZ)
-bench=$(curl -s -o /dev/null -w '%{http_code}' -u "mcai_showcase_ship:$SP" -X POST \
-  "http://localhost:9200/mcai-skill-agents/_doc?op_type=create" -H 'Content-Type: application/json' \
-  -d "{\"@timestamp\":\"$now\"}")
-show=$(curl -s -o /tmp/sc.out -w '%{http_code}' -u "mcai_showcase_ship:$SP" -X POST \
+curl -s -u "mcai_showcase_ship:$SP" -X GET "http://localhost:9200/_security/user/_has_privileges" \
+  -H 'Content-Type: application/json' -d '{"index": [{"names": ["mcai-skill-agents", "mcai-llm-agents",
+   "mcai-mc-paper", "mcai-sys-journal", "mcai-skill-showcase", "mcai-llm-showcase", "mcai-sys-showcase",
+   "mcai-mc-showcase", "mcai-misc-showcase", "mcai-showcase-ops"], "privileges": ["create_doc"]}]}' > /tmp/hp.json
+show=$(curl -s -o /dev/null -w '%{http_code}' -u "mcai_showcase_ship:$SP" -X POST \
   "http://localhost:9200/mcai-showcase-ops/_doc?op_type=create" -H 'Content-Type: application/json' \
-  -d "{\"@timestamp\":\"$now\",\"kind\":\"es_setup_probe\",\"ok\":true}")
+  -d "{\"@timestamp\":\"$(date -u +%FT%TZ)\",\"kind\":\"es_setup_probe\",\"ok\":true}")
 unset SP
-echo "   write to mcai-skill-agents as mcai_showcase_ship -> HTTP $bench (must be 403)"
-echo "   write to mcai-showcase-ops  as mcai_showcase_ship -> HTTP $show (must be 201)"
-[ "$bench" = 403 ] && [ "$show" = 201 ] || { echo "   BOUNDARY CHECK FAILED"; exit 1; }
-ok "boundary proved"
+python3 - "$show" <<'PY'
+import json, sys
+d = json.load(open('/tmp/hp.json'))['index']
+bench = ['mcai-skill-agents', 'mcai-llm-agents', 'mcai-mc-paper', 'mcai-sys-journal']
+bad = [n for n in bench if d[n]['create_doc']] + [n for n in d if n not in bench and not d[n]['create_doc']]
+for n in sorted(d):
+    print(f"   create_doc on {n:22s} -> {d[n]['create_doc']}  ({'must be False' if n in bench else 'must be True'})")
+print(f'   positive control: a real write to mcai-showcase-ops -> HTTP {sys.argv[1]} (must be 201)')
+if bad or sys.argv[1] != '201':
+    print('   BOUNDARY CHECK FAILED:', bad); sys.exit(1)
+print('   ok  boundary proved')
+PY
+rm -f /tmp/hp.json

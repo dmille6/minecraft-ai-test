@@ -67,6 +67,23 @@ def timelapse_line(rows, now, frame0=None, capture_min=None, window_h=24):
             f"every {cm} min{last_fail}")
 
 
+def pause_line(rows, now):
+    """From the newest heartbeat's `brain` field (the proxy's /healthz through the tunnel). -> a line or None."""
+    rows = sorted((r for r in rows if r.get('t') and isinstance(r.get('brain'), dict)), key=lambda r: r['t'])
+    if not rows:
+        return None
+    b = rows[-1]['brain']
+    if b.get('paused_by'):
+        since = b.get('paused_since')
+        hrs = (now - _t(since)).total_seconds() / 3600 if since else None
+        return (f"SHOWCASE BRAIN PAUSED by {b['paused_by']} since {since or '?'}"
+                + (f' ({hrs:.1f} h)' if hrs is not None else '')
+                + (' -- a stale holder? check it on the Studio' if hrs is not None and hrs > 6 else ''))
+    if not b.get('ok'):
+        return f"SHOWCASE BRAIN DOWN at {rows[-1]['t']}: {b.get('error')}"
+    return None
+
+
 def brain_line(llm_rows_by_model, failed, total, fallback_endpoint_rows=0):
     """llm_rows_by_model: {served model: count}; failed: decisions nothing served. -> one line."""
     served = sum(llm_rows_by_model.values())

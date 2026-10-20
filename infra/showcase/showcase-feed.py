@@ -40,6 +40,21 @@ def newest_row(path, chunk=65536):
     return None
 
 
+def tree_digest(root):
+    h = hashlib.sha256()
+    n = 0
+    for dirpath, dirnames, filenames in os.walk(root):
+        dirnames.sort()
+        for fn in sorted(filenames):
+            p = os.path.join(dirpath, fn)
+            st = os.lstat(p)
+            h.update(f'{os.path.relpath(p, root)}\0{st.st_size}\0{st.st_mtime_ns}\n'.encode())
+            n += 1
+    if not n:
+        raise OSError(f'{root} is empty')
+    return h.hexdigest()[:16]
+
+
 def recent_prompts(bot, n=60, chunk=4_000_000):
     """Up to n of the bot's newest llm prompts that are WHOLE: prompt.text under the logger's 6000-char cut and still
     carrying its `saw_end: END-...` sentinel line. For the showcase's brain replay (design section 2)."""
@@ -110,13 +125,18 @@ def main():
                 out['control_env'] = {'bot': c['bot'], 'version': major, 'text': open(p).read()}
                 out['prompts'] = recent_prompts(c['bot'])
                 break
-    # the expected roster: every bench bot with an env file (a stopped bot is still expected)
-    out['roster'] = sorted(f[:-4] for f in os.listdir(ENV_DIR) if f.endswith('.env') and '-' in f and not f.startswith('.')
-                           and not f.startswith('block2')) if os.path.isdir(ENV_DIR) else []
+    # the expected roster: the bench's ENABLED bot units (what boots), not env files -- a pool stopped and disabled
+    # for days (the owner's fleet reshape) is then not "expected" and cannot hold the follower forever
+    wants = glob.glob('/etc/systemd/system/multi-user.target.wants/mcbot@*.service')
+    out['roster'] = sorted(os.path.basename(w)[len('mcbot@'):-len('.service')] for w in wants)
+    if not out['roster']:
+        out['errors'].append('roster: no enabled mcbot@ units found')
     # the installed dependency tree (what fleet bots actually load; fleet deploys never run npm ci)
-    lock = os.path.join(HARNESS, 'node_modules', '.package-lock.json')
+    # Identity of the installed TREE (not a lock file): sha256 over every file's (relative path, size, mtime_ns).
+    # Cheap enough hourly; any reinstall, upgrade or edit changes it. The showcase's artifact capture then records a
+    # full CONTENT manifest and verifies the unpacked copy against it.
     try:
-        out['deps_digest'] = hashlib.sha256(open(lock, 'rb').read()).hexdigest()[:16]
+        out['deps_digest'] = tree_digest(os.path.join(HARNESS, 'node_modules'))
     except OSError as e:
         out['deps_digest'] = None
         out['errors'].append(f'deps: {e}')

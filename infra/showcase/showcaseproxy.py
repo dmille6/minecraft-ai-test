@@ -109,18 +109,69 @@ def bench_procs(ps_text, own_pid):
     return None
 
 
-def quiesce_state(is_paused, inflight, idle_s, grace_s, fallback_unloaded):
+def quiesce_state(is_paused, inflight, idle_s, grace_s, fallback_resident, upstream_idle):
     """What the quiesce loop must do now. Pure (tested). -> 'resume' | 'wait' | 'unload' | 'ack'.
-    QUIESCED is acknowledged only when paused, nothing in flight for >= grace_s (an upstream generation the proxy
-    gave up on may still be running inside LM Studio / Ollama; max_tokens 512 bounds it to well under grace_s), and
-    the fallback model the showcase loaded has been told to unload (keep_alive 0)."""
+    FAIL CLOSED: QUIESCED is acknowledged only when paused, nothing in flight for >= grace_s, the fallback model the
+    showcase loaded is CONFIRMED gone from Ollama's /api/ps (fallback_resident False), and LM Studio reports the
+    `brain` model IDLE (`lms ps`: nothing generating -- an upstream generation the proxy gave up on is still work on the
+    GPU). Unknown (None) counts as not confirmed."""
     if not is_paused:
         return 'resume'
     if inflight or idle_s < grace_s:
         return 'wait'
-    if not fallback_unloaded:
+    if fallback_resident is not False:
         return 'unload'
+    if upstream_idle is not True:
+        return 'wait'
     return 'ack'
+
+
+def lms_brain_idle(lms_ps_text, model='brain'):
+    """From `lms ps` output: True if the row for `model` says IDLE, False if it shows another status, None if the
+    model is not listed or the table is unreadable. A model that is NOT LOADED is idle by definition. Pure (tested)."""
+    lines = [l for l in lms_ps_text.splitlines() if l.strip()]
+    hdr = next((l for l in lines if l.split()[:1] == ['IDENTIFIER']), None)
+    if hdr is None:
+        return True if 'No models are currently loaded' in lms_ps_text else None
+    for l in lines:
+        f = l.split()
+        if f and f[0] == model:
+            return f[2] == 'IDLE' if len(f) > 2 else None
+    return True
+
+
+def ollama_resident(ps_json, model):
+    """From Ollama's /api/ps: is `model` loaded? Pure (tested)."""
+    return any(m.get('name') == model or m.get('model') == model for m in (ps_json or {}).get('models') or [])
+
+
+def _head(p):
+    try:
+        with open(p, 'rb') as f:
+            return f.read(256)
+    except OSError:
+        return None
+
+
+def pause_signature(pause_files, pause_dir, bench_proc, stat=os.stat, listdir=os.listdir, head=_head):
+    """Identity of the CURRENT reservations: each present file's (path, mtime_ns, size, first bytes) -- so a
+    replacement reservation at the same path (`run-B` written 0.1 s after `run-A` was removed) is a new one -- plus
+    the pause-dir entries the same way, plus the benchmark process. Pure given the fs callables (tested)."""
+    def ident(p):
+        try:
+            s = stat(p)
+            return (p, s.st_mtime_ns, s.st_size, head(p))
+        except OSError:
+            return None
+    files = tuple(x for x in (ident(p) for p in pause_files or ()) if x)
+    entries = ()
+    if pause_dir:
+        try:
+            entries = tuple(x for x in (ident(os.path.join(pause_dir, n))
+                                        for n in sorted(listdir(pause_dir)) if not n.startswith('.')) if x)
+        except OSError:
+            entries = ()
+    return (files, entries, bench_proc)
 
 
 def fallback_body(req, model):
@@ -151,51 +202,75 @@ def poll_bench_procs():
         pass
 
 
+def probe_upstreams():
+    """-> (fallback_resident, upstream_idle); None where it could not be read (which never acknowledges)."""
+    res = None
+    if A.fallback and STATE.get('fallback_loaded_by_us'):
+        try:
+            d = json.loads(urllib.request.urlopen(A.fallback.rstrip('/') + '/api/ps', timeout=5).read())
+            res = ollama_resident(d, A.fallback_model)
+        except Exception:
+            res = None
+    else:
+        res = False                       # the showcase loaded nothing on Ollama during this pause
+    idle = None
+    try:
+        out = subprocess.run([os.path.expanduser(A.lms), 'ps'], capture_output=True, text=True, timeout=15).stdout
+        idle = lms_brain_idle(out, A.model)
+    except Exception:
+        idle = None
+    return res, idle
+
+
 def mark_quiesced():
     """Keep --quiesced-file true to the state (see quiesce_state)."""
     if not A.quiesced_file:
         return
-    # A NEW reservation needs a NEW acknowledgement: whenever the set of pause holders changes, the old QUIESCED is
-    # withdrawn and the grace starts again, so a guard waiting for "QUIESCED newer than my pause file" is answered.
-    sig = (tuple(p for p in A.pause_file if os.path.exists(p)),
-           tuple(sorted(os.listdir(A.pause_dir))) if A.pause_dir and os.path.isdir(A.pause_dir) else (),
-           STATE.get('bench_proc'))
+    sig = pause_signature(A.pause_file, A.pause_dir, STATE.get('bench_proc'))
     now = time.time()
     with LOCK:
-        if sig != STATE.get('sig'):
+        changed = sig != STATE.get('sig')
+        if changed:
             STATE['sig'], STATE['sig_t'] = sig, now
-            changed = True
-        else:
-            changed = False
         inflight = STATE['inflight']
         idle_s = now - max(STATE.get('last_done', 0), STATE.get('sig_t', 0))
-        unloaded = STATE.get('fallback_unloaded', True)
     if changed and os.path.exists(A.quiesced_file):
         try:
             os.remove(A.quiesced_file)
         except OSError:
             pass
     p = is_paused()
-    act = quiesce_state(bool(p), inflight, idle_s, A.quiesce_grace, unloaded or not A.fallback)
-    try:
-        if act == 'unload':
+    if not p:
+        if os.path.exists(A.quiesced_file):
+            try:
+                os.remove(A.quiesced_file)
+            except OSError:
+                pass
+        return
+    if os.path.exists(A.quiesced_file) and not changed and not inflight:
+        return        # acknowledged for THIS set of reservations; nothing of the showcase's has run since
+    resident, idle = probe_upstreams() if (not inflight and idle_s >= A.quiesce_grace) else (None, None)
+    act = quiesce_state(True, inflight, idle_s, A.quiesce_grace, resident, idle)
+    if act == 'unload':
+        if now - STATE.get('last_unload', 0) >= 10:        # retried every 10 s until /api/ps confirms it is gone
+            STATE['last_unload'] = now
             try:
                 post_json(A.fallback.rstrip('/') + '/api/generate', {'model': A.fallback_model, 'keep_alive': 0}, 30)
                 logline(status='unload', model=A.fallback_model, paused_by=p)
             except Exception as e:
                 logline(status='unload-failed', model=A.fallback_model, error=str(e)[:200])
-            with LOCK:
-                STATE['fallback_unloaded'] = True       # one attempt per pause; a failure is logged, not looped
-            return
-        if act == 'ack':
-            if not os.path.exists(A.quiesced_file):
-                with open(A.quiesced_file, 'w') as f:
-                    f.write('%s paused_by=%s\n' % (time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime()), p))
-                logline(status='quiesced', paused_by=p)
-        elif os.path.exists(A.quiesced_file):
+        return
+    if act == 'ack':
+        STATE['fallback_loaded_by_us'] = False
+        if not os.path.exists(A.quiesced_file):
+            with open(A.quiesced_file, 'w') as f:
+                f.write('%s paused_by=%s\n' % (time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime()), p))
+            logline(status='quiesced', paused_by=p)
+    elif os.path.exists(A.quiesced_file):
+        try:
             os.remove(A.quiesced_file)
-    except OSError:
-        pass
+        except OSError:
+            pass
 
 
 def quiesce_loop():
@@ -229,7 +304,11 @@ class H(BaseHTTPRequestHandler):
             with LOCK:
                 inflight = STATE['inflight']
             if p:
-                return self._send(503, {'ok': False, 'paused_by': p, 'inflight': inflight})
+                since = STATE.get('sig_t')
+                return self._send(503, {'ok': False, 'paused_by': p, 'inflight': inflight,
+                                        'paused_since': time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime(since))
+                                        if since else None,
+                                        'quiesced': bool(A.quiesced_file and os.path.exists(A.quiesced_file))})
             try:
                 d = json.loads(urllib.request.urlopen(A.upstream.rstrip('/') + '/v1/models', timeout=5).read())
                 ok = any(m.get('id') == A.model for m in d.get('data') or [])
@@ -291,7 +370,7 @@ class H(BaseHTTPRequestHandler):
                 return self._send(502, {'error': 'upstream: %s' % primary_err})
             t1 = time.time()
             with LOCK:
-                STATE['fallback_unloaded'] = False     # the showcase now holds the fallback model in memory
+                STATE['fallback_loaded_by_us'] = True  # the showcase now holds the fallback model in memory
             try:
                 d = post_json(A.fallback.rstrip('/') + '/api/chat', fallback_body(req, A.fallback_model),
                               A.fallback_timeout)
@@ -328,6 +407,7 @@ def main():
     ap.add_argument('--pause-file', action='append', default=[], help='503 everything while this file exists')
     ap.add_argument('--quiesced-file', default=None)
     ap.add_argument('--pause-dir', default=None, help='any entry in this directory pauses (mbench guard files)')
+    ap.add_argument('--lms', default='~/.lmstudio/bin/lms', help='the LM Studio CLI (its `ps` shows IDLE/generating)')
     ap.add_argument('--quiesce-grace', type=float, default=30.0,
                     help='seconds with nothing in flight before QUIESCED is acknowledged')
     A = ap.parse_args()

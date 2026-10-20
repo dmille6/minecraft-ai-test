@@ -151,9 +151,11 @@ def inside_for(promoted, run, now, hold_h, is_ancestor, revoked=()):
     boundary = now - dt.timedelta(hours=hold_h)
     ver = [r for r in run if r.get('verified')]
     before = [r for r in ver if parse_ts(r['t']) <= boundary]
-    cover = before[-1:] + [r for r in ver if parse_ts(r['t']) > boundary]
-    if not cover:
+    if not before:
+        # The hold must be WITNESSED: a verified observation at or before the boundary, inside the same run (same
+        # policy and dependencies). An explained (neutral) row there proves nothing about what the fleet ran.
         return []
+    cover = before[-1:] + [r for r in ver if parse_ts(r['t']) > boundary]
     return [p for p in promoted
             if all(is_ancestor(p[1], r['sha']) for r in cover) and not any(is_ancestor(x, p[1]) for x in revoked)]
 
@@ -196,7 +198,8 @@ def decide(ledger, promoted, showcase_sha, now, is_ancestor, merge_base=None, re
         return dict(base, decision='HOLD', target=None,
                     reason=f"newest observation unverified and unexplained (census {last.get('census_share')} of "
                            f"{last.get('census_n')}/{last.get('roster_n')} bots, feed errors {last.get('feed_errors')});"
-                           f" retried hourly")
+                           f" retried hourly. If coverage is low because bench bots are stopped on purpose, the roster "
+                           f"is the bench's ENABLED mcbot@ units: a stopped pool should be disabled too")
     if not ok_targets:
         if since and since > now - dt.timedelta(hours=hold_h):
             due = since + dt.timedelta(hours=hold_h)
