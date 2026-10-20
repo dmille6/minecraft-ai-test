@@ -1,0 +1,84 @@
+townindex-01 + indexsearch-01 -- code reviews, 2026-10-20
+=========================================================
+Design: docs/reports/town-plan-2026-10-20.md (both engines APPROVE r9; OWNER 10-20 ~12:30Z "yes, lets do this"):
+section 4.2 (the town index), 7.7 (indexsearch), 8 K1 (sticks), 9 rows 1-2 (the canaries; both tier 2).
+Reviewers: Codex (`codex exec --sandbox read-only`, prompt on stdin) and an independent Claude subagent, each round on the
+named commit, read-only. Full outputs are in the building session's scratchpad; the findings and dispositions are below.
+
+---------------------------------------------------------------------------------------------------------------------------
+townindex-01 -- branch townindex-on-35d805a, base 35d805a7 (toolkit-03 x bagbudget-01), CANARY SHA e5ce173f
+---------------------------------------------------------------------------------------------------------------------------
+r1 e05b7bec  Codex CHANGE  | Claude CHANGE
+  Codex P1  an observation by another bot between a writer's pre and post marks cleared the dirty state; a crash before the
+            post left the container `known` with stale contents                      -> r2: operations (op ids, pre/post joined
+            in the fold, order-free, idempotent), OP_TTL_MS 10 min
+  Codex P1  rotation `wx` published an EMPTY generation; a concurrent append was overwritten by the checkpoint write
+                                                                                      -> r2: checkpoint written privately, link()
+  Codex P1  the cached reader missed late writes to generation N-1                    -> r2: the cache follows both generations
+  Codex P2  count_town extras: an abort during an extra changed the base's outcome/backoff  -> r2: a second reconcileCobble call
+            after the base count, its own budget/backoff map, no `_cobble_reconcile` row; an abort there is swallowed
+  Codex P2  townindexread D3: a later rotation erased an earlier failure             -> r2: missing join after a rotation =
+            xfer_unjudged (reported), never a pass by omission
+  Codex P2  the Paper gate could pass vacuously                                       -> r2: requires a crafted kit, a banking
+            town deposit, >= 1 verified transfer, the double chest opened, FAR dirty
+  Claude P1 count_town extras wrote the shared reconcile backoff and recount misses, and the base row's fields -> r2 (as above)
+  Claude P2 the closing mark was written before holdUnsettled could still click  -> r2 `held` (keeps the op open) -> r3: renewed
+            every HELD_RENEW_MS while the hold lives, post at the hold's end -> r4: post after the in-flight clicks drain
+  Claude P2 D1 on a double chest straddling the town edge                            -> r3: dirty/xfer carry `h`; D1 = no half in town
+  Claude P2 extras write cobble/stock counts                                         -> r3: by design (count_town's job, design
+            4.2); the read documents it; refusals line one-sided
+  Claude P3 mutation flag tied to the pre write; unreadable index read as "all unknown"; extras lost the arrival check;
+            missing mutants/tests; D3 null ids                                       -> r3 (all taken)
+r2 670b04c7  Codex CHANGE (1 P1: held windows expire while the hold retries; P2: compaction dropped closure info; P3: checkpoint
+             observations lost their container key in D3)                             -> r3 (all taken)
+r3 bf1e1bdd  Codex CHANGE (P2: a held mark without its pre gave no protection; P2: compaction dropped post-only tombstones; P2:
+             indexGens swallowed EACCES -> unreadable read as empty/ok)              -> r4 (all taken)
+             Claude APPROVE (P3s: post before the drain; held-without-pre; tests for an unreadable index) -> r4 (taken)
+r4 e5ce173f  Codex APPROVE (P3: the release test would also pass with a premature post -- noted)
+             Claude APPROVE (P3: rotateIndex's cleanup loop outside its try -- its only caller catches; P3: an unreadable gen-1
+             at rotation, unreachable at 4 MB -- noted, not changed)
+Tests: npm test 273/273 at e5ce173f (r3 bf1e1bdd 273/273 too); townindex.test.mjs 27 tests, 23 anchored mutants; the runtime
+home allocator reproduces data/homes.json exactly on the 00:15Z census (16 towns); eslint no-undef: only reflex.mjs:2384.
+Paper sandbox3 (scene `townindex`, server read-back): r1 e05b7bec CANDIDATE_PASS / base 35d805a7 BASE_SHAPE (14:29-14:35Z);
+r4 e5ce173f CANDIDATE_PASS (strengthened gate) / base BASE_SHAPE (15:07-15:13Z): 16 index records (9 obs, 4 dirty, 3 verified
+transfers all joined), 3 known containers exactly the server's contents, the drawn-from chest dirty, the double chest under its
+lower half with both halves, the out-of-town chest never indexed; base: no index, no licence, the same orders ran.
+
+---------------------------------------------------------------------------------------------------------------------------
+indexsearch-01 -- branch indexsearch-on-e5ce173, base e5ce173f (townindex-01), stacked (single variable per canary)
+---------------------------------------------------------------------------------------------------------------------------
+The design makes indexsearch independent of the plan but NOT of the index (it reads townindex-01's counts): it is stacked
+on townindex-01's canary sha, as section 9 row 2 says ("builds on 1 PROMOTED, toolkit-03 KEPT").
+KITSTICKS ships here because toolkit-03 does not draw the kit's sticks independently of the iron's container (section 7.7).
+r1 e96891a1  Codex CHANGE | Claude CHANGE
+  Codex P2  KITSTICKS blocked by townKitIronMiss holding back no-stick holders      -> r2: the gate holds back only while no
+            KNOWN stick holder exists (townSearchHolder: a tier-0 stick candidate)
+  Codex P2  exposure counted every smelt job as a fuel draw                           -> r2/r3: coal-searching jobs only
+  Codex P2  an absent/thin withdraw_pick gate printed ok                              -> r2: None (insufficient), nullable line
+  Claude P2 Paper seeded the index under world null (the bot reads its own world)    -> r2: seeded under the live bot's world
+            (its `_plinth_mode` w=), asserted equal to the bot's records
+  Claude P2 smelt primary over all jobs (copper ranking shifts the mix)              -> r2/r3: over coal-searching jobs
+  Claude P3s stops ending the kit; the gate ignoring KITSTICKS; future-dated counts; budget by (by, need); no cost line; pool
+            clustering; over-drawn sticks; base check                                -> r2/r3 (taken; the withdraw_pick pass row
+            and a pre-draw taking iron in the same visit are noted, not changed)
+  Paper r1 (15:30-15:34Z): candidate ixkit/ixsticks FAILED for the seeding bug above (ix=0); base BASE_SHAPE both -- the bug
+            Claude found, not a code defect
+r2 82463635  Codex CHANGE (P2: the coal population counted copper-ingot carries and copper-pass cuts; P3s: future clamp
+             re-advanced each read; sticks= on failure exits; exact repeat assertion; LESS-iron control)  -> r3 (all taken)
+             Claude APPROVE (P3s: a stopped stick holder re-issued; gate order; cost DiD guard; base wording; ...) -> r3
+r3 c11e3c48  Codex CHANGE (P2: the pre-draw stop's skip hid the container from ALL this bot's searches for 30 min; P3: sticks=
+             on exceptional exits)                                                    -> r4: a kit-only stick-search skip
+             Claude APPROVE (the same skip as P3; sticks= on the abort path)         -> r4
+r4 eb882037  Codex APPROVE (no findings) | Claude APPROVE (P3: the skip test inspected maps, not behaviour)
+r4.1 8f811303 (test-only): the stick-search skip pinned by behaviour (the next run's pre-draw keeps away from the stopped
+             holder, its iron search still opens it and makes the kit); both skip mutants now die on behaviour.  CANARY SHA 8f811303
+Tests: npm test 274/274 at eb882037 and at 8f811303 (one earlier 8f811303 run had well.test fail 3 timing-heavy cases under
+host load; it passed alone and on the clean re-run); indexsearch.test.mjs 21 tests, 10 anchored mutants; eslint no-undef: only
+reflex.mjs:2384. Paper sandbox3 17:52-17:56Z (server read-back; the index seeded under the live bot's own world, verified):
+CANDIDATE eb882037 ixkit PASS (the far iron chest FIRST: 1 visit vs the base's 10; kit crafted; far 20 -> 16; near untouched),
+ixsticks PASS (sticks first from the stick chest, then the iron from the stickless chest, 1 visit each; kit crafted; sticks
+20 -> 14, iron 20 -> 16); BASE e5ce173f ixkit BASE_SHAPE (10 visits), ixsticks BASE_SHAPE (kit_no_sticks, iron untouched).
+The sandbox lock was held by another agent (protectzone-01) 15:43-17:52Z; this session took it only while its scenes ran.
+toolkit-03's own tests re-anchored to the composition (each a consequence of KITSTICKS, not a weakened invariant):
+kitsearch NO STICKS (14 opens: 4 stick visits + 10), the stickless bot (exactly one repeat: LAST, once per need),
+toolkit LESS-iron (3 logs keep KITSTICKS out of a credit test).
