@@ -140,7 +140,7 @@ async function stopBot () {
 }
 const RUN = new Date().toISOString().replace(/[-:]/g, '').slice(4, 15)
 const procs = {}
-async function startBot (scene, slotsSpec, { pool = `sbxstock-${RUN}`, name = NAME, at = HOME } = {}) {
+async function startBot (scene, slotsSpec, { pool = `sbxstock-${RUN}`, name = NAME, at = HOME, env: extraEnv = {} } = {}) {
   const tag = `${RUN}-${scene}-${name}`
   const logRel = `./sandbox/log/stock-e2e/${tag}`
   const skillLog = `${R}/sandbox/log/stock-e2e/${tag}/skill-${name}.jsonl`
@@ -150,6 +150,7 @@ async function startBot (scene, slotsSpec, { pool = `sbxstock-${RUN}`, name = NA
   const set = (key, v) => { env = new RegExp(`^${key}=`, 'm').test(env) ? env.replace(new RegExp(`^${key}=.*$`, 'm'), `${key}=${v}`) : env + `\n${key}=${v}` }
   set('BOT_NAME', name); set('LOG_DIR', logRel); set('STATE_DIR', `./sandbox/state/stock-e2e-${tag}`); set('MEMORY_POOL', pool)
   set('STOCK_PRUNE_COOLDOWN_MS', 60000)   // the only harness setting beyond well-e2e's: a prune look every minute
+  for (const [k, v] of Object.entries(extraEnv)) set(k, v)   // a scene's own setting (bagbudget-01: PLINTH_FIRST=0 for `build` only)
   set('MINECRAFT_PORT', PORTS[SERVER]); set('MAX_CONSECUTIVE_FAILURES', 50); set('FAILED_COOLDOWN_MS', 1000); set('STUCK_SECONDS', 20)
   for (const a of ['X', 'Y', 'Z']) { set(`HOME_${a}`, HOME[a.toLowerCase()]); set(`BOARD_${a}`, HOME[a.toLowerCase()]) }
   fs.writeFileSync(`${R}/${envRel}`, env + '\n')
@@ -236,7 +237,9 @@ scenes.build = async () => {
   // the open pit to make the craft's room, planks -> table -> 2 trapdoors, floor trapdoor, cap.
   buildArena()
   const bagSpec = fill([['oak_log', 3], ['egg', 16], ['egg', 16], ['flint', 64]])
-  const files = await startBot('build', bagSpec)
+  // NATURAL_BUILD=1 (bagbudget-01 Paper r2): this scene builds a NATURAL well, which plinth-first (fleet default) declines
+  // ("natural junk well sites are declined"); PLINTH_FIRST=0 for THIS bot only -- every other scene runs the default
+  const files = await startBot('build', bagSpec, process.env.NATURAL_BUILD === '1' ? { env: { PLINTH_FIRST: '0' } } : {})
   const before = bag(NAME)
   const w = await watchOrder(files, 'build_well', 240000)
   await sleep(4000)
@@ -884,19 +887,28 @@ scenes.bagwell = async () => {
   const spec = [['torch', 11], ['ladder', 4], ['bone_meal', 32], ['egg', 6], ['flint', 4], ['crafting_table', 1], ['furnace', 1], ['bucket', 1], ['cobblestone', 64], ['stone_pickaxe', 1, 35]]
   const SLABS = ['oak_slab', 'spruce_slab', 'birch_slab', 'jungle_slab', 'acacia_slab', 'dark_oak_slab', 'stone_slab', 'cobblestone_slab', 'smooth_stone_slab', 'sandstone_slab', 'brick_slab', 'mangrove_slab', 'cherry_slab']
   for (let i = 0; spec.length < 36; i++) spec.push([SLABS[i % SLABS.length], 1 + (i % 5)])
+  // A COMPOSTER IN TOWN (Paper r2: without one, build_composter fired first -- it plants the bag's crafting table as the town
+  // table, crafts 7 of the slab filler into the composter, and took the bag 36 -> 33 before the well or the deposit could act)
+  const COMP = [[-4, 4], [4, 4], [-4, -4], [0, -6], [6, 0], [-6, 0]].map(([dx, dz]) => ({ x: HOME.x + dx, y: HOME.y, z: HOME.z + dz }))
+    .find(c => Math.hypot(c.x - CAP.x, c.z - CAP.z) >= 4 && Math.hypot(c.x - CHEST.x, c.z - CHEST.z) >= 2)
+  rcon(`setblock ${COMP.x} ${COMP.y} ${COMP.z} minecraft:composter`)
   const files = await startBot('bagwell', spec, { pool: `sbxstock-${RUN}-bagwell` })
   setChest([])
   const before = bag(NAME), chest0 = chestTotals()
   // a SUCCESSFUL dispose (Codex code r1 P2-3: a failed or no_effect one followed by the timeout release must not pass)
   const disp = await waitFor(() => rowsOf(files.skillLog).find(r => r.name === 'dispose_well' && r.status === 'success'), 240000, 500)
-  const dep = await waitFor(() => rowsOf(files.skillLog).find(r => r.name === '_bagbudget' && /^phase=bank/.test(r.detail)), 600000, 1000)
+  // the candidate's bank row comes within the deletion wait (<= 5 min of time full at town); the base never writes one
+  const dep = await waitFor(() => rowsOf(files.skillLog).find(r => r.name === '_bagbudget' && /^phase=bank/.test(r.detail)), 420000, 1000)
   await sleep(4000)
   const after = bag(NAME), chest1 = chestTotals()
   await stopBot(); BRAIN_WANDER = false
   bagScene('bagwell', spec, files, before, chest0, after, chest1, { dispose: disp ? `${new Date(disp.ts).toISOString()} ${disp.detail.slice(0, 160)}` : null,
     bank: dep ? `${new Date(dep.ts).toISOString()} ${dep.detail.slice(0, 200)}` : null, wellFirst: !!(disp && dep && disp.ts < dep.ts),
+    composterBuilt: rowsOf(files.skillLog).some(r => r.name === 'build_composter'),
     CANDIDATE_PASS: !!(disp && dep && disp.ts < dep.ts && after.used < 34 && ALLOW_IDS.every(n => (chest1.totals[n] ?? 0) > 0) && !JUNK_IDS.some(n => chest1.totals[n]) &&
-      !(after.totals.egg ?? 0) && !(after.totals.flint ?? 0) && (before.totals.egg ?? 0) === 6 && (before.totals.flint ?? 0) === 4) })
+      !(after.totals.egg ?? 0) && !(after.totals.flint ?? 0) && (before.totals.egg ?? 0) === 6 && (before.totals.flint ?? 0) === 4),
+    // the deployed rule: the well takes the junk (36 -> 34), and the torches, ladders and bone meal stay in the full bag
+    BASE_SHAPE: !!(disp && !dep && !(after.totals.egg ?? 0) && ALLOW_IDS.every(n => !(chest1.totals[n] ?? 0)) && after.used >= 34) })
 }
 // bagfar: a full bag on a stone platform 90 east of home (outside TOWN_RADIUS 48: no town order can fire) holding four spent
 // stone pickaxes, a good one and 64 cobble. Last-swing under the allowance keeps none (the bag holds the stone): wear_out
@@ -905,7 +917,10 @@ const FAR = { x: HOME.x + 90, y: 120, z: HOME.z }
 scenes.bagfar = async () => {
   BRAIN_WANDER = false
   rcon(`forceload add ${FAR.x - 6} ${FAR.z - 6} ${FAR.x + 6} ${FAR.z + 6}`,
-    `fill ${FAR.x - 6} 112 ${FAR.z - 6} ${FAR.x + 6} 126 ${FAR.z + 6} minecraft:air`, `fill ${FAR.x - 6} 119 ${FAR.z - 6} ${FAR.x + 6} 119 ${FAR.z + 6} minecraft:stone`,
+    // a FOUR-deep stone floor (Paper r2: one layer over air left the ground cells `no_support`, and the dug wall cells' drops
+    // made their columns `occupied` -- 2 of 4 spent copies worn): the ground beside the feet east and west is wearable, and
+    // the walls north and south give two more columns -- four columns for four spent copies
+    `fill ${FAR.x - 6} 112 ${FAR.z - 6} ${FAR.x + 6} 126 ${FAR.z + 6} minecraft:air`, `fill ${FAR.x - 6} 116 ${FAR.z - 6} ${FAR.x + 6} 119 ${FAR.z + 6} minecraft:stone`,
     `fill ${FAR.x - 1} 120 ${FAR.z + 1} ${FAR.x + 1} 121 ${FAR.z + 1} minecraft:stone`, `fill ${FAR.x - 1} 120 ${FAR.z - 1} ${FAR.x + 1} 121 ${FAR.z - 1} minecraft:stone`)
   const spec = [['stone_pickaxe', 1, 130], ['stone_pickaxe', 1, 130], ['stone_pickaxe', 1, 130], ['stone_pickaxe', 1, 130], ['stone_pickaxe', 1, 20], ['cobblestone', 64]]
   while (spec.length < 36) spec.push(['white_wool', 1 + (spec.length % 3)])
@@ -913,7 +928,9 @@ scenes.bagfar = async () => {
   const before = bag(NAME)
   const spent = b => Object.values(b.slots).filter(it => it.id === 'stone_pickaxe' && (it.damage ?? 0) >= 130).length
   const wear = await waitFor(() => rowsOf(files.skillLog).find(r => r.name === 'wear_out'), 180000, 500)
-  await sleep(8000)
+  // a second wear_out order may finish what the first could not (the order is re-issued on its cooldown): up to 4 min more
+  await waitFor(() => spent(bag(NAME)) === 0, 240000, 5000)
+  await sleep(4000)
   const after = bag(NAME)
   const posRep = r1(`data get entity ${NAME} Pos`)
   const pos = ((posRep.match(/\[([^\]]+)\]/) || [])[1] || '').replace(/d/g, '').split(',').map(Number)
