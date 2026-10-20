@@ -430,13 +430,6 @@ export class CognitiveLoop {
     this.#tick(trigger)
   }
 
-  /** A livelock rung the runner declined (homefix-01): nothing is latched, cleared or counted; the next tick retries. */
-  #escapeDeclined (r) {
-    logEvent({ kind: 'livelock_escape', status: 'no_effect',
-               detail: `fixated on one action; the relocation was declined by the runner (${r?.failClass ?? '?'}) -- not an attempt, retried next tick`,
-               snapshot: snapshot(this.bot) })
-  }
-
   /**
    * Deterministic circuit-breaker. Relocates the bot so the next perception
    * snapshot genuinely differs, then clears the repeat window.
@@ -537,6 +530,13 @@ export class CognitiveLoop {
     } else {
       this.livelockLatchedUntil = Date.now() + LIVELOCK_LATCH_MS
     }
+  }
+
+  /** A livelock rung the runner declined (homefix-01): nothing is latched, cleared or counted; the next tick retries. */
+  #escapeDeclined (r) {
+    logEvent({ kind: 'livelock_escape', status: 'no_effect',
+               detail: `fixated on one action; the relocation was declined by the runner (${r?.failClass ?? '?'}) -- not an attempt, retried next tick`,
+               snapshot: snapshot(this.bot) })
   }
 
   /**
