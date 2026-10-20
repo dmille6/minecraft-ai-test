@@ -325,6 +325,28 @@ await t('KITSTICKS: a pre-draw visit that STOPS without moving anything does not
   assert.notEqual(r.detail.includes('stick_draw_unsettled'), true)
 })
 
+// THE STICK-SEARCH SKIP (Codex r3 P2, Claude r3 P3): a pre-draw whose take at the ONLY stick holder stops on a bag-side fault
+// (no recount) puts that holder in the kit's own skip: the kit gate then holds back (no re-issue of the same stop), while the
+// IRON search and withdraw_pick still see the container
+const stickSkip = async (S = S0) => {
+  const w = k1Town()
+  w.stock(...STICKS, [stack('stick', 20), stack('iron_ingot', 20)])   // the stick holder is also an iron holder
+  seed(STICKS, { stick: [20, 1], iron_ingot: [20, 1] })
+  const rec0 = w.bot.craftSync.recount
+  let fail = true
+  w.bot.craftSync.recount = async (...a) => (fail ? { source: 'none', items: null } : rec0(...a))
+  const n0 = RECS.length
+  await kit(S, w)
+  assert.match(rowsSince('_kit_sticks', n0)[0] ?? '', / stop=recount_unanswered /, 'positive control: the pre-draw stopped at the stick holder')
+  fail = false
+  const view = w.bot.withdrawSearchSkip?.get?.(kOf(STICKS)) ?? 0
+  assert.ok(!(view > Date.now()), 'not in the bot\'s global search skip')
+  assert.ok((w.bot.kitStickSkip?.get(kOf(STICKS)) ?? 0) > Date.now(), 'in the kit stick skip')
+  later(60_000)
+  assert.equal(S.townKitIronMiss(w.bot), false, 'the iron search still sees its holders (the skip is the stick search\'s only)')
+}
+await t('THE STICK-SEARCH SKIP: a pre-draw stop at a stick holder skips it for the kit\'s stick search only; the iron search still sees it (Codex r3 P2)', () => stickSkip())
+
 // ------------------------------------------------------------------------------------------------- the switch
 await t('INDEXSEARCH=off and KITSTICKS=off: the licence row says so (the one-setting rollbacks)', () => {
   const code = `const I = await import(${JSON.stringify(IS_PATH.href)}); console.log(I.indexSearchModeDetail())`
@@ -340,7 +362,9 @@ await t('MUTANTS (anchored, unique): each pinned behaviour fails under its mutan
   kills.noMin = await withMutant(IS_PATH, 'if (h && h.n >= spec.min && h.at <= now + FUTURE_SLACK_MS)', 'if (h && h.n > 0 && h.at <= now + FUTURE_SLACK_MS)', I => killedBy(() => pureCounts(I)))
   kills.olderWins = await withMutant(IS_PATH, 'if (!have || !Number.isFinite(have.at) || c.at > have.at) j[k] = c', 'j[k] = c', I => killedBy(() => pureCounts(I)))
   kills.noKitSticks = await withMutant(SKILLS_PATH, 'if (KITSTICKS.on && draw.ingots > 0 && kitSticksAtRisk(', 'if (false && draw.ingots > 0 && kitSticksAtRisk(', S => killedBy(() => k1Chain(S)))
-  kills.gateHoldsBack = await withMutant(SKILLS_PATH, "!(KITSTICKS.on && d.ingots > 0 && townSearchHolder(bot, 'stick'))", '!false', S => killedBy(() => k1Far(S)))
+  kills.gateHoldsBack = await withMutant(SKILLS_PATH, "!(KITSTICKS.on && d.ingots > 0 && townSearchHolder(bot, 'stick', kitStickSkipKeys(bot)))", '!false', S => killedBy(() => k1Far(S)))
+  kills.noStickSkip = await withMutant(SKILLS_PATH, '          kitStickSkipSet(bot, containerKey(bot, cb.position))\n', '\n', S => killedBy(() => stickSkip(S)))
+  kills.skipIsGlobal = await withMutant(SKILLS_PATH, '  bot.kitStickSkip.set(k, Date.now() + SEARCH_FAIL_SKIP_MS)\n', '  bot.kitStickSkip.set(k, Date.now() + SEARCH_FAIL_SKIP_MS); bot.withdrawSearchSkip ??= new Map(); bot.withdrawSearchSkip.set(k, Date.now() + SEARCH_FAIL_SKIP_MS)\n', S => killedBy(() => stickSkip(S)))
   kills.futureCounts = await withMutant(IS_PATH, 'if (h && h.n >= spec.min && h.at <= now + FUTURE_SLACK_MS)', 'if (h && h.n >= spec.min)', I => killedBy(() => pureCounts(I)))
   kills.noRedraw = await withMutant(SKILLS_PATH, '        if (sp.took > 0) draw = kitDraw(items(), { credit: creditIn })', '        if (false) draw = kitDraw(items(), { credit: creditIn })', S => killedBy(() => k1Chain(S)))
   const alive = Object.entries(kills).filter(([, k]) => !k).map(([n]) => n)
