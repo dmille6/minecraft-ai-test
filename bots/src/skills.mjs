@@ -10828,11 +10828,13 @@ async function toolkit (ctx, args, signal) {
         // backoff: the next order takes the prefix the town can give (toolkitOrder kitPrefixes). Decided BEFORE the search row,
         // so the row says what the run says (Claude r2 P3)
         const d1 = () => kitDraw(items(), { credit: bot.kitCredit ?? 0, limit: 1 })
+        // a prefix the credit funds is meetable only when its sticks are too: none needed, or the bag's wood makes them (Claude r3 P3)
+        const p1 = (end.outcome === 'no_iron' || end.outcome === 'no_sticks') ? d1() : null
         const narrow = kitNarrows({ on: TOOLKIT_IRONPICK.on, needs: draw.needs, outcome: end.outcome,
-                                    prefixMet: (end.outcome === 'no_iron' || end.outcome === 'no_sticks') && (d1().ingots === 0 || !townKitIronMiss(bot, d1())) })
+                                    prefixMet: !!p1 && (p1.ingots === 0 ? p1.sticks <= kitMeans(items(), { tableNear }).sticksMakeable : !townKitIronMiss(bot, p1)) })
         searchRow('failed', narrow ? 'narrow' : end.outcome)
         if (narrow) {
-          return out('failed', 'narrow', `no town container gives the ${draw.ingots} ingot(s) and ${draw.sticks} stick(s) for ${draw.needs.join(' and ')} with ${TOWN_IRON_KEEP} ingots to spare; the town can still give ${draw.needs[0]} alone -- the next kit run draws for it`, KIT_NARROW)
+          return out('failed', 'narrow', `no town container gives the ${draw.ingots} ingot(s) and ${draw.sticks} stick(s) for ${draw.needs.join(' and ')} with ${TOWN_IRON_KEEP} ingots to spare; the town can still give ${draw.needs[0]} alone -- the next kit run draws for it${end.outcome === 'no_sticks' ? ' (or carry 1 log: it makes 8 sticks)' : ''}`, KIT_NARROW)
         }
         if (end.outcome === 'more') {
           return out('failed', 'more', `no iron drawn yet: ${tried.length} town container(s) looked in, ${st.search.left} not yet -- the next kit run continues the search`, end.failClass)
