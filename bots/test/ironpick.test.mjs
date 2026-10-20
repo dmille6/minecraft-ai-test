@@ -135,6 +135,24 @@ await t('THE CREDIT-ONLY RUN checks room for its tools too (Claude r1 P3): credi
   assert.equal(toolkitOrder(o).order, null, 'no slot for the pickaxe the credit makes')
   const b35 = bag.slice(0, 35)
   assert.equal(toolkitOrder({ ...o, items: b35, room: d => roomPlan(b35, kitRoomTakes(d), { keep }).ok }).order?.skill, 'toolkit', 'one slot free: issued')
+  // Codex r2 P2: a credit-only run visits no chest, so room a DEPOSIT could make is no room -- a full bag with a bankable stack
+  const bank = slotted([...bag.slice(0, 35), stack('raw_copper', 64)])
+  assert.equal(roomPlan(bank, kitRoomTakes(K.kitDraw(bank, { credit: 3 })), { keep }).ok, true, 'CONTROL: the room plan would bank the copper')
+  assert.equal(toolkitOrder({ ...o, items: bank, room: d => roomPlan(bank, kitRoomTakes(d), { keep }).ok }).order, null, 'but no chest is visited: no order')
+})
+await t('kitNarrows / kitStickHeld (Codex r2 P2, Claude r2 P3): narrow only a multi-tool pickaxe draw that ended no_iron or no_sticks with its pickaxe prefix meetable; a stick holder is held back by quantity', () => {
+  const needs = ['iron_pickaxe', 'iron_axe', 'iron_shovel']
+  assert.equal(K.kitNarrows({ on: true, needs, outcome: 'no_iron', prefixMet: true }), true)
+  assert.equal(K.kitNarrows({ on: true, needs, outcome: 'no_sticks', prefixMet: true }), true)
+  assert.equal(K.kitNarrows({ on: true, needs, outcome: 'unseen', prefixMet: true }), false, 'the town not wholly seen: not narrowed')
+  assert.equal(K.kitNarrows({ on: true, needs, outcome: 'no_iron', prefixMet: false }), false)
+  assert.equal(K.kitNarrows({ on: true, needs: ['iron_pickaxe'], outcome: 'no_iron', prefixMet: true }), false, 'one tool: nothing smaller')
+  assert.equal(K.kitNarrows({ on: true, needs: ['iron_axe', 'iron_shovel'], outcome: 'no_iron', prefixMet: true }), false, 'no pickaxe: the base')
+  assert.equal(K.kitNarrows({ on: false, needs, outcome: 'no_iron', prefixMet: true }), false, 'off')
+  assert.equal(K.kitStickHeld(4, { sticks: 8 }, 0), true, '4 sticks, the whole kit\'s 8: held')
+  assert.equal(K.kitStickHeld(4, { sticks: 4 }, 0), false, 'the pickaxe\'s 4: not held')
+  assert.equal(K.kitStickHeld(null, { sticks: 2 }, 0), true, 'not recorded: held (the base rule)')
+  assert.equal(K.kitStickHeld(2, { sticks: 6 }, 4), false, 'what the bag\'s wood makes counts')
 })
 await t('toolkitOutcome: a `narrow` run (KIT_NARROW) is no backoff, only the cooldown -- capped with `more` by KIT_MORE_MAX', () => {
   let st = { lastIssuedAt: 1e9 }
@@ -262,7 +280,7 @@ await t('SKILL: the town\'s keep -- a container with 3 + TOWN_IRON_KEEP - 1 ingo
 async function narrowScene (S = S0) {
   const w = withServer(town([T('stone_pickaxe', 100), stack('stick', 9), stack('crafting_table', 1)], [stack('iron_ingot', 9)]))
   const r = await S.SKILLS.toolkit.run({ bot: w.bot, kitCraft: fakeCraft(w) }, {}, new AbortController().signal)
-  assert.equal(r.status, 'failed'); assert.equal(r.failClass, K.KIT_NARROW, r.detail); assert.match(r.detail, /holds enough for iron_pickaxe/)
+  assert.equal(r.status, 'failed'); assert.equal(r.failClass, K.KIT_NARROW, r.detail); assert.match(r.detail, /can still give iron_pickaxe alone/)
   assert.equal(count(chestOf(w), 'iron_ingot'), 9)
   assert.equal(S0.townKitIronMiss(w.bot), true, 'the whole kit\'s draw is now a town-wide miss')
   assert.equal(S0.townKitIronMiss(w.bot, K.kitDraw(w.bag.filter(Boolean), { limit: 1 })), false, 'the pickaxe\'s is not')
@@ -278,6 +296,20 @@ async function narrowScene (S = S0) {
   assert.equal(r3.status, 'success', r3.detail); assert.equal(r3.kitCrafted, 3); assert.equal(count(chestOf(w3), 'iron_ingot'), 4)
 }
 await t('SKILL, A DRAWN-DOWN TOWN (Claude r1 P2): every container holds 9 -> the whole kit (7 + 4) ends `narrow` (no iron moved, no backoff); the next order\'s prefix (n=1) draws 3 and makes the pickaxe', () => narrowScene())
+async function stickNarrowScene (S = S0) {
+  // Codex r2 P2: a carried table, no sticks and no wood; one chest of 11 ingots + 4 sticks. The whole kit needs 8 sticks (no_sticks),
+  // the pickaxe alone 4: the run narrows, and the prefix order then draws 3 ingots + 4 sticks and makes the pickaxe
+  const w = withServer(town([T('stone_pickaxe', 100), stack('crafting_table', 1)], [stack('iron_ingot', 11), stack('stick', 4)]))
+  const r = await S.SKILLS.toolkit.run({ bot: w.bot, kitCraft: fakeCraft(w) }, {}, new AbortController().signal)
+  assert.equal(r.failClass, K.KIT_NARROW, r.detail); assert.equal(count(chestOf(w), 'iron_ingot'), 11)
+  const items = w.bag.filter(Boolean)
+  const o = toolkitOrder({ now: 1e9, atTown: true, items, container: true, townMiss: d => S.townKitIronMiss(w.bot, d), tableNear: () => true, room: () => true, state: {} })
+  assert.deepEqual(o.order?.args, { credit: 0, n: 1 }, 'the holder is not held back from the pickaxe\'s 4 sticks')
+  const r2 = await S.SKILLS.toolkit.run({ bot: w.bot, kitCraft: fakeCraft(w) }, o.order.args, new AbortController().signal)
+  assert.equal(r2.status, 'success', r2.detail); assert.equal(count(w.bag, 'iron_pickaxe'), 1)
+  assert.equal(count(chestOf(w), 'iron_ingot'), 8); assert.equal(count(chestOf(w), 'stick'), 0)
+}
+await t('SKILL, STICKS SHORT FOR THE WHOLE KIT (Codex r2 P2): no_sticks for 8 narrows to the pickaxe (4), which the next order draws and makes', () => stickNarrowScene())
 async function sticksOnlyScene (S = S0) {
   // the credit covers the pickaxe's iron (an earlier run drew it); the bag has no sticks, the chest holds sticks and 2 ingots
   const w = withServer(town([T('iron_pickaxe', 30), ...KIT_HELD(), stack('iron_ingot', 3), stack('crafting_table', 1)], [stack('stick', 20), stack('iron_ingot', 2)]))
@@ -447,7 +479,9 @@ await t('MUTANTS: each removes one part of ironpick-01 and a behaviour test abov
     '(needs.length ? [needs.length] : [])',
     M => killedBy(() => { assert.deepEqual(M.toolkitOrder({ ...base, items: [T('stone_pickaxe', 100), stack('stick', 9)], townMiss: d => d.ingots > 3, room: () => true }).order?.args, { credit: 0, n: 1 }) }))
   // the narrow outcome gone: the whole-kit miss backs off 30 min although the pickaxe's draw is there
-  kills.noNarrow = await withMutant(SKILLS_PATH, "if (TOOLKIT_IRONPICK.on && draw.needs[0] === 'iron_pickaxe' && draw.needs.length > 1 && !townKitIronMiss(", 'if (false && !townKitIronMiss(', S => killedBy(() => narrowScene(S)))
+  kills.noNarrow = await withMutant(SKILLS_PATH, "        if (narrow) {\n          return out('failed', 'narrow',", "        if (false) {\n          return out('failed', 'narrow',", S => killedBy(() => narrowScene(S)))
+  // the hold-back by quantity gone (any recorded holder held back): the pickaxe prefix never sees the 4-stick holder
+  kills.stickQty = await withMutant(SKILLS_PATH, 'if (until > Date.now() && kitStickHeld(bot.kitNoSticksHad?.get(k), d, mk)) held.add(k)', 'if (until > Date.now()) held.add(k)', S => killedBy(() => stickNarrowScene(S)))
   // iron_seen on a sticks-only draw
   kills.seenAlways = await withMutant(SKILLS_PATH, 'if ((got?.took?.iron_ingot ?? 0) > 0) st.ironSeen = ', 'st.ironSeen = ', S => killedBy(() => sticksOnlyScene(S)))
   const survived = Object.entries(kills).filter(([, k]) => !k).map(([n]) => n)

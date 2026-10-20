@@ -111,6 +111,7 @@ export const KIT_IRON_NEED = 'kit_iron'
 export const TOOLKIT_COOLDOWN_MS = 10 * 60 * 1000
 export const TOOLKIT_BACKOFF_MS = 30 * 60 * 1000
 
+const BAG_SLOTS = 36
 const held = (items, name) => list(items).reduce((n, it) => n + (it.name === name ? (it.count ?? 0) : 0), 0)
 
 /** The kit tools this bag has no USABLE copy of (a spent copy is a consumable toolfor uses up first: not "held"); the iron
@@ -304,6 +305,21 @@ export const kitPrefixes = (needs = [], { ironpick = TOOLKIT_IRONPICK.on } = {})
 /** A whole-town no_iron for the run's draw that a SMALLER prefix may still meet: `narrow`, no backoff (the next order takes the
  *  prefix), capped with `more` by KIT_MORE_MAX. Its failClass: */
 export const KIT_NARROW = 'kit_search_narrow'
+/**
+ * DOES THIS RUN END `narrow`? -> bool. Pure. Only a pickaxe draw of more than one tool, with TOOLKIT_IRONPICK on, whose search
+ * ended no_iron or no_sticks (Codex r2 P2: a whole-kit stick shortage must not hide a pickaxe-only draw the town can give),
+ * while the pickaxe's own prefix is still meetable (`prefixMet`: its draw needs no iron -- the credit covers it, Claude r2 P3 --
+ * or the town search still has a candidate for it).
+ */
+export const kitNarrows = ({ on = TOOLKIT_IRONPICK.on, needs = [], outcome = '', prefixMet = false } = {}) =>
+  !!on && needs[0] === 'iron_pickaxe' && needs.length > 1 && (outcome === 'no_iron' || outcome === 'no_sticks') && !!prefixMet
+/**
+ * IS A HOLDER THAT LACKED THE STICKS STILL HELD BACK FOR THIS DRAW? -> bool. Pure (Codex r2 P2). `had`: the sticks it held
+ * when it was skipped (null: not recorded -- held, the base rule). Held while what it had plus what the bag's wood makes is
+ * short of this draw's sticks: a holder skipped for the whole kit's 8 is not held back from the pickaxe's 4.
+ */
+export const kitStickHeld = (had, draw = {}, sticksMakeable = 0) =>
+  had == null || !Number.isFinite(Number(had)) || Number(had) + (Number(sticksMakeable) || 0) < (Number(draw.sticks) || 0)
 
 export function toolkitOrder ({ now = 0, on = TOOLKIT.on, ironpick = TOOLKIT_IRONPICK.on, atTown = false, items = [], credit = 0, container = false, townMiss = false,
                                 room = true, tableNear = false, state = {} } = {}) {
@@ -318,7 +334,12 @@ export function toolkitOrder ({ now = 0, on = TOOLKIT.on, ironpick = TOOLKIT_IRO
   const missFor = dk => (typeof townMiss === 'function' ? townMiss(dk) : townMiss)
   // ironpick-01: room for the tools too, even when the credit covers the draw (Claude r1 P3: the credit-only run made tools
   // into a bag never checked); off: the base condition exactly
-  const roomFor = dk => !((dk.ingots > 0 || dk.sticks > 0 || (ironpick && dk.needs.includes('iron_pickaxe'))) && typeof room === 'function' && !room(dk))
+  const roomFor = dk => {
+    // A CREDIT-ONLY PICKAXE RUN visits no chest, so no room can be MADE for it (Codex r2 P2): the bag's empty slots must
+    // already take every tool it makes
+    if (ironpick && dk.needs.includes('iron_pickaxe') && dk.ingots === 0 && dk.sticks === 0) return BAG_SLOTS - list(items).length >= dk.needs.length
+    return !((dk.ingots > 0 || dk.sticks > 0) && typeof room === 'function' && !room(dk))
+  }
   let d = null, tabled = false
   for (const k of kitPrefixes(full.needs, { ironpick })) {
     const dk = k === full.needs.length ? full : kitDraw(items, { credit, ironpick, limit: k })
@@ -375,7 +396,7 @@ export function toolkitOutcome (status, now = 0, state = {}, failClass = null) {
   if (DECLINED.has(failClass)) { s.lastIssuedAt = -Infinity; return s }   // refunded: the runner never started it
   // a search cut by its budget with candidates left (kitSearchEnd `more`) is no answer about the town: only the cooldown --
   // up to KIT_MORE_MAX in a row, then it backs off too (and the streak starts over)
-  if (failClass === KIT_NARROW) failClass = [...KIT_NO_BACKOFF][0]   // ironpick-01: `narrow` is a `more` for the backoff and its cap
+  if (failClass === KIT_NARROW) failClass = 'kit_search_more'   // ironpick-01: `narrow` is a `more` for the backoff and its cap
   const more = status === 'failed' && KIT_NO_BACKOFF.has(failClass)
   s.moreStreak = more ? (s.moreStreak ?? 0) + 1 : 0
   if (status === 'failed' && (!more || s.moreStreak > KIT_MORE_MAX)) { s.backoffUntil = now + TOOLKIT_BACKOFF_MS; if (more) s.moreStreak = 0 }
