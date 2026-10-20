@@ -15,11 +15,15 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.abspath(os.path.join(HERE, '..', '..'))
 
 MUTANTS = [
+    ('showcaseproxy.py', "        if not save_handoff(True):\n            logline(status='ack-withheld', reason='could not persist the handoff marker')\n            return\n",
+     "        save_handoff(True)\n", 'test_marker_persistence_failure_means_no_ack'),
+    ('showcaseproxy.py', "            if not save_handoff(False):\n                return 'handoff marker could not be removed', False, STATE['inflight']\n",
+     "            save_handoff(False)\n", 'test_marker_removal_failure_keeps_admission_closed'),
     ('showcaseproxy.py', "        STATE['handed_off'], STATE['epoch_unloaded'] = True, True\n        logline(status='handoff-restored'",
      "        pass\n        logline(status='handoff-restored'", 'test_restart_during_a_handed_off_pause_never_unloads'),
-    ('showcaseproxy.py', "            STATE['handed_off'], STATE['epoch_unloaded'], STATE['sig'] = False, False, None\n            save_handoff(False)\n            withdraw_ack()\n",
+    ('showcaseproxy.py', "            STATE['handed_off'], STATE['epoch_unloaded'], STATE['sig'] = False, False, None\n            withdraw_ack()\n",
      "            pass\n", 'test_resumed_admission_ends_the_handoff'),
-    ('showcaseproxy.py', "        STATE['handed_off'] = True\n", "        pass\n",
+    ('showcaseproxy.py', "        STATE['handed_off'] = True\n        tmp = A.quiesced_file", "        tmp = A.quiesced_file",
      'test_no_unload_after_a_handoff_that_needed_none'),
     ('showcaseproxy.py', "        if STATE['inflight'] or pause_signature(A.pause_file, A.pause_dir, STATE.get('bench_proc')) != sig:",
      "        if STATE['inflight']:", 'test_reservation_replaced_during_the_probes_gets_no_ack'),

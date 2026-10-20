@@ -417,6 +417,62 @@ class QuiesceTransitions(unittest.TestCase):
         SP.mark_quiesced(now=2100.0)
         self.assertFalse(os.path.exists(SP.handoff_path()))
 
+    def test_crash_between_marker_and_ack_still_never_unloads(self):
+        # Codex r9: the marker is persisted BEFORE the ack. A crash right after the marker (ack never written) must
+        # still restore the handoff on restart -> no unload of the benchmark's model.
+        self.probe_answer = (False, True)
+        self.write('run-a-1-100')
+        SP.mark_quiesced(now=1000.0)
+        real_replace = SP.os.replace
+        def crash(src, dst):
+            raise KeyboardInterrupt('crash before the ack rename')
+        SP.os.replace = crash
+        try:
+            with self.assertRaises(KeyboardInterrupt):
+                SP.mark_quiesced(now=1031.0)
+        finally:
+            SP.os.replace = real_replace
+        self.assertTrue(os.path.exists(SP.handoff_path()), 'the marker was persisted first')
+        self.assertIsNone(self.ack(), 'the ack never became visible')
+        self.probe_answer = (True, True)                       # the benchmark loads qwen after all
+        SP.STATE.clear(); SP.STATE.update({'inflight': 0})     # restart
+        SP.restore_handoff(SP.is_paused())
+        SP.mark_quiesced(now=2000.0)
+        SP.mark_quiesced(now=2031.0)
+        self.assertEqual(self.unloads, [])
+
+    def test_marker_persistence_failure_means_no_ack(self):
+        SP.A.max_inflight = 4
+        self.write('run-a-1-100')
+        SP.mark_quiesced(now=1000.0)
+        real = SP.save_handoff
+        SP.save_handoff = lambda on: False
+        try:
+            SP.mark_quiesced(now=1031.0)
+            self.assertIsNone(self.ack(), 'no marker -> no ack (fail closed)')
+            os.remove(self.resv)
+            p, _, n = SP.admit()
+            self.assertIsNone(p, 'not handed off yet: admission is unaffected')
+            SP.finish()
+        finally:
+            SP.save_handoff = real
+
+    def test_marker_removal_failure_keeps_admission_closed(self):
+        SP.A.max_inflight = 4
+        self.write('run-a-1-100')
+        SP.mark_quiesced(now=1000.0)
+        SP.mark_quiesced(now=1031.0)
+        self.assertIsNotNone(self.ack())
+        os.remove(self.resv)
+        real = SP.save_handoff
+        SP.save_handoff = lambda on: on                       # removal (on=False) fails
+        try:
+            p, _, n = SP.admit()
+            self.assertTrue(p, 'a marker that cannot be removed keeps admission closed')
+            self.assertEqual(n, 0)
+        finally:
+            SP.save_handoff = real
+
     def test_admitted_request_blocks_the_ack_and_paused_admission_refuses(self):
         SP.A.max_inflight = 4
         p, full, n = SP.admit()                                # a request admitted BEFORE the pause began

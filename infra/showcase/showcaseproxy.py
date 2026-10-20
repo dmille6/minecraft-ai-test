@@ -267,8 +267,9 @@ def mark_quiesced(now=None):
     with LOCK:
         if not p:
             # The pause is OVER: the next pause is a new epoch, with its own (single) unload.
+            if not save_handoff(False):
+                return            # fail closed: keep the handoff (never unload) until the marker is really gone
             STATE['sig'], STATE['epoch_unloaded'], STATE['handed_off'] = None, False, False
-            save_handoff(False)
             withdraw_ack()
             return
         changed = sig != STATE.get('sig')
@@ -316,15 +317,20 @@ def publish_ack(sig, p):
     with LOCK:                                   # RLock: safe when called with the lock already held
         if STATE['inflight'] or pause_signature(A.pause_file, A.pause_dir, STATE.get('bench_proc')) != sig:
             return
+        # The GPU is handed over: from now until this pause ends, nothing the proxy sees on Ollama is the showcase's,
+        # so unload eligibility CLOSES here even if no unload was needed (Codex r6). ORDER (Codex r9): the handoff is
+        # PERSISTED (and fsynced) BEFORE the ack becomes visible; if it cannot be persisted there is no ack at all.
+        if not save_handoff(True):
+            logline(status='ack-withheld', reason='could not persist the handoff marker')
+            return
+        STATE['epoch_unloaded'] = True
+        STATE['handed_off'] = True
         tmp = A.quiesced_file + '.tmp'
         with open(tmp, 'w') as f:
             f.write(ack_text(sig, time.time()))
+            f.flush()
+            os.fsync(f.fileno())
         os.replace(tmp, A.quiesced_file)         # atomic: a consumer never reads half an acknowledgement
-        # The GPU is handed over: from now until this pause ends, nothing the proxy sees on Ollama is the showcase's,
-        # so unload eligibility CLOSES here even if no unload was needed (Codex r6).
-        STATE['epoch_unloaded'] = True
-        STATE['handed_off'] = True
-        save_handoff(True)
     logline(status='quiesced', paused_by=p)
 
 
@@ -338,15 +344,19 @@ def save_handoff(on):
     could unload a benchmark's model after the grace (Codex r8)."""
     hp = handoff_path()
     if not hp:
-        return
+        return True
     try:
         if on:
             with open(hp, 'w') as f:
                 f.write(time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime()) + '\n')
+                f.flush()
+                os.fsync(f.fileno())
         elif os.path.exists(hp):
             os.remove(hp)
-    except OSError:
-        pass
+        return True
+    except OSError as e:
+        logline(status='handoff-file-error', on=on, error=str(e)[:120])
+        return False
 
 
 def restore_handoff(paused_now):
@@ -373,9 +383,11 @@ def admit():
         if not p and STATE.get('handed_off'):
             # ADMISSION RESUMED: the pause is over even if the 2-s poll has not seen it yet. The handoff, the unload
             # epoch and the old acknowledgement all end HERE, under the admission lock, so a reservation that appears
-            # before the next poll gets a fresh grace and fresh probes (Codex r7).
+            # before the next poll gets a fresh grace and fresh probes (Codex r7). The marker must REALLY be gone
+            # first; if it cannot be removed, admission stays closed (fail closed, Codex r9).
+            if not save_handoff(False):
+                return 'handoff marker could not be removed', False, STATE['inflight']
             STATE['handed_off'], STATE['epoch_unloaded'], STATE['sig'] = False, False, None
-            save_handoff(False)
             withdraw_ack()
         if not p and not full:
             STATE['inflight'] += 1
