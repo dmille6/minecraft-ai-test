@@ -529,3 +529,54 @@ Codex 2 (P2, lapsed KEEP): ACCEPTED. At intent.at + 24 h a note is first durably
   pickup, a tidy_return that must do nothing.
 Codex 3 (P3, F6 2 min): ACCEPTED. F6 and FOUND-KILL use the renewed `until` + 60 s and an accepted `expired` transition.
 Claude 1 (P3, renewal generations): ACCEPTED. The plan's `until` is renewed only after more than half the TTL has passed.
+
+======================================================================================================================
+ROUND 7 (r7 doc, commit a3a512d1, confirmation) -- Codex CHANGE (one P2), Claude CHANGE (the same P2)
+======================================================================================================================
+--- Codex, verbatim ---
+VERDICT: CHANGE
+
+Round-6 findings:
+
+- **Codex 1 — RESOLVED for the reported cases.** §7.3 now reconciles the active leg using canonical slot identity. A return to the original source slot can close successfully, and same-name destination occupation with the carry still present selects another target. Both have explicit Paper scenes. The replacement rule introduces a separate custody problem below.
+- **Codex 2 — RESOLVED.** At `intent.at + 24 h`, the note must durably become `expired-unresolved` before its KEEP lapses. Automatic recovery permanently refuses that state, including after replacement items arrive. T5 agrees.
+- **Codex 3 — RESOLVED.** F6 uses the renewed `until`, the 60-second margin, an accepted expiry transition, and world observation. FOUND-KILL uses the same recovery timing.
+- **Claude 1 — RESOLVED.** §4.6 limits reservation renewal publications to after more than half the TTL has passed, reducing generation churn while retaining lease checks and reservation revalidation.
+
+Numbered NEW findings:
+
+1. **P2 — §7.3, bag-authoritative reconciliation: passive pickups can impersonate an unfinished carry.**
+
+   The assertion “Only tidy changes the bag’s count … while the KEEP holds” is false. KEEP prevents other orders from spending items; it does not prevent server pickups. This is explicitly recognized by `withdrawpick.mjs`’s transfer accounting and `smeltjob.mjs`’s `pickedUp` balance input; `pickuplog.mjs` records passive collections.
+
+   Concrete sequence:
+
+   - Withdraw n items and persist the bag→destination leg.
+   - Successfully deposit n, then interrupt before persisting confirmation.
+   - During the same connection, without death or KEEP expiry, passively collect n more of that name.
+   - Recovery sees bag=n and destination=n. The new table declares that the leg **did not happen**, treats the destination as occupied by another bot, and transfers the replacement items through a fallback leg.
+
+   Thus session continuity, KEEP, and the final bag count still do not establish custody. The `more than n` row misses this case because the replacement arrives after the original carry leaves. Likewise, a pickup of n after the initial intent but before withdrawal can satisfy the first reconciliation row without a source debit.
+
+   **Concrete fix:** track non-tidy inventory arrivals from before the first click through closure. Any pickup of the carried name—or a gap in authoritative inventory tracking—must invalidate automatic reconciliation and persist `unresolved`, regardless of the eventual count. Restore explicit source-debit verification for withdrawal; bag count alone cannot confirm it. Add Paper scenes for same-name/same-count pickup **before withdrawal** and **after successful deposit but before confirmation**, with no death, reconnect, or expiry. Neither may transfer the replacement items.
+
+The remaining checks did not reveal another P1/P2. The allocation totals match `homes.json`, and workshop counts reproduce 13/14/16. Drain populations remain separated and scope narrowing remains deferred. Index observation IDs, empty-slot transfers, search prerequisites, READY/annex coverage, CAS acceptance, conditional third-container relief, canary exposure arithmetic, and O9’s explicit waiver remain consistent with the reviewed design and code.
+
+No files were edited.
+
+--- Claude round 7, condensed ---
+VERDICT: CHANGE (APPROVE withdrawn for one P2). Round-6 P3 RESOLVED; legs, expired-unresolved, F6/FOUND-KILL/T5 checked.
+1 P2 7.3: "only tidy changes the bag's count while the KEEP holds" is false: milestone smelt burns bag coal and smelts bag
+  raw ores, compost inserts saplings/seeds, found_store/builder/paths place build items, hygiene sheds ballast. A consumer
+  emptying the carry plus another bot's deposit filling the empty home slot with the same name can falsely close the note.
+  Fix: enforce the KEEP in every bag-removal path with one exported check + source assertions, OR close a bag-0 note only
+  with a VERIFIED transfer record for this operation into that slot; Paper: carry coal, interrupt, milestone smelt, return.
+
+--- Disposition (r8, commit 7b501860) ---
+Codex 1 / Claude 1 (bag not authoritative): ACCEPTED. An in-memory custody WATCH on the carried name (mineflayer
+  updateSlot) from before the first click to `closed`: changes inside tidy's own townMove clicks are tidy's; any other
+  change (pickup, smelt or craft use, placement, toss, shed) or any gap (restart, disconnect, death) turns the note
+  `unresolved` at once, persisted, with nothing moved afterwards. Within a clean watch the bag is authoritative, and each
+  leg also has its own verification record (leg 1 needs a SOURCE DEBIT). Paper: same-name same-count pickup before the
+  withdraw and after the deposit (both unresolved, nothing moved); a coal carry burned by a milestone smelt (must not
+  close).
