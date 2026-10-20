@@ -57,6 +57,7 @@ import { bestToolCopy, roomPlan, roomKeep, roomCandidates, allocate, pickTakes, 
 import { TOOLKIT, KIT, KIT_IRON_NEED, TOWN_IRON_KEEP, kitDraw, kitTakes, kitNeeds, kitMeans, creditAfter, toolkitRow, toolkitArgs, toolsTag,
   KIT_SEARCH_VISITS, KIT_CRAFT_RESERVE_MS, kitVisitStep, kitSearchEnd, kitSearchRow, kitIronNeed, kitIronMissNeeds, kitSticksAtRisk,
   KIT_NO_STICKS_SKIP_MS } from './toolkit.mjs'
+import { INDEXSEARCH, KITSTICKS, indexSearchCounts, mergeSearchCounts, firstFromIndex, indexSearchRow, kitStickTake, KIT_STICK_VISITS, KIT_STICK_IRON_RESERVE_MS } from './indexsearch.mjs'   // indexsearch-01
 import { setWithdrawHold, withdrawHolds, releaseWithdrawHold, swapWithdrawHold } from './bankable.mjs'
 import { containerPickMiss, notePickMisses, townPickMissComplete, PICK_MISS_KEY, containerItemMiss, noteItemMisses, townItemMissComplete } from './chestfull.mjs'
 import { serverRecount, lockstepClicks, confirmCursor, clicksInFlight, invalidateClicks } from './craftsync.mjs'
@@ -10968,8 +10969,22 @@ function townSearchView (bot, needs, tried = new Set()) {
       if (Number.isFinite(m)) misses[need][k] = m
     }
   }
+  // indexsearch-01: the town index's KNOWN, fresh holdings of each need it can count rank their containers first (tier 0) --
+  // positive evidence only; a newer journal count wins, and a later miss still rules the container out (townSearchOrder)
+  if (INDEXSEARCH.on) {
+    try { Object.assign(counts, mergeSearchCounts(counts, indexSearchCounts(townIndexEntries(bot), containers.map(c => c.k), needs, now))) } catch { /* the journal's counts stand */ }
+  }
   return { containers, counts, misses, tookAt, skip, byKey, now, coverage: !!sc.coverage }
 }
+/** indexsearch-01's change row: one per search pass (`by` the caller), at the pass's end; its duration spans the pass. */
+function indexSearchPassRow (bot, f, t0) {
+  try { logEvent({ kind: 'index_search', status: f.took ? 'success' : 'no_effect', snapshot: snapshot(bot), durationMs: Math.max(0, Date.now() - t0), detail: indexSearchRow(f) }) } catch { /* telemetry */ }
+}
+/** What the search's first view says about the index (for the row) -> { town, cand, ix, first }. Pure over townSearchNext's. */
+const indexSearchHead = (next, need) => ({
+  town: next.view.containers.length, cand: next.order.length,
+  ix: next.order.filter(o => o.tier === 0 && next.view.counts?.[need]?.[o.k]?.src === 'ix').length,
+  first: !next.order.length ? '-' : firstFromIndex(next.order, next.view.counts, need) ? 'ix' : next.order[0].tier === 0 ? 'journal' : 'near' })
 /** The next container to look in for `needs` -> { block, order, view } (block null: none left). Re-ranked from where the
  *  bot stands now, after every visit. */
 function townSearchNext (bot, needs, tried, want = {}, { missTtl = SEARCH_MISS_TTL_MS } = {}) {
@@ -11134,6 +11149,50 @@ async function withdrawPickRun (ctx, signal, tried, st, finish) {
  *      (toolkit.mjs creditAfter), so a failed craft never draws twice.
  * Never a trip; never the model's choice; never displaces a ready milestone step (the order is placed after them all).
  */
+/**
+ * KITSTICKS (indexsearch-01; design 7.7 / 8 K1) -> { took, visits, unsettled }. The kit's sticks, drawn BEFORE its iron when the
+ * bag cannot make them (kitSticksAtRisk): the town search for `stick` (the journal counts sticks; the index ranks too), up to
+ * KIT_STICK_VISITS containers, never inside the crafts' reserve plus the iron search's KIT_STICK_IRON_RESERVE_MS, each visit
+ * withdraw's own (the room plan, the server-verified transfer, the withdraw hold: deposit never banks them straight back). A
+ * container with none is the ingredient miss withdraw_pick reads too. Its visits are its OWN list (the kit row's tried= and
+ * maxrep= stay the iron search's). One `_kit_sticks` row.
+ */
+async function kitSticksPass (ctx, signal, deadline, keep, want) {
+  const { bot } = ctx
+  const t0 = Date.now()
+  const pc = passClock(deadline, KIT_CRAFT_RESERVE_MS + KIT_STICK_IRON_RESERVE_MS)
+  const passTried = new Set(), tried = []
+  let left = Math.max(0, Number(want) || 0), took = 0, unsettled = null
+  const decide = (inChest, bag, { chestEmpty }) => {
+    const n = kitStickTake(inChest, left)
+    return n > 0 ? decideTakes([{ name: 'stick', count: n }], inChest, bag, chestEmpty, keep) : null
+  }
+  let next = townSearchNext(bot, ['stick'], passTried)
+  const head = indexSearchHead(next, 'stick')
+  let hit = 0
+  try {
+    while (tried.length < KIT_STICK_VISITS && left > 0 && next.block && pc.msLeft(Infinity) >= WITHDRAW_VISIT_MIN_MS) {
+      check(signal)
+      const cb = next.block
+      const ixPick = firstFromIndex(next.order, next.view.counts, 'stick')
+      const v = await withdrawVisit(ctx, cb, decide, signal, pc.msLeft, pc.deadline - 2_000)
+      for (const k of halvesOf(bot, cb.position, true)) passTried.add(k)
+      tried.push(`${posKey(cb.position)}:${v.result?.failClass ?? v.result?.status ?? v.skip ?? 'none'}`)
+      const step = kitVisitStep(v)
+      if (v.result && step !== 'took') searchFailSkip(bot, cb, v.result.failClass)
+      if (step === 'took') { const n = v.moved?.took?.stick ?? 0; took += n; left = Math.max(0, left - n); if (n > 0 && ixPick) hit = 1 }
+      else if (step === 'stop') { unsettled = v.result; break }
+      else if (step === 'miss' && ingredientNeedsAbsent(v.saw ?? []).includes('stick')) {
+        updateTownMemory(townDir(), homeTownKey(), bot.worldId ?? null, e => noteIngredientMisses(e, halvesOf(bot, cb.position, v.double), ['stick']))
+      }
+      next = townSearchNext(bot, ['stick'], passTried)
+    }
+  } finally {
+    try { logEvent({ kind: 'kit_sticks', status: took > 0 ? 'success' : 'no_effect', snapshot: snapshot(bot), durationMs: Date.now() - t0, detail: `want=${want} took=${took} left=${left} cand=${head.cand} first=${head.first} visits=${tried.length} tried=[${tried.join(';')}]`.slice(0, 300) }) } catch { /* telemetry */ }
+    indexSearchPassRow(bot, { by: 'kit_sticks', need: 'stick', ...head, visits: tried.length, took: took > 0 ? 1 : 0, hit, tried }, t0)
+  }
+  return { took, visits: tried.length, unsettled }
+}
 async function toolkit (ctx, args, signal) {
   const { bot } = ctx
   const items = () => bot.inventory?.items?.() ?? []
@@ -11163,6 +11222,7 @@ async function toolkit (ctx, args, signal) {
     if (st.searchT1 == null) { Object.assign(st.search, searchTally(tried), { left: -1 }); st.searchT1 = Date.now() }
     logEvent({ kind: 'kit_search', status, snapshot: snapshot(bot), durationMs: Math.max(0, st.searchT1 - st.searchT0),
       detail: kitSearchRow({ outcome, ...st.search, tried }) })
+    if (st.ix) { try { logEvent({ kind: 'index_search', status: st.ix.took ? 'success' : 'no_effect', snapshot: snapshot(bot), durationMs: Math.max(0, st.searchT1 - st.searchT0), detail: indexSearchRow({ ...st.ix, visits: st.search.visits ?? tried.length, tried }) }) } catch { /* telemetry */ } }
   }
   const row = status => {
     written = true
@@ -11178,7 +11238,7 @@ async function toolkit (ctx, args, signal) {
   }
   try {
     if (!TOOLKIT.on) return out('no_effect', 'off', 'the toolkit is switched off (TOOLKIT=off)')
-    const draw = kitDraw(items(), { credit: creditIn })
+    let draw = kitDraw(items(), { credit: creditIn })
     st.needs = draw.needs
     if (!draw.needs.length) return out('no_effect', 'nothing', 'already carrying a usable iron axe and a usable iron shovel')
     // ---- 1. the draw
@@ -11202,6 +11262,13 @@ async function toolkit (ctx, args, signal) {
       // not the sticks this bag cannot make (bot.kitNoSticks), or one the town shut -- re-ranked after every visit, at most
       // KIT_SEARCH_VISITS, and never inside the crafts' reserve of the clock. A draw of sticks only (the credit covers the
       // iron) searches for sticks, which the journal counts.
+      // KITSTICKS (indexsearch-01; design 7.7 / 8 K1): a bag that cannot make the kit's sticks draws them FIRST, from whichever
+      // town container holds them (the town search for `stick`), so the iron may come from a container holding none
+      if (KITSTICKS.on && draw.ingots > 0 && kitSticksAtRisk(draw, kitMeans(items(), { tableNear }).sticksMakeable)) {
+        const sp = await kitSticksPass(ctx, signal, deadline, keep, draw.sticks)
+        if (sp.unsettled) { st.stop = 'stick_draw_unsettled'; return out('failed', 'draw_failed', sp.unsettled.detail, sp.unsettled.failClass ?? 'kit_draw') }
+        if (sp.took > 0) draw = kitDraw(items(), { credit: creditIn })   // the sticks are in the bag now: the iron's container need not hold them
+      }
       const need = draw.ingots > 0 ? kitIronNeed(draw.ingots) : 'stick'
       const pc = passClock(deadline, KIT_CRAFT_RESERVE_MS)
       const kitTried = new Set()
@@ -11215,10 +11282,13 @@ async function toolkit (ctx, args, signal) {
       st.searchT0 = Date.now()
       let next = townSearchNext(bot, [need], kitTried)
       st.search = { need, town: next.view.containers.length, cand: next.order.length, visits: 0, vfail: 0, maxrep: 0, left: next.order.length }
+      st.ix = { by: 'toolkit', need, ...indexSearchHead(next, need), hit: 0, took: 0 }   // indexsearch-01's row (written with the kit's own)
       for (let n = 0; n < KIT_SEARCH_VISITS && next.block && pc.msLeft(Infinity) >= WITHDRAW_VISIT_MIN_MS; n++) {
         check(signal)
         const cb = next.block
+        const ixPick = firstFromIndex(next.order, next.view.counts, need)
         const v = await withdrawVisit(ctx, cb, decide, signal, pc.msLeft, pc.deadline - 2_000)
+        if (kitVisitStep(v) === 'took' && st.ix) { st.ix.took = 1; st.ix.hit = ixPick ? 1 : 0 }
         // ONE ENTRY PER CONTAINER, opened or not: a double chest's other half is the same container (the view keys it once,
         // and its partner comes from the block state -- the old sweep marked it only after a window opened, so a walled-in
         // or lidded double chest spent two of the three tries)
@@ -12062,10 +12132,16 @@ async function jobWithdraw (ctx, { copper = 0, coal = 0 }, signal) {
     const pc = passClock(deadline, reserveMs)
     const passTried = new Set()
     let next = townSearchNext(bot, [need], passTried, {}, { missTtl })
+    // indexsearch-01's row for this pass (written in the finally: an abort or a throw writes it too)
+    const ix = { by: 'smelt_town', need, ...indexSearchHead(next, need), visits: 0, took: 0, hit: 0, tried: [] }, ixT0 = Date.now()
+    try {
     for (let n = 0; n < visits && want() && next.block && pc.msLeft(Infinity) >= WITHDRAW_VISIT_MIN_MS; n++) {
       check(signal)
       const cb = next.block
+      const ixPick = firstFromIndex(next.order, next.view.counts, need)
+      ix.visits++; ix.tried.push(posKey(cb.position))
       const v = await withdrawVisit(ctx, cb, decide, signal, pc.msLeft, pc.deadline - 2_000)
+      if (v.result?.status === 'success' && v.verified && Object.keys(v.moved?.took ?? {}).some(nm => nm === need || (need === SMELT_JOB_FUEL && JOB_FUELS.includes(nm)))) { ix.took = 1; ix.hit = ixPick ? 1 : 0 }
       for (const k of halvesOf(bot, cb.position, true)) passTried.add(k)
       out.looked++
       out.tried.push(`${posKey(cb.position)}:${v.result?.failClass ?? v.result?.status ?? v.skip ?? 'none'}`)
@@ -12096,6 +12172,7 @@ async function jobWithdraw (ctx, { copper = 0, coal = 0 }, signal) {
       next = townSearchNext(bot, [need], passTried, {}, { missTtl })
     }
     return want() && next.order.length > 0   // cut with candidates left
+    } finally { indexSearchPassRow(bot, ix, ixT0) }
   }
   // 0. NO COAL ANYWHERE IN TOWN (the coal search has no candidate: every container a live coal miss, out of this bot's search,
   //    or shut, over a town wholly in view): no copper is taken only to be put back (489 of 516 no_fuel jobs did that, 10-19)
