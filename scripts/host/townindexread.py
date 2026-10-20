@@ -21,8 +21,9 @@
 #   D2 malformed_obs    an observation whose slots do not add up (sum of per-name slots != used, used > size, a size that is not
 #                       27 or 54, a count or slot count < 1, or a count below its slot count)
 #   D3 xfer_unjoined    a VERIFIED transfer (ok=1) whose pre-state (`pre`) or verifying re-open (`ver`) is not an observation of
-#                       the same container on disk (judged only for transfers after the newest rotation + 120 s: a rotation
-#                       folds older observations into its checkpoint)
+#                       the same container on disk. When a rotation at or after the transfer (less 120 s) could have folded the
+#                       observation away, a missing one is INCONCLUSIVE (xfer_unjudged, reported), never a pass by omission and
+#                       never a defect (Codex code r1 P2: a later rotation must not erase an earlier failure, nor fake one)
 #   D4 xfer_unseen      a verified transfer whose re-open shows less of the name than the transfer moved (verifyTown credits a
 #                       stack only if its slot holds it exactly)
 #   ARMS                control index records, `_townindex_mode` or `_townindex_count` after the deploy (must be 0); an earlier
@@ -135,7 +136,7 @@ def read_index(root='/var/lib/mcai'):
 
 def judge_index(idx, cans, cut_ms, end_ms, pre_ms):
     """PURE over read_index()'s shape. -> the index's gates and reports."""
-    out = {'outside_town': 0, 'malformed_obs': 0, 'xfer_unjoined': 0, 'xfer_unseen': 0, 'index_control_post': 0, 'index_pre_canary': 0, 'index_pre_control': 0}
+    out = {'outside_town': 0, 'malformed_obs': 0, 'xfer_unjoined': 0, 'xfer_unjudged': 0, 'xfer_unseen': 0, 'index_control_post': 0, 'index_pre_canary': 0, 'index_pre_control': 0}
     lists = defaultdict(list)
     obs_by_pool = Counter(); xfer_v = Counter(); xfer_u = Counter(); dirty_by_pool = Counter()
     states = {}
@@ -143,13 +144,13 @@ def judge_index(idx, cans, cut_ms, end_ms, pre_ms):
         arm = 'canary' if pool in cans else 'control'
         # the observations by id, per directory (a town), for the joins
         by_id = {}
-        last_ckpt = defaultdict(lambda: -1)
+        ckpts = defaultdict(list)
         for it in items:
             r = it['rec']
             if r.get('t') == 'obs' and r.get('id'):
                 by_id[(it['dir'], r['id'])] = r
             if r.get('t') == 'ckpt':
-                last_ckpt[it['dir']] = max(last_ckpt[it['dir']], int(r.get('at') or 0))
+                ckpts[it['dir']].append(int(r.get('at') or 0))
                 for wm in (r.get('worlds') or {}).values():
                     for e in (wm or {}).values():
                         o = (e or {}).get('obs')
@@ -190,17 +191,19 @@ def judge_index(idx, cans, cut_ms, end_ms, pre_ms):
             elif t == 'xfer':
                 if r.get('ok') == 1:
                     xfer_v[pool] += 1
-                    if at > last_ckpt[it['dir']] + ROT_GRACE_MS:
-                        pre = by_id.get((it['dir'], r.get('pre'))); ver = by_id.get((it['dir'], r.get('ver')))
-                        same = lambda o: o is not None and (o.get('k') in (None, r.get('k')))
-                        if not (same(pre) and same(ver)):
-                            out['xfer_unjoined'] += 1
-                            lists['unjoined'].append((pool, r.get('k'), r.get('op'), bool(pre), bool(ver)))
-                        elif ver is not None:
-                            held = ((ver.get('names') or {}).get(r.get('name')) or [0, 0])[0]
-                            if held < (r.get('n') or 0):
-                                out['xfer_unseen'] += 1
-                                lists['unseen'].append((pool, r.get('k'), r.get('name'), r.get('n'), held))
+                    pre = by_id.get((it['dir'], r.get('pre'))); ver = by_id.get((it['dir'], r.get('ver')))
+                    same = lambda o: o is not None and (o.get('k') in (None, r.get('k')))
+                    wrong = lambda o: o is not None and o.get('k') not in (None, r.get('k'))
+                    if same(pre) and same(ver):
+                        held = ((ver.get('names') or {}).get(r.get('name')) or [0, 0])[0]
+                        if held < (r.get('n') or 0):
+                            out['xfer_unseen'] += 1
+                            lists['unseen'].append((pool, r.get('k'), r.get('name'), r.get('n'), held))
+                    elif not wrong(pre) and not wrong(ver) and any(c >= at - ROT_GRACE_MS for c in ckpts[it['dir']]):
+                        out['xfer_unjudged'] += 1          # a rotation may have folded the observation away: no evidence either way
+                    else:
+                        out['xfer_unjoined'] += 1
+                        lists['unjoined'].append((pool, r.get('k'), r.get('op'), bool(pre), bool(ver)))
                 else:
                     xfer_u[pool] += 1
         if arm == 'canary':
@@ -342,7 +345,13 @@ def selftest():
     assert run(I('board-a', [good(), good(i='o2'), x()]))['xfer_unjoined'] == 0, 'D3 control'
     assert run(I('board-a', [good(), x(ok=0)]))['xfer_unjoined'] == 0, 'D3: unverified transfers are not joined'
     ck = {'t': 'ckpt', 'at': T0 + 4950, 'worlds': {}}
-    assert run(I('board-a', [ck, good(), x()]))['xfer_unjoined'] == 0, 'D3: within the rotation grace it is not judged'
+    j = run(I('board-a', [ck, good(), x()]))
+    assert j['xfer_unjoined'] == 0 and j['xfer_unjudged'] == 1, ('D3: a rotation after it -> inconclusive, reported', j)
+    late = run(I('board-a', [{'t': 'ckpt', 'at': T0 + 900_000, 'worlds': {}}, good(), x()]))
+    assert late['xfer_unjoined'] == 0 and late['xfer_unjudged'] == 1, 'D3: a LATER rotation makes a missing join inconclusive, never a pass'
+    early = run(I('board-a', [{'t': 'ckpt', 'at': T0 - 900_000, 'worlds': {}}, good(), x()]))
+    assert early['xfer_unjoined'] == 1, 'D3: a rotation long BEFORE the transfer cannot excuse it'
+    assert run(I('board-a', [ck, good(), good(i='o2', k='4,64,0'), x()]))['xfer_unjoined'] == 1, "D3: another container's re-open is a defect whatever the rotations"
     ck2 = {'t': 'ckpt', 'at': T0 + 4000, 'worlds': {'null': {'3,64,0': {'obs': {'id': 'o2', 'at': T0 + 3999, 'names': {'coal': [5, 1]}, 'size': 27, 'used': 1}}}}}
     assert run(I('board-a', [ck2, good(), x(at=T0 + 200_000)]))['xfer_unjoined'] == 0, 'D3: a checkpoint observation joins'
     # D4: the re-open shows less than moved
@@ -480,8 +489,8 @@ if __name__ == '__main__':
     print('ARMS         control index records after the deploy %d, control licence/change rows %d (must be 0) | before the deploy (an earlier build, not counted) canary %d control %d rows %d'
           % (res['index_control_post'], res['rows_control_post'], res['index_pre_canary'], res['index_pre_control'], res['rows_pre_earlier_build']))
     print('DEFECTS      D1 outside town %d %s | D2 malformed observations %d %s' % (res['outside_town'], res['_lists'].get('outside', []), res['malformed_obs'], res['_lists'].get('malformed', [])))
-    print('             D3 verified transfers not joined to their pre/ver observations %d %s | D4 a re-open showing less than moved %d %s'
-          % (res['xfer_unjoined'], res['_lists'].get('unjoined', []), res['xfer_unseen'], res['_lists'].get('unseen', [])))
+    print('             D3 verified transfers not joined to their pre/ver observations %d %s (inconclusive after a rotation, reported: %d) | D4 a re-open showing less than moved %d %s'
+          % (res['xfer_unjoined'], res['_lists'].get('unjoined', []), res['xfer_unjudged'], res['xfer_unseen'], res['_lists'].get('unseen', [])))
     print('NO HARM      count_town success share (runs with keys) canary %d/%d -> %d/%d control %d/%d -> %d/%d | DiD %s (WATCH below %.2f with z < -2)'
           % (res['ct_ok_pre_canary'], res['ct_runs_pre_canary'], res['ct_ok_post_canary'], res['ct_runs_post_canary'], res['ct_ok_pre_control'], res['ct_runs_pre_control'],
              res['ct_ok_post_control'], res['ct_runs_post_control'], 'null' if res['count_town_ok_did'] is None else '%+.3f (z %s) -> %s' % (res['count_town_ok_did'], 'null' if res['count_town_ok_z'] is None else '%+.2f' % res['count_town_ok_z'], 'ok' if res['count_town_ok'] else 'DOWN'), COUNT_TOL))

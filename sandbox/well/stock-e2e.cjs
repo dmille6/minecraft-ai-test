@@ -937,8 +937,11 @@ scenes.townindex = async () => {
   const kit = rows.filter(r => r.name === '_toolkit' && /^phase=kit /.test(r.detail)), td = rows.filter(r => r.name === '_town_deposit')
   result({ scene: 'townindex', root: BOT_ROOT, ms: Date.now() - t0, rows: rows.map(r => `${new Date(r.ts).toISOString().slice(11, 19)} ${r.name} ${r.status} ${r.detail.slice(0, 160)}`),
     world: { truth }, index: { records: recs.length, obs: obs.length, dirty: dirty.length, xfer: xf.length, xferVerified: xf.filter(r => r.ok === 1).length, report, knownExact, knownWrong, xfBad: xfBad.length, outIndexed, dblOk }, licence,
-    CANDIDATE_PASS: !!(licence >= 1 && kit.length >= 1 && td.length >= 1 && obs.length >= 2 && knownExact >= 1 && knownWrong === 0 && xfBad.length === 0 && !outIndexed && dblOk &&
-      Object.values(report).every(e => ['known', 'dirty'].includes(e.state))),
+    // NOT VACUOUS (Codex code r1 P2): the mutations happened (a kit crafted from drawn iron; a town deposit that banked stacks),
+    // verified transfers exist to be joined, and the double chest was opened -- before the negative assertions mean anything
+    CANDIDATE_PASS: !!(licence >= 1 && kit.some(r => r.status === 'success' && /outcome=crafted /.test(r.detail)) && td.some(r => r.status === 'success' && / banked (?!-)/.test(r.detail)) &&
+      obs.length >= 2 && knownExact >= 2 && knownWrong === 0 && xf.filter(r => r.ok === 1).length >= 1 && xfBad.length === 0 && !outIndexed &&
+      !!report.DBL && dblOk && report.FAR?.state === 'dirty' && Object.values(report).every(e => ['known', 'dirty'].includes(e.state))),
     BASE_SHAPE: !!(licence === 0 && recs.length === 0 && kit.length >= 1 && td.length >= 1) })
 }
 scenes.townsearch = () => townSearchScene('townsearch')
