@@ -101,6 +101,21 @@ mcai-rl02 (recovery-ladder-03) carries the daily copy and status reports, unpush
 
 ---
 
+## 10-20 02:10Z — OWNER: expansion X1-X10 "all yes except for rails"; brain-01 +360 NOT_YET (3 v 5 deaths, held); homefix-01 + E0 building
+
+- **Owner answer (10-19 ~20:10Z, live operator session) to docs/reports/expansion-plan-2026-10-19.md §10:** X1 YES (the 09-30 "no more
+  stuck hunts" rule is lifted for homefix-01 ONLY; tier 3; no 10-15 early close at +360 on a 2-pool arm), X9 YES (homefix-01 takes the
+  first free slot once built + both reviews, never the head; before shaftuse-01 on a tie), X2 YES (expedition-01 before pavilion-01),
+  X3 YES (surface-and-shallow), X4 YES (one per shared town), X5 YES (outposts valuables only), X8 YES, X10 YES (subject to K0).
+  **X6 / X7 (rails) NOT decided** -- ask again at R0 / R0b.
+- **Building now (agents, both reviews each):** homefix-01 (§5) on branch `homefix-on-adbec4f`; E0 frontier census (§4, host-side,
+  read-only, no slot) on branch `frontiercensus-01`. Neither is queued yet.
+- **brain-01 `78fa19d9` (board-c, hive-d, live 16:43Z):** +360 read 22:52Z NOT_YET; death gate HELD (WATCH): 3 canary deaths / 60 bh vs
+  5 control / 300 bh, lower bound 0.63x. Deaths: hive-d-Delta drowned idle 16:45 (2 min after deploy), board-c-Bravo fell 28 blocks in
+  gather 18:56 (after home->aborted), hive-d-Bravo suffocated idle 20:20 (after surface->failed). None linked (no change_rows).
+  brainread at 554 min: gates G1-G8 pass (gemma4 share 99.8% of 6,540 decisions; p95 decision 4.75 s v 4.08 control); success DiD +0.17,
+  stagnant DiD -0.84, items DiD -1.1/bh; exposure_ready 0 (registration needs >= 200 canary bh; 92 bh now -> about +1200, ~12:45Z 10-20).
+
 ## 10-19 16:27Z — GATE v36 (CANARY TIERS) INSTALLED + brain-01 host prerequisites, in ONE window after treefarm-02 (REVERT +180, torn down 15:57Z)
 - **Owner 10-19 ~12:30Z "yes": tiers.** A registration declares `"tier": 2` (the integer, no `class`); ABSENT = tier 3 =
   unchanged. Tier 1 (a constant) = owner-direct rollout + tripwire (no tooling). Tier 2 = small fix with strong Paper
