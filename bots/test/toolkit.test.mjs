@@ -446,7 +446,9 @@ await t('SKILL: an abort INSIDE the transfer credits what moved (withdrawState),
 })
 await t('SKILL: a draw that moved LESS iron than asked crafts only what it funded -- never from the ladder\'s own ingots (Codex r1 P2-2)', async () => {
   // the bag already carries 4 ladder ingots; another bot empties the chest's iron between the plan and the clicks
-  const w = withServer(town([T('iron_pickaxe', 200), stack('iron_ingot', 4), stack('stick', 1)], [stack('iron_ingot', 20), stack('stick', 64)]))
+  // (3 logs in the bag: the bag can make its sticks -- one log's planks go to the table -- so indexsearch-01's KITSTICKS
+  // pre-draw stays out of this scene)
+  const w = withServer(town([T('iron_pickaxe', 200), stack('iron_ingot', 4), stack('stick', 1), stack('oak_log', 3)], [stack('iron_ingot', 20), stack('stick', 64)]))
   // the theft lands AFTER the plan and BEFORE the clicks (transferIn's lockstep): the iron source fails liveSource and is skipped,
   // the sticks move, and the server's bag verifies exactly what moved -- a successful visit that drew no iron
   const chest = w.containers.get('5,64,0')
