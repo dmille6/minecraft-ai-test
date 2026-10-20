@@ -88,6 +88,10 @@ KNOWN_GAPS = (
     ('2026-09-09T00:00:00Z', '2026-09-17T00:00:00Z', ('llm',), 'caveat',
      'llm 2026-09-09..09-16 was BACKFILLED from rotated files (infra/elk/llm-backfill.py), '
      'not shipped live; never reconciled.'),
+    ('2026-10-19T23:00:00Z', '2026-10-20T01:00:00Z', ('skill', 'llm'), 'caveat',
+     '10-19 23:16Z-00:00Z (disk flood stage) was BACKFILLED from the rotated files on 10-20 '
+     '(infra/elk/flood-backfill.py: 41,978 skill + 4,689 llm docs, _id prefix fl261020-) and '
+     'reconciled row-hash exact, file == ES for all 80 bots (docs/reports/es-flood-2026-10-20.md).'),
     ('2000-01-01T00:00:00Z', '2026-10-07T00:00:00Z', ('skill', 'llm'), 'caveat',
      'before 2026-10-07 ES completeness was NOT validated (docs/reports/es-completeness-2026-10-14.md '
      'covers 10-07..10-14); run scripts/host/escheck/run.sh while the files still exist.'),

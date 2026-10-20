@@ -5,6 +5,8 @@ No network, no credentials. Run: python3 scripts/test_fleetstatus.py   (exit 1 o
 """
 import datetime as dt
 import importlib.util
+import contextlib
+import io
 import json
 import os
 import sys
@@ -49,9 +51,33 @@ def fleet_docs(stop_at_hour=20):
     return out
 
 
-def run(docs, windows='3h,24h,2d'):
+def disk_fake(reading_at='2026-10-14T19:25:01Z', alarms=(), blocks=None, missing=False, used=27.2,
+              rate=1.48, days=196.0, empty=False):
+    """The two calls elk_disk() makes: the newest mcai-monitor-disk doc and the index blocks."""
+    calls = []
+
+    def client(method, path, body):
+        calls.append(path)
+        if path.startswith(FS.DISK_INDEX + '/_search'):
+            if missing:
+                raise FS._est.EsError(f'{FS.DISK_INDEX}/_search: HTTP 404: index_not_found_exception')
+            if empty:
+                return {'hits': {'hits': []}}
+            return {'hits': {'hits': [{'_source': {
+                '@timestamp': reading_at, 'host': 'minecraftelk', 'path': '/', 'used_pct': used,
+                'total_gb': 526.0, 'growth_gb_per_day': rate, 'history_h': 167.0, 'proj_pct': 85.0,
+                'days_to_proj_pct': days, 'alarms': list(alarms)}}]}}
+        if '/_settings' in path:
+            return blocks or {}
+        raise AssertionError(f'unexpected disk call {path}')
+    client.calls = calls
+    return client
+
+
+def run(docs, windows='3h,24h,2d', disk=None, stdout=None):
     fake = TE.FakeES(docs)
     real = FS.EsEvents.load
+    FS.DISK_CLIENT = disk or disk_fake()
 
     def load(stream='skill', **kw):
         kw.setdefault('now', NOW)
@@ -62,10 +88,67 @@ def run(docs, windows='3h,24h,2d'):
             json.dump({'cobblestone': 64, 'iron_pickaxe': 1}, fh)
         sys.argv = ['fleetstatus', '--windows', windows, '--now', NOW, '--stack', fh.name,
                     '--json', fh.name + '.out']
-        FS.main()
+        if stdout is not None:
+            with contextlib.redirect_stdout(stdout):
+                FS.main()
+        else:
+            FS.main()
         return json.load(open(fh.name + '.out'))
     finally:
         FS.EsEvents.load = real
+        FS.DISK_CLIENT = None
+
+
+def t_disk_header_healthy():
+    out = io.StringIO()
+    d = run(fleet_docs(), stdout=out)['elk_disk']
+    assert d['alarm'] is False and len(d['lines']) == 1, d
+    assert d['lines'][0].startswith('ELK disk minecraftelk:/ 27.2% of 526.0 GB') and '85% in 196 d' in d['lines'][0], d
+    head = out.getvalue().splitlines()
+    assert head[0].startswith('FLEET STATUS') and head[1].startswith('ELK disk'), head[:3]   # in the HEADER
+
+
+def t_disk_header_repeats_disklow():
+    a = 'DiskLow: / projected to cross 85% in 9.6 days at +4.10 GB/day (fit over 168 h; now 77.5%)'
+    out = io.StringIO()
+    d = run(fleet_docs(), disk=disk_fake(alarms=[a], used=77.5, rate=4.1, days=9.6), stdout=out)['elk_disk']
+    assert d['alarm'] is True and d['lines'][1] == '  !! ' + a, d
+    assert '!! DiskLow: / projected' in '\n'.join(out.getvalue().splitlines()[:4])
+
+
+def t_disk_header_stale_reading_is_an_alarm():
+    d = run(fleet_docs(), disk=disk_fake(reading_at='2026-10-14T16:25:01Z'))['elk_disk']
+    assert d['alarm'] is True and any('STALE (3.6 h old)' in x for x in d['lines']), d
+
+
+def t_disk_header_fresh_twin_is_not_stale():
+    d = run(fleet_docs(), disk=disk_fake(reading_at='2026-10-14T18:25:01Z'))['elk_disk']   # 1.6 h
+    assert d['alarm'] is False and not any('STALE' in x for x in d['lines']), d
+
+
+def t_disk_header_missing_reading_is_an_alarm_not_silence():
+    d = run(fleet_docs(), disk=disk_fake(missing=True))['elk_disk']
+    assert d['alarm'] is True and d['lines'][0].startswith('!! ELK disk: NO READING'), d
+
+
+def t_disk_header_empty_index_is_an_alarm():
+    d = run(fleet_docs(), disk=disk_fake(empty=True))['elk_disk']
+    assert d['alarm'] is True and 'holds no reading' in d['lines'][0], d
+
+
+def t_disk_header_names_a_write_block():
+    blocks = {'.ds-mcai-skill-agents-2026.10.15-000011': {'settings': {'index': {'blocks': {
+        'read_only_allow_delete': 'true'}}}}}
+    d = run(fleet_docs(), disk=disk_fake(blocks=blocks))['elk_disk']
+    assert d['alarm'] is True and d['blocked_indices'] == ['.ds-mcai-skill-agents-2026.10.15-000011'], d
+    assert any('WRITE BLOCK on 1 indices' in x for x in d['lines']), d
+
+
+def t_disk_header_never_breaks_the_report():
+    def broken(method, path, body):
+        raise OSError('network unreachable')
+    rep = run(fleet_docs(), disk=broken)
+    assert rep['elk_disk']['alarm'] is True and rep['windows']['3h']['deaths'] == 1
 
 
 def t_report_numbers():

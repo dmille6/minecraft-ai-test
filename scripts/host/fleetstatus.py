@@ -28,6 +28,13 @@ one document. They do not divide by bots x nominal hours, so a bot that was down
 window is not counted as a quiet one. Every by-pool and by-cause table must sum to the direct
 count. Documents missing exp.pool or fail_class appear as '<missing>' and are never dropped.
 
+ELK DISK HEADER. The report opens with the ELK host's disk, read from the hourly reading
+infra/backup/check-backup.py publishes on 10.0.0.186 (index mcai-monitor-disk), plus any write
+block on the shipped indices. Its DiskLow lines (above 75%, or projected to cross 85% within
+14 days) are repeated here because the same check's DiskPressure alarm printed hourly for
+eight days before the 2026-10-19 flood stage into a log nobody read. A missing or stale
+reading is printed as an alarm line, never as a quiet disk. Report lines only, no paging.
+
 WINDOWS END 5 MINUTES AGO (ingest lag max ~3 min, measured 10-14) and are clipped off 2026-10-07,
 which ES holds duplicate docs for (filebeat re-sends after the 05:01Z crash). Every window
 prints its caveats: rotations crossed (~40-60 skill rows lost each), clipping, validation range.
@@ -44,6 +51,7 @@ from collections import Counter, defaultdict
 
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), '..'))
 from lib.estelemetry import EsEvents, ZeroLooksWrong  # noqa: E402
+from lib import estelemetry as _est  # noqa: E402
 
 ACTIONS = ('gather', 'craft', 'deposit', 'town_deposit')
 FULL_AT = 34
@@ -52,6 +60,60 @@ LAG = dt.timedelta(minutes=5)
 STALE_AFTER = dt.timedelta(minutes=15)
 UNSTACKABLE = re.compile(r'(_pickaxe|_axe|_shovel|_sword|_hoe|_helmet|_chestplate|_leggings|_boots|bucket|'
                          r'shears|flint_and_steel|bow|fishing_rod)$')
+
+
+DISK_INDEX = 'mcai-monitor-disk'
+DISK_STALE = dt.timedelta(hours=2, minutes=30)     # the check runs at :25 every hour
+SHIPPED = 'mcai-skill-agents,mcai-llm-agents,mcai-mc-paper,mcai-sys-journal'
+DISK_CLIENT = None                                  # tests inject; None = estelemetry.http
+
+
+def elk_disk(now, client=None):
+    """Header lines for the ELK host's disk. Never raises: an unreadable reading is itself an
+    alarm line, because a disk check that cannot be read has not passed."""
+    client = client or DISK_CLIENT or _est.http
+    lines, out = [], {'reading': None, 'blocked_indices': [], 'alarm': False}
+    try:
+        r = client('POST', f'{DISK_INDEX}/_search', {'size': 1, 'sort': [{'@timestamp': {'order': 'desc'}}]})
+        hits = r['hits']['hits']
+        if not hits:
+            raise LookupError(f'{DISK_INDEX} holds no reading')
+        d = hits[0]['_source']
+        out['reading'] = d
+        at = dt.datetime.fromisoformat(d['@timestamp'].replace('Z', '+00:00'))
+        age = max(now - at, dt.timedelta(0))     # --now is minute-truncated; a reading can be seconds newer
+        rate = d.get('growth_gb_per_day')
+        trend = (f'{rate:+.2f} GB/day over {d.get("history_h", 0):.0f} h, {d.get("proj_pct", 85):.0f}% in '
+                 f'{d["days_to_proj_pct"]:.0f} d' if rate is not None and d.get('days_to_proj_pct') is not None
+                 else f'{rate:+.2f} GB/day (not growing)' if rate is not None
+                 else f'growth rate not yet known: {d.get("rate_unavailable")}')
+        lines.append(f'ELK disk {d.get("host")}:{d.get("path")} {d.get("used_pct")}% of {d.get("total_gb")} GB '
+                     f'(ES-style used), {trend}; read {at:%m-%d %H:%M}Z, {age.total_seconds() / 3600:.1f} h ago')
+        for x in d.get('alarms') or []:
+            lines.append(f'  !! {x}')
+        if age > DISK_STALE:
+            lines.append(f'  !! ELK disk reading is STALE ({age.total_seconds() / 3600:.1f} h old): the hourly check '
+                         f'on 10.0.0.186 is not running, or ES is refusing its write (flood stage?)')
+        out['alarm'] = bool(d.get('alarms')) or age > DISK_STALE
+    except Exception as e:
+        lines.append(f'!! ELK disk: NO READING ({type(e).__name__}: {str(e)[:160]}) -- not a healthy disk, an '
+                     f'unread one; check /var/log/mcai-monitor/backup-alarm.log on 10.0.0.186')
+        out['alarm'] = True
+    try:
+        st = client('GET', f'{SHIPPED}/_settings?filter_path=*.settings.index.blocks', None)
+        out['blocked_indices'] = sorted(ix for ix, v in (st or {}).items()
+                                        if any(str(b).lower() == 'true' for b in
+                                               ((v.get('settings') or {}).get('index') or {}).get('blocks', {}).values()))
+        if out['blocked_indices']:
+            lines.append(f'  !! WRITE BLOCK on {len(out["blocked_indices"])} indices '
+                         f'({", ".join(out["blocked_indices"][:4])}{" ..." if len(out["blocked_indices"]) > 4 else ""}): '
+                         f'ES is refusing ingest -- the 2026-10-19 flood stage looked exactly like this')
+            out['alarm'] = True
+    except Exception as e:
+        lines.append(f'  !! could not read index blocks ({type(e).__name__}: {str(e)[:120]})')
+        out['alarm'] = True
+    out['lines'] = lines
+    return out
 
 
 def pool_group(p):
@@ -192,6 +254,8 @@ def bag_report(now, stack_path):
 
 def show(rep):
     print(f'FLEET STATUS (Elasticsearch) generated {rep["generated_at"]}  -- analysis only; gates read the files')
+    for line in rep.get('elk_disk', {}).get('lines', []):
+        print(line)
     print(f'names proven in the widest window: {rep["proven"]}')
     for name, w in rep['windows'].items():
         print(f'\n=== last {name}: {w["since"][:16]}Z .. {w["until"][:16]}Z  ({w["docs"]:,} docs, {w["bots"]} bots of '
@@ -235,7 +299,7 @@ def main():
     evs = {w: EsEvents.load('skill', since=until - d, until=until, gaps='clip') for w, d in wins}
     widest = max(wins, key=lambda x: x[1])[0]
     rep = {'generated_at': dt.datetime.now(dt.timezone.utc).isoformat(timespec='seconds'),
-           'proven': prove_names(evs[widest]), 'windows': {}}
+           'elk_disk': elk_disk(now), 'proven': prove_names(evs[widest]), 'windows': {}}
     fleet = evs[widest].bots_present()
     for w, d in wins:
         rep['windows'][w] = window_report(evs[w], hourly=d <= dt.timedelta(hours=48), fleet=fleet)
