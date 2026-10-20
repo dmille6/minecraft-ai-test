@@ -37,7 +37,8 @@ LOOP_N, LOOP_MIN = 60, 10
 EXPOSE_MIN, EXPOSE_EVENTS = 60, 10
 PRE_H = 24
 KINDS = ('_protectzone_mode', '_protect_zone', '_protect_zone_refused')
-REFUSE_KEYS = ('dig', 'place', 'use', 'open', 'sleep', 'craft')
+# every refusal a bot can loop on: the chokepoint's six ops AND the skills' own (Codex r2 P2: mine, place, bucket)
+REFUSE_KEYS = ('dig', 'place', 'use', 'open', 'sleep', 'craft', 'mine_refused', 'mine_step_refused', 'place_refused', 'bucket_refused')
 
 
 def in_box(p, z):
@@ -94,6 +95,8 @@ def selftest():
     assert trapped(outside, B) == [], 'a still bot OUTSIDE is not (positive control above)'
     assert refusal_loop([(T(m), 7) for m in range(10)]) == 70 and refusal_loop([(T(m * 20), 7) for m in range(10)]) == 7
     assert counts_of('dig=3 open=1 find_filtered=12') == {'dig': 3, 'open': 1, 'find_filtered': 12}
+    mine_loop = [(T(m), sum(counts_of('mine_refused=7 find_filtered=50').get(k, 0) for k in REFUSE_KEYS)) for m in range(10)]
+    assert refusal_loop(mine_loop) >= LOOP_N, 'a mine refusal loop (70 in 10 min) trips Z2; find_filtered never counts'
     print('selftest ok')
 
 
