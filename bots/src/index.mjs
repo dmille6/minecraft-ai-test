@@ -304,6 +304,11 @@ function connect() {
     try { logEvent({ kind: 'wellcare_mode', status: 'success', snapshot: snapshot(bot), detail: wellcareModeDetail() }) } catch {}
     // cobblekeep-01: the licence row, once per spawn -- `_cobblekeep_mode`, a kind the base cannot write (cobblecap.mjs cobbleKeepModeDetail)
     try { logEvent({ kind: 'cobblekeep_mode', status: 'success', snapshot: snapshot(bot), detail: cobbleKeepModeDetail() }) } catch {}
+    try {
+      installCraftSync(bot, { log: row => logEvent({ ...row, snapshot: snapshot(bot) }) })
+    } catch (e) {
+      log('warn', 'craftsync not installed', { error: e.message })
+    }
     // protectzone-01: THE PROTECTED ZONES (protectzone.mjs) -- one per-world file in the town's own directory, read now and
     // every 30 s on a timer (never inside the A* step); no file -> no zone, and every guard below passes straight through.
     // Read here, before the movement profiles and the guard that use it. The licence row says what this spawn loaded
@@ -312,14 +317,9 @@ function connect() {
       onChange: st => { try { logEvent({ kind: 'protectzone_mode', status: 'success', snapshot: snapshot(bot), detail: protectZoneModeDetail(st, bot.worldId) }) } catch {} } })
     zoneRd.refresh()
     const zoneTimer = setInterval(() => zoneRd.refresh(), ZONE_RELOAD_MS); zoneTimer.unref?.()
-    bot.once('end', () => clearInterval(zoneTimer))
+    bot.once('end', () => { clearInterval(zoneTimer) })
     // THE OVERWORLD ONLY (Claude r1 P3): the hashed seed is the same in every dimension, the village is not
     bot.protectZones = () => (/overworld$/.test(String(bot.game?.dimension ?? 'overworld')) ? zoneRd.zones() : [])
-    try {
-      installCraftSync(bot, { log: row => logEvent({ ...row, snapshot: snapshot(bot) }) })
-    } catch (e) {
-      log('warn', 'craftsync not installed', { error: e.message })
-    }
     // THE PATHFINDER'S OWN DIGS USED THE FASTEST TOOL. mineflayer-pathfinder assigns `bestHarvestTool` as a plain
     // property and calls it before every travel dig, so the override is the whole fix: the cheapest tool that can
     // harvest the block, with the durability floor (iron-retention plan v3, 2026-09-15). Installed on spawn, not at
@@ -592,10 +592,13 @@ function connect() {
     // protectzone-01: A PROTECTED ZONE IS NEVER A PATH'S DIG OR SCAFFOLD (100: safeToBreak refuses, a > 100 move is dropped).
     // Walking through one is untouched (no step price). Both arrays are set HERE, before every clone below copies their
     // references. No zone loaded -> the price is 0 everywhere and the profile is the base's.
-    const zonePrice = zoneCost(() => bot.protectZones?.() ?? [])
+    // the deep exemption reads the bot's feet (constant through one A* search); a placement within 1 of a zone is priced too
+    const zoneFeet = () => bot.entity?.position ?? null
+    const zonePrice = zoneCost(() => bot.protectZones?.() ?? [], { feet: zoneFeet })
+    const zonePlacePrice = zoneCost(() => bot.protectZones?.() ?? [], { feet: zoneFeet, grow: 1 })
     moves.exclusionAreasBreak = [(block) => wellBreakCost(wellCols, block, selfWell)]
     moves.exclusionAreasBreak = moves.exclusionAreasBreak.concat(zonePrice)
-    moves.exclusionAreasPlace = [...(moves.exclusionAreasPlace ?? []), zonePrice]
+    moves.exclusionAreasPlace = [...(moves.exclusionAreasPlace ?? []), zonePlacePrice]
     // THE TOWN'S GROUND IS NOT A PATH'S CONCERN (townground.mjs; townground-2026-10-13.md 2.5): transit digs stay exactly
     // as they are. A hard veto here was the pit trap (Claude r1 P1-1), and a PRICE is one too: mineflayer-pathfinder 2.4.5
     // discards any move whose cost passes 100 (movements.js `if (cost > 100) return`), so a surcharge on a slow dig (a
