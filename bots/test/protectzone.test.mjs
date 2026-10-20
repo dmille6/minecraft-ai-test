@@ -316,10 +316,10 @@ test('CHAIN gather: only zone dirt anywhere -> a refusal (nothing dug); positive
 
 // ---- the refusal chain: mine (the real skill) ------------------------------------------------------------------------
 const AIR = { name: 'air', boundingBox: 'empty', type: 0 }, STONE = { name: 'stone', boundingBox: 'block', type: 1 }, WATER = { name: 'water', boundingBox: 'empty', type: 2 }
-function stairWorld ({ at = [200, 65, 200], wet = () => false, yaw = 0, zones = MZ, guard = true, walkable = () => true } = {}) {
+function stairWorld ({ at = [200, 65, 200], wet = () => false, yaw = 0, zones = MZ, guard = true, walkable = () => true, open = () => false } = {}) {
   const carved = new Set(), digs = [], walks = []
   const k = (x, y, z) => `${x},${y},${z}`
-  const base = p => carved.has(k(p.x, p.y, p.z)) ? AIR : wet(p.x, p.y, p.z) ? WATER : p.y < 65 ? STONE : AIR
+  const base = p => carved.has(k(p.x, p.y, p.z)) ? AIR : wet(p.x, p.y, p.z) ? WATER : open(p.x, p.y, p.z) ? AIR : p.y < 65 ? STONE : AIR
   const bot = {
     entity: { position: V(...at), yaw, velocity: V(0, 0, 0), onGround: true },
     health: 20, food: 20, oxygenLevel: 300, heldItem: { type: 1 },
@@ -675,4 +675,44 @@ test('SIDES (Claude r2 P3): a corner cell belongs to the axis it overhangs more'
   assert.equal(PZ.sideOf(Z[0], { x: 45, z: -70 }), 'north', 'overhangs north by 11, west by 4')
   assert.equal(PZ.sideOf(Z[0], { x: 30, z: -61 }), 'west')
   assert.equal(PZ.sideOf(Z[0], { x: 100, z: 0 }), null)
+})
+
+// ---- review round 3 ----------------------------------------------------------------------------------------------------
+test('OVERLAP (Codex r3 P2): one zone\'s deep exemption never opens a cell another zone closes', () => {
+  const zs = parseZones({ version: 1, zones: [{ id: 'a', box: [0, -64, 0, 100, 90, 100], floor_y: 54 }, { id: 'b', box: [50, -64, 50, 150, 90, 150], floor_y: 40 }] }).zones
+  const feet = { x: 60.5, y: 30, z: 60.5 }   // deep in both columns
+  assert.equal(PZ.blocked(zs, 60, 30, 60, feet), null, 'below both floors: open')
+  assert.equal(PZ.blocked(zs, 60, 45, 60, feet)?.id, 'b', 'below a\'s floor but at/above b\'s: b closes it')
+  assert.equal(PZ.blocked(zs, 120, 30, 120, { x: 20.5, y: 30, z: 20.5 })?.id, 'b', 'deep in a only: b\'s column stays closed (no tunnel in)')
+})
+test('PLACE PRICE = THE GUARD (Codex r3 P2, Claude r3 P3): just under a deep floor the price sees the cell above; a placement touching nothing closed is free', async () => {
+  const zs = parseZones({ version: 1, zones: [{ ...VILLAGE, box: [49, -64, -59, 157, 90, 45], floor_y: 54 }] }).zones
+  const feet = { x: 100.5, y: 40, z: 0.5 }
+  const price = zoneCost(() => zs, { feet: () => feet, grow: 1 })
+  assert.equal(price({ position: V(100, 53, 0) }), ZONE_COST, 'y 53: its upper cell is the floor (closed): priced, as the guard refuses it')
+  assert.equal(price({ position: V(100, 45, 0) }), 0, 'deep and touching nothing closed: free')
+  assert.equal(price({ position: V(46, 69, 0) }), 0, 'outside, not touching the zone: free (no blanket diagonal growth)')
+  assert.equal(price({ position: V(48, 69, 0) }), ZONE_COST, 'outside but its face neighbour is the zone (a possible reference): priced')
+  // and the guard agrees on the deep placement
+  const calls = []
+  const bot = { entity: { position: V(feet.x, feet.y, feet.z) }, pathfinder: {}, _genericPlace: async () => { calls.push(1); return 'place-ok' } }
+  attachProtectZone(bot, { zones: () => zs })
+  assert.equal(await bot._genericPlace(blk(100, 44, 0, 'stone'), V(0, 1, 0)), 'place-ok')
+  await assert.rejects(bot._genericPlace(blk(100, 52, 0, 'stone'), V(0, 1, 0)), ProtectedZoneError)
+})
+test('CHAIN mine DEEP (Claude r3 P3): a bot in a cave pocket UNDER a village cuts its stair out below the floor -- nothing at or above floor_y dug; mutant: the keep-out without the bot\'s feet traps it', async () => {
+  const MZD = parseZones({ version: 1, zones: [{ id: 'vd', label: 'the deep test village', box: [240, -64, 170, 300, 95, 230], floor_y: 50 }] }).zones
+  const pocket = (x, y, z) => x >= 268 && x <= 272 && z >= 198 && z <= 202 && (y === 30 || y === 31)
+  const make = () => stairWorld({ at: [270, 30, 200], zones: MZD, open: pocket })
+  const bot = make()
+  const r = await runMine(SK, bot, 10)
+  assert.equal(r.status, 'success', `${r.status} ${String(r.detail).slice(0, 200)}`)
+  assert.ok(bot._digs.length > 0)
+  assert.equal(bot._digs.filter(p => zoneAt(MZD, p.x, p.y, p.z) && p.y >= 50).length, 0, 'nothing at or above the floor')
+  assert.equal(bot._refused.length, 0, 'the guard agreed with the plan')
+  await withMutant(SKILLS_URL, '  const farmNow = () => composeKeepOut(townNow(), zoneKeepOut(liveZones(), bot.entity?.position ?? null))\n', '  const farmNow = () => composeKeepOut(townNow(), zoneKeepOut(liveZones()))\n', async mod => {
+    const b2 = make()
+    const m = await runMine(mod, b2, 10)
+    assert.notEqual(m.status, 'success', `without the feet the deep bot cannot plan a stair: ${m.status} ${String(m.detail).slice(0, 120)}`)
+  })
 })
