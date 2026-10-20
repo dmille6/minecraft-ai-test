@@ -36,7 +36,7 @@ import { startChunkEvictor } from './evictor.mjs'
 import { attachCommands } from './commands.mjs'
 import { snapshot, inventorySummary } from './state.mjs'
 import { travelTool, TOOL_HYGIENE, takeWornFirst, WORN_FIRST_ROW_MS } from './toolfor.mjs'
-import { TOOLKIT, kitSearchModeDetail } from './toolkit.mjs'
+import { TOOLKIT, kitSearchModeDetail, ironpickModeDetail } from './toolkit.mjs'
 import { diffTools, spentTools } from './toolwatch.mjs'
 import { installPathBackoff } from './pathbackoff.mjs'
 import { attachPacketWitness } from './packet-witness.mjs'
@@ -293,6 +293,9 @@ function connect() {
     try { logEvent({ kind: 'townsearch_mode', status: 'success', snapshot: snapshot(bot), detail: townSearchModeDetail() }) } catch {}
     // toolkit-03: the licence row, once per spawn -- `_toolkit_search_mode`, a kind the base cannot write (toolkit.mjs kitSearchModeDetail)
     try { logEvent({ kind: 'toolkit_search_mode', status: 'success', snapshot: snapshot(bot), detail: kitSearchModeDetail() }) } catch {}
+    // ironpick-01: the licence row, once per spawn -- `_toolkit_ironpick_mode`, a kind the base cannot write (toolkit.mjs ironpickModeDetail;
+    // on=0 under TOOLKIT_IRONPICK=off, so the rollback is visible too)
+    try { logEvent({ kind: 'toolkit_ironpick_mode', status: 'success', snapshot: snapshot(bot), detail: ironpickModeDetail() }) } catch {}
     // plinth-02: the licence row, once per spawn -- the build's own `_plinth_mode` kind (plinth.mjs plinthModeDetail)
     try { logEvent({ kind: 'plinth_mode', status: 'success', snapshot: snapshot(bot), detail: plinthModeDetail(bot.worldId) }) } catch {}
     // plinth-02.1: the licence row, once per spawn -- `_plinth021_mode` (plinth.mjs plinth021ModeDetail)

@@ -28,7 +28,7 @@ import { orderFor, readyFor, plantingOrder, plantingEnabled, PLANT_COOLDOWN_MS, 
 import { wearOutPlan, isHousekeeping } from './hygiene.mjs'
 import { compostPlan, townOrder, townOrderOutcome, boneMealRoom, composterLevel, TOWN_ORDERS, STORAGE_NEAR, TOWN_RADIUS, startableJunk } from './composter.mjs'
 import { roomPlan, pickTakes, roomKeep } from './withdrawpick.mjs'
-import { toolkitOrder, toolkitOutcome } from './toolkit.mjs'
+import { toolkitOrder, toolkitOutcome, kitRoomTakes, withdrawDefersToKit } from './toolkit.mjs'
 import { townDepositOrder, townDepositOutcome, townDepositPlan } from './towndeposit.mjs'
 import { pruneOrder, pruneOutcome } from './prune.mjs'
 import { smeltJobEnabled, smeltTownOrder, smeltTownOutcome, drainOrder, drainOutcome, drainPick, noteFurnacesLit, milestoneHolds } from './smeltjob.mjs'
@@ -713,7 +713,9 @@ export class CognitiveLoop {
     } catch { return null }
   }
 
-  #toolkitOrder() {
+  // `dry` (ironpick-01): the same decision with its state NOT kept -- withdraw_pick asks whether the kit would make the iron
+  // pickaxe now (toolkit.mjs withdrawDefersToKit); a dry run never charges the cooldown
+  #toolkitOrder({ dry = false } = {}) {
     try {
       const bot = this.bot
       const items = bot.inventory?.items?.() ?? []
@@ -723,12 +725,13 @@ export class CognitiveLoop {
         now: Date.now(), atTown: inTown(home, bot.entity?.position), items, credit: bot.kitCredit ?? 0,
         container: () => townContainers(bot).length > 0,
         townMiss: () => townKitIronMiss(bot),
-        // the bag can take the draw: the same room plan and keep as at the chest (withdrawpick roomPlan)
-        room: d => roomPlan(items, [{ name: 'iron_ingot', count: d.ingots }, { name: 'stick', count: d.sticks }].filter(t => t.count > 0), { keep }).ok,
+        // the bag can take the draw -- and, ironpick-01, the tools its crafts make (toolkit.mjs kitRoomTakes): the same room plan
+        // and keep as at the chest (withdrawpick roomPlan)
+        room: d => roomPlan(items, kitRoomTakes(d), { keep }).ok,
         tableNear: () => !!bot.findBlock?.({ matching: b => bot.registry?.blocks?.[b.type]?.name === 'crafting_table', maxDistance: 32 }),
         state: this.toolkitState ?? {},
       })
-      this.toolkitState = r.state
+      if (!dry) this.toolkitState = r.state
       return r.order
     } catch { return null }   // an inventory or world read must never break the decision loop
   }
@@ -980,6 +983,9 @@ export class CognitiveLoop {
           // THE PICKAXE (withdrawpick.mjs): none usable in the bag; the town's memory of a recent miss; room for one.
           // since townsearch-02: no pickaxe that can pay an ore trip (skills.mjs pickNeedOf: oretunnel hasTripPickaxe's line)
           pickNeeded: pickNeedOf(items) != null,
+          // ironpick-01: NO DOUBLE TRIP -- while the kit would make an iron pickaxe now (its dry run), withdraw_pick does not
+          // also fetch a stone copy for the same need; asked only when the withdraw branch is otherwise ready (lazy)
+          pickDefer: () => withdrawDefersToKit(pickNeedOf(items), this.#toolkitOrder({ dry: true }), items),
           pickMiss: () => townPickMiss(bot),
           // ...and the ingredients' own: nothing needed, or every container recently held none of every need.
           ingredientMiss: () => townIngredientMiss(bot),
